@@ -16,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 type fakePlane struct {
@@ -202,14 +203,14 @@ func TestCoordinator_BusyRejectsAPIWhileActive(t *testing.T) {
 	}
 	c := newTestCoordinator(t, nil, src, nil, nil, nil)
 
-	done := make(chan configreload.ReloadResult, 1)
+	done := make(chan sdkreload.Result, 1)
 	go func() {
-		done <- c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+		done <- c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 	}()
 	gate.WaitEnter(t)
 
-	busy := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
-	if busy.Category != configreload.ResultBusy {
+	busy := c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+	if busy.Category != sdkreload.ResultBusy {
 		t.Fatalf("busy category=%q", busy.Category)
 	}
 	if st := c.Status(); !st.Busy || st.ActiveGeneration != 1 {
@@ -218,7 +219,7 @@ func TestCoordinator_BusyRejectsAPIWhileActive(t *testing.T) {
 
 	gate.Release()
 	res := <-done
-	if res.Category != configreload.ResultPublished {
+	if res.Category != sdkreload.ResultPublished {
 		t.Fatalf("first result=%q", res.Category)
 	}
 	if c.Status().Busy {
@@ -261,9 +262,9 @@ func TestCoordinator_BusyAndCoalesceNeverExceedOneActiveCompile(t *testing.T) {
 	}
 	c := newTestCoordinator(t, nil, src, loader, wrapped, baseEffective("fp-old", 1))
 
-	done := make(chan configreload.ReloadResult, 1)
+	done := make(chan sdkreload.Result, 1)
 	go func() {
-		done <- c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+		done <- c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 	}()
 	gate.WaitEnter(t)
 
@@ -272,11 +273,11 @@ func TestCoordinator_BusyAndCoalesceNeverExceedOneActiveCompile(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			kind := configreload.TriggerAPI
+			kind := sdkreload.TriggerAPI
 			if i%2 == 0 {
-				kind = configreload.TriggerSIGHUP
+				kind = sdkreload.TriggerSIGHUP
 			}
-			_ = c.Reload(context.Background(), configreload.ReloadTrigger{Kind: kind})
+			_ = c.Reload(context.Background(), sdkreload.Trigger{Kind: kind})
 		}(i)
 	}
 	time.Sleep(20 * time.Millisecond) // let hammer land while first is in compile
@@ -303,8 +304,8 @@ func TestCoordinator_NoopLeavesActiveGenerationUnchanged(t *testing.T) {
 	}
 	c := newTestCoordinator(t, nil, src, nil, nil, nil)
 	before := c.Status().ActiveGeneration
-	res := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
-	if res.Category != configreload.ResultNoop {
+	res := c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+	if res.Category != sdkreload.ResultNoop {
 		t.Fatalf("category=%q", res.Category)
 	}
 	if res.ActiveGeneration != before || c.Status().ActiveGeneration != before {
@@ -325,8 +326,8 @@ func TestCoordinator_NoopOnMatchingEffectiveFingerprint(t *testing.T) {
 	})
 	compile := &controllableCompiler{kinds: nil}
 	c := newTestCoordinator(t, nil, src, loader, compile, active)
-	res := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
-	if res.Category != configreload.ResultNoop {
+	res := c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+	if res.Category != sdkreload.ResultNoop {
 		t.Fatalf("category=%q", res.Category)
 	}
 	if compile.calls.Load() != 0 {
@@ -391,8 +392,8 @@ func TestCoordinator_EffectiveNoopAdvancesActiveSource_RejectsInPlaceEdit(t *tes
 	if err := os.Rename(tmp, path); err != nil {
 		t.Fatal(err)
 	}
-	noop := c.Reload(ctx, configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
-	if noop.Category != configreload.ResultNoop {
+	noop := c.Reload(ctx, sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+	if noop.Category != sdkreload.ResultNoop {
 		t.Fatalf("effective noop category=%q", noop.Category)
 	}
 	if compile.calls.Load() != 0 {
@@ -403,9 +404,9 @@ func TestCoordinator_EffectiveNoopAdvancesActiveSource_RejectsInPlaceEdit(t *tes
 	if err := os.WriteFile(path, bodyC, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	rejected := c.Reload(ctx, configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
-	if rejected.Category != configreload.ResultSourceIntegrity {
-		t.Fatalf("in-place rewrite after effective noop: category=%q want %q", rejected.Category, configreload.ResultSourceIntegrity)
+	rejected := c.Reload(ctx, sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+	if rejected.Category != sdkreload.ResultSourceIntegrity {
+		t.Fatalf("in-place rewrite after effective noop: category=%q want %q", rejected.Category, sdkreload.ResultSourceIntegrity)
 	}
 	if rejected.ReasonCategory != configreload.StageRead {
 		t.Fatalf("reason=%q want %q", rejected.ReasonCategory, configreload.StageRead)
@@ -420,7 +421,7 @@ func TestCoordinator_FaultMatrixPrePublication(t *testing.T) {
 		loader   runtimehost.EffectiveLoader
 		classify func(active, candidate *config.EffectiveConfig) ([]configreload.SafeChange, error)
 		compile  *controllableCompiler
-		want     configreload.ResultCategory
+		want     sdkreload.ResultCategory
 	}{
 		{
 			name: "read_source_integrity",
@@ -428,7 +429,7 @@ func TestCoordinator_FaultMatrixPrePublication(t *testing.T) {
 				path: "/fixed/startup/config.yaml",
 				err:  &configsource.IntegrityError{Category: configsource.CategoryMissing},
 			},
-			want: configreload.ResultSourceIntegrity,
+			want: sdkreload.ResultSourceIntegrity,
 		},
 		{
 			name: "load_invalid",
@@ -440,7 +441,7 @@ func TestCoordinator_FaultMatrixPrePublication(t *testing.T) {
 			loader: runtimehost.FuncEffectiveLoader(func(context.Context, []byte) (*config.EffectiveConfig, error) {
 				return nil, &config.LoadError{Category: config.CategoryMalformedYAML}
 			}),
-			want: configreload.ResultInvalid,
+			want: sdkreload.ResultInvalid,
 		},
 		{
 			name: "classify_restart_required",
@@ -455,7 +456,7 @@ func TestCoordinator_FaultMatrixPrePublication(t *testing.T) {
 					TotalBlocked:          1,
 				}
 			},
-			want: configreload.ResultRestartRequired,
+			want: sdkreload.ResultRestartRequired,
 		},
 		{
 			name: "compile_preparation_failed",
@@ -465,7 +466,7 @@ func TestCoordinator_FaultMatrixPrePublication(t *testing.T) {
 				snap:   configsource.SourceSnapshot{Bytes: []byte("x: 1")},
 			},
 			compile: &controllableCompiler{err: errors.New("factory boom")},
-			want:    configreload.ResultPreparationFailed,
+			want:    sdkreload.ResultPreparationFailed,
 		},
 	}
 	for _, tc := range cases {
@@ -499,7 +500,7 @@ func TestCoordinator_FaultMatrixPrePublication(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			res := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+			res := c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 			if res.Category != tc.want {
 				t.Fatalf("category=%q want %q", res.Category, tc.want)
 			}
@@ -521,23 +522,23 @@ func TestCoordinator_ShutdownCancelsAndPreventsLatePublication(t *testing.T) {
 	}
 	c := newTestCoordinator(t, nil, src, nil, compile, nil)
 
-	done := make(chan configreload.ReloadResult, 1)
+	done := make(chan sdkreload.Result, 1)
 	go func() {
-		done <- c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+		done <- c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 	}()
 	gate.WaitEnter(t)
 	c.BeginShutdown()
 	gate.Release()
 	res := <-done
-	if res.Category != configreload.ResultCanceled {
+	if res.Category != sdkreload.ResultCanceled {
 		t.Fatalf("category=%q want canceled", res.Category)
 	}
 	if c.Status().ActiveGeneration != 1 {
 		t.Fatalf("active=%d", c.Status().ActiveGeneration)
 	}
 
-	late := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
-	if late.Category != configreload.ResultCanceled {
+	late := c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+	if late.Category != sdkreload.ResultCanceled {
 		t.Fatalf("late category=%q", late.Category)
 	}
 }
@@ -559,16 +560,16 @@ func TestCoordinator_CoalesceAtMostOnePendingSignal(t *testing.T) {
 	}
 	c := newTestCoordinator(t, nil, src, loader, compile, baseEffective("fp-old", 1))
 
-	done := make(chan configreload.ReloadResult, 1)
+	done := make(chan sdkreload.Result, 1)
 	go func() {
-		done <- c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+		done <- c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 	}()
 	gate.WaitEnter(t)
 
-	b1 := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerSIGHUP})
-	b2 := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerSIGHUP})
-	b3 := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerSIGHUP})
-	if b1.Category != configreload.ResultBusy || b2.Category != configreload.ResultBusy || b3.Category != configreload.ResultBusy {
+	b1 := c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerSIGHUP})
+	b2 := c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerSIGHUP})
+	b3 := c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerSIGHUP})
+	if b1.Category != sdkreload.ResultBusy || b2.Category != sdkreload.ResultBusy || b3.Category != sdkreload.ResultBusy {
 		t.Fatalf("expected busy coalesce responses: %q %q %q", b1.Category, b2.Category, b3.Category)
 	}
 	st := c.Status()
@@ -582,7 +583,7 @@ func TestCoordinator_CoalesceAtMostOnePendingSignal(t *testing.T) {
 	// Unblock first attempt; follow-up coalesced attempt should run once more.
 	gate.Release()
 	first := <-done
-	if first.Category != configreload.ResultPublished {
+	if first.Category != sdkreload.ResultPublished {
 		t.Fatalf("first=%q", first.Category)
 	}
 
@@ -625,8 +626,8 @@ func TestCoordinator_RetentionRejectionRollsBack(t *testing.T) {
 		snap:   configsource.SourceSnapshot{Bytes: []byte("x: 1")},
 	}
 	c := newTestCoordinator(t, mgr, src, nil, compile, baseEffective("fp-old", 1))
-	res := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
-	if res.Category != configreload.ResultRetentionBlocked {
+	res := c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+	if res.Category != sdkreload.ResultRetentionBlocked {
 		t.Fatalf("category=%q", res.Category)
 	}
 	if mgr.Active().ID() != 1 {
@@ -652,8 +653,8 @@ func TestCoordinator_PanicIsolationDoesNotMutateActive(t *testing.T) {
 		snap:   configsource.SourceSnapshot{Bytes: []byte("x: 1")},
 	}
 	c := newTestCoordinator(t, nil, src, nil, compile, nil)
-	res := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
-	if res.Category != configreload.ResultInternalFailed {
+	res := c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+	if res.Category != sdkreload.ResultInternalFailed {
 		t.Fatalf("category=%q", res.Category)
 	}
 	if res.ReasonCategory != configreload.StagePanic {
@@ -684,8 +685,8 @@ func TestCoordinator_LiveFactoryKindsFromActiveAndRetained(t *testing.T) {
 		snap:   configsource.SourceSnapshot{Bytes: []byte("x: 1")},
 	}
 	c := newTestCoordinator(t, mgr, src, nil, compile, baseEffective("fp-old", 1))
-	res := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
-	if res.Category != configreload.ResultPublished {
+	res := c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+	if res.Category != sdkreload.ResultPublished {
 		t.Fatalf("category=%q", res.Category)
 	}
 	live, _ := compile.liveSeen.Load().(map[string]int)
@@ -709,15 +710,15 @@ func TestCoordinator_HostTimeoutIndependentOfClientCancel(t *testing.T) {
 	c := newTestCoordinator(t, nil, src, nil, compile, nil)
 
 	clientCtx, cancel := context.WithCancel(context.Background())
-	done := make(chan configreload.ReloadResult, 1)
+	done := make(chan sdkreload.Result, 1)
 	go func() {
-		done <- c.Reload(clientCtx, configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+		done <- c.Reload(clientCtx, sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 	}()
 	gate.WaitEnter(t)
 	cancel() // client disconnect must not cancel host-owned attempt
 	gate.Release()
 	res := <-done
-	if res.Category != configreload.ResultPublished {
+	if res.Category != sdkreload.ResultPublished {
 		t.Fatalf("category=%q after client cancel", res.Category)
 	}
 }
@@ -733,7 +734,7 @@ func TestCoordinator_LastGoodFaultMatrix_SourceDecodeClassifyCompileRetention(t 
 		classify func(active, candidate *config.EffectiveConfig) ([]configreload.SafeChange, error)
 		compile  *controllableCompiler
 		mgrMax   int
-		want     configreload.ResultCategory
+		want     sdkreload.ResultCategory
 	}{
 		{
 			name: "source_empty",
@@ -741,7 +742,7 @@ func TestCoordinator_LastGoodFaultMatrix_SourceDecodeClassifyCompileRetention(t 
 				path: "/fixed/startup/config.yaml",
 				err:  &configsource.IntegrityError{Category: configsource.CategoryEmpty},
 			},
-			want: configreload.ResultSourceIntegrity,
+			want: sdkreload.ResultSourceIntegrity,
 		},
 		{
 			name: "source_partial_unreadable",
@@ -749,7 +750,7 @@ func TestCoordinator_LastGoodFaultMatrix_SourceDecodeClassifyCompileRetention(t 
 				path: "/fixed/startup/config.yaml",
 				err:  &configsource.IntegrityError{Category: configsource.CategoryPartialUnreadable},
 			},
-			want: configreload.ResultSourceIntegrity,
+			want: sdkreload.ResultSourceIntegrity,
 		},
 		{
 			name: "source_non_atomic_inplace",
@@ -757,7 +758,7 @@ func TestCoordinator_LastGoodFaultMatrix_SourceDecodeClassifyCompileRetention(t 
 				path: "/fixed/startup/config.yaml",
 				err:  &configsource.IntegrityError{Category: configsource.CategoryNonAtomicUpdate},
 			},
-			want: configreload.ResultSourceIntegrity,
+			want: sdkreload.ResultSourceIntegrity,
 		},
 		{
 			name: "decode_malformed_yaml",
@@ -769,7 +770,7 @@ func TestCoordinator_LastGoodFaultMatrix_SourceDecodeClassifyCompileRetention(t 
 			loader: runtimehost.FuncEffectiveLoader(func(context.Context, []byte) (*config.EffectiveConfig, error) {
 				return nil, &config.LoadError{Category: config.CategoryMalformedYAML}
 			}),
-			want: configreload.ResultInvalid,
+			want: sdkreload.ResultInvalid,
 		},
 		{
 			name: "validate_unknown_core_field",
@@ -781,7 +782,7 @@ func TestCoordinator_LastGoodFaultMatrix_SourceDecodeClassifyCompileRetention(t 
 			loader: runtimehost.FuncEffectiveLoader(func(context.Context, []byte) (*config.EffectiveConfig, error) {
 				return nil, &config.LoadError{Category: config.CategoryUnknownCoreField}
 			}),
-			want: configreload.ResultInvalid,
+			want: sdkreload.ResultInvalid,
 		},
 		{
 			name: "classify_restart_required",
@@ -796,7 +797,7 @@ func TestCoordinator_LastGoodFaultMatrix_SourceDecodeClassifyCompileRetention(t 
 					TotalBlocked:          2,
 				}
 			},
-			want: configreload.ResultRestartRequired,
+			want: sdkreload.ResultRestartRequired,
 		},
 		{
 			name: "compile_preparation_failed",
@@ -806,7 +807,7 @@ func TestCoordinator_LastGoodFaultMatrix_SourceDecodeClassifyCompileRetention(t 
 				snap:   configsource.SourceSnapshot{Bytes: []byte("x: 1")},
 			},
 			compile: &controllableCompiler{err: errors.New("factory boom")},
-			want:    configreload.ResultPreparationFailed,
+			want:    sdkreload.ResultPreparationFailed,
 		},
 		{
 			name: "retention_blocked",
@@ -817,7 +818,7 @@ func TestCoordinator_LastGoodFaultMatrix_SourceDecodeClassifyCompileRetention(t 
 			},
 			compile: &controllableCompiler{},
 			mgrMax:  0,
-			want:    configreload.ResultRetentionBlocked,
+			want:    sdkreload.ResultRetentionBlocked,
 		},
 	}
 	for _, tc := range cases {
@@ -855,7 +856,7 @@ func TestCoordinator_LastGoodFaultMatrix_SourceDecodeClassifyCompileRetention(t 
 			if err != nil {
 				t.Fatal(err)
 			}
-			res := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+			res := c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 			if res.Category != tc.want {
 				t.Fatalf("category=%q want %q", res.Category, tc.want)
 			}
@@ -920,8 +921,8 @@ func TestCoordinator_LastGood_AtomicRenameThenPublish(t *testing.T) {
 	if err := os.WriteFile(path, []byte("version: torn\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	inplace := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
-	if inplace.Category != configreload.ResultSourceIntegrity {
+	inplace := c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+	if inplace.Category != sdkreload.ResultSourceIntegrity {
 		t.Fatalf("inplace category=%q", inplace.Category)
 	}
 	if mgr.Active().ID() != 1 {
@@ -936,8 +937,8 @@ func TestCoordinator_LastGood_AtomicRenameThenPublish(t *testing.T) {
 	if err := os.Rename(tmp, path); err != nil {
 		t.Fatal(err)
 	}
-	pub := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
-	if pub.Category != configreload.ResultPublished {
+	pub := c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+	if pub.Category != sdkreload.ResultPublished {
 		t.Fatalf("atomic rename category=%q reason=%q", pub.Category, pub.ReasonCategory)
 	}
 	if mgr.Active().ID() != 2 {
@@ -1004,8 +1005,8 @@ func TestCoordinator_RestartRequired_MixedNoPartialApply_RequiresRetrigger(t *te
 		t.Fatal(err)
 	}
 
-	blocked := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
-	if blocked.Category != configreload.ResultRestartRequired {
+	blocked := c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+	if blocked.Category != sdkreload.ResultRestartRequired {
 		t.Fatalf("mixed category=%q want restart_required", blocked.Category)
 	}
 	if mgr.Active().ID() != 1 {
@@ -1020,8 +1021,8 @@ func TestCoordinator_RestartRequired_MixedNoPartialApply_RequiresRetrigger(t *te
 	if mgr.Active().ID() != 1 {
 		t.Fatal("active mutated without retrigger")
 	}
-	pub := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
-	if pub.Category != configreload.ResultPublished {
+	pub := c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+	if pub.Category != sdkreload.ResultPublished {
 		t.Fatalf("retrigger after correction category=%q reason=%q", pub.Category, pub.ReasonCategory)
 	}
 	if mgr.Active().ID() != 2 {
@@ -1096,11 +1097,11 @@ func TestCoordinator_StatusReturnsDefensiveCopy(t *testing.T) {
 		t.Fatalf("NewCoordinator: %v", err)
 	}
 
-	res := c.Reload(context.Background(), configreload.ReloadTrigger{
-		Kind:      configreload.TriggerAPI,
+	res := c.Reload(context.Background(), sdkreload.Trigger{
+		Kind:      sdkreload.TriggerAPI,
 		SafeActor: "status-copy-actor",
 	})
-	if res.Category != configreload.ResultRestartRequired {
+	if res.Category != sdkreload.ResultRestartRequired {
 		t.Fatalf("setup category=%q want restart-required", res.Category)
 	}
 	if len(res.RestartFields) < 2 {
@@ -1109,9 +1110,9 @@ func TestCoordinator_StatusReturnsDefensiveCopy(t *testing.T) {
 
 	gate := newStageGate()
 	src.gate = gate
-	done := make(chan configreload.ReloadResult, 1)
+	done := make(chan sdkreload.Result, 1)
 	go func() {
-		done <- c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+		done <- c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 	}()
 	gate.WaitEnter(t)
 	t.Cleanup(func() {
@@ -1140,14 +1141,14 @@ func TestCoordinator_StatusReturnsDefensiveCopy(t *testing.T) {
 	st1.LastResult.RestartFields[0] = "mutated-last"
 	st1.CurrentAttempt.RestartFields[0] = "mutated-current"
 	st1.History[0].SafeActor = "mutated-actor"
-	st1.LastResult.Category = configreload.ResultPublished
-	st1.CurrentAttempt.Category = configreload.ResultPublished
+	st1.LastResult.Category = sdkreload.ResultPublished
+	st1.CurrentAttempt.Category = sdkreload.ResultPublished
 
 	st2 := c.Status()
 	if st2.LastResult.RestartFields[0] != origField0 || st2.LastResult.RestartFields[1] != origField1 {
 		t.Fatalf("mutating first Status leaked into coordinator/second snapshot RestartFields: %v", st2.LastResult.RestartFields)
 	}
-	if st2.LastResult.Category != configreload.ResultRestartRequired {
+	if st2.LastResult.Category != sdkreload.ResultRestartRequired {
 		t.Fatalf("mutating first Status leaked LastResult.Category=%q", st2.LastResult.Category)
 	}
 	if st2.CurrentAttempt == nil {
@@ -1156,7 +1157,7 @@ func TestCoordinator_StatusReturnsDefensiveCopy(t *testing.T) {
 	if st2.CurrentAttempt.RestartFields[0] != origCur0 {
 		t.Fatalf("mutating first CurrentAttempt leaked: %v", st2.CurrentAttempt.RestartFields)
 	}
-	if st2.CurrentAttempt.Category != configreload.ResultRestartRequired {
+	if st2.CurrentAttempt.Category != sdkreload.ResultRestartRequired {
 		t.Fatalf("mutating first CurrentAttempt.Category leaked: %q", st2.CurrentAttempt.Category)
 	}
 	if st2.History[0].SafeActor != origActor {

@@ -8,29 +8,29 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
-// fakeReloadQuery mirrors runtimehost.Coordinator Reload/Status for facade mapping tests.
+// fakeReloadQuery mirrors runtimehost.Coordinator Reload/Status for facade tests.
 type fakeReloadQuery struct {
 	mu     sync.Mutex
 	busy   bool
-	status configreload.ReloadStatus
-	reload func(ctx context.Context, trigger configreload.ReloadTrigger) configreload.ReloadResult
+	status sdkreload.Status
+	reload func(ctx context.Context, trigger sdkreload.Trigger) sdkreload.Result
 }
 
-func (f *fakeReloadQuery) Reload(ctx context.Context, trigger configreload.ReloadTrigger) configreload.ReloadResult {
+func (f *fakeReloadQuery) Reload(ctx context.Context, trigger sdkreload.Trigger) sdkreload.Result {
 	f.mu.Lock()
 	fn := f.reload
 	f.mu.Unlock()
 	if fn != nil {
 		return fn(ctx, trigger)
 	}
-	return configreload.ReloadResult{Category: configreload.ResultNoop, ActiveGeneration: 1}
+	return sdkreload.Result{Category: sdkreload.ResultNoop, ActiveGeneration: 1}
 }
 
-func (f *fakeReloadQuery) Status() configreload.ReloadStatus {
+func (f *fakeReloadQuery) Status() sdkreload.Status {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	st := f.status
@@ -68,29 +68,29 @@ func TestReloadFacade_ExactCategoryMapping(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name string
-		in   configreload.ResultCategory
+		in   sdkreload.ResultCategory
 		want lipruntime.ResultCategory
 	}{
-		{"published", configreload.ResultPublished, lipruntime.ResultPublished},
-		{"noop", configreload.ResultNoop, lipruntime.ResultNoop},
-		{"busy", configreload.ResultBusy, lipruntime.ResultBusy},
-		{"restart_required", configreload.ResultRestartRequired, lipruntime.ResultRestartRequired},
-		{"retention_blocked", configreload.ResultRetentionBlocked, lipruntime.ResultRetentionBlocked},
-		{"invalid", configreload.ResultInvalid, lipruntime.ResultInvalid},
-		{"source_integrity", configreload.ResultSourceIntegrity, lipruntime.ResultSourceIntegrity},
-		{"canceled", configreload.ResultCanceled, lipruntime.ResultCanceled},
-		{"preparation_failed", configreload.ResultPreparationFailed, lipruntime.ResultPreparationFailed},
-		{"internal_failed", configreload.ResultInternalFailed, lipruntime.ResultInternalFailed},
+		{"published", sdkreload.ResultPublished, lipruntime.ResultPublished},
+		{"noop", sdkreload.ResultNoop, lipruntime.ResultNoop},
+		{"busy", sdkreload.ResultBusy, lipruntime.ResultBusy},
+		{"restart_required", sdkreload.ResultRestartRequired, lipruntime.ResultRestartRequired},
+		{"retention_blocked", sdkreload.ResultRetentionBlocked, lipruntime.ResultRetentionBlocked},
+		{"invalid", sdkreload.ResultInvalid, lipruntime.ResultInvalid},
+		{"source_integrity", sdkreload.ResultSourceIntegrity, lipruntime.ResultSourceIntegrity},
+		{"canceled", sdkreload.ResultCanceled, lipruntime.ResultCanceled},
+		{"preparation_failed", sdkreload.ResultPreparationFailed, lipruntime.ResultPreparationFailed},
+		{"internal_failed", sdkreload.ResultInternalFailed, lipruntime.ResultInternalFailed},
 	}
-	if len(cases) != len(configreload.AllResultCategories) {
-		t.Fatalf("cases=%d AllResultCategories=%d", len(cases), len(configreload.AllResultCategories))
+	if len(cases) != len(sdkreload.AllResultCategories) {
+		t.Fatalf("cases=%d AllResultCategories=%d", len(cases), len(sdkreload.AllResultCategories))
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			q := &fakeReloadQuery{
-				reload: func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
-					return configreload.ReloadResult{
+				reload: func(context.Context, sdkreload.Trigger) sdkreload.Result {
+					return sdkreload.Result{
 						Category:           tc.in,
 						AttemptID:          9,
 						ActiveGeneration:   3,
@@ -122,27 +122,27 @@ func TestReloadFacade_ExactCategoryMapping(t *testing.T) {
 
 func TestReloadFacade_PreservesBusyNoopRestartRetentionCanceled(t *testing.T) {
 	t.Parallel()
-	outcomes := []configreload.ResultCategory{
-		configreload.ResultBusy,
-		configreload.ResultNoop,
-		configreload.ResultRestartRequired,
-		configreload.ResultRetentionBlocked,
-		configreload.ResultCanceled,
+	outcomes := []sdkreload.ResultCategory{
+		sdkreload.ResultBusy,
+		sdkreload.ResultNoop,
+		sdkreload.ResultRestartRequired,
+		sdkreload.ResultRetentionBlocked,
+		sdkreload.ResultCanceled,
 	}
 	for _, cat := range outcomes {
 		t.Run(string(cat), func(t *testing.T) {
 			t.Parallel()
 			q := &fakeReloadQuery{
-				reload: func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
-					return configreload.ReloadResult{Category: cat, ActiveGeneration: 4}
+				reload: func(context.Context, sdkreload.Trigger) sdkreload.Result {
+					return sdkreload.Result{Category: cat, ActiveGeneration: 4}
 				},
-				status: configreload.ReloadStatus{
+				status: sdkreload.Status{
 					ActiveGeneration: 4,
-					Busy:             cat == configreload.ResultBusy,
-					LastResult:       configreload.ReloadResult{Category: cat, ActiveGeneration: 4},
+					Busy:             cat == sdkreload.ResultBusy,
+					LastResult:       sdkreload.Result{Category: cat, ActiveGeneration: 4},
 				},
 			}
-			if cat == configreload.ResultBusy {
+			if cat == sdkreload.ResultBusy {
 				q.busy = true
 			}
 			ctrl := lipruntime.NewReloadControlForTest(q)
@@ -154,7 +154,7 @@ func TestReloadFacade_PreservesBusyNoopRestartRetentionCanceled(t *testing.T) {
 			if string(st.LastResult.Category) != string(cat) {
 				t.Fatalf("status last=%q want %q", st.LastResult.Category, cat)
 			}
-			if cat == configreload.ResultBusy && !st.Busy {
+			if cat == sdkreload.ResultBusy && !st.Busy {
 				t.Fatal("expected Busy status")
 			}
 		})
@@ -164,10 +164,10 @@ func TestReloadFacade_PreservesBusyNoopRestartRetentionCanceled(t *testing.T) {
 func TestReloadFacade_ImmutableCopiedDTOs(t *testing.T) {
 	t.Parallel()
 	fields := []string{"server.address", "management.listen"}
-	hist := []configreload.HistoryEntry{{
+	hist := []sdkreload.HistoryEntry{{
 		AttemptID:         1,
-		Trigger:           configreload.TriggerAPI,
-		Category:          configreload.ResultRestartRequired,
+		Trigger:           sdkreload.TriggerAPI,
+		Category:          sdkreload.ResultRestartRequired,
 		ActiveGeneration:  2,
 		RestartFieldCount: 2,
 		ReasonCategory:    "classify",
@@ -175,18 +175,18 @@ func TestReloadFacade_ImmutableCopiedDTOs(t *testing.T) {
 		RecordedAt:        time.Unix(100, 0).UTC(),
 	}}
 	q := &fakeReloadQuery{
-		reload: func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
-			return configreload.ReloadResult{
-				Category:          configreload.ResultRestartRequired,
+		reload: func(context.Context, sdkreload.Trigger) sdkreload.Result {
+			return sdkreload.Result{
+				Category:          sdkreload.ResultRestartRequired,
 				RestartFields:     fields,
 				RestartFieldCount: 2,
 				ActiveGeneration:  2,
 			}
 		},
-		status: configreload.ReloadStatus{
+		status: sdkreload.Status{
 			ActiveGeneration: 2,
-			LastResult: configreload.ReloadResult{
-				Category:          configreload.ResultRestartRequired,
+			LastResult: sdkreload.Result{
+				Category:          sdkreload.ResultRestartRequired,
 				RestartFields:     fields,
 				RestartFieldCount: 2,
 			},
@@ -223,8 +223,8 @@ func TestReloadFacade_ImmutableCopiedDTOs(t *testing.T) {
 func TestReloadFacade_UnknownCategoryMapsInternalFailed(t *testing.T) {
 	t.Parallel()
 	q := &fakeReloadQuery{
-		reload: func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
-			return configreload.ReloadResult{Category: configreload.ResultCategory("not-a-real-category")}
+		reload: func(context.Context, sdkreload.Trigger) sdkreload.Result {
+			return sdkreload.Result{Category: sdkreload.ResultCategory("not-a-real-category")}
 		},
 	}
 	ctrl := lipruntime.NewReloadControlForTest(q)
@@ -238,9 +238,9 @@ func TestReloadFacade_RejectsUnknownTrigger(t *testing.T) {
 	t.Parallel()
 	called := false
 	q := &fakeReloadQuery{
-		reload: func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
+		reload: func(context.Context, sdkreload.Trigger) sdkreload.Result {
 			called = true
-			return configreload.ReloadResult{Category: configreload.ResultPublished}
+			return sdkreload.Result{Category: sdkreload.ResultPublished}
 		},
 	}
 	ctrl := lipruntime.NewReloadControlForTest(q)
@@ -277,10 +277,10 @@ func TestReloadFacade_NoSensitiveFields(t *testing.T) {
 	}
 
 	q := &fakeReloadQuery{
-		status: configreload.ReloadStatus{
+		status: sdkreload.Status{
 			ActiveGeneration: 1,
-			LastResult: configreload.ReloadResult{
-				Category:       configreload.ResultPublished,
+			LastResult: sdkreload.Result{
+				Category:       sdkreload.ResultPublished,
 				ReasonCategory: "ok",
 			},
 			SourceIntegrity: "ok",
@@ -294,7 +294,6 @@ func TestReloadFacade_NoSensitiveFields(t *testing.T) {
 			t.Fatalf("status leaked %q via %+v", needle, st)
 		}
 	}
-	// Ensure path from coordinator is not projected onto any string field.
 	v := reflect.ValueOf(st)
 	for i := 0; i < v.NumField(); i++ {
 		f := v.Field(i)
@@ -308,13 +307,13 @@ func TestReloadFacade_ConcurrentReloadStatusSafe(t *testing.T) {
 	t.Parallel()
 	var calls sync.WaitGroup
 	q := &fakeReloadQuery{
-		reload: func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
+		reload: func(context.Context, sdkreload.Trigger) sdkreload.Result {
 			time.Sleep(time.Millisecond)
-			return configreload.ReloadResult{Category: configreload.ResultNoop, ActiveGeneration: 1}
+			return sdkreload.Result{Category: sdkreload.ResultNoop, ActiveGeneration: 1}
 		},
-		status: configreload.ReloadStatus{
+		status: sdkreload.Status{
 			ActiveGeneration: 1,
-			LastSuccess:      configreload.ReloadResult{Category: configreload.ResultPublished, ActiveGeneration: 1},
+			LastSuccess:      sdkreload.Result{Category: sdkreload.ResultPublished, ActiveGeneration: 1},
 		},
 	}
 	ctrl := lipruntime.NewReloadControlForTest(q)

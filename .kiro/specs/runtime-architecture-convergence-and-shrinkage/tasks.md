@@ -48,7 +48,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 ## Phase 2: Canonicalize the Reload Contract
 
-- [ ] 2. Define one secret-safe reload vocabulary
+- [x] 2. Define one secret-safe reload vocabulary
 
 - [x] 2.1 Add canonical reload contract tests and public package
   - Add RED tests for trigger kinds, result categories, result/history/status defensive copying, closed vocabulary, and secret-safe field inventory.
@@ -70,7 +70,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 2.1_
   - _Validation: `go test ./internal/core/configreload/... ./internal/infra/runtimehost/... ./internal/infra/metrics/... -run 'Reload|History|Observer|Category'`_
 
-- [ ] 2.3 Migrate public and HTTP consumers and delete mirror mapping
+- [x] 2.3 Migrate public and HTTP consumers and delete mirror mapping
   - Use aliases/thin delegation in `pkg/lipruntime` for supported public names.
   - Reduce management HTTP DTOs to serialization/status policy only.
   - Delete `pkg/lipruntime/reload_map.go` and field-for-field domain copies.

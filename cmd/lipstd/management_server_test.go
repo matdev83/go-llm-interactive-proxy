@@ -13,24 +13,24 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
 	"github.com/stretchr/testify/assert"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 type stubReloadCoord struct {
-	status     configreload.ReloadStatus
+	status     sdkreload.Status
 	fixedSource string
 }
 
-func (s *stubReloadCoord) Reload(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
-	return configreload.ReloadResult{Category: configreload.ResultNoop, ActiveGeneration: 1}
+func (s *stubReloadCoord) Reload(context.Context, sdkreload.Trigger) sdkreload.Result {
+	return sdkreload.Result{Category: sdkreload.ResultNoop, ActiveGeneration: 1}
 }
 
-func (s *stubReloadCoord) Status() configreload.ReloadStatus {
+func (s *stubReloadCoord) Status() sdkreload.Status {
 	if s.status.ActiveGeneration == 0 {
-		return configreload.ReloadStatus{ActiveGeneration: 1}
+		return sdkreload.Status{ActiveGeneration: 1}
 	}
 	return s.status
 }

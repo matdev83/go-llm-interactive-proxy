@@ -2,17 +2,19 @@ package configreload
 
 import (
 	"sync"
+
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 // DefaultStatusHistoryCap is the default bounded ring capacity for reload status history.
 const DefaultStatusHistoryCap = 32
 
 // StatusHistory is a process-owned bounded ring of reload history entries.
-// Entry shape is the canonical HistoryEntry from pkg/lipsdk/configreload (aliased here).
+// Entry shape is the canonical HistoryEntry from pkg/lipsdk/configreload.
 type StatusHistory struct {
 	mu    sync.Mutex
 	cap   int
-	buf   []HistoryEntry
+	buf   []sdkreload.HistoryEntry
 	head  int
 	count int
 }
@@ -22,11 +24,11 @@ func NewStatusHistory(n int) *StatusHistory {
 	if n < 1 {
 		n = DefaultStatusHistoryCap
 	}
-	return &StatusHistory{cap: n, buf: make([]HistoryEntry, n)}
+	return &StatusHistory{cap: n, buf: make([]sdkreload.HistoryEntry, n)}
 }
 
 // Append records an entry, dropping the oldest when full.
-func (h *StatusHistory) Append(e HistoryEntry) {
+func (h *StatusHistory) Append(e sdkreload.HistoryEntry) {
 	if h == nil {
 		return
 	}
@@ -39,7 +41,7 @@ func (h *StatusHistory) Append(e HistoryEntry) {
 		return
 	}
 	if len(h.buf) != h.cap {
-		h.buf = make([]HistoryEntry, h.cap)
+		h.buf = make([]sdkreload.HistoryEntry, h.cap)
 		h.head = 0
 		h.count = 0
 	}
@@ -54,16 +56,16 @@ func (h *StatusHistory) Append(e HistoryEntry) {
 }
 
 // Snapshot returns a copy of recent entries (oldest first).
-func (h *StatusHistory) Snapshot() []HistoryEntry {
+func (h *StatusHistory) Snapshot() []sdkreload.HistoryEntry {
 	if h == nil {
 		return nil
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.count == 0 {
-		return []HistoryEntry{}
+		return []sdkreload.HistoryEntry{}
 	}
-	out := make([]HistoryEntry, h.count)
+	out := make([]sdkreload.HistoryEntry, h.count)
 	for i := 0; i < h.count; i++ {
 		out[i] = h.buf[(h.head+i)%h.cap]
 	}

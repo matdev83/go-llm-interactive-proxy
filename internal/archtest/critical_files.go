@@ -77,4 +77,10 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/infra/runtimebundle/process_services.go", Max: 364},
 	// Freeze 367 → final ≤150 (Req 11.3). Lower via Phase 8 task 8.1 (public build/facade).
 	{Path: "pkg/lipruntime/build.go", Max: 367},
+
+	// Task 2.3: after deleting pkg/lipruntime/reload_map.go and converting public
+	// mirrored types to exact SDK aliases, freeze the thin reload facade files at
+	// measured post-deletion sizes (zero new headroom).
+	{Path: "pkg/lipruntime/reload.go", Max: 97},
+	{Path: "pkg/lipruntime/reload_aliases.go", Max: 35},
 }

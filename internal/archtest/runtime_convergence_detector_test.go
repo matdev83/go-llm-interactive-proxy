@@ -129,7 +129,11 @@ var AllResultCategories = []ResultCategory{}
 
 func TestReloadContract_TypeAliasAndSDKReexportExempt(t *testing.T) {
 	t.Parallel()
-	src := `package configreload
+	// Exact canonical aliases are supported only at the public facade path.
+	// The internal-owner deletion gate separately forbids them under
+	// internal/core/configreload; this global scanner still exempts exact
+	// SDK aliases so lipruntime re-exports are not false positives.
+	src := `package lipruntime
 import sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 type TriggerKind = sdkreload.TriggerKind
 type ResultCategory = sdkreload.ResultCategory
@@ -143,12 +147,12 @@ type ReloadStatus = sdkreload.Status
 const TriggerAPI = sdkreload.TriggerAPI
 var AllResultCategories = sdkreload.AllResultCategories
 `
-	got, err := scanReloadContractSource("internal/core/configreload/model.go", src)
+	got, err := scanReloadContractSource("pkg/lipruntime/reload_aliases.go", src)
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}
 	if len(got) != 0 {
-		t.Fatalf("aliases/re-exports must not be findings, got %v", got)
+		t.Fatalf("public facade aliases/re-exports must not be findings, got %v", got)
 	}
 }
 
@@ -206,7 +210,7 @@ type HistoryEntry = interface{ ID() int64 }
 
 func TestReloadContract_CanonicalAliasWithRenamedImportExempt(t *testing.T) {
 	t.Parallel()
-	src := `package configreload
+	src := `package lipruntime
 import canon "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 type TriggerKind = canon.TriggerKind
 type ResultCategory = canon.ResultCategory
@@ -218,7 +222,7 @@ type ReloadTrigger = canon.Trigger
 type ReloadResult = canon.Result
 type ReloadStatus = canon.Status
 `
-	got, err := scanReloadContractSource("internal/core/configreload/renamed.go", src)
+	got, err := scanReloadContractSource("pkg/lipruntime/reload_aliases.go", src)
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}

@@ -14,31 +14,31 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 // Task 5.2: production Unix SIGHUP adapter (req 1.2, 1.9, 11.1-11.9).
 
 type recordingReloadSink struct {
 	mu          sync.Mutex
-	calls       []configreload.ReloadTrigger
+	calls       []sdkreload.Trigger
 	block       chan struct{}
 	unblock     chan struct{}
-	result      configreload.ReloadResult
+	result      sdkreload.Result
 	started     chan struct{}
 	startedOnce sync.Once
 }
 
-func newRecordingReloadSink(res configreload.ReloadResult) *recordingReloadSink {
+func newRecordingReloadSink(res sdkreload.Result) *recordingReloadSink {
 	return &recordingReloadSink{
 		result:  res,
 		started: make(chan struct{}),
 	}
 }
 
-func (s *recordingReloadSink) Reload(ctx context.Context, trigger configreload.ReloadTrigger) configreload.ReloadResult {
+func (s *recordingReloadSink) Reload(ctx context.Context, trigger sdkreload.Trigger) sdkreload.Result {
 	s.mu.Lock()
 	s.calls = append(s.calls, trigger)
 	block, unblock := s.block, s.unblock
@@ -56,7 +56,7 @@ func (s *recordingReloadSink) Reload(ctx context.Context, trigger configreload.R
 		case <-ctx.Done():
 		}
 	}
-	if trigger.Kind != configreload.TriggerSIGHUP {
+	if trigger.Kind != sdkreload.TriggerSIGHUP {
 		tres := res
 		tres.ReasonCategory = "unexpected-kind"
 		return tres
@@ -64,17 +64,17 @@ func (s *recordingReloadSink) Reload(ctx context.Context, trigger configreload.R
 	return res
 }
 
-func (s *recordingReloadSink) Triggers() []configreload.ReloadTrigger {
+func (s *recordingReloadSink) Triggers() []sdkreload.Trigger {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]configreload.ReloadTrigger, len(s.calls))
+	out := make([]sdkreload.Trigger, len(s.calls))
 	copy(out, s.calls)
 	return out
 }
 
 func TestSignalReload_SIGHUPDeliversFixedSourceTrigger(t *testing.T) {
 	withExclusiveSIGHUP(t)
-	sink := newRecordingReloadSink(configreload.ReloadResult{Category: configreload.ResultPublished, ActiveGeneration: 2})
+	sink := newRecordingReloadSink(sdkreload.Result{Category: sdkreload.ResultPublished, ActiveGeneration: 2})
 	adapter := NewSIGHUPAdapter(sink)
 	ctx := t.Context()
 	if err := adapter.Start(ctx); err != nil {
@@ -95,7 +95,7 @@ func TestSignalReload_SIGHUPDeliversFixedSourceTrigger(t *testing.T) {
 		t.Fatal("expected at least one trigger")
 	}
 	tr := trigs[0]
-	if tr.Kind != configreload.TriggerSIGHUP {
+	if tr.Kind != sdkreload.TriggerSIGHUP {
 		t.Fatalf("kind=%q", tr.Kind)
 	}
 	if tr.SafeActor == "" {
@@ -109,7 +109,7 @@ func TestSignalReload_SIGHUPDeliversFixedSourceTrigger(t *testing.T) {
 
 func TestSignalReload_SIGHUPDoesNotStopServerContext(t *testing.T) {
 	withExclusiveSIGHUP(t)
-	sink := newRecordingReloadSink(configreload.ReloadResult{Category: configreload.ResultNoop})
+	sink := newRecordingReloadSink(sdkreload.Result{Category: sdkreload.ResultNoop})
 	adapter := NewSIGHUPAdapter(sink)
 	parent := t.Context()
 	sigCtx, stopShutdown := signal.NotifyContext(parent, ShutdownSignals()...)
@@ -219,7 +219,7 @@ func TestSignalReload_CoalesceThroughCoordinator(t *testing.T) {
 		t.Fatal("expected at least one compile from SIGHUP")
 	}
 	st = coord.Status()
-	if st.LastResult.Category != configreload.ResultPublished && st.LastResult.Category != configreload.ResultNoop {
+	if st.LastResult.Category != sdkreload.ResultPublished && st.LastResult.Category != sdkreload.ResultNoop {
 		// Follow-up may publish; first must have completed.
 		if st.ActiveGeneration < 2 {
 			t.Fatalf("status=%+v compile=%d", st, compile.calls.Load())
@@ -257,7 +257,7 @@ func TestSignalReload_PublishesValidCandidate(t *testing.T) {
 	for time.Now().Before(deadline) {
 		st := coord.Status()
 		if !st.Busy && st.ActiveGeneration > before {
-			if st.LastResult.Category != configreload.ResultPublished {
+			if st.LastResult.Category != sdkreload.ResultPublished {
 				t.Fatalf("category=%q", st.LastResult.Category)
 			}
 			return
@@ -269,7 +269,7 @@ func TestSignalReload_PublishesValidCandidate(t *testing.T) {
 
 func TestSignalReload_AdapterStopRejectsLateTriggers(t *testing.T) {
 	withExclusiveSIGHUP(t)
-	sink := newRecordingReloadSink(configreload.ReloadResult{Category: configreload.ResultPublished})
+	sink := newRecordingReloadSink(sdkreload.Result{Category: sdkreload.ResultPublished})
 	adapter := NewSIGHUPAdapter(sink)
 	ctx := context.Background()
 	if err := adapter.Start(ctx); err != nil {
@@ -290,7 +290,7 @@ func TestSignalReload_AdapterStopRejectsLateTriggers(t *testing.T) {
 
 func TestSignalReload_AdapterStopRaceWithDelivery(t *testing.T) {
 	withExclusiveSIGHUP(t)
-	sink := newRecordingReloadSink(configreload.ReloadResult{Category: configreload.ResultBusy})
+	sink := newRecordingReloadSink(sdkreload.Result{Category: sdkreload.ResultBusy})
 	sink.block = make(chan struct{})
 	sink.unblock = make(chan struct{})
 

@@ -18,13 +18,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 // Phase 6.1 certification: production GenerationDispatcher + reload host no-drop
@@ -398,8 +398,8 @@ func TestRuntimeConfigReload_NoDrop_FullHost_ValidInvalidCancelALeg(t *testing.T
 	}
 
 	atomicWriteCertConfig(t, path, localStubVersionBody(t, base, "generation-two"))
-	pub := host.Coordinator.Reload(ctx, configreload.ReloadTrigger{Kind: configreload.TriggerAPI, SafeActor: "p6-cert"})
-	if pub.Category != configreload.ResultPublished || pub.ActiveGeneration != 2 {
+	pub := host.Coordinator.Reload(ctx, sdkreload.Trigger{Kind: sdkreload.TriggerAPI, SafeActor: "p6-cert"})
+	if pub.Category != sdkreload.ResultPublished || pub.ActiveGeneration != 2 {
 		t.Fatalf("valid reload=%+v", pub)
 	}
 
@@ -434,8 +434,8 @@ func TestRuntimeConfigReload_NoDrop_FullHost_ValidInvalidCancelALeg(t *testing.T
 
 	// Invalid cycles retain last-good generation 2.
 	atomicWriteCertConfig(t, path, "")
-	empty := host.Coordinator.Reload(ctx, configreload.ReloadTrigger{Kind: configreload.TriggerAPI, SafeActor: "p6-cert"})
-	if empty.Category != configreload.ResultSourceIntegrity && empty.Category != configreload.ResultInvalid {
+	empty := host.Coordinator.Reload(ctx, sdkreload.Trigger{Kind: sdkreload.TriggerAPI, SafeActor: "p6-cert"})
+	if empty.Category != sdkreload.ResultSourceIntegrity && empty.Category != sdkreload.ResultInvalid {
 		t.Fatalf("empty reload category=%q", empty.Category)
 	}
 	if host.Manager.Active().ID() != 2 {
@@ -443,8 +443,8 @@ func TestRuntimeConfigReload_NoDrop_FullHost_ValidInvalidCancelALeg(t *testing.T
 	}
 
 	atomicWriteCertConfig(t, path, "server: [\n")
-	malformed := host.Coordinator.Reload(ctx, configreload.ReloadTrigger{Kind: configreload.TriggerAPI, SafeActor: "p6-cert"})
-	if malformed.Category != configreload.ResultInvalid && malformed.Category != configreload.ResultSourceIntegrity {
+	malformed := host.Coordinator.Reload(ctx, sdkreload.Trigger{Kind: sdkreload.TriggerAPI, SafeActor: "p6-cert"})
+	if malformed.Category != sdkreload.ResultInvalid && malformed.Category != sdkreload.ResultSourceIntegrity {
 		t.Fatalf("malformed reload category=%q", malformed.Category)
 	}
 	if host.Manager.Active().ID() != 2 {
@@ -457,8 +457,8 @@ func TestRuntimeConfigReload_NoDrop_FullHost_ValidInvalidCancelALeg(t *testing.T
 
 	// Corrected atomic rename + explicit retrigger publishes generation 3.
 	atomicWriteCertConfig(t, path, localStubVersionBody(t, base, "generation-three"))
-	fixed := host.Coordinator.Reload(ctx, configreload.ReloadTrigger{Kind: configreload.TriggerAPI, SafeActor: "p6-cert"})
-	if fixed.Category != configreload.ResultPublished || fixed.ActiveGeneration != 3 {
+	fixed := host.Coordinator.Reload(ctx, sdkreload.Trigger{Kind: sdkreload.TriggerAPI, SafeActor: "p6-cert"})
+	if fixed.Category != sdkreload.ResultPublished || fixed.ActiveGeneration != 3 {
 		t.Fatalf("corrected reload=%+v", fixed)
 	}
 	body3 := postNonStreamingResponses(t, client, srv.URL)

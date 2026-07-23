@@ -7,15 +7,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
 	"github.com/stretchr/testify/assert"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 func TestManagement_ServerLifecycle(t *testing.T) {
 	t.Parallel()
-	coord := newFakeCoordinator("/fixed/startup/config.yaml", func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
-		return configreload.ReloadResult{Category: configreload.ResultNoop, ActiveGeneration: 1}
+	coord := newFakeCoordinator("/fixed/startup/config.yaml", func(context.Context, sdkreload.Trigger) sdkreload.Result {
+		return sdkreload.Result{Category: sdkreload.ResultNoop, ActiveGeneration: 1}
 	})
 	srv, err := mgmtreload.New(mgmtreload.Options{
 		Address:     "127.0.0.1:0",
@@ -57,10 +57,10 @@ func TestManagement_ServerShutdownAppliesConfiguredTimeout(t *testing.T) {
 	t.Parallel()
 	entered := make(chan struct{})
 	release := make(chan struct{})
-	coord := newFakeCoordinator("/fixed/startup/config.yaml", func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
+	coord := newFakeCoordinator("/fixed/startup/config.yaml", func(context.Context, sdkreload.Trigger) sdkreload.Result {
 		close(entered)
 		<-release
-		return configreload.ReloadResult{Category: configreload.ResultNoop, ActiveGeneration: 1}
+		return sdkreload.Result{Category: sdkreload.ResultNoop, ActiveGeneration: 1}
 	})
 	srv, err := mgmtreload.New(mgmtreload.Options{
 		Address:         "127.0.0.1:0",
@@ -126,10 +126,10 @@ func TestManagement_ServerShutdownTimeoutCanBeRetried(t *testing.T) {
 	t.Parallel()
 	entered := make(chan struct{})
 	release := make(chan struct{})
-	coord := newFakeCoordinator("/fixed/startup/config.yaml", func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
+	coord := newFakeCoordinator("/fixed/startup/config.yaml", func(context.Context, sdkreload.Trigger) sdkreload.Result {
 		close(entered)
 		<-release
-		return configreload.ReloadResult{Category: configreload.ResultNoop, ActiveGeneration: 1}
+		return sdkreload.Result{Category: sdkreload.ResultNoop, ActiveGeneration: 1}
 	})
 	srv, err := mgmtreload.New(mgmtreload.Options{
 		Address:         "127.0.0.1:0",

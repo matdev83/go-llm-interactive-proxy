@@ -9,9 +9,9 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 // reloadManagementTokenEnv is the dedicated startup-fixed bearer source for the
@@ -91,8 +91,8 @@ func resolveManagementOptions(cfg *config.Config) (mgmtreload.Options, bool, err
 // It returns (nil, nil) when management is not explicitly enabled, or when a
 // required dedicated bearer is absent, so ordinary data-plane serve continues.
 func startManagementServer(ctx context.Context, res runtimebundle.BootstrapResult, coord interface {
-	Reload(context.Context, configreload.ReloadTrigger) configreload.ReloadResult
-	Status() configreload.ReloadStatus
+	Reload(context.Context, sdkreload.Trigger) sdkreload.Result
+	Status() sdkreload.Status
 	FixedSourcePath() string
 },
 ) (*mgmtreload.Server, error) {

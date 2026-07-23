@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 func TestShutdown_LatePublishRejectedDuringSourceRead(t *testing.T) {
@@ -25,18 +25,18 @@ func TestShutdown_LatePublishRejectedDuringSourceRead(t *testing.T) {
 	c := newTestCoordinator(t, nil, src, nil, nil, nil)
 	activeBefore := c.Status().ActiveGeneration
 
-	done := make(chan configreload.ReloadResult, 1)
+	done := make(chan sdkreload.Result, 1)
 	go func() {
-		done <- c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+		done <- c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 	}()
 	gate.WaitEnter(t)
 	c.BeginShutdown()
 	gate.Release()
 	res := <-done
-	if res.Category == configreload.ResultPublished {
+	if res.Category == sdkreload.ResultPublished {
 		t.Fatalf("published after BeginShutdown is never acceptable; category=%q gen=%d", res.Category, res.ActiveGeneration)
 	}
-	if res.Category != configreload.ResultCanceled {
+	if res.Category != sdkreload.ResultCanceled {
 		t.Fatalf("category=%q want canceled", res.Category)
 	}
 	if c.Status().ActiveGeneration != activeBefore {
@@ -47,8 +47,8 @@ func TestShutdown_LatePublishRejectedDuringSourceRead(t *testing.T) {
 	if err := c.WaitForIdle(idleCtx); err != nil {
 		t.Fatalf("WaitForIdle: %v", err)
 	}
-	late := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
-	if late.Category != configreload.ResultCanceled {
+	late := c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+	if late.Category != sdkreload.ResultCanceled {
 		t.Fatalf("late reload=%q", late.Category)
 	}
 }
@@ -64,15 +64,15 @@ func TestShutdown_SourceReadReceivesContextCancellation(t *testing.T) {
 	}
 	c := newTestCoordinator(t, nil, src, nil, nil, nil)
 
-	done := make(chan configreload.ReloadResult, 1)
+	done := make(chan sdkreload.Result, 1)
 	go func() {
-		done <- c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+		done <- c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 	}()
 	gate.WaitEnter(t)
 	c.BeginShutdown()
 	// Do not Release the gate — cancellation must unblock ReadStable via ctx.
 	res := <-done
-	if res.Category != configreload.ResultCanceled {
+	if res.Category != sdkreload.ResultCanceled {
 		t.Fatalf("category=%q want canceled (source must observe ctx cancel)", res.Category)
 	}
 	idleCtx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -106,14 +106,14 @@ func TestShutdown_CompileReceivesContextCancellationAndRollsBack(t *testing.T) {
 	c := newTestCoordinator(t, nil, src, loader, compile, nil)
 	activeBefore := c.Status().ActiveGeneration
 
-	done := make(chan configreload.ReloadResult, 1)
+	done := make(chan sdkreload.Result, 1)
 	go func() {
-		done <- c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+		done <- c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 	}()
 	gate.WaitEnter(t)
 	c.BeginShutdown()
 	res := <-done
-	if res.Category != configreload.ResultCanceled {
+	if res.Category != sdkreload.ResultCanceled {
 		t.Fatalf("category=%q want canceled", res.Category)
 	}
 	if c.Status().ActiveGeneration != activeBefore {
@@ -145,18 +145,18 @@ func TestShutdown_PendingSignalDoesNotPublish(t *testing.T) {
 	}
 	c := newTestCoordinator(t, nil, src, loader, compile, nil)
 
-	done := make(chan configreload.ReloadResult, 1)
+	done := make(chan sdkreload.Result, 1)
 	go func() {
-		done <- c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+		done <- c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 	}()
 	gate.WaitEnter(t)
-	busy := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerSIGHUP})
-	if busy.Category != configreload.ResultBusy {
+	busy := c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerSIGHUP})
+	if busy.Category != sdkreload.ResultBusy {
 		t.Fatalf("coalesce busy=%q", busy.Category)
 	}
 	c.BeginShutdown()
 	res := <-done
-	if res.Category == configreload.ResultPublished {
+	if res.Category == sdkreload.ResultPublished {
 		t.Fatalf("published after BeginShutdown during compile: %q", res.Category)
 	}
 	idleCtx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -171,8 +171,8 @@ func TestShutdown_PendingSignalDoesNotPublish(t *testing.T) {
 	if st.Busy {
 		t.Fatal("must not remain busy after idle")
 	}
-	late := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerSIGHUP})
-	if late.Category != configreload.ResultCanceled {
+	late := c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerSIGHUP})
+	if late.Category != sdkreload.ResultCanceled {
 		t.Fatalf("late sighup=%q", late.Category)
 	}
 }
@@ -190,17 +190,17 @@ func TestShutdown_BeginShutdownArmRaceCancelsAttempt(t *testing.T) {
 			gate:   gate,
 		}
 		c := newTestCoordinator(t, nil, src, nil, nil, nil)
-		done := make(chan configreload.ReloadResult, 1)
+		done := make(chan sdkreload.Result, 1)
 		go func() {
-			done <- c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+			done <- c.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 		}()
 		gate.WaitEnter(t)
 		c.BeginShutdown()
 		res := <-done
-		if res.Category == configreload.ResultPublished {
+		if res.Category == sdkreload.ResultPublished {
 			t.Fatalf("iter %d published after BeginShutdown", i)
 		}
-		if res.Category != configreload.ResultCanceled {
+		if res.Category != sdkreload.ResultCanceled {
 			t.Fatalf("iter %d category=%q want canceled", i, res.Category)
 		}
 		idleCtx, cancel := context.WithTimeout(context.Background(), time.Second)

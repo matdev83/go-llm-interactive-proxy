@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 func TestStatusDTO_FixedSourcePathFromCoordinatorCapability(t *testing.T) {
@@ -39,7 +39,7 @@ func TestStatusDTO_FixedSourcePathFromCoordinatorCapability(t *testing.T) {
 	if jsonHasKey(raw, "FixedSourcePath") || jsonHasKey(raw, "fixed_source_path") {
 		t.Fatalf("canonical status JSON must not carry path fields: %s", raw)
 	}
-	_ = configreload.ReloadStatus{}
+	_ = sdkreload.Status{}
 }
 
 func jsonHasKey(raw []byte, key string) bool {

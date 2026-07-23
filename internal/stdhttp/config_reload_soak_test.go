@@ -15,10 +15,10 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"go.uber.org/goleak"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 // TestRuntimeConfigReloadSoak is a bounded precommit reload soak mixing
@@ -127,30 +127,30 @@ func TestRuntimeConfigReloadSoak(t *testing.T) {
 	}
 	trafficReady.Wait()
 
-	categories := make(map[configreload.ResultCategory]int)
+	categories := make(map[sdkreload.ResultCategory]int)
 	for i := 0; i < rounds; i++ {
 		switch i % 5 {
 		case 0: // valid publish via coordinator
 			digest++
 			loader.set(soakEffective(fmt.Sprintf("fp-%d", digest), digest), nil)
 			src.set(configsource.SourceSnapshot{Bytes: []byte("x: 1")}, configsource.AtomicEligible, nil)
-			res := coord.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+			res := coord.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 			categories[res.Category]++
-			if res.Category != configreload.ResultPublished && res.Category != configreload.ResultRetentionBlocked {
+			if res.Category != sdkreload.ResultPublished && res.Category != sdkreload.ResultRetentionBlocked {
 				t.Fatalf("round %d valid path: category=%q", i, res.Category)
 			}
 		case 1: // invalid source
 			src.set(configsource.SourceSnapshot{}, "", errors.New("torn-source"))
-			res := coord.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+			res := coord.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 			categories[res.Category]++
-			if res.Category == configreload.ResultPublished {
+			if res.Category == sdkreload.ResultPublished {
 				t.Fatalf("round %d invalid must not publish", i)
 			}
 		case 2: // noop (AtomicNoop)
 			src.set(configsource.SourceSnapshot{Bytes: []byte("x: 1")}, configsource.AtomicNoop, nil)
-			res := coord.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+			res := coord.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 			categories[res.Category]++
-			if res.Category != configreload.ResultNoop {
+			if res.Category != sdkreload.ResultNoop {
 				t.Fatalf("round %d noop: category=%q", i, res.Category)
 			}
 		case 3: // restart-required
@@ -163,9 +163,9 @@ func TestRuntimeConfigReloadSoak(t *testing.T) {
 			}
 			loader.set(eff, nil)
 			src.set(configsource.SourceSnapshot{Bytes: []byte("x: 1")}, configsource.AtomicEligible, nil)
-			res := coord.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+			res := coord.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 			categories[res.Category]++
-			if res.Category != configreload.ResultRestartRequired {
+			if res.Category != sdkreload.ResultRestartRequired {
 				t.Fatalf("round %d restart-required: category=%q fields=%v", i, res.Category, res.RestartFields)
 			}
 		case 4: // retention pressure while boot pin held
@@ -173,9 +173,9 @@ func TestRuntimeConfigReloadSoak(t *testing.T) {
 				digest++
 				loader.set(soakEffective(fmt.Sprintf("fp-ret-%d", digest), digest), nil)
 				src.set(configsource.SourceSnapshot{Bytes: []byte("x: 1")}, configsource.AtomicEligible, nil)
-				res := coord.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+				res := coord.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 				categories[res.Category]++
-				if res.Category == configreload.ResultRetentionBlocked {
+				if res.Category == sdkreload.ResultRetentionBlocked {
 					break
 				}
 			}
@@ -211,11 +211,11 @@ func TestRuntimeConfigReloadSoak(t *testing.T) {
 	if maxRetainedSeen.Load() > int64(maxRetained) {
 		t.Fatalf("observed retained=%d > max=%d", maxRetainedSeen.Load(), maxRetained)
 	}
-	for _, want := range []configreload.ResultCategory{
-		configreload.ResultPublished,
-		configreload.ResultNoop,
-		configreload.ResultRestartRequired,
-		configreload.ResultRetentionBlocked,
+	for _, want := range []sdkreload.ResultCategory{
+		sdkreload.ResultPublished,
+		sdkreload.ResultNoop,
+		sdkreload.ResultRestartRequired,
+		sdkreload.ResultRetentionBlocked,
 	} {
 		if categories[want] == 0 {
 			t.Fatalf("soak missing category %q in %+v", want, categories)

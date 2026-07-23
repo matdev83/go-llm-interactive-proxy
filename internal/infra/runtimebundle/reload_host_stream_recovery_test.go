@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 func TestAttachReloadHost_UsesStartupFixedStreamRecoverySnapshot(t *testing.T) {
@@ -64,12 +64,12 @@ func TestAttachReloadHost_UsesStartupFixedStreamRecoverySnapshot(t *testing.T) {
 	}
 
 	// No-op reload still exercises the fixed effective loader with the startup snapshot.
-	result := host.Coordinator.Reload(context.Background(), configreload.ReloadTrigger{
-		Kind:       configreload.TriggerAPI,
+	result := host.Coordinator.Reload(context.Background(), sdkreload.Trigger{
+		Kind:       sdkreload.TriggerAPI,
 		AcceptedAt: time.Now().UTC(),
 		SafeActor:  "test",
 	})
-	if result.Category == configreload.ResultInvalid || result.Category == configreload.ResultInternalFailed {
+	if result.Category == sdkreload.ResultInvalid || result.Category == sdkreload.ResultInternalFailed {
 		t.Fatalf("reload failed under mutated env: category=%s reason=%s", result.Category, result.ReasonCategory)
 	}
 

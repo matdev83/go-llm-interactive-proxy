@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 // TestReadiness_IndependentOfReloadControlFailure proves req 13.1-13.2 / 14.8:
@@ -27,23 +28,23 @@ func TestReadiness_IndependentOfReloadControlFailure(t *testing.T) {
 		t.Fatalf("health body=%s", rrHealth.Body.String())
 	}
 
-	st := configreload.ReloadStatus{
+	st := sdkreload.Status{
 		ActiveGeneration: 11,
 		Busy:             false,
-		LastResult: configreload.ReloadResult{
-			Category:         configreload.ResultInvalid,
+		LastResult: sdkreload.Result{
+			Category:         sdkreload.ResultInvalid,
 			AttemptID:        9,
 			ActiveGeneration: 11,
 			ReasonCategory:   configreload.StageLoad,
 		},
-		LastFailure: configreload.ReloadResult{
-			Category:         configreload.ResultInvalid,
+		LastFailure: sdkreload.Result{
+			Category:         sdkreload.ResultInvalid,
 			AttemptID:        9,
 			ActiveGeneration: 11,
 			ReasonCategory:   configreload.StageLoad,
 		},
-		LastSuccess: configreload.ReloadResult{
-			Category:         configreload.ResultPublished,
+		LastSuccess: sdkreload.Result{
+			Category:         sdkreload.ResultPublished,
 			AttemptID:        8,
 			ActiveGeneration: 11,
 		},
@@ -58,7 +59,7 @@ func TestReadiness_IndependentOfReloadControlFailure(t *testing.T) {
 	if dto.ActiveGeneration != 11 {
 		t.Fatalf("active=%d", dto.ActiveGeneration)
 	}
-	if dto.LastResult.Category != string(configreload.ResultInvalid) {
+	if dto.LastResult.Category != string(sdkreload.ResultInvalid) {
 		t.Fatalf("last_result=%q", dto.LastResult.Category)
 	}
 	if !dto.ControlDegraded {

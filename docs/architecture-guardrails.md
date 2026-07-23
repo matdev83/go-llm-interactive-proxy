@@ -18,7 +18,7 @@ Stage four (extension platform) adds the **legal extension pipeline**, brownfiel
 | Check | Location |
 | --- | --- |
 | Non-test line budgets for key trees | [`internal/archtest/guardrails_test.go`](../internal/archtest/guardrails_test.go) |
-| Per-file critical-file budgets for single-file gravity wells (`executor.go`, `runtimebundle/build.go`, `runtimebundle/options.go`, `stdhttp/server.go`, `standardplugins/standard_table.go`, `pluginreg/reg.go`, plus migration freezes for `runtimehost/coordinator.go`, `runtimehost/generation.go`, `runtimebundle/candidate_compile.go`, `runtimebundle/process_services.go`, `pkg/lipruntime/build.go`) | same (`TestCriticalFileLineBudgets`, `TestCriticalFileMigrationHotspotFreezeBudgets`) |
+| Per-file critical-file budgets for single-file gravity wells (`executor.go`, `runtimebundle/build.go`, `runtimebundle/options.go`, `stdhttp/server.go`, `standardplugins/standard_table.go`, `pluginreg/reg.go`, plus migration freezes for `runtimehost/coordinator.go`, `runtimehost/generation.go`, `runtimebundle/candidate_compile.go`, `runtimebundle/process_services.go`, `pkg/lipruntime/build.go`, and Task 2.3 thin reload facade files `pkg/lipruntime/reload.go` / `reload_aliases.go`) | same (`TestCriticalFileLineBudgets`, `TestCriticalFileMigrationHotspotFreezeBudgets`) |
 | No `func init()` in `internal/pluginreg`, `internal/standardplugins`, and `cmd/lipstd` (non-test `.go` files) | same |
 | `internal/infra/runtimebundle` production code must not reference `pluginreg.Default` (AST selector) | same |
 | `internal/infra/runtimebundle` (except `bootstrap_plan.go` composition-root startup) and `internal/stdhttp` production code must not call `InstallStandardBundleOn` / `RegisterStandardBundle` | same |

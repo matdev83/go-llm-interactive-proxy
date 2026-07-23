@@ -5,17 +5,18 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 // MapLoadFailure maps effective-load / source-integrity failures to a terminal
 // result category and bounded reason (req 2.10, 3.10). Values are never included.
-func MapLoadFailure(err error) (ResultCategory, string) {
+func MapLoadFailure(err error) (sdkreload.ResultCategory, string) {
 	if err == nil {
-		return ResultInternalFailed, "unknown"
+		return sdkreload.ResultInternalFailed, "unknown"
 	}
 	var rr *RestartRequiredError
 	if errors.As(err, &rr) {
-		return ResultRestartRequired, StageClassify
+		return sdkreload.ResultRestartRequired, StageClassify
 	}
 	var le *config.LoadError
 	if errors.As(err, &le) && le != nil && le.Category != "" {
@@ -33,37 +34,37 @@ func MapLoadFailure(err error) (ResultCategory, string) {
 		strings.Contains(msg, string(config.CategoryNonAtomicUpdate)),
 		strings.Contains(msg, string(config.CategoryUnsupportedType)),
 		strings.Contains(msg, string(config.CategoryPartialUnreadable)):
-		return ResultSourceIntegrity, StageRead
+		return sdkreload.ResultSourceIntegrity, StageRead
 	case strings.Contains(msg, string(config.CategoryMalformedYAML)),
 		strings.Contains(msg, string(config.CategoryMultipleDocuments)),
 		strings.Contains(msg, string(config.CategoryTrailingContent)),
 		strings.Contains(msg, string(config.CategoryUnknownCoreField)):
-		return ResultInvalid, StageLoad
+		return sdkreload.ResultInvalid, StageLoad
 	case strings.Contains(msg, "validate"):
-		return ResultInvalid, StageLoad
+		return sdkreload.ResultInvalid, StageLoad
 	default:
-		return ResultInvalid, StageLoad
+		return sdkreload.ResultInvalid, StageLoad
 	}
 }
 
-func mapLoadCategory(cat string) (ResultCategory, string) {
+func mapLoadCategory(cat string) (sdkreload.ResultCategory, string) {
 	switch config.LoadCategory(cat) {
 	case config.CategoryMissing, config.CategoryEmpty, config.CategoryWhitespace,
 		config.CategoryOversize, config.CategoryUnstable, config.CategoryNonAtomicUpdate,
 		config.CategoryUnsupportedType, config.CategoryPartialUnreadable:
-		return ResultSourceIntegrity, StageRead
+		return sdkreload.ResultSourceIntegrity, StageRead
 	case config.CategoryMalformedYAML, config.CategoryMultipleDocuments,
 		config.CategoryTrailingContent, config.CategoryUnknownCoreField:
-		return ResultInvalid, StageLoad
+		return sdkreload.ResultInvalid, StageLoad
 	default:
-		return ResultInvalid, StageLoad
+		return sdkreload.ResultInvalid, StageLoad
 	}
 }
 
 // MapLoadCategory maps a known LoadCategory string to a terminal result.
-func MapLoadCategory(cat string) (ResultCategory, string) {
+func MapLoadCategory(cat string) (sdkreload.ResultCategory, string) {
 	if cat == "" {
-		return ResultInternalFailed, "unknown"
+		return sdkreload.ResultInternalFailed, "unknown"
 	}
 	return mapLoadCategory(cat)
 }
