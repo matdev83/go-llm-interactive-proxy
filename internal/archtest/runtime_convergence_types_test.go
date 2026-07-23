@@ -41,6 +41,10 @@ var knownConvergenceGates = map[string]bool{
 	gateTask42CandidateCloserFld:     true,
 	gateTask42LedgerCloserProjection: true,
 	gateTask42TestCtorInProd:         true,
+	gateTask43SoleServeAPI:           true,
+	gateTask43DeletedServe:           true,
+	gateTask43AppOwnedServe:          true,
+	gateTask43StaleTestNames:         true,
 }
 
 var knownConvergenceClasses = map[string]bool{

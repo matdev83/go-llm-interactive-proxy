@@ -24,7 +24,7 @@ import (
 
 // ID-147-FE: OpenAI Responses decode → runtime → hosted-compatible upstream User-Agent
 // passthrough, with A-leg Server identity independent of the client UA.
-func TestNewStandardHandler_ID147_openaiResponsesUserAgentPassthroughToUpstream(t *testing.T) {
+func TestComposeStandardHTTP_ID147_openaiResponsesUserAgentPassthroughToUpstream(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {

@@ -19,7 +19,7 @@ var mountContractInventory = []mountInventoryRow{
 	{
 		Helper: "mountMetrics", File: "mount_metrics.go", Input: "mountMetricsInput",
 		BuiltFields: []string{"Metrics"}, DesiredGroups: []string{"Operations"},
-		Lifecycle: "none", BehaviorTests: []string{"TestRunWithRuntime_metricsEnabledRequiresBuiltMetrics"},
+		Lifecycle: "none", BehaviorTests: []string{"TestStackHTTPHandler_recoveredPanic_combinedMetricsAccessAndSafeBody", "TestMountContract_NilOptionalCapabilitiesSkipMounts"},
 	},
 	{
 		Helper: "mountDiagnostics", File: "mount_diagnostics.go", Input: "mountDiagnosticsInput",
@@ -39,7 +39,7 @@ var mountContractInventory = []mountInventoryRow{
 	{
 		Helper: "mountSecureSessionDiagnostics", File: "mount_securesession.go", Input: "mountSecureSessionDiagnosticsInput",
 		BuiltFields: []string{"SecureSessionStore"}, DesiredGroups: []string{"Security"},
-		Lifecycle: "none", BehaviorTests: []string{"TestSecureSessionDiagnostics_mount_matchesRunWithRuntimePattern"},
+		Lifecycle: "none", BehaviorTests: []string{"TestSecureSessionDiagnostics_mount_matchesComposePattern"},
 	},
 	{
 		Helper: "mountAccountingAdmin", File: "mount_admin.go", Input: "mountAccountingAdminInput",
@@ -87,7 +87,7 @@ var compositionRootInventory = []mountInventoryRow{
 		Helper: "prepareStandardHandler", File: "handler.go", Input: "",
 		BuiltFields:   []string{"Executor", "EffectiveDefaultRoute", "PluginRegistry", "DecodeAdmission", "RuntimeSnapshot", "RoutePrefixes", "ModelRegistryRuntime"},
 		DesiredGroups: []string{"StandardHTTPInput"},
-		Lifecycle:     "owned_above", BehaviorTests: []string{"TestNewStandardHandler_openAIModelsAndModelRegistryDiagMounted"},
+		Lifecycle:     "owned_above", BehaviorTests: []string{"TestComposeStandardHTTP_openAIModelsAndModelRegistryDiagMounted"},
 		MigrationStatus: "strict_task_32",
 	},
 	{
@@ -147,6 +147,65 @@ var mountDiscoveryExclusions = map[string]bool{
 }
 
 const mountDependencyInventoryRel = ".kiro/specs/runtime-architecture-convergence-and-shrinkage/mount-dependency-inventory.md"
+
+// TestMountContract_BehaviorTestsExist proves every inventoried BehaviorTests
+// reference resolves to a live Test* function under internal/stdhttp (Task 4.3:
+// stale RunWithRuntime/NewStandardHandler inventory strings must not survive).
+func TestMountContract_BehaviorTestsExist(t *testing.T) {
+	t.Parallel()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	live, err := discoverStdhttpTestFuncs(dir)
+	if err != nil {
+		t.Fatalf("discover test funcs: %v", err)
+	}
+	var missing []string
+	for _, row := range append(append([]mountInventoryRow{}, mountContractInventory...), compositionRootInventory...) {
+		for _, name := range row.BehaviorTests {
+			if !live[name] {
+				missing = append(missing, row.Helper+":"+name)
+			}
+		}
+	}
+	sort.Strings(missing)
+	if len(missing) > 0 {
+		t.Fatalf("Task 4.3 RED: inventory BehaviorTests must name live stdhttp tests; missing %v", missing)
+	}
+}
+
+func discoverStdhttpTestFuncs(pkgDir string) (map[string]bool, error) {
+	entries, err := os.ReadDir(pkgDir)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	fset := token.NewFileSet()
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(filepath.Join(pkgDir, e.Name()))
+		if err != nil {
+			return nil, err
+		}
+		f, err := parser.ParseFile(fset, e.Name(), src, parser.SkipObjectResolution)
+		if err != nil {
+			return nil, err
+		}
+		for _, decl := range f.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || fd.Name == nil || fd.Recv != nil {
+				continue
+			}
+			if strings.HasPrefix(fd.Name.Name, "Test") {
+				out[fd.Name.Name] = true
+			}
+		}
+	}
+	return out, nil
+}
 
 // TestMountContract_InventoryComplete proves the Task 3.1 inventory table matches
 // AST-discovered production mount helpers and composition roots and cannot silently stale.

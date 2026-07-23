@@ -238,7 +238,7 @@ func (p rejectAuthProvider) Authenticate(_ context.Context, _ http.ResponseWrite
 	}, nil
 }
 
-func TestNewStandardHandler_serverIdentity_frontends(t *testing.T) {
+func TestComposeStandardHTTP_serverIdentity_frontends(t *testing.T) {
 	t.Parallel()
 	cfg, reg := serverIdentityTestConfig(identity.Config{
 		Downstream: identity.DownstreamPolicy{
@@ -349,7 +349,7 @@ func TestNewStandardHandler_serverIdentity_frontends(t *testing.T) {
 	}
 }
 
-func TestNewStandardHandler_serverIdentity_realHTTPServer_modes(t *testing.T) {
+func TestComposeStandardHTTP_serverIdentity_realHTTPServer_modes(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name        string
@@ -416,7 +416,7 @@ func TestNewStandardHandler_serverIdentity_realHTTPServer_modes(t *testing.T) {
 	}
 }
 
-func TestNewStandardHandler_serverIdentity_independentOfUpstreamAndDrop(t *testing.T) {
+func TestComposeStandardHTTP_serverIdentity_independentOfUpstreamAndDrop(t *testing.T) {
 	t.Parallel()
 	cfg, reg := serverIdentityTestConfig(identity.Config{
 		Downstream: identity.DownstreamPolicy{
@@ -444,7 +444,7 @@ func TestNewStandardHandler_serverIdentity_independentOfUpstreamAndDrop(t *testi
 	assertServerHeader(t, rec.Result().Header, false, "")
 }
 
-func TestNewStandardHandler_serverIdentity_independentOfBackendWinner(t *testing.T) {
+func TestComposeStandardHTTP_serverIdentity_independentOfBackendWinner(t *testing.T) {
 	t.Parallel()
 	caps := lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
 	open := func(text string) func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {

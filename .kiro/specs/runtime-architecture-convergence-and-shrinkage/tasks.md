@@ -162,7 +162,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 4.1_
   - _Validation: `go test ./internal/infra/runtimebundle/... ./internal/archtest/... -run 'Built|BuildCompatibility|Closer|Ledger'`_
 
-- [ ] 4.3 Delete production `RunWithRuntime` and App-owned serve lifecycle
+- [x] 4.3 Delete production `RunWithRuntime` and App-owned serve lifecycle
   - Migrate remaining supported server tests to the stable generation host.
   - Delete `RunWithRuntime`, its closer release path, and App-owned production serve lifecycle.
   - Retain only handler/server utilities used by canonical generation host serving.
