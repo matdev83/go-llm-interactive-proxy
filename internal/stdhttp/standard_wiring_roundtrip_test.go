@@ -80,14 +80,15 @@ models:
 	}
 
 	mux := http.NewServeMux()
-	if err := MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:                  mux,
-		Exec:                 built.Executor,
-		DefaultRouteSelector: route,
-		Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
-		RoutePrefixes:        built.RoutePrefixes,
-		MaxRequestBodyBytes:  0,
-		Reg:                  reg,
+	if err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
+		Frontends: HTTPFrontendInput{
+			Executor:             built.Executor,
+			DefaultRouteSelector: route,
+			Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
+			RoutePrefixes:        built.RoutePrefixes,
+			MaxRequestBodyBytes:  0,
+			Registry:             reg,
+		},
 	}); err != nil {
 		t.Fatalf("MountBundledFrontends: %v", err)
 	}

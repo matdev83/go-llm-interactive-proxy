@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -14,133 +13,80 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
-
-// preparedStandardHTTP is the mux plus outer middleware stack used by [RunWithRuntime] and
-// [NewStandardHandler] before any TCP listener is bound.
-type preparedStandardHTTP struct {
-	Handler        http.Handler
-	releaseClosers func()
-}
 
 // prepareStandardHandler mounts metrics, diagnostics, admin, secure-session diagnostics,
 // model-catalog diagnostics, control-plane query, and bundled frontends, then stacks the outer
 // HTTP middleware. Mount order is load-bearing and preserved exactly.
 //
-// On error it invokes resource closers for any partial setup. On success the caller must run
-// app shutdown, then releaseClosers (see [RunWithRuntime], [NewStandardHandler]).
+// The focused composer accepts only [StandardHTTPInput]: it owns neither app start/shutdown nor
+// resource closers. Callers ([NewStandardHandler], [RunWithRuntime], [ComposeRequestPlane]) project
+// broad sources into groups and own lifecycle above this seam.
 func prepareStandardHandler(
 	ctx context.Context,
 	cfg *config.Config,
-	app *runtime.App,
 	log *slog.Logger,
-	built *runtimebundle.Built,
-) (preparedStandardHTTP, error) {
-	var out preparedStandardHTTP
-	exec := built.Executor
-	closers := built.Closers
-	var closersOnce sync.Once
-	releaseClosers := func() {
-		closersOnce.Do(func() {
-			runClosers(log, closers)
-		})
-	}
-	out.releaseClosers = releaseClosers
-
-	route := strings.TrimSpace(built.EffectiveDefaultRoute)
-	if route == "" {
-		route = DefaultRouteSelector(cfg)
-	}
-	reg := built.PluginRegistry
-
+	in StandardHTTPInput,
+) (http.Handler, error) {
 	mux := http.NewServeMux()
 
 	httpProm, err := mountMetrics(mountMetricsInput{
-		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log, Built: built,
+		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log, Operations: in.Operations,
 	})
 	if err != nil {
-		releaseClosers()
-		return out, err
+		return nil, err
 	}
 
 	if err := mountDiagnostics(mountDiagnosticsInput{
-		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log, Built: built, Exec: exec, Reg: reg, App: app,
+		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log,
+		Operations: in.Operations, Core: in.Core, Reg: in.Frontends.Registry,
 	}); err != nil {
-		releaseClosers()
-		return out, err
+		return nil, err
 	}
 
 	mountAccountingAdmin(mountAccountingAdminInput{
-		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log, Built: built,
+		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log,
+		Operations: in.Operations, Core: in.Core,
 	})
 
 	if err := mountSecureSessionDiagnostics(mountSecureSessionDiagnosticsInput{
-		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log, Built: built,
+		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log, Security: in.Security,
 	}); err != nil {
-		releaseClosers()
-		return out, err
+		return nil, err
 	}
 
 	mountModelCatalogDiagnostics(ctx, diagnosticsMount{
-		Mux: mux, Cfg: cfg, Log: log, Built: built,
+		Mux: mux, Cfg: cfg, Log: log, Models: in.Models,
 	})
 	mountModelInventoryDiagnostics(ctx, diagnosticsMount{
-		Mux: mux, Cfg: cfg, Log: log, Built: built,
+		Mux: mux, Cfg: cfg, Log: log, Models: in.Models,
 	})
 	mountAccountingAuthorityQuery(accountingAuthorityQueryMount{
-		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log, Built: built,
+		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log,
+		Security: in.Security, Core: in.Core,
 	})
 	mountControlPlaneQuery(controlPlaneQueryMount{
-		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log, Built: built,
+		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log, Operations: in.Operations,
 	})
 
-	maxBody := cfg.Server.EffectiveMaxRequestBodyBytes()
-	decodeAdmission := built.DecodeAdmission
-	preReqKA := cfg.Server.EffectivePreRequestKeepalive()
-	var trafficPorts traffic.PortBundle
-	if built.RuntimeSnapshot != nil {
-		trafficPorts = traffic.PortBundle{
-			Raw: built.RuntimeSnapshot.RawCapture(),
-			Obs: built.RuntimeSnapshot.TrafficObserver(),
-			Red: built.RuntimeSnapshot.TrafficRedactors(),
-		}
-	}
 	if err := MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:                  mux,
-		Exec:                 exec,
-		DefaultRouteSelector: route,
-		RoutePrefixes:        built.RoutePrefixes,
-		Plugins:              cfg.Plugins.Frontends,
-		MaxRequestBodyBytes:  maxBody,
-		DecodeAdmission:      decodeAdmission,
-		Reg:                  reg,
-		TrafficPorts:         trafficPorts,
-		PreRequestKeepalive: lipsdk.FrontendKeepaliveConfig{
-			Enabled:  preReqKA.Enabled,
-			Interval: preReqKA.Interval,
-		},
+		Mux:       mux,
+		Frontends: in.Frontends,
 	}); err != nil {
-		releaseClosers()
-		return out, fmt.Errorf("stdhttp: mount frontends: %w", err)
+		return nil, fmt.Errorf("stdhttp: mount frontends: %w", err)
 	}
 
-	mux.Handle(openAIModelsPath, NewModelRegistryHandler(built.ModelRegistryRuntime))
-
-	if err := app.Start(ctx); err != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		app.Shutdown(shutdownCtx)
-		releaseClosers()
-		return out, fmt.Errorf("stdhttp: start app: %w", err)
+	if err := callMount(func() error {
+		mux.Handle(openAIModelsPath, NewModelRegistryHandler(in.Models.ModelRegistryRuntime))
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
 	traceGen := diag.NewTraceIDGenerator()
-	out.Handler = stackHTTPHandler(stackHTTPInput{
-		Cfg: cfg, Log: log, Built: built, TraceGen: traceGen, Inner: mux, HTTPProm: httpProm,
-	})
-	return out, nil
+	return stackHTTPHandler(stackHTTPInput{
+		Cfg: cfg, Log: log, Security: in.Security, TraceGen: traceGen, Inner: mux, HTTPProm: httpProm,
+	}), nil
 }
 
 // NewStandardHandler returns the same composed [http.Handler] as [RunWithRuntime] uses for client
@@ -183,13 +129,22 @@ func NewStandardHandler(
 		releaseBuiltResources(log, built, &releaseBuilt)
 		return nil, nil, errors.New("stdhttp: nil plugin registry in built runtime")
 	}
-	prep, err := prepareStandardHandler(ctx, cfg, app, log, built)
+	input := standardHTTPInputFromBuilt(built, cfg, app.Registrations())
+	handler, err := prepareStandardHandler(ctx, cfg, log, input)
 	if err != nil {
+		releaseBuiltResources(log, built, &releaseBuilt)
 		return nil, nil, err
+	}
+	if err := app.Start(ctx); err != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		app.Shutdown(shutdownCtx)
+		releaseBuiltResources(log, built, &releaseBuilt)
+		return nil, nil, fmt.Errorf("stdhttp: start app: %w", err)
 	}
 	cleanup := func(shutdownCtx context.Context) {
 		app.Shutdown(shutdownCtx)
-		releaseBuilt.Do(prep.releaseClosers)
+		releaseBuilt.Do(func() { runClosers(log, built.Closers) })
 	}
-	return prep.Handler, cleanup, nil
+	return handler, cleanup, nil
 }

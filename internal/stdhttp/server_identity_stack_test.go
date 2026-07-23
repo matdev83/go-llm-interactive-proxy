@@ -80,7 +80,7 @@ func TestStackHTTPHandler_serverIdentity_modes(t *testing.T) {
 				},
 			}
 			h := stackHTTPHandler(stackHTTPInput{
-				Cfg: cfg, Log: testkit.DiscardLogger(), Built: &runtimebundle.Built{},
+				Cfg: cfg, Log: testkit.DiscardLogger(), Security: HTTPSecurityInput{},
 				TraceGen: diag.NewTraceIDGenerator(), Inner: mux,
 			})
 			req := httptest.NewRequest(http.MethodGet, "/ok", nil)
@@ -113,7 +113,7 @@ func TestStackHTTPHandler_serverIdentity_errorPaths(t *testing.T) {
 		t.Parallel()
 		mux := http.NewServeMux()
 		h := stackHTTPHandler(stackHTTPInput{
-			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Built: &runtimebundle.Built{},
+			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Security: HTTPSecurityInput{},
 			TraceGen: diag.NewTraceIDGenerator(), Inner: mux,
 		})
 		rec := httptest.NewRecorder()
@@ -131,7 +131,7 @@ func TestStackHTTPHandler_serverIdentity_errorPaths(t *testing.T) {
 			w.WriteHeader(http.StatusNoContent)
 		})
 		h := stackHTTPHandler(stackHTTPInput{
-			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Built: &runtimebundle.Built{},
+			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Security: HTTPSecurityInput{},
 			TraceGen: diag.NewTraceIDGenerator(), Inner: mux,
 		})
 		rec := httptest.NewRecorder()
@@ -147,7 +147,7 @@ func TestStackHTTPHandler_serverIdentity_errorPaths(t *testing.T) {
 		mux := http.NewServeMux()
 		mux.HandleFunc("/panic", func(http.ResponseWriter, *http.Request) { panic("boom") })
 		h := stackHTTPHandler(stackHTTPInput{
-			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Built: &runtimebundle.Built{},
+			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Security: HTTPSecurityInput{},
 			TraceGen: diag.NewTraceIDGenerator(), Inner: mux,
 		})
 		rec := httptest.NewRecorder()
@@ -165,7 +165,7 @@ func TestStackHTTPHandler_serverIdentity_errorPaths(t *testing.T) {
 			w.WriteHeader(http.StatusNoContent)
 		})
 		h := stackHTTPHandler(stackHTTPInput{
-			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Built: &runtimebundle.Built{},
+			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Security: HTTPSecurityInput{},
 			TraceGen: diag.NewTraceIDGenerator(), Inner: mux,
 			testOuterWrap: func(http.Handler) http.Handler {
 				return http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -198,7 +198,7 @@ func TestStackHTTPHandler_serverIdentity_errorPaths(t *testing.T) {
 			},
 		}
 		h := stackHTTPHandler(stackHTTPInput{
-			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Built: built,
+			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Security: HTTPSecurityInput{HTTPAuthProviders: built.HTTPAuthProviders},
 			TraceGen: diag.NewTraceIDGenerator(), Inner: mux,
 		})
 		rec := httptest.NewRecorder()
@@ -218,7 +218,7 @@ func TestStackHTTPHandler_serverIdentity_errorPaths(t *testing.T) {
 			},
 		}
 		h := stackHTTPHandler(stackHTTPInput{
-			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Built: built,
+			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Security: HTTPSecurityInput{HTTPAuthProviders: built.HTTPAuthProviders},
 			TraceGen: diag.NewTraceIDGenerator(), Inner: mux,
 		})
 		rec := httptest.NewRecorder()

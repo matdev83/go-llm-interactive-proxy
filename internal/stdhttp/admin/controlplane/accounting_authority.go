@@ -12,12 +12,13 @@ import (
 
 // AuthorityOptions configures the protected accounting-authority HTTP handler.
 type AuthorityOptions struct {
-	Queries         authorityQueries
+	Queries         AccountingAuthorityQueries
 	DefaultPageSize int
 	MaxPageSize     int
 }
 
-type authorityQueries interface {
+// AccountingAuthorityQueries is the narrow status/query surface for authority HTTP routes.
+type AccountingAuthorityQueries interface {
 	Status(ctx context.Context) (cp.AccountingAuthorityStatus, error)
 	Limits(ctx context.Context, q cp.AccountingLimitStatusQuery) (authorityapp.LimitStatusResult, error)
 	Decisions(ctx context.Context, q cp.AccountingDecisionQuery) (authorityapp.DecisionHistoryResult, error)
@@ -141,7 +142,7 @@ type authorityPageResponse[T any] struct {
 	Page  cp.Page[T]              `json:"page"`
 }
 
-func serveAuthorityPage[T any](w http.ResponseWriter, r *http.Request, queries authorityQueries, defaultLimit, maxLimit int, call func(limit int) (authorityapp.QueryState, cp.Page[T], error)) {
+func serveAuthorityPage[T any](w http.ResponseWriter, r *http.Request, queries AccountingAuthorityQueries, defaultLimit, maxLimit int, call func(limit int) (authorityapp.QueryState, cp.Page[T], error)) {
 	if queries == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "disabled"})
 		return

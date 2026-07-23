@@ -58,12 +58,20 @@ func RunWithRuntime(
 		releaseBuiltResources(log, built, &releaseBuilt)
 		return errors.New("stdhttp: nil context")
 	}
-	prep, err := prepareStandardHandler(ctx, cfg, app, log, built)
+	input := standardHTTPInputFromBuilt(built, cfg, app.Registrations())
+	handler, err := prepareStandardHandler(ctx, cfg, log, input)
 	if err != nil {
+		releaseBuiltResources(log, built, &releaseBuilt)
 		return fmt.Errorf("stdhttp: prepare standard handler: %w", err)
 	}
-	releaseClosers := func() { releaseBuilt.Do(prep.releaseClosers) }
-	handler := prep.Handler
+	if err := app.Start(ctx); err != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		app.Shutdown(shutdownCtx)
+		releaseBuiltResources(log, built, &releaseBuilt)
+		return fmt.Errorf("stdhttp: prepare standard handler: %w", fmt.Errorf("stdhttp: start app: %w", err))
+	}
+	releaseClosers := func() { releaseBuilt.Do(func() { runClosers(log, built.Closers) }) }
 
 	srv := &http.Server{
 		Addr:              cfg.Server.Address,

@@ -159,13 +159,13 @@ func TestModelCatalogDiagnostics_mount_stackHTTPHandler_wiring(t *testing.T) {
 	built := &runtimebundle.Built{CatalogRuntime: rt}
 	mux := http.NewServeMux()
 	mountModelCatalogDiagnostics(context.Background(), diagnosticsMount{
-		Mux:   mux,
-		Cfg:   cfg,
-		Log:   testkit.DiscardLogger(),
-		Built: built,
+		Mux:    mux,
+		Cfg:    cfg,
+		Log:    testkit.DiscardLogger(),
+		Models: HTTPModelInput{CatalogRuntime: built.CatalogRuntime},
 	})
 	outer := stackHTTPHandler(stackHTTPInput{
-		Cfg: cfg, Log: testkit.DiscardLogger(), Built: built, TraceGen: diag.NewTraceIDGenerator(), Inner: mux, HTTPProm: nil,
+		Cfg: cfg, Log: testkit.DiscardLogger(), Security: HTTPSecurityInput{}, TraceGen: diag.NewTraceIDGenerator(), Inner: mux, HTTPProm: nil,
 	})
 	srv := httptest.NewServer(outer)
 	t.Cleanup(srv.Close)

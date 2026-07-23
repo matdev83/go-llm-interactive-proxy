@@ -10,16 +10,15 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	ssessiondiag "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/diag"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 )
 
 // mountSecureSessionDiagnosticsInput carries inputs for [mountSecureSessionDiagnostics].
 type mountSecureSessionDiagnosticsInput struct {
-	LogCtx context.Context
-	Mux    *http.ServeMux
-	Cfg    *config.Config
-	Log    *slog.Logger
-	Built  *runtimebundle.Built
+	LogCtx   context.Context
+	Mux      *http.ServeMux
+	Cfg      *config.Config
+	Log      *slog.Logger
+	Security HTTPSecurityInput
 }
 
 // mountSecureSessionDiagnostics mounts the secure-session diagnostics summary endpoints when
@@ -27,11 +26,11 @@ type mountSecureSessionDiagnosticsInput struct {
 // Errors are returned with the same wrapping the inline block previously used so
 // [RunWithRuntime]'s error chain stays identical.
 func mountSecureSessionDiagnostics(in mountSecureSessionDiagnosticsInput) error {
-	mux, cfg, log, built := in.Mux, in.Cfg, in.Log, in.Built
+	mux, cfg, log, sec := in.Mux, in.Cfg, in.Log, in.Security
 	logCtx := in.LogCtx
 	secureOn := cfg.SecureSessionEffectivelyEnabled()
 	exposeSummaries := cfg.SecureSession.DiagnosticsExposeSummaries
-	if !secureOn || !exposeSummaries || built.SecureSessionStore == nil {
+	if !secureOn || !exposeSummaries || sec.SecureSessionStore == nil {
 		return nil
 	}
 	p := strings.TrimSpace(cfg.SecureSession.DiagnosticsPathPrefix)
@@ -44,7 +43,7 @@ func mountSecureSessionDiagnostics(in mountSecureSessionDiagnosticsInput) error 
 	base := strings.TrimSuffix(p, "/")
 	ssh, err := ssessiondiag.NewHandler(
 		base,
-		built.SecureSessionStore,
+		sec.SecureSessionStore,
 		cfg.SecureSession.RedactionDefault,
 		nil,
 		log,

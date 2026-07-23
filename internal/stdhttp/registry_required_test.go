@@ -19,13 +19,14 @@ func TestMountBundledFrontends_nilMux(t *testing.T) {
 	t.Parallel()
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", nil)
 	reg := pluginreg.NewRegistry()
-	err := MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:                  nil,
-		Exec:                 ex,
-		DefaultRouteSelector: "stub:x",
-		Plugins:              []coreconfig.PluginConfig{{ID: "openai-responses", Enabled: true}},
-		MaxRequestBodyBytes:  0,
-		Reg:                  reg,
+	err := MountBundledFrontends(MountBundledFrontendsInput{Mux: nil,
+		Frontends: HTTPFrontendInput{
+			Executor:             ex,
+			DefaultRouteSelector: "stub:x",
+			Plugins:              []coreconfig.PluginConfig{{ID: "openai-responses", Enabled: true}},
+			MaxRequestBodyBytes:  0,
+			Registry:             reg,
+		},
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -39,13 +40,14 @@ func TestMountBundledFrontends_nilExec(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
 	reg := pluginreg.NewRegistry()
-	err := MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:                  mux,
-		Exec:                 nil,
-		DefaultRouteSelector: "stub:x",
-		Plugins:              []coreconfig.PluginConfig{{ID: "openai-responses", Enabled: true}},
-		MaxRequestBodyBytes:  0,
-		Reg:                  reg,
+	err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
+		Frontends: HTTPFrontendInput{
+			Executor:             nil,
+			DefaultRouteSelector: "stub:x",
+			Plugins:              []coreconfig.PluginConfig{{ID: "openai-responses", Enabled: true}},
+			MaxRequestBodyBytes:  0,
+			Registry:             reg,
+		},
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -59,13 +61,14 @@ func TestMountBundledFrontends_nilRegistry(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", nil)
-	err := MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:                  mux,
-		Exec:                 ex,
-		DefaultRouteSelector: "stub:x",
-		Plugins:              []coreconfig.PluginConfig{{ID: "openai-responses", Enabled: true}},
-		MaxRequestBodyBytes:  0,
-		Reg:                  nil,
+	err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
+		Frontends: HTTPFrontendInput{
+			Executor:             ex,
+			DefaultRouteSelector: "stub:x",
+			Plugins:              []coreconfig.PluginConfig{{ID: "openai-responses", Enabled: true}},
+			MaxRequestBodyBytes:  0,
+			Registry:             nil,
+		},
 	})
 	if err == nil {
 		t.Fatal("expected error")

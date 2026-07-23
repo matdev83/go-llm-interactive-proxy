@@ -6,8 +6,6 @@ import (
 	"net/http"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
@@ -20,37 +18,29 @@ const geminiFrontendID = "gemini"
 
 // MountBundledFrontendsInput carries wiring for [MountBundledFrontends].
 type MountBundledFrontendsInput struct {
-	Mux                  *http.ServeMux
-	Exec                 *runtime.Executor
-	DefaultRouteSelector string
-	RoutePrefixes        []string
-	Plugins              []config.PluginConfig
-	MaxRequestBodyBytes  int64
-	DecodeAdmission      lipsdk.DecodeAdmission
-	PreRequestKeepalive  lipsdk.FrontendKeepaliveConfig
-	Reg                  *pluginreg.Registry
-	// TrafficPorts is optional four-leg wiring for client→proxy raw observation (task 10).
-	TrafficPorts traffic.PortBundle
+	Mux       *http.ServeMux
+	Frontends HTTPFrontendInput
 }
 
 // MountBundledFrontends registers enabled frontend protocol handlers from config on mux.
 // Gemini is mounted under /v1beta/ and /v1beta1/ only (after other prefixes when present).
 // MaxRequestBodyBytes is forwarded to handlers; zero means each handler's default body cap.
-// Mux, Exec, and Reg must be non-nil.
+// Mux, Frontends.Executor, and Frontends.Registry must be non-nil.
 func MountBundledFrontends(in MountBundledFrontendsInput) error {
+	fe := in.Frontends
 	if in.Mux == nil {
 		return fmt.Errorf("stdhttp: nil mux")
 	}
-	if in.Exec == nil {
+	if fe.Executor == nil {
 		return fmt.Errorf("stdhttp: nil exec")
 	}
-	if in.Reg == nil {
+	if fe.Registry == nil {
 		return fmt.Errorf("stdhttp: nil plugin registry")
 	}
-	mountALegCancel(in.Mux, in.Exec)
+	mountALegCancel(in.Mux, fe)
 	specific := []config.PluginConfig{}
 	geminiLast := []config.PluginConfig{}
-	for _, p := range in.Plugins {
+	for _, p := range fe.Plugins {
 		if !p.Enabled {
 			continue
 		}
@@ -63,18 +53,18 @@ func MountBundledFrontends(in MountBundledFrontendsInput) error {
 	ordered := append(specific, geminiLast...)
 	return callMount(func() error {
 		for _, p := range ordered {
-			if err := in.Reg.MountFrontend(
+			if err := fe.Registry.MountFrontend(
 				p.FactoryID(),
 				in.Mux,
 				lipsdk.FrontendMountOptions{
 					PluginCfg:           p.Config,
-					Exec:                in.Exec,
-					DefaultRoute:        in.DefaultRouteSelector,
-					RoutePrefixes:       in.RoutePrefixes,
-					MaxRequestBodyBytes: in.MaxRequestBodyBytes,
-					DecodeAdmission:     in.DecodeAdmission,
-					TrafficPorts:        in.TrafficPorts,
-					PreRequestKeepalive: in.PreRequestKeepalive,
+					Exec:                fe.Executor,
+					DefaultRoute:        fe.DefaultRouteSelector,
+					RoutePrefixes:       fe.RoutePrefixes,
+					MaxRequestBodyBytes: fe.MaxRequestBodyBytes,
+					DecodeAdmission:     fe.DecodeAdmission,
+					TrafficPorts:        fe.TrafficPorts,
+					PreRequestKeepalive: fe.PreRequestKeepalive,
 				},
 			); err != nil {
 				return err
@@ -85,15 +75,14 @@ func MountBundledFrontends(in MountBundledFrontendsInput) error {
 }
 
 // MountBundledFrontendsLegacy mounts all bundled frontends unconditionally (tests and minimal callers).
-func MountBundledFrontendsLegacy(mux *http.ServeMux, exec *runtime.Executor, defaultRouteSelector string, reg *pluginreg.Registry) error {
+func MountBundledFrontendsLegacy(mux *http.ServeMux, frontends HTTPFrontendInput) error {
+	fe := frontends
+	fe.Plugins = allBundledFrontendsEnabled()
+	fe.MaxRequestBodyBytes = 0
+	fe.TrafficPorts = traffic.PortBundle{}
 	return MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:                  mux,
-		Exec:                 exec,
-		DefaultRouteSelector: defaultRouteSelector,
-		Plugins:              allBundledFrontendsEnabled(),
-		MaxRequestBodyBytes:  0,
-		Reg:                  reg,
-		TrafficPorts:         traffic.PortBundle{},
+		Mux:       mux,
+		Frontends: fe,
 	})
 }
 

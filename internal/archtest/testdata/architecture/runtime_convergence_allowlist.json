@@ -188,22 +188,6 @@
     },
     {
       "gate": "runtime_convergence",
-      "path": "internal/stdhttp/request_plane.go",
-      "identity": "call:ComposeRequestPlane->requestPlaneAsBuilt#1",
-      "classification": "call",
-      "retirement_task": "3.5",
-      "rationale": "Sole production call site of requestPlaneAsBuilt"
-    },
-    {
-      "gate": "runtime_convergence",
-      "path": "internal/stdhttp/request_plane.go",
-      "identity": "func:requestPlaneAsBuilt",
-      "classification": "adapter",
-      "retirement_task": "3.5",
-      "rationale": "Canonical RequestPlane\u2192Built rehydration adapter; delete after focused mount inputs"
-    },
-    {
-      "gate": "runtime_convergence",
       "path": "internal/stdhttp/server.go",
       "identity": "func:RunWithRuntime",
       "classification": "declaration",

@@ -2,6 +2,7 @@ package stdhttp
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -37,13 +38,14 @@ func TestMountBundledFrontends_geminiDoesNotRegisterRoot(t *testing.T) {
 	plugins := []config.PluginConfig{
 		{ID: gemini.ID, Enabled: true},
 	}
-	if err := MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:                  mux,
-		Exec:                 ex,
-		DefaultRouteSelector: "stub:gemini-2.0-flash",
-		Plugins:              plugins,
-		MaxRequestBodyBytes:  0,
-		Reg:                  reg,
+	if err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
+		Frontends: HTTPFrontendInput{
+			Executor:             ex,
+			DefaultRouteSelector: "stub:gemini-2.0-flash",
+			Plugins:              plugins,
+			MaxRequestBodyBytes:  0,
+			Registry:             reg,
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -147,6 +149,101 @@ func TestTokenAccountingAdminMountedBodyLimitDoesNotEchoContent(t *testing.T) {
 	}
 }
 
+func TestTokenAccountingAdmin_explicitServicePreferredOverExecutorFallback(t *testing.T) {
+	t.Parallel()
+	cfg := tokenAccountingAdminTestConfig(true)
+	explicit := accountingapp.NewService(accountingapp.ServiceConfig{Mode: accountingapp.ModeLocalOnly}, nil, fixedLocalCounter{})
+	fallback := accountingapp.NewService(accountingapp.ServiceConfig{Mode: accountingapp.ModeLocalOnly}, nil, failingLocalCounter{})
+	ex := runtime.TestExecutor()
+	ex.AdminCountService = fallback
+	built := &runtimebundle.Built{
+		Executor:             ex,
+		PluginRegistry:       pluginreg.NewRegistry(),
+		TokenAccountingAdmin: explicit,
+	}
+	app := mustRuntimeApp(t, cfg)
+	h, cleanup, err := NewStandardHandler(context.Background(), cfg, app, slog.Default(), built)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cleanup(context.Background()) })
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/admin/token-count", strings.NewReader(tokenAccountingAdminBody()))
+	req.Header.Set(diag.HeaderDiagnosticsSecret, "secretsecret")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("explicit service status %d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestTokenAccountingAdmin_executorFallbackWhenExplicitNil(t *testing.T) {
+	t.Parallel()
+	cfg := tokenAccountingAdminTestConfig(true)
+	fallback := accountingapp.NewService(accountingapp.ServiceConfig{Mode: accountingapp.ModeLocalOnly}, nil, fixedLocalCounter{})
+	ex := runtime.TestExecutor()
+	ex.AdminCountService = fallback
+	built := &runtimebundle.Built{
+		Executor:       ex,
+		PluginRegistry: pluginreg.NewRegistry(),
+		// TokenAccountingAdmin intentionally nil → executor AdminCountService fallback.
+	}
+	app := mustRuntimeApp(t, cfg)
+	h, cleanup, err := NewStandardHandler(context.Background(), cfg, app, slog.Default(), built)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cleanup(context.Background()) })
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/admin/token-count", strings.NewReader(tokenAccountingAdminBody()))
+	req.Header.Set(diag.HeaderDiagnosticsSecret, "secretsecret")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("fallback status %d body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `"client_visible"`) {
+		t.Fatalf("response missing count body: %s", rr.Body.String())
+	}
+}
+
+func TestTokenAccountingAdmin_nilServiceReturnsUnavailable(t *testing.T) {
+	t.Parallel()
+	cfg := tokenAccountingAdminTestConfig(true)
+	ex := runtime.TestExecutor()
+	// No TokenAccountingAdmin and no AdminCountService.
+	built := &runtimebundle.Built{Executor: ex, PluginRegistry: pluginreg.NewRegistry()}
+	app := mustRuntimeApp(t, cfg)
+	h, cleanup, err := NewStandardHandler(context.Background(), cfg, app, slog.Default(), built)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cleanup(context.Background()) })
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/admin/token-count", strings.NewReader(tokenAccountingAdminBody()))
+	req.Header.Set(diag.HeaderDiagnosticsSecret, "secretsecret")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status %d body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "count_unavailable") {
+		t.Fatalf("body=%s", rr.Body.String())
+	}
+}
+
+type failingLocalCounter struct{}
+
+func (failingLocalCounter) CountText(context.Context, accountingapp.CountTextInput) (accountingapp.CountResult, error) {
+	return accountingapp.CountResult{}, errors.New("fallback must not be used")
+}
+func (failingLocalCounter) CountCall(context.Context, accountingapp.CountCallInput) (accountingapp.CountResult, error) {
+	return accountingapp.CountResult{}, errors.New("fallback must not be used")
+}
+func (failingLocalCounter) CountOutput(context.Context, accountingapp.CountOutputInput) (accountingapp.CountResult, error) {
+	return accountingapp.CountResult{}, errors.New("fallback must not be used")
+}
+
 func tokenAccountingAdminTestConfig(enabled bool) *config.Config {
 	return &config.Config{
 		Server:      config.ServerConfig{Address: "127.0.0.1:0"},
@@ -197,13 +294,14 @@ func TestMountBundledFrontends_explicitRegistryMissingFrontend(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", nil)
-	err := MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:                  mux,
-		Exec:                 ex,
-		DefaultRouteSelector: "stub:x",
-		Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
-		MaxRequestBodyBytes:  0,
-		Reg:                  reg,
+	err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
+		Frontends: HTTPFrontendInput{
+			Executor:             ex,
+			DefaultRouteSelector: "stub:x",
+			Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
+			MaxRequestBodyBytes:  0,
+			Registry:             reg,
+		},
 	})
 	if err == nil {
 		t.Fatal("expected error when registry lacks frontend factories")

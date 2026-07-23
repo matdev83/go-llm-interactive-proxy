@@ -47,13 +47,14 @@ func TestOmittedRoute_openaiResponses_usesEffectiveDefaultRoute(t *testing.T) {
 	var cap sync.Map
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
 	mux := http.NewServeMux()
-	if err := MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:                  mux,
-		Exec:                 ex,
-		DefaultRouteSelector: route,
-		Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
-		MaxRequestBodyBytes:  0,
-		Reg:                  reg,
+	if err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
+		Frontends: HTTPFrontendInput{
+			Executor:             ex,
+			DefaultRouteSelector: route,
+			Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
+			MaxRequestBodyBytes:  0,
+			Registry:             reg,
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -81,14 +82,15 @@ func TestBodyRoute_openaiResponses_usesMountedRoutePrefixes(t *testing.T) {
 	var cap sync.Map
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
 	mux := http.NewServeMux()
-	if err := MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:                  mux,
-		Exec:                 ex,
-		DefaultRouteSelector: unifiedPolicyRoute,
-		Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
-		RoutePrefixes:        []string{"stub"},
-		MaxRequestBodyBytes:  0,
-		Reg:                  reg,
+	if err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
+		Frontends: HTTPFrontendInput{
+			Executor:             ex,
+			DefaultRouteSelector: unifiedPolicyRoute,
+			Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
+			RoutePrefixes:        []string{"stub"},
+			MaxRequestBodyBytes:  0,
+			Registry:             reg,
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -118,13 +120,14 @@ func TestOmittedRoute_openaiLegacy_usesEffectiveDefaultRoute(t *testing.T) {
 	var cap sync.Map
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
 	mux := http.NewServeMux()
-	if err := MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:                  mux,
-		Exec:                 ex,
-		DefaultRouteSelector: route,
-		Plugins:              []config.PluginConfig{{ID: "openai-legacy", Enabled: true}},
-		MaxRequestBodyBytes:  0,
-		Reg:                  reg,
+	if err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
+		Frontends: HTTPFrontendInput{
+			Executor:             ex,
+			DefaultRouteSelector: route,
+			Plugins:              []config.PluginConfig{{ID: "openai-legacy", Enabled: true}},
+			MaxRequestBodyBytes:  0,
+			Registry:             reg,
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -154,13 +157,14 @@ func TestOmittedRoute_anthropic_usesEffectiveDefaultRoute(t *testing.T) {
 	var cap sync.Map
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
 	mux := http.NewServeMux()
-	if err := MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:                  mux,
-		Exec:                 ex,
-		DefaultRouteSelector: route,
-		Plugins:              []config.PluginConfig{{ID: "anthropic", Enabled: true}},
-		MaxRequestBodyBytes:  0,
-		Reg:                  reg,
+	if err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
+		Frontends: HTTPFrontendInput{
+			Executor:             ex,
+			DefaultRouteSelector: route,
+			Plugins:              []config.PluginConfig{{ID: "anthropic", Enabled: true}},
+			MaxRequestBodyBytes:  0,
+			Registry:             reg,
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}

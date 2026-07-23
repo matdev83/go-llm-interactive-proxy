@@ -130,13 +130,14 @@ models:
 	serve := func(t *testing.T, route string) *httptest.ResponseRecorder {
 		t.Helper()
 		mux := http.NewServeMux()
-		if err := MountBundledFrontends(MountBundledFrontendsInput{
-			Mux:                  mux,
-			Exec:                 built.Executor,
-			DefaultRouteSelector: route,
-			Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
-			RoutePrefixes:        built.RoutePrefixes,
-			Reg:                  reg,
+		if err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
+			Frontends: HTTPFrontendInput{
+				Executor:             built.Executor,
+				DefaultRouteSelector: route,
+				Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
+				RoutePrefixes:        built.RoutePrefixes,
+				Registry:             reg,
+			},
 		}); err != nil {
 			t.Fatalf("MountBundledFrontends: %v", err)
 		}

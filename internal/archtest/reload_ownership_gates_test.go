@@ -5021,7 +5021,7 @@ func TestReloadOwnership_LiveTreeNoActiveRuntimeMutationInComposition(t *testing
 	allow := map[string]bool{
 		// Startup diagnostics wiring mutates the executor before serve; split in
 		// later generation-compile work rather than refactoring here (task 1.1).
-		"internal/stdhttp/mount_diagnostics.go:in.Exec.RouteTrace=": true,
+		"internal/stdhttp/mount_diagnostics.go:in.Core.Executor.RouteTrace=": true,
 	}
 
 	allFiles := map[string]string{}

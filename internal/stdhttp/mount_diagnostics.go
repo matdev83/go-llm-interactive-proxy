@@ -11,32 +11,26 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
 // mountDiagnosticsInput carries inputs for [mountDiagnostics].
 type mountDiagnosticsInput struct {
-	LogCtx context.Context
-	Mux    *http.ServeMux
-	Cfg    *config.Config
-	Log    *slog.Logger
-	Built  *runtimebundle.Built
-	Exec   *runtime.Executor
-	Reg    *pluginreg.Registry
-	App    *runtime.App
-	// Registrations is used when App is nil (generation path).
-	Registrations []lipsdk.Registration
+	LogCtx     context.Context
+	Mux        *http.ServeMux
+	Cfg        *config.Config
+	Log        *slog.Logger
+	Operations HTTPOperationsInput
+	Core       HTTPCoreInput
+	Reg        *pluginreg.Registry
 }
 
 // mountDiagnostics mounts health, attempts, inventory, route-trace, and pprof endpoints when
 // diagnostics is enabled. Errors are returned with the same wrapping the inline block previously
 // used so [RunWithRuntime]'s error chain (and tests asserting on it) stay identical.
 func mountDiagnostics(in mountDiagnosticsInput) error {
-	mux, cfg, log, built := in.Mux, in.Cfg, in.Log, in.Built
+	mux, cfg, log, ops := in.Mux, in.Cfg, in.Log, in.Operations
 	logCtx := in.LogCtx
 	if !cfg.Diagnostics.Enabled {
 		return nil
@@ -47,18 +41,14 @@ func mountDiagnostics(in mountDiagnosticsInput) error {
 	}
 	mux.Handle(hp, diag.HealthHandler())
 	if ap := cfg.Diagnostics.AttemptsPath; ap != "" {
-		ah, err := diag.AttemptsHandler(built.Store)
+		ah, err := diag.AttemptsHandler(ops.Store)
 		if err != nil {
 			return fmt.Errorf("stdhttp: attempts handler: %w", err)
 		}
 		mux.Handle(ap, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, ah))
 	}
 	if ip := strings.TrimSpace(cfg.Diagnostics.InventoryPath); ip != "" {
-		regs := in.Registrations
-		if in.App != nil {
-			regs = in.App.Registrations()
-		}
-		ih, err := diag.InventoryHandler(cfg, mergeInventoryExtrasForDiagnostics(in.Reg, regs, in.Built.SecretGuardInventory))
+		ih, err := diag.InventoryHandler(cfg, mergeInventoryExtrasForDiagnostics(in.Reg, ops.Registrations, ops.SecretGuardInventory))
 		if err != nil {
 			return fmt.Errorf("stdhttp: inventory handler: %w", err)
 		}
@@ -66,7 +56,9 @@ func mountDiagnostics(in mountDiagnosticsInput) error {
 	}
 	if rt := strings.TrimSpace(cfg.Diagnostics.RouteTracePath); rt != "" {
 		traceBuf := diag.NewRouteTraceBuffer(64)
-		in.Exec.RouteTrace = traceBuf
+		if in.Core.Executor != nil {
+			in.Core.Executor.RouteTrace = traceBuf
+		}
 		rh, err := diag.RouteTraceHandler(traceBuf, log)
 		if err != nil {
 			return fmt.Errorf("stdhttp: route trace handler: %w", err)
@@ -95,17 +87,17 @@ func mergeInventoryExtrasForDiagnostics(reg *pluginreg.Registry, registrations [
 	return out
 }
 
-// diagnosticsMount carries non-context inputs for diagnostics mount functions.
+// diagnosticsMount carries non-context inputs for model diagnostics mounts.
 // Callers pass context.Context as an explicit parameter (never stored).
 type diagnosticsMount struct {
-	Mux   *http.ServeMux
-	Cfg   *config.Config
-	Log   *slog.Logger
-	Built *runtimebundle.Built
+	Mux    *http.ServeMux
+	Cfg    *config.Config
+	Log    *slog.Logger
+	Models HTTPModelInput
 }
 
 func mountModelCatalogDiagnostics(ctx context.Context, in diagnosticsMount) {
-	mux, cfg, log, built := in.Mux, in.Cfg, in.Log, in.Built
+	mux, cfg, log, models := in.Mux, in.Cfg, in.Log, in.Models
 	if mux == nil || cfg == nil {
 		return
 	}
@@ -113,10 +105,7 @@ func mountModelCatalogDiagnostics(ctx context.Context, in diagnosticsMount) {
 	if path == "" {
 		return
 	}
-	var rt *modelcatalog.CatalogRuntime
-	if built != nil {
-		rt = built.CatalogRuntime
-	}
+	rt := models.CatalogRuntime
 	var updateInterval time.Duration
 	if d, ok := cfg.ModelCatalog.UpdateIntervalDuration(); ok {
 		updateInterval = d
@@ -135,7 +124,7 @@ func mountModelCatalogDiagnostics(ctx context.Context, in diagnosticsMount) {
 }
 
 func mountModelInventoryDiagnostics(ctx context.Context, in diagnosticsMount) {
-	mux, cfg, log, built := in.Mux, in.Cfg, in.Log, in.Built
+	mux, cfg, log, models := in.Mux, in.Cfg, in.Log, in.Models
 	if mux == nil || cfg == nil {
 		return
 	}
@@ -143,11 +132,7 @@ func mountModelInventoryDiagnostics(ctx context.Context, in diagnosticsMount) {
 	if path == "" {
 		return
 	}
-	var rt *modelregistry.Runtime
-	if built != nil {
-		rt = built.ModelRegistryRuntime
-	}
-	mux.Handle(path, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, NewModelRegistryStatusHandler(rt)))
+	mux.Handle(path, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, NewModelRegistryStatusHandler(models.ModelRegistryRuntime)))
 	if log != nil {
 		log.InfoContext(ctx, "model inventory diagnostics mounted", "path", path)
 	}

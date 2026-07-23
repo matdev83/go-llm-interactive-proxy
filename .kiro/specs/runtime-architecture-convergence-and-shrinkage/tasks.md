@@ -85,7 +85,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 - [ ] 3. Replace broad runtime bags at the HTTP boundary
 
-- [ ] 3.1 Add focused HTTP mount contract RED tests
+- [x] 3.1 Add focused HTTP mount contract RED tests
   - Characterize every mount helper's actual dependency usage, middleware order, route set, route-conflict behavior, auth order, metrics/tracing, and frontend configuration.
   - Add compile-time tests requiring mount helpers to accept only cohesive capability groups and no closer/lifecycle owner.
   - Add an architecture test prohibiting `*runtimebundle.Built` in stdhttp production mount signatures.
@@ -95,7 +95,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 1.3, 1.4_
   - _Validation: `go test ./internal/stdhttp/... ./internal/archtest/... -run 'MountContract|Middleware|RouteConflict|BuiltDependency'`_
 
-- [ ] 3.2 Convert mount helpers to cohesive immutable inputs
+- [x] 3.2 Convert mount helpers to cohesive immutable inputs
   - Introduce execution/routing, security, operations/diagnostics, models, and frontend groups.
   - Pass each mount only the group it consumes.
   - Preserve all existing handler behavior and management-plane separation.

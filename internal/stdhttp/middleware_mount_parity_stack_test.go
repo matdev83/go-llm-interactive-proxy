@@ -9,7 +9,6 @@ import (
 	coreconfig "github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
@@ -36,7 +35,7 @@ func TestStandardMiddlewareMountParity_StackOrderObservables(t *testing.T) {
 		},
 	}
 	h := stackHTTPHandler(stackHTTPInput{
-		Cfg: cfg, Log: testkit.DiscardLogger(), Built: &runtimebundle.Built{},
+		Cfg: cfg, Log: testkit.DiscardLogger(), Security: HTTPSecurityInput{},
 		TraceGen: diag.NewTraceIDGenerator(), Inner: mux,
 	})
 

@@ -31,7 +31,7 @@ func TestStackHTTPHandler_recoveredPanicThenOK_metricsObserves5xx(t *testing.T) 
 	}
 	built := &runtimebundle.Built{}
 	h := stackHTTPHandler(stackHTTPInput{
-		Cfg: cfg, Log: testkit.DiscardLogger(), Built: built, TraceGen: diag.NewTraceIDGenerator(), Inner: mux, HTTPProm: hm,
+		Cfg: cfg, Log: testkit.DiscardLogger(), Security: HTTPSecurityInput{HTTPAuthProviders: built.HTTPAuthProviders}, TraceGen: diag.NewTraceIDGenerator(), Inner: mux, HTTPProm: hm,
 	})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
@@ -83,7 +83,7 @@ func TestStackHTTPHandler_recoveredPanic_accessLogRecords5xx(t *testing.T) {
 	}
 	built := &runtimebundle.Built{}
 	h := stackHTTPHandler(stackHTTPInput{
-		Cfg: cfg, Log: log, Built: built, TraceGen: diag.NewTraceIDGenerator(), Inner: mux, HTTPProm: nil,
+		Cfg: cfg, Log: log, Security: HTTPSecurityInput{HTTPAuthProviders: built.HTTPAuthProviders}, TraceGen: diag.NewTraceIDGenerator(), Inner: mux, HTTPProm: nil,
 	})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
@@ -140,7 +140,7 @@ func TestStackHTTPHandler_recoveredPanic_combinedMetricsAccessAndSafeBody(t *tes
 	}
 	built := &runtimebundle.Built{}
 	h := stackHTTPHandler(stackHTTPInput{
-		Cfg: cfg, Log: log, Built: built, TraceGen: diag.NewTraceIDGenerator(), Inner: mux, HTTPProm: hm,
+		Cfg: cfg, Log: log, Security: HTTPSecurityInput{HTTPAuthProviders: built.HTTPAuthProviders}, TraceGen: diag.NewTraceIDGenerator(), Inner: mux, HTTPProm: hm,
 	})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
@@ -244,7 +244,7 @@ func TestStackHTTPHandler_validation400_notLoggedAsIsolatedPanic(t *testing.T) {
 	}
 	built := &runtimebundle.Built{}
 	h := stackHTTPHandler(stackHTTPInput{
-		Cfg: cfg, Log: log, Built: built, TraceGen: diag.NewTraceIDGenerator(), Inner: mux, HTTPProm: hm,
+		Cfg: cfg, Log: log, Security: HTTPSecurityInput{HTTPAuthProviders: built.HTTPAuthProviders}, TraceGen: diag.NewTraceIDGenerator(), Inner: mux, HTTPProm: hm,
 	})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)

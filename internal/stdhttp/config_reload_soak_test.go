@@ -17,8 +17,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
-	"go.uber.org/goleak"
 	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
+	"go.uber.org/goleak"
 )
 
 // TestRuntimeConfigReloadSoak is a bounded precommit reload soak mixing

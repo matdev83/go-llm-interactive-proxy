@@ -51,17 +51,19 @@ func TestBuildMount_sharedDecodeAdmissionIdentity(t *testing.T) {
 		}
 	}
 	if err := MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:                  http.NewServeMux(),
-		Exec:                 built.Executor,
-		DefaultRouteSelector: "stub:gpt-4o-mini",
-		Plugins: []config.PluginConfig{
-			{ID: "openai-legacy", Enabled: true},
-			{ID: "anthropic", Enabled: true},
-			{ID: "openai-responses", Enabled: true},
-			{ID: "gemini", Enabled: true},
+		Mux: http.NewServeMux(),
+		Frontends: HTTPFrontendInput{
+			Executor:             built.Executor,
+			DefaultRouteSelector: "stub:gpt-4o-mini",
+			Plugins: []config.PluginConfig{
+				{ID: "openai-legacy", Enabled: true},
+				{ID: "anthropic", Enabled: true},
+				{ID: "openai-responses", Enabled: true},
+				{ID: "gemini", Enabled: true},
+			},
+			DecodeAdmission: built.DecodeAdmission,
+			Registry:        recReg,
 		},
-		DecodeAdmission: built.DecodeAdmission,
-		Reg:             recReg,
 	}); err != nil {
 		t.Fatal(err)
 	}

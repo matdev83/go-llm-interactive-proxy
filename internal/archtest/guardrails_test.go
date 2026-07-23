@@ -220,7 +220,10 @@ var lineBudgets = []struct {
 	// (measured non-test total 4587; ~63 lines headroom).
 	// Raised from 4650 to 4750 for versioned-runtime-reload task 5.6: generation
 	// host shutdown ordering (coordinator BeginShutdown + management close).
-	{"internal/stdhttp", 4750},
+	// Ratcheted to the exact runtime-architecture-convergence task 3.2 total:
+	// StandardHTTPInput focused projection groups, typed-nil adapter boundaries,
+	// and defensive clones (measured non-test total 4793; zero headroom).
+	{"internal/stdhttp", 4793},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
 	// lifecycle (requirements 11.3, 11.6, 11.7).
 	// Raised from 4800 to 5200 for build-local PostgreSQL pool ownership,
