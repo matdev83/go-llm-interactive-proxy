@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
 	"path/filepath"
@@ -9,105 +12,144 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-// TestHostBuild_ServeUsesSingleHostBuildCall fails while serve-shaped startup
-// still requires BuildBootstrap + AttachReloadHost (req 4.1, 4.5). Architecture
-// scanners keep production allowlisted until Task 5.5; this behavioral contract
-// stays RED until BuildHost migrates the serve path.
+// TestHostBuild_ServeUsesSingleHostBuildCall proves serve-shaped startup obtains
+// a complete Host from one BuildHost call (req 4.1, 4.5).
 func TestHostBuild_ServeUsesSingleHostBuildCall(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
 
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
+	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
 		ConfigPath:      cfgPath,
-		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
-		t.Fatalf("BuildBootstrap: %v", err)
+		t.Fatalf("BuildHost: %v", err)
 	}
-	t.Cleanup(func() { cleanupServeBootstrap(t, res) })
-	if res.GenerationManager == nil || res.ProcessServices == nil {
-		t.Fatal("BootstrapServe must publish generation host handles")
+	t.Cleanup(func() { _ = host.Close(context.Background()) })
+	if host.Manager == nil || host.Process == nil || host.Coordinator == nil || host.Executor == nil {
+		t.Fatal("BuildHost must return a complete Host")
 	}
-
-	host, err := runtimebundle.AttachReloadHost(ctx, res, cfgPath, stdhttp.ComposeStandardHTTP)
-	if err != nil {
-		t.Fatalf("AttachReloadHost: %v", err)
+	if host.Manager.Active() == nil || host.Manager.Active().ID() != 1 {
+		t.Fatalf("BuildHost must publish generation 1")
 	}
-	if host == nil || host.Coordinator == nil {
-		t.Fatal("AttachReloadHost must bind coordinator in current architecture")
-	}
-	// Observed: coordinator binding required a second ownership step after bootstrap.
-	t.Fatalf("serve must obtain a complete Host from one BuildHost call; runServeCommand still requires BuildBootstrap+AttachReloadHost (req 4.1, 4.5)")
+	assertServeCommandCallsBuildHostOnce(t)
 }
 
-// TestOneSnapshot_ServePathMustNotDoubleLoadEffective fails while the serve gate
-// and BuildBootstrap can observe disagreeing snapshots across a config mutation
-// (req 4.2-4.3). Controlled A/B load counts for HostBuilder live in runtimebundle.
+// TestOneSnapshot_ServePathMustNotDoubleLoadEffective proves production serve
+// no longer pre-loads the gate separately from host construction (req 4.2-4.3).
 func TestOneSnapshot_ServePathMustNotDoubleLoadEffective(t *testing.T) {
 	t.Parallel()
+	assertServeCommandDoesNotCallValidateGate(t)
+
 	ctx := context.Background()
 	path := writeServeMarkerConfig(t, "127.0.0.1:18301", accessmode.ModeMultiUser)
-
 	flagTrue := true
-	if err := validateServeMultiUserGate(ctx, path, &flagTrue, config.StreamRecoveryOverrides{}); err != nil {
-		t.Fatalf("gate with snapshot A: %v", err)
-	}
-	gateEff, err := runtimebundle.LoadBootstrapEffective(ctx, path, config.StreamRecoveryOverrides{})
-	if err != nil {
-		t.Fatalf("capture gate fingerprint: %v", err)
-	}
-	gateFP := gateEff.Identity.PublicFingerprint
-
-	rewriteServeMarkerConfig(t, path, "127.0.0.1:18302", accessmode.ModeSingleUser)
-
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath:      path,
-		Mode:            runtimebundle.BootstrapServe,
-		Mandatory:       lipsdk.StandardDistributionRequirements(),
-		LogWriter:       io.Discard,
-		HandlerComposer: stdhttp.ComposeStandardHTTP,
+	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
+		ConfigPath:              path,
+		Mandatory:               lipsdk.StandardDistributionRequirements(),
+		LogWriter:               io.Discard,
+		HandlerComposer:         stdhttp.ComposeStandardHTTP,
+		EnforceMultiUserCLIGate: true,
+		MultiUser:               &flagTrue,
 	})
 	if err != nil {
-		t.Fatalf("BuildBootstrap after mutation: %v", err)
+		t.Fatalf("BuildHost with multi-user gate: %v", err)
 	}
-	t.Cleanup(func() { cleanupServeBootstrap(t, res) })
-
-	genFP := ""
-	if res.InitialGeneration != nil {
-		genFP = res.InitialGeneration.Status().Meta.PublicFingerprint
+	t.Cleanup(func() { _ = host.Close(context.Background()) })
+	wantFP := host.Effective.Identity.PublicFingerprint
+	if wantFP == "" {
+		t.Fatal("expected non-empty fingerprint")
 	}
-	if gateFP == "" || genFP == "" {
-		t.Fatal("expected non-empty fingerprints")
+	if host.Manager.Active().Status().Meta.PublicFingerprint != wantFP {
+		t.Fatal("generation fingerprint must match accepted Effective")
 	}
-	if gateFP == genFP {
-		t.Fatal("expected TOCTOU disagreement after controlled config mutation")
-	}
-	t.Fatalf("serve path must not double-load effective config; gate fingerprint=%s generation fingerprint=%s (req 4.2-4.3)", gateFP, genFP)
 }
 
-func cleanupServeBootstrap(t *testing.T, res runtimebundle.BootstrapResult) {
+func assertServeCommandCallsBuildHostOnce(t *testing.T) {
 	t.Helper()
-	ctx := context.Background()
-	if res.GenerationManager != nil {
-		_ = res.GenerationManager.ShutdownDetached(ctx, runtimehost.NewLifecycleWorker())
+	src, err := os.ReadFile("command.go")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if res.ProcessServices != nil {
-		_ = res.ProcessServices.Close()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "command.go", src, 0)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if res.ShutdownTracing != nil {
-		_ = res.ShutdownTracing(ctx)
+	var buildHostCalls, bootstrapCalls, attachCalls int
+	ast.Inspect(f, func(n ast.Node) bool {
+		fd, ok := n.(*ast.FuncDecl)
+		if !ok || fd.Name == nil || fd.Name.Name != "runServeCommand" || fd.Body == nil {
+			return true
+		}
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel == nil {
+				return true
+			}
+			switch sel.Sel.Name {
+			case "BuildHost":
+				buildHostCalls++
+			case "BuildBootstrap":
+				bootstrapCalls++
+			case "AttachReloadHost":
+				attachCalls++
+			}
+			return true
+		})
+		return false
+	})
+	if buildHostCalls != 1 {
+		t.Fatalf("runServeCommand BuildHost calls=%d want 1", buildHostCalls)
 	}
+	if bootstrapCalls != 0 || attachCalls != 0 {
+		t.Fatalf("runServeCommand must not call BuildBootstrap/AttachReloadHost; bootstrap=%d attach=%d", bootstrapCalls, attachCalls)
+	}
+}
+
+func assertServeCommandDoesNotCallValidateGate(t *testing.T) {
+	t.Helper()
+	src, err := os.ReadFile("command.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "command.go", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ast.Inspect(f, func(n ast.Node) bool {
+		fd, ok := n.(*ast.FuncDecl)
+		if !ok || fd.Name == nil || fd.Name.Name != "runServeCommand" || fd.Body == nil {
+			return true
+		}
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			switch fun := call.Fun.(type) {
+			case *ast.Ident:
+				if fun.Name == "validateServeMultiUserGate" {
+					t.Fatal("runServeCommand must not call validateServeMultiUserGate; BuildHost owns the gate")
+				}
+			}
+			return true
+		})
+		return false
+	})
 }
 
 func writeServeMarkerConfig(t *testing.T, address string, mode accessmode.Mode) string {
@@ -121,17 +163,6 @@ func writeServeMarkerConfig(t *testing.T, address string, mode accessmode.Mode) 
 		t.Fatal(err)
 	}
 	return path
-}
-
-func rewriteServeMarkerConfig(t *testing.T, path, address string, mode accessmode.Mode) {
-	t.Helper()
-	base, err := os.ReadFile(filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, applyServeMarker(t, string(base), address, mode), 0o600); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func applyServeMarker(t *testing.T, text, address string, mode accessmode.Mode) []byte {

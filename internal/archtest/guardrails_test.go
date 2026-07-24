@@ -323,7 +323,12 @@ var lineBudgets = []struct {
 	// terminal-work methods (measured 9603; zero headroom).
 	// Task 5.1: exact measured size after per-invocation bootstrapEffectiveLoader
 	// parameter + unexported buildHost RED seam (no package-global loader hook).
-	{"internal/infra/runtimebundle", 9661},
+	// Task 5.2: exact measured after BuildHost repair — shared hostBuildProbe
+	// seam (no test-only ownership engine) and EnforceMultiUserCLIGate; temporary
+	// raise records serve/public Build migration off BuildBootstrap+AttachReloadHost
+	// (measured 9996; zero headroom). Task 5.5 must delete remaining dual
+	// bootstrap/attachment paths and ratchet below the pre-spec package size.
+	{"internal/infra/runtimebundle", 9996},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

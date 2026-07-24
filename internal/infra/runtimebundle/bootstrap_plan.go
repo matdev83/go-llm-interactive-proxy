@@ -88,9 +88,34 @@ func shutdownTracing(ctx context.Context, shutdown func(context.Context) error) 
 	_ = shutdown(context.WithoutCancel(ctx))
 }
 
+// initProcessTracing is the singular production tracing.Init call site for
+// BuildBootstrap and BuildHost (process-service uniqueness gate).
+func initProcessTracing(ctx context.Context, cfg *config.Config) (tracing.Result, error) {
+	return tracing.Init(ctx, cfg)
+}
+
 // BuildBootstrap centralizes standard-distribution startup used by lipstd inspect and serve paths.
+// Standard serve and public Build use [BuildHost]; inspect/check-config remain on BuildBootstrap
+// until Tasks 5.3/5.4.
 func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResult, error) {
 	return buildBootstrap(ctx, in, osenv.Process{}, LoadBootstrapEffectiveWithSource)
+}
+
+// installStandardHostRegistry installs the standard plugin bundle and validates
+// mandatory factories. Sole production InstallStandardBundleOn call site owner
+// (shared by BuildHost and BuildBootstrap).
+func installStandardHostRegistry(mandatory []lipsdk.Requirement) (*pluginreg.Registry, error) {
+	reg := pluginreg.NewRegistry()
+	apiKeys := standardplugins.ResolveUpstreamAPIKeysFromEnv()
+	if err := standardplugins.InstallStandardBundleOn(reg, apiKeys); err != nil {
+		return nil, fmt.Errorf("runtimebundle: plugin registration: %w", err)
+	}
+	if len(mandatory) > 0 {
+		if err := reg.ValidateBundledFactories(mandatory); err != nil {
+			return nil, fmt.Errorf("runtimebundle: registry factory validation: %w", err)
+		}
+	}
+	return reg, nil
 }
 
 func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv coresg.Environment, loadEffective bootstrapEffectiveLoader) (BootstrapResult, error) {
@@ -122,7 +147,7 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 	out.ActiveSource = activeSource
 	out.FixedStreamRecovery = fixedStreamRecovery
 
-	traceRes, err := tracing.Init(ctx, cfg)
+	traceRes, err := initProcessTracing(ctx, cfg)
 	if err != nil {
 		return out, fmt.Errorf("runtimebundle: tracing init: %w", err)
 	}
@@ -137,17 +162,10 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 	}
 	out.Logger = logger
 
-	reg := pluginreg.NewRegistry()
-	apiKeys := standardplugins.ResolveUpstreamAPIKeysFromEnv()
-	if err := standardplugins.InstallStandardBundleOn(reg, apiKeys); err != nil {
+	reg, err := installStandardHostRegistry(in.Mandatory)
+	if err != nil {
 		shutdownTracing(ctx, traceRes.Shutdown)
-		return out, fmt.Errorf("runtimebundle: plugin registration: %w", err)
-	}
-	if len(in.Mandatory) > 0 {
-		if err := reg.ValidateBundledFactories(in.Mandatory); err != nil {
-			shutdownTracing(ctx, traceRes.Shutdown)
-			return out, fmt.Errorf("runtimebundle: registry factory validation: %w", err)
-		}
+		return out, err
 	}
 
 	regs := config.RegistrationsFromConfig(cfg)

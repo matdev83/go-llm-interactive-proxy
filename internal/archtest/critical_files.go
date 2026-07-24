@@ -79,8 +79,9 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/stdhttp/http_input.go", Max: 42},
 	// Freeze 364 → final ≤300 (Req 11.3). Lower via Phase 5 task 5.5 (process construction).
 	{Path: "internal/infra/runtimebundle/process_services.go", Max: 364},
-	// Freeze 367 → final ≤150 (Req 11.3). Lower via Phase 8 task 8.1 (public build/facade).
-	{Path: "pkg/lipruntime/build.go", Max: 367},
+	// Freeze 367 → Task 5.2 ratcheted to exact thin BuildHost facade (measured 321);
+	// final ≤150 (Req 11.3). Lower via Phase 8 task 8.1 (public build/facade).
+	{Path: "pkg/lipruntime/build.go", Max: 321},
 
 	// Task 2.3: after deleting pkg/lipruntime/reload_map.go and converting public
 	// mirrored types to exact SDK aliases, freeze the thin reload facade files at

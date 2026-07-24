@@ -13,13 +13,13 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/osenv"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-// Task 5.1 RED: serve-shaped startup must consume exactly one accepted snapshot.
-// Today the gate load and BuildBootstrap load independently (req 4.2-4.3).
+// TestTOCTOU_ServeGateAndBootstrapDisagreeAcrossControlledLoads proves the
+// historical two-load defect is closed: BuildHost evaluates the multi-user gate
+// against the same accepted snapshot used for generation/reload (req 4.2-4.3).
 func TestTOCTOU_ServeGateAndBootstrapDisagreeAcrossControlledLoads(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -49,80 +49,65 @@ func TestTOCTOU_ServeGateAndBootstrapDisagreeAcrossControlledLoads(t *testing.T)
 		}
 	}
 
-	// Serve-only multi-user gate (cmd/lipstd validateServeMultiUserGate shape).
-	gateEff, _, _, err := load(ctx, pathA, config.StreamRecoveryOverrides{})
-	if err != nil {
-		t.Fatalf("gate load: %v", err)
-	}
-	gateMode, err := gateEff.Config.EffectiveAccessMode()
-	if err != nil {
-		t.Fatalf("gate access mode: %v", err)
-	}
 	flagTrue := true
-	if err := accessmode.ValidateServeModeGate(gateMode, &flagTrue); err != nil {
-		t.Fatalf("gate with snapshot A must pass --multi-user: %v", err)
-	}
-
-	res, err := buildBootstrap(ctx, BuildBootstrapInput{
-		ConfigPath:      pathA,
-		Mode:            BootstrapServe,
-		Mandatory:       lipsdk.StandardDistributionRequirements(),
-		LogWriter:       io.Discard,
-		HandlerComposer: stubHandlerComposer,
-	}, osenv.Process{}, load)
+	out, err := buildHostOutcome(ctx, hostBuildInput{
+		ConfigPath:              pathA,
+		Mandatory:               lipsdk.StandardDistributionRequirements(),
+		LogWriter:               io.Discard,
+		HandlerComposer:         stubHandlerComposer,
+		EnforceMultiUserCLIGate: true,
+		MultiUser:               &flagTrue,
+	}, load)
 	if err != nil {
-		t.Fatalf("BuildBootstrap: %v", err)
+		t.Fatalf("BuildHost: %v", err)
 	}
-	t.Cleanup(func() { cleanupBootstrapResult(t, res) })
-
-	host, err := AttachReloadHost(ctx, res, pathA, stubHandlerComposer)
-	if err != nil {
-		t.Fatalf("AttachReloadHost: %v", err)
-	}
+	t.Cleanup(func() { cleanupReloadHost(t, out.Host) })
 
 	gotLoads := int(loads.Load())
-	gateFP := gateEff.Identity.PublicFingerprint
+	wantFP := snapA.eff.Identity.PublicFingerprint
 	genFP := ""
-	if res.InitialGeneration != nil {
-		genFP = res.InitialGeneration.Status().Meta.PublicFingerprint
+	if out.Host.Manager != nil && out.Host.Manager.Active() != nil {
+		genFP = out.Host.Manager.Active().Status().Meta.PublicFingerprint
 	}
 	processAddr := ""
-	if res.Config != nil {
-		processAddr = res.Config.Server.Address
+	if out.Host.Config != nil {
+		processAddr = out.Host.Config.Server.Address
 	}
 	reloadFP := ""
-	if host != nil && host.Effective != nil {
-		reloadFP = host.Effective.Identity.PublicFingerprint
+	if out.Host.Effective != nil {
+		reloadFP = out.Host.Effective.Identity.PublicFingerprint
 	}
 	reloadHandle := configsource.FileIdentity{}
-	if res.ActiveSource != nil {
-		reloadHandle = res.ActiveSource.HandleIdentity
+	if out.Host.ActiveSource != nil {
+		reloadHandle = out.Host.ActiveSource.HandleIdentity
 	}
 
 	var problems []string
-	if gotLoads != 1 {
-		problems = append(problems, "effective loads="+strconv.Itoa(gotLoads)+" want 1 (gate+BuildBootstrap still load independently)")
+	if gotLoads != 1 || out.Journal.Loads != 1 {
+		problems = append(problems, "effective loads="+strconv.Itoa(gotLoads)+" journal="+strconv.Itoa(out.Journal.Loads)+" want 1")
 	}
-	if gateFP != genFP {
-		problems = append(problems, "gate fingerprint="+gateFP+" generation fingerprint="+genFP+" (TOCTOU across loads A→B)")
+	if wantFP != genFP {
+		problems = append(problems, "gate fingerprint="+wantFP+" generation fingerprint="+genFP)
 	}
-	if gateFP != reloadFP {
-		problems = append(problems, "gate fingerprint="+gateFP+" reload Effective fingerprint="+reloadFP)
+	if wantFP != reloadFP {
+		problems = append(problems, "gate fingerprint="+wantFP+" reload Effective fingerprint="+reloadFP)
 	}
 	if snapA.active.HandleIdentity != reloadHandle {
-		problems = append(problems, "reload ActiveSource handle differs from gate snapshot A handle")
+		problems = append(problems, "reload ActiveSource handle differs from accepted snapshot A handle")
 	}
 	if processAddr != snapA.eff.Config.Server.Address {
 		problems = append(problems, "process address="+processAddr+" want snapshot A address="+snapA.eff.Config.Server.Address)
 	}
-	if len(problems) == 0 {
-		t.Fatal("expected current two-load serve path to violate one-snapshot invariants")
+	if !hostIsComplete(out) {
+		problems = append(problems, "incomplete Host")
 	}
-	t.Fatalf("one-snapshot HostBuild invariant failed (%d):\n- %s", len(problems), strings.Join(problems, "\n- "))
+	if len(problems) != 0 {
+		t.Fatalf("one-snapshot HostBuild invariant failed (%d):\n- %s", len(problems), strings.Join(problems, "\n- "))
+	}
 }
 
 // TestOneSnapshot_HostTransactionSharesAcceptedSnapshot is the desired HostBuilder
-// contract (req 4.1-4.4). Task 5.2 makes it green by implementing buildHost.
+// contract (req 4.1-4.4).
 func TestOneSnapshot_HostTransactionSharesAcceptedSnapshot(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -140,7 +125,7 @@ func TestOneSnapshot_HostTransactionSharesAcceptedSnapshot(t *testing.T) {
 	}
 
 	flagFalse := false
-	out, err := buildHost(ctx, hostBuildInput{
+	out, err := buildHostOutcome(ctx, hostBuildInput{
 		ConfigPath:      pathA,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
@@ -254,13 +239,5 @@ func cleanupReloadHost(t *testing.T, host *ReloadHost) {
 	if host == nil {
 		return
 	}
-	ctx := context.Background()
-	host.BeginShutdown()
-	_ = host.WaitForIdle(ctx)
-	if host.Manager != nil {
-		_ = host.Manager.ShutdownDetached(ctx, runtimehost.NewLifecycleWorker())
-	}
-	if host.Process != nil {
-		_ = host.Process.Close()
-	}
+	_ = host.Close(context.Background())
 }

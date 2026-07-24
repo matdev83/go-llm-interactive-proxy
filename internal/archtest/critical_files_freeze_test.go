@@ -45,9 +45,9 @@ var expectedMigrationHotspotFreezes = []struct {
 	},
 	{
 		Path:         "pkg/lipruntime/build.go",
-		FreezeMax:    367,
+		FreezeMax:    321,
 		FinalTarget:  150,
-		LoweringTask: "8.1",
+		LoweringTask: "5.2",
 	},
 }
 

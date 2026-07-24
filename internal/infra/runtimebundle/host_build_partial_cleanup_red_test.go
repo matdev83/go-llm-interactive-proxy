@@ -41,7 +41,7 @@ type hostBuilderStageFault interface {
 type productionHostBuilder struct{}
 
 func (productionHostBuilder) Build(ctx context.Context, in hostBuildInput) (hostBuildOutcome, error) {
-	return buildHost(ctx, in, LoadBootstrapEffectiveWithSource)
+	return buildHostOutcome(ctx, in, LoadBootstrapEffectiveWithSource)
 }
 
 // TestPartialCleanup_HostBuilderStageMatrix encodes the BuildHost ownership
@@ -123,31 +123,9 @@ func TestPartialCleanup_HostBuilderStageMatrix(t *testing.T) {
 			name:  "coordinator_bind_failure_leaves_no_partial_ownership",
 			stage: hostBuildStageCoordinator,
 			run: func(t *testing.T) {
-				res, err := BuildBootstrap(ctx, BuildBootstrapInput{
-					ConfigPath:      cfgPath,
-					Mode:            BootstrapServe,
-					Mandatory:       lipsdk.StandardDistributionRequirements(),
-					LogWriter:       io.Discard,
-					HandlerComposer: stubHandlerComposer,
-				})
-				if err != nil {
-					t.Fatalf("BuildBootstrap: %v", err)
-				}
-				defer cleanupBootstrapResult(t, res)
-
-				_, attachErr := AttachReloadHost(ctx, res, cfgPath, nil)
-				if attachErr == nil {
-					t.Fatal("expected AttachReloadHost nil-composer failure")
-				}
-				if res.ProcessServices != nil && !res.ProcessServices.Closed() {
-					t.Fatalf("coordinator bind failure must not leave live ProcessServices for caller cleanup (two-step AttachReloadHost ownership defect)")
-				}
-				if res.GenerationManager != nil {
-					t.Fatalf("coordinator bind failure must not leave GenerationManager for caller cleanup")
-				}
-				if res.ShutdownTracing != nil {
-					t.Fatalf("coordinator bind failure must not leave ShutdownTracing handoff for caller cleanup")
-				}
+				assertHostBuilderStageCleanup(t, in, hostBuildStageCoordinator,
+					[]string{"loader", "tracing", "process", "compile", "publish", "coordinator"},
+					[]string{"coordinator", "publish", "compile", "process", "tracing"})
 			},
 		},
 		{

@@ -25,6 +25,12 @@ var closerAcquisitionOwnership = []ownershipEntry{
 		Notes:  "Process tracing shutdown func retained on bootstrap result.",
 	},
 	{
+		Symbol: "host_build.go:buildHostWithEnv:acq#0:assign:traceShutdown=traceRes.Shutdown#0",
+		Class:  ownershipProcess,
+		Source: "host_build.go → tracing.Init Result.Shutdown",
+		Notes:  "Process tracing shutdown retained for BuildHost / Host.Close (Task 5.2).",
+	},
+	{
 		Symbol: "process_services.go:NewProcessServices:acq#0:append(ps.closers, c)#0",
 		Class:  ownershipProcess,
 		Source: "process_services.go → NewProcessServices register helper",

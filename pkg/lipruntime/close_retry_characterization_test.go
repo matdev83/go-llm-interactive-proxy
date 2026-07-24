@@ -25,7 +25,7 @@ func TestClose_RetryAfterOwnedCloserErrorExactlyOnceProcess(t *testing.T) {
 	}
 
 	var tracingCalls atomic.Int32
-	rt.shutdownTracing = func(context.Context) error {
+	rt.host.ShutdownTracing = func(context.Context) error {
 		n := tracingCalls.Add(1)
 		if n == 1 {
 			return errors.New("tracing shutdown boom")

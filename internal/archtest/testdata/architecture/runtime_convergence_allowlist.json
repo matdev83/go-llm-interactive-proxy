@@ -7,15 +7,15 @@
       "path": "cmd/lipstd/command.go",
       "identity": "call:validateServeMultiUserGate->LoadBootstrapEffective#1",
       "classification": "call",
-      "retirement_task": "5.2",
-      "rationale": "Duplicate serve-path effective load before BuildBootstrap"
+      "retirement_task": "5.5",
+      "rationale": "Test/helper gate loader retained; production serve gate is inside BuildHost"
     },
     {
       "gate": "config_load",
       "path": "internal/infra/runtimebundle/bootstrap_effective.go",
       "identity": "call:LoadBootstrapEffective->LoadBootstrapEffectiveWithSource#1",
       "classification": "call",
-      "retirement_task": "5.2",
+      "retirement_task": "5.5",
       "rationale": "Owner wrapper delegates to WithSource"
     },
     {
@@ -23,7 +23,7 @@
       "path": "internal/infra/runtimebundle/bootstrap_effective.go",
       "identity": "call:LoadBootstrapEffectiveWithSource->config.LoadEffective#1",
       "classification": "call",
-      "retirement_task": "5.2",
+      "retirement_task": "5.5",
       "rationale": "Owner performs the singular strict LoadEffective for startup"
     },
     {
@@ -31,7 +31,7 @@
       "path": "internal/infra/runtimebundle/bootstrap_effective.go",
       "identity": "func:LoadBootstrapEffective",
       "classification": "owner",
-      "retirement_task": "5.2",
+      "retirement_task": "5.5",
       "rationale": "Startup effective-load owner wrapper"
     },
     {
@@ -39,7 +39,7 @@
       "path": "internal/infra/runtimebundle/bootstrap_effective.go",
       "identity": "func:LoadBootstrapEffectiveWithSource",
       "classification": "owner",
-      "retirement_task": "5.2",
+      "retirement_task": "5.5",
       "rationale": "Primary startup effective-load owner"
     },
     {
@@ -47,8 +47,8 @@
       "path": "internal/infra/runtimebundle/bootstrap_plan.go",
       "identity": "call:buildBootstrap->LoadBootstrapEffectiveWithSource#1",
       "classification": "call",
-      "retirement_task": "5.2",
-      "rationale": "BuildBootstrap startup load call"
+      "retirement_task": "5.3",
+      "rationale": "Inspect/check-config BuildBootstrap startup load call"
     },
     {
       "gate": "host_path",
@@ -77,34 +77,18 @@
     {
       "gate": "host_path",
       "path": "cmd/lipstd/command.go",
-      "identity": "call:runServeCommand->runtimebundle.AttachReloadHost#1",
-      "classification": "call",
-      "retirement_task": "5.5",
-      "rationale": "Serve two-step AttachReloadHost caller"
-    },
-    {
-      "gate": "host_path",
-      "path": "cmd/lipstd/command.go",
-      "identity": "call:runServeCommand->runtimebundle.BuildBootstrap#1",
-      "classification": "call",
-      "retirement_task": "5.2",
-      "rationale": "Standard serve bootstrap caller"
-    },
-    {
-      "gate": "host_path",
-      "path": "cmd/lipstd/command.go",
       "identity": "call:runServeCommand->stdhttp.RunWithGenerationHost#1",
       "classification": "call",
-      "retirement_task": "5.2",
-      "rationale": "Serve generation-host runner caller"
+      "retirement_task": "5.5",
+      "rationale": "Serve generation-host runner caller; BuildHost owns assembly"
     },
     {
       "gate": "host_path",
       "path": "internal/infra/runtimebundle/bootstrap_plan.go",
       "identity": "func:BuildBootstrap",
       "classification": "declaration",
-      "retirement_task": "5.2",
-      "rationale": "Current multi-mode host builder; replace with BuildHost"
+      "retirement_task": "5.5",
+      "rationale": "Inspect/check-config multi-mode builder retained until 5.3-5.5"
     },
     {
       "gate": "host_path",
@@ -119,32 +103,8 @@
       "path": "internal/stdhttp/generation_host.go",
       "identity": "func:RunWithGenerationHost",
       "classification": "declaration",
-      "retirement_task": "5.2",
-      "rationale": "Current generation-host serve helper; freeze callers until BuildHost owns assembly"
-    },
-    {
-      "gate": "host_path",
-      "path": "pkg/lipruntime/build.go",
-      "identity": "call:Build->runtimebundle.AttachReloadHost#1",
-      "classification": "call",
       "retirement_task": "5.5",
-      "rationale": "Public Build two-step AttachReloadHost caller"
-    },
-    {
-      "gate": "host_path",
-      "path": "pkg/lipruntime/build.go",
-      "identity": "call:Build->runtimebundle.BuildBootstrap#1",
-      "classification": "call",
-      "retirement_task": "5.2",
-      "rationale": "Public Build bootstrap caller"
-    },
-    {
-      "gate": "host_path",
-      "path": "pkg/lipruntime/build.go",
-      "identity": "func:Build",
-      "classification": "declaration",
-      "retirement_task": "5.2",
-      "rationale": "Public Build still performs BuildBootstrap+AttachReloadHost two-step"
+      "rationale": "Current generation-host serve helper"
     }
   ]
 }

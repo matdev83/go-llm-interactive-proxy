@@ -24,8 +24,11 @@ type PackageTreeBudget struct {
 // with zero headroom (Requirement 11.7-11.8).
 // Task 5.1: runtimebundle exact-measured after per-invocation loader parameter +
 // unexported buildHost RED seam (no package-global loader hook).
+// Task 5.2: exact-measured after BuildHost repair (shared hostBuildProbe seam +
+// serve-only CLI gate flag); temporary raise until Task 5.5 deletes remaining
+// BuildBootstrap serve/attachment dual path (Req 11.7).
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 9661},
+	{Tree: "internal/infra/runtimebundle", Max: 9996},
 	{Tree: "internal/stdhttp", Max: 4522},
 }
 

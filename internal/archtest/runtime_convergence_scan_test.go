@@ -63,18 +63,18 @@ var reloadContractVarNames = map[string]bool{
 }
 
 var runtimeConvergenceProtected = protectedSymbolSet{
-	"runtimebundle.Build":     true,
-	"stdhttp.RunWithRuntime":  true,
-	"requestPlaneAsBuilt":     true,
+	"runtimebundle.Build":    true,
+	"stdhttp.RunWithRuntime": true,
+	"requestPlaneAsBuilt":    true,
 }
 
 var hostPathProtected = protectedSymbolSet{
-	"runtimebundle.BuildBootstrap":  true,
+	"runtimebundle.BuildBootstrap":   true,
 	"runtimebundle.AttachReloadHost": true,
-	"runtimebundle.Build":           true,
-	"stdhttp.RunWithRuntime":        true,
-	"stdhttp.RunWithGenerationHost": true,
-	"lipruntime.Build":              true,
+	"runtimebundle.Build":            true,
+	"stdhttp.RunWithRuntime":         true,
+	"stdhttp.RunWithGenerationHost":  true,
+	"lipruntime.Build":               true,
 }
 
 var runtimeConvergenceDotPaths = map[string]bool{
@@ -383,13 +383,16 @@ func scanHostPathSource(filename, src string) ([]convergenceFinding, error) {
 				})
 			}
 		case "Build":
-			if isRuntimebundlePath(rel) || isLipruntimePath(rel) {
+			if isRuntimebundlePath(rel) {
 				out = append(out, convergenceFinding{
 					Gate: gateHostPath, Path: rel, Identity: "func:Build",
 					Classification: classDeclaration,
 					Detail:         formatPos(fset, fd.Name.Pos()) + " compatibility Build declaration",
 				})
 			}
+			// Thin pkg/lipruntime.Build that delegates to BuildHost is not an old
+			// host-path declaration; call-site scanning still catches BuildBootstrap
+			// / AttachReloadHost aliases and wrappers inside it.
 		}
 	}
 

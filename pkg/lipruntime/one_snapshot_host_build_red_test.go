@@ -2,72 +2,153 @@ package lipruntime_test
 
 import (
 	"context"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
 )
 
-// TestHostBuild_PublicBuildIsOneOperation fails while public Build still requires
-// BuildBootstrap + AttachReloadHost (req 4.1, 4.5, 4.8). Architecture allowlist
-// owns call-site enforcement; this behavioral contract observes that a successful
-// BootstrapServe result still needs AttachReloadHost before a coordinator exists.
+// TestHostBuild_PublicBuildIsOneOperation proves public Build obtains a complete
+// Host from one BuildHost call (req 4.1, 4.5, 4.8).
 func TestHostBuild_PublicBuildIsOneOperation(t *testing.T) {
 	t.Parallel()
-	assertPublicBuildStillTwoStep(t)
+	assertPublicBuildIsOneHostOperation(t)
 }
 
-// TestOneSnapshot_PublicBuildStillTwoStepOwnership narrows the public facade claim
-// to the two-step ownership fact. Fingerprint consistency across controlled A/B
-// snapshots is owned by runtimebundle TestOneSnapshot_HostTransactionSharesAcceptedSnapshot.
+// TestOneSnapshot_PublicBuildStillTwoStepOwnership renamed contract: public Build
+// is a thin one-shot Host facade (req 4.1, 4.5).
 func TestOneSnapshot_PublicBuildStillTwoStepOwnership(t *testing.T) {
 	t.Parallel()
-	assertPublicBuildStillTwoStep(t)
+	assertPublicBuildIsOneHostOperation(t)
 }
 
-func assertPublicBuildStillTwoStep(t *testing.T) {
-	t.Helper()
-	ctx := context.Background()
-	cfgPath := repoConfigPath(t)
-
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath:      cfgPath,
-		Mode:            runtimebundle.BootstrapServe,
-		Mandatory:       lipsdk.StandardDistributionRequirements(),
-		LogWriter:       io.Discard,
-		HandlerComposer: stdhttp.ComposeStandardHTTP,
+// TestBuild_MultiUserConfigSucceedsWithoutCLIFlag proves the public facade does
+// not enforce the serve-only --multi-user CLI gate (req 4.3).
+func TestBuild_MultiUserConfigSucceedsWithoutCLIFlag(t *testing.T) {
+	t.Parallel()
+	path := writePublicMultiUserConfig(t)
+	rt, err := lipruntime.Build(context.Background(), lipruntime.Options{
+		ConfigPath: path,
+		LogWriter:  io.Discard,
 	})
 	if err != nil {
-		t.Fatalf("BuildBootstrap: %v", err)
+		t.Fatalf("public Build with multi_user config must not require CLI flag: %v", err)
 	}
-	t.Cleanup(func() { cleanupPublicBootstrap(t, res) })
-	if res.GenerationManager == nil || res.ProcessServices == nil {
-		t.Fatal("BootstrapServe must publish generation host handles")
+	t.Cleanup(func() { _ = rt.Close(context.Background()) })
+	if !rt.Ready() {
+		t.Fatal("expected ready Runtime")
 	}
-
-	host, err := runtimebundle.AttachReloadHost(ctx, res, cfgPath, stdhttp.ComposeStandardHTTP)
-	if err != nil {
-		t.Fatalf("AttachReloadHost: %v", err)
-	}
-	if host == nil || host.Coordinator == nil {
-		t.Fatal("AttachReloadHost must bind coordinator in current architecture")
-	}
-	t.Fatalf("public Build must obtain a complete Host from one host-build call; BootstrapResult still requires AttachReloadHost (req 4.1, 4.5)")
+	assertBuildSourceSkipsCLIMultiUserGate(t)
 }
 
-func cleanupPublicBootstrap(t *testing.T, res runtimebundle.BootstrapResult) {
+func assertPublicBuildIsOneHostOperation(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
-	if res.GenerationManager != nil {
-		_ = res.GenerationManager.ShutdownDetached(ctx, runtimehost.NewLifecycleWorker())
+	rt, err := lipruntime.Build(ctx, lipruntime.Options{
+		ConfigPath: repoConfigPath(t),
+		LogWriter:  io.Discard,
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
 	}
-	if res.ProcessServices != nil {
-		_ = res.ProcessServices.Close()
+	t.Cleanup(func() { _ = rt.Close(context.Background()) })
+	if !rt.Ready() {
+		t.Fatal("public Build must return a ready Runtime from one Host build")
 	}
-	if res.ShutdownTracing != nil {
-		_ = res.ShutdownTracing(ctx)
+	assertBuildSourceUsesBuildHostOnce(t)
+}
+
+func assertBuildSourceUsesBuildHostOnce(t *testing.T) {
+	t.Helper()
+	src, err := os.ReadFile("build.go")
+	if err != nil {
+		t.Fatal(err)
 	}
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "build.go", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buildHost, bootstrap, attach int
+	ast.Inspect(f, func(n ast.Node) bool {
+		fd, ok := n.(*ast.FuncDecl)
+		if !ok || fd.Name == nil || fd.Name.Name != "Build" || fd.Body == nil {
+			return true
+		}
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel == nil {
+				return true
+			}
+			switch sel.Sel.Name {
+			case "BuildHost":
+				buildHost++
+			case "BuildBootstrap":
+				bootstrap++
+			case "AttachReloadHost":
+				attach++
+			}
+			return true
+		})
+		return false
+	})
+	if buildHost != 1 {
+		t.Fatalf("lipruntime.Build BuildHost calls=%d want 1", buildHost)
+	}
+	if bootstrap != 0 || attach != 0 {
+		t.Fatalf("lipruntime.Build must not call BuildBootstrap/AttachReloadHost; bootstrap=%d attach=%d", bootstrap, attach)
+	}
+}
+
+func assertBuildSourceSkipsCLIMultiUserGate(t *testing.T) {
+	t.Helper()
+	src, err := os.ReadFile("build.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(src), "EnforceMultiUserCLIGate: true") {
+		t.Fatal("public Build must not enable the serve-only multi-user CLI gate")
+	}
+	if strings.Contains(string(src), "MultiUser:") {
+		t.Fatal("public Build must not synthesize a CLI multi-user flag")
+	}
+}
+
+func writePublicMultiUserConfig(t *testing.T) string {
+	t.Helper()
+	base, err := os.ReadFile(filepath.Join(filepath.Dir(repoConfigPath(t)), "examples", "dogfood-local-stub.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(base)
+	text = strings.Replace(text, `address: "127.0.0.1:18080"`, `address: "127.0.0.1:18501"`, 1)
+	insert := "" +
+		"access:\n" +
+		"  mode: multi_user\n" +
+		"auth:\n" +
+		"  handler: local_api_key\n" +
+		"  required_level: api_key\n" +
+		"  local_api_keys:\n" +
+		"    - key_id: k1\n" +
+		"      principal_id: p1\n" +
+		"      key: \"test-key-at-least-16-chars\"\n"
+	text = strings.Replace(text, "\nrouting:\n", "\n"+insert+"routing:\n", 1)
+	if !strings.Contains(text, "auth_mode:") {
+		text = strings.Replace(text, "server:\n", "server:\n  auth_mode: external\n", 1)
+	}
+	path := filepath.Join(t.TempDir(), "public-multi-user.yaml")
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

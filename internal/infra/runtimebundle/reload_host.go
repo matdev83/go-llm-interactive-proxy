@@ -3,7 +3,9 @@ package runtimebundle
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"path/filepath"
+	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
@@ -57,33 +59,74 @@ func (a candidateCompilerAdapter) Compile(ctx context.Context, candidate *config
 }
 
 // ReloadHost is the process-owned composition binding manager, coordinator,
-// stable executor facade, and fixed-source loader (tasks 5.5–5.6).
+// stable executor facade, and fixed-source loader (tasks 5.2 / 5.5–5.6).
+// BuildHost returns a complete Host (= ReloadHost) that also carries focused
+// startup state needed by serve and the public facade.
 type ReloadHost struct {
-	Coordinator *runtimehost.Coordinator
-	Manager     *runtimehost.Manager
-	Process     *ProcessServices
-	Executor    *runtimehost.GenerationExecutor
-	Source      *configsource.FixedSource
-	Effective   *config.EffectiveConfig
+	Coordinator         *runtimehost.Coordinator
+	Manager             *runtimehost.Manager
+	Process             *ProcessServices
+	Executor            *runtimehost.GenerationExecutor
+	Source              *configsource.FixedSource
+	Effective           *config.EffectiveConfig
+	Config              *config.Config
+	Logger              *slog.Logger
+	ActiveSource        *configsource.ActiveSourceVersion
+	FixedStreamRecovery config.StreamRecoveryOverrides
+	ShutdownTracing     func(context.Context) error
+
+	closeMu sync.Mutex
+	closed  bool
 }
 
 // AttachReloadHost binds a production Coordinator and stable GenerationExecutor
 // onto an already-published initial generation (BootstrapServe + HandlerComposer).
 // Stream-recovery overrides come from res.FixedStreamRecovery (captured once at
 // BuildBootstrap); this function must not reread process environment.
+// Temporary compatibility wrapper for inspect/check-config callers until Task 5.5.
 func AttachReloadHost(
 	_ context.Context,
 	res BootstrapResult,
 	configPath string,
 	compose HandlerComposer,
 ) (*ReloadHost, error) {
-	if res.GenerationManager == nil {
+	return bindReloadHost(configPath, bindReloadHostInput{
+		Manager:             res.GenerationManager,
+		Process:             res.ProcessServices,
+		Compose:             compose,
+		Logger:              res.Logger,
+		Config:              res.Config,
+		Effective:           res.Effective,
+		ActiveSource:        res.ActiveSource,
+		FixedStreamRecovery: res.FixedStreamRecovery,
+		ShutdownTracing:     res.ShutdownTracing,
+	})
+}
+
+type bindReloadHostInput struct {
+	Manager             *runtimehost.Manager
+	Process             *ProcessServices
+	Compose             HandlerComposer
+	Logger              *slog.Logger
+	Config              *config.Config
+	Effective           *config.EffectiveConfig
+	ActiveSource        *configsource.ActiveSourceVersion
+	FixedStreamRecovery config.StreamRecoveryOverrides
+	ShutdownTracing     func(context.Context) error
+}
+
+// bindReloadHost constructs the coordinator + stable executor on an already
+// published generation 1 using the accepted snapshot (no second startup load).
+// Reload-time LoadEffective lives here so config_load scanners exclude it with
+// the reload_host path (same ownership as pre-Task-5.2 AttachReloadHost).
+func bindReloadHost(configPath string, in bindReloadHostInput) (*ReloadHost, error) {
+	if in.Manager == nil {
 		return nil, fmt.Errorf("runtimebundle: nil GenerationManager")
 	}
-	if res.ProcessServices == nil {
+	if in.Process == nil {
 		return nil, fmt.Errorf("runtimebundle: nil ProcessServices")
 	}
-	if compose == nil {
+	if in.Compose == nil {
 		return nil, fmt.Errorf("runtimebundle: nil HandlerComposer")
 	}
 	src, err := configsource.NewFixedSource(configPath, 0)
@@ -91,7 +134,7 @@ func AttachReloadHost(
 		return nil, fmt.Errorf("runtimebundle: fixed source: %w", err)
 	}
 
-	fixed := res.FixedStreamRecovery
+	fixed := in.FixedStreamRecovery
 	loader := runtimehost.FuncEffectiveLoader(func(ctx context.Context, raw []byte) (*config.EffectiveConfig, error) {
 		merged := fixed
 		return config.LoadEffective(ctx, raw, config.LoadEffectiveOptions{
@@ -103,11 +146,11 @@ func AttachReloadHost(
 	})
 
 	obsDeps := runtimehost.ReloadObserverDeps{
-		Logger: res.Logger,
+		Logger: in.Logger,
 		Tracer: otel.Tracer("lip.runtimehost.reload"),
 	}
-	if res.ProcessServices.Metrics != nil {
-		obsDeps.Metrics = res.ProcessServices.Metrics.Reload
+	if in.Process.Metrics != nil {
+		obsDeps.Metrics = in.Process.Metrics.Reload
 	}
 	observer := runtimehost.NewReloadObserver(obsDeps)
 
@@ -115,24 +158,73 @@ func AttachReloadHost(
 		Source:          src,
 		Loader:          loader,
 		Classify:        configreload.ClassifyEffective,
-		Compile:         candidateCompilerAdapter{inner: GenerationCompiler{Process: res.ProcessServices, Compose: compose}},
-		Manager:         res.GenerationManager,
+		Compile:         candidateCompilerAdapter{inner: GenerationCompiler{Process: in.Process, Compose: in.Compose}},
+		Manager:         in.Manager,
 		Timeout:         runtimehost.DefaultReloadTimeout,
-		ActiveEffective: res.Effective,
-		ActiveSource:    res.ActiveSource,
+		ActiveEffective: in.Effective,
+		ActiveSource:    in.ActiveSource,
 		Observer:        observer,
 	})
 	if err != nil {
 		return nil, err
 	}
 	return &ReloadHost{
-		Coordinator: coord,
-		Manager:     res.GenerationManager,
-		Process:     res.ProcessServices,
-		Executor:    runtimehost.NewGenerationExecutor(res.GenerationManager),
-		Source:      src,
-		Effective:   res.Effective,
+		Coordinator:         coord,
+		Manager:             in.Manager,
+		Process:             in.Process,
+		Executor:            runtimehost.NewGenerationExecutor(in.Manager),
+		Source:              src,
+		Effective:           in.Effective,
+		Config:              in.Config,
+		Logger:              in.Logger,
+		ActiveSource:        in.ActiveSource,
+		FixedStreamRecovery: in.FixedStreamRecovery,
+		ShutdownTracing:     in.ShutdownTracing,
 	}, nil
+}
+
+// Close shuts down the host in ownership order: reject reloads, wait for
+// candidate work, retire generations, close process services, then tracing.
+// Serialized and idempotent after a successful close; retryable on failure.
+func (h *ReloadHost) Close(ctx context.Context) error {
+	if h == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	h.closeMu.Lock()
+	defer h.closeMu.Unlock()
+	if h.closed {
+		return nil
+	}
+
+	h.BeginShutdown()
+	if err := h.WaitForIdle(ctx); err != nil {
+		return err
+	}
+	if h.Manager != nil {
+		if err := h.Manager.ShutdownDetached(ctx, runtimehost.NewLifecycleWorker()); err != nil {
+			return err
+		}
+		if h.Manager.HasOpenGenerations() {
+			return fmt.Errorf("runtimebundle: generations remain open after shutdown")
+		}
+	}
+	if h.Process != nil {
+		if err := h.Process.Close(); err != nil {
+			return err
+		}
+	}
+	if h.ShutdownTracing != nil {
+		if err := h.ShutdownTracing(ctx); err != nil {
+			return err
+		}
+		// Clear after success so caller tracing defers cannot double-close.
+		h.ShutdownTracing = nil
+	}
+	h.closed = true
+	return nil
 }
 
 // BeginShutdown rejects triggers and prohibits late publication.

@@ -15,12 +15,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
-	"github.com/stretchr/testify/assert"
 	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
+	"github.com/stretchr/testify/assert"
 )
 
 type stubReloadCoord struct {
-	status     sdkreload.Status
+	status      sdkreload.Status
 	fixedSource string
 }
 
@@ -182,7 +182,7 @@ func TestStartManagementServer_multiUserAbsentTokenNoEndpoint(t *testing.T) {
 	res := multiUserBootstrapResult(&logBuf)
 	coord := &stubReloadCoord{}
 
-	srv, err := startManagementServer(context.Background(), res, coord)
+	srv, err := startManagementServer(context.Background(), res.Config, res.Logger, coord)
 	if err != nil {
 		t.Fatalf("serve composition must remain possible: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestStartManagementServer_multiUserValidTokenStartsBearer(t *testing.T) {
 	res := multiUserBootstrapResult(&logBuf)
 	coord := &stubReloadCoord{}
 
-	srv, err := startManagementServer(context.Background(), res, coord)
+	srv, err := startManagementServer(context.Background(), res.Config, res.Logger, coord)
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestStartManagementServer_multiUserWeakTokenRejected(t *testing.T) {
 	t.Setenv(reloadManagementAddressEnv, mgmtreload.DefaultListenAddress)
 	t.Setenv(reloadManagementTokenEnv, "short")
 	res := multiUserBootstrapResult(io.Discard)
-	_, err := startManagementServer(context.Background(), res, &stubReloadCoord{})
+	_, err := startManagementServer(context.Background(), res.Config, res.Logger, &stubReloadCoord{})
 	if err == nil {
 		t.Fatal("expected weak token rejection")
 	}
@@ -270,7 +270,7 @@ func TestStartManagementServer_noSecretLogged(t *testing.T) {
 
 	var logBuf bytes.Buffer
 	res := multiUserBootstrapResult(&logBuf)
-	srv, err := startManagementServer(context.Background(), res, &stubReloadCoord{})
+	srv, err := startManagementServer(context.Background(), res.Config, res.Logger, &stubReloadCoord{})
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}

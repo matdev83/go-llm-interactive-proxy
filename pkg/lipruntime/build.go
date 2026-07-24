@@ -9,7 +9,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
@@ -22,9 +21,8 @@ import (
 // Facade pointers (host/executor/reload) remain immutable after Build so
 // concurrent Reload/Status/ExecutorView remain safe across Close (req 13.7-13.8).
 type Runtime struct {
-	host                     *runtimebundle.ReloadHost
+	host                     *runtimebundle.Host
 	executor                 lipsdk.ExecutorView
-	shutdownTracing          func(context.Context) error
 	trafficObserversAttached bool
 	usageObserversAttached   bool
 	evidenceSinkAttached     bool
@@ -39,8 +37,7 @@ type Runtime struct {
 
 // Build constructs a production runtime from public options. The standard
 // plugin registry is installed internally; callers must not import internal packages.
-// Build binds the same reload coordinator/compiler/manager as cmd/lipstd and
-// returns a stable GenerationExecutor facade (req 16.1, 16.12-16.13).
+// Build binds one complete Host via [runtimebundle.BuildHost] (req 4.1, 10.1-10.4).
 func Build(ctx context.Context, opts Options) (*Runtime, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("lipruntime: nil context")
@@ -58,10 +55,8 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 		logOut = io.Discard
 	}
 	raterAttached := len(norm.RaterRegistrations) > 0
-	compose := stdhttp.ComposeStandardHTTP
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
+	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
 		ConfigPath: path,
-		Mode:       runtimebundle.BootstrapServe,
 		Mandatory:  lipsdk.StandardDistributionRequirements(),
 		LogWriter:  logOut,
 		Production: runtimebundle.ProductionOptions{
@@ -79,34 +74,20 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 			UsageObservers:            opts.UsageObservers,
 			PolicyObservers:           opts.PolicyObservers,
 		},
-		HandlerComposer: compose,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		return nil, err
 	}
-	fail := func(err error) (*Runtime, error) {
-		if res.GenerationManager != nil {
-			_ = res.GenerationManager.ShutdownDetached(context.WithoutCancel(ctx), runtimehost.NewLifecycleWorker())
+	if host == nil || host.Manager == nil || host.Process == nil || host.Executor == nil {
+		if host != nil {
+			_ = host.Close(context.WithoutCancel(ctx))
 		}
-		if res.ProcessServices != nil {
-			_ = res.ProcessServices.Close()
-		}
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(context.WithoutCancel(ctx))
-		}
-		return nil, err
-	}
-	if res.GenerationManager == nil || res.ProcessServices == nil {
-		return fail(fmt.Errorf("lipruntime: bootstrap returned nil generation host"))
-	}
-	host, err := runtimebundle.AttachReloadHost(ctx, res, path, compose)
-	if err != nil {
-		return fail(err)
+		return nil, fmt.Errorf("lipruntime: BuildHost returned incomplete host")
 	}
 	rt := &Runtime{
 		host:                     host,
 		executor:                 host.Executor,
-		shutdownTracing:          res.ShutdownTracing,
 		trafficObserversAttached: len(opts.TrafficObservers) > 0,
 		usageObserversAttached:   len(opts.UsageObservers) > 0,
 		evidenceSinkAttached:     opts.EvidenceSink != nil,
@@ -307,14 +288,10 @@ func (r *Runtime) RefreshSnapshots(ctx context.Context) error {
 	return r.host.Process.SnapshotController.Refresh(ctx)
 }
 
-// Close releases runtime resources and tracing using ownership order:
-// begin reload shutdown → await candidate idle → drain generations →
-// close process services → tracing. The supplied context deadline bounds drain
-// and tracing; it is not stripped. Calls are serialized. A successful Close is
-// idempotent; a deadline or teardown failure remains retryable after the caller
-// releases outstanding pins or otherwise resolves the blocker. Facade pointers
-// remain immutable so concurrent Reload/Status/ExecutorView fail through
-// manager/coordinator shutdown state rather than racing with nil assignments.
+// Close releases runtime resources by delegating to Host.Close (req 8.6-8.7).
+// Calls are serialized. A successful Close is idempotent; a deadline or teardown
+// failure remains retryable. Facade pointers remain immutable so concurrent
+// Reload/Status/ExecutorView fail through manager/coordinator shutdown state.
 func (r *Runtime) Close(ctx context.Context) error {
 	if r == nil {
 		return nil
@@ -327,31 +304,8 @@ func (r *Runtime) Close(ctx context.Context) error {
 	if r.closed {
 		return nil
 	}
-
-	host := r.host
-	if host != nil {
-		host.BeginShutdown()
-		// Candidate work must be canceled and rolled back before generation or
-		// process-service teardown can advance.
-		if err := host.WaitForIdle(ctx); err != nil {
-			return err
-		}
-		if host.Manager != nil {
-			if err := host.Manager.ShutdownDetached(ctx, runtimehost.NewLifecycleWorker()); err != nil {
-				return err
-			}
-			if host.Manager.HasOpenGenerations() {
-				return fmt.Errorf("lipruntime: generations remain open after shutdown")
-			}
-		}
-		if host.Process != nil {
-			if err := host.Process.Close(); err != nil {
-				return err
-			}
-		}
-	}
-	if r.shutdownTracing != nil {
-		if err := r.shutdownTracing(ctx); err != nil {
+	if r.host != nil {
+		if err := r.host.Close(ctx); err != nil {
 			return err
 		}
 	}

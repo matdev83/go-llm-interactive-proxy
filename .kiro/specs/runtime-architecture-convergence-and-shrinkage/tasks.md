@@ -196,7 +196,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 4.4_
   - _Validation: `go test -race ./cmd/lipstd/... ./internal/infra/runtimebundle/... ./pkg/lipruntime/... -run 'OneSnapshot|HostBuild|PartialCleanup|TOCTOU'`_
 
-- [ ] 5.2 Implement BuildHost as one owned startup transaction
+- [x] 5.2 Implement BuildHost as one owned startup transaction
   - Load and normalize one effective snapshot.
   - Evaluate CLI/access/startup gates before expensive resources.
   - Construct ProcessRuntime, compile/publish generation 1, bind reload state/coordinator, and return one Host.

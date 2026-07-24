@@ -43,19 +43,59 @@ var retireServeGenerations = func(ctx context.Context, m *runtimehost.Manager) e
 //
 // Tracing stays last via the caller's deferBootstrapTracingShutdown.
 // Cleanup errors are joined; callers must join them with the primary startup error.
+// Legacy BootstrapResult path retained for inspect/check-config callers until Tasks 5.3-5.5.
 func serveStartupRollback(
 	ctx context.Context,
 	res *runtimebundle.BootstrapResult,
 	host beginShutdowner,
 	mgmt contextShutdowner,
 ) error {
-	var out error
 	if host != nil {
 		host.BeginShutdown()
 	}
+	var mgr *runtimehost.Manager
+	var ps *runtimebundle.ProcessServices
+	if res != nil {
+		mgr = res.GenerationManager
+		ps = res.ProcessServices
+	}
+	return serveRollbackCore(ctx, mgr, ps, mgmt)
+}
+
+// closeServeHostAfterBuild is the post-BuildHost startup failure path (req 4.8):
+// close any separate management resource, then invoke Host.Close once. Callers
+// must not reconstruct Manager/Process ownership or invoke ShutdownTracing here.
+func closeServeHostAfterBuild(ctx context.Context, host *runtimebundle.Host, mgmt contextShutdowner) error {
+	var out error
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), bootstrapTracingShutdownTimeout)
+	defer cancel()
+	if mgmt != nil {
+		if err := mgmt.Shutdown(cleanupCtx); err != nil {
+			out = errors.Join(out, err)
+		}
+	}
+	if host != nil {
+		if err := host.Close(cleanupCtx); err != nil {
+			out = errors.Join(out, err)
+		}
+	}
+	return out
+}
+
+// serveRollbackCore is the shared ownership-safe teardown body for legacy
+// BootstrapResult callers (serveStartupRollback). Order: retire generations,
+// close management if started, close process services only when no generation
+// remains. Tracing stays last via the caller's deferBootstrapTracingShutdown.
+func serveRollbackCore(
+	ctx context.Context,
+	mgr *runtimehost.Manager,
+	ps *runtimebundle.ProcessServices,
+	mgmt contextShutdowner,
+) error {
+	var out error
 	cleanupCtx := context.WithoutCancel(ctx)
-	if res != nil && res.GenerationManager != nil {
-		if err := retireServeGenerations(cleanupCtx, res.GenerationManager); err != nil {
+	if mgr != nil {
+		if err := retireServeGenerations(cleanupCtx, mgr); err != nil {
 			out = errors.Join(out, err)
 		}
 	}
@@ -64,9 +104,9 @@ func serveStartupRollback(
 			out = errors.Join(out, err)
 		}
 	}
-	if res != nil && res.ProcessServices != nil {
-		if res.GenerationManager == nil || !res.GenerationManager.HasOpenGenerations() {
-			if err := closeServeProcessServices(res.ProcessServices); err != nil {
+	if ps != nil {
+		if mgr == nil || !mgr.HasOpenGenerations() {
+			if err := closeServeProcessServices(ps); err != nil {
 				out = errors.Join(out, err)
 			}
 		}

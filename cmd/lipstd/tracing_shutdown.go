@@ -26,3 +26,20 @@ func deferBootstrapTracingShutdown(logCtx context.Context, res *runtimebundle.Bo
 		res.Logger.WarnContext(logCtx, "lipstd: tracing shutdown", "error", err)
 	}
 }
+
+// deferHostTracingShutdown runs bounded tracing shutdown for the normal serve
+// return path after RunWithGenerationHost has already retired manager/process.
+// Pre-listen failures must use closeServeHostAfterBuild (Host.Close) instead and
+// skip this defer so tracing shuts down exactly once.
+func deferHostTracingShutdown(logCtx context.Context, host *runtimebundle.Host) {
+	if host == nil || host.ShutdownTracing == nil {
+		return
+	}
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), bootstrapTracingShutdownTimeout)
+	defer cancel()
+	fn := host.ShutdownTracing
+	host.ShutdownTracing = nil
+	if err := fn(shutdownCtx); err != nil && host.Logger != nil {
+		host.Logger.WarnContext(logCtx, "lipstd: tracing shutdown", "error", err)
+	}
+}
