@@ -149,18 +149,14 @@ func TestInitialGeneration_FeatureLifecycleStartStopOnceNoAppOwnership(t *testin
 	if err != nil {
 		t.Fatalf("BuildBootstrap: %v", err)
 	}
+	// BuildBootstrap constructs no runtime.App (req 4.7): the candidate ledger
+	// is the sole feature-lifecycle owner, so exactly one Start is observed
+	// with no separate App-owned Start to double-register.
 	if probe.StartCount() != 1 {
 		t.Fatalf("lifecycle starts=%d want 1 (double-register would be 2)", probe.StartCount())
 	}
 	if probe.StopCount() != 0 {
 		t.Fatalf("lifecycle stops=%d want 0 before retire", probe.StopCount())
-	}
-
-	if err := res.App.Start(context.Background()); err != nil {
-		t.Fatalf("App.Start: %v", err)
-	}
-	if probe.StartCount() != 1 {
-		t.Fatalf("App must not own/start feature lifecycles: starts=%d", probe.StartCount())
 	}
 
 	if err := res.GenerationManager.ShutdownDetached(context.Background(), runtimehost.NewLifecycleWorker()); err != nil {
@@ -169,7 +165,6 @@ func TestInitialGeneration_FeatureLifecycleStartStopOnceNoAppOwnership(t *testin
 	if err := res.ProcessServices.Close(); err != nil {
 		t.Fatalf("ProcessServices.Close: %v", err)
 	}
-	res.App.Shutdown(context.Background())
 	if res.ShutdownTracing != nil {
 		_ = res.ShutdownTracing(context.Background())
 	}

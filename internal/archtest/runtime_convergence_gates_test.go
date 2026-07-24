@@ -165,6 +165,18 @@ func TestConfigLoad_ProductionAllowlist(t *testing.T) {
 	assertConvergenceAllowlistMatch(t, gateConfigLoad, got, allow)
 }
 
+// TestInspectPurity_ProductionAllowlist enforces the Task 5.3 Inspect
+// invariant with zero exceptions: CLI routes/inventory drivers and the
+// InspectRoutes/InspectInventory/prepareInspect composition-root graph never
+// reach a broad bootstrap/host/process/generation-owner symbol (or wrapper).
+// There is no allowlist entry for this gate, so any finding fails immediately.
+func TestInspectPurity_ProductionAllowlist(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	got := scanProductionConvergenceGate(t, root, gateInspectPurity, scanInspectPuritySource)
+	assertConvergenceAllowlistMatch(t, gateInspectPurity, got, nil)
+}
+
 func TestRuntimeConvergence_AllowlistIntegrity(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)

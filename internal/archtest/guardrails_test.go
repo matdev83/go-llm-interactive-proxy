@@ -326,9 +326,12 @@ var lineBudgets = []struct {
 	// Task 5.2: exact measured after BuildHost repair — shared hostBuildProbe
 	// seam (no test-only ownership engine) and EnforceMultiUserCLIGate; temporary
 	// raise records serve/public Build migration off BuildBootstrap+AttachReloadHost
-	// (measured 9996; zero headroom). Task 5.5 must delete remaining dual
-	// bootstrap/attachment paths and ratchet below the pre-spec package size.
-	{"internal/infra/runtimebundle", 9996},
+	// (measured 9996; zero headroom).
+	// Task 5.3: contracted to 9991 after deleting BootstrapInspect, serve-mode App
+	// construction, and duplicate feature-surface merge, and adding InspectRoutes/
+	// InspectInventory (measured 9991; zero headroom). Task 5.5 deletes remaining
+	// BuildBootstrap/AttachReloadHost dual path.
+	{"internal/infra/runtimebundle", 9991},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

@@ -251,7 +251,8 @@ func protectedLabelFor(importPath, name string) (string, bool) {
 	switch importPath {
 	case importRuntimebundle:
 		switch name {
-		case "Build", "BuildBootstrap", "AttachReloadHost",
+		case "Build", "BuildBootstrap", "BuildHost", "AttachReloadHost",
+			"NewProcessServices", "CompileGeneration",
 			"LoadBootstrapEffective", "LoadBootstrapEffectiveWithSource":
 			return "runtimebundle." + name, true
 		}
@@ -259,6 +260,10 @@ func protectedLabelFor(importPath, name string) (string, bool) {
 		switch name {
 		case "RunWithRuntime", "RunWithGenerationHost":
 			return "stdhttp." + name, true
+		}
+	case importRuntimehost:
+		if name == "NewManager" {
+			return "runtimehost.NewManager", true
 		}
 	case importCoreConfig:
 		if name == "LoadEffective" {

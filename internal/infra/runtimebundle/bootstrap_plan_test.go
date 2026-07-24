@@ -19,28 +19,40 @@ func testConfigPath(t *testing.T) string {
 	return filepath.Join("..", "..", "..", "config", "config.yaml")
 }
 
-func TestBuildBootstrap_inspectLeavesGenerationNil(t *testing.T) {
+// TestInspectRoutes_ReturnsFocusedReadModel characterizes the Task 5.3 Inspect
+// invariant: [runtimebundle.InspectRoutes] returns only [runtimebundle.RoutesSnapshot]
+// — never a broad bootstrap/process/generation aggregate — because it builds
+// no process/generation runtime at all.
+func TestInspectRoutes_ReturnsFocusedReadModel(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
+	snap, err := runtimebundle.InspectRoutes(ctx, runtimebundle.InspectInput{
 		ConfigPath: testConfigPath(t),
-		Mode:       runtimebundle.BootstrapInspect,
 		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(t.Context())
-		}
-	}()
-	if res.ProcessServices != nil || res.GenerationManager != nil || res.InitialGeneration != nil {
-		t.Fatal("BootstrapInspect must not compile process services or publish a generation")
+	if snap.EffectiveDefaultRoute == "" {
+		t.Fatal("expected effective default route")
 	}
-	if res.Config == nil || res.Registry == nil || res.App == nil {
-		t.Fatalf("expected config, registry, and app: cfg=%v reg=%v app=%v", res.Config != nil, res.Registry != nil, res.App != nil)
+}
+
+// TestInspectInventory_ReturnsFocusedReadModel characterizes the Task 5.3
+// Inspect invariant for [runtimebundle.InspectInventory]: only
+// [diag.InventorySnapshot] is returned, never a broad bootstrap aggregate.
+func TestInspectInventory_ReturnsFocusedReadModel(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	snap, err := runtimebundle.InspectInventory(ctx, runtimebundle.InspectInput{
+		ConfigPath: testConfigPath(t),
+		Mandatory:  lipsdk.StandardDistributionRequirements(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Frontends) == 0 {
+		t.Fatal("expected frontend rows")
 	}
 }
 
@@ -145,7 +157,7 @@ func TestBuildBootstrap_nilContext(t *testing.T) {
 	t.Parallel()
 	_, err := runtimebundle.BuildBootstrap(nil, runtimebundle.BuildBootstrapInput{ //nolint:staticcheck // intentional nil ctx contract
 		ConfigPath: testConfigPath(t),
-		Mode:       runtimebundle.BootstrapInspect,
+		Mode:       runtimebundle.BootstrapServe,
 		Mandatory:  lipsdk.StandardDistributionRequirements(),
 		LogWriter:  io.Discard,
 	})
@@ -167,7 +179,7 @@ func TestBuildBootstrap_unspecifiedMode(t *testing.T) {
 	}
 }
 
-func TestBuildBootstrap_inspectRejectsInvalidCustomBackendPrefix(t *testing.T) {
+func TestInspectRoutes_RejectsInvalidCustomBackendPrefix(t *testing.T) {
 	t.Parallel()
 	base, err := os.ReadFile(testConfigPath(t))
 	if err != nil {
@@ -186,11 +198,9 @@ func TestBuildBootstrap_inspectRejectsInvalidCustomBackendPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = runtimebundle.BuildBootstrap(t.Context(), runtimebundle.BuildBootstrapInput{
+	_, err = runtimebundle.InspectRoutes(t.Context(), runtimebundle.InspectInput{
 		ConfigPath: path,
-		Mode:       runtimebundle.BootstrapInspect,
 		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
 	})
 	if err == nil {
 		t.Fatal("expected custom backend prefix validation error")
@@ -200,7 +210,7 @@ func TestBuildBootstrap_inspectRejectsInvalidCustomBackendPrefix(t *testing.T) {
 	}
 }
 
-func TestBuildBootstrap_inspectRejectsDuplicateEnabledSecretsGuardRegistrations(t *testing.T) {
+func TestInspectRoutes_RejectsDuplicateEnabledSecretsGuardRegistrations(t *testing.T) {
 	t.Parallel()
 	base, err := os.ReadFile(filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-log-single-user.yaml"))
 	if err != nil {
@@ -245,11 +255,9 @@ func TestBuildBootstrap_inspectRejectsDuplicateEnabledSecretsGuardRegistrations(
 	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err = runtimebundle.BuildBootstrap(t.Context(), runtimebundle.BuildBootstrapInput{
+	_, err = runtimebundle.InspectRoutes(t.Context(), runtimebundle.InspectInput{
 		ConfigPath: path,
-		Mode:       runtimebundle.BootstrapInspect,
 		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
 	})
 	if err == nil {
 		t.Fatal("expected duplicate enabled secrets-guard registrations to fail")

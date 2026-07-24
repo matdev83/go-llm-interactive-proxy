@@ -47,8 +47,8 @@
       "path": "internal/infra/runtimebundle/bootstrap_plan.go",
       "identity": "call:buildBootstrap->LoadBootstrapEffectiveWithSource#1",
       "classification": "call",
-      "retirement_task": "5.3",
-      "rationale": "Inspect/check-config BuildBootstrap startup load call"
+      "retirement_task": "5.5",
+      "rationale": "check-config BuildBootstrap (BootstrapServe) startup load call; routes/inventory moved to InspectRoutes/InspectInventory in Task 5.3"
     },
     {
       "gate": "host_path",
@@ -57,22 +57,6 @@
       "classification": "call",
       "retirement_task": "5.4",
       "rationale": "check-config uses BootstrapServe; replace with ValidateDistribution"
-    },
-    {
-      "gate": "host_path",
-      "path": "cmd/lipstd/command.go",
-      "identity": "call:runInventoryCommand->runtimebundle.BuildBootstrap#1",
-      "classification": "call",
-      "retirement_task": "5.3",
-      "rationale": "inventory inspect still goes through BuildBootstrap"
-    },
-    {
-      "gate": "host_path",
-      "path": "cmd/lipstd/command.go",
-      "identity": "call:runRoutesCommand->runtimebundle.BuildBootstrap#1",
-      "classification": "call",
-      "retirement_task": "5.3",
-      "rationale": "routes inspect still goes through BuildBootstrap"
     },
     {
       "gate": "host_path",
@@ -88,7 +72,7 @@
       "identity": "func:BuildBootstrap",
       "classification": "declaration",
       "retirement_task": "5.5",
-      "rationale": "Inspect/check-config multi-mode builder retained until 5.3-5.5"
+      "rationale": "check-config-only builder (BootstrapServe); inspect modes retired in Task 5.3, full deletion at 5.5"
     },
     {
       "gate": "host_path",

@@ -27,8 +27,10 @@ type PackageTreeBudget struct {
 // Task 5.2: exact-measured after BuildHost repair (shared hostBuildProbe seam +
 // serve-only CLI gate flag); temporary raise until Task 5.5 deletes remaining
 // BuildBootstrap serve/attachment dual path (Req 11.7).
+// Task 5.3: contracted to exact-measured 9991 after InspectRoutes/InspectInventory
+// split and BootstrapInspect/App/feature-merge deletion (Req 11.7).
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 9996},
+	{Tree: "internal/infra/runtimebundle", Max: 9991},
 	{Tree: "internal/stdhttp", Max: 4522},
 }
 

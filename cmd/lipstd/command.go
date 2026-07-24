@@ -369,15 +369,13 @@ func runCheckConfigCommand(ctx context.Context, opts CommandOptions) int {
 }
 
 func runRoutesCommand(ctx context.Context, opts CommandOptions) int {
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{ConfigPath: opts.ConfigPath, Mode: runtimebundle.BootstrapInspect, Mandatory: mandatoryStandardPlugins(), LogWriter: io.Discard, StreamRecoveryOverrides: opts.StreamRecovery})
+	snap, err := runtimebundle.InspectRoutes(ctx, runtimebundle.InspectInput{
+		ConfigPath:              opts.ConfigPath,
+		Mandatory:               mandatoryStandardPlugins(),
+		StreamRecoveryOverrides: opts.StreamRecovery,
+	})
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
-		return 1
-	}
-	defer func() { deferBootstrapTracingShutdown(ctx, &res) }()
-	snap, err := runtimebundle.RoutesSnapshotFrom(res.Config, res.Registry)
-	if err != nil {
-		_, _ = fmt.Fprintf(opts.ErrorOut, "routes: %v\n", err)
 		return 1
 	}
 	enc := json.NewEncoder(opts.Output)
@@ -390,15 +388,13 @@ func runRoutesCommand(ctx context.Context, opts CommandOptions) int {
 }
 
 func runInventoryCommand(ctx context.Context, opts CommandOptions) int {
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{ConfigPath: opts.ConfigPath, Mode: runtimebundle.BootstrapInspect, Mandatory: mandatoryStandardPlugins(), LogWriter: io.Discard, StreamRecoveryOverrides: opts.StreamRecovery})
+	snap, err := runtimebundle.InspectInventory(ctx, runtimebundle.InspectInput{
+		ConfigPath:              opts.ConfigPath,
+		Mandatory:               mandatoryStandardPlugins(),
+		StreamRecoveryOverrides: opts.StreamRecovery,
+	})
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
-		return 1
-	}
-	defer func() { deferBootstrapTracingShutdown(ctx, &res) }()
-	snap, err := runtimebundle.InventorySnapshotForOperator(ctx, res.Config, res.Registry, res.Registrations)
-	if err != nil {
-		_, _ = fmt.Fprintf(opts.ErrorOut, "inventory: %v\n", err)
 		return 1
 	}
 	enc := json.NewEncoder(opts.Output)

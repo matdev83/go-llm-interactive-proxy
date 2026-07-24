@@ -10,11 +10,14 @@ import (
 const (
 	importCoreConfig         = "github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	importRuntimebundle      = "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	importRuntimehost        = "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+	importTracing            = "github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	importStdhttp            = "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	importLipruntime         = "github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
 	importSDKConfigReload    = "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 	pathCanonicalReloadContr = "pkg/lipsdk/configreload/"
 	pathReloadHost           = "internal/infra/runtimebundle/reload_host.go"
+	pathInspectOps           = "internal/infra/runtimebundle/inspect.go"
 	pathConfigSourceEff      = "internal/infra/configsource/effective.go"
 	pathConfigEffective      = "internal/core/config/effective_load.go"
 )

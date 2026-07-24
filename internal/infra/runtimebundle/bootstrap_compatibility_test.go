@@ -34,19 +34,16 @@ func TestBootstrapCompatibility_LoadEffectiveHelperMatchesBuildBootstrap(t *test
 	}
 
 	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath: path,
-		Mode:       runtimebundle.BootstrapInspect,
-		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
+		ConfigPath:      path,
+		Mode:            runtimebundle.BootstrapServe,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(ctx)
-		}
-	}()
+	bootstrapServeCleanup(t, res)
 
 	if res.Config == nil {
 		t.Fatal("expected bootstrap config")
@@ -124,14 +121,12 @@ not_a_core_field: true
 			}
 			assertSecretSafeCategory(t, err, tc.wantCat, secret)
 
-			_, err = runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
+			_, err = runtimebundle.InspectRoutes(context.Background(), runtimebundle.InspectInput{
 				ConfigPath: path,
-				Mode:       runtimebundle.BootstrapInspect,
 				Mandatory:  lipsdk.StandardDistributionRequirements(),
-				LogWriter:  io.Discard,
 			})
 			if err == nil {
-				t.Fatal("BuildBootstrap must reject strict fixture")
+				t.Fatal("InspectRoutes must reject strict fixture")
 			}
 			assertSecretSafeCategory(t, err, tc.wantCat, secret)
 		})
@@ -151,18 +146,16 @@ func TestBootstrapCompatibility_MissingPath_SourceMissingCategory(t *testing.T) 
 		t.Fatalf("LoadBootstrapEffective category=%q ok=%v err=%v want %q", cat, ok, err, configsource.CategoryMissing)
 	}
 
-	_, err = runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
+	_, err = runtimebundle.InspectInventory(context.Background(), runtimebundle.InspectInput{
 		ConfigPath: path,
-		Mode:       runtimebundle.BootstrapInspect,
 		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
 	})
 	if err == nil {
 		t.Fatal("expected missing source error")
 	}
 	cat, ok = configsource.CategoryOf(err)
 	if !ok || cat != configsource.CategoryMissing {
-		t.Fatalf("BuildBootstrap category=%q ok=%v err=%v want %q", cat, ok, err, configsource.CategoryMissing)
+		t.Fatalf("InspectInventory category=%q ok=%v err=%v want %q", cat, ok, err, configsource.CategoryMissing)
 	}
 }
 
@@ -187,10 +180,11 @@ func TestBootstrapCompatibility_FixedStreamRecoveryCLIWins(t *testing.T) {
 	}
 
 	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
-		ConfigPath: path,
-		Mode:       runtimebundle.BootstrapInspect,
-		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
+		ConfigPath:      path,
+		Mode:            runtimebundle.BootstrapServe,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 		StreamRecoveryOverrides: config.StreamRecoveryOverrides{
 			CLIEnabled:     &cliOff,
 			CLIIdleTimeout: cliIdle,
@@ -199,11 +193,7 @@ func TestBootstrapCompatibility_FixedStreamRecoveryCLIWins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(context.Background())
-		}
-	}()
+	bootstrapServeCleanup(t, res)
 	if res.Config.StreamRecovery.AutoResume.Enabled == nil || *res.Config.StreamRecovery.AutoResume.Enabled {
 		t.Fatal("BuildBootstrap must apply fixed CLI stream-recovery overrides")
 	}

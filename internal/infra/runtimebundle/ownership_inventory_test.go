@@ -119,8 +119,6 @@ var bootstrapResourceOwnership = []ownershipEntry{
 	{Symbol: "Logger", Class: ownershipProcess, Source: "runtimebundle.BuildBootstrap → logging.NewLogger", Notes: "Process logger sink (req 6.4)."},
 	{Symbol: "Registry", Class: ownershipProcess, Source: "runtimebundle.BuildBootstrap → pluginreg.NewRegistry", Notes: "Same process factory catalog as Built.PluginRegistry."},
 	{Symbol: "Registrations", Class: ownershipGeneration, Source: "runtimebundle.BuildBootstrap → config.RegistrationsFromConfig", Notes: "Feature/plugin registration view for the candidate."},
-	{Symbol: "FeatureSurface", Class: ownershipGeneration, Source: "runtimebundle.BuildBootstrap → featurebundle.MergeFeatureSurface", Notes: "Merged hook/lifecycle surface rebuilt per generation."},
-	{Symbol: "App", Class: ownershipGeneration, Source: "runtimebundle.BuildBootstrap → NewBootstrapApp", Notes: "Feature lifecycle host rebuilt with the generation (req 4.9)."},
 	{Symbol: "ShutdownTracing", Class: ownershipProcess, Source: "runtimebundle.BuildBootstrap → tracing.Init", ConstructorID: "tracing.Init.Result.Shutdown", Notes: "Projection of process tracing shutdown; underlying provider/exporter owned below."},
 	{Symbol: "OutboundTracing", Class: ownershipProcess, Source: "runtimebundle.BuildBootstrap → tracing.Init", ConstructorID: "tracing.Init.Result.Active", Notes: "Process flag that outbound HTTP propagation is active."},
 	{Symbol: "tracing.Exporter", Class: ownershipProcess, Source: "internal/infra/tracing.Init → otlptracehttp.New", ConstructorID: "otlptracehttp.New", Notes: "OTLP HTTP exporter created by tracing.Init (req 6.4)."},

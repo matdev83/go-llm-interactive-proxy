@@ -13,7 +13,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/logging"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/osenv"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
-	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretsguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -159,15 +158,10 @@ func buildHostWithEnv(
 		return nil, fmt.Errorf("runtimebundle: logger init: %w", err)
 	}
 
-	reg, err := installStandardHostRegistry(in.Mandatory)
+	reg, regs, err := installRegistryAndRegistrations(cfg, in.Mandatory)
 	if err != nil {
 		cleanupTracing()
 		return nil, err
-	}
-	regs := config.RegistrationsFromConfig(cfg)
-	if _, err := featuresg.EnabledRegistrations(regs); err != nil {
-		cleanupTracing()
-		return nil, fmt.Errorf("runtimebundle: secrets-guard composition: %w", err)
 	}
 
 	boot := BootstrapResult{

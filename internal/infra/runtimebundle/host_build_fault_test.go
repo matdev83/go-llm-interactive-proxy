@@ -84,7 +84,7 @@ func TestPartialCleanup_FaultSeamUsesProductionTransaction(t *testing.T) {
 		"Publish",
 		"bindReloadHost",
 		"initProcessTracing",
-		"installStandardHostRegistry",
+		"installRegistryAndRegistrations",
 	}
 	ast.Inspect(buildFaulting.Body, func(n ast.Node) bool {
 		switch x := n.(type) {

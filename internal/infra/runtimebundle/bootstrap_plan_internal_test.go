@@ -34,24 +34,19 @@ func (e *countingSecretGuardEnv) Snapshot() []string {
 	return nil
 }
 
-func TestBuildBootstrap_inspectDoesNotRequestSecretGuardEnvironment(t *testing.T) {
-	env := &countingSecretGuardEnv{}
-	res, err := buildBootstrap(t.Context(), BuildBootstrapInput{
-		ConfigPath: filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-single-user.yaml"),
-		Mode:       BootstrapInspect,
+// TestInspect_DoesNotRequestSecretGuardEnvironment characterizes the Task 5.3
+// Inspect invariant: prepareInspect (shared by [InspectRoutes]/[InspectInventory])
+// builds no ProcessServices and accepts no secret-guard environment seam at
+// all, so it structurally cannot consult it (unlike BootstrapServe, which
+// threads an explicit coresg.Environment into publishInitialGeneration).
+func TestInspect_DoesNotRequestSecretGuardEnvironment(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-single-user.yaml")
+	in := InspectInput{
+		ConfigPath: path,
 		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
-	}, env, LoadBootstrapEffectiveWithSource)
-	if err != nil {
-		t.Fatal(err)
 	}
-	defer func() {
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(t.Context())
-		}
-	}()
-	if env.calls != 0 {
-		t.Fatalf("BootstrapInspect consulted the secret-guard environment; calls=%d", env.calls)
+	if _, _, _, err := prepareInspect(t.Context(), in, LoadBootstrapEffectiveWithSource); err != nil {
+		t.Fatal(err)
 	}
 }
 

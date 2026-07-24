@@ -207,7 +207,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 5.1_
   - _Validation: `go test -race ./internal/infra/runtimebundle/... ./cmd/lipstd/... ./pkg/lipruntime/... -run 'BuildHost|InitialGeneration|ReloadHost|Cleanup'`_
 
-- [ ] 5.3 Split explicit inspect and inventory operations (P)
+- [x] 5.3 Split explicit inspect and inventory operations (P)
   - Replace broad BootstrapResult outputs with purpose-specific inspection values.
   - Keep routes and inventory on the shared strict loader and standard registry without building process/generation runtime.
   - Remove serve-mode App construction and duplicate feature-surface merge.
