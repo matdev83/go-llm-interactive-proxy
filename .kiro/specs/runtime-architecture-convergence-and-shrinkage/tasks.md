@@ -282,7 +282,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 6.3_
   - _Validation: `go test -race ./internal/infra/runtimehost/... -run 'ReloadState|Status|History|SourcePosture|ModelGeneration'`_
 
-- [ ] 6.5 Reduce Coordinator to thin orchestration and ratchet its budget
+- [x] 6.5 Reduce Coordinator to thin orchestration and ratchet its budget
   - Compose gate, runner, state, and observer.
   - Preserve host-owned timeout, caller detachment, queued follow-up loop, and result delivery.
   - Delete old state fields/helpers and lower `coordinator.go` to at most 300 non-test lines.

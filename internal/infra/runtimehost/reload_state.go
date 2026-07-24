@@ -88,6 +88,14 @@ func newReloadState(in reloadStateInitial) *ReloadState {
 	return s
 }
 
+func cloneActiveSource(in *configsource.ActiveSourceVersion) *configsource.ActiveSourceVersion {
+	if in == nil {
+		return nil
+	}
+	cp := *in
+	return &cp
+}
+
 // ActiveInput returns an immutable attemptInput snapshot for one admitted
 // attempt transaction, cloning the mutable active source at this boundary
 // (req 6.2, 6.10-6.11).

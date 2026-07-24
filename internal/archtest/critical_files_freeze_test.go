@@ -1,7 +1,9 @@
 package archtest
 
 import (
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -9,12 +11,26 @@ import (
 // measured physical line counts freeze the migration-critical files (Task 1.1).
 const migrationHotspotFreezeBaselineSHA = "efe4624909cea318c7211d5cb3734059d3210802"
 
+// Task 6.5 Coordinator exact-current ratchet: active architecture metadata and
+// the physical file must share one measured total (not a padded ≤300 ceiling).
+const (
+	coordinatorHotspotPath           = "internal/infra/runtimehost/coordinator.go"
+	coordinatorExactCurrentRatchet   = 292
+	coordinatorFinalLineCeiling      = 300
+	coordinatorImmutableBaselineMax  = 797
+	coordinatorImmutableLoweringTask = "6.5"
+)
+
 // expectedMigrationHotspotFreezes lists the Task 1.2 gravity wells that must
 // appear in CriticalFileBudgets. BaselineMax is the immutable Task 1.1 measured
 // ceiling at migrationHotspotFreezeBaselineSHA. CurrentMax is the present
-// exact-measured ratchet (no growth headroom) and must equal CriticalFileBudgets.Max.
+// active ratchet and must equal CriticalFileBudgets.Max.
 // FinalTarget is Requirement 11.3; LoweringTask is the contraction task that
 // must ratchet CurrentMax downward.
+//
+// Most hotspots use ceiling semantics (actual ≤ CurrentMax) until their lowering
+// task completes. Task 6.5 Coordinator additionally requires exact three-source
+// equality (actual == CriticalFileBudgets.Max == CurrentMax == 292).
 var expectedMigrationHotspotFreezes = []struct {
 	Path         string
 	BaselineMax  int
@@ -23,11 +39,11 @@ var expectedMigrationHotspotFreezes = []struct {
 	LoweringTask string
 }{
 	{
-		Path:         "internal/infra/runtimehost/coordinator.go",
-		BaselineMax:  797,
-		CurrentMax:   359, // exact measured lines after Task 6.4 ReloadState extraction
-		FinalTarget:  300,
-		LoweringTask: "6.5",
+		Path:         coordinatorHotspotPath,
+		BaselineMax:  coordinatorImmutableBaselineMax,
+		CurrentMax:   coordinatorExactCurrentRatchet, // exact measured lines after Task 6.5
+		FinalTarget:  coordinatorFinalLineCeiling,
+		LoweringTask: coordinatorImmutableLoweringTask,
 	},
 	{
 		Path:         "internal/infra/runtimehost/generation.go",
@@ -53,6 +69,217 @@ var expectedMigrationHotspotFreezes = []struct {
 		FinalTarget:  150,
 		LoweringTask: "5.2",
 	},
+}
+
+// exactCurrentRatchet equates three authoritative sources for a completed
+// lowering task: physical lines, CriticalFileBudgets.Max, and freeze CurrentMax.
+type exactCurrentRatchet struct {
+	Path             string
+	ActualLines      int
+	BudgetMax        int
+	FreezeCurrentMax int
+	ExpectedExact    int
+	FinalCeiling     int
+}
+
+// validateExactCurrentRatchet fails when any of the three current-ratchet
+// sources disagree, when they drift from the accepted exact total, when the
+// hard final ceiling is violated, or when metadata is stale/padded relative to
+// the measured file. Silent shrink or padded CurrentMax must not pass.
+func validateExactCurrentRatchet(r exactCurrentRatchet) error {
+	if r.ExpectedExact <= 0 {
+		return fmt.Errorf("%s: ExpectedExact must be positive", r.Path)
+	}
+	if r.FinalCeiling <= 0 {
+		return fmt.Errorf("%s: FinalCeiling must be positive", r.Path)
+	}
+	if r.ExpectedExact > r.FinalCeiling {
+		return fmt.Errorf("%s: ExpectedExact %d exceeds FinalCeiling %d", r.Path, r.ExpectedExact, r.FinalCeiling)
+	}
+	if r.BudgetMax != r.FreezeCurrentMax {
+		return fmt.Errorf("%s: CriticalFileBudgets.Max=%d disagrees with freeze CurrentMax=%d", r.Path, r.BudgetMax, r.FreezeCurrentMax)
+	}
+	if r.BudgetMax != r.ExpectedExact {
+		return fmt.Errorf("%s: CriticalFileBudgets.Max=%d, want exact current ratchet %d", r.Path, r.BudgetMax, r.ExpectedExact)
+	}
+	if r.FreezeCurrentMax != r.ExpectedExact {
+		return fmt.Errorf("%s: freeze CurrentMax=%d, want exact current ratchet %d", r.Path, r.FreezeCurrentMax, r.ExpectedExact)
+	}
+	if r.ActualLines != r.ExpectedExact {
+		switch {
+		case r.ActualLines < r.ExpectedExact:
+			return fmt.Errorf("%s: measured %d lines with stale/padded current ratchet %d (silent shrink must lower all current-ratchet metadata together)", r.Path, r.ActualLines, r.ExpectedExact)
+		default:
+			return fmt.Errorf("%s: measured %d lines exceed exact current ratchet %d", r.Path, r.ActualLines, r.ExpectedExact)
+		}
+	}
+	if r.ActualLines > r.FinalCeiling {
+		return fmt.Errorf("%s: measured %d lines exceed final ceiling %d", r.Path, r.ActualLines, r.FinalCeiling)
+	}
+	if r.FreezeCurrentMax > r.FinalCeiling {
+		return fmt.Errorf("%s: freeze CurrentMax %d exceeds final ceiling %d", r.Path, r.FreezeCurrentMax, r.FinalCeiling)
+	}
+	return nil
+}
+
+func TestValidateExactCurrentRatchet(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		in      exactCurrentRatchet
+		wantErr string
+	}{
+		{
+			name: "actual_292_active_292_freeze_292_passes",
+			in: exactCurrentRatchet{
+				Path:             coordinatorHotspotPath,
+				ActualLines:      292,
+				BudgetMax:        292,
+				FreezeCurrentMax: 292,
+				ExpectedExact:    292,
+				FinalCeiling:     300,
+			},
+		},
+		{
+			name: "simulated_actual_291_metadata_292_fails_stale_padded",
+			in: exactCurrentRatchet{
+				Path:             coordinatorHotspotPath,
+				ActualLines:      291,
+				BudgetMax:        292,
+				FreezeCurrentMax: 292,
+				ExpectedExact:    292,
+				FinalCeiling:     300,
+			},
+			wantErr: "stale/padded",
+		},
+		{
+			name: "simulated_actual_293_metadata_292_fails",
+			in: exactCurrentRatchet{
+				Path:             coordinatorHotspotPath,
+				ActualLines:      293,
+				BudgetMax:        292,
+				FreezeCurrentMax: 292,
+				ExpectedExact:    292,
+				FinalCeiling:     300,
+			},
+			wantErr: "exceed exact current ratchet",
+		},
+		{
+			name: "active_and_freeze_metadata_disagreement_fails",
+			in: exactCurrentRatchet{
+				Path:             coordinatorHotspotPath,
+				ActualLines:      292,
+				BudgetMax:        292,
+				FreezeCurrentMax: 291,
+				ExpectedExact:    292,
+				FinalCeiling:     300,
+			},
+			wantErr: "disagrees with freeze CurrentMax",
+		},
+		{
+			name: "budget_drift_from_expected_exact_fails",
+			in: exactCurrentRatchet{
+				Path:             coordinatorHotspotPath,
+				ActualLines:      292,
+				BudgetMax:        300,
+				FreezeCurrentMax: 300,
+				ExpectedExact:    292,
+				FinalCeiling:     300,
+			},
+			wantErr: "want exact current ratchet 292",
+		},
+		{
+			name: "final_ceiling_violation_fails",
+			in: exactCurrentRatchet{
+				Path:             coordinatorHotspotPath,
+				ActualLines:      301,
+				BudgetMax:        301,
+				FreezeCurrentMax: 301,
+				ExpectedExact:    301,
+				FinalCeiling:     300,
+			},
+			wantErr: "exceeds FinalCeiling",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateExactCurrentRatchet(tc.in)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validateExactCurrentRatchet: unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("validateExactCurrentRatchet: want error containing %q, got nil", tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("validateExactCurrentRatchet: error %q does not contain %q", err.Error(), tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestCoordinatorTask65ExactCurrentRatchet(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+
+	freezeIdx := -1
+	for i, entry := range expectedMigrationHotspotFreezes {
+		if entry.Path == coordinatorHotspotPath {
+			freezeIdx = i
+			break
+		}
+	}
+	if freezeIdx < 0 {
+		t.Fatalf("expectedMigrationHotspotFreezes missing %s", coordinatorHotspotPath)
+	}
+	freeze := expectedMigrationHotspotFreezes[freezeIdx]
+
+	// Baseline / final / lowering metadata remain independently frozen from the
+	// active exact-current ratchet (292).
+	if freeze.BaselineMax != coordinatorImmutableBaselineMax {
+		t.Fatalf("coordinator BaselineMax=%d, want immutable %d", freeze.BaselineMax, coordinatorImmutableBaselineMax)
+	}
+	if freeze.FinalTarget != coordinatorFinalLineCeiling {
+		t.Fatalf("coordinator FinalTarget=%d, want immutable %d", freeze.FinalTarget, coordinatorFinalLineCeiling)
+	}
+	if freeze.LoweringTask != coordinatorImmutableLoweringTask {
+		t.Fatalf("coordinator LoweringTask=%q, want immutable %q", freeze.LoweringTask, coordinatorImmutableLoweringTask)
+	}
+	if freeze.CurrentMax != coordinatorExactCurrentRatchet {
+		t.Fatalf("coordinator CurrentMax=%d, want exact Task 6.5 ratchet %d", freeze.CurrentMax, coordinatorExactCurrentRatchet)
+	}
+
+	var budgetMax int
+	foundBudget := false
+	for _, b := range CriticalFileBudgets {
+		if b.Path == coordinatorHotspotPath {
+			budgetMax = b.Max
+			foundBudget = true
+			break
+		}
+	}
+	if !foundBudget {
+		t.Fatalf("CriticalFileBudgets missing %s", coordinatorHotspotPath)
+	}
+
+	n, err := countFileLines(filepath.Join(root, coordinatorHotspotPath))
+	if err != nil {
+		t.Fatalf("%s: %v", coordinatorHotspotPath, err)
+	}
+
+	if err := validateExactCurrentRatchet(exactCurrentRatchet{
+		Path:             coordinatorHotspotPath,
+		ActualLines:      n,
+		BudgetMax:        budgetMax,
+		FreezeCurrentMax: freeze.CurrentMax,
+		ExpectedExact:    coordinatorExactCurrentRatchet,
+		FinalCeiling:     coordinatorFinalLineCeiling,
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestCriticalFileMigrationHotspotFreezeBudgets(t *testing.T) {
@@ -84,12 +311,26 @@ func TestCriticalFileMigrationHotspotFreezeBudgets(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: %v", want.Path, err)
 			}
-			if n != want.CurrentMax {
-				t.Fatalf("%s: measured %d lines, want exact CurrentMax ratchet %d (BaselineMax %d)", want.Path, n, want.CurrentMax, want.BaselineMax)
-			}
-			if criticalFileExceedsBudget(n, got.Max) {
+
+			// Task 6.5 Coordinator: exact three-source equality is enforced by
+			// TestCoordinatorTask65ExactCurrentRatchet. Other hotspots retain
+			// freeze/ceiling semantics (actual ≤ CurrentMax) until their
+			// lowering task intentionally ratchets metadata.
+			if want.Path == coordinatorHotspotPath {
+				if err := validateExactCurrentRatchet(exactCurrentRatchet{
+					Path:             want.Path,
+					ActualLines:      n,
+					BudgetMax:        got.Max,
+					FreezeCurrentMax: want.CurrentMax,
+					ExpectedExact:    coordinatorExactCurrentRatchet,
+					FinalCeiling:     want.FinalTarget,
+				}); err != nil {
+					t.Fatal(err)
+				}
+			} else if criticalFileExceedsBudget(n, got.Max) {
 				t.Fatalf("%s: current size %d must pass budget %d", want.Path, n, got.Max)
 			}
+
 			// Representative one-line growth must be rejected without mutating repo sources.
 			if !criticalFileExceedsBudget(want.CurrentMax+1, got.Max) {
 				t.Fatalf("%s: one-line growth (%d) must exceed CurrentMax ratchet %d", want.Path, want.CurrentMax+1, want.CurrentMax)

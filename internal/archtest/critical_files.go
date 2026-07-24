@@ -63,13 +63,13 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	// in critical_files_freeze_test.go), not the immutable Task 1.1 BaselineMax.
 	// Final targets are Requirement 11.3; named tasks must lower CurrentMax.
 
-	// BaselineMax 797 (Task 1.1) → CurrentMax 359 after Task 6.4 ReloadState
-	// extraction (active effective/source, last/success/failure, posture,
-	// model fingerprint, and history storage/composition moved to ReloadState;
-	// recordTerminal/applyOutcome/newAttemptInput deleted); final ≤300 via
-	// Phase 6 task 6.5 (thin coordinator after gate/runner/state/observer
-	// composition).
-	{Path: "internal/infra/runtimehost/coordinator.go", Max: 359},
+	// BaselineMax 797 (Task 1.1) → CurrentMax 292 after Task 6.5 thin
+	// orchestration (ports/seams + cloneActiveSource left coordinator.go;
+	// gate/runner/state/observer composition retained). File budget is the
+	// exact measured physical line count (no padded ceiling). Final ≤300
+	// (Req 11.3) is met; moved unchanged ports are not package-tree shrinkage
+	// evidence under Requirement 11.6.
+	{Path: "internal/infra/runtimehost/coordinator.go", Max: 292},
 	// BaselineMax/CurrentMax 575 → final ≤400 (Req 11.3). Lower via Phase 7 task 7.3.
 	{Path: "internal/infra/runtimehost/generation.go", Max: 575},
 	// BaselineMax 440 → CurrentMax 393 after Tasks 3.3/4.2; final ≤350 (Req 11.3).
