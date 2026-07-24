@@ -90,13 +90,16 @@ func shutdownTracing(ctx context.Context, shutdown func(context.Context) error) 
 
 // BuildBootstrap centralizes standard-distribution startup used by lipstd inspect and serve paths.
 func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResult, error) {
-	return buildBootstrap(ctx, in, osenv.Process{})
+	return buildBootstrap(ctx, in, osenv.Process{}, LoadBootstrapEffectiveWithSource)
 }
 
-func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv coresg.Environment) (BootstrapResult, error) {
+func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv coresg.Environment, loadEffective bootstrapEffectiveLoader) (BootstrapResult, error) {
 	var out BootstrapResult
 	if ctx == nil {
 		return out, fmt.Errorf("runtimebundle: nil context")
+	}
+	if loadEffective == nil {
+		loadEffective = LoadBootstrapEffectiveWithSource
 	}
 	path := strings.TrimSpace(in.ConfigPath)
 	if path == "" {
@@ -110,7 +113,7 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 		logOut = os.Stdout
 	}
 
-	effective, activeSource, fixedStreamRecovery, err := LoadBootstrapEffectiveWithSource(ctx, path, in.StreamRecoveryOverrides)
+	effective, activeSource, fixedStreamRecovery, err := loadEffective(ctx, path, in.StreamRecoveryOverrides)
 	if err != nil {
 		return out, err
 	}

@@ -169,9 +169,11 @@ func scanRuntimeConvergenceSource(filename, src string) ([]convergenceFinding, e
 			return "", false
 		}
 	}
+	dotPaths := dotImportedProtectedPaths(f, runtimeConvergenceDotPaths)
+	pkgScope := packageScopeProtectedAliases(f, aliases, dotPaths, localUnqualified, runtimeConvergenceProtected)
 	visitor := &protectedCallVisitor{
 		importAliases:    aliases,
-		dotPaths:         dotImportedProtectedPaths(f, runtimeConvergenceDotPaths),
+		dotPaths:         dotPaths,
 		localUnqualified: localUnqualified,
 		protected:        runtimeConvergenceProtected,
 		toShort:          toShort,
@@ -190,7 +192,7 @@ func scanRuntimeConvergenceSource(filename, src string) ([]convergenceFinding, e
 		if !ok || fd.Body == nil {
 			continue
 		}
-		visitor.walkFunc(fd)
+		visitor.walkFuncWithPackageScope(fd, pkgScope)
 	}
 	return out, nil
 }
@@ -398,9 +400,11 @@ func scanHostPathSource(filename, src string) ([]convergenceFinding, error) {
 		}
 		return "", false
 	}
+	dotPaths := dotImportedProtectedPaths(f, hostPathDotPaths)
+	pkgScope := packageScopeProtectedAliases(f, aliases, dotPaths, localUnqualified, hostPathProtected)
 	visitor := &protectedCallVisitor{
 		importAliases:    aliases,
-		dotPaths:         dotImportedProtectedPaths(f, hostPathDotPaths),
+		dotPaths:         dotPaths,
 		localUnqualified: localUnqualified,
 		protected:        hostPathProtected,
 		toShort:          toShort,
@@ -419,7 +423,7 @@ func scanHostPathSource(filename, src string) ([]convergenceFinding, error) {
 		if !ok || fd.Body == nil {
 			continue
 		}
-		visitor.walkFunc(fd)
+		visitor.walkFuncWithPackageScope(fd, pkgScope)
 	}
 	return out, nil
 }
@@ -484,9 +488,11 @@ func scanConfigLoadSource(filename, src string) ([]convergenceFinding, error) {
 		"LoadBootstrapEffective":                         true,
 		"LoadBootstrapEffectiveWithSource":               true,
 	}
+	dotPaths := dotImportedProtectedPaths(f, configLoadDotPaths)
+	pkgScope := packageScopeProtectedAliases(f, aliases, dotPaths, localUnqualified, prot)
 	visitor := &protectedCallVisitor{
 		importAliases:    aliases,
-		dotPaths:         dotImportedProtectedPaths(f, configLoadDotPaths),
+		dotPaths:         dotPaths,
 		localUnqualified: localUnqualified,
 		protected:        prot,
 		toShort:          toShort,
@@ -505,7 +511,7 @@ func scanConfigLoadSource(filename, src string) ([]convergenceFinding, error) {
 		if !ok || fd.Body == nil {
 			continue
 		}
-		visitor.walkFunc(fd)
+		visitor.walkFuncWithPackageScope(fd, pkgScope)
 	}
 	return out, nil
 }

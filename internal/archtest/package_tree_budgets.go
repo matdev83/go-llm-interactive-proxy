@@ -22,8 +22,10 @@ type PackageTreeBudget struct {
 //
 // Ratcheted in Task 4.2 / certified in Task 4.4 at measured post-deletion sizes
 // with zero headroom (Requirement 11.7-11.8).
+// Task 5.1: runtimebundle exact-measured after per-invocation loader parameter +
+// unexported buildHost RED seam (no package-global loader hook).
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 9603},
+	{Tree: "internal/infra/runtimebundle", Max: 9661},
 	{Tree: "internal/stdhttp", Max: 4522},
 }
 

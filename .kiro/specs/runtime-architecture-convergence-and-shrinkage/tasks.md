@@ -186,7 +186,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 - [ ] 5. Build one complete host from one config snapshot
 
-- [ ] 5.1 Add one-snapshot host construction RED tests
+- [x] 5.1 Add one-snapshot host construction RED tests
   - Add a controlled source hook proving multi-user/startup gates, generation 1, process runtime, reload active source/effective, and public fingerprint use one accepted snapshot.
   - Add partial-failure cleanup matrices for loader, process runtime, generation compile, publish, coordinator bind, and tracing.
   - Add architecture tests prohibiting production `AttachReloadHost` and multiple effective loads in serve/public Build.

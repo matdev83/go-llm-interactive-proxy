@@ -1063,3 +1063,113 @@ func wire() {
 		t.Fatalf("protected call inside closure body must still be detected, got %v", got)
 	}
 }
+
+// --- Task 5.1 host_path / config_load package-scope + wrapper fixtures ---
+
+func TestHostPath_PackageScopeCallableVarAliasDetected(t *testing.T) {
+	t.Parallel()
+	src := `package cmd
+import "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+var attach = runtimebundle.AttachReloadHost
+func extraServe() {
+	_, _ = attach(nil, runtimebundle.BootstrapResult{}, "", nil)
+}
+`
+	got, err := scanHostPathSource("cmd/lipstd/pkg_scope_attach.go", src)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if !findingsContainIdentity(got, "call:extraServe->runtimebundle.AttachReloadHost#1") {
+		t.Fatalf("expected package-scope AttachReloadHost alias detection, got %v", got)
+	}
+}
+
+func TestConfigLoad_PackageScopeCallableVarAliasDetected(t *testing.T) {
+	t.Parallel()
+	src := `package other
+import "github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+var load = config.LoadEffective
+func startup() {
+	_, _ = load(nil, nil, config.LoadEffectiveOptions{})
+}
+`
+	got, err := scanConfigLoadSource("internal/infra/other/pkg_scope_load.go", src)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if !findingsContainIdentity(got, "call:startup->config.LoadEffective#1") {
+		t.Fatalf("expected package-scope config.LoadEffective alias detection, got %v", got)
+	}
+}
+
+func TestConfigLoad_WrapperFunctionLoadEffectiveDetected(t *testing.T) {
+	t.Parallel()
+	src := `package other
+import "github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+func loadWrapper(ctx interface{}, raw []byte) (*config.EffectiveConfig, error) {
+	return config.LoadEffective(nil, raw, config.LoadEffectiveOptions{})
+}
+func startup() {
+	_, _ = loadWrapper(nil, nil)
+}
+`
+	got, err := scanConfigLoadSource("internal/infra/other/wrapper_load.go", src)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if !findingsContainIdentity(got, "call:loadWrapper->config.LoadEffective#1") {
+		t.Fatalf("expected LoadEffective inside wrapper detection, got %v", got)
+	}
+}
+
+func TestConfigLoad_MultipleEffectiveLoadsInServeShapeDetected(t *testing.T) {
+	t.Parallel()
+	src := `package main
+import "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+func validateServeMultiUserGate() {
+	_, _ = runtimebundle.LoadBootstrapEffective(nil, "", struct{}{})
+}
+func runServeCommand() {
+	_, _ = runtimebundle.BuildBootstrap(nil, struct{}{})
+}
+func buildBootstrap() {
+	_, _, _, _ = runtimebundle.LoadBootstrapEffectiveWithSource(nil, "", struct{}{})
+}
+`
+	gate, err := scanConfigLoadSource("cmd/lipstd/command.go", src)
+	if err != nil {
+		t.Fatalf("scan gate file: %v", err)
+	}
+	if !findingsContainIdentity(gate, "call:validateServeMultiUserGate->LoadBootstrapEffective#1") {
+		t.Fatalf("expected serve gate load detection, got %v", gate)
+	}
+	boot, err := scanConfigLoadSource("internal/infra/runtimebundle/bootstrap_plan.go", `package runtimebundle
+func buildBootstrap() {
+	_, _, _, _ = LoadBootstrapEffectiveWithSource(nil, "", struct{}{})
+}
+`)
+	if err != nil {
+		t.Fatalf("scan bootstrap: %v", err)
+	}
+	if !findingsContainIdentity(boot, "call:buildBootstrap->LoadBootstrapEffectiveWithSource#1") {
+		t.Fatalf("expected buildBootstrap load detection, got %v", boot)
+	}
+}
+
+func TestHostPath_PublicBuildAttachReloadHostAliasDetected(t *testing.T) {
+	t.Parallel()
+	src := `package lipruntime
+import "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+func Build() {
+	attach := runtimebundle.AttachReloadHost
+	_, _ = attach(nil, runtimebundle.BootstrapResult{}, "", nil)
+}
+`
+	got, err := scanHostPathSource("pkg/lipruntime/build.go", src)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if !findingsContainIdentity(got, "call:Build->runtimebundle.AttachReloadHost#1") {
+		t.Fatalf("expected public Build AttachReloadHost alias detection, got %v", got)
+	}
+}

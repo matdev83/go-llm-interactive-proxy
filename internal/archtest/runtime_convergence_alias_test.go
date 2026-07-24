@@ -39,8 +39,11 @@ import (
 //   - dot-imported protected packages (unqualified names resolve)
 //   - practical if/else, switch/select, loop, and uninvoked-closure shapes above
 //
+// Supported (Task 5.1 package-scope extension):
+//   - package-level var / const function-value aliases of protected symbols when
+//     the file-scope binding is seeded into each function walk
+//
 // Unsupported (disclosed; not claimed):
-//   - package-level var aliases outside the scanned function
 //   - aliases stored in structs/slices/maps or returned across functions
 //   - reflection, unsafe, or go:linkname indirection
 //   - method values (recv.M) and interface-held function values
@@ -293,10 +296,14 @@ func (v *protectedCallVisitor) resolve(expr ast.Expr, scope *aliasScope) (string
 }
 
 func (v *protectedCallVisitor) walkFunc(fd *ast.FuncDecl) {
+	v.walkFuncWithPackageScope(fd, nil)
+}
+
+func (v *protectedCallVisitor) walkFuncWithPackageScope(fd *ast.FuncDecl, pkgScope *aliasScope) {
 	if fd == nil || fd.Body == nil {
 		return
 	}
-	scope := newAliasScope(nil)
+	scope := newAliasScope(pkgScope)
 	if fd.Type != nil && fd.Type.Params != nil {
 		for _, field := range fd.Type.Params.List {
 			for _, name := range field.Names {
@@ -308,6 +315,45 @@ func (v *protectedCallVisitor) walkFunc(fd *ast.FuncDecl) {
 	}
 	v.encl = fd.Name.Name
 	v.walkBlock(fd.Body, scope)
+}
+
+// packageScopeProtectedAliases seeds file-scope var/const bindings whose RHS
+// resolves to a protected function value (Task 5.1 package-scope evasion).
+func packageScopeProtectedAliases(
+	f *ast.File,
+	importAliases map[string]string,
+	dotPaths []string,
+	localUnqualified map[string]string,
+	protected protectedSymbolSet,
+) *aliasScope {
+	scope := newAliasScope(nil)
+	if f == nil {
+		return scope
+	}
+	for _, decl := range f.Decls {
+		gd, ok := decl.(*ast.GenDecl)
+		if !ok || (gd.Tok != token.VAR && gd.Tok != token.CONST) {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for i, name := range vs.Names {
+				if name == nil || name.Name == "_" || i >= len(vs.Values) {
+					continue
+				}
+				resolved, ok := resolveProtectedFuncValue(vs.Values[i], scope, importAliases, dotPaths, localUnqualified, protected)
+				if !ok {
+					scope.define(name.Name, "")
+					continue
+				}
+				scope.define(name.Name, resolved)
+			}
+		}
+	}
+	return scope
 }
 
 func (v *protectedCallVisitor) walkBlock(block *ast.BlockStmt, scope *aliasScope) {

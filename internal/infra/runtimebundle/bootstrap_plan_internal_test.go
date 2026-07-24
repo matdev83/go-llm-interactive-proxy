@@ -41,7 +41,7 @@ func TestBuildBootstrap_inspectDoesNotRequestSecretGuardEnvironment(t *testing.T
 		Mode:       BootstrapInspect,
 		Mandatory:  lipsdk.StandardDistributionRequirements(),
 		LogWriter:  io.Discard,
-	}, env)
+	}, env, LoadBootstrapEffectiveWithSource)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestBuildBootstrap_serveMultiUserSecretGuardDoesNotConsultEnvironment(t *te
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: stubHandlerComposer,
-	}, env)
+	}, env, LoadBootstrapEffectiveWithSource)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestBuildBootstrap_serveDisabledSecretGuardDoesNotConsultEnvironment(t *tes
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: stubHandlerComposer,
-	}, env)
+	}, env, LoadBootstrapEffectiveWithSource)
 	if err != nil {
 		t.Fatal(err)
 	}

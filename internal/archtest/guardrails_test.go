@@ -321,7 +321,9 @@ var lineBudgets = []struct {
 	// Ratcheted from 9928 to 9603 for Task 4.2: deleted built.go, build.go,
 	// candidate Closers field, ResourceLedger.LegacyClosers, and the Built-only
 	// terminal-work methods (measured 9603; zero headroom).
-	{"internal/infra/runtimebundle", 9603},
+	// Task 5.1: exact measured size after per-invocation bootstrapEffectiveLoader
+	// parameter + unexported buildHost RED seam (no package-global loader hook).
+	{"internal/infra/runtimebundle", 9661},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {
