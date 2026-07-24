@@ -341,7 +341,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 - [ ] 8. Converge the public standard-runtime API
 
-- [ ] 8.1 Reduce Runtime to one host-facing dependency
+- [x] 8.1 Reduce Runtime to one host-facing dependency
   - Add public external tests for ExecutorView, Ready, capabilities, reload/status, snapshot refresh, and Close retry/idempotency.
   - Replace concrete host internals and build-time booleans with one private host interface and derived capabilities.
   - Keep only facade synchronization required by the documented public contract.

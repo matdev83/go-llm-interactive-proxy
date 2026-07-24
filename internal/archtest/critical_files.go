@@ -94,9 +94,14 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	// the construction transaction and Close/Closed methods (measured 249;
 	// 51 lines under the final ≤300 target).
 	{Path: "internal/infra/runtimebundle/process_services.go", Max: 249},
-	// BaselineMax 367 → CurrentMax 321 (Task 5.2 thin BuildHost facade);
-	// final ≤150 (Req 11.3). Lower via Phase 8 task 8.1 (public build/facade).
-	{Path: "pkg/lipruntime/build.go", Max: 321},
+	// BaselineMax 367 → CurrentMax 96 after Task 8.1 (one host-facing dependency;
+	// delegates/adapters live in facade.go/host.go). Exact measured; final ≤150
+	// (Req 11.3) met with margin.
+	{Path: "pkg/lipruntime/build.go", Max: 96},
+	// Task 8.1: private host adapter exact-measured (zero headroom).
+	{Path: "pkg/lipruntime/host.go", Max: 98},
+	// Task 8.1: public facade delegation exact-measured (zero headroom).
+	{Path: "pkg/lipruntime/facade.go", Max: 134},
 	// Task 5.5: exact-measured post dual-bootstrap deletion (zero headroom).
 	// Task 7.4: contracted to 360 after the tracingDeferred serve boundary was
 	// replaced by the single Host.Close seam.
@@ -105,6 +110,7 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	// Task 2.3: after deleting pkg/lipruntime/reload_map.go and converting public
 	// mirrored types to exact SDK aliases, freeze the thin reload facade files at
 	// measured post-deletion sizes (zero new headroom).
-	{Path: "pkg/lipruntime/reload.go", Max: 97},
+	// Task 8.1: contracted with host-delegating Reload/Status (measured 89).
+	{Path: "pkg/lipruntime/reload.go", Max: 89},
 	{Path: "pkg/lipruntime/reload_aliases.go", Max: 35},
 }

@@ -366,12 +366,18 @@ var lineBudgets = []struct {
 	// pre-Host rollback). Attempt-3 removed closeAttemptWaitHook. stdhttp and
 	// cmd/lipstd contract in the same change, so the net production delta
 	// across the three trees vs Task 7.3 is +78 (measured 10286; zero headroom).
-	{"internal/infra/runtimebundle", 10286},
+	// Task 8.1: Host facade query methods (Ready/snapshot/readiness/metering)
+	// moved onto Host so pkg/lipruntime stays at/below the b264155f pre-task
+	// recursive non-test total (measured 10451; zero headroom).
+	{"internal/infra/runtimebundle", 10451},
 	// Task 5.5: exact-measured cmd/lipstd after dual-bootstrap deletion
 	// (measured 913; zero headroom).
 	// Contracted from 913 to 880 for Task 7.4: tracing_shutdown.go deleted and
 	// the tracingDeferred serve boundary removed (measured 880; zero headroom).
 	{"cmd/lipstd", 880},
+	// Task 8.1: recursive public facade package exact-measured after host seam
+	// split (measured 819; at/under the b264155f pre-task 820 ceiling).
+	{"pkg/lipruntime", 819},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

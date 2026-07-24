@@ -54,10 +54,15 @@ type PackageTreeBudget struct {
 // shutdownGenerationHost/closeProcessServices and cmd/lipstd loses
 // tracing_shutdown.go. Net non-test production delta vs Task 7.3 is
 // +78 lines across the three trees.
+// Task 8.1: runtimebundle exact-measured after Host facade query methods moved
+// out of pkg/lipruntime (host_queries.go). pkg/lipruntime recursive non-test
+// production ceiling is the b264155f pre-task total with no headroom after the
+// public build/facade contraction (measured 819 ≤ 820).
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 10286},
+	{Tree: "internal/infra/runtimebundle", Max: 10451},
 	{Tree: "internal/stdhttp", Max: 4509},
 	{Tree: "cmd/lipstd", Max: 880},
+	{Tree: "pkg/lipruntime", Max: 819},
 }
 
 // CountNonTestGoLines recursively counts physical lines in non-test .go files

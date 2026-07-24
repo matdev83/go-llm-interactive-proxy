@@ -6,7 +6,7 @@ import (
 	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
-// reloadQuery is the narrow coordinator/query seam (satisfied by *runtimehost.Coordinator).
+// reloadQuery is the narrow reload/status seam satisfied by [hostAPI].
 // It is unexported so public callers never see internal packages; signatures use the
 // canonical SDK contract types directly.
 type reloadQuery interface {
@@ -15,7 +15,7 @@ type reloadQuery interface {
 }
 
 // ReloadControl is the importable, thread-safe public reload and status facade.
-// It delegates to the host coordinator/query seam and never duplicates reload logic.
+// It delegates to the host seam and never duplicates reload logic.
 type ReloadControl struct {
 	q reloadQuery
 }
@@ -51,36 +51,28 @@ func (c *ReloadControl) Status() ReloadStatus {
 	return normalizeStatus(c.q.Status().Clone())
 }
 
-// Reload runs one explicit reload attempt when a coordinator is bound to this runtime.
+// Reload runs one explicit reload attempt when a host is bound to this runtime.
 func (r *Runtime) Reload(ctx context.Context, trigger ReloadTrigger) ReloadResult {
-	if r == nil || r.reload == nil {
+	if r == nil || r.host == nil {
 		return ReloadResult{Category: ResultInternalFailed, ReasonCategory: "reload-unavailable"}
 	}
-	return r.reload.Reload(ctx, trigger)
+	return newReloadControl(r.host).Reload(ctx, trigger)
 }
 
 // ReloadStatus returns the safe reload status snapshot for this runtime.
 func (r *Runtime) ReloadStatus() ReloadStatus {
-	if r == nil || r.reload == nil {
+	if r == nil || r.host == nil {
 		return ReloadStatus{}
 	}
-	return r.reload.Status()
+	return newReloadControl(r.host).Status()
 }
 
 // ReloadControl returns the bound reload facade, or nil when reload is unavailable.
 func (r *Runtime) ReloadControl() *ReloadControl {
-	if r == nil {
+	if r == nil || r.host == nil {
 		return nil
 	}
-	return r.reload
-}
-
-// bindReloadQuery attaches the host coordinator/query seam without exposing it.
-func (r *Runtime) bindReloadQuery(q reloadQuery) {
-	if r == nil {
-		return
-	}
-	r.reload = newReloadControl(q)
+	return newReloadControl(r.host)
 }
 
 func normalizeStatus(st ReloadStatus) ReloadStatus {

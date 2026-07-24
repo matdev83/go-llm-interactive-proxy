@@ -13,15 +13,20 @@ type ReloadQueryForTest interface {
 }
 
 // NewReloadControlForTest constructs a public ReloadControl over a test query seam.
-// Production composition binds *runtimehost.Coordinator through unexported helpers.
+// Production composition binds the host reload/status methods through unexported helpers.
 func NewReloadControlForTest(q ReloadQueryForTest) *ReloadControl {
 	return newReloadControl(q)
 }
 
-// BindReloadQueryForTest attaches a coordinator/query seam to Runtime for tests.
-func BindReloadQueryForTest(r *Runtime, q ReloadQueryForTest) {
-	if r == nil {
-		return
+// HostAPIForTest is the narrow host seam used by public Runtime tests.
+// It mirrors the private hostAPI contract without exposing internal types.
+type HostAPIForTest = hostAPI
+
+// NewRuntimeWithHostForTest constructs a Runtime over a test host seam.
+// Production Build wraps [*runtimebundle.Host]; tests must not recreate that shape.
+func NewRuntimeWithHostForTest(h HostAPIForTest) *Runtime {
+	if h == nil {
+		return &Runtime{}
 	}
-	r.bindReloadQuery(q)
+	return &Runtime{host: h}
 }

@@ -62,8 +62,8 @@ func TestDeletedSymbol_Phase5AllowlistIsEmpty(t *testing.T) {
 func TestDeletedSymbol_PackageBudgetsExactMeasured(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	if len(PackageTreeBudgets) != 3 {
-		t.Fatalf("PackageTreeBudgets: want exactly runtimebundle+stdhttp+cmd/lipstd entries, got %d", len(PackageTreeBudgets))
+	if len(PackageTreeBudgets) != 4 {
+		t.Fatalf("PackageTreeBudgets: want exactly runtimebundle+stdhttp+cmd/lipstd+lipruntime entries, got %d", len(PackageTreeBudgets))
 	}
 	for _, tc := range PackageTreeBudgets {
 		t.Run(tc.Tree, func(t *testing.T) {

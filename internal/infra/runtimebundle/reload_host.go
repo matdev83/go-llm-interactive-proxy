@@ -356,6 +356,31 @@ func (h *ReloadHost) ActiveHasProductionRater() bool {
 	return ex != nil && ex.EconomicsRater != nil
 }
 
+// HasProductionTrafficObservers reports whether production traffic observers
+// were attached at host construction (derived from process production options).
+func (h *ReloadHost) HasProductionTrafficObservers() bool {
+	return len(h.productionOptions().TrafficObservers) > 0
+}
+
+// HasProductionUsageObservers reports whether production usage observers were
+// attached at host construction (derived from process production options).
+func (h *ReloadHost) HasProductionUsageObservers() bool {
+	return len(h.productionOptions().UsageObservers) > 0
+}
+
+// HasProductionEvidenceSink reports whether a production EvidenceSink was
+// attached at host construction (derived from process production options).
+func (h *ReloadHost) HasProductionEvidenceSink() bool {
+	return h.productionOptions().EvidenceSink != nil
+}
+
+func (h *ReloadHost) productionOptions() ProductionOptions {
+	if h == nil || h.Process == nil || h.Process.opts == nil {
+		return ProductionOptions{}
+	}
+	return h.Process.opts.Production
+}
+
 func (h *ReloadHost) activeExecutor() *runtime.Executor {
 	if h == nil || h.Manager == nil {
 		return nil

@@ -35,6 +35,15 @@ const (
 	generationImmutableLoweringTask = "7.3"
 )
 
+// Task 8.1 public build/facade exact-current ratchet: Runtime retains one host
+// seam; Build assembly lives in build.go at the measured post-split total.
+const (
+	lipruntimeBuildHotspotPath          = "pkg/lipruntime/build.go"
+	lipruntimeBuildExactCurrentRatchet  = 96
+	lipruntimeBuildImmutableBaselineMax = 367
+	lipruntimeImmutableLoweringTask     = "8.1"
+)
+
 // expectedMigrationHotspotFreezes lists the Task 1.2 gravity wells that must
 // appear in CriticalFileBudgets. BaselineMax is the immutable Task 1.1 measured
 // ceiling at migrationHotspotFreezeBaselineSHA. CurrentMax is the present
@@ -79,9 +88,9 @@ var expectedMigrationHotspotFreezes = []struct {
 	{
 		Path:         "pkg/lipruntime/build.go",
 		BaselineMax:  367,
-		CurrentMax:   321,
-		FinalTarget:  150,
-		LoweringTask: "5.2",
+		CurrentMax:   lipruntimeBuildExactCurrentRatchet, // exact measured lines after Task 8.1
+		FinalTarget:  lipruntimeFinalLineCeiling,
+		LoweringTask: lipruntimeImmutableLoweringTask,
 	},
 }
 
@@ -296,6 +305,65 @@ func TestCoordinatorTask65ExactCurrentRatchet(t *testing.T) {
 	}
 }
 
+func TestLipruntimeBuildTask81ExactCurrentRatchet(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+
+	freezeIdx := -1
+	for i, entry := range expectedMigrationHotspotFreezes {
+		if entry.Path == lipruntimeBuildHotspotPath {
+			freezeIdx = i
+			break
+		}
+	}
+	if freezeIdx < 0 {
+		t.Fatalf("expectedMigrationHotspotFreezes missing %s", lipruntimeBuildHotspotPath)
+	}
+	freeze := expectedMigrationHotspotFreezes[freezeIdx]
+
+	if freeze.BaselineMax != lipruntimeBuildImmutableBaselineMax {
+		t.Fatalf("lipruntime build BaselineMax=%d, want immutable %d", freeze.BaselineMax, lipruntimeBuildImmutableBaselineMax)
+	}
+	if freeze.FinalTarget != lipruntimeFinalLineCeiling {
+		t.Fatalf("lipruntime build FinalTarget=%d, want immutable %d", freeze.FinalTarget, lipruntimeFinalLineCeiling)
+	}
+	if freeze.LoweringTask != lipruntimeImmutableLoweringTask {
+		t.Fatalf("lipruntime build LoweringTask=%q, want immutable %q", freeze.LoweringTask, lipruntimeImmutableLoweringTask)
+	}
+	if freeze.CurrentMax != lipruntimeBuildExactCurrentRatchet {
+		t.Fatalf("lipruntime build CurrentMax=%d, want exact Task 8.1 ratchet %d", freeze.CurrentMax, lipruntimeBuildExactCurrentRatchet)
+	}
+
+	var budgetMax int
+	foundBudget := false
+	for _, b := range CriticalFileBudgets {
+		if b.Path == lipruntimeBuildHotspotPath {
+			budgetMax = b.Max
+			foundBudget = true
+			break
+		}
+	}
+	if !foundBudget {
+		t.Fatalf("CriticalFileBudgets missing %s", lipruntimeBuildHotspotPath)
+	}
+
+	n, err := countFileLines(filepath.Join(root, lipruntimeBuildHotspotPath))
+	if err != nil {
+		t.Fatalf("%s: %v", lipruntimeBuildHotspotPath, err)
+	}
+
+	if err := validateExactCurrentRatchet(exactCurrentRatchet{
+		Path:             lipruntimeBuildHotspotPath,
+		ActualLines:      n,
+		BudgetMax:        budgetMax,
+		FreezeCurrentMax: freeze.CurrentMax,
+		ExpectedExact:    lipruntimeBuildExactCurrentRatchet,
+		FinalCeiling:     lipruntimeFinalLineCeiling,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGenerationTask73ExactCurrentRatchet(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -385,11 +453,11 @@ func TestCriticalFileMigrationHotspotFreezeBudgets(t *testing.T) {
 				t.Fatalf("%s: %v", want.Path, err)
 			}
 
-			// Task 6.5 Coordinator and Task 7.3 Generation: exact three-source
-			// equality is enforced by TestCoordinatorTask65ExactCurrentRatchet
-			// and TestGenerationTask73ExactCurrentRatchet. Other hotspots
-			// retain freeze/ceiling semantics (actual ≤ CurrentMax) until
-			// their lowering task intentionally ratchets metadata.
+			// Task 6.5 Coordinator, Task 7.3 Generation, and Task 8.1 public
+			// build/facade: exact three-source equality is enforced by the
+			// dedicated exact-current ratchet tests. Other hotspots retain
+			// freeze/ceiling semantics (actual ≤ CurrentMax) until their
+			// lowering task intentionally ratchets metadata.
 			switch want.Path {
 			case coordinatorHotspotPath:
 				if err := validateExactCurrentRatchet(exactCurrentRatchet{
@@ -409,6 +477,17 @@ func TestCriticalFileMigrationHotspotFreezeBudgets(t *testing.T) {
 					BudgetMax:        got.Max,
 					FreezeCurrentMax: want.CurrentMax,
 					ExpectedExact:    generationExactCurrentRatchet,
+					FinalCeiling:     want.FinalTarget,
+				}); err != nil {
+					t.Fatal(err)
+				}
+			case lipruntimeBuildHotspotPath:
+				if err := validateExactCurrentRatchet(exactCurrentRatchet{
+					Path:             want.Path,
+					ActualLines:      n,
+					BudgetMax:        got.Max,
+					FreezeCurrentMax: want.CurrentMax,
+					ExpectedExact:    lipruntimeBuildExactCurrentRatchet,
 					FinalCeiling:     want.FinalTarget,
 				}); err != nil {
 					t.Fatal(err)

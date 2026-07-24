@@ -16,18 +16,18 @@ func TestReloadPublicAliases_AssignmentIdentityWithSDK(t *testing.T) {
 	t.Parallel()
 
 	var (
-		_ sdkreload.TriggerKind    = lipruntime.TriggerKind("")
-		_ lipruntime.TriggerKind   = sdkreload.TriggerKind("")
-		_ sdkreload.ResultCategory = lipruntime.ResultCategory("")
+		_ sdkreload.TriggerKind     = lipruntime.TriggerKind("")
+		_ lipruntime.TriggerKind    = sdkreload.TriggerKind("")
+		_ sdkreload.ResultCategory  = lipruntime.ResultCategory("")
 		_ lipruntime.ResultCategory = sdkreload.ResultCategory("")
-		_ sdkreload.Trigger        = lipruntime.ReloadTrigger{}
-		_ lipruntime.ReloadTrigger = sdkreload.Trigger{}
-		_ sdkreload.Result         = lipruntime.ReloadResult{}
-		_ lipruntime.ReloadResult  = sdkreload.Result{}
-		_ sdkreload.Status         = lipruntime.ReloadStatus{}
-		_ lipruntime.ReloadStatus  = sdkreload.Status{}
-		_ sdkreload.HistoryEntry   = lipruntime.HistoryEntry{}
-		_ lipruntime.HistoryEntry  = sdkreload.HistoryEntry{}
+		_ sdkreload.Trigger         = lipruntime.ReloadTrigger{}
+		_ lipruntime.ReloadTrigger  = sdkreload.Trigger{}
+		_ sdkreload.Result          = lipruntime.ReloadResult{}
+		_ lipruntime.ReloadResult   = sdkreload.Result{}
+		_ sdkreload.Status          = lipruntime.ReloadStatus{}
+		_ lipruntime.ReloadStatus   = sdkreload.Status{}
+		_ sdkreload.HistoryEntry    = lipruntime.HistoryEntry{}
+		_ lipruntime.HistoryEntry   = sdkreload.HistoryEntry{}
 	)
 
 	cases := []struct {
