@@ -7,10 +7,9 @@ import (
 	"strings"
 )
 
-// Task 3.5 gate identifiers. Integrated into the shared convergence allowlist
-// for Phase 4 Built grandfather sites (stdhttp_built) and candidate legacy
-// closer projection sites (candidate_legacy_closers). All other Task 3.5 gates
-// are zero-tolerance (no allowlist entries).
+// Task 3.5 gate identifiers. After Task 4.2/4.4, stdhttp_built and
+// candidate_legacy_closers are permanently zero-tolerance (no allowlist).
+// All other Task 3.5 gates are also zero-tolerance.
 const (
 	gateBroadRequestPlane        = "broad_request_plane"
 	gateCompatHTTPSymbols        = "compat_http_symbols"
@@ -393,8 +392,7 @@ func callSelectorName(fun ast.Expr) string {
 // scanStdhttpBuiltSource detects any production root-stdhttp declaration whose
 // AST contains a resolved runtimebundle.Built type reference (params, results,
 // composite literals, conversions, type aliases/struct fields, vars, methods).
-// Exact Phase 4 grandfather sites are allowlisted; anything else is new legacy
-// growth (req 3.4, 12.5). File-wide ignores are intentionally not used.
+// After Task 4.2/4.4 this is permanently zero-tolerance (req 3.4, 12.5).
 func scanStdhttpBuiltSource(filename, src string) ([]convergenceFinding, error) {
 	rel := slashPath(filename)
 	if !isStdhttpPath(rel) || strings.Contains(rel, "/stdhttp/admin/") || strings.Contains(rel, "/stdhttp/contract/") {
@@ -654,9 +652,9 @@ func isRuntimebundleBuiltSelector(sel *ast.SelectorExpr, aliases map[string]stri
 
 // scanCandidateLegacyClosersSource detects CandidateRuntime's exported Closers
 // field, selector use of .Closers, and ResourceLedger.LegacyClosers
-// declaration/calls across all runtimebundle production files. Exact Phase 4
-// grandfather sites are allowlisted; new production use fails (req 3.8, 12.5).
-// Lower-case internals like quiesceClosers are intentionally ignored.
+// declaration/calls across all runtimebundle production files. After Task
+// 4.2/4.4 this is permanently zero-tolerance (req 3.8, 12.5). Lower-case
+// internals like quiesceClosers are intentionally ignored.
 func scanCandidateLegacyClosersSource(filename, src string) ([]convergenceFinding, error) {
 	rel := slashPath(filename)
 	if !isRuntimebundlePath(rel) {

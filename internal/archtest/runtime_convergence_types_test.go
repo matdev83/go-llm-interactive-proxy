@@ -4,7 +4,8 @@ import "fmt"
 
 // Convergence gate identifiers for Task 1.4 RED architecture gates.
 // Task 3.5 adds http/generation contraction gates (broad RequestPlane deletion,
-// focused HTTP lifecycle, Phase 4 Built grandfathering).
+// focused HTTP lifecycle). Task 4.4 activates permanent deleted-symbol
+// acceptance; Phase 4 Built grandfather allowlist entries are retired.
 const (
 	gateRuntimeConvergence = "runtime_convergence"
 	gateReloadContract     = "reload_contract"
@@ -45,6 +46,7 @@ var knownConvergenceGates = map[string]bool{
 	gateTask43DeletedServe:           true,
 	gateTask43AppOwnedServe:          true,
 	gateTask43StaleTestNames:         true,
+	gateDeletedSymbol:                true,
 }
 
 var knownConvergenceClasses = map[string]bool{

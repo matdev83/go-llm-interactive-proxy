@@ -8,6 +8,8 @@ import (
 
 // Task 4.1 gate identifiers. These prove callers/tests have migrated off
 // compatibility Build/Built surfaces before Task 4.2/4.3 delete the producers.
+// After Task 4.2/4.4 there is no scheduled-producer exemption: production
+// Build/Built is unconditionally forbidden.
 const (
 	gateTask41BuildCall              = "task41_build_call"
 	gateTask41BuiltCarrier           = "task41_built_carrier"
@@ -16,32 +18,11 @@ const (
 	gateTask41LifecycleComposeHelper = "task41_lifecycle_compose_helper"
 )
 
-// scheduledBuildDeclarationFiles is empty after Task 4.2: compatibility Build
-// was deleted and production runtimebundle.Build is unconditionally forbidden.
-var scheduledBuildDeclarationFiles = map[string]bool{}
-
-// scheduledBuiltDeclarationFiles is empty after Task 4.2: Built and every
-// scheduled producer/declaration site (built.go, build.go, stdhttp
-// handler.go/http_input.go/server.go Built dependents) were deleted.
-// Production Built is unconditionally forbidden everywhere.
-var scheduledBuiltDeclarationFiles = map[string]bool{}
-
-func isScheduledBuiltProducer(rel string) bool {
-	return scheduledBuiltDeclarationFiles[slashPath(rel)]
-}
-
-func isScheduledBuildProducer(rel string) bool {
-	return scheduledBuildDeclarationFiles[slashPath(rel)]
-}
-
 // scanTask41BuildCallSource detects production calls to compatibility
-// runtimebundle.Build (declaration site excluded). Same-package unqualified
-// Build calls inside runtimebundle count; the func Build declaration does not.
+// runtimebundle.Build. Same-package unqualified Build calls inside
+// runtimebundle count; the func Build declaration is detected by Task 4.2.
 func scanTask41BuildCallSource(filename, src string) ([]convergenceFinding, error) {
 	rel := slashPath(filename)
-	if isScheduledBuildProducer(rel) {
-		return nil, nil
-	}
 	fset, f, err := parseGoSource(filename, src)
 	if err != nil {
 		return nil, err
@@ -76,32 +57,12 @@ func isUnqualifiedIdentCall(fun ast.Expr, name string) bool {
 	return ok && id.Name == name
 }
 
-func recvIsLocalBuilt(fd *ast.FuncDecl) bool {
-	if fd == nil || fd.Recv == nil || len(fd.Recv.List) != 1 {
-		return false
-	}
-	expr := fd.Recv.List[0].Type
-	for {
-		switch t := expr.(type) {
-		case *ast.StarExpr:
-			expr = t.X
-		case *ast.Ident:
-			return t.Name == "Built"
-		default:
-			return false
-		}
-	}
-}
-
 // scanTask41BuiltCarrierSource detects production fields/results/params that
-// carry runtimebundle.Built outside scheduled producer/declaration sites.
-// Inside the runtimebundle package, unqualified Built type references count
-// (BootstrapResult.Built dual product, etc.).
+// carry runtimebundle.Built. Inside the runtimebundle package, unqualified
+// Built type references count. The Built type declaration itself is owned by
+// Task 4.2's type-decl gate.
 func scanTask41BuiltCarrierSource(filename, src string) ([]convergenceFinding, error) {
 	rel := slashPath(filename)
-	if isScheduledBuiltProducer(rel) {
-		return nil, nil
-	}
 	fset, f, err := parseGoSource(filename, src)
 	if err != nil {
 		return nil, err
@@ -132,10 +93,6 @@ func scanTask41BuiltCarrierSource(filename, src string) ([]convergenceFinding, e
 			if d.Name == nil || !declContainsRuntimebundleBuilt(d, aliases, effectiveDot) {
 				continue
 			}
-			// Methods on Built itself are part of the scheduled producer surface (Task 4.2).
-			if samePkg && recvIsLocalBuilt(d) {
-				continue
-			}
 			emit(funcDeclStructuralIdentity(d), d.Name.Pos(), "production declaration carries runtimebundle.Built")
 		case *ast.GenDecl:
 			if d.Tok != token.TYPE && d.Tok != token.VAR {
@@ -147,7 +104,7 @@ func scanTask41BuiltCarrierSource(filename, src string) ([]convergenceFinding, e
 					if s.Name == nil {
 						continue
 					}
-					// The Built type declaration itself lives in built.go (scheduled).
+					// The Built type declaration itself is Task 4.2's concern.
 					if samePkg && s.Name.Name == "Built" {
 						continue
 					}

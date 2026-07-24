@@ -48,18 +48,15 @@ var mountHelpersStrictContract = map[string]bool{
 	"stackHTTPHandler":               true,
 	"prepareStandardHandler":         true,
 	"ComposeStandardHTTP":            true,
-}
-
-// mountHelpersTransitionalAdapters are compatibility composition roots whose
-// source input signature may remain broad until later tasks:
-//   - NewStandardHandler: legacy *Built until Phase 4 (must project to
-//     StandardHTTPInput before mounts after Task 3.2)
-//
-// ComposeRequestPlane was deleted in Task 3.5. Scanner still detects Built bags
-// on NewStandardHandler; live Task 3.2 strict failure sets exclude it.
-var mountHelpersTransitionalAdapters = map[string]bool{
+	// Deleted in Task 4.2/4.3; retained in the strict scan set so Built
+	// reintroduction on this name fails live mount-contract gates (Task 4.4).
 	"NewStandardHandler": true,
 }
+
+// mountHelpersTransitionalAdapters is empty after Task 4.4: Phase 4 Built
+// adapters (NewStandardHandler) are permanently strict failures. Retained as
+// an empty map so accidental reintroduction of exclusions fails Task 4.4 gates.
+var mountHelpersTransitionalAdapters = map[string]bool{}
 
 // mountHelpersUnderContract is the full scanned set (strict ∪ transitional).
 var mountHelpersUnderContract = func() map[string]bool {
@@ -74,9 +71,9 @@ var mountHelpersUnderContract = func() map[string]bool {
 }()
 
 // mountHelperAllowedGroups maps each strict mount/composer surface to the
-// cohesive groups it may accept after Task 3.2. Transitional adapters are also
-// listed for post-projection shape checks when they already take focused inputs;
-// their broad source signatures are not Task 3.2 strict failures.
+// cohesive groups it may accept after Task 3.2. Deleted NewStandardHandler
+// remains listed so a focused-input reintroduction is still group-checked;
+// any Built/RequestPlane source signature is a strict failure.
 var mountHelperAllowedGroups = map[string]map[string]bool{
 	"mountMetrics":                   {"HTTPOperationsInput": true},
 	"mountDiagnostics":               {"HTTPOperationsInput": true, "HTTPCoreInput": true},
@@ -154,8 +151,8 @@ var broadBagFindingKinds = map[string]bool{
 	"input_field_broad_bag":    true,
 }
 
-// task32StrictFailureKinds are live Task 3.2 failure kinds filtered to strict
-// mount/composer surfaces (not transitional adapter source signatures).
+// task32StrictFailureKinds are live Task 3.2/4.4 failure kinds filtered to
+// strict mount/composer surfaces (including deleted NewStandardHandler).
 var task32StrictFailureKinds = map[string]bool{
 	"built_dependency":         true,
 	"request_plane_dependency": true,
@@ -173,10 +170,10 @@ func collectFindingsByKinds(fs []mountContractFinding, kinds map[string]bool) []
 	return out
 }
 
-// collectStrictTask32Findings returns Task 3.2 live-gate failures limited to
-// strict mount/composer surfaces. Transitional adapter source-signature bags
-// (NewStandardHandler Built) are tracked by the scanner but excluded from this
-// strict failure set. ComposeRequestPlane was deleted in Task 3.5.
+// collectStrictTask32Findings returns live-gate failures limited to strict
+// mount/composer surfaces. After Task 4.4 there are no transitional exclusions:
+// NewStandardHandler Built/RequestPlane is a permanent strict failure.
+// ComposeRequestPlane was deleted in Task 3.5.
 func collectStrictTask32Findings(fs []mountContractFinding, kinds map[string]bool) []string {
 	var out []string
 	for _, f := range fs {
@@ -199,8 +196,8 @@ func collectStrictTask32Findings(fs []mountContractFinding, kinds map[string]boo
 }
 
 // collectTransitionalAdapterFindings returns broad-bag findings on transitional
-// compatibility adapters. Useful for synthetic policy proofs and optional
-// tracking; not a Task 3.2 strict failure set.
+// compatibility adapters. After Task 4.4 the transitional set is empty; kept
+// for detector proofs that reintroduction of exclusions is visible.
 func collectTransitionalAdapterFindings(fs []mountContractFinding, kinds map[string]bool) []string {
 	var out []string
 	for _, f := range fs {

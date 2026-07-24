@@ -760,26 +760,10 @@ func fileReferencesSyncOnce(t *testing.T, filename string, src []byte) bool {
 	return found
 }
 
+// countNonTestGoLines delegates to the exported CountNonTestGoLines so
+// guardrails, Task 4.4 exact budgets, and make arch-report share one walker.
 func countNonTestGoLines(dir string) (int, error) {
-	var total int
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		n, err := countFileLines(path)
-		if err != nil {
-			return err
-		}
-		total += n
-		return nil
-	})
-	return total, err
+	return CountNonTestGoLines(dir)
 }
 
 // countFileLines returns the number of lines in a single file. Used for per-file

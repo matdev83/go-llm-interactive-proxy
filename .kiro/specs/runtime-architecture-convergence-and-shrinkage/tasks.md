@@ -172,7 +172,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 4.2_
   - _Validation: `go test -race ./internal/stdhttp/... ./cmd/lipstd/... -run 'GenerationHost|Shutdown|Server|NoDrop'`_
 
-- [ ] 4.4 Activate deleted-symbol gates and ratchet package budgets
+- [x] 4.4 Activate deleted-symbol gates and ratchet package budgets
   - Forbid production `Built`, compatibility `Build`, `RunWithRuntime`, `requestPlaneAsBuilt`, and legacy candidate closer projections.
   - Remove allowlists introduced in Phase 1.
   - Lower runtimebundle/stdhttp budgets to measured post-deletion values.

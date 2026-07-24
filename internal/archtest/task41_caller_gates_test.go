@@ -19,12 +19,12 @@ func TestTask41_ProductionNoCompatibilityBuildCall(t *testing.T) {
 	}
 }
 
-func TestTask41_ProductionNoBuiltCarrierOutsideScheduled(t *testing.T) {
+func TestTask41_ProductionNoBuiltCarrier(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
 	got := scanProductionConvergenceGate(t, root, gateTask41BuiltCarrier, scanTask41BuiltCarrierSource)
 	if len(got) > 0 {
-		t.Fatalf("Task 4.1: production must not carry runtimebundle.Built outside scheduled declaration sites (%d findings):\n%s",
+		t.Fatalf("Task 4.1: production must not carry runtimebundle.Built (%d findings):\n%s",
 			len(got), formatFindings(got))
 	}
 }

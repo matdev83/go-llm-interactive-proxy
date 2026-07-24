@@ -49,7 +49,7 @@ func Build() {}
 		t.Fatal(err)
 	}
 	if len(decl) != 0 {
-		t.Fatalf("declaration file must be excluded, got %#v", decl)
+		t.Fatalf("Build declaration alone is not a call finding, got %#v", decl)
 	}
 
 	// Unrelated packages' Build must not be flagged.
@@ -66,11 +66,11 @@ func Use() { Build() }
 	}
 }
 
-// TestTask41Detector_BuiltCarrierScheduleIsEmptyAfterTask42 proves the Task
-// 4.1 scheduled-producer allowance is fully retired: no path is exempt from
-// the Built-carrier gate any more, including former Phase 4 grandfather
+// TestTask41Detector_BuiltCarrierHasNoScheduledExemption proves the Task 4.1
+// scheduled-producer allowance is fully retired (Task 4.2/4.4): no path is
+// exempt from the Built-carrier gate, including former Phase 4 grandfather
 // paths (handler.go, http_input.go, server.go).
-func TestTask41Detector_BuiltCarrierScheduleIsEmptyAfterTask42(t *testing.T) {
+func TestTask41Detector_BuiltCarrierHasNoScheduledExemption(t *testing.T) {
 	t.Parallel()
 	foreign := `package lipstd
 import "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
@@ -85,13 +85,6 @@ func Take(b *runtimebundle.Built) {}
 		t.Fatalf("expected Built carrier findings, got %#v", got)
 	}
 
-	if len(scheduledBuiltDeclarationFiles) != 0 {
-		t.Fatalf("scheduledBuiltDeclarationFiles must be empty after Task 4.2, got %v", scheduledBuiltDeclarationFiles)
-	}
-	if len(scheduledBuildDeclarationFiles) != 0 {
-		t.Fatalf("scheduledBuildDeclarationFiles must be empty after Task 4.2, got %v", scheduledBuildDeclarationFiles)
-	}
-
 	formerlyScheduled, err := scanTask41BuiltCarrierSource("internal/stdhttp/handler.go", `package stdhttp
 import "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 func NewExtraHandlerAdapter(b *runtimebundle.Built) {}
@@ -101,6 +94,17 @@ func NewExtraHandlerAdapter(b *runtimebundle.Built) {}
 	}
 	if !findingsContainIdentity(formerlyScheduled, "func:NewExtraHandlerAdapter") {
 		t.Fatalf("former Phase 4 grandfather path must now be flagged like any other file, got %#v", formerlyScheduled)
+	}
+
+	// Former declaration-site path must also flag Built carriers (no schedule).
+	producerPath, err := scanTask41BuiltCarrierSource("internal/infra/runtimebundle/built.go", `package runtimebundle
+func TakeBuilt(b *Built) {}
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !findingsContainIdentity(producerPath, "func:TakeBuilt") {
+		t.Fatalf("former scheduled producer path must flag Built carriers, got %#v", producerPath)
 	}
 }
 

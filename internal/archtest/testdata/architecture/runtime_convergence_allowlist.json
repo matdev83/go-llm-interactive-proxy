@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "description": "Task 1.4 migration allowlist for runtime architecture convergence RED gates. Each entry is an exact current production exception keyed by gate+path+site-unique structural identity (call sites use per-function/per-callee occurrence ordinals, e.g. call:fn->runtimebundle.Build#1). Remove the entry in the named retirement task when the violation disappears; stale or duplicate entries fail the gate.",
+  "description": "Runtime-architecture-convergence migration allowlist. After Task 4.4 only Phase 5 startup/host-path exceptions remain (config_load, BuildBootstrap/AttachReloadHost, CLI/public Build callers, RunWithGenerationHost). Each entry is keyed by gate+path+site-unique structural identity. Remove the entry in the named retirement task when the violation disappears; stale, duplicate, unrecognized, Phase 4/earlier, or deleted-symbol entries fail the gate.",
   "entries": [
     {
       "gate": "config_load",

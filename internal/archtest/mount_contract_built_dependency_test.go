@@ -41,10 +41,9 @@ func TestMountContract_DesiredStandardHTTPInputGroupsDeclared(t *testing.T) {
 // TestBuiltDependency_StdhttpMountSignaturesProhibitBuilt is a ratchet gate:
 // fails while strict mount helpers / focused composer / their input structs still
 // accept *runtimebundle.Built or RequestPlane; passes once Task 3.2 clears those
-// findings. Transitional adapters (NewStandardHandler) may retain broad source
-// signatures until Phase 4 and are excluded from this strict failure set.
-// ComposeRequestPlane was deleted in Task 3.5. Intentionally not allowlisted —
-// evidence for Task 3.2 / 3.5.
+// findings. NewStandardHandler was deleted in Task 4.2/4.3 and is a permanent
+// strict failure if reintroduced with Built (Task 4.4). ComposeRequestPlane was
+// deleted in Task 3.5. Intentionally not allowlisted — evidence for Task 3.2 / 3.5 / 4.4.
 func TestBuiltDependency_StdhttpMountSignaturesProhibitBuilt(t *testing.T) {
 	t.Parallel()
 	got := scanStdhttpMountContract(t)
@@ -88,7 +87,8 @@ func TestMountContract_DesiredNoLifecycleOwnersInGroups(t *testing.T) {
 
 // TestMountContract_DesiredMountHelpersAcceptOnlyAllowedGroups is RED until
 // strict mount helpers / prepareStandardHandler take cohesive groups (and only
-// the groups they need). Transitional adapter source signatures are out of scope.
+// the groups they need). Deleted NewStandardHandler remains in the strict set
+// so Built reintroduction fails (Task 4.4).
 func TestMountContract_DesiredMountHelpersAcceptOnlyAllowedGroups(t *testing.T) {
 	t.Parallel()
 	got := scanStdhttpMountContract(t)

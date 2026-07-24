@@ -21,17 +21,6 @@ import (
 
 const hexagonalBaselineRelPath = "testdata/architecture/hexagonal_migration_baseline.json"
 
-// hotspotFiles is derived from the same CriticalFileBudgets used by the
-// architecture guardrails so the advisory report and the machine-checked budgets
-// cannot drift apart.
-var hotspotFiles = func() []string {
-	files := make([]string, len(archtest.CriticalFileBudgets))
-	for i, b := range archtest.CriticalFileBudgets {
-		files[i] = b.Path
-	}
-	return files
-}()
-
 type pkgMeta struct {
 	ImportPath string
 	Dir        string
@@ -84,6 +73,8 @@ func main() {
 
 	writePackageLineReport(&b, pkgs)
 	writeHotspotReport(&b, root)
+	writeRuntimeConvergencePackageBudgets(&b, root)
+	writeRuntimeConvergenceExceptions(&b, root)
 	writeFanOutReport(&b, pkgs, modPath)
 	writeFanInReport(&b, pkgs, modPath)
 	writeExportedSymbolsReport(&b, root)
@@ -128,15 +119,62 @@ func writePackageLineReport(b *strings.Builder, pkgs []pkgMeta) {
 func writeHotspotReport(b *strings.Builder, root string) {
 	fmt.Fprintln(b, "## Hotspot files (critical-file budgets)")
 	fmt.Fprintln(b)
-	fmt.Fprintln(b, "| File | Lines |")
-	fmt.Fprintln(b, "| --- | --- |")
-	for _, rel := range hotspotFiles {
-		n, err := countFileLines(filepath.Join(root, rel))
+	fmt.Fprintln(b, "| File | Lines | Budget |")
+	fmt.Fprintln(b, "| --- | --- | --- |")
+	for _, budget := range archtest.CriticalFileBudgets {
+		n, err := countFileLines(filepath.Join(root, budget.Path))
 		if err != nil {
-			fmt.Fprintf(b, "| `%s` | (missing) |\n", rel)
+			fmt.Fprintf(b, "| `%s` | (missing) | %d |\n", budget.Path, budget.Max)
 			continue
 		}
-		fmt.Fprintf(b, "| `%s` | %d |\n", rel, n)
+		fmt.Fprintf(b, "| `%s` | %d | %d |\n", budget.Path, n, budget.Max)
+	}
+	fmt.Fprintln(b)
+}
+
+func writeRuntimeConvergencePackageBudgets(b *strings.Builder, root string) {
+	section, err := archtest.FormatRuntimeConvergencePackageBudgets(root)
+	if err != nil {
+		fmt.Fprintf(b, "## Runtime-convergence package budgets\n\n(could not measure: %v)\n\n", err)
+		return
+	}
+	fmt.Fprint(b, section)
+}
+
+func writeRuntimeConvergenceExceptions(b *strings.Builder, root string) {
+	fmt.Fprintln(b, "## Remaining runtime-convergence compatibility exceptions")
+	fmt.Fprintln(b)
+	path := filepath.Join(root, "internal", "archtest", "testdata", "architecture", "runtime_convergence_allowlist.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(b, "(could not read allowlist: %v)\n\n", err)
+		return
+	}
+	var doc struct {
+		Description string `json:"description"`
+		Entries     []struct {
+			Gate           string `json:"gate"`
+			Path           string `json:"path"`
+			Identity       string `json:"identity"`
+			Classification string `json:"classification"`
+			RetirementTask string `json:"retirement_task"`
+			Rationale      string `json:"rationale"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		fmt.Fprintf(b, "(could not decode allowlist: %v)\n\n", err)
+		return
+	}
+	fmt.Fprintf(b, "%s\n\n", strings.TrimSpace(doc.Description))
+	if len(doc.Entries) == 0 {
+		fmt.Fprintln(b, "(none)")
+		fmt.Fprintln(b)
+		return
+	}
+	fmt.Fprintln(b, "| Gate | Path | Identity | Retirement task |")
+	fmt.Fprintln(b, "| --- | --- | --- | --- |")
+	for _, e := range doc.Entries {
+		fmt.Fprintf(b, "| `%s` | `%s` | `%s` | %s |\n", e.Gate, e.Path, e.Identity, e.RetirementTask)
 	}
 	fmt.Fprintln(b)
 }

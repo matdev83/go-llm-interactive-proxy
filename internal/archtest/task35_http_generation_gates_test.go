@@ -8,7 +8,8 @@ import (
 )
 
 // Task 3.5 production gates: after RequestPlane compatibility deletion these
-// must stay green. Phase 4 Built sites are exact allowlist grandfather entries.
+// must stay green. Phase 4 Built grandfather allowlist entries were retired in
+// Task 4.2/4.4; stdhttp Built and candidate legacy closer gates are zero-tolerance.
 
 func TestTask35_BroadRequestPlane_ProductionForbidden(t *testing.T) {
 	t.Parallel()

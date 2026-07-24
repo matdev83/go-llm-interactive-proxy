@@ -528,7 +528,7 @@ func prepareStandardHandler(built *runtimebundle.Built) {}
 	}
 }
 
-func TestMountContract_Policy_TransitionalBuiltAdapterTrackedNotStrict(t *testing.T) {
+func TestMountContract_Policy_DeletedBuiltAdapterIsStrict(t *testing.T) {
 	t.Parallel()
 	src := `package stdhttp
 import "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
@@ -546,22 +546,24 @@ func ComposeStandardHTTP(plane runtimebundle.RequestPlane) {}
 		t.Fatalf("scanner must detect RequestPlane on ComposeStandardHTTP, got %#v", got.Findings)
 	}
 	tracked := collectTransitionalAdapterFindings(got.Findings, broadBagFindingKinds)
-	if len(tracked) != 1 || !strings.Contains(strings.Join(tracked, "\n"), "NewStandardHandler") {
-		t.Fatalf("expected only NewStandardHandler tracked as transitional, got %v (all=%#v)", tracked, got.Findings)
+	if len(tracked) != 0 {
+		t.Fatalf("Task 4.4: transitional adapter set must be empty; got %v", tracked)
 	}
 	strict := collectStrictTask32Findings(got.Findings, task32StrictFailureKinds)
-	if len(strict) == 0 || !strings.Contains(strings.Join(strict, "\n"), "ComposeStandardHTTP") {
-		t.Fatalf("ComposeStandardHTTP RequestPlane must be a Task 3.2/3.5 strict failure, got %v", strict)
+	joined := strings.Join(strict, "\n")
+	if !strings.Contains(joined, "ComposeStandardHTTP") {
+		t.Fatalf("ComposeStandardHTTP RequestPlane must be a strict failure, got %v", strict)
 	}
-	if strings.Contains(strings.Join(strict, "\n"), "NewStandardHandler") {
-		t.Fatalf("NewStandardHandler Built must remain non-strict until Phase 4, got %v", strict)
+	if !strings.Contains(joined, "NewStandardHandler") {
+		t.Fatalf("Task 4.4: NewStandardHandler Built must be a permanent strict failure, got %v", strict)
 	}
 }
 
 func TestMountContract_Policy_MountBroadBagNotHiddenByAdapters(t *testing.T) {
 	t.Parallel()
 	// Adapters projecting to mounts must not hide Built still present on mount
-	// input structs — strict policy still fails the mount surface.
+	// input structs — strict policy still fails the mount surface. Deleted
+	// NewStandardHandler Built is also a strict failure (Task 4.4).
 	src := `package stdhttp
 import "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 type mountMetricsInput struct{ Built *runtimebundle.Built }
@@ -582,8 +584,8 @@ type StandardHTTPInput struct{}
 	if !strings.Contains(joined, "mountMetrics") {
 		t.Fatalf("strict set must include mountMetrics, got %v", strict)
 	}
-	if strings.Contains(joined, "NewStandardHandler") {
-		t.Fatalf("strict set must exclude Phase 4 Built adapter, got %v", strict)
+	if !strings.Contains(joined, "NewStandardHandler") {
+		t.Fatalf("Task 4.4: strict set must include deleted NewStandardHandler Built, got %v", strict)
 	}
 	if strings.Contains(joined, "prepareStandardHandler") {
 		t.Fatalf("focused prepareStandardHandler(StandardHTTPInput) must not be strict-failed, got %v", strict)

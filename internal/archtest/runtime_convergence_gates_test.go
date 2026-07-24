@@ -41,6 +41,9 @@ func loadConvergenceAllowlist(t *testing.T, root string) []convergenceAllowlistE
 		if strings.TrimSpace(e.RetirementTask) == "" || strings.TrimSpace(e.Rationale) == "" {
 			t.Fatalf("allowlist[%d]: retirement_task and rationale required", i)
 		}
+		if reason := allowlistEntryViolatesTask44Retirement(e); reason != "" {
+			t.Fatalf("allowlist[%d]: %s", i, reason)
+		}
 		k := e.key()
 		if seen[k] {
 			t.Fatalf("allowlist duplicate identity %s", k)
