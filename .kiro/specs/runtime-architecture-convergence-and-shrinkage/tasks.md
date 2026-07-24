@@ -272,7 +272,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 6.2_
   - _Validation: `go test -race ./internal/infra/runtimehost/... -run 'AttemptRunner|Load|Classify|Compile|Rollback|Panic'`_
 
-- [ ] 6.4 Extract ReloadState and migrate status/history
+- [x] 6.4 Extract ReloadState and migrate status/history
   - Add concurrent tests for ActiveInput, Apply, Snapshot, last success/failure, no-op, source posture, model fingerprint, and defensive copies.
   - Move active effective/source and safe status/history to one state owner.
   - Keep observer side effects outside the state lock.

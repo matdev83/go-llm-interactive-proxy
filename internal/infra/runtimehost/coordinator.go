@@ -3,7 +3,6 @@ package runtimehost
 import (
 	"context"
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -55,10 +54,10 @@ type CoordinatorDeps struct {
 }
 
 // Coordinator serializes explicit reload attempts (design Reload Coordinator; req 1.4, 3.x, 11.x, 13.x).
-// It orchestrates the gate, runner, and observer without directly
-// implementing detailed source/load/classification/compile branches (req 6.4);
-// source is kept only for FixedSourcePath (AbsolutePath), never for reload
-// execution.
+// It orchestrates the gate, runner, state owner, and observer without
+// directly implementing detailed source/load/classification/compile branches
+// (req 6.4); source is kept only for FixedSourcePath (AbsolutePath), never
+// for reload execution.
 type Coordinator struct {
 	source   StableConfigSource
 	mgr      *Manager
@@ -66,17 +65,9 @@ type Coordinator struct {
 	observer *ReloadObserver
 	gate     *attemptGate
 	runner   *attemptRunner
+	state    *ReloadState
 
-	mu             sync.Mutex
-	last           sdkreload.Result
-	lastSuccess    sdkreload.Result
-	lastFailure    sdkreload.Result
-	sourcePosture  string
-	modelGen       string
-	attempts       atomic.Int64
-	activeEff      *config.EffectiveConfig
-	activeSource   *configsource.ActiveSourceVersion
-	activeSourceMu sync.RWMutex
+	attempts atomic.Int64
 }
 
 // NewCoordinator constructs a production serialized reload coordinator.
@@ -99,14 +90,11 @@ func NewCoordinator(deps CoordinatorDeps) (*Coordinator, error) {
 	}
 	gate := newAttemptGate()
 	c := &Coordinator{
-		source:        deps.Source,
-		mgr:           deps.Manager,
-		timeout:       timeout,
-		observer:      deps.Observer,
-		gate:          gate,
-		activeEff:     deps.ActiveEffective,
-		activeSource:  cloneActiveSource(deps.ActiveSource),
-		sourcePosture: "ok",
+		source:   deps.Source,
+		mgr:      deps.Manager,
+		timeout:  timeout,
+		observer: deps.Observer,
+		gate:     gate,
 	}
 	c.runner = newAttemptRunner(attemptRunnerDeps{
 		Source:       deps.Source,
@@ -117,16 +105,21 @@ func NewCoordinator(deps CoordinatorDeps) (*Coordinator, error) {
 		Observer:     deps.Observer,
 		ShuttingDown: gate.shuttingDown,
 	})
+
+	initial := reloadStateInitial{
+		ActiveEffective: deps.ActiveEffective,
+		ActiveSource:    deps.ActiveSource,
+	}
 	if active := deps.Manager.Active(); active != nil {
-		c.last = sdkreload.Result{
+		initial.InitialResult = sdkreload.Result{
 			Category:         sdkreload.ResultPublished,
 			ActiveGeneration: active.ID(),
 		}
-		c.lastSuccess = c.last
 		if meta := active.Status().Meta; meta.PublicFingerprint != "" {
-			c.modelGen = meta.PublicFingerprint
+			initial.ModelGeneration = meta.PublicFingerprint
 		}
 	}
+	c.state = newReloadState(initial)
 	return c, nil
 }
 
@@ -165,13 +158,11 @@ func (c *Coordinator) Status() sdkreload.Status {
 	if c == nil {
 		return sdkreload.Status{}
 	}
-	// Gate snapshot first so Coordinator and gate locks are never held together.
+	// Gate snapshot first so gate and state locks are never held together.
 	var gateSnap attemptGateSnapshot
 	if c.gate != nil {
 		gateSnap = c.gate.Snapshot()
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	var activeID int64
 	retained := 0
 	pressure := false
@@ -183,38 +174,14 @@ func (c *Coordinator) Status() sdkreload.Status {
 		retained = snap.Retired
 		pressure = snap.RetentionWouldBlock
 	}
-	var history []sdkreload.HistoryEntry
-	if c.observer != nil && c.observer.History() != nil {
-		history = c.observer.History().Snapshot()
-	}
-	var current *sdkreload.Result
-	if gateSnap.Busy {
-		cur := c.last
-		current = &cur
-	}
-	controlDegraded := c.lastFailure.Category != "" &&
-		c.lastFailure.Category != sdkreload.ResultPublished &&
-		c.lastFailure.Category != sdkreload.ResultNoop
-	posture := c.sourcePosture
-	if posture == "" {
-		posture = "unknown"
-	}
-	return sdkreload.Status{
+	return c.state.Snapshot(reloadStatusInput{
 		ActiveGeneration:    activeID,
-		CurrentAttempt:      current,
-		LastResult:          c.last,
-		LastSuccess:         c.lastSuccess,
-		LastFailure:         c.lastFailure,
-		SourceIntegrity:     posture,
-		RetainedGenerations: retained,
-		RetentionPressure:   pressure,
-		ControlDegraded:     controlDegraded,
-		ModelGeneration:     c.modelGen,
-		History:             history,
 		Busy:                gateSnap.Busy,
 		PendingSignal:       gateSnap.PendingSignal,
 		CoalescedSignals:    gateSnap.CoalescedSignals,
-	}.Clone()
+		RetainedGenerations: retained,
+		RetentionPressure:   pressure,
+	})
 }
 
 // Reload runs one serialized attempt. API callers receive Busy when an attempt is
@@ -231,7 +198,7 @@ func (c *Coordinator) Reload(ctx context.Context, trigger sdkreload.Trigger) sdk
 		return c.terminal(sdkreload.Result{
 			Category:       sdkreload.ResultCanceled,
 			ReasonCategory: configreload.StageShutdown,
-		}, false)
+		})
 	}
 
 	admission := c.gate.TryStart(ctx, trigger)
@@ -240,7 +207,7 @@ func (c *Coordinator) Reload(ctx context.Context, trigger sdkreload.Trigger) sdk
 		return c.terminal(sdkreload.Result{
 			Category:       sdkreload.ResultCanceled,
 			ReasonCategory: configreload.StageShutdown,
-		}, false)
+		})
 	case admissionBusyAPI:
 		return sdkreload.Result{
 			Category:         sdkreload.ResultBusy,
@@ -260,7 +227,7 @@ func (c *Coordinator) Reload(ctx context.Context, trigger sdkreload.Trigger) sdk
 		return c.terminal(sdkreload.Result{
 			Category:       sdkreload.ResultInternalFailed,
 			ReasonCategory: "unknown-admission",
-		}, false)
+		})
 	}
 
 	lease := admission.Lease
@@ -268,7 +235,7 @@ func (c *Coordinator) Reload(ctx context.Context, trigger sdkreload.Trigger) sdk
 		return c.terminal(sdkreload.Result{
 			Category:       sdkreload.ResultInternalFailed,
 			ReasonCategory: "nil-lease",
-		}, false)
+		})
 	}
 	// Gate-owned cleanup: abandon the current lease variable on any exit path
 	// (including panic outside runner.Run). After Complete advances to a
@@ -277,9 +244,15 @@ func (c *Coordinator) Reload(ctx context.Context, trigger sdkreload.Trigger) sdk
 	defer func() { lease.Abandon() }()
 
 	hostCtx, cancel := context.WithTimeout(lease.Context(), c.timeout)
-	first := c.applyOutcome(c.runner.Run(hostCtx, c.newAttemptInput(trigger)))
+	start := time.Now()
+	outcome := c.runner.Run(hostCtx, c.state.ActiveInput(trigger, c.attempts.Add(1), c.activeGenerationID()))
 	cancel()
-	c.recordTerminal(first)
+	first := c.state.Apply(outcome, reloadTerminalMeta{
+		Trigger:    trigger,
+		Duration:   time.Since(start),
+		RecordedAt: time.Now().UTC(),
+	})
+	c.refreshGauges()
 
 	for {
 		// Manager-only shutdown must fold into the gate so Complete clears
@@ -302,10 +275,18 @@ func (c *Coordinator) Reload(ctx context.Context, trigger sdkreload.Trigger) sdk
 				AcceptedAt: time.Now().UTC(),
 				SafeActor:  "coalesced-sighup",
 			}
-			follow := c.applyOutcome(c.runner.Run(followCtx, c.newAttemptInput(followTrigger)))
+			followStart := time.Now()
+			followOutcome := c.runner.Run(followCtx, c.state.ActiveInput(followTrigger, c.attempts.Add(1), c.activeGenerationID()))
 			followCancel()
-			follow.CoalescedSignals = fin.CoalescedSignals
-			c.recordTerminal(follow)
+			// CoalescedSignals must be set on the result before Apply so the
+			// terminal state and its history entry agree (req 6.8).
+			followOutcome.Result.CoalescedSignals = fin.CoalescedSignals
+			c.state.Apply(followOutcome, reloadTerminalMeta{
+				Trigger:    followTrigger,
+				Duration:   time.Since(followStart),
+				RecordedAt: time.Now().UTC(),
+			})
+			c.refreshGauges()
 			// loop: another SIGHUP may have reserved pending during follow-up
 		default:
 			return first
@@ -313,50 +294,17 @@ func (c *Coordinator) Reload(ctx context.Context, trigger sdkreload.Trigger) sdk
 	}
 }
 
-// newAttemptInput allocates the next attempt ID and snapshots the current
-// active effective/source state for one runner.Run transaction. Cloning the
-// mutable ActiveSource at this boundary keeps attemptRunner's input immutable
-// for the duration of the call (req 6.2, 6.10-6.11).
-func (c *Coordinator) newAttemptInput(trigger sdkreload.Trigger) attemptInput {
-	attempt := c.attempts.Add(1)
-	activeBefore := c.activeGenerationID()
-	c.activeSourceMu.RLock()
-	activeEff := c.activeEff
-	activeSrc := cloneActiveSource(c.activeSource)
-	c.activeSourceMu.RUnlock()
-	return attemptInput{
-		Trigger:          trigger,
-		AttemptID:        attempt,
-		ActiveGeneration: activeBefore,
-		ActiveEffective:  activeEff,
-		ActiveSource:     activeSrc,
+// refreshGauges invokes observer/Manager side effects strictly after the
+// state lock has been released by Apply (req 6.4).
+func (c *Coordinator) refreshGauges() {
+	if c.observer != nil {
+		c.observer.RefreshGauges(c.mgr)
 	}
 }
 
-// applyOutcome commits a runner-returned immutable outcome's state updates
-// (if any) before returning its canonical result for terminal recording.
-// Neither field is set on a failed attempt; SourceUpdate alone marks an
-// effective-identity no-op baseline advance; both are set on publication.
-func (c *Coordinator) applyOutcome(outcome attemptOutcome) sdkreload.Result {
-	if outcome.EffectiveUpdate != nil || outcome.SourceUpdate != nil {
-		c.activeSourceMu.Lock()
-		if outcome.EffectiveUpdate != nil {
-			c.activeEff = outcome.EffectiveUpdate
-		}
-		if outcome.SourceUpdate != nil {
-			c.activeSource = outcome.SourceUpdate
-		}
-		c.activeSourceMu.Unlock()
-	}
-	return outcome.Result
-}
-
-func (c *Coordinator) terminal(res sdkreload.Result, record bool) sdkreload.Result {
+func (c *Coordinator) terminal(res sdkreload.Result) sdkreload.Result {
 	if res.ActiveGeneration == 0 {
 		res.ActiveGeneration = c.activeGenerationID()
-	}
-	if record {
-		c.recordTerminal(res)
 	}
 	return res
 }
@@ -373,13 +321,10 @@ func (c *Coordinator) shuttingDown() bool {
 	return c.mgr != nil && c.mgr.ShuttingDown()
 }
 
+// activeGenerationID reports the currently published generation ID, or 0 if
+// none is published. Manager owns its own synchronization; Coordinator holds
+// no lock of its own.
 func (c *Coordinator) activeGenerationID() int64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.activeGenerationIDLocked()
-}
-
-func (c *Coordinator) activeGenerationIDLocked() int64 {
 	if c.mgr == nil {
 		return 0
 	}
@@ -387,37 +332,6 @@ func (c *Coordinator) activeGenerationIDLocked() int64 {
 		return g.ID()
 	}
 	return 0
-}
-
-func (c *Coordinator) recordTerminal(res sdkreload.Result) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.last = res
-	switch res.Category {
-	case sdkreload.ResultPublished:
-		c.lastSuccess = res
-		c.sourcePosture = "ok"
-		if c.mgr != nil {
-			if g := c.mgr.Active(); g != nil {
-				if fp := g.Status().Meta.PublicFingerprint; fp != "" {
-					c.modelGen = fp
-				}
-			}
-		}
-	case sdkreload.ResultNoop:
-		c.lastFailure = res // most recent failed/no-op per req 14.1
-		c.sourcePosture = "ok"
-	case sdkreload.ResultSourceIntegrity:
-		c.lastFailure = res
-		c.sourcePosture = "failed"
-	case sdkreload.ResultBusy:
-		// busy is not a completed attempt outcome for last-failure tracking
-	default:
-		c.lastFailure = res
-	}
-	if c.observer != nil {
-		c.observer.RefreshGauges(c.mgr)
-	}
 }
 
 func cloneActiveSource(in *configsource.ActiveSourceVersion) *configsource.ActiveSourceVersion {

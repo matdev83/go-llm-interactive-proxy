@@ -72,7 +72,6 @@ func TestReloadObservability_LogsSpansHistoryAndMetrics(t *testing.T) {
 		Logger:  logger,
 		Tracer:  tp.Tracer("lip.reload"),
 		Metrics: prom,
-		History: configreload.NewStatusHistory(8),
 	})
 
 	coord, err := runtimehost.NewCoordinator(runtimehost.CoordinatorDeps{
@@ -183,39 +182,6 @@ func TestReloadObservability_PanickingSinkCannotEscape(t *testing.T) {
 	obs.ObserveLifecycle(ctx, "cleanup", "ok", time.Millisecond)
 }
 
-func TestReloadObservability_CanonicalHistoryEntryCategoryLabels(t *testing.T) {
-	t.Parallel()
-	hist := configreload.NewStatusHistory(4)
-	obs := runtimehost.NewReloadObserver(runtimehost.ReloadObserverDeps{History: hist})
-	_, end := obs.BeginAttempt(context.Background(), sdkreload.Trigger{
-		Kind:      sdkreload.TriggerSIGHUP,
-		SafeActor: "sighup",
-	}, 9, 3)
-	end(sdkreload.Result{
-		Category:         sdkreload.ResultNoop,
-		AttemptID:        9,
-		ActiveGeneration: 3,
-		ReasonCategory:   configreload.StageNoop,
-	})
-	snap := hist.Snapshot()
-	if len(snap) != 1 {
-		t.Fatalf("history len=%d want 1", len(snap))
-	}
-	e := snap[0]
-	if e.Trigger != sdkreload.TriggerSIGHUP {
-		t.Fatalf("trigger=%q", e.Trigger)
-	}
-	if e.Category != sdkreload.ResultNoop {
-		t.Fatalf("category=%q want %q", e.Category, sdkreload.ResultNoop)
-	}
-	if string(e.Category) != "no-op" {
-		t.Fatalf("category label drifted to %q", e.Category)
-	}
-	if e.Stage != configreload.StageNoop {
-		t.Fatalf("stage=%q", e.Stage)
-	}
-}
-
 func TestReloadObservability_FailedReloadDoesNotChangeActiveReadiness(t *testing.T) {
 	t.Parallel()
 	mgr := runtimehost.NewManager(2, nil)
@@ -230,9 +196,7 @@ func TestReloadObservability_FailedReloadDoesNotChangeActiveReadiness(t *testing
 		path: "/fixed/config.yaml",
 		err:  &configsource.IntegrityError{Category: configsource.CategoryNonAtomicUpdate},
 	}
-	obs := runtimehost.NewReloadObserver(runtimehost.ReloadObserverDeps{
-		History: configreload.NewStatusHistory(4),
-	})
+	obs := runtimehost.NewReloadObserver(runtimehost.ReloadObserverDeps{})
 	coord, err := runtimehost.NewCoordinator(runtimehost.CoordinatorDeps{
 		Source: src,
 		Loader: runtimehost.FuncEffectiveLoader(func(context.Context, []byte) (*config.EffectiveConfig, error) {

@@ -1065,9 +1065,7 @@ func TestCoordinator_StatusReturnsDefensiveCopy(t *testing.T) {
 			LoadedAt: time.Unix(2, 0).UTC(),
 		}, nil
 	})
-	obs := runtimehost.NewReloadObserver(runtimehost.ReloadObserverDeps{
-		History: configreload.NewStatusHistory(8),
-	})
+	obs := runtimehost.NewReloadObserver(runtimehost.ReloadObserverDeps{})
 	mgr := runtimehost.NewManager(4, nil)
 	plane := newFakePlane(map[string]int{"local-stub": 1})
 	initial := mgr.PrepareRequestPlane("boot", plane)

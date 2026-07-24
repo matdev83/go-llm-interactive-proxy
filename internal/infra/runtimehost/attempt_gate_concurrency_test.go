@@ -650,7 +650,7 @@ func TestAttemptGate_InterleavingsOneCompleteVsWaitShutdown(t *testing.T) {
 func TestAttemptGate_CoordinatorAPIStatusParity(t *testing.T) {
 	t.Parallel()
 	// Coordinator busy/coalesce results must retain categories and status projection.
-	c := &Coordinator{gate: newAttemptGate(), timeout: time.Minute}
+	c := &Coordinator{gate: newAttemptGate(), timeout: time.Minute, state: newReloadState(reloadStateInitial{})}
 	admitted := c.gate.TryStart(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 	if admitted.Lease == nil {
 		t.Fatal("setup")

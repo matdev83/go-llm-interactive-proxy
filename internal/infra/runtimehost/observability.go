@@ -13,13 +13,13 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// ReloadObserver records structured logs, process-owned spans, metrics, and
-// bounded status history for reload attempts without owning reload logic.
+// ReloadObserver records structured logs, process-owned spans, and metrics
+// for reload attempts without owning reload logic or canonical status
+// history (Task 6.4: bounded history moved exclusively to ReloadState).
 type ReloadObserver struct {
 	log     *slog.Logger
 	tracer  trace.Tracer
 	metrics *metrics.ReloadProm
-	history *configreload.StatusHistory
 }
 
 // ReloadObserverDeps wires optional telemetry sinks for a ReloadObserver.
@@ -27,29 +27,15 @@ type ReloadObserverDeps struct {
 	Logger  *slog.Logger
 	Tracer  trace.Tracer
 	Metrics *metrics.ReloadProm
-	History *configreload.StatusHistory
 }
 
 // NewReloadObserver constructs a process-owned reload observer. Nil sinks are no-ops.
 func NewReloadObserver(deps ReloadObserverDeps) *ReloadObserver {
-	h := deps.History
-	if h == nil {
-		h = configreload.NewStatusHistory(configreload.DefaultStatusHistoryCap)
-	}
 	return &ReloadObserver{
 		log:     deps.Logger,
 		tracer:  deps.Tracer,
 		metrics: deps.Metrics,
-		history: h,
 	}
-}
-
-// History returns the bounded status history ring (may be nil only if observer is nil).
-func (o *ReloadObserver) History() *configreload.StatusHistory {
-	if o == nil {
-		return nil
-	}
-	return o.history
 }
 
 type attemptScope struct {
@@ -141,7 +127,9 @@ func (o *ReloadObserver) BeginStage(ctx context.Context, stage string) (outCtx c
 	}
 }
 
-// RecordTerminal records logs, metrics, and history for a finished attempt.
+// End records logs and metrics for a finished attempt. Canonical status
+// history is owned exclusively by ReloadState (Task 6.4); this scope
+// performs safe logs/spans/metrics only.
 func (scope *attemptScope) End(res sdkreload.Result) {
 	defer func() { _ = recover() }()
 	if scope == nil || scope.obs == nil {
@@ -174,21 +162,6 @@ func (scope *attemptScope) End(res sdkreload.Result) {
 	)
 	if o.metrics != nil {
 		o.metrics.ObserveAttempt(string(scope.trigger), string(res.Category), d)
-	}
-	if o.history != nil {
-		o.history.Append(sdkreload.HistoryEntry{
-			AttemptID:           res.AttemptID,
-			Trigger:             scope.trigger,
-			Stage:               stage,
-			Category:            res.Category,
-			ActiveGeneration:    res.ActiveGeneration,
-			CandidateGeneration: candidateGeneration(res),
-			DurationMs:          d.Milliseconds(),
-			RestartFieldCount:   res.RestartFieldCount,
-			ReasonCategory:      res.ReasonCategory,
-			SafeActor:           scope.actor,
-			RecordedAt:          time.Now().UTC(),
-		})
 	}
 	if scope.parent != nil {
 		scope.parent.SetAttributes(

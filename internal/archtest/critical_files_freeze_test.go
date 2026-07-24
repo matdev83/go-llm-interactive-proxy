@@ -25,7 +25,7 @@ var expectedMigrationHotspotFreezes = []struct {
 	{
 		Path:         "internal/infra/runtimehost/coordinator.go",
 		BaselineMax:  797,
-		CurrentMax:   445, // exact measured lines after Task 6.3 AttemptRunner extraction
+		CurrentMax:   359, // exact measured lines after Task 6.4 ReloadState extraction
 		FinalTarget:  300,
 		LoweringTask: "6.5",
 	},
