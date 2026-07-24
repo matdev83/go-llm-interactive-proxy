@@ -296,7 +296,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 - [ ] 7. Establish one lifecycle truth per layer
 
-- [ ] 7.1 Add lifecycle ownership and duplicate-idempotency RED gates
+- [x] 7.1 Add lifecycle ownership and duplicate-idempotency RED gates
   - Inventory every `sync.Once`, closed flag, close result, quiesce result, retirement status, and shutdown coordinator around generation resources.
   - Add tests proving one resource owner handles rollback/quiesce/close and wrappers cannot cache a second result.
   - Add architecture checks for duplicate lifecycle guards around GenerationRuntime.
