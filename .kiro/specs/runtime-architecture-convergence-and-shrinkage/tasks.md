@@ -363,7 +363,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 8.1_
   - _Validation: `go test ./pkg/lipruntime/... ./internal/archtest/... -run 'LegacyOptions|Registration|Boundary|Canonical'`_
 
-- [ ] 8.3 Publish the public migration contract and removal gate
+- [x] 8.3 Publish the public migration contract and removal gate
   - Document field-by-field migration to request, attempt, concurrency, and rater registrations.
   - Mark the final legacy-support release and next compatible major deletion target.
   - Add tests preventing new fields or behavior in the legacy adapter.

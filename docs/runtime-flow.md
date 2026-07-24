@@ -6,7 +6,7 @@ This document expands the request lifecycle in `docs/architecture.md` for agents
 
 `cmd/lipstd` is the standard distribution entrypoint. Its startup path is intentionally explicit:
 
-`runtimebundle.BuildHost` owns the whole sequence as one transaction and returns a complete `Host` or rolls back and returns nil; `cmd/lipstd serve` and public `lipruntime.Build` are its only production callers.
+`runtimebundle.BuildHost` owns the whole sequence as one transaction and returns a complete `Host` or rolls back and returns nil; `cmd/lipstd serve` and public `lipruntime.Build` are its only production callers. Public `lipruntime.Build` adapts current-major legacy `Options` fields at the public boundary (quarantined in `pkg/lipruntime`), then calls canonical registration-only Host construction through `runtimebundle.BuildHost`. Prefer registrations now; see [lipruntime-options-migration.md](lipruntime-options-migration.md).
 
 1. The strict effective loader (`LoadBootstrapEffectiveWithSource`, the sole config-load owner) reads YAML into typed config exactly once and runs `routing.ValidateModelAliasesConfig`.
 2. `BuildHost` evaluates the serve-only `--multi-user` CLI gate against that same accepted snapshot before acquiring any expensive resource.

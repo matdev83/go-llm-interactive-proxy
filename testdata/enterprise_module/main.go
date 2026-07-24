@@ -130,6 +130,8 @@ func run(ctx context.Context) error {
 	rater := &enterpriseRater{}
 	evidence := &enterpriseEvidence{}
 	querier := enterpriseQuerier{}
+	// Canonical registrations only (public API / Task 8.3): external modules use
+	// RequestRegistrations + RaterRegistrations, not deprecated RequestProviders/Rater.
 	rt, err := lipruntime.Build(ctx, lipruntime.Options{
 		ConfigPath:       cfgPath,
 		MeteringRecorder: enterpriseMeter{},
