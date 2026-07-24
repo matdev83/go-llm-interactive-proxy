@@ -19,12 +19,6 @@ import (
 // distinct occurrence ordinals; IDs are source-position-independent.
 var closerAcquisitionOwnership = []ownershipEntry{
 	{
-		Symbol: "bootstrap_plan.go:buildBootstrap:acq#0:assign:out.ShutdownTracing=traceRes.Shutdown#0",
-		Class:  ownershipProcess,
-		Source: "bootstrap_plan.go → tracing.Init Result.Shutdown",
-		Notes:  "Process tracing shutdown func retained on bootstrap result.",
-	},
-	{
 		Symbol: "host_build.go:buildHostWithEnv:acq#0:assign:traceShutdown=traceRes.Shutdown#0",
 		Class:  ownershipProcess,
 		Source: "host_build.go → tracing.Init Result.Shutdown",
@@ -40,7 +34,7 @@ var closerAcquisitionOwnership = []ownershipEntry{
 		Symbol: "validate_distribution.go:validateDistribution:acq#0:assign:traceShutdownRaw=traceRes.Shutdown#0",
 		Class:  ownershipProcess,
 		Source: "validate_distribution.go → tracing.Init Result.Shutdown",
-		Notes:  "Process tracing shutdown retained for ValidateDistribution's own internal close (Task 5.4; no Host/BootstrapResult handoff).",
+		Notes:  "Process tracing shutdown retained for ValidateDistribution's own internal close (no Host handoff).",
 	},
 
 	{

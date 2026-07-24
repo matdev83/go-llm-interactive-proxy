@@ -312,21 +312,6 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 	return 0
 }
 
-// validateServeMultiUserGate is retained for characterization tests of the CLI
-// gate contract. Production serve evaluates the gate inside [runtimebundle.BuildHost]
-// against the one accepted snapshot (req 4.2-4.3).
-func validateServeMultiUserGate(ctx context.Context, configPath string, multiUserFlag *bool, streamOverrides config.StreamRecoveryOverrides) error {
-	eff, err := runtimebundle.LoadBootstrapEffective(ctx, configPath, streamOverrides)
-	if err != nil {
-		return err
-	}
-	mode, err := eff.Config.EffectiveAccessMode()
-	if err != nil {
-		return fmt.Errorf("bootstrap access/auth: %w", err)
-	}
-	return accessmode.ValidateServeModeGate(mode, multiUserFlag)
-}
-
 // runCheckConfigCommand performs one true unpublished dry-run validation
 // (design Dry-Run Validation; req 5.1-5.6). [runtimebundle.ValidateDistribution]
 // owns and closes every resource it acquires internally — no Manager,

@@ -210,7 +210,7 @@ func TestDeletedSymbol_Detector_Phase4AllowlistEntryRejected(t *testing.T) {
 	entries := []convergenceAllowlistEntry{
 		{
 			Gate: gateHostPath, Path: "cmd/lipstd/command.go",
-			Identity: "call:runServeCommand->runtimebundle.BuildBootstrap#1",
+			Identity:       "call:runServeCommand->runtimebundle.BuildBootstrap#1",
 			Classification: classCall, RetirementTask: "5.2", Rationale: "phase5 ok",
 		},
 		{
@@ -230,29 +230,35 @@ func TestDeletedSymbol_Detector_Phase4AllowlistEntryRejected(t *testing.T) {
 		},
 		{
 			Gate: gateConfigLoad, Path: "cmd/lipstd/command.go",
-			Identity: "call:validateServeMultiUserGate->LoadBootstrapEffective#1",
+			Identity:       "call:validateServeMultiUserGate->LoadBootstrapEffective#1",
 			Classification: classCall, RetirementTask: "4.4", Rationale: "exact floor must fail",
 		},
 	}
+	// After Task 5.5, host_path and config_load are permanently zero-tolerance:
+	// every entry above is rejected (the first and last were the only Phase 5
+	// exceptions that used to pass before the dual bootstrap/host-attachment
+	// path and config_load wrapper owner were deleted).
 	bad := validateAllowlistTask44Retirement(entries)
-	if len(bad) < 4 {
-		t.Fatalf("expected Phase 4 / deleted-symbol allowlist rejections, got %v", bad)
+	if len(bad) != len(entries) {
+		t.Fatalf("expected every entry rejected post-5.5 (zero Phase 5 exceptions), got %d/%d: %v", len(bad), len(entries), bad)
 	}
 	joined := strings.Join(bad, "\n")
 	for _, want := range []string{
 		"stdhttp_built",
 		"runtime_convergence",
 		"RunWithRuntime",
-		"retirement_task \"4.4\"",
+		"host_path",
+		"config_load",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("expected rejection mentioning %q, got:\n%s", want, joined)
 		}
 	}
-	// Valid Phase 5 entry alone must pass.
-	okOnly := validateAllowlistTask44Retirement(entries[:1])
-	if len(okOnly) != 0 {
-		t.Fatalf("Phase 5 host_path entry must remain valid, got %v", okOnly)
+	// The former Phase 5 host_path entry is now rejected on its own: no
+	// migration exception may survive past Task 5.5.
+	hostPathOnly := validateAllowlistTask44Retirement(entries[:1])
+	if len(hostPathOnly) == 0 {
+		t.Fatal("former Phase 5 host_path entry must now be rejected (zero-exception gate)")
 	}
 }
 
@@ -260,11 +266,16 @@ func TestDeletedSymbol_Detector_MalformedRetirementTaskFailsClosed(t *testing.T)
 	t.Parallel()
 	// Authentic RED: non-empty but non-X.Y retirement_task values used to bypass
 	// retirementTaskAtMost (parse failure → false) and slip past the Phase 4 floor
-	// when gate/identity were otherwise allowlisted.
-	phase5OK := convergenceAllowlistEntry{
-		Gate: gateHostPath, Path: "cmd/lipstd/command.go",
-		Identity: "call:runServeCommand->runtimebundle.BuildBootstrap#1",
-		Classification: classCall, RetirementTask: "5.2", Rationale: "phase5 ok",
+	// when gate/identity were otherwise allowlisted. This fixture intentionally
+	// uses a gate name outside permanentlyZeroToleranceAllowlistGates (every
+	// named phase gate, including host_path/config_load since Task 5.5, is
+	// zero-tolerance) so the malformed-retirement-task check is isolated from
+	// the zero-tolerance-gate check that now runs first.
+	const futureExceptionGate = "future_phase_exception_probe"
+	futureOK := convergenceAllowlistEntry{
+		Gate: futureExceptionGate, Path: "cmd/lipstd/command.go",
+		Identity:       "call:futureCaller->future.Symbol#1",
+		Classification: classCall, RetirementTask: "9.1", Rationale: "future-phase exception ok",
 	}
 	cases := []struct {
 		name   string
@@ -283,7 +294,7 @@ func TestDeletedSymbol_Detector_MalformedRetirementTaskFailsClosed(t *testing.T)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			e := phase5OK
+			e := futureOK
 			e.RetirementTask = tc.task
 			e.Identity = "call:sneakMalformed->" + tc.name + "#1"
 			reason := allowlistEntryViolatesTask44Retirement(e)
@@ -298,26 +309,39 @@ func TestDeletedSymbol_Detector_MalformedRetirementTaskFailsClosed(t *testing.T)
 			}
 		})
 	}
-	t.Run("valid_phase5_passes", func(t *testing.T) {
+	t.Run("valid_future_exception_passes", func(t *testing.T) {
 		t.Parallel()
-		if reason := allowlistEntryViolatesTask44Retirement(phase5OK); reason != "" {
-			t.Fatalf("valid Phase 5 retirement_task must pass subject to other checks, got %q", reason)
+		if reason := allowlistEntryViolatesTask44Retirement(futureOK); reason != "" {
+			t.Fatalf("well-formed non-zero-tolerance entry must pass subject to other checks, got %q", reason)
 		}
 	})
-	t.Run("valid_phase5_config_load_passes", func(t *testing.T) {
+	t.Run("host_path_always_rejected_post_5_5", func(t *testing.T) {
+		t.Parallel()
+		e := convergenceAllowlistEntry{
+			Gate: gateHostPath, Path: "cmd/lipstd/command.go",
+			Identity:       "call:runServeCommand->runtimebundle.BuildBootstrap#1",
+			Classification: classCall, RetirementTask: "5.2", Rationale: "no longer permitted",
+		}
+		reason := allowlistEntryViolatesTask44Retirement(e)
+		if reason == "" || !strings.Contains(reason, "host_path") {
+			t.Fatalf("host_path must be permanently zero-tolerance after Task 5.5, got %q", reason)
+		}
+	})
+	t.Run("config_load_always_rejected_post_5_5", func(t *testing.T) {
 		t.Parallel()
 		e := convergenceAllowlistEntry{
 			Gate: gateConfigLoad, Path: "cmd/lipstd/command.go",
-			Identity: "call:validateServeMultiUserGate->LoadBootstrapEffective#1",
-			Classification: classCall, RetirementTask: "5.5", Rationale: "phase5 ok",
+			Identity:       "call:validateServeMultiUserGate->LoadBootstrapEffective#1",
+			Classification: classCall, RetirementTask: "5.5", Rationale: "no longer permitted",
 		}
-		if reason := allowlistEntryViolatesTask44Retirement(e); reason != "" {
-			t.Fatalf("valid Phase 5 config_load entry must pass, got %q", reason)
+		reason := allowlistEntryViolatesTask44Retirement(e)
+		if reason == "" || !strings.Contains(reason, "config_load") {
+			t.Fatalf("config_load must be permanently zero-tolerance after Task 5.5, got %q", reason)
 		}
 	})
 	t.Run("does_not_normalize_malformed", func(t *testing.T) {
 		t.Parallel()
-		e := phase5OK
+		e := futureOK
 		e.RetirementTask = "phase4"
 		e.Identity = "call:sneakNoNormalize#1"
 		reason := allowlistEntryViolatesTask44Retirement(e)

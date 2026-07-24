@@ -158,24 +158,13 @@ func buildHostWithEnv(
 		return nil, fmt.Errorf("runtimebundle: logger init: %w", err)
 	}
 
-	reg, regs, err := installRegistryAndRegistrations(cfg, in.Mandatory)
+	reg, _, err := installRegistryAndRegistrations(cfg, in.Mandatory)
 	if err != nil {
 		cleanupTracing()
 		return nil, err
 	}
 
-	boot := BootstrapResult{
-		Config:              cfg,
-		Logger:              logger,
-		Registry:            reg,
-		Registrations:       regs,
-		Effective:           effective,
-		ActiveSource:        activeSource,
-		FixedStreamRecovery: fixedStreamRecovery,
-		ShutdownTracing:     traceShutdown,
-		OutboundTracing:     traceRes.Active,
-	}
-	boot, err = publishInitialGeneration(ctx, boot, publishInitialGenerationInput{
+	ps, mgr, _, err := publishInitialGeneration(ctx, publishInitialGenerationInput{
 		Cfg:           cfg,
 		Effective:     effective,
 		Logger:        logger,
@@ -192,8 +181,8 @@ func buildHostWithEnv(
 	}
 
 	host, err := bindReloadHost(path, bindReloadHostInput{
-		Manager:             boot.GenerationManager,
-		Process:             boot.ProcessServices,
+		Manager:             mgr,
+		Process:             ps,
 		Compose:             in.HandlerComposer,
 		Logger:              logger,
 		Config:              cfg,
@@ -207,8 +196,8 @@ func buildHostWithEnv(
 		_ = note(hostBuildStageNameCompile, hostBuildProbeCleaned)
 		_ = note(hostBuildStageNameProcess, hostBuildProbeCleaned)
 		return nil, joinInitialFailureCleanup(ctx, err, func() error {
-			return boot.GenerationManager.ShutdownDetached(context.WithoutCancel(ctx), runtimehost.NewLifecycleWorker())
-		}, boot.ProcessServices.Close, func(ctx context.Context) error {
+			return mgr.ShutdownDetached(context.WithoutCancel(ctx), runtimehost.NewLifecycleWorker())
+		}, ps.Close, func(ctx context.Context) error {
 			_ = note(hostBuildStageNameTracing, hostBuildProbeCleaned)
 			return traceShutdown(ctx)
 		})

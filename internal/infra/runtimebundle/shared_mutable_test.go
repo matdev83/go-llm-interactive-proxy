@@ -45,9 +45,6 @@ func TestSharedMutable_IdentitySurvivesTwoCandidateCompiles(t *testing.T) {
 	if ps.ExtensionState == nil {
 		t.Fatal("expected process ExtensionState")
 	}
-	if ps.DeferredSharedMutable.OwnershipNote != "" {
-		t.Fatalf("DeferredSharedMutable must be resolved after task 2.4, got %q", ps.DeferredSharedMutable.OwnershipNote)
-	}
 
 	c1, err := runtimebundle.CompileCandidate(context.Background(), runtimebundle.GenerationCompileInput{
 		Process: ps,
@@ -253,10 +250,9 @@ func TestSharedMutable_CandidateFailureDoesNotCloseSharedState(t *testing.T) {
 	bad.Plugins.Backends = []config.PluginConfig{{
 		ID: "missing-factory-kind", Kind: "definitely-not-registered", Enabled: true,
 	}}
-	ps.ReplaceConfigForTest(bad)
 
 	_, err = runtimebundle.CompileCandidate(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Bus: hooks.New(hooks.Config{}),
+		Process: ps, Candidate: bad, Bus: hooks.New(hooks.Config{}),
 	})
 	if err == nil {
 		t.Fatal("expected candidate compile failure")
@@ -271,9 +267,8 @@ func TestSharedMutable_CandidateFailureDoesNotCloseSharedState(t *testing.T) {
 		t.Fatal("extension state must survive candidate failure")
 	}
 
-	ps.ReplaceConfigForTest(cfg)
 	c, err := runtimebundle.CompileCandidate(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Bus: hooks.New(hooks.Config{}),
+		Process: ps, Candidate: cfg, Bus: hooks.New(hooks.Config{}),
 	})
 	if err != nil {
 		t.Fatalf("recover compile: %v", err)

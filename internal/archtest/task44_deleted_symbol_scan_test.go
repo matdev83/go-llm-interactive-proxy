@@ -42,11 +42,14 @@ var deletedSymbolScanners = []deletedSymbolScanner{
 	{Name: "task42_candidate_closer_field", Gate: gateTask42CandidateCloserFld, Scan: scanTask42CandidateCloserFieldSource},
 	{Name: "task42_ledger_closer_projection", Gate: gateTask42LedgerCloserProjection, Scan: scanTask42LedgerCloserProjectionSource},
 	{Name: "task43_deleted_serve", Gate: gateTask43DeletedServe, Scan: scanTask43DeletedServeSource},
+	{Name: "task55_deleted_bootstrap", Gate: gateTask55DeletedBootstrap, Scan: scanTask55DeletedBootstrapSource},
 }
 
 // permanentlyZeroToleranceAllowlistGates may never appear in the runtime-
-// convergence allowlist after Task 4.4. Phase 5 host_path / config_load remain
-// the only scheduled exception gates.
+// convergence allowlist. Task 5.5 retires the last scheduled Phase 5
+// exceptions (host_path, config_load): the dual bootstrap/host-attachment
+// path and the wrapper startup-load owner are deleted, so these gates join
+// the permanent zero-exception set alongside every earlier phase gate.
 var permanentlyZeroToleranceAllowlistGates = map[string]bool{
 	gateRuntimeConvergence:           true,
 	gateReloadContract:               true,
@@ -71,6 +74,9 @@ var permanentlyZeroToleranceAllowlistGates = map[string]bool{
 	gateTask43AppOwnedServe:          true,
 	gateTask43StaleTestNames:         true,
 	gateDeletedSymbol:                true,
+	gateHostPath:                     true,
+	gateConfigLoad:                   true,
+	gateTask55DeletedBootstrap:       true,
 }
 
 // deletedPhase4AllowlistIdentityTokens are identity substrings that must never

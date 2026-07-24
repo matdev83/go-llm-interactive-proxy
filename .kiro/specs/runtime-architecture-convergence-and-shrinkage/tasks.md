@@ -228,7 +228,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 5.2_
   - _Validation: `go test -race ./cmd/lipstd/... ./internal/infra/runtimebundle/... ./internal/core/configreload/... -run 'CheckConfig|ValidateDistribution|NoPublish|Parity|Rollback'`_
 
-- [ ] 5.5 Delete dual bootstrap and host attachment paths
+- [x] 5.5 Delete dual bootstrap and host attachment paths
   - Remove nullable composer architecture selection, serve-mode legacy products, `AttachReloadHost`, and duplicated caller cleanup.
   - Activate single-host/single-load architecture gates.
   - Lower bootstrap, public build, and command file budgets.

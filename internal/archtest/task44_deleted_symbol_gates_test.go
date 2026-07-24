@@ -33,34 +33,37 @@ func TestDeletedSymbol_AllowlistHasNoPhase4OrEarlier(t *testing.T) {
 	if len(bad) > 0 {
 		t.Fatalf("Task 4.4: Phase 4/legacy allowlist entries must be removed:\n%s", strings.Join(bad, "\n"))
 	}
-	for _, e := range allow {
-		if e.Gate != gateHostPath && e.Gate != gateConfigLoad {
-			t.Fatalf("Task 4.4: only Phase 5 host_path/config_load exceptions may remain; got gate %q (%s)", e.Gate, e.key())
-		}
-		if retirementTaskAtMost(e.RetirementTask, task44AllowlistRetirementFloor) {
-			t.Fatalf("Task 4.4: retirement_task %q must be after %s (%s)", e.RetirementTask, task44AllowlistRetirementFloor, e.key())
-		}
+	// Task 5.5 retired the last scheduled Phase 5 exceptions (host_path,
+	// config_load): every gate is now permanently zero-tolerance, so no
+	// allowlist entry of any gate may remain.
+	if len(allow) != 0 {
+		t.Fatalf("Task 5.5: runtime convergence allowlist must be empty (zero migration exceptions), got %d entries", len(allow))
 	}
 }
 
-func TestDeletedSymbol_Phase5AllowlistEntriesRemainExact(t *testing.T) {
+// TestDeletedSymbol_Phase5AllowlistIsEmpty locks the Task 5.5 zero-exception
+// outcome: the dual bootstrap/host-attachment path and the config_load
+// wrapper owner are deleted, so the host_path/config_load production scans
+// produce zero findings against an empty allowlist. No Phase 5 exception may
+// be reintroduced.
+func TestDeletedSymbol_Phase5AllowlistIsEmpty(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
 	allow := loadConvergenceAllowlist(t, root)
-	host := scanProductionConvergenceGate(t, root, gateHostPath, scanHostPathSource)
-	assertConvergenceAllowlistMatch(t, gateHostPath, host, allow)
-	cfg := scanProductionConvergenceGate(t, root, gateConfigLoad, scanConfigLoadSource)
-	assertConvergenceAllowlistMatch(t, gateConfigLoad, cfg, allow)
-	if len(allow) == 0 {
-		t.Fatal("Task 4.4: Phase 5 host_path/config_load exceptions must remain until named Phase 5 tasks retire them")
+	if len(allow) != 0 {
+		t.Fatalf("Task 5.5: expected empty allowlist (zero Phase 5 exceptions), got %d entries", len(allow))
 	}
+	host := scanProductionConvergenceGate(t, root, gateHostPath, scanHostPathSource)
+	assertHostPathExactBuildHostGraph(t, host)
+	cfg := scanProductionConvergenceGate(t, root, gateConfigLoad, scanConfigLoadSource)
+	assertConfigLoadExactCanonicalOwner(t, cfg)
 }
 
 func TestDeletedSymbol_PackageBudgetsExactMeasured(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	if len(PackageTreeBudgets) != 2 {
-		t.Fatalf("PackageTreeBudgets: want exactly runtimebundle+stdhttp entries, got %d", len(PackageTreeBudgets))
+	if len(PackageTreeBudgets) != 3 {
+		t.Fatalf("PackageTreeBudgets: want exactly runtimebundle+stdhttp+cmd/lipstd entries, got %d", len(PackageTreeBudgets))
 	}
 	for _, tc := range PackageTreeBudgets {
 		t.Run(tc.Tree, func(t *testing.T) {
@@ -107,6 +110,29 @@ func TestDeletedSymbol_PackageBudgetsExactMeasured(t *testing.T) {
 		}
 		if !found {
 			t.Fatal("server.go missing from CriticalFileBudgets")
+		}
+	})
+	t.Run("cmd/lipstd/command.go", func(t *testing.T) {
+		t.Parallel()
+		want := 371
+		n, err := countFileLines(filepath.Join(root, "cmd/lipstd/command.go"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n != want {
+			t.Fatalf("command.go: measured %d lines, want exact %d", n, want)
+		}
+		found := false
+		for _, b := range CriticalFileBudgets {
+			if b.Path == "cmd/lipstd/command.go" {
+				found = true
+				if b.Max != want {
+					t.Fatalf("command.go CriticalFileBudgets Max=%d, want %d", b.Max, want)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("command.go missing from CriticalFileBudgets")
 		}
 	})
 }

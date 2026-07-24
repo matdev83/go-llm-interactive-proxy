@@ -327,31 +327,16 @@ func TestRuntimeConfigReload_NoDrop_FullHost_ValidInvalidCancelALeg(t *testing.T
 	atomicWriteCertConfig(t, path, localStubVersionBody(t, base, "generation-one"))
 
 	ctx := context.Background()
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
+	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
 		ConfigPath:      path,
-		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
-		t.Fatalf("BuildBootstrap: %v", err)
+		t.Fatalf("BuildHost: %v", err)
 	}
-	t.Cleanup(func() {
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(context.Background())
-		}
-	})
-	host, err := runtimebundle.AttachReloadHost(ctx, res, path, stdhttp.ComposeStandardHTTP)
-	if err != nil {
-		t.Fatalf("AttachReloadHost: %v", err)
-	}
-	t.Cleanup(func() {
-		host.BeginShutdown()
-		_ = host.WaitForIdle(context.Background())
-		_ = host.Manager.ShutdownDetached(context.Background(), runtimehost.NewLifecycleWorker())
-		_ = host.Process.Close()
-	})
+	t.Cleanup(func() { _ = host.Close(context.Background()) })
 	if host.Coordinator == nil || host.Executor == nil || host.Manager.Active() == nil {
 		t.Fatal("incomplete reload host")
 	}

@@ -79,30 +79,6 @@ type ReloadHost struct {
 	closed  bool
 }
 
-// AttachReloadHost binds a production Coordinator and stable GenerationExecutor
-// onto an already-published initial generation (BootstrapServe + HandlerComposer).
-// Stream-recovery overrides come from res.FixedStreamRecovery (captured once at
-// BuildBootstrap); this function must not reread process environment.
-// Temporary legacy/test wrapper until Task 5.5 (check-config uses ValidateDistribution).
-func AttachReloadHost(
-	_ context.Context,
-	res BootstrapResult,
-	configPath string,
-	compose HandlerComposer,
-) (*ReloadHost, error) {
-	return bindReloadHost(configPath, bindReloadHostInput{
-		Manager:             res.GenerationManager,
-		Process:             res.ProcessServices,
-		Compose:             compose,
-		Logger:              res.Logger,
-		Config:              res.Config,
-		Effective:           res.Effective,
-		ActiveSource:        res.ActiveSource,
-		FixedStreamRecovery: res.FixedStreamRecovery,
-		ShutdownTracing:     res.ShutdownTracing,
-	})
-}
-
 type bindReloadHostInput struct {
 	Manager             *runtimehost.Manager
 	Process             *ProcessServices
@@ -118,7 +94,7 @@ type bindReloadHostInput struct {
 // bindReloadHost constructs the coordinator + stable executor on an already
 // published generation 1 using the accepted snapshot (no second startup load).
 // Reload-time LoadEffective lives here so config_load scanners exclude it with
-// the reload_host path (same ownership as pre-Task-5.2 AttachReloadHost).
+// the reload_host path; BuildHost is the sole production caller.
 func bindReloadHost(configPath string, in bindReloadHostInput) (*ReloadHost, error) {
 	if in.Manager == nil {
 		return nil, fmt.Errorf("runtimebundle: nil GenerationManager")

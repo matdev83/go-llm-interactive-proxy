@@ -336,11 +336,22 @@ var lineBudgets = []struct {
 	// ErrAlreadyClosed cleanup joins keep sibling failures (measured 10200;
 	// zero headroom). Same effective loader/ProcessServices/CompileGeneration/
 	// composer path as serve/reload, with no Manager, generation ID, active
-	// pointer, or listener. Temporary: BuildBootstrap/BootstrapResult stay for
-	// legacy/test compatibility and the two-step AttachReloadHost graph until
-	// Task 5.5 (expected to net-contract this budget). check-config now uses
-	// ValidateDistribution, not BuildBootstrap.
-	{"internal/infra/runtimebundle", 10200},
+	// pointer, or listener.
+	// Ratcheted from 10200 to 10020 for Task 5.5: deleted BuildBootstrap,
+	// BootstrapResult, BootstrapMode/BootstrapServe/BootstrapUnspecified,
+	// AttachReloadHost, and the LoadBootstrapEffective no-source wrapper;
+	// moved installRegistryAndRegistrations/initProcessTracing/shutdownTracing
+	// into composition_root.go; refactored publishInitialGeneration to return
+	// explicit (*ProcessServices, *runtimehost.Manager, *runtimehost.Generation,
+	// error) instead of projecting through BootstrapResult. The
+	// process_services.go / process_services_types.go split is critical-file
+	// organization only (neutral to this recursive package total). check-config
+	// uses ValidateDistribution and serve/public Build use BuildHost exclusively
+	// (measured 10020; zero headroom).
+	{"internal/infra/runtimebundle", 10020},
+	// Task 5.5: exact-measured cmd/lipstd after dual-bootstrap deletion
+	// (measured 913; zero headroom).
+	{"cmd/lipstd", 913},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {
@@ -495,10 +506,11 @@ func TestCompositionLayersDoNotRegisterStandardBundle(t *testing.T) {
 		filepath.Join(root, "internal", "infra", "runtimebundle"),
 		filepath.Join(root, "internal", "stdhttp"),
 	}
-	// bootstrap_plan.go is the single allowed call site for InstallStandardBundleOn
-	// inside the runtimebundle composition root (BuildBootstrap startup helper).
+	// composition_root.go is the single allowed call site for InstallStandardBundleOn
+	// inside the runtimebundle composition root (installRegistryAndRegistrations,
+	// shared by BuildHost/ValidateDistribution/Inspect entrypoints).
 	// All other runtimebundle and stdhttp files must not install the standard bundle.
-	allowedFile := filepath.Join(root, "internal", "infra", "runtimebundle", "bootstrap_plan.go")
+	allowedFile := filepath.Join(root, "internal", "infra", "runtimebundle", "composition_root.go")
 	for _, dir := range dirs {
 		t.Run(filepath.Base(dir), func(t *testing.T) {
 			t.Parallel()
@@ -514,7 +526,7 @@ func TestCompositionLayersDoNotRegisterStandardBundle(t *testing.T) {
 					return nil
 				}
 				if path == allowedFile {
-					return nil // bootstrap_plan.go is the composition-root startup path
+					return nil // composition_root.go is the composition-root startup path
 				}
 				src, err := os.ReadFile(path)
 				if err != nil {
@@ -529,7 +541,7 @@ func TestCompositionLayersDoNotRegisterStandardBundle(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(bad) != 0 {
-				t.Fatalf("%s: forbid standard bundle installation in composition layer (only bootstrap_plan.go may install; install in cmd/lipstd or tests, pass registry in): %s", dir, strings.Join(bad, "\n"))
+				t.Fatalf("%s: forbid standard bundle installation in composition layer (only composition_root.go may install; install in cmd/lipstd or tests, pass registry in): %s", dir, strings.Join(bad, "\n"))
 			}
 		})
 	}

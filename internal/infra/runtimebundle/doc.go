@@ -1,8 +1,8 @@
 // Package runtimebundle is the standard-distribution composition root: assembles continuity
 // store, executor (production clock/RNG, routing health, route observation), shared upstream HTTP,
-// and resource shutdown hooks. [BuildHost] owns serve/public Build; [InspectRoutes]/
-// [InspectInventory] own inspection; [ValidateDistribution] owns check-config; [BuildBootstrap]
-// stays for legacy/test until Task 5.5. [NewBootstrapApp] remains for standalone [coreruntime.App].
+// and resource shutdown hooks. [BuildHost] owns serve/public Build (one accepted effective
+// snapshot in, one complete owned Host out); [InspectRoutes]/[InspectInventory] own inspection;
+// [ValidateDistribution] owns check-config. [NewBootstrapApp] remains for standalone [coreruntime.App].
 // Executor routing health is built with
 // [github.com/matdev83/go-llm-interactive-proxy/internal/infra/routinghealth.CandidateHealthFromConfig].
 //

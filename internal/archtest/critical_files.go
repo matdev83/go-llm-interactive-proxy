@@ -77,11 +77,20 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	// Ratcheted from 99 to 42 for Task 4.2: standardHTTPInputFromBuilt deleted
 	// (measured 42; zero headroom).
 	{Path: "internal/stdhttp/http_input.go", Max: 42},
-	// Freeze 364 → final ≤300 (Req 11.3). Lower via Phase 5 task 5.5 (process construction).
-	{Path: "internal/infra/runtimebundle/process_services.go", Max: 364},
+	// Ratcheted from 364 to 249 for Task 5.5 (final ≤300, Req 11.3): removed
+	// DeferredSharedMutableOwnership/DeferredSharedMutable, ReplaceConfigForTest,
+	// and DisposeProcessClosersForTest test-only compatibility surface. The
+	// ProcessTracing/ProcessServices/ProcessServicesInput type declarations
+	// live in process_services_types.go as a critical-file organization
+	// boundary (neutral to recursive package-tree totals); this file retains
+	// the construction transaction and Close/Closed methods (measured 249;
+	// 51 lines under the final ≤300 target).
+	{Path: "internal/infra/runtimebundle/process_services.go", Max: 249},
 	// Freeze 367 → Task 5.2 ratcheted to exact thin BuildHost facade (measured 321);
 	// final ≤150 (Req 11.3). Lower via Phase 8 task 8.1 (public build/facade).
 	{Path: "pkg/lipruntime/build.go", Max: 321},
+	// Task 5.5: exact-measured post dual-bootstrap deletion (zero headroom).
+	{Path: "cmd/lipstd/command.go", Max: 371},
 
 	// Task 2.3: after deleting pkg/lipruntime/reload_map.go and converting public
 	// mirrored types to exact SDK aliases, freeze the thin reload facade files at

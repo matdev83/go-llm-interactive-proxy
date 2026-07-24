@@ -152,17 +152,82 @@ func TestReloadContract_ProductionAllowlist(t *testing.T) {
 func TestHostPath_ProductionAllowlist(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	allow := loadConvergenceAllowlist(t, root)
 	got := scanProductionConvergenceGate(t, root, gateHostPath, scanHostPathSource)
-	assertConvergenceAllowlistMatch(t, gateHostPath, got, allow)
+	assertHostPathExactBuildHostGraph(t, got)
 }
 
 func TestConfigLoad_ProductionAllowlist(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	allow := loadConvergenceAllowlist(t, root)
 	got := scanProductionConvergenceGate(t, root, gateConfigLoad, scanConfigLoadSource)
-	assertConvergenceAllowlistMatch(t, gateConfigLoad, got, allow)
+	assertConfigLoadExactCanonicalOwner(t, got)
+}
+
+// assertHostPathExactBuildHostGraph requires exactly one BuildHost declaration
+// at the canonical path and exactly the two approved production callers.
+func assertHostPathExactBuildHostGraph(t *testing.T, got []convergenceFinding) {
+	t.Helper()
+	var decls, calls, other []convergenceFinding
+	for _, f := range got {
+		switch {
+		case f.Classification == classDeclaration && f.Identity == "func:BuildHost":
+			decls = append(decls, f)
+		case f.Classification == classCall && strings.Contains(f.Identity, "runtimebundle.BuildHost"):
+			calls = append(calls, f)
+		default:
+			other = append(other, f)
+		}
+	}
+	if len(other) != 0 {
+		t.Fatalf("host_path: unexpected findings beyond BuildHost graph:\n%s", formatFindings(other))
+	}
+	if len(decls) != 1 || decls[0].Path != pathHostBuild {
+		t.Fatalf("host_path: want exactly one func:BuildHost at %s, got %v", pathHostBuild, decls)
+	}
+	wantCalls := map[string]bool{}
+	for k := range hostPathAllowedCallKeys {
+		wantCalls[k] = true
+	}
+	gotCalls := map[string]bool{}
+	for _, f := range calls {
+		gotCalls[f.Path+"|"+f.Identity] = true
+	}
+	if len(gotCalls) != len(wantCalls) {
+		t.Fatalf("host_path: want exactly %d BuildHost callers %v, got %d:\n%s",
+			len(wantCalls), wantCalls, len(gotCalls), formatFindings(calls))
+	}
+	for k := range wantCalls {
+		if !gotCalls[k] {
+			t.Fatalf("host_path: missing approved caller %s; got:\n%s", k, formatFindings(calls))
+		}
+	}
+}
+
+// assertConfigLoadExactCanonicalOwner requires the canonical owner inventory
+// and zero other startup load findings.
+func assertConfigLoadExactCanonicalOwner(t *testing.T, got []convergenceFinding) {
+	t.Helper()
+	want := map[string]string{
+		pathBootstrapEffective + "|func:LoadBootstrapEffectiveWithSource":                             classOwner,
+		pathBootstrapEffective + "|call:LoadBootstrapEffectiveWithSource->config.LoadEffective#1": classCall,
+	}
+	gotKeys := map[string]convergenceFinding{}
+	for _, f := range got {
+		gotKeys[f.Path+"|"+f.Identity] = f
+	}
+	if len(gotKeys) != len(want) {
+		t.Fatalf("config_load: want exact canonical owner inventory (%d entries), got %d:\n%s",
+			len(want), len(gotKeys), formatFindings(got))
+	}
+	for k, class := range want {
+		f, ok := gotKeys[k]
+		if !ok {
+			t.Fatalf("config_load: missing %s; got:\n%s", k, formatFindings(got))
+		}
+		if f.Classification != class {
+			t.Fatalf("config_load: %s classification=%s want %s", k, f.Classification, class)
+		}
+	}
 }
 
 // TestInspectPurity_ProductionAllowlist enforces the Task 5.3 Inspect

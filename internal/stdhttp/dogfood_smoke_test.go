@@ -16,7 +16,6 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/anthropicmessages"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/openaichat"
@@ -39,17 +38,16 @@ type dogfoodHarness struct {
 func startDogfoodHarness(tb testing.TB, configAbsPath string) dogfoodHarness {
 	tb.Helper()
 	ctx := context.Background()
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
+	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
 		ConfigPath:      configAbsPath,
-		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
-		tb.Fatalf("BuildBootstrap: %v", err)
+		tb.Fatalf("BuildHost: %v", err)
 	}
-	lease, ok := res.GenerationManager.Acquire()
+	lease, ok := host.Manager.Acquire()
 	if !ok || lease.Handler() == nil {
 		tb.Fatalf("Acquire generation handler")
 	}
@@ -63,15 +61,7 @@ func startDogfoodHarness(tb testing.TB, configAbsPath string) dogfoodHarness {
 			lease.Release()
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
-			if res.GenerationManager != nil {
-				_ = res.GenerationManager.ShutdownDetached(shutdownCtx, runtimehost.NewLifecycleWorker())
-			}
-			if res.ProcessServices != nil {
-				_ = res.ProcessServices.Close()
-			}
-			if res.ShutdownTracing != nil {
-				_ = res.ShutdownTracing(shutdownCtx)
-			}
+			_ = host.Close(shutdownCtx)
 		},
 	}
 	tb.Cleanup(out.cleanup)

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
@@ -16,7 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-func TestBuildBootstrap_absentReasoningPreservationInjectsDefaultParticipants(t *testing.T) {
+func TestBuildHost_absentReasoningPreservationInjectsDefaultParticipants(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
 
@@ -34,9 +35,8 @@ func TestBuildBootstrap_absentReasoningPreservationInjectsDefaultParticipants(t 
 
 	t.Run("serve", func(t *testing.T) {
 		t.Parallel()
-		res, err := runtimebundle.BuildBootstrap(t.Context(), runtimebundle.BuildBootstrapInput{
+		host, err := runtimebundle.BuildHost(t.Context(), runtimebundle.BuildHostInput{
 			ConfigPath:      path,
-			Mode:            runtimebundle.BootstrapServe,
 			Mandatory:       lipsdk.StandardDistributionRequirements(),
 			LogWriter:       io.Discard,
 			HandlerComposer: stdhttp.ComposeStandardHTTP,
@@ -44,22 +44,22 @@ func TestBuildBootstrap_absentReasoningPreservationInjectsDefaultParticipants(t 
 		if err != nil {
 			t.Fatal(err)
 		}
-		bootstrapServeCleanup(t, res)
-		assertFeatureRowEnabled(t, res, standardplugins.ReasoningOutputPreservationFeatureID, true)
-		assertReasoningRegistrationEnabled(t, res, true)
-		assertHasReasoningParticipants(t, res, true)
-		if res.ProcessServices == nil || res.InitialGeneration == nil {
-			t.Fatal("BootstrapServe must publish generation host handles")
+		hostServeCleanup(t, host)
+		assertFeatureRowEnabled(t, host.Config, standardplugins.ReasoningOutputPreservationFeatureID, true)
+		assertReasoningRegistrationEnabled(t, host, true)
+		assertHasReasoningParticipants(t, host, true)
+		if host.Process == nil || host.Manager.Active() == nil {
+			t.Fatal("BuildHost must publish generation host handles")
 		}
-		lease, ok := res.GenerationManager.Acquire()
+		lease, ok := host.Manager.Acquire()
 		if !ok || lease.Handler() == nil {
-			t.Fatal("BootstrapServe must publish an acquireable handler")
+			t.Fatal("BuildHost must publish an acquireable handler")
 		}
 		lease.Release()
 	})
 }
 
-func TestBuildBootstrap_explicitReasoningPreservationFalseNoParticipants(t *testing.T) {
+func TestBuildHost_explicitReasoningPreservationFalseNoParticipants(t *testing.T) {
 	t.Parallel()
 	base, err := os.ReadFile(filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"))
 	if err != nil {
@@ -90,9 +90,8 @@ func TestBuildBootstrap_explicitReasoningPreservationFalseNoParticipants(t *test
 
 	t.Run("serve", func(t *testing.T) {
 		t.Parallel()
-		res, err := runtimebundle.BuildBootstrap(t.Context(), runtimebundle.BuildBootstrapInput{
+		host, err := runtimebundle.BuildHost(t.Context(), runtimebundle.BuildHostInput{
 			ConfigPath:      path,
-			Mode:            runtimebundle.BootstrapServe,
 			Mandatory:       lipsdk.StandardDistributionRequirements(),
 			LogWriter:       io.Discard,
 			HandlerComposer: stdhttp.ComposeStandardHTTP,
@@ -100,20 +99,20 @@ func TestBuildBootstrap_explicitReasoningPreservationFalseNoParticipants(t *test
 		if err != nil {
 			t.Fatal(err)
 		}
-		bootstrapServeCleanup(t, res)
-		assertFeatureRowEnabled(t, res, standardplugins.ReasoningOutputPreservationFeatureID, false)
-		assertReasoningRegistrationEnabled(t, res, false)
-		assertHasReasoningParticipants(t, res, false)
+		hostServeCleanup(t, host)
+		assertFeatureRowEnabled(t, host.Config, standardplugins.ReasoningOutputPreservationFeatureID, false)
+		assertReasoningRegistrationEnabled(t, host, false)
+		assertHasReasoningParticipants(t, host, false)
 	})
 }
 
-func assertFeatureRowEnabled(t *testing.T, res runtimebundle.BootstrapResult, id string, wantEnabled bool) {
+func assertFeatureRowEnabled(t *testing.T, cfg *config.Config, id string, wantEnabled bool) {
 	t.Helper()
-	if res.Config == nil {
+	if cfg == nil {
 		t.Fatal("nil config")
 	}
 	var found bool
-	for _, p := range res.Config.Plugins.Features {
+	for _, p := range cfg.Plugins.Features {
 		if p.FactoryID() == id || p.InstanceID() == id {
 			found = true
 			if p.Enabled != wantEnabled {
@@ -146,11 +145,12 @@ func assertInventoryFeatureRowEnabled(t *testing.T, snap diag.InventorySnapshot,
 	}
 }
 
-func assertReasoningRegistrationEnabled(t *testing.T, res runtimebundle.BootstrapResult, wantEnabled bool) {
+func assertReasoningRegistrationEnabled(t *testing.T, host *runtimebundle.Host, wantEnabled bool) {
 	t.Helper()
 	id := standardplugins.ReasoningOutputPreservationFeatureID
+	regs := config.RegistrationsFromConfig(host.Config)
 	var found bool
-	for _, r := range res.Registrations {
+	for _, r := range regs {
 		if r.Kind != lipsdk.PluginKindFeature {
 			continue
 		}
@@ -162,17 +162,18 @@ func assertReasoningRegistrationEnabled(t *testing.T, res runtimebundle.Bootstra
 		}
 	}
 	if !found {
-		t.Fatalf("feature %q missing from bootstrap Registrations (inject must precede RegistrationsFromConfig)", id)
+		t.Fatalf("feature %q missing from recomputed Registrations (inject must precede RegistrationsFromConfig)", id)
 	}
 }
 
-func assertHasReasoningParticipants(t *testing.T, res runtimebundle.BootstrapResult, want bool) {
+func assertHasReasoningParticipants(t *testing.T, host *runtimebundle.Host, want bool) {
 	t.Helper()
-	// BootstrapResult carries no FeatureSurface (buildBootstrap merges no
-	// duplicate surface; CompileGeneration owns the sole merge for the
-	// published generation). Recompute the same merge locally from the public
-	// Registry/Registrations to characterize the participant pipeline.
-	merged, err := featurebundle.MergeFeatureSurface(res.Registry, res.Registrations)
+	// Host carries no FeatureSurface (BuildHost merges no duplicate surface;
+	// CompileGeneration owns the sole merge for the published generation).
+	// Recompute the same merge locally from the public Registry/Registrations
+	// to characterize the participant pipeline.
+	regs := config.RegistrationsFromConfig(host.Config)
+	merged, err := featurebundle.MergeFeatureSurface(host.Process.FactoryCatalog, regs)
 	if err != nil {
 		t.Fatal(err)
 	}

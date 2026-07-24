@@ -37,12 +37,9 @@ var expectedMigrationHotspotFreezes = []struct {
 		FinalTarget:  350,
 		LoweringTask: "4.2",
 	},
-	{
-		Path:         "internal/infra/runtimebundle/process_services.go",
-		FreezeMax:    364,
-		FinalTarget:  300,
-		LoweringTask: "5.5",
-	},
+	// internal/infra/runtimebundle/process_services.go freeze retired at Task
+	// 5.5: CriticalFileBudgets now carries the exact post-contraction ceiling
+	// (249, below the ≤300 final target) enforced by TestCriticalFileLineBudgets.
 	{
 		Path:         "pkg/lipruntime/build.go",
 		FreezeMax:    321,

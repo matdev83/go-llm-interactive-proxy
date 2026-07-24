@@ -67,22 +67,18 @@ func TestPartialCleanup_HostBuilderStageMatrix(t *testing.T) {
 			name:  "loader_failure_acquires_nothing",
 			stage: hostBuildStageLoader,
 			run: func(t *testing.T) {
-				res, err := BuildBootstrap(ctx, BuildBootstrapInput{
+				host, err := BuildHost(ctx, BuildHostInput{
 					ConfigPath:      filepath.Join(t.TempDir(), "missing-startup.yaml"),
-					Mode:            BootstrapServe,
 					Mandatory:       lipsdk.StandardDistributionRequirements(),
 					LogWriter:       io.Discard,
 					HandlerComposer: stubHandlerComposer,
 				})
 				if err == nil {
-					cleanupBootstrapResult(t, res)
+					cleanupReloadHost(t, host)
 					t.Fatal("expected loader failure")
 				}
-				if res.ProcessServices != nil || res.GenerationManager != nil || res.InitialGeneration != nil {
-					t.Fatalf("loader failure must not acquire process/generation")
-				}
-				if res.ShutdownTracing != nil {
-					t.Fatal("loader failure must not hand off tracing (tracing initializes after load)")
+				if host != nil {
+					t.Fatalf("loader failure must return nil Host")
 				}
 			},
 		},
@@ -104,7 +100,7 @@ func TestPartialCleanup_HostBuilderStageMatrix(t *testing.T) {
 			name:  "generation_compile_failure_rolls_back_once",
 			stage: hostBuildStageCompile,
 			run: func(t *testing.T) {
-				assertBootstrapComposeCleanup(t)
+				assertBuildHostComposeCleanup(t)
 				assertHostBuilderStageCleanup(t, in, hostBuildStageCompile,
 					[]string{"loader", "tracing", "process", "compile"},
 					[]string{"compile", "process", "tracing"})
@@ -180,12 +176,12 @@ func TestHostBuild_CompleteHostFromOneOperation(t *testing.T) {
 	t.Fatalf("HostBuild must return a complete Host from one operation; got incomplete outcome (req 4.1, 4.5)")
 }
 
-// TestPartialCleanup_ComposeFailureStillClearsTracingHandoff keeps the existing
-// bootstrap-owned compose cleanup characterization discoverable under the
-// PartialCleanup filter while HostBuilder unification remains RED above.
+// TestPartialCleanup_ComposeFailureStillClearsTracingHandoff keeps the
+// BuildHost-owned compose cleanup characterization discoverable under the
+// PartialCleanup filter.
 func TestPartialCleanup_ComposeFailureStillClearsTracingHandoff(t *testing.T) {
 	t.Parallel()
-	assertBootstrapComposeCleanup(t)
+	assertBuildHostComposeCleanup(t)
 }
 
 func assertHostBuilderStageCleanup(t *testing.T, in hostBuildInput, stage hostBuildStage, wantAcquired, wantCleaned []string) {
@@ -214,12 +210,11 @@ func assertHostBuilderStageCleanup(t *testing.T, in hostBuildInput, stage hostBu
 	}
 }
 
-func assertBootstrapComposeCleanup(t *testing.T) {
+func assertBuildHostComposeCleanup(t *testing.T) {
 	t.Helper()
 	cfgPath := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
-	res, err := BuildBootstrap(context.Background(), BuildBootstrapInput{
+	host, err := BuildHost(context.Background(), BuildHostInput{
 		ConfigPath: cfgPath,
-		Mode:       BootstrapServe,
 		Mandatory:  lipsdk.StandardDistributionRequirements(),
 		LogWriter:  io.Discard,
 		HandlerComposer: func(context.Context, *config.Config, *slog.Logger, httpcontract.StandardHTTPInput) (http.Handler, error) {
@@ -227,15 +222,10 @@ func assertBootstrapComposeCleanup(t *testing.T) {
 		},
 	})
 	if err == nil {
+		cleanupReloadHost(t, host)
 		t.Fatal("expected compose failure")
 	}
-	if res.ProcessServices != nil && !res.ProcessServices.Closed() {
-		t.Fatal("process services must close on compile failure")
-	}
-	if res.GenerationManager != nil || res.InitialGeneration != nil {
-		t.Fatal("failed bootstrap must not leave generation host handles")
-	}
-	if res.ShutdownTracing != nil {
-		t.Fatal("failed bootstrap must clear ShutdownTracing after owned cleanup")
+	if host != nil {
+		t.Fatal("failed BuildHost must return nil Host (no partial ownership)")
 	}
 }

@@ -76,17 +76,20 @@ See `docs/extension-points.md` and `docs/plugin-authoring.md` for the stage tabl
 
 ## Composition and startup
 
-`cmd/lipstd` currently performs the standard startup sequence:
+`cmd/lipstd serve` and the public `lipruntime.Build` facade both obtain a complete process-owned `Host` from exactly one `runtimebundle.BuildHost` call. `BuildHost` performs the standard startup sequence as one owned transaction:
 
-1. load YAML config and validate model aliases;
-2. initialize tracing and logging;
-3. create an isolated `pluginreg.Registry` with `pluginreg.NewRegistry`;
-4. resolve default upstream API keys from environment variables;
-5. install the standard bundle on that registry via `standardplugins.InstallStandardBundleOn`;
-6. validate mandatory bundled factories;
-7. merge configured feature bundles with `featurebundle.MergeFeatureSurface` (simplified via `MergeBundles`/`Append` helpers) and build hooks in `runtimebundle` (`BuildFeatureHooks`);
-8. bootstrap process services and publish request-plane **generation 1** through `runtimebundle` / `runtimehost`;
-9. attach the fixed-source reload host (`AttachReloadHost`) and serve data-plane HTTP through a generation dispatcher; optional management reload HTTP binds only when `LIP_RELOAD_MANAGEMENT_ADDRESS` is set.
+1. load YAML config once (the strict effective loader) and validate model aliases;
+2. evaluate the serve-only `--multi-user` CLI gate against that same accepted snapshot;
+3. initialize tracing and logging;
+4. create an isolated `pluginreg.Registry` with `pluginreg.NewRegistry`;
+5. resolve default upstream API keys from environment variables;
+6. install the standard bundle on that registry via `standardplugins.InstallStandardBundleOn`;
+7. validate mandatory bundled factories;
+8. merge configured feature bundles with `featurebundle.MergeFeatureSurface` (simplified via `MergeBundles`/`Append` helpers) and build hooks in `runtimebundle` (`BuildFeatureHooks`);
+9. construct process services and publish request-plane **generation 1** through `runtimebundle` / `runtimehost`;
+10. bind the fixed-source reload coordinator and stable executor onto that same generation, returning one complete `Host`.
+
+`cmd/lipstd serve` then serves data-plane HTTP through a generation dispatcher; optional management reload HTTP binds only when `LIP_RELOAD_MANAGEMENT_ADDRESS` is set. Unix `SIGHUP` invokes the same coordinator. Any startup failure rolls back everything `BuildHost` acquired internally and returns a nil `Host` — no partial ownership escapes to the caller.
 
 The registry is composition-root state, not core global state. Static standard-bundle tables live under `internal/standardplugins`; feature merge is `internal/featurebundle`; hook bus construction stays in `internal/infra/runtimebundle`. Startup remains explicit — no package-level mutable registries. Runtime reload publishes a new immutable generation for new admissions without replacing the data-plane listener; see [`runtime-config-reload.md`](runtime-config-reload.md) and [ADR 0008](adr/0008-versioned-runtime-config-reload.md).
 

@@ -13,7 +13,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -218,20 +217,6 @@ func writeOneSnapshotMarkerConfig(t *testing.T, address string, mode accessmode.
 		t.Fatal(err)
 	}
 	return path
-}
-
-func cleanupBootstrapResult(t *testing.T, res BootstrapResult) {
-	t.Helper()
-	ctx := context.Background()
-	if res.GenerationManager != nil {
-		_ = res.GenerationManager.ShutdownDetached(ctx, runtimehost.NewLifecycleWorker())
-	}
-	if res.ProcessServices != nil {
-		_ = res.ProcessServices.Close()
-	}
-	if res.ShutdownTracing != nil {
-		_ = res.ShutdownTracing(ctx)
-	}
 }
 
 func cleanupReloadHost(t *testing.T, host *ReloadHost) {

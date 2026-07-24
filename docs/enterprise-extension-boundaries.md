@@ -8,8 +8,8 @@ Enterprise features attach through these stable, documented seams:
 
 | Seam | Package | How enterprise attaches |
 | --- | --- | --- |
-| Plugin SDK facades | `pkg/lipsdk/*` | Register feature plugins (`FeatureBundle`), backend adapters, or frontend mounts through `pkg/lipsdk` contracts. Enterprise binaries compose their own registry + `runtimebundle.Build`. |
-| Composition-root options | `internal/infra/runtimebundle` `BuildOptions` | Inject enterprise auth deciders, event sinks, policy observers, traffic observers, or completion gates via `BuildOptions` grouped sub-structs (`Auth`, `Extensions`, `Policy`, `Diagnostics`, `Testing`). |
+| Plugin SDK facades | `pkg/lipsdk/*` | Register feature plugins (`FeatureBundle`), backend adapters, or frontend mounts through `pkg/lipsdk` contracts. Enterprise binaries compose via public `pkg/lipruntime.Build` with `lipruntime.Options`. |
+| Composition-root options | `pkg/lipruntime.Options` / `runtimebundle.ProductionOptions` | Inject enterprise observers, metering, and authority registrations through the public Options facade (or `BuildHostInput.Production` for internal distributions). Grouped `BuildOptions` sub-structs remain for focused internal composition helpers, not as a `BuildHost` parameter. |
 | Control-plane ports | `internal/core/controlplane` | Implement control-plane `Store`, `QueryService`, `RetentionController`, or `Recorder` interfaces for enterprise persistence, audit, or search. |
 | Hook bus | `internal/core/hooks` | Register enterprise submit/part/tool hooks through the standard hook bus. Prefer `FeatureBundle` over raw hooks for new code. |
 | Secure-session authority | `internal/core/securesession/app` | Inject enterprise `Manager`, `Store`, or `GateRecording` implementations for custom session authority. |
@@ -20,7 +20,7 @@ Enterprise code MUST NOT:
 
 - **Edit `runtime.Executor` directly** — add fields, modify `Execute`, or import `internal/core/runtime` to change orchestration behavior. New orchestration concerns belong behind hooks, extensions, or composition-root options.
 - **Import deep runtime internals** — `internal/core/runtime`, `internal/core/stream`, `internal/core/leglifecycle`, or `internal/core/lineage` are not extension seams; they are use-case orchestration owned by the OSS core.
-- **Fork the composition root** — enterprise binaries should call `runtimebundle.Build` (or `BuildBootstrap`) with enterprise `BuildOptions`, not reimplement assembly.
+- **Fork the composition root** — enterprise binaries should call public `pkg/lipruntime.Build` with `lipruntime.Options` (observers, metering, authority registrations), not reimplement assembly. Internal distributions that already import `runtimebundle` compose via `runtimebundle.BuildHost` with `BuildHostInput` / `ProductionOptions` — not `BuildOptions`, which is a separate composition bag and is not accepted by `BuildHost`.
 - **Bypass architecture guardrails** — the hexagonal baseline, line budgets, and import-boundary tests apply to enterprise code equally. Enterprise packages must not import `internal/core` packages beyond the allowed seams above.
 - **Introduce global state or hidden registration** — no `init()` registration, package-level registries, `sync.Once` singletons, or reflection-based plugin loading.
 
@@ -28,11 +28,11 @@ Enterprise code MUST NOT:
 
 | Enterprise feature | Attach via |
 | --- | --- |
-| Audit/search | Control-plane `Store` + `QueryService` interfaces; traffic observers via `BuildOptions.Extensions.TrafficObservers`. |
-| Billing | Token-accounting ledger adapter; `BuildOptions.Extensions.UsageObservers`; `BuildOptions.Policy.PolicyObservers`. |
-| SSO / user provisioning | `BuildOptions.Auth.RemoteDecider`; `BuildOptions.Auth.OSIdentity`; `BuildOptions.Auth.AuthEventSink`. |
-| Custom routing policy | `BuildOptions.Extensions.RouteHintProviders`; `BuildOptions.Extensions.CompletionGates`; `BuildOptions.Policy.PolicyTimeoutBudgetSource`. |
-| Custom backends | Backend plugin via `pkg/lipsdk` factory; register on a custom `*pluginreg.Registry`. |
+| Audit/search | Control-plane `Store` + `QueryService` interfaces; traffic observers via `lipruntime.Options.TrafficObservers` (or `BuildHostInput.Production.TrafficObservers`). |
+| Billing | Token-accounting ledger adapter; `lipruntime.Options.UsageObservers` / `PolicyObservers`. |
+| SSO / user provisioning | Internal composition helpers using `runtimebundle.BuildOptions.Auth` (`RemoteDecider`, `OSIdentity`, `AuthEventSink`) — not currently a `lipruntime.Options` field and not a `BuildHost` parameter. |
+| Custom routing policy | Internal `BuildOptions.Extensions` / `BuildOptions.Policy` helpers where those fields are wired; prefer FeatureBundle hooks for new code. |
+| Custom backends | Backend plugin via `pkg/lipsdk` factory; register on a custom `*pluginreg.Registry` before public/internal Build. |
 
 ## Reviewer guidance
 

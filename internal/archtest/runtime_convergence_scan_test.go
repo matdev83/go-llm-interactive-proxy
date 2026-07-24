@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -22,6 +23,10 @@ const (
 	pathInspectOps           = "internal/infra/runtimebundle/inspect.go"
 	pathConfigSourceEff      = "internal/infra/configsource/effective.go"
 	pathConfigEffective      = "internal/core/config/effective_load.go"
+	pathBootstrapEffective   = "internal/infra/runtimebundle/bootstrap_effective.go"
+	pathHostBuild            = "internal/infra/runtimebundle/host_build.go"
+	pathCmdServeCommand      = "cmd/lipstd/command.go"
+	pathLipruntimeBuild      = "pkg/lipruntime/build.go"
 )
 
 // reloadContractTypeNames are type names that form the mirrored reload vocabulary
@@ -73,13 +78,18 @@ var runtimeConvergenceProtected = protectedSymbolSet{
 	"requestPlaneAsBuilt":    true,
 }
 
+// hostPathProtected tracks the sole canonical Host builder. Task 4.3's
+// stdhttp.RunWithGenerationHost remains a serving adapter (not a startup
+// builder) and is intentionally excluded here.
 var hostPathProtected = protectedSymbolSet{
-	"runtimebundle.BuildBootstrap":   true,
-	"runtimebundle.AttachReloadHost": true,
-	"runtimebundle.Build":            true,
-	"stdhttp.RunWithRuntime":         true,
-	"stdhttp.RunWithGenerationHost":  true,
-	"lipruntime.Build":               true,
+	"runtimebundle.BuildHost": true,
+}
+
+// hostPathAllowedCallKeys are the only production BuildHost call identities
+// permitted after Task 5.5 (zero exceptions).
+var hostPathAllowedCallKeys = map[string]bool{
+	pathCmdServeCommand + "|call:runServeCommand->runtimebundle.BuildHost#1": true,
+	pathLipruntimeBuild + "|call:Build->runtimebundle.BuildHost#1":           true,
 }
 
 var runtimeConvergenceDotPaths = map[string]bool{
@@ -89,8 +99,6 @@ var runtimeConvergenceDotPaths = map[string]bool{
 
 var hostPathDotPaths = map[string]bool{
 	importRuntimebundle: true,
-	importStdhttp:       true,
-	importLipruntime:    true,
 }
 
 var configLoadDotPaths = map[string]bool{
@@ -340,7 +348,12 @@ func typeAliasIsCanonicalReload(name string, typ ast.Expr, aliases map[string]st
 	return aliases[pkg.Name] == importSDKConfigReload
 }
 
-// scanHostPathSource detects host builders and two-step attachment declarations/calls.
+// scanHostPathSource inventories the Task 5.5 one-canonical-BuildHost graph:
+// BuildHost declarations (func/var/const/type), direct/aliased/dot-imported
+// calls, package/local aliases, and one-hop wrappers that delegate to BuildHost.
+// Production gates assert exactly one declaration at pathHostBuild and exactly
+// the two allowed callers (cmd/lipstd.runServeCommand, pkg/lipruntime.Build).
+// stdhttp.RunWithGenerationHost is not a startup builder (Task 4.3).
 func scanHostPathSource(filename, src string) ([]convergenceFinding, error) {
 	rel := slashPath(filename)
 	fset, f, err := parseGoSource(filename, src)
@@ -353,55 +366,11 @@ func scanHostPathSource(filename, src string) ([]convergenceFinding, error) {
 
 	localUnqualified := map[string]string{}
 	if isRuntimebundlePath(rel) {
-		localUnqualified["BuildBootstrap"] = "runtimebundle.BuildBootstrap"
-		localUnqualified["AttachReloadHost"] = "runtimebundle.AttachReloadHost"
-		localUnqualified["Build"] = "runtimebundle.Build"
-	}
-	if isStdhttpPath(rel) {
-		localUnqualified["RunWithRuntime"] = "stdhttp.RunWithRuntime"
-		localUnqualified["RunWithGenerationHost"] = "stdhttp.RunWithGenerationHost"
-	}
-	if isLipruntimePath(rel) {
-		localUnqualified["Build"] = "lipruntime.Build"
+		localUnqualified["BuildHost"] = "runtimebundle.BuildHost"
 	}
 
-	for _, decl := range f.Decls {
-		fd, ok := decl.(*ast.FuncDecl)
-		if !ok || fd.Name == nil || fd.Recv != nil {
-			continue // skip methods; avoid unrelated Build methods
-		}
-		switch fd.Name.Name {
-		case "BuildBootstrap", "AttachReloadHost":
-			if isRuntimebundlePath(rel) {
-				out = append(out, convergenceFinding{
-					Gate: gateHostPath, Path: rel, Identity: "func:" + fd.Name.Name,
-					Classification: classDeclaration,
-					Detail:         formatPos(fset, fd.Name.Pos()) + " host-path declaration",
-				})
-			}
-		case "RunWithRuntime", "RunWithGenerationHost":
-			if isStdhttpPath(rel) {
-				out = append(out, convergenceFinding{
-					Gate: gateHostPath, Path: rel, Identity: "func:" + fd.Name.Name,
-					Classification: classDeclaration,
-					Detail:         formatPos(fset, fd.Name.Pos()) + " host-path declaration",
-				})
-			}
-		case "Build":
-			if isRuntimebundlePath(rel) {
-				out = append(out, convergenceFinding{
-					Gate: gateHostPath, Path: rel, Identity: "func:Build",
-					Classification: classDeclaration,
-					Detail:         formatPos(fset, fd.Name.Pos()) + " compatibility Build declaration",
-				})
-			}
-			// Thin pkg/lipruntime.Build that delegates to BuildHost is not an old
-			// host-path declaration; call-site scanning still catches BuildBootstrap
-			// / AttachReloadHost aliases and wrappers inside it.
-		}
-	}
+	out = append(out, scanHostPathBuildHostDecls(rel, fset, f)...)
 
-	ordinals := callSiteOrdinals{}
 	toShort := func(resolved string) (string, bool) {
 		if hostPathProtected[resolved] {
 			return resolved, true
@@ -410,6 +379,7 @@ func scanHostPathSource(filename, src string) ([]convergenceFinding, error) {
 	}
 	dotPaths := dotImportedProtectedPaths(f, hostPathDotPaths)
 	pkgScope := packageScopeProtectedAliases(f, aliases, dotPaths, localUnqualified, hostPathProtected)
+	ordinals := callSiteOrdinals{}
 	visitor := &protectedCallVisitor{
 		importAliases:    aliases,
 		dotPaths:         dotPaths,
@@ -426,24 +396,229 @@ func scanHostPathSource(filename, src string) ([]convergenceFinding, error) {
 			})
 		},
 	}
+
+	funcs := samePackageFuncDecls(f)
+	wrappers := hostPathBuildHostWrapperDelegates(funcs, aliases, dotPaths, localUnqualified, pkgScope)
+	// The two approved production callers are not "extra" Host builders.
+	delete(wrappers, "BuildHost")
+	if rel == pathLipruntimeBuild {
+		delete(wrappers, "Build")
+	}
+	if rel == pathCmdServeCommand {
+		delete(wrappers, "runServeCommand")
+	}
+	for name, delegates := range wrappers {
+		out = append(out, convergenceFinding{
+			Gate: gateHostPath, Path: rel,
+			Identity:       "wrapper:" + name,
+			Classification: classAdapter,
+			Detail:         "extra Host builder " + name + " delegates to " + delegates,
+		})
+	}
+
 	for _, decl := range f.Decls {
 		fd, ok := decl.(*ast.FuncDecl)
 		if !ok || fd.Body == nil {
 			continue
 		}
 		visitor.walkFuncWithPackageScope(fd, pkgScope)
+		out = append(out, scanHostPathWrapperCalls(rel, fset, fd, wrappers, ordinals)...)
 	}
+
+	out = append(out, scanHostPathPackageAliases(rel, fset, f, aliases, dotPaths, localUnqualified)...)
 	return out, nil
 }
 
+func scanHostPathBuildHostDecls(rel string, fset *token.FileSet, f *ast.File) []convergenceFinding {
+	var out []convergenceFinding
+	// BuildHost declarations are only meaningful as runtimebundle package-scope
+	// symbols (or sneaked under the same name elsewhere as an alternate builder).
+	for _, decl := range f.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			if d.Name == nil || d.Recv != nil || d.Name.Name != "BuildHost" {
+				continue
+			}
+			out = append(out, convergenceFinding{
+				Gate: gateHostPath, Path: rel, Identity: "func:BuildHost",
+				Classification: classDeclaration,
+				Detail:         formatPos(fset, d.Name.Pos()) + " BuildHost declaration",
+			})
+		case *ast.GenDecl:
+			kind := task43GenDeclKind(d.Tok)
+			if kind == "" {
+				continue
+			}
+			for _, spec := range d.Specs {
+				switch s := spec.(type) {
+				case *ast.ValueSpec:
+					for _, n := range s.Names {
+						if n == nil || n.Name != "BuildHost" {
+							continue
+						}
+						out = append(out, convergenceFinding{
+							Gate: gateHostPath, Path: rel, Identity: kind + ":BuildHost",
+							Classification: classDeclaration,
+							Detail:         formatPos(fset, n.Pos()) + " BuildHost " + kind + " declaration",
+						})
+					}
+				case *ast.TypeSpec:
+					if s.Name == nil || s.Name.Name != "BuildHost" {
+						continue
+					}
+					out = append(out, convergenceFinding{
+						Gate: gateHostPath, Path: rel, Identity: "type:BuildHost",
+						Classification: classDeclaration,
+						Detail:         formatPos(fset, s.Name.Pos()) + " BuildHost type declaration",
+					})
+				}
+			}
+		}
+	}
+	return out
+}
+
+func hostPathBuildHostWrapperDelegates(
+	funcs map[string]*ast.FuncDecl,
+	aliases map[string]string,
+	dotPaths []string,
+	localUnqualified map[string]string,
+	pkgScope *aliasScope,
+) map[string]string {
+	out := map[string]string{}
+	toShort := func(resolved string) (string, bool) {
+		if hostPathProtected[resolved] {
+			return resolved, true
+		}
+		return "", false
+	}
+	for name, fd := range funcs {
+		var found string
+		visitor := &protectedCallVisitor{
+			importAliases:    aliases,
+			dotPaths:         dotPaths,
+			localUnqualified: localUnqualified,
+			protected:        hostPathProtected,
+			toShort:          toShort,
+			ordinals:         callSiteOrdinals{},
+			onCall: func(_ string, _ *ast.CallExpr, shortLabel string) {
+				if found == "" {
+					found = shortLabel
+				}
+			},
+		}
+		visitor.walkFuncWithPackageScope(fd, pkgScope)
+		if found != "" {
+			out[name] = found
+		}
+	}
+	return out
+}
+
+func scanHostPathWrapperCalls(
+	rel string,
+	fset *token.FileSet,
+	fd *ast.FuncDecl,
+	wrappers map[string]string,
+	ordinals callSiteOrdinals,
+) []convergenceFinding {
+	var out []convergenceFinding
+	if fd == nil || fd.Body == nil || len(wrappers) == 0 {
+		return out
+	}
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		id, ok := unwrapParen(call.Fun).(*ast.Ident)
+		if !ok || id.Name == "" {
+			return true
+		}
+		// Direct BuildHost calls are inventoried by protectedCallVisitor.
+		if id.Name == "BuildHost" {
+			return true
+		}
+		delegates, ok := wrappers[id.Name]
+		if !ok {
+			return true
+		}
+		key := fd.Name.Name + "->" + id.Name
+		ordinals[key]++
+		out = append(out, convergenceFinding{
+			Gate: gateHostPath, Path: rel,
+			Identity:       "call:" + key + "#" + strconv.Itoa(ordinals[key]),
+			Classification: classCall,
+			Detail:         formatPos(fset, call.Pos()) + " Host-builder wrapper " + id.Name + " (delegates to " + delegates + ")",
+		})
+		return true
+	})
+	return out
+}
+
+func scanHostPathPackageAliases(
+	rel string,
+	fset *token.FileSet,
+	f *ast.File,
+	importAliases map[string]string,
+	dotPaths []string,
+	localUnqualified map[string]string,
+) []convergenceFinding {
+	var out []convergenceFinding
+	scope := newAliasScope(nil)
+	for _, decl := range f.Decls {
+		gd, ok := decl.(*ast.GenDecl)
+		if !ok || (gd.Tok != token.VAR && gd.Tok != token.CONST) {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for i, name := range vs.Names {
+				if name == nil || name.Name == "_" || i >= len(vs.Values) {
+					continue
+				}
+				if name.Name == "BuildHost" {
+					continue // covered as declaration
+				}
+				resolved, ok := resolveProtectedFuncValue(vs.Values[i], scope, importAliases, dotPaths, localUnqualified, hostPathProtected)
+				if !ok {
+					continue
+				}
+				out = append(out, convergenceFinding{
+					Gate: gateHostPath, Path: rel,
+					Identity:       "alias:" + name.Name,
+					Classification: classAdapter,
+					Detail:         formatPos(fset, name.Pos()) + " package alias of " + resolved,
+				})
+			}
+		}
+	}
+	return out
+}
+
 // scanConfigLoadSource detects startup effective-config load owners/call sites.
-// Reload-attempt LoadEffective in reload_host.go and shared configsource helpers
-// are excluded; ordinary test helpers are excluded by production-file walking.
+// Reload-attempt LoadEffective in reload_host.go and shared configsource /
+// core config internals are narrowly exempt by role (not as arbitrary places
+// for startup wrapper owners). The canonical owner file is structurally
+// validated: exactly one LoadBootstrapEffectiveWithSource declaration and
+// exactly one direct config.LoadEffective call inside it (req: single
+// config-load owner, zero-exception after Task 5.5).
+//
+// LoadBootstrapEffectiveWithSource is protected in every non-canonical
+// production file, including other runtimebundle files. Approved BuildHost /
+// Validate / Inspect call-scoped passing of the owner identifier is not an
+// ast.CallExpr and is therefore not inventoried; direct calls, local/package
+// aliases that are invoked, and one-hop wrappers that invoke the owner fail.
 func scanConfigLoadSource(filename, src string) ([]convergenceFinding, error) {
 	rel := slashPath(filename)
 	switch rel {
 	case pathReloadHost, pathConfigSourceEff, pathConfigEffective:
 		return nil, nil
+	case pathBootstrapEffective:
+		return scanCanonicalBootstrapEffectiveOwner(filename, src)
 	}
 
 	fset, f, err := parseGoSource(filename, src)
@@ -461,41 +636,60 @@ func scanConfigLoadSource(filename, src string) ([]convergenceFinding, error) {
 	}
 
 	for _, decl := range f.Decls {
-		fd, ok := decl.(*ast.FuncDecl)
-		if !ok || fd.Name == nil || fd.Recv != nil {
-			continue
-		}
-		switch fd.Name.Name {
-		case "LoadBootstrapEffective", "LoadBootstrapEffectiveWithSource":
-			out = append(out, convergenceFinding{
-				Gate: gateConfigLoad, Path: rel, Identity: "func:" + fd.Name.Name,
-				Classification: classOwner,
-				Detail:         formatPos(fset, fd.Name.Pos()) + " startup effective-load owner",
-			})
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			if d.Name == nil || d.Recv != nil {
+				continue
+			}
+			switch d.Name.Name {
+			case "LoadBootstrapEffective", "LoadBootstrapEffectiveWithSource":
+				out = append(out, convergenceFinding{
+					Gate: gateConfigLoad, Path: rel, Identity: "func:" + d.Name.Name,
+					Classification: classOwner,
+					Detail:         formatPos(fset, d.Name.Pos()) + " startup effective-load owner",
+				})
+			}
+		case *ast.GenDecl:
+			kind := task43GenDeclKind(d.Tok)
+			if kind == "" {
+				continue
+			}
+			for _, spec := range d.Specs {
+				switch s := spec.(type) {
+				case *ast.ValueSpec:
+					for _, n := range s.Names {
+						if n == nil {
+							continue
+						}
+						switch n.Name {
+						case "LoadBootstrapEffective", "LoadBootstrapEffectiveWithSource":
+							out = append(out, convergenceFinding{
+								Gate: gateConfigLoad, Path: rel, Identity: kind + ":" + n.Name,
+								Classification: classOwner,
+								Detail:         formatPos(fset, n.Pos()) + " startup effective-load " + kind + " owner",
+							})
+						}
+					}
+				case *ast.TypeSpec:
+					if s.Name == nil {
+						continue
+					}
+					switch s.Name.Name {
+					case "LoadBootstrapEffective", "LoadBootstrapEffectiveWithSource":
+						out = append(out, convergenceFinding{
+							Gate: gateConfigLoad, Path: rel, Identity: "type:" + s.Name.Name,
+							Classification: classOwner,
+							Detail:         formatPos(fset, s.Name.Pos()) + " startup effective-load type owner",
+						})
+					}
+				}
+			}
 		}
 	}
 
 	ordinals := callSiteOrdinals{}
-	toShort := func(resolved string) (string, bool) {
-		switch resolved {
-		case "config.LoadEffective":
-			return "config.LoadEffective", true
-		case "runtimebundle.LoadBootstrapEffective", "LoadBootstrapEffective":
-			return "LoadBootstrapEffective", true
-		case "runtimebundle.LoadBootstrapEffectiveWithSource", "LoadBootstrapEffectiveWithSource":
-			return "LoadBootstrapEffectiveWithSource", true
-		default:
-			return "", false
-		}
-	}
-	// Include both short and package-qualified forms in the protected set for alias tracking.
-	prot := protectedSymbolSet{
-		"config.LoadEffective":                           true,
-		"runtimebundle.LoadBootstrapEffective":           true,
-		"runtimebundle.LoadBootstrapEffectiveWithSource": true,
-		"LoadBootstrapEffective":                         true,
-		"LoadBootstrapEffectiveWithSource":               true,
-	}
+	toShort := configLoadToShort
+	prot := configLoadProtected
 	dotPaths := dotImportedProtectedPaths(f, configLoadDotPaths)
 	pkgScope := packageScopeProtectedAliases(f, aliases, dotPaths, localUnqualified, prot)
 	visitor := &protectedCallVisitor{
@@ -514,6 +708,18 @@ func scanConfigLoadSource(filename, src string) ([]convergenceFinding, error) {
 			})
 		},
 	}
+
+	funcs := samePackageFuncDecls(f)
+	wrappers := configLoadWrapperDelegates(funcs, aliases, dotPaths, localUnqualified, pkgScope)
+	for name, delegates := range wrappers {
+		out = append(out, convergenceFinding{
+			Gate: gateConfigLoad, Path: rel,
+			Identity:       "wrapper:" + name,
+			Classification: classOwner,
+			Detail:         "startup load wrapper " + name + " delegates to " + delegates,
+		})
+	}
+
 	for _, decl := range f.Decls {
 		fd, ok := decl.(*ast.FuncDecl)
 		if !ok || fd.Body == nil {
@@ -521,6 +727,253 @@ func scanConfigLoadSource(filename, src string) ([]convergenceFinding, error) {
 		}
 		visitor.walkFuncWithPackageScope(fd, pkgScope)
 	}
+	out = append(out, scanConfigLoadPackageAliases(rel, fset, f, aliases, dotPaths, localUnqualified)...)
+	return out, nil
+}
+
+// configLoadProtected is the full set of startup effective-load callables.
+// LoadBootstrapEffectiveWithSource is protected everywhere outside the
+// canonical owner file (including other runtimebundle production files).
+var configLoadProtected = protectedSymbolSet{
+	"config.LoadEffective":                           true,
+	"runtimebundle.LoadBootstrapEffective":           true,
+	"LoadBootstrapEffective":                         true,
+	"runtimebundle.LoadBootstrapEffectiveWithSource": true,
+	"LoadBootstrapEffectiveWithSource":               true,
+}
+
+func configLoadToShort(resolved string) (string, bool) {
+	switch resolved {
+	case "config.LoadEffective":
+		return "config.LoadEffective", true
+	case "runtimebundle.LoadBootstrapEffective", "LoadBootstrapEffective":
+		return "LoadBootstrapEffective", true
+	case "runtimebundle.LoadBootstrapEffectiveWithSource", "LoadBootstrapEffectiveWithSource":
+		return "LoadBootstrapEffectiveWithSource", true
+	default:
+		return "", false
+	}
+}
+
+func configLoadWrapperDelegates(
+	funcs map[string]*ast.FuncDecl,
+	aliases map[string]string,
+	dotPaths []string,
+	localUnqualified map[string]string,
+	pkgScope *aliasScope,
+) map[string]string {
+	out := map[string]string{}
+	for name, fd := range funcs {
+		switch name {
+		case "LoadBootstrapEffective", "LoadBootstrapEffectiveWithSource":
+			continue // inventoried as owners, not wrappers
+		}
+		var found string
+		visitor := &protectedCallVisitor{
+			importAliases:    aliases,
+			dotPaths:         dotPaths,
+			localUnqualified: localUnqualified,
+			protected:        configLoadProtected,
+			toShort:          configLoadToShort,
+			ordinals:         callSiteOrdinals{},
+			onCall: func(_ string, _ *ast.CallExpr, shortLabel string) {
+				if found == "" {
+					found = shortLabel
+				}
+			},
+		}
+		visitor.walkFuncWithPackageScope(fd, pkgScope)
+		if found != "" {
+			out[name] = found
+		}
+	}
+	return out
+}
+
+func scanConfigLoadPackageAliases(
+	rel string,
+	fset *token.FileSet,
+	f *ast.File,
+	importAliases map[string]string,
+	dotPaths []string,
+	localUnqualified map[string]string,
+) []convergenceFinding {
+	var out []convergenceFinding
+	scope := newAliasScope(nil)
+	for _, decl := range f.Decls {
+		gd, ok := decl.(*ast.GenDecl)
+		if !ok || (gd.Tok != token.VAR && gd.Tok != token.CONST) {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for i, name := range vs.Names {
+				if name == nil || name.Name == "_" || i >= len(vs.Values) {
+					continue
+				}
+				switch name.Name {
+				case "LoadBootstrapEffective", "LoadBootstrapEffectiveWithSource":
+					continue // covered as owner declarations
+				}
+				resolved, ok := resolveProtectedFuncValue(vs.Values[i], scope, importAliases, dotPaths, localUnqualified, configLoadProtected)
+				if !ok {
+					continue
+				}
+				out = append(out, convergenceFinding{
+					Gate: gateConfigLoad, Path: rel,
+					Identity:       "alias:" + name.Name,
+					Classification: classOwner,
+					Detail:         formatPos(fset, name.Pos()) + " package alias of " + resolved,
+				})
+			}
+		}
+	}
+	return out
+}
+
+// scanCanonicalBootstrapEffectiveOwner structurally validates the sole
+// approved startup effective-loader file. It inventories the canonical owner
+// declaration and its one direct config.LoadEffective call, and rejects
+// duplicate owners, no-source wrappers, aliases, private LoadEffective helpers,
+// and extra direct loads in the same file.
+func scanCanonicalBootstrapEffectiveOwner(filename, src string) ([]convergenceFinding, error) {
+	rel := slashPath(filename)
+	fset, f, err := parseGoSource(filename, src)
+	if err != nil {
+		return nil, err
+	}
+	aliases := importAliasToPath(f)
+	var out []convergenceFinding
+
+	const canonicalOwner = "LoadBootstrapEffectiveWithSource"
+	ownerDecls := 0
+	var ownerFunc *ast.FuncDecl
+	for _, decl := range f.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			if d.Name == nil || d.Recv != nil {
+				continue
+			}
+			switch d.Name.Name {
+			case canonicalOwner:
+				ownerDecls++
+				ownerFunc = d
+				out = append(out, convergenceFinding{
+					Gate: gateConfigLoad, Path: rel, Identity: "func:" + canonicalOwner,
+					Classification: classOwner,
+					Detail:         formatPos(fset, d.Name.Pos()) + " canonical startup effective-load owner",
+				})
+			case "LoadBootstrapEffective":
+				out = append(out, convergenceFinding{
+					Gate: gateConfigLoad, Path: rel, Identity: "func:LoadBootstrapEffective",
+					Classification: classOwner,
+					Detail:         formatPos(fset, d.Name.Pos()) + " deleted no-source LoadBootstrapEffective wrapper",
+				})
+			}
+		case *ast.GenDecl:
+			kind := task43GenDeclKind(d.Tok)
+			if kind == "" {
+				continue
+			}
+			for _, spec := range d.Specs {
+				switch s := spec.(type) {
+				case *ast.ValueSpec:
+					for _, n := range s.Names {
+						if n == nil {
+							continue
+						}
+						switch n.Name {
+						case canonicalOwner, "LoadBootstrapEffective":
+							out = append(out, convergenceFinding{
+								Gate: gateConfigLoad, Path: rel, Identity: kind + ":" + n.Name,
+								Classification: classOwner,
+								Detail:         formatPos(fset, n.Pos()) + " non-func startup load owner " + kind,
+							})
+						}
+					}
+				case *ast.TypeSpec:
+					if s.Name == nil {
+						continue
+					}
+					switch s.Name.Name {
+					case canonicalOwner, "LoadBootstrapEffective":
+						out = append(out, convergenceFinding{
+							Gate: gateConfigLoad, Path: rel, Identity: "type:" + s.Name.Name,
+							Classification: classOwner,
+							Detail:         formatPos(fset, s.Name.Pos()) + " startup load type owner",
+						})
+					}
+				}
+			}
+		}
+	}
+	if ownerDecls == 0 {
+		out = append(out, convergenceFinding{
+			Gate: gateConfigLoad, Path: rel, Identity: "missing:LoadBootstrapEffectiveWithSource",
+			Classification: classOwner,
+			Detail:         "canonical startup effective-load owner declaration missing",
+		})
+	}
+	if ownerDecls > 1 {
+		out = append(out, convergenceFinding{
+			Gate: gateConfigLoad, Path: rel, Identity: "duplicate:LoadBootstrapEffectiveWithSource",
+			Classification: classOwner,
+			Detail:         "canonical startup effective-load owner must be declared exactly once",
+		})
+	}
+
+	localUnqualified := map[string]string{
+		"LoadBootstrapEffective":           "LoadBootstrapEffective",
+		"LoadBootstrapEffectiveWithSource": "LoadBootstrapEffectiveWithSource",
+	}
+	prot := configLoadProtected
+	toShort := configLoadToShort
+	dotPaths := dotImportedProtectedPaths(f, configLoadDotPaths)
+	pkgScope := packageScopeProtectedAliases(f, aliases, dotPaths, localUnqualified, prot)
+
+	// Reject package aliases that create another load owner under a new name.
+	out = append(out, scanConfigLoadPackageAliases(rel, fset, f, aliases, dotPaths, localUnqualified)...)
+
+	// Private helpers that call config.LoadEffective or call/alias-invoke the
+	// canonical owner are extra owners; only the canonical owner body may
+	// perform the single approved config.LoadEffective call.
+	funcs := samePackageFuncDecls(f)
+	wrappers := configLoadWrapperDelegates(funcs, aliases, dotPaths, localUnqualified, pkgScope)
+	for name, delegates := range wrappers {
+		out = append(out, convergenceFinding{
+			Gate: gateConfigLoad, Path: rel, Identity: "wrapper:" + name,
+			Classification: classOwner,
+			Detail:         "private startup load wrapper " + name + " delegates to " + delegates,
+		})
+	}
+
+	if ownerFunc != nil && ownerFunc.Body != nil {
+		ordinals := callSiteOrdinals{}
+		visitor := &protectedCallVisitor{
+			importAliases:    aliases,
+			dotPaths:         dotPaths,
+			localUnqualified: localUnqualified,
+			protected:        prot,
+			toShort:          toShort,
+			ordinals:         ordinals,
+			onCall: func(identity string, call *ast.CallExpr, shortLabel string) {
+				if shortLabel != "config.LoadEffective" {
+					return
+				}
+				out = append(out, convergenceFinding{
+					Gate: gateConfigLoad, Path: rel,
+					Identity:       identity,
+					Classification: classCall,
+					Detail:         formatPos(fset, call.Pos()) + " direct " + shortLabel,
+				})
+			},
+		}
+		visitor.walkFuncWithPackageScope(ownerFunc, pkgScope)
+	}
+
 	return out, nil
 }
 

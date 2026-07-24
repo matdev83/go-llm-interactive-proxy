@@ -25,18 +25,24 @@ type PackageTreeBudget struct {
 // Task 5.1: runtimebundle exact-measured after per-invocation loader parameter +
 // unexported buildHost RED seam (no package-global loader hook).
 // Task 5.2: exact-measured after BuildHost repair (shared hostBuildProbe seam +
-// serve-only CLI gate flag); temporary raise until Task 5.5 deletes remaining
-// BuildBootstrap serve/attachment dual path (Req 11.7).
+// serve-only CLI gate flag); temporary raise recorded the pending Task 5.5
+// deletion of the BuildBootstrap serve/attachment dual path (Req 11.7).
 // Task 5.3: contracted to exact-measured 9991 after InspectRoutes/InspectInventory
 // split and BootstrapInspect/App/feature-merge deletion (Req 11.7).
 // Task 5.4: exact-measured 10200 for true unpublished ValidateDistribution plus
 // omitSoleAlreadyClosed (mixed ErrAlreadyClosed cleanup preservation).
-// BuildBootstrap/BootstrapResult remain for legacy/test compatibility and the
-// two-step AttachReloadHost graph until Task 5.5 (Req 11.7) — check-config now
-// uses ValidateDistribution, not BuildBootstrap.
+// Task 5.5: contracted to exact-measured 10020 after deleting BuildBootstrap/
+// BootstrapResult/BootstrapMode/AttachReloadHost/LoadBootstrapEffective, moving
+// installRegistryAndRegistrations/initProcessTracing/shutdownTracing into
+// composition_root.go, and refactoring publishInitialGeneration to explicit
+// multi-value returns (no BootstrapResult projection). The process_services.go
+// / process_services_types.go split is a critical-file organization boundary
+// only — it is neutral to this recursive package-tree total (Req 11.5-11.7).
+// Task 5.5 also freezes cmd/lipstd at its exact measured post-deletion size.
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 10200},
+	{Tree: "internal/infra/runtimebundle", Max: 10020},
 	{Tree: "internal/stdhttp", Max: 4522},
+	{Tree: "cmd/lipstd", Max: 913},
 }
 
 // CountNonTestGoLines recursively counts physical lines in non-test .go files

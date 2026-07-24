@@ -82,7 +82,7 @@ var builtFieldOwnership = []ownershipEntry{
 	{Symbol: "UpstreamHTTP", Class: ownershipGeneration, Source: "runtimebundle.buildObservabilityRuntime → httpclient.StandardWithTune", Notes: "Generation-owned HTTP client/tuning."},
 	{Symbol: "RoutePrefixes", Class: ownershipGeneration, Source: "runtimebundle.buildModelRuntime → buildBackends", Notes: "Frozen backend route-selector prefixes."},
 	{Symbol: "DecodeAdmission", Class: ownershipProcess, Source: "runtimebundle.NewProcessServices → decodeqos.New", Notes: "Process-capacity limiter (req 6.5)."},
-	{Symbol: "PluginRegistry", Class: ownershipProcess, Source: "BuildBootstrap → pluginreg.NewRegistry", Notes: "Factory catalog/discovery trust is startup-fixed (req 6.4, 8.7)."},
+	{Symbol: "PluginRegistry", Class: ownershipProcess, Source: "BuildHost → pluginreg.NewRegistry", Notes: "Factory catalog/discovery trust is startup-fixed (req 6.4, 8.7)."},
 	{Symbol: "Metrics", Class: ownershipProcess, Source: "runtimebundle.buildObservabilityRuntime → metrics.NewBundle", Notes: "One process Prometheus registry/bundle (req 6.4)."},
 	{Symbol: "RuntimeSnapshot", Class: ownershipGeneration, Source: "runtimebundle.buildExtensionRuntime", Notes: "Immutable feature/hook surface projection."},
 	{Symbol: "HTTPAuthProviders", Class: ownershipGeneration, Source: "runtimebundle.buildSecurityRuntime", Notes: "Transport-auth providers for the generation handler graph."},
@@ -110,17 +110,17 @@ var builtFieldOwnership = []ownershipEntry{
 	{Symbol: "terminalWorkRT", Class: ownershipProcess, Source: "runtimebundle.buildTerminalWorkWithSetReconcile", Notes: "Internal process ownership handle."},
 }
 
-// bootstrapResourceOwnership classifies BuildBootstrap resources beyond Built fields.
+// bootstrapResourceOwnership classifies BuildHost resources beyond Built fields.
 var bootstrapResourceOwnership = []ownershipEntry{
-	{Symbol: "BootstrapResult.ProcessServices", Class: ownershipProcess, Source: "runtimebundle.BuildBootstrap → NewProcessServices", Notes: "Process-owned shared services for BootstrapServe (Task 4.1)."},
-	{Symbol: "BootstrapResult.GenerationManager", Class: ownershipProcess, Source: "runtimebundle.BuildBootstrap → runtimehost.NewManager", Notes: "Process-owned generation publication manager."},
-	{Symbol: "BootstrapResult.InitialGeneration", Class: ownershipGeneration, Source: "runtimebundle.BuildBootstrap → Manager.Publish", Notes: "Generation 1 publication handle for serve mode."},
-	{Symbol: "BootstrapResult.Config", Kind: ownershipKindMixedConfigAggregate, Source: "runtimebundle.BuildBootstrap → config.LoadFile", Notes: "Mutable *config.Config mixes process-topology and generation settings; unsuitable for generation publication (design: no mutable *config.Config in published generations)."},
-	{Symbol: "Logger", Class: ownershipProcess, Source: "runtimebundle.BuildBootstrap → logging.NewLogger", Notes: "Process logger sink (req 6.4)."},
-	{Symbol: "Registry", Class: ownershipProcess, Source: "runtimebundle.BuildBootstrap → pluginreg.NewRegistry", Notes: "Same process factory catalog as Built.PluginRegistry."},
-	{Symbol: "Registrations", Class: ownershipGeneration, Source: "runtimebundle.BuildBootstrap → config.RegistrationsFromConfig", Notes: "Feature/plugin registration view for the candidate."},
-	{Symbol: "ShutdownTracing", Class: ownershipProcess, Source: "runtimebundle.BuildBootstrap → tracing.Init", ConstructorID: "tracing.Init.Result.Shutdown", Notes: "Projection of process tracing shutdown; underlying provider/exporter owned below."},
-	{Symbol: "OutboundTracing", Class: ownershipProcess, Source: "runtimebundle.BuildBootstrap → tracing.Init", ConstructorID: "tracing.Init.Result.Active", Notes: "Process flag that outbound HTTP propagation is active."},
+	{Symbol: "Host.Process", Class: ownershipProcess, Source: "runtimebundle.BuildHost → NewProcessServices", Notes: "Process-owned shared services for the standard Host (single-snapshot startup transaction)."},
+	{Symbol: "Host.Manager", Class: ownershipProcess, Source: "runtimebundle.BuildHost → runtimehost.NewManager", Notes: "Process-owned generation publication manager."},
+	{Symbol: "Host.Manager.Active", Class: ownershipGeneration, Source: "runtimebundle.BuildHost → Manager.Publish", Notes: "Generation 1 publication handle for the standard Host."},
+	{Symbol: "Host.Config", Kind: ownershipKindMixedConfigAggregate, Source: "runtimebundle.BuildHost → config.LoadFile", Notes: "Mutable *config.Config mixes process-topology and generation settings; unsuitable for generation publication (design: no mutable *config.Config in published generations)."},
+	{Symbol: "Logger", Class: ownershipProcess, Source: "runtimebundle.BuildHost → logging.NewLogger", Notes: "Process logger sink (req 6.4)."},
+	{Symbol: "Registry", Class: ownershipProcess, Source: "runtimebundle.BuildHost → pluginreg.NewRegistry", Notes: "Same process factory catalog as Built.PluginRegistry."},
+	{Symbol: "Registrations", Class: ownershipGeneration, Source: "runtimebundle.BuildHost → config.RegistrationsFromConfig", Notes: "Feature/plugin registration view for the candidate (transient; not retained on Host)."},
+	{Symbol: "ShutdownTracing", Class: ownershipProcess, Source: "runtimebundle.BuildHost → tracing.Init", ConstructorID: "tracing.Init.Result.Shutdown", Notes: "Projection of process tracing shutdown; underlying provider/exporter owned below."},
+	{Symbol: "OutboundTracing", Class: ownershipProcess, Source: "runtimebundle.BuildHost → tracing.Init", ConstructorID: "tracing.Init.Result.Active", Notes: "Process flag that outbound HTTP propagation is active."},
 	{Symbol: "tracing.Exporter", Class: ownershipProcess, Source: "internal/infra/tracing.Init → otlptracehttp.New", ConstructorID: "otlptracehttp.New", Notes: "OTLP HTTP exporter created by tracing.Init (req 6.4)."},
 	{Symbol: "tracing.Provider", Class: ownershipProcess, Source: "internal/infra/tracing.Init → sdktrace.NewTracerProvider", ConstructorID: "sdktrace.NewTracerProvider", Notes: "Global tracer provider registered once (req 6.4)."},
 	{Symbol: "tracing.Propagator", Class: ownershipProcess, Source: "internal/infra/tracing.Init → otel.SetTextMapPropagator", ConstructorID: "propagation.NewCompositeTextMapPropagator", Notes: "Global text-map propagator installed by tracing.Init."},
@@ -300,26 +300,26 @@ func TestOwnershipInventory_MixedAggregatesAreNotResourceClasses(t *testing.T) {
 	for _, e := range bootstrapResourceOwnership {
 		bootIdx[e.Symbol] = e
 	}
-	ps, ok := bootIdx["BootstrapResult.ProcessServices"]
+	ps, ok := bootIdx["Host.Process"]
 	if !ok {
-		t.Fatal("BootstrapResult.ProcessServices missing from inventory")
+		t.Fatal("Host.Process missing from inventory")
 	}
 	if ps.Class != ownershipProcess {
-		t.Fatalf("BootstrapResult.ProcessServices must be process-owned, got class=%q kind=%q", ps.Class, ps.Kind)
+		t.Fatalf("Host.Process must be process-owned, got class=%q kind=%q", ps.Class, ps.Kind)
 	}
-	if _, ok := bootIdx["BootstrapResult.Built"]; ok {
-		t.Fatal("BootstrapResult.Built must be removed from inventory after Task 4.1")
+	if _, ok := bootIdx["Host.Built"]; ok {
+		t.Fatal("Host.Built must be removed from inventory after Task 4.1")
 	}
 
-	cfg, ok := bootIdx["BootstrapResult.Config"]
+	cfg, ok := bootIdx["Host.Config"]
 	if !ok {
-		t.Fatal("BootstrapResult.Config missing from inventory")
+		t.Fatal("Host.Config missing from inventory")
 	}
 	if cfg.Kind != ownershipKindMixedConfigAggregate {
-		t.Fatalf("BootstrapResult.Config must be mixed_config_aggregate (mutable *config.Config mixes process-topology and generation settings; unsuitable for generation publication), got class=%q kind=%q", cfg.Class, cfg.Kind)
+		t.Fatalf("Host.Config must be mixed_config_aggregate (mutable *config.Config mixes process-topology and generation settings; unsuitable for generation publication), got class=%q kind=%q", cfg.Class, cfg.Kind)
 	}
 	if cfg.Class.valid() {
-		t.Fatalf("BootstrapResult.Config must not carry a resource class, got %q", cfg.Class)
+		t.Fatalf("Host.Config must not carry a resource class, got %q", cfg.Class)
 	}
 
 	compIdx := map[string]ownershipEntry{}

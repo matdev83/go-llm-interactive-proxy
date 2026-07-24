@@ -45,6 +45,74 @@ func TestBuildHost_CLIMultiUserGateRejectsBeforeTracing(t *testing.T) {
 	}
 }
 
+// TestBuildHost_CLIMultiUserGateRejectsExplicitFalse covers multi_user config
+// with MultiUser=false (same ErrMultiUserFlagRequired as a nil flag).
+func TestBuildHost_CLIMultiUserGateRejectsExplicitFalse(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := writeOneSnapshotMarkerConfig(t, "127.0.0.1:18403", accessmode.ModeMultiUser)
+	flagFalse := false
+	var acquired []string
+	probe := func(stage hostBuildStageName, event hostBuildProbeEvent) error {
+		if event == hostBuildProbeAcquired {
+			acquired = append(acquired, string(stage))
+		}
+		return nil
+	}
+	host, err := buildHost(ctx, hostBuildInput{
+		ConfigPath:              path,
+		Mandatory:               lipsdk.StandardDistributionRequirements(),
+		LogWriter:               io.Discard,
+		HandlerComposer:         stubHandlerComposer,
+		EnforceMultiUserCLIGate: true,
+		MultiUser:               &flagFalse,
+	}, LoadBootstrapEffectiveWithSource, probe)
+	if host != nil {
+		t.Cleanup(func() { cleanupReloadHost(t, host) })
+		t.Fatal("explicit false must return nil Host")
+	}
+	if !errors.Is(err, accessmode.ErrMultiUserFlagRequired) {
+		t.Fatalf("want ErrMultiUserFlagRequired, got %v", err)
+	}
+	if len(acquired) != 1 || acquired[0] != string(hostBuildStageNameLoader) {
+		t.Fatalf("gate must run after one load and before tracing; acquired=%v", acquired)
+	}
+}
+
+// TestBuildHost_CLIMultiUserGateRejectsInconsistentTrue covers single_user
+// config with MultiUser=true (ErrMultiUserFlagInconsistent).
+func TestBuildHost_CLIMultiUserGateRejectsInconsistentTrue(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := writeOneSnapshotMarkerConfig(t, "127.0.0.1:18404", accessmode.ModeSingleUser)
+	flagTrue := true
+	var acquired []string
+	probe := func(stage hostBuildStageName, event hostBuildProbeEvent) error {
+		if event == hostBuildProbeAcquired {
+			acquired = append(acquired, string(stage))
+		}
+		return nil
+	}
+	host, err := buildHost(ctx, hostBuildInput{
+		ConfigPath:              path,
+		Mandatory:               lipsdk.StandardDistributionRequirements(),
+		LogWriter:               io.Discard,
+		HandlerComposer:         stubHandlerComposer,
+		EnforceMultiUserCLIGate: true,
+		MultiUser:               &flagTrue,
+	}, LoadBootstrapEffectiveWithSource, probe)
+	if host != nil {
+		t.Cleanup(func() { cleanupReloadHost(t, host) })
+		t.Fatal("inconsistent true must return nil Host")
+	}
+	if !errors.Is(err, accessmode.ErrMultiUserFlagInconsistent) {
+		t.Fatalf("want ErrMultiUserFlagInconsistent, got %v", err)
+	}
+	if len(acquired) != 1 || acquired[0] != string(hostBuildStageNameLoader) {
+		t.Fatalf("gate must run after one load and before tracing; acquired=%v", acquired)
+	}
+}
+
 // TestBuildHost_PublicPathSkipsCLIMultiUserGate proves EnforceMultiUserCLIGate=false
 // accepts a valid multi_user config without a serve CLI flag (req 4.3).
 func TestBuildHost_PublicPathSkipsCLIMultiUserGate(t *testing.T) {

@@ -4907,8 +4907,8 @@ func TestReloadOwnership_LiveTreeProcessServiceUniqueness(t *testing.T) {
 
 	tracerSites := scanProductionCalls(t, root, productionScanRoots(), findTracerBootstraps)
 	allowedTracer := map[string]int{
-		"internal/infra/runtimebundle/bootstrap_plan.go:tracing.Init": 1,
-		"internal/infra/tracing/tracing.go:otel.SetTracerProvider":    1,
+		"internal/infra/runtimebundle/composition_root.go:tracing.Init": 1,
+		"internal/infra/tracing/tracing.go:otel.SetTracerProvider":      1,
 	}
 	assertAllowedCallSites(t, "tracer bootstrap", tracerSites, allowedTracer)
 

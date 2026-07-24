@@ -27,16 +27,15 @@ type publishInitialGenerationInput struct {
 	Compose       HandlerComposer
 	TraceActive   bool
 	TraceShutdown func(context.Context) error
-	// Probe is optional; production BuildBootstrap passes nil. BuildHost may
-	// pass a call-scoped probe so process/compile/publish stages share one
-	// ownership engine with the PartialCleanup matrix.
+	// Probe is optional; production BuildHost passes nil except when a
+	// call-scoped test probe is threaded through for the PartialCleanup matrix.
 	Probe hostBuildProbe
 }
 
-// joinInitialFailureCleanup tears down initial-generation bootstrap ownership in
-// order: candidate/generation → ProcessServices → tracing. Primary is preserved
-// for errors.Is; cleanup errors are joined without secret-bearing wrapping.
-// Sole ErrAlreadyClosed from gen rollback is omitted; mixed joins are kept.
+// joinInitialFailureCleanup tears down initial-generation ownership in order:
+// candidate/generation → ProcessServices → tracing. Primary is preserved for
+// errors.Is; cleanup errors are joined without secret-bearing wrapping. Sole
+// ErrAlreadyClosed from gen rollback is omitted; mixed joins are kept.
 func joinInitialFailureCleanup(
 	ctx context.Context,
 	primary error,
@@ -89,7 +88,11 @@ func omitSoleAlreadyClosed(err error) error {
 	return err
 }
 
-func publishInitialGeneration(ctx context.Context, out BootstrapResult, in publishInitialGenerationInput) (BootstrapResult, error) {
+// publishInitialGeneration constructs ProcessServices, compiles, and publishes
+// generation 1 as one owned transaction, returning explicit focused values
+// (never a broad result aggregate). On error it rolls back everything it
+// acquired and returns nils.
+func publishInitialGeneration(ctx context.Context, in publishInitialGenerationInput) (*ProcessServices, *runtimehost.Manager, *runtimehost.Generation, error) {
 	note := func(stage hostBuildStageName, event hostBuildProbeEvent) error {
 		if in.Probe == nil {
 			return nil
@@ -105,11 +108,8 @@ func publishInitialGeneration(ctx context.Context, out BootstrapResult, in publi
 		}
 	}
 
-	fail := func(err error, genRollback, processClose func() error) (BootstrapResult, error) {
-		// Failure paths own tracing teardown; clear the projection so callers
-		// (and the success-path outer defer) do not double-close.
-		out.ShutdownTracing = nil
-		return out, joinInitialFailureCleanup(ctx, err, genRollback, processClose, traceShutdown)
+	fail := func(err error, genRollback, processClose func() error) (*ProcessServices, *runtimehost.Manager, *runtimehost.Generation, error) {
+		return nil, nil, nil, joinInitialFailureCleanup(ctx, err, genRollback, processClose, traceShutdown)
 	}
 
 	ps, err := NewProcessServices(ctx, ProcessServicesInput{
@@ -150,8 +150,8 @@ func publishInitialGeneration(ctx context.Context, out BootstrapResult, in publi
 	}
 
 	// Candidate feature lifecycles are derived once inside CompileGeneration from
-	// the candidate config surface. Do not overlay bootstrap-merged instances —
-	// that double-registers Start/Stop on the generation ledger.
+	// the candidate config surface. Do not overlay merged instances — that
+	// double-registers Start/Stop on the generation ledger.
 	bundle, err := CompileGeneration(ctx, GenerationCompileInput{
 		Process:   ps,
 		Candidate: in.Cfg,
@@ -196,11 +196,8 @@ func publishInitialGeneration(ctx context.Context, out BootstrapResult, in publi
 		}, closeProcess)
 	}
 
-	out.ProcessServices = ps
-	out.GenerationManager = mgr
-	out.InitialGeneration = gen
 	if ps.terminalWorkRT != nil {
 		ps.terminalWorkRT.BindGenerationManager(mgr)
 	}
-	return out, nil
+	return ps, mgr, gen, nil
 }

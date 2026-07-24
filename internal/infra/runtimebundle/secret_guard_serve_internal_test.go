@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
@@ -37,8 +36,8 @@ func (e *countingSecretGuardEnv) Snapshot() []string {
 // TestInspect_DoesNotRequestSecretGuardEnvironment characterizes the Task 5.3
 // Inspect invariant: prepareInspect (shared by [InspectRoutes]/[InspectInventory])
 // builds no ProcessServices and accepts no secret-guard environment seam at
-// all, so it structurally cannot consult it (unlike BootstrapServe, which
-// threads an explicit coresg.Environment into publishInitialGeneration).
+// all, so it structurally cannot consult it (unlike BuildHost, which threads
+// an explicit coresg.Environment into publishInitialGeneration).
 func TestInspect_DoesNotRequestSecretGuardEnvironment(t *testing.T) {
 	path := filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-single-user.yaml")
 	in := InspectInput{
@@ -50,38 +49,27 @@ func TestInspect_DoesNotRequestSecretGuardEnvironment(t *testing.T) {
 	}
 }
 
-func TestBuildBootstrap_serveMultiUserSecretGuardDoesNotConsultEnvironment(t *testing.T) {
+func TestBuildHost_serveMultiUserSecretGuardDoesNotConsultEnvironment(t *testing.T) {
 	env := &countingSecretGuardEnv{}
-	res, err := buildBootstrap(t.Context(), BuildBootstrapInput{
+	host, err := buildHostWithEnv(t.Context(), hostBuildInput{
 		ConfigPath:      filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-multi-user.yaml"),
-		Mode:            BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: stubHandlerComposer,
-	}, env, LoadBootstrapEffectiveWithSource)
+	}, LoadBootstrapEffectiveWithSource, env, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if res.GenerationManager != nil {
-			_ = res.GenerationManager.ShutdownDetached(t.Context(), runtimehost.NewLifecycleWorker())
-		}
-		if res.ProcessServices != nil {
-			_ = res.ProcessServices.Close()
-		}
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(t.Context())
-		}
-	}()
-	if res.ProcessServices == nil || res.InitialGeneration == nil {
-		t.Fatal("BootstrapServe must publish generation host handles")
+	t.Cleanup(func() { cleanupReloadHost(t, host) })
+	if host.Process == nil || host.Manager == nil || host.Manager.Active() == nil {
+		t.Fatal("BuildHost must publish generation host handles")
 	}
 	if env.calls != 0 {
 		t.Fatalf("multi_user serve consulted the secret-guard environment; calls=%d", env.calls)
 	}
 }
 
-func TestBuildBootstrap_serveDisabledSecretGuardDoesNotConsultEnvironment(t *testing.T) {
+func TestBuildHost_serveDisabledSecretGuardDoesNotConsultEnvironment(t *testing.T) {
 	env := &countingSecretGuardEnv{}
 	base, err := os.ReadFile(filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-single-user.yaml"))
 	if err != nil {
@@ -116,29 +104,18 @@ func TestBuildBootstrap_serveDisabledSecretGuardDoesNotConsultEnvironment(t *tes
 		t.Fatal(err)
 	}
 
-	res, err := buildBootstrap(t.Context(), BuildBootstrapInput{
+	host, err := buildHostWithEnv(t.Context(), hostBuildInput{
 		ConfigPath:      path,
-		Mode:            BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: stubHandlerComposer,
-	}, env, LoadBootstrapEffectiveWithSource)
+	}, LoadBootstrapEffectiveWithSource, env, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if res.GenerationManager != nil {
-			_ = res.GenerationManager.ShutdownDetached(t.Context(), runtimehost.NewLifecycleWorker())
-		}
-		if res.ProcessServices != nil {
-			_ = res.ProcessServices.Close()
-		}
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(t.Context())
-		}
-	}()
-	if res.ProcessServices == nil || res.InitialGeneration == nil {
-		t.Fatal("BootstrapServe must publish generation host handles")
+	t.Cleanup(func() { cleanupReloadHost(t, host) })
+	if host.Process == nil || host.Manager == nil || host.Manager.Active() == nil {
+		t.Fatal("BuildHost must publish generation host handles")
 	}
 	if env.calls != 0 {
 		t.Fatalf("disabled serve consulted the secret-guard environment; calls=%d", env.calls)

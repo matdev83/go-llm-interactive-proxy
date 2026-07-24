@@ -25,31 +25,30 @@ func TestInitialGeneration_RunWithGenerationHostShutdown(t *testing.T) {
 	addr := ln.Addr().String()
 	_ = ln.Close()
 
-	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
+	host, err := runtimebundle.BuildHost(context.Background(), runtimebundle.BuildHostInput{
 		ConfigPath:      cfgPath,
-		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
-		t.Fatalf("bootstrap: %v", err)
+		t.Fatalf("BuildHost: %v", err)
 	}
 	t.Cleanup(func() {
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(context.Background())
+		if host.ShutdownTracing != nil {
+			_ = host.ShutdownTracing(context.Background())
 		}
 	})
-	res.Config.Server.Address = addr
+	host.Config.Server.Address = addr
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- stdhttp.RunWithGenerationHost(ctx, stdhttp.GenerationHostInput{
-			Config:          res.Config,
-			Log:             res.Logger,
-			Manager:         res.GenerationManager,
-			Process:         res.ProcessServices,
+			Config:          host.Config,
+			Log:             host.Logger,
+			Manager:         host.Manager,
+			Process:         host.Process,
 			ShutdownTimeout: 5 * time.Second,
 		})
 	}()
@@ -87,10 +86,10 @@ func TestInitialGeneration_RunWithGenerationHostShutdown(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("shutdown timed out")
 	}
-	if !res.ProcessServices.Closed() {
+	if !host.Process.Closed() {
 		t.Fatal("process services must close on host shutdown")
 	}
-	if _, ok := res.GenerationManager.Acquire(); ok {
+	if _, ok := host.Manager.Acquire(); ok {
 		t.Fatal("manager must reject acquire after shutdown")
 	}
 }

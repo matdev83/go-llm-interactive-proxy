@@ -56,12 +56,11 @@ func TestInspectInventory_ReturnsFocusedReadModel(t *testing.T) {
 	}
 }
 
-func TestBuildBootstrap_servePublishesInitialGeneration(t *testing.T) {
+func TestBuildHost_servePublishesInitialGeneration(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
+	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
 		ConfigPath:      testConfigPath(t),
-		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: stdhttp.ComposeStandardHTTP,
@@ -69,27 +68,26 @@ func TestBuildBootstrap_servePublishesInitialGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bootstrapServeCleanup(t, res)
-	if res.ProcessServices == nil || res.GenerationManager == nil || res.InitialGeneration == nil {
-		t.Fatal("BootstrapServe must publish process services and generation 1")
+	hostServeCleanup(t, host)
+	if host.Process == nil || host.Manager == nil || host.Manager.Active() == nil {
+		t.Fatal("BuildHost must publish process services and generation 1")
 	}
-	lease, ok := res.GenerationManager.Acquire()
+	lease, ok := host.Manager.Acquire()
 	if !ok || lease.Handler() == nil {
-		t.Fatal("BootstrapServe must publish an acquireable handler")
+		t.Fatal("BuildHost must publish an acquireable handler")
 	}
 	lease.Release()
 }
 
-func TestBuildBootstrap_serveRequiresHandlerComposer(t *testing.T) {
+func TestBuildHost_serveRequiresHandlerComposer(t *testing.T) {
 	t.Parallel()
-	res, err := runtimebundle.BuildBootstrap(t.Context(), runtimebundle.BuildBootstrapInput{
+	host, err := runtimebundle.BuildHost(t.Context(), runtimebundle.BuildHostInput{
 		ConfigPath: testConfigPath(t),
-		Mode:       runtimebundle.BootstrapServe,
 		Mandatory:  lipsdk.StandardDistributionRequirements(),
 		LogWriter:  io.Discard,
 	})
 	if err == nil {
-		bootstrapServeCleanup(t, res)
+		hostServeCleanup(t, host)
 		t.Fatal("expected nil HandlerComposer failure")
 	}
 	if !strings.Contains(err.Error(), "HandlerComposer") {
@@ -97,7 +95,7 @@ func TestBuildBootstrap_serveRequiresHandlerComposer(t *testing.T) {
 	}
 }
 
-func TestBuildBootstrap_serveSingleUserSecretGuardSnapshotsProcessEnv(t *testing.T) {
+func TestBuildHost_serveSingleUserSecretGuardSnapshotsProcessEnv(t *testing.T) {
 	const probe = "LIP_TEST_SECRETGUARD_INCLUDE"
 	const secret = testkit.SyntheticOpenAIAPIKey
 	t.Setenv(probe, secret)
@@ -115,9 +113,8 @@ func TestBuildBootstrap_serveSingleUserSecretGuardSnapshotsProcessEnv(t *testing
 		t.Fatal(err)
 	}
 
-	res, err := runtimebundle.BuildBootstrap(t.Context(), runtimebundle.BuildBootstrapInput{
+	host, err := runtimebundle.BuildHost(t.Context(), runtimebundle.BuildHostInput{
 		ConfigPath:      path,
-		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: stdhttp.ComposeStandardHTTP,
@@ -125,11 +122,11 @@ func TestBuildBootstrap_serveSingleUserSecretGuardSnapshotsProcessEnv(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	bootstrapServeCleanup(t, res)
+	hostServeCleanup(t, host)
 
-	cand := compileCandidateAfterBootstrap(t, res)
+	cand := compileCandidateAfterHost(t, host)
 	if cand.SecretGuardInventory == nil {
-		t.Fatal("BootstrapServe candidate must build secret-guard inventory")
+		t.Fatal("BuildHost candidate must build secret-guard inventory")
 	}
 	if cand.SecretGuardInventory.SecretGuardCatalogEntryCount == 0 {
 		t.Fatal("single-user serve must snapshot process env into a nonzero secret catalog")
@@ -149,27 +146,13 @@ func TestBuildBootstrap_serveSingleUserSecretGuardSnapshotsProcessEnv(t *testing
 		t.Fatal(err)
 	}
 	if len(findings) == 0 {
-		t.Fatal("standard bootstrap serve did not load the synthetic env secret")
+		t.Fatal("standard BuildHost serve did not load the synthetic env secret")
 	}
 }
 
-func TestBuildBootstrap_nilContext(t *testing.T) {
+func TestBuildHost_nilContext(t *testing.T) {
 	t.Parallel()
-	_, err := runtimebundle.BuildBootstrap(nil, runtimebundle.BuildBootstrapInput{ //nolint:staticcheck // intentional nil ctx contract
-		ConfigPath: testConfigPath(t),
-		Mode:       runtimebundle.BootstrapServe,
-		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
-	})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestBuildBootstrap_unspecifiedMode(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	_, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
+	_, err := runtimebundle.BuildHost(nil, runtimebundle.BuildHostInput{ //nolint:staticcheck // intentional nil ctx contract
 		ConfigPath: testConfigPath(t),
 		Mandatory:  lipsdk.StandardDistributionRequirements(),
 		LogWriter:  io.Discard,

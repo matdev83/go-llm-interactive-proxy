@@ -65,7 +65,7 @@ func Test_spanName_coarse(t *testing.T) {
 // [Init]: it must install an sdk trace provider and the tracecontext+baggage propagator on the
 // global OpenTelemetry handles. Migrated from stdhttp.TestRun_initializesTracingAndOutboundPropagation
 // when the orphaned stdhttp.Run convenience wrapper was removed (arch review Phase 1 Task 1.1);
-// BuildBootstrap calls this same Init for the canonical serve path.
+// BuildHost calls this same Init for the canonical serve path.
 func TestInit_tracingEnabled_installsProvidersAndPropagator(t *testing.T) { //nolint:paralleltest // mutates global OpenTelemetry providers
 	originalProvider := otel.GetTracerProvider()
 	originalPropagator := otel.GetTextMapPropagator()

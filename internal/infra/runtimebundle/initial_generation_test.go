@@ -21,28 +21,27 @@ import (
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 )
 
-func TestInitialGeneration_BootstrapPublishesGenerationOne(t *testing.T) {
+func TestInitialGeneration_BuildHostPublishesGenerationOne(t *testing.T) {
 	t.Parallel()
 	cfgPath := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
-	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
+	host, err := runtimebundle.BuildHost(context.Background(), runtimebundle.BuildHostInput{
 		ConfigPath:      cfgPath,
-		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
-		t.Fatalf("BuildBootstrap: %v", err)
+		t.Fatalf("BuildHost: %v", err)
 	}
-	bootstrapServeCleanup(t, res)
+	hostServeCleanup(t, host)
 
-	if res.ProcessServices == nil || res.GenerationManager == nil || res.InitialGeneration == nil {
+	if host.Process == nil || host.Manager == nil || host.Manager.Active() == nil {
 		t.Fatal("expected process services, manager, and initial generation")
 	}
-	if res.InitialGeneration.ID() != 1 {
-		t.Fatalf("id=%d want 1", res.InitialGeneration.ID())
+	if host.Manager.Active().ID() != 1 {
+		t.Fatalf("id=%d want 1", host.Manager.Active().ID())
 	}
-	st := res.InitialGeneration.Status()
+	st := host.Manager.Active().Status()
 	if st.Meta.Label != "startup" || st.Meta.TriggerKind != "startup" {
 		t.Fatalf("meta=%+v", st.Meta)
 	}
@@ -53,7 +52,7 @@ func TestInitialGeneration_BootstrapPublishesGenerationOne(t *testing.T) {
 		t.Fatalf("lifecycle=%v", st.Lifecycle)
 	}
 
-	lease, ok := res.GenerationManager.Acquire()
+	lease, ok := host.Manager.Acquire()
 	if !ok || lease.Handler() == nil {
 		t.Fatal("expected acquireable generation handler")
 	}
@@ -64,7 +63,7 @@ func TestInitialGeneration_BootstrapPublishesGenerationOne(t *testing.T) {
 	}
 	lease.Release()
 
-	d := runtimehost.NewGenerationDispatcher(res.GenerationManager)
+	d := runtimehost.NewGenerationDispatcher(host.Manager)
 	rr := httptest.NewRecorder()
 	d.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/not-a-route", nil))
 	if rr.Code == http.StatusServiceUnavailable {
@@ -74,29 +73,28 @@ func TestInitialGeneration_BootstrapPublishesGenerationOne(t *testing.T) {
 
 func TestInitialGeneration_CompileFailureRollsBackProcessServices(t *testing.T) {
 	t.Parallel()
-	assertBootstrapPartialCleanupOnComposeFailure(t)
+	assertBuildHostPartialCleanupOnComposeFailure(t)
 }
 
 // TestBootstrapPartialCleanup_ComposeFailureClosesOwnersOnce characterizes Task 1.3
-// partial bootstrap cleanup: after a later compose step fails, already-acquired
-// ProcessServices are closed, generation handles are absent, and tracing handoff
-// is cleared so callers cannot double-close.
+// partial startup cleanup: after a later compose step fails, already-acquired
+// ProcessServices are closed, generation handles are absent, and BuildHost
+// returns a nil Host so callers cannot double-close.
 func TestBootstrapPartialCleanup_ComposeFailureClosesOwnersOnce(t *testing.T) {
 	t.Parallel()
-	assertBootstrapPartialCleanupOnComposeFailure(t)
+	assertBuildHostPartialCleanupOnComposeFailure(t)
 }
 
-func TestInitialGeneration_BootstrapServeRequiresHandlerComposer(t *testing.T) {
+func TestInitialGeneration_BuildHostRequiresHandlerComposer(t *testing.T) {
 	t.Parallel()
 	cfgPath := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
-	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
+	host, err := runtimebundle.BuildHost(context.Background(), runtimebundle.BuildHostInput{
 		ConfigPath: cfgPath,
-		Mode:       runtimebundle.BootstrapServe,
 		Mandatory:  lipsdk.StandardDistributionRequirements(),
 		LogWriter:  io.Discard,
 	})
 	if err == nil {
-		bootstrapServeCleanup(t, res)
+		hostServeCleanup(t, host)
 		t.Fatal("expected nil HandlerComposer failure")
 	}
 	if !strings.Contains(err.Error(), "HandlerComposer") {
@@ -104,12 +102,11 @@ func TestInitialGeneration_BootstrapServeRequiresHandlerComposer(t *testing.T) {
 	}
 }
 
-func assertBootstrapPartialCleanupOnComposeFailure(t *testing.T) {
+func assertBuildHostPartialCleanupOnComposeFailure(t *testing.T) {
 	t.Helper()
 	cfgPath := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
-	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
+	host, err := runtimebundle.BuildHost(context.Background(), runtimebundle.BuildHostInput{
 		ConfigPath: cfgPath,
-		Mode:       runtimebundle.BootstrapServe,
 		Mandatory:  lipsdk.StandardDistributionRequirements(),
 		LogWriter:  io.Discard,
 		HandlerComposer: func(context.Context, *config.Config, *slog.Logger, stdhttp.StandardHTTPInput) (http.Handler, error) {
@@ -117,18 +114,11 @@ func assertBootstrapPartialCleanupOnComposeFailure(t *testing.T) {
 		},
 	})
 	if err == nil {
+		hostServeCleanup(t, host)
 		t.Fatal("expected compose failure")
 	}
-	if res.ProcessServices != nil && !res.ProcessServices.Closed() {
-		t.Fatal("process services must close on compile failure")
-	}
-	if res.GenerationManager != nil || res.InitialGeneration != nil {
-		t.Fatal("failed bootstrap must not leave generation host handles")
-	}
-	// Failure owns tracing teardown and clears the handoff so callers cannot
-	// double-close (joinInitialFailureCleanup reverse-order contract).
-	if res.ShutdownTracing != nil {
-		t.Fatal("failed bootstrap must clear ShutdownTracing after owned cleanup")
+	if host != nil {
+		t.Fatal("failed BuildHost must not leave partial ownership (nil Host expected)")
 	}
 }
 
@@ -139,17 +129,16 @@ func TestInitialGeneration_FeatureLifecycleStartStopOnceNoAppOwnership(t *testin
 	t.Cleanup(func() { submitnoop.SetLifecycleProbeFactoryForTest(nil) })
 	cfgPath := writeLifecycleProbeConfig(t)
 
-	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
+	host, err := runtimebundle.BuildHost(context.Background(), runtimebundle.BuildHostInput{
 		ConfigPath:      cfgPath,
-		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
-		t.Fatalf("BuildBootstrap: %v", err)
+		t.Fatalf("BuildHost: %v", err)
 	}
-	// BuildBootstrap constructs no runtime.App (req 4.7): the candidate ledger
+	// BuildHost constructs no runtime.App (req 4.7): the candidate ledger
 	// is the sole feature-lifecycle owner, so exactly one Start is observed
 	// with no separate App-owned Start to double-register.
 	if probe.StartCount() != 1 {
@@ -159,14 +148,8 @@ func TestInitialGeneration_FeatureLifecycleStartStopOnceNoAppOwnership(t *testin
 		t.Fatalf("lifecycle stops=%d want 0 before retire", probe.StopCount())
 	}
 
-	if err := res.GenerationManager.ShutdownDetached(context.Background(), runtimehost.NewLifecycleWorker()); err != nil {
-		t.Fatalf("ShutdownDetached: %v", err)
-	}
-	if err := res.ProcessServices.Close(); err != nil {
-		t.Fatalf("ProcessServices.Close: %v", err)
-	}
-	if res.ShutdownTracing != nil {
-		_ = res.ShutdownTracing(context.Background())
+	if err := host.Close(context.Background()); err != nil {
+		t.Fatalf("Host.Close: %v", err)
 	}
 
 	if probe.StartCount() != 1 || probe.StopCount() != 1 {

@@ -17,14 +17,14 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-func TestBootstrapCompatibility_LoadEffectiveHelperMatchesBuildBootstrap(t *testing.T) {
+func TestBootstrapCompatibility_LoadEffectiveHelperMatchesBuildHost(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
 
-	eff, err := runtimebundle.LoadBootstrapEffective(ctx, path, config.StreamRecoveryOverrides{})
+	eff, _, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(ctx, path, config.StreamRecoveryOverrides{})
 	if err != nil {
-		t.Fatalf("LoadBootstrapEffective: %v", err)
+		t.Fatalf("LoadBootstrapEffectiveWithSource: %v", err)
 	}
 	if eff == nil || eff.Config == nil {
 		t.Fatal("expected effective config")
@@ -33,9 +33,8 @@ func TestBootstrapCompatibility_LoadEffectiveHelperMatchesBuildBootstrap(t *test
 		t.Fatal("expected public fingerprint")
 	}
 
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
+	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
 		ConfigPath:      path,
-		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: stdhttp.ComposeStandardHTTP,
@@ -43,24 +42,24 @@ func TestBootstrapCompatibility_LoadEffectiveHelperMatchesBuildBootstrap(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	bootstrapServeCleanup(t, res)
+	hostServeCleanup(t, host)
 
-	if res.Config == nil {
-		t.Fatal("expected bootstrap config")
+	if host.Config == nil {
+		t.Fatal("expected host config")
 	}
 	// Shared pipeline must inject standard feature defaults before validation.
-	if !hasFeatureID(res.Config, standardplugins.ToolCallRepairFeatureID) {
-		t.Fatal("bootstrap must inject tool-call-repair via shared effective load")
+	if !hasFeatureID(host.Config, standardplugins.ToolCallRepairFeatureID) {
+		t.Fatal("BuildHost must inject tool-call-repair via shared effective load")
 	}
-	if !hasFeatureID(res.Config, standardplugins.ReasoningOutputPreservationFeatureID) {
-		t.Fatal("bootstrap must inject reasoning-output-preservation via shared effective load")
+	if !hasFeatureID(host.Config, standardplugins.ReasoningOutputPreservationFeatureID) {
+		t.Fatal("BuildHost must inject reasoning-output-preservation via shared effective load")
 	}
-	id, err := config.ComputeEffectiveIdentity(res.Config)
+	id, err := config.ComputeEffectiveIdentity(host.Config)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if id.PublicFingerprint != eff.Identity.PublicFingerprint {
-		t.Fatalf("fingerprint mismatch: bootstrap=%q helper=%q", id.PublicFingerprint, eff.Identity.PublicFingerprint)
+		t.Fatalf("fingerprint mismatch: BuildHost=%q helper=%q", id.PublicFingerprint, eff.Identity.PublicFingerprint)
 	}
 }
 
@@ -115,7 +114,7 @@ not_a_core_field: true
 				t.Fatal(err)
 			}
 
-			_, err := runtimebundle.LoadBootstrapEffective(context.Background(), path, config.StreamRecoveryOverrides{})
+			_, _, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(context.Background(), path, config.StreamRecoveryOverrides{})
 			if err == nil {
 				t.Fatal("LoadBootstrapEffective must reject strict fixture")
 			}
@@ -137,7 +136,7 @@ func TestBootstrapCompatibility_MissingPath_SourceMissingCategory(t *testing.T) 
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "does-not-exist.yaml")
 
-	_, err := runtimebundle.LoadBootstrapEffective(context.Background(), path, config.StreamRecoveryOverrides{})
+	_, _, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(context.Background(), path, config.StreamRecoveryOverrides{})
 	if err == nil {
 		t.Fatal("expected missing source error")
 	}
@@ -165,7 +164,7 @@ func TestBootstrapCompatibility_FixedStreamRecoveryCLIWins(t *testing.T) {
 	cliOff := false
 	cliIdle := 12 * time.Second
 
-	eff, err := runtimebundle.LoadBootstrapEffective(context.Background(), path, config.StreamRecoveryOverrides{
+	eff, _, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(context.Background(), path, config.StreamRecoveryOverrides{
 		CLIEnabled:     &cliOff,
 		CLIIdleTimeout: cliIdle,
 	})
@@ -179,9 +178,8 @@ func TestBootstrapCompatibility_FixedStreamRecoveryCLIWins(t *testing.T) {
 		t.Fatalf("CLI idle timeout: got %q want %q", eff.Config.StreamRecovery.AutoResume.IdleTimeout, cliIdle)
 	}
 
-	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
+	host, err := runtimebundle.BuildHost(context.Background(), runtimebundle.BuildHostInput{
 		ConfigPath:      path,
-		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: stdhttp.ComposeStandardHTTP,
@@ -193,12 +191,12 @@ func TestBootstrapCompatibility_FixedStreamRecoveryCLIWins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bootstrapServeCleanup(t, res)
-	if res.Config.StreamRecovery.AutoResume.Enabled == nil || *res.Config.StreamRecovery.AutoResume.Enabled {
-		t.Fatal("BuildBootstrap must apply fixed CLI stream-recovery overrides")
+	hostServeCleanup(t, host)
+	if host.Config.StreamRecovery.AutoResume.Enabled == nil || *host.Config.StreamRecovery.AutoResume.Enabled {
+		t.Fatal("BuildHost must apply fixed CLI stream-recovery overrides")
 	}
-	if res.Config.StreamRecovery.AutoResume.IdleTimeout != cliIdle.String() {
-		t.Fatalf("BuildBootstrap idle timeout: got %q", res.Config.StreamRecovery.AutoResume.IdleTimeout)
+	if host.Config.StreamRecovery.AutoResume.IdleTimeout != cliIdle.String() {
+		t.Fatalf("BuildHost idle timeout: got %q", host.Config.StreamRecovery.AutoResume.IdleTimeout)
 	}
 }
 
@@ -279,7 +277,7 @@ plugins:
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	eff, err := runtimebundle.LoadBootstrapEffective(context.Background(), path, config.StreamRecoveryOverrides{})
+	eff, _, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(context.Background(), path, config.StreamRecoveryOverrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,31 +292,24 @@ plugins:
 func TestBootstrapCompatibility_BuildPartialCleanupOnCandidateFailure(t *testing.T) {
 	t.Parallel()
 	// Invalid backend kind fails during candidate compile after process services
-	// may have opened resources; Build/CompileCandidate must dispose without
-	// returning a Built aggregate.
+	// may have opened resources; BuildHost must dispose everything internally
+	// and return a nil Host (no partial ownership handed to the caller).
 	path := writeConfigWithUnknownBackendKind(t)
-	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
+	host, err := runtimebundle.BuildHost(context.Background(), runtimebundle.BuildHostInput{
 		ConfigPath:      path,
-		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err == nil {
-		bootstrapServeCleanup(t, res)
+		hostServeCleanup(t, host)
 		t.Fatal("expected candidate compile failure")
 	}
-	if res.GenerationManager != nil || res.InitialGeneration != nil {
-		t.Fatal("failed serve bootstrap must not publish generation host handles")
+	if host != nil {
+		t.Fatal("failed BuildHost must not return a partial Host")
 	}
 	if !strings.Contains(err.Error(), "runtime assembly") && !strings.Contains(err.Error(), "backend") {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	// Error-path tracing shutdown is idempotent when the result still exposes it.
-	if res.ShutdownTracing != nil {
-		if shutErr := res.ShutdownTracing(context.Background()); shutErr != nil {
-			t.Fatalf("second tracing shutdown: %v", shutErr)
-		}
 	}
 }
 

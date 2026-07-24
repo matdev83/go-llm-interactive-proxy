@@ -119,39 +119,38 @@ func TestRunWithGenerationHost_HTTPShutdownFailureDoesNotRetire(t *testing.T) {
 	}
 
 	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
-	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
+	host, err := runtimebundle.BuildHost(context.Background(), runtimebundle.BuildHostInput{
 		ConfigPath:      cfgPath,
-		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: ComposeStandardHTTP,
 	})
 	if err != nil {
-		t.Fatalf("bootstrap: %v", err)
+		t.Fatalf("BuildHost: %v", err)
 	}
 	t.Cleanup(func() {
 		stopListenFn()
 		closeProcessServices = origClose
-		if res.ProcessServices != nil && !res.ProcessServices.Closed() {
-			_ = res.ProcessServices.Close()
+		if host.Process != nil && !host.Process.Closed() {
+			_ = host.Process.Close()
 		}
-		if res.GenerationManager != nil {
-			_ = res.GenerationManager.ShutdownDetached(context.Background(), runtimehost.NewLifecycleWorker())
+		if host.Manager != nil {
+			_ = host.Manager.ShutdownDetached(context.Background(), runtimehost.NewLifecycleWorker())
 		}
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(context.Background())
+		if host.ShutdownTracing != nil {
+			_ = host.ShutdownTracing(context.Background())
 		}
 	})
-	res.Config.Server.Address = "127.0.0.1:0"
+	host.Config.Server.Address = "127.0.0.1:0"
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- RunWithGenerationHost(ctx, GenerationHostInput{
-			Config:          res.Config,
-			Log:             res.Logger,
+			Config:          host.Config,
+			Log:             host.Logger,
 			Manager:         m,
-			Process:         res.ProcessServices,
+			Process:         host.Process,
 			ShutdownTimeout: time.Second,
 		})
 	}()
@@ -174,8 +173,8 @@ func TestRunWithGenerationHost_HTTPShutdownFailureDoesNotRetire(t *testing.T) {
 	if m.Active() == nil {
 		t.Fatal("active generation must remain after failed HTTP drain")
 	}
-	if res.ProcessServices.Closed() {
-		t.Fatal("bootstrap process services must remain open")
+	if host.Process.Closed() {
+		t.Fatal("BuildHost process services must remain open")
 	}
 }
 
@@ -207,30 +206,25 @@ func TestRunWithGenerationHost_CancellationPreservesConcurrentListenerFailure(t 
 	}
 
 	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
-	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
+	host, err := runtimebundle.BuildHost(context.Background(), runtimebundle.BuildHostInput{
 		ConfigPath:      cfgPath,
-		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: ComposeStandardHTTP,
 	})
 	if err != nil {
-		t.Fatalf("bootstrap: %v", err)
+		t.Fatalf("BuildHost: %v", err)
 	}
-	t.Cleanup(func() {
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(context.Background())
-		}
-	})
+	t.Cleanup(func() { _ = host.Close(context.Background()) })
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- RunWithGenerationHost(ctx, GenerationHostInput{
-			Config:          res.Config,
-			Log:             res.Logger,
-			Manager:         res.GenerationManager,
-			Process:         res.ProcessServices,
+			Config:          host.Config,
+			Log:             host.Logger,
+			Manager:         host.Manager,
+			Process:         host.Process,
 			ShutdownTimeout: 2 * time.Second,
 		})
 	}()
@@ -245,7 +239,7 @@ func TestRunWithGenerationHost_CancellationPreservesConcurrentListenerFailure(t 
 	if !errors.Is(got, listenerFailure) {
 		t.Fatalf("got %v, want listener failure", got)
 	}
-	if !res.ProcessServices.Closed() {
+	if !host.Process.Closed() {
 		t.Fatal("process services must close after the listener exits and HTTP drain succeeds")
 	}
 }
@@ -269,28 +263,23 @@ func TestRunWithGenerationHost_ShutdownListenerErrorStillDrainsHTTP(t *testing.T
 	}
 
 	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
-	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
+	host, err := runtimebundle.BuildHost(context.Background(), runtimebundle.BuildHostInput{
 		ConfigPath:      cfgPath,
-		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: ComposeStandardHTTP,
 	})
 	if err != nil {
-		t.Fatalf("bootstrap: %v", err)
+		t.Fatalf("BuildHost: %v", err)
 	}
-	t.Cleanup(func() {
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(context.Background())
-		}
-	})
-	res.Config.Server.Address = "127.0.0.1:0"
+	t.Cleanup(func() { _ = host.Close(context.Background()) })
+	host.Config.Server.Address = "127.0.0.1:0"
 
 	err = RunWithGenerationHost(context.Background(), GenerationHostInput{
-		Config:          res.Config,
-		Log:             res.Logger,
-		Manager:         res.GenerationManager,
-		Process:         res.ProcessServices,
+		Config:          host.Config,
+		Log:             host.Logger,
+		Manager:         host.Manager,
+		Process:         host.Process,
 		ShutdownTimeout: 2 * time.Second,
 	})
 	if err == nil {
@@ -299,10 +288,10 @@ func TestRunWithGenerationHost_ShutdownListenerErrorStillDrainsHTTP(t *testing.T
 	if shutdownCalls.Load() != 1 {
 		t.Fatalf("http shutdown calls=%d want 1", shutdownCalls.Load())
 	}
-	if !res.ProcessServices.Closed() {
+	if !host.Process.Closed() {
 		t.Fatal("process must close after successful HTTP drain on listener error")
 	}
-	if _, ok := res.GenerationManager.Acquire(); ok {
+	if _, ok := host.Manager.Acquire(); ok {
 		t.Fatal("manager must reject acquire after shutdown")
 	}
 }

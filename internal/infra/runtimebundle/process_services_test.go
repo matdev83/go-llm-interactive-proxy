@@ -2,8 +2,6 @@ package runtimebundle_test
 
 import (
 	"context"
-	"errors"
-	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -187,37 +185,6 @@ func TestProcessServices_CandidateCloseDoesNotCloseSharedServices(t *testing.T) 
 	}
 }
 
-func TestProcessServices_PartialStartupDisposesReverseOrder(t *testing.T) {
-	t.Parallel()
-
-	order := make([]string, 0, 4)
-
-	err := runtimebundle.DisposeProcessClosersForTest([]func() error{
-		func() error {
-			order = append(order, "first")
-			return nil
-		},
-		func() error {
-			order = append(order, "second")
-			return errors.New("second failed")
-		},
-		func() error {
-			order = append(order, "third")
-			return nil
-		},
-	})
-	if err == nil {
-		t.Fatal("expected joined disposal error")
-	}
-	if !strings.Contains(err.Error(), "second failed") {
-		t.Fatalf("expected disposal error to include closer failure, got %v", err)
-	}
-	want := []string{"third", "second", "first"}
-	if len(order) != 3 || order[0] != want[0] || order[1] != want[1] || order[2] != want[2] {
-		t.Fatalf("dispose order=%v want reverse registration %v", order, want)
-	}
-}
-
 func TestProcessServices_CandidateExposesCoreCapabilitiesAndClosesCleanly(t *testing.T) {
 	t.Parallel()
 
@@ -241,7 +208,7 @@ func TestProcessServices_CandidateExposesCoreCapabilitiesAndClosesCleanly(t *tes
 	}
 }
 
-func TestProcessServices_OwnershipDeferredSharedMutableDocumented(t *testing.T) {
+func TestProcessServices_OwnershipHoistedSharedMutableState(t *testing.T) {
 	t.Parallel()
 
 	cfg := processServicesTestConfig()
@@ -255,9 +222,6 @@ func TestProcessServices_OwnershipDeferredSharedMutableDocumented(t *testing.T) 
 	}
 	t.Cleanup(func() { _ = ps.Close() })
 
-	if ps.DeferredSharedMutable.OwnershipNote != "" {
-		t.Fatalf("task 2.4 must resolve DeferredSharedMutable; got note %q", ps.DeferredSharedMutable.OwnershipNote)
-	}
 	if ps.ALegLifecycle == nil || ps.AffinityStore == nil || ps.CandidateHealth == nil || ps.ExtensionState == nil {
 		t.Fatal("expected hoisted A-leg, affinity, health, and extension state on ProcessServices")
 	}
@@ -318,7 +282,7 @@ func TestBootstrap_ProcessServicesCompatibility(t *testing.T) {
 	t.Parallel()
 
 	// Ensure tracing.Result shape still wires through ProcessTracing without
-	// requiring callers to change BootstrapResult fields.
+	// requiring callers to change Host fields.
 	res := tracing.Result{Shutdown: func(context.Context) error { return nil }, Active: false}
 	pt := runtimebundle.ProcessTracing{Shutdown: res.Shutdown, Active: res.Active}
 	if pt.Shutdown == nil {

@@ -459,38 +459,38 @@ const (
 	}
 }
 
-func TestHostPath_SyntheticNewAttachReloadHostCallRejected(t *testing.T) {
+func TestHostPath_SyntheticExtraBuildHostCallerRejected(t *testing.T) {
 	t.Parallel()
 	src := `package cmd
 import "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 func extraServe() {
-	_, _ = runtimebundle.AttachReloadHost(nil, runtimebundle.BootstrapResult{}, "", nil)
+	_, _ = runtimebundle.BuildHost(nil, runtimebundle.BuildHostInput{})
 }
 `
-	got, err := scanHostPathSource("cmd/lipstd/synthetic_attach.go", src)
+	got, err := scanHostPathSource("cmd/lipstd/synthetic_extra.go", src)
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}
-	if !findingsContainIdentity(got, "call:extraServe->runtimebundle.AttachReloadHost#1") {
-		t.Fatalf("expected AttachReloadHost call detection, got %v", got)
+	if !findingsContainIdentity(got, "call:extraServe->runtimebundle.BuildHost#1") {
+		t.Fatalf("expected extra BuildHost caller detection, got %v", got)
 	}
 }
 
-func TestHostPath_SyntheticNewBuildBootstrapDeclarationRejected(t *testing.T) {
+func TestHostPath_SyntheticBuildHostDeclarationAndWrapperRejected(t *testing.T) {
 	t.Parallel()
 	src := `package runtimebundle
-func BuildBootstrap() {}
-func AttachReloadHost() {}
-func RunWithGenerationHost() {}
+func BuildHost() {}
+func startEnterpriseHost() { BuildHost() }
 `
 	got, err := scanHostPathSource("internal/infra/runtimebundle/synthetic_host.go", src)
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}
-	for _, id := range []string{"func:BuildBootstrap", "func:AttachReloadHost"} {
-		if !findingsContainIdentity(got, id) {
-			t.Fatalf("expected %s, got %v", id, got)
-		}
+	if !findingsContainIdentity(got, "func:BuildHost") {
+		t.Fatalf("expected BuildHost declaration, got %v", got)
+	}
+	if !findingsContainIdentity(got, "wrapper:startEnterpriseHost") {
+		t.Fatalf("expected extra Host-builder wrapper, got %v", got)
 	}
 }
 
@@ -499,6 +499,7 @@ func TestHostPath_UnrelatedBuildMethodNotFlagged(t *testing.T) {
 	src := `package modelregistry
 func Build() {}
 func (r *Registry) Build() {}
+func BuildHost() {} // not runtimebundle; still inventoried as BuildHost decl
 `
 	got, err := scanHostPathSource("internal/core/modelregistry/synthetic_build.go", src)
 	if err != nil {
@@ -506,6 +507,73 @@ func (r *Registry) Build() {}
 	}
 	if findingsContainIdentity(got, "func:Build") {
 		t.Fatalf("unrelated Build must not be flagged, got %v", got)
+	}
+	// A sneaked BuildHost declaration outside the canonical path is still a finding;
+	// production gate requires the declaration path to be pathHostBuild.
+	if !findingsContainIdentity(got, "func:BuildHost") {
+		t.Fatalf("BuildHost declaration outside canonical path must be inventoried, got %v", got)
+	}
+}
+
+func TestHostPath_AllowedCallerSitesInventoried(t *testing.T) {
+	t.Parallel()
+	cmdSrc := `package lipstd
+import "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+func runServeCommand() {
+	_, _ = runtimebundle.BuildHost(nil, runtimebundle.BuildHostInput{})
+}
+`
+	got, err := scanHostPathSource(pathCmdServeCommand, cmdSrc)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if !findingsContainIdentity(got, "call:runServeCommand->runtimebundle.BuildHost#1") {
+		t.Fatalf("expected approved command caller, got %v", got)
+	}
+
+	pubSrc := `package lipruntime
+import "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+func Build() {
+	_, _ = runtimebundle.BuildHost(nil, runtimebundle.BuildHostInput{})
+}
+`
+	got, err = scanHostPathSource(pathLipruntimeBuild, pubSrc)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if !findingsContainIdentity(got, "call:Build->runtimebundle.BuildHost#1") {
+		t.Fatalf("expected approved public Build caller, got %v", got)
+	}
+}
+
+func TestHostPath_AliasAndDotImportCallerRejected(t *testing.T) {
+	t.Parallel()
+	aliasSrc := `package other
+import "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+func wire() {
+	build := runtimebundle.BuildHost
+	_, _ = build(nil, runtimebundle.BuildHostInput{})
+}
+`
+	got, err := scanHostPathSource("internal/other/alias_host.go", aliasSrc)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if !findingsContainIdentity(got, "call:wire->runtimebundle.BuildHost#1") {
+		t.Fatalf("expected aliased BuildHost call, got %v", got)
+	}
+
+	pkgAlias := `package other
+import "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+var makeHost = runtimebundle.BuildHost
+func wire() { _, _ = makeHost(nil, runtimebundle.BuildHostInput{}) }
+`
+	got, err = scanHostPathSource("internal/other/pkg_alias_host.go", pkgAlias)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if !findingsContainIdentity(got, "alias:makeHost") {
+		t.Fatalf("expected package alias finding, got %v", got)
 	}
 }
 
@@ -525,6 +593,108 @@ func startup() { _, _ = config.LoadEffective(nil, nil, config.LoadEffectiveOptio
 	}
 	if !findingsContainIdentity(got, "call:startup->config.LoadEffective#1") {
 		t.Fatalf("expected direct startup LoadEffective detection, got %v", got)
+	}
+}
+
+func TestConfigLoad_CanonicalOwnerExactInventory(t *testing.T) {
+	t.Parallel()
+	valid := `package runtimebundle
+import (
+	"context"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+)
+func LoadBootstrapEffectiveWithSource(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (*config.EffectiveConfig, error) {
+	return config.LoadEffective(ctx, nil, config.LoadEffectiveOptions{})
+}
+`
+	got, err := scanConfigLoadSource(pathBootstrapEffective, valid)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	assertConfigLoadExactCanonicalOwner(t, got)
+
+	secondLoad := `package runtimebundle
+import (
+	"context"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+)
+func LoadBootstrapEffectiveWithSource(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (*config.EffectiveConfig, error) {
+	_, _ = config.LoadEffective(ctx, nil, config.LoadEffectiveOptions{})
+	return config.LoadEffective(ctx, nil, config.LoadEffectiveOptions{})
+}
+`
+	got, err = scanConfigLoadSource(pathBootstrapEffective, secondLoad)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if !findingsContainIdentity(got, "call:LoadBootstrapEffectiveWithSource->config.LoadEffective#2") {
+		t.Fatalf("second direct load must be inventoried, got %v", got)
+	}
+
+	privateWrapper := `package runtimebundle
+import (
+	"context"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+)
+func LoadBootstrapEffectiveWithSource(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (*config.EffectiveConfig, error) {
+	return config.LoadEffective(ctx, nil, config.LoadEffectiveOptions{})
+}
+func loadHelper(ctx context.Context) (*config.EffectiveConfig, error) {
+	return config.LoadEffective(ctx, nil, config.LoadEffectiveOptions{})
+}
+`
+	got, err = scanConfigLoadSource(pathBootstrapEffective, privateWrapper)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if !findingsContainIdentity(got, "wrapper:loadHelper") {
+		t.Fatalf("private LoadEffective wrapper must fail, got %v", got)
+	}
+
+	varOwner := `package runtimebundle
+import "github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+var LoadBootstrapEffectiveWithSource = func() {}
+`
+	got, err = scanConfigLoadSource(pathBootstrapEffective, varOwner)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if !findingsContainIdentity(got, "var:LoadBootstrapEffectiveWithSource") {
+		t.Fatalf("var owner must fail, got %v", got)
+	}
+	if !findingsContainIdentity(got, "missing:LoadBootstrapEffectiveWithSource") {
+		t.Fatalf("missing func owner must be reported, got %v", got)
+	}
+
+	noSource := `package runtimebundle
+import (
+	"context"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+)
+func LoadBootstrapEffectiveWithSource(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (*config.EffectiveConfig, error) {
+	return config.LoadEffective(ctx, nil, config.LoadEffectiveOptions{})
+}
+func LoadBootstrapEffective(ctx context.Context, path string) (*config.EffectiveConfig, error) {
+	return nil, nil
+}
+`
+	got, err = scanConfigLoadSource(pathBootstrapEffective, noSource)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if !findingsContainIdentity(got, "func:LoadBootstrapEffective") {
+		t.Fatalf("no-source wrapper must fail, got %v", got)
+	}
+
+	missing := `package runtimebundle
+func other() {}
+`
+	got, err = scanConfigLoadSource(pathBootstrapEffective, missing)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if !findingsContainIdentity(got, "missing:LoadBootstrapEffectiveWithSource") {
+		t.Fatalf("malformed/missing canonical owner must fail, got %v", got)
 	}
 }
 
@@ -820,16 +990,16 @@ func TestHostPath_FunctionAliasCallIsDetected(t *testing.T) {
 	src := `package cmd
 import "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 func extraServe() {
-	attach := runtimebundle.AttachReloadHost
-	_, _ = attach(nil, runtimebundle.BootstrapResult{}, "", nil)
+	build := runtimebundle.BuildHost
+	_, _ = build(nil, runtimebundle.BuildHostInput{})
 }
 `
 	got, err := scanHostPathSource("cmd/lipstd/alias_attach.go", src)
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}
-	if !findingsContainIdentity(got, "call:extraServe->runtimebundle.AttachReloadHost#1") {
-		t.Fatalf("expected aliased AttachReloadHost detection, got %v", got)
+	if !findingsContainIdentity(got, "call:extraServe->runtimebundle.BuildHost#1") {
+		t.Fatalf("expected aliased BuildHost detection, got %v", got)
 	}
 }
 
@@ -1070,17 +1240,20 @@ func TestHostPath_PackageScopeCallableVarAliasDetected(t *testing.T) {
 	t.Parallel()
 	src := `package cmd
 import "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-var attach = runtimebundle.AttachReloadHost
+var build = runtimebundle.BuildHost
 func extraServe() {
-	_, _ = attach(nil, runtimebundle.BootstrapResult{}, "", nil)
+	_, _ = build(nil, runtimebundle.BuildHostInput{})
 }
 `
 	got, err := scanHostPathSource("cmd/lipstd/pkg_scope_attach.go", src)
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}
-	if !findingsContainIdentity(got, "call:extraServe->runtimebundle.AttachReloadHost#1") {
-		t.Fatalf("expected package-scope AttachReloadHost alias detection, got %v", got)
+	if !findingsContainIdentity(got, "alias:build") {
+		t.Fatalf("expected package-scope BuildHost alias declaration, got %v", got)
+	}
+	if !findingsContainIdentity(got, "call:extraServe->runtimebundle.BuildHost#1") {
+		t.Fatalf("expected package-scope BuildHost alias call detection, got %v", got)
 	}
 }
 
@@ -1130,9 +1303,6 @@ func validateServeMultiUserGate() {
 	_, _ = runtimebundle.LoadBootstrapEffective(nil, "", struct{}{})
 }
 func runServeCommand() {
-	_, _ = runtimebundle.BuildBootstrap(nil, struct{}{})
-}
-func buildBootstrap() {
 	_, _, _, _ = runtimebundle.LoadBootstrapEffectiveWithSource(nil, "", struct{}{})
 }
 `
@@ -1143,33 +1313,166 @@ func buildBootstrap() {
 	if !findingsContainIdentity(gate, "call:validateServeMultiUserGate->LoadBootstrapEffective#1") {
 		t.Fatalf("expected serve gate load detection, got %v", gate)
 	}
-	boot, err := scanConfigLoadSource("internal/infra/runtimebundle/bootstrap_plan.go", `package runtimebundle
-func buildBootstrap() {
-	_, _, _, _ = LoadBootstrapEffectiveWithSource(nil, "", struct{}{})
+	if !findingsContainIdentity(gate, "call:runServeCommand->LoadBootstrapEffectiveWithSource#1") {
+		t.Fatalf("expected independent command WithSource load detection, got %v", gate)
+	}
+	// Direct config.LoadEffective outside the canonical owner remains forbidden;
+	// other runtimebundle files must not call/wrap WithSource either.
+	boot, err := scanConfigLoadSource("internal/infra/runtimebundle/sneak_load.go", `package runtimebundle
+import "github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+func sneaky() {
+	_, _ = config.LoadEffective(nil, nil, config.LoadEffectiveOptions{})
 }
 `)
 	if err != nil {
 		t.Fatalf("scan bootstrap: %v", err)
 	}
-	if !findingsContainIdentity(boot, "call:buildBootstrap->LoadBootstrapEffectiveWithSource#1") {
-		t.Fatalf("expected buildBootstrap load detection, got %v", boot)
+	if !findingsContainIdentity(boot, "call:sneaky->config.LoadEffective#1") {
+		t.Fatalf("expected direct config.LoadEffective detection outside owner, got %v", boot)
 	}
 }
 
-func TestHostPath_PublicBuildAttachReloadHostAliasDetected(t *testing.T) {
+func TestHostPath_PublicBuildExtraCallerRejected(t *testing.T) {
 	t.Parallel()
 	src := `package lipruntime
 import "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-func Build() {
-	attach := runtimebundle.AttachReloadHost
-	_, _ = attach(nil, runtimebundle.BootstrapResult{}, "", nil)
+func BuildExtra() {
+	_, _ = runtimebundle.BuildHost(nil, runtimebundle.BuildHostInput{})
 }
 `
 	got, err := scanHostPathSource("pkg/lipruntime/build.go", src)
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}
-	if !findingsContainIdentity(got, "call:Build->runtimebundle.AttachReloadHost#1") {
-		t.Fatalf("expected public Build AttachReloadHost alias detection, got %v", got)
+	if !findingsContainIdentity(got, "call:BuildExtra->runtimebundle.BuildHost#1") {
+		t.Fatalf("expected extra public BuildHost caller detection, got %v", got)
+	}
+	if !findingsContainIdentity(got, "wrapper:BuildExtra") {
+		t.Fatalf("expected extra Host-builder wrapper, got %v", got)
+	}
+}
+
+// --- Task 5.5 config_load: runtimebundle WithSource must stay single-owner ---
+
+func TestConfigLoad_RuntimebundleWithSourceEvasionsRejected(t *testing.T) {
+	t.Parallel()
+
+	// Exact evasion: another runtimebundle production file wraps/calls the owner.
+	dup := `package runtimebundle
+import (
+	"context"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+)
+func duplicateStartupLoad(ctx context.Context, p string, o config.StreamRecoveryOverrides) (*config.EffectiveConfig, error) {
+	eff, _, _, err := LoadBootstrapEffectiveWithSource(ctx, p, o)
+	return eff, err
+}
+`
+	got, err := scanConfigLoadSource("internal/infra/runtimebundle/sneak_dup_load.go", dup)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if !findingsContainIdentity(got, "call:duplicateStartupLoad->LoadBootstrapEffectiveWithSource#1") {
+		t.Fatalf("runtimebundle wrapper call of WithSource must fail, got %v", got)
+	}
+	if !findingsContainIdentity(got, "wrapper:duplicateStartupLoad") {
+		t.Fatalf("one-hop WithSource wrapper must fail, got %v", got)
+	}
+
+	localAlias := `package runtimebundle
+import (
+	"context"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+)
+func startup(ctx context.Context, p string, o config.StreamRecoveryOverrides) (*config.EffectiveConfig, error) {
+	load := LoadBootstrapEffectiveWithSource
+	eff, _, _, err := load(ctx, p, o)
+	return eff, err
+}
+`
+	got, err = scanConfigLoadSource("internal/infra/runtimebundle/sneak_local_alias.go", localAlias)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if !findingsContainIdentity(got, "call:startup->LoadBootstrapEffectiveWithSource#1") {
+		t.Fatalf("local alias call of WithSource must fail, got %v", got)
+	}
+
+	pkgAlias := `package runtimebundle
+import (
+	"context"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+)
+var startupLoad = LoadBootstrapEffectiveWithSource
+func startup(ctx context.Context, p string, o config.StreamRecoveryOverrides) (*config.EffectiveConfig, error) {
+	eff, _, _, err := startupLoad(ctx, p, o)
+	return eff, err
+}
+`
+	got, err = scanConfigLoadSource("internal/infra/runtimebundle/sneak_pkg_alias.go", pkgAlias)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if !findingsContainIdentity(got, "alias:startupLoad") {
+		t.Fatalf("package alias of WithSource must fail, got %v", got)
+	}
+	if !findingsContainIdentity(got, "call:startup->LoadBootstrapEffectiveWithSource#1") {
+		t.Fatalf("package alias call of WithSource must fail, got %v", got)
+	}
+
+	canonicalWrapper := `package runtimebundle
+import (
+	"context"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+)
+func LoadBootstrapEffectiveWithSource(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (*config.EffectiveConfig, error) {
+	return config.LoadEffective(ctx, nil, config.LoadEffectiveOptions{})
+}
+func wrapOwner(ctx context.Context, path string, o config.StreamRecoveryOverrides) (*config.EffectiveConfig, error) {
+	return LoadBootstrapEffectiveWithSource(ctx, path, o)
+}
+`
+	got, err = scanConfigLoadSource(pathBootstrapEffective, canonicalWrapper)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if !findingsContainIdentity(got, "wrapper:wrapOwner") {
+		t.Fatalf("canonical-file wrapper calling owner must fail, got %v", got)
+	}
+}
+
+func TestConfigLoad_PassingOwnerAsFuncArgNotInvocation(t *testing.T) {
+	t.Parallel()
+	// Negative control: approved call-scoped passing is not an ast.CallExpr.
+	src := `package runtimebundle
+import (
+	"context"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+)
+type loader func(ctx context.Context, path string, o config.StreamRecoveryOverrides) (*config.EffectiveConfig, error)
+func BuildHost(ctx context.Context, path string, o config.StreamRecoveryOverrides) error {
+	return buildHost(ctx, path, o, LoadBootstrapEffectiveWithSource)
+}
+func ValidateDistribution(ctx context.Context, path string, o config.StreamRecoveryOverrides) error {
+	return validate(ctx, path, o, LoadBootstrapEffectiveWithSource)
+}
+func InspectRoutes(ctx context.Context, path string, o config.StreamRecoveryOverrides) error {
+	return inspect(ctx, path, o, LoadBootstrapEffectiveWithSource)
+}
+func buildHost(ctx context.Context, path string, o config.StreamRecoveryOverrides, load loader) error { return nil }
+func validate(ctx context.Context, path string, o config.StreamRecoveryOverrides, load loader) error { return nil }
+func inspect(ctx context.Context, path string, o config.StreamRecoveryOverrides, load loader) error { return nil }
+`
+	got, err := scanConfigLoadSource("internal/infra/runtimebundle/host_build.go", src)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	for _, f := range got {
+		if strings.Contains(f.Identity, "LoadBootstrapEffectiveWithSource") ||
+			strings.Contains(f.Identity, "config.LoadEffective") ||
+			strings.HasPrefix(f.Identity, "wrapper:") ||
+			strings.HasPrefix(f.Identity, "alias:") {
+			t.Fatalf("passing owner as func arg must not count as invocation, got %v", got)
+		}
 	}
 }

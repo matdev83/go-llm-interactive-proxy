@@ -12,10 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
@@ -560,63 +557,28 @@ func TestRunCommand_serve_multiUserConfigRequiresFlag(t *testing.T) {
 	}
 }
 
-func TestValidateServeMultiUserGate_multiUserConfigWithFlagPasses(t *testing.T) {
+// TestBuildHost_multiUserConfigLocalStubPassesPosture confirms BuildHost's
+// inline multi-user CLI gate (req 4.2-4.3) did not disable runtimebundle
+// posture/security validation: a multi_user config whose only enabled backend
+// is local-stub (BackendAccessAny, CredentialNone) still assembles
+// successfully when the --multi-user flag is supplied and consistent.
+func TestBuildHost_multiUserConfigLocalStubPassesPosture(t *testing.T) {
 	t.Parallel()
 	cfgPath := writeMultiUserTempConfig(t)
-	if err := validateServeMultiUserGate(t.Context(), cfgPath, new(true), config.StreamRecoveryOverrides{}); err != nil {
-		t.Fatalf("expected gate to pass with --multi-user=true on multi_user config: %v", err)
-	}
-}
-
-func TestValidateServeMultiUserGate_multiUserConfigRequiresFlag(t *testing.T) {
-	t.Parallel()
-	cfgPath := writeMultiUserTempConfig(t)
-	if err := validateServeMultiUserGate(t.Context(), cfgPath, nil, config.StreamRecoveryOverrides{}); !errors.Is(err, accessmode.ErrMultiUserFlagRequired) {
-		t.Fatalf("want ErrMultiUserFlagRequired, got %v", err)
-	}
-}
-
-func TestValidateServeMultiUserGate_multiUserConfigFlagFalseRejected(t *testing.T) {
-	t.Parallel()
-	cfgPath := writeMultiUserTempConfig(t)
-	if err := validateServeMultiUserGate(t.Context(), cfgPath, new(false), config.StreamRecoveryOverrides{}); !errors.Is(err, accessmode.ErrMultiUserFlagRequired) {
-		t.Fatalf("explicit --multi-user=false must not satisfy multi_user: got %v", err)
-	}
-}
-
-func TestValidateServeMultiUserGate_singleUserConfigFlagTrueRejected(t *testing.T) {
-	t.Parallel()
-	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
-	if err := validateServeMultiUserGate(t.Context(), cfgPath, new(true), config.StreamRecoveryOverrides{}); !errors.Is(err, accessmode.ErrMultiUserFlagInconsistent) {
-		t.Fatalf("want ErrMultiUserFlagInconsistent, got %v", err)
-	}
-}
-
-// TestBuildBootstrap_multiUserConfigLocalStubPassesPosture confirms the gate
-// removal did not disable runtimebundle posture/security validation: a
-// multi_user config whose only enabled backend is local-stub (BackendAccessAny,
-// CredentialNone) still assembles successfully.
-func TestBuildBootstrap_multiUserConfigLocalStubPassesPosture(t *testing.T) {
-	t.Parallel()
-	cfgPath := writeMultiUserTempConfig(t)
-	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
-		ConfigPath:      cfgPath,
-		Mode:            runtimebundle.BootstrapServe,
-		Mandatory:       lipsdk.StandardDistributionRequirements(),
-		LogWriter:       io.Discard,
-		HandlerComposer: stdhttp.ComposeStandardHTTP,
+	flagTrue := true
+	host, err := runtimebundle.BuildHost(context.Background(), runtimebundle.BuildHostInput{
+		ConfigPath:              cfgPath,
+		Mandatory:               lipsdk.StandardDistributionRequirements(),
+		LogWriter:               io.Discard,
+		HandlerComposer:         stdhttp.ComposeStandardHTTP,
+		EnforceMultiUserCLIGate: true,
+		MultiUser:               &flagTrue,
 	})
 	if err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
+		t.Fatalf("BuildHost failed: %v", err)
 	}
-	if res.GenerationManager != nil {
-		_ = res.GenerationManager.ShutdownDetached(context.Background(), runtimehost.NewLifecycleWorker())
-	}
-	if res.ProcessServices != nil {
-		_ = res.ProcessServices.Close()
-	}
-	if res.ShutdownTracing != nil {
-		_ = res.ShutdownTracing(context.Background())
+	if err := host.Close(context.Background()); err != nil {
+		t.Fatalf("Host.Close: %v", err)
 	}
 }
 

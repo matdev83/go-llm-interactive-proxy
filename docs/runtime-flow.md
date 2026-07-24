@@ -6,16 +6,18 @@ This document expands the request lifecycle in `docs/architecture.md` for agents
 
 `cmd/lipstd` is the standard distribution entrypoint. Its startup path is intentionally explicit:
 
-1. `config.LoadFile` reads YAML into typed config.
-2. `routing.ValidateModelAliasesConfig` rejects invalid alias rules before serving.
+`runtimebundle.BuildHost` owns the whole sequence as one transaction and returns a complete `Host` or rolls back and returns nil; `cmd/lipstd serve` and public `lipruntime.Build` are its only production callers.
+
+1. The strict effective loader (`LoadBootstrapEffectiveWithSource`, the sole config-load owner) reads YAML into typed config exactly once and runs `routing.ValidateModelAliasesConfig`.
+2. `BuildHost` evaluates the serve-only `--multi-user` CLI gate against that same accepted snapshot before acquiring any expensive resource.
 3. `tracing.Init` and `logging.NewLogger` create process infrastructure.
 4. `pluginreg.NewRegistry` creates an isolated registry for this process.
 5. `standardplugins.ResolveUpstreamAPIKeysFromEnv` reads fallback hosted-provider keys.
 6. `standardplugins.InstallStandardBundleOn` installs official backend, frontend, feature, and auth-renderer factories.
 7. `config.RegistrationsFromConfig` selects configured plugin instances.
 8. `featurebundle.MergeFeatureSurface` builds hook and extension chains from configured feature plugins.
-9. `runtimebundle` bootstrap assembles process services and publishes request-plane generation 1 (executor, stores, model catalog, metrics, tracing, health, diagnostics, handler graph).
-10. `AttachReloadHost` binds the startup-fixed config source, effective loader, generation compiler, and reload coordinator; `stdhttp` serves through a generation dispatcher until context cancellation. Optional management reload HTTP starts only when `LIP_RELOAD_MANAGEMENT_ADDRESS` is set; Unix `SIGHUP` invokes the same coordinator.
+9. `runtimebundle` constructs process services and publishes request-plane generation 1 (executor, stores, model catalog, metrics, tracing, health, diagnostics, handler graph) — all still inside `BuildHost`.
+10. `BuildHost` binds the startup-fixed config source, effective loader, generation compiler, and reload coordinator onto that same generation and returns the complete `Host`; `stdhttp` serves through a generation dispatcher until context cancellation. Optional management reload HTTP starts only when `LIP_RELOAD_MANAGEMENT_ADDRESS` is set; Unix `SIGHUP` invokes the same coordinator.
 
 Custom tests and future alternate distributions should follow the same shape: construct an explicit registry or bundle, publish an immutable generation, then serve. Operator reload contract: [`runtime-config-reload.md`](runtime-config-reload.md).
 
