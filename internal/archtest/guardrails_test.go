@@ -348,7 +348,12 @@ var lineBudgets = []struct {
 	// organization only (neutral to this recursive package total). check-config
 	// uses ValidateDistribution and serve/public Build use BuildHost exclusively
 	// (measured 10020; zero headroom).
-	{"internal/infra/runtimebundle", 10020},
+	// Ratcheted from 10020 to 10163 for Task 7.2: ResourceLedger is the sole
+	// generation-resource phase owner (mutex/cond/retryable close); Candidate
+	// transfer-vs-lifecycle exclusive claim + terminal start blocking;
+	// GenerationBundle wrapper guards and buildBackends releaseOnce deleted
+	// (measured 10163; zero headroom).
+	{"internal/infra/runtimebundle", 10163},
 	// Task 5.5: exact-measured cmd/lipstd after dual-bootstrap deletion
 	// (measured 913; zero headroom).
 	{"cmd/lipstd", 913},

@@ -39,8 +39,12 @@ type PackageTreeBudget struct {
 // / process_services_types.go split is a critical-file organization boundary
 // only — it is neutral to this recursive package-tree total (Req 11.5-11.7).
 // Task 5.5 also freezes cmd/lipstd at its exact measured post-deletion size.
+// Task 7.2: raised to exact-measured 10163 after ResourceLedger sole phase
+// ownership (retryable close state machine), Candidate transfer-vs-lifecycle
+// exclusive claim, terminal start blocking, and deletion of Candidate/
+// GenerationBundle/buildBackends duplicate lifecycle wrappers.
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 10020},
+	{Tree: "internal/infra/runtimebundle", Max: 10163},
 	{Tree: "internal/stdhttp", Max: 4522},
 	{Tree: "cmd/lipstd", Max: 913},
 }

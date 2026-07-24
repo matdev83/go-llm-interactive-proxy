@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"sort"
-	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
@@ -55,124 +54,19 @@ type generationOperations struct {
 	readiness         controlplane.ReadinessReportReader
 }
 
-type generationLifeState uint8
-
-const (
-	genLifeOpen generationLifeState = iota
-	genLifeQuiesced
-	genLifeClosed
-)
-
-// generationOwnership is the sole lifecycle state machine for one generation
-// ledger. Quiesce/Close are serialized under mu; wrappers must not add Once.
-type generationOwnership struct {
-	ledger *ResourceLedger
-
-	mu         sync.Mutex
-	cond       *sync.Cond
-	state      generationLifeState
-	quiescing  bool
-	closing    bool
-	quiesceErr error
-	closeErr   error
-}
-
-func (o *generationOwnership) Quiesce(ctx context.Context) error {
-	if o == nil {
-		return nil
-	}
-	o.mu.Lock()
-	if o.cond == nil {
-		o.cond = sync.NewCond(&o.mu)
-	}
-	for o.quiescing || o.closing {
-		o.cond.Wait()
-	}
-	switch o.state {
-	case genLifeClosed:
-		err := o.closeErr
-		o.mu.Unlock()
-		return err
-	case genLifeQuiesced:
-		err := o.quiesceErr
-		o.mu.Unlock()
-		return err
-	}
-	o.quiescing = true
-	ledger := o.ledger
-	o.mu.Unlock()
-
-	var err error
-	if ledger != nil {
-		err = ledger.Quiesce(ctx)
-	}
-
-	o.mu.Lock()
-	o.quiesceErr = err
-	o.state = genLifeQuiesced
-	o.quiescing = false
-	o.cond.Broadcast()
-	o.mu.Unlock()
-	return err
-}
-
-func (o *generationOwnership) Close() error {
-	if o == nil {
-		return nil
-	}
-	o.mu.Lock()
-	if o.cond == nil {
-		o.cond = sync.NewCond(&o.mu)
-	}
-	for o.quiescing || o.closing {
-		o.cond.Wait()
-	}
-	if o.state == genLifeClosed {
-		err := o.closeErr
-		o.mu.Unlock()
-		return err
-	}
-	wasQuiesced := o.state == genLifeQuiesced
-	o.closing = true
-	ledger := o.ledger
-	o.mu.Unlock()
-
-	var err error
-	if ledger != nil {
-		if wasQuiesced {
-			err = ledger.Close(context.Background())
-		} else {
-			err = ledger.Rollback(context.Background())
-		}
-	}
-
-	o.mu.Lock()
-	o.closeErr = err
-	o.state = genLifeClosed
-	o.closing = false
-	o.cond.Broadcast()
-	o.mu.Unlock()
-	return err
-}
-
-func (o *generationOwnership) resourceCount() int {
-	if o == nil || o.ledger == nil {
-		return 0
-	}
-	return o.ledger.Len()
-}
-
 // GenerationBundle is the concrete GenerationRuntime: immutable publication unit
-// for one request-plane generation. Fields are private cohesive groups; accessors
-// return narrow interfaces, immutable values, or defensive copies. It never stores
-// CandidateRuntime, generationOwner, mutable *config.Config, *runtime.App,
-// *Built, RequestPlane, ProcessServices ownership, or a dependency map.
+// for one request-plane generation. Fields are private cohesive groups plus the
+// canonical ResourceLedger pointer; accessors return narrow interfaces,
+// immutable values, or defensive copies. It never stores CandidateRuntime,
+// generationOwner, mutable *config.Config, *runtime.App, *Built, RequestPlane,
+// ProcessServices ownership, or a dependency map. Lifecycle is delegated
+// directly to the ledger (task 7.2).
 type GenerationBundle struct {
 	execution   generationExecution
 	publication generationHTTPPublication
 	models      generationModelViews
 	operations  generationOperations
-	ownership   generationOwnership
+	ledger      *ResourceLedger
 }
 
 var (
@@ -324,28 +218,28 @@ func (b *GenerationBundle) HTTPAuthProviders() []httpauth.Provider {
 // ResourceCount returns the current generation-owned ledger entry count.
 // Intended for tests and diagnostics; it does not expose mutation controls.
 func (b *GenerationBundle) ResourceCount() int {
-	if b == nil {
+	if b == nil || b.ledger == nil {
 		return 0
 	}
-	return b.ownership.resourceCount()
+	return b.ledger.Len()
 }
 
-// Quiesce stops admission-independent generation workers exactly once via the
-// ownership state machine (req 10.5 / 8.3-8.4).
+// Quiesce stops admission-independent generation workers via the canonical
+// ResourceLedger (req 10.5 / 8.3-8.4).
 func (b *GenerationBundle) Quiesce(ctx context.Context) error {
-	if b == nil {
+	if b == nil || b.ledger == nil {
 		return nil
 	}
-	return b.ownership.Quiesce(ctx)
+	return b.ledger.Quiesce(ctx)
 }
 
-// Close rolls back/closes generation-owned resources exactly once.
+// Close rolls back/closes generation-owned resources via the canonical ledger.
 // It never closes ProcessServices.
 func (b *GenerationBundle) Close() error {
-	if b == nil {
+	if b == nil || b.ledger == nil {
 		return nil
 	}
-	return b.ownership.Close()
+	return b.ledger.Close(context.Background())
 }
 
 func backendIDsOf(exec *runtime.Executor) []string {
@@ -361,7 +255,7 @@ func backendIDsOf(exec *runtime.Executor) []string {
 }
 
 func newGenerationBundle(in generationBundleInput) *GenerationBundle {
-	b := &GenerationBundle{
+	return &GenerationBundle{
 		execution: generationExecution{
 			executor:   in.executor,
 			backendIDs: append([]string(nil), in.backendIDs...),
@@ -381,10 +275,8 @@ func newGenerationBundle(in generationBundleInput) *GenerationBundle {
 			terminalProviders: in.terminalProviders,
 			readiness:         in.readiness,
 		},
-		ownership: generationOwnership{ledger: in.ledger},
+		ledger: in.ledger,
 	}
-	b.ownership.cond = sync.NewCond(&b.ownership.mu)
-	return b
 }
 
 type generationBundleInput struct {

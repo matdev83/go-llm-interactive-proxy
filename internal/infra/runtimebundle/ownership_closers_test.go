@@ -44,10 +44,16 @@ var closerAcquisitionOwnership = []ownershipEntry{
 		Notes:  "Generation-owned backend Close registration (ledger-wrapped in buildBackends when present).",
 	},
 	{
-		Symbol: "build_model.go:buildBackends:acq#0:append(constructedClosers, fn)#0",
+		Symbol: "build_model.go:buildBackends:acq#0:assign:fn=inst.Close#0",
 		Class:  ownershipGeneration,
 		Source: "build_model.go → buildBackends",
-		Notes:  "Rollback bag for partially constructed backends (ledger.AddClose when compiling candidates; optional Start/Stop/idle hooks).",
+		Notes:  "Canonical BackendInstance.Close callback (idle+Stop+Close) registered into ResourceLedger / constructedClosers without an aggregate once wrapper.",
+	},
+	{
+		Symbol: "build_model.go:buildBackends:acq#1:append(constructedClosers, fn)#0",
+		Class:  ownershipGeneration,
+		Source: "build_model.go → buildBackends",
+		Notes:  "Rollback bag for partially constructed backends shares the BackendInstance.Close callback; ledger entry syncStop prevents later double close.",
 	},
 	{
 		Symbol: "build_model.go:registerStartedCatalogClosers:acq#0:append(closers, fn)#0",

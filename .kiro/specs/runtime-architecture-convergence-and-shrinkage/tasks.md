@@ -306,7 +306,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 6.5_
   - _Validation: `go test -race ./internal/infra/runtimebundle/... ./internal/infra/runtimehost/... ./internal/archtest/... -run 'LifecycleOwner|DuplicateOnce|Quiesce|Close|Retire'`_
 
-- [ ] 7.2 Make GenerationRuntime/resource ledger the sole resource phase owner
+- [x] 7.2 Make GenerationRuntime/resource ledger the sole resource phase owner
   - Move or retain idempotency and cached phase results in one canonical owner.
   - Remove wrapper quiesce/close once guards and legacy close paths.
   - Preserve rollback-before-publication and retryable close-after-quiesce semantics.

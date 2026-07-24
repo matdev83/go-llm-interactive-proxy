@@ -10,7 +10,8 @@ import (
 // generation may own candidate teardown without receiving ProcessServices
 // (task 3.1 / req 4.9). CompileCandidate callers retain this lifecycle;
 // successful CompileGeneration transfers the ledger away. The ledger is the
-// sole generation-owned resource; there is no aggregate closer view (task 4.2).
+// sole generation-owned resource phase owner; CandidateRuntime only performs
+// synchronized transfer plus direct delegation (task 7.2).
 var (
 	_ runtimehost.OwnedCloser   = (*CandidateRuntime)(nil)
 	_ runtimehost.QuiesceCloser = (*CandidateRuntime)(nil)
@@ -20,13 +21,19 @@ var (
 // returns it for GenerationRuntime ownership. After transfer, Quiesce/Close on
 // the candidate are no-ops and must not close generation resources. Package-
 // private for CompileGeneration only (Task 3.3).
+//
+// Transfer and pre-transfer Quiesce/Close compete for an exclusive ownership
+// claim: the first winner permanently owns the ledger path. If lifecycle
+// claimed first, transfer returns nil so CompileGeneration cannot publish an
+// already-cleaned (or candidate-retained) ledger. lifeMu is never held across
+// arbitrary ledger cleanup.
 func (c *CandidateRuntime) transferLedgerOwnership() *ResourceLedger {
 	if c == nil {
 		return nil
 	}
 	c.lifeMu.Lock()
 	defer c.lifeMu.Unlock()
-	if c.ledgerTransferred {
+	if c.ledgerTransferred || c.lifeClaimed || c.Ledger == nil {
 		return nil
 	}
 	ledger := c.Ledger
@@ -35,50 +42,43 @@ func (c *CandidateRuntime) transferLedgerOwnership() *ResourceLedger {
 	return ledger
 }
 
-// Quiesce stops admission-independent generation workers once (req 10.5).
+// claimLifecycleLedger permanently claims the candidate lifecycle path against
+// later transfer and returns the still-candidate-owned ledger. After claim,
+// Quiesce and Close may both delegate to that ledger; transfer is denied.
+// Returns nil when transfer already won or no ledger remains.
+func (c *CandidateRuntime) claimLifecycleLedger() *ResourceLedger {
+	c.lifeMu.Lock()
+	defer c.lifeMu.Unlock()
+	if c.ledgerTransferred || c.Ledger == nil {
+		return nil
+	}
+	c.lifeClaimed = true
+	return c.Ledger
+}
+
+// Quiesce delegates to the ledger before transfer; after transfer it is a no-op.
+// The first Quiesce/Close permanently claims against later transfer.
 func (c *CandidateRuntime) Quiesce(ctx context.Context) error {
 	if c == nil {
 		return nil
 	}
-	c.quiesceOnce.Do(func() {
-		c.lifeMu.Lock()
-		transferred := c.ledgerTransferred
-		ledger := c.Ledger
-		c.lifeMu.Unlock()
-		if transferred {
-			return
-		}
-		c.didQuiesce.Store(true)
-		if ledger != nil {
-			c.quiesceErr = ledger.Quiesce(ctx)
-		}
-	})
-	return c.quiesceErr
+	ledger := c.claimLifecycleLedger()
+	if ledger == nil {
+		return nil
+	}
+	return ledger.Quiesce(ctx)
 }
 
-// Close disposes generation-owned resources in reverse order via the ledger.
-// Unpublished discard / compile failure uses full ledger rollback; after
-// Quiesce, only remaining close-phase resources are released. Never closes
-// ProcessServices. After transferLedgerOwnership, Close is a no-op. A nil or
-// zero-value ledger makes Close a safe no-op (req 2.8, 3.8, 8.3-8.4).
+// Close delegates to the ledger's canonical close/rollback decision before
+// transfer; after transfer it is a no-op. Never closes ProcessServices.
+// The first Quiesce/Close permanently claims against later transfer.
 func (c *CandidateRuntime) Close() error {
 	if c == nil {
 		return nil
 	}
-	c.closeOnce.Do(func() {
-		c.lifeMu.Lock()
-		transferred := c.ledgerTransferred
-		ledger := c.Ledger
-		didQ := c.didQuiesce.Load()
-		c.lifeMu.Unlock()
-		if transferred || ledger == nil {
-			return
-		}
-		if didQ {
-			c.closeErr = ledger.Close(context.Background())
-		} else {
-			c.closeErr = ledger.Rollback(context.Background())
-		}
-	})
-	return c.closeErr
+	ledger := c.claimLifecycleLedger()
+	if ledger == nil {
+		return nil
+	}
+	return ledger.Close(context.Background())
 }

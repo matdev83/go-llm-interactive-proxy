@@ -38,24 +38,34 @@ type lifeInventoryEntry struct {
 
 // lifecycleOwnerInventory enumerates every production generation-resource
 // lifecycle/idempotency mechanism relevant to CandidateRuntime,
-// GenerationBundle/generationOwnership, Generation, ResourceLedger/ledgerEntry,
-// BackendInstance, buildBackends release wrapper, Manager, and LifecycleWorker.
+// GenerationBundle, Generation, ResourceLedger/ledgerEntry,
+// BackendInstance, Manager, and LifecycleWorker (Task 7.2 post-state).
 var lifecycleOwnerInventory = []lifeInventoryEntry{
 	// --- ResourceLedger / ledgerEntry: canonical resource phase owner ---
-	{Type: "ResourceLedger", FieldOrMethod: "rollbackOnce", Operation: "rollback", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
-	{Type: "ResourceLedger", FieldOrMethod: "quiesceOnce", Operation: "quiesce", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
-	{Type: "ResourceLedger", FieldOrMethod: "closeOnce", Operation: "close", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
-	{Type: "ResourceLedger", FieldOrMethod: "prepareOnce", Operation: "prepare", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
-	{Type: "ResourceLedger", FieldOrMethod: "activateOnce", Operation: "activate", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
-	{Type: "ResourceLedger", FieldOrMethod: "rollbackErr", Operation: "rollback", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
-	{Type: "ResourceLedger", FieldOrMethod: "quiesceErr", Operation: "quiesce", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
-	{Type: "ResourceLedger", FieldOrMethod: "closeErr", Operation: "close", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
+	{Type: "ResourceLedger", FieldOrMethod: "mu", Operation: "close", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
+	{Type: "ResourceLedger", FieldOrMethod: "cond", Operation: "close", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
+	{Type: "ResourceLedger", FieldOrMethod: "state", Operation: "close", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
+	{Type: "ResourceLedger", FieldOrMethod: "preparing", Operation: "prepare", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
+	{Type: "ResourceLedger", FieldOrMethod: "activating", Operation: "activate", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
+	{Type: "ResourceLedger", FieldOrMethod: "quiescing", Operation: "quiesce", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
+	{Type: "ResourceLedger", FieldOrMethod: "rollingBack", Operation: "rollback", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
+	{Type: "ResourceLedger", FieldOrMethod: "closing", Operation: "close", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
+	{Type: "ResourceLedger", FieldOrMethod: "prepareDone", Operation: "prepare", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
+	{Type: "ResourceLedger", FieldOrMethod: "activateDone", Operation: "activate", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
+	{Type: "ResourceLedger", FieldOrMethod: "quiesceDone", Operation: "quiesce", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
 	{Type: "ResourceLedger", FieldOrMethod: "prepareErr", Operation: "prepare", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
 	{Type: "ResourceLedger", FieldOrMethod: "activateErr", Operation: "activate", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
+	{Type: "ResourceLedger", FieldOrMethod: "quiesceErr", Operation: "quiesce", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
+	{Type: "ResourceLedger", FieldOrMethod: "rollbackErr", Operation: "rollback", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
+	{Type: "ResourceLedger", FieldOrMethod: "closeErr", Operation: "close", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
+	{Type: "ResourceLedger", FieldOrMethod: "sealed", Operation: "close", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
 	{Type: "ResourceLedger", FieldOrMethod: "prepared", Operation: "prepare", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
-	{Type: "ResourceLedger", FieldOrMethod: "closed", Operation: "close", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
-	{Type: "ledgerEntry", FieldOrMethod: "stopOnce", Operation: "close", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
-	{Type: "ledgerEntry", FieldOrMethod: "stopErr", Operation: "close", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
+	{Type: "ledgerEntry", FieldOrMethod: "mu", Operation: "close", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
+	{Type: "ledgerEntry", FieldOrMethod: "cond", Operation: "close", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
+	{Type: "ledgerEntry", FieldOrMethod: "cleaning", Operation: "close", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
+	{Type: "ledgerEntry", FieldOrMethod: "cleanedOK", Operation: "close", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
+	{Type: "ledgerEntry", FieldOrMethod: "terminalClaimed", Operation: "rollback", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
+	{Type: "ledgerEntry", FieldOrMethod: "cleanErr", Operation: "close", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
 	{Type: "ledgerEntry", FieldOrMethod: "startAttempted", Operation: "prepare", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
 	{Type: "ledgerEntry", FieldOrMethod: "started", Operation: "prepare", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
 
@@ -67,32 +77,17 @@ var lifecycleOwnerInventory = []lifeInventoryEntry{
 	{Type: "BackendInstance", FieldOrMethod: "closeErr", Operation: "close", Owner: "BackendInstance", Disposition: lifeResourceLocal, File: "backend_instance.go"},
 	{Type: "BackendInstance", FieldOrMethod: "started", Operation: "prepare", Owner: "BackendInstance", Disposition: lifeResourceLocal, File: "backend_instance.go"},
 
-	// --- buildBackends local releaseOnce/releaseErr: duplicate aggregate wrapper around BackendInstance ---
-	{Type: "buildBackends", FieldOrMethod: "releaseOnce", Operation: "close", Owner: "buildBackends", Disposition: lifeDuplicateToDelete, File: "build_model.go"},
-	{Type: "buildBackends", FieldOrMethod: "releaseErr", Operation: "close", Owner: "buildBackends", Disposition: lifeDuplicateToDelete, File: "build_model.go"},
-
-	// --- CandidateRuntime: transfer sync legitimate; independent phase guards duplicates ---
+	// --- CandidateRuntime: transfer vs lifecycle exclusive claim; no phase guards ---
 	{Type: "CandidateRuntime", FieldOrMethod: "lifeMu", Operation: "transfer", Owner: "CandidateRuntime", Disposition: lifeCanonicalResource, File: "candidate_compile.go"},
+	{Type: "CandidateRuntime", FieldOrMethod: "lifeClaimed", Operation: "transfer", Owner: "CandidateRuntime", Disposition: lifeCanonicalResource, File: "candidate_compile.go"},
 	{Type: "CandidateRuntime", FieldOrMethod: "ledgerTransferred", Operation: "transfer", Owner: "CandidateRuntime", Disposition: lifeCanonicalResource, File: "candidate_compile.go"},
 	{Type: "CandidateRuntime", FieldOrMethod: "transferLedgerOwnership", Operation: "transfer", Owner: "CandidateRuntime", Disposition: lifeCanonicalResource, File: "candidate_lifecycle.go"},
-	{Type: "CandidateRuntime", FieldOrMethod: "quiesceOnce", Operation: "quiesce", Owner: "CandidateRuntime", Disposition: lifeDuplicateToDelete, File: "candidate_compile.go"},
-	{Type: "CandidateRuntime", FieldOrMethod: "quiesceErr", Operation: "quiesce", Owner: "CandidateRuntime", Disposition: lifeDuplicateToDelete, File: "candidate_compile.go"},
-	{Type: "CandidateRuntime", FieldOrMethod: "didQuiesce", Operation: "quiesce", Owner: "CandidateRuntime", Disposition: lifeDuplicateToDelete, File: "candidate_compile.go"},
-	{Type: "CandidateRuntime", FieldOrMethod: "closeOnce", Operation: "close", Owner: "CandidateRuntime", Disposition: lifeDuplicateToDelete, File: "candidate_compile.go"},
-	{Type: "CandidateRuntime", FieldOrMethod: "closeErr", Operation: "close", Owner: "CandidateRuntime", Disposition: lifeDuplicateToDelete, File: "candidate_compile.go"},
+	{Type: "CandidateRuntime", FieldOrMethod: "claimLifecycleLedger", Operation: "transfer", Owner: "CandidateRuntime", Disposition: lifeCanonicalResource, File: "candidate_lifecycle.go"},
 
-	// --- generationOwnership: ledger pointer is canonical; surrounding state machine is duplicate ---
-	{Type: "generationOwnership", FieldOrMethod: "ledger", Operation: "close", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "generation_bundle.go"},
-	{Type: "generationOwnership", FieldOrMethod: "mu", Operation: "quiesce", Owner: "generationOwnership", Disposition: lifeDuplicateToDelete, File: "generation_bundle.go"},
-	{Type: "generationOwnership", FieldOrMethod: "cond", Operation: "quiesce", Owner: "generationOwnership", Disposition: lifeDuplicateToDelete, File: "generation_bundle.go"},
-	{Type: "generationOwnership", FieldOrMethod: "state", Operation: "close", Owner: "generationOwnership", Disposition: lifeDuplicateToDelete, File: "generation_bundle.go"},
-	{Type: "generationOwnership", FieldOrMethod: "quiescing", Operation: "quiesce", Owner: "generationOwnership", Disposition: lifeDuplicateToDelete, File: "generation_bundle.go"},
-	{Type: "generationOwnership", FieldOrMethod: "closing", Operation: "close", Owner: "generationOwnership", Disposition: lifeDuplicateToDelete, File: "generation_bundle.go"},
-	{Type: "generationOwnership", FieldOrMethod: "quiesceErr", Operation: "quiesce", Owner: "generationOwnership", Disposition: lifeDuplicateToDelete, File: "generation_bundle.go"},
-	{Type: "generationOwnership", FieldOrMethod: "closeErr", Operation: "close", Owner: "generationOwnership", Disposition: lifeDuplicateToDelete, File: "generation_bundle.go"},
-	{Type: "GenerationBundle", FieldOrMethod: "ownership", Operation: "close", Owner: "GenerationBundle", Disposition: lifeDuplicateToDelete, File: "generation_bundle.go"},
+	// --- GenerationBundle: stores/delegates to canonical ledger only ---
+	{Type: "GenerationBundle", FieldOrMethod: "ledger", Operation: "close", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "generation_bundle.go"},
 
-	// --- Generation: identity/refcount/drain/payload binding legitimate; resource-close caches duplicate ---
+	// --- Generation: identity/refcount/drain/payload binding legitimate; resource-close caches duplicate (Task 7.3) ---
 	{Type: "Generation", FieldOrMethod: "word", Operation: "publication_refcount_drain", Owner: "Generation", Disposition: lifeGenerationState, File: "../runtimehost/generation.go"},
 	{Type: "Generation", FieldOrMethod: "drainMu", Operation: "publication_refcount_drain", Owner: "Generation", Disposition: lifeGenerationState, File: "../runtimehost/generation.go"},
 	{Type: "Generation", FieldOrMethod: "drainCh", Operation: "publication_refcount_drain", Owner: "Generation", Disposition: lifeGenerationState, File: "../runtimehost/generation.go"},
@@ -157,19 +152,8 @@ func TestLifecycleOwner_InventoryCurrentMechanismsPresent(t *testing.T) {
 func TestLifecycleOwner_InventoryNamesDuplicateWrappers(t *testing.T) {
 	t.Parallel()
 	wantDup := map[string]bool{
-		"CandidateRuntime.quiesceOnce":   true,
-		"CandidateRuntime.closeOnce":     true,
-		"CandidateRuntime.closeErr":      true,
-		"CandidateRuntime.quiesceErr":    true,
-		"CandidateRuntime.didQuiesce":    true,
-		"generationOwnership.state":      true,
-		"generationOwnership.closeErr":   true,
-		"generationOwnership.quiesceErr": true,
-		"GenerationBundle.ownership":     true,
-		"Generation.closed":              true,
-		"Generation.closeErr":            true,
-		"buildBackends.releaseOnce":      true,
-		"buildBackends.releaseErr":       true,
+		"Generation.closed":   true,
+		"Generation.closeErr": true,
 	}
 	found := map[string]bool{}
 	for _, e := range lifecycleOwnerInventory {
@@ -181,6 +165,11 @@ func TestLifecycleOwner_InventoryNamesDuplicateWrappers(t *testing.T) {
 	for key := range wantDup {
 		if !found[key] {
 			t.Fatalf("expected duplicate disposition for %s", key)
+		}
+	}
+	for key := range found {
+		if !wantDup[key] {
+			t.Fatalf("unexpected remaining duplicate disposition %s (Task 7.2 should leave only Generation.closed/closeErr)", key)
 		}
 	}
 }

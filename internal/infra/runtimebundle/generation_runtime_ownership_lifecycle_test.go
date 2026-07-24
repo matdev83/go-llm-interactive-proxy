@@ -99,12 +99,14 @@ func TestOwnership_SingularOwnerShape(t *testing.T) {
 		"cfg": true, "config": true, "built": true, "Built": true,
 		"app": true, "App": true, "requestPlane": true, "RequestPlane": true,
 		"deps": true, "dependencies": true, "dependencyMap": true,
+		"ownership": true,
 	}
 	groupNames := map[string]bool{
 		"execution": true, "publication": true, "models": true,
-		"operations": true, "ownership": true,
+		"operations": true,
 	}
 	foundGroups := map[string]bool{}
+	var sawLedger bool
 	for i := 0; i < elem.NumField(); i++ {
 		f := elem.Field(i)
 		if forbiddenNames[f.Name] {
@@ -112,6 +114,15 @@ func TestOwnership_SingularOwnerShape(t *testing.T) {
 		}
 		if stringsHasCandidateRuntime(f.Type.String()) {
 			t.Fatalf("GenerationBundle must not retain CandidateRuntime field %q (%s)", f.Name, f.Type.String())
+		}
+		if f.Name == "ledger" {
+			sawLedger = true
+			if f.Type.String() != "*runtimebundle.ResourceLedger" && f.Type.String() != "*ResourceLedger" {
+				// External test package sees fully-qualified name; same package sees short.
+				if !containsToken(f.Type.String(), "ResourceLedger") {
+					t.Fatalf("ledger field type=%s want *ResourceLedger", f.Type.String())
+				}
+			}
 		}
 		if groupNames[f.Name] {
 			foundGroups[f.Name] = true
@@ -122,6 +133,9 @@ func TestOwnership_SingularOwnerShape(t *testing.T) {
 				t.Fatalf("group field %q must be unexported", f.Name)
 			}
 		}
+	}
+	if !sawLedger {
+		t.Fatal("GenerationBundle missing canonical ledger field")
 	}
 	for name := range groupNames {
 		if !foundGroups[name] {
@@ -244,11 +258,14 @@ func TestLifecycle_QuiesceThenClosePhaseOrdering(t *testing.T) {
 	}
 }
 
-// TestLifecycle_RepeatedCallsStableErrors proves cleanup errors stay joined/stable.
+// TestLifecycle_RepeatedCallsStableErrors proves failed Close stays retryable
+// (Task 7.2) while successful sibling/terminal outcomes remain stable.
 func TestLifecycle_RepeatedCallsStableErrors(t *testing.T) {
 	t.Parallel()
+	var calls atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
 	_ = ledger.AddClose("boom", runtimebundle.PhaseClose, func() error {
+		calls.Add(1)
 		return errors.New("close-boom")
 	})
 	b := runtimebundle.NewGenerationBundleWithLedgerForTest(ledger)
@@ -257,12 +274,16 @@ func TestLifecycle_RepeatedCallsStableErrors(t *testing.T) {
 		t.Fatalf("err1=%v", err1)
 	}
 	err2 := b.Close()
-	if err2.Error() != err1.Error() {
-		t.Fatalf("unstable close err: %v vs %v", err1, err2)
+	if err2 == nil || !stringsContains(err2.Error(), "close-boom") {
+		t.Fatalf("retry Close must re-execute and fail again, err2=%v calls=%d", err2, calls.Load())
 	}
-	err3 := b.Quiesce(context.Background())
-	if err3.Error() != err1.Error() {
-		t.Fatalf("Quiesce after Close terminal=%v want %v", err3, err1)
+	if calls.Load() != 2 {
+		t.Fatalf("retryable close executions=%d want 2", calls.Load())
+	}
+	// Quiesce after a failed Close is still admitted (ledger not successfully
+	// closed); with no PhaseQuiesce entries it is a successful no-op.
+	if err := b.Quiesce(context.Background()); err != nil {
+		t.Fatalf("Quiesce after retryable Close failure: %v", err)
 	}
 }
 

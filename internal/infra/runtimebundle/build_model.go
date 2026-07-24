@@ -2,7 +2,6 @@ package runtimebundle
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -158,27 +157,11 @@ func buildBackends(
 			}
 		}
 
-		var releaseOnce sync.Once
-		var releaseErr error
-		release := func() error {
-			releaseOnce.Do(func() {
-				if err := inst.CleanupIdleTransports(context.Background()); err != nil {
-					releaseErr = errors.Join(releaseErr, err)
-				}
-				if err := inst.Close(); err != nil {
-					releaseErr = errors.Join(releaseErr, err)
-				}
-			})
-			return releaseErr
-		}
 		owns := be.Close != nil || hooks.Start != nil || hooks.Stop != nil || hooks.CleanupIdleTransports != nil
 		if owns {
-			wrapped.Close = release
-		}
-		if owns {
-			fn := release
+			fn := inst.Close
 			if ledger != nil {
-				fn = ledger.AddClose("backend:"+iid, PhaseClose, release)
+				fn = ledger.AddClose("backend:"+iid, PhaseClose, inst.Close)
 				if hooks.Start != nil {
 					ledger.AddAction("backend:"+iid+":start", PhasePrepare, inst.Start, nil)
 				}

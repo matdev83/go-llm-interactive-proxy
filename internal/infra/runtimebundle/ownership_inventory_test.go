@@ -64,10 +64,9 @@ type ownershipEntry struct {
 
 // candidateRuntimeInternalFields are CandidateRuntime lifecycle-bookkeeping
 // fields (sync primitives / transfer flags), not resources; they are excluded
-// from ownership classification (task 4.2 post-deletion truth).
+// from ownership classification (task 4.2 / 7.2 post-deletion truth).
 var candidateRuntimeInternalFields = map[string]bool{
-	"closeOnce": true, "closeErr": true, "quiesceOnce": true, "quiesceErr": true,
-	"didQuiesce": true, "lifeMu": true, "ledgerTransferred": true,
+	"lifeMu": true, "lifeClaimed": true, "ledgerTransferred": true,
 }
 
 // builtFieldOwnership classifies every ownership-relevant field of

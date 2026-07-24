@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
@@ -102,17 +101,13 @@ type CandidateRuntime struct {
 	ProcessTracingShutdown func(context.Context) error
 
 	// Ledger owns generation resources for rollback/quiesce/close (task 3.2).
-	// Nil after transferLedgerOwnership (Task 3.3). It is the sole generation
-	// lifecycle owner (task 4.2); no aggregate []func() error view exists.
+	// Nil after transferLedgerOwnership (Task 3.3). ResourceLedger is the sole
+	// generation-resource phase owner (task 7.2); CandidateRuntime only
+	// synchronizes one-time transfer and delegates lifecycle calls.
 	Ledger *ResourceLedger
 
-	closeOnce   sync.Once
-	closeErr    error
-	quiesceOnce sync.Once
-	quiesceErr  error
-	didQuiesce  atomic.Bool
-
 	lifeMu            sync.Mutex
+	lifeClaimed       bool // Quiesce/Close claimed; transfer permanently denied
 	ledgerTransferred bool
 
 	terminalWorkReady func(context.Context) error

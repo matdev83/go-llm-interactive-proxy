@@ -1,8 +1,6 @@
 package runtimebundle
 
 import (
-	"sync"
-
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -11,24 +9,18 @@ import (
 
 // NewGenerationBundleForTest builds a minimal GenerationBundle for binder tests.
 func NewGenerationBundleForTest(models *modelregistry.Runtime, catalog *modelcatalog.CatalogRuntime) *GenerationBundle {
-	b := &GenerationBundle{
+	return &GenerationBundle{
 		models: generationModelViews{
 			models:  models,
 			catalog: catalog,
 		},
 	}
-	b.ownership.cond = sync.NewCond(&b.ownership.mu)
-	return b
 }
 
 // NewGenerationBundleWithLedgerForTest builds a GenerationBundle that owns ledger
-// directly (Task 3.3 lifecycle / ownership tests).
+// directly (Task 3.3 / 7.2 lifecycle / ownership tests).
 func NewGenerationBundleWithLedgerForTest(ledger *ResourceLedger) *GenerationBundle {
-	b := &GenerationBundle{
-		ownership: generationOwnership{ledger: ledger},
-	}
-	b.ownership.cond = sync.NewCond(&b.ownership.mu)
-	return b
+	return &GenerationBundle{ledger: ledger}
 }
 
 // NewGenerationBundleWithPublicationForTest builds a GenerationBundle with

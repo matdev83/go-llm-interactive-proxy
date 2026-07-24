@@ -135,10 +135,10 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		return failBeforeTransfer(fmt.Errorf("runtimebundle: handler composer returned nil handler"))
 	}
 
-	// Successful path: transfer ledger ownership to the canonical GenerationRuntime.
-	// After transfer, CandidateRuntime must not close generation resources.
-	// Publication reads canonical frozen — not the composer clone.
 	ledger := cand.transferLedgerOwnership()
+	if ledger == nil {
+		return failBeforeTransfer(fmt.Errorf("runtimebundle: candidate resource ledger unavailable for transfer"))
+	}
 	bundle := newGenerationBundle(generationBundleInput{
 		handler:           handler,
 		executor:          cand.Executor,

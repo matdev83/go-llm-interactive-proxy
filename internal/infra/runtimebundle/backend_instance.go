@@ -76,12 +76,19 @@ func (b *BackendInstance) Start(ctx context.Context) error {
 }
 
 // Close stops optional lifecycle then closes the backend exactly once (req 8.9).
+// Idle-transport cleanup runs before Stop/backend Close so generation release
+// ordering stays correct when BackendInstance.Close is the ledger callback.
 func (b *BackendInstance) Close() error {
 	if b == nil {
 		return nil
 	}
 	b.closeOnce.Do(func() {
 		var out error
+		if b.hooks.CleanupIdleTransports != nil {
+			if err := b.hooks.CleanupIdleTransports(context.Background()); err != nil {
+				out = errors.Join(out, err)
+			}
+		}
 		if b.hooks.Stop != nil && (b.hooks.Start == nil || b.startAttempted.Load()) {
 			if err := b.hooks.Stop(context.Background()); err != nil {
 				out = errors.Join(out, err)

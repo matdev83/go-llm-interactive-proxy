@@ -149,11 +149,11 @@ type GenerationBundle struct {
 func TestGenerationRuntime_SyntheticGroupedShapeClean(t *testing.T) {
 	t.Parallel()
 	src := `package runtimebundle
+type ResourceLedger struct{}
 type generationExecution struct{ executor any }
 type generationHTTPPublication struct{ handler any }
 type generationModelViews struct{}
 type generationOperations struct{}
-type generationOwnership struct{ ledger any }
 type GenerationRuntime interface {
 	Handler() any
 	ExecutorView() any
@@ -169,7 +169,7 @@ type GenerationBundle struct {
 	publication generationHTTPPublication
 	models      generationModelViews
 	operations  generationOperations
-	ownership   generationOwnership
+	ledger      *ResourceLedger
 }
 `
 	got, err := scanGenerationRuntimeOwnershipSource("internal/infra/runtimebundle/synthetic_clean.go", src)
@@ -178,6 +178,9 @@ type GenerationBundle struct {
 	}
 	if len(got.Findings) != 0 {
 		t.Fatalf("clean grouped shape must have no findings, got %#v", got.Findings)
+	}
+	if !got.HasCanonicalLedger {
+		t.Fatal("clean shape must record canonical ledger field")
 	}
 	for _, g := range requiredGenerationRuntimeGroups {
 		if !got.GroupFields[g] {
@@ -207,7 +210,7 @@ type GenerationBundle struct {
 	publication struct{}
 	models      struct{}
 	operations  struct{}
-	ownership   struct{}
+	ledger      *ResourceLedger
 }
 type CandidateRuntime struct{}
 func (c *CandidateRuntime) Quiesce() error { return nil }
@@ -255,6 +258,438 @@ func (b *GenerationBundle) GetLedger() *ResourceLedger { return nil }
 	}
 	if !ownershipFindingsContainKind(got.Findings, "exported_ownership_transfer") {
 		t.Fatalf("expected exported ledger getter detection, got %#v", got.Findings)
+	}
+}
+
+func TestGenerationRuntime_SyntheticCanonicalLedgerAliasAccepted(t *testing.T) {
+	t.Parallel()
+	src := `package runtimebundle
+type ResourceLedger struct{}
+type LedgerPtr = *ResourceLedger
+type NestedLedgerAlias = LedgerPtr
+type generationExecution struct{ executor any }
+type generationHTTPPublication struct{ handler any }
+type generationModelViews struct{}
+type generationOperations struct{}
+type GenerationRuntime interface {
+	Handler() any
+}
+type GenerationBundle struct {
+	execution   generationExecution
+	publication generationHTTPPublication
+	models      generationModelViews
+	operations  generationOperations
+	ledger      NestedLedgerAlias
+}
+`
+	got, err := scanGenerationRuntimeOwnershipSource("internal/infra/runtimebundle/synthetic_ledger_alias.go", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Findings) != 0 {
+		t.Fatalf("canonical alias ledger must be clean, got %#v", got.Findings)
+	}
+	if !got.HasCanonicalLedger {
+		t.Fatal("alias to *ResourceLedger must count as canonical ledger")
+	}
+}
+
+func TestGenerationRuntime_SyntheticFakeResourceLedgerRejected(t *testing.T) {
+	t.Parallel()
+	src := `package runtimebundle
+type ResourceLedger struct{}
+type FakeResourceLedger struct{}
+type GenerationBundle struct {
+	execution   struct{}
+	publication struct{}
+	models      struct{}
+	operations  struct{}
+	ledger      *FakeResourceLedger
+}
+`
+	got, err := scanGenerationRuntimeOwnershipSource("internal/infra/runtimebundle/synthetic_fake_ledger.go", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.HasCanonicalLedger {
+		t.Fatal("FakeResourceLedger must not satisfy canonical ledger gate")
+	}
+	if !ownershipFindingsContainKind(got.Findings, "non_canonical_ledger") {
+		t.Fatalf("expected non_canonical_ledger, got %#v", got.Findings)
+	}
+}
+
+func TestGenerationRuntime_SyntheticAlternateResourceLedgerRejected(t *testing.T) {
+	t.Parallel()
+	src := `package runtimebundle
+type ResourceLedger struct{}
+type AlternateResourceLedger struct{}
+type GenerationBundle struct {
+	execution   struct{}
+	publication struct{}
+	models      struct{}
+	operations  struct{}
+	ledger      *AlternateResourceLedger
+}
+`
+	got, err := scanGenerationRuntimeOwnershipSource("internal/infra/runtimebundle/synthetic_alt_ledger.go", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.HasCanonicalLedger || !ownershipFindingsContainKind(got.Findings, "non_canonical_ledger") {
+		t.Fatalf("AlternateResourceLedger must be rejected, got has=%v findings=%#v", got.HasCanonicalLedger, got.Findings)
+	}
+}
+
+func TestGenerationRuntime_SyntheticInterfaceLedgerRejected(t *testing.T) {
+	t.Parallel()
+	src := `package runtimebundle
+type ResourceLedger struct{}
+type ResourceLedgerOwner interface{ Close() error }
+type GenerationBundle struct {
+	execution   struct{}
+	publication struct{}
+	models      struct{}
+	operations  struct{}
+	ledger      ResourceLedgerOwner
+}
+`
+	got, err := scanGenerationRuntimeOwnershipSource("internal/infra/runtimebundle/synthetic_iface_ledger.go", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.HasCanonicalLedger || !ownershipFindingsContainKind(got.Findings, "non_canonical_ledger") {
+		t.Fatalf("interface ledger owner must be rejected, got %#v", got.Findings)
+	}
+}
+
+func TestGenerationRuntime_SyntheticSecondLedgerFieldRejected(t *testing.T) {
+	t.Parallel()
+	src := `package runtimebundle
+type ResourceLedger struct{}
+type GenerationBundle struct {
+	execution   struct{}
+	publication struct{}
+	models      struct{}
+	operations  struct{}
+	ledger      *ResourceLedger
+	extra       *ResourceLedger
+}
+`
+	got, err := scanGenerationRuntimeOwnershipSource("internal/infra/runtimebundle/synthetic_dup_ledger.go", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ownershipFindingsContainKind(got.Findings, "duplicate_canonical_ledger") {
+		t.Fatalf("expected duplicate_canonical_ledger, got %#v", got.Findings)
+	}
+	if got.HasCanonicalLedger {
+		t.Fatal("duplicate ledger fields must not set HasCanonicalLedger")
+	}
+}
+
+func TestGenerationRuntime_SyntheticEmbeddedLedgerRejected(t *testing.T) {
+	t.Parallel()
+	src := `package runtimebundle
+type ResourceLedger struct{}
+type GenerationBundle struct {
+	execution   struct{}
+	publication struct{}
+	models      struct{}
+	operations  struct{}
+	*ResourceLedger
+}
+`
+	got, err := scanGenerationRuntimeOwnershipSource("internal/infra/runtimebundle/synthetic_embed_ledger.go", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ownershipFindingsContainKind(got.Findings, "nested_ledger_owner") {
+		t.Fatalf("expected nested_ledger_owner for embed, got %#v", got.Findings)
+	}
+	if got.HasCanonicalLedger {
+		t.Fatal("embedded ledger must not count as canonical field")
+	}
+}
+
+func TestGenerationRuntime_SyntheticNestedLedgerShellRejected(t *testing.T) {
+	t.Parallel()
+	src := `package runtimebundle
+type ResourceLedger struct{}
+type ledgerShell struct{ inner *ResourceLedger }
+type GenerationBundle struct {
+	execution   struct{}
+	publication struct{}
+	models      struct{}
+	operations  struct{}
+	wrap        ledgerShell
+}
+`
+	got, err := scanGenerationRuntimeOwnershipSource("internal/infra/runtimebundle/synthetic_nested_ledger.go", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ownershipFindingsContainKind(got.Findings, "nested_ledger_owner") {
+		t.Fatalf("expected nested_ledger_owner, got %#v", got.Findings)
+	}
+	if got.HasCanonicalLedger {
+		t.Fatal("nested shell must not count as canonical ledger field")
+	}
+}
+
+func TestGenerationRuntime_SyntheticAliasHidingLedgerRejected(t *testing.T) {
+	t.Parallel()
+	src := `package runtimebundle
+type ResourceLedger struct{}
+type FakeResourceLedger struct{}
+type Hidden = *FakeResourceLedger
+type GenerationBundle struct {
+	execution   struct{}
+	publication struct{}
+	models      struct{}
+	operations  struct{}
+	ledger      Hidden
+}
+`
+	got, err := scanGenerationRuntimeOwnershipSource("internal/infra/runtimebundle/synthetic_hidden_ledger.go", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.HasCanonicalLedger || !ownershipFindingsContainKind(got.Findings, "non_canonical_ledger") {
+		t.Fatalf("alias to FakeResourceLedger must be rejected, got %#v", got.Findings)
+	}
+}
+
+func TestGenerationRuntime_SyntheticUnrelatedNestedGroupsStillClean(t *testing.T) {
+	t.Parallel()
+	src := `package runtimebundle
+type ResourceLedger struct{}
+type BackendInstance struct{ closeOnce any }
+type generationExecution struct {
+	executor any
+	local    BackendInstance
+}
+type generationHTTPPublication struct{ handler any }
+type generationModelViews struct{}
+type generationOperations struct{ readiness any }
+type GenerationRuntime interface {
+	Handler() any
+}
+type GenerationBundle struct {
+	execution   generationExecution
+	publication generationHTTPPublication
+	models      generationModelViews
+	operations  generationOperations
+	ledger      *ResourceLedger
+}
+`
+	got, err := scanGenerationRuntimeOwnershipSource("internal/infra/runtimebundle/synthetic_unrelated_nested.go", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Findings) != 0 {
+		t.Fatalf("unrelated nested groups must stay clean, got %#v", got.Findings)
+	}
+	if !got.HasCanonicalLedger {
+		t.Fatal("canonical ledger required")
+	}
+}
+
+const syntheticCleanGenerationBundleBody = `
+type generationExecution struct{ executor any }
+type generationHTTPPublication struct{ handler any }
+type generationModelViews struct{}
+type generationOperations struct{}
+type GenerationRuntime interface {
+	Handler() any
+}
+type GenerationBundle struct {
+	execution   generationExecution
+	publication generationHTTPPublication
+	models      generationModelViews
+	operations  generationOperations
+	ledger      LedgerPtr
+}
+`
+
+func TestGenerationRuntime_MultiFileProductionCrossFileAliasAccepted(t *testing.T) {
+	t.Parallel()
+	files := []ownershipScanFile{
+		{
+			Path: "internal/infra/runtimebundle/aliases.go",
+			Src: `package runtimebundle
+type ResourceLedger struct{}
+type LedgerPtr = *ResourceLedger
+`,
+		},
+		{
+			Path: "internal/infra/runtimebundle/bundle.go",
+			Src:  "package runtimebundle\n" + syntheticCleanGenerationBundleBody,
+		},
+	}
+	got, err := scanGenerationRuntimeOwnershipSources(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Findings) != 0 {
+		t.Fatalf("production cross-file alias must be accepted, got %#v", got.Findings)
+	}
+	if !got.HasCanonicalLedger {
+		t.Fatal("cross-file LedgerPtr must resolve to canonical *ResourceLedger")
+	}
+}
+
+func TestGenerationRuntime_ExternalTestPackageCannotSatisfyProductionLedger(t *testing.T) {
+	t.Parallel()
+	files := []ownershipScanFile{
+		{
+			Path: "internal/infra/runtimebundle/bundle.go",
+			Src: `package runtimebundle
+` + strings.ReplaceAll(syntheticCleanGenerationBundleBody, "LedgerPtr", "Hidden"),
+		},
+		{
+			Path: "internal/infra/runtimebundle/contaminate_test.go",
+			Src: `package runtimebundle_test
+type ResourceLedger struct{}
+type Hidden = *ResourceLedger
+type LedgerPtr = *ResourceLedger
+`,
+		},
+	}
+	got, err := scanGenerationRuntimeOwnershipSources(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.HasCanonicalLedger {
+		t.Fatal("external runtimebundle_test alias must not satisfy production GenerationBundle")
+	}
+	if !ownershipFindingsContainKind(got.Findings, "non_canonical_ledger") &&
+		!ownershipFindingsContainKind(got.Findings, "missing_canonical_ledger") {
+		t.Fatalf("expected production ledger rejection without external contamination, got %#v", got.Findings)
+	}
+}
+
+func TestGenerationRuntime_SamePackageTestFileCannotSatisfyProductionLedger(t *testing.T) {
+	t.Parallel()
+	files := []ownershipScanFile{
+		{
+			Path: "internal/infra/runtimebundle/bundle.go",
+			Src: `package runtimebundle
+` + strings.ReplaceAll(syntheticCleanGenerationBundleBody, "LedgerPtr", "Hidden"),
+		},
+		{
+			Path: "internal/infra/runtimebundle/alias_test.go",
+			Src: `package runtimebundle
+type ResourceLedger struct{}
+type Hidden = *ResourceLedger
+`,
+		},
+	}
+	got, err := scanGenerationRuntimeOwnershipSources(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.HasCanonicalLedger {
+		t.Fatal("same-package _test.go alias must not satisfy production GenerationBundle")
+	}
+	if !ownershipFindingsContainKind(got.Findings, "non_canonical_ledger") &&
+		!ownershipFindingsContainKind(got.Findings, "missing_canonical_ledger") {
+		t.Fatalf("expected production ledger rejection without test-file alias, got %#v", got.Findings)
+	}
+}
+
+func TestGenerationRuntime_UnrelatedExternalPackageCannotCreateFindings(t *testing.T) {
+	t.Parallel()
+	files := []ownershipScanFile{
+		{
+			Path: "internal/infra/runtimebundle/aliases.go",
+			Src: `package runtimebundle
+type ResourceLedger struct{}
+type LedgerPtr = *ResourceLedger
+`,
+		},
+		{
+			Path: "internal/infra/runtimebundle/bundle.go",
+			Src:  "package runtimebundle\n" + syntheticCleanGenerationBundleBody,
+		},
+		{
+			Path: "internal/infra/runtimebundle/otherpkg.go",
+			Src: `package otherpkg
+type CandidateRuntime struct{}
+type GenerationBundle struct {
+	cand *CandidateRuntime
+	owner any
+}
+type GenerationRuntime interface {
+	Get(name string) any
+}
+`,
+		},
+	}
+	got, err := scanGenerationRuntimeOwnershipSources(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Findings) != 0 {
+		t.Fatalf("unrelated external package must not create production findings, got %#v", got.Findings)
+	}
+	if !got.HasCanonicalLedger {
+		t.Fatal("production clean shape must keep canonical ledger")
+	}
+}
+
+func TestGenerationRuntime_DuplicateProductionTypeFailsClosedIndependentOfOrder(t *testing.T) {
+	t.Parallel()
+	fileA := ownershipScanFile{
+		Path: "internal/infra/runtimebundle/a.go",
+		Src: `package runtimebundle
+type ResourceLedger struct{}
+`,
+	}
+	fileB := ownershipScanFile{
+		Path: "internal/infra/runtimebundle/b.go",
+		Src: `package runtimebundle
+type ResourceLedger struct{ x int }
+`,
+	}
+	fileBundle := ownershipScanFile{
+		Path: "internal/infra/runtimebundle/bundle.go",
+		Src: `package runtimebundle
+type LedgerPtr = *ResourceLedger
+` + syntheticCleanGenerationBundleBody,
+	}
+	orders := [][]ownershipScanFile{
+		{fileA, fileB, fileBundle},
+		{fileB, fileBundle, fileA},
+		{fileBundle, fileA, fileB},
+	}
+	for i, files := range orders {
+		got, err := scanGenerationRuntimeOwnershipSources(files)
+		if err != nil {
+			t.Fatalf("order %d: %v", i, err)
+		}
+		if !ownershipFindingsContainKind(got.Findings, "duplicate_production_type") {
+			t.Fatalf("order %d: expected duplicate_production_type, got %#v", i, got.Findings)
+		}
+		var dup generationRuntimeOwnershipFinding
+		for _, f := range got.Findings {
+			if f.Kind == "duplicate_production_type" {
+				dup = f
+				break
+			}
+		}
+		if !strings.Contains(dup.Detail, "ResourceLedger") {
+			t.Fatalf("order %d: duplicate detail must name ResourceLedger, got %q", i, dup.Detail)
+		}
+		// Deterministic path order in the finding, independent of input order.
+		if !strings.Contains(dup.Detail, "a.go") || !strings.Contains(dup.Detail, "b.go") {
+			t.Fatalf("order %d: duplicate detail must list both paths, got %q", i, dup.Detail)
+		}
+		idxA := strings.Index(dup.Detail, "a.go")
+		idxB := strings.Index(dup.Detail, "b.go")
+		if idxA < 0 || idxB < 0 || idxA > idxB {
+			t.Fatalf("order %d: duplicate paths must be sorted (a.go before b.go), got %q", i, dup.Detail)
+		}
 	}
 }
 
