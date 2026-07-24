@@ -177,6 +177,18 @@ func TestInspectPurity_ProductionAllowlist(t *testing.T) {
 	assertConvergenceAllowlistMatch(t, gateInspectPurity, got, nil)
 }
 
+// TestValidationPurity_ProductionAllowlist enforces the Task 5.4
+// ValidateDistribution invariant with zero exceptions: runCheckConfigCommand
+// and the focused validate_distribution.go operation graph never reach a
+// Manager/publish/host/listener owner (or wrapper). There is no allowlist
+// entry for this gate, so any finding fails immediately.
+func TestValidationPurity_ProductionAllowlist(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	got := scanProductionConvergenceGate(t, root, gateValidationPurity, scanValidationPuritySource)
+	assertConvergenceAllowlistMatch(t, gateValidationPurity, got, nil)
+}
+
 func TestRuntimeConvergence_AllowlistIntegrity(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)

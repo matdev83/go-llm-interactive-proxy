@@ -17,8 +17,8 @@ import (
 type bootstrapEffectiveLoader func(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error)
 
 // LoadBootstrapEffective loads the fixed startup path through the shared strict
-// effective-configuration pipeline used by BuildBootstrap, check-config, routes,
-// inventory, serve, and pkg/lipruntime.Build. It does not enable runtime reload.
+// effective-configuration pipeline used by BuildBootstrap, ValidateDistribution,
+// InspectRoutes/InspectInventory, serve, and pkg/lipruntime.Build. It does not enable runtime reload.
 //
 // Order: stable source read → strict decode → defaults → fixed CLI/env
 // stream-recovery overrides → standard feature injection → core validation →

@@ -217,7 +217,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 5.1_
   - _Validation: `go test ./cmd/lipstd/... ./internal/infra/runtimebundle/... -run 'Inspect|Routes|Inventory|FeatureSurface|Compatibility'`_
 
-- [ ] 5.4 Implement true unpublished ValidateDistribution
+- [x] 5.4 Implement true unpublished ValidateDistribution
   - Use the same effective loader, ProcessRuntime builder, GenerationCompiler, and HTTP composer.
   - Do not construct Manager, generation IDs, active pointer, listeners, or retirement workers.
   - Roll back generation resources and close validation process resources deterministically.

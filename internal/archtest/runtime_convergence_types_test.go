@@ -14,6 +14,7 @@ const (
 )
 
 // gateInspectPurity is declared in inspect_purity_scan_test.go (Task 5.3).
+// gateValidationPurity is declared in validation_purity_scan_test.go (Task 5.4).
 
 // Allowed classifications for migration allowlist entries.
 const (
@@ -29,6 +30,7 @@ var knownConvergenceGates = map[string]bool{
 	gateHostPath:                     true,
 	gateConfigLoad:                   true,
 	gateInspectPurity:                true,
+	gateValidationPurity:             true,
 	gateBroadRequestPlane:            true,
 	gateCompatHTTPSymbols:            true,
 	gateFocusedHTTPLifecycle:         true,

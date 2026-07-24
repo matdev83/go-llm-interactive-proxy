@@ -83,7 +83,7 @@ type ReloadHost struct {
 // onto an already-published initial generation (BootstrapServe + HandlerComposer).
 // Stream-recovery overrides come from res.FixedStreamRecovery (captured once at
 // BuildBootstrap); this function must not reread process environment.
-// Temporary compatibility wrapper for check-config callers until Task 5.5.
+// Temporary legacy/test wrapper until Task 5.5 (check-config uses ValidateDistribution).
 func AttachReloadHost(
 	_ context.Context,
 	res BootstrapResult,

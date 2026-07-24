@@ -14,6 +14,8 @@ const (
 	importTracing            = "github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	importStdhttp            = "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	importLipruntime         = "github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
+	importNet                = "net"
+	importNetHTTP            = "net/http"
 	importSDKConfigReload    = "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 	pathCanonicalReloadContr = "pkg/lipsdk/configreload/"
 	pathReloadHost           = "internal/infra/runtimebundle/reload_host.go"

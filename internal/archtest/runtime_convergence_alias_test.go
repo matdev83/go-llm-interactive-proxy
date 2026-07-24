@@ -253,7 +253,9 @@ func protectedLabelFor(importPath, name string) (string, bool) {
 		switch name {
 		case "Build", "BuildBootstrap", "BuildHost", "AttachReloadHost",
 			"NewProcessServices", "CompileGeneration",
-			"LoadBootstrapEffective", "LoadBootstrapEffectiveWithSource":
+			"LoadBootstrapEffective", "LoadBootstrapEffectiveWithSource",
+			"NewBootstrapApp", "publishInitialGeneration", "bindReloadHost",
+			"NewReloadHost", "NewReloadCoordinator":
 			return "runtimebundle." + name, true
 		}
 	case importStdhttp:
@@ -262,8 +264,10 @@ func protectedLabelFor(importPath, name string) (string, bool) {
 			return "stdhttp." + name, true
 		}
 	case importRuntimehost:
-		if name == "NewManager" {
-			return "runtimehost.NewManager", true
+		switch name {
+		case "NewManager", "NewManagerWithInstanceID", "NewGeneration",
+			"NewCoordinator", "NewReloadCoordinator":
+			return "runtimehost." + name, true
 		}
 	case importCoreConfig:
 		if name == "LoadEffective" {
@@ -272,6 +276,15 @@ func protectedLabelFor(importPath, name string) (string, bool) {
 	case importLipruntime:
 		if name == "Build" {
 			return "lipruntime.Build", true
+		}
+	case importNet:
+		if name == "Listen" {
+			return "net.Listen", true
+		}
+	case importNetHTTP:
+		switch name {
+		case "ListenAndServe", "ListenAndServeTLS":
+			return "net/http." + name, true
 		}
 	}
 	return "", false

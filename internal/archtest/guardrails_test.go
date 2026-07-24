@@ -331,7 +331,16 @@ var lineBudgets = []struct {
 	// construction, and duplicate feature-surface merge, and adding InspectRoutes/
 	// InspectInventory (measured 9991; zero headroom). Task 5.5 deletes remaining
 	// BuildBootstrap/AttachReloadHost dual path.
-	{"internal/infra/runtimebundle", 9991},
+	// Raised from 9991 to 10200 for task 5.4: true unpublished ValidateDistribution
+	// (validate_distribution.go) plus omitSoleAlreadyClosed so mixed
+	// ErrAlreadyClosed cleanup joins keep sibling failures (measured 10200;
+	// zero headroom). Same effective loader/ProcessServices/CompileGeneration/
+	// composer path as serve/reload, with no Manager, generation ID, active
+	// pointer, or listener. Temporary: BuildBootstrap/BootstrapResult stay for
+	// legacy/test compatibility and the two-step AttachReloadHost graph until
+	// Task 5.5 (expected to net-contract this budget). check-config now uses
+	// ValidateDistribution, not BuildBootstrap.
+	{"internal/infra/runtimebundle", 10200},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

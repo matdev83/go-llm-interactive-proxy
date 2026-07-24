@@ -48,15 +48,7 @@
       "identity": "call:buildBootstrap->LoadBootstrapEffectiveWithSource#1",
       "classification": "call",
       "retirement_task": "5.5",
-      "rationale": "check-config BuildBootstrap (BootstrapServe) startup load call; routes/inventory moved to InspectRoutes/InspectInventory in Task 5.3"
-    },
-    {
-      "gate": "host_path",
-      "path": "cmd/lipstd/command.go",
-      "identity": "call:runCheckConfigCommand->runtimebundle.BuildBootstrap#1",
-      "classification": "call",
-      "retirement_task": "5.4",
-      "rationale": "check-config uses BootstrapServe; replace with ValidateDistribution"
+      "rationale": "Legacy BuildBootstrap (BootstrapServe) startup load call retained for test/compat callers until Task 5.5; production check-config uses ValidateDistribution (Task 5.4). Routes/inventory moved to InspectRoutes/InspectInventory in Task 5.3"
     },
     {
       "gate": "host_path",
@@ -72,7 +64,7 @@
       "identity": "func:BuildBootstrap",
       "classification": "declaration",
       "retirement_task": "5.5",
-      "rationale": "check-config-only builder (BootstrapServe); inspect modes retired in Task 5.3, full deletion at 5.5"
+      "rationale": "Legacy/test compatibility builder (BootstrapServe); inspect modes retired in Task 5.3, production check-config migrated to ValidateDistribution in Task 5.4, full BuildBootstrap/AttachReloadHost deletion at 5.5"
     },
     {
       "gate": "host_path",

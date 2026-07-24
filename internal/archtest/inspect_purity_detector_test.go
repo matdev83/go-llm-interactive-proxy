@@ -189,12 +189,15 @@ func InspectRoutes() {}
 
 func TestInspectPurity_UnrelatedFunctionNotScanned(t *testing.T) {
 	t.Parallel()
-	// Negative control: BuildBootstrap/BuildHost remain legitimate for
-	// check-config/serve; only Inspect-role bodies are scanned.
+	// Negative control: BuildHost remains legitimate for serve, and
+	// ValidateDistribution (the Task 5.4 check-config entrypoint) is itself a
+	// distinct focused operation, not an Inspect-role body; only
+	// InspectRoutes/InspectInventory/prepareInspect bodies are scanned by this
+	// gate (see gateValidationPurity for the check-config invariant instead).
 	src := `package main
 import "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 func runCheckConfigCommand() {
-	_, _ = runtimebundle.BuildBootstrap(nil, runtimebundle.BuildBootstrapInput{})
+	_ = runtimebundle.ValidateDistribution(nil, runtimebundle.ValidateDistributionInput{})
 }
 func runServeCommand() {
 	_, _ = runtimebundle.BuildHost(nil, runtimebundle.BuildHostInput{})

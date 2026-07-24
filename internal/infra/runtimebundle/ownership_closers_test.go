@@ -36,6 +36,12 @@ var closerAcquisitionOwnership = []ownershipEntry{
 		Source: "process_services.go → NewProcessServices register helper",
 		Notes:  "Process closer bag: control-plane, usage, concurrency, persistence, accounting, metering, and terminal-work teardown (req 6.2–6.5, 13.8).",
 	},
+	{
+		Symbol: "validate_distribution.go:validateDistribution:acq#0:assign:traceShutdownRaw=traceRes.Shutdown#0",
+		Class:  ownershipProcess,
+		Source: "validate_distribution.go → tracing.Init Result.Shutdown",
+		Notes:  "Process tracing shutdown retained for ValidateDistribution's own internal close (Task 5.4; no Host/BootstrapResult handoff).",
+	},
 
 	{
 		Symbol: "build_model.go:appendBackendClosers:acq#0:append(closers, be.Close)#0",

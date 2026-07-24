@@ -36,6 +36,7 @@ type publishInitialGenerationInput struct {
 // joinInitialFailureCleanup tears down initial-generation bootstrap ownership in
 // order: candidate/generation → ProcessServices → tracing. Primary is preserved
 // for errors.Is; cleanup errors are joined without secret-bearing wrapping.
+// Sole ErrAlreadyClosed from gen rollback is omitted; mixed joins are kept.
 func joinInitialFailureCleanup(
 	ctx context.Context,
 	primary error,
@@ -45,7 +46,7 @@ func joinInitialFailureCleanup(
 ) error {
 	var cleanup error
 	if genRollback != nil {
-		if err := genRollback(); err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
+		if err := omitSoleAlreadyClosed(genRollback()); err != nil {
 			cleanup = errors.Join(cleanup, err)
 		}
 	}
@@ -63,6 +64,29 @@ func joinInitialFailureCleanup(
 		return errors.Join(primary, cleanup)
 	}
 	return primary
+}
+
+// omitSoleAlreadyClosed drops sole ErrAlreadyClosed; mixed joins stay intact.
+func omitSoleAlreadyClosed(err error) error {
+	if err == nil || err == runtimehost.ErrAlreadyClosed {
+		return nil
+	}
+	if !errors.Is(err, runtimehost.ErrAlreadyClosed) {
+		return err
+	}
+	if m, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, e := range m.Unwrap() {
+			if omitSoleAlreadyClosed(e) != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	u := errors.Unwrap(err)
+	if u == nil || omitSoleAlreadyClosed(u) == nil {
+		return nil
+	}
+	return err
 }
 
 func publishInitialGeneration(ctx context.Context, out BootstrapResult, in publishInitialGenerationInput) (BootstrapResult, error) {

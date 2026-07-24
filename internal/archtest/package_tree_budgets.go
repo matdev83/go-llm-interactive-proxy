@@ -29,8 +29,13 @@ type PackageTreeBudget struct {
 // BuildBootstrap serve/attachment dual path (Req 11.7).
 // Task 5.3: contracted to exact-measured 9991 after InspectRoutes/InspectInventory
 // split and BootstrapInspect/App/feature-merge deletion (Req 11.7).
+// Task 5.4: exact-measured 10200 for true unpublished ValidateDistribution plus
+// omitSoleAlreadyClosed (mixed ErrAlreadyClosed cleanup preservation).
+// BuildBootstrap/BootstrapResult remain for legacy/test compatibility and the
+// two-step AttachReloadHost graph until Task 5.5 (Req 11.7) — check-config now
+// uses ValidateDistribution, not BuildBootstrap.
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 9991},
+	{Tree: "internal/infra/runtimebundle", Max: 10200},
 	{Tree: "internal/stdhttp", Max: 4522},
 }
 

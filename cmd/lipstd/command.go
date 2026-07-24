@@ -16,7 +16,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/dbmigrate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 )
 
@@ -328,42 +327,22 @@ func validateServeMultiUserGate(ctx context.Context, configPath string, multiUse
 	return accessmode.ValidateServeModeGate(mode, multiUserFlag)
 }
 
-// cleanupCheckConfigBootstrapOwners retires the private generation manager and
-// closes process services after a successful check-config validation.
-func cleanupCheckConfigBootstrapOwners(ctx context.Context, res *runtimebundle.BootstrapResult) {
-	if res == nil {
-		return
-	}
-	if res.GenerationManager != nil {
-		_ = res.GenerationManager.ShutdownDetached(context.WithoutCancel(ctx), runtimehost.NewLifecycleWorker())
-	}
-	if res.ProcessServices != nil {
-		_ = res.ProcessServices.Close()
-	}
-}
-
-// cleanupCheckConfigBootstrap is the check-config private-owner cleanup seam.
-// Tests may wrap it (not parallel-safe; restore via t.Cleanup).
-var cleanupCheckConfigBootstrap = cleanupCheckConfigBootstrapOwners
-
+// runCheckConfigCommand performs one true unpublished dry-run validation
+// (design Dry-Run Validation; req 5.1-5.6). [runtimebundle.ValidateDistribution]
+// owns and closes every resource it acquires internally — no Manager,
+// generation ID, active pointer, listener, or retirement worker is ever
+// constructed, and no cleanup is left to this command.
 func runCheckConfigCommand(ctx context.Context, opts CommandOptions) int {
-	compose := stdhttp.ComposeStandardHTTP
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
+	err := runtimebundle.ValidateDistribution(ctx, runtimebundle.ValidateDistributionInput{
 		ConfigPath:              opts.ConfigPath,
-		Mode:                    runtimebundle.BootstrapServe,
 		Mandatory:               mandatoryStandardPlugins(),
-		LogWriter:               io.Discard,
 		StreamRecoveryOverrides: opts.StreamRecovery,
-		HandlerComposer:         compose,
+		HandlerComposer:         stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "configuration invalid: %v\n", err)
 		return 1
 	}
-	defer func() { deferBootstrapTracingShutdown(ctx, &res) }()
-	// check-config uses the same CompileGeneration path as serve/reload, then
-	// rolls back without listening (design ValidationDryRun).
-	cleanupCheckConfigBootstrap(ctx, &res)
 	_, _ = fmt.Fprintln(opts.Output, "configuration is valid")
 	return 0
 }
