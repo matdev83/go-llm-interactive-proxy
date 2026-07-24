@@ -11,7 +11,7 @@ import (
 )
 
 // TestAttemptGate_ContractSemanticsDocumented locks the Task 6.2 semantic table
-// and requires every row to declare characterization, AST RED, or Task 6.2
+// and requires every row to declare characterization, AST assertion, or Task 6.2
 // contract evidence — prose alone is not coverage.
 func TestAttemptGate_ContractSemanticsDocumented(t *testing.T) {
 	t.Parallel()
@@ -23,6 +23,7 @@ func TestAttemptGate_ContractSemanticsDocumented(t *testing.T) {
 		"finish_claim_pending_followup":            false,
 		"shutdown_atomic":                          false,
 		"finish_exactly_once":                      false,
+		"abandon_release_no_followup":              false,
 		"caller_cancel_detach":                     false,
 		"idle_wait_cases":                          false,
 		"interleave_one_complete_vs_wait_shutdown": false,
@@ -58,21 +59,20 @@ func TestAttemptGate_ContractSemanticsDocumented(t *testing.T) {
 		}
 	}
 
-	// Compile-time vocabulary: admission + finish outcomes cover the narrow transaction.
-	_ = []attemptAdmissionKindContract{
-		admissionAdmittedContract,
-		admissionBusyAPIContract,
-		admissionPendingHUPContract,
-		admissionCoalescedHUPContract,
-		admissionRejectedShutdownContract,
+	_ = []attemptAdmissionKind{
+		admissionAdmitted,
+		admissionBusyAPI,
+		admissionPendingHUP,
+		admissionCoalescedHUP,
+		admissionRejectedShutdown,
 	}
-	_ = []attemptFinishKindContract{
-		finishReleasedIdleContract,
-		finishFollowUpClaimedContract,
-		finishAlreadyCompletedContract,
+	_ = []attemptFinishKind{
+		finishReleasedIdle,
+		finishFollowUpClaimed,
+		finishAlreadyCompleted,
 	}
-	_ = attemptAdmissionOutcomeContract{}
-	_ = attemptFinishOutcomeContract{}
+	_ = attemptAdmissionOutcome{}
+	_ = attemptFinishOutcome{}
 	var _ attemptGateContract
 	var _ attemptLeaseContract
 }
@@ -94,13 +94,11 @@ func TestAttemptGate_SemanticEvidenceMapped(t *testing.T) {
 				}
 				continue
 			}
-			// Contract vocabulary / AST inventory anchors (non-Test*).
 			switch part {
-			case "attemptFinishOutcomeContract",
-				"attemptAdmissionOutcomeContract",
+			case "attemptFinishOutcome",
+				"attemptAdmissionOutcome",
 				"attemptGateContract",
 				"attemptLeaseContract":
-				// named in contract file; compile-checked above
 			default:
 				t.Fatalf("semantic %q CoveredBy %q: expected Test* or known contract symbol", row.Name, part)
 			}
@@ -142,31 +140,39 @@ func collectAttemptGatePackageTestNames(t *testing.T) map[string]bool {
 	return out
 }
 
-// TestAttemptGate_ArchitectureREDInventory is the Task 6.1 AST characterization:
-// Coordinator still owns gate responsibilities; production AttemptGate is absent;
-// WaitForIdle still polls; Reload can expose busy before armAttempt; pending
-// follow-up claim remains inlined in Reload; concurrent duplicate release is unsafe.
-// The suite is GREEN by recording these as explicit RED baseline facts Task 6.2 flips.
-func TestAttemptGate_ArchitectureREDInventory(t *testing.T) {
+// TestAttemptGate_ArchitectureOwnerAssertions permanently asserts Task 6.2
+// ownership: exactly one production attemptGate owner, Coordinator no longer
+// declares old gate fields/helpers, exact admission/lease dataflow, exact
+// package caller graph, no polling on gate/Coordinator idle paths, and
+// completion/abandon close only through one lock-owned release helper.
+func TestAttemptGate_ArchitectureOwnerAssertions(t *testing.T) {
 	t.Parallel()
 	fset := token.NewFileSet()
-	coordPath := "coordinator.go"
-	src, err := os.ReadFile(coordPath)
-	if err != nil {
-		t.Fatal(err)
+
+	files := parseProductionRuntimehostFiles(t, fset)
+	violations := analyzeGateOwnership(files)
+	if len(violations) > 0 {
+		t.Fatalf("gate ownership violations:\n%s", strings.Join(violations, "\n"))
 	}
-	file, err := parser.ParseFile(fset, coordPath, src, 0)
-	if err != nil {
-		t.Fatal(err)
+	if got := analyzeGateCallerGraph(files); len(got) > 0 {
+		t.Fatalf("gate caller graph violations:\n%s", strings.Join(got, "\n"))
+	}
+	if got := analyzeIdleCloseOwnership(files); len(got) > 0 {
+		t.Fatalf("idle close ownership violations:\n%s", strings.Join(got, "\n"))
+	}
+
+	file := files["coordinator.go"]
+	if file == nil {
+		t.Fatal("coordinator.go missing from production scan")
 	}
 
 	coord := findTypeSpec(file, "Coordinator")
 	if coord == nil {
-		t.Fatal("RED inventory: Coordinator type missing")
+		t.Fatal("Coordinator type missing")
 	}
 	st, ok := coord.Type.(*ast.StructType)
 	if !ok || st.Fields == nil {
-		t.Fatal("RED inventory: Coordinator is not a struct")
+		t.Fatal("Coordinator is not a struct")
 	}
 	fields := map[string]bool{}
 	for _, f := range st.Fields.List {
@@ -174,7 +180,7 @@ func TestAttemptGate_ArchitectureREDInventory(t *testing.T) {
 			fields[name.Name] = true
 		}
 	}
-	owned := []string{
+	forbidden := []string{
 		"busy",
 		"pendingSignal",
 		"coalesced",
@@ -183,118 +189,126 @@ func TestAttemptGate_ArchitectureREDInventory(t *testing.T) {
 		"attemptOnce",
 		"shutdown",
 	}
-	for _, name := range owned {
-		if !fields[name] {
-			t.Fatalf("RED inventory: Coordinator must still own field %q until Task 6.2", name)
+	for _, name := range forbidden {
+		if fields[name] {
+			t.Fatalf("Coordinator must not declare gate field %q after Task 6.2", name)
 		}
 	}
-	t.Log("RED: Coordinator still owns busy/pendingSignal/coalesced/attemptCancel/attemptDone/attemptOnce/shutdown")
+	if !fields["gate"] {
+		t.Fatal("Coordinator must own a gate field delegating admission/idle/shutdown")
+	}
 
-	for _, name := range []string{"BeginShutdown", "WaitForIdle", "armAttempt", "releaseAttempt", "Reload"} {
+	for _, name := range []string{"armAttempt", "releaseAttempt"} {
+		if findMethod(file, "Coordinator", name) != nil {
+			t.Fatalf("Coordinator must not declare helper %s after Task 6.2", name)
+		}
+	}
+	for _, name := range []string{"BeginShutdown", "WaitForIdle", "Reload", "Status"} {
 		if findMethod(file, "Coordinator", name) == nil {
-			t.Fatalf("RED inventory: missing Coordinator.%s", name)
+			t.Fatalf("missing Coordinator.%s", name)
 		}
 	}
-	t.Log("RED: busy admission, pending SIGHUP, coalesce, cancel, shutdown, completion channel, WaitForIdle remain on Coordinator")
-
-	if productionAttemptGateOwnerExists(t) {
-		t.Fatal("Task 6.1 RED baseline expects no production AttemptGate owner yet; Task 6.2 must introduce it")
-	}
-	t.Log("RED: no production AttemptGate type/owner exists yet")
-
-	wait := findMethod(file, "Coordinator", "WaitForIdle")
-	if wait == nil || wait.Body == nil {
-		t.Fatal("WaitForIdle missing body")
-	}
-	if !funcContainsPollingTimer(wait.Body) {
-		t.Fatal("Task 6.1 RED baseline expects WaitForIdle polling (time.After/ticker/sleep); Task 6.2 must delete it")
-	}
-	t.Log("RED: Coordinator.WaitForIdle contains polling/periodic timer")
 
 	reload := findMethod(file, "Coordinator", "Reload")
 	if reload == nil || reload.Body == nil {
 		t.Fatal("Reload missing body")
 	}
-	busyPos, armPos, ok := busyAssignmentBeforeArmAttempt(reload.Body)
-	if !ok {
-		t.Fatal("Task 6.1 RED baseline expects Reload to assign busy before armAttempt")
+	if !coordinatorCallsExactGateMethod(reload.Body, "TryStart") {
+		t.Fatal("Coordinator.Reload must call c.gate.TryStart (exact gate receiver)")
 	}
-	if !busyPos.IsValid() || !armPos.IsValid() || busyPos >= armPos {
-		t.Fatalf("busy-before-armed order invalid: busy=%v arm=%v", busyPos, armPos)
+	flow := analyzeReloadLeaseFlow(reload.Body)
+	if !flow.ok {
+		t.Fatalf("Coordinator.Reload lease flow violations:\n%s", strings.Join(flow.violations, "\n"))
 	}
-	t.Logf("RED: Reload sets busy at %s before armAttempt at %s", fset.Position(busyPos), fset.Position(armPos))
+	if !reloadAbandonDeferBeforeRunAttempt(reload.Body) {
+		t.Fatal("Coordinator.Reload must install deferred lease Abandon before runAttempt/post-admission work")
+	}
+	if reloadClaimsPendingFollowUpInline(reload.Body) {
+		t.Fatal("Coordinator.Reload must not inline pending-HUP claim + coalesced reset")
+	}
+	if busyAssignmentExists(reload.Body) {
+		t.Fatal("Coordinator.Reload must not assign busy=true; gate owns atomic arm")
+	}
 
-	if !reloadClaimsPendingFollowUpInline(reload.Body) {
-		t.Fatal("Task 6.1 RED baseline expects Reload to inline pending-HUP claim + coalesced reset; Task 6.2 Complete() must own that transition")
+	wait := findMethod(file, "Coordinator", "WaitForIdle")
+	if wait == nil || wait.Body == nil {
+		t.Fatal("WaitForIdle missing body")
 	}
-	t.Log("RED: pending follow-up claim/coalesced reset still inlined in Coordinator.Reload (no Complete outcome API yet)")
+	if !coordinatorCallsExactGateMethod(wait.Body, "WaitForIdle") {
+		t.Fatal("Coordinator.WaitForIdle must call c.gate.WaitForIdle")
+	}
+	if funcContainsPollingTimer(wait.Body) {
+		t.Fatal("Coordinator.WaitForIdle must not poll/sleep/ticker")
+	}
 
-	release := findMethod(file, "Coordinator", "releaseAttempt")
-	if release == nil || release.Body == nil {
-		t.Fatal("releaseAttempt missing body")
+	begin := findMethod(file, "Coordinator", "BeginShutdown")
+	if begin == nil || begin.Body == nil {
+		t.Fatal("BeginShutdown missing body")
 	}
-	if !releaseAttemptHasRacyElseClose(release.Body) {
-		t.Fatal("Task 6.1 RED baseline expects releaseAttempt else-branch unprotected close; Task 6.2 Finish must be race-safe")
+	if !coordinatorCallsExactGateMethod(begin.Body, "BeginShutdown") {
+		t.Fatal("Coordinator.BeginShutdown must call c.gate.BeginShutdown")
 	}
-	t.Log("RED: releaseAttempt else branch can close without Once under concurrent duplicate Complete — source-level only until Task 6.2")
+
+	status := findMethod(file, "Coordinator", "Status")
+	if status == nil || status.Body == nil {
+		t.Fatal("Status missing body")
+	}
+	if !coordinatorCallsExactGateMethod(status.Body, "Snapshot") {
+		t.Fatal("Coordinator.Status must call c.gate.Snapshot")
+	}
+
+	gateFile := files["attempt_gate.go"]
+	if gateFile == nil {
+		t.Fatal("attempt_gate.go missing")
+	}
+	gateWait := findMethod(gateFile, "attemptGate", "WaitForIdle")
+	if gateWait == nil || gateWait.Body == nil {
+		t.Fatal("attemptGate.WaitForIdle missing")
+	}
+	if funcContainsPollingTimer(gateWait.Body) {
+		t.Fatal("attemptGate.WaitForIdle must not poll/sleep/ticker")
+	}
+	if findMethod(gateFile, "attemptGate", canonicalReleaseHelper) == nil {
+		t.Fatalf("missing canonical release helper %s", canonicalReleaseHelper)
+	}
+	complete := findMethod(gateFile, "attemptLease", "Complete")
+	if complete == nil || complete.Body == nil {
+		t.Fatal("attemptLease.Complete missing")
+	}
+	abandon := findMethod(gateFile, "attemptLease", "Abandon")
+	if abandon == nil || abandon.Body == nil {
+		t.Fatal("attemptLease.Abandon missing")
+	}
 }
 
 // TestAttemptGate_CallerCancelDetachmentEvidence locks caller-cancel detachment:
-// Reload uses context.WithoutCancel, and the focused behavioral proof test exists.
+// production TryStart uses context.WithoutCancel, and the focused behavioral
+// proof test exists.
 func TestAttemptGate_CallerCancelDetachmentEvidence(t *testing.T) {
 	t.Parallel()
 	fset := token.NewFileSet()
-	src, err := os.ReadFile("coordinator.go")
+	src, err := os.ReadFile("attempt_gate.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	file, err := parser.ParseFile(fset, "coordinator.go", src, 0)
+	file, err := parser.ParseFile(fset, "attempt_gate.go", src, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	reload := findMethod(file, "Coordinator", "Reload")
-	if reload == nil || reload.Body == nil {
-		t.Fatal("Reload missing")
+	try := findMethod(file, "attemptGate", "TryStart")
+	if try == nil || try.Body == nil {
+		t.Fatal("attemptGate.TryStart missing")
 	}
-	if !funcContainsWithoutCancel(reload.Body) {
-		t.Fatal("expected Coordinator.Reload to call context.WithoutCancel for host-owned attempt detachment (req 6.10)")
+	if !funcContainsWithoutCancel(try.Body) {
+		t.Fatal("expected attemptGate.TryStart to call context.WithoutCancel for host-owned attempt detachment (req 6.10)")
 	}
-	t.Log("characterization/AST: Reload uses context.WithoutCancel(ctx) so trigger-caller cancel does not own the admitted attempt")
-
 	tests := collectAttemptGatePackageTestNames(t)
 	if !tests["TestCoordinator_HostTimeoutIndependentOfClientCancel"] {
 		t.Fatal("expected existing TestCoordinator_HostTimeoutIndependentOfClientCancel as behavioral detachment proof")
 	}
-}
-
-func productionAttemptGateOwnerExists(t *testing.T) bool {
-	t.Helper()
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatal(err)
+	if !tests["TestAttemptGate_CallerCancelDetachment"] {
+		t.Fatal("expected TestAttemptGate_CallerCancelDetachment as isolated gate detachment proof")
 	}
-	fset := token.NewFileSet()
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		src, err := os.ReadFile(name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		file, err := parser.ParseFile(fset, name, src, 0)
-		if err != nil {
-			t.Fatalf("parse %s: %v", name, err)
-		}
-		if findTypeSpec(file, "AttemptGate") != nil {
-			return true
-		}
-		if findTypeSpec(file, "attemptGate") != nil {
-			return true
-		}
-	}
-	return false
 }
 
 func findTypeSpec(file *ast.File, name string) *ast.TypeSpec {
@@ -386,85 +400,32 @@ func funcContainsWithoutCancel(body *ast.BlockStmt) bool {
 	return found
 }
 
-// releaseAttemptHasRacyElseClose detects the current unprotected close(done)
-// fallback used when attemptOnce is already cleared — unsafe under concurrent
-// duplicate Complete and an explicit Task 6.2 contract gap.
-func releaseAttemptHasRacyElseClose(body *ast.BlockStmt) bool {
-	foundClose := false
+func busyAssignmentExists(body *ast.BlockStmt) bool {
+	found := false
 	ast.Inspect(body, func(n ast.Node) bool {
-		ifStmt, ok := n.(*ast.IfStmt)
-		if !ok || ifStmt.Else == nil {
-			return true
-		}
-		elseBlock, ok := ifStmt.Else.(*ast.BlockStmt)
+		as, ok := n.(*ast.AssignStmt)
 		if !ok {
 			return true
 		}
-		ast.Inspect(elseBlock, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
-				return true
+		for i, lhs := range as.Lhs {
+			sel, isSel := lhs.(*ast.SelectorExpr)
+			if !isSel || sel.Sel == nil || sel.Sel.Name != "busy" {
+				continue
 			}
-			ident, ok := call.Fun.(*ast.Ident)
-			if ok && ident.Name == "close" {
-				foundClose = true
-				return false
-			}
-			return true
-		})
-		return true
-	})
-	return foundClose
-}
-
-// busyAssignmentBeforeArmAttempt reports whether Reload assigns c.busy=true
-// at a source position strictly before calling armAttempt.
-func busyAssignmentBeforeArmAttempt(body *ast.BlockStmt) (busyPos, armPos token.Pos, ok bool) {
-	var busy token.Pos
-	var arm token.Pos
-	ast.Inspect(body, func(n ast.Node) bool {
-		switch node := n.(type) {
-		case *ast.AssignStmt:
-			for i, lhs := range node.Lhs {
-				sel, isSel := lhs.(*ast.SelectorExpr)
-				if !isSel || sel.Sel == nil || sel.Sel.Name != "busy" {
-					continue
-				}
-				if i < len(node.Rhs) {
-					if lit, isLit := node.Rhs[i].(*ast.Ident); isLit && lit.Name == "true" {
-						if !busy.IsValid() || node.Pos() < busy {
-							busy = node.Pos()
-						}
-					}
-				}
-			}
-		case *ast.CallExpr:
-			switch fun := node.Fun.(type) {
-			case *ast.SelectorExpr:
-				if fun.Sel != nil && fun.Sel.Name == "armAttempt" {
-					if !arm.IsValid() || node.Pos() < arm {
-						arm = node.Pos()
-					}
-				}
-			case *ast.Ident:
-				if fun.Name == "armAttempt" {
-					if !arm.IsValid() || node.Pos() < arm {
-						arm = node.Pos()
-					}
+			if i < len(as.Rhs) {
+				if lit, isLit := as.Rhs[i].(*ast.Ident); isLit && lit.Name == "true" {
+					found = true
+					return false
 				}
 			}
 		}
 		return true
 	})
-	if busy.IsValid() && arm.IsValid() && busy < arm {
-		return busy, arm, true
-	}
-	return 0, 0, false
+	return found
 }
 
-// reloadClaimsPendingFollowUpInline detects the current Reload loop that clears
-// pendingSignal and resets coalesced while still owning the active attempt slot
-// (no Complete() follow-up outcome API yet — Task 6.2 contract gap).
+// reloadClaimsPendingFollowUpInline detects an inlined Reload loop that clears
+// pendingSignal and resets coalesced while still owning the active attempt slot.
 func reloadClaimsPendingFollowUpInline(body *ast.BlockStmt) bool {
 	clearsPending := false
 	resetsCoalesced := false
@@ -495,9 +456,8 @@ func reloadClaimsPendingFollowUpInline(body *ast.BlockStmt) bool {
 }
 
 // TestAttemptGate_NoPollPolicyInConcurrencySuite rejects wall-clock polling and
-// scheduler steering in Task 6.1 attempt_gate_* tests. Production WaitForIdle
-// polling is inventoried as RED evidence (does not fail this suite). A past
-// time.Time used only to build an already-expired context deadline is allowed.
+// scheduler steering in attempt_gate_* tests and production idle paths.
+// A past time.Time used only to build an already-expired context deadline is allowed.
 func TestAttemptGate_NoPollPolicyInConcurrencySuite(t *testing.T) {
 	t.Parallel()
 	entries, err := os.ReadDir(".")
@@ -541,13 +501,13 @@ func TestAttemptGate_NoPollPolicyInConcurrencySuite(t *testing.T) {
 			case "time":
 				switch sel.Sel.Name {
 				case "Sleep", "After", "NewTicker", "Tick", "AfterFunc", "NewTimer":
-					t.Fatalf("Task 6.1 suite must not use time.%s for sync at %s:%d (use barriers/channels; context timeout only as post-barrier deadlock guard; past time.Time for expired deadline is OK)",
+					t.Fatalf("attempt_gate suite must not use time.%s for sync at %s:%d (use barriers/channels; context timeout only as post-barrier deadlock guard; past time.Time for expired deadline is OK)",
 						sel.Sel.Name, filepath.Base(pos.Filename), pos.Line)
 				}
 			case "runtime":
 				switch sel.Sel.Name {
 				case "Gosched":
-					t.Fatalf("Task 6.1 suite must not use runtime.%s scheduler steering at %s:%d",
+					t.Fatalf("attempt_gate suite must not use runtime.%s scheduler steering at %s:%d",
 						sel.Sel.Name, filepath.Base(pos.Filename), pos.Line)
 				}
 			}
@@ -558,18 +518,27 @@ func TestAttemptGate_NoPollPolicyInConcurrencySuite(t *testing.T) {
 		t.Fatal("expected attempt_gate_*_test.go files to scan")
 	}
 
-	// Production RED inventory (pass while polling remains).
-	coordSrc, err := os.ReadFile("coordinator.go")
-	if err != nil {
-		t.Fatal(err)
+	for _, path := range []string{"attempt_gate.go", "coordinator.go"} {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		file, err := parser.ParseFile(fset, path, src, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var wait *ast.FuncDecl
+		switch path {
+		case "attempt_gate.go":
+			wait = findMethod(file, "attemptGate", "WaitForIdle")
+		case "coordinator.go":
+			wait = findMethod(file, "Coordinator", "WaitForIdle")
+		}
+		if wait == nil || wait.Body == nil {
+			t.Fatalf("%s WaitForIdle missing", path)
+		}
+		if funcContainsPollingTimer(wait.Body) {
+			t.Fatalf("%s WaitForIdle must not contain polling/periodic timers", path)
+		}
 	}
-	coordFile, err := parser.ParseFile(fset, "coordinator.go", coordSrc, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wait := findMethod(coordFile, "Coordinator", "WaitForIdle")
-	if wait == nil || !funcContainsPollingTimer(wait.Body) {
-		t.Fatal("production WaitForIdle polling RED evidence missing; if Task 6.2 already removed it, flip this inventory")
-	}
-	t.Log("RED inventory: production WaitForIdle still polls; Task 6.2 must delete polling and activate zero-poll production gate")
 }

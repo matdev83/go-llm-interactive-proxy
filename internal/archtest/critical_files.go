@@ -59,16 +59,16 @@ var CriticalFileBudgets = []CriticalFileBudget{
 
 	// --- runtime-architecture-convergence-and-shrinkage Task 1.2 migration freezes ---
 	// Reviewed baseline SHA efe4624909cea318c7211d5cb3734059d3210802 (Task 1.1).
-	// Initial Max values are exact measured physical line counts with no growth
-	// headroom. Final targets are Requirement 11.3; named tasks must lower Max.
+	// CriticalFileBudgets.Max tracks the current exact-measured ratchet (CurrentMax
+	// in critical_files_freeze_test.go), not the immutable Task 1.1 BaselineMax.
+	// Final targets are Requirement 11.3; named tasks must lower CurrentMax.
 
-	// Freeze 797 → final ≤300 (Req 11.3). Lower via Phase 6 task 6.5 (thin coordinator).
-	{Path: "internal/infra/runtimehost/coordinator.go", Max: 797},
-	// Freeze 575 → final ≤400 (Req 11.3). Lower via Phase 7 task 7.3 (generation lifecycle).
+	// BaselineMax 797 (Task 1.1) → CurrentMax 722 after Task 6.2 AttemptGate + Abandon;
+	// final ≤300 via Phase 6 task 6.5 (thin coordinator after runner/state extraction).
+	{Path: "internal/infra/runtimehost/coordinator.go", Max: 722},
+	// BaselineMax/CurrentMax 575 → final ≤400 (Req 11.3). Lower via Phase 7 task 7.3.
 	{Path: "internal/infra/runtimehost/generation.go", Max: 575},
-	// Freeze 440 → contracted to 400 in Task 3.3 (lifecycle/transfer extracted to
-	// candidate_lifecycle.go); ratcheted to 393 in Task 4.2 (Closers field and
-	// legacy-closer overwrite block deleted); final ≤350 (Req 11.3).
+	// BaselineMax 440 → CurrentMax 393 after Tasks 3.3/4.2; final ≤350 (Req 11.3).
 	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 393},
 	// Task 3.5: freeze post-deletion composer/input surfaces at measured sizes.
 	{Path: "internal/infra/runtimebundle/handler_composer.go", Max: 25},
@@ -86,7 +86,7 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	// the construction transaction and Close/Closed methods (measured 249;
 	// 51 lines under the final ≤300 target).
 	{Path: "internal/infra/runtimebundle/process_services.go", Max: 249},
-	// Freeze 367 → Task 5.2 ratcheted to exact thin BuildHost facade (measured 321);
+	// BaselineMax 367 → CurrentMax 321 (Task 5.2 thin BuildHost facade);
 	// final ≤150 (Req 11.3). Lower via Phase 8 task 8.1 (public build/facade).
 	{Path: "pkg/lipruntime/build.go", Max: 321},
 	// Task 5.5: exact-measured post dual-bootstrap deletion (zero headroom).

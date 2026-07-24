@@ -64,28 +64,18 @@ type Coordinator struct {
 	mgr      *Manager
 	timeout  time.Duration
 	observer *ReloadObserver
+	gate     *attemptGate
 
 	mu             sync.Mutex
-	busy           bool
-	pendingSignal  bool
-	coalesced      int64
 	last           sdkreload.Result
 	lastSuccess    sdkreload.Result
 	lastFailure    sdkreload.Result
 	sourcePosture  string
 	modelGen       string
 	attempts       atomic.Int64
-	shutdown       atomic.Bool
 	activeEff      *config.EffectiveConfig
 	activeSource   *configsource.ActiveSourceVersion
 	activeSourceMu sync.RWMutex
-
-	// Host-owned attempt cancellation + idle barrier (req 13.7).
-	// attemptCancel cancels the active Reload (including coalesced follow-ups).
-	// attemptDone is non-nil while an attempt slot is armed; closed exactly once on release.
-	attemptCancel context.CancelFunc
-	attemptDone   chan struct{}
-	attemptOnce   *sync.Once // closes attemptDone exactly once
 }
 
 // NewCoordinator constructs a production serialized reload coordinator.
@@ -118,6 +108,7 @@ func NewCoordinator(deps CoordinatorDeps) (*Coordinator, error) {
 		mgr:           deps.Manager,
 		timeout:       timeout,
 		observer:      deps.Observer,
+		gate:          newAttemptGate(),
 		activeEff:     deps.ActiveEffective,
 		activeSource:  cloneActiveSource(deps.ActiveSource),
 		sourcePosture: "ok",
@@ -143,13 +134,8 @@ func (c *Coordinator) BeginShutdown() {
 	if c == nil {
 		return
 	}
-	c.shutdown.Store(true)
-	c.mu.Lock()
-	c.pendingSignal = false
-	cancel := c.attemptCancel
-	c.mu.Unlock()
-	if cancel != nil {
-		cancel()
+	if c.gate != nil {
+		c.gate.BeginShutdown()
 	}
 	if c.mgr != nil {
 		c.mgr.BeginShutdown()
@@ -160,80 +146,10 @@ func (c *Coordinator) BeginShutdown() {
 // in flight, or until ctx is done. It is safe after [Coordinator.BeginShutdown]
 // and does not take request-path locks (req 13.7, 15.1).
 func (c *Coordinator) WaitForIdle(ctx context.Context) error {
-	if c == nil {
+	if c == nil || c.gate == nil {
 		return nil
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	for {
-		c.mu.Lock()
-		done := c.attemptDone
-		busy := c.busy
-		c.mu.Unlock()
-		if done == nil && !busy {
-			return nil
-		}
-		if done == nil {
-			// Narrow window: busy set but attempt not yet armed (or just released).
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(time.Millisecond):
-				continue
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-done:
-			// Re-check: another coalesced attempt may have armed immediately.
-		}
-	}
-}
-
-// armAttempt registers cancel/done for the active Reload slot. If shutdown already
-// began, cancel is invoked so BeginShutdown cannot miss the registration race.
-// Caller must releaseAttempt exactly once for the returned done channel.
-func (c *Coordinator) armAttempt(cancel context.CancelFunc) (done chan struct{}, shutdownAlready bool) {
-	done = make(chan struct{})
-	once := &sync.Once{}
-	c.mu.Lock()
-	c.attemptCancel = cancel
-	c.attemptDone = done
-	c.attemptOnce = once
-	shutdownAlready = c.shutdown.Load()
-	c.mu.Unlock()
-	if shutdownAlready {
-		cancel()
-	}
-	return done, shutdownAlready
-}
-
-// releaseAttempt clears the armed slot when it still matches done and closes
-// done exactly once so WaitForIdle observers wake.
-func (c *Coordinator) releaseAttempt(done chan struct{}, cancel context.CancelFunc) {
-	if cancel != nil {
-		cancel()
-	}
-	c.mu.Lock()
-	once := c.attemptOnce
-	if c.attemptDone == done {
-		c.attemptCancel = nil
-		c.attemptDone = nil
-		c.attemptOnce = nil
-	}
-	c.mu.Unlock()
-	if once != nil {
-		once.Do(func() { close(done) })
-	} else {
-		// Slot already cleared by a prior release; still ensure done is closed.
-		select {
-		case <-done:
-		default:
-			close(done)
-		}
-	}
+	return c.gate.WaitForIdle(ctx)
 }
 
 // Status returns a bounded safe snapshot (req 13.1-13.2, 14.1, 14.8).
@@ -244,6 +160,11 @@ func (c *Coordinator) releaseAttempt(done chan struct{}, cancel context.CancelFu
 func (c *Coordinator) Status() sdkreload.Status {
 	if c == nil {
 		return sdkreload.Status{}
+	}
+	// Gate snapshot first so Coordinator and gate locks are never held together.
+	var gateSnap attemptGateSnapshot
+	if c.gate != nil {
+		gateSnap = c.gate.Snapshot()
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -263,7 +184,7 @@ func (c *Coordinator) Status() sdkreload.Status {
 		history = c.observer.History().Snapshot()
 	}
 	var current *sdkreload.Result
-	if c.busy {
+	if gateSnap.Busy {
 		cur := c.last
 		current = &cur
 	}
@@ -286,9 +207,9 @@ func (c *Coordinator) Status() sdkreload.Status {
 		ControlDegraded:     controlDegraded,
 		ModelGeneration:     c.modelGen,
 		History:             history,
-		Busy:                c.busy,
-		PendingSignal:       c.pendingSignal,
-		CoalescedSignals:    c.coalesced,
+		Busy:                gateSnap.Busy,
+		PendingSignal:       gateSnap.PendingSignal,
+		CoalescedSignals:    gateSnap.CoalescedSignals,
 	}.Clone()
 }
 
@@ -299,99 +220,91 @@ func (c *Coordinator) Reload(ctx context.Context, trigger sdkreload.Trigger) sdk
 	if c == nil {
 		return sdkreload.Result{Category: sdkreload.ResultInternalFailed, ReasonCategory: "nil-coordinator"}
 	}
-	if c.shutdown.Load() || (c.mgr != nil && c.mgr.ShuttingDown()) {
+	if c.gate == nil {
+		return sdkreload.Result{Category: sdkreload.ResultInternalFailed, ReasonCategory: "nil-attempt-gate"}
+	}
+	if c.shuttingDown() {
 		return c.terminal(sdkreload.Result{
 			Category:       sdkreload.ResultCanceled,
 			ReasonCategory: configreload.StageShutdown,
 		}, false)
 	}
 
-	c.mu.Lock()
-	if c.busy {
-		if trigger.Kind == sdkreload.TriggerSIGHUP {
-			if c.pendingSignal {
-				c.coalesced++
-			} else {
-				c.pendingSignal = true
-			}
-			coal := c.coalesced
-			activeID := c.activeGenerationIDLocked()
-			c.mu.Unlock()
-			return sdkreload.Result{
-				Category:         sdkreload.ResultBusy,
-				ActiveGeneration: activeID,
-				ReasonCategory:   configreload.StageCoalesce,
-				CoalescedSignals: coal,
-			}
-		}
-		activeID := c.activeGenerationIDLocked()
-		c.mu.Unlock()
+	admission := c.gate.TryStart(ctx, trigger)
+	switch admission.Kind {
+	case admissionRejectedShutdown:
+		return c.terminal(sdkreload.Result{
+			Category:       sdkreload.ResultCanceled,
+			ReasonCategory: configreload.StageShutdown,
+		}, false)
+	case admissionBusyAPI:
 		return sdkreload.Result{
 			Category:         sdkreload.ResultBusy,
-			ActiveGeneration: activeID,
+			ActiveGeneration: c.activeGenerationID(),
 			ReasonCategory:   configreload.StageBusy,
 		}
-	}
-	c.busy = true
-	c.mu.Unlock()
-
-	// Parent cancel covers the first attempt and every coalesced follow-up so
-	// BeginShutdown can abort the whole Reload slot (req 13.7).
-	parentBase := context.WithoutCancel(ctx)
-	if parentBase == nil {
-		parentBase = context.Background()
-	}
-	parentCtx, parentCancel := context.WithCancel(parentBase)
-	done, shut := c.armAttempt(parentCancel)
-	defer c.releaseAttempt(done, parentCancel)
-	if shut {
-		c.mu.Lock()
-		c.pendingSignal = false
-		c.busy = false
-		c.mu.Unlock()
+	case admissionPendingHUP, admissionCoalescedHUP:
+		return sdkreload.Result{
+			Category:         sdkreload.ResultBusy,
+			ActiveGeneration: c.activeGenerationID(),
+			ReasonCategory:   configreload.StageCoalesce,
+			CoalescedSignals: admission.CoalescedSignals,
+		}
+	case admissionAdmitted:
+		// proceed
+	default:
 		return c.terminal(sdkreload.Result{
-			Category:       sdkreload.ResultCanceled,
-			ReasonCategory: configreload.StageShutdown,
+			Category:       sdkreload.ResultInternalFailed,
+			ReasonCategory: "unknown-admission",
 		}, false)
 	}
 
-	hostCtx, cancel := context.WithTimeout(parentCtx, c.timeout)
-	defer cancel()
+	lease := admission.Lease
+	if lease == nil {
+		return c.terminal(sdkreload.Result{
+			Category:       sdkreload.ResultInternalFailed,
+			ReasonCategory: "nil-lease",
+		}, false)
+	}
+	// Gate-owned cleanup: abandon the current lease variable on any exit path
+	// (including panic outside runAttempt). After Complete advances to a
+	// follow-up, lease is reassigned so this defer targets the active token.
+	// After a normal final Complete, Abandon is an idempotent no-op.
+	defer func() { lease.Abandon() }()
 
+	hostCtx, cancel := context.WithTimeout(lease.Context(), c.timeout)
 	first := c.runAttempt(hostCtx, trigger)
+	cancel()
 	c.recordTerminal(first)
-	c.mu.Lock()
-	// Keep busy until pending is claimed or confirmed absent so API callers
-	// cannot start a concurrent candidate build (req 11.4).
+
 	for {
-		if c.shutdown.Load() || (c.mgr != nil && c.mgr.ShuttingDown()) {
-			c.pendingSignal = false
-			c.busy = false
-			c.mu.Unlock()
+		// Manager-only shutdown must fold into the gate so Complete clears
+		// pending follow-up and rejects further progression.
+		if c.mgr != nil && c.mgr.ShuttingDown() {
+			c.gate.BeginShutdown()
+		}
+		fin := lease.Complete()
+		switch fin.Kind {
+		case finishReleasedIdle, finishAlreadyCompleted:
+			return first
+		case finishFollowUpClaimed:
+			if fin.FollowUpLease == nil {
+				return first
+			}
+			lease = fin.FollowUpLease
+			followCtx, followCancel := context.WithTimeout(lease.Context(), c.timeout)
+			follow := c.runAttempt(followCtx, sdkreload.Trigger{
+				Kind:       sdkreload.TriggerSIGHUP,
+				AcceptedAt: time.Now().UTC(),
+				SafeActor:  "coalesced-sighup",
+			})
+			followCancel()
+			follow.CoalescedSignals = fin.CoalescedSignals
+			c.recordTerminal(follow)
+			// loop: another SIGHUP may have reserved pending during follow-up
+		default:
 			return first
 		}
-		if !c.pendingSignal {
-			c.busy = false
-			c.mu.Unlock()
-			return first
-		}
-		c.pendingSignal = false
-		coal := c.coalesced
-		c.coalesced = 0
-		c.mu.Unlock()
-
-		followCtx, followCancel := context.WithTimeout(parentCtx, c.timeout)
-		follow := c.runAttempt(followCtx, sdkreload.Trigger{
-			Kind:       sdkreload.TriggerSIGHUP,
-			AcceptedAt: time.Now().UTC(),
-			SafeActor:  "coalesced-sighup",
-		})
-		followCancel()
-		follow.CoalescedSignals = coal
-		c.recordTerminal(follow)
-
-		c.mu.Lock()
-		// loop: another SIGHUP may have reserved pending during follow-up
 	}
 }
 
@@ -403,6 +316,18 @@ func (c *Coordinator) terminal(res sdkreload.Result, record bool) sdkreload.Resu
 		c.recordTerminal(res)
 	}
 	return res
+}
+
+// shuttingDown reports gate-owned shutdown truth plus Manager shutdown where
+// currently required for late-publication checks.
+func (c *Coordinator) shuttingDown() bool {
+	if c == nil {
+		return true
+	}
+	if c.gate != nil && c.gate.shuttingDown() {
+		return true
+	}
+	return c.mgr != nil && c.mgr.ShuttingDown()
 }
 
 func (c *Coordinator) activeGenerationID() int64 {
@@ -483,7 +408,7 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger sdkreload.Trigger)
 		endAttempt(res)
 	}()
 
-	if c.shutdown.Load() || (c.mgr != nil && c.mgr.ShuttingDown()) {
+	if c.shuttingDown() {
 		res.Category = sdkreload.ResultCanceled
 		res.ReasonCategory = configreload.StageShutdown
 		return res
@@ -504,7 +429,7 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger sdkreload.Trigger)
 	}
 	snap, atomicRes, err := c.source.ReadStable(stageCtx, activeSrc)
 	if err != nil {
-		if c.shutdown.Load() || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if c.shuttingDown() || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			res.Category = sdkreload.ResultCanceled
 			res.ReasonCategory = configreload.StageShutdown
 			endStage(string(res.Category))
@@ -533,7 +458,7 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger sdkreload.Trigger)
 	}
 	eff, err := c.loader.LoadEffective(stageCtx, snap.Bytes)
 	if err != nil {
-		if c.shutdown.Load() || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if c.shuttingDown() || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			res.Category = sdkreload.ResultCanceled
 			res.ReasonCategory = configreload.StageShutdown
 			endStage(string(res.Category))
@@ -596,7 +521,7 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger sdkreload.Trigger)
 		endStage("ok")
 	}
 
-	if c.shutdown.Load() || (c.mgr != nil && c.mgr.ShuttingDown()) {
+	if c.shuttingDown() {
 		res.Category = sdkreload.ResultCanceled
 		res.ReasonCategory = configreload.StageShutdown
 		return res
@@ -621,7 +546,7 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger sdkreload.Trigger)
 			endStage(string(res.Category))
 			return res
 		}
-		if c.shutdown.Load() || errors.Is(compileErr, context.Canceled) || errors.Is(compileErr, context.DeadlineExceeded) {
+		if c.shuttingDown() || errors.Is(compileErr, context.Canceled) || errors.Is(compileErr, context.DeadlineExceeded) {
 			res.Category = sdkreload.ResultCanceled
 			res.ReasonCategory = configreload.StageShutdown
 			endStage(string(res.Category))
@@ -653,7 +578,7 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger sdkreload.Trigger)
 		plane = nil
 	}
 
-	if c.shutdown.Load() || (c.mgr != nil && c.mgr.ShuttingDown()) {
+	if c.shuttingDown() {
 		rollback()
 		res.Category = sdkreload.ResultCanceled
 		res.ReasonCategory = configreload.StageShutdown
@@ -683,7 +608,7 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger sdkreload.Trigger)
 	})
 	endStage("ok")
 
-	if c.shutdown.Load() || c.mgr.ShuttingDown() {
+	if c.shuttingDown() {
 		_ = gen.Discard()
 		res.Category = sdkreload.ResultCanceled
 		res.ReasonCategory = configreload.StageShutdown

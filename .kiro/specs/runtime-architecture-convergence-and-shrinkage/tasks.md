@@ -252,7 +252,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 5.5_
   - _Validation: `go test -race ./internal/infra/runtimehost/... -run 'AttemptGate|Busy|Coalesce|Idle|Shutdown'`_
 
-- [ ] 6.2 Implement AttemptGate and remove idle polling
+- [x] 6.2 Implement AttemptGate and remove idle polling
   - Create the attempt lease/completion signal under one lock transition.
   - Move active cancel, pending HUP, coalesced count, shutdown, and idle wait into the gate.
   - Delete the busy-before-armed window and timed polling loop.
