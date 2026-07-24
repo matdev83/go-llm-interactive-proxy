@@ -369,7 +369,8 @@ var lineBudgets = []struct {
 	// Task 8.1: Host facade query methods (Ready/snapshot/readiness/metering)
 	// moved onto Host so pkg/lipruntime stays at/below the b264155f pre-task
 	// recursive non-test total (measured 10451; zero headroom).
-	{"internal/infra/runtimebundle", 10451},
+	// Task 8.2: dropped deprecated ProductionOptions fields (measured 10419).
+	{"internal/infra/runtimebundle", 10419},
 	// Task 5.5: exact-measured cmd/lipstd after dual-bootstrap deletion
 	// (measured 913; zero headroom).
 	// Contracted from 913 to 880 for Task 7.4: tracing_shutdown.go deleted and
@@ -377,7 +378,8 @@ var lineBudgets = []struct {
 	{"cmd/lipstd", 880},
 	// Task 8.1: recursive public facade package exact-measured after host seam
 	// split (measured 819; at/under the b264155f pre-task 820 ceiling).
-	{"pkg/lipruntime", 819},
+	// Task 8.2: legacy_options quarantine adapter (measured 829).
+	{"pkg/lipruntime", 829},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

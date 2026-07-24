@@ -13,21 +13,17 @@ import (
 )
 
 // ProductionOptions carries enterprise/production injection seams (reqs 12.1, 12.3, 12.4).
-// Prefer descriptor-bound registrations; deprecated parallel slices are rejected unless
-// already normalized by pkg/lipruntime.
+// Canonical host construction accepts descriptor-bound registrations only; deprecated
+// parallel provider/rater fields are quarantined in pkg/lipruntime's legacy adapter.
 type ProductionOptions struct {
 	MeteringRecorder          metering.Recorder
 	RequestRegistrations      []authority.RequestRegistration
 	AttemptRegistrations      []authority.AttemptRegistration
 	ConcurrencyRegistration   *authority.ConcurrencyRegistration
 	RaterRegistrations        []economics.RaterRegistration
-	RequestProviders          []authority.RequestProvider   // Deprecated: use RequestRegistrations.
-	AttemptProviders          []authority.AttemptProvider   // Deprecated: use AttemptRegistrations.
-	ConcurrencyProvider       authority.ConcurrencyProvider // Deprecated: use ConcurrencyRegistration.
 	UsageSnapshotSource       economics.RuleSnapshotSource
 	ConcurrencySnapshotSource economics.RuleSnapshotSource
 	RatingSnapshotSource      economics.RatingSnapshotSource
-	Rater                     economics.Rater // Deprecated: use RaterRegistrations.
 	EvidenceSink              authority.EvidenceSink
 	MeteringQuerier           metering.Querier
 	TrafficObservers          []traffic.Observer
@@ -55,6 +51,5 @@ type ProductionOptions struct {
 // HasAuthorityOverrides reports whether production authority providers are set.
 func (p ProductionOptions) HasAuthorityOverrides() bool {
 	return len(p.RequestRegistrations) > 0 || len(p.AttemptRegistrations) > 0 ||
-		p.ConcurrencyRegistration != nil || len(p.RequestProviders) > 0 ||
-		len(p.AttemptProviders) > 0 || p.ConcurrencyProvider != nil
+		p.ConcurrencyRegistration != nil
 }

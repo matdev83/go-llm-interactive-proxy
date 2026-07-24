@@ -352,7 +352,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 7.4_
   - _Validation: `go test -race ./pkg/lipruntime/... ./testdata/enterprise_module/... -run 'Facade|External|Capability|Reload|Close'`_
 
-- [ ] 8.2 Isolate the current-major legacy option adapter
+- [x] 8.2 Isolate the current-major legacy option adapter
   - Characterize every deprecated field conversion and error.
   - Move legacy pairing/filtering/ID logic behind one explicit outer adapter before canonical Options normalization and HostBuilder.
   - Ensure canonical construction accepts descriptor-bound registrations only.

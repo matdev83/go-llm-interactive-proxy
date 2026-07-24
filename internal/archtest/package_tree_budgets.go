@@ -58,11 +58,14 @@ type PackageTreeBudget struct {
 // out of pkg/lipruntime (host_queries.go). pkg/lipruntime recursive non-test
 // production ceiling is the b264155f pre-task total with no headroom after the
 // public build/facade contraction (measured 819 ≤ 820).
+// Task 8.2: runtimebundle drops deprecated ProductionOptions provider/rater
+// fields and rejectUnboundLegacyAuthority (10419). pkg/lipruntime gains the
+// explicit legacy_options quarantine adapter (+10 vs Task 8.1; measured 829).
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 10451},
+	{Tree: "internal/infra/runtimebundle", Max: 10419},
 	{Tree: "internal/stdhttp", Max: 4509},
 	{Tree: "cmd/lipstd", Max: 880},
-	{Tree: "pkg/lipruntime", Max: 819},
+	{Tree: "pkg/lipruntime", Max: 829},
 }
 
 // CountNonTestGoLines recursively counts physical lines in non-test .go files

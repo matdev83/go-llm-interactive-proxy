@@ -218,10 +218,10 @@ func composeTerminalWorkProviders(prod ProductionOptions) ([]terminalworkapp.Eff
 }
 
 func concurrencyProviderFromProd(prod ProductionOptions) authority.ConcurrencyProvider {
-	if prod.ConcurrencyRegistration != nil && prod.ConcurrencyRegistration.Provider != nil {
+	if prod.ConcurrencyRegistration != nil {
 		return prod.ConcurrencyRegistration.Provider
 	}
-	return prod.ConcurrencyProvider
+	return nil
 }
 
 func requestRegistrationEffectVersion(reg authority.RequestRegistration) string {

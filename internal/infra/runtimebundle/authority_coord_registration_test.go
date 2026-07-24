@@ -175,39 +175,30 @@ func TestBuild_AttemptAndConcurrencyRegistrations(t *testing.T) {
 	}
 }
 
-func TestBuild_RejectsUnboundLegacyAuthoritySlices(t *testing.T) {
+func TestBuild_CanonicalRegistrationBoundary_NoLegacyFields(t *testing.T) {
 	t.Parallel()
+	// ProductionOptions is canonical-only after Task 8.2; legacy provider/rater
+	// fields are not constructible here. Prove registration-only wiring still works.
 	cfg := baseAuthorityConfig(false, "fail_closed")
-	cases := []struct {
-		name string
-		prod runtimebundle.ProductionOptions
-	}{
-		{
-			name: "request_providers",
-			prod: runtimebundle.ProductionOptions{RequestProviders: []authority.RequestProvider{prodAllowRequest{}}},
-		},
-		{
-			name: "attempt_providers",
-			prod: runtimebundle.ProductionOptions{AttemptProviders: []authority.AttemptProvider{prodAllowAttempt{}}},
-		},
-		{
-			name: "concurrency_provider",
-			prod: runtimebundle.ProductionOptions{ConcurrencyProvider: prodAllowConcurrency{}},
-		},
+	opts := baseAuthorityOptions(t, nil)
+	opts.Production = runtimebundle.ProductionOptions{
+		RequestRegistrations: []authority.RequestRegistration{{
+			Descriptor: authority.ProviderDescriptor{
+				ID:   "boundary-quota",
+				Kind: authority.ProviderKindAuthority,
+				Postures: []authority.StagePosture{{
+					Stage:           authority.StageRequestAdmit,
+					Strength:        authority.StrengthRequired,
+					FailureBehavior: authority.FailureFailClosed,
+				}},
+			},
+			Priority: authority.RequestPriorityQuotaBudgetRate,
+			Provider: prodAllowRequest{},
+		}},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			opts := baseAuthorityOptions(t, nil)
-			opts.Production = tc.prod
-			_, _, err := processAndCandidateErr(t, cfg, opts)
-			if err == nil {
-				t.Fatal("unbound legacy authority must fail Build")
-			}
-			if !strings.Contains(err.Error(), "deprecated") {
-				t.Fatalf("err=%v want deprecated", err)
-			}
-		})
+	_, built := mustProcessAndCandidate(t, cfg, opts)
+	if built.Executor.RequestCoordinator == nil || len(built.Executor.RequestCoordinator.Slots) == 0 {
+		t.Fatal("canonical request registration must wire coordinator slots")
 	}
 }
 

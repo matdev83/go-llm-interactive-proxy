@@ -32,7 +32,7 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 	if path == "" {
 		return nil, fmt.Errorf("lipruntime: empty config path")
 	}
-	norm, err := normalizeOptions(opts)
+	norm, err := prepareCanonicalProduction(opts)
 	if err != nil {
 		return nil, err
 	}

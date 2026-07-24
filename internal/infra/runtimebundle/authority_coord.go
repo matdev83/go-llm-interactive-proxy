@@ -17,9 +17,6 @@ func attachAuthorityCoordinators(rt *runtime.AccountingRuntime, prod ProductionO
 	if rt == nil {
 		return nil
 	}
-	if err := rejectUnboundLegacyAuthority(prod); err != nil {
-		return err
-	}
 	var concurrencyDesc *authority.ProviderDescriptor
 	if prod.ConcurrencyRegistration != nil {
 		if err := prod.ConcurrencyRegistration.Validate(); err != nil {
@@ -104,24 +101,6 @@ func attachAuthorityCoordinators(rt *runtime.AccountingRuntime, prod ProductionO
 	return nil
 }
 
-func rejectUnboundLegacyAuthority(prod ProductionOptions) error {
-	switch {
-	case len(prod.RequestProviders) > 0 && len(prod.RequestRegistrations) == 0:
-		return fmt.Errorf("runtimebundle: RequestProviders are deprecated; use RequestRegistrations")
-	case len(prod.AttemptProviders) > 0 && len(prod.AttemptRegistrations) == 0:
-		return fmt.Errorf("runtimebundle: AttemptProviders are deprecated; use AttemptRegistrations")
-	case prod.ConcurrencyProvider != nil && prod.ConcurrencyRegistration == nil:
-		return fmt.Errorf("runtimebundle: ConcurrencyProvider is deprecated; use ConcurrencyRegistration")
-	case len(prod.RequestProviders) > 0 && len(prod.RequestRegistrations) > 0:
-		return fmt.Errorf("runtimebundle: cannot mix RequestProviders with RequestRegistrations")
-	case len(prod.AttemptProviders) > 0 && len(prod.AttemptRegistrations) > 0:
-		return fmt.Errorf("runtimebundle: cannot mix AttemptProviders with AttemptRegistrations")
-	case prod.ConcurrencyProvider != nil && prod.ConcurrencyRegistration != nil:
-		return fmt.Errorf("runtimebundle: cannot mix ConcurrencyProvider with ConcurrencyRegistration")
-	}
-	return nil
-}
-
 func rejectOverlappingRegistrationIDs(prod ProductionOptions) error {
 	stagesByID := map[string]map[authority.Stage]struct{}{}
 	claim := func(id string, postures []authority.StagePosture) error {
@@ -189,11 +168,8 @@ func mapAttemptPriority(p authority.AttemptPriority) (authoritycoord.AttemptPrio
 }
 
 func selectEconomicsRater(prod ProductionOptions) (economics.Rater, error) {
-	if prod.Rater != nil && len(prod.RaterRegistrations) > 0 {
-		return nil, fmt.Errorf("runtimebundle: cannot mix Rater with RaterRegistrations")
-	}
 	if len(prod.RaterRegistrations) == 0 {
-		return prod.Rater, nil
+		return nil, nil
 	}
 	seen := map[string]struct{}{}
 	var operator economics.Rater
@@ -219,9 +195,6 @@ func raterIDsByPerspective(prod ProductionOptions, perspective metering.Economic
 		if reg.Perspective == perspective {
 			out = append(out, strings.TrimSpace(reg.ID))
 		}
-	}
-	if len(out) == 0 && prod.Rater != nil && perspective == metering.PerspectiveOperator {
-		out = append(out, "legacy-production-rater")
 	}
 	return out
 }
