@@ -43,8 +43,10 @@ type PackageTreeBudget struct {
 // ownership (retryable close state machine), Candidate transfer-vs-lifecycle
 // exclusive claim, terminal start blocking, and deletion of Candidate/
 // GenerationBundle/buildBackends duplicate lifecycle wrappers.
+// Task 7.3: contracted to exact-measured 10162 after host_build.go dropped its
+// direct runtimehost import (ShutdownDetached call sites simplified).
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 10163},
+	{Tree: "internal/infra/runtimebundle", Max: 10162},
 	{Tree: "internal/stdhttp", Max: 4522},
 	{Tree: "cmd/lipstd", Max: 913},
 }

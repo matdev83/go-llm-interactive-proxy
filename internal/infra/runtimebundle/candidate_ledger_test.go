@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -129,9 +130,13 @@ func TestCandidateRuntime_DiscardClosesLedgerOnly(t *testing.T) {
 	}
 }
 
-func TestCandidateRuntime_LifecycleWorkerQuiesceClose(t *testing.T) {
+// TestCandidateRuntime_ManagerAutoRetireQuiesceClose proves Manager's
+// automatic post-publish retirement scheduling (task 7.3) quiesces and closes
+// a replaced generation without any explicit worker/retire call.
+func TestCandidateRuntime_ManagerAutoRetireQuiesceClose(t *testing.T) {
 	t.Parallel()
 	var quiesced, closed atomic.Int32
+	closeDone := make(chan struct{})
 	ledger := runtimebundle.NewResourceLedger()
 	_ = ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
 		quiesced.Add(1)
@@ -139,6 +144,7 @@ func TestCandidateRuntime_LifecycleWorkerQuiesceClose(t *testing.T) {
 	})
 	_ = ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
 		closed.Add(1)
+		close(closeDone)
 		return nil
 	})
 	cand := runtimebundle.NewCandidateRuntimeForTest(ledger)
@@ -148,9 +154,10 @@ func TestCandidateRuntime_LifecycleWorkerQuiesceClose(t *testing.T) {
 	mustPublishHost(t, m, g)
 	mustPublishHost(t, m, m.Prepare("next"))
 
-	worker := runtimehost.NewLifecycleWorker()
-	if err := worker.Retire(context.Background(), g, cand); err != nil {
-		t.Fatal(err)
+	select {
+	case <-closeDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for automatic post-publish retirement")
 	}
 	if quiesced.Load() != 1 || closed.Load() != 1 {
 		t.Fatalf("quiesced=%d closed=%d", quiesced.Load(), closed.Load())

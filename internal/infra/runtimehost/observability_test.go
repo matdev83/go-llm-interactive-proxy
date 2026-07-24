@@ -46,6 +46,18 @@ func TestReloadObservability_LogsSpansHistoryAndMetrics(t *testing.T) {
 	if err := mgr.Publish(initial); err != nil {
 		t.Fatal(err)
 	}
+	// Pin the boot generation so Manager's automatic post-publish retirement
+	// (task 7.3) cannot quiesce/close/sweep it before the RetainedGenerations
+	// assertion below observes it.
+	bootLease, ok := mgr.Acquire()
+	if !ok {
+		t.Fatal("acquire boot generation")
+	}
+	bootPin, ok := bootLease.TransferPin(runtimehost.PinProvider)
+	if !ok {
+		t.Fatal("pin boot generation")
+	}
+	t.Cleanup(bootPin.Release)
 
 	digest := [32]byte{9, 9, 9}
 	src := &fakeSource{

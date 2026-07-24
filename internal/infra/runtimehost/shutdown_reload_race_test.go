@@ -236,7 +236,7 @@ func TestShutdown_ActivePinnedStreamSurvivesBeginShutdown(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	err := m.ShutdownDetached(ctx, runtimehost.NewLifecycleWorker())
+	err := m.ShutdownDetached(ctx)
 	if err == nil {
 		t.Fatal("expected timeout while pinned")
 	}
@@ -255,7 +255,7 @@ func TestShutdown_CleanupErrorAggregated(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.BeginShutdown()
-	err := m.ShutdownDetached(context.Background(), runtimehost.NewLifecycleWorker())
+	err := m.ShutdownDetached(context.Background())
 	if err == nil {
 		t.Fatal("expected cleanup error")
 	}

@@ -180,7 +180,7 @@ func (h *ReloadHost) Close(ctx context.Context) error {
 		return err
 	}
 	if h.Manager != nil {
-		if err := h.Manager.ShutdownDetached(ctx, runtimehost.NewLifecycleWorker()); err != nil {
+		if err := h.Manager.ShutdownDetached(ctx); err != nil {
 			return err
 		}
 		if h.Manager.HasOpenGenerations() {

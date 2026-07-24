@@ -185,14 +185,14 @@ func publishInitialGeneration(ctx context.Context, in publishInitialGenerationIn
 	}
 	if gen.ID() != 1 {
 		return fail(fmt.Errorf("runtimebundle: initial generation id=%d want 1", gen.ID()), func() error {
-			return mgr.ShutdownDetached(context.WithoutCancel(ctx), runtimehost.NewLifecycleWorker())
+			return mgr.ShutdownDetached(context.WithoutCancel(ctx))
 		}, closeProcess)
 	}
 	if err := note(hostBuildStageNamePublish, hostBuildProbeAcquired); err != nil {
 		_ = note(hostBuildStageNamePublish, hostBuildProbeCleaned)
 		_ = note(hostBuildStageNameCompile, hostBuildProbeCleaned)
 		return fail(err, func() error {
-			return mgr.ShutdownDetached(context.WithoutCancel(ctx), runtimehost.NewLifecycleWorker())
+			return mgr.ShutdownDetached(context.WithoutCancel(ctx))
 		}, closeProcess)
 	}
 

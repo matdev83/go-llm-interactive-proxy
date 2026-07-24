@@ -12,7 +12,6 @@ import (
 	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretsguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/logging"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/osenv"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -196,7 +195,7 @@ func buildHostWithEnv(
 		_ = note(hostBuildStageNameCompile, hostBuildProbeCleaned)
 		_ = note(hostBuildStageNameProcess, hostBuildProbeCleaned)
 		return nil, joinInitialFailureCleanup(ctx, err, func() error {
-			return mgr.ShutdownDetached(context.WithoutCancel(ctx), runtimehost.NewLifecycleWorker())
+			return mgr.ShutdownDetached(context.WithoutCancel(ctx))
 		}, ps.Close, func(ctx context.Context) error {
 			_ = note(hostBuildStageNameTracing, hostBuildProbeCleaned)
 			return traceShutdown(ctx)
@@ -209,7 +208,7 @@ func buildHostWithEnv(
 		_ = note(hostBuildStageNameProcess, hostBuildProbeCleaned)
 		host.BeginShutdown()
 		return nil, joinInitialFailureCleanup(ctx, err, func() error {
-			return host.Manager.ShutdownDetached(context.WithoutCancel(ctx), runtimehost.NewLifecycleWorker())
+			return host.Manager.ShutdownDetached(context.WithoutCancel(ctx))
 		}, host.Process.Close, func(ctx context.Context) error {
 			_ = note(hostBuildStageNameTracing, hostBuildProbeCleaned)
 			return traceShutdown(ctx)

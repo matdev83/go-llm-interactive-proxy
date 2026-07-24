@@ -158,8 +158,10 @@ func TestCompileCandidate_SafeLifecycleRetiredCloseStopsOnce(t *testing.T) {
 	g := m.PrepareOwned("life", cand)
 	mustPublishHost(t, m, g)
 	mustPublishHost(t, m, m.Prepare("next"))
-	worker := runtimehost.NewLifecycleWorker()
-	if err := worker.Retire(context.Background(), g, cand); err != nil {
+	// Publish auto-schedules g's retirement in the background (task 7.3);
+	// wait for it via the manager's synchronous retry/wait API, tolerating a
+	// benign ErrAlreadyClosed if the background retirement already finished.
+	if _, err := m.RetireGeneration(context.Background(), g); err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
 		t.Fatal(err)
 	}
 	if !probe.WasStopped() {
@@ -438,8 +440,7 @@ func TestCompileCandidate_CatalogRefreshQuiescesBeforeClose(t *testing.T) {
 	g := m.PrepareOwned("cat", cand)
 	mustPublishHost(t, m, g)
 	mustPublishHost(t, m, m.Prepare("next"))
-	worker := runtimehost.NewLifecycleWorker()
-	if err := worker.Retire(context.Background(), g, cand); err != nil {
+	if _, err := m.RetireGeneration(context.Background(), g); err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
 		t.Fatal(err)
 	}
 	mu.Lock()

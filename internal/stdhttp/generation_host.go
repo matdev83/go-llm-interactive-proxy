@@ -184,7 +184,7 @@ func shutdownGenerationHost(ctx context.Context, in GenerationHostInput, timeout
 		}
 	}
 	if in.Manager != nil {
-		if err := in.Manager.ShutdownDetached(ctx, runtimehost.NewLifecycleWorker()); err != nil {
+		if err := in.Manager.ShutdownDetached(ctx); err != nil {
 			out = errors.Join(out, err)
 		}
 	}

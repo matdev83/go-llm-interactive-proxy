@@ -135,7 +135,7 @@ func TestRunWithGenerationHost_HTTPShutdownFailureDoesNotRetire(t *testing.T) {
 			_ = host.Process.Close()
 		}
 		if host.Manager != nil {
-			_ = host.Manager.ShutdownDetached(context.Background(), runtimehost.NewLifecycleWorker())
+			_ = host.Manager.ShutdownDetached(context.Background())
 		}
 		if host.ShutdownTracing != nil {
 			_ = host.ShutdownTracing(context.Background())

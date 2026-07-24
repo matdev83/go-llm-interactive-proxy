@@ -38,8 +38,13 @@ type lifeInventoryEntry struct {
 
 // lifecycleOwnerInventory enumerates every production generation-resource
 // lifecycle/idempotency mechanism relevant to CandidateRuntime,
-// GenerationBundle, Generation, ResourceLedger/ledgerEntry,
-// BackendInstance, Manager, and LifecycleWorker (Task 7.2 post-state).
+// GenerationBundle, Generation, ResourceLedger/ledgerEntry, BackendInstance,
+// and Manager (Task 7.3 post-state). LifecycleWorker was deleted in Task 7.3:
+// retirement scheduling moved to Manager (cleanupPolicy/observer fields,
+// scheduleRetire, RetireGeneration) and the retireGeneration function in
+// retire.go. Generation.closed/closeErr (the sole Task 7.2 duplicate-wrapper
+// entries) were deleted in Task 7.3; Close/Discard now derive terminal state
+// from the lifecycle word plus owned-payload presence only.
 var lifecycleOwnerInventory = []lifeInventoryEntry{
 	// --- ResourceLedger / ledgerEntry: canonical resource phase owner ---
 	{Type: "ResourceLedger", FieldOrMethod: "mu", Operation: "close", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "resource_ledger.go"},
@@ -87,34 +92,35 @@ var lifecycleOwnerInventory = []lifeInventoryEntry{
 	// --- GenerationBundle: stores/delegates to canonical ledger only ---
 	{Type: "GenerationBundle", FieldOrMethod: "ledger", Operation: "close", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "generation_bundle.go"},
 
-	// --- Generation: identity/refcount/drain/payload binding legitimate; resource-close caches duplicate (Task 7.3) ---
+	// --- Generation: identity/refcount/drain/payload binding/retire admission
+	// are legitimate generation state (Task 7.3 deleted the closed/closeErr
+	// duplicate resource-close caches entirely; Close/Discard derive terminal
+	// state from the lifecycle word plus owned-payload presence only) ---
 	{Type: "Generation", FieldOrMethod: "word", Operation: "publication_refcount_drain", Owner: "Generation", Disposition: lifeGenerationState, File: "../runtimehost/generation.go"},
 	{Type: "Generation", FieldOrMethod: "drainMu", Operation: "publication_refcount_drain", Owner: "Generation", Disposition: lifeGenerationState, File: "../runtimehost/generation.go"},
 	{Type: "Generation", FieldOrMethod: "drainCh", Operation: "publication_refcount_drain", Owner: "Generation", Disposition: lifeGenerationState, File: "../runtimehost/generation.go"},
 	{Type: "Generation", FieldOrMethod: "drainClosed", Operation: "publication_refcount_drain", Owner: "Generation", Disposition: lifeGenerationState, File: "../runtimehost/generation.go"},
-	{Type: "Generation", FieldOrMethod: "retireMu", Operation: "retirement_policy", Owner: "Generation", Disposition: lifeGenerationState, File: "../runtimehost/generation.go"},
+	{Type: "Generation", FieldOrMethod: "retireAdmit", Operation: "retirement_policy", Owner: "Generation", Disposition: lifeGenerationState, File: "../runtimehost/generation.go"},
 	{Type: "Generation", FieldOrMethod: "closeMu", Operation: "close", Owner: "Generation", Disposition: lifeGenerationState, File: "../runtimehost/generation.go"},
 	{Type: "Generation", FieldOrMethod: "payloadMu", Operation: "close", Owner: "Generation", Disposition: lifeGenerationState, File: "../runtimehost/generation.go"},
 	{Type: "Generation", FieldOrMethod: "owned", Operation: "close", Owner: "Generation", Disposition: lifeGenerationState, File: "../runtimehost/generation.go"},
 	{Type: "Generation", FieldOrMethod: "requestPlane", Operation: "publication_refcount_drain", Owner: "Generation", Disposition: lifeGenerationState, File: "../runtimehost/generation.go"},
 	{Type: "Generation", FieldOrMethod: "closeCount", Operation: "diagnostics", Owner: "Generation", Disposition: lifeDiagnosticsOnly, File: "../runtimehost/generation.go"},
-	{Type: "Generation", FieldOrMethod: "closed", Operation: "close", Owner: "Generation", Disposition: lifeDuplicateToDelete, File: "../runtimehost/generation.go"},
-	{Type: "Generation", FieldOrMethod: "closeErr", Operation: "close", Owner: "Generation", Disposition: lifeDuplicateToDelete, File: "../runtimehost/generation.go"},
 
-	// --- Manager publication / retention / shutdown ---
+	// --- Manager publication / retention / shutdown / retirement scheduling
+	// (Task 7.3: Manager owns post-publish retirement scheduling; LifecycleWorker
+	// deleted) ---
 	{Type: "Manager", FieldOrMethod: "active", Operation: "publication_refcount_drain", Owner: "Manager", Disposition: lifeManagerPolicy, File: "../runtimehost/manager.go"},
 	{Type: "Manager", FieldOrMethod: "retained", Operation: "retirement_policy", Owner: "Manager", Disposition: lifeManagerPolicy, File: "../runtimehost/manager.go"},
 	{Type: "Manager", FieldOrMethod: "mu", Operation: "publication_refcount_drain", Owner: "Manager", Disposition: lifeManagerPolicy, File: "../runtimehost/manager.go"},
 	{Type: "Manager", FieldOrMethod: "shuttingDown", Operation: "shutdown", Owner: "Manager", Disposition: lifeManagerPolicy, File: "../runtimehost/manager.go"},
+	{Type: "Manager", FieldOrMethod: "cleanupPolicy", Operation: "retirement_policy", Owner: "Manager", Disposition: lifeManagerPolicy, File: "../runtimehost/manager.go"},
+	{Type: "Manager", FieldOrMethod: "observer", Operation: "diagnostics", Owner: "Manager", Disposition: lifeDiagnosticsOnly, File: "../runtimehost/manager.go"},
 	{Type: "Manager", FieldOrMethod: "Publish", Operation: "publication_refcount_drain", Owner: "Manager", Disposition: lifeManagerPolicy, File: "../runtimehost/manager.go"},
+	{Type: "Manager", FieldOrMethod: "scheduleRetire", Operation: "retirement_policy", Owner: "Manager", Disposition: lifeManagerPolicy, File: "../runtimehost/manager.go"},
+	{Type: "Manager", FieldOrMethod: "RetireGeneration", Operation: "retirement_policy", Owner: "Manager", Disposition: lifeManagerPolicy, File: "../runtimehost/manager.go"},
 	{Type: "Manager", FieldOrMethod: "BeginShutdown", Operation: "shutdown", Owner: "Manager", Disposition: lifeManagerPolicy, File: "../runtimehost/shutdown.go"},
 	{Type: "Manager", FieldOrMethod: "ShutdownDetached", Operation: "shutdown", Owner: "Manager", Disposition: lifeManagerPolicy, File: "../runtimehost/shutdown.go"},
-
-	// --- LifecycleWorker ---
-	{Type: "LifecycleWorker", FieldOrMethod: "policy", Operation: "retirement_policy", Owner: "LifecycleWorker", Disposition: lifeManagerPolicy, File: "../runtimehost/lifecycle_worker.go"},
-	{Type: "LifecycleWorker", FieldOrMethod: "statusMu", Operation: "diagnostics", Owner: "LifecycleWorker", Disposition: lifeDiagnosticsOnly, File: "../runtimehost/lifecycle_worker.go"},
-	{Type: "LifecycleWorker", FieldOrMethod: "last", Operation: "diagnostics", Owner: "LifecycleWorker", Disposition: lifeDiagnosticsOnly, File: "../runtimehost/lifecycle_worker.go"},
-	{Type: "LifecycleWorker", FieldOrMethod: "Retire", Operation: "retirement_policy", Owner: "LifecycleWorker", Disposition: lifeManagerPolicy, File: "../runtimehost/lifecycle_worker.go"},
 
 	// --- Process-only negative control (not generation ownership) ---
 	{Type: "ProcessServices", FieldOrMethod: "closeOnce", Operation: "close", Owner: "ProcessServices", Disposition: lifeProcessOnlyNegative, File: "process_services_types.go"},
@@ -149,12 +155,12 @@ func TestLifecycleOwner_InventoryCurrentMechanismsPresent(t *testing.T) {
 	}
 }
 
+// TestLifecycleOwner_InventoryNamesDuplicateWrappers expects zero remaining
+// duplicate-wrapper entries: Task 7.3 deleted Generation.closed/closeErr (the
+// only Task 7.2 survivors) and LifecycleWorker entirely.
 func TestLifecycleOwner_InventoryNamesDuplicateWrappers(t *testing.T) {
 	t.Parallel()
-	wantDup := map[string]bool{
-		"Generation.closed":   true,
-		"Generation.closeErr": true,
-	}
+	wantDup := map[string]bool{}
 	found := map[string]bool{}
 	for _, e := range lifecycleOwnerInventory {
 		key := e.Type + "." + e.FieldOrMethod

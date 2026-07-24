@@ -2,6 +2,7 @@ package runtimebundle_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -52,7 +53,7 @@ func TestCloseIdle_FinalGenerationCloseCallsIdleOnce(t *testing.T) {
 	if idleCalls.Load() != 0 {
 		t.Fatal("publish must not close idle transports")
 	}
-	if err := runtimehost.NewLifecycleWorker().Retire(context.Background(), g, cand); err != nil {
+	if _, err := m.RetireGeneration(context.Background(), g); err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
 		t.Fatal(err)
 	}
 	if idleCalls.Load() != 1 {
@@ -96,7 +97,7 @@ func TestQuiesce_BeforeClose_ReverseOrderExactOnce(t *testing.T) {
 	mustPublishBundle(t, m, g)
 	mustPublishBundle(t, m, m.Prepare("next"))
 
-	if err := runtimehost.NewLifecycleWorker().Retire(context.Background(), g, cand); err != nil {
+	if _, err := m.RetireGeneration(context.Background(), g); err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
 		t.Fatal(err)
 	}
 	want := []string{"quiesce:loop", "quiesce:refresh", "close:client", "close:backend"}

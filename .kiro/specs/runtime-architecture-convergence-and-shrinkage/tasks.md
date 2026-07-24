@@ -316,7 +316,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 7.1_
   - _Validation: `go test -race ./internal/infra/runtimebundle/... -run 'ResourceLedger|GenerationRuntime|Rollback|Quiesce|Close|Retry'`_
 
-- [ ] 7.3 Move retirement scheduling under Manager ownership
+- [x] 7.3 Move retirement scheduling under Manager ownership
   - Keep retirement policy separately testable but manager-owned.
   - Remove mutable second-authority retirement status and derive/emit results from generation transitions.
   - Preserve independent per-generation retirement, bounded retries, panic isolation, and no forced pin termination.

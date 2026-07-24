@@ -672,6 +672,18 @@ func TestCoordinator_LiveFactoryKindsFromActiveAndRetained(t *testing.T) {
 	if err := mgr.Publish(g0); err != nil {
 		t.Fatal(err)
 	}
+	// Pin g0 so Manager's automatic post-publish retirement (task 7.3) cannot
+	// quiesce/close/sweep it before Reload sums live factory kinds across
+	// active+retained generations below.
+	lease, ok := mgr.Acquire()
+	if !ok {
+		t.Fatal("acquire g0")
+	}
+	pin, ok := lease.TransferPin(runtimehost.PinProvider)
+	if !ok {
+		t.Fatal("pin g0")
+	}
+	t.Cleanup(pin.Release)
 	// Occupy retention with another generation so LiveFactoryKinds sums both.
 	g1plane := newFakePlane(map[string]int{"local-stub": 1})
 	g1 := mgr.PrepareRequestPlane("prev", g1plane)

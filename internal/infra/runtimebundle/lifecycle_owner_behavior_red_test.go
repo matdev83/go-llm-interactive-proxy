@@ -133,8 +133,8 @@ func TestLifecycleOwner_Close_RetryableFailureMustReexecuteCleanup(t *testing.T)
 // isolation boundary: ResourceLedger.safeLedgerStop converts cleanup panics to
 // errors before GenerationBundle returns. Final target still requires retryable
 // reclaim (no permanent claim). Recover here so an escaping panic cannot obscure
-// the rest of the RED suite; prefer Generation→LifecycleWorker coverage for the
-// worker safeClose boundary.
+// the rest of the RED suite; prefer Generation→Manager.RetireGeneration coverage
+// for the retireGeneration safeClose boundary (task 7.3).
 func TestLifecycleOwner_DirectBundleClose_PanicContract(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32

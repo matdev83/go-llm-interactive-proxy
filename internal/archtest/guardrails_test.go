@@ -351,9 +351,11 @@ var lineBudgets = []struct {
 	// Ratcheted from 10020 to 10163 for Task 7.2: ResourceLedger is the sole
 	// generation-resource phase owner (mutex/cond/retryable close); Candidate
 	// transfer-vs-lifecycle exclusive claim + terminal start blocking;
-	// GenerationBundle wrapper guards and buildBackends releaseOnce deleted
-	// (measured 10163; zero headroom).
-	{"internal/infra/runtimebundle", 10163},
+	// GenerationBundle wrapper guards and buildBackends releaseOnce deleted.
+	// Ratcheted from 10163 to 10162 for Task 7.3: host_build.go no longer
+	// imports runtimehost directly (ShutdownDetached call sites simplified;
+	// measured 10162; zero headroom).
+	{"internal/infra/runtimebundle", 10162},
 	// Task 5.5: exact-measured cmd/lipstd after dual-bootstrap deletion
 	// (measured 913; zero headroom).
 	{"cmd/lipstd", 913},

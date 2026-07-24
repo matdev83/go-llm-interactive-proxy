@@ -563,8 +563,7 @@ func TestCompileGeneration_BundleQuiesceBeforeClose_LifecycleStopOnce(t *testing
 	mustPublishGen(t, m, g)
 	mustPublishGen(t, m, m.Prepare("next"))
 
-	worker := runtimehost.NewLifecycleWorker()
-	if err := worker.Retire(context.Background(), g, bundle); err != nil {
+	if _, err := m.RetireGeneration(context.Background(), g); err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
 		t.Fatalf("Retire: %v", err)
 	}
 	if life.stops.Load() != 1 {
@@ -573,7 +572,7 @@ func TestCompileGeneration_BundleQuiesceBeforeClose_LifecycleStopOnce(t *testing
 	if g.Lifecycle() != runtimehost.GenClosed {
 		t.Fatalf("lifecycle=%v", g.Lifecycle())
 	}
-	if err := worker.Retire(context.Background(), g, bundle); !errors.Is(err, runtimehost.ErrAlreadyClosed) {
+	if _, err := m.RetireGeneration(context.Background(), g); !errors.Is(err, runtimehost.ErrAlreadyClosed) {
 		t.Fatalf("second retire: %v", err)
 	}
 	if life.stops.Load() != 1 {

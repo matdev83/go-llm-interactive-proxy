@@ -21,6 +21,20 @@ const (
 	coordinatorImmutableLoweringTask = "6.5"
 )
 
+// Task 7.3 Generation exact-current ratchet: retirement scheduling moved to
+// Manager/retire.go, Close/Discard moved to generation_close.go, payload
+// binding moved to generation_payload.go, and refcount/drain moved to
+// generation_refcount.go. The final ≤400 target (Req 11.3) is already beaten;
+// active architecture metadata and the physical file share one measured total
+// (not a padded ceiling).
+const (
+	generationHotspotPath           = "internal/infra/runtimehost/generation.go"
+	generationExactCurrentRatchet   = 318
+	generationFinalLineCeiling      = 400
+	generationImmutableBaselineMax  = 575
+	generationImmutableLoweringTask = "7.3"
+)
+
 // expectedMigrationHotspotFreezes lists the Task 1.2 gravity wells that must
 // appear in CriticalFileBudgets. BaselineMax is the immutable Task 1.1 measured
 // ceiling at migrationHotspotFreezeBaselineSHA. CurrentMax is the present
@@ -46,11 +60,11 @@ var expectedMigrationHotspotFreezes = []struct {
 		LoweringTask: coordinatorImmutableLoweringTask,
 	},
 	{
-		Path:         "internal/infra/runtimehost/generation.go",
-		BaselineMax:  575,
-		CurrentMax:   575,
-		FinalTarget:  400,
-		LoweringTask: "7.3",
+		Path:         generationHotspotPath,
+		BaselineMax:  generationImmutableBaselineMax,
+		CurrentMax:   generationExactCurrentRatchet, // exact measured lines after Task 7.3
+		FinalTarget:  generationFinalLineCeiling,
+		LoweringTask: generationImmutableLoweringTask,
 	},
 	{
 		Path:         "internal/infra/runtimebundle/candidate_compile.go",
@@ -282,6 +296,65 @@ func TestCoordinatorTask65ExactCurrentRatchet(t *testing.T) {
 	}
 }
 
+func TestGenerationTask73ExactCurrentRatchet(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+
+	freezeIdx := -1
+	for i, entry := range expectedMigrationHotspotFreezes {
+		if entry.Path == generationHotspotPath {
+			freezeIdx = i
+			break
+		}
+	}
+	if freezeIdx < 0 {
+		t.Fatalf("expectedMigrationHotspotFreezes missing %s", generationHotspotPath)
+	}
+	freeze := expectedMigrationHotspotFreezes[freezeIdx]
+
+	if freeze.BaselineMax != generationImmutableBaselineMax {
+		t.Fatalf("generation BaselineMax=%d, want immutable %d", freeze.BaselineMax, generationImmutableBaselineMax)
+	}
+	if freeze.FinalTarget != generationFinalLineCeiling {
+		t.Fatalf("generation FinalTarget=%d, want immutable %d", freeze.FinalTarget, generationFinalLineCeiling)
+	}
+	if freeze.LoweringTask != generationImmutableLoweringTask {
+		t.Fatalf("generation LoweringTask=%q, want immutable %q", freeze.LoweringTask, generationImmutableLoweringTask)
+	}
+	if freeze.CurrentMax != generationExactCurrentRatchet {
+		t.Fatalf("generation CurrentMax=%d, want exact Task 7.3 ratchet %d", freeze.CurrentMax, generationExactCurrentRatchet)
+	}
+
+	var budgetMax int
+	foundBudget := false
+	for _, b := range CriticalFileBudgets {
+		if b.Path == generationHotspotPath {
+			budgetMax = b.Max
+			foundBudget = true
+			break
+		}
+	}
+	if !foundBudget {
+		t.Fatalf("CriticalFileBudgets missing %s", generationHotspotPath)
+	}
+
+	n, err := countFileLines(filepath.Join(root, generationHotspotPath))
+	if err != nil {
+		t.Fatalf("%s: %v", generationHotspotPath, err)
+	}
+
+	if err := validateExactCurrentRatchet(exactCurrentRatchet{
+		Path:             generationHotspotPath,
+		ActualLines:      n,
+		BudgetMax:        budgetMax,
+		FreezeCurrentMax: freeze.CurrentMax,
+		ExpectedExact:    generationExactCurrentRatchet,
+		FinalCeiling:     generationFinalLineCeiling,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCriticalFileMigrationHotspotFreezeBudgets(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -312,11 +385,13 @@ func TestCriticalFileMigrationHotspotFreezeBudgets(t *testing.T) {
 				t.Fatalf("%s: %v", want.Path, err)
 			}
 
-			// Task 6.5 Coordinator: exact three-source equality is enforced by
-			// TestCoordinatorTask65ExactCurrentRatchet. Other hotspots retain
-			// freeze/ceiling semantics (actual ≤ CurrentMax) until their
-			// lowering task intentionally ratchets metadata.
-			if want.Path == coordinatorHotspotPath {
+			// Task 6.5 Coordinator and Task 7.3 Generation: exact three-source
+			// equality is enforced by TestCoordinatorTask65ExactCurrentRatchet
+			// and TestGenerationTask73ExactCurrentRatchet. Other hotspots
+			// retain freeze/ceiling semantics (actual ≤ CurrentMax) until
+			// their lowering task intentionally ratchets metadata.
+			switch want.Path {
+			case coordinatorHotspotPath:
 				if err := validateExactCurrentRatchet(exactCurrentRatchet{
 					Path:             want.Path,
 					ActualLines:      n,
@@ -327,8 +402,21 @@ func TestCriticalFileMigrationHotspotFreezeBudgets(t *testing.T) {
 				}); err != nil {
 					t.Fatal(err)
 				}
-			} else if criticalFileExceedsBudget(n, got.Max) {
-				t.Fatalf("%s: current size %d must pass budget %d", want.Path, n, got.Max)
+			case generationHotspotPath:
+				if err := validateExactCurrentRatchet(exactCurrentRatchet{
+					Path:             want.Path,
+					ActualLines:      n,
+					BudgetMax:        got.Max,
+					FreezeCurrentMax: want.CurrentMax,
+					ExpectedExact:    generationExactCurrentRatchet,
+					FinalCeiling:     want.FinalTarget,
+				}); err != nil {
+					t.Fatal(err)
+				}
+			default:
+				if criticalFileExceedsBudget(n, got.Max) {
+					t.Fatalf("%s: current size %d must pass budget %d", want.Path, n, got.Max)
+				}
 			}
 
 			// Representative one-line growth must be rejected without mutating repo sources.

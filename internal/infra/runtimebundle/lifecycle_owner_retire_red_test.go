@@ -15,31 +15,42 @@ import (
 // Task 7.1 cross-layer lifecycle targets live next to the real GenerationBundle
 // construction helpers (export_test). Req 8.8 is intentional RED against current
 // GenerationBundle/ResourceLedger close-result caches that defeat
-// Generation/LifecycleWorker retry.
+// Generation/Manager retirement retry.
+//
+// Task 7.3 moved retirement scheduling under Manager ownership: Publish
+// auto-schedules one background retirement per replaced generation, and
+// Manager.RetireGeneration is the synchronous retry/wait counterpart. Tests
+// below tolerate a benign ErrAlreadyClosed from an explicit RetireGeneration
+// call that races an already-completed automatic retirement, and use
+// channel-based close hooks (not sleeps) to observe completion.
 
 func TestLifecycleOwner_Retire_RetryableCloseThroughGenerationBundle(t *testing.T) {
 	t.Parallel()
 	var closes atomic.Int32
+	closeDone := make(chan struct{})
 	ledger := runtimebundle.NewResourceLedger()
 	_ = ledger.AddClose("backend", runtimebundle.PhaseClose, func() error {
-		if closes.Add(1) == 1 {
+		n := closes.Add(1)
+		if n == 1 {
 			return errors.New("temp-close")
 		}
+		close(closeDone)
 		return nil
 	})
 	_ = ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error { return nil })
 	bundle := runtimebundle.NewGenerationBundleWithLedgerForTest(ledger)
 
 	m := runtimehost.NewManager(2, nil)
+	m.SetCleanupPolicy(runtimehost.CleanupPolicy{MaxAttempts: 3})
 	g1 := m.PrepareRequestPlane("g1-retry", bundle)
 	mustPublishBundle(t, m, g1)
 	g2 := m.Prepare("g2-active")
 	mustPublishBundle(t, m, g2)
 
-	worker := runtimehost.NewLifecycleWorkerWithPolicy(runtimehost.CleanupPolicy{MaxAttempts: 3})
-	err := worker.Retire(context.Background(), g1, bundle)
-	if err != nil {
-		t.Fatalf("Retire must eventually succeed after retryable close: %v (closes=%d lifecycle=%v)", err, closes.Load(), g1.Lifecycle())
+	select {
+	case <-closeDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Retire must eventually succeed after retryable close")
 	}
 	if g1.Lifecycle() != runtimehost.GenClosed {
 		t.Fatalf("lifecycle=%v want GenClosed after successful retry", g1.Lifecycle())
@@ -47,15 +58,15 @@ func TestLifecycleOwner_Retire_RetryableCloseThroughGenerationBundle(t *testing.
 	if closes.Load() != 2 {
 		t.Fatalf("resource close executions=%d want 2 (fail then success); cached wrapper made retry a no-op", closes.Load())
 	}
-	st := worker.LastStatus()
-	if st.Outcome != runtimehost.LifecycleOutcomeOK {
-		t.Fatalf("status=%+v want OK", st)
-	}
 	if m.Active() != g2 || g2.Lifecycle() != runtimehost.GenActive {
 		t.Fatal("active generation must remain healthy")
 	}
 }
 
+// TestLifecycleOwner_Retire_StaysClosingAfterRetryableFailureBeforeSuccess
+// drives Generation.BeginClose/Close directly, so it uses BeginShutdown +
+// DetachActive (not a replacing Publish) to avoid racing Manager's automatic
+// post-publish retirement scheduling (task 7.3) against this manual drive.
 func TestLifecycleOwner_Retire_StaysClosingAfterRetryableFailureBeforeSuccess(t *testing.T) {
 	t.Parallel()
 	var closes atomic.Int32
@@ -77,7 +88,8 @@ func TestLifecycleOwner_Retire_StaysClosingAfterRetryableFailureBeforeSuccess(t 
 	m := runtimehost.NewManager(2, nil)
 	g1 := m.PrepareRequestPlane("g1", bundle)
 	mustPublishBundle(t, m, g1)
-	mustPublishBundle(t, m, m.Prepare("g2"))
+	m.BeginShutdown()
+	m.DetachActive()
 
 	<-g1.Drained()
 	if err := g1.BeginClose(); err != nil {
@@ -109,31 +121,35 @@ func TestLifecycleOwner_Retire_StaysClosingAfterRetryableFailureBeforeSuccess(t 
 	}
 }
 
-func TestLifecycleOwner_Retire_PanicIsolatedThroughLifecycleWorker(t *testing.T) {
+func TestLifecycleOwner_Retire_PanicIsolatedThroughManagerRetirement(t *testing.T) {
 	t.Parallel()
 	var closes atomic.Int32
+	closeDone := make(chan struct{})
 	ledger := runtimebundle.NewResourceLedger()
 	_ = ledger.AddClose("boom", runtimebundle.PhaseClose, func() error {
-		if closes.Add(1) == 1 {
+		n := closes.Add(1)
+		if n == 1 {
 			panic("cleanup boom")
 		}
+		close(closeDone)
 		return nil
 	})
 	_ = ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error { return nil })
 	bundle := runtimebundle.NewGenerationBundleWithLedgerForTest(ledger)
 
 	m := runtimehost.NewManager(2, nil)
+	m.SetCleanupPolicy(runtimehost.CleanupPolicy{MaxAttempts: 3})
 	g1 := m.PrepareRequestPlane("g1-panic", bundle)
 	mustPublishBundle(t, m, g1)
 	mustPublishBundle(t, m, m.Prepare("g2"))
 
-	// LifecycleWorker.safeClose is the preferred isolation boundary for
-	// Generation→owned cleanup panics (req 8.8 / 8.10). Ledger may also convert
-	// panics to errors; either boundary must keep GenClosing retryable.
-	worker := runtimehost.NewLifecycleWorkerWithPolicy(runtimehost.CleanupPolicy{MaxAttempts: 3})
-	err := worker.Retire(context.Background(), g1, bundle)
-	if err != nil {
-		t.Fatalf("Retire after panic isolation must succeed: %v (closes=%d lifecycle=%v)", err, closes.Load(), g1.Lifecycle())
+	// Manager's retireGeneration safeClose is the isolation boundary for
+	// Generation→owned cleanup panics (req 8.8 / 8.10). Ledger may also
+	// convert panics to errors; either boundary must keep GenClosing retryable.
+	select {
+	case <-closeDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Retire after panic isolation must succeed")
 	}
 	if g1.Lifecycle() != runtimehost.GenClosed {
 		t.Fatalf("lifecycle=%v want GenClosed", g1.Lifecycle())
@@ -195,7 +211,6 @@ func TestLifecycleOwner_Retire_ConcurrentRetirementNoDoubleClean(t *testing.T) {
 	mustPublishBundle(t, m, g1)
 	mustPublishBundle(t, m, m.Prepare("g2"))
 
-	worker := runtimehost.NewLifecycleWorker()
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	errs := make(chan error, 8)
@@ -204,25 +219,23 @@ func TestLifecycleOwner_Retire_ConcurrentRetirementNoDoubleClean(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			errs <- worker.Retire(context.Background(), g1, bundle)
+			_, err := m.RetireGeneration(context.Background(), g1)
+			errs <- err
 		}()
 	}
 	close(start)
 	wg.Wait()
 	close(errs)
 
-	var sawOK int
+	// Manager's automatic post-publish retirement (task 7.3) races these 8
+	// explicit calls too; it may itself win and finish the close before any
+	// of them run, in which case all 8 observe a benign ErrAlreadyClosed.
+	// The invariant under test is single-execution close/quiesce, not which
+	// caller (explicit or automatic) performs it.
 	for err := range errs {
-		switch {
-		case err == nil:
-			sawOK++
-		case errors.Is(err, runtimehost.ErrAlreadyClosed):
-		default:
+		if err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
 			t.Fatalf("unexpected retire err: %v", err)
 		}
-	}
-	if sawOK < 1 {
-		t.Fatal("expected at least one successful Retire")
 	}
 	if quiesces.Load() != 1 {
 		t.Fatalf("quiesce executions=%d want 1", quiesces.Load())
@@ -238,9 +251,11 @@ func TestLifecycleOwner_Retire_ConcurrentRetirementNoDoubleClean(t *testing.T) {
 func TestLifecycleOwner_Close_RepeatedShutdownCannotDoubleClean(t *testing.T) {
 	t.Parallel()
 	var closes atomic.Int32
+	closeDone := make(chan struct{})
 	ledger := runtimebundle.NewResourceLedger()
 	_ = ledger.AddClose("backend", runtimebundle.PhaseClose, func() error {
 		closes.Add(1)
+		close(closeDone)
 		return nil
 	})
 	bundle := runtimebundle.NewGenerationBundleWithLedgerForTest(ledger)
@@ -250,11 +265,12 @@ func TestLifecycleOwner_Close_RepeatedShutdownCannotDoubleClean(t *testing.T) {
 	mustPublishBundle(t, m, g1)
 	mustPublishBundle(t, m, m.Prepare("g2"))
 
-	worker := runtimehost.NewLifecycleWorker()
-	if err := worker.Retire(context.Background(), g1, bundle); err != nil {
-		t.Fatal(err)
+	select {
+	case <-closeDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout")
 	}
-	if err := worker.Retire(context.Background(), g1, bundle); !errors.Is(err, runtimehost.ErrAlreadyClosed) {
+	if _, err := m.RetireGeneration(context.Background(), g1); !errors.Is(err, runtimehost.ErrAlreadyClosed) {
 		t.Fatalf("second Retire: %v", err)
 	}
 	if err := g1.Close(); !errors.Is(err, runtimehost.ErrAlreadyClosed) {
@@ -266,7 +282,7 @@ func TestLifecycleOwner_Close_RepeatedShutdownCannotDoubleClean(t *testing.T) {
 }
 
 // TestLifecycleOwner_ShutdownDetached_RacesRetirementNoDoubleCleanOrProcessClose
-// races Manager.ShutdownDetached with LifecycleWorker.Retire against a real
+// races Manager.ShutdownDetached with Manager.RetireGeneration against a real
 // GenerationBundle/ResourceLedger. Proves no generation-resource double cleanup
 // and no process-owned premature close (channels/atomics + context bound; no sleep).
 func TestLifecycleOwner_ShutdownDetached_RacesRetirementNoDoubleCleanOrProcessClose(t *testing.T) {
@@ -289,7 +305,6 @@ func TestLifecycleOwner_ShutdownDetached_RacesRetirementNoDoubleCleanOrProcessCl
 	g2 := m.Prepare("g2-keep")
 	mustPublishBundle(t, m, g2)
 
-	worker := runtimehost.NewLifecycleWorker()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -301,25 +316,27 @@ func TestLifecycleOwner_ShutdownDetached_RacesRetirementNoDoubleCleanOrProcessCl
 	go func() {
 		defer wg.Done()
 		<-start
-		errs <- worker.Retire(ctx, g1, bundle)
+		_, err := m.RetireGeneration(ctx, g1)
+		errs <- err
 	}()
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		<-start
-		errs <- m.ShutdownDetached(ctx, worker)
+		errs <- m.ShutdownDetached(ctx)
 	}()
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		<-start
-		errs <- worker.Retire(ctx, g1, bundle)
+		_, err := m.RetireGeneration(ctx, g1)
+		errs <- err
 	}()
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		<-start
-		errs <- m.ShutdownDetached(ctx, worker)
+		errs <- m.ShutdownDetached(ctx)
 	}()
 	close(start)
 	wg.Wait()
