@@ -242,7 +242,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 - [ ] 6. Separate reload concurrency, transaction, and state
 
-- [ ] 6.1 Add AttemptGate RED concurrency suite
+- [x] 6.1 Add AttemptGate RED concurrency suite
   - Specify atomic start registration, busy API result, bounded HUP pending/coalescing, shutdown rejection, cancellation, exact finish, and idle wait.
   - Use barriers and channels; prohibit polling and timing sleeps as synchronization.
   - Add race tests for TryStart/Finish/Wait/BeginShutdown interleavings.
