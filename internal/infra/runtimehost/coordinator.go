@@ -2,7 +2,6 @@ package runtimehost
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -56,15 +55,17 @@ type CoordinatorDeps struct {
 }
 
 // Coordinator serializes explicit reload attempts (design Reload Coordinator; req 1.4, 3.x, 11.x, 13.x).
+// It orchestrates the gate, runner, and observer without directly
+// implementing detailed source/load/classification/compile branches (req 6.4);
+// source is kept only for FixedSourcePath (AbsolutePath), never for reload
+// execution.
 type Coordinator struct {
 	source   StableConfigSource
-	loader   EffectiveLoader
-	classify func(active, candidate *config.EffectiveConfig) ([]configreload.SafeChange, error)
-	compile  CandidateCompiler
 	mgr      *Manager
 	timeout  time.Duration
 	observer *ReloadObserver
 	gate     *attemptGate
+	runner   *attemptRunner
 
 	mu             sync.Mutex
 	last           sdkreload.Result
@@ -92,27 +93,30 @@ func NewCoordinator(deps CoordinatorDeps) (*Coordinator, error) {
 	if deps.Manager == nil {
 		return nil, fmt.Errorf("runtimehost: nil Manager")
 	}
-	classify := deps.Classify
-	if classify == nil {
-		classify = configreload.ClassifyEffective
-	}
 	timeout := deps.Timeout
 	if timeout <= 0 {
 		timeout = DefaultReloadTimeout
 	}
+	gate := newAttemptGate()
 	c := &Coordinator{
 		source:        deps.Source,
-		loader:        deps.Loader,
-		classify:      classify,
-		compile:       deps.Compile,
 		mgr:           deps.Manager,
 		timeout:       timeout,
 		observer:      deps.Observer,
-		gate:          newAttemptGate(),
+		gate:          gate,
 		activeEff:     deps.ActiveEffective,
 		activeSource:  cloneActiveSource(deps.ActiveSource),
 		sourcePosture: "ok",
 	}
+	c.runner = newAttemptRunner(attemptRunnerDeps{
+		Source:       deps.Source,
+		Loader:       deps.Loader,
+		Classify:     deps.Classify,
+		Compile:      deps.Compile,
+		Manager:      deps.Manager,
+		Observer:     deps.Observer,
+		ShuttingDown: gate.shuttingDown,
+	})
 	if active := deps.Manager.Active(); active != nil {
 		c.last = sdkreload.Result{
 			Category:         sdkreload.ResultPublished,
@@ -267,13 +271,13 @@ func (c *Coordinator) Reload(ctx context.Context, trigger sdkreload.Trigger) sdk
 		}, false)
 	}
 	// Gate-owned cleanup: abandon the current lease variable on any exit path
-	// (including panic outside runAttempt). After Complete advances to a
+	// (including panic outside runner.Run). After Complete advances to a
 	// follow-up, lease is reassigned so this defer targets the active token.
 	// After a normal final Complete, Abandon is an idempotent no-op.
 	defer func() { lease.Abandon() }()
 
 	hostCtx, cancel := context.WithTimeout(lease.Context(), c.timeout)
-	first := c.runAttempt(hostCtx, trigger)
+	first := c.applyOutcome(c.runner.Run(hostCtx, c.newAttemptInput(trigger)))
 	cancel()
 	c.recordTerminal(first)
 
@@ -293,11 +297,12 @@ func (c *Coordinator) Reload(ctx context.Context, trigger sdkreload.Trigger) sdk
 			}
 			lease = fin.FollowUpLease
 			followCtx, followCancel := context.WithTimeout(lease.Context(), c.timeout)
-			follow := c.runAttempt(followCtx, sdkreload.Trigger{
+			followTrigger := sdkreload.Trigger{
 				Kind:       sdkreload.TriggerSIGHUP,
 				AcceptedAt: time.Now().UTC(),
 				SafeActor:  "coalesced-sighup",
-			})
+			}
+			follow := c.applyOutcome(c.runner.Run(followCtx, c.newAttemptInput(followTrigger)))
 			followCancel()
 			follow.CoalescedSignals = fin.CoalescedSignals
 			c.recordTerminal(follow)
@@ -306,6 +311,44 @@ func (c *Coordinator) Reload(ctx context.Context, trigger sdkreload.Trigger) sdk
 			return first
 		}
 	}
+}
+
+// newAttemptInput allocates the next attempt ID and snapshots the current
+// active effective/source state for one runner.Run transaction. Cloning the
+// mutable ActiveSource at this boundary keeps attemptRunner's input immutable
+// for the duration of the call (req 6.2, 6.10-6.11).
+func (c *Coordinator) newAttemptInput(trigger sdkreload.Trigger) attemptInput {
+	attempt := c.attempts.Add(1)
+	activeBefore := c.activeGenerationID()
+	c.activeSourceMu.RLock()
+	activeEff := c.activeEff
+	activeSrc := cloneActiveSource(c.activeSource)
+	c.activeSourceMu.RUnlock()
+	return attemptInput{
+		Trigger:          trigger,
+		AttemptID:        attempt,
+		ActiveGeneration: activeBefore,
+		ActiveEffective:  activeEff,
+		ActiveSource:     activeSrc,
+	}
+}
+
+// applyOutcome commits a runner-returned immutable outcome's state updates
+// (if any) before returning its canonical result for terminal recording.
+// Neither field is set on a failed attempt; SourceUpdate alone marks an
+// effective-identity no-op baseline advance; both are set on publication.
+func (c *Coordinator) applyOutcome(outcome attemptOutcome) sdkreload.Result {
+	if outcome.EffectiveUpdate != nil || outcome.SourceUpdate != nil {
+		c.activeSourceMu.Lock()
+		if outcome.EffectiveUpdate != nil {
+			c.activeEff = outcome.EffectiveUpdate
+		}
+		if outcome.SourceUpdate != nil {
+			c.activeSource = outcome.SourceUpdate
+		}
+		c.activeSourceMu.Unlock()
+	}
+	return outcome.Result
 }
 
 func (c *Coordinator) terminal(res sdkreload.Result, record bool) sdkreload.Result {
@@ -375,326 +418,6 @@ func (c *Coordinator) recordTerminal(res sdkreload.Result) {
 	if c.observer != nil {
 		c.observer.RefreshGauges(c.mgr)
 	}
-}
-
-func (c *Coordinator) runAttempt(ctx context.Context, trigger sdkreload.Trigger) (res sdkreload.Result) {
-	attempt := c.attempts.Add(1)
-	activeBefore := c.activeGenerationID()
-	res = sdkreload.Result{
-		AttemptID:        attempt,
-		ActiveGeneration: activeBefore,
-	}
-
-	endAttempt := func(sdkreload.Result) {}
-	if c.observer != nil {
-		ctx, endAttempt = c.observer.BeginAttempt(ctx, trigger, attempt, activeBefore)
-	}
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			res = sdkreload.Result{
-				Category:         sdkreload.ResultInternalFailed,
-				AttemptID:        attempt,
-				ActiveGeneration: c.activeGenerationID(),
-				ReasonCategory:   configreload.StagePanic,
-			}
-			_ = configreload.SanitizePanicValue(recovered)
-		}
-		if res.AttemptID == 0 {
-			res.AttemptID = attempt
-		}
-		if res.ActiveGeneration == 0 {
-			res.ActiveGeneration = c.activeGenerationID()
-		}
-		endAttempt(res)
-	}()
-
-	if c.shuttingDown() {
-		res.Category = sdkreload.ResultCanceled
-		res.ReasonCategory = configreload.StageShutdown
-		return res
-	}
-	if err := ctx.Err(); err != nil {
-		res.Category = sdkreload.ResultCanceled
-		res.ReasonCategory = configreload.StageShutdown
-		return res
-	}
-
-	c.activeSourceMu.RLock()
-	activeSrc := cloneActiveSource(c.activeSource)
-	c.activeSourceMu.RUnlock()
-
-	stageCtx, endStage := ctx, func(string) {}
-	if c.observer != nil {
-		stageCtx, endStage = c.observer.BeginStage(ctx, configreload.StageRead)
-	}
-	snap, atomicRes, err := c.source.ReadStable(stageCtx, activeSrc)
-	if err != nil {
-		if c.shuttingDown() || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			res.Category = sdkreload.ResultCanceled
-			res.ReasonCategory = configreload.StageShutdown
-			endStage(string(res.Category))
-			return res
-		}
-		cat, reason := configreload.MapLoadFailure(err)
-		if srcCat, ok := configsource.CategoryOf(err); ok {
-			cat, reason = configreload.MapLoadCategory(string(srcCat))
-		}
-		res.Category = cat
-		res.ReasonCategory = reason
-		endStage(string(cat))
-		return res
-	}
-	endStage("ok")
-	if atomicRes == configsource.AtomicNoop {
-		res.Category = sdkreload.ResultNoop
-		res.ReasonCategory = configreload.StageNoop
-		return res
-	}
-
-	if c.observer != nil {
-		stageCtx, endStage = c.observer.BeginStage(ctx, configreload.StageLoad)
-	} else {
-		stageCtx, endStage = ctx, func(string) {}
-	}
-	eff, err := c.loader.LoadEffective(stageCtx, snap.Bytes)
-	if err != nil {
-		if c.shuttingDown() || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			res.Category = sdkreload.ResultCanceled
-			res.ReasonCategory = configreload.StageShutdown
-			endStage(string(res.Category))
-			return res
-		}
-		cat, reason := configreload.MapLoadFailure(err)
-		if srcCat, ok := configsource.CategoryOf(err); ok {
-			cat, reason = configreload.MapLoadCategory(string(srcCat))
-		}
-		res.Category = cat
-		res.ReasonCategory = reason
-		endStage(string(cat))
-		return res
-	}
-	endStage("ok")
-
-	c.activeSourceMu.RLock()
-	activeEff := c.activeEff
-	c.activeSourceMu.RUnlock()
-	if activeEff != nil && activeEff.Identity.PrivateDigest == eff.Identity.PrivateDigest {
-		// AtomicEligible may have landed a new inode whose effective identity matches
-		// the active generation. Advance the source baseline without publishing so a
-		// later in-place rewrite of that inode is rejected as non-atomic (req 2.9).
-		c.activeSourceMu.Lock()
-		c.activeSource = &configsource.ActiveSourceVersion{
-			HandleIdentity: snap.HandleIdentity,
-			PrivateDigest:  snap.PrivateDigest,
-		}
-		c.activeSourceMu.Unlock()
-		res.Category = sdkreload.ResultNoop
-		res.ReasonCategory = configreload.StageNoop
-		return res
-	}
-
-	if activeEff != nil {
-		if c.observer != nil {
-			stageCtx, endStage = c.observer.BeginStage(ctx, configreload.StageClassify)
-		} else {
-			stageCtx, endStage = ctx, func(string) {}
-		}
-		_, err := c.classify(activeEff, eff)
-		_ = stageCtx
-		if err != nil {
-			var rr *configreload.RestartRequiredError
-			if errors.As(err, &rr) {
-				res.Category = sdkreload.ResultRestartRequired
-				res.ReasonCategory = configreload.StageClassify
-				if rr != nil {
-					res.RestartFields = append([]string(nil), rr.RestartRequiredFields...)
-					res.RestartFieldCount = rr.TotalBlocked
-				}
-				endStage(string(res.Category))
-				return res
-			}
-			res.Category = sdkreload.ResultInvalid
-			res.ReasonCategory = configreload.StageClassify
-			endStage(string(res.Category))
-			return res
-		}
-		endStage("ok")
-	}
-
-	if c.shuttingDown() {
-		res.Category = sdkreload.ResultCanceled
-		res.ReasonCategory = configreload.StageShutdown
-		return res
-	}
-
-	liveKinds := c.collectLiveFactoryKinds()
-	if c.observer != nil {
-		stageCtx, endStage = c.observer.BeginStage(ctx, configreload.StageCompile)
-	} else {
-		stageCtx, endStage = ctx, func(string) {}
-	}
-	plane, compileErr := c.compileIsolated(stageCtx, eff.Config, liveKinds)
-	if compileErr != nil {
-		var rr *configreload.RestartRequiredError
-		if errors.As(compileErr, &rr) {
-			res.Category = sdkreload.ResultRestartRequired
-			res.ReasonCategory = configreload.StageCompile
-			if rr != nil {
-				res.RestartFields = append([]string(nil), rr.RestartRequiredFields...)
-				res.RestartFieldCount = rr.TotalBlocked
-			}
-			endStage(string(res.Category))
-			return res
-		}
-		if c.shuttingDown() || errors.Is(compileErr, context.Canceled) || errors.Is(compileErr, context.DeadlineExceeded) {
-			res.Category = sdkreload.ResultCanceled
-			res.ReasonCategory = configreload.StageShutdown
-			endStage(string(res.Category))
-			return res
-		}
-		if errors.Is(compileErr, errCompilePanic) {
-			res.Category = sdkreload.ResultInternalFailed
-			res.ReasonCategory = configreload.StagePanic
-			endStage(string(res.Category))
-			return res
-		}
-		res.Category = sdkreload.ResultPreparationFailed
-		res.ReasonCategory = configreload.StageCompile
-		endStage(string(res.Category))
-		return res
-	}
-	endStage("ok")
-	if plane == nil {
-		res.Category = sdkreload.ResultPreparationFailed
-		res.ReasonCategory = configreload.StageCompile
-		return res
-	}
-
-	rollback := func() {
-		if plane == nil {
-			return
-		}
-		_ = plane.Close()
-		plane = nil
-	}
-
-	if c.shuttingDown() {
-		rollback()
-		res.Category = sdkreload.ResultCanceled
-		res.ReasonCategory = configreload.StageShutdown
-		return res
-	}
-	if err := ctx.Err(); err != nil {
-		rollback()
-		res.Category = sdkreload.ResultCanceled
-		res.ReasonCategory = configreload.StageShutdown
-		return res
-	}
-
-	if c.observer != nil {
-		_, endStage = c.observer.BeginStage(ctx, configreload.StagePrepare)
-	} else {
-		endStage = func(string) {}
-	}
-	label := string(trigger.Kind)
-	if label == "" {
-		label = "reload"
-	}
-	gen := c.mgr.PrepareRequestPlane(label, plane)
-	gen.SetMetaHints(MetaHints{
-		PublicFingerprint: eff.Identity.PublicFingerprint,
-		TriggerKind:       string(trigger.Kind),
-		LoadedAt:          eff.LoadedAt,
-	})
-	endStage("ok")
-
-	if c.shuttingDown() {
-		_ = gen.Discard()
-		res.Category = sdkreload.ResultCanceled
-		res.ReasonCategory = configreload.StageShutdown
-		return res
-	}
-
-	if c.observer != nil {
-		_, endStage = c.observer.BeginStage(ctx, configreload.StagePublish)
-	} else {
-		endStage = func(string) {}
-	}
-	if err := c.mgr.Publish(gen); err != nil {
-		// Publish already Discards on retention/shutdown rejection.
-		switch {
-		case errors.Is(err, ErrRetentionBlocked):
-			res.Category = sdkreload.ResultRetentionBlocked
-			res.ReasonCategory = configreload.StageRetention
-		case errors.Is(err, ErrHostShuttingDown):
-			res.Category = sdkreload.ResultCanceled
-			res.ReasonCategory = configreload.StageShutdown
-		default:
-			res.Category = sdkreload.ResultPreparationFailed
-			res.ReasonCategory = configreload.StagePublish
-		}
-		res.ActiveGeneration = c.activeGenerationID()
-		endStage(string(res.Category))
-		return res
-	}
-	endStage(string(sdkreload.ResultPublished))
-
-	c.activeSourceMu.Lock()
-	c.activeEff = eff
-	c.activeSource = &configsource.ActiveSourceVersion{
-		HandleIdentity: snap.HandleIdentity,
-		PrivateDigest:  snap.PrivateDigest,
-	}
-	c.activeSourceMu.Unlock()
-
-	res.Category = sdkreload.ResultPublished
-	res.PreviousGeneration = activeBefore
-	res.ActiveGeneration = gen.ID()
-	res.ReasonCategory = configreload.StagePublish
-	return res
-}
-
-func (c *Coordinator) collectLiveFactoryKinds() map[string]int {
-	if c == nil || c.mgr == nil {
-		return nil
-	}
-	out := make(map[string]int)
-	add := func(g *Generation) {
-		if g == nil {
-			return
-		}
-		plane := g.RequestPlane()
-		counter, ok := plane.(BackendFactoryKindCounter)
-		if !ok || counter == nil {
-			return
-		}
-		for k, n := range counter.BackendFactoryKindCounts() {
-			if k == "" || n <= 0 {
-				continue
-			}
-			out[k] += n
-		}
-	}
-	add(c.mgr.Active())
-	for _, g := range c.mgr.SnapshotRetained() {
-		add(g)
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-var errCompilePanic = errors.New("runtimehost: candidate compile panic")
-
-func (c *Coordinator) compileIsolated(ctx context.Context, cfg *config.Config, liveKinds map[string]int) (plane PublishedRequestPlane, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			plane = nil
-			err = fmt.Errorf("%w: %s", errCompilePanic, configreload.SanitizePanicValue(recovered))
-		}
-	}()
-	return c.compile.Compile(ctx, cfg, liveKinds)
 }
 
 func cloneActiveSource(in *configsource.ActiveSourceVersion) *configsource.ActiveSourceVersion {

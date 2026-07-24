@@ -262,7 +262,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 6.1_
   - _Validation: `go test -race ./internal/infra/runtimehost/... -run 'AttemptGate|Coordinator.*Shutdown|WaitForIdle'`_
 
-- [ ] 6.3 Extract AttemptRunner with deterministic outcome tests
+- [x] 6.3 Extract AttemptRunner with deterministic outcome tests
   - Add table tests for read, source integrity, load, no-op, classify, compile, prepare, retention, publish, cancellation, panic, and rollback.
   - Move one-attempt workflow and internal error-to-canonical-result mapping into AttemptRunner.
   - Return immutable AttemptOutcome state updates; do not mutate history/status inside Runner.

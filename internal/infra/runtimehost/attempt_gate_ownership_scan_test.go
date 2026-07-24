@@ -1597,6 +1597,17 @@ func isCoordinatorGateSelector(expr ast.Expr) bool {
 	return ok && recv.Name == "c"
 }
 
+// isCoordinatorRunnerSelector recognizes c.runner as the post-Task-6.3
+// attemptRunner transaction receiver (mirrors isCoordinatorGateSelector).
+func isCoordinatorRunnerSelector(expr ast.Expr) bool {
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok || sel.Sel == nil || sel.Sel.Name != "runner" {
+		return false
+	}
+	recv, ok := sel.X.(*ast.Ident)
+	return ok && recv.Name == "c"
+}
+
 type reloadLeaseFlowResult struct {
 	ok         bool
 	violations []string
@@ -1653,6 +1664,10 @@ func analyzeReloadLeaseFlow(body *ast.BlockStmt) reloadLeaseFlowResult {
 				// Handled via defer inspection.
 			case "runAttempt", "WithTimeout":
 				if hasTryStart {
+					markPostAdmission(call.Pos())
+				}
+			case "Run":
+				if hasTryStart && isCoordinatorRunnerSelector(sel.X) {
 					markPostAdmission(call.Pos())
 				}
 			}
@@ -2974,7 +2989,14 @@ func reloadAbandonDeferBeforeRunAttempt(body *ast.BlockStmt) bool {
 				return true
 			}
 			sel, ok := n.Fun.(*ast.SelectorExpr)
-			if ok && sel.Sel != nil && sel.Sel.Name == "runAttempt" {
+			if !ok || sel.Sel == nil {
+				return true
+			}
+			if sel.Sel.Name == "runAttempt" {
+				runPos = n.Pos()
+				return true
+			}
+			if sel.Sel.Name == "Run" && isCoordinatorRunnerSelector(sel.X) {
 				runPos = n.Pos()
 			}
 		}

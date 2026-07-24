@@ -233,7 +233,7 @@ func (g *attemptGate) Snapshot() attemptGateSnapshot {
 }
 
 // shuttingDown reports whether BeginShutdown has been observed. Narrow query
-// for Coordinator/runAttempt shutdown checks — not a broad getter surface.
+// for Coordinator/attemptRunner shutdown checks — not a broad getter surface.
 func (g *attemptGate) shuttingDown() bool {
 	if g == nil {
 		return false
