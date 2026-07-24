@@ -32,13 +32,6 @@ func installRegistryAndRegistrations(cfg *config.Config, mandatory []lipsdk.Requ
 	return reg, regs, nil
 }
 
-func shutdownTracing(ctx context.Context, shutdown func(context.Context) error) {
-	if shutdown == nil {
-		return
-	}
-	_ = shutdown(context.WithoutCancel(ctx))
-}
-
 func initProcessTracing(ctx context.Context, cfg *config.Config) (tracing.Result, error) {
 	return tracing.Init(ctx, cfg)
 }

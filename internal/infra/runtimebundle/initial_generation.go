@@ -91,7 +91,7 @@ func omitSoleAlreadyClosed(err error) error {
 // publishInitialGeneration constructs ProcessServices, compiles, and publishes
 // generation 1 as one owned transaction, returning explicit focused values
 // (never a broad result aggregate). On error it rolls back everything it
-// acquired and returns nils.
+// acquired through the sole pre-Host owner [joinInitialFailureCleanup].
 func publishInitialGeneration(ctx context.Context, in publishInitialGenerationInput) (*ProcessServices, *runtimehost.Manager, *runtimehost.Generation, error) {
 	note := func(stage hostBuildStageName, event hostBuildProbeEvent) error {
 		if in.Probe == nil {
@@ -106,10 +106,6 @@ func publishInitialGeneration(ctx context.Context, in publishInitialGenerationIn
 			_ = note(hostBuildStageNameTracing, hostBuildProbeCleaned)
 			return inner(ctx)
 		}
-	}
-
-	fail := func(err error, genRollback, processClose func() error) (*ProcessServices, *runtimehost.Manager, *runtimehost.Generation, error) {
-		return nil, nil, nil, joinInitialFailureCleanup(ctx, err, genRollback, processClose, traceShutdown)
 	}
 
 	ps, err := NewProcessServices(ctx, ProcessServicesInput{
@@ -135,18 +131,14 @@ func publishInitialGeneration(ctx context.Context, in publishInitialGenerationIn
 		},
 	})
 	if err != nil {
-		return fail(fmt.Errorf("runtimebundle: process services: %w", err), nil, nil)
+		return nil, nil, nil, joinInitialFailureCleanup(ctx, fmt.Errorf("runtimebundle: process services: %w", err), nil, nil, traceShutdown)
 	}
 	if !ps.Tracing.Active && in.TraceActive {
 		ps.Tracing.Active = true
 	}
 	if err := note(hostBuildStageNameProcess, hostBuildProbeAcquired); err != nil {
 		_ = note(hostBuildStageNameProcess, hostBuildProbeCleaned)
-		return fail(err, nil, ps.Close)
-	}
-	closeProcess := func() error {
-		_ = note(hostBuildStageNameProcess, hostBuildProbeCleaned)
-		return ps.Close()
+		return nil, nil, nil, joinInitialFailureCleanup(ctx, err, nil, ps.Close, traceShutdown)
 	}
 
 	// Candidate feature lifecycles are derived once inside CompileGeneration from
@@ -158,13 +150,19 @@ func publishInitialGeneration(ctx context.Context, in publishInitialGenerationIn
 		Compose:   in.Compose,
 	})
 	if err != nil {
-		return fail(fmt.Errorf("runtimebundle: compile initial generation: %w", err), nil, closeProcess)
+		return nil, nil, nil, joinInitialFailureCleanup(ctx, fmt.Errorf("runtimebundle: compile initial generation: %w", err), nil, func() error {
+			_ = note(hostBuildStageNameProcess, hostBuildProbeCleaned)
+			return ps.Close()
+		}, traceShutdown)
 	}
 	if err := note(hostBuildStageNameCompile, hostBuildProbeAcquired); err != nil {
 		_ = note(hostBuildStageNameCompile, hostBuildProbeCleaned)
 		_ = bundle.Quiesce(context.WithoutCancel(ctx))
 		_ = bundle.Close()
-		return fail(err, nil, closeProcess)
+		return nil, nil, nil, joinInitialFailureCleanup(ctx, err, nil, func() error {
+			_ = note(hostBuildStageNameProcess, hostBuildProbeCleaned)
+			return ps.Close()
+		}, traceShutdown)
 	}
 
 	mgr := runtimehost.NewManager(DefaultMaxRetainedGenerations, nil)
@@ -181,19 +179,28 @@ func publishInitialGeneration(ctx context.Context, in publishInitialGenerationIn
 	}
 	gen.SetMetaHints(hints)
 	if err := mgr.Publish(gen); err != nil {
-		return fail(fmt.Errorf("runtimebundle: publish initial generation: %w", err), gen.Discard, closeProcess)
+		return nil, nil, nil, joinInitialFailureCleanup(ctx, fmt.Errorf("runtimebundle: publish initial generation: %w", err), gen.Discard, func() error {
+			_ = note(hostBuildStageNameProcess, hostBuildProbeCleaned)
+			return ps.Close()
+		}, traceShutdown)
 	}
 	if gen.ID() != 1 {
-		return fail(fmt.Errorf("runtimebundle: initial generation id=%d want 1", gen.ID()), func() error {
+		return nil, nil, nil, joinInitialFailureCleanup(ctx, fmt.Errorf("runtimebundle: initial generation id=%d want 1", gen.ID()), func() error {
 			return mgr.ShutdownDetached(context.WithoutCancel(ctx))
-		}, closeProcess)
+		}, func() error {
+			_ = note(hostBuildStageNameProcess, hostBuildProbeCleaned)
+			return ps.Close()
+		}, traceShutdown)
 	}
 	if err := note(hostBuildStageNamePublish, hostBuildProbeAcquired); err != nil {
 		_ = note(hostBuildStageNamePublish, hostBuildProbeCleaned)
 		_ = note(hostBuildStageNameCompile, hostBuildProbeCleaned)
-		return fail(err, func() error {
+		return nil, nil, nil, joinInitialFailureCleanup(ctx, err, func() error {
 			return mgr.ShutdownDetached(context.WithoutCancel(ctx))
-		}, closeProcess)
+		}, func() error {
+			_ = note(hostBuildStageNameProcess, hostBuildProbeCleaned)
+			return ps.Close()
+		}, traceShutdown)
 	}
 
 	if ps.terminalWorkRT != nil {

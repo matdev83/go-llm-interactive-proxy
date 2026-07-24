@@ -2,6 +2,7 @@ package runtimebundle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -139,28 +140,29 @@ func buildHostWithEnv(
 		return nil, fmt.Errorf("runtimebundle: tracing init: %w", err)
 	}
 	traceShutdown := traceRes.Shutdown
-	if err := note(hostBuildStageNameTracing, hostBuildProbeAcquired); err != nil {
+	// Pre-Host tracing cleanup always funnels through the sole canonical
+	// joinInitialFailureCleanup owner so the ownership gate can distinguish it
+	// structurally from post-Host Host.Close and from rogue typed workflows.
+	shutTracing := func(ctx context.Context) error {
 		_ = note(hostBuildStageNameTracing, hostBuildProbeCleaned)
-		shutdownTracing(ctx, traceShutdown)
-		return nil, err
+		if traceShutdown == nil {
+			return nil
+		}
+		return traceShutdown(context.WithoutCancel(ctx))
 	}
-
-	cleanupTracing := func() {
-		_ = note(hostBuildStageNameTracing, hostBuildProbeCleaned)
-		shutdownTracing(ctx, traceShutdown)
+	if err := note(hostBuildStageNameTracing, hostBuildProbeAcquired); err != nil {
+		return nil, joinInitialFailureCleanup(ctx, err, nil, nil, shutTracing)
 	}
 
 	logger, err := logging.NewLogger(cfg.Logging, logOut,
 		logging.WithOTELTraceAttrs(cfg.Observability.Tracing.Enabled))
 	if err != nil {
-		cleanupTracing()
-		return nil, fmt.Errorf("runtimebundle: logger init: %w", err)
+		return nil, joinInitialFailureCleanup(ctx, fmt.Errorf("runtimebundle: logger init: %w", err), nil, nil, shutTracing)
 	}
 
 	reg, _, err := installRegistryAndRegistrations(cfg, in.Mandatory)
 	if err != nil {
-		cleanupTracing()
-		return nil, err
+		return nil, joinInitialFailureCleanup(ctx, err, nil, nil, shutTracing)
 	}
 
 	ps, mgr, _, err := publishInitialGeneration(ctx, publishInitialGenerationInput{
@@ -201,18 +203,18 @@ func buildHostWithEnv(
 			return traceShutdown(ctx)
 		})
 	}
+	// From here the Host is complete, so rollback is one Host.Close: it owns
+	// the reject/idle/retire/process/tracing ordering (req 4.8, 8.6).
 	if err := note(hostBuildStageNameCoordinator, hostBuildProbeAcquired); err != nil {
 		_ = note(hostBuildStageNameCoordinator, hostBuildProbeCleaned)
 		_ = note(hostBuildStageNamePublish, hostBuildProbeCleaned)
 		_ = note(hostBuildStageNameCompile, hostBuildProbeCleaned)
 		_ = note(hostBuildStageNameProcess, hostBuildProbeCleaned)
-		host.BeginShutdown()
-		return nil, joinInitialFailureCleanup(ctx, err, func() error {
-			return host.Manager.ShutdownDetached(context.WithoutCancel(ctx))
-		}, host.Process.Close, func(ctx context.Context) error {
-			_ = note(hostBuildStageNameTracing, hostBuildProbeCleaned)
-			return traceShutdown(ctx)
-		})
+		_ = note(hostBuildStageNameTracing, hostBuildProbeCleaned)
+		if cleanupErr := omitSoleAlreadyClosed(host.Close(context.WithoutCancel(ctx))); cleanupErr != nil {
+			return nil, errors.Join(err, cleanupErr)
+		}
+		return nil, err
 	}
 	return host, nil
 }

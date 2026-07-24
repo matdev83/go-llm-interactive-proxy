@@ -273,38 +273,27 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
 		return 1
 	}
-	// Temporary Task 5.2/7.3 boundary: pre-listen failures close via Host.Close
-	// (owns tracing). After listen, RunWithGenerationHost owns manager/process/
-	// management teardown; tracing remains host-owned exactly once via defer.
-	tracingDeferred := true
-	defer func() {
-		if tracingDeferred {
-			deferHostTracingShutdown(ctx, host)
-		}
-	}()
+	// Every post-BuildHost path — startup failure and normal serve return alike
+	// — tears down through the one host close seam, which owns tracing last.
 	if err := logBootstrapAccessAuth(ctx, host.Logger, host.Config); err != nil {
-		tracingDeferred = false
 		cleanupErr := closeServeHostAfterBuild(ctx, host, nil)
 		host.Logger.ErrorContext(ctx, "lipstd: bootstrap access/auth", "error", errors.Join(err, cleanupErr))
 		return 1
 	}
-	mgmt, err := startManagementServer(ctx, host.Config, host.Logger, host.Coordinator)
+	mgmt, err := startManagementServer(ctx, host.Config, host.Logger, host)
 	if err != nil {
-		tracingDeferred = false
 		cleanupErr := closeServeHostAfterBuild(ctx, host, nil)
 		host.Logger.ErrorContext(ctx, "lipstd: management server", "error", errors.Join(err, cleanupErr))
 		return 1
 	}
-	// INT/TERM shut down the server; SIGHUP delivers to the real coordinator (never nil).
-	sigCtx, stop := startServeSignalHandling(ctx, host.Coordinator)
+	// INT/TERM shut down the server; SIGHUP delivers through the Host reload seam.
+	sigCtx, stop := startServeSignalHandling(ctx, host)
 	defer stop()
 	if err := stdhttp.RunWithGenerationHost(sigCtx, stdhttp.GenerationHostInput{
-		Config:      host.Config,
-		Log:         host.Logger,
-		Manager:     host.Manager,
-		Process:     host.Process,
-		Coordinator: host.Coordinator,
-		Management:  mgmt,
+		Config:     host.Config,
+		Log:        host.Logger,
+		Host:       host,
+		Management: mgmt,
 	}); err != nil {
 		host.Logger.ErrorContext(sigCtx, "server stopped", "error", err)
 		return 1

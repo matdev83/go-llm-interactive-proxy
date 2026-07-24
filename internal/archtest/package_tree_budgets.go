@@ -45,10 +45,19 @@ type PackageTreeBudget struct {
 // GenerationBundle/buildBackends duplicate lifecycle wrappers.
 // Task 7.3: contracted to exact-measured 10162 after host_build.go dropped its
 // direct runtimehost import (ShutdownDetached call sites simplified).
+// Task 7.4: exact-measured after Host became the sole process shutdown
+// coordinator with shared-attempt Close semantics, focused Host reload
+// delegation, and consolidated pre-Host joinInitialFailureCleanup ownership.
+// Attempt-3 repair removed the production closeAttemptWaitHook and resolved
+// the HTTP handler once across validation/mount. runtimebundle absorbs the
+// previously duplicated stdhttp/CLI orchestration; stdhttp loses
+// shutdownGenerationHost/closeProcessServices and cmd/lipstd loses
+// tracing_shutdown.go. Net non-test production delta vs Task 7.3 is
+// +78 lines across the three trees.
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 10162},
-	{Tree: "internal/stdhttp", Max: 4522},
-	{Tree: "cmd/lipstd", Max: 913},
+	{Tree: "internal/infra/runtimebundle", Max: 10286},
+	{Tree: "internal/stdhttp", Max: 4509},
+	{Tree: "cmd/lipstd", Max: 880},
 }
 
 // CountNonTestGoLines recursively counts physical lines in non-test .go files

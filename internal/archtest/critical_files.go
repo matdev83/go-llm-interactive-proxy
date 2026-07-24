@@ -98,7 +98,9 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	// final ≤150 (Req 11.3). Lower via Phase 8 task 8.1 (public build/facade).
 	{Path: "pkg/lipruntime/build.go", Max: 321},
 	// Task 5.5: exact-measured post dual-bootstrap deletion (zero headroom).
-	{Path: "cmd/lipstd/command.go", Max: 371},
+	// Task 7.4: contracted to 360 after the tracingDeferred serve boundary was
+	// replaced by the single Host.Close seam.
+	{Path: "cmd/lipstd/command.go", Max: 360},
 
 	// Task 2.3: after deleting pkg/lipruntime/reload_map.go and converting public
 	// mirrored types to exact SDK aliases, freeze the thin reload facade files at

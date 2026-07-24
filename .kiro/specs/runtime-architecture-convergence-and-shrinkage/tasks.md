@@ -327,7 +327,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 7.2_
   - _Validation: `go test -race ./internal/infra/runtimehost/... -run 'Manager|Retire|Concurrent|Cleanup|Panic|Pinned'`_
 
-- [ ] 7.4 Make Host the sole process shutdown coordinator
+- [x] 7.4 Make Host the sole process shutdown coordinator
   - Implement reject reload, wait candidate idle, stop admissions, retire generations, close process runtime, and tracing-last ordering in Host.
   - Migrate cmd and public facade to one `Host.Close`.
   - Delete duplicated rollback/shutdown orchestration and add ordering/race tests.

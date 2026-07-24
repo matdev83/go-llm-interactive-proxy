@@ -3,9 +3,14 @@ package main
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 )
+
+// serveHostCloseTimeout bounds the post-BuildHost host close, including the
+// host-owned tracing flush that runs last.
+const serveHostCloseTimeout = 12 * time.Second
 
 type contextShutdowner interface {
 	Shutdown(context.Context) error
@@ -16,7 +21,7 @@ type contextShutdowner interface {
 // must not reconstruct Manager/Process ownership or invoke ShutdownTracing here.
 func closeServeHostAfterBuild(ctx context.Context, host *runtimebundle.Host, mgmt contextShutdowner) error {
 	var out error
-	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), bootstrapTracingShutdownTimeout)
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), serveHostCloseTimeout)
 	defer cancel()
 	if mgmt != nil {
 		if err := mgmt.Shutdown(cleanupCtx); err != nil {

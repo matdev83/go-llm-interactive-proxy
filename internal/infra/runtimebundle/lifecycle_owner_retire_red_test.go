@@ -52,6 +52,14 @@ func TestLifecycleOwner_Retire_RetryableCloseThroughGenerationBundle(t *testing.
 	case <-time.After(2 * time.Second):
 		t.Fatal("Retire must eventually succeed after retryable close")
 	}
+	// closeDone fires inside the successful ledger callback, before
+	// Generation.Close publishes GenClosed. RetireGeneration serializes
+	// behind the in-flight automatic retirement via admission.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, err := m.RetireGeneration(ctx, g1); err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
+		t.Fatalf("await retirement: %v (lifecycle=%v)", err, g1.Lifecycle())
+	}
 	if g1.Lifecycle() != runtimehost.GenClosed {
 		t.Fatalf("lifecycle=%v want GenClosed after successful retry", g1.Lifecycle())
 	}
@@ -150,6 +158,15 @@ func TestLifecycleOwner_Retire_PanicIsolatedThroughManagerRetirement(t *testing.
 	case <-closeDone:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Retire after panic isolation must succeed")
+	}
+	// closeDone fires inside the successful ledger callback, before
+	// Generation.Close publishes GenClosed. RetireGeneration serializes
+	// behind the in-flight automatic retirement via admission; it must not
+	// re-run successful cleanup (panic-then-retry already completed once).
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, err := m.RetireGeneration(ctx, g1); err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
+		t.Fatalf("await retirement: %v (lifecycle=%v)", err, g1.Lifecycle())
 	}
 	if g1.Lifecycle() != runtimehost.GenClosed {
 		t.Fatalf("lifecycle=%v want GenClosed", g1.Lifecycle())

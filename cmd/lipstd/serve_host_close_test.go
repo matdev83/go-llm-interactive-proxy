@@ -41,7 +41,7 @@ func TestServe_PostHostFailureUsesHostCloseSeam(t *testing.T) {
 					closeCalls++
 				case "serveHostRollback", "serveStartupRollback", "serveRollbackCore":
 					rollbackCalls++
-				case "closeServeProcessServices", "retireServeGenerations":
+				case "closeServeProcessServices", "retireServeGenerations", "deferHostTracingShutdown":
 					processClose++
 				}
 			}
@@ -56,14 +56,72 @@ func TestServe_PostHostFailureUsesHostCloseSeam(t *testing.T) {
 		t.Fatalf("runServeCommand must not use legacy rollback reconstruction; calls=%d", rollbackCalls)
 	}
 	if processClose != 0 {
-		t.Fatalf("runServeCommand must not close process/generations directly; hits=%d", processClose)
+		t.Fatalf("runServeCommand must not close process/generations/tracing directly; hits=%d", processClose)
 	}
 	text := string(src)
 	if strings.Contains(text, "serveHostRollback") {
 		t.Fatal("serveHostRollback must remain deleted from serve path")
 	}
-	if !strings.Contains(text, "tracingDeferred") {
-		t.Fatal("serve must document temporary tracing defer boundary vs Host.Close")
+	// Task 7.4: the serve return path is one Host.Close (tracing-last is owned
+	// by the host), so the temporary tracing defer boundary is gone.
+	for _, gone := range []string{"tracingDeferred", "deferHostTracingShutdown"} {
+		if strings.Contains(text, gone) {
+			t.Fatalf("%s must be deleted; serve shutdown is one Host.Close", gone)
+		}
+	}
+}
+
+// TestServe_PassesCompleteHostToGenerationServeAdapter proves cmd hands the
+// complete Host to stdhttp instead of decomposing Manager/Process/Coordinator.
+func TestServe_PassesCompleteHostToGenerationServeAdapter(t *testing.T) {
+	t.Parallel()
+	src, err := os.ReadFile("command.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "command.go", src, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	ast.Inspect(f, func(n ast.Node) bool {
+		lit, ok := n.(*ast.CompositeLit)
+		if !ok {
+			return true
+		}
+		sel, ok := lit.Type.(*ast.SelectorExpr)
+		if !ok || sel.Sel == nil || sel.Sel.Name != "GenerationHostInput" {
+			return true
+		}
+		found = true
+		hostField := false
+		for _, elt := range lit.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+			key, ok := kv.Key.(*ast.Ident)
+			if !ok {
+				continue
+			}
+			switch key.Name {
+			case "Manager", "Process", "Coordinator", "ShutdownTracing":
+				t.Fatalf("serve input must not carry host internal %s", key.Name)
+			case "Host":
+				hostField = true
+				if id, ok := kv.Value.(*ast.Ident); !ok || id.Name != "host" {
+					t.Fatalf("serve input Host must be the complete host value, got %T", kv.Value)
+				}
+			}
+		}
+		if !hostField {
+			t.Fatal("serve input must pass the complete Host")
+		}
+		return false
+	})
+	if !found {
+		t.Fatal("runServeCommand must construct stdhttp.GenerationHostInput")
 	}
 }
 
@@ -106,4 +164,43 @@ func TestCloseServeHostAfterBuild_SourceOwnsHostCloseOnly(t *testing.T) {
 		})
 		return false
 	})
+}
+
+// TestServe_DoesNotExtractHostShutdownFields proves production command wiring
+// never extracts Manager, Process, Coordinator, or ShutdownTracing from Host.
+func TestServe_DoesNotExtractHostShutdownFields(t *testing.T) {
+	t.Parallel()
+	for _, file := range []string{"command.go", "serve_rollback.go"} {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, file, src, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok || sel.Sel == nil {
+				return true
+			}
+			switch sel.Sel.Name {
+			case "Manager", "Process", "Coordinator", "ShutdownTracing":
+				if id, ok := sel.X.(*ast.Ident); ok && id.Name == "host" {
+					t.Fatalf("%s must not extract host.%s", file, sel.Sel.Name)
+				}
+			}
+			return true
+		})
+	}
+}
+
+// TestServe_TracingShutdownFileIsDeleted proves the duplicated CLI tracing
+// shutdown orchestration is gone for good.
+func TestServe_TracingShutdownFileIsDeleted(t *testing.T) {
+	t.Parallel()
+	if _, err := os.Stat("tracing_shutdown.go"); err == nil {
+		t.Fatal("cmd/lipstd/tracing_shutdown.go must be deleted; Host.Close owns tracing-last")
+	}
 }

@@ -138,7 +138,7 @@ var compositionResourceOwnership = []ownershipEntry{
 	{Symbol: "stdhttp.TraceIDGenerator", Class: ownershipProcess, Source: "stdhttp.prepareStandardHandler → diag.NewTraceIDGenerator", Notes: "Process-scoped ID generator."},
 	{Symbol: "stdhttp.http.Server", Class: ownershipProcess, Source: "stdhttp.RunWithGenerationHost", Notes: "Data-plane listener/server never restarts for reload (req 6.4)."},
 	{Symbol: "stdhttp.serveWorker", Class: ownershipProcess, Source: "stdhttp.RunWithGenerationHost listenAndServe goroutine + errCh", Notes: "Serve worker and error channel are process-owned with server."},
-	{Symbol: "stdhttp.serverShutdownLifecycle", Class: ownershipProcess, Source: "stdhttp.RunWithGenerationHost shutdownGenerationHost ordering", Notes: "Server stop → coordinator idle → generation drain → management → process services."},
+	{Symbol: "stdhttp.serverShutdownLifecycle", Class: ownershipProcess, Source: "stdhttp.RunWithGenerationHost → runtimebundle.Host.Close", Notes: "Trigger rejection → HTTP drain → management → Host.Close (idle, retire, process, tracing)."},
 
 	// executor nested mutable services (process identity per req 6.6)
 	{Symbol: "executor.ALegLifecycle", Class: ownershipProcess, Source: "process_services.go → buildSharedMutableRuntime → leglifecycle.NewCoordinator", Notes: "A-leg lifecycle/cancellation identity is process-owned (req 6.6)."},

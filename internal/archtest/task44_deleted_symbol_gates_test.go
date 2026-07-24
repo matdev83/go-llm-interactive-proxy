@@ -114,7 +114,7 @@ func TestDeletedSymbol_PackageBudgetsExactMeasured(t *testing.T) {
 	})
 	t.Run("cmd/lipstd/command.go", func(t *testing.T) {
 		t.Parallel()
-		want := 371
+		want := 360
 		n, err := countFileLines(filepath.Join(root, "cmd/lipstd/command.go"))
 		if err != nil {
 			t.Fatal(err)

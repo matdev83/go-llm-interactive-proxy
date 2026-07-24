@@ -34,11 +34,7 @@ func TestInitialGeneration_RunWithGenerationHostShutdown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildHost: %v", err)
 	}
-	t.Cleanup(func() {
-		if host.ShutdownTracing != nil {
-			_ = host.ShutdownTracing(context.Background())
-		}
-	})
+	t.Cleanup(func() { _ = host.Close(context.Background()) })
 	host.Config.Server.Address = addr
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -47,8 +43,7 @@ func TestInitialGeneration_RunWithGenerationHostShutdown(t *testing.T) {
 		errCh <- stdhttp.RunWithGenerationHost(ctx, stdhttp.GenerationHostInput{
 			Config:          host.Config,
 			Log:             host.Logger,
-			Manager:         host.Manager,
-			Process:         host.Process,
+			Host:            host,
 			ShutdownTimeout: 5 * time.Second,
 		})
 	}()

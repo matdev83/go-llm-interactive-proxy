@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"path/filepath"
 	"sync"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 	"go.opentelemetry.io/otel"
 )
 
@@ -75,8 +77,24 @@ type ReloadHost struct {
 	FixedStreamRecovery config.StreamRecoveryOverrides
 	ShutdownTracing     func(context.Context) error
 
+	dispatcher *runtimehost.GenerationDispatcher
+
 	closeMu sync.Mutex
-	closed  bool
+	// closeAttempt is the single in-flight shutdown attempt, if any. Waiting
+	// callers observe its completion instead of blocking on closeMu.
+	closeAttempt *hostCloseAttempt
+	closed       bool
+	// Per-phase completion so a retry never repeats a phase that already
+	// succeeded and tracing can never run twice.
+	processClosed bool
+	tracingClosed bool
+}
+
+// hostCloseAttempt is one serialized shutdown attempt whose result is shared
+// with every caller that waited for it.
+type hostCloseAttempt struct {
+	done chan struct{}
+	err  error
 }
 
 type bindReloadHostInput struct {
@@ -149,6 +167,7 @@ func bindReloadHost(configPath string, in bindReloadHostInput) (*ReloadHost, err
 		Manager:             in.Manager,
 		Process:             in.Process,
 		Executor:            runtimehost.NewGenerationExecutor(in.Manager),
+		dispatcher:          runtimehost.NewGenerationDispatcher(in.Manager),
 		Source:              src,
 		Effective:           in.Effective,
 		Config:              in.Config,
@@ -159,9 +178,24 @@ func bindReloadHost(configPath string, in bindReloadHostInput) (*ReloadHost, err
 	}, nil
 }
 
-// Close shuts down the host in ownership order: reject reloads, wait for
-// candidate work, retire generations, close process services, then tracing.
-// Serialized and idempotent after a successful close; retryable on failure.
+// HTTPHandler returns the process-stable generation dispatcher serving
+// adapters mount. It is bound once and survives every reload, so adapters
+// never need the Manager to build a data plane.
+func (h *ReloadHost) HTTPHandler() http.Handler {
+	if h == nil || h.dispatcher == nil {
+		return nil
+	}
+	return h.dispatcher
+}
+
+// Close is the sole process shutdown coordinator (design Process Shutdown; req
+// 8.6-8.8): reject reload triggers, wait for candidate work, retire and drain
+// generations, close process services, then tracing last.
+//
+// At most one attempt mutates phases at a time. Concurrent waiters share that
+// attempt's published result (they never silently start attempt N+1). A caller
+// that arrives only after a failed attempt has fully published may retry the
+// incomplete phases. A successful Close is idempotent.
 func (h *ReloadHost) Close(ctx context.Context) error {
 	if h == nil {
 		return nil
@@ -170,11 +204,72 @@ func (h *ReloadHost) Close(ctx context.Context) error {
 		ctx = context.Background()
 	}
 	h.closeMu.Lock()
-	defer h.closeMu.Unlock()
 	if h.closed {
+		h.closeMu.Unlock()
 		return nil
 	}
+	if attempt := h.closeAttempt; attempt != nil {
+		done := attempt.done
+		h.closeMu.Unlock()
+		select {
+		case <-done:
+			// attempt.err is assigned and done is closed under closeMu before
+			// the attempt is cleared for retry; return that exact shared result
+			// rather than starting a fresh attempt.
+			return attempt.err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	attempt := &hostCloseAttempt{done: make(chan struct{})}
+	h.closeAttempt = attempt
+	h.closeMu.Unlock()
 
+	err := h.runCloseAttempt(ctx)
+
+	// Publish atomically under closeMu so a later caller cannot enter attempt
+	// N+1 before waiters on attempt N are notified:
+	// 1) assign err  2) terminal closed on success  3) close(done)
+	// 4) clear closeAttempt (retry-available)  5) unlock.
+	h.closeMu.Lock()
+	attempt.err = err
+	if err == nil {
+		h.closed = true
+	}
+	close(attempt.done)
+	h.closeAttempt = nil
+	h.closeMu.Unlock()
+	return err
+}
+
+// Reload delegates to the host-owned coordinator. Nil-safe to match the
+// canonical Coordinator contract so CLI/management never extract Coordinator.
+func (h *ReloadHost) Reload(ctx context.Context, trigger sdkreload.Trigger) sdkreload.Result {
+	if h == nil || h.Coordinator == nil {
+		return sdkreload.Result{Category: sdkreload.ResultInternalFailed, ReasonCategory: "nil-coordinator"}
+	}
+	return h.Coordinator.Reload(ctx, trigger)
+}
+
+// Status delegates to the host-owned coordinator.
+func (h *ReloadHost) Status() sdkreload.Status {
+	if h == nil || h.Coordinator == nil {
+		return sdkreload.Status{}
+	}
+	return h.Coordinator.Status()
+}
+
+// FixedSourcePath delegates to the host-owned coordinator.
+func (h *ReloadHost) FixedSourcePath() string {
+	if h == nil || h.Coordinator == nil {
+		return ""
+	}
+	return h.Coordinator.FixedSourcePath()
+}
+
+// runCloseAttempt executes the ownership order once, without holding closeMu
+// across any phase so status callbacks cannot deadlock the host.
+func (h *ReloadHost) runCloseAttempt(ctx context.Context) error {
 	h.BeginShutdown()
 	if err := h.WaitForIdle(ctx); err != nil {
 		return err
@@ -187,19 +282,46 @@ func (h *ReloadHost) Close(ctx context.Context) error {
 			return fmt.Errorf("runtimebundle: generations remain open after shutdown")
 		}
 	}
-	if h.Process != nil {
-		if err := h.Process.Close(); err != nil {
-			return err
-		}
+	if err := h.closeProcessOnce(); err != nil {
+		return err
 	}
-	if h.ShutdownTracing != nil {
-		if err := h.ShutdownTracing(ctx); err != nil {
-			return err
-		}
-		// Clear after success so caller tracing defers cannot double-close.
-		h.ShutdownTracing = nil
+	return h.shutdownTracingOnce(ctx)
+}
+
+// closeProcessOnce closes process services at most once across retries.
+func (h *ReloadHost) closeProcessOnce() error {
+	h.closeMu.Lock()
+	done := h.processClosed
+	h.closeMu.Unlock()
+	if done || h.Process == nil {
+		return nil
 	}
-	h.closed = true
+	if err := h.Process.Close(); err != nil {
+		return err
+	}
+	h.closeMu.Lock()
+	h.processClosed = true
+	h.closeMu.Unlock()
+	return nil
+}
+
+// shutdownTracingOnce runs tracing last and exactly once; a failure leaves the
+// phase incomplete so the provider can be retried.
+func (h *ReloadHost) shutdownTracingOnce(ctx context.Context) error {
+	h.closeMu.Lock()
+	done := h.tracingClosed
+	fn := h.ShutdownTracing
+	h.closeMu.Unlock()
+	if done || fn == nil {
+		return nil
+	}
+	if err := fn(ctx); err != nil {
+		return err
+	}
+	h.closeMu.Lock()
+	h.tracingClosed = true
+	h.ShutdownTracing = nil // no caller can re-enter a finished provider
+	h.closeMu.Unlock()
 	return nil
 }
 

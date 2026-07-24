@@ -233,7 +233,11 @@ var lineBudgets = []struct {
 	// Ratcheted from 4811 to 4522 for Task 4.2: deleted NewStandardHandler,
 	// RunWithRuntime, standardHTTPInputFromBuilt, releaseBuiltResources, and
 	// runClosers (measured 4522; zero headroom).
-	{"internal/stdhttp", 4522},
+	// Contracted from 4522 to 4509 for Task 7.4: shutdownGenerationHost and
+	// closeProcessServices deleted; the serve adapter now depends on one
+	// focused GenerationServeHost seam with a shared post-Host input-failure
+	// cleanup path and single HTTPHandler resolution (measured 4509; zero headroom).
+	{"internal/stdhttp", 4509},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
 	// lifecycle (requirements 11.3, 11.6, 11.7).
 	// Raised from 4800 to 5200 for build-local PostgreSQL pool ownership,
@@ -355,10 +359,19 @@ var lineBudgets = []struct {
 	// Ratcheted from 10163 to 10162 for Task 7.3: host_build.go no longer
 	// imports runtimehost directly (ShutdownDetached call sites simplified;
 	// measured 10162; zero headroom).
-	{"internal/infra/runtimebundle", 10162},
+	// Raised from 10162 then re-measured for Task 7.4: Host absorbed the
+	// duplicated stdhttp/CLI shutdown orchestration as the sole process
+	// shutdown coordinator (shared-attempt Close admission, per-phase
+	// idempotency, Host reload/status/source delegation, consolidated
+	// pre-Host rollback). Attempt-3 removed closeAttemptWaitHook. stdhttp and
+	// cmd/lipstd contract in the same change, so the net production delta
+	// across the three trees vs Task 7.3 is +78 (measured 10286; zero headroom).
+	{"internal/infra/runtimebundle", 10286},
 	// Task 5.5: exact-measured cmd/lipstd after dual-bootstrap deletion
 	// (measured 913; zero headroom).
-	{"cmd/lipstd", 913},
+	// Contracted from 913 to 880 for Task 7.4: tracing_shutdown.go deleted and
+	// the tracingDeferred serve boundary removed (measured 880; zero headroom).
+	{"cmd/lipstd", 880},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {
