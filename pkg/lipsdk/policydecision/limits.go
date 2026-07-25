@@ -1,7 +1,7 @@
 package policydecision
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -169,7 +169,8 @@ func truncationMarkerKey(existing map[string]string) string {
 		return truncatedAnnotationKey
 	}
 	for i := 1; i <= MaxAnnotationEntries; i++ {
-		key := fmt.Sprintf("%s.%d", truncatedAnnotationKey, i)
+		// ⚡ Bolt: replace fmt.Sprintf with direct string concatenation and strconv for performance
+		key := truncatedAnnotationKey + "." + strconv.Itoa(i)
 		if _, ok := existing[key]; !ok {
 			return key
 		}

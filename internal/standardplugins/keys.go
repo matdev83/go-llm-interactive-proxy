@@ -1,9 +1,9 @@
 package standardplugins
 
 import (
-	"fmt"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -85,7 +85,8 @@ func collect1IndexedEnvKeys(envPrefix string) []string {
 		out = append(out, s)
 	}
 	for i := 1; i <= maxNumberedAPIKeysEnv; i++ {
-		name := fmt.Sprintf("%s_%d", envPrefix, i)
+		// ⚡ Bolt: replace fmt.Sprintf with direct string concatenation and strconv for performance
+		name := envPrefix + "_" + strconv.Itoa(i)
 		v := strings.TrimSpace(os.Getenv(name))
 		if v == "" {
 			if i == 1 {
@@ -106,7 +107,8 @@ func collectNumberedEnvKeys(prefix string) []string {
 		out = append(out, s)
 	}
 	for i := 2; i <= maxNumberedAPIKeysEnv; i++ {
-		name := fmt.Sprintf("%s_%d", prefix, i)
+		// ⚡ Bolt: replace fmt.Sprintf with direct string concatenation and strconv for performance
+		name := prefix + "_" + strconv.Itoa(i)
 		v := strings.TrimSpace(os.Getenv(name))
 		if v == "" {
 			break
