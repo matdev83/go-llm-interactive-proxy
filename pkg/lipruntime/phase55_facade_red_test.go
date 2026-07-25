@@ -11,6 +11,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
+	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
@@ -46,8 +47,32 @@ func TestPhase55_FacadeBuildsWithEnterpriseRegistrations(t *testing.T) {
 	if rt.ExecutorView() == nil {
 		t.Fatal("expected ExecutorView")
 	}
-	if st := rt.ReloadStatus(); st.ActiveGeneration < 1 {
-		t.Fatalf("active generation=%d want >= 1", st.ActiveGeneration)
+	caps := rt.Capabilities()
+	if caps.ExecutableGenerationID == 0 {
+		t.Fatal("ExecutableGenerationID required")
+	}
+	if caps.ExecutableVersion == "" {
+		t.Fatal("ExecutableVersion required")
+	}
+	if caps.ExecutableState != cp.CapabilityReady && string(caps.ExecutableState) != "ready" {
+		t.Fatalf("state=%q", caps.ExecutableState)
+	}
+	if caps.ExecutableEvidenceObjectID != "facade-rater" {
+		t.Fatalf("evidence=%q want facade-rater", caps.ExecutableEvidenceObjectID)
+	}
+	if caps.SnapshotGenerationID == 0 {
+		t.Fatal("compatibility metadata SnapshotGenerationID must remain")
+	}
+	report := rt.ReadinessReport()
+	if report == nil {
+		t.Fatal("ReadinessReport required")
+	}
+	got, err := report.Report(ctx)
+	if err != nil {
+		t.Fatalf("Report: %v", err)
+	}
+	if got.ExecutableGeneration.EvidenceObjectID != "facade-rater" {
+		t.Fatalf("report evidence=%q", got.ExecutableGeneration.EvidenceObjectID)
 	}
 }
 

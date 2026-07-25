@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
@@ -46,7 +47,7 @@ func TestExternalFacade_ExecutorViewAndReadyBeforeAfterClose(t *testing.T) {
 	}
 }
 
-func TestExternalFacade_BuildWithProductionOptionsReady(t *testing.T) {
+func TestExternalFacade_CapabilityAccessorsAndClosedVocabulary(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	rt, err := lipruntime.Build(ctx, lipruntime.Options{
@@ -61,14 +62,28 @@ func TestExternalFacade_BuildWithProductionOptionsReady(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = rt.Close(ctx) })
 
-	if !rt.Ready() {
-		t.Fatal("expected ready runtime with production options")
+	caps := rt.Capabilities()
+	if !caps.TrafficObservers || !caps.UsageObservers {
+		t.Fatal("production observer capabilities must derive from host attachment")
 	}
-	if rt.ExecutorView() == nil {
-		t.Fatal("expected ExecutorView")
+	if !caps.ProductionMeteringQuerier || rt.MeteringQuerier() == nil {
+		t.Fatal("metering querier capability must derive from host")
 	}
-	if st := rt.ReloadStatus(); st.ActiveGeneration < 1 {
-		t.Fatalf("active generation=%d want >= 1", st.ActiveGeneration)
+	switch caps.ExecutableState {
+	case controlplane.CapabilityReady, controlplane.CapabilityDisabled,
+		controlplane.CapabilityUnavailable, controlplane.CapabilityDegraded:
+	default:
+		t.Fatalf("ExecutableState=%q outside closed vocabulary", caps.ExecutableState)
+	}
+	if caps.SnapshotGenerationID == 0 {
+		t.Fatal("SnapshotGenerationID must be non-zero on ready facade")
+	}
+	report := rt.ReadinessReport()
+	if report == nil {
+		t.Fatal("ReadinessReport must be exposed on facade")
+	}
+	if _, err := report.Report(ctx); err != nil {
+		t.Fatalf("ReadinessReport.Report: %v", err)
 	}
 }
 
@@ -90,6 +105,27 @@ func TestExternalFacade_ReloadStatusImportable(t *testing.T) {
 	st := rt.ReloadStatus()
 	if st.ActiveGeneration < 1 {
 		t.Fatalf("active generation=%d", st.ActiveGeneration)
+	}
+}
+
+func TestExternalFacade_SnapshotRefreshSemantics(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	rt, err := lipruntime.Build(ctx, lipruntime.Options{ConfigPath: repoConfigPath(t), LogWriter: io.Discard})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	t.Cleanup(func() { _ = rt.Close(ctx) })
+	before := rt.ReloadStatus().ActiveGeneration
+	if err := rt.RefreshSnapshots(ctx); err != nil {
+		t.Fatalf("RefreshSnapshots success path: %v", err)
+	}
+	if rt.ReloadStatus().ActiveGeneration != before {
+		t.Fatal("RefreshSnapshots must not publish config generations")
+	}
+	empty := &lipruntime.Runtime{}
+	if err := empty.RefreshSnapshots(ctx); err == nil {
+		t.Fatal("RefreshSnapshots on empty Runtime must error")
 	}
 }
 

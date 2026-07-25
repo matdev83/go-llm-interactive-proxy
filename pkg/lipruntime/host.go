@@ -7,20 +7,22 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
-// hostAPI is Runtime's sole private host-facing dependency (req 10.1-10.4).
 type hostAPI interface {
 	ExecutorView() lipsdk.ExecutorView
 	Ready() bool
-	Reload(ctx context.Context, trigger sdkreload.Trigger) sdkreload.Result
+	Capabilities() HostCapabilities
+	MeteringQuerier() metering.Querier
+	ReadinessReport() controlplane.ReadinessReportReader
+	RefreshSnapshots(context.Context) error
+	Reload(context.Context, sdkreload.Trigger) sdkreload.Result
 	Status() sdkreload.Status
-	Close(ctx context.Context) error
+	Close(context.Context) error
 }
 
-// bundleHost is the only private adapter that may retain [*runtimebundle.Host].
-// It delegates queries and Host.Close; it must not call Manager/Process/Coordinator
-// shutdown primitives or store them as callbacks.
 type bundleHost struct{ h *runtimebundle.Host }
 
 func adaptHost(ctx context.Context, h *runtimebundle.Host) (hostAPI, error) {
@@ -39,7 +41,21 @@ func (b bundleHost) ExecutorView() lipsdk.ExecutorView {
 	}
 	return b.h.Executor
 }
-func (b bundleHost) Ready() bool { return b.h.Ready() }
+func (b bundleHost) Ready() bool                       { return b.h.Ready() }
+func (b bundleHost) Capabilities() HostCapabilities    { return b.h.Capabilities() }
+func (b bundleHost) MeteringQuerier() metering.Querier { return b.h.MeteringQuerier() }
+func (b bundleHost) ReadinessReport() controlplane.ReadinessReportReader {
+	return b.h.ReadinessReport()
+}
+func (b bundleHost) RefreshSnapshots(ctx context.Context) error {
+	if b.h == nil {
+		return fmt.Errorf("lipruntime: snapshot refresh not available")
+	}
+	if ctx == nil {
+		return fmt.Errorf("lipruntime: nil context")
+	}
+	return b.h.RefreshSnapshots(ctx)
+}
 func (b bundleHost) Reload(c context.Context, t sdkreload.Trigger) sdkreload.Result {
 	return b.h.Reload(c, t)
 }

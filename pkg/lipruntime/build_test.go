@@ -113,6 +113,22 @@ func TestBuild_PublicOnlyOptions(t *testing.T) {
 	if rt.ExecutorView() == nil {
 		t.Fatal("expected ExecutorView")
 	}
+	caps := rt.Capabilities()
+	if !caps.ProductionMetering {
+		t.Fatal("production metering recorder must be wired outside TestingOptions")
+	}
+	if !caps.ProductionEvidenceSink {
+		t.Fatal("production evidence sink must be accepted and retained")
+	}
+	if !caps.ProductionRater {
+		t.Fatal("production rater must be forwarded onto the accounting runtime")
+	}
+	if !caps.ProductionMeteringQuerier || rt.MeteringQuerier() == nil {
+		t.Fatal("production metering querier must be mounted")
+	}
+	if caps.SnapshotGenerationID == 0 {
+		t.Fatal("expected published snapshot generation")
+	}
 	if st := rt.ReloadStatus(); st.ActiveGeneration < 1 {
 		t.Fatalf("active generation=%d want >= 1", st.ActiveGeneration)
 	}

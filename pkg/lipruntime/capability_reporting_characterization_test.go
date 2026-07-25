@@ -8,10 +8,12 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
+	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 )
 
 // TestCapabilityReporting_DogfoodFacadeHostSnapshot freezes externally observable
-// runtime readiness on the slim public facade path for the standard dogfood composition.
+// runtime capability reporting on the public facade path (derived host snapshot)
+// for the standard dogfood composition.
 func TestCapabilityReporting_DogfoodFacadeHostSnapshot(t *testing.T) {
 	t.Parallel()
 	_, file, _, ok := runtime.Caller(0)
@@ -32,7 +34,32 @@ func TestCapabilityReporting_DogfoodFacadeHostSnapshot(t *testing.T) {
 	if rt.ExecutorView() == nil {
 		t.Fatal("ExecutorView required for capability-bearing runtime")
 	}
-	if st := rt.ReloadStatus(); st.ActiveGeneration < 1 {
-		t.Fatalf("active generation=%d want >= 1", st.ActiveGeneration)
+	caps := rt.Capabilities()
+	if caps.SnapshotGenerationID == 0 {
+		t.Fatal("SnapshotGenerationID must be non-zero on dogfood facade")
+	}
+	switch caps.ExecutableState {
+	case cp.CapabilityReady, cp.CapabilityDisabled, cp.CapabilityUnavailable, cp.CapabilityDegraded:
+	default:
+		t.Fatalf("ExecutableState=%q outside closed capability vocabulary", caps.ExecutableState)
+	}
+	report := rt.ReadinessReport()
+	if report == nil {
+		t.Fatal("ReadinessReport must be exposed on facade")
+	}
+	if _, err := report.Report(ctx); err != nil {
+		t.Fatalf("ReadinessReport.Report: %v", err)
+	}
+	if caps.ProductionMetering {
+		t.Fatal("ProductionMetering must be false without MeteringRecorder")
+	}
+	if caps.ProductionRater {
+		t.Fatal("ProductionRater must be false without RaterRegistrations")
+	}
+	if caps.TrafficObservers || caps.UsageObservers || caps.ProductionEvidenceSink {
+		t.Fatal("observer attachment flags must be false without production injections")
+	}
+	if caps.ProductionMeteringQuerier {
+		t.Fatal("ProductionMeteringQuerier must be false without MeteringQuerier")
 	}
 }

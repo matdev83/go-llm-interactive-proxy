@@ -14,6 +14,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 // TestClose_ProductionBuild_PinnedStreamDeadlineRetry proves real Build + public
@@ -224,6 +226,16 @@ type closeDeadlineHost struct {
 
 func (h *closeDeadlineHost) ExecutorView() lipsdk.ExecutorView { return h.inner.ExecutorView() }
 func (h *closeDeadlineHost) Ready() bool                       { return h.inner.Ready() }
+func (h *closeDeadlineHost) Capabilities() lipruntime.HostCapabilities {
+	return h.inner.Capabilities()
+}
+func (h *closeDeadlineHost) MeteringQuerier() metering.Querier { return h.inner.MeteringQuerier() }
+func (h *closeDeadlineHost) ReadinessReport() controlplane.ReadinessReportReader {
+	return h.inner.ReadinessReport()
+}
+func (h *closeDeadlineHost) RefreshSnapshots(ctx context.Context) error {
+	return h.inner.RefreshSnapshots(ctx)
+}
 func (h *closeDeadlineHost) Reload(ctx context.Context, t sdkreload.Trigger) sdkreload.Result {
 	return h.inner.Reload(ctx, t)
 }

@@ -307,6 +307,15 @@ func (m *Manager) SetLifecycleObserver(obs *ReloadObserver) {
 	m.policyMu.Unlock()
 }
 
+func (m *Manager) HasLifecycleObserver() bool {
+	if m == nil {
+		return false
+	}
+	m.policyMu.Lock()
+	defer m.policyMu.Unlock()
+	return m.observer != nil
+}
+
 func (m *Manager) retirementDeps() (CleanupPolicy, *ReloadObserver) {
 	if m == nil {
 		return CleanupPolicy{}, nil

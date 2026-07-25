@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
@@ -89,9 +90,8 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		return nil, err
 	}
 
-	// fail rolls back through CandidateRuntime before ownership transfer.
 	failBeforeTransfer := func(err error) (GenerationRuntime, error) {
-		if rollErr := cand.Close(); rollErr != nil {
+		if rollErr := cand.RollbackUnpublished(); rollErr != nil {
 			return nil, errors.Join(err, rollErr)
 		}
 		return nil, err
@@ -111,22 +111,15 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	}
 	authProviders := append([]httpauth.Provider(nil), cand.HTTPAuthProviders...)
 
-	// Build the focused StandardHTTPInput directly from the candidate and
-	// frozen config: the canonical path never constructs/passes/converts
-	// through RequestPlane (task 3.4, req 2.2-2.8).
 	httpInput := buildStandardHTTPInput(cand, frozen, regs, route)
-
-	// HandlerComposer is an injected contract and may mutate or retain cfg.
-	// Lend it a deep defensive clone — never the caller candidate, canonical
-	// frozen source, or a shallow copy — so composition cannot poison the
-	// immutable generation source used for publication below.
+	if err := injectCandidateFault(in.FaultInject, "composer-clone"); err != nil {
+		return failBeforeTransfer(fmt.Errorf("runtimebundle: composer config clone: %w", err))
+	}
 	composerCfg, err := freezeConfig(frozen)
 	if err != nil {
 		return failBeforeTransfer(fmt.Errorf("runtimebundle: composer config clone: %w", err))
 	}
 
-	// Isolate composer panics so candidate resources roll back and
-	// ProcessServices stay up (req 3.9).
 	handler, err := composeStandardHTTPIsolated(ctx, in.Compose, composerCfg, ps.Logger, httpInput)
 	if err != nil {
 		return failBeforeTransfer(fmt.Errorf("runtimebundle: compose request plane: %w", err))
@@ -135,6 +128,9 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		return failBeforeTransfer(fmt.Errorf("runtimebundle: handler composer returned nil handler"))
 	}
 
+	if err := injectCandidateFault(in.FaultInject, "ledger-transfer"); err != nil {
+		_ = cand.claimLifecycleLedger()
+	}
 	ledger := cand.transferLedgerOwnership()
 	if ledger == nil {
 		return failBeforeTransfer(fmt.Errorf("runtimebundle: candidate resource ledger unavailable for transfer"))
@@ -160,7 +156,7 @@ func composeStandardHTTPIsolated(ctx context.Context, compose HandlerComposer, c
 	defer func() {
 		if p := recover(); p != nil {
 			handler = nil
-			err = fmt.Errorf("runtimebundle: compose panic: %v", p)
+			err = fmt.Errorf("runtimebundle: compose panic: %s", configreload.SanitizePanicValue(p))
 		}
 	}()
 	return compose(ctx, cfg, log, in)

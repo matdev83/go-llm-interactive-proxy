@@ -16,7 +16,7 @@ const (
 	lipruntimeHostPath         = "pkg/lipruntime/host.go"
 	lipruntimeFacadePath       = "pkg/lipruntime/facade.go"
 	lipruntimeFinalLineCeiling = 150
-	lipruntimePackageCeiling   = 486 // Phase B+C facade pass-through retirement
+	lipruntimePackageCeiling   = 536 // PR A: restore HostCapabilities public contract
 	lipruntimeAdapterTypeName  = "bundleHost"
 	lipruntimeHostIfaceName    = "hostAPI"
 )

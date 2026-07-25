@@ -81,7 +81,7 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 323},
 	// Task 3.5: freeze post-deletion composer/input surfaces at measured sizes.
 	{Path: "internal/infra/runtimebundle/handler_composer.go", Max: 25},
-	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 296},
+	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 292},
 	{Path: "internal/stdhttp/request_plane.go", Max: 65},
 	// Ratcheted from 364 to 245 for Task 5.5 (final ≤300, Req 11.3): removed
 	// DeferredSharedMutableOwnership/DeferredSharedMutable, ReplaceConfigForTest,
@@ -97,9 +97,11 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	// (Req 11.3) met with margin.
 	{Path: "pkg/lipruntime/build.go", Max: 96},
 	// Task 8.1: private host adapter exact-measured (zero headroom).
-	{Path: "pkg/lipruntime/host.go", Max: 52},
+	// PR A: restored Capabilities/MeteringQuerier/ReadinessReport/RefreshSnapshots.
+	{Path: "pkg/lipruntime/host.go", Max: 68},
 	// Task 8.1: public facade delegation exact-measured (zero headroom).
-	{Path: "pkg/lipruntime/facade.go", Max: 23},
+	// PR A: restored Capabilities/MeteringQuerier/ReadinessReport/RefreshSnapshots.
+	{Path: "pkg/lipruntime/facade.go", Max: 57},
 	// Task 5.5: exact-measured post dual-bootstrap deletion (zero headroom).
 	// Task 7.4: contracted to 360 after the tracingDeferred serve boundary was
 	// replaced by the single Host.Close seam.

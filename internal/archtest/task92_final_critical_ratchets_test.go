@@ -84,7 +84,24 @@ func packageTreePostTask92Ratchets() []PackageTreeBudget {
 	}
 }
 
-func packageTreeIncreaseWaivers() []packageBudgetIncrease { return nil }
+func packageTreeIncreaseWaivers() []packageBudgetIncrease {
+	return []packageBudgetIncrease{
+		{
+			Tree:              "internal/infra/runtimebundle",
+			OldMax:            9391,
+			NewMax:            9468,
+			Rationale:         "PR A restores HostCapabilities queries, RollbackUnpublished failure paths, and Manager lifecycle observer wiring deleted by Phase 9.3 densification",
+			DeletionMilestone: "PR B/C: densify without dropping supported contracts",
+		},
+		{
+			Tree:              "pkg/lipruntime",
+			OldMax:            486,
+			NewMax:            536,
+			Rationale:         "PR A restores the supported public Runtime Capabilities/MeteringQuerier/ReadinessReport/RefreshSnapshots contract deleted by Phase 9.3",
+			DeletionMilestone: "PR B/C: densify without dropping supported contracts",
+		},
+	}
+}
 
 func validatePackageBudgetIncrease(inc packageBudgetIncrease) error {
 	if strings.TrimSpace(inc.Tree) == "" {

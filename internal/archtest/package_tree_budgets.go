@@ -65,11 +65,12 @@ type PackageTreeBudget struct {
 // (pkg/lipruntime measured 648). runtimebundle comment-only contraction (10418).
 // Task 9.2: candidate_compile.go helpers moved to candidate_options.go (critical-
 // file organization); recursive package-tree total unchanged at exact 10418.
+// PR A: restore HostCapabilities queries + RollbackUnpublished + lifecycle observer wiring.
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 9391},
+	{Tree: "internal/infra/runtimebundle", Max: 9468},
 	{Tree: "internal/stdhttp", Max: 4301},
 	{Tree: "cmd/lipstd", Max: 880},
-	{Tree: "pkg/lipruntime", Max: 486},
+	{Tree: "pkg/lipruntime", Max: 536},
 }
 
 // CountNonTestGoLines recursively counts physical lines in non-test .go files

@@ -108,6 +108,7 @@ func bindReloadHost(configPath string, in bindReloadHostInput) (*ReloadHost, err
 		obsDeps.Metrics = in.Process.Metrics.Reload
 	}
 	observer := runtimehost.NewReloadObserver(obsDeps)
+	in.Manager.SetLifecycleObserver(observer) // Manager-owned retirement telemetry
 
 	coord, err := runtimehost.NewCoordinator(runtimehost.CoordinatorDeps{
 		Source: src, Loader: loader, Classify: configreload.ClassifyEffective,
