@@ -2,7 +2,6 @@ package lipruntime_test
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
@@ -26,15 +25,6 @@ func TestBuild_PreservesFeatureObservers(t *testing.T) {
 		ConfigPath:       repoConfigPath(t),
 		TrafficObservers: []traffic.Observer{noopTraffic{}},
 		UsageObservers:   []usage.Observer{noopUsage{}},
-		ProviderDescriptors: []authority.ProviderDescriptor{{
-			ID:   "traffic-observer",
-			Kind: authority.ProviderKindObserver,
-			Postures: []authority.StagePosture{{
-				Stage:           authority.StageRequestAdmit,
-				Strength:        authority.StrengthAdvisory,
-				FailureBehavior: authority.FailureFailOpen,
-			}},
-		}},
 	})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
@@ -45,28 +35,6 @@ func TestBuild_PreservesFeatureObservers(t *testing.T) {
 	}
 	if !rt.Ready() {
 		t.Fatal("expected ready runtime")
-	}
-}
-
-func TestBuild_RejectsObserverRequiredStrength(t *testing.T) {
-	t.Parallel()
-	_, err := lipruntime.Build(context.Background(), lipruntime.Options{
-		ConfigPath: repoConfigPath(t),
-		ProviderDescriptors: []authority.ProviderDescriptor{{
-			ID:   "bad-observer",
-			Kind: authority.ProviderKindObserver,
-			Postures: []authority.StagePosture{{
-				Stage:           authority.StageRequestAdmit,
-				Strength:        authority.StrengthRequired,
-				FailureBehavior: authority.FailureFailClosed,
-			}},
-		}},
-	})
-	if err == nil {
-		t.Fatal("expected observer+required to fail (requirement 12.7)")
-	}
-	if !strings.Contains(err.Error(), "observer cannot declare required strength") {
-		t.Fatalf("err=%v", err)
 	}
 }
 

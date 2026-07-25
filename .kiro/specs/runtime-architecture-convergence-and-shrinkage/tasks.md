@@ -373,15 +373,15 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 8.2_
   - _Validation: `go test ./pkg/lipruntime/... ./internal/qa/... -run 'Legacy|Migration|Docs|External'`_
 
-- [ ] 8.4 Remove legacy public options at the compatible major boundary
+- [x] 8.4 Remove legacy public options at the compatible major boundary
   - Delete deprecated fields, LegacyOptions/BuildLegacy adapter if used, descriptor-family filtering, legacy IDs, and legacy normalization tests.
   - Update external module fixtures to canonical registrations.
   - Activate architecture gates requiring one public options model.
   - Observable completion: canonical `Options` and normalization contain one registration language with no legacy branches.
   - _Requirements: 10.5-10.10, 11.4-11.9_
   - _Boundary: Public SDK major-version change_
-  - _Depends: 8.3, scheduled compatible major release_
-  - _Validation: `go test ./pkg/lipruntime/... ./testdata/enterprise_module/... ./internal/archtest/... -run 'Options|Registration|External|LegacyAbsent'`_
+  - _Depends: 8.3, alpha-stage breaking-change approval (2026-07-25)_
+  - _Validation: `go test ./pkg/lipruntime/... ./internal/archtest/... -run 'Options|Registration|External|LegacyAbsent' && (cd testdata/enterprise_module && GOWORK=off go test ./... -count=1)`_
 
 ## Phase 9: Ratchet Budgets, Documentation, and Release Certification
 

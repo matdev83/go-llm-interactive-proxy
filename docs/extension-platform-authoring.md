@@ -91,12 +91,11 @@ Every SDK handler receives a `context.Context` from the core and must treat it a
 
 ## Public runtime composition options
 
-Closed modules that call `pkg/lipruntime.Build` should attach authority and
-raters through canonical registrations on `lipruntime.Options`. Deprecated
-parallel provider/rater fields are current-major compatibility only. Field-by-
-field mapping, removal schedule, and external-module guidance:
-[lipruntime-options-migration.md](lipruntime-options-migration.md). Enterprise
-attachment seams: [enterprise-extension-boundaries.md](enterprise-extension-boundaries.md).
+Closed modules that call `pkg/lipruntime.Build` attach authority and raters
+through canonical registrations on `lipruntime.Options`:
+`RequestRegistrations`, `AttemptRegistrations`, `ConcurrencyRegistration`, and
+`RaterRegistrations`. Enterprise attachment seams:
+[enterprise-extension-boundaries.md](enterprise-extension-boundaries.md).
 
 ## Automated guardrails
 

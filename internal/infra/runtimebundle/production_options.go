@@ -13,8 +13,7 @@ import (
 )
 
 // ProductionOptions carries enterprise/production injection seams (reqs 12.1, 12.3, 12.4).
-// Canonical host construction accepts descriptor-bound registrations only; deprecated
-// parallel provider/rater fields are quarantined in pkg/lipruntime's legacy adapter.
+// Canonical host construction accepts descriptor-bound registrations only.
 type ProductionOptions struct {
 	MeteringRecorder          metering.Recorder
 	RequestRegistrations      []authority.RequestRegistration

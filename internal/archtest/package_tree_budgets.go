@@ -61,11 +61,13 @@ type PackageTreeBudget struct {
 // Task 8.2: runtimebundle drops deprecated ProductionOptions provider/rater
 // fields and rejectUnboundLegacyAuthority (10419). pkg/lipruntime gains the
 // explicit legacy_options quarantine adapter (+10 vs Task 8.1; measured 829).
+// Task 8.4: delete legacy_options adapter and public deprecated Options fields
+// (pkg/lipruntime measured 648). runtimebundle comment-only contraction (10418).
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 10419},
+	{Tree: "internal/infra/runtimebundle", Max: 10418},
 	{Tree: "internal/stdhttp", Max: 4509},
 	{Tree: "cmd/lipstd", Max: 880},
-	{Tree: "pkg/lipruntime", Max: 829},
+	{Tree: "pkg/lipruntime", Max: 648},
 }
 
 // CountNonTestGoLines recursively counts physical lines in non-test .go files

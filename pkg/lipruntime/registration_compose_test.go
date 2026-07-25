@@ -78,91 +78,6 @@ func TestBuild_RejectsDuplicateRequestRegistrationIDs(t *testing.T) {
 	}
 }
 
-func TestBuild_RejectsMixedLegacyAndRegistrations(t *testing.T) {
-	t.Parallel()
-	_, err := lipruntime.Build(context.Background(), lipruntime.Options{
-		ConfigPath:       repoConfigPath(t),
-		RequestProviders: []authority.RequestProvider{allowRequestProvider{}},
-		RequestRegistrations: []authority.RequestRegistration{{
-			Descriptor: authority.ProviderDescriptor{
-				ID:   "quota",
-				Kind: authority.ProviderKindAuthority,
-				Postures: []authority.StagePosture{{
-					Stage:           authority.StageRequestAdmit,
-					Strength:        authority.StrengthRequired,
-					FailureBehavior: authority.FailureFailClosed,
-				}},
-			},
-			Priority: authority.RequestPriorityQuotaBudgetRate,
-			Provider: allowRequestProvider{},
-		}},
-	})
-	if err == nil {
-		t.Fatal("mixing legacy RequestProviders with RequestRegistrations must fail")
-	}
-}
-
-func TestBuild_LegacyRequiresMatchingDescriptors(t *testing.T) {
-	t.Parallel()
-	_, err := lipruntime.Build(context.Background(), lipruntime.Options{
-		ConfigPath:       repoConfigPath(t),
-		RequestProviders: []authority.RequestProvider{allowRequestProvider{}},
-	})
-	if err == nil {
-		t.Fatal("legacy RequestProviders without matching descriptors must fail (no index-generated IDs)")
-	}
-}
-
-func TestBuild_LegacyPairsDescriptorsByIndex(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	rt, err := lipruntime.Build(ctx, lipruntime.Options{
-		ConfigPath:       repoConfigPath(t),
-		RequestProviders: []authority.RequestProvider{allowRequestProvider{}},
-		ProviderDescriptors: []authority.ProviderDescriptor{{
-			ID:   "legacy-paired",
-			Kind: authority.ProviderKindAuthority,
-			Postures: []authority.StagePosture{{
-				Stage:           authority.StageRequestAdmit,
-				Strength:        authority.StrengthAdvisory,
-				FailureBehavior: authority.FailureFailOpen,
-			}},
-		}},
-	})
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	t.Cleanup(func() { _ = rt.Close(ctx) })
-	report, err := rt.ReadinessReport().Report(ctx)
-	if err != nil {
-		t.Fatalf("ReadinessReport: %v", err)
-	}
-	ids := componentProviderIDs(report, controlplane.ReadinessComponentRequestCoordinator)
-	if len(ids) != 1 || ids[0] != "legacy-paired" {
-		t.Fatalf("legacy paired ids=%v want [legacy-paired]", ids)
-	}
-}
-
-func TestBuild_LegacyRejectsCardinalityMismatch(t *testing.T) {
-	t.Parallel()
-	_, err := lipruntime.Build(context.Background(), lipruntime.Options{
-		ConfigPath:       repoConfigPath(t),
-		RequestProviders: []authority.RequestProvider{allowRequestProvider{}, allowRequestProvider{}},
-		ProviderDescriptors: []authority.ProviderDescriptor{{
-			ID:   "only-one",
-			Kind: authority.ProviderKindAuthority,
-			Postures: []authority.StagePosture{{
-				Stage:           authority.StageRequestAdmit,
-				Strength:        authority.StrengthRequired,
-				FailureBehavior: authority.FailureFailClosed,
-			}},
-		}},
-	})
-	if err == nil {
-		t.Fatal("legacy provider/descriptor cardinality mismatch must fail")
-	}
-}
-
 func TestBuild_RaterRegistration_ReadinessIdentity(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -188,22 +103,6 @@ func TestBuild_RaterRegistration_ReadinessIdentity(t *testing.T) {
 	ids := componentProviderIDs(report, controlplane.ReadinessComponentOperatorRater)
 	if len(ids) != 1 || ids[0] != "enterprise-operator-rater" {
 		t.Fatalf("operator rater ids=%v want [enterprise-operator-rater]", ids)
-	}
-}
-
-func TestBuild_RejectsUnboundLegacyRaterWithRegistrations(t *testing.T) {
-	t.Parallel()
-	_, err := lipruntime.Build(context.Background(), lipruntime.Options{
-		ConfigPath: repoConfigPath(t),
-		Rater:      &recordingRater{},
-		RaterRegistrations: []economics.RaterRegistration{{
-			ID:          "explicit",
-			Perspective: metering.PerspectiveOperator,
-			Rater:       &recordingRater{},
-		}},
-	})
-	if err == nil {
-		t.Fatal("mixing legacy Rater with RaterRegistrations must fail")
 	}
 }
 

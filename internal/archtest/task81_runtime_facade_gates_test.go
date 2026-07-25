@@ -16,7 +16,7 @@ const (
 	lipruntimeHostPath         = "pkg/lipruntime/host.go"
 	lipruntimeFacadePath       = "pkg/lipruntime/facade.go"
 	lipruntimeFinalLineCeiling = 150
-	lipruntimePackageCeiling   = 829 // Task 8.2: legacy_options quarantine adapter
+	lipruntimePackageCeiling   = 648 // Task 8.4: legacy options removed
 	lipruntimeAdapterTypeName  = "bundleHost"
 	lipruntimeHostIfaceName    = "hostAPI"
 )
@@ -115,7 +115,7 @@ func TestRuntimeFacade_PackageTreeBudgetExact(t *testing.T) {
 		t.Fatal(err)
 	}
 	if n > lipruntimePackageCeiling {
-		t.Fatalf("%s has %d non-test lines; Task 8.2 ceiling is %d", lipruntimeDir, n, lipruntimePackageCeiling)
+		t.Fatalf("%s has %d non-test lines; Task 8.4 ceiling is %d", lipruntimeDir, n, lipruntimePackageCeiling)
 	}
 	var budgetMax int
 	found := false

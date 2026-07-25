@@ -8,7 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 )
 
-// normalizedProduction is the descriptor-bound set after legacy adaptation.
+// normalizedProduction is the defensively copied descriptor-bound registration set.
 type normalizedProduction struct {
 	RequestRegistrations    []authority.RequestRegistration
 	AttemptRegistrations    []authority.AttemptRegistration
