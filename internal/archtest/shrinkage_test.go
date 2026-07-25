@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Task 9.3: Requirement 11.5-11.9 shrinkage evidence and machine-checkable gate.
+// Requirement 11.5-11.9 shrinkage evidence and machine-checkable gate.
 
 func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	t.Parallel()
@@ -106,9 +106,6 @@ func TestShrinkage_ReportSectionIncludesVerdict(t *testing.T) {
 	}
 }
 
-// TestShrinkage_NetReductionMeetsRequirement115 is the hard gate for
-// Requirement 11.5. It must fail while the five-surface delta is worse than
-// -800; do not weaken this assertion or exclude surfaces to go green.
 func TestShrinkage_NetReductionMeetsRequirement115(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -119,8 +116,7 @@ func TestShrinkage_NetReductionMeetsRequirement115(t *testing.T) {
 	if !m.Pass {
 		var b strings.Builder
 		for _, s := range m.Surfaces {
-			fmtSurface := fmt.Sprintf("  %s: %d -> %d (%+d)\n", s.Tree, s.BaselineLines, s.CurrentLines, s.Delta)
-			b.WriteString(fmtSurface)
+			fmt.Fprintf(&b, "  %s: %d -> %d (%+d)\n", s.Tree, s.BaselineLines, s.CurrentLines, s.Delta)
 		}
 		t.Fatalf("Req 11.5 FAIL: five-surface non-test delta %+d (need ≤ %+d; short by %d)\n%sbaseline_total=%d current_total=%d",
 			m.Delta, m.RequiredMax, m.Delta-m.RequiredMax, b.String(), m.BaselineTotal, m.CurrentTotal)
