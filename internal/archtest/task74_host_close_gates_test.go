@@ -85,7 +85,7 @@ func TestHostCloseOwnership_SolePreHostRollbackOwner(t *testing.T) {
 
 // TestHostCloseOwnership_SoleProductionCoordinator proves exactly one
 // production entry point drives the Host shutdown ordering and that it is
-// (*ReloadHost).Close.
+// (*Host).Close.
 func TestHostCloseOwnership_SoleProductionCoordinator(t *testing.T) {
 	t.Parallel()
 	pkgs := hcProductionPackages(t, repoRoot(t))
@@ -95,8 +95,8 @@ func TestHostCloseOwnership_SoleProductionCoordinator(t *testing.T) {
 	}
 	rep := reportHostCloseOwnership(hcZone{Scope: hcHostOwnerDir, HostOwner: true}, owner)
 	roots := rep.Roots()
-	if len(roots) != 1 || roots[0] != "ReloadHost.Close" {
-		t.Fatalf("Host shutdown ordering roots=%v want exactly [ReloadHost.Close]", roots)
+	if len(roots) != 1 || roots[0] != "Host.Close" {
+		t.Fatalf("Host shutdown ordering roots=%v want exactly [Host.Close]", roots)
 	}
 	kinds := map[string]bool{}
 	for touched, set := range rep.Touching {

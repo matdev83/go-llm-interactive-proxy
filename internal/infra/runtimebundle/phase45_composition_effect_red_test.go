@@ -104,7 +104,7 @@ func TestPhase45_BuildDerivesEffectProvidersFromRequestRegistrations(t *testing.
 		TerminalWorkClaimLimit:   10,
 	}
 	_, built := mustProcessAndCandidate(t, cfg, opts)
-	if built.TerminalWorkProcessor == nil || !built.TerminalWorkProcessor.Running() {
+	if runtimebundle.CandidateTerminalWorkProcessor(built) == nil || !runtimebundle.CandidateTerminalWorkProcessor(built).Running() {
 		t.Fatal("processor must auto-start")
 	}
 	if _, err := prov.SettleRequest(context.Background(), authority.RequestSettlement{
@@ -113,7 +113,7 @@ func TestPhase45_BuildDerivesEffectProvidersFromRequestRegistrations(t *testing.
 	}); err == nil {
 		t.Fatal("inline settle must fail while unhealthy")
 	}
-	if err := built.Executor.TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
+	if err := built.Executor().TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
 		RequestID:  "req-compose",
 		AttemptID:  "a-1",
 		TraceID:    "tr-compose",
@@ -136,7 +136,7 @@ func TestPhase45_BuildDerivesEffectProvidersFromRequestRegistrations(t *testing.
 	}
 	before := prov.settleCalls.Load()
 	prov.settleErr = nil
-	if err := built.TerminalWorkProcessor.ProcessDue(context.Background()); err != nil {
+	if err := runtimebundle.CandidateTerminalWorkProcessor(built).ProcessDue(context.Background()); err != nil {
 		t.Fatalf("ProcessDue: %v", err)
 	}
 	if prov.settleCalls.Load() <= before {
@@ -193,7 +193,7 @@ func TestPhase45_ExplicitTerminalWorkProviderOverridesDerived(t *testing.T) {
 		TerminalWorkClaimLimit:   10,
 	}
 	_, built := mustProcessAndCandidate(t, cfg, opts)
-	if err := built.Executor.TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
+	if err := built.Executor().TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
 		RequestID:  "req-override",
 		AttemptID:  "a-1",
 		ProviderID: "quota",
@@ -203,7 +203,7 @@ func TestPhase45_ExplicitTerminalWorkProviderOverridesDerived(t *testing.T) {
 		t.Fatal(err)
 	}
 	settleBefore := prov.settleCalls.Load()
-	if err := built.TerminalWorkProcessor.ProcessDue(context.Background()); err != nil {
+	if err := runtimebundle.CandidateTerminalWorkProcessor(built).ProcessDue(context.Background()); err != nil {
 		t.Fatalf("ProcessDue: %v", err)
 	}
 	if stub.invokeCalls.Load() < 1 {

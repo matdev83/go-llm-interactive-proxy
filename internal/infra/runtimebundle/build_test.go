@@ -34,11 +34,11 @@ func TestBuild_productionClockAndRNG(t *testing.T) {
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 	})
-	ex := b.Executor
-	if b.UpstreamHTTP == nil {
+	ex := b.Executor()
+	if runtimebundle.CandidateUpstreamHTTP(b) == nil {
 		t.Fatal("expected shared upstream HTTP client")
 	}
-	if b.PluginRegistry == nil {
+	if b.PluginRegistry() == nil {
 		t.Fatal("expected PluginRegistry")
 	}
 	if ex.Now == nil {
@@ -56,18 +56,18 @@ func TestBuild_productionClockAndRNG(t *testing.T) {
 	if ex.RouteObserver == nil {
 		t.Fatal("expected RouteObserver wired")
 	}
-	if b.RuntimeSnapshot == nil {
+	if b.RuntimeSnapshot() == nil {
 		t.Fatal("expected RuntimeSnapshot on Built")
 	}
-	if ex.RuntimeSnapshot != b.RuntimeSnapshot {
+	if ex.RuntimeSnapshot != b.RuntimeSnapshot() {
 		t.Fatal("executor snapshot should match CandidateRuntime.RuntimeSnapshot")
 	}
 	ctx := context.Background()
-	if err := b.RuntimeSnapshot.State().Put(ctx, lipstate.ScopeGlobal, "rtbundle", "probe", "1", 0); err != nil {
+	if err := b.RuntimeSnapshot().State().Put(ctx, lipstate.ScopeGlobal, "rtbundle", "probe", "1", 0); err != nil {
 		t.Fatalf("runtime snapshot state: %v", err)
 	}
 	var out string
-	found, err := b.RuntimeSnapshot.State().Get(ctx, lipstate.ScopeGlobal, "rtbundle", "probe", &out)
+	found, err := b.RuntimeSnapshot().State().Get(ctx, lipstate.ScopeGlobal, "rtbundle", "probe", &out)
 	if err != nil || !found || out != "1" {
 		t.Fatalf("state get found=%v out=%q err=%v", found, out, err)
 	}
@@ -87,8 +87,8 @@ func TestBuild_respectsHTTPClientInBuildOptions(t *testing.T) {
 		Infra:          runtimebundle.InfraOptions{HTTPClient: custom},
 		PluginRegistry: pluginreg.NewRegistry(),
 	})
-	if b.UpstreamHTTP != custom {
-		t.Fatalf("UpstreamHTTP: got %p want %p", b.UpstreamHTTP, custom)
+	if runtimebundle.CandidateUpstreamHTTP(b) != custom {
+		t.Fatalf("UpstreamHTTP: got %p want %p", runtimebundle.CandidateUpstreamHTTP(b), custom)
 	}
 }
 
@@ -116,19 +116,19 @@ func TestBuild_wrapsCustomHTTPClientForUpstreamMetrics(t *testing.T) {
 		Infra:          runtimebundle.InfraOptions{HTTPClient: custom},
 		PluginRegistry: pluginreg.NewRegistry(),
 	})
-	if b.UpstreamHTTP == custom {
+	if runtimebundle.CandidateUpstreamHTTP(b) == custom {
 		t.Fatal("expected wrapped client clone when metrics are enabled")
 	}
 	req, err := http.NewRequest(http.MethodGet, "https://api.openai.com/v1/responses", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err := b.UpstreamHTTP.Do(req)
+	resp, err := runtimebundle.CandidateUpstreamHTTP(b).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = resp.Body.Close()
-	families, err := b.Metrics.Registry.Gather()
+	families, err := b.Metrics().Registry.Gather()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestBuild_setsEffectiveDefaultRoute_defaultWireModel(t *testing.T) {
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 	})
-	if b.EffectiveDefaultRoute == "" {
+	if b.EffectiveDefaultRoute() == "" {
 		t.Fatal("EffectiveDefaultRoute should be non-empty")
 	}
 	wantRaw := config.EffectiveDefaultRouteSelector(cfg, standardplugins.DefaultWireModel)
@@ -159,8 +159,8 @@ func TestBuild_setsEffectiveDefaultRoute_defaultWireModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := ar.Resolve(wantRaw)
-	if b.EffectiveDefaultRoute != want {
-		t.Fatalf("EffectiveDefaultRoute: got %q want %q", b.EffectiveDefaultRoute, want)
+	if b.EffectiveDefaultRoute() != want {
+		t.Fatalf("EffectiveDefaultRoute: got %q want %q", b.EffectiveDefaultRoute(), want)
 	}
 }
 
@@ -181,8 +181,8 @@ func TestBuild_derivesRoutePrefixesFromEnabledBackends(t *testing.T) {
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if !slices.Contains(b.RoutePrefixes, "local-stub") {
-		t.Fatalf("RoutePrefixes = %v, want local-stub", b.RoutePrefixes)
+	if !slices.Contains(b.RoutePrefixes(), "local-stub") {
+		t.Fatalf("RoutePrefixes = %v, want local-stub", b.RoutePrefixes())
 	}
 }
 
@@ -199,8 +199,8 @@ func TestBuild_respectsWireModelInBuildOptions(t *testing.T) {
 		PluginRegistry: pluginreg.NewRegistry(),
 		WireModel:      func(string) string { return "wm-override" },
 	})
-	if want := "openai-responses:wm-override"; b.EffectiveDefaultRoute != want {
-		t.Fatalf("EffectiveDefaultRoute: got %q want %q", b.EffectiveDefaultRoute, want)
+	if want := "openai-responses:wm-override"; b.EffectiveDefaultRoute() != want {
+		t.Fatalf("EffectiveDefaultRoute: got %q want %q", b.EffectiveDefaultRoute(), want)
 	}
 }
 
@@ -222,11 +222,11 @@ func TestBuild_defaultRouteAliasExpandsBeforeDefaultBackend(t *testing.T) {
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 	})
-	if b.EffectiveDefaultRoute != "openai-responses:gpt-4o-mini" {
-		t.Fatalf("EffectiveDefaultRoute: got %q", b.EffectiveDefaultRoute)
+	if b.EffectiveDefaultRoute() != "openai-responses:gpt-4o-mini" {
+		t.Fatalf("EffectiveDefaultRoute: got %q", b.EffectiveDefaultRoute())
 	}
-	if b.Executor.DefaultBackend != "openai-responses" {
-		t.Fatalf("DefaultBackend: got %q want openai-responses", b.Executor.DefaultBackend)
+	if b.Executor().DefaultBackend != "openai-responses" {
+		t.Fatalf("DefaultBackend: got %q want openai-responses", b.Executor().DefaultBackend)
 	}
 }
 

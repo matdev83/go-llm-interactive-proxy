@@ -9,46 +9,148 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/osenv"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 )
 
 // Test-only stage fault seam for PartialCleanup matrices (req 4.8). Journals are
-// evidence translated from the production hostBuildProbe; this file must not
-// reimplement NewProcessServices / CompileGeneration / Publish / bindReloadHost.
+// evidence from wrapped hostBuildOps; this file must not reimplement production
+// NewProcessServices / CompileGeneration / Publish / bindHost bodies.
+
+func (j *hostBuildJournal) acquire(stage string) {
+	j.Acquired = append(j.Acquired, stage)
+}
+
+func (j *hostBuildJournal) clean(stage string) {
+	for _, existing := range j.Cleaned {
+		if existing == stage {
+			return
+		}
+	}
+	j.Cleaned = append(j.Cleaned, stage)
+}
 
 func (productionHostBuilder) BuildFaulting(ctx context.Context, in hostBuildInput, faultAt hostBuildStage) (hostBuildOutcome, error) {
 	var journal hostBuildJournal
-	probe := func(stage hostBuildStageName, event hostBuildProbeEvent) error {
-		switch event {
-		case hostBuildProbeAcquired:
-			journal.Acquired = append(journal.Acquired, string(stage))
-			journal.Loads = countLoaderAcquires(journal.Acquired)
-			if hostBuildStage(stage) == faultAt {
-				return fmt.Errorf("runtimebundle: host build fault: %s", stage)
-			}
-		case hostBuildProbeCleaned:
-			journal.Cleaned = append(journal.Cleaned, string(stage))
+	ops := defaultHostBuildOps()
+
+	baseLoad := ops.load
+	ops.load = func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
+		eff, src, fixed, err := baseLoad(ctx, path, cli)
+		if err != nil {
+			return nil, nil, fixed, err
 		}
-		return nil
+		journal.acquire("loader")
+		journal.Loads++
+		if faultAt == hostBuildStageLoader {
+			return nil, nil, fixed, fmt.Errorf("runtimebundle: host build fault: loader")
+		}
+		return eff, src, fixed, nil
 	}
-	host, err := buildHost(ctx, in, LoadBootstrapEffectiveWithSource, probe)
+
+	baseTracing := ops.tracing
+	ops.tracing = func(ctx context.Context, cfg *config.Config) (tracing.Result, error) {
+		res, err := baseTracing(ctx, cfg)
+		if err != nil {
+			return res, err
+		}
+		journal.acquire("tracing")
+		inner := res.Shutdown
+		res.Shutdown = func(ctx context.Context) error {
+			journal.clean("tracing")
+			if inner == nil {
+				return nil
+			}
+			return inner(ctx)
+		}
+		if faultAt == hostBuildStageTracing {
+			_ = res.Shutdown(context.WithoutCancel(ctx))
+			return tracing.Result{}, fmt.Errorf("runtimebundle: host build fault: tracing")
+		}
+		return res, nil
+	}
+
+	baseProcess := ops.process
+	ops.process = func(ctx context.Context, in processBuildInput) (*ProcessServices, error) {
+		ps, err := baseProcess(ctx, in)
+		if err != nil {
+			return nil, err
+		}
+		journal.acquire("process")
+		ps.closers = append([]func() error{func() error {
+			journal.clean("process")
+			return nil
+		}}, ps.closers...)
+		if faultAt == hostBuildStageProcess {
+			_ = ps.Close()
+			return nil, fmt.Errorf("runtimebundle: host build fault: process")
+		}
+		return ps, nil
+	}
+
+	baseCompile := ops.compile
+	ops.compile = func(ctx context.Context, ps *ProcessServices, cfg *config.Config, compose HandlerComposer) (GenerationRuntime, error) {
+		bundle, err := baseCompile(ctx, ps, cfg, compose)
+		if err != nil {
+			return nil, err
+		}
+		journal.acquire("compile")
+		if faultAt == hostBuildStageCompile {
+			journal.clean("compile")
+			_ = bundle.Quiesce(context.WithoutCancel(ctx))
+			_ = bundle.Close()
+			return nil, fmt.Errorf("runtimebundle: host build fault: compile")
+		}
+		return bundle, nil
+	}
+
+	basePublish := ops.publisher
+	ops.publisher = func(ctx context.Context, in initialPublishInput) (*runtimehost.Manager, *runtimehost.Generation, error) {
+		mgr, gen, err := basePublish(ctx, in)
+		if err != nil {
+			return nil, nil, err
+		}
+		journal.acquire("publish")
+		if faultAt == hostBuildStagePublish {
+			// Match former probe notes before joinInitialFailureCleanup: publish
+			// then compile evidence, then production closes process + tracing.
+			journal.clean("publish")
+			journal.clean("compile")
+			return nil, nil, fmt.Errorf("runtimebundle: host build fault: publish")
+		}
+		return mgr, gen, nil
+	}
+
+	baseBind := ops.bind
+	ops.bind = func(configPath string, in bindHostInput) (*Host, error) {
+		host, err := baseBind(configPath, in)
+		if err != nil {
+			return nil, err
+		}
+		journal.acquire("coordinator")
+		if faultAt == hostBuildStageCoordinator {
+			// Match former probe notes; buildHost closes the returned Host.
+			journal.clean("coordinator")
+			journal.clean("publish")
+			journal.clean("compile")
+			journal.clean("process")
+			journal.clean("tracing")
+			return host, fmt.Errorf("runtimebundle: host build fault: coordinator")
+		}
+		return host, nil
+	}
+
+	host, err := buildHost(ctx, in, ops, osenv.Process{})
 	if err != nil {
 		return hostBuildOutcome{Journal: journal}, err
 	}
 	return hostBuildOutcome{Host: host, Journal: journal, Complete: true}, nil
 }
 
-func countLoaderAcquires(acquired []string) int {
-	n := 0
-	for _, s := range acquired {
-		if s == string(hostBuildStageNameLoader) {
-			n++
-		}
-	}
-	return n
-}
-
-// TestPartialCleanup_FaultSeamUsesProductionTransaction guards against a
-// second test-only ownership engine regressing under the PartialCleanup matrix.
 func TestPartialCleanup_FaultSeamUsesProductionTransaction(t *testing.T) {
 	t.Parallel()
 	src, err := os.ReadFile("host_build_fault_test.go")
@@ -61,7 +163,7 @@ func TestPartialCleanup_FaultSeamUsesProductionTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	if f.Name == nil || f.Name.Name != "runtimebundle" {
-		t.Fatal("fault seam must stay in package runtimebundle to call buildHost with probe")
+		t.Fatal("fault seam must stay in package runtimebundle to call buildHost with ops")
 	}
 	var buildFaulting *ast.FuncDecl
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -82,7 +184,7 @@ func TestPartialCleanup_FaultSeamUsesProductionTransaction(t *testing.T) {
 		"NewProcessServices",
 		"CompileGeneration",
 		"Publish",
-		"bindReloadHost",
+		"bindHost",
 		"initProcessTracing",
 		"installRegistryAndRegistrations",
 	}
@@ -102,8 +204,8 @@ func TestPartialCleanup_FaultSeamUsesProductionTransaction(t *testing.T) {
 	if !strings.Contains(string(body), "buildHost(") {
 		t.Fatal("BuildFaulting must invoke production buildHost")
 	}
-	if !strings.Contains(string(src), "hostBuildProbeAcquired") {
-		t.Fatal("BuildFaulting must use the production hostBuildProbe seam")
+	if !strings.Contains(string(src), "defaultHostBuildOps") {
+		t.Fatal("BuildFaulting must use the hostBuildOps seam")
 	}
 }
 

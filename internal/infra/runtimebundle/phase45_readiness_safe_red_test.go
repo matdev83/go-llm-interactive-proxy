@@ -52,7 +52,7 @@ func TestPhase45_TerminalWorkReadinessIncludesBacklogAndSafeStoreError(t *testin
 		TerminalWorkOwnerID: "ready-worker",
 	}
 	_, cand := mustProcessAndCandidate(t, cfg, opts)
-	if err := cand.Executor.TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
+	if err := cand.Executor().TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
 		RequestID:  "req-ready",
 		AttemptID:  "a-1",
 		ProviderID: "quota",
@@ -62,7 +62,7 @@ func TestPhase45_TerminalWorkReadinessIncludesBacklogAndSafeStoreError(t *testin
 		t.Fatal(err)
 	}
 
-	snap, err := cand.TerminalWorkMetrics.Snapshot(context.Background())
+	snap, err := runtimebundle.CandidateTerminalWorkMetrics(cand).Snapshot(context.Background())
 	if err != nil {
 		t.Fatal("BacklogKnown want true after successful snapshot")
 	}
@@ -70,7 +70,7 @@ func TestPhase45_TerminalWorkReadinessIncludesBacklogAndSafeStoreError(t *testin
 		t.Fatalf("Backlog=%d want >=1 pending terminal work", snap.Backlog)
 	}
 
-	report, err := cand.ReadinessReport.Report(context.Background())
+	report, err := runtimebundle.CandidateReadinessReport(cand).Report(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,15 +117,15 @@ func TestPhase45_TerminalWorkReadinessSnapshotErrorSafeAndUnknownBacklog(t *test
 		TerminalWorkOwnerID: "ready-list-worker",
 	}
 	_, cand := mustProcessAndCandidate(t, cfg, opts)
-	if cand.TerminalWorkProcessor == nil {
+	if runtimebundle.CandidateTerminalWorkProcessor(cand) == nil {
 		t.Fatal("expected configured processor")
 	}
-	_, err = cand.TerminalWorkMetrics.Snapshot(context.Background())
+	_, err = runtimebundle.CandidateTerminalWorkMetrics(cand).Snapshot(context.Background())
 	if err == nil {
 		t.Fatal("BacklogKnown want false when snapshot fails")
 	}
 
-	report, err := cand.ReadinessReport.Report(context.Background())
+	report, err := runtimebundle.CandidateReadinessReport(cand).Report(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

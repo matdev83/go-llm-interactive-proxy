@@ -4,22 +4,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"os"
-	"strings"
-
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretsguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/logging"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/osenv"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"io"
+	"log/slog"
+	"os"
+	"strings"
+	"time"
 )
 
-// Host is the process-owned complete host returned by [BuildHost].
-type Host = ReloadHost
-
-// BuildHostInput configures the one-snapshot [BuildHost] transaction.
 type BuildHostInput struct {
 	ConfigPath              string
 	Mandatory               []lipsdk.Requirement
@@ -27,70 +27,22 @@ type BuildHostInput struct {
 	StreamRecoveryOverrides config.StreamRecoveryOverrides
 	HandlerComposer         HandlerComposer
 	Production              ProductionOptions
-	// EnforceMultiUserCLIGate enables the serve-only --multi-user CLI consistency
-	// gate (req 4.3). Public Build leaves this false; cmd/lipstd serve sets true.
 	EnforceMultiUserCLIGate bool
 	MultiUser               *bool
 }
 
-// BuildHost constructs one complete process-owned Host from one accepted
-// effective snapshot, or returns nil after internal rollback (req 4.1-4.8).
 func BuildHost(ctx context.Context, in BuildHostInput) (*Host, error) {
-	return buildHost(ctx, hostBuildInput(in), LoadBootstrapEffectiveWithSource, nil)
+	return buildHost(ctx, hostBuildInput(in), defaultHostBuildOps(), osenv.Process{})
 }
 
 type hostBuildInput = BuildHostInput
 
-// hostBuildStageName identifies a BuildHost transaction stage for the optional
-// call-scoped probe (tests only; production passes nil).
-type hostBuildStageName string
-
-const (
-	hostBuildStageNameLoader      hostBuildStageName = "loader"
-	hostBuildStageNameTracing     hostBuildStageName = "tracing"
-	hostBuildStageNameProcess     hostBuildStageName = "process"
-	hostBuildStageNameCompile     hostBuildStageName = "compile"
-	hostBuildStageNamePublish     hostBuildStageName = "publish"
-	hostBuildStageNameCoordinator hostBuildStageName = "coordinator"
-)
-
-// hostBuildProbeEvent distinguishes acquisition from cleanup evidence.
-type hostBuildProbeEvent string
-
-const (
-	hostBuildProbeAcquired hostBuildProbeEvent = "acquired"
-	hostBuildProbeCleaned  hostBuildProbeEvent = "cleaned"
-)
-
-// hostBuildProbe is a per-invocation observer/fault injector. Production
-// BuildHost passes nil. Returning a non-nil error from an "acquired" event
-// injects failure after that stage's real resource exists so rollback exercises
-// the same production cleanup branches.
-type hostBuildProbe func(stage hostBuildStageName, event hostBuildProbeEvent) error
-
-func buildHost(ctx context.Context, in hostBuildInput, loadEffective bootstrapEffectiveLoader, probe hostBuildProbe) (*ReloadHost, error) {
-	return buildHostWithEnv(ctx, in, loadEffective, osenv.Process{}, probe)
-}
-
-func buildHostWithEnv(
-	ctx context.Context,
-	in hostBuildInput,
-	loadEffective bootstrapEffectiveLoader,
-	secretEnv coresg.Environment,
-	probe hostBuildProbe,
-) (*ReloadHost, error) {
-	note := func(stage hostBuildStageName, event hostBuildProbeEvent) error {
-		if probe == nil {
-			return nil
-		}
-		return probe(stage, event)
-	}
-
+func buildHost(ctx context.Context, in hostBuildInput, ops hostBuildOps, secretEnv coresg.Environment) (*Host, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("runtimebundle: nil context")
 	}
-	if loadEffective == nil {
-		return nil, fmt.Errorf("runtimebundle: nil effective loader")
+	if ops.load == nil || ops.tracing == nil || ops.process == nil || ops.compile == nil || ops.publisher == nil || ops.bind == nil {
+		return nil, fmt.Errorf("runtimebundle: incomplete host build operations")
 	}
 	path := strings.TrimSpace(in.ConfigPath)
 	if path == "" {
@@ -104,15 +56,12 @@ func buildHostWithEnv(
 		logOut = os.Stdout
 	}
 
-	effective, activeSource, fixedStreamRecovery, err := loadEffective(ctx, path, in.StreamRecoveryOverrides)
+	effective, activeSource, fixedStreamRecovery, err := ops.load(ctx, path, in.StreamRecoveryOverrides)
 	if err != nil {
 		return nil, err
 	}
 	if effective == nil || effective.Config == nil {
 		return nil, fmt.Errorf("runtimebundle: nil effective config")
-	}
-	if err := note(hostBuildStageNameLoader, hostBuildProbeAcquired); err != nil {
-		return nil, err
 	}
 	cfg := effective.Config
 
@@ -126,23 +75,16 @@ func buildHostWithEnv(
 		}
 	}
 
-	traceRes, err := initProcessTracing(ctx, cfg)
+	traceRes, err := ops.tracing(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: tracing init: %w", err)
 	}
 	traceShutdown := traceRes.Shutdown
-	// Pre-Host tracing cleanup always funnels through the sole canonical
-	// joinInitialFailureCleanup owner so the ownership gate can distinguish it
-	// structurally from post-Host Host.Close and from rogue typed workflows.
 	shutTracing := func(ctx context.Context) error {
-		_ = note(hostBuildStageNameTracing, hostBuildProbeCleaned)
 		if traceShutdown == nil {
 			return nil
 		}
 		return traceShutdown(context.WithoutCancel(ctx))
-	}
-	if err := note(hostBuildStageNameTracing, hostBuildProbeAcquired); err != nil {
-		return nil, joinInitialFailureCleanup(ctx, err, nil, nil, shutTracing)
 	}
 
 	logger, err := logging.NewLogger(cfg.Logging, logOut,
@@ -156,23 +98,31 @@ func buildHostWithEnv(
 		return nil, joinInitialFailureCleanup(ctx, err, nil, nil, shutTracing)
 	}
 
-	ps, mgr, _, err := publishInitialGeneration(ctx, publishInitialGenerationInput{
-		Cfg:           cfg,
-		Effective:     effective,
-		Logger:        logger,
-		Registry:      reg,
-		SecretEnv:     secretEnv,
-		Production:    in.Production,
-		Compose:       in.HandlerComposer,
-		TraceActive:   traceRes.Active,
-		TraceShutdown: traceShutdown,
-		Probe:         probe,
+	ps, err := ops.process(ctx, processBuildInput{
+		Cfg: cfg, Logger: logger, Registry: reg, SecretEnv: secretEnv, Production: in.Production,
+		Tracing: ProcessTracing{Shutdown: traceShutdown, Active: traceRes.Active},
 	})
 	if err != nil {
-		return nil, err
+		return nil, joinInitialFailureCleanup(ctx, fmt.Errorf("runtimebundle: process services: %w", err), nil, nil, shutTracing)
+	}
+	if !ps.Tracing.Active && traceRes.Active {
+		ps.Tracing.Active = true
+	}
+	closeProcess := ps.Close
+
+	bundle, err := ops.compile(ctx, ps, cfg, in.HandlerComposer)
+	if err != nil {
+		return nil, joinInitialFailureCleanup(ctx, fmt.Errorf("runtimebundle: compile initial generation: %w", err), nil, closeProcess, shutTracing)
 	}
 
-	host, err := bindReloadHost(path, bindReloadHostInput{
+	mgr, _, err := ops.publisher(ctx, initialPublishInput{Process: ps, Bundle: bundle, Effective: effective})
+	if err != nil {
+		_ = bundle.Quiesce(context.WithoutCancel(ctx))
+		_ = bundle.Close()
+		return nil, joinInitialFailureCleanup(ctx, err, nil, closeProcess, shutTracing)
+	}
+
+	host, err := ops.bind(path, bindHostInput{
 		Manager:             mgr,
 		Process:             ps,
 		Compose:             in.HandlerComposer,
@@ -184,28 +134,157 @@ func buildHostWithEnv(
 		ShutdownTracing:     traceShutdown,
 	})
 	if err != nil {
-		_ = note(hostBuildStageNamePublish, hostBuildProbeCleaned)
-		_ = note(hostBuildStageNameCompile, hostBuildProbeCleaned)
-		_ = note(hostBuildStageNameProcess, hostBuildProbeCleaned)
+		if host != nil {
+			if cleanupErr := omitSoleAlreadyClosed(host.Close(context.WithoutCancel(ctx))); cleanupErr != nil {
+				return nil, errors.Join(err, cleanupErr)
+			}
+			return nil, err
+		}
 		return nil, joinInitialFailureCleanup(ctx, err, func() error {
 			return mgr.ShutdownDetached(context.WithoutCancel(ctx))
-		}, ps.Close, func(ctx context.Context) error {
-			_ = note(hostBuildStageNameTracing, hostBuildProbeCleaned)
-			return traceShutdown(ctx)
-		})
-	}
-	// From here the Host is complete, so rollback is one Host.Close: it owns
-	// the reject/idle/retire/process/tracing ordering (req 4.8, 8.6).
-	if err := note(hostBuildStageNameCoordinator, hostBuildProbeAcquired); err != nil {
-		_ = note(hostBuildStageNameCoordinator, hostBuildProbeCleaned)
-		_ = note(hostBuildStageNamePublish, hostBuildProbeCleaned)
-		_ = note(hostBuildStageNameCompile, hostBuildProbeCleaned)
-		_ = note(hostBuildStageNameProcess, hostBuildProbeCleaned)
-		_ = note(hostBuildStageNameTracing, hostBuildProbeCleaned)
-		if cleanupErr := omitSoleAlreadyClosed(host.Close(context.WithoutCancel(ctx))); cleanupErr != nil {
-			return nil, errors.Join(err, cleanupErr)
-		}
-		return nil, err
+		}, closeProcess, shutTracing)
 	}
 	return host, nil
+}
+
+func buildHostWithEnv(ctx context.Context, in hostBuildInput, loadEffective bootstrapEffectiveLoader, secretEnv coresg.Environment, _ any) (*Host, error) {
+	ops := defaultHostBuildOps()
+	if loadEffective != nil {
+		ops.load = loadEffective
+	}
+	return buildHost(ctx, in, ops, secretEnv)
+}
+
+type effectiveLoader = bootstrapEffectiveLoader
+type tracingInitializer func(ctx context.Context, cfg *config.Config) (tracing.Result, error)
+type processBuilder func(ctx context.Context, in processBuildInput) (*ProcessServices, error)
+type generationCompilerOp func(ctx context.Context, ps *ProcessServices, cfg *config.Config, compose HandlerComposer) (GenerationRuntime, error)
+type initialPublisher func(ctx context.Context, in initialPublishInput) (*runtimehost.Manager, *runtimehost.Generation, error)
+type hostBinder func(configPath string, in bindHostInput) (*Host, error)
+type registryInstaller func(cfg *config.Config, mandatory []lipsdk.Requirement) (*pluginreg.Registry, []lipsdk.Registration, error)
+
+type hostBuildOps struct {
+	load      effectiveLoader
+	tracing   tracingInitializer
+	process   processBuilder
+	compile   generationCompilerOp
+	publisher initialPublisher
+	bind      hostBinder
+}
+
+type processBuildInput struct {
+	Cfg        *config.Config
+	Logger     *slog.Logger
+	Registry   *pluginreg.Registry
+	SecretEnv  coresg.Environment
+	Production ProductionOptions
+	Tracing    ProcessTracing
+}
+type initialPublishInput struct {
+	Process   *ProcessServices
+	Bundle    GenerationRuntime
+	Effective *config.EffectiveConfig
+}
+
+func defaultHostBuildOps() hostBuildOps {
+	return hostBuildOps{
+		load: LoadBootstrapEffectiveWithSource, tracing: initProcessTracing,
+		process: buildProcessServicesOp, compile: compileInitialGenerationOp,
+		publisher: publishStartupGenerationOp, bind: bindHost,
+	}
+}
+func buildProcessServicesOp(ctx context.Context, in processBuildInput) (*ProcessServices, error) {
+	return NewProcessServices(ctx, ProcessServicesInput{
+		Cfg: in.Cfg, Log: in.Logger,
+		Opts: &BuildOptions{
+			PluginRegistry: in.Registry,
+			Infra:          InfraOptions{OutboundTracing: in.Tracing.Active, ProcessTracing: in.Tracing},
+			Extensions:     ExtensionsOptions{SecretGuardEnvironment: in.SecretEnv},
+			Production:     in.Production,
+		},
+		Tracing: in.Tracing,
+	})
+}
+func compileInitialGenerationOp(ctx context.Context, ps *ProcessServices, cfg *config.Config, compose HandlerComposer) (GenerationRuntime, error) {
+	return CompileGeneration(ctx, GenerationCompileInput{Process: ps, Candidate: cfg, Compose: compose})
+}
+func publishStartupGenerationOp(ctx context.Context, in initialPublishInput) (*runtimehost.Manager, *runtimehost.Generation, error) {
+	if in.Process == nil {
+		return nil, nil, fmt.Errorf("runtimebundle: nil ProcessServices")
+	}
+	if in.Bundle == nil {
+		return nil, nil, fmt.Errorf("runtimebundle: nil generation bundle")
+	}
+	mgr := runtimehost.NewManager(DefaultMaxRetainedGenerations, nil)
+	gen := mgr.PrepareRequestPlane("startup", in.Bundle)
+	hints := runtimehost.MetaHints{TriggerKind: "startup", LoadedAt: time.Now().UTC()}
+	if in.Effective != nil {
+		hints.PublicFingerprint = in.Effective.Identity.PublicFingerprint
+		if !in.Effective.LoadedAt.IsZero() {
+			hints.LoadedAt = in.Effective.LoadedAt
+		}
+	}
+	gen.SetMetaHints(hints)
+	if err := mgr.Publish(gen); err != nil {
+		_ = gen.Discard()
+		return nil, nil, fmt.Errorf("runtimebundle: publish initial generation: %w", err)
+	}
+	if gen.ID() != 1 {
+		_ = mgr.ShutdownDetached(context.WithoutCancel(ctx))
+		return nil, nil, fmt.Errorf("runtimebundle: initial generation id=%d want 1", gen.ID())
+	}
+	if in.Process.terminalWorkRT != nil {
+		in.Process.terminalWorkRT.BindGenerationManager(mgr)
+	}
+	return mgr, gen, nil
+}
+func installRegistryOp(cfg *config.Config, mandatory []lipsdk.Requirement) (*pluginreg.Registry, []lipsdk.Registration, error) {
+	return installRegistryAndRegistrations(cfg, mandatory)
+}
+
+const DefaultMaxRetainedGenerations = 8
+
+func joinInitialFailureCleanup(ctx context.Context, primary error, genRollback, processClose func() error, traceShutdown func(context.Context) error) error {
+	var cleanup error
+	if genRollback != nil {
+		if err := omitSoleAlreadyClosed(genRollback()); err != nil {
+			cleanup = errors.Join(cleanup, err)
+		}
+	}
+	if processClose != nil {
+		if err := processClose(); err != nil {
+			cleanup = errors.Join(cleanup, err)
+		}
+	}
+	if traceShutdown != nil {
+		if err := traceShutdown(context.WithoutCancel(ctx)); err != nil {
+			cleanup = errors.Join(cleanup, err)
+		}
+	}
+	if cleanup != nil {
+		return errors.Join(primary, cleanup)
+	}
+	return primary
+}
+
+func omitSoleAlreadyClosed(err error) error {
+	if err == nil || err == runtimehost.ErrAlreadyClosed {
+		return nil
+	}
+	if !errors.Is(err, runtimehost.ErrAlreadyClosed) {
+		return err
+	}
+	if m, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, e := range m.Unwrap() {
+			if omitSoleAlreadyClosed(e) != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	u := errors.Unwrap(err)
+	if u == nil || omitSoleAlreadyClosed(u) == nil {
+		return nil
+	}
+	return err
 }

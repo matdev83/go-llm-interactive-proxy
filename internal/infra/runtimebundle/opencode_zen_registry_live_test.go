@@ -54,7 +54,7 @@ func TestOpenCodeZenLive_modelsAreVendorEnrichedInCentralRegistry(t *testing.T) 
 	})
 	defer closeRuntimeBuilt(t, built)
 
-	rows := built.ModelRegistry.All()
+	rows := built.ModelRegistry().All()
 	if len(rows) == 0 {
 		t.Fatal("central registry has no live opencode-zen models")
 	}

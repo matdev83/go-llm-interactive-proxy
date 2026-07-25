@@ -120,8 +120,8 @@ models:
 		t.Fatalf("compile limits candidate: %v", err)
 	}
 	t.Cleanup(func() { _ = limitCand.Close() })
-	if limitCand.Executor.MaxPendingWireEvents != 77 {
-		t.Fatalf("request-plane limit not recomposed: %d", limitCand.Executor.MaxPendingWireEvents)
+	if limitCand.Executor().MaxPendingWireEvents != 77 {
+		t.Fatalf("request-plane limit not recomposed: %d", limitCand.Executor().MaxPendingWireEvents)
 	}
 
 	m := runtimehost.NewManager(4, nil)
@@ -181,10 +181,10 @@ models:
 		t.Fatalf("compile new auth: %v", err)
 	}
 	t.Cleanup(func() { _ = newCand.Close() })
-	assertDynBearer(t, oldCand.HTTPAuthProviders, "dynamic-old-key-16chars", true)
-	assertDynBearer(t, oldCand.HTTPAuthProviders, "dynamic-new-key-16chars", false)
-	assertDynBearer(t, newCand.HTTPAuthProviders, "dynamic-new-key-16chars", true)
-	assertDynBearer(t, newCand.HTTPAuthProviders, "dynamic-old-key-16chars", false)
+	assertDynBearer(t, runtimebundle.CandidateHTTPAuthProviders(oldCand), "dynamic-old-key-16chars", true)
+	assertDynBearer(t, runtimebundle.CandidateHTTPAuthProviders(oldCand), "dynamic-new-key-16chars", false)
+	assertDynBearer(t, runtimebundle.CandidateHTTPAuthProviders(newCand), "dynamic-new-key-16chars", true)
+	assertDynBearer(t, runtimebundle.CandidateHTTPAuthProviders(newCand), "dynamic-old-key-16chars", false)
 
 	// Request-limit recomposition: new generation rejects oversized body.
 	big := fmt.Sprintf(`{"model":"stub-default","stream":false,"input":[{"role":"user","content":%q}]}`, strings.Repeat("x", 256))

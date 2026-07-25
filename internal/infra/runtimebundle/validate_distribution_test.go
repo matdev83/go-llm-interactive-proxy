@@ -3,7 +3,6 @@ package runtimebundle
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -68,21 +67,24 @@ func TestValidateDistribution_OneStrictLoad(t *testing.T) {
 	snapB := mustLoadBootstrapSnapshot(t, ctx, pathB)
 
 	var loads atomic.Int32
-	load := func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
+	ops := defaultValidateDistributionOps()
+	ops.load = func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
 		if loads.Add(1) == 1 {
 			return snapA.eff, snapA.active, snapA.fixed, nil
 		}
 		return snapB.eff, snapB.active, snapB.fixed, nil
 	}
-
 	var acquired []string
-	probe := func(stage validateDistributionStage, event validateDistributionProbeEvent) error {
-		if event == validateProbeAcquired {
-			acquired = append(acquired, string(stage))
+	baseLoad := ops.load
+	ops.load = func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
+		eff, src, fixed, err := baseLoad(ctx, path, cli)
+		if err != nil {
+			return nil, nil, fixed, err
 		}
-		return nil
+		acquired = append(acquired, "loader")
+		return eff, src, fixed, nil
 	}
-	err := validateDistribution(ctx, validDistributionInput(pathA), nil, load, probe)
+	err := validateDistribution(ctx, validDistributionInput(pathA), nil, ops)
 	if err != nil {
 		t.Fatalf("ValidateDistribution: %v", err)
 	}
@@ -315,23 +317,12 @@ func TestValidateDistribution_StageFaultMatrix(t *testing.T) {
 }
 
 // TestValidateDistribution_CleanupFaultsJoinedInOrder proves every cleanup-stage
-// probe fault is joined with the returned error (req 5.4): rollback → process
+// fault is joined with the returned error (req 5.4): rollback → process
 // close → tracing close, without discarding sibling cleanup failures.
 func TestValidateDistribution_CleanupFaultsJoinedInOrder(t *testing.T) {
 	t.Parallel()
 	in := validDistributionInput(dogfoodConfigPath())
-	var journal validateDistributionJournal
-	probe := func(stage validateDistributionStage, event validateDistributionProbeEvent) error {
-		switch event {
-		case validateProbeAcquired:
-			journal.Acquired = append(journal.Acquired, string(stage))
-		case validateProbeCleaned:
-			journal.Cleaned = append(journal.Cleaned, string(stage))
-			return fmt.Errorf("runtimebundle: validate distribution fault: %s", stage)
-		}
-		return nil
-	}
-	err := validateDistribution(context.Background(), in, nil, LoadBootstrapEffectiveWithSource, probe)
+	journal, err := validateDistributionWithCleanupFaults(context.Background(), in)
 	if err == nil {
 		t.Fatal("expected joined cleanup faults")
 	}
@@ -433,7 +424,7 @@ func TestValidateDistribution_MandatoryFactoryRejectionMatchesStartupHost(t *tes
 		HandlerComposer: stubHandlerComposer,
 	})
 	if hostErr == nil {
-		cleanupReloadHost(t, host)
+		cleanupHost(t, host)
 		t.Fatal("expected BuildHost mandatory-factory rejection")
 	}
 	if validateErr.Error() != hostErr.Error() {

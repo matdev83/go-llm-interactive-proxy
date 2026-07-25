@@ -337,15 +337,14 @@ func TestRuntimeConfigReload_NoDrop_FullHost_ValidInvalidCancelALeg(t *testing.T
 		t.Fatalf("BuildHost: %v", err)
 	}
 	t.Cleanup(func() { _ = host.Close(context.Background()) })
-	if host.Coordinator == nil || host.Executor == nil || host.Manager.Active() == nil {
+	if !host.Ready() || host.ExecutorView() == nil || host.HTTPHandler() == nil {
 		t.Fatal("incomplete reload host")
 	}
-	if host.Manager.Active().ID() != 1 {
-		t.Fatalf("startup generation=%d want 1", host.Manager.Active().ID())
+	if host.ActiveGenerationID() != 1 {
+		t.Fatalf("startup generation=%d want 1", host.ActiveGenerationID())
 	}
 
-	disp := runtimehost.NewGenerationDispatcher(host.Manager)
-	srv := httptest.NewServer(disp)
+	srv := httptest.NewServer(host.HTTPHandler())
 	t.Cleanup(srv.Close)
 	var dials atomic.Int64
 	tr := &http.Transport{DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -368,7 +367,7 @@ func TestRuntimeConfigReload_NoDrop_FullHost_ValidInvalidCancelALeg(t *testing.T
 			Parts: []lipapi.Part{lipapi.TextPart("pin-gen1")},
 		}},
 	}
-	oldStream, err := host.Executor.Execute(ctx, call)
+	oldStream, err := host.ExecutorView().Execute(ctx, call)
 	if err != nil {
 		t.Fatalf("Execute gen1: %v", err)
 	}
@@ -377,19 +376,19 @@ func TestRuntimeConfigReload_NoDrop_FullHost_ValidInvalidCancelALeg(t *testing.T
 		t.Fatal("missing A-leg id")
 	}
 	work := &recordingCertBLeg{}
-	aLeg := host.Process.ALegLifecycle.StartALeg(call.Session.ALegID)
+	aLeg := host.StartALeg(call.Session.ALegID)
 	if err := aLeg.RegisterBLeg(ctx, leglifecycle.BLegHandle{ID: "cert-b", Attempt: work}); err != nil {
 		t.Fatalf("RegisterBLeg: %v", err)
 	}
 
 	atomicWriteCertConfig(t, path, localStubVersionBody(t, base, "generation-two"))
-	pub := host.Coordinator.Reload(ctx, sdkreload.Trigger{Kind: sdkreload.TriggerAPI, SafeActor: "p6-cert"})
+	pub := host.Reload(ctx, sdkreload.Trigger{Kind: sdkreload.TriggerAPI, SafeActor: "p6-cert"})
 	if pub.Category != sdkreload.ResultPublished || pub.ActiveGeneration != 2 {
 		t.Fatalf("valid reload=%+v", pub)
 	}
 
 	// Cancel before Collect so EndALeg from stream completion cannot drop the registered B-leg.
-	if err := host.Executor.CancelALeg(ctx, lipapi.ALegCancelRequest{
+	if err := host.ExecutorView().CancelALeg(ctx, lipapi.ALegCancelRequest{
 		ALegID: call.Session.ALegID,
 		Reason: "p6-cert-cancel",
 	}); err != nil {
@@ -419,21 +418,21 @@ func TestRuntimeConfigReload_NoDrop_FullHost_ValidInvalidCancelALeg(t *testing.T
 
 	// Invalid cycles retain last-good generation 2.
 	atomicWriteCertConfig(t, path, "")
-	empty := host.Coordinator.Reload(ctx, sdkreload.Trigger{Kind: sdkreload.TriggerAPI, SafeActor: "p6-cert"})
+	empty := host.Reload(ctx, sdkreload.Trigger{Kind: sdkreload.TriggerAPI, SafeActor: "p6-cert"})
 	if empty.Category != sdkreload.ResultSourceIntegrity && empty.Category != sdkreload.ResultInvalid {
 		t.Fatalf("empty reload category=%q", empty.Category)
 	}
-	if host.Manager.Active().ID() != 2 {
-		t.Fatalf("empty must retain gen2, active=%d", host.Manager.Active().ID())
+	if host.ActiveGenerationID() != 2 {
+		t.Fatalf("empty must retain gen2, active=%d", host.ActiveGenerationID())
 	}
 
 	atomicWriteCertConfig(t, path, "server: [\n")
-	malformed := host.Coordinator.Reload(ctx, sdkreload.Trigger{Kind: sdkreload.TriggerAPI, SafeActor: "p6-cert"})
+	malformed := host.Reload(ctx, sdkreload.Trigger{Kind: sdkreload.TriggerAPI, SafeActor: "p6-cert"})
 	if malformed.Category != sdkreload.ResultInvalid && malformed.Category != sdkreload.ResultSourceIntegrity {
 		t.Fatalf("malformed reload category=%q", malformed.Category)
 	}
-	if host.Manager.Active().ID() != 2 {
-		t.Fatalf("malformed must retain gen2, active=%d", host.Manager.Active().ID())
+	if host.ActiveGenerationID() != 2 {
+		t.Fatalf("malformed must retain gen2, active=%d", host.ActiveGenerationID())
 	}
 	still := postNonStreamingResponses(t, client, srv.URL)
 	if !strings.Contains(still, "generation-two") {
@@ -442,7 +441,7 @@ func TestRuntimeConfigReload_NoDrop_FullHost_ValidInvalidCancelALeg(t *testing.T
 
 	// Corrected atomic rename + explicit retrigger publishes generation 3.
 	atomicWriteCertConfig(t, path, localStubVersionBody(t, base, "generation-three"))
-	fixed := host.Coordinator.Reload(ctx, sdkreload.Trigger{Kind: sdkreload.TriggerAPI, SafeActor: "p6-cert"})
+	fixed := host.Reload(ctx, sdkreload.Trigger{Kind: sdkreload.TriggerAPI, SafeActor: "p6-cert"})
 	if fixed.Category != sdkreload.ResultPublished || fixed.ActiveGeneration != 3 {
 		t.Fatalf("corrected reload=%+v", fixed)
 	}

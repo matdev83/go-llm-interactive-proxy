@@ -32,7 +32,7 @@ func TestBuild_RequestRegistration_NoIndexGeneratedIDs(t *testing.T) {
 		}},
 	}
 	_, built := mustProcessAndCandidate(t, cfg, opts)
-	slots := built.Executor.RequestCoordinator.Slots
+	slots := built.Executor().RequestCoordinator.Slots
 	if len(slots) == 0 {
 		t.Fatal("expected request slots from registration")
 	}
@@ -98,10 +98,10 @@ func TestBuild_RegistrationReadinessProviderIDs(t *testing.T) {
 		}},
 	}
 	_, built := mustProcessAndCandidate(t, cfg, opts)
-	if built.ReadinessReport == nil {
+	if runtimebundle.CandidateReadinessReport(built) == nil {
 		t.Fatal("expected readiness report")
 	}
-	report, err := built.ReadinessReport.Report(context.Background())
+	report, err := runtimebundle.CandidateReadinessReport(built).Report(context.Background())
 	if err != nil {
 		t.Fatalf("Report: %v", err)
 	}
@@ -152,14 +152,14 @@ func TestBuild_AttemptAndConcurrencyRegistrations(t *testing.T) {
 		},
 	}
 	_, built := mustProcessAndCandidate(t, cfg, opts)
-	if built.Executor.ConcurrencyProvider == nil {
+	if built.Executor().ConcurrencyProvider == nil {
 		t.Fatal("concurrency registration must wire ConcurrencyProvider")
 	}
-	if built.Executor.AttemptCoordinator == nil || len(built.Executor.AttemptCoordinator.Slots) == 0 {
+	if built.Executor().AttemptCoordinator == nil || len(built.Executor().AttemptCoordinator.Slots) == 0 {
 		t.Fatal("attempt registration must create attempt slots")
 	}
 	found := false
-	for _, s := range built.Executor.AttemptCoordinator.Slots {
+	for _, s := range built.Executor().AttemptCoordinator.Slots {
 		if s.ID == "prod-hard" {
 			found = true
 			if s.Strength != authority.StrengthRequired || s.FailureBehavior != authority.FailureFailClosed {
@@ -197,7 +197,7 @@ func TestBuild_CanonicalRegistrationBoundary_NoLegacyFields(t *testing.T) {
 		}},
 	}
 	_, built := mustProcessAndCandidate(t, cfg, opts)
-	if built.Executor.RequestCoordinator == nil || len(built.Executor.RequestCoordinator.Slots) == 0 {
+	if built.Executor().RequestCoordinator == nil || len(built.Executor().RequestCoordinator.Slots) == 0 {
 		t.Fatal("canonical request registration must wire coordinator slots")
 	}
 }
@@ -212,10 +212,10 @@ func TestBuild_CustomerOnlyRater_NotEconomicsRater(t *testing.T) {
 		}},
 	}
 	_, built := mustProcessAndCandidate(t, cfg, opts)
-	if built.Executor.EconomicsRater != nil {
+	if built.Executor().EconomicsRater != nil {
 		t.Fatal("customer-only rater must not fill EconomicsRater")
 	}
-	report, err := built.ReadinessReport.Report(context.Background())
+	report, err := runtimebundle.CandidateReadinessReport(built).Report(context.Background())
 	if err != nil {
 		t.Fatalf("Report: %v", err)
 	}

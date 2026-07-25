@@ -57,7 +57,7 @@ func TestBuild_defaultComposedLocalNoop_principalNotEmpty(t *testing.T) {
 		PluginRegistry: reg,
 	})
 	var pid string
-	stdhttpauth.Middleware(nil, b.HTTPAuthProviders, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	stdhttpauth.Middleware(nil, runtimebundle.CandidateHTTPAuthProviders(b), http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		p, ok := httpauth.PrincipalFromContext(r.Context())
 		if !ok {
 			t.Error("missing principal")
@@ -95,8 +95,8 @@ func TestBuild_minimalSingleUser_HTTPAuthProviders_nonEmpty(t *testing.T) {
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if len(b.HTTPAuthProviders) == 0 || b.HTTPAuthProviders[0] == nil {
-		t.Fatalf("HTTPAuthProviders: want at least one non-nil provider, got %#v", b.HTTPAuthProviders)
+	if len(runtimebundle.CandidateHTTPAuthProviders(b)) == 0 || runtimebundle.CandidateHTTPAuthProviders(b)[0] == nil {
+		t.Fatalf("HTTPAuthProviders: want at least one non-nil provider, got %#v", runtimebundle.CandidateHTTPAuthProviders(b))
 	}
 }
 
@@ -144,9 +144,9 @@ func TestBuild_registryAuthErrorRendererByFrontend_wiresPolicyProvider(t *testin
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	pp, ok := b.HTTPAuthProviders[0].(*stdhttpauth.PolicyProvider)
+	pp, ok := runtimebundle.CandidateHTTPAuthProviders(b)[0].(*stdhttpauth.PolicyProvider)
 	if !ok {
-		t.Fatalf("want *stdhttpauth.PolicyProvider, got %T", b.HTTPAuthProviders[0])
+		t.Fatalf("want *stdhttpauth.PolicyProvider, got %T", runtimebundle.CandidateHTTPAuthProviders(b)[0])
 	}
 	if pp.RendererByFrontend == nil || pp.RendererByFrontend["openai_compatible"] == nil {
 		t.Fatalf("RendererByFrontend: %#v", pp.RendererByFrontend)
@@ -186,9 +186,9 @@ func TestBuild_authErrorRenderers_registryIdCaseFoldsToLower(t *testing.T) {
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	pp, ok := b.HTTPAuthProviders[0].(*stdhttpauth.PolicyProvider)
+	pp, ok := runtimebundle.CandidateHTTPAuthProviders(b)[0].(*stdhttpauth.PolicyProvider)
 	if !ok {
-		t.Fatalf("want *stdhttpauth.PolicyProvider, got %T", b.HTTPAuthProviders[0])
+		t.Fatalf("want *stdhttpauth.PolicyProvider, got %T", runtimebundle.CandidateHTTPAuthProviders(b)[0])
 	}
 	rend, ok := pp.RendererByFrontend["openai_compatible"]
 	if !ok || rend == nil {
@@ -233,9 +233,9 @@ func TestBuild_optsAuthErrorRenderersByFrontend_overridesRegistry(t *testing.T) 
 			},
 		},
 	})
-	pp, ok := b.HTTPAuthProviders[0].(*stdhttpauth.PolicyProvider)
+	pp, ok := runtimebundle.CandidateHTTPAuthProviders(b)[0].(*stdhttpauth.PolicyProvider)
 	if !ok {
-		t.Fatalf("want *stdhttpauth.PolicyProvider, got %T", b.HTTPAuthProviders[0])
+		t.Fatalf("want *stdhttpauth.PolicyProvider, got %T", runtimebundle.CandidateHTTPAuthProviders(b)[0])
 	}
 	out := pp.RendererByFrontend["openai_compatible"].RenderAuthError(context.Background(), httpauth.AuthErrorRenderInput{})
 	if string(out.Body) != "B" {
@@ -306,11 +306,11 @@ func TestBuild_composedLocalNoop_setsPrincipalOnRequest(t *testing.T) {
 			}},
 		},
 	})
-	if len(b.HTTPAuthProviders) != 1 {
-		t.Fatalf("HTTPAuthProviders: want 1, got %d", len(b.HTTPAuthProviders))
+	if len(runtimebundle.CandidateHTTPAuthProviders(b)) != 1 {
+		t.Fatalf("HTTPAuthProviders: want 1, got %d", len(runtimebundle.CandidateHTTPAuthProviders(b)))
 	}
 	var innerPID string
-	h := stdhttpauth.Middleware(nil, b.HTTPAuthProviders, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	h := stdhttpauth.Middleware(nil, runtimebundle.CandidateHTTPAuthProviders(b), http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		p, ok := httpauth.PrincipalFromContext(r.Context())
 		if !ok {
 			t.Error("expected principal in context")
@@ -363,7 +363,7 @@ func TestBuild_multiUserLocalAPIKey_middlewareAllowsValidBearer(t *testing.T) {
 		PluginRegistry: reg,
 	})
 	var inner int
-	h := stdhttpauth.Middleware(nil, b.HTTPAuthProviders, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	h := stdhttpauth.Middleware(nil, runtimebundle.CandidateHTTPAuthProviders(b), http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		inner++
 		p, _ := httpauth.PrincipalFromContext(r.Context())
 		if p.ID != "api-user-1" {
@@ -417,7 +417,7 @@ func TestBuild_multiUserLocalAPIKey_middlewareDeniesWithoutBearer(t *testing.T) 
 		PluginRegistry: reg,
 	})
 	var inner int
-	h := stdhttpauth.Middleware(nil, b.HTTPAuthProviders, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { inner++ }))
+	h := stdhttpauth.Middleware(nil, runtimebundle.CandidateHTTPAuthProviders(b), http.HandlerFunc(func(http.ResponseWriter, *http.Request) { inner++ }))
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/models", nil))
 	if inner != 0 {
 		t.Fatalf("inner should not run, got %d", inner)
@@ -461,12 +461,12 @@ func TestBuild_HTTPAuthProvidersOnlyNil_fallsBackToComposedAuth(t *testing.T) {
 			HTTPAuthProviders: []httpauth.Provider{nil},
 		},
 	})
-	if len(b.HTTPAuthProviders) != 1 {
-		t.Fatalf("composed providers: want 1, got %d", len(b.HTTPAuthProviders))
+	if len(runtimebundle.CandidateHTTPAuthProviders(b)) != 1 {
+		t.Fatalf("composed providers: want 1, got %d", len(runtimebundle.CandidateHTTPAuthProviders(b)))
 	}
 	var inner int
 	rec := httptest.NewRecorder()
-	stdhttpauth.Middleware(nil, b.HTTPAuthProviders, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { inner++ })).
+	stdhttpauth.Middleware(nil, runtimebundle.CandidateHTTPAuthProviders(b), http.HandlerFunc(func(http.ResponseWriter, *http.Request) { inner++ })).
 		ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
 	if inner != 0 {
 		t.Fatalf("inner should not run without credentials, got %d", inner)
@@ -513,7 +513,7 @@ func TestBuild_remoteStub_allowReachesInner(t *testing.T) {
 		},
 	})
 	var innerPID string
-	stdhttpauth.Middleware(nil, b.HTTPAuthProviders, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	stdhttpauth.Middleware(nil, runtimebundle.CandidateHTTPAuthProviders(b), http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		p, _ := httpauth.PrincipalFromContext(r.Context())
 		innerPID = p.ID
 	})).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/", nil))
@@ -556,7 +556,7 @@ func TestBuild_remoteStub_denySkipsInner(t *testing.T) {
 		},
 	})
 	var inner int
-	stdhttpauth.Middleware(nil, b.HTTPAuthProviders, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { inner++ })).
+	stdhttpauth.Middleware(nil, runtimebundle.CandidateHTTPAuthProviders(b), http.HandlerFunc(func(http.ResponseWriter, *http.Request) { inner++ })).
 		ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/", nil))
 	if inner != 0 {
 		t.Fatal("inner ran")
@@ -601,7 +601,7 @@ func TestBuild_remoteStub_challengeTerminates(t *testing.T) {
 	})
 	var inner int
 	rec := httptest.NewRecorder()
-	stdhttpauth.Middleware(nil, b.HTTPAuthProviders, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { inner++ })).
+	stdhttpauth.Middleware(nil, runtimebundle.CandidateHTTPAuthProviders(b), http.HandlerFunc(func(http.ResponseWriter, *http.Request) { inner++ })).
 		ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/", nil))
 	if inner != 0 {
 		t.Fatal("inner ran")

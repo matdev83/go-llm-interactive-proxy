@@ -254,7 +254,7 @@ func protectedLabelFor(importPath, name string) (string, bool) {
 		case "Build", "BuildBootstrap", "BuildHost", "AttachReloadHost",
 			"NewProcessServices", "CompileGeneration",
 			"LoadBootstrapEffective", "LoadBootstrapEffectiveWithSource",
-			"NewBootstrapApp", "publishInitialGeneration", "bindReloadHost",
+			"NewBootstrapApp", "publishInitialGeneration", "bindHost", "bindReloadHost",
 			"NewReloadHost", "NewReloadCoordinator":
 			return "runtimebundle." + name, true
 		}

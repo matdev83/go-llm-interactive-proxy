@@ -78,8 +78,8 @@ func TestComposeStandardHTTP_NilInputsRejected(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = cand.Close() })
 	in := stdhttp.StandardHTTPInput{
-		Core:      stdhttp.HTTPCoreInput{Executor: cand.Executor},
-		Frontends: stdhttp.HTTPFrontendInput{Registry: cand.PluginRegistry, Executor: cand.Executor},
+		Core:      stdhttp.HTTPCoreInput{Executor: cand.Executor()},
+		Frontends: stdhttp.HTTPFrontendInput{Registry: cand.PluginRegistry(), Executor: cand.Executor()},
 	}
 	log := testkit.DiscardLogger()
 	cases := []struct {

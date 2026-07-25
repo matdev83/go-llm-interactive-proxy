@@ -74,7 +74,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		bus = hooks.New(hooksConfigFromMerged(merged))
 	}
 
-	cand, err := CompileCandidate(ctx, GenerationCompileInput{
+	cand, err := compileCandidate(ctx, GenerationCompileInput{
 		Process:   ps,
 		Bus:       bus,
 		Candidate: frozen,
@@ -105,11 +105,11 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if wireModel == nil {
 		wireModel = standardplugins.DefaultWireModel
 	}
-	route := cand.EffectiveDefaultRoute
+	route := cand.execution.effectiveDefaultRoute
 	if route == "" {
 		route = config.EffectiveDefaultRouteSelector(frozen, wireModel)
 	}
-	authProviders := append([]httpauth.Provider(nil), cand.HTTPAuthProviders...)
+	authProviders := append([]httpauth.Provider(nil), cand.security.httpAuth...)
 
 	httpInput := buildStandardHTTPInput(cand, frozen, regs, route)
 	if err := injectCandidateFault(in.FaultInject, "composer-clone"); err != nil {
@@ -137,17 +137,17 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	}
 	bundle := newGenerationBundle(generationBundleInput{
 		handler:           handler,
-		executor:          cand.Executor,
-		routing:           FrozenRoutingView{DefaultRoute: route, RoutePrefixes: append([]string(nil), cand.RoutePrefixes...)},
+		executor:          cand.execution.executor,
+		routing:           FrozenRoutingView{DefaultRoute: route, RoutePrefixes: append([]string(nil), cand.execution.routePrefixes...)},
 		frontends:         frozen.Plugins.Frontends,
 		registrations:     regs,
 		httpAuth:          authProviders,
-		models:            cand.ModelRegistryRuntime,
-		catalog:           cand.CatalogRuntime,
-		backendIDs:        backendIDsOf(cand.Executor),
+		models:            cand.models.registryRuntime,
+		catalog:           cand.models.catalog,
+		backendIDs:        backendIDsOf(cand.execution.executor),
 		ledger:            ledger,
-		terminalProviders: terminalworkapp.SnapshotTerminalProviders(cand.TerminalWorkRegistry),
-		readiness:         cand.ReadinessReport,
+		terminalProviders: terminalworkapp.SnapshotTerminalProviders(cand.operations.terminalRegistry),
+		readiness:         cand.operations.readinessReport,
 	})
 	return bundle, nil
 }
@@ -165,7 +165,7 @@ func composeStandardHTTPIsolated(ctx context.Context, compose HandlerComposer, c
 // buildStandardHTTPInput projects one compiled candidate plus its frozen
 // config/registrations directly into the focused HTTP composition input
 // (task 3.4–3.5). It never allocates a legacy RequestPlane or Built aggregate.
-func buildStandardHTTPInput(cand *CandidateRuntime, frozen *config.Config, regs []lipsdk.Registration, route string) httpcontract.StandardHTTPInput {
+func buildStandardHTTPInput(cand *candidateAssembly, frozen *config.Config, regs []lipsdk.Registration, route string) httpcontract.StandardHTTPInput {
 	var maxBody int64
 	var preKA lipsdk.FrontendKeepaliveConfig
 	if frozen != nil {
@@ -178,35 +178,35 @@ func buildStandardHTTPInput(cand *CandidateRuntime, frozen *config.Config, regs 
 		plugins = frozen.Plugins.Frontends
 	}
 	return httpcontract.StandardHTTPInput{
-		Core: httpcontract.HTTPCoreInput{Executor: cand.Executor},
+		Core: httpcontract.HTTPCoreInput{Executor: cand.execution.executor},
 		Security: httpcontract.HTTPSecurityInput{
-			HTTPAuthProviders:    httpcontract.CloneHTTPAuthProviders(cand.HTTPAuthProviders),
-			SecureSessionStore:   cand.SecureSessionStore,
-			UsageAuthority:       cpadmin.AdaptAccountingAuthorityQueries(cand.UsageAuthority),
-			ConcurrencyAuthority: cpadmin.AdaptConcurrencyAuthorityQueries(cand.ConcurrencyAuthority),
+			HTTPAuthProviders:    httpcontract.CloneHTTPAuthProviders(cand.security.httpAuth),
+			SecureSessionStore:   cand.security.secureSessionStore,
+			UsageAuthority:       cpadmin.AdaptAccountingAuthorityQueries(cand.process.usageAuthority),
+			ConcurrencyAuthority: cpadmin.AdaptConcurrencyAuthorityQueries(cand.process.concurrencyAuthority),
 		},
 		Operations: httpcontract.HTTPOperationsInput{
-			Metrics:              cand.Metrics,
-			Store:                cand.Store,
-			SecretGuardInventory: cand.SecretGuardInventory,
-			ControlPlaneQueries:  cpadmin.AdaptControlPlaneQueries(cand.ControlPlaneQueries),
-			ReadinessReport:      cpadmin.AdaptReadinessReport(cand.ReadinessReport),
-			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(cand.TokenAccountingAdmin),
+			Metrics:              cand.process.metrics,
+			Store:                cand.process.store,
+			SecretGuardInventory: cand.operations.secretGuardInventory,
+			ControlPlaneQueries:  cpadmin.AdaptControlPlaneQueries(cand.process.controlPlaneQueries),
+			ReadinessReport:      cpadmin.AdaptReadinessReport(cand.operations.readinessReport),
+			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(cand.operations.tokenAccountingAdmin),
 			Registrations:        httpcontract.CloneRegistrations(regs),
 		},
 		Models: httpcontract.HTTPModelInput{
-			CatalogRuntime:       cand.CatalogRuntime,
-			ModelRegistryRuntime: cand.ModelRegistryRuntime,
+			CatalogRuntime:       cand.models.catalog,
+			ModelRegistryRuntime: cand.models.registryRuntime,
 		},
 		Frontends: httpcontract.HTTPFrontendInput{
-			Executor:             cand.Executor,
-			Registry:             cand.PluginRegistry,
+			Executor:             cand.execution.executor,
+			Registry:             cand.process.pluginRegistry,
 			DefaultRouteSelector: route,
-			RoutePrefixes:        httpcontract.CloneStrings(cand.RoutePrefixes),
+			RoutePrefixes:        httpcontract.CloneStrings(cand.execution.routePrefixes),
 			Plugins:              httpcontract.ClonePluginConfigs(plugins),
 			MaxRequestBodyBytes:  maxBody,
-			DecodeAdmission:      cand.DecodeAdmission,
-			TrafficPorts:         httpcontract.TrafficPortsFromSnapshot(cand.RuntimeSnapshot),
+			DecodeAdmission:      cand.execution.decodeAdmission,
+			TrafficPorts:         httpcontract.TrafficPortsFromSnapshot(cand.security.runtimeSnapshot),
 			PreRequestKeepalive:  preKA,
 		},
 	}

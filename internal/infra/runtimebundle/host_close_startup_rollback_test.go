@@ -15,7 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-// Task 7.4: after bindReloadHost returns a complete Host, every remaining
+// Task 7.4: after bindHost returns a complete Host, every remaining
 // startup failure must roll back through exactly one Host.Close rather than
 // decomposing Manager / ProcessServices / tracing shutdown primitives.
 
@@ -32,7 +32,7 @@ func TestHostBuild_PostBindRollbackUsesOneHostClose(t *testing.T) {
 	}
 	out, err := productionHostBuilder{}.BuildFaulting(context.Background(), in, hostBuildStageCoordinator)
 	if err == nil {
-		cleanupReloadHost(t, out.Host)
+		cleanupHost(t, out.Host)
 		t.Fatal("expected coordinator stage failure")
 	}
 	if out.Host != nil {
@@ -60,7 +60,7 @@ func TestHostBuild_RollbackSourceHasNoHostDecomposition(t *testing.T) {
 	var closeCalls int
 	ast.Inspect(f, func(n ast.Node) bool {
 		fd, ok := n.(*ast.FuncDecl)
-		if !ok || fd.Name == nil || fd.Name.Name != "buildHostWithEnv" || fd.Body == nil {
+		if !ok || fd.Name == nil || fd.Name.Name != "buildHost" || fd.Body == nil {
 			return true
 		}
 		ast.Inspect(fd.Body, func(n ast.Node) bool {
@@ -75,7 +75,7 @@ func TestHostBuild_RollbackSourceHasNoHostDecomposition(t *testing.T) {
 			switch sel.Sel.Name {
 			case "Close":
 				closeCalls++
-			case "Manager", "Process", "ShutdownTracing", "Coordinator":
+			case "Manager", "Process", "ShutdownTracing", "Coordinator", "manager", "process", "shutdownTracing", "coordinator":
 				t.Fatalf("post-bind rollback must not decompose Host field %s", sel.Sel.Name)
 			}
 			return true
@@ -83,7 +83,7 @@ func TestHostBuild_RollbackSourceHasNoHostDecomposition(t *testing.T) {
 		return false
 	})
 	if closeCalls != 1 {
-		t.Fatalf("buildHostWithEnv host.Close calls=%d want exactly 1", closeCalls)
+		t.Fatalf("buildHost host.Close calls=%d want exactly 1", closeCalls)
 	}
 }
 
@@ -100,7 +100,7 @@ func TestHostClose_HTTPHandlerIsStableDataPlaneSeam(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildHost: %v", err)
 	}
-	t.Cleanup(func() { cleanupReloadHost(t, host) })
+	t.Cleanup(func() { cleanupHost(t, host) })
 
 	first := host.HTTPHandler()
 	if first == nil {

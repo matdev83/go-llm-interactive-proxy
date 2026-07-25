@@ -25,10 +25,10 @@ import (
 func TestBuildUsageAuthorityDisabledIsNoop(t *testing.T) {
 	t.Parallel()
 	_, built := mustProcessAndCandidate(t, baseAuthorityConfig(false, "fail_closed"), baseAuthorityOptions(t, nil))
-	if built.UsageAuthority != nil {
+	if runtimebundle.CandidateUsageAuthority(built) != nil {
 		t.Fatal("usage authority should be nil when disabled")
 	}
-	if built.Executor.UsageAuthority != nil {
+	if built.Executor().UsageAuthority != nil {
 		t.Fatal("executor usage authority should be nil when disabled")
 	}
 }
@@ -47,13 +47,13 @@ func TestBuildRejectsRequiredAuthorityEvidenceWithoutControlPlane(t *testing.T) 
 func TestBuildUsageAuthorityWiresService(t *testing.T) {
 	t.Parallel()
 	_, built := mustProcessAndCandidate(t, baseAuthorityConfig(true, "fail_closed"), baseAuthorityOptions(t, nil))
-	if built.UsageAuthority == nil {
+	if runtimebundle.CandidateUsageAuthority(built) == nil {
 		t.Fatal("expected usage authority service when enabled")
 	}
-	if built.Executor.UsageAuthority == nil {
+	if built.Executor().UsageAuthority == nil {
 		t.Fatal("expected executor usage authority handle when enabled")
 	}
-	status, err := built.UsageAuthority.Status(context.Background())
+	status, err := runtimebundle.CandidateUsageAuthority(built).Status(context.Background())
 	if err != nil {
 		t.Fatalf("Status: %v", err)
 	}
@@ -80,11 +80,11 @@ func TestBuildUsageAuthorityStrictUnavailableFailsClosed(t *testing.T) {
 func TestBuildUsageAuthorityAdmitReserveUsesSeededLimitRows(t *testing.T) {
 	t.Parallel()
 	_, built := mustProcessAndCandidate(t, baseAuthorityConfig(true, "fail_closed"), baseAuthorityOptions(t, nil))
-	if built.UsageAuthority == nil {
+	if runtimebundle.CandidateUsageAuthority(built) == nil {
 		t.Fatal("expected usage authority service when enabled")
 	}
 
-	got, err := built.UsageAuthority.Admit(context.Background(), authorityAdmissionInput())
+	got, err := runtimebundle.CandidateUsageAuthority(built).Admit(context.Background(), authorityAdmissionInput())
 	if err != nil {
 		t.Fatalf("Admit: %v", err)
 	}
@@ -103,10 +103,10 @@ func TestBuildUsageAuthorityFailOpenStartsAdvisory(t *testing.T) {
 		readinessErr: errors.New("backend not available"),
 	}
 	_, built := mustProcessAndCandidate(t, baseAuthorityConfig(true, "fail_open"), baseAuthorityOptions(t, override))
-	if built.UsageAuthority == nil {
+	if runtimebundle.CandidateUsageAuthority(built) == nil {
 		t.Fatal("expected usage authority service when enabled")
 	}
-	status, err := built.UsageAuthority.Status(context.Background())
+	status, err := runtimebundle.CandidateUsageAuthority(built).Status(context.Background())
 	if err != nil {
 		t.Fatalf("Status: %v", err)
 	}

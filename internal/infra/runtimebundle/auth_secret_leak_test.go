@@ -67,7 +67,7 @@ func TestBuild_authPaths_noFixtureSecretLeakageInLogsOrHTTPBodies(t *testing.T) 
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	h := stdhttpauth.Middleware(nil, b.HTTPAuthProviders, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	h := stdhttpauth.Middleware(nil, runtimebundle.CandidateHTTPAuthProviders(b), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("inner handler must not run for deny cases in this test")
 	}))
 
@@ -88,7 +88,7 @@ func TestBuild_authPaths_noFixtureSecretLeakageInLogsOrHTTPBodies(t *testing.T) 
 	req3 := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	req3.Header.Set("Authorization", "Bearer "+secret)
 	var inner bool
-	h2 := stdhttpauth.Middleware(nil, b.HTTPAuthProviders, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	h2 := stdhttpauth.Middleware(nil, runtimebundle.CandidateHTTPAuthProviders(b), http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		inner = true
 		if _, ok := httpauth.PrincipalFromContext(r.Context()); !ok {
 			t.Error("expected principal")

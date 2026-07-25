@@ -191,7 +191,7 @@ func TestCompileCandidate_defaultBackendFromEffectiveRoute(t *testing.T) {
 	cfg := policyConfig()
 	cfg.Continuity = config.ContinuityConfig{InMemory: true}
 	_, cand := compileTestCandidate(t, cfg, reg)
-	if cand.Executor.DefaultBackend != "stub" {
-		t.Fatalf("DefaultBackend %q want stub", cand.Executor.DefaultBackend)
+	if cand.Executor().DefaultBackend != "stub" {
+		t.Fatalf("DefaultBackend %q want stub", cand.Executor().DefaultBackend)
 	}
 }

@@ -60,25 +60,25 @@ func TestTOCTOU_ServeGateAndBootstrapDisagreeAcrossControlledLoads(t *testing.T)
 	if err != nil {
 		t.Fatalf("BuildHost: %v", err)
 	}
-	t.Cleanup(func() { cleanupReloadHost(t, out.Host) })
+	t.Cleanup(func() { cleanupHost(t, out.Host) })
 
 	gotLoads := int(loads.Load())
 	wantFP := snapA.eff.Identity.PublicFingerprint
 	genFP := ""
-	if out.Host.Manager != nil && out.Host.Manager.Active() != nil {
-		genFP = out.Host.Manager.Active().Status().Meta.PublicFingerprint
+	if out.Host.manager != nil && out.Host.manager.Active() != nil {
+		genFP = out.Host.manager.Active().Status().Meta.PublicFingerprint
 	}
 	processAddr := ""
-	if out.Host.Config != nil {
-		processAddr = out.Host.Config.Server.Address
+	if out.Host.config != nil {
+		processAddr = out.Host.config.Server.Address
 	}
 	reloadFP := ""
-	if out.Host.Effective != nil {
-		reloadFP = out.Host.Effective.Identity.PublicFingerprint
+	if out.Host.effective != nil {
+		reloadFP = out.Host.effective.Identity.PublicFingerprint
 	}
 	reloadHandle := configsource.FileIdentity{}
-	if out.Host.ActiveSource != nil {
-		reloadHandle = out.Host.ActiveSource.HandleIdentity
+	if out.Host.activeSource != nil {
+		reloadHandle = out.Host.activeSource.HandleIdentity
 	}
 
 	var problems []string
@@ -134,7 +134,7 @@ func TestOneSnapshot_HostTransactionSharesAcceptedSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HostBuilder transaction must succeed with one accepted snapshot: %v", err)
 	}
-	t.Cleanup(func() { cleanupReloadHost(t, out.Host) })
+	t.Cleanup(func() { cleanupHost(t, out.Host) })
 
 	wantFP := snapA.eff.Identity.PublicFingerprint
 	wantAddr := snapA.eff.Config.Server.Address
@@ -144,19 +144,19 @@ func TestOneSnapshot_HostTransactionSharesAcceptedSnapshot(t *testing.T) {
 	if !hostIsComplete(out) {
 		t.Fatalf("HostBuilder must return one complete Host (req 4.1, 4.5)")
 	}
-	if out.Host.Effective == nil || out.Host.Effective.Identity.PublicFingerprint != wantFP {
+	if out.Host.effective == nil || out.Host.effective.Identity.PublicFingerprint != wantFP {
 		t.Fatalf("reload Effective fingerprint mismatch want %q", wantFP)
 	}
-	if out.Host.Effective.Config == nil || out.Host.Effective.Config.Server.Address != wantAddr {
+	if out.Host.effective.Config == nil || out.Host.effective.Config.Server.Address != wantAddr {
 		t.Fatalf("process runtime config must derive from accepted snapshot")
 	}
-	if out.Host.Manager == nil || out.Host.Manager.Active() == nil {
+	if out.Host.manager == nil || out.Host.manager.Active() == nil {
 		t.Fatal("complete Host must publish generation 1")
 	}
-	if out.Host.Manager.Active().Status().Meta.PublicFingerprint != wantFP {
+	if out.Host.manager.Active().Status().Meta.PublicFingerprint != wantFP {
 		t.Fatalf("generation 1 fingerprint must derive from accepted snapshot")
 	}
-	if out.Host.Source == nil {
+	if out.Host.source == nil {
 		t.Fatal("complete Host must bind ActiveSource identity")
 	}
 }
@@ -219,7 +219,7 @@ func writeOneSnapshotMarkerConfig(t *testing.T, address string, mode accessmode.
 	return path
 }
 
-func cleanupReloadHost(t *testing.T, host *ReloadHost) {
+func cleanupHost(t *testing.T, host *Host) {
 	t.Helper()
 	if host == nil {
 		return

@@ -225,7 +225,7 @@ func TestCompileCandidate_BackendOptionalHooksOnSuccessAndInjectedFailure(t *tes
 	if preflights.Load() != 0 {
 		t.Fatalf("preflight must not run automatically, calls=%d", preflights.Load())
 	}
-	be := cand.Executor.Backends["probe"]
+	be := cand.Executor().Backends["probe"]
 	if be.PreflightCapability == nil {
 		t.Fatal("production backend preflight capability was discarded")
 	}
@@ -341,7 +341,7 @@ func TestCompileCandidate_OwnedHTTPTransportIdleCleanupOnRollbackAndRetire(t *te
 	if err != nil {
 		t.Fatalf("CompileCandidate: %v", err)
 	}
-	if cand.UpstreamHTTP == nil || cand.UpstreamHTTP.Transport == nil {
+	if runtimebundle.CandidateUpstreamHTTP(cand) == nil || runtimebundle.CandidateUpstreamHTTP(cand).Transport == nil {
 		t.Fatal("expected generation-owned upstream transport")
 	}
 	if err := cand.Close(); err != nil {
@@ -417,19 +417,19 @@ func TestCompileCandidate_CatalogRefreshQuiescesBeforeClose(t *testing.T) {
 		// Catalog start may fail on missing source; skip if environment cannot start catalog.
 		t.Skipf("catalog candidate unavailable: %v", err)
 	}
-	if cand.Ledger == nil {
+	if cand.Ledger() == nil {
 		t.Fatal("expected ledger")
 	}
 
 	var order []string
 	var mu sync.Mutex
-	cand.Ledger.AddClose("probe-quiesce-order", runtimebundle.PhaseQuiesce, func() error {
+	cand.Ledger().AddClose("probe-quiesce-order", runtimebundle.PhaseQuiesce, func() error {
 		mu.Lock()
 		order = append(order, "quiesce-probe")
 		mu.Unlock()
 		return nil
 	})
-	cand.Ledger.AddClose("probe-close-order", runtimebundle.PhaseClose, func() error {
+	cand.Ledger().AddClose("probe-close-order", runtimebundle.PhaseClose, func() error {
 		mu.Lock()
 		order = append(order, "close-probe")
 		mu.Unlock()

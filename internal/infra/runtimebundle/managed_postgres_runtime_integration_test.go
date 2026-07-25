@@ -47,8 +47,8 @@ func TestBuild_postgresBothStores_closersAndNoMigration(t *testing.T) {
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if b.Ledger.Len() != 2 {
-		t.Fatalf("want 2 closers (continuity + secure_session), got %d", b.Ledger.Len())
+	if b.Ledger().Len() != 2 {
+		t.Fatalf("want 2 closers (continuity + secure_session), got %d", b.Ledger().Len())
 	}
 	if err := b.Close(); err != nil {
 		t.Fatalf("close: %v", err)

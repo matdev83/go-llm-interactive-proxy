@@ -44,17 +44,17 @@ func TestEffectiveLoadContract_LoadEffectiveHelperMatchesBuildHost(t *testing.T)
 	}
 	hostServeCleanup(t, host)
 
-	if host.Config == nil {
+	if host.Config() == nil {
 		t.Fatal("expected host config")
 	}
 	// Shared pipeline must inject standard feature defaults before validation.
-	if !hasFeatureID(host.Config, standardplugins.ToolCallRepairFeatureID) {
+	if !hasFeatureID(host.Config(), standardplugins.ToolCallRepairFeatureID) {
 		t.Fatal("BuildHost must inject tool-call-repair via shared effective load")
 	}
-	if !hasFeatureID(host.Config, standardplugins.ReasoningOutputPreservationFeatureID) {
+	if !hasFeatureID(host.Config(), standardplugins.ReasoningOutputPreservationFeatureID) {
 		t.Fatal("BuildHost must inject reasoning-output-preservation via shared effective load")
 	}
-	id, err := config.ComputeEffectiveIdentity(host.Config)
+	id, err := config.ComputeEffectiveIdentity(host.Config())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,11 +192,11 @@ func TestEffectiveLoadContract_FixedStreamRecoveryCLIWins(t *testing.T) {
 		t.Fatal(err)
 	}
 	hostServeCleanup(t, host)
-	if host.Config.StreamRecovery.AutoResume.Enabled == nil || *host.Config.StreamRecovery.AutoResume.Enabled {
+	if host.Config().StreamRecovery.AutoResume.Enabled == nil || *host.Config().StreamRecovery.AutoResume.Enabled {
 		t.Fatal("BuildHost must apply fixed CLI stream-recovery overrides")
 	}
-	if host.Config.StreamRecovery.AutoResume.IdleTimeout != cliIdle.String() {
-		t.Fatalf("BuildHost idle timeout: got %q", host.Config.StreamRecovery.AutoResume.IdleTimeout)
+	if host.Config().StreamRecovery.AutoResume.IdleTimeout != cliIdle.String() {
+		t.Fatalf("BuildHost idle timeout: got %q", host.Config().StreamRecovery.AutoResume.IdleTimeout)
 	}
 }
 

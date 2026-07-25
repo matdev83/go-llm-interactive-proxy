@@ -60,8 +60,8 @@ func TestBuildHost_serveMultiUserSecretGuardDoesNotConsultEnvironment(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { cleanupReloadHost(t, host) })
-	if host.Process == nil || host.Manager == nil || host.Manager.Active() == nil {
+	t.Cleanup(func() { cleanupHost(t, host) })
+	if host.process == nil || host.manager == nil || host.manager.Active() == nil {
 		t.Fatal("BuildHost must publish generation host handles")
 	}
 	if env.calls != 0 {
@@ -113,8 +113,8 @@ func TestBuildHost_serveDisabledSecretGuardDoesNotConsultEnvironment(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { cleanupReloadHost(t, host) })
-	if host.Process == nil || host.Manager == nil || host.Manager.Active() == nil {
+	t.Cleanup(func() { cleanupHost(t, host) })
+	if host.process == nil || host.manager == nil || host.manager.Active() == nil {
 		t.Fatal("BuildHost must publish generation host handles")
 	}
 	if env.calls != 0 {

@@ -153,7 +153,7 @@ func (t *countingIdleTransport) CloseIdleConnections() {
 }
 
 type planeFromCandidate struct {
-	cand *runtimebundle.CandidateRuntime
+	cand *runtimebundle.CandidateHTTPCompile
 }
 
 func (p *planeFromCandidate) Handler() http.Handler {

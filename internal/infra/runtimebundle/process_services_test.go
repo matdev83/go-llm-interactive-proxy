@@ -74,10 +74,10 @@ func TestProcessServices_TwoCandidatesShareIdentities(t *testing.T) {
 	if c1 == nil || c2 == nil {
 		t.Fatal("expected both candidates")
 	}
-	if c1.Executor == nil || c2.Executor == nil {
+	if c1.Executor() == nil || c2.Executor() == nil {
 		t.Fatal("expected executors on both candidates")
 	}
-	if c1.Executor == c2.Executor {
+	if c1.Executor() == c2.Executor() {
 		t.Fatal("candidates must own distinct executors")
 	}
 
@@ -85,35 +85,32 @@ func TestProcessServices_TwoCandidatesShareIdentities(t *testing.T) {
 	if ps.Metrics == nil || ps.Metrics.Registry == nil {
 		t.Fatal("expected process metrics registry")
 	}
-	if c1.Metrics != ps.Metrics || c2.Metrics != ps.Metrics {
-		t.Fatalf("candidates must reuse process Metrics identity: ps=%p c1=%p c2=%p", ps.Metrics, c1.Metrics, c2.Metrics)
+	if c1.Metrics() != ps.Metrics || c2.Metrics() != ps.Metrics {
+		t.Fatalf("candidates must reuse process Metrics identity: ps=%p c1=%p c2=%p", ps.Metrics, c1.Metrics(), c2.Metrics())
 	}
-	if c1.Metrics.Registry != ps.Metrics.Registry {
+	if c1.Metrics().Registry != ps.Metrics.Registry {
 		t.Fatal("candidate must not open a duplicate Prometheus registry")
 	}
-	if c1.Store != ps.Continuity || c2.Store != ps.Continuity {
-		t.Fatalf("candidates must reuse process Continuity store: ps=%p c1=%p c2=%p", ps.Continuity, c1.Store, c2.Store)
+	if c1.Store() != ps.Continuity || c2.Store() != ps.Continuity {
+		t.Fatalf("candidates must reuse process Continuity store: ps=%p c1=%p c2=%p", ps.Continuity, c1.Store(), c2.Store())
 	}
-	if c1.SecureSessionStore != ps.SecureSessions || c2.SecureSessionStore != ps.SecureSessions {
+	if runtimebundle.CandidateSecureSessionStore(c1) != ps.SecureSessions || runtimebundle.CandidateSecureSessionStore(c2) != ps.SecureSessions {
 		t.Fatal("candidates must reuse process SecureSessions store")
 	}
-	if c1.DecodeAdmission != ps.DecodeAdmission || c2.DecodeAdmission != ps.DecodeAdmission {
+	if c1.DecodeAdmission() != ps.DecodeAdmission || c2.DecodeAdmission() != ps.DecodeAdmission {
 		t.Fatal("candidates must reuse process DecodeAdmission")
 	}
-	if c1.PluginRegistry != ps.FactoryCatalog || c2.PluginRegistry != reg {
+	if c1.PluginRegistry() != ps.FactoryCatalog || c2.PluginRegistry() != reg {
 		t.Fatal("candidates must reuse process FactoryCatalog / PluginRegistry")
 	}
-	if c1.DatabasePools != ps.DatabasePools || c2.DatabasePools != ps.DatabasePools {
+	if runtimebundle.CandidateDatabasePools(c1) != ps.DatabasePools || runtimebundle.CandidateDatabasePools(c2) != ps.DatabasePools {
 		t.Fatal("candidates must reuse process DatabasePools")
 	}
-	if c1.TerminalWorkProcessor != ps.TerminalWorkProcessor || c2.TerminalWorkProcessor != ps.TerminalWorkProcessor {
+	if runtimebundle.CandidateTerminalWorkProcessor(c1) != ps.TerminalWorkProcessor || runtimebundle.CandidateTerminalWorkProcessor(c2) != ps.TerminalWorkProcessor {
 		t.Fatal("candidates must reuse process TerminalWorkProcessor")
 	}
 	if ps.Tracing.Shutdown == nil {
 		t.Fatal("expected process Tracing.Shutdown")
-	}
-	if c1.ProcessTracingShutdown != nil {
-		t.Fatal("candidate must not own process tracing shutdown")
 	}
 }
 
@@ -192,13 +189,13 @@ func TestProcessServices_CandidateExposesCoreCapabilitiesAndClosesCleanly(t *tes
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 	})
-	if b.Metrics == nil {
+	if b.Metrics() == nil {
 		t.Fatal("candidate must still expose Metrics")
 	}
-	if b.DecodeAdmission == nil {
+	if b.DecodeAdmission() == nil {
 		t.Fatal("candidate must still expose DecodeAdmission")
 	}
-	if b.Store == nil {
+	if b.Store() == nil {
 		t.Fatal("candidate must still expose Store")
 	}
 	// Pure in-memory builds may have an empty ledger (historical semantics).
@@ -271,7 +268,7 @@ func TestProcessServices_DuplicateCompileDoesNotDuplicateTerminalWork(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c1.TerminalWorkProcessor != ps.TerminalWorkProcessor || c2.TerminalWorkProcessor != ps.TerminalWorkProcessor {
+	if runtimebundle.CandidateTerminalWorkProcessor(c1) != ps.TerminalWorkProcessor || runtimebundle.CandidateTerminalWorkProcessor(c2) != ps.TerminalWorkProcessor {
 		t.Fatal("duplicate terminal-work processors across candidates")
 	}
 	_ = c1.Close()

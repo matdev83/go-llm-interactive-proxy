@@ -76,9 +76,9 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	// generation_refcount.go). Final ≤400 (Req 11.3) already met; budget is the
 	// exact measured total (no padded ceiling).
 	{Path: "internal/infra/runtimehost/generation.go", Max: 316},
-	// BaselineMax 440 → CurrentMax 323 after Phase B+C closer-bag contraction
-	// (physical line count; final ≤350 Req 11.3 met).
-	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 323},
+	// BaselineMax 440 → CurrentMax 259 after PR B candidateAssembly grouping
+	// (CandidateHTTPCompile accessors moved out of this hotspot; final ≤350 Req 11.3 met).
+	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 259},
 	// Task 3.5: freeze post-deletion composer/input surfaces at measured sizes.
 	{Path: "internal/infra/runtimebundle/handler_composer.go", Max: 25},
 	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 292},

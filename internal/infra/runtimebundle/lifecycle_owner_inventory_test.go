@@ -82,12 +82,12 @@ var lifecycleOwnerInventory = []lifeInventoryEntry{
 	{Type: "BackendInstance", FieldOrMethod: "closeErr", Operation: "close", Owner: "BackendInstance", Disposition: lifeResourceLocal, File: "backend_instance.go"},
 	{Type: "BackendInstance", FieldOrMethod: "started", Operation: "prepare", Owner: "BackendInstance", Disposition: lifeResourceLocal, File: "backend_instance.go"},
 
-	// --- CandidateRuntime: transfer vs lifecycle exclusive claim; no phase guards ---
-	{Type: "CandidateRuntime", FieldOrMethod: "lifeMu", Operation: "transfer", Owner: "CandidateRuntime", Disposition: lifeCanonicalResource, File: "candidate_compile.go"},
-	{Type: "CandidateRuntime", FieldOrMethod: "lifeClaimed", Operation: "transfer", Owner: "CandidateRuntime", Disposition: lifeCanonicalResource, File: "candidate_compile.go"},
-	{Type: "CandidateRuntime", FieldOrMethod: "ledgerTransferred", Operation: "transfer", Owner: "CandidateRuntime", Disposition: lifeCanonicalResource, File: "candidate_compile.go"},
-	{Type: "CandidateRuntime", FieldOrMethod: "transferLedgerOwnership", Operation: "transfer", Owner: "CandidateRuntime", Disposition: lifeCanonicalResource, File: "candidate_lifecycle.go"},
-	{Type: "CandidateRuntime", FieldOrMethod: "claimLifecycleLedger", Operation: "transfer", Owner: "CandidateRuntime", Disposition: lifeCanonicalResource, File: "candidate_lifecycle.go"},
+	// --- candidateAssembly: transfer vs lifecycle exclusive claim; no phase guards ---
+	{Type: "candidateAssembly", FieldOrMethod: "lifeMu", Operation: "transfer", Owner: "candidateAssembly", Disposition: lifeCanonicalResource, File: "candidate_http.go"},
+	{Type: "candidateAssembly", FieldOrMethod: "lifeClaimed", Operation: "transfer", Owner: "candidateAssembly", Disposition: lifeCanonicalResource, File: "candidate_http.go"},
+	{Type: "candidateAssembly", FieldOrMethod: "ledgerTransferred", Operation: "transfer", Owner: "candidateAssembly", Disposition: lifeCanonicalResource, File: "candidate_http.go"},
+	{Type: "candidateAssembly", FieldOrMethod: "transferLedgerOwnership", Operation: "transfer", Owner: "candidateAssembly", Disposition: lifeCanonicalResource, File: "candidate_lifecycle.go"},
+	{Type: "candidateAssembly", FieldOrMethod: "claimLifecycleLedger", Operation: "transfer", Owner: "candidateAssembly", Disposition: lifeCanonicalResource, File: "candidate_lifecycle.go"},
 
 	// --- GenerationBundle: stores/delegates to canonical ledger only ---
 	{Type: "GenerationBundle", FieldOrMethod: "ledger", Operation: "close", Owner: "ResourceLedger", Disposition: lifeCanonicalResource, File: "generation_bundle.go"},

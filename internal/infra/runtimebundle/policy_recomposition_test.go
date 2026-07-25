@@ -259,10 +259,10 @@ func TestCompileCandidate_AuthLocalAPIKeysDifferPerCandidate(t *testing.T) {
 		}
 	}
 
-	assertBearerOutcome(t, a.HTTPAuthProviders, "candidate-a-key-1234567", true, "user-a")
-	assertBearerOutcome(t, a.HTTPAuthProviders, "candidate-b-key-7654321", false, "")
-	assertBearerOutcome(t, b.HTTPAuthProviders, "candidate-b-key-7654321", true, "user-b")
-	assertBearerOutcome(t, b.HTTPAuthProviders, "candidate-a-key-1234567", false, "")
+	assertBearerOutcome(t, runtimebundle.CandidateHTTPAuthProviders(a), "candidate-a-key-1234567", true, "user-a")
+	assertBearerOutcome(t, runtimebundle.CandidateHTTPAuthProviders(a), "candidate-b-key-7654321", false, "")
+	assertBearerOutcome(t, runtimebundle.CandidateHTTPAuthProviders(b), "candidate-b-key-7654321", true, "user-b")
+	assertBearerOutcome(t, runtimebundle.CandidateHTTPAuthProviders(b), "candidate-a-key-1234567", false, "")
 }
 
 // TestCompileCandidate_MaxPendingWireEventsDiffersPerCandidate proves the
@@ -294,11 +294,11 @@ func TestCompileCandidate_MaxPendingWireEventsDiffersPerCandidate(t *testing.T) 
 	}
 	defer func() { _ = high.Close() }()
 
-	if low.Executor.MaxPendingWireEvents != 7 {
-		t.Fatalf("low.Executor.MaxPendingWireEvents = %d, want 7", low.Executor.MaxPendingWireEvents)
+	if low.Executor().MaxPendingWireEvents != 7 {
+		t.Fatalf("low.Executor().MaxPendingWireEvents = %d, want 7", low.Executor().MaxPendingWireEvents)
 	}
-	if high.Executor.MaxPendingWireEvents != 700 {
-		t.Fatalf("high.Executor.MaxPendingWireEvents = %d, want 700", high.Executor.MaxPendingWireEvents)
+	if high.Executor().MaxPendingWireEvents != 700 {
+		t.Fatalf("high.Executor().MaxPendingWireEvents = %d, want 700", high.Executor().MaxPendingWireEvents)
 	}
 }
 
@@ -333,16 +333,16 @@ func TestCompileCandidate_HTTPClientMaxIdleConnsDiffersPerCandidate(t *testing.T
 	}
 	defer func() { _ = high.Close() }()
 
-	if low.UpstreamHTTP == high.UpstreamHTTP {
+	if runtimebundle.CandidateUpstreamHTTP(low) == runtimebundle.CandidateUpstreamHTTP(high) {
 		t.Fatal("expected distinct generation-owned upstream clients")
 	}
-	lowTr, ok := low.UpstreamHTTP.Transport.(*http.Transport)
+	lowTr, ok := runtimebundle.CandidateUpstreamHTTP(low).Transport.(*http.Transport)
 	if !ok {
-		t.Fatalf("low transport type = %T", low.UpstreamHTTP.Transport)
+		t.Fatalf("low transport type = %T", runtimebundle.CandidateUpstreamHTTP(low).Transport)
 	}
-	highTr, ok := high.UpstreamHTTP.Transport.(*http.Transport)
+	highTr, ok := runtimebundle.CandidateUpstreamHTTP(high).Transport.(*http.Transport)
 	if !ok {
-		t.Fatalf("high transport type = %T", high.UpstreamHTTP.Transport)
+		t.Fatalf("high transport type = %T", runtimebundle.CandidateUpstreamHTTP(high).Transport)
 	}
 	if lowTr == highTr {
 		t.Fatal("expected distinct underlying *http.Transport instances")
@@ -446,27 +446,27 @@ func TestCompileCandidate_HealthPolicyReloadableSharedObservation(t *testing.T) 
 	defer func() { _ = lenient.Close() }()
 
 	key := affinity.Key{Scope: affinity.ScopeSession, ID: "policy-health-sess"}
-	if err := strict.Executor.AffinityStore.Set(context.Background(), affinity.Binding{
+	if err := strict.Executor().AffinityStore.Set(context.Background(), affinity.Binding{
 		Key: key, BackendID: "base", CandidateKey: "base:m",
 	}); err != nil {
 		t.Fatalf("affinity set via strict: %v", err)
 	}
-	if b, ok, err := lenient.Executor.AffinityStore.Get(context.Background(), key); err != nil || !ok || b.BackendID != "base" {
+	if b, ok, err := lenient.Executor().AffinityStore.Get(context.Background(), key); err != nil || !ok || b.BackendID != "base" {
 		t.Fatalf("affinity identity must survive health-policy-only change: ok=%v backend=%q err=%v", ok, b.BackendID, err)
 	}
 
-	sink, ok := strict.Executor.CandidateHealth.(interface {
+	sink, ok := strict.Executor().CandidateHealth.(interface {
 		OnRoutingAttemptOutcome(string, lipapi.AttemptOutcome)
 	})
 	if !ok {
-		t.Fatalf("expected RoutingAttemptOutcomeSink, got %T", strict.Executor.CandidateHealth)
+		t.Fatalf("expected RoutingAttemptOutcomeSink, got %T", strict.Executor().CandidateHealth)
 	}
 	sink.OnRoutingAttemptOutcome("base:m", lipapi.AttemptSurfacedFailure)
 
-	if u := strict.Executor.CandidateHealth.UnhealthyCandidateKeys(); len(u) != 1 {
+	if u := strict.Executor().CandidateHealth.UnhealthyCandidateKeys(); len(u) != 1 {
 		t.Fatalf("strict (threshold=1) must open after its own single failure, got %v", u)
 	}
-	if u := lenient.Executor.CandidateHealth.UnhealthyCandidateKeys(); len(u) != 1 {
+	if u := lenient.Executor().CandidateHealth.UnhealthyCandidateKeys(); len(u) != 1 {
 		t.Fatalf("lenient generation must observe the shared failure recorded via strict, got %v", u)
 	}
 }

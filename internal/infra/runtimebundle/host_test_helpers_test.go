@@ -17,13 +17,13 @@ func hostServeCleanup(t *testing.T, host *runtimebundle.Host) {
 	})
 }
 
-func compileCandidateAfterHost(t *testing.T, host *runtimebundle.Host) *runtimebundle.CandidateRuntime {
+func compileCandidateAfterHost(t *testing.T, host *runtimebundle.Host) *runtimebundle.CandidateHTTPCompile {
 	t.Helper()
-	if host == nil || host.Process == nil {
+	if host == nil || runtimebundle.HostProcess(host) == nil {
 		t.Fatal("expected Process after BuildHost")
 	}
 	cand, err := runtimebundle.CompileCandidate(t.Context(), runtimebundle.GenerationCompileInput{
-		Process: host.Process,
+		Process: runtimebundle.HostProcess(host),
 		Bus:     hooks.New(hooks.Config{}),
 	})
 	if err != nil {

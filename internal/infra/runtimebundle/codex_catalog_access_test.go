@@ -77,7 +77,7 @@ func TestBuild_disabledBackendInstanceIsNotBuiltOrEnumerated(t *testing.T) {
 	if inventoryCalls.Load() != 0 {
 		t.Fatalf("disabled local-agent inventory calls = %d, want 0", inventoryCalls.Load())
 	}
-	if _, ok := b.ModelRegistry.Lookup("local/agent"); ok {
+	if _, ok := b.ModelRegistry().Lookup("local/agent"); ok {
 		t.Fatal("disabled local-agent model must not appear in registry")
 	}
 }
@@ -126,7 +126,7 @@ func TestBuild_enabledLocalAgentInventoryEnumeratedOnSingleUser(t *testing.T) {
 	if inventoryCalls.Load() != 1 {
 		t.Fatalf("single_user local-agent inventory calls = %d, want 1", inventoryCalls.Load())
 	}
-	if _, ok := b.ModelRegistry.Lookup("cursor/composer-2"); !ok {
+	if _, ok := b.ModelRegistry().Lookup("cursor/composer-2"); !ok {
 		t.Fatal("Lookup(cursor/composer-2) ok = false")
 	}
 }

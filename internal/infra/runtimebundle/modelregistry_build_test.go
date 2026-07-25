@@ -72,10 +72,10 @@ func TestBuild_exposesModelRegistryForFastLookup(t *testing.T) {
 	_, b := mustProcessAndCandidate(t, modelRegistryTestConfig("test-inventory"), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if b.ModelRegistry == nil {
+	if b.ModelRegistry() == nil {
 		t.Fatal("ModelRegistry is nil")
 	}
-	got, ok := b.ModelRegistry.Lookup("openai/gpt-4o")
+	got, ok := b.ModelRegistry().Lookup("openai/gpt-4o")
 	if !ok {
 		t.Fatal("Lookup(openai/gpt-4o) ok = false")
 	}
@@ -107,7 +107,7 @@ discovery:
 	})
 	t.Cleanup(closeModelRegistryBuilt(t, b))
 
-	got, ok := b.ModelRegistry.Lookup("meta-llama/Llama-3-8B-Instruct")
+	got, ok := b.ModelRegistry().Lookup("meta-llama/Llama-3-8B-Instruct")
 	if !ok {
 		t.Fatal("Lookup(meta-llama/Llama-3-8B-Instruct) ok = false")
 	}
@@ -157,11 +157,11 @@ func TestBuild_modelRegistryLoadsCacheWithoutRemoteInventoryCall(t *testing.T) {
 	if provider.Calls() != 0 {
 		t.Fatalf("provider calls = %d, want 0", provider.Calls())
 	}
-	got, ok := b.ModelRegistry.Lookup("openai/gpt-cached")
+	got, ok := b.ModelRegistry().Lookup("openai/gpt-cached")
 	if !ok || len(got) != 1 || got[0].BackendID != "test-backend" {
 		t.Fatalf("cached lookup = %+v, %v", got, ok)
 	}
-	if b.ModelRegistryRuntime == nil {
+	if runtimebundle.CandidateModelRegistryRuntime(b) == nil {
 		t.Fatal("ModelRegistryRuntime is nil")
 	}
 }
@@ -249,10 +249,10 @@ func TestBuild_modelRegistryColdStartInvalidInventoryOmitsBackend(t *testing.T) 
 		PluginRegistry: reg,
 	})
 	t.Cleanup(closeModelRegistryBuilt(t, b))
-	if got := b.ModelRegistry.All(); len(got) != 1 || got[0].BackendID != "test-backend" {
+	if got := b.ModelRegistry().All(); len(got) != 1 || got[0].BackendID != "test-backend" {
 		t.Fatalf("All() = %+v, want only good backend", got)
 	}
-	diag := b.ModelRegistryRuntime.Diagnostics()
+	diag := runtimebundle.CandidateModelRegistryRuntime(b).Diagnostics()
 	byID := map[string]modelregistry.BackendDiscovery{}
 	for _, d := range diag.BackendDiscoveries {
 		byID[d.BackendID] = d
@@ -297,10 +297,10 @@ func TestBuild_modelRegistryColdStartAllUnavailablePublishesEmptyRegistry(t *tes
 		PluginRegistry: reg,
 	})
 	t.Cleanup(closeModelRegistryBuilt(t, b))
-	if got := b.ModelRegistry.All(); len(got) != 0 {
+	if got := b.ModelRegistry().All(); len(got) != 0 {
 		t.Fatalf("All() len = %d, want 0", len(got))
 	}
-	diag := b.ModelRegistryRuntime.Diagnostics()
+	diag := runtimebundle.CandidateModelRegistryRuntime(b).Diagnostics()
 	if len(diag.BackendDiscoveries) != 1 {
 		t.Fatalf("BackendDiscoveries len = %d", len(diag.BackendDiscoveries))
 	}
@@ -331,8 +331,8 @@ func TestBuild_modelRegistryStaticInventoryDoesNotStartRefreshCloser(t *testing.
 	_, b := mustProcessAndCandidate(t, modelRegistryTestConfig("test-inventory"), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if b.Ledger.Len() != 1 {
-		t.Fatalf("closers = %d, want 1 upstream-idle closer for disabled model catalog with static inventory", b.Ledger.Len())
+	if b.Ledger().Len() != 1 {
+		t.Fatalf("closers = %d, want 1 upstream-idle closer for disabled model catalog with static inventory", b.Ledger().Len())
 	}
 	closeRuntimeBuilt(t, b)
 }
@@ -373,17 +373,17 @@ func TestBuild_modelRegistryErrorProviderWithCacheDoesNotStartRefreshCloser(t *t
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if b.Ledger.Len() != 1 {
-		t.Fatalf("closers = %d, want 1 upstream-idle closer for disabled model catalog with cached model registry", b.Ledger.Len())
+	if b.Ledger().Len() != 1 {
+		t.Fatalf("closers = %d, want 1 upstream-idle closer for disabled model catalog with cached model registry", b.Ledger().Len())
 	}
 	defer closeRuntimeBuilt(t, b)
-	if b.ModelRegistryRuntime == nil {
+	if runtimebundle.CandidateModelRegistryRuntime(b) == nil {
 		t.Fatal("ModelRegistryRuntime is nil")
 	}
-	if b.ModelRegistryRuntime.LastRefreshFailure() != modelregistry.RefreshFailureNone {
-		t.Fatalf("LastRefreshFailure = %q, want none", b.ModelRegistryRuntime.LastRefreshFailure())
+	if runtimebundle.CandidateModelRegistryRuntime(b).LastRefreshFailure() != modelregistry.RefreshFailureNone {
+		t.Fatalf("LastRefreshFailure = %q, want none", runtimebundle.CandidateModelRegistryRuntime(b).LastRefreshFailure())
 	}
-	got, ok := b.ModelRegistry.Lookup("openai/gpt-cached")
+	got, ok := b.ModelRegistry().Lookup("openai/gpt-cached")
 	if !ok || len(got) != 1 || got[0].BackendID != "test-backend" {
 		t.Fatalf("cached lookup = %+v, %v", got, ok)
 	}
@@ -412,7 +412,7 @@ func TestBuild_modelRegistryFetchTimeoutAppliesPerBackend(t *testing.T) {
 		PluginRegistry: reg,
 	})
 	t.Cleanup(closeModelRegistryBuilt(t, b))
-	if got := b.ModelRegistry.All(); len(got) != 2 {
+	if got := b.ModelRegistry().All(); len(got) != 2 {
 		t.Fatalf("model registry count = %d, want 2", len(got))
 	}
 }
@@ -467,7 +467,7 @@ func readModelRegistryCache(t *testing.T, path string) modelregistry.Snapshot {
 	return snap
 }
 
-func closeModelRegistryBuilt(t *testing.T, b *runtimebundle.CandidateRuntime) func() {
+func closeModelRegistryBuilt(t *testing.T, b *runtimebundle.CandidateHTTPCompile) func() {
 	t.Helper()
 	return func() {
 		if b == nil {

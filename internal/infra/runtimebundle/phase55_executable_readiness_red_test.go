@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
@@ -32,10 +33,10 @@ func TestPhase55_ReadinessSeparatesExecutableSourceAndTerminal(t *testing.T) {
 	}}
 	opts.Production.UsageSnapshotSource = phase55FailingUsageSource{}
 	_, built := mustProcessAndCandidate(t, cfg, opts)
-	if built.ReadinessReport == nil {
+	if runtimebundle.CandidateReadinessReport(built) == nil {
 		t.Fatal("expected readiness report")
 	}
-	report, err := built.ReadinessReport.Report(context.Background())
+	report, err := runtimebundle.CandidateReadinessReport(built).Report(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,20 +78,20 @@ func TestPhase55_RefreshKeepsPriorExecutableOnSourceFailure(t *testing.T) {
 	src := &mutablePhase55UsageSource{ver: "u1"}
 	opts.Production.UsageSnapshotSource = src
 	_, built := mustProcessAndCandidate(t, cfg, opts)
-	before := built.SnapshotGeneration.CurrentExecutable()
+	before := runtimebundle.CandidateSnapshotGeneration(built).CurrentExecutable()
 	if before == nil || before.EvidenceObjectID() != "op-rater" {
 		t.Fatalf("before=%v", before)
 	}
 	src.fail = true
-	if built.SnapshotController == nil {
+	if runtimebundle.CandidateSnapshotController(built) == nil {
 		t.Fatal("expected snapshot controller")
 	}
-	_ = built.SnapshotController.Refresh(context.Background())
-	after := built.SnapshotGeneration.CurrentExecutable()
+	_ = runtimebundle.CandidateSnapshotController(built).Refresh(context.Background())
+	after := runtimebundle.CandidateSnapshotGeneration(built).CurrentExecutable()
 	if after == nil || after.ID != before.ID || after.EvidenceObjectID() != "op-rater" {
 		t.Fatalf("prior executable must remain; before=%v after=%v", before, after)
 	}
-	cur := built.SnapshotGeneration.Current()
+	cur := runtimebundle.CandidateSnapshotGeneration(built).Current()
 	if cur == nil || (cur.Usage.State != economics.SnapshotUnavailable && cur.Usage.State != economics.SnapshotDegraded) {
 		t.Fatalf("metadata source-fetch posture=%#v", cur)
 	}

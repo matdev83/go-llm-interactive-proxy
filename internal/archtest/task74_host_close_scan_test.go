@@ -70,6 +70,11 @@ var (
 		"Process":         "process",
 		"Coordinator":     "coordinator",
 		"ShutdownTracing": "tracing",
+		// Private ownership fields after Host encapsulation (PR B1).
+		"manager":         "manager",
+		"process":         "process",
+		"coordinator":     "coordinator",
+		"shutdownTracing": "tracing",
 	}
 )
 

@@ -33,8 +33,8 @@ func TestBuild_sqliteStoreRegistersCloser(t *testing.T) {
 		PluginRegistry: reg,
 	})
 	// Candidate ledger entries are generation-owned only; sqlite continuity lives on ProcessServices.
-	if b.Ledger.Len() != 1 {
-		t.Fatalf("expected 1 generation closer (upstream idle), got %d", b.Ledger.Len())
+	if b.Ledger().Len() != 1 {
+		t.Fatalf("expected 1 generation closer (upstream idle), got %d", b.Ledger().Len())
 	}
 	if ps.Closed() {
 		t.Fatal("process must remain open while candidate is live")

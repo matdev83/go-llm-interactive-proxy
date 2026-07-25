@@ -150,7 +150,7 @@ func TestBuild_cursorSDKCloserIdempotentOnSuccessfulBuild(t *testing.T) {
 	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	be, ok := built.Executor.Backends["cursor-sdk"]
+	be, ok := built.Executor().Backends["cursor-sdk"]
 	if !ok {
 		t.Fatal("expected cursor-sdk backend")
 	}

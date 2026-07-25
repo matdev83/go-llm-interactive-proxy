@@ -25,7 +25,7 @@ func TestPostgresPooled_BuildRuntimeSharesRegistryAndClosesCleanly(t *testing.T)
 	adminDSN, runtimeDSN := testkit.SkipUnlessPostgresPooled(t)
 	b := buildPooledPostgresRuntime(t, adminDSN, runtimeDSN)
 
-	if got := gatheredGauge(t, b.Metrics.Registry, "lip_postgres_pool_open_connections"); got != 1 {
+	if got := gatheredGauge(t, b.Metrics().Registry, "lip_postgres_pool_open_connections"); got != 1 {
 		t.Fatalf("open postgres runtime connections = %v want 1", got)
 	}
 
@@ -40,7 +40,7 @@ func TestPostgresPooled_BuildRuntimeSharesRegistryAndClosesCleanly(t *testing.T)
 	closeBundleClosers(t, b)
 	closed = true
 
-	if got := gatheredGauge(t, b.Metrics.Registry, "lip_postgres_pool_open_connections"); got != 0 {
+	if got := gatheredGauge(t, b.Metrics().Registry, "lip_postgres_pool_open_connections"); got != 0 {
 		t.Fatalf("open postgres runtime connections after close = %v want 0", got)
 	}
 }
@@ -57,20 +57,20 @@ func TestPostgresPooled_BuildRuntimeLeaseAndJournalSmoke(t *testing.T) {
 		closeBundleClosers(t, b)
 	})
 
-	if b.Executor == nil || b.Executor.ConcurrencyProvider == nil {
+	if b.Executor() == nil || b.Executor().ConcurrencyProvider == nil {
 		t.Fatal("expected concurrency provider on built executor")
 	}
-	if b.Executor.MeteringRecorder == nil {
+	if b.Executor().MeteringRecorder == nil {
 		t.Fatal("expected metering recorder on built executor")
 	}
-	if b.ReadinessReport == nil {
+	if b.ReadinessReport() == nil {
 		t.Fatal("expected readiness report on CandidateRuntime")
 	}
 
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
-	dec, err := b.Executor.ConcurrencyProvider.AdmitLease(ctx, authority.LeaseAdmission{
+	dec, err := b.Executor().ConcurrencyProvider.AdmitLease(ctx, authority.LeaseAdmission{
 		RequestID: "rtbundle-pooled-req",
 		Scope:     scope.PrincipalScopeView{PrincipalID: scope.Known("alice")},
 	})
@@ -80,7 +80,7 @@ func TestPostgresPooled_BuildRuntimeLeaseAndJournalSmoke(t *testing.T) {
 	if dec.Kind != authority.LeaseAllow || dec.LeaseID == "" {
 		t.Fatalf("AdmitLease dec=%+v want allow with lease id", dec)
 	}
-	if err := b.Executor.ConcurrencyProvider.ReleaseLease(ctx, authority.LeaseRelease{
+	if err := b.Executor().ConcurrencyProvider.ReleaseLease(ctx, authority.LeaseRelease{
 		LeaseID:   dec.LeaseID,
 		RequestID: "rtbundle-pooled-req",
 	}); err != nil {
@@ -111,11 +111,11 @@ func TestPostgresPooled_BuildRuntimeLeaseAndJournalSmoke(t *testing.T) {
 			Present:   true,
 		}},
 	}
-	if err := b.Executor.MeteringRecorder.Append(ctx, fact); err != nil {
+	if err := b.Executor().MeteringRecorder.Append(ctx, fact); err != nil {
 		t.Fatalf("MeteringRecorder.Append: %v", err)
 	}
 
-	report, err := b.ReadinessReport.Report(ctx)
+	report, err := b.ReadinessReport().Report(ctx)
 	if err != nil {
 		t.Fatalf("ReadinessReport: %v", err)
 	}
@@ -141,17 +141,17 @@ func TestPostgresPooled_BuildRuntimeLeaseAndJournalSmoke(t *testing.T) {
 		t.Fatalf("readiness missing components concurrency=%v journal=%v", sawConcurrency, sawJournal)
 	}
 
-	if got := gatheredGauge(t, b.Metrics.Registry, "lip_postgres_pool_open_connections"); got != 1 {
+	if got := gatheredGauge(t, b.Metrics().Registry, "lip_postgres_pool_open_connections"); got != 1 {
 		t.Fatalf("open postgres runtime connections = %v want 1", got)
 	}
 	closeBundleClosers(t, b)
 	closed = true
-	if got := gatheredGauge(t, b.Metrics.Registry, "lip_postgres_pool_open_connections"); got != 0 {
+	if got := gatheredGauge(t, b.Metrics().Registry, "lip_postgres_pool_open_connections"); got != 0 {
 		t.Fatalf("open postgres runtime connections after close = %v want 0", got)
 	}
 }
 
-func buildPooledPostgresRuntime(t *testing.T, adminDSN, runtimeDSN string) *runtimebundle.CandidateRuntime {
+func buildPooledPostgresRuntime(t *testing.T, adminDSN, runtimeDSN string) *runtimebundle.CandidateHTTPCompile {
 	t.Helper()
 	concurrencyStoreID := testkit.UniquePostgresStoreID("rtbundle-concurrency")
 	t.Cleanup(func() {
@@ -210,13 +210,13 @@ func buildPooledPostgresRuntime(t *testing.T, adminDSN, runtimeDSN string) *runt
 		PluginRegistry: pluginreg.NewRegistry(),
 		Startup:        runtimebundle.StartupOptions{StartupContext: t.Context()},
 	})
-	if b.Metrics == nil || b.Metrics.Registry == nil || b.Metrics.PostgresPool == nil {
+	if b.Metrics() == nil || b.Metrics().Registry == nil || b.Metrics().PostgresPool == nil {
 		t.Fatal("expected postgres pool metrics bundle")
 	}
 	return b
 }
 
-func closeBundleClosers(t *testing.T, b *runtimebundle.CandidateRuntime) {
+func closeBundleClosers(t *testing.T, b *runtimebundle.CandidateHTTPCompile) {
 	t.Helper()
 	if b == nil {
 		return

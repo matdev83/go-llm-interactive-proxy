@@ -7,36 +7,36 @@ import (
 )
 
 var (
-	_ runtimehost.OwnedCloser   = (*CandidateRuntime)(nil)
-	_ runtimehost.QuiesceCloser = (*CandidateRuntime)(nil)
+	_ runtimehost.OwnedCloser   = (*candidateAssembly)(nil)
+	_ runtimehost.QuiesceCloser = (*candidateAssembly)(nil)
 )
 
-func (c *CandidateRuntime) transferLedgerOwnership() *ResourceLedger {
+func (c *candidateAssembly) transferLedgerOwnership() *ResourceLedger {
 	if c == nil {
 		return nil
 	}
 	c.lifeMu.Lock()
 	defer c.lifeMu.Unlock()
-	if c.ledgerTransferred || c.lifeClaimed || c.Ledger == nil {
+	if c.ledgerTransferred || c.lifeClaimed || c.ledger == nil {
 		return nil
 	}
-	ledger := c.Ledger
-	c.Ledger = nil
+	ledger := c.ledger
+	c.ledger = nil
 	c.ledgerTransferred = true
 	return ledger
 }
 
-func (c *CandidateRuntime) claimLifecycleLedger() *ResourceLedger {
+func (c *candidateAssembly) claimLifecycleLedger() *ResourceLedger {
 	c.lifeMu.Lock()
 	defer c.lifeMu.Unlock()
-	if c.ledgerTransferred || c.Ledger == nil {
+	if c.ledgerTransferred || c.ledger == nil {
 		return nil
 	}
 	c.lifeClaimed = true
-	return c.Ledger
+	return c.ledger
 }
 
-func (c *CandidateRuntime) Quiesce(ctx context.Context) error {
+func (c *candidateAssembly) Quiesce(ctx context.Context) error {
 	if c == nil {
 		return nil
 	}
@@ -46,7 +46,7 @@ func (c *CandidateRuntime) Quiesce(ctx context.Context) error {
 	return nil
 }
 
-func (c *CandidateRuntime) RollbackUnpublished() error {
+func (c *candidateAssembly) RollbackUnpublished() error {
 	if c == nil {
 		return nil
 	}
@@ -56,4 +56,4 @@ func (c *CandidateRuntime) RollbackUnpublished() error {
 	return nil
 }
 
-func (c *CandidateRuntime) Close() error { return c.RollbackUnpublished() }
+func (c *candidateAssembly) Close() error { return c.RollbackUnpublished() }

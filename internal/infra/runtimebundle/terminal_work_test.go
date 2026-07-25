@@ -45,25 +45,25 @@ func TestBuild_TerminalWorkOwnershipFromProductionOptions(t *testing.T) {
 		TerminalWorkRenewInterval: 25 * time.Millisecond,
 	}
 	_, cand := mustProcessAndCandidate(t, cfg, opts)
-	if cand.TerminalWorkProcessor == nil {
+	if runtimebundle.CandidateTerminalWorkProcessor(cand) == nil {
 		t.Fatal("expected TerminalWorkProcessor ownership")
 	}
-	if cand.TerminalWorkRegistry == nil {
+	if runtimebundle.CandidateTerminalWorkRegistry(cand) == nil {
 		t.Fatal("expected TerminalWorkRegistry ownership")
 	}
-	if _, err := cand.TerminalWorkRegistry.Resolve("prov-a", sdk.WorkKindSettleRequestProvider); err != nil {
+	if _, err := runtimebundle.CandidateTerminalWorkRegistry(cand).Resolve("prov-a", sdk.WorkKindSettleRequestProvider); err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if !cand.TerminalWorkProcessor.Running() {
+	if !runtimebundle.CandidateTerminalWorkProcessor(cand).Running() {
 		t.Fatal("expected running after CompileCandidate (composition-root owns Start)")
 	}
 	assertTerminalRecoveryConfiguredReady(t, cand)
-	if cand.TerminalWorkQueries == nil || cand.TerminalWorkMetrics == nil {
+	if runtimebundle.CandidateTerminalWorkQueries(cand) == nil || runtimebundle.CandidateTerminalWorkMetrics(cand) == nil {
 		t.Fatal("expected QueryService and MetricsObserver ownership")
 	}
 	shutCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := cand.TerminalWorkProcessor.Shutdown(shutCtx); err != nil {
+	if err := runtimebundle.CandidateTerminalWorkProcessor(cand).Shutdown(shutCtx); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -73,7 +73,7 @@ func TestBuild_TerminalWorkAbsentWithoutStore(t *testing.T) {
 	cfg := baseAuthorityConfig(false, "fail_closed")
 	opts := baseAuthorityOptions(t, nil)
 	_, cand := mustProcessAndCandidate(t, cfg, opts)
-	if cand.TerminalWorkProcessor != nil || cand.TerminalWorkRegistry != nil {
+	if runtimebundle.CandidateTerminalWorkProcessor(cand) != nil || runtimebundle.CandidateTerminalWorkRegistry(cand) != nil {
 		t.Fatal("terminal work must stay nil without injected store")
 	}
 	assertTerminalRecoveryDisabled(t, cand)
@@ -114,14 +114,14 @@ func TestBuild_TerminalWorkUnresolvedProviders(t *testing.T) {
 	}
 	opts.Testing.Clock = func() time.Time { return clock }
 	_, cand := mustProcessAndCandidate(t, cfg, opts)
-	if err := cand.TerminalWorkProcessor.ProcessDue(context.Background()); err != nil {
+	if err := runtimebundle.CandidateTerminalWorkProcessor(cand).ProcessDue(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	ids := cand.TerminalWorkProcessor.UnresolvedProviderIDs()
+	ids := runtimebundle.CandidateTerminalWorkProcessor(cand).UnresolvedProviderIDs()
 	if len(ids) != 1 || ids[0] != "ghost" {
 		t.Fatalf("unresolved=%v", ids)
 	}
-	report, err := cand.ReadinessReport.Report(context.Background())
+	report, err := runtimebundle.CandidateReadinessReport(cand).Report(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,12 +143,12 @@ func TestBuild_TerminalWorkUnresolvedProviders(t *testing.T) {
 	}
 }
 
-func assertTerminalRecoveryConfiguredReady(t *testing.T, cand *runtimebundle.CandidateRuntime) {
+func assertTerminalRecoveryConfiguredReady(t *testing.T, cand *runtimebundle.CandidateHTTPCompile) {
 	t.Helper()
-	if cand.ReadinessReport == nil {
+	if runtimebundle.CandidateReadinessReport(cand) == nil {
 		t.Fatal("expected ReadinessReport")
 	}
-	report, err := cand.ReadinessReport.Report(context.Background())
+	report, err := runtimebundle.CandidateReadinessReport(cand).Report(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,12 +170,12 @@ func assertTerminalRecoveryConfiguredReady(t *testing.T, cand *runtimebundle.Can
 	}
 }
 
-func assertTerminalRecoveryDisabled(t *testing.T, cand *runtimebundle.CandidateRuntime) {
+func assertTerminalRecoveryDisabled(t *testing.T, cand *runtimebundle.CandidateHTTPCompile) {
 	t.Helper()
-	if cand.ReadinessReport == nil {
+	if runtimebundle.CandidateReadinessReport(cand) == nil {
 		t.Fatal("expected ReadinessReport")
 	}
-	report, err := cand.ReadinessReport.Report(context.Background())
+	report, err := runtimebundle.CandidateReadinessReport(cand).Report(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,16 +193,16 @@ func assertTerminalRecoveryDisabled(t *testing.T, cand *runtimebundle.CandidateR
 
 // publishCandidateTerminalWorkMetrics applies MetricsObserver snapshot gauges onto
 // the candidate metrics.Bundle TerminalWorkProm series (canonical observer path).
-func publishCandidateTerminalWorkMetrics(t *testing.T, cand *runtimebundle.CandidateRuntime) {
+func publishCandidateTerminalWorkMetrics(t *testing.T, cand *runtimebundle.CandidateHTTPCompile) {
 	t.Helper()
-	if cand == nil || cand.TerminalWorkMetrics == nil || cand.Metrics == nil || cand.Metrics.TerminalWork == nil {
+	if cand == nil || runtimebundle.CandidateTerminalWorkMetrics(cand) == nil || cand.Metrics() == nil || cand.Metrics().TerminalWork == nil {
 		return
 	}
-	snap, err := cand.TerminalWorkMetrics.Snapshot(context.Background())
+	snap, err := runtimebundle.CandidateTerminalWorkMetrics(cand).Snapshot(context.Background())
 	if err != nil {
 		t.Fatalf("TerminalWorkMetrics.Snapshot: %v", err)
 	}
-	cand.Metrics.TerminalWork.ApplySnapshot(metrics.TerminalWorkSnapshot{
+	cand.Metrics().TerminalWork.ApplySnapshot(metrics.TerminalWorkSnapshot{
 		Backlog:      snap.Backlog,
 		OldestAgeSec: snap.OldestAge.Seconds(),
 		Pending:      snap.Pending,

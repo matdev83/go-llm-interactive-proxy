@@ -67,19 +67,19 @@ func TestBuild_ProductionOptionsOutsideTesting(t *testing.T) {
 		MeteringQuerier: prodQuerier{},
 	}
 	_, built := mustProcessAndCandidate(t, cfg, opts)
-	if built.Executor == nil || built.Executor.MeteringRecorder == nil {
+	if built.Executor() == nil || built.Executor().MeteringRecorder == nil {
 		t.Fatal("production metering must attach on executor")
 	}
-	if built.Executor.EconomicsRater == nil {
+	if built.Executor().EconomicsRater == nil {
 		t.Fatal("production rater must attach on executor")
 	}
-	if built.MeteringQuerier == nil {
+	if runtimebundle.CandidateMeteringQuerier(built) == nil {
 		t.Fatal("production metering querier must mount on Built")
 	}
-	if built.Executor.RequestCoordinator == nil || len(built.Executor.RequestCoordinator.Slots) == 0 {
+	if built.Executor().RequestCoordinator == nil || len(built.Executor().RequestCoordinator.Slots) == 0 {
 		t.Fatal("production request provider must create coordinator slots")
 	}
-	cur := built.SnapshotGeneration.Current()
+	cur := runtimebundle.CandidateSnapshotGeneration(built).Current()
 	if cur == nil || cur.Usage.Version != "prod-snap-v1" {
 		t.Fatalf("generation usage=%+v", cur)
 	}

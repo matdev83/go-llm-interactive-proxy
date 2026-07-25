@@ -58,10 +58,10 @@ models:
 	}
 
 	_, cand := compileTestCandidate(t, cfg, reg)
-	if len(cand.Executor.Backends) != 1 {
-		t.Fatalf("backends: got %d want 1", len(cand.Executor.Backends))
+	if len(cand.Executor().Backends) != 1 {
+		t.Fatalf("backends: got %d want 1", len(cand.Executor().Backends))
 	}
-	if _, ok := cand.Executor.Backends["oai-upstream-int"]; !ok {
+	if _, ok := cand.Executor().Backends["oai-upstream-int"]; !ok {
 		t.Fatal("expected backend instance oai-upstream-int")
 	}
 
@@ -73,10 +73,10 @@ models:
 	mux := http.NewServeMux()
 	if err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
 		Frontends: HTTPFrontendInput{
-			Executor:             cand.Executor,
+			Executor:             cand.Executor(),
 			DefaultRouteSelector: route,
 			Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
-			RoutePrefixes:        cand.RoutePrefixes,
+			RoutePrefixes:        cand.RoutePrefixes(),
 			MaxRequestBodyBytes:  0,
 			Registry:             reg,
 		},

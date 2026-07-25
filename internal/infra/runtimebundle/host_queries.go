@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
@@ -12,11 +13,49 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
-func (h *ReloadHost) Ready() bool {
-	return h != nil && h.Manager != nil && h.Executor != nil && h.Manager.Active() != nil
+func (h *Host) Ready() bool {
+	return h != nil && h.manager != nil && h.executor != nil && h.manager.Active() != nil
+}
+func (h *Host) activeGen() *runtimehost.Generation {
+	if h == nil || h.manager == nil {
+		return nil
+	}
+	return h.manager.Active()
+}
+func (h *Host) ActiveGenerationID() int64 {
+	if g := h.activeGen(); g != nil {
+		return g.ID()
+	}
+	return 0
+}
+func (h *Host) ActivePublicFingerprint() string {
+	if g := h.activeGen(); g != nil {
+		return g.Status().Meta.PublicFingerprint
+	}
+	return ""
+}
+func (h *Host) ProcessClosed() bool {
+	return h == nil || h.process == nil || h.process.Closed()
+}
+func (h *Host) CanAcquireActive() bool {
+	if h == nil || h.manager == nil {
+		return false
+	}
+	lease, ok := h.manager.Acquire()
+	if !ok {
+		return false
+	}
+	lease.Release()
+	return true
+}
+func (h *Host) StartALeg(id string) *leglifecycle.ALeg {
+	if h == nil || h.process == nil || h.process.ALegLifecycle == nil {
+		return nil
+	}
+	return h.process.ALegLifecycle.StartALeg(id)
 }
 
-func (h *ReloadHost) Capabilities() controlplane.HostCapabilities {
+func (h *Host) Capabilities() controlplane.HostCapabilities {
 	if h == nil {
 		return controlplane.HostCapabilities{ExecutableState: controlplane.CapabilityDisabled}
 	}
@@ -49,18 +88,18 @@ func (h *ReloadHost) Capabilities() controlplane.HostCapabilities {
 	return caps
 }
 
-func (h *ReloadHost) MeteringQuerier() metering.Querier {
-	if h == nil || h.Process == nil {
+func (h *Host) MeteringQuerier() metering.Querier {
+	if h == nil || h.process == nil {
 		return nil
 	}
-	return h.Process.MeteringQuerier
+	return h.process.MeteringQuerier
 }
 
-func (h *ReloadHost) ReadinessReport() controlplane.ReadinessReportReader {
-	if h == nil || h.Manager == nil {
+func (h *Host) ReadinessReport() controlplane.ReadinessReportReader {
+	if h == nil || h.manager == nil {
 		return nil
 	}
-	if g := h.Manager.Active(); g != nil {
+	if g := h.manager.Active(); g != nil {
 		type readinessProvider interface {
 			ReadinessReport() controlplane.ReadinessReportReader
 		}
@@ -71,28 +110,28 @@ func (h *ReloadHost) ReadinessReport() controlplane.ReadinessReportReader {
 	return nil
 }
 
-func (h *ReloadHost) RefreshSnapshots(ctx context.Context) error {
-	if h == nil || h.Process == nil || h.Process.SnapshotController == nil {
+func (h *Host) RefreshSnapshots(ctx context.Context) error {
+	if h == nil || h.process == nil || h.process.SnapshotController == nil {
 		return fmt.Errorf("runtimebundle: snapshot refresh not available")
 	}
 	if ctx == nil {
 		return fmt.Errorf("runtimebundle: nil context")
 	}
-	return h.Process.SnapshotController.Refresh(ctx)
+	return h.process.SnapshotController.Refresh(ctx)
 }
 
-func (h *ReloadHost) productionOptions() ProductionOptions {
-	if h == nil || h.Process == nil || h.Process.opts == nil {
+func (h *Host) productionOptions() ProductionOptions {
+	if h == nil || h.process == nil || h.process.opts == nil {
 		return ProductionOptions{}
 	}
-	return h.Process.opts.Production
+	return h.process.opts.Production
 }
 
-func (h *ReloadHost) activeExecutor() *runtime.Executor {
-	if h == nil || h.Manager == nil {
+func (h *Host) activeExecutor() *runtime.Executor {
+	if h == nil || h.manager == nil {
 		return nil
 	}
-	if g := h.Manager.Active(); g != nil {
+	if g := h.manager.Active(); g != nil {
 		if p, ok := g.RequestPlane().(runtimehost.ExecutorProvider); ok && p != nil {
 			ex, _ := p.ExecutorView().(*runtime.Executor)
 			return ex
@@ -101,15 +140,15 @@ func (h *ReloadHost) activeExecutor() *runtime.Executor {
 	return nil
 }
 
-func (h *ReloadHost) currentSnapshot() *snapshotgen.RuntimeGeneration {
-	if h != nil && h.Process != nil && h.Process.SnapshotGeneration != nil {
-		return h.Process.SnapshotGeneration.Current()
+func (h *Host) currentSnapshot() *snapshotgen.RuntimeGeneration {
+	if h != nil && h.process != nil && h.process.SnapshotGeneration != nil {
+		return h.process.SnapshotGeneration.Current()
 	}
 	return nil
 }
-func (h *ReloadHost) currentExecutable() *snapshotgen.ExecutableGeneration {
-	if h != nil && h.Process != nil && h.Process.SnapshotGeneration != nil {
-		return h.Process.SnapshotGeneration.CurrentExecutable()
+func (h *Host) currentExecutable() *snapshotgen.ExecutableGeneration {
+	if h != nil && h.process != nil && h.process.SnapshotGeneration != nil {
+		return h.process.SnapshotGeneration.CurrentExecutable()
 	}
 	return nil
 }

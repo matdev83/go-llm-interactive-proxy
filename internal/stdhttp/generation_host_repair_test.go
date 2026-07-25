@@ -59,14 +59,14 @@ func TestRunWithGenerationHost_HTTPShutdownFailureDoesNotRetire(t *testing.T) {
 	}
 
 	host := newServeIntegrationHost(t)
-	host.Config.Server.Address = "127.0.0.1:0"
+	host.Config().Server.Address = "127.0.0.1:0"
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- RunWithGenerationHost(ctx, GenerationHostInput{
-			Config:          host.Config,
-			Log:             host.Logger,
+			Config:          host.Config(),
+			Log:             host.Logger(),
 			Host:            host,
 			ShutdownTimeout: time.Second,
 		})
@@ -81,10 +81,10 @@ func TestRunWithGenerationHost_HTTPShutdownFailureDoesNotRetire(t *testing.T) {
 	if !errors.Is(got, context.DeadlineExceeded) {
 		t.Fatalf("err=%v", got)
 	}
-	if host.Process.Closed() {
+	if host.ProcessClosed() {
 		t.Fatal("process must not close under failed HTTP drain")
 	}
-	if host.Manager.Active() == nil {
+	if !host.Ready() {
 		t.Fatal("active generation must remain after failed HTTP drain")
 	}
 }
@@ -122,8 +122,8 @@ func TestRunWithGenerationHost_CancellationPreservesConcurrentListenerFailure(t 
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- RunWithGenerationHost(ctx, GenerationHostInput{
-			Config:          host.Config,
-			Log:             host.Logger,
+			Config:          host.Config(),
+			Log:             host.Logger(),
 			Host:            host,
 			ShutdownTimeout: 5 * time.Second,
 		})
@@ -139,7 +139,7 @@ func TestRunWithGenerationHost_CancellationPreservesConcurrentListenerFailure(t 
 	if !errors.Is(got, listenerFailure) {
 		t.Fatalf("got %v, want listener failure", got)
 	}
-	if !host.Process.Closed() {
+	if !host.ProcessClosed() {
 		t.Fatal("process services must close after the listener exits and HTTP drain succeeds")
 	}
 }
@@ -163,11 +163,11 @@ func TestRunWithGenerationHost_ShutdownListenerErrorStillDrainsHTTP(t *testing.T
 	}
 
 	host := newServeIntegrationHost(t)
-	host.Config.Server.Address = "127.0.0.1:0"
+	host.Config().Server.Address = "127.0.0.1:0"
 
 	err := RunWithGenerationHost(context.Background(), GenerationHostInput{
-		Config:          host.Config,
-		Log:             host.Logger,
+		Config:          host.Config(),
+		Log:             host.Logger(),
 		Host:            host,
 		ShutdownTimeout: 5 * time.Second,
 	})
@@ -177,10 +177,10 @@ func TestRunWithGenerationHost_ShutdownListenerErrorStillDrainsHTTP(t *testing.T
 	if shutdownCalls.Load() != 1 {
 		t.Fatalf("http shutdown calls=%d want 1", shutdownCalls.Load())
 	}
-	if !host.Process.Closed() {
+	if !host.ProcessClosed() {
 		t.Fatal("process must close after successful HTTP drain on listener error")
 	}
-	if _, ok := host.Manager.Acquire(); ok {
+	if host.CanAcquireActive() {
 		t.Fatal("manager must reject acquire after shutdown")
 	}
 }

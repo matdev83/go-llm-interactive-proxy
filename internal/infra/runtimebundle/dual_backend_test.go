@@ -37,13 +37,13 @@ func TestBuild_twoInstancesSameFactoryKind(t *testing.T) {
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if len(b.Executor.Backends) != 2 {
-		t.Fatalf("backends: got %d want 2", len(b.Executor.Backends))
+	if len(b.Executor().Backends) != 2 {
+		t.Fatalf("backends: got %d want 2", len(b.Executor().Backends))
 	}
-	if _, ok := b.Executor.Backends["openai-primary"]; !ok {
+	if _, ok := b.Executor().Backends["openai-primary"]; !ok {
 		t.Fatal("missing instance openai-primary")
 	}
-	if _, ok := b.Executor.Backends["openai-fallback"]; !ok {
+	if _, ok := b.Executor().Backends["openai-fallback"]; !ok {
 		t.Fatal("missing instance openai-fallback")
 	}
 }

@@ -36,7 +36,7 @@ func TestPhase45_ProcessDueUpdatesPromGaugesAndTransitionCounters(t *testing.T) 
 		TerminalWorkClaimLimit:   10,
 	}
 	_, built := mustProcessAndCandidate(t, cfg, opts)
-	if err := built.Executor.TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
+	if err := built.Executor().TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
 		RequestID:  "req-prom-proc",
 		AttemptID:  "a-1",
 		ProviderID: "quota",
@@ -46,7 +46,7 @@ func TestPhase45_ProcessDueUpdatesPromGaugesAndTransitionCounters(t *testing.T) 
 		t.Fatal(err)
 	}
 	before := gatherTerminalWork(t, built)
-	if err := built.TerminalWorkProcessor.ProcessDue(context.Background()); err != nil {
+	if err := runtimebundle.CandidateTerminalWorkProcessor(built).ProcessDue(context.Background()); err != nil {
 		t.Fatalf("ProcessDue: %v", err)
 	}
 	after := gatherTerminalWork(t, built)
@@ -78,9 +78,9 @@ type twGather struct {
 	transitionsTotal float64
 }
 
-func gatherTerminalWork(t *testing.T, built *runtimebundle.CandidateRuntime) twGather {
+func gatherTerminalWork(t *testing.T, built *runtimebundle.CandidateHTTPCompile) twGather {
 	t.Helper()
-	families, err := built.Metrics.Registry.Gather()
+	families, err := built.Metrics().Registry.Gather()
 	if err != nil {
 		t.Fatal(err)
 	}

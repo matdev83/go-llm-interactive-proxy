@@ -37,24 +37,24 @@ func TestPhase45_BuildWiresTerminalWorkIntoExecutorAndReadiness(t *testing.T) {
 		TerminalWorkOwnerID: "bundle-phase45",
 	}
 	_, cand := mustProcessAndCandidate(t, cfg, opts)
-	if cand.Executor == nil || cand.Executor.TerminalWork == nil {
+	if cand.Executor() == nil || cand.Executor().TerminalWork == nil {
 		t.Fatal("CompileCandidate must inject IntentService into Executor.AccountingRuntime.TerminalWork")
 	}
-	if cand.TerminalWorkProcessor == nil || !cand.TerminalWorkProcessor.Running() {
+	if runtimebundle.CandidateTerminalWorkProcessor(cand) == nil || !runtimebundle.CandidateTerminalWorkProcessor(cand).Running() {
 		t.Fatal("CompileCandidate must own processor lifecycle (running after compile)")
 	}
-	if cand.TerminalWorkQueries == nil || cand.TerminalWorkMetrics == nil {
+	if runtimebundle.CandidateTerminalWorkQueries(cand) == nil || runtimebundle.CandidateTerminalWorkMetrics(cand) == nil {
 		t.Fatal("CompileCandidate must expose QueryService and MetricsObserver")
 	}
-	if cand.ReadinessReport == nil {
+	if runtimebundle.CandidateReadinessReport(cand) == nil {
 		t.Fatal("expected ReadinessReport")
 	}
-	if cand.Metrics == nil || cand.Metrics.TerminalWork == nil {
+	if cand.Metrics() == nil || cand.Metrics().TerminalWork == nil {
 		t.Fatal("metrics.Bundle must wire TerminalWorkProm")
 	}
 
 	// Persist durable intent via injected IntentService (no ForTest settle API).
-	if err := cand.Executor.TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
+	if err := cand.Executor().TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
 		RequestID:  "req-wire",
 		AttemptID:  "a-1",
 		TraceID:    "tr-wire",
@@ -64,7 +64,7 @@ func TestPhase45_BuildWiresTerminalWorkIntoExecutorAndReadiness(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	page, err := cand.TerminalWorkQueries.List(context.Background(), terminalworkapp.WorkQuery{
+	page, err := runtimebundle.CandidateTerminalWorkQueries(cand).List(context.Background(), terminalworkapp.WorkQuery{
 		RequestID: "req-wire",
 		Class:     terminalworkapp.QueryClassPendingTerminalWork,
 		Limit:     10,
@@ -75,7 +75,7 @@ func TestPhase45_BuildWiresTerminalWorkIntoExecutorAndReadiness(t *testing.T) {
 	if len(page.Rows) == 0 {
 		t.Fatal("expected durable pending work after AcceptSettleFailure")
 	}
-	snap, err := cand.TerminalWorkMetrics.Snapshot(context.Background())
+	snap, err := runtimebundle.CandidateTerminalWorkMetrics(cand).Snapshot(context.Background())
 	if err != nil {
 		t.Fatal("BacklogKnown want true")
 	}
@@ -83,7 +83,7 @@ func TestPhase45_BuildWiresTerminalWorkIntoExecutorAndReadiness(t *testing.T) {
 		t.Fatalf("readiness Backlog=%d want >=1", snap.Backlog)
 	}
 	publishCandidateTerminalWorkMetrics(t, cand)
-	families, err := cand.Metrics.Registry.Gather()
+	families, err := cand.Metrics().Registry.Gather()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestPhase45_BuildWiresTerminalWorkIntoExecutorAndReadiness(t *testing.T) {
 		t.Fatal("missing lip_terminal_work_backlog after publish")
 	}
 
-	report, err := cand.ReadinessReport.Report(context.Background())
+	report, err := runtimebundle.CandidateReadinessReport(cand).Report(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

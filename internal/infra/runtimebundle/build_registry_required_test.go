@@ -69,7 +69,7 @@ func TestBuild_usesProvidedRegistryOnly(t *testing.T) {
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if b.PluginRegistry != reg {
-		t.Fatalf("PluginRegistry pointer: got %p want %p", b.PluginRegistry, reg)
+	if b.PluginRegistry() != reg {
+		t.Fatalf("PluginRegistry pointer: got %p want %p", b.PluginRegistry(), reg)
 	}
 }

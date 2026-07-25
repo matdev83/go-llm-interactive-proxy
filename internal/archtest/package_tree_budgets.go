@@ -66,6 +66,7 @@ type PackageTreeBudget struct {
 // Task 9.2: candidate_compile.go helpers moved to candidate_options.go (critical-
 // file organization); recursive package-tree total unchanged at exact 10418.
 // PR A: restore HostCapabilities queries + RollbackUnpublished + lifecycle observer wiring.
+// PR B: Host ownership surface + candidateAssembly + hostBuildOps; exact-measured 9468.
 var PackageTreeBudgets = []PackageTreeBudget{
 	{Tree: "internal/infra/runtimebundle", Max: 9468},
 	{Tree: "internal/stdhttp", Max: 4301},

@@ -57,8 +57,8 @@ func TestAutomaticRetirement_ObserverLifecycleMetricsTracingLogging(t *testing.T
 		t.Fatal(err)
 	}
 	hostServeCleanup(t, host)
-	if !host.Manager.HasLifecycleObserver() {
-		t.Fatal("bindReloadHost must wire Manager.SetLifecycleObserver")
+	if !runtimebundle.HostManager(host).HasLifecycleObserver() {
+		t.Fatal("bindHost must wire Manager.SetLifecycleObserver")
 	}
 
 	var logBuf syncLogBuffer
@@ -75,15 +75,15 @@ func TestAutomaticRetirement_ObserverLifecycleMetricsTracingLogging(t *testing.T
 		Tracer:  tp.Tracer("test.lifecycle"),
 		Metrics: reloadProm,
 	})
-	host.Manager.SetLifecycleObserver(observer)
-	host.Manager.SetCleanupPolicy(runtimehost.CleanupPolicy{MaxAttempts: 3})
+	runtimebundle.HostManager(host).SetLifecycleObserver(observer)
+	runtimebundle.HostManager(host).SetCleanupPolicy(runtimehost.CleanupPolicy{MaxAttempts: 3})
 
-	g1 := host.Manager.Active()
+	g1 := runtimebundle.HostManager(host).Active()
 	if g1 == nil {
 		t.Fatal("expected generation 1")
 	}
-	g2 := host.Manager.Prepare("g2-lifecycle-obs")
-	if err := host.Manager.Publish(g2); err != nil {
+	g2 := runtimebundle.HostManager(host).Prepare("g2-lifecycle-obs")
+	if err := runtimebundle.HostManager(host).Publish(g2); err != nil {
 		t.Fatalf("publish g2: %v", err)
 	}
 

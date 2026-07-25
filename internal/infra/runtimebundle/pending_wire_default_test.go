@@ -19,7 +19,7 @@ func TestBuild_zeroMaxPendingWireEventsRemainsUnlimited(t *testing.T) {
 	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 	})
-	if got := built.Executor.MaxPendingWireEvents; got != 0 {
+	if got := built.Executor().MaxPendingWireEvents; got != 0 {
 		t.Fatalf("Executor.MaxPendingWireEvents = %d, want 0 (unlimited)", got)
 	}
 }

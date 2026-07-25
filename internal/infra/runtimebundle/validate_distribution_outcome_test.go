@@ -2,16 +2,17 @@ package runtimebundle
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretsguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
 // Test-facing ValidateDistribution outcome/journal types (Task 5.4 RED matrices).
-// Mirrors hostBuildJournal/hostBuildOutcome (host_build_outcome_test.go) so the
-// PartialCleanup matrix style stays identical across BuildHost and
-// ValidateDistribution.
 
 type validateDistributionJournal struct {
 	Acquired []string
@@ -20,29 +21,151 @@ type validateDistributionJournal struct {
 }
 
 // validateDistributionOutcome invokes the production validateDistribution
-// transaction with a counting load wrapper and a journaling probe. It must
-// not reimplement any ValidateDistribution stage.
+// transaction with journaling ops wrappers. It must not reimplement any
+// ValidateDistribution stage.
 func validateDistributionOutcome(ctx context.Context, in ValidateDistributionInput, loadEffective bootstrapEffectiveLoader) (validateDistributionJournal, error) {
-	loads := 0
-	wrapped := loadEffective
-	if loadEffective != nil {
-		inner := loadEffective
-		wrapped = func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
-			loads++
-			return inner(ctx, path, cli)
-		}
-	}
 	var journal validateDistributionJournal
-	probe := func(stage validateDistributionStage, event validateDistributionProbeEvent) error {
-		switch event {
-		case validateProbeAcquired:
-			journal.Acquired = append(journal.Acquired, string(stage))
-		case validateProbeCleaned:
-			journal.Cleaned = append(journal.Cleaned, string(stage))
-		}
-		return nil
+	ops := defaultValidateDistributionOps()
+	if loadEffective != nil {
+		ops.load = loadEffective
 	}
-	err := validateDistribution(ctx, in, coresg.Environment(nil), wrapped, probe)
-	journal.Loads = loads
+
+	baseLoad := ops.load
+	ops.load = func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
+		journal.Loads++
+		eff, src, fixed, err := baseLoad(ctx, path, cli)
+		if err != nil {
+			return nil, nil, fixed, err
+		}
+		journal.acquire("loader")
+		return eff, src, fixed, nil
+	}
+
+	baseTracing := ops.tracing
+	ops.tracing = func(ctx context.Context, cfg *config.Config) (tracing.Result, error) {
+		res, err := baseTracing(ctx, cfg)
+		if err != nil {
+			return res, err
+		}
+		journal.acquire("tracing")
+		inner := res.Shutdown
+		res.Shutdown = func(ctx context.Context) error {
+			journal.clean("tracing_close")
+			if inner == nil {
+				return nil
+			}
+			return inner(ctx)
+		}
+		return res, nil
+	}
+
+	baseRegistry := ops.registry
+	ops.registry = func(cfg *config.Config, mandatory []lipsdk.Requirement) (*pluginreg.Registry, []lipsdk.Registration, error) {
+		reg, regs, err := baseRegistry(cfg, mandatory)
+		if err != nil {
+			return nil, nil, err
+		}
+		journal.acquire("registry")
+		return reg, regs, nil
+	}
+
+	baseProcess := ops.process
+	ops.process = func(ctx context.Context, in processBuildInput) (*ProcessServices, error) {
+		ps, err := baseProcess(ctx, in)
+		if err != nil {
+			return nil, err
+		}
+		journal.acquire("process")
+		ps.closers = append([]func() error{func() error {
+			journal.clean("process_close")
+			return nil
+		}}, ps.closers...)
+		return ps, nil
+	}
+
+	baseCompile := ops.compile
+	ops.compile = func(ctx context.Context, ps *ProcessServices, cfg *config.Config, compose HandlerComposer) (GenerationRuntime, error) {
+		bundle, err := baseCompile(ctx, ps, cfg, compose)
+		if err != nil {
+			return nil, err
+		}
+		journal.acquire("compile")
+		return &validateJournalBundle{inner: bundle, journal: &journal}, nil
+	}
+
+	err := validateDistribution(ctx, in, nil, ops)
+	return journal, err
+}
+
+// validateDistributionWithCleanupFaults journals all stages and injects a fault
+// on every cleanup stage (for CleanupFaultsJoinedInOrder).
+func validateDistributionWithCleanupFaults(ctx context.Context, in ValidateDistributionInput) (validateDistributionJournal, error) {
+	var journal validateDistributionJournal
+	ops := defaultValidateDistributionOps()
+
+	baseLoad := ops.load
+	ops.load = func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
+		eff, src, fixed, err := baseLoad(ctx, path, cli)
+		if err != nil {
+			return nil, nil, fixed, err
+		}
+		journal.acquire("loader")
+		return eff, src, fixed, nil
+	}
+
+	baseTracing := ops.tracing
+	ops.tracing = func(ctx context.Context, cfg *config.Config) (tracing.Result, error) {
+		res, err := baseTracing(ctx, cfg)
+		if err != nil {
+			return res, err
+		}
+		journal.acquire("tracing")
+		inner := res.Shutdown
+		res.Shutdown = func(ctx context.Context) error {
+			journal.clean("tracing_close")
+			shutErr := error(nil)
+			if inner != nil {
+				shutErr = inner(ctx)
+			}
+			return errors.Join(shutErr, fmt.Errorf("runtimebundle: validate distribution fault: tracing_close"))
+		}
+		return res, nil
+	}
+
+	baseRegistry := ops.registry
+	ops.registry = func(cfg *config.Config, mandatory []lipsdk.Requirement) (*pluginreg.Registry, []lipsdk.Registration, error) {
+		reg, regs, err := baseRegistry(cfg, mandatory)
+		if err != nil {
+			return nil, nil, err
+		}
+		journal.acquire("registry")
+		return reg, regs, nil
+	}
+
+	baseProcess := ops.process
+	ops.process = func(ctx context.Context, in processBuildInput) (*ProcessServices, error) {
+		ps, err := baseProcess(ctx, in)
+		if err != nil {
+			return nil, err
+		}
+		journal.acquire("process")
+		ps.closers = append([]func() error{func() error {
+			journal.clean("process_close")
+			return fmt.Errorf("runtimebundle: validate distribution fault: process_close")
+		}}, ps.closers...)
+		return ps, nil
+	}
+
+	baseCompile := ops.compile
+	ops.compile = func(ctx context.Context, ps *ProcessServices, cfg *config.Config, compose HandlerComposer) (GenerationRuntime, error) {
+		bundle, err := baseCompile(ctx, ps, cfg, compose)
+		if err != nil {
+			return nil, err
+		}
+		journal.acquire("compile")
+		return &validateJournalBundle{inner: bundle, journal: &journal, faultAt: validateStageRollback}, nil
+	}
+
+	err := validateDistribution(ctx, in, nil, ops)
 	return journal, err
 }

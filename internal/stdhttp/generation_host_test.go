@@ -35,14 +35,14 @@ func TestInitialGeneration_RunWithGenerationHostShutdown(t *testing.T) {
 		t.Fatalf("BuildHost: %v", err)
 	}
 	t.Cleanup(func() { _ = host.Close(context.Background()) })
-	host.Config.Server.Address = addr
+	host.Config().Server.Address = addr
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- stdhttp.RunWithGenerationHost(ctx, stdhttp.GenerationHostInput{
-			Config:          host.Config,
-			Log:             host.Logger,
+			Config:          host.Config(),
+			Log:             host.Logger(),
 			Host:            host,
 			ShutdownTimeout: 5 * time.Second,
 		})
@@ -81,10 +81,10 @@ func TestInitialGeneration_RunWithGenerationHostShutdown(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("shutdown timed out")
 	}
-	if !host.Process.Closed() {
+	if !host.ProcessClosed() {
 		t.Fatal("process services must close on host shutdown")
 	}
-	if _, ok := host.Manager.Acquire(); ok {
+	if host.CanAcquireActive() {
 		t.Fatal("manager must reject acquire after shutdown")
 	}
 }

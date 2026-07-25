@@ -4,39 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
-	"sync"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
-	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
-	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
-	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
-// GenerationCompileInput is the non-owning input to [CompileCandidate] /
+// GenerationCompileInput is the non-owning input to [compileCandidate] /
 // [CompileGeneration]. Process must outlive the candidate; candidate Close must
 // not Close Process.
 type GenerationCompileInput struct {
@@ -51,7 +31,7 @@ type GenerationCompileInput struct {
 	// sourced from ProcessServices.
 	CandidateOpts *BuildOptions
 	// Compose builds the request-plane http.Handler without binding a listener.
-	// Required by [CompileGeneration]; unused by [CompileCandidate].
+	// Required by [CompileGeneration]; unused by [compileCandidate].
 	Compose HandlerComposer
 	// LiveFactoryKinds counts factory kinds held by active/retained generations.
 	// Used to reject shared-process exclusive kinds before publication (req 8.8).
@@ -60,62 +40,9 @@ type GenerationCompileInput struct {
 	FaultInject CandidateFaultInject
 }
 
-// CandidateRuntime holds generation-owned assembly produced by [CompileCandidate].
-// Process service fields are non-owning references shared across candidates.
-type CandidateRuntime struct {
-	Executor              *runtime.Executor
-	Store                 b2bua.Store
-	UpstreamHTTP          *http.Client
-	RoutePrefixes         []string
-	DecodeAdmission       lipsdk.DecodeAdmission
-	PluginRegistry        *pluginreg.Registry
-	DatabasePools         *db.PoolRegistry
-	Metrics               *metrics.Bundle
-	RuntimeSnapshot       *extensions.RequestRuntimeSnapshot
-	HTTPAuthProviders     []httpauth.Provider
-	SecureSessionStore    ssessionapp.Store
-	AuthEventDispatcher   *auth.EventDispatcher
-	CatalogRuntime        *modelcatalog.CatalogRuntime
-	ModelRegistry         *modelregistry.Registry
-	ModelRegistryRuntime  *modelregistry.Runtime
-	TokenAccountingAdmin  *accountingapp.Service
-	ControlPlaneQueries   *controlplane.QueryService
-	ControlPlaneStatus    *controlplane.Status
-	ControlPlaneRetention *controlplane.RetentionController
-	UsageAuthority        *authorityapp.Service
-	ConcurrencyAuthority  *concurrencyapp.Service
-	SnapshotGeneration    *snapshotgen.Publisher
-	SnapshotController    *SnapshotController
-	MeteringQuerier       metering.Querier
-	ReadinessReport       *controlplane.ReadinessReportService
-	SecretGuardInventory  *diag.InventoryExtras
-	TerminalWorkProcessor *terminalworkapp.Processor
-	TerminalWorkRegistry  *terminalworkapp.Registry
-	TerminalWorkQueries   *terminalworkapp.QueryService
-	TerminalWorkMetrics   *terminalworkapp.MetricsObserver
-	EffectiveDefaultRoute string
-
-	// ProcessTracingShutdown is intentionally always nil on candidates:
-	// tracing ownership stays on ProcessServices / bootstrap (req 6.4, 6.10).
-	ProcessTracingShutdown func(context.Context) error
-
-	// Ledger owns generation resources for rollback/quiesce/close (task 3.2).
-	// Nil after transferLedgerOwnership (Task 3.3). ResourceLedger is the sole
-	// generation-resource phase owner (task 7.2); CandidateRuntime only
-	// synchronizes one-time transfer and delegates lifecycle calls.
-	Ledger *ResourceLedger
-
-	lifeMu            sync.Mutex
-	lifeClaimed       bool // Quiesce/Close claimed; transfer permanently denied
-	ledgerTransferred bool
-
-	terminalWorkReady func(context.Context) error
-	terminalWorkRT    *terminalWorkRuntime
-}
-
-// CompileCandidate builds one generation-owned candidate against shared process services.
+// compileCandidate builds one generation-owned candidate against shared process services.
 // On failure, only candidate-acquired resources are disposed; Process survives.
-func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*CandidateRuntime, error) {
+func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidateAssembly, error) {
 	if in.Process == nil {
 		return nil, fmt.Errorf("runtimebundle: nil ProcessServices")
 	}
@@ -185,7 +112,7 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 		ExplicitCandidate: in.Candidate != nil,
 	}
 
-	fail := func(err error) (*CandidateRuntime, error) {
+	fail := func(err error) (*candidateAssembly, error) {
 		rollErr := ledger.Rollback(parent)
 		if rollErr != nil {
 			return nil, errors.Join(err, rollErr)
@@ -283,41 +210,50 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 		twReady = ps.terminalWorkRT.checkReady
 	}
 
-	return &CandidateRuntime{
-		Executor:               execRun.Exec,
-		Store:                  ps.Continuity,
-		Ledger:                 ledger,
-		UpstreamHTTP:           obs.Upstream,
-		RoutePrefixes:          model.RoutePrefixes,
-		DecodeAdmission:        ps.DecodeAdmission,
-		PluginRegistry:         ps.FactoryCatalog,
-		DatabasePools:          ps.DatabasePools,
-		EffectiveDefaultRoute:  execRun.EffectiveRoute,
-		Metrics:                ps.Metrics,
-		RuntimeSnapshot:        ext.Snap,
-		HTTPAuthProviders:      sec.HTTPAuth,
-		SecureSessionStore:     execRun.SecureSessionStore,
-		AuthEventDispatcher:    sec.AuthEvents,
-		CatalogRuntime:         execRun.CatalogRuntime,
-		ModelRegistry:          model.Registry,
-		ModelRegistryRuntime:   model.RegistryRuntime,
-		TokenAccountingAdmin:   execRun.TokenAccountingAdmin,
-		ControlPlaneQueries:    ps.controlPlane.queriesHandle(),
-		ControlPlaneStatus:     ps.controlPlane.statusHandle(),
-		ControlPlaneRetention:  ps.controlPlane.retentionHandle(),
-		UsageAuthority:         ps.UsageAuthority,
-		ConcurrencyAuthority:   ps.Concurrency,
-		SnapshotGeneration:     ps.SnapshotGeneration,
-		SnapshotController:     ps.SnapshotController,
-		MeteringQuerier:        ps.MeteringQuerier,
-		ReadinessReport:        execRun.ReadinessReport,
-		SecretGuardInventory:   sg.Inventory,
-		TerminalWorkProcessor:  ps.TerminalWorkProcessor,
-		TerminalWorkRegistry:   ps.TerminalWorkRegistry,
-		TerminalWorkQueries:    ps.TerminalWorkQueries,
-		TerminalWorkMetrics:    ps.TerminalWorkMetrics,
-		ProcessTracingShutdown: nil,
-		terminalWorkReady:      twReady,
-		terminalWorkRT:         ps.terminalWorkRT,
+	return &candidateAssembly{
+		execution: candidateExecutionGroup{
+			executor:              execRun.Exec,
+			routePrefixes:         model.RoutePrefixes,
+			effectiveDefaultRoute: execRun.EffectiveRoute,
+			decodeAdmission:       ps.DecodeAdmission,
+			upstreamHTTP:          obs.Upstream,
+		},
+		security: candidateSecurityGroup{
+			httpAuth:           sec.HTTPAuth,
+			secureSessionStore: execRun.SecureSessionStore,
+			authEvents:         sec.AuthEvents,
+			runtimeSnapshot:    ext.Snap,
+		},
+		models: candidateModelGroup{
+			catalog:         execRun.CatalogRuntime,
+			registry:        model.Registry,
+			registryRuntime: model.RegistryRuntime,
+		},
+		operations: candidateOperationsGroup{
+			tokenAccountingAdmin: execRun.TokenAccountingAdmin,
+			readinessReport:      execRun.ReadinessReport,
+			secretGuardInventory: sg.Inventory,
+			terminalProcessor:    ps.TerminalWorkProcessor,
+			terminalRegistry:     ps.TerminalWorkRegistry,
+			terminalQueries:      ps.TerminalWorkQueries,
+			terminalMetrics:      ps.TerminalWorkMetrics,
+		},
+		process: candidateProcessRefs{
+			store:                 ps.Continuity,
+			pluginRegistry:        ps.FactoryCatalog,
+			databasePools:         ps.DatabasePools,
+			metrics:               ps.Metrics,
+			controlPlaneQueries:   ps.controlPlane.queriesHandle(),
+			controlPlaneStatus:    ps.controlPlane.statusHandle(),
+			controlPlaneRetention: ps.controlPlane.retentionHandle(),
+			usageAuthority:        ps.UsageAuthority,
+			concurrencyAuthority:  ps.Concurrency,
+			snapshotGeneration:    ps.SnapshotGeneration,
+			snapshotController:    ps.SnapshotController,
+			meteringQuerier:       ps.MeteringQuerier,
+		},
+		ledger:            ledger,
+		terminalWorkReady: twReady,
+		terminalWorkRT:    ps.terminalWorkRT,
 	}, nil
 }

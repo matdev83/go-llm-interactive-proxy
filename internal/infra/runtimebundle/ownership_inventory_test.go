@@ -62,49 +62,22 @@ type ownershipEntry struct {
 	Notes         string
 }
 
-// candidateRuntimeInternalFields are CandidateRuntime lifecycle-bookkeeping
+// candidateAssemblyInternalFields are candidateAssembly lifecycle-bookkeeping
 // fields (sync primitives / transfer flags), not resources; they are excluded
-// from ownership classification (task 4.2 / 7.2 post-deletion truth).
-var candidateRuntimeInternalFields = map[string]bool{
+// from ownership classification (PR B2 grouped assembly).
+var candidateAssemblyInternalFields = map[string]bool{
 	"lifeMu": true, "lifeClaimed": true, "ledgerTransferred": true,
 }
 
 // builtFieldOwnership classifies every ownership-relevant field of
-// CandidateRuntime (renamed from the deleted Built struct; task 4.2).
+// candidateAssembly (package-private grouped successor to CandidateRuntime).
 var builtFieldOwnership = []ownershipEntry{
-	{Symbol: "Executor", Class: ownershipGeneration, Source: "runtimebundle.buildExecutorRuntime → runtime.NewExecutor", Notes: "Privately owned by a generation bundle; never mutate after construction."},
-	{Symbol: "Store", Class: ownershipProcess, Source: "runtimebundle.buildPersistenceRuntime", Notes: "Continuity/B2BUA store remains process-owned (req 6.2)."},
-	{Symbol: "DatabasePools", Class: ownershipProcess, Source: "runtimebundle.NewProcessServices \u2192 db.NewPoolRegistry", Notes: "Non-owning process pool registry reference threaded onto the candidate (req 6.2)."},
-	{Symbol: "Ledger", Class: ownershipGeneration, Source: "runtimebundle.CompileCandidate \u2192 NewResourceLedger", Notes: "Sole generation-owned resource lifecycle owner: rollback/quiesce/close (req 2.8, 3.8, 8.3-8.4). No aggregate closer-list view exists."},
-	{Symbol: "ProcessTracingShutdown", Class: ownershipProcess, Source: "runtimebundle.ProcessServices / bootstrap tracing.Init", Notes: "Always nil on candidates; tracing lifecycle stays process-owned (req 6.4, 6.10)."},
-	{Symbol: "EffectiveDefaultRoute", Class: ownershipGeneration, Source: "runtimebundle.buildExecutorRuntime", Notes: "Frozen routing projection per generation."},
-	{Symbol: "UpstreamHTTP", Class: ownershipGeneration, Source: "runtimebundle.buildGenerationObservability → httpclient.StandardWithTune", Notes: "Generation-owned HTTP client/tuning."},
-	{Symbol: "RoutePrefixes", Class: ownershipGeneration, Source: "runtimebundle.buildModelRuntime → buildBackends", Notes: "Frozen backend route-selector prefixes."},
-	{Symbol: "DecodeAdmission", Class: ownershipProcess, Source: "runtimebundle.NewProcessServices → decodeqos.New", Notes: "Process-capacity limiter (req 6.5)."},
-	{Symbol: "PluginRegistry", Class: ownershipProcess, Source: "BuildHost → pluginreg.NewRegistry", Notes: "Factory catalog/discovery trust is startup-fixed (req 6.4, 8.7)."},
-	{Symbol: "Metrics", Class: ownershipProcess, Source: "runtimebundle.buildProcessMetricsBundle → metrics.NewBundle", Notes: "One process Prometheus registry/bundle (req 6.4)."},
-	{Symbol: "RuntimeSnapshot", Class: ownershipGeneration, Source: "runtimebundle.buildExtensionRuntime", Notes: "Immutable feature/hook surface projection."},
-	{Symbol: "HTTPAuthProviders", Class: ownershipGeneration, Source: "runtimebundle.buildSecurityRuntime", Notes: "Transport-auth providers for the generation handler graph."},
-	{Symbol: "SecureSessionStore", Class: ownershipProcess, Source: "runtimebundle.buildPersistenceRuntime", Notes: "Secure-session store identity is process-owned (req 6.2)."},
-	{Symbol: "AuthEventDispatcher", Class: ownershipGeneration, Source: "runtimebundle.buildSecurityRuntime", Notes: "Auth event sink wiring follows generation auth policy."},
-	{Symbol: "CatalogRuntime", Class: ownershipGeneration, Source: "runtimebundle.startModelCatalog / attachModelCatalog", Notes: "Candidate-built catalog runtime; task 4.5 quiesces/closes with retired generation. Shared underlay state may remain process-owned."},
-	{Symbol: "ModelRegistry", Class: ownershipGeneration, Source: "runtimebundle.startModelRegistryRuntime → ActiveRegistry", Notes: "Immutable inventory snapshot view bound into the generation."},
-	{Symbol: "ModelRegistryRuntime", Class: ownershipGeneration, Source: "runtimebundle.startModelRegistryRuntime", Notes: "Candidate-built registry runtime/cache/refresh; task 4.5 closes with retired generation."},
-	{Symbol: "TokenAccountingAdmin", Class: ownershipProcess, Source: "runtimebundle.buildExecutorRuntime / token accounting", Notes: "Operator admin surface over process-owned accounting stores."},
-	{Symbol: "ControlPlaneQueries", Class: ownershipProcess, Source: "runtimebundle.buildControlPlaneRuntime", Notes: "Control-plane query service over process-owned store (req 6.2)."},
-	{Symbol: "ControlPlaneStatus", Class: ownershipProcess, Source: "runtimebundle.buildControlPlaneRuntime", Notes: "Process-owned capability status publisher."},
-	{Symbol: "ControlPlaneRetention", Class: ownershipProcess, Source: "runtimebundle.buildControlPlaneRuntime", Notes: "Process-owned retention controller."},
-	{Symbol: "UsageAuthority", Class: ownershipProcess, Source: "runtimebundle.buildUsageAuthorityRuntime", Notes: "Authority store/service remains process-owned (req 6.2)."},
-	{Symbol: "ConcurrencyAuthority", Class: ownershipProcess, Source: "runtimebundle.buildConcurrencyAuthorityRuntime", Notes: "Concurrency lease service remains process-owned (req 6.2)."},
-	{Symbol: "SnapshotGeneration", Class: ownershipProcess, Source: "runtimebundle.buildSnapshotGeneration", Notes: "Publisher of immutable usage/concurrency generations."},
-	{Symbol: "SnapshotController", Class: ownershipProcess, Source: "runtimebundle.buildSnapshotGeneration", Notes: "Process-owned refresh controller for snapshot republish."},
-	{Symbol: "MeteringQuerier", Class: ownershipProcess, Source: "BuildOptions.Production.MeteringQuerier", Notes: "Injected process metering query mount."},
-	{Symbol: "ReadinessReport", Class: ownershipGeneration, Source: "runtimebundle.buildExecutorRuntime", Notes: "Generation executor/config readiness projection; may reference process services (req 4.9)."},
-	{Symbol: "SecretGuardInventory", Class: ownershipGeneration, Source: "runtimebundle.buildSecretGuardRuntime", Notes: "Safe inventory metadata projected with the generation."},
-	{Symbol: "TerminalWorkProcessor", Class: ownershipProcess, Source: "runtimebundle.buildTerminalWorkWithSetReconcile → terminalworkapp.NewProcessor", Notes: "Exactly one process worker (req 6.3)."},
-	{Symbol: "TerminalWorkRegistry", Class: ownershipProcess, Source: "runtimebundle.buildTerminalWorkWithSetReconcile", Notes: "Provider router paired with the process processor."},
-	{Symbol: "TerminalWorkQueries", Class: ownershipProcess, Source: "runtimebundle.buildTerminalWorkWithSetReconcile", Notes: "Operator query surface over process terminal-work state."},
-	{Symbol: "TerminalWorkMetrics", Class: ownershipProcess, Source: "runtimebundle.buildTerminalWorkWithSetReconcile", Notes: "Process-owned backlog/oldest-age snapshotter."},
+	{Symbol: "execution", Kind: ownershipKindMixedAggregate, Source: "candidate_http.go → candidateExecutionGroup", Notes: "Generation execution/routing outputs grouped; not a flat resource bag."},
+	{Symbol: "security", Kind: ownershipKindMixedAggregate, Source: "candidate_http.go → candidateSecurityGroup", Notes: "Generation auth/session/runtime-snapshot outputs grouped."},
+	{Symbol: "models", Kind: ownershipKindMixedAggregate, Source: "candidate_http.go → candidateModelGroup", Notes: "Generation catalog/registry outputs grouped."},
+	{Symbol: "operations", Kind: ownershipKindMixedAggregate, Source: "candidate_http.go → candidateOperationsGroup", Notes: "Generation control/readiness/terminal projection outputs grouped."},
+	{Symbol: "process", Kind: ownershipKindMixedAggregate, Source: "candidate_http.go → candidateProcessRefs", Notes: "Explicitly non-owning process references; Close must never tear these down."},
+	{Symbol: "ledger", Class: ownershipGeneration, Source: "runtimebundle.compileCandidate → NewResourceLedger", Notes: "Sole generation-owned resource lifecycle owner: rollback/quiesce/close (req 2.8, 3.8, 8.3-8.4)."},
 	{Symbol: "terminalWorkReady", Class: ownershipProcess, Source: "runtimebundle.terminalWorkRuntime.checkReady", Notes: "Composition-root readiness hook."},
 	{Symbol: "terminalWorkRT", Class: ownershipProcess, Source: "runtimebundle.buildTerminalWorkWithSetReconcile", Notes: "Internal process ownership handle."},
 }
@@ -255,19 +228,8 @@ func TestOwnershipInventoryBootstrapAndCompositionEntriesAreValid(t *testing.T) 
 
 func TestOwnershipInventory_CatalogAndModelRegistryAreGeneration(t *testing.T) {
 	t.Parallel()
-	wantGen := map[string]bool{
-		"CatalogRuntime":       true,
-		"ModelRegistryRuntime": true,
-		"ModelRegistry":        true,
-	}
-	for _, e := range builtFieldOwnership {
-		if !wantGen[e.Symbol] {
-			continue
-		}
-		if e.Class != ownershipGeneration {
-			t.Fatalf("%s must be generation-owned (task 4.5 quiesce), got %s", e.Symbol, e.Class)
-		}
-	}
+	// Leaf catalog/registry ownership lives under the models group and is
+	// classified via compositionResourceOwnership after PR B2 grouping.
 	for _, e := range compositionResourceOwnership {
 		switch e.Symbol {
 		case "catalog.cacheAndRefresh", "modelRegistry.cacheAndRefresh", "catalog.closers", "modelRegistry.closers":
@@ -275,6 +237,18 @@ func TestOwnershipInventory_CatalogAndModelRegistryAreGeneration(t *testing.T) {
 				t.Fatalf("%s must be generation-owned, got %s", e.Symbol, e.Class)
 			}
 		}
+	}
+	foundModels := false
+	for _, e := range builtFieldOwnership {
+		if e.Symbol == "models" {
+			foundModels = true
+			if e.Kind != ownershipKindMixedAggregate {
+				t.Fatalf("models group must be mixed_aggregate, got class=%q kind=%q", e.Class, e.Kind)
+			}
+		}
+	}
+	if !foundModels {
+		t.Fatal("candidateAssembly.models missing from inventory")
 	}
 }
 
@@ -285,14 +259,14 @@ func TestOwnershipInventory_MixedAggregatesAreNotResourceClasses(t *testing.T) {
 		builtIdx[e.Symbol] = e
 	}
 	if _, ok := builtIdx["Closers"]; ok {
-		t.Fatal("CandidateRuntime.Closers must be removed from inventory after Task 4.2 deletion")
+		t.Fatal("candidateAssembly.Closers must be removed from inventory after Task 4.2 deletion")
 	}
-	ledger, ok := builtIdx["Ledger"]
+	ledger, ok := builtIdx["ledger"]
 	if !ok {
-		t.Fatal("CandidateRuntime.Ledger missing from inventory")
+		t.Fatal("candidateAssembly.ledger missing from inventory")
 	}
 	if ledger.Class != ownershipGeneration {
-		t.Fatalf("CandidateRuntime.Ledger must be generation-owned, got class=%q kind=%q", ledger.Class, ledger.Kind)
+		t.Fatalf("candidateAssembly.ledger must be generation-owned, got class=%q kind=%q", ledger.Class, ledger.Kind)
 	}
 
 	bootIdx := map[string]ownershipEntry{}
@@ -345,12 +319,12 @@ func TestOwnershipInventory_MixedAggregatesAreNotResourceClasses(t *testing.T) {
 		}
 	}
 
-	readiness, ok := builtIdx["ReadinessReport"]
+	readinessGroup, ok := builtIdx["operations"]
 	if !ok {
-		t.Fatal("ReadinessReport missing")
+		t.Fatal("candidateAssembly.operations missing")
 	}
-	if readiness.Class != ownershipGeneration {
-		t.Fatalf("ReadinessReport must be generation-owned projection, got %q", readiness.Class)
+	if readinessGroup.Kind != ownershipKindMixedAggregate {
+		t.Fatalf("operations group must be mixed_aggregate (includes generation readiness projection), got class=%q kind=%q", readinessGroup.Class, readinessGroup.Kind)
 	}
 }
 
@@ -479,21 +453,20 @@ func TestOwnershipInventory_ConstructorIDDriftCheck(t *testing.T) {
 	}
 }
 
-// builtStructFieldNames returns CandidateRuntime's ownership-relevant field
-// names (the replacement for the deleted Built struct; task 4.2). Internal
-// lifecycle-bookkeeping fields (sync primitives / transfer flags) are excluded
-// because they are not resources requiring ownership classification.
+// builtStructFieldNames returns candidateAssembly's ownership-relevant field
+// names. Internal lifecycle-bookkeeping fields (sync primitives / transfer
+// flags) are excluded because they are not resources requiring classification.
 func builtStructFieldNames(t *testing.T) []string {
 	t.Helper()
-	path := filepath.Join("candidate_compile.go")
+	path := filepath.Join("candidate_http.go")
 	src, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read candidate_compile.go: %v", err)
+		t.Fatalf("read candidate_http.go: %v", err)
 	}
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, path, src, parser.SkipObjectResolution)
 	if err != nil {
-		t.Fatalf("parse candidate_compile.go: %v", err)
+		t.Fatalf("parse candidate_http.go: %v", err)
 	}
 	var names []string
 	for _, decl := range f.Decls {
@@ -503,16 +476,16 @@ func builtStructFieldNames(t *testing.T) []string {
 		}
 		for _, spec := range gen.Specs {
 			ts, ok := spec.(*ast.TypeSpec)
-			if !ok || ts.Name == nil || ts.Name.Name != "CandidateRuntime" {
+			if !ok || ts.Name == nil || ts.Name.Name != "candidateAssembly" {
 				continue
 			}
 			st, ok := ts.Type.(*ast.StructType)
 			if !ok || st.Fields == nil {
-				t.Fatal("CandidateRuntime is not a struct")
+				t.Fatal("candidateAssembly is not a struct")
 			}
 			for _, field := range st.Fields.List {
 				for _, name := range field.Names {
-					if candidateRuntimeInternalFields[name.Name] {
+					if candidateAssemblyInternalFields[name.Name] {
 						continue
 					}
 					names = append(names, name.Name)
@@ -521,7 +494,7 @@ func builtStructFieldNames(t *testing.T) []string {
 		}
 	}
 	if len(names) == 0 {
-		t.Fatal("no CandidateRuntime fields found")
+		t.Fatal("no candidateAssembly fields found")
 	}
 	return names
 }

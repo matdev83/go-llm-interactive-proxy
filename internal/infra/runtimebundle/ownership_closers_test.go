@@ -19,10 +19,16 @@ import (
 // distinct occurrence ordinals; IDs are source-position-independent.
 var closerAcquisitionOwnership = []ownershipEntry{
 	{
-		Symbol: "host_build.go:buildHostWithEnv:acq#0:assign:traceShutdown=traceRes.Shutdown#0",
+		Symbol: "host_build.go:buildHost:acq#0:assign:traceShutdown=traceRes.Shutdown#0",
 		Class:  ownershipProcess,
 		Source: "host_build.go → tracing.Init Result.Shutdown",
 		Notes:  "Process tracing shutdown retained for BuildHost / Host.Close (Task 5.2).",
+	},
+	{
+		Symbol: "host_build.go:buildHost:acq#1:assign:closeProcess=ps.Close#0",
+		Class:  ownershipProcess,
+		Source: "host_build.go → ProcessServices.Close",
+		Notes:  "Pre-Host process closer retained for joinInitialFailureCleanup on compile/publish/bind failure.",
 	},
 	{
 		Symbol: "process_services.go:NewProcessServices:acq#0:append(ps.closers, c)#0",
@@ -35,6 +41,12 @@ var closerAcquisitionOwnership = []ownershipEntry{
 		Class:  ownershipProcess,
 		Source: "validate_distribution.go → tracing.Init Result.Shutdown",
 		Notes:  "Process tracing shutdown retained for ValidateDistribution's own internal close (no Host handoff).",
+	},
+	{
+		Symbol: "validate_distribution.go:validateDistribution:acq#1:assign:closeProcess=ps.Close#0",
+		Class:  ownershipProcess,
+		Source: "validate_distribution.go → ProcessServices.Close",
+		Notes:  "ValidateDistribution process closer for unpublished dry-run teardown.",
 	},
 
 	{

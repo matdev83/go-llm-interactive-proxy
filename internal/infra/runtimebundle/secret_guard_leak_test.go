@@ -101,10 +101,10 @@ func TestBuild_secretGuardBlock_noSyntheticSecretLeakageInLogsOrErrors(t *testin
 			},
 		},
 	}, log)
-	if b.Executor == nil || b.Executor.RuntimeSnapshot == nil {
+	if b.Executor() == nil || b.Executor().RuntimeSnapshot == nil {
 		t.Fatal("expected executor snapshot")
 	}
-	plane := b.Executor.RuntimeSnapshot.SecretGuardPlane()
+	plane := b.Executor().RuntimeSnapshot.SecretGuardPlane()
 	if len(plane.Guards) == 0 {
 		t.Fatal("enabled secrets-guard build must expose non-empty SecretGuards on RuntimeSnapshot")
 	}
@@ -123,7 +123,7 @@ func TestBuild_secretGuardBlock_noSyntheticSecretLeakageInLogsOrErrors(t *testin
 			Parts: []lipapi.Part{lipapi.TextPart("token=" + secret)},
 		}},
 	}
-	stream, execErr := b.Executor.Execute(ctx, call)
+	stream, execErr := b.Executor().Execute(ctx, call)
 	if stream != nil {
 		_, _ = lipapi.Collect(t.Context(), stream)
 	}

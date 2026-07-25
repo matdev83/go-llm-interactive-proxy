@@ -26,13 +26,13 @@ func BenchmarkCandidateCompilation(b *testing.B) {
 	}
 	b.Cleanup(func() { _ = host.Close(context.Background()) })
 	compiler := runtimebundle.GenerationCompiler{
-		Process: host.Process,
+		Process: runtimebundle.HostProcess(host),
 		Compose: stdhttp.ComposeStandardHTTP,
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		plane, err := compiler.Compile(b.Context(), host.Config, nil)
+		plane, err := compiler.Compile(b.Context(), host.Config(), nil)
 		if err != nil {
 			b.Fatalf("compile: %v", err)
 		}

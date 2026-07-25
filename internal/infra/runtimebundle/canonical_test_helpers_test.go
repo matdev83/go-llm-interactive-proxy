@@ -19,7 +19,7 @@ import (
 // errors for negative tests. Non-nil ProcessServices/CandidateRuntime are registered
 // for cleanup (candidate before process). Unlike mustProcessAndCandidate, a nil
 // PluginRegistry is preserved so negative registry tests can observe the error.
-func processAndCandidateErr(t *testing.T, cfg *config.Config, opts *runtimebundle.BuildOptions) (*runtimebundle.ProcessServices, *runtimebundle.CandidateRuntime, error) {
+func processAndCandidateErr(t *testing.T, cfg *config.Config, opts *runtimebundle.BuildOptions) (*runtimebundle.ProcessServices, *runtimebundle.CandidateHTTPCompile, error) {
 	t.Helper()
 	if cfg == nil {
 		return nil, nil, fmt.Errorf("nil config")
@@ -56,7 +56,7 @@ func processAndCandidateErr(t *testing.T, cfg *config.Config, opts *runtimebundl
 // mustProcessAndCandidate constructs ProcessServices once and compiles one
 // CandidateRuntime for behavior tests that previously called runtimebundle.Build.
 // Cleanup closes the candidate first, then the process (canonical ownership order).
-func mustProcessAndCandidate(t *testing.T, cfg *config.Config, opts *runtimebundle.BuildOptions) (*runtimebundle.ProcessServices, *runtimebundle.CandidateRuntime) {
+func mustProcessAndCandidate(t *testing.T, cfg *config.Config, opts *runtimebundle.BuildOptions) (*runtimebundle.ProcessServices, *runtimebundle.CandidateHTTPCompile) {
 	t.Helper()
 	if opts == nil {
 		opts = &runtimebundle.BuildOptions{PluginRegistry: pluginreg.NewRegistry()}
@@ -76,7 +76,7 @@ func mustProcessAndCandidate(t *testing.T, cfg *config.Config, opts *runtimebund
 
 // mustProcessAndCandidateLog is mustProcessAndCandidate with an explicit process logger
 // (for secret-safe log capture tests).
-func mustProcessAndCandidateLog(t *testing.T, cfg *config.Config, opts *runtimebundle.BuildOptions, log *slog.Logger) (*runtimebundle.ProcessServices, *runtimebundle.CandidateRuntime) {
+func mustProcessAndCandidateLog(t *testing.T, cfg *config.Config, opts *runtimebundle.BuildOptions, log *slog.Logger) (*runtimebundle.ProcessServices, *runtimebundle.CandidateHTTPCompile) {
 	t.Helper()
 	if opts == nil {
 		opts = &runtimebundle.BuildOptions{PluginRegistry: pluginreg.NewRegistry()}

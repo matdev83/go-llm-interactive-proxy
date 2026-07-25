@@ -17,25 +17,25 @@ func TestBuild_PublishesSnapshotGeneration(t *testing.T) {
 	cfg.Accounting.Pricing.CatalogVersion = "prices-v3"
 	cfg.Accounting.Pricing.Currency = "USD"
 	_, built := mustProcessAndCandidate(t, cfg, baseAuthorityOptions(t, nil))
-	if built.SnapshotGeneration == nil || built.SnapshotGeneration.Current() == nil {
+	if runtimebundle.CandidateSnapshotGeneration(built) == nil || runtimebundle.CandidateSnapshotGeneration(built).Current() == nil {
 		t.Fatal("expected published snapshot generation")
 	}
-	cur := built.SnapshotGeneration.Current()
+	cur := runtimebundle.CandidateSnapshotGeneration(built).Current()
 	if cur.Rating.Version != "prices-v3" || cur.State != economics.SnapshotReady {
 		t.Fatalf("cur=%+v", cur)
 	}
 	held := cur
-	built.SnapshotGeneration.MarkUnusable(economics.SnapshotDegraded, "refresh_failed")
+	runtimebundle.CandidateSnapshotGeneration(built).MarkUnusable(economics.SnapshotDegraded, "refresh_failed")
 	if held.Rating.Version != "prices-v3" {
 		t.Fatalf("in-flight generation mutated: %+v", held)
 	}
-	if built.SnapshotGeneration.Current().State != economics.SnapshotDegraded {
+	if runtimebundle.CandidateSnapshotGeneration(built).Current().State != economics.SnapshotDegraded {
 		t.Fatalf("expected degraded current")
 	}
-	if built.Executor == nil || built.Executor.SnapshotGeneration == nil {
+	if built.Executor() == nil || built.Executor().SnapshotGeneration == nil {
 		t.Fatal("executor must receive SnapshotGeneration for admit-time binding")
 	}
-	if built.Executor.SnapshotGeneration != built.SnapshotGeneration {
+	if built.Executor().SnapshotGeneration != runtimebundle.CandidateSnapshotGeneration(built) {
 		t.Fatal("executor SnapshotGeneration must be the same publisher instance")
 	}
 }
@@ -107,18 +107,18 @@ func TestSnapshotController_RefreshPublishesNewerSourceVersions(t *testing.T) {
 	opts := baseAuthorityOptions(t, nil)
 	opts.Production = runtimebundle.ProductionOptions{UsageSnapshotSource: src}
 	_, built := mustProcessAndCandidate(t, cfg, opts)
-	if built.SnapshotController == nil {
+	if runtimebundle.CandidateSnapshotController(built) == nil {
 		t.Fatal("expected SnapshotController for injectable sources")
 	}
-	held := built.SnapshotGeneration.Current()
+	held := runtimebundle.CandidateSnapshotGeneration(built).Current()
 	if held == nil || held.Usage.Version != "ent-v1" {
 		t.Fatalf("initial usage=%+v", held)
 	}
 	src.set("ent-v2", nil)
-	if err := built.SnapshotController.Refresh(context.Background()); err != nil {
+	if err := runtimebundle.CandidateSnapshotController(built).Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
-	cur := built.SnapshotGeneration.Current()
+	cur := runtimebundle.CandidateSnapshotGeneration(built).Current()
 	if cur == nil || cur.Usage.Version != "ent-v2" {
 		t.Fatalf("after refresh usage=%+v want ent-v2", cur)
 	}
@@ -150,13 +150,13 @@ func TestSnapshotController_ConcurrentRefreshesPublishInInvocationOrder(t *testi
 
 	src.setVersion("ent-v2")
 	firstDone := make(chan error, 1)
-	go func() { firstDone <- built.SnapshotController.Refresh(context.Background()) }()
+	go func() { firstDone <- runtimebundle.CandidateSnapshotController(built).Refresh(context.Background()) }()
 	if got := <-src.started; got != "ent-v2" {
 		t.Fatalf("first refresh version=%q want ent-v2", got)
 	}
 	src.setVersion("ent-v3")
 	secondDone := make(chan error, 1)
-	go func() { secondDone <- built.SnapshotController.Refresh(context.Background()) }()
+	go func() { secondDone <- runtimebundle.CandidateSnapshotController(built).Refresh(context.Background()) }()
 
 	select {
 	case got := <-src.started:
@@ -174,7 +174,7 @@ func TestSnapshotController_ConcurrentRefreshesPublishInInvocationOrder(t *testi
 	if err := <-secondDone; err != nil {
 		t.Fatalf("second Refresh: %v", err)
 	}
-	if got := built.SnapshotGeneration.Current().Usage.Version; got != "ent-v3" {
+	if got := runtimebundle.CandidateSnapshotGeneration(built).Current().Usage.Version; got != "ent-v3" {
 		t.Fatalf("published usage version=%q want ent-v3", got)
 	}
 }
@@ -189,7 +189,7 @@ func TestSnapshotController_StartupSourceErrorExposesUnavailablePosture(t *testi
 	opts := baseAuthorityOptions(t, nil)
 	opts.Production = runtimebundle.ProductionOptions{UsageSnapshotSource: src}
 	_, built := mustProcessAndCandidate(t, cfg, opts)
-	cur := built.SnapshotGeneration.Current()
+	cur := runtimebundle.CandidateSnapshotGeneration(built).Current()
 	if cur == nil {
 		t.Fatal("expected a published generation with explicit posture")
 	}
@@ -212,13 +212,13 @@ func TestSnapshotController_RefreshFailurePreservesPriorVersion(t *testing.T) {
 	opts := baseAuthorityOptions(t, nil)
 	opts.Production = runtimebundle.ProductionOptions{UsageSnapshotSource: src}
 	_, built, err := processAndCandidateErr(t, cfg, opts)
-	before := built.SnapshotGeneration.Current()
+	before := runtimebundle.CandidateSnapshotGeneration(built).Current()
 	src.set("", errors.New("refresh boom"))
-	err = built.SnapshotController.Refresh(context.Background())
+	err = runtimebundle.CandidateSnapshotController(built).Refresh(context.Background())
 	if err == nil {
 		t.Fatal("expected refresh error")
 	}
-	after := built.SnapshotGeneration.Current()
+	after := runtimebundle.CandidateSnapshotGeneration(built).Current()
 	if after.Usage.Version != "ent-ok" {
 		t.Fatalf("refresh failure substituted unrelated version: before=%q after=%q", before.Usage.Version, after.Usage.Version)
 	}

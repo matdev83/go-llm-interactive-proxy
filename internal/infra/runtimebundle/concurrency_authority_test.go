@@ -14,10 +14,10 @@ func TestBuildConcurrencyAuthorityDisabledIsNoop(t *testing.T) {
 	t.Parallel()
 	cfg := baseAuthorityConfig(false, "fail_closed")
 	_, built := mustProcessAndCandidate(t, cfg, baseAuthorityOptions(t, nil))
-	if built.Executor.ConcurrencyProvider != nil {
+	if built.Executor().ConcurrencyProvider != nil {
 		t.Fatal("concurrency provider must be nil when disabled")
 	}
-	if built.Executor.RequestCoordinator != nil && built.Executor.RequestCoordinator.Concurrency != nil {
+	if built.Executor().RequestCoordinator != nil && built.Executor().RequestCoordinator.Concurrency != nil {
 		t.Fatal("request coordinator must not wire concurrency when disabled")
 	}
 }
@@ -41,13 +41,13 @@ func TestBuildConcurrencyAuthorityWiresProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, built := mustProcessAndCandidate(t, cfg, baseAuthorityOptions(t, nil))
-	if built.Executor.ConcurrencyProvider == nil {
+	if built.Executor().ConcurrencyProvider == nil {
 		t.Fatal("expected concurrency provider")
 	}
-	if built.Executor.RequestCoordinator == nil || built.Executor.RequestCoordinator.Concurrency == nil {
+	if built.Executor().RequestCoordinator == nil || built.Executor().RequestCoordinator.Concurrency == nil {
 		t.Fatal("expected concurrency wired into request coordinator")
 	}
-	dec, err := built.Executor.ConcurrencyProvider.AdmitLease(context.Background(), authority.LeaseAdmission{
+	dec, err := built.Executor().ConcurrencyProvider.AdmitLease(context.Background(), authority.LeaseAdmission{
 		RequestID: "r1",
 		Scope:     scope.PrincipalScopeView{PrincipalID: scope.Known("alice")},
 	})
@@ -57,7 +57,7 @@ func TestBuildConcurrencyAuthorityWiresProvider(t *testing.T) {
 	if dec.Kind != authority.LeaseAllow || dec.LeaseID == "" {
 		t.Fatalf("dec=%+v", dec)
 	}
-	if err := built.Executor.ConcurrencyProvider.ReleaseLease(context.Background(), authority.LeaseRelease{
+	if err := built.Executor().ConcurrencyProvider.ReleaseLease(context.Background(), authority.LeaseRelease{
 		LeaseID:   dec.LeaseID,
 		RequestID: "r1",
 	}); err != nil {
@@ -84,7 +84,7 @@ func TestBuildConcurrencyAuthoritySQLite(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, built := mustProcessAndCandidate(t, cfg, baseAuthorityOptions(t, nil))
-	if built.Executor.ConcurrencyProvider == nil {
+	if built.Executor().ConcurrencyProvider == nil {
 		t.Fatal("expected sqlite concurrency provider")
 	}
 }

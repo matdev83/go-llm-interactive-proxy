@@ -10,8 +10,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	cpadmin "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/controlplane"
-	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -62,59 +60,18 @@ func frontendInputForTest(cfg *config.Config, ex *runtime.Executor, reg *pluginr
 
 // candidateHTTPInput projects a real CandidateRuntime into focused StandardHTTPInput
 // groups without an intermediate Built-mirroring struct.
-func candidateHTTPInput(cfg *config.Config, cand *runtimebundle.CandidateRuntime, regs []lipsdk.Registration) StandardHTTPInput {
+func candidateHTTPInput(cfg *config.Config, cand *runtimebundle.CandidateHTTPCompile, regs []lipsdk.Registration) StandardHTTPInput {
 	if cand == nil {
 		return StandardHTTPInput{}
 	}
-	route := strings.TrimSpace(cand.EffectiveDefaultRoute)
+	route := strings.TrimSpace(cand.EffectiveDefaultRoute())
 	if route == "" && cfg != nil {
 		route = DefaultRouteSelector(cfg)
 	}
-	var maxBody int64
-	var preKA lipsdk.FrontendKeepaliveConfig
-	var plugins []config.PluginConfig
-	if cfg != nil {
-		maxBody = cfg.Server.EffectiveMaxRequestBodyBytes()
-		ka := cfg.Server.EffectivePreRequestKeepalive()
-		preKA = lipsdk.FrontendKeepaliveConfig{Enabled: ka.Enabled, Interval: ka.Interval}
-		plugins = cfg.Plugins.Frontends
-	}
-	return StandardHTTPInput{
-		Core: HTTPCoreInput{Executor: cand.Executor},
-		Security: HTTPSecurityInput{
-			HTTPAuthProviders:    httpcontract.CloneHTTPAuthProviders(cand.HTTPAuthProviders),
-			SecureSessionStore:   cand.SecureSessionStore,
-			UsageAuthority:       cpadmin.AdaptAccountingAuthorityQueries(cand.UsageAuthority),
-			ConcurrencyAuthority: cpadmin.AdaptConcurrencyAuthorityQueries(cand.ConcurrencyAuthority),
-		},
-		Operations: HTTPOperationsInput{
-			Metrics:              cand.Metrics,
-			Store:                cand.Store,
-			SecretGuardInventory: cand.SecretGuardInventory,
-			ControlPlaneQueries:  cpadmin.AdaptControlPlaneQueries(cand.ControlPlaneQueries),
-			ReadinessReport:      cpadmin.AdaptReadinessReport(cand.ReadinessReport),
-			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(cand.TokenAccountingAdmin),
-			Registrations:        httpcontract.CloneRegistrations(regs),
-		},
-		Models: HTTPModelInput{
-			CatalogRuntime:       cand.CatalogRuntime,
-			ModelRegistryRuntime: cand.ModelRegistryRuntime,
-		},
-		Frontends: HTTPFrontendInput{
-			Executor:             cand.Executor,
-			Registry:             cand.PluginRegistry,
-			DefaultRouteSelector: route,
-			RoutePrefixes:        httpcontract.CloneStrings(cand.RoutePrefixes),
-			Plugins:              httpcontract.ClonePluginConfigs(plugins),
-			MaxRequestBodyBytes:  maxBody,
-			DecodeAdmission:      cand.DecodeAdmission,
-			TrafficPorts:         httpcontract.TrafficPortsFromSnapshot(cand.RuntimeSnapshot),
-			PreRequestKeepalive:  preKA,
-		},
-	}
+	return cand.StandardHTTPInput(cfg, regs, route)
 }
 
-func compileTestCandidate(t *testing.T, cfg *config.Config, reg *pluginreg.Registry) (*runtimebundle.ProcessServices, *runtimebundle.CandidateRuntime) {
+func compileTestCandidate(t *testing.T, cfg *config.Config, reg *pluginreg.Registry) (*runtimebundle.ProcessServices, *runtimebundle.CandidateHTTPCompile) {
 	t.Helper()
 	if reg == nil {
 		reg = pluginreg.NewRegistry()

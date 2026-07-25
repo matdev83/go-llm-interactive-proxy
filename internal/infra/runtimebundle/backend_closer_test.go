@@ -46,8 +46,8 @@ func TestBuild_collectsBackendCloseAfterConstruction(t *testing.T) {
 	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if built.Ledger.Len() < 2 {
-		t.Fatalf("Ledger.Len=%d, want at least backend closers", built.Ledger.Len())
+	if built.Ledger().Len() < 2 {
+		t.Fatalf("Ledger.Len=%d, want at least backend closers", built.Ledger().Len())
 	}
 
 	if err := built.Close(); err != nil {
@@ -98,7 +98,7 @@ func TestBuild_nilBackendCloseRemainsNoOp(t *testing.T) {
 	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	be, ok := built.Executor.Backends["only"]
+	be, ok := built.Executor().Backends["only"]
 	if !ok {
 		t.Fatal("expected backend instance")
 	}

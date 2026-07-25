@@ -69,10 +69,10 @@ func TestBuildHost_servePublishesInitialGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	hostServeCleanup(t, host)
-	if host.Process == nil || host.Manager == nil || host.Manager.Active() == nil {
+	if runtimebundle.HostProcess(host) == nil || runtimebundle.HostManager(host) == nil || runtimebundle.HostManager(host).Active() == nil {
 		t.Fatal("BuildHost must publish process services and generation 1")
 	}
-	lease, ok := host.Manager.Acquire()
+	lease, ok := runtimebundle.HostManager(host).Acquire()
 	if !ok || lease.Handler() == nil {
 		t.Fatal("BuildHost must publish an acquireable handler")
 	}
@@ -125,16 +125,16 @@ func TestBuildHost_serveSingleUserSecretGuardSnapshotsProcessEnv(t *testing.T) {
 	hostServeCleanup(t, host)
 
 	cand := compileCandidateAfterHost(t, host)
-	if cand.SecretGuardInventory == nil {
+	if runtimebundle.CandidateSecretGuardInventory(cand) == nil {
 		t.Fatal("BuildHost candidate must build secret-guard inventory")
 	}
-	if cand.SecretGuardInventory.SecretGuardCatalogEntryCount == 0 {
+	if runtimebundle.CandidateSecretGuardInventory(cand).SecretGuardCatalogEntryCount == 0 {
 		t.Fatal("single-user serve must snapshot process env into a nonzero secret catalog")
 	}
-	if cand.RuntimeSnapshot == nil {
+	if cand.RuntimeSnapshot() == nil {
 		t.Fatal("expected runtime snapshot")
 	}
-	m, err := cand.RuntimeSnapshot.SecretGuardPlane().MatcherResolver.Resolve(t.Context())
+	m, err := cand.RuntimeSnapshot().SecretGuardPlane().MatcherResolver.Resolve(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}

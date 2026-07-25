@@ -20,7 +20,7 @@ func TestCandidateRuntime_Close_PreTransferRollback_PostTransferNoop(t *testing.
 		order = append(order, "first")
 		return nil
 	})
-	cand := &CandidateRuntime{Ledger: ledger}
+	cand := &candidateAssembly{ledger: ledger}
 	if err := cand.Close(); err != nil {
 		t.Fatalf("pre-transfer Close: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestCandidateRuntime_Close_PreTransferRollback_PostTransferNoop(t *testing.
 		closed.Add(1)
 		return nil
 	})
-	cand2 := &CandidateRuntime{Ledger: ledger2}
+	cand2 := &candidateAssembly{ledger: ledger2}
 	if cand2.transferLedgerOwnership() == nil {
 		t.Fatal("expected ledger transfer")
 	}
@@ -69,7 +69,7 @@ func TestCandidate_NoOrphanLedger_AfterRollbackUnpublished(t *testing.T) {
 		closed.Add(1)
 		return nil
 	})
-	cand := &CandidateRuntime{Ledger: ledger}
+	cand := &candidateAssembly{ledger: ledger}
 	if err := cand.RollbackUnpublished(); err != nil {
 		t.Fatal(err)
 	}

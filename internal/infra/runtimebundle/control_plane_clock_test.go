@@ -51,17 +51,17 @@ func TestBuild_ControlPlaneClockFlowsToRecorder(t *testing.T) {
 		Auth:           runtimebundle.AuthOptions{AuthEventSink: noopAuthSink{}},
 		Testing:        runtimebundle.TestingOptions{Clock: clockFn},
 	})
-	if built.ControlPlaneQueries == nil {
+	if runtimebundle.CandidateControlPlaneQueries(built) == nil {
 		t.Fatal("expected ControlPlaneQueries to be wired")
 	}
 
 	ctx := context.Background()
 	// Zero-value AuthDecisionEvent -> Time is zero -> normalizer substitutes clock.Now().
-	if err := built.AuthEventDispatcher.DispatchAuthDecision(ctx, sdkauth.AuthDecisionEvent{}); err != nil {
+	if err := runtimebundle.CandidateAuthEventDispatcher(built).DispatchAuthDecision(ctx, sdkauth.AuthDecisionEvent{}); err != nil {
 		t.Fatalf("DispatchAuthDecision: %v", err)
 	}
 
-	page, err := built.ControlPlaneQueries.Events(ctx, cp.EventQuery{
+	page, err := runtimebundle.CandidateControlPlaneQueries(built).Events(ctx, cp.EventQuery{
 		Limit:      10,
 		Visibility: cp.VisibilityDefault,
 	})

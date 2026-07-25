@@ -341,17 +341,16 @@ func startRPBootstrapProxyErr(cfgPath string) (*httptest.Server, func(), error) 
 	if err != nil {
 		return nil, nil, fmt.Errorf("BuildHost: %w", err)
 	}
-	lease, ok := host.Manager.Acquire()
-	if !ok || lease.Handler() == nil {
+	h := host.HTTPHandler()
+	if h == nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 		defer cancel()
 		_ = host.Close(shutdownCtx)
-		return nil, nil, fmt.Errorf("Acquire generation handler")
+		return nil, nil, fmt.Errorf("nil host HTTP handler")
 	}
-	srv := httptest.NewServer(lease.Handler())
+	srv := httptest.NewServer(h)
 	cleanup := func() {
 		srv.Close()
-		lease.Release()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		_ = host.Close(shutdownCtx)

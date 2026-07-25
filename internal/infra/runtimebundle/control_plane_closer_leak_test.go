@@ -46,7 +46,7 @@ func compileCandidateExpectFail(t *testing.T, cfg *config.Config, opts *BuildOpt
 		// Process construction already disposed registered closers.
 		return err
 	}
-	_, err = CompileCandidate(context.Background(), GenerationCompileInput{
+	_, err = compileCandidate(context.Background(), GenerationCompileInput{
 		Process: ps,
 		Bus:     hooks.New(hooks.Config{}),
 	})

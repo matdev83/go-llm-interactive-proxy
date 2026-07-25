@@ -12,11 +12,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 	"go.opentelemetry.io/otel"
 )
 
-// GenerationCompiler is the canonical composition-root compiler (task 3.4).
 type GenerationCompiler struct {
 	Process *ProcessServices
 	Compose HandlerComposer
@@ -40,22 +40,19 @@ func (a candidateCompilerAdapter) Compile(ctx context.Context, candidate *config
 	return a.inner.Compile(ctx, candidate, liveFactoryKinds)
 }
 
-// ReloadHost is the process-owned composition binding manager, coordinator, and stable executor facade.
-type ReloadHost struct {
-	Coordinator         *runtimehost.Coordinator
-	Manager             *runtimehost.Manager
-	Process             *ProcessServices
-	Executor            *runtimehost.GenerationExecutor
-	Source              *configsource.FixedSource
-	Effective           *config.EffectiveConfig
-	Config              *config.Config
-	Logger              *slog.Logger
-	ActiveSource        *configsource.ActiveSourceVersion
-	FixedStreamRecovery config.StreamRecoveryOverrides
-	ShutdownTracing     func(context.Context) error
-
-	dispatcher *runtimehost.GenerationDispatcher
-
+type Host struct {
+	coordinator                  *runtimehost.Coordinator
+	manager                      *runtimehost.Manager
+	process                      *ProcessServices
+	executor                     *runtimehost.GenerationExecutor
+	source                       *configsource.FixedSource
+	effective                    *config.EffectiveConfig
+	config                       *config.Config
+	logger                       *slog.Logger
+	activeSource                 *configsource.ActiveSourceVersion
+	fixedStreamRecovery          config.StreamRecoveryOverrides
+	shutdownTracing              func(context.Context) error
+	dispatcher                   *runtimehost.GenerationDispatcher
 	closeMu                      sync.Mutex
 	closeAttempt                 *hostCloseAttempt
 	closed                       bool
@@ -67,7 +64,7 @@ type hostCloseAttempt struct {
 	err  error
 }
 
-type bindReloadHostInput struct {
+type bindHostInput struct {
 	Manager             *runtimehost.Manager
 	Process             *ProcessServices
 	Compose             HandlerComposer
@@ -79,7 +76,7 @@ type bindReloadHostInput struct {
 	ShutdownTracing     func(context.Context) error
 }
 
-func bindReloadHost(configPath string, in bindReloadHostInput) (*ReloadHost, error) {
+func bindHost(configPath string, in bindHostInput) (*Host, error) {
 	if in.Manager == nil {
 		return nil, fmt.Errorf("runtimebundle: nil GenerationManager")
 	}
@@ -119,22 +116,50 @@ func bindReloadHost(configPath string, in bindReloadHostInput) (*ReloadHost, err
 	if err != nil {
 		return nil, err
 	}
-	return &ReloadHost{
-		Coordinator: coord, Manager: in.Manager, Process: in.Process,
-		Executor: runtimehost.NewGenerationExecutor(in.Manager), dispatcher: runtimehost.NewGenerationDispatcher(in.Manager),
-		Source: src, Effective: in.Effective, Config: in.Config, Logger: in.Logger,
-		ActiveSource: in.ActiveSource, FixedStreamRecovery: in.FixedStreamRecovery, ShutdownTracing: in.ShutdownTracing,
+	return &Host{
+		coordinator: coord, manager: in.Manager, process: in.Process,
+		executor: runtimehost.NewGenerationExecutor(in.Manager), dispatcher: runtimehost.NewGenerationDispatcher(in.Manager),
+		source: src, effective: in.Effective, config: in.Config, logger: in.Logger,
+		activeSource: in.ActiveSource, fixedStreamRecovery: in.FixedStreamRecovery, shutdownTracing: in.ShutdownTracing,
 	}, nil
 }
 
-func (h *ReloadHost) HTTPHandler() http.Handler {
+func (h *Host) HTTPHandler() http.Handler {
 	if h == nil || h.dispatcher == nil {
 		return nil
 	}
 	return h.dispatcher
 }
 
-func (h *ReloadHost) Close(ctx context.Context) error {
+func (h *Host) ExecutorView() lipsdk.ExecutorView {
+	if h == nil || h.executor == nil {
+		return nil
+	}
+	return h.executor
+}
+
+func (h *Host) Logger() *slog.Logger {
+	if h == nil {
+		return nil
+	}
+	return h.logger
+}
+
+func (h *Host) Config() *config.Config {
+	if h == nil {
+		return nil
+	}
+	return h.config
+}
+
+func (h *Host) Effective() *config.EffectiveConfig {
+	if h == nil {
+		return nil
+	}
+	return h.effective
+}
+
+func (h *Host) Close(ctx context.Context) error {
 	if h == nil {
 		return nil
 	}
@@ -173,44 +198,37 @@ func (h *ReloadHost) Close(ctx context.Context) error {
 	return err
 }
 
-func hostCoordinator(h *ReloadHost) *runtimehost.Coordinator {
-	if h == nil {
-		return nil
-	}
-	return h.Coordinator
-}
-
-func (h *ReloadHost) Reload(ctx context.Context, trigger sdkreload.Trigger) sdkreload.Result {
-	if c := hostCoordinator(h); c != nil {
-		return c.Reload(ctx, trigger)
+func (h *Host) Reload(ctx context.Context, trigger sdkreload.Trigger) sdkreload.Result {
+	if h != nil && h.coordinator != nil {
+		return h.coordinator.Reload(ctx, trigger)
 	}
 	return sdkreload.Result{Category: sdkreload.ResultInternalFailed, ReasonCategory: "nil-coordinator"}
 }
 
-func (h *ReloadHost) Status() sdkreload.Status {
-	if c := hostCoordinator(h); c != nil {
-		return c.Status()
+func (h *Host) Status() sdkreload.Status {
+	if h != nil && h.coordinator != nil {
+		return h.coordinator.Status()
 	}
 	return sdkreload.Status{}
 }
 
-func (h *ReloadHost) FixedSourcePath() string {
-	if c := hostCoordinator(h); c != nil {
-		return c.FixedSourcePath()
+func (h *Host) FixedSourcePath() string {
+	if h != nil && h.coordinator != nil {
+		return h.coordinator.FixedSourcePath()
 	}
 	return ""
 }
 
-func (h *ReloadHost) runCloseAttempt(ctx context.Context) error {
+func (h *Host) runCloseAttempt(ctx context.Context) error {
 	h.BeginShutdown()
 	if err := h.WaitForIdle(ctx); err != nil {
 		return err
 	}
-	if h.Manager != nil {
-		if err := h.Manager.ShutdownDetached(ctx); err != nil {
+	if h.manager != nil {
+		if err := h.manager.ShutdownDetached(ctx); err != nil {
 			return err
 		}
-		if h.Manager.HasOpenGenerations() {
+		if h.manager.HasOpenGenerations() {
 			return fmt.Errorf("runtimebundle: generations remain open after shutdown")
 		}
 	}
@@ -220,7 +238,7 @@ func (h *ReloadHost) runCloseAttempt(ctx context.Context) error {
 	return h.shutdownTracingOnce(ctx)
 }
 
-func (h *ReloadHost) runCloseOnce(done *bool, skip bool, closeFn func() error, after func()) error {
+func (h *Host) runCloseOnce(done *bool, skip bool, closeFn func() error, after func()) error {
 	h.closeMu.Lock()
 	already := *done
 	h.closeMu.Unlock()
@@ -239,26 +257,26 @@ func (h *ReloadHost) runCloseOnce(done *bool, skip bool, closeFn func() error, a
 	return nil
 }
 
-func (h *ReloadHost) closeProcessOnce() error {
-	return h.runCloseOnce(&h.processClosed, h.Process == nil, func() error { return h.Process.Close() }, nil)
+func (h *Host) closeProcessOnce() error {
+	return h.runCloseOnce(&h.processClosed, h.process == nil, func() error { return h.process.Close() }, nil)
 }
 
-func (h *ReloadHost) shutdownTracingOnce(ctx context.Context) error {
+func (h *Host) shutdownTracingOnce(ctx context.Context) error {
 	h.closeMu.Lock()
-	fn := h.ShutdownTracing
+	fn := h.shutdownTracing
 	h.closeMu.Unlock()
-	return h.runCloseOnce(&h.tracingClosed, fn == nil, func() error { return fn(ctx) }, func() { h.ShutdownTracing = nil })
+	return h.runCloseOnce(&h.tracingClosed, fn == nil, func() error { return fn(ctx) }, func() { h.shutdownTracing = nil })
 }
 
-func (h *ReloadHost) BeginShutdown() {
-	if c := hostCoordinator(h); c != nil {
-		c.BeginShutdown()
+func (h *Host) BeginShutdown() {
+	if h != nil && h.coordinator != nil {
+		h.coordinator.BeginShutdown()
 	}
 }
 
-func (h *ReloadHost) WaitForIdle(ctx context.Context) error {
-	if c := hostCoordinator(h); c != nil {
-		return c.WaitForIdle(ctx)
+func (h *Host) WaitForIdle(ctx context.Context) error {
+	if h != nil && h.coordinator != nil {
+		return h.coordinator.WaitForIdle(ctx)
 	}
 	return nil
 }

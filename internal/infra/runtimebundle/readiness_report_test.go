@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 )
 
@@ -12,10 +13,10 @@ func TestBuild_WiresReadinessReportWithoutExecutorExport(t *testing.T) {
 	cfg := baseAuthorityConfig(false, "fail_closed")
 	opts := baseAuthorityOptions(t, nil)
 	_, built := mustProcessAndCandidate(t, cfg, opts)
-	if built.ReadinessReport == nil {
+	if runtimebundle.CandidateReadinessReport(built) == nil {
 		t.Fatal("expected readiness report service on CandidateRuntime")
 	}
-	report, err := built.ReadinessReport.Report(context.Background())
+	report, err := runtimebundle.CandidateReadinessReport(built).Report(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

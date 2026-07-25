@@ -45,13 +45,13 @@ func TestBuildHost_absentReasoningPreservationInjectsDefaultParticipants(t *test
 			t.Fatal(err)
 		}
 		hostServeCleanup(t, host)
-		assertFeatureRowEnabled(t, host.Config, standardplugins.ReasoningOutputPreservationFeatureID, true)
+		assertFeatureRowEnabled(t, host.Config(), standardplugins.ReasoningOutputPreservationFeatureID, true)
 		assertReasoningRegistrationEnabled(t, host, true)
 		assertHasReasoningParticipants(t, host, true)
-		if host.Process == nil || host.Manager.Active() == nil {
+		if runtimebundle.HostProcess(host) == nil || runtimebundle.HostManager(host).Active() == nil {
 			t.Fatal("BuildHost must publish generation host handles")
 		}
-		lease, ok := host.Manager.Acquire()
+		lease, ok := runtimebundle.HostManager(host).Acquire()
 		if !ok || lease.Handler() == nil {
 			t.Fatal("BuildHost must publish an acquireable handler")
 		}
@@ -100,7 +100,7 @@ func TestBuildHost_explicitReasoningPreservationFalseNoParticipants(t *testing.T
 			t.Fatal(err)
 		}
 		hostServeCleanup(t, host)
-		assertFeatureRowEnabled(t, host.Config, standardplugins.ReasoningOutputPreservationFeatureID, false)
+		assertFeatureRowEnabled(t, host.Config(), standardplugins.ReasoningOutputPreservationFeatureID, false)
 		assertReasoningRegistrationEnabled(t, host, false)
 		assertHasReasoningParticipants(t, host, false)
 	})
@@ -148,7 +148,7 @@ func assertInventoryFeatureRowEnabled(t *testing.T, snap diag.InventorySnapshot,
 func assertReasoningRegistrationEnabled(t *testing.T, host *runtimebundle.Host, wantEnabled bool) {
 	t.Helper()
 	id := standardplugins.ReasoningOutputPreservationFeatureID
-	regs := config.RegistrationsFromConfig(host.Config)
+	regs := config.RegistrationsFromConfig(host.Config())
 	var found bool
 	for _, r := range regs {
 		if r.Kind != lipsdk.PluginKindFeature {
@@ -172,8 +172,8 @@ func assertHasReasoningParticipants(t *testing.T, host *runtimebundle.Host, want
 	// CompileGeneration owns the sole merge for the published generation).
 	// Recompute the same merge locally from the public Registry/Registrations
 	// to characterize the participant pipeline.
-	regs := config.RegistrationsFromConfig(host.Config)
-	merged, err := featurebundle.MergeFeatureSurface(host.Process.FactoryCatalog, regs)
+	regs := config.RegistrationsFromConfig(host.Config())
+	merged, err := featurebundle.MergeFeatureSurface(runtimebundle.HostProcess(host).FactoryCatalog, regs)
 	if err != nil {
 		t.Fatal(err)
 	}

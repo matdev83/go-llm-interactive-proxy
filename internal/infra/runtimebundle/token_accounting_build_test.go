@@ -91,25 +91,25 @@ func TestBuildWiresTokenAccountingContracts(t *testing.T) {
 	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if built.TokenAccountingAdmin == nil {
+	if runtimebundle.CandidateTokenAccountingAdmin(built) == nil {
 		t.Fatal("Built.TokenAccountingAdmin is nil")
 	}
-	if built.Executor.Preflight == nil {
+	if built.Executor().Preflight == nil {
 		t.Fatal("Executor.Preflight is nil")
 	}
-	if built.Executor.StreamUsage == nil {
+	if built.Executor().StreamUsage == nil {
 		t.Fatal("Executor.StreamUsage is nil")
 	}
-	if built.Executor.Ledger == nil {
+	if built.Executor().Ledger == nil {
 		t.Fatal("Executor.Ledger is nil")
 	}
-	if built.Executor.TokenAccountingObservability == nil {
+	if built.Executor().TokenAccountingObservability == nil {
 		t.Fatal("Executor.TokenAccountingObservability is nil")
 	}
-	if built.Executor.AdminCountService == nil {
+	if built.Executor().AdminCountService == nil {
 		t.Fatal("Executor.AdminCountService is nil")
 	}
-	result, err := built.Executor.AdminCountService.CountCall(context.Background(), accountingapp.CountCallInput{
+	result, err := built.Executor().AdminCountService.CountCall(context.Background(), accountingapp.CountCallInput{
 		Backend: "stub",
 		Model:   "gpt-4o-mini",
 		CallID:  "call-1",
@@ -187,10 +187,10 @@ func TestBuildWiresIngressCountingWhenAccountingAdminDisabled(t *testing.T) {
 			}},
 		},
 	})
-	if built.TokenAccountingAdmin != nil {
+	if runtimebundle.CandidateTokenAccountingAdmin(built) != nil {
 		t.Fatal("public token accounting admin must remain disabled")
 	}
-	stream, err := built.Executor.Execute(context.Background(), &lipapi.Call{
+	stream, err := built.Executor().Execute(context.Background(), &lipapi.Call{
 		ID:    "request-admin-disabled",
 		Route: lipapi.RouteIntent{Selector: "stub:gpt-4o-mini"},
 		Messages: []lipapi.Message{{
@@ -253,7 +253,7 @@ func TestBuildTokenAccountingUsesDefaultCountTimeoutWhenOmitted(t *testing.T) {
 	}
 
 	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: reg})
-	if built.Executor.Preflight == nil {
+	if built.Executor().Preflight == nil {
 		t.Fatal("Executor.Preflight is nil")
 	}
 }
@@ -296,7 +296,7 @@ func TestBuildWiresConfiguredAccountingPreflightLimits(t *testing.T) {
 	}
 	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: reg})
 
-	decision := built.Executor.Preflight.Check(context.Background(), accountingpreflight.Input{
+	decision := built.Executor().Preflight.Check(context.Background(), accountingpreflight.Input{
 		Backend: "stub",
 		Model:   "gpt-4o-mini",
 		CallID:  "call-1",
@@ -394,10 +394,10 @@ func TestBuildWiresSQLiteTokenAccountingLedger(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: reg})
-	if built.Executor.Ledger == nil {
+	if built.Executor().Ledger == nil {
 		t.Fatal("Executor.Ledger is nil")
 	}
-	if built.Ledger.Len() < 1 {
+	if built.Ledger().Len() < 1 {
 		t.Fatal("expected ledger closer to be registered")
 	}
 	if err := built.Close(); err != nil {

@@ -19,12 +19,12 @@ func TestBuildMount_sharedDecodeAdmissionIdentity(t *testing.T) {
 	}
 	reg := pluginreg.NewRegistry()
 	_, cand := compileTestCandidate(t, cfg, reg)
-	if cand.DecodeAdmission == nil {
+	if cand.DecodeAdmission() == nil {
 		t.Fatal("CompileCandidate DecodeAdmission is nil; want finite limiter")
 	}
-	shared, ok := cand.DecodeAdmission.(*decodeqos.Limiter)
+	shared, ok := cand.DecodeAdmission().(*decodeqos.Limiter)
 	if !ok || shared == nil {
-		t.Fatalf("DecodeAdmission type = %T, want *decodeqos.Limiter", cand.DecodeAdmission)
+		t.Fatalf("DecodeAdmission type = %T, want *decodeqos.Limiter", cand.DecodeAdmission())
 	}
 
 	var seen []lipsdk.DecodeAdmission
@@ -40,7 +40,7 @@ func TestBuildMount_sharedDecodeAdmissionIdentity(t *testing.T) {
 	if err := MountBundledFrontends(MountBundledFrontendsInput{
 		Mux: http.NewServeMux(),
 		Frontends: HTTPFrontendInput{
-			Executor:             cand.Executor,
+			Executor:             cand.Executor(),
 			DefaultRouteSelector: "stub:gpt-4o-mini",
 			Plugins: []config.PluginConfig{
 				{ID: "openai-legacy", Enabled: true},
@@ -48,7 +48,7 @@ func TestBuildMount_sharedDecodeAdmissionIdentity(t *testing.T) {
 				{ID: "openai-responses", Enabled: true},
 				{ID: "gemini", Enabled: true},
 			},
-			DecodeAdmission: cand.DecodeAdmission,
+			DecodeAdmission: cand.DecodeAdmission(),
 			Registry:        recReg,
 		},
 	}); err != nil {

@@ -22,7 +22,7 @@ func TestBuild_authEventDispatcher_nonNil(t *testing.T) {
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 	})
-	if b.AuthEventDispatcher == nil {
+	if runtimebundle.CandidateAuthEventDispatcher(b) == nil {
 		t.Fatal("expected AuthEventDispatcher")
 	}
 }
@@ -71,7 +71,7 @@ func TestBuild_authEventDelivery_customUsesInjectedSink(t *testing.T) {
 		Auth:           runtimebundle.AuthOptions{AuthEventSink: custom},
 	})
 	ctx := context.Background()
-	if err := b.AuthEventDispatcher.DispatchAuthDecision(ctx, sdkauth.AuthDecisionEvent{}); err != nil {
+	if err := runtimebundle.CandidateAuthEventDispatcher(b).DispatchAuthDecision(ctx, sdkauth.AuthDecisionEvent{}); err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
 	if len(custom.got) != 1 || custom.got[0] != "auth" {
@@ -141,11 +141,11 @@ func TestBuild_authEventFailurePolicy_failClosed(t *testing.T) {
 		Auth:           runtimebundle.AuthOptions{AuthEventSink: errSink},
 	})
 	ctx := context.Background()
-	if err := b2.AuthEventDispatcher.DispatchAuthDecision(ctx, sdkauth.AuthDecisionEvent{}); err == nil {
+	if err := runtimebundle.CandidateAuthEventDispatcher(b2).DispatchAuthDecision(ctx, sdkauth.AuthDecisionEvent{}); err == nil {
 		t.Fatal("expected fail_closed sink error")
 	}
 	// default path still succeeds with internal slog sink
-	if err := b.AuthEventDispatcher.DispatchAuthDecision(ctx, sdkauth.AuthDecisionEvent{}); err != nil {
+	if err := runtimebundle.CandidateAuthEventDispatcher(b).DispatchAuthDecision(ctx, sdkauth.AuthDecisionEvent{}); err != nil {
 		t.Fatalf("default slog path: %v", err)
 	}
 }

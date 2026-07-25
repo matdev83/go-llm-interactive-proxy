@@ -26,7 +26,7 @@ type hostAPI interface {
 type bundleHost struct{ h *runtimebundle.Host }
 
 func adaptHost(ctx context.Context, h *runtimebundle.Host) (hostAPI, error) {
-	if h == nil || h.Manager == nil || h.Process == nil || h.Executor == nil {
+	if h == nil || !h.Ready() || h.ExecutorView() == nil {
 		if h != nil {
 			_ = h.Close(context.WithoutCancel(ctx))
 		}
@@ -39,7 +39,7 @@ func (b bundleHost) ExecutorView() lipsdk.ExecutorView {
 	if b.h == nil {
 		return nil
 	}
-	return b.h.Executor
+	return b.h.ExecutorView()
 }
 func (b bundleHost) Ready() bool                       { return b.h.Ready() }
 func (b bundleHost) Capabilities() HostCapabilities    { return b.h.Capabilities() }

@@ -77,7 +77,7 @@ models:
 	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	refs, ok := built.ModelRegistry.Lookup("cursor/composer-2-fast")
+	refs, ok := built.ModelRegistry().Lookup("cursor/composer-2-fast")
 	if !ok {
 		t.Fatal("canonical row missing")
 	}
@@ -98,8 +98,8 @@ models:
 		t.Fatalf("provenance=%#v", byKind)
 	}
 
-	sdkBE := built.Executor.Backends["sdk-a"]
-	acpBE := built.Executor.Backends["acp-b"]
+	sdkBE := built.Executor().Backends["sdk-a"]
+	acpBE := built.Executor().Backends["acp-b"]
 	if len(sdkBE.BackendPrefixes) != 1 || sdkBE.BackendPrefixes[0] != cursorsdk.ID {
 		t.Fatalf("sdk prefixes=%v", sdkBE.BackendPrefixes)
 	}

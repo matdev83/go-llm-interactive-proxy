@@ -35,13 +35,13 @@ func TestInitialGeneration_BuildHostPublishesGenerationOne(t *testing.T) {
 	}
 	hostServeCleanup(t, host)
 
-	if host.Process == nil || host.Manager == nil || host.Manager.Active() == nil {
+	if runtimebundle.HostProcess(host) == nil || runtimebundle.HostManager(host) == nil || runtimebundle.HostManager(host).Active() == nil {
 		t.Fatal("expected process services, manager, and initial generation")
 	}
-	if host.Manager.Active().ID() != 1 {
-		t.Fatalf("id=%d want 1", host.Manager.Active().ID())
+	if runtimebundle.HostManager(host).Active().ID() != 1 {
+		t.Fatalf("id=%d want 1", runtimebundle.HostManager(host).Active().ID())
 	}
-	st := host.Manager.Active().Status()
+	st := runtimebundle.HostManager(host).Active().Status()
 	if st.Meta.Label != "startup" || st.Meta.TriggerKind != "startup" {
 		t.Fatalf("meta=%+v", st.Meta)
 	}
@@ -52,7 +52,7 @@ func TestInitialGeneration_BuildHostPublishesGenerationOne(t *testing.T) {
 		t.Fatalf("lifecycle=%v", st.Lifecycle)
 	}
 
-	lease, ok := host.Manager.Acquire()
+	lease, ok := runtimebundle.HostManager(host).Acquire()
 	if !ok || lease.Handler() == nil {
 		t.Fatal("expected acquireable generation handler")
 	}
@@ -63,7 +63,7 @@ func TestInitialGeneration_BuildHostPublishesGenerationOne(t *testing.T) {
 	}
 	lease.Release()
 
-	d := runtimehost.NewGenerationDispatcher(host.Manager)
+	d := runtimehost.NewGenerationDispatcher(runtimebundle.HostManager(host))
 	rr := httptest.NewRecorder()
 	d.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/not-a-route", nil))
 	if rr.Code == http.StatusServiceUnavailable {

@@ -9,6 +9,7 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	authoritydomain "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/controlplane/ledgerstore"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
@@ -107,12 +108,12 @@ func TestUsageAuthority_EvidenceProjectedThroughRealBundle(t *testing.T) {
 	opts.Policy.PolicyObservers = []policydecision.Observer{cap}
 
 	_, built := mustProcessAndCandidate(t, cfg, opts)
-	if built.UsageAuthority == nil {
+	if runtimebundle.CandidateUsageAuthority(built) == nil {
 		t.Fatal("expected usage authority service when enabled")
 	}
 
 	admitIn := authorityAdmissionInput()
-	admitRes, err := built.UsageAuthority.Admit(ctx, admitIn)
+	admitRes, err := runtimebundle.CandidateUsageAuthority(built).Admit(ctx, admitIn)
 	if err != nil {
 		t.Fatalf("Admit: %v", err)
 	}
@@ -152,7 +153,7 @@ func TestUsageAuthority_EvidenceProjectedThroughRealBundle(t *testing.T) {
 		EstimatedCost:  admitIn.Spend,
 		Authority:      authoritydomain.AuthorityLevelAuthoritative,
 	}
-	if _, err := built.UsageAuthority.Settle(ctx, settleIn); err != nil {
+	if _, err := runtimebundle.CandidateUsageAuthority(built).Settle(ctx, settleIn); err != nil {
 		t.Fatalf("Settle: %v", err)
 	}
 
@@ -193,7 +194,7 @@ func TestUsageAuthority_DenialEvidenceProjectedThroughRealBundle(t *testing.T) {
 
 	_, built := mustProcessAndCandidate(t, cfg, opts)
 
-	admitRes, err := built.UsageAuthority.Admit(ctx, authorityAdmissionInput())
+	admitRes, err := runtimebundle.CandidateUsageAuthority(built).Admit(ctx, authorityAdmissionInput())
 	if err != nil {
 		t.Fatalf("Admit returned error on deny (expected result with Allowed=false): %v", err)
 	}
@@ -231,11 +232,11 @@ func TestUsageAuthority_EvidenceFansToObserversWhenControlPlaneDisabled(t *testi
 	opts.Policy.PolicyObservers = []policydecision.Observer{cap}
 
 	_, built := mustProcessAndCandidate(t, cfg, opts)
-	if built.UsageAuthority == nil {
+	if runtimebundle.CandidateUsageAuthority(built) == nil {
 		t.Fatal("expected usage authority service when enabled")
 	}
 
-	admitRes, err := built.UsageAuthority.Admit(ctx, authorityAdmissionInput())
+	admitRes, err := runtimebundle.CandidateUsageAuthority(built).Admit(ctx, authorityAdmissionInput())
 	if err != nil {
 		t.Fatalf("Admit: %v", err)
 	}

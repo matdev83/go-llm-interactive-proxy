@@ -51,7 +51,7 @@ func TestPhase5Remediation_BuildFiveToTwoAndBoundEvidence(t *testing.T) {
 		ID: "op-r1", Perspective: metering.PerspectiveOperator, Rater: phase53Rater{id: "op-r1"},
 	}}
 	_, built := mustProcessAndCandidate(t, cfg, opts)
-	g1 := built.SnapshotGeneration.CurrentExecutable()
+	g1 := runtimebundle.CandidateSnapshotGeneration(built).CurrentExecutable()
 	if g1 == nil || g1.RequestCoord == nil || g1.EnforcementMaxActive() != 5 {
 		t.Fatalf("build executable must enforce max=5 via live coordinator: %+v", g1)
 	}
@@ -70,14 +70,14 @@ func TestPhase5Remediation_BuildFiveToTwoAndBoundEvidence(t *testing.T) {
 		ID: "op-r2", Perspective: metering.PerspectiveOperator, Rater: phase53Rater{id: "op-r2"},
 	}}
 	g1.Retain()
-	g2, err := runtimebundle.PublishExecutableFromProduction(built.SnapshotGeneration, cfgTwo, prodTwo, time.Unix(20, 0).UTC())
+	g2, err := runtimebundle.PublishExecutableFromProduction(runtimebundle.CandidateSnapshotGeneration(built), cfgTwo, prodTwo, time.Unix(20, 0).UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if g2.EnforcementMaxActive() != 2 || g2.EvidenceObjectID() != "op-r2" {
 		t.Fatalf("refresh must change admit limit and rating evidence: %+v", g2)
 	}
-	cur := built.SnapshotGeneration.CurrentExecutable()
+	cur := runtimebundle.CandidateSnapshotGeneration(built).CurrentExecutable()
 	for i := range 2 {
 		if _, err := cur.RequestCoord.Admit(context.Background(), phase5E2EAdmit(fmt.Sprintf("e2e-new-%d", i))); err != nil {
 			t.Fatalf("admit %d under two: %v", i, err)
@@ -95,12 +95,12 @@ func TestPhase5Remediation_BuildFiveToTwoAndBoundEvidence(t *testing.T) {
 	badProd.RequestRegistrations = nil
 	badProd.ConcurrencyRegistration = nil
 	badProd.RaterRegistrations = nil
-	prior := built.SnapshotGeneration.CurrentExecutable()
-	got, pubErr := runtimebundle.PublishExecutableFromProduction(built.SnapshotGeneration, bad, badProd, time.Unix(30, 0).UTC())
+	prior := runtimebundle.CandidateSnapshotGeneration(built).CurrentExecutable()
+	got, pubErr := runtimebundle.PublishExecutableFromProduction(runtimebundle.CandidateSnapshotGeneration(built), bad, badProd, time.Unix(30, 0).UTC())
 	if pubErr == nil {
 		t.Fatal("empty contribution refresh must fail")
 	}
-	if got != prior || built.SnapshotGeneration.CurrentExecutable().Version != prior.Version {
+	if got != prior || runtimebundle.CandidateSnapshotGeneration(built).CurrentExecutable().Version != prior.Version {
 		t.Fatal("failed refresh must preserve prior executable")
 	}
 }
@@ -128,16 +128,16 @@ func TestPhase5Remediation_PendingClearAndCanRemoveProvider(t *testing.T) {
 		ID: "op-r1", Perspective: metering.PerspectiveOperator, Rater: phase53Rater{id: "op-r1"},
 	}}
 	_, built := mustProcessAndCandidate(t, cfg, opts)
-	if built.TerminalWorkProcessor == nil {
+	if runtimebundle.CandidateTerminalWorkProcessor(built) == nil {
 		t.Fatal("expected terminal work processor wired by Build")
 	}
-	gen := built.SnapshotGeneration.CurrentExecutable()
+	gen := runtimebundle.CandidateSnapshotGeneration(built).CurrentExecutable()
 	if gen == nil {
 		t.Fatal("expected executable")
 	}
 	gen.Retain()
 	gen.AddPendingProvider("quota-old")
-	if built.SnapshotGeneration.CanRemoveProvider("quota-old") {
+	if runtimebundle.CandidateSnapshotGeneration(built).CanRemoveProvider("quota-old") {
 		t.Fatal("pending ref must block provider removal")
 	}
 	nextProd := opts.Production
@@ -146,24 +146,24 @@ func TestPhase5Remediation_PendingClearAndCanRemoveProvider(t *testing.T) {
 		Priority:   authority.RequestPriorityQuotaBudgetRate,
 		Provider:   phase53Req{id: "quota-new"},
 	}}
-	if _, err := runtimebundle.PublishExecutableFromProduction(built.SnapshotGeneration, cfg, nextProd, clock); err == nil {
+	if _, err := runtimebundle.PublishExecutableFromProduction(runtimebundle.CandidateSnapshotGeneration(built), cfg, nextProd, clock); err == nil {
 		t.Fatal("publish that drops pending provider must fail CanRemoveProvider validation")
 	}
-	if built.SnapshotGeneration.CurrentExecutable().RequestRegistrations[0].Descriptor.ID != "quota-old" {
+	if runtimebundle.CandidateSnapshotGeneration(built).CurrentExecutable().RequestRegistrations[0].Descriptor.ID != "quota-old" {
 		t.Fatal("blocked removal must keep prior executable")
 	}
 
 	// Drain pending via the same Publisher.ClearPendingProvider path Build wires
 	// from Processor.OnTerminalDone after Complete/Quarantine.
-	built.SnapshotGeneration.ClearPendingProvider(gen.ID, "quota-old")
+	runtimebundle.CandidateSnapshotGeneration(built).ClearPendingProvider(gen.ID, "quota-old")
 	gen.Release()
-	if !built.SnapshotGeneration.CanRemoveProvider("quota-old") {
+	if !runtimebundle.CandidateSnapshotGeneration(built).CanRemoveProvider("quota-old") {
 		t.Fatal("after pending drain and live release, provider must be removable")
 	}
-	if _, err := runtimebundle.PublishExecutableFromProduction(built.SnapshotGeneration, cfg, nextProd, clock.Add(time.Second)); err != nil {
+	if _, err := runtimebundle.PublishExecutableFromProduction(runtimebundle.CandidateSnapshotGeneration(built), cfg, nextProd, clock.Add(time.Second)); err != nil {
 		t.Fatalf("publish after drain: %v", err)
 	}
-	if built.SnapshotGeneration.CurrentExecutable().RequestRegistrations[0].Descriptor.ID != "quota-new" {
+	if runtimebundle.CandidateSnapshotGeneration(built).CurrentExecutable().RequestRegistrations[0].Descriptor.ID != "quota-new" {
 		t.Fatal("incompatible replacement must publish under new provider id")
 	}
 }

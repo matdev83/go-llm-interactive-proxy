@@ -47,18 +47,16 @@ func startDogfoodHarness(tb testing.TB, configAbsPath string) dogfoodHarness {
 	if err != nil {
 		tb.Fatalf("BuildHost: %v", err)
 	}
-	lease, ok := host.Manager.Acquire()
-	if !ok || lease.Handler() == nil {
-		tb.Fatalf("Acquire generation handler")
+	h := host.HTTPHandler()
+	if h == nil {
+		tb.Fatalf("nil host HTTP handler")
 	}
-	h := lease.Handler()
 	srv := httptest.NewServer(h)
 	out := dogfoodHarness{
 		baseURL: srv.URL,
 		srv:     srv,
 		cleanup: func() {
 			srv.Close()
-			lease.Release()
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
 			_ = host.Close(shutdownCtx)

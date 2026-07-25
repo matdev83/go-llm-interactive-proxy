@@ -108,11 +108,11 @@ func TestBuild_modelCatalog_operatorOverridesReachResolver(t *testing.T) {
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if b.Executor.CatalogResolver == nil {
+	if b.Executor().CatalogResolver == nil {
 		t.Fatal("expected CatalogResolver")
 	}
 	base := lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
-	ef := b.Executor.CatalogResolver.Resolve(
+	ef := b.Executor().CatalogResolver.Resolve(
 		context.Background(),
 		routing.AttemptCandidate{Primary: routing.Primary{Backend: "openai-only", Model: "operator-model-x"}},
 		lipapi.Call{},
@@ -121,7 +121,7 @@ func TestBuild_modelCatalog_operatorOverridesReachResolver(t *testing.T) {
 	if ef.Facts.Source != modelcatalog.FactSourceModelOverride {
 		t.Fatalf("model override: got source %v", ef.Facts.Source)
 	}
-	efPair := b.Executor.CatalogResolver.Resolve(
+	efPair := b.Executor().CatalogResolver.Resolve(
 		context.Background(),
 		routing.AttemptCandidate{Primary: routing.Primary{Backend: "openai-only", Model: "pair-y"}},
 		lipapi.Call{},

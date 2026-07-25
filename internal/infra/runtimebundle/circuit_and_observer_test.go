@@ -20,7 +20,7 @@ func TestBuild_circuitBreakerDisabledUsesEmptyHealth(t *testing.T) {
 		Continuity: config.ContinuityConfig{InMemory: true},
 	}
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: pluginreg.NewRegistry()})
-	if _, ok := b.Executor.CandidateHealth.(*policy.CircuitBreaker); ok {
+	if _, ok := b.Executor().CandidateHealth.(*policy.CircuitBreaker); ok {
 		t.Fatal("expected no circuit breaker when disabled")
 	}
 }
@@ -44,11 +44,11 @@ func TestBuild_circuitBreakerEnabledWiresPolicy(t *testing.T) {
 		Continuity: config.ContinuityConfig{InMemory: true},
 	}
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: pluginreg.NewRegistry()})
-	if b.Executor.CandidateHealth == nil {
+	if b.Executor().CandidateHealth == nil {
 		t.Fatal("expected CandidateHealth when circuit breaker enabled")
 	}
-	if _, ok := b.Executor.CandidateHealth.(policy.RoutingAttemptOutcomeSink); !ok {
-		t.Fatalf("want RoutingAttemptOutcomeSink (namespaced process health view), got %T", b.Executor.CandidateHealth)
+	if _, ok := b.Executor().CandidateHealth.(policy.RoutingAttemptOutcomeSink); !ok {
+		t.Fatalf("want RoutingAttemptOutcomeSink (namespaced process health view), got %T", b.Executor().CandidateHealth)
 	}
 }
 
@@ -61,7 +61,7 @@ func TestBuild_routeObserverUsesSlogWhenLoggerSet(t *testing.T) {
 	}
 	_ = slog.New(slog.DiscardHandler)
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: pluginreg.NewRegistry()})
-	if b.Executor.RouteObserver == nil {
+	if b.Executor().RouteObserver == nil {
 		t.Fatal("expected RouteObserver")
 	}
 }

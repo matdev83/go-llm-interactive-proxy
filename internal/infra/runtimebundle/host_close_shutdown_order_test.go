@@ -175,7 +175,7 @@ func closeTestEffective(fingerprint string, digest byte) *config.EffectiveConfig
 }
 
 // newCloseTestHost builds a complete Host wired to recording collaborators.
-func newCloseTestHost(t *testing.T, log *hostCloseLog, opts closeHostOptions) *ReloadHost {
+func newCloseTestHost(t *testing.T, log *hostCloseLog, opts closeHostOptions) *Host {
 	t.Helper()
 	mgr := runtimehost.NewManager(8, nil)
 	g0 := mgr.PrepareRequestPlane("startup", &closeTestPlane{log: log, name: "g1"})
@@ -208,11 +208,11 @@ func newCloseTestHost(t *testing.T, log *hostCloseLog, opts closeHostOptions) *R
 		return opts.processErr
 	}}
 
-	host := &ReloadHost{
-		Coordinator:     coord,
-		Manager:         mgr,
-		Process:         ps,
-		ShutdownTracing: opts.tracing,
+	host := &Host{
+		coordinator:     coord,
+		manager:         mgr,
+		process:         ps,
+		shutdownTracing: opts.tracing,
 	}
 	t.Cleanup(func() {
 		coord.BeginShutdown()
@@ -249,7 +249,7 @@ func TestHostClose_ShutdownOrderIsCanonical(t *testing.T) {
 
 	reloadDone := make(chan sdkreload.Result, 1)
 	go func() {
-		reloadDone <- host.Coordinator.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+		reloadDone <- host.coordinator.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 	}()
 	gate.awaitEntered(t)
 
@@ -258,8 +258,8 @@ func TestHostClose_ShutdownOrderIsCanonical(t *testing.T) {
 
 	// Reload rejection is the first shutdown phase: it is observable before the
 	// candidate rolls back and long before any generation/process teardown.
-	awaitState(t, "reload trigger rejection", host.Manager.ShuttingDown)
-	raced := host.Coordinator.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+	awaitState(t, "reload trigger rejection", host.manager.ShuttingDown)
+	raced := host.coordinator.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 	if raced.Category != sdkreload.ResultCanceled || raced.ReasonCategory != configreload.StageShutdown {
 		t.Fatalf("reload raced with shutdown must be rejected, got %+v", raced)
 	}
@@ -311,7 +311,7 @@ func TestHostClose_PinnedGenerationDeadlineLeavesProcessOpenAndRetrySucceeds(t *
 	log := &hostCloseLog{}
 	host := newCloseTestHost(t, log, closeHostOptions{tracing: recordingTracing(log, nil)})
 
-	lease, ok := host.Manager.Acquire()
+	lease, ok := host.manager.Acquire()
 	if !ok {
 		t.Fatal("acquire active lease")
 	}
@@ -334,7 +334,7 @@ func TestHostClose_PinnedGenerationDeadlineLeavesProcessOpenAndRetrySucceeds(t *
 	if got := log.count("tracing"); got != 0 {
 		t.Fatalf("tracing shutdowns under pin=%d want 0", got)
 	}
-	if host.Process.Closed() {
+	if host.process.Closed() {
 		t.Fatal("process must stay open beneath pinned work")
 	}
 
@@ -521,7 +521,7 @@ func TestHostClose_ConcurrentCloseHonorsOwnContextWhileWaiting(t *testing.T) {
 func TestHostClose_SyntheticAttemptSharedResult(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-		host := &ReloadHost{}
+		host := &Host{}
 		attempt := &hostCloseAttempt{done: make(chan struct{})}
 		want := errors.New("shared synthetic boom")
 		host.closeMu.Lock()
@@ -559,7 +559,7 @@ func TestHostClose_SyntheticAttemptSharedResult(t *testing.T) {
 func TestHostClose_PublicationNotifiesWaitersBeforeRetrySlot(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-		host := &ReloadHost{}
+		host := &Host{}
 		attempt := &hostCloseAttempt{done: make(chan struct{})}
 		want := errors.New("publish-order boom")
 		host.closeMu.Lock()
@@ -653,7 +653,7 @@ func TestHostClose_ConcurrentCloseSharesFailedAttemptResult(t *testing.T) {
 func TestHostClose_ConcurrentCloseMultiWaiterNoRetryStampede(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-		host := &ReloadHost{}
+		host := &Host{}
 		attempt := &hostCloseAttempt{done: make(chan struct{})}
 		want := errors.New("tracing flush boom")
 		host.closeMu.Lock()
@@ -688,11 +688,11 @@ func TestHostClose_ConcurrentCloseMultiWaiterNoRetryStampede(t *testing.T) {
 func TestHostClose_StatusInspectionFromCleanupCallbackDoesNotDeadlock(t *testing.T) {
 	t.Parallel()
 	log := &hostCloseLog{}
-	var host *ReloadHost
+	var host *Host
 	host = newCloseTestHost(t, log, closeHostOptions{
 		tracing: func(ctx context.Context) error {
 			log.add("tracing")
-			_ = host.Coordinator.Status()
+			_ = host.coordinator.Status()
 			return host.WaitForIdle(ctx)
 		},
 	})

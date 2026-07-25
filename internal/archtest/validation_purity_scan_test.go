@@ -40,6 +40,7 @@ var validationPurityProtected = protectedSymbolSet{
 	"runtimebundle.Build":                    true,
 	"runtimebundle.NewBootstrapApp":          true,
 	"runtimebundle.publishInitialGeneration": true,
+	"runtimebundle.bindHost":                 true,
 	"runtimebundle.bindReloadHost":           true,
 	"runtimebundle.NewReloadHost":            true,
 	"runtimebundle.NewReloadCoordinator":     true,

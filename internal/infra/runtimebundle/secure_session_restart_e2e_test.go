@@ -90,9 +90,9 @@ func TestSecureSessionE2E_sqliteRestart_resumeSurvivesProcessClose(t *testing.T)
 	closeBuilt(t, b3)
 }
 
-func runCreatePhase(t *testing.T, b *runtimebundle.CandidateRuntime) (*httptest.Server, string, string, string) {
+func runCreatePhase(t *testing.T, b *runtimebundle.CandidateHTTPCompile) (*httptest.Server, string, string, string) {
 	t.Helper()
-	h := &openairesponses.Handler{Exec: b.Executor, DefaultRouteSelector: "stub:gpt-4o-mini"}
+	h := &openairesponses.Handler{Exec: b.Executor(), DefaultRouteSelector: "stub:gpt-4o-mini"}
 	mux := http.NewServeMux()
 	mux.Handle("/v1/responses", withPrincipalRestart(h, "restart-owner"))
 	srv := httptest.NewServer(mux)
@@ -117,7 +117,7 @@ func runCreatePhase(t *testing.T, b *runtimebundle.CandidateRuntime) (*httptest.
 		srv.Close()
 		t.Fatalf("missing carriers sid=%q tok=%q", sid, tok)
 	}
-	rec, err := b.SecureSessionStore.LoadByID(context.Background(), domain.SessionID(sid))
+	rec, err := runtimebundle.CandidateSecureSessionStore(b).LoadByID(context.Background(), domain.SessionID(sid))
 	if err != nil {
 		srv.Close()
 		t.Fatal(err)
@@ -129,9 +129,9 @@ func runCreatePhase(t *testing.T, b *runtimebundle.CandidateRuntime) (*httptest.
 	return srv, sid, tok, rec.ALegID
 }
 
-func runResumePhase(t *testing.T, b *runtimebundle.CandidateRuntime, sid, tok, wantALeg string) *httptest.Server {
+func runResumePhase(t *testing.T, b *runtimebundle.CandidateHTTPCompile, sid, tok, wantALeg string) *httptest.Server {
 	t.Helper()
-	h := &openairesponses.Handler{Exec: b.Executor, DefaultRouteSelector: "stub:gpt-4o-mini"}
+	h := &openairesponses.Handler{Exec: b.Executor(), DefaultRouteSelector: "stub:gpt-4o-mini"}
 	mux := http.NewServeMux()
 	mux.Handle("/v1/responses", withPrincipalRestart(h, "restart-owner"))
 	srv := httptest.NewServer(mux)
@@ -153,7 +153,7 @@ func runResumePhase(t *testing.T, b *runtimebundle.CandidateRuntime, sid, tok, w
 		t.Fatalf("resume status %d body=%s", resp.StatusCode, bb)
 	}
 	_, _ = io.ReadAll(resp.Body)
-	rec, err := b.SecureSessionStore.LoadByID(context.Background(), domain.SessionID(sid))
+	rec, err := runtimebundle.CandidateSecureSessionStore(b).LoadByID(context.Background(), domain.SessionID(sid))
 	if err != nil {
 		srv.Close()
 		t.Fatal(err)
@@ -165,9 +165,9 @@ func runResumePhase(t *testing.T, b *runtimebundle.CandidateRuntime, sid, tok, w
 	return srv
 }
 
-func runWrongOwnerPhase(t *testing.T, b *runtimebundle.CandidateRuntime, sid, tok string) *httptest.Server {
+func runWrongOwnerPhase(t *testing.T, b *runtimebundle.CandidateHTTPCompile, sid, tok string) *httptest.Server {
 	t.Helper()
-	h := &openairesponses.Handler{Exec: b.Executor, DefaultRouteSelector: "stub:gpt-4o-mini"}
+	h := &openairesponses.Handler{Exec: b.Executor(), DefaultRouteSelector: "stub:gpt-4o-mini"}
 	mux := http.NewServeMux()
 	mux.Handle("/v1/responses", withPrincipalRestart(h, "other-owner"))
 	srv := httptest.NewServer(mux)
@@ -192,7 +192,7 @@ func runWrongOwnerPhase(t *testing.T, b *runtimebundle.CandidateRuntime, sid, to
 	return srv
 }
 
-func closeBuilt(t *testing.T, b *runtimebundle.CandidateRuntime) {
+func closeBuilt(t *testing.T, b *runtimebundle.CandidateHTTPCompile) {
 	t.Helper()
 	if b == nil {
 		return
@@ -202,12 +202,12 @@ func closeBuilt(t *testing.T, b *runtimebundle.CandidateRuntime) {
 	}
 }
 
-func injectStubBackend(t *testing.T, b *runtimebundle.CandidateRuntime) {
+func injectStubBackend(t *testing.T, b *runtimebundle.CandidateHTTPCompile) {
 	t.Helper()
-	if b.Executor.Backends == nil {
-		b.Executor.Backends = map[string]execbackend.Backend{}
+	if b.Executor().Backends == nil {
+		b.Executor().Backends = map[string]execbackend.Backend{}
 	}
-	b.Executor.Backends["stub"] = execbackend.Backend{
+	b.Executor().Backends["stub"] = execbackend.Backend{
 		Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			_ = ctx

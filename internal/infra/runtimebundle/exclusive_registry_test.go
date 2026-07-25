@@ -61,7 +61,7 @@ func TestBuild_backendConstructionUsesInjectedRegistryNotDefault(t *testing.T) {
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	be, ok := b.Executor.Backends["only-instance"]
+	be, ok := b.Executor().Backends["only-instance"]
 	if !ok {
 		t.Fatal("expected backend instance")
 	}

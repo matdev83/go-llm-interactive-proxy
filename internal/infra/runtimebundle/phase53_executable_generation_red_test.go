@@ -94,7 +94,7 @@ func TestPhase53_BuildPublishesExecutableWhenRegistrationsPresent(t *testing.T) 
 		ID: "op-rater", Perspective: metering.PerspectiveOperator, Rater: phase53Rater{id: "op-rater"},
 	}}
 	_, built := mustProcessAndCandidate(t, cfg, opts)
-	exec := built.SnapshotGeneration.CurrentExecutable()
+	exec := runtimebundle.CandidateSnapshotGeneration(built).CurrentExecutable()
 	if exec == nil {
 		t.Fatal("expected executable generation after CompileCandidate")
 	}

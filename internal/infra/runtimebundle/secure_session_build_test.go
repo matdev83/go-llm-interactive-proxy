@@ -34,14 +34,14 @@ func TestBuild_secureSession_alwaysWiresManager(t *testing.T) {
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 	})
-	ex := b.Executor
+	ex := b.Executor()
 	if ex.SecureSession == nil || ex.SessionDenialMapper == nil {
 		t.Fatalf("expected secure-session wiring, mgr=%v mapper_set=%v", ex.SecureSession, ex.SessionDenialMapper != nil)
 	}
 	if !ex.SyntheticLocalPrincipal {
 		t.Fatal("expected synthetic local principal on loopback + memory secure session defaults")
 	}
-	if b.SecureSessionStore == nil {
+	if runtimebundle.CandidateSecureSessionStore(b) == nil {
 		t.Fatalf("expected Built.SecureSessionStore, got nil")
 	}
 }
@@ -83,7 +83,7 @@ func TestBuild_nonLoopbackExplicitBindDisablesSyntheticLocalPrincipal(t *testing
 		PluginRegistry: pluginreg.NewRegistry(),
 		Auth:           runtimebundle.AuthOptions{RemoteDecider: &testkit.StubRemoteDecider{}},
 	})
-	if b.Executor.SyntheticLocalPrincipal {
+	if b.Executor().SyntheticLocalPrincipal {
 		t.Fatal("non-loopback bind must not enable synthetic local principal")
 	}
 	if config.IsExplicitLoopbackListenAddress("0.0.0.0:8080") {
@@ -125,7 +125,7 @@ func TestBuild_nonLoopback_unauthenticatedExecuteSessionDenial(t *testing.T) {
 		PluginRegistry: reg,
 		Auth:           runtimebundle.AuthOptions{RemoteDecider: &testkit.StubRemoteDecider{}},
 	})
-	if b.Executor.SyntheticLocalPrincipal {
+	if b.Executor().SyntheticLocalPrincipal {
 		t.Fatal("non-loopback bind must not enable synthetic local principal")
 	}
 	ctx := context.Background()
@@ -137,7 +137,7 @@ func TestBuild_nonLoopback_unauthenticatedExecuteSessionDenial(t *testing.T) {
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
 	}
-	_, err := b.Executor.Execute(ctx, call)
+	_, err := b.Executor().Execute(ctx, call)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -162,7 +162,7 @@ func TestBuild_secureSessionMemory_wiresManagerDenialMapperAndStore(t *testing.T
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 	})
-	ex := b.Executor
+	ex := b.Executor()
 	if ex.SecureSession == nil {
 		t.Fatal("expected secure session manager")
 	}
@@ -178,7 +178,7 @@ func TestBuild_secureSessionMemory_wiresManagerDenialMapperAndStore(t *testing.T
 	if ex.SessionDenialMapper == nil {
 		t.Fatal("expected SessionDenialMapper")
 	}
-	if b.SecureSessionStore == nil {
+	if runtimebundle.CandidateSecureSessionStore(b) == nil {
 		t.Fatal("expected Built.SecureSessionStore for diagnostics when secure session enabled")
 	}
 }
@@ -201,14 +201,14 @@ func TestBuild_secureSessionSQLite_wiresRecorderAndMandatoryWhenAuditDurable(t *
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 	})
-	ex := b.Executor
+	ex := b.Executor()
 	if ex.SecureSessionRecorder == nil {
 		t.Fatal("expected full recorder for sqlite")
 	}
 	if !ex.SecureSessionRecordingMandatory {
 		t.Fatal("expected recording mandatory when audit_durability is durable")
 	}
-	if b.SecureSessionStore == nil {
+	if runtimebundle.CandidateSecureSessionStore(b) == nil {
 		t.Fatal("expected CandidateRuntime.SecureSessionStore")
 	}
 	if err := b.Close(); err != nil {

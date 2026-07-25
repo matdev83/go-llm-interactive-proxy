@@ -237,13 +237,13 @@ func newRealSecretGuardHarness(t *testing.T, action, ownerID string) *realSecret
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = cand.Close() })
-	if cand.RuntimeSnapshot == nil || cand.Metrics == nil {
+	if cand.RuntimeSnapshot() == nil || cand.Metrics() == nil {
 		t.Fatal("CompileCandidate must return runtime snapshot and metrics")
 	}
 
 	fingerprintKey := secretGuardFingerprintKey(t)
 	memSS := memory.New(memory.Options{SimulateDurable: true})
-	mgr, err := app.NewManager(memSS, app.NewRandGenerator(fingerprintKey), b2bualineage.New(cand.Store), app.ManagerConfig{
+	mgr, err := app.NewManager(memSS, app.NewRandGenerator(fingerprintKey), b2bualineage.New(cand.Store()), app.ManagerConfig{
 		FingerprintKey: fingerprintKey,
 		StoreDurable:   true,
 	})
@@ -265,19 +265,19 @@ func newRealSecretGuardHarness(t *testing.T, action, ownerID string) *realSecret
 		},
 	}
 
-	h.metrics = cand.Metrics
+	h.metrics = cand.Metrics()
 	h.memSS = memSS
 	h.mgr = mgr
 	h.exec = runtime.TestExecutor()
 	h.exec.SessionDenialMapper = lipapidenial.MapToSessionDenial
-	h.exec.Store = cand.Store
+	h.exec.Store = cand.Store()
 	h.exec.Bus = bus
 	h.exec.SecureSession = mgr
-	h.exec.SecretGuardDecisionMetrics = cand.Metrics.SecretGuardDecisionSink()
-	h.exec.ExtensionMetrics = cand.Metrics.ExtensionStageSink()
+	h.exec.SecretGuardDecisionMetrics = cand.Metrics().SecretGuardDecisionSink()
+	h.exec.ExtensionMetrics = cand.Metrics().ExtensionStageSink()
 	h.exec.Now = func() time.Time { return time.Unix(2500, 0).UTC() }
 	h.exec.Rand = routing.NewSeededRng(1)
-	h.exec.RuntimeSnapshot = cand.RuntimeSnapshot
+	h.exec.RuntimeSnapshot = cand.RuntimeSnapshot()
 	h.exec.Backends = map[string]execbackend.Backend{
 		"openai-only": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),

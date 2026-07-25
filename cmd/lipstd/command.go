@@ -275,27 +275,27 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 	}
 	// Every post-BuildHost path — startup failure and normal serve return alike
 	// — tears down through the one host close seam, which owns tracing last.
-	if err := logBootstrapAccessAuth(ctx, host.Logger, host.Config); err != nil {
+	if err := logBootstrapAccessAuth(ctx, host.Logger(), host.Config()); err != nil {
 		cleanupErr := closeServeHostAfterBuild(ctx, host, nil)
-		host.Logger.ErrorContext(ctx, "lipstd: bootstrap access/auth", "error", errors.Join(err, cleanupErr))
+		host.Logger().ErrorContext(ctx, "lipstd: bootstrap access/auth", "error", errors.Join(err, cleanupErr))
 		return 1
 	}
-	mgmt, err := startManagementServer(ctx, host.Config, host.Logger, host)
+	mgmt, err := startManagementServer(ctx, host.Config(), host.Logger(), host)
 	if err != nil {
 		cleanupErr := closeServeHostAfterBuild(ctx, host, nil)
-		host.Logger.ErrorContext(ctx, "lipstd: management server", "error", errors.Join(err, cleanupErr))
+		host.Logger().ErrorContext(ctx, "lipstd: management server", "error", errors.Join(err, cleanupErr))
 		return 1
 	}
 	// INT/TERM shut down the server; SIGHUP delivers through the Host reload seam.
 	sigCtx, stop := startServeSignalHandling(ctx, host)
 	defer stop()
 	if err := stdhttp.RunWithGenerationHost(sigCtx, stdhttp.GenerationHostInput{
-		Config:     host.Config,
-		Log:        host.Logger,
+		Config:     host.Config(),
+		Log:        host.Logger(),
 		Host:       host,
 		Management: mgmt,
 	}); err != nil {
-		host.Logger.ErrorContext(sigCtx, "server stopped", "error", err)
+		host.Logger().ErrorContext(sigCtx, "server stopped", "error", err)
 		return 1
 	}
 	return 0

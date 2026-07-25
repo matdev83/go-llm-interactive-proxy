@@ -46,17 +46,17 @@ func TestBuild_modelCatalog_disabledDoesNotStartRuntime(t *testing.T) {
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if b.CatalogRuntime != nil {
+	if runtimebundle.CandidateCatalogRuntime(b) != nil {
 		t.Fatalf("expected nil CatalogRuntime")
 	}
-	if b.Executor.CatalogResolver != nil {
+	if b.Executor().CatalogResolver != nil {
 		t.Fatalf("expected nil CatalogResolver")
 	}
-	if b.Executor.RequestTokenEstimator != nil {
+	if b.Executor().RequestTokenEstimator != nil {
 		t.Fatalf("expected nil RequestTokenEstimator")
 	}
-	if b.Ledger.Len() != 1 {
-		t.Fatalf("expected generation-owned upstream idle closer only (disabled catalog, in-memory continuity), got %d", b.Ledger.Len())
+	if b.Ledger().Len() != 1 {
+		t.Fatalf("expected generation-owned upstream idle closer only (disabled catalog, in-memory continuity), got %d", b.Ledger().Len())
 	}
 	closeRuntimeBuilt(t, b)
 }
@@ -100,10 +100,10 @@ func TestBuild_openCodeWithModelCatalogDisabledUsesStaticVendorResolver(t *testi
 		Infra:          runtimebundle.InfraOptions{HTTPClient: srv.Client()},
 	})
 	t.Cleanup(func() { closeRuntimeBuilt(t, b) })
-	if b.CatalogRuntime != nil {
+	if runtimebundle.CandidateCatalogRuntime(b) != nil {
 		t.Fatalf("expected nil CatalogRuntime")
 	}
-	got, ok := b.ModelRegistry.Lookup("alibaba/qwen3.6-plus-free")
+	got, ok := b.ModelRegistry().Lookup("alibaba/qwen3.6-plus-free")
 	if !ok || len(got) != 1 {
 		t.Fatalf("Lookup(alibaba/qwen3.6-plus-free) = %+v, %v", got, ok)
 	}
@@ -152,22 +152,22 @@ func TestBuild_modelCatalog_enabled_wiresResolversEstimatorAndCloser(t *testing.
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if b.CatalogRuntime == nil {
+	if runtimebundle.CandidateCatalogRuntime(b) == nil {
 		t.Fatal("expected CatalogRuntime")
 	}
-	if b.Executor.CatalogResolver == nil || b.Executor.EligibilityResolver == nil || b.Executor.RequestTokenEstimator == nil {
+	if b.Executor().CatalogResolver == nil || b.Executor().EligibilityResolver == nil || b.Executor().RequestTokenEstimator == nil {
 		t.Fatalf("expected catalog wiring on executor: cr=%v el=%v rte=%v",
-			b.Executor.CatalogResolver != nil,
-			b.Executor.EligibilityResolver != nil,
-			b.Executor.RequestTokenEstimator != nil)
+			b.Executor().CatalogResolver != nil,
+			b.Executor().EligibilityResolver != nil,
+			b.Executor().RequestTokenEstimator != nil)
 	}
-	if b.Ledger.Len() == 0 {
+	if b.Ledger().Len() == 0 {
 		t.Fatal("expected closers")
 	}
 	closeRuntimeBuilt(t, b)
 }
 
-func closeRuntimeBuilt(t *testing.T, b *runtimebundle.CandidateRuntime) {
+func closeRuntimeBuilt(t *testing.T, b *runtimebundle.CandidateHTTPCompile) {
 	t.Helper()
 	if b == nil {
 		return

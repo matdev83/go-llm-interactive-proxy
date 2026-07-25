@@ -14,8 +14,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-// ValidateDistributionInput configures [ValidateDistribution]. No LogWriter:
-// validation returns only a secret-safe error or nil.
 type ValidateDistributionInput struct {
 	ConfigPath              string
 	Mandatory               []lipsdk.Requirement
@@ -24,57 +22,30 @@ type ValidateDistributionInput struct {
 	HandlerComposer         HandlerComposer
 }
 
-// ValidateDistribution is one unpublished dry-run (req 5.1-5.6): one strict
-// effective load, ProcessServices, and [CompileGeneration] via the serve/reload
-// composer path, then generation rollback and process/tracing close — never a
-// Manager, generation ID, active pointer, listener, or retirement worker.
-func ValidateDistribution(ctx context.Context, in ValidateDistributionInput) error {
-	return validateDistribution(ctx, in, osenv.Process{}, LoadBootstrapEffectiveWithSource, nil)
+type validateDistributionOps struct {
+	hostBuildOps
+	registry registryInstaller
 }
 
-type validateDistributionStage string
+func defaultValidateDistributionOps() validateDistributionOps {
+	return validateDistributionOps{hostBuildOps: defaultHostBuildOps(), registry: installRegistryOp}
+}
 
-const (
-	validateStageLoader       validateDistributionStage = "loader"
-	validateStageTracing      validateDistributionStage = "tracing"
-	validateStageRegistry     validateDistributionStage = "registry"
-	validateStageProcess      validateDistributionStage = "process"
-	validateStageCompile      validateDistributionStage = "compile"
-	validateStageRollback     validateDistributionStage = "rollback"
-	validateStageProcessClose validateDistributionStage = "process_close"
-	validateStageTracingClose validateDistributionStage = "tracing_close"
-)
-
-type validateDistributionProbeEvent string
-
-const (
-	validateProbeAcquired validateDistributionProbeEvent = "acquired"
-	validateProbeCleaned  validateDistributionProbeEvent = "cleaned"
-)
-
-// validateDistributionProbe is a test-only observer/fault injector (mirrors
-// [hostBuildProbe]). "acquired" faults after real acquire; "cleaned" joins with
-// real close/rollback (never replaces) so the action always runs once.
-type validateDistributionProbe func(stage validateDistributionStage, event validateDistributionProbeEvent) error
+func ValidateDistribution(ctx context.Context, in ValidateDistributionInput) error {
+	return validateDistribution(ctx, in, osenv.Process{}, defaultValidateDistributionOps())
+}
 
 func validateDistribution(
 	ctx context.Context,
 	in ValidateDistributionInput,
 	secretEnv coresg.Environment,
-	loadEffective bootstrapEffectiveLoader,
-	probe validateDistributionProbe,
+	ops validateDistributionOps,
 ) error {
-	note := func(stage validateDistributionStage, event validateDistributionProbeEvent) error {
-		if probe == nil {
-			return nil
-		}
-		return probe(stage, event)
-	}
 	if ctx == nil {
 		return fmt.Errorf("runtimebundle: nil context")
 	}
-	if loadEffective == nil {
-		return fmt.Errorf("runtimebundle: nil effective loader")
+	if ops.load == nil || ops.tracing == nil || ops.registry == nil || ops.process == nil || ops.compile == nil {
+		return fmt.Errorf("runtimebundle: incomplete validate distribution operations")
 	}
 	path := strings.TrimSpace(in.ConfigPath)
 	if path == "" {
@@ -84,15 +55,12 @@ func validateDistribution(
 		return fmt.Errorf("runtimebundle: ValidateDistribution requires HandlerComposer")
 	}
 
-	effective, _, _, err := loadEffective(ctx, path, in.StreamRecoveryOverrides)
+	effective, _, _, err := ops.load(ctx, path, in.StreamRecoveryOverrides)
 	if err != nil {
 		return err
 	}
 	if effective == nil || effective.Config == nil {
 		return fmt.Errorf("runtimebundle: nil effective config")
-	}
-	if err := note(validateStageLoader, validateProbeAcquired); err != nil {
-		return err
 	}
 	cfg := effective.Config
 
@@ -101,28 +69,20 @@ func validateDistribution(
 		return joinInitialFailureCleanup(ctx, err, rollback, closeProcess, shutTracing)
 	}
 
-	traceRes, err := initProcessTracing(ctx, cfg)
+	traceRes, err := ops.tracing(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("runtimebundle: tracing init: %w", err)
 	}
 	traceShutdownRaw := traceRes.Shutdown
 	shutTracing = func(ctx context.Context) error {
-		return validateRunCleanupStage(note, validateStageTracingClose, func() error {
-			if traceShutdownRaw == nil {
-				return nil
-			}
-			return traceShutdownRaw(ctx)
-		})
-	}
-	if err := note(validateStageTracing, validateProbeAcquired); err != nil {
-		return fail(err, nil, nil)
+		if traceShutdownRaw == nil {
+			return nil
+		}
+		return traceShutdownRaw(ctx)
 	}
 
-	reg, _, err := installRegistryAndRegistrations(cfg, in.Mandatory)
+	reg, _, err := ops.registry(cfg, in.Mandatory)
 	if err != nil {
-		return fail(err, nil, nil)
-	}
-	if err := note(validateStageRegistry, validateProbeAcquired); err != nil {
 		return fail(err, nil, nil)
 	}
 
@@ -132,57 +92,25 @@ func validateDistribution(
 		return fail(fmt.Errorf("runtimebundle: logger init: %w", err), nil, nil)
 	}
 
-	ps, err := NewProcessServices(ctx, ProcessServicesInput{
-		Cfg: cfg,
-		Log: logger,
-		Opts: &BuildOptions{
-			PluginRegistry: reg,
-			Infra: InfraOptions{
-				OutboundTracing: traceRes.Active,
-				ProcessTracing:  ProcessTracing{Shutdown: traceShutdownRaw, Active: traceRes.Active},
-			},
-			Extensions: ExtensionsOptions{SecretGuardEnvironment: secretEnv},
-			Production: in.Production,
-		},
+	ps, err := ops.process(ctx, processBuildInput{
+		Cfg: cfg, Logger: logger, Registry: reg, SecretEnv: secretEnv, Production: in.Production,
 		Tracing: ProcessTracing{Shutdown: traceShutdownRaw, Active: traceRes.Active},
 	})
 	if err != nil {
 		return fail(fmt.Errorf("runtimebundle: process services: %w", err), nil, nil)
 	}
-	closeProcess := func() error {
-		return validateRunCleanupStage(note, validateStageProcessClose, ps.Close)
-	}
-	if err := note(validateStageProcess, validateProbeAcquired); err != nil {
-		return fail(err, nil, closeProcess)
-	}
+	closeProcess := ps.Close
 
-	bundle, err := CompileGeneration(ctx, GenerationCompileInput{
-		Process: ps, Candidate: cfg, Compose: in.HandlerComposer,
-	})
+	bundle, err := ops.compile(ctx, ps, cfg, in.HandlerComposer)
+	var rollback func() error
+	if bundle != nil {
+		b := bundle
+		rollback = func() error {
+			return errors.Join(b.Quiesce(context.WithoutCancel(ctx)), omitSoleAlreadyClosed(b.Close()))
+		}
+	}
 	if err != nil {
-		return fail(fmt.Errorf("runtimebundle: compile validation generation: %w", err), nil, closeProcess)
+		return fail(fmt.Errorf("runtimebundle: compile validation generation: %w", err), rollback, closeProcess)
 	}
-	rollback := func() error {
-		return validateRunCleanupStage(note, validateStageRollback, func() error {
-			if bundle == nil {
-				return nil
-			}
-			return errors.Join(bundle.Quiesce(context.WithoutCancel(ctx)), omitSoleAlreadyClosed(bundle.Close()))
-		})
-	}
-	if err := note(validateStageCompile, validateProbeAcquired); err != nil {
-		return fail(err, rollback, closeProcess)
-	}
-
 	return fail(nil, rollback, closeProcess)
-}
-
-// validateRunCleanupStage runs real cleanup first, then joins any probe fault.
-func validateRunCleanupStage(note validateDistributionProbe, stage validateDistributionStage, action func() error) error {
-	actionErr := action()
-	probeErr := note(stage, validateProbeCleaned)
-	if probeErr != nil {
-		return errors.Join(actionErr, probeErr)
-	}
-	return actionErr
 }

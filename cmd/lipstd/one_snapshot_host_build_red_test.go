@@ -34,10 +34,10 @@ func TestHostBuild_ServeUsesSingleHostBuildCall(t *testing.T) {
 		t.Fatalf("BuildHost: %v", err)
 	}
 	t.Cleanup(func() { _ = host.Close(context.Background()) })
-	if host.Manager == nil || host.Process == nil || host.Coordinator == nil || host.Executor == nil {
+	if !host.Ready() || host.ExecutorView() == nil || host.HTTPHandler() == nil {
 		t.Fatal("BuildHost must return a complete Host")
 	}
-	if host.Manager.Active() == nil || host.Manager.Active().ID() != 1 {
+	if host.ActiveGenerationID() != 1 {
 		t.Fatalf("BuildHost must publish generation 1")
 	}
 	assertServeCommandCallsBuildHostOnce(t)
@@ -64,11 +64,11 @@ func TestOneSnapshot_ServePathMustNotDoubleLoadEffective(t *testing.T) {
 		t.Fatalf("BuildHost with multi-user gate: %v", err)
 	}
 	t.Cleanup(func() { _ = host.Close(context.Background()) })
-	wantFP := host.Effective.Identity.PublicFingerprint
+	wantFP := host.Effective().Identity.PublicFingerprint
 	if wantFP == "" {
 		t.Fatal("expected non-empty fingerprint")
 	}
-	if host.Manager.Active().Status().Meta.PublicFingerprint != wantFP {
+	if host.ActivePublicFingerprint() != wantFP {
 		t.Fatal("generation fingerprint must match accepted Effective")
 	}
 }

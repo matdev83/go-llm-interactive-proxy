@@ -23,8 +23,8 @@ func TestCandidateRuntime_ConcurrentQuiesceClose_NilAndLedgerBound(t *testing.T)
 		t.Parallel()
 		const goroutines = 64
 		for n := 0; n < 8; n++ {
-			var nilCand *runtimebundle.CandidateRuntime
-			zero := &runtimebundle.CandidateRuntime{}
+			var nilCand *runtimebundle.CandidateHTTPCompile
+			zero := &runtimebundle.CandidateHTTPCompile{}
 			var wg sync.WaitGroup
 			wg.Add(goroutines * 4)
 			for i := 0; i < goroutines; i++ {

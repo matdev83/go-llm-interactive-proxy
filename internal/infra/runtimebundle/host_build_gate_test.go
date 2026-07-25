@@ -8,6 +8,10 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/osenv"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -19,12 +23,7 @@ func TestBuildHost_CLIMultiUserGateRejectsBeforeTracing(t *testing.T) {
 	path := writeOneSnapshotMarkerConfig(t, "127.0.0.1:18401", accessmode.ModeMultiUser)
 
 	var acquired []string
-	probe := func(stage hostBuildStageName, event hostBuildProbeEvent) error {
-		if event == hostBuildProbeAcquired {
-			acquired = append(acquired, string(stage))
-		}
-		return nil
-	}
+	ops := gateOpsRejectingAfterLoad(t, &acquired)
 	host, err := buildHost(ctx, hostBuildInput{
 		ConfigPath:              path,
 		Mandatory:               lipsdk.StandardDistributionRequirements(),
@@ -32,15 +31,15 @@ func TestBuildHost_CLIMultiUserGateRejectsBeforeTracing(t *testing.T) {
 		HandlerComposer:         stubHandlerComposer,
 		EnforceMultiUserCLIGate: true,
 		MultiUser:               nil,
-	}, LoadBootstrapEffectiveWithSource, probe)
+	}, ops, osenv.Process{})
 	if host != nil {
-		t.Cleanup(func() { cleanupReloadHost(t, host) })
+		t.Cleanup(func() { cleanupHost(t, host) })
 		t.Fatal("CLI gate failure must return nil Host")
 	}
 	if !errors.Is(err, accessmode.ErrMultiUserFlagRequired) {
 		t.Fatalf("want ErrMultiUserFlagRequired, got %v", err)
 	}
-	if len(acquired) != 1 || acquired[0] != string(hostBuildStageNameLoader) {
+	if len(acquired) != 1 || acquired[0] != "loader" {
 		t.Fatalf("gate must run after loader and before tracing; acquired=%v", acquired)
 	}
 }
@@ -53,12 +52,7 @@ func TestBuildHost_CLIMultiUserGateRejectsExplicitFalse(t *testing.T) {
 	path := writeOneSnapshotMarkerConfig(t, "127.0.0.1:18403", accessmode.ModeMultiUser)
 	flagFalse := false
 	var acquired []string
-	probe := func(stage hostBuildStageName, event hostBuildProbeEvent) error {
-		if event == hostBuildProbeAcquired {
-			acquired = append(acquired, string(stage))
-		}
-		return nil
-	}
+	ops := gateOpsRejectingAfterLoad(t, &acquired)
 	host, err := buildHost(ctx, hostBuildInput{
 		ConfigPath:              path,
 		Mandatory:               lipsdk.StandardDistributionRequirements(),
@@ -66,15 +60,15 @@ func TestBuildHost_CLIMultiUserGateRejectsExplicitFalse(t *testing.T) {
 		HandlerComposer:         stubHandlerComposer,
 		EnforceMultiUserCLIGate: true,
 		MultiUser:               &flagFalse,
-	}, LoadBootstrapEffectiveWithSource, probe)
+	}, ops, osenv.Process{})
 	if host != nil {
-		t.Cleanup(func() { cleanupReloadHost(t, host) })
+		t.Cleanup(func() { cleanupHost(t, host) })
 		t.Fatal("explicit false must return nil Host")
 	}
 	if !errors.Is(err, accessmode.ErrMultiUserFlagRequired) {
 		t.Fatalf("want ErrMultiUserFlagRequired, got %v", err)
 	}
-	if len(acquired) != 1 || acquired[0] != string(hostBuildStageNameLoader) {
+	if len(acquired) != 1 || acquired[0] != "loader" {
 		t.Fatalf("gate must run after one load and before tracing; acquired=%v", acquired)
 	}
 }
@@ -87,12 +81,7 @@ func TestBuildHost_CLIMultiUserGateRejectsInconsistentTrue(t *testing.T) {
 	path := writeOneSnapshotMarkerConfig(t, "127.0.0.1:18404", accessmode.ModeSingleUser)
 	flagTrue := true
 	var acquired []string
-	probe := func(stage hostBuildStageName, event hostBuildProbeEvent) error {
-		if event == hostBuildProbeAcquired {
-			acquired = append(acquired, string(stage))
-		}
-		return nil
-	}
+	ops := gateOpsRejectingAfterLoad(t, &acquired)
 	host, err := buildHost(ctx, hostBuildInput{
 		ConfigPath:              path,
 		Mandatory:               lipsdk.StandardDistributionRequirements(),
@@ -100,17 +89,36 @@ func TestBuildHost_CLIMultiUserGateRejectsInconsistentTrue(t *testing.T) {
 		HandlerComposer:         stubHandlerComposer,
 		EnforceMultiUserCLIGate: true,
 		MultiUser:               &flagTrue,
-	}, LoadBootstrapEffectiveWithSource, probe)
+	}, ops, osenv.Process{})
 	if host != nil {
-		t.Cleanup(func() { cleanupReloadHost(t, host) })
+		t.Cleanup(func() { cleanupHost(t, host) })
 		t.Fatal("inconsistent true must return nil Host")
 	}
 	if !errors.Is(err, accessmode.ErrMultiUserFlagInconsistent) {
 		t.Fatalf("want ErrMultiUserFlagInconsistent, got %v", err)
 	}
-	if len(acquired) != 1 || acquired[0] != string(hostBuildStageNameLoader) {
+	if len(acquired) != 1 || acquired[0] != "loader" {
 		t.Fatalf("gate must run after one load and before tracing; acquired=%v", acquired)
 	}
+}
+
+func gateOpsRejectingAfterLoad(t *testing.T, acquired *[]string) hostBuildOps {
+	t.Helper()
+	ops := defaultHostBuildOps()
+	baseLoad := ops.load
+	ops.load = func(ctx context.Context, path string, cli config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
+		eff, src, fixed, err := baseLoad(ctx, path, cli)
+		if err != nil {
+			return nil, nil, fixed, err
+		}
+		*acquired = append(*acquired, "loader")
+		return eff, src, fixed, nil
+	}
+	ops.tracing = func(context.Context, *config.Config) (tracing.Result, error) {
+		t.Fatal("tracing must not run after CLI gate rejection")
+		return tracing.Result{}, nil
+	}
+	return ops
 }
 
 // TestBuildHost_PublicPathSkipsCLIMultiUserGate proves EnforceMultiUserCLIGate=false
@@ -129,8 +137,8 @@ func TestBuildHost_PublicPathSkipsCLIMultiUserGate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("public BuildHost must not require --multi-user: %v", err)
 	}
-	t.Cleanup(func() { cleanupReloadHost(t, host) })
-	if host.Manager == nil || host.Manager.Active() == nil {
+	t.Cleanup(func() { cleanupHost(t, host) })
+	if host.manager == nil || host.manager.Active() == nil {
 		t.Fatal("expected complete Host")
 	}
 }
@@ -151,7 +159,7 @@ func TestHostClose_TracingShutdownExactlyOnceOnSuccess(t *testing.T) {
 		t.Fatalf("BuildHost: %v", err)
 	}
 	calls := 0
-	host.ShutdownTracing = func(context.Context) error {
+	host.shutdownTracing = func(context.Context) error {
 		calls++
 		return nil
 	}
@@ -161,7 +169,7 @@ func TestHostClose_TracingShutdownExactlyOnceOnSuccess(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("tracing calls=%d want 1", calls)
 	}
-	if host.ShutdownTracing != nil {
+	if host.shutdownTracing != nil {
 		t.Fatal("successful Close must clear ShutdownTracing")
 	}
 	if err := host.Close(ctx); err != nil {

@@ -40,13 +40,13 @@ func TestBuild_injectedRegistryOnly(t *testing.T) {
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if len(b.Executor.Backends) != 1 {
-		t.Fatalf("backends: got %d want 1", len(b.Executor.Backends))
+	if len(b.Executor().Backends) != 1 {
+		t.Fatalf("backends: got %d want 1", len(b.Executor().Backends))
 	}
-	if _, ok := b.Executor.Backends["openai-only"]; !ok {
+	if _, ok := b.Executor().Backends["openai-only"]; !ok {
 		t.Fatal("missing instance openai-only")
 	}
-	if b.PluginRegistry != reg {
-		t.Fatalf("PluginRegistry: got %p want %p", b.PluginRegistry, reg)
+	if b.PluginRegistry() != reg {
+		t.Fatalf("PluginRegistry: got %p want %p", b.PluginRegistry(), reg)
 	}
 }

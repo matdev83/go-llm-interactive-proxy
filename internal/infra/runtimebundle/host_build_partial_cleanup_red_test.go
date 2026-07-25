@@ -74,7 +74,7 @@ func TestPartialCleanup_HostBuilderStageMatrix(t *testing.T) {
 					HandlerComposer: stubHandlerComposer,
 				})
 				if err == nil {
-					cleanupReloadHost(t, host)
+					cleanupHost(t, host)
 					t.Fatal("expected loader failure")
 				}
 				if host != nil {
@@ -133,7 +133,7 @@ func TestPartialCleanup_HostBuilderStageMatrix(t *testing.T) {
 				if err != nil {
 					t.Fatalf("HostBuilder success path: %v", err)
 				}
-				t.Cleanup(func() { cleanupReloadHost(t, out.Host) })
+				t.Cleanup(func() { cleanupHost(t, out.Host) })
 				if len(out.Journal.Cleaned) != 0 {
 					t.Fatalf("success must not run prior cleanup; cleaned=%v", out.Journal.Cleaned)
 				}
@@ -169,7 +169,7 @@ func TestHostBuild_CompleteHostFromOneOperation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HostBuilder: %v", err)
 	}
-	t.Cleanup(func() { cleanupReloadHost(t, out.Host) })
+	t.Cleanup(func() { cleanupHost(t, out.Host) })
 	if hostIsComplete(out) {
 		return
 	}
@@ -194,7 +194,7 @@ func assertHostBuilderStageCleanup(t *testing.T, in hostBuildInput, stage hostBu
 	}
 	out, err := fb.BuildFaulting(context.Background(), in, stage)
 	if out.Host != nil {
-		t.Cleanup(func() { cleanupReloadHost(t, out.Host) })
+		t.Cleanup(func() { cleanupHost(t, out.Host) })
 	}
 	if err == nil {
 		t.Fatalf("stage %s must fail", stage)
@@ -222,7 +222,7 @@ func assertBuildHostComposeCleanup(t *testing.T) {
 		},
 	})
 	if err == nil {
-		cleanupReloadHost(t, host)
+		cleanupHost(t, host)
 		t.Fatal("expected compose failure")
 	}
 	if host != nil {
