@@ -39,16 +39,7 @@ func BuildHost(ctx context.Context, in BuildHostInput) (*Host, error) {
 	return buildHost(ctx, hostBuildInput(in), LoadBootstrapEffectiveWithSource, nil)
 }
 
-type hostBuildInput struct {
-	ConfigPath              string
-	Mandatory               []lipsdk.Requirement
-	LogWriter               io.Writer
-	StreamRecoveryOverrides config.StreamRecoveryOverrides
-	HandlerComposer         HandlerComposer
-	Production              ProductionOptions
-	EnforceMultiUserCLIGate bool
-	MultiUser               *bool
-}
+type hostBuildInput = BuildHostInput
 
 // hostBuildStageName identifies a BuildHost transaction stage for the optional
 // call-scoped probe (tests only; production passes nil).

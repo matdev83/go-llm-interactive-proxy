@@ -38,46 +38,10 @@ var closerAcquisitionOwnership = []ownershipEntry{
 	},
 
 	{
-		Symbol: "build_model.go:appendBackendClosers:acq#0:append(closers, be.Close)#0",
-		Class:  ownershipGeneration,
-		Source: "build_model.go → appendBackendClosers",
-		Notes:  "Generation-owned backend Close registration (ledger-wrapped in buildBackends when present).",
-	},
-	{
-		Symbol: "build_model.go:buildBackends:acq#0:assign:fn=inst.Close#0",
+		Symbol: "build_model.go:buildBackends:acq#0:assign:wrapped.Close=inst.Close#0",
 		Class:  ownershipGeneration,
 		Source: "build_model.go → buildBackends",
-		Notes:  "Canonical BackendInstance.Close callback (idle+Stop+Close) registered into ResourceLedger / constructedClosers without an aggregate once wrapper.",
-	},
-	{
-		Symbol: "build_model.go:buildBackends:acq#1:append(constructedClosers, fn)#0",
-		Class:  ownershipGeneration,
-		Source: "build_model.go → buildBackends",
-		Notes:  "Rollback bag for partially constructed backends shares the BackendInstance.Close callback; ledger entry syncStop prevents later double close.",
-	},
-	{
-		Symbol: "build_model.go:registerStartedCatalogClosers:acq#0:append(closers, fn)#0",
-		Class:  ownershipGeneration,
-		Source: "build_model.go → startedCatalog.closers",
-		Notes:  "Candidate catalog runtime/client cleanup registered first as PhaseClose so reverse teardown quiesces refresh before close (task 3.2).",
-	},
-	{
-		Symbol: "build_model.go:registerStartedCatalogClosers:acq#1:append(closers, fn)#1",
-		Class:  ownershipGeneration,
-		Source: "build_model.go → startedCatalog.quiesceClosers",
-		Notes:  "Candidate catalog refresh cancel/wait registered after close so reverse rollback runs PhaseQuiesce first (task 3.2).",
-	},
-	{
-		Symbol: "build_model.go:buildModelRuntime:acq#0:append(closers, modelRegistryClosers...)#0",
-		Class:  ownershipGeneration,
-		Source: "build_model.go → startModelRegistryRuntime",
-		Notes:  "Candidate model-registry refresh cleanup; quiesced with retired generation (task 4.5).",
-	},
-	{
-		Symbol: "build_model.go:startModelRegistryRuntime:acq#0:append(closers, fn)#0",
-		Class:  ownershipGeneration,
-		Source: "build_model.go → startModelRegistryRuntime",
-		Notes:  "Generation refresh-loop cancel/wait registered as PhaseQuiesce on the candidate ledger.",
+		Notes:  "Canonical BackendInstance.Close when no ledger; ledger path registers AddClose and clears wrapped.Close.",
 	},
 	{
 		Symbol: "build_persistence.go:buildPersistenceRuntime:acq#0:append(closers, c.Close)#0",

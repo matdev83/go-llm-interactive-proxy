@@ -96,12 +96,17 @@ func validateDistribution(
 	}
 	cfg := effective.Config
 
+	var shutTracing func(context.Context) error
+	fail := func(err error, rollback, closeProcess func() error) error {
+		return joinInitialFailureCleanup(ctx, err, rollback, closeProcess, shutTracing)
+	}
+
 	traceRes, err := initProcessTracing(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("runtimebundle: tracing init: %w", err)
 	}
 	traceShutdownRaw := traceRes.Shutdown
-	shutTracing := func(ctx context.Context) error {
+	shutTracing = func(ctx context.Context) error {
 		return validateRunCleanupStage(note, validateStageTracingClose, func() error {
 			if traceShutdownRaw == nil {
 				return nil
@@ -110,21 +115,21 @@ func validateDistribution(
 		})
 	}
 	if err := note(validateStageTracing, validateProbeAcquired); err != nil {
-		return joinInitialFailureCleanup(ctx, err, nil, nil, shutTracing)
+		return fail(err, nil, nil)
 	}
 
 	reg, _, err := installRegistryAndRegistrations(cfg, in.Mandatory)
 	if err != nil {
-		return joinInitialFailureCleanup(ctx, err, nil, nil, shutTracing)
+		return fail(err, nil, nil)
 	}
 	if err := note(validateStageRegistry, validateProbeAcquired); err != nil {
-		return joinInitialFailureCleanup(ctx, err, nil, nil, shutTracing)
+		return fail(err, nil, nil)
 	}
 
 	logger, err := logging.NewLogger(cfg.Logging, io.Discard,
 		logging.WithOTELTraceAttrs(cfg.Observability.Tracing.Enabled))
 	if err != nil {
-		return joinInitialFailureCleanup(ctx, fmt.Errorf("runtimebundle: logger init: %w", err), nil, nil, shutTracing)
+		return fail(fmt.Errorf("runtimebundle: logger init: %w", err), nil, nil)
 	}
 
 	ps, err := NewProcessServices(ctx, ProcessServicesInput{
@@ -142,22 +147,20 @@ func validateDistribution(
 		Tracing: ProcessTracing{Shutdown: traceShutdownRaw, Active: traceRes.Active},
 	})
 	if err != nil {
-		return joinInitialFailureCleanup(ctx, fmt.Errorf("runtimebundle: process services: %w", err), nil, nil, shutTracing)
+		return fail(fmt.Errorf("runtimebundle: process services: %w", err), nil, nil)
 	}
 	closeProcess := func() error {
 		return validateRunCleanupStage(note, validateStageProcessClose, ps.Close)
 	}
 	if err := note(validateStageProcess, validateProbeAcquired); err != nil {
-		return joinInitialFailureCleanup(ctx, err, nil, closeProcess, shutTracing)
+		return fail(err, nil, closeProcess)
 	}
 
 	bundle, err := CompileGeneration(ctx, GenerationCompileInput{
-		Process:   ps,
-		Candidate: cfg,
-		Compose:   in.HandlerComposer,
+		Process: ps, Candidate: cfg, Compose: in.HandlerComposer,
 	})
 	if err != nil {
-		return joinInitialFailureCleanup(ctx, fmt.Errorf("runtimebundle: compile validation generation: %w", err), nil, closeProcess, shutTracing)
+		return fail(fmt.Errorf("runtimebundle: compile validation generation: %w", err), nil, closeProcess)
 	}
 	rollback := func() error {
 		return validateRunCleanupStage(note, validateStageRollback, func() error {
@@ -168,10 +171,10 @@ func validateDistribution(
 		})
 	}
 	if err := note(validateStageCompile, validateProbeAcquired); err != nil {
-		return joinInitialFailureCleanup(ctx, err, rollback, closeProcess, shutTracing)
+		return fail(err, rollback, closeProcess)
 	}
 
-	return joinInitialFailureCleanup(ctx, nil, rollback, closeProcess, shutTracing)
+	return fail(nil, rollback, closeProcess)
 }
 
 // validateRunCleanupStage runs real cleanup first, then joins any probe fault.

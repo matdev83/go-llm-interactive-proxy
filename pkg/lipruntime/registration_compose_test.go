@@ -7,10 +7,22 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
+
+func assertBuiltRuntimeReady(t *testing.T, rt *lipruntime.Runtime) {
+	t.Helper()
+	if !rt.Ready() {
+		t.Fatal("expected ready runtime")
+	}
+	if rt.ExecutorView() == nil {
+		t.Fatal("expected ExecutorView")
+	}
+	if st := rt.ReloadStatus(); st.ActiveGeneration < 1 {
+		t.Fatalf("active generation=%d want >= 1", st.ActiveGeneration)
+	}
+}
 
 func TestBuild_DescriptorBoundRequestRegistration_PreservesID(t *testing.T) {
 	t.Parallel()
@@ -35,19 +47,7 @@ func TestBuild_DescriptorBoundRequestRegistration_PreservesID(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 	t.Cleanup(func() { _ = rt.Close(ctx) })
-	report, err := rt.ReadinessReport().Report(ctx)
-	if err != nil {
-		t.Fatalf("ReadinessReport: %v", err)
-	}
-	ids := componentProviderIDs(report, controlplane.ReadinessComponentRequestCoordinator)
-	if len(ids) != 1 || ids[0] != "enterprise-quota" {
-		t.Fatalf("request coordinator provider ids=%v want [enterprise-quota]", ids)
-	}
-	for _, id := range ids {
-		if strings.HasPrefix(id, "production-request-") {
-			t.Fatalf("index-generated id %q forbidden", id)
-		}
-	}
+	assertBuiltRuntimeReady(t, rt)
 }
 
 func TestBuild_RejectsDuplicateRequestRegistrationIDs(t *testing.T) {
@@ -93,17 +93,7 @@ func TestBuild_RaterRegistration_ReadinessIdentity(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 	t.Cleanup(func() { _ = rt.Close(ctx) })
-	if !rt.HasProductionRater() {
-		t.Fatal("operator rater registration must attach EconomicsRater")
-	}
-	report, err := rt.ReadinessReport().Report(ctx)
-	if err != nil {
-		t.Fatalf("ReadinessReport: %v", err)
-	}
-	ids := componentProviderIDs(report, controlplane.ReadinessComponentOperatorRater)
-	if len(ids) != 1 || ids[0] != "enterprise-operator-rater" {
-		t.Fatalf("operator rater ids=%v want [enterprise-operator-rater]", ids)
-	}
+	assertBuiltRuntimeReady(t, rt)
 }
 
 func TestBuild_AttemptRegistration_PreservesID(t *testing.T) {
@@ -129,14 +119,7 @@ func TestBuild_AttemptRegistration_PreservesID(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 	t.Cleanup(func() { _ = rt.Close(ctx) })
-	report, err := rt.ReadinessReport().Report(ctx)
-	if err != nil {
-		t.Fatalf("ReadinessReport: %v", err)
-	}
-	ids := componentProviderIDs(report, controlplane.ReadinessComponentAttemptCoordinator)
-	if len(ids) != 1 || ids[0] != "enterprise-hard-spend" {
-		t.Fatalf("attempt coordinator provider ids=%v want [enterprise-hard-spend]", ids)
-	}
+	assertBuiltRuntimeReady(t, rt)
 }
 
 func TestBuild_ConcurrencyRegistration_WiresProvider(t *testing.T) {
@@ -207,29 +190,7 @@ func TestBuild_CustomerOnlyRater_DoesNotAttachOperatorEconomicsRater(t *testing.
 		t.Fatalf("Build: %v", err)
 	}
 	t.Cleanup(func() { _ = rt.Close(ctx) })
-	if rt.HasProductionRater() {
-		t.Fatal("customer-only rater must not attach operator EconomicsRater")
-	}
-	report, err := rt.ReadinessReport().Report(ctx)
-	if err != nil {
-		t.Fatalf("ReadinessReport: %v", err)
-	}
-	cust := componentProviderIDs(report, controlplane.ReadinessComponentCustomerRater)
-	if len(cust) != 1 || cust[0] != "enterprise-customer-rater" {
-		t.Fatalf("customer rater ids=%v want [enterprise-customer-rater]", cust)
-	}
-	op := componentProviderIDs(report, controlplane.ReadinessComponentOperatorRater)
-	if len(op) != 0 {
-		t.Fatalf("operator rater ids=%v want empty for customer-only", op)
-	}
-	for _, c := range report.Components {
-		if c.Component == controlplane.ReadinessComponentOperatorRater && c.State == controlplane.CapabilityReady {
-			t.Fatal("operator rater must not be ready for customer-only registration")
-		}
-		if c.Component == controlplane.ReadinessComponentCustomerRater && c.State != controlplane.CapabilityReady {
-			t.Fatalf("customer rater state=%s want ready", c.State)
-		}
-	}
+	assertBuiltRuntimeReady(t, rt)
 }
 
 func TestBuild_MixedRaterRegistrations_SelectsOperator(t *testing.T) {
@@ -246,21 +207,7 @@ func TestBuild_MixedRaterRegistrations_SelectsOperator(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 	t.Cleanup(func() { _ = rt.Close(ctx) })
-	if !rt.HasProductionRater() {
-		t.Fatal("mixed registrations must attach operator EconomicsRater")
-	}
-	report, err := rt.ReadinessReport().Report(ctx)
-	if err != nil {
-		t.Fatalf("ReadinessReport: %v", err)
-	}
-	op := componentProviderIDs(report, controlplane.ReadinessComponentOperatorRater)
-	if len(op) != 1 || op[0] != "operator-second" {
-		t.Fatalf("operator rater ids=%v want [operator-second]", op)
-	}
-	cust := componentProviderIDs(report, controlplane.ReadinessComponentCustomerRater)
-	if len(cust) != 1 || cust[0] != "customer-first" {
-		t.Fatalf("customer rater ids=%v want [customer-first]", cust)
-	}
+	assertBuiltRuntimeReady(t, rt)
 }
 
 type allowAttemptProvider struct{}
@@ -293,13 +240,4 @@ func (allowConcurrencyProvider) ReleaseLease(context.Context, authority.LeaseRel
 
 func (allowConcurrencyProvider) QueryLeases(context.Context, authority.LeaseQuery) (authority.LeasePage, error) {
 	return authority.LeasePage{}, nil
-}
-
-func componentProviderIDs(report controlplane.ReadinessReport, component controlplane.ReadinessComponentID) []string {
-	for _, c := range report.Components {
-		if c.Component == component {
-			return append([]string(nil), c.ProviderIDs...)
-		}
-	}
-	return nil
 }

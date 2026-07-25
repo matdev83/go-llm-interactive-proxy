@@ -86,12 +86,6 @@ func statusDTO(st sdkreload.Status, fixedSourcePath string) StatusDTO {
 	}
 }
 
-// StatusFrom projects a coordinator status snapshot and fixed-source capability
-// into the management DTO. fixedSourcePath is HTTP-transport-only.
-func StatusFrom(st sdkreload.Status, fixedSourcePath string) StatusDTO {
-	return statusDTO(st, fixedSourcePath)
-}
-
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	// Never emit permissive CORS (req 12.7).

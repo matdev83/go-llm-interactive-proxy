@@ -14,8 +14,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 // TestClose_ProductionBuild_PinnedStreamDeadlineRetry proves real Build + public
@@ -230,39 +228,6 @@ func (h *closeDeadlineHost) Reload(ctx context.Context, t sdkreload.Trigger) sdk
 	return h.inner.Reload(ctx, t)
 }
 func (h *closeDeadlineHost) Status() sdkreload.Status { return h.inner.Status() }
-func (h *closeDeadlineHost) HasTrafficObservers() bool {
-	return h.inner.HasTrafficObservers()
-}
-func (h *closeDeadlineHost) HasUsageObservers() bool { return h.inner.HasUsageObservers() }
-func (h *closeDeadlineHost) HasProductionEvidenceSink() bool {
-	return h.inner.HasProductionEvidenceSink()
-}
-func (h *closeDeadlineHost) HasProductionMetering() bool { return h.inner.HasProductionMetering() }
-func (h *closeDeadlineHost) HasProductionRater() bool    { return h.inner.HasProductionRater() }
-func (h *closeDeadlineHost) MeteringQuerier() metering.Querier {
-	return h.inner.MeteringQuerier()
-}
-func (h *closeDeadlineHost) HasProductionMeteringQuerier() bool {
-	return h.inner.HasProductionMeteringQuerier()
-}
-func (h *closeDeadlineHost) ReadinessReport() controlplane.ReadinessReportReader {
-	return h.inner.ReadinessReport()
-}
-func (h *closeDeadlineHost) SnapshotGenerationID() int64   { return h.inner.SnapshotGenerationID() }
-func (h *closeDeadlineHost) SnapshotUsageVersion() string  { return h.inner.SnapshotUsageVersion() }
-func (h *closeDeadlineHost) ExecutableGenerationID() int64 { return h.inner.ExecutableGenerationID() }
-func (h *closeDeadlineHost) ExecutableGenerationVersion() string {
-	return h.inner.ExecutableGenerationVersion()
-}
-func (h *closeDeadlineHost) ExecutableGenerationState() controlplane.CapabilityState {
-	return h.inner.ExecutableGenerationState()
-}
-func (h *closeDeadlineHost) ExecutableEvidenceObjectID() string {
-	return h.inner.ExecutableEvidenceObjectID()
-}
-func (h *closeDeadlineHost) RefreshSnapshots(ctx context.Context) error {
-	return h.inner.RefreshSnapshots(ctx)
-}
 func (h *closeDeadlineHost) Close(ctx context.Context) error {
 	if !h.entered.Swap(true) {
 		select {

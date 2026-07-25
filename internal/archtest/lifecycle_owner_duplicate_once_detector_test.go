@@ -572,7 +572,7 @@ func wireOwned(ledger *ResourceLedger, r *res) {
 		latch.Do(func() { failure = r.Close() })
 		return failure
 	}
-	_ = ledger.AddClose("r", 0, cb)
+	ledger.AddClose("r", 0, cb)
 }
 `,
 		})
@@ -628,7 +628,7 @@ func (l *ResourceLedger) AddClose(name string, phase int, closeFn func() error) 
 			"helpers.go": `
 package runtimebundle
 func hop1(ledger *ResourceLedger, fn func() error) {
-	_ = ledger.AddClose("h", 0, fn)
+	ledger.AddClose("h", 0, fn)
 }
 func hop2(ledger *ResourceLedger, fn func() error) {
 	hop1(ledger, fn)
@@ -857,7 +857,7 @@ package runtimebundle
 type unit struct{}
 func (u *unit) Close() error { return nil }
 func wirePlain(ledger *ResourceLedger, u *unit) {
-	_ = ledger.AddClose("u", 0, func() error { return u.Close() })
+	ledger.AddClose("u", 0, func() error { return u.Close() })
 }
 `,
 		})
@@ -884,7 +884,7 @@ func wireNoCleanup(ledger *ResourceLedger) {
 		once.Do(func() { err = nil })
 		return err
 	}
-	_ = ledger.AddClose("n", 0, cb)
+	ledger.AddClose("n", 0, cb)
 }
 `,
 		})
@@ -912,7 +912,7 @@ func wireUnguarded(ledger *ResourceLedger, u *unit) {
 		note.Do(func() {})
 		return u.Close()
 	}
-	_ = ledger.AddClose("u", 0, cb)
+	ledger.AddClose("u", 0, cb)
 }
 `,
 		})
@@ -936,7 +936,7 @@ package runtimebundle
 func canonicalCleanup() error { return nil }
 func record(fn func() error) { _ = fn() }
 func registerFixed(l *ResourceLedger, telemetry func() error) {
-	_ = l.AddClose("owned", 0, canonicalCleanup)
+	l.AddClose("owned", 0, canonicalCleanup)
 	record(telemetry)
 }
 `,
@@ -972,7 +972,7 @@ func (l *ResourceLedger) AddClose(name string, phase int, closeFn func() error) 
 			"helpers.go": `
 package runtimebundle
 func registerOneOfTwo(l *ResourceLedger, owned func() error, telemetry func() error) {
-	_ = l.AddClose("owned", 0, owned)
+	l.AddClose("owned", 0, owned)
 	_ = telemetry()
 }
 `,
@@ -1021,7 +1021,7 @@ func (l *ResourceLedger) AddClose(name string, phase int, closeFn func() error) 
 package runtimebundle
 func logOnly(fn func() error) { _ = fn() }
 func hop1Selective(l *ResourceLedger, owned func() error, dropped func() error) {
-	_ = l.AddClose("owned", 0, owned)
+	l.AddClose("owned", 0, owned)
 	logOnly(dropped)
 }
 func hop2Selective(l *ResourceLedger, owned func() error, dropped func() error) {
@@ -1040,7 +1040,7 @@ func wireDirectSelective(l *ResourceLedger, u *unit) {
 		once.Do(func() { err = u.Close() })
 		return err
 	}
-	_ = l.AddClose("owned", 0, owned)
+	l.AddClose("owned", 0, owned)
 }
 func wireOneHopForwarded(l *ResourceLedger, u *unit) {
 	var once sync.Once

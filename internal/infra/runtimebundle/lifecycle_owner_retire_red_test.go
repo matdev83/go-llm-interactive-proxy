@@ -29,7 +29,7 @@ func TestLifecycleOwner_Retire_RetryableCloseThroughGenerationBundle(t *testing.
 	var closes atomic.Int32
 	closeDone := make(chan struct{})
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("backend", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("backend", runtimebundle.PhaseClose, func() error {
 		n := closes.Add(1)
 		if n == 1 {
 			return errors.New("temp-close")
@@ -37,7 +37,7 @@ func TestLifecycleOwner_Retire_RetryableCloseThroughGenerationBundle(t *testing.
 		close(closeDone)
 		return nil
 	})
-	_ = ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error { return nil })
+	ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error { return nil })
 	bundle := runtimebundle.NewGenerationBundleWithLedgerForTest(ledger)
 
 	m := runtimehost.NewManager(2, nil)
@@ -82,7 +82,7 @@ func TestLifecycleOwner_Retire_StaysClosingAfterRetryableFailureBeforeSuccess(t 
 	release := make(chan struct{})
 	var startOnce sync.Once
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("backend", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("backend", runtimebundle.PhaseClose, func() error {
 		n := closes.Add(1)
 		if n == 1 {
 			startOnce.Do(func() { close(started) })
@@ -134,7 +134,7 @@ func TestLifecycleOwner_Retire_PanicIsolatedThroughManagerRetirement(t *testing.
 	var closes atomic.Int32
 	closeDone := make(chan struct{})
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("boom", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("boom", runtimebundle.PhaseClose, func() error {
 		n := closes.Add(1)
 		if n == 1 {
 			panic("cleanup boom")
@@ -142,7 +142,7 @@ func TestLifecycleOwner_Retire_PanicIsolatedThroughManagerRetirement(t *testing.
 		close(closeDone)
 		return nil
 	})
-	_ = ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error { return nil })
+	ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error { return nil })
 	bundle := runtimebundle.NewGenerationBundleWithLedgerForTest(ledger)
 
 	m := runtimehost.NewManager(2, nil)
@@ -180,11 +180,11 @@ func TestLifecycleOwner_Discard_UnpublishedGenerationBundleRollbackOnce(t *testi
 	t.Parallel()
 	var closes atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("backend", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("backend", runtimebundle.PhaseClose, func() error {
 		closes.Add(1)
 		return nil
 	})
-	_ = ledger.AddClose("prepare", runtimebundle.PhasePrepare, func() error {
+	ledger.AddClose("prepare", runtimebundle.PhasePrepare, func() error {
 		closes.Add(1)
 		return nil
 	})
@@ -213,11 +213,11 @@ func TestLifecycleOwner_Retire_ConcurrentRetirementNoDoubleClean(t *testing.T) {
 	t.Parallel()
 	var quiesces, closes atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
+	ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
 		quiesces.Add(1)
 		return nil
 	})
-	_ = ledger.AddClose("backend", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("backend", runtimebundle.PhaseClose, func() error {
 		closes.Add(1)
 		return nil
 	})
@@ -270,7 +270,7 @@ func TestLifecycleOwner_Close_RepeatedShutdownCannotDoubleClean(t *testing.T) {
 	var closes atomic.Int32
 	closeDone := make(chan struct{})
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("backend", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("backend", runtimebundle.PhaseClose, func() error {
 		closes.Add(1)
 		close(closeDone)
 		return nil
@@ -307,11 +307,11 @@ func TestLifecycleOwner_ShutdownDetached_RacesRetirementNoDoubleCleanOrProcessCl
 	ps := newProcessForGeneration(t)
 	var closes atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("backend", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("backend", runtimebundle.PhaseClose, func() error {
 		closes.Add(1)
 		return nil
 	})
-	_ = ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
+	ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
 		return nil
 	})
 	bundle := runtimebundle.NewGenerationBundleWithLedgerForTest(ledger)

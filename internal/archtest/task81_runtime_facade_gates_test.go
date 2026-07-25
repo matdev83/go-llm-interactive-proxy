@@ -16,7 +16,7 @@ const (
 	lipruntimeHostPath         = "pkg/lipruntime/host.go"
 	lipruntimeFacadePath       = "pkg/lipruntime/facade.go"
 	lipruntimeFinalLineCeiling = 150
-	lipruntimePackageCeiling   = 648 // Task 8.4: legacy options removed
+	lipruntimePackageCeiling   = 486 // Phase B+C facade pass-through retirement
 	lipruntimeAdapterTypeName  = "bundleHost"
 	lipruntimeHostIfaceName    = "hostAPI"
 )

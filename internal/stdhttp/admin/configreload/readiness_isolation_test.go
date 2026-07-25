@@ -1,6 +1,8 @@
 package configreload_test
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +13,17 @@ import (
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
 	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
+
+type statusStub struct {
+	st   sdkreload.Status
+	path string
+}
+
+func (s statusStub) Reload(context.Context, sdkreload.Trigger) sdkreload.Result {
+	return s.st.LastResult
+}
+func (s statusStub) Status() sdkreload.Status { return s.st }
+func (s statusStub) FixedSourcePath() string  { return s.path }
 
 // TestReadiness_IndependentOfReloadControlFailure proves req 13.1-13.2 / 14.8:
 // a failed reload status remains visible on the management surface while the
@@ -52,7 +65,19 @@ func TestReadiness_IndependentOfReloadControlFailure(t *testing.T) {
 		RetainedGenerations: 1,
 		ControlDegraded:     true,
 	}
-	dto := mgmtreload.StatusFrom(st, "/fixed/config.yaml")
+	h, err := mgmtreload.NewHandler(mgmtreload.Options{}, statusStub{st: st, path: "/fixed/config.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, mgmtreload.StatusPath, nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status code=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var dto mgmtreload.StatusDTO
+	if err := json.NewDecoder(rr.Body).Decode(&dto); err != nil {
+		t.Fatal(err)
+	}
 	if dto.FixedSourcePath != "/fixed/config.yaml" {
 		t.Fatalf("fixed_source_path=%q", dto.FixedSourcePath)
 	}

@@ -185,7 +185,6 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 		ExplicitCandidate: in.Candidate != nil,
 	}
 
-	var closers []func() error
 	fail := func(err error) (*CandidateRuntime, error) {
 		rollErr := ledger.Rollback(parent)
 		if rollErr != nil {
@@ -218,7 +217,7 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 
 	obs := buildGenerationObservability(bctx, ps.Metrics)
 
-	model, closers, err := buildModelRuntime(bctx, obs.Upstream, closers)
+	model, err := buildModelRuntime(bctx, obs.Upstream)
 	if err != nil {
 		return fail(err)
 	}
@@ -241,7 +240,7 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 	if err != nil {
 		return fail(err)
 	}
-	execRun, _, err := buildExecutorRuntime(executorBuildInput{
+	execRun, err := buildExecutorRuntime(executorBuildInput{
 		Bctx:               bctx,
 		NowFn:              nowFn,
 		Ext:                ext,
@@ -258,7 +257,7 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 		AccountingStores:   ps.accountingStores,
 		Metering:           ps.meteringRT,
 		BackendIdentities:  backendIDs,
-	}, closers)
+	})
 	if err != nil {
 		return fail(err)
 	}

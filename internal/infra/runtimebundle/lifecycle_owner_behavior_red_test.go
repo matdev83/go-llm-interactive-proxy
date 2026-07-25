@@ -18,9 +18,9 @@ func TestLifecycleOwner_UnpublishedRollbackCleansEachResourceOnce(t *testing.T) 
 	t.Parallel()
 	var a, b, c atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("a", runtimebundle.PhaseClose, func() error { a.Add(1); return nil })
-	_ = ledger.AddClose("b", runtimebundle.PhaseQuiesce, func() error { b.Add(1); return nil })
-	_ = ledger.AddClose("c", runtimebundle.PhasePrepare, func() error { c.Add(1); return nil })
+	ledger.AddClose("a", runtimebundle.PhaseClose, func() error { a.Add(1); return nil })
+	ledger.AddClose("b", runtimebundle.PhaseQuiesce, func() error { b.Add(1); return nil })
+	ledger.AddClose("c", runtimebundle.PhasePrepare, func() error { c.Add(1); return nil })
 	cand := runtimebundle.NewCandidateRuntimeForTest(ledger)
 
 	if err := cand.Close(); err != nil {
@@ -41,11 +41,11 @@ func TestLifecycleOwner_QuiesceCloseAtMostOnceUnderConcurrentCalls(t *testing.T)
 	t.Parallel()
 	var quiesced, closed atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
+	ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
 		quiesced.Add(1)
 		return nil
 	})
-	_ = ledger.AddClose("backend", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("backend", runtimebundle.PhaseClose, func() error {
 		closed.Add(1)
 		return nil
 	})
@@ -82,7 +82,7 @@ func TestLifecycleOwner_ProcessOwnedRemainOpenAcrossGenerationClose(t *testing.T
 	ps := newProcessForGeneration(t)
 	ledger := runtimebundle.NewResourceLedger()
 	var closed atomic.Int32
-	_ = ledger.AddClose("gen", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("gen", runtimebundle.PhaseClose, func() error {
 		closed.Add(1)
 		return nil
 	})
@@ -105,7 +105,7 @@ func TestLifecycleOwner_Close_RetryableFailureMustReexecuteCleanup(t *testing.T)
 	t.Parallel()
 	var calls atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("flaky", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("flaky", runtimebundle.PhaseClose, func() error {
 		if calls.Add(1) == 1 {
 			return errors.New("temp-close")
 		}
@@ -139,7 +139,7 @@ func TestLifecycleOwner_DirectBundleClose_PanicContract(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("boom", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("boom", runtimebundle.PhaseClose, func() error {
 		n := calls.Add(1)
 		if n == 1 {
 			panic("cleanup boom")

@@ -10,7 +10,7 @@ import (
 // Task 9.2 final Requirement 11.3 ceilings for the five named migration hotspots.
 const (
 	processServicesHotspotPath           = "internal/infra/runtimebundle/process_services.go"
-	processServicesExactCurrentRatchet   = 249
+	processServicesExactCurrentRatchet   = 245
 	processServicesFinalLineCeiling      = 300
 	processServicesImmutableLoweringTask = "5.5"
 )
@@ -77,10 +77,10 @@ type packageBudgetIncrease struct {
 // with rationale plus an old-path deletion milestone.
 func packageTreePostTask92Ratchets() []PackageTreeBudget {
 	return []PackageTreeBudget{
-		{Tree: "internal/infra/runtimebundle", Max: 10418},
-		{Tree: "internal/stdhttp", Max: 4509},
+		{Tree: "internal/infra/runtimebundle", Max: 9391},
+		{Tree: "internal/stdhttp", Max: 4301},
 		{Tree: "cmd/lipstd", Max: 880},
-		{Tree: "pkg/lipruntime", Max: 648},
+		{Tree: "pkg/lipruntime", Max: 486},
 	}
 }
 

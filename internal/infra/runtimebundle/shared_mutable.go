@@ -20,16 +20,7 @@ import (
 
 const healthNamespaceSep = "\x1e"
 
-// sharedMutableRuntime holds process-owned overlap-sensitive mutable continuity
-// constructed once and viewed per candidate through compatibility keys.
-//
-// Health *policy* (failure threshold / open duration / enabled) is generation-
-// scoped and reloadable (req 7.4, 9.1): [candidateRoutingViews] rebuilds a
-// [routinghealth.CandidateHealthPolicyFromState] view from each candidate's own
-// cfg.Routing.Health on every compile. The underlying failure/blockedUntil
-// observation counters in healthState stay process-shared so compatible
-// overlapping generations agree on which candidate keys are currently open
-// (design "Health policy reload").
+// sharedMutableRuntime holds process-owned overlap-sensitive mutable continuity.
 type sharedMutableRuntime struct {
 	ALegLifecycle    *leglifecycle.Coordinator
 	ExtensionState   lipstate.Store
@@ -44,21 +35,12 @@ func buildSharedMutableRuntime(cfg *config.Config, nowFn func() time.Time) *shar
 	}
 	healthState := policy.NewCircuitBreakerState(policy.CircuitBreakerStateOptions{})
 	return &sharedMutableRuntime{
-		ALegLifecycle: leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{
-			CancelTimeout: 2 * time.Second,
-		}),
-		ExtensionState:   corestate.NewMem(nowFn),
-		affinity:         newAffinityRegistry(),
-		healthState:      healthState,
+		ALegLifecycle:  leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 2 * time.Second}),
+		ExtensionState: corestate.NewMem(nowFn), affinity: newAffinityRegistry(), healthState: healthState,
 		underlyingHealth: routinghealth.CandidateHealthPolicyFromState(cfg, healthState, nowFn),
 	}
 }
 
-// candidateRoutingViews returns non-owning affinity/health views gated by the
-// candidate's backend state identities. health is rebuilt from cfg's own
-// routing.health policy on every call so each generation evaluates/records
-// using its own threshold/open-duration/enabled disposition against the
-// process-shared observation store (req 7.4, 9.1).
 func (s *sharedMutableRuntime) candidateRoutingViews(active map[string]BackendStateIdentity, cfg *config.Config, nowFn func() time.Time) (affinity.Store, policy.CandidateHealth) {
 	if s == nil {
 		return nil, nil
@@ -71,17 +53,13 @@ func (s *sharedMutableRuntime) candidateRoutingViews(active map[string]BackendSt
 }
 
 type affinityRegistry struct {
-	store *affinitymem.Store
-	mu    sync.Mutex
-	// bindingIdentity records which backend state identity wrote each affinity key.
+	store           *affinitymem.Store
+	mu              sync.Mutex
 	bindingIdentity map[affinity.Key]BackendStateIdentity
 }
 
 func newAffinityRegistry() *affinityRegistry {
-	return &affinityRegistry{
-		store:           affinitymem.New(),
-		bindingIdentity: make(map[affinity.Key]BackendStateIdentity),
-	}
+	return &affinityRegistry{store: affinitymem.New(), bindingIdentity: make(map[affinity.Key]BackendStateIdentity)}
 }
 
 type affinityView struct {
@@ -106,14 +84,12 @@ func (v *affinityView) Get(ctx context.Context, key affinity.Key) (affinity.Bind
 	backend := strings.TrimSpace(b.BackendID)
 	active, present := v.active[backend]
 	if !present || backend == "" {
-		// Backend absent from this generation — do not select (req 6.8).
 		return affinity.Binding{}, false, nil
 	}
 	v.reg.mu.Lock()
 	stored, have := v.reg.bindingIdentity[key]
 	v.reg.mu.Unlock()
 	if !have || !stored.Compatible(active) {
-		// Material identity changed — fresh namespace (req 6.7).
 		return affinity.Binding{}, false, nil
 	}
 	return b, true, nil
@@ -150,9 +126,7 @@ func (v *affinityView) Delete(ctx context.Context, key affinity.Key) error {
 
 var _ affinity.Store = (*affinityView)(nil)
 
-type healthRegistry struct {
-	inner policy.CandidateHealth
-}
+type healthRegistry struct{ inner policy.CandidateHealth }
 
 func newHealthRegistry(inner policy.CandidateHealth) *healthRegistry {
 	return &healthRegistry{inner: inner}
@@ -225,7 +199,6 @@ func splitHealthNamespace(namespaced string) (candidateKey string, id BackendSta
 	}
 	ns := namespaced[:i]
 	candidateKey = namespaced[i+len(healthNamespaceSep):]
-	// ns format: factory/instance@digest
 	at := strings.LastIndexByte(ns, '@')
 	if at <= 0 {
 		return "", BackendStateIdentity{}, false
@@ -235,11 +208,7 @@ func splitHealthNamespace(namespaced string) (candidateKey string, id BackendSta
 	if !ok {
 		return "", BackendStateIdentity{}, false
 	}
-	return candidateKey, BackendStateIdentity{
-		FactoryKind:  before,
-		InstanceID:   after,
-		ConfigDigest: digest,
-	}, true
+	return candidateKey, BackendStateIdentity{FactoryKind: before, InstanceID: after, ConfigDigest: digest}, true
 }
 
 func backendIDFromCandidateKey(candidateKey string) string {
@@ -254,11 +223,7 @@ func backendIDFromCandidateKey(candidateKey string) string {
 	return candidateKey[:i]
 }
 
-// processAffinityHandle exposes the process affinity registry as affinity.Store
-// for ProcessServices field identity checks (unscoped; tests/diagnostics only).
-type processAffinityHandle struct {
-	reg *affinityRegistry
-}
+type processAffinityHandle struct{ reg *affinityRegistry }
 
 func (h *processAffinityHandle) Get(ctx context.Context, key affinity.Key) (affinity.Binding, bool, error) {
 	if h == nil || h.reg == nil {

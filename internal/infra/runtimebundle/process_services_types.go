@@ -60,14 +60,6 @@ type ProcessServices struct {
 	TerminalWorkQueries   *terminalworkapp.QueryService
 	TerminalWorkMetrics   *terminalworkapp.MetricsObserver
 
-	// StoreCompatKeys holds typed topology identities for process-owned stores.
-	StoreCompatKeys struct {
-		Continuity       StoreCompatKey
-		SecureSession    StoreCompatKey
-		AccountingLedger StoreCompatKey
-		MeteringJournal  StoreCompatKey
-	}
-
 	// Internal handles required by candidate compilation (non-API).
 	persistence       *persistenceRuntime
 	controlPlane      *controlPlaneRuntime

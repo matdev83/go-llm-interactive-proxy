@@ -14,14 +14,9 @@
 // Execute acquires the current generation and pins the returned stream until
 // terminal/close; CancelALeg reaches process-owned cross-generation A-leg
 // state (requirements 16.12–16.13).
-// [Runtime.RefreshSnapshots] remains a subordinate explicit metadata/policy
-// refresh, not whole-config reload.
 //
-// Executable generations carry the evaluator objects used for admission and
-// settlement. [Runtime.RefreshSnapshots] refreshes injectable source-fetch
-// metadata compatibility views and, on success, republishes an executable
-// generation for new admissions without mutating in-flight pins (requirements
-// 9.6–9.9, 11.3, 11.6, 11.7). Metadata-only publication is not an enforcement
-// path; use descriptor-bound registrations and [Runtime.ExecutableEvidenceObjectID]
-// for decision evidence.
+// Enterprise options (metering, evidence, raters, snapshot sources) wire
+// descriptor-bound registrations at [Build] time. Executable generations carry
+// the evaluator objects used for admission and settlement; metadata-only
+// publication is not an enforcement path.
 package lipruntime

@@ -39,7 +39,7 @@ func TestOwnership_TransferDetachesCandidateFromLedger(t *testing.T) {
 	// Direct transfer proof against a detached candidate handle.
 	ledger := runtimebundle.NewResourceLedger()
 	var closed atomic.Int32
-	_ = ledger.AddClose("probe", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("probe", runtimebundle.PhaseClose, func() error {
 		closed.Add(1)
 		return nil
 	})
@@ -188,9 +188,9 @@ func TestLifecycle_CloseBeforeQuiesceRollsBackOnce(t *testing.T) {
 		}
 	}
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("a", runtimebundle.PhaseClose, track("close:a"))
-	_ = ledger.AddClose("b", runtimebundle.PhaseQuiesce, track("quiesce:b"))
-	_ = ledger.AddClose("c", runtimebundle.PhaseClose, track("close:c"))
+	ledger.AddClose("a", runtimebundle.PhaseClose, track("close:a"))
+	ledger.AddClose("b", runtimebundle.PhaseQuiesce, track("quiesce:b"))
+	ledger.AddClose("c", runtimebundle.PhaseClose, track("close:c"))
 	b := runtimebundle.NewGenerationBundleWithLedgerForTest(ledger)
 
 	if err := b.Close(); err != nil {
@@ -235,8 +235,8 @@ func TestLifecycle_QuiesceThenClosePhaseOrdering(t *testing.T) {
 		}
 	}
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("worker", runtimebundle.PhaseQuiesce, track("quiesce"))
-	_ = ledger.AddClose("backend", runtimebundle.PhaseClose, track("close"))
+	ledger.AddClose("worker", runtimebundle.PhaseQuiesce, track("quiesce"))
+	ledger.AddClose("backend", runtimebundle.PhaseClose, track("close"))
 	b := runtimebundle.NewGenerationBundleWithLedgerForTest(ledger)
 
 	if err := b.Quiesce(context.Background()); err != nil {
@@ -264,7 +264,7 @@ func TestLifecycle_RepeatedCallsStableErrors(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("boom", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("boom", runtimebundle.PhaseClose, func() error {
 		calls.Add(1)
 		return errors.New("close-boom")
 	})
@@ -292,11 +292,11 @@ func TestLifecycle_ConcurrentQuiesceCloseUnderRace(t *testing.T) {
 	t.Parallel()
 	var quiesced, closed atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
+	ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
 		quiesced.Add(1)
 		return nil
 	})
-	_ = ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
 		closed.Add(1)
 		return nil
 	})
@@ -333,13 +333,13 @@ func TestLifecycle_QuiesceBlocksCloseUntilReleased(t *testing.T) {
 	quiesceEntered := make(chan struct{})
 	releaseQuiesce := make(chan struct{})
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
+	ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
 		close(quiesceEntered)
 		<-releaseQuiesce
 		quiesced.Add(1)
 		return nil
 	})
-	_ = ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
 		closed.Add(1)
 		return nil
 	})
@@ -427,10 +427,10 @@ func TestLifecycle_ZeroValueConcurrentFirstUseRaceSafe(t *testing.T) {
 func TestLifecycle_PanicErrorCleanupAggregationJoinsErrors(t *testing.T) {
 	t.Parallel()
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("panic", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("panic", runtimebundle.PhaseClose, func() error {
 		panic("cleanup-panic")
 	})
-	_ = ledger.AddClose("err", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("err", runtimebundle.PhaseClose, func() error {
 		return errors.New("cleanup-err")
 	})
 	b := runtimebundle.NewGenerationBundleWithLedgerForTest(ledger)

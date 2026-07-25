@@ -11,13 +11,13 @@ import (
 // candidate_legacy_closers are permanently zero-tolerance (no allowlist).
 // All other Task 3.5 gates are also zero-tolerance.
 const (
-	gateBroadRequestPlane        = "broad_request_plane"
-	gateCompatHTTPSymbols        = "compat_http_symbols"
-	gateFocusedHTTPLifecycle     = "focused_http_lifecycle"
-	gateStdhttpBuilt             = "stdhttp_built"
-	gateCanonicalClosers         = "canonical_generation_closers"
-	gateCandidateLegacyClosers   = "candidate_legacy_closers"
-	gateComposeInventory         = "compose_inventory"
+	gateBroadRequestPlane      = "broad_request_plane"
+	gateCompatHTTPSymbols      = "compat_http_symbols"
+	gateFocusedHTTPLifecycle   = "focused_http_lifecycle"
+	gateStdhttpBuilt           = "stdhttp_built"
+	gateCanonicalClosers       = "canonical_generation_closers"
+	gateCandidateLegacyClosers = "candidate_legacy_closers"
+	gateComposeInventory       = "compose_inventory"
 )
 
 var task35ForbiddenCompatSymbols = map[string]bool{
@@ -30,16 +30,16 @@ var task35ForbiddenCompatSymbols = map[string]bool{
 // focusedHTTPLifecycleSurfaces are production symbols that must remain
 // lifecycle-free and free of generic dependency bags (req 3.7, 9.1).
 var focusedHTTPLifecycleSurfaces = map[string]bool{
-	"StandardHTTPInput":      true,
-	"HTTPCoreInput":          true,
-	"HTTPSecurityInput":      true,
-	"HTTPOperationsInput":    true,
-	"HTTPModelInput":         true,
-	"HTTPFrontendInput":      true,
-	"ComposeStandardHTTP":    true,
-	"prepareStandardHandler": true,
-	"mountMetrics":           true,
-	"mountDiagnostics":       true,
+	"StandardHTTPInput":              true,
+	"HTTPCoreInput":                  true,
+	"HTTPSecurityInput":              true,
+	"HTTPOperationsInput":            true,
+	"HTTPModelInput":                 true,
+	"HTTPFrontendInput":              true,
+	"ComposeStandardHTTP":            true,
+	"prepareStandardHandler":         true,
+	"mountMetrics":                   true,
+	"mountDiagnostics":               true,
 	"mountModelCatalogDiagnostics":   true,
 	"mountModelInventoryDiagnostics": true,
 	"mountSecureSessionDiagnostics":  true,
@@ -47,7 +47,6 @@ var focusedHTTPLifecycleSurfaces = map[string]bool{
 	"mountControlPlaneQuery":         true,
 	"mountAccountingAuthorityQuery":  true,
 	"MountBundledFrontends":          true,
-	"MountBundledFrontendsLegacy":    true,
 	"mountALegCancel":                true,
 	"stackHTTPHandler":               true,
 }

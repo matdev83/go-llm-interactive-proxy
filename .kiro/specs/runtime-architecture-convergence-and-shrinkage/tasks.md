@@ -407,7 +407,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 9.1_
   - _Validation: `go test ./internal/archtest/... -run 'CriticalFile|LineComplexity|RuntimeConvergence'`_
 
-- [ ] 9.3 Verify net shrinkage and dependency simplification
+- [x] 9.3 Verify net shrinkage and dependency simplification
   - Run the architecture report and compare to Phase 1 baseline.
   - Prove at least 800 affected non-test production lines removed.
   - Record deleted symbols, reduced propagation points, fan-out/fan-in changes, and zero remaining parallel runtime paths.

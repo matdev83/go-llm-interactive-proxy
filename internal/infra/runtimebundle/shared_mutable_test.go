@@ -363,11 +363,6 @@ func TestBackendStateIdentity_CompatDigestChangesWithMaterialConfig(t *testing.T
 	if !ka.Compatible(ka2) {
 		t.Fatal("identical plugin config must be compatible")
 	}
-
-	storeKey := runtimebundle.StoreCompatKeyFromContinuity(config.ContinuityConfig{InMemory: true})
-	if storeKey.Kind != "continuity" || storeKey.Digest == "" {
-		t.Fatalf("expected continuity store compat key, got %+v", storeKey)
-	}
 }
 
 func TestProcessServices_ProcessCloseOnceAfterSharedHoist(t *testing.T) {

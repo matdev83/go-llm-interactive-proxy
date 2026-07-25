@@ -50,7 +50,7 @@ const (
 // file share one measured total (not a padded ceiling).
 const (
 	candidateCompileHotspotPath           = "internal/infra/runtimebundle/candidate_compile.go"
-	candidateCompileExactCurrentRatchet   = 324
+	candidateCompileExactCurrentRatchet   = 323
 	candidateCompileFinalLineCeiling      = 350
 	candidateCompileImmutableBaselineMax  = 440
 	candidateCompileImmutableLoweringTask = "9.2"

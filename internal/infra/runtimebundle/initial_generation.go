@@ -108,6 +108,11 @@ func publishInitialGeneration(ctx context.Context, in publishInitialGenerationIn
 		}
 	}
 
+	var closeProcess func() error
+	fail := func(err error, genRollback func() error) (*ProcessServices, *runtimehost.Manager, *runtimehost.Generation, error) {
+		return nil, nil, nil, joinInitialFailureCleanup(ctx, err, genRollback, closeProcess, traceShutdown)
+	}
+
 	ps, err := NewProcessServices(ctx, ProcessServicesInput{
 		Cfg: in.Cfg,
 		Log: in.Logger,
@@ -120,15 +125,10 @@ func publishInitialGeneration(ctx context.Context, in publishInitialGenerationIn
 					Active:   in.TraceActive,
 				},
 			},
-			Extensions: ExtensionsOptions{
-				SecretGuardEnvironment: in.SecretEnv,
-			},
+			Extensions: ExtensionsOptions{SecretGuardEnvironment: in.SecretEnv},
 			Production: in.Production,
 		},
-		Tracing: ProcessTracing{
-			Shutdown: in.TraceShutdown,
-			Active:   in.TraceActive,
-		},
+		Tracing: ProcessTracing{Shutdown: in.TraceShutdown, Active: in.TraceActive},
 	})
 	if err != nil {
 		return nil, nil, nil, joinInitialFailureCleanup(ctx, fmt.Errorf("runtimebundle: process services: %w", err), nil, nil, traceShutdown)
@@ -136,41 +136,30 @@ func publishInitialGeneration(ctx context.Context, in publishInitialGenerationIn
 	if !ps.Tracing.Active && in.TraceActive {
 		ps.Tracing.Active = true
 	}
-	if err := note(hostBuildStageNameProcess, hostBuildProbeAcquired); err != nil {
+	closeProcess = func() error {
 		_ = note(hostBuildStageNameProcess, hostBuildProbeCleaned)
-		return nil, nil, nil, joinInitialFailureCleanup(ctx, err, nil, ps.Close, traceShutdown)
+		return ps.Close()
+	}
+	if err := note(hostBuildStageNameProcess, hostBuildProbeAcquired); err != nil {
+		return fail(err, nil)
 	}
 
-	// Candidate feature lifecycles are derived once inside CompileGeneration from
-	// the candidate config surface. Do not overlay merged instances — that
-	// double-registers Start/Stop on the generation ledger.
 	bundle, err := CompileGeneration(ctx, GenerationCompileInput{
-		Process:   ps,
-		Candidate: in.Cfg,
-		Compose:   in.Compose,
+		Process: ps, Candidate: in.Cfg, Compose: in.Compose,
 	})
 	if err != nil {
-		return nil, nil, nil, joinInitialFailureCleanup(ctx, fmt.Errorf("runtimebundle: compile initial generation: %w", err), nil, func() error {
-			_ = note(hostBuildStageNameProcess, hostBuildProbeCleaned)
-			return ps.Close()
-		}, traceShutdown)
+		return fail(fmt.Errorf("runtimebundle: compile initial generation: %w", err), nil)
 	}
 	if err := note(hostBuildStageNameCompile, hostBuildProbeAcquired); err != nil {
 		_ = note(hostBuildStageNameCompile, hostBuildProbeCleaned)
 		_ = bundle.Quiesce(context.WithoutCancel(ctx))
 		_ = bundle.Close()
-		return nil, nil, nil, joinInitialFailureCleanup(ctx, err, nil, func() error {
-			_ = note(hostBuildStageNameProcess, hostBuildProbeCleaned)
-			return ps.Close()
-		}, traceShutdown)
+		return fail(err, nil)
 	}
 
 	mgr := runtimehost.NewManager(DefaultMaxRetainedGenerations, nil)
 	gen := mgr.PrepareRequestPlane("startup", bundle)
-	hints := runtimehost.MetaHints{
-		TriggerKind: "startup",
-		LoadedAt:    time.Now().UTC(),
-	}
+	hints := runtimehost.MetaHints{TriggerKind: "startup", LoadedAt: time.Now().UTC()}
 	if in.Effective != nil {
 		hints.PublicFingerprint = in.Effective.Identity.PublicFingerprint
 		if !in.Effective.LoadedAt.IsZero() {
@@ -179,28 +168,19 @@ func publishInitialGeneration(ctx context.Context, in publishInitialGenerationIn
 	}
 	gen.SetMetaHints(hints)
 	if err := mgr.Publish(gen); err != nil {
-		return nil, nil, nil, joinInitialFailureCleanup(ctx, fmt.Errorf("runtimebundle: publish initial generation: %w", err), gen.Discard, func() error {
-			_ = note(hostBuildStageNameProcess, hostBuildProbeCleaned)
-			return ps.Close()
-		}, traceShutdown)
+		return fail(fmt.Errorf("runtimebundle: publish initial generation: %w", err), gen.Discard)
 	}
 	if gen.ID() != 1 {
-		return nil, nil, nil, joinInitialFailureCleanup(ctx, fmt.Errorf("runtimebundle: initial generation id=%d want 1", gen.ID()), func() error {
+		return fail(fmt.Errorf("runtimebundle: initial generation id=%d want 1", gen.ID()), func() error {
 			return mgr.ShutdownDetached(context.WithoutCancel(ctx))
-		}, func() error {
-			_ = note(hostBuildStageNameProcess, hostBuildProbeCleaned)
-			return ps.Close()
-		}, traceShutdown)
+		})
 	}
 	if err := note(hostBuildStageNamePublish, hostBuildProbeAcquired); err != nil {
 		_ = note(hostBuildStageNamePublish, hostBuildProbeCleaned)
 		_ = note(hostBuildStageNameCompile, hostBuildProbeCleaned)
-		return nil, nil, nil, joinInitialFailureCleanup(ctx, err, func() error {
+		return fail(err, func() error {
 			return mgr.ShutdownDetached(context.WithoutCancel(ctx))
-		}, func() error {
-			_ = note(hostBuildStageNameProcess, hostBuildProbeCleaned)
-			return ps.Close()
-		}, traceShutdown)
+		})
 	}
 
 	if ps.terminalWorkRT != nil {

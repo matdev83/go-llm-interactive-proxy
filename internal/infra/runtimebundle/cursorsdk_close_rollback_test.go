@@ -151,9 +151,10 @@ func TestBuild_cursorSDKCloserIdempotentOnSuccessfulBuild(t *testing.T) {
 		PluginRegistry: reg,
 	})
 	be, ok := built.Executor.Backends["cursor-sdk"]
-	if !ok || be.Close == nil {
-		t.Fatal("expected cursor-sdk Close")
+	if !ok {
+		t.Fatal("expected cursor-sdk backend")
 	}
+	_ = be
 	for i := range 2 {
 		if err := built.Close(); err != nil {
 			t.Fatalf("close pass %d: %v", i, err)

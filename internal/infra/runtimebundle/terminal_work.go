@@ -64,33 +64,6 @@ func (rt *terminalWorkRuntime) BindGenerationManager(mgr *runtimehost.Manager) {
 	rt.genResolver.SetLookup(mgr.GenerationByIdentity)
 }
 
-func (rt *terminalWorkRuntime) bindSnapshotPublisher(pub *snapshotgen.Publisher) {
-	if rt == nil {
-		return
-	}
-	rt.snapshotPub = pub
-	binder := snapshotPendingBinder{pub: pub}
-	if rt.Intents != nil && pub != nil {
-		rt.Intents.SetExecutablePending(binder)
-	}
-	if rt.Reconciler != nil && pub != nil {
-		rt.Reconciler.SetExecutablePending(binder)
-	}
-	if rt.Processor == nil || pub == nil {
-		return
-	}
-	// Compose rather than overwrite: pin release stays on GenerationPins;
-	// this clears WorkID-keyed executable pending as a safety net (idempotent
-	// with tracker clearExec).
-	rt.Processor.AddOnTerminalDone(func(rec terminalwork.WorkRecord) {
-		gid, err := strconv.ParseInt(strings.TrimSpace(rec.Versions.ExecutableGenerationID()), 10, 64)
-		if err != nil || gid <= 0 {
-			return
-		}
-		pub.ClearPendingWork(gid, rec.WorkID)
-	})
-}
-
 type snapshotPendingBinder struct {
 	pub *snapshotgen.Publisher
 }
@@ -163,39 +136,38 @@ func buildTerminalWorkFromProduction(prod ProductionOptions, clock func() time.T
 
 func composeTerminalWorkProviders(prod ProductionOptions) ([]terminalworkapp.EffectProvider, error) {
 	byID := make(map[string]terminalworkapp.EffectProvider, len(prod.RequestRegistrations)+len(prod.TerminalWorkProviders)+1)
-	order := make([]string, 0, len(prod.RequestRegistrations)+len(prod.TerminalWorkProviders)+1)
+	order := make([]string, 0, len(byID))
+	add := func(id string, p terminalworkapp.EffectProvider) {
+		id = strings.TrimSpace(id)
+		if id == "" || p == nil {
+			return
+		}
+		if _, exists := byID[id]; !exists {
+			order = append(order, id)
+		}
+		byID[id] = p
+	}
 	for _, reg := range prod.RequestRegistrations {
 		id := strings.TrimSpace(reg.Descriptor.ID)
 		if id == "" || reg.Provider == nil {
 			continue
 		}
 		effect, err := terminalworkapp.NewAuthorityRequestEffectProvider(terminalworkapp.AuthorityRequestEffectConfig{
-			ProviderID: id,
-			Provider:   reg.Provider,
-			Version:    requestRegistrationEffectVersion(reg),
+			ProviderID: id, Provider: reg.Provider, Version: requestRegistrationEffectVersion(reg),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("runtimebundle: derive terminal work provider %q: %w", id, err)
 		}
-		if _, exists := byID[id]; !exists {
-			order = append(order, id)
-		}
-		byID[id] = effect
+		add(id, effect)
 	}
 	if conc := concurrencyProviderFromProd(prod); conc != nil {
 		effect, err := terminalworkapp.NewLeaseSetEffectProvider(terminalworkapp.LeaseSetEffectConfig{
-			ProviderID: "concurrency",
-			Provider:   conc,
-			Version:    "1",
+			ProviderID: "concurrency", Provider: conc, Version: "1",
 		})
 		if err != nil {
 			return nil, fmt.Errorf("runtimebundle: derive lease-set terminal work provider: %w", err)
 		}
-		id := effect.ProviderID()
-		if _, exists := byID[id]; !exists {
-			order = append(order, id)
-		}
-		byID[id] = effect
+		add(effect.ProviderID(), effect)
 	}
 	for _, p := range prod.TerminalWorkProviders {
 		if p == nil {
@@ -205,10 +177,7 @@ func composeTerminalWorkProviders(prod ProductionOptions) ([]terminalworkapp.Eff
 		if id == "" {
 			return nil, fmt.Errorf("runtimebundle: terminal work provider: empty provider id")
 		}
-		if _, exists := byID[id]; !exists {
-			order = append(order, id)
-		}
-		byID[id] = p
+		add(id, p)
 	}
 	out := make([]terminalworkapp.EffectProvider, 0, len(order))
 	for _, id := range order {
@@ -271,16 +240,10 @@ func buildTerminalWorkRuntime(in terminalWorkBuildInput) (*terminalWorkRuntime, 
 	pins := terminalworkapp.NewGenerationPinTracker()
 	genResolver := &generationPresentResolver{}
 	cfg := terminalworkapp.Config{
-		OwnerID:            owner,
-		ClaimTTL:           claimTTL,
-		ClaimLimit:         in.ClaimLimit,
-		GlobalMax:          in.GlobalMax,
-		PerProviderMax:     in.PerProvMax,
-		TickInterval:       tickInterval,
-		RenewInterval:      renewInterval,
-		Clock:              clockFunc{now: clock},
-		GenerationPins:     pins,
-		GenerationResolver: genResolver,
+		OwnerID: owner, ClaimTTL: claimTTL, ClaimLimit: in.ClaimLimit,
+		GlobalMax: in.GlobalMax, PerProviderMax: in.PerProvMax, TickInterval: tickInterval,
+		RenewInterval: renewInterval, Clock: clockFunc{now: clock},
+		GenerationPins: pins, GenerationResolver: genResolver,
 	}
 	var execPending terminalworkapp.ExecutablePendingBinder
 	if pub := in.SnapshotPub; pub != nil {
@@ -300,54 +263,33 @@ func buildTerminalWorkRuntime(in terminalWorkBuildInput) (*terminalWorkRuntime, 
 	if err != nil {
 		return nil, nil, fmt.Errorf("runtimebundle: terminal work processor: %w", err)
 	}
-
 	var reconciler *terminalworkapp.AmbiguousAppendReconciler
 	if as, ok := any(in.Store).(terminalworkapp.AmbiguousAppendStore); ok {
 		reconciler, err = terminalworkapp.NewAmbiguousAppendReconciler(as, terminalworkapp.AmbiguousAppendReconcilerConfig{
-			Clock:             clock,
-			Pins:              pins,
-			ExecutablePending: execPending,
+			Clock: clock, Pins: pins, ExecutablePending: execPending,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("runtimebundle: ambiguous append reconciler: %w", err)
 		}
 	}
-
 	backing := strings.TrimSpace(in.StoreBacking)
 	if backing == "" {
 		backing = "injected"
 	}
-	intentCfg := terminalworkapp.IntentServiceConfig{
-		Clock:             clock,
-		Pins:              pins,
-		ExecutablePending: execPending,
-	}
+	intentCfg := terminalworkapp.IntentServiceConfig{Clock: clock, Pins: pins, ExecutablePending: execPending}
 	if reconciler != nil {
 		intentCfg.AmbiguousHandoff = reconciler
 	}
 	rt := &terminalWorkRuntime{
-		Processor:    proc,
-		Registry:     reg,
-		Store:        in.Store,
-		Intents:      terminalworkapp.NewIntentService(in.Store, intentCfg),
-		Queries:      terminalworkapp.NewQueryService(in.Store),
-		Metrics:      metricsObs,
-		Pins:         pins,
-		Reconciler:   reconciler,
-		genResolver:  genResolver,
-		storeBacking: backing,
-		clock:        clock,
-		prom:         in.Prom,
-		snapshotPub:  in.SnapshotPub,
+		Processor: proc, Registry: reg, Store: in.Store,
+		Intents: terminalworkapp.NewIntentService(in.Store, intentCfg),
+		Queries: terminalworkapp.NewQueryService(in.Store), Metrics: metricsObs,
+		Pins: pins, Reconciler: reconciler, genResolver: genResolver,
+		storeBacking: backing, clock: clock, prom: in.Prom, snapshotPub: in.SnapshotPub,
 	}
-	if ready, ok := in.Store.(interface {
-		CheckReadiness(context.Context) error
-	}); ok {
+	if ready, ok := in.Store.(interface{ CheckReadiness(context.Context) error }); ok {
 		rt.checkReady = ready.CheckReadiness
 	}
-
-	// Start reconciler before processor so ambiguous handoffs are live when
-	// the claim worker begins. Partial-start rollback closes started workers.
 	reconcilerStarted := false
 	if reconciler != nil {
 		if err := reconciler.Start(); err != nil {
@@ -363,16 +305,11 @@ func buildTerminalWorkRuntime(in terminalWorkBuildInput) (*terminalWorkRuntime, 
 		}
 		return nil, nil, fmt.Errorf("runtimebundle: terminal work start: %w", err)
 	}
-
-	// disposeClosers runs reverse order: register processor first, reconciler
-	// second so shutdown drains reconciler before stopping the processor.
-	closers := []func() error{
-		func() error {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			return proc.Shutdown(ctx)
-		},
-	}
+	closers := []func() error{func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return proc.Shutdown(ctx)
+	}}
 	if reconciler != nil {
 		closers = append(closers, func() error {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -381,6 +318,17 @@ func buildTerminalWorkRuntime(in terminalWorkBuildInput) (*terminalWorkRuntime, 
 		})
 	}
 	return rt, closers, nil
+}
+
+func applyTerminalWorkProm(prom *metrics.TerminalWorkProm, snap terminalworkapp.MetricsSnapshot) {
+	if prom == nil {
+		return
+	}
+	prom.ApplySnapshot(metrics.TerminalWorkSnapshot{
+		Backlog: snap.Backlog, OldestAgeSec: snap.OldestAge.Seconds(),
+		Pending: snap.Pending, Retrying: snap.Retrying, Quarantined: snap.Quarantined,
+		Completed: snap.Completed, Claimed: snap.Claimed,
+	})
 }
 
 // Readiness reports running state, unresolved providers, backlog, and store readiness.
@@ -406,14 +354,11 @@ func (rt *terminalWorkRuntime) Readiness(ctx context.Context) TerminalWorkReadin
 	}
 	safeUnavailable := string(controlplane.ReasonBackingUnavailable)
 	if rt.Metrics == nil {
-		out.BacklogKnown = false
-		out.ErrorCode = safeUnavailable
+		out.BacklogKnown, out.ErrorCode = false, safeUnavailable
 	} else if metricsSnap, err := rt.Metrics.Snapshot(ctx); err != nil {
-		out.BacklogKnown = false
-		out.ErrorCode = safeUnavailable
+		out.BacklogKnown, out.ErrorCode = false, safeUnavailable
 	} else {
-		out.BacklogKnown = true
-		out.Backlog = metricsSnap.Backlog
+		out.BacklogKnown, out.Backlog = true, metricsSnap.Backlog
 	}
 	if !out.Running {
 		out.ErrorCode = safeUnavailable
@@ -423,8 +368,7 @@ func (rt *terminalWorkRuntime) Readiness(ctx context.Context) TerminalWorkReadin
 		return out
 	}
 	if err := rt.checkReady(ctx); err != nil {
-		out.StoreReady = false
-		out.ErrorCode = safeUnavailable
+		out.StoreReady, out.ErrorCode = false, safeUnavailable
 		return out
 	}
 	out.StoreReady = true
@@ -442,25 +386,15 @@ func (rt *terminalWorkRuntime) publishMetrics(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	rt.prom.ApplySnapshot(metrics.TerminalWorkSnapshot{
-		Backlog:      snap.Backlog,
-		OldestAgeSec: snap.OldestAge.Seconds(),
-		Pending:      snap.Pending,
-		Retrying:     snap.Retrying,
-		Quarantined:  snap.Quarantined,
-		Completed:    snap.Completed,
-		Claimed:      snap.Claimed,
-	})
+	applyTerminalWorkProm(rt.prom, snap)
 	return nil
 }
 
 func (rt *terminalWorkRuntime) readinessComponent(ctx context.Context) (controlplane.ReadinessComponentStatus, error) {
 	if rt == nil || rt.Processor == nil {
 		return controlplane.ReadinessComponentStatus{
-			Component:        controlplane.ReadinessComponentTerminalRecovery,
-			State:            controlplane.CapabilityDisabled,
-			Reason:           controlplane.ReasonDisabled,
-			EnforcementScope: controlplane.EnforcementScopeDisabled,
+			Component: controlplane.ReadinessComponentTerminalRecovery, State: controlplane.CapabilityDisabled,
+			Reason: controlplane.ReasonDisabled, EnforcementScope: controlplane.EnforcementScopeDisabled,
 		}, nil
 	}
 	if ctx == nil {
@@ -471,44 +405,37 @@ func (rt *terminalWorkRuntime) readinessComponent(ctx context.Context) (controlp
 		EnforcementScope: controlplane.EnforcementScopeForStoreBacking(rt.storeBacking, strings.EqualFold(rt.storeBacking, "postgres")),
 		StoreBacking:     rt.storeBacking,
 	}
+	unavailable := func() (controlplane.ReadinessComponentStatus, error) {
+		row.State, row.Reason = controlplane.CapabilityUnavailable, controlplane.ReasonBackingUnavailable
+		return row, nil
+	}
 	if rt.checkReady != nil {
 		if err := rt.checkReady(ctx); err != nil {
-			row.State = controlplane.CapabilityUnavailable
-			row.Reason = controlplane.ReasonBackingUnavailable
-			return row, nil
+			return unavailable()
 		}
 	}
 	if !rt.Processor.Running() {
-		row.State = controlplane.CapabilityUnavailable
-		row.Reason = controlplane.ReasonBackingUnavailable
-		return row, nil
+		return unavailable()
 	}
 	snap := rt.Processor.Readiness()
 	if len(snap.UnresolvedProviderIDs) > 0 {
-		row.State = controlplane.CapabilityDegraded
-		row.Reason = controlplane.ReasonPendingTerminalWork
+		row.State, row.Reason = controlplane.CapabilityDegraded, controlplane.ReasonPendingTerminalWork
 		row.ProviderIDs = append([]string(nil), snap.UnresolvedProviderIDs...)
 		return row, nil
 	}
 	if rt.Metrics == nil {
-		row.State = controlplane.CapabilityUnavailable
-		row.Reason = controlplane.ReasonBackingUnavailable
-		return row, nil
+		return unavailable()
 	}
 	metricsSnap, err := rt.Metrics.Snapshot(ctx)
 	if err != nil {
-		row.State = controlplane.CapabilityUnavailable
-		row.Reason = controlplane.ReasonBackingUnavailable
-		return row, nil
+		return unavailable()
 	}
 	_ = rt.publishMetrics(ctx)
 	if metricsSnap.Backlog > 0 || (rt.Reconciler != nil && rt.Reconciler.Pending() > 0) {
-		row.State = controlplane.CapabilityDegraded
-		row.Reason = controlplane.ReasonPendingTerminalWork
+		row.State, row.Reason = controlplane.CapabilityDegraded, controlplane.ReasonPendingTerminalWork
 		return row, nil
 	}
-	row.State = controlplane.CapabilityReady
-	row.Reason = controlplane.ReasonNone
+	row.State, row.Reason = controlplane.CapabilityReady, controlplane.ReasonNone
 	return row, nil
 }
 

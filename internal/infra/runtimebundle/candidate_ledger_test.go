@@ -101,7 +101,7 @@ func TestCandidateRuntime_DiscardClosesLedgerOnly(t *testing.T) {
 	t.Parallel()
 	var candClosed, processClosed atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("cand", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("cand", runtimebundle.PhaseClose, func() error {
 		candClosed.Add(1)
 		return nil
 	})
@@ -138,11 +138,11 @@ func TestCandidateRuntime_ManagerAutoRetireQuiesceClose(t *testing.T) {
 	var quiesced, closed atomic.Int32
 	closeDone := make(chan struct{})
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
+	ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
 		quiesced.Add(1)
 		return nil
 	})
-	_ = ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
 		closed.Add(1)
 		close(closeDone)
 		return nil

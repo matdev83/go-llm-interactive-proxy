@@ -8,6 +8,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 )
 
 // ComposeStandardHTTP is the canonical HandlerComposer: it builds the complete
@@ -20,6 +21,18 @@ import (
 // [ErrRouteConflict] rather than panicking. Management reload/status routes
 // are intentionally absent: they remain process-owned outside this swappable
 // request-plane graph (req 12.1).
+
+// StandardHTTPInput and its groups are exact aliases of the cycle-neutral
+// internal/stdhttp/contract definitions (task 3.4).
+type (
+	StandardHTTPInput   = httpcontract.StandardHTTPInput
+	HTTPCoreInput       = httpcontract.HTTPCoreInput
+	HTTPSecurityInput   = httpcontract.HTTPSecurityInput
+	HTTPOperationsInput = httpcontract.HTTPOperationsInput
+	HTTPModelInput      = httpcontract.HTTPModelInput
+	HTTPFrontendInput   = httpcontract.HTTPFrontendInput
+)
+
 func ComposeStandardHTTP(ctx context.Context, cfg *config.Config, log *slog.Logger, in StandardHTTPInput) (http.Handler, error) {
 	if ctx == nil {
 		return nil, errors.New("stdhttp: nil context")

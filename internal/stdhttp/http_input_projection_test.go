@@ -29,6 +29,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	cpadmin "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/controlplane"
 	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
+	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
@@ -74,7 +75,7 @@ func TestStandardHTTPInput_mapsInventoryFieldsOnce(t *testing.T) {
 	got := StandardHTTPInput{
 		Core: HTTPCoreInput{Executor: exec},
 		Security: HTTPSecurityInput{
-			HTTPAuthProviders:    cloneHTTPAuthProviders(providers),
+			HTTPAuthProviders:    httpcontract.CloneHTTPAuthProviders(providers),
 			UsageAuthority:       cpadmin.AdaptAccountingAuthorityQueries(usage),
 			ConcurrencyAuthority: cpadmin.AdaptConcurrencyAuthorityQueries(concurrency),
 		},
@@ -85,18 +86,18 @@ func TestStandardHTTPInput_mapsInventoryFieldsOnce(t *testing.T) {
 			ControlPlaneQueries:  cpadmin.AdaptControlPlaneQueries(cpQueries),
 			ReadinessReport:      cpadmin.AdaptReadinessReport(readiness),
 			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(tokenAdmin),
-			Registrations:        cloneRegistrations(regs),
+			Registrations:        httpcontract.CloneRegistrations(regs),
 		},
 		Models: HTTPModelInput{CatalogRuntime: catalog, ModelRegistryRuntime: modelRT},
 		Frontends: HTTPFrontendInput{
 			Executor:             exec,
 			Registry:             reg,
 			DefaultRouteSelector: "stub:route",
-			RoutePrefixes:        cloneStrings([]string{"stub"}),
-			Plugins:              clonePluginConfigs(cfg.Plugins.Frontends),
+			RoutePrefixes:        httpcontract.CloneStrings([]string{"stub"}),
+			Plugins:              httpcontract.ClonePluginConfigs(cfg.Plugins.Frontends),
 			MaxRequestBodyBytes:  cfg.Server.EffectiveMaxRequestBodyBytes(),
 			DecodeAdmission:      decode,
-			TrafficPorts:         trafficPortsFromSnapshot(snap),
+			TrafficPorts:         httpcontract.TrafficPortsFromSnapshot(snap),
 			PreRequestKeepalive:  lipsdk.FrontendKeepaliveConfig{Enabled: ka.Enabled, Interval: ka.Interval},
 		},
 	}
@@ -185,21 +186,21 @@ func TestStandardHTTPInput_defensiveClones(t *testing.T) {
 	})
 	cfg := &config.Config{Plugins: config.PluginsConfig{Frontends: plugins}}
 	got := StandardHTTPInput{
-		Security: HTTPSecurityInput{HTTPAuthProviders: cloneHTTPAuthProviders(providers)},
-		Operations: HTTPOperationsInput{Registrations: cloneRegistrations(regs)},
+		Security:   HTTPSecurityInput{HTTPAuthProviders: httpcontract.CloneHTTPAuthProviders(providers)},
+		Operations: HTTPOperationsInput{Registrations: httpcontract.CloneRegistrations(regs)},
 		Frontends: HTTPFrontendInput{
-			RoutePrefixes: cloneStrings(prefixes),
-			Plugins:       clonePluginConfigs(cfg.Plugins.Frontends),
-			TrafficPorts:  trafficPortsFromSnapshot(snap),
+			RoutePrefixes: httpcontract.CloneStrings(prefixes),
+			Plugins:       httpcontract.ClonePluginConfigs(cfg.Plugins.Frontends),
+			TrafficPorts:  httpcontract.TrafficPortsFromSnapshot(snap),
 		},
 	}
 	got2 := StandardHTTPInput{
-		Security: HTTPSecurityInput{HTTPAuthProviders: cloneHTTPAuthProviders(providers)},
-		Operations: HTTPOperationsInput{Registrations: cloneRegistrations(regs)},
+		Security:   HTTPSecurityInput{HTTPAuthProviders: httpcontract.CloneHTTPAuthProviders(providers)},
+		Operations: HTTPOperationsInput{Registrations: httpcontract.CloneRegistrations(regs)},
 		Frontends: HTTPFrontendInput{
-			RoutePrefixes: cloneStrings(prefixes),
-			Plugins:       clonePluginConfigs(cfg.Plugins.Frontends),
-			TrafficPorts:  trafficPortsFromSnapshot(snap),
+			RoutePrefixes: httpcontract.CloneStrings(prefixes),
+			Plugins:       httpcontract.ClonePluginConfigs(cfg.Plugins.Frontends),
+			TrafficPorts:  httpcontract.TrafficPortsFromSnapshot(snap),
 		},
 	}
 
@@ -265,7 +266,7 @@ func TestTrafficPortsFromSnapshot_clonesRedactors(t *testing.T) {
 	t.Parallel()
 	reds := []traffic.Redactor{stubProjectionRedactor{id: "a"}}
 	snap := fakeTrafficSnapshot{red: reds}
-	ports := trafficPortsFromSnapshot(snap)
+	ports := httpcontract.TrafficPortsFromSnapshot(snap)
 	reds[0] = stubProjectionRedactor{id: "mutated"}
 	if ports.Red[0].ID() != "a" {
 		t.Fatal("trafficPortsFromSnapshot aliased redactor slice")
@@ -274,7 +275,7 @@ func TestTrafficPortsFromSnapshot_clonesRedactors(t *testing.T) {
 	if reds[0].ID() == "projected" {
 		t.Fatal("projected redactor mutation leaked into source")
 	}
-	ports2 := trafficPortsFromSnapshot(snap)
+	ports2 := httpcontract.TrafficPortsFromSnapshot(snap)
 	ports.Red[0] = stubProjectionRedactor{id: "only-1"}
 	if ports2.Red[0].ID() == "only-1" {
 		t.Fatal("repeated trafficPortsFromSnapshot share redactor backing array")
@@ -361,7 +362,6 @@ func TestNoLegacyBuiltCompatibilitySymbols(t *testing.T) {
 		"handler.go":       mustReadFile(t, filepath.Join(dir, "handler.go")),
 		"server.go":        mustReadFile(t, filepath.Join(dir, "server.go")),
 		"request_plane.go": mustReadFile(t, filepath.Join(dir, "request_plane.go")),
-		"http_input.go":    mustReadFile(t, filepath.Join(dir, "http_input.go")),
 	}
 	for name, src := range files {
 		if strings.Contains(src, "requestPlaneAsBuilt") {
@@ -403,7 +403,7 @@ func TestNoLegacyBuiltCompatibilitySymbols(t *testing.T) {
 			case "mountMetrics", "mountDiagnostics", "mountModelCatalogDiagnostics",
 				"mountModelInventoryDiagnostics", "mountSecureSessionDiagnostics",
 				"mountAccountingAdmin", "mountControlPlaneQuery", "mountAccountingAuthorityQuery",
-				"MountBundledFrontends", "MountBundledFrontendsLegacy", "mountALegCancel",
+				"MountBundledFrontends", "mountALegCancel",
 				"stackHTTPHandler", "prepareStandardHandler", "ComposeStandardHTTP":
 			default:
 				continue

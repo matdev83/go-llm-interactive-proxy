@@ -15,9 +15,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
+	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
@@ -73,7 +74,7 @@ func TestTokenAccountingAdminMountedWithDiagnosticsSecret(t *testing.T) {
 		Frontends: frontendInputForTest(cfg, ex, reg),
 		Operations: HTTPOperationsInput{
 			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(svc),
-			Registrations:        cloneRegistrations(app.Registrations()),
+			Registrations:        httpcontract.CloneRegistrations(app.Registrations()),
 		},
 	}
 	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
@@ -111,9 +112,9 @@ func TestTokenAccountingAdminDisabledNotRegistered(t *testing.T) {
 	startTestApp(t, ctx, app)
 	reg := pluginreg.NewRegistry()
 	in := StandardHTTPInput{
-		Core:      HTTPCoreInput{Executor: ex},
-		Frontends: frontendInputForTest(cfg, ex, reg),
-		Operations: HTTPOperationsInput{Registrations: cloneRegistrations(app.Registrations())},
+		Core:       HTTPCoreInput{Executor: ex},
+		Frontends:  frontendInputForTest(cfg, ex, reg),
+		Operations: HTTPOperationsInput{Registrations: httpcontract.CloneRegistrations(app.Registrations())},
 	}
 	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
 	if err != nil {
@@ -145,7 +146,7 @@ func TestTokenAccountingAdminMountedBodyLimitDoesNotEchoContent(t *testing.T) {
 		Frontends: frontendInputForTest(cfg, ex, reg),
 		Operations: HTTPOperationsInput{
 			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(svc),
-			Registrations:        cloneRegistrations(app.Registrations()),
+			Registrations:        httpcontract.CloneRegistrations(app.Registrations()),
 		},
 	}
 	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
@@ -181,7 +182,7 @@ func TestTokenAccountingAdmin_explicitServicePreferredOverExecutorFallback(t *te
 		Frontends: frontendInputForTest(cfg, ex, reg),
 		Operations: HTTPOperationsInput{
 			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(explicit),
-			Registrations:        cloneRegistrations(app.Registrations()),
+			Registrations:        httpcontract.CloneRegistrations(app.Registrations()),
 		},
 	}
 	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
@@ -209,9 +210,9 @@ func TestTokenAccountingAdmin_executorFallbackWhenExplicitNil(t *testing.T) {
 	startTestApp(t, ctx, app)
 	reg := pluginreg.NewRegistry()
 	in := StandardHTTPInput{
-		Core:      HTTPCoreInput{Executor: ex},
-		Frontends: frontendInputForTest(cfg, ex, reg),
-		Operations: HTTPOperationsInput{Registrations: cloneRegistrations(app.Registrations())},
+		Core:       HTTPCoreInput{Executor: ex},
+		Frontends:  frontendInputForTest(cfg, ex, reg),
+		Operations: HTTPOperationsInput{Registrations: httpcontract.CloneRegistrations(app.Registrations())},
 	}
 	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
 	if err != nil {
@@ -240,9 +241,9 @@ func TestTokenAccountingAdmin_nilServiceReturnsUnavailable(t *testing.T) {
 	startTestApp(t, ctx, app)
 	reg := pluginreg.NewRegistry()
 	in := StandardHTTPInput{
-		Core:      HTTPCoreInput{Executor: ex},
-		Frontends: frontendInputForTest(cfg, ex, reg),
-		Operations: HTTPOperationsInput{Registrations: cloneRegistrations(app.Registrations())},
+		Core:       HTTPCoreInput{Executor: ex},
+		Frontends:  frontendInputForTest(cfg, ex, reg),
+		Operations: HTTPOperationsInput{Registrations: httpcontract.CloneRegistrations(app.Registrations())},
 	}
 	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
 	if err != nil {
@@ -358,9 +359,9 @@ func TestComposeStandardHTTP_diagnosticsHealthzMounted(t *testing.T) {
 	startTestApp(t, ctx, app)
 	reg := pluginreg.NewRegistry()
 	in := StandardHTTPInput{
-		Core:      HTTPCoreInput{Executor: ex},
-		Frontends: frontendInputForTest(cfg, ex, reg),
-		Operations: HTTPOperationsInput{Registrations: cloneRegistrations(app.Registrations())},
+		Core:       HTTPCoreInput{Executor: ex},
+		Frontends:  frontendInputForTest(cfg, ex, reg),
+		Operations: HTTPOperationsInput{Registrations: httpcontract.CloneRegistrations(app.Registrations())},
 	}
 	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
 	if err != nil {

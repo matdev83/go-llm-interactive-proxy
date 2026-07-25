@@ -59,11 +59,11 @@ func TestCandidateRuntime_ConcurrentQuiesceClose_NilAndLedgerBound(t *testing.T)
 		t.Parallel()
 		var quiesced, closed atomic.Int32
 		ledger := runtimebundle.NewResourceLedger()
-		_ = ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
+		ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
 			quiesced.Add(1)
 			return nil
 		})
-		_ = ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
+		ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
 			closed.Add(1)
 			return nil
 		})

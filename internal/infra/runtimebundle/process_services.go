@@ -48,10 +48,6 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	if ps.Tracing.Shutdown == nil {
 		ps.Tracing.Shutdown = func(context.Context) error { return nil }
 	}
-	ps.StoreCompatKeys.Continuity = StoreCompatKeyFromContinuity(in.Cfg.Continuity)
-	ps.StoreCompatKeys.SecureSession = StoreCompatKeyFromSecureSession(in.Cfg.SecureSession)
-	ps.StoreCompatKeys.AccountingLedger = StoreCompatKeyFromAccountingLedger(in.Cfg.Accounting)
-	ps.StoreCompatKeys.MeteringJournal = StoreCompatKeyFromMeteringJournal(in.Cfg.Metering)
 
 	postgresPools := db.NewPoolRegistry(in.Opts.Testing.PostgresPoolOpener)
 	ps.DatabasePools = postgresPools

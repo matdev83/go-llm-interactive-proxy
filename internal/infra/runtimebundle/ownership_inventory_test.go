@@ -78,11 +78,11 @@ var builtFieldOwnership = []ownershipEntry{
 	{Symbol: "Ledger", Class: ownershipGeneration, Source: "runtimebundle.CompileCandidate \u2192 NewResourceLedger", Notes: "Sole generation-owned resource lifecycle owner: rollback/quiesce/close (req 2.8, 3.8, 8.3-8.4). No aggregate closer-list view exists."},
 	{Symbol: "ProcessTracingShutdown", Class: ownershipProcess, Source: "runtimebundle.ProcessServices / bootstrap tracing.Init", Notes: "Always nil on candidates; tracing lifecycle stays process-owned (req 6.4, 6.10)."},
 	{Symbol: "EffectiveDefaultRoute", Class: ownershipGeneration, Source: "runtimebundle.buildExecutorRuntime", Notes: "Frozen routing projection per generation."},
-	{Symbol: "UpstreamHTTP", Class: ownershipGeneration, Source: "runtimebundle.buildObservabilityRuntime → httpclient.StandardWithTune", Notes: "Generation-owned HTTP client/tuning."},
+	{Symbol: "UpstreamHTTP", Class: ownershipGeneration, Source: "runtimebundle.buildGenerationObservability → httpclient.StandardWithTune", Notes: "Generation-owned HTTP client/tuning."},
 	{Symbol: "RoutePrefixes", Class: ownershipGeneration, Source: "runtimebundle.buildModelRuntime → buildBackends", Notes: "Frozen backend route-selector prefixes."},
 	{Symbol: "DecodeAdmission", Class: ownershipProcess, Source: "runtimebundle.NewProcessServices → decodeqos.New", Notes: "Process-capacity limiter (req 6.5)."},
 	{Symbol: "PluginRegistry", Class: ownershipProcess, Source: "BuildHost → pluginreg.NewRegistry", Notes: "Factory catalog/discovery trust is startup-fixed (req 6.4, 8.7)."},
-	{Symbol: "Metrics", Class: ownershipProcess, Source: "runtimebundle.buildObservabilityRuntime → metrics.NewBundle", Notes: "One process Prometheus registry/bundle (req 6.4)."},
+	{Symbol: "Metrics", Class: ownershipProcess, Source: "runtimebundle.buildProcessMetricsBundle → metrics.NewBundle", Notes: "One process Prometheus registry/bundle (req 6.4)."},
 	{Symbol: "RuntimeSnapshot", Class: ownershipGeneration, Source: "runtimebundle.buildExtensionRuntime", Notes: "Immutable feature/hook surface projection."},
 	{Symbol: "HTTPAuthProviders", Class: ownershipGeneration, Source: "runtimebundle.buildSecurityRuntime", Notes: "Transport-auth providers for the generation handler graph."},
 	{Symbol: "SecureSessionStore", Class: ownershipProcess, Source: "runtimebundle.buildPersistenceRuntime", Notes: "Secure-session store identity is process-owned (req 6.2)."},
@@ -153,7 +153,7 @@ var compositionResourceOwnership = []ownershipEntry{
 	{Symbol: "catalog.closers", Class: ownershipGeneration, Source: "startModelCatalog / buildModelRuntime startedCatalog.closers + quiesceClosers", Notes: "Candidate catalog PhaseClose runtime/client cleanup and PhaseQuiesce refresh cancel/wait."},
 	{Symbol: "modelRegistry.cacheAndRefresh", Class: ownershipGeneration, Source: "startModelRegistryRuntime / runModelRegistryRefreshLoop", Notes: "Registry cache/snapshot/refresh owned with candidate ModelRegistryRuntime."},
 	{Symbol: "modelRegistry.closers", Class: ownershipGeneration, Source: "startModelRegistryRuntime", Notes: "Candidate registry refresh cleanup; see closerAcquisitionOwnership expression IDs."},
-	{Symbol: "backend.instances", Class: ownershipGeneration, Source: "buildBackends / appendBackendClosers", Notes: "Backend instances and rollback closers are generation-owned."},
+	{Symbol: "backend.instances", Class: ownershipGeneration, Source: "buildBackends / ResourceLedger.AddClose", Notes: "Backend instances and rollback closers are generation-owned."},
 
 	// extension / secure-session / terminal-work / metering nested constructions
 	{Symbol: "extension.State:corestate.NewMem", Class: ownershipProcess, Source: "process_services.go → buildSharedMutableRuntime → corestate.NewMem", ConstructorID: "corestate.NewMem", Notes: "Mutable extension state identity is process-owned; must not silently reset across generations (req 6.6). Distinguish from generation RuntimeSnapshot projection."},

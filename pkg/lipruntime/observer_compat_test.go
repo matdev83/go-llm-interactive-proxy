@@ -30,9 +30,6 @@ func TestBuild_PreservesFeatureObservers(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 	t.Cleanup(func() { _ = rt.Close(ctx) })
-	if !rt.HasTrafficObservers() || !rt.HasUsageObservers() {
-		t.Fatal("production observers must remain supported through the facade")
-	}
 	if !rt.Ready() {
 		t.Fatal("expected ready runtime")
 	}

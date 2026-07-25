@@ -66,10 +66,10 @@ type PackageTreeBudget struct {
 // Task 9.2: candidate_compile.go helpers moved to candidate_options.go (critical-
 // file organization); recursive package-tree total unchanged at exact 10418.
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 10418},
-	{Tree: "internal/stdhttp", Max: 4509},
+	{Tree: "internal/infra/runtimebundle", Max: 9391},
+	{Tree: "internal/stdhttp", Max: 4301},
 	{Tree: "cmd/lipstd", Max: 880},
-	{Tree: "pkg/lipruntime", Max: 648},
+	{Tree: "pkg/lipruntime", Max: 486},
 }
 
 // CountNonTestGoLines recursively counts physical lines in non-test .go files

@@ -76,34 +76,30 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	// generation_refcount.go). Final ≤400 (Req 11.3) already met with margin;
 	// budget is the exact measured post-Task-7.3 total (no padded ceiling).
 	{Path: "internal/infra/runtimehost/generation.go", Max: 318},
-	// BaselineMax 440 → CurrentMax 324 after Task 9.2 (mergeCandidateBuildOptions
-	// / hasExtensionOverlay moved to candidate_options.go). Exact measured
-	// physical line count (no padded ceiling); final ≤350 (Req 11.3) met.
-	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 324},
+	// BaselineMax 440 → CurrentMax 323 after Phase B+C closer-bag contraction
+	// (physical line count; final ≤350 Req 11.3 met).
+	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 323},
 	// Task 3.5: freeze post-deletion composer/input surfaces at measured sizes.
 	{Path: "internal/infra/runtimebundle/handler_composer.go", Max: 25},
 	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 296},
-	{Path: "internal/stdhttp/request_plane.go", Max: 52},
-	// Ratcheted from 99 to 42 for Task 4.2: standardHTTPInputFromBuilt deleted
-	// (measured 42; zero headroom).
-	{Path: "internal/stdhttp/http_input.go", Max: 42},
-	// Ratcheted from 364 to 249 for Task 5.5 (final ≤300, Req 11.3): removed
+	{Path: "internal/stdhttp/request_plane.go", Max: 65},
+	// Ratcheted from 364 to 245 for Task 5.5 (final ≤300, Req 11.3): removed
 	// DeferredSharedMutableOwnership/DeferredSharedMutable, ReplaceConfigForTest,
 	// and DisposeProcessClosersForTest test-only compatibility surface. The
 	// ProcessTracing/ProcessServices/ProcessServicesInput type declarations
 	// live in process_services_types.go as a critical-file organization
 	// boundary (neutral to recursive package-tree totals); this file retains
-	// the construction transaction and Close/Closed methods (measured 249;
+	// the construction transaction and Close/Closed methods (measured 245;
 	// 51 lines under the final ≤300 target).
-	{Path: "internal/infra/runtimebundle/process_services.go", Max: 249},
+	{Path: "internal/infra/runtimebundle/process_services.go", Max: 245},
 	// BaselineMax 367 → CurrentMax 96 after Task 8.1 (one host-facing dependency;
 	// delegates/adapters live in facade.go/host.go). Exact measured; final ≤150
 	// (Req 11.3) met with margin.
 	{Path: "pkg/lipruntime/build.go", Max: 96},
 	// Task 8.1: private host adapter exact-measured (zero headroom).
-	{Path: "pkg/lipruntime/host.go", Max: 98},
+	{Path: "pkg/lipruntime/host.go", Max: 52},
 	// Task 8.1: public facade delegation exact-measured (zero headroom).
-	{Path: "pkg/lipruntime/facade.go", Max: 134},
+	{Path: "pkg/lipruntime/facade.go", Max: 23},
 	// Task 5.5: exact-measured post dual-bootstrap deletion (zero headroom).
 	// Task 7.4: contracted to 360 after the tracingDeferred serve boundary was
 	// replaced by the single Host.Close seam.

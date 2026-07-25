@@ -423,13 +423,13 @@ func TestCompileCandidate_CatalogRefreshQuiescesBeforeClose(t *testing.T) {
 
 	var order []string
 	var mu sync.Mutex
-	_ = cand.Ledger.AddClose("probe-quiesce-order", runtimebundle.PhaseQuiesce, func() error {
+	cand.Ledger.AddClose("probe-quiesce-order", runtimebundle.PhaseQuiesce, func() error {
 		mu.Lock()
 		order = append(order, "quiesce-probe")
 		mu.Unlock()
 		return nil
 	})
-	_ = cand.Ledger.AddClose("probe-close-order", runtimebundle.PhaseClose, func() error {
+	cand.Ledger.AddClose("probe-close-order", runtimebundle.PhaseClose, func() error {
 		mu.Lock()
 		order = append(order, "close-probe")
 		mu.Unlock()
@@ -464,7 +464,7 @@ func TestResourceLedger_LateAddAcceptOrImmediatelyCloseRace(t *testing.T) {
 		released.Go(func() {
 			ready.Done()
 			ready.Wait()
-			_ = ledger.AddClose("late", runtimebundle.PhaseClose, closeFn)
+			ledger.AddClose("late", runtimebundle.PhaseClose, closeFn)
 		})
 		go func() {
 			ready.Done()
@@ -488,7 +488,7 @@ func TestResourceLedger_LateCloserMayReenterLedger(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_ = ledger.AddClose("reentrant-late", runtimebundle.PhaseClose, func() error {
+		ledger.AddClose("reentrant-late", runtimebundle.PhaseClose, func() error {
 			if got := ledger.Len(); got != 0 {
 				t.Errorf("closed ledger len=%d want 0", got)
 			}

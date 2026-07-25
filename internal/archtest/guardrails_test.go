@@ -237,7 +237,7 @@ var lineBudgets = []struct {
 	// closeProcessServices deleted; the serve adapter now depends on one
 	// focused GenerationServeHost seam with a shared post-Host input-failure
 	// cleanup path and single HTTPHandler resolution (measured 4509; zero headroom).
-	{"internal/stdhttp", 4509},
+	{"internal/stdhttp", 4301},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
 	// lifecycle (requirements 11.3, 11.6, 11.7).
 	// Raised from 4800 to 5200 for build-local PostgreSQL pool ownership,
@@ -373,7 +373,7 @@ var lineBudgets = []struct {
 	// Task 8.4: comment-only contraction after legacy-adapter wording removal (10418).
 	// Task 9.2: candidate_compile helpers moved to candidate_options.go; recursive
 	// package-tree total unchanged (measured 10418; zero headroom).
-	{"internal/infra/runtimebundle", 10418},
+	{"internal/infra/runtimebundle", 9391},
 	// Task 5.5: exact-measured cmd/lipstd after dual-bootstrap deletion
 	// (measured 913; zero headroom).
 	// Contracted from 913 to 880 for Task 7.4: tracing_shutdown.go deleted and
@@ -383,7 +383,7 @@ var lineBudgets = []struct {
 	// split (measured 819; at/under the b264155f pre-task 820 ceiling).
 	// Task 8.2: legacy_options quarantine adapter (measured 829).
 	// Task 8.4: legacy adapter + deprecated Options fields deleted (measured 648).
-	{"pkg/lipruntime", 648},
+	{"pkg/lipruntime", 486},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

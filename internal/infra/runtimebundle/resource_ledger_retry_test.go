@@ -17,11 +17,11 @@ func TestResourceLedger_Close_RetryOnlyFailedEntries(t *testing.T) {
 	t.Parallel()
 	var okCalls, flakyCalls atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("ok", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("ok", runtimebundle.PhaseClose, func() error {
 		okCalls.Add(1)
 		return nil
 	})
-	_ = ledger.AddClose("flaky", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("flaky", runtimebundle.PhaseClose, func() error {
 		if flakyCalls.Add(1) == 1 {
 			return errors.New("temp")
 		}
@@ -57,7 +57,7 @@ func TestResourceLedger_Close_PanicThenSuccessRetry(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("boom", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("boom", runtimebundle.PhaseClose, func() error {
 		if calls.Add(1) == 1 {
 			panic("cleanup boom")
 		}
@@ -80,7 +80,7 @@ func TestResourceLedger_Rollback_ExactOnceTerminal(t *testing.T) {
 	var calls atomic.Int32
 	fail := errors.New("rollback-fail")
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("a", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("a", runtimebundle.PhaseClose, func() error {
 		calls.Add(1)
 		return fail
 	})
@@ -104,13 +104,13 @@ func TestResourceLedger_QuiesceClose_ConcurrentShareAttempt(t *testing.T) {
 	release := make(chan struct{})
 	var enterOnce sync.Once
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
+	ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
 		quiesces.Add(1)
 		enterOnce.Do(func() { close(entered) })
 		<-release
 		return nil
 	})
-	_ = ledger.AddClose("backend", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("backend", runtimebundle.PhaseClose, func() error {
 		closes.Add(1)
 		return nil
 	})
@@ -136,22 +136,19 @@ func TestResourceLedger_LateRegistration_AfterCloseImmediateOnce(t *testing.T) {
 	t.Parallel()
 	var early, late atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("early", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("early", runtimebundle.PhaseClose, func() error {
 		early.Add(1)
 		return nil
 	})
 	if err := ledger.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	fn := ledger.AddClose("late", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("late", runtimebundle.PhaseClose, func() error {
 		late.Add(1)
 		return nil
 	})
 	if late.Load() != 1 {
 		t.Fatalf("late registration must clean immediately, late=%d", late.Load())
-	}
-	if err := fn(); err != nil {
-		t.Fatal(err)
 	}
 	if late.Load() != 1 || early.Load() != 1 {
 		t.Fatalf("double clean early=%d late=%d", early.Load(), late.Load())
@@ -165,11 +162,11 @@ func TestResourceLedger_LateQuiesceRegistration_AfterQuiesceImmediate(t *testing
 	t.Parallel()
 	var late atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error { return nil })
+	ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error { return nil })
 	if err := ledger.Quiesce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	_ = ledger.AddClose("late-worker", runtimebundle.PhaseQuiesce, func() error {
+	ledger.AddClose("late-worker", runtimebundle.PhaseQuiesce, func() error {
 		late.Add(1)
 		return nil
 	})
@@ -191,7 +188,7 @@ func TestCandidateRuntime_CloseWins_TransferNilNoBundle(t *testing.T) {
 	release := make(chan struct{})
 	var enterOnce sync.Once
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
 		closes.Add(1)
 		enterOnce.Do(func() { close(entered) })
 		<-release
@@ -226,7 +223,7 @@ func TestCandidateRuntime_TransferWins_CandidateNoopGenerationCleans(t *testing.
 	t.Parallel()
 	var closes atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
 		closes.Add(1)
 		return nil
 	})
@@ -263,13 +260,13 @@ func TestCandidateRuntime_QuiesceWins_TransferDeniedCandidateCloseFinishes(t *te
 	release := make(chan struct{})
 	var enterOnce sync.Once
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
+	ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
 		quiesces.Add(1)
 		enterOnce.Do(func() { close(entered) })
 		<-release
 		return nil
 	})
-	_ = ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
 		closes.Add(1)
 		return nil
 	})
@@ -299,7 +296,7 @@ func TestCandidateRuntime_TransferVsLifecycleRace_NeverReturnsCleanedLedger(t *t
 	for i := 0; i < 128; i++ {
 		var closes atomic.Int32
 		ledger := runtimebundle.NewResourceLedger()
-		_ = ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
+		ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
 			closes.Add(1)
 			return nil
 		})
@@ -358,7 +355,7 @@ func TestCandidateRuntime_TransferWinsOverLaterClose(t *testing.T) {
 	t.Parallel()
 	var closes atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
 		closes.Add(1)
 		return nil
 	})
@@ -431,7 +428,7 @@ func TestResourceLedger_QuiesceThenPrepare_NoRestart(t *testing.T) {
 		func(context.Context) error { starts.Add(1); return nil },
 		func(context.Context) error { return nil },
 	)
-	_ = ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
+	ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
 		quiesces.Add(1)
 		return nil
 	})
@@ -464,7 +461,7 @@ func TestResourceLedger_PrepareActivateVsTerminalRace_NoStartAfterTerminal(t *te
 			func(context.Context) error { starts.Add(1); return nil },
 			func(context.Context) error { stops.Add(1); return nil },
 		)
-		_ = ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
+		ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
 			enterOnce.Do(func() { close(entered) })
 			<-release
 			return nil
@@ -502,7 +499,7 @@ func TestResourceLedger_NormalPrepareActivateQuiesceClose(t *testing.T) {
 		func(context.Context) error { activates.Add(1); return nil },
 		nil,
 	)
-	_ = ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
+	ledger.AddClose("worker", runtimebundle.PhaseQuiesce, func() error {
 		quiesces.Add(1)
 		return nil
 	})

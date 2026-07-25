@@ -71,17 +71,17 @@ type executorBuildInput struct {
 // invariant boundary: no post-construction field mutation occurs.
 // Accounting ledger and metering stores are process-owned; this bind only
 // attaches generation backends to those shared identities.
-func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*executorRuntime, []func() error, error) {
+func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	bctx := in.Bctx
 	cfg, log, opts := bctx.Cfg, bctx.Log, bctx.Opts
 
 	effectiveRoute, defBE, aliasResolver, err := resolveRouting(cfg, opts.WireModel)
 	if err != nil {
-		return nil, closers, fmt.Errorf("runtimebundle: %w", err)
+		return nil, fmt.Errorf("runtimebundle: %w", err)
 	}
 	if bctx.ExplicitCandidate {
 		if err := validateRouteSelectorsAgainstBackends(cfg, effectiveRoute, cfg.ModelAliases, cfg.Plugins.Backends); err != nil {
-			return nil, closers, err
+			return nil, err
 		}
 	}
 	capMap := make(capabilities.MapResolver, len(in.Model.Backends))
@@ -98,25 +98,26 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 
 	streamRecovery, err := streamRecoveryConfigFromConfig(cfg)
 	if err != nil {
-		return nil, closers, err
+		return nil, err
 	}
 	tokenAccounting, err := bindTokenAccountingRuntime(in.AccountingStores, cfg, in.Model.Backends)
 	if err != nil {
-		return nil, closers, err
+		return nil, err
 	}
 
 	meteringRT := in.Metering
-	if in.Bctx.Opts != nil && in.Bctx.Opts.Production.MeteringRecorder != nil {
-		meteringRT = &meteringRuntime{
-			Recorder:     in.Bctx.Opts.Production.MeteringRecorder,
-			StoreBacking: "injected",
+	var prod ProductionOptions
+	if in.Bctx.Opts != nil {
+		prod = in.Bctx.Opts.Production
+		if prod.MeteringRecorder != nil {
+			meteringRT = &meteringRuntime{Recorder: prod.MeteringRecorder, StoreBacking: "injected"}
 		}
 	}
 
 	// Compute interleaved-thinking config before construction.
 	interleaved, err := interleavedExecutorRuntime(cfg)
 	if err != nil {
-		return nil, closers, err
+		return nil, err
 	}
 
 	// Compute accounting runtime fields.
@@ -135,16 +136,9 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 	if meteringRT != nil {
 		accountingRT.MeteringRecorder = meteringRT.Recorder
 	}
-	if in.Bctx.Opts != nil && in.Bctx.Opts.Production.MeteringRecorder != nil {
-		accountingRT.MeteringRecorder = in.Bctx.Opts.Production.MeteringRecorder
-	}
-	var prod ProductionOptions
-	if in.Bctx.Opts != nil {
-		prod = in.Bctx.Opts.Production
-	}
 	rater, err := selectEconomicsRater(prod)
 	if err != nil {
-		return nil, closers, err
+		return nil, err
 	}
 	if rater != nil {
 		accountingRT.EconomicsRater = rater
@@ -153,14 +147,14 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 		accountingRT.UsageAuthority = in.UsageAuthority
 		cleanupTimeout, err := cfg.Accounting.Authority.CleanupTimeoutDuration()
 		if err != nil {
-			return nil, closers, err
+			return nil, err
 		}
 		accountingRT.UsageAuthorityCleanupTimeout = cleanupTimeout
 	}
 	attachConcurrencyToAccounting(&accountingRT, in.Concurrency)
 	if accountingRT.UsageAuthority != nil || accountingRT.ConcurrencyProvider != nil || prod.HasAuthorityOverrides() {
 		if err := attachAuthorityCoordinators(&accountingRT, prod); err != nil {
-			return nil, closers, err
+			return nil, err
 		}
 	}
 	accountingRT.SnapshotGeneration = in.SnapshotGeneration
@@ -170,7 +164,7 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 	if len(cfg.Accounting.Pricing.Models) > 0 {
 		catalog, err := accounting.NewPriceCatalog(config.AccountingPriceCatalogConfig(cfg.Accounting.Pricing))
 		if err != nil {
-			return nil, closers, fmt.Errorf("runtimebundle: accounting pricing: %w", err)
+			return nil, fmt.Errorf("runtimebundle: accounting pricing: %w", err)
 		}
 		accountingRT.AccountingPriceCatalog = catalog
 	}
@@ -281,7 +275,7 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 		CatalogRuntime:       catalogRuntime,
 		TokenAccountingAdmin: tokenAccountingAdminSvc,
 		ReadinessReport:      readiness,
-	}, closers, nil
+	}, nil
 }
 
 func streamRecoveryConfigFromConfig(cfg *config.Config) (streamrecovery.Config, error) {
@@ -297,21 +291,8 @@ func streamRecoveryConfigFromConfig(cfg *config.Config) (streamrecovery.Config, 
 	}, nil
 }
 
-// validateRouteSelectorsAgainstBackends fails compile before publication when
-// the candidate's effective default route or any configured model-alias
-// replacement references a backend ID absent from the candidate's configured
-// backend row set (req 9.2). Validation is against configured rows (any
-// enabled state) rather than only built/enabled instances: a disabled row is
-// a deliberate candidate-backend-set member, not an unconfigured reference.
-// Model-only selectors (no literal backend) are exempt; their backend is
-// filled from the routing default at request time.
-//
-// The default route is validated only when the operator set
-// routing.default_route explicitly. When it is empty, EffectiveDefaultRouteSelector
-// either synthesizes it from an actually-enabled backend (trivially valid) or
-// falls back to a compile-time placeholder documented as "tests / degenerate
-// bootstrap" that is not a real candidate-backend reference and must not fail
-// compile. Alias replacements are always operator-configured and always validated.
+// validateRouteSelectorsAgainstBackends fails compile when explicit default_route or alias
+// replacements reference backends absent from the candidate backend row set (req 9.2).
 func validateRouteSelectorsAgainstBackends(cfg *config.Config, effectiveRoute string, aliases []config.ModelAliasConfig, backendRows []config.PluginConfig) error {
 	configured := make(map[string]struct{}, len(backendRows))
 	for _, p := range backendRows {
@@ -344,9 +325,7 @@ func validateSelectorTextAgainstBackends(label, text string, configured map[stri
 	}
 	sel, err := routing.Parse(text)
 	if err != nil {
-		// Malformed selectors are already rejected by config.Validate; do not
-		// duplicate that error category here.
-		return nil
+		return nil // malformed selectors rejected by config.Validate
 	}
 	for _, id := range routing.BackendIDsReferenced(sel) {
 		if _, ok := configured[id]; !ok {

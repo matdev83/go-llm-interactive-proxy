@@ -62,11 +62,6 @@ var mountContractInventory = []mountInventoryRow{
 		Lifecycle: "none", BehaviorTests: []string{"TestMountBundledFrontends_geminiDoesNotRegisterRoot"},
 	},
 	{
-		Helper: "MountBundledFrontendsLegacy", File: "mount.go", Input: "",
-		BuiltFields: nil, DesiredGroups: []string{"Frontends"},
-		Lifecycle: "none", BehaviorTests: []string{"TestMountBundledFrontends_geminiDoesNotRegisterRoot"},
-	},
-	{
 		Helper: "mountALegCancel", File: "cancel.go", Input: "",
 		BuiltFields: nil, DesiredGroups: []string{"Frontends", "Core"},
 		Lifecycle: "none", BehaviorTests: []string{"TestMountBundledFrontends_geminiDoesNotRegisterRoot"},
@@ -122,7 +117,6 @@ var expectedProductionMountHelpers = map[string]bool{
 	"mountControlPlaneQuery":         true,
 	"mountAccountingAuthorityQuery":  true,
 	"MountBundledFrontends":          true,
-	"MountBundledFrontendsLegacy":    true,
 	"mountALegCancel":                true,
 	"stackHTTPHandler":               true,
 }

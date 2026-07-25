@@ -7,7 +7,7 @@ import (
 
 func TestComposeStandardHTTP_projectsWithoutBuiltRehydration(t *testing.T) {
 	t.Parallel()
-	httpInput := mustReadFile(t, "http_input.go")
+	httpInput := mustReadFile(t, "contract/http_input.go")
 	if strings.Contains(httpInput, "func standardHTTPInputFromRequestPlane") {
 		t.Fatal("standardHTTPInputFromRequestPlane must remain deleted after Task 3.5")
 	}

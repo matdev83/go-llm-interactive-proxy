@@ -7,7 +7,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
 
 // geminiFrontendID is the factory ID for the Gemini frontend plugin. It is used
@@ -72,25 +71,4 @@ func MountBundledFrontends(in MountBundledFrontendsInput) error {
 		}
 		return nil
 	})
-}
-
-// MountBundledFrontendsLegacy mounts all bundled frontends unconditionally (tests and minimal callers).
-func MountBundledFrontendsLegacy(mux *http.ServeMux, frontends HTTPFrontendInput) error {
-	fe := frontends
-	fe.Plugins = allBundledFrontendsEnabled()
-	fe.MaxRequestBodyBytes = 0
-	fe.TrafficPorts = traffic.PortBundle{}
-	return MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:       mux,
-		Frontends: fe,
-	})
-}
-
-func allBundledFrontendsEnabled() []config.PluginConfig {
-	return []config.PluginConfig{
-		{ID: "openai-responses", Enabled: true},
-		{ID: "openai-legacy", Enabled: true},
-		{ID: "anthropic", Enabled: true},
-		{ID: "gemini", Enabled: true},
-	}
 }

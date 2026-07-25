@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	cpadmin "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/controlplane"
 	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
+	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
@@ -53,7 +54,7 @@ func frontendInputForTest(cfg *config.Config, ex *runtime.Executor, reg *pluginr
 		Executor:             ex,
 		Registry:             reg,
 		DefaultRouteSelector: route,
-		Plugins:              clonePluginConfigs(plugins),
+		Plugins:              httpcontract.ClonePluginConfigs(plugins),
 		MaxRequestBodyBytes:  maxBody,
 		PreRequestKeepalive:  preKA,
 	}
@@ -81,7 +82,7 @@ func candidateHTTPInput(cfg *config.Config, cand *runtimebundle.CandidateRuntime
 	return StandardHTTPInput{
 		Core: HTTPCoreInput{Executor: cand.Executor},
 		Security: HTTPSecurityInput{
-			HTTPAuthProviders:    cloneHTTPAuthProviders(cand.HTTPAuthProviders),
+			HTTPAuthProviders:    httpcontract.CloneHTTPAuthProviders(cand.HTTPAuthProviders),
 			SecureSessionStore:   cand.SecureSessionStore,
 			UsageAuthority:       cpadmin.AdaptAccountingAuthorityQueries(cand.UsageAuthority),
 			ConcurrencyAuthority: cpadmin.AdaptConcurrencyAuthorityQueries(cand.ConcurrencyAuthority),
@@ -93,7 +94,7 @@ func candidateHTTPInput(cfg *config.Config, cand *runtimebundle.CandidateRuntime
 			ControlPlaneQueries:  cpadmin.AdaptControlPlaneQueries(cand.ControlPlaneQueries),
 			ReadinessReport:      cpadmin.AdaptReadinessReport(cand.ReadinessReport),
 			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(cand.TokenAccountingAdmin),
-			Registrations:        cloneRegistrations(regs),
+			Registrations:        httpcontract.CloneRegistrations(regs),
 		},
 		Models: HTTPModelInput{
 			CatalogRuntime:       cand.CatalogRuntime,
@@ -103,11 +104,11 @@ func candidateHTTPInput(cfg *config.Config, cand *runtimebundle.CandidateRuntime
 			Executor:             cand.Executor,
 			Registry:             cand.PluginRegistry,
 			DefaultRouteSelector: route,
-			RoutePrefixes:        cloneStrings(cand.RoutePrefixes),
-			Plugins:              clonePluginConfigs(plugins),
+			RoutePrefixes:        httpcontract.CloneStrings(cand.RoutePrefixes),
+			Plugins:              httpcontract.ClonePluginConfigs(plugins),
 			MaxRequestBodyBytes:  maxBody,
 			DecodeAdmission:      cand.DecodeAdmission,
-			TrafficPorts:         trafficPortsFromSnapshot(cand.RuntimeSnapshot),
+			TrafficPorts:         httpcontract.TrafficPortsFromSnapshot(cand.RuntimeSnapshot),
 			PreRequestKeepalive:  preKA,
 		},
 	}
