@@ -67,7 +67,7 @@ More detail: [`docs/proxy-identity.md`](docs/proxy-identity.md), [`docs/runtime-
 
 ```bash
 make quality-checks        # gofmt drift, go mod tidy drift, build, vet, guard scripts, archtest
-make arch-report           # advisory architecture metrics report (non-failing Markdown output)
+make arch-report           # architecture metrics Markdown; exits non-zero if Req 11.5 net shrinkage fails
 make test                  # quality-checks + unit tests + parity-checks
 make test-unit             # go test -parallel=8 -timeout=10m ./...
 make test-precommit-extra  # precommit-tagged hygiene + executor matrices

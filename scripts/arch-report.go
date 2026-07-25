@@ -67,20 +67,27 @@ func main() {
 	var b strings.Builder
 	fmt.Fprintln(&b, "# Architecture report")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "Advisory only; produced by `make arch-report`.")
+	fmt.Fprintln(&b, "Produced by `make arch-report`. Package/fan tables are advisory; Requirement 11.5 net shrinkage is enforced (non-zero exit on FAIL).")
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "Module: `%s`\n\n", modPath)
 
 	writePackageLineReport(&b, pkgs)
 	writeHotspotReport(&b, root)
 	writeRuntimeConvergencePackageBudgets(&b, root)
+	shrinkagePass := writeRuntimeConvergenceShrinkage(&b, root)
 	writeRuntimeConvergenceExceptions(&b, root)
+	writeRuntimeConvergenceAffectedFanIO(&b, pkgs, modPath)
 	writeFanOutReport(&b, pkgs, modPath)
 	writeFanInReport(&b, pkgs, modPath)
 	writeExportedSymbolsReport(&b, root)
 	writeBaselineClassifications(&b, root)
+	writeRuntimeConvergenceDeletedInventory(&b)
 
 	fmt.Print(b.String())
+	if !shrinkagePass {
+		fmt.Fprintln(os.Stderr, "arch-report: Requirement 11.5 net shrinkage gate FAILED (see Runtime-convergence net shrinkage section)")
+		os.Exit(1)
+	}
 }
 
 func writePackageLineReport(b *strings.Builder, pkgs []pkgMeta) {
@@ -139,6 +146,96 @@ func writeRuntimeConvergencePackageBudgets(b *strings.Builder, root string) {
 		return
 	}
 	fmt.Fprint(b, section)
+}
+
+func writeRuntimeConvergenceShrinkage(b *strings.Builder, root string) bool {
+	section, m, err := archtest.FormatRuntimeConvergenceShrinkage(root)
+	if err != nil {
+		fmt.Fprintf(b, "## Runtime-convergence net shrinkage (Req 11.5)\n\n(could not measure: %v)\n\n", err)
+		return false
+	}
+	fmt.Fprint(b, section)
+	return m.Pass
+}
+
+func writeRuntimeConvergenceAffectedFanIO(b *strings.Builder, pkgs []pkgMeta, modPath string) {
+	fmt.Fprintln(b, "## Runtime-convergence affected-surface fan-in/out")
+	fmt.Fprintln(b)
+	fmt.Fprintln(b, "| Surface | Fan-out (direct internal) | Fan-in | Importers |")
+	fmt.Fprintln(b, "| --- | ---: | ---: | --- |")
+
+	internalPrefix := modPath + "/internal/"
+	targets := []string{
+		"internal/infra/runtimebundle",
+		"internal/infra/runtimehost",
+		"internal/stdhttp",
+		"cmd/lipstd",
+		"pkg/lipruntime",
+	}
+	byPath := make(map[string]pkgMeta, len(pkgs))
+	for _, p := range pkgs {
+		byPath[p.ImportPath] = p
+	}
+	for _, rel := range targets {
+		ip := modPath + "/" + rel
+		p, ok := byPath[ip]
+		if !ok {
+			fmt.Fprintf(b, "| `%s` | (missing) | (missing) | |\n", rel)
+			continue
+		}
+		fanOut := 0
+		for _, imp := range p.Imports {
+			if strings.HasPrefix(imp, internalPrefix) {
+				fanOut++
+			}
+		}
+		var importers []string
+		for _, q := range pkgs {
+			if q.ImportPath == ip {
+				continue
+			}
+			for _, imp := range q.Imports {
+				if imp == ip {
+					importers = append(importers, strings.TrimPrefix(q.ImportPath, modPath+"/"))
+					break
+				}
+			}
+		}
+		slices.Sort(importers)
+		impCol := "(none)"
+		if len(importers) > 0 {
+			impCol = "`" + strings.Join(importers, "`, `") + "`"
+		}
+		fmt.Fprintf(b, "| `%s` | %d | %d | %s |\n", rel, fanOut, len(importers), impCol)
+	}
+	fmt.Fprintln(b)
+}
+
+func writeRuntimeConvergenceDeletedInventory(b *strings.Builder) {
+	fmt.Fprintln(b, "## Runtime-convergence deleted production symbols/paths")
+	fmt.Fprintln(b)
+	fmt.Fprintln(b, "Enforced absent by `internal/archtest` deleted-symbol / bootstrap / serve gates (allowlist empty):")
+	fmt.Fprintln(b)
+	for _, tok := range []string{
+		"runtimebundle.Built",
+		"runtimebundle.Build (compatibility orchestrator)",
+		"stdhttp.RunWithRuntime",
+		"requestPlaneAsBuilt",
+		"NewStandardHandler",
+		"standardHTTPInputFromBuilt",
+		"releaseBuiltResources",
+		"runClosers",
+		"LegacyClosers",
+		"BuildBootstrap / BootstrapResult / AttachReloadHost",
+		"LoadBootstrapEffective / BootstrapMode",
+		"pkg/lipruntime deprecated Options / legacy_options adapter",
+		"pkg/lipruntime/reload_map.go (mirrored reload model)",
+	} {
+		fmt.Fprintf(b, "- `%s`\n", tok)
+	}
+	fmt.Fprintln(b)
+	fmt.Fprintln(b, "Parallel production runtime composition paths and mirrored reload models: **zero remaining** (empty `runtime_convergence_allowlist.json`; host_path/config_load permanently zero-tolerance).")
+	fmt.Fprintln(b)
 }
 
 func writeRuntimeConvergenceExceptions(b *strings.Builder, root string) {
