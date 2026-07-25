@@ -418,7 +418,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 9.2_
   - _Validation: `make arch-report`_
 
-- [ ] 9.4 Run focused behavior, race, fuzz, and soak certification
+- [x] 9.4 Run focused behavior, race, fuzz, and soak certification
   - Run reload no-drop, source integrity, rollback, restart-required, retention, management, SIGHUP, lifecycle, shutdown, public facade, and external module suites.
   - Run full race and bounded reload soak with goleak.
   - Run config/reload/lifecycle fuzz smoke and architecture scans.
@@ -428,7 +428,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 9.3_
   - _Validation: `make test && make test-race && make test-fuzz && go test -tags=precommit -run '^TestRuntimeConfigReloadSoak$' -count=1 -v ./internal/stdhttp/...`_
 
-- [ ] 9.5 Run benchmark/security gates and publish final release evidence
+- [x] 9.5 Run benchmark/security gates and publish final release evidence
   - Compare repeated equivalent-host benchmarks with Phase 1 via `benchstat`.
   - Enforce the 10 percent candidate compile time/allocation threshold or obtain explicit evidence-based approval.
   - Run lint, module verification, govulncheck, marker scans, and architecture report.
