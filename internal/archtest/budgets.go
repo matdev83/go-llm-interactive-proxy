@@ -35,7 +35,7 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/infra/runtimebundle/process_services.go", Max: 245},
 	{Path: "pkg/lipruntime/build.go", Max: 96},
 	{Path: "pkg/lipruntime/host.go", Max: 68},
-	{Path: "pkg/lipruntime/facade.go", Max: 57},
+	{Path: "pkg/lipruntime/facade.go", Max: 72},
 	{Path: "cmd/lipstd/command.go", Max: 360},
 	{Path: "pkg/lipruntime/reload.go", Max: 89},
 	{Path: "pkg/lipruntime/reload_aliases.go", Max: 35},
@@ -52,7 +52,7 @@ var PackageTreeBudgets = []PackageTreeBudget{
 	{Tree: "internal/infra/runtimebundle", Max: 9468},
 	{Tree: "internal/stdhttp", Max: 4301},
 	{Tree: "cmd/lipstd", Max: 880},
-	{Tree: "pkg/lipruntime", Max: 536},
+	{Tree: "pkg/lipruntime", Max: 537},
 }
 
 // LineBudget caps recursive non-test lines for broader architectural layers.
@@ -69,7 +69,7 @@ var LineBudgets = []LineBudget{
 	{Dir: "internal/stdhttp", Max: 4301},
 	{Dir: "internal/infra/runtimebundle", Max: 9468},
 	{Dir: "cmd/lipstd", Max: 880},
-	{Dir: "pkg/lipruntime", Max: 536},
+	{Dir: "pkg/lipruntime", Max: 537},
 }
 
 // CountNonTestGoLines recursively counts physical lines in non-test .go files.

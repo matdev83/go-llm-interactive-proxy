@@ -34,14 +34,14 @@ func TestCapabilityReporting_DogfoodFacadeHostSnapshot(t *testing.T) {
 	if rt.ExecutorView() == nil {
 		t.Fatal("ExecutorView required for capability-bearing runtime")
 	}
-	caps := rt.Capabilities()
-	if caps.SnapshotGenerationID == 0 {
+	if id := rt.SnapshotGenerationID(); id == 0 {
 		t.Fatal("SnapshotGenerationID must be non-zero on dogfood facade")
 	}
-	switch caps.ExecutableState {
+	state := rt.ExecutableGenerationState()
+	switch state {
 	case cp.CapabilityReady, cp.CapabilityDisabled, cp.CapabilityUnavailable, cp.CapabilityDegraded:
 	default:
-		t.Fatalf("ExecutableState=%q outside closed capability vocabulary", caps.ExecutableState)
+		t.Fatalf("ExecutableGenerationState=%q outside closed capability vocabulary", state)
 	}
 	report := rt.ReadinessReport()
 	if report == nil {
@@ -50,16 +50,16 @@ func TestCapabilityReporting_DogfoodFacadeHostSnapshot(t *testing.T) {
 	if _, err := report.Report(ctx); err != nil {
 		t.Fatalf("ReadinessReport.Report: %v", err)
 	}
-	if caps.ProductionMetering {
-		t.Fatal("ProductionMetering must be false without MeteringRecorder")
+	if rt.HasProductionMetering() {
+		t.Fatal("HasProductionMetering must be false without MeteringRecorder")
 	}
-	if caps.ProductionRater {
-		t.Fatal("ProductionRater must be false without RaterRegistrations")
+	if rt.HasProductionRater() {
+		t.Fatal("HasProductionRater must be false without RaterRegistrations")
 	}
-	if caps.TrafficObservers || caps.UsageObservers || caps.ProductionEvidenceSink {
+	if rt.HasTrafficObservers() || rt.HasUsageObservers() || rt.HasProductionEvidenceSink() {
 		t.Fatal("observer attachment flags must be false without production injections")
 	}
-	if caps.ProductionMeteringQuerier {
-		t.Fatal("ProductionMeteringQuerier must be false without MeteringQuerier")
+	if rt.HasProductionMeteringQuerier() {
+		t.Fatal("HasProductionMeteringQuerier must be false without MeteringQuerier")
 	}
 }

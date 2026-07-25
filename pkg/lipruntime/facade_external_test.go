@@ -62,21 +62,25 @@ func TestExternalFacade_CapabilityAccessorsAndClosedVocabulary(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = rt.Close(ctx) })
 
-	caps := rt.Capabilities()
-	if !caps.TrafficObservers || !caps.UsageObservers {
+	if !rt.HasTrafficObservers() || !rt.HasUsageObservers() {
 		t.Fatal("production observer capabilities must derive from host attachment")
 	}
-	if !caps.ProductionMeteringQuerier || rt.MeteringQuerier() == nil {
+	if !rt.HasProductionMeteringQuerier() || rt.MeteringQuerier() == nil {
 		t.Fatal("metering querier capability must derive from host")
 	}
-	switch caps.ExecutableState {
+	state := rt.ExecutableGenerationState()
+	switch state {
 	case controlplane.CapabilityReady, controlplane.CapabilityDisabled,
 		controlplane.CapabilityUnavailable, controlplane.CapabilityDegraded:
 	default:
-		t.Fatalf("ExecutableState=%q outside closed vocabulary", caps.ExecutableState)
+		t.Fatalf("ExecutableGenerationState=%q outside closed vocabulary", state)
 	}
-	if caps.SnapshotGenerationID == 0 {
+	if rt.SnapshotGenerationID() == 0 {
 		t.Fatal("SnapshotGenerationID must be non-zero on ready facade")
+	}
+	caps := rt.Capabilities()
+	if caps.TrafficObservers != rt.HasTrafficObservers() || caps.SnapshotGenerationID != rt.SnapshotGenerationID() {
+		t.Fatal("named accessors must match Capabilities() snapshot")
 	}
 	report := rt.ReadinessReport()
 	if report == nil {

@@ -21,24 +21,28 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
+// pooledPostgresRuntimeFixture retains both process-owned and generation-owned
+// owners so tests can close them in canonical order before asserting the
+// process-owned postgres pool gauge reaches zero.
+type pooledPostgresRuntimeFixture struct {
+	process   *runtimebundle.ProcessServices
+	candidate *runtimebundle.CandidateHTTPCompile
+	closed    bool
+}
+
 func TestPostgresPooled_BuildRuntimeSharesRegistryAndClosesCleanly(t *testing.T) {
 	adminDSN, runtimeDSN := testkit.SkipUnlessPostgresPooled(t)
-	b := buildPooledPostgresRuntime(t, adminDSN, runtimeDSN)
+	fx := buildPooledPostgresRuntime(t, adminDSN, runtimeDSN)
+	t.Cleanup(func() {
+		closePooledPostgresRuntime(t, fx)
+	})
+	b := fx.candidate
 
 	if got := gatheredGauge(t, b.Metrics().Registry, "lip_postgres_pool_open_connections"); got != 1 {
 		t.Fatalf("open postgres runtime connections = %v want 1", got)
 	}
 
-	closed := false
-	t.Cleanup(func() {
-		if closed {
-			return
-		}
-		closeBundleClosers(t, b)
-	})
-
-	closeBundleClosers(t, b)
-	closed = true
+	closePooledPostgresRuntime(t, fx)
 
 	if got := gatheredGauge(t, b.Metrics().Registry, "lip_postgres_pool_open_connections"); got != 0 {
 		t.Fatalf("open postgres runtime connections after close = %v want 0", got)
@@ -47,14 +51,11 @@ func TestPostgresPooled_BuildRuntimeSharesRegistryAndClosesCleanly(t *testing.T)
 
 func TestPostgresPooled_BuildRuntimeLeaseAndJournalSmoke(t *testing.T) {
 	adminDSN, runtimeDSN := testkit.SkipUnlessPostgresPooled(t)
-	b := buildPooledPostgresRuntime(t, adminDSN, runtimeDSN)
+	fx := buildPooledPostgresRuntime(t, adminDSN, runtimeDSN)
+	b := fx.candidate
 
-	closed := false
 	t.Cleanup(func() {
-		if closed {
-			return
-		}
-		closeBundleClosers(t, b)
+		closePooledPostgresRuntime(t, fx)
 	})
 
 	if b.Executor() == nil || b.Executor().ConcurrencyProvider == nil {
@@ -144,14 +145,13 @@ func TestPostgresPooled_BuildRuntimeLeaseAndJournalSmoke(t *testing.T) {
 	if got := gatheredGauge(t, b.Metrics().Registry, "lip_postgres_pool_open_connections"); got != 1 {
 		t.Fatalf("open postgres runtime connections = %v want 1", got)
 	}
-	closeBundleClosers(t, b)
-	closed = true
+	closePooledPostgresRuntime(t, fx)
 	if got := gatheredGauge(t, b.Metrics().Registry, "lip_postgres_pool_open_connections"); got != 0 {
 		t.Fatalf("open postgres runtime connections after close = %v want 0", got)
 	}
 }
 
-func buildPooledPostgresRuntime(t *testing.T, adminDSN, runtimeDSN string) *runtimebundle.CandidateHTTPCompile {
+func buildPooledPostgresRuntime(t *testing.T, adminDSN, runtimeDSN string) *pooledPostgresRuntimeFixture {
 	t.Helper()
 	concurrencyStoreID := testkit.UniquePostgresStoreID("rtbundle-concurrency")
 	t.Cleanup(func() {
@@ -206,24 +206,35 @@ func buildPooledPostgresRuntime(t *testing.T, adminDSN, runtimeDSN string) *runt
 		},
 	}
 
-	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
+	ps, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 		Startup:        runtimebundle.StartupOptions{StartupContext: t.Context()},
 	})
 	if b.Metrics() == nil || b.Metrics().Registry == nil || b.Metrics().PostgresPool == nil {
 		t.Fatal("expected postgres pool metrics bundle")
 	}
-	return b
+	return &pooledPostgresRuntimeFixture{process: ps, candidate: b}
 }
 
-func closeBundleClosers(t *testing.T, b *runtimebundle.CandidateHTTPCompile) {
+// closePooledPostgresRuntime closes the unpublished candidate first, then
+// ProcessServices exactly once. Both closes are idempotently guarded so test
+// Cleanup and in-body close share the same transaction.
+func closePooledPostgresRuntime(t *testing.T, fx *pooledPostgresRuntimeFixture) {
 	t.Helper()
-	if b == nil {
+	if fx == nil || fx.closed {
 		return
 	}
-	if err := b.Close(); err != nil {
-		t.Fatalf("close: %v", err)
+	if fx.candidate != nil {
+		if err := fx.candidate.Close(); err != nil {
+			t.Fatalf("close candidate: %v", err)
+		}
 	}
+	if fx.process != nil {
+		if err := fx.process.Close(); err != nil {
+			t.Fatalf("close process: %v", err)
+		}
+	}
+	fx.closed = true
 }
 
 func gatheredGauge(t *testing.T, reg *prometheus.Registry, metricName string) float64 {

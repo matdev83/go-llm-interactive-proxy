@@ -47,21 +47,24 @@ func TestPhase55_FacadeBuildsWithEnterpriseRegistrations(t *testing.T) {
 	if rt.ExecutorView() == nil {
 		t.Fatal("expected ExecutorView")
 	}
-	caps := rt.Capabilities()
-	if caps.ExecutableGenerationID == 0 {
+	if rt.ExecutableGenerationID() == 0 {
 		t.Fatal("ExecutableGenerationID required")
 	}
-	if caps.ExecutableVersion == "" {
-		t.Fatal("ExecutableVersion required")
+	if rt.ExecutableGenerationVersion() == "" {
+		t.Fatal("ExecutableGenerationVersion required")
 	}
-	if caps.ExecutableState != cp.CapabilityReady && string(caps.ExecutableState) != "ready" {
-		t.Fatalf("state=%q", caps.ExecutableState)
+	state := rt.ExecutableGenerationState()
+	if state != cp.CapabilityReady && string(state) != "ready" {
+		t.Fatalf("state=%q", state)
 	}
-	if caps.ExecutableEvidenceObjectID != "facade-rater" {
-		t.Fatalf("evidence=%q want facade-rater", caps.ExecutableEvidenceObjectID)
+	if rt.ExecutableEvidenceObjectID() != "facade-rater" {
+		t.Fatalf("evidence=%q want facade-rater", rt.ExecutableEvidenceObjectID())
 	}
-	if caps.SnapshotGenerationID == 0 {
+	if rt.SnapshotGenerationID() == 0 {
 		t.Fatal("compatibility metadata SnapshotGenerationID must remain")
+	}
+	if !rt.HasProductionRater() {
+		t.Fatal("HasProductionRater required for injected operator rater")
 	}
 	report := rt.ReadinessReport()
 	if report == nil {

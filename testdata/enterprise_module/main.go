@@ -184,18 +184,26 @@ func run(ctx context.Context) error {
 	_ = lipruntime.ResultRestartRequired
 	_ = lipruntime.ResultRetentionBlocked
 	_ = lipruntime.ResultCanceled
-	caps := rt.Capabilities()
-	if caps.SnapshotGenerationID == 0 {
+	if rt.SnapshotGenerationID() == 0 {
 		return fmt.Errorf("expected published generation")
 	}
-	if caps.ExecutableGenerationID == 0 || caps.ExecutableEvidenceObjectID == "" {
+	if rt.ExecutableGenerationID() == 0 || rt.ExecutableEvidenceObjectID() == "" {
 		return fmt.Errorf("expected executable generation evidence object id")
 	}
-	if !caps.ProductionEvidenceSink || !caps.ProductionRater || !caps.ProductionMeteringQuerier {
+	if !rt.HasProductionEvidenceSink() || !rt.HasProductionRater() || !rt.HasProductionMeteringQuerier() {
 		return fmt.Errorf("production evidence/rater/query mounts not wired")
+	}
+	if !rt.HasProductionMetering() {
+		return fmt.Errorf("production metering must be wired")
 	}
 	if rt.MeteringQuerier() == nil {
 		return fmt.Errorf("MeteringQuerier must be mounted")
+	}
+	if rt.ExecutableGenerationState() == "" {
+		return fmt.Errorf("ExecutableGenerationState required")
+	}
+	if rt.ExecutableGenerationVersion() == "" {
+		return fmt.Errorf("ExecutableGenerationVersion required")
 	}
 	desc := authority.ProviderDescriptor{
 		ID: "enterprise-request",
@@ -270,7 +278,7 @@ func run(ctx context.Context) error {
 	now := time.Now().UTC()
 	report := controlplane.ReadinessReport{
 		ExecutableGeneration: controlplane.ExecutableGenerationStatus{
-			State: controlplane.CapabilityReady, ID: caps.ExecutableGenerationID, LastUpdatedAt: now,
+			State: controlplane.CapabilityReady, ID: rt.ExecutableGenerationID(), LastUpdatedAt: now,
 		},
 		Components: []controlplane.ReadinessComponentStatus{
 			{Component: controlplane.ReadinessComponentExecutableGeneration, State: controlplane.CapabilityReady},

@@ -9,7 +9,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
-// HostCapabilities is the public host capability snapshot.
 type HostCapabilities = controlplane.HostCapabilities
 
 func (r *Runtime) api() hostAPI {
@@ -35,20 +34,36 @@ func (r *Runtime) Capabilities() HostCapabilities {
 	return HostCapabilities{ExecutableState: controlplane.CapabilityDisabled}
 }
 
+func (r *Runtime) HasProductionMetering() bool     { return r.Capabilities().ProductionMetering }
+func (r *Runtime) HasTrafficObservers() bool       { return r.Capabilities().TrafficObservers }
+func (r *Runtime) HasUsageObservers() bool         { return r.Capabilities().UsageObservers }
+func (r *Runtime) HasProductionEvidenceSink() bool { return r.Capabilities().ProductionEvidenceSink }
+func (r *Runtime) HasProductionRater() bool        { return r.Capabilities().ProductionRater }
+func (r *Runtime) HasProductionMeteringQuerier() bool {
+	return r.Capabilities().ProductionMeteringQuerier
+}
+func (r *Runtime) SnapshotGenerationID() int64         { return r.Capabilities().SnapshotGenerationID }
+func (r *Runtime) SnapshotUsageVersion() string        { return r.Capabilities().SnapshotUsageVersion }
+func (r *Runtime) ExecutableGenerationID() int64       { return r.Capabilities().ExecutableGenerationID }
+func (r *Runtime) ExecutableGenerationVersion() string { return r.Capabilities().ExecutableVersion }
+func (r *Runtime) ExecutableGenerationState() controlplane.CapabilityState {
+	return r.Capabilities().ExecutableState
+}
+func (r *Runtime) ExecutableEvidenceObjectID() string {
+	return r.Capabilities().ExecutableEvidenceObjectID
+}
 func (r *Runtime) MeteringQuerier() metering.Querier {
 	if h := r.api(); h != nil {
 		return h.MeteringQuerier()
 	}
 	return nil
 }
-
 func (r *Runtime) ReadinessReport() controlplane.ReadinessReportReader {
 	if h := r.api(); h != nil {
 		return h.ReadinessReport()
 	}
 	return nil
 }
-
 func (r *Runtime) RefreshSnapshots(ctx context.Context) error {
 	if h := r.api(); h != nil {
 		return h.RefreshSnapshots(ctx)
