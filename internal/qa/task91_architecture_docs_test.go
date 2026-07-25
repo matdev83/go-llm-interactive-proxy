@@ -146,14 +146,8 @@ func TestDocs_Architecture_NoStaleCompatibilityPaths(t *testing.T) {
 			if idx < 0 {
 				continue
 			}
-			windowStart := idx - 100
-			if windowStart < 0 {
-				windowStart = 0
-			}
-			windowEnd := idx + len(claim) + 140
-			if windowEnd > len(text) {
-				windowEnd = len(text)
-			}
+			windowStart := max(idx-100, 0)
+			windowEnd := min(idx+len(claim)+140, len(text))
 			window := strings.ToLower(text[windowStart:windowEnd])
 			if !allowRemoval(window) {
 				t.Fatalf("%s still advertises stale path %q without removal wording: %q",

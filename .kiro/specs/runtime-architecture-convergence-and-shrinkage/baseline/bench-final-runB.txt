@@ -1,0 +1,61 @@
+=== bench run B 2026-07-25T21:16:54Z ===
+goos: linux
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost
+cpu: AMD EPYC 9J14 96-Core Processor
+BenchmarkManager_AcquireRelease-2              	40133112	        26.28 ns/op	      16 B/op	       1 allocs/op
+BenchmarkManager_AcquireRelease-2              	42614997	        26.75 ns/op	      16 B/op	       1 allocs/op
+BenchmarkManager_AcquireRelease-2              	46159563	        26.48 ns/op	      16 B/op	       1 allocs/op
+BenchmarkManager_AcquireRelease-2              	43305502	        26.39 ns/op	      16 B/op	       1 allocs/op
+BenchmarkManager_AcquireRelease-2              	46164562	        26.33 ns/op	      16 B/op	       1 allocs/op
+BenchmarkManager_AcquireRelease-2              	45962763	        26.28 ns/op	      16 B/op	       1 allocs/op
+BenchmarkGenerationDispatcher_AcquireLease-2   	 3260065	       387.1 ns/op	     784 B/op	       9 allocs/op
+BenchmarkGenerationDispatcher_AcquireLease-2   	 3231200	       409.1 ns/op	     784 B/op	       9 allocs/op
+BenchmarkGenerationDispatcher_AcquireLease-2   	 3326281	       362.2 ns/op	     784 B/op	       9 allocs/op
+BenchmarkGenerationDispatcher_AcquireLease-2   	 3226608	       373.1 ns/op	     784 B/op	       9 allocs/op
+BenchmarkGenerationDispatcher_AcquireLease-2   	 3271220	       362.4 ns/op	     784 B/op	       9 allocs/op
+BenchmarkGenerationDispatcher_AcquireLease-2   	 3200460	       368.3 ns/op	     784 B/op	       9 allocs/op
+BenchmarkManager_Publish-2                     	  565556	      2364 ns/op	     748 B/op	       9 allocs/op
+BenchmarkManager_Publish-2                     	  510748	      2348 ns/op	     745 B/op	       9 allocs/op
+BenchmarkManager_Publish-2                     	  523700	      2364 ns/op	     746 B/op	       9 allocs/op
+BenchmarkManager_Publish-2                     	  483808	      2358 ns/op	     745 B/op	       9 allocs/op
+BenchmarkManager_Publish-2                     	  593865	      5540 ns/op	     769 B/op	       9 allocs/op
+BenchmarkManager_Publish-2                     	  380224	      7084 ns/op	     762 B/op	       9 allocs/op
+BenchmarkRetainedGenerationOverhead/n=1-2      	19900189	        64.68 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=1-2      	18595832	        68.17 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=1-2      	26903596	        68.37 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=1-2      	31562602	        38.14 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=1-2      	31756310	        42.33 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=1-2      	30594276	        36.87 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=4-2      	30187644	        47.46 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=4-2      	20364600	        54.16 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=4-2      	27824401	        58.02 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=4-2      	14587666	        76.78 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=4-2      	13377129	        78.65 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=4-2      	17340940	        68.37 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=16-2     	20417065	        74.37 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=16-2     	17934213	        71.64 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=16-2     	18934720	        69.57 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=16-2     	16073156	        88.68 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=16-2     	12392830	        87.72 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=16-2     	17399132	        69.46 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=64-2     	 9247710	       171.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=64-2     	 6075985	       172.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=64-2     	 7997856	       178.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=64-2     	 7672123	       163.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=64-2     	 6162309	       191.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRetainedGenerationOverhead/n=64-2     	 7439636	       188.1 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost	57.150s
+goos: linux
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle
+cpu: AMD EPYC 9J14 96-Core Processor
+BenchmarkCandidateCompilation-2   	     100	  11322677 ns/op	 3887721 B/op	   17141 allocs/op
+BenchmarkCandidateCompilation-2   	     136	   8711932 ns/op	 3888555 B/op	   17141 allocs/op
+BenchmarkCandidateCompilation-2   	     147	   7795342 ns/op	 3891829 B/op	   17142 allocs/op
+BenchmarkCandidateCompilation-2   	     148	   8327985 ns/op	 3891979 B/op	   17142 allocs/op
+BenchmarkCandidateCompilation-2   	     100	  10508481 ns/op	 3893669 B/op	   17144 allocs/op
+BenchmarkCandidateCompilation-2   	     100	  12422352 ns/op	 3900391 B/op	   17147 allocs/op
+PASS
+ok  	github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle	7.185s

@@ -78,12 +78,16 @@ See `docs/extension-points.md` and `docs/plugin-authoring.md` for the stage tabl
 
 This distribution has exactly four converged ownership surfaces:
 
-1. **One process runtime** — process-owned services (stores, shared limiters, metrics/tracing providers, listeners, capacity) constructed once under `runtimebundle` / `runtimehost` and retained for the process lifetime.
+1. **One process runtime / `ProcessServices`** — process-owned services (stores, shared limiters, metrics/tracing providers, listeners, capacity) constructed once under `runtimebundle.NewProcessServices` / `runtimehost` and retained for the process lifetime. There is a single process-services owner per Host.
 2. **One generation runtime** — an immutable request-plane `GenerationRuntime` compiled and published per config generation, acquired on admission, and retained by in-flight streams until they drain.
-3. **One host** — `runtimebundle.Host` returned by `runtimebundle.BuildHost` owns startup, reload coordination, generation publication/retention, and shutdown. **`Host.Close` is the sole process shutdown coordinator**; `pkg/lipruntime.Runtime.Close` and CLI teardown delegate to it.
+3. **One host (private-field Host)** — `runtimebundle.Host` returned by `runtimebundle.BuildHost` owns startup, reload coordination, generation publication/retention, and shutdown. Host fields are unexported; callers use Host methods / the public `lipruntime.Runtime` facade. **`Host.Close` is the sole process shutdown coordinator**; `pkg/lipruntime.Runtime.Close` and CLI teardown delegate to it. **Manager-owned retirement** drains and closes superseded generations; Host does not reimplement generation closer loops.
 4. **One reload contract** — public/SDK reload DTOs live only in `pkg/lipsdk/configreload` (`Trigger`, `Result`, `Status`, `HistoryEntry`, closed categories). Reload is explicit-only (SIGHUP, management API, public facade); there is no watcher, polling, or automatic retry.
 
-Public `pkg/lipruntime.Runtime` is a thin facade over that one host. Public `lipruntime.Options` is registration-only (`RequestRegistrations`, `AttemptRegistrations`, `ConcurrencyRegistration`, `RaterRegistrations`). Deleted dual-bootstrap / attachment / legacy-options paths are not part of the current architecture.
+**Candidate assembly is private and temporary.** Package-private `candidateAssembly` / opaque compile handles exist only while a candidate is being built or validated; they are not a runtime API and are not retained after publish or dry-run rollback.
+
+**True unpublished validation:** `runtimebundle.ValidateDistribution` (CLI `lipstd check-config`) compiles through the same generation compiler in dry-run mode and **always rolls back** — it never publishes or retains a generation (no fake check-config publication).
+
+Public `pkg/lipruntime.Runtime` is a thin facade over that one host. Supported public methods: `Build`, `ExecutorView`, `Ready`, `Capabilities`, `MeteringQuerier`, `ReadinessReport`, `RefreshSnapshots`, `Reload`, `ReloadStatus`, `ReloadControl`, `Close`. Public `lipruntime.Options` is registration-only (`RequestRegistrations`, `AttemptRegistrations`, `ConcurrencyRegistration`, `RaterRegistrations`); see [`legacy-options-migration.md`](legacy-options-migration.md). Deleted dual-bootstrap / attachment / legacy-options paths are not part of the current architecture.
 
 ## Composition and startup
 

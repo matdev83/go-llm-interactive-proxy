@@ -145,14 +145,8 @@ func TestLegacyAbsent_DocsDoNotAdvertiseDeletedFieldsAsCurrent(t *testing.T) {
 			}
 			// If mentioned, must clearly say removed/deleted/absent — not "prefer" or "migrate using".
 			idx := strings.Index(text, field)
-			windowStart := idx - 80
-			if windowStart < 0 {
-				windowStart = 0
-			}
-			windowEnd := idx + 120
-			if windowEnd > len(text) {
-				windowEnd = len(text)
-			}
+			windowStart := max(idx-80, 0)
+			windowEnd := min(idx+120, len(text))
 			window := strings.ToLower(text[windowStart:windowEnd])
 			if !strings.Contains(window, "removed") &&
 				!strings.Contains(window, "deleted") &&

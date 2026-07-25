@@ -2,7 +2,7 @@
 
 This document defines where enterprise features may attach to the OSS core and which integration points are forbidden. It prevents enterprise code from becoming a parallel fork of core.
 
-Enterprise binaries attach to the same converged runtime as OSS `lipstd`: **one process runtime**, **one generation runtime**, **one host** from `runtimebundle.BuildHost` (shutdown via `Host.Close`), and **one reload contract** in `pkg/lipsdk/configreload`. Do not invent a second host, bootstrap path, or legacy options adapter.
+Enterprise binaries attach to the same converged runtime as OSS `lipstd`: **one process runtime / `ProcessServices`**, **one generation runtime**, **one private-field host** from `runtimebundle.BuildHost` (shutdown via `Host.Close`; Manager-owned generation retirement), and **one reload contract** in `pkg/lipsdk/configreload`. Candidate assembly is not a public API. Do not invent a second host, bootstrap path, or legacy options adapter. Registration-only Options migration: [`legacy-options-migration.md`](legacy-options-migration.md).
 
 ## Allowed integration points
 

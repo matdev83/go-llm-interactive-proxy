@@ -1,6 +1,6 @@
 # Runtime configuration reload
 
-Authoritative operator contract for explicit, transactional config reload in `cmd/lipstd` and `pkg/lipruntime`. This is the **one reload contract** for the process: public/SDK DTOs live in **`pkg/lipsdk/configreload`**; the process **`Host`** (from `runtimebundle.BuildHost`) owns attempt coordination, generation publication, and shutdown via **`Host.Close`**. Editing the config file alone has **no** runtime effect. There is no file watcher, mtime poller, debounce loop, periodic rescan, or automatic retry of a failed attempt.
+Authoritative operator contract for explicit, transactional config reload in `cmd/lipstd` and `pkg/lipruntime`. This is the **one reload contract** for the process: public/SDK DTOs live in **`pkg/lipsdk/configreload`**; the process **`Host`** (from `runtimebundle.BuildHost`, private fields) owns attempt coordination, generation publication, and shutdown via **`Host.Close`**. Process-owned services live under the single **`ProcessServices`** owner. **Manager-owned retirement** drains superseded generations after a successful publish. Editing the config file alone has **no** runtime effect. There is no file watcher, mtime poller, debounce loop, periodic rescan, or automatic retry of a failed attempt.
 
 Code-owned constants and paths: `pkg/lipsdk/configreload` (public vocabulary), `internal/core/config.DefaultConfigMaxBytes` (2 MiB), `internal/infra/runtimebundle.DefaultMaxRetainedGenerations` (8), `internal/stdhttp/admin/configreload` (`/admin/config/reload`, `/admin/config/status`), env `LIP_RELOAD_MANAGEMENT_ADDRESS` / `LIP_RELOAD_MANAGEMENT_TOKEN`.
 
@@ -103,7 +103,7 @@ Client disconnect after an accepted reload does **not** cancel the host-owned at
 
 ## `check-config` parity
 
-`lipstd check-config` runs the same generation compiler in dry-run mode and **always rolls back** candidate resources — it never publishes or retains a generation. Use it to validate a candidate **before** atomic replace + trigger:
+`lipstd check-config` calls `runtimebundle.ValidateDistribution`: the same generation compiler in dry-run mode with **true unpublished validation** — candidate resources are **always rolled back**; it never publishes or retains a generation (no fake check-config publication). Use it to validate a candidate **before** atomic replace + trigger:
 
 ```bash
 go run ./cmd/lipstd check-config --config ./config/examples/dogfood-local-stub.yaml
