@@ -54,10 +54,15 @@ and reload or invalidate projections after rollback or flush failure.
 - Protocol-specific logic stays in adapters
 - No pairwise protocol translators; always protocol <-> canonical
 
+## Canonical runtime ownership
+
+Compiled knowledge matches operator docs: **one process runtime**, **one generation runtime**, **one host** (`runtimebundle.BuildHost` / `Host.Close`), and **one reload contract** (`pkg/lipsdk/configreload`).
+
 ## Key Architecture Decisions
 
 | Decision | Rationale |
 |---|---|
+| One process runtime, one generation runtime, one host, one reload contract | Converged ownership: process services under Host; immutable `GenerationRuntime` per config generation; `runtimebundle.BuildHost` / `Host.Close`; public DTOs only in `pkg/lipsdk/configreload` |
 | Explicit registration, no DI containers | Simpler builds, portable binaries, race detector works |
 | Static linking (no Go `plugin` package) | Boundaries enforced through contracts, not dynamic loading |
 | Streaming is primary execution path | Non-streaming collects the canonical stream |

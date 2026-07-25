@@ -2,6 +2,8 @@
 
 This document defines where enterprise features may attach to the OSS core and which integration points are forbidden. It prevents enterprise code from becoming a parallel fork of core.
 
+Enterprise binaries attach to the same converged runtime as OSS `lipstd`: **one process runtime**, **one generation runtime**, **one host** from `runtimebundle.BuildHost` (shutdown via `Host.Close`), and **one reload contract** in `pkg/lipsdk/configreload`. Do not invent a second host, bootstrap path, or legacy options adapter.
+
 ## Allowed integration points
 
 Enterprise features attach through these stable, documented seams:
@@ -9,7 +11,7 @@ Enterprise features attach through these stable, documented seams:
 | Seam | Package | How enterprise attaches |
 | --- | --- | --- |
 | Plugin SDK facades | `pkg/lipsdk/*` | Register feature plugins (`FeatureBundle`), backend adapters, or frontend mounts through `pkg/lipsdk` contracts. Enterprise binaries compose via public `pkg/lipruntime.Build` with `lipruntime.Options`. |
-| Composition-root options | `pkg/lipruntime.Options` / `runtimebundle.ProductionOptions` | Use canonical registration fields on public `lipruntime.Options`: `RequestRegistrations`, `AttemptRegistrations`, `ConcurrencyRegistration`, and `RaterRegistrations` (plus observers/metering). Internal distributions use registration-only `runtimebundle.ProductionOptions` via `BuildHostInput.Production`. Grouped `BuildOptions` sub-structs remain for focused internal composition helpers, not as a `BuildHost` parameter. |
+| Composition-root options | `pkg/lipruntime.Options` / `runtimebundle.ProductionOptions` | Use canonical registration fields on public `lipruntime.Options`: `RequestRegistrations`, `AttemptRegistrations`, `ConcurrencyRegistration`, and `RaterRegistrations` (plus observers/metering). Internal distributions use registration-only `runtimebundle.ProductionOptions` via `BuildHostInput.Production` into `runtimebundle.BuildHost`. Grouped `BuildOptions` sub-structs remain for focused internal composition helpers, not as a `BuildHost` parameter. |
 | Control-plane ports | `internal/core/controlplane` | Implement control-plane `Store`, `QueryService`, `RetentionController`, or `Recorder` interfaces for enterprise persistence, audit, or search. |
 | Hook bus | `internal/core/hooks` | Register enterprise submit/part/tool hooks through the standard hook bus. Prefer `FeatureBundle` over raw hooks for new code. |
 | Secure-session authority | `internal/core/securesession/app` | Inject enterprise `Manager`, `Store`, or `GateRecording` implementations for custom session authority. |

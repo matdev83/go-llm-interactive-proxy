@@ -278,7 +278,7 @@ func TestProcessServices_DuplicateCompileDoesNotDuplicateTerminalWork(t *testing
 	_ = c2.Close()
 }
 
-func TestBootstrap_ProcessServicesCompatibility(t *testing.T) {
+func TestProcessServices_AcceptsTracingResultShape(t *testing.T) {
 	t.Parallel()
 
 	// Ensure tracing.Result shape still wires through ProcessTracing without

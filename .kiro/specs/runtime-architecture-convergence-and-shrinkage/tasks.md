@@ -387,7 +387,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 - [ ] 9. Prove the codebase is smaller and behaviorally unchanged
 
-- [ ] 9.1 Remove obsolete compatibility tests and stale documentation
+- [x] 9.1 Remove obsolete compatibility tests and stale documentation
   - Delete tests that only preserve removed production paths.
   - Retain or rewrite externally observable behavior tests against Host/GenerationRuntime.
   - Update architecture, package map, runtime flow, reload, enterprise extension, and release-gate documents.

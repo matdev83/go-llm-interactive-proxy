@@ -74,6 +74,17 @@ The core materializes these into a frozen request runtime snapshot. Hooks mutate
 
 See `docs/extension-points.md` and `docs/plugin-authoring.md` for the stage table and authoring rules.
 
+## Canonical runtime ownership
+
+This distribution has exactly four converged ownership surfaces:
+
+1. **One process runtime** — process-owned services (stores, shared limiters, metrics/tracing providers, listeners, capacity) constructed once under `runtimebundle` / `runtimehost` and retained for the process lifetime.
+2. **One generation runtime** — an immutable request-plane `GenerationRuntime` compiled and published per config generation, acquired on admission, and retained by in-flight streams until they drain.
+3. **One host** — `runtimebundle.Host` returned by `runtimebundle.BuildHost` owns startup, reload coordination, generation publication/retention, and shutdown. **`Host.Close` is the sole process shutdown coordinator**; `pkg/lipruntime.Runtime.Close` and CLI teardown delegate to it.
+4. **One reload contract** — public/SDK reload DTOs live only in `pkg/lipsdk/configreload` (`Trigger`, `Result`, `Status`, `HistoryEntry`, closed categories). Reload is explicit-only (SIGHUP, management API, public facade); there is no watcher, polling, or automatic retry.
+
+Public `pkg/lipruntime.Runtime` is a thin facade over that one host. Public `lipruntime.Options` is registration-only (`RequestRegistrations`, `AttemptRegistrations`, `ConcurrencyRegistration`, `RaterRegistrations`). Deleted dual-bootstrap / attachment / legacy-options paths are not part of the current architecture.
+
 ## Composition and startup
 
 `cmd/lipstd serve` and the public `lipruntime.Build` facade both obtain a complete process-owned `Host` from exactly one `runtimebundle.BuildHost` call. `BuildHost` performs the standard startup sequence as one owned transaction:

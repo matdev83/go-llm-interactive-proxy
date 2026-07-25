@@ -17,7 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-func TestBootstrapCompatibility_LoadEffectiveHelperMatchesBuildHost(t *testing.T) {
+func TestEffectiveLoadContract_LoadEffectiveHelperMatchesBuildHost(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
@@ -63,9 +63,9 @@ func TestBootstrapCompatibility_LoadEffectiveHelperMatchesBuildHost(t *testing.T
 	}
 }
 
-func TestBootstrapCompatibility_StrictFixtures_SecretSafeCategories(t *testing.T) {
+func TestEffectiveLoadContract_StrictFixtures_SecretSafeCategories(t *testing.T) {
 	t.Parallel()
-	secret := "sk-super-secret-token-value"
+	secret := "redacted-secret-token-value"
 	cases := []struct {
 		name    string
 		raw     []byte
@@ -132,7 +132,7 @@ not_a_core_field: true
 	}
 }
 
-func TestBootstrapCompatibility_MissingPath_SourceMissingCategory(t *testing.T) {
+func TestEffectiveLoadContract_MissingPath_SourceMissingCategory(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "does-not-exist.yaml")
 
@@ -158,7 +158,7 @@ func TestBootstrapCompatibility_MissingPath_SourceMissingCategory(t *testing.T) 
 	}
 }
 
-func TestBootstrapCompatibility_FixedStreamRecoveryCLIWins(t *testing.T) {
+func TestEffectiveLoadContract_FixedStreamRecoveryCLIWins(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
 	cliOff := false
@@ -200,7 +200,7 @@ func TestBootstrapCompatibility_FixedStreamRecoveryCLIWins(t *testing.T) {
 	}
 }
 
-func TestBootstrapCompatibility_InjectsStandardFeaturesWhenAbsent(t *testing.T) {
+func TestEffectiveLoadContract_InjectsStandardFeaturesWhenAbsent(t *testing.T) {
 	t.Parallel()
 	const body = `
 server:
@@ -289,7 +289,7 @@ plugins:
 	}
 }
 
-func TestBootstrapCompatibility_BuildPartialCleanupOnCandidateFailure(t *testing.T) {
+func TestBuildHostContract_BuildPartialCleanupOnCandidateFailure(t *testing.T) {
 	t.Parallel()
 	// Invalid backend kind fails during candidate compile after process services
 	// may have opened resources; BuildHost must dispose everything internally

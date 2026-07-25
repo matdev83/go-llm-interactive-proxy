@@ -4,7 +4,7 @@ This document expands the request lifecycle in `docs/architecture.md` for agents
 
 ## Startup flow
 
-`cmd/lipstd` is the standard distribution entrypoint. Its startup path is intentionally explicit:
+`cmd/lipstd` is the standard distribution entrypoint. Its startup path is intentionally explicit and matches the converged ownership model in [`architecture.md`](architecture.md): **one process runtime**, **one generation runtime** (`GenerationRuntime`), **one host** (`runtimebundle.Host` from `runtimebundle.BuildHost`; **`Host.Close`** owns shutdown), and **one reload contract** (`pkg/lipsdk/configreload`, explicit triggers only).
 
 `runtimebundle.BuildHost` owns the whole sequence as one transaction and returns a complete `Host` or rolls back and returns nil; `cmd/lipstd serve` and public `lipruntime.Build` are its only production callers. Public `lipruntime.Build` normalizes descriptor-bound registrations on `lipruntime.Options`, then calls canonical registration-only Host construction through `runtimebundle.BuildHost`.
 
@@ -16,10 +16,10 @@ This document expands the request lifecycle in `docs/architecture.md` for agents
 6. `standardplugins.InstallStandardBundleOn` installs official backend, frontend, feature, and auth-renderer factories.
 7. `config.RegistrationsFromConfig` selects configured plugin instances.
 8. `featurebundle.MergeFeatureSurface` builds hook and extension chains from configured feature plugins.
-9. `runtimebundle` constructs process services and publishes request-plane generation 1 (executor, stores, model catalog, metrics, tracing, health, diagnostics, handler graph) — all still inside `BuildHost`.
-10. `BuildHost` binds the startup-fixed config source, effective loader, generation compiler, and reload coordinator onto that same generation and returns the complete `Host`; `stdhttp` serves through a generation dispatcher until context cancellation. Optional management reload HTTP starts only when `LIP_RELOAD_MANAGEMENT_ADDRESS` is set; Unix `SIGHUP` invokes the same coordinator.
+9. `runtimebundle` constructs the process runtime and publishes request-plane generation 1 as a `GenerationRuntime` (executor, stores, model catalog, metrics, tracing, health, diagnostics, handler graph) — all still inside `BuildHost`.
+10. `BuildHost` binds the startup-fixed config source, effective loader, generation compiler, and reload coordinator onto that same generation and returns the complete `Host`; `stdhttp` serves through a generation dispatcher until context cancellation. Optional management reload HTTP starts only when `LIP_RELOAD_MANAGEMENT_ADDRESS` is set; Unix `SIGHUP` invokes the same coordinator. CLI and public facade shutdown delegate to `Host.Close`.
 
-Custom tests and future alternate distributions should follow the same shape: construct an explicit registry or bundle, publish an immutable generation, then serve. Operator reload contract: [`runtime-config-reload.md`](runtime-config-reload.md).
+Custom tests and future alternate distributions should follow the same shape: construct an explicit registry or bundle, publish an immutable generation, then serve. Operator reload contract: [`runtime-config-reload.md`](runtime-config-reload.md) (`pkg/lipsdk/configreload`).
 
 ## Request flow
 
