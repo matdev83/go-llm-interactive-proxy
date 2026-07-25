@@ -8,8 +8,8 @@ import (
 	"time"
 
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
-	"github.com/stretchr/testify/assert"
 	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestManagement_ServerLifecycle(t *testing.T) {

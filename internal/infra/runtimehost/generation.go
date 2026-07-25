@@ -83,13 +83,11 @@ type Generation struct {
 	drainMu     sync.Mutex
 	drainCh     chan struct{}
 	drainClosed bool
+	// postDrainClose: async scheduleRetire arms this when drain is blocked; signalDrained
+	// runs it once. Sync RetireGeneration takes/re-arms across ctx cancel.
+	postDrainClose func()
 
-	// retireAdmit serializes retirement attempts (Manager.RetireGeneration /
-	// scheduled auto-retire) for this generation only, context-aware so a
-	// background retirement blocked on a pin cannot make a context-bounded
-	// caller (e.g. ShutdownDetached) block forever. It lives on the
-	// generation so concurrent unrelated retirements progress independently
-	// without a process-wide lock or unbounded worker map.
+	// retireAdmit serializes RetireGeneration/scheduleRetire per generation (ctx-aware).
 	retireAdmit retireAdmission
 
 	closeCount atomic.Int32

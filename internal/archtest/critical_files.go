@@ -70,12 +70,12 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	// (Req 11.3) is met; moved unchanged ports are not package-tree shrinkage
 	// evidence under Requirement 11.6.
 	{Path: "internal/infra/runtimehost/coordinator.go", Max: 292},
-	// BaselineMax 575 → CurrentMax 318 after Task 7.3 (retirement scheduling
-	// moved to Manager/retire.go; Close/Discard moved to generation_close.go;
-	// payload binding moved to generation_payload.go; refcount/drain moved to
-	// generation_refcount.go). Final ≤400 (Req 11.3) already met with margin;
-	// budget is the exact measured post-Task-7.3 total (no padded ceiling).
-	{Path: "internal/infra/runtimehost/generation.go", Max: 318},
+	// BaselineMax 575 → CurrentMax 316 after Task 7.3 + async post-drain arm
+	// densification (retirement in Manager/retire.go; Close/Discard in
+	// generation_close.go; payload in generation_payload.go; refcount/drain in
+	// generation_refcount.go). Final ≤400 (Req 11.3) already met; budget is the
+	// exact measured total (no padded ceiling).
+	{Path: "internal/infra/runtimehost/generation.go", Max: 316},
 	// BaselineMax 440 → CurrentMax 323 after Phase B+C closer-bag contraction
 	// (physical line count; final ≤350 Req 11.3 met).
 	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 323},

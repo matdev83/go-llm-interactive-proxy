@@ -29,7 +29,7 @@ const (
 // (not a padded ceiling).
 const (
 	generationHotspotPath           = "internal/infra/runtimehost/generation.go"
-	generationExactCurrentRatchet   = 318
+	generationExactCurrentRatchet   = 316
 	generationFinalLineCeiling      = 400
 	generationImmutableBaselineMax  = 575
 	generationImmutableLoweringTask = "7.3"

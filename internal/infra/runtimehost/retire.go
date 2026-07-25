@@ -66,13 +66,14 @@ func (a *retireAdmission) release() {
 	close(woken)
 }
 
-// retireGeneration quiesces once, waits for drain, then closes with bounded
-// cleanup retries. Quiesce/cleanup errors and panics are isolated without
-// altering the active generation. Idempotent: a second call on an
-// already-closed generation returns ErrAlreadyClosed. Concurrent calls for
-// different generations do not block each other; concurrent calls for the
-// *same* generation are serialized by that generation's own context-aware
-// retirement admission (no process-wide lock or worker map).
+// retireGeneration quiesces once, then either waits for drain (sync) or arms a
+// post-drain close callback (async) before closing with bounded cleanup retries.
+// Quiesce/cleanup errors and panics are isolated without altering the active
+// generation. Idempotent: a second call on an already-closed generation returns
+// ErrAlreadyClosed. Concurrent calls for different generations do not block
+// each other; concurrent calls for the *same* generation are serialized by that
+// generation's own context-aware retirement admission (no process-wide lock or
+// worker map).
 //
 // The QuiesceCloser is derived solely from the Generation: its bound
 // RequestPlane when set, otherwise its owned payload when it implements
@@ -80,7 +81,12 @@ func (a *retireAdmission) release() {
 //
 // When retirement drained with zero refs before this ran (no quiesce window),
 // it still invokes Quiesce once before BeginClose so generation workers stop.
-func retireGeneration(ctx context.Context, g *Generation, policy CleanupPolicy, observer *ReloadObserver) (RetirementStatus, error) {
+//
+// waitDrain=true (Manager.RetireGeneration / shutdown): block on Drained with
+// ctx, then close. waitDrain=false (Publish scheduleRetire): never park on
+// Drained — if still pinned, arm post-drain close (when a QuiesceCloser owns
+// teardown) and return so the background goroutine exits promptly.
+func retireGeneration(ctx context.Context, g *Generation, policy CleanupPolicy, observer *ReloadObserver, waitDrain bool, afterClose func()) (RetirementStatus, error) {
 	if g == nil {
 		return RetirementStatus{}, nil
 	}
@@ -121,12 +127,69 @@ func retireGeneration(ctx context.Context, g *Generation, policy CleanupPolicy, 
 		return status, ErrIllegalTransition
 	}
 
+	if !waitDrain {
+		return finishOrArmAsync(g, policy, observer, owned != nil, afterClose, status, out)
+	}
+
+	// Sync path takes over any previously armed async close for the wait, but
+	// must re-arm on ctx cancel so a pinned generation still finishes when the
+	// pin drops (ShutdownDetached / bounded RetireGeneration).
+	priorArm := g.takePostDrainClose()
+
 	select {
 	case <-g.Drained():
 	case <-ctx.Done():
+		rearm := priorArm
+		if rearm == nil && generationQuiesceCloser(g) != nil {
+			rearm = func() {
+				_, _ = finishRetireClose(context.Background(), g, policy, observer, RetirementStatus{GenerationID: g.ID()}, nil)
+				if afterClose != nil {
+					afterClose()
+				}
+			}
+		}
+		if rearm != nil {
+			g.armPostDrainClose(rearm)
+		}
 		return status, errors.Join(out, ctx.Err())
 	}
 
+	stOut, err := finishRetireClose(ctx, g, policy, observer, status, out)
+	if afterClose != nil {
+		afterClose()
+	}
+	return stOut, err
+}
+
+// finishOrArmAsync completes close immediately when already drained; otherwise
+// arms a one-shot post-drain close when a QuiesceCloser owns teardown. Without
+// a QuiesceCloser, async retirement never BeginClose/Close — drain is left
+// GenDrained for explicit RetireGeneration or a manual BeginClose/Close drive
+// (e.g. OwnedCloser-only helpers). This also covers the race where a pin
+// releases while still GenRetiring and zero-ref drains before MarkQuiesced.
+func finishOrArmAsync(g *Generation, policy CleanupPolicy, observer *ReloadObserver, hasQuiesceCloser bool, afterClose func(), status RetirementStatus, out error) (RetirementStatus, error) {
+	if !hasQuiesceCloser {
+		return status, out
+	}
+	if g.Lifecycle() == GenDrained || g.Lifecycle() == GenClosing {
+		stOut, err := finishRetireClose(context.Background(), g, policy, observer, status, out)
+		if afterClose != nil {
+			afterClose()
+		}
+		return stOut, err
+	}
+	g.armPostDrainClose(func() {
+		_, _ = finishRetireClose(context.Background(), g, policy, observer, RetirementStatus{GenerationID: g.ID()}, nil)
+		if afterClose != nil {
+			afterClose()
+		}
+	})
+	// If drain raced in between the lifecycle check and arm, armPostDrainClose
+	// runs the callback immediately.
+	return status, out
+}
+
+func finishRetireClose(ctx context.Context, g *Generation, policy CleanupPolicy, observer *ReloadObserver, status RetirementStatus, out error) (RetirementStatus, error) {
 	if g.Lifecycle() == GenDrained {
 		if err := g.BeginClose(); err != nil {
 			return status, errors.Join(out, err)

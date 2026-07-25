@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 

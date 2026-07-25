@@ -330,16 +330,19 @@ func (m *Manager) RetireGeneration(ctx context.Context, g *Generation) (Retireme
 		return RetirementStatus{}, nil
 	}
 	policy, observer := m.retirementDeps()
-	return retireGeneration(ctx, g, policy, observer)
+	return retireGeneration(ctx, g, policy, observer, true, nil)
 }
 
 // scheduleRetire is the one-goroutine-per-replaced-generation background
 // retirement launched by Publish. It never blocks Publish and is bounded by
 // the finite retained-generation budget (no unbounded worker map/pool).
+// Async retirement quiesces then either closes immediately (already drained)
+// or arms a post-drain close — it must not park in select-on-Drained, so a
+// pinned prior generation cannot leak a long-lived retirement goroutine.
 func (m *Manager) scheduleRetire(g *Generation) {
 	if m == nil || g == nil {
 		return
 	}
-	_, _ = m.RetireGeneration(context.Background(), g)
-	m.SweepClosed()
+	policy, observer := m.retirementDeps()
+	_, _ = retireGeneration(context.Background(), g, policy, observer, false, m.SweepClosed)
 }

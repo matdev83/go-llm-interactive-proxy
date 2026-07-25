@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
-	"github.com/stretchr/testify/assert"
 	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
+	"github.com/stretchr/testify/assert"
 )
 
 func newManagementHarness(t *testing.T, reloadFn func(context.Context, sdkreload.Trigger) sdkreload.Result) (*httptest.Server, *fakeCoordinator, *mgmtreload.Handler) {

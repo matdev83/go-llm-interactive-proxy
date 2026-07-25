@@ -208,7 +208,7 @@ func assertHostPathExactBuildHostGraph(t *testing.T, got []convergenceFinding) {
 func assertConfigLoadExactCanonicalOwner(t *testing.T, got []convergenceFinding) {
 	t.Helper()
 	want := map[string]string{
-		pathBootstrapEffective + "|func:LoadBootstrapEffectiveWithSource":                             classOwner,
+		pathBootstrapEffective + "|func:LoadBootstrapEffectiveWithSource":                         classOwner,
 		pathBootstrapEffective + "|call:LoadBootstrapEffectiveWithSource->config.LoadEffective#1": classCall,
 	}
 	gotKeys := map[string]convergenceFinding{}

@@ -86,20 +86,22 @@ func (g *Generation) markRetiring() {
 
 func (g *Generation) signalDrained() {
 	g.drainMu.Lock()
-	defer g.drainMu.Unlock()
 	if g.drainClosed {
+		g.drainMu.Unlock()
 		return
 	}
 	for {
 		cur := g.word.Load()
 		st, refs := unpackLease(cur)
 		if refs != 0 {
+			g.drainMu.Unlock()
 			return
 		}
 		if st == GenDrained {
 			break
 		}
 		if !drainable(st) {
+			g.drainMu.Unlock()
 			return
 		}
 		if g.word.CompareAndSwap(cur, packLease(GenDrained, 0)) {
@@ -107,5 +109,40 @@ func (g *Generation) signalDrained() {
 		}
 	}
 	g.drainClosed = true
+	fn := g.postDrainClose
+	g.postDrainClose = nil
 	close(g.drainCh)
+	g.drainMu.Unlock()
+	if fn != nil {
+		fn()
+	}
+}
+
+// armPostDrainClose registers fn to run once after this generation reaches
+// GenDrained. If already drained, fn runs immediately on the caller.
+func (g *Generation) armPostDrainClose(fn func()) {
+	if g == nil || fn == nil {
+		return
+	}
+	g.drainMu.Lock()
+	if g.drainClosed {
+		g.drainMu.Unlock()
+		fn()
+		return
+	}
+	g.postDrainClose = fn
+	g.drainMu.Unlock()
+}
+
+// takePostDrainClose clears and returns any armed post-drain close callback so
+// a synchronous RetireGeneration caller can own the wait/close path.
+func (g *Generation) takePostDrainClose() func() {
+	if g == nil {
+		return nil
+	}
+	g.drainMu.Lock()
+	fn := g.postDrainClose
+	g.postDrainClose = nil
+	g.drainMu.Unlock()
+	return fn
 }
