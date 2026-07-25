@@ -397,7 +397,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 8.1-8.4_
   - _Validation: `go test ./internal/qa/... ./cmd/lipstd/... -run 'Docs|Architecture|Examples|Compatibility'`_
 
-- [ ] 9.2 Apply final critical-file and package ratchets
+- [x] 9.2 Apply final critical-file and package ratchets
   - Set coordinator ≤300, generation ≤400, candidate compilation ≤350, process runtime construction ≤300, and public facade build ≤150, or remove the named file.
   - Lower affected package budgets below the reviewed baseline.
   - Require rationale plus an old-path deletion milestone for any future increase.

@@ -76,8 +76,10 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	// generation_refcount.go). Final ≤400 (Req 11.3) already met with margin;
 	// budget is the exact measured post-Task-7.3 total (no padded ceiling).
 	{Path: "internal/infra/runtimehost/generation.go", Max: 318},
-	// BaselineMax 440 → CurrentMax 393 after Tasks 3.3/4.2; final ≤350 (Req 11.3).
-	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 393},
+	// BaselineMax 440 → CurrentMax 324 after Task 9.2 (mergeCandidateBuildOptions
+	// / hasExtensionOverlay moved to candidate_options.go). Exact measured
+	// physical line count (no padded ceiling); final ≤350 (Req 11.3) met.
+	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 324},
 	// Task 3.5: freeze post-deletion composer/input surfaces at measured sizes.
 	{Path: "internal/infra/runtimebundle/handler_composer.go", Max: 25},
 	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 296},

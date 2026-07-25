@@ -371,6 +371,8 @@ var lineBudgets = []struct {
 	// recursive non-test total (measured 10451; zero headroom).
 	// Task 8.2: dropped deprecated ProductionOptions fields (measured 10419).
 	// Task 8.4: comment-only contraction after legacy-adapter wording removal (10418).
+	// Task 9.2: candidate_compile helpers moved to candidate_options.go; recursive
+	// package-tree total unchanged (measured 10418; zero headroom).
 	{"internal/infra/runtimebundle", 10418},
 	// Task 5.5: exact-measured cmd/lipstd after dual-bootstrap deletion
 	// (measured 913; zero headroom).

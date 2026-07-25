@@ -44,6 +44,18 @@ const (
 	lipruntimeImmutableLoweringTask     = "8.1"
 )
 
+// Task 9.2 candidate compilation exact-current ratchet: mergeCandidateBuildOptions
+// and hasExtensionOverlay moved to candidate_options.go so the named hotspot
+// meets Requirement 11.3 (≤350). Active architecture metadata and the physical
+// file share one measured total (not a padded ceiling).
+const (
+	candidateCompileHotspotPath           = "internal/infra/runtimebundle/candidate_compile.go"
+	candidateCompileExactCurrentRatchet   = 324
+	candidateCompileFinalLineCeiling      = 350
+	candidateCompileImmutableBaselineMax  = 440
+	candidateCompileImmutableLoweringTask = "9.2"
+)
+
 // expectedMigrationHotspotFreezes lists the Task 1.2 gravity wells that must
 // appear in CriticalFileBudgets. BaselineMax is the immutable Task 1.1 measured
 // ceiling at migrationHotspotFreezeBaselineSHA. CurrentMax is the present
@@ -51,9 +63,9 @@ const (
 // FinalTarget is Requirement 11.3; LoweringTask is the contraction task that
 // must ratchet CurrentMax downward.
 //
-// Most hotspots use ceiling semantics (actual ≤ CurrentMax) until their lowering
-// task completes. Task 6.5 Coordinator additionally requires exact three-source
-// equality (actual == CriticalFileBudgets.Max == CurrentMax == 292).
+// Completed lowering tasks require exact three-source equality (actual ==
+// CriticalFileBudgets.Max == CurrentMax). Task 9.2 brings candidate compilation
+// onto the same exact-current ratchet as coordinator/generation/lipruntime.
 var expectedMigrationHotspotFreezes = []struct {
 	Path         string
 	BaselineMax  int
@@ -76,15 +88,16 @@ var expectedMigrationHotspotFreezes = []struct {
 		LoweringTask: generationImmutableLoweringTask,
 	},
 	{
-		Path:         "internal/infra/runtimebundle/candidate_compile.go",
-		BaselineMax:  440,
-		CurrentMax:   393,
-		FinalTarget:  350,
-		LoweringTask: "4.2",
+		Path:         candidateCompileHotspotPath,
+		BaselineMax:  candidateCompileImmutableBaselineMax,
+		CurrentMax:   candidateCompileExactCurrentRatchet, // exact measured lines after Task 9.2
+		FinalTarget:  candidateCompileFinalLineCeiling,
+		LoweringTask: candidateCompileImmutableLoweringTask,
 	},
 	// internal/infra/runtimebundle/process_services.go freeze retired at Task
 	// 5.5: CriticalFileBudgets now carries the exact post-contraction ceiling
-	// (249, below the ≤300 final target) enforced by TestCriticalFileLineBudgets.
+	// (249, below the ≤300 final target) enforced by TestCriticalFileLineBudgets
+	// and TestRuntimeConvergenceFinalCriticalFileTargets.
 	{
 		Path:         "pkg/lipruntime/build.go",
 		BaselineMax:  367,
@@ -423,6 +436,65 @@ func TestGenerationTask73ExactCurrentRatchet(t *testing.T) {
 	}
 }
 
+func TestCandidateCompileTask92ExactCurrentRatchet(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+
+	freezeIdx := -1
+	for i, entry := range expectedMigrationHotspotFreezes {
+		if entry.Path == candidateCompileHotspotPath {
+			freezeIdx = i
+			break
+		}
+	}
+	if freezeIdx < 0 {
+		t.Fatalf("expectedMigrationHotspotFreezes missing %s", candidateCompileHotspotPath)
+	}
+	freeze := expectedMigrationHotspotFreezes[freezeIdx]
+
+	if freeze.BaselineMax != candidateCompileImmutableBaselineMax {
+		t.Fatalf("candidate compile BaselineMax=%d, want immutable %d", freeze.BaselineMax, candidateCompileImmutableBaselineMax)
+	}
+	if freeze.FinalTarget != candidateCompileFinalLineCeiling {
+		t.Fatalf("candidate compile FinalTarget=%d, want immutable %d", freeze.FinalTarget, candidateCompileFinalLineCeiling)
+	}
+	if freeze.LoweringTask != candidateCompileImmutableLoweringTask {
+		t.Fatalf("candidate compile LoweringTask=%q, want immutable %q", freeze.LoweringTask, candidateCompileImmutableLoweringTask)
+	}
+	if freeze.CurrentMax != candidateCompileExactCurrentRatchet {
+		t.Fatalf("candidate compile CurrentMax=%d, want exact Task 9.2 ratchet %d", freeze.CurrentMax, candidateCompileExactCurrentRatchet)
+	}
+
+	var budgetMax int
+	foundBudget := false
+	for _, b := range CriticalFileBudgets {
+		if b.Path == candidateCompileHotspotPath {
+			budgetMax = b.Max
+			foundBudget = true
+			break
+		}
+	}
+	if !foundBudget {
+		t.Fatalf("CriticalFileBudgets missing %s", candidateCompileHotspotPath)
+	}
+
+	n, err := countFileLines(filepath.Join(root, candidateCompileHotspotPath))
+	if err != nil {
+		t.Fatalf("%s: %v", candidateCompileHotspotPath, err)
+	}
+
+	if err := validateExactCurrentRatchet(exactCurrentRatchet{
+		Path:             candidateCompileHotspotPath,
+		ActualLines:      n,
+		BudgetMax:        budgetMax,
+		FreezeCurrentMax: freeze.CurrentMax,
+		ExpectedExact:    candidateCompileExactCurrentRatchet,
+		FinalCeiling:     candidateCompileFinalLineCeiling,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCriticalFileMigrationHotspotFreezeBudgets(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -453,11 +525,10 @@ func TestCriticalFileMigrationHotspotFreezeBudgets(t *testing.T) {
 				t.Fatalf("%s: %v", want.Path, err)
 			}
 
-			// Task 6.5 Coordinator, Task 7.3 Generation, and Task 8.1 public
-			// build/facade: exact three-source equality is enforced by the
-			// dedicated exact-current ratchet tests. Other hotspots retain
-			// freeze/ceiling semantics (actual ≤ CurrentMax) until their
-			// lowering task intentionally ratchets metadata.
+			// Completed lowering tasks (coordinator/generation/candidate/
+			// lipruntime): exact three-source equality via dedicated exact-
+			// current ratchet validation. No remaining ceiling-only hotspots
+			// in this freeze table after Task 9.2.
 			switch want.Path {
 			case coordinatorHotspotPath:
 				if err := validateExactCurrentRatchet(exactCurrentRatchet{
@@ -477,6 +548,17 @@ func TestCriticalFileMigrationHotspotFreezeBudgets(t *testing.T) {
 					BudgetMax:        got.Max,
 					FreezeCurrentMax: want.CurrentMax,
 					ExpectedExact:    generationExactCurrentRatchet,
+					FinalCeiling:     want.FinalTarget,
+				}); err != nil {
+					t.Fatal(err)
+				}
+			case candidateCompileHotspotPath:
+				if err := validateExactCurrentRatchet(exactCurrentRatchet{
+					Path:             want.Path,
+					ActualLines:      n,
+					BudgetMax:        got.Max,
+					FreezeCurrentMax: want.CurrentMax,
+					ExpectedExact:    candidateCompileExactCurrentRatchet,
 					FinalCeiling:     want.FinalTarget,
 				}); err != nil {
 					t.Fatal(err)

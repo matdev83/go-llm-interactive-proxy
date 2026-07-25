@@ -63,6 +63,8 @@ type PackageTreeBudget struct {
 // explicit legacy_options quarantine adapter (+10 vs Task 8.1; measured 829).
 // Task 8.4: delete legacy_options adapter and public deprecated Options fields
 // (pkg/lipruntime measured 648). runtimebundle comment-only contraction (10418).
+// Task 9.2: candidate_compile.go helpers moved to candidate_options.go (critical-
+// file organization); recursive package-tree total unchanged at exact 10418.
 var PackageTreeBudgets = []PackageTreeBudget{
 	{Tree: "internal/infra/runtimebundle", Max: 10418},
 	{Tree: "internal/stdhttp", Max: 4509},
