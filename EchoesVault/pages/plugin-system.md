@@ -41,9 +41,11 @@ Shared helpers: `decodeqos/`, `execerr/`, `exechold/`, `frontendconfig/`, `holda
 
 `openairesponses`, `openailegacy`, `anthropic`, `gemini`, `bedrock`, plus built-in custom OpenAI/Anthropic-compatible kinds. Shared helpers may include `openaicompat/`, `openaifamily/`, and related packages still imported by the root module.
 
+Experimental in-tree `cursorsdk` (Node bridge over exact `@cursor/sdk` 1.0.23) may remain as an opt-in adapter outside `EssentialBackendBundle`; production optional delivery is the external executable connector path. Operator docs: [docs/cursor-sdk-backend.md](../../docs/cursor-sdk-backend.md). See [Cursor SDK Backend](cursor-sdk-backend.md).
+
 ### Optional executable connectors (`connectors/`)
 
-Installed artifacts (examples): `openrouter`, `nvidia`, `huggingface`, `ollama` / `ollama-cloud`, `llamacpp`, `lmstudio`, `vllm`, `localstub`, `opencode` (Go/Zen exports), `codex` (HTTP + app-server exports), ACP-family CLIs. Support modules live under `connector-support/`. Do not add these to essential fixed tables.
+Installed artifacts (examples): `openrouter`, `nvidia`, `huggingface`, `ollama` / `ollama-cloud`, `llamacpp`, `lmstudio`, `vllm`, `localstub`, `opencode` (Go/Zen exports), `codex` (HTTP + app-server exports), ACP-family CLIs including `cursorcliacp`. Support modules live under `connector-support/`. Do not add these to essential fixed tables.
 
 ## Feature Plugins (`internal/plugins/features/`)
 

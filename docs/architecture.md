@@ -9,6 +9,7 @@ The durable source of truth is split by purpose:
 - `.kiro/specs/` - active and archived spec artifacts for feature work.
 - `README.md` - current runnable distribution, configuration, security, and QA overview.
 - `docs/dogfood-local.md` - canonical **no-key** stub workflow (`lipstd check-config`, `routes`, `inventory`, `serve`) aligned with `config/examples/*.yaml`.
+- `docs/runtime-config-reload.md` - explicit SIGHUP/management-API runtime config reload (no watcher; atomic source replace; generation publication).
 - `docs/proxy-identity.md` - A-leg/B-leg identity carriers, modes, allowlist/exclusions, OpenRouter attribution.
 - `docs/architecture.md` - this current-state runtime map.
 
@@ -86,16 +87,16 @@ See `docs/extension-points.md` and `docs/plugin-authoring.md` for the stage tabl
 6. discover and register optional backend connector manifests when configured (`plugins.backend_discovery`);
 7. validate mandatory bundled factories;
 8. merge configured feature bundles with `featurebundle.MergeFeatureSurface` (simplified via `MergeBundles`/`Append` helpers) and build hooks in `runtimebundle` (`BuildFeatureHooks`);
-9. build `runtime.App` and `runtimebundle.Built`;
-10. run the HTTP server with `stdhttp.RunWithRuntime`.
+9. bootstrap process services and publish request-plane **generation 1** through `runtimebundle` / `runtimehost` (legacy `Build` remains a compatibility wrapper);
+10. attach the fixed-source reload host (`AttachReloadHost`) and serve data-plane HTTP through a generation dispatcher; optional management reload HTTP binds only when `LIP_RELOAD_MANAGEMENT_ADDRESS` is set.
 
-The registry is composition-root state, not core global state. Essential static tables live under `internal/standardplugins`; optional backends attach as discovered executable plugins (ADR 0008); feature merge is `internal/featurebundle`; hook bus construction stays in `internal/infra/runtimebundle`. Startup remains explicit — no package-level mutable registries and no Go native `plugin`.
+The registry is composition-root state, not core global state. Essential static tables live under `internal/standardplugins`; optional backends attach as discovered executable plugins ([ADR 0008 hybrid connectors](adr/0008-hybrid-backend-connector-plugins.md)); feature merge is `internal/featurebundle`; hook bus construction stays in `internal/infra/runtimebundle`. Startup remains explicit — no package-level mutable registries and no Go native `plugin`. Runtime reload publishes a new immutable generation for new admissions without replacing the data-plane listener; see [`runtime-config-reload.md`](runtime-config-reload.md) and [ADR 0008 versioned reload](adr/0008-versioned-runtime-config-reload.md).
 
 ## Diagnostics and operations
 
 When enabled by config, diagnostics expose health, attempt lineage, route trace, plugin inventory, model-catalog status, metrics, and pprof paths. Treat diagnostics as operator surfaces: bind them safely, use `diagnostics.shared_secret` outside localhost-only development, and keep labels/cardinality bounded.
 
-Before serving, operators can run **`lipstd check-config`**, **`routes`**, and **`inventory`** against the same YAML (see `docs/dogfood-local.md`) without opening client traffic.
+Before serving, operators can run **`lipstd check-config`**, **`routes`**, and **`inventory`** against the same YAML (see `docs/dogfood-local.md`) without opening client traffic. `check-config` shares the reload generation compiler in dry-run/rollback mode.
 
 Traffic observation and capture are privileged extension paths. Redaction must happen before persistence or long-term observer storage.
 

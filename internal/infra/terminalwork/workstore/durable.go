@@ -35,7 +35,7 @@ type DurableStore struct {
 	nonOwning       bool
 }
 
-var RequiredMigrationNames = []string{BaselineMigrationName}
+var RequiredMigrationNames = []string{BaselineMigrationName, RuntimeGenerationIDMigrationName, RuntimeInstanceIDMigrationName}
 
 func Migrate(ctx context.Context, db *bun.DB) error {
 	if ctx == nil {
@@ -56,7 +56,7 @@ func VerifySchema(ctx context.Context, db *bun.DB) error {
 	}
 	if db.Dialect().Name() != dialect.PG {
 		for _, probe := range []string{
-			`SELECT store_id, source_key, payload_version, claim_owner_id FROM economic_terminal_work WHERE 1 = 0`,
+			`SELECT store_id, source_key, payload_version, claim_owner_id, runtime_generation_id, runtime_instance_id FROM economic_terminal_work WHERE 1 = 0`,
 		} {
 			if _, err := db.ExecContext(ctx, probe); err != nil {
 				return fmt.Errorf("terminalwork/workstore: schema verification failed: %w", err)
@@ -93,6 +93,36 @@ func VerifySchema(ctx context.Context, db *bun.DB) error {
 			query:       `SELECT name FROM bun_terminal_work_migrations WHERE name = ? LIMIT 1`,
 			args:        []any{BaselineMigrationName},
 			fragments:   []string{BaselineMigrationName},
+		},
+		{
+			description: "runtime_generation_id migration history",
+			query:       `SELECT name FROM bun_terminal_work_migrations WHERE name = ? LIMIT 1`,
+			args:        []any{RuntimeGenerationIDMigrationName},
+			fragments:   []string{RuntimeGenerationIDMigrationName},
+		},
+		{
+			description: "runtime_instance_id migration history",
+			query:       `SELECT name FROM bun_terminal_work_migrations WHERE name = ? LIMIT 1`,
+			args:        []any{RuntimeInstanceIDMigrationName},
+			fragments:   []string{RuntimeInstanceIDMigrationName},
+		},
+		{
+			description: "runtime_generation_id column",
+			query: `SELECT lower(column_name) FROM information_schema.columns
+WHERE table_schema = current_schema()
+  AND table_name = 'economic_terminal_work'
+  AND column_name = 'runtime_generation_id'
+LIMIT 1`,
+			fragments: []string{"runtime_generation_id"},
+		},
+		{
+			description: "runtime_instance_id column",
+			query: `SELECT lower(column_name) FROM information_schema.columns
+WHERE table_schema = current_schema()
+  AND table_name = 'economic_terminal_work'
+  AND column_name = 'runtime_instance_id'
+LIMIT 1`,
+			fragments: []string{"runtime_instance_id"},
 		},
 		{
 			description: "economic_terminal_work store-scoped source_key unique constraint",
@@ -204,11 +234,17 @@ func (s *DurableStore) CheckReadiness(ctx context.Context) error {
 }
 
 func (s *DurableStore) AppendIntent(ctx context.Context, rec terminalwork.WorkRecord) error {
+	_, err := s.AppendIntentOutcome(ctx, rec)
+	return err
+}
+
+// AppendIntentOutcome implements the definitive insert-vs-replay seam.
+func (s *DurableStore) AppendIntentOutcome(ctx context.Context, rec terminalwork.WorkRecord) (terminalwork.AppendIntentOutcome, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return terminalwork.AppendIntentOutcome{}, err
 	}
 	if err := rec.Validate(); err != nil {
-		return fmt.Errorf("terminalwork/workstore: %w", err)
+		return terminalwork.AppendIntentOutcome{}, fmt.Errorf("terminalwork/workstore: %w", err)
 	}
 	if rec.State == "" {
 		rec.State = sdk.WorkStateIntent
@@ -225,37 +261,37 @@ func (s *DurableStore) AppendIntent(ctx context.Context, rec terminalwork.WorkRe
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("terminalwork/workstore: begin: %w", err)
+		return terminalwork.AppendIntentOutcome{}, fmt.Errorf("terminalwork/workstore: begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
 	existing, found, lerr := lookupBySourceKey(ctx, tx, s.cfg.StoreID, cloned.SourceKey.String())
 	if lerr != nil {
-		return lerr
+		return terminalwork.AppendIntentOutcome{}, lerr
 	}
 	if found {
-		return resolveExistingRecord(existing, cloned)
+		return resolveExistingOutcome(existing, cloned)
 	}
 	existing, found, lerr = lookupByWorkID(ctx, tx, s.cfg.StoreID, cloned.WorkID)
 	if lerr != nil {
-		return lerr
+		return terminalwork.AppendIntentOutcome{}, lerr
 	}
 	if found {
-		return resolveExistingRecord(existing, cloned)
+		return resolveExistingOutcome(existing, cloned)
 	}
 
 	_, err = tx.NewRaw(
 		`
 INSERT INTO economic_terminal_work(
   store_id, work_id, source_key, identity_version, payload_version, kind, state,
-  provider_id, request_id, attempt_id, trace_id, generation_id, bound_provider_id,
+  provider_id, request_id, attempt_id, trace_id, generation_id, runtime_instance_id, runtime_generation_id, bound_provider_id,
   rating_id, fact_id, lease_set_id, payload_json, attempts, next_retry_at_unix,
   claim_owner_id, claim_expires_at_unix, error_code, error_permanent, error_message,
   created_at_unix, updated_at_unix
-) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		row.StoreID, row.WorkID, row.SourceKey, row.IdentityVersion, row.PayloadVersion,
 		row.Kind, row.State, row.ProviderID, row.RequestID, row.AttemptID, row.TraceID,
-		row.GenerationID, row.BoundProviderID, row.RatingID, row.FactID, row.LeaseSetID,
+		row.GenerationID, row.RuntimeInstanceID, row.RuntimeGenerationID, row.BoundProviderID, row.RatingID, row.FactID, row.LeaseSetID,
 		row.PayloadJSON, row.Attempts, row.NextRetryAtUnix, row.ClaimOwnerID,
 		row.ClaimExpiresAtUnix, row.ErrorCode, row.ErrorPermanent, row.ErrorMessage,
 		row.CreatedAtUnix, row.UpdatedAtUnix,
@@ -263,32 +299,40 @@ INSERT INTO economic_terminal_work(
 	if err != nil {
 		if isUniqueViolation(err) {
 			_ = tx.Rollback()
-			return s.resolveUniqueRace(ctx, cloned)
+			return s.resolveUniqueRaceOutcome(ctx, cloned)
 		}
-		return fmt.Errorf("terminalwork/workstore: insert: %w", err)
+		return terminalwork.AppendIntentOutcome{}, fmt.Errorf("terminalwork/workstore: insert: %w", err)
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return terminalwork.AppendIntentOutcome{}, fmt.Errorf("terminalwork/workstore: commit: %w", err)
+	}
+	return terminalwork.AppendIntentOutcome{Inserted: true}, nil
 }
 
 func (s *DurableStore) resolveUniqueRace(ctx context.Context, cloned terminalwork.WorkRecord) error {
+	_, err := s.resolveUniqueRaceOutcome(ctx, cloned)
+	return err
+}
+
+func (s *DurableStore) resolveUniqueRaceOutcome(ctx context.Context, cloned terminalwork.WorkRecord) (terminalwork.AppendIntentOutcome, error) {
 	existing, found, err := lookupBySourceKey(ctx, s.db, s.cfg.StoreID, cloned.SourceKey.String())
 	if err != nil {
-		return err
+		return terminalwork.AppendIntentOutcome{}, err
 	}
 	if !found {
 		existing, found, err = lookupByWorkID(ctx, s.db, s.cfg.StoreID, cloned.WorkID)
 		if err != nil {
-			return err
+			return terminalwork.AppendIntentOutcome{}, err
 		}
 	}
 	if !found {
-		return ErrUniqueRaceMissingRow
+		return terminalwork.AppendIntentOutcome{}, ErrUniqueRaceMissingRow
 	}
-	return resolveExistingRecord(existing, cloned)
+	return resolveExistingOutcome(existing, cloned)
 }
 
 func (s *DurableStore) GetByWorkID(ctx context.Context, workID string) (terminalwork.WorkRecord, error) {
-	rec, found, err := lookupByWorkID(ctx, s.db, s.cfg.StoreID, workID)
+	rec, found, err := s.LookupIntent(ctx, workID)
 	if err != nil {
 		return terminalwork.WorkRecord{}, err
 	}
@@ -296,6 +340,11 @@ func (s *DurableStore) GetByWorkID(ctx context.Context, workID string) (terminal
 		return terminalwork.WorkRecord{}, ErrNotFound
 	}
 	return rec, nil
+}
+
+// LookupIntent implements terminalworkapp.IntentLookup.
+func (s *DurableStore) LookupIntent(ctx context.Context, workID string) (terminalwork.WorkRecord, bool, error) {
+	return lookupByWorkID(ctx, s.db, s.cfg.StoreID, workID)
 }
 
 func (s *DurableStore) GetBySourceKey(ctx context.Context, key terminalwork.SourceKey) (terminalwork.WorkRecord, error) {
@@ -394,7 +443,7 @@ FROM picked
 WHERE w.store_id = ? AND w.work_id = picked.work_id
 RETURNING w.store_id, w.work_id, w.source_key, w.identity_version, w.payload_version,
   w.kind, w.state, w.provider_id, w.request_id, w.attempt_id, w.trace_id,
-  w.generation_id, w.bound_provider_id, w.rating_id, w.fact_id, w.lease_set_id,
+  w.generation_id, w.runtime_instance_id, w.runtime_generation_id, w.bound_provider_id, w.rating_id, w.fact_id, w.lease_set_id,
   w.payload_json, w.attempts, w.next_retry_at_unix, w.claim_owner_id,
   w.claim_expires_at_unix, w.error_code, w.error_permanent, w.error_message,
   w.created_at_unix, w.updated_at_unix
@@ -667,7 +716,7 @@ func lookupByWorkID(ctx context.Context, q bun.IDB, storeID, workID string) (ter
 	err := q.NewRaw(
 		`
 SELECT store_id, work_id, source_key, identity_version, payload_version, kind, state,
-  provider_id, request_id, attempt_id, trace_id, generation_id, bound_provider_id,
+  provider_id, request_id, attempt_id, trace_id, generation_id, runtime_instance_id, runtime_generation_id, bound_provider_id,
   rating_id, fact_id, lease_set_id, payload_json, attempts, next_retry_at_unix,
   claim_owner_id, claim_expires_at_unix, error_code, error_permanent, error_message,
   created_at_unix, updated_at_unix
@@ -693,7 +742,7 @@ func lookupBySourceKey(ctx context.Context, q bun.IDB, storeID, sourceKey string
 	err := q.NewRaw(
 		`
 SELECT store_id, work_id, source_key, identity_version, payload_version, kind, state,
-  provider_id, request_id, attempt_id, trace_id, generation_id, bound_provider_id,
+  provider_id, request_id, attempt_id, trace_id, generation_id, runtime_instance_id, runtime_generation_id, bound_provider_id,
   rating_id, fact_id, lease_set_id, payload_json, attempts, next_retry_at_unix,
   claim_owner_id, claim_expires_at_unix, error_code, error_permanent, error_message,
   created_at_unix, updated_at_unix

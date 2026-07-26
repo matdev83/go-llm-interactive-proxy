@@ -7,6 +7,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/routinghealth"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 func TestCandidateHealthFromConfig(t *testing.T) {
@@ -103,5 +104,50 @@ func TestCandidateHealthFromConfig(t *testing.T) {
 			h := routinghealth.CandidateHealthFromConfig(tt.cfg, now)
 			tt.want(t, h)
 		})
+	}
+}
+
+// TestCandidateHealthPolicyFromState proves the generation-scoped policy view
+// shares observation state across two config generations with different
+// threshold/open-for values while resolving disabled/nil inputs safely.
+func TestCandidateHealthPolicyFromState(t *testing.T) {
+	t.Parallel()
+
+	now := time.Unix(500, 0).UTC()
+	nowFn := func() time.Time { return now }
+	state := policy.NewCircuitBreakerState(policy.CircuitBreakerStateOptions{})
+
+	strictCfg := &config.Config{Routing: config.RoutingConfig{Health: config.RoutingHealthConfig{
+		CircuitBreaker: config.CircuitBreakerConfig{Enabled: true, FailureThreshold: 1, OpenFor: "1h"},
+	}}}
+	lenientCfg := &config.Config{Routing: config.RoutingConfig{Health: config.RoutingHealthConfig{
+		CircuitBreaker: config.CircuitBreakerConfig{Enabled: true, FailureThreshold: 5, OpenFor: "1h"},
+	}}}
+
+	strict := routinghealth.CandidateHealthPolicyFromState(strictCfg, state, nowFn)
+	lenient := routinghealth.CandidateHealthPolicyFromState(lenientCfg, state, nowFn)
+
+	if sink, ok := strict.(policy.RoutingAttemptOutcomeSink); ok {
+		sink.OnRoutingAttemptOutcome("be:m", lipapi.AttemptSurfacedFailure)
+	} else {
+		t.Fatal("expected RoutingAttemptOutcomeSink")
+	}
+
+	if u := strict.UnhealthyCandidateKeys(); len(u) != 1 {
+		t.Fatalf("strict generation (threshold=1) must open after 1 failure, got %v", u)
+	}
+	if u := lenient.UnhealthyCandidateKeys(); len(u) != 1 {
+		t.Fatalf("lenient generation must observe the same shared failure via strict's record, got %v", u)
+	}
+
+	if h := routinghealth.CandidateHealthPolicyFromState(nil, state, nowFn); h.UnhealthyCandidateKeys() != nil {
+		t.Fatal("nil config must resolve to empty health")
+	}
+	if h := routinghealth.CandidateHealthPolicyFromState(strictCfg, nil, nowFn); h.UnhealthyCandidateKeys() != nil {
+		t.Fatal("nil state must resolve to empty health")
+	}
+	disabledCfg := &config.Config{}
+	if h := routinghealth.CandidateHealthPolicyFromState(disabledCfg, state, nowFn); h.UnhealthyCandidateKeys() != nil {
+		t.Fatal("disabled circuit breaker must resolve to empty health")
 	}
 }

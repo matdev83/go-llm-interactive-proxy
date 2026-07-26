@@ -2,7 +2,7 @@
 
 ## Overview
 
-This feature adds an experimental `cursorsdk` backend to Go-LIP while preserving the existing `cursorcliacp` backend as an independently routable Cursor integration. **Phase 8.3 revalidation:** both Cursor connectors are external artifacts. The SDK backend is delivered as `connectors/cursorsdk` — an independent Go module exporting factory kind `cursorsdk` through the public `pkg/lipsdk/backendplugin` ABI, a closed manifest, and release metadata. The official Cursor agent SDK is not a Go library; a project-owned Node companion (`bridge-node/`) lives **inside the same connector artifact**, never in the root module.
+This feature adds an experimental `cursorsdk` backend to Go-LIP while preserving the existing `cursorcliacp` backend as an independently routable Cursor integration. **Phase 8.3 revalidation:** both Cursor connectors are external artifacts. The SDK backend is delivered as `connectors/cursorsdk` ÔÇö an independent Go module exporting factory kind `cursorsdk` through the public `pkg/lipsdk/backendplugin` ABI, a closed manifest, and release metadata. The official Cursor agent SDK is not a Go library; a project-owned Node companion (`bridge-node/`) lives **inside the same connector artifact**, never in the root module.
 
 The host (`cmd/lipstd` / `runtimebundle`) discovers and lazily activates the trusted native plugin executable over approved secure local IPC. Inside the plugin process, Go owns bridge process supervision, canonical history, capability declaration, event mapping, cancellation escalation, and adapter errors. Node owns `@cursor/sdk` imports and SDK object lifecycle. Core remains unaware of bridge, SDK agent, run, process, and credential identities.
 
@@ -90,10 +90,10 @@ The host (`cmd/lipstd` / `runtimebundle`) discovers and lazily activates the tru
 
 **Justification:**
 
-1. **Secret isolation** — each backend instance may bind a distinct static API key; a shared plugin process would co-locate multiple credential identities in one address space without proven isolation.
-2. **Failure domain** — bridge crash, SDK runaway, or cancel escalation must not terminate unrelated configured instances.
-3. **Concurrency budgets** — agent/run limits are instance-scoped; sharing would require cross-instance quota arbitration not in v1.
-4. **Matches local-only peers** — ACP product connectors and Codex app-server use per_instance for subprocess-heavy local agents.
+1. **Secret isolation** ÔÇö each backend instance may bind a distinct static API key; a shared plugin process would co-locate multiple credential identities in one address space without proven isolation.
+2. **Failure domain** ÔÇö bridge crash, SDK runaway, or cancel escalation must not terminate unrelated configured instances.
+3. **Concurrency budgets** ÔÇö agent/run limits are instance-scoped; sharing would require cross-instance quota arbitration not in v1.
+4. **Matches local-only peers** ÔÇö ACP product connectors and Codex app-server use per_instance for subprocess-heavy local agents.
 
 Within one instance: at most one Node bridge process (Req 8.1) and a bounded in-process agent pool. That internal sharing is not host-level `process_sharing`.
 
@@ -106,8 +106,8 @@ graph LR
   Bridge --> SDK["@cursor/sdk"]
 ```
 
-- Host↔plugin: digest-verified native executable + approved secure local IPC (platform profile from backend-connector architecture).
-- Plugin↔Node: adapter-private stdio NDJSON; not a host trust boundary substitute.
+- HostÔćöplugin: digest-verified native executable + approved secure local IPC (platform profile from backend-connector architecture).
+- PluginÔćöNode: adapter-private stdio NDJSON; not a host trust boundary substitute.
 
 ### Selected pattern
 
@@ -121,10 +121,10 @@ graph LR
 
 ### Project Boundary Answers
 
-- **Core-owned or plugin-owned?** External backend connector–owned.
-- **New canonical concept?** No — existing calls/events/capabilities suffice.
+- **Core-owned or plugin-owned?** External backend connectorÔÇôowned.
+- **New canonical concept?** No ÔÇö existing calls/events/capabilities suffice.
 - **Streaming-first?** Yes.
-- **Provider SDK leakage avoided?** Yes — only inside connector Node companion.
+- **Provider SDK leakage avoided?** Yes ÔÇö only inside connector Node companion.
 - **No retry after first output?** Yes.
 - **Extension platform seam?** No feature stage required.
 
@@ -144,16 +144,16 @@ graph LR
 See `packaging.md`. Summary:
 
 - Kind `cursorsdk` appears only after trusted discovery.
-- Secrets via backendplugin secret map / host injection — never argv/env for bridge spawn of API keys.
+- Secrets via backendplugin secret map / host injection ÔÇö never argv/env for bridge spawn of API keys.
 - Lazy activation of plugin process; lazy spawn of Node bridge on first needed operation.
-- Shutdown: reject work → cancel runs → dispose agents → bridge shutdown → reap children → host closes plugin process.
+- Shutdown: reject work Ôćĺ cancel runs Ôćĺ dispose agents Ôćĺ bridge shutdown Ôćĺ reap children Ôćĺ host closes plugin process.
 - PID-reuse hardened process-tree kill for unresponsive bridge (align with ACP support contracts).
 
 ## File Plan
 
 See `file-plan.md`. Root forbidden paths listed there and gated by `make kiro-spec-check SPEC=cursor-sdk-backend` / archtest.
 
-## Architecture Tests (implementation gates — not product)
+## Architecture Tests (implementation gates ÔÇö not product)
 
 When product work starts, tests must assert:
 
@@ -187,3 +187,7 @@ Spec-check (this task) asserts the **specification text** encodes these gates be
 
 - Exact `@cursor/sdk` version pin (locked in Task 1 of product implementation).
 - Whether bridge companion is a Node binary wrapper or `node dist/main.js` under trusted tree (must remain non-shell, digest-addressable companion files).
+
+## Merge note (2026-07-27T00:45:00+02:00)
+
+After merging `origin/main`, the repository temporarily retains an in-tree experimental `cursorsdk` package for continuity of main's implemented bridge/tests. It is **not** part of `EssentialBackendBundle`. Composition roots that need it must opt in explicitly; discovered external connectors remain the long-term delivery path described above. Versioned runtime config reload / ProcessServices from main are orthogonal and take precedence for runtime APIs.

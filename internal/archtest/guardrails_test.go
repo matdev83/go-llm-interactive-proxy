@@ -155,11 +155,29 @@ var lineBudgets = []struct {
 	// ReleaseLeaseSet terminal work, QuerySets readiness) merged onto main
 	// Phase 1–5 + reasoning. Post-merge measured non-test total is 64452;
 	// cap keeps ~98 lines of headroom. Prefer further decomposition over another raise.
-	// Raised from 64550 to 64700 for backend-connector Phase 4.3 typed
-	// plugins.backend_discovery config (strict decode + production development_mode gate).
-	{"internal/core", 64700},
+	// Raised from 64550 for backend-connector Phase 4.3 typed
+	// plugins.backend_discovery config (strict decode + production development_mode gate),
+	// then through versioned runtime reload + cursor-sdk follow-up on main
+	// (configreload, BoundView, generation pins, reload sanitizers). Cap is the
+	// higher main-line budget retained after merge.
+	{"internal/core", 69350},
 	{"internal/pluginreg", 4500},
-	{"internal/stdhttp", 3500},
+	// Raised from 3500 to 3800 for versioned-runtime-reload task 3.3: App-less
+	// generation request-plane composer (ComposeRequestPlane) without listener
+	// bind (measured non-test total 3668; ~132 lines headroom).
+	// Raised from 3800 to 3950 for versioned-runtime-reload task 3.4: stable
+	// generation-host runner (RunWithGenerationHost) behind one http.Server
+	// (measured non-test total 3801; ~149 lines headroom).
+	// Raised from 3950 to 4000 for versioned-runtime-reload task 4.3: frontend/
+	// feature generation route-conflict isolation on ComposeRequestPlane mounts
+	// (measured non-test total 3970; ~30 lines headroom).
+	// Raised from 4000 to 4650 for versioned-runtime-reload task 5.3: process-owned
+	// management HTTP adapter (admin/configreload listener, auth, browser guard,
+	// DTOs, and lifecycle) outside the swappable request plane
+	// (measured non-test total 4587; ~63 lines headroom).
+	// Raised from 4650 to 4750 for versioned-runtime-reload task 5.6: generation
+	// host shutdown ordering (coordinator BeginShutdown + management close).
+	{"internal/stdhttp", 4750},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
 	// lifecycle (requirements 11.3, 11.6, 11.7).
 	// Raised from 4800 to 5200 for build-local PostgreSQL pool ownership,
@@ -191,11 +209,10 @@ var lineBudgets = []struct {
 	// uncertain-set reconcile, and settle-release pending counts at composition
 	// root. Post-merge measured non-test total is 6477; cap keeps ~48 lines of
 	// headroom.
-	// Raised from 6525 to 7100 for backend-connector Phase 4 hybrid composition:
-	// InstallDiscoveredExports, inspect/doctor seams, resolve-before-build.
-	// Raised from 7100 to 7250 for Phase 5 localstub discovery/materialize e2e
-	// helpers and bootstrap wiring. Measured 7168; cap keeps ~82 lines of headroom.
-	{"internal/infra/runtimebundle", 7250},
+	// Raised for versioned-runtime-reload ProcessServices/CompileGeneration/ReloadHost
+	// (main, measured ~9849) plus backend-connector hybrid discovery/InstallDiscoveredExports
+	// and bootstrap wiring from the connector branch. Cap leaves merge headroom.
+	{"internal/infra/runtimebundle", 11000},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

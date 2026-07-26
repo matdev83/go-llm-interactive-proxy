@@ -17,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
@@ -60,6 +61,18 @@ type BuildOptions struct {
 	// DiscoveredPlugins, when set, installs validated catalog exports onto
 	// PluginRegistry before backend construction (Phase 4 discovery bridge).
 	DiscoveredPlugins *DiscoveredPluginInstall
+
+	// FeatureLifecycles are merged feature plugin lifecycles owned by the candidate
+	// resource ledger in serve/compile paths (task 3.2). When non-empty, callers must
+	// not also Start/Stop the same instances via runtime.App (singular ownership).
+	// Inspect-only bootstrap may keep lifecycles on App instead.
+	FeatureLifecycles []lipplugin.Lifecycle
+	// ReplaceCandidateSurface, when true, replaces process FeatureLifecycles and
+	// Extensions with this overlay's values even when nil/empty. Used by
+	// [CompileGeneration] so a candidate that removes the last feature does not
+	// reuse startup-merged lifecycles/extensions. Legacy [CompileCandidate]
+	// callers leave this false (nil overlay fields mean "no override").
+	ReplaceCandidateSurface bool
 }
 
 // StartupOptions carries startup-context configuration.
@@ -80,6 +93,10 @@ type InfraOptions struct {
 	// HTTP propagation. When HTTPClient is non-nil, Build clones the client
 	// before wrapping so caller-owned clients are not mutated.
 	OutboundTracing bool
+	// ProcessTracing carries an already-initialized process tracer shutdown handle
+	// from BuildBootstrap. Build retains it on ProcessServices without owning Close
+	// (bootstrap / stdhttp remain the shutdown owners).
+	ProcessTracing ProcessTracing
 }
 
 // AuthOptions carries transport-auth composition-root injection points.

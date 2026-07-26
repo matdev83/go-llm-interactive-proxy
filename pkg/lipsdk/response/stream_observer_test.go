@@ -103,22 +103,23 @@ func TestMaterializeSorted_emptyReturnsNil(t *testing.T) {
 func TestStreamMeta_providerNeutralFields(t *testing.T) {
 	t.Parallel()
 	meta := response.StreamMeta{
-		TraceID:      "tr",
-		ALegID:       "a1",
-		BLegID:       "b1",
-		CandidateKey: "cand-1",
-		BackendID:    "backend-prod",
-		Model:        "kimi-k2",
-		AttemptSeq:   2,
-		Scope:        scope.PrincipalScopeView{PrincipalID: scope.Known("p1")},
-		Session:      session.SessionView{AuthoritativeSessionID: "sess-auth"},
-		Workspace:    workspace.WorkspaceView{},
+		TraceID:         "tr",
+		ALegID:          "a1",
+		BLegID:          "b1",
+		CandidateKey:    "cand-1",
+		BackendID:       "backend-prod",
+		BackendPrefixes: []string{"openrouter"},
+		Model:           "kimi-k2",
+		AttemptSeq:      2,
+		Scope:           scope.PrincipalScopeView{PrincipalID: scope.Known("p1")},
+		Session:         session.SessionView{AuthoritativeSessionID: "sess-auth"},
+		Workspace:       workspace.WorkspaceView{},
 	}
 	if meta.TraceID == "" || meta.ALegID == "" || meta.BLegID == "" {
 		t.Fatal("StreamMeta must carry trace/A-leg/B-leg identity")
 	}
-	if meta.CandidateKey == "" || meta.BackendID == "" || meta.Model == "" || meta.AttemptSeq == 0 {
-		t.Fatal("StreamMeta must carry candidate/backend/model/attempt identity")
+	if meta.CandidateKey == "" || meta.BackendID == "" || meta.Model == "" || meta.AttemptSeq == 0 || len(meta.BackendPrefixes) == 0 {
+		t.Fatal("StreamMeta must carry candidate/backend/prefix/model/attempt identity")
 	}
 	if meta.Session.AuthoritativeSessionID == "" {
 		t.Fatal("authoritative session id belongs on SessionView, not a separate partition field")

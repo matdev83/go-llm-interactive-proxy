@@ -593,10 +593,14 @@ func cancelLosers(ctx context.Context, losers []*parallelLeg) error {
 			Kind:   leglifecycle.CancelRaceLoser,
 			Detail: "parallel race loser",
 		})
-		if res.Err != nil {
+		// context.Canceled on Cancel/Close is an expected race-loser teardown
+		// race (intentional loser cancel / client-cancel overlap); do not fail
+		// the winner stream Close over it. DeadlineExceeded must surface — it
+		// means the cleanup budget expired before Cancel/Close finished.
+		if res.Err != nil && !errors.Is(res.Err, context.Canceled) {
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("candidate %q cancel loser stream: %w", l.cand.Key, res.Err))
 		}
-		if err := l.stream.Close(); err != nil {
+		if err := l.stream.Close(); err != nil && !errors.Is(err, context.Canceled) {
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("candidate %q close loser stream: %w", l.cand.Key, err))
 		}
 	}

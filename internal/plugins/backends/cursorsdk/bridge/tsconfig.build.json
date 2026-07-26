@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "src/main.ts",
+    "src/index.ts",
+    "src/server.ts",
+    "src/protocol.ts",
+    "src/params.ts",
+    "src/errors.ts",
+    "src/models.ts",
+    "src/agents.ts",
+    "src/sdk_runtime.ts",
+    "src/inMemoryLocalAgentStore.ts"
+  ],
+  "exclude": ["dist", "node_modules", "src/**/*.test.ts"]
+}

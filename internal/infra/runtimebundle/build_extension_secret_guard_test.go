@@ -22,7 +22,7 @@ func TestBuildRuntimeSnapshot_SecretGuardsCloneSortedAndIsolated(t *testing.T) {
 		Extensions: ExtensionsOptions{SecretGuards: guards},
 	}
 	bus := hooks.New(hooks.Config{})
-	snap := buildRuntimeSnapshot(bus, &config.Config{}, opts, time.Now, nil, nil, policydecision.NoopObserver{}, extensions.SecretGuardPlane{Guards: guards})
+	snap := buildRuntimeSnapshot(bus, &config.Config{}, opts, time.Now, nil, nil, policydecision.NoopObserver{}, extensions.SecretGuardPlane{Guards: guards}, nil)
 	got := snap.SecretGuardPlane().Guards
 	if len(got) != 3 {
 		t.Fatalf("SecretGuardPlane guards len=%d want 3", len(got))

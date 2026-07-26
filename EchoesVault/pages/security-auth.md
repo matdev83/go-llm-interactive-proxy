@@ -82,3 +82,7 @@ Registered in `internal/standardplugins/standard_table.go` as feature id `secret
 - `http_client.trust_environment_proxy: false` when environment not trusted
 - `access.mode` controls deployment access posture
 - `auth.local_api_keys` for multi-user non-loopback deployments
+
+## Runtime reload management
+
+Separate from data-plane auth. Management HTTP is disabled unless `LIP_RELOAD_MANAGEMENT_ADDRESS` is set. Dedicated `LIP_RELOAD_MANAGEMENT_TOKEN` (≥16 Unicode code points) is required for multi-user or non-loopback; single-user loopback may use local trust. Cookie and data-plane local API keys never authorize reload. See [runtime-config-reload](runtime-config-reload.md).

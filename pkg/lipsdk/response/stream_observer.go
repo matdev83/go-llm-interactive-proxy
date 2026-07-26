@@ -32,14 +32,17 @@ const (
 // StreamMeta carries attempt-scoped identifiers for final-stream observers.
 // Authoritative session identity lives on Session (SessionView.AuthoritativeSessionID);
 // raw session partitions are intentionally not exposed.
+// BackendPrefixes is provider-neutral candidate prefix evidence for capture gating;
+// runtime clones before open, and observers must treat the slice as immutable.
 type StreamMeta struct {
-	TraceID      string
-	ALegID       string
-	BLegID       string
-	CandidateKey string
-	BackendID    string
-	Model        string
-	AttemptSeq   int
+	TraceID         string
+	ALegID          string
+	BLegID          string
+	CandidateKey    string
+	BackendID       string
+	BackendPrefixes []string
+	Model           string
+	AttemptSeq      int
 
 	Scope     scope.PrincipalScopeView
 	Session   session.SessionView

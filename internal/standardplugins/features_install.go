@@ -42,7 +42,7 @@ func featureSubmitNoop(n yaml.Node) (lipfeature.FeatureBundle, error) {
 		SubmitHooks:   []sdk.SubmitHook{submitnoop.NewSubmitHookWithConfig(cfg)},
 	}
 	if cfg.LifecycleProbe {
-		bundle.Lifecycles = append(bundle.Lifecycles, &submitnoop.LifecycleProbe{})
+		bundle.Lifecycles = append(bundle.Lifecycles, submitnoop.NewLifecycleProbeForConfig())
 	}
 	return bundle, nil
 }

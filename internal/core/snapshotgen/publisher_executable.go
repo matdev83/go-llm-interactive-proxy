@@ -135,3 +135,25 @@ func (p *Publisher) ClearPendingProvider(generationID int64, providerID string) 
 		gen.ClearPendingProvider(providerID)
 	}
 }
+
+// AddPendingWork registers WorkID-keyed pending ownership on the named generation.
+func (p *Publisher) AddPendingWork(generationID int64, workID, providerID string) bool {
+	if p == nil {
+		return false
+	}
+	gen := p.LookupExecutable(generationID)
+	if gen == nil {
+		return false
+	}
+	return gen.AddPendingWork(workID, providerID)
+}
+
+// ClearPendingWork clears WorkID-keyed pending ownership on the named generation.
+func (p *Publisher) ClearPendingWork(generationID int64, workID string) {
+	if p == nil {
+		return
+	}
+	if gen := p.LookupExecutable(generationID); gen != nil {
+		gen.ClearPendingWork(workID)
+	}
+}

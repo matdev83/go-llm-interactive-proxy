@@ -24,7 +24,6 @@ func TestParamsForCall_reasoningMissingIDFailsClosed_RED(t *testing.T) {
 						Kind: lipapi.PartReasoning,
 						Reasoning: &lipapi.ReasoningPart{
 							Dialect: lipapi.ReasoningDialectOpenAIResponsesItemV1,
-							Text:    "s",
 							Opaque:  opaque,
 						},
 					},

@@ -16,8 +16,9 @@ import (
 )
 
 type startedModelCatalog struct {
-	Runtime *modelcatalog.CatalogRuntime
-	closers []func() error
+	Runtime        *modelcatalog.CatalogRuntime
+	closers        []func() error // PhaseClose: runtime/client disposal
+	quiesceClosers []func() error // PhaseQuiesce: refresh cancel/wait
 }
 
 const (
@@ -80,7 +81,7 @@ func startModelCatalog(parent context.Context, cfg *config.Config, upstream *htt
 			cancel()
 			refreshWG.Wait()
 		}
-		out.closers = append(out.closers, func() error {
+		out.quiesceClosers = append(out.quiesceClosers, func() error {
 			refreshCleanup()
 			return nil
 		})
@@ -106,9 +107,10 @@ func cloneCatalogHTTPClient(upstream *http.Client) (*http.Client, func()) {
 		c.Transport = clone
 		return &c, clone.CloseIdleConnections
 	}
-	if closer, ok := upstream.Transport.(interface{ CloseIdleConnections() }); ok {
-		return &c, closer.CloseIdleConnections
-	}
+	// A non-*http.Transport cannot be cloned here. It may be a caller/process-
+	// owned injected transport shared by multiple generations, so never claim
+	// its CloseIdleConnections hook. Generation-owned underlying transports are
+	// already ledgered by buildGenerationObservability.
 	return &c, func() {}
 }
 

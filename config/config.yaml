@@ -25,7 +25,7 @@ server:
 # Omitted access.mode defaults to single_user. Omitted server.address defaults to explicit loopback (127.0.0.1:8080).
 # single_user allows only explicit loopback binds (127/8, ::1, or localhost). All-interfaces
 # (0.0.0.0, ::, or bare :port) requires access.mode: multi_user, strong auth, and `lipstd serve --multi-user`.
-# Multi-user disables local-only connectors: ACP/process-spawning backends, OpenAI Codex, and Codex App Server.
+# Multi-user disables local-only connectors: ACP/process-spawning backends (including experimental cursorsdk), OpenAI Codex, and Codex App Server.
 #
 # (A) Default OSS single-user (effective when access/auth are omitted): loopback + local_noop + structured auth/session events.
 # access:
@@ -395,6 +395,8 @@ plugins:
       # catalog_enabled: true
       # catalog_fallback_path: ""  # optional override of connector-embedded catalog snapshot
       # catalog_codex_binary_path: ""  # optional; else `executable` / PATH
+      # Connector-specific fields (account_id, refresh_token, managed_oauth_*, transport,
+      # verbosity bumps, etc.) are documented by the connectors/codex artifact.
     - id: openai-codex-app-server
       enabled: false
       config: {}
@@ -403,6 +405,23 @@ plugins:
       # default_workspace: ""
       # catalog_enabled: true
       # stale_kill_delay_seconds: 0
+    # Experimental Cursor SDK (local-only; not in EssentialBackendBundle).
+    # Operator guide: docs/cursor-sdk-backend.md
+    # Example: config/examples/cursor-sdk-experimental.yaml
+    # Install bridge manually (Node >=22.13, exact @cursor/sdk 1.0.23); Go-LIP never runs npm.
+    # Auth: api_key or bare CURSOR_API_KEY (not CLI/Desktop login). ACP remains external cursorcliacp.
+    # Opt-in registration / discovered connector required — not installed by InstallStandardBundleOn.
+    # - kind: cursorsdk
+    #   id: cursor-sdk
+    #   enabled: false
+    #   config:
+    #     # api_key: ""
+    #     bridge_executable: lip-cursor-sdk-bridge
+    #     default_workspace: "/absolute/path/to/workspace"
+    #     setting_sources: []           # default none; trusted explicit sources only
+    #     sandbox_mode: required        # or explicit off (local-only; Windows when sandbox unavailable)
+    #     auto_review: false
+    #     mcp_servers: {}
     - id: ollama
       enabled: false
       config: {}
@@ -498,6 +517,34 @@ plugins:
         on_unrepairable: pass_through
     # Opt out:
     # - id: tool-call-repair
+    #   enabled: false
+    #
+    # Reasoning output preservation (issue #157): on standard lipstd /
+    # runtimebundle.BuildBootstrap, an enabled restore row is injected when no
+    # matching features row exists (same pattern as tool-call-repair). Explicit
+    # enabled row below documents the exact injected defaults. Set enabled: false
+    # (or omit enabled — plain bool defaults false) to opt out; any matching
+    # instance id or factory kind suppresses injection. Disabled constructs no
+    # participants/store/telemetry. Installed/enabled does not mean universally
+    # active: capture and restore require a compatible-auto.v2 catalog match or
+    # an explicit enabled rule; unmatched candidates are inert. Not a mandatory
+    # StandardDistributionRequirements entry (custom roots are not injected).
+    # Operator guide: docs/reasoning-output-preservation.md
+    - id: reasoning-output-preservation
+      enabled: true
+      config:
+        action: restore
+        use_builtin_catalog: true
+        on_ambiguous: log_skip
+        on_unrepresentable: reject
+        on_state_error: reject
+        state:
+          ttl: 24h
+          max_turns_per_session: 16
+          max_reasoning_bytes_per_turn: 65536
+          max_session_bytes: 262144
+    # Opt out:
+    # - id: reasoning-output-preservation
     #   enabled: false
     # Reference (non-noop) examples — enable as needed:
     # - id: ref-submit-annotate

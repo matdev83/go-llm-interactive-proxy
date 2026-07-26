@@ -32,14 +32,22 @@ type tokenAccountingRuntime struct {
 	Admin         *accountingapp.Service
 }
 
+// processAccountingStores owns the overlap-sensitive accounting ledger and
+// observability identity. Provider counters bind to generation backends separately.
+type processAccountingStores struct {
+	Ledger        accountingledger.Recorder
+	Observability *accountingobs.Stats
+	CompatKey     StoreCompatKey
+}
+
 const defaultAccountingCountTimeout = 750 * time.Millisecond
 
-func buildTokenAccountingRuntime(
+// buildProcessAccountingStores constructs process-owned ledger/observability once.
+func buildProcessAccountingStores(
 	parent context.Context,
 	cfg *config.Config,
 	now func() time.Time,
-	backends map[string]execbackend.Backend,
-) (*tokenAccountingRuntime, []func() error, error) {
+) (*processAccountingStores, []func() error, error) {
 	if cfg == nil || !cfg.Accounting.Enabled {
 		return nil, nil, nil
 	}
@@ -49,35 +57,10 @@ func buildTokenAccountingRuntime(
 	if now == nil {
 		now = time.Now
 	}
-	provider, local, err := buildTokenCounters(cfg, backends)
-	if err != nil {
-		return nil, nil, err
+	out := &processAccountingStores{
+		CompatKey: StoreCompatKeyFromAccountingLedger(cfg.Accounting),
 	}
-	countTimeout := defaultAccountingCountTimeout
-	if raw := strings.TrimSpace(cfg.Accounting.CountTimeout); raw != "" {
-		parsed, err := time.ParseDuration(raw)
-		if err != nil {
-			return nil, nil, fmt.Errorf("runtimebundle: accounting count_timeout: %w", err)
-		}
-		countTimeout = parsed
-	}
-	provider = timeoutProviderCounter{inner: provider, timeout: countTimeout}
-	if local != nil {
-		local = timeoutLocalCounter{inner: local, timeout: countTimeout}
-	}
-	counter := accountingapp.NewService(accountingapp.ServiceConfig{Mode: accountingMode(cfg.Accounting.Mode)}, provider, local)
-	out := &tokenAccountingRuntime{Counter: counter}
 	closers := []func() error{}
-	out.Preflight = accountingpreflight.NewChecker(counter, accountingpreflight.Config{
-		Enabled:              true,
-		Mode:                 preflightMode(cfg.Accounting.Preflight.Mode),
-		MaxInputTokens:       cfg.Accounting.Preflight.MaxInputTokens,
-		MaxOutputTokens:      cfg.Accounting.Preflight.MaxOutputTokens,
-		MaxContextTokens:     cfg.Accounting.Preflight.MaxContextTokens,
-		ClampMaxOutputTokens: cfg.Accounting.Preflight.ClampMaxOutputTokens,
-		UnknownOutputPolicy:  accountingpreflight.UnknownOutputPolicy(strings.ToLower(strings.TrimSpace(cfg.Accounting.Preflight.UnknownOutputPolicy))),
-	})
-	out.StreamUsage = accountingstream.New(counter, accountingstream.Config{})
 	switch strings.ToLower(strings.TrimSpace(cfg.Accounting.Ledger.Store)) {
 	case "", "memory":
 		out.Ledger = accountingledger.NewMemoryLedger(accountingledger.Options{Now: now})
@@ -88,12 +71,79 @@ func buildTokenAccountingRuntime(
 		}
 		out.Ledger = ledger
 		closers = append(closers, closeFn)
+	default:
+		return nil, nil, fmt.Errorf("runtimebundle: accounting.ledger.store %q is invalid", cfg.Accounting.Ledger.Store)
 	}
 	if cfg.Accounting.Observability.Enabled {
 		out.Observability = accountingobs.NewStats()
 	}
+	return out, closers, nil
+}
+
+// bindTokenAccountingRuntime binds generation backends to process-owned ledger state.
+// Provider counters are generation-entangled; the ledger identity is not duplicated.
+func bindTokenAccountingRuntime(
+	stores *processAccountingStores,
+	cfg *config.Config,
+	backends map[string]execbackend.Backend,
+) (*tokenAccountingRuntime, error) {
+	if cfg == nil || !cfg.Accounting.Enabled || stores == nil {
+		return nil, nil
+	}
+	provider, local, err := buildTokenCounters(cfg, backends)
+	if err != nil {
+		return nil, err
+	}
+	countTimeout := defaultAccountingCountTimeout
+	if raw := strings.TrimSpace(cfg.Accounting.CountTimeout); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil {
+			return nil, fmt.Errorf("runtimebundle: accounting count_timeout: %w", err)
+		}
+		countTimeout = parsed
+	}
+	provider = timeoutProviderCounter{inner: provider, timeout: countTimeout}
+	if local != nil {
+		local = timeoutLocalCounter{inner: local, timeout: countTimeout}
+	}
+	counter := accountingapp.NewService(accountingapp.ServiceConfig{Mode: accountingMode(cfg.Accounting.Mode)}, provider, local)
+	out := &tokenAccountingRuntime{
+		Counter:       counter,
+		Ledger:        stores.Ledger,
+		Observability: stores.Observability,
+	}
+	out.Preflight = accountingpreflight.NewChecker(counter, accountingpreflight.Config{
+		Enabled:              true,
+		Mode:                 preflightMode(cfg.Accounting.Preflight.Mode),
+		MaxInputTokens:       cfg.Accounting.Preflight.MaxInputTokens,
+		MaxOutputTokens:      cfg.Accounting.Preflight.MaxOutputTokens,
+		MaxContextTokens:     cfg.Accounting.Preflight.MaxContextTokens,
+		ClampMaxOutputTokens: cfg.Accounting.Preflight.ClampMaxOutputTokens,
+		UnknownOutputPolicy:  accountingpreflight.UnknownOutputPolicy(strings.ToLower(strings.TrimSpace(cfg.Accounting.Preflight.UnknownOutputPolicy))),
+	})
+	out.StreamUsage = accountingstream.New(counter, accountingstream.Config{})
 	if cfg.Accounting.Admin.Enabled {
 		out.Admin = counter
+	}
+	return out, nil
+}
+
+// buildTokenAccountingRuntime is retained for focused unit tests; production
+// paths use buildProcessAccountingStores + bindTokenAccountingRuntime.
+func buildTokenAccountingRuntime(
+	parent context.Context,
+	cfg *config.Config,
+	now func() time.Time,
+	backends map[string]execbackend.Backend,
+) (*tokenAccountingRuntime, []func() error, error) {
+	stores, closers, err := buildProcessAccountingStores(parent, cfg, now)
+	if err != nil {
+		return nil, nil, err
+	}
+	out, err := bindTokenAccountingRuntime(stores, cfg, backends)
+	if err != nil {
+		_ = disposeClosers(closers)
+		return nil, nil, err
 	}
 	return out, closers, nil
 }

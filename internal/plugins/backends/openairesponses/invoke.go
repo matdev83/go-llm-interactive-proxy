@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonpresence"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/protocols/openairesponsesitem"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/param"
@@ -189,6 +190,15 @@ func assistantPartsToInputItems(parts []lipapi.Part) ([]responses.ResponseInputI
 				return nil, err
 			}
 			items = append(items, it)
+		case lipapi.PartJSON:
+			if err := flushContent(); err != nil {
+				return nil, err
+			}
+			it, ok := partToFunctionCallInputItem(p)
+			if !ok {
+				return nil, fmt.Errorf("openairesponses: unsupported json part in assistant message with reasoning replay")
+			}
+			items = append(items, it)
 		case lipapi.PartText, lipapi.PartImageRef, lipapi.PartFileRef:
 			contentParts = append(contentParts, p)
 		default:
@@ -210,45 +220,61 @@ func reasoningPartToInputItem(p lipapi.Part) (responses.ResponseInputItemUnionPa
 	}
 	d := lipapi.NormalizeReasoningDialect(p.Reasoning.Dialect)
 	if d != lipapi.ReasoningDialectOpenAIResponsesItemV1 {
-		return responses.ResponseInputItemUnionParam{}, fmt.Errorf("openairesponses: reasoning dialect %q not supported for responses replay (want %s)", d, lipapi.ReasoningDialectOpenAIResponsesItemV1)
+		return responses.ResponseInputItemUnionParam{}, fmt.Errorf("openairesponses: reasoning dialect not supported for responses replay")
 	}
+	if len(p.Reasoning.Opaque) == 0 {
+		return responses.ResponseInputItemUnionParam{}, fmt.Errorf("openairesponses: reasoning opaque exact envelope required")
+	}
+	canon, err := openairesponsesitem.CanonizeReasoningItemOpaque(p.Reasoning.Opaque)
+	if err != nil {
+		return responses.ResponseInputItemUnionParam{}, err
+	}
+	return exactReasoningInputFromCanon(canon)
+}
+
+func exactReasoningInputFromCanon(canon json.RawMessage) (responses.ResponseInputItemUnionParam, error) {
 	var wire struct {
 		ID               string          `json:"id"`
+		Type             string          `json:"type"`
 		Summary          json.RawMessage `json:"summary"`
 		Content          json.RawMessage `json:"content"`
-		EncryptedContent string          `json:"encrypted_content"`
+		EncryptedContent json.RawMessage `json:"encrypted_content"`
+		Status           string          `json:"status"`
 	}
-	if len(p.Reasoning.Opaque) > 0 {
-		if err := json.Unmarshal(p.Reasoning.Opaque, &wire); err != nil {
-			return responses.ResponseInputItemUnionParam{}, fmt.Errorf("openairesponses: reasoning opaque: %w", err)
-		}
+	if err := json.Unmarshal(canon, &wire); err != nil {
+		return responses.ResponseInputItemUnionParam{}, fmt.Errorf("openairesponses: invalid reasoning item")
 	}
 	id := strings.TrimSpace(wire.ID)
 	if id == "" {
-		return responses.ResponseInputItemUnionParam{}, fmt.Errorf("openairesponses: reasoning item id is required for responses replay")
+		return responses.ResponseInputItemUnionParam{}, fmt.Errorf("openairesponses: invalid reasoning item")
 	}
 	var summary []responses.ResponseReasoningItemSummaryParam
-	if jsonpresence.IsPresentNonNullJSON(wire.Summary) {
-		var items []struct {
-			Text string `json:"text"`
-		}
-		if err := json.Unmarshal(wire.Summary, &items); err != nil {
-			return responses.ResponseInputItemUnionParam{}, fmt.Errorf("openairesponses: reasoning summary: %w", err)
-		}
-		for _, it := range items {
-			summary = append(summary, responses.ResponseReasoningItemSummaryParam{Text: it.Text})
-		}
-	} else if t := strings.TrimSpace(p.Reasoning.Text); t != "" {
-		summary = []responses.ResponseReasoningItemSummaryParam{{Text: t}}
+	if !jsonpresence.IsPresentNonNullJSON(wire.Summary) {
+		return responses.ResponseInputItemUnionParam{}, fmt.Errorf("openairesponses: invalid reasoning item")
 	}
-	if summary == nil {
-		summary = []responses.ResponseReasoningItemSummaryParam{}
+	var sumItems []struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(wire.Summary, &sumItems); err != nil {
+		return responses.ResponseInputItemUnionParam{}, fmt.Errorf("openairesponses: invalid reasoning item")
+	}
+	summary = make([]responses.ResponseReasoningItemSummaryParam, 0, len(sumItems))
+	for _, it := range sumItems {
+		summary = append(summary, responses.ResponseReasoningItemSummaryParam{Text: it.Text})
 	}
 	item := responses.ResponseInputItemParamOfReasoning(id, summary)
 	if item.OfReasoning == nil {
 		return responses.ResponseInputItemUnionParam{}, fmt.Errorf("openairesponses: reasoning input item param missing")
 	}
-	if enc := strings.TrimSpace(wire.EncryptedContent); enc != "" {
+	switch {
+	case len(wire.EncryptedContent) == 0:
+	case jsonpresence.IsJSONNull(wire.EncryptedContent):
+		item.OfReasoning.EncryptedContent = param.Null[string]()
+	default:
+		var enc string
+		if err := json.Unmarshal(wire.EncryptedContent, &enc); err != nil {
+			return responses.ResponseInputItemUnionParam{}, fmt.Errorf("openairesponses: invalid reasoning item")
+		}
 		item.OfReasoning.EncryptedContent = openai.String(enc)
 	}
 	if jsonpresence.IsPresentNonNullJSON(wire.Content) {
@@ -256,13 +282,16 @@ func reasoningPartToInputItem(p lipapi.Part) (responses.ResponseInputItemUnionPa
 			Text string `json:"text"`
 		}
 		if err := json.Unmarshal(wire.Content, &contents); err != nil {
-			return responses.ResponseInputItemUnionParam{}, fmt.Errorf("openairesponses: reasoning content: %w", err)
+			return responses.ResponseInputItemUnionParam{}, fmt.Errorf("openairesponses: invalid reasoning item")
 		}
 		out := make([]responses.ResponseReasoningItemContentParam, 0, len(contents))
 		for _, c := range contents {
 			out = append(out, responses.ResponseReasoningItemContentParam{Text: c.Text})
 		}
 		item.OfReasoning.Content = out
+	}
+	if st := strings.TrimSpace(wire.Status); st != "" {
+		item.OfReasoning.Status = responses.ResponseReasoningItemStatus(st)
 	}
 	return item, nil
 }

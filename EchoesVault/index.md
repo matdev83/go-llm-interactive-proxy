@@ -21,7 +21,9 @@ This index tracks all structured pages in the vault.
 - [[agent-skills]]: Skill-to-task mapping for golang-specific agent skill loading, hexagonal architecture enforcement, and registered skill inventory.
 - [[okf-knowledge-process]]: OKF-compatible operating rules for EchoesVault concept files, discovery, linking, and agent access.
 - [[codex-app-server-backend]]: OpenAI Codex CLI app-server backend — protocol mapping, handshake, lifecycle, and event translation for the local-agent stdio backend.
+- [[cursor-sdk-backend]]: Experimental Cursor SDK backend — operator install, auth/billing separation, local-only routing, safety defaults, and process-local continuity.
 - [[postgres-transaction-pooling]]: PostgreSQL admin/runtime separation, shared pool ownership, schema lifecycle, and pooled release gates.
 - [[tool-call-repair]]: Canonical native tool-call repair (ADR 0007): finalizer seam, deterministic V1 matrix, buffering, and config defaults.
 - [[decode-qos-admission]]: Shared frontend decode admission limiter: finite defaults, 413 vs 429, handler order, inventory numbers.
-- [[reasoning-output-preservation]]: Opt-in process-local historical reasoning capture/restore (issue #157), observe/restore actions, privacy/dialect posture, and full HTTP E2E suite topology (default / precommit matrix / env-gated soak; Responses deferred).
+- [[runtime-config-reload]]: Explicit SIGHUP/management-API runtime config reload — no watcher, atomic source replace, generation publication, `LIP_RELOAD_MANAGEMENT_ADDRESS` opt-in.
+- [[reasoning-output-preservation]]: Standard-distribution default-on, catalog-gated (`compatible-auto.v2`) historical reasoning capture/restore (issue #157); installed≠active; observe/restore actions; exact OpenAI Responses Opaque + four FE×BE combinations; privacy/dialect posture; full HTTP E2E suite topology (default Chat+Responses / precommit Chat matrix / env-gated soak; release gates pending).

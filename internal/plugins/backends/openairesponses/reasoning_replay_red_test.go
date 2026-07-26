@@ -17,7 +17,6 @@ func responsesReasoningPart(t *testing.T) lipapi.Part {
 		Kind: lipapi.PartReasoning,
 		Reasoning: &lipapi.ReasoningPart{
 			Dialect: lipapi.ReasoningDialectOpenAIResponsesItemV1,
-			Text:    "s",
 			Opaque:  opaque,
 		},
 	}

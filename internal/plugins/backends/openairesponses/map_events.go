@@ -65,6 +65,9 @@ func (s *sdkStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			return s.sdk.Current(), true, nil
 		},
 		Handle: s.handleUnion,
+		OnEOF: func() (bool, error) {
+			return false, s.eventMapper().FinalizeOnEOF()
+		},
 	}
 	return pump.Recv(ctx)
 }
@@ -81,15 +84,7 @@ func (s *sdkStream) handleUnion(cur responses.ResponseStreamEventUnion) error {
 		if err := m.BeginCompleted(); err != nil {
 			return err
 		}
-		if !m.SawTextDelta() {
-			if err := m.CompletedTextFallback(resp.OutputText()); err != nil {
-				return err
-			}
-		}
-		if err := openairesponsestream.EmitOutputMediaFromResponse(m, resp); err != nil {
-			return err
-		}
-		if err := s.emitToolCallsFromCompletedResponse(resp); err != nil {
+		if err := m.EmitCompletedOutputByIndex(resp); err != nil {
 			return err
 		}
 		if usage := usageFromResponse(resp); usage != nil {
@@ -104,11 +99,33 @@ func (s *sdkStream) handleUnion(cur responses.ResponseStreamEventUnion) error {
 	case "response.output_item.added":
 		addEv := cur.AsResponseOutputItemAdded()
 		item := addEv.Item
-		if item.Type != "function_call" {
+		switch item.Type {
+		case "function_call":
+			fc := item.AsFunctionCall()
+			return m.ToolCallAdded(openairesponsestream.ToolCallID(fc.ID, fc.CallID), fc.Name)
+		case "reasoning":
+			return m.ReasoningOutputItemAdded(addEv.OutputIndex, item)
+		default:
 			return nil
 		}
-		fc := item.AsFunctionCall()
-		return m.ToolCallAdded(openairesponsestream.ToolCallID(fc.ID, fc.CallID), fc.Name)
+	case "response.reasoning_summary_part.added":
+		ev := cur.AsResponseReasoningSummaryPartAdded()
+		return m.ReasoningSummaryPartAdded(ev.ItemID, ev.OutputIndex, ev.SummaryIndex, ev.Part.Text)
+	case "response.reasoning_summary_part.done":
+		ev := cur.AsResponseReasoningSummaryPartDone()
+		return m.ReasoningSummaryPartDone(ev.ItemID, ev.OutputIndex, ev.SummaryIndex, ev.Part.Text)
+	case "response.reasoning_summary_text.delta":
+		ev := cur.AsResponseReasoningSummaryTextDelta()
+		return m.ReasoningSummaryTextDelta(ev.ItemID, ev.OutputIndex, ev.SummaryIndex, ev.Delta)
+	case "response.reasoning_summary_text.done":
+		ev := cur.AsResponseReasoningSummaryTextDone()
+		return m.ReasoningSummaryTextDone(ev.ItemID, ev.OutputIndex, ev.SummaryIndex, ev.Text)
+	case "response.reasoning_text.delta":
+		ev := cur.AsResponseReasoningTextDelta()
+		return m.ReasoningTextDelta(ev.ItemID, ev.OutputIndex, ev.ContentIndex, ev.Delta)
+	case "response.reasoning_text.done":
+		ev := cur.AsResponseReasoningTextDone()
+		return m.ReasoningTextDone(ev.ItemID, ev.OutputIndex, ev.ContentIndex, ev.Text)
 	case "response.function_call_arguments.delta":
 		d := cur.AsResponseFunctionCallArgumentsDelta()
 		id := openairesponsestream.ToolCallIDFromRaw(d.ItemID, d.RawJSON())
@@ -120,27 +137,17 @@ func (s *sdkStream) handleUnion(cur responses.ResponseStreamEventUnion) error {
 	case "response.output_item.done":
 		doneEv := cur.AsResponseOutputItemDone()
 		item := doneEv.Item
-		if item.Type != "function_call" {
+		switch item.Type {
+		case "function_call":
+			fc := item.AsFunctionCall()
+			return m.FinishToolCallArguments(openairesponsestream.ToolCallID(fc.ID, fc.CallID), fc.Name, fc.Arguments)
+		case "reasoning":
+			return m.ReasoningOutputItemDone(doneEv.OutputIndex, item)
+		default:
 			return nil
 		}
-		fc := item.AsFunctionCall()
-		return m.FinishToolCallArguments(openairesponsestream.ToolCallID(fc.ID, fc.CallID), fc.Name, fc.Arguments)
 	default:
 		// Ignore intermediate events (in_progress, queued, etc.).
-	}
-	return nil
-}
-
-func (s *sdkStream) emitToolCallsFromCompletedResponse(resp responses.Response) error {
-	m := s.eventMapper()
-	for _, item := range resp.Output {
-		if item.Type != "function_call" {
-			continue
-		}
-		fc := item.AsFunctionCall()
-		if err := m.EmitCompletedToolCall(openairesponsestream.ToolCallID(fc.ID, fc.CallID), fc.Name, fc.Arguments); err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -160,6 +167,9 @@ func (s *sdkStream) Close() error {
 		return nil
 	}
 	s.closed = true
+	if s.mapper != nil {
+		s.mapper.AbortReasoningAssembly()
+	}
 	s.mu.Unlock()
 	var err error
 	s.closeOnce.Do(func() {

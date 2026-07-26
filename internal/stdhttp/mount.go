@@ -61,25 +61,27 @@ func MountBundledFrontends(in MountBundledFrontendsInput) error {
 		specific = append(specific, p)
 	}
 	ordered := append(specific, geminiLast...)
-	for _, p := range ordered {
-		if err := in.Reg.MountFrontend(
-			p.FactoryID(),
-			in.Mux,
-			lipsdk.FrontendMountOptions{
-				PluginCfg:           p.Config,
-				Exec:                in.Exec,
-				DefaultRoute:        in.DefaultRouteSelector,
-				RoutePrefixes:       in.RoutePrefixes,
-				MaxRequestBodyBytes: in.MaxRequestBodyBytes,
-				DecodeAdmission:     in.DecodeAdmission,
-				TrafficPorts:        in.TrafficPorts,
-				PreRequestKeepalive: in.PreRequestKeepalive,
-			},
-		); err != nil {
-			return err
+	return callMount(func() error {
+		for _, p := range ordered {
+			if err := in.Reg.MountFrontend(
+				p.FactoryID(),
+				in.Mux,
+				lipsdk.FrontendMountOptions{
+					PluginCfg:           p.Config,
+					Exec:                in.Exec,
+					DefaultRoute:        in.DefaultRouteSelector,
+					RoutePrefixes:       in.RoutePrefixes,
+					MaxRequestBodyBytes: in.MaxRequestBodyBytes,
+					DecodeAdmission:     in.DecodeAdmission,
+					TrafficPorts:        in.TrafficPorts,
+					PreRequestKeepalive: in.PreRequestKeepalive,
+				},
+			); err != nil {
+				return err
+			}
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 // MountBundledFrontendsLegacy mounts all bundled frontends unconditionally (tests and minimal callers).

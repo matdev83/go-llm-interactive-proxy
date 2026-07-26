@@ -126,6 +126,13 @@ func InstallDiscoveredExports(
 		if err := reg.RegisterDiscoveredLifecycleBackendWithProfile(kind, fn, export.Profile); err != nil {
 			return err
 		}
+		// Shared-process exclusive kinds cannot overlap candidate/active handles.
+		overlap := export.Model != processhost.ProcessModelSharedArtifact
+		if err := reg.SetBackendReloadPolicy(kind, pluginreg.BackendReloadPolicy{
+			AllowsCandidateOverlap: overlap,
+		}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

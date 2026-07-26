@@ -64,3 +64,4 @@ and reload or invalidate projections after rollback or flush failure.
 | No retry after first content event | Post-output failures surface, not silently retry |
 | Provider SDKs at adapter/connector edges only | Core must not know provider wire types |
 | Small interfaces where consumed | Avoids interface pollution; real substitution boundaries only |
+| Explicit runtime config reload | SIGHUP / management API / `lipruntime.Reload` only; immutable generations; no watcher — see [runtime-config-reload](runtime-config-reload.md) |

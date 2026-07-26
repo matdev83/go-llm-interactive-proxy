@@ -83,6 +83,8 @@ Per design section 15:
 - No in-flight swap semantics across listeners, routes, or continuity stores.
 - No guarantee that every backend/transport/store integration is reload-safe yet.
 
+Those reload capabilities are owned later by [ADR 0008](0008-versioned-runtime-config-reload.md) / [runtime-config-reload.md](../runtime-config-reload.md), not by stage four.
+
 ### 5. Anti-backsliding and proof exit (design sections 18–19, R16)
 
 Design section 18 rules apply once a seam exists (e.g. no new advanced feature in core when a seam fits; auxiliary traffic only through published services).

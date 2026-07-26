@@ -18,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
@@ -43,12 +44,12 @@ type extensionRuntime struct {
 // in [Build] via [assemblePolicyObserverChain] so the usage-authority evidence
 // sink can fan to the same chain instance the runtime snapshot uses, avoiding
 // duplicate control-plane events for authority decisions.
-func buildExtensionRuntime(bctx buildContext, nowFn func() time.Time, execRunnerProvider func() auxreq.ExecutorRunner, cp *controlPlaneRuntime, policyObs policydecision.Observer, sg *secretGuardRuntime) *extensionRuntime {
+func buildExtensionRuntime(bctx buildContext, nowFn func() time.Time, execRunnerProvider func() auxreq.ExecutorRunner, cp *controlPlaneRuntime, policyObs policydecision.Observer, sg *secretGuardRuntime, extensionState lipstate.Store) *extensionRuntime {
 	var plane extensions.SecretGuardPlane
 	if sg != nil {
 		plane = sg.Plane
 	}
-	snap := buildRuntimeSnapshot(bctx.Bus, bctx.Cfg, bctx.Opts, nowFn, execRunnerProvider, cp, policyObs, plane)
+	snap := buildRuntimeSnapshot(bctx.Bus, bctx.Cfg, bctx.Opts, nowFn, execRunnerProvider, cp, policyObs, plane, extensionState)
 	return &extensionRuntime{Snap: snap}
 }
 
@@ -87,6 +88,7 @@ func buildRuntimeSnapshot(
 	cp *controlPlaneRuntime,
 	policyObs policydecision.Observer,
 	sgPlane extensions.SecretGuardPlane,
+	extensionState lipstate.Store,
 ) *extensions.RequestRuntimeSnapshot {
 	var ws lipworkspace.Resolver = lipworkspace.DisabledResolver{}
 	if len(opts.Extensions.WorkspaceResolvers) > 0 {
@@ -168,8 +170,12 @@ func buildRuntimeSnapshot(
 	if opts.Policy.PolicyTimeoutBudgetSource != nil {
 		budgetSrc = opts.Policy.PolicyTimeoutBudgetSource
 	}
+	stateStore := extensionState
+	if stateStore == nil {
+		stateStore = corestate.NewMem(nowFn)
+	}
 	return extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		State:                   corestate.NewMem(nowFn),
+		State:                   stateStore,
 		Aux:                     auxreq.NewClient(execRunnerProvider),
 		Workspace:               ws,
 		SessionOpeners:          openers,

@@ -101,6 +101,10 @@ Essential registration lives in `internal/standardplugins` (`EssentialBackendBun
 `internal/plugins/openaiutil/`
 - currently empty/reserved; do not build new code here unless a real shared OpenAI adapter need appears
 
+`internal/plugins/protocols/`
+- protocol-neutral shared wire helpers usable by both frontends and backends (stdlib + `pkg/lipapi` limits only; no SDK/core/FE/BE imports)
+- `openairesponsesitem/`: exact OpenAI Responses reasoning-item Opaque schema (`CanonizeReasoningItemOpaque`, `ParseIncompleteFields`, content-safe `ItemError`)
+
 `internal/plugins/stores/`
 - bundled persistence / continuity store plugin seam; may remain sparse
 - current SQLite continuity implementation lives in `internal/core/continuity/sqlitestore/`, not here
@@ -111,7 +115,7 @@ Essential registration lives in `internal/standardplugins` (`EssentialBackendBun
 - bundled no-op compatibility hooks: `submitnoop/`, `partsnoop/`, `toolreactornoop/`
 - standard security feature: `secretsguard/` (call scanner + `block`/`redact`/`log` Guard)
 - standard feature: `toolcallrepair/` (YAML-only; engine in `internal/core/toolcallrepair`)
-- standard feature: `reasoningpreservation/` (`reasoning-output-preservation`; config/catalog/store/observer/transform; adapters in Phase 4)
+- standard feature: `reasoningpreservation/` (`reasoning-output-preservation`; standard lipstd default-on inject + catalog-gated activation; config/catalog/store/observer/transform; exact Responses `EventReasoningPart` capture/restore + Chat/Anthropic dialects)
 - reference/proof features: `refsubmit/`, `refparts/`, `reftool/`, `reftoolpolicy/`, `refautoappend/`, `refworkspaceguard/`, `reftraffictranscript/`, `refverifier/`, `prerequestpolicy/`, `codexclientcompat/`, and related proof directories
 - feature plugins are expected to consume `pkg/lipsdk` facades rather than `internal/core`
 
@@ -130,9 +134,13 @@ Hooks and extension stages are seams, not an excuse to reintroduce god objects.
 
 `internal/testkit/`
 - stub providers, fixture loaders, fake streams, fake stores, fake clocks, builders, synthetic credentials, model-catalog snapshots, and conformance helpers
+- `reasoninge2e/`: stateful client/oracle plans for reasoning-preservation HTTP E2E (Chat + Responses cells, seeded smoke, env-gated soak helpers)
 
 `internal/safecast/`
 - small shared numeric conversion helpers
+
+`internal/reasoningreplay/`
+- provider-neutral automatic reasoning-replay model/prefix matcher (`compatible-auto.v2`) shared by `reasoningpreservation` built-in catalog and `openaicaps` compatible replay eligibility
 
 `internal/qa/`
 - repository hygiene and other non-domain quality tests (for example root-level file policy)
@@ -149,6 +157,7 @@ Hooks and extension stages are seams, not an excuse to reintroduce god objects.
 `docs/`
 - architecture notes, operator docs, migration guides, plugin authoring docs, release gates, performance checks, and specification-bundle indexes
 - `secrets-guard.md` — ingress secret detection design and operator guide (issue #151)
+- `reasoning-output-preservation.md` — standard default-on + `compatible-auto.v2` catalog-gated reasoning capture/restore (issue #157)
 
 `.kiro/`
 - steering and spec-driven development artifacts; active specs live under `.kiro/specs/`, completed historical specs under `.kiro/specs/archive/`

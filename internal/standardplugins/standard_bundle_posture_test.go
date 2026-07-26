@@ -32,6 +32,8 @@ func TestEssentialOnly_acpFamilyAbsentFromBuiltinBundles(t *testing.T) {
 	forbidden := map[string]struct{}{
 		"acp": {}, "cursorcliacp": {}, "geminicliacp": {}, "agycliacp": {},
 		"openai-codex": {}, "openai-codex-app-server": {},
+		"cursorsdk": {}, "openrouter": {}, "nvidia": {}, "huggingface": {},
+		"opencode-go": {}, "opencode-zen": {}, "local-stub": {},
 	}
 	for _, e := range EssentialBackendBundle(UpstreamAPIKeys{}).Backends {
 		if _, bad := forbidden[e.ID]; bad {

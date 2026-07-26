@@ -274,6 +274,10 @@ type AdmissionInput struct {
 	Authority      domain.AuthorityLevel
 	ReservationKey domain.ReservationKey
 	EstimateOnly   bool
+	// SkipEvidence suppresses durable policy/accounting evidence projection.
+	// Clamp preview uses this with EstimateOnly so repeated preview admits do
+	// not write audit noise; estimate-only precheck denials still record.
+	SkipEvidence bool
 	// Phase 7.2: lifecycle stage for rule filtering; exposure/facts for amount selection.
 	LifecycleScope metering.LifecycleScope
 	Perspective    metering.EconomicPerspective

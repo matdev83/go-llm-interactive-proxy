@@ -5,17 +5,35 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-// Cursor SDK product code is not implemented yet; these gates keep the root tree
-// honest while Task 8.3 locks the external-connector specification.
+// Cursor SDK merge posture: origin/main landed an in-tree experimental adapter
+// under internal/plugins/backends/cursorsdk; the product direction remains an
+// external connectors/cursorsdk executable. These gates keep both facts honest.
 
-func TestCursorSDK_forbiddenRootBackendPackageAbsent(t *testing.T) {
+func TestCursorSDK_experimentalRootAdapterMayExistOutsideEssential(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
 	path := filepath.Join(root, "internal", "plugins", "backends", "cursorsdk")
-	if _, err := os.Stat(path); err == nil {
-		t.Fatalf("forbidden root path must not exist: %s", path)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("experimental in-tree cursorsdk adapter missing: %v", err)
+	}
+	for _, e := range standardplugins.EssentialBackendBundle(standardplugins.UpstreamAPIKeys{}).Backends {
+		if e.ID == "cursorsdk" {
+			t.Fatal("cursorsdk must not be in EssentialBackendBundle")
+		}
+	}
+	for _, e := range standardplugins.StandardBackendBundle(standardplugins.UpstreamAPIKeys{}).Backends {
+		if e.ID == "cursorsdk" {
+			t.Fatal("cursorsdk must not be in StandardBackendBundle")
+		}
+	}
+	reg := standardplugins.ExperimentalCursorSDKRegistration(standardplugins.UpstreamAPIKeys{})
+	if strings.TrimSpace(reg.ID) != "cursorsdk" {
+		t.Fatalf("ExperimentalCursorSDKRegistration id=%q want cursorsdk", reg.ID)
 	}
 }
 
@@ -50,6 +68,15 @@ func TestCursorSDK_rootPackageJSONHasNoCursorSDK(t *testing.T) {
 	}
 	if strings.Contains(string(b), "@cursor/sdk") {
 		t.Fatal("root package.json must not depend on @cursor/sdk")
+	}
+}
+
+func TestCursorSDK_standardDistributionDoesNotMandateCursorSDK(t *testing.T) {
+	t.Parallel()
+	for _, req := range lipsdk.StandardDistributionRequirements() {
+		if req.ID == "cursorsdk" {
+			t.Fatal("StandardDistributionRequirements must not mandate cursorsdk")
+		}
 	}
 }
 

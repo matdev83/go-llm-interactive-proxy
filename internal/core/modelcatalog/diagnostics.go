@@ -35,6 +35,12 @@ type CatalogDiagnosticsJSON struct {
 	ExternalUpdatesEnabled bool `json:"external_updates_enabled"`
 	// UpdateIntervalSeconds is 0 when unset or invalid in config.
 	UpdateIntervalSeconds float64 `json:"update_interval_seconds,omitempty"`
+
+	// Aggregate model-view identity (req 9.6); set only when PreferBound + identity present.
+	ModelViewDigest    string `json:"model_view_digest,omitempty"`
+	ConfigGeneration   string `json:"config_generation,omitempty"`
+	ConfigFingerprint  string `json:"config_fingerprint,omitempty"`
+	RegistryGeneration string `json:"registry_generation,omitempty"`
 }
 
 // CatalogSnapshotDiagnostics is non-request content: generation and fetch metadata only.
@@ -56,6 +62,13 @@ type CatalogStatusHandlerConfig struct {
 
 	// Now defaults to time.Now if nil (tests may inject a fixed clock).
 	Now func() time.Time
+
+	// PreferBound uses BoundSnapshot instead of rereading Runtime when true.
+	PreferBound bool
+	// BoundSnapshot is the request-bound catalog view (ignored unless PreferBound).
+	BoundSnapshot BoundView
+	// ModelViewIdentity attaches safe aggregate identity fields when set.
+	ModelViewIdentity map[string]string
 }
 
 // RedactSourceURL returns a userinfo-free URL string for operator display, or empty when input is empty.
@@ -75,6 +88,7 @@ func RedactSourceURL(raw string) string {
 }
 
 // BuildCatalogDiagnosticsJSON builds the JSON DTO for the current moment (no prompt/session content).
+// When PreferBound is set, the request-bound snapshot is used instead of the live runtime.
 func BuildCatalogDiagnosticsJSON(cfg CatalogStatusHandlerConfig) CatalogDiagnosticsJSON {
 	now := time.Now
 	if cfg.Now != nil {
@@ -88,15 +102,50 @@ func BuildCatalogDiagnosticsJSON(cfg CatalogStatusHandlerConfig) CatalogDiagnost
 	if cfg.UpdateInterval > 0 {
 		out.UpdateIntervalSeconds = cfg.UpdateInterval.Seconds()
 	}
+	if cfg.ModelViewIdentity != nil {
+		out.ModelViewDigest = cfg.ModelViewIdentity["model_view_digest"]
+		out.ConfigGeneration = cfg.ModelViewIdentity["config_generation"]
+		out.ConfigFingerprint = cfg.ModelViewIdentity["config_fingerprint"]
+		out.RegistryGeneration = cfg.ModelViewIdentity["registry_generation"]
+	}
+
+	var (
+		snap     Snapshot
+		active   bool
+		lastFail RefreshFailureCategory
+	)
+	if cfg.PreferBound {
+		snap, active = cfg.BoundSnapshot.Snapshot()
+		if cfg.Runtime != nil {
+			lastFail = cfg.Runtime.LastRefreshFailure()
+		}
+	} else if cfg.Runtime != nil {
+		snap, active = cfg.Runtime.Active()
+		lastFail = cfg.Runtime.LastRefreshFailure()
+	}
 
 	if !cfg.UsageEnabled {
 		out.Status = CatalogDiagDisabled
-		if cfg.Runtime != nil {
-			if snap, ok := cfg.Runtime.Active(); ok {
-				out.Snapshot = snapshotDiagFrom(&snap)
-			}
-			out.LastRefreshErrorCategory = cfg.Runtime.LastRefreshFailure()
+		if active {
+			out.Snapshot = snapshotDiagFrom(&snap)
 		}
+		out.LastRefreshErrorCategory = lastFail
+		return out
+	}
+
+	if cfg.PreferBound {
+		if !active || snap.Index == nil {
+			out.Status = CatalogDiagUnavailable
+			out.LastRefreshErrorCategory = lastFail
+			return out
+		}
+		out.Snapshot = snapshotDiagFrom(&snap)
+		out.LastRefreshErrorCategory = lastFail
+		if catalogSnapshotIsStaleBound(now(), snap, cfg, lastFail) {
+			out.Status = CatalogDiagStale
+			return out
+		}
+		out.Status = CatalogDiagEnabled
 		return out
 	}
 
@@ -104,15 +153,14 @@ func BuildCatalogDiagnosticsJSON(cfg CatalogStatusHandlerConfig) CatalogDiagnost
 		out.Status = CatalogDiagUnavailable
 		return out
 	}
-	snap, active := cfg.Runtime.Active()
 	if !active || snap.Index == nil {
 		out.Status = CatalogDiagUnavailable
-		out.LastRefreshErrorCategory = cfg.Runtime.LastRefreshFailure()
+		out.LastRefreshErrorCategory = lastFail
 		return out
 	}
 
 	out.Snapshot = snapshotDiagFrom(&snap)
-	out.LastRefreshErrorCategory = cfg.Runtime.LastRefreshFailure()
+	out.LastRefreshErrorCategory = lastFail
 
 	if catalogSnapshotIsStale(now(), snap, cfg) {
 		out.Status = CatalogDiagStale
@@ -139,6 +187,18 @@ func catalogSnapshotIsStale(now time.Time, snap Snapshot, cfg CatalogStatusHandl
 	}
 	// Any non-empty failure category after the last attempt means the active snapshot is not fresh.
 	if lf := cfg.Runtime.LastRefreshFailure(); lf != RefreshFailureNone {
+		return true
+	}
+	if cfg.ExternalUpdatesEnabled && cfg.UpdateInterval > 0 {
+		if now.Sub(snap.FetchedAt) > 2*cfg.UpdateInterval {
+			return true
+		}
+	}
+	return false
+}
+
+func catalogSnapshotIsStaleBound(now time.Time, snap Snapshot, cfg CatalogStatusHandlerConfig, lastFail RefreshFailureCategory) bool {
+	if lastFail != RefreshFailureNone {
 		return true
 	}
 	if cfg.ExternalUpdatesEnabled && cfg.UpdateInterval > 0 {

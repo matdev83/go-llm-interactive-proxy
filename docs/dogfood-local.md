@@ -7,7 +7,7 @@ Executable guarantees:
 - Every `*.yaml` in `config/examples/` is exercised by bootstrap inspect in [`internal/infra/runtimebundle/example_configs_test.go`](../internal/infra/runtimebundle/example_configs_test.go) (`TestConfigExamples_passBootstrapInspect`).
 - Cross-frontend smoke against the standard HTTP stack lives in [`internal/stdhttp/dogfood_smoke_test.go`](../internal/stdhttp/dogfood_smoke_test.go).
 
-For proof-plugin seams and Python-era migration anchors, see [`docs/feature-migration-map.md`](feature-migration-map.md). For stage IDs and SDK surfaces, see [`docs/extension-points.md`](extension-points.md).
+For proof-plugin seams and Python-era migration anchors, see [`docs/feature-migration-map.md`](feature-migration-map.md). For stage IDs and SDK surfaces, see [`docs/extension-points.md`](extension-points.md). For explicit runtime config reload (SIGHUP / management API, atomic rename, `check-config` dry-run), see [`docs/runtime-config-reload.md`](runtime-config-reload.md).
 
 ## Primary example
 
@@ -76,7 +76,7 @@ go run ./cmd/lipstd --config CONFIG
 
 After serving with a stub example, exercise the mounted frontend URLs with your client of choice, or rely on the default-suite harness tests above for deterministic stubs.
 
-**Note:** Stub examples often set `diagnostics.enabled: false`, so **`/healthz` is not mounted** until you enable diagnostics and set `diagnostics.health_path` (default `/healthz`). A quick TCP check is a `GET` on a mounted frontend path (for example **`GET /v1/responses`** returns **405** Method Not Allowed when the OpenAI Responses surface is enabled—proving the listener and mux are up).
+**Note:** Stub examples often set `diagnostics.enabled: false`, so **`/healthz` is not mounted** until you enable diagnostics and set `diagnostics.health_path` (default `/healthz`). A quick TCP check is a `GET` on a mounted frontend path (for example **`GET /v1/responses`** returns **405** Method Not Allowed when the OpenAI Responses surface is enabledÔÇöproving the listener and mux are up).
 
 ## Diagnostics
 

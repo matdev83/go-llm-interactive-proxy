@@ -47,10 +47,6 @@ func (t *AttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Call,
 	if t.store == nil {
 		return request.AttemptDecision{}, fmt.Errorf("%s: store is required", ID)
 	}
-	partition, ok := sessionPartitionOrMiss(meta.Session.AuthoritativeSessionID)
-	if !ok {
-		return request.AttemptDecision{Kind: request.AttemptContinue}, nil
-	}
 	match, err := ResolveMatch(t.cfg, CandidateIdentity{
 		BackendID:       meta.BackendID,
 		BackendPrefixes: meta.BackendPrefixes,
@@ -59,7 +55,13 @@ func (t *AttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Call,
 	if err != nil {
 		return t.stateErrorDecision()
 	}
-	eligible := MatchEligible(match.Kind)
+	if !MatchEligible(match.Kind) {
+		return request.AttemptDecision{Kind: request.AttemptContinue}, nil
+	}
+	partition, ok := sessionPartitionOrMiss(meta.Session.AuthoritativeSessionID)
+	if !ok {
+		return request.AttemptDecision{Kind: request.AttemptContinue}, nil
+	}
 	arts, err := t.store.Snapshot(ctx, partition)
 	if err != nil {
 		return t.stateErrorDecision()
@@ -71,7 +73,7 @@ func (t *AttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Call,
 		Call:              call,
 		Artifacts:         arts,
 		ReplaySupport:     meta.ReplaySupport,
-		Eligible:          eligible,
+		Eligible:          true,
 	})
 	if err != nil {
 		return request.AttemptDecision{}, err

@@ -19,11 +19,23 @@ type RouteTraceCatalog struct {
 	Negotiation    string `json:"negotiation,omitempty"`
 }
 
+// RouteTraceModelView is the safe, immutable config/registry/catalog identity
+// bound to the logical request that produced a routing decision.
+type RouteTraceModelView struct {
+	Digest             string `json:"digest"`
+	ConfigGeneration   int64  `json:"config_generation,omitempty"`
+	ConfigFingerprint  string `json:"config_fingerprint,omitempty"`
+	RegistryGeneration string `json:"registry_generation,omitempty"`
+	CatalogGeneration  string `json:"catalog_generation,omitempty"`
+}
+
 // RouteTraceEntry is one structured routing decision snapshot.
 type RouteTraceEntry struct {
 	TraceID  string `json:"trace_id"`
 	Decision string `json:"decision"`
 	Detail   string `json:"detail"`
+	// ModelView identifies the immutable model/config publication used for this decision.
+	ModelView *RouteTraceModelView `json:"model_view,omitempty"`
 	// Catalog is set for plan_candidate when model-catalog hooks produced facts for the attempt.
 	Catalog *RouteTraceCatalog `json:"catalog,omitempty"`
 }

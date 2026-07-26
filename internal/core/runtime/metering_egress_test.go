@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,13 +14,67 @@ import (
 )
 
 type recordingMeter struct {
+	mu    sync.Mutex
 	facts []metering.Fact
 }
 
 func (r *recordingMeter) Append(ctx context.Context, fact metering.Fact) error {
 	_ = ctx
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.facts = append(r.facts, fact)
 	return nil
+}
+
+// Facts returns a snapshot of recorded facts under the recorder lock.
+func (r *recordingMeter) Facts() []metering.Fact {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]metering.Fact, len(r.facts))
+	copy(out, r.facts)
+	return out
+}
+
+func TestRecordingMeter_ConcurrentAppendPreservesAllFacts(t *testing.T) {
+	t.Parallel()
+	rec := &recordingMeter{}
+	const goroutines = 32
+	const perG = 50
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for g := range goroutines {
+		go func(g int) {
+			defer wg.Done()
+			for i := range perG {
+				fact := metering.Fact{FactID: fmt.Sprintf("g%d-%d", g, i)}
+				if err := rec.Append(context.Background(), fact); err != nil {
+					t.Errorf("Append: %v", err)
+					return
+				}
+			}
+		}(g)
+	}
+	wg.Wait()
+	facts := rec.Facts()
+	want := goroutines * perG
+	if len(facts) != want {
+		t.Fatalf("facts=%d want %d", len(facts), want)
+	}
+	seen := make(map[string]struct{}, len(facts))
+	for _, f := range facts {
+		if _, dup := seen[f.FactID]; dup {
+			t.Fatalf("duplicate FactID %q", f.FactID)
+		}
+		seen[f.FactID] = struct{}{}
+	}
+	for g := range goroutines {
+		for i := range perG {
+			id := fmt.Sprintf("g%d-%d", g, i)
+			if _, ok := seen[id]; !ok {
+				t.Fatalf("missing fact %s", id)
+			}
+		}
+	}
 }
 
 func TestAppendMeteringFact_NilRecorderNoPanic(t *testing.T) {

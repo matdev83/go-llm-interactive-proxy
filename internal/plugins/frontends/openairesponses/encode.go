@@ -267,11 +267,94 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 	var reasoningOutputIndex int64 = -1
 	reasoningStarted := false
 	reasoningClosed := false
+	type exactReasoningSlot struct {
+		outputIndex int64
+		item        map[string]any
+	}
+	var exactReasoningSlots []exactReasoningSlot
 	messageItemID := mid
 	var messageOutputIndex int64 = -1
 	messageStarted := false
 	messageClosed := false
 	var messageParts []streamMsgContent
+
+	emitExactReasoningPart := func(part *lipapi.ReasoningPart) error {
+		canon, err := canonExactResponsesReasoning(part)
+		if err != nil {
+			if errors.Is(err, errReasoningDialectSkip) {
+				return nil
+			}
+			return err
+		}
+		id, err := reasoningIDFromCanon(canon)
+		if err != nil {
+			return err
+		}
+		summaries, err := summaryTextsFromCanon(canon)
+		if err != nil {
+			return err
+		}
+		addedItem, err := exactReasoningAddedShell(canon)
+		if err != nil {
+			return err
+		}
+		var doneObj map[string]any
+		if err := json.Unmarshal(canon, &doneObj); err != nil {
+			return fmt.Errorf("openairesponses: invalid reasoning item")
+		}
+		idx := nextOutIdx
+		nextOutIdx++
+		if err := flushSSE(w, fl, "response.output_item.added", streamOutputItemExactReasoning{
+			Type:           "response.output_item.added",
+			SequenceNumber: nextSeq(),
+			OutputIndex:    idx,
+			Item:           addedItem,
+		}); err != nil {
+			return err
+		}
+		for i, text := range summaries {
+			if err := flushSSE(w, fl, "response.reasoning_summary_part.added", streamReasoningSummaryPartAdded{
+				Type:           "response.reasoning_summary_part.added",
+				SequenceNumber: nextSeq(),
+				ItemID:         id,
+				OutputIndex:    idx,
+				SummaryIndex:   i,
+				Part:           streamReasoningSummaryPart{Type: "summary_text", Text: ""},
+			}); err != nil {
+				return err
+			}
+			if err := flushSSE(w, fl, "response.reasoning_summary_text.done", streamReasoningSummaryTextDone{
+				Type:           "response.reasoning_summary_text.done",
+				SequenceNumber: nextSeq(),
+				ItemID:         id,
+				OutputIndex:    idx,
+				SummaryIndex:   i,
+				Text:           text,
+			}); err != nil {
+				return err
+			}
+			if err := flushSSE(w, fl, "response.reasoning_summary_part.done", streamReasoningSummaryPartDone{
+				Type:           "response.reasoning_summary_part.done",
+				SequenceNumber: nextSeq(),
+				ItemID:         id,
+				OutputIndex:    idx,
+				SummaryIndex:   i,
+				Part:           streamReasoningSummaryPart{Type: "summary_text", Text: text},
+			}); err != nil {
+				return err
+			}
+		}
+		if err := flushSSE(w, fl, "response.output_item.done", streamOutputItemExactReasoning{
+			Type:           "response.output_item.done",
+			SequenceNumber: nextSeq(),
+			OutputIndex:    idx,
+			Item:           append(json.RawMessage(nil), canon...),
+		}); err != nil {
+			return err
+		}
+		exactReasoningSlots = append(exactReasoningSlots, exactReasoningSlot{outputIndex: idx, item: doneObj})
+		return nil
+	}
 
 	openReasoningItem := func() error {
 		if reasoningStarted {
@@ -567,7 +650,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			// is placed here at its assigned index. A future code path that
 			// increments nextOutIdx without a matching assignment here would emit a
 			// zero-value {"type":""} entry on the wire, so guard any such addition.
-			out := make([]streamCompletedOut, nextOutIdx)
+			out := make([]any, nextOutIdx)
 			if reasoningStarted {
 				out[reasoningOutputIndex] = streamCompletedOut{
 					Type:    "reasoning",
@@ -575,6 +658,9 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 					Status:  "completed",
 					Summary: []streamReasoningSummary{{Type: "summary_text", Text: fullReasoning.String()}},
 				}
+			}
+			for _, slot := range exactReasoningSlots {
+				out[slot.outputIndex] = slot.item
 			}
 			if messageStarted {
 				out[messageOutputIndex] = streamCompletedOut{
@@ -639,13 +725,21 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			}); err != nil {
 				return err
 			}
+		case lipapi.EventReasoningPart:
+			if err := closeReasoningItem(); err != nil {
+				return err
+			}
+			if err := emitExactReasoningPart(ev.Reasoning); err != nil {
+				return err
+			}
 		default:
 		}
 	}
 }
 
 func buildWireResponse(ctx context.Context, call *lipapi.Call, es lipapi.EventStream, opts EncodeOptions) (wireResponse, error) {
-	col, err := lipapi.Collect(ctx, es)
+	order := &nonstreamOutputOrder{}
+	col, err := lipapi.Collect(ctx, &orderTeeStream{inner: es, order: order})
 	if err != nil {
 		return wireResponse{}, err
 	}
@@ -665,31 +759,70 @@ func buildWireResponse(ctx context.Context, call *lipapi.Call, es lipapi.EventSt
 		"role":    "assistant",
 		"content": wireMessageContentParts(text, col.AssistantMedia),
 	}
-	out := make([]any, 0, 2)
-	if reasoning := col.Reasoning.String(); reasoning != "" {
-		out = append(out, map[string]any{
-			"type":    "reasoning",
-			"id":      "rs_" + rid,
-			"status":  "completed",
-			"summary": []any{map[string]any{"type": "summary_text", "text": reasoning}},
-		})
+	responsesExact := make([]lipapi.ReasoningPart, 0, len(col.ReasoningParts))
+	for i := range col.ReasoningParts {
+		if lipapi.NormalizeReasoningDialect(col.ReasoningParts[i].Dialect) == lipapi.ReasoningDialectOpenAIResponsesItemV1 {
+			responsesExact = append(responsesExact, col.ReasoningParts[i])
+		}
 	}
-	// Emit the message item only when it has content (text or assistant media),
-	// matching the streaming path's lazy message-item open. This avoids an
-	// empty assistant message item on reasoning-only or tool-only turns, which
-	// the OpenAI Responses shape does not carry.
-	if text != "" || len(col.AssistantMedia) > 0 {
-		out = append(out, msgOut)
-	}
+	toolsByID := make(map[string]lipapi.ToolCallSummary, len(col.ToolCallOrder))
 	for _, tc := range col.OrderedToolCalls() {
-		out = append(out, map[string]any{
-			"type":      "function_call",
-			"id":        fcItemID(tc.ID),
-			"call_id":   tc.ID,
-			"name":      tc.Name,
-			"arguments": tc.Arguments,
-			"status":    "completed",
-		})
+		toolsByID[tc.ID] = tc
+	}
+	out := make([]any, 0, len(order.markers)+1)
+	if order.exactCount > 0 {
+		for _, m := range order.markers {
+			switch m.kind {
+			case nonstreamOrderMessage:
+				if text != "" || len(col.AssistantMedia) > 0 {
+					out = append(out, msgOut)
+				}
+			case nonstreamOrderExactReasoning:
+				if m.exactOrdinal < 0 || m.exactOrdinal >= len(responsesExact) {
+					return wireResponse{}, fmt.Errorf("openairesponses: invalid reasoning item")
+				}
+				item, err := exactReasoningWireObject(&responsesExact[m.exactOrdinal])
+				if err != nil {
+					return wireResponse{}, err
+				}
+				out = append(out, item)
+			case nonstreamOrderTool:
+				tc, ok := toolsByID[m.toolCallID]
+				if !ok {
+					continue
+				}
+				out = append(out, map[string]any{
+					"type":      "function_call",
+					"id":        fcItemID(tc.ID),
+					"call_id":   tc.ID,
+					"name":      tc.Name,
+					"arguments": tc.Arguments,
+					"status":    "completed",
+				})
+			}
+		}
+	} else {
+		if reasoning := col.Reasoning.String(); reasoning != "" {
+			out = append(out, map[string]any{
+				"type":    "reasoning",
+				"id":      "rs_" + rid,
+				"status":  "completed",
+				"summary": []any{map[string]any{"type": "summary_text", "text": reasoning}},
+			})
+		}
+		if text != "" || len(col.AssistantMedia) > 0 {
+			out = append(out, msgOut)
+		}
+		for _, tc := range col.OrderedToolCalls() {
+			out = append(out, map[string]any{
+				"type":      "function_call",
+				"id":        fcItemID(tc.ID),
+				"call_id":   tc.ID,
+				"name":      tc.Name,
+				"arguments": tc.Arguments,
+				"status":    "completed",
+			})
+		}
 	}
 	resp := wireResponse{
 		ID:        rid,

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -71,6 +72,11 @@ type Registry struct {
 	lifecycleBackends  map[string]LifecycleBackendFactory
 	backendProfiles    map[string]BackendSecurityProfile
 	backendSources     map[string]BackendRegistrationSource
+	reloadPolicies     map[string]BackendReloadPolicy
+	discovered         map[string]struct{}
+	discoveryFrozen    bool
+	rescanAttempts     atomic.Int64
+	installAttempts    atomic.Int64
 	frontends          map[string]FrontendMount
 	features           map[string]FeatureFactory
 	authErrorRenderers map[string]lipsdk.AuthErrorRenderer
@@ -83,6 +89,8 @@ func NewRegistry() *Registry {
 		lifecycleBackends:  map[string]LifecycleBackendFactory{},
 		backendProfiles:    map[string]BackendSecurityProfile{},
 		backendSources:     map[string]BackendRegistrationSource{},
+		reloadPolicies:     map[string]BackendReloadPolicy{},
+		discovered:         map[string]struct{}{},
 		frontends:          map[string]FrontendMount{},
 		features:           map[string]FeatureFactory{},
 		authErrorRenderers: map[string]lipsdk.AuthErrorRenderer{},
@@ -101,6 +109,12 @@ func (r *Registry) ensureMaps() {
 	}
 	if r.backendSources == nil {
 		r.backendSources = map[string]BackendRegistrationSource{}
+	}
+	if r.reloadPolicies == nil {
+		r.reloadPolicies = map[string]BackendReloadPolicy{}
+	}
+	if r.discovered == nil {
+		r.discovered = map[string]struct{}{}
 	}
 	if r.frontends == nil {
 		r.frontends = map[string]FrontendMount{}

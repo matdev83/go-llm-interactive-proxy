@@ -123,6 +123,11 @@
       "id": "tool-call-repair",
       "factory_kind": "tool-call-repair",
       "enabled": true
+    },
+    {
+      "id": "reasoning-output-preservation",
+      "factory_kind": "reasoning-output-preservation",
+      "enabled": true
     }
   ],
   "extensions": {
@@ -297,13 +302,40 @@
           "auth_provider": false,
           "completion_gate": false
         }
+      },
+      {
+        "instance_id": "reasoning-output-preservation",
+        "factory_kind": "reasoning-output-preservation",
+        "enabled": true,
+        "stage_occupancy": [
+          {
+            "stage_id": "candidate_attempt_transform",
+            "handler_ids": [
+              "attempt_transform:reasoning-output-preservation-transform"
+            ],
+            "count": 1
+          },
+          {
+            "stage_id": "final_stream_observation",
+            "handler_ids": [
+              "stream_observer:reasoning-output-preservation-observer"
+            ],
+            "count": 1
+          }
+        ],
+        "privileges": {
+          "raw_capture": false,
+          "auxiliary_requests": true,
+          "auth_provider": false,
+          "completion_gate": false
+        }
       }
     ],
     "generic_ports": {
-      "attempt_transform_occupied": false,
-      "attempt_transform_handlers": 0,
-      "final_stream_observation_occupied": false,
-      "final_stream_observation_handlers": 0
+      "attempt_transform_occupied": true,
+      "attempt_transform_handlers": 1,
+      "final_stream_observation_occupied": true,
+      "final_stream_observation_handlers": 1
     }
   },
   "server_limits": {

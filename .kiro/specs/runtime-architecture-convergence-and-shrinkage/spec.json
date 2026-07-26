@@ -1,0 +1,23 @@
+{
+  "feature_name": "runtime-architecture-convergence-and-shrinkage",
+  "created_at": "2026-07-23T14:29:26+02:00",
+  "updated_at": "2026-07-23T14:29:26+02:00",
+  "language": "en",
+  "phase": "tasks-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": false
+    },
+    "design": {
+      "generated": true,
+      "approved": false
+    },
+    "tasks": {
+      "generated": true,
+      "approved": false
+    }
+  },
+  "ready_for_implementation": false,
+  "project_description": "Complete the versioned-runtime migration by converging the standard distribution on one process runtime, one canonical generation runtime, one host, one reload contract, and one generation-resource lifecycle owner; delete the legacy Built/RunWithRuntime/bootstrap compatibility graph, decompose reload coordination by ownership, eliminate duplicate config reads and fake check-config publication, quarantine then remove deprecated public option shapes, and ratchet architecture budgets downward while preserving all existing protocol, reload, security, streaming, no-drop, lifecycle, and public-facade behavior."
+}

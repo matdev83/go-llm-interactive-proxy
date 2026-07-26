@@ -3,6 +3,28 @@
 
 $ErrorActionPreference = "Stop"
 
+function Test-UnderNestedGoModule {
+    param([string]$NormalizedPath)
+
+    $dir = Split-Path -Parent $NormalizedPath
+    if ([string]::IsNullOrWhiteSpace($dir) -or $dir -eq '.') {
+        return $false
+    }
+
+    while (-not [string]::IsNullOrWhiteSpace($dir) -and $dir -ne '.') {
+        if (Test-Path -LiteralPath (Join-Path $dir 'go.mod')) {
+            return $true
+        }
+        $parent = Split-Path -Parent $dir
+        if ([string]::IsNullOrWhiteSpace($parent) -or $parent -eq $dir) {
+            break
+        }
+        $dir = $parent -replace '\\', '/'
+    }
+
+    return $false
+}
+
 function Get-QualityPackages {
     $stagedGoFiles = @(git diff --cached --name-only --diff-filter=ACMR 2>$null | Where-Object { $_ -match '\.go$' })
     if (-not $stagedGoFiles -or $stagedGoFiles.Count -eq 0) {
@@ -18,6 +40,9 @@ function Get-QualityPackages {
         if ([string]::IsNullOrWhiteSpace($dir) -or $dir -eq '.') {
             $forceFull = $true
             break
+        }
+        if (Test-UnderNestedGoModule $normalized) {
+            continue
         }
         [void]$packageSet.Add("./$dir/...")
     }

@@ -22,6 +22,7 @@ func clearAllProviderEnv(t *testing.T) {
 		"OPENROUTER_API_KEY", "NVIDIA_API_KEY", "HUGGINGFACE_API_KEY",
 		"OPENCODE_GO_API_KEY", "OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY",
 		"OPENAI_CODEX_ACCESS_TOKEN", "OPENAI_CODEX_API_KEY",
+		"CURSOR_API_KEY",
 	} {
 		t.Setenv(prefix, "")
 		clearNumberedEnv(t, prefix)

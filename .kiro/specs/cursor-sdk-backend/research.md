@@ -251,7 +251,7 @@ The first design revision was reviewed against the final requirements, current r
 
 **Traceability:** 2.7, 7.3, 8.5-8.9.
 
-**Evidence:** `design.md` sections “Backend Lifecycle Seam,” “Bridge Shutdown,” and “Failure During Assembly.”
+**Evidence:** `design.md` sections ÔÇťBackend Lifecycle Seam,ÔÇŁ ÔÇťBridge Shutdown,ÔÇŁ and ÔÇťFailure During Assembly.ÔÇŁ
 
 ### Critical Issue 2: Tool activity and capability semantics were ambiguous
 
@@ -263,11 +263,11 @@ The first design revision was reviewed against the final requirements, current r
 
 **Traceability:** 4.6-4.8, 6.6-6.8, 9.2-9.3.
 
-**Evidence:** `design.md` sections “Capability Profile,” “SDK Event Mapping,” and “Tool Surface Boundary.”
+**Evidence:** `design.md` sections ÔÇťCapability Profile,ÔÇŁ ÔÇťSDK Event Mapping,ÔÇŁ and ÔÇťTool Surface Boundary.ÔÇŁ
 
 ### Critical Issue 3: Packaging, ambient settings, and trust posture were under-specified
 
-**Concern:** The initial design assumed a Node bridge would be “available” and allowed SDK defaults without defining installation, version compatibility, settings sources, or sandbox behavior.
+**Concern:** The initial design assumed a Node bridge would be ÔÇťavailableÔÇŁ and allowed SDK defaults without defining installation, version compatibility, settings sources, or sandbox behavior.
 
 **Impact:** Runtime npm installation would be non-reproducible and unsafe; ambient Cursor config could widen MCP/rule/plugin access; incompatible bridge/SDK versions could fail during requests.
 
@@ -275,7 +275,7 @@ The first design revision was reviewed against the final requirements, current r
 
 **Traceability:** 2.2, 2.6, 3.5-3.8, 9.4-9.8, 11.6.
 
-**Evidence:** `design.md` sections “Distribution and Versioning,” “Configuration Contract,” and “Security Considerations.”
+**Evidence:** `design.md` sections ÔÇťDistribution and Versioning,ÔÇŁ ÔÇťConfiguration Contract,ÔÇŁ and ÔÇťSecurity Considerations.ÔÇŁ
 
 ## Design Strengths
 
@@ -312,11 +312,17 @@ Reviewed against active `.kiro/specs/backend-connector-plugin-architecture/` aft
 
 | Finding | Disposition |
 | --- | --- |
-| G-07 from backend-connector research: Cursor SDK would introduce Node under the root connector tree | **Remediated in this revalidation** — Node/`@cursor/sdk` confined to `connectors/cursorsdk/bridge-node` private companion |
-| Prior design owned `internal/plugins/backends/cursorsdk/` and root registration | **Superseded** — external module + closed manifest discovery; root static registration forbidden |
-| Prior design added `execbackend.Backend` closer in root | **Narrowed** — plugin Close + host processhost lifecycle; no Cursor-specific root factory deps |
-| Host trust/IPC | **Aligned** — digest-bound exact executable + approved secure local IPC + lazy activation |
+| G-07 from backend-connector research: Cursor SDK would introduce Node under the root connector tree | **Remediated in this revalidation** ÔÇö Node/`@cursor/sdk` confined to `connectors/cursorsdk/bridge-node` private companion |
+| Prior design owned `internal/plugins/backends/cursorsdk/` and root registration | **Superseded** ÔÇö external module + closed manifest discovery; root static registration forbidden |
+| Prior design added `execbackend.Backend` closer in root | **Narrowed** ÔÇö plugin Close + host processhost lifecycle; no Cursor-specific root factory deps |
+| Host trust/IPC | **Aligned** ÔÇö digest-bound exact executable + approved secure local IPC + lazy activation |
 | Process sharing | **Declared `per_instance`** with secret/concurrency/failure isolation justification |
 | Architecture gates | **Encoded** in Req 13 + `file-plan.md` + `make kiro-spec-check SPEC=cursor-sdk-backend` |
 
 **Verdict:** Spec revalidation PASS for Task 8.3. Product implementation remains blocked until a later approved tasks wave; root-tree implementation remains forbidden.
+
+## Merge note (2026-07-27T00:45:00+02:00)
+
+origin/main landed an experimental in-tree adapter under `internal/plugins/backends/cursorsdk` with exact `@cursor/sdk` 1.0.23 Node bridge evidence, live/platform Makefile targets, and coexistence tests. The hybrid connector branch forbids root static registration of optional connectors.
+
+**Merged Go reality:** keep the in-tree adapter as opt-in experimental code (`ExperimentalCursorSDKRegistration`) outside `EssentialBackendBundle` / `InstallStandardBundleOn`. Production optional delivery remains the external `connectors/cursorsdk` direction in this specification. Human macOS local-skip decisions from platform evidence remain unchanged. Exact-version package evidence from main (Node `>=22.13`, Windows x64 binary package presence, no Windows arm64 package for 1.0.23) remains valid research input for the externalization wave.

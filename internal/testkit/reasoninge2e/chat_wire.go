@@ -31,7 +31,9 @@ type ChatWireClient struct {
 	APIKey     string
 	HTTPClient *http.Client
 	Model      string
-	Carriers   ChatSessionCarriers
+	// Route, when non-empty, sets X-LIP-Route on each request (overrides proxy default_route).
+	Route    string
+	Carriers ChatSessionCarriers
 }
 
 // ChatTurnResponse is the parsed proxy response for one chat turn.
@@ -70,6 +72,9 @@ func (c *ChatWireClient) PostChatCompletion(ctx context.Context, stream bool, me
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	if c.Route != "" {
+		req.Header.Set("X-LIP-Route", c.Route)
+	}
 	if c.Carriers.SessionID != "" {
 		req.Header.Set(sessionwire.HeaderAuthoritativeSessionID, c.Carriers.SessionID)
 	}

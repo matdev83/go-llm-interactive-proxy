@@ -317,8 +317,8 @@ func TestBuild_modelRegistryStaticInventoryDoesNotStartRefreshCloser(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(b.Closers) != 0 {
-		t.Fatalf("closers = %d, want 0 for disabled model catalog with static inventory", len(b.Closers))
+	if len(b.Closers) != 1 {
+		t.Fatalf("closers = %d, want 1 upstream-idle closer for disabled model catalog with static inventory", len(b.Closers))
 	}
 	closeRuntimeBuilt(t, b)
 }
@@ -362,8 +362,8 @@ func TestBuild_modelRegistryErrorProviderWithCacheDoesNotStartRefreshCloser(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(b.Closers) != 0 {
-		t.Fatalf("closers = %d, want 0 for disabled model catalog with cached model registry", len(b.Closers))
+	if len(b.Closers) != 1 {
+		t.Fatalf("closers = %d, want 1 upstream-idle closer for disabled model catalog with cached model registry", len(b.Closers))
 	}
 	defer closeRuntimeBuilt(t, b)
 	if b.ModelRegistryRuntime == nil {

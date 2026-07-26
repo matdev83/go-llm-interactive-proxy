@@ -1,8 +1,12 @@
 package reasoningpreservation
 
-import "strings"
+import (
+	"strings"
 
-const BuiltinCatalogVersion = "kimi-moonshot.v1"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/reasoningreplay"
+)
+
+const BuiltinCatalogVersion = reasoningreplay.CatalogVersion
 
 type CandidateIdentity struct {
 	BackendID       string
@@ -29,27 +33,12 @@ type MatchResult struct {
 type BuiltinCatalogEntry struct {
 	ID              string
 	BackendPrefixes []string
-	ModelKeywords   []string
 }
 
 func BuiltinCatalogEntries() ([]BuiltinCatalogEntry, error) {
 	return []BuiltinCatalogEntry{{
-		ID: BuiltinCatalogVersion,
-		BackendPrefixes: []string{
-			"openrouter",
-			"openai-legacy",
-			"openai-responses",
-			"nvidia",
-			"huggingface",
-			"ollama",
-			"ollama-cloud",
-			"vllm",
-			"lmstudio",
-			"llamacpp",
-			"opencode-go",
-			"opencode-zen",
-		},
-		ModelKeywords: []string{"kimi", "moonshot"},
+		ID:              BuiltinCatalogVersion,
+		BackendPrefixes: reasoningreplay.BackendPrefixes(),
 	}}, nil
 }
 
@@ -70,14 +59,8 @@ func ResolveMatch(cfg Config, cand CandidateIdentity) (MatchResult, error) {
 		return MatchResult{Kind: MatchExplicitEnabledBackend, RuleID: r.ID}, nil
 	}
 	if cfg.UseBuiltinCatalog {
-		entries, err := BuiltinCatalogEntries()
-		if err != nil {
-			return MatchResult{}, err
-		}
-		for _, e := range entries {
-			if prefixMatches(cand.BackendPrefixes, e.BackendPrefixes) && modelMatchesKeywords(model, e.ModelKeywords) {
-				return MatchResult{Kind: MatchBuiltin, RuleID: e.ID}, nil
-			}
+		if reasoningreplay.Eligible(model, cand.BackendPrefixes) {
+			return MatchResult{Kind: MatchBuiltin, RuleID: BuiltinCatalogVersion}, nil
 		}
 	}
 	return MatchResult{Kind: MatchNone}, nil
@@ -125,6 +108,7 @@ func firstBackendWideRule(rules []RuleConfig, backendID string, enabled bool) (R
 	return RuleConfig{}, false
 }
 
+// modelMatchesKeywords keeps contains-semantics for explicit operator keywords.
 func modelMatchesKeywords(model string, keywords []string) bool {
 	m := strings.ToLower(strings.TrimSpace(model))
 	if m == "" {
@@ -133,26 +117,6 @@ func modelMatchesKeywords(model string, keywords []string) bool {
 	for _, kw := range keywords {
 		k := strings.ToLower(strings.TrimSpace(kw))
 		if k != "" && strings.Contains(m, k) {
-			return true
-		}
-	}
-	return false
-}
-
-func prefixMatches(candidate, catalog []string) bool {
-	if len(candidate) == 0 || len(catalog) == 0 {
-		return false
-	}
-	want := make(map[string]struct{}, len(catalog))
-	for _, p := range catalog {
-		p = strings.ToLower(strings.TrimSpace(p))
-		if p != "" {
-			want[p] = struct{}{}
-		}
-	}
-	for _, p := range candidate {
-		p = strings.ToLower(strings.TrimSpace(p))
-		if _, ok := want[p]; ok {
 			return true
 		}
 	}

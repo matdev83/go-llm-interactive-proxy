@@ -3,7 +3,7 @@
 Spec-driven product implementation remains pending. Paths below target the **external**
 `connectors/cursorsdk` artifact. Do not create `internal/plugins/backends/cursorsdk`.
 
-- [x] 0. Spec gates (Task 8.3 of backend-connector-plugin-architecture) — COMPLETE when `make kiro-spec-check SPEC=cursor-sdk-backend` passes
+- [x] 0. Spec gates (Task 8.3 of backend-connector-plugin-architecture) ÔÇö COMPLETE when `make kiro-spec-check SPEC=cursor-sdk-backend` passes
   - Keep requirements/design/tasks/file-plan/packaging/AGENTS aligned with external connector architecture.
   - Evidence (2026-07-20T10:42:51+02:00): `make kiro-spec-check SPEC=cursor-sdk-backend` PASS; archtest `TestCursorSDK_*` PASS; product implementation still blocked (`ready_for_implementation: false`).
   - _Validation: `make kiro-spec-check SPEC=cursor-sdk-backend`_
@@ -71,10 +71,10 @@ Spec-driven product implementation remains pending. Paths below target the **ext
   - _Requirements: 2.7, 3.5, 3.8, 7.3, 7.4, 7.7, 8.1, 8.5, 8.7, 8.8, 8.9, 8.10, 13.9_
 
 - [ ] 4.2 History coordination and agent pool
-  - _Requirements: 5.1–5.8, 8.2, 8.3, 8.4, 8.10, 9.2_
+  - _Requirements: 5.1ÔÇô5.8, 8.2, 8.3, 8.4, 8.10, 9.2_
 
 - [ ] 4.3 Managed canonical stream mapping
-  - _Requirements: 6.1–6.10, 7.5, 7.6, 10.*, 13.8_
+  - _Requirements: 6.1ÔÇô6.10, 7.5, 7.6, 10.*, 13.8_
 
 - [ ] 5. Host integration proofs
 - [ ] 5.1 Windows/Linux BuildBootstrap e2e with staged plugin + fake bridge companion
@@ -87,4 +87,8 @@ Spec-driven product implementation remains pending. Paths below target the **ext
   - _Requirements: 1.1, 13.7_
 
 - [ ] 6. Documentation and experimental labeling
-  - _Requirements: 1.5, 11.6, 12.7–12.9_
+  - _Requirements: 1.5, 11.6, 12.7ÔÇô12.9_
+
+## Merge note (2026-07-27T00:45:00+02:00)
+
+Main completed substantial in-tree `internal/plugins/backends/cursorsdk` work (checked tasks on main). This branch's open external-connector task list remains the product path. Treat main's completed in-tree evidence as reusable material for `connectors/cursorsdk` externalization rather than as approval to keep optional connectors in the essential/static root table.

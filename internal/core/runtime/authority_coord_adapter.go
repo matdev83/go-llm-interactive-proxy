@@ -162,7 +162,12 @@ func (a *usageAuthorityProviderAdapter) PreviewAttempt(ctx context.Context, in a
 	if a == nil || a.svc == nil {
 		return authority.Decision{Kind: authority.DecisionAllow}, nil
 	}
-	res, err := a.svc.Admit(ctx, attemptAdmissionInput(in, true))
+	// Clamp preview is side-effect free: EstimateOnly skips holds; SkipEvidence
+	// skips durable policy/accounting projection (bounded loop may call this
+	// up to four times per backend open).
+	admitIn := attemptAdmissionInput(in, true)
+	admitIn.SkipEvidence = true
+	res, err := a.svc.Admit(ctx, admitIn)
 	if err != nil {
 		return authority.Decision{}, err
 	}

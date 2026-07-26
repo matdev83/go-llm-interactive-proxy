@@ -164,3 +164,72 @@ func TestStreamTerminal_OutputCommittedAfterClaim_AwaitsWinner(t *testing.T) {
 		t.Fatalf("gate err=%v want OutputCommitted", gateRes.Err)
 	}
 }
+
+func TestRetryRecvStream_runStreamTerminal_concurrentLazyInit_effectsOnce(t *testing.T) {
+	t.Parallel()
+	rs := &retryRecvStream{}
+	var effects atomic.Int32
+	var winners atomic.Int32
+	const n = 32
+	var wg sync.WaitGroup
+	for range n {
+		wg.Go(func() {
+			r := rs.runStreamTerminal(context.Background(), sdk.CommandClose, func(context.Context) error {
+				effects.Add(1)
+				return nil
+			})
+			if r.Won {
+				winners.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+
+	if effects.Load() != 1 {
+		t.Fatalf("effects=%d want 1", effects.Load())
+	}
+	if winners.Load() != 1 {
+		t.Fatalf("winners=%d want 1", winners.Load())
+	}
+	req, att := rs.snapshotTerminals()
+	req2, att2 := rs.snapshotTerminals()
+	if req != req2 || att != att2 {
+		t.Fatal("snapshotTerminals must return stable owners after init")
+	}
+	if !req.Owner().State().IsTerminal() || !att.Owner().State().IsTerminal() {
+		t.Fatalf("request=%q attempt=%q", req.Owner().State(), att.Owner().State())
+	}
+}
+
+func TestRetryRecvStream_resetAttemptTerminal_concurrentWithClose_noDeadlockOnceRequest(t *testing.T) {
+	t.Parallel()
+	rs := &retryRecvStream{}
+	rs.ensureTerminals()
+	var effects atomic.Int32
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Go(func() {
+			<-start
+			rs.resetAttemptTerminal()
+		})
+	}
+	for range 16 {
+		wg.Go(func() {
+			<-start
+			_ = rs.runStreamTerminal(context.Background(), sdk.CommandClose, func(context.Context) error {
+				effects.Add(1)
+				return nil
+			})
+		})
+	}
+	close(start)
+	wg.Wait()
+	if effects.Load() != 1 {
+		t.Fatalf("request-plane effects=%d want 1", effects.Load())
+	}
+	req, _ := rs.snapshotTerminals()
+	if !req.Owner().State().IsTerminal() {
+		t.Fatalf("request state=%q", req.Owner().State())
+	}
+}

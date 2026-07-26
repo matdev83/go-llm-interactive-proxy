@@ -11,32 +11,34 @@ import (
 )
 
 type workRow struct {
-	StoreID            string `bun:"store_id,pk"`
-	WorkID             string `bun:"work_id,pk"`
-	SourceKey          string `bun:"source_key"`
-	IdentityVersion    int    `bun:"identity_version"`
-	PayloadVersion     int    `bun:"payload_version"`
-	Kind               string `bun:"kind"`
-	State              string `bun:"state"`
-	ProviderID         string `bun:"provider_id"`
-	RequestID          string `bun:"request_id"`
-	AttemptID          string `bun:"attempt_id"`
-	TraceID            string `bun:"trace_id"`
-	GenerationID       string `bun:"generation_id"`
-	BoundProviderID    string `bun:"bound_provider_id"`
-	RatingID           string `bun:"rating_id"`
-	FactID             string `bun:"fact_id"`
-	LeaseSetID         string `bun:"lease_set_id"`
-	PayloadJSON        string `bun:"payload_json"`
-	Attempts           int    `bun:"attempts"`
-	NextRetryAtUnix    int64  `bun:"next_retry_at_unix"`
-	ClaimOwnerID       string `bun:"claim_owner_id"`
-	ClaimExpiresAtUnix int64  `bun:"claim_expires_at_unix"`
-	ErrorCode          string `bun:"error_code"`
-	ErrorPermanent     bool   `bun:"error_permanent"`
-	ErrorMessage       string `bun:"error_message"`
-	CreatedAtUnix      int64  `bun:"created_at_unix"`
-	UpdatedAtUnix      int64  `bun:"updated_at_unix"`
+	StoreID             string `bun:"store_id,pk"`
+	WorkID              string `bun:"work_id,pk"`
+	SourceKey           string `bun:"source_key"`
+	IdentityVersion     int    `bun:"identity_version"`
+	PayloadVersion      int    `bun:"payload_version"`
+	Kind                string `bun:"kind"`
+	State               string `bun:"state"`
+	ProviderID          string `bun:"provider_id"`
+	RequestID           string `bun:"request_id"`
+	AttemptID           string `bun:"attempt_id"`
+	TraceID             string `bun:"trace_id"`
+	GenerationID        string `bun:"generation_id"`
+	RuntimeInstanceID   string `bun:"runtime_instance_id"`
+	RuntimeGenerationID string `bun:"runtime_generation_id"`
+	BoundProviderID     string `bun:"bound_provider_id"`
+	RatingID            string `bun:"rating_id"`
+	FactID              string `bun:"fact_id"`
+	LeaseSetID          string `bun:"lease_set_id"`
+	PayloadJSON         string `bun:"payload_json"`
+	Attempts            int    `bun:"attempts"`
+	NextRetryAtUnix     int64  `bun:"next_retry_at_unix"`
+	ClaimOwnerID        string `bun:"claim_owner_id"`
+	ClaimExpiresAtUnix  int64  `bun:"claim_expires_at_unix"`
+	ErrorCode           string `bun:"error_code"`
+	ErrorPermanent      bool   `bun:"error_permanent"`
+	ErrorMessage        string `bun:"error_message"`
+	CreatedAtUnix       int64  `bun:"created_at_unix"`
+	UpdatedAtUnix       int64  `bun:"updated_at_unix"`
 }
 
 func (*workRow) TableName() string { return "economic_terminal_work" }
@@ -47,32 +49,34 @@ func recordToRow(storeID string, rec terminalwork.WorkRecord) workRow {
 		payload = []byte("{}")
 	}
 	return workRow{
-		StoreID:            storeID,
-		WorkID:             rec.WorkID,
-		SourceKey:          rec.SourceKey.String(),
-		IdentityVersion:    rec.SourceKey.IdentityVersion,
-		PayloadVersion:     rec.PayloadVersion,
-		Kind:               string(rec.Kind),
-		State:              string(rec.State),
-		ProviderID:         rec.ProviderID,
-		RequestID:          rec.Lifecycle.RequestID,
-		AttemptID:          rec.Lifecycle.AttemptID,
-		TraceID:            rec.Lifecycle.TraceID,
-		GenerationID:       rec.Versions.GenerationID,
-		BoundProviderID:    rec.Versions.ProviderID,
-		RatingID:           rec.Versions.RatingID,
-		FactID:             rec.FactID,
-		LeaseSetID:         rec.LeaseSetID,
-		PayloadJSON:        string(payload),
-		Attempts:           rec.Attempts,
-		NextRetryAtUnix:    timeUnixNano(rec.NextRetryAt),
-		ClaimOwnerID:       rec.Lease.OwnerID,
-		ClaimExpiresAtUnix: timeUnixNano(rec.Lease.ExpiresAt),
-		ErrorCode:          rec.Error.Code,
-		ErrorPermanent:     rec.Error.Permanent,
-		ErrorMessage:       rec.Error.Message,
-		CreatedAtUnix:      timeUnixNano(rec.CreatedAt),
-		UpdatedAtUnix:      timeUnixNano(rec.UpdatedAt),
+		StoreID:             storeID,
+		WorkID:              rec.WorkID,
+		SourceKey:           rec.SourceKey.String(),
+		IdentityVersion:     rec.SourceKey.IdentityVersion,
+		PayloadVersion:      rec.PayloadVersion,
+		Kind:                string(rec.Kind),
+		State:               string(rec.State),
+		ProviderID:          rec.ProviderID,
+		RequestID:           rec.Lifecycle.RequestID,
+		AttemptID:           rec.Lifecycle.AttemptID,
+		TraceID:             rec.Lifecycle.TraceID,
+		GenerationID:        rec.Versions.GenerationID,
+		RuntimeInstanceID:   rec.Versions.RuntimeInstanceID,
+		RuntimeGenerationID: rec.Versions.RuntimeGenerationID,
+		BoundProviderID:     rec.Versions.ProviderID,
+		RatingID:            rec.Versions.RatingID,
+		FactID:              rec.FactID,
+		LeaseSetID:          rec.LeaseSetID,
+		PayloadJSON:         string(payload),
+		Attempts:            rec.Attempts,
+		NextRetryAtUnix:     timeUnixNano(rec.NextRetryAt),
+		ClaimOwnerID:        rec.Lease.OwnerID,
+		ClaimExpiresAtUnix:  timeUnixNano(rec.Lease.ExpiresAt),
+		ErrorCode:           rec.Error.Code,
+		ErrorPermanent:      rec.Error.Permanent,
+		ErrorMessage:        rec.Error.Message,
+		CreatedAtUnix:       timeUnixNano(rec.CreatedAt),
+		UpdatedAtUnix:       timeUnixNano(rec.UpdatedAt),
 	}
 }
 
@@ -91,9 +95,11 @@ func rowToRecord(row workRow) (terminalwork.WorkRecord, error) {
 			TraceID:   row.TraceID,
 		},
 		Versions: terminalwork.BoundVersions{
-			GenerationID: row.GenerationID,
-			ProviderID:   row.BoundProviderID,
-			RatingID:     row.RatingID,
+			GenerationID:        row.GenerationID,
+			RuntimeInstanceID:   row.RuntimeInstanceID,
+			RuntimeGenerationID: row.RuntimeGenerationID,
+			ProviderID:          row.BoundProviderID,
+			RatingID:            row.RatingID,
 		},
 		Payload:     []byte(row.PayloadJSON),
 		FactID:      row.FactID,

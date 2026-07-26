@@ -446,6 +446,8 @@ func (e *Executor) openPlannedCandidate(
 		return zero, fmt.Errorf("executor: %w", err)
 	}
 
+	// Clamp preview (V-15): converge non-widening clamps without holds, then
+	// freeze/count/persist the final call and AdmitAttempt once.
 	previewedClamps, previewRan, perr := e.previewAndApplyAttemptClamps(p.ctx, &openCall, c, p.aLegID, bleg.BLegID)
 	if perr != nil {
 		p.budget.release()
@@ -613,7 +615,7 @@ func (e *Executor) openPlannedCandidate(
 	// Mark call-path identity for approved B-leg httpidentity transports (passthrough).
 	openCtx = identity.WithClientUserAgent(openCtx, wireCall.Invocation.ClientUserAgent)
 	stream, err := safety.CallValue(safety.BoundaryBackend, "backend_open", func() (lipapi.ManagedEventStream, error) {
-		return be.Open(openCtx, wireCall, c)
+		return be.Open(openCtx, wireCall, routing.BackendFacingCandidate(c))
 	})
 	openDur := time.Since(openStart).Seconds()
 	if err != nil {

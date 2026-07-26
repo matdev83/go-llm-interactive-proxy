@@ -124,4 +124,16 @@ Normative completion gates for dual-plane metering / authority / concurrency (re
 | Architecture | Enterprise module stays public-only | `go test ./internal/archtest/ -run EnterpriseModule` |
 | Migration / rollout / rollback (11.x, 7.4) | Ordering, local vs distributed posture, terminal-work drain, open-core | [dual-plane-migration-rollout.md](dual-plane-migration-rollout.md); `go test ./internal/qa/ -run TestPhase74_` |
 
+## Versioned runtime config reload
+
+Operator contract: [runtime-config-reload.md](runtime-config-reload.md). ADR: [adr/0008-versioned-runtime-config-reload.md](adr/0008-versioned-runtime-config-reload.md). Spec: `.kiro/specs/versioned-runtime-reloadable-proxy-configuration/`.
+
+| Gate | Criterion | Command / evidence |
+|------|-----------|-------------------|
+| Docs / examples | Operator guide and dogfood `check-config` stay green | `go test ./cmd/lipstd/... ./internal/qa/... -run 'ConfigExample\|Docs\|Reload'`; `go run ./cmd/lipstd check-config --config config/examples/dogfood-local-stub.yaml` |
+| Ownership / no watcher | Reload ownership gates; no filesystem watcher package | `go test ./internal/archtest/... -run 'Reload\|Ownership'` |
+| Management / signal | SIGHUP + opt-in `LIP_RELOAD_MANAGEMENT_ADDRESS` contracts | `go test ./cmd/lipstd/... ./internal/stdhttp/admin/configreload/... -run 'Reload\|Management\|SIGHUP\|Signal'` |
+| Source integrity | Atomic rename / non-atomic reject / size / strict YAML | `go test ./internal/infra/configsource/... ./internal/core/config/... -run 'FixedSource\|Strict\|NonAtomic\|Oversize'` |
+| Last-good / restart-required | Pre-publication failures leave active generation unchanged | `go test ./internal/core/configreload/... ./internal/infra/runtimehost/... -run 'RestartRequired\|LastGood\|Retention\|Rollback'` |
+
 Do **not** claim Windows race-green without Linux evidence (local or nightly CI). Do **not** claim PostgreSQL green without a recorded `LIP_TEST_POSTGRES_DSN` run. Do **not** treat `make parity-checks` as dual-plane checkpoint proof; that proof is the shared executor checkpoint test above.

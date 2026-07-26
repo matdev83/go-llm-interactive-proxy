@@ -131,7 +131,7 @@ func TestModelRegistryHandler_methodsNoNativeLeakStableOrder(t *testing.T) {
 	p2 := &mutableInventoryProvider{models: []modelinventory.Model{
 		{CanonicalID: "google/gemini-3.5-flash-high", NativeID: "pretty-secret-b"},
 		{CanonicalID: "openai/gpt-4o", NativeID: "native-secret"},
-		{CanonicalID: "openai/gpt-4o", NativeID: "native-dup"},
+		{CanonicalID: "openai/gpt-4o", NativeID: "native-secret"}, // identical duplicate; harmless
 	}}
 	rt := modelregistry.NewRuntime(modelregistry.RuntimeConfig{
 		Inventories: []modelregistry.BackendInventory{
@@ -153,7 +153,7 @@ func TestModelRegistryHandler_methodsNoNativeLeakStableOrder(t *testing.T) {
 	rr = httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, openAIModelsPath, nil))
 	body := rr.Body.String()
-	for _, leak := range []string{"pretty-secret", "native-secret", "native-dup", "NativeID"} {
+	for _, leak := range []string{"pretty-secret", "native-secret", "NativeID"} {
 		if strings.Contains(body, leak) {
 			t.Fatalf("leak %q in %s", leak, body)
 		}

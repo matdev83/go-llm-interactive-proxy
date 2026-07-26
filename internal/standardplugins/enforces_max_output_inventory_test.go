@@ -55,8 +55,6 @@ func standardBackendEnforcesMaxOutput(id string) (bool, bool) {
 	case "openai-responses", "openai-legacy", "anthropic", "gemini", "bedrock",
 		CustomOpenAILegacyCompatibleID, CustomOpenAIResponsesCompatibleID, CustomAnthropicCompatibleID:
 		return true, true
-	case "local-stub":
-		return false, true
 	default:
 		return false, false
 	}

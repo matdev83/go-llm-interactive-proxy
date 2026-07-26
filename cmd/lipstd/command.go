@@ -8,9 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
@@ -18,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/dbmigrate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 )
 
@@ -270,7 +269,7 @@ func parseBoolFlag(name, raw string) (bool, error) {
 }
 
 func runServeCommand(ctx context.Context, opts CommandOptions) int {
-	if err := validateServeMultiUserGate(opts.ConfigPath, opts.MultiUser); err != nil {
+	if err := validateServeMultiUserGate(ctx, opts.ConfigPath, opts.MultiUser, opts.StreamRecovery); err != nil {
 		if errors.Is(err, accessmode.ErrMultiUserFlagRequired) || errors.Is(err, accessmode.ErrMultiUserFlagInconsistent) {
 			_, _ = fmt.Fprintf(opts.ErrorOut, "lipstd: %v\n", err)
 			return 2
@@ -278,12 +277,14 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
 		return 1
 	}
+	compose := stdhttp.ComposeRequestPlane
 	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
 		ConfigPath:              opts.ConfigPath,
 		Mode:                    runtimebundle.BootstrapServe,
 		Mandatory:               mandatoryStandardPlugins(),
 		LogWriter:               opts.Output,
 		StreamRecoveryOverrides: opts.StreamRecovery,
+		HandlerComposer:         compose,
 	})
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
@@ -291,12 +292,33 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 	}
 	defer func() { deferBootstrapTracingShutdown(ctx, &res) }()
 	if err := logBootstrapAccessAuth(ctx, res.Logger, res.Config); err != nil {
-		res.Logger.ErrorContext(ctx, "lipstd: bootstrap access/auth", "error", err)
+		cleanupErr := serveStartupRollback(ctx, &res, nil, nil)
+		res.Logger.ErrorContext(ctx, "lipstd: bootstrap access/auth", "error", errors.Join(err, cleanupErr))
 		return 1
 	}
-	sigCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	host, err := runtimebundle.AttachReloadHost(ctx, res, opts.ConfigPath, compose)
+	if err != nil {
+		cleanupErr := serveStartupRollback(ctx, &res, nil, nil)
+		res.Logger.ErrorContext(ctx, "lipstd: reload host", "error", errors.Join(err, cleanupErr))
+		return 1
+	}
+	mgmt, err := startManagementServer(ctx, res, host.Coordinator)
+	if err != nil {
+		cleanupErr := serveStartupRollback(ctx, &res, host, nil)
+		res.Logger.ErrorContext(ctx, "lipstd: management server", "error", errors.Join(err, cleanupErr))
+		return 1
+	}
+	// INT/TERM shut down the server; SIGHUP delivers to the real coordinator (never nil).
+	sigCtx, stop := startServeSignalHandling(ctx, host.Coordinator)
 	defer stop()
-	if err := stdhttp.RunWithRuntime(sigCtx, res.Config, res.App, res.Logger, res.Built); err != nil {
+	if err := stdhttp.RunWithGenerationHost(sigCtx, stdhttp.GenerationHostInput{
+		Config:      res.Config,
+		Log:         res.Logger,
+		Manager:     res.GenerationManager,
+		Process:     res.ProcessServices,
+		Coordinator: host.Coordinator,
+		Management:  mgmt,
+	}); err != nil {
 		res.Logger.ErrorContext(sigCtx, "server stopped", "error", err)
 		return 1
 	}
@@ -305,16 +327,16 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 
 // validateServeMultiUserGate enforces the --multi-user CLI flag consistency
 // against access.mode for serve mode. It is a CLI-layer concern: it loads the
-// config, resolves the effective access mode, and applies
-// [accessmode.ValidateServeModeGate] before heavy runtime assembly in
-// [runtimebundle.BuildBootstrap]. Runtime posture/security validation
-// (backend access scopes, credential modes) stays in runtimebundle.Build.
-func validateServeMultiUserGate(configPath string, multiUserFlag *bool) error {
-	cfg, err := config.LoadFile(configPath)
+// config through the shared strict effective pipeline, resolves the effective
+// access mode, and applies [accessmode.ValidateServeModeGate] before heavy
+// runtime assembly in [runtimebundle.BuildBootstrap]. Runtime posture/security
+// validation (backend access scopes, credential modes) stays in runtimebundle.Build.
+func validateServeMultiUserGate(ctx context.Context, configPath string, multiUserFlag *bool, streamOverrides config.StreamRecoveryOverrides) error {
+	eff, err := runtimebundle.LoadBootstrapEffective(ctx, configPath, streamOverrides)
 	if err != nil {
 		return err
 	}
-	mode, err := cfg.EffectiveAccessMode()
+	mode, err := eff.Config.EffectiveAccessMode()
 	if err != nil {
 		return fmt.Errorf("bootstrap access/auth: %w", err)
 	}
@@ -322,12 +344,28 @@ func validateServeMultiUserGate(configPath string, multiUserFlag *bool) error {
 }
 
 func runCheckConfigCommand(ctx context.Context, opts CommandOptions) int {
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{ConfigPath: opts.ConfigPath, Mode: runtimebundle.BootstrapInspect, Mandatory: mandatoryStandardPlugins(), LogWriter: io.Discard, StreamRecoveryOverrides: opts.StreamRecovery})
+	compose := stdhttp.ComposeRequestPlane
+	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
+		ConfigPath:              opts.ConfigPath,
+		Mode:                    runtimebundle.BootstrapServe,
+		Mandatory:               mandatoryStandardPlugins(),
+		LogWriter:               io.Discard,
+		StreamRecoveryOverrides: opts.StreamRecovery,
+		HandlerComposer:         compose,
+	})
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "configuration invalid: %v\n", err)
 		return 1
 	}
 	defer func() { deferBootstrapTracingShutdown(ctx, &res) }()
+	// check-config uses the same CompileGeneration path as serve/reload, then
+	// rolls back without listening (design ValidationDryRun).
+	if res.GenerationManager != nil {
+		_ = res.GenerationManager.ShutdownDetached(context.WithoutCancel(ctx), runtimehost.NewLifecycleWorker())
+	}
+	if res.ProcessServices != nil {
+		_ = res.ProcessServices.Close()
+	}
 	_, _ = fmt.Fprintln(opts.Output, "configuration is valid")
 	return 0
 }

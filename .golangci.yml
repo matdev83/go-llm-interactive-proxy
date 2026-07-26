@@ -37,6 +37,16 @@ linters:
       - path: ^(cmd/lipstd|internal/(core/(config|runtime)|infra/(db|dbmigrate|metering/journalstore|metrics|runtimebundle)|testkit)|pkg/lipsdk/metering)/.*_test\.go$
         linters:
           - paralleltest
+      # Cursor SDK bridge/process/pool lifecycle tests share fakebridge and process state.
+      - path: ^internal/plugins/backends/cursorsdk/.*_test\.go$
+        linters:
+          - paralleltest
+      - path: ^internal/standardplugins/(backends_cursor_sdk_test|cursorsdk_composed_route_test)\.go$
+        linters:
+          - paralleltest
+      - path: ^internal/stdhttp/cursorsdk_composed_integration_test\.go$
+        linters:
+          - paralleltest
       # JSON wire-shape changes need contract review, not bulk lint autofixes.
       - text: "Omitempty has no effect on nested struct fields"
         linters:

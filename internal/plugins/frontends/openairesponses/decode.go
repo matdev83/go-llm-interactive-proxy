@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openaiwire"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/openrouterwire"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/protocols/openairesponsesitem"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -285,55 +286,18 @@ func parseInputItem(raw json.RawMessage) (lipapi.Message, error) {
 }
 
 func parseReasoningInputItem(raw json.RawMessage) (lipapi.Message, error) {
-	var wire struct {
-		ID               string          `json:"id"`
-		Summary          json.RawMessage `json:"summary"`
-		Content          json.RawMessage `json:"content"`
-		EncryptedContent string          `json:"encrypted_content"`
-	}
-	if err := json.Unmarshal(raw, &wire); err != nil {
-		return lipapi.Message{}, fmt.Errorf("openairesponses: reasoning input json: %w", err)
-	}
-	if jsonpresence.IsPresentNonNullJSON(wire.Summary) {
-		if err := frontendlimits.Bytes("reasoning.summary", len(wire.Summary), frontendlimits.MaxRawJSONPayload); err != nil {
-			return lipapi.Message{}, err
-		}
-	}
-	if jsonpresence.IsPresentNonNullJSON(wire.Content) {
-		if err := frontendlimits.Bytes("reasoning.content", len(wire.Content), frontendlimits.MaxRawJSONPayload); err != nil {
-			return lipapi.Message{}, err
-		}
-	}
-	if enc := strings.TrimSpace(wire.EncryptedContent); enc != "" {
-		if err := frontendlimits.StringBytes("reasoning.encrypted_content", enc, frontendlimits.MaxRawJSONPayload); err != nil {
-			return lipapi.Message{}, err
-		}
-	}
-	opaquePayload := struct {
-		ID               string          `json:"id,omitempty"`
-		Summary          json.RawMessage `json:"summary,omitempty"`
-		Content          json.RawMessage `json:"content,omitempty"`
-		EncryptedContent string          `json:"encrypted_content,omitempty"`
-	}{
-		ID:               strings.TrimSpace(wire.ID),
-		EncryptedContent: strings.TrimSpace(wire.EncryptedContent),
-	}
-	if jsonpresence.IsPresentNonNullJSON(wire.Summary) {
-		opaquePayload.Summary = append(json.RawMessage(nil), wire.Summary...)
-	}
-	if jsonpresence.IsPresentNonNullJSON(wire.Content) {
-		opaquePayload.Content = append(json.RawMessage(nil), wire.Content...)
-	}
-	opaque, err := json.Marshal(opaquePayload)
-	if err != nil {
-		return lipapi.Message{}, fmt.Errorf("openairesponses: reasoning opaque: %w", err)
-	}
-	if err := frontendlimits.Bytes("reasoning.opaque", len(opaque), lipapi.MaxReasoningOpaqueBytes); err != nil {
+	if err := frontendlimits.Bytes("reasoning", len(raw), lipapi.MaxReasoningOpaqueBytes); err != nil {
 		return lipapi.Message{}, err
 	}
-	text := reasoningSummaryText(wire.Summary)
-	if text == "" && opaquePayload.EncryptedContent == "" && len(opaquePayload.Content) == 0 {
-		return lipapi.Message{}, errors.New("openairesponses: reasoning input item requires summary, content, or encrypted_content")
+	canon, err := openairesponsesitem.CanonizeReasoningItemOpaque(raw)
+	if err != nil {
+		return lipapi.Message{}, err
+	}
+	var wire struct {
+		Summary json.RawMessage `json:"summary"`
+	}
+	if err := json.Unmarshal(canon, &wire); err != nil {
+		return lipapi.Message{}, fmt.Errorf("openairesponses: invalid reasoning item")
 	}
 	return lipapi.Message{
 		Role: lipapi.RoleAssistant,
@@ -341,8 +305,8 @@ func parseReasoningInputItem(raw json.RawMessage) (lipapi.Message, error) {
 			Kind: lipapi.PartReasoning,
 			Reasoning: &lipapi.ReasoningPart{
 				Dialect: lipapi.ReasoningDialectOpenAIResponsesItemV1,
-				Text:    text,
-				Opaque:  opaque,
+				Text:    reasoningSummaryText(wire.Summary),
+				Opaque:  append(json.RawMessage(nil), canon...),
 			},
 		}},
 	}, nil

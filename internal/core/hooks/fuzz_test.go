@@ -44,6 +44,7 @@ func eventFromFuzzBytes(b []byte) *lipapi.Event {
 		lipapi.EventReasoningDelta,
 		lipapi.EventReasoningSignatureDelta,
 		lipapi.EventReasoningOpaqueDelta,
+		lipapi.EventReasoningPart,
 		lipapi.EventToolCallStarted,
 		lipapi.EventToolCallArgsDelta,
 		lipapi.EventToolCallFinished,

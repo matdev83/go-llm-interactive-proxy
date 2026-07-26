@@ -68,6 +68,33 @@ func (r *Registry) registerLifecycleBackendWithSource(id string, fn LifecycleBac
 	}
 	r.backendProfiles[id] = profile
 	r.backendSources[id] = source
+	if source == BackendSourceDiscovered {
+		r.discovered[id] = struct{}{}
+		// Default to overlap-safe; InstallDiscoveredExports may tighten for
+		// shared-process exclusive models via SetBackendReloadPolicy.
+		if _, ok := r.reloadPolicies[id]; !ok {
+			r.reloadPolicies[id] = BackendReloadPolicy{AllowsCandidateOverlap: true}
+		}
+	}
+	return nil
+}
+
+// SetBackendReloadPolicy updates reload/overlap policy for an already-registered factory.
+func (r *Registry) SetBackendReloadPolicy(factoryID string, policy BackendReloadPolicy) error {
+	if r == nil {
+		return fmt.Errorf("pluginreg: nil registry")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureMaps()
+	factoryID = strings.TrimSpace(factoryID)
+	if factoryID == "" {
+		return fmt.Errorf("pluginreg: SetBackendReloadPolicy: empty id")
+	}
+	if _, ok := r.backends[factoryID]; !ok {
+		return fmt.Errorf("pluginreg: SetBackendReloadPolicy: unknown backend %q", factoryID)
+	}
+	r.reloadPolicies[factoryID] = policy
 	return nil
 }
 

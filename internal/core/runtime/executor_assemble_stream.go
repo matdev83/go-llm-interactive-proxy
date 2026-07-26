@@ -44,6 +44,7 @@ func (e *Executor) assembleExecutorStream(prep *preparedRequest, plan *routePlan
 		requestTerm:   newStreamTerminal(sdkterminal.ScopeRequest),
 		attemptTerm:   newStreamTerminal(sdkterminal.ScopeAttempt),
 	}
+	captureBoundModelViews(prep.ctx, rs)
 	rs.storeInner(out.stream)
 	if err := rs.openFinalStreamObservation(prep.ctx); err != nil {
 		if out.stream != nil {
