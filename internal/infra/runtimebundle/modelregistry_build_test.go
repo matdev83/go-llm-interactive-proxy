@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -16,14 +15,12 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	refvllm "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/vllm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"gopkg.in/yaml.v3"
@@ -45,7 +42,7 @@ func TestBuild_requiresModelInventoryForEnabledBackends(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := runtimebundle.Build(modelRegistryTestConfig("test-no-inventory"), hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, _, err := processAndCandidateErr(t, modelRegistryTestConfig("test-no-inventory"), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
 	if !errors.Is(err, modelregistry.ErrMissingProvider) {
@@ -72,16 +69,13 @@ func TestBuild_exposesModelRegistryForFastLookup(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	b, err := runtimebundle.Build(modelRegistryTestConfig("test-inventory"), hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, modelRegistryTestConfig("test-inventory"), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b.ModelRegistry == nil {
+	if b.ModelRegistry() == nil {
 		t.Fatal("ModelRegistry is nil")
 	}
-	got, ok := b.ModelRegistry.Lookup("openai/gpt-4o")
+	got, ok := b.ModelRegistry().Lookup("openai/gpt-4o")
 	if !ok {
 		t.Fatal("Lookup(openai/gpt-4o) ok = false")
 	}
@@ -108,15 +102,12 @@ discovery:
   catalog: false
 `)
 
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	t.Cleanup(closeModelRegistryBuilt(t, b))
 
-	got, ok := b.ModelRegistry.Lookup("meta-llama/Llama-3-8B-Instruct")
+	got, ok := b.ModelRegistry().Lookup("meta-llama/Llama-3-8B-Instruct")
 	if !ok {
 		t.Fatal("Lookup(meta-llama/Llama-3-8B-Instruct) ok = false")
 	}
@@ -158,22 +149,19 @@ func TestBuild_modelRegistryLoadsCacheWithoutRemoteInventoryCall(t *testing.T) {
 
 	cfg := modelRegistryTestConfig("test-inventory")
 	cfg.ModelInventory.CachePath = cachePath
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	t.Cleanup(closeModelRegistryBuilt(t, b))
 
 	if provider.Calls() != 0 {
 		t.Fatalf("provider calls = %d, want 0", provider.Calls())
 	}
-	got, ok := b.ModelRegistry.Lookup("openai/gpt-cached")
+	got, ok := b.ModelRegistry().Lookup("openai/gpt-cached")
 	if !ok || len(got) != 1 || got[0].BackendID != "test-backend" {
 		t.Fatalf("cached lookup = %+v, %v", got, ok)
 	}
-	if b.ModelRegistryRuntime == nil {
+	if runtimebundle.CandidateModelRegistryRuntime(b) == nil {
 		t.Fatal("ModelRegistryRuntime is nil")
 	}
 }
@@ -202,12 +190,9 @@ func TestBuild_modelRegistryColdStartSavesCache(t *testing.T) {
 
 	cfg := modelRegistryTestConfig("test-inventory")
 	cfg.ModelInventory.CachePath = cachePath
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	t.Cleanup(closeModelRegistryBuilt(t, b))
 
 	if provider.Calls() != 1 {
@@ -260,17 +245,14 @@ func TestBuild_modelRegistryColdStartInvalidInventoryOmitsBackend(t *testing.T) 
 		ID:      "test-backend-bad",
 		Enabled: true,
 	})
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatalf("Build() error = %v, want fail-soft success", err)
-	}
 	t.Cleanup(closeModelRegistryBuilt(t, b))
-	if got := b.ModelRegistry.All(); len(got) != 1 || got[0].BackendID != "test-backend" {
+	if got := b.ModelRegistry().All(); len(got) != 1 || got[0].BackendID != "test-backend" {
 		t.Fatalf("All() = %+v, want only good backend", got)
 	}
-	diag := b.ModelRegistryRuntime.Diagnostics()
+	diag := runtimebundle.CandidateModelRegistryRuntime(b).Diagnostics()
 	byID := map[string]modelregistry.BackendDiscovery{}
 	for _, d := range diag.BackendDiscoveries {
 		byID[d.BackendID] = d
@@ -311,17 +293,14 @@ func TestBuild_modelRegistryColdStartAllUnavailablePublishesEmptyRegistry(t *tes
 
 	cfg := modelRegistryTestConfig("test-inventory")
 	cfg.ModelInventory.CachePath = filepath.Join(t.TempDir(), "missing.json")
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatalf("Build() error = %v, want empty registry success", err)
-	}
 	t.Cleanup(closeModelRegistryBuilt(t, b))
-	if got := b.ModelRegistry.All(); len(got) != 0 {
+	if got := b.ModelRegistry().All(); len(got) != 0 {
 		t.Fatalf("All() len = %d, want 0", len(got))
 	}
-	diag := b.ModelRegistryRuntime.Diagnostics()
+	diag := runtimebundle.CandidateModelRegistryRuntime(b).Diagnostics()
 	if len(diag.BackendDiscoveries) != 1 {
 		t.Fatalf("BackendDiscoveries len = %d", len(diag.BackendDiscoveries))
 	}
@@ -349,14 +328,11 @@ func TestBuild_modelRegistryStaticInventoryDoesNotStartRefreshCloser(t *testing.
 	}); err != nil {
 		t.Fatal(err)
 	}
-	b, err := runtimebundle.Build(modelRegistryTestConfig("test-inventory"), hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, modelRegistryTestConfig("test-inventory"), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(b.Closers) != 1 {
-		t.Fatalf("closers = %d, want 1 upstream-idle closer for disabled model catalog with static inventory", len(b.Closers))
+	if b.Ledger().Len() != 1 {
+		t.Fatalf("closers = %d, want 1 upstream-idle closer for disabled model catalog with static inventory", b.Ledger().Len())
 	}
 	closeRuntimeBuilt(t, b)
 }
@@ -394,23 +370,20 @@ func TestBuild_modelRegistryErrorProviderWithCacheDoesNotStartRefreshCloser(t *t
 
 	cfg := modelRegistryTestConfig("test-error-inventory")
 	cfg.ModelInventory.CachePath = cachePath
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(b.Closers) != 1 {
-		t.Fatalf("closers = %d, want 1 upstream-idle closer for disabled model catalog with cached model registry", len(b.Closers))
+	if b.Ledger().Len() != 1 {
+		t.Fatalf("closers = %d, want 1 upstream-idle closer for disabled model catalog with cached model registry", b.Ledger().Len())
 	}
 	defer closeRuntimeBuilt(t, b)
-	if b.ModelRegistryRuntime == nil {
+	if runtimebundle.CandidateModelRegistryRuntime(b) == nil {
 		t.Fatal("ModelRegistryRuntime is nil")
 	}
-	if b.ModelRegistryRuntime.LastRefreshFailure() != modelregistry.RefreshFailureNone {
-		t.Fatalf("LastRefreshFailure = %q, want none", b.ModelRegistryRuntime.LastRefreshFailure())
+	if runtimebundle.CandidateModelRegistryRuntime(b).LastRefreshFailure() != modelregistry.RefreshFailureNone {
+		t.Fatalf("LastRefreshFailure = %q, want none", runtimebundle.CandidateModelRegistryRuntime(b).LastRefreshFailure())
 	}
-	got, ok := b.ModelRegistry.Lookup("openai/gpt-cached")
+	got, ok := b.ModelRegistry().Lookup("openai/gpt-cached")
 	if !ok || len(got) != 1 || got[0].BackendID != "test-backend" {
 		t.Fatalf("cached lookup = %+v, %v", got, ok)
 	}
@@ -435,14 +408,11 @@ func TestBuild_modelRegistryFetchTimeoutAppliesPerBackend(t *testing.T) {
 		Enabled: true,
 	})
 
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	t.Cleanup(closeModelRegistryBuilt(t, b))
-	if got := b.ModelRegistry.All(); len(got) != 2 {
+	if got := b.ModelRegistry().All(); len(got) != 2 {
 		t.Fatalf("model registry count = %d, want 2", len(got))
 	}
 }
@@ -497,13 +467,14 @@ func readModelRegistryCache(t *testing.T, path string) modelregistry.Snapshot {
 	return snap
 }
 
-func closeModelRegistryBuilt(t *testing.T, b *runtimebundle.Built) func() {
+func closeModelRegistryBuilt(t *testing.T, b *runtimebundle.CandidateHTTPCompile) func() {
 	t.Helper()
 	return func() {
-		for _, v := range slices.Backward(b.Closers) {
-			if err := v(); err != nil {
-				t.Fatalf("closer: %v", err)
-			}
+		if b == nil {
+			return
+		}
+		if err := b.Close(); err != nil {
+			t.Fatalf("close: %v", err)
 		}
 	}
 }

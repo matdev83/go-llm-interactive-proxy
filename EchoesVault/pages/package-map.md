@@ -14,7 +14,7 @@ status: active
 | Package | Responsibility |
 |---|---|
 | `pkg/lipapi/` | Canonical request, event, capability, validation, error contracts. Protocol-neutral stable surface. |
-| `pkg/lipsdk/` | Plugin registration, frontend/backend/hook interfaces, SDK facades for session, workspace, shaping, tools, traffic, usage, model inventory, continuity. |
+| `pkg/lipsdk/` | Plugin registration, frontend/backend/hook interfaces, SDK facades for session, workspace, shaping, tools, traffic, usage, model inventory, continuity; **`configreload/`** is the one reload contract. |
 
 ## Internal Core Runtime (`internal/core/`)
 
@@ -67,8 +67,8 @@ status: active
 | `internal/pluginreg/` | Explicit registry: `NewRegistry`, `RegisterBackend`/`RegisterFrontend`/`RegisterFeature`, `BuildBackend`/`BuildFeatureBundle`, `ValidateBundledFactories`, `EffectiveAPIKeys` |
 | `internal/standardplugins/` | Standard distribution: `InstallStandardBundleOn`, standard frontend/backend/feature tables, per-backend factory helpers, `ResolveUpstreamAPIKeysFromEnv`, `DefaultWireModel` |
 | `internal/featurebundle/` | Feature merge surface: `MergeFeatureSurface` (SDK hook slices only; no `internal/core/hooks`) |
-| `internal/infra/runtimebundle/` | Composes `Built` from config + registrations: executor, stores, HTTP client, health, model, accounting; owns `BuildFeatureHooks` / `hooks.New` |
-| `internal/stdhttp/` | HTTP mounting, auth/principal, security guard, recovery, diagnostics, access logs, `Run`/`RunWithRuntime` |
+| `internal/infra/runtimebundle/` | `BuildHost` returns one process-owned `Host`: process runtime + immutable `GenerationRuntime` generations, feature hooks (`BuildFeatureHooks` / `hooks.New`), reload coordinator binding; **`Host.Close`** is the sole process shutdown coordinator |
+| `internal/stdhttp/` | HTTP mounting, auth/principal, security guard, recovery, diagnostics, access logs, generation-dispatcher serve (Host-owned lifecycle) |
 
 ## Plugin Packages
 
@@ -122,7 +122,7 @@ status: active
 | `osidentity/` | OS identity checks |
 | `extensiontrace/` | Extension tracing helpers |
 | `controlplane/` | Control plane infrastructure |
-| `runtimebundle/` | Runtime assembly from config |
+| `runtimebundle/` | `BuildHost` / Host / GenerationRuntime assembly from config |
 | `usageauthority/configsource/` | Immutable validated authority rule snapshots with source freshness |
 | `usageauthority/authoritystore/` | Clone-based memory store, Bun durable transaction adapter, live windows, reservations, decisions, and mutation log |
 | `usageauthority/evidencesink/` | Policydecision/control-plane authority evidence adapter |

@@ -118,7 +118,7 @@ func buildEnabledFeatureBundles(reg *pluginreg.Registry, registrations []lipsdk.
 // MergeFeatureSurface merges enabled feature plugins into SDK hook slices plus extension surfaces.
 // It calls reg.BuildFeatureBundle for each enabled feature plugin and concatenates the results.
 // Secrets-guard uniqueness is enforced at the runtimebundle composition root
-// ([BuildBootstrap] / [buildSecretGuardRuntime]), not in this generic merge helper.
+// ([runtimebundle.BuildHost] / [buildSecretGuardRuntime]), not in this generic merge helper.
 func MergeFeatureSurface(reg *pluginreg.Registry, registrations []lipsdk.Registration) (MergedFeatureSurface, error) {
 	bundles, err := buildEnabledFeatureBundles(reg, registrations)
 	if err != nil {

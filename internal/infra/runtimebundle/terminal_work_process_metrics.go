@@ -30,9 +30,7 @@ func (o *terminalWorkProcessObserver) RefreshAfterBatch(ctx context.Context) {
 	if o == nil || o.metrics == nil || o.prom == nil {
 		return
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = ctxOrBackground(ctx)
 	snap, err := o.metrics.Snapshot(ctx)
 	if err != nil {
 		return

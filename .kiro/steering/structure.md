@@ -27,6 +27,7 @@ Around the core and plugins sit explicit **standard distribution** packages (`in
 - frontend/backend/hook interfaces
 - feature SDK facades for auth, session, workspace, request shaping, route hints, tools, completion gates, auxiliary calls, state, traffic, usage, model inventory, and continuity
 - `secretguard/` — opaque ingress secret-guard contracts (`Guard`, `Matcher`, `MatcherResolver`, `DecisionEvent`)
+- `configreload/` (`pkg/lipsdk/configreload`) — dependency-neutral secret-safe reload contract (`Trigger`, `Result`, `Status`, `HistoryEntry`, closed categories; no paths/credentials/YAML). This is the **one reload contract**; process Host construction via `runtimebundle.BuildHost` and `Host.Close` live under `internal/infra/runtimebundle` / `runtimehost`.
 - plugin metadata, factory inputs, and standard distribution requirements
 - no core implementation details
 
@@ -67,10 +68,12 @@ Core rules:
 - feature merge surface: `MergeFeatureSurface` merges SDK hook slices and extension contributions from configured features (no `internal/core/hooks` import)
 
 `internal/infra/runtimebundle/`
-- composes a runnable `Built` from config + registrations: executor, continuity and secure-session stores, shared upstream HTTP client, health/observer seams, model/catalog support, token accounting, and security policy checks
+- process Host construction via `runtimebundle.BuildHost`: one process runtime, immutable `GenerationRuntime` generations, reload coordinator binding, and `Host.Close` as the sole process shutdown coordinator
+- composes generation-owned request-plane services from config + registrations: executor, continuity and secure-session views, shared upstream HTTP client, health/observer seams, model/catalog support, token accounting, and security policy checks
+- owns `BuildFeatureHooks` / `hooks.New`
 
 `internal/stdhttp/`
-- standard HTTP surface: route mounting, transport auth/principal attachment, security guard, recovery, diagnostics, model-catalog status, access logs, `Run` / `RunWithRuntime` entrypoints consumed by `cmd/lipstd`
+- standard HTTP surface: route mounting, transport auth/principal attachment, security guard, recovery, diagnostics, model-catalog status, access logs, and generation-dispatcher serve entrypoints consumed by `cmd/lipstd` (Host-owned lifecycle; no separate `Built` / deleted attachment serve path)
 
 ### 3. Official frontend plugins
 

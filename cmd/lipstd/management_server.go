@@ -3,15 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 // reloadManagementTokenEnv is the dedicated startup-fixed bearer source for the
@@ -90,21 +90,22 @@ func resolveManagementOptions(cfg *config.Config) (mgmtreload.Options, bool, err
 // shared reload coordinator using startup-fixed options (task 5.6 / req 12.x).
 // It returns (nil, nil) when management is not explicitly enabled, or when a
 // required dedicated bearer is absent, so ordinary data-plane serve continues.
-func startManagementServer(ctx context.Context, res runtimebundle.BootstrapResult, coord interface {
-	Reload(context.Context, configreload.ReloadTrigger) configreload.ReloadResult
-	Status() configreload.ReloadStatus
+func startManagementServer(ctx context.Context, cfg *config.Config, log *slog.Logger, coord interface {
+	Reload(context.Context, sdkreload.Trigger) sdkreload.Result
+	Status() sdkreload.Status
+	FixedSourcePath() string
 },
 ) (*mgmtreload.Server, error) {
 	if coord == nil {
 		return nil, fmt.Errorf("lipstd: nil reload coordinator")
 	}
-	opts, enable, err := resolveManagementOptions(res.Config)
+	opts, enable, err := resolveManagementOptions(cfg)
 	if err != nil {
 		return nil, err
 	}
 	if !enable {
-		if res.Logger != nil {
-			res.Logger.WarnContext(ctx,
+		if log != nil {
+			log.WarnContext(ctx,
 				"management reload API disabled: set "+reloadManagementAddressEnv+
 					" and, for multi_user/non-loopback, "+reloadManagementTokenEnv,
 			)
@@ -118,8 +119,8 @@ func startManagementServer(ctx context.Context, res runtimebundle.BootstrapResul
 	if err := srv.Start(ctx); err != nil {
 		return nil, err
 	}
-	if res.Logger != nil {
-		res.Logger.InfoContext(ctx, "management listening",
+	if log != nil {
+		log.InfoContext(ctx, "management listening",
 			"addr", srv.Addr(),
 			"auth_mode", string(opts.AuthMode),
 		)

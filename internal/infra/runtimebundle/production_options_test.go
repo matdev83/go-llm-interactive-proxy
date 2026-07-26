@@ -5,9 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
@@ -68,28 +66,20 @@ func TestBuild_ProductionOptionsOutsideTesting(t *testing.T) {
 		EvidenceSink:    prodEvidence{},
 		MeteringQuerier: prodQuerier{},
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
-	if built.Executor == nil || built.Executor.MeteringRecorder == nil {
+	_, built := mustProcessAndCandidate(t, cfg, opts)
+	if built.Executor() == nil || built.Executor().MeteringRecorder == nil {
 		t.Fatal("production metering must attach on executor")
 	}
-	if built.Executor.EconomicsRater == nil {
+	if built.Executor().EconomicsRater == nil {
 		t.Fatal("production rater must attach on executor")
 	}
-	if built.MeteringQuerier == nil {
+	if runtimebundle.CandidateMeteringQuerier(built) == nil {
 		t.Fatal("production metering querier must mount on Built")
 	}
-	if built.Executor.RequestCoordinator == nil || len(built.Executor.RequestCoordinator.Slots) == 0 {
+	if built.Executor().RequestCoordinator == nil || len(built.Executor().RequestCoordinator.Slots) == 0 {
 		t.Fatal("production request provider must create coordinator slots")
 	}
-	cur := built.SnapshotGeneration.Current()
+	cur := runtimebundle.CandidateSnapshotGeneration(built).Current()
 	if cur == nil || cur.Usage.Version != "prod-snap-v1" {
 		t.Fatalf("generation usage=%+v", cur)
 	}

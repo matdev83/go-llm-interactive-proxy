@@ -8,7 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/reasoninge2e"
 )
 
-// TestReasoningPreservationHTTP_DefaultOnInjection proves standard BuildBootstrap
+// TestReasoningPreservationHTTP_DefaultOnInjection proves standard BuildHost
 // injection (absent feature row) activates only via builtin catalog matchers, and
 // that explicit enabled:false remains inert for an otherwise eligible model.
 func TestReasoningPreservationHTTP_DefaultOnInjection(t *testing.T) {

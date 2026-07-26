@@ -15,10 +15,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	authoritydomain "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/usageauthority/authoritystore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/usageauthority/configsource"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	cpadmin "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/controlplane"
 	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
@@ -31,13 +31,14 @@ type authorityPageResponse[T any] struct {
 func TestAccountingAuthorityQueryNotMountedWhenDisabled(t *testing.T) {
 	t.Parallel()
 	cfg := authorityHTTPConfig(false)
-	built := authorityHTTPBuilt(t, cfg)
+	in, _ := authorityHTTPInput(t, cfg)
 	app := mustRuntimeApp(t, cfg)
-	h, cleanup, err := NewStandardHandler(context.Background(), cfg, app, slog.Default(), built)
+	ctx := context.Background()
+	startTestApp(ctx, t, app)
+	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
 	if err != nil {
-		t.Fatalf("NewStandardHandler: %v", err)
+		t.Fatalf("ComposeStandardHTTP: %v", err)
 	}
-	t.Cleanup(func() { cleanup(context.Background()) })
 
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/authority/status", nil))
@@ -49,14 +50,15 @@ func TestAccountingAuthorityQueryNotMountedWhenDisabled(t *testing.T) {
 func TestAccountingAuthorityQueryMountedAndProtected(t *testing.T) {
 	t.Parallel()
 	cfg := authorityHTTPConfig(true)
-	built := authorityHTTPBuilt(t, cfg)
-	seedAuthorityDecisionHistory(t, built.UsageAuthority)
+	in, svc := authorityHTTPInput(t, cfg)
+	seedAuthorityDecisionHistory(t, svc)
 	app := mustRuntimeApp(t, cfg)
-	h, cleanup, err := NewStandardHandler(context.Background(), cfg, app, slog.Default(), built)
+	ctx := context.Background()
+	startTestApp(ctx, t, app)
+	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
 	if err != nil {
-		t.Fatalf("NewStandardHandler: %v", err)
+		t.Fatalf("ComposeStandardHTTP: %v", err)
 	}
-	t.Cleanup(func() { cleanup(context.Background()) })
 
 	missing := httptest.NewRecorder()
 	h.ServeHTTP(missing, httptest.NewRequest(http.MethodGet, "/authority/status", nil))
@@ -196,7 +198,7 @@ func authorityHTTPConfig(enabled bool) *config.Config {
 	}
 }
 
-func authorityHTTPBuilt(t *testing.T, cfg *config.Config) *runtimebundle.Built {
+func authorityHTTPInput(t *testing.T, cfg *config.Config) (StandardHTTPInput, *authorityapp.Service) {
 	t.Helper()
 	src, err := configsource.New(cfg.Accounting.Authority)
 	if err != nil {
@@ -208,11 +210,13 @@ func authorityHTTPBuilt(t *testing.T, cfg *config.Config) *runtimebundle.Built {
 		LimitRows: []cp.AccountingLimitStatusRow{authorityHTTPLimitRow()},
 	})
 	svc := authorityapp.NewService(src, store, nil, nil)
-	return &runtimebundle.Built{
-		Executor:       runtime.TestExecutor(),
-		PluginRegistry: pluginreg.NewRegistry(),
-		UsageAuthority: svc,
-	}
+	ex := runtime.TestExecutor()
+	reg := pluginreg.NewRegistry()
+	return StandardHTTPInput{
+		Core:      HTTPCoreInput{Executor: ex},
+		Frontends: frontendInputForTest(cfg, ex, reg),
+		Security:  HTTPSecurityInput{UsageAuthority: cpadmin.AdaptAccountingAuthorityQueries(svc)},
+	}, svc
 }
 
 func authorityHTTPLimitRow() cp.AccountingLimitStatusRow {

@@ -15,9 +15,16 @@ import (
 // ConcurrencyOptions configures the protected concurrency-lease query handler.
 type ConcurrencyOptions struct {
 	Provider        authority.ConcurrencyProvider
-	Service         *concurrencyapp.Service // optional; enables capacity/readiness summaries
+	Service         ConcurrencyAuthorityQueries // optional; enables capacity/readiness summaries
 	DefaultPageSize int
 	MaxPageSize     int
+}
+
+// ConcurrencyAuthorityQueries is the narrow readiness/capacity surface for lease HTTP routes.
+type ConcurrencyAuthorityQueries interface {
+	ReadinessDomain(ctx context.Context) (concurrencydomain.Readiness, error)
+	RulesSnapshot(ctx context.Context) (concurrencyapp.RuleSnapshot, error)
+	Query(ctx context.Context, q concurrencyapp.QueryCommand) (concurrencyapp.QueryResult, error)
 }
 
 // NewConcurrencyAuthorityHandler returns protected HTTP routes for lease queries.
@@ -167,7 +174,7 @@ func mapConcurrencyReadiness(state concurrencydomain.ReadinessState) cp.Concurre
 	}
 }
 
-func capacityRows(ctx context.Context, svc *concurrencyapp.Service) ([]cp.ConcurrencyCapacityRow, error) {
+func capacityRows(ctx context.Context, svc ConcurrencyAuthorityQueries) ([]cp.ConcurrencyCapacityRow, error) {
 	snap, err := svc.RulesSnapshot(ctx)
 	if err != nil {
 		return nil, err

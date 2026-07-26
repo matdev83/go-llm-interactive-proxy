@@ -8,13 +8,11 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
@@ -90,31 +88,28 @@ func TestBuildWiresTokenAccountingContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if built.TokenAccountingAdmin == nil {
+	if runtimebundle.CandidateTokenAccountingAdmin(built) == nil {
 		t.Fatal("Built.TokenAccountingAdmin is nil")
 	}
-	if built.Executor.Preflight == nil {
+	if built.Executor().Preflight == nil {
 		t.Fatal("Executor.Preflight is nil")
 	}
-	if built.Executor.StreamUsage == nil {
+	if built.Executor().StreamUsage == nil {
 		t.Fatal("Executor.StreamUsage is nil")
 	}
-	if built.Executor.Ledger == nil {
+	if built.Executor().Ledger == nil {
 		t.Fatal("Executor.Ledger is nil")
 	}
-	if built.Executor.TokenAccountingObservability == nil {
+	if built.Executor().TokenAccountingObservability == nil {
 		t.Fatal("Executor.TokenAccountingObservability is nil")
 	}
-	if built.Executor.AdminCountService == nil {
+	if built.Executor().AdminCountService == nil {
 		t.Fatal("Executor.AdminCountService is nil")
 	}
-	result, err := built.Executor.AdminCountService.CountCall(context.Background(), accountingapp.CountCallInput{
+	result, err := built.Executor().AdminCountService.CountCall(context.Background(), accountingapp.CountCallInput{
 		Backend: "stub",
 		Model:   "gpt-4o-mini",
 		CallID:  "call-1",
@@ -174,7 +169,7 @@ func TestBuildWiresIngressCountingWhenAccountingAdminDisabled(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Production: runtimebundle.ProductionOptions{
 			RequestRegistrations: []authority.RequestRegistration{{
@@ -192,13 +187,10 @@ func TestBuildWiresIngressCountingWhenAccountingAdminDisabled(t *testing.T) {
 			}},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if built.TokenAccountingAdmin != nil {
+	if runtimebundle.CandidateTokenAccountingAdmin(built) != nil {
 		t.Fatal("public token accounting admin must remain disabled")
 	}
-	stream, err := built.Executor.Execute(context.Background(), &lipapi.Call{
+	stream, err := built.Executor().Execute(context.Background(), &lipapi.Call{
 		ID:    "request-admin-disabled",
 		Route: lipapi.RouteIntent{Selector: "stub:gpt-4o-mini"},
 		Messages: []lipapi.Message{{
@@ -260,11 +252,8 @@ func TestBuildTokenAccountingUsesDefaultCountTimeoutWhenOmitted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{PluginRegistry: reg})
-	if err != nil {
-		t.Fatalf("Build() error = %v, want omitted count_timeout to use default", err)
-	}
-	if built.Executor.Preflight == nil {
+	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: reg})
+	if built.Executor().Preflight == nil {
 		t.Fatal("Executor.Preflight is nil")
 	}
 }
@@ -305,12 +294,9 @@ func TestBuildWiresConfiguredAccountingPreflightLimits(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{PluginRegistry: reg})
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: reg})
 
-	decision := built.Executor.Preflight.Check(context.Background(), accountingpreflight.Input{
+	decision := built.Executor().Preflight.Check(context.Background(), accountingpreflight.Input{
 		Backend: "stub",
 		Model:   "gpt-4o-mini",
 		CallID:  "call-1",
@@ -362,7 +348,7 @@ func TestBuildProviderRequiredFailsWithoutProviderCounter(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{PluginRegistry: reg})
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: reg})
 	if err == nil {
 		t.Fatal("expected provider_required build to fail without provider counter")
 	}
@@ -407,19 +393,14 @@ func TestBuildWiresSQLiteTokenAccountingLedger(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{PluginRegistry: reg})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if built.Executor.Ledger == nil {
+	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: reg})
+	if built.Executor().Ledger == nil {
 		t.Fatal("Executor.Ledger is nil")
 	}
-	if len(built.Closers) < 1 {
+	if built.Ledger().Len() < 1 {
 		t.Fatal("expected ledger closer to be registered")
 	}
-	for _, closeFn := range built.Closers {
-		if err := closeFn(); err != nil {
-			t.Fatalf("closer: %v", err)
-		}
+	if err := built.Close(); err != nil {
+		t.Fatalf("close: %v", err)
 	}
 }

@@ -1,0 +1,234 @@
+package archtest
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// CriticalFileBudget caps the non-test line count for hotspot files.
+type CriticalFileBudget struct {
+	Path string
+	Max  int
+}
+
+// CriticalFileBudgets is the single source of truth for hotspot ceilings
+// (guardrails tests + make arch-report). Values are exact-measured ratchets.
+var CriticalFileBudgets = []CriticalFileBudget{
+	{Path: "internal/core/runtime/executor.go", Max: 125},
+	{Path: "internal/infra/runtimebundle/options.go", Max: 233},
+	{Path: "internal/standardplugins/standard_table.go", Max: 283},
+	{Path: "internal/pluginreg/reg.go", Max: 312},
+	{Path: "internal/stdhttp/server.go", Max: 8},
+	{Path: "internal/infra/runtimehost/coordinator.go", Max: 292},
+	{Path: "internal/infra/runtimehost/generation.go", Max: 316},
+	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 259},
+	{Path: "internal/infra/runtimebundle/handler_composer.go", Max: 25},
+	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 292},
+	{Path: "internal/stdhttp/request_plane.go", Max: 65},
+	{Path: "internal/infra/runtimebundle/process_services.go", Max: 233},
+	{Path: "pkg/lipruntime/build.go", Max: 96},
+	{Path: "pkg/lipruntime/host.go", Max: 68},
+	{Path: "pkg/lipruntime/facade.go", Max: 72},
+	{Path: "cmd/lipstd/command.go", Max: 360},
+	{Path: "pkg/lipruntime/reload.go", Max: 89},
+	{Path: "pkg/lipruntime/reload_aliases.go", Max: 35},
+}
+
+// PackageTreeBudget caps recursive non-test .go lines for a package tree.
+type PackageTreeBudget struct {
+	Tree string
+	Max  int
+}
+
+// PackageTreeBudgets locks exact-measured convergence tree ceilings.
+var PackageTreeBudgets = []PackageTreeBudget{
+	{Tree: "internal/infra/runtimebundle", Max: 9449},
+	{Tree: "internal/stdhttp", Max: 4313},
+	{Tree: "cmd/lipstd", Max: 880},
+	{Tree: "pkg/lipruntime", Max: 537},
+}
+
+// LineBudget caps recursive non-test lines for broader architectural layers.
+type LineBudget struct {
+	Dir string
+	Max int
+}
+
+// LineBudgets covers core/pluginreg plus the convergence trees (kept in sync
+// with PackageTreeBudgets for overlapping entries).
+var LineBudgets = []LineBudget{
+	{Dir: "internal/core", Max: 69133},
+	{Dir: "internal/pluginreg", Max: 715},
+	{Dir: "internal/stdhttp", Max: 4313},
+	{Dir: "internal/infra/runtimebundle", Max: 9449},
+	{Dir: "cmd/lipstd", Max: 880},
+	{Dir: "pkg/lipruntime", Max: 537},
+}
+
+// CountNonTestGoLines recursively counts physical lines in non-test .go files.
+func CountNonTestGoLines(dir string) (int, error) {
+	var total int
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		n, err := countTreeFileLines(path)
+		if err != nil {
+			return err
+		}
+		total += n
+		return nil
+	})
+	return total, err
+}
+
+func countTreeFileLines(path string) (n int, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		n++
+	}
+	if err := sc.Err(); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// CountFileLines counts physical lines in one file.
+func CountFileLines(path string) (int, error) {
+	return countTreeFileLines(path)
+}
+
+// FormatRuntimeConvergencePackageBudgets renders the advisory Markdown section.
+func FormatRuntimeConvergencePackageBudgets(root string) (string, error) {
+	var b strings.Builder
+	fmt.Fprintln(&b, "## Runtime-convergence package budgets")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "| Tree | Non-test lines | Budget |")
+	fmt.Fprintln(&b, "| --- | --- | --- |")
+	for _, budget := range PackageTreeBudgets {
+		n, err := CountNonTestGoLines(filepath.Join(root, filepath.FromSlash(budget.Tree)))
+		if err != nil {
+			fmt.Fprintf(&b, "| `%s` | (missing: %v) | %d |\n", budget.Tree, err, budget.Max)
+			continue
+		}
+		fmt.Fprintf(&b, "| `%s` | %d | %d |\n", budget.Tree, n, budget.Max)
+	}
+	fmt.Fprintln(&b)
+	return b.String(), nil
+}
+
+// RuntimeConvergenceShrinkageBaselineSHA is the reviewed production baseline for Req 11.5.
+const RuntimeConvergenceShrinkageBaselineSHA = "efe4624909cea318c7211d5cb3734059d3210802"
+
+// RuntimeConvergenceMinNetLineReduction is the Requirement 11.5 floor.
+const RuntimeConvergenceMinNetLineReduction = 800
+
+// AffectedSurfaceBaseline locks one Req 11.5 surface baseline.
+type AffectedSurfaceBaseline struct {
+	Tree          string
+	BaselineLines int
+}
+
+// RuntimeConvergenceAffectedSurfaces is the Requirement 11.5 inventory.
+var RuntimeConvergenceAffectedSurfaces = []AffectedSurfaceBaseline{
+	{Tree: "internal/infra/runtimebundle", BaselineLines: 9898},
+	{Tree: "internal/infra/runtimehost", BaselineLines: 3056},
+	{Tree: "internal/stdhttp", BaselineLines: 4666},
+	{Tree: "cmd/lipstd", BaselineLines: 985},
+	{Tree: "pkg/lipruntime", BaselineLines: 1037},
+}
+
+// AffectedSurfaceMeasurement is one surface's baseline-versus-current delta.
+type AffectedSurfaceMeasurement struct {
+	Tree          string
+	BaselineLines int
+	CurrentLines  int
+	Delta         int
+}
+
+// ShrinkageMeasurement is the Requirement 11.5 aggregate.
+type ShrinkageMeasurement struct {
+	BaselineSHA   string
+	Surfaces      []AffectedSurfaceMeasurement
+	BaselineTotal int
+	CurrentTotal  int
+	Delta         int
+	RequiredMax   int
+	Pass          bool
+}
+
+// MeasureRuntimeConvergenceShrinkage compares current lines to the locked baseline.
+func MeasureRuntimeConvergenceShrinkage(root string) (ShrinkageMeasurement, error) {
+	m := ShrinkageMeasurement{
+		BaselineSHA: RuntimeConvergenceShrinkageBaselineSHA,
+		Surfaces:    make([]AffectedSurfaceMeasurement, 0, len(RuntimeConvergenceAffectedSurfaces)),
+		RequiredMax: -RuntimeConvergenceMinNetLineReduction,
+	}
+	for _, s := range RuntimeConvergenceAffectedSurfaces {
+		n, err := CountNonTestGoLines(filepath.Join(root, filepath.FromSlash(s.Tree)))
+		if err != nil {
+			return ShrinkageMeasurement{}, fmt.Errorf("%s: %w", s.Tree, err)
+		}
+		delta := n - s.BaselineLines
+		m.Surfaces = append(m.Surfaces, AffectedSurfaceMeasurement{
+			Tree:          s.Tree,
+			BaselineLines: s.BaselineLines,
+			CurrentLines:  n,
+			Delta:         delta,
+		})
+		m.BaselineTotal += s.BaselineLines
+		m.CurrentTotal += n
+		m.Delta += delta
+	}
+	m.Pass = m.Delta <= m.RequiredMax
+	return m, nil
+}
+
+// FormatRuntimeConvergenceShrinkage renders the machine-checkable Markdown section.
+func FormatRuntimeConvergenceShrinkage(root string) (string, ShrinkageMeasurement, error) {
+	m, err := MeasureRuntimeConvergenceShrinkage(root)
+	if err != nil {
+		return "", ShrinkageMeasurement{}, err
+	}
+	var b strings.Builder
+	fmt.Fprintln(&b, "## Runtime-convergence net shrinkage (Req 11.5)")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "Baseline SHA: `%s`\n\n", m.BaselineSHA)
+	fmt.Fprintln(&b, "Method: recursive `CountNonTestGoLines` (non-test `.go` physical lines, including build-tag alternates). Moving unchanged logic between packages is not shrinkage (Req 11.6).")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "| Surface | Baseline | Current | Delta |")
+	fmt.Fprintln(&b, "| --- | ---: | ---: | ---: |")
+	for _, s := range m.Surfaces {
+		fmt.Fprintf(&b, "| `%s` | %d | %d | %+d |\n", s.Tree, s.BaselineLines, s.CurrentLines, s.Delta)
+	}
+	fmt.Fprintf(&b, "| **TOTAL** | **%d** | **%d** | **%+d** |\n", m.BaselineTotal, m.CurrentTotal, m.Delta)
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "Required: delta ≤ %+d (remove ≥ %d lines).\n\n", m.RequiredMax, RuntimeConvergenceMinNetLineReduction)
+	if m.Pass {
+		fmt.Fprintln(&b, "Verdict: **PASS**")
+	} else {
+		need := m.Delta - m.RequiredMax
+		fmt.Fprintf(&b, "Verdict: **FAIL** (short by %d lines to reach ≤ %+d).\n", need, m.RequiredMax)
+	}
+	fmt.Fprintln(&b)
+	return b.String(), m, nil
+}

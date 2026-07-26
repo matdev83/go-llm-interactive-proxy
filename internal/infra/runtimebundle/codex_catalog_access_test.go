@@ -10,7 +10,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/codexcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
@@ -67,12 +66,9 @@ func TestBuild_disabledBackendInstanceIsNotBuiltOrEnumerated(t *testing.T) {
 		Enabled: false,
 	})
 
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	t.Cleanup(closeModelRegistryBuilt(t, b))
 
 	if factoryCalls.Load() != 0 {
@@ -81,7 +77,7 @@ func TestBuild_disabledBackendInstanceIsNotBuiltOrEnumerated(t *testing.T) {
 	if inventoryCalls.Load() != 0 {
 		t.Fatalf("disabled local-agent inventory calls = %d, want 0", inventoryCalls.Load())
 	}
-	if _, ok := b.ModelRegistry.Lookup("local/agent"); ok {
+	if _, ok := b.ModelRegistry().Lookup("local/agent"); ok {
 		t.Fatal("disabled local-agent model must not appear in registry")
 	}
 }
@@ -122,18 +118,15 @@ func TestBuild_enabledLocalAgentInventoryEnumeratedOnSingleUser(t *testing.T) {
 			Kind: "cursorcliacp", ID: "cursor-cli", Enabled: true,
 		}}},
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	t.Cleanup(closeModelRegistryBuilt(t, b))
 
 	if inventoryCalls.Load() != 1 {
 		t.Fatalf("single_user local-agent inventory calls = %d, want 1", inventoryCalls.Load())
 	}
-	if _, ok := b.ModelRegistry.Lookup("cursor/composer-2"); !ok {
+	if _, ok := b.ModelRegistry().Lookup("cursor/composer-2"); !ok {
 		t.Fatal("Lookup(cursor/composer-2) ok = false")
 	}
 }
@@ -174,12 +167,9 @@ func TestBuild_enabledLocalAgentInventoryEnumeratedOnDefaultAccessMode(t *testin
 			Kind: "agycliacp", ID: "agy-cli", Enabled: true,
 		}}},
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	t.Cleanup(closeModelRegistryBuilt(t, b))
 
 	if inventoryCalls.Load() != 1 {
@@ -227,7 +217,7 @@ func TestBuild_localOnlyBackend_multiUserRejectsBeforeFactoryOrInventory(t *test
 			Kind: "openai-codex-app-server", ID: "codex-app", Enabled: true,
 		}}},
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Auth:           runtimebundle.AuthOptions{RemoteDecider: &testkit.StubRemoteDecider{}},
 		Testing: runtimebundle.TestingOptions{
@@ -273,16 +263,13 @@ func TestBuild_codexCatalogDiscovery_skippedOnMultiUserWithoutLocalConsumers(t *
 	cfg.Server = config.ServerConfig{Address: "0.0.0.0:8080", AuthMode: config.AuthModeExternal}
 	cfg.Auth = config.AuthConfig{Handler: "remote", RequiredLevel: "api_key"}
 
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Auth:           runtimebundle.AuthOptions{RemoteDecider: &testkit.StubRemoteDecider{}},
 		Testing: runtimebundle.TestingOptions{
 			CodexCatalogLoad: countingCodexCatalogLoad(&catalogLoads),
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	t.Cleanup(closeModelRegistryBuilt(t, b))
 
 	if catalogLoads.Load() != 0 {
@@ -316,7 +303,7 @@ func TestBuild_codexCatalogDiscovery_skippedForEnabledUnregisteredConsumer(t *te
 		Kind: "openai-codex", ID: "codex-unregistered", Enabled: true,
 	})
 
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Testing: runtimebundle.TestingOptions{
 			CodexCatalogLoad: countingCodexCatalogLoad(&catalogLoads),
@@ -366,15 +353,12 @@ func TestBuild_codexCatalogDiscovery_skippedWithoutEnabledConsumer(t *testing.T)
 		Kind: "openai-codex", ID: "codex-disabled", Enabled: false,
 	})
 
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Testing: runtimebundle.TestingOptions{
 			CodexCatalogLoad: countingCodexCatalogLoad(&catalogLoads),
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	t.Cleanup(closeModelRegistryBuilt(t, b))
 
 	if catalogLoads.Load() != 0 {
@@ -417,15 +401,12 @@ func TestBuild_codexCatalogDiscovery_runsOnSingleUserWithEnabledConsumer(t *test
 			Kind: "openai-codex", ID: "codex", Enabled: true,
 		}}},
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Testing: runtimebundle.TestingOptions{
 			CodexCatalogLoad: countingCodexCatalogLoad(&catalogLoads),
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	t.Cleanup(closeModelRegistryBuilt(t, b))
 
 	if catalogLoads.Load() != 1 {
@@ -467,15 +448,12 @@ func TestBuild_codexCatalogDiscovery_runsOnDefaultAccessModeWithEnabledAppServer
 			Kind: "openai-codex-app-server", ID: "codex-app", Enabled: true,
 		}}},
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Testing: runtimebundle.TestingOptions{
 			CodexCatalogLoad: countingCodexCatalogLoad(&catalogLoads),
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	t.Cleanup(closeModelRegistryBuilt(t, b))
 
 	if catalogLoads.Load() != 1 {

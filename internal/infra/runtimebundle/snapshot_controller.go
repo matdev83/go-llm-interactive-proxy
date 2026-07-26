@@ -74,9 +74,7 @@ func (c *SnapshotController) Refresh(ctx context.Context) error {
 	}
 	c.refreshMu.Lock()
 	defer c.refreshMu.Unlock()
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = ctxOrBackground(ctx)
 	timeout := c.timeout
 	if timeout <= 0 {
 		timeout = DefaultSnapshotRefreshTimeout

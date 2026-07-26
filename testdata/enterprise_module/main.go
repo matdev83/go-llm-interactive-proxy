@@ -130,6 +130,8 @@ func run(ctx context.Context) error {
 	rater := &enterpriseRater{}
 	evidence := &enterpriseEvidence{}
 	querier := enterpriseQuerier{}
+	// Canonical registrations only (public API): external modules use
+	// RequestRegistrations + RaterRegistrations.
 	rt, err := lipruntime.Build(ctx, lipruntime.Options{
 		ConfigPath:       cfgPath,
 		MeteringRecorder: enterpriseMeter{},
@@ -190,6 +192,18 @@ func run(ctx context.Context) error {
 	}
 	if !rt.HasProductionEvidenceSink() || !rt.HasProductionRater() || !rt.HasProductionMeteringQuerier() {
 		return fmt.Errorf("production evidence/rater/query mounts not wired")
+	}
+	if !rt.HasProductionMetering() {
+		return fmt.Errorf("production metering must be wired")
+	}
+	if rt.MeteringQuerier() == nil {
+		return fmt.Errorf("MeteringQuerier must be mounted")
+	}
+	if rt.ExecutableGenerationState() == "" {
+		return fmt.Errorf("ExecutableGenerationState required")
+	}
+	if rt.ExecutableGenerationVersion() == "" {
+		return fmt.Errorf("ExecutableGenerationVersion required")
 	}
 	desc := authority.ProviderDescriptor{
 		ID: "enterprise-request",

@@ -56,16 +56,19 @@ func (m *Manager) SnapshotRetained() []*Generation {
 }
 
 // ShutdownDetached prevents new acquisitions, detaches the active generation,
-// and retires every retained generation through worker with context-bounded
-// drain waiting. Retained generations are retired concurrently (bounded by the
-// finite retention budget) so one pinned generation cannot block unrelated
-// drained generations from closing. A context timeout/cancel returns an error
-// without force-closing a still-pinned generation.
+// and retires every retained generation with context-bounded drain waiting.
+// Retained generations are retired concurrently (bounded by the finite
+// retention budget) so one pinned generation cannot block unrelated drained
+// generations from closing. A context timeout/cancel returns an error without
+// force-closing a still-pinned generation. Per-generation retirement
+// admission (Generation.retireAdmit) safely interleaves with any
+// already-scheduled automatic post-publish retirement for the same
+// generation — at most one retirement attempt runs at a time per generation.
 //
 // Fan-out uses a buffered result channel (not a wait-group) so request/lease
-// refcounting remains packed-atomic (req 10.4) while shutdown still owns a
-// bounded host worker per retained generation.
-func (m *Manager) ShutdownDetached(ctx context.Context, worker *LifecycleWorker) error {
+// refcounting remains packed-atomic (req 10.4) while shutdown retires each
+// retained generation via RetireGeneration.
+func (m *Manager) ShutdownDetached(ctx context.Context) error {
 	if m == nil {
 		return nil
 	}
@@ -75,9 +78,6 @@ func (m *Manager) ShutdownDetached(ctx context.Context, worker *LifecycleWorker)
 	m.BeginShutdown()
 	m.DetachActive()
 	gens := m.SnapshotRetained()
-	if worker == nil {
-		worker = NewLifecycleWorker()
-	}
 
 	n := 0
 	for _, g := range gens {
@@ -91,7 +91,7 @@ func (m *Manager) ShutdownDetached(ctx context.Context, worker *LifecycleWorker)
 			continue
 		}
 		go func(g *Generation) {
-			err := worker.Retire(ctx, g, nil)
+			_, err := m.RetireGeneration(ctx, g)
 			if err != nil && !errors.Is(err, ErrAlreadyClosed) {
 				errCh <- err
 				return

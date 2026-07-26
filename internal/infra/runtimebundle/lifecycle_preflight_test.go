@@ -40,11 +40,15 @@ func TestBackendInstance_OptionalHooksIdempotentCloseAndIdleCleanup(t *testing.T
 	if closes.Load() != 1 || stops.Load() != 1 {
 		t.Fatalf("closes=%d stops=%d want 1 each", closes.Load(), stops.Load())
 	}
+	if idles.Load() != 1 {
+		t.Fatalf("Close must run idle cleanup once before Stop/Close, idles=%d", idles.Load())
+	}
+	// Standalone CleanupIdleTransports remains available for explicit probes.
 	if err := inst.CleanupIdleTransports(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if idles.Load() != 1 {
-		t.Fatalf("idles=%d", idles.Load())
+	if idles.Load() != 2 {
+		t.Fatalf("standalone idle after Close idles=%d want 2", idles.Load())
 	}
 }
 

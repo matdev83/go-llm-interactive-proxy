@@ -1,6 +1,7 @@
 package runtimebundle
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"strings"
@@ -13,7 +14,7 @@ import (
 )
 
 // closeObservableStore wraps fakeRetentionStore with an observable Close so leak
-// tests can assert the control-plane store handle is released on Build failure.
+// tests can assert the control-plane store handle is released on compile failure.
 // It satisfies controlplane.Store via the promoted fakeRetentionStore methods
 // and interface{ Close() error } via Close, so buildControlPlaneStore returns
 // Close as the closer when this is injected through BuildOptions.
@@ -27,9 +28,39 @@ func (s *closeObservableStore) Close() error {
 	return nil
 }
 
+// compileCandidateExpectFail runs NewProcessServices + CompileCandidate and
+// expects failure. ProcessServices is closed immediately (before return) so
+// process-owned closers — including the control-plane store — are disposed
+// before the caller asserts. Generation cleanup is not deferred past the assert.
+func compileCandidateExpectFail(t *testing.T, cfg *config.Config, opts *BuildOptions) error {
+	t.Helper()
+	ps, err := NewProcessServices(context.Background(), ProcessServicesInput{
+		Cfg:  cfg,
+		Log:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Opts: opts,
+		Tracing: ProcessTracing{
+			Shutdown: func(context.Context) error { return nil },
+		},
+	})
+	if err != nil {
+		// Process construction already disposed registered closers.
+		return err
+	}
+	_, err = compileCandidate(context.Background(), GenerationCompileInput{
+		Process: ps,
+		Bus:     hooks.New(hooks.Config{}),
+	})
+	// Immediate process close — do not defer past the caller's assertion.
+	_ = ps.Close()
+	if err == nil {
+		t.Fatal("expected CompileCandidate to fail")
+	}
+	return err
+}
+
 // TestBuild_ControlPlaneCloserDisposedOnEarlyFailure proves the control-plane
-// store closer is registered in Build's closer list immediately after the store
-// opens and is disposed when a later startup step fails. Previously the closer
+// store closer is registered immediately after the store opens and is disposed
+// when a later startup step fails (auth event delivery). Previously the closer
 // was appended only after buildSecureSessionRuntime, so any failure between
 // buildControlPlaneRuntime and that point leaked the sqlite/postgres handle.
 //
@@ -48,17 +79,17 @@ func TestBuild_ControlPlaneCloserDisposedOnEarlyFailure(t *testing.T) { //nolint
 		},
 		Auth: config.AuthConfig{EventDelivery: "bogus"}, // forces buildAuthEventDispatcher to fail after the store opens
 	}
-	_, err := Build(cfg, hooks.New(hooks.Config{}), slog.New(slog.NewTextHandler(io.Discard, nil)), &BuildOptions{
+	err := compileCandidateExpectFail(t, cfg, &BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 		Testing: TestingOptions{
 			ControlPlaneStoreOverride: store,
 		},
 	})
 	if err == nil {
-		t.Fatal("expected Build to fail on invalid auth.event_delivery")
+		t.Fatal("expected failure on invalid auth.event_delivery")
 	}
 	if !store.closed.Load() {
-		t.Fatal("control-plane store closer must be disposed when Build fails after opening the store")
+		t.Fatal("control-plane store closer must be disposed when candidate compile fails after opening the store")
 	}
 }
 
@@ -82,21 +113,21 @@ func TestBuild_ControlPlaneCloserDisposedOnStreamRecoveryFailure(t *testing.T) {
 			AutoResume: config.AutoResumeConfig{IdleTimeout: "not-a-duration"},
 		},
 	}
-	_, err := Build(cfg, hooks.New(hooks.Config{}), slog.New(slog.NewTextHandler(io.Discard, nil)), &BuildOptions{
+	err := compileCandidateExpectFail(t, cfg, &BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 		Testing: TestingOptions{
 			ControlPlaneStoreOverride: store,
 		},
 	})
 	if err == nil {
-		t.Fatal("expected Build to fail on invalid stream_recovery idle_timeout")
+		t.Fatal("expected failure on invalid stream_recovery idle_timeout")
 	}
 	if !store.closed.Load() {
-		t.Fatal("control-plane store closer must be disposed when Build fails at stream recovery config")
+		t.Fatal("control-plane store closer must be disposed when candidate compile fails at stream recovery config")
 	}
 }
 
-// TestBuild_ControlPlaneCloserDisposedOnPricingFailure covers the latest Build
+// TestBuild_ControlPlaneCloserDisposedOnPricingFailure covers the latest compile
 // failure point: accounting.NewPriceCatalog runs after the token-accounting
 // closer is registered, so closers holds the control-plane store plus model,
 // continuity, secure-session, and token-accounting handles. Locks the disposal
@@ -119,19 +150,19 @@ func TestBuild_ControlPlaneCloserDisposedOnPricingFailure(t *testing.T) { //noli
 			},
 		},
 	}
-	_, err := Build(cfg, hooks.New(hooks.Config{}), slog.New(slog.NewTextHandler(io.Discard, nil)), &BuildOptions{
+	err := compileCandidateExpectFail(t, cfg, &BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 		Testing: TestingOptions{
 			ControlPlaneStoreOverride: store,
 		},
 	})
 	if err == nil {
-		t.Fatal("expected Build to fail on accounting pricing with empty model backend")
+		t.Fatal("expected failure on accounting pricing with empty model backend")
 	}
 	if !strings.Contains(err.Error(), "runtimebundle: accounting pricing") {
 		t.Fatalf("expected pricing error, got %v", err)
 	}
 	if !store.closed.Load() {
-		t.Fatal("control-plane store closer must be disposed when Build fails at accounting pricing (latest step)")
+		t.Fatal("control-plane store closer must be disposed when candidate compile fails at accounting pricing (latest step)")
 	}
 }

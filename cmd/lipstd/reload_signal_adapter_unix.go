@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 const sighupSafeActor = "sighup"
@@ -148,8 +148,8 @@ func (a *SIGHUPAdapter) invokeReload(ctx context.Context) {
 	if hostCtx == nil {
 		hostCtx = context.Background()
 	}
-	_ = a.sink.Reload(hostCtx, configreload.ReloadTrigger{
-		Kind:       configreload.TriggerSIGHUP,
+	_ = a.sink.Reload(hostCtx, sdkreload.Trigger{
+		Kind:       sdkreload.TriggerSIGHUP,
 		AcceptedAt: time.Now().UTC(),
 		SafeActor:  sighupSafeActor,
 	})

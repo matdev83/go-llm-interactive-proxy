@@ -10,14 +10,12 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/cursorsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/cursorsdk/fakebridge"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"gopkg.in/yaml.v3"
 )
 
@@ -89,7 +87,7 @@ func TestBuild_cursorSDKCloserRunsOnPartialBuildRollback(t *testing.T) {
 		t.Fatalf("validate: %v", err)
 	}
 
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
 	if err == nil {
@@ -149,21 +147,17 @@ func TestBuild_cursorSDKCloserIdempotentOnSuccessfulBuild(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatalf("Build: %v", err)
+	be, ok := built.Executor().Backends["cursor-sdk"]
+	if !ok {
+		t.Fatal("expected cursor-sdk backend")
 	}
-	be, ok := built.Executor.Backends["cursor-sdk"]
-	if !ok || be.Close == nil {
-		t.Fatal("expected cursor-sdk Close")
-	}
+	_ = be
 	for i := range 2 {
-		for _, c := range built.Closers {
-			if err := c(); err != nil {
-				t.Fatalf("closer pass %d: %v", i, err)
-			}
+		if err := built.Close(); err != nil {
+			t.Fatalf("close pass %d: %v", i, err)
 		}
 	}
 }

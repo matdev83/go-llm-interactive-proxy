@@ -11,11 +11,9 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"gopkg.in/yaml.v3"
 )
@@ -45,20 +43,15 @@ func TestBuild_collectsBackendCloseAfterConstruction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(built.Closers) < 2 {
-		t.Fatalf("Closers len=%d, want at least backend closers", len(built.Closers))
+	if built.Ledger().Len() < 2 {
+		t.Fatalf("Ledger.Len=%d, want at least backend closers", built.Ledger().Len())
 	}
 
-	for _, closer := range slices.Backward(built.Closers) {
-		if err := closer(); err != nil {
-			t.Fatalf("closer: %v", err)
-		}
+	if err := built.Close(); err != nil {
+		t.Fatalf("close: %v", err)
 	}
 
 	mu.Lock()
@@ -102,23 +95,18 @@ func TestBuild_nilBackendCloseRemainsNoOp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	be, ok := built.Executor.Backends["only"]
+	be, ok := built.Executor().Backends["only"]
 	if !ok {
 		t.Fatal("expected backend instance")
 	}
 	if be.Close != nil {
 		t.Fatal("nil Close must remain nil for backends without persistent resources")
 	}
-	for _, closer := range built.Closers {
-		if err := closer(); err != nil {
-			t.Fatalf("existing closers must remain safe: %v", err)
-		}
+	if err := built.Close(); err != nil {
+		t.Fatalf("existing closers must remain safe: %v", err)
 	}
 }
 
@@ -156,7 +144,7 @@ func TestBuild_backendConstructionFailureClosesCreatedReverseOrder(t *testing.T)
 		t.Fatal(err)
 	}
 
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
 	if err == nil {
@@ -207,7 +195,7 @@ func TestBuild_laterModelRuntimeFailureRollsBackBackendClosers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
 	if err == nil {

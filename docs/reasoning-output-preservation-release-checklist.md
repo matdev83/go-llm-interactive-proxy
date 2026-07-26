@@ -17,7 +17,7 @@ Every PR must link issue #157 and the approved spec path above.
 - Process-local / sticky / restart limitation called out in operator docs.
 - No retry/failover after first content; observer fail-open never retries.
 - Privacy: no payloads/anchors/partitions in logs/metrics/inventory/errors.
-- D12 / default semantics: on standard `lipstd` / `BuildBootstrap`, an enabled `restore` row is injected when absent; disabled or explicit matching opt-out adds no participants/store/telemetry. Custom roots that skip `EnsureReasoningOutputPreservationInConfig` receive no injection. Installed/enabled ≠ universally active — capture/restore require catalog/rule eligibility; unmatched candidates are inert.
+- D12 / default semantics: on standard `lipstd` / `runtimebundle.BuildHost`, an enabled `restore` row is injected when absent; disabled or explicit matching opt-out adds no participants/store/telemetry. Custom roots that skip `EnsureReasoningOutputPreservationInConfig` receive no injection. Installed/enabled ≠ universally active — capture/restore require catalog/rule eligibility; unmatched candidates are inert.
 - Hard `reasoning_replay` — no silent dialect downgrade (`reject` excludes; configured `log_skip` continues without restore).
 - Builtin catalog is `compatible-auto.v2` (shared `internal/reasoningreplay`); GPT 5.6+ / GPT 6+ / GPT 4.x excluded automatically; explicit rules may opt into GPT 5.6+.
 - Examples are **config-validation dogfood** (local-stub); shipped configs document exact injected defaults; in-process behavioral proofs remain `TestPhase5_*`; full HTTP proofs are `TestReasoningPreservationHTTP*` (see suite topology below).
@@ -39,7 +39,7 @@ go run ./cmd/lipstd routes --config config/examples/reasoning-preservation-resto
 go run ./cmd/lipstd inventory --config config/examples/reasoning-preservation-restore.yaml
 
 go test -count=1 -run 'TestPhase5_|TestVisibleThinkerReasoning_' ./internal/core/runtime/ ./internal/plugins/features/reasoningpreservation/ ./internal/plugins/frontends/parity/
-go test -count=1 -run 'TestEnsureReasoningOutputPreservationInConfig|TestBuildBootstrap_.*ReasoningPreservation' ./internal/standardplugins/ ./internal/infra/runtimebundle/
+go test -count=1 -run 'TestEnsureReasoningOutputPreservationInConfig|TestBuildHost_.*ReasoningPreservation' ./internal/standardplugins/ ./internal/infra/runtimebundle/
 go test -count=1 -run TestReasoningPreservationHTTP_DefaultOnInjection ./internal/stdhttp/
 go test -count=1 -run 'TestReasoningPreservationHTTP' ./internal/stdhttp/
 go test -tags=precommit -count=1 -run TestReasoningPreservationHTTP_RandomMatrix ./internal/stdhttp/
@@ -90,7 +90,7 @@ Historical Phase 6 gate record (pre default-on / catalog-v2 docs slice). Do not 
 | `lipstd check-config` root `config.yaml` | **Pre-existing gap** | Short example documents reasoning defaults; missing mandatory disabled backends (openrouter/…) — not expanded in this feature slice |
 | `lipstd check-config` observe/restore examples + dogfood-local-stub | OK | |
 | `lipstd inventory` dogfood-local-stub | OK | Feature enabled + attempt_transform / final_stream_observation posture |
-| `TestEnsureReasoningOutputPreservationInConfig*` + `TestBuildBootstrap_.*ReasoningPreservation` | OK | standardplugins + runtimebundle |
+| `TestEnsureReasoningOutputPreservationInConfig*` + `TestBuildHost_.*ReasoningPreservation` | OK | standardplugins + runtimebundle |
 | `TestBuiltinCatalog*` / `TestModelEligible*` / `TestCatalogVersion*` / `TestCompatibleReplay*` | OK | reasoningpreservation + reasoningreplay + openaicaps |
 | `TestReasoningPreservationHTTP_DefaultOnInjection` | OK | Moonshot, GPT 5.5, GPT 5.6 inert, unmatched inert, explicit opt-out |
 | `TestPhase5_*` + `TestVisibleThinkerReasoning_*` | OK | |

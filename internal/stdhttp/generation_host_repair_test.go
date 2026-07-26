@@ -12,91 +12,43 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-type genOwnedCloser struct{ closes atomic.Int32 }
+// These cases run the serve adapter against a real BuildHost so the
+// host-owned shutdown ordering is exercised end to end. Generation/process
+// retirement ordering itself is owned and tested by runtimebundle Host.Close.
 
-func (c *genOwnedCloser) Close() error {
-	c.closes.Add(1)
-	return nil
+func newServeIntegrationHost(t *testing.T) *runtimebundle.Host {
+	t.Helper()
+	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	host, err := runtimebundle.BuildHost(context.Background(), runtimebundle.BuildHostInput{
+		ConfigPath:      cfgPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: ComposeStandardHTTP,
+	})
+	if err != nil {
+		t.Fatalf("BuildHost: %v", err)
+	}
+	t.Cleanup(func() { _ = host.Close(context.Background()) })
+	return host
 }
 
-//nolint:paralleltest // mutates package-level closeProcessServices
-func TestShutdownGenerationHost_SkipsProcessCloseWhilePinned(t *testing.T) {
-	m := runtimehost.NewManager(4, nil)
-	closer := &genOwnedCloser{}
-	g := m.PrepareOwned("pinned", closer)
-	if err := m.Publish(g); err != nil {
-		t.Fatal(err)
-	}
-	lease, ok := m.Acquire()
-	if !ok {
-		t.Fatal("acquire")
-	}
-	pin, ok := lease.TransferPin(runtimehost.PinAsync)
-	if !ok {
-		t.Fatal("pin")
-	}
-
-	var processCloses atomic.Int32
-	orig := closeProcessServices
-	closeProcessServices = func(*runtimebundle.ProcessServices) error {
-		processCloses.Add(1)
-		return nil
-	}
-	t.Cleanup(func() { closeProcessServices = orig })
-
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
-	defer cancel()
-	in := GenerationHostInput{
-		Manager: m,
-		Process: &runtimebundle.ProcessServices{},
-	}
-	err := shutdownGenerationHost(ctx, in, 40*time.Millisecond)
-	if err == nil {
-		t.Fatal("expected pin timeout")
-	}
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("err=%v", err)
-	}
-	if processCloses.Load() != 0 {
-		t.Fatalf("process closes during pin=%d want 0", processCloses.Load())
-	}
-	if !m.HasOpenGenerations() {
-		t.Fatal("expected open generation while pinned")
-	}
-
-	pin.Release()
-	ctx2, cancel2 := context.WithTimeout(context.Background(), time.Second)
-	defer cancel2()
-	if err := shutdownGenerationHost(ctx2, in, time.Second); err != nil {
-		t.Fatalf("retry shutdown: %v", err)
-	}
-	if processCloses.Load() != 1 {
-		t.Fatalf("process closes after release=%d want 1", processCloses.Load())
-	}
-	if closer.closes.Load() != 1 {
-		t.Fatalf("generation closes=%d want 1", closer.closes.Load())
-	}
-}
-
-//nolint:paralleltest // mutates package-level httpServerShutdown / listenAndServe / closeProcessServices
+//nolint:paralleltest // mutates package-level httpServerShutdown / listenAndServe
 func TestRunWithGenerationHost_HTTPShutdownFailureDoesNotRetire(t *testing.T) {
 	origListen := listenAndServe
 	origShutdown := httpServerShutdown
-	origClose := closeProcessServices
 	t.Cleanup(func() {
 		listenAndServe = origListen
 		httpServerShutdown = origShutdown
-		closeProcessServices = origClose
 	})
 
 	started := make(chan struct{})
 	stopListen := make(chan struct{})
 	var stopListenOnce sync.Once
 	stopListenFn := func() { stopListenOnce.Do(func() { close(stopListen) }) }
+	t.Cleanup(stopListenFn)
 	listenAndServe = func(*http.Server) error {
 		close(started)
 		<-stopListen
@@ -105,53 +57,17 @@ func TestRunWithGenerationHost_HTTPShutdownFailureDoesNotRetire(t *testing.T) {
 	httpServerShutdown = func(context.Context, *http.Server) error {
 		return context.DeadlineExceeded
 	}
-	var processCloses atomic.Int32
-	closeProcessServices = func(*runtimebundle.ProcessServices) error {
-		processCloses.Add(1)
-		return nil
-	}
 
-	m := runtimehost.NewManager(2, nil)
-	closer := &genOwnedCloser{}
-	g := m.PrepareOwned("live", closer)
-	if err := m.Publish(g); err != nil {
-		t.Fatal(err)
-	}
-
-	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
-	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
-		ConfigPath:      cfgPath,
-		Mode:            runtimebundle.BootstrapServe,
-		Mandatory:       lipsdk.StandardDistributionRequirements(),
-		LogWriter:       io.Discard,
-		HandlerComposer: ComposeRequestPlane,
-	})
-	if err != nil {
-		t.Fatalf("bootstrap: %v", err)
-	}
-	t.Cleanup(func() {
-		stopListenFn()
-		closeProcessServices = origClose
-		if res.ProcessServices != nil && !res.ProcessServices.Closed() {
-			_ = res.ProcessServices.Close()
-		}
-		if res.GenerationManager != nil {
-			_ = res.GenerationManager.ShutdownDetached(context.Background(), runtimehost.NewLifecycleWorker())
-		}
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(context.Background())
-		}
-	})
-	res.Config.Server.Address = "127.0.0.1:0"
+	host := newServeIntegrationHost(t)
+	host.Config().Server.Address = "127.0.0.1:0"
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- RunWithGenerationHost(ctx, GenerationHostInput{
-			Config:          res.Config,
-			Log:             res.Logger,
-			Manager:         m,
-			Process:         res.ProcessServices,
+			Config:          host.Config(),
+			Log:             host.Logger(),
+			Host:            host,
 			ShutdownTimeout: time.Second,
 		})
 	}()
@@ -165,17 +81,11 @@ func TestRunWithGenerationHost_HTTPShutdownFailureDoesNotRetire(t *testing.T) {
 	if !errors.Is(got, context.DeadlineExceeded) {
 		t.Fatalf("err=%v", got)
 	}
-	if closer.closes.Load() != 0 {
-		t.Fatalf("generation must not close under failed HTTP drain: %d", closer.closes.Load())
+	if host.ProcessClosed() {
+		t.Fatal("process must not close under failed HTTP drain")
 	}
-	if processCloses.Load() != 0 {
-		t.Fatalf("process must not close under failed HTTP drain: %d", processCloses.Load())
-	}
-	if m.Active() == nil {
+	if !host.Ready() {
 		t.Fatal("active generation must remain after failed HTTP drain")
-	}
-	if res.ProcessServices.Closed() {
-		t.Fatal("bootstrap process services must remain open")
 	}
 }
 
@@ -206,32 +116,16 @@ func TestRunWithGenerationHost_CancellationPreservesConcurrentListenerFailure(t 
 		return nil
 	}
 
-	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
-	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
-		ConfigPath:      cfgPath,
-		Mode:            runtimebundle.BootstrapServe,
-		Mandatory:       lipsdk.StandardDistributionRequirements(),
-		LogWriter:       io.Discard,
-		HandlerComposer: ComposeRequestPlane,
-	})
-	if err != nil {
-		t.Fatalf("bootstrap: %v", err)
-	}
-	t.Cleanup(func() {
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(context.Background())
-		}
-	})
+	host := newServeIntegrationHost(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- RunWithGenerationHost(ctx, GenerationHostInput{
-			Config:          res.Config,
-			Log:             res.Logger,
-			Manager:         res.GenerationManager,
-			Process:         res.ProcessServices,
-			ShutdownTimeout: 2 * time.Second,
+			Config:          host.Config(),
+			Log:             host.Logger(),
+			Host:            host,
+			ShutdownTimeout: 5 * time.Second,
 		})
 	}()
 	<-listenStarted
@@ -245,7 +139,7 @@ func TestRunWithGenerationHost_CancellationPreservesConcurrentListenerFailure(t 
 	if !errors.Is(got, listenerFailure) {
 		t.Fatalf("got %v, want listener failure", got)
 	}
-	if !res.ProcessServices.Closed() {
+	if !host.ProcessClosed() {
 		t.Fatal("process services must close after the listener exits and HTTP drain succeeds")
 	}
 }
@@ -268,30 +162,14 @@ func TestRunWithGenerationHost_ShutdownListenerErrorStillDrainsHTTP(t *testing.T
 		return nil
 	}
 
-	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
-	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
-		ConfigPath:      cfgPath,
-		Mode:            runtimebundle.BootstrapServe,
-		Mandatory:       lipsdk.StandardDistributionRequirements(),
-		LogWriter:       io.Discard,
-		HandlerComposer: ComposeRequestPlane,
-	})
-	if err != nil {
-		t.Fatalf("bootstrap: %v", err)
-	}
-	t.Cleanup(func() {
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(context.Background())
-		}
-	})
-	res.Config.Server.Address = "127.0.0.1:0"
+	host := newServeIntegrationHost(t)
+	host.Config().Server.Address = "127.0.0.1:0"
 
-	err = RunWithGenerationHost(context.Background(), GenerationHostInput{
-		Config:          res.Config,
-		Log:             res.Logger,
-		Manager:         res.GenerationManager,
-		Process:         res.ProcessServices,
-		ShutdownTimeout: 2 * time.Second,
+	err := RunWithGenerationHost(context.Background(), GenerationHostInput{
+		Config:          host.Config(),
+		Log:             host.Logger(),
+		Host:            host,
+		ShutdownTimeout: 5 * time.Second,
 	})
 	if err == nil {
 		t.Fatal("expected serve error")
@@ -299,10 +177,10 @@ func TestRunWithGenerationHost_ShutdownListenerErrorStillDrainsHTTP(t *testing.T
 	if shutdownCalls.Load() != 1 {
 		t.Fatalf("http shutdown calls=%d want 1", shutdownCalls.Load())
 	}
-	if !res.ProcessServices.Closed() {
+	if !host.ProcessClosed() {
 		t.Fatal("process must close after successful HTTP drain on listener error")
 	}
-	if _, ok := res.GenerationManager.Acquire(); ok {
+	if host.CanAcquireActive() {
 		t.Fatal("manager must reject acquire after shutdown")
 	}
 }

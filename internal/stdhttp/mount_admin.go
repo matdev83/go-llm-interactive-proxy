@@ -8,25 +8,25 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	cpadmin "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/controlplane"
 	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
 )
 
 // mountAccountingAdminInput carries inputs for [mountAccountingAdmin].
 type mountAccountingAdminInput struct {
-	LogCtx context.Context
-	Mux    *http.ServeMux
-	Cfg    *config.Config
-	Log    *slog.Logger
-	Built  *runtimebundle.Built
+	LogCtx     context.Context
+	Mux        *http.ServeMux
+	Cfg        *config.Config
+	Log        *slog.Logger
+	Operations HTTPOperationsInput
+	Core       HTTPCoreInput
 }
 
 // mountAccountingAdmin mounts the token-accounting admin endpoint when accounting.admin.enabled
 // is true and a path is configured. The handler is wrapped with the diagnostics shared-secret
 // protection. Never returns an error: when disabled or misconfigured it simply mounts nothing.
 func mountAccountingAdmin(in mountAccountingAdminInput) {
-	mux, cfg, log, built := in.Mux, in.Cfg, in.Log, in.Built
+	mux, cfg, log, ops, core := in.Mux, in.Cfg, in.Log, in.Operations, in.Core
 	logCtx := in.LogCtx
 	if !cfg.Accounting.Admin.Enabled {
 		return
@@ -35,9 +35,9 @@ func mountAccountingAdmin(in mountAccountingAdminInput) {
 	if path == "" {
 		return
 	}
-	service := built.TokenAccountingAdmin
-	if service == nil && built.Executor != nil {
-		service = built.Executor.AdminCountService
+	service := ops.TokenAccountingAdmin
+	if service == nil && core.Executor != nil {
+		service = adminaccounting.AdaptCountCallService(core.Executor.AdminCountService)
 	}
 	h := adminaccounting.NewHandler(adminaccounting.Options{
 		Enabled:      true,
@@ -50,11 +50,11 @@ func mountAccountingAdmin(in mountAccountingAdminInput) {
 
 // controlPlaneQueryMount carries inputs for [mountControlPlaneQuery].
 type controlPlaneQueryMount struct {
-	LogCtx context.Context
-	Mux    *http.ServeMux
-	Cfg    *config.Config
-	Log    *slog.Logger
-	Built  *runtimebundle.Built
+	LogCtx     context.Context
+	Mux        *http.ServeMux
+	Cfg        *config.Config
+	Log        *slog.Logger
+	Operations HTTPOperationsInput
 }
 
 // mountControlPlaneQuery mounts the protected control-plane status and query
@@ -67,7 +67,7 @@ type controlPlaneQueryMount struct {
 // leaks raw infrastructure details. When the capability is disabled or query
 // exposure is off, no route is mounted and the path returns 404.
 func mountControlPlaneQuery(in controlPlaneQueryMount) {
-	mux, cfg, log, built := in.Mux, in.Cfg, in.Log, in.Built
+	mux, cfg, log, ops := in.Mux, in.Cfg, in.Log, in.Operations
 	logCtx := in.LogCtx
 	if mux == nil || cfg == nil {
 		return
@@ -84,7 +84,7 @@ func mountControlPlaneQuery(in controlPlaneQueryMount) {
 		}
 		return
 	}
-	if built == nil || built.ControlPlaneQueries == nil {
+	if ops.ControlPlaneQueries == nil {
 		if log != nil {
 			log.WarnContext(logCtx, "control-plane query config enabled but no query service wired; mounting disabled",
 				slog.String("component", "control_plane"),
@@ -98,8 +98,8 @@ func mountControlPlaneQuery(in controlPlaneQueryMount) {
 		return
 	}
 	handler := cpadmin.NewHandler(cpadmin.Options{
-		Queries:         built.ControlPlaneQueries,
-		ReadinessReport: built.ReadinessReport,
+		Queries:         ops.ControlPlaneQueries,
+		ReadinessReport: ops.ReadinessReport,
 	})
 	protected := diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, http.StripPrefix(base, handler))
 	mux.Handle(base, protected)
@@ -111,18 +111,19 @@ func mountControlPlaneQuery(in controlPlaneQueryMount) {
 
 // accountingAuthorityQueryMount carries inputs for [mountAccountingAuthorityQuery].
 type accountingAuthorityQueryMount struct {
-	LogCtx context.Context
-	Mux    *http.ServeMux
-	Cfg    *config.Config
-	Log    *slog.Logger
-	Built  *runtimebundle.Built
+	LogCtx   context.Context
+	Mux      *http.ServeMux
+	Cfg      *config.Config
+	Log      *slog.Logger
+	Security HTTPSecurityInput
+	Core     HTTPCoreInput
 }
 
 // mountAccountingAuthorityQuery mounts the protected authority status and
 // bounded query routes only when the authority capability and diagnostics
 // shared-secret posture are explicitly configured.
 func mountAccountingAuthorityQuery(in accountingAuthorityQueryMount) {
-	mux, cfg, log, built := in.Mux, in.Cfg, in.Log, in.Built
+	mux, cfg, log, sec, core := in.Mux, in.Cfg, in.Log, in.Security, in.Core
 	logCtx := in.LogCtx
 	if mux == nil || cfg == nil {
 		return
@@ -139,7 +140,7 @@ func mountAccountingAuthorityQuery(in accountingAuthorityQueryMount) {
 		}
 		return
 	}
-	if built == nil || built.UsageAuthority == nil {
+	if sec.UsageAuthority == nil {
 		if log != nil {
 			log.WarnContext(logCtx, "accounting authority query config enabled but no authority service wired; mounting disabled",
 				slog.String("component", "accounting_authority"),
@@ -153,15 +154,15 @@ func mountAccountingAuthorityQuery(in accountingAuthorityQueryMount) {
 		return
 	}
 	accHandler := cpadmin.NewAccountingAuthorityHandler(cpadmin.AuthorityOptions{
-		Queries:         built.UsageAuthority,
+		Queries:         sec.UsageAuthority,
 		DefaultPageSize: cfg.Accounting.Authority.Query.DefaultPageSize,
 		MaxPageSize:     cfg.Accounting.Authority.Query.MaxPageSize,
 	})
-	handler := accHandler
-	if built.Executor != nil && built.Executor.ConcurrencyProvider != nil {
+	handler := http.Handler(accHandler)
+	if core.Executor != nil && core.Executor.ConcurrencyProvider != nil {
 		leaseHandler := cpadmin.NewConcurrencyAuthorityHandler(cpadmin.ConcurrencyOptions{
-			Provider:        built.Executor.ConcurrencyProvider,
-			Service:         built.ConcurrencyAuthority,
+			Provider:        core.Executor.ConcurrencyProvider,
+			Service:         sec.ConcurrencyAuthority,
 			DefaultPageSize: cfg.Accounting.Authority.Query.DefaultPageSize,
 			MaxPageSize:     cfg.Accounting.Authority.Query.MaxPageSize,
 		})

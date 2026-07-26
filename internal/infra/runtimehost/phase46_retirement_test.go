@@ -64,13 +64,16 @@ func TestBlockedStream_RetentionCapRejectsWithoutTerminating(t *testing.T) {
 
 	pin.Release()
 	<-g1.Drained()
-	if err := runtimehost.NewLifecycleWorker().Retire(context.Background(), g1, nil); err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
+	if _, err := m.RetireGeneration(context.Background(), g1); err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
 		t.Fatal(err)
 	}
 	m.SweepClosed()
 	mustPublish(t, m, m.Prepare("g3-after-drain"))
 }
 
+// TestGeneration_CloseFailure_StaysClosingForRetry drives Generation.Close
+// directly without a replacing Publish, so Manager's automatic post-publish
+// retirement scheduling (task 7.3) never races this manual drive.
 func TestGeneration_CloseFailure_StaysClosingForRetry(t *testing.T) {
 	t.Parallel()
 	closeErr := errors.New("close-temp")
@@ -85,7 +88,8 @@ func TestGeneration_CloseFailure_StaysClosingForRetry(t *testing.T) {
 	m := runtimehost.NewManager(2, nil)
 	g := m.PrepareOwned("g1", owned)
 	mustPublish(t, m, g)
-	mustPublish(t, m, m.Prepare("g2"))
+	m.BeginShutdown()
+	m.DetachActive()
 	<-g.Drained()
 	if err := g.BeginClose(); err != nil {
 		t.Fatal(err)
@@ -110,104 +114,43 @@ func TestGeneration_CloseFailure_StaysClosingForRetry(t *testing.T) {
 	}
 }
 
-func TestLifecycleWorker_CleanupRetryThenSucceeds(t *testing.T) {
+// TestManagerRetire_QuiesceErrorStatusReporting and the panic-isolation test
+// below use BeginShutdown+DetachActive (not a replacing Publish) so the
+// explicit synchronous Manager.RetireGeneration call under test is the only
+// retirement attempt — Manager's automatic post-publish scheduling (task 7.3)
+// is covered separately in manager_retire_test.go.
+func TestManagerRetire_QuiesceErrorStatusReporting(t *testing.T) {
 	t.Parallel()
-	closeErr := errors.New("cleanup-temp")
-	var closes atomic.Int32
+	quiesceErr := errors.New("quiesce-failed")
 	owned := &ledgerOwned{
-		closeFn: func() error {
-			if closes.Add(1) == 1 {
-				return closeErr
-			}
-			return nil
+		quiesceFn: func(context.Context) error { return quiesceErr },
+	}
+	m := runtimehost.NewManager(2, nil)
+	g1 := m.PrepareOwned("g1", owned)
+	mustPublish(t, m, g1)
+	m.BeginShutdown()
+	m.DetachActive()
+
+	status, err := m.RetireGeneration(context.Background(), g1)
+	if !errors.Is(err, quiesceErr) {
+		t.Fatalf("want quiesce error, got %v", err)
+	}
+	if status.Outcome != runtimehost.LifecycleOutcomeQuiesceFailed {
+		t.Fatalf("status=%+v", status)
+	}
+	if status.GenerationID != g1.ID() {
+		t.Fatalf("status gen=%d want %d", status.GenerationID, g1.ID())
+	}
+}
+
+func TestManagerRetire_QuiescePanicIsolatedContinuesDrain(t *testing.T) {
+	t.Parallel()
+	entered := make(chan struct{})
+	owned := &ledgerOwned{
+		quiesceFn: func(context.Context) error {
+			close(entered)
+			panic("quiesce boom")
 		},
-	}
-	m := runtimehost.NewManager(2, nil)
-	g1 := m.PrepareOwned("g1", owned)
-	mustPublish(t, m, g1)
-	g2 := m.Prepare("g2")
-	mustPublish(t, m, g2)
-
-	worker := runtimehost.NewLifecycleWorkerWithPolicy(runtimehost.CleanupPolicy{MaxAttempts: 3})
-	if err := worker.Retire(context.Background(), g1, owned); err != nil {
-		t.Fatal(err)
-	}
-	if owned.closes.Load() != 2 {
-		t.Fatalf("closes=%d want 2 (fail then success)", owned.closes.Load())
-	}
-	if g1.Lifecycle() != runtimehost.GenClosed {
-		t.Fatalf("lifecycle=%v", g1.Lifecycle())
-	}
-	st := worker.LastStatus()
-	if st.Outcome != runtimehost.LifecycleOutcomeOK {
-		t.Fatalf("status=%+v", st)
-	}
-	if m.Active() != g2 || g2.Lifecycle() != runtimehost.GenActive {
-		t.Fatal("active must remain healthy")
-	}
-}
-
-func TestLifecycleWorker_CleanupExhausted_ReportsCleanupFailed(t *testing.T) {
-	t.Parallel()
-	closeErr := errors.New("cleanup-permanent")
-	owned := &ledgerOwned{
-		closeFn: func() error { return closeErr },
-	}
-	m := runtimehost.NewManager(2, nil)
-	g1 := m.PrepareOwned("g1", owned)
-	mustPublish(t, m, g1)
-	g2 := m.Prepare("g2")
-	mustPublish(t, m, g2)
-
-	worker := runtimehost.NewLifecycleWorkerWithPolicy(runtimehost.CleanupPolicy{MaxAttempts: 2})
-	err := worker.Retire(context.Background(), g1, owned)
-	if !errors.Is(err, closeErr) {
-		t.Fatalf("want cleanup error, got %v", err)
-	}
-	if g1.Lifecycle() != runtimehost.GenClosing {
-		t.Fatalf("lifecycle=%v want closing after exhausted retries", g1.Lifecycle())
-	}
-	st := worker.LastStatus()
-	if st.Outcome != runtimehost.LifecycleOutcomeCleanupFailed {
-		t.Fatalf("status outcome=%q want %q", st.Outcome, runtimehost.LifecycleOutcomeCleanupFailed)
-	}
-	if st.Attempts != 2 {
-		t.Fatalf("attempts=%d", st.Attempts)
-	}
-	if m.Active() != g2 {
-		t.Fatal("cleanup failure must not corrupt active")
-	}
-}
-
-func TestLifecycleWorker_CleanupPanicIsolated(t *testing.T) {
-	t.Parallel()
-	owned := &ledgerOwned{
-		closeFn: func() error { panic("cleanup boom") },
-	}
-	m := runtimehost.NewManager(2, nil)
-	g1 := m.PrepareOwned("g1", owned)
-	mustPublish(t, m, g1)
-	g2 := m.Prepare("g2")
-	mustPublish(t, m, g2)
-
-	worker := runtimehost.NewLifecycleWorkerWithPolicy(runtimehost.CleanupPolicy{MaxAttempts: 1})
-	err := worker.Retire(context.Background(), g1, owned)
-	if err == nil || !strings.Contains(err.Error(), "cleanup boom") {
-		t.Fatalf("want isolated panic error, got %v", err)
-	}
-	if m.Active() != g2 || g2.Lifecycle() != runtimehost.GenActive {
-		t.Fatal("cleanup panic must not alter active generation")
-	}
-	st := worker.LastStatus()
-	if st.Outcome != runtimehost.LifecycleOutcomeCleanupFailed {
-		t.Fatalf("status=%+v", st)
-	}
-}
-
-func TestLifecycleWorker_QuiescePanicIsolated_ContinuesDrain(t *testing.T) {
-	t.Parallel()
-	owned := &ledgerOwned{
-		quiesceFn: func(context.Context) error { panic("quiesce boom") },
 	}
 	m := runtimehost.NewManager(2, nil)
 	g1 := m.PrepareOwned("g1", owned)
@@ -216,20 +159,20 @@ func TestLifecycleWorker_QuiescePanicIsolated_ContinuesDrain(t *testing.T) {
 	if !ok {
 		t.Fatal("acquire")
 	}
-	g2 := m.Prepare("g2")
-	mustPublish(t, m, g2)
+	m.BeginShutdown()
+	m.DetachActive()
 
-	worker := runtimehost.NewLifecycleWorker()
 	errCh := make(chan error, 1)
+	statusCh := make(chan runtimehost.RetirementStatus, 1)
 	go func() {
-		errCh <- worker.Retire(context.Background(), g1, owned)
+		st, err := m.RetireGeneration(context.Background(), g1)
+		statusCh <- st
+		errCh <- err
 	}()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if owned.quiesces.Load() > 0 || g1.Lifecycle() == runtimehost.GenQuiesced || g1.Lifecycle() == runtimehost.GenDrained {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("quiesce panic path did not start")
 	}
 	lease.Release()
 
@@ -241,42 +184,11 @@ func TestLifecycleWorker_QuiescePanicIsolated_ContinuesDrain(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("retire timeout")
 	}
-	if m.Active() != g2 {
-		t.Fatal("quiesce panic must leave newer generation active")
-	}
-	st := worker.LastStatus()
-	if st.Outcome != runtimehost.LifecycleOutcomeQuiesceFailed && st.Outcome != runtimehost.LifecycleOutcomeOK {
-		// Quiesce failure is recorded; close may still succeed afterward.
-		if st.Outcome != runtimehost.LifecycleOutcomeCleanupFailed {
-			t.Fatalf("unexpected status=%+v", st)
-		}
-	}
-	if owned.closes.Load() != 1 {
-		t.Fatalf("close should still run after quiesce panic isolation, closes=%d", owned.closes.Load())
-	}
-}
-
-func TestLifecycleWorker_QuiesceError_StatusReporting(t *testing.T) {
-	t.Parallel()
-	quiesceErr := errors.New("quiesce-failed")
-	owned := &ledgerOwned{
-		quiesceFn: func(context.Context) error { return quiesceErr },
-	}
-	m := runtimehost.NewManager(2, nil)
-	g1 := m.PrepareOwned("g1", owned)
-	mustPublish(t, m, g1)
-	mustPublish(t, m, m.Prepare("g2"))
-
-	worker := runtimehost.NewLifecycleWorker()
-	err := worker.Retire(context.Background(), g1, owned)
-	if !errors.Is(err, quiesceErr) {
-		t.Fatalf("want quiesce error, got %v", err)
-	}
-	st := worker.LastStatus()
+	st := <-statusCh
 	if st.Outcome != runtimehost.LifecycleOutcomeQuiesceFailed {
 		t.Fatalf("status=%+v", st)
 	}
-	if st.GenerationID != g1.ID() {
-		t.Fatalf("status gen=%d want %d", st.GenerationID, g1.ID())
+	if owned.closes.Load() != 1 {
+		t.Fatalf("close should still run after quiesce panic isolation, closes=%d", owned.closes.Load())
 	}
 }

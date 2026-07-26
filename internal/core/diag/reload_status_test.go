@@ -4,44 +4,45 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 func TestReloadDiagnostics_GenerationCorrelationProtected(t *testing.T) {
 	t.Parallel()
-	src := &staticReloadStatusSource{status: configreload.ReloadStatus{
+	src := &staticReloadStatusSource{status: sdkreload.Status{
 		ActiveGeneration:    7,
 		RetainedGenerations: 2,
-		LastSuccess: configreload.ReloadResult{
-			Category:         configreload.ResultPublished,
+		LastSuccess: sdkreload.Result{
+			Category:         sdkreload.ResultPublished,
 			AttemptID:        3,
 			ActiveGeneration: 7,
 		},
-		LastFailure: configreload.ReloadResult{
-			Category:       configreload.ResultInvalid,
+		LastFailure: sdkreload.Result{
+			Category:       sdkreload.ResultInvalid,
 			AttemptID:      4,
-			ReasonCategory: configreload.StageLoad,
+			ReasonCategory: "load",
 		},
-		LastResult: configreload.ReloadResult{
-			Category:       configreload.ResultInvalid,
+		LastResult: sdkreload.Result{
+			Category:       sdkreload.ResultInvalid,
 			AttemptID:      4,
-			ReasonCategory: configreload.StageLoad,
+			ReasonCategory: "load",
 		},
 		SourceIntegrity: "ok",
 		ModelGeneration: "model-gen-9",
-		History: []configreload.HistoryEntry{{
+		History: []sdkreload.HistoryEntry{{
 			AttemptID:           4,
-			Trigger:             configreload.TriggerAPI,
-			Stage:               configreload.StageLoad,
-			Category:            configreload.ResultInvalid,
+			Trigger:             sdkreload.TriggerAPI,
+			Stage:               "load",
+			Category:            sdkreload.ResultInvalid,
 			ActiveGeneration:    7,
 			CandidateGeneration: 0,
 			RestartFieldCount:   0,
-			ReasonCategory:      configreload.StageLoad,
+			ReasonCategory:      "load",
 		}},
 	}}
 	h, err := diag.ReloadStatusHandler(src)
@@ -83,9 +84,75 @@ func TestReloadDiagnostics_GenerationCorrelationProtected(t *testing.T) {
 }
 
 type staticReloadStatusSource struct {
-	status configreload.ReloadStatus
+	status sdkreload.Status
 }
 
-func (s *staticReloadStatusSource) ReloadStatus() configreload.ReloadStatus {
+func (s *staticReloadStatusSource) ReloadStatus() sdkreload.Status {
 	return s.status
+}
+
+func TestReloadDiagnostics_CanonicalStatusDefensiveAndPathFree(t *testing.T) {
+	t.Parallel()
+	fields := []string{"sk-live-secret", "password=hunter2", "/etc/lip/secret.yaml"}
+	hist := []sdkreload.HistoryEntry{{
+		AttemptID: 1,
+		Trigger:   sdkreload.TriggerAPI,
+		Stage:     "publish",
+		Category:  sdkreload.ResultPublished,
+		SafeActor: "actor",
+	}}
+	cur := sdkreload.Result{
+		Category:      sdkreload.ResultBusy,
+		RestartFields: []string{"server.address"},
+	}
+	st := sdkreload.Status{
+		ActiveGeneration: 3,
+		CurrentAttempt:   &cur,
+		LastResult:       cur,
+		LastSuccess: sdkreload.Result{
+			Category:         sdkreload.ResultPublished,
+			ActiveGeneration: 3,
+		},
+		LastFailure: sdkreload.Result{
+			Category:       sdkreload.ResultInvalid,
+			ReasonCategory: "load",
+		},
+		SourceIntegrity: "ok",
+		History:         hist,
+		Busy:            true,
+	}
+	src := &staticReloadStatusSource{status: st.Clone()}
+	h, err := diag.ReloadStatusHandler(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/diagnostics/reload", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	raw := rr.Body.String()
+	for _, bad := range fields {
+		if strings.Contains(raw, bad) {
+			t.Fatalf("diagnostics leaked %q: %s", bad, raw)
+		}
+	}
+	if strings.Contains(raw, "FixedSourcePath") || strings.Contains(raw, "/etc/") {
+		t.Fatalf("diagnostics must stay path-free: %s", raw)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"last_success", "last_failure", "last_result"} {
+		if _, ok := body[key]; !ok {
+			t.Fatalf("missing bounded field %q", key)
+		}
+	}
+	// Source seam must accept canonical Status directly (compile/type identity).
+	var _ diag.ReloadStatusSource = src
+	if reflect.TypeOf(src.ReloadStatus()).PkgPath() != "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload" {
+		t.Fatalf("ReloadStatus must surface canonical pkg path, got %s", reflect.TypeOf(src.ReloadStatus()).PkgPath())
+	}
 }

@@ -217,7 +217,7 @@ The `runtimebundle` package budget rose from the pre-reload range near 6,500 lin
 | Reload contract | internal/public/HTTP models | Duplicated | Move safe vocabulary to one public contract |
 | Lifecycle | generation, manager, worker, ledger | Functional but distributed | Assign one owner per layer and delete duplicate guards |
 | Public facade | `pkg/lipruntime.Runtime` | Broad internal ownership | Wrap one host interface |
-| Public options | canonical registrations plus deprecated fields | Parallel API | Quarantine, freeze, remove at major boundary |
+| Public options | registration-only (`RequestRegistrations` et al.) | Parallel API removed (alpha) | Alpha-stage removal 2026-07-25; see `docs/legacy-options-migration.md` |
 | Guardrails | tree and critical-file budgets | Protect old hotspots | Add current hotspots and downward ratchet |
 | Shrinkage proof | `arch-report` | Metrics asset | Add before/after deletion and LOC acceptance |
 
@@ -247,7 +247,7 @@ The `runtimebundle` package budget rose from the pre-reload range near 6,500 lin
 | G-20 | P1 | A file-only coordinator split could satisfy superficial size goals without reducing ownership complexity. | False remediation risk | 6.1-6.4, 11.6, 12.3 |
 | G-21 | P1 | A broad replacement interface could reproduce the RequestPlane getter wall. | Abstraction risk | 3.5, 9.1-9.4 |
 | G-22 | P1 | Big-bang deletion could compromise complex race/lifecycle behavior despite strong tests. | Delivery risk | 12.1-12.9, 13.1-13.10 |
-| G-23 | P2 | Public source compatibility may prevent immediate legacy option deletion. | Versioning constraint | 10.6-10.10 |
+| G-23 | P2 | ~~Public source compatibility may prevent immediate legacy option deletion.~~ **Resolved 2026-07-25:** alpha/no-users decision by maintainer matdev83 removed the legacy Options fields without a future major-version gate. | Resolved (alpha breaking change) | 10.6-10.10 |
 | G-24 | P2 | Provider and executor abstractions are already appropriately factored. | Preserve / non-gap | 1.7-1.9 |
 
 `P0-M` denotes a maintainability blocker for further growth in the affected architecture, not a claim of an active correctness outage.
@@ -309,7 +309,7 @@ The `runtimebundle` package budget rose from the pre-reload range near 6,500 lin
 - Build one complete host from one snapshot.
 - Decompose reload coordination by ownership.
 - Consolidate lifecycle and reload contracts.
-- Quarantine then remove public legacy options at the compatible boundary.
+- Remove public legacy options under the alpha-stage compatibility decision (no future major-version wait).
 - Lower budgets after every phase.
 
 **Advantages**
@@ -318,7 +318,7 @@ The `runtimebundle` package budget rose from the pre-reload range near 6,500 lin
 - Keeps every intermediate revision buildable.
 - Uses the strongest existing test assets.
 - Makes shrinkage measurable.
-- Separates internal convergence from public-major cleanup.
+- Applies an explicit alpha breaking change for public Options rather than indefinite quarantine.
 
 **Disadvantages**
 
@@ -378,7 +378,7 @@ The first requirements draft captured the ten audit findings but was not impleme
 
 **Initial gap:** immediate removal might be source-breaking, while indefinite deprecation would not fully address the finding.
 
-**Remediation:** added 10.5-10.10 with canonical-path quarantine now and required deletion at the next compatible major boundary.
+**Remediation:** added 10.5-10.10. Later amended (2026-07-25, maintainer matdev83): because the project is alpha with no users, removal proceeds without a future major-version gate; legacy fields and adapter are deleted in-tree.
 
 ### RGR-08: Shrinkage had no objective completion measure
 
@@ -406,7 +406,7 @@ The remediated requirements:
 - cover all audit findings F-01 through F-10;
 - preserve behavior and safety as first-class requirements;
 - define exact old-path deletion outcomes;
-- separate current-major quarantine from major-version public deletion;
+- separate alpha-stage Options removal from any future major-version myth (resolved 2026-07-25: remove now);
 - include objective shrinkage and file-size completion criteria;
 - require TDD sequencing and full release evidence.
 
@@ -498,26 +498,26 @@ The first design was directionally correct and covered the audit findings, but i
 
 ### Critical Issues
 
-🔴 **Critical Issue 1: Canonical generation runtime was still exposed as a broad getter interface**  
-**Concern:** The first design let stdhttp and runtimehost consume one interface with most runtime dependencies.  
-**Impact:** This would reproduce the `RequestPlane` getter wall and retain synchronized propagation.  
-**Suggestion:** Let the concrete generation runtime implement only narrow runtimehost capabilities; pass a grouped value projection only to handler composition.  
-**Traceability:** 2.6-2.8, 3.5-3.7, 9.1-9.4  
-**Evidence:** Initial Components section, `GenerationView` contract.  
+🔴 **Critical Issue 1: Canonical generation runtime was still exposed as a broad getter interface**
+**Concern:** The first design let stdhttp and runtimehost consume one interface with most runtime dependencies.
+**Impact:** This would reproduce the `RequestPlane` getter wall and retain synchronized propagation.
+**Suggestion:** Let the concrete generation runtime implement only narrow runtimehost capabilities; pass a grouped value projection only to handler composition.
+**Traceability:** 2.6-2.8, 3.5-3.7, 9.1-9.4
+**Evidence:** Initial Components section, `GenerationView` contract.
 
-🔴 **Critical Issue 2: Retirement and process shutdown ownership remained split**  
-**Concern:** Manager, retirement worker, Host, and public Runtime could each coordinate parts of shutdown.  
-**Impact:** Duplicate lifecycle truth and repeated idempotency would remain.  
-**Suggestion:** Make manager own retirement scheduling, generation runtime own resource phases, Host own process shutdown, and public Runtime delegate.  
-**Traceability:** 8.1-8.10, 10.1-10.4  
-**Evidence:** Initial Lifecycle and Public Facade sections.  
+🔴 **Critical Issue 2: Retirement and process shutdown ownership remained split**
+**Concern:** Manager, retirement worker, Host, and public Runtime could each coordinate parts of shutdown.
+**Impact:** Duplicate lifecycle truth and repeated idempotency would remain.
+**Suggestion:** Make manager own retirement scheduling, generation runtime own resource phases, Host own process shutdown, and public Runtime delegate.
+**Traceability:** 8.1-8.10, 10.1-10.4
+**Evidence:** Initial Lifecycle and Public Facade sections.
 
-🔴 **Critical Issue 3: Migration order could delete compatibility before focused HTTP consumers existed**  
-**Concern:** The first phase plan removed `Built` while mount helpers still accepted it.  
-**Impact:** Implementation would either create another temporary broad adapter or produce an unreviewable big-bang patch.  
-**Suggestion:** First introduce focused mount inputs and convert all consumers; then add symbol-forbidding gates and delete the old aggregate.  
-**Traceability:** 3.1-3.10, 9.1-9.7, 12.1-12.7  
-**Evidence:** Initial Migration Strategy.  
+🔴 **Critical Issue 3: Migration order could delete compatibility before focused HTTP consumers existed**
+**Concern:** The first phase plan removed `Built` while mount helpers still accepted it.
+**Impact:** Implementation would either create another temporary broad adapter or produce an unreviewable big-bang patch.
+**Suggestion:** First introduce focused mount inputs and convert all consumers; then add symbol-forbidding gates and delete the old aggregate.
+**Traceability:** 3.1-3.10, 9.1-9.7, 12.1-12.7
+**Evidence:** Initial Migration Strategy.
 
 ### Design Strengths
 
@@ -556,7 +556,7 @@ The ownership model and migration sequence required correction before task gener
 
 4. Added explicit compile-time/AST gates for deleted symbols and exact one-snapshot startup.
 
-5. Separated current-major legacy option quarantine from required major-boundary removal.
+5. Recorded the alpha-stage maintainer decision to remove legacy Options fields without waiting for a future major version (2026-07-25).
 
 ## Final Design Validation
 

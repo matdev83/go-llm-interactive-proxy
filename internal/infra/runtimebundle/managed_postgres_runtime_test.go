@@ -9,11 +9,9 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
 func TestBuild_continuityPostgres_unreachableDoesNotFallback(t *testing.T) {
@@ -34,7 +32,7 @@ func TestBuild_continuityPostgres_unreachableDoesNotFallback(t *testing.T) {
 			PostgresDSN: dsn,
 		},
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
 	if err == nil {
@@ -67,7 +65,7 @@ func TestBuild_startupContextCanceled_continuityPostgres(t *testing.T) {
 			PostgresDSN: "postgres://u:p@127.0.0.1:59999/nosuch?sslmode=disable",
 		},
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Startup:        runtimebundle.StartupOptions{StartupContext: startupCtx},
 	})
@@ -102,7 +100,7 @@ func TestBuild_disposesContinuityWhenSecureSessionFails(t *testing.T) {
 			TokenFingerprintKey: testSecureKey32,
 		},
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
 	if err == nil {
@@ -133,7 +131,7 @@ func TestBuild_secureSessionPostgres_unreachableDurableAuditDoesNotFallback(t *t
 			AuditDurability:     "durable",
 		},
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
 	if err == nil {

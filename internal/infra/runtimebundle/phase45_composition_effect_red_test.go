@@ -7,12 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/terminalwork/workstore"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
@@ -105,16 +103,8 @@ func TestPhase45_BuildDerivesEffectProvidersFromRequestRegistrations(t *testing.
 		TerminalWorkTickInterval: time.Hour,
 		TerminalWorkClaimLimit:   10,
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
-	if built.TerminalWorkProcessor == nil || !built.TerminalWorkProcessor.Running() {
+	_, built := mustProcessAndCandidate(t, cfg, opts)
+	if runtimebundle.CandidateTerminalWorkProcessor(built) == nil || !runtimebundle.CandidateTerminalWorkProcessor(built).Running() {
 		t.Fatal("processor must auto-start")
 	}
 	if _, err := prov.SettleRequest(context.Background(), authority.RequestSettlement{
@@ -123,7 +113,7 @@ func TestPhase45_BuildDerivesEffectProvidersFromRequestRegistrations(t *testing.
 	}); err == nil {
 		t.Fatal("inline settle must fail while unhealthy")
 	}
-	if err := built.Executor.TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
+	if err := built.Executor().TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
 		RequestID:  "req-compose",
 		AttemptID:  "a-1",
 		TraceID:    "tr-compose",
@@ -146,7 +136,7 @@ func TestPhase45_BuildDerivesEffectProvidersFromRequestRegistrations(t *testing.
 	}
 	before := prov.settleCalls.Load()
 	prov.settleErr = nil
-	if err := built.TerminalWorkProcessor.ProcessDue(context.Background()); err != nil {
+	if err := runtimebundle.CandidateTerminalWorkProcessor(built).ProcessDue(context.Background()); err != nil {
 		t.Fatalf("ProcessDue: %v", err)
 	}
 	if prov.settleCalls.Load() <= before {
@@ -202,16 +192,8 @@ func TestPhase45_ExplicitTerminalWorkProviderOverridesDerived(t *testing.T) {
 		TerminalWorkTickInterval: time.Hour,
 		TerminalWorkClaimLimit:   10,
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
-	if err := built.Executor.TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
+	_, built := mustProcessAndCandidate(t, cfg, opts)
+	if err := built.Executor().TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
 		RequestID:  "req-override",
 		AttemptID:  "a-1",
 		ProviderID: "quota",
@@ -221,7 +203,7 @@ func TestPhase45_ExplicitTerminalWorkProviderOverridesDerived(t *testing.T) {
 		t.Fatal(err)
 	}
 	settleBefore := prov.settleCalls.Load()
-	if err := built.TerminalWorkProcessor.ProcessDue(context.Background()); err != nil {
+	if err := runtimebundle.CandidateTerminalWorkProcessor(built).ProcessDue(context.Background()); err != nil {
 		t.Fatalf("ProcessDue: %v", err)
 	}
 	if stub.invokeCalls.Load() < 1 {

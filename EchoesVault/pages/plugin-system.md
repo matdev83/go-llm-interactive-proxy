@@ -16,7 +16,7 @@ Explicit, static, per-composition-root. No DI containers, no reflection registri
 Backend registrations declare both credential posture and access scope. `BackendAccessLocalOnly` connectors are allowed only in single-user loopback deployments and are rejected during runtime bundle assembly when `access.mode: multi_user` is active.
 
 ```
-NewRegistry() -> InstallStandardBundleOn(reg, keys) -> reg.Build() -> runtimebundle.Built
+NewRegistry() -> InstallStandardBundleOn(reg, keys) -> runtimebundle.BuildHost -> Host (GenerationRuntime gen 1)
 ```
 
 ## Frontend Plugins (`internal/plugins/frontends/`)

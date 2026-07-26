@@ -18,7 +18,7 @@ Stage four (extension platform) adds the **legal extension pipeline**, brownfiel
 | Check | Location |
 | --- | --- |
 | Non-test line budgets for key trees | [`internal/archtest/guardrails_test.go`](../internal/archtest/guardrails_test.go) |
-| Per-file critical-file budgets for single-file gravity wells (`executor.go`, `runtimebundle/build.go`, `runtimebundle/options.go`, `stdhttp/server.go`, `standardplugins/standard_table.go`, `pluginreg/reg.go`) | same (`TestCriticalFileLineBudgets`) |
+| Per-file critical-file budgets for single-file gravity wells (`executor.go`, `runtimebundle/build.go`, `runtimebundle/options.go`, `stdhttp/server.go`, `standardplugins/standard_table.go`, `pluginreg/reg.go`, plus migration freezes for `runtimehost/coordinator.go`, `runtimehost/generation.go`, `runtimebundle/candidate_compile.go`, `runtimebundle/process_services.go`, `pkg/lipruntime/build.go`, and Task 2.3 thin reload facade files `pkg/lipruntime/reload.go` / `reload_aliases.go`) | same (`TestCriticalFileLineBudgets`, `TestCriticalFileMigrationHotspotFreezeBudgets`) |
 | No `func init()` in `internal/pluginreg`, `internal/standardplugins`, and `cmd/lipstd` (non-test `.go` files) | same |
 | `internal/infra/runtimebundle` production code must not reference `pluginreg.Default` (AST selector) | same |
 | `internal/infra/runtimebundle` (except `bootstrap_plan.go` composition-root startup) and `internal/stdhttp` production code must not call `InstallStandardBundleOn` / `RegisterStandardBundle` | same |
@@ -41,7 +41,7 @@ Circuit breaker behavior (what counts as failure, recovery) is documented in [`r
 
 Run `go test ./internal/archtest/...` and full `go test ./...` (also invoked from `make quality-checks` / CI).
 
-**Architecture metrics report (advisory):** `make arch-report` prints a deterministic Markdown snapshot of non-test lines per package, hotspot file sizes, direct internal import fan-out/fan-in, exported symbol counts for `pkg/lipapi` / `pkg/lipsdk`, and the current hexagonal baseline classifications. CI publishes the report as an artifact from [`.github/workflows/qa.yml`](../.github/workflows/qa.yml). Use it to spot drift before it becomes painful.
+**Architecture metrics report:** `make arch-report` prints a deterministic Markdown snapshot of non-test lines per package, hotspot file sizes, runtime-convergence package budgets, Requirement 11.5 five-surface net shrinkage (baseline `efe4624909cea318c7211d5cb3734059d3210802`), remaining compatibility exceptions, affected-surface fan-in/out, direct internal import fan-out/fan-in, exported symbol counts for `pkg/lipapi` / `pkg/lipsdk` / `pkg/lipruntime`, hexagonal baseline classifications, and deleted production symbol inventory. The Req 11.5 shrinkage section is enforced: the command exits non-zero while the five-surface delta is worse than `-800`. Other tables remain advisory. CI publishes the report as an artifact from [`.github/workflows/qa.yml`](../.github/workflows/qa.yml). Machine-checked helpers live in [`internal/archtest/shrinkage.go`](../internal/archtest/shrinkage.go) (`TestShrinkage_NetReductionMeetsRequirement115`).
 
 **Scope caveats:** AST checks match import-local names (`pluginreg.Default` / `sync.Once`, not renamed imports). `standardplugins.DefaultWireModel` and other `Default*` identifiers are allowed. Package-level `sync.Once` is forbidden in the three wiring roots even when unrelated to plugins, to keep lazy singleton registration from creeping back in. In-function `sync.Once` elsewhere (for example `stdhttp` shutdown coordination) is allowed; `cmd/lipstd` additionally forbids combining `sync.Once` with standard-bundle install calls in one file. The guardrail `TestCompositionLayersDoNotRegisterStandardBundle` exempts `internal/infra/runtimebundle/bootstrap_plan.go` as the single composition-root startup path allowed to call `InstallStandardBundleOn`; all other `runtimebundle` and `stdhttp` production files remain forbidden.
 
@@ -58,6 +58,20 @@ The live `internal/core` cap in `guardrails_test.go` is further raised for versi
 The `internal/infra/runtimebundle` ceiling covers dual-plane Phase 2.2–4.5 composition (descriptor-bound registrations, terminal-work ownership/readiness, RequestRegistrations→AuthorityRequestEffectProvider merge, ProcessDue metrics observer) plus reasoning-output-preservation wiring on the Build path plus Phase 5 executable generation compile/publish/readiness and Phase 5 remediation (provider-removal validation, terminal pending-drain binding) plus Phase 6 lease-set QuerySets readiness, startup uncertain-set reconcile, and settle-release pending counts plus versioned-runtime-reload task 2.3 ProcessServices / candidate compilation split plus task 2.4 process-capacity and shared mutable continuity hoist (A-leg lifecycle, affinity/health compatibility views, extension state, accounting/metering stores) plus task 3.3 complete generation compilation / GenerationBundle plus task 3.4 initial-generation bootstrap host (HandlerComposer serve mode publishing generation 1 without Built) plus task 5.1 `BackendFactoryKindCounts` for LiveFactoryKinds admission. Prefer keeping Build orchestration thin; new registration validation belongs on the public facade when practical.
 
 This applies to both the tree-level `lineBudgets` and the per-file `criticalFileBudgets`. Any increase to a critical-file budget must include a short rationale comment next to the table entry explaining why the single-file hotspot is growing rather than being decomposed. Prefer decomposing the file over raising its budget.
+
+### Decreasing migration hotspot freezes
+
+Feature `runtime-architecture-convergence-and-shrinkage` adds five **exact-freeze** critical-file budgets (Task 1.2) for the measured reload/runtime gravity wells. Initial ceilings equal the Task 1.1 physical line counts at reviewed baseline SHA `efe4624909cea318c7211d5cb3734059d3210802` with **no growth headroom**. Requirement 11.3 final targets (unless the named file is removed) are:
+
+| Surface | Final ceiling | Intermediate ratchet |
+| --- | ---: | --- |
+| Reload coordinator orchestration | ≤300 | Phase 6 / task 6.5 |
+| Generation state object | ≤400 | Phase 7 / task 7.3 |
+| Generation candidate compilation | ≤350 | Phase 3 / task 3.5 |
+| Process runtime construction | ≤300 | Phase 5 / task 5.5 |
+| Public runtime build/facade assembly | ≤150 | Phase 8 / task 8.1 |
+
+Authoritative path/`Max` pairs live only in [`internal/archtest/critical_files.go`](../internal/archtest/critical_files.go) (`CriticalFileBudgets`); do not copy unstable measured line counts into this document when ratcheting.
 
 ## Core admission checklist
 

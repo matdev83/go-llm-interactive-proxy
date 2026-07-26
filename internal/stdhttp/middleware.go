@@ -8,16 +8,15 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	corehttp "github.com/matdev83/go-llm-interactive-proxy/internal/core/http"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	stdauth "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/auth"
 )
 
-// stackHTTPInput carries dependencies for [stackHTTPHandler] (same stack as [RunWithRuntime]).
+// stackHTTPInput carries dependencies for [stackHTTPHandler] (same stack as [ComposeStandardHTTP] / generation host).
 type stackHTTPInput struct {
 	Cfg      *config.Config
 	Log      *slog.Logger
-	Built    *runtimebundle.Built
+	Security HTTPSecurityInput
 	TraceGen *diag.TraceIDGenerator
 	Inner    http.Handler
 	HTTPProm *metrics.HTTPMetrics
@@ -27,7 +26,7 @@ type stackHTTPInput struct {
 	testOuterWrap func(http.Handler) http.Handler
 }
 
-// stackHTTPHandler assembles the same middleware stack as [RunWithRuntime] (outer→inner:
+// stackHTTPHandler assembles the same middleware stack as [ComposeStandardHTTP] (outer→inner:
 // DownstreamServerMiddleware, final outer recovery, optional OpenTelemetry HTTP, optional
 // Prometheus, trace + request ID, access log, inner recovery, transport auth, route mux).
 // Innermost is the shared [http.ServeMux] from mounting.
@@ -39,11 +38,8 @@ type stackHTTPInput struct {
 // commit-time ResponseWriter wrapper so Server policy wins on WriteHeader/Write/Flush (including
 // HTTP 102 hold-alive) while preserving Flusher and ResponseController Unwrap.
 func stackHTTPHandler(in stackHTTPInput) http.Handler {
-	cfg, log, built, traceGen, inner, httpProm := in.Cfg, in.Log, in.Built, in.TraceGen, in.Inner, in.HTTPProm
-	if built == nil {
-		built = &runtimebundle.Built{}
-	}
-	h := stdauth.Middleware(log, built.HTTPAuthProviders, inner)
+	cfg, log, sec, traceGen, inner, httpProm := in.Cfg, in.Log, in.Security, in.TraceGen, in.Inner, in.HTTPProm
+	h := stdauth.Middleware(log, sec.HTTPAuthProviders, inner)
 	h = RecoveryMiddleware(log, h)
 	h = accessLogMiddleware(cfg, log, h)
 	h = corehttp.TraceMiddleware(corehttp.RequestIDMiddleware(traceGen, h))

@@ -31,8 +31,11 @@ func TestGeneration_LifecycleLegalAndIllegalTransitions(t *testing.T) {
 	if !ok {
 		t.Fatal("acquire hold")
 	}
-	g2 := m.Prepare("g2")
-	mustPublish(t, m, g2)
+	// BeginShutdown+DetachActive (not a replacing Publish) avoids racing
+	// Manager's automatic post-publish retirement scheduling (task 7.3)
+	// against this test's own manual lifecycle drive below.
+	m.BeginShutdown()
+	m.DetachActive()
 	if g.Lifecycle() != runtimehost.GenRetiring {
 		t.Fatalf("prior lifecycle=%v want retiring", g.Lifecycle())
 	}
@@ -81,12 +84,17 @@ func TestGeneration_LifecycleLegalAndIllegalTransitions(t *testing.T) {
 	}
 }
 
+// TestGeneration_RetiringDrainsWithoutQuiesceWhenRefsZero uses BeginShutdown+
+// DetachActive (not a replacing Publish) so Manager's automatic post-publish
+// retirement scheduling (task 7.3) cannot race ahead to GenClosing/GenClosed
+// before this test observes the synchronous zero-ref GenDrained transition.
 func TestGeneration_RetiringDrainsWithoutQuiesceWhenRefsZero(t *testing.T) {
 	t.Parallel()
 	m := runtimehost.NewManager(2, nil)
 	g1 := m.Prepare("g1")
 	mustPublish(t, m, g1)
-	mustPublish(t, m, m.Prepare("g2"))
+	m.BeginShutdown()
+	m.DetachActive()
 	<-g1.Drained()
 	if g1.Lifecycle() != runtimehost.GenDrained {
 		t.Fatalf("lifecycle=%v", g1.Lifecycle())
@@ -95,6 +103,9 @@ func TestGeneration_RetiringDrainsWithoutQuiesceWhenRefsZero(t *testing.T) {
 
 // Last lease release during GenQuiescing must not drain or enable BeginClose.
 // Only MarkQuiesced may convert zero-ref quiescing → drained and close Drained().
+// This test drives the lifecycle directly, so it uses BeginShutdown+
+// DetachActive (not a replacing Publish) to avoid racing Manager's automatic
+// post-publish retirement scheduling (task 7.3) against this manual drive.
 func TestGeneration_LastRefReleaseDuringQuiescing_DoesNotDrainUntilMarkQuiesced(t *testing.T) {
 	t.Parallel()
 	var closes atomic.Int32
@@ -111,7 +122,7 @@ func TestGeneration_LastRefReleaseDuringQuiescing_DoesNotDrainUntilMarkQuiesced(
 		t.Fatal("acquire")
 	}
 
-	// Barrier: hold → publish replacement → BeginQuiesce → release final lease while quiescing.
+	// Barrier: hold → detach active → BeginQuiesce → release final lease while quiescing.
 	released := make(chan struct{})
 	quiescing := make(chan struct{})
 	go func() {
@@ -120,7 +131,8 @@ func TestGeneration_LastRefReleaseDuringQuiescing_DoesNotDrainUntilMarkQuiesced(
 		close(released)
 	}()
 
-	mustPublish(t, m, m.Prepare("g2"))
+	m.BeginShutdown()
+	m.DetachActive()
 	if g1.Lifecycle() != runtimehost.GenRetiring {
 		t.Fatalf("after publish lifecycle=%v want retiring", g1.Lifecycle())
 	}
@@ -225,6 +237,10 @@ func TestManager_PublishRejectsUnpreparedAndNil(t *testing.T) {
 	}
 }
 
+// TestGeneration_OwnedCloser_ClosedExactlyOnceAfterDrain drives BeginClose/
+// Close directly, so it uses BeginShutdown+DetachActive (not a replacing
+// Publish) to avoid racing Manager's automatic post-publish retirement
+// scheduling (task 7.3) against this manual drive.
 func TestGeneration_OwnedCloser_ClosedExactlyOnceAfterDrain(t *testing.T) {
 	t.Parallel()
 	var closes atomic.Int32
@@ -239,7 +255,8 @@ func TestGeneration_OwnedCloser_ClosedExactlyOnceAfterDrain(t *testing.T) {
 	if !ok {
 		t.Fatal("acquire")
 	}
-	mustPublish(t, m, m.Prepare("g2"))
+	m.BeginShutdown()
+	m.DetachActive()
 	select {
 	case <-g1.Drained():
 		t.Fatal("must wait for lease")
@@ -310,6 +327,9 @@ func TestGeneration_Discard_UnpublishedCandidateClosesOwnedExactlyOnce(t *testin
 	if err := g.Discard(); !errors.Is(err, runtimehost.ErrAlreadyClosed) {
 		t.Fatalf("second discard: %v", err)
 	}
+	// Successful Discard (GenFailed, empty payload) is a terminal cleanup:
+	// Close returns ErrAlreadyClosed for idempotent compatibility without a
+	// closed/closeErr cache (task 7.3 repair).
 	if err := g.Close(); !errors.Is(err, runtimehost.ErrAlreadyClosed) {
 		t.Fatalf("close after discard: %v", err)
 	}
@@ -352,6 +372,10 @@ func TestGeneration_Discard_PreparingAndFailed(t *testing.T) {
 	}
 }
 
+// TestGeneration_Discard_DoesNotWeakenPublishedClosePath drives BeginClose/
+// Close directly, so it uses BeginShutdown+DetachActive (not a replacing
+// Publish) to avoid racing Manager's automatic post-publish retirement
+// scheduling (task 7.3) against this manual drive.
 func TestGeneration_Discard_DoesNotWeakenPublishedClosePath(t *testing.T) {
 	t.Parallel()
 	var closes atomic.Int32
@@ -367,7 +391,8 @@ func TestGeneration_Discard_DoesNotWeakenPublishedClosePath(t *testing.T) {
 	if closes.Load() != 0 {
 		t.Fatal("discard must not close published generation owned payload")
 	}
-	mustPublish(t, m, m.Prepare("next"))
+	m.BeginShutdown()
+	m.DetachActive()
 	<-g.Drained()
 	if err := g.BeginClose(); err != nil {
 		t.Fatal(err)
