@@ -233,9 +233,11 @@ func (h *closeDeadlineHost) MeteringQuerier() metering.Querier { return h.inner.
 func (h *closeDeadlineHost) ReadinessReport() controlplane.ReadinessReportReader {
 	return h.inner.ReadinessReport()
 }
+
 func (h *closeDeadlineHost) RefreshSnapshots(ctx context.Context) error {
 	return h.inner.RefreshSnapshots(ctx)
 }
+
 func (h *closeDeadlineHost) Reload(ctx context.Context, t sdkreload.Trigger) sdkreload.Result {
 	return h.inner.Reload(ctx, t)
 }

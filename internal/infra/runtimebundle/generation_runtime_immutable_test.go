@@ -42,7 +42,10 @@ func TestImmutable_GroupAccessorsDefensiveCopies(t *testing.T) {
 		t.Fatalf("CompileGeneration: %v", err)
 	}
 	t.Cleanup(func() { _ = bundle.Close() })
-	gb := bundle.(*runtimebundle.GenerationBundle)
+	gb, ok := bundle.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
 
 	// Nested YAML / config source must not leak into published snapshots.
 	cand.Routing.DefaultRoute = "mutated:gone"

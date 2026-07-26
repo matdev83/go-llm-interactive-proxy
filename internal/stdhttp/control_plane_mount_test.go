@@ -68,7 +68,7 @@ func TestControlPlaneQuery_MountedWhenEnabledAndProtected(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	startTestApp(t, ctx, app)
+	startTestApp(ctx, t, app)
 	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +100,7 @@ func TestControlPlaneQuery_NotMountedWhenDisabled(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	startTestApp(t, ctx, app)
+	startTestApp(ctx, t, app)
 	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
 	if err != nil {
 		t.Fatal(err)

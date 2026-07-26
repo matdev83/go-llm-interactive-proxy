@@ -18,22 +18,23 @@ func (r *Runtime) api() hostAPI {
 	return r.host
 }
 
-func (r *Runtime) ExecutorView() lipsdk.ExecutorView {
+// runtimeField delegates to hostAPI when Runtime has a bound host.
+func runtimeField[T any](r *Runtime, pick func(hostAPI) T, zero T) T {
 	if h := r.api(); h != nil {
-		return h.ExecutorView()
+		return pick(h)
 	}
-	return nil
+	return zero
+}
+
+func (r *Runtime) ExecutorView() lipsdk.ExecutorView {
+	return runtimeField(r, (hostAPI).ExecutorView, nil)
 }
 
 func (r *Runtime) Ready() bool { h := r.api(); return h != nil && h.Ready() }
 
 func (r *Runtime) Capabilities() HostCapabilities {
-	if h := r.api(); h != nil {
-		return h.Capabilities()
-	}
-	return HostCapabilities{ExecutableState: controlplane.CapabilityDisabled}
+	return runtimeField(r, (hostAPI).Capabilities, HostCapabilities{ExecutableState: controlplane.CapabilityDisabled})
 }
-
 func (r *Runtime) HasProductionMetering() bool     { return r.Capabilities().ProductionMetering }
 func (r *Runtime) HasTrafficObservers() bool       { return r.Capabilities().TrafficObservers }
 func (r *Runtime) HasUsageObservers() bool         { return r.Capabilities().UsageObservers }
@@ -49,21 +50,20 @@ func (r *Runtime) ExecutableGenerationVersion() string { return r.Capabilities()
 func (r *Runtime) ExecutableGenerationState() controlplane.CapabilityState {
 	return r.Capabilities().ExecutableState
 }
+
 func (r *Runtime) ExecutableEvidenceObjectID() string {
 	return r.Capabilities().ExecutableEvidenceObjectID
 }
+
 func (r *Runtime) MeteringQuerier() metering.Querier {
-	if h := r.api(); h != nil {
-		return h.MeteringQuerier()
-	}
-	return nil
+	return runtimeField(r, (hostAPI).MeteringQuerier, nil)
 }
+
 func (r *Runtime) ReadinessReport() controlplane.ReadinessReportReader {
-	if h := r.api(); h != nil {
-		return h.ReadinessReport()
-	}
-	return nil
+	return runtimeField(r, (hostAPI).ReadinessReport, nil)
 }
+
+// RefreshSnapshots returns an error when no host is bound to this runtime.
 func (r *Runtime) RefreshSnapshots(ctx context.Context) error {
 	if h := r.api(); h != nil {
 		return h.RefreshSnapshots(ctx)

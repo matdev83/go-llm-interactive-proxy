@@ -83,7 +83,7 @@ func TestAttemptGate_SemanticEvidenceMapped(t *testing.T) {
 	t.Parallel()
 	tests := collectAttemptGatePackageTestNames(t)
 	for _, row := range attemptGateContractSemantics {
-		for _, part := range strings.Split(row.CoveredBy, ";") {
+		for part := range strings.SplitSeq(row.CoveredBy, ";") {
 			part = strings.TrimSpace(part)
 			if part == "" {
 				t.Fatalf("empty CoveredBy fragment in %q", row.Name)

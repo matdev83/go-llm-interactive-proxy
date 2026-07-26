@@ -400,12 +400,10 @@ func TestManagerRetire_ConcurrentSameGenerationSerializedAndContextAware(t *test
 	errs := make(chan error, n)
 	var wg sync.WaitGroup
 	for range n {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, err := m.RetireGeneration(context.Background(), g1)
 			errs <- err
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)

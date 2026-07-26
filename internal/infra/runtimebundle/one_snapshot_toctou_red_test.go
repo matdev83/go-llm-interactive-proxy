@@ -25,8 +25,8 @@ func TestTOCTOU_ServeGateAndBootstrapDisagreeAcrossControlledLoads(t *testing.T)
 	pathA := writeOneSnapshotMarkerConfig(t, "127.0.0.1:18101", accessmode.ModeMultiUser)
 	pathB := writeOneSnapshotMarkerConfig(t, "127.0.0.1:18102", accessmode.ModeSingleUser)
 
-	snapA := mustLoadBootstrapSnapshot(t, ctx, pathA)
-	snapB := mustLoadBootstrapSnapshot(t, ctx, pathB)
+	snapA := mustLoadBootstrapSnapshot(ctx, t, pathA)
+	snapB := mustLoadBootstrapSnapshot(ctx, t, pathB)
 	if snapA.eff.Identity.PublicFingerprint == "" || snapB.eff.Identity.PublicFingerprint == "" {
 		t.Fatal("expected non-empty public fingerprints")
 	}
@@ -112,8 +112,8 @@ func TestOneSnapshot_HostTransactionSharesAcceptedSnapshot(t *testing.T) {
 	ctx := context.Background()
 	pathA := writeOneSnapshotMarkerConfig(t, "127.0.0.1:18201", accessmode.ModeSingleUser)
 	pathB := writeOneSnapshotMarkerConfig(t, "127.0.0.1:18202", accessmode.ModeSingleUser)
-	snapA := mustLoadBootstrapSnapshot(t, ctx, pathA)
-	snapB := mustLoadBootstrapSnapshot(t, ctx, pathB)
+	snapA := mustLoadBootstrapSnapshot(ctx, t, pathA)
+	snapB := mustLoadBootstrapSnapshot(ctx, t, pathB)
 
 	var loads atomic.Int32
 	load := func(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
@@ -167,7 +167,7 @@ type bootstrapSnapshot struct {
 	fixed  config.StreamRecoveryOverrides
 }
 
-func mustLoadBootstrapSnapshot(t *testing.T, ctx context.Context, path string) bootstrapSnapshot {
+func mustLoadBootstrapSnapshot(ctx context.Context, t *testing.T, path string) bootstrapSnapshot {
 	t.Helper()
 	eff, active, fixed, err := LoadBootstrapEffectiveWithSource(ctx, path, config.StreamRecoveryOverrides{})
 	if err != nil {

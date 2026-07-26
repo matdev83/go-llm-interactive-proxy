@@ -122,7 +122,7 @@ func TestResourceLedger_QuiesceClose_ConcurrentShareAttempt(t *testing.T) {
 	// Second Quiesce must share/wait rather than overlapping PhaseQuiesce.
 	go func() { errCh <- ledger.Quiesce(context.Background()) }()
 	close(release)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if err := <-errCh; err != nil {
 			t.Fatalf("lifecycle: %v", err)
 		}
@@ -293,7 +293,7 @@ func TestCandidateRuntime_QuiesceWins_TransferDeniedCandidateCloseFinishes(t *te
 
 func TestCandidateRuntime_TransferVsLifecycleRace_NeverReturnsCleanedLedger(t *testing.T) {
 	t.Parallel()
-	for i := 0; i < 128; i++ {
+	for range 128 {
 		var closes atomic.Int32
 		ledger := runtimebundle.NewResourceLedger()
 		ledger.AddClose("be", runtimebundle.PhaseClose, func() error {
@@ -451,7 +451,7 @@ func TestResourceLedger_QuiesceThenPrepare_NoRestart(t *testing.T) {
 
 func TestResourceLedger_PrepareActivateVsTerminalRace_NoStartAfterTerminal(t *testing.T) {
 	t.Parallel()
-	for i := 0; i < 64; i++ {
+	for range 64 {
 		var starts, stops atomic.Int32
 		entered := make(chan struct{})
 		release := make(chan struct{})
@@ -473,7 +473,7 @@ func TestResourceLedger_PrepareActivateVsTerminalRace_NoStartAfterTerminal(t *te
 		go func() { errCh <- ledger.Prepare(context.Background()) }()
 		go func() { errCh <- ledger.Activate(context.Background()) }()
 		close(release)
-		for j := 0; j < 3; j++ {
+		for range 3 {
 			if err := <-errCh; err != nil {
 				t.Fatalf("lifecycle: %v", err)
 			}

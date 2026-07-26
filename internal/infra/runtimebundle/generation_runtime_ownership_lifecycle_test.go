@@ -34,7 +34,11 @@ func TestOwnership_TransferDetachesCandidateFromLedger(t *testing.T) {
 		t.Fatalf("CompileGeneration: %v", err)
 	}
 
-	assertNoCandidateOwnerField(t, bundle.(*runtimebundle.GenerationBundle))
+	gb, ok := bundle.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
+	assertNoCandidateOwnerField(t, gb)
 
 	// Direct transfer proof against a detached candidate handle.
 	ledger := runtimebundle.NewResourceLedger()
@@ -90,7 +94,7 @@ func TestOwnership_TransferDetachesCandidateFromLedger(t *testing.T) {
 // TestOwnership_SingularOwnerShape rejects dual lifecycle owners on the concrete runtime.
 func TestOwnership_SingularOwnerShape(t *testing.T) {
 	t.Parallel()
-	elem := reflect.TypeOf((*runtimebundle.GenerationBundle)(nil)).Elem()
+	elem := reflect.TypeFor[runtimebundle.GenerationBundle]()
 	forbiddenNames := map[string]bool{
 		"owner": true, "Owner": true,
 		"candidate": true, "Candidate": true, "cand": true,
@@ -107,8 +111,7 @@ func TestOwnership_SingularOwnerShape(t *testing.T) {
 	}
 	foundGroups := map[string]bool{}
 	var sawLedger bool
-	for i := 0; i < elem.NumField(); i++ {
-		f := elem.Field(i)
+	for f := range elem.Fields() {
 		if forbiddenNames[f.Name] {
 			t.Fatalf("GenerationBundle retains forbidden dual-owner/mutable field %q (%s)", f.Name, f.Type.String())
 		}
@@ -147,8 +150,7 @@ func TestOwnership_SingularOwnerShape(t *testing.T) {
 func assertNoCandidateOwnerField(t *testing.T, bundle *runtimebundle.GenerationBundle) {
 	t.Helper()
 	elem := reflect.TypeOf(bundle).Elem()
-	for i := 0; i < elem.NumField(); i++ {
-		f := elem.Field(i)
+	for f := range elem.Fields() {
 		if f.Name == "owner" || stringsHasCandidateRuntime(f.Type.String()) {
 			t.Fatalf("compiled runtime still exposes owner/candidate field %q (%s)", f.Name, f.Type.String())
 		}
@@ -303,7 +305,7 @@ func TestLifecycle_ConcurrentQuiesceCloseUnderRace(t *testing.T) {
 	b := runtimebundle.NewGenerationBundleWithLedgerForTest(ledger)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 32; i++ {
+	for range 32 {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
@@ -405,11 +407,11 @@ func TestLifecycle_QuiesceBlocksCloseUntilReleased(t *testing.T) {
 func TestLifecycle_ZeroValueConcurrentFirstUseRaceSafe(t *testing.T) {
 	t.Parallel()
 	const goroutines = 64
-	for n := 0; n < 8; n++ {
+	for range 8 {
 		b := &runtimebundle.GenerationBundle{}
 		var wg sync.WaitGroup
 		wg.Add(goroutines * 2)
-		for i := 0; i < goroutines; i++ {
+		for range goroutines {
 			go func() {
 				defer wg.Done()
 				_ = b.Quiesce(context.Background())

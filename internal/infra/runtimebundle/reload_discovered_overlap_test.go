@@ -104,7 +104,10 @@ func TestReloadDiscovered_ActivateAlreadyDiscoveredKind(t *testing.T) {
 		t.Fatalf("activate discovered: %v", err)
 	}
 	t.Cleanup(func() { _ = bundle.Close() })
-	gb := bundle.(*runtimebundle.GenerationBundle)
+	gb, ok := bundle.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
 	if !containsID(gb.BackendIDs(), "disc") {
 		t.Fatalf("want disc, got %v", gb.BackendIDs())
 	}

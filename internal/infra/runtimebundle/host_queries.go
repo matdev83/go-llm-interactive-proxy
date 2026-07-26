@@ -13,30 +13,37 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
+// Host query helpers expose generation, capability, and metering views.
 func (h *Host) Ready() bool {
 	return h != nil && h.manager != nil && h.executor != nil && h.manager.Active() != nil
 }
+
+// activeGen returns the manager's active generation when the host is bound.
 func (h *Host) activeGen() *runtimehost.Generation {
 	if h == nil || h.manager == nil {
 		return nil
 	}
 	return h.manager.Active()
 }
+
 func (h *Host) ActiveGenerationID() int64 {
 	if g := h.activeGen(); g != nil {
 		return g.ID()
 	}
 	return 0
 }
+
 func (h *Host) ActivePublicFingerprint() string {
 	if g := h.activeGen(); g != nil {
 		return g.Status().Meta.PublicFingerprint
 	}
 	return ""
 }
+
 func (h *Host) ProcessClosed() bool {
 	return h == nil || h.process == nil || h.process.Closed()
 }
+
 func (h *Host) CanAcquireActive() bool {
 	if h == nil || h.manager == nil {
 		return false
@@ -48,6 +55,7 @@ func (h *Host) CanAcquireActive() bool {
 	lease.Release()
 	return true
 }
+
 func (h *Host) StartALeg(id string) *leglifecycle.ALeg {
 	if h == nil || h.process == nil || h.process.ALegLifecycle == nil {
 		return nil
@@ -120,6 +128,7 @@ func (h *Host) RefreshSnapshots(ctx context.Context) error {
 	return h.process.SnapshotController.Refresh(ctx)
 }
 
+// productionOptions and activeExecutor support Capabilities assembly.
 func (h *Host) productionOptions() ProductionOptions {
 	if h == nil || h.process == nil || h.process.opts == nil {
 		return ProductionOptions{}
@@ -146,6 +155,7 @@ func (h *Host) currentSnapshot() *snapshotgen.RuntimeGeneration {
 	}
 	return nil
 }
+
 func (h *Host) currentExecutable() *snapshotgen.ExecutableGeneration {
 	if h != nil && h.process != nil && h.process.SnapshotGeneration != nil {
 		return h.process.SnapshotGeneration.CurrentExecutable()

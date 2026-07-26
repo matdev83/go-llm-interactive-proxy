@@ -6,9 +6,9 @@ import (
 	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
-// reloadQuery is the narrow reload/status seam satisfied by [hostAPI].
-// It is unexported so public callers never see internal packages; signatures use the
-// canonical SDK contract types directly.
+// reloadQuery is the narrow reload/status seam satisfied by hostAPI.
+// It is unexported so public callers never see internal packages.
+// Signatures use the canonical SDK contract types directly.
 type reloadQuery interface {
 	Reload(ctx context.Context, trigger sdkreload.Trigger) sdkreload.Result
 	Status() sdkreload.Status

@@ -46,7 +46,8 @@ func TestOmittedRoute_openaiResponses_usesEffectiveDefaultRoute(t *testing.T) {
 	var cap sync.Map
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
 	mux := http.NewServeMux()
-	if err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
+	if err := MountBundledFrontends(MountBundledFrontendsInput{
+		Mux: mux,
 		Frontends: HTTPFrontendInput{
 			Executor:             ex,
 			DefaultRouteSelector: route,
@@ -81,7 +82,8 @@ func TestBodyRoute_openaiResponses_usesMountedRoutePrefixes(t *testing.T) {
 	var cap sync.Map
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
 	mux := http.NewServeMux()
-	if err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
+	if err := MountBundledFrontends(MountBundledFrontendsInput{
+		Mux: mux,
 		Frontends: HTTPFrontendInput{
 			Executor:             ex,
 			DefaultRouteSelector: unifiedPolicyRoute,
@@ -119,7 +121,8 @@ func TestOmittedRoute_openaiLegacy_usesEffectiveDefaultRoute(t *testing.T) {
 	var cap sync.Map
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
 	mux := http.NewServeMux()
-	if err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
+	if err := MountBundledFrontends(MountBundledFrontendsInput{
+		Mux: mux,
 		Frontends: HTTPFrontendInput{
 			Executor:             ex,
 			DefaultRouteSelector: route,
@@ -156,7 +159,8 @@ func TestOmittedRoute_anthropic_usesEffectiveDefaultRoute(t *testing.T) {
 	var cap sync.Map
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
 	mux := http.NewServeMux()
-	if err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
+	if err := MountBundledFrontends(MountBundledFrontendsInput{
+		Mux: mux,
 		Frontends: HTTPFrontendInput{
 			Executor:             ex,
 			DefaultRouteSelector: route,

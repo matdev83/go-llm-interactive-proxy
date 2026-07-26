@@ -9,6 +9,7 @@ import (
 	"go/token"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -41,10 +42,8 @@ func (j *validateDistributionJournal) acquire(stage string) {
 }
 
 func (j *validateDistributionJournal) clean(stage string) {
-	for _, existing := range j.Cleaned {
-		if existing == stage {
-			return
-		}
+	if slices.Contains(j.Cleaned, stage) {
+		return
 	}
 	j.Cleaned = append(j.Cleaned, stage)
 }
@@ -61,42 +60,49 @@ func (j *validateJournalBundle) Handler() http.Handler {
 	}
 	return j.inner.Handler()
 }
+
 func (j *validateJournalBundle) ExecutorView() lipsdk.ExecutorView {
 	if j == nil || j.inner == nil {
 		return nil
 	}
 	return j.inner.ExecutorView()
 }
+
 func (j *validateJournalBundle) BindModelViews(ctx context.Context) context.Context {
 	if j == nil || j.inner == nil {
 		return ctx
 	}
 	return j.inner.BindModelViews(ctx)
 }
+
 func (j *validateJournalBundle) BackendFactoryKindCounts() map[string]int {
 	if j == nil || j.inner == nil {
 		return nil
 	}
 	return j.inner.BackendFactoryKindCounts()
 }
+
 func (j *validateJournalBundle) TerminalProviders() terminalworkapp.TerminalProviderView {
 	if j == nil || j.inner == nil {
 		return terminalworkapp.SnapshotTerminalProviders(nil)
 	}
 	return j.inner.TerminalProviders()
 }
+
 func (j *validateJournalBundle) ReadinessReport() controlplane.ReadinessReportReader {
 	if j == nil || j.inner == nil {
 		return nil
 	}
 	return j.inner.ReadinessReport()
 }
+
 func (j *validateJournalBundle) Quiesce(ctx context.Context) error {
 	if j == nil || j.inner == nil {
 		return nil
 	}
 	return j.inner.Quiesce(ctx)
 }
+
 func (j *validateJournalBundle) Close() error {
 	if j == nil || j.inner == nil {
 		return nil

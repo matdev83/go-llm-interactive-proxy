@@ -46,7 +46,11 @@ func TestCheckConfig_NonPublicNoListenAndPrivateCleanup(t *testing.T) {
 	// If check-config had attempted to listen on the configured address, the
 	// pre-bound exclusive listener would cause bind failure / non-zero exit.
 	// Accept one more connection attempt into our listener to prove ownership.
-	_ = ln.(*net.TCPListener).SetDeadline(time.Now().Add(50 * time.Millisecond))
+	tcpLn, ok := ln.(*net.TCPListener)
+	if !ok {
+		t.Fatal("expected TCP listener")
+	}
+	_ = tcpLn.SetDeadline(time.Now().Add(50 * time.Millisecond))
 	if conn, acceptErr := ln.Accept(); acceptErr == nil {
 		_ = conn.Close()
 		t.Fatal("unexpected accept: check-config must not dial or hand off the data-plane address")

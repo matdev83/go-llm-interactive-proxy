@@ -311,7 +311,10 @@ func assertNoLifecycleFieldsOnGroups(t *testing.T) {
 			continue
 		}
 		for _, spec := range gd.Specs {
-			ts := spec.(*ast.TypeSpec)
+			ts, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
 			switch ts.Name.Name {
 			case "HTTPCoreInput", "HTTPSecurityInput", "HTTPOperationsInput", "HTTPModelInput", "HTTPFrontendInput", "StandardHTTPInput":
 			default:

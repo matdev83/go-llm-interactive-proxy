@@ -121,6 +121,7 @@ type namedMethodEvidence struct{}
 func (*namedMethodEvidence) RecordPolicyDecision(context.Context, policydecision.Record) error {
 	return nil
 }
+
 func (*namedMethodEvidence) RecordAccountingAuthority(context.Context, controlplane.Event) error {
 	return nil
 }

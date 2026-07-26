@@ -404,7 +404,10 @@ func TestRunWithGenerationHost_NilContextOrHostSkipsCleanup(t *testing.T) {
 	t.Parallel()
 	log := &serveOrderLog{}
 	host := newServeHostStub(log)
-	if err := RunWithGenerationHost(nil, GenerationHostInput{Host: host}); err == nil || !strings.Contains(err.Error(), "nil context") {
+	if err := RunWithGenerationHost(
+		nil, //nolint:staticcheck // SA1012: intentional nil context contract
+		GenerationHostInput{Host: host},
+	); err == nil || !strings.Contains(err.Error(), "nil context") {
 		t.Fatalf("err=%v want nil context", err)
 	}
 	if got := host.closes.Load(); got != 0 {

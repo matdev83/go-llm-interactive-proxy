@@ -7,6 +7,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -26,10 +27,8 @@ func (j *hostBuildJournal) acquire(stage string) {
 }
 
 func (j *hostBuildJournal) clean(stage string) {
-	for _, existing := range j.Cleaned {
-		if existing == stage {
-			return
-		}
+	if slices.Contains(j.Cleaned, stage) {
+		return
 	}
 	j.Cleaned = append(j.Cleaned, stage)
 }

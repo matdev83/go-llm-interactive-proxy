@@ -157,7 +157,10 @@ func TestCompileGeneration_CreatesHandlerWithoutListener(t *testing.T) {
 		t.Fatalf("CompileGeneration: %v", err)
 	}
 	t.Cleanup(func() { _ = bundle.Close() })
-	gb := bundle.(*runtimebundle.GenerationBundle)
+	gb, ok := bundle.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
 
 	if bundle.Handler() == nil {
 		t.Fatal("expected handler")
@@ -218,8 +221,14 @@ func TestCompileGeneration_CoexistTwoCandidatesDifferentPlanes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compile B: %v", err)
 	}
-	ga := a.(*runtimebundle.GenerationBundle)
-	gb := b.(*runtimebundle.GenerationBundle)
+	ga, ok := a.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
+	gb, ok := b.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
 
 	aIDs := map[string]bool{}
 	for _, id := range ga.BackendIDs() {
@@ -338,7 +347,10 @@ func TestCompileGeneration_ImmutableAccessorsDefensive(t *testing.T) {
 		t.Fatalf("CompileGeneration: %v", err)
 	}
 	t.Cleanup(func() { _ = bundle.Close() })
-	gb := bundle.(*runtimebundle.GenerationBundle)
+	gb, ok := bundle.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
 
 	cand.Routing.DefaultRoute = "mutated:gone"
 	cand.Plugins.Frontends = nil

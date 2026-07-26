@@ -4,15 +4,16 @@ import (
 	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
-// Public reload names are exact aliases / re-exports of the canonical
-// pkg/lipsdk/configreload contract (Requirement 7.4). No mirrored domain copy.
+// Public reload names alias pkg/lipsdk/configreload (Req 7.4); no mirrored domain copy.
 
-type TriggerKind = sdkreload.TriggerKind
-type ResultCategory = sdkreload.ResultCategory
-type ReloadTrigger = sdkreload.Trigger
-type ReloadResult = sdkreload.Result
-type HistoryEntry = sdkreload.HistoryEntry
-type ReloadStatus = sdkreload.Status
+type (
+	TriggerKind    = sdkreload.TriggerKind
+	ResultCategory = sdkreload.ResultCategory
+	ReloadTrigger  = sdkreload.Trigger
+	ReloadResult   = sdkreload.Result
+	HistoryEntry   = sdkreload.HistoryEntry
+	ReloadStatus   = sdkreload.Status
+)
 
 const (
 	TriggerSIGHUP = sdkreload.TriggerSIGHUP
@@ -30,6 +31,5 @@ const (
 	ResultInternalFailed    = sdkreload.ResultInternalFailed
 )
 
-// AllResultCategories re-exports the canonical closed vocabulary for compatibility
-// enumeration. Policy must not depend on mutating this slice.
+// AllResultCategories re-exports the canonical closed vocabulary; do not mutate.
 var AllResultCategories = sdkreload.AllResultCategories

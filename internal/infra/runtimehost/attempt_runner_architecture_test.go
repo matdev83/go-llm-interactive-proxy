@@ -12,6 +12,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -950,7 +951,7 @@ func (c *Coordinator) sneak() { c.runner.Run() }
 		sites, _ := findAttemptRunnerRunSites(files)
 		bad := 0
 		for _, s := range sites {
-			if !(s.file == "coordinator.go" && strings.HasSuffix(s.fn, "Coordinator.Reload")) {
+			if s.file != "coordinator.go" || !strings.HasSuffix(s.fn, "Coordinator.Reload") {
 				bad++
 			}
 		}
@@ -982,7 +983,7 @@ func extra(r *attemptRunner) { r.Run() }
 		sites, _ := findAttemptRunnerRunSites(files)
 		bad := 0
 		for _, s := range sites {
-			if !(s.file == "coordinator.go" && strings.HasSuffix(s.fn, "Coordinator.Reload")) {
+			if s.file != "coordinator.go" || !strings.HasSuffix(s.fn, "Coordinator.Reload") {
 				bad++
 			}
 		}
@@ -1014,7 +1015,7 @@ func (c *Coordinator) extra() {
 		sites, _ := findAttemptRunnerRunSites(files)
 		bad := 0
 		for _, s := range sites {
-			if !(s.file == "coordinator.go" && strings.HasSuffix(s.fn, "Coordinator.Reload")) {
+			if s.file != "coordinator.go" || !strings.HasSuffix(s.fn, "Coordinator.Reload") {
 				bad++
 			}
 		}
@@ -1668,9 +1669,7 @@ func packageFnIdentity(fd *ast.FuncDecl, aliases map[string]string) (packageFnID
 
 func cloneStringMap(in map[string]string) map[string]string {
 	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }
 
@@ -2299,8 +2298,11 @@ func analyzeAttemptRunnerAllocations(files map[string]*ast.File) []string {
 					case *ast.CallExpr:
 						inspectAllocExpr(x, path, fnName)
 						return false
-					case *ast.UnaryExpr, *ast.CompositeLit:
-						inspectAllocExpr(x.(ast.Expr), path, fnName)
+					case *ast.UnaryExpr:
+						inspectAllocExpr(x, path, fnName)
+						return false
+					case *ast.CompositeLit:
+						inspectAllocExpr(x, path, fnName)
 						return false
 					}
 					return true
@@ -2324,7 +2326,7 @@ func analyzeAttemptRunnerAllocations(files map[string]*ast.File) []string {
 	}
 	if len(sites) == 1 {
 		s := sites[0]
-		if !(s.path == "attempt_runner.go" && s.fn == "newAttemptRunner") {
+		if s.path != "attempt_runner.go" || s.fn != "newAttemptRunner" {
 			violations = append(violations, fmt.Sprintf("%s: sole attemptRunner allocation must be inside newAttemptRunner in attempt_runner.go; found in %s", s.path, s.fn))
 		}
 	} else if len(sites) > 1 {
@@ -2673,9 +2675,7 @@ func collectRunnerRunSites(
 
 func cloneRunnerProv(in map[string]runnerValueProv) map[string]runnerValueProv {
 	out := make(map[string]runnerValueProv, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }
 
@@ -3097,9 +3097,7 @@ func collectForbiddenStageCalls(
 
 func cloneStageProv(in map[string]stageValueProv) map[string]stageValueProv {
 	out := make(map[string]stageValueProv, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }
 

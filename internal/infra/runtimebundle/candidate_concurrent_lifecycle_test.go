@@ -22,12 +22,12 @@ func TestCandidateRuntime_ConcurrentQuiesceClose_NilAndLedgerBound(t *testing.T)
 	t.Run("nil_and_zero_value_race_safe", func(t *testing.T) {
 		t.Parallel()
 		const goroutines = 64
-		for n := 0; n < 8; n++ {
+		for range 8 {
 			var nilCand *runtimebundle.CandidateHTTPCompile
 			zero := &runtimebundle.CandidateHTTPCompile{}
 			var wg sync.WaitGroup
 			wg.Add(goroutines * 4)
-			for i := 0; i < goroutines; i++ {
+			for range goroutines {
 				go func() {
 					defer wg.Done()
 					_ = nilCand.Quiesce(context.Background())
@@ -73,7 +73,7 @@ func TestCandidateRuntime_ConcurrentQuiesceClose_NilAndLedgerBound(t *testing.T)
 		const n = 32
 		wg.Add(n * 2)
 		errs := make(chan error, n*2)
-		for i := 0; i < n; i++ {
+		for range n {
 			go func() {
 				defer wg.Done()
 				errs <- cand.Quiesce(context.Background())

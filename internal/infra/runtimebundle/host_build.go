@@ -4,6 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"strings"
+	"time"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretsguard"
@@ -13,11 +19,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	"io"
-	"log/slog"
-	"os"
-	"strings"
-	"time"
 )
 
 type BuildHostInput struct {
@@ -155,13 +156,15 @@ func buildHostWithEnv(ctx context.Context, in hostBuildInput, loadEffective boot
 	return buildHost(ctx, in, ops, secretEnv)
 }
 
-type effectiveLoader = bootstrapEffectiveLoader
-type tracingInitializer func(ctx context.Context, cfg *config.Config) (tracing.Result, error)
-type processBuilder func(ctx context.Context, in processBuildInput) (*ProcessServices, error)
-type generationCompilerOp func(ctx context.Context, ps *ProcessServices, cfg *config.Config, compose HandlerComposer) (GenerationRuntime, error)
-type initialPublisher func(ctx context.Context, in initialPublishInput) (*runtimehost.Manager, *runtimehost.Generation, error)
-type hostBinder func(configPath string, in bindHostInput) (*Host, error)
-type registryInstaller func(cfg *config.Config, mandatory []lipsdk.Requirement) (*pluginreg.Registry, []lipsdk.Registration, error)
+type (
+	effectiveLoader      = bootstrapEffectiveLoader
+	tracingInitializer   func(ctx context.Context, cfg *config.Config) (tracing.Result, error)
+	processBuilder       func(ctx context.Context, in processBuildInput) (*ProcessServices, error)
+	generationCompilerOp func(ctx context.Context, ps *ProcessServices, cfg *config.Config, compose HandlerComposer) (GenerationRuntime, error)
+	initialPublisher     func(ctx context.Context, in initialPublishInput) (*runtimehost.Manager, *runtimehost.Generation, error)
+	hostBinder           func(configPath string, in bindHostInput) (*Host, error)
+	registryInstaller    func(cfg *config.Config, mandatory []lipsdk.Requirement) (*pluginreg.Registry, []lipsdk.Registration, error)
+)
 
 type hostBuildOps struct {
 	load      effectiveLoader
@@ -193,6 +196,7 @@ func defaultHostBuildOps() hostBuildOps {
 		publisher: publishStartupGenerationOp, bind: bindHost,
 	}
 }
+
 func buildProcessServicesOp(ctx context.Context, in processBuildInput) (*ProcessServices, error) {
 	return NewProcessServices(ctx, ProcessServicesInput{
 		Cfg: in.Cfg, Log: in.Logger,
@@ -205,9 +209,11 @@ func buildProcessServicesOp(ctx context.Context, in processBuildInput) (*Process
 		Tracing: in.Tracing,
 	})
 }
+
 func compileInitialGenerationOp(ctx context.Context, ps *ProcessServices, cfg *config.Config, compose HandlerComposer) (GenerationRuntime, error) {
 	return CompileGeneration(ctx, GenerationCompileInput{Process: ps, Candidate: cfg, Compose: compose})
 }
+
 func publishStartupGenerationOp(ctx context.Context, in initialPublishInput) (*runtimehost.Manager, *runtimehost.Generation, error) {
 	if in.Process == nil {
 		return nil, nil, fmt.Errorf("runtimebundle: nil ProcessServices")
@@ -238,6 +244,7 @@ func publishStartupGenerationOp(ctx context.Context, in initialPublishInput) (*r
 	}
 	return mgr, gen, nil
 }
+
 func installRegistryOp(cfg *config.Config, mandatory []lipsdk.Requirement) (*pluginreg.Registry, []lipsdk.Registration, error) {
 	return installRegistryAndRegistrations(cfg, mandatory)
 }

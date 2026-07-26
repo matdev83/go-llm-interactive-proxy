@@ -89,7 +89,7 @@ func TestCompileGeneration_ComposerReceivesDefensiveConfigClone(t *testing.T) {
 	if len(cand.Plugins.Backends[0].Config.Content) > 0 {
 		candBEContent0 = cand.Plugins.Backends[0].Config.Content[0]
 	}
-	var candFESlice = cand.Plugins.Frontends
+	candFESlice := cand.Plugins.Frontends
 
 	var received *config.Config
 	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
@@ -145,7 +145,10 @@ func TestCompileGeneration_ComposerReceivesDefensiveConfigClone(t *testing.T) {
 	if received == nil {
 		t.Fatal("composer did not capture cfg")
 	}
-	gb := bundle.(*runtimebundle.GenerationBundle)
+	gb, ok := bundle.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
 
 	// Caller candidate must remain the original source of truth.
 	if cand.Routing.DefaultRoute != origRoute {
@@ -257,7 +260,10 @@ func TestCompileGeneration_DeepFreezeRegistrationsAndYAML(t *testing.T) {
 		t.Fatalf("CompileGeneration: %v", err)
 	}
 	t.Cleanup(func() { _ = bundle.Close() })
-	gb := bundle.(*runtimebundle.GenerationBundle)
+	gb, ok := bundle.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
 
 	cand.Routing.DefaultRoute = "mutated:gone"
 	cand.Plugins.Backends[0].Config = genYAMLNode(t, `text: "mutated-backend"`)
@@ -539,7 +545,10 @@ func TestCompileGeneration_BundleQuiesceBeforeClose_LifecycleStopOnce(t *testing
 	if err != nil {
 		t.Fatalf("CompileGeneration: %v", err)
 	}
-	gb := bundle.(*runtimebundle.GenerationBundle)
+	gb, ok := bundle.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
 	if life.starts.Load() != 1 {
 		t.Fatalf("starts=%d", life.starts.Load())
 	}

@@ -106,7 +106,10 @@ models:
 	}
 
 	ids := map[string]bool{}
-	newGB := newBundle.(*runtimebundle.GenerationBundle)
+	newGB, ok := newBundle.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
 	for _, id := range newGB.BackendIDs() {
 		ids[id] = true
 	}

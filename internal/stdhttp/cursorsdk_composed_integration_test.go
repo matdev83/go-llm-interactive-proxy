@@ -121,7 +121,8 @@ models:
 	serve := func(t *testing.T, route string) *httptest.ResponseRecorder {
 		t.Helper()
 		mux := http.NewServeMux()
-		if err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
+		if err := MountBundledFrontends(MountBundledFrontendsInput{
+			Mux: mux,
 			Frontends: HTTPFrontendInput{
 				Executor:             cand.Executor(),
 				DefaultRouteSelector: route,

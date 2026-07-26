@@ -17,7 +17,7 @@ import (
 
 // startTestApp starts app and registers Shutdown cleanup. Lifecycle only —
 // callers compose HTTP separately via ComposeStandardHTTP.
-func startTestApp(t *testing.T, ctx context.Context, app *runtime.App) {
+func startTestApp(ctx context.Context, t *testing.T, app *runtime.App) {
 	t.Helper()
 	if app == nil {
 		t.Fatal("nil app")

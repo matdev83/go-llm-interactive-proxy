@@ -13,17 +13,17 @@ import (
 )
 
 // Runtime is an opaque handle over a successfully built OSS composition.
-// It retains one immutable host-facing dependency plus Close synchronization
-// required by the public retry/idempotency contract (req 10.1-10.4).
+// Close synchronization follows the public retry/idempotency contract (req 10.1-10.4).
 type Runtime struct {
 	host    hostAPI
 	closeMu sync.Mutex
 	closed  bool
 }
 
-// Build constructs a production runtime from public options. The standard
-// plugin registry is installed internally; callers must not import internal packages.
-// Build binds one complete Host via [runtimebundle.BuildHost] (req 4.1, 10.1-10.4).
+// Build constructs a production runtime from public options.
+// Callers must not import internal packages; Build installs the standard registry.
+// The returned Runtime owns one immutable host-facing dependency graph.
+// Build binds one complete Host via runtimebundle.BuildHost (req 4.1, 10.1-10.4).
 func Build(ctx context.Context, opts Options) (*Runtime, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("lipruntime: nil context")

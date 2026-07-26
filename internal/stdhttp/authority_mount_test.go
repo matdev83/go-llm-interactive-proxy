@@ -34,7 +34,7 @@ func TestAccountingAuthorityQueryNotMountedWhenDisabled(t *testing.T) {
 	in, _ := authorityHTTPInput(t, cfg)
 	app := mustRuntimeApp(t, cfg)
 	ctx := context.Background()
-	startTestApp(t, ctx, app)
+	startTestApp(ctx, t, app)
 	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
 	if err != nil {
 		t.Fatalf("ComposeStandardHTTP: %v", err)
@@ -54,7 +54,7 @@ func TestAccountingAuthorityQueryMountedAndProtected(t *testing.T) {
 	seedAuthorityDecisionHistory(t, svc)
 	app := mustRuntimeApp(t, cfg)
 	ctx := context.Background()
-	startTestApp(t, ctx, app)
+	startTestApp(ctx, t, app)
 	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
 	if err != nil {
 		t.Fatalf("ComposeStandardHTTP: %v", err)

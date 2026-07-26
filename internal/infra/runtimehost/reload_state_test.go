@@ -558,11 +558,15 @@ func TestReloadState_HistorySanitizationPolicyParity(t *testing.T) {
 func TestReloadState_LastSuccessAndFailureAcrossSequence(t *testing.T) {
 	t.Parallel()
 	s := newReloadState(reloadStateInitial{})
-	s.Apply(attemptOutcome{Result: sdkreload.Result{Category: sdkreload.ResultPublished, AttemptID: 1, ActiveGeneration: 1},
-		EffectiveUpdate: stateEffective("fp-1", 1)}, reloadTerminalMeta{})
+	s.Apply(attemptOutcome{
+		Result:          sdkreload.Result{Category: sdkreload.ResultPublished, AttemptID: 1, ActiveGeneration: 1},
+		EffectiveUpdate: stateEffective("fp-1", 1),
+	}, reloadTerminalMeta{})
 	s.Apply(attemptOutcome{Result: sdkreload.Result{Category: sdkreload.ResultSourceIntegrity, AttemptID: 2, ActiveGeneration: 1}}, reloadTerminalMeta{})
-	s.Apply(attemptOutcome{Result: sdkreload.Result{Category: sdkreload.ResultPublished, AttemptID: 3, ActiveGeneration: 2},
-		EffectiveUpdate: stateEffective("fp-2", 2)}, reloadTerminalMeta{})
+	s.Apply(attemptOutcome{
+		Result:          sdkreload.Result{Category: sdkreload.ResultPublished, AttemptID: 3, ActiveGeneration: 2},
+		EffectiveUpdate: stateEffective("fp-2", 2),
+	}, reloadTerminalMeta{})
 
 	st := s.Snapshot(reloadStatusInput{})
 	if st.LastResult.AttemptID != 3 || st.LastResult.Category != sdkreload.ResultPublished {
@@ -742,8 +746,10 @@ func TestReloadState_SnapshotControlDegraded(t *testing.T) {
 func TestReloadState_SnapshotBusyCurrentAttempt(t *testing.T) {
 	t.Parallel()
 	s := newReloadState(reloadStateInitial{})
-	s.Apply(attemptOutcome{Result: sdkreload.Result{Category: sdkreload.ResultRestartRequired, AttemptID: 5,
-		RestartFields: []string{"a", "b"}}}, reloadTerminalMeta{})
+	s.Apply(attemptOutcome{Result: sdkreload.Result{
+		Category: sdkreload.ResultRestartRequired, AttemptID: 5,
+		RestartFields: []string{"a", "b"},
+	}}, reloadTerminalMeta{})
 
 	notBusy := s.Snapshot(reloadStatusInput{Busy: false})
 	if notBusy.CurrentAttempt != nil {
@@ -823,6 +829,7 @@ func TestReloadState_DefensiveCopies(t *testing.T) {
 // 14. Concurrent ActiveInput/Apply/Snapshot under race with causal barriers.
 
 func TestReloadState_ConcurrentAccessRace(t *testing.T) {
+	t.Parallel()
 	s := newReloadState(reloadStateInitial{
 		ActiveEffective: stateEffective("fp-0", 0),
 		ActiveSource:    stateActiveSource(0),
@@ -855,7 +862,7 @@ func TestReloadState_ConcurrentAccessRace(t *testing.T) {
 	}()
 	go func() {
 		defer wg.Done()
-		for i := 0; i < n; i++ {
+		for i := range n {
 			st := s.Snapshot(reloadStatusInput{ActiveGeneration: int64(i), Busy: i%2 == 0})
 			if st.History == nil {
 				continue

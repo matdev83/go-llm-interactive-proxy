@@ -8,7 +8,9 @@ import (
 
 // TestBoundResultIndependentOfMutablePublicEnumeration proves boundResultName
 // uses immutable canonical policy, not the exported mutable AllResultCategories
-// compatibility enumeration (Task 2.1 / Hermes review). Must not run in parallel.
+// compatibility enumeration (Task 2.1 / Hermes review).
+//
+//nolint:paralleltest // mutates exported sdkreload.AllResultCategories package state
 func TestBoundResultIndependentOfMutablePublicEnumeration(t *testing.T) {
 	orig := append([]sdkreload.ResultCategory(nil), sdkreload.AllResultCategories...)
 	t.Cleanup(func() {

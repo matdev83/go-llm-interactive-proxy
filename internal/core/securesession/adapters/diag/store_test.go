@@ -30,18 +30,23 @@ type readOnlyDiagStore struct{}
 func (readOnlyDiagStore) Summary(context.Context, domain.SummaryQuery) ([]domain.Summary, error) {
 	return nil, nil
 }
+
 func (readOnlyDiagStore) LoadByID(context.Context, domain.SessionID) (domain.Record, error) {
 	return domain.Record{}, nil
 }
+
 func (readOnlyDiagStore) LoadByALegID(context.Context, string) (domain.Record, error) {
 	return domain.Record{}, nil
 }
+
 func (readOnlyDiagStore) Transcript(context.Context, domain.SessionID, domain.ReadOptions) ([]domain.TranscriptItem, error) {
 	return nil, nil
 }
+
 func (readOnlyDiagStore) Audit(context.Context, domain.SessionID, domain.ReadOptions) ([]domain.AuditItem, error) {
 	return nil, nil
 }
+
 func (readOnlyDiagStore) ListAttemptEvidence(context.Context, domain.SessionID, domain.ReadOptions) ([]domain.AttemptEvidence, error) {
 	return nil, nil
 }
@@ -51,9 +56,6 @@ var _ Store = readOnlyDiagStore{}
 func TestStoreContract_readOnlyFakeSatisfiesWithoutWrites(t *testing.T) {
 	t.Parallel()
 	var s Store = readOnlyDiagStore{}
-	if s == nil {
-		t.Fatal("read-only fake must satisfy Store")
-	}
 	// Prove writes are not part of the contract: app.Store is broader.
 	var _ app.Store = (*memory.Store)(nil)
 	_, hasCreate := any(s).(interface {

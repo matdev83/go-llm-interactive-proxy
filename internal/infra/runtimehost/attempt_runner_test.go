@@ -961,6 +961,7 @@ func TestAttemptRunner_DefensiveInputAndOutcomeCopies(t *testing.T) {
 }
 
 func TestAttemptRunner_ConcurrentIndependentCallsRaceFree(t *testing.T) {
+	t.Parallel()
 	mgr := NewManager(64, nil)
 	g0 := mgr.PrepareRequestPlane("startup", newRunnerFakePlane(nil))
 	if err := mgr.Publish(g0); err != nil {
@@ -978,12 +979,10 @@ func TestAttemptRunner_ConcurrentIndependentCallsRaceFree(t *testing.T) {
 	var wg sync.WaitGroup
 	var attemptID atomic.Int64
 	for range 16 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			id := attemptID.Add(1)
 			_ = r.Run(context.Background(), attemptInput{AttemptID: id, ActiveGeneration: mgr.Active().ID(), ActiveEffective: runnerBaseEffective("fp-x", byte(id))})
-		}()
+		})
 	}
 	wg.Wait()
 	if mgr.Active() == nil {

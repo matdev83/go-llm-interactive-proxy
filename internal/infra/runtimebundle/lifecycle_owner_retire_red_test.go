@@ -231,14 +231,12 @@ func TestLifecycleOwner_Retire_ConcurrentRetirementNoDoubleClean(t *testing.T) {
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	errs := make(chan error, 8)
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 8 {
+		wg.Go(func() {
 			<-start
 			_, err := m.RetireGeneration(context.Background(), g1)
 			errs <- err
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()
@@ -329,32 +327,24 @@ func TestLifecycleOwner_ShutdownDetached_RacesRetirementNoDoubleCleanOrProcessCl
 	var wg sync.WaitGroup
 	errs := make(chan error, 4)
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-start
 		_, err := m.RetireGeneration(ctx, g1)
 		errs <- err
-	}()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		<-start
 		errs <- m.ShutdownDetached(ctx)
-	}()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		<-start
 		_, err := m.RetireGeneration(ctx, g1)
 		errs <- err
-	}()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		<-start
 		errs <- m.ShutdownDetached(ctx)
-	}()
+	})
 	close(start)
 	wg.Wait()
 	close(errs)

@@ -131,7 +131,7 @@ func TestAttachOwned_VersusAssignPublish_NoLateBinding(t *testing.T) {
 	t.Run("concurrent_attach_or_publish_never_late", func(t *testing.T) {
 		t.Parallel()
 		const rounds = 64
-		for i := 0; i < rounds; i++ {
+		for range rounds {
 			g := NewManager(1, nil).BeginPrepare("cand", nil)
 			if err := g.Transition(GenPrepared); err != nil {
 				t.Fatal(err)
@@ -185,7 +185,7 @@ func TestAttachRequestPlane_VersusDiscard_NoFailedLeak(t *testing.T) {
 	t.Run("discard_claims_or_attach_loses", func(t *testing.T) {
 		t.Parallel()
 		const rounds = 64
-		for i := 0; i < rounds; i++ {
+		for range rounds {
 			g := NewManager(1, nil).BeginPrepare("cand", nil)
 			plane := &attachTestPlane{}
 			start := make(chan struct{})

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"maps"
 	"strings"
 	"testing"
 )
@@ -491,8 +492,8 @@ func isFuncTypedExpr(expr ast.Expr, graph *packageTypeGraph) bool {
 
 func namedTypeBase(typ string) string {
 	typ = strings.TrimPrefix(typ, "*")
-	if i := strings.Index(typ, "["); i >= 0 {
-		return typ[:i]
+	if before, _, ok := strings.Cut(typ, "["); ok {
+		return before
 	}
 	return typ
 }
@@ -915,8 +916,11 @@ func analyzeReloadStateAllocations(files map[string]*ast.File) []string {
 					case *ast.CallExpr:
 						inspectAllocExpr(x, path, fnName)
 						return false
-					case *ast.UnaryExpr, *ast.CompositeLit:
-						inspectAllocExpr(x.(ast.Expr), path, fnName)
+					case *ast.UnaryExpr:
+						inspectAllocExpr(x, path, fnName)
+						return false
+					case *ast.CompositeLit:
+						inspectAllocExpr(x, path, fnName)
 						return false
 					}
 					return true
@@ -940,7 +944,7 @@ func analyzeReloadStateAllocations(files map[string]*ast.File) []string {
 	}
 	if len(sites) == 1 {
 		s := sites[0]
-		if !(s.path == "reload_state.go" && s.fn == "newReloadState") {
+		if s.path != "reload_state.go" || s.fn != "newReloadState" {
 			violations = append(violations, fmt.Sprintf("%s: sole ReloadState allocation must be inside newReloadState in reload_state.go; found in %s", s.path, s.fn))
 		}
 	} else if len(sites) > 1 {
@@ -1231,9 +1235,7 @@ func collectReloadStateMethodSites(
 
 func cloneReloadStateProv(in map[string]reloadStateValueProv) map[string]reloadStateValueProv {
 	out := make(map[string]reloadStateValueProv, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }
 
@@ -2028,10 +2030,10 @@ func scanReloadStateMethodDependencies(files map[string]*ast.File, graph *packag
 
 func reloadStateReachableLabel(id packageFnID, stateNames map[string]bool) string {
 	s := string(id)
-	if i := strings.IndexByte(s, '.'); i >= 0 {
-		recv := s[:i]
+	if before, after, ok := strings.Cut(s, "."); ok {
+		recv := before
 		if stateNames[recv] {
-			return "ReloadState." + s[i+1:]
+			return "ReloadState." + after
 		}
 	}
 	return "helper " + s + " reachable from ReloadState"
@@ -2052,9 +2054,7 @@ func scanReloadStateReachableFunc(
 	env := map[string]string{}
 	funcEnv := map[string]bool{}
 	// Seed package globals into the local env so selector/refs resolve.
-	for k, v := range globals {
-		env[k] = v
-	}
+	maps.Copy(env, globals)
 	for k, v := range globalFuncs {
 		if v {
 			funcEnv[k] = true
@@ -2424,9 +2424,7 @@ type ReloadState struct{ y int }
 	t.Run("rejects_wrapper_struct_storing_ReloadState", func(t *testing.T) {
 		t.Parallel()
 		src := map[string]string{}
-		for k, v := range canonicalPair {
-			src[k] = v
-		}
+		maps.Copy(src, canonicalPair)
 		src["wrap.go"] = `
 package runtimehost
 type stateBag struct { state *ReloadState }
@@ -2441,9 +2439,7 @@ type stateBag struct { state *ReloadState }
 	t.Run("rejects_newReloadState_value_alias_and_call", func(t *testing.T) {
 		t.Parallel()
 		src := map[string]string{}
-		for k, v := range canonicalPair {
-			src[k] = v
-		}
+		maps.Copy(src, canonicalPair)
 		src["alias_ctor.go"] = `
 package runtimehost
 var makeState = newReloadState
@@ -2602,7 +2598,7 @@ func extra(s *ReloadState) { s.Apply() }
 		sites, _ := findReloadStateMethodSites(files, "Apply")
 		bad := 0
 		for _, s := range sites {
-			if !(s.file == "coordinator.go" && strings.HasSuffix(s.fn, "Coordinator.Reload")) {
+			if s.file != "coordinator.go" || !strings.HasSuffix(s.fn, "Coordinator.Reload") {
 				bad++
 			}
 		}
@@ -2634,7 +2630,7 @@ func (c *Coordinator) sneak() {
 		sites, _ := findReloadStateMethodSites(files, "Snapshot")
 		bad := 0
 		for _, s := range sites {
-			if !(s.file == "coordinator.go" && strings.HasSuffix(s.fn, "Coordinator.Status")) {
+			if s.file != "coordinator.go" || !strings.HasSuffix(s.fn, "Coordinator.Status") {
 				bad++
 			}
 		}

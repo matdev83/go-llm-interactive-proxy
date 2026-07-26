@@ -105,8 +105,14 @@ func TestCompileGeneration_ModelsAndRoutingAgreeWithCandidateBackendSet(t *testi
 		t.Fatalf("compile B: %v", err)
 	}
 	t.Cleanup(func() { _ = b.Close() })
-	ga := a.(*runtimebundle.GenerationBundle)
-	gb := b.(*runtimebundle.GenerationBundle)
+	ga, ok := a.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
+	gb, ok := b.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
 
 	ctxA := a.BindModelViews(context.Background())
 	ctxB := b.BindModelViews(context.Background())

@@ -39,6 +39,7 @@ func (f *facadeFakeHost) MeteringQuerier() metering.Querier { return f.querier }
 func (f *facadeFakeHost) ReadinessReport() controlplane.ReadinessReportReader {
 	return f.readiness
 }
+
 func (f *facadeFakeHost) RefreshSnapshots(ctx context.Context) error {
 	f.refreshCalls.Add(1)
 	if ctx == nil {
@@ -46,6 +47,7 @@ func (f *facadeFakeHost) RefreshSnapshots(ctx context.Context) error {
 	}
 	return f.refreshErr
 }
+
 func (f *facadeFakeHost) Reload(ctx context.Context, trigger sdkreload.Trigger) sdkreload.Result {
 	if f.reload != nil {
 		return f.reload(ctx, trigger)

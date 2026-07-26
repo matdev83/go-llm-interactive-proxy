@@ -310,14 +310,12 @@ func TestAttemptGate_ExactFinishSequentialDuplicate(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 32 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			out := lease.Complete()
 			if out.Kind != finishAlreadyCompleted {
 				t.Errorf("dup complete kind=%v", out.Kind)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -412,7 +410,9 @@ func TestAttemptGate_IdleAlreadyIdle(t *testing.T) {
 	if err := g.WaitForIdle(context.Background()); err != nil {
 		t.Fatalf("already idle: %v", err)
 	}
-	if err := g.WaitForIdle(nil); err != nil {
+	if err := g.WaitForIdle(
+		nil, //nolint:staticcheck // SA1012: intentional nil context contract
+	); err != nil {
 		t.Fatalf("nil ctx idle: %v", err)
 	}
 }
@@ -524,11 +524,9 @@ func TestAttemptGate_RepeatedConcurrentShutdown(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 32 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			g.BeginShutdown()
-		}()
+		})
 	}
 	wg.Wait()
 	g.BeginShutdown()
@@ -599,39 +597,31 @@ func TestAttemptGate_InterleavingsOneCompleteVsWaitShutdown(t *testing.T) {
 		var waitErrs atomic.Int64
 
 		for range 4 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				if err := g.WaitForIdle(context.Background()); err != nil {
 					waitErrs.Add(1)
 				}
-			}()
+			})
 		}
 
 		var hammer sync.WaitGroup
-		hammer.Add(1)
-		go func() {
-			defer hammer.Done()
+		hammer.Go(func() {
 			_ = g.TryStart(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
 			_ = g.TryStart(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerSIGHUP})
 			_ = g.TryStart(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerSIGHUP})
-		}()
+		})
 		hammer.Wait()
 
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			g.BeginShutdown()
-		}()
+		})
 
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			out := admitted.Lease.Complete()
 			if out.Kind == finishFollowUpClaimed && out.FollowUpLease != nil {
 				_ = out.FollowUpLease.Complete()
 			}
-		}()
+		})
 
 		wg.Wait()
 		if waitErrs.Load() != 0 {

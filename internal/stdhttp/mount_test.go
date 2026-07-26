@@ -39,7 +39,8 @@ func TestMountBundledFrontends_geminiDoesNotRegisterRoot(t *testing.T) {
 	plugins := []config.PluginConfig{
 		{ID: gemini.ID, Enabled: true},
 	}
-	if err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
+	if err := MountBundledFrontends(MountBundledFrontendsInput{
+		Mux: mux,
 		Frontends: HTTPFrontendInput{
 			Executor:             ex,
 			DefaultRouteSelector: "stub:gemini-2.0-flash",
@@ -67,7 +68,7 @@ func TestTokenAccountingAdminMountedWithDiagnosticsSecret(t *testing.T) {
 	ex.AdminCountService = svc
 	app := mustRuntimeApp(t, cfg)
 	ctx := context.Background()
-	startTestApp(t, ctx, app)
+	startTestApp(ctx, t, app)
 	reg := pluginreg.NewRegistry()
 	in := StandardHTTPInput{
 		Core:      HTTPCoreInput{Executor: ex},
@@ -109,7 +110,7 @@ func TestTokenAccountingAdminDisabledNotRegistered(t *testing.T) {
 	ex := runtime.TestExecutor()
 	app := mustRuntimeApp(t, cfg)
 	ctx := context.Background()
-	startTestApp(t, ctx, app)
+	startTestApp(ctx, t, app)
 	reg := pluginreg.NewRegistry()
 	in := StandardHTTPInput{
 		Core:       HTTPCoreInput{Executor: ex},
@@ -139,7 +140,7 @@ func TestTokenAccountingAdminMountedBodyLimitDoesNotEchoContent(t *testing.T) {
 	ex.AdminCountService = svc
 	app := mustRuntimeApp(t, cfg)
 	ctx := context.Background()
-	startTestApp(t, ctx, app)
+	startTestApp(ctx, t, app)
 	reg := pluginreg.NewRegistry()
 	in := StandardHTTPInput{
 		Core:      HTTPCoreInput{Executor: ex},
@@ -175,7 +176,7 @@ func TestTokenAccountingAdmin_explicitServicePreferredOverExecutorFallback(t *te
 	ex.AdminCountService = fallback
 	app := mustRuntimeApp(t, cfg)
 	ctx := context.Background()
-	startTestApp(t, ctx, app)
+	startTestApp(ctx, t, app)
 	reg := pluginreg.NewRegistry()
 	in := StandardHTTPInput{
 		Core:      HTTPCoreInput{Executor: ex},
@@ -207,7 +208,7 @@ func TestTokenAccountingAdmin_executorFallbackWhenExplicitNil(t *testing.T) {
 	ex.AdminCountService = fallback
 	app := mustRuntimeApp(t, cfg)
 	ctx := context.Background()
-	startTestApp(t, ctx, app)
+	startTestApp(ctx, t, app)
 	reg := pluginreg.NewRegistry()
 	in := StandardHTTPInput{
 		Core:       HTTPCoreInput{Executor: ex},
@@ -238,7 +239,7 @@ func TestTokenAccountingAdmin_nilServiceReturnsUnavailable(t *testing.T) {
 	// No TokenAccountingAdmin and no AdminCountService.
 	app := mustRuntimeApp(t, cfg)
 	ctx := context.Background()
-	startTestApp(t, ctx, app)
+	startTestApp(ctx, t, app)
 	reg := pluginreg.NewRegistry()
 	in := StandardHTTPInput{
 		Core:       HTTPCoreInput{Executor: ex},
@@ -267,9 +268,11 @@ type failingLocalCounter struct{}
 func (failingLocalCounter) CountText(context.Context, accountingapp.CountTextInput) (accountingapp.CountResult, error) {
 	return accountingapp.CountResult{}, errors.New("fallback must not be used")
 }
+
 func (failingLocalCounter) CountCall(context.Context, accountingapp.CountCallInput) (accountingapp.CountResult, error) {
 	return accountingapp.CountResult{}, errors.New("fallback must not be used")
 }
+
 func (failingLocalCounter) CountOutput(context.Context, accountingapp.CountOutputInput) (accountingapp.CountResult, error) {
 	return accountingapp.CountResult{}, errors.New("fallback must not be used")
 }
@@ -324,7 +327,8 @@ func TestMountBundledFrontends_explicitRegistryMissingFrontend(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", nil)
-	err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
+	err := MountBundledFrontends(MountBundledFrontendsInput{
+		Mux: mux,
 		Frontends: HTTPFrontendInput{
 			Executor:             ex,
 			DefaultRouteSelector: "stub:x",
@@ -356,7 +360,7 @@ func TestComposeStandardHTTP_diagnosticsHealthzMounted(t *testing.T) {
 	ex := runtime.TestExecutor()
 	app := mustRuntimeApp(t, cfg)
 	ctx := context.Background()
-	startTestApp(t, ctx, app)
+	startTestApp(ctx, t, app)
 	reg := pluginreg.NewRegistry()
 	in := StandardHTTPInput{
 		Core:       HTTPCoreInput{Executor: ex},
@@ -416,7 +420,7 @@ func TestComposeStandardHTTP_openAIModelsAndModelRegistryDiagMounted(t *testing.
 	ex := runtime.TestExecutor()
 	app := mustRuntimeApp(t, cfg)
 	ctx := context.Background()
-	startTestApp(t, ctx, app)
+	startTestApp(ctx, t, app)
 	in := StandardHTTPInput{
 		Core:      HTTPCoreInput{Executor: ex},
 		Frontends: frontendInputForTest(cfg, ex, reg),

@@ -39,7 +39,10 @@ func TestReloadBackend_AddAbsentAtStartup(t *testing.T) {
 		t.Fatalf("CompileGeneration add: %v", err)
 	}
 	t.Cleanup(func() { _ = bundle.Close() })
-	gb := bundle.(*runtimebundle.GenerationBundle)
+	gb, ok := bundle.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
 
 	ids := map[string]bool{}
 	for _, id := range gb.BackendIDs() {
@@ -200,8 +203,12 @@ func TestReloadBackend_RemoveAndDisable(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	newGB, ok := newBundle.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
 	newIDs := map[string]bool{}
-	for _, id := range newBundle.(*runtimebundle.GenerationBundle).BackendIDs() {
+	for _, id := range newGB.BackendIDs() {
 		newIDs[id] = true
 	}
 	if newIDs["drop"] {
@@ -212,8 +219,12 @@ func TestReloadBackend_RemoveAndDisable(t *testing.T) {
 	}
 
 	// Retired generation still has drop for bound work.
+	oldGB, ok := oldBundle.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
 	oldIDs := map[string]bool{}
-	for _, id := range oldBundle.(*runtimebundle.GenerationBundle).BackendIDs() {
+	for _, id := range oldGB.BackendIDs() {
 		oldIDs[id] = true
 	}
 	if !oldIDs["drop"] {
@@ -284,7 +295,10 @@ models:
 		t.Fatalf("compile generic kinds: %v", err)
 	}
 	t.Cleanup(func() { _ = bundle.Close() })
-	gb := bundle.(*runtimebundle.GenerationBundle)
+	gb, ok := bundle.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
 
 	got := map[string]bool{}
 	for _, id := range gb.BackendIDs() {
@@ -403,7 +417,11 @@ func TestReloadBackend_CandidateFactoryFailureRollback(t *testing.T) {
 		t.Fatal("process must not mutate/close on candidate failure")
 	}
 	// Active/old bundle still works.
-	if len(okBundle.(*runtimebundle.GenerationBundle).BackendIDs()) == 0 {
+	okGB, ok := okBundle.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
+	if len(okGB.BackendIDs()) == 0 {
 		t.Fatal("active generation backends lost")
 	}
 }

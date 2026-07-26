@@ -15,20 +15,31 @@ import (
 func TestReloadPublicAliases_AssignmentIdentityWithSDK(t *testing.T) {
 	t.Parallel()
 
-	var (
-		_ sdkreload.TriggerKind     = lipruntime.TriggerKind("")
-		_ lipruntime.TriggerKind    = sdkreload.TriggerKind("")
-		_ sdkreload.ResultCategory  = lipruntime.ResultCategory("")
-		_ lipruntime.ResultCategory = sdkreload.ResultCategory("")
-		_ sdkreload.Trigger         = lipruntime.ReloadTrigger{}
-		_ lipruntime.ReloadTrigger  = sdkreload.Trigger{}
-		_ sdkreload.Result          = lipruntime.ReloadResult{}
-		_ lipruntime.ReloadResult   = sdkreload.Result{}
-		_ sdkreload.Status          = lipruntime.ReloadStatus{}
-		_ lipruntime.ReloadStatus   = sdkreload.Status{}
-		_ sdkreload.HistoryEntry    = lipruntime.HistoryEntry{}
-		_ lipruntime.HistoryEntry   = sdkreload.HistoryEntry{}
-	)
+	acceptSDKTriggerKind := func(sdkreload.TriggerKind) {}
+	acceptPublicTriggerKind := func(lipruntime.TriggerKind) {}
+	acceptSDKResultCategory := func(sdkreload.ResultCategory) {}
+	acceptPublicResultCategory := func(lipruntime.ResultCategory) {}
+	acceptSDKTrigger := func(sdkreload.Trigger) {}
+	acceptPublicTrigger := func(lipruntime.ReloadTrigger) {}
+	acceptSDKResult := func(sdkreload.Result) {}
+	acceptPublicResult := func(lipruntime.ReloadResult) {}
+	acceptSDKStatus := func(sdkreload.Status) {}
+	acceptPublicStatus := func(lipruntime.ReloadStatus) {}
+	acceptSDKHistory := func(sdkreload.HistoryEntry) {}
+	acceptPublicHistory := func(lipruntime.HistoryEntry) {}
+
+	acceptSDKTriggerKind(lipruntime.TriggerKind(""))
+	acceptPublicTriggerKind(sdkreload.TriggerKind(""))
+	acceptSDKResultCategory(lipruntime.ResultCategory(""))
+	acceptPublicResultCategory(sdkreload.ResultCategory(""))
+	acceptSDKTrigger(lipruntime.ReloadTrigger{})
+	acceptPublicTrigger(sdkreload.Trigger{})
+	acceptSDKResult(lipruntime.ReloadResult{})
+	acceptPublicResult(sdkreload.Result{})
+	acceptSDKStatus(lipruntime.ReloadStatus{})
+	acceptPublicStatus(sdkreload.Status{})
+	acceptSDKHistory(lipruntime.HistoryEntry{})
+	acceptPublicHistory(sdkreload.HistoryEntry{})
 
 	cases := []struct {
 		name string
@@ -139,7 +150,7 @@ func TestReloadFacade_NoConversionRoundTrip(t *testing.T) {
 		t.Fatalf("coordinator saw %+v", saw)
 	}
 	// Result is the same underlying type — no mapper conversion required.
-	var asSDK sdkreload.Result = got
+	asSDK := func(v sdkreload.Result) sdkreload.Result { return v }(got)
 	if asSDK.Category != sdkreload.ResultPublished || asSDK.AttemptID != 7 {
 		t.Fatalf("result=%+v", asSDK)
 	}

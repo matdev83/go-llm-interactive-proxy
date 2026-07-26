@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"strings"
 	"testing"
@@ -916,12 +917,8 @@ func (c *Coordinator) Status() { c.gate.Snapshot() }
 
 func withSyntheticExtra(base map[string]string, extra map[string]string) map[string]string {
 	out := make(map[string]string, len(base)+len(extra))
-	for k, v := range base {
-		out[k] = v
-	}
-	for k, v := range extra {
-		out[k] = v
-	}
+	maps.Copy(out, base)
+	maps.Copy(out, extra)
 	return out
 }
 
@@ -1354,8 +1351,8 @@ func resolveAliasString(typ string, aliases map[string]string) string {
 	if typ == "" {
 		return ""
 	}
-	if strings.HasPrefix(typ, "*") {
-		inner := resolveAliasString(strings.TrimPrefix(typ, "*"), aliases)
+	if after, ok := strings.CutPrefix(typ, "*"); ok {
+		inner := resolveAliasString(after, aliases)
 		if inner == "" {
 			return typ
 		}
@@ -1365,8 +1362,8 @@ func resolveAliasString(typ string, aliases map[string]string) string {
 		return "*" + inner
 	}
 	for _, prefix := range []string{"chan ", "chan<- ", "<-chan "} {
-		if strings.HasPrefix(typ, prefix) {
-			inner := resolveAliasString(strings.TrimPrefix(typ, prefix), aliases)
+		if after, ok := strings.CutPrefix(typ, prefix); ok {
+			inner := resolveAliasString(after, aliases)
 			return prefix + inner
 		}
 	}
@@ -1492,9 +1489,7 @@ func unwrapParen(expr ast.Expr) ast.Expr {
 
 func cloneStringSet(in map[string]bool) map[string]bool {
 	out := make(map[string]bool, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }
 
@@ -1845,9 +1840,8 @@ func analyzeReloadLeaseFlow(body *ast.BlockStmt) reloadLeaseFlowResult {
 	if hasTrackedAbandonDefer && firstPostAdmissionWorkPos != token.NoPos && abandonDeferPos > firstPostAdmissionWorkPos {
 		violations = append(violations, "deferred lease.Abandon must be installed before first post-admission work")
 	}
-	if hasTrackedAbandonDefer && firstPostAdmissionWorkPos == token.NoPos {
-		// Still require that abandon defer exists; production always has runAttempt.
-	}
+	// When firstPostAdmissionWorkPos is NoPos, abandon defer presence alone is sufficient;
+	// production always has runAttempt post-admission work.
 
 	return reloadLeaseFlowResult{ok: len(violations) == 0, violations: violations}
 }
@@ -2028,9 +2022,7 @@ func provenanceFromTypeExpr(expr ast.Expr, aliases map[string]string) valueProve
 
 func cloneProvenance(env map[string]valueProvenance) map[string]valueProvenance {
 	out := make(map[string]valueProvenance, len(env))
-	for k, v := range env {
-		out[k] = v
-	}
+	maps.Copy(out, env)
 	return out
 }
 
@@ -2391,9 +2383,7 @@ func analyzeIdleCloseOwnership(files map[string]*ast.File) []string {
 			}
 			fn := funcDisplayName(fd)
 			scan := scanIdleNotifyInFunc(path, fd, aliases)
-			for _, esc := range scan.escapes {
-				violations = append(violations, esc)
-			}
+			violations = append(violations, scan.escapes...)
 
 			if path == "attempt_gate.go" && fd.Name != nil && fd.Name.Name == "newAttemptGate" {
 				ctorCloses += countBuiltinCloseCalls(fd.Body)

@@ -15,7 +15,8 @@ func TestMountBundledFrontends_nilMux(t *testing.T) {
 	t.Parallel()
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", nil)
 	reg := pluginreg.NewRegistry()
-	err := MountBundledFrontends(MountBundledFrontendsInput{Mux: nil,
+	err := MountBundledFrontends(MountBundledFrontendsInput{
+		Mux: nil,
 		Frontends: HTTPFrontendInput{
 			Executor:             ex,
 			DefaultRouteSelector: "stub:x",
@@ -36,7 +37,8 @@ func TestMountBundledFrontends_nilExec(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
 	reg := pluginreg.NewRegistry()
-	err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
+	err := MountBundledFrontends(MountBundledFrontendsInput{
+		Mux: mux,
 		Frontends: HTTPFrontendInput{
 			Executor:             nil,
 			DefaultRouteSelector: "stub:x",
@@ -57,7 +59,8 @@ func TestMountBundledFrontends_nilRegistry(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", nil)
-	err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
+	err := MountBundledFrontends(MountBundledFrontendsInput{
+		Mux: mux,
 		Frontends: HTTPFrontendInput{
 			Executor:             ex,
 			DefaultRouteSelector: "stub:x",

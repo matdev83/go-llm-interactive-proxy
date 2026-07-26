@@ -143,8 +143,9 @@ func TestClosedVocabulary_ExactTriggerAndResultCategories(t *testing.T) {
 
 // TestNormalizeResultCategory_IndependentOfMutableAllResultCategories proves
 // normalization/known-category policy does not consult the exported mutable
-// AllResultCategories slice header. Must not run in parallel: mutates package
-// state and restores it.
+// AllResultCategories slice header.
+//
+//nolint:paralleltest // mutates exported configreload.AllResultCategories package state
 func TestNormalizeResultCategory_IndependentOfMutableAllResultCategories(t *testing.T) {
 	orig := append([]configreload.ResultCategory(nil), configreload.AllResultCategories...)
 	t.Cleanup(func() {
@@ -218,8 +219,7 @@ func TestSecretSafeShape_RejectsForbiddenFields(t *testing.T) {
 		reflect.TypeFor[configreload.Status](),
 		reflect.TypeFor[configreload.HistoryEntry](),
 	} {
-		for i := 0; i < rt.NumField(); i++ {
-			f := rt.Field(i)
+		for f := range rt.Fields() {
 			if forbidden[f.Name] {
 				t.Fatalf("%s must not expose forbidden field %q", rt.Name(), f.Name)
 			}

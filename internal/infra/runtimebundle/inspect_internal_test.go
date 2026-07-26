@@ -68,7 +68,7 @@ func TestInspect_ConcurrentRepeatedNoSharedMutableLeak(t *testing.T) {
 	const workers = 8
 	var wg sync.WaitGroup
 	errs := make(chan error, workers*2)
-	for i := 0; i < workers; i++ {
+	for range workers {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()

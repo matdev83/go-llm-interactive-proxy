@@ -34,7 +34,7 @@ func TestGenerationRuntime_ExactCapabilitySatisfaction(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = bundle.Close() })
 
-	var rt runtimebundle.GenerationRuntime = bundle
+	rt := bundle
 	var (
 		_ runtimehost.PublishedRequestPlane     = rt
 		_ runtimehost.ExecutorProvider          = rt
@@ -91,7 +91,7 @@ func TestGenerationRuntime_UnpublishedCompilesServesAndClosesOnce(t *testing.T) 
 		t.Fatalf("CompileGeneration: %v", err)
 	}
 
-	var rt runtimebundle.GenerationRuntime = bundle
+	rt := bundle
 	rr := httptest.NewRecorder()
 	rt.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
 	if rr.Body.String() != "ok-unpublished" {
@@ -134,19 +134,18 @@ func TestGenerationRuntime_UnpublishedCompilesServesAndClosesOnce(t *testing.T) 
 // methods and one-getter-per-dependency walls on the concrete runtime type.
 func TestGenerationRuntime_NoGenericDependencyLookupSurface(t *testing.T) {
 	t.Parallel()
-	elem := reflect.TypeOf((*runtimebundle.GenerationBundle)(nil)).Elem()
+	elem := reflect.TypeFor[runtimebundle.GenerationBundle]()
 	forbidden := map[string]bool{
 		"Get": true, "Lookup": true, "Resolve": true,
 		"GetDependency": true, "LookupDependency": true, "ResolveDependency": true,
 		"Dependencies": true, "DependencyMap": true, "Services": true,
 	}
-	for i := 0; i < elem.NumMethod(); i++ {
-		m := elem.Method(i)
+	for m := range elem.Methods() {
 		if forbidden[m.Name] || isBroadDependencyGetter(m.Name) {
 			t.Fatalf("GenerationBundle must not expose generic/broad dependency method %s", m.Name)
 		}
 	}
-	iface := reflect.TypeOf((*runtimebundle.GenerationRuntime)(nil)).Elem()
+	iface := reflect.TypeFor[runtimebundle.GenerationRuntime]()
 	if iface.NumMethod() > 12 {
 		t.Fatalf("GenerationRuntime grew into a getter wall: %d methods", iface.NumMethod())
 	}

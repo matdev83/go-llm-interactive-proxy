@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	coreauth "github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/authevent"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
@@ -229,7 +233,7 @@ func TestMiddleware_attachesAttributionAndMatcher(t *testing.T) {
 	}
 	gotM, ok := httpauth.CredentialMatcherFromContext(gotCtx)
 	if !ok || gotM == nil {
-		t.Fatalf("matcher ok=%v got=%v", ok, gotM)
+		t.Fatalf("downstream matcher ok=%v got=%v", ok, gotM)
 	}
 	var resolver secretguard.MatcherResolver = secretguard.ContextMatcherResolver{}
 	resolved, err := resolver.Resolve(gotCtx)
@@ -245,8 +249,159 @@ func TestMiddleware_attachesAttributionAndMatcher(t *testing.T) {
 	if p, ok := httpauth.PrincipalFromContext(capture.gotCtx); !ok || p.ID != "u" {
 		t.Fatalf("capture principal ok=%v got=%+v", ok, p)
 	}
-	if m, ok := httpauth.CredentialMatcherFromContext(capture.gotCtx); !ok || m == nil {
-		t.Fatalf("capture matcher ok=%v got=%v", ok, m)
+	if gotAttrMid, ok := httpauth.IngressAttributionFromContext(capture.gotCtx); !ok {
+		t.Fatal("later provider must see accumulated ingress attribution")
+	} else if gotAttrMid.KeyID != attr.KeyID || gotAttrMid.PeerIP != attr.PeerIP {
+		t.Fatalf("later provider attribution got=%+v want=%+v", gotAttrMid, attr)
+	}
+	if m, ok := httpauth.CredentialMatcherFromContext(capture.gotCtx); ok || m != nil {
+		t.Fatalf("later provider must not see deferred credential matcher, got ok=%v matcher=%v", ok, m)
+	}
+}
+
+// adversarialBearerSentinel is an unmistakably fake Authorization bearer used only to prove
+// deferred matcher attachment: later-chain audit logs must never contain it, while the
+// downstream handler still receives a matcher that can detect/redact it.
+const adversarialBearerSentinel = "lip-FAKE-ADVERSARIAL-BEARER-SENTINEL-do-not-log-009"
+
+type authEventEmittingContinueProvider struct {
+	events *coreauth.EventDispatcher
+	gotCtx context.Context
+	err    error
+}
+
+func (p *authEventEmittingContinueProvider) Authenticate(ctx context.Context, _ http.ResponseWriter, _ *http.Request) (httpauth.AuthenticationResult, error) {
+	p.gotCtx = ctx
+	if p.events != nil {
+		err := p.events.DispatchAuthDecision(ctx, auth.AuthDecisionEvent{
+			Time:       time.Unix(1700000099, 0).UTC(),
+			TraceID:    "adversarial-chain-trace",
+			AccessMode: auth.AccessMultiUser,
+			Outcome:    auth.OutcomeAllow,
+			Frontend:   "openai_compatible",
+			ReasonCode: "chain_continue_audit",
+		})
+		if err != nil {
+			p.err = err
+			return httpauth.AuthenticationResult{}, err
+		}
+	}
+	return httpauth.AuthenticationResult{Type: httpauth.TypeContinue}, nil
+}
+
+func TestMiddleware_deferredMatcher_laterProviderAuditLogsOmitBearerSentinel(t *testing.T) {
+	t.Parallel()
+	var logBuf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	sink, err := authevent.NewSlogEventSink(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatcher := coreauth.NewEventDispatcher(sink, coreauth.EventFailureFailClosed)
+
+	first := NewPolicyProvider(&stubCoreAuthenticator{dec: auth.Decision{
+		Outcome:   auth.OutcomeAllow,
+		Principal: execview.PrincipalView{ID: "adv-user"},
+		Device:    auth.DeviceIdentity{KeyID: "adv-key"},
+	}}, nil, PolicySnapshot{
+		AccessMode: auth.AccessMultiUser, HandlerKind: auth.HandlerLocalAPIKey, RequiredLevel: auth.LevelAPIKey,
+	}, nil)
+	later := &authEventEmittingContinueProvider{events: dispatcher}
+
+	var handlerMatcher secretguard.Matcher
+	var sawHandler bool
+	h := Middleware(nil, []httpauth.Provider{first, later}, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		sawHandler = true
+		var ok bool
+		handlerMatcher, ok = httpauth.CredentialMatcherFromContext(r.Context())
+		if !ok || handlerMatcher == nil {
+			t.Fatal("downstream handler must receive deferred credential matcher")
+		}
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/chat/completions", nil)
+	req.RemoteAddr = "198.51.100.20:443"
+	req.Header.Set("Authorization", "Bearer "+adversarialBearerSentinel)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code %d", rec.Code)
+	}
+	if later.err != nil {
+		t.Fatalf("later provider dispatch: %v", later.err)
+	}
+	if later.gotCtx == nil {
+		t.Fatal("later provider did not run")
+	}
+	if m, ok := httpauth.CredentialMatcherFromContext(later.gotCtx); ok || m != nil {
+		t.Fatalf("later provider must not observe matcher, got ok=%v matcher=%v", ok, m)
+	}
+	if p, ok := httpauth.PrincipalFromContext(later.gotCtx); !ok || p.ID != "adv-user" {
+		t.Fatalf("later provider principal ok=%v got=%+v", ok, p)
+	}
+	if attr, ok := httpauth.IngressAttributionFromContext(later.gotCtx); !ok || attr.KeyID != "adv-key" {
+		t.Fatalf("later provider attribution ok=%v got=%+v", ok, attr)
+	}
+
+	logged := logBuf.String()
+	if logged == "" {
+		t.Fatal("expected real auth event sink to emit a log record")
+	}
+	if strings.Contains(logged, adversarialBearerSentinel) {
+		t.Fatalf("auth audit logs must not contain bearer sentinel; log=%s", logged)
+	}
+	if !strings.Contains(logged, "lip.auth.auth_decision") {
+		t.Fatalf("expected auth_decision log, got %q", logged)
+	}
+	if !sawHandler {
+		t.Fatal("expected downstream handler")
+	}
+	findings, err := handlerMatcher.ScanString(context.Background(), "leak:"+adversarialBearerSentinel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 1 || findings[0].SecretRefName != "adv-key" {
+		t.Fatalf("handler matcher findings: %+v", findings)
+	}
+	redacted, findings, err := handlerMatcher.RedactString(context.Background(), "leak:"+adversarialBearerSentinel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("redact findings: %+v", findings)
+	}
+	if strings.Contains(redacted, adversarialBearerSentinel) {
+		t.Fatalf("redacted output still contains sentinel: %q", redacted)
+	}
+}
+
+func TestMiddleware_rejectAfterSuccess_doesNotAttachMatcher(t *testing.T) {
+	t.Parallel()
+	first := NewPolicyProvider(&stubCoreAuthenticator{dec: auth.Decision{
+		Outcome:   auth.OutcomeAllow,
+		Principal: execview.PrincipalView{ID: "u"},
+		Device:    auth.DeviceIdentity{KeyID: "kid"},
+	}}, nil, PolicySnapshot{
+		AccessMode: auth.AccessMultiUser, HandlerKind: auth.HandlerLocalAPIKey, RequiredLevel: auth.LevelAPIKey,
+	}, nil)
+	reject := attributionStubProvider{res: httpauth.AuthenticationResult{
+		Type:       httpauth.TypeReject,
+		HTTPStatus: http.StatusUnauthorized,
+		Body:       []byte("nope"),
+	}}
+	var sawHandler bool
+	h := Middleware(nil, []httpauth.Provider{first, reject}, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		sawHandler = true
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer "+adversarialBearerSentinel)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("code %d", rec.Code)
+	}
+	if sawHandler {
+		t.Fatal("reject must not reach downstream handler")
 	}
 }
 

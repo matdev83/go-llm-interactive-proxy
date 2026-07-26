@@ -67,6 +67,7 @@ func TestPartialCleanup_HostBuilderStageMatrix(t *testing.T) {
 			name:  "loader_failure_acquires_nothing",
 			stage: hostBuildStageLoader,
 			run: func(t *testing.T) {
+				t.Helper()
 				host, err := BuildHost(ctx, BuildHostInput{
 					ConfigPath:      filepath.Join(t.TempDir(), "missing-startup.yaml"),
 					Mandatory:       lipsdk.StandardDistributionRequirements(),
@@ -86,6 +87,7 @@ func TestPartialCleanup_HostBuilderStageMatrix(t *testing.T) {
 			name:  "tracing_init_failure_no_process",
 			stage: hostBuildStageTracing,
 			run: func(t *testing.T) {
+				t.Helper()
 				assertHostBuilderStageCleanup(t, in, hostBuildStageTracing, []string{"loader", "tracing"}, []string{"tracing"})
 			},
 		},
@@ -93,6 +95,7 @@ func TestPartialCleanup_HostBuilderStageMatrix(t *testing.T) {
 			name:  "process_runtime_failure_shuts_tracing_once",
 			stage: hostBuildStageProcess,
 			run: func(t *testing.T) {
+				t.Helper()
 				assertHostBuilderStageCleanup(t, in, hostBuildStageProcess, []string{"loader", "tracing", "process"}, []string{"process", "tracing"})
 			},
 		},
@@ -100,6 +103,7 @@ func TestPartialCleanup_HostBuilderStageMatrix(t *testing.T) {
 			name:  "generation_compile_failure_rolls_back_once",
 			stage: hostBuildStageCompile,
 			run: func(t *testing.T) {
+				t.Helper()
 				assertBuildHostComposeCleanup(t)
 				assertHostBuilderStageCleanup(t, in, hostBuildStageCompile,
 					[]string{"loader", "tracing", "process", "compile"},
@@ -110,6 +114,7 @@ func TestPartialCleanup_HostBuilderStageMatrix(t *testing.T) {
 			name:  "publication_failure_rolls_back_once",
 			stage: hostBuildStagePublish,
 			run: func(t *testing.T) {
+				t.Helper()
 				assertHostBuilderStageCleanup(t, in, hostBuildStagePublish,
 					[]string{"loader", "tracing", "process", "compile", "publish"},
 					[]string{"publish", "compile", "process", "tracing"})
@@ -119,6 +124,7 @@ func TestPartialCleanup_HostBuilderStageMatrix(t *testing.T) {
 			name:  "coordinator_bind_failure_leaves_no_partial_ownership",
 			stage: hostBuildStageCoordinator,
 			run: func(t *testing.T) {
+				t.Helper()
 				assertHostBuilderStageCleanup(t, in, hostBuildStageCoordinator,
 					[]string{"loader", "tracing", "process", "compile", "publish", "coordinator"},
 					[]string{"coordinator", "publish", "compile", "process", "tracing"})
@@ -128,6 +134,7 @@ func TestPartialCleanup_HostBuilderStageMatrix(t *testing.T) {
 			name:  "success_returns_complete_host_without_prior_cleanup",
 			stage: hostBuildStageSuccess,
 			run: func(t *testing.T) {
+				t.Helper()
 				var b hostBuilder = productionHostBuilder{}
 				out, err := b.Build(ctx, in)
 				if err != nil {
@@ -145,7 +152,6 @@ func TestPartialCleanup_HostBuilderStageMatrix(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			tc.run(t)

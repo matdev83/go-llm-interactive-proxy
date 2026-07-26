@@ -12,9 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
-// annotateResponseHeaderNames is the allow-list for [httpauth.TypeAnnotate] ResponseHeaders
-// merged onto the success-path response (defense in depth: providers must not set cookies,
-// auth challenges, or other high-impact headers through annotate).
+// annotateResponseHeaderNames allow-lists [httpauth.TypeAnnotate] ResponseHeaders on the success path.
 var annotateResponseHeaderNames = map[string]struct{}{
 	"Cache-Control":                       {},
 	"Content-Security-Policy":             {},
@@ -31,9 +29,7 @@ var annotateResponseHeaderNames = map[string]struct{}{
 	"X-Content-Type-Options":              {},
 }
 
-// terminalResponseHeaderNames allow-lists headers merged onto TypeReject/TypeChallenge
-// responses (defense in depth: providers must not set cookies, redirects, or other
-// high-impact headers on the termination path).
+// terminalResponseHeaderNames allow-lists headers on TypeReject/TypeChallenge responses.
 var terminalResponseHeaderNames map[string]struct{}
 
 func init() {
@@ -46,13 +42,10 @@ func init() {
 }
 
 // Middleware returns an HTTP handler that runs providers in order before delegating to next.
-// Provider errors are fail-closed (HTTP 500). An empty provider list is a no-op passthrough at
-// this layer only; product wiring must supply providers so anonymous pass-through never replaces
-// explicit configured authentication (auth-architecture requirements 1.7 / 5.6).
-// A non-empty list where every entry is nil is treated as misconfiguration and fails closed (HTTP 500)
-// so anonymous pass-through cannot result from an accidental nil-only override slice.
-// When log is non-nil, provider failures and unknown result types emit a single structured log line
-// (trace-correlated via request context); reject/challenge responses are not logged here (HTTP outcome only).
+// Provider errors are fail-closed (HTTP 500). Empty provider list is a no-op passthrough here
+// only; product wiring must supply providers so anonymous pass-through never replaces configured
+// authentication (auth-architecture 1.7 / 5.6). A non-empty nil-only list fails closed (HTTP 500).
+// When log is non-nil, provider failures emit one structured log line (trace via request context).
 func Middleware(log *slog.Logger, providers []httpauth.Provider, next http.Handler) http.Handler {
 	nonNil := compactNonNilHTTPAuthProviders(providers)
 	if len(nonNil) == 0 {
@@ -86,6 +79,10 @@ func Middleware(log *slog.Logger, providers []httpauth.Provider, next http.Handl
 			return
 		}
 		ctx := r.Context()
+		// Defer credential matcher attach until the full provider chain succeeds.
+		// Principal, scope, and ingress attribution still propagate during the chain.
+		var effectiveAttacher authSuccessContextAttacher
+		var effectiveRes httpauth.AuthenticationResult
 		for _, p := range nonNil {
 			res, err := p.Authenticate(ctx, w, r)
 			if err != nil {
@@ -113,7 +110,7 @@ func Middleware(log *slog.Logger, providers []httpauth.Provider, next http.Handl
 					ctx = httpauth.WithIngressAttribution(ctx, res.IngressAttribution)
 				}
 				if attacher, ok := p.(authSuccessContextAttacher); ok {
-					ctx = attacher.attachAuthSuccessContext(ctx, r, res)
+					effectiveAttacher, effectiveRes = attacher, res
 				}
 				r = r.WithContext(ctx)
 			case httpauth.TypeAnnotate:
@@ -128,6 +125,9 @@ func Middleware(log *slog.Logger, providers []httpauth.Provider, next http.Handl
 				http.Error(w, "authentication failed", http.StatusInternalServerError)
 				return
 			}
+		}
+		if effectiveAttacher != nil {
+			ctx = effectiveAttacher.attachAuthSuccessContext(ctx, r, effectiveRes)
 		}
 		// Align with [PolicyProvider.frontendID] when [PolicyProvider.FrontendID] is nil (path-derived wire id).
 		ctx = execview.WithFrontendID(ctx, DefaultFrontendIDFromRequest(r))

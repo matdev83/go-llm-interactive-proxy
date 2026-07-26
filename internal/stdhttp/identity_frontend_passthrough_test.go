@@ -111,7 +111,7 @@ func TestComposeStandardHTTP_ID147_openaiResponsesUserAgentPassthroughToUpstream
 			}
 			app := mustRuntimeApp(t, cfg)
 			ctx := context.Background()
-			startTestApp(t, ctx, app)
+			startTestApp(ctx, t, app)
 			in := StandardHTTPInput{
 				Core:      HTTPCoreInput{Executor: ex},
 				Frontends: frontendInputForTest(cfg, ex, reg),

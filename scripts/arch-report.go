@@ -194,11 +194,8 @@ func writeRuntimeConvergenceAffectedFanIO(b *strings.Builder, pkgs []pkgMeta, mo
 			if q.ImportPath == ip {
 				continue
 			}
-			for _, imp := range q.Imports {
-				if imp == ip {
-					importers = append(importers, strings.TrimPrefix(q.ImportPath, modPath+"/"))
-					break
-				}
+			if slices.Contains(q.Imports, ip) {
+				importers = append(importers, strings.TrimPrefix(q.ImportPath, modPath+"/"))
 			}
 		}
 		slices.Sort(importers)

@@ -114,12 +114,12 @@ func MatchPathPrefix(path, prefix string) bool {
 	if prefix == "" || prefix == "*" {
 		return true
 	}
-	if strings.HasSuffix(prefix, "/**") {
-		base := strings.TrimSuffix(prefix, "/**")
+	if before, ok := strings.CutSuffix(prefix, "/**"); ok {
+		base := before
 		return path == base || strings.HasPrefix(path, base+"/")
 	}
-	if strings.HasSuffix(prefix, "/*") {
-		base := strings.TrimSuffix(prefix, "/*")
+	if before, ok := strings.CutSuffix(prefix, "/*"); ok {
+		base := before
 		if path == base {
 			return false
 		}
@@ -141,17 +141,18 @@ func MatchImportPattern(importPath, pattern string) bool {
 	if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
 		return strings.Contains(importPath, strings.Trim(pattern, "*"))
 	}
-	if strings.HasPrefix(pattern, "*") {
-		return strings.HasSuffix(importPath, strings.TrimPrefix(pattern, "*"))
+	if after, ok := strings.CutPrefix(pattern, "*"); ok {
+		return strings.HasSuffix(importPath, after)
 	}
-	if strings.HasSuffix(pattern, "*") {
-		return strings.HasPrefix(importPath, strings.TrimSuffix(pattern, "*"))
+	if before, ok := strings.CutSuffix(pattern, "*"); ok {
+		return strings.HasPrefix(importPath, before)
 	}
 	return importPath == pattern || strings.HasSuffix(importPath, "/"+pattern) || strings.Contains(importPath, pattern)
 }
 
 // Unexported aliases keep existing structural tests compiling against the shared scanner.
 func productionScanRoots() []string { return ProductionScanRoots() }
+
 func walkProductionGoFiles(root string, fn func(rel, abs string, src []byte) error) error {
 	return WalkProductionGoFiles(root, fn)
 }

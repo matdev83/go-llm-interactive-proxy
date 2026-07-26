@@ -211,10 +211,10 @@ func TestSnapshotController_RefreshFailurePreservesPriorVersion(t *testing.T) {
 	cfg := baseAuthorityConfig(false, "fail_closed")
 	opts := baseAuthorityOptions(t, nil)
 	opts.Production = runtimebundle.ProductionOptions{UsageSnapshotSource: src}
-	_, built, err := processAndCandidateErr(t, cfg, opts)
+	_, built, _ := processAndCandidateErr(t, cfg, opts)
 	before := runtimebundle.CandidateSnapshotGeneration(built).Current()
 	src.set("", errors.New("refresh boom"))
-	err = runtimebundle.CandidateSnapshotController(built).Refresh(context.Background())
+	err := runtimebundle.CandidateSnapshotController(built).Refresh(context.Background())
 	if err == nil {
 		t.Fatal("expected refresh error")
 	}

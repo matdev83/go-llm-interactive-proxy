@@ -63,8 +63,8 @@ func TestValidateDistribution_OneStrictLoad(t *testing.T) {
 	ctx := context.Background()
 	pathA := writeOneSnapshotMarkerConfig(t, "127.0.0.1:18301", accessmode.ModeSingleUser)
 	pathB := writeOneSnapshotMarkerConfig(t, "127.0.0.1:18302", accessmode.ModeSingleUser)
-	snapA := mustLoadBootstrapSnapshot(t, ctx, pathA)
-	snapB := mustLoadBootstrapSnapshot(t, ctx, pathB)
+	snapA := mustLoadBootstrapSnapshot(ctx, t, pathA)
+	snapB := mustLoadBootstrapSnapshot(ctx, t, pathB)
 
 	var loads atomic.Int32
 	ops := defaultValidateDistributionOps()
@@ -147,7 +147,11 @@ func TestValidateDistribution_NeverBindsListener(t *testing.T) {
 		t.Fatalf("ValidateDistribution: %v", err)
 	}
 
-	_ = ln.(*net.TCPListener).SetDeadline(time.Now().Add(50 * time.Millisecond))
+	tcpLn, ok := ln.(*net.TCPListener)
+	if !ok {
+		t.Fatal("expected TCP listener")
+	}
+	_ = tcpLn.SetDeadline(time.Now().Add(50 * time.Millisecond))
 	if conn, acceptErr := ln.Accept(); acceptErr == nil {
 		_ = conn.Close()
 		t.Fatal("unexpected accept: ValidateDistribution must not dial or bind the data-plane address")
@@ -160,7 +164,7 @@ func TestValidateDistribution_NeverBindsListener(t *testing.T) {
 func TestValidateDistribution_NoManagerOrGenerationLeftBehind(t *testing.T) {
 	t.Parallel()
 	in := validDistributionInput(dogfoodConfigPath())
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := ValidateDistribution(context.Background(), in); err != nil {
 			t.Fatalf("run %d: %v", i, err)
 		}
@@ -176,7 +180,7 @@ func TestValidateDistribution_ConcurrentRepeatedValidationIsOwnerFree(t *testing
 	const n = 6
 	var wg sync.WaitGroup
 	errs := make([]error, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -299,7 +303,6 @@ func TestValidateDistribution_StageFaultMatrix(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			journal, err := validateDistributionFaulting(context.Background(), in, tc.stage)

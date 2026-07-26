@@ -71,7 +71,8 @@ models:
 	}
 
 	mux := http.NewServeMux()
-	if err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
+	if err := MountBundledFrontends(MountBundledFrontendsInput{
+		Mux: mux,
 		Frontends: HTTPFrontendInput{
 			Executor:             cand.Executor(),
 			DefaultRouteSelector: route,

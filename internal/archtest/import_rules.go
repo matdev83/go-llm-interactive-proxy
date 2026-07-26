@@ -162,7 +162,7 @@ func matchImportTarget(imp, pattern string) bool {
 	switch {
 	case pattern == "":
 		return false
-	case strings.HasPrefix(pattern, "/") && strings.HasSuffix(pattern, "/") == false && strings.Contains(pattern, "/internal/"):
+	case strings.HasPrefix(pattern, "/") && !strings.HasSuffix(pattern, "/") && strings.Contains(pattern, "/internal/"):
 		return strings.Contains(imp, pattern)
 	case strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*"):
 		return strings.Contains(imp, strings.Trim(pattern, "*"))

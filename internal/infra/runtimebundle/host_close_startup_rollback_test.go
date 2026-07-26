@@ -6,7 +6,6 @@ import (
 	"go/parser"
 	"go/token"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,5 +108,5 @@ func TestHostClose_HTTPHandlerIsStableDataPlaneSeam(t *testing.T) {
 	if second := host.HTTPHandler(); second != first {
 		t.Fatal("HTTPHandler must return one long-lived dispatcher")
 	}
-	var _ http.Handler = first
+	_ = first
 }

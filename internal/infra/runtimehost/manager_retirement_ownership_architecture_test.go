@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -115,7 +117,7 @@ func buildRetirementOwnershipIndex(files map[string]*ast.File) *retirementOwners
 			}
 		}
 	}
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		changed := false
 		for k, v := range idx.aliases {
 			base := strings.TrimPrefix(v, "*")
@@ -352,10 +354,8 @@ func (idx *retirementOwnershipIndex) typeMentionsCleanupPolicy(expr ast.Expr) bo
 		if idx.typeMentionsCleanupPolicy(t.X) {
 			return true
 		}
-		for _, ind := range t.Indices {
-			if idx.typeMentionsCleanupPolicy(ind) {
-				return true
-			}
+		if slices.ContainsFunc(t.Indices, idx.typeMentionsCleanupPolicy) {
+			return true
 		}
 	}
 	return false
@@ -367,10 +367,8 @@ func (idx *retirementOwnershipIndex) exprMentionsCleanupPolicyComposite(expr ast
 		if t.Type != nil && idx.typeMentionsCleanupPolicy(t.Type) {
 			return true
 		}
-		for _, elt := range t.Elts {
-			if idx.exprMentionsCleanupPolicyComposite(elt) {
-				return true
-			}
+		if slices.ContainsFunc(t.Elts, idx.exprMentionsCleanupPolicyComposite) {
+			return true
 		}
 	case *ast.KeyValueExpr:
 		return idx.exprMentionsCleanupPolicyComposite(t.Value)
@@ -753,9 +751,7 @@ func (idx *retirementOwnershipIndex) collectIfaceMethods(name string, iface *ast
 			}
 		default:
 			emb := strings.TrimPrefix(idx.resolve(retTypeString(f.Type)), "*")
-			for k, v := range idx.collectTypeMethodSet(emb, visiting) {
-				out[k] = v
-			}
+			maps.Copy(out, idx.collectTypeMethodSet(emb, visiting))
 		}
 	}
 	return out
@@ -1072,7 +1068,7 @@ func (idx *retirementOwnershipIndex) buildGenerationProvenance(fd *ast.FuncDecl,
 		return prov
 	}
 	// Fixed-point local alias / short-decl propagation (cycle-safe via set growth).
-	for i := 0; i < 16; i++ {
+	for range 16 {
 		changed := false
 		ast.Inspect(body, func(n ast.Node) bool {
 			if _, ok := n.(*ast.FuncLit); ok {
@@ -1253,8 +1249,8 @@ func (idx *retirementOwnershipIndex) exprNamedType(expr ast.Expr, fd *ast.FuncDe
 		}
 		// Slice/array/map element: peel one container layer when typed.
 		resolved := idx.resolve(base)
-		if strings.HasPrefix(resolved, "[]") {
-			return strings.TrimPrefix(idx.resolve(strings.TrimPrefix(resolved, "[]")), "*")
+		if after, ok := strings.CutPrefix(resolved, "[]"); ok {
+			return strings.TrimPrefix(idx.resolve(after), "*")
 		}
 		if strings.HasPrefix(resolved, "map[") {
 			// map[K]V — recover V via structFieldType-unavailable; use pkg type string.

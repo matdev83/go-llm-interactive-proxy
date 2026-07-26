@@ -249,7 +249,7 @@ func TestComposeStandardHTTP_serverIdentity_frontends(t *testing.T) {
 		},
 	})
 	app := mustRuntimeApp(t, cfg)
-	startTestApp(t, context.Background(), app)
+	startTestApp(context.Background(), t, app)
 	h := composeServerIdentityHandler(t, cfg, nil, reg)
 
 	cases := []struct {
@@ -385,7 +385,7 @@ func TestComposeStandardHTTP_serverIdentity_realHTTPServer_modes(t *testing.T) {
 				},
 			})
 			app := mustRuntimeApp(t, cfg)
-			startTestApp(t, context.Background(), app)
+			startTestApp(context.Background(), t, app)
 			h := composeServerIdentityHandler(t, cfg, nil, reg)
 			srv := httptest.NewServer(h)
 			t.Cleanup(srv.Close)
@@ -427,7 +427,7 @@ func TestComposeStandardHTTP_serverIdentity_independentOfUpstreamAndDrop(t *test
 		},
 	})
 	app := mustRuntimeApp(t, cfg)
-	startTestApp(t, context.Background(), app)
+	startTestApp(context.Background(), t, app)
 	h := composeServerIdentityHandler(t, cfg, nil, reg)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(
@@ -468,7 +468,7 @@ func TestComposeStandardHTTP_serverIdentity_independentOfBackendWinner(t *testin
 		},
 	})
 	app := mustRuntimeApp(t, cfg)
-	startTestApp(t, context.Background(), app)
+	startTestApp(context.Background(), t, app)
 	h := composeServerIdentityHandler(t, cfg, ex, reg)
 
 	for _, route := range []string{"stub-a:model", "stub-b:model"} {

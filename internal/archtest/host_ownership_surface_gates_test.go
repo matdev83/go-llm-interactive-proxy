@@ -98,10 +98,7 @@ func TestHostOwnership_ConcreteHostFieldsPrivate(t *testing.T) {
 			if ast.IsExported(name.Name) {
 				t.Errorf("Host field %s must be private (ownership encapsulation)", name.Name)
 			}
-			if !hostOwnershipPrivateFields[name.Name] && name.Name != "logger" &&
-				name.Name != "activeSource" && name.Name != "fixedStreamRecovery" {
-				// Allow additional private fields; forbid only exported ones above.
-			}
+			// Additional private fields are allowed; only exported fields are forbidden above.
 		}
 	}
 }

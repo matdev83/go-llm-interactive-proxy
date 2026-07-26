@@ -44,7 +44,7 @@ var legacyAbsentHelperIdents = []string{
 
 func TestOptions_LegacyAbsent_PublicStructCanonicalOnly(t *testing.T) {
 	t.Parallel()
-	typ := reflect.TypeOf(Options{})
+	typ := reflect.TypeFor[Options]()
 	for _, name := range legacyAbsentOptionFields {
 		if _, ok := typ.FieldByName(name); ok {
 			t.Fatalf("Options still exports deleted legacy field %q", name)
@@ -215,6 +215,7 @@ type allowReq struct{}
 func (allowReq) AdmitRequest(context.Context, authority.RequestAdmission) (authority.Decision, error) {
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
+
 func (allowReq) SettleRequest(_ context.Context, in authority.RequestSettlement) (authority.Settlement, error) {
 	return authority.OwnedFinalSettlement(in.Handles), nil
 }
@@ -225,6 +226,7 @@ type allowAtt struct{}
 func (allowAtt) AdmitAttempt(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
+
 func (allowAtt) SettleAttempt(_ context.Context, in authority.AttemptSettlement) (authority.Settlement, error) {
 	return authority.OwnedFinalSettlement(in.Handles), nil
 }
@@ -235,6 +237,7 @@ type allowConc struct{}
 func (allowConc) AdmitLease(context.Context, authority.LeaseAdmission) (authority.LeaseDecision, error) {
 	return authority.LeaseDecision{Kind: authority.LeaseAllow, LeaseID: "l"}, nil
 }
+
 func (allowConc) RenewLease(context.Context, authority.LeaseRenew) (authority.LeaseDecision, error) {
 	return authority.LeaseDecision{Kind: authority.LeaseAllow, LeaseID: "l"}, nil
 }
