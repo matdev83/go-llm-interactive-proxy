@@ -1,61 +1,170 @@
-=== bench run B 2026-07-25T21:16:54Z ===
-goos: linux
-goarch: amd64
-pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost
-cpu: AMD EPYC 9J14 96-Core Processor
-BenchmarkManager_AcquireRelease-2              	40133112	        26.28 ns/op	      16 B/op	       1 allocs/op
-BenchmarkManager_AcquireRelease-2              	42614997	        26.75 ns/op	      16 B/op	       1 allocs/op
-BenchmarkManager_AcquireRelease-2              	46159563	        26.48 ns/op	      16 B/op	       1 allocs/op
-BenchmarkManager_AcquireRelease-2              	43305502	        26.39 ns/op	      16 B/op	       1 allocs/op
-BenchmarkManager_AcquireRelease-2              	46164562	        26.33 ns/op	      16 B/op	       1 allocs/op
-BenchmarkManager_AcquireRelease-2              	45962763	        26.28 ns/op	      16 B/op	       1 allocs/op
-BenchmarkGenerationDispatcher_AcquireLease-2   	 3260065	       387.1 ns/op	     784 B/op	       9 allocs/op
-BenchmarkGenerationDispatcher_AcquireLease-2   	 3231200	       409.1 ns/op	     784 B/op	       9 allocs/op
-BenchmarkGenerationDispatcher_AcquireLease-2   	 3326281	       362.2 ns/op	     784 B/op	       9 allocs/op
-BenchmarkGenerationDispatcher_AcquireLease-2   	 3226608	       373.1 ns/op	     784 B/op	       9 allocs/op
-BenchmarkGenerationDispatcher_AcquireLease-2   	 3271220	       362.4 ns/op	     784 B/op	       9 allocs/op
-BenchmarkGenerationDispatcher_AcquireLease-2   	 3200460	       368.3 ns/op	     784 B/op	       9 allocs/op
-BenchmarkManager_Publish-2                     	  565556	      2364 ns/op	     748 B/op	       9 allocs/op
-BenchmarkManager_Publish-2                     	  510748	      2348 ns/op	     745 B/op	       9 allocs/op
-BenchmarkManager_Publish-2                     	  523700	      2364 ns/op	     746 B/op	       9 allocs/op
-BenchmarkManager_Publish-2                     	  483808	      2358 ns/op	     745 B/op	       9 allocs/op
-BenchmarkManager_Publish-2                     	  593865	      5540 ns/op	     769 B/op	       9 allocs/op
-BenchmarkManager_Publish-2                     	  380224	      7084 ns/op	     762 B/op	       9 allocs/op
-BenchmarkRetainedGenerationOverhead/n=1-2      	19900189	        64.68 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=1-2      	18595832	        68.17 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=1-2      	26903596	        68.37 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=1-2      	31562602	        38.14 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=1-2      	31756310	        42.33 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=1-2      	30594276	        36.87 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=4-2      	30187644	        47.46 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=4-2      	20364600	        54.16 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=4-2      	27824401	        58.02 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=4-2      	14587666	        76.78 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=4-2      	13377129	        78.65 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=4-2      	17340940	        68.37 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=16-2     	20417065	        74.37 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=16-2     	17934213	        71.64 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=16-2     	18934720	        69.57 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=16-2     	16073156	        88.68 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=16-2     	12392830	        87.72 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=16-2     	17399132	        69.46 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=64-2     	 9247710	       171.6 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=64-2     	 6075985	       172.7 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=64-2     	 7997856	       178.8 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=64-2     	 7672123	       163.1 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=64-2     	 6162309	       191.7 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRetainedGenerationOverhead/n=64-2     	 7439636	       188.1 ns/op	       0 B/op	       0 allocs/op
-PASS
-ok  	github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost	57.150s
 goos: linux
 goarch: amd64
 pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle
 cpu: AMD EPYC 9J14 96-Core Processor
-BenchmarkCandidateCompilation-2   	     100	  11322677 ns/op	 3887721 B/op	   17141 allocs/op
-BenchmarkCandidateCompilation-2   	     136	   8711932 ns/op	 3888555 B/op	   17141 allocs/op
-BenchmarkCandidateCompilation-2   	     147	   7795342 ns/op	 3891829 B/op	   17142 allocs/op
-BenchmarkCandidateCompilation-2   	     148	   8327985 ns/op	 3891979 B/op	   17142 allocs/op
-BenchmarkCandidateCompilation-2   	     100	  10508481 ns/op	 3893669 B/op	   17144 allocs/op
-BenchmarkCandidateCompilation-2   	     100	  12422352 ns/op	 3900391 B/op	   17147 allocs/op
+BenchmarkCandidateCompilation-2   	     603	   3849307 ns/op	 3916373 B/op	   17152 allocs/op
+BenchmarkBuildHost-2              	     452	   5310460 ns/op	 5365365 B/op	   21880 allocs/op
+BenchmarkSuccessfulReload-2       	     410	   5738115 ns/op	 5338430 B/op	   21813 allocs/op
+BenchmarkNoopReload-2             	   88430	     26984 ns/op	    9635 B/op	      67 allocs/op
 PASS
-ok  	github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle	7.185s
+goos: linux
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost
+cpu: AMD EPYC 9J14 96-Core Processor
+BenchmarkManager_AcquireRelease-2              	84390146	        26.25 ns/op	      16 B/op	       1 allocs/op
+BenchmarkGenerationDispatcher_AcquireLease-2   	 6442776	       369.3 ns/op	     784 B/op	       9 allocs/op
+BenchmarkManager_Publish-2                     	 1000000	      2395 ns/op	     747 B/op	       9 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle
+cpu: AMD EPYC 9J14 96-Core Processor
+BenchmarkCandidateCompilation-2   	     612	   3838711 ns/op	 3916031 B/op	   17153 allocs/op
+BenchmarkBuildHost-2              	     447	   5321303 ns/op	 5366036 B/op	   21880 allocs/op
+BenchmarkSuccessfulReload-2       	     414	   5742001 ns/op	 5337394 B/op	   21812 allocs/op
+BenchmarkNoopReload-2             	   91195	     26801 ns/op	    9635 B/op	      67 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost
+cpu: AMD EPYC 9J14 96-Core Processor
+BenchmarkManager_AcquireRelease-2              	82810508	        26.57 ns/op	      16 B/op	       1 allocs/op
+BenchmarkGenerationDispatcher_AcquireLease-2   	 6340249	       380.3 ns/op	     784 B/op	       9 allocs/op
+BenchmarkManager_Publish-2                     	 1000000	      2362 ns/op	     745 B/op	       9 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle
+cpu: AMD EPYC 9J14 96-Core Processor
+BenchmarkCandidateCompilation-2   	     625	   3785199 ns/op	 3916175 B/op	   17152 allocs/op
+BenchmarkBuildHost-2              	     462	   5242331 ns/op	 5367812 B/op	   21880 allocs/op
+BenchmarkSuccessfulReload-2       	     422	   5752577 ns/op	 5339608 B/op	   21812 allocs/op
+BenchmarkNoopReload-2             	   89452	     26856 ns/op	    9635 B/op	      67 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost
+cpu: AMD EPYC 9J14 96-Core Processor
+BenchmarkManager_AcquireRelease-2              	81919414	        26.19 ns/op	      16 B/op	       1 allocs/op
+BenchmarkGenerationDispatcher_AcquireLease-2   	 6160028	       365.6 ns/op	     784 B/op	       9 allocs/op
+BenchmarkManager_Publish-2                     	 1000000	      2369 ns/op	     744 B/op	       9 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle
+cpu: AMD EPYC 9J14 96-Core Processor
+BenchmarkCandidateCompilation-2   	     643	   3757857 ns/op	 3915533 B/op	   17152 allocs/op
+BenchmarkBuildHost-2              	     450	   5303005 ns/op	 5365581 B/op	   21879 allocs/op
+BenchmarkSuccessfulReload-2       	     411	   5800930 ns/op	 5336443 B/op	   21811 allocs/op
+BenchmarkNoopReload-2             	   88411	     26858 ns/op	    9635 B/op	      67 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost
+cpu: AMD EPYC 9J14 96-Core Processor
+BenchmarkManager_AcquireRelease-2              	81679621	        26.33 ns/op	      16 B/op	       1 allocs/op
+BenchmarkGenerationDispatcher_AcquireLease-2   	 6087692	       385.9 ns/op	     784 B/op	       9 allocs/op
+BenchmarkManager_Publish-2                     	 1000000	      2349 ns/op	     745 B/op	       9 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle
+cpu: AMD EPYC 9J14 96-Core Processor
+BenchmarkCandidateCompilation-2   	     633	   3816925 ns/op	 3917043 B/op	   17152 allocs/op
+BenchmarkBuildHost-2              	     436	   5398132 ns/op	 5364546 B/op	   21879 allocs/op
+BenchmarkSuccessfulReload-2       	     405	   5780874 ns/op	 5333506 B/op	   21812 allocs/op
+BenchmarkNoopReload-2             	   88309	     26893 ns/op	    9635 B/op	      67 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost
+cpu: AMD EPYC 9J14 96-Core Processor
+BenchmarkManager_AcquireRelease-2              	82123772	        26.35 ns/op	      16 B/op	       1 allocs/op
+BenchmarkGenerationDispatcher_AcquireLease-2   	 6881994	       368.5 ns/op	     784 B/op	       9 allocs/op
+BenchmarkManager_Publish-2                     	 1000000	      2370 ns/op	     746 B/op	       9 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle
+cpu: AMD EPYC 9J14 96-Core Processor
+BenchmarkCandidateCompilation-2   	     631	   3807471 ns/op	 3914168 B/op	   17152 allocs/op
+BenchmarkBuildHost-2              	     435	   5391097 ns/op	 5367685 B/op	   21880 allocs/op
+BenchmarkSuccessfulReload-2       	     427	   5658587 ns/op	 5335450 B/op	   21812 allocs/op
+BenchmarkNoopReload-2             	   89608	     26903 ns/op	    9635 B/op	      67 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost
+cpu: AMD EPYC 9J14 96-Core Processor
+BenchmarkManager_AcquireRelease-2              	84815872	        26.41 ns/op	      16 B/op	       1 allocs/op
+BenchmarkGenerationDispatcher_AcquireLease-2   	 5890620	       379.6 ns/op	     784 B/op	       9 allocs/op
+BenchmarkManager_Publish-2                     	 1000000	      2398 ns/op	     746 B/op	       9 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle
+cpu: AMD EPYC 9J14 96-Core Processor
+BenchmarkCandidateCompilation-2   	     630	   3793861 ns/op	 3916060 B/op	   17151 allocs/op
+BenchmarkBuildHost-2              	     460	   5216926 ns/op	 5363228 B/op	   21879 allocs/op
+BenchmarkSuccessfulReload-2       	     427	   5738745 ns/op	 5339244 B/op	   21812 allocs/op
+BenchmarkNoopReload-2             	   87751	     26713 ns/op	    9635 B/op	      67 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost
+cpu: AMD EPYC 9J14 96-Core Processor
+BenchmarkManager_AcquireRelease-2              	81735397	        26.21 ns/op	      16 B/op	       1 allocs/op
+BenchmarkGenerationDispatcher_AcquireLease-2   	 6495027	       371.8 ns/op	     784 B/op	       9 allocs/op
+BenchmarkManager_Publish-2                     	 1000000	      2387 ns/op	     746 B/op	       9 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle
+cpu: AMD EPYC 9J14 96-Core Processor
+BenchmarkCandidateCompilation-2   	     626	   3878625 ns/op	 3914739 B/op	   17152 allocs/op
+BenchmarkBuildHost-2              	     454	   5256570 ns/op	 5366433 B/op	   21879 allocs/op
+BenchmarkSuccessfulReload-2       	     429	   5706186 ns/op	 5337328 B/op	   21812 allocs/op
+BenchmarkNoopReload-2             	   89132	     26992 ns/op	    9635 B/op	      67 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost
+cpu: AMD EPYC 9J14 96-Core Processor
+BenchmarkManager_AcquireRelease-2              	76802329	        26.40 ns/op	      16 B/op	       1 allocs/op
+BenchmarkGenerationDispatcher_AcquireLease-2   	 6473431	       408.1 ns/op	     784 B/op	       9 allocs/op
+BenchmarkManager_Publish-2                     	 1000000	      2352 ns/op	     745 B/op	       9 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle
+cpu: AMD EPYC 9J14 96-Core Processor
+BenchmarkCandidateCompilation-2   	     625	   3787977 ns/op	 3916598 B/op	   17151 allocs/op
+BenchmarkBuildHost-2              	     445	   5362910 ns/op	 5364973 B/op	   21879 allocs/op
+BenchmarkSuccessfulReload-2       	     412	   5819038 ns/op	 5336143 B/op	   21812 allocs/op
+BenchmarkNoopReload-2             	   88778	     26750 ns/op	    9635 B/op	      67 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost
+cpu: AMD EPYC 9J14 96-Core Processor
+BenchmarkManager_AcquireRelease-2              	81620972	        26.27 ns/op	      16 B/op	       1 allocs/op
+BenchmarkGenerationDispatcher_AcquireLease-2   	 6820909	       368.8 ns/op	     784 B/op	       9 allocs/op
+BenchmarkManager_Publish-2                     	 1000000	      2342 ns/op	     744 B/op	       9 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle
+cpu: AMD EPYC 9J14 96-Core Processor
+BenchmarkCandidateCompilation-2   	     633	   3792996 ns/op	 3916053 B/op	   17152 allocs/op
+BenchmarkBuildHost-2              	     441	   5332471 ns/op	 5365940 B/op	   21879 allocs/op
+BenchmarkSuccessfulReload-2       	     402	   5755703 ns/op	 5340418 B/op	   21812 allocs/op
+BenchmarkNoopReload-2             	   90716	     26806 ns/op	    9635 B/op	      67 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost
+cpu: AMD EPYC 9J14 96-Core Processor
+BenchmarkManager_AcquireRelease-2              	81964640	        26.30 ns/op	      16 B/op	       1 allocs/op
+BenchmarkGenerationDispatcher_AcquireLease-2   	 6281451	       380.3 ns/op	     784 B/op	       9 allocs/op
+BenchmarkManager_Publish-2                     	 1000000	      2323 ns/op	     744 B/op	       9 allocs/op
+PASS

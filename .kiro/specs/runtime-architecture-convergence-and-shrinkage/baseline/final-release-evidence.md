@@ -1,47 +1,46 @@
 # Final runtime-architecture-convergence release evidence
 
-**Phase:** PR D — compatibility reconciliation, documentation, and final certification
-**Recorded (UTC):** 2026-07-25T21:17:05Z
-**Measurement parent SHA (worktree HEAD before Hermes commit):** `e80198596ba8d130589e6061e8f5c31af340084b`
-**Final commit SHA:** 5446b0dface54772b7b62e2230ac0318c1c64ce1
-**Baseline SHA:** `efe4624909cea318c7211d5cb3734059d3210802`
-**Method:** recursive `CountNonTestGoLines` (non-test `.go` physical lines, including build-tag alternates). Same method as `internal/archtest.MeasureRuntimeConvergenceShrinkage` / `make arch-report`.
+**Phase:** final compatibility, architecture, performance, and release certification
+**Recorded (UTC):** 2026-07-26
+**Reviewed baseline:** `efe4624909cea318c7211d5cb3734059d3210802`
+**Certified implementation SHA:** `a5a2d375c767b3dad8225de0879f5a6c6f4b1ee5`
+**Evidence commit:** evidence-only descendant of the certified implementation; no production or benchmark source changed after performance capture.
 
 ## Verdict
 
-**PASS — Requirement 11.5 satisfied.**
+**PASS — all approved release gates are satisfied.**
 
-Move-only changes do **not** count as shrinkage (Req 11.6). No surfaces were excluded from the counter.
+- Runtime-convergence shrinkage: **-810 non-test Go lines**; requirement is at least -800.
+- Architecture and compatibility gates: pass; historical named Runtime methods are present as compatibility wrappers.
+- Local exact-implementation `make test` and `make lint`: pass.
+- Remote exact-implementation QA: pass, including PostgreSQL integration, unit tests, golangci-lint, and govulncheck.
+- CodeQL actions, Go, and JavaScript/TypeScript analyses: pass.
+- Complete isolated baseline-versus-final benchmark matrix: pass, with one explicit maintainer-approved publication exception documented in `bench-final-notes.md`.
 
-## Runtime-convergence net shrinkage (Req 11.5)
+## Runtime-convergence net shrinkage (Requirement 11.5)
 
-Baseline SHA: `efe4624909cea318c7211d5cb3734059d3210802`
+Method: recursive `CountNonTestGoLines` over non-test `.go` physical lines, including build-tag alternates. Move-only changes do not count as shrinkage and no surface is excluded.
 
-Method: recursive `CountNonTestGoLines` (non-test `.go` physical lines, including build-tag alternates). Moving unchanged logic between packages is not shrinkage (Req 11.6).
-
-| Surface | Baseline | Current | Delta |
+| Surface | Baseline | Final | Delta |
 | --- | ---: | ---: | ---: |
-| `internal/infra/runtimebundle` | 9898 | 9468 | -430 |
+| `internal/infra/runtimebundle` | 9898 | 9449 | -449 |
 | `internal/infra/runtimehost` | 3056 | 3653 | +597 |
-| `internal/stdhttp` | 4666 | 4301 | -365 |
+| `internal/stdhttp` | 4666 | 4313 | -353 |
 | `cmd/lipstd` | 985 | 880 | -105 |
-| `pkg/lipruntime` | 1037 | 536 | -501 |
-| **TOTAL** | **19642** | **18838** | **-804** |
+| `pkg/lipruntime` | 1037 | 537 | -500 |
+| **TOTAL** | **19642** | **18832** | **-810** |
 
-Required: delta ≤ -800 (remove ≥ 800 lines).
+Required: delta <= -800.
+Verdict: **PASS**.
 
-Verdict: **PASS**
-
-## Current critical file sizes
-
-## Hotspot files (critical-file budgets)
+## Exact final critical-file budgets
 
 | File | Lines | Budget |
-| --- | --- | --- |
-| `internal/core/runtime/executor.go` | 125 | 150 |
-| `internal/infra/runtimebundle/options.go` | 233 | 240 |
-| `internal/standardplugins/standard_table.go` | 283 | 320 |
-| `internal/pluginreg/reg.go` | 312 | 320 |
+| --- | ---: | ---: |
+| `internal/core/runtime/executor.go` | 125 | 125 |
+| `internal/infra/runtimebundle/options.go` | 233 | 233 |
+| `internal/standardplugins/standard_table.go` | 283 | 283 |
+| `internal/pluginreg/reg.go` | 312 | 312 |
 | `internal/stdhttp/server.go` | 8 | 8 |
 | `internal/infra/runtimehost/coordinator.go` | 292 | 292 |
 | `internal/infra/runtimehost/generation.go` | 316 | 316 |
@@ -49,69 +48,56 @@ Verdict: **PASS**
 | `internal/infra/runtimebundle/handler_composer.go` | 25 | 25 |
 | `internal/infra/runtimebundle/compile_generation.go` | 292 | 292 |
 | `internal/stdhttp/request_plane.go` | 65 | 65 |
-| `internal/infra/runtimebundle/process_services.go` | 245 | 245 |
+| `internal/infra/runtimebundle/process_services.go` | 233 | 233 |
 | `pkg/lipruntime/build.go` | 96 | 96 |
 | `pkg/lipruntime/host.go` | 68 | 68 |
-| `pkg/lipruntime/facade.go` | 57 | 57 |
+| `pkg/lipruntime/facade.go` | 72 | 72 |
 | `cmd/lipstd/command.go` | 360 | 360 |
 | `pkg/lipruntime/reload.go` | 89 | 89 |
 | `pkg/lipruntime/reload_aliases.go` | 35 | 35 |
 
-## Package fan-in / fan-out (affected surfaces)
+Every measured file is at or below its exact ratchet.
 
-## Runtime-convergence affected-surface fan-in/out
+## Performance certification
 
-| Surface | Fan-out (direct internal) | Fan-in | Importers |
-| --- | ---: | ---: | --- |
-| `internal/infra/runtimebundle` | 85 | 3 | `cmd/lipstd`, `internal/stdhttp`, `pkg/lipruntime` |
-| `internal/infra/runtimehost` | 4 | 2 | `internal/infra/runtimebundle`, `internal/stdhttp` |
-| `internal/stdhttp` | 20 | 2 | `cmd/lipstd`, `pkg/lipruntime` |
-| `cmd/lipstd` | 7 | 0 | (none) |
-| `pkg/lipruntime` | 2 | 0 | (none) |
+The complete required matrix compares baseline `efe46249` with implementation `a5a2d375` using 10 isolated ABBA samples per revision:
 
-## Exported public symbol delta
+- candidate compilation: **-19.68% time, -15.44% bytes, -12.56% allocations**;
+- BuildHost: **-10.07% time**;
+- successful reload: **-2.09% time**;
+- no-op reload: **-1.82% time**;
+- Manager Acquire/Release: statistically unchanged;
+- generation dispatch: statistically unchanged;
+- Manager publication: +1.804 microseconds and +5 allocations per successful reload publication, explicitly approved by the maintainer because it is a reload-only cost of required asynchronous manager-owned retirement, not a request-path cost.
 
-| Package | Baseline (`efe46249`) | Current | Delta |
-| --- | ---: | ---: | ---: |
-| `pkg/lipapi` | 319 | 319 | 0 |
-| `pkg/lipsdk` (root package) | 39 | 39 | 0 |
-| `pkg/lipruntime` | 46 | 45 | -1 |
+See:
 
-Remaining compatibility exceptions: **none** except explicitly documented public aliases in `pkg/lipruntime` / `pkg/lipsdk/configreload` (reload DTO aliases). Runtime-convergence allowlist is empty; host_path/config_load are permanently zero-tolerance.
+- `bench-final-notes.md` — protocol, verdict, approval, and checksums;
+- `bench-final-runA.txt` — raw baseline samples;
+- `bench-final-runB.txt` — raw final samples;
+- `benchstat-final.txt` — statistical comparison;
+- `benchmark-baseline-overlay.patch` — baseline-only equivalent harness.
 
-## Deleted production symbols / paths
+## Runtime architecture disposition
 
-## Runtime-convergence deleted production symbols/paths
+The convergence allowlist is empty; host-path and config-load gates are permanently zero-tolerance. Enforced-absent parallel production paths include:
 
-Enforced absent by `internal/archtest` deleted-symbol / bootstrap / serve gates (allowlist empty):
+- `runtimebundle.Built` and the compatibility `runtimebundle.Build` orchestrator;
+- `stdhttp.RunWithRuntime`;
+- `requestPlaneAsBuilt`;
+- `NewStandardHandler`;
+- `standardHTTPInputFromBuilt`;
+- `releaseBuiltResources`, `runClosers`, and `LegacyClosers`;
+- `BuildBootstrap`, `BootstrapResult`, `AttachReloadHost`, `LoadBootstrapEffective`, and `BootstrapMode`;
+- deprecated `pkg/lipruntime` Options adapters and the mirrored reload model.
 
-- `runtimebundle.Built`
-- `runtimebundle.Build (compatibility orchestrator)`
-- `stdhttp.RunWithRuntime`
-- `requestPlaneAsBuilt`
-- `NewStandardHandler`
-- `standardHTTPInputFromBuilt`
-- `releaseBuiltResources`
-- `runClosers`
-- `LegacyClosers`
-- `BuildBootstrap / BootstrapResult / AttachReloadHost`
-- `LoadBootstrapEffective / BootstrapMode`
-- `pkg/lipruntime deprecated Options / legacy_options adapter`
-- `pkg/lipruntime/reload_map.go (mirrored reload model)`
+Required historical public Runtime method names remain as thin compatibility wrappers over the canonical host/reload implementation; they do not reintroduce ownership or composition paths.
 
-Parallel production runtime composition paths and mirrored reload models: **zero remaining** (empty `runtime_convergence_allowlist.json`; host_path/config_load permanently zero-tolerance).
+## Related evidence
 
-## Stale FAIL report disposition
+- `release-gate-results.md` — current exact-implementation local and remote gate status;
+- `measurement-host.txt` — measurement host identity;
+- `docs/legacy-options-migration.md` — alpha migration guidance;
+- `baseline/archive/shrinkage-phase93-report-FAIL-805c1a57.md` — archived superseded failure report.
 
-The contradictory FAIL report previously committed as `shrinkage-phase93-report.md` (measured at `805c1a57`, verdict FAIL / +663) is archived at:
-
-`baseline/archive/shrinkage-phase93-report-FAIL-805c1a57.md`
-
-This file is the sole authoritative final shrinkage + architecture evidence for the convergence.
-
-## Related artifacts
-
-- `baseline/measurement-host.txt` — host identity + `benchstat_installed=yes`
-- `baseline/bench-final-runA.txt` / `bench-final-runB.txt` / `benchstat-final.txt` — final benchmark evidence (PR D3)
-- `baseline/release-gate-results.md` — raw exit statuses (PR D4)
-- `docs/legacy-options-migration.md` — alpha Options field migration (PR D1)
+This file and the linked benchmark artifacts supersede the earlier evidence tied to `e8019859` / `5446b0df` and the two noisy final-versus-final runs.

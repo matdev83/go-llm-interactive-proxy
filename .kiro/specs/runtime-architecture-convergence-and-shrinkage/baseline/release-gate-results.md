@@ -1,33 +1,45 @@
-# PR D4 release-gate results
+# Final release-gate results
 
-Recorded on host described in `measurement-host.txt`.
-Measurement parent SHA: `e80198596ba8d130589e6061e8f5c31af340084b`
+**Certified implementation SHA:** `a5a2d375c767b3dad8225de0879f5a6c6f4b1ee5`
+**Reviewed baseline:** `efe4624909cea318c7211d5cb3734059d3210802`
+**Evidence update:** documentation/artifacts only; production and benchmark source are byte-identical to the certified implementation.
 
-| # | Command | Started (UTC) | Finished (UTC) | Exit |
-| --- | --- | --- | --- | ---: |
-| 1 | `make test` | 2026-07-25T21:17:17Z | 2026-07-25T21:20:00Z | 0 |
-| 2 | `make test-race` | 2026-07-25T21:20:00Z | 2026-07-25T21:26:34Z | 0 |
-| 3 | `make test-fuzz` | 2026-07-25T21:26:34Z | 2026-07-25T21:32:14Z | 0 |
-| 4 | `make quality-checks` | 2026-07-25T21:32:14Z | 2026-07-25T21:32:40Z | 0 |
-| 5 | `make arch-report` | 2026-07-25T21:32:40Z | 2026-07-25T21:32:40Z | 0 |
-| 6 | `make bench` | 2026-07-25T21:32:40Z | 2026-07-25T21:36:32Z | 0 |
-| 7 | `go test -tags=precommit -run '^TestRuntimeConfigReloadSoak$' -count=1 -v ./internal/stdhttp/...` | 2026-07-25T21:36:32Z | 2026-07-25T21:36:39Z | 0 |
-| 8 | `go mod verify` | 2026-07-25T21:36:39Z | 2026-07-25T21:36:50Z | 0 |
-| 9 | `go vet ./...` | 2026-07-25T21:36:50Z | 2026-07-25T21:36:52Z | 0 |
-| 10 | `golangci-lint run --timeout=10m` | 2026-07-25T21:36:52Z | 2026-07-25T21:37:20Z | 1 |
-| 11 | `go run golang.org/x/vuln/cmd/govulncheck@latest ./...` | 2026-07-25T21:37:20Z | 2026-07-25T21:37:34Z | 0 |
-| 12 | `(cd testdata/enterprise_module && GOWORK=off go test ./... -count=1)` | 2026-07-25T21:37:34Z | 2026-07-25T21:37:36Z | 0 |
+## Exact-implementation gates
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| `make test` | PASS | exact local head `a5a2d375`; includes focused architecture, cleanup, and integration regressions |
+| `make lint` | PASS | exact local head; `0 issues.` |
+| `make arch-report` | PASS | exact head; convergence total 18832 vs baseline 19642, delta **-810** |
+| Remote QA | PASS | exact implementation head; PostgreSQL integration, unit tests, golangci-lint, govulncheck |
+| CodeQL actions | PASS | exact implementation head |
+| CodeQL Go | PASS | exact implementation head |
+| CodeQL JavaScript/TypeScript | PASS | exact implementation head |
+| Complete performance matrix | PASS | baseline `efe46249` vs final `a5a2d375`, 10 isolated ABBA samples each |
+
+GitHub status checks are mutable remote state and are intentionally read from PR #205 rather than frozen here. Any evidence-only successor commit must rerun the repository-required PR checks; because it changes no Go/config/build source, the implementation and benchmark certification remains scoped to the byte-identical `a5a2d375` source tree.
+
+## Performance gate
+
+Required benchmark surfaces:
+
+- candidate compilation;
+- BuildHost;
+- successful reload;
+- no-op reload;
+- Manager Acquire/Release;
+- Manager publication;
+- generation dispatch.
+
+All seven have exactly 10 baseline and 10 final samples. Candidate compilation improves by **19.68% elapsed time**, **15.44% bytes**, and **12.56% allocations**, satisfying the strict 10% requirement. Acquire/Release and dispatch are statistically unchanged; BuildHost and both reload paths improve.
+
+Manager publication regresses by 1.804 microseconds and five allocations per successful configuration publication. The maintainer explicitly approved this reload-only cost because it launches required asynchronous manager-owned retirement and does not affect request dispatch.
+
+Raw results, the exact baseline overlay, protocol, checksums, and approval are committed beside this file in `bench-final-notes.md`, `bench-final-runA.txt`, `bench-final-runB.txt`, `benchstat-final.txt`, and `benchmark-baseline-overlay.patch`.
 
 ## Notes
 
-- Raw combined stdout/stderr: workspace `/tmp/prd-gates.log` (not committed).
-- `golangci-lint` outcome is the exit code above (no waiver).
 - No provider credentials or live provider calls were used.
-
-
-## golangci-lint follow-up (PR D packages)
-
-After fixing `modernize` min/max findings in `internal/qa/task84_legacy_absent_docs_test.go` and `internal/qa/task91_architecture_docs_test.go`:
-
-- `golangci-lint run --timeout=5m ./internal/qa/...` → exit **0** (no findings in packages changed by PR D).
-- Full `golangci-lint run --timeout=10m` still exits **1** with **78 pre-existing** findings outside PR D changed packages (forcetypeassert, gofumpt, modernize, staticcheck QF1011, thelper, paralleltest, etc.). Not introduced by PR D. No waiver for packages changed by this work.
+- Benchmark capture ran on two pinned CPUs with no concurrent build/test workload.
+- The separate AI security-review workflow failure was an unsupported-model infrastructure error and produced no analysis or finding; it is not a QA or CodeQL failure.
+- This log supersedes the earlier PR D4 table tied to `e8019859`, including its obsolete full-lint failure and pre-fix package-only follow-up.
