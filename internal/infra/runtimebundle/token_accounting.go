@@ -86,7 +86,7 @@ func bindTokenAccountingRuntime(stores *processAccountingStores, cfg *config.Con
 		}
 		countTimeout = parsed
 	}
-	provider = timeoutProviderCounter{inner: provider, timeout: countTimeout}
+	provider = timeoutProviderCounter{timeoutCounter: timeoutCounter[accountingapp.ProviderCounter]{inner: provider, timeout: countTimeout}}
 	if local != nil {
 		local = timeoutLocalCounter{inner: local, timeout: countTimeout}
 	}
@@ -249,55 +249,44 @@ var (
 	_ accountingstream.Counter    = (*accountingapp.Service)(nil)
 )
 
-type timeoutProviderCounter struct {
-	inner   accountingapp.ProviderCounter
+type timeoutCountOps interface {
+	CountText(context.Context, accountingapp.CountTextInput) (accountingapp.CountResult, error)
+	CountCall(context.Context, accountingapp.CountCallInput) (accountingapp.CountResult, error)
+	CountOutput(context.Context, accountingapp.CountOutputInput) (accountingapp.CountResult, error)
+}
+
+type timeoutCounter[T timeoutCountOps] struct {
+	inner   T
 	timeout time.Duration
+}
+
+func (c timeoutCounter[T]) CountText(ctx context.Context, input accountingapp.CountTextInput) (accountingapp.CountResult, error) {
+	return withCountTimeout(ctx, c.timeout, func(ctx context.Context) (accountingapp.CountResult, error) {
+		return c.inner.CountText(ctx, input)
+	})
+}
+
+func (c timeoutCounter[T]) CountCall(ctx context.Context, input accountingapp.CountCallInput) (accountingapp.CountResult, error) {
+	return withCountTimeout(ctx, c.timeout, func(ctx context.Context) (accountingapp.CountResult, error) {
+		return c.inner.CountCall(ctx, input)
+	})
+}
+
+func (c timeoutCounter[T]) CountOutput(ctx context.Context, input accountingapp.CountOutputInput) (accountingapp.CountResult, error) {
+	return withCountTimeout(ctx, c.timeout, func(ctx context.Context) (accountingapp.CountResult, error) {
+		return c.inner.CountOutput(ctx, input)
+	})
+}
+
+type timeoutProviderCounter struct {
+	timeoutCounter[accountingapp.ProviderCounter]
 }
 
 func (c timeoutProviderCounter) SupportsCount(ctx context.Context, input accountingapp.ProviderCountInput) accountingapp.ProviderSupport {
 	return c.inner.SupportsCount(ctx, input)
 }
 
-func (c timeoutProviderCounter) CountText(ctx context.Context, input accountingapp.CountTextInput) (accountingapp.CountResult, error) {
-	return withCountTimeout(ctx, c.timeout, func(ctx context.Context) (accountingapp.CountResult, error) {
-		return c.inner.CountText(ctx, input)
-	})
-}
-
-func (c timeoutProviderCounter) CountCall(ctx context.Context, input accountingapp.CountCallInput) (accountingapp.CountResult, error) {
-	return withCountTimeout(ctx, c.timeout, func(ctx context.Context) (accountingapp.CountResult, error) {
-		return c.inner.CountCall(ctx, input)
-	})
-}
-
-func (c timeoutProviderCounter) CountOutput(ctx context.Context, input accountingapp.CountOutputInput) (accountingapp.CountResult, error) {
-	return withCountTimeout(ctx, c.timeout, func(ctx context.Context) (accountingapp.CountResult, error) {
-		return c.inner.CountOutput(ctx, input)
-	})
-}
-
-type timeoutLocalCounter struct {
-	inner   accountingapp.LocalCounter
-	timeout time.Duration
-}
-
-func (c timeoutLocalCounter) CountText(ctx context.Context, input accountingapp.CountTextInput) (accountingapp.CountResult, error) {
-	return withCountTimeout(ctx, c.timeout, func(ctx context.Context) (accountingapp.CountResult, error) {
-		return c.inner.CountText(ctx, input)
-	})
-}
-
-func (c timeoutLocalCounter) CountCall(ctx context.Context, input accountingapp.CountCallInput) (accountingapp.CountResult, error) {
-	return withCountTimeout(ctx, c.timeout, func(ctx context.Context) (accountingapp.CountResult, error) {
-		return c.inner.CountCall(ctx, input)
-	})
-}
-
-func (c timeoutLocalCounter) CountOutput(ctx context.Context, input accountingapp.CountOutputInput) (accountingapp.CountResult, error) {
-	return withCountTimeout(ctx, c.timeout, func(ctx context.Context) (accountingapp.CountResult, error) {
-		return c.inner.CountOutput(ctx, input)
-	})
-}
+type timeoutLocalCounter = timeoutCounter[accountingapp.LocalCounter]
 
 func withCountTimeout(ctx context.Context, timeout time.Duration, fn func(context.Context) (accountingapp.CountResult, error)) (accountingapp.CountResult, error) {
 	if timeout <= 0 {

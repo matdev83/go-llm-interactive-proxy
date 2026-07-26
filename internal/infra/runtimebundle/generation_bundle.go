@@ -84,9 +84,7 @@ var (
 // publications into ctx exactly once for the logical request (req 9.4-9.5).
 // It also attaches one aggregate model-view identity for diagnostics/ETag.
 func (b *GenerationBundle) BindModelViews(ctx context.Context) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = ctxOrBackground(ctx)
 	if b == nil {
 		return ctx
 	}

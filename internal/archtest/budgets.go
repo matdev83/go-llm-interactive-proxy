@@ -14,17 +14,13 @@ type CriticalFileBudget struct {
 	Max  int
 }
 
-func criticalFileExceedsBudget(lines, max int) bool {
-	return lines > max
-}
-
 // CriticalFileBudgets is the single source of truth for hotspot ceilings
 // (guardrails tests + make arch-report). Values are exact-measured ratchets.
 var CriticalFileBudgets = []CriticalFileBudget{
-	{Path: "internal/core/runtime/executor.go", Max: 150},
-	{Path: "internal/infra/runtimebundle/options.go", Max: 240},
-	{Path: "internal/standardplugins/standard_table.go", Max: 320},
-	{Path: "internal/pluginreg/reg.go", Max: 320},
+	{Path: "internal/core/runtime/executor.go", Max: 125},
+	{Path: "internal/infra/runtimebundle/options.go", Max: 233},
+	{Path: "internal/standardplugins/standard_table.go", Max: 283},
+	{Path: "internal/pluginreg/reg.go", Max: 312},
 	{Path: "internal/stdhttp/server.go", Max: 8},
 	{Path: "internal/infra/runtimehost/coordinator.go", Max: 292},
 	{Path: "internal/infra/runtimehost/generation.go", Max: 316},
@@ -32,7 +28,7 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/infra/runtimebundle/handler_composer.go", Max: 25},
 	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 292},
 	{Path: "internal/stdhttp/request_plane.go", Max: 65},
-	{Path: "internal/infra/runtimebundle/process_services.go", Max: 245},
+	{Path: "internal/infra/runtimebundle/process_services.go", Max: 233},
 	{Path: "pkg/lipruntime/build.go", Max: 96},
 	{Path: "pkg/lipruntime/host.go", Max: 68},
 	{Path: "pkg/lipruntime/facade.go", Max: 72},
@@ -49,8 +45,8 @@ type PackageTreeBudget struct {
 
 // PackageTreeBudgets locks exact-measured convergence tree ceilings.
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 9468},
-	{Tree: "internal/stdhttp", Max: 4301},
+	{Tree: "internal/infra/runtimebundle", Max: 9449},
+	{Tree: "internal/stdhttp", Max: 4313},
 	{Tree: "cmd/lipstd", Max: 880},
 	{Tree: "pkg/lipruntime", Max: 537},
 }
@@ -64,10 +60,10 @@ type LineBudget struct {
 // LineBudgets covers core/pluginreg plus the convergence trees (kept in sync
 // with PackageTreeBudgets for overlapping entries).
 var LineBudgets = []LineBudget{
-	{Dir: "internal/core", Max: 69350},
-	{Dir: "internal/pluginreg", Max: 4500},
-	{Dir: "internal/stdhttp", Max: 4301},
-	{Dir: "internal/infra/runtimebundle", Max: 9468},
+	{Dir: "internal/core", Max: 69133},
+	{Dir: "internal/pluginreg", Max: 715},
+	{Dir: "internal/stdhttp", Max: 4313},
+	{Dir: "internal/infra/runtimebundle", Max: 9449},
 	{Dir: "cmd/lipstd", Max: 880},
 	{Dir: "pkg/lipruntime", Max: 537},
 }

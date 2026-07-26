@@ -109,67 +109,93 @@ func (c *CandidateHTTPCompile) a() *candidateAssembly {
 	return c.assem
 }
 
-// candidateField returns pick(assem) when CandidateHTTPCompile holds an assembly.
-func candidateField[T any](c *CandidateHTTPCompile, pick func(*candidateAssembly) T) (zero T) {
+func (c *CandidateHTTPCompile) Close() error {
 	if a := c.a(); a != nil {
-		return pick(a)
+		return a.Close()
 	}
-	return
+	return nil
 }
 
-// CandidateHTTPCompile accessors are nil-safe views over candidateAssembly fields.
-func (c *CandidateHTTPCompile) Close() error { return candidateField(c, (*candidateAssembly).Close) }
-
 func (c *CandidateHTTPCompile) Quiesce(ctx context.Context) error {
-	return candidateField(c, func(a *candidateAssembly) error { return a.Quiesce(ctx) })
+	if a := c.a(); a != nil {
+		return a.Quiesce(ctx)
+	}
+	return nil
 }
 
 func (c *CandidateHTTPCompile) RollbackUnpublished() error {
-	return candidateField(c, (*candidateAssembly).RollbackUnpublished)
+	if a := c.a(); a != nil {
+		return a.RollbackUnpublished()
+	}
+	return nil
 }
 
 func (c *CandidateHTTPCompile) Executor() *runtime.Executor {
-	return candidateField(c, func(a *candidateAssembly) *runtime.Executor { return a.execution.executor })
+	if a := c.a(); a != nil {
+		return a.execution.executor
+	}
+	return nil
 }
 
 func (c *CandidateHTTPCompile) DecodeAdmission() lipsdk.DecodeAdmission {
-	return candidateField(c, func(a *candidateAssembly) lipsdk.DecodeAdmission { return a.execution.decodeAdmission })
+	if a := c.a(); a != nil {
+		return a.execution.decodeAdmission
+	}
+	return nil
 }
 
 func (c *CandidateHTTPCompile) EffectiveDefaultRoute() string {
-	return candidateField(c, func(a *candidateAssembly) string { return a.execution.effectiveDefaultRoute })
+	if a := c.a(); a != nil {
+		return a.execution.effectiveDefaultRoute
+	}
+	return ""
 }
 
 func (c *CandidateHTTPCompile) RoutePrefixes() []string {
-	return candidateField(c, func(a *candidateAssembly) []string { return append([]string(nil), a.execution.routePrefixes...) })
+	if a := c.a(); a != nil {
+		return append([]string(nil), a.execution.routePrefixes...)
+	}
+	return nil
 }
 
 func (c *CandidateHTTPCompile) ModelRegistry() *modelregistry.Registry {
-	return candidateField(c, func(a *candidateAssembly) *modelregistry.Registry { return a.models.registry })
+	if a := c.a(); a != nil {
+		return a.models.registry
+	}
+	return nil
 }
 
 func (c *CandidateHTTPCompile) PluginRegistry() *pluginreg.Registry {
-	return candidateField(c, func(a *candidateAssembly) *pluginreg.Registry { return a.process.pluginRegistry })
+	if a := c.a(); a != nil {
+		return a.process.pluginRegistry
+	}
+	return nil
 }
 
 func (c *CandidateHTTPCompile) RuntimeSnapshot() *extensions.RequestRuntimeSnapshot {
-	return candidateField(c, func(a *candidateAssembly) *extensions.RequestRuntimeSnapshot { return a.security.runtimeSnapshot })
+	if a := c.a(); a != nil {
+		return a.security.runtimeSnapshot
+	}
+	return nil
 }
 
 func (c *CandidateHTTPCompile) Metrics() *metrics.Bundle {
-	return candidateField(c, func(a *candidateAssembly) *metrics.Bundle { return a.process.metrics })
+	if a := c.a(); a != nil {
+		return a.process.metrics
+	}
+	return nil
 }
 
 func (c *CandidateHTTPCompile) Store() b2bua.Store {
-	return candidateField(c, func(a *candidateAssembly) b2bua.Store { return a.process.store })
-}
-
-func (c *CandidateHTTPCompile) Ledger() *ResourceLedger {
-	return candidateField(c, func(a *candidateAssembly) *ResourceLedger { return a.ledger })
+	if a := c.a(); a != nil {
+		return a.process.store
+	}
+	return nil
 }
 
 func (c *CandidateHTTPCompile) StandardHTTPInput(frozen *config.Config, regs []lipsdk.Registration, route string) httpcontract.StandardHTTPInput {
-	return candidateField(c, func(a *candidateAssembly) httpcontract.StandardHTTPInput {
+	if a := c.a(); a != nil {
 		return buildStandardHTTPInput(a, frozen, regs, route)
-	})
+	}
+	return httpcontract.StandardHTTPInput{}
 }

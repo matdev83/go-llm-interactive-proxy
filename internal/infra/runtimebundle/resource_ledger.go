@@ -275,9 +275,7 @@ func (l *ResourceLedger) startBlockedLocked() (bool, error) {
 }
 
 func (l *ResourceLedger) runStarts(ctx context.Context, phase ClosePhase) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = ctxOrBackground(ctx)
 	for _, e := range l.copyEntries() {
 		if e.phase != phase || e.start == nil {
 			continue
@@ -387,9 +385,7 @@ func (l *ResourceLedger) Close(ctx context.Context) error {
 }
 
 func (l *ResourceLedger) stopReverse(ctx context.Context, match func(*ledgerEntry) bool, terminal bool) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = ctxOrBackground(ctx)
 	entries := l.copyEntries()
 	var out error
 	for i := len(entries) - 1; i >= 0; i-- {
@@ -416,8 +412,6 @@ func safeLedgerStop(ctx context.Context, e *ledgerEntry) (err error) {
 	if e == nil || e.stop == nil {
 		return nil
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = ctxOrBackground(ctx)
 	return e.stop(ctx)
 }

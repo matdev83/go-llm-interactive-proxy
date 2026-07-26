@@ -125,14 +125,6 @@ func bindHost(configPath string, in bindHostInput) (*Host, error) {
 	}, nil
 }
 
-// hostField and hostCoordinator provide nil-safe Host and Coordinator access.
-func hostField[T any](h *Host, pick func(*Host) T) (zero T) {
-	if h != nil {
-		return pick(h)
-	}
-	return
-}
-
 func (h *Host) HTTPHandler() http.Handler {
 	if h == nil || h.dispatcher == nil {
 		return nil
@@ -149,24 +141,31 @@ func (h *Host) ExecutorView() lipsdk.ExecutorView {
 
 // Logger, Config, and Effective expose process-bound configuration views.
 func (h *Host) Logger() *slog.Logger {
-	return hostField(h, func(h *Host) *slog.Logger { return h.logger })
+	if h == nil {
+		return nil
+	}
+	return h.logger
 }
 
 func (h *Host) Config() *config.Config {
-	return hostField(h, func(h *Host) *config.Config { return h.config })
+	if h == nil {
+		return nil
+	}
+	return h.config
 }
 
 func (h *Host) Effective() *config.EffectiveConfig {
-	return hostField(h, func(h *Host) *config.EffectiveConfig { return h.effective })
+	if h == nil {
+		return nil
+	}
+	return h.effective
 }
 
 func (h *Host) Close(ctx context.Context) error {
 	if h == nil {
 		return nil
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = ctxOrBackground(ctx)
 	h.closeMu.Lock()
 	if h.closed {
 		h.closeMu.Unlock()
@@ -199,25 +198,25 @@ func (h *Host) Close(ctx context.Context) error {
 	return err
 }
 
-// hostCoordinator delegates to the reload coordinator when the host is bound.
-func hostCoordinator[T any](h *Host, pick func(*runtimehost.Coordinator) T, zero T) T {
-	if h != nil && h.coordinator != nil {
-		return pick(h.coordinator)
-	}
-	return zero
-}
-
 func (h *Host) Reload(ctx context.Context, trigger sdkreload.Trigger) sdkreload.Result {
-	return hostCoordinator(h, func(c *runtimehost.Coordinator) sdkreload.Result { return c.Reload(ctx, trigger) },
-		sdkreload.Result{Category: sdkreload.ResultInternalFailed, ReasonCategory: "nil-coordinator"})
+	if h != nil && h.coordinator != nil {
+		return h.coordinator.Reload(ctx, trigger)
+	}
+	return sdkreload.Result{Category: sdkreload.ResultInternalFailed, ReasonCategory: "nil-coordinator"}
 }
 
 func (h *Host) Status() sdkreload.Status {
-	return hostCoordinator(h, (*runtimehost.Coordinator).Status, sdkreload.Status{})
+	if h != nil && h.coordinator != nil {
+		return h.coordinator.Status()
+	}
+	return sdkreload.Status{}
 }
 
 func (h *Host) FixedSourcePath() string {
-	return hostCoordinator(h, (*runtimehost.Coordinator).FixedSourcePath, "")
+	if h != nil && h.coordinator != nil {
+		return h.coordinator.FixedSourcePath()
+	}
+	return ""
 }
 
 func (h *Host) runCloseAttempt(ctx context.Context) error {
@@ -276,5 +275,8 @@ func (h *Host) BeginShutdown() {
 }
 
 func (h *Host) WaitForIdle(ctx context.Context) error {
-	return hostCoordinator(h, func(c *runtimehost.Coordinator) error { return c.WaitForIdle(ctx) }, nil)
+	if h != nil && h.coordinator != nil {
+		return h.coordinator.WaitForIdle(ctx)
+	}
+	return nil
 }

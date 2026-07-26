@@ -37,7 +37,7 @@ func TestHostBuild_PostBindRollbackUsesOneHostClose(t *testing.T) {
 	if out.Host != nil {
 		t.Fatal("post-bind rollback must return nil Host")
 	}
-	wantCleaned := "coordinator,publish,compile,process,tracing"
+	wantCleaned := "compile,process,tracing"
 	if got := strings.Join(out.Journal.Cleaned, ","); got != wantCleaned {
 		t.Fatalf("cleaned=%s want %s", got, wantCleaned)
 	}

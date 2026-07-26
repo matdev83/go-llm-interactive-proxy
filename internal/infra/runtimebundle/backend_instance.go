@@ -62,9 +62,7 @@ func (b *BackendInstance) Start(ctx context.Context) error {
 	if b == nil || b.hooks.Start == nil {
 		return nil
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = ctxOrBackground(ctx)
 	b.startOnce.Do(func() {
 		b.startAttempted.Store(true)
 		b.startErr = b.hooks.Start(ctx)
@@ -109,10 +107,7 @@ func (b *BackendInstance) CleanupIdleTransports(ctx context.Context) error {
 	if b == nil || b.hooks.CleanupIdleTransports == nil {
 		return nil
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return b.hooks.CleanupIdleTransports(ctx)
+	return b.hooks.CleanupIdleTransports(ctxOrBackground(ctx))
 }
 
 // PreflightCapability runs an optional non-billable readiness probe.
@@ -121,10 +116,7 @@ func (b *BackendInstance) PreflightCapability(ctx context.Context) (BackendPrefl
 	if b == nil || b.hooks.PreflightCapability == nil {
 		return BackendPreflightResult{}, ErrPreflightUnsupported
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	res, err := b.hooks.PreflightCapability(ctx)
+	res, err := b.hooks.PreflightCapability(ctxOrBackground(ctx))
 	if err != nil {
 		return BackendPreflightResult{}, err
 	}

@@ -60,6 +60,14 @@ func NewCandidateRuntimeForTest(ledger *ResourceLedger) *CandidateHTTPCompile {
 	return &CandidateHTTPCompile{assem: &candidateAssembly{ledger: ledger}}
 }
 
+// Ledger exposes the candidate ledger only in test builds.
+func (c *CandidateHTTPCompile) Ledger() *ResourceLedger {
+	if a := c.a(); a != nil {
+		return a.ledger
+	}
+	return nil
+}
+
 func CandidateAssemblyOf(c *CandidateHTTPCompile) *candidateAssembly {
 	if c == nil {
 		return nil

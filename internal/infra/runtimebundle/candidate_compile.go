@@ -112,12 +112,12 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		ExplicitCandidate: in.Candidate != nil,
 	}
 
-	fail := func(err error) (*candidateAssembly, error) {
+	fail := func(err error) error {
 		rollErr := ledger.Rollback(parent)
 		if rollErr != nil {
-			return nil, errors.Join(err, rollErr)
+			return errors.Join(err, rollErr)
 		}
-		return nil, err
+		return err
 	}
 	injectFault := func(boundary string) error {
 		if in.FaultInject.After != boundary {
@@ -131,7 +131,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 
 	sec, err := buildSecurityRuntime(bctx, ps.controlPlane)
 	if err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 	var regs []lipsdk.Registration
 	if cfg != nil {
@@ -139,17 +139,17 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	}
 	sg, err := buildSecretGuardRuntime(cfg, log, opts, regs)
 	if err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 
 	obs := buildGenerationObservability(bctx, ps.Metrics)
 
 	model, err := buildModelRuntime(bctx, obs.Upstream)
 	if err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 	if err := injectFault("model"); err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 
 	nowFn := time.Now
@@ -165,7 +165,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	ext := buildExtensionRuntime(bctx, nowFn, func() auxreq.ExecutorRunner { return exec }, ps.controlPlane, ps.policyObs, sg, extState)
 	backendIDs, err := BackendStateIdentitiesFromConfig(cfg)
 	if err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 	execRun, err := buildExecutorRuntime(executorBuildInput{
 		Bctx:               bctx,
@@ -186,22 +186,22 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		BackendIdentities:  backendIDs,
 	})
 	if err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 	if err := AdaptOverlapSafeLifecycles(ledger, opts.FeatureLifecycles); err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 	if err := injectFault("prepare"); err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 	if err := ledger.Prepare(parent); err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 	if err := injectFault("activate"); err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 	if err := ledger.Activate(parent); err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 
 	exec = execRun.Exec

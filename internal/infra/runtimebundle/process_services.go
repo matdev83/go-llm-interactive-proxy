@@ -67,6 +67,12 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	fail := func(err error) (*ProcessServices, error) {
 		return nil, withDisposedClosers(err, ps.closers)
 	}
+	regStep := func(closers []func() error, err error) error {
+		for _, c := range closers {
+			register(c)
+		}
+		return err
+	}
 
 	controlPlane, err := buildControlPlaneRuntime(controlPlaneBuildInput{
 		StartupContext: parent,
@@ -79,7 +85,7 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		return fail(err)
 	}
 	ps.controlPlane = controlPlane
-	if controlPlane != nil && controlPlane.closer != nil {
+	if controlPlane != nil {
 		register(controlPlane.closer)
 	}
 
@@ -87,10 +93,7 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	ps.policyObs = policyObs
 
 	usageAuthority, usageClosers, err := buildUsageAuthorityRuntime(parent, in.Cfg, in.Log, in.Opts, controlPlane, policyObs, postgresPools, ps.dualPlaneMigrator)
-	for _, c := range usageClosers {
-		register(c)
-	}
-	if err != nil {
+	if err := regStep(usageClosers, err); err != nil {
 		return fail(err)
 	}
 	ps.usageRT = usageAuthority
@@ -99,10 +102,7 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	}
 
 	concurrencyRT, concurrencyClosers, err := buildConcurrencyAuthorityRuntime(parent, in.Cfg, in.Log, in.Opts.Testing, postgresPools, ps.dualPlaneMigrator)
-	for _, c := range concurrencyClosers {
-		register(c)
-	}
-	if err != nil {
+	if err := regStep(concurrencyClosers, err); err != nil {
 		return fail(err)
 	}
 	ps.concurrencyRT = concurrencyRT
@@ -125,10 +125,7 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		DualPlaneMigrator: ps.dualPlaneMigrator,
 	}
 	persist, persistClosers, err := buildPersistenceRuntime(bctx, controlPlane, ps.Metrics, nil)
-	for _, c := range persistClosers {
-		register(c)
-	}
-	if err != nil {
+	if err := regStep(persistClosers, err); err != nil {
 		return fail(err)
 	}
 	ps.persistence = persist
@@ -145,10 +142,7 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	}
 
 	accountingStores, accountingClosers, err := buildProcessAccountingStores(parent, in.Cfg, nowFn)
-	for _, c := range accountingClosers {
-		register(c)
-	}
-	if err != nil {
+	if err := regStep(accountingClosers, err); err != nil {
 		return fail(err)
 	}
 	ps.accountingStores = accountingStores
@@ -157,10 +151,7 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	}
 
 	meteringRT, meteringClosers, err := buildMeteringRuntime(parent, in.Cfg, nowFn, postgresPools, ps.dualPlaneMigrator)
-	for _, c := range meteringClosers {
-		register(c)
-	}
-	if err != nil {
+	if err := regStep(meteringClosers, err); err != nil {
 		return fail(err)
 	}
 	ps.meteringRT = meteringRT
@@ -182,10 +173,7 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	ps.SnapshotController = snapCtrl
 
 	twRT, twClosers, err := buildTerminalWorkWithSetReconcile(parent, in.Opts.Production, nowFn, ps.Metrics, ps.Concurrency, snapGen)
-	for _, c := range twClosers {
-		register(c)
-	}
-	if err != nil {
+	if err := regStep(twClosers, err); err != nil {
 		return fail(err)
 	}
 	ps.terminalWorkRT = twRT

@@ -110,8 +110,8 @@ func TestCriticalFileBudgets(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if criticalFileExceedsBudget(n, b.Max) {
-				t.Fatalf("%s: %d lines exceeds budget %d", b.Path, n, b.Max)
+			if n != b.Max {
+				t.Fatalf("%s: measured %d, want exact budget %d", b.Path, n, b.Max)
 			}
 		})
 	}
@@ -127,8 +127,8 @@ func TestLineComplexityBudgets(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if n > b.Max {
-				t.Fatalf("%s: %d non-test lines exceeds budget %d", b.Dir, n, b.Max)
+			if n != b.Max {
+				t.Fatalf("%s: measured %d, want exact budget %d", b.Dir, n, b.Max)
 			}
 		})
 	}

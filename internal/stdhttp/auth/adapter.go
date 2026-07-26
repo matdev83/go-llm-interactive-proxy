@@ -14,8 +14,14 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
+
+// errPolicyAuthenticatorFailed is returned when an arbitrary Authenticator fails.
+// It intentionally does not wrap the underlying error: authenticators receive raw
+// credentials and may embed them in error text or objects.
+var errPolicyAuthenticatorFailed = errors.New("stdhttp/auth: policy authenticator failed")
 
 type PolicySnapshot struct {
 	AccessMode    auth.AccessMode
@@ -32,8 +38,11 @@ type PolicyProvider struct {
 	FrontendID         func(*http.Request) string
 }
 
+// authSuccessContextAttacher captures an immutable credential matcher while the
+// authenticating provider's request/header state is current. The matcher must not be
+// placed on the provider-chain context; middleware holds it pending terminal success.
 type authSuccessContextAttacher interface {
-	attachAuthSuccessContext(ctx context.Context, r *http.Request, res httpauth.AuthenticationResult) context.Context
+	captureAuthSuccessMatcher(r *http.Request, res httpauth.AuthenticationResult) secretguard.Matcher
 }
 
 func NewPolicyProvider(authenticator coreauth.Authenticator, events *coreauth.EventDispatcher, pol PolicySnapshot, renderer httpauth.AuthErrorRenderer) *PolicyProvider {
@@ -73,7 +82,16 @@ func (p *PolicyProvider) Authenticate(ctx context.Context, w http.ResponseWriter
 
 	d, err := p.Auth.Authenticate(ctx, meta)
 	if err != nil {
-		return httpauth.AuthenticationResult{}, fmt.Errorf("stdhttp/auth: policy authenticator: %w", err)
+		// Never wrap or retain the authenticator error: it may embed raw credentials.
+		// Preserve only canonical cancellation/deadline classification via safe sentinels.
+		switch {
+		case errors.Is(err, context.Canceled):
+			return httpauth.AuthenticationResult{}, context.Canceled
+		case errors.Is(err, context.DeadlineExceeded):
+			return httpauth.AuthenticationResult{}, context.DeadlineExceeded
+		default:
+			return httpauth.AuthenticationResult{}, errPolicyAuthenticatorFailed
+		}
 	}
 
 	traceID := diag.TraceID(ctx)
@@ -173,15 +191,15 @@ func ingressAttributionFromAllow(r *http.Request, frontendID string, d auth.Deci
 	}
 }
 
-func (p *PolicyProvider) attachAuthSuccessContext(ctx context.Context, r *http.Request, res httpauth.AuthenticationResult) context.Context {
+func (p *PolicyProvider) captureAuthSuccessMatcher(r *http.Request, res httpauth.AuthenticationResult) secretguard.Matcher {
 	if p == nil || r == nil || res.Type != httpauth.TypePrincipal {
-		return ctx
+		return nil
 	}
 	m := newExactCredentialMatcher(authorizationBearerFromHeader(r.Header.Get("Authorization")), res.IngressAttribution.KeyID)
 	if m == nil {
-		return ctx
+		return nil // collapse typed-nil *exactCredentialMatcher to a true nil interface
 	}
-	return httpauth.WithCredentialMatcher(ctx, m)
+	return m
 }
 
 func (p *PolicyProvider) callRenderer(ctx context.Context, frontendID string, meta *auth.InboundCallMeta, d auth.Decision, ev auth.AuthDecisionEvent, defaultStatus int) httpauth.AuthErrorRenderResult {

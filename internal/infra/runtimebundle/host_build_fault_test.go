@@ -33,6 +33,19 @@ func (j *hostBuildJournal) clean(stage string) {
 	j.Cleaned = append(j.Cleaned, stage)
 }
 
+type observedHostBuildGeneration struct {
+	GenerationRuntime
+	journal *hostBuildJournal
+}
+
+func (g *observedHostBuildGeneration) Close() error {
+	if err := g.GenerationRuntime.Close(); err != nil {
+		return err
+	}
+	g.journal.clean("compile")
+	return nil
+}
+
 func (productionHostBuilder) BuildFaulting(ctx context.Context, in hostBuildInput, faultAt hostBuildStage) (hostBuildOutcome, error) {
 	var journal hostBuildJournal
 	ops := defaultHostBuildOps()
@@ -98,49 +111,35 @@ func (productionHostBuilder) BuildFaulting(ctx context.Context, in hostBuildInpu
 			return nil, err
 		}
 		journal.acquire("compile")
+		observed := &observedHostBuildGeneration{GenerationRuntime: bundle, journal: &journal}
 		if faultAt == hostBuildStageCompile {
-			journal.clean("compile")
-			_ = bundle.Quiesce(context.WithoutCancel(ctx))
-			_ = bundle.Close()
+			_ = observed.Quiesce(context.WithoutCancel(ctx))
+			_ = observed.Close()
 			return nil, fmt.Errorf("runtimebundle: host build fault: compile")
 		}
-		return bundle, nil
+		return observed, nil
 	}
 
 	basePublish := ops.publisher
 	ops.publisher = func(ctx context.Context, in initialPublishInput) (*runtimehost.Manager, *runtimehost.Generation, error) {
+		if faultAt == hostBuildStagePublish {
+			journal.acquire("publish")
+			return nil, nil, fmt.Errorf("runtimebundle: host build fault: publish")
+		}
 		mgr, gen, err := basePublish(ctx, in)
 		if err != nil {
 			return nil, nil, err
 		}
 		journal.acquire("publish")
-		if faultAt == hostBuildStagePublish {
-			// Match former probe notes before joinInitialFailureCleanup: publish
-			// then compile evidence, then production closes process + tracing.
-			journal.clean("publish")
-			journal.clean("compile")
-			return nil, nil, fmt.Errorf("runtimebundle: host build fault: publish")
-		}
 		return mgr, gen, nil
 	}
 
-	baseBind := ops.bind
-	ops.bind = func(configPath string, in bindHostInput) (*Host, error) {
-		host, err := baseBind(configPath, in)
-		if err != nil {
-			return nil, err
-		}
+	ops.afterBind = func() error {
 		journal.acquire("coordinator")
 		if faultAt == hostBuildStageCoordinator {
-			// Match former probe notes; buildHost closes the returned Host.
-			journal.clean("coordinator")
-			journal.clean("publish")
-			journal.clean("compile")
-			journal.clean("process")
-			journal.clean("tracing")
-			return host, fmt.Errorf("runtimebundle: host build fault: coordinator")
+			return fmt.Errorf("runtimebundle: host build fault: coordinator")
 		}
-		return host, nil
+		return nil
 	}
 
 	host, err := buildHost(ctx, in, ops, osenv.Process{})
@@ -205,6 +204,9 @@ func TestPartialCleanup_FaultSeamUsesProductionTransaction(t *testing.T) {
 	}
 	if !strings.Contains(string(src), "defaultHostBuildOps") {
 		t.Fatal("BuildFaulting must use the hostBuildOps seam")
+	}
+	if !strings.Contains(string(body), "afterBind") {
+		t.Fatal("BuildFaulting must use the leaf afterBind fault hook")
 	}
 }
 

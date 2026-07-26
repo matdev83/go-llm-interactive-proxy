@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
@@ -79,10 +80,10 @@ func Middleware(log *slog.Logger, providers []httpauth.Provider, next http.Handl
 			return
 		}
 		ctx := r.Context()
-		// Defer credential matcher attach until the full provider chain succeeds.
+		// Capture credential matchers at each Principal success while header state is current,
+		// but defer attaching the pending matcher until the full provider chain succeeds.
 		// Principal, scope, and ingress attribution still propagate during the chain.
-		var effectiveAttacher authSuccessContextAttacher
-		var effectiveRes httpauth.AuthenticationResult
+		var pendingMatcher secretguard.Matcher
 		for _, p := range nonNil {
 			res, err := p.Authenticate(ctx, w, r)
 			if err != nil {
@@ -110,7 +111,7 @@ func Middleware(log *slog.Logger, providers []httpauth.Provider, next http.Handl
 					ctx = httpauth.WithIngressAttribution(ctx, res.IngressAttribution)
 				}
 				if attacher, ok := p.(authSuccessContextAttacher); ok {
-					effectiveAttacher, effectiveRes = attacher, res
+					pendingMatcher = attacher.captureAuthSuccessMatcher(r, res)
 				}
 				r = r.WithContext(ctx)
 			case httpauth.TypeAnnotate:
@@ -126,8 +127,8 @@ func Middleware(log *slog.Logger, providers []httpauth.Provider, next http.Handl
 				return
 			}
 		}
-		if effectiveAttacher != nil {
-			ctx = effectiveAttacher.attachAuthSuccessContext(ctx, r, effectiveRes)
+		if pendingMatcher != nil {
+			ctx = httpauth.WithCredentialMatcher(ctx, pendingMatcher)
 		}
 		// Align with [PolicyProvider.frontendID] when [PolicyProvider.FrontendID] is nil (path-derived wire id).
 		ctx = execview.WithFrontendID(ctx, DefaultFrontendIDFromRequest(r))

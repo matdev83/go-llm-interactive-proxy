@@ -18,7 +18,6 @@ func (h *Host) Ready() bool {
 	return h != nil && h.manager != nil && h.executor != nil && h.manager.Active() != nil
 }
 
-// activeGen returns the manager's active generation when the host is bound.
 func (h *Host) activeGen() *runtimehost.Generation {
 	if h == nil || h.manager == nil {
 		return nil
@@ -39,11 +38,7 @@ func (h *Host) ActivePublicFingerprint() string {
 	}
 	return ""
 }
-
-func (h *Host) ProcessClosed() bool {
-	return h == nil || h.process == nil || h.process.Closed()
-}
-
+func (h *Host) ProcessClosed() bool { return h == nil || h.process == nil || h.process.Closed() }
 func (h *Host) CanAcquireActive() bool {
 	if h == nil || h.manager == nil {
 		return false
@@ -128,7 +123,6 @@ func (h *Host) RefreshSnapshots(ctx context.Context) error {
 	return h.process.SnapshotController.Refresh(ctx)
 }
 
-// productionOptions and activeExecutor support Capabilities assembly.
 func (h *Host) productionOptions() ProductionOptions {
 	if h == nil || h.process == nil || h.process.opts == nil {
 		return ProductionOptions{}

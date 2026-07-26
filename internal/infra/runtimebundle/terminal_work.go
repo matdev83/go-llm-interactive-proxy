@@ -331,6 +331,14 @@ func applyTerminalWorkProm(prom *metrics.TerminalWorkProm, snap terminalworkapp.
 	})
 }
 
+// ctxOrBackground returns ctx, or Background when callers pass a nil context.
+func ctxOrBackground(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
+
 // Readiness reports running state, unresolved providers, backlog, and store readiness.
 func (rt *terminalWorkRuntime) Readiness(ctx context.Context) TerminalWorkReadiness {
 	out := TerminalWorkReadiness{}
@@ -349,9 +357,7 @@ func (rt *terminalWorkRuntime) Readiness(ctx context.Context) TerminalWorkReadin
 			out.UnresolvedProviderIDs = appendUniqueString(out.UnresolvedProviderIDs, id)
 		}
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = ctxOrBackground(ctx)
 	safeUnavailable := string(controlplane.ReasonBackingUnavailable)
 	if rt.Metrics == nil {
 		out.BacklogKnown, out.ErrorCode = false, safeUnavailable
@@ -379,10 +385,7 @@ func (rt *terminalWorkRuntime) publishMetrics(ctx context.Context) error {
 	if rt == nil || rt.Metrics == nil || rt.prom == nil {
 		return nil
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	snap, err := rt.Metrics.Snapshot(ctx)
+	snap, err := rt.Metrics.Snapshot(ctxOrBackground(ctx))
 	if err != nil {
 		return err
 	}
@@ -397,9 +400,7 @@ func (rt *terminalWorkRuntime) readinessComponent(ctx context.Context) (controlp
 			Reason: controlplane.ReasonDisabled, EnforcementScope: controlplane.EnforcementScopeDisabled,
 		}, nil
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = ctxOrBackground(ctx)
 	row := controlplane.ReadinessComponentStatus{
 		Component:        controlplane.ReadinessComponentTerminalRecovery,
 		EnforcementScope: controlplane.EnforcementScopeForStoreBacking(rt.storeBacking, strings.EqualFold(rt.storeBacking, "postgres")),

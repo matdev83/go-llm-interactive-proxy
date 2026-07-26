@@ -42,7 +42,7 @@ func buildHost(ctx context.Context, in hostBuildInput, ops hostBuildOps, secretE
 	if ctx == nil {
 		return nil, fmt.Errorf("runtimebundle: nil context")
 	}
-	if ops.load == nil || ops.tracing == nil || ops.process == nil || ops.compile == nil || ops.publisher == nil || ops.bind == nil {
+	if ops.load == nil || ops.tracing == nil || ops.process == nil || ops.compile == nil || ops.publisher == nil {
 		return nil, fmt.Errorf("runtimebundle: incomplete host build operations")
 	}
 	path := strings.TrimSpace(in.ConfigPath)
@@ -123,7 +123,7 @@ func buildHost(ctx context.Context, in hostBuildInput, ops hostBuildOps, secretE
 		return nil, joinInitialFailureCleanup(ctx, err, nil, closeProcess, shutTracing)
 	}
 
-	host, err := ops.bind(path, bindHostInput{
+	host, err := bindHost(path, bindHostInput{
 		Manager:             mgr,
 		Process:             ps,
 		Compose:             in.HandlerComposer,
@@ -134,6 +134,9 @@ func buildHost(ctx context.Context, in hostBuildInput, ops hostBuildOps, secretE
 		FixedStreamRecovery: fixedStreamRecovery,
 		ShutdownTracing:     traceShutdown,
 	})
+	if err == nil && ops.afterBind != nil {
+		err = ops.afterBind()
+	}
 	if err != nil {
 		if host != nil {
 			if cleanupErr := omitSoleAlreadyClosed(host.Close(context.WithoutCancel(ctx))); cleanupErr != nil {
@@ -162,7 +165,6 @@ type (
 	processBuilder       func(ctx context.Context, in processBuildInput) (*ProcessServices, error)
 	generationCompilerOp func(ctx context.Context, ps *ProcessServices, cfg *config.Config, compose HandlerComposer) (GenerationRuntime, error)
 	initialPublisher     func(ctx context.Context, in initialPublishInput) (*runtimehost.Manager, *runtimehost.Generation, error)
-	hostBinder           func(configPath string, in bindHostInput) (*Host, error)
 	registryInstaller    func(cfg *config.Config, mandatory []lipsdk.Requirement) (*pluginreg.Registry, []lipsdk.Registration, error)
 )
 
@@ -172,7 +174,8 @@ type hostBuildOps struct {
 	process   processBuilder
 	compile   generationCompilerOp
 	publisher initialPublisher
-	bind      hostBinder
+	// afterBind is an optional leaf fault hook (no owner authority); nil in production.
+	afterBind func() error
 }
 
 type processBuildInput struct {
@@ -193,7 +196,7 @@ func defaultHostBuildOps() hostBuildOps {
 	return hostBuildOps{
 		load: LoadBootstrapEffectiveWithSource, tracing: initProcessTracing,
 		process: buildProcessServicesOp, compile: compileInitialGenerationOp,
-		publisher: publishStartupGenerationOp, bind: bindHost,
+		publisher: publishStartupGenerationOp,
 	}
 }
 

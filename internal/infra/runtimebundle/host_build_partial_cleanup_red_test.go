@@ -117,7 +117,7 @@ func TestPartialCleanup_HostBuilderStageMatrix(t *testing.T) {
 				t.Helper()
 				assertHostBuilderStageCleanup(t, in, hostBuildStagePublish,
 					[]string{"loader", "tracing", "process", "compile", "publish"},
-					[]string{"publish", "compile", "process", "tracing"})
+					[]string{"compile", "process", "tracing"})
 			},
 		},
 		{
@@ -127,7 +127,7 @@ func TestPartialCleanup_HostBuilderStageMatrix(t *testing.T) {
 				t.Helper()
 				assertHostBuilderStageCleanup(t, in, hostBuildStageCoordinator,
 					[]string{"loader", "tracing", "process", "compile", "publish", "coordinator"},
-					[]string{"coordinator", "publish", "compile", "process", "tracing"})
+					[]string{"compile", "process", "tracing"})
 			},
 		},
 		{
