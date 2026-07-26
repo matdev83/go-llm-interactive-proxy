@@ -215,7 +215,7 @@ type Call struct {
 Validation rules:
 
 - `Items` non-empty means item authority.
-- Legacy `Instructions`/`Messages` may be populated only by an explicit normalized projection owned by a constructor, not independently by adapters.
+- When `Items` is non-empty, legacy `Instructions`/`Messages` may be populated only by an explicit normalized projection owned by a constructor, not independently by adapters.
 - A raw call containing conflicting authorities is invalid.
 - Empty `Items` preserves existing legacy behavior.
 - Shared walkers operate on a normalized ordered view and are used by capability derivation, limits, hooks, redaction, counting, and continuation.
@@ -769,7 +769,7 @@ sequenceDiagram
 - record exists only in `LocalStore`;
 - reconnect loses it;
 - missing reference returns `previous_response_not_found`;
-- a failed continuation evicts the referenced parent;
+- a continuation attempt that fails with a classified 4xx/5xx-equivalent failure evicts the referenced parent; disconnects, cancellations, and unrelated transport failures do not evict it;
 - local state is bounded by response count and bytes;
 - socket closure deletes all local state.
 

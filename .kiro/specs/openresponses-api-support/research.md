@@ -210,7 +210,7 @@ The pinned WebSocket transport is an alternate transport for the same Responses 
 - multiple turns are processed sequentially;
 - output uses the same event objects without SSE framing;
 - `store:false` continuation can use connection-local state;
-- failed continuation evicts referenced local state;
+- a continuation attempt that fails with a classified 4xx/5xx-equivalent failure evicts referenced local state; disconnects, cancellations, and unrelated transport failures do not evict it;
 - maximum connection age is 60 minutes;
 - protocol-shaped errors include `previous_response_not_found` and `websocket_connection_limit_reached`.
 
