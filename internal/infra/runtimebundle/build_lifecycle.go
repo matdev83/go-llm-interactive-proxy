@@ -55,3 +55,13 @@ func withDisposedClosers(err error, closers []func() error) error {
 	}
 	return err
 }
+
+// RegisterPluginBuildCleanup appends an idempotent plugin BuildResult cleanup
+// immediately during assembly so later inventory/accounting/server failures
+// reverse-dispose process/pipe/staging resources (Phase 3 composition seam).
+func RegisterPluginBuildCleanup(closers []func() error, cleanup func() error) []func() error {
+	if cleanup == nil {
+		return closers
+	}
+	return append(closers, cleanup)
+}

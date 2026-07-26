@@ -41,6 +41,9 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if err := standardplugins.ValidateCustomCompatibleBackendPrefixes(cfg.Plugins.Backends); err != nil {
 		return nil, fmt.Errorf("runtimebundle: %w", err)
 	}
+	if err := installDiscoveredPlugins(opts); err != nil {
+		return nil, err
+	}
 	parent := context.Background()
 	if opts != nil && opts.Startup.StartupContext != nil {
 		parent = opts.Startup.StartupContext

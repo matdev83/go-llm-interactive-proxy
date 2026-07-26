@@ -19,8 +19,16 @@ $allowed = @(
     "internal/core/extensions/decision_timeout.go"
     "internal/plugins/frontends/holdalive/wait.go"
     "internal/infra/runtimebundle/modelcatalog_refresh_loop.go"
+    # ACP stdio transport: owned stdout reader + stderr drain (shared helper parity).
+    "connector-support/acp/transport_stdio.go"
     "internal/plugins/backends/acp/transport_stdio.go"
     "internal/core/terminalwork/app/processor.go"
+    # Backend plugin host: bidi Execute pumps, gRPC session bridge, process waiters.
+    "internal/infra/backendplugins/adapter/grpc_session.go"
+    "internal/infra/backendplugins/adapter/stream.go"
+    "internal/infra/backendplugins/processhost/launch_linux.go"
+    "internal/infra/backendplugins/processhost/launch_windows.go"
+    "pkg/lipsdk/backendplugin/server.go"
 )
 
 $raw = @(rg --files-with-matches --glob "!*_test.go" "^\s+go\s" internal pkg cmd 2>$null)

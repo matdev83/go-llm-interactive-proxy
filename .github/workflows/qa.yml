@@ -79,6 +79,21 @@ jobs:
       - name: Quality checks
         run: make quality-checks
 
+      - name: Backend plugin module checks
+        run: make backend-plugin-module-checks
+
+      - name: Backend plugin security checks
+        env:
+          FUZZTIME: 2s
+        run: make backend-plugin-security-checks
+
+      # Phase 8.5: isolated root + same-binary installed plugin smoke (not a second full QA suite).
+      - name: Isolated root QA
+        run: make isolated-root-qa
+
+      - name: Installed plugin smoke
+        run: make installed-plugin-smoke
+
       - name: PostgreSQL authority integration proof
         env:
           LIP_TEST_POSTGRES_DSN: postgres://lip:lip@localhost:6432/lip_test?sslmode=disable

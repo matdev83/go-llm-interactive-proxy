@@ -19,25 +19,30 @@ The standard distribution, `cmd/lipstd`, serves bundled HTTP frontends, routes t
 
 ## Standard distribution
 
-Exact registration is code-owned by [`internal/standardplugins/standard_table.go`](internal/standardplugins/standard_table.go); mandatory distribution subset is in [`pkg/lipsdk/standard_bundle.go`](pkg/lipsdk/standard_bundle.go).
+Hybrid backends ([ADR 0008](docs/adr/0008-hybrid-backend-connector-plugins.md)): essential kinds are code-owned by [`internal/standardplugins`](internal/standardplugins) (`EssentialBackendBundle` / tables in `standard_table.go`); optional connectors are executable plugins under `connectors/` via closed manifests. Mandatory distribution subset is in [`pkg/lipsdk/standard_bundle.go`](pkg/lipsdk/standard_bundle.go).
 
 | Surface | Bundled support |
 | --- | --- |
 | Frontends | `openai-responses`, `openai-legacy`, `anthropic`, `gemini` |
-| Hosted/provider backends | `openai-responses`, `openai-legacy`, `anthropic`, `gemini`, `bedrock`, `acp`, `openrouter`, `nvidia`, `huggingface`, `openai-codex`, `opencode-go`, `opencode-zen` |
-| Local / compatible backends | `ollama`, `ollama-cloud`, `llamacpp`, `lmstudio`, `vllm`, `localstub`, custom OpenAI/Anthropic-compatible backend kinds |
+| Hosted/provider backends | Built-in: `openai-responses`, `openai-legacy`, `anthropic`, `gemini`, `bedrock`. External plugins: `acp` family, `openrouter`, `nvidia`, `huggingface`, `opencode-go`/`opencode-zen` (`connectors/opencode` one artifact), `openai-codex`/`openai-codex-app-server` (`connectors/codex` one artifact) |
+| Local / compatible backends | External: `ollama`, `ollama-cloud`, `llamacpp`, `lmstudio`, `vllm`, `local-stub`. Built-in: custom OpenAI/Anthropic-compatible kinds |
 | Feature plugins | no-op compatibility hooks plus reference/proof plugins for submit, parts, tools, workspace guard, traffic transcript, verifier, pre-request policy, auto-append, and Codex client compatibility; standard distro also default-enables canonical `tool-call-repair` (ADR 0007; opt out with `enabled: false`) |
 
 ## Quick start
 
-Start with the no-key local stub path when you want to validate config, routing, inventory, and HTTP serving without hosted provider credentials:
+Start with the no-key local stub path when you want to validate config, routing, inventory, and HTTP serving without hosted provider credentials. `local-stub` is an external connector (`connectors/localstub`); stage it before using the example config:
 
 ```bash
+make package-full PACKAGE_DEST=.golip-plugins
 go run ./cmd/lipstd check-config --config ./config/examples/dogfood-local-stub.yaml
 go run ./cmd/lipstd routes --config ./config/examples/dogfood-local-stub.yaml
 go run ./cmd/lipstd inventory --config ./config/examples/dogfood-local-stub.yaml
+go run ./cmd/lipstd inspect --config ./config/examples/dogfood-local-stub.yaml
+go run ./cmd/lipstd doctor --config ./config/examples/dogfood-local-stub.yaml --instance dogfood-local
 go run ./cmd/lipstd serve --config ./config/examples/dogfood-local-stub.yaml
 ```
+
+`inspect` reports built-in/discovered/configured plugin states without launching processes. `doctor --instance <id>` may launch only that configured backend instance for secure-channel checks (never all discovered plugins; no connector credentials after peer/channel failure). Optional `plugins.backend_discovery` configures trusted discovery roots (`enabled`, `paths`, `strict`, `development_mode`).
 
 For hosted providers, use [`config/config.yaml`](config/config.yaml) as the sample and provide API keys through YAML or environment variables. `standardplugins.ResolveUpstreamAPIKeysFromEnv` resolves the supported provider env vars and numbered variants once at startup; see [`internal/standardplugins/keys.go`](internal/standardplugins/keys.go) for the exact names and numbering rules.
 
@@ -49,7 +54,7 @@ go run ./cmd/lipstd --config ./config/config.yaml
 
 ## Configuration and operations
 
-- **Config** - Runtime config is typed and loaded from YAML. [`config/config.yaml`](config/config.yaml) documents access/auth templates, server timeouts, logging, diagnostics, observability, routing, continuity, **identity** (A-leg Server / B-leg User-Agent and OpenRouter attribution), and provider rows. See [`docs/proxy-identity.md`](docs/proxy-identity.md). [`config/config.multi-instance.example.yaml`](config/config.multi-instance.example.yaml) shows multiple backend instances of the same adapter.
+- **Config** - Runtime config is typed and loaded from YAML. [`config/config.yaml`](config/config.yaml) documents access/auth templates, server timeouts, logging, diagnostics, observability, routing, continuity, **identity** (A-leg Server / B-leg User-Agent; OpenRouter HTTP attribution for the external `openrouter` plugin is configured in that connector), and provider rows. See [`docs/proxy-identity.md`](docs/proxy-identity.md). [`config/config.multi-instance.example.yaml`](config/config.multi-instance.example.yaml) shows multiple backend instances of the same adapter.
 - **Routing** - Default selectors come from `routing.default_route` or the first enabled backend plus registry default model ids. `model_aliases` rewrite full selector strings before parsing. Route selectors support ordered failover, weights, first-request annotations, parallel `!` races, per-leg `[handicap=N]`, global/per-leg TTFT budgets, and per-leaf query generation parameters. Route query parameters such as `?reasoning_effort=xhigh` and `?verbosity=high` are explicit routing directives: when present, they override matching per-request body/canonical generation options; absent parameters leave request values unchanged.
 - **OpenAI Codex verbosity bumps** - The `openai-codex` backend defaults to `text.verbosity=high` for the first 5 turns of each conversation, and then again on every 10th turn by default, when no explicit per-request verbosity is set. Opt out with `early_session_verbosity_bump_disabled: true` and/or `mid_session_verbosity_bump_disabled: true`, or tune with `early_session_verbosity_bump_turns` / `mid_session_verbosity_bump_frequency`. When the mid-session bump is disabled, the cadence value is ignored. See [`docs/openai-codex-backend.md`](docs/openai-codex-backend.md#early-session-verbosity-bump) and [`docs/openai-codex-backend.md`](docs/openai-codex-backend.md#mid-session-verbosity-bump).
 - **Continuity** - `continuity.store: memory` is the default. `continuity.store: sqlite` with `continuity.sqlite_path` persists A-leg rows and attempt lineage through [`internal/core/continuity/sqlitestore`](internal/core/continuity/sqlitestore). In-memory `ttl` and `max_legs` tuning does not apply to SQLite.
@@ -75,11 +80,20 @@ make test-race             # skipped on Windows; strict race runs in nightly CI 
 make bench                 # benchmark smoke for hot packages
 make pgo-profile           # collect default.pgo from core benches (optional; move under cmd/lipstd)
 make pgo-build             # build cmd/lipstd (auto-applies cmd/lipstd/default.pgo when present)
-make qa                    # quality-checks + one full tagged test pass + lint + govulncheck
+make qa                    # quality-checks + tagged tests + lint + govulncheck + release-gates-static
+make isolated-root-qa      # GOWORK=off QA on a temp root copy without connectors/support/Node/artifacts
+make installed-plugin-smoke # one lipstd binary; install release artifacts; same-binary inspect/doctor/invoke
+make docs-check knowledge-check # backend-plugin docs + EchoesVault/steering hybrid consistency
+make example-config-check  # operator/example YAML + config/examples bootstrap inspect
+make backend-plugin-cross-platform-qa # connector platform matrix compile/package + native lifecycle gates
+make backend-plugin-release-gates-static # release report/traceability/wiring (also via make qa)
+make backend-plugin-release-gates # full connector/support module matrix + root release suites
 make hooks-install         # install optional pre-commit hooks
 ```
 
-PR CI (`.github/workflows/qa.yml`) runs when the PR changes any `*.go` file: `make quality-checks`, PostgreSQL authority proofs, `go test -parallel=8 -tags=precommit,integration ./...`, golangci-lint v2, and `go tool govulncheck ./...`. PRs with no `*.go` changes skip the suite; the required `qa` gate still reports success. Nightly CI (`.github/workflows/race-fuzz-nightly.yml`, also `workflow_dispatch`) runs strict Linux race and Tier-1 fuzz smoke (`FUZZTIME=6s`). Locally, `make lint` prefers `go tool golangci-lint` (pinned in `go.mod` `tool`) and falls back to a PATH install. A monthly modernization workflow (`.github/workflows/modernize-monthly.yml`) re-runs the `modernize` linter suite and govulncheck. Linter config lives in [`.golangci.yml`](.golangci.yml).
+Operator install/trust/diagnostics/upgrade/rollback for executable backend plugins: [`docs/backend-plugins/operator.md`](docs/backend-plugins/operator.md); threat model / trust equivalence: [`docs/backend-plugins/threat-model.md`](docs/backend-plugins/threat-model.md) (`make backend-plugin-security-checks`); cross-platform packaging/IPC matrix: `make backend-plugin-cross-platform-qa`; final release gates: `make backend-plugin-release-gates` ([ADR 0008](docs/adr/0008-hybrid-backend-connector-plugins.md)).
+
+PR CI (`.github/workflows/qa.yml`) runs when the PR changes any `*.go` file: `make quality-checks`, `make backend-plugin-module-checks`, `make isolated-root-qa`, `make installed-plugin-smoke`, PostgreSQL authority proofs, `go test -parallel=8 -tags=precommit,integration ./...`, golangci-lint v2, and `go tool govulncheck ./...`. PRs with no `*.go` changes skip the suite; the required `qa` gate still reports success. Nightly CI (`.github/workflows/race-fuzz-nightly.yml`, also `workflow_dispatch`) runs strict Linux race and Tier-1 fuzz smoke (`FUZZTIME=6s`). Locally, `make lint` prefers `go tool golangci-lint` (pinned in `go.mod` `tool`) and falls back to a PATH install. A monthly modernization workflow (`.github/workflows/modernize-monthly.yml`) re-runs the `modernize` linter suite and govulncheck. Linter config lives in [`.golangci.yml`](.golangci.yml).
 
 Recoverability is defined by the specification bundle: tests, `testdata/` goldens, stable `pkg/lipapi` / `pkg/lipsdk` contracts, steering, and parity/scenario docs. Start at [`docs/spec-bundle-index.md`](docs/spec-bundle-index.md), [`docs/conformance-golden-coverage.md`](docs/conformance-golden-coverage.md), and [`docs/conformance-matrix-evidence.md`](docs/conformance-matrix-evidence.md).
 
@@ -90,15 +104,16 @@ Recoverability is defined by the specification bundle: tests, `testdata/` golden
 - `pkg/lipsdk/` - stable plugin SDK contracts and standard distribution requirements.
   - Compatibility note: `FrontendMountOptions` gained an optional `DecodeAdmission` field. Use **named** composite literals; unkeyed literals that previously listed every field in order will not compile.
 - `internal/core/` - runtime orchestration, routing, continuity, secure sessions, hooks/extensions, stream handling, policy, accounting, config, admin, diagnostics, and safety.
-- `internal/plugins/` - bundled frontend, backend, feature, compatibility, and protocol-helper packages.
-- `internal/standardplugins/` - standard bundle registration tables, per-backend factory helpers, and `InstallStandardBundleOn`.
+- `internal/plugins/` - bundled frontend, essential backend, feature, and protocol-helper packages.
+- `connectors/`, `connector-support/` - optional executable backend plugins and shared connector support modules (ADR 0008).
+- `internal/standardplugins/` - essential/static registration tables, per-backend factory helpers, and `InstallStandardBundleOn`.
 - `internal/featurebundle/` - feature merge surface (`MergeFeatureSurface` over SDK hook slices).
-- `internal/pluginreg/` - explicit per-composition-root registry and backend factory helpers.
+- `internal/pluginreg/` - explicit per-composition-root registry and discovered connector registration.
 - `internal/infra/runtimebundle/` and `internal/stdhttp/` - runtime assembly (executor, hook bus, stores) and HTTP mounting/serving.
 - `internal/infra/` - logging, HTTP client tuning, metrics, tracing, DB, model catalog/registry, routing health, tokenization/accounting, and auth-event plumbing.
 - `internal/refbackend/`, `internal/refclient/`, `internal/testkit/` - emulators, reference clients, fixtures, stubs, and conformance helpers for tests.
 - `internal/archtest/`, `internal/qa/`, `scripts/`, `.githooks/`, `.github/workflows/` - guardrails and quality automation.
-- `docs/`, `.kiro/`, `testdata/`, `config/` - operator docs, steering/spec artifacts, fixtures, and sample configs.
+- `docs/` (includes ADR 0008, `docs/knowledge` knowledge-check), `.kiro/`, `testdata/`, `config/` - operator docs, steering/spec artifacts, fixtures, and sample configs.
 
 ## Relationship to Python LIP
 

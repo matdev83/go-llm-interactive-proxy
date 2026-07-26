@@ -186,9 +186,32 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 	out.FeatureSurface = merged
 	out.App = app
 
+	discInstall, stagingDir, err := prepareDiscoveredPluginInstall(cfg, reg)
+	if err != nil {
+		shutdownTracing(ctx, traceRes.Shutdown)
+		return out, fmt.Errorf("runtimebundle: backend discovery: %w", err)
+	}
+	// Composition owns host/staging until transferred to Built.Closers (serve) or
+	// released at return (inspect registers factories without Activate).
+	defer func() {
+		if discInstall != nil && discInstall.Host != nil {
+			_ = discInstall.Host.Close()
+		}
+		if stagingDir != "" {
+			_ = os.RemoveAll(stagingDir)
+		}
+	}()
+	if in.Mode == BootstrapInspect && discInstall != nil {
+		if err := InstallDiscoveredExports(reg, discInstall.Host, discInstall.Exports, discInstall.Options); err != nil {
+			shutdownTracing(ctx, traceRes.Shutdown)
+			return out, fmt.Errorf("runtimebundle: discovered plugin install: %w", err)
+		}
+	}
+
 	if in.Mode == BootstrapServe {
 		built, err := Build(cfg, app.HookBus(), logger, &BuildOptions{
-			PluginRegistry: reg,
+			PluginRegistry:    reg,
+			DiscoveredPlugins: discInstall,
 			Infra: InfraOptions{
 				OutboundTracing: traceRes.Active,
 			},
@@ -217,6 +240,21 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 		if err != nil {
 			shutdownTracing(ctx, traceRes.Shutdown)
 			return out, fmt.Errorf("runtimebundle: runtime assembly: %w", err)
+		}
+		// Dispose order (Backward): plugin instance cleanups → host → staging.
+		var owned []func() error
+		if stagingDir != "" {
+			dir := stagingDir
+			owned = append(owned, func() error { return os.RemoveAll(dir) })
+			stagingDir = ""
+		}
+		if discInstall != nil && discInstall.Host != nil {
+			host := discInstall.Host
+			owned = append(owned, host.Close)
+			discInstall.Host = nil
+		}
+		if len(owned) > 0 {
+			built.Closers = append(owned, built.Closers...)
 		}
 		out.Built = built
 	}

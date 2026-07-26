@@ -8,17 +8,14 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
@@ -113,26 +110,6 @@ func BackendFor(tb testing.TB, backendID, upstreamBaseURL string, httpClient *ht
 			BaseURL:    upstreamBaseURL,
 			HTTPClient: httpClient,
 		})
-	case openrouter.ID:
-		zero := 0
-		return openrouter.New(openrouter.Config{
-			BaseURL:       upstreamBaseURL,
-			APIKey:        "sk-or-test",
-			HTTPClient:    httpClient,
-			SDKMaxRetries: &zero,
-			// Explicit ModeProxy: Config AppURL/AppTitle are already-resolved
-			// effective policies (empty Mode also means ModeProxy).
-			AppURL:   identity.FieldPolicy{Mode: identity.ModeProxy},
-			AppTitle: identity.FieldPolicy{Mode: identity.ModeProxy},
-		})
-	case nvidia.ID:
-		zero := 0
-		return nvidia.New(nvidia.Config{
-			BaseURL:       upstreamBaseURL,
-			APIKey:        "nvapi-test",
-			HTTPClient:    httpClient,
-			SDKMaxRetries: &zero,
-		})
 	default:
 		tb.Fatalf("unknown backend id %q", backendID)
 		return execbackend.Backend{}
@@ -174,7 +151,7 @@ func BackendForDualCredential(tb testing.TB, backendID, upstreamBaseURL string, 
 			APIKeys:    []string{"fake-key", "fake-key-pool2"},
 			HTTPClient: httpClient,
 		})
-	case bedrock.ID, acp.ID, openrouter.ID, nvidia.ID:
+	case bedrock.ID, acp.ID:
 		return BackendFor(tb, backendID, upstreamBaseURL, httpClient)
 	default:
 		tb.Fatalf("unknown backend id %q", backendID)

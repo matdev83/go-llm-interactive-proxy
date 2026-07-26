@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -36,8 +37,9 @@ func TestConfigExamples_passBootstrapInspect(t *testing.T) {
 	for _, path := range yamls {
 		t.Run(filepath.Base(path), func(t *testing.T) {
 			t.Parallel()
+			cfgPath := bpkit.MaterializeExampleConfig(t, path)
 			res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
-				ConfigPath: path,
+				ConfigPath: cfgPath,
 				Mode:       runtimebundle.BootstrapInspect,
 				Mandatory:  mandatory,
 				LogWriter:  io.Discard,

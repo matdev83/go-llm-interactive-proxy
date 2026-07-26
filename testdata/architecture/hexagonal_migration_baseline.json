@@ -43,17 +43,14 @@
       "go_list_pattern": "./internal/pluginreg",
       "classification": "aligned",
       "allowed_internal_core_imports": [
-        "github.com/matdev83/go-llm-interactive-proxy/internal/core/codexcatalog",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend",
-        "github.com/matdev83/go-llm-interactive-proxy/internal/core/identity",
-        "github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
       ]
     },
     {
       "go_list_pattern": "./internal/standardplugins",
       "classification": "aligned",
       "allowed_internal_core_imports": [
-        "github.com/matdev83/go-llm-interactive-proxy/internal/core/codexcatalog",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/config",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/identity",
@@ -79,7 +76,6 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities",
-        "github.com/matdev83/go-llm-interactive-proxy/internal/core/codexcatalog",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/config",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/continuity",

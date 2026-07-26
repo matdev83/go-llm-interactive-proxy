@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -26,8 +27,9 @@ func (e *countingSecretGuardEnv) Snapshot() []string {
 
 func TestBuildBootstrap_inspectDoesNotRequestSecretGuardEnvironment(t *testing.T) {
 	env := &countingSecretGuardEnv{}
+	cfg := bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-single-user.yaml"))
 	res, err := buildBootstrap(t.Context(), BuildBootstrapInput{
-		ConfigPath: filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-single-user.yaml"),
+		ConfigPath: cfg,
 		Mode:       BootstrapInspect,
 		Mandatory:  lipsdk.StandardDistributionRequirements(),
 		LogWriter:  io.Discard,
@@ -47,8 +49,9 @@ func TestBuildBootstrap_inspectDoesNotRequestSecretGuardEnvironment(t *testing.T
 
 func TestBuildBootstrap_serveMultiUserSecretGuardDoesNotConsultEnvironment(t *testing.T) {
 	env := &countingSecretGuardEnv{}
+	cfg := bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-multi-user.yaml"))
 	res, err := buildBootstrap(t.Context(), BuildBootstrapInput{
-		ConfigPath: filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-multi-user.yaml"),
+		ConfigPath: cfg,
 		Mode:       BootstrapServe,
 		Mandatory:  lipsdk.StandardDistributionRequirements(),
 		LogWriter:  io.Discard,
@@ -71,7 +74,8 @@ func TestBuildBootstrap_serveMultiUserSecretGuardDoesNotConsultEnvironment(t *te
 
 func TestBuildBootstrap_serveDisabledSecretGuardDoesNotConsultEnvironment(t *testing.T) {
 	env := &countingSecretGuardEnv{}
-	base, err := os.ReadFile(filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-single-user.yaml"))
+	basePath := bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-single-user.yaml"))
+	base, err := os.ReadFile(basePath)
 	if err != nil {
 		t.Fatal(err)
 	}

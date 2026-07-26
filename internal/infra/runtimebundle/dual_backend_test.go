@@ -90,13 +90,13 @@ func TestBuild_customBackendsRejectReservedStandardPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	var node yaml.Node
-	if err := yaml.Unmarshal([]byte("backend_prefix: nvidia\nbase_url: http://127.0.0.1:9/v1\n"), &node); err != nil {
+	if err := yaml.Unmarshal([]byte("backend_prefix: openai-legacy\nbase_url: http://127.0.0.1:9/v1\n"), &node); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
 		Routing: config.RoutingConfig{MaxAttempts: 3},
 		Plugins: config.PluginsConfig{Backends: []config.PluginConfig{
-			{Kind: standardplugins.CustomOpenAILegacyCompatibleID, ID: "nvidia-copy", Enabled: true, Config: node},
+			{Kind: standardplugins.CustomOpenAILegacyCompatibleID, ID: "openai-legacy-copy", Enabled: true, Config: node},
 		}},
 		Continuity: config.ContinuityConfig{InMemory: true},
 	}

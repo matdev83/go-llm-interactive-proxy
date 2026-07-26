@@ -155,7 +155,9 @@ var lineBudgets = []struct {
 	// ReleaseLeaseSet terminal work, QuerySets readiness) merged onto main
 	// Phase 1–5 + reasoning. Post-merge measured non-test total is 64452;
 	// cap keeps ~98 lines of headroom. Prefer further decomposition over another raise.
-	{"internal/core", 64550},
+	// Raised from 64550 to 64700 for backend-connector Phase 4.3 typed
+	// plugins.backend_discovery config (strict decode + production development_mode gate).
+	{"internal/core", 64700},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
@@ -189,7 +191,11 @@ var lineBudgets = []struct {
 	// uncertain-set reconcile, and settle-release pending counts at composition
 	// root. Post-merge measured non-test total is 6477; cap keeps ~48 lines of
 	// headroom.
-	{"internal/infra/runtimebundle", 6525},
+	// Raised from 6525 to 7100 for backend-connector Phase 4 hybrid composition:
+	// InstallDiscoveredExports, inspect/doctor seams, resolve-before-build.
+	// Raised from 7100 to 7250 for Phase 5 localstub discovery/materialize e2e
+	// helpers and bootstrap wiring. Measured 7168; cap keeps ~82 lines of headroom.
+	{"internal/infra/runtimebundle", 7250},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

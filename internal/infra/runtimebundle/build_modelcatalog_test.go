@@ -2,8 +2,6 @@ package runtimebundle_test
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -65,60 +63,6 @@ func TestBuild_modelCatalog_disabledDoesNotStartRuntime(t *testing.T) {
 		t.Fatalf("expected no closers for disabled catalog with in-memory continuity, got %d", len(b.Closers))
 	}
 	closeRuntimeBuilt(t, b)
-}
-
-func TestBuild_openCodeWithModelCatalogDisabledUsesStaticVendorResolver(t *testing.T) {
-	t.Parallel()
-	reg := pluginreg.NewRegistry()
-	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{OpenCodeGo: []string{"test-key"}}); err != nil {
-		t.Fatal(err)
-	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/models" {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = w.Write([]byte(`{"data":[{"id":"qwen3.6-plus-free"}]}`))
-	}))
-	t.Cleanup(srv.Close)
-	var node yaml.Node
-	if err := yaml.Unmarshal([]byte("base_url: "+srv.URL+"\n"), &node); err != nil {
-		t.Fatal(err)
-	}
-	cfg := &config.Config{
-		Routing: config.RoutingConfig{MaxAttempts: 3},
-		Plugins: config.PluginsConfig{
-			Backends: []config.PluginConfig{
-				{Kind: "opencode-go", ID: "opencode-go", Enabled: true, Config: node},
-			},
-		},
-		Continuity: config.ContinuityConfig{InMemory: true},
-		ModelCatalog: config.ModelCatalogConfig{
-			Enabled:                false,
-			ExternalUpdatesEnabled: false,
-		},
-	}
-	if err := config.Validate(cfg); err != nil {
-		t.Fatal(err)
-	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
-		PluginRegistry: reg,
-		Infra:          runtimebundle.InfraOptions{HTTPClient: srv.Client()},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { closeRuntimeBuilt(t, b) })
-	if b.CatalogRuntime != nil {
-		t.Fatalf("expected nil CatalogRuntime")
-	}
-	got, ok := b.ModelRegistry.Lookup("alibaba/qwen3.6-plus-free")
-	if !ok || len(got) != 1 {
-		t.Fatalf("Lookup(alibaba/qwen3.6-plus-free) = %+v, %v", got, ok)
-	}
-	if got[0].BackendID != "opencode-go" || got[0].NativeID != "qwen3.6-plus-free" {
-		t.Fatalf("model registry row = %+v", got[0])
-	}
 }
 
 func TestBuild_modelCatalog_enabled_wiresResolversEstimatorAndCloser(t *testing.T) {

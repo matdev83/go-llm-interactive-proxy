@@ -10,6 +10,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -70,7 +71,8 @@ func TestBuildBootstrap_serveSingleUserSecretGuardSnapshotsProcessEnv(t *testing
 	const secret = testkit.SyntheticOpenAIAPIKey
 	t.Setenv(probe, secret)
 
-	base, err := os.ReadFile(filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-single-user.yaml"))
+	basePath := bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-single-user.yaml"))
+	base, err := os.ReadFile(basePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,11 +156,11 @@ func TestBuildBootstrap_inspectRejectsInvalidCustomBackendPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	customBackend := `    - id: nvidia-copy
+	customBackend := `    - id: openai-legacy-copy
       kind: custom-openai-legacy-compatible
       enabled: true
       config:
-        backend_prefix: nvidia
+        backend_prefix: openai-legacy
         base_url: http://127.0.0.1:9/v1
 `
 	text := strings.Replace(string(base), "  features:\n", customBackend+"  features:\n", 1)

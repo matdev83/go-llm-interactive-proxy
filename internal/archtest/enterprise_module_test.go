@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 )
 
 const enterpriseModuleRelPath = "testdata/enterprise_module"
@@ -21,9 +23,10 @@ func TestEnterpriseModulePublicOnlyCompileGate(t *testing.T) {
 
 	assertNoInternalImportsInDir(t, dir)
 
+	cfg := bpkit.WriteDogfoodLocalStubConfig(t)
 	cmd := exec.Command("go", "test", ".")
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GOWORK=off")
+	cmd.Env = append(os.Environ(), "GOWORK=off", "LIP_ENTERPRISE_CONFIG="+cfg)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("enterprise module go test: %v\n%s", err, out)

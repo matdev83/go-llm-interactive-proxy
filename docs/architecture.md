@@ -16,7 +16,7 @@ The durable source of truth is split by purpose:
 
 The Go proxy is a streaming-first control plane between multiple client-facing APIs and multiple backend API families. Frontend adapters decode wire protocols to `pkg/lipapi` canonical calls. Backend adapters translate canonical calls to provider or emulator calls and return canonical event streams. Core orchestration stays provider-agnostic.
 
-The standard distribution (`cmd/lipstd`) wires the official plugin set through `internal/standardplugins`, `internal/featurebundle`, `internal/infra/runtimebundle`, and `internal/stdhttp`. Core packages do not import concrete plugins or provider SDKs.
+The standard distribution (`cmd/lipstd`) wires essential plugins through `internal/standardplugins`, `internal/featurebundle`, `internal/infra/runtimebundle`, and `internal/stdhttp`, and may discover optional **executable** backend connectors from trusted roots. Hybrid composition is recorded in [`docs/adr/0008-hybrid-backend-connector-plugins.md`](adr/0008-hybrid-backend-connector-plugins.md). Core packages do not import concrete optional connectors or provider SDKs.
 
 ## Runtime flow
 
@@ -51,13 +51,14 @@ These concerns are shared runtime semantics. Provider request shapes, SDK client
 
 ## Plugin-owned behavior
 
-Official protocol adapters live under `internal/plugins`:
+Official protocol adapters:
 
-- frontends: OpenAI Responses, legacy OpenAI-compatible chat/completions, Anthropic Messages, Gemini generateContent;
-- backends: OpenAI Responses, legacy OpenAI-compatible, Anthropic, Gemini, Bedrock Converse, ACP prompt-turn;
+- frontends (`internal/plugins/frontends/`): OpenAI Responses, legacy OpenAI-compatible chat/completions, Anthropic Messages, Gemini generateContent;
+- **essential** backends (`internal/plugins/backends/` + `EssentialBackendBundle`): OpenAI Responses, legacy OpenAI-compatible, Anthropic, Gemini, Bedrock Converse, plus built-in custom-compatible kinds;
+- **optional** backends (`connectors/`): executable gRPC plugins (OpenRouter, NVIDIA, Hugging Face, Ollama/local runtimes, OpenCode, Codex, ACP-family CLIs, `local-stub`, …) registered via closed manifests — not fixed essential tables;
 - features: noop and reference plugins that prove SDK hooks, extension seams, traffic observation, workspace, and completion gates.
 
-The standard distribution may import concrete plugins while assembling the runtime. Core packages must not.
+The composition root may import essential plugins and host discovered connector factories. Core packages must not import concrete connectors.
 
 ## Extension platform
 
@@ -81,13 +82,14 @@ See `docs/extension-points.md` and `docs/plugin-authoring.md` for the stage tabl
 2. initialize tracing and logging;
 3. create an isolated `pluginreg.Registry` with `pluginreg.NewRegistry`;
 4. resolve default upstream API keys from environment variables;
-5. install the standard bundle on that registry via `standardplugins.InstallStandardBundleOn`;
-6. validate mandatory bundled factories;
-7. merge configured feature bundles with `featurebundle.MergeFeatureSurface` (simplified via `MergeBundles`/`Append` helpers) and build hooks in `runtimebundle` (`BuildFeatureHooks`);
-8. build `runtime.App` and `runtimebundle.Built`;
-9. run the HTTP server with `stdhttp.RunWithRuntime`.
+5. install the standard (essential) bundle on that registry via `standardplugins.InstallStandardBundleOn`;
+6. discover and register optional backend connector manifests when configured (`plugins.backend_discovery`);
+7. validate mandatory bundled factories;
+8. merge configured feature bundles with `featurebundle.MergeFeatureSurface` (simplified via `MergeBundles`/`Append` helpers) and build hooks in `runtimebundle` (`BuildFeatureHooks`);
+9. build `runtime.App` and `runtimebundle.Built`;
+10. run the HTTP server with `stdhttp.RunWithRuntime`.
 
-The registry is composition-root state, not core global state. Static standard-bundle tables live under `internal/standardplugins`; feature merge is `internal/featurebundle`; hook bus construction stays in `internal/infra/runtimebundle`. Startup remains explicit — no package-level mutable registries.
+The registry is composition-root state, not core global state. Essential static tables live under `internal/standardplugins`; optional backends attach as discovered executable plugins (ADR 0008); feature merge is `internal/featurebundle`; hook bus construction stays in `internal/infra/runtimebundle`. Startup remains explicit — no package-level mutable registries and no Go native `plugin`.
 
 ## Diagnostics and operations
 

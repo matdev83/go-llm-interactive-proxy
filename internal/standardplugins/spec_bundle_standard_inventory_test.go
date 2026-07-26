@@ -28,31 +28,14 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 	}
 
 	wantBE := []string{
-		"acp",
-		"agycliacp",
 		"anthropic",
 		"bedrock",
-		"cursorcliacp",
 		"custom-anthropic-compatible",
 		"custom-openai-legacy-compatible",
 		"custom-openai-responses-compatible",
 		"gemini",
-		"geminicliacp",
-		"huggingface",
-		"llamacpp",
-		"lmstudio",
-		"local-stub",
-		"nvidia",
-		"ollama",
-		"ollama-cloud",
-		"openai-codex",
-		"openai-codex-app-server",
 		"openai-legacy",
 		"openai-responses",
-		"opencode-go",
-		"opencode-zen",
-		"openrouter",
-		"vllm",
 	}
 	var gotBE []string
 	for _, e := range be.Backends {

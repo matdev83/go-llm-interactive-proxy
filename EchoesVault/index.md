@@ -10,6 +10,7 @@ This index tracks all structured pages in the vault.
 - [[canonical-contracts]]: Canonical request/event model (`pkg/lipapi`) and plugin SDK (`pkg/lipsdk`) contracts.
 - [[routing-orchestration]]: Route planning, selectors, failover, parallel races, TTFT budgets, and B2BUA recovery.
 - [[plugin-system]]: Frontend, backend, and feature plugin architecture with explicit registration model.
+- [[backend-connector-plugins]]: Hybrid essential builtins plus executable gRPC optional backend connectors (ADR 0008), including threat-model trust equivalence.
 - [[streaming-model]]: Streaming-first execution, canonical event stream, and stream component design.
 - [[continuity-recovery]]: B2BUA continuity semantics, lineage model, and continuity stores.
 - [[testing-strategy]]: Testing philosophy, suite topology, build tags, and high-value test targets.

@@ -4,12 +4,6 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/agycliacp"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/codexappserver"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/cursorcliacp"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/geminicliacp"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicodex"
 )
 
 func TestInstallStandardBackendsOn_declaresExplicitNonUnknownPosture(t *testing.T) {
@@ -33,30 +27,20 @@ func TestInstallStandardBackendsOn_declaresExplicitNonUnknownPosture(t *testing.
 	}
 }
 
-func TestStandardBackends_localOnlyConnectorsDeclareLocalOnlyScope(t *testing.T) {
+func TestEssentialOnly_acpFamilyAbsentFromBuiltinBundles(t *testing.T) {
 	t.Parallel()
-	reg := pluginreg.NewRegistry()
-	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
-		t.Fatal(err)
+	forbidden := map[string]struct{}{
+		"acp": {}, "cursorcliacp": {}, "geminicliacp": {}, "agycliacp": {},
+		"openai-codex": {}, "openai-codex-app-server": {},
 	}
-	localOnly := []string{
-		acp.ID,
-		cursorcliacp.ID,
-		geminicliacp.ID,
-		agycliacp.ID,
-		openaicodex.ID,
-		codexappserver.ID,
+	for _, e := range EssentialBackendBundle(UpstreamAPIKeys{}).Backends {
+		if _, bad := forbidden[e.ID]; bad {
+			t.Fatalf("essential bundle registers %q", e.ID)
+		}
 	}
-	for _, id := range localOnly {
-		t.Run(id, func(t *testing.T) {
-			t.Parallel()
-			p, ok := reg.BackendSecurityProfile(id)
-			if !ok {
-				t.Fatalf("missing security profile for bundled backend factory %q", id)
-			}
-			if p.AccessScope != pluginreg.BackendAccessLocalOnly {
-				t.Fatalf("bundled backend %q must be local-only, got %q", id, p.AccessScope)
-			}
-		})
+	for _, e := range StandardBackendBundle(UpstreamAPIKeys{}).Backends {
+		if _, bad := forbidden[e.ID]; bad {
+			t.Fatalf("standard backend bundle registers %q", e.ID)
+		}
 	}
 }

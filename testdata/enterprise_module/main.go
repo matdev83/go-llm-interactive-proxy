@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -114,11 +115,15 @@ func (enterpriseRuleSource) Snapshot(context.Context) (economics.Snapshot[econom
 }
 
 func repoConfigPath() (string, error) {
+	if p := strings.TrimSpace(os.Getenv("LIP_ENTERPRISE_CONFIG")); p != "" {
+		return filepath.Clean(p), nil
+	}
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		return "", fmt.Errorf("runtime.Caller failed")
 	}
 	// Prefer deterministic local-stub dogfood config for Execute smoke (no live keys).
+	// Requires prior `make package-full PACKAGE_DEST=.golip-plugins` (or LIP_ENTERPRISE_CONFIG).
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "config", "examples", "dogfood-local-stub.yaml")), nil
 }
 

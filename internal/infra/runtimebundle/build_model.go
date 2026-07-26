@@ -10,7 +10,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	modelregistryfile "github.com/matdev83/go-llm-interactive-proxy/internal/infra/modelregistry/filestore"
@@ -41,26 +40,17 @@ func buildModelRuntime(bctx buildContext, upstream *http.Client, closers []func(
 	if err != nil {
 		return nil, closers, err
 	}
-	var vendorCatalogRuntime *modelcatalog.CatalogRuntime
-	if startedCatalog != nil {
-		vendorCatalogRuntime = startedCatalog.Runtime
-	}
-	var codexLoadFn CodexCatalogLoadFunc
-	if bctx.Opts != nil {
-		codexLoadFn = bctx.Opts.Testing.CodexCatalogLoad
-	}
-	codexCatalog, codexCatalogSource := loadCodexModelCatalog(parent, cfg, reg, bctx.Log, codexLoadFn)
 	backendDeps := pluginreg.BackendFactoryDeps{
-		ModelVendorResolver:     openCodeVendorResolver(vendorCatalogRuntime),
-		CodexModelCatalog:       codexCatalog,
-		CodexModelCatalogSource: codexCatalogSource,
-		Identity:                cfg.Identity,
+		Identity: cfg.Identity,
 	}
 
 	if startedCatalog != nil {
 		closers = append(closers, startedCatalog.closers...)
 	}
-	backends, inventories, routePrefixes, err := buildBackends(cfg, reg, upstream, backendDeps)
+	backends, inventories, routePrefixes, pluginCleanups, err := buildBackends(cfg, reg, upstream, backendDeps)
+	for _, cleanup := range pluginCleanups {
+		closers = RegisterPluginBuildCleanup(closers, cleanup)
+	}
 	if err != nil {
 		return nil, closers, fmt.Errorf("runtimebundle: %w", err)
 	}
@@ -90,10 +80,14 @@ func buildBackends(
 	reg *pluginreg.Registry,
 	upstream *http.Client,
 	backendDeps pluginreg.BackendFactoryDeps,
-) (map[string]execbackend.Backend, []modelregistry.BackendInventory, []string, error) {
+) (map[string]execbackend.Backend, []modelregistry.BackendInventory, []string, []func() error, error) {
 	backends := make(map[string]execbackend.Backend, len(cfg.Plugins.Backends))
 	inventories := make([]modelregistry.BackendInventory, 0, len(cfg.Plugins.Backends))
 	rawPrefixes := make([]string, 0, len(cfg.Plugins.Backends))
+	cleanups := make([]func() error, 0)
+	if err := resolveEnabledBackendFactories(cfg, reg); err != nil {
+		return nil, nil, nil, cleanups, err
+	}
 	modelInventoryFetchTimeout := cfg.ModelInventory.FetchTimeoutDuration()
 	for _, p := range cfg.Plugins.Backends {
 		if !p.Enabled {
@@ -101,9 +95,13 @@ func buildBackends(
 		}
 		fid := p.FactoryID()
 		iid := p.InstanceID()
-		be, err := reg.BuildBackend(fid, p.Config, upstream, backendDeps)
+		res, err := reg.BuildBackendWithLifecycle(fid, iid, p.Config, upstream, backendDeps)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("backend instance %s (factory %s): %w", iid, fid, err)
+			return nil, nil, nil, cleanups, fmt.Errorf("backend instance %s (factory %s): %w", iid, fid, err)
+		}
+		be := res.Backend
+		if res.Cleanup != nil {
+			cleanups = append(cleanups, res.Cleanup)
 		}
 		backends[iid] = be
 		rawPrefixes = append(rawPrefixes, be.BackendPrefixes...)
@@ -116,7 +114,7 @@ func buildBackends(
 		})
 	}
 	routePrefixes := routing.FilterRoutePrefixes(rawPrefixes)
-	return backends, inventories, routePrefixes, nil
+	return backends, inventories, routePrefixes, cleanups, nil
 }
 
 func startModelRegistryRuntime(
@@ -169,4 +167,23 @@ func hasRefreshableModelInventory(inventories []modelregistry.BackendInventory) 
 		return true
 	}
 	return false
+}
+
+// resolveEnabledBackendFactories fails closed when an enabled row's factory is
+// absent from the essential∪discovered registry before any Activate/Build runs.
+func resolveEnabledBackendFactories(cfg *config.Config, reg *pluginreg.Registry) error {
+	if cfg == nil {
+		return fmt.Errorf("runtimebundle: nil config")
+	}
+	enabled := make([]string, 0, len(cfg.Plugins.Backends))
+	for _, p := range cfg.Plugins.Backends {
+		if !p.Enabled {
+			continue
+		}
+		enabled = append(enabled, p.FactoryID())
+	}
+	if err := pluginreg.ResolveEnabledAgainstRegistry(enabled, reg); err != nil {
+		return fmt.Errorf("runtimebundle: %w", err)
+	}
+	return nil
 }

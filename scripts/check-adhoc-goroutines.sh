@@ -19,7 +19,8 @@ mapfile -t hits < <(
 bad=()
 for f in "${hits[@]}"; do
 	case "$f" in
-	internal/stdhttp/server.go | internal/core/stream/keepalive.go | internal/core/runtime/parallel_race.go | internal/core/runtime/lease_heartbeat.go | internal/core/extensions/decision_timeout.go | internal/plugins/frontends/holdalive/wait.go | internal/infra/runtimebundle/modelcatalog_refresh_loop.go | internal/plugins/backends/acp/transport_stdio.go | internal/core/terminalwork/app/processor.go) ;;
+	# ACP stdio transport: owned stdout reader + stderr drain (shared helper parity).
+	internal/stdhttp/server.go | internal/core/stream/keepalive.go | internal/core/runtime/parallel_race.go | internal/core/runtime/lease_heartbeat.go | internal/core/extensions/decision_timeout.go | internal/plugins/frontends/holdalive/wait.go | internal/infra/runtimebundle/modelcatalog_refresh_loop.go | connector-support/acp/transport_stdio.go | internal/plugins/backends/acp/transport_stdio.go | internal/core/terminalwork/app/processor.go | internal/infra/backendplugins/adapter/grpc_session.go | internal/infra/backendplugins/adapter/stream.go | internal/infra/backendplugins/processhost/launch_linux.go | internal/infra/backendplugins/processhost/launch_windows.go | pkg/lipsdk/backendplugin/server.go) ;;
 	*) bad+=("$f") ;;
 	esac
 done

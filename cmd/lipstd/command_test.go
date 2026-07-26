@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -34,7 +36,7 @@ func TestParseCommandName_defaultServe(t *testing.T) {
 
 func TestParseCommandName_explicitSubcommands(t *testing.T) {
 	t.Parallel()
-	for _, s := range []string{"serve", "check-config", "routes", "inventory", "migrate"} {
+	for _, s := range []string{"serve", "check-config", "routes", "inventory", "inspect", "doctor", "migrate"} {
 		t.Run(s, func(t *testing.T) {
 			t.Parallel()
 			n, err := parseCommandName([]string{s})
@@ -312,7 +314,7 @@ func TestRunCommand_inventory_emitsJSON(t *testing.T) {
 func TestRunCommand_checkConfig_dogfoodLocalStubExample(t *testing.T) {
 	t.Parallel()
 	var out, errb bytes.Buffer
-	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	cfgPath := writeDogfoodLocalStubDiscoveryConfig(t, false)
 	code := RunCommand(context.Background(), CommandOptions{
 		Name:       CommandCheckConfig,
 		ConfigPath: cfgPath,
@@ -354,7 +356,7 @@ func TestRunCommand_checkConfig_multiInstanceExample(t *testing.T) {
 func TestRunCommand_routes_dogfoodLocalStubExample(t *testing.T) {
 	t.Parallel()
 	var out, errb bytes.Buffer
-	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	cfgPath := writeDogfoodLocalStubDiscoveryConfig(t, false)
 	code := RunCommand(context.Background(), CommandOptions{
 		Name:       CommandRoutes,
 		ConfigPath: cfgPath,
@@ -385,7 +387,7 @@ func TestRunCommand_routes_dogfoodLocalStubExample(t *testing.T) {
 func TestRunCommand_inventory_dogfoodLocalStubExample(t *testing.T) {
 	t.Parallel()
 	var out, errb bytes.Buffer
-	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	cfgPath := writeDogfoodLocalStubDiscoveryConfig(t, false)
 	code := RunCommand(context.Background(), CommandOptions{
 		Name:       CommandInventory,
 		ConfigPath: cfgPath,
@@ -446,6 +448,139 @@ func TestRunCommand_nilContext(t *testing.T) {
 	}
 	if !bytes.Contains(errb.Bytes(), []byte("nil context")) {
 		t.Fatalf("stderr: %q", errb.String())
+	}
+}
+
+func TestRunCommand_Inspect_referenceConfig(t *testing.T) {
+	t.Parallel()
+	var out, errb bytes.Buffer
+	cfgPath := filepath.Join("..", "..", "config", "config.yaml")
+	code := RunCommand(context.Background(), CommandOptions{
+		Name:       CommandInspect,
+		ConfigPath: cfgPath,
+		Output:     &out,
+		ErrorOut:   &errb,
+	})
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%s stdout=%s", code, errb.String(), out.String())
+	}
+	if strings.Contains(out.String(), "api_key") || strings.Contains(errb.String(), "secret") {
+		t.Fatalf("secret leaked in inspect output")
+	}
+	var rep struct {
+		Entries []struct {
+			Source string `json:"source"`
+			State  string `json:"state"`
+			Kind   string `json:"kind"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &rep); err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Entries) == 0 {
+		t.Fatal("empty inspect report")
+	}
+	foundBuiltin := false
+	for _, e := range rep.Entries {
+		if e.Source == "builtin" {
+			foundBuiltin = true
+			break
+		}
+	}
+	if !foundBuiltin {
+		t.Fatalf("expected builtin entries: %s", out.String())
+	}
+}
+
+func TestRunCommand_Doctor_RequiresInstance(t *testing.T) {
+	t.Parallel()
+	var errb bytes.Buffer
+	code := RunCommand(context.Background(), CommandOptions{
+		Name:       CommandDoctor,
+		ConfigPath: filepath.Join("..", "..", "config", "config.yaml"),
+		ErrorOut:   &errb,
+	})
+	if code != 2 || !strings.Contains(errb.String(), "--instance") {
+		t.Fatalf("code=%d stderr=%q", code, errb.String())
+	}
+}
+
+func TestRunCommand_Doctor_DiscoveredLocalStubInstance(t *testing.T) {
+	t.Parallel()
+	cfgPath := writeDogfoodLocalStubDiscoveryConfig(t, false)
+	var out, errb bytes.Buffer
+	code := RunCommand(context.Background(), CommandOptions{
+		Name:       CommandDoctor,
+		ConfigPath: cfgPath,
+		InstanceID: "dogfood-local",
+		Output:     &out,
+		ErrorOut:   &errb,
+	})
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%s stdout=%s", code, errb.String(), out.String())
+	}
+	if strings.Contains(out.String(), "api_key") || strings.Contains(out.String(), "sk-") {
+		t.Fatal("secret leaked in doctor output")
+	}
+	if strings.Contains(out.String(), `"state": "failed"`) || strings.Contains(out.String(), `"state":"failed"`) {
+		t.Fatalf("doctor failed for discovered local-stub: %s", out.String())
+	}
+}
+
+func TestParseArgs_DoctorInstanceFlag(t *testing.T) {
+	t.Parallel()
+	var usage bytes.Buffer
+	opts, err := ParseArgsFull([]string{"doctor", "--instance", "ext-1", "--config", "c.yaml"}, &usage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Name != CommandDoctor || opts.InstanceID != "ext-1" || opts.ConfigPath != "c.yaml" {
+		t.Fatalf("%+v", opts)
+	}
+}
+
+func TestRunCommand_MissingPlugin_Inspect(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	cfgPath := filepath.Join(root, "cfg.yaml")
+	body := `
+continuity:
+  in_memory: true
+access:
+  mode: single_user
+plugins:
+  backend_discovery:
+    enabled: true
+    paths:
+      - ` + filepath.ToSlash(root) + `
+    development_mode: true
+  frontends:
+    - id: openai-responses
+      enabled: true
+      config: {}
+  backends:
+    - kind: missing-external-kind
+      id: missing-plugin-1
+      enabled: true
+      config: {}
+`
+	if err := os.WriteFile(cfgPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	code := RunCommand(context.Background(), CommandOptions{
+		Name:       CommandInspect,
+		ConfigPath: cfgPath,
+		Output:     &out,
+		ErrorOut:   &errb,
+	})
+	// Bootstrap may fail on mandatory distribution requirements before inspect;
+	// accept either inspect-level missing report or bootstrap failure without secrets.
+	if strings.Contains(out.String(), "api_key") || strings.Contains(errb.String(), "super-secret") {
+		t.Fatal("secret leak")
+	}
+	if code == 0 && !strings.Contains(out.String(), "enabled_missing") && !strings.Contains(out.String(), "missing-plugin-1") {
+		t.Fatalf("expected missing plugin signal, code=%d out=%s err=%s", code, out.String(), errb.String())
 	}
 }
 
@@ -523,7 +658,7 @@ func boolPtr(b bool) *bool { return new(b) }
 func TestRunCommand_serve_multiUserFlagInconsistentWithSingleUserConfig(t *testing.T) {
 	t.Parallel()
 	var out, errb bytes.Buffer
-	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	cfgPath := writeDogfoodLocalStubDiscoveryConfig(t, false)
 	code := RunCommand(context.Background(), CommandOptions{
 		Name:       CommandServe,
 		ConfigPath: cfgPath,
@@ -583,7 +718,7 @@ func TestValidateServeMultiUserGate_multiUserConfigFlagFalseRejected(t *testing.
 
 func TestValidateServeMultiUserGate_singleUserConfigFlagTrueRejected(t *testing.T) {
 	t.Parallel()
-	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	cfgPath := writeDogfoodLocalStubDiscoveryConfig(t, false)
 	if err := validateServeMultiUserGate(cfgPath, new(true)); !errors.Is(err, accessmode.ErrMultiUserFlagInconsistent) {
 		t.Fatalf("want ErrMultiUserFlagInconsistent, got %v", err)
 	}
@@ -610,13 +745,17 @@ func TestBuildBootstrap_multiUserConfigLocalStubPassesPosture(t *testing.T) {
 	}
 }
 
-func writeMultiUserTempConfig(t *testing.T) string {
+func writeDogfoodLocalStubDiscoveryConfig(t *testing.T, multiUser bool) string {
 	t.Helper()
-	const cfg = `server:
-  address: "127.0.0.1:18080"
-  auth_mode: external
-access:
-  mode: multi_user
+	pluginRoot := bpkit.StageLocalStub(t)
+	access := "single_user"
+	authBlock := ""
+	serverExtra := ""
+	devMode := "true"
+	if multiUser {
+		access = "multi_user"
+		serverExtra = "\n  auth_mode: external"
+		authBlock = `
 auth:
   handler: local_api_key
   required_level: api_key
@@ -624,20 +763,32 @@ auth:
     - key_id: k1
       principal_id: p1
       key: "test-key-at-least-16-chars"
-routing:
+`
+		devMode = "false"
+	}
+	cfg := fmt.Sprintf(`server:
+  address: "127.0.0.1:18080"%s
+access:
+  mode: %s
+%srouting:
   max_attempts: 3
   default_route: "dogfood-local:stub-default"
 continuity:
   in_memory: true
   store: memory
 logging:
-  level: info
+  level: error
   format: text
 diagnostics:
   enabled: false
 hooks:
   tool_reactor_error_policy: fail_open
 plugins:
+  backend_discovery:
+    enabled: true
+    development_mode: %s
+    paths:
+      - %q
   frontends:
     - id: openai-responses
       enabled: true
@@ -714,10 +865,18 @@ plugins:
     - id: tool-reactor-noop
       enabled: true
       config: {}
-`
-	path := filepath.Join(t.TempDir(), "multi-user.yaml")
+    - id: tool-call-repair
+      enabled: true
+      config: {}
+`, serverExtra, access, authBlock, devMode, filepath.ToSlash(pluginRoot))
+	path := filepath.Join(t.TempDir(), "dogfood-local-stub.yaml")
 	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func writeMultiUserTempConfig(t *testing.T) string {
+	t.Helper()
+	return writeDogfoodLocalStubDiscoveryConfig(t, true)
 }
