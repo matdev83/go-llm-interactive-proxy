@@ -40,7 +40,9 @@ func (c *ExecutableCache) Reset() {
 	if c == nil {
 		return
 	}
-	c.m = sync.Map{}
+	// Clear is concurrent-safe with Load/Store; replacing the Map value is not
+	// (a sync.Map must not be copied after first use).
+	c.m.Clear()
 }
 
 func (c *ExecutableCache) CheckExecutable(candidate string) (string, bool) {
