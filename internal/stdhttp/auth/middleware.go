@@ -28,6 +28,7 @@ var annotateResponseHeaderNames = map[string]struct{}{
 	"Strict-Transport-Security":           {},
 	"Vary":                                {},
 	"X-Content-Type-Options":              {},
+	"X-Frame-Options":                     {},
 }
 
 // terminalResponseHeaderNames allow-lists headers on TypeReject/TypeChallenge responses.

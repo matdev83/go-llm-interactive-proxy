@@ -47,7 +47,7 @@ type PackageTreeBudget struct {
 // PackageTreeBudgets locks exact-measured convergence tree ceilings.
 var PackageTreeBudgets = []PackageTreeBudget{
 	{Tree: "internal/infra/runtimebundle", Max: 10280},
-	{Tree: "internal/stdhttp", Max: 4313},
+	{Tree: "internal/stdhttp", Max: 4314},
 	{Tree: "cmd/lipstd", Max: 954},
 	{Tree: "pkg/lipruntime", Max: 537},
 }
@@ -63,7 +63,7 @@ type LineBudget struct {
 var LineBudgets = []LineBudget{
 	{Dir: "internal/core", Max: 68761},
 	{Dir: "internal/pluginreg", Max: 939},
-	{Dir: "internal/stdhttp", Max: 4313},
+	{Dir: "internal/stdhttp", Max: 4314},
 	{Dir: "internal/infra/runtimebundle", Max: 10280},
 	{Dir: "cmd/lipstd", Max: 954},
 	{Dir: "pkg/lipruntime", Max: 537},
