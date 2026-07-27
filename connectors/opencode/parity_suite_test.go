@@ -12,8 +12,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/opencode/internal/catalog/vendor"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/opencode/internal/service"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/opencode/internal/upstream"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/opencodetest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin/conformance"
@@ -142,7 +140,7 @@ func TestParity_TwoGoInstancesNoGlobalLeak(t *testing.T) {
 
 func TestParity_GoRoutesOpenAIChat(t *testing.T) {
 	t.Parallel()
-	var capture opencodetest.RequestCapture
+	var capture RequestCapture
 	srv, entries := flavorServerWithModels(t, &capture, catalog.BackendGo)
 	router := upstream.NewRouter(catalog.BackendGo, srv.URL, "test-key", srv.Client())
 	resolved, err := catalog.NewModelCatalog(catalog.BackendGo, entries, vendor.NewOpenCodeVendorResolver(vendor.StaticActiveSnapshotProvider{}, true)).
@@ -167,9 +165,9 @@ func TestParity_GoRoutesOpenAIChat(t *testing.T) {
 
 func TestParity_GoRoutesAnthropicMessages(t *testing.T) {
 	t.Parallel()
-	var capture opencodetest.RequestCapture
+	var capture RequestCapture
 	srv, entries := flavorServerWithModels(t, &capture, catalog.BackendGo)
-	router := upstream.NewRouter(catalog.BackendGo, srv.URL, testkit.SyntheticAnthropicAPIKey, srv.Client())
+	router := upstream.NewRouter(catalog.BackendGo, srv.URL, SyntheticAnthropicAPIKey, srv.Client())
 	resolved, err := catalog.NewModelCatalog(catalog.BackendGo, entries, vendor.NewOpenCodeVendorResolver(vendor.StaticActiveSnapshotProvider{}, true)).
 		Resolve("minimax/minimax-m3")
 	if err != nil {
@@ -179,14 +177,14 @@ func TestParity_GoRoutesAnthropicMessages(t *testing.T) {
 	if !strings.HasSuffix(capture.Path, "/v1/messages") {
 		t.Fatalf("path=%q", capture.Path)
 	}
-	if capture.AnthropicAPIKey != testkit.SyntheticAnthropicAPIKey {
+	if capture.AnthropicAPIKey != SyntheticAnthropicAPIKey {
 		t.Fatalf("x-api-key=%q", capture.AnthropicAPIKey)
 	}
 }
 
 func TestParity_ZenRoutesResponses(t *testing.T) {
 	t.Parallel()
-	var capture opencodetest.RequestCapture
+	var capture RequestCapture
 	srv, entries := flavorServerWithModels(t, &capture, catalog.BackendZen)
 	router := upstream.NewRouter(catalog.BackendZen, srv.URL, "test-key", srv.Client())
 	resolved, err := catalog.NewModelCatalog(catalog.BackendZen, entries, vendor.NewOpenCodeVendorResolver(vendor.StaticActiveSnapshotProvider{}, true)).
@@ -208,7 +206,7 @@ func TestParity_ZenRoutesResponses(t *testing.T) {
 
 func TestParity_ZenRoutesGemini(t *testing.T) {
 	t.Parallel()
-	var capture opencodetest.RequestCapture
+	var capture RequestCapture
 	srv, entries := flavorServerWithModels(t, &capture, catalog.BackendZen)
 	router := upstream.NewRouter(catalog.BackendZen, srv.URL, "gemini-key", srv.Client())
 	resolved, err := catalog.NewModelCatalog(catalog.BackendZen, entries, vendor.NewOpenCodeVendorResolver(vendor.StaticActiveSnapshotProvider{}, true)).
@@ -255,8 +253,8 @@ func TestParity_UnknownModelFails(t *testing.T) {
 
 func TestParity_ExecuteStreamingGo(t *testing.T) {
 	t.Parallel()
-	var capture opencodetest.RequestCapture
-	srv := opencodetest.NewFlavorServer(t, &capture)
+	var capture RequestCapture
+	srv := NewFlavorServer(t, &capture)
 	inst, err := service.New().Configure(context.Background(), mustCfg(t, service.FactoryKindGo,
 		"base_url: "+srv.URL+"\napi_key: sk\nmodels:\n  - id: emu-model\n    endpoint: "+srv.URL+"/v1/chat/completions\n    ai_sdk_package: \"@ai-sdk/openai-compatible\"\n"))
 	if err != nil {
@@ -273,8 +271,8 @@ func TestParity_ExecuteStreamingGo(t *testing.T) {
 
 func TestParity_ExecuteStreamingZen(t *testing.T) {
 	t.Parallel()
-	var capture opencodetest.RequestCapture
-	srv := opencodetest.NewFlavorServer(t, &capture)
+	var capture RequestCapture
+	srv := NewFlavorServer(t, &capture)
 	inst, err := service.New().Configure(context.Background(), mustCfg(t, service.FactoryKindZen,
 		"base_url: "+srv.URL+"\napi_key: sk\nmodels:\n  - id: emu-model\n    endpoint: "+srv.URL+"/v1/responses\n    ai_sdk_package: \"@ai-sdk/openai\"\n"))
 	if err != nil {
@@ -288,8 +286,8 @@ func TestParity_ExecuteStreamingZen(t *testing.T) {
 
 func TestParity_ConformanceGo(t *testing.T) {
 	t.Parallel()
-	var capture opencodetest.RequestCapture
-	srv := opencodetest.NewFlavorServer(t, &capture)
+	var capture RequestCapture
+	srv := NewFlavorServer(t, &capture)
 	// SkipExecute: static caps include Tools/Vision/Documents; kit execute proof
 	// requires tool/image events. Dedicated TestParity_Execute* covers streaming.
 	rep := conformance.RunWith(context.Background(), service.New(), conformance.Options{
@@ -304,8 +302,8 @@ func TestParity_ConformanceGo(t *testing.T) {
 
 func TestParity_ConformanceZen(t *testing.T) {
 	t.Parallel()
-	var capture opencodetest.RequestCapture
-	srv := opencodetest.NewFlavorServer(t, &capture)
+	var capture RequestCapture
+	srv := NewFlavorServer(t, &capture)
 	rep := conformance.RunWith(context.Background(), service.New(), conformance.Options{
 		FactoryKind: service.FactoryKindZen,
 		ConfigYAML:  []byte("base_url: " + srv.URL + "\napi_key: sk\nmodels:\n  - id: emu-model\n    endpoint: " + srv.URL + "/v1/responses\n"),
@@ -355,12 +353,12 @@ func zenTestModels(base string) []catalog.ModelEntry {
 	}
 }
 
-func flavorServerWithModels(t *testing.T, capture *opencodetest.RequestCapture, kind catalog.BackendKind) (*httptest.Server, []catalog.ModelEntry) {
+func flavorServerWithModels(t *testing.T, capture *RequestCapture, kind catalog.BackendKind) (*httptest.Server, []catalog.ModelEntry) {
 	t.Helper()
 	if capture == nil {
-		capture = &opencodetest.RequestCapture{}
+		capture = &RequestCapture{}
 	}
-	srv := opencodetest.NewFlavorServer(t, capture)
+	srv := NewFlavorServer(t, capture)
 	switch kind {
 	case catalog.BackendZen:
 		return srv, zenTestModels(srv.URL)
