@@ -1,11 +1,9 @@
 {
   "feature_name": "backend-connector-plugin-architecture",
   "created_at": "2026-07-19T01:03:15+02:00",
-  "updated_at": "2026-07-28T01:10:00+02:00",
+  "updated_at": "2026-07-20T03:45:00+02:00",
   "language": "en",
-  "phase": "implementation-complete",
-  "implementation_complete": true,
-  "completion_note": "Delivered and merged via PR #208 (feat: add executable backend connector plugins). All non-essential connectors externalized under connectors/ (acp, codex, cursorcliacp, cursorsdk, opencode, openrouter, ollama, vllm, lmstudio, llamacpp, huggingface, nvidia, geminicliacp, agycliacp, localstub); root retains only the essential protocol-family built-ins. Remaining unchecked tasks.md boxes are stale bookkeeping superseded by the merged tree.",
+  "phase": "implementation-ready",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -21,6 +19,5 @@
     }
   },
   "ready_for_implementation": true,
-  "archived_at": "2026-07-28T01:10:00+02:00",
   "project_description": "Decouple non-essential inference backend connectors from the Go-LIP root module and standard binary through a versioned executable-plugin ABI, closed trusted manifest discovery, digest-bound launch, secure local IPC, lazy declared process activation, and independently buildable connector modules while preserving the canonical streaming core and a small built-in connector set."
 }

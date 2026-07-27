@@ -1,9 +1,9 @@
 {
   "feature_name": "cursor-sdk-backend",
   "created_at": "2026-07-17T17:27:04+02:00",
-  "updated_at": "2026-07-28T01:10:00+02:00",
+  "updated_at": "2026-07-27T12:00:00+02:00",
   "language": "en",
-  "phase": "implementation-complete",
+  "phase": "design-revalidated",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -24,9 +24,7 @@
       "note": "Product tasks retargeted to external artifact; Task 0 is kiro-spec-check"
     }
   },
-  "ready_for_implementation": true,
-  "implementation_complete": true,
-  "archived_at": "2026-07-28T01:10:00+02:00",
-  "completion_note": "Delivered and merged: in-root experimental backend via PR #193, then externalized to the connectors/cursorsdk artifact (module, bridge-node companion, closed manifest, release.yaml) via PR #208. The 21-item external-delivery checklist in tasks.md was not re-ticked, but every item is satisfied by the merged tree; status synced here.",
+  "ready_for_implementation": false,
+  "implementation_blocked_reason": "Product delivery remains the external connectors/cursorsdk artifact (module present; ready_for_implementation stays false until a later approved tasks wave completes remaining checklist items).",
   "project_description": "Experimental Cursor SDK-backed backend as an external connectors/cursorsdk artifact using a project-owned Node bridge, public backendplugin ABI, closed manifest, trusted discovery/IPC, and per_instance process sharing \u2014 preserving Go-LIP streaming, routing, lifecycle, security, and coexistence with cursorcliacp."
 }
