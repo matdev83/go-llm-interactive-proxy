@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"sync"
 
 	backendpluginv1 "github.com/matdev83/go-llm-interactive-proxy/api/backendplugin/v1"
@@ -15,7 +16,7 @@ import (
 )
 
 func main() {
-	listen := flag.String("listen", "", "loopback listen address (optional; production uses LIP_PLUGIN_CHANNEL_PIPE)")
+	listen := flag.String("listen", "", "loopback listen address (optional; production uses LIP_PLUGIN_CHANNEL_PIPE or LIP_PLUGIN_CHANNEL_FD)")
 	flag.Parse()
 
 	svc := service.New()
@@ -35,6 +36,23 @@ func main() {
 		c, err := dialNamedPipe(pipe)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "pipe dial: %v\n", err)
+			os.Exit(1)
+		}
+		_ = gs.Serve(&singleConnListener{conn: c, closed: make(chan struct{})})
+		return
+	}
+
+	if fdEnv := os.Getenv("LIP_PLUGIN_CHANNEL_FD"); fdEnv != "" {
+		fd, err := strconv.Atoi(fdEnv)
+		if err != nil || fd < 0 {
+			fmt.Fprintf(os.Stderr, "channel fd: %v\n", err)
+			os.Exit(1)
+		}
+		f := os.NewFile(uintptr(fd), "lip-plugin-channel")
+		c, err := net.FileConn(f)
+		_ = f.Close()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "channel fd conn: %v\n", err)
 			os.Exit(1)
 		}
 		_ = gs.Serve(&singleConnListener{conn: c, closed: make(chan struct{})})
