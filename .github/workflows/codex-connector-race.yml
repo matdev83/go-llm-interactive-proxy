@@ -8,6 +8,7 @@ on:
       - "connectors/codex/**"
       - ".github/workflows/codex-connector-race.yml"
   push:
+    branches: [main]
     paths:
       - "connectors/codex/**"
       - ".github/workflows/codex-connector-race.yml"
