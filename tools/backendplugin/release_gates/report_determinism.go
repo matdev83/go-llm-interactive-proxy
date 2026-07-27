@@ -24,8 +24,15 @@ var (
 	reCtrl      = regexp.MustCompile(`[\x00-\x08\x0b\x0c\x0e-\x1f]`)
 )
 
+// normalizeSlash converts path separators to forward slashes regardless of host OS.
+// filepath.ToSlash only rewrites the native separator, so Windows-style "\" must be
+// replaced explicitly when sanitizing reports on Linux/macOS.
+func normalizeSlash(s string) string {
+	return strings.ReplaceAll(filepath.ToSlash(s), `\`, `/`)
+}
+
 func normalizeCommand(cmd string) string {
-	return filepath.ToSlash(strings.TrimSpace(cmd))
+	return normalizeSlash(strings.TrimSpace(cmd))
 }
 
 func stableSuccessDetail(existing string) string {
@@ -100,16 +107,16 @@ func sanitizeReport(rep *report, root string) {
 	}
 	for i := range rep.ModuleResults {
 		m := &rep.ModuleResults[i]
-		m.Module = filepath.ToSlash(m.Module)
+		m.Module = normalizeSlash(m.Module)
 		if m.Error != "" {
 			m.Error = sanitizeFailureDetail(root, m.Error)
 		}
 		for j := range m.Steps {
-			m.Steps[j] = filepath.ToSlash(m.Steps[j])
+			m.Steps[j] = normalizeSlash(m.Steps[j])
 		}
 	}
 	for i := range rep.Modules {
-		rep.Modules[i] = filepath.ToSlash(rep.Modules[i])
+		rep.Modules[i] = normalizeSlash(rep.Modules[i])
 	}
 	for i := range rep.Traceability {
 		row := &rep.Traceability[i]
