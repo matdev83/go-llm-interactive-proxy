@@ -326,6 +326,12 @@ func packageOne(staging string, r discoveredRelease, platform, access string) (m
 	} {
 		manifest = strings.ReplaceAll(manifest, old, fmt.Sprintf(`"executable": %q`, exeRel))
 	}
+	// Filter platforms to the current OS/arch so the strict manifest parser
+	// does not reject a Linux binary that still lists Windows platforms.
+	manifest, err = filterManifestPlatforms(manifest, runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return nil, fmt.Errorf("filter platforms %s: %w", r.DirName, err)
+	}
 	manPath := filepath.Join(pluginDir, "plugin.backendplugin.json")
 	if err := os.WriteFile(manPath, []byte(manifest), 0o644); err != nil {
 		return nil, err
@@ -446,4 +452,45 @@ func fileSHA256(path string) (string, error) {
 func sha256Hex(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
+}
+
+// filterManifestPlatforms rewrites the manifest JSON so only the entry matching
+// goos/goarch remains in "platforms". This prevents the strict manifest parser
+// from rejecting a native binary whose template still lists other OS entries
+// (e.g. a Linux build with Windows platforms that require .exe).
+func filterManifestPlatforms(manifest, goos, goarch string) (string, error) {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(manifest), &m); err != nil {
+		return "", err
+	}
+	rawPlats, ok := m["platforms"]
+	if !ok {
+		return manifest, nil
+	}
+	var plats []struct {
+		OS   string `json:"os"`
+		Arch string `json:"arch"`
+	}
+	if err := json.Unmarshal(rawPlats, &plats); err != nil {
+		return "", err
+	}
+	var kept []map[string]string
+	for _, p := range plats {
+		if p.OS == goos && p.Arch == goarch {
+			kept = append(kept, map[string]string{"os": p.OS, "arch": p.Arch})
+		}
+	}
+	if len(kept) == 0 {
+		return "", fmt.Errorf("no platform entry matches %s/%s", goos, goarch)
+	}
+	b, err := json.Marshal(kept)
+	if err != nil {
+		return "", err
+	}
+	m["platforms"] = b
+	out, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
 }

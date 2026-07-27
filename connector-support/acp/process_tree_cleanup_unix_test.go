@@ -35,6 +35,10 @@ func TestKillProcessTree_UnixProcessGroup(t *testing.T) {
 	if err := proc.Kill(); err != nil {
 		t.Fatalf("Kill: %v", err)
 	}
+	// Reap the direct child so the grandchild is reparented to init and reaped.
+	// Without this, the helper stays as a zombie (kill(pid,0) succeeds for zombies)
+	// and the grandchild cannot be collected by init.
+	_ = proc.Wait()
 	waitGone(t, proc.PID(), 8*time.Second)
 	waitGone(t, grandchild, 8*time.Second)
 }
