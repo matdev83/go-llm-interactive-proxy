@@ -30,6 +30,8 @@ type ProcessStarter interface {
 
 var _ Transport = (*stdioTransport)(nil)
 
+const maxStdioLineBytes = 1024 * 1024
+
 // stdioTransport implements Transport over newline-delimited JSON-RPC on a
 // subprocess stdin/stdout. A single reader goroutine demultiplexes stdout lines
 // into unary responses (matched by JSON-RPC id) and prompt-stream lines
@@ -88,7 +90,7 @@ func newStdioTransport(proc Process, log *slog.Logger) *stdioTransport {
 // causes the agent to exit, which causes stdout EOF).
 func (t *stdioTransport) readLoop() {
 	scanner := bufio.NewScanner(t.proc.Stdout())
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxStdioLineBytes)
 	for scanner.Scan() {
 		raw := scanner.Bytes()
 		// Copy because scanner reuses the buffer.
@@ -269,9 +271,16 @@ func (t *stdioTransport) CallUnary(ctx context.Context, body []byte, _ int) ([]b
 	}
 	key := pendingKey(req.ID)
 
+	line, err := appendNewline(body)
+	if err != nil {
+		if key == "" {
+			return nil, fmt.Errorf("acp: stdio notification: %w", err)
+		}
+		return nil, fmt.Errorf("acp: stdio unary: %w", err)
+	}
+
 	// Notification (no id): write and return immediately.
 	if key == "" {
-		line := appendNewline(body)
 		if err := t.writeStdin(line); err != nil {
 			return nil, fmt.Errorf("acp: stdio notification: write: %w", err)
 		}
@@ -292,8 +301,6 @@ func (t *stdioTransport) CallUnary(ctx context.Context, body []byte, _ int) ([]b
 	t.pending[key] = ch
 	t.pendingMu.Unlock()
 
-	// Write the request line.
-	line := appendNewline(body)
 	if err := t.writeStdin(line); err != nil {
 		t.pendingMu.Lock()
 		delete(t.pending, key)
@@ -335,6 +342,11 @@ func (t *stdioTransport) CallPromptStream(ctx context.Context, body []byte) (io.
 		return nil, fmt.Errorf("acp: stdio transport closed")
 	}
 
+	line, err := appendNewline(body)
+	if err != nil {
+		return nil, fmt.Errorf("acp: stdio prompt: %w", err)
+	}
+
 	reader := newLineChannelReader()
 
 	t.promptMu.Lock()
@@ -346,8 +358,6 @@ func (t *stdioTransport) CallPromptStream(ctx context.Context, body []byte) (io.
 	t.promptID = key
 	t.promptMu.Unlock()
 
-	// Write the request line.
-	line := appendNewline(body)
 	if err := t.writeStdin(line); err != nil {
 		t.promptMu.Lock()
 		t.promptReader = nil
@@ -363,15 +373,21 @@ func (t *stdioTransport) CallPromptStream(ctx context.Context, body []byte) (io.
 // SendJSONRPC writes an arbitrary JSON-RPC line to stdin (e.g. a server-request
 // response or a notification).
 func (t *stdioTransport) SendJSONRPC(_ context.Context, body []byte) error {
-	line := appendNewline(body)
+	line, err := appendNewline(body)
+	if err != nil {
+		return err
+	}
 	return t.writeStdin(line)
 }
 
-func appendNewline(b []byte) []byte {
+func appendNewline(b []byte) ([]byte, error) {
+	if len(b) >= maxStdioLineBytes {
+		return nil, fmt.Errorf("acp: stdio line exceeds %d bytes", maxStdioLineBytes)
+	}
 	out := make([]byte, len(b)+1)
 	copy(out, b)
 	out[len(b)] = '\n'
-	return out
+	return out, nil
 }
 
 // Close kills the subprocess, closes stdin, and unblocks any active prompt reader.

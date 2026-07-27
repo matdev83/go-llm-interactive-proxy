@@ -3,6 +3,7 @@
 package acp
 
 import (
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -121,6 +122,13 @@ func parseUint(s string) (uint64, bool) {
 	return n, true
 }
 
+func unixSecsToTime(secs uint64) time.Time {
+	if secs > math.MaxInt64 {
+		return time.Time{}
+	}
+	return time.Unix(int64(secs), 0)
+}
+
 // readBootTime reads the system boot time from /proc/stat (Linux only).
 func readBootTime() time.Time {
 	data, err := os.ReadFile("/proc/stat")
@@ -132,7 +140,7 @@ func readBootTime() time.Time {
 		if len(line) > 6 && line[:6] == "btime " {
 			secs, ok := parseUint(line[6:])
 			if ok {
-				return time.Unix(int64(secs), 0)
+				return unixSecsToTime(secs)
 			}
 			break
 		}
