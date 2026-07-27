@@ -382,10 +382,25 @@ func runModuleMatrix(root string, mods []string) ([]moduleResult, error) {
 		}{
 			{"list", []string{"list", "./..."}},
 			{"vet", []string{"vet", "./..."}},
-			{"tidy_diff", []string{"mod", "tidy", "-diff"}},
+			{"tidy_diff", nil},
 			{"test", []string{"test", "-count=1", "-timeout=15m", "./..."}},
 		}
 		for _, st := range steps {
+			if st.name == "tidy_diff" {
+				out, err := checkModuleTidy(modRoot)
+				if err != nil {
+					res.OK = false
+					fmt.Fprintf(os.Stderr, "release_gates: %s tidy_diff:\n%s\n%v\n", mod, out, err)
+					res.Error = sanitizeFailureDetail(root, fmt.Sprintf("tidy_diff: %v", err))
+					res.Steps = append(res.Steps, "tidy_diff:fail")
+					if firstErr == nil {
+						firstErr = fmt.Errorf("%s: tidy_diff failed", mod)
+					}
+					break
+				}
+				res.Steps = append(res.Steps, "tidy_diff:ok")
+				continue
+			}
 			cmd := exec.Command("go", st.args...)
 			cmd.Dir = modRoot
 			cmd.Env = append(os.Environ(), "GOWORK=off")
