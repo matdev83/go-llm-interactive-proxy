@@ -49,6 +49,10 @@ func Verify(root string, m sdkmanifest.Manifest, opt VerifyOptions) VerifyResult
 	if err != nil {
 		return VerifyResult{Reason: classifyOpenErr(err), Err: err}
 	}
+	if err := confirmOpenedUnderRoot(root, f); err != nil {
+		_ = f.Close()
+		return VerifyResult{Reason: classifyOpenErr(err), Err: err}
+	}
 	if _, err := underRootAbs(root, f.Name()); err != nil {
 		_ = f.Close()
 		return VerifyResult{Reason: ReasonPathEscape, Err: err}
