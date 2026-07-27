@@ -360,6 +360,16 @@ func packageOne(staging string, r discoveredRelease, platform, access string) (m
 		for _, rel := range r.Meta.PrivateCompanions {
 			src := filepath.Join(r.Root, rel)
 			dst := filepath.Join(pluginDir, rel)
+			st, err := os.Stat(src)
+			if err != nil {
+				return nil, err
+			}
+			if st.IsDir() {
+				if err := copyDirContained(src, dst, r.Root); err != nil {
+					return nil, err
+				}
+				continue
+			}
 			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 				return nil, err
 			}
@@ -389,9 +399,28 @@ func packageOne(staging string, r discoveredRelease, platform, access string) (m
 }
 
 func copyDirContained(src, dst, connRoot string) error {
+	absRoot, err := filepath.Abs(connRoot)
+	if err != nil {
+		return err
+	}
+	if resolved, err := filepath.EvalSymlinks(absRoot); err == nil {
+		absRoot = resolved
+	}
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, err := filepath.EvalSymlinks(path)
+			if err != nil {
+				return fmt.Errorf("private companion symlink %q: %w", path, err)
+			}
+			relToRoot, err := filepath.Rel(absRoot, target)
+			if err != nil || strings.HasPrefix(relToRoot, "..") {
+				return fmt.Errorf("path %q escapes connector root", path)
+			}
+			// Refuse contained symlinks too: never follow links while packaging.
+			return fmt.Errorf("path %q escapes connector root", path)
 		}
 		rel, err := filepath.Rel(src, path)
 		if err != nil {

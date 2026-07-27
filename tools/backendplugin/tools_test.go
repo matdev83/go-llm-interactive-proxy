@@ -172,6 +172,117 @@ func TestPackage_SyntheticReleaseAutoPackagedAndRemovalLeavesOther(t *testing.T)
 	}
 }
 
+//nolint:paralleltest // writes under shared repo paths
+func TestPackage_PrivateCompanionsExplicitFile(t *testing.T) {
+	root := repoRoot(t)
+	synName := "_synthetic_companion_file"
+	syn := filepath.Join(root, "connectors", synName)
+	t.Cleanup(func() { _ = os.RemoveAll(syn) })
+	writeSyntheticConnectorWithCompanions(t, syn, synName, []string{"private/note.txt"}, func(connRoot string) {
+		if err := os.WriteFile(filepath.Join(connRoot, "private", "note.txt"), []byte("private-file\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(connRoot, "unrelated.txt"), []byte("must-not-pack\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	dest := t.TempDir()
+	runTool(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest, "-select", synName)
+	got, err := os.ReadFile(filepath.Join(dest, synName, "private", "note.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "private-file\n" {
+		t.Fatalf("companion file=%q", got)
+	}
+	if _, err := os.Stat(filepath.Join(dest, synName, "unrelated.txt")); err == nil {
+		t.Fatal("unrelated file outside declared companion must be absent")
+	}
+}
+
+//nolint:paralleltest // writes under shared repo paths
+func TestPackage_PrivateCompanionsExplicitDirectory(t *testing.T) {
+	root := repoRoot(t)
+	synName := "_synthetic_companion_dir"
+	syn := filepath.Join(root, "connectors", synName)
+	t.Cleanup(func() { _ = os.RemoveAll(syn) })
+	writeSyntheticConnectorWithCompanions(t, syn, synName, []string{"bridge-node"}, func(connRoot string) {
+		nested := filepath.Join(connRoot, "bridge-node", "nested")
+		if err := os.MkdirAll(nested, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(nested, "asset.txt"), []byte("dir-asset\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(connRoot, "bridge-node", "top.txt"), []byte("top\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(connRoot, "other-dir"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(connRoot, "other-dir", "secret.txt"), []byte("outside\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(connRoot, "unrelated.txt"), []byte("must-not-pack\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	dest := t.TempDir()
+	runTool(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest, "-select", synName)
+	got, err := os.ReadFile(filepath.Join(dest, synName, "bridge-node", "nested", "asset.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "dir-asset\n" {
+		t.Fatalf("nested companion=%q", got)
+	}
+	top, err := os.ReadFile(filepath.Join(dest, synName, "bridge-node", "top.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(top) != "top\n" {
+		t.Fatalf("top companion=%q", top)
+	}
+	for _, rel := range []string{"unrelated.txt", filepath.Join("other-dir", "secret.txt")} {
+		if _, err := os.Stat(filepath.Join(dest, synName, rel)); err == nil {
+			t.Fatalf("unrelated path %q must be absent from package", rel)
+		}
+	}
+}
+
+//nolint:paralleltest // writes under shared repo paths
+func TestPackage_PrivateCompanionsNestedSymlinkEscapeRejected(t *testing.T) {
+	root := repoRoot(t)
+	synName := "_synthetic_companion_linkesc"
+	syn := filepath.Join(root, "connectors", synName)
+	t.Cleanup(func() { _ = os.RemoveAll(syn) })
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(secret, []byte("CONFIDENTIAL\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeSyntheticConnectorWithCompanions(t, syn, synName, []string{"bridge-node"}, func(connRoot string) {
+		if err := os.MkdirAll(filepath.Join(connRoot, "bridge-node"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(connRoot, "bridge-node", "ok.txt"), []byte("ok\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(connRoot, "bridge-node", "escape.txt")
+		if err := os.Symlink(secret, link); err != nil {
+			t.Skipf("symlink not available: %v", err)
+		}
+	})
+	dest := t.TempDir()
+	out := runToolExpectError(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest, "-select", synName)
+	if !strings.Contains(out, "escapes connector root") {
+		t.Fatalf("expected nested companion symlink escape rejection, got:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(dest, synName, "bridge-node", "escape.txt")); err == nil {
+		t.Fatal("escaping symlink must not be packaged")
+	}
+}
+
 func TestPackage_DeterministicIndexAndDigestChangesOnRebuild(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -619,6 +730,15 @@ func TestReleaseGates_MakefileTargetExactCommand(t *testing.T) {
 
 func writeSyntheticConnector(t *testing.T, syn, name string) {
 	t.Helper()
+	writeSyntheticConnectorWithCompanions(t, syn, name, []string{"private/note.txt"}, func(connRoot string) {
+		if err := os.WriteFile(filepath.Join(connRoot, "private", "note.txt"), []byte("private\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func writeSyntheticConnectorWithCompanions(t *testing.T, syn, name string, companions []string, setup func(connRoot string)) {
+	t.Helper()
 	for _, d := range []string{
 		filepath.Join(syn, "cmd", "lip-backend-synthetic"),
 		filepath.Join(syn, "manifest"),
@@ -631,9 +751,20 @@ func writeSyntheticConnector(t *testing.T, syn, name string) {
 	if err := os.WriteFile(filepath.Join(syn, "go.mod"), []byte("module github.com/matdev83/go-llm-interactive-proxy/connectors/"+name+"\n\ngo 1.26.5\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	var companionYAML strings.Builder
+	if len(companions) == 0 {
+		companionYAML.WriteString("private_companions: []\n")
+	} else {
+		companionYAML.WriteString("private_companions:\n")
+		for _, c := range companions {
+			companionYAML.WriteString("  - ")
+			companionYAML.WriteString(c)
+			companionYAML.WriteByte('\n')
+		}
+	}
 	rel := `schema: golip.connector.release/v1
-plugin_id: io.golip.backend.synthetic-pkg
-factory_kind: synthetic-pkg
+plugin_id: io.golip.backend.` + name + `
+factory_kind: ` + name + `
 module: github.com/matdev83/go-llm-interactive-proxy/connectors/` + name + `
 command: ./cmd/lip-backend-synthetic
 manifest_template: manifest/template.backendplugin.json
@@ -644,15 +775,13 @@ profiles:
   - full
 published_root_module: github.com/matdev83/go-llm-interactive-proxy
 replace_policy: development-replace-to-monorepo-root
-private_companions:
-  - private/note.txt
-`
+` + companionYAML.String()
 	if err := os.WriteFile(filepath.Join(syn, "release.yaml"), []byte(rel), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	man := `{
   "schema": "golip.backendplugin.manifest/v1",
-  "plugin_id": "io.golip.backend.synthetic-pkg",
+  "plugin_id": "io.golip.backend.` + name + `",
   "version": "0.0.1",
   "build_id": "REPLACE_BUILD_ID",
   "executable": "bin/lip-backend-synthetic",
@@ -667,7 +796,7 @@ private_companions:
     {"os": "linux", "arch": "arm64"}
   ],
   "exports": [{
-    "kind": "synthetic-pkg",
+    "kind": "` + name + `",
     "credential_mode": "none",
     "access_scope": "any",
     "process_sharing": "per_instance"
@@ -676,12 +805,12 @@ private_companions:
 	if err := os.WriteFile(filepath.Join(syn, "manifest", "template.backendplugin.json"), []byte(man), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(syn, "private", "note.txt"), []byte("private\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	main := "package main\nfunc main() {}\n"
 	if err := os.WriteFile(filepath.Join(syn, "cmd", "lip-backend-synthetic", "main.go"), []byte(main), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	if setup != nil {
+		setup(syn)
 	}
 }
 
@@ -693,6 +822,18 @@ func runTool(t *testing.T, root string, args ...string) string {
 	b, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("go run %v: %v\n%s", args, err, b)
+	}
+	return string(b)
+}
+
+func runToolExpectError(t *testing.T, root string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("go", append([]string{"run"}, args...)...)
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "GOWORK=off")
+	b, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("go run %v: expected error, got success\n%s", args, b)
 	}
 	return string(b)
 }
