@@ -425,15 +425,54 @@ func rootIndependent(root string) (bool, error) {
 }
 
 func packageMatrixMatches(root string, selected []discoveredRelease, selectSet map[string]struct{}) (bool, error) {
-	want := map[string]struct{}{}
-	for _, r := range selected {
-		if hasProfile(r.Meta.Profiles, "full") {
-			want[r.DirName] = struct{}{}
+	return packageMatrixMatchesFor(root, selected, selectSet, runtime.GOOS, runtime.GOARCH)
+}
+
+func claimsPlatform(claims []platformClaim, goos, goarch string) bool {
+	for _, c := range claims {
+		if c.OS == goos && c.Arch == goarch {
+			return true
 		}
 	}
-	if len(want) == 0 {
-		return true, nil
+	return false
+}
+
+// nativeSupportedFullProfileNames returns full-profile connector dir names that
+// claim goos/goarch, using the provided claims map (host-independent for tests).
+func nativeSupportedFullProfileNames(selected []discoveredRelease, goos, goarch string, claims map[string][]platformClaim) []string {
+	var out []string
+	for _, r := range selected {
+		if !hasProfile(r.Meta.Profiles, "full") {
+			continue
+		}
+		if claimsPlatform(claims[r.DirName], goos, goarch) {
+			out = append(out, r.DirName)
+		}
 	}
+	return out
+}
+
+func packageMatrixMatchesFor(root string, selected []discoveredRelease, selectSet map[string]struct{}, goos, goarch string) (bool, error) {
+	claimsByName := make(map[string][]platformClaim, len(selected))
+	fullNames := make([]string, 0, len(selected))
+	for _, r := range selected {
+		if !hasProfile(r.Meta.Profiles, "full") {
+			continue
+		}
+		fullNames = append(fullNames, r.DirName)
+		claims, err := readManifestPlatforms(filepath.Join(r.Root, r.Meta.ManifestTmpl))
+		if err != nil {
+			return false, err
+		}
+		claimsByName[r.DirName] = claims
+	}
+	sort.Strings(fullNames)
+	wantNames := nativeSupportedFullProfileNames(selected, goos, goarch, claimsByName)
+	want := map[string]struct{}{}
+	for _, n := range wantNames {
+		want[n] = struct{}{}
+	}
+
 	dest := filepath.Join(root, ".golip-crossplatform-package-check")
 	_ = os.RemoveAll(dest)
 	defer func() { _ = os.RemoveAll(dest) }()
@@ -442,12 +481,14 @@ func packageMatrixMatches(root string, selected []discoveredRelease, selectSet m
 		"-root", root, "-profile", "full", "-dest", dest,
 	}
 	if selectSet != nil {
-		names := make([]string, 0, len(want))
-		for n := range want {
-			names = append(names, n)
+		if len(fullNames) == 0 {
+			// Force an empty selection rather than treating "" as "select all".
+			args = append(args, "-select", "__no_full_profile_connectors__")
+		} else {
+			// Pass full-profile selections (including native-unsupported); package_plugins
+			// omits unsupported platforms truthfully.
+			args = append(args, "-select", strings.Join(fullNames, ","))
 		}
-		sort.Strings(names)
-		args = append(args, "-select", strings.Join(names, ","))
 	}
 	cmd := exec.Command("go", args...)
 	cmd.Dir = root

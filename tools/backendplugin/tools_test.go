@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -46,8 +47,99 @@ func TestPackage_MinimalHasNoOptionalExecutable(t *testing.T) {
 }
 
 //nolint:paralleltest // writes under shared repo paths
+func TestPackage_OmitsUnsupportedNativePlatform_MixedSelect(t *testing.T) {
+	root := repoRoot(t)
+	supportedName := "_synthetic_pkg_native_ok"
+	unsupportedName := "_synthetic_pkg_native_skip"
+	supported := filepath.Join(root, "connectors", supportedName)
+	unsupported := filepath.Join(root, "connectors", unsupportedName)
+	t.Cleanup(func() {
+		_ = os.RemoveAll(supported)
+		_ = os.RemoveAll(unsupported)
+	})
+	writeSyntheticConnectorWithPlatforms(t, supported, supportedName, []string{"private/note.txt"}, []platformSpec{
+		{OS: runtime.GOOS, Arch: runtime.GOARCH},
+		{OS: "linux", Arch: "amd64"},
+	}, func(connRoot string) {
+		if err := os.WriteFile(filepath.Join(connRoot, "private", "note.txt"), []byte("private\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	writeSyntheticConnectorWithPlatforms(t, unsupported, unsupportedName, []string{"private/note.txt"}, []platformSpec{
+		{OS: "plan9", Arch: "amd64"},
+	}, func(connRoot string) {
+		if err := os.WriteFile(filepath.Join(connRoot, "private", "note.txt"), []byte("private\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	dest := t.TempDir()
+	runTool(t, root, "./tools/backendplugin/package_plugins",
+		"-root", root, "-profile", "full", "-dest", dest,
+		"-select", supportedName+","+unsupportedName)
+	idx := readIndex(t, dest)
+	plugins, _ := idx["plugins"].([]any)
+	paths := map[string]bool{}
+	for _, p := range plugins {
+		m, ok := p.(map[string]any)
+		if !ok {
+			t.Fatalf("plugin entry type %T", p)
+		}
+		path, ok := m["path"].(string)
+		if !ok {
+			t.Fatalf("plugin path type %T", m["path"])
+		}
+		paths[path] = true
+	}
+	if !paths[supportedName] {
+		t.Fatalf("native-supported connector missing from package: %v", paths)
+	}
+	if paths[unsupportedName] {
+		t.Fatalf("unsupported connector must be omitted from package-index: %v", paths)
+	}
+	if _, err := os.Stat(filepath.Join(dest, unsupportedName)); err == nil {
+		t.Fatal("unsupported connector must not leave package artifacts")
+	}
+	if _, err := os.Stat(filepath.Join(dest, supportedName, "plugin.backendplugin.json")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+//nolint:paralleltest // writes under shared repo paths
+func TestPackage_ExplicitSelectUnsupportedYieldsEmptyPackage(t *testing.T) {
+	root := repoRoot(t)
+	name := "_synthetic_pkg_select_unsupported"
+	syn := filepath.Join(root, "connectors", name)
+	t.Cleanup(func() { _ = os.RemoveAll(syn) })
+	writeSyntheticConnectorWithPlatforms(t, syn, name, []string{"private/note.txt"}, []platformSpec{
+		{OS: "plan9", Arch: "amd64"},
+	}, func(connRoot string) {
+		if err := os.WriteFile(filepath.Join(connRoot, "private", "note.txt"), []byte("private\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	dest := t.TempDir()
+	runTool(t, root, "./tools/backendplugin/package_plugins",
+		"-root", root, "-profile", "full", "-dest", dest, "-select", name)
+	idx := readIndex(t, dest)
+	plugins, _ := idx["plugins"].([]any)
+	if len(plugins) != 0 {
+		t.Fatalf("explicit -select of unsupported connectors must yield empty package, got %v", plugins)
+	}
+	if _, err := os.Stat(filepath.Join(dest, name)); err == nil {
+		t.Fatal("unsupported selection must not build or stage connector artifacts")
+	}
+	if _, err := os.Stat(filepath.Join(dest, "package-index.json")); err != nil {
+		t.Fatal("empty package must still write package-index.json")
+	}
+	if _, err := os.Stat(filepath.Join(dest, "ACCESS.txt")); err != nil {
+		t.Fatal("empty package must still write ACCESS.txt")
+	}
+}
+
+//nolint:paralleltest // writes under shared repo paths
 func TestPackage_FullRelativeDestPlacesExecutable(t *testing.T) {
 	root := repoRoot(t)
+	requireNativeClaimedConnector(t, root, "localstub")
 	relDest := filepath.Join(".golip-package-staging-test", "full-rel")
 	absDest := filepath.Join(root, relDest)
 	_ = os.RemoveAll(absDest)
@@ -65,6 +157,7 @@ func TestPackage_FullRelativeDestPlacesExecutable(t *testing.T) {
 func TestPackage_FullInstallLayoutDigestAndRemoval(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
+	requireNativeClaimedConnector(t, root, "localstub")
 	dest := t.TempDir()
 	runTool(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest)
 	idx := readIndex(t, dest)
@@ -158,14 +251,19 @@ func TestPackage_SyntheticReleaseAutoPackagedAndRemovalLeavesOther(t *testing.T)
 		}
 		paths[path] = true
 	}
-	if !paths["localstub"] || !paths[synName] {
+	if !paths[synName] {
+		t.Fatalf("expected synthetic %s in package, got %v", synName, paths)
+	}
+	if connectorClaimsNative(t, root, "localstub") && !paths["localstub"] {
 		t.Fatalf("expected localstub+%s, got %v", synName, paths)
 	}
 	if err := os.RemoveAll(filepath.Join(dest, synName)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dest, "localstub", "plugin.backendplugin.json")); err != nil {
-		t.Fatal("removing synthetic must leave localstub")
+	if connectorClaimsNative(t, root, "localstub") {
+		if _, err := os.Stat(filepath.Join(dest, "localstub", "plugin.backendplugin.json")); err != nil {
+			t.Fatal("removing synthetic must leave localstub")
+		}
 	}
 	if _, err := os.Stat(filepath.Join(dest, "package-index.json")); err != nil {
 		t.Fatal("index must remain")
@@ -286,6 +384,7 @@ func TestPackage_PrivateCompanionsNestedSymlinkEscapeRejected(t *testing.T) {
 func TestPackage_DeterministicIndexAndDigestChangesOnRebuild(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
+	requireNativeClaimedConnector(t, root, "localstub")
 	dest1 := t.TempDir()
 	dest2 := t.TempDir()
 	runTool(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest1)
@@ -324,6 +423,7 @@ func TestPackage_DeterministicIndexAndDigestChangesOnRebuild(t *testing.T) {
 //nolint:paralleltest // writes under shared repo paths
 func TestPackage_FailedBuildLeavesPriorStagingUntouched(t *testing.T) {
 	root := repoRoot(t)
+	requireNativeClaimedConnector(t, root, "localstub")
 	dest := t.TempDir()
 	runTool(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest)
 	marker := filepath.Join(dest, "localstub", "KEEP.txt")
@@ -360,7 +460,8 @@ replace_policy: development-replace-to-monorepo-root
 	if err := os.WriteFile(filepath.Join(broken, "release.yaml"), []byte(rel), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(broken, "manifest", "template.backendplugin.json"), []byte(`{
+	// Claim the native host so packaging attempts a build (unsupported platforms are omitted).
+	man := fmt.Sprintf(`{
   "schema":"golip.backendplugin.manifest/v1",
   "plugin_id":"io.golip.backend.broken",
   "version":"0.0.1",
@@ -370,9 +471,10 @@ replace_policy: development-replace-to-monorepo-root
   "protocol_major":1,
   "protocol_min_minor":0,
   "protocol_max_minor":0,
-  "platforms":[{"os":"windows","arch":"amd64"}],
+  "platforms":[{"os":%q,"arch":%q}],
   "exports":[{"kind":"broken-kind","credential_mode":"none","access_scope":"any","process_sharing":"per_instance"}]
-}`), 0o644); err != nil {
+}`, runtime.GOOS, runtime.GOARCH)
+	if err := os.WriteFile(filepath.Join(broken, "manifest", "template.backendplugin.json"), []byte(man), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("go", "run", "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest)
@@ -458,7 +560,11 @@ func TestCrossPlatformQA_RejectsUnsupportedHostChannelClaim(t *testing.T) {
 	synName := "_synthetic_xplat_darwin_claim"
 	syn := filepath.Join(root, "connectors", synName)
 	t.Cleanup(func() { _ = os.RemoveAll(syn) })
-	writeSyntheticConnector(t, syn, synName)
+	writeSyntheticConnectorWithPlatforms(t, syn, synName, []string{"private/note.txt"}, defaultConnectorPlatforms(), func(connRoot string) {
+		if err := os.WriteFile(filepath.Join(connRoot, "private", "note.txt"), []byte("private\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
 	// Force a Darwin claim that the host secure channel cannot satisfy.
 	manPath := filepath.Join(syn, "manifest", "template.backendplugin.json")
 	manBody, err := os.ReadFile(manPath)
@@ -737,7 +843,34 @@ func writeSyntheticConnector(t *testing.T, syn, name string) {
 	})
 }
 
+type platformSpec struct {
+	OS   string
+	Arch string
+}
+
+func defaultConnectorPlatforms() []platformSpec {
+	return []platformSpec{
+		{OS: "windows", Arch: "amd64"},
+		{OS: "windows", Arch: "arm64"},
+		{OS: "linux", Arch: "amd64"},
+		{OS: "linux", Arch: "arm64"},
+	}
+}
+
+func nativePackagingPlatforms() []platformSpec {
+	plats := defaultConnectorPlatforms()
+	plats = append(plats, platformSpec{OS: runtime.GOOS, Arch: runtime.GOARCH})
+	return plats
+}
+
 func writeSyntheticConnectorWithCompanions(t *testing.T, syn, name string, companions []string, setup func(connRoot string)) {
+	t.Helper()
+	// Packaging-oriented synthetics claim the native host so Darwin (fail-closed,
+	// no production darwin claims) can still exercise package layout paths.
+	writeSyntheticConnectorWithPlatforms(t, syn, name, companions, nativePackagingPlatforms(), setup)
+}
+
+func writeSyntheticConnectorWithPlatforms(t *testing.T, syn, name string, companions []string, platforms []platformSpec, setup func(connRoot string)) {
 	t.Helper()
 	for _, d := range []string{
 		filepath.Join(syn, "cmd", "lip-backend-synthetic"),
@@ -779,6 +912,23 @@ replace_policy: development-replace-to-monorepo-root
 	if err := os.WriteFile(filepath.Join(syn, "release.yaml"), []byte(rel), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	seen := map[string]struct{}{}
+	var platJSON strings.Builder
+	platJSON.WriteString("[\n")
+	first := true
+	for _, p := range platforms {
+		key := p.OS + "/" + p.Arch
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		if !first {
+			platJSON.WriteString(",\n")
+		}
+		first = false
+		platJSON.WriteString(fmt.Sprintf(`    {"os": %q, "arch": %q}`, p.OS, p.Arch))
+	}
+	platJSON.WriteString("\n  ]")
 	man := `{
   "schema": "golip.backendplugin.manifest/v1",
   "plugin_id": "io.golip.backend.` + name + `",
@@ -789,12 +939,7 @@ replace_policy: development-replace-to-monorepo-root
   "protocol_major": 1,
   "protocol_min_minor": 0,
   "protocol_max_minor": 0,
-	"platforms": [
-    {"os": "windows", "arch": "amd64"},
-    {"os": "windows", "arch": "arm64"},
-    {"os": "linux", "arch": "amd64"},
-    {"os": "linux", "arch": "arm64"}
-  ],
+  "platforms": ` + platJSON.String() + `,
   "exports": [{
     "kind": "` + name + `",
     "credential_mode": "none",
@@ -812,6 +957,37 @@ replace_policy: development-replace-to-monorepo-root
 	if setup != nil {
 		setup(syn)
 	}
+}
+
+func requireNativeClaimedConnector(t *testing.T, root, dirName string) {
+	t.Helper()
+	if !connectorClaimsNative(t, root, dirName) {
+		t.Skipf("%s does not claim native %s/%s; packaging omits unsupported connectors", dirName, runtime.GOOS, runtime.GOARCH)
+	}
+}
+
+func connectorClaimsNative(t *testing.T, root, dirName string) bool {
+	t.Helper()
+	manPath := filepath.Join(root, "connectors", dirName, "manifest", "template.backendplugin.json")
+	b, err := os.ReadFile(manPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", manPath, err)
+	}
+	var man struct {
+		Platforms []struct {
+			OS   string `json:"os"`
+			Arch string `json:"arch"`
+		} `json:"platforms"`
+	}
+	if err := json.Unmarshal(b, &man); err != nil {
+		t.Fatalf("parse %s: %v", manPath, err)
+	}
+	for _, p := range man.Platforms {
+		if p.OS == runtime.GOOS && p.Arch == runtime.GOARCH {
+			return true
+		}
+	}
+	return false
 }
 
 func runTool(t *testing.T, root string, args ...string) string {

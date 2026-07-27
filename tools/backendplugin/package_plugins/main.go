@@ -125,6 +125,15 @@ func packageProfile(root, profile, dest string, selectSet map[string]struct{}) e
 		selected = append(selected, r)
 	}
 	sort.Slice(selected, func(i, j int) bool { return selected[i].DirName < selected[j].DirName })
+
+	// Package only connectors whose manifest template claims the native platform.
+	// Unsupported connectors are omitted (not built, not indexed). Explicit -select
+	// of only unsupported connectors therefore yields a successful empty package —
+	// truthful and deterministic, without fabricating Darwin (or other) support.
+	selected, err = filterSelectedToNativePlatform(selected, runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return err
+	}
 	if err := validateReleaseSet(selected); err != nil {
 		return err
 	}
@@ -496,10 +505,7 @@ func filterManifestPlatforms(manifest, goos, goarch string) (string, error) {
 	if !ok {
 		return manifest, nil
 	}
-	var plats []struct {
-		OS   string `json:"os"`
-		Arch string `json:"arch"`
-	}
+	var plats []platformEntry
 	if err := json.Unmarshal(rawPlats, &plats); err != nil {
 		return "", err
 	}
@@ -522,4 +528,57 @@ func filterManifestPlatforms(manifest, goos, goarch string) (string, error) {
 		return "", err
 	}
 	return string(out), nil
+}
+
+type platformEntry struct {
+	OS   string `json:"os"`
+	Arch string `json:"arch"`
+}
+
+func parsePlatforms(manifest string) ([]platformEntry, error) {
+	var m struct {
+		Platforms []platformEntry `json:"platforms"`
+	}
+	if err := json.Unmarshal([]byte(manifest), &m); err != nil {
+		return nil, err
+	}
+	return m.Platforms, nil
+}
+
+func claimsPlatform(plats []platformEntry, goos, goarch string) bool {
+	for _, p := range plats {
+		if p.OS == goos && p.Arch == goarch {
+			return true
+		}
+	}
+	return false
+}
+
+// filterReleasesClaimingPlatform returns releases whose precomputed claims include
+// goos/goarch, preserving input order. Missing claim map entries are treated as
+// unsupported (omitted).
+func filterReleasesClaimingPlatform(rels []discoveredRelease, goos, goarch string, claims map[string][]platformEntry) []discoveredRelease {
+	out := make([]discoveredRelease, 0, len(rels))
+	for _, r := range rels {
+		if claimsPlatform(claims[r.DirName], goos, goarch) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func filterSelectedToNativePlatform(selected []discoveredRelease, goos, goarch string) ([]discoveredRelease, error) {
+	claims := make(map[string][]platformEntry, len(selected))
+	for _, r := range selected {
+		body, err := os.ReadFile(filepath.Join(r.Root, r.Meta.ManifestTmpl))
+		if err != nil {
+			return nil, fmt.Errorf("read platforms %s: %w", r.DirName, err)
+		}
+		plats, err := parsePlatforms(string(body))
+		if err != nil {
+			return nil, fmt.Errorf("parse platforms %s: %w", r.DirName, err)
+		}
+		claims[r.DirName] = plats
+	}
+	return filterReleasesClaimingPlatform(selected, goos, goarch, claims), nil
 }
