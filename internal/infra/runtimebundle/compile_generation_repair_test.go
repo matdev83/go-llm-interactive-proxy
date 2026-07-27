@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,6 +27,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/uptrace/bun"
+	"gopkg.in/yaml.v3"
 	_ "modernc.org/sqlite"
 )
 
@@ -37,7 +39,7 @@ func TestCompileGeneration_NilHandlerRollsBackCandidate(t *testing.T) {
 		Candidate: stubCandidateConfig(t, "nilh", "x", "nilh:stub-default", []config.PluginConfig{
 			{ID: "openai-responses", Enabled: true},
 		}),
-		Compose: func(context.Context, runtimebundle.RequestPlane) (http.Handler, error) {
+		Compose: func(context.Context, *config.Config, *slog.Logger, stdhttp.StandardHTTPInput) (http.Handler, error) {
 			return nil, nil
 		},
 	})
@@ -55,12 +57,181 @@ func TestCompileGeneration_NilHandlerRollsBackCandidate(t *testing.T) {
 		Candidate: stubCandidateConfig(t, "nilh2", "y", "nilh2:stub-default", []config.PluginConfig{
 			{ID: "openai-responses", Enabled: true},
 		}),
-		Compose: stdhttp.ComposeRequestPlane,
+		Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("recompile after nil-handler rollback: %v", err)
 	}
 	t.Cleanup(func() { _ = ok.Close() })
+}
+
+// TestCompileGeneration_ComposerReceivesDefensiveConfigClone proves the
+// HandlerComposer is never lent the caller candidate or the canonical frozen
+// generation source: it receives a deep defensive clone (including nested YAML
+// nodes/slices). Mutations during and after composition must not poison the
+// caller candidate or the published immutable generation views.
+func TestCompileGeneration_ComposerReceivesDefensiveConfigClone(t *testing.T) {
+	t.Parallel()
+	ps := newProcessForGeneration(t)
+	cand := stubCandidateConfig(t, "own", "own-text", "own:stub-default", []config.PluginConfig{
+		{ID: "openai-responses", Enabled: true},
+	})
+	origRoute := cand.Routing.DefaultRoute
+	origFEID := cand.Plugins.Frontends[0].ID
+	origBackendID := cand.Plugins.Backends[0].ID
+	origBackendText := nestedYAMLValue(t, cand.Plugins.Backends[0].Config, "text")
+	if origBackendText != "own-text" {
+		t.Fatalf("fixture backend yaml: %q", origBackendText)
+	}
+	// Capture nested Content element pointers from the caller candidate so we
+	// can prove the composer clone does not share YAML node identity.
+	var candBEContent0 *yaml.Node
+	if len(cand.Plugins.Backends[0].Config.Content) > 0 {
+		candBEContent0 = cand.Plugins.Backends[0].Config.Content[0]
+	}
+	candFESlice := cand.Plugins.Frontends
+
+	var received *config.Config
+	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
+		Process:   ps,
+		Candidate: cand,
+		Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in stdhttp.StandardHTTPInput) (http.Handler, error) {
+			if cfg == nil {
+				t.Fatal("composer cfg is nil")
+			}
+			received = cfg
+			// Distinct root pointer from the caller candidate.
+			if cfg == cand {
+				t.Fatal("composer received caller candidate pointer")
+			}
+			// Nested plugin slices must not alias the caller candidate.
+			if len(cfg.Plugins.Frontends) > 0 && len(candFESlice) > 0 {
+				if &cfg.Plugins.Frontends[0] == &candFESlice[0] {
+					t.Fatal("composer frontends slice aliases caller candidate")
+				}
+			}
+			// Nested YAML node identity must differ from the caller candidate
+			// (deep clone, not shallow struct/slice copy).
+			if candBEContent0 != nil && len(cfg.Plugins.Backends) > 0 && len(cfg.Plugins.Backends[0].Config.Content) > 0 {
+				if cfg.Plugins.Backends[0].Config.Content[0] == candBEContent0 {
+					t.Fatal("composer backend YAML Content aliases caller candidate")
+				}
+			}
+			// Mutate nested frontend/config/routing during composition after
+			// building a valid handler but before return — if the composer was
+			// lent the canonical frozen source, publication (which reads frozen
+			// after compose) would observe these values.
+			handler, err := stdhttp.ComposeStandardHTTP(ctx, cfg, log, in)
+			if err != nil {
+				return nil, err
+			}
+			cfg.Routing.DefaultRoute = "compose-mutated:gone"
+			cfg.Routing.MaxAttempts = 99
+			if len(cfg.Plugins.Frontends) > 0 {
+				cfg.Plugins.Frontends[0].ID = "compose-mutated-fe"
+				cfg.Plugins.Frontends[0].Enabled = false
+			}
+			if len(cfg.Plugins.Backends) > 0 {
+				cfg.Plugins.Backends[0].ID = "compose-mutated-be"
+				mutateNestedYAMLValue(t, &cfg.Plugins.Backends[0].Config, "text", "compose-mutated-text")
+			}
+			return handler, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("CompileGeneration: %v", err)
+	}
+	t.Cleanup(func() { _ = bundle.Close() })
+	if received == nil {
+		t.Fatal("composer did not capture cfg")
+	}
+	gb, ok := bundle.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
+
+	// Caller candidate must remain the original source of truth.
+	if cand.Routing.DefaultRoute != origRoute {
+		t.Fatalf("caller routing mutated: %q", cand.Routing.DefaultRoute)
+	}
+	if cand.Routing.MaxAttempts != 3 {
+		t.Fatalf("caller max_attempts mutated: %d", cand.Routing.MaxAttempts)
+	}
+	if cand.Plugins.Frontends[0].ID != origFEID || !cand.Plugins.Frontends[0].Enabled {
+		t.Fatalf("caller frontend mutated: id=%q enabled=%v", cand.Plugins.Frontends[0].ID, cand.Plugins.Frontends[0].Enabled)
+	}
+	if cand.Plugins.Backends[0].ID != origBackendID {
+		t.Fatalf("caller backend id mutated: %q", cand.Plugins.Backends[0].ID)
+	}
+	if got := nestedYAMLValue(t, cand.Plugins.Backends[0].Config, "text"); got != origBackendText {
+		t.Fatalf("caller backend yaml mutated: %q", got)
+	}
+
+	// Published immutable generation state must reflect the original candidate,
+	// not the composer-time mutations (proves composer was not lent canonical
+	// frozen — publication reads frozen.Plugins.Frontends after compose).
+	if gb.Routing().DefaultRoute != origRoute {
+		t.Fatalf("published routing poisoned during compose: %q", gb.Routing().DefaultRoute)
+	}
+	frontends := gb.FrozenFrontends()
+	if len(frontends) == 0 {
+		t.Fatal("expected published frontends")
+	}
+	if frontends[0].ID != origFEID {
+		t.Fatalf("published frontend id poisoned during compose: %q", frontends[0].ID)
+	}
+	if !frontends[0].Enabled {
+		t.Fatal("published frontend enabled poisoned during compose")
+	}
+	regs := gb.Registrations()
+	if len(regs) == 0 {
+		t.Fatal("expected published registrations")
+	}
+	for _, r := range regs {
+		if strings.Contains(r.ID, "compose-mutated") {
+			t.Fatalf("published registration poisoned during compose: %q", r.ID)
+		}
+	}
+	kinds := bundle.BackendFactoryKindCounts()
+	if kinds == nil || kinds["local-stub"] < 1 {
+		t.Fatalf("published capabilities poisoned: %#v", kinds)
+	}
+
+	// Post-return retained-pointer mutation must not affect caller or published
+	// immutable views either.
+	received.Routing.DefaultRoute = "post-mutated:gone"
+	received.Routing.MaxAttempts = 1
+	if len(received.Plugins.Frontends) > 0 {
+		received.Plugins.Frontends[0].ID = "post-mutated-fe"
+		received.Plugins.Frontends[0].Enabled = false
+	}
+	if len(received.Plugins.Backends) > 0 {
+		received.Plugins.Backends[0].ID = "post-mutated-be"
+		mutateNestedYAMLValue(t, &received.Plugins.Backends[0].Config, "text", "post-mutated-text")
+	}
+
+	if cand.Routing.DefaultRoute != origRoute || cand.Plugins.Frontends[0].ID != origFEID {
+		t.Fatal("caller candidate mutated via retained composer pointer")
+	}
+	if got := nestedYAMLValue(t, cand.Plugins.Backends[0].Config, "text"); got != origBackendText {
+		t.Fatalf("caller backend yaml mutated post-compose: %q", got)
+	}
+	if gb.Routing().DefaultRoute != origRoute {
+		t.Fatalf("published routing poisoned post-compose: %q", gb.Routing().DefaultRoute)
+	}
+	if got := gb.FrozenFrontends()[0].ID; got != origFEID {
+		t.Fatalf("published frontend id poisoned post-compose: %q", got)
+	}
+	if !gb.FrozenFrontends()[0].Enabled {
+		t.Fatal("published frontend enabled poisoned post-compose")
+	}
+	body := postResponses(t, bundle.Handler(), "stub-default")
+	if !strings.Contains(body, "own-text") {
+		t.Fatalf("handler followed mutated backend yaml: %s", body)
+	}
+	if strings.Contains(body, "compose-mutated") || strings.Contains(body, "post-mutated") {
+		t.Fatalf("handler observed composer mutations: %s", body)
+	}
 }
 
 func TestCompileGeneration_DeepFreezeRegistrationsAndYAML(t *testing.T) {
@@ -76,19 +247,23 @@ func TestCompileGeneration_DeepFreezeRegistrationsAndYAML(t *testing.T) {
 	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: cand,
-		Compose: func(ctx context.Context, plane runtimebundle.RequestPlane) (http.Handler, error) {
-			planeRegs = plane.Registrations()
-			stackCfg = plane.StackConfig()
+		Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in stdhttp.StandardHTTPInput) (http.Handler, error) {
+			planeRegs = in.Operations.Registrations
+			stackCfg = cfg
 			if stackCfg == nil {
-				t.Fatal("StackConfig returned nil")
+				t.Fatal("cfg param is nil")
 			}
-			return stdhttp.ComposeRequestPlane(ctx, plane)
+			return stdhttp.ComposeStandardHTTP(ctx, cfg, log, in)
 		},
 	})
 	if err != nil {
 		t.Fatalf("CompileGeneration: %v", err)
 	}
 	t.Cleanup(func() { _ = bundle.Close() })
+	gb, ok := bundle.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
 
 	cand.Routing.DefaultRoute = "mutated:gone"
 	cand.Plugins.Backends[0].Config = genYAMLNode(t, `text: "mutated-backend"`)
@@ -99,13 +274,13 @@ func TestCompileGeneration_DeepFreezeRegistrationsAndYAML(t *testing.T) {
 		planeRegs[0].ID = "mutated-reg"
 		planeRegs[0].Config.Node = genYAMLNode(t, `{"poison":true}`)
 	}
-	returned := bundle.Registrations()
+	returned := gb.Registrations()
 	if len(returned) == 0 {
 		t.Fatal("expected registrations")
 	}
 	returned[0].ID = "mutated-returned"
 	returned[0].Config.Node = genYAMLNode(t, `{"poison":"returned"}`)
-	frontends := bundle.FrozenFrontends()
+	frontends := gb.FrozenFrontends()
 	frontends[0].ID = "mutated-fe"
 	frontends[0].Config = genYAMLNode(t, `{"label":"mutated"}`)
 	if stackCfg != nil {
@@ -119,13 +294,13 @@ func TestCompileGeneration_DeepFreezeRegistrationsAndYAML(t *testing.T) {
 	if !strings.Contains(body, "freeze-text") {
 		t.Fatalf("handler followed mutated YAML: %s", body)
 	}
-	if bundle.Routing().DefaultRoute != "freeze:stub-default" {
-		t.Fatalf("routing mutated: %q", bundle.Routing().DefaultRoute)
+	if gb.Routing().DefaultRoute != "freeze:stub-default" {
+		t.Fatalf("routing mutated: %q", gb.Routing().DefaultRoute)
 	}
-	if got := bundle.FrozenFrontends()[0].ID; got != "openai-responses" {
+	if got := gb.FrozenFrontends()[0].ID; got != "openai-responses" {
 		t.Fatalf("frontend id mutated: %q", got)
 	}
-	if got := bundle.Registrations()[0].ID; strings.Contains(got, "mutated") {
+	if got := gb.Registrations()[0].ID; strings.Contains(got, "mutated") {
 		t.Fatalf("registration id mutated: %q", got)
 	}
 	rr := httptest.NewRecorder()
@@ -170,16 +345,21 @@ func TestCompileGeneration_FeatureSurfaceNoStartupLeakOrDuplicate(t *testing.T) 
 	}
 	t.Cleanup(func() { _ = ps.Close() })
 
-	probeTraffic := func(plane runtimebundle.RequestPlane) {
+	// probeTraffic checks traffic-observer isolation through the focused HTTP
+	// composition input (task 3.4): TrafficPorts.Obs is the same generation
+	// extension snapshot observer projected without RequestPlane. Request-
+	// transform isolation (not part of the HTTP composition boundary) is
+	// covered separately by TestCompileCandidate_RequestTransformNoLeak.
+	probeTraffic := func(in stdhttp.StandardHTTPInput) {
 		t.Helper()
-		snap := plane.RuntimeSnapshot()
-		if snap == nil || snap.TrafficObserver() == nil {
+		obs := in.Frontends.TrafficPorts.Obs
+		if obs == nil {
 			t.Fatal("expected traffic observer")
 		}
 		startupObs.Store(0)
 		prodObs.Store(0)
 		candObs.Store(0)
-		_ = snap.TrafficObserver().OnObservation(context.Background(), traffic.Observation{Leg: traffic.LegCTP})
+		_ = obs.OnObservation(context.Background(), traffic.Observation{Leg: traffic.LegCTP})
 		if got := startupObs.Load(); got != 0 {
 			t.Fatalf("startup observer leaked calls=%d", got)
 		}
@@ -188,17 +368,6 @@ func TestCompileGeneration_FeatureSurfaceNoStartupLeakOrDuplicate(t *testing.T) 
 		}
 		if got := candObs.Load(); got != 1 {
 			t.Fatalf("candidate observer calls=%d want 1", got)
-		}
-		startupHook.Store(0)
-		candHook.Store(0)
-		for _, tr := range snap.RequestTransforms() {
-			_ = tr.Handle(context.Background(), &lipapi.Call{}, request.RequestMeta{}, request.Services{})
-		}
-		if got := startupHook.Load(); got != 0 {
-			t.Fatalf("startup request transform leaked calls=%d", got)
-		}
-		if got := candHook.Load(); got != 1 {
-			t.Fatalf("candidate request transform calls=%d want 1", got)
 		}
 	}
 
@@ -214,9 +383,9 @@ func TestCompileGeneration_FeatureSurfaceNoStartupLeakOrDuplicate(t *testing.T) 
 				RequestTransforms: []request.Transform{countTransform{id: "cand-hook", n: &candHook}},
 			},
 		},
-		Compose: func(ctx context.Context, plane runtimebundle.RequestPlane) (http.Handler, error) {
-			probeTraffic(plane)
-			return stdhttp.ComposeRequestPlane(ctx, plane)
+		Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in stdhttp.StandardHTTPInput) (http.Handler, error) {
+			probeTraffic(in)
+			return stdhttp.ComposeStandardHTTP(ctx, cfg, log, in)
 		},
 	})
 	if err != nil {
@@ -235,12 +404,14 @@ func TestCompileGeneration_FeatureSurfaceNoStartupLeakOrDuplicate(t *testing.T) 
 			{ID: "openai-responses", Enabled: true},
 		}),
 		// Intentionally empty candidate surface: must not reuse startup lifecycles/hooks.
-		Compose: func(ctx context.Context, plane runtimebundle.RequestPlane) (http.Handler, error) {
-			snap := plane.RuntimeSnapshot()
+		Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in stdhttp.StandardHTTPInput) (http.Handler, error) {
+			obs := in.Frontends.TrafficPorts.Obs
 			startupObs.Store(0)
 			prodObs.Store(0)
 			candObs.Store(0)
-			_ = snap.TrafficObserver().OnObservation(context.Background(), traffic.Observation{Leg: traffic.LegCTP})
+			if obs != nil {
+				_ = obs.OnObservation(context.Background(), traffic.Observation{Leg: traffic.LegCTP})
+			}
 			if startupObs.Load() != 0 {
 				t.Fatal("empty candidate retained startup traffic observer")
 			}
@@ -250,10 +421,7 @@ func TestCompileGeneration_FeatureSurfaceNoStartupLeakOrDuplicate(t *testing.T) 
 			if candObs.Load() != 0 {
 				t.Fatal("empty candidate retained prior candidate observer")
 			}
-			if len(snap.RequestTransforms()) != 0 {
-				t.Fatalf("empty candidate retained transforms=%d", len(snap.RequestTransforms()))
-			}
-			return stdhttp.ComposeRequestPlane(ctx, plane)
+			return stdhttp.ComposeStandardHTTP(ctx, cfg, log, in)
 		},
 	})
 	if err != nil {
@@ -280,6 +448,88 @@ func TestCompileGeneration_FeatureSurfaceNoStartupLeakOrDuplicate(t *testing.T) 
 	}
 }
 
+// TestCompileGeneration_RequestTransformNoStartupLeakOrDuplicate proves
+// candidate-scoped request transforms neither leak startup-merged transforms
+// into a candidate nor persist across an unrelated candidate compile
+// (companion to the traffic-observer probe in
+// TestCompileGeneration_FeatureSurfaceNoStartupLeakOrDuplicate). Request
+// transforms run inside the executor's real request pipeline (below the HTTP
+// composition boundary), so isolation is proven end-to-end through the
+// composed handler rather than by introspecting a retained snapshot.
+func TestCompileGeneration_RequestTransformNoStartupLeakOrDuplicate(t *testing.T) {
+	t.Parallel()
+	var startupHook, candHook atomic.Int32
+	cfg := processBaseConfig()
+	if err := config.Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+	ps, err := runtimebundle.NewProcessServices(context.Background(), runtimebundle.ProcessServicesInput{
+		Cfg: cfg,
+		Log: testkit.DiscardLogger(),
+		Opts: &runtimebundle.BuildOptions{
+			PluginRegistry: stdFactoryCatalog(t),
+			Extensions: runtimebundle.ExtensionsOptions{
+				RequestTransforms: []request.Transform{countTransform{id: "startup-hook", n: &startupHook}},
+			},
+		},
+		Tracing: runtimebundle.ProcessTracing{Shutdown: func(context.Context) error { return nil }},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ps.Close() })
+
+	a, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
+		Process: ps,
+		Candidate: stubCandidateConfig(t, "rt-a", "a", "rt-a:stub-default", []config.PluginConfig{
+			{ID: "openai-responses", Enabled: true},
+		}),
+		CandidateOpts: &runtimebundle.BuildOptions{
+			Extensions: runtimebundle.ExtensionsOptions{
+				RequestTransforms: []request.Transform{countTransform{id: "cand-hook", n: &candHook}},
+			},
+		},
+		Compose: stdhttp.ComposeStandardHTTP,
+	})
+	if err != nil {
+		t.Fatalf("compile A: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	startupHook.Store(0)
+	candHook.Store(0)
+	_ = postResponses(t, a.Handler(), "stub-default")
+	if got := startupHook.Load(); got != 0 {
+		t.Fatalf("startup request transform leaked calls=%d", got)
+	}
+	if got := candHook.Load(); got != 1 {
+		t.Fatalf("candidate request transform calls=%d want 1", got)
+	}
+
+	b, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
+		Process: ps,
+		Candidate: stubCandidateConfig(t, "rt-b", "b", "rt-b:stub-default", []config.PluginConfig{
+			{ID: "openai-responses", Enabled: true},
+		}),
+		// Intentionally empty candidate surface: must not reuse candidate A's transform.
+		Compose: stdhttp.ComposeStandardHTTP,
+	})
+	if err != nil {
+		t.Fatalf("compile B: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Close() })
+
+	startupHook.Store(0)
+	candHook.Store(0)
+	_ = postResponses(t, b.Handler(), "stub-default")
+	if got := startupHook.Load(); got != 0 {
+		t.Fatalf("empty candidate retained startup request transform, calls=%d", got)
+	}
+	if got := candHook.Load(); got != 0 {
+		t.Fatalf("empty candidate retained candidate A request transform, calls=%d", got)
+	}
+}
+
 func TestCompileGeneration_BundleQuiesceBeforeClose_LifecycleStopOnce(t *testing.T) {
 	t.Parallel()
 	life := &overlapLife{}
@@ -290,22 +540,26 @@ func TestCompileGeneration_BundleQuiesceBeforeClose_LifecycleStopOnce(t *testing
 			{ID: "openai-responses", Enabled: true},
 		}),
 		CandidateOpts: &runtimebundle.BuildOptions{FeatureLifecycles: []lipplugin.Lifecycle{life}},
-		Compose:       stdhttp.ComposeRequestPlane,
+		Compose:       stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("CompileGeneration: %v", err)
 	}
+	gb, ok := bundle.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
 	if life.starts.Load() != 1 {
 		t.Fatalf("starts=%d", life.starts.Load())
 	}
-	before := bundle.ResourceCount()
+	before := gb.ResourceCount()
 	if before == 0 {
 		t.Fatal("expected resources")
 	}
 	if err := bundle.Quiesce(context.Background()); err != nil {
 		t.Fatalf("Quiesce: %v", err)
 	}
-	afterQuiesce := bundle.ResourceCount()
+	afterQuiesce := gb.ResourceCount()
 	if afterQuiesce > before {
 		t.Fatalf("quiesce increased resources %d -> %d", before, afterQuiesce)
 	}
@@ -318,8 +572,7 @@ func TestCompileGeneration_BundleQuiesceBeforeClose_LifecycleStopOnce(t *testing
 	mustPublishGen(t, m, g)
 	mustPublishGen(t, m, m.Prepare("next"))
 
-	worker := runtimehost.NewLifecycleWorker()
-	if err := worker.Retire(context.Background(), g, bundle); err != nil {
+	if _, err := m.RetireGeneration(context.Background(), g); err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
 		t.Fatalf("Retire: %v", err)
 	}
 	if life.stops.Load() != 1 {
@@ -328,7 +581,7 @@ func TestCompileGeneration_BundleQuiesceBeforeClose_LifecycleStopOnce(t *testing
 	if g.Lifecycle() != runtimehost.GenClosed {
 		t.Fatalf("lifecycle=%v", g.Lifecycle())
 	}
-	if err := worker.Retire(context.Background(), g, bundle); !errors.Is(err, runtimehost.ErrAlreadyClosed) {
+	if _, err := m.RetireGeneration(context.Background(), g); !errors.Is(err, runtimehost.ErrAlreadyClosed) {
 		t.Fatalf("second retire: %v", err)
 	}
 	if life.stops.Load() != 1 {
@@ -350,7 +603,7 @@ func TestCompileGeneration_RequestPlaneBoundOnPublishAcquire(t *testing.T) {
 		Candidate: stubCandidateConfig(t, "bind", "bind-text", "bind:stub-default", []config.PluginConfig{
 			{ID: "openai-responses", Enabled: true},
 		}),
-		Compose: stdhttp.ComposeRequestPlane,
+		Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -406,7 +659,7 @@ func TestCompileGeneration_RequestPlaneBoundOnPublishAcquire(t *testing.T) {
 		Candidate: stubCandidateConfig(t, "blocked", "z", "blocked:stub-default", []config.PluginConfig{
 			{ID: "openai-responses", Enabled: true},
 		}),
-		Compose: stdhttp.ComposeRequestPlane,
+		Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatal(err)

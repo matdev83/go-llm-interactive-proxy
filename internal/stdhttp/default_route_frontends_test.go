@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
@@ -48,12 +47,14 @@ func TestOmittedRoute_openaiResponses_usesEffectiveDefaultRoute(t *testing.T) {
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
 	mux := http.NewServeMux()
 	if err := MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:                  mux,
-		Exec:                 ex,
-		DefaultRouteSelector: route,
-		Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
-		MaxRequestBodyBytes:  0,
-		Reg:                  reg,
+		Mux: mux,
+		Frontends: HTTPFrontendInput{
+			Executor:             ex,
+			DefaultRouteSelector: route,
+			Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
+			MaxRequestBodyBytes:  0,
+			Registry:             reg,
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -82,13 +83,15 @@ func TestBodyRoute_openaiResponses_usesMountedRoutePrefixes(t *testing.T) {
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
 	mux := http.NewServeMux()
 	if err := MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:                  mux,
-		Exec:                 ex,
-		DefaultRouteSelector: unifiedPolicyRoute,
-		Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
-		RoutePrefixes:        []string{"stub"},
-		MaxRequestBodyBytes:  0,
-		Reg:                  reg,
+		Mux: mux,
+		Frontends: HTTPFrontendInput{
+			Executor:             ex,
+			DefaultRouteSelector: unifiedPolicyRoute,
+			Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
+			RoutePrefixes:        []string{"stub"},
+			MaxRequestBodyBytes:  0,
+			Registry:             reg,
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -119,12 +122,14 @@ func TestOmittedRoute_openaiLegacy_usesEffectiveDefaultRoute(t *testing.T) {
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
 	mux := http.NewServeMux()
 	if err := MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:                  mux,
-		Exec:                 ex,
-		DefaultRouteSelector: route,
-		Plugins:              []config.PluginConfig{{ID: "openai-legacy", Enabled: true}},
-		MaxRequestBodyBytes:  0,
-		Reg:                  reg,
+		Mux: mux,
+		Frontends: HTTPFrontendInput{
+			Executor:             ex,
+			DefaultRouteSelector: route,
+			Plugins:              []config.PluginConfig{{ID: "openai-legacy", Enabled: true}},
+			MaxRequestBodyBytes:  0,
+			Registry:             reg,
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -155,12 +160,14 @@ func TestOmittedRoute_anthropic_usesEffectiveDefaultRoute(t *testing.T) {
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
 	mux := http.NewServeMux()
 	if err := MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:                  mux,
-		Exec:                 ex,
-		DefaultRouteSelector: route,
-		Plugins:              []config.PluginConfig{{ID: "anthropic", Enabled: true}},
-		MaxRequestBodyBytes:  0,
-		Reg:                  reg,
+		Mux: mux,
+		Frontends: HTTPFrontendInput{
+			Executor:             ex,
+			DefaultRouteSelector: route,
+			Plugins:              []config.PluginConfig{{ID: "anthropic", Enabled: true}},
+			MaxRequestBodyBytes:  0,
+			Registry:             reg,
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -182,18 +189,13 @@ func TestOmittedRoute_anthropic_usesEffectiveDefaultRoute(t *testing.T) {
 	}
 }
 
-func TestBuild_defaultBackendFromEffectiveRoute(t *testing.T) {
+func TestCompileCandidate_defaultBackendFromEffectiveRoute(t *testing.T) {
 	t.Parallel()
 	reg := testRegistryWithStdBundle(t)
 	cfg := policyConfig()
 	cfg.Continuity = config.ContinuityConfig{InMemory: true}
-	b, err := runtimebundle.Build(cfg, nil, testkit.DiscardLogger(), &runtimebundle.BuildOptions{
-		PluginRegistry: reg,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b.Executor.DefaultBackend != "stub" {
-		t.Fatalf("DefaultBackend %q want stub", b.Executor.DefaultBackend)
+	_, cand := compileTestCandidate(t, cfg, reg)
+	if cand.Executor().DefaultBackend != "stub" {
+		t.Fatalf("DefaultBackend %q want stub", cand.Executor().DefaultBackend)
 	}
 }

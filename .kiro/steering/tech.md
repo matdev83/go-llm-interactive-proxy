@@ -27,13 +27,13 @@ That may be a consumer-owned interface, a function seam, or a narrow frozen stru
 Do not introduce repo-wide `ports` packages or symmetry-driven interfaces unless they solve a real coupling problem.
 
 `cmd/lipstd/` is expected to:
-- load runtime config,
+- load runtime config once through the Host build transaction,
 - create a standard registry,
 - register official frontend plugins,
 - register official backend plugins,
 - register official feature plugins,
-- assemble `runtimebundle.Built`,
-- start the HTTP server.
+- obtain one process-owned `Host` from `runtimebundle.BuildHost` (process runtime + generation 1 `GenerationRuntime` + reload coordinator),
+- start the HTTP server through the generation dispatcher and shut down via `Host.Close`.
 
 ### Canonical contract pattern
 

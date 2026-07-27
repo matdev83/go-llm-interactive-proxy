@@ -1,7 +1,6 @@
 package runtimehost
 
 import (
-	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -81,19 +80,18 @@ type Generation struct {
 	id          atomic.Int64
 	label       string
 	word        atomic.Uint64
-	closed      atomic.Bool
 	drainMu     sync.Mutex
 	drainCh     chan struct{}
 	drainClosed bool
+	// postDrainClose: async scheduleRetire arms this when drain is blocked; signalDrained
+	// runs it once. Sync RetireGeneration takes/re-arms across ctx cancel.
+	postDrainClose func()
 
-	// retireMu serializes LifecycleWorker.Retire for this generation only.
-	// It lives on the generation so concurrent unrelated retirements progress
-	// independently without a process-wide lock or unbounded worker map.
-	retireMu sync.Mutex
+	// retireAdmit serializes RetireGeneration/scheduleRetire per generation (ctx-aware).
+	retireAdmit retireAdmission
 
 	closeCount atomic.Int32
-	closeErr   error
-	closeMu    sync.Mutex // serializes Closing→Closed cleanup attempts (retry-safe)
+	closeMu    sync.Mutex // serializes Closing→Closed / Discard cleanup attempts (retry-safe)
 
 	metaMu sync.RWMutex
 	meta   GenerationMeta
@@ -107,10 +105,11 @@ type Generation struct {
 
 func newGeneration(label string, state GenLifecycle, owned OwnedCloser) *Generation {
 	g := &Generation{
-		label:   label,
-		drainCh: make(chan struct{}),
-		owned:   owned,
-		meta:    GenerationMeta{Label: label},
+		label:       label,
+		drainCh:     make(chan struct{}),
+		owned:       owned,
+		meta:        GenerationMeta{Label: label},
+		retireAdmit: newRetireAdmission(),
 	}
 	g.word.Store(packLease(state, 0))
 	return g
@@ -168,8 +167,9 @@ func (g *Generation) Drained() <-chan struct{} {
 	return g.drainCh
 }
 
-// CloseCount returns how many times owned teardown successfully claimed
-// (published Close or unpublished Discard).
+// CloseCount returns how many owned-teardown attempts have been made
+// (published Close attempts or the claiming unpublished Discard attempt),
+// regardless of whether each attempt succeeded.
 func (g *Generation) CloseCount() int32 {
 	if g == nil {
 		return 0
@@ -201,66 +201,6 @@ func (g *Generation) Status() Status {
 	meta.ID = g.id.Load()
 	meta.Label = g.label
 	return Status{Meta: meta, Lifecycle: st, Refs: refs}
-}
-
-// AttachOwned binds generation-owned resources once while preparing/prepared.
-func (g *Generation) AttachOwned(owned OwnedCloser) error {
-	if g == nil {
-		return ErrNotPrepared
-	}
-	st := g.Lifecycle()
-	if st != GenPreparing && st != GenPrepared {
-		return ErrIllegalTransition
-	}
-	g.payloadMu.Lock()
-	defer g.payloadMu.Unlock()
-	if g.owned != nil || g.requestPlane != nil {
-		return ErrOwnedAlreadyBound
-	}
-	g.owned = owned
-	return nil
-}
-
-// AttachRequestPlane atomically binds the immutable request-plane publisher as
-// both the served plane and the generation-owned closer while preparing.
-func (g *Generation) AttachRequestPlane(plane PublishedRequestPlane) error {
-	if g == nil {
-		return ErrNotPrepared
-	}
-	st := g.Lifecycle()
-	if st != GenPreparing && st != GenPrepared {
-		return ErrIllegalTransition
-	}
-	g.payloadMu.Lock()
-	defer g.payloadMu.Unlock()
-	if g.requestPlane != nil {
-		return ErrRequestPlaneAlreadyBound
-	}
-	if g.owned != nil {
-		return ErrOwnedAlreadyBound
-	}
-	g.requestPlane = plane
-	g.owned = plane
-	return nil
-}
-
-// RequestPlane returns the bound immutable request-plane publisher, or nil.
-func (g *Generation) RequestPlane() PublishedRequestPlane {
-	if g == nil {
-		return nil
-	}
-	g.payloadMu.Lock()
-	defer g.payloadMu.Unlock()
-	return g.requestPlane
-}
-
-// Handler returns the bound request-plane handler, or nil when unbound.
-func (g *Generation) Handler() http.Handler {
-	plane := g.RequestPlane()
-	if plane == nil {
-		return nil
-	}
-	return plane.Handler()
 }
 
 // MarkPrepared transitions Preparing → Prepared.
@@ -334,210 +274,11 @@ func (g *Generation) casLifecycle(from, to GenLifecycle) error {
 	}
 }
 
-func (g *Generation) tryRetain() bool {
-	for {
-		cur := g.word.Load()
-		st, refs := unpackLease(cur)
-		if st != GenActive || refs == ^uint32(0) {
-			return false
-		}
-		if g.word.CompareAndSwap(cur, packLease(st, refs+1)) {
-			return true
-		}
-	}
-}
-
-// tryRetainWhileBound increments ownership for a child pin while a request lease
-// (or transferred pin path) already proves the generation is still live.
-// Active and post-retirement drain states with outstanding refs are allowed so
-// a publication race cannot close the generation between child-pin acquisition
-// and use. New acquires after drain/close fail closed.
-func (g *Generation) tryRetainWhileBound() bool {
-	if g == nil {
-		return false
-	}
-	for {
-		cur := g.word.Load()
-		st, refs := unpackLease(cur)
-		if !childRetainable(st) || refs == 0 || refs == ^uint32(0) {
-			return false
-		}
-		if g.word.CompareAndSwap(cur, packLease(st, refs+1)) {
-			return true
-		}
-	}
-}
-
-func childRetainable(st GenLifecycle) bool {
-	switch st {
-	case GenActive, GenRetiring, GenQuiescing, GenQuiesced:
-		return true
-	default:
-		return false
-	}
-}
-
-func (g *Generation) releaseRef() {
-	for {
-		cur := g.word.Load()
-		st, refs := unpackLease(cur)
-		if refs == 0 {
-			return
-		}
-		nextRefs := refs - 1
-		if !g.word.CompareAndSwap(cur, packLease(st, nextRefs)) {
-			continue
-		}
-		if nextRefs == 0 && drainable(st) {
-			g.signalDrained()
-		}
-		return
-	}
-}
-
-// drainable reports whether last-ref release (or markRetiring with refs=0) may
-// transition to GenDrained and close Drained(). GenQuiescing is intentionally
-// excluded: quiesce work must finish via MarkQuiesced before drain/close.
-func drainable(st GenLifecycle) bool {
-	return st == GenRetiring || st == GenQuiesced
-}
-
-func (g *Generation) markRetiring() {
-	for {
-		cur := g.word.Load()
-		st, refs := unpackLease(cur)
-		if st != GenActive {
-			return
-		}
-		if g.word.CompareAndSwap(cur, packLease(GenRetiring, refs)) {
-			if refs == 0 {
-				g.signalDrained()
-			}
-			return
-		}
-	}
-}
-
-func (g *Generation) signalDrained() {
-	g.drainMu.Lock()
-	defer g.drainMu.Unlock()
-	if g.drainClosed {
-		return
-	}
-	for {
-		cur := g.word.Load()
-		st, refs := unpackLease(cur)
-		if refs != 0 {
-			return
-		}
-		if st == GenDrained {
-			break
-		}
-		if !drainable(st) {
-			return
-		}
-		if g.word.CompareAndSwap(cur, packLease(GenDrained, 0)) {
-			break
-		}
-	}
-	g.drainClosed = true
-	close(g.drainCh)
-}
-
-// Close closes generation-owned resources from Closing (req 10.6, 10.12).
-// On success it transitions to GenClosed exactly once. On failure it remains
-// GenClosing so an explicitly owned cleanup retry policy may call Close again
-// (design Closing→Closing). Successful close of owned resources happens once:
-// a failed attempt retains the owned closer for retry.
-func (g *Generation) Close() error {
-	if g == nil {
-		return nil
-	}
-	g.closeMu.Lock()
-	defer g.closeMu.Unlock()
-
-	if g.closed.Load() {
-		return ErrAlreadyClosed
-	}
-	st, _ := unpackLease(g.word.Load())
-	if st != GenClosing {
-		return ErrIllegalTransition
-	}
-
-	g.payloadMu.Lock()
-	owned := g.owned
-	g.payloadMu.Unlock()
-
-	var closeErr error
-	if owned != nil {
-		closeErr = owned.Close()
-	}
-	g.closeCount.Add(1)
-	if closeErr != nil {
-		g.closeErr = closeErr
-		return closeErr
-	}
-
-	g.closed.Store(true)
-	g.payloadMu.Lock()
-	g.owned = nil
-	g.payloadMu.Unlock()
-	g.closeErr = nil
-	for {
-		cur := g.word.Load()
-		_, refs := unpackLease(cur)
-		if g.word.CompareAndSwap(cur, packLease(GenClosed, refs)) {
-			break
-		}
-	}
-	return nil
-}
-
-// Discard rolls back an unpublished candidate (preparing/prepared/failed).
-// It closes generation-owned resources exactly once and ends in GenFailed
-// (req 10.9). It never uses the published drain→BeginClose→Close path and
-// never touches process services.
-func (g *Generation) Discard() error {
-	if g == nil {
-		return nil
-	}
-	if g.closed.Load() {
-		return ErrAlreadyClosed
-	}
-	for {
-		cur := g.word.Load()
-		st, refs := unpackLease(cur)
-		switch st {
-		case GenPreparing, GenPrepared:
-			if !g.word.CompareAndSwap(cur, packLease(GenFailed, refs)) {
-				continue
-			}
-		case GenFailed:
-			// already terminal; still claim owned close below
-		default:
-			return ErrIllegalTransition
-		}
-		break
-	}
-	if !g.closed.CompareAndSwap(false, true) {
-		return ErrAlreadyClosed
-	}
-	g.closeCount.Add(1)
-
-	g.payloadMu.Lock()
-	owned := g.owned
-	g.owned = nil
-	g.payloadMu.Unlock()
-	if owned != nil {
-		g.closeErr = owned.Close()
-	}
-	if g.closeErr != nil {
-		return g.closeErr
-	}
-	return nil
-}
-
 func (g *Generation) assignPublish(id, prev int64, publishedAt time.Time) error {
+	// Serialize Prepared→Active with Attach* payload binding under payloadMu so
+	// no attach can commit after the publication transition.
+	g.payloadMu.Lock()
+	defer g.payloadMu.Unlock()
 	for {
 		cur := g.word.Load()
 		st, refs := unpackLease(cur)

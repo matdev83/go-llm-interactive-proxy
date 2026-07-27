@@ -3,18 +3,15 @@ package runtimebundle_test
 import (
 	"context"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/modelcatalog/modelsdev"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"gopkg.in/yaml.v3"
 )
 
@@ -44,23 +41,20 @@ func TestBuild_modelCatalog_disabledDoesNotStartRuntime(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b.CatalogRuntime != nil {
+	if runtimebundle.CandidateCatalogRuntime(b) != nil {
 		t.Fatalf("expected nil CatalogRuntime")
 	}
-	if b.Executor.CatalogResolver != nil {
+	if b.Executor().CatalogResolver != nil {
 		t.Fatalf("expected nil CatalogResolver")
 	}
-	if b.Executor.RequestTokenEstimator != nil {
+	if b.Executor().RequestTokenEstimator != nil {
 		t.Fatalf("expected nil RequestTokenEstimator")
 	}
-	if len(b.Closers) != 1 {
-		t.Fatalf("expected generation-owned upstream idle closer only (disabled catalog, in-memory continuity), got %d", len(b.Closers))
+	if b.Ledger().Len() != 1 {
+		t.Fatalf("expected generation-owned upstream idle closer only (disabled catalog, in-memory continuity), got %d", b.Ledger().Len())
 	}
 	closeRuntimeBuilt(t, b)
 }
@@ -102,36 +96,31 @@ func TestBuild_modelCatalog_enabled_wiresResolversEstimatorAndCloser(t *testing.
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b.CatalogRuntime == nil {
+	if runtimebundle.CandidateCatalogRuntime(b) == nil {
 		t.Fatal("expected CatalogRuntime")
 	}
-	if b.Executor.CatalogResolver == nil || b.Executor.EligibilityResolver == nil || b.Executor.RequestTokenEstimator == nil {
+	if b.Executor().CatalogResolver == nil || b.Executor().EligibilityResolver == nil || b.Executor().RequestTokenEstimator == nil {
 		t.Fatalf("expected catalog wiring on executor: cr=%v el=%v rte=%v",
-			b.Executor.CatalogResolver != nil,
-			b.Executor.EligibilityResolver != nil,
-			b.Executor.RequestTokenEstimator != nil)
+			b.Executor().CatalogResolver != nil,
+			b.Executor().EligibilityResolver != nil,
+			b.Executor().RequestTokenEstimator != nil)
 	}
-	if len(b.Closers) == 0 {
+	if b.Ledger().Len() == 0 {
 		t.Fatal("expected closers")
 	}
 	closeRuntimeBuilt(t, b)
 }
 
-func closeRuntimeBuilt(t *testing.T, b *runtimebundle.Built) {
+func closeRuntimeBuilt(t *testing.T, b *runtimebundle.CandidateHTTPCompile) {
 	t.Helper()
 	if b == nil {
 		return
 	}
-	for i, v := range slices.Backward(b.Closers) {
-		if err := v(); err != nil {
-			t.Fatalf("closer %d: %v", i, err)
-		}
+	if err := b.Close(); err != nil {
+		t.Fatalf("close: %v", err)
 	}
 }
 

@@ -21,7 +21,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestComposeRequestPlane_RouteConflictRejects(t *testing.T) {
+// TestComposeStandardHTTP_RouteConflictRejects proves the canonical composer
+// (invoked by CompileGeneration on the production path) preserves
+// route-conflict rejection behavior (task 3.4–3.5, req 9.1-9.7).
+func TestComposeStandardHTTP_RouteConflictRejects(t *testing.T) {
 	t.Parallel()
 	ps := newStdProcess(t)
 	_, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
@@ -30,7 +33,7 @@ func TestComposeRequestPlane_RouteConflictRejects(t *testing.T) {
 			{ID: "openai-responses", Enabled: true},
 			{ID: "responses-dup", Kind: "openai-responses", Enabled: true},
 		}),
-		Compose: stdhttp.ComposeRequestPlane,
+		Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err == nil {
 		t.Fatal("expected route conflict")
@@ -40,7 +43,7 @@ func TestComposeRequestPlane_RouteConflictRejects(t *testing.T) {
 	}
 }
 
-func TestComposeRequestPlane_ManagementRoutesNotMounted(t *testing.T) {
+func TestComposeStandardHTTP_ManagementRoutesNotMounted(t *testing.T) {
 	t.Parallel()
 	ps := newStdProcess(t)
 	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
@@ -48,7 +51,7 @@ func TestComposeRequestPlane_ManagementRoutesNotMounted(t *testing.T) {
 		Candidate: stubPlaneConfig(t, "mgmt", "m", "mgmt:stub-default", []config.PluginConfig{
 			{ID: "openai-responses", Enabled: true},
 		}),
-		Compose: stdhttp.ComposeRequestPlane,
+		Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("CompileGeneration: %v", err)
@@ -64,13 +67,56 @@ func TestComposeRequestPlane_ManagementRoutesNotMounted(t *testing.T) {
 	}
 }
 
+func TestComposeStandardHTTP_NilInputsRejected(t *testing.T) {
+	t.Parallel()
+	ps := newStdProcess(t)
+	cfg := stubPlaneConfig(t, "nil", "ok", "nil:stub-default", []config.PluginConfig{
+		{ID: "openai-responses", Enabled: true},
+	})
+	cand, err := runtimebundle.CompileCandidate(context.Background(), runtimebundle.GenerationCompileInput{Process: ps, Candidate: cfg})
+	if err != nil {
+		t.Fatalf("CompileCandidate: %v", err)
+	}
+	t.Cleanup(func() { _ = cand.Close() })
+	in := stdhttp.StandardHTTPInput{
+		Core:      stdhttp.HTTPCoreInput{Executor: cand.Executor()},
+		Frontends: stdhttp.HTTPFrontendInput{Registry: cand.PluginRegistry(), Executor: cand.Executor()},
+	}
+	log := testkit.DiscardLogger()
+	cases := []struct {
+		name string
+		ctx  context.Context
+		cfg  *config.Config
+		in   stdhttp.StandardHTTPInput
+		want string
+	}{
+		{name: "nil_ctx", ctx: nil, cfg: cfg, in: in, want: "nil context"},
+		{name: "nil_cfg", ctx: context.Background(), cfg: nil, in: in, want: "nil config"},
+		{name: "nil_executor", ctx: context.Background(), cfg: cfg, in: stdhttp.StandardHTTPInput{Frontends: in.Frontends}, want: "nil executor"},
+		{name: "nil_registry", ctx: context.Background(), cfg: cfg, in: stdhttp.StandardHTTPInput{Core: in.Core}, want: "nil plugin registry"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := stdhttp.ComposeStandardHTTP(tc.ctx, tc.cfg, log, tc.in)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err=%v want substring %q", err, tc.want)
+			}
+		})
+	}
+	_, err = stdhttp.ComposeStandardHTTP(context.Background(), cfg, nil, in)
+	if err == nil || !strings.Contains(err.Error(), "nil logger") {
+		t.Fatalf("nil logger: err=%v", err)
+	}
+}
+
 func TestGenerationDispatcher_CoexistOldNewHandlers(t *testing.T) {
 	t.Parallel()
 	ps := newStdProcess(t)
 	oldBundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: stubPlaneConfig(t, "old", "OLD", "old:stub-default", []config.PluginConfig{{ID: "openai-responses", Enabled: true}}),
-		Compose:   stdhttp.ComposeRequestPlane,
+		Compose:   stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -78,7 +124,7 @@ func TestGenerationDispatcher_CoexistOldNewHandlers(t *testing.T) {
 	newBundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: stubPlaneConfig(t, "new", "NEW", "new:stub-default", []config.PluginConfig{{ID: "openai-responses", Enabled: true}}),
-		Compose:   stdhttp.ComposeRequestPlane,
+		Compose:   stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatal(err)

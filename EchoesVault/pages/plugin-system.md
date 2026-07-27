@@ -21,7 +21,7 @@ Explicit construction at the composition root. No DI containers, no reflection r
 Backend registrations declare credential posture and access scope. `BackendAccessLocalOnly` connectors are rejected when `access.mode: multi_user` is active.
 
 ```
-NewRegistry() -> InstallStandardBundleOn(reg, keys) -> discover connectors -> reg.Build() -> runtimebundle.Built
+NewRegistry() -> InstallStandardBundleOn(reg, keys) -> discover connectors -> runtimebundle.BuildHost -> Host (GenerationRuntime gen 1)
 ```
 
 ## Frontend Plugins (`internal/plugins/frontends/`)

@@ -11,6 +11,8 @@ status: active
 
 ## Operator contract
 
+This is the **one reload contract**. Public/SDK DTOs live in **`pkg/lipsdk/configreload`**. The process **`Host`** from `runtimebundle.BuildHost` owns attempts, generation publication, and shutdown via **`Host.Close`**.
+
 Editing the config file alone has **no** effect. Reload runs only after an explicit trigger:
 
 - `SIGHUP` on Unix-like platforms (does not terminate the process)
@@ -45,7 +47,7 @@ Disabled unless `LIP_RELOAD_MANAGEMENT_ADDRESS` is set (recommended `127.0.0.1:9
 
 ## Shutdown and close
 
-Shutdown rejects new triggers, cancels candidate work, drains HTTP, awaits coordinator idle, drains generations, closes management, then process services. `Runtime.Close` is serialized and retryable after deadline/teardown failure (not `sync.Once`).
+**`Host.Close` is the sole process shutdown coordinator.** Shutdown rejects new triggers, cancels candidate work, drains HTTP, awaits coordinator idle, drains generations, closes management, then process services. Public `Runtime.Close` delegates to `Host.Close` and is serialized and retryable after deadline/teardown failure (not `sync.Once`).
 
 ## Related concepts
 

@@ -25,7 +25,7 @@ When a client later submits an assistant turn without reasoning that the proxy p
 
 Feature plugin id: `reasoning-output-preservation` (registered in `internal/standardplugins`).
 
-On the standard `lipstd` / `runtimebundle.BuildBootstrap` path, one enabled default row is injected when no matching features row is present (same composition pattern as `tool-call-repair`). Explicit opt-out: add a matching row with `enabled: false`, or omit `enabled` (plain-bool decode is false). Any matching instance id or factory kind suppresses injection and preserves the operator row. Custom/nonstandard composition roots that do not call `EnsureReasoningOutputPreservationInConfig` receive no injection. The feature is **not** a mandatory `StandardDistributionRequirements` entry.
+On the standard `lipstd` / `runtimebundle.BuildHost` path, one enabled default row is injected when no matching features row is present (same composition pattern as `tool-call-repair`). Explicit opt-out: add a matching row with `enabled: false`, or omit `enabled` (plain-bool decode is false). Any matching instance id or factory kind suppresses injection and preserves the operator row. Custom/nonstandard composition roots that do not call `EnsureReasoningOutputPreservationInConfig` receive no injection. The feature is **not** a mandatory `StandardDistributionRequirements` entry.
 
 When the feature is not constructed (explicit disabled / non-injected custom root), there is no store, attempt transform, stream observer, hashing, or feature telemetry (D12).
 
@@ -157,7 +157,7 @@ Hard capability: `reasoning_replay`. Every restored dialect must be explicitly s
 
 ## Migration / compatibility
 
-- On the **standard** `lipstd` / `runtimebundle.BuildBootstrap` path, omitting the feature row now receives the injected enabled `restore` defaults above (same injection pattern as `tool-call-repair`). Shipped `config/config.yaml` and root `config.yaml` document that row explicitly.
+- On the **standard** `lipstd` / `runtimebundle.BuildHost` path, omitting the feature row now receives the injected enabled `restore` defaults above (same injection pattern as `tool-call-repair`). Shipped `config/config.yaml` and root `config.yaml` document that row explicitly.
 - Explicit opt-out: add a matching features row with `enabled: false` (or omit `enabled`; plain-bool decode is false). Any matching instance id or factory kind suppresses injection.
 - Custom/nonstandard composition roots that do not call `EnsureReasoningOutputPreservationInConfig` are unchanged (no injection).
 - Installed/enabled still leaves unmatched models inactive for that request — no store I/O, event buffering, restore, or feature telemetry; eligibility remains catalog/rule gated.
@@ -168,7 +168,7 @@ Hard capability: `reasoning_replay`. Every restored dialect must be explicitly s
 
 Follow-up spec: [`.kiro/specs/reasoning-preservation-e2e-validation/`](../.kiro/specs/reasoning-preservation-e2e-validation/) (parent issue [#157](https://github.com/matdev83/go-llm-interactive-proxy/issues/157); parent feature spec [`.kiro/specs/reasoning-output-preservation/`](../.kiro/specs/reasoning-output-preservation/)).
 
-Proofs drive a stateful client transcript and independent backend-request oracle through `runtimebundle.BuildBootstrap` + `stdhttp` + real Chat/Anthropic adapters + protocol emulators (`internal/refbackend`). Failures report seed/mode/turn/structural reason codes only — never reasoning text, signatures, opaque payloads, anchors, or raw bodies.
+Proofs drive a stateful client transcript and independent backend-request oracle through `runtimebundle.BuildHost` + `stdhttp` + real Chat/Anthropic adapters + protocol emulators (`internal/refbackend`). Failures report seed/mode/turn/structural reason codes only — never reasoning text, signatures, opaque payloads, anchors, or raw bodies.
 
 | Suite | Gate | What it covers |
 |-------|------|----------------|

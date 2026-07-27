@@ -10,8 +10,8 @@ import (
 	"sync"
 	"testing"
 
-	coreconfigreload "github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -340,14 +340,14 @@ type prodCoordAdapter struct {
 	coord *RefReloadCoordinator
 }
 
-func (a *prodCoordAdapter) Reload(ctx context.Context, trigger coreconfigreload.ReloadTrigger) coreconfigreload.ReloadResult {
+func (a *prodCoordAdapter) Reload(ctx context.Context, trigger sdkreload.Trigger) sdkreload.Result {
 	res := a.coord.Reload(ctx, ReloadTrigger{
 		Kind:       ReloadTriggerKind(trigger.Kind),
 		AcceptedAt: trigger.AcceptedAt,
 		SafeActor:  trigger.SafeActor,
 	})
-	return coreconfigreload.ReloadResult{
-		Category:           coreconfigreload.ResultCategory(res.Category),
+	return sdkreload.Result{
+		Category:           sdkreload.ResultCategory(res.Category),
 		AttemptID:          res.AttemptID,
 		ActiveGeneration:   res.ActiveGeneration,
 		PreviousGeneration: res.PreviousGeneration,
@@ -358,12 +358,16 @@ func (a *prodCoordAdapter) Reload(ctx context.Context, trigger coreconfigreload.
 	}
 }
 
-func (a *prodCoordAdapter) Status() coreconfigreload.ReloadStatus {
+func (a *prodCoordAdapter) FixedSourcePath() string {
+	return a.coord.FixedSourcePath()
+}
+
+func (a *prodCoordAdapter) Status() sdkreload.Status {
 	st := a.coord.Status()
-	return coreconfigreload.ReloadStatus{
+	return sdkreload.Status{
 		ActiveGeneration: st.ActiveGeneration,
-		LastResult: coreconfigreload.ReloadResult{
-			Category:           coreconfigreload.ResultCategory(st.LastResult.Category),
+		LastResult: sdkreload.Result{
+			Category:           sdkreload.ResultCategory(st.LastResult.Category),
 			AttemptID:          st.LastResult.AttemptID,
 			ActiveGeneration:   st.LastResult.ActiveGeneration,
 			PreviousGeneration: st.LastResult.PreviousGeneration,
@@ -372,7 +376,6 @@ func (a *prodCoordAdapter) Status() coreconfigreload.ReloadStatus {
 			ReasonCategory:     st.LastResult.ReasonCategory,
 			CoalescedSignals:   st.LastResult.CoalescedSignals,
 		},
-		Busy:            st.Busy,
-		FixedSourcePath: st.FixedSourcePath,
+		Busy: st.Busy,
 	}
 }

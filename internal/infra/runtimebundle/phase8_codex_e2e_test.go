@@ -19,12 +19,13 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	refbackend "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openaicodex"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-func TestPhase8_CodexHTTPExternalViaBuildBootstrap(t *testing.T) {
+func TestPhase8_CodexHTTPExternalViaBuildHost(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
@@ -37,36 +38,29 @@ func TestPhase8_CodexHTTPExternalViaBuildBootstrap(t *testing.T) {
 	pidFile := fakeCLI + ".pid"
 	childPIDFile := fakeCLI + ".child.pid"
 	cfgPath := writeCodexDiscoveryConfig(t, pluginRoot, srv.URL, true, fakeCLI)
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath: cfgPath,
-		Mode:       runtimebundle.BootstrapServe,
-		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
+	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
+		ConfigPath:      cfgPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
-		t.Fatalf("BuildBootstrap: %v", err)
+		t.Fatalf("BuildHost: %v", err)
 	}
-	t.Cleanup(func() {
-		if res.Built != nil {
-			for i := len(res.Built.Closers) - 1; i >= 0; i-- {
-				_ = res.Built.Closers[i]()
-			}
-		}
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(context.Background())
-		}
-	})
-	if !res.Registry.HasBackend("openai-codex") || !res.Registry.HasBackend("openai-codex-app-server") {
+	hostServeCleanup(t, host)
+	reg := runtimebundle.HostProcess(host).FactoryCatalog
+	if reg == nil || !reg.HasBackend("openai-codex") || !reg.HasBackend("openai-codex-app-server") {
 		t.Fatalf("discovered kinds missing: http=%v appserver=%v",
-			res.Registry.HasBackend("openai-codex"), res.Registry.HasBackend("openai-codex-app-server"))
+			reg != nil && reg.HasBackend("openai-codex"), reg != nil && reg.HasBackend("openai-codex-app-server"))
 	}
-	httpBE, ok := res.Built.Executor.Backends["codex-http"]
+	backends := hostActiveExecutorBackends(t, host)
+	httpBE, ok := backends["codex-http"]
 	if !ok || httpBE.Open == nil {
-		t.Fatalf("backends=%v", keysOf(res.Built.Executor.Backends))
+		t.Fatalf("backends=%v", keysOf(backends))
 	}
-	appBE, ok := res.Built.Executor.Backends["codex-app"]
+	appBE, ok := backends["codex-app"]
 	if !ok || appBE.Open == nil {
-		t.Fatalf("backends=%v", keysOf(res.Built.Executor.Backends))
+		t.Fatalf("backends=%v", keysOf(backends))
 	}
 
 	stream, err := httpBE.Open(ctx, lipapi.Call{
@@ -124,14 +118,14 @@ func TestPhase8_CodexConfiguredMissingFails(t *testing.T) {
 	defer cancel()
 	emptyPlugins := t.TempDir()
 	cfgPath := writeCodexDiscoveryConfig(t, emptyPlugins, "http://127.0.0.1:9", true, "")
-	_, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath: cfgPath,
-		Mode:       runtimebundle.BootstrapServe,
-		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
+	_, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
+		ConfigPath:      cfgPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err == nil {
-		t.Fatal("expected configured-missing codex to fail bootstrap")
+		t.Fatal("expected configured-missing codex to fail BuildHost")
 	}
 }
 

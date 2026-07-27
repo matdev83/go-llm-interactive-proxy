@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -21,7 +20,8 @@ const (
 
 const aLegCancelPrefix = "/lip/v1/a-legs/"
 
-func mountALegCancel(mux *http.ServeMux, exec *runtime.Executor) {
+func mountALegCancel(mux *http.ServeMux, frontends HTTPFrontendInput) {
+	exec := frontends.Executor
 	mux.HandleFunc(aLegCancelPrefix, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

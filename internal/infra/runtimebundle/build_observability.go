@@ -12,7 +12,7 @@ import (
 )
 
 // observabilityRuntime holds the metrics bundle and the shared upstream HTTP
-// client produced by [buildObservabilityRuntime]. Neither resource owns a closer.
+// client produced by [buildGenerationObservability]. Neither resource owns a closer.
 type observabilityRuntime struct {
 	Bundle   *metrics.Bundle
 	Upstream *http.Client
@@ -57,14 +57,6 @@ func buildGenerationObservability(bctx buildContext, bundle *metrics.Bundle) obs
 		})
 	}
 	return observabilityRuntime{Bundle: bundle, Upstream: upstream}
-}
-
-// buildObservabilityRuntime builds the metrics bundle (when enabled) and the
-// shared upstream HTTP client. Kept for compatibility with callers that still
-// assemble both together; prefer process metrics + [buildGenerationObservability].
-func buildObservabilityRuntime(bctx buildContext) observabilityRuntime {
-	bundle := buildProcessMetricsBundle(bctx.Cfg, bctx.PostgresPools.Stats)
-	return buildGenerationObservability(bctx, bundle)
 }
 
 // wrapUpstreamClient wraps an upstream [http.Client] transport with the metrics

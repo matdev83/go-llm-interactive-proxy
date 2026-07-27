@@ -16,7 +16,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/dbmigrate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 )
 
@@ -269,7 +268,17 @@ func parseBoolFlag(name, raw string) (bool, error) {
 }
 
 func runServeCommand(ctx context.Context, opts CommandOptions) int {
-	if err := validateServeMultiUserGate(ctx, opts.ConfigPath, opts.MultiUser, opts.StreamRecovery); err != nil {
+	compose := stdhttp.ComposeStandardHTTP
+	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
+		ConfigPath:              opts.ConfigPath,
+		Mandatory:               mandatoryStandardPlugins(),
+		LogWriter:               opts.Output,
+		StreamRecoveryOverrides: opts.StreamRecovery,
+		HandlerComposer:         compose,
+		EnforceMultiUserCLIGate: true,
+		MultiUser:               opts.MultiUser,
+	})
+	if err != nil {
 		if errors.Is(err, accessmode.ErrMultiUserFlagRequired) || errors.Is(err, accessmode.ErrMultiUserFlagInconsistent) {
 			_, _ = fmt.Fprintf(opts.ErrorOut, "lipstd: %v\n", err)
 			return 2
@@ -277,109 +286,62 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
 		return 1
 	}
-	compose := stdhttp.ComposeRequestPlane
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath:              opts.ConfigPath,
-		Mode:                    runtimebundle.BootstrapServe,
-		Mandatory:               mandatoryStandardPlugins(),
-		LogWriter:               opts.Output,
-		StreamRecoveryOverrides: opts.StreamRecovery,
-		HandlerComposer:         compose,
-	})
+	// Every post-BuildHost path — startup failure and normal serve return alike
+	// — tears down through the one host close seam, which owns tracing last.
+	if err := logBootstrapAccessAuth(ctx, host.Logger(), host.Config()); err != nil {
+		cleanupErr := closeServeHostAfterBuild(ctx, host, nil)
+		host.Logger().ErrorContext(ctx, "lipstd: bootstrap access/auth", "error", errors.Join(err, cleanupErr))
+		return 1
+	}
+	mgmt, err := startManagementServer(ctx, host.Config(), host.Logger(), host)
 	if err != nil {
-		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
+		cleanupErr := closeServeHostAfterBuild(ctx, host, nil)
+		host.Logger().ErrorContext(ctx, "lipstd: management server", "error", errors.Join(err, cleanupErr))
 		return 1
 	}
-	defer func() { deferBootstrapTracingShutdown(ctx, &res) }()
-	if err := logBootstrapAccessAuth(ctx, res.Logger, res.Config); err != nil {
-		cleanupErr := serveStartupRollback(ctx, &res, nil, nil)
-		res.Logger.ErrorContext(ctx, "lipstd: bootstrap access/auth", "error", errors.Join(err, cleanupErr))
-		return 1
-	}
-	host, err := runtimebundle.AttachReloadHost(ctx, res, opts.ConfigPath, compose)
-	if err != nil {
-		cleanupErr := serveStartupRollback(ctx, &res, nil, nil)
-		res.Logger.ErrorContext(ctx, "lipstd: reload host", "error", errors.Join(err, cleanupErr))
-		return 1
-	}
-	mgmt, err := startManagementServer(ctx, res, host.Coordinator)
-	if err != nil {
-		cleanupErr := serveStartupRollback(ctx, &res, host, nil)
-		res.Logger.ErrorContext(ctx, "lipstd: management server", "error", errors.Join(err, cleanupErr))
-		return 1
-	}
-	// INT/TERM shut down the server; SIGHUP delivers to the real coordinator (never nil).
-	sigCtx, stop := startServeSignalHandling(ctx, host.Coordinator)
+	// INT/TERM shut down the server; SIGHUP delivers through the Host reload seam.
+	sigCtx, stop := startServeSignalHandling(ctx, host)
 	defer stop()
 	if err := stdhttp.RunWithGenerationHost(sigCtx, stdhttp.GenerationHostInput{
-		Config:      res.Config,
-		Log:         res.Logger,
-		Manager:     res.GenerationManager,
-		Process:     res.ProcessServices,
-		Coordinator: host.Coordinator,
-		Management:  mgmt,
+		Config:     host.Config(),
+		Log:        host.Logger(),
+		Host:       host,
+		Management: mgmt,
 	}); err != nil {
-		res.Logger.ErrorContext(sigCtx, "server stopped", "error", err)
+		host.Logger().ErrorContext(sigCtx, "server stopped", "error", err)
 		return 1
 	}
 	return 0
 }
 
-// validateServeMultiUserGate enforces the --multi-user CLI flag consistency
-// against access.mode for serve mode. It is a CLI-layer concern: it loads the
-// config through the shared strict effective pipeline, resolves the effective
-// access mode, and applies [accessmode.ValidateServeModeGate] before heavy
-// runtime assembly in [runtimebundle.BuildBootstrap]. Runtime posture/security
-// validation (backend access scopes, credential modes) stays in runtimebundle.Build.
-func validateServeMultiUserGate(ctx context.Context, configPath string, multiUserFlag *bool, streamOverrides config.StreamRecoveryOverrides) error {
-	eff, err := runtimebundle.LoadBootstrapEffective(ctx, configPath, streamOverrides)
-	if err != nil {
-		return err
-	}
-	mode, err := eff.Config.EffectiveAccessMode()
-	if err != nil {
-		return fmt.Errorf("bootstrap access/auth: %w", err)
-	}
-	return accessmode.ValidateServeModeGate(mode, multiUserFlag)
-}
-
+// runCheckConfigCommand performs one true unpublished dry-run validation
+// (design Dry-Run Validation; req 5.1-5.6). [runtimebundle.ValidateDistribution]
+// owns and closes every resource it acquires internally — no Manager,
+// generation ID, active pointer, listener, or retirement worker is ever
+// constructed, and no cleanup is left to this command.
 func runCheckConfigCommand(ctx context.Context, opts CommandOptions) int {
-	compose := stdhttp.ComposeRequestPlane
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
+	err := runtimebundle.ValidateDistribution(ctx, runtimebundle.ValidateDistributionInput{
 		ConfigPath:              opts.ConfigPath,
-		Mode:                    runtimebundle.BootstrapServe,
 		Mandatory:               mandatoryStandardPlugins(),
-		LogWriter:               io.Discard,
 		StreamRecoveryOverrides: opts.StreamRecovery,
-		HandlerComposer:         compose,
+		HandlerComposer:         stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "configuration invalid: %v\n", err)
 		return 1
-	}
-	defer func() { deferBootstrapTracingShutdown(ctx, &res) }()
-	// check-config uses the same CompileGeneration path as serve/reload, then
-	// rolls back without listening (design ValidationDryRun).
-	if res.GenerationManager != nil {
-		_ = res.GenerationManager.ShutdownDetached(context.WithoutCancel(ctx), runtimehost.NewLifecycleWorker())
-	}
-	if res.ProcessServices != nil {
-		_ = res.ProcessServices.Close()
 	}
 	_, _ = fmt.Fprintln(opts.Output, "configuration is valid")
 	return 0
 }
 
 func runRoutesCommand(ctx context.Context, opts CommandOptions) int {
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{ConfigPath: opts.ConfigPath, Mode: runtimebundle.BootstrapInspect, Mandatory: mandatoryStandardPlugins(), LogWriter: io.Discard, StreamRecoveryOverrides: opts.StreamRecovery})
+	snap, err := runtimebundle.InspectRoutes(ctx, runtimebundle.InspectInput{
+		ConfigPath:              opts.ConfigPath,
+		Mandatory:               mandatoryStandardPlugins(),
+		StreamRecoveryOverrides: opts.StreamRecovery,
+	})
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
-		return 1
-	}
-	defer func() { deferBootstrapTracingShutdown(ctx, &res) }()
-	snap, err := runtimebundle.RoutesSnapshotFrom(res.Config, res.Registry)
-	if err != nil {
-		_, _ = fmt.Fprintf(opts.ErrorOut, "routes: %v\n", err)
 		return 1
 	}
 	enc := json.NewEncoder(opts.Output)
@@ -392,15 +354,13 @@ func runRoutesCommand(ctx context.Context, opts CommandOptions) int {
 }
 
 func runInventoryCommand(ctx context.Context, opts CommandOptions) int {
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{ConfigPath: opts.ConfigPath, Mode: runtimebundle.BootstrapInspect, Mandatory: mandatoryStandardPlugins(), LogWriter: io.Discard, StreamRecoveryOverrides: opts.StreamRecovery})
+	snap, err := runtimebundle.InspectInventory(ctx, runtimebundle.InspectInput{
+		ConfigPath:              opts.ConfigPath,
+		Mandatory:               mandatoryStandardPlugins(),
+		StreamRecoveryOverrides: opts.StreamRecovery,
+	})
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
-		return 1
-	}
-	defer func() { deferBootstrapTracingShutdown(ctx, &res) }()
-	snap, err := runtimebundle.InventorySnapshotForOperator(ctx, res.Config, res.Registry, res.Registrations)
-	if err != nil {
-		_, _ = fmt.Fprintf(opts.ErrorOut, "inventory: %v\n", err)
 		return 1
 	}
 	enc := json.NewEncoder(opts.Output)
@@ -413,17 +373,17 @@ func runInventoryCommand(ctx context.Context, opts CommandOptions) int {
 }
 
 func runInspectCommand(ctx context.Context, opts CommandOptions) int {
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath: opts.ConfigPath, Mode: runtimebundle.BootstrapInspect,
-		Mandatory: mandatoryStandardPlugins(), LogWriter: io.Discard,
+	prep, err := runtimebundle.PrepareInspect(ctx, runtimebundle.InspectInput{
+		ConfigPath:              opts.ConfigPath,
+		Mandatory:               mandatoryStandardPlugins(),
 		StreamRecoveryOverrides: opts.StreamRecovery,
 	})
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
 		return 1
 	}
-	defer func() { deferBootstrapTracingShutdown(ctx, &res) }()
-	rep, inspectErr := runtimebundle.InspectBackendPlugins(res.Config, res.Registry)
+	defer func() { _ = prep.Close() }()
+	rep, inspectErr := runtimebundle.InspectBackendPlugins(prep.Config, prep.Registry)
 	enc := json.NewEncoder(opts.Output)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(rep); err != nil {
@@ -443,17 +403,17 @@ func runDoctorCommand(ctx context.Context, opts CommandOptions) int {
 		_, _ = fmt.Fprintln(opts.ErrorOut, "lipstd doctor: --instance <configured-backend-id> is required")
 		return 2
 	}
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath: opts.ConfigPath, Mode: runtimebundle.BootstrapInspect,
-		Mandatory: mandatoryStandardPlugins(), LogWriter: io.Discard,
+	prep, err := runtimebundle.PrepareInspect(ctx, runtimebundle.InspectInput{
+		ConfigPath:              opts.ConfigPath,
+		Mandatory:               mandatoryStandardPlugins(),
 		StreamRecoveryOverrides: opts.StreamRecovery,
 	})
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
 		return 1
 	}
-	defer func() { deferBootstrapTracingShutdown(ctx, &res) }()
-	rep, err := runtimebundle.DoctorBackendPlugin(ctx, res.Config, res.Registry, instanceID, nil)
+	defer func() { _ = prep.Close() }()
+	rep, err := runtimebundle.DoctorBackendPlugin(ctx, prep.Config, prep.Registry, instanceID, prep.PluginHost())
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "doctor: %v\n", err)
 		return 1

@@ -11,7 +11,6 @@ import (
 
 	coreconfig "github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
@@ -107,11 +106,10 @@ func TestStackHTTPHandler_testOuterWrap_panicBeforeCommit_outerOperationInLog(t 
 		Logging:       coreconfig.LoggingConfig{AccessLog: false},
 		Observability: coreconfig.ObservabilityConfig{Tracing: coreconfig.TracingConfig{Enabled: false}},
 	}
-	built := &runtimebundle.Built{}
 	h := stackHTTPHandler(stackHTTPInput{
 		Cfg:      cfg,
 		Log:      log,
-		Built:    built,
+		Security: HTTPSecurityInput{},
 		TraceGen: diag.NewTraceIDGenerator(),
 		Inner:    http.NewServeMux(),
 		HTTPProm: nil,
@@ -147,11 +145,10 @@ func TestStackHTTPHandler_testOuterWrap_panicAfterInnerCommit_noSecondBodyOrStat
 		Logging:       coreconfig.LoggingConfig{AccessLog: false},
 		Observability: coreconfig.ObservabilityConfig{Tracing: coreconfig.TracingConfig{Enabled: false}},
 	}
-	built := &runtimebundle.Built{}
 	h := stackHTTPHandler(stackHTTPInput{
 		Cfg:      cfg,
 		Log:      testkit.DiscardLogger(),
-		Built:    built,
+		Security: HTTPSecurityInput{},
 		TraceGen: diag.NewTraceIDGenerator(),
 		Inner:    mux,
 		HTTPProm: nil,

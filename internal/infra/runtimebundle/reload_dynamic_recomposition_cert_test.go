@@ -93,24 +93,28 @@ models:
 	}
 
 	oldBundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: oldCfg, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: oldCfg, Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile old: %v", err)
 	}
 	newBundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: newCfg, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: newCfg, Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile new: %v", err)
 	}
 
 	ids := map[string]bool{}
-	for _, id := range newBundle.BackendIDs() {
+	newGB, ok := newBundle.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
+	for _, id := range newGB.BackendIDs() {
 		ids[id] = true
 	}
 	if !ids["dyn-new"] || !ids["dyn-generic"] {
-		t.Fatalf("new backends missing: %v", newBundle.BackendIDs())
+		t.Fatalf("new backends missing: %v", newGB.BackendIDs())
 	}
 	limitCand, err := runtimebundle.CompileCandidate(context.Background(), runtimebundle.GenerationCompileInput{
 		Process: ps, Bus: hooks.New(hooks.Config{}), Candidate: newCfg,
@@ -119,8 +123,8 @@ models:
 		t.Fatalf("compile limits candidate: %v", err)
 	}
 	t.Cleanup(func() { _ = limitCand.Close() })
-	if limitCand.Executor.MaxPendingWireEvents != 77 {
-		t.Fatalf("request-plane limit not recomposed: %d", limitCand.Executor.MaxPendingWireEvents)
+	if limitCand.Executor().MaxPendingWireEvents != 77 {
+		t.Fatalf("request-plane limit not recomposed: %d", limitCand.Executor().MaxPendingWireEvents)
 	}
 
 	m := runtimehost.NewManager(4, nil)
@@ -180,10 +184,10 @@ models:
 		t.Fatalf("compile new auth: %v", err)
 	}
 	t.Cleanup(func() { _ = newCand.Close() })
-	assertDynBearer(t, oldCand.HTTPAuthProviders, "dynamic-old-key-16chars", true)
-	assertDynBearer(t, oldCand.HTTPAuthProviders, "dynamic-new-key-16chars", false)
-	assertDynBearer(t, newCand.HTTPAuthProviders, "dynamic-new-key-16chars", true)
-	assertDynBearer(t, newCand.HTTPAuthProviders, "dynamic-old-key-16chars", false)
+	assertDynBearer(t, runtimebundle.CandidateHTTPAuthProviders(oldCand), "dynamic-old-key-16chars", true)
+	assertDynBearer(t, runtimebundle.CandidateHTTPAuthProviders(oldCand), "dynamic-new-key-16chars", false)
+	assertDynBearer(t, runtimebundle.CandidateHTTPAuthProviders(newCand), "dynamic-new-key-16chars", true)
+	assertDynBearer(t, runtimebundle.CandidateHTTPAuthProviders(newCand), "dynamic-old-key-16chars", false)
 
 	// Request-limit recomposition: new generation rejects oversized body.
 	big := fmt.Sprintf(`{"model":"stub-default","stream":false,"input":[{"role":"user","content":%q}]}`, strings.Repeat("x", 256))
@@ -242,7 +246,7 @@ func TestReloadDynamic_DiscoveredFrozen_NoInstallNoWatcher(t *testing.T) {
 	}
 
 	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: cand, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: cand, Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("activate discovered kind: %v", err)

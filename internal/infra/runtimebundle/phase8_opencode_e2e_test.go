@@ -17,12 +17,13 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-func TestPhase8_OpenCodeExternalViaBuildBootstrap(t *testing.T) {
+func TestPhase8_OpenCodeExternalViaBuildHost(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
@@ -52,35 +53,29 @@ func TestPhase8_OpenCodeExternalViaBuildBootstrap(t *testing.T) {
 
 	pluginRoot := bpkit.StageOpenCode(t)
 	cfgPath := writeOpenCodeDiscoveryConfig(t, pluginRoot, goEmu.URL, zenEmu.URL, true)
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath: cfgPath,
-		Mode:       runtimebundle.BootstrapServe,
-		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
+	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
+		ConfigPath:      cfgPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
-		t.Fatalf("BuildBootstrap: %v", err)
+		t.Fatalf("BuildHost: %v", err)
 	}
-	t.Cleanup(func() {
-		if res.Built != nil {
-			for i := len(res.Built.Closers) - 1; i >= 0; i-- {
-				_ = res.Built.Closers[i]()
-			}
-		}
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(context.Background())
-		}
-	})
-	if !res.Registry.HasBackend("opencode-go") || !res.Registry.HasBackend("opencode-zen") {
-		t.Fatalf("discovered kinds missing: go=%v zen=%v", res.Registry.HasBackend("opencode-go"), res.Registry.HasBackend("opencode-zen"))
+	hostServeCleanup(t, host)
+	reg := runtimebundle.HostProcess(host).FactoryCatalog
+	if reg == nil || !reg.HasBackend("opencode-go") || !reg.HasBackend("opencode-zen") {
+		t.Fatalf("discovered kinds missing: go=%v zen=%v",
+			reg != nil && reg.HasBackend("opencode-go"), reg != nil && reg.HasBackend("opencode-zen"))
 	}
-	goBE, ok := res.Built.Executor.Backends["ocgo"]
+	backends := hostActiveExecutorBackends(t, host)
+	goBE, ok := backends["ocgo"]
 	if !ok || goBE.Open == nil {
-		t.Fatalf("backends=%v", keysOf(res.Built.Executor.Backends))
+		t.Fatalf("backends=%v", keysOf(backends))
 	}
-	zenBE, ok := res.Built.Executor.Backends["oczen"]
+	zenBE, ok := backends["oczen"]
 	if !ok || zenBE.Open == nil {
-		t.Fatalf("backends=%v", keysOf(res.Built.Executor.Backends))
+		t.Fatalf("backends=%v", keysOf(backends))
 	}
 
 	goStream, err := goBE.Open(ctx, lipapi.Call{
@@ -132,14 +127,14 @@ func TestPhase8_OpenCodeConfiguredMissingFails(t *testing.T) {
 	defer cancel()
 	emptyPlugins := t.TempDir()
 	cfgPath := writeOpenCodeDiscoveryConfig(t, emptyPlugins, "http://127.0.0.1:9", "http://127.0.0.1:9", true)
-	_, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath: cfgPath,
-		Mode:       runtimebundle.BootstrapServe,
-		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
+	_, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
+		ConfigPath:      cfgPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err == nil {
-		t.Fatal("expected configured-missing opencode to fail bootstrap")
+		t.Fatal("expected configured-missing opencode to fail BuildHost")
 	}
 }
 

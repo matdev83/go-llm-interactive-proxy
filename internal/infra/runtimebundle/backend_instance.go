@@ -62,9 +62,7 @@ func (b *BackendInstance) Start(ctx context.Context) error {
 	if b == nil || b.hooks.Start == nil {
 		return nil
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = ctxOrBackground(ctx)
 	b.startOnce.Do(func() {
 		b.startAttempted.Store(true)
 		b.startErr = b.hooks.Start(ctx)
@@ -76,12 +74,19 @@ func (b *BackendInstance) Start(ctx context.Context) error {
 }
 
 // Close stops optional lifecycle then closes the backend exactly once (req 8.9).
+// Idle-transport cleanup runs before Stop/backend Close so generation release
+// ordering stays correct when BackendInstance.Close is the ledger callback.
 func (b *BackendInstance) Close() error {
 	if b == nil {
 		return nil
 	}
 	b.closeOnce.Do(func() {
 		var out error
+		if b.hooks.CleanupIdleTransports != nil {
+			if err := b.hooks.CleanupIdleTransports(context.Background()); err != nil {
+				out = errors.Join(out, err)
+			}
+		}
 		if b.hooks.Stop != nil && (b.hooks.Start == nil || b.startAttempted.Load()) {
 			if err := b.hooks.Stop(context.Background()); err != nil {
 				out = errors.Join(out, err)
@@ -102,10 +107,7 @@ func (b *BackendInstance) CleanupIdleTransports(ctx context.Context) error {
 	if b == nil || b.hooks.CleanupIdleTransports == nil {
 		return nil
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return b.hooks.CleanupIdleTransports(ctx)
+	return b.hooks.CleanupIdleTransports(ctxOrBackground(ctx))
 }
 
 // PreflightCapability runs an optional non-billable readiness probe.
@@ -114,10 +116,7 @@ func (b *BackendInstance) PreflightCapability(ctx context.Context) (BackendPrefl
 	if b == nil || b.hooks.PreflightCapability == nil {
 		return BackendPreflightResult{}, ErrPreflightUnsupported
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	res, err := b.hooks.PreflightCapability(ctx)
+	res, err := b.hooks.PreflightCapability(ctxOrBackground(ctx))
 	if err != nil {
 		return BackendPreflightResult{}, err
 	}

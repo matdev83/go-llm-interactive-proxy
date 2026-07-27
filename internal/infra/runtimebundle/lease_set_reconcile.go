@@ -36,9 +36,7 @@ func reconcileUncertainLeaseSets(ctx context.Context, conc *concurrencyapp.Servi
 	if conc == nil {
 		return nil
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = ctxOrBackground(ctx)
 	ids, err := conc.ReconcileUncertainSets(ctx)
 	if err != nil {
 		return fmt.Errorf("runtimebundle: reconcile uncertain lease sets: %w", err)

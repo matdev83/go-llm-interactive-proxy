@@ -4,48 +4,26 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
-	"sync"
-	"sync/atomic"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
-	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
-	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
-	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
-	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
-// GenerationCompileInput is the non-owning input to [CompileCandidate] /
+// GenerationCompileInput is the non-owning input to [compileCandidate] /
 // [CompileGeneration]. Process must outlive the candidate; candidate Close must
 // not Close Process.
 type GenerationCompileInput struct {
 	Process *ProcessServices
 	Bus     *hooks.Bus
 	// Candidate is the isolated effective configuration for this compile.
-	// When nil, Process startup config is used (compatibility with [Build]).
+	// When nil, Process startup config is used as the canonical startup-candidate default.
 	Candidate *config.Config
 	// CandidateOpts supplies generation-owned options (feature lifecycles /
 	// extensions) without mutating Process startup options. Process-fixed
@@ -53,7 +31,7 @@ type GenerationCompileInput struct {
 	// sourced from ProcessServices.
 	CandidateOpts *BuildOptions
 	// Compose builds the request-plane http.Handler without binding a listener.
-	// Required by [CompileGeneration]; unused by [CompileCandidate].
+	// Required by [CompileGeneration]; unused by [compileCandidate].
 	Compose HandlerComposer
 	// LiveFactoryKinds counts factory kinds held by active/retained generations.
 	// Used to reject shared-process exclusive kinds before publication (req 8.8).
@@ -62,107 +40,9 @@ type GenerationCompileInput struct {
 	FaultInject CandidateFaultInject
 }
 
-// CandidateRuntime holds generation-owned assembly produced by [CompileCandidate].
-// Process service fields are non-owning references shared across candidates.
-type CandidateRuntime struct {
-	Executor              *runtime.Executor
-	Store                 b2bua.Store
-	UpstreamHTTP          *http.Client
-	RoutePrefixes         []string
-	DecodeAdmission       lipsdk.DecodeAdmission
-	PluginRegistry        *pluginreg.Registry
-	DatabasePools         *db.PoolRegistry
-	Metrics               *metrics.Bundle
-	RuntimeSnapshot       *extensions.RequestRuntimeSnapshot
-	HTTPAuthProviders     []httpauth.Provider
-	SecureSessionStore    ssessionapp.Store
-	AuthEventDispatcher   *auth.EventDispatcher
-	CatalogRuntime        *modelcatalog.CatalogRuntime
-	ModelRegistry         *modelregistry.Registry
-	ModelRegistryRuntime  *modelregistry.Runtime
-	TokenAccountingAdmin  *accountingapp.Service
-	ControlPlaneQueries   *controlplane.QueryService
-	ControlPlaneStatus    *controlplane.Status
-	ControlPlaneRetention *controlplane.RetentionController
-	UsageAuthority        *authorityapp.Service
-	ConcurrencyAuthority  *concurrencyapp.Service
-	SnapshotGeneration    *snapshotgen.Publisher
-	SnapshotController    *SnapshotController
-	MeteringQuerier       metering.Querier
-	ReadinessReport       *controlplane.ReadinessReportService
-	SecretGuardInventory  *diag.InventoryExtras
-	TerminalWorkProcessor *terminalworkapp.Processor
-	TerminalWorkRegistry  *terminalworkapp.Registry
-	TerminalWorkQueries   *terminalworkapp.QueryService
-	TerminalWorkMetrics   *terminalworkapp.MetricsObserver
-	EffectiveDefaultRoute string
-
-	// ProcessTracingShutdown is intentionally always nil on candidates:
-	// tracing ownership stays on ProcessServices / bootstrap (req 6.4, 6.10).
-	ProcessTracingShutdown func(context.Context) error
-
-	// Closers contains generation-owned teardown only (legacy view of Ledger).
-	Closers []func() error
-	// Ledger owns generation resources for rollback/quiesce/close (task 3.2).
-	Ledger *ResourceLedger
-
-	closeOnce   sync.Once
-	closeErr    error
-	quiesceOnce sync.Once
-	quiesceErr  error
-	didQuiesce  atomic.Bool
-
-	terminalWorkReady func(context.Context) error
-	terminalWorkRT    *terminalWorkRuntime
-}
-
-// NewCandidateRuntimeForTest builds a minimal candidate bound to ledger (tests).
-func NewCandidateRuntimeForTest(ledger *ResourceLedger) *CandidateRuntime {
-	c := &CandidateRuntime{Ledger: ledger}
-	if ledger != nil {
-		c.Closers = ledger.LegacyClosers()
-	}
-	return c
-}
-
-// Quiesce stops admission-independent generation workers once (req 10.5).
-func (c *CandidateRuntime) Quiesce(ctx context.Context) error {
-	if c == nil {
-		return nil
-	}
-	c.quiesceOnce.Do(func() {
-		c.didQuiesce.Store(true)
-		if c.Ledger != nil {
-			c.quiesceErr = c.Ledger.Quiesce(ctx)
-		}
-	})
-	return c.quiesceErr
-}
-
-// Close disposes generation-owned resources in reverse order.
-// Unpublished discard / compile failure uses full ledger rollback; after Quiesce,
-// only remaining close-phase resources are released. Never closes ProcessServices.
-func (c *CandidateRuntime) Close() error {
-	if c == nil {
-		return nil
-	}
-	c.closeOnce.Do(func() {
-		if c.Ledger != nil {
-			if c.didQuiesce.Load() {
-				c.closeErr = c.Ledger.Close(context.Background())
-			} else {
-				c.closeErr = c.Ledger.Rollback(context.Background())
-			}
-			return
-		}
-		c.closeErr = disposeClosers(c.Closers)
-	})
-	return c.closeErr
-}
-
-// CompileCandidate builds one generation-owned candidate against shared process services.
+// compileCandidate builds one generation-owned candidate against shared process services.
 // On failure, only candidate-acquired resources are disposed; Process survives.
-func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*CandidateRuntime, error) {
+func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidateAssembly, error) {
 	if in.Process == nil {
 		return nil, fmt.Errorf("runtimebundle: nil ProcessServices")
 	}
@@ -183,9 +63,9 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 	// Classify the candidate against the process baseline before any generation
 	// resource acquisition (req 3.5, 7.5): a startup-only/process-topology
 	// change fails with a typed RestartRequiredError before publication. Skipped
-	// when the caller reused the process config (legacy [Build] compatibility
-	// path, in.Candidate == nil) or when the candidate is the identical config
-	// pointer already known compatible with itself.
+	// when the caller reused the process startup config (in.Candidate == nil) or
+	// when the candidate is the identical config pointer already known compatible
+	// with itself.
 	if in.Candidate != nil && ps.cfg != nil && cfg != ps.cfg {
 		if _, err := configreload.Classify(ps.cfg, cfg); err != nil {
 			return nil, err
@@ -232,13 +112,12 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 		ExplicitCandidate: in.Candidate != nil,
 	}
 
-	var closers []func() error
-	fail := func(err error) (*CandidateRuntime, error) {
+	fail := func(err error) error {
 		rollErr := ledger.Rollback(parent)
 		if rollErr != nil {
-			return nil, errors.Join(err, rollErr)
+			return errors.Join(err, rollErr)
 		}
-		return nil, err
+		return err
 	}
 	injectFault := func(boundary string) error {
 		if in.FaultInject.After != boundary {
@@ -252,7 +131,7 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 
 	sec, err := buildSecurityRuntime(bctx, ps.controlPlane)
 	if err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 	var regs []lipsdk.Registration
 	if cfg != nil {
@@ -260,17 +139,17 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 	}
 	sg, err := buildSecretGuardRuntime(cfg, log, opts, regs)
 	if err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 
 	obs := buildGenerationObservability(bctx, ps.Metrics)
 
-	model, closers, err := buildModelRuntime(bctx, obs.Upstream, closers)
+	model, err := buildModelRuntime(bctx, obs.Upstream)
 	if err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 	if err := injectFault("model"); err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 
 	nowFn := time.Now
@@ -286,9 +165,9 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 	ext := buildExtensionRuntime(bctx, nowFn, func() auxreq.ExecutorRunner { return exec }, ps.controlPlane, ps.policyObs, sg, extState)
 	backendIDs, err := BackendStateIdentitiesFromConfig(cfg)
 	if err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
-	execRun, closers, err := buildExecutorRuntime(executorBuildInput{
+	execRun, err := buildExecutorRuntime(executorBuildInput{
 		Bctx:               bctx,
 		NowFn:              nowFn,
 		Ext:                ext,
@@ -305,24 +184,24 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 		AccountingStores:   ps.accountingStores,
 		Metering:           ps.meteringRT,
 		BackendIdentities:  backendIDs,
-	}, closers)
+	})
 	if err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 	if err := AdaptOverlapSafeLifecycles(ledger, opts.FeatureLifecycles); err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 	if err := injectFault("prepare"); err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 	if err := ledger.Prepare(parent); err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 	if err := injectFault("activate"); err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 	if err := ledger.Activate(parent); err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 
 	exec = execRun.Exec
@@ -331,110 +210,50 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 		twReady = ps.terminalWorkRT.checkReady
 	}
 
-	// Prefer ledger-backed closers so Built/Close stay idempotent with Rollback.
-	if n := ledger.Len(); n > 0 {
-		closers = ledger.LegacyClosers()
-	}
-
-	return &CandidateRuntime{
-		Executor:               execRun.Exec,
-		Store:                  ps.Continuity,
-		Closers:                closers,
-		Ledger:                 ledger,
-		UpstreamHTTP:           obs.Upstream,
-		RoutePrefixes:          model.RoutePrefixes,
-		DecodeAdmission:        ps.DecodeAdmission,
-		PluginRegistry:         ps.FactoryCatalog,
-		DatabasePools:          ps.DatabasePools,
-		EffectiveDefaultRoute:  execRun.EffectiveRoute,
-		Metrics:                ps.Metrics,
-		RuntimeSnapshot:        ext.Snap,
-		HTTPAuthProviders:      sec.HTTPAuth,
-		SecureSessionStore:     execRun.SecureSessionStore,
-		AuthEventDispatcher:    sec.AuthEvents,
-		CatalogRuntime:         execRun.CatalogRuntime,
-		ModelRegistry:          model.Registry,
-		ModelRegistryRuntime:   model.RegistryRuntime,
-		TokenAccountingAdmin:   execRun.TokenAccountingAdmin,
-		ControlPlaneQueries:    ps.controlPlane.queriesHandle(),
-		ControlPlaneStatus:     ps.controlPlane.statusHandle(),
-		ControlPlaneRetention:  ps.controlPlane.retentionHandle(),
-		UsageAuthority:         ps.UsageAuthority,
-		ConcurrencyAuthority:   ps.Concurrency,
-		SnapshotGeneration:     ps.SnapshotGeneration,
-		SnapshotController:     ps.SnapshotController,
-		MeteringQuerier:        ps.MeteringQuerier,
-		ReadinessReport:        execRun.ReadinessReport,
-		SecretGuardInventory:   sg.Inventory,
-		TerminalWorkProcessor:  ps.TerminalWorkProcessor,
-		TerminalWorkRegistry:   ps.TerminalWorkRegistry,
-		TerminalWorkQueries:    ps.TerminalWorkQueries,
-		TerminalWorkMetrics:    ps.TerminalWorkMetrics,
-		ProcessTracingShutdown: nil,
-		terminalWorkReady:      twReady,
-		terminalWorkRT:         ps.terminalWorkRT,
+	return &candidateAssembly{
+		execution: candidateExecutionGroup{
+			executor:              execRun.Exec,
+			routePrefixes:         model.RoutePrefixes,
+			effectiveDefaultRoute: execRun.EffectiveRoute,
+			decodeAdmission:       ps.DecodeAdmission,
+			upstreamHTTP:          obs.Upstream,
+		},
+		security: candidateSecurityGroup{
+			httpAuth:           sec.HTTPAuth,
+			secureSessionStore: execRun.SecureSessionStore,
+			authEvents:         sec.AuthEvents,
+			runtimeSnapshot:    ext.Snap,
+		},
+		models: candidateModelGroup{
+			catalog:         execRun.CatalogRuntime,
+			registry:        model.Registry,
+			registryRuntime: model.RegistryRuntime,
+		},
+		operations: candidateOperationsGroup{
+			tokenAccountingAdmin: execRun.TokenAccountingAdmin,
+			readinessReport:      execRun.ReadinessReport,
+			secretGuardInventory: sg.Inventory,
+			terminalProcessor:    ps.TerminalWorkProcessor,
+			terminalRegistry:     ps.TerminalWorkRegistry,
+			terminalQueries:      ps.TerminalWorkQueries,
+			terminalMetrics:      ps.TerminalWorkMetrics,
+		},
+		process: candidateProcessRefs{
+			store:                 ps.Continuity,
+			pluginRegistry:        ps.FactoryCatalog,
+			databasePools:         ps.DatabasePools,
+			metrics:               ps.Metrics,
+			controlPlaneQueries:   ps.controlPlane.queriesHandle(),
+			controlPlaneStatus:    ps.controlPlane.statusHandle(),
+			controlPlaneRetention: ps.controlPlane.retentionHandle(),
+			usageAuthority:        ps.UsageAuthority,
+			concurrencyAuthority:  ps.Concurrency,
+			snapshotGeneration:    ps.SnapshotGeneration,
+			snapshotController:    ps.SnapshotController,
+			meteringQuerier:       ps.MeteringQuerier,
+		},
+		ledger:            ledger,
+		terminalWorkReady: twReady,
+		terminalWorkRT:    ps.terminalWorkRT,
 	}, nil
-}
-
-// mergeCandidateBuildOptions overlays generation-owned FeatureLifecycles and
-// Extensions onto a shallow copy of process options without mutating Process.
-// When overlay.ReplaceCandidateSurface is true, FeatureLifecycles and Extensions
-// replace process values even when nil/empty (complete-generation compile).
-// Legacy CompileCandidate callers leave ReplaceCandidateSurface false so nil
-// overlay fields mean "no override".
-func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *BuildOptions {
-	if process == nil {
-		return overlay
-	}
-	if overlay == nil {
-		return process
-	}
-	out := *process
-	if overlay.ReplaceCandidateSurface {
-		out.FeatureLifecycles = append([]lipplugin.Lifecycle(nil), overlay.FeatureLifecycles...)
-		out.Extensions = overlay.Extensions
-	} else {
-		if overlay.FeatureLifecycles != nil {
-			out.FeatureLifecycles = append([]lipplugin.Lifecycle(nil), overlay.FeatureLifecycles...)
-		}
-		if hasExtensionOverlay(overlay.Extensions) {
-			out.Extensions = overlay.Extensions
-		}
-	}
-	if overlay.WireModel != nil {
-		out.WireModel = overlay.WireModel
-	}
-	// Always keep process factory catalog / infra / testing / production / auth.
-	out.PluginRegistry = process.PluginRegistry
-	out.Startup = process.Startup
-	out.Infra = process.Infra
-	out.Auth = process.Auth
-	out.Policy = process.Policy
-	out.Diagnostics = process.Diagnostics
-	out.Testing = process.Testing
-	out.Production = process.Production
-	out.ReplaceCandidateSurface = false
-	return &out
-}
-
-func hasExtensionOverlay(e ExtensionsOptions) bool {
-	return len(e.SessionOpeners) > 0 ||
-		len(e.WorkspaceResolvers) > 0 ||
-		len(e.ToolCatalogFilters) > 0 ||
-		len(e.ToolCallPolicies) > 0 ||
-		len(e.ToolCallFinalizers) > 0 ||
-		e.ToolCallFinalizationMaxArgsBytes > 0 ||
-		len(e.RequestTransforms) > 0 ||
-		len(e.PreRequestHandlers) > 0 ||
-		len(e.RouteHintProviders) > 0 ||
-		len(e.CompletionGates) > 0 ||
-		len(e.AttemptTransforms) > 0 ||
-		len(e.StreamObserverFactories) > 0 ||
-		len(e.TrafficObservers) > 0 ||
-		len(e.UsageObservers) > 0 ||
-		len(e.RawCaptureSinks) > 0 ||
-		len(e.TrafficRedactors) > 0 ||
-		len(e.SecretGuards) > 0 ||
-		e.SecretGuardEnvironment != nil ||
-		e.SecretDecisionObserver != nil
 }

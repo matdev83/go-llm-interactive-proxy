@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	coreauth "github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/authevent"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
@@ -24,6 +28,64 @@ type capturingContinueProvider struct {
 func (p *capturingContinueProvider) Authenticate(ctx context.Context, _ http.ResponseWriter, _ *http.Request) (httpauth.AuthenticationResult, error) {
 	p.gotCtx = ctx
 	return httpauth.AuthenticationResult{Type: httpauth.TypeContinue}, nil
+}
+
+// mutatingAuthHeaderProvider replaces or deletes Authorization after an earlier Principal
+// success, modeling a later Continue/Annotate provider that mutates the shared *http.Request.
+type mutatingAuthHeaderProvider struct {
+	gotCtx      context.Context
+	replacement string // empty deletes the header
+	resultType  httpauth.AuthenticationType
+	annotate    http.Header
+}
+
+func (p *mutatingAuthHeaderProvider) Authenticate(ctx context.Context, _ http.ResponseWriter, r *http.Request) (httpauth.AuthenticationResult, error) {
+	p.gotCtx = ctx
+	if r != nil {
+		if p.replacement == "" {
+			r.Header.Del("Authorization")
+		} else {
+			r.Header.Set("Authorization", p.replacement)
+		}
+	}
+	typ := p.resultType
+	if typ == 0 {
+		typ = httpauth.TypeContinue
+	}
+	return httpauth.AuthenticationResult{Type: typ, ResponseHeaders: p.annotate}, nil
+}
+
+// matcherProbeEventSink checks any context credential matcher against a sentinel and records
+// an observable marker when the matcher binds that sentinel. Used to prove deferred attachment:
+// later-provider auth-event dispatch must never emit the marker.
+type matcherProbeEventSink struct {
+	sentinel string
+	marker   string
+	emitted  []string
+}
+
+func (s *matcherProbeEventSink) OnAuthDecision(ctx context.Context, _ auth.AuthDecisionEvent) error {
+	if m, ok := httpauth.CredentialMatcherFromContext(ctx); ok && m != nil {
+		findings, err := m.ScanString(ctx, s.sentinel)
+		if err == nil && len(findings) > 0 {
+			s.emitted = append(s.emitted, s.marker)
+		}
+	}
+	return nil
+}
+
+func (s *matcherProbeEventSink) OnSessionStart(context.Context, auth.SessionStartEvent) error {
+	return nil
+}
+
+func policyAllowProvider(principalID, keyID string) *PolicyProvider {
+	return NewPolicyProvider(&stubCoreAuthenticator{dec: auth.Decision{
+		Outcome:   auth.OutcomeAllow,
+		Principal: execview.PrincipalView{ID: principalID},
+		Device:    auth.DeviceIdentity{KeyID: keyID},
+	}}, nil, PolicySnapshot{
+		AccessMode: auth.AccessMultiUser, HandlerKind: auth.HandlerLocalAPIKey, RequiredLevel: auth.LevelAPIKey,
+	}, nil)
 }
 
 func TestPeerIPFromRemoteAddr(t *testing.T) {
@@ -229,7 +291,7 @@ func TestMiddleware_attachesAttributionAndMatcher(t *testing.T) {
 	}
 	gotM, ok := httpauth.CredentialMatcherFromContext(gotCtx)
 	if !ok || gotM == nil {
-		t.Fatalf("matcher ok=%v got=%v", ok, gotM)
+		t.Fatalf("downstream matcher ok=%v got=%v", ok, gotM)
 	}
 	var resolver secretguard.MatcherResolver = secretguard.ContextMatcherResolver{}
 	resolved, err := resolver.Resolve(gotCtx)
@@ -245,8 +307,526 @@ func TestMiddleware_attachesAttributionAndMatcher(t *testing.T) {
 	if p, ok := httpauth.PrincipalFromContext(capture.gotCtx); !ok || p.ID != "u" {
 		t.Fatalf("capture principal ok=%v got=%+v", ok, p)
 	}
-	if m, ok := httpauth.CredentialMatcherFromContext(capture.gotCtx); !ok || m == nil {
-		t.Fatalf("capture matcher ok=%v got=%v", ok, m)
+	if gotAttrMid, ok := httpauth.IngressAttributionFromContext(capture.gotCtx); !ok {
+		t.Fatal("later provider must see accumulated ingress attribution")
+	} else if gotAttrMid.KeyID != attr.KeyID || gotAttrMid.PeerIP != attr.PeerIP {
+		t.Fatalf("later provider attribution got=%+v want=%+v", gotAttrMid, attr)
+	}
+	if m, ok := httpauth.CredentialMatcherFromContext(capture.gotCtx); ok || m != nil {
+		t.Fatalf("later provider must not see deferred credential matcher, got ok=%v matcher=%v", ok, m)
+	}
+}
+
+// adversarialBearerSentinel is an unmistakably fake Authorization bearer used only to prove
+// deferred matcher attachment: later-chain audit logs must never contain it, while the
+// downstream handler still receives a matcher that can detect/redact it.
+const adversarialBearerSentinel = "lip-FAKE-ADVERSARIAL-BEARER-SENTINEL-do-not-log-009"
+
+type authEventEmittingContinueProvider struct {
+	events *coreauth.EventDispatcher
+	gotCtx context.Context
+	err    error
+}
+
+func (p *authEventEmittingContinueProvider) Authenticate(ctx context.Context, _ http.ResponseWriter, _ *http.Request) (httpauth.AuthenticationResult, error) {
+	p.gotCtx = ctx
+	if p.events != nil {
+		err := p.events.DispatchAuthDecision(ctx, auth.AuthDecisionEvent{
+			Time:       time.Unix(1700000099, 0).UTC(),
+			TraceID:    "adversarial-chain-trace",
+			AccessMode: auth.AccessMultiUser,
+			Outcome:    auth.OutcomeAllow,
+			Frontend:   "openai_compatible",
+			ReasonCode: "chain_continue_audit",
+		})
+		if err != nil {
+			p.err = err
+			return httpauth.AuthenticationResult{}, err
+		}
+	}
+	return httpauth.AuthenticationResult{Type: httpauth.TypeContinue}, nil
+}
+
+func TestMiddleware_deferredMatcher_laterProviderAuditLogsOmitBearerSentinel(t *testing.T) {
+	t.Parallel()
+	var logBuf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	slogSink, err := authevent.NewSlogEventSink(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const probeMarker = "MATCHER_BOUND_SENTINEL_IN_AUTH_EVENT_CTX"
+	probe := &matcherProbeEventSink{sentinel: adversarialBearerSentinel, marker: probeMarker}
+	dispatcher := coreauth.NewEventDispatcher(
+		multiAuthEventSink{sinks: []coreauth.EventSink{probe, slogSink}},
+		coreauth.EventFailureFailClosed,
+	)
+
+	first := policyAllowProvider("adv-user", "adv-key")
+	later := &authEventEmittingContinueProvider{events: dispatcher}
+
+	var handlerMatcher secretguard.Matcher
+	var sawHandler bool
+	h := Middleware(nil, []httpauth.Provider{first, later}, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		sawHandler = true
+		var ok bool
+		handlerMatcher, ok = httpauth.CredentialMatcherFromContext(r.Context())
+		if !ok || handlerMatcher == nil {
+			t.Fatal("downstream handler must receive deferred credential matcher")
+		}
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/chat/completions", nil)
+	req.RemoteAddr = "198.51.100.20:443"
+	req.Header.Set("Authorization", "Bearer "+adversarialBearerSentinel)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code %d", rec.Code)
+	}
+	if later.err != nil {
+		t.Fatalf("later provider dispatch: %v", later.err)
+	}
+	if later.gotCtx == nil {
+		t.Fatal("later provider did not run")
+	}
+	if m, ok := httpauth.CredentialMatcherFromContext(later.gotCtx); ok || m != nil {
+		t.Fatalf("later provider must not observe matcher, got ok=%v matcher=%v", ok, m)
+	}
+	if p, ok := httpauth.PrincipalFromContext(later.gotCtx); !ok || p.ID != "adv-user" {
+		t.Fatalf("later provider principal ok=%v got=%+v", ok, p)
+	}
+	if attr, ok := httpauth.IngressAttributionFromContext(later.gotCtx); !ok || attr.KeyID != "adv-key" {
+		t.Fatalf("later provider attribution ok=%v got=%+v", ok, attr)
+	}
+	if len(probe.emitted) != 0 {
+		t.Fatalf("later-provider auth-event dispatch must not emit matcher probe marker %q; got %v", probeMarker, probe.emitted)
+	}
+
+	logged := logBuf.String()
+	if logged == "" {
+		t.Fatal("expected real auth event sink to emit a log record")
+	}
+	if strings.Contains(logged, adversarialBearerSentinel) {
+		t.Fatalf("auth audit logs must not contain bearer sentinel; log=%s", logged)
+	}
+	if !strings.Contains(logged, "lip.auth.auth_decision") {
+		t.Fatalf("expected auth_decision log, got %q", logged)
+	}
+	if !sawHandler {
+		t.Fatal("expected downstream handler")
+	}
+	findings, err := handlerMatcher.ScanString(context.Background(), "leak:"+adversarialBearerSentinel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 1 || findings[0].SecretRefName != "adv-key" {
+		t.Fatalf("handler matcher findings: %+v", findings)
+	}
+	redacted, findings, err := handlerMatcher.RedactString(context.Background(), "leak:"+adversarialBearerSentinel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("redact findings: %+v", findings)
+	}
+	if strings.Contains(redacted, adversarialBearerSentinel) {
+		t.Fatalf("redacted output still contains sentinel: %q", redacted)
+	}
+}
+
+type multiAuthEventSink struct {
+	sinks []coreauth.EventSink
+}
+
+func (m multiAuthEventSink) OnAuthDecision(ctx context.Context, ev auth.AuthDecisionEvent) error {
+	for _, s := range m.sinks {
+		if s == nil {
+			continue
+		}
+		if err := s.OnAuthDecision(ctx, ev); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m multiAuthEventSink) OnSessionStart(ctx context.Context, ev auth.SessionStartEvent) error {
+	for _, s := range m.sinks {
+		if s == nil {
+			continue
+		}
+		if err := s.OnSessionStart(ctx, ev); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func TestMiddleware_deferredMatcher_survivesLaterAuthorizationMutation(t *testing.T) {
+	t.Parallel()
+	const original = adversarialBearerSentinel
+	const replacement = "lip-FAKE-REPLACEMENT-BEARER-should-not-bind-008"
+	first := policyAllowProvider("orig-user", "orig-key")
+	later := &mutatingAuthHeaderProvider{replacement: "Bearer " + replacement}
+	var gotCtx context.Context
+	var sawHandler bool
+	h := Middleware(nil, []httpauth.Provider{first, later}, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		sawHandler = true
+		gotCtx = r.Context()
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/v1/chat/completions", nil)
+	req.RemoteAddr = "198.51.100.30:443"
+	req.Header.Set("Authorization", "Bearer "+original)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code %d", rec.Code)
+	}
+	if later.gotCtx == nil {
+		t.Fatal("later provider did not run")
+	}
+	if m, ok := httpauth.CredentialMatcherFromContext(later.gotCtx); ok || m != nil {
+		t.Fatalf("later provider must not observe matcher, got ok=%v matcher=%v", ok, m)
+	}
+	if !sawHandler {
+		t.Fatal("expected downstream handler")
+	}
+	gotM, ok := httpauth.CredentialMatcherFromContext(gotCtx)
+	if !ok || gotM == nil {
+		t.Fatal("downstream must receive credential matcher")
+	}
+	origFindings, err := gotM.ScanString(context.Background(), original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(origFindings) != 1 || origFindings[0].SecretRefName != "orig-key" {
+		t.Fatalf("matcher must bind originally authenticated credential; findings=%+v", origFindings)
+	}
+	replFindings, err := gotM.ScanString(context.Background(), replacement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(replFindings) != 0 {
+		t.Fatalf("matcher must not bind later Authorization replacement; findings=%+v", replFindings)
+	}
+	attr, ok := httpauth.IngressAttributionFromContext(gotCtx)
+	if !ok || attr.KeyID != "orig-key" {
+		t.Fatalf("KeyID attribution got ok=%v attr=%+v", ok, attr)
+	}
+	if p, ok := httpauth.PrincipalFromContext(gotCtx); !ok || p.ID != "orig-user" {
+		t.Fatalf("principal ok=%v got=%+v", ok, p)
+	}
+	if _, ok := httpauth.ScopeFromContext(gotCtx); !ok {
+		t.Fatal("expected non-nil scope on success path")
+	}
+}
+
+func TestMiddleware_providerChain_matcherDeferralMatrix(t *testing.T) {
+	t.Parallel()
+	const original = adversarialBearerSentinel
+	const replacement = "lip-FAKE-CHAIN-REPLACEMENT-BEARER-007"
+
+	const (
+		laterContinue               = "continue"
+		laterAnnotate               = "annotate"
+		laterReject                 = "reject"
+		laterChallenge              = "challenge"
+		laterProviderError          = "provider_error"
+		laterSecondPrincipal        = "second_principal_replaces"
+		laterSecondNilAttacher      = "second_principal_nil_attacher_clears"
+		laterSecondNonAttacherKeeps = "second_principal_non_attacher_preserves"
+	)
+
+	cases := []struct {
+		name          string
+		later         string
+		wantCode      int
+		wantHandler   bool
+		wantPrincipal string
+		wantKeyID     string
+		wantOrigBound bool
+		wantReplBound bool
+		wantMatcher   bool
+	}{
+		{
+			name:  "continue_mutates_auth",
+			later: laterContinue, wantCode: http.StatusOK, wantHandler: true,
+			wantPrincipal: "p1", wantKeyID: "k1", wantOrigBound: true, wantMatcher: true,
+		},
+		{
+			name:  "annotate_mutates_auth",
+			later: laterAnnotate, wantCode: http.StatusOK, wantHandler: true,
+			wantPrincipal: "p1", wantKeyID: "k1", wantOrigBound: true, wantMatcher: true,
+		},
+		{
+			name:  "reject_after_principal",
+			later: laterReject, wantCode: http.StatusUnauthorized, wantHandler: false,
+		},
+		{
+			name:  "challenge_after_principal",
+			later: laterChallenge, wantCode: http.StatusUnauthorized, wantHandler: false,
+		},
+		{
+			name:  "provider_error_after_principal",
+			later: laterProviderError, wantCode: http.StatusInternalServerError, wantHandler: false,
+		},
+		{
+			name:  "multiple_principal_last_non_nil_attacher",
+			later: laterSecondPrincipal, wantCode: http.StatusOK, wantHandler: true,
+			wantPrincipal: "p2", wantKeyID: "k2", wantReplBound: true, wantMatcher: true,
+		},
+		{
+			name:  "multiple_principal_nil_attacher_clears_prior",
+			later: laterSecondNilAttacher, wantCode: http.StatusOK, wantHandler: true,
+			wantPrincipal: "p2", wantKeyID: "k2", wantMatcher: false,
+		},
+		{
+			name:  "multiple_principal_non_attacher_preserves_prior",
+			later: laterSecondNonAttacherKeeps, wantCode: http.StatusOK, wantHandler: true,
+			wantPrincipal: "p2", wantKeyID: "k2", wantOrigBound: true, wantMatcher: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			first := policyAllowProvider("p1", "k1")
+			var laterProviders []httpauth.Provider
+			var laterCtxs []*context.Context
+			recordLater := func(got *context.Context) {
+				laterCtxs = append(laterCtxs, got)
+			}
+			switch tc.later {
+			case laterContinue:
+				p := &mutatingAuthHeaderProvider{replacement: "Bearer " + replacement}
+				laterProviders = []httpauth.Provider{p}
+				recordLater(&p.gotCtx)
+			case laterAnnotate:
+				p := &mutatingAuthHeaderProvider{
+					replacement: "Bearer " + replacement,
+					resultType:  httpauth.TypeAnnotate,
+					annotate:    http.Header{"Cache-Control": []string{"no-store"}},
+				}
+				laterProviders = []httpauth.Provider{p}
+				recordLater(&p.gotCtx)
+			case laterReject:
+				p := &ctxCapturingStubProvider{res: httpauth.AuthenticationResult{
+					Type: httpauth.TypeReject, HTTPStatus: http.StatusUnauthorized, Body: []byte("nope"),
+				}}
+				laterProviders = []httpauth.Provider{p}
+				recordLater(&p.gotCtx)
+			case laterChallenge:
+				p := &ctxCapturingStubProvider{res: httpauth.AuthenticationResult{
+					Type: httpauth.TypeChallenge, HTTPStatus: http.StatusUnauthorized, Body: []byte("auth"),
+				}}
+				laterProviders = []httpauth.Provider{p}
+				recordLater(&p.gotCtx)
+			case laterProviderError:
+				p := &errorProvider{err: errors.New("provider boom")}
+				laterProviders = []httpauth.Provider{p}
+				recordLater(&p.gotCtx)
+			case laterSecondPrincipal:
+				mut := &mutatingAuthHeaderProvider{replacement: "Bearer " + replacement}
+				second := &ctxCapturingProvider{inner: policyAllowProvider("p2", "k2")}
+				laterProviders = []httpauth.Provider{mut, second}
+				recordLater(&mut.gotCtx)
+				recordLater(&second.gotCtx)
+			case laterSecondNilAttacher:
+				mut := &mutatingAuthHeaderProvider{replacement: ""} // delete Authorization
+				second := &ctxCapturingProvider{inner: policyAllowProvider("p2", "k2")}
+				laterProviders = []httpauth.Provider{mut, second}
+				recordLater(&mut.gotCtx)
+				recordLater(&second.gotCtx)
+			case laterSecondNonAttacherKeeps:
+				mut := &mutatingAuthHeaderProvider{replacement: "Bearer " + replacement}
+				second := &principalWithoutAttacher{
+					res: httpauth.AuthenticationResult{
+						Type:               httpauth.TypePrincipal,
+						Principal:          execview.PrincipalView{ID: "p2"},
+						IngressAttribution: httpauth.IngressAttribution{KeyID: "k2"},
+					},
+				}
+				laterProviders = []httpauth.Provider{mut, second}
+				recordLater(&mut.gotCtx)
+				recordLater(&second.gotCtx)
+			default:
+				t.Fatalf("unknown later kind %q", tc.later)
+			}
+
+			providers := append([]httpauth.Provider{first}, laterProviders...)
+			var gotCtx context.Context
+			var sawHandler bool
+			h := Middleware(nil, providers, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				sawHandler = true
+				gotCtx = r.Context()
+			}))
+			req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+			req.RemoteAddr = "203.0.113.80:443"
+			req.Header.Set("Authorization", "Bearer "+original)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != tc.wantCode {
+				t.Fatalf("code %d want %d", rec.Code, tc.wantCode)
+			}
+			if sawHandler != tc.wantHandler {
+				t.Fatalf("handler called=%v want %v", sawHandler, tc.wantHandler)
+			}
+			for i, ctxp := range laterCtxs {
+				if ctxp == nil || *ctxp == nil {
+					t.Fatalf("later provider %d did not run", i)
+				}
+				if m, ok := httpauth.CredentialMatcherFromContext(*ctxp); ok || m != nil {
+					t.Fatalf("later provider %d must not observe matcher", i)
+				}
+				// Every later provider, including a second Principal, must see prior
+				// principal/scope/attribution on its incoming context — never the matcher.
+				wantIncomingPrincipal := "p1"
+				wantIncomingKeyID := "k1"
+				if p, ok := httpauth.PrincipalFromContext(*ctxp); !ok || p.ID != wantIncomingPrincipal {
+					t.Fatalf("later provider %d incoming principal ok=%v got=%+v want %q", i, ok, p, wantIncomingPrincipal)
+				}
+				if _, ok := httpauth.ScopeFromContext(*ctxp); !ok {
+					t.Fatalf("later provider %d must observe non-nil scope", i)
+				}
+				if attr, ok := httpauth.IngressAttributionFromContext(*ctxp); !ok || attr.KeyID != wantIncomingKeyID {
+					t.Fatalf("later provider %d incoming attribution ok=%v attr=%+v want KeyID %q", i, ok, attr, wantIncomingKeyID)
+				}
+			}
+			if !tc.wantHandler {
+				return
+			}
+			if p, ok := httpauth.PrincipalFromContext(gotCtx); !ok || p.ID != tc.wantPrincipal {
+				t.Fatalf("downstream principal ok=%v got=%+v want %q", ok, p, tc.wantPrincipal)
+			}
+			if _, ok := httpauth.ScopeFromContext(gotCtx); !ok {
+				t.Fatal("downstream must observe non-nil scope")
+			}
+			attr, ok := httpauth.IngressAttributionFromContext(gotCtx)
+			if !ok || attr.KeyID != tc.wantKeyID {
+				t.Fatalf("downstream KeyID ok=%v got=%+v want %q", ok, attr, tc.wantKeyID)
+			}
+			gotM, mok := httpauth.CredentialMatcherFromContext(gotCtx)
+			if !tc.wantMatcher {
+				if mok || gotM != nil {
+					t.Fatalf("downstream matcher must be absent, ok=%v matcher=%v", mok, gotM)
+				}
+				return
+			}
+			if !mok || gotM == nil {
+				t.Fatal("downstream must receive credential matcher")
+			}
+			origFindings, err := gotM.ScanString(context.Background(), original)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.wantOrigBound && (len(origFindings) != 1 || origFindings[0].SecretRefName != "k1") {
+				t.Fatalf("expected original credential bound with k1; findings=%+v", origFindings)
+			}
+			if !tc.wantOrigBound && len(origFindings) != 0 {
+				t.Fatalf("original credential must not bind; findings=%+v", origFindings)
+			}
+			replFindings, err := gotM.ScanString(context.Background(), replacement)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.wantReplBound {
+				if len(replFindings) != 1 || replFindings[0].SecretRefName != "k2" {
+					t.Fatalf("expected replacement credential bound with k2; findings=%+v", replFindings)
+				}
+			} else if len(replFindings) != 0 {
+				t.Fatalf("replacement credential must not bind; findings=%+v", replFindings)
+			}
+		})
+	}
+}
+
+// principalWithoutAttacher returns TypePrincipal but does not implement
+// authSuccessContextAttacher, so middleware must preserve any earlier matcher.
+type principalWithoutAttacher struct {
+	gotCtx context.Context
+	res    httpauth.AuthenticationResult
+}
+
+func (p *principalWithoutAttacher) Authenticate(ctx context.Context, _ http.ResponseWriter, _ *http.Request) (httpauth.AuthenticationResult, error) {
+	p.gotCtx = ctx
+	return p.res, nil
+}
+
+type ctxCapturingStubProvider struct {
+	gotCtx context.Context
+	res    httpauth.AuthenticationResult
+}
+
+func (p *ctxCapturingStubProvider) Authenticate(ctx context.Context, _ http.ResponseWriter, _ *http.Request) (httpauth.AuthenticationResult, error) {
+	p.gotCtx = ctx
+	return p.res, nil
+}
+
+// ctxCapturingProvider records the incoming Authenticate context, then delegates.
+// Used so a second Principal provider can prove it sees prior principal/scope/attribution
+// but never the pending credential matcher. It forwards authSuccessContextAttacher when
+// the inner provider implements capture.
+type ctxCapturingProvider struct {
+	gotCtx context.Context
+	inner  httpauth.Provider
+}
+
+func (p *ctxCapturingProvider) Authenticate(ctx context.Context, w http.ResponseWriter, r *http.Request) (httpauth.AuthenticationResult, error) {
+	p.gotCtx = ctx
+	if p.inner == nil {
+		return httpauth.AuthenticationResult{Type: httpauth.TypeContinue}, nil
+	}
+	return p.inner.Authenticate(ctx, w, r)
+}
+
+func (p *ctxCapturingProvider) captureAuthSuccessMatcher(r *http.Request, res httpauth.AuthenticationResult) secretguard.Matcher {
+	if p == nil {
+		return nil
+	}
+	if attacher, ok := p.inner.(authSuccessContextAttacher); ok {
+		return attacher.captureAuthSuccessMatcher(r, res)
+	}
+	return nil
+}
+
+type errorProvider struct {
+	gotCtx context.Context
+	err    error
+}
+
+func (p *errorProvider) Authenticate(ctx context.Context, _ http.ResponseWriter, _ *http.Request) (httpauth.AuthenticationResult, error) {
+	p.gotCtx = ctx
+	return httpauth.AuthenticationResult{}, p.err
+}
+
+func TestMiddleware_rejectAfterSuccess_doesNotAttachMatcher(t *testing.T) {
+	t.Parallel()
+	first := NewPolicyProvider(&stubCoreAuthenticator{dec: auth.Decision{
+		Outcome:   auth.OutcomeAllow,
+		Principal: execview.PrincipalView{ID: "u"},
+		Device:    auth.DeviceIdentity{KeyID: "kid"},
+	}}, nil, PolicySnapshot{
+		AccessMode: auth.AccessMultiUser, HandlerKind: auth.HandlerLocalAPIKey, RequiredLevel: auth.LevelAPIKey,
+	}, nil)
+	reject := attributionStubProvider{res: httpauth.AuthenticationResult{
+		Type:       httpauth.TypeReject,
+		HTTPStatus: http.StatusUnauthorized,
+		Body:       []byte("nope"),
+	}}
+	var sawHandler bool
+	h := Middleware(nil, []httpauth.Provider{first, reject}, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		sawHandler = true
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer "+adversarialBearerSentinel)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("code %d", rec.Code)
+	}
+	if sawHandler {
+		t.Fatal("reject must not reach downstream handler")
 	}
 }
 

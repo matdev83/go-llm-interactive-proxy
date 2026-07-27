@@ -52,24 +52,6 @@ func TestBuild_BindsCoordinatorAndStableExecutorView(t *testing.T) {
 	}
 }
 
-func TestRefreshSnapshots_RemainsSubordinatePolicyRefresh(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	rt, err := lipruntime.Build(ctx, lipruntime.Options{ConfigPath: repoConfigPath(t)})
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	t.Cleanup(func() { _ = rt.Close(ctx) })
-	before := rt.ReloadStatus().ActiveGeneration
-	if err := rt.RefreshSnapshots(ctx); err != nil {
-		t.Fatalf("RefreshSnapshots: %v", err)
-	}
-	after := rt.ReloadStatus().ActiveGeneration
-	if after != before {
-		t.Fatalf("RefreshSnapshots must not publish config generations: before=%d after=%d", before, after)
-	}
-}
-
 func TestBuild_ExecutorViewAcquireWithoutActiveFailsClosed(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

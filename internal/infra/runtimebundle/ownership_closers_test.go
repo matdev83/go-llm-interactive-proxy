@@ -19,28 +19,16 @@ import (
 // distinct occurrence ordinals; IDs are source-position-independent.
 var closerAcquisitionOwnership = []ownershipEntry{
 	{
-		Symbol: "bootstrap_plan.go:buildBootstrap:acq#0:assign:out.ShutdownTracing=traceRes.Shutdown#0",
+		Symbol: "host_build.go:buildHost:acq#0:assign:traceShutdown=traceRes.Shutdown#0",
 		Class:  ownershipProcess,
-		Source: "bootstrap_plan.go → tracing.Init Result.Shutdown",
-		Notes:  "Process tracing shutdown func retained on bootstrap result.",
+		Source: "host_build.go → tracing.Init Result.Shutdown",
+		Notes:  "Process tracing shutdown retained for BuildHost / Host.Close (Task 5.2).",
 	},
 	{
-		Symbol: "bootstrap_plan.go:buildBootstrap:acq#1:append(owned, func:os.RemoveAll)#0",
+		Symbol: "host_build.go:buildHost:acq#1:assign:closeProcess=ps.Close#0",
 		Class:  ownershipProcess,
-		Source: "bootstrap_plan.go → discovered plugin staging dir",
-		Notes:  "Process-owned staging cleanup prepended onto Built.Closers for legacy serve.",
-	},
-	{
-		Symbol: "bootstrap_plan.go:buildBootstrap:acq#2:append(owned, host.Close)#0",
-		Class:  ownershipProcess,
-		Source: "bootstrap_plan.go → discovered processhost.Host",
-		Notes:  "Process-owned plugin host Close transferred onto Built.Closers (nil'd so defer does not double-close).",
-	},
-	{
-		Symbol: "bootstrap_plan.go:buildBootstrap:acq#3:append(owned, built.Closers...)#0",
-		Class:  ownershipProcess,
-		Source: "bootstrap_plan.go → Built.Closers transfer",
-		Notes:  "Prepends process-owned staging/host closers ahead of generation Built.Closers for reverse dispose.",
+		Source: "host_build.go → ProcessServices.Close",
+		Notes:  "Pre-Host process closer retained for joinInitialFailureCleanup on compile/publish/bind failure.",
 	},
 	{
 		Symbol: "process_services.go:NewProcessServices:acq#0:append(ps.closers, c)#0",
@@ -48,18 +36,24 @@ var closerAcquisitionOwnership = []ownershipEntry{
 		Source: "process_services.go → NewProcessServices register helper",
 		Notes:  "Process closer bag: control-plane, usage, concurrency, persistence, accounting, metering, and terminal-work teardown (req 6.2–6.5, 13.8).",
 	},
+	{
+		Symbol: "validate_distribution.go:validateDistribution:acq#0:assign:traceShutdownRaw=traceRes.Shutdown#0",
+		Class:  ownershipProcess,
+		Source: "validate_distribution.go → tracing.Init Result.Shutdown",
+		Notes:  "Process tracing shutdown retained for ValidateDistribution's own internal close (no Host handoff).",
+	},
+	{
+		Symbol: "validate_distribution.go:validateDistribution:acq#1:assign:closeProcess=ps.Close#0",
+		Class:  ownershipProcess,
+		Source: "validate_distribution.go → ProcessServices.Close",
+		Notes:  "ValidateDistribution process closer for unpublished dry-run teardown.",
+	},
 
 	{
 		Symbol: "build_lifecycle.go:RegisterPluginBuildCleanup:acq#0:append(closers, func:once.Do|normalizePluginCleanupErr|cleanup)#0",
 		Class:  ownershipGeneration,
 		Source: "build_lifecycle.go → RegisterPluginBuildCleanup",
-		Notes:  "Idempotent once-wrapped connector BuildResult cleanup registered during assembly (ledger-owned when compiling candidates).",
-	},
-	{
-		Symbol: "build_model.go:appendBackendClosers:acq#0:append(closers, be.Close)#0",
-		Class:  ownershipGeneration,
-		Source: "build_model.go → appendBackendClosers",
-		Notes:  "Generation-owned backend Close registration (ledger-wrapped in buildBackends when present).",
+		Notes:  "Idempotent once-wrapped connector BuildResult cleanup for nil-ledger rollback bags.",
 	},
 	{
 		Symbol: "build_model.go:buildBackends:acq#0:assign:cleanup=res.Cleanup#0",
@@ -68,40 +62,16 @@ var closerAcquisitionOwnership = []ownershipEntry{
 		Notes:  "Connector plugin composition-owned cleanup handle captured before ledger/closer registration.",
 	},
 	{
-		Symbol: "build_model.go:buildBackends:acq#1:append(pluginCleanups, fn)#0",
-		Class:  ownershipGeneration,
-		Source: "build_model.go → buildBackends pluginCleanups",
-		Notes:  "Generation-owned plugin cleanup bag (ledger.AddClose when present; RegisterPluginBuildCleanup immediately after).",
-	},
-	{
-		Symbol: "build_model.go:buildBackends:acq#2:append(constructedClosers, fn)#0",
+		Symbol: "build_model.go:buildBackends:acq#1:assign:wrapped.Close=inst.Close#0",
 		Class:  ownershipGeneration,
 		Source: "build_model.go → buildBackends",
-		Notes:  "Rollback bag for partially constructed backends (ledger.AddClose when compiling candidates; optional Start/Stop/idle hooks).",
+		Notes:  "Canonical BackendInstance.Close when no ledger; ledger path registers AddClose and clears wrapped.Close.",
 	},
 	{
-		Symbol: "build_model.go:registerStartedCatalogClosers:acq#0:append(closers, fn)#0",
+		Symbol: "build_model.go:buildBackends:acq#2:append(nilLedgerRollback, inst.Close)#0",
 		Class:  ownershipGeneration,
-		Source: "build_model.go → startedCatalog.closers",
-		Notes:  "Candidate catalog runtime/client cleanup registered first as PhaseClose so reverse teardown quiesces refresh before close (task 3.2).",
-	},
-	{
-		Symbol: "build_model.go:registerStartedCatalogClosers:acq#1:append(closers, fn)#1",
-		Class:  ownershipGeneration,
-		Source: "build_model.go → startedCatalog.quiesceClosers",
-		Notes:  "Candidate catalog refresh cancel/wait registered after close so reverse rollback runs PhaseQuiesce first (task 3.2).",
-	},
-	{
-		Symbol: "build_model.go:buildModelRuntime:acq#0:append(closers, modelRegistryClosers...)#0",
-		Class:  ownershipGeneration,
-		Source: "build_model.go → startModelRegistryRuntime",
-		Notes:  "Candidate model-registry refresh cleanup; quiesced with retired generation (task 4.5).",
-	},
-	{
-		Symbol: "build_model.go:startModelRegistryRuntime:acq#0:append(closers, fn)#0",
-		Class:  ownershipGeneration,
-		Source: "build_model.go → startModelRegistryRuntime",
-		Notes:  "Generation refresh-loop cancel/wait registered as PhaseQuiesce on the candidate ledger.",
+		Source: "build_model.go → buildBackends nilLedgerRollback",
+		Notes:  "Nil-ledger partial-build rollback bag for BackendInstance.Close; ledger path uses AddClose instead.",
 	},
 	{
 		Symbol: "build_persistence.go:buildPersistenceRuntime:acq#0:append(closers, c.Close)#0",

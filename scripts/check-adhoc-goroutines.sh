@@ -20,6 +20,8 @@ mapfile -t hits < <(
 # worker draining WorkID-keyed ambiguous append ownership (task 3.6 remediation B).
 # internal/infra/runtimehost/shutdown.go: bounded fan-out retiring retained
 # generations concurrently so one pinned generation cannot stall unrelated drains.
+# internal/infra/runtimehost/manager.go: one-goroutine-per-replaced-generation
+# background retirement (scheduleRetire) armed by Publish (task 7.3).
 # internal/stdhttp/admin/configreload/server.go: process-owned management HTTP
 # listen/serve worker (task 5.3; separate from data-plane generation host).
 # cmd/lipstd/reload_signal_adapter_unix.go: one process-owned SIGHUP worker
@@ -27,7 +29,7 @@ mapfile -t hits < <(
 bad=()
 for f in "${hits[@]}"; do
 	case "$f" in
-	internal/stdhttp/server.go | internal/stdhttp/generation_host.go | internal/stdhttp/admin/configreload/server.go | internal/infra/runtimehost/shutdown.go | internal/core/stream/keepalive.go | internal/core/runtime/parallel_race.go | internal/core/runtime/lease_heartbeat.go | internal/core/extensions/decision_timeout.go | internal/plugins/frontends/holdalive/wait.go | internal/infra/runtimebundle/modelcatalog_refresh_loop.go | connector-support/acp/transport_stdio.go | internal/plugins/backends/acp/transport_stdio.go | internal/plugins/backends/cursorsdk/bridge_process.go | internal/plugins/backends/cursorsdk/fakebridge/harness.go | internal/core/terminalwork/app/processor.go | internal/core/terminalwork/app/ambiguous_append_reconciler.go | cmd/lipstd/reload_signal_adapter_unix.go | internal/infra/backendplugins/adapter/grpc_session.go | internal/infra/backendplugins/adapter/stream.go | internal/infra/backendplugins/processhost/launch_linux.go | internal/infra/backendplugins/processhost/launch_windows.go | pkg/lipsdk/backendplugin/server.go) ;;
+	internal/stdhttp/server.go | internal/stdhttp/generation_host.go | internal/stdhttp/admin/configreload/server.go | internal/infra/runtimehost/shutdown.go | internal/infra/runtimehost/manager.go | internal/core/stream/keepalive.go | internal/core/runtime/parallel_race.go | internal/core/runtime/lease_heartbeat.go | internal/core/extensions/decision_timeout.go | internal/plugins/frontends/holdalive/wait.go | internal/infra/runtimebundle/modelcatalog_refresh_loop.go | connector-support/acp/transport_stdio.go | internal/plugins/backends/acp/transport_stdio.go | internal/plugins/backends/cursorsdk/bridge_process.go | internal/plugins/backends/cursorsdk/fakebridge/harness.go | internal/core/terminalwork/app/processor.go | internal/core/terminalwork/app/ambiguous_append_reconciler.go | cmd/lipstd/reload_signal_adapter_unix.go | internal/infra/backendplugins/adapter/grpc_session.go | internal/infra/backendplugins/adapter/stream.go | internal/infra/backendplugins/processhost/launch_linux.go | internal/infra/backendplugins/processhost/launch_windows.go | pkg/lipsdk/backendplugin/server.go) ;;
 	*) bad+=("$f") ;;
 	esac
 done

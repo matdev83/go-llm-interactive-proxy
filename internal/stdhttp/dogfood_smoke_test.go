@@ -39,25 +39,18 @@ type dogfoodHarness struct {
 func startDogfoodHarness(tb testing.TB, configAbsPath string) dogfoodHarness {
 	tb.Helper()
 	ctx := context.Background()
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath: configAbsPath,
-		Mode:       runtimebundle.BootstrapServe,
-		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
+	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
+		ConfigPath:      configAbsPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
-		tb.Fatalf("BuildBootstrap: %v", err)
+		tb.Fatalf("BuildHost: %v", err)
 	}
-	tb.Cleanup(func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-		defer cancel()
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(shutdownCtx)
-		}
-	})
-	h, cleanup, err := stdhttp.NewStandardHandler(ctx, res.Config, res.App, res.Logger, res.Built)
-	if err != nil {
-		tb.Fatalf("NewStandardHandler: %v", err)
+	h := host.HTTPHandler()
+	if h == nil {
+		tb.Fatalf("nil host HTTP handler")
 	}
 	srv := httptest.NewServer(h)
 	out := dogfoodHarness{
@@ -67,7 +60,7 @@ func startDogfoodHarness(tb testing.TB, configAbsPath string) dogfoodHarness {
 			srv.Close()
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
-			cleanup(shutdownCtx)
+			_ = host.Close(shutdownCtx)
 		},
 	}
 	tb.Cleanup(out.cleanup)

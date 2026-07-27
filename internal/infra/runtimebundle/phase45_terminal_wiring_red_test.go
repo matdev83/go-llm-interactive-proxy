@@ -5,12 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/terminalwork/workstore"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
@@ -38,33 +36,25 @@ func TestPhase45_BuildWiresTerminalWorkIntoExecutorAndReadiness(t *testing.T) {
 		},
 		TerminalWorkOwnerID: "bundle-phase45",
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatal(err)
+	_, cand := mustProcessAndCandidate(t, cfg, opts)
+	if cand.Executor() == nil || cand.Executor().TerminalWork == nil {
+		t.Fatal("CompileCandidate must inject IntentService into Executor.AccountingRuntime.TerminalWork")
 	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
-	if built.Executor == nil || built.Executor.TerminalWork == nil {
-		t.Fatal("Build must inject IntentService into Executor.AccountingRuntime.TerminalWork")
+	if runtimebundle.CandidateTerminalWorkProcessor(cand) == nil || !runtimebundle.CandidateTerminalWorkProcessor(cand).Running() {
+		t.Fatal("CompileCandidate must own processor lifecycle (running after compile)")
 	}
-	if built.TerminalWorkProcessor == nil || !built.TerminalWorkProcessor.Running() {
-		t.Fatal("Build must own processor lifecycle (running after Build)")
+	if runtimebundle.CandidateTerminalWorkQueries(cand) == nil || runtimebundle.CandidateTerminalWorkMetrics(cand) == nil {
+		t.Fatal("CompileCandidate must expose QueryService and MetricsObserver")
 	}
-	if built.TerminalWorkQueries == nil || built.TerminalWorkMetrics == nil {
-		t.Fatal("Build must expose QueryService and MetricsObserver")
-	}
-	if built.ReadinessReport == nil {
+	if runtimebundle.CandidateReadinessReport(cand) == nil {
 		t.Fatal("expected ReadinessReport")
 	}
-	if built.Metrics == nil || built.Metrics.TerminalWork == nil {
+	if cand.Metrics() == nil || cand.Metrics().TerminalWork == nil {
 		t.Fatal("metrics.Bundle must wire TerminalWorkProm")
 	}
 
 	// Persist durable intent via injected IntentService (no ForTest settle API).
-	if err := built.Executor.TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
+	if err := cand.Executor().TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
 		RequestID:  "req-wire",
 		AttemptID:  "a-1",
 		TraceID:    "tr-wire",
@@ -74,7 +64,7 @@ func TestPhase45_BuildWiresTerminalWorkIntoExecutorAndReadiness(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	page, err := built.TerminalWorkQueries.List(context.Background(), terminalworkapp.WorkQuery{
+	page, err := runtimebundle.CandidateTerminalWorkQueries(cand).List(context.Background(), terminalworkapp.WorkQuery{
 		RequestID: "req-wire",
 		Class:     terminalworkapp.QueryClassPendingTerminalWork,
 		Limit:     10,
@@ -85,17 +75,15 @@ func TestPhase45_BuildWiresTerminalWorkIntoExecutorAndReadiness(t *testing.T) {
 	if len(page.Rows) == 0 {
 		t.Fatal("expected durable pending work after AcceptSettleFailure")
 	}
-	ready := built.TerminalWorkReadiness(context.Background())
-	if !ready.BacklogKnown {
+	snap, err := runtimebundle.CandidateTerminalWorkMetrics(cand).Snapshot(context.Background())
+	if err != nil {
 		t.Fatal("BacklogKnown want true")
 	}
-	if ready.Backlog < 1 {
-		t.Fatalf("readiness Backlog=%d want >=1", ready.Backlog)
+	if snap.Backlog < 1 {
+		t.Fatalf("readiness Backlog=%d want >=1", snap.Backlog)
 	}
-	if err := built.PublishTerminalWorkMetrics(context.Background()); err != nil {
-		t.Fatalf("PublishTerminalWorkMetrics: %v", err)
-	}
-	families, err := built.Metrics.Registry.Gather()
+	publishCandidateTerminalWorkMetrics(t, cand)
+	families, err := cand.Metrics().Registry.Gather()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +100,7 @@ func TestPhase45_BuildWiresTerminalWorkIntoExecutorAndReadiness(t *testing.T) {
 		t.Fatal("missing lip_terminal_work_backlog after publish")
 	}
 
-	report, err := built.ReadinessReport.Report(context.Background())
+	report, err := runtimebundle.CandidateReadinessReport(cand).Report(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

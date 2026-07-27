@@ -6,26 +6,27 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 func TestCoordinatorResultCategories_BusyNoopFaultShutdownCoalesceVocabulary(t *testing.T) {
 	t.Parallel()
-	want := map[configreload.ResultCategory]bool{
-		configreload.ResultPublished:         true,
-		configreload.ResultNoop:              true,
-		configreload.ResultBusy:              true,
-		configreload.ResultRestartRequired:   true,
-		configreload.ResultRetentionBlocked:  true,
-		configreload.ResultInvalid:           true,
-		configreload.ResultSourceIntegrity:   true,
-		configreload.ResultCanceled:          true,
-		configreload.ResultPreparationFailed: true,
-		configreload.ResultInternalFailed:    true,
+	want := map[sdkreload.ResultCategory]bool{
+		sdkreload.ResultPublished:         true,
+		sdkreload.ResultNoop:              true,
+		sdkreload.ResultBusy:              true,
+		sdkreload.ResultRestartRequired:   true,
+		sdkreload.ResultRetentionBlocked:  true,
+		sdkreload.ResultInvalid:           true,
+		sdkreload.ResultSourceIntegrity:   true,
+		sdkreload.ResultCanceled:          true,
+		sdkreload.ResultPreparationFailed: true,
+		sdkreload.ResultInternalFailed:    true,
 	}
-	if len(configreload.AllResultCategories) != len(want) {
-		t.Fatalf("AllResultCategories len=%d want %d", len(configreload.AllResultCategories), len(want))
+	if len(sdkreload.AllResultCategories) != len(want) {
+		t.Fatalf("AllResultCategories len=%d want %d", len(sdkreload.AllResultCategories), len(want))
 	}
-	for _, c := range configreload.AllResultCategories {
+	for _, c := range sdkreload.AllResultCategories {
 		if !want[c] {
 			t.Fatalf("unexpected category %q", c)
 		}
@@ -41,32 +42,32 @@ func TestMapLoadFailure_CoordinatorFaultSourceAndInvalid(t *testing.T) {
 	cases := []struct {
 		name string
 		err  error
-		want configreload.ResultCategory
+		want sdkreload.ResultCategory
 	}{
 		{
 			name: "source_missing",
 			err:  &config.LoadError{Category: config.CategoryMissing},
-			want: configreload.ResultSourceIntegrity,
+			want: sdkreload.ResultSourceIntegrity,
 		},
 		{
 			name: "non_atomic",
 			err:  &config.LoadError{Category: config.CategoryNonAtomicUpdate},
-			want: configreload.ResultSourceIntegrity,
+			want: sdkreload.ResultSourceIntegrity,
 		},
 		{
 			name: "malformed_yaml",
 			err:  &config.LoadError{Category: config.CategoryMalformedYAML},
-			want: configreload.ResultInvalid,
+			want: sdkreload.ResultInvalid,
 		},
 		{
 			name: "restart_required",
 			err:  &configreload.RestartRequiredError{RestartRequiredFields: []string{"server.address"}, TotalBlocked: 1},
-			want: configreload.ResultRestartRequired,
+			want: sdkreload.ResultRestartRequired,
 		},
 		{
 			name: "validate_wrap",
 			err:  errors.New("validate config: bad route"),
-			want: configreload.ResultInvalid,
+			want: sdkreload.ResultInvalid,
 		},
 	}
 	for _, tc := range cases {
@@ -82,11 +83,11 @@ func TestMapLoadFailure_CoordinatorFaultSourceAndInvalid(t *testing.T) {
 
 func TestTriggerKinds_NoPathOrYAMLFields(t *testing.T) {
 	t.Parallel()
-	tr := configreload.ReloadTrigger{
-		Kind:      configreload.TriggerAPI,
+	tr := sdkreload.Trigger{
+		Kind:      sdkreload.TriggerAPI,
 		SafeActor: "management-api",
 	}
-	if tr.Kind != configreload.TriggerAPI && tr.Kind != configreload.TriggerSIGHUP {
+	if tr.Kind != sdkreload.TriggerAPI && tr.Kind != sdkreload.TriggerSIGHUP {
 		t.Fatalf("unexpected kind %q", tr.Kind)
 	}
 	// Structural: trigger envelope has no path/yaml/url fields (req 1.7, 12.4).

@@ -16,20 +16,24 @@ import (
 	"testing"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	coreruntime "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 	sdkmanifest "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin/manifest"
 )
 
-// TestProduction_UnknownKindViaBuildBootstrap proves the standard serve path
+// TestProduction_UnknownKindViaBuildHost proves the standard serve path
 // discovers, trusts, launches via production processhost, configures over the
 // secure channel, and invokes the adapter — without FakeService DialSession or
 // TestLauncher injection.
-func TestProduction_UnknownKindViaBuildBootstrap(t *testing.T) {
+func TestProduction_UnknownKindViaBuildHost(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -37,33 +41,24 @@ func TestProduction_UnknownKindViaBuildBootstrap(t *testing.T) {
 	pluginRoot := stageProductionFakePlugin(t, kind)
 	cfgPath := writeProductionDiscoveryConfig(t, pluginRoot, kind)
 
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath: cfgPath,
-		Mode:       runtimebundle.BootstrapServe,
-		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
+	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
+		ConfigPath:      cfgPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
-		t.Fatalf("BuildBootstrap: %v", err)
+		t.Fatalf("BuildHost: %v", err)
 	}
-	t.Cleanup(func() {
-		if res.Built != nil {
-			for i := len(res.Built.Closers) - 1; i >= 0; i-- {
-				_ = res.Built.Closers[i]()
-			}
-		}
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(context.Background())
-		}
-	})
-	if res.Built == nil || res.Built.Executor == nil {
-		t.Fatal("expected Built executor")
-	}
-	be, ok := res.Built.Executor.Backends["ext-prod-1"]
+	hostServeCleanup(t, host)
+
+	backends := hostActiveExecutorBackends(t, host)
+	be, ok := backends["ext-prod-1"]
 	if !ok || be.Open == nil {
-		t.Fatalf("missing discovered backend ext-prod-1; backends=%v", keysOf(res.Built.Executor.Backends))
+		t.Fatalf("missing discovered backend ext-prod-1; backends=%v", keysOf(backends))
 	}
-	if !res.Registry.HasBackend(kind) {
+	reg := runtimebundle.HostProcess(host).FactoryCatalog
+	if reg == nil || !reg.HasBackend(kind) {
 		t.Fatalf("registry missing discovered kind %q", kind)
 	}
 
@@ -97,7 +92,7 @@ func TestProduction_UnknownKindViaBuildBootstrap(t *testing.T) {
 	}
 }
 
-func TestProduction_InvalidConfiguredFatalViaBootstrap(t *testing.T) {
+func TestProduction_InvalidConfiguredFatalViaBuildHost(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	root := t.TempDir()
@@ -105,15 +100,35 @@ func TestProduction_InvalidConfiguredFatalViaBootstrap(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfgPath := writeProductionDiscoveryConfig(t, root, "missing-configured-kind")
-	_, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath: cfgPath,
-		Mode:       runtimebundle.BootstrapServe,
-		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
+	_, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
+		ConfigPath:      cfgPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err == nil {
-		t.Fatal("expected fatal bootstrap for invalid/missing configured kind")
+		t.Fatal("expected fatal BuildHost for invalid/missing configured kind")
 	}
+}
+
+func hostActiveExecutorBackends(t *testing.T, host *runtimebundle.Host) map[string]execbackend.Backend {
+	t.Helper()
+	if host == nil {
+		t.Fatal("nil host")
+	}
+	active := runtimebundle.HostManager(host).Active()
+	if active == nil {
+		t.Fatal("nil active generation")
+	}
+	provider, ok := active.RequestPlane().(runtimehost.ExecutorProvider)
+	if !ok || provider == nil {
+		t.Fatal("active generation missing ExecutorProvider")
+	}
+	ex, ok := provider.ExecutorView().(*coreruntime.Executor)
+	if !ok || ex == nil {
+		t.Fatal("expected *runtime.Executor from active generation")
+	}
+	return ex.Backends
 }
 
 func stageProductionFakePlugin(t *testing.T, kind string) string {

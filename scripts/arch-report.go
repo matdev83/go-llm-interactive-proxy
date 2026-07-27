@@ -21,17 +21,6 @@ import (
 
 const hexagonalBaselineRelPath = "testdata/architecture/hexagonal_migration_baseline.json"
 
-// hotspotFiles is derived from the same CriticalFileBudgets used by the
-// architecture guardrails so the advisory report and the machine-checked budgets
-// cannot drift apart.
-var hotspotFiles = func() []string {
-	files := make([]string, len(archtest.CriticalFileBudgets))
-	for i, b := range archtest.CriticalFileBudgets {
-		files[i] = b.Path
-	}
-	return files
-}()
-
 type pkgMeta struct {
 	ImportPath string
 	Dir        string
@@ -78,18 +67,27 @@ func main() {
 	var b strings.Builder
 	fmt.Fprintln(&b, "# Architecture report")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "Advisory only; produced by `make arch-report`.")
+	fmt.Fprintln(&b, "Produced by `make arch-report`. Package/fan tables are advisory; Requirement 11.5 net shrinkage is enforced (non-zero exit on FAIL).")
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "Module: `%s`\n\n", modPath)
 
 	writePackageLineReport(&b, pkgs)
 	writeHotspotReport(&b, root)
+	writeRuntimeConvergencePackageBudgets(&b, root)
+	shrinkagePass := writeRuntimeConvergenceShrinkage(&b, root)
+	writeRuntimeConvergenceExceptions(&b, root)
+	writeRuntimeConvergenceAffectedFanIO(&b, pkgs, modPath)
 	writeFanOutReport(&b, pkgs, modPath)
 	writeFanInReport(&b, pkgs, modPath)
 	writeExportedSymbolsReport(&b, root)
 	writeBaselineClassifications(&b, root)
+	writeRuntimeConvergenceDeletedInventory(&b)
 
 	fmt.Print(b.String())
+	if !shrinkagePass {
+		fmt.Fprintln(os.Stderr, "arch-report: Requirement 11.5 net shrinkage gate FAILED (see Runtime-convergence net shrinkage section)")
+		os.Exit(1)
+	}
 }
 
 func writePackageLineReport(b *strings.Builder, pkgs []pkgMeta) {
@@ -128,15 +126,149 @@ func writePackageLineReport(b *strings.Builder, pkgs []pkgMeta) {
 func writeHotspotReport(b *strings.Builder, root string) {
 	fmt.Fprintln(b, "## Hotspot files (critical-file budgets)")
 	fmt.Fprintln(b)
-	fmt.Fprintln(b, "| File | Lines |")
-	fmt.Fprintln(b, "| --- | --- |")
-	for _, rel := range hotspotFiles {
-		n, err := countFileLines(filepath.Join(root, rel))
+	fmt.Fprintln(b, "| File | Lines | Budget |")
+	fmt.Fprintln(b, "| --- | --- | --- |")
+	for _, budget := range archtest.CriticalFileBudgets {
+		n, err := countFileLines(filepath.Join(root, budget.Path))
 		if err != nil {
-			fmt.Fprintf(b, "| `%s` | (missing) |\n", rel)
+			fmt.Fprintf(b, "| `%s` | (missing) | %d |\n", budget.Path, budget.Max)
 			continue
 		}
-		fmt.Fprintf(b, "| `%s` | %d |\n", rel, n)
+		fmt.Fprintf(b, "| `%s` | %d | %d |\n", budget.Path, n, budget.Max)
+	}
+	fmt.Fprintln(b)
+}
+
+func writeRuntimeConvergencePackageBudgets(b *strings.Builder, root string) {
+	section, err := archtest.FormatRuntimeConvergencePackageBudgets(root)
+	if err != nil {
+		fmt.Fprintf(b, "## Runtime-convergence package budgets\n\n(could not measure: %v)\n\n", err)
+		return
+	}
+	fmt.Fprint(b, section)
+}
+
+func writeRuntimeConvergenceShrinkage(b *strings.Builder, root string) bool {
+	section, m, err := archtest.FormatRuntimeConvergenceShrinkage(root)
+	if err != nil {
+		fmt.Fprintf(b, "## Runtime-convergence net shrinkage (Req 11.5)\n\n(could not measure: %v)\n\n", err)
+		return false
+	}
+	fmt.Fprint(b, section)
+	return m.Pass
+}
+
+func writeRuntimeConvergenceAffectedFanIO(b *strings.Builder, pkgs []pkgMeta, modPath string) {
+	fmt.Fprintln(b, "## Runtime-convergence affected-surface fan-in/out")
+	fmt.Fprintln(b)
+	fmt.Fprintln(b, "| Surface | Fan-out (direct internal) | Fan-in | Importers |")
+	fmt.Fprintln(b, "| --- | ---: | ---: | --- |")
+
+	internalPrefix := modPath + "/internal/"
+	targets := []string{
+		"internal/infra/runtimebundle",
+		"internal/infra/runtimehost",
+		"internal/stdhttp",
+		"cmd/lipstd",
+		"pkg/lipruntime",
+	}
+	byPath := make(map[string]pkgMeta, len(pkgs))
+	for _, p := range pkgs {
+		byPath[p.ImportPath] = p
+	}
+	for _, rel := range targets {
+		ip := modPath + "/" + rel
+		p, ok := byPath[ip]
+		if !ok {
+			fmt.Fprintf(b, "| `%s` | (missing) | (missing) | |\n", rel)
+			continue
+		}
+		fanOut := 0
+		for _, imp := range p.Imports {
+			if strings.HasPrefix(imp, internalPrefix) {
+				fanOut++
+			}
+		}
+		var importers []string
+		for _, q := range pkgs {
+			if q.ImportPath == ip {
+				continue
+			}
+			if slices.Contains(q.Imports, ip) {
+				importers = append(importers, strings.TrimPrefix(q.ImportPath, modPath+"/"))
+			}
+		}
+		slices.Sort(importers)
+		impCol := "(none)"
+		if len(importers) > 0 {
+			impCol = "`" + strings.Join(importers, "`, `") + "`"
+		}
+		fmt.Fprintf(b, "| `%s` | %d | %d | %s |\n", rel, fanOut, len(importers), impCol)
+	}
+	fmt.Fprintln(b)
+}
+
+func writeRuntimeConvergenceDeletedInventory(b *strings.Builder) {
+	fmt.Fprintln(b, "## Runtime-convergence deleted production symbols/paths")
+	fmt.Fprintln(b)
+	fmt.Fprintln(b, "Enforced absent by `internal/archtest` deleted-symbol / bootstrap / serve gates (allowlist empty):")
+	fmt.Fprintln(b)
+	for _, tok := range []string{
+		"runtimebundle.Built",
+		"runtimebundle.Build (compatibility orchestrator)",
+		"stdhttp.RunWithRuntime",
+		"requestPlaneAsBuilt",
+		"NewStandardHandler",
+		"standardHTTPInputFromBuilt",
+		"releaseBuiltResources",
+		"runClosers",
+		"LegacyClosers",
+		"BuildBootstrap / BootstrapResult / AttachReloadHost",
+		"LoadBootstrapEffective / BootstrapMode",
+		"pkg/lipruntime deprecated Options / legacy_options adapter",
+		"pkg/lipruntime/reload_map.go (mirrored reload model)",
+	} {
+		fmt.Fprintf(b, "- `%s`\n", tok)
+	}
+	fmt.Fprintln(b)
+	fmt.Fprintln(b, "Parallel production runtime composition paths and mirrored reload models: **zero remaining** (empty `runtime_convergence_allowlist.json`; host_path/config_load permanently zero-tolerance).")
+	fmt.Fprintln(b)
+}
+
+func writeRuntimeConvergenceExceptions(b *strings.Builder, root string) {
+	fmt.Fprintln(b, "## Remaining runtime-convergence compatibility exceptions")
+	fmt.Fprintln(b)
+	path := filepath.Join(root, "internal", "archtest", "testdata", "architecture", "runtime_convergence_allowlist.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(b, "(could not read allowlist: %v)\n\n", err)
+		return
+	}
+	var doc struct {
+		Description string `json:"description"`
+		Entries     []struct {
+			Gate           string `json:"gate"`
+			Path           string `json:"path"`
+			Identity       string `json:"identity"`
+			Classification string `json:"classification"`
+			RetirementTask string `json:"retirement_task"`
+			Rationale      string `json:"rationale"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		fmt.Fprintf(b, "(could not decode allowlist: %v)\n\n", err)
+		return
+	}
+	fmt.Fprintf(b, "%s\n\n", strings.TrimSpace(doc.Description))
+	if len(doc.Entries) == 0 {
+		fmt.Fprintln(b, "(none)")
+		fmt.Fprintln(b)
+		return
+	}
+	fmt.Fprintln(b, "| Gate | Path | Identity | Retirement task |")
+	fmt.Fprintln(b, "| --- | --- | --- | --- |")
+	for _, e := range doc.Entries {
+		fmt.Fprintf(b, "| `%s` | `%s` | `%s` | %s |\n", e.Gate, e.Path, e.Identity, e.RetirementTask)
 	}
 	fmt.Fprintln(b)
 }

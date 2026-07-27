@@ -6,7 +6,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 // Task 5.2: non-Unix API-only production adapter (req 1.8, 11.8).
@@ -47,7 +47,7 @@ func TestSignalShutdown_ShutdownSignalsWithoutSIGHUP(t *testing.T) {
 
 type countingSink struct{ n int }
 
-func (s *countingSink) Reload(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
+func (s *countingSink) Reload(context.Context, sdkreload.Trigger) sdkreload.Result {
 	s.n++
-	return configreload.ReloadResult{Category: configreload.ResultInternalFailed}
+	return sdkreload.Result{Category: sdkreload.ResultInternalFailed}
 }

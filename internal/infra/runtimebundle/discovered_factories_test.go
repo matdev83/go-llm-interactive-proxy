@@ -12,7 +12,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/catalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/discovery"
@@ -20,7 +19,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
@@ -264,11 +262,11 @@ func TestUnknownKind_BuildFailsBeforeConstruction(t *testing.T) {
 			Kind: syntheticUnknownKind, ID: "missing", Enabled: true,
 		}}},
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
 	if err == nil || !strings.Contains(err.Error(), syntheticUnknownKind) {
-		t.Fatalf("Build err = %v, want unknown kind", err)
+		t.Fatalf("compile err = %v, want unknown kind", err)
 	}
 }
 

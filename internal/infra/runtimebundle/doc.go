@@ -1,27 +1,20 @@
 // Package runtimebundle is the standard-distribution composition root: assembles continuity
 // store, executor (production clock/RNG, routing health, route observation), shared upstream HTTP,
-// and resource shutdown hooks. The standard binary uses [NewBootstrapApp] so the main command
-// does not need a direct import of the core runtime bootstrap package. Executor routing health
-// (empty vs circuit breaker) is built with
+// and resource shutdown hooks. [BuildHost] owns serve/public Build (one accepted effective
+// snapshot in, one complete owned Host out); [InspectRoutes]/[InspectInventory] own inspection;
+// [ValidateDistribution] owns check-config. [NewBootstrapApp] remains for standalone [coreruntime.App].
+// Executor routing health is built with
 // [github.com/matdev83/go-llm-interactive-proxy/internal/infra/routinghealth.CandidateHealthFromConfig].
 //
-// Upstream HTTP: backends that call providers over HTTP receive the client from [Build] (see
-// [BuildOptions.Infra.HTTPClient]; default tuned client from httpclient.TransportTuneFromConfig plus
-// httpclient.StandardWithTrustEnvironment / StandardWithTune).
+// Upstream HTTP: backends receive the client from [Build] ([BuildOptions.Infra.HTTPClient];
+// default from httpclient.TransportTuneFromConfig plus StandardWithTrustEnvironment / StandardWithTune).
 //
-// Routing health: when config sets routing.health.circuit_breaker.enabled, the executor's
-// CandidateHealth is a core policy circuit breaker (failure_threshold, open_for duration string).
-// When disabled, CandidateHealth is an empty no-op implementation.
-//
-// Route observation: when [Build] receives a non-nil logger, the executor's RouteObserver logs
-// coarse routing decisions at info ("lip.route", trace_id, decision, detail). A nil logger uses a
-// noop observer so the field is always non-nil.
+// Routing health: when routing.health.circuit_breaker.enabled, CandidateHealth is a core policy
+// circuit breaker; otherwise a no-op. Route observation: non-nil logger → info "lip.route"; nil → noop.
 //
 // Stage-three decisions (locked):
-//   - Plugin identity: YAML field "kind" is factory/registry id; "id" is runtime instance id.
-//     When "kind" is omitted, "id" serves as both (legacy configs).
-//   - Continuity: ttl/max_legs apply to in-memory store only; SQLite rejects those fields until
-//     pruning exists (see config validation).
+//   - Plugin identity: YAML "kind" is factory id; "id" is instance id (legacy: "id" serves as both).
+//   - Continuity: ttl/max_legs apply to in-memory store only; SQLite rejects those until pruning exists.
 //   - This package lives outside internal/core/runtime to keep core orchestration-only.
 
 package runtimebundle

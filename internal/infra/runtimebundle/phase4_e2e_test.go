@@ -12,7 +12,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/catalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/discovery"
@@ -21,7 +20,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
@@ -319,14 +317,11 @@ func TestMinimal_BuiltinsServeWithZeroArtifacts(t *testing.T) {
 			}},
 		},
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if built.Executor == nil || len(built.Executor.Backends) != 1 {
-		t.Fatalf("backends=%v", built.Executor)
+	if built.Executor() == nil || len(built.Executor().Backends) != 1 {
+		t.Fatalf("backends=%v", built.Executor())
 	}
 	rep, err := runtimebundle.InspectBackendPlugins(cfg, reg)
 	if err != nil {

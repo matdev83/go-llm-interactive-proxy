@@ -41,11 +41,11 @@ func (r *NoDropHandlerRegistry) Get(label string) (http.Handler, bool) {
 }
 
 type RefGenerationDispatcher struct {
-	Manager  *runtimehost.RefGenerationManager
+	Manager  *runtimehost.Manager
 	Handlers *NoDropHandlerRegistry
 }
 
-func NewRefGenerationDispatcher(m *runtimehost.RefGenerationManager, h *NoDropHandlerRegistry) *RefGenerationDispatcher {
+func NewRefGenerationDispatcher(m *runtimehost.Manager, h *NoDropHandlerRegistry) *RefGenerationDispatcher {
 	return &RefGenerationDispatcher{Manager: m, Handlers: h}
 }
 
@@ -65,9 +65,9 @@ func (d *RefGenerationDispatcher) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	h.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), generationCtxKey{}, gen.ID())))
 }
 
-func (d *RefGenerationDispatcher) PublishWithHandler(label string, h http.Handler) (*runtimehost.RefGeneration, error) {
+func (d *RefGenerationDispatcher) PublishWithHandler(label string, h http.Handler) (*runtimehost.Generation, error) {
 	d.Handlers.Set(label, h)
-	cand := d.Manager.PrepareCandidate(label)
+	cand := d.Manager.Prepare(label)
 	if err := d.Manager.Publish(cand); err != nil {
 		return nil, err
 	}

@@ -17,12 +17,13 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-func TestPhase7_OpenRouterExternalViaBuildBootstrap(t *testing.T) {
+func TestPhase7_OpenRouterExternalViaBuildHost(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
@@ -43,31 +44,24 @@ func TestPhase7_OpenRouterExternalViaBuildBootstrap(t *testing.T) {
 
 	pluginRoot := bpkit.StageOpenRouter(t)
 	cfgPath := writeOpenRouterDiscoveryConfig(t, pluginRoot, emu.URL+"/v1", true)
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath: cfgPath,
-		Mode:       runtimebundle.BootstrapServe,
-		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
+	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
+		ConfigPath:      cfgPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
-		t.Fatalf("BuildBootstrap: %v", err)
+		t.Fatalf("BuildHost: %v", err)
 	}
-	t.Cleanup(func() {
-		if res.Built != nil {
-			for i := len(res.Built.Closers) - 1; i >= 0; i-- {
-				_ = res.Built.Closers[i]()
-			}
-		}
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(context.Background())
-		}
-	})
-	if !res.Registry.HasBackend("openrouter") {
+	hostServeCleanup(t, host)
+	reg := runtimebundle.HostProcess(host).FactoryCatalog
+	if reg == nil || !reg.HasBackend("openrouter") {
 		t.Fatal("discovered openrouter missing from registry")
 	}
-	be, ok := res.Built.Executor.Backends["or1"]
+	backends := hostActiveExecutorBackends(t, host)
+	be, ok := backends["or1"]
 	if !ok || be.Open == nil {
-		t.Fatalf("backends=%v", keysOf(res.Built.Executor.Backends))
+		t.Fatalf("backends=%v", keysOf(backends))
 	}
 	stream, err := be.Open(ctx, lipapi.Call{
 		ID: "p7", Session: lipapi.SessionRef{ALegID: "a"},
@@ -106,14 +100,14 @@ func TestPhase7_OpenRouterConfiguredMissingFails(t *testing.T) {
 	defer cancel()
 	emptyPlugins := t.TempDir()
 	cfgPath := writeOpenRouterDiscoveryConfig(t, emptyPlugins, "http://127.0.0.1:9/v1", true)
-	_, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath: cfgPath,
-		Mode:       runtimebundle.BootstrapServe,
-		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
+	_, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
+		ConfigPath:      cfgPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err == nil {
-		t.Fatal("expected configured-missing openrouter to fail bootstrap")
+		t.Fatal("expected configured-missing openrouter to fail BuildHost")
 	}
 }
 

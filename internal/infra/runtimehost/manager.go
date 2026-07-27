@@ -1,6 +1,7 @@
 package runtimehost
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -11,6 +12,9 @@ import (
 )
 
 // Manager is the production generation publication and acquire surface (req 5.2-5.4, 10, 15).
+// Manager also owns post-publish retirement scheduling (task 7.3): it fires
+// one bounded background retirement per replaced generation, bounded by the
+// finite retained-generation budget — never an unbounded worker map/pool.
 type Manager struct {
 	instanceID      string
 	active          atomic.Pointer[Generation]
@@ -21,6 +25,10 @@ type Manager struct {
 	clock           *ManualClock
 	afterRetainHook atomic.Value // func(*Generation)
 	shuttingDown    atomic.Bool
+
+	policyMu      sync.Mutex
+	cleanupPolicy CleanupPolicy
+	observer      *ReloadObserver
 }
 
 // NewManager constructs a manager with a finite retained-generation budget (req 10.8).
@@ -249,6 +257,9 @@ func (m *Manager) Publish(candidate *Generation) error {
 				m.retained = append(m.retained, prior)
 			}
 			m.mu.Unlock()
+			if prior != nil {
+				go m.scheduleRetire(prior)
+			}
 			return nil
 		}
 	}
@@ -272,4 +283,75 @@ func (m *Manager) SweepClosed() {
 		}
 	}
 	m.retained = dst
+}
+
+// SetCleanupPolicy installs the post-drain cleanup retry budget used by both
+// automatic post-publish retirement scheduling and RetireGeneration. Nil-safe.
+func (m *Manager) SetCleanupPolicy(p CleanupPolicy) {
+	if m == nil {
+		return
+	}
+	m.policyMu.Lock()
+	m.cleanupPolicy = p
+	m.policyMu.Unlock()
+}
+
+// SetLifecycleObserver attaches optional reload lifecycle telemetry
+// (quiesce/cleanup spans) used by retirement. Nil-safe.
+func (m *Manager) SetLifecycleObserver(obs *ReloadObserver) {
+	if m == nil {
+		return
+	}
+	m.policyMu.Lock()
+	m.observer = obs
+	m.policyMu.Unlock()
+}
+
+func (m *Manager) HasLifecycleObserver() bool {
+	if m == nil {
+		return false
+	}
+	m.policyMu.Lock()
+	defer m.policyMu.Unlock()
+	return m.observer != nil
+}
+
+func (m *Manager) retirementDeps() (CleanupPolicy, *ReloadObserver) {
+	if m == nil {
+		return CleanupPolicy{}, nil
+	}
+	m.policyMu.Lock()
+	defer m.policyMu.Unlock()
+	return m.cleanupPolicy, m.observer
+}
+
+// RetireGeneration synchronously drives one generation's quiesce → drain →
+// close cycle using the manager's cleanup policy/observer, deriving the
+// QuiesceCloser solely from the generation (never an external collaborator).
+// It is the sync retry/wait counterpart to automatic post-publish scheduling:
+// callers may retry an exhausted-cleanup generation, wait for a specific
+// generation's retirement to finish, or drive retirement during shutdown.
+// Concurrent calls for the same generation are serialized by that
+// generation's own context-aware retirement admission; unrelated generations
+// retire independently.
+func (m *Manager) RetireGeneration(ctx context.Context, g *Generation) (RetirementStatus, error) {
+	if m == nil || g == nil {
+		return RetirementStatus{}, nil
+	}
+	policy, observer := m.retirementDeps()
+	return retireGeneration(ctx, g, policy, observer, true, nil)
+}
+
+// scheduleRetire is the one-goroutine-per-replaced-generation background
+// retirement launched by Publish. It never blocks Publish and is bounded by
+// the finite retained-generation budget (no unbounded worker map/pool).
+// Async retirement quiesces then either closes immediately (already drained)
+// or arms a post-drain close — it must not park in select-on-Drained, so a
+// pinned prior generation cannot leak a long-lived retirement goroutine.
+func (m *Manager) scheduleRetire(g *Generation) {
+	if m == nil || g == nil {
+		return
+	}
+	policy, observer := m.retirementDeps()
+	_, _ = retireGeneration(context.Background(), g, policy, observer, false, m.SweepClosed)
 }

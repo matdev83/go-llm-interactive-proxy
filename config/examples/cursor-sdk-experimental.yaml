@@ -2,7 +2,7 @@
 # Operator guide: docs/cursor-sdk-backend.md
 # Bridge install (manual; Go-LIP never runs npm): internal/plugins/backends/cursorsdk/bridge/README.md
 #
-# This file keeps cursorsdk disabled so `check-config` / BootstrapInspect work without Node,
+# This file keeps cursorsdk disabled so `check-config` / `routes` / `inventory` work without Node,
 # CURSOR_API_KEY, or an installed bridge. dogfood-local remains the runnable default route.
 #
 # To enable live SDK routing after installing the bridge (Node >=22.13, @cursor/sdk 1.0.23):

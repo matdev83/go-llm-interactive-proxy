@@ -9,17 +9,15 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"gopkg.in/yaml.v3"
 )
 
-func TestBuild_LifecycleCleanupOnLaterAssemblyFailure(t *testing.T) {
+func TestCompileCandidate_LifecycleCleanupOnLaterAssemblyFailure(t *testing.T) {
 	t.Parallel()
 	factoryID := "lifecycle-cleanup-" + strings.ReplaceAll(t.Name(), "/", "-")
 	reg := pluginreg.NewRegistry()
@@ -56,11 +54,11 @@ func TestBuild_LifecycleCleanupOnLaterAssemblyFailure(t *testing.T) {
 			Kind: factoryID, ID: "be", Enabled: true,
 		}}},
 	}
-	_, err = runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, _, err = processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
 	if err == nil || !strings.Contains(err.Error(), "strict_authoritative requires billing finalizer") {
-		t.Fatalf("Build err = %v, want strict_authoritative failure", err)
+		t.Fatalf("compile err = %v, want strict_authoritative failure", err)
 	}
 	if cleaned.Load() != 1 {
 		t.Fatalf("plugin BuildResult cleanup ran %d times, want 1", cleaned.Load())

@@ -14,41 +14,35 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-func TestPhase5_LocalStubExternalViaBuildBootstrap(t *testing.T) {
+func TestPhase5_LocalStubExternalViaBuildHost(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	pluginRoot := bpkit.StageLocalStub(t)
 	cfgPath := writeLocalStubDiscoveryConfig(t, pluginRoot)
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath: cfgPath,
-		Mode:       runtimebundle.BootstrapServe,
-		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
+	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
+		ConfigPath:      cfgPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
-		t.Fatalf("BuildBootstrap: %v", err)
+		t.Fatalf("BuildHost: %v", err)
 	}
-	t.Cleanup(func() {
-		if res.Built != nil {
-			for i := len(res.Built.Closers) - 1; i >= 0; i-- {
-				_ = res.Built.Closers[i]()
-			}
-		}
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(context.Background())
-		}
-	})
-	if !res.Registry.HasBackend("local-stub") {
+	hostServeCleanup(t, host)
+	reg := runtimebundle.HostProcess(host).FactoryCatalog
+	if reg == nil || !reg.HasBackend("local-stub") {
 		t.Fatal("discovered local-stub missing from registry")
 	}
-	be, ok := res.Built.Executor.Backends["dogfood-local"]
+	backends := hostActiveExecutorBackends(t, host)
+	be, ok := backends["dogfood-local"]
 	if !ok || be.Open == nil {
-		t.Fatalf("backends=%v", keysOf(res.Built.Executor.Backends))
+		t.Fatalf("backends=%v", keysOf(backends))
 	}
 	stream, err := be.Open(ctx, lipapi.Call{
 		ID: "p5", Session: lipapi.SessionRef{ALegID: "a"},

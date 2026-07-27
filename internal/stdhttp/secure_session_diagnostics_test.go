@@ -17,7 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
 )
 
-func TestSecureSessionDiagnostics_mount_matchesRunWithRuntimePattern(t *testing.T) {
+func TestSecureSessionDiagnostics_mount_matchesComposePattern(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	st := memory.New(memory.Options{})

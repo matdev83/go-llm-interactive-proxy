@@ -2,6 +2,7 @@ package runtimebundle_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -40,8 +41,8 @@ func TestCloseIdle_FinalGenerationCloseCallsIdleOnce(t *testing.T) {
 		tr.CloseIdleConnections()
 		return nil
 	})
-	_ = ledger.AddClose("backend", runtimebundle.PhaseClose, func() error { return nil })
-	_ = ledger.AddClose("refresh", runtimebundle.PhaseQuiesce, func() error { return nil })
+	ledger.AddClose("backend", runtimebundle.PhaseClose, func() error { return nil })
+	ledger.AddClose("refresh", runtimebundle.PhaseQuiesce, func() error { return nil })
 
 	cand := runtimebundle.NewCandidateRuntimeForTest(ledger)
 	m := runtimehost.NewManager(2, nil)
@@ -52,7 +53,7 @@ func TestCloseIdle_FinalGenerationCloseCallsIdleOnce(t *testing.T) {
 	if idleCalls.Load() != 0 {
 		t.Fatal("publish must not close idle transports")
 	}
-	if err := runtimehost.NewLifecycleWorker().Retire(context.Background(), g, cand); err != nil {
+	if _, err := m.RetireGeneration(context.Background(), g); err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
 		t.Fatal(err)
 	}
 	if idleCalls.Load() != 1 {
@@ -73,19 +74,19 @@ func TestQuiesce_BeforeClose_ReverseOrderExactOnce(t *testing.T) {
 	t.Parallel()
 	var order []string
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("backend", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("backend", runtimebundle.PhaseClose, func() error {
 		order = append(order, "close:backend")
 		return nil
 	})
-	_ = ledger.AddClose("client", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("client", runtimebundle.PhaseClose, func() error {
 		order = append(order, "close:client")
 		return nil
 	})
-	_ = ledger.AddClose("refresh", runtimebundle.PhaseQuiesce, func() error {
+	ledger.AddClose("refresh", runtimebundle.PhaseQuiesce, func() error {
 		order = append(order, "quiesce:refresh")
 		return nil
 	})
-	_ = ledger.AddClose("loop", runtimebundle.PhaseQuiesce, func() error {
+	ledger.AddClose("loop", runtimebundle.PhaseQuiesce, func() error {
 		order = append(order, "quiesce:loop")
 		return nil
 	})
@@ -96,7 +97,7 @@ func TestQuiesce_BeforeClose_ReverseOrderExactOnce(t *testing.T) {
 	mustPublishBundle(t, m, g)
 	mustPublishBundle(t, m, m.Prepare("next"))
 
-	if err := runtimehost.NewLifecycleWorker().Retire(context.Background(), g, cand); err != nil {
+	if _, err := m.RetireGeneration(context.Background(), g); err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
 		t.Fatal(err)
 	}
 	want := []string{"quiesce:loop", "quiesce:refresh", "close:client", "close:backend"}
@@ -114,10 +115,10 @@ func TestResourceLedger_StopPanicIsolatedPerEntry(t *testing.T) {
 	t.Parallel()
 	var later atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
-	_ = ledger.AddClose("panic-entry", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("panic-entry", runtimebundle.PhaseClose, func() error {
 		panic("ledger boom")
 	})
-	_ = ledger.AddClose("later", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("later", runtimebundle.PhaseClose, func() error {
 		later.Add(1)
 		return nil
 	})
@@ -152,7 +153,7 @@ func (t *countingIdleTransport) CloseIdleConnections() {
 }
 
 type planeFromCandidate struct {
-	cand *runtimebundle.CandidateRuntime
+	cand *runtimebundle.CandidateHTTPCompile
 }
 
 func (p *planeFromCandidate) Handler() http.Handler {

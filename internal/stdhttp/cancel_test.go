@@ -108,7 +108,7 @@ func TestMountALegCancel_cancelsRuntimeBLeg(t *testing.T) {
 		t.Fatal("executor did not assign A-leg id")
 	}
 	mux := http.NewServeMux()
-	mountALegCancel(mux, ex)
+	mountALegCancel(mux, HTTPFrontendInput{Executor: ex})
 	req := httptest.NewRequest(http.MethodPost, "/lip/v1/a-legs/"+call.Session.ALegID+"/cancel", nil)
 	rr := httptest.NewRecorder()
 

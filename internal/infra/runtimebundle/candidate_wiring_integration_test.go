@@ -158,8 +158,10 @@ func TestCompileCandidate_SafeLifecycleRetiredCloseStopsOnce(t *testing.T) {
 	g := m.PrepareOwned("life", cand)
 	mustPublishHost(t, m, g)
 	mustPublishHost(t, m, m.Prepare("next"))
-	worker := runtimehost.NewLifecycleWorker()
-	if err := worker.Retire(context.Background(), g, cand); err != nil {
+	// Publish auto-schedules g's retirement in the background (task 7.3);
+	// wait for it via the manager's synchronous retry/wait API, tolerating a
+	// benign ErrAlreadyClosed if the background retirement already finished.
+	if _, err := m.RetireGeneration(context.Background(), g); err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
 		t.Fatal(err)
 	}
 	if !probe.WasStopped() {
@@ -223,7 +225,7 @@ func TestCompileCandidate_BackendOptionalHooksOnSuccessAndInjectedFailure(t *tes
 	if preflights.Load() != 0 {
 		t.Fatalf("preflight must not run automatically, calls=%d", preflights.Load())
 	}
-	be := cand.Executor.Backends["probe"]
+	be := cand.Executor().Backends["probe"]
 	if be.PreflightCapability == nil {
 		t.Fatal("production backend preflight capability was discarded")
 	}
@@ -339,7 +341,7 @@ func TestCompileCandidate_OwnedHTTPTransportIdleCleanupOnRollbackAndRetire(t *te
 	if err != nil {
 		t.Fatalf("CompileCandidate: %v", err)
 	}
-	if cand.UpstreamHTTP == nil || cand.UpstreamHTTP.Transport == nil {
+	if runtimebundle.CandidateUpstreamHTTP(cand) == nil || runtimebundle.CandidateUpstreamHTTP(cand).Transport == nil {
 		t.Fatal("expected generation-owned upstream transport")
 	}
 	if err := cand.Close(); err != nil {
@@ -415,19 +417,19 @@ func TestCompileCandidate_CatalogRefreshQuiescesBeforeClose(t *testing.T) {
 		// Catalog start may fail on missing source; skip if environment cannot start catalog.
 		t.Skipf("catalog candidate unavailable: %v", err)
 	}
-	if cand.Ledger == nil {
+	if cand.Ledger() == nil {
 		t.Fatal("expected ledger")
 	}
 
 	var order []string
 	var mu sync.Mutex
-	_ = cand.Ledger.AddClose("probe-quiesce-order", runtimebundle.PhaseQuiesce, func() error {
+	cand.Ledger().AddClose("probe-quiesce-order", runtimebundle.PhaseQuiesce, func() error {
 		mu.Lock()
 		order = append(order, "quiesce-probe")
 		mu.Unlock()
 		return nil
 	})
-	_ = cand.Ledger.AddClose("probe-close-order", runtimebundle.PhaseClose, func() error {
+	cand.Ledger().AddClose("probe-close-order", runtimebundle.PhaseClose, func() error {
 		mu.Lock()
 		order = append(order, "close-probe")
 		mu.Unlock()
@@ -438,8 +440,7 @@ func TestCompileCandidate_CatalogRefreshQuiescesBeforeClose(t *testing.T) {
 	g := m.PrepareOwned("cat", cand)
 	mustPublishHost(t, m, g)
 	mustPublishHost(t, m, m.Prepare("next"))
-	worker := runtimehost.NewLifecycleWorker()
-	if err := worker.Retire(context.Background(), g, cand); err != nil {
+	if _, err := m.RetireGeneration(context.Background(), g); err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
 		t.Fatal(err)
 	}
 	mu.Lock()
@@ -463,7 +464,7 @@ func TestResourceLedger_LateAddAcceptOrImmediatelyCloseRace(t *testing.T) {
 		released.Go(func() {
 			ready.Done()
 			ready.Wait()
-			_ = ledger.AddClose("late", runtimebundle.PhaseClose, closeFn)
+			ledger.AddClose("late", runtimebundle.PhaseClose, closeFn)
 		})
 		go func() {
 			ready.Done()
@@ -487,7 +488,7 @@ func TestResourceLedger_LateCloserMayReenterLedger(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_ = ledger.AddClose("reentrant-late", runtimebundle.PhaseClose, func() error {
+		ledger.AddClose("reentrant-late", runtimebundle.PhaseClose, func() error {
 			if got := ledger.Len(); got != 0 {
 				t.Errorf("closed ledger len=%d want 0", got)
 			}

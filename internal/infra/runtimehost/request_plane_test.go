@@ -79,11 +79,10 @@ func TestAttachRequestPlaneCannotSplitExistingOwnership(t *testing.T) {
 	}
 }
 
-func TestLifecycleWorkerUsesBoundPlaneAsAuthoritativeOwner(t *testing.T) {
+func TestRetireGenerationUsesBoundPlaneAsAuthoritativeOwner(t *testing.T) {
 	t.Parallel()
 	m := NewManager(2, nil)
 	bound := &attachTestPlane{}
-	wrong := &attachTestPlane{}
 	g := m.PrepareRequestPlane("bound", bound)
 	if err := m.Publish(g); err != nil {
 		t.Fatal(err)
@@ -91,13 +90,13 @@ func TestLifecycleWorkerUsesBoundPlaneAsAuthoritativeOwner(t *testing.T) {
 	if err := m.Publish(m.Prepare("next")); err != nil {
 		t.Fatal(err)
 	}
-	if err := NewLifecycleWorker().Retire(context.Background(), g, wrong); err != nil {
+	// retireGeneration derives the QuiesceCloser solely from the generation's
+	// bound RequestPlane; there is no external collaborator argument to
+	// mismatch (task 7.3).
+	if _, err := m.RetireGeneration(context.Background(), g); err != nil && !errors.Is(err, ErrAlreadyClosed) {
 		t.Fatal(err)
 	}
 	if bound.quiesced.Load() != 1 || bound.closed.Load() != 1 {
 		t.Fatalf("bound plane quiesce=%d close=%d want 1/1", bound.quiesced.Load(), bound.closed.Load())
-	}
-	if wrong.quiesced.Load() != 0 || wrong.closed.Load() != 0 {
-		t.Fatalf("mismatched owner was used: quiesce=%d close=%d", wrong.quiesced.Load(), wrong.closed.Load())
 	}
 }

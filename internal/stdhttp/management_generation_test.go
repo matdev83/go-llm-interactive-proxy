@@ -88,7 +88,7 @@ func TestManagement_SurvivesGenerationSwap(t *testing.T) {
 	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: cand("m1", "a", []config.PluginConfig{{ID: "openai-responses", Enabled: true}}),
-		Compose:   ComposeRequestPlane,
+		Compose:   ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -113,7 +113,7 @@ func TestManagement_SurvivesGenerationSwap(t *testing.T) {
 			{ID: "openai-responses", Enabled: true},
 			{ID: "openai-legacy", Enabled: true},
 		}),
-		Compose: ComposeRequestPlane,
+		Compose: ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatal(err)
