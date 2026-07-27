@@ -1,7 +1,8 @@
-# Narrow Phase 9.5 gate: full installed-plugin release gates only where connector
-# manifests advertise native plugin support (Linux + Windows). Connector templates
-# do not advertise Darwin, so macOS full absence/install smoke would fail with
-# unsupported_channel; macOS stays covered by focused native/packaging workflows
+# Narrow Phase 9.5 gate: full repository/release aggregation (installed-plugin
+# release gates) runs on Ubuntu only. Full Windows runners fail intentional
+# Windows admin-user refusals, CRLF gofmt drift, and Markdown fence parsing;
+# connector manifests do not advertise Darwin. Native Windows/macOS coverage
+# remains in focused cross-platform, process-tree, and Cursor SDK smoke workflows
 # (backend-plugin-cross-platform, ACP process-tree, Cursor SDK Platform Smoke).
 # Complements (does not replace) make qa. External evidence required before checking task 9.5.
 name: Backend plugin release gates
@@ -38,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     steps:
