@@ -19,7 +19,6 @@ func TestWorkflow_pushRestrictedToMainForPRDedup(t *testing.T) {
 		".github/workflows/codex-connector-race.yml",
 	}
 	for _, rel := range workflows {
-		rel := rel
 		t.Run(rel, func(t *testing.T) {
 			t.Parallel()
 			raw, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))

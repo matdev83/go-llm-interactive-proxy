@@ -27,9 +27,35 @@ func moduleFilesDrift(name string, current, tidied []byte) error {
 	return fmt.Errorf("%s differs after go mod tidy", name)
 }
 
+// isGoDownloadingProgressLine reports whether line is exactly
+// `go: downloading <non-space-module> <non-space-version>` (Windows CombinedOutput
+// may emit zero or more of these before the unified tidy -diff).
+func isGoDownloadingProgressLine(line []byte) bool {
+	const prefix = "go: downloading "
+	if !bytes.HasPrefix(line, []byte(prefix)) {
+		return false
+	}
+	rest := line[len(prefix):]
+	sp := bytes.IndexByte(rest, ' ')
+	if sp <= 0 || sp == len(rest)-1 {
+		return false
+	}
+	module, version := rest[:sp], rest[sp+1:]
+	if len(module) == 0 || len(version) == 0 {
+		return false
+	}
+	if bytes.ContainsAny(module, " \t") || bytes.ContainsAny(version, " \t") {
+		return false
+	}
+	return true
+}
+
 // tidyDiffOnlyLineEndings reports whether a failed `go mod tidy -diff` output
 // is solely CRLF↔LF rewriting of go.mod / go.sum (same logical lines).
 // Non-diff failures (for example checksum security errors) return false.
+// Benign `go: downloading …` progress lines are allowed only before the first
+// `diff ` header; any other pre-diff diagnostic, or any diagnostic after diff
+// processing begins, fails closed.
 func tidyDiffOnlyLineEndings(diff []byte) bool {
 	if !bytes.Contains(diff, []byte("diff current/")) {
 		return false
@@ -49,7 +75,7 @@ func tidyDiffOnlyLineEndings(diff []byte) bool {
 	}
 	sawFile := false
 	inHunk := false
-	for _, line := range bytes.Split(diff, []byte("\n")) {
+	for line := range bytes.SplitSeq(diff, []byte("\n")) {
 		line = bytes.TrimSuffix(line, []byte("\r"))
 		switch {
 		case bytes.HasPrefix(line, []byte("diff ")):
@@ -74,6 +100,8 @@ func tidyDiffOnlyLineEndings(diff []byte) bool {
 			// "\ No newline at end of file" — ignore
 		case len(bytes.TrimSpace(line)) == 0:
 			// blank
+		case !sawFile && isGoDownloadingProgressLine(line):
+			// Windows may print download progress before the unified diff.
 		default:
 			// unexpected non-diff diagnostics mixed in
 			return false

@@ -76,7 +76,7 @@ func TestWindowsPathContained(t *testing.T) {
 		{
 			name:      "parent-escape",
 			root:      `C:\trusted`,
-			candidate: `C:\other\plugin.exe`,
+			candidate: `C:\outside\plugin.exe`,
 			want:      false,
 		},
 		{

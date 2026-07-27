@@ -926,7 +926,7 @@ replace_policy: development-replace-to-monorepo-root
 			platJSON.WriteString(",\n")
 		}
 		first = false
-		platJSON.WriteString(fmt.Sprintf(`    {"os": %q, "arch": %q}`, p.OS, p.Arch))
+		fmt.Fprintf(&platJSON, `    {"os": %q, "arch": %q}`, p.OS, p.Arch)
 	}
 	platJSON.WriteString("\n  ]")
 	man := `{

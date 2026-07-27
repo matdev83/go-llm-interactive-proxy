@@ -227,6 +227,93 @@ func TestTidyDiffOnlyLineEndings(t *testing.T) {
 				"+a v1 h1:x\n",
 			want: false,
 		},
+		{
+			name: "windows download prelude then eol-only crlf rewrite",
+			diff: "" +
+				"go: downloading golang.org/x/sys v0.22.0\n" +
+				"go: downloading github.com/example/mod v1.2.3\n" +
+				"diff current/go.sum tidy/go.sum\n" +
+				"--- current/go.sum\n" +
+				"+++ tidy/go.sum\n" +
+				"@@ -1,2 +1,2 @@\n" +
+				"-example.com/dep v1.0.0 h1:abc=\r\n" +
+				"-example.com/dep v1.0.0/go.mod h1:def=\r\n" +
+				"+example.com/dep v1.0.0 h1:abc=\n" +
+				"+example.com/dep v1.0.0/go.mod h1:def=\n",
+			want: true,
+		},
+		{
+			name: "malformed download prelude rejected",
+			diff: "" +
+				"go: downloading only-one-field\n" +
+				"diff current/go.sum tidy/go.sum\n" +
+				"--- current/go.sum\n" +
+				"+++ tidy/go.sum\n" +
+				"@@ -1 +1 @@\n" +
+				"-example.com/dep v1.0.0 h1:abc=\r\n" +
+				"+example.com/dep v1.0.0 h1:abc=\n",
+			want: false,
+		},
+		{
+			name: "download with extra fields rejected",
+			diff: "" +
+				"go: downloading example.com/mod v1.0.0 extra\n" +
+				"diff current/go.sum tidy/go.sum\n" +
+				"--- current/go.sum\n" +
+				"+++ tidy/go.sum\n" +
+				"@@ -1 +1 @@\n" +
+				"-example.com/dep v1.0.0 h1:abc=\r\n" +
+				"+example.com/dep v1.0.0 h1:abc=\n",
+			want: false,
+		},
+		{
+			name: "checksum mismatch prelude rejected",
+			diff: "" +
+				"verifying example.com/dep@v1.0.0: checksum mismatch\n" +
+				"diff current/go.sum tidy/go.sum\n" +
+				"--- current/go.sum\n" +
+				"+++ tidy/go.sum\n" +
+				"@@ -1 +1 @@\n" +
+				"-example.com/dep v1.0.0 h1:abc=\r\n" +
+				"+example.com/dep v1.0.0 h1:abc=\n",
+			want: false,
+		},
+		{
+			name: "security error prelude rejected",
+			diff: "" +
+				"SECURITY ERROR\n" +
+				"diff current/go.sum tidy/go.sum\n" +
+				"--- current/go.sum\n" +
+				"+++ tidy/go.sum\n" +
+				"@@ -1 +1 @@\n" +
+				"-example.com/dep v1.0.0 h1:abc=\r\n" +
+				"+example.com/dep v1.0.0 h1:abc=\n",
+			want: false,
+		},
+		{
+			name: "error prelude rejected",
+			diff: "" +
+				"go: errors parsing go.mod\n" +
+				"diff current/go.sum tidy/go.sum\n" +
+				"--- current/go.sum\n" +
+				"+++ tidy/go.sum\n" +
+				"@@ -1 +1 @@\n" +
+				"-example.com/dep v1.0.0 h1:abc=\r\n" +
+				"+example.com/dep v1.0.0 h1:abc=\n",
+			want: false,
+		},
+		{
+			name: "download progress after diff header rejected",
+			diff: "" +
+				"diff current/go.sum tidy/go.sum\n" +
+				"go: downloading example.com/mod v1.0.0\n" +
+				"--- current/go.sum\n" +
+				"+++ tidy/go.sum\n" +
+				"@@ -1 +1 @@\n" +
+				"-example.com/dep v1.0.0 h1:abc=\r\n" +
+				"+example.com/dep v1.0.0 h1:abc=\n",
+			want: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -240,6 +327,7 @@ func TestTidyDiffOnlyLineEndings(t *testing.T) {
 }
 
 func TestCheckModuleTidy_CRLFCheckoutPasses(t *testing.T) {
+	t.Parallel()
 	modRoot := writeTinyModule(t, withCRLFModuleFiles(true))
 	if _, err := checkModuleTidy(modRoot); err != nil {
 		t.Fatalf("tidy check must pass for CRLF-only module files: %v", err)
@@ -255,6 +343,7 @@ func TestCheckModuleTidy_CRLFCheckoutPasses(t *testing.T) {
 }
 
 func TestCheckModuleTidy_ChecksumDriftFails(t *testing.T) {
+	t.Parallel()
 	modRoot := writeTinyModule(t, withCRLFModuleFiles(false))
 	sumPath := filepath.Join(modRoot, "go.sum")
 	sum, err := os.ReadFile(sumPath)
@@ -272,6 +361,7 @@ func TestCheckModuleTidy_ChecksumDriftFails(t *testing.T) {
 }
 
 func TestCheckModuleTidy_GoModRequireDriftFails(t *testing.T) {
+	t.Parallel()
 	modRoot := writeTinyModule(t, withCRLFModuleFiles(false))
 	modPath := filepath.Join(modRoot, "go.mod")
 	// Empty require block is dropped by tidy — semantic go.mod drift, no network.
