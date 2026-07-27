@@ -154,7 +154,7 @@ func TestRequestBinding_MetaFrozenAcrossPublication(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	_ = runtimehost.NewLifecycleWorker().Retire(ctx, old, nil)
+	_, _ = m.RetireGeneration(ctx, old)
 
 	close(release)
 	<-done

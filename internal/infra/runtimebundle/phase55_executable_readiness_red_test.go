@@ -6,9 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
@@ -34,19 +32,11 @@ func TestPhase55_ReadinessSeparatesExecutableSourceAndTerminal(t *testing.T) {
 		ID: "op-rater", Perspective: metering.PerspectiveOperator, Rater: phase53Rater{id: "op-rater"},
 	}}
 	opts.Production.UsageSnapshotSource = phase55FailingUsageSource{}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
-	if built.ReadinessReport == nil {
+	_, built := mustProcessAndCandidate(t, cfg, opts)
+	if runtimebundle.CandidateReadinessReport(built) == nil {
 		t.Fatal("expected readiness report")
 	}
-	report, err := built.ReadinessReport.Report(context.Background())
+	report, err := runtimebundle.CandidateReadinessReport(built).Report(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,29 +77,21 @@ func TestPhase55_RefreshKeepsPriorExecutableOnSourceFailure(t *testing.T) {
 	}}
 	src := &mutablePhase55UsageSource{ver: "u1"}
 	opts.Production.UsageSnapshotSource = src
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
-	before := built.SnapshotGeneration.CurrentExecutable()
+	_, built := mustProcessAndCandidate(t, cfg, opts)
+	before := runtimebundle.CandidateSnapshotGeneration(built).CurrentExecutable()
 	if before == nil || before.EvidenceObjectID() != "op-rater" {
 		t.Fatalf("before=%v", before)
 	}
 	src.fail = true
-	if built.SnapshotController == nil {
+	if runtimebundle.CandidateSnapshotController(built) == nil {
 		t.Fatal("expected snapshot controller")
 	}
-	_ = built.SnapshotController.Refresh(context.Background())
-	after := built.SnapshotGeneration.CurrentExecutable()
+	_ = runtimebundle.CandidateSnapshotController(built).Refresh(context.Background())
+	after := runtimebundle.CandidateSnapshotGeneration(built).CurrentExecutable()
 	if after == nil || after.ID != before.ID || after.EvidenceObjectID() != "op-rater" {
 		t.Fatalf("prior executable must remain; before=%v after=%v", before, after)
 	}
-	cur := built.SnapshotGeneration.Current()
+	cur := runtimebundle.CandidateSnapshotGeneration(built).Current()
 	if cur == nil || (cur.Usage.State != economics.SnapshotUnavailable && cur.Usage.State != economics.SnapshotDegraded) {
 		t.Fatalf("metadata source-fetch posture=%#v", cur)
 	}

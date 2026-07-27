@@ -45,7 +45,7 @@ var publicContractVendorSDKDeps = []forbiddenDep{
 // (introduce-hexagonal-architecture task 2.1): no internal orchestration, wiring roots, or vendor SDKs.
 var publicLipsdkForbiddenDeps = append([]forbiddenDep{
 	{
-		Substr: "/internal/",
+		Substr: "github.com/matdev83/go-llm-interactive-proxy/internal/",
 		ErrMsg: "pkg/lipsdk must not depend on internal packages " +
 			"(orchestration lives in internal/core; same-module internal/ " +
 			"imports are otherwise unconstrained by the compiler)",
@@ -67,7 +67,7 @@ var publicLipsdkForbiddenDeps = append([]forbiddenDep{
 // publicLipapiForbiddenDeps is the same policy for ./pkg/lipapi/... (canonical contract only).
 var publicLipapiForbiddenDeps = append([]forbiddenDep{
 	{
-		Substr: "/internal/",
+		Substr: "github.com/matdev83/go-llm-interactive-proxy/internal/",
 		ErrMsg: "pkg/lipapi must not depend on internal packages " +
 			"(contract surface only; same-module internal/ imports are " +
 			"otherwise unconstrained by the compiler)",

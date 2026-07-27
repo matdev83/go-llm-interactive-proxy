@@ -6,14 +6,12 @@ package pluginreg
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/codexcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"gopkg.in/yaml.v3"
@@ -22,28 +20,10 @@ import (
 // FrontendMount is the stable SDK-named contract (see pkg/lipsdk).
 type FrontendMount = lipsdk.FrontendMount
 
-type ModelVendorResolver = modelcatalog.VendorResolver
-
-// BackendFactoryDeps carries composition-root runtime services that backend factories may use.
-// Dependencies here must be stable core-owned seams, not plugin-specific mutable registry state.
-type BackendFactoryDeps struct {
-	ModelVendorResolver ModelVendorResolver
-	// CodexModelCatalog is the auto-discovered Codex model catalog shared by
-	// the openai-codex and codex app-server connectors. It is resolved once at
-	// startup in single_user mode when at least one of those backends is enabled
-	// and registered on the composition-root registry (codex debug models, else
-	// the shipped fallback snapshot) and may be nil when skipped or resolution
-	// failed; connectors fall back to the shipped snapshot in that case.
-	CodexModelCatalog *codexcatalog.Catalog
-	// CodexModelCatalogSource reports how CodexModelCatalog was obtained
-	// (discovered vs shipped/override fallback). App Server inventory uses this
-	// to avoid advertising unproven fallback slugs.
-	CodexModelCatalogSource codexcatalog.Source
-	// Identity is the proxy-wide identity policy from root config. Approved
-	// hosted connectors merge optional per-backend overrides and wrap their
-	// outbound HTTP clients; excluded connectors ignore this field.
-	Identity identity.Config
-}
+// BackendFactoryDeps is the host dependency surface for in-process backend
+// factories. It aliases GenericBackendFactoryDeps. External executable plugins
+// do not receive this type.
+type BackendFactoryDeps = GenericBackendFactoryDeps
 
 // BackendFactory builds a backend from opaque per-plugin YAML, the composition-root HTTP client,
 // and explicit composition-root runtime dependencies.
@@ -72,6 +52,16 @@ const (
 // FeatureFactory builds a versioned feature bundle from opaque plugin YAML.
 type FeatureFactory func(n yaml.Node) (lipfeature.FeatureBundle, error)
 
+// BackendRegistrationSource is the provenance of a registered backend factory.
+type BackendRegistrationSource string
+
+const (
+	// BackendSourceBuiltin marks in-process composition-root registrations.
+	BackendSourceBuiltin BackendRegistrationSource = "builtin"
+	// BackendSourceDiscovered marks factories installed from trusted plugin artifacts.
+	BackendSourceDiscovered BackendRegistrationSource = "discovered"
+)
+
 // Registry holds bundled plugin factories for one composition root. The zero value is an
 // empty registry: lookups behave like an empty bundle, and the first Register* call lazily
 // allocates internal maps (same observable behavior as [NewRegistry]). Use [NewRegistry] and
@@ -79,7 +69,9 @@ type FeatureFactory func(n yaml.Node) (lipfeature.FeatureBundle, error)
 type Registry struct {
 	mu                 sync.RWMutex
 	backends           map[string]BackendFactory
+	lifecycleBackends  map[string]LifecycleBackendFactory
 	backendProfiles    map[string]BackendSecurityProfile
+	backendSources     map[string]BackendRegistrationSource
 	reloadPolicies     map[string]BackendReloadPolicy
 	discovered         map[string]struct{}
 	discoveryFrozen    bool
@@ -94,7 +86,9 @@ type Registry struct {
 func NewRegistry() *Registry {
 	return &Registry{
 		backends:           map[string]BackendFactory{},
+		lifecycleBackends:  map[string]LifecycleBackendFactory{},
 		backendProfiles:    map[string]BackendSecurityProfile{},
+		backendSources:     map[string]BackendRegistrationSource{},
 		reloadPolicies:     map[string]BackendReloadPolicy{},
 		discovered:         map[string]struct{}{},
 		frontends:          map[string]FrontendMount{},
@@ -107,8 +101,14 @@ func (r *Registry) ensureMaps() {
 	if r.backends == nil {
 		r.backends = map[string]BackendFactory{}
 	}
+	if r.lifecycleBackends == nil {
+		r.lifecycleBackends = map[string]LifecycleBackendFactory{}
+	}
 	if r.backendProfiles == nil {
 		r.backendProfiles = map[string]BackendSecurityProfile{}
+	}
+	if r.backendSources == nil {
+		r.backendSources = map[string]BackendRegistrationSource{}
 	}
 	if r.reloadPolicies == nil {
 		r.reloadPolicies = map[string]BackendReloadPolicy{}
@@ -157,6 +157,7 @@ func (r *Registry) RegisterBackendWithProfile(id string, fn BackendFactory, prof
 	}
 	r.backends[id] = fn
 	r.backendProfiles[id] = profile
+	r.backendSources[id] = BackendSourceBuiltin
 	return nil
 }
 
@@ -254,6 +255,40 @@ func (r *Registry) HasBackend(factoryID string) bool {
 	defer r.mu.RUnlock()
 	_, ok := r.backends[factoryID]
 	return ok
+}
+
+// BackendFactoryIDs returns sorted registered backend factory ids.
+func (r *Registry) BackendFactoryIDs() []string {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]string, 0, len(r.backends))
+	for id := range r.backends {
+		out = append(out, id)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// BuiltinBackendFactoryIDs returns sorted factory ids registered as builtins.
+// Discovered artifact exports are omitted so inspect/catalog cannot self-collide.
+func (r *Registry) BuiltinBackendFactoryIDs() []string {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]string, 0, len(r.backends))
+	for id := range r.backends {
+		if r.backendSources[id] == BackendSourceDiscovered {
+			continue
+		}
+		out = append(out, id)
+	}
+	slices.Sort(out)
+	return out
 }
 
 // BuildBackend constructs a backend from r using the factory id (plugin kind).

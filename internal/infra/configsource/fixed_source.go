@@ -84,7 +84,7 @@ func (s *FixedSource) ReadStable(ctx context.Context, active *ActiveSourceVersio
 	if !beforeInfo.Mode().IsRegular() {
 		return zero, "", integrityErr(CategoryUnsupportedType)
 	}
-	beforeID, err := identityFromFileInfo(beforeInfo)
+	beforeID, err := identityFromFile(f)
 	if err != nil {
 		return zero, "", err
 	}
@@ -103,7 +103,7 @@ func (s *FixedSource) ReadStable(ctx context.Context, active *ActiveSourceVersio
 	if err != nil {
 		return zero, "", fmt.Errorf("configsource: %s: %w", CategoryPartialUnreadable, err)
 	}
-	afterID, err := identityFromFileInfo(afterInfo)
+	afterID, err := identityFromFile(f)
 	if err != nil {
 		return zero, "", err
 	}
@@ -121,7 +121,7 @@ func (s *FixedSource) ReadStable(ctx context.Context, active *ActiveSourceVersio
 	if !pathInfo.Mode().IsRegular() {
 		return zero, "", integrityErr(CategoryUnstable)
 	}
-	pathID, err := identityFromFileInfo(pathInfo)
+	pathID, err := identityFromPath(s.path)
 	if err != nil {
 		return zero, "", err
 	}

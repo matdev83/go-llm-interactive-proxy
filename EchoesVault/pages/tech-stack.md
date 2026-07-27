@@ -82,6 +82,7 @@ status: active
 ## Structural Patterns
 
 - Explicit construction/registration; no DI containers
+- Hybrid backends (ADR 0008): essential static builtins + executable gRPC connectors under `connectors/`; reject Go native `plugin`
 - Interfaces defined where consumed, not in central `ports/` packages
 - Constructors return concrete types (except stable SDK/plugin contracts)
 - Compile-time interface assertions near implementations

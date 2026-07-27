@@ -38,11 +38,11 @@ const (
 	// rpFeatureRowExplicit writes an explicit observe/restore/disabled row
 	// (use_builtin_catalog: false) — existing deterministic / matrix semantics.
 	rpFeatureRowExplicit rpFeatureRowMode = iota
-	// rpFeatureRowOmit omits the feature row so BuildBootstrap injects standard defaults.
+	// rpFeatureRowOmit omits the feature row so BuildHost injects standard defaults.
 	rpFeatureRowOmit
 )
 
-// rpChatStackOpts configures the full-HTTP BuildBootstrap + stdhttp chat stack.
+// rpChatStackOpts configures the full-HTTP BuildHost + stdhttp chat stack.
 type rpChatStackOpts struct {
 	FeatureRow rpFeatureRowMode
 	Action     string // observe|restore|disabled when FeatureRow==rpFeatureRowExplicit
@@ -332,33 +332,28 @@ func startRPBootstrapProxy(t *testing.T, cfgPath string) *httptest.Server {
 
 func startRPBootstrapProxyErr(cfgPath string) (*httptest.Server, func(), error) {
 	ctx := context.Background()
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath: cfgPath,
-		Mode:       runtimebundle.BootstrapServe,
-		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
+	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
+		ConfigPath:      cfgPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("BuildBootstrap: %w", err)
+		return nil, nil, fmt.Errorf("BuildHost: %w", err)
 	}
-	h, handlerCleanup, err := stdhttp.NewStandardHandler(ctx, res.Config, res.App, res.Logger, res.Built)
-	if err != nil {
+	h := host.HTTPHandler()
+	if h == nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 		defer cancel()
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(shutdownCtx)
-		}
-		return nil, nil, fmt.Errorf("NewStandardHandler: %w", err)
+		_ = host.Close(shutdownCtx)
+		return nil, nil, fmt.Errorf("nil host HTTP handler")
 	}
 	srv := httptest.NewServer(h)
 	cleanup := func() {
 		srv.Close()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		handlerCleanup(shutdownCtx)
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(shutdownCtx)
-		}
+		_ = host.Close(shutdownCtx)
 	}
 	return srv, cleanup, nil
 }

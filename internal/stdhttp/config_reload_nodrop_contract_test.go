@@ -19,9 +19,9 @@ import (
 
 // Task 1.5 no-drop contracts (req 5.1-5.10). Barriers/channels only — no sleeps.
 
-func newNoDropHarness(t *testing.T) (*RefGenerationDispatcher, *runtimehost.RefGenerationManager, *ListenerAliveCounter) {
+func newNoDropHarness(t *testing.T) (*RefGenerationDispatcher, *runtimehost.Manager, *ListenerAliveCounter) {
 	t.Helper()
-	m := runtimehost.NewRefGenerationManager(8, nil)
+	m := runtimehost.NewManager(8, nil)
 	return NewRefGenerationDispatcher(m, NewNoDropHandlerRegistry()), m, &ListenerAliveCounter{}
 }
 

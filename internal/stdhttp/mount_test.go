@@ -2,6 +2,7 @@ package stdhttp
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -13,10 +14,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
+	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
@@ -38,12 +40,14 @@ func TestMountBundledFrontends_geminiDoesNotRegisterRoot(t *testing.T) {
 		{ID: gemini.ID, Enabled: true},
 	}
 	if err := MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:                  mux,
-		Exec:                 ex,
-		DefaultRouteSelector: "stub:gemini-2.0-flash",
-		Plugins:              plugins,
-		MaxRequestBodyBytes:  0,
-		Reg:                  reg,
+		Mux: mux,
+		Frontends: HTTPFrontendInput{
+			Executor:             ex,
+			DefaultRouteSelector: "stub:gemini-2.0-flash",
+			Plugins:              plugins,
+			MaxRequestBodyBytes:  0,
+			Registry:             reg,
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -62,17 +66,22 @@ func TestTokenAccountingAdminMountedWithDiagnosticsSecret(t *testing.T) {
 	svc := accountingapp.NewService(accountingapp.ServiceConfig{Mode: accountingapp.ModeLocalOnly}, nil, fixedLocalCounter{})
 	ex := runtime.TestExecutor()
 	ex.AdminCountService = svc
-	built := &runtimebundle.Built{
-		Executor:             ex,
-		PluginRegistry:       pluginreg.NewRegistry(),
-		TokenAccountingAdmin: svc,
-	}
 	app := mustRuntimeApp(t, cfg)
-	h, cleanup, err := NewStandardHandler(context.Background(), cfg, app, slog.Default(), built)
+	ctx := context.Background()
+	startTestApp(ctx, t, app)
+	reg := pluginreg.NewRegistry()
+	in := StandardHTTPInput{
+		Core:      HTTPCoreInput{Executor: ex},
+		Frontends: frontendInputForTest(cfg, ex, reg),
+		Operations: HTTPOperationsInput{
+			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(svc),
+			Registrations:        httpcontract.CloneRegistrations(app.Registrations()),
+		},
+	}
+	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { cleanup(context.Background()) })
 
 	missing := httptest.NewRecorder()
 	h.ServeHTTP(missing, httptest.NewRequest(http.MethodPost, "/admin/token-count", strings.NewReader(tokenAccountingAdminBody())))
@@ -99,13 +108,19 @@ func TestTokenAccountingAdminDisabledNotRegistered(t *testing.T) {
 	t.Parallel()
 	cfg := tokenAccountingAdminTestConfig(false)
 	ex := runtime.TestExecutor()
-	built := &runtimebundle.Built{Executor: ex, PluginRegistry: pluginreg.NewRegistry()}
 	app := mustRuntimeApp(t, cfg)
-	h, cleanup, err := NewStandardHandler(context.Background(), cfg, app, slog.Default(), built)
+	ctx := context.Background()
+	startTestApp(ctx, t, app)
+	reg := pluginreg.NewRegistry()
+	in := StandardHTTPInput{
+		Core:       HTTPCoreInput{Executor: ex},
+		Frontends:  frontendInputForTest(cfg, ex, reg),
+		Operations: HTTPOperationsInput{Registrations: httpcontract.CloneRegistrations(app.Registrations())},
+	}
+	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { cleanup(context.Background()) })
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/admin/token-count", strings.NewReader(tokenAccountingAdminBody()))
@@ -123,17 +138,22 @@ func TestTokenAccountingAdminMountedBodyLimitDoesNotEchoContent(t *testing.T) {
 	svc := accountingapp.NewService(accountingapp.ServiceConfig{Mode: accountingapp.ModeLocalOnly}, nil, fixedLocalCounter{})
 	ex := runtime.TestExecutor()
 	ex.AdminCountService = svc
-	built := &runtimebundle.Built{
-		Executor:             ex,
-		PluginRegistry:       pluginreg.NewRegistry(),
-		TokenAccountingAdmin: svc,
-	}
 	app := mustRuntimeApp(t, cfg)
-	h, cleanup, err := NewStandardHandler(context.Background(), cfg, app, slog.Default(), built)
+	ctx := context.Background()
+	startTestApp(ctx, t, app)
+	reg := pluginreg.NewRegistry()
+	in := StandardHTTPInput{
+		Core:      HTTPCoreInput{Executor: ex},
+		Frontends: frontendInputForTest(cfg, ex, reg),
+		Operations: HTTPOperationsInput{
+			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(svc),
+			Registrations:        httpcontract.CloneRegistrations(app.Registrations()),
+		},
+	}
+	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { cleanup(context.Background()) })
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/admin/token-count", strings.NewReader(tokenAccountingAdminBody()))
@@ -145,6 +165,116 @@ func TestTokenAccountingAdminMountedBodyLimitDoesNotEchoContent(t *testing.T) {
 	if strings.Contains(rr.Body.String(), "secret prompt") || strings.Contains(rr.Body.String(), "Messages") {
 		t.Fatalf("response leaked request content: %s", rr.Body.String())
 	}
+}
+
+func TestTokenAccountingAdmin_explicitServicePreferredOverExecutorFallback(t *testing.T) {
+	t.Parallel()
+	cfg := tokenAccountingAdminTestConfig(true)
+	explicit := accountingapp.NewService(accountingapp.ServiceConfig{Mode: accountingapp.ModeLocalOnly}, nil, fixedLocalCounter{})
+	fallback := accountingapp.NewService(accountingapp.ServiceConfig{Mode: accountingapp.ModeLocalOnly}, nil, failingLocalCounter{})
+	ex := runtime.TestExecutor()
+	ex.AdminCountService = fallback
+	app := mustRuntimeApp(t, cfg)
+	ctx := context.Background()
+	startTestApp(ctx, t, app)
+	reg := pluginreg.NewRegistry()
+	in := StandardHTTPInput{
+		Core:      HTTPCoreInput{Executor: ex},
+		Frontends: frontendInputForTest(cfg, ex, reg),
+		Operations: HTTPOperationsInput{
+			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(explicit),
+			Registrations:        httpcontract.CloneRegistrations(app.Registrations()),
+		},
+	}
+	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/admin/token-count", strings.NewReader(tokenAccountingAdminBody()))
+	req.Header.Set(diag.HeaderDiagnosticsSecret, "secretsecret")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("explicit service status %d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestTokenAccountingAdmin_executorFallbackWhenExplicitNil(t *testing.T) {
+	t.Parallel()
+	cfg := tokenAccountingAdminTestConfig(true)
+	fallback := accountingapp.NewService(accountingapp.ServiceConfig{Mode: accountingapp.ModeLocalOnly}, nil, fixedLocalCounter{})
+	ex := runtime.TestExecutor()
+	ex.AdminCountService = fallback
+	app := mustRuntimeApp(t, cfg)
+	ctx := context.Background()
+	startTestApp(ctx, t, app)
+	reg := pluginreg.NewRegistry()
+	in := StandardHTTPInput{
+		Core:       HTTPCoreInput{Executor: ex},
+		Frontends:  frontendInputForTest(cfg, ex, reg),
+		Operations: HTTPOperationsInput{Registrations: httpcontract.CloneRegistrations(app.Registrations())},
+	}
+	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/admin/token-count", strings.NewReader(tokenAccountingAdminBody()))
+	req.Header.Set(diag.HeaderDiagnosticsSecret, "secretsecret")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("fallback status %d body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `"client_visible"`) {
+		t.Fatalf("response missing count body: %s", rr.Body.String())
+	}
+}
+
+func TestTokenAccountingAdmin_nilServiceReturnsUnavailable(t *testing.T) {
+	t.Parallel()
+	cfg := tokenAccountingAdminTestConfig(true)
+	ex := runtime.TestExecutor()
+	// No TokenAccountingAdmin and no AdminCountService.
+	app := mustRuntimeApp(t, cfg)
+	ctx := context.Background()
+	startTestApp(ctx, t, app)
+	reg := pluginreg.NewRegistry()
+	in := StandardHTTPInput{
+		Core:       HTTPCoreInput{Executor: ex},
+		Frontends:  frontendInputForTest(cfg, ex, reg),
+		Operations: HTTPOperationsInput{Registrations: httpcontract.CloneRegistrations(app.Registrations())},
+	}
+	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/admin/token-count", strings.NewReader(tokenAccountingAdminBody()))
+	req.Header.Set(diag.HeaderDiagnosticsSecret, "secretsecret")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status %d body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "count_unavailable") {
+		t.Fatalf("body=%s", rr.Body.String())
+	}
+}
+
+type failingLocalCounter struct{}
+
+func (failingLocalCounter) CountText(context.Context, accountingapp.CountTextInput) (accountingapp.CountResult, error) {
+	return accountingapp.CountResult{}, errors.New("fallback must not be used")
+}
+
+func (failingLocalCounter) CountCall(context.Context, accountingapp.CountCallInput) (accountingapp.CountResult, error) {
+	return accountingapp.CountResult{}, errors.New("fallback must not be used")
+}
+
+func (failingLocalCounter) CountOutput(context.Context, accountingapp.CountOutputInput) (accountingapp.CountResult, error) {
+	return accountingapp.CountResult{}, errors.New("fallback must not be used")
 }
 
 func tokenAccountingAdminTestConfig(enabled bool) *config.Config {
@@ -198,12 +328,14 @@ func TestMountBundledFrontends_explicitRegistryMissingFrontend(t *testing.T) {
 	mux := http.NewServeMux()
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", nil)
 	err := MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:                  mux,
-		Exec:                 ex,
-		DefaultRouteSelector: "stub:x",
-		Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
-		MaxRequestBodyBytes:  0,
-		Reg:                  reg,
+		Mux: mux,
+		Frontends: HTTPFrontendInput{
+			Executor:             ex,
+			DefaultRouteSelector: "stub:x",
+			Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
+			MaxRequestBodyBytes:  0,
+			Registry:             reg,
+		},
 	})
 	if err == nil {
 		t.Fatal("expected error when registry lacks frontend factories")
@@ -213,11 +345,10 @@ func TestMountBundledFrontends_explicitRegistryMissingFrontend(t *testing.T) {
 	}
 }
 
-// TestNewStandardHandler_diagnosticsHealthzMounted locks the diagnostics mount block in
+// TestComposeStandardHTTP_diagnosticsHealthzMounted locks the diagnostics mount block in
 // prepareStandardHandler: when Diagnostics.Enabled is true with a HealthPath, GET <health>
-// returns 200 through the assembled standard handler. Characterization for the
-// internal/stdhttp/server.go concern split (arch review Task 1.3/1.4).
-func TestNewStandardHandler_diagnosticsHealthzMounted(t *testing.T) {
+// returns 200 through the assembled standard handler.
+func TestComposeStandardHTTP_diagnosticsHealthzMounted(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
 		Server:      config.ServerConfig{Address: "127.0.0.1:0"},
@@ -227,13 +358,19 @@ func TestNewStandardHandler_diagnosticsHealthzMounted(t *testing.T) {
 		Plugins:     config.PluginsConfig{},
 	}
 	ex := runtime.TestExecutor()
-	built := &runtimebundle.Built{Executor: ex, PluginRegistry: pluginreg.NewRegistry()}
 	app := mustRuntimeApp(t, cfg)
-	h, cleanup, err := NewStandardHandler(context.Background(), cfg, app, slog.Default(), built)
+	ctx := context.Background()
+	startTestApp(ctx, t, app)
+	reg := pluginreg.NewRegistry()
+	in := StandardHTTPInput{
+		Core:       HTTPCoreInput{Executor: ex},
+		Frontends:  frontendInputForTest(cfg, ex, reg),
+		Operations: HTTPOperationsInput{Registrations: httpcontract.CloneRegistrations(app.Registrations())},
+	}
+	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { cleanup(context.Background()) })
 
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/healthz", nil))
@@ -242,7 +379,7 @@ func TestNewStandardHandler_diagnosticsHealthzMounted(t *testing.T) {
 	}
 }
 
-func TestNewStandardHandler_openAIModelsAndModelRegistryDiagMounted(t *testing.T) {
+func TestComposeStandardHTTP_openAIModelsAndModelRegistryDiagMounted(t *testing.T) {
 	t.Parallel()
 	const secret = "secretsecret"
 	provider := &mutableInventoryProvider{models: []modelinventory.Model{{
@@ -281,18 +418,18 @@ func TestNewStandardHandler_openAIModelsAndModelRegistryDiagMounted(t *testing.T
 		t.Fatal(err)
 	}
 	ex := runtime.TestExecutor()
-	built := &runtimebundle.Built{
-		Executor:             ex,
-		PluginRegistry:       reg,
-		ModelRegistryRuntime: rt,
-		ModelRegistry:        rt.ActiveRegistry(),
-	}
 	app := mustRuntimeApp(t, cfg)
-	h, cleanup, err := NewStandardHandler(context.Background(), cfg, app, slog.Default(), built)
+	ctx := context.Background()
+	startTestApp(ctx, t, app)
+	in := StandardHTTPInput{
+		Core:      HTTPCoreInput{Executor: ex},
+		Frontends: frontendInputForTest(cfg, ex, reg),
+		Models:    HTTPModelInput{ModelRegistryRuntime: rt},
+	}
+	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { cleanup(context.Background()) })
 
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/models", nil))

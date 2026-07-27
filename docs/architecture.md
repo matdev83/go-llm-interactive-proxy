@@ -17,7 +17,7 @@ The durable source of truth is split by purpose:
 
 The Go proxy is a streaming-first control plane between multiple client-facing APIs and multiple backend API families. Frontend adapters decode wire protocols to `pkg/lipapi` canonical calls. Backend adapters translate canonical calls to provider or emulator calls and return canonical event streams. Core orchestration stays provider-agnostic.
 
-The standard distribution (`cmd/lipstd`) wires the official plugin set through `internal/standardplugins`, `internal/featurebundle`, `internal/infra/runtimebundle`, and `internal/stdhttp`. Core packages do not import concrete plugins or provider SDKs.
+The standard distribution (`cmd/lipstd`) wires essential plugins through `internal/standardplugins`, `internal/featurebundle`, `internal/infra/runtimebundle`, and `internal/stdhttp`, and may discover optional **executable** backend connectors from trusted roots. Hybrid composition is recorded in [`docs/adr/0008-hybrid-backend-connector-plugins.md`](adr/0008-hybrid-backend-connector-plugins.md). Core packages do not import concrete optional connectors or provider SDKs.
 
 ## Runtime flow
 
@@ -52,13 +52,14 @@ These concerns are shared runtime semantics. Provider request shapes, SDK client
 
 ## Plugin-owned behavior
 
-Official protocol adapters live under `internal/plugins`:
+Official protocol adapters:
 
-- frontends: OpenAI Responses, legacy OpenAI-compatible chat/completions, Anthropic Messages, Gemini generateContent;
-- backends: OpenAI Responses, legacy OpenAI-compatible, Anthropic, Gemini, Bedrock Converse, ACP prompt-turn;
+- frontends (`internal/plugins/frontends/`): OpenAI Responses, legacy OpenAI-compatible chat/completions, Anthropic Messages, Gemini generateContent;
+- **essential** backends (`internal/plugins/backends/` + `EssentialBackendBundle`): OpenAI Responses, legacy OpenAI-compatible, Anthropic, Gemini, Bedrock Converse, plus built-in custom-compatible kinds;
+- **optional** backends (`connectors/`): executable gRPC plugins (OpenRouter, NVIDIA, Hugging Face, Ollama/local runtimes, OpenCode, Codex, ACP-family CLIs, `local-stub`, …) registered via closed manifests — not fixed essential tables;
 - features: noop and reference plugins that prove SDK hooks, extension seams, traffic observation, workspace, and completion gates.
 
-The standard distribution may import concrete plugins while assembling the runtime. Core packages must not.
+The composition root may import essential plugins and host discovered connector factories. Core packages must not import concrete connectors.
 
 ## Extension platform
 
@@ -74,21 +75,40 @@ The core materializes these into a frozen request runtime snapshot. Hooks mutate
 
 See `docs/extension-points.md` and `docs/plugin-authoring.md` for the stage table and authoring rules.
 
+## Canonical runtime ownership
+
+This distribution has exactly four converged ownership surfaces:
+
+1. **One process runtime / `ProcessServices`** — process-owned services (stores, shared limiters, metrics/tracing providers, listeners, capacity) constructed once under `runtimebundle.NewProcessServices` / `runtimehost` and retained for the process lifetime. There is a single process-services owner per Host.
+2. **One generation runtime** — an immutable request-plane `GenerationRuntime` compiled and published per config generation, acquired on admission, and retained by in-flight streams until they drain.
+3. **One host (private-field Host)** — `runtimebundle.Host` returned by `runtimebundle.BuildHost` owns startup, reload coordination, generation publication/retention, and shutdown. Host fields are unexported; callers use Host methods / the public `lipruntime.Runtime` facade. **`Host.Close` is the sole process shutdown coordinator**; `pkg/lipruntime.Runtime.Close` and CLI teardown delegate to it. **Manager-owned retirement** drains and closes superseded generations; Host does not reimplement generation closer loops.
+4. **One reload contract** — public/SDK reload DTOs live only in `pkg/lipsdk/configreload` (`Trigger`, `Result`, `Status`, `HistoryEntry`, closed categories). Reload is explicit-only (SIGHUP, management API, public facade); there is no watcher, polling, or automatic retry.
+
+**Candidate assembly is private and temporary.** Package-private `candidateAssembly` / opaque compile handles exist only while a candidate is being built or validated; they are not a runtime API and are not retained after publish or dry-run rollback.
+
+**True unpublished validation:** `runtimebundle.ValidateDistribution` (CLI `lipstd check-config`) compiles through the same generation compiler in dry-run mode and **always rolls back** — it never publishes or retains a generation (no fake check-config publication).
+
+Public `pkg/lipruntime.Runtime` is a thin facade over that one host. Supported public methods: `Build`, `ExecutorView`, `Ready`, `Capabilities`, `MeteringQuerier`, `ReadinessReport`, `RefreshSnapshots`, `Reload`, `ReloadStatus`, `ReloadControl`, `Close`. Public `lipruntime.Options` is registration-only (`RequestRegistrations`, `AttemptRegistrations`, `ConcurrencyRegistration`, `RaterRegistrations`); see [`legacy-options-migration.md`](legacy-options-migration.md). Deleted dual-bootstrap / attachment / legacy-options paths are not part of the current architecture.
+
 ## Composition and startup
 
-`cmd/lipstd` currently performs the standard startup sequence:
+`cmd/lipstd serve` and the public `lipruntime.Build` facade both obtain a complete process-owned `Host` from exactly one `runtimebundle.BuildHost` call. `BuildHost` performs the standard startup sequence as one owned transaction:
 
-1. load YAML config and validate model aliases;
-2. initialize tracing and logging;
-3. create an isolated `pluginreg.Registry` with `pluginreg.NewRegistry`;
-4. resolve default upstream API keys from environment variables;
-5. install the standard bundle on that registry via `standardplugins.InstallStandardBundleOn`;
-6. validate mandatory bundled factories;
-7. merge configured feature bundles with `featurebundle.MergeFeatureSurface` (simplified via `MergeBundles`/`Append` helpers) and build hooks in `runtimebundle` (`BuildFeatureHooks`);
-8. bootstrap process services and publish request-plane **generation 1** through `runtimebundle` / `runtimehost`;
-9. attach the fixed-source reload host (`AttachReloadHost`) and serve data-plane HTTP through a generation dispatcher; optional management reload HTTP binds only when `LIP_RELOAD_MANAGEMENT_ADDRESS` is set.
+1. load YAML config once (the strict effective loader) and validate model aliases;
+2. evaluate the serve-only `--multi-user` CLI gate against that same accepted snapshot;
+3. initialize tracing and logging;
+4. create an isolated `pluginreg.Registry` with `pluginreg.NewRegistry`;
+5. resolve default upstream API keys from environment variables;
+6. install the standard (essential) bundle on that registry via `standardplugins.InstallStandardBundleOn`;
+7. discover and register optional backend connector manifests when configured (`plugins.backend_discovery`);
+8. validate mandatory bundled factories;
+9. merge configured feature bundles with `featurebundle.MergeFeatureSurface` (simplified via `MergeBundles`/`Append` helpers) and build hooks in `runtimebundle` (`BuildFeatureHooks`);
+10. construct process services and publish request-plane **generation 1** through `runtimebundle` / `runtimehost`;
+11. bind the fixed-source reload coordinator and stable executor onto that same generation, returning one complete `Host`.
 
-The registry is composition-root state, not core global state. Static standard-bundle tables live under `internal/standardplugins`; feature merge is `internal/featurebundle`; hook bus construction stays in `internal/infra/runtimebundle`. Startup remains explicit — no package-level mutable registries. Runtime reload publishes a new immutable generation for new admissions without replacing the data-plane listener; see [`runtime-config-reload.md`](runtime-config-reload.md) and [ADR 0008](adr/0008-versioned-runtime-config-reload.md).
+`cmd/lipstd serve` then serves data-plane HTTP through a generation dispatcher; optional management reload HTTP binds only when `LIP_RELOAD_MANAGEMENT_ADDRESS` is set. Unix `SIGHUP` invokes the same coordinator. Any startup failure rolls back everything `BuildHost` acquired internally and returns a nil `Host` — no partial ownership escapes to the caller.
+
+The registry is composition-root state, not core global state. Essential static tables live under `internal/standardplugins`; optional backends attach as discovered executable plugins ([ADR 0008 hybrid connectors](adr/0008-hybrid-backend-connector-plugins.md)); feature merge is `internal/featurebundle`; hook bus construction stays in `internal/infra/runtimebundle`. Startup remains explicit — no package-level mutable registries and no Go native `plugin`. Runtime reload publishes a new immutable generation for new admissions without replacing the data-plane listener; see [`runtime-config-reload.md`](runtime-config-reload.md) and [ADR 0008 versioned reload](adr/0008-versioned-runtime-config-reload.md).
 
 ## Diagnostics and operations
 

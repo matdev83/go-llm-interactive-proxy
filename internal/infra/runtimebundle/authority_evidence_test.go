@@ -6,12 +6,10 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	authoritydomain "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/controlplane/ledgerstore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
@@ -109,16 +107,13 @@ func TestUsageAuthority_EvidenceProjectedThroughRealBundle(t *testing.T) {
 	opts.Testing.ControlPlaneStoreOverride = cpStore
 	opts.Policy.PolicyObservers = []policydecision.Observer{cap}
 
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	if built.UsageAuthority == nil {
+	_, built := mustProcessAndCandidate(t, cfg, opts)
+	if runtimebundle.CandidateUsageAuthority(built) == nil {
 		t.Fatal("expected usage authority service when enabled")
 	}
 
 	admitIn := authorityAdmissionInput()
-	admitRes, err := built.UsageAuthority.Admit(ctx, admitIn)
+	admitRes, err := runtimebundle.CandidateUsageAuthority(built).Admit(ctx, admitIn)
 	if err != nil {
 		t.Fatalf("Admit: %v", err)
 	}
@@ -158,7 +153,7 @@ func TestUsageAuthority_EvidenceProjectedThroughRealBundle(t *testing.T) {
 		EstimatedCost:  admitIn.Spend,
 		Authority:      authoritydomain.AuthorityLevelAuthoritative,
 	}
-	if _, err := built.UsageAuthority.Settle(ctx, settleIn); err != nil {
+	if _, err := runtimebundle.CandidateUsageAuthority(built).Settle(ctx, settleIn); err != nil {
 		t.Fatalf("Settle: %v", err)
 	}
 
@@ -197,12 +192,9 @@ func TestUsageAuthority_DenialEvidenceProjectedThroughRealBundle(t *testing.T) {
 	opts.Testing.ControlPlaneStoreOverride = cpStore
 	opts.Policy.PolicyObservers = []policydecision.Observer{cap}
 
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
+	_, built := mustProcessAndCandidate(t, cfg, opts)
 
-	admitRes, err := built.UsageAuthority.Admit(ctx, authorityAdmissionInput())
+	admitRes, err := runtimebundle.CandidateUsageAuthority(built).Admit(ctx, authorityAdmissionInput())
 	if err != nil {
 		t.Fatalf("Admit returned error on deny (expected result with Allowed=false): %v", err)
 	}
@@ -239,15 +231,12 @@ func TestUsageAuthority_EvidenceFansToObserversWhenControlPlaneDisabled(t *testi
 	opts := baseAuthorityOptions(t, nil)
 	opts.Policy.PolicyObservers = []policydecision.Observer{cap}
 
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	if built.UsageAuthority == nil {
+	_, built := mustProcessAndCandidate(t, cfg, opts)
+	if runtimebundle.CandidateUsageAuthority(built) == nil {
 		t.Fatal("expected usage authority service when enabled")
 	}
 
-	admitRes, err := built.UsageAuthority.Admit(ctx, authorityAdmissionInput())
+	admitRes, err := runtimebundle.CandidateUsageAuthority(built).Admit(ctx, authorityAdmissionInput())
 	if err != nil {
 		t.Fatalf("Admit: %v", err)
 	}

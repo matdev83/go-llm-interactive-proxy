@@ -81,6 +81,16 @@ __pycache__/
 /codex-history.jsonl
 .letta/
 .opencode/
- 
- # Local architecture/dev scratchpad (private, not for sharing)
+
+# Cross-platform QA artifacts (Phase 9.4)
+.golip-crossplatform-matrix.json
+.golip-crossplatform-package-check/
+.golip-package-staging-test/
+.golip-package-staging/
+.golip-plugins/
+
+# Release gates report (Phase 9.5)
+.golip-release-gates-report.json
+
+# Local architecture/dev scratchpad (private, not for sharing)
 .dev/

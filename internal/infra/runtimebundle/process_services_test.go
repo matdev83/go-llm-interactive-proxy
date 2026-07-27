@@ -2,8 +2,6 @@ package runtimebundle_test
 
 import (
 	"context"
-	"errors"
-	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -76,10 +74,10 @@ func TestProcessServices_TwoCandidatesShareIdentities(t *testing.T) {
 	if c1 == nil || c2 == nil {
 		t.Fatal("expected both candidates")
 	}
-	if c1.Executor == nil || c2.Executor == nil {
+	if c1.Executor() == nil || c2.Executor() == nil {
 		t.Fatal("expected executors on both candidates")
 	}
-	if c1.Executor == c2.Executor {
+	if c1.Executor() == c2.Executor() {
 		t.Fatal("candidates must own distinct executors")
 	}
 
@@ -87,35 +85,32 @@ func TestProcessServices_TwoCandidatesShareIdentities(t *testing.T) {
 	if ps.Metrics == nil || ps.Metrics.Registry == nil {
 		t.Fatal("expected process metrics registry")
 	}
-	if c1.Metrics != ps.Metrics || c2.Metrics != ps.Metrics {
-		t.Fatalf("candidates must reuse process Metrics identity: ps=%p c1=%p c2=%p", ps.Metrics, c1.Metrics, c2.Metrics)
+	if c1.Metrics() != ps.Metrics || c2.Metrics() != ps.Metrics {
+		t.Fatalf("candidates must reuse process Metrics identity: ps=%p c1=%p c2=%p", ps.Metrics, c1.Metrics(), c2.Metrics())
 	}
-	if c1.Metrics.Registry != ps.Metrics.Registry {
+	if c1.Metrics().Registry != ps.Metrics.Registry {
 		t.Fatal("candidate must not open a duplicate Prometheus registry")
 	}
-	if c1.Store != ps.Continuity || c2.Store != ps.Continuity {
-		t.Fatalf("candidates must reuse process Continuity store: ps=%p c1=%p c2=%p", ps.Continuity, c1.Store, c2.Store)
+	if c1.Store() != ps.Continuity || c2.Store() != ps.Continuity {
+		t.Fatalf("candidates must reuse process Continuity store: ps=%p c1=%p c2=%p", ps.Continuity, c1.Store(), c2.Store())
 	}
-	if c1.SecureSessionStore != ps.SecureSessions || c2.SecureSessionStore != ps.SecureSessions {
+	if runtimebundle.CandidateSecureSessionStore(c1) != ps.SecureSessions || runtimebundle.CandidateSecureSessionStore(c2) != ps.SecureSessions {
 		t.Fatal("candidates must reuse process SecureSessions store")
 	}
-	if c1.DecodeAdmission != ps.DecodeAdmission || c2.DecodeAdmission != ps.DecodeAdmission {
+	if c1.DecodeAdmission() != ps.DecodeAdmission || c2.DecodeAdmission() != ps.DecodeAdmission {
 		t.Fatal("candidates must reuse process DecodeAdmission")
 	}
-	if c1.PluginRegistry != ps.FactoryCatalog || c2.PluginRegistry != reg {
+	if c1.PluginRegistry() != ps.FactoryCatalog || c2.PluginRegistry() != reg {
 		t.Fatal("candidates must reuse process FactoryCatalog / PluginRegistry")
 	}
-	if c1.DatabasePools != ps.DatabasePools || c2.DatabasePools != ps.DatabasePools {
+	if runtimebundle.CandidateDatabasePools(c1) != ps.DatabasePools || runtimebundle.CandidateDatabasePools(c2) != ps.DatabasePools {
 		t.Fatal("candidates must reuse process DatabasePools")
 	}
-	if c1.TerminalWorkProcessor != ps.TerminalWorkProcessor || c2.TerminalWorkProcessor != ps.TerminalWorkProcessor {
+	if runtimebundle.CandidateTerminalWorkProcessor(c1) != ps.TerminalWorkProcessor || runtimebundle.CandidateTerminalWorkProcessor(c2) != ps.TerminalWorkProcessor {
 		t.Fatal("candidates must reuse process TerminalWorkProcessor")
 	}
 	if ps.Tracing.Shutdown == nil {
 		t.Fatal("expected process Tracing.Shutdown")
-	}
-	if c1.ProcessTracingShutdown != nil {
-		t.Fatal("candidate must not own process tracing shutdown")
 	}
 }
 
@@ -187,66 +182,30 @@ func TestProcessServices_CandidateCloseDoesNotCloseSharedServices(t *testing.T) 
 	}
 }
 
-func TestProcessServices_PartialStartupDisposesReverseOrder(t *testing.T) {
-	t.Parallel()
-
-	order := make([]string, 0, 4)
-
-	err := runtimebundle.DisposeProcessClosersForTest([]func() error{
-		func() error {
-			order = append(order, "first")
-			return nil
-		},
-		func() error {
-			order = append(order, "second")
-			return errors.New("second failed")
-		},
-		func() error {
-			order = append(order, "third")
-			return nil
-		},
-	})
-	if err == nil {
-		t.Fatal("expected joined disposal error")
-	}
-	if !strings.Contains(err.Error(), "second failed") {
-		t.Fatalf("expected disposal error to include closer failure, got %v", err)
-	}
-	want := []string{"third", "second", "first"}
-	if len(order) != 3 || order[0] != want[0] || order[1] != want[1] || order[2] != want[2] {
-		t.Fatalf("dispose order=%v want reverse registration %v", order, want)
-	}
-}
-
-func TestProcessServices_BuildCompatibilityRetainsAggregateCleanup(t *testing.T) {
+func TestProcessServices_CandidateExposesCoreCapabilitiesAndClosesCleanly(t *testing.T) {
 	t.Parallel()
 
 	cfg := processServicesTestConfig()
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 	})
-	if err != nil {
-		t.Fatal(err)
+	if b.Metrics() == nil {
+		t.Fatal("candidate must still expose Metrics")
 	}
-	if b.Metrics == nil {
-		t.Fatal("Build compatibility must still expose Metrics")
+	if b.DecodeAdmission() == nil {
+		t.Fatal("candidate must still expose DecodeAdmission")
 	}
-	if b.DecodeAdmission == nil {
-		t.Fatal("Build compatibility must still expose DecodeAdmission")
+	if b.Store() == nil {
+		t.Fatal("candidate must still expose Store")
 	}
-	if b.Store == nil {
-		t.Fatal("Build compatibility must still expose Store")
-	}
-	// Pure in-memory builds may have an empty closer bag (historical semantics).
-	// When closers exist, reverse-order disposal must remain safe.
-	for _, c := range reverseClosers(b.Closers) {
-		if err := c(); err != nil {
-			t.Fatalf("aggregate closer: %v", err)
-		}
+	// Pure in-memory builds may have an empty ledger (historical semantics).
+	// When ledger entries exist, reverse-order disposal must remain safe.
+	if err := b.Close(); err != nil {
+		t.Fatalf("candidate close: %v", err)
 	}
 }
 
-func TestProcessServices_OwnershipDeferredSharedMutableDocumented(t *testing.T) {
+func TestProcessServices_OwnershipHoistedSharedMutableState(t *testing.T) {
 	t.Parallel()
 
 	cfg := processServicesTestConfig()
@@ -260,9 +219,6 @@ func TestProcessServices_OwnershipDeferredSharedMutableDocumented(t *testing.T) 
 	}
 	t.Cleanup(func() { _ = ps.Close() })
 
-	if ps.DeferredSharedMutable.OwnershipNote != "" {
-		t.Fatalf("task 2.4 must resolve DeferredSharedMutable; got note %q", ps.DeferredSharedMutable.OwnershipNote)
-	}
 	if ps.ALegLifecycle == nil || ps.AffinityStore == nil || ps.CandidateHealth == nil || ps.ExtensionState == nil {
 		t.Fatal("expected hoisted A-leg, affinity, health, and extension state on ProcessServices")
 	}
@@ -312,29 +268,21 @@ func TestProcessServices_DuplicateCompileDoesNotDuplicateTerminalWork(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c1.TerminalWorkProcessor != ps.TerminalWorkProcessor || c2.TerminalWorkProcessor != ps.TerminalWorkProcessor {
+	if runtimebundle.CandidateTerminalWorkProcessor(c1) != ps.TerminalWorkProcessor || runtimebundle.CandidateTerminalWorkProcessor(c2) != ps.TerminalWorkProcessor {
 		t.Fatal("duplicate terminal-work processors across candidates")
 	}
 	_ = c1.Close()
 	_ = c2.Close()
 }
 
-func TestBootstrap_ProcessServicesCompatibility(t *testing.T) {
+func TestProcessServices_AcceptsTracingResultShape(t *testing.T) {
 	t.Parallel()
 
 	// Ensure tracing.Result shape still wires through ProcessTracing without
-	// requiring callers to change BootstrapResult fields.
+	// requiring callers to change Host fields.
 	res := tracing.Result{Shutdown: func(context.Context) error { return nil }, Active: false}
 	pt := runtimebundle.ProcessTracing{Shutdown: res.Shutdown, Active: res.Active}
 	if pt.Shutdown == nil {
 		t.Fatal("ProcessTracing must accept tracing.Result fields")
 	}
-}
-
-func reverseClosers(in []func() error) []func() error {
-	out := make([]func() error, len(in))
-	for i := range in {
-		out[len(in)-1-i] = in[i]
-	}
-	return out
 }

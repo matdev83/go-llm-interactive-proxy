@@ -35,10 +35,6 @@ type Config struct {
 	ModelAliases   []ModelAliasConfig   `yaml:"model_aliases"`
 	ModelCatalog   ModelCatalogConfig   `yaml:"model_catalog"`
 	ModelInventory ModelInventoryConfig `yaml:"model_inventory"`
-	// CodexModelCatalog controls auto-discovery (`codex debug models`) and the
-	// shipped/override fallback snapshot for the openai-codex and codex
-	// app-server connectors. Defaults to discovery enabled.
-	CodexModelCatalog CodexModelCatalogConfig `yaml:"codex_model_catalog"`
 	// ControlPlane is the optional control-plane persistence/query/event-ledger
 	// capability. Disabled by default; enabled requires explicit startup
 	// validation (see validateControlPlane).
@@ -521,9 +517,18 @@ type ContinuityConfig struct {
 }
 
 type PluginsConfig struct {
-	Frontends []PluginConfig `yaml:"frontends"`
-	Backends  []PluginConfig `yaml:"backends"`
-	Features  []PluginConfig `yaml:"features"`
+	BackendDiscovery BackendDiscoveryConfig `yaml:"backend_discovery"`
+	Frontends        []PluginConfig         `yaml:"frontends"`
+	Backends         []PluginConfig         `yaml:"backends"`
+	Features         []PluginConfig         `yaml:"features"`
+}
+
+// BackendDiscoveryConfig is the generic (provider-agnostic) discovery/trust subtree.
+type BackendDiscoveryConfig struct {
+	Enabled         bool     `yaml:"enabled"`
+	Paths           []string `yaml:"paths"`
+	Strict          bool     `yaml:"strict"`
+	DevelopmentMode bool     `yaml:"development_mode"`
 }
 
 // PluginConfig keeps plugin-private config opaque to the core.

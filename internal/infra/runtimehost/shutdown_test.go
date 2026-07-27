@@ -110,7 +110,7 @@ func TestManager_ShutdownDetached_PinnedTimeoutNoForceClose(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
-	err := m.ShutdownDetached(ctx, runtimehost.NewLifecycleWorker())
+	err := m.ShutdownDetached(ctx)
 	if err == nil {
 		t.Fatal("expected timeout error while pinned")
 	}
@@ -126,7 +126,7 @@ func TestManager_ShutdownDetached_PinnedTimeoutNoForceClose(t *testing.T) {
 	pin.Release()
 	ctx2, cancel2 := context.WithTimeout(context.Background(), time.Second)
 	defer cancel2()
-	if err := runtimehost.NewLifecycleWorker().Retire(ctx2, g, nil); err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
+	if _, err := m.RetireGeneration(ctx2, g); err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
 		t.Fatalf("retire after pin release: %v", err)
 	}
 	if closer.closes.Load() != 1 {
@@ -199,7 +199,7 @@ func TestManager_Publish_BeginShutdownRace_NoActiveLeak(t *testing.T) {
 		} else if !errors.Is(pubErr, runtimehost.ErrHostShuttingDown) {
 			t.Fatalf("round %d: unexpected publish err %v", round, pubErr)
 		}
-		_ = m.ShutdownDetached(context.Background(), runtimehost.NewLifecycleWorker())
+		_ = m.ShutdownDetached(context.Background())
 		if m.Active() != nil {
 			t.Fatalf("round %d: active must be nil after shutdown", round)
 		}
@@ -248,7 +248,7 @@ func TestManager_ShutdownDetached_PinnedDoesNotBlockOtherGeneration(t *testing.T
 
 	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
 	defer cancel()
-	err := m.ShutdownDetached(ctx, runtimehost.NewLifecycleWorker())
+	err := m.ShutdownDetached(ctx)
 	if err == nil {
 		t.Fatal("expected pin timeout")
 	}
@@ -264,7 +264,7 @@ func TestManager_ShutdownDetached_PinnedDoesNotBlockOtherGeneration(t *testing.T
 	pin.Release()
 	ctx2, cancel2 := context.WithTimeout(context.Background(), time.Second)
 	defer cancel2()
-	if err := runtimehost.NewLifecycleWorker().Retire(ctx2, old, nil); err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
+	if _, err := m.RetireGeneration(ctx2, old); err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
 		t.Fatalf("retire pinned: %v", err)
 	}
 	if pinnedCloser.closes.Load() != 1 {

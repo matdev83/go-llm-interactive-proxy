@@ -4,13 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	cpadmin "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/controlplane"
+	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
+	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
@@ -22,7 +28,7 @@ import (
 // Each compile consumes an isolated candidate effective configuration and rebuilds
 // registrations/feature surface from the process-owned factory catalog. It does
 // not mutate ProcessServices, an active generation, or a prior candidate.
-func CompileGeneration(ctx context.Context, in GenerationCompileInput) (*GenerationBundle, error) {
+func CompileGeneration(ctx context.Context, in GenerationCompileInput) (GenerationRuntime, error) {
 	if in.Process == nil {
 		return nil, fmt.Errorf("runtimebundle: nil ProcessServices")
 	}
@@ -68,7 +74,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (*Generat
 		bus = hooks.New(hooksConfigFromMerged(merged))
 	}
 
-	cand, err := CompileCandidate(ctx, GenerationCompileInput{
+	cand, err := compileCandidate(ctx, GenerationCompileInput{
 		Process:   ps,
 		Bus:       bus,
 		Candidate: frozen,
@@ -84,97 +90,126 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (*Generat
 		return nil, err
 	}
 
-	fail := func(err error) (*GenerationBundle, error) {
-		if rollErr := cand.Close(); rollErr != nil {
+	failBeforeTransfer := func(err error) (GenerationRuntime, error) {
+		if rollErr := cand.RollbackUnpublished(); rollErr != nil {
 			return nil, errors.Join(err, rollErr)
 		}
 		return nil, err
 	}
 
 	if err := injectCandidateFault(in.FaultInject, "handler"); err != nil {
-		return fail(err)
+		return failBeforeTransfer(err)
 	}
 
 	wireModel := ps.opts.WireModel
 	if wireModel == nil {
 		wireModel = standardplugins.DefaultWireModel
 	}
-	route := cand.EffectiveDefaultRoute
+	route := cand.execution.effectiveDefaultRoute
 	if route == "" {
 		route = config.EffectiveDefaultRouteSelector(frozen, wireModel)
 	}
-	authProviders := append([]httpauth.Provider(nil), cand.HTTPAuthProviders...)
+	authProviders := append([]httpauth.Provider(nil), cand.security.httpAuth...)
 
-	plane := RequestPlane{
-		log:             ps.Logger,
-		frozen:          frozen,
-		registrations:   freezeRegistrations(regs),
-		route:           FrozenRoutingView{DefaultRoute: route, RoutePrefixes: append([]string(nil), cand.RoutePrefixes...)},
-		executor:        cand.Executor,
-		store:           cand.Store,
-		upstreamHTTP:    cand.UpstreamHTTP,
-		decodeAdmission: cand.DecodeAdmission,
-		pluginRegistry:  cand.PluginRegistry,
-		metrics:         cand.Metrics,
-		runtimeSnap:     cand.RuntimeSnapshot,
-		httpAuth:        authProviders,
-		secureSessions:  cand.SecureSessionStore,
-		authEvents:      cand.AuthEventDispatcher,
-		catalog:         cand.CatalogRuntime,
-		modelRegistry:   cand.ModelRegistry,
-		modelRuntime:    cand.ModelRegistryRuntime,
-		tokenAdmin:      cand.TokenAccountingAdmin,
-		cpQueries:       cand.ControlPlaneQueries,
-		cpStatus:        cand.ControlPlaneStatus,
-		cpRetention:     cand.ControlPlaneRetention,
-		usageAuthority:  cand.UsageAuthority,
-		concurrency:     cand.ConcurrencyAuthority,
-		snapshots:       cand.SnapshotGeneration,
-		snapshotCtrl:    cand.SnapshotController,
-		meteringQuerier: cand.MeteringQuerier,
-		readiness:       cand.ReadinessReport,
-		secretGuardInv:  cand.SecretGuardInventory,
-		terminalProc:    cand.TerminalWorkProcessor,
-		terminalReg:     cand.TerminalWorkRegistry,
-		terminalQueries: cand.TerminalWorkQueries,
-		terminalMetrics: cand.TerminalWorkMetrics,
+	httpInput := buildStandardHTTPInput(cand, frozen, regs, route)
+	if err := injectCandidateFault(in.FaultInject, "composer-clone"); err != nil {
+		return failBeforeTransfer(fmt.Errorf("runtimebundle: composer config clone: %w", err))
+	}
+	composerCfg, err := freezeConfig(frozen)
+	if err != nil {
+		return failBeforeTransfer(fmt.Errorf("runtimebundle: composer config clone: %w", err))
 	}
 
-	// Isolate composer panics so candidate resources roll back and
-	// ProcessServices stay up (req 3.9).
-	handler, err := composeRequestPlaneIsolated(ctx, in.Compose, plane)
+	handler, err := composeStandardHTTPIsolated(ctx, in.Compose, composerCfg, ps.Logger, httpInput)
 	if err != nil {
-		return fail(fmt.Errorf("runtimebundle: compose request plane: %w", err))
+		return failBeforeTransfer(fmt.Errorf("runtimebundle: compose request plane: %w", err))
 	}
 	if handler == nil {
-		return fail(fmt.Errorf("runtimebundle: handler composer returned nil handler"))
+		return failBeforeTransfer(fmt.Errorf("runtimebundle: handler composer returned nil handler"))
 	}
 
-	return &GenerationBundle{
+	if err := injectCandidateFault(in.FaultInject, "ledger-transfer"); err != nil {
+		_ = cand.claimLifecycleLedger()
+	}
+	ledger := cand.transferLedgerOwnership()
+	if ledger == nil {
+		return failBeforeTransfer(fmt.Errorf("runtimebundle: candidate resource ledger unavailable for transfer"))
+	}
+	bundle := newGenerationBundle(generationBundleInput{
 		handler:           handler,
-		executor:          cand.Executor,
-		routing:           FrozenRoutingView{DefaultRoute: route, RoutePrefixes: append([]string(nil), cand.RoutePrefixes...)},
-		frontends:         freezePluginConfigs(frozen.Plugins.Frontends),
-		registrations:     freezeRegistrations(regs),
-		httpAuth:          append([]httpauth.Provider(nil), authProviders...),
-		models:            cand.ModelRegistryRuntime,
-		catalog:           cand.CatalogRuntime,
-		backendIDs:        backendIDsOf(cand.Executor),
-		ledger:            cand.Ledger,
-		owner:             cand,
-		terminalProviders: terminalworkapp.SnapshotTerminalProviders(cand.TerminalWorkRegistry),
-		readiness:         cand.ReadinessReport,
-	}, nil
+		executor:          cand.execution.executor,
+		routing:           FrozenRoutingView{DefaultRoute: route, RoutePrefixes: append([]string(nil), cand.execution.routePrefixes...)},
+		frontends:         frozen.Plugins.Frontends,
+		registrations:     regs,
+		httpAuth:          authProviders,
+		models:            cand.models.registryRuntime,
+		catalog:           cand.models.catalog,
+		backendIDs:        backendIDsOf(cand.execution.executor),
+		ledger:            ledger,
+		terminalProviders: terminalworkapp.SnapshotTerminalProviders(cand.operations.terminalRegistry),
+		readiness:         cand.operations.readinessReport,
+	})
+	return bundle, nil
 }
 
-func composeRequestPlaneIsolated(ctx context.Context, compose HandlerComposer, plane RequestPlane) (handler http.Handler, err error) {
+func composeStandardHTTPIsolated(ctx context.Context, compose HandlerComposer, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (handler http.Handler, err error) {
 	defer func() {
 		if p := recover(); p != nil {
 			handler = nil
-			err = fmt.Errorf("runtimebundle: compose panic: %v", p)
+			err = fmt.Errorf("runtimebundle: compose panic: %s", configreload.SanitizePanicValue(p))
 		}
 	}()
-	return compose(ctx, plane)
+	return compose(ctx, cfg, log, in)
+}
+
+// buildStandardHTTPInput projects one compiled candidate plus its frozen
+// config/registrations directly into the focused HTTP composition input
+// (task 3.4–3.5). It never allocates a legacy RequestPlane or Built aggregate.
+func buildStandardHTTPInput(cand *candidateAssembly, frozen *config.Config, regs []lipsdk.Registration, route string) httpcontract.StandardHTTPInput {
+	var maxBody int64
+	var preKA lipsdk.FrontendKeepaliveConfig
+	if frozen != nil {
+		maxBody = frozen.Server.EffectiveMaxRequestBodyBytes()
+		ka := frozen.Server.EffectivePreRequestKeepalive()
+		preKA = lipsdk.FrontendKeepaliveConfig{Enabled: ka.Enabled, Interval: ka.Interval}
+	}
+	var plugins []config.PluginConfig
+	if frozen != nil {
+		plugins = frozen.Plugins.Frontends
+	}
+	return httpcontract.StandardHTTPInput{
+		Core: httpcontract.HTTPCoreInput{Executor: cand.execution.executor},
+		Security: httpcontract.HTTPSecurityInput{
+			HTTPAuthProviders:    httpcontract.CloneHTTPAuthProviders(cand.security.httpAuth),
+			SecureSessionStore:   cand.security.secureSessionStore,
+			UsageAuthority:       cpadmin.AdaptAccountingAuthorityQueries(cand.process.usageAuthority),
+			ConcurrencyAuthority: cpadmin.AdaptConcurrencyAuthorityQueries(cand.process.concurrencyAuthority),
+		},
+		Operations: httpcontract.HTTPOperationsInput{
+			Metrics:              cand.process.metrics,
+			Store:                cand.process.store,
+			SecretGuardInventory: cand.operations.secretGuardInventory,
+			ControlPlaneQueries:  cpadmin.AdaptControlPlaneQueries(cand.process.controlPlaneQueries),
+			ReadinessReport:      cpadmin.AdaptReadinessReport(cand.operations.readinessReport),
+			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(cand.operations.tokenAccountingAdmin),
+			Registrations:        httpcontract.CloneRegistrations(regs),
+		},
+		Models: httpcontract.HTTPModelInput{
+			CatalogRuntime:       cand.models.catalog,
+			ModelRegistryRuntime: cand.models.registryRuntime,
+		},
+		Frontends: httpcontract.HTTPFrontendInput{
+			Executor:             cand.execution.executor,
+			Registry:             cand.process.pluginRegistry,
+			DefaultRouteSelector: route,
+			RoutePrefixes:        httpcontract.CloneStrings(cand.execution.routePrefixes),
+			Plugins:              httpcontract.ClonePluginConfigs(plugins),
+			MaxRequestBodyBytes:  maxBody,
+			DecodeAdmission:      cand.execution.decodeAdmission,
+			TrafficPorts:         httpcontract.TrafficPortsFromSnapshot(cand.security.runtimeSnapshot),
+			PreRequestKeepalive:  preKA,
+		},
+	}
 }
 
 func injectCandidateFault(fi CandidateFaultInject, boundary string) error {

@@ -178,7 +178,7 @@ func TestGenerationPin_ChildRetain_TimeoutShutdownNoForceClose(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
-	err := m.ShutdownDetached(ctx, runtimehost.NewLifecycleWorker())
+	err := m.ShutdownDetached(ctx)
 	if err == nil {
 		t.Fatal("expected timeout while child-pinned")
 	}
@@ -188,7 +188,7 @@ func TestGenerationPin_ChildRetain_TimeoutShutdownNoForceClose(t *testing.T) {
 	pin.Release()
 	ctx2, cancel2 := context.WithTimeout(context.Background(), time.Second)
 	defer cancel2()
-	if err := runtimehost.NewLifecycleWorker().Retire(ctx2, g, nil); err != nil {
+	if _, err := m.RetireGeneration(ctx2, g); err != nil {
 		t.Fatalf("retire after release: %v", err)
 	}
 	if closer.closes.Load() != 1 {

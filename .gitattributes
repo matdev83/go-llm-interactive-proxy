@@ -1,2 +1,6 @@
 # Native fuzz corpora must use LF-only line endings (Go rejects CRLF in corpus files).
 testdata/**/fuzz/** text eol=lf
+
+# Keep root ignore file LF-only so `git diff --check` stays clean on Windows checkouts.
+/.gitignore text eol=lf
+docs/dogfood-local.md whitespace=cr-at-eol

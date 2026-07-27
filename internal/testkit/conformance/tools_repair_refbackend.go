@@ -11,18 +11,14 @@ import (
 
 	refanthropic "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/anthropicmessages"
 	refbedrock "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/bedrock"
-	refnvidia "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/nvidia"
 	refopenaichat "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openaichat"
 	refopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openairesponses"
-	refopenrouter "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openrouter"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
 )
 
 // WantRepairedToolArgsJSON is the closed JSON expected after syntax repair for
@@ -86,38 +82,6 @@ func NewToolCallRepairRefBackend(tb testing.TB, backendID string) *httptest.Serv
 		return srv
 	case bedrock.ID:
 		srv := httptest.NewServer(refbedrock.NewHandler(refbedrock.Config{StreamEvents: bedrockToolStreamTruncated(tb)}))
-		tb.Cleanup(srv.Close)
-		return srv
-	case nvidia.ID:
-		const sse = "data: " +
-			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"nvidia/llama-3.1-nemotron-nano-8b-v1","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_nv","type":"function","function":{"name":"get_weather"}}]},"finish_reason":null}]}` +
-			"\n\n" + "data: " +
-			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"nvidia/llama-3.1-nemotron-nano-8b-v1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\":\"NYC\""}}]},"finish_reason":null}]}` +
-			"\n\n" + "data: " +
-			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"nvidia/llama-3.1-nemotron-nano-8b-v1","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}` +
-			"\n\n" + "data: " +
-			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"nvidia/llama-3.1-nemotron-nano-8b-v1","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":7,"total_tokens":10}}` +
-			"\n\n" + "data: [DONE]\n\n"
-		srv := httptest.NewServer(refnvidia.NewHandler(refnvidia.Config{
-			ChatStreamSSE:      sse,
-			ResponsesStreamSSE: openAICompatToolResponsesTruncatedSSE("nvidia/llama-3.1-nemotron-nano-8b-v1", `{"city":"NYC"`),
-		}))
-		tb.Cleanup(srv.Close)
-		return srv
-	case openrouter.ID:
-		const sse = "data: " +
-			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"openai/gpt-4o-mini","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_or","type":"function","function":{"name":"get_weather"}}]},"finish_reason":null}]}` +
-			"\n\n" + "data: " +
-			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"openai/gpt-4o-mini","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\":\"NYC\""}}]},"finish_reason":null}]}` +
-			"\n\n" + "data: " +
-			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"openai/gpt-4o-mini","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}` +
-			"\n\n" + "data: " +
-			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"openai/gpt-4o-mini","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":7,"total_tokens":10,"cost":0.00014}}` +
-			"\n\n" + "data: [DONE]\n\n"
-		srv := httptest.NewServer(refopenrouter.NewHandler(refopenrouter.Config{
-			ChatStreamSSE:      sse,
-			ResponsesStreamSSE: openAICompatToolResponsesTruncatedSSE("openai/gpt-4o-mini", `{"city":"NYC"`),
-		}))
 		tb.Cleanup(srv.Close)
 		return srv
 	default:

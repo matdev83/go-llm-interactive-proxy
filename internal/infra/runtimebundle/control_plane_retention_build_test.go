@@ -3,6 +3,7 @@ package runtimebundle_test
 import (
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 )
 
@@ -21,13 +22,13 @@ func TestBuild_ControlPlaneRetention_StartupKeepsStatusReady(t *testing.T) {
 	built := buildControlPlaneBundle(t, cfg)
 	// closers disposed via buildControlPlaneBundle t.Cleanup
 
-	if built.ControlPlaneRetention == nil {
+	if runtimebundle.CandidateControlPlaneRetention(built) == nil {
 		t.Fatalf("retention: expected ControlPlaneRetention handle wired")
 	}
-	if built.ControlPlaneStatus == nil {
+	if runtimebundle.CandidateControlPlaneStatus(built) == nil {
 		t.Fatalf("retention: expected ControlPlaneStatus handle wired")
 	}
-	snap := built.ControlPlaneStatus.Snapshot()
+	snap := runtimebundle.CandidateControlPlaneStatus(built).Snapshot()
 	if snap.State != cp.CapabilityReady {
 		t.Fatalf("retention: startup pass on empty memory store must keep status ready, got %q", snap.State)
 	}

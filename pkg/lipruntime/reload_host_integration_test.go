@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
 )
@@ -48,24 +49,6 @@ func TestBuild_BindsCoordinatorAndStableExecutorView(t *testing.T) {
 	}
 	if rt.ExecutorView() != view {
 		t.Fatal("ExecutorView identity must survive reload")
-	}
-}
-
-func TestRefreshSnapshots_RemainsSubordinatePolicyRefresh(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	rt, err := lipruntime.Build(ctx, lipruntime.Options{ConfigPath: repoConfigPath(t)})
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	t.Cleanup(func() { _ = rt.Close(ctx) })
-	before := rt.ReloadStatus().ActiveGeneration
-	if err := rt.RefreshSnapshots(ctx); err != nil {
-		t.Fatalf("RefreshSnapshots: %v", err)
-	}
-	after := rt.ReloadStatus().ActiveGeneration
-	if after != before {
-		t.Fatalf("RefreshSnapshots must not publish config generations: before=%d after=%d", before, after)
 	}
 }
 
@@ -145,7 +128,7 @@ func localStubCall() *lipapi.Call {
 
 func localStubConfigVersion(t *testing.T, version string) string {
 	t.Helper()
-	body := mustReadFile(t, filepath.Join(filepath.Dir(repoConfigPath(t)), "examples", "dogfood-local-stub.yaml"))
+	body := mustReadFile(t, bpkit.WriteDogfoodLocalStubConfig(t))
 	const original = `text: "[dogfood] local stub"`
 	replacement := `text: "` + version + `"`
 	if !strings.Contains(body, original) {

@@ -3,26 +3,26 @@ package configreload_test
 import (
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 func TestReloadAPI_HTTPStatusGoldens(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		cat  configreload.ResultCategory
+		cat  sdkreload.ResultCategory
 		want int
 	}{
-		{configreload.ResultPublished, 200},
-		{configreload.ResultNoop, 200},
-		{configreload.ResultBusy, 409},
-		{configreload.ResultRestartRequired, 409},
-		{configreload.ResultRetentionBlocked, 409},
-		{configreload.ResultInvalid, 422},
-		{configreload.ResultSourceIntegrity, 422},
-		{configreload.ResultCanceled, 503},
-		{configreload.ResultPreparationFailed, 503},
-		{configreload.ResultInternalFailed, 503},
+		{sdkreload.ResultPublished, 200},
+		{sdkreload.ResultNoop, 200},
+		{sdkreload.ResultBusy, 409},
+		{sdkreload.ResultRestartRequired, 409},
+		{sdkreload.ResultRetentionBlocked, 409},
+		{sdkreload.ResultInvalid, 422},
+		{sdkreload.ResultSourceIntegrity, 422},
+		{sdkreload.ResultCanceled, 503},
+		{sdkreload.ResultPreparationFailed, 503},
+		{sdkreload.ResultInternalFailed, 503},
 	}
 	for _, tc := range cases {
 		if got := mgmtreload.HTTPStatusFor(tc.cat); got != tc.want {

@@ -7,13 +7,14 @@ import (
 
 	coreconfig "github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
-// RunWithRuntime must reject unsafe diagnostics posture before requiring a built runtime.
+// ComposeStandardHTTP must reject unsafe diagnostics posture before composition.
 //
 //nolint:paralleltest // documents coupling to validateStartupSecurity ordering; keep sequential.
-func TestRunWithRuntime_rejectsUnsafeDiagnosticsPostureBeforeBuilt(t *testing.T) {
+func TestComposeStandardHTTP_rejectsUnsafeDiagnosticsPostureBeforeCompose(t *testing.T) {
 	ctx := context.Background()
 	cfg := &coreconfig.Config{
 		Access:     coreconfig.AccessConfig{Mode: "multi_user"},
@@ -32,12 +33,14 @@ func TestRunWithRuntime_rejectsUnsafeDiagnosticsPostureBeforeBuilt(t *testing.T)
 		},
 	}
 	log := testkit.DiscardLogger()
-	app, err := runtime.New(runtime.Options{Config: cfg, Logger: log})
-	if err != nil {
-		t.Fatal(err)
+	reg := pluginreg.NewRegistry()
+	ex := runtime.TestExecutor()
+	in := StandardHTTPInput{
+		Core:      HTTPCoreInput{Executor: ex},
+		Frontends: frontendInputForTest(cfg, ex, reg),
 	}
-	err = RunWithRuntime(ctx, cfg, app, log, nil)
+	_, err := ComposeStandardHTTP(ctx, cfg, log, in)
 	if err == nil || !strings.Contains(err.Error(), "diagnostics.shared_secret") {
-		t.Fatalf("want posture error before built checks, got %v", err)
+		t.Fatalf("want posture error before compose, got %v", err)
 	}
 }

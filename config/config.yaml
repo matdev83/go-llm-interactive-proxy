@@ -246,20 +246,6 @@ hooks:
 #   fetch_timeout: 30s   # per-backend startup/refresh inventory fetch timeout
 #   # diagnostics_path: /debug/model-registry  # protected discovery status (not models.dev)
 
-# Codex model catalog auto-discovery + fallback, shared by the openai-codex and
-# openai-codex-app-server connectors. Discovery runs only in single_user mode
-# when at least one of those backends is enabled and registered/loaded. Then
-# the proxy runs `codex debug models` and uses the parsed model slugs /
-# per-model reasoning efforts; on any failure (or when disabled) it falls back
-# to the shipped embedded snapshot
-# (internal/core/codexcatalog/codex_model_catalog.json). multi_user startups
-# skip discovery (local-only Codex connectors are also rejected by backend
-# security policy).
-# codex_model_catalog:
-#   enabled: true            # run `codex debug models` when gated on (default true)
-#   # fallback_path: /etc/codex/catalog.json   # override the shipped snapshot
-#   # codex_binary_path: /usr/local/bin/codex  # explicit codex binary path
-#   timeout: 10s             # `codex debug models` subprocess timeout
 
 continuity:
   in_memory: true
@@ -364,8 +350,9 @@ plugins:
     - id: openrouter
       enabled: false
       config: {}
+      # External connector (connectors/openrouter): not a root UpstreamAPIKeys pool.
       # base_url: https://openrouter.ai/api/v1  # default
-      # api_key: ""          # or use OPENROUTER_API_KEY / OPENROUTER_API_KEY_N env vars
+      # api_key: ""          # connector-local secret / YAML (not root env key pools)
       # Legacy (validated at startup; conflicts with matching identity.openrouter.app_*):
       # static_referer: ""   # legacy static HTTP-Referer when identity.openrouter.app_url omitted
       # static_title: ""     # legacy static title → emitted as X-OpenRouter-Title
@@ -377,45 +364,53 @@ plugins:
     - id: nvidia
       enabled: false
       config: {}
+      # External connector (connectors/nvidia): credentials are connector-local, not root env pools.
       # base_url: https://integrate.api.nvidia.com/v1  # default
-      # api_key: ""          # or use NVIDIA_API_KEY / NVIDIA_API_KEY_N env vars
+      # api_key: ""
     - id: huggingface
       enabled: false
       config: {}
+      # External connector (connectors/huggingface): credentials are connector-local, not root env pools.
       # base_url: https://router.huggingface.co/v1  # default
-      # api_key: ""          # or use HUGGINGFACE_API_KEY / HUGGINGFACE_API_KEY_N env vars
+      # api_key: ""
     - id: opencode-go
       enabled: false
       config: {}
+      # External connector artifact connectors/opencode (multi-export with opencode-zen).
       # base_url: https://opencode.ai/zen/go/v1  # default
-      # api_key: ""          # or use OPENCODE_GO_API_KEY / OPENCODE_GO_API_KEY_N env vars
+      # api_key: ""          # connector-local secret / YAML
     - id: opencode-zen
       enabled: false
       config: {}
+      # Same connectors/opencode artifact; connector-local credentials only.
       # base_url: https://opencode.ai/zen/v1  # default
-      # api_key: ""          # or use OPENCODE_API_KEY / OPENCODE_ZEN_API_KEY (+ _N variants) env vars
+      # api_key: ""
     - id: openai-codex
       enabled: false
       config: {}
+      # External connector (connectors/codex): discovered via plugin manifest.
       # base_url: https://chatgpt.com/backend-api/codex  # default
-      # access_token: ""     # or api_key for operator consistency
-      # auth_json_path: ""   # optional explicit Codex CLI auth.json; default discovers ~/.codex/auth.json
-      # account_id: ""       # optional ChatGPT account id header
-      # refresh_token: ""    # optional OAuth refresh token
-      # default_reasoning_effort: ""  # e.g. medium, high
-      # default_verbosity: ""          # low, medium, or high
-      # managed_oauth_enabled: false
-      # managed_oauth_storage_path: var/openai_codex_oauth_accounts
-      # managed_oauth_selection_strategy: first-available  # first-available | round-robin | session-affinity
-      # managed_oauth_allow_auth_json_fallback: true
-      # transport: https  # default; websocket/auto require experimental_websocket: true
-      # experimental_websocket: false
-      # gpt55_downgrade_disabled: false
-      # OPENAI_CODEX_ACCESS_TOKEN / OPENAI_CODEX_API_KEY (+ _N variants) env vars
-    # Experimental Cursor SDK (local-only). Operator guide: docs/cursor-sdk-backend.md
+      # access_token: ""     # or api_key; connector-local env OPENAI_CODEX_* when using host secret injection
+      # auth_json_path: ""   # optional Codex CLI auth.json; default discovers ~/.codex/auth.json
+      # catalog_enabled: true
+      # catalog_fallback_path: ""  # optional override of connector-embedded catalog snapshot
+      # catalog_codex_binary_path: ""  # optional; else `executable` / PATH
+      # Connector-specific fields (account_id, refresh_token, managed_oauth_*, transport,
+      # verbosity bumps, etc.) are documented by the connectors/codex artifact.
+    - id: openai-codex-app-server
+      enabled: false
+      config: {}
+      # Same connectors/codex artifact; local-only app-server export.
+      # executable: ""  # optional path to Codex CLI; else CODEX_BIN / PATH
+      # default_workspace: ""
+      # catalog_enabled: true
+      # stale_kill_delay_seconds: 0
+    # Experimental Cursor SDK (local-only; not in EssentialBackendBundle).
+    # Operator guide: docs/cursor-sdk-backend.md
     # Example: config/examples/cursor-sdk-experimental.yaml
     # Install bridge manually (Node >=22.13, exact @cursor/sdk 1.0.23); Go-LIP never runs npm.
-    # Auth: api_key or bare CURSOR_API_KEY (not CLI/Desktop login). ACP remains as cursorcliacp.
+    # Auth: api_key or bare CURSOR_API_KEY (not CLI/Desktop login). ACP remains external cursorcliacp.
+    # Opt-in registration / discovered connector required — not installed by InstallStandardBundleOn.
     # - kind: cursorsdk
     #   id: cursor-sdk
     #   enabled: false

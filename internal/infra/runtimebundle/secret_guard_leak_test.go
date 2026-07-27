@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretsguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
@@ -90,7 +89,7 @@ func TestBuild_secretGuardBlock_noSyntheticSecretLeakageInLogsOrErrors(t *testin
 
 	var logBuf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), log, &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidateLog(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Extensions: runtimebundle.ExtensionsOptions{
 			SecretGuards: bundle.SecretGuards,
@@ -101,14 +100,11 @@ func TestBuild_secretGuardBlock_noSyntheticSecretLeakageInLogsOrErrors(t *testin
 				SingleUser: coresg.SingleUserOptions{MinSecretBytes: 8},
 			},
 		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b.Executor == nil || b.Executor.RuntimeSnapshot == nil {
+	}, log)
+	if b.Executor() == nil || b.Executor().RuntimeSnapshot == nil {
 		t.Fatal("expected executor snapshot")
 	}
-	plane := b.Executor.RuntimeSnapshot.SecretGuardPlane()
+	plane := b.Executor().RuntimeSnapshot.SecretGuardPlane()
 	if len(plane.Guards) == 0 {
 		t.Fatal("enabled secrets-guard build must expose non-empty SecretGuards on RuntimeSnapshot")
 	}
@@ -127,7 +123,7 @@ func TestBuild_secretGuardBlock_noSyntheticSecretLeakageInLogsOrErrors(t *testin
 			Parts: []lipapi.Part{lipapi.TextPart("token=" + secret)},
 		}},
 	}
-	stream, execErr := b.Executor.Execute(ctx, call)
+	stream, execErr := b.Executor().Execute(ctx, call)
 	if stream != nil {
 		_, _ = lipapi.Collect(t.Context(), stream)
 	}

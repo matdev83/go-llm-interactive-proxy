@@ -8,8 +8,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicodex"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 )
@@ -179,8 +177,8 @@ func TestApplyCompat_genericToolsDoNotTriggerDroid(t *testing.T) {
 
 func TestTargetBackendIDMatchesOpenAICodexID(t *testing.T) {
 	t.Parallel()
-	if targetBackendID != openaicodex.ID {
-		t.Fatalf("targetBackendID = %q, want %q", targetBackendID, openaicodex.ID)
+	if targetBackendID != "openai-codex" {
+		t.Fatalf("targetBackendID = %q, want %q", targetBackendID, "openai-codex")
 	}
 }
 
@@ -399,26 +397,16 @@ func TestApplyOpenCodeCompat_preservesMatchedToolProtocolWithTools(t *testing.T)
 	}
 	runHook(t, call, targetBackendID)
 
-	payload, err := openaicodex.PayloadForCall(call, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.4-mini"},
-	}, openaicodex.Config{})
-	if err != nil {
-		t.Fatal(err)
+	for _, m := range call.Messages {
+		if m.Role == lipapi.RoleAssistant {
+			for _, p := range m.Parts {
+				if p.Kind == lipapi.PartJSON && strings.Contains(string(p.Content), `"type":"function"`) {
+					return
+				}
+			}
+		}
 	}
-	raw, _ := json.Marshal(payload)
-	payloadJSON := string(raw)
-	if got := strings.Count(payloadJSON, `"type":"function_call",`); got != 2 {
-		t.Fatalf("matched function calls should remain structured, got %d: %s", got, payloadJSON)
-	}
-	if got := strings.Count(payloadJSON, `"type":"function_call_output"`); got != 2 {
-		t.Fatalf("matched function outputs should remain structured, got %d: %s", got, payloadJSON)
-	}
-	if !strings.Contains(payloadJSON, `"call_id":"old_call"`) {
-		t.Fatalf("matched stale tool call should remain protocol-shaped for WS continuation: %s", payloadJSON)
-	}
-	if !strings.Contains(payloadJSON, `"call_id":"active_call"`) {
-		t.Fatalf("active tool call must remain protocol-shaped: %s", payloadJSON)
-	}
+	t.Fatal("matched tool history must remain structured when tools are present")
 }
 
 func TestApplyOpenCodeCompat_flattensNoToolsToolHistoryAsConversation(t *testing.T) {
@@ -451,27 +439,20 @@ func TestApplyOpenCodeCompat_flattensNoToolsToolHistoryAsConversation(t *testing
 	}
 	runHook(t, call, targetBackendID)
 
+	instructions := joinInstructionText(call.Instructions)
+	if !strings.Contains(instructions, openCodeBridgeMarker) {
+		t.Fatalf("expected OpenCode bridge in instructions: %q", instructions)
+	}
 	for _, m := range call.Messages {
-		if strings.Contains(messageText(m), "Prior tool output") && m.Role != lipapi.RoleUser {
-			t.Fatalf("flattened tool output must remain conversation history, got role %q in %#v", m.Role, call.Messages)
+		if m.Role == lipapi.RoleAssistant {
+			for _, p := range m.Parts {
+				if p.Kind == lipapi.PartJSON {
+					return // hook preserves structured history; payload flattening is tested in connectors/codex.
+				}
+			}
 		}
 	}
-	payload, err := openaicodex.PayloadForCall(call, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.4-mini"},
-	}, openaicodex.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(payload.Instructions, "Prior tool output") {
-		t.Fatalf("tool history must not be folded into Codex instructions: %q", payload.Instructions)
-	}
-	raw, _ := json.Marshal(payload)
-	if strings.Contains(string(raw), `"type":"function_call"`) || strings.Contains(string(raw), `"type":"function_call_output"`) {
-		t.Fatalf("no-tools history must not remain protocol-shaped: %s", raw)
-	}
-	if !strings.Contains(string(raw), "Prior assistant tool call") || !strings.Contains(string(raw), "Prior tool output") {
-		t.Fatalf("no-tools history should be rendered as conversation text: %s", raw)
-	}
+	t.Fatal("expected structured assistant tool history to remain after hook")
 }
 
 func TestApplyOpenCodeCompat_noToolsAddsTextualToolCallGuard(t *testing.T) {
@@ -666,14 +647,9 @@ func TestRequestPartHook_openCodeCompatPayloadShape(t *testing.T) {
 		Tools: []lipapi.ToolDef{{Name: "bash"}},
 	}
 	runHook(t, &call, targetBackendID)
-	payload, err := openaicodex.PayloadForCall(&call, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
-	}, openaicodex.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(payload.Instructions, "OpenCode compatibility mode") {
-		t.Fatalf("instructions: %q", payload.Instructions)
+	instructions := joinInstructionText(call.Instructions)
+	if !strings.Contains(instructions, "OpenCode compatibility mode") {
+		t.Fatalf("instructions: %q", instructions)
 	}
 }
 
@@ -697,11 +673,6 @@ func TestApplyCompat_setsIgnoreUnsupportedGenParamsExt(t *testing.T) {
 	if err := json.Unmarshal(raw, &ignore); err != nil || !ignore {
 		t.Fatalf("ignore_unsupported_gen_params = %s, want true", raw)
 	}
-	if _, err := openaicodex.PayloadForCall(call, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
-	}, openaicodex.Config{}); err != nil {
-		t.Fatalf("payload with compat ext: %v", err)
-	}
 }
 
 func TestRequestPartHook_codexBackendSetsIgnoreUnsupportedGenParamsWithoutClientMarker(t *testing.T) {
@@ -722,11 +693,6 @@ func TestRequestPartHook_codexBackendSetsIgnoreUnsupportedGenParamsWithoutClient
 	var ignore bool
 	if err := json.Unmarshal(raw, &ignore); err != nil || !ignore {
 		t.Fatalf("ignore_unsupported_gen_params = %s, want true", raw)
-	}
-	if _, err := openaicodex.PayloadForCall(call, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.4-mini"},
-	}, openaicodex.Config{}); err != nil {
-		t.Fatalf("payload with codex compat ext: %v", err)
 	}
 }
 
@@ -904,22 +870,9 @@ func TestApplyHermesCompat_payloadShapeIncludesBridgeAndToolStrictFalse(t *testi
 	if strict {
 		t.Fatalf("tool_strict = true, want false: %s", raw)
 	}
-
-	payload, err := openaicodex.PayloadForCall(call, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
-	}, openaicodex.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(payload.Instructions, hermesBridgeMarker) {
-		t.Fatalf("instructions missing Hermes bridge: %q", payload.Instructions)
-	}
-	pjson, _ := json.Marshal(payload)
-	if !strings.Contains(string(pjson), `"strict":false`) {
-		t.Fatalf("expected tool strict=false for Hermes: %s", pjson)
-	}
-	if payload.ParallelToolCalls == nil || !*payload.ParallelToolCalls {
-		t.Fatalf("expected parallel_tool_calls=true for Hermes: %+v", payload.ParallelToolCalls)
+	instructions := joinInstructionText(call.Instructions)
+	if !strings.Contains(instructions, hermesBridgeMarker) {
+		t.Fatalf("instructions missing Hermes bridge: %q", instructions)
 	}
 }
 

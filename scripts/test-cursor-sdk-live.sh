@@ -14,6 +14,6 @@ if [[ -z "${CURSOR_API_KEY:-}" ]]; then
 fi
 
 (
-  cd internal/plugins/backends/cursorsdk/bridge
+  cd connectors/cursorsdk/bridge-node
   npm run live-scenarios
 )

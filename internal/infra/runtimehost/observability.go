@@ -7,18 +7,19 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
-// ReloadObserver records structured logs, process-owned spans, metrics, and
-// bounded status history for reload attempts without owning reload logic.
+// ReloadObserver records structured logs, process-owned spans, and metrics
+// for reload attempts without owning reload logic or canonical status
+// history (Task 6.4: bounded history moved exclusively to ReloadState).
 type ReloadObserver struct {
 	log     *slog.Logger
 	tracer  trace.Tracer
 	metrics *metrics.ReloadProm
-	history *configreload.StatusHistory
 }
 
 // ReloadObserverDeps wires optional telemetry sinks for a ReloadObserver.
@@ -26,35 +27,21 @@ type ReloadObserverDeps struct {
 	Logger  *slog.Logger
 	Tracer  trace.Tracer
 	Metrics *metrics.ReloadProm
-	History *configreload.StatusHistory
 }
 
 // NewReloadObserver constructs a process-owned reload observer. Nil sinks are no-ops.
 func NewReloadObserver(deps ReloadObserverDeps) *ReloadObserver {
-	h := deps.History
-	if h == nil {
-		h = configreload.NewStatusHistory(configreload.DefaultStatusHistoryCap)
-	}
 	return &ReloadObserver{
 		log:     deps.Logger,
 		tracer:  deps.Tracer,
 		metrics: deps.Metrics,
-		history: h,
 	}
-}
-
-// History returns the bounded status history ring (may be nil only if observer is nil).
-func (o *ReloadObserver) History() *configreload.StatusHistory {
-	if o == nil {
-		return nil
-	}
-	return o.history
 }
 
 type attemptScope struct {
 	obs       *ReloadObserver
 	attemptID int64
-	trigger   configreload.TriggerKind
+	trigger   sdkreload.TriggerKind
 	actor     string
 	start     time.Time
 	active    int64
@@ -63,8 +50,8 @@ type attemptScope struct {
 }
 
 // BeginAttempt starts process-owned reload spans and returns an end callback.
-func (o *ReloadObserver) BeginAttempt(ctx context.Context, trigger configreload.ReloadTrigger, attemptID, activeGen int64) (outCtx context.Context, end func(configreload.ReloadResult)) {
-	outCtx, end = ctx, func(configreload.ReloadResult) {}
+func (o *ReloadObserver) BeginAttempt(ctx context.Context, trigger sdkreload.Trigger, attemptID, activeGen int64) (outCtx context.Context, end func(sdkreload.Result)) {
+	outCtx, end = ctx, func(sdkreload.Result) {}
 	if o == nil {
 		return outCtx, end
 	}
@@ -74,7 +61,7 @@ func (o *ReloadObserver) BeginAttempt(ctx context.Context, trigger configreload.
 			if span != nil {
 				span.End()
 			}
-			outCtx, end = ctx, func(configreload.ReloadResult) {}
+			outCtx, end = ctx, func(sdkreload.Result) {}
 		}
 	}()
 	start := time.Now()
@@ -84,14 +71,8 @@ func (o *ReloadObserver) BeginAttempt(ctx context.Context, trigger configreload.
 	ctx, span = o.startSpan(ctx, "reload", attribute.Int64("attempt_id", attemptID),
 		attribute.String("trigger", string(trigger.Kind)))
 	scope := &attemptScope{
-		obs:       o,
-		attemptID: attemptID,
-		trigger:   trigger.Kind,
-		actor:     trigger.SafeActor,
-		start:     start,
-		active:    activeGen,
-		parent:    span,
-		stages:    make(map[string]time.Time),
+		obs: o, attemptID: attemptID, trigger: trigger.Kind, actor: trigger.SafeActor,
+		start: start, active: activeGen, parent: span, stages: make(map[string]time.Time),
 	}
 	o.logAttrs(ctx, slog.LevelInfo, "reload attempt accepted",
 		slog.Int64("attempt_id", attemptID),
@@ -128,10 +109,8 @@ func (o *ReloadObserver) BeginStage(ctx context.Context, stage string) (outCtx c
 		d := time.Since(start)
 		res := boundResultName(result)
 		span.SetAttributes(attribute.String("result", res))
-		if res != string(configreload.ResultPublished) && res != string(configreload.ResultNoop) && res != "ok" && res != "" {
-			if res != "accepted" {
-				span.SetStatus(codes.Error, res)
-			}
+		if res != string(sdkreload.ResultPublished) && res != string(sdkreload.ResultNoop) && res != "ok" && res != "" && res != "accepted" {
+			span.SetStatus(codes.Error, res)
 		}
 		span.End()
 		if o.metrics != nil {
@@ -140,8 +119,10 @@ func (o *ReloadObserver) BeginStage(ctx context.Context, stage string) (outCtx c
 	}
 }
 
-// RecordTerminal records logs, metrics, and history for a finished attempt.
-func (scope *attemptScope) End(res configreload.ReloadResult) {
+// End records logs and metrics for a finished attempt. Canonical status
+// history is owned exclusively by ReloadState (Task 6.4); this scope
+// performs safe logs/spans/metrics only.
+func (scope *attemptScope) End(res sdkreload.Result) {
 	defer func() { _ = recover() }()
 	if scope == nil || scope.obs == nil {
 		return
@@ -174,27 +155,12 @@ func (scope *attemptScope) End(res configreload.ReloadResult) {
 	if o.metrics != nil {
 		o.metrics.ObserveAttempt(string(scope.trigger), string(res.Category), d)
 	}
-	if o.history != nil {
-		o.history.Append(configreload.HistoryEntry{
-			AttemptID:           res.AttemptID,
-			Trigger:             scope.trigger,
-			Stage:               stage,
-			Category:            res.Category,
-			ActiveGeneration:    res.ActiveGeneration,
-			CandidateGeneration: candidateGeneration(res),
-			DurationMs:          d.Milliseconds(),
-			RestartFieldCount:   res.RestartFieldCount,
-			ReasonCategory:      res.ReasonCategory,
-			SafeActor:           scope.actor,
-			RecordedAt:          time.Now().UTC(),
-		})
-	}
 	if scope.parent != nil {
 		scope.parent.SetAttributes(
 			attribute.String("result", string(res.Category)),
 			attribute.Int64("active_generation", res.ActiveGeneration),
 		)
-		if res.Category != configreload.ResultPublished && res.Category != configreload.ResultNoop {
+		if res.Category != sdkreload.ResultPublished && res.Category != sdkreload.ResultNoop {
 			scope.parent.SetStatus(codes.Error, string(res.Category))
 		}
 		scope.parent.End()
@@ -246,8 +212,8 @@ func (o *ReloadObserver) RefreshGauges(mgr *Manager) {
 	})
 }
 
-func candidateGeneration(res configreload.ReloadResult) int64 {
-	if res.Category == configreload.ResultPublished {
+func candidateGeneration(res sdkreload.Result) int64 {
+	if res.Category == sdkreload.ResultPublished {
 		return res.ActiveGeneration
 	}
 	return 0
@@ -270,16 +236,18 @@ func (o *ReloadObserver) logAttrs(ctx context.Context, level slog.Level, msg str
 func boundStageName(s string) string {
 	s = stringsTrimSpace(s)
 	switch s {
+	case "", "other":
+		if s == "" {
+			return "other"
+		}
+		return s
 	case configreload.StageRead, configreload.StageLoad, configreload.StageNoop,
 		configreload.StageClassify, configreload.StageCompile, configreload.StagePrepare,
 		configreload.StageRetention, configreload.StagePublish, configreload.StageRollback,
 		configreload.StageShutdown, configreload.StageBusy, configreload.StageCoalesce,
-		configreload.StagePanic, "validation", "quiesce", "cleanup", "accepted", "other":
+		configreload.StagePanic, "validation", "quiesce", "cleanup", "accepted":
 		return s
 	default:
-		if s == "" {
-			return "other"
-		}
 		return "other"
 	}
 }
@@ -289,10 +257,9 @@ func boundResultName(s string) string {
 	if s == "" {
 		return "other"
 	}
-	for _, c := range configreload.AllResultCategories {
-		if string(c) == s {
-			return s
-		}
+	cat := sdkreload.ResultCategory(s)
+	if sdkreload.NormalizeResultCategory(cat) == cat {
+		return s
 	}
 	switch s {
 	case "ok", "accepted", "quiesce_failed", "cleanup_failed", "other":
@@ -340,18 +307,16 @@ func (m *Manager) ObservabilitySnapshot() GenerationObservability {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := GenerationObservability{Retired: len(m.retained)}
-	var pinned int
 	if g := m.active.Load(); g != nil {
 		out.Active = 1
-		pinned += int(g.Refs())
+		out.Pinned = int(g.Refs())
 	}
 	for _, g := range m.retained {
 		if g != nil {
-			pinned += int(g.Refs())
+			out.Pinned += int(g.Refs())
 		}
 	}
-	out.Pinned = pinned
-	if len(m.retained) >= m.maxRetained && m.active.Load() != nil {
+	if len(m.retained) >= m.maxRetained && out.Active == 1 {
 		out.RetentionWouldBlock = true
 	}
 	return out
@@ -367,6 +332,10 @@ func DataPlaneReady(mgr *Manager) bool {
 	if g == nil {
 		return false
 	}
-	st := g.Lifecycle()
-	return st == GenActive || st == GenRetiring || st == GenQuiescing || st == GenQuiesced
+	switch g.Lifecycle() {
+	case GenActive, GenRetiring, GenQuiescing, GenQuiesced:
+		return true
+	default:
+		return false
+	}
 }

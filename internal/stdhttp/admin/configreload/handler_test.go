@@ -10,12 +10,12 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 	"github.com/stretchr/testify/assert"
 )
 
-func newManagementHarness(t *testing.T, reloadFn func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult) (*httptest.Server, *fakeCoordinator, *mgmtreload.Handler) {
+func newManagementHarness(t *testing.T, reloadFn func(context.Context, sdkreload.Trigger) sdkreload.Result) (*httptest.Server, *fakeCoordinator, *mgmtreload.Handler) {
 	t.Helper()
 	coord := newFakeCoordinator("/fixed/startup/config.yaml", reloadFn)
 	h, err := mgmtreload.NewHandler(mgmtreload.Options{
@@ -44,8 +44,8 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 
 	t.Run("auth_required", func(t *testing.T) {
 		t.Parallel()
-		srv, _, _ := newManagementHarness(t, func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
-			return configreload.ReloadResult{Category: configreload.ResultPublished}
+		srv, _, _ := newManagementHarness(t, func(context.Context, sdkreload.Trigger) sdkreload.Result {
+			return sdkreload.Result{Category: sdkreload.ResultPublished}
 		})
 		res, err := http.Post(srv.URL+mgmtreload.ReloadPath, "application/json", strings.NewReader("{}"))
 		if err != nil {
@@ -62,8 +62,8 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 
 	t.Run("cookie_does_not_authorize", func(t *testing.T) {
 		t.Parallel()
-		srv, coord, _ := newManagementHarness(t, func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
-			return configreload.ReloadResult{Category: configreload.ResultPublished}
+		srv, coord, _ := newManagementHarness(t, func(context.Context, sdkreload.Trigger) sdkreload.Result {
+			return sdkreload.Result{Category: sdkreload.ResultPublished}
 		})
 		before := coord.Status().LastResult.AttemptID
 		req := authReq(http.MethodPost, srv.URL+mgmtreload.ReloadPath, "", strings.NewReader("{}"))
@@ -81,8 +81,8 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 
 	t.Run("browser_guard", func(t *testing.T) {
 		t.Parallel()
-		srv, coord, _ := newManagementHarness(t, func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
-			return configreload.ReloadResult{Category: configreload.ResultPublished}
+		srv, coord, _ := newManagementHarness(t, func(context.Context, sdkreload.Trigger) sdkreload.Result {
+			return sdkreload.Result{Category: sdkreload.ResultPublished}
 		})
 		before := coord.Status().LastResult.AttemptID
 		for _, hdr := range []map[string]string{
@@ -113,8 +113,8 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 		if ores.StatusCode != http.StatusForbidden || coord.Status().LastResult.AttemptID != before {
 			t.Fatal("OPTIONS must not trigger reload")
 		}
-		coord2 := newFakeCoordinator("/fixed/startup/config.yaml", func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
-			return configreload.ReloadResult{Category: configreload.ResultPublished}
+		coord2 := newFakeCoordinator("/fixed/startup/config.yaml", func(context.Context, sdkreload.Trigger) sdkreload.Result {
+			return sdkreload.Result{Category: sdkreload.ResultPublished}
 		})
 		h2, err := mgmtreload.NewHandler(mgmtreload.Options{
 			Address:      "127.0.0.1:0",
@@ -144,8 +144,8 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 
 func TestFixedSource_MethodBodyGuards(t *testing.T) {
 	t.Parallel()
-	srv, coord, _ := newManagementHarness(t, func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
-		return configreload.ReloadResult{Category: configreload.ResultPublished}
+	srv, coord, _ := newManagementHarness(t, func(context.Context, sdkreload.Trigger) sdkreload.Result {
+		return sdkreload.Result{Category: sdkreload.ResultPublished}
 	})
 	req := authReq(http.MethodGet, srv.URL+mgmtreload.ReloadPath, "test-management-secret", nil)
 	res, err := http.DefaultClient.Do(req)
@@ -202,10 +202,10 @@ func TestFixedSource_MethodBodyGuards(t *testing.T) {
 func TestManagement_BusyConflict(t *testing.T) {
 	t.Parallel()
 	entered, release := make(chan struct{}), make(chan struct{})
-	srv, _, _ := newManagementHarness(t, func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
+	srv, _, _ := newManagementHarness(t, func(context.Context, sdkreload.Trigger) sdkreload.Result {
 		close(entered)
 		<-release
-		return configreload.ReloadResult{Category: configreload.ResultPublished}
+		return sdkreload.Result{Category: sdkreload.ResultPublished}
 	})
 	errCh := make(chan int, 1)
 	go func() {
@@ -229,7 +229,7 @@ func TestManagement_BusyConflict(t *testing.T) {
 	var body mgmtreload.ResultDTO
 	_ = json.NewDecoder(res.Body).Decode(&body)
 	assert.NoError(t, res.Body.Close())
-	if res.StatusCode != http.StatusConflict || body.Category != string(configreload.ResultBusy) {
+	if res.StatusCode != http.StatusConflict || body.Category != string(sdkreload.ResultBusy) {
 		t.Fatalf("busy status=%d cat=%s", res.StatusCode, body.Category)
 	}
 	close(release)
@@ -240,18 +240,18 @@ func TestManagement_BusyConflict(t *testing.T) {
 
 func TestDisconnect_HostOwnedContext(t *testing.T) {
 	t.Parallel()
-	started, finish, completed := make(chan struct{}), make(chan struct{}), make(chan configreload.ReloadResult, 1)
+	started, finish, completed := make(chan struct{}), make(chan struct{}), make(chan sdkreload.Result, 1)
 	var mu sync.Mutex
 	var sawCancel bool
-	srv, coord, _ := newManagementHarness(t, func(ctx context.Context, _ configreload.ReloadTrigger) configreload.ReloadResult {
+	srv, coord, _ := newManagementHarness(t, func(ctx context.Context, _ sdkreload.Trigger) sdkreload.Result {
 		close(started)
 		<-finish
 		mu.Lock()
 		sawCancel = ctx.Err() != nil
 		mu.Unlock()
-		return configreload.ReloadResult{Category: configreload.ResultNoop}
+		return sdkreload.Result{Category: sdkreload.ResultNoop}
 	})
-	coord.SetOnComplete(func(res configreload.ReloadResult) { completed <- res })
+	coord.SetOnComplete(func(res sdkreload.Result) { completed <- res })
 	ctx, cancel := context.WithCancel(context.Background())
 	req := authReq(http.MethodPost, srv.URL+mgmtreload.ReloadPath, "test-management-secret", strings.NewReader("{}"))
 	req = req.WithContext(ctx)
@@ -262,7 +262,7 @@ func TestDisconnect_HostOwnedContext(t *testing.T) {
 	cancel()
 	<-errCh
 	close(finish)
-	if (<-completed).Category != configreload.ResultNoop || coord.Status().LastResult.Category != configreload.ResultNoop {
+	if (<-completed).Category != sdkreload.ResultNoop || coord.Status().LastResult.Category != sdkreload.ResultNoop {
 		t.Fatal("hosted result lost")
 	}
 	mu.Lock()
@@ -274,9 +274,9 @@ func TestDisconnect_HostOwnedContext(t *testing.T) {
 
 func TestReloadAPI_StatusGoldensAndShutdown(t *testing.T) {
 	t.Parallel()
-	srv, coord, _ := newManagementHarness(t, func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
-		return configreload.ReloadResult{
-			Category:          configreload.ResultRestartRequired,
+	srv, coord, _ := newManagementHarness(t, func(context.Context, sdkreload.Trigger) sdkreload.Result {
+		return sdkreload.Result{
+			Category:          sdkreload.ResultRestartRequired,
 			RestartFields:     []string{"server.address", "management.auth"},
 			RestartFieldCount: 2,
 			ReasonCategory:    "startup-only-fields",
@@ -302,7 +302,7 @@ func TestReloadAPI_StatusGoldensAndShutdown(t *testing.T) {
 	var st mgmtreload.StatusDTO
 	_ = json.NewDecoder(stRes.Body).Decode(&st)
 	assert.NoError(t, stRes.Body.Close())
-	if st.FixedSourcePath != coord.FixedSourcePath() || st.LastResult.Category != string(configreload.ResultRestartRequired) {
+	if st.FixedSourcePath != coord.FixedSourcePath() || st.LastResult.Category != string(sdkreload.ResultRestartRequired) {
 		t.Fatalf("%+v", st)
 	}
 	if stRes.Header.Get("Access-Control-Allow-Origin") != "" {
@@ -324,8 +324,8 @@ func TestReloadAPI_StatusGoldensAndShutdown(t *testing.T) {
 
 func TestManagement_LocalTrustLoopback(t *testing.T) {
 	t.Parallel()
-	coord := newFakeCoordinator("/fixed/startup/config.yaml", func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
-		return configreload.ReloadResult{Category: configreload.ResultNoop}
+	coord := newFakeCoordinator("/fixed/startup/config.yaml", func(context.Context, sdkreload.Trigger) sdkreload.Result {
+		return sdkreload.Result{Category: sdkreload.ResultNoop}
 	})
 	h, err := mgmtreload.NewHandler(mgmtreload.Options{
 		Address:  "127.0.0.1:0",

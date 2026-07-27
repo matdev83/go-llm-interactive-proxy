@@ -335,7 +335,8 @@ func newTestStoreWithOpts(t *testing.T, opts Options) (*Store, func()) {
 func TestBunStore_sqlMetaCache_appendTranscriptStaleUntilTTL(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	st, cleanup := newTestStoreWithOpts(t, Options{SQLQueryCacheTTL: 50 * time.Millisecond, SQLQueryCacheMaxEntries: 64})
+	const metaTTL = time.Hour
+	st, cleanup := newTestStoreWithOpts(t, Options{SQLQueryCacheTTL: metaTTL, SQLQueryCacheMaxEntries: 64})
 	defer cleanup()
 	fp := domain.TokenFingerprint{}
 	fp[0] = 1
@@ -365,7 +366,7 @@ func TestBunStore_sqlMetaCache_appendTranscriptStaleUntilTTL(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("expected cached policy before TTL: %v", err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	expireTranscriptMetaSoon(t, st, cr.SessionID)
 	err := st.AppendTranscript(ctx, domain.TranscriptItem{
 		SessionID: cr.SessionID, TurnID: "t1", EventKind: "e3", PayloadRef: "p3", CreatedAt: time.Unix(4, 0),
 	})
@@ -377,7 +378,8 @@ func TestBunStore_sqlMetaCache_appendTranscriptStaleUntilTTL(t *testing.T) {
 func TestBunStore_sqlMetaCache_transcriptObservesStalePolicyUntilTTL(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	st, cleanup := newTestStoreWithOpts(t, Options{SQLQueryCacheTTL: 50 * time.Millisecond, SQLQueryCacheMaxEntries: 64})
+	const metaTTL = time.Hour
+	st, cleanup := newTestStoreWithOpts(t, Options{SQLQueryCacheTTL: metaTTL, SQLQueryCacheMaxEntries: 64})
 	defer cleanup()
 
 	fp := domain.TokenFingerprint{}
@@ -413,7 +415,7 @@ func TestBunStore_sqlMetaCache_transcriptObservesStalePolicyUntilTTL(t *testing.
 	if len(items) != 1 {
 		t.Fatalf("want stale read to still return transcript rows got len=%d", len(items))
 	}
-	time.Sleep(500 * time.Millisecond)
+	expireTranscriptMetaSoon(t, st, cr.SessionID)
 	items2, err := st.Transcript(ctx, cr.SessionID, domain.ReadOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -421,6 +423,30 @@ func TestBunStore_sqlMetaCache_transcriptObservesStalePolicyUntilTTL(t *testing.
 	if len(items2) != 0 {
 		t.Fatalf("want empty after TTL refresh got len=%d", len(items2))
 	}
+}
+
+// expireTranscriptMetaSoon re-sets the current transcript meta value with a tiny
+// per-item TTL, then polls until Get reports the entry expired/missing.
+// This exercises TTL expiry without calling invalidate.
+func expireTranscriptMetaSoon(t *testing.T, st *Store, id domain.SessionID) {
+	t.Helper()
+	if st.meta == nil {
+		t.Fatal("expected SQL query meta cache to be enabled")
+	}
+	it := st.meta.transcript.Get(id)
+	if it == nil {
+		t.Fatalf("expected stale transcript meta still cached for %q", id)
+	}
+	const tinyTTL = time.Millisecond
+	st.meta.transcript.Set(id, it.Value(), tinyTTL)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if st.meta.transcript.Get(id) == nil {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("transcript meta cache entry for %q did not expire within deadline", id)
 }
 
 func TestBunStore_transcriptEnabledCached_missingRowMapsToSessionNotFound(t *testing.T) {

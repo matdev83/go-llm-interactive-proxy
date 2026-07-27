@@ -7,14 +7,12 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/modelcatalog/modelsdev"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"gopkg.in/yaml.v3"
 )
@@ -107,17 +105,14 @@ func TestBuild_modelCatalog_operatorOverridesReachResolver(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b.Executor.CatalogResolver == nil {
+	if b.Executor().CatalogResolver == nil {
 		t.Fatal("expected CatalogResolver")
 	}
 	base := lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
-	ef := b.Executor.CatalogResolver.Resolve(
+	ef := b.Executor().CatalogResolver.Resolve(
 		context.Background(),
 		routing.AttemptCandidate{Primary: routing.Primary{Backend: "openai-only", Model: "operator-model-x"}},
 		lipapi.Call{},
@@ -126,7 +121,7 @@ func TestBuild_modelCatalog_operatorOverridesReachResolver(t *testing.T) {
 	if ef.Facts.Source != modelcatalog.FactSourceModelOverride {
 		t.Fatalf("model override: got source %v", ef.Facts.Source)
 	}
-	efPair := b.Executor.CatalogResolver.Resolve(
+	efPair := b.Executor().CatalogResolver.Resolve(
 		context.Background(),
 		routing.AttemptCandidate{Primary: routing.Primary{Backend: "openai-only", Model: "pair-y"}},
 		lipapi.Call{},

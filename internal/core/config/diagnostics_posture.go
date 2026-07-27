@@ -34,7 +34,7 @@ func ValidateProtectedDiagnosticsPosture(cfg *Config) error {
 // protectedDiagnosticsSurfaces returns human-readable surface names for diagnostics that use
 // [diag.WrapDiagnosticsProtect] in stdhttp when secret is set, and are unauthenticated when the
 // secret is empty. Must stay aligned with
-// [github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp.RunWithRuntime] mounts.
+// [github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp.ComposeStandardHTTP] mounts.
 func protectedDiagnosticsSurfaces(cfg *Config) []string {
 	if cfg == nil {
 		return nil

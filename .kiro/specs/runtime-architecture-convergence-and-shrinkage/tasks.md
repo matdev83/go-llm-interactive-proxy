@@ -4,9 +4,9 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 ## Phase 1: Freeze Behavior, Measure the Baseline, and Block Further Growth
 
-- [ ] 1. Establish the contraction safety envelope
+- [x] 1. Establish the contraction safety envelope
 
-- [ ] 1.1 Record exact architecture and behavior baselines
+- [x] 1.1 Record exact architecture and behavior baselines
   - Run `make arch-report` at reviewed commit `efe4624909cea318c7211d5cb3734059d3210802` and record affected package/file non-test lines, fan-out/fan-in, exported public symbols, and current compatibility symbols.
   - Record repeated benchmark baselines for generation acquire/release, publish, dispatcher, candidate compilation, and successful/no-op reload using equivalent-host `benchstat`.
   - Inventory production and test callers of `Built`, `Build`, `RunWithRuntime`, `RequestPlane`, `requestPlaneAsBuilt`, `AttachReloadHost`, duplicate reload contracts, and deprecated public Options.
@@ -16,7 +16,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: none_
   - _Validation: `make arch-report && make bench`_
 
-- [ ] 1.2 Add critical-file freeze budgets for current hotspots (P)
+- [x] 1.2 Add critical-file freeze budgets for current hotspots (P)
   - Add budgets for reload coordinator, generation state, candidate compilation, process runtime construction, and public runtime build/facade.
   - Set initial ceilings to current measured values with no growth headroom beyond formatter variance.
   - Add comments containing final target ceilings and the phase that must lower each budget.
@@ -26,7 +26,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 1.1_
   - _Validation: `go test ./internal/archtest/... -run 'CriticalFile|LineComplexity'`_
 
-- [ ] 1.3 Add behavior characterization matrix for deletion seams (P)
+- [x] 1.3 Add behavior characterization matrix for deletion seams (P)
   - Map existing tests covering standard startup, legacy `Build`, generation startup, HTTP mounts, reload, public facade, validation, and shutdown.
   - Add only missing characterization for middleware/mount parity, partial bootstrap cleanup, public Close retry, capability reporting, and check-config non-public behavior.
   - Keep protocol, routing, streaming, auth, management, accounting, and provider behavior assertions unchanged.
@@ -36,7 +36,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 1.1_
   - _Validation: `go test ./cmd/lipstd/... ./internal/stdhttp/... ./internal/infra/runtimebundle/... ./pkg/lipruntime/... -run 'Compatibility|Standard|Bootstrap|Close|Capability|CheckConfig'`_
 
-- [ ] 1.4 Add RED architecture gates for final convergence
+- [x] 1.4 Add RED architecture gates for final convergence
   - Add initially targeted tests for no production `requestPlaneAsBuilt`, no canonical-to-legacy runtime adapter, one reload contract declaration, one serve host builder, and one startup effective-load owner.
   - Keep gates scoped or allowlisted until their corresponding conversion task removes the current violation.
   - Prohibit new legacy path call sites immediately.
@@ -48,9 +48,9 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 ## Phase 2: Canonicalize the Reload Contract
 
-- [ ] 2. Define one secret-safe reload vocabulary
+- [x] 2. Define one secret-safe reload vocabulary
 
-- [ ] 2.1 Add canonical reload contract tests and public package
+- [x] 2.1 Add canonical reload contract tests and public package
   - Add RED tests for trigger kinds, result categories, result/history/status defensive copying, closed vocabulary, and secret-safe field inventory.
   - Create dependency-neutral `pkg/lipsdk/configreload` contract types with no internal imports.
   - Preserve the existing category strings and safe fields.
@@ -60,7 +60,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 1.4_
   - _Validation: `go test ./pkg/lipsdk/configreload/... ./internal/archtest/... -run 'ReloadContract|PublicContract'`_
 
-- [ ] 2.2 Migrate runtimehost and observers to the canonical contract
+- [x] 2.2 Migrate runtimehost and observers to the canonical contract
   - Replace internal trigger/result/status declarations used by orchestration with canonical types.
   - Keep reloadability policy, safe failure mapping, sanitizers, and private active-source/effective state internal.
   - Update metrics, tracing, history, and diagnostics projections without changing labels or categories.
@@ -70,7 +70,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 2.1_
   - _Validation: `go test ./internal/core/configreload/... ./internal/infra/runtimehost/... ./internal/infra/metrics/... -run 'Reload|History|Observer|Category'`_
 
-- [ ] 2.3 Migrate public and HTTP consumers and delete mirror mapping
+- [x] 2.3 Migrate public and HTTP consumers and delete mirror mapping
   - Use aliases/thin delegation in `pkg/lipruntime` for supported public names.
   - Reduce management HTTP DTOs to serialization/status policy only.
   - Delete `pkg/lipruntime/reload_map.go` and field-for-field domain copies.
@@ -83,9 +83,9 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 ## Phase 3: Introduce Focused HTTP Composition and the Canonical Generation Runtime
 
-- [ ] 3. Replace broad runtime bags at the HTTP boundary
+- [x] 3. Replace broad runtime bags at the HTTP boundary
 
-- [ ] 3.1 Add focused HTTP mount contract RED tests
+- [x] 3.1 Add focused HTTP mount contract RED tests
   - Characterize every mount helper's actual dependency usage, middleware order, route set, route-conflict behavior, auth order, metrics/tracing, and frontend configuration.
   - Add compile-time tests requiring mount helpers to accept only cohesive capability groups and no closer/lifecycle owner.
   - Add an architecture test prohibiting `*runtimebundle.Built` in stdhttp production mount signatures.
@@ -95,7 +95,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 1.3, 1.4_
   - _Validation: `go test ./internal/stdhttp/... ./internal/archtest/... -run 'MountContract|Middleware|RouteConflict|BuiltDependency'`_
 
-- [ ] 3.2 Convert mount helpers to cohesive immutable inputs
+- [x] 3.2 Convert mount helpers to cohesive immutable inputs
   - Introduce execution/routing, security, operations/diagnostics, models, and frontend groups.
   - Pass each mount only the group it consumes.
   - Preserve all existing handler behavior and management-plane separation.
@@ -106,7 +106,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 3.1_
   - _Validation: `go test ./internal/stdhttp/... -run 'Mount|Middleware|Frontend|Diagnostics|Admin|Auth|Metrics'`_
 
-- [ ] 3.3 Define the canonical GenerationRuntime ownership contract
+- [x] 3.3 Define the canonical GenerationRuntime ownership contract
   - Add RED tests for one generation owner, immutable groups, narrow runtimehost capabilities, no generic dependency lookup, and exact rollback/quiesce/close ownership.
   - Build the canonical generation runtime around the existing resource ledger and grouped sub-runtimes.
   - Make it directly satisfy handler, executor view, model binder, terminal provider, readiness, and backend-kind capabilities.
@@ -117,7 +117,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 3.2_
   - _Validation: `go test -race ./internal/infra/runtimebundle/... ./internal/infra/runtimehost/... -run 'GenerationRuntime|Ownership|Immutable|Capability|Lifecycle'`_
 
-- [ ] 3.4 Make GenerationCompiler return only GenerationRuntime
+- [x] 3.4 Make GenerationCompiler return only GenerationRuntime
   - Merge feature surface once per candidate.
   - Construct the grouped HTTP input and compose the handler during generation compilation.
   - Remove duplicate candidate/request-plane/publication field projections as consumers migrate.
@@ -128,7 +128,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 3.3_
   - _Validation: `go test -race ./internal/infra/runtimebundle/... ./internal/stdhttp/... -run 'CompileGeneration|Coexist|Fault|Rollback|Handler'`_
 
-- [ ] 3.5 Activate HTTP and generation architecture gates
+- [x] 3.5 Activate HTTP and generation architecture gates
   - Prohibit production `requestPlaneAsBuilt`, broad RequestPlane getters, stdhttp `Built` dependencies, and candidate legacy closer projections.
   - Delete compatibility-only request-plane mapping tests after replacing them with handler behavior tests.
   - Lower candidate compilation and relevant stdhttp file budgets.
@@ -142,7 +142,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 - [ ] 4. Remove the old runtime graph after consumers migrate
 
-- [ ] 4.1 Migrate remaining internal and test callers from `Build` and `Built`
+- [x] 4.1 Migrate remaining internal and test callers from `Build` and `Built`
   - Convert supported tests and helper constructors to ProcessRuntime plus GenerationRuntime or focused test builders.
   - Replace legacy runtime behavior assertions with canonical host/generation assertions.
   - Identify and delete dead compatibility callers rather than wrapping them.
@@ -152,7 +152,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 3.5_
   - _Validation: `go test ./internal/infra/runtimebundle/... ./internal/stdhttp/... ./internal/testkit/... -run 'Build|Compatibility|Generation'`_
 
-- [ ] 4.2 Delete `Built`, compatibility `Build`, and legacy closer views
+- [x] 4.2 Delete `Built`, compatibility `Build`, and legacy closer views
   - Remove `built.go`, the compatibility `Build` implementation, candidate `Closers`, and ledger `LegacyClosers` if no remaining supported consumer exists.
   - Preserve the resource ledger as the canonical lifecycle owner.
   - Remove obsolete comments, docs, and test fixtures.
@@ -162,7 +162,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 4.1_
   - _Validation: `go test ./internal/infra/runtimebundle/... ./internal/archtest/... -run 'Built|BuildCompatibility|Closer|Ledger'`_
 
-- [ ] 4.3 Delete production `RunWithRuntime` and App-owned serve lifecycle
+- [x] 4.3 Delete production `RunWithRuntime` and App-owned serve lifecycle
   - Migrate remaining supported server tests to the stable generation host.
   - Delete `RunWithRuntime`, its closer release path, and App-owned production serve lifecycle.
   - Retain only handler/server utilities used by canonical generation host serving.
@@ -172,7 +172,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 4.2_
   - _Validation: `go test -race ./internal/stdhttp/... ./cmd/lipstd/... -run 'GenerationHost|Shutdown|Server|NoDrop'`_
 
-- [ ] 4.4 Activate deleted-symbol gates and ratchet package budgets
+- [x] 4.4 Activate deleted-symbol gates and ratchet package budgets
   - Forbid production `Built`, compatibility `Build`, `RunWithRuntime`, `requestPlaneAsBuilt`, and legacy candidate closer projections.
   - Remove allowlists introduced in Phase 1.
   - Lower runtimebundle/stdhttp budgets to measured post-deletion values.
@@ -186,7 +186,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 - [ ] 5. Build one complete host from one config snapshot
 
-- [ ] 5.1 Add one-snapshot host construction RED tests
+- [x] 5.1 Add one-snapshot host construction RED tests
   - Add a controlled source hook proving multi-user/startup gates, generation 1, process runtime, reload active source/effective, and public fingerprint use one accepted snapshot.
   - Add partial-failure cleanup matrices for loader, process runtime, generation compile, publish, coordinator bind, and tracing.
   - Add architecture tests prohibiting production `AttachReloadHost` and multiple effective loads in serve/public Build.
@@ -196,7 +196,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 4.4_
   - _Validation: `go test -race ./cmd/lipstd/... ./internal/infra/runtimebundle/... ./pkg/lipruntime/... -run 'OneSnapshot|HostBuild|PartialCleanup|TOCTOU'`_
 
-- [ ] 5.2 Implement BuildHost as one owned startup transaction
+- [x] 5.2 Implement BuildHost as one owned startup transaction
   - Load and normalize one effective snapshot.
   - Evaluate CLI/access/startup gates before expensive resources.
   - Construct ProcessRuntime, compile/publish generation 1, bind reload state/coordinator, and return one Host.
@@ -207,7 +207,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 5.1_
   - _Validation: `go test -race ./internal/infra/runtimebundle/... ./cmd/lipstd/... ./pkg/lipruntime/... -run 'BuildHost|InitialGeneration|ReloadHost|Cleanup'`_
 
-- [ ] 5.3 Split explicit inspect and inventory operations (P)
+- [x] 5.3 Split explicit inspect and inventory operations (P)
   - Replace broad BootstrapResult outputs with purpose-specific inspection values.
   - Keep routes and inventory on the shared strict loader and standard registry without building process/generation runtime.
   - Remove serve-mode App construction and duplicate feature-surface merge.
@@ -217,7 +217,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 5.1_
   - _Validation: `go test ./cmd/lipstd/... ./internal/infra/runtimebundle/... -run 'Inspect|Routes|Inventory|FeatureSurface|Compatibility'`_
 
-- [ ] 5.4 Implement true unpublished ValidateDistribution
+- [x] 5.4 Implement true unpublished ValidateDistribution
   - Use the same effective loader, ProcessRuntime builder, GenerationCompiler, and HTTP composer.
   - Do not construct Manager, generation IDs, active pointer, listeners, or retirement workers.
   - Roll back generation resources and close validation process resources deterministically.
@@ -228,7 +228,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 5.2_
   - _Validation: `go test -race ./cmd/lipstd/... ./internal/infra/runtimebundle/... ./internal/core/configreload/... -run 'CheckConfig|ValidateDistribution|NoPublish|Parity|Rollback'`_
 
-- [ ] 5.5 Delete dual bootstrap and host attachment paths
+- [x] 5.5 Delete dual bootstrap and host attachment paths
   - Remove nullable composer architecture selection, serve-mode legacy products, `AttachReloadHost`, and duplicated caller cleanup.
   - Activate single-host/single-load architecture gates.
   - Lower bootstrap, public build, and command file budgets.
@@ -242,7 +242,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 - [ ] 6. Separate reload concurrency, transaction, and state
 
-- [ ] 6.1 Add AttemptGate RED concurrency suite
+- [x] 6.1 Add AttemptGate RED concurrency suite
   - Specify atomic start registration, busy API result, bounded HUP pending/coalescing, shutdown rejection, cancellation, exact finish, and idle wait.
   - Use barriers and channels; prohibit polling and timing sleeps as synchronization.
   - Add race tests for TryStart/Finish/Wait/BeginShutdown interleavings.
@@ -252,7 +252,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 5.5_
   - _Validation: `go test -race ./internal/infra/runtimehost/... -run 'AttemptGate|Busy|Coalesce|Idle|Shutdown'`_
 
-- [ ] 6.2 Implement AttemptGate and remove idle polling
+- [x] 6.2 Implement AttemptGate and remove idle polling
   - Create the attempt lease/completion signal under one lock transition.
   - Move active cancel, pending HUP, coalesced count, shutdown, and idle wait into the gate.
   - Delete the busy-before-armed window and timed polling loop.
@@ -262,7 +262,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 6.1_
   - _Validation: `go test -race ./internal/infra/runtimehost/... -run 'AttemptGate|Coordinator.*Shutdown|WaitForIdle'`_
 
-- [ ] 6.3 Extract AttemptRunner with deterministic outcome tests
+- [x] 6.3 Extract AttemptRunner with deterministic outcome tests
   - Add table tests for read, source integrity, load, no-op, classify, compile, prepare, retention, publish, cancellation, panic, and rollback.
   - Move one-attempt workflow and internal error-to-canonical-result mapping into AttemptRunner.
   - Return immutable AttemptOutcome state updates; do not mutate history/status inside Runner.
@@ -272,7 +272,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 6.2_
   - _Validation: `go test -race ./internal/infra/runtimehost/... -run 'AttemptRunner|Load|Classify|Compile|Rollback|Panic'`_
 
-- [ ] 6.4 Extract ReloadState and migrate status/history
+- [x] 6.4 Extract ReloadState and migrate status/history
   - Add concurrent tests for ActiveInput, Apply, Snapshot, last success/failure, no-op, source posture, model fingerprint, and defensive copies.
   - Move active effective/source and safe status/history to one state owner.
   - Keep observer side effects outside the state lock.
@@ -282,7 +282,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 6.3_
   - _Validation: `go test -race ./internal/infra/runtimehost/... -run 'ReloadState|Status|History|SourcePosture|ModelGeneration'`_
 
-- [ ] 6.5 Reduce Coordinator to thin orchestration and ratchet its budget
+- [x] 6.5 Reduce Coordinator to thin orchestration and ratchet its budget
   - Compose gate, runner, state, and observer.
   - Preserve host-owned timeout, caller detachment, queued follow-up loop, and result delivery.
   - Delete old state fields/helpers and lower `coordinator.go` to at most 300 non-test lines.
@@ -296,7 +296,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 - [ ] 7. Establish one lifecycle truth per layer
 
-- [ ] 7.1 Add lifecycle ownership and duplicate-idempotency RED gates
+- [x] 7.1 Add lifecycle ownership and duplicate-idempotency RED gates
   - Inventory every `sync.Once`, closed flag, close result, quiesce result, retirement status, and shutdown coordinator around generation resources.
   - Add tests proving one resource owner handles rollback/quiesce/close and wrappers cannot cache a second result.
   - Add architecture checks for duplicate lifecycle guards around GenerationRuntime.
@@ -306,7 +306,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 6.5_
   - _Validation: `go test -race ./internal/infra/runtimebundle/... ./internal/infra/runtimehost/... ./internal/archtest/... -run 'LifecycleOwner|DuplicateOnce|Quiesce|Close|Retire'`_
 
-- [ ] 7.2 Make GenerationRuntime/resource ledger the sole resource phase owner
+- [x] 7.2 Make GenerationRuntime/resource ledger the sole resource phase owner
   - Move or retain idempotency and cached phase results in one canonical owner.
   - Remove wrapper quiesce/close once guards and legacy close paths.
   - Preserve rollback-before-publication and retryable close-after-quiesce semantics.
@@ -316,7 +316,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 7.1_
   - _Validation: `go test -race ./internal/infra/runtimebundle/... -run 'ResourceLedger|GenerationRuntime|Rollback|Quiesce|Close|Retry'`_
 
-- [ ] 7.3 Move retirement scheduling under Manager ownership
+- [x] 7.3 Move retirement scheduling under Manager ownership
   - Keep retirement policy separately testable but manager-owned.
   - Remove mutable second-authority retirement status and derive/emit results from generation transitions.
   - Preserve independent per-generation retirement, bounded retries, panic isolation, and no forced pin termination.
@@ -327,7 +327,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 7.2_
   - _Validation: `go test -race ./internal/infra/runtimehost/... -run 'Manager|Retire|Concurrent|Cleanup|Panic|Pinned'`_
 
-- [ ] 7.4 Make Host the sole process shutdown coordinator
+- [x] 7.4 Make Host the sole process shutdown coordinator
   - Implement reject reload, wait candidate idle, stop admissions, retire generations, close process runtime, and tracing-last ordering in Host.
   - Migrate cmd and public facade to one `Host.Close`.
   - Delete duplicated rollback/shutdown orchestration and add ordering/race tests.
@@ -341,7 +341,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 - [ ] 8. Converge the public standard-runtime API
 
-- [ ] 8.1 Reduce Runtime to one host-facing dependency
+- [x] 8.1 Reduce Runtime to one host-facing dependency
   - Add public external tests for ExecutorView, Ready, capabilities, reload/status, snapshot refresh, and Close retry/idempotency.
   - Replace concrete host internals and build-time booleans with one private host interface and derived capabilities.
   - Keep only facade synchronization required by the documented public contract.
@@ -352,7 +352,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 7.4_
   - _Validation: `go test -race ./pkg/lipruntime/... ./testdata/enterprise_module/... -run 'Facade|External|Capability|Reload|Close'`_
 
-- [ ] 8.2 Isolate the current-major legacy option adapter
+- [x] 8.2 Isolate the current-major legacy option adapter
   - Characterize every deprecated field conversion and error.
   - Move legacy pairing/filtering/ID logic behind one explicit outer adapter before canonical Options normalization and HostBuilder.
   - Ensure canonical construction accepts descriptor-bound registrations only.
@@ -363,7 +363,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 8.1_
   - _Validation: `go test ./pkg/lipruntime/... ./internal/archtest/... -run 'LegacyOptions|Registration|Boundary|Canonical'`_
 
-- [ ] 8.3 Publish the public migration contract and removal gate
+- [x] 8.3 Publish the public migration contract and removal gate
   - Document field-by-field migration to request, attempt, concurrency, and rater registrations.
   - Mark the final legacy-support release and next compatible major deletion target.
   - Add tests preventing new fields or behavior in the legacy adapter.
@@ -373,21 +373,21 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 8.2_
   - _Validation: `go test ./pkg/lipruntime/... ./internal/qa/... -run 'Legacy|Migration|Docs|External'`_
 
-- [ ] 8.4 Remove legacy public options at the compatible major boundary
+- [x] 8.4 Remove legacy public options at the compatible major boundary
   - Delete deprecated fields, LegacyOptions/BuildLegacy adapter if used, descriptor-family filtering, legacy IDs, and legacy normalization tests.
   - Update external module fixtures to canonical registrations.
   - Activate architecture gates requiring one public options model.
   - Observable completion: canonical `Options` and normalization contain one registration language with no legacy branches.
   - _Requirements: 10.5-10.10, 11.4-11.9_
   - _Boundary: Public SDK major-version change_
-  - _Depends: 8.3, scheduled compatible major release_
-  - _Validation: `go test ./pkg/lipruntime/... ./testdata/enterprise_module/... ./internal/archtest/... -run 'Options|Registration|External|LegacyAbsent'`_
+  - _Depends: 8.3, alpha-stage breaking-change approval (2026-07-25)_
+  - _Validation: `go test ./pkg/lipruntime/... ./internal/archtest/... -run 'Options|Registration|External|LegacyAbsent' && (cd testdata/enterprise_module && GOWORK=off go test ./... -count=1)`_
 
 ## Phase 9: Ratchet Budgets, Documentation, and Release Certification
 
 - [ ] 9. Prove the codebase is smaller and behaviorally unchanged
 
-- [ ] 9.1 Remove obsolete compatibility tests and stale documentation
+- [x] 9.1 Remove obsolete compatibility tests and stale documentation
   - Delete tests that only preserve removed production paths.
   - Retain or rewrite externally observable behavior tests against Host/GenerationRuntime.
   - Update architecture, package map, runtime flow, reload, enterprise extension, and release-gate documents.
@@ -397,7 +397,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 8.1-8.4_
   - _Validation: `go test ./internal/qa/... ./cmd/lipstd/... -run 'Docs|Architecture|Examples|Compatibility'`_
 
-- [ ] 9.2 Apply final critical-file and package ratchets
+- [x] 9.2 Apply final critical-file and package ratchets
   - Set coordinator ≤300, generation ≤400, candidate compilation ≤350, process runtime construction ≤300, and public facade build ≤150, or remove the named file.
   - Lower affected package budgets below the reviewed baseline.
   - Require rationale plus an old-path deletion milestone for any future increase.
@@ -407,7 +407,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 9.1_
   - _Validation: `go test ./internal/archtest/... -run 'CriticalFile|LineComplexity|RuntimeConvergence'`_
 
-- [ ] 9.3 Verify net shrinkage and dependency simplification
+- [x] 9.3 Verify net shrinkage and dependency simplification
   - Run the architecture report and compare to Phase 1 baseline.
   - Prove at least 800 affected non-test production lines removed.
   - Record deleted symbols, reduced propagation points, fan-out/fan-in changes, and zero remaining parallel runtime paths.
@@ -418,7 +418,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 9.2_
   - _Validation: `make arch-report`_
 
-- [ ] 9.4 Run focused behavior, race, fuzz, and soak certification
+- [x] 9.4 Run focused behavior, race, fuzz, and soak certification
   - Run reload no-drop, source integrity, rollback, restart-required, retention, management, SIGHUP, lifecycle, shutdown, public facade, and external module suites.
   - Run full race and bounded reload soak with goleak.
   - Run config/reload/lifecycle fuzz smoke and architecture scans.
@@ -428,7 +428,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 9.3_
   - _Validation: `make test && make test-race && make test-fuzz && go test -tags=precommit -run '^TestRuntimeConfigReloadSoak$' -count=1 -v ./internal/stdhttp/...`_
 
-- [ ] 9.5 Run benchmark/security gates and publish final release evidence
+- [x] 9.5 Run benchmark/security gates and publish final release evidence
   - Compare repeated equivalent-host benchmarks with Phase 1 via `benchstat`.
   - Enforce the 10 percent candidate compile time/allocation threshold or obtain explicit evidence-based approval.
   - Run lint, module verification, govulncheck, marker scans, and architecture report.

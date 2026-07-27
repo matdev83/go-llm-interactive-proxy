@@ -1,6 +1,7 @@
 package runtimehost_test
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -39,8 +40,13 @@ func TestPublish_Acquire_LinearizablePointerRecheck(t *testing.T) {
 	}()
 	<-retained
 	mustPublish(t, m, m.Prepare("g2"))
-	if g1.Lifecycle() != runtimehost.GenRetiring {
-		t.Fatalf("g1 lifecycle=%v want retiring", g1.Lifecycle())
+	// Auto-retirement may already have advanced past GenRetiring into
+	// Quiescing/Quiesced while the acquire lease still pins g1. Closed/drain
+	// states are impossible with refs>0.
+	switch st := g1.Lifecycle(); st {
+	case runtimehost.GenRetiring, runtimehost.GenQuiescing, runtimehost.GenQuiesced:
+	default:
+		t.Fatalf("g1 lifecycle=%v want retiring/quiescing/quiesced while lease held", st)
 	}
 	close(resume)
 	if id := <-result; id != 2 {
@@ -86,6 +92,10 @@ func TestPublish_Acquire_LinearizablePointerRecheck(t *testing.T) {
 	}
 }
 
+// TestAcquire_RetiringBitRefcountAndNoNewRetain uses BeginShutdown+
+// DetachActive (not a replacing Publish) so Manager's automatic post-publish
+// retirement scheduling (task 7.3) cannot advance g1 past GenDrained before
+// this test observes that exact state.
 func TestAcquire_RetiringBitRefcountAndNoNewRetain(t *testing.T) {
 	t.Parallel()
 	m := runtimehost.NewManager(4, nil)
@@ -116,7 +126,8 @@ func TestAcquire_RetiringBitRefcountAndNoNewRetain(t *testing.T) {
 	if g1.Refs() != 2 {
 		t.Fatalf("refs=%d want 2", g1.Refs())
 	}
-	mustPublish(t, m, m.Prepare("g2"))
+	m.BeginShutdown()
+	m.DetachActive()
 	if g1.Lifecycle() != runtimehost.GenRetiring {
 		t.Fatalf("lifecycle=%v", g1.Lifecycle())
 	}
@@ -185,7 +196,11 @@ func TestRelease_ExactlyOnceDoubleCloseAndAsyncPinTransfer(t *testing.T) {
 	if g1.Refs() != 1 || pin.Kind() != runtimehost.PinAsync {
 		t.Fatalf("pin refs=%d kind=%v", g1.Refs(), pin.Kind())
 	}
-	mustPublish(t, m, m.Prepare("g2"))
+	// BeginShutdown+DetachActive (not a replacing Publish) avoids racing
+	// Manager's automatic post-publish retirement scheduling (task 7.3)
+	// against this test's own manual BeginClose/Close drive below.
+	m.BeginShutdown()
+	m.DetachActive()
 	select {
 	case <-g1.Drained():
 		t.Fatal("async pin must block drain")
@@ -253,10 +268,11 @@ func TestBlockedPins_AndRetentionBudgetRejectsWithoutKillingOldWork(t *testing.T
 		}
 	}
 	<-g1.Drained()
-	if err := g1.BeginClose(); err != nil {
-		t.Fatal(err)
-	}
-	if err := g1.Close(); err != nil {
+	// Manager's automatic post-publish retirement (task 7.3) may already be
+	// racing to close g1 in the background; RetireGeneration serializes with
+	// it via the generation's own admission and tolerates a benign
+	// ErrAlreadyClosed if the background attempt already finished.
+	if _, err := m.RetireGeneration(context.Background(), g1); err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
 		t.Fatal(err)
 	}
 	m.SweepClosed()

@@ -13,25 +13,32 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 	"github.com/stretchr/testify/assert"
 )
 
 type stubReloadCoord struct {
-	status configreload.ReloadStatus
+	status      sdkreload.Status
+	fixedSource string
 }
 
-func (s *stubReloadCoord) Reload(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
-	return configreload.ReloadResult{Category: configreload.ResultNoop, ActiveGeneration: 1}
+func (s *stubReloadCoord) Reload(context.Context, sdkreload.Trigger) sdkreload.Result {
+	return sdkreload.Result{Category: sdkreload.ResultNoop, ActiveGeneration: 1}
 }
 
-func (s *stubReloadCoord) Status() configreload.ReloadStatus {
+func (s *stubReloadCoord) Status() sdkreload.Status {
 	if s.status.ActiveGeneration == 0 {
-		return configreload.ReloadStatus{ActiveGeneration: 1}
+		return sdkreload.Status{ActiveGeneration: 1}
 	}
 	return s.status
+}
+
+func (s *stubReloadCoord) FixedSourcePath() string {
+	if s.fixedSource != "" {
+		return s.fixedSource
+	}
+	return "/fixed/config.yaml"
 }
 
 func TestResolveManagementOptions_multiUserAbsentTokenDisabled(t *testing.T) {
@@ -171,10 +178,10 @@ func TestStartManagementServer_multiUserAbsentTokenNoEndpoint(t *testing.T) {
 	_ = os.Unsetenv(reloadManagementTokenEnv)
 
 	var logBuf bytes.Buffer
-	res := multiUserBootstrapResult(&logBuf)
+	res := newMultiUserFixture(&logBuf)
 	coord := &stubReloadCoord{}
 
-	srv, err := startManagementServer(context.Background(), res, coord)
+	srv, err := startManagementServer(context.Background(), res.Config, res.Logger, coord)
 	if err != nil {
 		t.Fatalf("serve composition must remain possible: %v", err)
 	}
@@ -195,10 +202,10 @@ func TestStartManagementServer_multiUserValidTokenStartsBearer(t *testing.T) {
 	t.Cleanup(func() { managementListenAddress = origAddr })
 
 	var logBuf bytes.Buffer
-	res := multiUserBootstrapResult(&logBuf)
+	res := newMultiUserFixture(&logBuf)
 	coord := &stubReloadCoord{}
 
-	srv, err := startManagementServer(context.Background(), res, coord)
+	srv, err := startManagementServer(context.Background(), res.Config, res.Logger, coord)
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -239,8 +246,8 @@ func TestStartManagementServer_multiUserValidTokenStartsBearer(t *testing.T) {
 func TestStartManagementServer_multiUserWeakTokenRejected(t *testing.T) {
 	t.Setenv(reloadManagementAddressEnv, mgmtreload.DefaultListenAddress)
 	t.Setenv(reloadManagementTokenEnv, "short")
-	res := multiUserBootstrapResult(io.Discard)
-	_, err := startManagementServer(context.Background(), res, &stubReloadCoord{})
+	res := newMultiUserFixture(io.Discard)
+	_, err := startManagementServer(context.Background(), res.Config, res.Logger, &stubReloadCoord{})
 	if err == nil {
 		t.Fatal("expected weak token rejection")
 	}
@@ -261,8 +268,8 @@ func TestStartManagementServer_noSecretLogged(t *testing.T) {
 	t.Cleanup(func() { managementListenAddress = origAddr })
 
 	var logBuf bytes.Buffer
-	res := multiUserBootstrapResult(&logBuf)
-	srv, err := startManagementServer(context.Background(), res, &stubReloadCoord{})
+	res := newMultiUserFixture(&logBuf)
+	srv, err := startManagementServer(context.Background(), res.Config, res.Logger, &stubReloadCoord{})
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -274,12 +281,19 @@ func TestStartManagementServer_noSecretLogged(t *testing.T) {
 	}
 }
 
-func multiUserBootstrapResult(logOut io.Writer) runtimebundle.BootstrapResult {
+// multiUserFixture bundles only the config/logger inputs startManagementServer
+// consumes, not a fake bootstrap/host aggregate.
+type multiUserFixture struct {
+	Config *config.Config
+	Logger *slog.Logger
+}
+
+func newMultiUserFixture(logOut io.Writer) multiUserFixture {
 	if logOut == nil {
 		logOut = io.Discard
 	}
 	logger := slog.New(slog.NewTextHandler(logOut, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	return runtimebundle.BootstrapResult{
+	return multiUserFixture{
 		Config: &config.Config{
 			Server: config.ServerConfig{Address: "127.0.0.1:18080"},
 			Access: config.AccessConfig{Mode: string(accessmode.ModeMultiUser)},

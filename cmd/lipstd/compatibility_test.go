@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 )
 
 func TestCheckConfigCompatibility_StrictFixturesRejectSecretSafe(t *testing.T) {
@@ -70,7 +71,7 @@ server:
 
 func TestRoutesInventoryCompatibility_ValidExample(t *testing.T) {
 	t.Parallel()
-	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	cfgPath := bpkit.WriteDogfoodLocalStubConfig(t)
 
 	t.Run("routes", func(t *testing.T) {
 		t.Parallel()

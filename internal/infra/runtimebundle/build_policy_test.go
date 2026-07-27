@@ -8,10 +8,8 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 )
@@ -49,13 +47,10 @@ func minimalPolicyBuildConfig() *config.Config {
 func TestBuildRuntimeBundle_PolicyObserverDefaultsToNoop(t *testing.T) {
 	t.Parallel()
 	cfg := minimalPolicyBuildConfig()
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	obs := b.RuntimeSnapshot.PolicyObserver()
+	obs := b.RuntimeSnapshot().PolicyObserver()
 	if obs == nil {
 		t.Fatal("expected non-nil policy observer")
 	}
@@ -65,7 +60,7 @@ func TestBuildRuntimeBundle_PolicyObserverDefaultsToNoop(t *testing.T) {
 	if err := obs.OnPolicyDecision(context.Background(), policydecision.Record{}); err != nil {
 		t.Fatalf("noop observer returned error: %v", err)
 	}
-	budgetSrc := b.RuntimeSnapshot.TimeoutBudgetSource()
+	budgetSrc := b.RuntimeSnapshot().TimeoutBudgetSource()
 	if budgetSrc == nil {
 		t.Fatal("expected non-nil timeout budget source")
 	}
@@ -79,14 +74,11 @@ func TestBuildRuntimeBundle_PolicyObserverWiresConfigured(t *testing.T) {
 	cfg := minimalPolicyBuildConfig()
 	cap1 := &capturePolicyObserver{}
 	cap2 := &capturePolicyObserver{}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 		Policy:         runtimebundle.PolicyOptions{PolicyObservers: []policydecision.Observer{cap1, cap2}},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	obs := b.RuntimeSnapshot.PolicyObserver()
+	obs := b.RuntimeSnapshot().PolicyObserver()
 	if _, ok := obs.(policydecision.ChainObserver); !ok {
 		t.Fatalf("expected policydecision.ChainObserver, got %T", obs)
 	}
@@ -114,14 +106,11 @@ func TestBuildRuntimeBundle_PolicyObserverWiresConfigured(t *testing.T) {
 func TestBuildRuntimeBundle_PolicyTimeoutBudgetWiresConfigured(t *testing.T) {
 	t.Parallel()
 	cfg := minimalPolicyBuildConfig()
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 		Policy:         runtimebundle.PolicyOptions{PolicyTimeoutBudgetSource: extensions.StaticTimeoutBudgetSource{Budget: 250 * time.Millisecond}},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	src := b.RuntimeSnapshot.TimeoutBudgetSource()
+	src := b.RuntimeSnapshot().TimeoutBudgetSource()
 	if _, ok := src.(extensions.StaticTimeoutBudgetSource); !ok {
 		t.Fatalf("expected extensions.StaticTimeoutBudgetSource, got %T", src)
 	}
@@ -133,20 +122,17 @@ func TestBuildRuntimeBundle_PolicyTimeoutBudgetWiresConfigured(t *testing.T) {
 func TestBuildRuntimeBundle_PolicyDiagnosticsWiresConfigured(t *testing.T) {
 	t.Parallel()
 	cfg := minimalPolicyBuildConfig()
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 		Policy: runtimebundle.PolicyOptions{
 			PolicyDiagnosticsEnabled:  true,
 			PolicyTimeoutBudgetSource: extensions.StaticTimeoutBudgetSource{Budget: 250 * time.Millisecond},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b.Executor == nil {
+	if b.Executor() == nil {
 		t.Fatal("expected non-nil executor")
 	}
-	if !b.Executor.PolicyDiagnosticsEnabled {
+	if !b.Executor().PolicyDiagnosticsEnabled {
 		t.Fatal("PolicyDiagnosticsEnabled should be wired to runtime.Executor")
 	}
 }
@@ -154,26 +140,23 @@ func TestBuildRuntimeBundle_PolicyDiagnosticsWiresConfigured(t *testing.T) {
 func TestBuildRuntimeBundle_NoPolicyNoninterference(t *testing.T) {
 	t.Parallel()
 	cfg := minimalPolicyBuildConfig()
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b.Executor == nil {
+	if b.Executor() == nil {
 		t.Fatal("expected non-nil Executor")
 	}
-	if b.Executor.RuntimeSnapshot == nil {
+	if b.Executor().RuntimeSnapshot == nil {
 		t.Fatal("expected non-nil Executor.RuntimeSnapshot")
 	}
-	if b.Executor.RuntimeSnapshot != b.RuntimeSnapshot {
-		t.Fatal("Executor.RuntimeSnapshot should match Built.RuntimeSnapshot")
+	if b.Executor().RuntimeSnapshot != b.RuntimeSnapshot() {
+		t.Fatal("Executor.RuntimeSnapshot should match CandidateRuntime.RuntimeSnapshot")
 	}
-	obs := b.RuntimeSnapshot.PolicyObserver()
+	obs := b.RuntimeSnapshot().PolicyObserver()
 	if _, ok := obs.(policydecision.NoopObserver); !ok {
 		t.Fatalf("expected noop observer without policy config, got %T", obs)
 	}
-	src := b.RuntimeSnapshot.TimeoutBudgetSource()
+	src := b.RuntimeSnapshot().TimeoutBudgetSource()
 	if _, ok := src.(extensions.DefaultTimeoutBudgetSource); !ok {
 		t.Fatalf("expected default zero-budget source, got %T", src)
 	}

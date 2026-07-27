@@ -2,10 +2,12 @@ package metrics
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 )
@@ -127,6 +129,125 @@ func TestBundle_WiresReloadProm(t *testing.T) {
 	b := NewBundle(nil, nil)
 	if b == nil || b.Reload == nil {
 		t.Fatal("metrics.Bundle must own ReloadProm")
+	}
+}
+
+// TestReloadProm_CanonicalCategoryLabelsUnchanged locks exact trigger/result label
+// strings after direct pkg/lipsdk/configreload migration (Task 2.2).
+func TestReloadProm_CanonicalCategoryLabelsUnchanged(t *testing.T) {
+	t.Parallel()
+	reg := prometheus.NewRegistry()
+	m := RegisterReloadProm(reg)
+	if m == nil {
+		t.Fatal("expected ReloadProm")
+	}
+
+	wantPairs := []struct {
+		trigger, result string
+	}{
+		{string(sdkreload.TriggerAPI), string(sdkreload.ResultPublished)},
+		{string(sdkreload.TriggerSIGHUP), string(sdkreload.ResultBusy)},
+		{string(sdkreload.TriggerAPI), string(sdkreload.ResultNoop)},
+		{string(sdkreload.TriggerAPI), string(sdkreload.ResultRestartRequired)},
+		{string(sdkreload.TriggerAPI), string(sdkreload.ResultSourceIntegrity)},
+	}
+	for _, p := range wantPairs {
+		m.ObserveAttempt(p.trigger, p.result, time.Millisecond)
+		m.ObserveStage("publish", p.result, time.Millisecond)
+	}
+
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seenAttempt := map[string]bool{}
+	seenStage := map[string]bool{}
+	for _, f := range families {
+		switch f.GetName() {
+		case "lip_reload_attempts_total":
+			for _, metric := range f.GetMetric() {
+				trig, res := "", ""
+				for _, lp := range metric.GetLabel() {
+					switch lp.GetName() {
+					case "trigger":
+						trig = lp.GetValue()
+					case "result":
+						res = lp.GetValue()
+					}
+				}
+				seenAttempt[trig+"|"+res] = true
+			}
+		case "lip_reload_stage_duration_seconds":
+			for _, metric := range f.GetMetric() {
+				stage, res := "", ""
+				for _, lp := range metric.GetLabel() {
+					switch lp.GetName() {
+					case "stage":
+						stage = lp.GetValue()
+					case "result":
+						res = lp.GetValue()
+					}
+				}
+				seenStage[stage+"|"+res] = true
+			}
+		}
+	}
+	for _, p := range wantPairs {
+		key := p.trigger + "|" + p.result
+		if !seenAttempt[key] {
+			t.Fatalf("missing attempt labels %q (canonical category strings must remain stable)", key)
+		}
+		if !seenStage["publish|"+p.result] {
+			t.Fatalf("missing stage labels publish|%s", p.result)
+		}
+	}
+	// Closed vocabulary hyphenation must not drift to underscored forms.
+	for key := range seenAttempt {
+		if strings.Contains(key, "restart_required") || strings.Contains(key, "source_integrity") ||
+			strings.Contains(key, "no_op") {
+			t.Fatalf("underscored category label leaked: %q", key)
+		}
+	}
+}
+
+// TestReloadProm_ResultAllowInventoryFromCanonicalConstants locks the allow-map
+// inventory to declared ResultCategory constants plus the extra observer labels,
+// and proves production source does not range over mutable AllResultCategories.
+func TestReloadProm_ResultAllowInventoryFromCanonicalConstants(t *testing.T) {
+	t.Parallel()
+
+	canonical := []sdkreload.ResultCategory{
+		sdkreload.ResultPublished,
+		sdkreload.ResultNoop,
+		sdkreload.ResultBusy,
+		sdkreload.ResultRestartRequired,
+		sdkreload.ResultRetentionBlocked,
+		sdkreload.ResultInvalid,
+		sdkreload.ResultSourceIntegrity,
+		sdkreload.ResultCanceled,
+		sdkreload.ResultPreparationFailed,
+		sdkreload.ResultInternalFailed,
+	}
+	for _, c := range canonical {
+		if got := boundReloadResult(string(c)); got != string(c) {
+			t.Fatalf("boundReloadResult(%q)=%q want self", c, got)
+		}
+	}
+	for _, extra := range []string{"quiesce_failed", "cleanup_failed", "other"} {
+		if got := boundReloadResult(extra); got != extra {
+			t.Fatalf("extra label boundReloadResult(%q)=%q", extra, got)
+		}
+	}
+	if got := boundReloadResult("decoy-from-mutable-enum"); got != "other" {
+		t.Fatalf("unknown result=%q want other", got)
+	}
+
+	src, err := os.ReadFile("reload_prom.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(src), "AllResultCategories") {
+		t.Fatal("reload_prom.go must not consult mutable AllResultCategories for allow-map init")
 	}
 }
 

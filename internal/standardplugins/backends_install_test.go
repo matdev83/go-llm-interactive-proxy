@@ -3,15 +3,13 @@ package standardplugins
 import (
 	"reflect"
 	"testing"
-
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodecommon"
 )
 
 func TestPrefixedModelIDsFromYAML_stripsNativePrefixAndFallsBackToCanonicalTail(t *testing.T) {
 	t.Parallel()
-	got, err := prefixedModelIDsFromYAML("openai-codex", modelInventoryYAML{Items: []modelInventoryItemYAML{
-		{NativeID: "openai-codex/gpt-5.3-codex-spark"},
-		{CanonicalID: "openai-codex/gpt-5.4"},
+	got, err := prefixedModelIDsFromYAML("openai-responses", modelInventoryYAML{Items: []modelInventoryItemYAML{
+		{NativeID: "openai-responses/gpt-5.3-codex-spark"},
+		{CanonicalID: "openai-responses/gpt-5.4"},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -19,24 +17,6 @@ func TestPrefixedModelIDsFromYAML_stripsNativePrefixAndFallsBackToCanonicalTail(
 	want := []prefixedModelYAML{{RawID: "gpt-5.3-codex-spark"}, {RawID: "gpt-5.4"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("models = %#v, want %#v", got, want)
-	}
-}
-
-func TestOpencodeModelEntriesFromYAML_usesSharedPrefixedParser(t *testing.T) {
-	t.Parallel()
-	got, err := opencodeModelEntriesFromYAML(opencodecommon.BackendGo, modelInventoryYAML{Items: []modelInventoryItemYAML{
-		{NativeID: "opencode-go/kimi-k2.7-code", DisplayName: "Kimi"},
-		{CanonicalID: "moonshot/kimi-k2.7-thinking"},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []opencodecommon.ModelEntry{
-		{RawID: "kimi-k2.7-code", DisplayName: "Kimi"},
-		{RawID: "kimi-k2.7-thinking"},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("entries = %#v, want %#v", got, want)
 	}
 }
 

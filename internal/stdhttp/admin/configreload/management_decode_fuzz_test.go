@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 // FuzzManagementReloadDecode exercises bounded POST body validation for the
@@ -36,9 +36,9 @@ func FuzzManagementReloadDecode(f *testing.F) {
 		contentType = boundUTF8Mgmt(contentType, 64)
 
 		var reloads atomic.Int64
-		coord := newFakeCoordinator("/fixed/startup/config.yaml", func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
+		coord := newFakeCoordinator("/fixed/startup/config.yaml", func(context.Context, sdkreload.Trigger) sdkreload.Result {
 			reloads.Add(1)
-			return configreload.ReloadResult{Category: configreload.ResultNoop}
+			return sdkreload.Result{Category: sdkreload.ResultNoop}
 		})
 		h, err := mgmtreload.NewHandler(mgmtreload.Options{
 			Address:      "127.0.0.1:0",

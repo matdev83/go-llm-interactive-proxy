@@ -17,7 +17,7 @@ The backend is a Go-driven adapter plus a project-owned Node companion. The Node
 
 ## Operator essentials
 
-- Install the packaged bridge manually (`npm ci` in `internal/plugins/backends/cursorsdk/bridge`); Go-LIP never installs npm dependencies.
+- Install the packaged bridge manually (`npm ci` in `connectors/cursorsdk/bridge-node`); Go-LIP never installs npm dependencies.
 - Node `>=22.13`; exact `@cursor/sdk` 1.0.23; verify with `lip-cursor-sdk-bridge --version` / `doctor`.
 - Auth: static SDK API key (`api_key` or bare `CURSOR_API_KEY`); separate from Cursor CLI/Desktop login and billing.
 - Local-only registration; rejected under multi-user access.

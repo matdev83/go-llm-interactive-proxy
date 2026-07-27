@@ -1,10 +1,16 @@
 package auth
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -326,6 +332,147 @@ func TestPolicyProvider_authenticatorError_returns500(t *testing.T) {
 	}
 	if res.Type != httpauth.TypeContinue {
 		t.Fatalf("result type should be zero/continue on error path, got %q", res.Type)
+	}
+}
+
+func freshSyntheticBearer(t *testing.T) string {
+	t.Helper()
+	var b [24]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		t.Fatalf("rand: %v", err)
+	}
+	return "sk-test-" + hex.EncodeToString(b[:])
+}
+
+// echoBearerErrAuthenticator returns an error that echoes the raw bearer it received.
+type echoBearerErrAuthenticator struct {
+	wrapWith error // optional canonical sentinel to wrap (Canceled / DeadlineExceeded)
+	lastErr  error
+}
+
+func (e *echoBearerErrAuthenticator) Authenticate(_ context.Context, req auth.InboundCallMeta) (auth.Decision, error) {
+	msg := fmt.Sprintf("malicious authenticator saw bearer=%s", req.AuthorizationBearer)
+	var err error
+	if e.wrapWith != nil {
+		err = fmt.Errorf("%s: %w", msg, e.wrapWith)
+	} else {
+		err = errors.New(msg)
+	}
+	e.lastErr = err
+	return auth.Decision{}, err
+}
+
+func TestPolicyProvider_Authenticate_sanitizesAuthenticatorErrorContainingBearer(t *testing.T) {
+	t.Parallel()
+	bearer := freshSyntheticBearer(t)
+	stub := &echoBearerErrAuthenticator{}
+	p := NewPolicyProvider(stub, nil, PolicySnapshot{
+		AccessMode: auth.AccessMultiUser, HandlerKind: auth.HandlerLocalAPIKey, RequiredLevel: auth.LevelAPIKey,
+	}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer "+bearer)
+
+	_, err := p.Authenticate(req.Context(), httptest.NewRecorder(), req)
+	if err == nil {
+		t.Fatal("want non-nil error when authenticator fails")
+	}
+	if stub.lastErr == nil {
+		t.Fatal("authenticator did not record an error")
+	}
+	if !strings.Contains(stub.lastErr.Error(), bearer) {
+		t.Fatalf("test setup: authenticator error must echo bearer; got %q", stub.lastErr.Error())
+	}
+	if strings.Contains(err.Error(), bearer) {
+		t.Fatalf("PolicyProvider error must not contain raw bearer; got %q", err.Error())
+	}
+	if strings.Contains(err.Error(), "malicious authenticator") {
+		t.Fatalf("PolicyProvider error must not retain malicious text; got %q", err.Error())
+	}
+	if errors.Is(err, stub.lastErr) {
+		t.Fatal("returned error must not retain the malicious authenticator error in the Unwrap chain")
+	}
+}
+
+func TestPolicyProvider_Authenticate_sanitizesWrappedCanceledAndDeadline(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		wrap   error
+		wantIs error
+	}{
+		{name: "canceled", wrap: context.Canceled, wantIs: context.Canceled},
+		{name: "deadline", wrap: context.DeadlineExceeded, wantIs: context.DeadlineExceeded},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			bearer := freshSyntheticBearer(t)
+			stub := &echoBearerErrAuthenticator{wrapWith: tc.wrap}
+			p := NewPolicyProvider(stub, nil, PolicySnapshot{
+				AccessMode: auth.AccessMultiUser, HandlerKind: auth.HandlerLocalAPIKey, RequiredLevel: auth.LevelAPIKey,
+			}, nil)
+			req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+			req.Header.Set("Authorization", "Bearer "+bearer)
+
+			_, err := p.Authenticate(req.Context(), httptest.NewRecorder(), req)
+			if err == nil {
+				t.Fatal("want non-nil error")
+			}
+			if !errors.Is(err, tc.wantIs) {
+				t.Fatalf("want errors.Is(..., %v); got %v", tc.wantIs, err)
+			}
+			if strings.Contains(err.Error(), bearer) {
+				t.Fatalf("returned error must not contain bearer; got %q", err.Error())
+			}
+			if strings.Contains(err.Error(), "malicious authenticator") {
+				t.Fatalf("returned error must not retain malicious text; got %q", err.Error())
+			}
+			if errors.Is(err, stub.lastErr) {
+				t.Fatal("returned error must not retain the malicious wrapped authenticator error")
+			}
+			if u := errors.Unwrap(err); u != nil && u != tc.wantIs {
+				t.Fatalf("unexpected unwrap target %v (%T)", u, u)
+			}
+		})
+	}
+}
+
+func TestPolicyProvider_Middleware_authenticatorError_omitsBearerFromLogsAndBody(t *testing.T) {
+	t.Parallel()
+	bearer := freshSyntheticBearer(t)
+	stub := &echoBearerErrAuthenticator{}
+	p := NewPolicyProvider(stub, nil, PolicySnapshot{
+		AccessMode: auth.AccessMultiUser, HandlerKind: auth.HandlerLocalAPIKey, RequiredLevel: auth.LevelAPIKey,
+	}, nil)
+
+	var logBuf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelError}))
+	var sawInner bool
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer "+bearer)
+	Middleware(log, []httpauth.Provider{p}, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		sawInner = true
+	})).ServeHTTP(rec, req)
+
+	if sawInner {
+		t.Fatal("inner handler must not run on authenticator error")
+	}
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("HTTP status: got %d want 500", rec.Code)
+	}
+	body := rec.Body.String()
+	logged := logBuf.String()
+	for _, needle := range []string{bearer, "malicious authenticator"} {
+		if strings.Contains(body, needle) {
+			t.Fatalf("response body must not contain %q; body=%q", needle, body)
+		}
+		if strings.Contains(logged, needle) {
+			t.Fatalf("auth middleware logs must not contain %q; log=%q", needle, logged)
+		}
+	}
+	if !strings.Contains(body, "authentication failed") {
+		t.Fatalf("expected stable failure body, got %q", body)
 	}
 }
 

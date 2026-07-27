@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -175,3 +176,67 @@ func (s *fakeService) Count(ctx context.Context, req CountRequest) (CountRespons
 	}
 	return s.response, nil
 }
+
+func TestNilServiceReturnsCountUnavailable(t *testing.T) {
+	t.Parallel()
+	h := NewHandler(Options{Enabled: true, Service: nil})
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/admin/token-count", strings.NewReader(validRequestBody())))
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status %d body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "count_unavailable") {
+		t.Fatalf("body=%s", rr.Body.String())
+	}
+}
+
+func TestAdaptCountCallService_nilAndConcrete(t *testing.T) {
+	t.Parallel()
+	if AdaptCountCallService(nil) != nil {
+		t.Fatal("nil CountCallService must adapt to nil Service")
+	}
+	var typedNil *app.Service
+	if AdaptCountCallService(typedNil) != nil {
+		t.Fatal("typed-nil *app.Service must adapt to nil Service")
+	}
+	call := &fakeCountCall{
+		result: app.CountResult{
+			InputTokens: 11, TotalTokens: 11,
+			Accounting: lipapi.UsageAccountingMetadata{
+				Plane:     lipapi.UsagePlaneClientVisible,
+				Source:    lipapi.UsageSourceLocalTokenizer,
+				Authority: lipapi.UsageAuthorityEstimated,
+			},
+		},
+	}
+	svc := AdaptCountCallService(call)
+	if svc == nil {
+		t.Fatal("expected adapted Service")
+	}
+	h := NewHandler(Options{Enabled: true, Service: svc})
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/admin/token-count", strings.NewReader(validRequestBody())))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d body=%s", rr.Code, rr.Body.String())
+	}
+	if call.calls != 1 {
+		t.Fatalf("CountCall calls=%d", call.calls)
+	}
+	if !strings.Contains(rr.Body.String(), `"input":11`) {
+		t.Fatalf("body=%s", rr.Body.String())
+	}
+}
+
+type fakeCountCall struct {
+	calls  int
+	result app.CountResult
+	err    error
+}
+
+func (f *fakeCountCall) CountCall(context.Context, app.CountCallInput) (app.CountResult, error) {
+	f.calls++
+	return f.result, f.err
+}
+
+// Compile-time: concrete app service satisfies CountCallService.
+var _ CountCallService = (*app.Service)(nil)

@@ -1,7 +1,7 @@
 # Current-State Review, Requirements Gap Analysis, Architecture Research, and Design Validation
 
 Generated: 2026-07-19T01:03:15+02:00
-Updated after review hardening: 2026-07-19T12:40:34+02:00
+Updated after evidence-based platform and substrate research: 2026-07-19
 
 ## Status
 
@@ -28,7 +28,7 @@ The selected direction is a hybrid distribution:
 8. Configuration and credentials cross only an approved confidential, peer-authenticated local IPC channel.
 9. First-party external connectors use independent Go modules or repositories, so their SDKs and language runtimes never enter the root dependency graph.
 
-HashiCorp `go-plugin` over gRPC remains the preferred process substrate, not the public domain contract. Its exact suitability is conditional on Task 1 proving that it can satisfy Go-LIP's closed manifest, exact-byte launch, secure local IPC, lifecycle, and cross-platform requirements. Where it cannot, the same public ABI is hosted by a narrow project-owned process implementation. Go-LIP owns its manifest, backend service, DTOs, security policy, canonical adapter, and conformance suite either way.
+Stock HashiCorp `go-plugin` v1.8.0 is not sufficient as a drop-in substrate: its checksum verification is pathname-based before later path execution, it does not enforce Unix expected-peer credentials, it uses loopback TCP rather than named pipes on Windows, AutoMTLS bootstraps client material through the child environment, and its default gRPC message ceilings are too broad. Task 1 therefore compares a hardened customization layer against a narrow project-owned host. Go-LIP owns its manifest, backend service, DTOs, security policy, canonical adapter, process-model supervision, and conformance suite either way; substrate selection cannot weaken those contracts.
 
 ## Reviewed Repository Assets
 
@@ -171,9 +171,9 @@ Source: https://pkg.go.dev/plugin
 
 Architecturally viable and retained as fallback, but it would require Go-LIP to implement and secure process negotiation, exact-byte launch, local peer authentication, lifecycle, cleanup, compatibility, encryption, logging, and testing infrastructure.
 
-### D. HashiCorp `go-plugin` gRPC runtime plus Go-LIP ABI and manifests
+### D. Hardened HashiCorp `go-plugin` gRPC runtime plus Go-LIP ABI and manifests
 
-Selected provisionally. It provides mature local process isolation, protocol versions, gRPC streaming, checksum/TLS hooks, environment controls, and lifecycle APIs. Go-LIP retains control of its domain contract, security policy, manifests, and canonical adaptation. Adoption remains conditional on the Task 1 spike proving every mandatory launch and local-channel control on each supported platform; otherwise Option C is selected without weakening the requirements.
+Viable only with customization. Versioned plugin sets, gRPC service registration, streaming, lazy process start, kill/cleanup, and AutoMTLS are reusable plumbing. Stock v1.8.0 does not provide digest-bound exact-byte launch, Unix expected-process peer verification, the Windows named-pipe profile, Go-LIP process-model ownership, safe bootstrap for private mTLS material, or required message bounds. Task 1 must prove a customization layer that closes every gap; otherwise Option C is selected without weakening requirements.
 
 Primary sources:
 
@@ -195,7 +195,7 @@ Sources:
 1. Retain `execbackend.Backend` as the consumer-owned internal port.
 2. Add public `backendplugin/v1` contracts and conformance with no internal imports.
 3. Add an infrastructure/composition-owned plugin host.
-4. Use `go-plugin` v1.8.x gRPC mode only if implementation-time license, API, exact-launch, secure-IPC, and lifecycle revalidation passes; otherwise use a narrow project-owned host.
+4. Use a hardened `go-plugin` v1.8.x layer only if Task 1 proves exact launch, expected-peer IPC, protected bootstrap, resource bounds, and lifecycle controls; otherwise use a narrow project-owned host.
 5. Discover closed, trusted manifests without executing binaries.
 6. Register exported backend kinds dynamically.
 7. Start processes lazily according to an explicitly declared shared-artifact or per-instance process model.
@@ -219,25 +219,45 @@ Sources:
 - Residual risk: medium only after closed schemas, atomic exact-byte launch, peer-authenticated confidential channels, versioned contracts, process isolation, lazy launch, conformance, and phased cutover.
 - Primary complexity: security-sensitive lifecycle and compatibility—not provider mapping algorithms.
 
-## Implementation Research Still Required
+## Completed Research Evidence
 
-Task 1 must revalidate:
+The follow-up research completed on 2026-07-19 resolved the original implementation-research agenda using repository evidence and primary platform, Go, protobuf, gRPC, and `go-plugin` sources.
 
-1. exact `go-plugin` v1.8.x APIs for versioned plugins, streaming, checksum, TLS/AutoMTLS, Unix sockets, child environment, runners, and Windows cleanup;
-2. whether the selected substrate supports Unix peer credentials, macOS `getpeereid` or equivalent, Windows named-pipe DACL and client-token/process verification, or process-generation-bound ephemeral mutual TLS;
-3. OS-specific verified executable handle or identity-preserving launch primitives and private digest-addressed staging semantics;
-4. unauthorized, wrong-process, and stale-generation local-client rejection;
-5. MPL-2.0 obligations;
-6. gRPC message/window bounds for event streams;
-7. protobuf presence needed for `lipapi` null/omitted semantics;
-8. secret-bearing opaque config transport after peer and protocol authentication;
-9. cross-platform executable replacement, staged-copy cleanup, upgrade, and rollback;
-10. exact current backend seam coverage;
-11. shared-artifact versus per-instance process and multi-kind sharing constraints;
-12. nested-module tag automation;
-13. installer-owned plugin paths per operating system.
+1. **Process substrate**: stock `go-plugin` v1.8.0 is insufficient for the mandatory launch and IPC controls. Customized `go-plugin` remains a spike candidate because its gRPC, negotiation, process start, and cleanup plumbing are reusable; the project-owned host remains the fail-closed alternative.
+2. **Separate identity gates**: executable-byte identity and transport peer identity are independent. Digest verification, peer credentials, pipe tokens/PIDs, and mTLS certificates cannot substitute for one another.
+3. **Launch binding**: Linux supports sealed or immutable descriptor-bound execution using `execveat(..., AT_EMPTY_PATH)` or `fexecve`. Public Go APIs on macOS and Windows require path launch, so those platforms use protected private digest staging and fail closed when mutation cannot be excluded.
+4. **Executable format**: script and interpreter entrypoints cannot satisfy the v1 launched-byte identity contract without separately attesting the interpreter. Manifest v1 therefore permits native executables only.
+5. **Local IPC**: private Unix sockets and named pipes provide access-control confidentiality, not cryptographic encryption. Linux uses expected-generation `SO_PEERCRED`; macOS uses available local peer credentials and PID; Windows uses an explicit named-pipe DACL, remote-client rejection, token/PID checks, and the expected Job Object boundary.
+6. **Loopback fallback**: ephemeral mutual TLS is acceptable only when bound to the process generation. AutoMTLS environment bootstrap is not accepted for private key material; a private inherited handle or equivalent one-shot OS channel is required.
+7. **Process cleanup**: Linux parent-death/process-group controls, macOS process groups, and Windows Job Objects provide the necessary platform primitives, with host-owned supervision and exactly-once wait/reap still required.
+8. **Protobuf presence**: proto3 `optional`/`oneof`, explicit `UsagePresence`, and bounded raw-JSON bytes preserve canonical omission, zero, empty, and `null` semantics. Plain implicit scalars, repeated fields, and maps do not.
+9. **gRPC streaming**: headers and `accepted` are not output commitment. Commitment begins only after an event satisfying `lipapi.OutputCommitted`; automatic transport retries are disabled; application-level buffer and message limits remain host/plugin responsibilities.
+10. **Lifecycle seam**: current runtimebundle LIFO closers make a composition-owned backend build result the smallest compatible ownership model. `execbackend.Backend` does not gain process lifecycle.
+11. **ACP extraction**: reusable ACP protocol/runtime code is separable after replacing internal lifecycle cancellation types, the internal HTTP-client default, and the package-global executable lookup cache.
+12. **Connector-specific collaborators**: the Codex catalog and OpenCode vendor resolver are confirmed connector behavior and move to their owning modules.
+13. **Process models**: both declared models remain valid. Existing subprocess ACP products provide evidence for per-instance ownership; any shared-artifact declaration requires connector-local proof of config, secret, concurrency, and failure isolation.
+14. **Module isolation**: root release checks run `GOWORK=off go list ./...`, `go test ./...`, `go build ./cmd/lipstd`, and `go list -m all`; connector modules are structurally discovered and checked independently.
+15. **Packaging defaults**: platform standards do not mandate one path. This design selects conservative upstream defaults under `/opt`, `/Library/Application Support`, and `%ProgramFiles%`, while allowing packager-injected machine-scoped alternatives. Development mode uses explicit paths only.
+16. **CI state**: repository workflows exist but currently run on Ubuntu. Linux, macOS, and Windows plugin security/lifecycle/package gates must be added before cross-platform claims.
+17. **Compatible aliases**: the existing dependency-free `custom-openai-responses-compatible`, `custom-openai-legacy-compatible`, and `custom-anthropic-compatible` kinds are explicitly part of the essential bundle.
 
-A failed probe may replace `go-plugin` with a narrow project-owned gRPC host or mark an unsupported plugin/platform pair, but it does not authorize weaker local transport, pathname-only digest checks, Go native plugins, internal-type leakage, or static optional imports.
+A failed Task 1 substrate spike selects the project-owned gRPC host or marks a connector/platform pair unsupported. It never authorizes weaker IPC, pathname-only digest checks, Go native plugins, internal-type leakage, script entrypoints, or static optional imports.
+
+## Normative Decisions After Research
+
+| Decision | Selected policy | Revalidation trigger |
+|---|---|---|
+| Substrate | Hardened `go-plugin` only if Task 1 proves every control; otherwise project-owned host | Substrate/API/security change |
+| Unix peer policy | Expected spawned process generation; same UID alone is insufficient | Threat-model change |
+| Loopback bootstrap | No private mTLS key in child environment | Bootstrap-channel change |
+| Lifecycle seam | Composition-owned backend build result and runtimebundle closer chain | Core port/lifecycle change |
+| Plugin artifact | Native executable only in manifest v1 | New interpreter-attestation protocol |
+| ABI presence | `optional`/`oneof`, explicit usage presence, raw JSON bytes | Canonical presence change |
+| Retry/commitment | No gRPC auto-retry; `lipapi.OutputCommitted` decides commitment | Core retry/commitment change |
+| Upstream install roots | Linux `/opt/go-lip/plugins`; macOS `/Library/Application Support/Go-LIP/plugins`; Windows `%ProgramFiles%\Go-LIP\plugins` | Packaging policy change |
+| Development discovery | Explicit configured paths only | Development trust-policy change |
+| Host architecture matrix | linux amd64/arm64, darwin amd64/arm64, windows amd64/arm64 | Release-platform change |
+| Signatures | Optional additive hardening; digest/trusted-root baseline remains mandatory | Trust-policy change |
 
 ## Design Validation Stage
 
@@ -247,7 +267,7 @@ A failed probe may replace `go-plugin` with a narrow project-owned gRPC host or 
 
 **Correction:** The final design uses SDK-owned versioned DTOs and optional service capabilities. Only the host adapter knows both public protocol and internal port. Generic metadata excludes Codex/OpenCode/ACP-product collaborators.
 
-**Traceability:** 2.1-2.8, 5.1-5.2, 9.1-9.8.
+**Traceability:** 2.1-2.10, 5.1-5.2, 9.1-9.8.
 
 ### Critical Issue 2: Discovery trust was incomplete
 
@@ -255,7 +275,7 @@ A failed probe may replace `go-plugin` with a narrow project-owned gRPC host or 
 
 **Correction:** The final design restricts discovery to configured/installer-owned directories, closes manifest v1, binds SHA-256 verification atomically to the exact executable bytes launched, avoids CWD/PATH search, launches without a shell, constrains the environment, requires an approved confidential expected-peer-authenticated local channel, delivers secrets only after peer and protocol negotiation, bounds logs, and prohibits runtime installation. Cookies are explicitly not security controls.
 
-**Traceability:** 3.1-3.8, 4.1-4.8, 7.1-7.10, 12.2.
+**Traceability:** 3.1-3.10, 4.1-4.8, 7.1-7.13, 12.2.
 
 ### Critical Issue 3: Migration compatibility was underspecified
 
@@ -263,7 +283,7 @@ A failed probe may replace `go-plugin` with a narrow project-owned gRPC host or 
 
 **Correction:** The design preserves factory kinds and opaque YAML, uses atomic per-kind cutover after parity gates, installs optional artifacts in a curated full bundle, keeps minimal installations valid, and blocks downstream connector implementation until spec revalidation.
 
-**Traceability:** 8.1-8.8, 10.1-10.9, 11.1-11.10, 12.5-12.9.
+**Traceability:** 8.1-8.8, 10.1-10.9, 11.1-11.12, 12.5-12.9.
 
 ## Reviewer Hardening Cross-Check
 
@@ -290,7 +310,7 @@ The hardening changes were propagated through requirements, design, implementati
 - Approved confidential peer-authenticated local IPC precedes configuration and credential delivery.
 - Incremental bounded ordered streaming and one terminal.
 - No plugin-owned retry/failover or hidden replay after output.
-- Composition-owned close, rollback, invalidation, and later-operation restart.
+- Composition-owned build results, close, rollback, invalidation, and later-operation restart.
 - Trusted paths, minimal non-secret environment, no runtime install.
 - Complete caps/inventory/accounting method coverage.
 - All current non-essential connectors and ACP/Codex helpers included in migration.
@@ -301,6 +321,6 @@ The hardening changes were propagated through requirements, design, implementati
 
 ## Final Validation Verdict
 
-**PASS after reviewer hardening.**
+**PASS after evidence-based hardening, pending artifact approval.**
 
-The design is suitable for task generation. It adds a Go-canonical process-isolated extension boundary without moving provider policy into core, covers the full backend seam, treats discovery, exact executable identity, and local IPC as security boundaries, preserves existing configuration identities, and defines a staged migration that proves dependency isolation before deleting the fixed optional connector table.
+The design and task plan are internally consistent and suitable for approval review. It adds a Go-canonical process-isolated extension boundary without moving provider policy into core, covers the full backend seam, treats discovery, exact executable identity, and local IPC as security boundaries, preserves existing configuration identities, and defines a staged migration that proves dependency isolation before deleting the fixed optional connector table.

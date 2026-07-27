@@ -17,14 +17,15 @@ type Service interface {
 	Count(context.Context, CountRequest) (CountResponse, error)
 }
 
-type countCallService interface {
+// CountCallService is the concrete app CountCall seam (*tokenaccounting/app.Service).
+type CountCallService interface {
 	CountCall(context.Context, app.CountCallInput) (app.CountResult, error)
 }
 
 type Options struct {
 	Enabled      bool
 	MaxBodyBytes int64
-	Service      any
+	Service      Service
 }
 
 type CountRequest struct {
@@ -58,7 +59,25 @@ type TokenDimensions struct {
 }
 
 type appServiceAdapter struct {
-	svc countCallService
+	svc CountCallService
+}
+
+// AdaptCountCallService projects CountCall onto [Service]. Typed-nil *app.Service → nil.
+func AdaptCountCallService(svc CountCallService) Service {
+	if countCallServiceIsNil(svc) {
+		return nil
+	}
+	return appServiceAdapter{svc: svc}
+}
+
+func countCallServiceIsNil(svc CountCallService) bool {
+	if svc == nil {
+		return true
+	}
+	if concrete, ok := svc.(*app.Service); ok && concrete == nil {
+		return true
+	}
+	return false
 }
 
 func (a appServiceAdapter) Count(ctx context.Context, req CountRequest) (CountResponse, error) {
@@ -92,13 +111,7 @@ func (a appServiceAdapter) Count(ctx context.Context, req CountRequest) (CountRe
 }
 
 func NewHandler(opts Options) http.Handler {
-	var service Service
-	switch svc := opts.Service.(type) {
-	case Service:
-		service = svc
-	case countCallService:
-		service = appServiceAdapter{svc: svc}
-	}
+	service := opts.Service
 	maxBodyBytes := opts.MaxBodyBytes
 	if maxBodyBytes == 0 {
 		maxBodyBytes = defaultMaxBodyBytes

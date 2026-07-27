@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 // ResultDTO is the secret-safe JSON reload outcome (req 12.8, 12.10).
 // It never carries YAML, credentials, DSNs, or configuration values.
+// Domain validation/state lives in pkg/lipsdk/configreload; this is transport only.
 type ResultDTO struct {
 	Category           string   `json:"category"`
 	AttemptID          int64    `json:"attempt_id"`
@@ -21,6 +22,7 @@ type ResultDTO struct {
 }
 
 // StatusDTO is the secret-safe JSON status snapshot (req 12.10, 13.1-13.2, 14.1, 14.8).
+// FixedSourcePath is HTTP-transport-only and is not part of the canonical Status.
 type StatusDTO struct {
 	ActiveGeneration    int64     `json:"active_generation"`
 	LastResult          ResultDTO `json:"last_result"`
@@ -38,22 +40,22 @@ type StatusDTO struct {
 }
 
 // HTTPStatusFor maps a terminal result category to the management HTTP status (req 12.8).
-func HTTPStatusFor(category configreload.ResultCategory) int {
+func HTTPStatusFor(category sdkreload.ResultCategory) int {
 	switch category {
-	case configreload.ResultPublished, configreload.ResultNoop:
+	case sdkreload.ResultPublished, sdkreload.ResultNoop:
 		return http.StatusOK
-	case configreload.ResultBusy, configreload.ResultRestartRequired, configreload.ResultRetentionBlocked:
+	case sdkreload.ResultBusy, sdkreload.ResultRestartRequired, sdkreload.ResultRetentionBlocked:
 		return http.StatusConflict
-	case configreload.ResultInvalid, configreload.ResultSourceIntegrity:
+	case sdkreload.ResultInvalid, sdkreload.ResultSourceIntegrity:
 		return http.StatusUnprocessableEntity
-	case configreload.ResultCanceled, configreload.ResultPreparationFailed, configreload.ResultInternalFailed:
+	case sdkreload.ResultCanceled, sdkreload.ResultPreparationFailed, sdkreload.ResultInternalFailed:
 		return http.StatusServiceUnavailable
 	default:
 		return http.StatusInternalServerError
 	}
 }
 
-func resultDTO(res configreload.ReloadResult) ResultDTO {
+func resultDTO(res sdkreload.Result) ResultDTO {
 	return ResultDTO{
 		Category:           string(res.Category),
 		AttemptID:          res.AttemptID,
@@ -66,7 +68,7 @@ func resultDTO(res configreload.ReloadResult) ResultDTO {
 	}
 }
 
-func statusDTO(st configreload.ReloadStatus) StatusDTO {
+func statusDTO(st sdkreload.Status, fixedSourcePath string) StatusDTO {
 	return StatusDTO{
 		ActiveGeneration:    st.ActiveGeneration,
 		LastResult:          resultDTO(st.LastResult),
@@ -78,15 +80,10 @@ func statusDTO(st configreload.ReloadStatus) StatusDTO {
 		ControlDegraded:     st.ControlDegraded,
 		ModelGeneration:     st.ModelGeneration,
 		Busy:                st.Busy,
-		FixedSourcePath:     st.FixedSourcePath,
+		FixedSourcePath:     fixedSourcePath,
 		PendingSignal:       st.PendingSignal,
 		CoalescedSignals:    st.CoalescedSignals,
 	}
-}
-
-// StatusFrom projects a coordinator status snapshot into the management DTO.
-func StatusFrom(st configreload.ReloadStatus) StatusDTO {
-	return statusDTO(st)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

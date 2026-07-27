@@ -27,6 +27,7 @@ Around the core and plugins sit explicit **standard distribution** packages (`in
 - frontend/backend/hook interfaces
 - feature SDK facades for auth, session, workspace, request shaping, route hints, tools, completion gates, auxiliary calls, state, traffic, usage, model inventory, and continuity
 - `secretguard/` — opaque ingress secret-guard contracts (`Guard`, `Matcher`, `MatcherResolver`, `DecisionEvent`)
+- `configreload/` (`pkg/lipsdk/configreload`) — dependency-neutral secret-safe reload contract (`Trigger`, `Result`, `Status`, `HistoryEntry`, closed categories; no paths/credentials/YAML). This is the **one reload contract**; process Host construction via `runtimebundle.BuildHost` and `Host.Close` live under `internal/infra/runtimebundle` / `runtimehost`.
 - plugin metadata, factory inputs, and standard distribution requirements
 - no core implementation details
 
@@ -67,10 +68,12 @@ Core rules:
 - feature merge surface: `MergeFeatureSurface` merges SDK hook slices and extension contributions from configured features (no `internal/core/hooks` import)
 
 `internal/infra/runtimebundle/`
-- composes a runnable `Built` from config + registrations: executor, continuity and secure-session stores, shared upstream HTTP client, health/observer seams, model/catalog support, token accounting, and security policy checks
+- process Host construction via `runtimebundle.BuildHost`: one process runtime, immutable `GenerationRuntime` generations, reload coordinator binding, and `Host.Close` as the sole process shutdown coordinator
+- composes generation-owned request-plane services from config + registrations: executor, continuity and secure-session views, shared upstream HTTP client, health/observer seams, model/catalog support, token accounting, and security policy checks
+- owns `BuildFeatureHooks` / `hooks.New`
 
 `internal/stdhttp/`
-- standard HTTP surface: route mounting, transport auth/principal attachment, security guard, recovery, diagnostics, model-catalog status, access logs, `Run` / `RunWithRuntime` entrypoints consumed by `cmd/lipstd`
+- standard HTTP surface: route mounting, transport auth/principal attachment, security guard, recovery, diagnostics, model-catalog status, access logs, and generation-dispatcher serve entrypoints consumed by `cmd/lipstd` (Host-owned lifecycle; no separate `Built` / deleted attachment serve path)
 
 ### 3. Official frontend plugins
 
@@ -80,18 +83,23 @@ Core rules:
 
 Wire frontend packages decode incoming HTTP/SSE requests into canonical requests and encode canonical events back into protocol-specific responses. Helper packages should stay frontend-owned and not leak provider SDK types into core.
 
-### 4. Official backend plugins
+### 4. Official backend plugins (hybrid — ADR 0008)
 
-`internal/plugins/backends/`
-- standard hosted/provider adapters: `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`, `bedrock/`, `acp/`, `openrouter/`, `nvidia/`, `huggingface/`, `openaicodex/`, `opencodego/`, `opencodezen/`
-- local/OpenAI-compatible adapters: `ollama/`, `llamacpp/`, `lmstudio/`, `vllm/`, `localstub/`, `openaicompat/`
-- shared backend helpers/protocols: `checkcfg/`, `credpool/`, `modeldiscover/`, `openaicaps/`, `openaicred/`, `openaifamily/`, `openaiusage/`, `opencodecommon/`, `protocols/`, `streampeek/`
+Composition is **hybrid**: essential builtins are statically linked; optional backends are executable gRPC connector plugins. See [`docs/adr/0008-hybrid-backend-connector-plugins.md`](../../docs/adr/0008-hybrid-backend-connector-plugins.md).
 
-These packages turn canonical requests into upstream calls and map upstream responses into canonical events.
-Provider SDKs and provider wire models stay here or in backend-private protocol helper packages.
+`internal/plugins/backends/` (root module — essential + shared helpers)
+- essential hosted adapters: `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`, `bedrock/`
+- essential custom-compatible helpers used by built-in kinds: `openaicompat/` and related OpenAI-family helpers
+- shared helpers still used by root/tests where present: `checkcfg/`, `credpool/`, `modeldiscover/`, `openaicaps/`, `openaicred/`, `openaifamily/`, `openaiusage/`, `protocols/`, `streampeek/`, `httpidentity/`, leftover `acp/` / `localstub/` helpers only when still imported by root tests — not optional connector homes
 
-`internal/plugins/openrouterwire/`
-- shared OpenRouter extension payload helpers used by OpenRouter-compatible paths
+Essential registration lives in `internal/standardplugins` (`EssentialBackendBundle` / `EssentialBackendKinds`). Do **not** add optional connectors to those fixed tables.
+
+`connectors/` (independent modules — optional executable plugins)
+- discovered via closed manifests + digest-bound exact executables; examples: `openrouter`, `nvidia`, `huggingface`, `ollama`, `llamacpp`, `lmstudio`, `vllm`, `localstub`, `opencode`, `codex`, ACP-family connectors
+- process ABI: `pkg/lipsdk/backendplugin` over approved local IPC; lazy activation; declared process models
+
+`connector-support/`
+- shared support modules for connectors (for example ACP / OpenAI-compat helpers) with no root-core provider ownership
 
 `internal/plugins/openaiutil/`
 - currently empty/reserved; do not build new code here unless a real shared OpenAI adapter need appears
@@ -160,9 +168,10 @@ Hooks and extension stages are seams, not an excuse to reintroduce god objects.
 ## Where to change code (by intent)
 
 - Frontend/API behavior: `internal/plugins/frontends/`
-- Backend provider behavior: `internal/plugins/backends/`
+- Essential backend provider behavior: `internal/plugins/backends/` (essential families only)
+- Optional backend connectors: `connectors/<name>/` (+ `connector-support/` when shared); install via manifests — not fixed essential tables
 - Bundled store / persistence plugin seams: `internal/plugins/stores/`; current core continuity stores: `internal/core/continuity/`
-- Standard distribution registration tables: `internal/standardplugins/`
+- Standard distribution registration tables: `internal/standardplugins/` (essential backends + frontends/features)
 - Lipstd HTTP wiring: `internal/stdhttp/`
 - Wiring executor + continuity + shared clients from config: `internal/infra/runtimebundle/`
 - Canonical model changes: `pkg/lipapi/`

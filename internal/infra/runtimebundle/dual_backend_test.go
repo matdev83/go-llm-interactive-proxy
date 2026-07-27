@@ -5,11 +5,9 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"gopkg.in/yaml.v3"
 )
 
@@ -36,19 +34,16 @@ func TestBuild_twoInstancesSameFactoryKind(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
+	if len(b.Executor().Backends) != 2 {
+		t.Fatalf("backends: got %d want 2", len(b.Executor().Backends))
 	}
-	if len(b.Executor.Backends) != 2 {
-		t.Fatalf("backends: got %d want 2", len(b.Executor.Backends))
-	}
-	if _, ok := b.Executor.Backends["openai-primary"]; !ok {
+	if _, ok := b.Executor().Backends["openai-primary"]; !ok {
 		t.Fatal("missing instance openai-primary")
 	}
-	if _, ok := b.Executor.Backends["openai-fallback"]; !ok {
+	if _, ok := b.Executor().Backends["openai-fallback"]; !ok {
 		t.Fatal("missing instance openai-fallback")
 	}
 }
@@ -74,7 +69,7 @@ func TestBuild_customBackendsRejectDuplicatePrefixBeforeModelRegistry(t *testing
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{PluginRegistry: reg})
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: reg})
 	if err == nil {
 		t.Fatal("expected duplicate custom backend prefix error")
 	}
@@ -90,20 +85,20 @@ func TestBuild_customBackendsRejectReservedStandardPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	var node yaml.Node
-	if err := yaml.Unmarshal([]byte("backend_prefix: nvidia\nbase_url: http://127.0.0.1:9/v1\n"), &node); err != nil {
+	if err := yaml.Unmarshal([]byte("backend_prefix: openai-legacy\nbase_url: http://127.0.0.1:9/v1\n"), &node); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
 		Routing: config.RoutingConfig{MaxAttempts: 3},
 		Plugins: config.PluginsConfig{Backends: []config.PluginConfig{
-			{Kind: standardplugins.CustomOpenAILegacyCompatibleID, ID: "nvidia-copy", Enabled: true, Config: node},
+			{Kind: standardplugins.CustomOpenAILegacyCompatibleID, ID: "openai-legacy-copy", Enabled: true, Config: node},
 		}},
 		Continuity: config.ContinuityConfig{InMemory: true},
 	}
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{PluginRegistry: reg})
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: reg})
 	if err == nil {
 		t.Fatal("expected reserved custom backend prefix error")
 	}

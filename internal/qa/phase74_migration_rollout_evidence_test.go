@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 )
 
 func TestPhase74_MigrationRolloutDocPresent(t *testing.T) {
@@ -36,7 +38,7 @@ func TestPhase74_MigrationRolloutDocPresent(t *testing.T) {
 func TestPhase74_CheckConfigDogfoodStub(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	cfg := filepath.Join(root, "config", "examples", "dogfood-local-stub.yaml")
+	cfg := bpkit.WriteDogfoodLocalStubConfig(t)
 	cmd := exec.Command("go", "run", "./cmd/lipstd", "check-config", "--config", cfg)
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()

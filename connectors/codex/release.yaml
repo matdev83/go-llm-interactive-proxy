@@ -1,0 +1,16 @@
+# Connector release metadata — packaging indexes are generated from this file.
+# Closed artifact exports both openai-codex and openai-codex-app-server (see manifest template).
+schema: golip.connector.release/v1
+plugin_id: io.golip.backend.codex
+factory_kind: openai-codex
+module: github.com/matdev83/go-llm-interactive-proxy/connectors/codex
+command: ./cmd/lip-backend-codex
+manifest_template: manifest/template.backendplugin.json
+version: 0.1.0
+build_id: localdev
+tag: codex-v0.1.0
+profiles:
+  - full
+published_root_module: github.com/matdev83/go-llm-interactive-proxy
+replace_policy: development-replace-to-monorepo-root
+private_companions: []

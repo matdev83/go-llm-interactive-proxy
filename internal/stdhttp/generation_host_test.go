@@ -5,19 +5,19 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestInitialGeneration_RunWithGenerationHostShutdown(t *testing.T) {
 	t.Parallel()
-	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	cfgPath := bpkit.WriteDogfoodLocalStubConfig(t)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -25,31 +25,25 @@ func TestInitialGeneration_RunWithGenerationHostShutdown(t *testing.T) {
 	addr := ln.Addr().String()
 	_ = ln.Close()
 
-	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
+	host, err := runtimebundle.BuildHost(context.Background(), runtimebundle.BuildHostInput{
 		ConfigPath:      cfgPath,
-		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
-		HandlerComposer: stdhttp.ComposeRequestPlane,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
-		t.Fatalf("bootstrap: %v", err)
+		t.Fatalf("BuildHost: %v", err)
 	}
-	t.Cleanup(func() {
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(context.Background())
-		}
-	})
-	res.Config.Server.Address = addr
+	t.Cleanup(func() { _ = host.Close(context.Background()) })
+	host.Config().Server.Address = addr
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- stdhttp.RunWithGenerationHost(ctx, stdhttp.GenerationHostInput{
-			Config:          res.Config,
-			Log:             res.Logger,
-			Manager:         res.GenerationManager,
-			Process:         res.ProcessServices,
+			Config:          host.Config(),
+			Log:             host.Logger(),
+			Host:            host,
 			ShutdownTimeout: 5 * time.Second,
 		})
 	}()
@@ -87,10 +81,10 @@ func TestInitialGeneration_RunWithGenerationHostShutdown(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("shutdown timed out")
 	}
-	if !res.ProcessServices.Closed() {
+	if !host.ProcessClosed() {
 		t.Fatal("process services must close on host shutdown")
 	}
-	if _, ok := res.GenerationManager.Acquire(); ok {
+	if host.CanAcquireActive() {
 		t.Fatal("manager must reject acquire after shutdown")
 	}
 }

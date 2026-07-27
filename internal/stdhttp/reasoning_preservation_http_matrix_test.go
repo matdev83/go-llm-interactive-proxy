@@ -19,7 +19,7 @@ import (
 
 // TestReasoningPreservationHTTP_RandomMatrix exercises the exact 64×20 precomputed
 // OpenAI Chat matrix (16 random_backend_drop_all + 16 always_reason_random_client +
-// 32 combined) through BuildBootstrap/stdhttp/real adapters/refbackend.
+// 32 combined) through BuildHost/stdhttp/real adapters/refbackend.
 //
 // Seeds run sequentially (no t.Parallel across full stacks). Each seed owns one
 // isolated proxy+emulator stack and 20 HTTP turns. Assumed budget: under the

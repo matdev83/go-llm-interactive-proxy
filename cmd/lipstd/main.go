@@ -24,6 +24,7 @@ func main() {
 		StreamRecovery: parsed.StreamRecovery,
 		MultiUser:      parsed.MultiUser,
 		Components:     parsed.Components,
+		InstanceID:     parsed.InstanceID,
 		Output:         os.Stdout,
 		ErrorOut:       os.Stderr,
 	})

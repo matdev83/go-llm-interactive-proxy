@@ -7,11 +7,8 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/concurrencyauthority/leasestore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	"github.com/uptrace/bun"
 	_ "modernc.org/sqlite"
@@ -70,7 +67,7 @@ func TestBuildFailedBuildClosesPostgresPoolRegistry(t *testing.T) {
 		return bunDB, nil
 	}
 
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
+	_, _, err := processAndCandidateErr(t, cfg, opts)
 	if err == nil {
 		t.Fatal("expected Build to fail when metering schema is missing")
 	}

@@ -14,7 +14,6 @@ import (
 	coreconfig "github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
@@ -29,9 +28,8 @@ func TestStackHTTPHandler_recoveredPanicThenOK_metricsObserves5xx(t *testing.T) 
 		Logging:       coreconfig.LoggingConfig{AccessLog: false},
 		Observability: coreconfig.ObservabilityConfig{Tracing: coreconfig.TracingConfig{Enabled: false}},
 	}
-	built := &runtimebundle.Built{}
 	h := stackHTTPHandler(stackHTTPInput{
-		Cfg: cfg, Log: testkit.DiscardLogger(), Built: built, TraceGen: diag.NewTraceIDGenerator(), Inner: mux, HTTPProm: hm,
+		Cfg: cfg, Log: testkit.DiscardLogger(), Security: HTTPSecurityInput{}, TraceGen: diag.NewTraceIDGenerator(), Inner: mux, HTTPProm: hm,
 	})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
@@ -81,9 +79,8 @@ func TestStackHTTPHandler_recoveredPanic_accessLogRecords5xx(t *testing.T) {
 		Logging:       coreconfig.LoggingConfig{AccessLog: true},
 		Observability: coreconfig.ObservabilityConfig{Tracing: coreconfig.TracingConfig{Enabled: false}},
 	}
-	built := &runtimebundle.Built{}
 	h := stackHTTPHandler(stackHTTPInput{
-		Cfg: cfg, Log: log, Built: built, TraceGen: diag.NewTraceIDGenerator(), Inner: mux, HTTPProm: nil,
+		Cfg: cfg, Log: log, Security: HTTPSecurityInput{}, TraceGen: diag.NewTraceIDGenerator(), Inner: mux, HTTPProm: nil,
 	})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
@@ -138,9 +135,8 @@ func TestStackHTTPHandler_recoveredPanic_combinedMetricsAccessAndSafeBody(t *tes
 		Logging:       coreconfig.LoggingConfig{AccessLog: true},
 		Observability: coreconfig.ObservabilityConfig{Tracing: coreconfig.TracingConfig{Enabled: false}},
 	}
-	built := &runtimebundle.Built{}
 	h := stackHTTPHandler(stackHTTPInput{
-		Cfg: cfg, Log: log, Built: built, TraceGen: diag.NewTraceIDGenerator(), Inner: mux, HTTPProm: hm,
+		Cfg: cfg, Log: log, Security: HTTPSecurityInput{}, TraceGen: diag.NewTraceIDGenerator(), Inner: mux, HTTPProm: hm,
 	})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
@@ -242,9 +238,8 @@ func TestStackHTTPHandler_validation400_notLoggedAsIsolatedPanic(t *testing.T) {
 		Logging:       coreconfig.LoggingConfig{AccessLog: true},
 		Observability: coreconfig.ObservabilityConfig{Tracing: coreconfig.TracingConfig{Enabled: false}},
 	}
-	built := &runtimebundle.Built{}
 	h := stackHTTPHandler(stackHTTPInput{
-		Cfg: cfg, Log: log, Built: built, TraceGen: diag.NewTraceIDGenerator(), Inner: mux, HTTPProm: hm,
+		Cfg: cfg, Log: log, Security: HTTPSecurityInput{}, TraceGen: diag.NewTraceIDGenerator(), Inner: mux, HTTPProm: hm,
 	})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)

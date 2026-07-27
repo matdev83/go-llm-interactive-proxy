@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 // Handler serves fixed reload/status paths against a ReloadCoordinator.
@@ -59,7 +59,7 @@ func (h *Handler) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if !h.authorize(w, r) || !h.browserGuard(w, r, true) {
 		return
 	}
-	writeJSON(w, http.StatusOK, statusDTO(h.coord.Status()))
+	writeJSON(w, http.StatusOK, statusDTO(h.coord.Status(), h.coord.FixedSourcePath()))
 }
 
 func (h *Handler) handleReload(w http.ResponseWriter, r *http.Request) {
@@ -78,7 +78,7 @@ func (h *Handler) handleReload(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.validateBody(r); err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity, ResultDTO{
-			Category:       string(configreload.ResultInvalid),
+			Category:       string(sdkreload.ResultInvalid),
 			ReasonCategory: err.Error(),
 		})
 		return
@@ -89,8 +89,8 @@ func (h *Handler) handleReload(w http.ResponseWriter, r *http.Request) {
 	if hostCtx == nil {
 		hostCtx = context.Background()
 	}
-	res := h.coord.Reload(hostCtx, configreload.ReloadTrigger{
-		Kind:       configreload.TriggerAPI,
+	res := h.coord.Reload(hostCtx, sdkreload.Trigger{
+		Kind:       sdkreload.TriggerAPI,
 		AcceptedAt: time.Now().UTC(),
 		SafeActor:  "management-api",
 	})

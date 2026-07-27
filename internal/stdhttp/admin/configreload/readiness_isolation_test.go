@@ -1,6 +1,8 @@
 package configreload_test
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,7 +11,19 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
+
+type statusStub struct {
+	st   sdkreload.Status
+	path string
+}
+
+func (s statusStub) Reload(context.Context, sdkreload.Trigger) sdkreload.Result {
+	return s.st.LastResult
+}
+func (s statusStub) Status() sdkreload.Status { return s.st }
+func (s statusStub) FixedSourcePath() string  { return s.path }
 
 // TestReadiness_IndependentOfReloadControlFailure proves req 13.1-13.2 / 14.8:
 // a failed reload status remains visible on the management surface while the
@@ -27,36 +41,50 @@ func TestReadiness_IndependentOfReloadControlFailure(t *testing.T) {
 		t.Fatalf("health body=%s", rrHealth.Body.String())
 	}
 
-	st := configreload.ReloadStatus{
+	st := sdkreload.Status{
 		ActiveGeneration: 11,
 		Busy:             false,
-		LastResult: configreload.ReloadResult{
-			Category:         configreload.ResultInvalid,
+		LastResult: sdkreload.Result{
+			Category:         sdkreload.ResultInvalid,
 			AttemptID:        9,
 			ActiveGeneration: 11,
 			ReasonCategory:   configreload.StageLoad,
 		},
-		LastFailure: configreload.ReloadResult{
-			Category:         configreload.ResultInvalid,
+		LastFailure: sdkreload.Result{
+			Category:         sdkreload.ResultInvalid,
 			AttemptID:        9,
 			ActiveGeneration: 11,
 			ReasonCategory:   configreload.StageLoad,
 		},
-		LastSuccess: configreload.ReloadResult{
-			Category:         configreload.ResultPublished,
+		LastSuccess: sdkreload.Result{
+			Category:         sdkreload.ResultPublished,
 			AttemptID:        8,
 			ActiveGeneration: 11,
 		},
 		SourceIntegrity:     "ok",
 		RetainedGenerations: 1,
 		ControlDegraded:     true,
-		FixedSourcePath:     "/fixed/config.yaml",
 	}
-	dto := mgmtreload.StatusFrom(st)
+	h, err := mgmtreload.NewHandler(mgmtreload.Options{}, statusStub{st: st, path: "/fixed/config.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, mgmtreload.StatusPath, nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status code=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var dto mgmtreload.StatusDTO
+	if err := json.NewDecoder(rr.Body).Decode(&dto); err != nil {
+		t.Fatal(err)
+	}
+	if dto.FixedSourcePath != "/fixed/config.yaml" {
+		t.Fatalf("fixed_source_path=%q", dto.FixedSourcePath)
+	}
 	if dto.ActiveGeneration != 11 {
 		t.Fatalf("active=%d", dto.ActiveGeneration)
 	}
-	if dto.LastResult.Category != string(configreload.ResultInvalid) {
+	if dto.LastResult.Category != string(sdkreload.ResultInvalid) {
 		t.Fatalf("last_result=%q", dto.LastResult.Category)
 	}
 	if !dto.ControlDegraded {

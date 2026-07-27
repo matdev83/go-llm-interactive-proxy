@@ -23,7 +23,7 @@ Stage four ([ADR 0006](0006-stage-four-extension-seam-map-and-migration.md)) kep
 ## Consequences
 
 - Operator guide: [runtime-config-reload.md](../runtime-config-reload.md).
-- Package map: `internal/core/configreload`, `internal/infra/configsource`, `internal/infra/runtimehost`, `internal/stdhttp/admin/configreload`, `runtimebundle.AttachReloadHost`, `cmd/lipstd` signal/management adapters, `pkg/lipruntime` Reload/Status facade.
+- Package map: `internal/core/configreload`, `internal/infra/configsource`, `internal/infra/runtimehost`, `internal/stdhttp/admin/configreload`, `runtimebundle.BuildHost` (binds the reload coordinator internally; superseded the two-step `AttachReloadHost` attachment at Task 5.5), `cmd/lipstd` signal/management adapters, `pkg/lipruntime` Reload/Status facade.
 - ADR 0006 non-goals remain historically correct for stage four; this ADR owns the reload feature boundary.
 
 ## Related

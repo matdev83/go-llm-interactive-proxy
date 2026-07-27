@@ -17,6 +17,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+// errSkipMalformedHistory marks replayed garbage (empty-name function_call /
+// empty call_id outputs) that should be dropped instead of failing decode.
+var errSkipMalformedHistory = errors.New("skip malformed history fragment")
+
 // Extension keys used by this frontend for round-trip metadata.
 const (
 	extModelJSONKey = "openairesponses.model"
@@ -254,6 +258,9 @@ func parseInput(raw json.RawMessage) ([]lipapi.Message, error) {
 		for i, it := range items {
 			m, err := parseInputItem(it)
 			if err != nil {
+				if errors.Is(err, errSkipMalformedHistory) {
+					continue
+				}
 				return nil, fmt.Errorf("openairesponses: input[%d]: %w", i, err)
 			}
 			out = append(out, m)
@@ -370,7 +377,7 @@ func parseFunctionCallInputItem(raw json.RawMessage) (lipapi.Message, error) {
 	}
 	name := strings.TrimSpace(v.Name)
 	if name == "" {
-		return lipapi.Message{}, errors.New("openairesponses: function_call requires name")
+		return lipapi.Message{}, errSkipMalformedHistory
 	}
 	argStr := "{}"
 	if jsonpresence.IsPresentNonNullJSON(v.Arguments) {
@@ -422,7 +429,7 @@ func parseFunctionCallOutputItem(raw json.RawMessage) (lipapi.Message, error) {
 		return lipapi.Message{}, fmt.Errorf("openairesponses: function_call_output json: %w", err)
 	}
 	if strings.TrimSpace(v.CallID) == "" {
-		return lipapi.Message{}, errors.New("openairesponses: function_call_output requires call_id")
+		return lipapi.Message{}, errSkipMalformedHistory
 	}
 	out := v.Output
 	if jsonpresence.IsAbsentOrJSONNull(out) {

@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"gopkg.in/yaml.v3"
@@ -89,59 +88,4 @@ func BackendStateIdentitiesFromConfig(cfg *config.Config) (map[string]BackendSta
 		out[id] = key
 	}
 	return out, nil
-}
-
-// StoreCompatKey identifies a process-owned store/state namespace (req 6.6–6.7).
-type StoreCompatKey struct {
-	Kind   string
-	Digest string
-}
-
-// StoreCompatKeyFromContinuity derives continuity store topology identity.
-func StoreCompatKeyFromContinuity(c config.ContinuityConfig) StoreCompatKey {
-	parts := []string{
-		"continuity",
-		fmt.Sprintf("in_memory=%v", c.InMemory),
-		"store=" + strings.TrimSpace(c.Store),
-		"sqlite=" + strings.TrimSpace(c.SQLitePath),
-		"postgres_dsn_set=" + fmt.Sprint(strings.TrimSpace(c.PostgresDSN) != ""),
-	}
-	sum := sha256.Sum256([]byte(strings.Join(parts, "|")))
-	return StoreCompatKey{Kind: "continuity", Digest: hex.EncodeToString(sum[:16])}
-}
-
-// StoreCompatKeyFromSecureSession derives secure-session store topology identity.
-func StoreCompatKeyFromSecureSession(s config.SecureSessionConfig) StoreCompatKey {
-	parts := []string{
-		"secure_session",
-		"store=" + strings.TrimSpace(s.Store),
-		"sqlite=" + strings.TrimSpace(s.SQLitePath),
-		"postgres_dsn_set=" + fmt.Sprint(strings.TrimSpace(s.PostgresDSN) != ""),
-	}
-	sum := sha256.Sum256([]byte(strings.Join(parts, "|")))
-	return StoreCompatKey{Kind: "secure_session", Digest: hex.EncodeToString(sum[:16])}
-}
-
-// StoreCompatKeyFromAccountingLedger derives accounting ledger topology identity.
-func StoreCompatKeyFromAccountingLedger(a config.AccountingConfig) StoreCompatKey {
-	parts := []string{
-		"accounting_ledger",
-		fmt.Sprintf("enabled=%v", a.Enabled),
-		"store=" + strings.TrimSpace(a.Ledger.Store),
-		"sqlite=" + strings.TrimSpace(a.Ledger.SQLitePath),
-	}
-	sum := sha256.Sum256([]byte(strings.Join(parts, "|")))
-	return StoreCompatKey{Kind: "accounting_ledger", Digest: hex.EncodeToString(sum[:16])}
-}
-
-// StoreCompatKeyFromMeteringJournal derives metering journal topology identity.
-func StoreCompatKeyFromMeteringJournal(m config.MeteringConfig) StoreCompatKey {
-	parts := []string{
-		"metering_journal",
-		fmt.Sprintf("enabled=%v", m.Enabled),
-		"store=" + strings.TrimSpace(m.Journal.Store),
-		"sqlite=" + strings.TrimSpace(m.Journal.SQLitePath),
-	}
-	sum := sha256.Sum256([]byte(strings.Join(parts, "|")))
-	return StoreCompatKey{Kind: "metering_journal", Digest: hex.EncodeToString(sum[:16])}
 }

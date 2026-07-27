@@ -9,11 +9,8 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	refbackend "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"gopkg.in/yaml.v3"
 )
 
@@ -60,17 +57,11 @@ models:
 		t.Fatalf("validate: %v", err)
 	}
 
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
-		PluginRegistry: reg,
-	})
-	if err != nil {
-		t.Fatalf("runtimebundle.Build: %v", err)
+	_, cand := compileTestCandidate(t, cfg, reg)
+	if len(cand.Executor().Backends) != 1 {
+		t.Fatalf("backends: got %d want 1", len(cand.Executor().Backends))
 	}
-	t.Cleanup(func() { runClosers(testkit.DiscardLogger(), built.Closers) })
-	if len(built.Executor.Backends) != 1 {
-		t.Fatalf("backends: got %d want 1", len(built.Executor.Backends))
-	}
-	if _, ok := built.Executor.Backends["oai-upstream-int"]; !ok {
+	if _, ok := cand.Executor().Backends["oai-upstream-int"]; !ok {
 		t.Fatal("expected backend instance oai-upstream-int")
 	}
 
@@ -81,13 +72,15 @@ models:
 
 	mux := http.NewServeMux()
 	if err := MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:                  mux,
-		Exec:                 built.Executor,
-		DefaultRouteSelector: route,
-		Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
-		RoutePrefixes:        built.RoutePrefixes,
-		MaxRequestBodyBytes:  0,
-		Reg:                  reg,
+		Mux: mux,
+		Frontends: HTTPFrontendInput{
+			Executor:             cand.Executor(),
+			DefaultRouteSelector: route,
+			Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
+			RoutePrefixes:        cand.RoutePrefixes(),
+			MaxRequestBodyBytes:  0,
+			Registry:             reg,
+		},
 	}); err != nil {
 		t.Fatalf("MountBundledFrontends: %v", err)
 	}

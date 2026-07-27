@@ -1,0 +1,15 @@
+# Production-shaped discovery (paths are OS defaults; adjust to your install root).
+plugins:
+  backend_discovery:
+    enabled: true
+    development_mode: false
+    strict: true
+    paths:
+      - /opt/go-lip/plugins
+      # macOS: /Library/Application Support/Go-LIP/plugins
+      # Windows: C:/Program Files/Go-LIP/plugins
+  backends:
+    - kind: local-stub
+      id: prod-stub
+      enabled: false
+      config: {}

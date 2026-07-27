@@ -5,12 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/terminalwork/workstore"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
@@ -37,16 +35,8 @@ func TestPhase45_ProcessDueUpdatesPromGaugesAndTransitionCounters(t *testing.T) 
 		TerminalWorkTickInterval: time.Hour,
 		TerminalWorkClaimLimit:   10,
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
-	if err := built.Executor.TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
+	_, built := mustProcessAndCandidate(t, cfg, opts)
+	if err := built.Executor().TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
 		RequestID:  "req-prom-proc",
 		AttemptID:  "a-1",
 		ProviderID: "quota",
@@ -56,7 +46,7 @@ func TestPhase45_ProcessDueUpdatesPromGaugesAndTransitionCounters(t *testing.T) 
 		t.Fatal(err)
 	}
 	before := gatherTerminalWork(t, built)
-	if err := built.TerminalWorkProcessor.ProcessDue(context.Background()); err != nil {
+	if err := runtimebundle.CandidateTerminalWorkProcessor(built).ProcessDue(context.Background()); err != nil {
 		t.Fatalf("ProcessDue: %v", err)
 	}
 	after := gatherTerminalWork(t, built)
@@ -88,9 +78,9 @@ type twGather struct {
 	transitionsTotal float64
 }
 
-func gatherTerminalWork(t *testing.T, built *runtimebundle.Built) twGather {
+func gatherTerminalWork(t *testing.T, built *runtimebundle.CandidateHTTPCompile) twGather {
 	t.Helper()
-	families, err := built.Metrics.Registry.Gather()
+	families, err := built.Metrics().Registry.Gather()
 	if err != nil {
 		t.Fatal(err)
 	}
