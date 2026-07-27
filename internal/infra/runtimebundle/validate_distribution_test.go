@@ -32,9 +32,9 @@ func validDistributionInput(cfgPath string) ValidateDistributionInput {
 	}
 }
 
-func dogfoodConfigPath(t testing.TB) string {
-	t.Helper()
-	return bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"))
+func dogfoodConfigPath(tb testing.TB) string {
+	tb.Helper()
+	return bpkit.MaterializeExampleConfig(tb, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"))
 }
 
 func failingHandlerComposer(context.Context, *config.Config, *slog.Logger, httpcontract.StandardHTTPInput) (http.Handler, error) {
