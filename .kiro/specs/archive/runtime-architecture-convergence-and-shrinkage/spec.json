@@ -1,9 +1,9 @@
 {
   "feature_name": "runtime-architecture-convergence-and-shrinkage",
   "created_at": "2026-07-23T14:29:26+02:00",
-  "updated_at": "2026-07-25T21:15:00Z",
+  "updated_at": "2026-07-28T01:10:00+02:00",
   "language": "en",
-  "phase": "implementation-certification",
+  "phase": "implementation-complete",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -19,6 +19,9 @@
     }
   },
   "ready_for_implementation": true,
+  "implementation_complete": true,
+  "archived_at": "2026-07-28T01:10:00+02:00",
+  "completion_note": "Delivered and merged via PR #205 (refactor(runtime): converge ownership architecture and shrink legacy surfaces). The six unchecked tasks.md entries are phase-header items whose subtasks shipped in the merged tree; status synced here.",
   "compatibility_amendment": {
     "decision": "alpha-stage-breaking-removal-of-legacy-Options-fields",
     "approved_at": "2026-07-25",
