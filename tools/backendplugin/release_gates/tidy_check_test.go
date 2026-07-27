@@ -99,6 +99,44 @@ func TestTidyDiffOnlyLineEndings(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "crlf rewrite with unified-diff context lines",
+			diff: "" +
+				"diff current/go.sum tidy/go.sum\n" +
+				"--- current/go.sum\n" +
+				"+++ tidy/go.sum\n" +
+				"@@ -1,4 +1,4 @@\n" +
+				" example.com/keep v1.0.0 h1:keep=\n" +
+				"-example.com/dep v1.0.0 h1:abc=\r\n" +
+				"-example.com/dep v1.0.0/go.mod h1:def=\r\n" +
+				"+example.com/dep v1.0.0 h1:abc=\n" +
+				"+example.com/dep v1.0.0/go.mod h1:def=\n" +
+				" example.com/tail v1.0.0 h1:tail=\n",
+			want: true,
+		},
+		{
+			name: "mixed unchanged and crlf-rewritten hunks across files",
+			diff: "" +
+				"diff current/go.mod tidy/go.mod\n" +
+				"--- current/go.mod\n" +
+				"+++ tidy/go.mod\n" +
+				"@@ -1,5 +1,5 @@\n" +
+				" module example.com/m\n" +
+				" \n" +
+				"-go 1.22\r\n" +
+				"+go 1.22\n" +
+				" \n" +
+				" require example.com/dep v1.0.0\n" +
+				"diff current/go.sum tidy/go.sum\n" +
+				"--- current/go.sum\n" +
+				"+++ tidy/go.sum\n" +
+				"@@ -2,3 +2,3 @@\n" +
+				" example.com/other v1.0.0 h1:zzz=\n" +
+				"-example.com/dep v1.0.0 h1:abc=\r\n" +
+				"+example.com/dep v1.0.0 h1:abc=\n" +
+				" example.com/other v1.0.0/go.mod h1:yyy=\n",
+			want: true,
+		},
+		{
 			name: "checksum token change",
 			diff: "" +
 				"diff current/go.sum tidy/go.sum\n" +
@@ -107,6 +145,68 @@ func TestTidyDiffOnlyLineEndings(t *testing.T) {
 				"@@ -1 +1 @@\n" +
 				"-example.com/dep v1.0.0 h1:AAAA\n" +
 				"+example.com/dep v1.0.0 h1:BBBB\n",
+			want: false,
+		},
+		{
+			name: "checksum change surrounded by context still fails",
+			diff: "" +
+				"diff current/go.sum tidy/go.sum\n" +
+				"--- current/go.sum\n" +
+				"+++ tidy/go.sum\n" +
+				"@@ -1,3 +1,3 @@\n" +
+				" example.com/keep v1.0.0 h1:keep=\n" +
+				"-example.com/dep v1.0.0 h1:AAAA\n" +
+				"+example.com/dep v1.0.0 h1:BBBB\n" +
+				" example.com/tail v1.0.0 h1:tail=\n",
+			want: false,
+		},
+		{
+			name: "dependency addition surrounded by context still fails",
+			diff: "" +
+				"diff current/go.mod tidy/go.mod\n" +
+				"--- current/go.mod\n" +
+				"+++ tidy/go.mod\n" +
+				"@@ -3,3 +3,4 @@\n" +
+				" go 1.22\n" +
+				" \n" +
+				" require example.com/dep v1.0.0\n" +
+				"+require example.com/new v1.2.3\n",
+			want: false,
+		},
+		{
+			name: "dependency deletion surrounded by context still fails",
+			diff: "" +
+				"diff current/go.sum tidy/go.sum\n" +
+				"--- current/go.sum\n" +
+				"+++ tidy/go.sum\n" +
+				"@@ -1,3 +1,2 @@\n" +
+				" example.com/keep v1.0.0 h1:keep=\n" +
+				"-example.com/drop v1.0.0 h1:drop=\n" +
+				" example.com/tail v1.0.0 h1:tail=\n",
+			want: false,
+		},
+		{
+			name: "context line outside recognized diff is rejected",
+			diff: "" +
+				" leading diagnostic\n" +
+				"diff current/go.sum tidy/go.sum\n" +
+				"--- current/go.sum\n" +
+				"+++ tidy/go.sum\n" +
+				"@@ -1 +1 @@\n" +
+				"-example.com/dep v1.0.0 h1:abc=\r\n" +
+				"+example.com/dep v1.0.0 h1:abc=\n",
+			want: false,
+		},
+		{
+			name: "space-prefixed diagnostic after diff before hunk is rejected",
+			diff: "" +
+				"diff current/go.sum tidy/go.sum\n" +
+				" leading diagnostic before hunk\n" +
+				"--- current/go.sum\n" +
+				"+++ tidy/go.sum\n" +
+				"@@ -1 +1 @@\n" +
+				"-example.com/dep v1.0.0 h1:abc=\r\n" +
+				"+example.com/dep v1.0.0 h1:abc=\n",
 			want: false,
 		},
 		{

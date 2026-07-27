@@ -48,6 +48,7 @@ func tidyDiffOnlyLineEndings(diff []byte) bool {
 		return true
 	}
 	sawFile := false
+	inHunk := false
 	for _, line := range bytes.Split(diff, []byte("\n")) {
 		line = bytes.TrimSuffix(line, []byte("\r"))
 		switch {
@@ -56,14 +57,19 @@ func tidyDiffOnlyLineEndings(diff []byte) bool {
 				return false
 			}
 			sawFile = true
+			inHunk = false
 		case bytes.HasPrefix(line, []byte("--- ")),
-			bytes.HasPrefix(line, []byte("+++ ")),
-			bytes.HasPrefix(line, []byte("@@")):
-			// headers / hunk marks
+			bytes.HasPrefix(line, []byte("+++ ")):
+			// file headers
+		case bytes.HasPrefix(line, []byte("@@")):
+			inHunk = true
 		case bytes.HasPrefix(line, []byte("-")):
 			minus = append(minus, canonicalModuleFile(line[1:]))
 		case bytes.HasPrefix(line, []byte("+")):
 			plus = append(plus, canonicalModuleFile(line[1:]))
+		case bytes.HasPrefix(line, []byte(" ")) && inHunk:
+			// Unified-diff context (unchanged logical line). Accept only inside
+			// a recognized @@ hunk; never fold into +/- comparison.
 		case bytes.HasPrefix(line, []byte("\\")):
 			// "\ No newline at end of file" — ignore
 		case len(bytes.TrimSpace(line)) == 0:
