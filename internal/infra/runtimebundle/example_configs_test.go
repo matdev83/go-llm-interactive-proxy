@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -35,8 +36,9 @@ func TestConfigExamples_passInspectRoutes(t *testing.T) {
 	for _, path := range yamls {
 		t.Run(filepath.Base(path), func(t *testing.T) {
 			t.Parallel()
+			cfgPath := bpkit.MaterializeExampleConfig(t, path)
 			_, err := runtimebundle.InspectRoutes(context.Background(), runtimebundle.InspectInput{
-				ConfigPath: path,
+				ConfigPath: cfgPath,
 				Mandatory:  mandatory,
 			})
 			if err != nil {

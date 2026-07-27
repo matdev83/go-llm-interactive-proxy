@@ -3,31 +3,19 @@ package standardplugins
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"reflect"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/codexcatalog"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/agycliacp"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/codexappserver"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/cursorcliacp"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/geminicliacp"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"gopkg.in/yaml.v3"
 )
 
-// acpCLIYAML is the shared YAML config shape for the local-agent fields common
-// to every ACP CLI subprocess connector (cursorcliacp, geminicliacp,
-// agycliacp, codexappserver). Vendor-specific fields live on per-connector
-// extras structs (cursorCLIYAMLExtras, etc.) and are decoded separately by each
-// factory, so a key that belongs to one vendor (e.g. agy_binary) is rejected
-// loudly when it appears on another vendor's block rather than silently
-// dropped. See rejectUnknownYAMLKeys.
+// acpCLIYAML is the shared YAML config shape for local-agent fields used by
+// remaining root ACP helper tests and inventory adapters. Concrete ACP CLI
+// products are external optional connector artifacts.
 type acpCLIYAML struct {
 	Executable       string             `yaml:"executable"`
 	Model            string             `yaml:"model"`
@@ -38,34 +26,6 @@ type acpCLIYAML struct {
 	IdleTimeoutS     float64            `yaml:"idle_timeout_seconds"`
 	StaleKillDelayS  float64            `yaml:"stale_kill_delay_seconds"`
 	Models           modelInventoryYAML `yaml:"models"`
-}
-
-// cursorCLIYAMLExtras carries cursorcliacp-only config fields.
-type cursorCLIYAMLExtras struct {
-	AutoAccept        bool      `yaml:"auto_accept"`
-	TrustWorkspace    bool      `yaml:"trust_workspace"`
-	CursorAPIEndpoint string    `yaml:"cursor_api_endpoint"`
-	MCPServers        yaml.Node `yaml:"mcp_servers"`
-}
-
-// geminiCLIYAMLExtras carries geminicliacp-only config fields.
-type geminiCLIYAMLExtras struct {
-	AutoAccept bool `yaml:"auto_accept"`
-}
-
-// agyCLIYAMLExtras carries agycliacp-only config fields.
-type agyCLIYAMLExtras struct {
-	WrapperExecutable string    `yaml:"wrapper_executable"`
-	AGYBinary         string    `yaml:"agy_binary"`
-	SkipPermissions   *bool     `yaml:"skip_permissions"`
-	TimeoutSeconds    int       `yaml:"timeout_seconds"`
-	MCPServers        yaml.Node `yaml:"mcp_servers"`
-}
-
-// codexAppServerYAMLExtras carries codexappserver-only config fields.
-type codexAppServerYAMLExtras struct {
-	ConfigOverrides  []string `yaml:"config_overrides"`
-	DefaultVerbosity string   `yaml:"default_verbosity"`
 }
 
 // yamlKeysOf returns the yaml key names for the exported fields of v's struct
@@ -219,122 +179,4 @@ func (y acpCLIYAML) connectorConfig() acp.ConnectorConfig {
 		IdleTimeout:      acpIdleTimeout(y.IdleTimeoutS),
 		StaleKillDelay:   acpStaleKillDelay(y.StaleKillDelayS),
 	}
-}
-
-func backendCursorCLIACP(n yaml.Node, _ *http.Client) (execbackend.Backend, error) {
-	var y acpCLIYAML
-	if err := config.DecodeYAMLNode(n, &y); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("cursorcliacp backend config: %w", err)
-	}
-	var xs cursorCLIYAMLExtras
-	if err := config.DecodeYAMLNode(n, &xs); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("cursorcliacp backend config: %w", err)
-	}
-	if err := rejectUnknownYAMLKeys(n, acpCLIKnownKeys(cursorCLIYAMLExtras{})); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("cursorcliacp backend config: %w", err)
-	}
-	mcpJSON, err := yamlNodeToJSON(xs.MCPServers)
-	if err != nil {
-		return execbackend.Backend{}, fmt.Errorf("cursorcliacp: mcp_servers: %w", err)
-	}
-	cfg := cursorcliacp.Config{
-		ConnectorConfig:   y.connectorConfig(),
-		AutoAccept:        xs.AutoAccept,
-		TrustWorkspace:    xs.TrustWorkspace,
-		CursorAPIEndpoint: xs.CursorAPIEndpoint,
-		MCPServers:        mcpJSON,
-	}
-	be, err := cursorcliacp.New(cfg)
-	if err != nil {
-		return execbackend.Backend{}, fmt.Errorf("cursorcliacp: %w", err)
-	}
-	return applyConfiguredTrackingModelInventory(be, y.Models)
-}
-
-func backendGeminiCLIACP(n yaml.Node, _ *http.Client) (execbackend.Backend, error) {
-	var y acpCLIYAML
-	if err := config.DecodeYAMLNode(n, &y); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("geminicliacp backend config: %w", err)
-	}
-	var xs geminiCLIYAMLExtras
-	if err := config.DecodeYAMLNode(n, &xs); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("geminicliacp backend config: %w", err)
-	}
-	if err := rejectUnknownYAMLKeys(n, acpCLIKnownKeys(geminiCLIYAMLExtras{})); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("geminicliacp backend config: %w", err)
-	}
-	cfg := geminicliacp.Config{
-		ConnectorConfig: y.connectorConfig(),
-		AutoAccept:      xs.AutoAccept,
-	}
-	be, err := geminicliacp.New(cfg)
-	if err != nil {
-		return execbackend.Backend{}, fmt.Errorf("geminicliacp: %w", err)
-	}
-	return applyConfiguredModelInventory(be, y.Models)
-}
-
-func backendCodexAppServer(n yaml.Node, catalog *codexcatalog.Catalog, catalogSource codexcatalog.Source) (execbackend.Backend, error) {
-	var y acpCLIYAML
-	if err := config.DecodeYAMLNode(n, &y); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("codexappserver backend config: %w", err)
-	}
-	var xs codexAppServerYAMLExtras
-	if err := config.DecodeYAMLNode(n, &xs); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("codexappserver backend config: %w", err)
-	}
-	if err := rejectUnknownYAMLKeys(n, acpCLIKnownKeys(codexAppServerYAMLExtras{})); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("codexappserver backend config: %w", err)
-	}
-	verbosity, err := lipapi.ParseVerbosityLevel(xs.DefaultVerbosity)
-	if err != nil {
-		return execbackend.Backend{}, fmt.Errorf("codexappserver backend config: default_verbosity: %w", err)
-	}
-	cfg := codexappserver.Config{
-		ConnectorConfig:    y.connectorConfig(),
-		ConfigOverrides:    xs.ConfigOverrides,
-		ModelCatalog:       catalog,
-		ModelCatalogSource: catalogSource,
-		DefaultVerbosity:   verbosity,
-	}
-	be, err := codexappserver.New(cfg)
-	if err != nil {
-		return execbackend.Backend{}, fmt.Errorf("codexappserver: %w", err)
-	}
-	return applyConfiguredTrackingModelInventory(be, y.Models)
-}
-
-func backendAGYCLIACP(n yaml.Node, _ *http.Client) (execbackend.Backend, error) {
-	var y acpCLIYAML
-	if err := config.DecodeYAMLNode(n, &y); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("agycliacp backend config: %w", err)
-	}
-	var xs agyCLIYAMLExtras
-	if err := config.DecodeYAMLNode(n, &xs); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("agycliacp backend config: %w", err)
-	}
-	if err := rejectUnknownYAMLKeys(n, acpCLIKnownKeys(agyCLIYAMLExtras{})); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("agycliacp backend config: %w", err)
-	}
-	skipPerm := true // default: skip permissions (matching Python's _skip_permissions = True)
-	if xs.SkipPermissions != nil {
-		skipPerm = *xs.SkipPermissions
-	}
-	mcpJSON, err := yamlNodeToJSON(xs.MCPServers)
-	if err != nil {
-		return execbackend.Backend{}, fmt.Errorf("agycliacp: mcp_servers: %w", err)
-	}
-	cfg := agycliacp.Config{
-		ConnectorConfig:   y.connectorConfig(),
-		WrapperExecutable: xs.WrapperExecutable,
-		AGYBinary:         xs.AGYBinary,
-		SkipPermissions:   skipPerm,
-		TimeoutSeconds:    xs.TimeoutSeconds,
-		MCPServers:        mcpJSON,
-	}
-	be, err := agycliacp.New(cfg)
-	if err != nil {
-		return execbackend.Backend{}, fmt.Errorf("agycliacp: %w", err)
-	}
-	return applyConfiguredTrackingModelInventory(be, y.Models)
 }

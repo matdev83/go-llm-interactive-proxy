@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
@@ -30,7 +31,7 @@ const (
 // resources are rolled back after every iteration, as check-config would do.
 func BenchmarkCandidateCompilation(b *testing.B) {
 	host, err := runtimebundle.BuildHost(b.Context(), runtimebundle.BuildHostInput{
-		ConfigPath:      filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"),
+		ConfigPath:      bpkit.WriteDogfoodLocalStubConfig(b),
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: stdhttp.ComposeStandardHTTP,
@@ -66,9 +67,8 @@ func BenchmarkCandidateCompilation(b *testing.B) {
 // Timing only BuildBootstrap is invalid because it omits coordinator/source
 // binding. Hermes applies a reviewed baseline-only overlay for A/B capture.
 func BenchmarkBuildHost(b *testing.B) {
-	cfgPath := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
 	in := runtimebundle.BuildHostInput{
-		ConfigPath:      cfgPath,
+		ConfigPath:      bpkit.WriteDogfoodLocalStubConfig(b),
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: stdhttp.ComposeStandardHTTP,

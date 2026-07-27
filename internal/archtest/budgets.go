@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -18,9 +19,9 @@ type CriticalFileBudget struct {
 // (guardrails tests + make arch-report). Values are exact-measured ratchets.
 var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/core/runtime/executor.go", Max: 125},
-	{Path: "internal/infra/runtimebundle/options.go", Max: 233},
-	{Path: "internal/standardplugins/standard_table.go", Max: 283},
-	{Path: "internal/pluginreg/reg.go", Max: 312},
+	{Path: "internal/infra/runtimebundle/options.go", Max: 228},
+	{Path: "internal/standardplugins/standard_table.go", Max: 186},
+	{Path: "internal/pluginreg/reg.go", Max: 347},
 	{Path: "internal/stdhttp/server.go", Max: 8},
 	{Path: "internal/infra/runtimehost/coordinator.go", Max: 292},
 	{Path: "internal/infra/runtimehost/generation.go", Max: 316},
@@ -28,11 +29,11 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/infra/runtimebundle/handler_composer.go", Max: 25},
 	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 292},
 	{Path: "internal/stdhttp/request_plane.go", Max: 65},
-	{Path: "internal/infra/runtimebundle/process_services.go", Max: 233},
+	{Path: "internal/infra/runtimebundle/process_services.go", Max: 265},
 	{Path: "pkg/lipruntime/build.go", Max: 96},
 	{Path: "pkg/lipruntime/host.go", Max: 68},
 	{Path: "pkg/lipruntime/facade.go", Max: 72},
-	{Path: "cmd/lipstd/command.go", Max: 360},
+	{Path: "cmd/lipstd/command.go", Max: 433},
 	{Path: "pkg/lipruntime/reload.go", Max: 89},
 	{Path: "pkg/lipruntime/reload_aliases.go", Max: 35},
 }
@@ -45,9 +46,9 @@ type PackageTreeBudget struct {
 
 // PackageTreeBudgets locks exact-measured convergence tree ceilings.
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 9449},
-	{Tree: "internal/stdhttp", Max: 4313},
-	{Tree: "cmd/lipstd", Max: 880},
+	{Tree: "internal/infra/runtimebundle", Max: 10280},
+	{Tree: "internal/stdhttp", Max: 4314},
+	{Tree: "cmd/lipstd", Max: 954},
 	{Tree: "pkg/lipruntime", Max: 537},
 }
 
@@ -60,11 +61,11 @@ type LineBudget struct {
 // LineBudgets covers core/pluginreg plus the convergence trees (kept in sync
 // with PackageTreeBudgets for overlapping entries).
 var LineBudgets = []LineBudget{
-	{Dir: "internal/core", Max: 69133},
-	{Dir: "internal/pluginreg", Max: 715},
-	{Dir: "internal/stdhttp", Max: 4313},
-	{Dir: "internal/infra/runtimebundle", Max: 9449},
-	{Dir: "cmd/lipstd", Max: 880},
+	{Dir: "internal/core", Max: 68761},
+	{Dir: "internal/pluginreg", Max: 939},
+	{Dir: "internal/stdhttp", Max: 4314},
+	{Dir: "internal/infra/runtimebundle", Max: 10280},
+	{Dir: "cmd/lipstd", Max: 954},
 	{Dir: "pkg/lipruntime", Max: 537},
 }
 
@@ -139,8 +140,13 @@ func FormatRuntimeConvergencePackageBudgets(root string) (string, error) {
 // RuntimeConvergenceShrinkageBaselineSHA is the reviewed production baseline for Req 11.5.
 const RuntimeConvergenceShrinkageBaselineSHA = "efe4624909cea318c7211d5cb3734059d3210802"
 
-// RuntimeConvergenceMinNetLineReduction is the Requirement 11.5 floor.
+// RuntimeConvergenceMinNetLineReduction is the Requirement 11.5 floor for the
+// legacy convergence component (after subtracting the ADR 0008 overlay).
 const RuntimeConvergenceMinNetLineReduction = 800
+
+// ConnectorArchitectureOverlayMax is the exact-measured ADR 0008 connector
+// architecture overlay ratchet (non-test lines in structurally selected files).
+const ConnectorArchitectureOverlayMax = 946
 
 // AffectedSurfaceBaseline locks one Req 11.5 surface baseline.
 type AffectedSurfaceBaseline struct {
@@ -157,6 +163,16 @@ var RuntimeConvergenceAffectedSurfaces = []AffectedSurfaceBaseline{
 	{Tree: "pkg/lipruntime", BaselineLines: 1037},
 }
 
+// connectorArchitectureOverlayImportMarkers selects ADR 0008 host/discovery
+// production files by import graph (no maintained connector kind lists).
+var connectorArchitectureOverlayImportMarkers = []string{
+	"/backendplugins/discovery",
+	"/backendplugins/catalog",
+	"/backendplugins/trust",
+	"/backendplugins/diagnostics",
+	"/lipsdk/backendplugin",
+}
+
 // AffectedSurfaceMeasurement is one surface's baseline-versus-current delta.
 type AffectedSurfaceMeasurement struct {
 	Tree          string
@@ -165,18 +181,81 @@ type AffectedSurfaceMeasurement struct {
 	Delta         int
 }
 
-// ShrinkageMeasurement is the Requirement 11.5 aggregate.
-type ShrinkageMeasurement struct {
-	BaselineSHA   string
-	Surfaces      []AffectedSurfaceMeasurement
-	BaselineTotal int
-	CurrentTotal  int
-	Delta         int
-	RequiredMax   int
-	Pass          bool
+// ConnectorOverlayMeasurement is the ADR 0008 connector-architecture allowance.
+type ConnectorOverlayMeasurement struct {
+	Files []string
+	Lines int
+	Max   int
+	Pass  bool
 }
 
-// MeasureRuntimeConvergenceShrinkage compares current lines to the locked baseline.
+// ShrinkageMeasurement is the Requirement 11.5 aggregate plus ADR 0008 overlay.
+type ShrinkageMeasurement struct {
+	BaselineSHA      string
+	Surfaces         []AffectedSurfaceMeasurement
+	BaselineTotal    int
+	CurrentTotal     int
+	Delta            int // raw current-baseline (includes connector overlay lines)
+	Overlay          ConnectorOverlayMeasurement
+	ConvergenceDelta int // Delta - Overlay.Lines (legacy Req 11.5 component)
+	RequiredMax      int
+	Pass             bool
+}
+
+// MeasureConnectorArchitectureOverlay counts non-test lines in affected-surface
+// production files that import connector discovery/trust/catalog/ABI packages.
+func MeasureConnectorArchitectureOverlay(root string) (ConnectorOverlayMeasurement, error) {
+	m := ConnectorOverlayMeasurement{Max: ConnectorArchitectureOverlayMax}
+	for _, s := range RuntimeConvergenceAffectedSurfaces {
+		dir := filepath.Join(root, filepath.FromSlash(s.Tree))
+		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() {
+				return nil
+			}
+			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			src, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			text := string(src)
+			hit := false
+			for _, marker := range connectorArchitectureOverlayImportMarkers {
+				if strings.Contains(text, marker) {
+					hit = true
+					break
+				}
+			}
+			if !hit {
+				return nil
+			}
+			n, err := countTreeFileLines(path)
+			if err != nil {
+				return err
+			}
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				rel = path
+			}
+			m.Files = append(m.Files, filepath.ToSlash(rel))
+			m.Lines += n
+			return nil
+		})
+		if err != nil {
+			return ConnectorOverlayMeasurement{}, fmt.Errorf("%s: %w", s.Tree, err)
+		}
+	}
+	sort.Strings(m.Files)
+	m.Pass = m.Lines == m.Max
+	return m, nil
+}
+
+// MeasureRuntimeConvergenceShrinkage compares current lines to the locked baseline
+// and separates the ADR 0008 connector-architecture overlay from legacy convergence.
 func MeasureRuntimeConvergenceShrinkage(root string) (ShrinkageMeasurement, error) {
 	m := ShrinkageMeasurement{
 		BaselineSHA: RuntimeConvergenceShrinkageBaselineSHA,
@@ -199,7 +278,13 @@ func MeasureRuntimeConvergenceShrinkage(root string) (ShrinkageMeasurement, erro
 		m.CurrentTotal += n
 		m.Delta += delta
 	}
-	m.Pass = m.Delta <= m.RequiredMax
+	overlay, err := MeasureConnectorArchitectureOverlay(root)
+	if err != nil {
+		return ShrinkageMeasurement{}, err
+	}
+	m.Overlay = overlay
+	m.ConvergenceDelta = m.Delta - m.Overlay.Lines
+	m.Pass = m.ConvergenceDelta <= m.RequiredMax && m.Overlay.Pass
 	return m, nil
 }
 
@@ -215,6 +300,8 @@ func FormatRuntimeConvergenceShrinkage(root string) (string, ShrinkageMeasuremen
 	fmt.Fprintf(&b, "Baseline SHA: `%s`\n\n", m.BaselineSHA)
 	fmt.Fprintln(&b, "Method: recursive `CountNonTestGoLines` (non-test `.go` physical lines, including build-tag alternates). Moving unchanged logic between packages is not shrinkage (Req 11.6).")
 	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "ADR 0008 connector-architecture overlay: approved public host/discovery additions are measured structurally (import markers for discovery/catalog/trust/diagnostics/backendplugin ABI) and excluded from the legacy Req 11.5 convergence delta. Both components are ratcheted separately.")
+	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "| Surface | Baseline | Current | Delta |")
 	fmt.Fprintln(&b, "| --- | ---: | ---: | ---: |")
 	for _, s := range m.Surfaces {
@@ -222,12 +309,21 @@ func FormatRuntimeConvergenceShrinkage(root string) (string, ShrinkageMeasuremen
 	}
 	fmt.Fprintf(&b, "| **TOTAL** | **%d** | **%d** | **%+d** |\n", m.BaselineTotal, m.CurrentTotal, m.Delta)
 	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "Required: delta ≤ %+d (remove ≥ %d lines).\n\n", m.RequiredMax, RuntimeConvergenceMinNetLineReduction)
+	fmt.Fprintf(&b, "Raw delta (includes connector overlay): `%+d`\n\n", m.Delta)
+	fmt.Fprintf(&b, "Connector overlay lines: `%d` (cap `%d`; files: `%s`)\n\n", m.Overlay.Lines, m.Overlay.Max, strings.Join(m.Overlay.Files, "`, `"))
+	fmt.Fprintf(&b, "Convergence delta (raw − overlay): `%+d`\n\n", m.ConvergenceDelta)
+	fmt.Fprintf(&b, "Required: convergence delta ≤ %+d (remove ≥ %d lines after overlay); overlay lines == %d.\n\n", m.RequiredMax, RuntimeConvergenceMinNetLineReduction, ConnectorArchitectureOverlayMax)
 	if m.Pass {
 		fmt.Fprintln(&b, "Verdict: **PASS**")
 	} else {
-		need := m.Delta - m.RequiredMax
-		fmt.Fprintf(&b, "Verdict: **FAIL** (short by %d lines to reach ≤ %+d).\n", need, m.RequiredMax)
+		var reasons []string
+		if m.ConvergenceDelta > m.RequiredMax {
+			reasons = append(reasons, fmt.Sprintf("convergence short by %d lines to reach ≤ %+d", m.ConvergenceDelta-m.RequiredMax, m.RequiredMax))
+		}
+		if !m.Overlay.Pass {
+			reasons = append(reasons, fmt.Sprintf("overlay measured %d want exact %d", m.Overlay.Lines, m.Overlay.Max))
+		}
+		fmt.Fprintf(&b, "Verdict: **FAIL** (%s).\n", strings.Join(reasons, "; "))
 	}
 	fmt.Fprintln(&b)
 	return b.String(), m, nil

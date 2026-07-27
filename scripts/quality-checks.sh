@@ -4,6 +4,29 @@
 
 set -euo pipefail
 
+under_nested_go_module() {
+	local file="$1"
+	local dir parent
+
+	dir=$(dirname "$file")
+	if [ -z "$dir" ] || [ "$dir" = "." ]; then
+		return 1
+	fi
+
+	while [ -n "$dir" ] && [ "$dir" != "." ]; do
+		if [ -f "${dir}/go.mod" ]; then
+			return 0
+		fi
+		parent=$(dirname "$dir")
+		if [ "$parent" = "$dir" ]; then
+			break
+		fi
+		dir=$parent
+	done
+
+	return 1
+}
+
 collect_quality_packages() {
 	local -a staged_go_files=()
 	local file dir
@@ -22,6 +45,9 @@ collect_quality_packages() {
 		if [ -z "$dir" ] || [ "$dir" = "." ]; then
 			force_full=true
 			break
+		fi
+		if under_nested_go_module "$file"; then
+			continue
 		fi
 		package_set["./${dir}/..."]=1
 	done

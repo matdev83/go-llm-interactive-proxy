@@ -48,29 +48,29 @@ Consequences:
 
 ### Plugin pattern
 
-Use explicit registration and static linking for v1.
+Hybrid composition ([ADR 0008](../../docs/adr/0008-hybrid-backend-connector-plugins.md)):
 
-Reasons:
-- simpler builds,
-- portable binaries,
-- race detector support remains intact,
-- plugin boundaries are enforced through contracts instead of dynamic loading magic.
+- **Essential** frontends, features, and essential backends: explicit registration and static linking into `cmd/lipstd`.
+- **Optional** backends: separate **executable** connector processes using the versioned gRPC backend-plugin ABI, closed manifests, digest-bound exact-executable launch, approved secure local IPC, lazy activation, and declared process models. Modules live under `connectors/` / `connector-support/`.
 
-Do not use Go's native `plugin` package in v1.
+Reasons for keeping essentials static:
+- simpler default builds,
+- portable essential binary,
+- race detector support on the root module remains intact,
+- contracts enforce boundaries without Go native dynamic loading.
+
+Do not use Go's native `plugin` package. Do not instruct maintainers to add optional connectors to essential/`standard_table` fixed tables.
 
 ## Provider integration policy
 
 Use official Go SDKs where practical and keep them at backend edges:
 
-- OpenAI: `github.com/openai/openai-go/v3`
-- Anthropic: `github.com/anthropics/anthropic-sdk-go`
-- Google Gemini / GenAI: `google.golang.org/genai`
-- Bedrock: `aws-sdk-go-v2/service/bedrockruntime`
-- ACP: thin local transport/client built from official protocol definitions and JSON-RPC semantics
+- Essential (root module): OpenAI (`github.com/openai/openai-go/v3`), Anthropic (`github.com/anthropics/anthropic-sdk-go`), Google Gemini / GenAI (`google.golang.org/genai`), Bedrock (`aws-sdk-go-v2/service/bedrockruntime`)
+- Optional connectors (their own modules): OpenRouter, NVIDIA, Hugging Face, OpenAI Codex, OpenCode, Ollama, llama.cpp, LM Studio, vLLM, localstub, ACP-family CLIs, etc. Shared helpers may live in `connector-support/`.
 
-Other standard backends are HTTP-compatible, local-runtime, or agent-specific adapters (OpenRouter, NVIDIA, Hugging Face, OpenAI Codex, OpenCode Go/Zen, Ollama (`ollama` / `ollama-cloud`), llama.cpp, LM Studio, vLLM, `localstub`, custom-compatible rows). They should reuse shared compatible-protocol helpers where that reduces duplication without moving provider semantics into core.
+Root `ResolveUpstreamAPIKeysFromEnv` supplies only essential OpenAI/Anthropic/Gemini key pools. Migrated connectors take credentials from their plugin config / connector-local secrets — not root env pools.
 
-Official SDK types and provider wire structs must not leak into `pkg/lipapi`, `pkg/lipsdk`, or `internal/core`.
+Official SDK types and provider wire structs must not leak into `pkg/lipapi`, `pkg/lipsdk` public contracts (beyond the backendplugin ABI DTOs), or `internal/core`.
 
 ## Concurrency and streaming patterns
 

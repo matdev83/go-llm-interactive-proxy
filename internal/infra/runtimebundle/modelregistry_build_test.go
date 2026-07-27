@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,8 +18,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	refvllm "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/vllm"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"gopkg.in/yaml.v3"
@@ -81,38 +78,6 @@ func TestBuild_exposesModelRegistryForFastLookup(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].BackendID != "test-backend" || got[0].NativeID != "gpt-4o" {
 		t.Fatalf("Lookup(openai/gpt-4o) = %+v", got)
-	}
-}
-
-func TestBuild_vllmBackendDiscoversModelsIntoRegistry(t *testing.T) {
-	t.Parallel()
-
-	srv := httptest.NewServer(refvllm.NewHandler(refvllm.Config{}))
-	t.Cleanup(srv.Close)
-
-	reg := pluginreg.NewRegistry()
-	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
-		t.Fatal(err)
-	}
-	cfg := modelRegistryTestConfig("vllm")
-	cfg.Routing.DefaultRoute = "vllm:meta-llama/Llama-3-8B-Instruct"
-	cfg.Plugins.Backends[0].Config = mustYAMLNode(t, `base_url: `+srv.URL+`/v1
-api_key: vllm-test
-discovery:
-  catalog: false
-`)
-
-	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
-		PluginRegistry: reg,
-	})
-	t.Cleanup(closeModelRegistryBuilt(t, b))
-
-	got, ok := b.ModelRegistry().Lookup("meta-llama/Llama-3-8B-Instruct")
-	if !ok {
-		t.Fatal("Lookup(meta-llama/Llama-3-8B-Instruct) ok = false")
-	}
-	if len(got) != 1 || got[0].BackendID != "test-backend" || got[0].Kind != "vllm" || got[0].NativeID != "meta-llama/Llama-3-8B-Instruct" {
-		t.Fatalf("Lookup(meta-llama/Llama-3-8B-Instruct) = %+v", got)
 	}
 }
 

@@ -10,7 +10,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	modelregistryfile "github.com/matdev83/go-llm-interactive-proxy/internal/infra/modelregistry/filestore"
@@ -36,20 +35,8 @@ func buildModelRuntime(bctx buildContext, upstream *http.Client) (*modelRuntime,
 	if err != nil {
 		return nil, err
 	}
-	var vendorCatalogRuntime *modelcatalog.CatalogRuntime
-	if startedCatalog != nil {
-		vendorCatalogRuntime = startedCatalog.Runtime
-	}
-	var codexLoadFn CodexCatalogLoadFunc
-	if bctx.Opts != nil {
-		codexLoadFn = bctx.Opts.Testing.CodexCatalogLoad
-	}
-	codexCatalog, codexCatalogSource := loadCodexModelCatalog(parent, cfg, reg, bctx.Log, codexLoadFn)
 	backendDeps := pluginreg.BackendFactoryDeps{
-		ModelVendorResolver:     openCodeVendorResolver(vendorCatalogRuntime),
-		CodexModelCatalog:       codexCatalog,
-		CodexModelCatalogSource: codexCatalogSource,
-		Identity:                cfg.Identity,
+		Identity: cfg.Identity,
 	}
 
 	registerStartedCatalogClosers(bctx.Ledger, startedCatalog)
@@ -101,6 +88,10 @@ func buildBackends(
 	backends := make(map[string]execbackend.Backend, len(cfg.Plugins.Backends))
 	inventories := make([]modelregistry.BackendInventory, 0, len(cfg.Plugins.Backends))
 	rawPrefixes := make([]string, 0, len(cfg.Plugins.Backends))
+	var nilLedgerRollback []func() error
+	if err := resolveEnabledBackendFactories(cfg, reg); err != nil {
+		return nil, nil, nil, err
+	}
 	modelInventoryFetchTimeout := cfg.ModelInventory.FetchTimeoutDuration()
 	for _, p := range cfg.Plugins.Backends {
 		if !p.Enabled {
@@ -108,9 +99,27 @@ func buildBackends(
 		}
 		fid := p.FactoryID()
 		iid := p.InstanceID()
-		be, err := reg.BuildBackend(fid, p.Config, upstream, backendDeps)
+		res, err := reg.BuildBackendWithLifecycle(fid, iid, p.Config, upstream, backendDeps)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("backend instance %s (factory %s): %w", iid, fid, err)
+			buildErr := fmt.Errorf("backend instance %s (factory %s): %w", iid, fid, err)
+			if ledger == nil {
+				return nil, nil, nil, withDisposedClosers(buildErr, nilLedgerRollback)
+			}
+			return nil, nil, nil, buildErr
+		}
+		be := res.Backend
+		if res.Cleanup != nil {
+			cleanup := res.Cleanup
+			// Once-safe + transport-gone normalization before ledger ownership so
+			// generation Close/Rollback share one cleanup owner with assembly.
+			safe := func() error {
+				return normalizePluginCleanupErr(cleanup())
+			}
+			if ledger != nil {
+				ledger.AddClose("plugin-cleanup:"+iid, PhaseClose, safe)
+			} else {
+				nilLedgerRollback = RegisterPluginBuildCleanup(nilLedgerRollback, cleanup)
+			}
 		}
 		hooks := optionalBackendHooksFromBackend(be)
 		inst := WrapBackendInstance(be, hooks)
@@ -138,6 +147,7 @@ func buildBackends(
 				wrapped.Close = nil // ledger owns cleanup
 			} else {
 				wrapped.Close = inst.Close
+				nilLedgerRollback = append(nilLedgerRollback, inst.Close)
 			}
 		}
 		backends[iid] = wrapped
@@ -220,4 +230,23 @@ func hasRefreshableModelInventory(inventories []modelregistry.BackendInventory) 
 		return true
 	}
 	return false
+}
+
+// resolveEnabledBackendFactories fails closed when an enabled row's factory is
+// absent from the essential∪discovered registry before any Activate/Build runs.
+func resolveEnabledBackendFactories(cfg *config.Config, reg *pluginreg.Registry) error {
+	if cfg == nil {
+		return fmt.Errorf("runtimebundle: nil config")
+	}
+	enabled := make([]string, 0, len(cfg.Plugins.Backends))
+	for _, p := range cfg.Plugins.Backends {
+		if !p.Enabled {
+			continue
+		}
+		enabled = append(enabled, p.FactoryID())
+	}
+	if err := pluginreg.ResolveEnabledAgainstRegistry(enabled, reg); err != nil {
+		return fmt.Errorf("runtimebundle: %w", err)
+	}
+	return nil
 }

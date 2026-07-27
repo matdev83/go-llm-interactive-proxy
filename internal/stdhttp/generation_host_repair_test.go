@@ -5,13 +5,13 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -21,9 +21,8 @@ import (
 
 func newServeIntegrationHost(t *testing.T) *runtimebundle.Host {
 	t.Helper()
-	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
 	host, err := runtimebundle.BuildHost(context.Background(), runtimebundle.BuildHostInput{
-		ConfigPath:      cfgPath,
+		ConfigPath:      bpkit.WriteDogfoodLocalStubConfig(t),
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: ComposeStandardHTTP,

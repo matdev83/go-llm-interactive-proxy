@@ -17,13 +17,14 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/submitnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 )
 
 func TestInitialGeneration_BuildHostPublishesGenerationOne(t *testing.T) {
 	t.Parallel()
-	cfgPath := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	cfgPath := bpkit.WriteDogfoodLocalStubConfig(t)
 	host, err := runtimebundle.BuildHost(context.Background(), runtimebundle.BuildHostInput{
 		ConfigPath:      cfgPath,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
@@ -76,10 +77,6 @@ func TestInitialGeneration_CompileFailureRollsBackProcessServices(t *testing.T) 
 	assertBuildHostPartialCleanupOnComposeFailure(t)
 }
 
-// TestBootstrapPartialCleanup_ComposeFailureClosesOwnersOnce characterizes Task 1.3
-// partial startup cleanup: after a later compose step fails, already-acquired
-// ProcessServices are closed, generation handles are absent, and BuildHost
-// returns a nil Host so callers cannot double-close.
 func TestBootstrapPartialCleanup_ComposeFailureClosesOwnersOnce(t *testing.T) {
 	t.Parallel()
 	assertBuildHostPartialCleanupOnComposeFailure(t)
@@ -87,7 +84,7 @@ func TestBootstrapPartialCleanup_ComposeFailureClosesOwnersOnce(t *testing.T) {
 
 func TestInitialGeneration_BuildHostRequiresHandlerComposer(t *testing.T) {
 	t.Parallel()
-	cfgPath := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	cfgPath := bpkit.WriteDogfoodLocalStubConfig(t)
 	host, err := runtimebundle.BuildHost(context.Background(), runtimebundle.BuildHostInput{
 		ConfigPath: cfgPath,
 		Mandatory:  lipsdk.StandardDistributionRequirements(),
@@ -104,7 +101,7 @@ func TestInitialGeneration_BuildHostRequiresHandlerComposer(t *testing.T) {
 
 func assertBuildHostPartialCleanupOnComposeFailure(t *testing.T) {
 	t.Helper()
-	cfgPath := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	cfgPath := bpkit.WriteDogfoodLocalStubConfig(t)
 	host, err := runtimebundle.BuildHost(context.Background(), runtimebundle.BuildHostInput{
 		ConfigPath: cfgPath,
 		Mandatory:  lipsdk.StandardDistributionRequirements(),
@@ -123,7 +120,6 @@ func assertBuildHostPartialCleanupOnComposeFailure(t *testing.T) {
 }
 
 func TestInitialGeneration_FeatureLifecycleStartStopOnceNoAppOwnership(t *testing.T) {
-	// Not parallel: overrides submitnoop lifecycle probe factory globally.
 	probe := &submitnoop.LifecycleProbe{}
 	submitnoop.SetLifecycleProbeFactoryForTest(func() lipplugin.Lifecycle { return probe })
 	t.Cleanup(func() { submitnoop.SetLifecycleProbeFactoryForTest(nil) })
@@ -138,9 +134,6 @@ func TestInitialGeneration_FeatureLifecycleStartStopOnceNoAppOwnership(t *testin
 	if err != nil {
 		t.Fatalf("BuildHost: %v", err)
 	}
-	// BuildHost constructs no runtime.App (req 4.7): the candidate ledger
-	// is the sole feature-lifecycle owner, so exactly one Start is observed
-	// with no separate App-owned Start to double-register.
 	if probe.StartCount() != 1 {
 		t.Fatalf("lifecycle starts=%d want 1 (double-register would be 2)", probe.StartCount())
 	}
@@ -159,7 +152,7 @@ func TestInitialGeneration_FeatureLifecycleStartStopOnceNoAppOwnership(t *testin
 
 func writeLifecycleProbeConfig(t *testing.T) string {
 	t.Helper()
-	src, err := os.ReadFile(filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"))
+	src, err := os.ReadFile(bpkit.WriteDogfoodLocalStubConfig(t))
 	if err != nil {
 		t.Fatal(err)
 	}

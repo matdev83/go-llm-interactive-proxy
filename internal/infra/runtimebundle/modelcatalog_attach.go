@@ -13,8 +13,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/modelcatalog/modelsdev"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	opencodecatalog "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodecommon/catalog"
 )
 
 type startedModelCatalog struct {
@@ -114,13 +112,6 @@ func cloneCatalogHTTPClient(upstream *http.Client) (*http.Client, func()) {
 	// its CloseIdleConnections hook. Generation-owned underlying transports are
 	// already ledgered by buildGenerationObservability.
 	return &c, func() {}
-}
-
-func openCodeVendorResolver(cat *modelcatalog.CatalogRuntime) pluginreg.ModelVendorResolver {
-	if cat != nil {
-		return opencodecatalog.NewOpenCodeVendorResolver(cat, true)
-	}
-	return opencodecatalog.NewOpenCodeVendorResolver(modelcatalog.StaticActiveSnapshotProvider{}, true)
 }
 
 func routingRuntimeFromModelCatalog(rr runtime.RoutingRuntime, cat *modelcatalog.CatalogRuntime, cfg *config.Config) runtime.RoutingRuntime {

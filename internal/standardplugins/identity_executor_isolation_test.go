@@ -21,9 +21,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
 	refresponses "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openairesponses"
-	refopenrouter "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openrouter"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -311,90 +309,6 @@ func TestIdentityExecutor_ID147_parallelRaceIsolatesUserAgent(t *testing.T) {
 	for i, ua := range uasB {
 		if !keysB[i] || ua != "ParallelB/2" {
 			t.Fatalf("leg-b UA[%d]=%q present=%v (must not bleed ParallelA)", i, ua, keysB[i])
-		}
-	}
-}
-
-// ID-147-OR: OpenRouter attribution only on OpenRouter B-leg during ordered failover.
-func TestIdentityExecutor_ID147_openRouterAttributionOnlyOnOpenRouterLeg(t *testing.T) {
-	t.Parallel()
-
-	var openaiCap, orCap capturedHeaders
-	failInner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, `{"error":{"message":"down"}}`, http.StatusBadGateway)
-	})
-
-	srvOA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		openaiCap.observe(r)
-		failInner.ServeHTTP(w, r)
-	}))
-	t.Cleanup(srvOA.Close)
-	srvOR := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		orCap.observe(r)
-		refopenrouter.NewHandler(refopenrouter.Config{}).ServeHTTP(w, r)
-	}))
-	t.Cleanup(srvOR.Close)
-
-	g := identity.Config{
-		Upstream: identity.UpstreamPolicy{
-			UserAgent: identity.FieldPolicy{Mode: identity.ModeCustom, Value: "SharedCustomUA/1"},
-			OpenRouter: identity.OpenRouterPolicy{
-				AppURL:   identity.FieldPolicy{Mode: identity.ModeCustom, Value: "https://or-only.example/app"},
-				AppTitle: identity.FieldPolicy{Mode: identity.ModeCustom, Value: "OROnlyTitle"},
-			},
-		},
-	}
-
-	beOA := buildIdentityBackend(
-		t, openairesponses.ID,
-		"base_url: "+srvOA.URL+"/v1\napi_key: sk-oa\n",
-		srvOA.Client(), g,
-	)
-	beOA.Open = wrapOpenAsRecoverable(beOA.Open)
-
-	beOR := buildIdentityBackend(
-		t, openrouter.ID,
-		"base_url: "+srvOR.URL+"\napi_key: or-key\n",
-		srvOR.Client(), g,
-	)
-
-	ex := newIdentityIsolationExecutor(t, map[string]execbackend.Backend{
-		"oa": beOA,
-		"or": beOR,
-	})
-	call := isolationCall("oa:m|or:m", "")
-	call.Invocation.Operation = lipapi.OperationOpenAIChatCompletions
-	s, err := ex.Execute(context.Background(), call)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = lipapi.Collect(context.Background(), s)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, _, refsOA, titlesOA := openaiCap.snapshot()
-	uasOR, _, refsOR, titlesOR := orCap.snapshot()
-	if len(refsOA) == 0 {
-		t.Fatal("openai leg received no request")
-	}
-	for i := range refsOA {
-		if refsOA[i] != "" || titlesOA[i] != "" {
-			t.Fatalf("openai leg leaked OpenRouter headers referer=%q title=%q", refsOA[i], titlesOA[i])
-		}
-	}
-	if len(uasOR) == 0 {
-		t.Fatal("openrouter leg received no request")
-	}
-	for i, ua := range uasOR {
-		if ua != "SharedCustomUA/1" {
-			t.Fatalf("openrouter UA=%q want SharedCustomUA/1", ua)
-		}
-		if refsOR[i] != "https://or-only.example/app" {
-			t.Fatalf("openrouter HTTP-Referer=%q", refsOR[i])
-		}
-		if titlesOR[i] != "OROnlyTitle" {
-			t.Fatalf("openrouter X-OpenRouter-Title=%q", titlesOR[i])
 		}
 	}
 }

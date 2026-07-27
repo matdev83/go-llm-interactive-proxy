@@ -8,9 +8,12 @@ import (
 	"strings"
 	"testing"
 
+	coreruntime "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -100,7 +103,8 @@ func TestBuildHost_serveSingleUserSecretGuardSnapshotsProcessEnv(t *testing.T) {
 	const secret = testkit.SyntheticOpenAIAPIKey
 	t.Setenv(probe, secret)
 
-	base, err := os.ReadFile(filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-single-user.yaml"))
+	basePath := bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-single-user.yaml"))
+	base, err := os.ReadFile(basePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,17 +128,25 @@ func TestBuildHost_serveSingleUserSecretGuardSnapshotsProcessEnv(t *testing.T) {
 	}
 	hostServeCleanup(t, host)
 
-	cand := compileCandidateAfterHost(t, host)
-	if runtimebundle.CandidateSecretGuardInventory(cand) == nil {
-		t.Fatal("BuildHost candidate must build secret-guard inventory")
+	// Assert against the published startup generation. A second CompileCandidate
+	// would contend on exclusive shared-artifact local-stub ownership.
+	active := runtimebundle.HostManager(host).Active()
+	if active == nil {
+		t.Fatal("BuildHost must publish an active generation")
 	}
-	if runtimebundle.CandidateSecretGuardInventory(cand).SecretGuardCatalogEntryCount == 0 {
-		t.Fatal("single-user serve must snapshot process env into a nonzero secret catalog")
+	provider, ok := active.RequestPlane().(runtimehost.ExecutorProvider)
+	if !ok || provider == nil {
+		t.Fatal("published generation must expose ExecutorProvider")
 	}
-	if cand.RuntimeSnapshot() == nil {
-		t.Fatal("expected runtime snapshot")
+	ex, ok := provider.ExecutorView().(*coreruntime.Executor)
+	if !ok || ex == nil || ex.RuntimeSnapshot == nil {
+		t.Fatal("published generation must expose *runtime.Executor RuntimeSnapshot")
 	}
-	m, err := cand.RuntimeSnapshot().SecretGuardPlane().MatcherResolver.Resolve(t.Context())
+	plane := ex.RuntimeSnapshot.SecretGuardPlane()
+	if plane.MatcherResolver == nil {
+		t.Fatal("single-user serve must bind a secret-guard matcher resolver")
+	}
+	m, err := plane.MatcherResolver.Resolve(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,11 +180,11 @@ func TestInspectRoutes_RejectsInvalidCustomBackendPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	customBackend := `    - id: nvidia-copy
+	customBackend := `    - id: openai-legacy-copy
       kind: custom-openai-legacy-compatible
       enabled: true
       config:
-        backend_prefix: nvidia
+        backend_prefix: openai-legacy
         base_url: http://127.0.0.1:9/v1
 `
 	text := strings.Replace(string(base), "  features:\n", customBackend+"  features:\n", 1)

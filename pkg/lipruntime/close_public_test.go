@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -26,7 +27,7 @@ import (
 func TestClose_ProductionBuild_PinnedStreamDeadlineRetry(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	cfg := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	cfg := bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml"))
 	rt, err := lipruntime.Build(ctx, lipruntime.Options{ConfigPath: cfg, LogWriter: io.Discard})
 	if err != nil {
 		t.Fatalf("Build: %v", err)

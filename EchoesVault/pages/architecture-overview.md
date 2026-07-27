@@ -12,10 +12,10 @@ status: active
 ## Mental Model
 
 Five primary zones:
-1. Stable public contracts (`pkg/lipapi`, `pkg/lipsdk`)
-2. Internal core runtime (`internal/core/`)
+1. Stable public contracts (`pkg/lipapi`, `pkg/lipsdk` including backendplugin ABI)
+2. Internal core runtime (`internal/core/`) — orchestration, routing, B2BUA
 3. Official frontend plugins (`internal/plugins/frontends/`)
-4. Official backend & feature plugins (`internal/plugins/backends/`, `internal/plugins/features/`)
+4. Hybrid backends + features: essential builtins under `internal/plugins/backends/` / `internal/plugins/features/`; optional executable connectors under `connectors/` ([ADR 0008](../../docs/adr/0008-hybrid-backend-connector-plugins.md); [backend-connector-plugins](backend-connector-plugins.md))
 5. Test and operational support (`internal/refbackend/`, `internal/refclient/`, `internal/testkit/`)
 
 Around them: standard distribution assembly (`internal/standardplugins/`, `internal/featurebundle/`, `internal/infra/runtimebundle/`, `internal/stdhttp/`) plus the explicit registry type in `internal/pluginreg/`.
@@ -64,9 +64,9 @@ Compiled knowledge matches operator docs: **one process runtime**, **one generat
 |---|---|
 | One process runtime, one generation runtime, one host, one reload contract | Converged ownership: process services under Host; immutable `GenerationRuntime` per config generation; `runtimebundle.BuildHost` / `Host.Close`; public DTOs only in `pkg/lipsdk/configreload` |
 | Explicit registration, no DI containers | Simpler builds, portable binaries, race detector works |
-| Static linking (no Go `plugin` package) | Boundaries enforced through contracts, not dynamic loading |
+| Hybrid backends (ADR 0008): essential static + executable gRPC connectors; reject Go native `plugin` | Optional kinds install via closed manifests/digests; essentials stay race-friendly |
 | Streaming is primary execution path | Non-streaming collects the canonical stream |
 | No retry after first content event | Post-output failures surface, not silently retry |
-| Provider SDKs at adapter edges only | Core must not know provider wire types |
+| Provider SDKs at adapter/connector edges only | Core must not know provider wire types |
 | Small interfaces where consumed | Avoids interface pollution; real substitution boundaries only |
 | Explicit runtime config reload | SIGHUP / management API / `lipruntime.Reload` only; immutable generations; no watcher — see [runtime-config-reload](runtime-config-reload.md) |

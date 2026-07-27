@@ -2,7 +2,8 @@ package identity
 
 // IdentityScenarioSpec links a stable scenario identifier to proxy-identity
 // invariants (issue #147) and the primary regression test (specification bundle).
-// PackageRel is the module-relative directory that owns TestName's *_test.go.
+// PackageRel is the repository-relative directory that owns TestName's *_test.go
+// (may live in an external connector module under connectors/, outside the root go.mod).
 type IdentityScenarioSpec struct {
 	ID               string
 	InvariantSummary string
@@ -42,7 +43,7 @@ func SpecBundleIdentityScenarios() []IdentityScenarioSpec {
 			ID:               "SB-IDENTITY-openrouter-attr",
 			InvariantSummary: "OpenRouter proxy defaults emit LIP HTTP-Referer and X-OpenRouter-Title, overriding captured client values.",
 			TestName:         "TestOpenRouterAttribution_defaultProxyOverridesCapturedClient",
-			PackageRel:       "internal/standardplugins",
+			PackageRel:       "connectors/openrouter",
 		},
 		{
 			ID:               "SB-IDENTITY-aleg-server",

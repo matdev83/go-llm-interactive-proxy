@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/codexcatalog"
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
@@ -59,6 +58,9 @@ type BuildOptions struct {
 	// Production holds first-class enterprise injection seams (requirement 12.4).
 	// Unlike Testing, these are supported for closed modules via pkg/lipruntime.
 	Production ProductionOptions
+	// DiscoveredPlugins, when set, installs validated catalog exports onto
+	// PluginRegistry before backend construction (Phase 4 discovery bridge).
+	DiscoveredPlugins *DiscoveredPluginInstall
 
 	// FeatureLifecycles are merged feature plugin lifecycles owned by the candidate
 	// resource ledger in serve/compile paths (task 3.2). When non-empty, callers must
@@ -223,11 +225,4 @@ type TestingOptions struct {
 	// SnapshotPublisherOverride, when non-nil, replaces the Build-constructed
 	// policy/rating generation publisher (Phase 9.3). Tests only.
 	SnapshotPublisherOverride *snapshotgen.Publisher
-	// CodexCatalogLoad, when non-nil, replaces [codexcatalog.Load] for the shared
-	// Codex model catalog resolved at startup. Tests only; production leaves this
-	// nil so discovery uses the real loader.
-	CodexCatalogLoad CodexCatalogLoadFunc
 }
-
-// CodexCatalogLoadFunc is the test seam for shared Codex catalog resolution.
-type CodexCatalogLoadFunc func(ctx context.Context, opts codexcatalog.LoadOptions) (*codexcatalog.Catalog, codexcatalog.Source, error)

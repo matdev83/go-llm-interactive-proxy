@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
 )
@@ -127,7 +128,7 @@ func localStubCall() *lipapi.Call {
 
 func localStubConfigVersion(t *testing.T, version string) string {
 	t.Helper()
-	body := mustReadFile(t, filepath.Join(filepath.Dir(repoConfigPath(t)), "examples", "dogfood-local-stub.yaml"))
+	body := mustReadFile(t, bpkit.WriteDogfoodLocalStubConfig(t))
 	const original = `text: "[dogfood] local stub"`
 	replacement := `text: "` + version + `"`
 	if !strings.Contains(body, original) {

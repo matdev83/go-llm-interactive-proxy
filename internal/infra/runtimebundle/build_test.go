@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/localstubreg"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 	dto "github.com/prometheus/client_model/go"
 )
@@ -169,6 +170,9 @@ func TestBuild_derivesRoutePrefixesFromEnabledBackends(t *testing.T) {
 
 	reg := pluginreg.NewRegistry()
 	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := localstubreg.RegisterInProcess(reg); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{

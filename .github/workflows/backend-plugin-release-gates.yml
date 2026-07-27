@@ -1,0 +1,62 @@
+# Narrow Phase 9.5 gate: full repository/release aggregation (installed-plugin
+# release gates) runs on Ubuntu only. Full Windows runners fail intentional
+# Windows admin-user refusals, CRLF gofmt drift, and Markdown fence parsing;
+# connector manifests do not advertise Darwin. Native Windows/macOS coverage
+# remains in focused cross-platform, process-tree, and Cursor SDK smoke workflows
+# (backend-plugin-cross-platform, ACP process-tree, Cursor SDK Platform Smoke).
+# Complements (does not replace) make qa. External evidence required before checking task 9.5.
+name: Backend plugin release gates
+
+on:
+  pull_request:
+    paths:
+      - "connectors/**"
+      - "connector-support/**"
+      - "tools/backendplugin/**"
+      - "internal/infra/backendplugins/**"
+      - "internal/archtest/backend_plugin_release_gates_ci_test.go"
+      - "pkg/lipsdk/backendplugin/**"
+      - "Makefile"
+      - ".github/workflows/backend-plugin-release-gates.yml"
+  push:
+    branches: [main]
+    paths:
+      - "connectors/**"
+      - "connector-support/**"
+      - "tools/backendplugin/**"
+      - "internal/infra/backendplugins/**"
+      - "internal/archtest/backend_plugin_release_gates_ci_test.go"
+      - "pkg/lipsdk/backendplugin/**"
+      - "Makefile"
+      - ".github/workflows/backend-plugin-release-gates.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-gates:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            connectors/**/go.sum
+            connector-support/**/go.sum
+
+      - name: Backend plugin release gates
+        env:
+          FUZZTIME: 2s
+        run: make backend-plugin-release-gates

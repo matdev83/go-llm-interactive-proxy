@@ -11,7 +11,7 @@ For proof-plugin seams and Python-era migration anchors, see [`docs/feature-migr
 
 ## Primary example
 
-Use [`config/examples/dogfood-local-stub.yaml`](../config/examples/dogfood-local-stub.yaml) as the default **no-key** configuration (deterministic `local-stub` backend, all standard frontends enabled for validation).
+Use [`config/examples/dogfood-local-stub.yaml`](../config/examples/dogfood-local-stub.yaml) as the default **no-key** configuration (deterministic external `local-stub` connector, all standard frontends enabled for validation). Stage the connector first with `make package-full PACKAGE_DEST=.golip-plugins` (see [`docs/backend-plugins/authoring.md`](backend-plugins/authoring.md) and the operator guide [`docs/backend-plugins/operator.md`](backend-plugins/operator.md)).
 
 Protocol-focused stub examples (same inspect coverage):
 

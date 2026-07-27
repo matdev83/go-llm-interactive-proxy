@@ -12,33 +12,23 @@ import (
 )
 
 // Approved B-leg connectors for issue #147 User-Agent transport (literals locked).
+// Phase 7 migrated OpenRouter/NVIDIA/Hugging Face to external plugins (attribution
+// and HTTP policy live in connector config, not root factory wrapping).
 var identityTransportApprovedBackendIDs = []string{
 	"openai-responses",
 	"openai-legacy",
 	"anthropic",
 	"gemini",
 	"bedrock",
-	"openrouter",
-	"nvidia",
-	"huggingface",
 }
 
 // Excluded connectors must not receive identity HTTP policy wrapping.
+// Local OpenAI-compatible runtimes and Ollama were migrated in Phase 7.
 var identityTransportExcludedBackendIDs = []string{
 	"openai-codex",
-	"acp",
-	"cursorcliacp",
-	"geminicliacp",
-	"agycliacp",
 	"openai-codex-app-server",
 	"opencode-go",
 	"opencode-zen",
-	"ollama",
-	"ollama-cloud",
-	"llamacpp",
-	"lmstudio",
-	"vllm",
-	"local-stub",
 	"custom-openai-legacy-compatible",
 	"custom-openai-responses-compatible",
 	"custom-anthropic-compatible",
@@ -52,9 +42,6 @@ func TestIdentityTransport_approvedAllowlistLiteral(t *testing.T) {
 		"anthropic",
 		"gemini",
 		"bedrock",
-		"openrouter",
-		"nvidia",
-		"huggingface",
 	}
 	if len(identityTransportApprovedBackendIDs) != len(want) {
 		t.Fatalf("approved count=%d want %d", len(identityTransportApprovedBackendIDs), len(want))
@@ -70,19 +57,9 @@ func TestIdentityTransport_excludedListLiteral(t *testing.T) {
 	t.Parallel()
 	want := []string{
 		"openai-codex",
-		"acp",
-		"cursorcliacp",
-		"geminicliacp",
-		"agycliacp",
 		"openai-codex-app-server",
 		"opencode-go",
 		"opencode-zen",
-		"ollama",
-		"ollama-cloud",
-		"llamacpp",
-		"lmstudio",
-		"vllm",
-		"local-stub",
 		"custom-openai-legacy-compatible",
 		"custom-openai-responses-compatible",
 		"custom-anthropic-compatible",
@@ -101,13 +78,11 @@ func TestIdentityTransport_excludedListLiteral(t *testing.T) {
 func TestIdentityTransport_ID147_allowlistAndExclusionLiterals(t *testing.T) {
 	t.Parallel()
 	approved := []string{
-		"openai-responses", "openai-legacy", "anthropic", "gemini",
-		"bedrock", "openrouter", "nvidia", "huggingface",
+		"openai-responses", "openai-legacy", "anthropic", "gemini", "bedrock",
 	}
 	excluded := []string{
-		"openai-codex", "acp", "cursorcliacp", "geminicliacp", "agycliacp",
+		"openai-codex",
 		"openai-codex-app-server", "opencode-go", "opencode-zen",
-		"ollama", "ollama-cloud", "llamacpp", "lmstudio", "vllm", "local-stub",
 		"custom-openai-legacy-compatible", "custom-openai-responses-compatible", "custom-anthropic-compatible",
 	}
 	if len(identityTransportApprovedBackendIDs) != len(approved) {
@@ -137,18 +112,7 @@ func TestIdentityTransport_ID147_allowlistAndExclusionLiterals(t *testing.T) {
 func TestIdentityTransport_excludedPackagesDoNotImportHTTPIdentity(t *testing.T) {
 	t.Parallel()
 	excludedPkgs := []string{
-		"./internal/plugins/backends/openaicodex",
 		"./internal/plugins/backends/acp",
-		"./internal/plugins/backends/cursorcliacp",
-		"./internal/plugins/backends/geminicliacp",
-		"./internal/plugins/backends/agycliacp",
-		"./internal/plugins/backends/codexappserver",
-		"./internal/plugins/backends/opencodego",
-		"./internal/plugins/backends/opencodezen",
-		"./internal/plugins/backends/ollama",
-		"./internal/plugins/backends/llamacpp",
-		"./internal/plugins/backends/lmstudio",
-		"./internal/plugins/backends/vllm",
 		"./internal/plugins/backends/localstub",
 	}
 	assertDepsExcludeForbidden(t, excludedPkgs, []forbiddenDep{
@@ -189,23 +153,10 @@ func TestIdentityTransport_standardpluginsImportsHTTPIdentity(t *testing.T) {
 	t.Fatalf("standardplugins must import httpidentity for approved connector wrapping; imports=%v", pkg.Imports)
 }
 
-// identityTransportExcludedFactoryFns are the standardplugins factory functions for
-// connectors that must not receive identity HTTP wrapping (1:1 with exclusion IDs + CLI ACP).
+// identityTransportExcludedFactoryFns are root standardplugins factory functions for
+// excluded connectors that still register statically (custom-compatible kinds).
+// External excluded backends (Codex, OpenCode, ACP products) have no root factory.
 var identityTransportExcludedFactoryFns = []string{
-	"backendOpenAICodex",
-	"backendACP",
-	"backendCursorCLIACP",
-	"backendGeminiCLIACP",
-	"backendAGYCLIACP",
-	"backendCodexAppServer",
-	"backendOpenCodeGo",
-	"backendOpenCodeZen",
-	"backendOllama",
-	"backendOllamaCloud",
-	"backendLlamacpp",
-	"backendLmstudio",
-	"backendVllm",
-	"backendLocalStub",
 	"backendCustomOpenAILegacyCompatible",
 	"backendCustomOpenAIResponsesCompatible",
 	"backendCustomAnthropicCompatible",
@@ -218,8 +169,6 @@ var historicalPartialStandardpluginsIdentityScan = []string{
 	"backends_anthropic.go",
 	"backends_gemini.go",
 	"backends_bedrock.go",
-	"backends_openrouter.go",
-	"backends_misc.go",
 	"standard_table.go",
 }
 
@@ -244,8 +193,8 @@ func TestIdentityTransport_partialStandardpluginsScanMissesExcludedFactories(t *
 	if len(missed) == 0 {
 		t.Fatal("partial historical scan unexpectedly found every excluded factory; update demonstration if file layout changed")
 	}
-	if !slices.Contains(missed, "backendOpenAICodex") {
-		t.Fatalf("expected partial scan to miss backendOpenAICodex (lives in backends_openaicodex.go); missed=%v", missed)
+	if !slices.Contains(missed, "backendCustomOpenAILegacyCompatible") {
+		t.Fatalf("expected partial scan to miss backendCustomOpenAILegacyCompatible; missed=%v", missed)
 	}
 }
 
@@ -256,8 +205,6 @@ func TestIdentityTransport_approvedFactoriesCallResolveIdentityHTTP(t *testing.T
 	src := readStandardpluginsProductionGo(t, dir)
 
 	// Each approved connector factory must wrap identity HTTP (literal allowlist).
-	// OpenRouter inlines MergeUpstream+WrapClient so it can also bind AppURL/AppTitle;
-	// other approved factories use resolveIdentityHTTP.
 	wantResolve := []struct {
 		id  string
 		fn  string
@@ -268,9 +215,6 @@ func TestIdentityTransport_approvedFactoriesCallResolveIdentityHTTP(t *testing.T
 		{id: "anthropic", fn: "backendAnthropic", lit: `resolveIdentityHTTP(upstream, idCfg, n, "anthropic backend config")`},
 		{id: "gemini", fn: "backendGemini", lit: `resolveIdentityHTTP(upstream, idCfg, n, "gemini backend config")`},
 		{id: "bedrock", fn: "backendBedrock", lit: `resolveIdentityHTTP(upstream, idCfg, n, "bedrock backend config")`},
-		{id: "openrouter", fn: "backendOpenRouter", lit: `httpidentity.WrapClient(resolveUpstreamHTTP(upstream), eff.UserAgent)`},
-		{id: "nvidia", fn: "backendNvidia", lit: `resolveIdentityHTTP(upstream, idCfg, n, "nvidia backend config")`},
-		{id: "huggingface", fn: "backendHuggingface", lit: `resolveIdentityHTTP(upstream, idCfg, n, "huggingface backend config")`},
 	}
 	if len(wantResolve) != len(identityTransportApprovedBackendIDs) {
 		t.Fatalf("resolve lock count=%d want %d approved", len(wantResolve), len(identityTransportApprovedBackendIDs))
@@ -288,16 +232,13 @@ func TestIdentityTransport_approvedFactoriesCallResolveIdentityHTTP(t *testing.T
 		}
 	}
 
-	// Table must pass deps.Identity into each approved factory.
+	// Essential factories project identity through BackendFactoryDeps.Identity.
 	wantDeps := []string{
 		"return backendOpenAIResponses(n, upstream, keys, deps.Identity)",
 		"return backendOpenAILegacy(n, upstream, keys, deps.Identity)",
 		"return backendAnthropic(n, upstream, keys, deps.Identity)",
 		"return backendGemini(n, upstream, keys, deps.Identity)",
 		"return backendBedrock(n, upstream, deps.Identity)",
-		"return backendOpenRouter(n, upstream, keys, deps.Identity)",
-		"return backendNvidia(n, upstream, keys, deps.Identity)",
-		"return backendHuggingface(n, upstream, keys, deps.Identity)",
 	}
 	for _, lit := range wantDeps {
 		if !strings.Contains(src, lit) {
@@ -305,9 +246,7 @@ func TestIdentityTransport_approvedFactoriesCallResolveIdentityHTTP(t *testing.T
 		}
 	}
 
-	if len(identityTransportExcludedFactoryFns) != len(identityTransportExcludedBackendIDs) {
-		t.Fatalf("excluded factory fn count=%d want %d backend IDs", len(identityTransportExcludedFactoryFns), len(identityTransportExcludedBackendIDs))
-	}
+	// Static excluded factories must not receive identity HTTP wrapping.
 	for _, fn := range identityTransportExcludedFactoryFns {
 		body := factoryFuncBody(src, fn)
 		if body == "" {
@@ -377,7 +316,7 @@ func factoryFuncBody(src, fn string) string {
 func TestIdentityTransport_openaiCodexUserAgentVendorLiteralUnchanged(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	path := filepath.Join(root, "internal", "plugins", "backends", "openaicodex", "headers.go")
+	path := filepath.Join(root, "connectors", "codex", "internal", "codex", "headers.go")
 	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

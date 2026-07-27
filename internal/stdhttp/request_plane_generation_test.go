@@ -17,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/localstubreg"
 	"gopkg.in/yaml.v3"
 )
 
@@ -157,6 +158,9 @@ func newStdProcess(t *testing.T) *runtimebundle.ProcessServices {
 	t.Helper()
 	reg := pluginreg.NewRegistry()
 	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := localstubreg.RegisterInProcess(reg); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{

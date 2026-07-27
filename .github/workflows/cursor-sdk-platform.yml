@@ -4,8 +4,7 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
-      - "internal/plugins/backends/cursorsdk/**"
-      - "cmd/fake-cursor-sdk-bridge/**"
+      - "connectors/cursorsdk/**"
       - "scripts/test-cursor-sdk-platform.*"
       - "Makefile"
       - ".github/workflows/cursor-sdk-platform.yml"

@@ -1,19 +1,16 @@
 package lipsdk_test
 
 import (
-	"slices"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-func TestStandardDistributionRequirements_includesLmstudioBackend(t *testing.T) {
+func TestStandardDistributionRequirements_excludesLmstudioBackend(t *testing.T) {
 	t.Parallel()
-	req := lipsdk.StandardDistributionRequirements()
-	found := slices.ContainsFunc(req, func(r lipsdk.Requirement) bool {
-		return r.Kind == lipsdk.PluginKindBackend && r.ID == "lmstudio"
-	})
-	if !found {
-		t.Fatal(`expected "lmstudio" backend in standard distribution requirements`)
+	for _, r := range lipsdk.StandardDistributionRequirements() {
+		if r.Kind == lipsdk.PluginKindBackend && r.ID == "lmstudio" {
+			t.Fatal("lmstudio must not be mandatory after Phase 7 externalization")
+		}
 	}
 }

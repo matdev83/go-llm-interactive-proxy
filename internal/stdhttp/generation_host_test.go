@@ -5,19 +5,19 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestInitialGeneration_RunWithGenerationHostShutdown(t *testing.T) {
 	t.Parallel()
-	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	cfgPath := bpkit.WriteDogfoodLocalStubConfig(t)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

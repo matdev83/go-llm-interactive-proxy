@@ -30,8 +30,6 @@ var ParityProtocolEvidence = map[string][]string{
 	"gemini":           {"parity_gemini_test.go"},
 	"bedrock":          {"parity_bedrock_test.go"},
 	"acp":              {"parity_acp_test.go"},
-	"openrouter":       {"parity_openai_test.go"},
-	"nvidia":           {"parity_openai_test.go"},
 }
 
 // AllBundledProtocolIDs returns the sorted union of bundled frontend and backend protocol ids.

@@ -32,6 +32,7 @@ OpenRouter is deliberately classified as non-essential. Although it uses OpenAI-
 5. The root module shall not import a non-essential connector module directly or through a blank import, generated import table, build tag, or hidden transitive wrapper.
 6. If a non-essential connector adds Node, Python, Java, native libraries, vendor SDKs, or other runtime dependencies, then those dependencies shall remain confined to that connector’s independently buildable and installable artifact.
 7. The architecture test suite shall fail when a forbidden connector import, root-module dependency, or fixed non-essential registration is introduced.
+8. The essential bundle shall name its dependency-free protocol-compatible aliases explicitly as `custom-openai-responses-compatible`, `custom-openai-legacy-compatible`, and `custom-anthropic-compatible`; adding any other built-in alias shall require architecture review and proof that it adds no provider-specific dependency or behavior.
 
 ### Requirement 2: Versioned Public Backend Plugin Contract
 
@@ -47,6 +48,8 @@ OpenRouter is deliberately classified as non-essential. Although it uses OpenAI-
 6. Where a method or semantic is optional, the plugin shall advertise it explicitly and the host shall leave the corresponding internal capability unset rather than emulating unsupported behavior.
 7. The public contract shall support one plugin executable exporting one or more backend factory kinds without requiring a host code change for each exported kind.
 8. The SDK shall include a conformance harness and a minimal reference executable plugin that third-party authors can run without importing Go-LIP internals.
+9. The protobuf contract shall preserve absent, explicit zero, explicit empty, and JSON `null` states wherever the canonical contract distinguishes them by using explicit field presence and bounded raw-JSON envelopes rather than implicit scalar, repeated, or map presence models that cannot distinguish absence from zero or empty.
+10. Unknown protobuf fields may be tolerated for forward compatibility, but an unknown enum, feature, frame kind, or operation that affects required behavior shall fail closed before provider execution unless it was explicitly negotiated as optional.
 
 ### Requirement 3: Trusted Manifest Discovery and Dynamic Registration
 
@@ -62,6 +65,8 @@ OpenRouter is deliberately classified as non-essential. Although it uses OpenAI-
 6. If two manifests claim the same factory kind, then startup shall fail deterministically and identify both conflicting manifests.
 7. If an invalid or incompatible plugin is not referenced by any enabled backend configuration, then inspect/diagnostic output shall report it without preventing unrelated built-in or external backends from operating, unless strict discovery mode is configured.
 8. If an enabled backend references a missing, invalid, incompatible, or untrusted plugin, then startup shall fail for that configuration with an actionable error before serving traffic.
+9. Manifest v1 shall reference a native executable artifact only; scripts, shell command files, and interpreter entrypoints shall be rejected because v1 does not attest the interpreter runtime as part of executable identity.
+10. The upstream standard distribution shall supply machine-scoped defaults of `/opt/go-lip/plugins` on Linux, `/Library/Application Support/Go-LIP/plugins` on macOS, and `%ProgramFiles%\Go-LIP\plugins` on Windows; another packager may replace those defaults explicitly, and development mode shall not infer a per-user directory unless the operator configures it in `paths`.
 
 ### Requirement 4: Lazy Activation and Optional Presence
 
@@ -92,6 +97,7 @@ OpenRouter is deliberately classified as non-essential. Although it uses OpenAI-
 6. The host may restart a failed plugin for a later inventory refresh, request, or core-selected attempt, but it shall not replay an already opened attempt or hide a retry from core.
 7. The integration layer shall pass a stable host-runtime policy projection—timeouts, proxy posture, identity presentation, size limits, and allowed environment—not a shared in-process HTTP client or internal configuration object.
 8. The plugin process shall own provider SDK clients, provider transport plumbing, and provider-specific retries that comply with the advertised contract and core output-commitment rules.
+9. Backend construction shall return the internal backend value together with composition-owned, idempotent cleanup; process and instance lifecycle shall not be added to the core-consumed `execbackend.Backend` port or exposed through provider-specific lifecycle branches.
 
 ### Requirement 6: Canonical Streaming, Cancellation, and Error Semantics
 
@@ -107,6 +113,8 @@ OpenRouter is deliberately classified as non-essential. Although it uses OpenAI-
 6. If a plugin fails after the first client-visible output event, then the host shall preserve the failure as committed-attempt termination and shall not restart, replay, or fail over transparently.
 7. If a capability mismatch or lossy canonical mapping is detected, the plugin host shall fail before provider execution rather than silently dropping required inputs or events.
 8. The external plugin path shall preserve the same canonical conformance expectations as built-in connectors for text, reasoning, tools, multimodal content, usage, errors, and terminal ordering where those capabilities are advertised.
+9. Transport headers, handshake completion, an `accepted` frame, and non-client-visible canonical events shall not mark output commitment; commitment shall occur only when the decoded canonical event satisfies the same `lipapi.OutputCommitted` predicate used by built-in execution.
+10. The host shall disable automatic gRPC retries for execution and auxiliary operations; all retry or failover decisions shall remain explicit and owned by existing core policy.
 
 ### Requirement 7: Security, Trust, and Secret Handling
 
@@ -124,6 +132,9 @@ OpenRouter is deliberately classified as non-essential. Although it uses OpenAI-
 8. The startup validator shall continue to enforce each backend’s declared credential mode and access scope, including local-only restrictions.
 9. The core shall not auto-download, auto-update, or execute installation hooks from plugin manifests.
 10. When a security-sensitive manifest or launch-policy change is proposed, the system shall require dedicated threat-model and startup-security revalidation.
+11. Exact executable-byte identity and local transport peer identity shall be validated as separate mandatory gates; a digest, operating-system user identity, process ID, named-pipe token, or TLS certificate shall not be treated as proof of the other gate.
+12. Unix peer authentication shall bind the connection to the expected spawned process generation; same-user identity alone shall not authorize configuration or secret delivery.
+13. Where loopback mutual TLS is used, private bootstrap key material shall not be placed in the child environment and shall be delivered through an inherited private handle or an equivalently protected one-shot operating-system channel.
 
 ### Requirement 8: Configuration and Operator Compatibility
 
@@ -164,7 +175,7 @@ OpenRouter is deliberately classified as non-essential. Although it uses OpenAI-
 1. The final standard registration bundle shall contain no fixed registrations for ACP, Cursor CLI ACP, Gemini CLI ACP, Agy CLI ACP, Codex App Server, OpenAI Codex, OpenRouter, NVIDIA, Hugging Face, OpenCode Go, OpenCode Zen, Ollama, Ollama Cloud, llama.cpp, LM Studio, vLLM, or future Cursor SDK connectors.
 2. The migration shall preserve for each migrated connector its existing factory kind, security profile, route-prefix behavior, canonical conformance, and documented configuration unless a separately approved migration states otherwise.
 3. The migration shall move provider-specific helpers used only by non-essential connectors, including the Codex model catalog and OpenCode vendor-resolution wiring, out of generic core/factory dependencies and into the owning plugin module or a connector-support module.
-4. The shared ACP protocol, JSON-RPC, subprocess, session, cancellation, and mapping functionality may remain in the Go-LIP repository only as a dependency-light connector-support package or independently versioned module that does not import `internal/core` and is not required by the root build.
+4. The shared ACP protocol, JSON-RPC, subprocess, session, cancellation, and mapping functionality may remain in the Go-LIP repository only as a dependency-light connector-support package or independently versioned module that does not import `internal/core` and is not required by the root build; extraction shall replace internal lifecycle cancellation types with public plugin cancellation DTOs, require caller-owned HTTP transport policy instead of `internal/infra/httpclient`, and make executable lookup caches instance-owned rather than package-global.
 5. The concrete ACP products and authentication profiles shall live in executable connector modules and shall not be enumerated by the root binary.
 6. The migration shall use a reference external `local-stub` connector to prove the ABI, discovery, lifecycle, and conformance path before high-complexity provider migrations begin; test-only in-process stubs may remain under `internal/testkit`.
 7. The migration shall move OpenRouter as an external provider connector; generic OpenAI-compatible protocol modes may remain with built-in codecs only when they carry no OpenRouter-specific behavior or dependency.
@@ -187,6 +198,8 @@ OpenRouter is deliberately classified as non-essential. Although it uses OpenAI-
 8. Where a connector artifact bundles a private Node/Python/native companion, the root distribution shall not install or require that companion when the connector package is absent.
 9. The plugin upgrade and rollback process shall replace the external artifact and manifest without rebuilding the Go-LIP root binary, subject to protocol compatibility.
 10. The architecture decision records and steering documentation shall be updated to supersede the current static-only backend plugin model while preserving explicit construction and rejecting Go native shared-object plugins.
+11. The first-party release matrix shall cover `linux-amd64`, `linux-arm64`, `darwin-amd64`, `darwin-arm64`, `windows-amd64`, and `windows-arm64` for the host architecture; each connector manifest may advertise only the subset for which its artifact passes launch, IPC, lifecycle, and conformance gates.
+12. The root release workflow shall verify `GOWORK=off go list ./...`, `GOWORK=off go test ./...`, `GOWORK=off go build ./cmd/lipstd`, and `GOWORK=off go list -m all`, while connector workflows shall discover nested modules structurally and execute their checks with `GOWORK=off` from each module root.
 
 ### Requirement 12: Diagnostics, Testing, and Scale Readiness
 
@@ -204,3 +217,4 @@ OpenRouter is deliberately classified as non-essential. Although it uses OpenAI-
 8. The plugin data plane shall add no unbounded queues or whole-response buffering and shall preserve backpressure from the canonical consumer.
 9. The documentation shall include authoring, installation, trust, configuration, troubleshooting, compatibility, upgrade, rollback, and minimal-versus-full distribution guidance.
 10. The full design shall pass Kiro design validation against architecture alignment, maintainability, type safety, security, and complete requirement traceability before tasks are approved.
+11. CI shall execute native plugin security, launch, IPC, lifecycle, packaging, and upgrade/rollback gates on Linux, macOS, and Windows rather than treating the existing Ubuntu-only workflows as cross-platform evidence.

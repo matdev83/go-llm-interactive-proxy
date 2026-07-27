@@ -2,6 +2,9 @@ package lipsdk
 
 // StandardDistributionRequirements lists plugin ids the reference cmd/lipstd distribution
 // expects in configuration and registry factories. Single source for mandatory validation.
+// Phase 7/8 migrated OpenAI-compatible hosted/local runtimes, OpenCode Go/Zen, and
+// Codex (openai-codex / openai-codex-app-server) to external connectors; they are
+// discovered via manifests and must not appear here.
 func StandardDistributionRequirements() []Requirement {
 	return []Requirement{
 		{Kind: PluginKindFrontend, ID: "openai-responses"},
@@ -13,16 +16,6 @@ func StandardDistributionRequirements() []Requirement {
 		{Kind: PluginKindBackend, ID: "anthropic"},
 		{Kind: PluginKindBackend, ID: "gemini"},
 		{Kind: PluginKindBackend, ID: "bedrock"},
-		{Kind: PluginKindBackend, ID: "acp"},
-		{Kind: PluginKindBackend, ID: "openrouter"},
-		{Kind: PluginKindBackend, ID: "nvidia"},
-		{Kind: PluginKindBackend, ID: "opencode-go"},
-		{Kind: PluginKindBackend, ID: "opencode-zen"},
-		{Kind: PluginKindBackend, ID: "ollama"},
-		{Kind: PluginKindBackend, ID: "ollama-cloud"},
-		{Kind: PluginKindBackend, ID: "llamacpp"},
-		{Kind: PluginKindBackend, ID: "lmstudio"},
-		{Kind: PluginKindBackend, ID: "vllm"},
 		{Kind: PluginKindFeature, ID: "submit-noop"},
 		{Kind: PluginKindFeature, ID: "parts-noop"},
 		{Kind: PluginKindFeature, ID: "tool-reactor-noop"},

@@ -17,6 +17,7 @@ import (
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	accountingledger "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/ledger"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/processhost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
@@ -87,4 +88,9 @@ type ProcessServicesInput struct {
 	Log     *slog.Logger
 	Opts    *BuildOptions
 	Tracing ProcessTracing
+	// PluginHost and PluginStagingDir are process-owned discovered-plugin
+	// resources. When set, NewProcessServices takes sole ownership and closes
+	// them once after generation retirement (via Host.Close → ProcessServices.Close).
+	PluginHost       *processhost.Host
+	PluginStagingDir string
 }

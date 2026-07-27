@@ -186,14 +186,55 @@ func TestHostOwnership_LipstdUsesPublicSurface(t *testing.T) {
 		}
 		return true
 	})
+	// PrepareInspect returns *InspectPrepared (inspect/doctor session), not *Host.
+	// Public session fields Config/Registry are allowed only on those bindings.
+	inspectSessionIdents := prepareInspectSessionIdents(f)
 	ast.Inspect(f, func(n ast.Node) bool {
 		sel, ok := n.(*ast.SelectorExpr)
 		if !ok || sel.Sel == nil || callFuns[sel] {
 			return true
 		}
-		if hostOwnershipForbiddenExported[sel.Sel.Name] {
-			t.Errorf("%s: production lipstd must not access Host ownership field %s", lipstdCommandPath, sel.Sel.Name)
+		if !hostOwnershipForbiddenExported[sel.Sel.Name] {
+			return true
+		}
+		if id, ok := sel.X.(*ast.Ident); ok && inspectSessionIdents[id.Name] {
+			switch sel.Sel.Name {
+			case "Config", "Registry":
+				return true
+			}
+		}
+		t.Errorf("%s: production lipstd must not access Host ownership field %s", lipstdCommandPath, sel.Sel.Name)
+		return true
+	})
+}
+
+// prepareInspectSessionIdents returns local idents bound from runtimebundle.PrepareInspect.
+func prepareInspectSessionIdents(f *ast.File) map[string]bool {
+	out := map[string]bool{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		assign, ok := n.(*ast.AssignStmt)
+		if !ok || len(assign.Rhs) != 1 {
+			return true
+		}
+		call, ok := assign.Rhs[0].(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || sel.Sel == nil || sel.Sel.Name != "PrepareInspect" {
+			return true
+		}
+		pkg, ok := sel.X.(*ast.Ident)
+		if !ok || pkg.Name != "runtimebundle" {
+			return true
+		}
+		if len(assign.Lhs) == 0 {
+			return true
+		}
+		if id, ok := assign.Lhs[0].(*ast.Ident); ok && id.Name != "" && id.Name != "_" {
+			out[id.Name] = true
 		}
 		return true
 	})
+	return out
 }

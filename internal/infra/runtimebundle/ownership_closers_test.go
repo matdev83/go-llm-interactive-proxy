@@ -50,10 +50,28 @@ var closerAcquisitionOwnership = []ownershipEntry{
 	},
 
 	{
-		Symbol: "build_model.go:buildBackends:acq#0:assign:wrapped.Close=inst.Close#0",
+		Symbol: "build_lifecycle.go:RegisterPluginBuildCleanup:acq#0:append(closers, func:once.Do|normalizePluginCleanupErr|cleanup)#0",
+		Class:  ownershipGeneration,
+		Source: "build_lifecycle.go → RegisterPluginBuildCleanup",
+		Notes:  "Idempotent once-wrapped connector BuildResult cleanup for nil-ledger rollback bags.",
+	},
+	{
+		Symbol: "build_model.go:buildBackends:acq#0:assign:cleanup=res.Cleanup#0",
+		Class:  ownershipGeneration,
+		Source: "build_model.go → buildBackends BackendBuildResult.Cleanup",
+		Notes:  "Connector plugin composition-owned cleanup handle captured before ledger/closer registration.",
+	},
+	{
+		Symbol: "build_model.go:buildBackends:acq#1:assign:wrapped.Close=inst.Close#0",
 		Class:  ownershipGeneration,
 		Source: "build_model.go → buildBackends",
 		Notes:  "Canonical BackendInstance.Close when no ledger; ledger path registers AddClose and clears wrapped.Close.",
+	},
+	{
+		Symbol: "build_model.go:buildBackends:acq#2:append(nilLedgerRollback, inst.Close)#0",
+		Class:  ownershipGeneration,
+		Source: "build_model.go → buildBackends nilLedgerRollback",
+		Notes:  "Nil-ledger partial-build rollback bag for BackendInstance.Close; ledger path uses AddClose instead.",
 	},
 	{
 		Symbol: "build_persistence.go:buildPersistenceRuntime:acq#0:append(closers, c.Close)#0",

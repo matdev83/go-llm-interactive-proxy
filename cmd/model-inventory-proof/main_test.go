@@ -13,14 +13,12 @@ func TestCredentialedBackendCandidates_selectsOnlyConfiguredRemoteBackends(t *te
 
 	candidates, skipped := credentialedBackendCandidates(
 		standardplugins.UpstreamAPIKeys{
-			OpenAI:     []string{"openai-key"},
-			OpenRouter: []string{"openrouter-key"},
-			Nvidia:     []string{"nvidia-key"},
+			OpenAI: []string{"openai-key"},
 		},
 		awsEnvironment{Region: "us-east-1", AccessKeyID: true, SecretAccessKey: true},
 	)
 
-	want := []string{"openai-responses", "openai-legacy", "openrouter", "nvidia", "bedrock"}
+	want := []string{"openai-responses", "openai-legacy", "bedrock"}
 	if len(candidates) != len(want) {
 		t.Fatalf("candidate count = %d, want %d: %+v", len(candidates), len(want), candidates)
 	}
@@ -68,7 +66,7 @@ func TestBackendReportFromSnapshot_sortsModelsAndDoesNotExposeSecrets(t *testing
 	t.Parallel()
 
 	loadedAt := time.Date(2026, 6, 18, 9, 30, 0, 0, time.UTC)
-	report := backendReportFromSnapshot("openrouter", modelinventory.Snapshot{
+	report := backendReportFromSnapshot("openai-responses", modelinventory.Snapshot{
 		Source:   modelinventory.SourceRemote,
 		LoadedAt: loadedAt,
 		Models: []modelinventory.Model{

@@ -3,6 +3,7 @@ package runtimebundle
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -10,12 +11,13 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
 func dogfoodInspectPath(t *testing.T) string {
 	t.Helper()
-	return filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	return bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"))
 }
 
 func countingLoader(inner bootstrapEffectiveLoader, n *atomic.Int64) bootstrapEffectiveLoader {
@@ -111,5 +113,41 @@ func TestInspect_NilContextAndEmptyPath(t *testing.T) {
 	_, err = InspectInventory(t.Context(), InspectInput{})
 	if err == nil {
 		t.Fatal("expected empty path error")
+	}
+}
+
+func TestPrepareInspect_DiscoversLocalStubAndCleansHostStaging(t *testing.T) {
+	t.Parallel()
+	prep, err := PrepareInspect(t.Context(), InspectInput{
+		ConfigPath: dogfoodInspectPath(t),
+		Mandatory:  lipsdk.StandardDistributionRequirements(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prep.Config == nil || prep.Registry == nil {
+		t.Fatal("expected config and registry")
+	}
+	if !prep.Registry.HasBackend("local-stub") {
+		t.Fatal("expected discovered local-stub factory on registry")
+	}
+	if prep.PluginHost() == nil {
+		t.Fatal("expected process host for discovered exports")
+	}
+	staging := prep.stagingDir
+	if staging == "" {
+		t.Fatal("expected staging directory")
+	}
+	if err := prep.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if prep.PluginHost() != nil || prep.stagingDir != "" {
+		t.Fatal("Close must clear host and staging ownership")
+	}
+	if err := prep.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+	if _, err := os.Stat(staging); !os.IsNotExist(err) {
+		t.Fatalf("staging after Close: err=%v", err)
 	}
 }

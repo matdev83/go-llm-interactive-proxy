@@ -4,7 +4,8 @@
 # Without opt-in: exit 0 BLOCKED (safe skip). Not a green live proof.
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-Set-Location $root
+Set-Location (Join-Path $root "connectors/cursorsdk")
+$env:GOWORK = "off"
 
 if ($env:CURSOR_SDK_LIVE -ne "1") {
   Write-Host "BLOCKED: CURSOR_SDK_LIVE=1 not set; skipping cursor-sdk live-bridge harness"
@@ -31,7 +32,7 @@ if (-not $env:CURSOR_API_KEY -or $env:CURSOR_API_KEY.Trim().Length -eq 0) {
 }
 
 try {
-  go test -v -count=1 -timeout=10m -tags=cursorsdk_live_bridge -run '^TestLiveBridgeHarness_Live$' ./internal/plugins/backends/cursorsdk
+  go test -v -count=1 -timeout=10m -tags=cursorsdk_live_bridge -run '^TestLiveBridgeHarness_Live$' ./internal/product
   exit $LASTEXITCODE
 } finally {
   if ($clearProcessKey) {

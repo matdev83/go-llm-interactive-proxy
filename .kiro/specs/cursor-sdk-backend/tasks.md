@@ -1,269 +1,94 @@
 # Implementation Plan
 
-- [x] 1. Lock the exact SDK and bridge contracts with tests first
-- [x] 1.1 Revalidate the pinned Cursor SDK local-agent contract
-  - Add an isolated probe harness for the exact pinned SDK version that captures model-list, local agent create/send, delta, step, terminal, usage, cancel, dispose, and shutdown shapes without committing raw account or workspace content.
-  - Convert the validated shapes into sanitized fixtures and bridge contract tests before adding production bridge behavior.
-  - Record unsupported or ambiguous semantics by narrowing the capability matrix rather than guessing mappings.
-  - _Boundary: Backend plugin research and tests_
+Spec-driven product implementation remains pending. Paths below target the **external**
+`connectors/cursorsdk` artifact. Do not create `internal/plugins/backends/cursorsdk`.
+
+- [x] 0. Spec gates (Task 8.3 of backend-connector-plugin-architecture) ÔÇö COMPLETE when `make kiro-spec-check SPEC=cursor-sdk-backend` passes
+  - Keep requirements/design/tasks/file-plan/packaging/AGENTS aligned with external connector architecture.
+  - Evidence (2026-07-20T10:42:51+02:00): `make kiro-spec-check SPEC=cursor-sdk-backend` PASS; archtest `TestCursorSDK_*` PASS; product implementation still blocked (`ready_for_implementation: false`).
+  - _Validation: `make kiro-spec-check SPEC=cursor-sdk-backend`_
+
+- [ ] 1. Lock the exact SDK and bridge contracts with tests first
+- [ ] 1.1 Revalidate the pinned Cursor SDK local-agent contract
+  - Isolated probe under `connectors/cursorsdk/bridge-node` for the exact pinned SDK version.
+  - Convert validated shapes into sanitized fixtures before production bridge behavior.
+  - _Boundary: External connector research_
   - _Depends: none_
-  - _Validation: `(cd internal/plugins/backends/cursorsdk/bridge && npm test -- --runInBand)`_
-  - _Requirements: 2.6, 4.1, 4.6, 4.7, 4.8, 6.3, 6.4, 7.1, 9.5, 12.1, 12.3, 12.4_
-  - _Resolved evidence:_ `@cursor/sdk` 1.0.23, Node `>=22.13`, structured models, incremental deltas, per-turn usage, cancellation, disposal, Windows sandbox fail-closed behavior, and same-process reuse were revalidated before implementation. Production fixtures/tests still implement this task's executable evidence.
-  - _Completion evidence:_ Shared sanitized fixtures; opt-in `liveProbe.ts` + `liveProbeLib.ts` with per-phase/total timeouts, adapter-private in-memory `LocalAgentStore` (`inMemoryLocalAgentStore.ts` via exported interface; SDK's createInMemoryLocalAgentStore is not publicly exported), mocked coverage of models.list/create/send/onDelta/onStep/usage/cancel/dispose/timeouts without network; pin `@cursor/sdk@1.0.23`. Verified: `go test ./internal/plugins/backends/cursorsdk/...`; bridge `npm ci && npm run typecheck && npm test`.
+  - _Validation: `(cd connectors/cursorsdk/bridge-node && npm test -- --runInBand)`_
+  - _Requirements: 2.6, 4.1, 4.6, 4.7, 4.8, 6.3, 6.4, 7.1, 9.5, 12.1, 12.3, 13.6_
 
-- [x] 1.2 Define the versioned NDJSON bridge protocol
-  - Write failing Go and TypeScript contract tests for initialize/version negotiation, request-response correlation, run event sequence, frame bounds, unknown mandatory messages, duplicate terminals, and safe error envelopes.
-  - Define one source-of-truth protocol fixture set consumed by both language test suites without sharing Cursor SDK types.
-  - Include models/list, agent/create, agent/send, run/cancel, agent/dispose, bridge/health, and bridge/shutdown methods.
-  - _Boundary: Backend plugin bridge contract_
+- [ ] 1.2 Define the versioned NDJSON bridge protocol
+  - Failing Go + TypeScript contract tests for initialize/version, correlation, bounds, unknown mandatory, duplicate terminals.
+  - Methods: models/list, agent/create, agent/send, run/cancel, agent/dispose, bridge/health, bridge/shutdown.
+  - _Boundary: External connector bridge contract_
   - _Depends: 1.1_
-  - _Validation: `go test ./internal/plugins/backends/cursorsdk/... && (cd internal/plugins/backends/cursorsdk/bridge && npm test)`_
-  - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.7, 6.10, 11.1, 11.2, 12.1, 12.3_
-  - _Completion evidence:_ Go `protocol` + TS `bridge/src/protocol.ts` + `params.ts`; schema v1; 16 MiB frames; request/response correlation; run sequencer; methods `bridge/initialize|health|shutdown`, `models/list`, `agent/create|send|dispose`, `run/cancel`; event kinds per design. Typed request DTOs (create uses `local.cwd`; apiKey only on models/list + agent/create). Shared `protocol/*` fixtures with full capability manifest. Hardening: safe error redaction, result/error exclusivity, id/method mismatch, non-mutating EncodeFrame, integer seq. Verified with Go + Node contract tests.
+  - _Validation: `(cd connectors/cursorsdk && GOWORK=off go test ./...) && (cd connectors/cursorsdk/bridge-node && npm test)`_
+  - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.7, 6.10, 11.1, 11.2, 12.1, 12.3, 13.2_
 
-- [x] 1.3 Build deterministic fake-bridge and SDK-mock test harnesses
-  - Add a fake executable that can script startup, models, agent events, malformed frames, blocked cancellation, stderr output, process exit, and shutdown.
-  - Add a mocked SDK runtime for Node tests that tracks agent/run creation and proves disposal with no open handles.
-  - Ensure default tests require neither Node installation for Go-only packages nor external network/account access.
+- [ ] 1.3 Build deterministic fake-bridge harnesses
+  - Fake companion executable for Go tests; mocked SDK runtime for Node tests.
+  - Default Go tests require neither Node nor network/account access.
   - _Boundary: Tests_
   - _Depends: 1.2_
-  - _Validation: `go test ./internal/plugins/backends/cursorsdk/... && (cd internal/plugins/backends/cursorsdk/bridge && npm test)`_
+  - _Validation: `(cd connectors/cursorsdk && GOWORK=off go test ./...)`_
   - _Requirements: 2.5, 7.3, 7.4, 7.7, 8.5, 8.9, 8.10, 12.2, 12.3_
-  - _Completion evidence:_ Go `fakebridge` harness + `cmd/fake-cursor-sdk-bridge`; subprocess tests cover startup/initialize, models/events, malformed, real oversize (`MaxFrameBytes+1` rejected as `frame_too_large`), out-of-order, blocked cancel, bounded stderr, exit code, shutdown/ignore-shutdown. Node `sdkMock.ts` nests `local.*` like SDK 1.0.23. Default Go tests need no Node/network. Verified: `go test ./.../fakebridge` and Node mock tests pass.
 
-- [x] 2. Add composition-root lifecycle, configuration, and inventory foundations
-- [x] 2.1 Add the optional backend shutdown seam
-  - Write failing tests proving a backend closer is collected after construction, invoked once on normal runtime shutdown, and invoked during rollback when later model-runtime assembly fails.
-  - Add the additive optional close callback to `execbackend.Backend` and keep nil behavior unchanged for every existing backend.
-  - Make backend-construction rollback close already-created resources in reverse order without masking the originating error.
-  - _Boundary: Internal core contract and composition root_
+- [ ] 2. Connector module skeleton and packaging
+- [ ] 2.1 Create `connectors/cursorsdk` module, release.yaml, closed manifest
+  - Export `cursorsdk` with static / local_only / per_instance.
+  - Declare bridge-node private companion; no root Node deps.
+  - Archtests: forbidden root paths; no root require/replace.
+  - _Boundary: External connector packaging_
   - _Depends: 1.3_
-  - _Validation: `go test ./internal/core/execbackend ./internal/infra/runtimebundle ./internal/stdhttp`_
-  - _Requirements: 8.5, 8.6, 8.7, 8.8, 8.9_
-  - _Completion evidence:_ Additive optional `execbackend.Backend.Close`; `buildBackends` reverse-order rollback via existing `withDisposedClosers`; `buildModelRuntime` registers non-nil closers before inventory/registry start. Tests: nil no-op, collection + reverse dispose, construction-failure join without masking origin, later `strict_authoritative` rollback, stdhttp `releaseBuiltResources` once/reverse. RED: compile fail without field, then behavioral fail without wiring. GREEN: `go test ./internal/core/execbackend ./internal/infra/runtimebundle ./internal/stdhttp -count=1` pass; `gofmt`; `git diff --check` clean.
+  - _Validation: `make kiro-spec-check SPEC=cursor-sdk-backend && go test ./internal/archtest -run CursorSDK`_
+  - _Requirements: 1.1, 3.4, 3.5, 13.1, 13.4, 13.5, 13.6, 13.7_
 
-- [x] 2.2 Add Cursor SDK key and YAML configuration
-  - Write failing tests for `CURSOR_API_KEY` fallback, explicit `api_key` precedence, missing-key redaction, bridge executable lookup, unknown keys, duration/limit bounds, local-only registration, and no ACP config regression.
-  - Add the Cursor SDK key to composition-root environment resolution without numbered credential rotation in this phase.
-  - Add the `cursorsdk` factory with sandbox-required and empty-setting-source defaults; prohibit shell and runtime npm installation paths.
-  - _Boundary: Config and wiring_
+- [ ] 2.2 Implement backendplugin service surface
+  - Describe/Configure/Execute/ListModels/Close via public ABI; conformance against fake bridge.
+  - Secrets via Configure secrets map; never argv.
+  - _Boundary: External connector ABI_
   - _Depends: 2.1_
-  - _Validation: `go test ./internal/standardplugins ./internal/pluginreg ./internal/infra/runtimebundle`_
-  - _Requirements: 1.1, 1.2, 1.5, 2.6, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 9.4, 9.5, 9.6, 9.8, 11.6_
-  - _Completion evidence:_ `UpstreamAPIKeys.Cursor` from bare `CURSOR_API_KEY` only (no `_N`). `cursorsdk.Normalize` + `Scaffold` retains full normalized Config (key via `APIKeyEquals` only; `ConfigSansSecret` clears it). YAML precedence/env fallback proven through `parseCursorSDKScaffold`. Secret redaction proven with injected secret (`secretSafeCursorSDKErr`) and present-key error paths. SettingSource pinned to `@cursor/sdk@1.0.23` (`project|user|team|mdm|plugins|all` fixture). Sandbox default `required` accepted on all GOOS (Windows pre-send fail-closed deferred). Platform minimum env allowlist + `SelectHostEnv` filter (no process-owner claim). Experimental optional `StandardBackendBundle` registration (`CredentialStatic`+`LocalOnly`), excluded from `StandardDistributionRequirements`; ACP unchanged. `Open` → `ErrConstructionNotImplemented`. Inventory YAML uses fake exe for metadata only. GREEN: `go test ./internal/standardplugins ./internal/pluginreg ./internal/infra/runtimebundle ./internal/plugins/backends/cursorsdk -count=1`; `go vet`; `gofmt`; `git diff --check` clean.
+  - _Validation: `(cd connectors/cursorsdk && GOWORK=off go test ./... -run 'TestDescribe_|TestConfigure_|TestParity_|TestConformance')`_
+  - _Requirements: 3.1, 3.2, 3.3, 3.7, 3.8, 13.2, 13.3_
 
-- [x] 2.3 Add structured SDK model inventory and coexistence tests
-  - Write failing tests that SDK and ACP backend instances can publish the same `cursor/...` canonical model while retaining distinct backend kinds, instance provenance, and route prefixes.
-  - Implement models/list normalization, accepted-inventory tracking, static override support, and fail-soft operational errors.
-  - Add model-aware capability profiles that advertise only the exact mappings proven by Task 1.
-  - _Boundary: Backend plugin and model inventory_
-  - _Depends: 1.2, 2.2_
-  - _Validation: `go test ./internal/plugins/backends/cursorsdk ./internal/core/modelregistry ./internal/infra/runtimebundle`_
-  - _Requirements: 1.3, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 11.1, 11.2_
-  - _Completion evidence:_ `ModelListSource` + `StaticModelListSource` (fake now, bridge later); `normalizeModelRows` → `cursor/<native>` (strips `cursor-` like ACP for non-slash natives; SDK short-circuits already-`cursor/...`); private `reasoningProfile` exact values (no xhigh↔extra-high alias; effort only via thinking=true variants); `Catalog` + fail-soft last-known-good (failed/duplicate reload does not Replace); `Scaffold.Backend` wires `acp.TrackingInventory` + `ResolveCaps` empty until AcceptInventory, then streaming + proven reasoning only (omit tools/vision/docs/structured/parallel); factory YAML `models` via `applyConfiguredTrackingModelInventory`. Repair: empty-caps gate; last-known-good reload test; profile/no-alias test; real normalize coexistence + `cursor-` parity; nil-source operational; concurrent Load/Accept/Resolve. GREEN: `go test ./internal/plugins/backends/cursorsdk ./internal/core/modelregistry ./internal/infra/runtimebundle ./internal/standardplugins -count=1`; `go vet`; `gofmt`; `git diff --check` clean. No production bridge/Open/pool.
+- [ ] 3. Node bridge companion
+- [ ] 3.1 Startup, version, models/list
+  - _Validation: `(cd connectors/cursorsdk/bridge-node && npm test && npm run typecheck)`_
+  - _Requirements: 2.1, 2.2, 2.4, 2.5, 2.6, 4.1, 4.4, 11.1, 11.2, 12.3, 13.6_
 
-- [x] 3. Implement the project-owned Node SDK bridge
-- [x] 3.1 Implement startup, version reporting, and structured model discovery
-  - Start from failing protocol tests for lazy SDK loading, exact package/version reporting, incompatible protocol rejection, missing Node/SDK errors, and model normalization.
-  - Keep stdout protocol-only and route bounded diagnostics to stderr.
-  - Ensure model discovery uses the official SDK API and never invokes or parses Cursor CLI output.
-  - _Boundary: Backend plugin Node bridge_
-  - _Depends: 1.1, 1.2_
-  - _Validation: `(cd internal/plugins/backends/cursorsdk/bridge && npm test && npm run typecheck)`_
-  - _Requirements: 2.1, 2.2, 2.4, 2.5, 2.6, 4.1, 4.4, 11.1, 11.2, 12.3_
-  - _Completion evidence:_ `createBridgeServer` + lazy `loadPublishedSdk`; initialize/health/models/list; protocol-only stdout + 8KiB stderr. Repair: `readInstalledCursorSdkVersion` uses Node resolve + filesystem walk (export maps omit `./package.json`); never substitutes pinned constant; initialize fails on missing/unreadable/mismatched version before SDK import; errors path-sanitized. GREEN (post-repair): `npm test` 65/65 incl. `sdk_runtime.test.ts`, typecheck; real install discovers `1.0.23`. No commit (user request).
+- [ ] 3.2 Local agent create/send streaming
+  - _Requirements: 5.1, 5.6, 6.2, 6.3, 6.4, 6.5, 6.6, 6.8, 9.1, 9.2, 9.4, 9.5, 9.6, 9.7_
 
-- [x] 3.2 Implement local agent creation and run streaming
-  - Add failing tests for workspace/model/API-key/MCP/settings/sandbox option mapping and for create/send state transitions.
-  - Normalize verified SDK text, reasoning, usage, activity, warning, terminal, and error surfaces into bridge events with monotonic sequence numbers.
-  - Keep SDK-native tool and MCP activity classified as internal activity rather than client tool calls.
-  - Construct agents with an adapter-private in-memory local store, explicit `settingSources`, `sandboxOptions`, and `autoReview`; force `enableAgentRetries: false`, omit custom tools, and never use `Agent.resume` or `local.force`.
-  - _Boundary: Backend plugin Node bridge_
-  - _Depends: 3.1_
-  - _Validation: `(cd internal/plugins/backends/cursorsdk/bridge && npm test && npm run typecheck)`_
-  - _Requirements: 3.2, 3.8, 5.1, 5.6, 6.2, 6.3, 6.4, 6.5, 6.6, 6.8, 9.1, 9.2, 9.4, 9.5, 9.6, 9.7_
-  - _Completion evidence:_ `agents.ts` AgentPool; create maps store/cwd/settings/sandbox/autoReview + forced `enableAgentRetries:false`; send → runId + monotonic events; turn-ended usage only; tool steps → activity. RED: missing agents.js. GREEN: npm test 43/43, typecheck. Reviewer APPROVED. No commit (user request).
+- [ ] 3.3 Cancel, dispose, shutdown, open-handle tests
+  - _Requirements: 5.6, 5.7, 7.1, 7.2, 7.7, 8.1, 8.5, 8.7, 9.3, 12.3, 13.9_
 
-- [x] 3.3 Implement run cancel, agent disposal, and bridge shutdown
-  - Add failing tests for idempotent cancel/dispose/shutdown, cancellation timeout behavior, rejected new work during shutdown, and unexpected SDK exceptions.
-  - Track only bridge-created agents and runs; never sweep an external/global SDK store.
-  - Exit cleanly after disposing recorded resources and ensure tests detect open handles or late unhandled failures.
-  - _Boundary: Backend plugin Node bridge_
-  - _Depends: 3.2_
-  - _Validation: `(cd internal/plugins/backends/cursorsdk/bridge && npm test && npm run typecheck)`_
-  - _Requirements: 5.6, 5.7, 7.1, 7.2, 7.7, 8.1, 8.5, 8.7, 9.3, 12.3_
-  - _Completion evidence:_ Cancel timeout keeps stuck run + `done` ownership (no mock-only `abortLocally`); exactly one error terminal; cancel rejects then idempotent; agent `invalidated` against new sends; dispose/shutdown wait with `cancelTimeoutMs` bounds and surface `cursor_sdk_dispose_timeout` / `cursor_sdk_shutdown_timeout`; disposal prefers `[Symbol.asyncDispose]` with `close()` fallback (no `dispose()`). GREEN (post-repair): npm test 65/65, typecheck; Go protocol/fakebridge pass. Hard process-tree kill deferred to Task 4. No commit (user request).
-  - _Evidence (repair-wave):_ Concurrent control dispatch (`CONTROL_METHODS` bypass `MAX_INFLIGHT=8`) while `agent/send` pending; shutdown rejects new work + drains inflight; late post-terminal deltas dropped via seqGuard (no crash); `redactMessage` covers exact secrets + `sk-`/`crsr_`/`apiKey=`. GREEN (bookkeeping host): bridge `npm test` 81/81 + typecheck. No production edit this note. No commit.
+- [ ] 3.4 Package companion reproducibly (lockfile, engines, doctor --version)
+  - _Requirements: 2.6, 3.5, 3.6, 3.7, 11.1, 11.6, 12.5, 13.6_
 
-- [x] 3.4 Package the companion bridge reproducibly
-  - Add exact dependency pinning, lockfile verification, supported Node engine declaration, executable entry point, and package-content tests.
-  - Add a safe `--version`/doctor path that does not load credentials or create agents.
-  - Prohibit install-time product behavior beyond ordinary package build requirements and document that Go-LIP never performs installation.
-  - _Boundary: Backend plugin packaging_
-  - _Depends: 3.1, 3.3_
-  - _Validation: `(cd internal/plugins/backends/cursorsdk/bridge && npm ci && npm test && npm pack --dry-run)`_
-  - _Requirements: 2.6, 3.5, 3.6, 3.7, 11.1, 11.6, 12.5_
-  - _Completion evidence:_ Exact `@cursor/sdk@1.0.23` + lockfile pin; `engines.node >=22.13`; `bin/lip-cursor-sdk-bridge.js`; `--version`/`doctor` without credentials/agents; pack 23 files. GREEN (post-repair): typecheck, npm test 65/65, build, pack --dry-run; smoke `--version`/`doctor`; Go `./internal/plugins/backends/cursorsdk/...` pass; `git diff --check` clean. Residual: Windows `npm ci` EPERM unlink on locked `node_modules/@esbuild/.win32-x64-*/esbuild.exe` (errno -4048); restored via `npm install` (did not kill unrelated processes); do not claim clean `npm ci` on this host. No commit (user request).
+- [ ] 4. Go bridge owner, pool, stream
+- [ ] 4.1 Bridge process owner (singleflight, handshake, bounded IO, kill tree)
+  - _Validation: `(cd connectors/cursorsdk && GOWORK=off go test -race ./... -run 'Bridge|Process|Kill')`_ (Linux CI)
+  - _Requirements: 2.7, 3.5, 3.8, 7.3, 7.4, 7.7, 8.1, 8.5, 8.7, 8.8, 8.9, 8.10, 13.9_
 
-- [x] 4. Implement Go bridge process and agent lifecycle
-- [x] 4.1 Implement the bridge process owner
-  - Add failing tests for startup singleflight, version handshake, bounded stdout/stderr readers, unexpected exit, generation invalidation, restart on a later operation, graceful shutdown, hard-kill fallback, and exactly-once wait.
-  - Spawn directly without a shell, construct the allowed environment explicitly, and keep the API key off argv and environment.
-  - Preserve platform process-tree behavior: process groups on Unix and Windows, current-generation PID/executable/start-time verification before delayed termination, and exactly one process wait.
-  - Make `Close` idempotent and suitable for runtimebundle rollback and shutdown.
-  - _Boundary: Backend plugin process runtime_
-  - _Depends: 1.3, 2.1, 3.4_
-  - _Validation: `go test -race ./internal/plugins/backends/cursorsdk/...`_
-  - _Requirements: 2.7, 3.5, 3.8, 7.3, 7.4, 7.7, 8.1, 8.5, 8.7, 8.8, 8.9, 8.10, 9.8_
-  - _Evidence (final repair): Close coordinates startFlight (fail pending + interrupt installed proc; bounded flight wait separate from reap timeout); late Start after closed Kill+Wait once, never ready; killAndReapOwned bounded wait + handle-kill fallback on identity mismatch (delayed kill still skips mismatch); processInspector instance injection (no package globals); Unix `TestKillProcessTree_unixProcessGroupDescendants` + Windows taskkill tests. Proof: `go test ./internal/plugins/backends/cursorsdk/...` PASS; `go vet` clean; `CGO_ENABLED=0 GOOS=linux/windows go test -c` PASS; `git diff --check` clean; `go test -race` unavailable (Windows cgo toolchain exit). Not in scope: 4.2+._
-  - _Evidence (repair-wave):_ Production cancel-timeout path wires `GenerationKiller` (`connector` → `RunStreamOpts`) and `KillGeneration` identity-protects current gen; peer death invalidates matching generation; `RunStream.Close` best-effort bounded `Cancel`. Proof: focused cancel-timeout/kill + full `cursorsdk/...` PASS. Residual: `-race` unavailable on Windows cgo. No commit.
+- [ ] 4.2 History coordination and agent pool
+  - _Requirements: 5.1ÔÇô5.8, 8.2, 8.3, 8.4, 8.10, 9.2_
 
-- [x] 4.2 Implement canonical history coordination and bounded agent pooling
-  - Add failing tests for new bootstrap, incremental sends, transcript edits/truncation/reordering, model/workspace/key/settings/MCP/safety changes, same-key busy conflicts, different-key concurrency, idle eviction, max-agent exhaustion, and bridge-generation changes.
-  - Commit history only after send acceptance and invalidate uncertain agents after cancel, run error, or bridge failure.
-  - Keep state process-local and explicitly avoid `Agent.resume`.
-  - _Boundary: Backend plugin session runtime_
-  - _Depends: 4.1_
-  - _Validation: `go test -race ./internal/plugins/backends/cursorsdk -run 'History|Session|Pool|Agent'`_
-  - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 8.2, 8.3, 8.4, 8.10, 9.2_
-  - _Evidence (repair): SessionID→one active identity (`bySession`); identity-component change disposes old (LiveCount=1); `pendingCommit` + commit-before-`ReleaseReady` (`ErrCommitRequired`); empty bootstrap/suffix rejected (`ErrEmptyPrompt`); `ErrRunLimit` vs `ErrAgentLimit`; `PrepareSend` calls `ReapIdle`; workspace hashed in `DiagnosticString`; create-fail rollback + key redaction; history fail-closed edit/reorder/head-hash/truncation; Close idempotent + concurrent Prepare stress. Proof: focused `History|Session|Pool|Agent` PASS; full package PASS; `go vet` + `CGO_ENABLED=0 GOOS=linux/windows go test -c` PASS; `git diff --check` clean; `-race` unavailable (Windows cgo). Out of scope: 4.3+._
+- [ ] 4.3 Managed canonical stream mapping
+  - _Requirements: 6.1ÔÇô6.10, 7.5, 7.6, 10.*, 13.8_
 
-- [x] 4.3 Implement the managed SDK run stream
-  - Add failing tests for start/content/usage/terminal order, EOF, frame and event bounds, conservative usage, duplicate/out-of-order events, close, provider cancel, transport cancel, and history commit.
-  - Map only verified per-turn usage fields and omit cumulative/full-agent counters.
-  - Consume `onDelta` `text-delta`/`thinking-delta` and `turn-ended.usage`; do not re-emit cumulative `run.usage` or `RunResult.usage`. Validate every canonical event envelope before release.
-  - Ensure internal activity cannot become canonical tool calls or leak content into warnings.
-  - _Boundary: Backend plugin stream adapter_
-  - _Depends: 3.2, 4.1, 4.2_
-  - _Validation: `go test -race ./internal/plugins/backends/cursorsdk -run 'Stream|Event|Usage|Cancel'`_
-  - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.8, 6.9, 6.10, 7.1, 7.2, 7.3, 7.4, 10.4, 10.5_
-  - _Completion evidence:_ `event_mapper.go` + `stream.go` (`RunStream`/`ManagedEventStream`): bridge seq monotonic + envelope validation; inject `response_started`/`message_started`; map `text_delta`/`reasoning_delta`/per-turn `usage`/safe `warning`/`finished`/`error`; drop `activity` (no tool calls / content leak); incomplete/negative usage omitted; post-terminal/out-of-order/malformed/oversize fail + `InvalidateLease`; success → `ReleaseReady`; cancel/error/bridge death → invalidate; caller `CommitSend` after send accept (no stream commit/replay); `Cancel` → `run/cancel` (provider) with timeout → transport + `OnCancelTimeout`; Close idempotent; narrow `RunBridge` + `CancelRun` on `AgentBridge`. Proof: focused `Stream|Event|Usage|Cancel` PASS; full package PASS; `go vet` + `CGO_ENABLED=0 GOOS=linux/windows go test -c` PASS; `git diff --check` clean; `-race` unavailable (Windows cgo). Out of scope: 4.4 failure classification, 5.x Open/prompt._
-  - _Evidence (repair):_ Review REJECT fixed. RED: new tests `ReleaseReadyError|MissingCommit|PendingQueue|DefaultPending|SanitizeWarning|RunSub_Deliver|TerminalEndsSubscription` failed compile (missing `errRunSubOverflow`/`pendingCap`/`defaultRunStreamPending`/`sanitizeWarningMessage(msg,key)`). GREEN: (1) `ReleaseReady` error → `EventError` + `InvalidateUncommitted`, no `response_finished` (pool missing `CommitSend` covered); (2) terminal ends sub ownership then EOF — late frames after unsub not stream-visible; Task4.1 `runSub` auto-closes after terminal + rejects late/`errRunSubClosed`; buffer full → `errRunSubOverflow` close (no silent drop); (3) default pending 32, clamp 256, overflow → `ErrPendingQueueFull` + invalidate; (4) `sanitizeWarningMessage` via `sanitizeBridgeDiag` + tool-like redaction (paths/secrets/prompt/args/content). Proof: focused PASS; full package PASS; `go vet` + linux/windows `-c` PASS; `git diff --check` clean; `-race` unavailable (Windows cgo)._
-  - _Evidence (repair2):_ Close/Cancel vs terminal unsub race fixed. RED: `TestRunStream_TerminalUnsubCloseCancelMutualExclusion` failed (invalidate during unsub then still emitted `response_finished`). GREEN: `finishTerminalLocked` sets `after=true` + snaps/unsets unsub under `mu` before unlock; lease release/invalidate after unsub with `finalized!=0` check; `invalidateLocked` no-ops when already released; mutual exclusion — success+`ReleaseReady` XOR cancel+`EventError`, never both; Close no-op once `after`. Proof: race test `-count=20` PASS; focused+full+vet+linux/windows `-c` PASS; `git diff --check` clean; `-race` unavailable (Windows cgo)._
-  - _Evidence (repair-wave):_ `runSub` overflow closes with `errRunSubOverflow` → `TerminalErr`/`runSubTerminalFault` → nonrecoverable `CodeBridgeProtocol` (not channel-EOF `BridgeExited`); event map passes API key + `redactKeyishSecrets` (`sk-`/`crsr_`). Proof: `run_sub_overflow_stream_test` + sanitize/event tests; full package PASS. No commit.
+- [ ] 5. Host integration proofs
+- [ ] 5.1 Windows/Linux BuildBootstrap e2e with staged plugin + fake bridge companion
+  - Real discovery/trust/IPC; no TestLauncher/Fake DialSession; no live Cursor account.
+  - _Validation: `go test ./internal/infra/runtimebundle -run TestPhase.*CursorSDK`_
+  - _Requirements: 13.3, 12.2, 12.5_
 
-- [x] 4.4 Implement classified bridge and SDK failure recovery
-  - Add failing tests for missing executable, incompatible bridge, auth failure, unknown model, busy/limit, process exit before output, process exit after output, protocol violation, cancellation timeout, and restart on the next request.
-  - Wrap only safe pre-output transient failures as recoverable; keep auth/config/capability failures non-recoverable.
-  - Invalidate all generation-local handles after bridge death and never replay a committed attempt.
-  - _Boundary: Backend plugin error adapter_
-  - _Depends: 4.1, 4.3_
-  - _Validation: `go test ./internal/plugins/backends/cursorsdk -run 'Error|Failure|Crash|Restart'`_
-  - _Requirements: 2.5, 3.3, 7.4, 7.5, 7.6, 7.7, 7.8, 10.2, 10.3, 10.4, 11.2, 11.3, 11.4_
-  - _Completion evidence:_ `classify.go` + `recovery.go`: stable `FailureCode`s; `ClassifyFailure`/`MapOrchestrationError` wrap only safe pre-output transport (`bridge_exited`/`bridge_start_failed`) via `lipapi.RecoverablePreOutputError`; auth/config/incompatible/protocol/busy/limit/cancel-timeout/model non-recoverable; post-output death non-recoverable; secret/path/prompt redaction via `sanitizeWarningMessage`. `FailureCoordinator.HandleBridgeDeath` invalidates pool once per generation. `bridgeOpts.OnGenerationFailed` + stream `OutputCommitted` classify Recv bridge-death. RED: new classify/recovery tests failed without types. GREEN: focused `Error|Failure|Crash|Restart` PASS (`-count=5`); full package PASS; `go vet` + linux/windows `-c` PASS; `git diff --check` clean; `-race` unavailable (Windows cgo). Out of scope: 5.x Open/frontend wire mapping. Parent task 4 complete (4.1–4.4)._
-  - _Evidence (repair):_ Review REJECT fixed. `bridge_fault.go`: typed `BridgeFault`/`ErrBridge*`/`BridgeExited`/`BridgeStartTransient`/`BridgeProtocolFault`; code/recoverability from `errors.As`/`Is`/Code only; `Diag` sanitized into `SafeMessage` never classifies. `waitProc` always `BridgeExited` regardless stderr. Removed catch-all `"bridge"`→recoverable; unknown→`run_failed` non-recoverable. Auth text: `unauthorized`/`invalid_api_key`/`invalid api key` only (not bare `auth`); capability exact code; protocol `ErrorBody`/`ProtocolError` mapping; start transport typed before incidental unsupported. Hook rename `OnBridgeGenerationDead func(gen int64)` + `InvalidateOnBridgeDeath` (void, no committed/orchestration return); stream owns commitment. RED: stderr-poison/author/oauth/path/disk-full/unsupported/hook-signature cases failed. GREEN: focused `Error|Failure|Crash|Restart` PASS (`-count=5`); full PASS; `go vet` + linux/windows `-c` PASS; `git diff --check` clean; `-race` unavailable (Windows cgo)._
+- [ ] 5.2 Absence and mandatory checks
+  - Root builds with connector absent; configured-missing fails closed.
+  - _Requirements: 1.1, 13.7_
 
-- [x] 5. Assemble the `cursorsdk` backend and enforce its semantic boundaries
-- [x] 5.1 Implement prompt encoding and request validation
-  - Add failing tests for deterministic role/order encoding, delimiter escaping, size bounds, unsupported media/files/tool history, and absence of route/credential metadata in model-visible text.
-  - Reject non-lossless canonical parts before bridge send.
-  - Preserve full bootstrap and incremental-turn behavior from the history coordinator.
-  - _Boundary: Backend plugin request adapter_
-  - _Depends: 2.3, 4.2_
-  - _Validation: `go test ./internal/plugins/backends/cursorsdk -run 'Prompt|Encode|Unsupported|Bound'`_
-  - _Requirements: 4.7, 5.1, 5.2, 5.3, 6.7, 9.1, 10.7_
-  - _Completion evidence:_ `prompt.go`/`prompt_test.go`: `EncodePrompt` → `FullPrompt`/`SuffixPrompt`/`TranscriptView`; NDJSON `{"role","text"}` via `json.Marshal`; `limitedBuffer` exact size gate (no pre-estimate); fingerprints `hashTranscriptPrefix` domain-separates instructions then messages so instruction drift ⇒ `HeadPrefixHash` mismatch/`ResetNeeded`; retry/incremental empty|whitespace ⇒ `ErrEmptyPrompt`; ToolChoice only `""`/`auto`/`none` (any/required/named/unknown rejected); unsupported parts/tools/parallel/structured; 8MiB exact/escaped bound tests. RED: estimate false-reject + instruction-drift + empty retry + toolchoice cases failed. GREEN: focused `Prompt|Encode|Unsupported|Bound` PASS; full PASS; `go vet` + linux/windows `-c` PASS; `git diff --check` clean; `-race` unavailable (Windows cgo). Out of scope: 5.2 Open/caps, 5.3 MCP/sandbox._
-  - _Evidence (repair):_ Review REJECT fixed. Removed `estimatePromptBytes`; bounded writer rejects only actual encoded bytes >`MaxPromptBytes` (Full + Suffix/retry). Instructions included in Prefix/Head hashes; `TestEncodePrompt_InstructionChangeForcesHistoryReset` proves bootstrap. `ErrEmptyPrompt` on retry with no/whitespace user; ToolChoice fail-closed. Proof: focused+full+vet+cross PASS._
+- [ ] 6. Documentation and experimental labeling
+  - _Requirements: 1.5, 11.6, 12.7ÔÇô12.9_
 
-- [x] 5.2 Assemble backend open, capabilities, inventory, and close
-  - Add failing tests that `Open` resolves the accepted native model, validates workspace and capabilities, acquires an agent, starts one run, and returns one managed stream.
-  - Wire `ResolveCaps`, model inventory, `BackendPrefixes: cursorsdk`, and the optional close callback.
-  - Leave max-output enforcement and unsupported capabilities fail-closed.
-  - Resolve reasoning only from the accepted model catalog: exact `reasoning` values, or exact `effort` variants that also enable thinking. Do not alias `xhigh` and `extra-high` or advertise reasoning for boolean-thinking-only models.
-  - _Boundary: Backend plugin_
-  - _Depends: 2.3, 4.1, 4.3, 4.4, 5.1_
-  - _Validation: `go test ./internal/plugins/backends/cursorsdk ./internal/core/modelregistry`_
-  - _Requirements: 1.1, 4.2, 4.3, 4.5, 4.6, 4.7, 4.8, 6.1, 6.7, 8.6, 9.1_
-  - _Completion evidence:_ `scaffold.go`/`connector.go` assemble operational `execbackend.Backend` (`Open`, `ModelInventory`, `ResolveCaps`, `BackendPrefixes`, `EnforcesMaxOutputTokens=false`, `Close`). Live `bridgeModelListSource` via `EnsureReady`+`models/list` (API key only in protocol payload). `Open` validates ctx/model/workspace/prompt caps/max-output fail-closed; reasoning exact from catalog (`xhigh`≠`extra-high`, boolean-thinking unsupported). `resolveAgentSessionID` uses authoritative session or attempt-scoped identity (no client-hint/`default` merge). `PrepareSend`→`CommitSend` before `RunStream`; `FailureCoordinator.InvalidateOnBridgeDeath` wired; Close = `closePoolThenBridge` (pool first, `errors.Join`, idempotent).
-  - _Evidence (repair):_ Review REJECT fixed. `runSub` closed/claimed/sendBound accessors; auto-arm preserves open pre-subscribe, replaces closed/stale, fails `errRunIDConflict` on overlapping sendBound runID; SubscribeRun reclaims buffered closed subs / replaces closed-empty / rejects second claim; overflow leaves closed buffered sub (no hang). Removed `lastOpenKey`; tests use `buildAgentKey`. fakebridge DefaultScript unique `agent-N`/`run-N`. Close dual-error order test. RED: concurrent same-runID deadlock (blocking RPC); overflow hang before wait-for-closed. GREEN: focused lifecycle + `Backend|Open|Inventory|Reasoning|Close`; full cursorsdk; modelregistry; standardplugins Cursor/bundle; fakebridge; gofmt/vet; linux/windows build. Race skipped (Windows cgo). No commit.
+## Merge note (2026-07-27T00:45:00+02:00)
 
-- [x] 5.3 Enforce MCP, settings-source, sandbox, and environment policy
-  - Add failing tests for empty default settings sources, explicit trusted sources, normalized MCP identity, sandbox-required default, explicit unsandboxed override, independent auto-review, and environment allowlist behavior.
-  - Fail before send when a requested safety or settings option cannot be applied.
-  - Confirm the backend exposes no custom-tool callback or implicit Go-LIP MCP bridge.
-  - Fail required sandboxing closed when the SDK reports it unavailable; Windows operation in that state requires explicit local-only `sandbox_mode: off` and must never downgrade silently.
-  - _Boundary: Backend plugin security and config_
-  - _Depends: 3.2, 4.1, 5.2_
-  - _Validation: `go test ./internal/plugins/backends/cursorsdk ./internal/standardplugins -run 'MCP|Setting|Sandbox|Environment|Security'`_
-  - _Requirements: 3.4, 3.7, 3.8, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8_
-  - _Completion evidence:_ `NormalizeMCPServers` order-independent ≤256KiB object; `Normalize` stores canonical MCP; Open `enforceSecurityPolicy` revalidates settings/MCP and fail-closes `ErrSandboxUnavailable` when `sandbox_mode:required` and bridge `sandboxSupported=false` (no silent downgrade / no create). Explicit `off` allowed incl. Windows. AutoReview independent default false; `enableAgentRetries` forced false; no `customTools`/`local.force`/Go-LIP MCP. Env allowlist exact, API key absent. AgentKey invalidates on settings/MCP/sandbox/autoreview. Bridge initialize/health report `sandboxSupported` from SDK capability/probe only (default false; not OS heuristic); fakebridge default true for tests. GREEN: focused `MCP|Setting|Sandbox|Environment|Security`; full cursorsdk+fakebridge+protocol+standardplugins; gofmt/vet; linux/windows build. Race skipped (Windows cgo). Parent 5 complete via 5.4. No commit.
-  - _Evidence (repair):_ Review REJECT fixed. `EffectiveSandboxMode`: empty≡required; only explicit `SandboxOff` disables (`sandboxOptionsFor`/`enforceSandboxPolicy`/`buildAgentKey`/`newBackendRuntime`). `testConfig`/`openTestConfig` set `SandboxOff` for non-sandbox tests. Wire tests via `injectEnvStarter`+fakebridge `sandboxSupported:false`/`OmitSandboxSupported` (no override wrapper; no production `FAKE_BRIDGE_SCRIPT` allowlist). Missing initialize field → BridgeInfo false → fail-closed. Node sandbox resolve = probe → `sdk.sandboxSupported` boolean → false (no win32 auto-true). GREEN: focused+full Go; vet; cross; Node typecheck. No commit.
-  - _Evidence (repair-wave):_ Windows host env selection uses `SelectHostEnvFold` (case-insensitive allowlist/dedupe). Bridge sandbox fail-closed capability reconfirmed. No commit.
-
-- [x] 5.4 Add safe operational diagnostics
-  - Add tests that logs/status include only stable backend, version, state, count, and outcome fields and reject secrets, prompts, paths, SDK IDs, tool content, and raw payloads.
-  - Emit bounded evidence for discovery, agent create/reuse/invalidate/evict, run outcomes, bridge restarts, cancellation mode, and shutdown.
-  - Reuse existing trace/A-leg/B-leg correlation rather than exposing SDK IDs.
-  - _Boundary: Backend plugin observability_
-  - _Depends: 4.4, 5.2_
-  - _Validation: `go test ./internal/plugins/backends/cursorsdk ./internal/standardplugins -run 'Diag|Log|Redact|Secret|Status'`_
-  - _Requirements: 3.8, 6.8, 11.1, 11.2, 11.3, 11.4, 11.5_
-  - _Completion evidence:_ `diag_ops.go`: injectable `Diag`/`StatusSnapshot` (no globals/public endpoint); allowlisted slog attrs only; `corediag` trace/a_leg/b_leg/call_id correlation; never keys/prompts/paths/SDK agent|run IDs/raw errors. Emits discovery, pool create/reuse/create_failed/invalidate/evict, run success/error/cancel(+mode), bridge ready/failed(+generation), shutdown duration/outcome. Wired via `runtimeOpts.Log`/`Scaffold.WithLogger`/`WithInstanceID` into bridge/pool/stream; `backendRuntime.Status()`. Removed Debug logs that leaked run IDs. GREEN: focused `Diag|Log|Redact|Secret|Status`; full cursorsdk+fakebridge+protocol+standardplugins; gofmt/vet; linux/windows build. Parent 5 complete (5.1–5.4). No commit.
-  - _Evidence (repair):_ Review REJECT fixed. `runDiagOutcome` once-state: locked methods only `record`; pool invalidate + slog via `flushPending` after unlock (reentrant handler `LiveCount`/`Status` no deadlock). Create/send failures emit `LogPoolClassified`+`LogRun` with `ClassifyFailure` code/phase; `send_failed` outcome; secret-bearing `BridgeFault` path/prompt/key redacted. Terminal KindError classified post-output; every stream success/error/cancel exactly once. Correlation/instance hashed (`fingerprintDiagID`). GREEN: focused `Diag|Log|Redact|Secret|Status`; full cursorsdk+fakebridge+protocol+standardplugins; gofmt/vet; linux/windows `-c`; `git diff --check` clean; `-race` unavailable (Windows cgo). No commit.
-
-- [x] 6. Prove routing, lifecycle, and protocol integration
-- [x] 6.1 Add composed Go-LIP integration tests
-  - Exercise a fake bridge through standard registration, model registry, executor, and at least one real frontend encode/decode path.
-  - Prove SDK and ACP rows coexist, route selection is explicit, no connector-local fallback occurs, and pre-output failures remain core policy.
-  - Prove post-output bridge failure surfaces on the committed B-leg and parallel-race losers cancel without history commit.
-  - _Boundary: Tests_
-  - _Depends: 2.2, 5.2, 5.3_
-  - _Validation: `go test ./internal/standardplugins ./internal/infra/runtimebundle ./internal/core/runtime ./internal/stdhttp`_
-  - _Requirements: 1.2, 1.3, 1.4, 1.6, 7.5, 7.6, 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 12.2_
-  - _Completion evidence:_ Repair after review REJECT. (1) Direct no-history-commit: `cursorsdk.TestParallelRace_LoserCancelClearsHistoryMarker_NoCommitRetained` — real `*backendRuntime` + core `Executor` parallel plan; after loser Cancel assert `pool.Marker(key)==HistoryMarker{}`, `LiveCount==0`, create-count file 1→2 on same session bootstrap (`CreateCountFile`). (2) Explicit routes via OpenAI Responses + executor: `stdhttp` SDK route opens only SDK (fake-bridge `"hello"`); ACP route opens only deterministic ACP stub (`"acp-stub"`, not live ACP wire); model-only selector rejected with zero connector opens. `standardplugins` mirrors SDK/ACP/model-only executor paths. (3) Pre-output non-vacuous: Respond+Exit stream path asserts `IsRecoverablePreOutput` + `ErrBridgeExited` + `CodeBridgeExited` on Recv; single-candidate never opens ACP; `|failover` plan opens failover once. (4) Replaced `ActionSleep` with `ActionWaitForFile` gate (release file after race decide). (5) Post-output still opens=1 non-recoverable. GREEN: focused + full four packages + cursorsdk/fakebridge; `go vet`; linux/windows `go test -c`; scoped `git diff --check` clean. Race detector skipped (Windows cgo). No commit.
-
-- [x] 6.2 Add lifecycle, architecture, race, leak, and fuzz gates
-  - Add `cursorsdk/lifecycle_contract_test.go` and update architecture tests so the official backend is covered without treating the Node bridge as core.
-  - Prove Cursor SDK package references occur only below the bridge boundary.
-  - Add race/leak tests for startup, pool concurrency, cancel, restart, idle eviction, partial-build rollback, and shutdown; fuzz protocol frames and event mapping.
-  - _Boundary: Tests and architecture guards_
-  - _Depends: 4.1, 4.2, 4.3, 5.2_
-  - _Validation: `go test -race ./internal/plugins/backends/cursorsdk/... && go test ./internal/archtest ./internal/infra/runtimebundle && make test-fuzz`_
-  - _Requirements: 2.3, 8.3, 8.4, 8.5, 8.8, 8.9, 8.10, 12.1, 12.2, 12.6_
-  - _Completion evidence:_ `lifecycle_contract_test.go` asserts `RunStream` is `leglifecycle.BLegAttempt` (satisfies archtest inventory). Arch: `TestCursorSDKNpmImportsStayInsideBridgeBoundary` (Node `@cursor/sdk` import/require only under `bridge/`); `TestCoreAndProviderBoundaryDoNotImportCursorSDKBackend`. Concurrency/leak phases (each `goleak.VerifyNone`): (1) `TestConcurrency_PrepareSendAllSucceedNoLeak` — concurrent PrepareSend with MaxRuns≥workers, every error collected, all succeed, commit/release, BusyCount0/LiveCount=workers/disposes0; (2) `TestConcurrency_IdleReapDisposesOnce` — create+commit+release, fake clock advance, ReapIdle → LiveCount0/Marker{}/dispose1; (3) `TestConcurrency_CancelInvalidateRemovesEntryOnce` — real RunStream+pool InvalidateCancel → LiveCount0/Marker{}/CancelRun1/dispose1, second Cancel no extra; (4) `TestConcurrency_GenerationRestartDisposesOldOnce` — gen1 committed → gen2 PrepareSend → old dispose1/create2/marker gen2; (5) `TestConcurrency_ShutdownCloseIdempotentDisposesOnce` — Close×2, dispose exactly N. Runtimebundle: `TestBuild_cursorSDKCloserRunsOnPartialBuildRollback` — rollback invokes wrapper Close exactly once; direct second Close succeeds with wrapper/inner counts=2 (runtimebundle not double-calling; production Close tolerates repeat); successful-build Closers×2 no error. Fuzz: `FuzzDecodeLine` + `FuzzMapBridgeEvent` in `Makefile` `test-fuzz`. GREEN: full cursorsdk/archtest/runtimebundle; fuzz smoke; vet; linux/windows `-c`. `-race` blocked Windows cgo (acknowledged). No production behavior change. No commit.
-
-- [x] 6.3 Add opt-in live and cross-platform bridge smoke
-  - Add isolated live scenarios for discovery, text, verified reasoning, workspace operation under safety policy, configured MCP, cancellation, reuse, hard bridge restart, canonical rebootstrap, and shutdown.
-  - Require explicit `CURSOR_API_KEY`, per-scenario workspace/state, strict timeout, and secret-safe artifact handling.
-  - Add Linux, macOS, and Windows-native package/start/stream/cancel/crash/shutdown lanes; report missing setup as blocked.
-  - _Boundary: Tests and release tooling_
-  - _Depends: 3.4, 5.2, 5.3, 6.2_
-  - _Validation: `CURSOR_SDK_LIVE=1 make test-cursor-sdk-live && make test-cursor-sdk-platform`_
-  - _Requirements: 4.6, 4.8, 7.1, 7.3, 8.7, 9.5, 12.4, 12.5, 12.7_
-  - _Completion evidence (honesty repair):_ Live SDK lane = Node `live-scenarios` only (removed `cursorsdk_live` fake-bridge Go smoke). Platform fake lane asserts cancel → single `finished{status:cancelled}` with no later content (`hold_until_cancel` + `OnAgentSend`). Live summary: `status=complete|blocked|failed`, `ok` only when complete; missing hard-restart/rebootstrap hooks and sandbox-required unavailable → overall blocked (not ok). Scripts: exit 0 BLOCKED without flag/key; opted-in incomplete → npm exit 3/1. GREEN (bookkeeping host): full `cursorsdk/...`; bridge 81/81+typecheck; `make test-cursor-sdk-platform`; `make test-cursor-sdk-live` BLOCKED exit 0 (no key). Residual: real network live not run (no credential). No commit.
-  - _Evidence (credentialed live 2026-07-19, sanitized):_ Direct Node probe **passed** exact `@cursor/sdk` 1.0.23, model count 34, text deltas observed, agent disposed, cancel observed. Node scenarios (core): discovery/text/workspace_safety_off/configured_mcp/cancellation/shutdown **passed**; reasoning **skipped** (no thinking-delta); workspace_safety_required **blocked** (Windows sandbox unavailable); hard_bridge_restart/canonical_rebootstrap **blocked** (no Go lifecycle hooks in Node lane). Reuse: last credentialed run (before text-only reuse prompt update) **timed out** at wait and **has not been revalidated** afterward — do **not** claim Node reuse live-passed. Go live-bridge (`make test-cursor-sdk-live-bridge`, `go test -v` JSON): parent **status=blocked exit 0**; sdk pin/discovery/canonical content single terminal/cancelled terminal/no later content/shutdown **passed**; hard_bridge_restart **blocked** (active text-only peers could not be held); rebootstrap/MCP instrumentation **blocked**; sandbox-required **blocked** Windows. Earlier repaired defects (offline/unit): official anonymous model variants; generation-scoped run isolation; typed process-exit diagnostics; upstream pwsh spawn avoided by text-only prompts. Parent Task 6.3 remains **complete** with honest blocked residuals. Measured replacement/dogfood still blocked. No model IDs/keys/paths/prompts recorded. No commit.
-
-- [x] 6.4 Document installation, selection, safety, and known limits
-  - Add operator documentation and config examples for bridge installation, exact version checks, API-key/billing separation, local-only registration, explicit route selection, settings/sandbox defaults, MCP, capability omissions, and troubleshooting.
-  - State that Go-LIP never installs npm dependencies and that ACP remains available.
-  - Document live-test handling and the process-local continuity limitation.
-  - _Boundary: Docs_
-  - _Depends: 2.2, 3.4, 5.2, 5.3_
-  - _Validation: `make quality-checks`_
-  - _Requirements: 1.3, 1.5, 1.6, 3.2, 3.5, 3.6, 5.7, 5.8, 9.3, 11.6, 12.8, 12.9_
-  - _Completion evidence:_ Operator guide `docs/cursor-sdk-backend.md` (install/pin/doctor, API-key vs CLI billing, local-only, explicit `cursorsdk`/`cursorcliacp` routes, settings/sandbox/MCP/autoReview, capability omissions/max-output/reasoning, streaming/cancel/process-local continuity, platform matrix, troubleshooting, live-test secret/artifact rules). Example `config/examples/cursor-sdk-experimental.yaml` (schema + experimental registration; cursorsdk disabled so BootstrapInspect works; dogfood default). Commented experimental block in `config/config.yaml`. README + EchoesVault (`cursor-sdk-backend`, `plugin-system`, index) updated. Bridge README links operator doc. Unblocked quality gate: `poolSmokeConfig` no longer calls test-only `testConfig`; goroutine allowlist includes `cursorsdk/bridge_process.go`. GREEN: `TestConfigExamples_passBootstrapInspect/cursor-sdk-experimental`; `lipstd check-config` + `routes` on example; `make quality-checks`; focused platform smoke. No commit.
-
-- [x] 7. Complete experimental rollout evidence without changing defaults
-  - _Completion evidence:_ Final ACCEPT 2026-07-18 (post repair-wave independent review). Subtasks 7.1–7.2 complete; experimental/non-default posture retained beside `cursorcliacp`; offline comparison `replacement_status=retain_both_connectors`. Measured live/comparative dogfood remains an honest **blocked residual** (opt-in credentials / ACP dogfood lane), not an incomplete Task 7 gate. Credentialed 2026-07-19 live aggregates (see 6.3/7.1 notes) strengthen experimental evidence without clearing hard-restart/rebootstrap/reuse/sandbox dogfood residuals. No commit.
-- [x] 7.1 Run focused and repository-wide quality gates
-  - Run bridge package verification, targeted Go packages, architecture tests, full unit/integration tags, race, fuzz smoke, lint, and vulnerability checks.
-  - Fix regressions only within the approved lifecycle/backend/config/test/doc boundaries.
-  - Confirm the final diff contains no default-route switch, ACP removal, Cloud support, resume, custom tools, or public canonical changes.
-  - _Boundary: Validation_
-  - _Depends: 6.1, 6.2, 6.3, 6.4_
-  - _Validation: `(cd internal/plugins/backends/cursorsdk/bridge && npm ci && npm run typecheck && npm test && npm pack --dry-run) && make test && make test-race && make qa`_
-  - _Requirements: 1.2, 1.5, 1.6, 12.1, 12.2, 12.3, 12.5, 12.6_
-  - _Completion evidence:_ Diff audit: no `pkg/lipapi`/`pkg/lipsdk` changes; `config/config.yaml` `default_route` unchanged (`openai-responses:gpt-4o-mini`); example keeps `dogfood-local:stub-default`; `cursorcliacp` still registered; production Go excludes `Agent.resume`/`customTools`/`local.force`/Cloud; secret scan clean (placeholders/`CURSOR_API_KEY=...` docs only). Bridge: `npm ci` BLOCKED on Windows EPERM unlink esbuild (known residual); recovered via `npm install` (lock still pins `@cursor/sdk@1.0.23`); typecheck/test historically 74/74 then repair-wave 81/81 then 108/108; build/pack dry-run PASS. Targeted Go + platform/live blocked + comparison offline PASS on bookkeeping host. `make test-race` SKIPPED on Windows (repo policy). Bridge `npm audit` transitive vulns residual. No commit.
-  - _Evidence (repair-wave bookkeeping):_ Independent ACCEPT of production blockers; re-verify: `go test ./internal/plugins/backends/cursorsdk/...`; bridge typecheck+81/81; `make test-cursor-sdk-platform`; `make test-cursor-sdk-live` BLOCKED exit 0; `make test-cursor-sdk-comparison-report` (measured=0 synthetic=4 blocked=20); golangci cursorsdk 0 issues. No production edit this note. No commit.
-  - _Evidence (post live + harness repair bookkeeping 2026-07-19):_ Experimental rollout remains **accepted**; Task 7 parent complete with residuals. Credentialed live (sanitized): Node probe PASS (SDK 1.0.23, 34 models, deltas/dispose/cancel); Node core scenarios PASS as in 6.3 note; reuse last credentialed timeout **not revalidated** afterward (not live-passed); Go live-bridge parent **blocked exit 0** (`go test -v` JSON) with pin/discovery/content/cancel/shutdown PASS and hard-restart (peers not held)/rebootstrap/MCP/sandbox residuals **blocked** (not passed). Offline re-verify after gofumpt: golangci cursorsdk 0; `go test` cursorsdk+fakebridge PASS; `go vet` cursorsdk PASS; Node typecheck/108/build/pack PASS; safe live scripts BLOCKED without process opt-in; comparison retain_both. `make quality-checks` may FAIL on unrelated `authority_coord_adapter_preview_test.go` (out of boundary). Measured replacement/dogfood still blocked. No commit.
-
-- [x] 7.2 Establish comparative dogfood evidence and retain explicit opt-in
-  - Define a repeatable ACP-versus-SDK matrix covering setup, inventory, TTFT, completion latency, pre/post-output failures, cancellation, restart, leaks, continuity, platform defects, and upstream-update maintenance.
-  - Record only bounded aggregate results and safe incident classifications; do not collect prompts, tool content, raw workspace paths, keys, or SDK IDs.
-  - Keep `cursorsdk` experimental and non-default unless a separate migration proposal demonstrates the replacement gates.
-  - _Boundary: Validation and docs_
-  - _Depends: 7.1_
-  - _Validation: `make test-cursor-sdk-comparison-report`_
-  - _Requirements: 1.5, 11.3, 11.4, 11.5, 12.7, 12.8, 12.9_
-  - _Completion evidence:_ Package `internal/plugins/backends/cursorsdk/comparison` — 12-dim × both connectors; schema v1; measured/synthetic/blocked. Review repair: synthetic/blocked omit all metric pointers (`samples=0` only); MD samples render `-`; `note`/`blocked_reason` enum codes; generic Unix/Win/UNC/`file://` + secret/ID adversarial scan; `BuildReport` marshals+scans hand-built docs; input≤64KiB report≤256KiB. Docs updated. Make: `test-cursor-sdk-comparison-report`. Asserts: not in `StandardDistributionRequirements`; example non-SDK default; `replacement_status=retain_both_connectors`. GREEN on bookkeeping host (measured=0 synthetic=4 blocked=20). LIMITATION: measured dogfood blocked without opt-in (residual, not Task 7 failure). No live key. No commit.
+Main completed substantial in-tree `internal/plugins/backends/cursorsdk` work (checked tasks on main). That tree has been moved to `connectors/cursorsdk` on the hybrid connector branch. Remaining open tasks below continue the external-connector checklist (ABI conformance polish, packaging proofs, host e2e). Do not reintroduce optional connectors into the essential/static root table.

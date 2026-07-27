@@ -23,11 +23,22 @@ func TestEnterpriseModulePublicOnlyCompileGate(t *testing.T) {
 
 	cmd := exec.Command("go", "test", ".")
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GOWORK=off")
+	cmd.Env = enterpriseModuleTestEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("enterprise module go test: %v\n%s", err, out)
 	}
+}
+
+func enterpriseModuleTestEnv() []string {
+	out := make([]string, 0, len(os.Environ())+1)
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, "GOWORK=") || strings.HasPrefix(e, "LIP_ENTERPRISE_CONFIG=") {
+			continue
+		}
+		out = append(out, e)
+	}
+	return append(out, "GOWORK=off")
 }
 
 // TestEnterpriseModuleInternalImportScannerRejectsInternalImport locks the

@@ -1,0 +1,15 @@
+# Connector release metadata — packaging indexes are generated from this file.
+schema: golip.connector.release/v1
+plugin_id: io.golip.backend.ollama
+factory_kind: ollama
+module: github.com/matdev83/go-llm-interactive-proxy/connectors/ollama
+command: ./cmd/lip-backend-ollama
+manifest_template: manifest/template.backendplugin.json
+version: 0.1.0
+build_id: localdev
+tag: ollama-v0.1.0
+profiles:
+  - full
+published_root_module: github.com/matdev83/go-llm-interactive-proxy
+replace_policy: development-replace-to-monorepo-root
+private_companions: []

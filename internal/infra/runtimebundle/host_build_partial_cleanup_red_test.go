@@ -12,6 +12,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -49,7 +50,7 @@ func (productionHostBuilder) Build(ctx context.Context, in hostBuildInput) (host
 // HostBuilder stage-fault seam and asserts acquire/cleanup evidence.
 func TestPartialCleanup_HostBuilderStageMatrix(t *testing.T) {
 	t.Parallel()
-	cfgPath := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	cfgPath := bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"))
 	ctx := context.Background()
 	in := hostBuildInput{
 		ConfigPath:      cfgPath,
@@ -164,7 +165,7 @@ func TestPartialCleanup_HostBuilderStageMatrix(t *testing.T) {
 func TestHostBuild_CompleteHostFromOneOperation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	cfgPath := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	cfgPath := bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"))
 	var b hostBuilder = productionHostBuilder{}
 	out, err := b.Build(ctx, hostBuildInput{
 		ConfigPath:      cfgPath,
@@ -218,7 +219,7 @@ func assertHostBuilderStageCleanup(t *testing.T, in hostBuildInput, stage hostBu
 
 func assertBuildHostComposeCleanup(t *testing.T) {
 	t.Helper()
-	cfgPath := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	cfgPath := bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"))
 	host, err := BuildHost(context.Background(), BuildHostInput{
 		ConfigPath: cfgPath,
 		Mandatory:  lipsdk.StandardDistributionRequirements(),

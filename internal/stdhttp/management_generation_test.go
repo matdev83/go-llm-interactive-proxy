@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/localstubreg"
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v3"
 )
@@ -20,6 +21,9 @@ func TestManagement_SurvivesGenerationSwap(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
 	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := localstubreg.RegisterInProcess(reg); err != nil {
 		t.Fatal(err)
 	}
 	base := &config.Config{

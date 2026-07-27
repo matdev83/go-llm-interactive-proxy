@@ -4,11 +4,11 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
 )
 
@@ -39,11 +39,7 @@ func TestBuildCompatibility_StrictFixturesReject(t *testing.T) {
 
 func TestBuildCompatibility_ValidExampleReady(t *testing.T) {
 	t.Parallel()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	path := filepath.Join(filepath.Dir(file), "..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	path := bpkit.WriteDogfoodLocalStubConfig(t)
 	rt, err := lipruntime.Build(context.Background(), lipruntime.Options{ConfigPath: path})
 	if err != nil {
 		t.Fatal(err)

@@ -18,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/localstubreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"gopkg.in/yaml.v3"
 )
@@ -28,6 +29,9 @@ func discoveredFactoryCatalog(t *testing.T) *pluginreg.Registry {
 	t.Helper()
 	reg := pluginreg.NewRegistry()
 	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := localstubreg.RegisterInProcess(reg); err != nil {
 		t.Fatal(err)
 	}
 	if err := reg.RegisterDiscoveredBackend("discovered-host-stub", func(n yaml.Node, _ *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {

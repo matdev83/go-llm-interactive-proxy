@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 )
 
 // TestCheckConfig_NonPublicNoListenAndPrivateCleanup proves check-config
@@ -72,7 +74,8 @@ func TestCheckConfig_NonPublicNoListenAndPrivateCleanup(t *testing.T) {
 
 func writeCheckConfigListenProbeConfig(t *testing.T, listenAddr string) string {
 	t.Helper()
-	src, err := os.ReadFile(filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml"))
+	srcPath := bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml"))
+	src, err := os.ReadFile(srcPath)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -15,6 +15,7 @@ import (
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	adminreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/localstubreg"
 	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v3"
@@ -26,6 +27,9 @@ func TestManagement_RemainsReachableAfterInvalidCandidate(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
 	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := localstubreg.RegisterInProcess(reg); err != nil {
 		t.Fatal(err)
 	}
 	base := &config.Config{

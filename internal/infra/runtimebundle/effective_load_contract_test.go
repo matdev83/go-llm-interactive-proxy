@@ -14,13 +14,15 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
 func TestEffectiveLoadContract_LoadEffectiveHelperMatchesBuildHost(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	path := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	// Example YAML expects a packaged discovery layout; tests stage connectors/localstub.
+	path := bpkit.WriteDogfoodLocalStubConfig(t)
 
 	eff, _, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(ctx, path, config.StreamRecoveryOverrides{})
 	if err != nil {
@@ -160,7 +162,7 @@ func TestEffectiveLoadContract_MissingPath_SourceMissingCategory(t *testing.T) {
 
 func TestEffectiveLoadContract_FixedStreamRecoveryCLIWins(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	path := bpkit.WriteDogfoodLocalStubConfig(t)
 	cliOff := false
 	cliIdle := 12 * time.Second
 
@@ -342,7 +344,7 @@ func assertSecretSafeCategory(t *testing.T, err error, want configsource.Categor
 
 func writeConfigWithUnknownBackendKind(t *testing.T) string {
 	t.Helper()
-	base, err := os.ReadFile(filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"))
+	base, err := os.ReadFile(bpkit.WriteDogfoodLocalStubConfig(t))
 	if err != nil {
 		t.Fatal(err)
 	}

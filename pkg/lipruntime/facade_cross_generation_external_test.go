@@ -8,13 +8,14 @@ import (
 	"strings"
 	"testing"
 
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
 )
 
 func TestExecutorView_PrePublicationALegCancelSurvivesReload(t *testing.T) {
 	t.Parallel()
-	raw, err := os.ReadFile(filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml"))
+	raw, err := os.ReadFile(bpkit.WriteDogfoodLocalStubConfig(t))
 	if err != nil {
 		t.Fatal(err)
 	}

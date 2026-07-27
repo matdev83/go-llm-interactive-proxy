@@ -9,6 +9,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretsguard"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/processhost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/logging"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/osenv"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -86,17 +87,33 @@ func validateDistribution(
 		return fail(err, nil, nil)
 	}
 
+	discInstall, err := installDiscoveredBackendExports(cfg, reg)
+	if err != nil {
+		return fail(err, nil, nil)
+	}
+	var pluginHost *processhost.Host
+	var pluginStaging string
+	if discInstall != nil {
+		pluginHost, pluginStaging = discInstall.Host, discInstall.StagingDir
+	}
+
 	logger, err := logging.NewLogger(cfg.Logging, io.Discard,
 		logging.WithOTELTraceAttrs(cfg.Observability.Tracing.Enabled))
 	if err != nil {
+		if discInstall != nil {
+			discInstall.release()
+		}
 		return fail(fmt.Errorf("runtimebundle: logger init: %w", err), nil, nil)
 	}
 
 	ps, err := ops.process(ctx, processBuildInput{
 		Cfg: cfg, Logger: logger, Registry: reg, SecretEnv: secretEnv, Production: in.Production,
-		Tracing: ProcessTracing{Shutdown: traceShutdownRaw, Active: traceRes.Active},
+		Tracing:          ProcessTracing{Shutdown: traceShutdownRaw, Active: traceRes.Active},
+		PluginHost:       pluginHost,
+		PluginStagingDir: pluginStaging,
 	})
 	if err != nil {
+		// NewProcessServices adopts (or releases) host/staging on entry.
 		return fail(fmt.Errorf("runtimebundle: process services: %w", err), nil, nil)
 	}
 	closeProcess := ps.Close

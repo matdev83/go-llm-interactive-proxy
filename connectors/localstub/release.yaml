@@ -1,0 +1,17 @@
+# Connector release metadata — packaging indexes are generated from this file,
+# never from Go registration tables in the root module.
+schema: golip.connector.release/v1
+plugin_id: io.golip.backend.localstub
+factory_kind: local-stub
+module: github.com/matdev83/go-llm-interactive-proxy/connectors/localstub
+command: ./cmd/lip-backend-localstub
+manifest_template: manifest/template.backendplugin.json
+version: 0.1.0
+build_id: localdev
+tag: localstub-v0.1.0
+profiles:
+  - full
+published_root_module: github.com/matdev83/go-llm-interactive-proxy
+# When publishing, drop the go.mod replace and pin published_root_module to a tag.
+replace_policy: development-replace-to-monorepo-root
+private_companions: []

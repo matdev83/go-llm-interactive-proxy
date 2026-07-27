@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretsguard"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/processhost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/logging"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/osenv"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
@@ -99,9 +100,21 @@ func buildHost(ctx context.Context, in hostBuildInput, ops hostBuildOps, secretE
 		return nil, joinInitialFailureCleanup(ctx, err, nil, nil, shutTracing)
 	}
 
+	discInstall, err := installDiscoveredBackendExports(cfg, reg)
+	if err != nil {
+		return nil, joinInitialFailureCleanup(ctx, err, nil, nil, shutTracing)
+	}
+	var pluginHost *processhost.Host
+	var pluginStaging string
+	if discInstall != nil {
+		pluginHost, pluginStaging = discInstall.Host, discInstall.StagingDir
+	}
+
 	ps, err := ops.process(ctx, processBuildInput{
 		Cfg: cfg, Logger: logger, Registry: reg, SecretEnv: secretEnv, Production: in.Production,
-		Tracing: ProcessTracing{Shutdown: traceShutdown, Active: traceRes.Active},
+		Tracing:          ProcessTracing{Shutdown: traceShutdown, Active: traceRes.Active},
+		PluginHost:       pluginHost,
+		PluginStagingDir: pluginStaging,
 	})
 	if err != nil {
 		return nil, joinInitialFailureCleanup(ctx, fmt.Errorf("runtimebundle: process services: %w", err), nil, nil, shutTracing)
@@ -179,12 +192,14 @@ type hostBuildOps struct {
 }
 
 type processBuildInput struct {
-	Cfg        *config.Config
-	Logger     *slog.Logger
-	Registry   *pluginreg.Registry
-	SecretEnv  coresg.Environment
-	Production ProductionOptions
-	Tracing    ProcessTracing
+	Cfg              *config.Config
+	Logger           *slog.Logger
+	Registry         *pluginreg.Registry
+	SecretEnv        coresg.Environment
+	Production       ProductionOptions
+	Tracing          ProcessTracing
+	PluginHost       *processhost.Host
+	PluginStagingDir string
 }
 type initialPublishInput struct {
 	Process   *ProcessServices
@@ -209,7 +224,9 @@ func buildProcessServicesOp(ctx context.Context, in processBuildInput) (*Process
 			Extensions:     ExtensionsOptions{SecretGuardEnvironment: in.SecretEnv},
 			Production:     in.Production,
 		},
-		Tracing: in.Tracing,
+		Tracing:          in.Tracing,
+		PluginHost:       in.PluginHost,
+		PluginStagingDir: in.PluginStagingDir,
 	})
 }
 

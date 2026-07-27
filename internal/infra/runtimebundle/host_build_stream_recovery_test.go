@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
@@ -18,7 +19,7 @@ func TestBuildHost_UsesStartupFixedStreamRecoverySnapshot(t *testing.T) {
 	t.Setenv("LIP_AUTO_RESUME", "true")
 	t.Setenv("LIP_AUTO_RESUME_IDLE_TIMEOUT", "12s")
 
-	cfgPath := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	cfgPath := bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"))
 	compose := stdhttp.ComposeStandardHTTP
 	host, err := runtimebundle.BuildHost(context.Background(), runtimebundle.BuildHostInput{
 		ConfigPath:      cfgPath,

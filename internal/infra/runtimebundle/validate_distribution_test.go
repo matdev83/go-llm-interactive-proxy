@@ -20,6 +20,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -31,8 +32,9 @@ func validDistributionInput(cfgPath string) ValidateDistributionInput {
 	}
 }
 
-func dogfoodConfigPath() string {
-	return filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
+func dogfoodConfigPath(tb testing.TB) string {
+	tb.Helper()
+	return bpkit.MaterializeExampleConfig(tb, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"))
 }
 
 func failingHandlerComposer(context.Context, *config.Config, *slog.Logger, httpcontract.StandardHTTPInput) (http.Handler, error) {
@@ -44,10 +46,10 @@ func failingHandlerComposer(context.Context, *config.Config, *slog.Logger, httpc
 func TestValidateDistribution_NilGuards(t *testing.T) {
 	t.Parallel()
 	//nolint:staticcheck // deliberate nil-context guard characterization
-	if err := ValidateDistribution(nil, validDistributionInput(dogfoodConfigPath())); err == nil {
+	if err := ValidateDistribution(nil, validDistributionInput(dogfoodConfigPath(t))); err == nil {
 		t.Fatal("expected nil-context failure")
 	}
-	if err := ValidateDistribution(context.Background(), ValidateDistributionInput{ConfigPath: dogfoodConfigPath(), HandlerComposer: nil}); err == nil {
+	if err := ValidateDistribution(context.Background(), ValidateDistributionInput{ConfigPath: dogfoodConfigPath(t), HandlerComposer: nil}); err == nil {
 		t.Fatal("expected nil-composer failure")
 	}
 	if err := ValidateDistribution(context.Background(), ValidateDistributionInput{ConfigPath: "", HandlerComposer: stubHandlerComposer}); err == nil {
@@ -61,8 +63,8 @@ func TestValidateDistribution_NilGuards(t *testing.T) {
 func TestValidateDistribution_OneStrictLoad(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	pathA := writeOneSnapshotMarkerConfig(t, "127.0.0.1:18301", accessmode.ModeSingleUser)
-	pathB := writeOneSnapshotMarkerConfig(t, "127.0.0.1:18302", accessmode.ModeSingleUser)
+	pathA := bpkit.MaterializeExampleConfig(t, writeOneSnapshotMarkerConfig(t, "127.0.0.1:18301", accessmode.ModeSingleUser))
+	pathB := bpkit.MaterializeExampleConfig(t, writeOneSnapshotMarkerConfig(t, "127.0.0.1:18302", accessmode.ModeSingleUser))
 	snapA := mustLoadBootstrapSnapshot(ctx, t, pathA)
 	snapB := mustLoadBootstrapSnapshot(ctx, t, pathB)
 
@@ -102,7 +104,7 @@ func TestValidateDistribution_OneStrictLoad(t *testing.T) {
 // tracing, exactly once each (req 5.2-5.4).
 func TestValidateDistribution_SuccessRollsBackAndClosesExactlyOnce(t *testing.T) {
 	t.Parallel()
-	journal, err := validateDistributionOutcome(context.Background(), validDistributionInput(dogfoodConfigPath()), LoadBootstrapEffectiveWithSource)
+	journal, err := validateDistributionOutcome(context.Background(), validDistributionInput(dogfoodConfigPath(t)), LoadBootstrapEffectiveWithSource)
 	if err != nil {
 		t.Fatalf("ValidateDistribution: %v", err)
 	}
@@ -141,7 +143,7 @@ func TestValidateDistribution_NeverBindsListener(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = ln.Close() })
 	addr := ln.Addr().String()
-	cfgPath := writeOneSnapshotMarkerConfig(t, addr, accessmode.ModeSingleUser)
+	cfgPath := bpkit.MaterializeExampleConfig(t, writeOneSnapshotMarkerConfig(t, addr, accessmode.ModeSingleUser))
 
 	if err := ValidateDistribution(context.Background(), validDistributionInput(cfgPath)); err != nil {
 		t.Fatalf("ValidateDistribution: %v", err)
@@ -163,7 +165,7 @@ func TestValidateDistribution_NeverBindsListener(t *testing.T) {
 // or listener from a prior run (req 5.2; "owner-free").
 func TestValidateDistribution_NoManagerOrGenerationLeftBehind(t *testing.T) {
 	t.Parallel()
-	in := validDistributionInput(dogfoodConfigPath())
+	in := validDistributionInput(dogfoodConfigPath(t))
 	for i := range 3 {
 		if err := ValidateDistribution(context.Background(), in); err != nil {
 			t.Fatalf("run %d: %v", i, err)
@@ -176,7 +178,7 @@ func TestValidateDistribution_NoManagerOrGenerationLeftBehind(t *testing.T) {
 // contend on any shared owned resource (req 5.2-5.4, 11.x).
 func TestValidateDistribution_ConcurrentRepeatedValidationIsOwnerFree(t *testing.T) {
 	t.Parallel()
-	in := validDistributionInput(dogfoodConfigPath())
+	in := validDistributionInput(dogfoodConfigPath(t))
 	const n = 6
 	var wg sync.WaitGroup
 	errs := make([]error, n)
@@ -203,7 +205,7 @@ func TestValidateDistribution_CancelledContextStillCleansUp(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	journal, err := validateDistributionOutcome(ctx, validDistributionInput(dogfoodConfigPath()), LoadBootstrapEffectiveWithSource)
+	journal, err := validateDistributionOutcome(ctx, validDistributionInput(dogfoodConfigPath(t)), LoadBootstrapEffectiveWithSource)
 	// Whether or not a cancelled context surfaces as an error from an internal
 	// step, cleanup that already acquired resources must still run to
 	// completion (no partial ownership left behind).
@@ -229,7 +231,7 @@ func TestValidateDistribution_CancelledContextStillCleansUp(t *testing.T) {
 // assertBootstrapComposeCleanup for the unpublished validation path.
 func TestValidateDistribution_ComposeFailureClosesProcessAndTracingWithoutRollback(t *testing.T) {
 	t.Parallel()
-	in := validDistributionInput(dogfoodConfigPath())
+	in := validDistributionInput(dogfoodConfigPath(t))
 	in.HandlerComposer = failingHandlerComposer
 	journal, err := validateDistributionOutcome(context.Background(), in, LoadBootstrapEffectiveWithSource)
 	if err == nil {
@@ -250,7 +252,7 @@ func TestValidateDistribution_ComposeFailureClosesProcessAndTracingWithoutRollba
 // and asserts acquire/cleanup evidence in deterministic reverse order.
 func TestValidateDistribution_StageFaultMatrix(t *testing.T) {
 	t.Parallel()
-	in := validDistributionInput(dogfoodConfigPath())
+	in := validDistributionInput(dogfoodConfigPath(t))
 
 	cases := []struct {
 		name         string
@@ -324,7 +326,7 @@ func TestValidateDistribution_StageFaultMatrix(t *testing.T) {
 // close → tracing close, without discarding sibling cleanup failures.
 func TestValidateDistribution_CleanupFaultsJoinedInOrder(t *testing.T) {
 	t.Parallel()
-	in := validDistributionInput(dogfoodConfigPath())
+	in := validDistributionInput(dogfoodConfigPath(t))
 	journal, err := validateDistributionWithCleanupFaults(context.Background(), in)
 	if err == nil {
 		t.Fatal("expected joined cleanup faults")
@@ -408,7 +410,7 @@ func TestValidateDistribution_InvalidConfigCategoriesMatchStartupLoad(t *testing
 // by startup/reload (req 5.5-5.6).
 func TestValidateDistribution_MandatoryFactoryRejectionMatchesStartupHost(t *testing.T) {
 	t.Parallel()
-	cfgPath := dogfoodConfigPath()
+	cfgPath := dogfoodConfigPath(t)
 	impossible := []lipsdk.Requirement{{Kind: lipsdk.PluginKindBackend, ID: "definitely-not-a-bundled-backend"}}
 
 	validateErr := ValidateDistribution(context.Background(), ValidateDistributionInput{

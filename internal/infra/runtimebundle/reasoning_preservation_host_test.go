@@ -14,12 +14,13 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
 func TestBuildHost_absentReasoningPreservationInjectsDefaultParticipants(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	path := bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"))
 
 	t.Run("inspect", func(t *testing.T) {
 		t.Parallel()
@@ -61,7 +62,7 @@ func TestBuildHost_absentReasoningPreservationInjectsDefaultParticipants(t *test
 
 func TestBuildHost_explicitReasoningPreservationFalseNoParticipants(t *testing.T) {
 	t.Parallel()
-	base, err := os.ReadFile(filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"))
+	base, err := os.ReadFile(bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")))
 	if err != nil {
 		t.Fatal(err)
 	}

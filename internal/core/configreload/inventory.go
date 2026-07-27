@@ -38,7 +38,7 @@ func RequiredTopLevelPaths() []string {
 		"server", "access", "auth", "logging", "diagnostics", "observability",
 		"http_client", "database", "routing", "continuity", "secure_session",
 		"stream_recovery", "hooks", "accounting", "interleaved", "plugins",
-		"model_aliases", "model_catalog", "model_inventory", "codex_model_catalog",
+		"model_aliases", "model_catalog", "model_inventory",
 		"control_plane", "metering", "identity",
 	}
 }
@@ -107,7 +107,6 @@ var inventoryTable = []FieldClass{
 	{Path: "model_aliases", Disposition: DispositionReloadable, Notes: "routing alias rows"},
 	{Path: "model_catalog", Disposition: DispositionConditional, Notes: "cache/worker restart; overrides reloadable"},
 	{Path: "model_inventory", Disposition: DispositionConditional, Notes: "cache/refresh worker restart; diagnostics reloadable"},
-	{Path: "codex_model_catalog", Disposition: DispositionConditional, Notes: "binary/path restart; enabled/timeout reloadable"},
 	{Path: "control_plane", Disposition: DispositionMixed, SecretBearing: true, Notes: "store topology startup-only; query policy reloadable"},
 	{Path: "metering", Disposition: DispositionMixed, SecretBearing: true, Notes: "journal topology startup-only; enablement reloadable"},
 	{Path: "identity", Disposition: DispositionReloadable, Notes: "generation identity projection"},

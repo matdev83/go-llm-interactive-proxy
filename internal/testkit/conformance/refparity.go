@@ -16,19 +16,15 @@ import (
 	refanthropic "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/anthropicmessages"
 	refbedrock "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/bedrock"
 	refgemini "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/gemini"
-	refnvidia "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/nvidia"
 	refopenaichat "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openaichat"
 	refopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openairesponses"
-	refopenrouter "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openrouter"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
 )
 
 const parityText = "conformance-parity"
@@ -40,38 +36,6 @@ func NewSuccessRefBackend(tb testing.TB, backendID string, onRequestBody func([]
 	tb.Helper()
 	if backendID == acp.ID {
 		srv := httptest.NewServer(refacp.NewHandler(refacp.Config{OnRequestBody: onRequestBody}))
-		tb.Cleanup(srv.Close)
-		return srv
-	}
-	if backendID == openrouter.ID {
-		chatNS := strings.Replace(refopenrouter.DefaultChatNonStreamJSON, "or-ok", parityText, 1)
-		chatSS := strings.Replace(refopenrouter.DefaultChatStreamSSE, "or-stream-ok", parityText, 1)
-		responsesNS := strings.Replace(refopenrouter.DefaultResponsesNonStreamJSON, "or-ok", parityText, 1)
-		responsesSS := strings.Replace(refopenrouter.DefaultResponsesStreamSSE, "or-stream-ok", parityText, 1)
-		h := refopenrouter.NewHandler(refopenrouter.Config{
-			ChatNonStreamJSON:      chatNS,
-			ChatStreamSSE:          chatSS,
-			ResponsesNonStreamJSON: responsesNS,
-			ResponsesStreamSSE:     responsesSS,
-			OnRequestBody:          onRequestBody,
-		})
-		srv := httptest.NewServer(h)
-		tb.Cleanup(srv.Close)
-		return srv
-	}
-	if backendID == nvidia.ID {
-		chatNS := strings.Replace(refnvidia.DefaultChatNonStreamJSON, "nvidia-ok", parityText, 1)
-		chatSS := strings.Replace(refnvidia.DefaultChatStreamSSE, "nvidia-stream-ok", parityText, 1)
-		responsesNS := strings.Replace(refnvidia.DefaultResponsesNonStreamJSON, "nvidia-ok", parityText, 1)
-		responsesSS := strings.Replace(refnvidia.DefaultResponsesStreamSSE, "nvidia-stream-ok", parityText, 1)
-		h := refnvidia.NewHandler(refnvidia.Config{
-			ChatNonStreamJSON:      chatNS,
-			ChatStreamSSE:          chatSS,
-			ResponsesNonStreamJSON: responsesNS,
-			ResponsesStreamSSE:     responsesSS,
-			OnRequestBody:          onRequestBody,
-		})
-		srv := httptest.NewServer(h)
 		tb.Cleanup(srv.Close)
 		return srv
 	}

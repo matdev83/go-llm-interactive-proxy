@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
@@ -14,16 +16,30 @@ import (
 // limiters, and related dependencies once. Closers are registered immediately;
 // partial failures dispose acquired resources in reverse order.
 func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessServices, error) {
+	releasePluginOwnership := func() {
+		if in.PluginHost != nil {
+			_ = in.PluginHost.Close()
+			in.PluginHost = nil
+		}
+		if dir := strings.TrimSpace(in.PluginStagingDir); dir != "" {
+			_ = os.RemoveAll(dir)
+			in.PluginStagingDir = ""
+		}
+	}
 	if in.Cfg == nil {
+		releasePluginOwnership()
 		return nil, fmt.Errorf("runtimebundle: nil config")
 	}
 	if in.Log == nil {
+		releasePluginOwnership()
 		return nil, fmt.Errorf("runtimebundle: nil logger")
 	}
 	if in.Opts == nil || in.Opts.PluginRegistry == nil {
+		releasePluginOwnership()
 		return nil, fmt.Errorf("runtimebundle: nil PluginRegistry")
 	}
 	if err := validateRequiredAuthorityEvidenceWiring(in.Cfg); err != nil {
+		releasePluginOwnership()
 		return nil, err
 	}
 
@@ -43,21 +59,6 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		opts:           in.Opts,
 		parent:         parent,
 	}
-	// Discovery/trust catalog is process-owned and startup-fixed (req 7.3, 8.7).
-	ps.FactoryCatalog.FreezeDiscovery()
-	if ps.Tracing.Shutdown == nil {
-		ps.Tracing.Shutdown = func(context.Context) error { return nil }
-	}
-
-	postgresPools := db.NewPoolRegistry(in.Opts.Testing.PostgresPoolOpener)
-	ps.DatabasePools = postgresPools
-	ps.dualPlaneMigrator = newDualPlaneMigrator(in.Cfg)
-	poolsClaimed := false
-	defer func() {
-		if !poolsClaimed && postgresPools != nil {
-			_ = postgresPools.Close(parent)
-		}
-	}()
 
 	register := func(c func() error) {
 		if c != nil {
@@ -73,6 +74,37 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		}
 		return err
 	}
+
+	// Process-owned host/staging: register first → dispose last (… → host → staging).
+	if dir := strings.TrimSpace(in.PluginStagingDir); dir != "" {
+		stagingDir := dir
+		register(func() error {
+			_ = os.RemoveAll(stagingDir)
+			return nil
+		})
+		in.PluginStagingDir = ""
+	}
+	if in.PluginHost != nil {
+		pluginHost := in.PluginHost
+		register(pluginHost.Close)
+		in.PluginHost = nil
+	}
+
+	// Discovery/trust catalog is process-owned and startup-fixed (req 7.3, 8.7).
+	ps.FactoryCatalog.FreezeDiscovery()
+	if ps.Tracing.Shutdown == nil {
+		ps.Tracing.Shutdown = func(context.Context) error { return nil }
+	}
+
+	postgresPools := db.NewPoolRegistry(in.Opts.Testing.PostgresPoolOpener)
+	ps.DatabasePools = postgresPools
+	ps.dualPlaneMigrator = newDualPlaneMigrator(in.Cfg)
+	poolsClaimed := false
+	defer func() {
+		if !poolsClaimed && postgresPools != nil {
+			_ = postgresPools.Close(parent)
+		}
+	}()
 
 	controlPlane, err := buildControlPlaneRuntime(controlPlaneBuildInput{
 		StartupContext: parent,

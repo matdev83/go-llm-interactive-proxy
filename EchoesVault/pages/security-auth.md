@@ -17,6 +17,7 @@ status: active
 - Backend factories declare credential and access posture so multi-user deployments reject unknown, user-OAuth, and local-only connectors early
 - Local-only connectors include ACP/process-spawning backends, OpenAI Codex, and Codex App Server
 - Fail closed at composition or startup boundaries
+- Optional executable backend plugins: trust-equivalent to proxy-account code (not a malicious sandbox); see [backend-connector-plugins](backend-connector-plugins.md) and [`docs/backend-plugins/threat-model.md`](../../docs/backend-plugins/threat-model.md)
 
 ## Transport Authentication
 

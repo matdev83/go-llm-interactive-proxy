@@ -11,13 +11,13 @@ import (
 )
 
 // TestCursorSDKNpmImportsStayInsideBridgeBoundary proves requirement 12.6:
-// `@cursor/sdk` module imports/requires remain inside the Node bridge package only.
-// Go pin strings in error/docs are allowed; Node import sites outside bridge/ are not.
+// `@cursor/sdk` module imports/requires remain inside the Node bridge companion only.
+// Go pin strings in error/docs are allowed; Node import sites outside bridge-node/ are not.
 func TestCursorSDKNpmImportsStayInsideBridgeBoundary(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	sdkRoot := filepath.Join(root, "internal", "plugins", "backends", "cursorsdk")
-	bridgeRoot := filepath.Join(sdkRoot, "bridge")
+	sdkRoot := filepath.Join(root, "connectors", "cursorsdk")
+	bridgeRoot := filepath.Join(sdkRoot, "bridge-node")
 	var offenders []string
 	err := filepath.WalkDir(sdkRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -36,7 +36,6 @@ func TestCursorSDKNpmImportsStayInsideBridgeBoundary(t *testing.T) {
 		default:
 			return nil
 		}
-		// package-lock under bridge is expected to resolve @cursor/sdk.
 		rel, err := filepath.Rel(bridgeRoot, path)
 		underBridge := err == nil && !strings.HasPrefix(rel, "..")
 		if underBridge {
@@ -50,7 +49,6 @@ func TestCursorSDKNpmImportsStayInsideBridgeBoundary(t *testing.T) {
 		if !strings.Contains(text, "@cursor/sdk") {
 			return nil
 		}
-		// Only flag actual module import/require/dependency sites outside bridge/.
 		if strings.Contains(text, `from "@cursor/sdk"`) ||
 			strings.Contains(text, `from '@cursor/sdk'`) ||
 			strings.Contains(text, `import("@cursor/sdk")`) ||
@@ -67,12 +65,12 @@ func TestCursorSDKNpmImportsStayInsideBridgeBoundary(t *testing.T) {
 		t.Fatalf("walk cursorsdk: %v", err)
 	}
 	if len(offenders) > 0 {
-		t.Fatalf("@cursor/sdk import/require sites must stay under bridge/; offenders=%v", offenders)
+		t.Fatalf("@cursor/sdk import/require sites must stay under bridge-node/; offenders=%v", offenders)
 	}
 }
 
 // TestCoreAndProviderBoundaryDoNotImportCursorSDKBackend keeps core free of the
-// concrete cursorsdk plugin (provider semantics stay in adapters).
+// concrete cursorsdk connector (provider semantics stay in adapters/connectors).
 func TestCoreAndProviderBoundaryDoNotImportCursorSDKBackend(t *testing.T) {
 	t.Parallel()
 	patterns := []string{
@@ -93,8 +91,9 @@ func TestCoreAndProviderBoundaryDoNotImportCursorSDKBackend(t *testing.T) {
 			t.Fatalf("decode: %v", err)
 		}
 		for _, imp := range pkg.Imports {
-			if strings.Contains(imp, "/internal/plugins/backends/cursorsdk") {
-				t.Fatalf("package %q must not import cursorsdk backend %q", pkg.ImportPath, imp)
+			if strings.Contains(imp, "/internal/plugins/backends/cursorsdk") ||
+				strings.Contains(imp, "/connectors/cursorsdk") {
+				t.Fatalf("package %q must not import cursorsdk %q", pkg.ImportPath, imp)
 			}
 		}
 	}

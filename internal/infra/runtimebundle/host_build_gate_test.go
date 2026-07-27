@@ -12,15 +12,21 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/osenv"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
+
+func gateConfigPath(t *testing.T, address string, mode accessmode.Mode) string {
+	t.Helper()
+	return bpkit.MaterializeExampleConfig(t, writeOneSnapshotMarkerConfig(t, address, mode))
+}
 
 // TestBuildHost_CLIMultiUserGateRejectsBeforeTracing proves the serve-only CLI
 // gate runs after the one accepted load and before tracing/process acquisition.
 func TestBuildHost_CLIMultiUserGateRejectsBeforeTracing(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	path := writeOneSnapshotMarkerConfig(t, "127.0.0.1:18401", accessmode.ModeMultiUser)
+	path := gateConfigPath(t, "127.0.0.1:18401", accessmode.ModeMultiUser)
 
 	var acquired []string
 	ops := gateOpsRejectingAfterLoad(t, &acquired)
@@ -49,7 +55,7 @@ func TestBuildHost_CLIMultiUserGateRejectsBeforeTracing(t *testing.T) {
 func TestBuildHost_CLIMultiUserGateRejectsExplicitFalse(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	path := writeOneSnapshotMarkerConfig(t, "127.0.0.1:18403", accessmode.ModeMultiUser)
+	path := gateConfigPath(t, "127.0.0.1:18403", accessmode.ModeMultiUser)
 	flagFalse := false
 	var acquired []string
 	ops := gateOpsRejectingAfterLoad(t, &acquired)
@@ -78,7 +84,7 @@ func TestBuildHost_CLIMultiUserGateRejectsExplicitFalse(t *testing.T) {
 func TestBuildHost_CLIMultiUserGateRejectsInconsistentTrue(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	path := writeOneSnapshotMarkerConfig(t, "127.0.0.1:18404", accessmode.ModeSingleUser)
+	path := gateConfigPath(t, "127.0.0.1:18404", accessmode.ModeSingleUser)
 	flagTrue := true
 	var acquired []string
 	ops := gateOpsRejectingAfterLoad(t, &acquired)
@@ -126,7 +132,7 @@ func gateOpsRejectingAfterLoad(t *testing.T, acquired *[]string) hostBuildOps {
 func TestBuildHost_PublicPathSkipsCLIMultiUserGate(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	path := writeOneSnapshotMarkerConfig(t, "127.0.0.1:18402", accessmode.ModeMultiUser)
+	path := gateConfigPath(t, "127.0.0.1:18402", accessmode.ModeMultiUser)
 	host, err := BuildHost(ctx, BuildHostInput{
 		ConfigPath:      path,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
@@ -148,7 +154,7 @@ func TestBuildHost_PublicPathSkipsCLIMultiUserGate(t *testing.T) {
 func TestHostClose_TracingShutdownExactlyOnceOnSuccess(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	cfgPath := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	cfgPath := bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"))
 	host, err := BuildHost(ctx, BuildHostInput{
 		ConfigPath:      cfgPath,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),

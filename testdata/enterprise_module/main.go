@@ -5,9 +5,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
+	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -17,6 +20,13 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
+)
+
+const (
+	enterpriseBackendID = "enterprise-local"
+	enterpriseModelID   = "enterprise/stub-default"
+	enterpriseRoute     = enterpriseBackendID + ":" + enterpriseModelID
+	enterpriseStubText  = "[enterprise] essential stub"
 )
 
 type enterpriseMeter struct{}
@@ -113,17 +123,115 @@ func (enterpriseRuleSource) Snapshot(context.Context) (economics.Snapshot[econom
 	}, nil
 }
 
-func repoConfigPath() (string, error) {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		return "", fmt.Errorf("runtime.Caller failed")
+// startEssentialStub serves a minimal OpenAI-compatible chat completions SSE
+// endpoint so the fixture can exercise a public essential backend
+// (custom-openai-legacy-compatible) without external connector modules.
+func startEssentialStub() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/models") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[{"id":"stub-default","owned_by":"enterprise-fixture"}]}`))
+			return
+		}
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/chat/completions") {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprintf(w, "data: {\"id\":\"chatcmpl-enterprise\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":%q},\"finish_reason\":null}]}\n\n", enterpriseStubText)
+		_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl-enterprise\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":7,\"total_tokens\":10}}\n\n")
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}))
+}
+
+func writeEssentialConfig(baseURL string) (string, error) {
+	if p := strings.TrimSpace(os.Getenv("LIP_ENTERPRISE_CONFIG")); p != "" {
+		return filepath.Clean(p), nil
 	}
-	// Prefer deterministic local-stub dogfood config for Execute smoke (no live keys).
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "config", "examples", "dogfood-local-stub.yaml")), nil
+	dir, err := os.MkdirTemp("", "lip-enterprise-module-*")
+	if err != nil {
+		return "", err
+	}
+	body := fmt.Sprintf(`server:
+  address: "127.0.0.1:18080"
+routing:
+  max_attempts: 3
+  default_route: %q
+continuity:
+  in_memory: true
+  store: memory
+logging:
+  level: error
+  format: text
+diagnostics:
+  enabled: false
+hooks:
+  tool_reactor_error_policy: fail_open
+plugins:
+  frontends:
+    - id: openai-responses
+      enabled: true
+      config: {}
+    - id: openai-legacy
+      enabled: true
+      config: {}
+    - id: anthropic
+      enabled: true
+      config: {}
+    - id: gemini
+      enabled: true
+      config: {}
+  backends:
+    - id: openai-responses
+      enabled: false
+      config: {}
+    - id: openai-legacy
+      enabled: false
+      config: {}
+    - id: anthropic
+      enabled: false
+      config: {}
+    - id: gemini
+      enabled: false
+      config: {}
+    - id: bedrock
+      enabled: false
+      config: {}
+    - kind: custom-openai-legacy-compatible
+      id: %s
+      enabled: true
+      config:
+        backend_prefix: enterprise
+        base_url: %q
+        api_key: enterprise-fixture-key
+        models:
+          source: inline
+          items:
+            - canonical_id: %s
+              native_id: stub-default
+  features:
+    - id: submit-noop
+      enabled: true
+      config: {}
+    - id: parts-noop
+      enabled: true
+      config: {}
+    - id: tool-reactor-noop
+      enabled: true
+      config: {}
+`, enterpriseRoute, enterpriseBackendID, strings.TrimRight(baseURL, "/")+"/v1", enterpriseModelID)
+	path := filepath.Join(dir, "enterprise-essential.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func run(ctx context.Context) error {
-	cfgPath, err := repoConfigPath()
+	stub := startEssentialStub()
+	defer stub.Close()
+
+	cfgPath, err := writeEssentialConfig(stub.URL)
 	if err != nil {
 		return err
 	}
@@ -293,7 +401,7 @@ func run(ctx context.Context) error {
 	}
 	view := rt.ExecutorView()
 	stream, err := view.Execute(ctx, &lipapi.Call{
-		Route:    lipapi.RouteIntent{Selector: "dogfood-local:stub-default"},
+		Route:    lipapi.RouteIntent{Selector: enterpriseRoute},
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("ping")}}},
 	})
 	if err != nil {
@@ -304,7 +412,10 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("collect: %w", err)
 	}
 	if collected.Text.String() == "" {
-		return fmt.Errorf("expected assistant text from local stub")
+		return fmt.Errorf("expected assistant text from essential stub")
+	}
+	if !strings.Contains(collected.Text.String(), enterpriseStubText) {
+		return fmt.Errorf("unexpected assistant text %q", collected.Text.String())
 	}
 	return nil
 }

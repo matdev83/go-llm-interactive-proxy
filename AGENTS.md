@@ -56,16 +56,18 @@
 - Capability mismatches fail explicitly; never silently drop required semantics.
 - Request/response mutation belongs behind hooks/extensions, not core branching.
 - Use explicit construction/registration; no DI containers, reflection registries, globals, or Go native `plugin` in v1.
+- Hybrid backends ([ADR 0008](docs/adr/0008-hybrid-backend-connector-plugins.md)): essential builtins are static; optional backends are executable gRPC connectors under `connectors/` (manifest-driven discovery). Do not add optional connectors to essential/`standard_table` fixed tables. Core keeps orchestration/B2BUA.
 
 ## Package Zones
 
 - `pkg/lipapi/`: canonical request/event/capability/error contracts.
-- `pkg/lipsdk/`: plugin SDK, facades, registration contracts.
+- `pkg/lipsdk/`: plugin SDK, facades, registration contracts (including `backendplugin` ABI).
 - `internal/core/`: runtime orchestration, routing, continuity, streams, hooks/extensions, config, diagnostics.
 - `internal/plugins/frontends/`: OpenAI Responses, OpenAI legacy, Anthropic, Gemini frontends.
-- `internal/plugins/backends/`: provider/local/compatible backend adapters; exact bundle in `internal/pluginreg/standard_table.go`.
+- `internal/plugins/backends/`: essential hosted/custom-compatible adapters and shared helpers only; essential kinds in `internal/standardplugins` (`EssentialBackendBundle` / tables). Optional connectors are not root-module packages.
+- `connectors/`, `connector-support/`: independent modules for optional executable backend plugins and shared connector support.
 - `internal/plugins/features/`: official feature and reference plugins.
-- `internal/pluginreg/`, `internal/infra/runtimebundle/`, `internal/stdhttp/`: standard distribution composition.
+- `internal/pluginreg/`, `internal/standardplugins/`, `internal/infra/runtimebundle/`, `internal/stdhttp/`: standard distribution composition and discovery registration.
 - `internal/refbackend/`, `internal/refclient/`, `internal/testkit/`: test-only emulators, reference clients, stubs, fixtures.
 - `internal/archtest/`, `internal/qa/`: architecture and hygiene gates.
 

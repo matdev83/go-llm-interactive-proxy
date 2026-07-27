@@ -84,7 +84,6 @@ func Classify(active, candidate *config.Config) ([]SafeChange, error) {
 	classifyPlugins(active, candidate, reload)
 	classifyModelCatalog(active, candidate, reload, restart)
 	classifyModelInventory(active, candidate, reload, restart)
-	classifyCodexModelCatalog(active, candidate, reload, restart)
 
 	if len(blocked) > 0 {
 		slices.Sort(blocked)
@@ -437,16 +436,6 @@ func classifyModelInventory(active, candidate *config.Config, reload, restart no
 	diffStr(restart, "model_inventory.refresh_interval", a.RefreshInterval, c.RefreshInterval)
 	diffStr(reload, "model_inventory.fetch_timeout", a.FetchTimeout, c.FetchTimeout)
 	diffStr(reload, "model_inventory.diagnostics_path", a.DiagnosticsPath, c.DiagnosticsPath)
-}
-
-func classifyCodexModelCatalog(active, candidate *config.Config, reload, restart noteFn) {
-	a, c := active.CodexModelCatalog, candidate.CodexModelCatalog
-	diffStr(restart, "codex_model_catalog.fallback_path", a.FallbackPath, c.FallbackPath)
-	diffStr(restart, "codex_model_catalog.codex_binary_path", a.CodexBinaryPath, c.CodexBinaryPath)
-	if !ptrBoolEqual(a.Enabled, c.Enabled) {
-		reload("codex_model_catalog.enabled")
-	}
-	diffStr(reload, "codex_model_catalog.timeout", a.Timeout, c.Timeout)
 }
 
 func diffStr(note noteFn, path, left, right string) {

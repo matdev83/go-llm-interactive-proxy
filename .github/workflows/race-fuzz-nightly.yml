@@ -28,6 +28,11 @@ jobs:
       - name: Race detector
         run: bash scripts/race-check.sh --strict
 
+      - name: Backend plugin security checks (Linux race companion)
+        env:
+          FUZZTIME: 6s
+        run: make backend-plugin-security-checks
+
       - name: Release gates (fuzz smoke)
         env:
           # Same depth as the former PR gate (~37 targets × FUZZTIME).
