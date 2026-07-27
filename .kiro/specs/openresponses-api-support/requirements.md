@@ -2,235 +2,270 @@
 
 ## Introduction
 
-OpenResponses is a separately governed, dated interoperability specification derived from the OpenAI Responses API. The two protocols share substantial vocabulary and wire shapes, but they are not interchangeable contracts. OpenResponses 2026-04-24 defines its own normative transport, item lifecycle, continuation, compaction, assistant phase, extension, response-resource, and compliance behavior.
+OpenResponses is a separately governed, dated interoperability specification derived from the OpenAI Responses API. The protocols share substantial vocabulary, but they are not interchangeable contracts. OpenResponses `2026-04-24` defines its own normative transport, item lifecycle, continuation, compaction, assistant phase, extension, response-resource, and compliance behavior.
 
-Go-LIP already exposes an OpenAI Responses frontend and includes OpenAI Responses backend adapters. This feature adds OpenResponses as a distinct protocol surface without changing the meaning, routes, or compatibility promises of those existing adapters. It provides both:
+Go-LIP already exposes OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, and Gemini-compatible frontends and includes backend connectors for OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, Gemini/Vertex, Amazon Bedrock, ACP, OpenRouter, and NVIDIA. This feature adds OpenResponses as a distinct protocol surface without changing the meaning, routes, or compatibility promises of those adapters. It provides:
 
-- a client-facing OpenResponses frontend supporting HTTP JSON, HTTP SSE, standalone compaction, and persistent WebSocket turns; and
-- a dependency-free generic backend mode for remote OpenResponses-capable providers and routers over HTTP JSON/SSE and compaction.
+- a client-facing OpenResponses frontend supporting HTTP JSON, HTTP SSE, standalone compaction, and persistent sequential WebSocket turns;
+- a dependency-free generic backend mode for remote OpenResponses-capable providers and routers over HTTP JSON/SSE and compaction;
+- an independent OpenResponses reference client emulator and an independent OpenResponses remote-backend emulator; and
+- exhaustive, feature-aware cross-protocol validation by adding OpenResponses as both a frontend row and backend column in the repository's authoritative canonical FE×BE conformance matrix.
 
-The implementation is pinned initially to the official `2026-04-24` specification snapshot and official compliance suite. The portable protocol profile is implemented directly. Provider- or router-specific behavior remains capability-gated and, where it requires proprietary headers, routing semantics, inventory, billing, or typed extensions, belongs in the corresponding provider connector rather than the generic mode.
+The implementation is pinned initially to the official `2026-04-24` snapshot and compliance suite. Portable semantics must be translated through protocol-neutral canonical contracts. Provider-bound or non-representable semantics must be capability-gated and rejected before upstream network work; they must never be silently dropped or accidentally downgraded.
 
 ## Boundary Context
 
-- **In scope**: protocol identity and versioning; ordered item trajectory; HTTP JSON; SSE; response-resource synthesis; client-facing WebSocket; continuation state; compaction; generic remote backend mode; provider-prefixed opaque extensions; configuration; diagnostics; limits; conformance; adjacent architecture revalidation.
-- **Out of scope**: changing the public contract of the existing OpenAI Responses endpoints; pretending OpenResponses is an OpenAI-compatible alias; background job retrieval APIs; arbitrary provider-specific header forwarding; OpenRouter-specific attribution/routing/billing behavior; automatic upstream WebSocket pooling; runtime SDK generation or download.
-- **Adjacent specifications requiring revalidation**: `backend-connector-plugin-architecture`, `generic-compatible-backend-modes`, canonical API steering, routing/commitment steering, and any active backend plugin ABI work.
+- **In scope**: protocol identity/versioning; ordered item trajectory; HTTP JSON; SSE; complete response-resource synthesis; client-facing WebSocket; continuation state; compaction; generic remote backend mode; independent test-only client/backend emulators; full Cartesian FE×BE compatibility; explicit canonical projectors; provider-prefixed opaque extensions; configuration; diagnostics; limits; quality, coverage, conformance, race, fuzz, leak, and regression gates; adjacent architecture revalidation.
+- **Out of scope**: changing the existing OpenAI Responses contract; pretending OpenResponses is an OpenAI alias; pairwise frontend-to-backend translator packages; background job retrieval APIs; arbitrary provider-specific header forwarding; OpenRouter-specific attribution/routing/billing in the generic mode; automatic upstream WebSocket pooling; runtime schema download; claiming unsupported features are portable.
+- **Adjacent specifications requiring revalidation**: `backend-connector-plugin-architecture`, `generic-compatible-backend-modes`, `llm-api-parity`, canonical API steering, testing steering, routing/commitment steering, and any active backend plugin ABI work.
 
 ## Requirements
 
 ### Requirement 1: Distinct Protocol Identity and Version Pinning
 
-**Objective:** As a maintainer, I want OpenResponses represented as an explicit dated protocol profile, so that compatibility does not drift with either OpenAI's API or an unversioned external schema.
+**Objective:** As a maintainer, I want OpenResponses represented as an explicit dated protocol profile, so compatibility cannot drift with OpenAI's API or an unversioned external schema.
 
 #### Acceptance Criteria
 
 1. The system shall identify OpenResponses with a distinct frontend ID, operation identity, backend factory kind, diagnostics identity, and conformance profile rather than aliasing `openai.responses`.
-2. The initial implementation shall pin protocol behavior to the official OpenResponses `2026-04-24` normative specification, OpenAPI snapshot, examples, and compliance tests at a reviewed immutable upstream commit.
-3. The implementation shall not silently follow the mutable unversioned OpenResponses schema or website when upstream changes.
-4. When configuration requests an unsupported OpenResponses version, startup shall fail before serving with the supported versions listed.
-5. A later OpenResponses snapshot shall require an explicit profile addition, compatibility review, fixture update, and conformance run rather than mutating the existing profile in place.
-6. Existing OpenAI Responses frontend and backend behavior, operation names, route defaults, and protocol-specific reasoning replay shall remain unchanged unless a separately reviewed compatibility change is required.
-7. Diagnostics shall expose the configured OpenResponses profile and whether the endpoint is client-facing, generic remote, or provider-specific.
-8. The architecture tests shall fail if OpenResponses is registered as the existing OpenAI Responses operation or if one adapter's wire types are exported as the other's public contract.
+2. The initial implementation shall pin behavior to the official OpenResponses `2026-04-24` normative specification, OpenAPI snapshot, examples, and compliance tests at a reviewed immutable upstream commit.
+3. Runtime and CI shall not silently follow the mutable unversioned schema or website.
+4. When configuration requests an unsupported profile, startup shall fail before serving and list supported profiles.
+5. A later snapshot shall require an explicit profile addition, compatibility review, fixture update, and conformance run rather than mutating the existing profile.
+6. Existing protocol frontends and backends shall remain behaviorally unchanged unless a separately reviewed compatibility fix is required.
+7. Diagnostics shall expose the configured profile and whether an instance is client-facing, generic remote, provider-specific, or test-only.
+8. Architecture tests shall fail if OpenResponses is registered as the existing OpenAI Responses operation or if either protocol exports the other's wire contract.
 
 ### Requirement 2: Client-Facing Route Ownership and HTTP Semantics
 
-**Objective:** As an operator, I want an exact OpenResponses HTTP surface that can coexist safely with the existing OpenAI Responses frontend.
+**Objective:** As an operator, I want an exact OpenResponses HTTP surface that safely coexists with existing frontends.
 
 #### Acceptance Criteria
 
-1. The OpenResponses frontend shall expose `POST <base_path>/responses` and `POST <base_path>/responses/compact`, with `GET <base_path>/responses` reserved for WebSocket upgrade handling.
-2. The default OpenResponses `base_path` shall be `/openresponses/v1`, allowing it to coexist with the existing OpenAI Responses `/v1/responses` route.
-3. An operator may configure the canonical OpenResponses base path `/v1` only when no other enabled frontend owns any resulting method/path pair.
-4. Before serving, the composition layer shall validate method/path ownership and return a deterministic conflict naming both owners rather than relying on `http.ServeMux` panic behavior or registration order.
-5. The system shall not select between OpenAI Responses and OpenResponses by inspecting request bodies, headers, user agents, or response shape on one shared route.
-6. The create endpoint shall require JSON request bodies, enforce configured body and nesting limits, and return protocol-shaped errors for malformed or unsupported requests.
-7. The create endpoint shall accept a string input or an ordered item array and shall allow `model` or `input` omission only when the remaining request and resolved continuation make the request semantically valid.
-8. Non-streaming creation shall return an `application/json` OpenResponses `ResponseResource` containing every field required by the pinned schema, with explicit nulls or zero/default values where the schema requires presence.
-9. The frontend shall not expose the OpenAI-specific `/responses/cancel` route as part of the OpenResponses surface.
-10. Authentication, route selection, client identity projection, request limits, and secure-session policy shall reuse standard frontend infrastructure without treating client-supplied response IDs as session authority.
+1. The frontend shall expose `POST <base_path>/responses`, `POST <base_path>/responses/compact`, and optionally `GET <base_path>/responses` for WebSocket upgrades.
+2. The default base path shall be `/openresponses/v1`.
+3. `/v1` may be configured only when no enabled frontend owns a resulting method/path pair.
+4. Before serving, composition shall validate normalized method/path ownership and return a deterministic conflict naming both owners.
+5. The system shall not select OpenAI Responses versus OpenResponses by sniffing body, headers, user agent, or response shape on one route.
+6. Create and compact endpoints shall require JSON, enforce independent body/depth/item/tool/content limits, and return profile-shaped errors.
+7. Create shall accept string input or an ordered item array and may omit `model` or `input` only when the remaining request and resolved continuation are semantically valid.
+8. Non-streaming creation shall emit every field required by the pinned `ResponseResource`, including explicit null/default presence.
+9. The OpenAI-specific cancel route shall not be exposed as part of OpenResponses.
+10. Authentication, authoritative route/session selection, and request limits shall execute before continuation lookup or backend work.
 
 ### Requirement 3: Ordered Canonical Item Trajectory
 
-**Objective:** As a protocol adapter author, I want an ordered, protocol-neutral item representation, so that OpenResponses items are not collapsed into a lossy message-only shape.
+**Objective:** As an adapter author, I want an ordered protocol-neutral item representation so OpenResponses semantics are not collapsed into a lossy message-only model.
 
 #### Acceptance Criteria
 
-1. The canonical API shall add an ordered item trajectory capable of representing message, item reference, function call, function call output, reasoning, compaction, and bounded extension items.
-2. A canonical item shall preserve applicable item identity, lifecycle status, role, assistant phase, call identity, ordering, content ordering, and opaque replay material without importing OpenResponses wire structs.
-3. Canonical message roles shall distinguish `system`, `developer`, `user`, and `assistant` when the source protocol distinguishes them.
-4. Assistant message phase shall preserve `commentary` and `final_answer` on input history and model output.
-5. Canonical content shall support the pinned portable input content set, including text, image, file, and video references, and the portable model-output content set, including output text, refusal, reasoning text, summaries, and annotations where available.
-6. Function call output shall preserve both string output and structured content-part arrays.
-7. Reasoning items shall preserve content, summary, and encrypted provider replay material using bounded dialect-tagged opaque data and shall never expose or reinterpret protected reasoning.
-8. Compaction items shall be round-trippable as opaque context items and shall remain bound to a compatible backend profile when their semantics are not portable.
-9. Existing message-based calls shall remain source-compatible during migration, but validation shall prevent simultaneous conflicting item and legacy-message authorities.
-10. Shared canonical walkers, capability derivation, hooks, accounting, and redaction shall handle both legacy calls and ordered item calls without silently skipping item-form requests.
-11. Projection from ordered items to a legacy backend shall occur only through an explicit tested projector and shall reject before upstream work when the requested item semantics cannot be represented losslessly.
-12. Item and content payloads shall have deterministic count, depth, string, binary-reference, and opaque-payload bounds.
+1. The canonical API shall represent ordered message, item-reference, function-call, function-output, reasoning, compaction, and bounded-extension items.
+2. Items shall preserve applicable identity, lifecycle status, role, assistant phase, call identity, ordering, content order, and opaque replay material without importing wire structs.
+3. Canonical roles shall distinguish `system`, `developer`, `user`, and `assistant` when the source distinguishes them.
+4. Assistant phase shall preserve `commentary` and `final_answer` on input and output.
+5. Canonical content shall represent portable text, image, file, video, refusal, reasoning, summary, annotation, and assistant-reference forms.
+6. Function output shall preserve both string output and ordered structured content-part arrays.
+7. Reasoning shall preserve visible content, safe summaries, and bounded dialect-tagged opaque replay material without interpreting protected data.
+8. Compaction items shall round-trip as ordered context and remain bound to compatible dialect/lineage when nonportable.
+9. Legacy message-authority calls shall remain source-compatible, while validation prevents conflicting simultaneous item and message authorities.
+10. Shared walkers, capability derivation, hooks, accounting, limits, redaction, and audit shall handle both call forms.
+11. Projection between ordered items and legacy messages shall occur only through explicit deterministic tested projectors and shall reject non-representable semantics before execution.
+12. Items and content shall have deterministic count, depth, reference, string, schema, and opaque-payload bounds.
 
 ### Requirement 4: Tools, Extensions, and Lossless Capability Negotiation
 
-**Objective:** As a router user, I want portable tools and declared extensions preserved only on compatible candidates, so that provider-specific data is neither dropped nor leaked across providers.
+**Objective:** As a router user, I want portable tools and declared extensions preserved only on compatible candidates.
 
 #### Acceptance Criteria
 
-1. The portable OpenResponses profile shall support function tools, all pinned `tool_choice` forms required by the official schema, parallel-tool-call policy, function call items, and function call outputs.
-2. The implementation shall distinguish the normative portable profile from provider-derived hosted tool and item shapes present in the dated OpenAPI schema.
-3. A standard item, content part, annotation, tool, or event supported by the pinned profile shall use a typed project-owned representation rather than arbitrary maps.
-4. A non-standard extension type shall be accepted as opaque only when its discriminator follows the pinned extension naming rules or is an explicitly recognized legacy schema type from the pinned snapshot.
-5. Opaque extension records shall preserve exact bounded JSON, discriminator, implementor slug, direction, and dialect while remaining invisible to generic core policy except for validation, capability negotiation, redaction, and routing constraints.
-6. A call containing provider-bound item, tool, reasoning, compaction, or top-level extension data shall require a backend that advertises the exact compatible dialect and, where applicable, implementor slug or configured extension key.
-7. Core shall reject a candidate before upstream work when an extension would be dropped, renamed, inspected by an unrelated provider, or sent to an incompatible implementor.
-8. Pre-output failover shall consider only candidates that satisfy the same extension and replay constraints; no failover shall occur after client-visible output.
-9. The generic backend mode shall reject unknown proprietary top-level request fields by default.
-10. An operator may explicitly allow named bounded top-level JSON extension keys for a generic endpoint; those keys shall be candidate-bound, excluded from logs, and never grant arbitrary header forwarding.
-11. Provider-specific authentication, attribution headers, model routing, inventory, billing, or typed proprietary extensions shall remain in the provider's external connector even when that connector reuses the shared OpenResponses wire codec.
-12. Unknown provider output extensions shall be surfaced as bounded opaque events or items to an OpenResponses client and shall not be silently discarded.
+1. The portable profile shall support function tools, required `tool_choice` forms, parallel-tool policy, call items, and call-output items.
+2. The implementation shall distinguish portable forms from provider-derived hosted tools/items present in the dated schema.
+3. Standard pinned forms shall use typed project-owned representations rather than arbitrary maps.
+4. A non-standard type may be carried opaquely only when its discriminator follows profile naming rules or is an explicitly recognized dated legacy type.
+5. Opaque records shall preserve bounded JSON, discriminator, implementor, direction, and dialect while core inspects only validation/routing metadata.
+6. Provider-bound tools, reasoning, compaction, items, or top-level extensions shall require an exact compatible backend declaration.
+7. Candidate admission shall reject before upstream work when any semantic would be dropped, renamed, exposed to an unrelated implementor, or sent to an incompatible dialect.
+8. Pre-output failover shall consider only candidates satisfying the complete requirements; no failover shall occur after visible output.
+9. Generic backend configuration shall reject unknown proprietary top-level request fields by default.
+10. Explicitly allowlisted bounded top-level extension keys shall remain candidate-bound, redacted, and shall not enable arbitrary header forwarding.
+11. Provider-specific auth, attribution, routing, inventory, billing, or typed proprietary extensions shall remain provider-connector owned.
+12. Unknown valid provider-prefixed output shall surface as bounded opaque events/items to an OpenResponses client rather than being discarded.
 
-### Requirement 5: Streaming State Machine and Response Resource Fidelity
+### Requirement 5: Streaming State Machine and Response Fidelity
 
-**Objective:** As an OpenResponses client, I want schema-valid semantic events and terminal ordering, so that streaming behavior is interoperable and deterministic.
+**Objective:** As an OpenResponses client, I want schema-valid semantic events and deterministic terminal ordering.
 
 #### Acceptance Criteria
 
-1. When `stream:true`, the create endpoint shall return `text/event-stream` and emit each JSON event with an SSE `event` value equal to the event body's `type`.
-2. The final SSE record shall be the literal `[DONE]` data value after exactly one terminal response event.
-3. The frontend encoder shall synthesize or preserve the pinned response, item, content-part, text, reasoning, function-argument, refusal, and error lifecycle events in valid sequence-number order.
-4. Every output item shall follow `response.output_item.added` through one terminal `response.output_item.done`, with content-part lifecycle events where applicable.
-5. Item IDs, call IDs, output indices, content indices, statuses, assistant phases, and sequence numbers shall remain internally consistent across the stream and final response resource.
-6. A streaming error shall produce the required structured error event and terminal failed response semantics before `[DONE]` when the transport remains writable.
-7. The adapter shall emit no event after a terminal event and shall not emit duplicate terminal, item-done, or content-done events.
-8. Backpressure, client cancellation, write failure, panic recovery, and stream closure shall retain bounded memory and exactly-once terminal ownership.
-9. The non-streaming collector and streaming encoder shall be derived from the same ordered canonical event/item semantics and shall produce equivalent final output.
-10. Provider-native event IDs or response IDs shall not become proxy continuation authority merely because they are exposed on the client-facing stream.
+1. `stream:true` shall return `text/event-stream` and each SSE `event` value shall equal the JSON body's `type`.
+2. The final SSE record shall be literal `[DONE]` after exactly one terminal response event.
+3. The encoder shall preserve or synthesize required response, item, content-part, text, refusal, reasoning, function-argument, and error lifecycle events.
+4. Every output item shall have one added and one done lifecycle, with content-part lifecycle where applicable.
+5. IDs, call IDs, indices, statuses, phases, and sequence numbers shall remain consistent across stream and final resource.
+6. Writable streaming failures shall emit structured error and failed terminal semantics before `[DONE]`.
+7. No event may follow terminal; duplicate done/terminal events are invalid.
+8. Backpressure, cancellation, writer failure, panic recovery, and closure shall use bounded memory and exactly-once ownership.
+9. Non-streaming collection and streaming encoding shall derive from the same canonical state machine.
+10. Provider-native IDs shall remain evidence, not proxy continuation authority.
 
 ### Requirement 6: Proxy-Owned Response Continuation
 
-**Objective:** As a client using `previous_response_id`, I want continuation to work without exposing backend state or weakening routing and session isolation.
+**Objective:** As a client using `previous_response_id`, I want continuation without exposing backend state or weakening routing isolation.
 
 #### Acceptance Criteria
 
-1. Client-facing response IDs shall be proxy-issued opaque identifiers scoped to the authenticated client or authoritative session and shall not be treated as raw backend response IDs.
-2. When `previous_response_id` is supplied, the continuation service shall resolve the referenced prior input and output, preserve their semantic order, and append the new input before backend execution.
-3. A continuation record shall include protocol profile, canonical input/output trajectory, model and route lineage, persistence mode, expiry, and any provider-bound replay requirements needed for safe routing.
-4. When a continuation contains only portable canonical items, core may route or fail over among candidates that satisfy the request capabilities.
-5. When a continuation contains provider-bound opaque material, compaction, or native replay state, routing shall remain pinned to compatible lineage or fail before upstream work.
-6. The generic backend connector shall use materialized canonical history by default and shall not forward a client-supplied `previous_response_id` directly to a remote provider.
-7. An implementation may use a remote native response ID as an internal optimization only when the selected backend instance and protocol profile match the stored lineage and a full canonical fallback remains policy-valid.
-8. HTTP continuation with persisted `store:true` state shall obey configured TTL, tenant/session isolation, storage limits, deletion, and startup/shutdown ownership.
-9. A missing, expired, unauthorized, evicted, or incompatible response ID shall return `previous_response_not_found` without revealing whether another tenant owns the ID.
-10. Client request metadata, response IDs, and model strings shall not override authoritative session, route, or backend identity.
-11. Stored continuation data shall use the existing secure state policy or a new equally reviewed storage boundary and shall not be written to ordinary logs or diagnostics.
-12. Continuation lookup and materialization shall be bounded against unbounded chain depth, cycles, amplification, and oversized reconstructed context.
+1. Client response IDs shall be proxy-issued opaque IDs scoped to authoritative client/session identity.
+2. Continuation shall materialize prior input, prior output, then new input in semantic order before candidate selection.
+3. Records shall contain profile, canonical trajectory, model/route lineage, persistence mode, expiry, and replay requirements.
+4. Portable history may reroute among candidates satisfying all requirements.
+5. Provider-bound opaque/replay/compaction state shall pin compatible lineage or fail before upstream work.
+6. The generic backend shall use materialized canonical history and shall not forward a client ID directly upstream.
+7. Native remote IDs may be private optimizations only under matching lineage and a policy-valid canonical fallback.
+8. Persisted state shall obey TTL, isolation, deletion, limits, and startup/shutdown ownership.
+9. Missing, expired, unauthorized, evicted, or incompatible IDs shall return indistinguishable `previous_response_not_found` behavior.
+10. Client metadata, response IDs, and model strings shall not override authoritative route/session identity.
+11. Stored state shall follow reviewed secure-state policy and shall not enter ordinary logs/diagnostics.
+12. Lookup/materialization shall be bounded against depth, cycles, amplification, and oversized reconstructed context.
 
 ### Requirement 7: Standalone Context Compaction
 
-**Objective:** As an agent client, I want `/responses/compact` to produce a reusable compacted context through normal routing, so that compaction is not a frontend-to-backend shortcut.
+**Objective:** As an agent client, I want `/responses/compact` routed through normal backend selection.
 
 #### Acceptance Criteria
 
-1. The system shall expose a protocol-neutral context-compaction operation through core-owned route selection and an optional backend compaction capability.
-2. `POST <base_path>/responses/compact` shall require a model and shall accept the pinned compact request fields and ordered input trajectory.
-3. A backend candidate shall be eligible for compaction only when it advertises compaction support for the required profile and item/replay capabilities.
-4. The generic OpenResponses backend shall map the canonical compaction request to remote `POST /responses/compact` without routing around core.
-5. The frontend shall return the pinned `response.compaction` resource with required ID, object, output, created timestamp, and usage fields.
-6. Compaction output shall contain a reusable ordered item window and at least one compaction item when required by the upstream result.
-7. A compacted output used on a later create request shall start a new response chain and shall not implicitly reuse the pre-compaction `previous_response_id`.
-8. Compaction errors shall use classified pre-output retry/failover policy; once a compaction result is returned, it shall not be replayed transparently.
-9. If no eligible backend supports compaction, the frontend shall return a protocol-shaped unsupported-capability error rather than emulating lossy summarization.
-10. The backend plugin ABI and built-in backend port shall be revalidated and, if necessary, extended so external OpenResponses provider connectors can advertise and execute the same compaction contract.
+1. Core shall expose a protocol-neutral context-compaction operation and capability.
+2. Compact shall require a model and accept pinned compact fields and ordered input.
+3. Only candidates declaring compatible compaction/item/replay capabilities shall be eligible.
+4. The generic backend shall map compaction to remote `POST /responses/compact` without bypassing core.
+5. The frontend shall return the complete pinned `response.compaction` resource.
+6. Output shall contain a reusable ordered item window and required compaction item(s).
+7. Later create shall start a new chain without the pre-compaction response ID.
+8. Errors shall use normal pre-output classification/failover; returned results shall not be transparently replayed.
+9. Absence of an eligible backend shall yield a profile-shaped capability error, never lossy local summarization.
+10. Built-in and plugin backend contracts shall express and test the same compaction operation.
 
 ### Requirement 8: Client-Facing WebSocket Transport
 
-**Objective:** As an agent client, I want persistent sequential OpenResponses turns over WebSocket with the same semantics as HTTP/SSE.
+**Objective:** As an agent client, I want persistent sequential OpenResponses turns with HTTP/SSE-equivalent semantics.
 
 #### Acceptance Criteria
 
-1. When enabled, `GET <base_path>/responses` with a valid WebSocket upgrade shall authenticate and upgrade using the project's approved WebSocket library and origin policy.
-2. Each client turn shall begin with a JSON `response.create` message; HTTP-only fields `stream`, `stream_options`, and `background` shall be rejected on WebSocket requests.
-3. The server shall process at most one in-flight response per connection and shall process multiple accepted turns sequentially without multiplexing.
-4. WebSocket output shall use the same event objects, ordering, item lifecycle, sequence semantics, and terminal response objects as SSE, without SSE framing or `[DONE]`.
-5. `store:false` continuation state shall be connection-local, unavailable after reconnect, and excluded from persistent storage.
-6. When a `store:false` continuation references missing connection-local state, the server shall return a WebSocket error envelope with code `previous_response_not_found`.
-7. When a continuation turn fails with a 4xx or 5xx-equivalent error, the referenced connection-local response shall be evicted before a later turn is accepted.
-8. Connections shall have a configurable maximum age not exceeding the pinned 60-minute protocol limit and shall emit `websocket_connection_limit_reached` before closure when possible.
-9. Per-connection read size, write size, pending events, turn queue, idle time, ping/pong, and total retained state shall be bounded.
-10. Disconnect and cancellation shall propagate to the active canonical execution attempt without transparent post-output retry.
-11. The frontend WebSocket transport may execute upstream through ordinary HTTP/SSE backends; client-facing WebSocket support shall not require an upstream persistent WebSocket.
-12. Origin relaxation for browser compliance testing shall require an explicit development-only configuration and shall not be enabled by default.
+1. A valid authenticated `GET <base_path>/responses` upgrade shall use the approved WebSocket library and origin policy.
+2. Each turn shall begin with `type: "response.create"`; HTTP-only fields shall be rejected.
+3. At most one response shall be in flight per connection; accepted turns shall execute sequentially without multiplexing.
+4. Output shall use the same event objects and lifecycle as SSE without SSE framing or `[DONE]`.
+5. `store:false` continuation shall be connection-local and unavailable after reconnect.
+6. Missing local state shall produce the required `previous_response_not_found` error envelope.
+7. A classified 4xx/5xx-equivalent continuation failure shall evict the referenced local parent; disconnect/cancellation/unrelated transport failure shall not.
+8. Maximum age shall be configurable but no greater than 60 minutes and shall emit `websocket_connection_limit_reached` when possible.
+9. Message sizes, pending events, queue, idle time, ping/pong, and retained state shall be bounded.
+10. Disconnect/cancellation shall propagate without post-output retry.
+11. Client WebSocket support shall not require upstream WebSocket pooling.
+12. Relaxed browser origin behavior shall require explicit development-only configuration.
 
 ### Requirement 9: Generic Remote OpenResponses Backend Mode
 
-**Objective:** As an operator, I want to connect arbitrary standards-compliant inference providers and routers without writing provider code.
+**Objective:** As an operator, I want standards-compliant remote providers without provider-specific code.
 
 #### Acceptance Criteria
 
-1. The standard distribution shall provide a dependency-free built-in-compatible backend factory kind named `custom-openresponses-compatible` or an equivalently reviewed stable kind.
-2. Each configured instance shall have an independent runtime ID, backend route prefix, base URL, credentials, model inventory, capability profile, limits, and diagnostics provenance.
-3. The backend shall support remote non-streaming creation, SSE creation, and standalone compaction over HTTP using the pinned OpenResponses wire profile.
-4. The backend shall use one validated endpoint descriptor for create, compact, and model inventory path joining and shall preserve intentional base-path prefixes.
-5. The backend shall support authenticated and explicitly unauthenticated endpoints without emitting an empty authorization header.
-6. Credential references and pooling shall use shared secret-aware infrastructure and shall not require literal secrets in YAML.
-7. The backend shall parse all pinned standard events it claims to support and shall surface unknown provider-prefixed events as bounded opaque canonical extension events.
-8. Provider or protocol errors shall be classified into pre-output recoverability, rate-limit/auth credential state, terminal model failure, and post-output committed failure without hiding retries from core.
-9. The backend shall advertise operation, transport, item, reasoning replay, phase, extension, continuation-materialization, and compaction capabilities honestly and may vary them by model.
-10. A request requiring an unsupported field, item, tool, extension, phase, or replay dialect shall fail before opening the upstream request.
-11. The initial generic connector shall not require or automatically pool upstream WebSocket connections; a later upstream WebSocket optimization shall require separate lifecycle and session-affinity revalidation.
-12. OpenRouter-specific attribution headers, provider ordering, fallback semantics, catalog, billing, and proprietary top-level controls shall remain in the OpenRouter connector, which may reuse the shared codec.
+1. The standard distribution shall provide stable kind `custom-openresponses-compatible` or an equivalently reviewed name.
+2. Every instance shall have independent ID, route prefix, endpoint, credentials, inventory, capability profile, limits, and provenance.
+3. The backend shall support remote JSON create, SSE create, and compact using the pinned profile.
+4. One validated endpoint descriptor shall join create, compact, and optional models paths while preserving intentional prefixes.
+5. Authenticated and explicit no-auth endpoints shall be supported without empty auth headers.
+6. Credentials shall use secret-aware shared infrastructure and need not be literal YAML values.
+7. All claimed standard events shall be parsed; valid prefixed unknown output shall become bounded opaque canonical events.
+8. Errors shall be classified into pre-output recoverability, auth/rate-limit state, terminal failure, and post-output committed failure.
+9. Operation, transport, item, phase, replay, extension, continuation, and compaction capabilities shall be honest and model-aware where needed.
+10. Unsupported semantics shall fail before the upstream request opens.
+11. Upstream WebSocket pooling is not required initially and requires separate lifecycle/session-affinity review later.
+12. OpenRouter-specific policy shall remain in its connector, which may reuse the shared wire codec.
+13. The backend shall accept both canonical item-authority calls and legacy message-authority calls through explicit validated constructors/projectors.
+14. Legacy-message projection shall preserve the portable ordered conversation, tools, content, and controls and shall reject conflicting or non-representable semantics before network work.
 
 ### Requirement 10: Configuration, Diagnostics, and Security
 
-**Objective:** As an operator, I want strict configuration and bounded observability, so that protocol support does not introduce route ambiguity, secret leakage, or unbounded state.
+**Objective:** As an operator, I want strict configuration and bounded observability.
 
 #### Acceptance Criteria
 
-1. Frontend configuration shall strictly validate base path, supported profile, WebSocket enablement, origin policy, connection limits, continuation persistence, TTL, and storage bounds.
-2. Backend configuration shall strictly validate route prefix, endpoint, credential references, inventory, declared extension slugs/keys, capability overrides, and request/stream limits.
-3. Unknown configuration fields shall fail with the frontend or backend instance identified.
-4. Base URLs shall be absolute `http` or `https`, require a host, reject userinfo and fragments, and use deterministic path joining.
-5. Diagnostics shall expose sanitized endpoint identity, protocol profile, route ownership, enabled transports, continuation mode, capability declarations, inventory state, and conformance status without request content, response content, raw opaque payloads, credentials, or full client identifiers.
-6. Logs and metrics shall use bounded reason codes and cardinality-safe protocol/backend labels rather than response IDs, item IDs, model prompts, extension payloads, or arbitrary provider error strings.
-7. Request, response, SSE event, WebSocket message, item count, content part, JSON depth, string, metadata, annotation, extension, and reconstructed continuation sizes shall be bounded independently.
-8. Authentication and authorization shall occur before body processing, WebSocket state allocation, continuation lookup, or backend execution.
-9. Client-controlled metadata, `user`, `safety_identifier`, prompt-cache fields, and proprietary extensions shall follow explicit forwarding/redaction policy and shall never become routing or session authority.
-10. Shutdown and runtime reload shall close WebSockets, cancel active attempts, flush or discard continuation state according to persistence policy, and release resources exactly once.
-11. Reload shall reject route or storage changes that cannot be applied atomically without orphaning active connections or continuation ownership.
-12. Security review shall cover cross-tenant response-ID probing, continuation fixation, extension smuggling, WebSocket origin abuse, decompression/amplification, event injection, and sensitive opaque replay material.
+1. Frontend config shall validate profile, path, WebSocket policy, continuation persistence, TTL, and bounds.
+2. Backend config shall validate prefix, endpoint, credential refs, inventory, capability/dialect declarations, and limits.
+3. Unknown configuration fields shall fail with instance identity.
+4. Base URLs shall be absolute HTTP(S), require a host, reject userinfo/fragments, and join paths deterministically.
+5. Diagnostics shall expose sanitized profile, origin, route ownership, transports, continuation mode, capabilities, inventory, and conformance status.
+6. Logs/metrics shall use bounded reason codes and cardinality-safe labels, not content, IDs, arbitrary types, or raw provider errors.
+7. Request, response, event, message, item, content, schema, metadata, annotation, extension, and continuation sizes shall be independently bounded.
+8. Authentication/authorization shall precede body work, WebSocket state, continuation lookup, or backend execution.
+9. Client-controlled metadata/cache/safety/extensions shall follow explicit forwarding/redaction policy and never become routing authority.
+10. Shutdown/reload shall close sessions, cancel attempts, handle state by policy, and release resources exactly once.
+11. Reload shall reject changes that cannot be applied atomically without orphaning ownership.
+12. Security review shall cover ID probing/fixation, extension smuggling, origin abuse, amplification, event injection, and sensitive replay data.
 
-### Requirement 11: Licensed Implementation Strategy and Dependency Boundaries
+### Requirement 11: Licensed Implementation and Dependency Boundaries
 
-**Objective:** As a maintainer, I want an auditable permissively licensed implementation, so that protocol support does not depend on unavailable or legally unsuitable code.
+**Objective:** As a maintainer, I want an auditable permissively licensed implementation.
 
 #### Acceptance Criteria
 
-1. The official OpenResponses specification, schema, examples, and compliance fixtures may be used under their verified Apache-2.0 license with required notices and pinned provenance.
-2. The implementation shall not depend on a Go package without a publicly auditable source repository and an explicit MIT, BSD, Apache-2.0, ISC, or equivalently approved license.
-3. The implementation shall not adopt an untagged third-party Go module as a production dependency unless a reviewed exception verifies immutable source, provenance, maintenance, license, security, API fit, and conformance.
-4. The existing official OpenAI Go SDK shall remain confined to OpenAI backend packages and shall not define the OpenResponses frontend, generic backend, canonical item, compaction, or WebSocket contracts.
-5. The default design shall use project-owned Go wire types and codecs generated from or manually aligned to the pinned official schema, standard HTTP/JSON/SSE primitives, and the already approved WebSocket dependency.
-6. Generated or copied schema-derived material shall be reproducible, reviewable, minimal to the supported profile, and accompanied by license and source-commit metadata.
-7. Provider SDK types, OpenResponses wire types, and third-party library types shall not appear in `pkg/lipapi`, core ports, plugin ABI DTOs, or unrelated frontend/backend packages.
-8. A future official or mature permissively licensed Go SDK may replace internal wire plumbing only after passing the same golden, fuzz, conformance, cancellation, extension, and dependency-boundary tests without changing public architecture.
-9. Architecture tests shall prohibit dependencies from core to concrete OpenResponses adapters and prohibit the generic adapter from importing provider-specific connector packages.
-10. Root builds shall remain valid with `GOWORK=off`, no external connector modules, and no JavaScript runtime required for normal build or unit tests.
+1. Official schema/spec/examples/compliance fixtures may be used under verified Apache-2.0 terms with pinned provenance/notices.
+2. Production shall not depend on source-unavailable or unlicensed packages.
+3. Untagged runtime modules require a reviewed immutable-source, maintenance, license, security, API-fit, and conformance exception.
+4. The OpenAI Go SDK shall remain confined to OpenAI-family backend packages.
+5. Default OpenResponses wire code shall be project-owned, schema-aligned, and use standard HTTP/JSON/SSE plus the approved WebSocket dependency.
+6. Generated/copied material shall be reproducible, minimal, reviewable, and provenance-tagged.
+7. Provider SDK, wire, and third-party types shall not enter canonical/core/plugin ABI contracts.
+8. A later SDK replacement must pass identical goldens, fuzz, conformance, cancellation, extension, and boundary tests.
+9. Architecture tests shall prohibit core-to-adapter and generic-to-provider-specific dependencies.
+10. Root builds shall work with `GOWORK=off`, no external connector modules, and no JavaScript runtime for normal build/unit tests.
+11. Reference emulators shall remain test-only and shall not become production dependencies.
 
 ### Requirement 12: TDD, Conformance, Migration, and Delivery Gates
 
-**Objective:** As a maintainer, I want an executable brownfield migration with official conformance evidence, so that a large protocol addition cannot regress existing adapters or routing guarantees.
+**Objective:** As a maintainer, I want executable brownfield migration and independently grounded compatibility evidence.
 
 #### Acceptance Criteria
 
-1. Interfaces, canonical item contracts, capability rules, route ownership tests, golden wire fixtures, and failing conformance tests shall be committed before production implementations.
-2. The test suite shall include official-profile HTTP basic response, assistant phase, response phase schema, SSE, system prompt, function tool, image input, multi-turn, compaction, missing compact model, and all pinned WebSocket scenarios.
-3. Official conformance cases shall be pinned to an immutable upstream commit and mirrored or invoked in CI without downloading mutable code at test time.
-4. Go-native golden tests shall validate every required response field, event discriminator, sequence, item lifecycle, error envelope, null-presence rule, and compact resource field.
-5. Differential tests shall prove existing OpenAI Responses behavior is unchanged and shall document every intentionally shared low-level helper and every protocol-specific divergence.
-6. Fuzz tests shall cover request unions, item/content/tool discriminators, unknown extensions, SSE framing, event ordering, response aggregation, compaction payloads, and WebSocket message handling.
-7. Race and leak tests shall cover HTTP cancellation, slow consumers, failed writes, WebSocket disconnects, queued turns, continuation eviction, runtime reload, shutdown, and backend stream termination.
-8. Integration tests shall prove no retry after client-visible output, capability-safe pre-output failover, route-collision rejection, tenant isolation, and backend-extension binding.
-9. The active backend connector plugin architecture and generic compatible mode specifications shall be reviewed before implementation; any changed public backend or compaction contract shall update their conformance/ABI fixtures in the same implementation series.
-10. Documentation and examples shall distinguish OpenResponses, OpenAI Responses, and the unrelated `open-responses` project and shall show coexistence and canonical-path configurations.
-11. The implementation shall not be considered complete until the pinned official compliance suite passes against a reference Go-LIP deployment for every enabled conformance transport.
-12. The release gate shall run focused package tests, `go test -race` for changed concurrency packages, architecture tests, `go vet`, root build with `GOWORK=off`, and the official-profile conformance job.
+1. Interfaces, canonical contracts, projectors, capabilities, route ownership, emulator contracts, goldens, and failing conformance cases shall precede production implementation.
+2. The suite shall include every pinned official HTTP, SSE, compaction, and WebSocket scenario.
+3. Official cases shall be pinned immutably and shall not download mutable sources during tests.
+4. Go-native goldens shall validate required fields, discriminators, sequence/lifecycle, errors, null presence, and compact resources.
+5. Differential tests shall preserve existing protocol behavior and document every shared helper and divergence.
+6. Fuzz tests shall cover production codecs/state machines and both independent emulators.
+7. Race/leak tests shall cover cancellation, slow consumers, failed writes, WebSocket lifecycle, continuation, reload, shutdown, and backend termination.
+8. Integration shall prove capability-safe pre-output failover, no retry after visible output, route collision rejection, isolation, and extension binding.
+9. Adjacent plugin/generic compatibility contracts shall be revalidated and versioned fixtures updated in the same series.
+10. Documentation shall distinguish OpenResponses, OpenAI Responses, and the unrelated `open-responses` project.
+11. Completion requires the official suite against a full OpenResponses client → frontend → core → OpenResponses backend → independent reference backend deployment.
+12. Release gates shall run focused/default/tagged tests, the complete emulator suites, all 45 FE×BE cells with feature-level positive/negative evidence, race/fuzz/leak checks, architecture tests, `go vet`, static analysis, coverage reports, and a clean `GOWORK=off` build.
+13. Coverage percentage shall supplement—not replace—scenario and branch evidence; touched packages shall have no unexplained coverage regression.
+14. New deterministic codec, state-machine, and emulator packages shall target at least 90% statement coverage unless a reviewed exception documents generated or unreachable branches.
+15. No required matrix cell or feature row may remain `planned`, silently skipped, or lack linked automated evidence at completion.
+
+### Requirement 13: Independent Protocol Emulators and Cross-API Compatibility Matrix
+
+**Objective:** As a maintainer, I want independent black-box protocol evidence and exhaustive canonical translation coverage, so compatibility claims are not tautological or limited to one preferred path.
+
+#### Acceptance Criteria
+
+1. The repository shall add test-only `internal/refclient/openresponses` implementing black-box OpenResponses `2026-04-24` client behavior for JSON, SSE, compact, WebSocket, sequential turns, continuation, errors, tools, multimodal input, assistant phase, reasoning/item lifecycle, and required response presence.
+2. The reference client shall not import production OpenResponses frontend/backend/profile codec packages or reuse their encoder/decoder; it may use immutable pinned fixtures and independently maintained schema metadata.
+3. The repository shall add test-only `internal/refbackend/openresponses` implementing a spec-shaped remote inference endpoint with JSON, SSE, compact, direct WebSocket scenarios, request capture/assertions, scriptable portable and opaque items, tools, reasoning, phases, errors, malformed events, delays, backpressure, and cancellation.
+4. The reference backend shall be independent of production backend/profile codec code; architecture tests shall prohibit production imports of either emulator and prohibit emulator imports that make assertions self-referential.
+5. OpenResponses shall be added to both `BundledFrontendIDs()` and `BundledBackendIDs()` in `internal/testkit/conformance`, producing an authoritative 5 × 9 = 45-cell Cartesian matrix.
+6. Matrix completeness tests shall fail when a frontend/backend is added without every resulting cell and feature row being classified.
+7. Each cell shall classify at minimum: JSON text, streaming text, system/developer/instructions, multi-turn history, tools/results/tool choice, multimodal input, assistant multimodal output, usage/finish/error mapping, reasoning/replay, assistant phase, item references, continuation, compaction, extensions, cancellation/backpressure, and no-retry-after-visible-output.
+8. Every feature outcome shall be one of `lossless`, `documented_deterministic_projection`, `rejected_before_network`, or `out_of_scope` only where no product surface exists.
+9. Silent drop, accidental downgrade, unclassified skip, mock-only evidence, and pairwise translator packages are forbidden.
+10. The OpenResponses frontend row shall explicitly exercise legacy OpenAI Chat Completions, OpenAI Responses, ACP, Anthropic Messages, Gemini/Vertex, Amazon Bedrock, OpenResponses-compatible, OpenRouter, and NVIDIA backends.
+11. The ACP cell shall include a positive prompt-text subset and negative tool/multimodal/nonrepresentable-semantic cases proving zero upstream request.
+12. The OpenResponses backend column shall explicitly exercise legacy OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, Gemini/Vertex, and OpenResponses frontends/clients.
+13. Existing backends shall consume item-authority OpenResponses calls only through explicit normalized projectors preserving the portable intersection and rejecting phase/replay/compaction/extensions or other unrepresentable semantics before network work.
+14. The OpenResponses backend shall consume legacy message-authority calls only through an explicit message-to-ordered-item projector; conflicting authorities shall be invalid.
+15. Every viable cell shall test non-streaming and streaming where supported, plus tools and multimodal subsets where representable.
+16. Every unsupported feature shall have a negative test proving capability/projector rejection before the reference backend observes a request.
+17. Evidence shall include direct `refclient/openresponses` ↔ `refbackend/openresponses` wire tests, refclient → frontend → canonical-stub tests, canonical → backend → refbackend tests, and full client → frontend → core → backend → remote-emulator tests.
+18. The official compliance suite shall run on the full independent-emulator deployment path in addition to Go-native matrix tests.
+19. Emulator and matrix suites shall use deterministic fixtures, named table cases, seeded randomized cases where useful, virtual clocks, bounded buffers, fuzzing, race/leak checks, malformed/adversarial streams, slow readers/writers, cancellation, failover, commitment, redaction, and reload/shutdown scenarios.
+20. Implementation shall not be considered complete while any required cell/feature is planned, skipped without a normative out-of-scope reason, or lacks linked automated evidence.
