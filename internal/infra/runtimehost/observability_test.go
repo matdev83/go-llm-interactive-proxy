@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 	"github.com/prometheus/client_golang/prometheus"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -45,6 +46,18 @@ func TestReloadObservability_LogsSpansHistoryAndMetrics(t *testing.T) {
 	if err := mgr.Publish(initial); err != nil {
 		t.Fatal(err)
 	}
+	// Pin the boot generation so Manager's automatic post-publish retirement
+	// (task 7.3) cannot quiesce/close/sweep it before the RetainedGenerations
+	// assertion below observes it.
+	bootLease, ok := mgr.Acquire()
+	if !ok {
+		t.Fatal("acquire boot generation")
+	}
+	bootPin, ok := bootLease.TransferPin(runtimehost.PinProvider)
+	if !ok {
+		t.Fatal("pin boot generation")
+	}
+	t.Cleanup(bootPin.Release)
 
 	digest := [32]byte{9, 9, 9}
 	src := &fakeSource{
@@ -71,7 +84,6 @@ func TestReloadObservability_LogsSpansHistoryAndMetrics(t *testing.T) {
 		Logger:  logger,
 		Tracer:  tp.Tracer("lip.reload"),
 		Metrics: prom,
-		History: configreload.NewStatusHistory(8),
 	})
 
 	coord, err := runtimehost.NewCoordinator(runtimehost.CoordinatorDeps{
@@ -97,17 +109,17 @@ func TestReloadObservability_LogsSpansHistoryAndMetrics(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res := coord.Reload(context.Background(), configreload.ReloadTrigger{
-		Kind:       configreload.TriggerAPI,
+	res := coord.Reload(context.Background(), sdkreload.Trigger{
+		Kind:       sdkreload.TriggerAPI,
 		AcceptedAt: time.Now().UTC(),
 		SafeActor:  "test-actor",
 	})
-	if res.Category != configreload.ResultPublished {
+	if res.Category != sdkreload.ResultPublished {
 		t.Fatalf("category=%q want published", res.Category)
 	}
 
 	st := coord.Status()
-	if st.LastSuccess.Category != configreload.ResultPublished {
+	if st.LastSuccess.Category != sdkreload.ResultPublished {
 		t.Fatalf("LastSuccess=%q", st.LastSuccess.Category)
 	}
 	if st.RetainedGenerations < 1 {
@@ -169,13 +181,13 @@ func TestReloadObservability_PanickingSinkCannotEscape(t *testing.T) {
 	obs := runtimehost.NewReloadObserver(runtimehost.ReloadObserverDeps{
 		Logger: slog.New(panicLogHandler{}),
 	})
-	ctx, endAttempt := obs.BeginAttempt(context.Background(), configreload.ReloadTrigger{
-		Kind: configreload.TriggerAPI,
+	ctx, endAttempt := obs.BeginAttempt(context.Background(), sdkreload.Trigger{
+		Kind: sdkreload.TriggerAPI,
 	}, 1, 1)
 	_, endStage := obs.BeginStage(ctx, configreload.StagePublish)
-	endStage(string(configreload.ResultPublished))
-	endAttempt(configreload.ReloadResult{
-		Category:         configreload.ResultPublished,
+	endStage(string(sdkreload.ResultPublished))
+	endAttempt(sdkreload.Result{
+		Category:         sdkreload.ResultPublished,
 		AttemptID:        1,
 		ActiveGeneration: 2,
 	})
@@ -196,9 +208,7 @@ func TestReloadObservability_FailedReloadDoesNotChangeActiveReadiness(t *testing
 		path: "/fixed/config.yaml",
 		err:  &configsource.IntegrityError{Category: configsource.CategoryNonAtomicUpdate},
 	}
-	obs := runtimehost.NewReloadObserver(runtimehost.ReloadObserverDeps{
-		History: configreload.NewStatusHistory(4),
-	})
+	obs := runtimehost.NewReloadObserver(runtimehost.ReloadObserverDeps{})
 	coord, err := runtimehost.NewCoordinator(runtimehost.CoordinatorDeps{
 		Source: src,
 		Loader: runtimehost.FuncEffectiveLoader(func(context.Context, []byte) (*config.EffectiveConfig, error) {
@@ -217,8 +227,8 @@ func TestReloadObservability_FailedReloadDoesNotChangeActiveReadiness(t *testing
 	}
 
 	readyBefore := runtimehost.DataPlaneReady(mgr)
-	res := coord.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
-	if res.Category != configreload.ResultSourceIntegrity && res.Category != configreload.ResultInvalid {
+	res := coord.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+	if res.Category != sdkreload.ResultSourceIntegrity && res.Category != sdkreload.ResultInvalid {
 		t.Fatalf("category=%q want source-integrity/invalid", res.Category)
 	}
 	if mgr.Active() == nil || mgr.Active().ID() != activeBefore {

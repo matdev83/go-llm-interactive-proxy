@@ -16,13 +16,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/dbmigrate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 )
 
 func printLipstdUsage(fs *flag.FlagSet) {
 	_, _ = fmt.Fprintf(fs.Output(),
-		"Usage: lipstd [--config path] [serve|check-config|routes|inventory|migrate]\n\n",
+		"Usage: lipstd [--config path] [serve|check-config|routes|inventory|inspect|doctor|migrate]\n\n",
 	)
 	fs.PrintDefaults()
 }
@@ -34,6 +33,8 @@ const (
 	CommandCheckConfig CommandName = "check-config"
 	CommandRoutes      CommandName = "routes"
 	CommandInventory   CommandName = "inventory"
+	CommandInspect     CommandName = "inspect"
+	CommandDoctor      CommandName = "doctor"
 	CommandMigrate     CommandName = "migrate"
 )
 
@@ -45,6 +46,7 @@ type CommandOptions struct {
 	Output         io.Writer
 	ErrorOut       io.Writer
 	Components     string
+	InstanceID     string
 }
 
 type ParsedArgs struct {
@@ -53,6 +55,7 @@ type ParsedArgs struct {
 	StreamRecovery config.StreamRecoveryOverrides
 	MultiUser      *bool
 	Components     string
+	InstanceID     string
 }
 
 func RunCommand(ctx context.Context, opts CommandOptions) int {
@@ -75,6 +78,10 @@ func RunCommand(ctx context.Context, opts CommandOptions) int {
 		return runRoutesCommand(ctx, opts)
 	case CommandInventory:
 		return runInventoryCommand(ctx, opts)
+	case CommandInspect:
+		return runInspectCommand(ctx, opts)
+	case CommandDoctor:
+		return runDoctorCommand(ctx, opts)
 	case CommandMigrate:
 		return runMigrateCommand(ctx, opts)
 	default:
@@ -121,6 +128,10 @@ func parseCommandName(args []string) (CommandName, error) {
 		return CommandRoutes, nil
 	case string(CommandInventory):
 		return CommandInventory, nil
+	case string(CommandInspect):
+		return CommandInspect, nil
+	case string(CommandDoctor):
+		return CommandDoctor, nil
 	case string(CommandMigrate):
 		return CommandMigrate, nil
 	default:
@@ -142,7 +153,7 @@ func parseCLIPrefix(argv []string) (prefixArgs []string, name CommandName, tail 
 			continue
 		}
 		switch CommandName(a) {
-		case CommandServe, CommandCheckConfig, CommandRoutes, CommandInventory, CommandMigrate:
+		case CommandServe, CommandCheckConfig, CommandRoutes, CommandInventory, CommandInspect, CommandDoctor, CommandMigrate:
 			return prefixArgs, CommandName(a), argv[i+1:]
 		default:
 			prefixArgs = append(prefixArgs, a)
@@ -154,7 +165,7 @@ func parseCLIPrefix(argv []string) (prefixArgs []string, name CommandName, tail 
 
 func flagTakesValue(a string) bool {
 	switch a {
-	case "-config", "--config", "-auto-resume", "--auto-resume", "-auto-resume-idle-timeout", "--auto-resume-idle-timeout", "-auto-resume-grace-period", "--auto-resume-grace-period":
+	case "-config", "--config", "-auto-resume", "--auto-resume", "-auto-resume-idle-timeout", "--auto-resume-idle-timeout", "-auto-resume-grace-period", "--auto-resume-grace-period", "-instance", "--instance", "-components", "--components":
 		return true
 	default:
 		return hasInlineFlagValue(a)
@@ -205,6 +216,7 @@ func parseCommandFlags(name string, args []string, usageOut io.Writer, out *Pars
 	fs.StringVar(&idleTimeout, "auto-resume-idle-timeout", "", "auto-resume idle timeout")
 	fs.StringVar(&gracePeriod, "auto-resume-grace-period", "", "auto-resume grace period")
 	fs.StringVar(&out.Components, "components", out.Components, "comma-separated migration components")
+	fs.StringVar(&out.InstanceID, "instance", out.InstanceID, "configured backend instance id for doctor")
 	var multiUser bool
 	fs.BoolVar(&multiUser, "multi-user", false, "opt in to access.mode multi_user for serve")
 	fs.Usage = func() { printLipstdUsage(fs) }
@@ -256,7 +268,17 @@ func parseBoolFlag(name, raw string) (bool, error) {
 }
 
 func runServeCommand(ctx context.Context, opts CommandOptions) int {
-	if err := validateServeMultiUserGate(ctx, opts.ConfigPath, opts.MultiUser, opts.StreamRecovery); err != nil {
+	compose := stdhttp.ComposeStandardHTTP
+	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
+		ConfigPath:              opts.ConfigPath,
+		Mandatory:               mandatoryStandardPlugins(),
+		LogWriter:               opts.Output,
+		StreamRecoveryOverrides: opts.StreamRecovery,
+		HandlerComposer:         compose,
+		EnforceMultiUserCLIGate: true,
+		MultiUser:               opts.MultiUser,
+	})
+	if err != nil {
 		if errors.Is(err, accessmode.ErrMultiUserFlagRequired) || errors.Is(err, accessmode.ErrMultiUserFlagInconsistent) {
 			_, _ = fmt.Fprintf(opts.ErrorOut, "lipstd: %v\n", err)
 			return 2
@@ -264,109 +286,62 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
 		return 1
 	}
-	compose := stdhttp.ComposeRequestPlane
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath:              opts.ConfigPath,
-		Mode:                    runtimebundle.BootstrapServe,
-		Mandatory:               mandatoryStandardPlugins(),
-		LogWriter:               opts.Output,
-		StreamRecoveryOverrides: opts.StreamRecovery,
-		HandlerComposer:         compose,
-	})
+	// Every post-BuildHost path — startup failure and normal serve return alike
+	// — tears down through the one host close seam, which owns tracing last.
+	if err := logBootstrapAccessAuth(ctx, host.Logger(), host.Config()); err != nil {
+		cleanupErr := closeServeHostAfterBuild(ctx, host, nil)
+		host.Logger().ErrorContext(ctx, "lipstd: bootstrap access/auth", "error", errors.Join(err, cleanupErr))
+		return 1
+	}
+	mgmt, err := startManagementServer(ctx, host.Config(), host.Logger(), host)
 	if err != nil {
-		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
+		cleanupErr := closeServeHostAfterBuild(ctx, host, nil)
+		host.Logger().ErrorContext(ctx, "lipstd: management server", "error", errors.Join(err, cleanupErr))
 		return 1
 	}
-	defer func() { deferBootstrapTracingShutdown(ctx, &res) }()
-	if err := logBootstrapAccessAuth(ctx, res.Logger, res.Config); err != nil {
-		cleanupErr := serveStartupRollback(ctx, &res, nil, nil)
-		res.Logger.ErrorContext(ctx, "lipstd: bootstrap access/auth", "error", errors.Join(err, cleanupErr))
-		return 1
-	}
-	host, err := runtimebundle.AttachReloadHost(ctx, res, opts.ConfigPath, compose)
-	if err != nil {
-		cleanupErr := serveStartupRollback(ctx, &res, nil, nil)
-		res.Logger.ErrorContext(ctx, "lipstd: reload host", "error", errors.Join(err, cleanupErr))
-		return 1
-	}
-	mgmt, err := startManagementServer(ctx, res, host.Coordinator)
-	if err != nil {
-		cleanupErr := serveStartupRollback(ctx, &res, host, nil)
-		res.Logger.ErrorContext(ctx, "lipstd: management server", "error", errors.Join(err, cleanupErr))
-		return 1
-	}
-	// INT/TERM shut down the server; SIGHUP delivers to the real coordinator (never nil).
-	sigCtx, stop := startServeSignalHandling(ctx, host.Coordinator)
+	// INT/TERM shut down the server; SIGHUP delivers through the Host reload seam.
+	sigCtx, stop := startServeSignalHandling(ctx, host)
 	defer stop()
 	if err := stdhttp.RunWithGenerationHost(sigCtx, stdhttp.GenerationHostInput{
-		Config:      res.Config,
-		Log:         res.Logger,
-		Manager:     res.GenerationManager,
-		Process:     res.ProcessServices,
-		Coordinator: host.Coordinator,
-		Management:  mgmt,
+		Config:     host.Config(),
+		Log:        host.Logger(),
+		Host:       host,
+		Management: mgmt,
 	}); err != nil {
-		res.Logger.ErrorContext(sigCtx, "server stopped", "error", err)
+		host.Logger().ErrorContext(sigCtx, "server stopped", "error", err)
 		return 1
 	}
 	return 0
 }
 
-// validateServeMultiUserGate enforces the --multi-user CLI flag consistency
-// against access.mode for serve mode. It is a CLI-layer concern: it loads the
-// config through the shared strict effective pipeline, resolves the effective
-// access mode, and applies [accessmode.ValidateServeModeGate] before heavy
-// runtime assembly in [runtimebundle.BuildBootstrap]. Runtime posture/security
-// validation (backend access scopes, credential modes) stays in runtimebundle.Build.
-func validateServeMultiUserGate(ctx context.Context, configPath string, multiUserFlag *bool, streamOverrides config.StreamRecoveryOverrides) error {
-	eff, err := runtimebundle.LoadBootstrapEffective(ctx, configPath, streamOverrides)
-	if err != nil {
-		return err
-	}
-	mode, err := eff.Config.EffectiveAccessMode()
-	if err != nil {
-		return fmt.Errorf("bootstrap access/auth: %w", err)
-	}
-	return accessmode.ValidateServeModeGate(mode, multiUserFlag)
-}
-
+// runCheckConfigCommand performs one true unpublished dry-run validation
+// (design Dry-Run Validation; req 5.1-5.6). [runtimebundle.ValidateDistribution]
+// owns and closes every resource it acquires internally — no Manager,
+// generation ID, active pointer, listener, or retirement worker is ever
+// constructed, and no cleanup is left to this command.
 func runCheckConfigCommand(ctx context.Context, opts CommandOptions) int {
-	compose := stdhttp.ComposeRequestPlane
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
+	err := runtimebundle.ValidateDistribution(ctx, runtimebundle.ValidateDistributionInput{
 		ConfigPath:              opts.ConfigPath,
-		Mode:                    runtimebundle.BootstrapServe,
 		Mandatory:               mandatoryStandardPlugins(),
-		LogWriter:               io.Discard,
 		StreamRecoveryOverrides: opts.StreamRecovery,
-		HandlerComposer:         compose,
+		HandlerComposer:         stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "configuration invalid: %v\n", err)
 		return 1
-	}
-	defer func() { deferBootstrapTracingShutdown(ctx, &res) }()
-	// check-config uses the same CompileGeneration path as serve/reload, then
-	// rolls back without listening (design ValidationDryRun).
-	if res.GenerationManager != nil {
-		_ = res.GenerationManager.ShutdownDetached(context.WithoutCancel(ctx), runtimehost.NewLifecycleWorker())
-	}
-	if res.ProcessServices != nil {
-		_ = res.ProcessServices.Close()
 	}
 	_, _ = fmt.Fprintln(opts.Output, "configuration is valid")
 	return 0
 }
 
 func runRoutesCommand(ctx context.Context, opts CommandOptions) int {
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{ConfigPath: opts.ConfigPath, Mode: runtimebundle.BootstrapInspect, Mandatory: mandatoryStandardPlugins(), LogWriter: io.Discard, StreamRecoveryOverrides: opts.StreamRecovery})
+	snap, err := runtimebundle.InspectRoutes(ctx, runtimebundle.InspectInput{
+		ConfigPath:              opts.ConfigPath,
+		Mandatory:               mandatoryStandardPlugins(),
+		StreamRecoveryOverrides: opts.StreamRecovery,
+	})
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
-		return 1
-	}
-	defer func() { deferBootstrapTracingShutdown(ctx, &res) }()
-	snap, err := runtimebundle.RoutesSnapshotFrom(res.Config, res.Registry)
-	if err != nil {
-		_, _ = fmt.Fprintf(opts.ErrorOut, "routes: %v\n", err)
 		return 1
 	}
 	enc := json.NewEncoder(opts.Output)
@@ -379,15 +354,13 @@ func runRoutesCommand(ctx context.Context, opts CommandOptions) int {
 }
 
 func runInventoryCommand(ctx context.Context, opts CommandOptions) int {
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{ConfigPath: opts.ConfigPath, Mode: runtimebundle.BootstrapInspect, Mandatory: mandatoryStandardPlugins(), LogWriter: io.Discard, StreamRecoveryOverrides: opts.StreamRecovery})
+	snap, err := runtimebundle.InspectInventory(ctx, runtimebundle.InspectInput{
+		ConfigPath:              opts.ConfigPath,
+		Mandatory:               mandatoryStandardPlugins(),
+		StreamRecoveryOverrides: opts.StreamRecovery,
+	})
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
-		return 1
-	}
-	defer func() { deferBootstrapTracingShutdown(ctx, &res) }()
-	snap, err := runtimebundle.InventorySnapshotForOperator(ctx, res.Config, res.Registry, res.Registrations)
-	if err != nil {
-		_, _ = fmt.Fprintf(opts.ErrorOut, "inventory: %v\n", err)
 		return 1
 	}
 	enc := json.NewEncoder(opts.Output)
@@ -395,6 +368,66 @@ func runInventoryCommand(ctx context.Context, opts CommandOptions) int {
 	if err := enc.Encode(snap); err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "inventory: encode: %v\n", err)
 		return 1
+	}
+	return 0
+}
+
+func runInspectCommand(ctx context.Context, opts CommandOptions) int {
+	prep, err := runtimebundle.PrepareInspect(ctx, runtimebundle.InspectInput{
+		ConfigPath:              opts.ConfigPath,
+		Mandatory:               mandatoryStandardPlugins(),
+		StreamRecoveryOverrides: opts.StreamRecovery,
+	})
+	if err != nil {
+		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
+		return 1
+	}
+	defer func() { _ = prep.Close() }()
+	rep, inspectErr := runtimebundle.InspectBackendPlugins(prep.Config, prep.Registry)
+	enc := json.NewEncoder(opts.Output)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(rep); err != nil {
+		_, _ = fmt.Fprintf(opts.ErrorOut, "inspect: encode: %v\n", err)
+		return 1
+	}
+	if inspectErr != nil {
+		_, _ = fmt.Fprintf(opts.ErrorOut, "inspect: %v\n", inspectErr)
+		return 1
+	}
+	return 0
+}
+
+func runDoctorCommand(ctx context.Context, opts CommandOptions) int {
+	instanceID := strings.TrimSpace(opts.InstanceID)
+	if instanceID == "" {
+		_, _ = fmt.Fprintln(opts.ErrorOut, "lipstd doctor: --instance <configured-backend-id> is required")
+		return 2
+	}
+	prep, err := runtimebundle.PrepareInspect(ctx, runtimebundle.InspectInput{
+		ConfigPath:              opts.ConfigPath,
+		Mandatory:               mandatoryStandardPlugins(),
+		StreamRecoveryOverrides: opts.StreamRecovery,
+	})
+	if err != nil {
+		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
+		return 1
+	}
+	defer func() { _ = prep.Close() }()
+	rep, err := runtimebundle.DoctorBackendPlugin(ctx, prep.Config, prep.Registry, instanceID, prep.PluginHost())
+	if err != nil {
+		_, _ = fmt.Fprintf(opts.ErrorOut, "doctor: %v\n", err)
+		return 1
+	}
+	enc := json.NewEncoder(opts.Output)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(rep); err != nil {
+		_, _ = fmt.Fprintf(opts.ErrorOut, "doctor: encode: %v\n", err)
+		return 1
+	}
+	for _, r := range rep.Results {
+		if r.State != "active" && r.Reason != "builtin" {
+			return 1
+		}
 	}
 	return 0
 }

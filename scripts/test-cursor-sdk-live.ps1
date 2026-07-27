@@ -14,7 +14,7 @@ if (-not $env:CURSOR_API_KEY -or $env:CURSOR_API_KEY.Trim().Length -eq 0) {
   exit 0
 }
 
-Push-Location internal/plugins/backends/cursorsdk/bridge
+Push-Location connectors/cursorsdk/bridge-node
 try {
   npm run live-scenarios
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

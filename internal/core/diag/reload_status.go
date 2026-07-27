@@ -5,12 +5,12 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 // ReloadStatusSource is the query seam for protected reload diagnostics (req 14.1, 14.7).
 type ReloadStatusSource interface {
-	ReloadStatus() configreload.ReloadStatus
+	ReloadStatus() sdkreload.Status
 }
 
 // ReloadStatusHandler serves GET JSON of bounded reload status with config/model
@@ -34,20 +34,20 @@ func ReloadStatusHandler(src ReloadStatusSource) (http.Handler, error) {
 }
 
 type reloadDiagDTO struct {
-	ActiveGeneration    int64                       `json:"active_generation"`
-	ModelGeneration     string                      `json:"model_generation,omitempty"`
-	SourceIntegrity     string                      `json:"source_integrity,omitempty"`
-	RetainedGenerations int                         `json:"retained_generations"`
-	RetentionPressure   bool                        `json:"retention_pressure,omitempty"`
-	ControlDegraded     bool                        `json:"control_degraded,omitempty"`
-	Busy                bool                        `json:"busy,omitempty"`
-	LastSuccess         configreload.ReloadResult   `json:"last_success"`
-	LastFailure         configreload.ReloadResult   `json:"last_failure"`
-	LastResult          configreload.ReloadResult   `json:"last_result"`
-	History             []configreload.HistoryEntry `json:"history,omitempty"`
+	ActiveGeneration    int64                    `json:"active_generation"`
+	ModelGeneration     string                   `json:"model_generation,omitempty"`
+	SourceIntegrity     string                   `json:"source_integrity,omitempty"`
+	RetainedGenerations int                      `json:"retained_generations"`
+	RetentionPressure   bool                     `json:"retention_pressure,omitempty"`
+	ControlDegraded     bool                     `json:"control_degraded,omitempty"`
+	Busy                bool                     `json:"busy,omitempty"`
+	LastSuccess         sdkreload.Result         `json:"last_success"`
+	LastFailure         sdkreload.Result         `json:"last_failure"`
+	LastResult          sdkreload.Result         `json:"last_result"`
+	History             []sdkreload.HistoryEntry `json:"history,omitempty"`
 }
 
-func reloadStatusDTO(st configreload.ReloadStatus) reloadDiagDTO {
+func reloadStatusDTO(st sdkreload.Status) reloadDiagDTO {
 	return reloadDiagDTO{
 		ActiveGeneration:    st.ActiveGeneration,
 		ModelGeneration:     st.ModelGeneration,

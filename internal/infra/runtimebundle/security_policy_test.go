@@ -10,7 +10,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
@@ -94,7 +93,7 @@ func TestBuild_strictAuthoritativeAccountingRequiresBackendBillingFinalizer(t *t
 				}}},
 			}
 
-			_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+			_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{
 				PluginRegistry: reg,
 			})
 			if tt.wantErr {
@@ -129,7 +128,7 @@ func buildWithProfiledBackend(t *testing.T, address string, authMode config.Auth
 		cfg.Auth = config.AuthConfig{Handler: "remote", RequiredLevel: "api_key"}
 		opts.Auth.RemoteDecider = &testkit.StubRemoteDecider{}
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
+	_, _, err := processAndCandidateErr(t, cfg, opts)
 	return err
 }
 
@@ -173,7 +172,7 @@ func TestBuild_oauthUserBackendAllowedWhenSingleUserAccessExternalAuthLoopback(t
 	if err != nil || mode != accessmode.ModeSingleUser {
 		t.Fatalf("EffectiveAccessMode: want single_user, got mode=%v err=%v", mode, err)
 	}
-	_, err = runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, _, err = processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Auth:           runtimebundle.AuthOptions{RemoteDecider: &testkit.StubRemoteDecider{}},
 	})
@@ -198,10 +197,7 @@ func TestBuild_localOnlyBackend_allowsOnSingleUserLoopback(t *testing.T) {
 			Kind: factoryID, ID: "be", Enabled: true,
 		}}},
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{PluginRegistry: reg})
-	if err != nil {
-		t.Fatalf("single-user loopback should allow local-only backend: %v", err)
-	}
+	_, _ = mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: reg})
 }
 
 func TestBuild_localOnlyBackend_rejectsOnMultiUser(t *testing.T) {
@@ -222,7 +218,7 @@ func TestBuild_localOnlyBackend_rejectsOnMultiUser(t *testing.T) {
 			Kind: factoryID, ID: "be", Enabled: true,
 		}}},
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Auth:           runtimebundle.AuthOptions{RemoteDecider: &testkit.StubRemoteDecider{}},
 	})
@@ -252,7 +248,7 @@ func TestBuild_unsupportedBackendAccessScope_rejects(t *testing.T) {
 			Kind: factoryID, ID: "be", Enabled: true,
 		}}},
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Auth:           runtimebundle.AuthOptions{RemoteDecider: &testkit.StubRemoteDecider{}},
 	})

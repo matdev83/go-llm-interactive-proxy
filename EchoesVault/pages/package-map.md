@@ -14,7 +14,7 @@ status: active
 | Package | Responsibility |
 |---|---|
 | `pkg/lipapi/` | Canonical request, event, capability, validation, error contracts. Protocol-neutral stable surface. |
-| `pkg/lipsdk/` | Plugin registration, frontend/backend/hook interfaces, SDK facades for session, workspace, shaping, tools, traffic, usage, model inventory, continuity. |
+| `pkg/lipsdk/` | Plugin registration, frontend/backend/hook interfaces, SDK facades for session, workspace, shaping, tools, traffic, usage, model inventory, continuity; **`configreload/`** is the one reload contract. |
 
 ## Internal Core Runtime (`internal/core/`)
 
@@ -65,12 +65,14 @@ status: active
 | Package | Responsibility |
 |---|---|
 | `internal/pluginreg/` | Explicit registry: `NewRegistry`, `RegisterBackend`/`RegisterFrontend`/`RegisterFeature`, `BuildBackend`/`BuildFeatureBundle`, `ValidateBundledFactories`, `EffectiveAPIKeys` |
-| `internal/standardplugins/` | Standard distribution: `InstallStandardBundleOn`, standard frontend/backend/feature tables, per-backend factory helpers, `ResolveUpstreamAPIKeysFromEnv`, `DefaultWireModel` |
+| `internal/standardplugins/` | Essential/static distribution: `InstallStandardBundleOn`, frontend/feature/essential-backend tables (`EssentialBackendBundle`), `ResolveUpstreamAPIKeysFromEnv` (OpenAI/Anthropic/Gemini only), `DefaultWireModel` |
 | `internal/featurebundle/` | Feature merge surface: `MergeFeatureSurface` (SDK hook slices only; no `internal/core/hooks`) |
-| `internal/infra/runtimebundle/` | Composes `Built` from config + registrations: executor, stores, HTTP client, health, model, accounting; owns `BuildFeatureHooks` / `hooks.New` |
-| `internal/stdhttp/` | HTTP mounting, auth/principal, security guard, recovery, diagnostics, access logs, `Run`/`RunWithRuntime` |
+| `internal/infra/runtimebundle/` | `BuildHost` returns one process-owned `Host`: process runtime + immutable `GenerationRuntime` generations, feature hooks (`BuildFeatureHooks` / `hooks.New`), reload coordinator binding; **`Host.Close`** is the sole process shutdown coordinator |
+| `internal/stdhttp/` | HTTP mounting, auth/principal, security guard, recovery, diagnostics, access logs, generation-dispatcher serve (Host-owned lifecycle) |
 
 ## Plugin Packages
+
+Hybrid backends: [backend-connector-plugins](backend-connector-plugins.md), [ADR 0008](../../docs/adr/0008-hybrid-backend-connector-plugins.md).
 
 | Package | Responsibility |
 |---|---|
@@ -80,28 +82,14 @@ status: active
 | `internal/plugins/frontends/gemini/` | Gemini generateContent API frontend |
 | `internal/plugins/frontends/decodeqos/` | Shared weighted decode admission limiter (finite defaults; Decode-only weight after ReadAll) |
 | `internal/plugins/frontends/reqbody/` | Bounded decompressed body ReadAll (413 on oversize) |
-| `internal/plugins/backends/openairesponses/` | OpenAI Responses backend adapter |
-| `internal/plugins/backends/openailegacy/` | Legacy OpenAI backend adapter |
-| `internal/plugins/backends/anthropic/` | Anthropic backend adapter |
-| `internal/plugins/backends/gemini/` | Gemini backend adapter |
-| `internal/plugins/backends/bedrock/` | AWS Bedrock backend adapter |
-| `internal/plugins/backends/acp/` | ACP (Agent Client Protocol) backend — shared infrastructure for subprocess stdio connectors |
-| `internal/plugins/backends/cursorcliacp/` | Cursor CLI ACP connector (subprocess stdio) |
-| `internal/plugins/backends/geminicliacp/` | Gemini CLI ACP connector (subprocess stdio) |
-| `internal/plugins/backends/agycliacp/` | AGY CLI ACP connector (subprocess stdio) |
-| `internal/plugins/backends/openrouter/` | OpenRouter backend adapter |
-| `internal/plugins/backends/nvidia/` | NVIDIA backend adapter |
-| `internal/plugins/backends/huggingface/` | Hugging Face backend adapter |
-| `internal/plugins/backends/openaicodex/` | OpenAI Codex backend adapter |
-| `internal/plugins/backends/codexappserver/` | OpenAI Codex CLI app-server backend (local-agent stdio, Codex JSON-RPC protocol) |
-| `internal/plugins/backends/opencodego/` | OpenCode Go backend adapter |
-| `internal/plugins/backends/opencodezen/` | OpenCode Zen backend adapter |
-| `internal/plugins/backends/ollama/` | Ollama backend adapter |
-| `internal/plugins/backends/llamacpp/` | llama.cpp backend adapter |
-| `internal/plugins/backends/lmstudio/` | LM Studio backend adapter |
-| `internal/plugins/backends/vllm/` | vLLM backend adapter |
-| `internal/plugins/backends/localstub/` | No-key local stub for dogfood/testing |
-| `internal/plugins/backends/openaicompat/` | Custom OpenAI-compatible backend adapter |
+| `internal/plugins/backends/openairesponses/` | Essential OpenAI Responses backend |
+| `internal/plugins/backends/openailegacy/` | Essential legacy OpenAI backend |
+| `internal/plugins/backends/anthropic/` | Essential Anthropic backend |
+| `internal/plugins/backends/gemini/` | Essential Gemini backend |
+| `internal/plugins/backends/bedrock/` | Essential AWS Bedrock backend |
+| `internal/plugins/backends/openaicompat/` | Shared OpenAI-compatible helpers for essential custom-compatible kinds |
+| `connectors/*` | Optional executable backend plugins (openrouter, nvidia, huggingface, ollama, local runtimes, opencode, codex, ACP family, localstub, …) |
+| `connector-support/*` | Shared support modules for connectors (e.g. acp, openaicompat) |
 | `internal/plugins/features/` | Feature plugins: submit/parts/tool-reactor no-ops, reference features, `toolcallrepair/` (YAML-only; ADR 0007) |
 
 ## Infrastructure (`internal/infra/`)
@@ -122,7 +110,7 @@ status: active
 | `osidentity/` | OS identity checks |
 | `extensiontrace/` | Extension tracing helpers |
 | `controlplane/` | Control plane infrastructure |
-| `runtimebundle/` | Runtime assembly from config |
+| `runtimebundle/` | `BuildHost` / Host / GenerationRuntime assembly from config |
 | `usageauthority/configsource/` | Immutable validated authority rule snapshots with source freshness |
 | `usageauthority/authoritystore/` | Clone-based memory store, Bun durable transaction adapter, live windows, reservations, decisions, and mutation log |
 | `usageauthority/evidencesink/` | Policydecision/control-plane authority evidence adapter |

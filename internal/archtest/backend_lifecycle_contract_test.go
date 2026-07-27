@@ -22,8 +22,6 @@ func TestOfficialBackendsHaveLifecycleContractTests(t *testing.T) {
 		"nvidia":       "openaicompat",
 		"huggingface":  "openaicompat",
 		"vllm":         "openaicompat",
-		"opencodego":   "opencodecommon",
-		"opencodezen":  "opencodecommon",
 		// ACP CLI connectors delegate streaming to the shared acp.promptStream.
 		"cursorcliacp": "acp",
 		"geminicliacp": "acp",

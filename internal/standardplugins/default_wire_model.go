@@ -19,12 +19,6 @@ func DefaultWireModel(backendID string) string {
 		return "gemini-2.0-flash"
 	case "bedrock":
 		return "anthropic.claude-3-haiku-20240307-v1:0"
-	case "acp":
-		return "agent"
-	case "openrouter":
-		return "openai/gpt-4o-mini"
-	case "nvidia":
-		return "nvidia/llama-3.1-nemotron-nano-8b-v1"
 	default:
 		return "model"
 	}

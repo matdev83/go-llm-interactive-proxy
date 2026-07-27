@@ -11,8 +11,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/controlplane/ledgerstore"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	cpadmin "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/controlplane"
 	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 )
 
@@ -36,7 +36,7 @@ func controlPlaneMountConfig(queryEnabled bool) *config.Config {
 	return cfg
 }
 
-func controlPlaneBuilt(t *testing.T, cfg *config.Config) *runtimebundle.Built {
+func controlPlaneHTTPInput(t *testing.T, cfg *config.Config) StandardHTTPInput {
 	t.Helper()
 	store, err := ledgerstore.NewMemoryStore(ledgerstore.MemoryConfig{StoreID: "test"})
 	if err != nil {
@@ -49,27 +49,30 @@ func controlPlaneBuilt(t *testing.T, cfg *config.Config) *runtimebundle.Built {
 		MaxPageSize:     cfg.ControlPlane.Query.MaxPageSize,
 	})
 	ex := runtime.TestExecutor()
-	return &runtimebundle.Built{
-		Executor:            ex,
-		PluginRegistry:      pluginreg.NewRegistry(),
-		ControlPlaneQueries: queries,
-		ControlPlaneStatus:  status,
+	reg := pluginreg.NewRegistry()
+	return StandardHTTPInput{
+		Core:      HTTPCoreInput{Executor: ex},
+		Frontends: frontendInputForTest(cfg, ex, reg),
+		Operations: HTTPOperationsInput{
+			ControlPlaneQueries: cpadmin.AdaptControlPlaneQueries(queries),
+		},
 	}
 }
 
 func TestControlPlaneQuery_MountedWhenEnabledAndProtected(t *testing.T) {
 	t.Parallel()
 	cfg := controlPlaneMountConfig(true)
-	built := controlPlaneBuilt(t, cfg)
+	in := controlPlaneHTTPInput(t, cfg)
 	app, err := runtime.New(runtime.Options{Config: cfg, Logger: slog.Default()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, cleanup, err := NewStandardHandler(context.Background(), cfg, app, slog.Default(), built)
+	ctx := context.Background()
+	startTestApp(ctx, t, app)
+	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { cleanup(context.Background()) })
 
 	// Without shared secret -> 403 (protected).
 	missing := httptest.NewRecorder()
@@ -91,16 +94,17 @@ func TestControlPlaneQuery_MountedWhenEnabledAndProtected(t *testing.T) {
 func TestControlPlaneQuery_NotMountedWhenDisabled(t *testing.T) {
 	t.Parallel()
 	cfg := controlPlaneMountConfig(false)
-	built := controlPlaneBuilt(t, cfg)
+	in := controlPlaneHTTPInput(t, cfg)
 	app, err := runtime.New(runtime.Options{Config: cfg, Logger: slog.Default()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, cleanup, err := NewStandardHandler(context.Background(), cfg, app, slog.Default(), built)
+	ctx := context.Background()
+	startTestApp(ctx, t, app)
+	h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { cleanup(context.Background()) })
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/cp/status", nil)

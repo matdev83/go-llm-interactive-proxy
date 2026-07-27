@@ -89,6 +89,14 @@ Each request should run against **one immutable** [`internal/core/extensions.Req
 
 Every SDK handler receives a `context.Context` from the core and must treat it as authoritative cancellation. Decision providers and feature hooks that perform loops, sleeps, channel waits, or blocking I/O must monitor `ctx.Done()` / `ctx.Err()` and return promptly when canceled. The core can bound cooperative providers with evaluation deadlines, but Go cannot forcibly stop a goroutine whose provider ignores its context; such code can outlive the request until its own call stack unwinds.
 
+## Public runtime composition options
+
+Closed modules that call `pkg/lipruntime.Build` attach authority and raters
+through canonical registrations on `lipruntime.Options`:
+`RequestRegistrations`, `AttemptRegistrations`, `ConcurrencyRegistration`, and
+`RaterRegistrations`. Enterprise attachment seams:
+[enterprise-extension-boundaries.md](enterprise-extension-boundaries.md).
+
 ## Automated guardrails
 
 Architecture tests in [`internal/archtest`](../internal/archtest) and import boundaries in [`internal/core/runtime/boundaries_test.go`](../internal/core/runtime/boundaries_test.go) enforce package rules. See [architecture-guardrails.md](architecture-guardrails.md) for the checklist and how to update budgets when you intentionally grow a layer.

@@ -671,3 +671,74 @@ func TestDecodeChat_invalidUserAgentDropped(t *testing.T) {
 		t.Fatalf("invalid UA should be dropped, got %q", d.Call.Invocation.ClientUserAgent)
 	}
 }
+
+func TestDecodeChat_skipsEmptyNamedToolCallFragments(t *testing.T) {
+	t.Parallel()
+	// Agent harnesses (e.g. pi) sometimes replay a garbage second tool_calls
+	// entry with empty id/name and fragment arguments like `"}`. Upstream
+	// backends reject those with HTTP 400; drop them at decode instead.
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "messages": [
+    {"role":"user","content":"study the repo"},
+    {
+      "role":"assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "call_good",
+          "type": "function",
+          "function": {"name":"web_search","arguments":"{\"q\":\"x\"}"}
+        },
+        {
+          "id": "",
+          "type": "function",
+          "function": {"name":"","arguments":"\"}\""}
+        }
+      ]
+    },
+    {
+      "role":"tool",
+      "tool_call_id":"call_good",
+      "content":"search results"
+    },
+    {
+      "role":"tool",
+      "tool_call_id":"",
+      "content":"Tool  not found"
+    }
+  ]
+}`)
+	d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Call.Messages) != 3 {
+		t.Fatalf("messages len=%d want 3 (user+assistant+tool); got %+v", len(d.Call.Messages), d.Call.Messages)
+	}
+	asst := d.Call.Messages[1]
+	if asst.Role != lipapi.RoleAssistant {
+		t.Fatalf("message[1] role=%q", asst.Role)
+	}
+	var toolParts []lipapi.Part
+	for _, p := range asst.Parts {
+		if p.Kind == lipapi.PartJSON && p.ToolName != "" {
+			toolParts = append(toolParts, p)
+		}
+	}
+	if len(toolParts) != 1 {
+		t.Fatalf("assistant tool parts=%d want 1; parts=%+v", len(toolParts), asst.Parts)
+	}
+	if toolParts[0].ToolCallID != "call_good" || toolParts[0].ToolName != "web_search" {
+		t.Fatalf("kept tool part: %+v", toolParts[0])
+	}
+	tool := d.Call.Messages[2]
+	if tool.Role != lipapi.RoleTool || len(tool.Parts) != 1 || tool.Parts[0].ToolCallID != "call_good" {
+		t.Fatalf("tool message: %+v", tool)
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}

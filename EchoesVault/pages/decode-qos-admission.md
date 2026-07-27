@@ -35,7 +35,7 @@ Decode admission zeros (`max_concurrent_decodes`, `max_inflight_decode_bytes`) n
 
 - `lipsdk.FrontendMountOptions.DecodeAdmission` carries a tiny `TryAcquire` interface (SDK must not import `internal/`).
 - `internal/plugins/frontends/decodeqos.Limiter` implements it.
-- `runtimebundle.Build` installs one finite limiter on `Built.DecodeAdmission`; `stdhttp` mounts that shared singleton into every enabled frontend.
+- `runtimebundle.BuildHost` installs one finite limiter on the process/generation admission surface; `stdhttp` mounts that shared singleton into every enabled frontend.
 - Nil admission disables limiting (custom/manual mounts only). Pending wire queues on the executor use configured `MaxPendingWireEvents` as-is (**0 = unlimited**).
 
 ## Inventory

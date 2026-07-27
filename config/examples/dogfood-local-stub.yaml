@@ -1,8 +1,9 @@
-# NO-KEY LOCAL STUB DOGFOOD — deterministic in-process backend only.
-# Not a live-provider configuration; use config/config.yaml for hosted API examples.
+# NO-KEY LOCAL STUB DOGFOOD — external connectors/localstub executable plugin.
+# Stage the plugin first: make package-full PACKAGE_DEST=.golip-plugins
+# (or go run ./tools/backendplugin/package_plugins -profile full -dest .golip-plugins/full
+# and point backend_discovery.paths at that tree's localstub parent).
 #
 # Default route: dogfood-local backend, model stub-default.
-# Client surfaces: all standard frontends are enabled for check-config validation; use any mount for smoke.
 server:
   address: "127.0.0.1:18080"
 
@@ -25,6 +26,11 @@ hooks:
   tool_reactor_error_policy: fail_open
 
 plugins:
+  backend_discovery:
+    enabled: true
+    development_mode: true
+    paths:
+      - .golip-plugins/full/localstub
   frontends:
     - id: openai-responses
       enabled: true

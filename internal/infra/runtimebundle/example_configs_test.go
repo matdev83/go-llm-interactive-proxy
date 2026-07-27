@@ -2,17 +2,17 @@ package runtimebundle_test
 
 import (
 	"context"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-func TestConfigExamples_passBootstrapInspect(t *testing.T) {
+func TestConfigExamples_passInspectRoutes(t *testing.T) {
 	t.Parallel()
 	root := repoRootFromRuntimebundleTest(t)
 	dir := filepath.Join(root, "config", "examples")
@@ -36,17 +36,13 @@ func TestConfigExamples_passBootstrapInspect(t *testing.T) {
 	for _, path := range yamls {
 		t.Run(filepath.Base(path), func(t *testing.T) {
 			t.Parallel()
-			res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
-				ConfigPath: path,
-				Mode:       runtimebundle.BootstrapInspect,
+			cfgPath := bpkit.MaterializeExampleConfig(t, path)
+			_, err := runtimebundle.InspectRoutes(context.Background(), runtimebundle.InspectInput{
+				ConfigPath: cfgPath,
 				Mandatory:  mandatory,
-				LogWriter:  io.Discard,
 			})
 			if err != nil {
 				t.Fatal(err)
-			}
-			if res.ShutdownTracing != nil {
-				_ = res.ShutdownTracing(context.Background())
 			}
 		})
 	}

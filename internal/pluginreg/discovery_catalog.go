@@ -57,6 +57,7 @@ func (r *Registry) RegisterDiscoveredBackend(
 	}
 	r.backends[id] = fn
 	r.backendProfiles[id] = profile
+	r.backendSources[id] = BackendSourceDiscovered
 	r.reloadPolicies[id] = policy
 	r.discovered[id] = struct{}{}
 	return nil

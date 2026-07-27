@@ -12,7 +12,7 @@ Use the existing backend `kind` field to select the factory and `id` as the runt
 | `custom-openai-responses-compatible` | OpenAI-compatible `/responses` |
 | `custom-anthropic-compatible` | Anthropic-compatible `/v1/messages` |
 
-Each enabled custom backend requires a unique `config.backend_prefix`. The prefix is used for backend inventory and prefixed routing. It must not contain `/` or `:`, must not duplicate another enabled custom backend, and must not use a reserved standard backend prefix such as `nvidia`, `openrouter`, `anthropic`, `openai-legacy`, or `openai-responses`.
+Each enabled custom backend requires a unique `config.backend_prefix`. The prefix is used for backend inventory and prefixed routing. It must not contain `/` or `:`, must not duplicate another enabled custom backend, and must not use a reserved standard backend prefix such as `anthropic`, `openai-legacy`, or `openai-responses`.
 
 ## API keys
 

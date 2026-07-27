@@ -29,6 +29,9 @@ func Validate(cfg *Config) error {
 	if err := validatePluginSlice("plugins.features", cfg.Plugins.Features); err != nil {
 		return err
 	}
+	if err := ValidateBackendDiscovery(cfg); err != nil {
+		return err
+	}
 	if err := validateDatabaseConfig(cfg); err != nil {
 		return err
 	}

@@ -72,7 +72,7 @@ func TestValidateEnabledCustomBackendPrefixes_ignoresDisabledRows(t *testing.T) 
 func TestValidateEnabledCustomBackendPrefixes_rejectsReservedAmongEnabled(t *testing.T) {
 	t.Parallel()
 	err := validateEnabledCustomBackendPrefixes([]customBackendPrefixEntry{
-		{Enabled: true, BackendPrefix: "nvidia", InstanceID: "nv-copy"},
+		{Enabled: true, BackendPrefix: "anthropic", InstanceID: "nv-copy"},
 	})
 	if err == nil {
 		t.Fatal("expected reserved backend_prefix error")

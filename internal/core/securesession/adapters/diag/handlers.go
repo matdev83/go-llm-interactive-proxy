@@ -18,7 +18,7 @@ import (
 // Handler serves secure-session operator diagnostics under a URL prefix (e.g. /debug/sessions).
 type Handler struct {
 	prefix           string
-	store            app.Store
+	store            Store
 	redactionDefault string
 	authz            SessionDiagnosticsAuthorizer
 	log              *slog.Logger
@@ -28,7 +28,7 @@ type Handler struct {
 // prefix is the base path without a trailing slash (e.g. "/debug/sessions"). store must be non-nil.
 // authz may be nil to use [NewScopedOwnerAuthorizer].
 // log, when non-nil, is used for error and debug lines (JSON/handler options from the process); when nil, [slog.Default] is used.
-func NewHandler(prefix string, store app.Store, redactionDefault string, authz SessionDiagnosticsAuthorizer, log *slog.Logger) (http.Handler, error) {
+func NewHandler(prefix string, store Store, redactionDefault string, authz SessionDiagnosticsAuthorizer, log *slog.Logger) (http.Handler, error) {
 	if store == nil {
 		return nil, fmt.Errorf("diag: nil store")
 	}
@@ -279,7 +279,7 @@ func (h *Handler) listAttemptsForDetail(ctx context.Context, id domain.SessionID
 }
 
 func (h *Handler) usageTotals(ctx context.Context, id domain.SessionID) (int64, int64) {
-	u, ok := h.store.(app.SessionUsageRollup)
+	u, ok := h.store.(SessionUsageRollup)
 	if !ok {
 		return 0, 0
 	}

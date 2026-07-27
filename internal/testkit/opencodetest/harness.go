@@ -74,8 +74,10 @@ func NewFlavorServer(t *testing.T, capture *RequestCapture) *httptest.Server {
 		streaming := bytes.Contains(body, []byte(`"stream":true`))
 		if streaming {
 			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, "event: response.output_text.delta\n")
+			_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"responses-stream-ok\"}\n\n")
 			_, _ = io.WriteString(w, "event: response.completed\n")
-			_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"sequence_number\":1,\"response\":{\"id\":\"resp_stream\",\"object\":\"response\",\"created_at\":1715620000,\"status\":\"completed\",\"model\":\"wire\",\"output\":[{\"type\":\"message\",\"id\":\"msg\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"responses-stream-ok\"}]}],\"usage\":{\"input_tokens\":1,\"output_tokens\":2,\"total_tokens\":3}}}\n\n")
+			_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"sequence_number\":2,\"response\":{\"id\":\"resp_stream\",\"object\":\"response\",\"created_at\":1715620000,\"status\":\"completed\",\"model\":\"wire\",\"usage\":{\"input_tokens\":1,\"output_tokens\":2,\"total_tokens\":3}}}\n\n")
 			_, _ = io.WriteString(w, "data: [DONE]\n\n")
 			return
 		}

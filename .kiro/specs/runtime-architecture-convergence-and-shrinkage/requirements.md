@@ -247,15 +247,15 @@ The `runtime-architecture-convergence-and-shrinkage` effort completes that migra
 
 10.5. The canonical public `Options` model shall contain only descriptor-bound request, attempt, concurrency, and rater registrations.
 
-10.6. Until a compatible major-version boundary permits removal, deprecated parallel provider/rater fields shall be quarantined in one outer legacy adapter and shall not participate in canonical host construction or normalization.
+10.6. **Alpha-stage compatibility decision (approved 2026-07-25 by maintainer matdev83):** because the project is alpha with no supported stable release or user contract on the legacy fields, the deprecated parallel provider/rater fields shall be removed in this convergence rather than quarantined until a future major version. Removed fields: `RequestProviders`, `AttemptProviders`, `ConcurrencyProvider`, `Rater`, `ProviderDescriptors`. Canonical replacements: `RequestRegistrations`, `AttemptRegistrations`, `ConcurrencyRegistration`, `RaterRegistrations`, with the provider descriptor embedded on each registration.
 
-10.7. No new feature, option, provider class, or validation rule shall be added to the legacy option model.
+10.7. No legacy option model, adapter, descriptor-pairing path, stage-family filter, or legacy ID (`legacy-production-rater`) shall remain in production code or be reintroduced.
 
-10.8. At the next compatible major-version boundary, the deprecated provider/rater fields, descriptor-pairing logic, stage-family filtering, legacy IDs, and legacy normalization tests shall be removed.
+10.8. Host construction and public normalization shall accept registration-only `Options` / `ProductionOptions`; parallel provider/rater fields and the former `legacy_options` adapter shall stay absent (enforced by architecture and package tests).
 
-10.9. A migration guide shall map every deprecated field to its canonical registration replacement and shall identify the final supported release of the legacy adapter.
+10.9. A migration guide shall map every removed field to its canonical registration replacement, record the alpha-stage approval, and identify the last commit that still contained the legacy fields plus the first registration-only head.
 
-10.10. Public external-module tests shall prove supported API behavior and intentional source-compatibility decisions.
+10.10. Public external-module tests shall prove registration-only API behavior and that no supported consumer path depends on the removed fields.
 
 ### Requirement 11: Ratchet Architecture Budgets Downward and Prove Material Shrinkage
 

@@ -6,10 +6,8 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
@@ -95,18 +93,10 @@ func TestPhase53_BuildPublishesExecutableWhenRegistrationsPresent(t *testing.T) 
 	opts.Production.RaterRegistrations = []economics.RaterRegistration{{
 		ID: "op-rater", Perspective: metering.PerspectiveOperator, Rater: phase53Rater{id: "op-rater"},
 	}}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
-	exec := built.SnapshotGeneration.CurrentExecutable()
+	_, built := mustProcessAndCandidate(t, cfg, opts)
+	exec := runtimebundle.CandidateSnapshotGeneration(built).CurrentExecutable()
 	if exec == nil {
-		t.Fatal("expected executable generation after Build")
+		t.Fatal("expected executable generation after CompileCandidate")
 	}
 	if exec.EvidenceObjectID() != "op-rater" {
 		t.Fatalf("evidence=%q", exec.EvidenceObjectID())

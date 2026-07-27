@@ -124,9 +124,19 @@ Normative completion gates for dual-plane metering / authority / concurrency (re
 | Architecture | Enterprise module stays public-only | `go test ./internal/archtest/ -run EnterpriseModule` |
 | Migration / rollout / rollback (11.x, 7.4) | Ordering, local vs distributed posture, terminal-work drain, open-core | [dual-plane-migration-rollout.md](dual-plane-migration-rollout.md); `go test ./internal/qa/ -run TestPhase74_` |
 
+## Runtime architecture convergence (ownership docs)
+
+Canonical ownership (see [architecture.md](architecture.md)): **one process runtime / ProcessServices**, **one generation runtime**, **one host** (private-field `runtimebundle.Host` from `runtimebundle.BuildHost` / `Host.Close`; Manager-owned retirement), **one reload contract** (`pkg/lipsdk/configreload`). Candidate assembly is private/temporary. `ValidateDistribution` is true unpublished validation. Public Options are registration-only ([legacy-options-migration.md](legacy-options-migration.md)). Stale dual-bootstrap, attachment, `Built`/`RunWithRuntime`, and legacy public Options paths must stay absent from operator docs.
+
+| Gate | Criterion | Command / evidence |
+|------|-----------|-------------------|
+| Docs ownership contract | Architecture/package-map/runtime-flow/reload/enterprise/release docs name the four ownership surfaces | `go test ./internal/qa/... -run 'Docs_Architecture'` |
+| Legacy Options absent | Registration-only Options; no current-major legacy claims; historical map in `docs/legacy-options-migration.md` | `go test ./internal/qa/... -run 'LegacyAbsent\|Docs_Legacy'` |
+| Architecture symbols | Deleted symbols stay absent; facade/host close gates hold | `go test ./internal/archtest/... -run 'LegacyAbsent\|RuntimeFacade\|HostClose\|CriticalFile\|PackageTree\|Budget\|Freeze'` |
+
 ## Versioned runtime config reload
 
-Operator contract: [runtime-config-reload.md](runtime-config-reload.md). ADR: [adr/0008-versioned-runtime-config-reload.md](adr/0008-versioned-runtime-config-reload.md). Spec: `.kiro/specs/versioned-runtime-reloadable-proxy-configuration/`.
+Operator contract: [runtime-config-reload.md](runtime-config-reload.md) (`pkg/lipsdk/configreload`). ADR: [adr/0008-versioned-runtime-config-reload.md](adr/0008-versioned-runtime-config-reload.md). Spec: `.kiro/specs/versioned-runtime-reloadable-proxy-configuration/`.
 
 | Gate | Criterion | Command / evidence |
 |------|-----------|-------------------|

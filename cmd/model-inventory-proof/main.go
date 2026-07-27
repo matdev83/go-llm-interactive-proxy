@@ -16,11 +16,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/huggingface"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"gopkg.in/yaml.v3"
@@ -109,9 +106,6 @@ func credentialedBackendCandidates(keys standardplugins.UpstreamAPIKeys, awsEnv 
 		{openailegacy.ID, "OPENAI_API_KEY", keys.OpenAI},
 		{anthropic.ID, "ANTHROPIC_API_KEY", keys.Anthropic},
 		{gemini.ID, "GEMINI_API_KEY", keys.Gemini},
-		{openrouter.ID, "OPENROUTER_API_KEY", keys.OpenRouter},
-		{nvidia.ID, "NVIDIA_API_KEY", keys.Nvidia},
-		{huggingface.ID, "HUGGINGFACE_API_KEY", keys.HuggingFace},
 	}
 	candidates := make([]backendCandidate, 0, len(staticBackends)+1)
 	skipped := make([]skipReport, 0, len(staticBackends)+1)

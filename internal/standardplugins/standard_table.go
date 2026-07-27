@@ -2,32 +2,8 @@ package standardplugins
 
 import (
 	"fmt"
-	"net/http"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/agycliacp"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/codexappserver"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/cursorcliacp"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/cursorsdk"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/geminicliacp"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/huggingface"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/llamacpp"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/lmstudio"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/localstub"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/ollama"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicodex"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodego"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodezen"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/vllm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/codexclientcompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/prerequestpolicy"
@@ -49,7 +25,6 @@ import (
 	frontopenailegacy "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"
 	frontopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	"gopkg.in/yaml.v3"
 )
 
 func installFrontends(reg *pluginreg.Registry) error {
@@ -103,6 +78,12 @@ func InstallStandardBundleOn(reg *pluginreg.Registry, keys UpstreamAPIKeys) erro
 // InstallStandardBackendsOn registers only bundled backend factories on reg (minimal partial bundles).
 func InstallStandardBackendsOn(reg *pluginreg.Registry, keys UpstreamAPIKeys) error {
 	return InstallBundleOn(reg, StandardBackendBundle(keys))
+}
+
+// InstallEssentialBackendsOn registers only the final essential backend table on reg.
+// Frontends and features remain on InstallStandardBundleOn.
+func InstallEssentialBackendsOn(reg *pluginreg.Registry, keys UpstreamAPIKeys) error {
+	return InstallBundleOn(reg, EssentialBackendBundle(keys))
 }
 
 // FrontendRegistration is one explicit frontend contribution to a bundle.
@@ -169,88 +150,10 @@ func StandardBundle() Bundle {
 	}
 }
 
-// StandardBackendBundle returns the standard backend table with environment/default keys already bound.
+// StandardBackendBundle returns the essential built-in backend table.
+// Optional connector kinds are discovered via closed manifests only.
 func StandardBackendBundle(keys UpstreamAPIKeys) Bundle {
-	return Bundle{Backends: []BackendRegistration{
-		{ID: openairesponses.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendOpenAIResponses(n, upstream, keys, deps.Identity)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
-		{ID: openailegacy.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendOpenAILegacy(n, upstream, keys, deps.Identity)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
-		{ID: anthropic.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendAnthropic(n, upstream, keys, deps.Identity)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
-		{ID: gemini.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendGemini(n, upstream, keys, deps.Identity)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
-		{ID: bedrock.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendBedrock(n, upstream, deps.Identity)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialWorkload}},
-		{ID: codexappserver.ID, Factory: func(n yaml.Node, _ *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendCodexAppServer(n, deps.CodexModelCatalog, deps.CodexModelCatalogSource)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialNone, AccessScope: pluginreg.BackendAccessLocalOnly}},
-		{ID: acp.ID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendACP(n, upstream)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic, AccessScope: pluginreg.BackendAccessLocalOnly}},
-		{ID: cursorcliacp.ID, Factory: func(n yaml.Node, _ *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendCursorCLIACP(n, nil)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialNone, AccessScope: pluginreg.BackendAccessLocalOnly}},
-		{ID: cursorsdk.ID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendCursorSDK(n, upstream, keys)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic, AccessScope: pluginreg.BackendAccessLocalOnly}},
-		{ID: geminicliacp.ID, Factory: func(n yaml.Node, _ *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendGeminiCLIACP(n, nil)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialNone, AccessScope: pluginreg.BackendAccessLocalOnly}},
-		{ID: agycliacp.ID, Factory: func(n yaml.Node, _ *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendAGYCLIACP(n, nil)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialNone, AccessScope: pluginreg.BackendAccessLocalOnly}},
-		{ID: openrouter.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendOpenRouter(n, upstream, keys, deps.Identity)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
-		{ID: nvidia.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendNvidia(n, upstream, keys, deps.Identity)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
-		{ID: huggingface.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendHuggingface(n, upstream, keys, deps.Identity)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
-		{ID: opencodego.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendOpenCodeGo(n, upstream, keys, deps.ModelVendorResolver)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
-		{ID: opencodezen.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendOpenCodeZen(n, upstream, keys, deps.ModelVendorResolver)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
-		{ID: openaicodex.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendOpenAICodex(n, upstream, keys, deps.CodexModelCatalog)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic, AccessScope: pluginreg.BackendAccessLocalOnly}},
-		{ID: ollama.ID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendOllama(n, upstream, keys)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialNone}},
-		{ID: ollama.CloudID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendOllamaCloud(n, upstream, keys)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialNone}},
-		{ID: llamacpp.ID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendLlamacpp(n, upstream, keys)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialNone}},
-		{ID: lmstudio.ID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendLmstudio(n, upstream, keys)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialNone}},
-		{ID: vllm.ID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendVllm(n, upstream, keys)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialNone}},
-		{ID: localstub.ID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendLocalStub(n, upstream)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialNone}},
-		{ID: CustomOpenAILegacyCompatibleID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendCustomOpenAILegacyCompatible(n, upstream)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
-		{ID: CustomOpenAIResponsesCompatibleID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendCustomOpenAIResponsesCompatible(n, upstream)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
-		{ID: CustomAnthropicCompatibleID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendCustomAnthropicCompatible(n, upstream)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
-	}}
+	return EssentialBackendBundle(keys)
 }
 
 // InstallBundleOn registers b on reg. Tests and alternate composition roots can pass a custom bundle

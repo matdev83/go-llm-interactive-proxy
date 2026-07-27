@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (stage two).
+Accepted (stage two). For **optional backend connectors**, composition is superseded by [ADR 0008](0008-hybrid-backend-connector-plugins.md) (essential static builtins + executable gRPC plugins). This ADR still governs essential/static frontend, feature, and essential-backend registry tables.
 
 ## Context
 

@@ -38,13 +38,7 @@ linters:
         linters:
           - paralleltest
       # Cursor SDK bridge/process/pool lifecycle tests share fakebridge and process state.
-      - path: ^internal/plugins/backends/cursorsdk/.*_test\.go$
-        linters:
-          - paralleltest
-      - path: ^internal/standardplugins/(backends_cursor_sdk_test|cursorsdk_composed_route_test)\.go$
-        linters:
-          - paralleltest
-      - path: ^internal/stdhttp/cursorsdk_composed_integration_test\.go$
+      - path: ^connectors/cursorsdk/internal/product/.*_test\.go$
         linters:
           - paralleltest
       # JSON wire-shape changes need contract review, not bulk lint autofixes.

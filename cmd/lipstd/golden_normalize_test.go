@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 )
 
 // normalizeDogfoodRoutesJSONForGolden sorts slice fields whose order is not contractually stable
@@ -72,7 +73,7 @@ func sortNamedObjectSlice(container map[string]any, key, idField string) {
 func TestRunCommand_routes_dogfoodLocalStub_matchesGoldenJSON(t *testing.T) {
 	t.Parallel()
 	var out, errb bytes.Buffer
-	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	cfgPath := bpkit.WriteDogfoodLocalStubConfig(t)
 	code := RunCommand(context.Background(), CommandOptions{
 		Name:       CommandRoutes,
 		ConfigPath: cfgPath,
@@ -100,7 +101,7 @@ func TestRunCommand_routes_dogfoodLocalStub_matchesGoldenJSON(t *testing.T) {
 func TestRunCommand_inventory_dogfoodLocalStub_matchesGoldenJSON(t *testing.T) {
 	t.Parallel()
 	var out, errb bytes.Buffer
-	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	cfgPath := bpkit.WriteDogfoodLocalStubConfig(t)
 	code := RunCommand(context.Background(), CommandOptions{
 		Name:       CommandInventory,
 		ConfigPath: cfgPath,

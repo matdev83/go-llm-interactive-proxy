@@ -1,16 +1,18 @@
 # EXPERIMENTAL CURSOR SDK BACKEND — schema/example (local-only, non-default).
 # Operator guide: docs/cursor-sdk-backend.md
-# Bridge install (manual; Go-LIP never runs npm): internal/plugins/backends/cursorsdk/bridge/README.md
+# Bridge install (manual; Go-LIP never runs npm): connectors/cursorsdk/bridge-node/README.md
 #
-# This file keeps cursorsdk disabled so `check-config` / BootstrapInspect work without Node,
+# This file keeps cursorsdk disabled so `check-config` / `routes` / `inventory` work without Node,
 # CURSOR_API_KEY, or an installed bridge. dogfood-local remains the runnable default route.
 #
 # To enable live SDK routing after installing the bridge (Node >=22.13, @cursor/sdk 1.0.23):
-#   1. Set CURSOR_API_KEY (or api_key below). Never reuse Cursor CLI/Desktop login for SDK auth.
-#   2. Put lip-cursor-sdk-bridge on PATH or set bridge_executable.
-#   3. Set cursorsdk enabled: true, supply default_workspace, set routing.default_route to
+#   1. Build/install connectors/cursorsdk (Go plugin + bridge-node) into a trusted discovery root.
+#   2. Enable plugins.backend_discovery.paths pointing at that root (see dogfood-local-stub.yaml).
+#   3. Set CURSOR_API_KEY (or api_key below). Never reuse Cursor CLI/Desktop login for SDK auth.
+#   4. Put lip-cursor-sdk-bridge on PATH or set bridge_executable.
+#   5. Set cursorsdk enabled: true, supply default_workspace, set routing.default_route to
 #      cursorsdk:cursor/<model-from-inventory>.
-#   4. Keep cursorcliacp on a distinct selector when both are enabled (no silent model-only pick).
+#   6. Keep cursorcliacp on a distinct selector when both are enabled (no silent model-only pick).
 #
 # Start (stub path): go run ./cmd/lipstd check-config --config ./config/examples/cursor-sdk-experimental.yaml
 server:

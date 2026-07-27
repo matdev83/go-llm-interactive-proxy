@@ -24,10 +24,8 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
 	"google.golang.org/genai"
 )
 
@@ -281,7 +279,7 @@ func assertUpstreamImageMarker(tb testing.TB, backendID, captured string) {
 	tb.Helper()
 	lower := strings.ToLower(captured)
 	switch backendID {
-	case openairesponses.ID, nvidia.ID, openrouter.ID:
+	case openairesponses.ID:
 		if !strings.Contains(lower, "input_image") && !strings.Contains(lower, "image_url") {
 			tb.Fatalf("expected OpenAI-compatible image payload in upstream body, got: %s", trim(captured, 500))
 		}
@@ -310,7 +308,7 @@ func assertUpstreamPDFMarker(tb testing.TB, backendID, captured string) {
 	tb.Helper()
 	lower := strings.ToLower(captured)
 	switch backendID {
-	case openairesponses.ID, nvidia.ID, openrouter.ID:
+	case openairesponses.ID:
 		if !strings.Contains(lower, "input_file") && !strings.Contains(lower, `"type":"file"`) &&
 			!strings.Contains(lower, "file_data") {
 			tb.Fatalf("expected OpenAI-compatible file payload in upstream body, got: %s", trim(captured, 500))

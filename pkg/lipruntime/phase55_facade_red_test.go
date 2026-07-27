@@ -16,7 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
-func TestPhase55_FacadeExposesExecutableGenerationWithoutInternalTypes(t *testing.T) {
+func TestPhase55_FacadeBuildsWithEnterpriseRegistrations(t *testing.T) {
 	t.Parallel()
 	assertLipruntimeImportsPublicOnly(t)
 	ctx := context.Background()
@@ -41,14 +41,21 @@ func TestPhase55_FacadeExposesExecutableGenerationWithoutInternalTypes(t *testin
 		t.Fatalf("Build: %v", err)
 	}
 	t.Cleanup(func() { _ = rt.Close(ctx) })
+	if !rt.Ready() {
+		t.Fatal("expected ready runtime")
+	}
+	if rt.ExecutorView() == nil {
+		t.Fatal("expected ExecutorView")
+	}
 	if rt.ExecutableGenerationID() == 0 {
-		t.Fatal("expected executable generation id")
+		t.Fatal("ExecutableGenerationID required")
 	}
-	if v := rt.ExecutableGenerationVersion(); v == "" {
-		t.Fatal("expected executable generation version")
+	if rt.ExecutableGenerationVersion() == "" {
+		t.Fatal("ExecutableGenerationVersion required")
 	}
-	if rt.ExecutableGenerationState() != cp.CapabilityReady && string(rt.ExecutableGenerationState()) != "ready" {
-		t.Fatalf("state=%q", rt.ExecutableGenerationState())
+	state := rt.ExecutableGenerationState()
+	if state != cp.CapabilityReady && string(state) != "ready" {
+		t.Fatalf("state=%q", state)
 	}
 	if rt.ExecutableEvidenceObjectID() != "facade-rater" {
 		t.Fatalf("evidence=%q want facade-rater", rt.ExecutableEvidenceObjectID())
@@ -56,13 +63,16 @@ func TestPhase55_FacadeExposesExecutableGenerationWithoutInternalTypes(t *testin
 	if rt.SnapshotGenerationID() == 0 {
 		t.Fatal("compatibility metadata SnapshotGenerationID must remain")
 	}
+	if !rt.HasProductionRater() {
+		t.Fatal("HasProductionRater required for injected operator rater")
+	}
 	report := rt.ReadinessReport()
 	if report == nil {
-		t.Fatal("readiness report")
+		t.Fatal("ReadinessReport required")
 	}
 	got, err := report.Report(ctx)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Report: %v", err)
 	}
 	if got.ExecutableGeneration.EvidenceObjectID != "facade-rater" {
 		t.Fatalf("report evidence=%q", got.ExecutableGeneration.EvidenceObjectID)
@@ -78,8 +88,8 @@ func TestPhase55_DocDistinguishesExecutableFromMetadataPublication(t *testing.T)
 		t.Fatal(err)
 	}
 	text := string(raw)
-	for _, needle := range []string{"executable generation", "metadata", "compatibility"} {
-		if !strings.Contains(strings.ToLower(text), needle) {
+	for _, needle := range []string{"executable generation", "metadata", "Build"} {
+		if !strings.Contains(strings.ToLower(text), strings.ToLower(needle)) {
 			t.Fatalf("doc.go missing %q guidance", needle)
 		}
 	}

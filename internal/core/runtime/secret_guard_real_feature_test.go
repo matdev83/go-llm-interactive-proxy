@@ -23,6 +23,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretsguard"
@@ -37,7 +38,7 @@ import (
 )
 
 type realSecretGuardHarness struct {
-	built        *runtimebundle.Built
+	metrics      *metrics.Bundle
 	memSS        *memory.Store
 	mgr          *app.Manager
 	exec         *runtime.Executor
@@ -108,7 +109,7 @@ func TestExecutor_realSecretGuardScanLimitBlockAndRedactQuarantine(t *testing.T)
 			}
 			sessionID := latestStoredSessionID(ctx, t, h.memSS, h.ownerID)
 			assertStoredSessionQuarantined(ctx, t, h.memSS, h.mgr, sessionID)
-			assertRealSecretGuardMetrics(t, h.built, action)
+			assertRealSecretGuardMetrics(t, h.metrics, action)
 		})
 	}
 }
@@ -142,7 +143,7 @@ func TestExecutor_realSecretGuardLogScanLimitContinues(t *testing.T) {
 	}
 	sessionID := latestStoredSessionID(ctx, t, h.memSS, h.ownerID)
 	assertStoredSessionActive(ctx, t, h.memSS, h.mgr, sessionID)
-	assertRealSecretGuardMetrics(t, h.built, "log")
+	assertRealSecretGuardMetrics(t, h.metrics, "log")
 }
 
 func newRealSecretGuardHarness(t *testing.T, action, ownerID string) *realSecretGuardHarness {
@@ -199,33 +200,50 @@ func newRealSecretGuardHarness(t *testing.T, action, ownerID string) *realSecret
 	}
 
 	bus := hooks.New(hooks.Config{})
-	built, err := runtimebundle.Build(cfg, bus, slog.New(slog.NewTextHandler(io.Discard, nil)), &runtimebundle.BuildOptions{
-		PluginRegistry: reg,
-		Extensions: runtimebundle.ExtensionsOptions{
-			SecretGuards: bundle.SecretGuards,
-			SecretGuardEnvironment: secretGuardEnv{
-				"OPENAI_API_KEY": secret,
+	ps, err := runtimebundle.NewProcessServices(context.Background(), runtimebundle.ProcessServicesInput{
+		Cfg: cfg,
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Opts: &runtimebundle.BuildOptions{
+			PluginRegistry: reg,
+			Extensions: runtimebundle.ExtensionsOptions{
+				SecretGuards: bundle.SecretGuards,
+				SecretGuardEnvironment: secretGuardEnv{
+					"OPENAI_API_KEY": secret,
+				},
+				SecretDecisionObserver: secretguard.ObserverFunc(func(_ context.Context, ev secretguard.DecisionEvent) error {
+					h.auditCalls.Add(1)
+					h.auditMu.Lock()
+					h.auditEvents = append(h.auditEvents, ev)
+					h.auditMu.Unlock()
+					return nil
+				}),
+				TrafficObservers: []sdktraffic.Observer{&countingTrafficObs{n: &h.trafficCalls}},
 			},
-			SecretDecisionObserver: secretguard.ObserverFunc(func(_ context.Context, ev secretguard.DecisionEvent) error {
-				h.auditCalls.Add(1)
-				h.auditMu.Lock()
-				h.auditEvents = append(h.auditEvents, ev)
-				h.auditMu.Unlock()
-				return nil
-			}),
-			TrafficObservers: []sdktraffic.Observer{&countingTrafficObs{n: &h.trafficCalls}},
+		},
+		Tracing: runtimebundle.ProcessTracing{
+			Shutdown: func(context.Context) error { return nil },
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if built == nil || built.RuntimeSnapshot == nil || built.Metrics == nil {
-		t.Fatal("runtimebundle build must return runtime snapshot and metrics")
+	t.Cleanup(func() { _ = ps.Close() })
+	cand, err := runtimebundle.CompileCandidate(context.Background(), runtimebundle.GenerationCompileInput{
+		Process:   ps,
+		Bus:       bus,
+		Candidate: cfg,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cand.Close() })
+	if cand.RuntimeSnapshot() == nil || cand.Metrics() == nil {
+		t.Fatal("CompileCandidate must return runtime snapshot and metrics")
 	}
 
 	fingerprintKey := secretGuardFingerprintKey(t)
 	memSS := memory.New(memory.Options{SimulateDurable: true})
-	mgr, err := app.NewManager(memSS, app.NewRandGenerator(fingerprintKey), b2bualineage.New(built.Store), app.ManagerConfig{
+	mgr, err := app.NewManager(memSS, app.NewRandGenerator(fingerprintKey), b2bualineage.New(cand.Store()), app.ManagerConfig{
 		FingerprintKey: fingerprintKey,
 		StoreDurable:   true,
 	})
@@ -247,19 +265,19 @@ func newRealSecretGuardHarness(t *testing.T, action, ownerID string) *realSecret
 		},
 	}
 
-	h.built = built
+	h.metrics = cand.Metrics()
 	h.memSS = memSS
 	h.mgr = mgr
 	h.exec = runtime.TestExecutor()
 	h.exec.SessionDenialMapper = lipapidenial.MapToSessionDenial
-	h.exec.Store = built.Store
+	h.exec.Store = cand.Store()
 	h.exec.Bus = bus
 	h.exec.SecureSession = mgr
-	h.exec.SecretGuardDecisionMetrics = built.Metrics.SecretGuardDecisionSink()
-	h.exec.ExtensionMetrics = built.Metrics.ExtensionStageSink()
+	h.exec.SecretGuardDecisionMetrics = cand.Metrics().SecretGuardDecisionSink()
+	h.exec.ExtensionMetrics = cand.Metrics().ExtensionStageSink()
 	h.exec.Now = func() time.Time { return time.Unix(2500, 0).UTC() }
 	h.exec.Rand = routing.NewSeededRng(1)
-	h.exec.RuntimeSnapshot = built.RuntimeSnapshot
+	h.exec.RuntimeSnapshot = cand.RuntimeSnapshot()
 	h.exec.Backends = map[string]execbackend.Backend{
 		"openai-only": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -286,12 +304,12 @@ func (h *realSecretGuardHarness) singleAuditEvent() secretguard.DecisionEvent {
 	return h.auditEvents[0]
 }
 
-func assertRealSecretGuardMetrics(t *testing.T, built *runtimebundle.Built, action string) {
+func assertRealSecretGuardMetrics(t *testing.T, metricsBundle *metrics.Bundle, action string) {
 	t.Helper()
-	if built == nil || built.Metrics == nil {
+	if metricsBundle == nil {
 		t.Fatal("missing metrics bundle")
 	}
-	families, err := built.Metrics.Registry.Gather()
+	families, err := metricsBundle.Registry.Gather()
 	if err != nil {
 		t.Fatal(err)
 	}

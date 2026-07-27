@@ -5,7 +5,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"gopkg.in/yaml.v3"
 )
@@ -29,36 +28,14 @@ secret_access_key: SECRETTEST
 	}
 }
 
-func Test_backendACP_buildsFromYAML(t *testing.T) {
-	t.Parallel()
-	raw := `base_url: http://127.0.0.1:9/acp`
-	var root yaml.Node
-	if err := yaml.Unmarshal([]byte(raw), &root); err != nil {
-		t.Fatal(err)
-	}
-	b, err := backendACP(root, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b.Open == nil {
-		t.Fatal("expected non-nil Open")
-	}
-}
-
-func Test_registryBuildBedrockAndACP_afterHostedKeyChanges(t *testing.T) {
+func Test_registryBuildBedrock_afterHostedKeyChanges(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
-
-	acpRaw := `base_url: http://127.0.0.1:9/acp`
-	var acpNode yaml.Node
-	if err := yaml.Unmarshal([]byte(acpRaw), &acpNode); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := reg.BuildBackend(acp.ID, acpNode, nil, pluginreg.BackendFactoryDeps{}); err != nil {
-		t.Fatalf("acp BuildBackend: %v", err)
+	if _, ok := reg.BackendSecurityProfile("acp"); ok {
+		t.Fatal("acp must not remain a static registry factory after Phase 6 cutover")
 	}
 
 	brRaw := `region: us-east-1

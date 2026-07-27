@@ -1,0 +1,450 @@
+syntax = "proto3";
+
+package golip.backendplugin.v1;
+
+option go_package = "github.com/matdev83/go-llm-interactive-proxy/api/backendplugin/v1;backendpluginv1";
+
+// BackendPlugin is the versioned local gRPC ABI for executable backend connectors.
+// Transport-level automatic retries MUST be disabled by hosts and plugins.
+service BackendPlugin {
+  rpc Negotiate(NegotiateRequest) returns (NegotiateResponse);
+  rpc Describe(DescribeRequest) returns (DescribeResponse);
+  rpc Configure(ConfigureRequest) returns (ConfigureResponse);
+  rpc CloseInstance(CloseInstanceRequest) returns (CloseInstanceResponse);
+  rpc ResolveProfile(ResolveProfileRequest) returns (ResolveProfileResponse);
+  rpc ListModels(ListModelsRequest) returns (ListModelsResponse);
+  rpc CountTokens(CountTokensRequest) returns (CountTokensResponse);
+  rpc FinalizeBilling(FinalizeBillingRequest) returns (FinalizeBillingResponse);
+  rpc Execute(stream ExecuteClientFrame) returns (stream ExecuteServerFrame);
+  rpc Health(HealthRequest) returns (HealthResponse);
+  rpc GracefulShutdown(GracefulShutdownRequest) returns (GracefulShutdownResponse);
+}
+
+enum CredentialMode {
+  CREDENTIAL_MODE_UNSPECIFIED = 0;
+  CREDENTIAL_MODE_STATIC = 1;
+  CREDENTIAL_MODE_WORKLOAD = 2;
+  CREDENTIAL_MODE_OAUTH_USER = 3;
+  CREDENTIAL_MODE_NONE = 4;
+  CREDENTIAL_MODE_UNKNOWN = 5;
+}
+
+enum AccessScope {
+  ACCESS_SCOPE_UNSPECIFIED = 0;
+  ACCESS_SCOPE_ANY = 1;
+  ACCESS_SCOPE_LOCAL_ONLY = 2;
+}
+
+enum ProcessSharing {
+  PROCESS_SHARING_UNSPECIFIED = 0;
+  PROCESS_SHARING_PER_INSTANCE = 1;
+  PROCESS_SHARING_SHARED_ARTIFACT = 2;
+}
+
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_SYSTEM = 1;
+  ROLE_USER = 2;
+  ROLE_ASSISTANT = 3;
+  ROLE_TOOL = 4;
+}
+
+enum PartKind {
+  PART_KIND_UNSPECIFIED = 0;
+  PART_KIND_TEXT = 1;
+  PART_KIND_IMAGE_REF = 2;
+  PART_KIND_FILE_REF = 3;
+  PART_KIND_REASONING = 4;
+  PART_KIND_TOOL_CALL = 5;
+  PART_KIND_TOOL_RESULT = 6;
+}
+
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  ERROR_CODE_INVALID_ARGUMENT = 1;
+  ERROR_CODE_UNAUTHENTICATED = 2;
+  ERROR_CODE_PERMISSION_DENIED = 3;
+  ERROR_CODE_NOT_FOUND = 4;
+  ERROR_CODE_RESOURCE_EXHAUSTED = 5;
+  ERROR_CODE_FAILED_PRECONDITION = 6;
+  ERROR_CODE_ABORTED = 7;
+  ERROR_CODE_UNAVAILABLE = 8;
+  ERROR_CODE_INTERNAL = 9;
+  ERROR_CODE_PROVIDER_TRANSIENT = 10;
+  ERROR_CODE_PROVIDER_TERMINAL = 11;
+  ERROR_CODE_PROTOCOL_VIOLATION = 12;
+  ERROR_CODE_CANCELLED = 13;
+}
+
+enum CancelReason {
+  CANCEL_REASON_UNSPECIFIED = 0;
+  CANCEL_REASON_CLIENT = 1;
+  CANCEL_REASON_HOST = 2;
+  CANCEL_REASON_DEADLINE = 3;
+  CANCEL_REASON_SHUTDOWN = 4;
+}
+
+enum ClientFrameKind {
+  CLIENT_FRAME_KIND_UNSPECIFIED = 0;
+  CLIENT_FRAME_KIND_START = 1;
+  CLIENT_FRAME_KIND_CANCEL = 2;
+  CLIENT_FRAME_KIND_CLOSE_INPUT = 3;
+}
+
+enum ServerFrameKind {
+  SERVER_FRAME_KIND_UNSPECIFIED = 0;
+  SERVER_FRAME_KIND_ACCEPTED = 1;
+  SERVER_FRAME_KIND_EVENT = 2;
+  SERVER_FRAME_KIND_DIAGNOSTIC = 3;
+  SERVER_FRAME_KIND_CANCEL_OUTCOME = 4;
+  SERVER_FRAME_KIND_TERMINAL = 5;
+}
+
+enum EventKind {
+  EVENT_KIND_UNSPECIFIED = 0;
+  EVENT_KIND_RESPONSE_STARTED = 1;
+  EVENT_KIND_MESSAGE_STARTED = 2;
+  EVENT_KIND_TEXT_DELTA = 3;
+  EVENT_KIND_REASONING_DELTA = 4;
+  EVENT_KIND_REASONING_SIGNATURE_DELTA = 5;
+  EVENT_KIND_REASONING_OPAQUE_DELTA = 6;
+  EVENT_KIND_TOOL_CALL_STARTED = 7;
+  EVENT_KIND_TOOL_CALL_ARGS_DELTA = 8;
+  EVENT_KIND_TOOL_CALL_FINISHED = 9;
+  EVENT_KIND_USAGE_DELTA = 10;
+  EVENT_KIND_WARNING = 11;
+  EVENT_KIND_ERROR = 12;
+  EVENT_KIND_RESPONSE_FINISHED = 13;
+  EVENT_KIND_ASSISTANT_IMAGE_REF = 14;
+  EVENT_KIND_ASSISTANT_FILE_REF = 15;
+}
+
+enum TerminalStatus {
+  TERMINAL_STATUS_UNSPECIFIED = 0;
+  TERMINAL_STATUS_SUCCESS = 1;
+  TERMINAL_STATUS_FAILURE = 2;
+  TERMINAL_STATUS_CANCELLED = 3;
+}
+
+message Feature {
+  string name = 1;
+  bool required = 2;
+}
+
+message NegotiateRequest {
+  uint32 host_major = 1;
+  uint32 host_minor = 2;
+  repeated Feature host_features = 3;
+  bool disable_transport_retries = 4;
+}
+
+message NegotiateResponse {
+  uint32 plugin_major = 1;
+  uint32 plugin_minor = 2;
+  repeated Feature plugin_features = 3;
+  uint32 negotiated_minor = 4;
+  repeated string enabled_features = 5;
+  bool compatible = 6;
+  string reject_reason = 7;
+  bool disable_transport_retries = 8;
+  // negotiation_token is issued only when compatible=true; Configure must present it.
+  string negotiation_token = 9;
+}
+
+message DescribeRequest {}
+
+message DescribeResponse {
+  PluginDescriptor descriptor = 1;
+}
+
+message PluginDescriptor {
+  uint32 protocol_major = 1;
+  uint32 protocol_minor = 2;
+  string plugin_id = 3;
+  string version = 4;
+  string build_id = 5;
+  repeated Feature features = 6;
+  repeated FactoryDescriptor factories = 7;
+}
+
+message FactoryDescriptor {
+  string kind = 1;
+  string display_name = 2;
+  string description = 3;
+  CredentialMode credential_mode = 4;
+  AccessScope access_scope = 5;
+  repeated string route_prefixes = 6;
+  bool supports_count_tokens = 7;
+  bool supports_finalize_billing = 8;
+  bool supports_dynamic_inventory = 9;
+  bool supports_model_aware_profile = 10;
+  ProcessSharing process_sharing = 11;
+  bool experimental = 12;
+  bool deprecated = 13;
+  CapabilitySummary static_capabilities = 14;
+  TransportCapabilitySummary transport_capabilities = 15;
+}
+
+message CapabilitySummary {
+  bool streaming = 1;
+  bool tools = 2;
+  bool vision = 3;
+  bool documents = 4;
+  bool structured_outputs = 5;
+  bool reasoning = 6;
+  bool reasoning_replay = 7;
+  bool parallel_tool_calls = 8;
+}
+
+message TransportCapabilitySummary {
+  bool keepalive = 1;
+  bool cancellation = 2;
+  bool bidirectional_stream = 3;
+}
+
+message SecretBundle {
+  map<string, bytes> values = 1;
+}
+
+message RuntimePolicy {
+  uint64 max_request_bytes = 1;
+  uint64 max_stream_frame_bytes = 2;
+  uint64 max_pending_events = 3;
+  int64 request_timeout_ms = 4;
+  int64 cancel_deadline_ms = 5;
+  string diagnostics_verbosity = 6;
+  uint32 max_concurrent_executions = 7;
+  bool local_only = 8;
+  repeated string allowed_env_names = 9;
+  bool disable_transport_retries = 10;
+}
+
+message ConfigureRequest {
+  string instance_id = 1;
+  string factory_kind = 2;
+  bytes config_yaml = 3;
+  SecretBundle secrets = 4;
+  RuntimePolicy runtime_policy = 5;
+  // negotiation_token binds configure to a prior compatible NegotiateResponse.
+  string negotiation_token = 6;
+}
+
+message ConfigureResponse {
+  string instance_id = 1;
+}
+
+message CloseInstanceRequest {
+  string instance_id = 1;
+}
+
+message CloseInstanceResponse {}
+
+message ResolveProfileRequest {
+  string instance_id = 1;
+  optional string model_id = 2;
+}
+
+message ResolveProfileResponse {
+  ResolvedProfile profile = 1;
+}
+
+message ResolvedProfile {
+  CapabilitySummary capabilities = 1;
+  TransportCapabilitySummary transport_capabilities = 2;
+  bool reasoning_replay_supported = 3;
+  repeated string route_prefixes = 4;
+  bool enforce_max_output = 5;
+  optional uint32 max_output_tokens = 6;
+  bool supports_count_tokens = 7;
+  bool supports_finalize_billing = 8;
+  bool supports_dynamic_inventory = 9;
+  string evidence_source = 10;
+  string profile_version = 11;
+}
+
+message ListModelsRequest {
+  string instance_id = 1;
+  uint32 max_models = 2;
+}
+
+message ListModelsResponse {
+  repeated ModelDescriptor models = 1;
+  string inventory_source = 2;
+  int64 fetched_unix_ms = 3;
+  optional int64 refresh_after_unix_ms = 4;
+  string error_code = 5;
+}
+
+message ModelDescriptor {
+  string canonical_model_id = 1;
+  string native_model_id = 2;
+  string display_name = 3;
+  string route_prefix = 4;
+  string factory_kind = 5;
+  CapabilitySummary capabilities = 6;
+}
+
+message CountTokensRequest {
+  string instance_id = 1;
+  string model_id = 2;
+  Invocation invocation = 3;
+}
+
+message CountTokensResponse {
+  optional int64 input_tokens = 1;
+  UsagePresence presence = 2;
+  string evidence_quality = 3;
+}
+
+message FinalizeBillingRequest {
+  string instance_id = 1;
+  string a_leg_id = 2;
+  string b_leg_id = 3;
+  string model_id = 4;
+  string reason = 5;
+  string idempotency_key = 6;
+}
+
+message FinalizeBillingResponse {
+  UsageEvidence usage = 1;
+  string evidence_quality = 2;
+}
+
+message UsagePresence {
+  bool input_tokens = 1;
+  bool output_tokens = 2;
+  bool cache_read_tokens = 3;
+  bool cache_write_tokens = 4;
+  bool reasoning_tokens = 5;
+  bool total_tokens = 6;
+}
+
+message UsageEvidence {
+  optional int64 input_tokens = 1;
+  optional int64 output_tokens = 2;
+  optional int64 cache_read_tokens = 3;
+  optional int64 cache_write_tokens = 4;
+  optional int64 reasoning_tokens = 5;
+  optional int64 total_tokens = 6;
+  UsagePresence presence = 7;
+  RawJSONValue raw_usage_json = 8;
+}
+
+message RawJSONValue {
+  oneof state {
+    bool is_null = 1;
+    bytes json = 2;
+  }
+}
+
+message Invocation {
+  string request_id = 1;
+  string attempt_id = 2;
+  string a_leg_id = 3;
+  string b_leg_id = 4;
+  string canonical_model_id = 5;
+  string native_model_id = 6;
+  repeated Message instructions = 7;
+  repeated Message messages = 8;
+  repeated ToolDef tools = 9;
+  optional string tool_choice = 10;
+  GenerationOptions options = 11;
+  map<string, string> safe_metadata = 12;
+}
+
+message Message {
+  Role role = 1;
+  repeated Part parts = 2;
+}
+
+message Part {
+  PartKind kind = 1;
+  optional string text = 2;
+  optional string image_ref = 3;
+  optional string file_ref = 4;
+  optional string reasoning_text = 5;
+  RawJSONValue tool_args_json = 6;
+  optional string tool_call_id = 7;
+  optional string tool_name = 8;
+}
+
+message ToolDef {
+  string name = 1;
+  string description = 2;
+  RawJSONValue parameters_json = 3;
+}
+
+message GenerationOptions {
+  optional uint32 max_output_tokens = 1;
+  optional int32 temperature_millis = 2;
+  optional string reasoning_effort = 3;
+  optional bool parallel_tool_calls = 4;
+  optional string response_mime_type = 5;
+  RawJSONValue response_schema_json = 6;
+}
+
+message ExecuteClientFrame {
+  ClientFrameKind kind = 1;
+  uint64 sequence = 2;
+  string instance_id = 3;
+  Invocation invocation = 4;
+  CancelReason cancel_reason = 5;
+  int64 cancel_deadline_unix_ms = 6;
+}
+
+message CanonicalEvent {
+  EventKind kind = 1;
+  optional int32 message_index = 2;
+  optional string delta = 3;
+  optional string signature = 4;
+  bytes opaque = 5;
+  optional string tool_call_id = 6;
+  optional string tool_name = 7;
+  UsageEvidence usage = 8;
+  optional string warning = 9;
+  PluginError error = 10;
+  optional string image_ref = 11;
+  optional string file_ref = 12;
+}
+
+message Terminal {
+  TerminalStatus status = 1;
+  PluginError error = 2;
+}
+
+message CancelOutcome {
+  bool acknowledged = 1;
+  string detail = 2;
+  CancelReason reason = 3;
+}
+
+message ExecuteServerFrame {
+  ServerFrameKind kind = 1;
+  uint64 sequence = 2;
+  CanonicalEvent event = 3;
+  string diagnostic = 4;
+  CancelOutcome cancel_outcome = 5;
+  Terminal terminal = 6;
+}
+
+message PluginError {
+  ErrorCode code = 1;
+  string message = 2;
+  bool retryable = 3;
+  bool output_committed = 4;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  bool serving = 1;
+  string detail = 2;
+}
+
+message GracefulShutdownRequest {
+  int64 drain_timeout_ms = 1;
+}
+
+message GracefulShutdownResponse {
+  bool accepted = 1;
+}

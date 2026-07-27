@@ -194,7 +194,7 @@ The initial requirements draft focused on a new SDK backend, structured inventor
 - Uses standard-library Go process and JSON primitives.
 - Avoids a loopback listener and runtime npm installation.
 - Lets the bridge contract remain limited to Go-LIP requirements.
-- Fits current backend, model-inventory, and standard-registration patterns.
+- Fits external connector packaging (module + private companion) once revalidated against backend-connector-plugin-architecture.
 
 **Disadvantages**
 
@@ -207,18 +207,20 @@ The initial requirements draft focused on a new SDK backend, structured inventor
 
 ## Recommended Design Direction
 
-1. Add `internal/plugins/backends/cursorsdk/` as a direct `execbackend.Backend` adapter, not an `acp.SubprocessConnectorSpec`.
-2. Add a project-owned Node companion under the same backend boundary, distributed as a separate executable package and pinned to an exact `@cursor/sdk` version.
-3. Use one bridge process per configured SDK backend instance, with multiple bounded SDK agents inside it.
-4. Use versioned NDJSON RPC over stdio with strict frame limits and stderr-only bridge diagnostics.
-5. Keep Go ownership of canonical transcript fingerprinting, runtime keys, canonical event mapping, managed cancellation, and process restart policy.
-6. Keep Node ownership of official SDK objects, agent/run state, SDK event normalization, and SDK-specific error extraction.
-7. Add an optional `Close func() error` to the internal backend contract and register backend closers immediately after construction in runtimebundle.
-8. Extend standard key resolution with one Cursor SDK key and use `CURSOR_API_KEY`.
-9. Register `cursorsdk` as static-credential and local-only, with a distinct backend prefix and canonical `cursor/...` inventory rows.
+**Phase 8.3 supersession:** the 2026-07-17 draft that placed the adapter under `internal/plugins/backends/cursorsdk/` is **withdrawn**. Delivery is an external connector only.
+
+1. Deliver `connectors/cursorsdk` as an independent Go module with `release.yaml` and closed `golip.backendplugin.manifest/v1` (factory kind `cursorsdk`); never `internal/plugins/backends/cursorsdk`.
+2. Host consumes only public `pkg/lipsdk/backendplugin`, trusted-directory discovery, digest-bound exact-executable launch, approved secure local IPC, and lazy activation.
+3. Package a project-owned Node companion under `connectors/cursorsdk/bridge-node/` (`private_companions`), pinned to an exact `@cursor/sdk` version; no root `package.json` / Node SDK dependency.
+4. Declare closed-manifest `process_sharing: per_instance` with secret/concurrency/failure isolation justification; within one instance, at most one bridge process and a bounded agent pool.
+5. Use versioned NDJSON RPC over adapter-private stdio with strict frame limits and stderr-only bridge diagnostics.
+6. Keep Go ownership of canonical transcript fingerprinting, runtime keys, canonical event mapping, managed cancellation, and process-tree cleanup.
+7. Keep Node ownership of official SDK objects, agent/run state, SDK event normalization, and SDK-specific error extraction.
+8. Credential posture remains `static` + `local_only`; secrets via host Configure injection (`CURSOR_API_KEY` / config), never argv.
+9. Inventory uses a distinct backend prefix with canonical `cursor/...` rows coexisting with `cursorcliacp`.
 10. Default settings sources to none; require an explicit workspace and sandbox-required posture.
-11. Keep `Agent.resume`, cloud, custom tools, client tool passthrough, and automatic connector fallback out of scope.
-12. Require fake-bridge Go tests, mocked-SDK Node tests, opt-in live smoke, and comparative dogfood evidence.
+11. Keep `Agent.resume`, cloud, custom tools, client tool passthrough, automatic connector fallback, and post-content failover out of scope.
+12. Require fake-bridge Go tests, mocked-SDK Node tests, opt-in live smoke, comparative dogfood evidence, and `make kiro-spec-check SPEC=cursor-sdk-backend`.
 
 ## Research Carried into Implementation
 
@@ -249,7 +251,7 @@ The first design revision was reviewed against the final requirements, current r
 
 **Traceability:** 2.7, 7.3, 8.5-8.9.
 
-**Evidence:** `design.md` sections “Backend Lifecycle Seam,” “Bridge Shutdown,” and “Failure During Assembly.”
+**Evidence:** `design.md` sections ÔÇťBackend Lifecycle Seam,ÔÇŁ ÔÇťBridge Shutdown,ÔÇŁ and ÔÇťFailure During Assembly.ÔÇŁ
 
 ### Critical Issue 2: Tool activity and capability semantics were ambiguous
 
@@ -261,11 +263,11 @@ The first design revision was reviewed against the final requirements, current r
 
 **Traceability:** 4.6-4.8, 6.6-6.8, 9.2-9.3.
 
-**Evidence:** `design.md` sections “Capability Profile,” “SDK Event Mapping,” and “Tool Surface Boundary.”
+**Evidence:** `design.md` sections ÔÇťCapability Profile,ÔÇŁ ÔÇťSDK Event Mapping,ÔÇŁ and ÔÇťTool Surface Boundary.ÔÇŁ
 
 ### Critical Issue 3: Packaging, ambient settings, and trust posture were under-specified
 
-**Concern:** The initial design assumed a Node bridge would be “available” and allowed SDK defaults without defining installation, version compatibility, settings sources, or sandbox behavior.
+**Concern:** The initial design assumed a Node bridge would be ÔÇťavailableÔÇŁ and allowed SDK defaults without defining installation, version compatibility, settings sources, or sandbox behavior.
 
 **Impact:** Runtime npm installation would be non-reproducible and unsafe; ambient Cursor config could widen MCP/rule/plugin access; incompatible bridge/SDK versions could fail during requests.
 
@@ -273,7 +275,7 @@ The first design revision was reviewed against the final requirements, current r
 
 **Traceability:** 2.2, 2.6, 3.5-3.8, 9.4-9.8, 11.6.
 
-**Evidence:** `design.md` sections “Distribution and Versioning,” “Configuration Contract,” and “Security Considerations.”
+**Evidence:** `design.md` sections ÔÇťDistribution and Versioning,ÔÇŁ ÔÇťConfiguration Contract,ÔÇŁ and ÔÇťSecurity Considerations.ÔÇŁ
 
 ## Design Strengths
 
@@ -283,65 +285,44 @@ The first design revision was reviewed against the final requirements, current r
 ## Design Validation Checklist
 
 - **Requirement coverage:** every acceptance criterion maps to at least one design component and task.
-- **Dependency direction:** official SDK and bridge types stay below `internal/plugins/backends/cursorsdk`.
-- **Canonical contracts:** no `pkg/lipapi` or `pkg/lipsdk` schema changes.
-- **Routing:** no hidden connector/model retries; core remains authoritative.
+- **Dependency direction:** official SDK and bridge types stay under `connectors/cursorsdk` (never root / `internal/plugins/backends/cursorsdk`).
+- **Canonical contracts:** no `pkg/lipapi` schema changes; host uses public `pkg/lipsdk/backendplugin` only.
+- **Routing:** no hidden connector/model retries; core remains authoritative; no failover after first content.
 - **Streaming:** deltas remain incremental and ordered.
 - **Tools:** native agent tools are not replayed as client tool calls.
 - **Capabilities:** unproven semantics are omitted.
 - **History:** canonical transcript wins; divergence recreates the SDK agent.
-- **Cancellation:** run cancel precedes bridge/process escalation.
-- **Shutdown:** runtime closers own bridge termination and child reaping.
+- **Cancellation:** run cancel precedes bridge/process escalation and process-tree cleanup.
+- **Shutdown:** plugin Close + host processhost reap own bridge termination and child reaping.
+- **Process model:** closed-manifest `per_instance` with documented secret/concurrency/failure isolation.
 - **Model inventory:** same `cursor/...` IDs coexist through backend-qualified rows and distinct backend prefixes.
 - **Security:** static key, local-only registration, no ambient settings by default, no runtime installation, no secret-bearing argv/logs.
-- **Testing:** deterministic defaults plus isolated live and cross-platform gates.
-- **Migration:** ACP remains supported; replacement requires separate evidence-based change.
+- **Testing:** deterministic defaults plus isolated live and cross-platform gates; `make kiro-spec-check SPEC=cursor-sdk-backend`.
+- **Migration:** ACP remains supported as external connector; replacement requires separate evidence-based change.
 
 ## Final Validation Verdict
 
-**PASS after corrections.**
+**PASS after corrections (2026-07-17).**
 
 The final design is suitable for task generation. It preserves Go-LIP's canonical, routing, streaming, security, and lifecycle invariants; it accurately represents the SDK integration as a managed sidecar rather than an in-process replacement; and it leaves unsupported or insufficiently proven SDK surfaces outside the first delivery.
 
-## Exact-Version Revalidation and Live Evidence
+## Phase 8.3 Revalidation (2026-07-20T10:34:00+02:00)
 
-Task 1 research was revalidated against the published `@cursor/sdk` 1.0.23 package, official Cursor TypeScript SDK documentation, npm registry metadata, and bounded Windows-native live probes.
+Reviewed against active `.kiro/specs/backend-connector-plugin-architecture/` after OpenCode/Codex externalization.
 
-### Package and platform evidence
+| Finding | Disposition |
+| --- | --- |
+| G-07 from backend-connector research: Cursor SDK would introduce Node under the root connector tree | **Remediated in this revalidation** ÔÇö Node/`@cursor/sdk` confined to `connectors/cursorsdk/bridge-node` private companion |
+| Prior design owned `internal/plugins/backends/cursorsdk/` and root registration | **Superseded** ÔÇö external module + closed manifest discovery; root static registration forbidden |
+| Prior design added `execbackend.Backend` closer in root | **Narrowed** ÔÇö plugin Close + host processhost lifecycle; no Cursor-specific root factory deps |
+| Host trust/IPC | **Aligned** ÔÇö digest-bound exact executable + approved secure local IPC + lazy activation |
+| Process sharing | **Declared `per_instance`** with secret/concurrency/failure isolation justification |
+| Architecture gates | **Encoded** in Req 13 + `file-plan.md` + `make kiro-spec-check SPEC=cursor-sdk-backend` |
 
-- `@cursor/sdk` 1.0.23 exists and was the npm `latest` release at validation time.
-- The package engine is Node `>=22.13`; the successful probe used Node 22.22.3.
-- The package publishes Linux x64/arm64, macOS x64/arm64, and Windows x64 optional binary packages. No Windows arm64 package exists for 1.0.23.
-- The main package has no executable `bin`, so Go-LIP must ship its own bridge executable package.
-- The exact package integrity observed was `sha512-VIh8oW89XXACUkQqB2N8TaU3A/y2jQieF++VC6QqIqKhKRKj7kd+pzeh43MXusuPpebtxtEzqvjaCLlc1xbYTQ==`.
+**Verdict:** Spec revalidation PASS for Task 8.3. Product implementation remains blocked until a later approved tasks wave; root-tree implementation remains forbidden.
 
-### API and model evidence
+## Merge note (2026-07-27T00:45:00+02:00)
 
-- Published declarations confirm `Cursor.models.list`, `Agent.create`, `Agent.resume`, `SDKAgent.send`, `Run.stream`, `Run.wait`, `Run.cancel`, and `Symbol.asyncDispose`.
-- Structured discovery returned 34 account-visible model rows during the probe. Parameter identifiers vary by model: GPT-family rows commonly use `reasoning`, while Claude-family rows may use `thinking` plus `effort`.
-- Parameter value sets differ (`xhigh` and `extra-high` both occur), so reasoning mapping must be exact and catalog-driven rather than name-based.
-- The SDK exposes inline MCP definitions, explicit setting sources, sandbox options, auto-review, and per-agent/per-send custom tools. The first delivery uses MCP and explicit settings/safety only; custom tools remain disabled.
+origin/main landed an experimental in-tree adapter under `internal/plugins/backends/cursorsdk` with exact `@cursor/sdk` 1.0.23 Node bridge evidence, live/platform Makefile targets, and coexistence tests. The hybrid connector branch forbids root static registration of optional connectors.
 
-### Streaming, usage, cancellation, and reuse evidence
-
-- A Windows local run with settings sources disabled, sandbox explicitly off, auto-review false, and SDK retries disabled emitted incremental assistant text and matching `text-delta` callbacks before a successful terminal result.
-- `turn-ended` supplied per-turn usage; `RunResult.usage` supplied cumulative usage. Both included input, output, cache read/write, total, and optional reasoning counters.
-- `Run.cancel()` transitioned a live stream to `CANCELLED`; `Run.wait()` resolved with `status: cancelled`.
-- Same-process reuse preserved conversation state. Local `Agent.resume` is persistence-dependent and is excluded by design; the bridge must use an in-memory store and canonical rebootstrap after restart.
-- `Symbol.asyncDispose()` completed and the probe process exited without retained handles.
-
-### Safety and orchestration corrections
-
-- SDK local `enableAgentRetries` defaults to true. The bridge must force it false so core routing and output commitment remain authoritative.
-- The default local store is on-disk SQLite. The bridge must inject an adapter-private in-memory `LocalAgentStore` so hidden SDK state cannot survive a bridge generation.
-- Windows x64 rejected `sandboxOptions.enabled: true` in the probe environment with a non-retryable configuration error. Required sandboxing therefore fails closed; only explicit local-only `sandbox_mode: off` permits operation on such a host.
-- The API key is passed explicitly to SDK methods and never placed in argv or the bridge environment.
-
-### Repository decisions resolved
-
-- `execbackend.Backend.Close` is the only new internal lifecycle seam. Runtimebundle already disposes closers in reverse order on build failure and normal stdhttp shutdown; backend closers join that ordering.
-- Model registry rows already permit duplicate `cursor/...` canonical IDs while preserving backend ID/kind. `cursorcliacp` and `cursorsdk` coexist because their backend prefixes differ.
-- The SDK backend is optional and experimental, so it is added to the standard backend table but not to `lipsdk.StandardDistributionRequirements`.
-- The SDK bridge uses its own process owner while following ACP's proven process-group, process-tree kill, PID-reuse, bounded-stderr, and exactly-once-wait patterns. It does not implement `acp.SubprocessConnectorSpec`.
-
-All temporary credential and probe files were removed after validation. The credential used for probing must be revoked because it was supplied through conversational input.
+**Merged Go reality (updated):** the in-tree adapter was externalized to `connectors/cursorsdk` (module + `bridge-node` companion). Root `ExperimentalCursorSDKRegistration` and `internal/plugins/backends/cursorsdk` are removed. Production optional delivery is manifest-discovered only; the kind stays outside `EssentialBackendBundle` / `InstallStandardBundleOn`. Human macOS local-skip decisions from platform evidence remain unchanged. Exact-version package evidence from main (Node `>=22.13`, Windows x64 binary package presence, no Windows arm64 package for 1.0.23) remains valid research input.

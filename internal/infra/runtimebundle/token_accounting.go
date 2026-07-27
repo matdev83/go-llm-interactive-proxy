@@ -32,22 +32,14 @@ type tokenAccountingRuntime struct {
 	Admin         *accountingapp.Service
 }
 
-// processAccountingStores owns the overlap-sensitive accounting ledger and
-// observability identity. Provider counters bind to generation backends separately.
 type processAccountingStores struct {
 	Ledger        accountingledger.Recorder
 	Observability *accountingobs.Stats
-	CompatKey     StoreCompatKey
 }
 
 const defaultAccountingCountTimeout = 750 * time.Millisecond
 
-// buildProcessAccountingStores constructs process-owned ledger/observability once.
-func buildProcessAccountingStores(
-	parent context.Context,
-	cfg *config.Config,
-	now func() time.Time,
-) (*processAccountingStores, []func() error, error) {
+func buildProcessAccountingStores(parent context.Context, cfg *config.Config, now func() time.Time) (*processAccountingStores, []func() error, error) {
 	if cfg == nil || !cfg.Accounting.Enabled {
 		return nil, nil, nil
 	}
@@ -57,10 +49,8 @@ func buildProcessAccountingStores(
 	if now == nil {
 		now = time.Now
 	}
-	out := &processAccountingStores{
-		CompatKey: StoreCompatKeyFromAccountingLedger(cfg.Accounting),
-	}
-	closers := []func() error{}
+	out := &processAccountingStores{}
+	var closers []func() error
 	switch strings.ToLower(strings.TrimSpace(cfg.Accounting.Ledger.Store)) {
 	case "", "memory":
 		out.Ledger = accountingledger.NewMemoryLedger(accountingledger.Options{Now: now})
@@ -80,13 +70,7 @@ func buildProcessAccountingStores(
 	return out, closers, nil
 }
 
-// bindTokenAccountingRuntime binds generation backends to process-owned ledger state.
-// Provider counters are generation-entangled; the ledger identity is not duplicated.
-func bindTokenAccountingRuntime(
-	stores *processAccountingStores,
-	cfg *config.Config,
-	backends map[string]execbackend.Backend,
-) (*tokenAccountingRuntime, error) {
+func bindTokenAccountingRuntime(stores *processAccountingStores, cfg *config.Config, backends map[string]execbackend.Backend) (*tokenAccountingRuntime, error) {
 	if cfg == nil || !cfg.Accounting.Enabled || stores == nil {
 		return nil, nil
 	}
@@ -102,24 +86,19 @@ func bindTokenAccountingRuntime(
 		}
 		countTimeout = parsed
 	}
-	provider = timeoutProviderCounter{inner: provider, timeout: countTimeout}
+	provider = timeoutProviderCounter{timeoutCounter: timeoutCounter[accountingapp.ProviderCounter]{inner: provider, timeout: countTimeout}}
 	if local != nil {
 		local = timeoutLocalCounter{inner: local, timeout: countTimeout}
 	}
 	counter := accountingapp.NewService(accountingapp.ServiceConfig{Mode: accountingMode(cfg.Accounting.Mode)}, provider, local)
 	out := &tokenAccountingRuntime{
-		Counter:       counter,
-		Ledger:        stores.Ledger,
-		Observability: stores.Observability,
+		Counter: counter, Ledger: stores.Ledger, Observability: stores.Observability,
 	}
 	out.Preflight = accountingpreflight.NewChecker(counter, accountingpreflight.Config{
-		Enabled:              true,
-		Mode:                 preflightMode(cfg.Accounting.Preflight.Mode),
-		MaxInputTokens:       cfg.Accounting.Preflight.MaxInputTokens,
-		MaxOutputTokens:      cfg.Accounting.Preflight.MaxOutputTokens,
-		MaxContextTokens:     cfg.Accounting.Preflight.MaxContextTokens,
-		ClampMaxOutputTokens: cfg.Accounting.Preflight.ClampMaxOutputTokens,
-		UnknownOutputPolicy:  accountingpreflight.UnknownOutputPolicy(strings.ToLower(strings.TrimSpace(cfg.Accounting.Preflight.UnknownOutputPolicy))),
+		Enabled: true, Mode: preflightMode(cfg.Accounting.Preflight.Mode),
+		MaxInputTokens: cfg.Accounting.Preflight.MaxInputTokens, MaxOutputTokens: cfg.Accounting.Preflight.MaxOutputTokens,
+		MaxContextTokens: cfg.Accounting.Preflight.MaxContextTokens, ClampMaxOutputTokens: cfg.Accounting.Preflight.ClampMaxOutputTokens,
+		UnknownOutputPolicy: accountingpreflight.UnknownOutputPolicy(strings.ToLower(strings.TrimSpace(cfg.Accounting.Preflight.UnknownOutputPolicy))),
 	})
 	out.StreamUsage = accountingstream.New(counter, accountingstream.Config{})
 	if cfg.Accounting.Admin.Enabled {
@@ -128,47 +107,22 @@ func bindTokenAccountingRuntime(
 	return out, nil
 }
 
-// buildTokenAccountingRuntime is retained for focused unit tests; production
-// paths use buildProcessAccountingStores + bindTokenAccountingRuntime.
-func buildTokenAccountingRuntime(
-	parent context.Context,
-	cfg *config.Config,
-	now func() time.Time,
-	backends map[string]execbackend.Backend,
-) (*tokenAccountingRuntime, []func() error, error) {
-	stores, closers, err := buildProcessAccountingStores(parent, cfg, now)
-	if err != nil {
-		return nil, nil, err
-	}
-	out, err := bindTokenAccountingRuntime(stores, cfg, backends)
-	if err != nil {
-		_ = disposeClosers(closers)
-		return nil, nil, err
-	}
-	return out, closers, nil
-}
-
-func buildTokenCounters(
-	cfg *config.Config,
-	backends map[string]execbackend.Backend,
-) (accountingapp.ProviderCounter, accountingapp.LocalCounter, error) {
+func buildTokenCounters(cfg *config.Config, backends map[string]execbackend.Backend) (accountingapp.ProviderCounter, accountingapp.LocalCounter, error) {
 	mode := accountingMode(cfg.Accounting.Mode)
 	provider := newBackendProviderCounter(backends)
 	if mode == accountingapp.ModeProviderOnly && len(provider.counters) == 0 {
 		return nil, nil, fmt.Errorf("runtimebundle: accounting provider_required requires at least one backend provider token counter")
 	}
-	var local accountingapp.LocalCounter
-	if mode != accountingapp.ModeProviderOnly {
-		counter, err := tiktokenlocal.NewCounter(tiktokenlocal.Config{
-			DefaultEncoding: cfg.Accounting.Tokenizer.DefaultEncoding,
-			ModelMappings:   cfg.Accounting.Tokenizer.ModelMappings,
-		})
-		if err != nil {
-			return nil, nil, fmt.Errorf("runtimebundle: accounting local tokenizer: %w", err)
-		}
-		local = counter
+	if mode == accountingapp.ModeProviderOnly {
+		return provider, nil, nil
 	}
-	return provider, local, nil
+	counter, err := tiktokenlocal.NewCounter(tiktokenlocal.Config{
+		DefaultEncoding: cfg.Accounting.Tokenizer.DefaultEncoding, ModelMappings: cfg.Accounting.Tokenizer.ModelMappings,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("runtimebundle: accounting local tokenizer: %w", err)
+	}
+	return provider, counter, nil
 }
 
 type backendProviderCounter struct {
@@ -185,36 +139,37 @@ func newBackendProviderCounter(backends map[string]execbackend.Backend) *backend
 	return out
 }
 
+func (c *backendProviderCounter) lookup(backend string) (accountingapp.ProviderCounter, bool) {
+	v, ok := c.counters[backend]
+	return v, ok
+}
+
 func (c *backendProviderCounter) SupportsCount(ctx context.Context, input accountingapp.ProviderCountInput) accountingapp.ProviderSupport {
-	counter, ok := c.counters[input.Backend]
-	if !ok {
-		return accountingapp.ProviderSupport{Status: accountingapp.SupportStatusUnsupported, Message: "backend has no provider token counter"}
+	if counter, ok := c.lookup(input.Backend); ok {
+		return counter.SupportsCount(ctx, input)
 	}
-	return counter.SupportsCount(ctx, input)
+	return accountingapp.ProviderSupport{Status: accountingapp.SupportStatusUnsupported, Message: "backend has no provider token counter"}
 }
 
 func (c *backendProviderCounter) CountText(ctx context.Context, input accountingapp.CountTextInput) (accountingapp.CountResult, error) {
-	counter, ok := c.counters[input.Backend]
-	if !ok {
-		return accountingapp.CountResult{}, accountingapp.ErrProviderUnsupported
+	if counter, ok := c.lookup(input.Backend); ok {
+		return counter.CountText(ctx, input)
 	}
-	return counter.CountText(ctx, input)
+	return accountingapp.CountResult{}, accountingapp.ErrProviderUnsupported
 }
 
 func (c *backendProviderCounter) CountCall(ctx context.Context, input accountingapp.CountCallInput) (accountingapp.CountResult, error) {
-	counter, ok := c.counters[input.Backend]
-	if !ok {
-		return accountingapp.CountResult{}, accountingapp.ErrProviderUnsupported
+	if counter, ok := c.lookup(input.Backend); ok {
+		return counter.CountCall(ctx, input)
 	}
-	return counter.CountCall(ctx, input)
+	return accountingapp.CountResult{}, accountingapp.ErrProviderUnsupported
 }
 
 func (c *backendProviderCounter) CountOutput(ctx context.Context, input accountingapp.CountOutputInput) (accountingapp.CountResult, error) {
-	counter, ok := c.counters[input.Backend]
-	if !ok {
-		return accountingapp.CountResult{}, accountingapp.ErrProviderUnsupported
+	if counter, ok := c.lookup(input.Backend); ok {
+		return counter.CountOutput(ctx, input)
 	}
-	return counter.CountOutput(ctx, input)
+	return accountingapp.CountResult{}, accountingapp.ErrProviderUnsupported
 }
 
 func openDurableAccountingLedger(parent context.Context, cfg *config.Config) (accountingledger.Recorder, func() error, error) {
@@ -249,10 +204,8 @@ func openDurableAccountingLedger(parent context.Context, cfg *config.Config) (ac
 		child, cancel := context.WithTimeout(parent, db.DefaultPostgresOpenMigrateTimeout)
 		defer cancel()
 		bunDB, err = db.OpenPostgresBun(child, cfg.Accounting.Ledger.PostgresDSN, db.PoolSettings{
-			MaxOpenConns:    poolCfg.MaxOpenConns,
-			MaxIdleConns:    poolCfg.MaxIdleConns,
-			ConnMaxLifetime: poolCfg.ConnMaxLifetime,
-			ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
+			MaxOpenConns: poolCfg.MaxOpenConns, MaxIdleConns: poolCfg.MaxIdleConns,
+			ConnMaxLifetime: poolCfg.ConnMaxLifetime, ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("runtimebundle: accounting ledger postgres open: %w", err)
@@ -277,8 +230,6 @@ func accountingMode(raw string) accountingapp.Mode {
 		return accountingapp.ModeLocalOnly
 	case "provider_required":
 		return accountingapp.ModeProviderOnly
-	case "advisory", "provider_first", "":
-		return accountingapp.ModeProviderFirst
 	default:
 		return accountingapp.ModeProviderFirst
 	}
@@ -288,8 +239,6 @@ func preflightMode(raw string) accountingpreflight.Mode {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "required":
 		return accountingpreflight.ModeStrict
-	case "advisory", "":
-		return accountingpreflight.ModeAdvisory
 	default:
 		return accountingpreflight.ModeAdvisory
 	}
@@ -300,55 +249,44 @@ var (
 	_ accountingstream.Counter    = (*accountingapp.Service)(nil)
 )
 
-type timeoutProviderCounter struct {
-	inner   accountingapp.ProviderCounter
+type timeoutCountOps interface {
+	CountText(context.Context, accountingapp.CountTextInput) (accountingapp.CountResult, error)
+	CountCall(context.Context, accountingapp.CountCallInput) (accountingapp.CountResult, error)
+	CountOutput(context.Context, accountingapp.CountOutputInput) (accountingapp.CountResult, error)
+}
+
+type timeoutCounter[T timeoutCountOps] struct {
+	inner   T
 	timeout time.Duration
+}
+
+func (c timeoutCounter[T]) CountText(ctx context.Context, input accountingapp.CountTextInput) (accountingapp.CountResult, error) {
+	return withCountTimeout(ctx, c.timeout, func(ctx context.Context) (accountingapp.CountResult, error) {
+		return c.inner.CountText(ctx, input)
+	})
+}
+
+func (c timeoutCounter[T]) CountCall(ctx context.Context, input accountingapp.CountCallInput) (accountingapp.CountResult, error) {
+	return withCountTimeout(ctx, c.timeout, func(ctx context.Context) (accountingapp.CountResult, error) {
+		return c.inner.CountCall(ctx, input)
+	})
+}
+
+func (c timeoutCounter[T]) CountOutput(ctx context.Context, input accountingapp.CountOutputInput) (accountingapp.CountResult, error) {
+	return withCountTimeout(ctx, c.timeout, func(ctx context.Context) (accountingapp.CountResult, error) {
+		return c.inner.CountOutput(ctx, input)
+	})
+}
+
+type timeoutProviderCounter struct {
+	timeoutCounter[accountingapp.ProviderCounter]
 }
 
 func (c timeoutProviderCounter) SupportsCount(ctx context.Context, input accountingapp.ProviderCountInput) accountingapp.ProviderSupport {
 	return c.inner.SupportsCount(ctx, input)
 }
 
-func (c timeoutProviderCounter) CountText(ctx context.Context, input accountingapp.CountTextInput) (accountingapp.CountResult, error) {
-	return withCountTimeout(ctx, c.timeout, func(ctx context.Context) (accountingapp.CountResult, error) {
-		return c.inner.CountText(ctx, input)
-	})
-}
-
-func (c timeoutProviderCounter) CountCall(ctx context.Context, input accountingapp.CountCallInput) (accountingapp.CountResult, error) {
-	return withCountTimeout(ctx, c.timeout, func(ctx context.Context) (accountingapp.CountResult, error) {
-		return c.inner.CountCall(ctx, input)
-	})
-}
-
-func (c timeoutProviderCounter) CountOutput(ctx context.Context, input accountingapp.CountOutputInput) (accountingapp.CountResult, error) {
-	return withCountTimeout(ctx, c.timeout, func(ctx context.Context) (accountingapp.CountResult, error) {
-		return c.inner.CountOutput(ctx, input)
-	})
-}
-
-type timeoutLocalCounter struct {
-	inner   accountingapp.LocalCounter
-	timeout time.Duration
-}
-
-func (c timeoutLocalCounter) CountText(ctx context.Context, input accountingapp.CountTextInput) (accountingapp.CountResult, error) {
-	return withCountTimeout(ctx, c.timeout, func(ctx context.Context) (accountingapp.CountResult, error) {
-		return c.inner.CountText(ctx, input)
-	})
-}
-
-func (c timeoutLocalCounter) CountCall(ctx context.Context, input accountingapp.CountCallInput) (accountingapp.CountResult, error) {
-	return withCountTimeout(ctx, c.timeout, func(ctx context.Context) (accountingapp.CountResult, error) {
-		return c.inner.CountCall(ctx, input)
-	})
-}
-
-func (c timeoutLocalCounter) CountOutput(ctx context.Context, input accountingapp.CountOutputInput) (accountingapp.CountResult, error) {
-	return withCountTimeout(ctx, c.timeout, func(ctx context.Context) (accountingapp.CountResult, error) {
-		return c.inner.CountOutput(ctx, input)
-	})
-}
+type timeoutLocalCounter = timeoutCounter[accountingapp.LocalCounter]
 
 func withCountTimeout(ctx context.Context, timeout time.Duration, fn func(context.Context) (accountingapp.CountResult, error)) (accountingapp.CountResult, error) {
 	if timeout <= 0 {

@@ -11,18 +11,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/huggingface"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/ollama"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicodex"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodego"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
 	refanthropic "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/anthropicmessages"
 	refbedrock "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/bedrock"
 	refgemini "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/gemini"
@@ -198,63 +191,6 @@ identity:
 			},
 		},
 		{
-			id: openrouter.ID,
-			yamlBase: func(u string) string {
-				return "base_url: " + u + "/v1\napi_key: or-test\n"
-			},
-			handler: func() http.Handler { return refchat.NewHandler(refchat.Config{}) },
-			open: func(t *testing.T, openFn func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error), ctx context.Context) {
-				t.Helper()
-				call := identityTransportCall(lipapi.OperationOpenAIChatCompletions)
-				es, err := openFn(ctx, call, routing.AttemptCandidate{Primary: routing.Primary{Model: "openrouter/auto"}})
-				if err != nil {
-					t.Fatal(err)
-				}
-				_, err = lipapi.Collect(context.Background(), es)
-				if err != nil {
-					t.Fatal(err)
-				}
-			},
-		},
-		{
-			id: nvidia.ID,
-			yamlBase: func(u string) string {
-				return "base_url: " + u + "/v1\napi_key: nvapi-test\n"
-			},
-			handler: func() http.Handler { return refchat.NewHandler(refchat.Config{}) },
-			open: func(t *testing.T, openFn func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error), ctx context.Context) {
-				t.Helper()
-				call := identityTransportCall(lipapi.OperationOpenAIChatCompletions)
-				es, err := openFn(ctx, call, routing.AttemptCandidate{Primary: routing.Primary{Model: "meta/llama"}})
-				if err != nil {
-					t.Fatal(err)
-				}
-				_, err = lipapi.Collect(context.Background(), es)
-				if err != nil {
-					t.Fatal(err)
-				}
-			},
-		},
-		{
-			id: huggingface.ID,
-			yamlBase: func(u string) string {
-				return "base_url: " + u + "/v1\napi_key: hf-test\n"
-			},
-			handler: func() http.Handler { return refchat.NewHandler(refchat.Config{}) },
-			open: func(t *testing.T, openFn func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error), ctx context.Context) {
-				t.Helper()
-				call := identityTransportCall(lipapi.OperationOpenAIChatCompletions)
-				es, err := openFn(ctx, call, routing.AttemptCandidate{Primary: routing.Primary{Model: "m"}})
-				if err != nil {
-					t.Fatal(err)
-				}
-				_, err = lipapi.Collect(context.Background(), es)
-				if err != nil {
-					t.Fatal(err)
-				}
-			},
-		},
-		{
 			id: bedrock.ID,
 			yamlBase: func(u string) string {
 				return "region: us-east-1\naccess_key_id: AKID\nsecret_access_key: SECRET\nbase_endpoint: " + u + "\ndisable_https: true\n"
@@ -342,16 +278,6 @@ func TestIdentityTransport_inventoryUsesProxyNotClientPassthrough(t *testing.T) 
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(`{"data":[{"id":"gpt-4o-mini"}]}`))
-			},
-		},
-		{
-			id: nvidia.ID,
-			yamlBase: func(u string) string {
-				return "base_url: " + u + "/v1\napi_key: nvapi-test\n"
-			},
-			handler: func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"data":[{"id":"meta/llama"}]}`))
 			},
 		},
 		{
@@ -555,65 +481,6 @@ identity:
 	}
 }
 
-func TestIdentityTransport_excludedOpenAICodexKeepsVendorUA(t *testing.T) {
-	t.Parallel()
-	var sawUA string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sawUA = r.Header.Get("User-Agent")
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, "event: response.completed\ndata: {\"type\":\"response.completed\"}\n\n")
-	}))
-	t.Cleanup(srv.Close)
-
-	g := identity.Config{
-		Upstream: identity.UpstreamPolicy{
-			UserAgent: identity.FieldPolicy{Mode: identity.ModeCustom, Value: "MustNotAppear/1"},
-		},
-	}
-	_ = identity.Validate(&g)
-	reg := pluginreg.NewRegistry()
-	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
-		t.Fatal(err)
-	}
-	raw := "base_url: " + srv.URL + "/v1\naccess_token: tok\n"
-	var node yaml.Node
-	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
-		t.Fatal(err)
-	}
-	be, err := reg.BuildBackend(openaicodex.ID, node, srv.Client(), pluginreg.BackendFactoryDeps{Identity: g})
-	if err != nil {
-		t.Fatal(err)
-	}
-	call := lipapi.Call{
-		Invocation: lipapi.Invocation{
-			Operation:     lipapi.OperationOpenAIResponses,
-			DeliveryMode:  lipapi.DeliveryModeStreaming,
-			TransportMode: lipapi.TransportModeStreaming,
-		},
-		Messages: []lipapi.Message{{
-			Role:  lipapi.RoleUser,
-			Parts: []lipapi.Part{lipapi.TextPart("hi")},
-		}},
-	}
-	ctx := identity.WithClientUserAgent(context.Background(), "ClientMustNotAppear/1")
-	es, err := be.Open(ctx, call, routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.4"}})
-	if err != nil {
-		// Codex may fail on incomplete SSE; still require vendor UA was observed if a request was made.
-		if sawUA == "" {
-			t.Fatalf("open err=%v and no User-Agent observed", err)
-		}
-	} else if es != nil {
-		_, _ = lipapi.Collect(context.Background(), es)
-		_ = es.Close()
-	}
-	if !strings.HasPrefix(sawUA, "codex_cli_rs/") {
-		t.Fatalf("openai-codex User-Agent=%q want codex_cli_rs/... prefix", sawUA)
-	}
-	if strings.Contains(sawUA, "MustNotAppear") || strings.Contains(sawUA, "go-llm-interactive-proxy") {
-		t.Fatalf("identity policy leaked into openai-codex: %q", sawUA)
-	}
-}
-
 func TestIdentityTransport_excludedHTTPConnectorsIgnoreGlobalCustomUA(t *testing.T) {
 	t.Parallel()
 
@@ -624,24 +491,6 @@ func TestIdentityTransport_excludedHTTPConnectorsIgnoreGlobalCustomUA(t *testing
 		model string
 		op    lipapi.Operation
 	}{
-		{
-			name: "opencode-go",
-			id:   opencodego.ID,
-			yaml: func(u string) string {
-				return "base_url: " + u + "\napi_key: sk-test\n"
-			},
-			model: "remote-only-model",
-			op:    lipapi.OperationOpenAIChatCompletions,
-		},
-		{
-			name: "ollama",
-			id:   ollama.ID,
-			yaml: func(u string) string {
-				return "base_url: " + u + "/v1\nresponses_api: disabled\ndiscovery:\n  enabled: false\n"
-			},
-			model: "llama3:latest",
-			op:    lipapi.OperationOpenAIChatCompletions,
-		},
 		{
 			name: "custom-openai-legacy-compatible",
 			id:   standardplugins.CustomOpenAILegacyCompatibleID,
@@ -712,42 +561,16 @@ func TestIdentityTransport_excludedHTTPConnectorsIgnoreGlobalCustomUA(t *testing
 	}
 }
 
-func TestIdentityTransport_excludedACPFamilyBuildsWithoutIdentityWrap(t *testing.T) {
+func TestIdentityTransport_acpFamilyAbsentFromStaticRegistry(t *testing.T) {
 	t.Parallel()
-	g := identity.Config{
-		Upstream: identity.UpstreamPolicy{
-			UserAgent: identity.FieldPolicy{Mode: identity.ModeCustom, Value: "MustNotAppear/ACP"},
-		},
-	}
-	if err := identity.Validate(&g); err != nil {
-		t.Fatal(err)
-	}
 	reg := pluginreg.NewRegistry()
 	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
-	cases := []struct {
-		id   string
-		yaml string
-	}{
-		{id: acp.ID, yaml: "base_url: http://127.0.0.1:9\n"},
-		{id: "cursorcliacp", yaml: "{}\n"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.id, func(t *testing.T) {
-			t.Parallel()
-			var node yaml.Node
-			if err := yaml.Unmarshal([]byte(tc.yaml), &node); err != nil {
-				t.Fatal(err)
-			}
-			be, err := reg.BuildBackend(tc.id, node, http.DefaultClient, pluginreg.BackendFactoryDeps{Identity: g})
-			if err != nil {
-				t.Fatalf("excluded %s must build with identity deps present: %v", tc.id, err)
-			}
-			if be.Open == nil {
-				t.Fatal("expected Open")
-			}
-		})
+	for _, id := range []string{"acp", "cursorcliacp", "geminicliacp", "agycliacp"} {
+		if reg.HasBackend(id) {
+			t.Fatalf("%s must not remain a static backend factory after Phase 6 cutover", id)
+		}
 	}
 }
 

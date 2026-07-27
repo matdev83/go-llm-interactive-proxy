@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/localstubreg"
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v3"
 )
@@ -20,6 +21,9 @@ func TestManagement_SurvivesGenerationSwap(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
 	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := localstubreg.RegisterInProcess(reg); err != nil {
 		t.Fatal(err)
 	}
 	base := &config.Config{
@@ -84,7 +88,7 @@ func TestManagement_SurvivesGenerationSwap(t *testing.T) {
 	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: cand("m1", "a", []config.PluginConfig{{ID: "openai-responses", Enabled: true}}),
-		Compose:   ComposeRequestPlane,
+		Compose:   ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +113,7 @@ func TestManagement_SurvivesGenerationSwap(t *testing.T) {
 			{ID: "openai-responses", Enabled: true},
 			{ID: "openai-legacy", Enabled: true},
 		}),
-		Compose: ComposeRequestPlane,
+		Compose: ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatal(err)

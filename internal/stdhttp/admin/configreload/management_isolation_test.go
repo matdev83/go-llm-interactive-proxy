@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
@@ -16,6 +15,8 @@ import (
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	adminreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/localstubreg"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v3"
 )
@@ -26,6 +27,9 @@ func TestManagement_RemainsReachableAfterInvalidCandidate(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
 	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := localstubreg.RegisterInProcess(reg); err != nil {
 		t.Fatal(err)
 	}
 	base := &config.Config{
@@ -90,16 +94,16 @@ func TestManagement_RemainsReachableAfterInvalidCandidate(t *testing.T) {
 	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: cand("m1", "a", []config.PluginConfig{{ID: "openai-responses", Enabled: true}}),
-		Compose:   mgmtreload.ComposeRequestPlane,
+		Compose:   mgmtreload.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = bundle.Close() })
 
-	coord := newFakeCoordinator("/fixed/config.yaml", func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
+	coord := newFakeCoordinator("/fixed/config.yaml", func(context.Context, sdkreload.Trigger) sdkreload.Result {
 		// Simulate rejected invalid candidate: last-good remains active.
-		return configreload.ReloadResult{Category: configreload.ResultInvalid, ActiveGeneration: 1, ReasonCategory: "config_invalid"}
+		return sdkreload.Result{Category: sdkreload.ResultInvalid, ActiveGeneration: 1, ReasonCategory: "config_invalid"}
 	})
 	h, err := adminreload.NewHandler(adminreload.Options{
 		Address:  "127.0.0.1:0",

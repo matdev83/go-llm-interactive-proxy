@@ -22,6 +22,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/refclienttest"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/responses"
@@ -38,25 +39,18 @@ type dogfoodHarness struct {
 func startDogfoodHarness(tb testing.TB, configAbsPath string) dogfoodHarness {
 	tb.Helper()
 	ctx := context.Background()
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath: configAbsPath,
-		Mode:       runtimebundle.BootstrapServe,
-		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
+	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
+		ConfigPath:      configAbsPath,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
-		tb.Fatalf("BuildBootstrap: %v", err)
+		tb.Fatalf("BuildHost: %v", err)
 	}
-	tb.Cleanup(func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-		defer cancel()
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(shutdownCtx)
-		}
-	})
-	h, cleanup, err := stdhttp.NewStandardHandler(ctx, res.Config, res.App, res.Logger, res.Built)
-	if err != nil {
-		tb.Fatalf("NewStandardHandler: %v", err)
+	h := host.HTTPHandler()
+	if h == nil {
+		tb.Fatalf("nil host HTTP handler")
 	}
 	srv := httptest.NewServer(h)
 	out := dogfoodHarness{
@@ -66,7 +60,7 @@ func startDogfoodHarness(tb testing.TB, configAbsPath string) dogfoodHarness {
 			srv.Close()
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
-			cleanup(shutdownCtx)
+			_ = host.Close(shutdownCtx)
 		},
 	}
 	tb.Cleanup(out.cleanup)
@@ -76,12 +70,12 @@ func startDogfoodHarness(tb testing.TB, configAbsPath string) dogfoodHarness {
 func exampleConfig(tb testing.TB, name string) string {
 	tb.Helper()
 	root := refclienttest.ModuleRoot(tb)
-	return filepath.Join(root, "config", "examples", name)
+	return bpkit.MaterializeExampleConfig(tb, filepath.Join(root, "config", "examples", name))
 }
 
 func TestDogfoodHarness_dogfoodLocalStub(t *testing.T) {
 	t.Parallel()
-	h := startDogfoodHarness(t, exampleConfig(t, "dogfood-local-stub.yaml"))
+	h := startDogfoodHarness(t, bpkit.WriteDogfoodLocalStubConfig(t))
 
 	cli := openairesponses.New(openairesponses.Config{
 		BaseURL:           h.baseURL + "/v1",
@@ -413,7 +407,7 @@ func TestDogfoodHarness_geminiStub(t *testing.T) {
 func TestDogfoodHarness_geminiPostOutputFailure_noFallbackToSecondStub(t *testing.T) {
 	t.Parallel()
 	root := refclienttest.ModuleRoot(t)
-	cfgPath := filepath.Join(root, "internal", "stdhttp", "testdata", "dogfood_gemini_dual_stub_failover.yaml")
+	cfgPath := bpkit.MaterializeExampleConfig(t, filepath.Join(root, "internal", "stdhttp", "testdata", "dogfood_gemini_dual_stub_failover.yaml"))
 	h := startDogfoodHarness(t, cfgPath)
 
 	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"ping"}]}]}`)

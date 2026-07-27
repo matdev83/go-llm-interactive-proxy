@@ -45,9 +45,6 @@ func TestSharedMutable_IdentitySurvivesTwoCandidateCompiles(t *testing.T) {
 	if ps.ExtensionState == nil {
 		t.Fatal("expected process ExtensionState")
 	}
-	if ps.DeferredSharedMutable.OwnershipNote != "" {
-		t.Fatalf("DeferredSharedMutable must be resolved after task 2.4, got %q", ps.DeferredSharedMutable.OwnershipNote)
-	}
 
 	c1, err := runtimebundle.CompileCandidate(context.Background(), runtimebundle.GenerationCompileInput{
 		Process: ps,
@@ -64,44 +61,44 @@ func TestSharedMutable_IdentitySurvivesTwoCandidateCompiles(t *testing.T) {
 		t.Fatalf("CompileCandidate #2: %v", err)
 	}
 
-	if c1.Executor.ALegLifecycle != ps.ALegLifecycle || c2.Executor.ALegLifecycle != ps.ALegLifecycle {
+	if c1.Executor().ALegLifecycle != ps.ALegLifecycle || c2.Executor().ALegLifecycle != ps.ALegLifecycle {
 		t.Fatal("candidates must reuse process ALegLifecycle identity")
 	}
-	if c1.Executor.AffinityStore == nil || c2.Executor.AffinityStore == nil {
+	if c1.Executor().AffinityStore == nil || c2.Executor().AffinityStore == nil {
 		t.Fatal("expected affinity stores on executors")
 	}
-	if c1.RuntimeSnapshot.State() != ps.ExtensionState || c2.RuntimeSnapshot.State() != ps.ExtensionState {
+	if c1.RuntimeSnapshot().State() != ps.ExtensionState || c2.RuntimeSnapshot().State() != ps.ExtensionState {
 		t.Fatal("candidates must reuse process ExtensionState identity")
 	}
-	if c1.DecodeAdmission != ps.DecodeAdmission || c2.DecodeAdmission != ps.DecodeAdmission {
+	if c1.DecodeAdmission() != ps.DecodeAdmission || c2.DecodeAdmission() != ps.DecodeAdmission {
 		t.Fatal("candidates must reuse process DecodeAdmission")
 	}
-	if c1.Store != ps.Continuity || c2.Store != ps.Continuity {
+	if c1.Store() != ps.Continuity || c2.Store() != ps.Continuity {
 		t.Fatal("candidates must reuse process Continuity")
 	}
-	if c1.SecureSessionStore != ps.SecureSessions || c2.SecureSessionStore != ps.SecureSessions {
+	if runtimebundle.CandidateSecureSessionStore(c1) != ps.SecureSessions || runtimebundle.CandidateSecureSessionStore(c2) != ps.SecureSessions {
 		t.Fatal("candidates must reuse process SecureSessions")
 	}
 
 	key := affinity.Key{Scope: affinity.ScopeSession, ID: "shared-sess"}
-	if err := c1.Executor.AffinityStore.Set(context.Background(), affinity.Binding{
+	if err := c1.Executor().AffinityStore.Set(context.Background(), affinity.Binding{
 		Key: key, BackendID: "openai-responses", CandidateKey: "openai-responses:m",
 	}); err != nil {
 		t.Fatalf("affinity set via c1: %v", err)
 	}
-	b, ok, err := c2.Executor.AffinityStore.Get(context.Background(), key)
+	b, ok, err := c2.Executor().AffinityStore.Get(context.Background(), key)
 	if err != nil || !ok || b.BackendID != "openai-responses" {
 		t.Fatalf("affinity identity must survive second candidate: ok=%v backend=%q err=%v", ok, b.BackendID, err)
 	}
 
-	if sink, ok := c1.Executor.CandidateHealth.(interface {
+	if sink, ok := c1.Executor().CandidateHealth.(interface {
 		OnRoutingAttemptOutcome(string, lipapi.AttemptOutcome)
 	}); ok {
 		sink.OnRoutingAttemptOutcome("openai-responses:m", lipapi.AttemptSurfacedFailure)
 		sink.OnRoutingAttemptOutcome("openai-responses:m", lipapi.AttemptSurfacedFailure)
 	}
-	u1 := c1.Executor.CandidateHealth.UnhealthyCandidateKeys()
-	u2 := c2.Executor.CandidateHealth.UnhealthyCandidateKeys()
+	u1 := c1.Executor().CandidateHealth.UnhealthyCandidateKeys()
+	u2 := c2.Executor().CandidateHealth.UnhealthyCandidateKeys()
 	if _, hit := u1["openai-responses:m"]; !hit {
 		t.Fatalf("expected unhealthy key on c1, got %v", u1)
 	}
@@ -146,12 +143,12 @@ func TestSharedMutable_ChangedBackendIdentityIsolatesStaleState(t *testing.T) {
 	}
 
 	key := affinity.Key{Scope: affinity.ScopeClient, ID: "user-1"}
-	if err := c1.Executor.AffinityStore.Set(context.Background(), affinity.Binding{
+	if err := c1.Executor().AffinityStore.Set(context.Background(), affinity.Binding{
 		Key: key, BackendID: "stub", CandidateKey: "stub:m",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if sink, ok := c1.Executor.CandidateHealth.(interface {
+	if sink, ok := c1.Executor().CandidateHealth.(interface {
 		OnRoutingAttemptOutcome(string, lipapi.AttemptOutcome)
 	}); ok {
 		sink.OnRoutingAttemptOutcome("stub:m", lipapi.AttemptSurfacedFailure)
@@ -167,16 +164,16 @@ func TestSharedMutable_ChangedBackendIdentityIsolatesStaleState(t *testing.T) {
 		t.Fatalf("CompileCandidate #2: %v", err)
 	}
 
-	if _, ok, err := c2.Executor.AffinityStore.Get(context.Background(), key); err != nil || ok {
+	if _, ok, err := c2.Executor().AffinityStore.Get(context.Background(), key); err != nil || ok {
 		t.Fatalf("changed identity must not select stale affinity: ok=%v err=%v", ok, err)
 	}
-	if u := c2.Executor.CandidateHealth.UnhealthyCandidateKeys(); u != nil {
+	if u := c2.Executor().CandidateHealth.UnhealthyCandidateKeys(); u != nil {
 		if _, hit := u["stub:m"]; hit {
 			t.Fatalf("changed identity must not surface stale health: %v", u)
 		}
 	}
 	// Prior generation view still sees its own compatible namespace.
-	if b, ok, err := c1.Executor.AffinityStore.Get(context.Background(), key); err != nil || !ok || b.BackendID != "stub" {
+	if b, ok, err := c1.Executor().AffinityStore.Get(context.Background(), key); err != nil || !ok || b.BackendID != "stub" {
 		t.Fatalf("prior candidate view must retain compatible affinity: ok=%v backend=%q err=%v", ok, b.BackendID, err)
 	}
 
@@ -209,7 +206,7 @@ func TestSharedMutable_StaleAbsentBackendNotSelected(t *testing.T) {
 		t.Fatal(err)
 	}
 	key := affinity.Key{Scope: affinity.ScopeSession, ID: "s-gone"}
-	if err := c1.Executor.AffinityStore.Set(context.Background(), affinity.Binding{
+	if err := c1.Executor().AffinityStore.Set(context.Background(), affinity.Binding{
 		Key: key, BackendID: "gone", CandidateKey: "gone:m",
 	}); err != nil {
 		t.Fatal(err)
@@ -224,7 +221,7 @@ func TestSharedMutable_StaleAbsentBackendNotSelected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok, err := c2.Executor.AffinityStore.Get(context.Background(), key); err != nil || ok {
+	if _, ok, err := c2.Executor().AffinityStore.Get(context.Background(), key); err != nil || ok {
 		t.Fatalf("affinity for absent backend must not be selected: ok=%v err=%v", ok, err)
 	}
 	_ = c1.Close()
@@ -253,10 +250,9 @@ func TestSharedMutable_CandidateFailureDoesNotCloseSharedState(t *testing.T) {
 	bad.Plugins.Backends = []config.PluginConfig{{
 		ID: "missing-factory-kind", Kind: "definitely-not-registered", Enabled: true,
 	}}
-	ps.ReplaceConfigForTest(bad)
 
 	_, err = runtimebundle.CompileCandidate(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Bus: hooks.New(hooks.Config{}),
+		Process: ps, Candidate: bad, Bus: hooks.New(hooks.Config{}),
 	})
 	if err == nil {
 		t.Fatal("expected candidate compile failure")
@@ -271,14 +267,13 @@ func TestSharedMutable_CandidateFailureDoesNotCloseSharedState(t *testing.T) {
 		t.Fatal("extension state must survive candidate failure")
 	}
 
-	ps.ReplaceConfigForTest(cfg)
 	c, err := runtimebundle.CompileCandidate(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Bus: hooks.New(hooks.Config{}),
+		Process: ps, Candidate: cfg, Bus: hooks.New(hooks.Config{}),
 	})
 	if err != nil {
 		t.Fatalf("recover compile: %v", err)
 	}
-	if c.Executor.ALegLifecycle != aleg {
+	if c.Executor().ALegLifecycle != aleg {
 		t.Fatal("process A-leg identity must remain usable after failed candidate")
 	}
 	_ = c.Close()
@@ -323,7 +318,7 @@ func TestSharedMutable_MeteringAccountingStoresSharedAcrossCandidates(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c1.TokenAccountingAdmin == nil && cfg.Accounting.Admin.Enabled {
+	if runtimebundle.CandidateTokenAccountingAdmin(c1) == nil && cfg.Accounting.Admin.Enabled {
 		t.Fatal("expected token accounting admin when enabled")
 	}
 	_ = c1.Close()
@@ -367,11 +362,6 @@ func TestBackendStateIdentity_CompatDigestChangesWithMaterialConfig(t *testing.T
 	}
 	if !ka.Compatible(ka2) {
 		t.Fatal("identical plugin config must be compatible")
-	}
-
-	storeKey := runtimebundle.StoreCompatKeyFromContinuity(config.ContinuityConfig{InMemory: true})
-	if storeKey.Kind != "continuity" || storeKey.Digest == "" {
-		t.Fatalf("expected continuity store compat key, got %+v", storeKey)
 	}
 }
 

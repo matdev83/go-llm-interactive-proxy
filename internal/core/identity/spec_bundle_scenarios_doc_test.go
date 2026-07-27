@@ -14,6 +14,8 @@ import (
 
 func TestSpecBundle_identityScenarios_referenceTests(t *testing.T) {
 	t.Parallel()
+	// Repository root (filesystem), not go list / go.work membership: PackageRel may
+	// point at external connector modules under connectors/ that are outside the root module.
 	root := refclienttest.ModuleRoot(t)
 	docBytes, err := os.ReadFile(filepath.Join(root, "docs", "spec-bundle-identity-scenarios.md"))
 	if err != nil {
@@ -24,8 +26,8 @@ func TestSpecBundle_identityScenarios_referenceTests(t *testing.T) {
 		if spec.ID == "" || spec.InvariantSummary == "" || spec.TestName == "" || spec.PackageRel == "" {
 			t.Fatalf("incomplete scenario: %#v", spec)
 		}
-		if strings.Contains(spec.PackageRel, `\`) || strings.HasPrefix(spec.PackageRel, "/") {
-			t.Fatalf("scenario %s PackageRel must be forward-slash relative: %q", spec.ID, spec.PackageRel)
+		if strings.Contains(spec.PackageRel, `\`) || strings.HasPrefix(spec.PackageRel, "/") || strings.Contains(spec.PackageRel, "..") {
+			t.Fatalf("scenario %s PackageRel must be forward-slash repository-relative: %q", spec.ID, spec.PackageRel)
 		}
 		dir := filepath.Join(append([]string{root}, strings.Split(spec.PackageRel, "/")...)...)
 		entries, err := os.ReadDir(dir)
@@ -33,6 +35,7 @@ func TestSpecBundle_identityScenarios_referenceTests(t *testing.T) {
 			t.Fatalf("scenario %s package %q: %v", spec.ID, spec.PackageRel, err)
 		}
 		var blobs strings.Builder
+		foundTestFile := false
 		for _, e := range entries {
 			if e.IsDir() {
 				continue
@@ -41,12 +44,16 @@ func TestSpecBundle_identityScenarios_referenceTests(t *testing.T) {
 			if !strings.HasSuffix(name, "_test.go") {
 				continue
 			}
+			foundTestFile = true
 			b, err := os.ReadFile(filepath.Join(dir, name))
 			if err != nil {
 				t.Fatal(err)
 			}
 			blobs.Write(b)
 			blobs.WriteByte('\n')
+		}
+		if !foundTestFile {
+			t.Fatalf("scenario %s package %q has no *_test.go files on disk", spec.ID, spec.PackageRel)
 		}
 		src := blobs.String()
 		needle := "func " + spec.TestName

@@ -1,9 +1,9 @@
 ---
 type: architecture
 title: Plugin System
-description: Explicit frontend, backend, and feature plugin registration and extension surface.
+description: Explicit frontend/feature registration plus hybrid essential and executable backend connectors.
 stack: [go]
-tags: [plugins, frontends, backends, features]
+tags: [plugins, frontends, backends, features, connectors]
 status: active
 ---
 
@@ -11,17 +11,20 @@ status: active
 
 ## Registration Model
 
-Explicit, static, per-composition-root. No DI containers, no reflection registries, no Go `plugin` package. `internal/pluginreg/` owns the registry type (`NewRegistry`, `RegisterBackend`/`RegisterFrontend`/`RegisterFeature`, `BuildBackend`/`BuildFeatureBundle`); `internal/standardplugins/` owns the standard distribution registration tables and `InstallStandardBundleOn`. Feature merge lives in `internal/featurebundle/` (`MergeFeatureSurface` simplified via `MergeBundles`/`Append` helpers); the hook bus (`hooks.New`, `BuildFeatureHooks`) is constructed in `internal/infra/runtimebundle/`.
+Explicit construction at the composition root. No DI containers, no reflection registries, no Go native `plugin` package.
 
-Backend registrations declare both credential posture and access scope. `BackendAccessLocalOnly` connectors are allowed only in single-user loopback deployments and are rejected during runtime bundle assembly when `access.mode: multi_user` is active.
+- `internal/pluginreg/` — registry type (`NewRegistry`, register/build APIs, discovered backend provenance).
+- `internal/standardplugins/` — essential/static distribution tables and `InstallStandardBundleOn` (frontends, features, **essential** backends).
+- Optional backends — closed-manifest discovery into discovered factories ([ADR 0008](../../docs/adr/0008-hybrid-backend-connector-plugins.md); [backend-connector-plugins](backend-connector-plugins.md)).
+- Feature merge — `internal/featurebundle/`; hook bus — `internal/infra/runtimebundle/`.
+
+Backend registrations declare credential posture and access scope. `BackendAccessLocalOnly` connectors are rejected when `access.mode: multi_user` is active.
 
 ```
-NewRegistry() -> InstallStandardBundleOn(reg, keys) -> reg.Build() -> runtimebundle.Built
+NewRegistry() -> InstallStandardBundleOn(reg, keys) -> discover connectors -> runtimebundle.BuildHost -> Host (GenerationRuntime gen 1)
 ```
 
 ## Frontend Plugins (`internal/plugins/frontends/`)
-
-Decode incoming HTTP/SSE into canonical `lipapi` requests. Encode canonical events into protocol-specific responses.
 
 | Frontend | Protocol |
 |---|---|
@@ -32,22 +35,17 @@ Decode incoming HTTP/SSE into canonical `lipapi` requests. Encode canonical even
 
 Shared helpers: `decodeqos/`, `execerr/`, `exechold/`, `frontendconfig/`, `holdalive/`, `jsonguard/`, `limits/`, `openaiwire/`, `parity/`, `reqbody/`, `routeselect/`, `sessionwire/`.
 
-## Backend Plugins (`internal/plugins/backends/`)
+## Backend Plugins (hybrid)
 
-Translate canonical requests into upstream calls. Map upstream responses into canonical events. Provider SDKs stay here.
+### Essential builtins (`internal/plugins/backends/` + essential tables)
 
-| Category | Backends |
-|---|---|
-| Hosted/Provider | `openairesponses`, `openailegacy`, `anthropic`, `gemini`, `bedrock`, `acp`, `openrouter`, `nvidia`, `huggingface`, `openaicodex`, `opencodego`, `opencodezen` |
-| Local/Compatible | `ollama`, `ollama-cloud`, `llamacpp`, `lmstudio`, `vllm`, `localstub` |
-| Local-Agent (subprocess stdio) | `cursorcliacp`, experimental `cursorsdk`, `geminicliacp`, `agycliacp`, `codexappserver` |
-| Custom | `openaicompat` - operator-configured OpenAI/Anthropic-compatible rows |
+`openairesponses`, `openailegacy`, `anthropic`, `gemini`, `bedrock`, plus built-in custom OpenAI/Anthropic-compatible kinds. Shared helpers may include `openaicompat/`, `openaifamily/`, and related packages still imported by the root module.
 
-Shared helpers: `checkcfg/`, `credpool/`, `modeldiscover/`, `openaicaps/`, `openaicred/`, `openaifamily/`, `openaiusage/`, `opencodecommon/`, `protocols/`, `streampeek/`.
+Experimental in-tree `cursorsdk` (Node bridge over exact `@cursor/sdk` 1.0.23) may remain as an opt-in adapter outside `EssentialBackendBundle`; production optional delivery is the external executable connector path. Operator docs: [docs/cursor-sdk-backend.md](../../docs/cursor-sdk-backend.md). See [Cursor SDK Backend](cursor-sdk-backend.md).
 
-Local-only standard backends currently include `acp`, `cursorcliacp`, `cursorsdk`, `geminicliacp`, `agycliacp`, `openaicodex`, and `codexappserver` because they can involve local agent processes or private user OAuth/ChatGPT credentials.
+### Optional executable connectors (`connectors/`)
 
-Experimental `cursorsdk` is a registered local-only standard backend (not in the mandatory distribution subset). It uses a project-owned Node bridge over exact `@cursor/sdk` 1.0.23, static API-key posture, and a distinct `cursorsdk` route prefix while sharing canonical `cursor/...` model IDs with `cursorcliacp`. Operator install/safety docs: [docs/cursor-sdk-backend.md](../../docs/cursor-sdk-backend.md). See [Cursor SDK Backend](cursor-sdk-backend.md).
+Installed artifacts (examples): `openrouter`, `nvidia`, `huggingface`, `ollama` / `ollama-cloud`, `llamacpp`, `lmstudio`, `vllm`, `localstub`, `opencode` (Go/Zen exports), `codex` (HTTP + app-server exports), ACP-family CLIs including `cursorcliacp`. Support modules live under `connector-support/`. Do not add these to essential fixed tables.
 
 ## Feature Plugins (`internal/plugins/features/`)
 

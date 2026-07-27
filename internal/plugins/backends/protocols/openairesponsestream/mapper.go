@@ -146,6 +146,11 @@ func (m *Mapper) ToolCallAdded(id, name string) error {
 	if id == "" {
 		return nil
 	}
+	// Never surface unnamed tool calls to clients; harnesses persist them and
+	// later replay empty-name history that upstream backends reject.
+	if strings.TrimSpace(name) == "" {
+		return nil
+	}
 	if err := m.ensureResponseStarted(); err != nil {
 		return err
 	}
@@ -185,6 +190,10 @@ func (m *Mapper) FinishToolCallArguments(id, name, arguments string) error {
 		return err
 	}
 	if !m.toolCallStarted[id] {
+		if strings.TrimSpace(name) == "" {
+			delete(m.pendingToolArgs, id)
+			return nil
+		}
 		if err := m.emitToolCallStarted(id, name); err != nil {
 			return err
 		}
@@ -212,6 +221,10 @@ func (m *Mapper) EmitCompletedToolCall(id, name, arguments string) error {
 		return err
 	}
 	if !m.toolCallStarted[id] {
+		if strings.TrimSpace(name) == "" {
+			delete(m.pendingToolArgs, id)
+			return nil
+		}
 		if err := m.emitToolCallStarted(id, name); err != nil {
 			return err
 		}

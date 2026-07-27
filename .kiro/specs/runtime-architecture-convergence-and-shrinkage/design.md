@@ -18,7 +18,7 @@ The implementation is delivered as a sequence of independently green contraction
 - Define reload trigger/result/status vocabulary once.
 - Consolidate generation lifecycle and process shutdown ownership.
 - Make `pkg/lipruntime.Runtime` a thin host facade.
-- Quarantine and then remove deprecated public option shapes.
+- Remove deprecated public option shapes (alpha-stage breaking change; registration-only Options).
 - Remove at least 800 affected non-test production lines and ratchet budgets downward.
 
 ### Non-Goals
@@ -874,9 +874,9 @@ flowchart TD
     Delete --> Host[Build one host from one snapshot]
     Host --> Reload[Split reload gate runner state]
     Reload --> Life[Consolidate lifecycle and contract]
-    Life --> Public[Simplify public facade and quarantine legacy API]
-    Public --> Major[Remove legacy API at major boundary]
-    Major --> Ratchet[Lower budgets and certify]
+    Life --> Public[Simplify public facade and remove legacy Options]
+    Public --> Remove[Remove legacy Options fields (alpha approval)]
+    Remove --> Ratchet[Lower budgets and certify]
 ```
 
 ### Phase Rules
@@ -892,9 +892,19 @@ flowchart TD
 
 Implementation PRs are structural and behavior-preserving. If a phase fails verification, revert that phase; do not keep both old and new production paths as a fallback. The previous merged phase remains the canonical architecture.
 
-### Public API Timing
+### Public API Compatibility Boundary (alpha)
 
-Internal convergence does not wait for a major version. Deprecated public option removal does. Until that boundary, one quarantined legacy adapter converts to canonical registrations before HostBuilder. The final task deletes that adapter and legacy fields.
+**Decision (2026-07-25, maintainer matdev83):** the project is alpha with no users and no supported stable release contract on the legacy `Options` fields. Waiting for an unspecified future major version is unnecessary. The convergence removes the legacy fields in-tree.
+
+| Removed field | Canonical replacement |
+| --- | --- |
+| `RequestProviders` (+ request-stage descriptors) | `RequestRegistrations` (descriptor embedded) |
+| `AttemptProviders` (+ attempt-stage descriptors) | `AttemptRegistrations` (descriptor embedded) |
+| `ConcurrencyProvider` (+ lease descriptor) | `ConcurrencyRegistration` (descriptor embedded) |
+| `Rater` | `RaterRegistrations` |
+| `ProviderDescriptors` | descriptor embedded in each registration |
+
+Removal landed in commit `e9a5d507` (`refactor(runtime): remove legacy public options`). The last commit that still contained the five fields is `33339e79`. Operator migration table: `docs/legacy-options-migration.md`. No quarantined adapter remains; Host construction is registration-only.
 
 ## Observability and Release Evidence
 
@@ -909,12 +919,11 @@ The final release evidence records:
 - full test/race/fuzz/lint/vulnerability commands;
 - soak parameters;
 - benchmark comparison;
-- public API migration status;
-- deferred major-version cleanup, if implementation is split across releases.
+- public API migration status (registration-only; alpha breaking change applied).
 
 ## Open Questions and Risks
 
-1. **Public major timing:** repository maintainers must choose the release that removes deprecated Options. The spec requires removal but allows internal phases to merge first.
+1. **Public Options compatibility:** resolved — alpha-stage maintainer approval removed the legacy fields without a major-version gate (see Public API Compatibility Boundary).
 2. **Exact GenerationRuntime concrete shape:** implementation may preserve current package-private names when that reduces churn, but it must satisfy the ownership and deletion criteria.
 3. **Context-bearing Close signatures:** avoid changing existing interfaces solely for aesthetics. Singular ownership matters more than uniform signatures.
 4. **Architecture LOC baseline:** the first implementation task must record exact tool-generated baselines because static review line counts are approximate.

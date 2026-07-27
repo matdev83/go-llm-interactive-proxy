@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // validateRequiredAuthorityEvidenceWiring protects callers that assemble a
@@ -52,6 +55,43 @@ func disposeClosers(closers []func() error) error {
 func withDisposedClosers(err error, closers []func() error) error {
 	if derr := disposeClosers(closers); derr != nil {
 		return errors.Join(err, derr)
+	}
+	return err
+}
+
+// RegisterPluginBuildCleanup appends an idempotent plugin BuildResult cleanup
+// immediately during assembly so later inventory/accounting/server failures
+// reverse-dispose process/pipe/staging resources (Phase 3 composition seam).
+func RegisterPluginBuildCleanup(closers []func() error, cleanup func() error) []func() error {
+	if cleanup == nil {
+		return closers
+	}
+	var once sync.Once
+	var err error
+	return append(closers, func() error {
+		once.Do(func() {
+			err = normalizePluginCleanupErr(cleanup())
+		})
+		return err
+	})
+}
+
+// normalizePluginCleanupErr treats transport death after process-host reap as
+// successful cleanup completion. Generation-owned plugin cleanup may run after
+// a process-owned host closer already closed the gRPC conn; that must not
+// surface as a ShutdownDetached/ledger failure (cleanup still ran at most once).
+func normalizePluginCleanupErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	if st, ok := status.FromError(err); ok && st.Code() == codes.Unavailable {
+		return nil
+	}
+	// errors.Join and dial wrappers may not expose a bare status code.
+	msg := err.Error()
+	if strings.Contains(msg, "use of closed network connection") ||
+		strings.Contains(msg, "code = Unavailable") {
+		return nil
 	}
 	return err
 }

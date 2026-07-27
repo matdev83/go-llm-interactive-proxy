@@ -27,10 +27,7 @@ func TestRegisterStartedCatalogClosersRollbackQuiescesBeforeClose(t *testing.T) 
 		closers:        []func() error{track("catalog-close")},
 		quiesceClosers: []func() error{track("refresh-cancel-wait")},
 	}
-	legacy := registerStartedCatalogClosers(ledger, nil, started)
-	if len(legacy) != 2 {
-		t.Fatalf("legacy closers=%d want 2", len(legacy))
-	}
+	registerStartedCatalogClosers(ledger, started)
 	if err := ledger.Rollback(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -39,27 +36,6 @@ func TestRegisterStartedCatalogClosersRollbackQuiescesBeforeClose(t *testing.T) 
 	mu.Unlock()
 	if got != "[refresh-cancel-wait catalog-close]" {
 		t.Fatalf("rollback order=%s want refresh cancel/wait before catalog close", got)
-	}
-
-	// The compatibility Built path also disposes its acquisition-order bag in
-	// reverse, so it must preserve the same quiesce-before-close order.
-	var legacyOrder []string
-	started2 := &startedModelCatalog{
-		closers: []func() error{func() error {
-			legacyOrder = append(legacyOrder, "catalog-close")
-			return nil
-		}},
-		quiesceClosers: []func() error{func() error {
-			legacyOrder = append(legacyOrder, "refresh-cancel-wait")
-			return nil
-		}},
-	}
-	legacy = registerStartedCatalogClosers(nil, nil, started2)
-	if err := disposeClosers(legacy); err != nil {
-		t.Fatal(err)
-	}
-	if got := fmt.Sprint(legacyOrder); got != "[refresh-cancel-wait catalog-close]" {
-		t.Fatalf("legacy order=%s want refresh cancel/wait before catalog close", got)
 	}
 }
 

@@ -53,14 +53,8 @@ func TestStandardBackends_declareMaxOutputEnforcement(t *testing.T) {
 func standardBackendEnforcesMaxOutput(id string) (bool, bool) {
 	switch id {
 	case "openai-responses", "openai-legacy", "anthropic", "gemini", "bedrock",
-		"openrouter", "nvidia", "huggingface", "ollama", "ollama-cloud",
-		"llamacpp", "lmstudio", "vllm",
 		CustomOpenAILegacyCompatibleID, CustomOpenAIResponsesCompatibleID, CustomAnthropicCompatibleID:
 		return true, true
-	case "openai-codex", "openai-codex-app-server",
-		"acp", "cursorcliacp", "cursorsdk", "geminicliacp", "agycliacp",
-		"opencode-go", "opencode-zen", "local-stub":
-		return false, true
 	default:
 		return false, false
 	}
@@ -73,8 +67,7 @@ func standardBackendEnforcesMaxOutput(id string) (bool, bool) {
 func standardBackendEnforcementBuildYAML(id string) string {
 	base := standardBackendBuildYAML(id)
 	switch id {
-	case "anthropic", "openai-legacy", "openai-responses", "openrouter",
-		"nvidia", "huggingface", "opencode-go", "opencode-zen", "cursorsdk",
+	case "anthropic", "openai-legacy", "openai-responses",
 		CustomOpenAILegacyCompatibleID, CustomOpenAIResponsesCompatibleID, CustomAnthropicCompatibleID:
 		if !strings.Contains(base, "api_key:") {
 			return base + "api_key: test\n"

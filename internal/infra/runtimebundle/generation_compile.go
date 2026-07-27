@@ -13,13 +13,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/runtimegen"
 )
 
-// CompileExecutableGeneration builds a validated executable generation from
-// production registrations and static concurrency limits (tasks 5.2–5.3).
-func CompileExecutableGeneration(cfg *config.Config, prod ProductionOptions, now time.Time) (*snapshotgen.ExecutableGeneration, error) {
-	contrib := CompileGenerationContribution(cfg, prod, now)
-	return snapshotgen.CompileExecutable(contrib)
-}
-
 // CompileGenerationContribution maps static config + production registrations
 // into the public GenerationContribution shape (requirement 11.6; design D15).
 func CompileGenerationContribution(cfg *config.Config, prod ProductionOptions, now time.Time) runtimegen.GenerationContribution {

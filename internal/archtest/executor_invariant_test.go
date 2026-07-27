@@ -176,6 +176,18 @@ func identName(expr ast.Expr) string {
 	return ""
 }
 
+func callName(fun ast.Expr) string {
+	switch x := fun.(type) {
+	case *ast.Ident:
+		return x.Name
+	case *ast.SelectorExpr:
+		if x.Sel != nil {
+			return x.Sel.Name
+		}
+	}
+	return ""
+}
+
 // formatViolation produces a human-readable string for a detected mutation.
 func formatViolation(filename string, pos token.Position, sel *ast.SelectorExpr) string {
 	field := ""

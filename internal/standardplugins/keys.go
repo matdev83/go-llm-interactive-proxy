@@ -2,7 +2,6 @@ package standardplugins
 
 import (
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 )
@@ -14,91 +13,30 @@ const maxNumberedAPIKeysEnv = 32
 // (typically from [ResolveUpstreamAPIKeysFromEnv]) when plugin YAML leaves api_key empty.
 // Treat all string values as secrets: do not log them or include them in error text.
 type UpstreamAPIKeys struct {
-	OpenAI      []string
-	Anthropic   []string
-	Gemini      []string
-	OpenRouter  []string
-	Nvidia      []string
-	HuggingFace []string
-	OpenCodeGo  []string
-	OpenCodeZen []string
-	OpenAICodex []string
-	// Cursor is the single composition-root default for cursorsdk (CURSOR_API_KEY).
-	// No numbered credential rotation in this phase.
+	OpenAI    []string
+	Anthropic []string
+	Gemini    []string
+	// Cursor is an optional composition-root default for external cursorsdk connector
+	// helpers (CURSOR_API_KEY). It is not part of the essential backend table;
+	// optional connectors still receive credentials via plugin YAML / secrets.
 	Cursor string
 }
 
-// ResolveUpstreamAPIKeysFromEnv reads OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY,
-// OPENROUTER_API_KEY, NVIDIA_API_KEY, HUGGINGFACE_API_KEY plus numbered suffixes until the first
-// missing or empty value. The bare env var fills the first slot. OpenAI, Anthropic, and Gemini read
-// suffixes starting at _2 (an explicit _1 is not read for them); OpenRouter, NVIDIA, and Hugging Face
-// use _1-indexed numbering for consistency with OPENROUTER_API_KEY_1, NVIDIA_API_KEY_1,
-// HUGGINGFACE_API_KEY_1, etc. CURSOR_API_KEY is a single non-numbered composition-root default for
-// the experimental cursorsdk backend.
+// ResolveUpstreamAPIKeysFromEnv reads OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY
+// plus numbered suffixes until the first missing or empty value. The bare env var fills
+// the first slot; OpenAI/Anthropic/Gemini read suffixes starting at _2.
+// CURSOR_API_KEY is a single non-numbered optional default for external cursorsdk connector
+// helpers retained outside EssentialBackendBundle.
+// Migrated external connectors (OpenRouter, NVIDIA, Hugging Face, Ollama, local runtimes,
+// OpenCode, Codex) receive credentials only via plugin config YAML / secrets.
 // Call from the composition root and pass the result to [InstallStandardBundleOn].
 func ResolveUpstreamAPIKeysFromEnv() UpstreamAPIKeys {
 	return UpstreamAPIKeys{
-		OpenAI:      collectNumberedEnvKeys("OPENAI_API_KEY"),
-		Anthropic:   collectNumberedEnvKeys("ANTHROPIC_API_KEY"),
-		Gemini:      collectNumberedEnvKeys("GEMINI_API_KEY"),
-		OpenRouter:  collectOpenRouterEnvKeys(),
-		Nvidia:      collectNvidiaEnvKeys(),
-		HuggingFace: collectHuggingFaceEnvKeys(),
-		OpenCodeGo:  collectNumberedEnvKeys("OPENCODE_GO_API_KEY"),
-		OpenCodeZen: collectOpenCodeZenEnvKeys(),
-		OpenAICodex: collectOpenAICodexEnvKeys(),
-		Cursor:      strings.TrimSpace(os.Getenv("CURSOR_API_KEY")),
+		OpenAI:    collectNumberedEnvKeys("OPENAI_API_KEY"),
+		Anthropic: collectNumberedEnvKeys("ANTHROPIC_API_KEY"),
+		Gemini:    collectNumberedEnvKeys("GEMINI_API_KEY"),
+		Cursor:    strings.TrimSpace(os.Getenv("CURSOR_API_KEY")),
 	}
-}
-
-func collectOpenAICodexEnvKeys() []string {
-	out := collectNumberedEnvKeys("OPENAI_CODEX_ACCESS_TOKEN")
-	if len(out) > 0 {
-		return out
-	}
-	return collectNumberedEnvKeys("OPENAI_CODEX_API_KEY")
-}
-
-func collectOpenCodeZenEnvKeys() []string {
-	out := collectNumberedEnvKeys("OPENCODE_API_KEY")
-	if len(out) > 0 {
-		return out
-	}
-	return collectNumberedEnvKeys("OPENCODE_ZEN_API_KEY")
-}
-
-func collectOpenRouterEnvKeys() []string {
-	return collect1IndexedEnvKeys("OPENROUTER_API_KEY")
-}
-
-func collectNvidiaEnvKeys() []string {
-	return collect1IndexedEnvKeys("NVIDIA_API_KEY")
-}
-
-func collectHuggingFaceEnvKeys() []string {
-	return collect1IndexedEnvKeys("HUGGINGFACE_API_KEY")
-}
-
-func collect1IndexedEnvKeys(envPrefix string) []string {
-	out := make([]string, 0, maxNumberedAPIKeysEnv)
-	if s := strings.TrimSpace(os.Getenv(envPrefix)); s != "" {
-		out = append(out, s)
-	}
-	for i := 1; i <= maxNumberedAPIKeysEnv; i++ {
-		// ⚡ Bolt: replace fmt.Sprintf with direct string concatenation and strconv for performance
-		name := envPrefix + "_" + strconv.Itoa(i)
-		v := strings.TrimSpace(os.Getenv(name))
-		if v == "" {
-			if i == 1 {
-				continue
-			}
-			break
-		}
-		if !slices.Contains(out, v) {
-			out = append(out, v)
-		}
-	}
-	return out
 }
 
 func collectNumberedEnvKeys(prefix string) []string {

@@ -24,27 +24,20 @@ import (
 )
 
 type secureSessionRuntime struct {
-	manager                    *app.Manager
-	appStore                   app.Store
-	recorder                   app.GateRecording
-	recordingMandatory         bool
-	closer                     func() error
-	requireWorkspaceID         bool
-	workspaceResolveFailClosed bool
+	manager                                                            *app.Manager
+	appStore                                                           app.Store
+	recorder                                                           app.GateRecording
+	recordingMandatory, requireWorkspaceID, workspaceResolveFailClosed bool
+	closer                                                             func() error
 }
 
-// secureSessionBuildInput groups dependencies for [buildSecureSessionRuntime] (keeps arity small at call sites).
+// secureSessionBuildInput groups dependencies for [buildSecureSessionRuntime].
 type secureSessionBuildInput struct {
-	StartupContext context.Context
-	Cfg            *config.Config
-	B2B            b2bua.Store
-	Log            *slog.Logger
-	Bundle         *metrics.Bundle
-	// ControlPlaneStoreWrap, when non-nil, wraps the chosen secure-session
-	// app.Store before it is bound to the manager and recorder. The control-
-	// plane runtime uses this to project lifecycle events into the recorder
-	// while leaving authoritative secure-session behavior with the delegate
-	// (task 5.1; requirements 1.2, 1.3, 5.1, 8.1, 10.7).
+	StartupContext        context.Context
+	Cfg                   *config.Config
+	B2B                   b2bua.Store
+	Log                   *slog.Logger
+	Bundle                *metrics.Bundle
 	ControlPlaneStoreWrap func(app.Store) app.Store
 }
 
@@ -83,12 +76,8 @@ func buildSecureSessionRuntime(in secureSessionBuildInput) (*secureSessionRuntim
 			}
 			key = base64.RawURLEncoding.EncodeToString(buf)
 			if log != nil {
-				log.InfoContext(
-					startupCtx, "secure_session: memory store token_fingerprint_key omitted; using ephemeral process-local key (resume proofs reset on restart)",
-					slog.String("component", "secure_session"),
-					slog.String("store", "memory"),
-					slog.String("notice", "ephemeral_token_fingerprint_key"),
-				)
+				log.InfoContext(startupCtx, "secure_session: memory store token_fingerprint_key omitted; using ephemeral process-local key (resume proofs reset on restart)",
+					slog.String("component", "secure_session"), slog.String("store", "memory"), slog.String("notice", "ephemeral_token_fingerprint_key"))
 			}
 		} else if len(key) < 32 {
 			return nil, fmt.Errorf("runtimebundle: secure_session.token_fingerprint_key: when set, must be at least 32 characters (memory store may omit the key for a process-local ephemeral fingerprint)")
@@ -122,8 +111,12 @@ func buildSecureSessionRuntime(in secureSessionBuildInput) (*secureSessionRuntim
 
 	var touchCB func(float64)
 	if bundle != nil && bundle.SecureSession != nil {
-		p := bundle.SecureSession
-		touchCB = p.RecordActivityTouchSeconds
+		touchCB = bundle.SecureSession.RecordActivityTouchSeconds
+	}
+
+	common := ssAssembleInput{
+		wrap: in.ControlPlaneStoreWrap, gen: gen, lin: lin, fp: fp, rw: rw,
+		requireDurable: requireDurable, touchCB: touchCB, ss: ss, failClosedWS: failClosedWS,
 	}
 
 	switch storeName {
@@ -134,40 +127,12 @@ func buildSecureSessionRuntime(in secureSessionBuildInput) (*secureSessionRuntim
 				nd = "log"
 			}
 			if nd == "log" {
-				log.InfoContext(
-					startupCtx, "secure_session: using non-durable memory store; session evidence is lost on process restart",
-					slog.String("component", "secure_session"),
-					slog.String("store", "memory"),
-					slog.String("notice", "non_durable_store"),
-				)
+				log.InfoContext(startupCtx, "secure_session: using non-durable memory store; session evidence is lost on process restart",
+					slog.String("component", "secure_session"), slog.String("store", "memory"), slog.String("notice", "non_durable_store"))
 			}
 		}
 		mem := memory.New(memory.Options{})
-		wrappedStore := wrapSecureSessionStore(mem, in.ControlPlaneStoreWrap)
-		rec, err := app.NewRecorder(wrappedStore)
-		if err != nil {
-			return nil, fmt.Errorf("runtimebundle: secure_session: new recorder: %w", err)
-		}
-		mgr, err := app.NewManager(wrappedStore, gen, lin, app.ManagerConfig{
-			ResumeWindow:                   rw,
-			StoreDurable:                   false,
-			RequireDurableStore:            requireDurable,
-			FingerprintKey:                 fp,
-			ObserveActivityTouch:           touchCB,
-			ResumeFingerprintPrincipalOnly: ss.ResumeTokenBindPrincipalOnly,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("runtimebundle: secure_session: new manager: %w", err)
-		}
-		return &secureSessionRuntime{
-			manager:                    mgr,
-			appStore:                   mem,
-			recorder:                   rec,
-			recordingMandatory:         requireDurable,
-			closer:                     nil,
-			requireWorkspaceID:         ss.RequireWorkspaceID,
-			workspaceResolveFailClosed: failClosedWS,
-		}, nil
+		return assembleSecureSession(mem, mem, false, nil, common)
 	case "sqlite":
 		p := strings.TrimSpace(ss.SQLitePath)
 		if p == "" {
@@ -175,46 +140,18 @@ func buildSecureSessionRuntime(in secureSessionBuildInput) (*secureSessionRuntim
 		}
 		sqlOpts := sqlite.Options{}
 		if ttl, maxE, ok := config.EffectiveSecureSessionSQLQueryCache(*ss); ok {
-			sqlOpts.SQLQueryCacheTTL = ttl
-			sqlOpts.SQLQueryCacheMaxEntries = int(maxE)
+			sqlOpts.SQLQueryCacheTTL, sqlOpts.SQLQueryCacheMaxEntries = ttl, int(maxE)
 		}
 		db, err := sqlite.OpenContextWithOptions(startupCtx, p, sqlOpts)
 		if err != nil {
 			return nil, fmt.Errorf("runtimebundle: open secure session sqlite: %w", err)
 		}
-		wrappedStore := wrapSecureSessionStore(db, in.ControlPlaneStoreWrap)
-		rec, err := app.NewRecorder(wrappedStore)
+		closer := func() error { return db.Close() }
+		rt, err := assembleSecureSession(db, db, true, closer, common)
 		if err != nil {
-			recErr := fmt.Errorf("runtimebundle: secure_session: new recorder: %w", err)
-			if cerr := db.Close(); cerr != nil {
-				return nil, errors.Join(recErr, fmt.Errorf("runtimebundle: close sqlite after recorder error: %w", cerr))
-			}
-			return nil, recErr
+			return nil, ssCloseErr(closer, err, "sqlite")
 		}
-		mgr, err := app.NewManager(wrappedStore, gen, lin, app.ManagerConfig{
-			ResumeWindow:                   rw,
-			StoreDurable:                   true,
-			RequireDurableStore:            requireDurable,
-			FingerprintKey:                 fp,
-			ObserveActivityTouch:           touchCB,
-			ResumeFingerprintPrincipalOnly: ss.ResumeTokenBindPrincipalOnly,
-		})
-		if err != nil {
-			wrapped := fmt.Errorf("runtimebundle: secure_session: new manager: %w", err)
-			if cerr := db.Close(); cerr != nil {
-				return nil, errors.Join(wrapped, fmt.Errorf("runtimebundle: close sqlite after manager error: %w", cerr))
-			}
-			return nil, wrapped
-		}
-		return &secureSessionRuntime{
-			manager:                    mgr,
-			appStore:                   db,
-			recorder:                   rec,
-			recordingMandatory:         requireDurable,
-			closer:                     func() error { return db.Close() },
-			requireWorkspaceID:         ss.RequireWorkspaceID,
-			workspaceResolveFailClosed: failClosedWS,
-		}, nil
+		return rt, nil
 	case "postgres":
 		dsn := strings.TrimSpace(ss.PostgresDSN)
 		if dsn == "" {
@@ -224,67 +161,75 @@ func buildSecureSessionRuntime(in secureSessionBuildInput) (*secureSessionRuntim
 		if err != nil {
 			return nil, fmt.Errorf("runtimebundle: secure_session: %w", err)
 		}
-		pool := db.PoolSettings{
-			MaxOpenConns:    poolCfg.MaxOpenConns,
-			MaxIdleConns:    poolCfg.MaxIdleConns,
-			ConnMaxLifetime: poolCfg.ConnMaxLifetime,
-			ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
-		}
 		child, cancel := context.WithTimeout(startupCtx, db.DefaultPostgresOpenMigrateTimeout)
 		defer cancel()
-		bunDB, err := db.OpenPostgresBun(child, dsn, pool)
+		bunDB, err := db.OpenPostgresBun(child, dsn, db.PoolSettings{
+			MaxOpenConns: poolCfg.MaxOpenConns, MaxIdleConns: poolCfg.MaxIdleConns,
+			ConnMaxLifetime: poolCfg.ConnMaxLifetime, ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("runtimebundle: secure_session: open postgres store: %w", err)
 		}
 		bunOpts := bunstore.Options{}
 		if ttl, maxE, ok := config.EffectiveSecureSessionSQLQueryCache(*ss); ok {
-			bunOpts.SQLQueryCacheTTL = ttl
-			bunOpts.SQLQueryCacheMaxEntries = int(maxE)
+			bunOpts.SQLQueryCacheTTL, bunOpts.SQLQueryCacheMaxEntries = ttl, int(maxE)
 		}
 		st, err := bunstore.NewContextWithOptions(child, bunDB, bunOpts)
 		if err != nil {
-			schemaErr := fmt.Errorf("runtimebundle: secure_session: prepare postgres schema: %w", err)
-			if cerr := bunDB.Close(); cerr != nil {
-				return nil, errors.Join(schemaErr, fmt.Errorf("runtimebundle: close postgres bun db after schema error: %w", cerr))
-			}
-			return nil, schemaErr
+			return nil, ssCloseErr(func() error { return bunDB.Close() },
+				fmt.Errorf("runtimebundle: secure_session: prepare postgres schema: %w", err), "postgres bun db")
 		}
-		wrappedStore := wrapSecureSessionStore(st, in.ControlPlaneStoreWrap)
-		rec, err := app.NewRecorder(wrappedStore)
+		closer := func() error { return st.Close() }
+		rt, err := assembleSecureSession(st, st, true, closer, common)
 		if err != nil {
-			recErr := fmt.Errorf("runtimebundle: secure_session: new recorder: %w", err)
-			if cerr := st.Close(); cerr != nil {
-				return nil, errors.Join(recErr, fmt.Errorf("runtimebundle: close postgres store after recorder error: %w", cerr))
-			}
-			return nil, recErr
+			return nil, ssCloseErr(closer, err, "postgres store")
 		}
-		mgr, err := app.NewManager(wrappedStore, gen, lin, app.ManagerConfig{
-			ResumeWindow:                   rw,
-			StoreDurable:                   true,
-			RequireDurableStore:            requireDurable,
-			FingerprintKey:                 fp,
-			ObserveActivityTouch:           touchCB,
-			ResumeFingerprintPrincipalOnly: ss.ResumeTokenBindPrincipalOnly,
-		})
-		if err != nil {
-			mgrErr := fmt.Errorf("runtimebundle: secure_session: new manager: %w", err)
-			if cerr := st.Close(); cerr != nil {
-				return nil, errors.Join(mgrErr, fmt.Errorf("runtimebundle: close postgres store after manager error: %w", cerr))
-			}
-			return nil, mgrErr
-		}
-		return &secureSessionRuntime{
-			manager:                    mgr,
-			appStore:                   st,
-			recorder:                   rec,
-			recordingMandatory:         requireDurable,
-			closer:                     func() error { return st.Close() },
-			requireWorkspaceID:         ss.RequireWorkspaceID,
-			workspaceResolveFailClosed: failClosedWS,
-		}, nil
+		return rt, nil
 	default:
 		return nil, fmt.Errorf("runtimebundle: secure_session.store: want memory, sqlite, or postgres, got %q", ss.Store)
 	}
+}
+
+type ssAssembleInput struct {
+	wrap           func(app.Store) app.Store
+	gen            app.Generator
+	lin            app.LineageStore
+	fp             []byte
+	rw             time.Duration
+	requireDurable bool
+	touchCB        func(float64)
+	ss             *config.SecureSessionConfig
+	failClosedWS   bool
+}
+
+func assembleSecureSession(appStore, delegate app.Store, durable bool, closer func() error, in ssAssembleInput) (*secureSessionRuntime, error) {
+	wrapped := wrapSecureSessionStore(delegate, in.wrap)
+	rec, err := app.NewRecorder(wrapped)
+	if err != nil {
+		return nil, fmt.Errorf("runtimebundle: secure_session: new recorder: %w", err)
+	}
+	mgr, err := app.NewManager(wrapped, in.gen, in.lin, app.ManagerConfig{
+		ResumeWindow: in.rw, StoreDurable: durable, RequireDurableStore: in.requireDurable,
+		FingerprintKey: in.fp, ObserveActivityTouch: in.touchCB,
+		ResumeFingerprintPrincipalOnly: in.ss.ResumeTokenBindPrincipalOnly,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("runtimebundle: secure_session: new manager: %w", err)
+	}
+	return &secureSessionRuntime{
+		manager: mgr, appStore: appStore, recorder: rec, recordingMandatory: in.requireDurable,
+		closer: closer, requireWorkspaceID: in.ss.RequireWorkspaceID, workspaceResolveFailClosed: in.failClosedWS,
+	}, nil
+}
+
+func ssCloseErr(closer func() error, err error, phase string) error {
+	if closer == nil {
+		return err
+	}
+	if cerr := closer(); cerr != nil {
+		return errors.Join(err, fmt.Errorf("runtimebundle: close %s after error: %w", phase, cerr))
+	}
+	return err
 }
 
 func securityRuntimeFromSecureSession(ss *secureSessionRuntime) runtime.SecurityRuntime {
@@ -292,19 +237,12 @@ func securityRuntimeFromSecureSession(ss *secureSessionRuntime) runtime.Security
 		return runtime.SecurityRuntime{}
 	}
 	return runtime.SecurityRuntime{
-		SecureSession:                           ss.manager,
-		SecureSessionRecorder:                   ss.recorder,
-		SecureSessionRecordingMandatory:         ss.recordingMandatory,
-		SessionDenialMapper:                     lipapidenial.MapToSessionDenial,
-		SecureSessionRequireWorkspaceID:         ss.requireWorkspaceID,
-		SecureSessionWorkspaceResolveFailClosed: ss.workspaceResolveFailClosed,
+		SecureSession: ss.manager, SecureSessionRecorder: ss.recorder,
+		SecureSessionRecordingMandatory: ss.recordingMandatory, SessionDenialMapper: lipapidenial.MapToSessionDenial,
+		SecureSessionRequireWorkspaceID: ss.requireWorkspaceID, SecureSessionWorkspaceResolveFailClosed: ss.workspaceResolveFailClosed,
 	}
 }
 
-// wrapSecureSessionStore applies an optional control-plane decorator to the
-// chosen secure-session app.Store. When wrap is nil (control plane disabled or
-// unavailable), the delegate is returned unchanged so existing secure-session
-// behavior is preserved (task 5.1; requirement 8.1, 8.4).
 func wrapSecureSessionStore(delegate app.Store, wrap func(app.Store) app.Store) app.Store {
 	if wrap == nil {
 		return delegate

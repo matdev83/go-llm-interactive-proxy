@@ -62,24 +62,22 @@ Symlinked account files inside the managed-OAuth storage directory are skipped d
 | `mid_session_verbosity_bump_disabled` | Disable the periodic mid-session verbosity bump (default `false`; set `true` to opt out) |
 | `mid_session_verbosity_bump_frequency` | Force `high` on every Nth turn after the early window (default `10`; must be greater than `early_session_verbosity_bump_turns` when the mid-session bump is enabled) |
 
-Without `models`, the connector advertises the auto-discovered Codex model
-catalog. At startup in `access.mode: single_user` (the default), when an enabled
-and registered `openai-codex` or `openai-codex-app-server` backend is loaded,
-the proxy runs `codex debug models` and parses the routable model slugs (and
-per-model reasoning-effort settings); on any failure (or when
-`codex_model_catalog.enabled: false`) it falls back to a shipped embedded
-snapshot (`internal/core/codexcatalog/codex_model_catalog.json`). `multi_user`
-mode skips composition-root discovery, and local-only Codex connectors are
-rejected by backend security policy. No model slugs are hardcoded in the
-connector. See the top-level `codex_model_catalog` config section to disable
-discovery, override the fallback path, or pin the codex binary. The Codex
-app-server backend additionally advertises the `auto` routing sentinel (the
-app-server resolves the actual model server-side).
+Without `models`, the connector advertises the Codex model catalog owned by the
+external `connectors/codex` module (`connectors/codex/internal/catalog`). When
+`catalog_enabled` is true (default), the connector runs `codex debug models` and
+parses routable model slugs (and per-model reasoning-effort settings); on any
+failure (or when `catalog_enabled: false`) it falls back to a shipped embedded
+snapshot inside that connector module. Local-only Codex connectors are rejected
+by backend security policy in multi-user mode. No model slugs are hardcoded in
+core. Configure catalog paths and the codex binary under the connector instance
+`config:` block (`catalog_fallback_path`, `catalog_codex_binary_path` /
+`executable`). The Codex app-server backend additionally advertises the `auto`
+routing sentinel (the app-server resolves the actual model server-side).
 
 > Backward-incompatible: legacy Codex slugs the CLI no longer advertises (e.g.
 > `gpt-5.3-codex`, `gpt-5.1-codex`, `gpt-oss-120b`) are no longer in the
 > built-in inventory. To keep them, ship a custom fallback JSON (same `codex
-> debug models` format) and set `codex_model_catalog.fallback_path`.
+> debug models` format) and set `catalog_fallback_path` on the connector.
 
 ## Transport
 

@@ -12,22 +12,22 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 )
 
-// LoadBootstrapEffective loads the fixed startup path through the shared strict
-// effective-configuration pipeline used by BuildBootstrap, check-config, routes,
-// inventory, serve, and pkg/lipruntime.Build. It does not enable runtime reload.
+// bootstrapEffectiveLoader is the singular startup effective-load operation.
+// Callers pass it per invocation; there is no package-global loader hook.
+type bootstrapEffectiveLoader func(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error)
+
+// LoadBootstrapEffectiveWithSource is the sole canonical startup effective-load
+// owner (req: single config-load owner). It loads the fixed startup path
+// through the shared strict effective-configuration pipeline used by
+// BuildHost, ValidateDistribution, InspectRoutes/InspectInventory, and
+// pkg/lipruntime.Build, plus the active source identity and the resolved
+// CLI+environment stream-recovery override snapshot. The snapshot is captured
+// exactly once for process composition and must be reused for every future
+// effective reload (startup-fixed; no env reread).
 //
 // Order: stable source read → strict decode → defaults → fixed CLI/env
 // stream-recovery overrides → standard feature injection → core validation →
 // alias/prefix validation → private/public identity.
-func LoadBootstrapEffective(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (*config.EffectiveConfig, error) {
-	eff, _, _, err := LoadBootstrapEffectiveWithSource(ctx, path, cliOverrides)
-	return eff, err
-}
-
-// LoadBootstrapEffectiveWithSource is LoadBootstrapEffective plus the active
-// source identity and the resolved CLI+environment stream-recovery override
-// snapshot. The snapshot is captured exactly once for process composition and
-// must be reused for every future effective reload (startup-fixed; no env reread).
 func LoadBootstrapEffectiveWithSource(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
 	if ctx == nil {
 		return nil, nil, config.StreamRecoveryOverrides{}, fmt.Errorf("runtimebundle: nil context")

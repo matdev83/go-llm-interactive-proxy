@@ -18,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/localstubreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"gopkg.in/yaml.v3"
 )
@@ -28,6 +29,9 @@ func discoveredFactoryCatalog(t *testing.T) *pluginreg.Registry {
 	t.Helper()
 	reg := pluginreg.NewRegistry()
 	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := localstubreg.RegisterInProcess(reg); err != nil {
 		t.Fatal(err)
 	}
 	if err := reg.RegisterDiscoveredBackend("discovered-host-stub", func(n yaml.Node, _ *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
@@ -98,14 +102,18 @@ func TestReloadDiscovered_ActivateAlreadyDiscoveredKind(t *testing.T) {
 		t.Fatal(err)
 	}
 	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: cand, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: cand, Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("activate discovered: %v", err)
 	}
 	t.Cleanup(func() { _ = bundle.Close() })
-	if !containsID(bundle.BackendIDs(), "disc") {
-		t.Fatalf("want disc, got %v", bundle.BackendIDs())
+	gb, ok := bundle.(*runtimebundle.GenerationBundle)
+	if !ok {
+		t.Fatal("expected *runtimebundle.GenerationBundle")
+	}
+	if !containsID(gb.BackendIDs(), "disc") {
+		t.Fatalf("want disc, got %v", gb.BackendIDs())
 	}
 	if reg.RescanAttempts() != rescansBefore || reg.InstallAttempts() != installsBefore {
 		t.Fatalf("reload must not rescan/install: rescan %d→%d install %d→%d",
@@ -167,13 +175,13 @@ func TestReloadOverlap_OldAndNewInstanceHandles(t *testing.T) {
 	}
 
 	a, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: cfgA, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: cfgA, Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	b, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: cfgB, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: cfgB, Compose: stdhttp.ComposeStandardHTTP,
 		LiveFactoryKinds: map[string]int{"local-stub": 1},
 	})
 	if err != nil {
@@ -247,7 +255,7 @@ func TestReloadDiscovered_SharedProcessNoOverlap_RestartRequired(t *testing.T) {
 
 	// First activation while no live instance is allowed.
 	first, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: cand, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: cand, Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("first exclusive compile: %v", err)
@@ -258,7 +266,7 @@ func TestReloadDiscovered_SharedProcessNoOverlap_RestartRequired(t *testing.T) {
 	_, err = runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:          ps,
 		Candidate:        cand,
-		Compose:          stdhttp.ComposeRequestPlane,
+		Compose:          stdhttp.ComposeStandardHTTP,
 		LiveFactoryKinds: map[string]int{"shared-process-exclusive": 1},
 	})
 	if err == nil {

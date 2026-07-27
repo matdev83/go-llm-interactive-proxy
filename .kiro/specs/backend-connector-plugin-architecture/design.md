@@ -60,7 +60,7 @@ The first-party migration uses independently versioned connector modules in the 
 ### Allowed Dependencies
 
 - Existing `pkg/lipapi`, `pkg/lipsdk`, `internal/pluginreg`, `internal/core/execbackend`, model inventory, and runtimebundle seams.
-- HashiCorp `go-plugin` in gRPC mode as process infrastructure, pinned and revalidated during implementation.
+- HashiCorp `go-plugin` v1.8.x in gRPC mode only as conditional process plumbing: Task 1.1 must prove a customization layer can satisfy exact-byte launch, expected-peer authentication, secure bootstrap, cleanup, and bounds; otherwise the project-owned host is selected.
 - Protobuf and gRPC for the local ABI.
 - Standard cryptographic hashing, file-system, process, context, and path APIs.
 - Existing structured logging, diagnostics, and lifecycle infrastructure.
@@ -93,18 +93,18 @@ The first-party migration uses independently versioned connector modules in the 
 
 | Requirement | Summary | Components | Interfaces | Flows |
 |---|---|---|---|---|
-| 1.1-1.7 | Dependency and ownership boundaries | Built-in bundle, external modules, architecture gates | Internal backend port, module policy | Root build and composition |
-| 2.1-2.8 | Versioned public contract | Authoring SDK, protobuf API, conformance kit | Describe, Configure, Resolve, Execute, Close | Negotiation and invocation |
-| 3.1-3.8 | Trusted discovery and registration | Manifest loader, validator, catalog, registry bridge | Manifest v1, discovered export | Discovery and factory install |
+| 1.1-1.8 | Dependency and ownership boundaries | Built-in bundle, external modules, architecture gates | Internal backend port, module policy | Root build and composition |
+| 2.1-2.10 | Versioned public contract | Authoring SDK, protobuf API, conformance kit | Describe, Configure, Resolve, Execute, Close | Negotiation and invocation |
+| 3.1-3.10 | Trusted discovery and registration | Manifest loader, validator, catalog, registry bridge | Manifest v1, discovered export | Discovery and factory install |
 | 4.1-4.8 | Lazy activation | Process supervisor, plugin client cache | Acquire, configure, release | First-use activation |
-| 5.1-5.8 | Host integration and lifecycle | Backend adapter, supervisor, runtimebundle ownership | Internal backend adapter, host policy | Build, rollback, shutdown |
-| 6.1-6.8 | Streaming and failures | Execute stream adapter, commitment tracker | Bidirectional stream frames | Open, receive, cancel, terminal |
-| 7.1-7.10 | Security and secrets | Trust policy, launcher, redactor | Digest-bound executable, secure local transport, secret envelope | Validate and launch |
+| 5.1-5.9 | Host integration and lifecycle | Backend adapter, supervisor, runtimebundle ownership | Internal backend adapter, host policy | Build, rollback, shutdown |
+| 6.1-6.10 | Streaming and failures | Execute stream adapter, commitment tracker | Bidirectional stream frames | Open, receive, cancel, terminal |
+| 7.1-7.13 | Security and secrets | Trust policy, launcher, redactor | Digest-bound executable, secure local transport, secret envelope | Validate and launch |
 | 8.1-8.8 | Config compatibility | Config extension, inspect/doctor | Existing plugin rows, discovery config | Resolve configured kind |
 | 9.1-9.8 | Caps, inventory, accounting | Profile, inventory, counter, finalizer adapters | Resolve, ListModels, CountTokens, FinalizeBilling | Metadata and auxiliary calls |
 | 10.1-10.9 | Connector migration | Connector modules, ACP kit, Codex support | Existing factory kinds | Per-family parity cutover |
-| 11.1-11.10 | Modules and releases | Module layout, packaging, CI matrix | Manifest and release metadata | Build, install, upgrade, rollback |
-| 12.1-12.10 | Diagnostics and scale | Status registry, conformance, architecture tests | Safe status snapshots | Inspect, test, one-hundred-manifest proof |
+| 11.1-11.12 | Modules and releases | Module layout, packaging, CI matrix | Manifest and release metadata | Build, install, upgrade, rollback |
+| 12.1-12.11 | Diagnostics and scale | Status registry, conformance, architecture tests | Safe status snapshots | Inspect, test, one-hundred-manifest proof |
 
 ## Architecture
 
@@ -216,7 +216,7 @@ These packages remain outside `internal/core` and are imported only by the built
 
 ### Built-In Protocol-Compatible Modes
 
-Generic OpenAI Responses, OpenAI legacy, or Anthropic-compatible configuration may remain as aliases or modes of the corresponding built-in codec only when:
+The essential bundle retains the existing kinds `custom-openai-responses-compatible`, `custom-openai-legacy-compatible`, and `custom-anthropic-compatible` as explicitly named aliases or modes of the corresponding built-in codec only when:
 
 - no provider-specific SDK or runtime is added;
 - no provider-specific headers, attribution, model routing, inventory, billing, or error taxonomy is embedded;
@@ -244,8 +244,8 @@ All other current and future provider or local-agent implementations are externa
 | Layer | Choice | Role | Notes |
 |---|---|---|---|
 | Root runtime | Go 1.26.x | Core, composition, host adapter | Existing toolchain |
-| Process substrate | `github.com/hashicorp/go-plugin` v1.8.x candidate | Local plugin launch, negotiation, lifecycle | Exact API, security, and license revalidated in Task 1 |
-| Wire | gRPC plus protobuf over approved OS-secured local IPC | Versioned service and streaming | UDS or named pipe with peer binding; loopback only with ephemeral mutual TLS |
+| Process substrate | Customized `github.com/hashicorp/go-plugin` v1.8.x or project-owned host | Local plugin launch, negotiation, lifecycle | Stock v1.8.0 is insufficient; Task 1.1 selects the substrate without weakening security |
+| Wire | gRPC plus protobuf over approved OS-secured local IPC | Versioned service and streaming | UDS or named pipe with expected-process binding; loopback only with ephemeral mutual TLS; transport retries disabled |
 | Manifest | JSON v1 | Non-executing discovery metadata | Strict decoding; every unknown v1 field rejected; bounded file size |
 | Trust | SHA-256, trusted directories, and digest-bound launch | Artifact identity and exact executable-byte policy | Verified handle or private immutable staging; path rehash alone is insufficient |
 | Config | Existing YAML plus generic discovery subtree | Paths, strictness, development overrides | No provider-specific core fields |
@@ -374,6 +374,8 @@ The protocol DTO mirrors canonical semantics rather than Go struct layout. It co
 - safe invocation metadata required by backend execution;
 - bounded extension values only where already part of the canonical contract.
 
+The protobuf mapping uses explicit presence for every value whose canonical semantics distinguish omission from a zero or empty value. Proto3 scalars use `optional` or `oneof`; usage counters carry `UsagePresence` explicitly; repeated or map fields are not used where absent-versus-empty matters. Existing opaque `json.RawMessage` values cross as bounded raw JSON bytes with three distinguishable states: field absent, bytes containing `null`, and bytes containing an empty or non-empty JSON value. Unknown fields are retained where protobuf permits, but unknown enums, frame kinds, mandatory features, or operations fail closed unless minor-version negotiation explicitly made them optional. Whole-message deterministic bytes are not an identity or digest contract.
+
 Route plans, candidate lists, secure-session tokens, registry objects, database handles, raw auth headers, and mutable core state are excluded.
 
 ### Capability Profile
@@ -457,7 +459,7 @@ sequenceDiagram
     Adapter-->>Executor: Terminal or EOF
 ```
 
-The adapter tracks when an event becomes client-visible according to the same internal commitment semantics used for built-ins. A transport failure before commitment is classified for core retry policy. A transport failure after commitment terminates the current stream and is never replayed.
+The adapter marks output committed only after decoding a canonical event for which `lipapi.OutputCommitted` returns true. Transport headers, handshake completion, `accepted`, diagnostics, usage-only events, and other non-client-visible frames do not commit output. A transport failure before commitment is classified for core retry policy. A transport failure after commitment terminates the current stream and is never replayed. Automatic gRPC retries are disabled for execution and auxiliary operations; retry and failover remain explicit core decisions.
 
 ### Backpressure and Bounds
 
@@ -526,12 +528,17 @@ For each manifest the loader:
 9. checks protocol overlap;
 10. detects duplicate plugin IDs and factory-kind ownership.
 
-Discovery records the verified file identity and digest, but a pathname recheck is not sufficient for launch. The launcher must bind verification atomically to the exact executable bytes it starts through one of these approved strategies:
+Discovery records the verified file identity and digest, but a pathname recheck is not sufficient for launch. Executable-byte identity and transport peer identity are separate mandatory gates; neither a digest nor an authenticated process identity proves the other.
 
-- execute from an OS-supported verified open handle or equivalent identity-preserving primitive; or
-- copy bytes from the verified handle into a host-owned private digest-addressed staging directory using exclusive creation, restrictive permissions, and durable close, then verify and launch that staged identity while preventing substitution.
+The launcher binds verification atomically to the exact native executable bytes through the platform profile:
 
-The platform implementation must fail closed when it cannot preserve that binding. Tests retain launch-time substitution, symlink replacement, and upgrade/rollback cases; simply rehashing the original pathname immediately before `exec` does not satisfy the contract.
+- **Linux**: copy verified bytes into a sealed immutable anonymous or private file and execute that held identity with `execveat(..., AT_EMPTY_PATH)`, `fexecve`, or an equivalently proven descriptor-bound primitive.
+- **macOS**: copy verified bytes into a host-owned private digest-addressed staging directory using exclusive creation and restrictive ownership, re-verify from the staged file identity, prevent writes by the proxy/plugin principal, and launch only that protected identity.
+- **Windows**: copy verified bytes into a host-owned private digest-addressed staging directory with an explicit restrictive DACL, re-verify from the staged handle, deny mutation by the service/plugin principal, and pass only that protected path to `CreateProcess`.
+
+Manifest v1 accepts native executable artifacts only. Script, shell-command, and interpreter entrypoints are rejected because v1 does not attest the interpreter runtime as part of the launched-byte identity. A future protocol version may define an interpreter-attestation profile.
+
+The platform implementation fails closed when it cannot preserve the required binding. Tests retain launch-time substitution, symlink or junction replacement, and upgrade/rollback cases; simply rehashing the original pathname immediately before process creation does not satisfy the contract.
 
 ### Discovery States
 
@@ -610,7 +617,7 @@ The host does not expose operating-system PIDs or plugin-private handles to rout
 
 ### Construction and Rollback
 
-Backend construction returns both the internal backend value and idempotent resource ownership. The implementation may extend `execbackend.Backend` with an optional `Close func() error` or introduce a composition-only build result; the final choice must keep lifecycle generic and outside public ABI.
+Backend construction returns a composition-owned build result containing the internal backend value and an idempotent cleanup function. This preserves the existing runtimebundle closer chain and does not add process lifecycle to `execbackend.Backend`. Lifecycle remains generic and outside the public ABI and core-consumed port.
 
 `buildBackends` records closers immediately after each successful construction. If a later backend, inventory runtime, strict-accounting check, or runtime component fails:
 
@@ -652,12 +659,12 @@ Executable plugins are trusted code running with the proxy account's operating-s
 
 ### Approved Local Channel Profiles
 
-The host supports only local channel profiles with both confidentiality and peer binding:
+The host supports only local channel profiles with access-control confidentiality and expected-process binding. Unix-domain sockets and Windows named pipes are not cryptographically encrypted transports; their confidentiality comes from private endpoints, restrictive permissions or DACLs, local-only policy, and authenticated operating-system peer identity.
 
-- **Linux and other supported Unix-like systems**: an AF_UNIX socket inside a host-created private runtime directory, restrictive directory/socket permissions, no symlink traversal, and kernel peer-credential verification that the client identity matches the expected spawned process or approved same-UID policy.
-- **macOS**: an AF_UNIX socket with the same private-path controls and platform peer-credential verification such as `getpeereid` or an equivalent supported mechanism.
-- **Windows**: a local named pipe with a DACL restricted to the proxy service or user SID, remote-client rejection, and server-side verification that the connecting token/process belongs to the expected child or job boundary.
-- **Loopback TCP fallback**: permitted only when the selected process substrate establishes ephemeral mutual TLS bound to the process generation and validates both peers; plaintext loopback, server-only TLS, and cookie-only authentication are prohibited.
+- **Linux**: an AF_UNIX socket inside a host-created private runtime directory, restrictive directory/socket permissions, no symlink traversal, and `SO_PEERCRED` verification bound to the expected spawned process generation. Same-UID alone is insufficient.
+- **macOS**: an AF_UNIX socket with the same private-path controls and platform peer verification such as `getpeereid`, `LOCAL_PEERCRED`, `LOCAL_PEERPID`, or an equivalent supported mechanism, bound to the expected process generation.
+- **Windows**: a local named pipe with an explicit DACL restricted to the proxy service or user SID, remote-client rejection, server-side token verification, client PID verification, and membership in the expected child or job boundary.
+- **Loopback TCP fallback**: permitted only when the selected process substrate establishes ephemeral mutual TLS bound to the process generation and validates both peers. Private bootstrap key material must use an inherited private handle or equivalently protected one-shot OS channel, not the child environment. Plaintext loopback, server-only TLS, and cookie-only authentication are prohibited.
 
 If the selected `go-plugin` mode cannot implement one of these profiles on a supported platform, the implementation must use the narrow project-owned process host fallback or mark that plugin/platform unsupported. It must not deliver opaque configuration or credentials over a weaker channel.
 
@@ -707,7 +714,8 @@ plugins:
   backend_discovery:
     enabled: true
     paths:
-      - /opt/go-lip/plugins
+      # Optional operator override; packaging also supplies an OS default.
+      - /srv/company/go-lip/plugins
     strict: false
     development_mode: false
   backends: []
@@ -724,7 +732,15 @@ type BackendDiscoveryConfig struct {
 }
 ```
 
-Provider-specific fields do not enter core configuration. Installer-owned default directories are supplied by the standard distribution rather than inferred from arbitrary user locations.
+Provider-specific fields do not enter core configuration. The upstream standard distribution supplies these machine-scoped defaults:
+
+| Platform | Default plugin root | Ownership posture |
+|---|---|---|
+| Linux | `/opt/go-lip/plugins` | root/installer owned; proxy account read and execute only |
+| macOS | `/Library/Application Support/Go-LIP/plugins` | installer/admin owned; proxy account read and execute only |
+| Windows | `%ProgramFiles%\Go-LIP\plugins` | Administrators/installer modify; service or user SID read and execute only |
+
+Alternative packagers may inject a different installation-owned default such as `/usr/libexec/go-lip/plugins` or a protected `%ProgramData%` tree, but the runtime never guesses from mutable user locations. Development mode enables only explicit operator-configured `paths`; it does not add an implicit per-user directory.
 
 ## Registry and Composition Changes
 
@@ -770,6 +786,7 @@ api/
   backendplugin/v1/
     backend.proto
 pkg/lipsdk/backendplugin/
+  manifest/
   descriptor.go
   config.go
   invocation.go
@@ -834,7 +851,13 @@ ACP consists of two concerns:
 
 The first may move to a public or independently versioned `connector-support/acp` module. It may depend on `pkg/lipapi` or public backend-plugin DTOs, but not `internal/core`, registry, runtimebundle, or concrete products. The second lives in executable connector modules and exports existing factory kinds.
 
-If extracting a shared package would force unstable internal concepts into public API, duplicate a small product-specific adapter rather than leaking core types. Shared code is justified by stable protocol behavior, not by symmetry.
+Research identified three concrete extraction blockers that must be removed at this boundary:
+
+- replace `internal/core/leglifecycle` cancellation inputs and results with public plugin cancellation DTOs and product-local adaptation;
+- require caller-owned HTTP transport/runtime policy instead of defaulting through `internal/infra/httpclient`;
+- make executable lookup caches instance-owned rather than retaining the package-global `lookPathCache`.
+
+If extracting a shared package would force other unstable internal concepts into public API, duplicate a small product-specific adapter rather than leaking core types. Shared code is justified by stable protocol behavior, not by symmetry.
 
 ## OpenAI-Compatible Separation
 

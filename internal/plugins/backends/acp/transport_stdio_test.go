@@ -85,7 +85,7 @@ func (p *fakeProcess) closeStdout() {
 // readStdin reads one line from the fake process stdin (simulating what the agent received).
 func (p *fakeProcess) readStdin() (string, error) {
 	scanner := bufio.NewScanner(p.stdinR)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxStdioLineBytes)
 	if !scanner.Scan() {
 		if err := scanner.Err(); err != nil {
 			return "", err
@@ -416,6 +416,131 @@ func TestNewClientFromTransport_UsesProvidedTransport(t *testing.T) {
 		t.Fatal("client transport mismatch")
 	}
 	_ = tr.Close()
+}
+
+func TestAppendNewline_Boundary(t *testing.T) {
+	t.Parallel()
+	okBody := make([]byte, maxStdioLineBytes-1)
+	got, err := appendNewline(okBody)
+	if err != nil {
+		t.Fatalf("appendNewline largest accepted: %v", err)
+	}
+	if len(got) != maxStdioLineBytes || got[len(got)-1] != '\n' {
+		t.Fatalf("appendNewline largest: len=%d last=%q", len(got), got[len(got)-1])
+	}
+
+	_, err = appendNewline(make([]byte, maxStdioLineBytes))
+	if err == nil {
+		t.Fatal("expected error for at-limit body")
+	}
+	_, err = appendNewline(make([]byte, maxStdioLineBytes+1))
+	if err == nil {
+		t.Fatal("expected error for over-limit body")
+	}
+}
+
+func TestStdioTransport_SendJSONRPC_RejectsOversizedNoWrite(t *testing.T) {
+	t.Parallel()
+	proc := newFakeProcess(t)
+	t.Cleanup(killFunc(proc))
+	tr := newStdioTransport(proc, slog.Default())
+
+	wrote := make(chan struct{})
+	go func() {
+		_, _ = proc.readStdin()
+		close(wrote)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := tr.SendJSONRPC(ctx, make([]byte, maxStdioLineBytes))
+	if err == nil {
+		t.Fatal("expected oversized SendJSONRPC error")
+	}
+	select {
+	case <-wrote:
+		t.Fatal("unexpected stdin write on oversized SendJSONRPC")
+	case <-time.After(50 * time.Millisecond):
+	}
+	_ = tr.Close()
+}
+
+func TestStdioTransport_CallUnary_RejectsOversizedNoPending(t *testing.T) {
+	t.Parallel()
+	proc := newFakeProcess(t)
+	t.Cleanup(killFunc(proc))
+	tr := newStdioTransport(proc, slog.Default())
+
+	wrote := make(chan struct{})
+	go func() {
+		_, _ = proc.readStdin()
+		close(wrote)
+	}()
+
+	body := oversizedJSONRPCBody(t, "42")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := tr.CallUnary(ctx, body, 200)
+	if err == nil {
+		t.Fatal("expected oversized CallUnary error")
+	}
+	tr.pendingMu.Lock()
+	pendingLen := len(tr.pending)
+	tr.pendingMu.Unlock()
+	if pendingLen != 0 {
+		t.Fatalf("pending leaked: %d entries", pendingLen)
+	}
+	select {
+	case <-wrote:
+		t.Fatal("unexpected stdin write on oversized CallUnary")
+	case <-time.After(50 * time.Millisecond):
+	}
+	_ = tr.Close()
+}
+
+func TestStdioTransport_CallPromptStream_RejectsOversizedNoPrompt(t *testing.T) {
+	t.Parallel()
+	proc := newFakeProcess(t)
+	t.Cleanup(killFunc(proc))
+	tr := newStdioTransport(proc, slog.Default())
+
+	wrote := make(chan struct{})
+	go func() {
+		_, _ = proc.readStdin()
+		close(wrote)
+	}()
+
+	body := oversizedJSONRPCBody(t, "7")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rc, err := tr.CallPromptStream(ctx, body)
+	if err == nil {
+		t.Fatal("expected oversized CallPromptStream error")
+	}
+	if rc != nil {
+		t.Fatal("expected nil reader on rejection")
+	}
+	tr.promptMu.Lock()
+	reader := tr.promptReader
+	promptID := tr.promptID
+	tr.promptMu.Unlock()
+	if reader != nil || promptID != "" {
+		t.Fatalf("prompt state leaked: reader=%v id=%q", reader != nil, promptID)
+	}
+	select {
+	case <-wrote:
+		t.Fatal("unexpected stdin write on oversized CallPromptStream")
+	case <-time.After(50 * time.Millisecond):
+	}
+	_ = tr.Close()
+}
+
+func oversizedJSONRPCBody(t *testing.T, id string) []byte {
+	t.Helper()
+	prefix := "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"method\":\"session/prompt\",\"params\":{\"p\":\""
+	suffix := "\"}}"
+	need := max(1, maxStdioLineBytes-len(prefix)-len(suffix)+1)
+	return []byte(prefix + strings.Repeat("a", need) + suffix)
 }
 
 // killFunc adapts Process.Kill for t.Cleanup which expects func().

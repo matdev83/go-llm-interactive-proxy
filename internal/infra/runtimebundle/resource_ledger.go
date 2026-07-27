@@ -6,62 +6,72 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 )
 
 // ClosePhase classifies when a generation-owned cleanup runs (design Resource Ledger).
 type ClosePhase uint8
 
 const (
-	// PhasePrepare cleanups run on rollback after fallible prepare work.
-	PhasePrepare ClosePhase = iota + 1
-	// PhaseActivate cleanups run on rollback after commit-safe activate work.
-	PhaseActivate
-	// PhaseQuiesce stops admission-independent generation workers after retirement.
-	PhaseQuiesce
-	// PhaseClose releases clients, backend handles, and idle transports after drain.
-	PhaseClose
+	PhasePrepare  ClosePhase = iota + 1 // rollback after fallible prepare work
+	PhaseActivate                       // rollback after commit-safe activate work
+	PhaseQuiesce                        // stop admission-independent workers after retirement
+	PhaseClose                          // release clients/backends/transports after drain
+)
+
+type ledgerLifeState uint8
+
+const (
+	ledgerLifeOpen ledgerLifeState = iota
+	ledgerLifeQuiesced
+	ledgerLifeClosed
+	ledgerLifeRolledBack
 )
 
 // ResourceLedger tracks candidate/generation-owned resources for reverse-order
-// rollback, quiesce, and close. It never owns ProcessServices.
+// rollback, quiesce, and close. Sole generation-resource phase owner; never owns ProcessServices.
 type ResourceLedger struct {
-	mu      sync.Mutex
-	entries []*ledgerEntry
-
-	rollbackOnce sync.Once
-	quiesceOnce  sync.Once
-	closeOnce    sync.Once
-	prepareOnce  sync.Once
-	activateOnce sync.Once
-
-	rollbackErr error
-	quiesceErr  error
-	closeErr    error
-	prepareErr  error
-	activateErr error
-
-	prepared atomic.Bool
-	closed   atomic.Bool
+	mu                                                         sync.Mutex
+	cond                                                       *sync.Cond
+	entries                                                    []*ledgerEntry
+	state                                                      ledgerLifeState
+	preparing, activating, quiescing, rollingBack, closing     bool
+	prepareDone, activateDone, quiesceDone                     bool
+	prepareErr, activateErr, quiesceErr, rollbackErr, closeErr error
+	sealed                                                     bool // late acquisitions cleaned immediately outside mu
+	prepared                                                   atomic.Bool
 }
 
 type ledgerEntry struct {
-	name  string
-	phase ClosePhase
-	start func(context.Context) error
-	stop  func(context.Context) error
-
-	stopOnce       sync.Once
-	stopErr        error
-	startAttempted atomic.Bool
-	started        atomic.Bool
+	name                                 string
+	phase                                ClosePhase
+	start, stop                          func(context.Context) error
+	mu                                   sync.Mutex
+	cond                                 *sync.Cond
+	cleaning, cleanedOK, terminalClaimed bool
+	cleanErr                             error
+	startAttempted, started              atomic.Bool
 }
 
-// NewResourceLedger returns an empty candidate-owned ledger.
 func NewResourceLedger() *ResourceLedger {
-	return &ResourceLedger{}
+	l := &ResourceLedger{}
+	l.cond = sync.NewCond(&l.mu)
+	return l
 }
 
-// Len returns the number of registered entries.
+func (l *ResourceLedger) ensureCond() {
+	if l.cond == nil {
+		l.cond = sync.NewCond(&l.mu)
+	}
+}
+
+func waitWhile(cond *sync.Cond, active *bool) {
+	for *active {
+		cond.Wait()
+	}
+}
+
 func (l *ResourceLedger) Len() int {
 	if l == nil {
 		return 0
@@ -71,7 +81,6 @@ func (l *ResourceLedger) Len() int {
 	return len(l.entries)
 }
 
-// Add registers a context-aware cleanup for phase (design ResourceLedger.Add).
 func (l *ResourceLedger) Add(name string, phase ClosePhase, closeFn func(context.Context) error) {
 	if l == nil || closeFn == nil {
 		return
@@ -79,119 +88,198 @@ func (l *ResourceLedger) Add(name string, phase ClosePhase, closeFn func(context
 	l.AddAction(name, phase, nil, closeFn)
 }
 
-// AddClose registers a no-arg closer and returns an idempotent sync.Once wrapper
-// suitable for legacy []func() error bags (keeps ownership append sites valid).
-func (l *ResourceLedger) AddClose(name string, phase ClosePhase, closeFn func() error) func() error {
+// AddClose registers a no-arg closer; cleanup runs only via Rollback/Quiesce/Close.
+func (l *ResourceLedger) AddClose(name string, phase ClosePhase, closeFn func() error) {
 	if l == nil || closeFn == nil {
-		return nil
-	}
-	entry := l.addEntry(name, phase, nil, func(context.Context) error { return closeFn() })
-	return entry.syncStop
-}
-
-// AddAction registers optional start/stop hooks for a lifecycle phase.
-func (l *ResourceLedger) AddAction(name string, phase ClosePhase, start, stop func(context.Context) error) {
-	if l == nil {
 		return
 	}
-	if start == nil && stop == nil {
+	l.addEntry(name, phase, nil, func(context.Context) error { return closeFn() })
+}
+
+func (l *ResourceLedger) AddAction(name string, phase ClosePhase, start, stop func(context.Context) error) {
+	if l == nil || (start == nil && stop == nil) {
 		return
 	}
 	l.addEntry(name, phase, start, stop)
 }
 
 func (l *ResourceLedger) addEntry(name string, phase ClosePhase, start, stop func(context.Context) error) *ledgerEntry {
-	l.mu.Lock()
 	e := &ledgerEntry{name: name, phase: phase, start: start, stop: stop}
-	if !l.closed.Load() {
+	e.cond = sync.NewCond(&e.mu)
+	l.mu.Lock()
+	l.ensureCond()
+	immediate := l.sealed || ((l.quiesceDone || l.quiescing || l.state == ledgerLifeQuiesced ||
+		l.state == ledgerLifeClosed || l.state == ledgerLifeRolledBack) && phase == PhaseQuiesce)
+	if !immediate {
 		l.entries = append(l.entries, e)
 		l.mu.Unlock()
 		return e
 	}
 	l.mu.Unlock()
-
-	// Accept-or-immediately-close: an acquired close-only resource racing
-	// rollback/close must either join the ledger or run cleanup exactly once.
-	// Run user cleanup outside l.mu so a closer may safely inspect the ledger.
-	// A start-backed action registered after closure was never entered and must
-	// not receive Stop.
-	if stop != nil && start == nil {
-		e.stopOnce.Do(func() {
-			e.stopErr = stop(context.Background())
-		})
+	if stop != nil && start == nil { // accept-or-immediately-close for close-only races
+		_ = e.claimAndStop(context.Background(), true)
 	}
 	return e
 }
 
-func (e *ledgerEntry) syncStop() error {
+// claimAndStop runs stop at most once on success. terminal=true permanently claims
+// the entry even on failure; terminal=false leaves failed entries retryable on Close.
+func (e *ledgerEntry) claimAndStop(ctx context.Context, terminal bool) error {
 	if e == nil {
 		return nil
 	}
-	e.stopOnce.Do(func() {
-		if e.stop == nil {
-			return
-		}
-		e.stopErr = e.stop(context.Background())
-	})
-	return e.stopErr
-}
-
-func (e *ledgerEntry) stopCtx(ctx context.Context) error {
-	if e == nil {
+	e.mu.Lock()
+	if e.cond == nil {
+		e.cond = sync.NewCond(&e.mu)
+	}
+	for e.cleaning {
+		e.cond.Wait()
+	}
+	if e.cleanedOK {
+		e.mu.Unlock()
 		return nil
 	}
-	e.stopOnce.Do(func() {
-		if e.stop == nil {
-			return
-		}
-		if ctx == nil {
-			ctx = context.Background()
-		}
-		e.stopErr = e.stop(ctx)
-	})
-	return e.stopErr
-}
-
-// Prepare runs PhasePrepare start hooks in acquisition order. Failure does not
-// auto-rollback; callers must Rollback.
-func (l *ResourceLedger) Prepare(ctx context.Context) error {
-	if l == nil {
-		return nil
+	if e.terminalClaimed {
+		err := e.cleanErr
+		e.mu.Unlock()
+		return err
 	}
-	l.prepareOnce.Do(func() {
-		l.prepareErr = l.runStarts(ctx, PhasePrepare)
-		if l.prepareErr == nil {
-			l.prepared.Store(true)
-		}
-	})
-	return l.prepareErr
-}
-
-// Activate runs PhaseActivate start hooks. Activate is commit-safe and bounded;
-// errors fail preparation before publication.
-func (l *ResourceLedger) Activate(ctx context.Context) error {
-	if l == nil {
-		return nil
+	e.cleaning = true
+	e.mu.Unlock()
+	err := safeLedgerStop(ctx, e)
+	e.mu.Lock()
+	e.cleaning = false
+	if err == nil {
+		e.cleanedOK, e.cleanErr = true, nil
+	} else if terminal {
+		e.terminalClaimed, e.cleanErr = true, err
+	} else {
+		e.cleanErr = err
 	}
-	l.activateOnce.Do(func() {
-		l.activateErr = l.runStarts(ctx, PhaseActivate)
-	})
-	return l.activateErr
+	e.cond.Broadcast()
+	e.mu.Unlock()
+	return err
 }
 
-func (l *ResourceLedger) runStarts(ctx context.Context, phase ClosePhase) error {
+func (l *ResourceLedger) copyEntries() []*ledgerEntry {
 	l.mu.Lock()
 	entries := append([]*ledgerEntry(nil), l.entries...)
 	l.mu.Unlock()
-	if ctx == nil {
-		ctx = context.Background()
+	return entries
+}
+
+func (l *ResourceLedger) waitPhaseLocked(waitQuiescing, waitClosing bool) {
+	for {
+		busy := l.preparing || l.activating || l.rollingBack
+		if waitQuiescing {
+			busy = busy || l.quiescing
+		}
+		if waitClosing {
+			busy = busy || l.closing
+		}
+		if !busy {
+			return
+		}
+		l.cond.Wait()
 	}
-	for _, e := range entries {
+}
+
+func (l *ResourceLedger) lifeErr(st ledgerLifeState) error {
+	switch st {
+	case ledgerLifeClosed:
+		return l.closeErr
+	case ledgerLifeRolledBack:
+		return l.rollbackErr
+	case ledgerLifeQuiesced:
+		return l.quiesceErr
+	default:
+		return nil
+	}
+}
+
+func (l *ResourceLedger) cachedLifeErrLocked(states ...ledgerLifeState) (bool, error) {
+	for _, st := range states {
+		if l.state == st {
+			return true, l.lifeErr(st)
+		}
+	}
+	return false, nil
+}
+
+func (l *ResourceLedger) resolveInFlightErr(base error) error {
+	if l.state == ledgerLifeClosed || l.state == ledgerLifeRolledBack {
+		return l.lifeErr(l.state)
+	}
+	return base
+}
+
+func (l *ResourceLedger) execStartPhase(ctx context.Context, phase ClosePhase, done *bool, phaseErr *error, busy *bool, markPrepared bool) error {
+	if l == nil {
+		return nil
+	}
+	l.mu.Lock()
+	l.ensureCond()
+	l.waitPhaseLocked(true, true)
+	if *done {
+		err := *phaseErr
+		l.mu.Unlock()
+		return err
+	}
+	if blocked, err := l.startBlockedLocked(); blocked {
+		l.mu.Unlock()
+		return err
+	}
+	*busy = true
+	l.mu.Unlock()
+	err := l.runStarts(ctx, phase)
+	l.mu.Lock()
+	*done, *phaseErr = true, err
+	if err == nil && markPrepared {
+		l.prepared.Store(true)
+	}
+	*busy = false
+	l.cond.Broadcast()
+	l.mu.Unlock()
+	return err
+}
+
+// Prepare runs PhasePrepare start hooks in acquisition order (req). Failure does not auto-rollback.
+func (l *ResourceLedger) Prepare(ctx context.Context) error {
+	return l.execStartPhase(ctx, PhasePrepare, &l.prepareDone, &l.prepareErr, &l.preparing, true)
+}
+
+// Activate runs PhaseActivate start hooks; commit-safe and bounded (req).
+func (l *ResourceLedger) Activate(ctx context.Context) error {
+	return l.execStartPhase(ctx, PhaseActivate, &l.activateDone, &l.activateErr, &l.activating, false)
+}
+
+func (l *ResourceLedger) startBlockedLocked() (bool, error) {
+	switch l.state {
+	case ledgerLifeClosed:
+		return true, l.closeErr
+	case ledgerLifeRolledBack:
+		return true, l.rollbackErr
+	case ledgerLifeQuiesced:
+		return true, l.quiesceErr
+	}
+	if l.quiesceDone {
+		return true, l.quiesceErr
+	}
+	if l.sealed {
+		if l.closeErr != nil {
+			return true, l.closeErr
+		}
+		return true, l.rollbackErr
+	}
+	return false, nil
+}
+
+func (l *ResourceLedger) runStarts(ctx context.Context, phase ClosePhase) error {
+	ctx = ctxOrBackground(ctx)
+	for _, e := range l.copyEntries() {
 		if e.phase != phase || e.start == nil {
 			continue
 		}
-		// Mark attempted before invoking start so partial/failed starts still
-		// receive conservative Stop on rollback; later never-attempted entries skip.
 		e.startAttempted.Store(true)
 		if err := e.start(ctx); err != nil {
 			return fmt.Errorf("runtimebundle: ledger prepare %q: %w", e.name, err)
@@ -201,66 +289,114 @@ func (l *ResourceLedger) runStarts(ctx context.Context, phase ClosePhase) error 
 	return nil
 }
 
-// Rollback closes all registered entries in reverse acquisition order (req 3.4).
-func (l *ResourceLedger) Rollback(ctx context.Context) error {
+// beginStopPhase locks, waits, and returns cached/in-flight/done outcomes. Caller holds l.mu on proceed.
+func (l *ResourceLedger) beginStopPhase(waitQ, waitC bool, terminal []ledgerLifeState, inFlight *bool, baseErr *error, done func() (bool, error)) (proceed bool, err error) {
 	if l == nil {
-		return nil
+		return false, nil
 	}
-	l.rollbackOnce.Do(func() {
-		l.closed.Store(true)
-		l.rollbackErr = l.stopReverse(ctx, nil)
-	})
-	return l.rollbackErr
-}
-
-// Quiesce runs PhaseQuiesce cleanups once in reverse order (req 10.5).
-func (l *ResourceLedger) Quiesce(ctx context.Context) error {
-	if l == nil {
-		return nil
-	}
-	l.quiesceOnce.Do(func() {
-		l.quiesceErr = l.stopReverse(ctx, func(e *ledgerEntry) bool {
-			return e.phase == PhaseQuiesce
-		})
-	})
-	return l.quiesceErr
-}
-
-// Close runs remaining PhaseClose/Prepare/Activate cleanups once in reverse order
-// after drain (req 10.6). Quiesce entries are skipped if already quiesced.
-func (l *ResourceLedger) Close(ctx context.Context) error {
-	if l == nil {
-		return nil
-	}
-	l.closeOnce.Do(func() {
-		l.closed.Store(true)
-		l.closeErr = l.stopReverse(ctx, func(e *ledgerEntry) bool {
-			return e.phase != PhaseQuiesce
-		})
-	})
-	return l.closeErr
-}
-
-func (l *ResourceLedger) stopReverse(ctx context.Context, match func(*ledgerEntry) bool) error {
 	l.mu.Lock()
-	entries := append([]*ledgerEntry(nil), l.entries...)
-	l.mu.Unlock()
-	if ctx == nil {
-		ctx = context.Background()
+	l.ensureCond()
+	l.waitPhaseLocked(waitQ, waitC)
+	if ok, e := l.cachedLifeErrLocked(terminal...); ok {
+		l.mu.Unlock()
+		return false, e
 	}
+	if inFlight != nil && *inFlight {
+		waitWhile(l.cond, inFlight)
+		err = l.resolveInFlightErr(*baseErr)
+		l.mu.Unlock()
+		return false, err
+	}
+	if done != nil {
+		if ok, e := done(); ok {
+			l.mu.Unlock()
+			return false, e
+		}
+	}
+	return true, nil
+}
+
+// Rollback closes all entries in reverse order; caches terminal result (req 3.4).
+func (l *ResourceLedger) Rollback(ctx context.Context) error {
+	proceed, err := l.beginStopPhase(true, true, []ledgerLifeState{ledgerLifeRolledBack, ledgerLifeClosed}, nil, nil, nil)
+	if !proceed {
+		return err
+	}
+	l.rollingBack, l.sealed = true, true
+	l.mu.Unlock()
+	err = l.stopReverse(ctx, nil, true)
+	l.mu.Lock()
+	l.rollbackErr, l.state, l.quiesceDone = err, ledgerLifeRolledBack, true
+	l.rollingBack = false
+	l.cond.Broadcast()
+	l.mu.Unlock()
+	return err
+}
+
+// Quiesce runs PhaseQuiesce cleanups at most once in reverse order (req 10.5).
+func (l *ResourceLedger) Quiesce(ctx context.Context) error {
+	proceed, err := l.beginStopPhase(false, true, []ledgerLifeState{ledgerLifeClosed, ledgerLifeRolledBack}, &l.quiescing, &l.quiesceErr,
+		func() (bool, error) {
+			if l.quiesceDone || l.state == ledgerLifeQuiesced {
+				return true, l.quiesceErr
+			}
+			return false, nil
+		})
+	if !proceed {
+		return err
+	}
+	l.quiescing = true
+	l.mu.Unlock()
+	err = l.stopReverse(ctx, func(e *ledgerEntry) bool { return e.phase == PhaseQuiesce }, true)
+	l.mu.Lock()
+	l.quiesceErr, l.quiesceDone = err, true
+	if l.state == ledgerLifeOpen {
+		l.state = ledgerLifeQuiesced
+	}
+	l.quiescing = false
+	l.cond.Broadcast()
+	l.mu.Unlock()
+	return err
+}
+
+// Close runs generation cleanup; retryable on failure. After Quiesce skips PhaseQuiesce.
+func (l *ResourceLedger) Close(ctx context.Context) error {
+	proceed, err := l.beginStopPhase(true, false, []ledgerLifeState{ledgerLifeClosed, ledgerLifeRolledBack}, &l.closing, &l.closeErr, nil)
+	if !proceed {
+		return err
+	}
+	wasQuiesced := l.state == ledgerLifeQuiesced || l.quiesceDone
+	l.closing, l.sealed = true, true
+	l.mu.Unlock()
+	if wasQuiesced {
+		err = l.stopReverse(ctx, func(e *ledgerEntry) bool { return e.phase != PhaseQuiesce }, false)
+	} else {
+		err = l.stopReverse(ctx, nil, false)
+	}
+	l.mu.Lock()
+	l.closeErr = err
+	if err == nil {
+		l.state, l.quiesceDone = ledgerLifeClosed, true
+	}
+	l.closing = false
+	l.cond.Broadcast()
+	l.mu.Unlock()
+	return err
+}
+
+func (l *ResourceLedger) stopReverse(ctx context.Context, match func(*ledgerEntry) bool, terminal bool) error {
+	ctx = ctxOrBackground(ctx)
+	entries := l.copyEntries()
 	var out error
 	for i := len(entries) - 1; i >= 0; i-- {
 		e := entries[i]
 		if match != nil && !match(e) {
 			continue
 		}
-		// Start-backed entries that were never attempted must not receive Stop.
-		// Close-only acquired resources (no start) always close. Attempted starts
-		// (success or partial failure) get conservative Stop cleanup.
 		if e.start != nil && !e.startAttempted.Load() {
 			continue
 		}
-		if err := safeLedgerStop(ctx, e); err != nil {
+		if err := e.claimAndStop(ctx, terminal); err != nil {
 			out = errors.Join(out, fmt.Errorf("runtimebundle: ledger close %q: %w", e.name, err))
 		}
 	}
@@ -270,24 +406,12 @@ func (l *ResourceLedger) stopReverse(ctx context.Context, match func(*ledgerEntr
 func safeLedgerStop(ctx context.Context, e *ledgerEntry) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("runtimebundle: ledger close panic: %v", recovered)
+			err = fmt.Errorf("runtimebundle: ledger close panic: %s", configreload.SanitizePanicValue(recovered))
 		}
 	}()
-	return e.stopCtx(ctx)
-}
-
-// LegacyClosers returns once-wrapped no-arg closers in acquisition order for
-// Built.Closers compatibility. Prefer Rollback/Quiesce/Close on the ledger.
-func (l *ResourceLedger) LegacyClosers() []func() error {
-	if l == nil {
+	if e == nil || e.stop == nil {
 		return nil
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	out := make([]func() error, 0, len(l.entries))
-	for _, e := range l.entries {
-		entry := e
-		out = append(out, entry.syncStop)
-	}
-	return out
+	ctx = ctxOrBackground(ctx)
+	return e.stop(ctx)
 }

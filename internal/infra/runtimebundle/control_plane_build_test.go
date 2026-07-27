@@ -1,14 +1,11 @@
 package runtimebundle_test
 
 import (
-	"slices"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
 func controlPlaneBuildConfig() *config.Config {
@@ -21,23 +18,14 @@ func controlPlaneBuildConfig() *config.Config {
 	}
 }
 
-func buildControlPlaneBundle(t *testing.T, cfg *config.Config) *runtimebundle.Built {
+func buildControlPlaneBundle(t *testing.T, cfg *config.Config) *runtimebundle.CandidateHTTPCompile {
 	t.Helper()
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
-	})
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	// Dispose every Build-owned resource in reverse registration order so a
+	}) // Dispose every Build-owned resource in reverse registration order so a
 	// t.Fatalf in any caller still releases handles (e.g. sqlite file locks
 	// that would block t.TempDir cleanup on Windows). Matches disposeClosers
 	// in build.go.
-	t.Cleanup(func() {
-		for _, v := range slices.Backward(built.Closers) {
-			_ = v()
-		}
-	})
 	return built
 }
 
@@ -46,13 +34,13 @@ func TestBuild_ControlPlaneDisabled_DefaultNoHandles(t *testing.T) {
 	cfg := controlPlaneBuildConfig()
 	cfg.ControlPlane.Enabled = false
 	built := buildControlPlaneBundle(t, cfg)
-	if built.ControlPlaneQueries != nil {
+	if runtimebundle.CandidateControlPlaneQueries(built) != nil {
 		t.Fatalf("disabled: expected nil ControlPlaneQueries")
 	}
-	if built.ControlPlaneStatus != nil {
+	if runtimebundle.CandidateControlPlaneStatus(built) != nil {
 		t.Fatalf("disabled: expected nil ControlPlaneStatus")
 	}
-	if built.ControlPlaneRetention != nil {
+	if runtimebundle.CandidateControlPlaneRetention(built) != nil {
 		t.Fatalf("disabled: expected nil ControlPlaneRetention")
 	}
 }
@@ -64,10 +52,10 @@ func TestBuild_ControlPlaneMemory_WiresStatusNotQueries(t *testing.T) {
 	cfg.ControlPlane.Store = "memory"
 	cfg.ControlPlane.RecordingPolicy = "best_effort"
 	built := buildControlPlaneBundle(t, cfg)
-	if built.ControlPlaneStatus == nil {
+	if runtimebundle.CandidateControlPlaneStatus(built) == nil {
 		t.Fatalf("memory: expected ControlPlaneStatus")
 	}
-	if built.ControlPlaneQueries != nil {
+	if runtimebundle.CandidateControlPlaneQueries(built) != nil {
 		t.Fatalf("memory: query disabled, expected nil ControlPlaneQueries")
 	}
 }
@@ -81,10 +69,10 @@ func TestBuild_ControlPlaneQueryEnabled_WiresQueries(t *testing.T) {
 	cfg.ControlPlane.Query.PathPrefix = "/cp"
 	cfg.Diagnostics.SharedSecret = "test-secret-1234"
 	built := buildControlPlaneBundle(t, cfg)
-	if built.ControlPlaneQueries == nil {
+	if runtimebundle.CandidateControlPlaneQueries(built) == nil {
 		t.Fatalf("query: expected ControlPlaneQueries")
 	}
-	if built.ControlPlaneStatus == nil {
+	if runtimebundle.CandidateControlPlaneStatus(built) == nil {
 		t.Fatalf("query: expected ControlPlaneStatus")
 	}
 }
@@ -96,7 +84,7 @@ func TestBuild_ControlPlaneSqlite_WiresStatusAndCloser(t *testing.T) {
 	cfg.ControlPlane.Store = "sqlite"
 	cfg.ControlPlane.SQLitePath = t.TempDir() + "/cp.sqlite"
 	built := buildControlPlaneBundle(t, cfg)
-	if built.ControlPlaneStatus == nil {
+	if runtimebundle.CandidateControlPlaneStatus(built) == nil {
 		t.Fatalf("sqlite: expected ControlPlaneStatus")
 	}
 	// closers disposed via buildControlPlaneBundle t.Cleanup

@@ -32,6 +32,18 @@ func TestGenerationProvider_TwoGenerationLocalSameID(t *testing.T) {
 		t.Fatal(err)
 	}
 	oldID := oldGen.ID()
+	// Pin oldGen so Manager's automatic post-publish retirement (task 7.3)
+	// cannot quiesce/close/sweep it before GenerationByIdentity resolves it
+	// below (GenerationByIdentity excludes GenClosed generations).
+	oldLease, ok := mgr.Acquire()
+	if !ok {
+		t.Fatal("acquire old generation")
+	}
+	oldPin, ok := oldLease.TransferPin(runtimehost.PinProvider)
+	if !ok {
+		t.Fatal("pin old generation")
+	}
+	t.Cleanup(oldPin.Release)
 	newGen := mgr.PrepareRequestPlane("new", newPlane)
 	if err := mgr.Publish(newGen); err != nil {
 		t.Fatal(err)

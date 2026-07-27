@@ -28,9 +28,9 @@ func TestResourceLedger_RollbackReverseOrderIdempotent(t *testing.T) {
 		}
 	}
 
-	_ = ledger.AddClose("a", runtimebundle.PhaseClose, wrap("a"))
-	_ = ledger.AddClose("b", runtimebundle.PhaseClose, wrap("b"))
-	_ = ledger.AddClose("c", runtimebundle.PhaseQuiesce, wrap("c"))
+	ledger.AddClose("a", runtimebundle.PhaseClose, wrap("a"))
+	ledger.AddClose("b", runtimebundle.PhaseClose, wrap("b"))
+	ledger.AddClose("c", runtimebundle.PhaseQuiesce, wrap("c"))
 
 	if err := ledger.Rollback(context.Background()); err != nil {
 		t.Fatal(err)
@@ -58,8 +58,8 @@ func TestResourceLedger_RollbackAggregatesErrors(t *testing.T) {
 	ledger := runtimebundle.NewResourceLedger()
 	errA := errors.New("close-a")
 	errB := errors.New("close-b")
-	_ = ledger.AddClose("a", runtimebundle.PhaseClose, func() error { return errA })
-	_ = ledger.AddClose("b", runtimebundle.PhaseClose, func() error { return errB })
+	ledger.AddClose("a", runtimebundle.PhaseClose, func() error { return errA })
+	ledger.AddClose("b", runtimebundle.PhaseClose, func() error { return errB })
 	err := ledger.Rollback(context.Background())
 	if err == nil {
 		t.Fatal("expected aggregated error")
@@ -82,8 +82,8 @@ func TestResourceLedger_QuiesceThenClosePhases(t *testing.T) {
 			return nil
 		}
 	}
-	_ = ledger.AddClose("worker", runtimebundle.PhaseQuiesce, track("quiesce"))
-	_ = ledger.AddClose("backend", runtimebundle.PhaseClose, track("close"))
+	ledger.AddClose("worker", runtimebundle.PhaseQuiesce, track("quiesce"))
+	ledger.AddClose("backend", runtimebundle.PhaseClose, track("close"))
 
 	if err := ledger.Quiesce(context.Background()); err != nil {
 		t.Fatal(err)
@@ -142,7 +142,7 @@ func TestResourceLedger_PrepareActivateFaultInjection(t *testing.T) {
 	// Inject prepare failure on a second ledger: acquired close must run.
 	bad := runtimebundle.NewResourceLedger()
 	var rolled atomic.Int32
-	_ = bad.AddClose("res", runtimebundle.PhaseClose, func() error {
+	bad.AddClose("res", runtimebundle.PhaseClose, func() error {
 		rolled.Add(1)
 		return nil
 	})
@@ -177,7 +177,7 @@ func TestResourceLedger_RollbackSkipsUnstartedLifecycleEntries(t *testing.T) {
 		}
 	}
 
-	_ = ledger.AddClose("res", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("res", runtimebundle.PhaseClose, func() error {
 		stops.Add(1)
 		mu.Lock()
 		order = append(order, "res")
@@ -241,7 +241,7 @@ func TestResourceLedger_NeverOwnsProcessServices(t *testing.T) {
 		return nil
 	}
 	_ = processCloser // process closers stay on ProcessServices, not the ledger
-	_ = ledger.AddClose("candidate-only", runtimebundle.PhaseClose, func() error { return nil })
+	ledger.AddClose("candidate-only", runtimebundle.PhaseClose, func() error { return nil })
 	if err := ledger.Rollback(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -258,18 +258,12 @@ func TestResourceLedger_AddCloseAfterRollbackRunsImmediatelyOnce(t *testing.T) {
 	if err := ledger.Rollback(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	fn := ledger.AddClose("late", runtimebundle.PhaseClose, func() error {
+	ledger.AddClose("late", runtimebundle.PhaseClose, func() error {
 		closed.Add(1)
 		return lateErr
 	})
 	if closed.Load() != 1 {
 		t.Fatalf("late AddClose must run immediately, closed=%d", closed.Load())
-	}
-	if err := fn(); !errors.Is(err, lateErr) {
-		t.Fatalf("syncStop must report late error: %v", err)
-	}
-	if err := fn(); !errors.Is(err, lateErr) {
-		t.Fatalf("repeated syncStop: %v", err)
 	}
 	if closed.Load() != 1 {
 		t.Fatalf("idempotent late close: closed=%d", closed.Load())
@@ -282,10 +276,7 @@ func TestResourceLedger_AddCloseAfterRollbackRunsImmediatelyOnce(t *testing.T) {
 func TestResourceLedger_AddCloseNilIsNoop(t *testing.T) {
 	t.Parallel()
 	ledger := runtimebundle.NewResourceLedger()
-	fn := ledger.AddClose("nil", runtimebundle.PhaseClose, nil)
-	if fn != nil {
-		t.Fatal("nil close must not register")
-	}
+	ledger.AddClose("nil", runtimebundle.PhaseClose, nil)
 	if ledger.Len() != 0 {
 		t.Fatalf("len=%d", ledger.Len())
 	}
