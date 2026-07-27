@@ -64,6 +64,10 @@ var legacyKnownBodyKeys = map[string]bool{
 var (
 	errEmptyAssistantMessage = errors.New("empty assistant message")
 	errEmptyChatContent      = errors.New("message content string is empty")
+	// errSkipMalformedHistory marks replayed garbage that clients sometimes
+	// persist (empty-name tool_calls / empty tool_call_id results). Drop these
+	// instead of failing the whole request so agent harness sessions continue.
+	errSkipMalformedHistory = errors.New("skip malformed history fragment")
 )
 
 // DecodeChatRequest maps a Chat Completions JSON body into a canonical call.
@@ -165,7 +169,7 @@ func parseMessages(raw []json.RawMessage) ([]lipapi.Message, error) {
 	for i, it := range raw {
 		m, err := parseMessage(it)
 		if err != nil {
-			if errors.Is(err, errEmptyAssistantMessage) {
+			if errors.Is(err, errEmptyAssistantMessage) || errors.Is(err, errSkipMalformedHistory) {
 				continue
 			}
 			return nil, fmt.Errorf("openailegacy: messages[%d]: %w", i, err)
@@ -196,7 +200,9 @@ func parseMessage(raw json.RawMessage) (lipapi.Message, error) {
 	switch role {
 	case lipapi.RoleTool:
 		if strings.TrimSpace(probe.ToolCallID) == "" {
-			return lipapi.Message{}, errors.New("tool message requires tool_call_id")
+			// Orphan tool result for a dropped unnamed tool_call (e.g. pi
+			// "Tool  not found" stub). Skip rather than fail the request.
+			return lipapi.Message{}, errSkipMalformedHistory
 		}
 		content, err := parseToolMessageContent(probe.Content)
 		if err != nil {
@@ -294,6 +300,9 @@ func parseAssistantParts(content, toolCalls, functionCall json.RawMessage, reaso
 		}
 		part, err := assistantToolCallPart(rc)
 		if err != nil {
+			if errors.Is(err, errSkipMalformedHistory) {
+				continue
+			}
 			return nil, err
 		}
 		parts = append(parts, part)
@@ -334,7 +343,7 @@ func assistantToolCallPart(rc json.RawMessage) (lipapi.Part, error) {
 	id := strings.TrimSpace(wire.ID)
 	name := strings.TrimSpace(wire.Function.Name)
 	if id == "" || name == "" {
-		return lipapi.Part{}, errors.New("openailegacy: tool_calls entry requires id and function.name")
+		return lipapi.Part{}, errSkipMalformedHistory
 	}
 	args := json.RawMessage(`{}`)
 	if jsonpresence.IsPresentNonNullJSON(wire.Function.Arguments) {

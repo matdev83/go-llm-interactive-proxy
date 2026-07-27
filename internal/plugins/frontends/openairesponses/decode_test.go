@@ -224,6 +224,44 @@ func TestDecodeCreate_functionCallInputItem(t *testing.T) {
 	}
 }
 
+func TestDecodeCreate_skipsEmptyNamedFunctionCallFragments(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model":"gpt-4o-mini",
+  "input":[
+    {"type":"message","role":"user","content":"hi"},
+    {"type":"function_call","call_id":"call_good","name":"bash","arguments":"{\"command\":\"ls\"}"},
+    {"type":"function_call","call_id":"call_bad","name":"","arguments":"\"}\""},
+    {"type":"function_call_output","call_id":"call_good","output":"{\"output\":\"ok\"}"},
+    {"type":"function_call_output","call_id":"","output":"{\"output\":\"Tool  not found\"}"}
+  ]
+}`)
+	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+		RouteSelector: "stub:m",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Call.Messages) != 3 {
+		t.Fatalf("messages len=%d want 3; got %+v", len(d.Call.Messages), d.Call.Messages)
+	}
+	if d.Call.Messages[0].Role != lipapi.RoleUser {
+		t.Fatalf("msg0 role=%q", d.Call.Messages[0].Role)
+	}
+	if d.Call.Messages[1].Role != lipapi.RoleAssistant {
+		t.Fatalf("msg1 role=%q", d.Call.Messages[1].Role)
+	}
+	if d.Call.Messages[2].Role != lipapi.RoleTool {
+		t.Fatalf("msg2 role=%q", d.Call.Messages[2].Role)
+	}
+	if d.Call.Messages[2].Parts[0].ToolCallID != "call_good" {
+		t.Fatalf("tool result call_id=%q", d.Call.Messages[2].Parts[0].ToolCallID)
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDecodeCreate_reasoningInputItem_RED(t *testing.T) {
 	t.Parallel()
 	const body = `{"model":"gpt-4o-mini","input":[{"type":"reasoning","id":"r1","summary":[{"type":"summary_text","text":"s"}],"content":[{"type":"reasoning_text","text":"c"}],"encrypted_content":"enc"}]}`
