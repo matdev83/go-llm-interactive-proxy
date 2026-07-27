@@ -12,8 +12,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/connector-support/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product/protocol"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -84,12 +82,12 @@ func newBackendRuntime(cfg Config, opts runtimeOpts) *backendRuntime {
 	return rt
 }
 
-func (rt *backendRuntime) asBackend() execbackend.Backend {
-	return execbackend.Backend{
+func (rt *backendRuntime) asBackend() Backend {
+	return Backend{
 		BackendPrefixes:         []string{ID},
 		EnforcesMaxOutputTokens: false,
 		ModelInventory:          rt.tracking,
-		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
+		ResolveCaps: func(_ context.Context, call lipapi.Call, cand AttemptCandidate) lipapi.BackendCaps {
 			return resolveCaps(rt.catalog, rt.index, call, cand)
 		},
 		Open:  rt.Open,
@@ -152,7 +150,7 @@ func (rt *backendRuntime) Status() StatusSnapshot {
 	})
 }
 
-func (rt *backendRuntime) Open(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+func (rt *backendRuntime) Open(ctx context.Context, call lipapi.Call, cand AttemptCandidate) (lipapi.ManagedEventStream, error) {
 	if ctx == nil {
 		return nil, errors.New("cursorsdk: nil context")
 	}

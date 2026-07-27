@@ -13,7 +13,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product/fakebridge"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product/protocol"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -108,7 +107,7 @@ func TestBridgeProcess_StaleGenerationMustNotCloseNewerRunSubs(t *testing.T) {
 	modelID := snap.Models[0].NativeID
 
 	peerCall := liveBridgeTextCall(modelID, "peer-1", "sess-peer", "hold")
-	peer, err := rt.Open(ctx, peerCall, routing.AttemptCandidate{Primary: routing.Primary{Model: modelID}})
+	peer, err := rt.Open(ctx, peerCall, AttemptCandidate{Primary: Primary{Model: modelID}})
 	require.NoError(t, err)
 	defer func() { _ = peer.Close() }()
 	gen1 := rt.bp.Generation()
@@ -133,7 +132,7 @@ func TestBridgeProcess_StaleGenerationMustNotCloseNewerRunSubs(t *testing.T) {
 	require.Greater(t, info.Generation, gen1)
 
 	restartCall := liveBridgeTextCall(modelID, "restart-1", "sess-restart", "after kill")
-	restart, err := rt.Open(ctx, restartCall, routing.AttemptCandidate{Primary: routing.Primary{Model: modelID}})
+	restart, err := rt.Open(ctx, restartCall, AttemptCandidate{Primary: Primary{Model: modelID}})
 	require.NoError(t, err)
 	defer func() { _ = restart.Close() }()
 	require.Greater(t, rt.bp.Generation(), gen1)
@@ -251,7 +250,7 @@ func TestBridgeProcess_RunIDReuseAcrossGenerationsUsesFreshSubscription(t *testi
 	modelID := snap.Models[0].NativeID
 
 	peer, err := rt.Open(ctx, liveBridgeTextCall(modelID, "p1", "s1", "hold"),
-		routing.AttemptCandidate{Primary: routing.Primary{Model: modelID}})
+		AttemptCandidate{Primary: Primary{Model: modelID}})
 	require.NoError(t, err)
 	gen1 := rt.bp.Generation()
 
@@ -269,7 +268,7 @@ func TestBridgeProcess_RunIDReuseAcrossGenerationsUsesFreshSubscription(t *testi
 	require.NoError(t, err)
 
 	restart, err := rt.Open(ctx, liveBridgeTextCall(modelID, "r1", "s2", "next"),
-		routing.AttemptCandidate{Primary: routing.Primary{Model: modelID}})
+		AttemptCandidate{Primary: Primary{Model: modelID}})
 	require.NoError(t, err)
 	rs, ok := restart.(*RunStream)
 	require.True(t, ok)
@@ -363,7 +362,7 @@ func TestBridgeProcess_StaleStreamCloseMustNotCancelReusedRunID(t *testing.T) {
 	modelID := snap.Models[0].NativeID
 
 	peer, err := rt.Open(ctx, liveBridgeTextCall(modelID, "p1", "s1", "hold"),
-		routing.AttemptCandidate{Primary: routing.Primary{Model: modelID}})
+		AttemptCandidate{Primary: Primary{Model: modelID}})
 	require.NoError(t, err)
 	gen1 := rt.bp.Generation()
 	require.EqualValues(t, 1, gen1)
@@ -386,7 +385,7 @@ func TestBridgeProcess_StaleStreamCloseMustNotCancelReusedRunID(t *testing.T) {
 	require.Greater(t, info.Generation, gen1)
 
 	restart, err := rt.Open(ctx, liveBridgeTextCall(modelID, "r1", "s2", "next"),
-		routing.AttemptCandidate{Primary: routing.Primary{Model: modelID}})
+		AttemptCandidate{Primary: Primary{Model: modelID}})
 	require.NoError(t, err)
 	defer func() { _ = restart.Close() }()
 	rs, ok := restart.(*RunStream)

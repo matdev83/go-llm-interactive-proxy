@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product/protocol"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"github.com/stretchr/testify/assert"
@@ -114,8 +113,8 @@ func TestOpen_FakeBridgeHappyPath(t *testing.T) {
 
 	call := textCall("gpt-5.3-codex")
 	call.ID = "open-happy-1"
-	stream, err := rt.Open(ctx, call, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	stream, err := rt.Open(ctx, call, AttemptCandidate{
+		Primary: Primary{Model: "gpt-5.3-codex"},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, stream)
@@ -141,8 +140,8 @@ func TestOpen_NoCommitOnPrepareFailure(t *testing.T) {
 
 	ctx := context.Background()
 	call := textCall("gpt-5.3-codex")
-	_, err := rt.Open(ctx, call, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "unknown-model-xyz"},
+	_, err := rt.Open(ctx, call, AttemptCandidate{
+		Primary: Primary{Model: "unknown-model-xyz"},
 	})
 	require.Error(t, err)
 
@@ -154,8 +153,8 @@ func TestOpen_NoCommitOnPrepareFailure(t *testing.T) {
 	require.NoError(t, err)
 	rt2.catalog.Replace(entries)
 	acceptNatives(t, rt2.tracking, "gpt-5.3-codex")
-	_, err = rt2.Open(ctx, call, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	_, err = rt2.Open(ctx, call, AttemptCandidate{
+		Primary: Primary{Model: "gpt-5.3-codex"},
 	})
 	require.Error(t, err)
 	require.Equal(t, 0, rt2.pool.LiveCount())
@@ -176,8 +175,8 @@ func TestOpen_MaxOutputTokensFailClosed(t *testing.T) {
 	maxTok := 128
 	call := textCall("gpt-5.3-codex")
 	call.Options.MaxOutputTokens = &maxTok
-	_, err = rt.Open(context.Background(), call, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	_, err = rt.Open(context.Background(), call, AttemptCandidate{
+		Primary: Primary{Model: "gpt-5.3-codex"},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "max_output_tokens")
@@ -197,16 +196,16 @@ func TestOpen_UnsupportedToolsOrStructuredFailClosed(t *testing.T) {
 
 	call := textCall("gpt-5.3-codex")
 	call.Tools = []lipapi.ToolDef{{Name: "x", Description: "d", Parameters: json.RawMessage(`{}`)}}
-	_, err = rt.Open(context.Background(), call, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	_, err = rt.Open(context.Background(), call, AttemptCandidate{
+		Primary: Primary{Model: "gpt-5.3-codex"},
 	})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrUnsupportedPrompt)
 
 	call2 := textCall("gpt-5.3-codex")
 	call2.Options.ResponseMIMEType = "application/json"
-	_, err = rt.Open(context.Background(), call2, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	_, err = rt.Open(context.Background(), call2, AttemptCandidate{
+		Primary: Primary{Model: "gpt-5.3-codex"},
 	})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrUnsupportedPrompt)
@@ -232,8 +231,8 @@ func TestOpen_ReasoningExactNoAlias(t *testing.T) {
 	openDrain := func(model, effort string) error {
 		call := textCall(model)
 		call.Options.ReasoningEffort = effort
-		stream, err := rt.Open(ctx, call, routing.AttemptCandidate{
-			Primary: routing.Primary{Model: model},
+		stream, err := rt.Open(ctx, call, AttemptCandidate{
+			Primary: Primary{Model: model},
 		})
 		if err != nil {
 			return err
@@ -257,8 +256,8 @@ func TestClose_IdempotentPoolThenBridge(t *testing.T) {
 	require.NoError(t, rt.Close())
 	require.NoError(t, rt.Close())
 
-	_, err := rt.Open(context.Background(), textCall("gpt-5.3-codex"), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	_, err := rt.Open(context.Background(), textCall("gpt-5.3-codex"), AttemptCandidate{
+		Primary: Primary{Model: "gpt-5.3-codex"},
 	})
 	require.Error(t, err)
 }
@@ -293,8 +292,8 @@ func TestOpen_DoesNotReturnConstructionStub(t *testing.T) {
 	be := NewScaffold(cfg).WithHostEnv(openTestHostEnv()).Backend()
 	t.Cleanup(func() { _ = be.Close() })
 
-	_, err := be.Open(context.Background(), textCall("missing"), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "missing"},
+	_, err := be.Open(context.Background(), textCall("missing"), AttemptCandidate{
+		Primary: Primary{Model: "missing"},
 	})
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), cfg.APIKey)
@@ -354,8 +353,8 @@ func TestOpen_AuthoritativeSessionBootstrapThenIncrementalReuse(t *testing.T) {
 	call1 := textCall("gpt-5.3-codex")
 	call1.ID = "turn-1"
 	call1.Session.AuthoritativeSessionID = "auth-reuse"
-	stream1, err := rt.Open(ctx, call1, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	stream1, err := rt.Open(ctx, call1, AttemptCandidate{
+		Primary: Primary{Model: "gpt-5.3-codex"},
 	})
 	require.NoError(t, err)
 	_ = drainManaged(ctx, t, stream1)
@@ -374,8 +373,8 @@ func TestOpen_AuthoritativeSessionBootstrapThenIncrementalReuse(t *testing.T) {
 		{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("prior reply")}},
 		{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("second turn")}},
 	}
-	stream2, err := rt.Open(ctx, call2, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	stream2, err := rt.Open(ctx, call2, AttemptCandidate{
+		Primary: Primary{Model: "gpt-5.3-codex"},
 	})
 	require.NoError(t, err)
 	_ = drainManaged(ctx, t, stream2)
@@ -403,8 +402,8 @@ func TestOpen_AbsentSessionDoesNotMergeUnrelatedCalls(t *testing.T) {
 		call := textCall("gpt-5.3-codex")
 		call.ID = callID
 		call.Session.ClientSessionID = "same-client-hint"
-		stream, err := rt.Open(ctx, call, routing.AttemptCandidate{
-			Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		stream, err := rt.Open(ctx, call, AttemptCandidate{
+			Primary: Primary{Model: "gpt-5.3-codex"},
 		})
 		require.NoError(t, err)
 		_ = drainManaged(ctx, t, stream)
@@ -434,8 +433,8 @@ func TestOpen_CancelStream(t *testing.T) {
 	require.NoError(t, err)
 	rt.tracking.AcceptInventory(snap.Models)
 
-	stream, err := rt.Open(ctx, textCall("gpt-5.3-codex"), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	stream, err := rt.Open(ctx, textCall("gpt-5.3-codex"), AttemptCandidate{
+		Primary: Primary{Model: "gpt-5.3-codex"},
 	})
 	require.NoError(t, err)
 	defer func() { _ = stream.Close() }()

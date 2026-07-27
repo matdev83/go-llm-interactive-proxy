@@ -14,7 +14,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/connector-support/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product/protocol"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"github.com/stretchr/testify/require"
@@ -151,8 +150,8 @@ func TestInventory_AnonymousEffortThinkingVariantsAdvertiseReasoning(t *testing.
 	accepted, ok := be.ModelInventory.(modelinventory.AcceptedInventory)
 	require.True(t, ok)
 	accepted.AcceptInventory(snap.Models)
-	caps := be.ResolveCaps(context.Background(), lipapi.Call{}, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "claude-4.6-sonnet-thinking"},
+	caps := be.ResolveCaps(context.Background(), lipapi.Call{}, product.AttemptCandidate{
+		Primary: product.Primary{Model: "claude-4.6-sonnet-thinking"},
 	})
 	_, hasReasoning := caps[lipapi.CapabilityReasoning]
 	require.True(t, hasReasoning, "anonymous thinking=true variants must advertise CapabilityReasoning")
@@ -180,8 +179,8 @@ func TestInventory_ResolveCapsEmptyUntilAccepted(t *testing.T) {
 	if _, err := be.ModelInventory.LoadModels(context.Background()); err != nil {
 		t.Fatalf("LoadModels: %v", err)
 	}
-	caps := be.ResolveCaps(context.Background(), lipapi.Call{}, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	caps := be.ResolveCaps(context.Background(), lipapi.Call{}, product.AttemptCandidate{
+		Primary: product.Primary{Model: "gpt-5.3-codex"},
 	})
 	if len(caps) != 0 {
 		t.Fatalf("caps before AcceptInventory = %#v, want empty", caps)
@@ -195,8 +194,8 @@ func TestInventory_ResolveCapsEmptyUntilAccepted(t *testing.T) {
 		NativeID:    "gpt-5.3-codex",
 		DisplayName: "GPT-5.3 Codex",
 	}})
-	caps = be.ResolveCaps(context.Background(), lipapi.Call{}, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	caps = be.ResolveCaps(context.Background(), lipapi.Call{}, product.AttemptCandidate{
+		Primary: product.Primary{Model: "gpt-5.3-codex"},
 	})
 	if _, ok := caps[lipapi.CapabilityStreaming]; !ok {
 		t.Fatal("expected streaming after accept")
@@ -204,8 +203,8 @@ func TestInventory_ResolveCapsEmptyUntilAccepted(t *testing.T) {
 	if _, ok := caps[lipapi.CapabilityReasoning]; !ok {
 		t.Fatal("expected reasoning after accept for gpt-5.3-codex")
 	}
-	rejected := be.ResolveCaps(context.Background(), lipapi.Call{}, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "composer-2-fast"},
+	rejected := be.ResolveCaps(context.Background(), lipapi.Call{}, product.AttemptCandidate{
+		Primary: product.Primary{Model: "composer-2-fast"},
 	})
 	if len(rejected) != 0 {
 		t.Fatalf("unaccepted model caps = %#v, want empty", rejected)
@@ -251,8 +250,8 @@ func TestInventory_UnreachableBridgeOperationalFailSoft(t *testing.T) {
 	if strings.Contains(err.Error(), cfg.APIKey) {
 		t.Fatalf("inventory error leaked api_key: %v", err)
 	}
-	if len(be.ResolveCaps(context.Background(), lipapi.Call{}, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	if len(be.ResolveCaps(context.Background(), lipapi.Call{}, product.AttemptCandidate{
+		Primary: product.Primary{Model: "gpt-5.3-codex"},
 	})) != 0 {
 		t.Fatal("unreachable-bridge backend must not advertise caps for unknown models")
 	}
@@ -271,8 +270,8 @@ func TestInventory_FailedReloadKeepsLastKnownGoodCatalog(t *testing.T) {
 	require.True(t, ok)
 	acceptedInv.AcceptInventory(snap.Models)
 
-	caps := be.ResolveCaps(context.Background(), lipapi.Call{}, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	caps := be.ResolveCaps(context.Background(), lipapi.Call{}, product.AttemptCandidate{
+		Primary: product.Primary{Model: "gpt-5.3-codex"},
 	})
 	if _, ok := caps[lipapi.CapabilityReasoning]; !ok {
 		t.Fatal("expected reasoning after successful load+accept")
@@ -283,8 +282,8 @@ func TestInventory_FailedReloadKeepsLastKnownGoodCatalog(t *testing.T) {
 	if err == nil || !modelinventory.IsOperational(err) {
 		t.Fatalf("source error = %v, want operational", err)
 	}
-	caps = be.ResolveCaps(context.Background(), lipapi.Call{}, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	caps = be.ResolveCaps(context.Background(), lipapi.Call{}, product.AttemptCandidate{
+		Primary: product.Primary{Model: "gpt-5.3-codex"},
 	})
 	if _, ok := caps[lipapi.CapabilityStreaming]; !ok {
 		t.Fatal("fail-soft last-known-good: streaming must remain for accepted model after source error")
@@ -302,8 +301,8 @@ func TestInventory_FailedReloadKeepsLastKnownGoodCatalog(t *testing.T) {
 	if !errors.As(err, &op) || op.Code != modelinventory.ErrorCodeInvalidInventory {
 		t.Fatalf("err = %v, want invalid_inventory", err)
 	}
-	caps = be.ResolveCaps(context.Background(), lipapi.Call{}, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	caps = be.ResolveCaps(context.Background(), lipapi.Call{}, product.AttemptCandidate{
+		Primary: product.Primary{Model: "gpt-5.3-codex"},
 	})
 	if _, ok := caps[lipapi.CapabilityReasoning]; !ok {
 		t.Fatal("duplicate reload must not install partial/bad catalog entries")
@@ -337,8 +336,8 @@ func TestInventory_CapsProvenMappingsOnly(t *testing.T) {
 		{"composer-2-fast", false},
 	}
 	for _, tc := range cases {
-		caps := be.ResolveCaps(context.Background(), lipapi.Call{}, routing.AttemptCandidate{
-			Primary: routing.Primary{Model: tc.native},
+		caps := be.ResolveCaps(context.Background(), lipapi.Call{}, product.AttemptCandidate{
+			Primary: product.Primary{Model: tc.native},
 		})
 		if _, ok := caps[lipapi.CapabilityStreaming]; !ok {
 			t.Fatalf("%s: missing streaming", tc.native)
@@ -392,8 +391,8 @@ func TestInventory_ConcurrentLoadAcceptResolve(t *testing.T) {
 		}()
 		go func() {
 			defer wg.Done()
-			caps := be.ResolveCaps(context.Background(), lipapi.Call{}, routing.AttemptCandidate{
-				Primary: routing.Primary{Model: "gpt-5.3-codex"},
+			caps := be.ResolveCaps(context.Background(), lipapi.Call{}, product.AttemptCandidate{
+				Primary: product.Primary{Model: "gpt-5.3-codex"},
 			})
 			if _, ok := caps[lipapi.CapabilityStreaming]; !ok {
 				errCh <- errors.New("missing streaming under race")

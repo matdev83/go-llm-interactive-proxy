@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
@@ -85,15 +83,15 @@ func (s *Service) Configure(_ context.Context, req backendplugin.ConfigureReques
 }
 
 type instance struct {
-	be execbackend.Backend
+	be product.Backend
 }
 
 func (i *instance) Resolve(_ context.Context, model *string) (backendplugin.ResolvedProfile, error) {
 	caps := backendplugin.CapabilitySummary{Streaming: true, Reasoning: true}
 	if i != nil && i.be.ResolveCaps != nil && model != nil {
 		call := lipapi.Call{Route: lipapi.RouteIntent{Selector: strings.TrimSpace(*model)}}
-		cand := routing.AttemptCandidate{
-			Primary: routing.Primary{Backend: FactoryKind, Model: strings.TrimSpace(*model)},
+		cand := product.AttemptCandidate{
+			Primary: product.Primary{Backend: FactoryKind, Model: strings.TrimSpace(*model)},
 			Key:     FactoryKind + ":" + strings.TrimSpace(*model),
 		}
 		bc := i.be.ResolveCaps(context.Background(), call, cand)
@@ -172,8 +170,8 @@ func (i *instance) Execute(stream backendplugin.ExecuteStream) error {
 	if model == "" {
 		model = strings.TrimSpace(start.Invocation.NativeModelID)
 	}
-	cand := routing.AttemptCandidate{
-		Primary: routing.Primary{Backend: FactoryKind, Model: model},
+	cand := product.AttemptCandidate{
+		Primary: product.Primary{Backend: FactoryKind, Model: model},
 		Key:     FactoryKind + ":" + model,
 	}
 	ctx := context.Background()

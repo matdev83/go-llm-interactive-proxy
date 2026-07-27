@@ -14,7 +14,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product/fakebridge"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product/protocol"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -106,8 +105,8 @@ func TestOpen_CancelTimeoutKillsGenerationWithoutInjectedHook(t *testing.T) {
 
 	call := textCall("gpt-5.3-codex")
 	call.ID = "cancel-kill-1"
-	stream, err := rt.Open(ctx, call, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	stream, err := rt.Open(ctx, call, AttemptCandidate{
+		Primary: Primary{Model: "gpt-5.3-codex"},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, stream)
@@ -158,8 +157,8 @@ func TestOpen_CancelTimeoutKillsGenerationWithoutInjectedHook(t *testing.T) {
 	_ = os.WriteFile(gate, []byte("release"), 0o644)
 	call2 := textCall("gpt-5.3-codex")
 	call2.ID = "cancel-kill-2"
-	stream2, err := rt.Open(ctx, call2, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	stream2, err := rt.Open(ctx, call2, AttemptCandidate{
+		Primary: Primary{Model: "gpt-5.3-codex"},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, stream2)

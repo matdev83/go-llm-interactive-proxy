@@ -4,11 +4,10 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connector-support/acp"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-func resolveNativeFromCandidate(index *acp.ModelIndex, call lipapi.Call, cand routing.AttemptCandidate) (string, bool) {
+func resolveNativeFromCandidate(index *acp.ModelIndex, call lipapi.Call, cand AttemptCandidate) (string, bool) {
 	identity := strings.TrimSpace(cand.Primary.Model)
 	if identity == "" {
 		identity = strings.TrimSpace(acp.CallRouteModel(&call, "acp.model"))
@@ -30,7 +29,7 @@ func resolveNativeFromCandidate(index *acp.ModelIndex, call lipapi.Call, cand ro
 	return "", false
 }
 
-func resolveCaps(catalog *Catalog, index *acp.ModelIndex, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
+func resolveCaps(catalog *Catalog, index *acp.ModelIndex, call lipapi.Call, cand AttemptCandidate) lipapi.BackendCaps {
 	native, ok := resolveNativeFromCandidate(index, call, cand)
 	if !ok {
 		return lipapi.BackendCaps{}

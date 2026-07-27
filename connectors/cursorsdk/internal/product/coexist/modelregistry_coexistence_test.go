@@ -10,13 +10,13 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product/protocol"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )
 
-const cursorCLIACPKind = "cursorcliacp"
-
-func TestRegistry_CursorSDKAndCLIACPShareCanonicalRetainProvenance(t *testing.T) {
+// TestInventory_CursorSDKCanonicalNormalization certifies that connector-owned
+// SDK model-list normalization produces the expected public modelinventory.Model
+// identity fields (CanonicalID / NativeID / DisplayName) for known native IDs.
+func TestInventory_CursorSDKCanonicalNormalization(t *testing.T) {
 	t.Parallel()
 
 	sdkModels := loadNormalizedSDKModels(t, []protocol.ModelRow{
@@ -43,62 +43,11 @@ func TestRegistry_CursorSDKAndCLIACPShareCanonicalRetainProvenance(t *testing.T)
 	if byNative["composer-2-fast"].CanonicalID != "cursor/composer-2-fast" {
 		t.Fatalf("bare composer canonical = %q", byNative["composer-2-fast"].CanonicalID)
 	}
-
-	shared := byNative["composer-2-fast"]
-	acpInv := modelinventory.StaticProvider{Models: []modelinventory.Model{{
-		CanonicalID: shared.CanonicalID,
-		NativeID:    shared.NativeID,
-		DisplayName: shared.DisplayName,
-	}}}
-	sdkInv := modelinventory.StaticProvider{Models: sdkModels}
-
-	built, err := modelregistry.Build(context.Background(), []modelregistry.BackendInventory{
-		{
-			BackendID:       "cursor-sdk-a",
-			Kind:            product.ID,
-			BackendPrefixes: []string{product.ID},
-			Provider:        sdkInv,
-		},
-		{
-			BackendID:       "cursor-acp-b",
-			Kind:            cursorCLIACPKind,
-			BackendPrefixes: []string{cursorCLIACPKind},
-			Provider:        acpInv,
-		},
-	}, nil)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
+	if byNative["composer-2-fast"].DisplayName != "Composer 2 Fast" {
+		t.Fatalf("bare composer DisplayName = %q", byNative["composer-2-fast"].DisplayName)
 	}
-	got, ok := built.Registry.Lookup(shared.CanonicalID)
-	if !ok {
-		t.Fatalf("Lookup(%q) ok = false", shared.CanonicalID)
-	}
-	if len(got) != 2 {
-		t.Fatalf("len(Lookup) = %d, want 2", len(got))
-	}
-	byKind := map[string]modelregistry.BackendModel{}
-	for _, ref := range got {
-		byKind[ref.Kind] = ref
-	}
-	sdkRef, ok := byKind[product.ID]
-	if !ok {
-		t.Fatal("missing cursorsdk provenance row")
-	}
-	acpRef, ok := byKind[cursorCLIACPKind]
-	if !ok {
-		t.Fatal("missing cursorcliacp provenance row")
-	}
-	if sdkRef.BackendID != "cursor-sdk-a" || acpRef.BackendID != "cursor-acp-b" {
-		t.Fatalf("BackendID mismatch: sdk=%q acp=%q", sdkRef.BackendID, acpRef.BackendID)
-	}
-	if sdkRef.Kind != product.ID || acpRef.Kind != cursorCLIACPKind {
-		t.Fatalf("Kind mismatch: %#v %#v", sdkRef.Kind, acpRef.Kind)
-	}
-	if sdkRef.CanonicalID != shared.CanonicalID || acpRef.CanonicalID != shared.CanonicalID {
-		t.Fatalf("canonical mismatch: %#v %#v", sdkRef.CanonicalID, acpRef.CanonicalID)
-	}
-	if sdkRef.NativeID != shared.NativeID || acpRef.NativeID != shared.NativeID {
-		t.Fatalf("native mismatch: %#v %#v", sdkRef.NativeID, acpRef.NativeID)
+	if byNative["gpt-5.3-codex"].CanonicalID != "cursor/gpt-5.3-codex" {
+		t.Fatalf("gpt canonical = %q", byNative["gpt-5.3-codex"].CanonicalID)
 	}
 }
 
@@ -122,7 +71,7 @@ func loadNormalizedSDKModels(t *testing.T, rows []protocol.ModelRow) []modelinve
 	return snap.Models
 }
 
-func TestRegistry_CursorSDKFixtureNormalizeFeedsRegistry(t *testing.T) {
+func TestInventory_CursorSDKFixtureNormalizeFeedsCanonicalLookup(t *testing.T) {
 	t.Parallel()
 	raw, err := os.ReadFile(filepath.Join("..", "testdata", "fixtures", "models_sanitized.json"))
 	if err != nil {
@@ -135,16 +84,11 @@ func TestRegistry_CursorSDKFixtureNormalizeFeedsRegistry(t *testing.T) {
 		t.Fatal(err)
 	}
 	models := loadNormalizedSDKModels(t, doc.Models)
-	built, err := modelregistry.Build(context.Background(), []modelregistry.BackendInventory{{
-		BackendID:       "cursor-sdk-fixture",
-		Kind:            product.ID,
-		BackendPrefixes: []string{product.ID},
-		Provider:        modelinventory.StaticProvider{Models: models},
-	}}, nil)
-	if err != nil {
-		t.Fatal(err)
+	byCanonical := map[string]modelinventory.Model{}
+	for _, m := range models {
+		byCanonical[m.CanonicalID] = m
 	}
-	if _, ok := built.Registry.Lookup("cursor/gpt-5.3-codex"); !ok {
-		t.Fatal("expected fixture gpt canonical in registry")
+	if _, ok := byCanonical["cursor/gpt-5.3-codex"]; !ok {
+		t.Fatal("expected fixture gpt canonical in normalized inventory")
 	}
 }

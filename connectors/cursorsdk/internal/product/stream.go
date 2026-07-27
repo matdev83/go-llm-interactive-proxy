@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product/protocol"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -87,7 +86,7 @@ type RunStream struct {
 	unsub   func()
 	termErr func() error
 
-	pending         stream.PendingEventQueue
+	pending         PendingEventQueue
 	responseStarted bool
 	messageStarted  bool
 	after           bool
@@ -128,7 +127,7 @@ func NewRunStream(parent context.Context, bridge RunBridge, lease *AgentLease, o
 		runID:     runID,
 		opts:      opts,
 		maxPend:   maxPend,
-		pending:   stream.NewPendingEventQueue(maxPend),
+		pending:   NewPendingEventQueue(maxPend),
 		expectSeq: 1,
 		ctx:       ctx,
 		cancel:    cancel,
@@ -273,7 +272,7 @@ func (s *RunStream) ingestFrame(f *protocol.Frame) {
 	}
 
 	if err := s.enqueueMappedLocked(res); err != nil {
-		s.pending = stream.NewPendingEventQueue(s.maxPend)
+		s.pending = NewPendingEventQueue(s.maxPend)
 		s.responseStarted = false
 		s.messageStarted = false
 		s.queueFailLocked(ClassifyAndMap(err, s.committed, s.opts.APIKey), InvalidateBridge)

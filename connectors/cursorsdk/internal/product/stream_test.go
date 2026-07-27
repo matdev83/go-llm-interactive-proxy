@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product/protocol"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -380,7 +379,7 @@ func TestRunStream_PendingQueueOverflowFails(t *testing.T) {
 	bridge.push(eventFrame("run-full", 1, protocol.KindTextDelta, `{"text":"x"}`))
 	_, err := s.Recv(context.Background())
 	require.Error(t, err)
-	assert.ErrorIs(t, err, stream.ErrPendingQueueFull)
+	assert.ErrorIs(t, err, ErrPendingQueueFull)
 	_, invalids := owner.snapshot()
 	require.Contains(t, invalids, InvalidateBridge)
 }

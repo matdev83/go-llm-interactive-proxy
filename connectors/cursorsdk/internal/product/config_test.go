@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/stretchr/testify/require"
 )
@@ -286,7 +285,7 @@ func TestScaffold_retainsNormalizedConfig(t *testing.T) {
 			TransportMode: lipapi.TransportModeStreaming,
 		},
 	}
-	_, err = be.Open(context.Background(), call, routing.AttemptCandidate{})
+	_, err = be.Open(context.Background(), call, product.AttemptCandidate{})
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), cfg.APIKey)
 	require.NotContains(t, err.Error(), "backend runtime construction is not implemented")

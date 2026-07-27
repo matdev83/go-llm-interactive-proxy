@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product/protocol"
-	corediag "github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -105,7 +103,7 @@ func TestDiag_LogRedactsSecretsPathsSDKIDsAndPayloads(t *testing.T) {
 	h := &captureHandler{}
 	log := slog.New(h)
 	d := NewDiag(log, "i1")
-	ctx := corediag.WithCallDiag(context.Background(), "tr-1", "a-1")
+	ctx := WithCallDiag(context.Background(), "tr-1", "a-1")
 
 	d.LogPool(ctx, "create", "", 1, 0, DiagCorr{CallID: "c1", BLegID: "b1"})
 	d.LogRun(ctx, "error", "pre_output", CodeBridgeExited, "provider", DiagCorr{CallID: "c1"})
@@ -193,8 +191,8 @@ func TestDiag_RuntimeEmitsPoolCreateWithoutSDKIDs(t *testing.T) {
 	require.NoError(t, err)
 	rt.tracking.AcceptInventory(snap.Models)
 
-	stream, err := rt.Open(ctx, textCall("gpt-5.3-codex"), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	stream, err := rt.Open(ctx, textCall("gpt-5.3-codex"), AttemptCandidate{
+		Primary: Primary{Model: "gpt-5.3-codex"},
 	})
 	require.NoError(t, err)
 	defer func() { _ = stream.Close() }()

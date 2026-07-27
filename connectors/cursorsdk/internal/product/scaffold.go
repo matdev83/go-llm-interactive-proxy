@@ -4,7 +4,6 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )
 
@@ -48,7 +47,7 @@ func (s Scaffold) WithInstanceID(id string) Scaffold {
 	return s
 }
 
-func (s Scaffold) Backend() execbackend.Backend {
+func (s Scaffold) Backend() Backend {
 	opts := runtimeOpts{
 		Starter:         s.starter,
 		ModelListSource: s.source,

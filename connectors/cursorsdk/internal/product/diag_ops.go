@@ -6,8 +6,6 @@ import (
 	"log/slog"
 	"strings"
 	"time"
-
-	corediag "github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 )
 
 const (
@@ -165,10 +163,10 @@ func (d *Diag) emit(ctx context.Context, level slog.Level, msg string, corr Diag
 		slog.String("backend_kind", d.kind),
 		slog.String("backend_instance", d.instance),
 	}
-	if tid := corediag.TraceID(ctx); tid != "" {
+	if tid := TraceID(ctx); tid != "" {
 		base = append(base, slog.String("trace_id", tid))
 	}
-	if aid := corediag.ALegID(ctx); aid != "" {
+	if aid := ALegID(ctx); aid != "" {
 		base = append(base, slog.String("a_leg_id", aid))
 	}
 	if corr.BLegID != "" {

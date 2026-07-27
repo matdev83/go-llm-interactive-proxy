@@ -13,7 +13,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -208,7 +207,7 @@ func runLiveBridgeHarness(ctx context.Context, in liveBridgeInput) (*liveBridgeS
 	lc := newLiveBridgeLifecyclePrompts(rbToken)
 
 	streamCall := liveBridgeTextCall(modelID, "stream-1", "live-bridge-stream", lc.Stream)
-	stream, err := rt.Open(runCtx, streamCall, routing.AttemptCandidate{Primary: routing.Primary{Model: modelID}})
+	stream, err := rt.Open(runCtx, streamCall, AttemptCandidate{Primary: Primary{Model: modelID}})
 	if err != nil {
 		record("stream", "failed", err.Error())
 		return finalize(err)
@@ -227,7 +226,7 @@ func runLiveBridgeHarness(ctx context.Context, in liveBridgeInput) (*liveBridgeS
 	record("stream", "passed", "canonical content and single terminal")
 
 	cancelCall := liveBridgeTextCall(modelID, "cancel-1", "live-bridge-cancel", lc.Cancel)
-	cancelStream, err := rt.Open(runCtx, cancelCall, routing.AttemptCandidate{Primary: routing.Primary{Model: modelID}})
+	cancelStream, err := rt.Open(runCtx, cancelCall, AttemptCandidate{Primary: Primary{Model: modelID}})
 	if err != nil {
 		record("cancellation", "failed", err.Error())
 		return finalize(err)
@@ -246,12 +245,12 @@ func runLiveBridgeHarness(ctx context.Context, in liveBridgeInput) (*liveBridgeS
 
 	peerACall := liveBridgeTextCall(modelID, "peer-a", "live-bridge-peer-a", lc.PeerA)
 	peerBCall := liveBridgeTextCall(modelID, "peer-b", "live-bridge-peer-b", lc.PeerB)
-	peerA, err := rt.Open(runCtx, peerACall, routing.AttemptCandidate{Primary: routing.Primary{Model: modelID}})
+	peerA, err := rt.Open(runCtx, peerACall, AttemptCandidate{Primary: Primary{Model: modelID}})
 	if err != nil {
 		record("hard_bridge_restart", "failed", err.Error())
 		return finalize(err)
 	}
-	peerB, err := rt.Open(runCtx, peerBCall, routing.AttemptCandidate{Primary: routing.Primary{Model: modelID}})
+	peerB, err := rt.Open(runCtx, peerBCall, AttemptCandidate{Primary: Primary{Model: modelID}})
 	if err != nil {
 		_ = peerA.Close()
 		record("hard_bridge_restart", "failed", err.Error())
@@ -346,7 +345,7 @@ func runLiveBridgeHarness(ctx context.Context, in liveBridgeInput) (*liveBridgeS
 		var gen2 int64
 		var gen2Waited bool
 		restartCall := liveBridgeTextCall(modelID, "restart-1", "live-bridge-restart", lc.Restart)
-		restartStream, openErr := rt.Open(runCtx, restartCall, routing.AttemptCandidate{Primary: routing.Primary{Model: modelID}})
+		restartStream, openErr := rt.Open(runCtx, restartCall, AttemptCandidate{Primary: Primary{Model: modelID}})
 		if openErr != nil {
 			restartErr = openErr
 			gen2 = rt.bp.Generation()
@@ -392,7 +391,7 @@ func runLiveBridgeHarness(ctx context.Context, in liveBridgeInput) (*liveBridgeS
 			return finalize(err)
 		}
 		rb1 := liveBridgeTextCall(modelID, "rb-1", rbSession, lc.RebootstrapFirst)
-		s1, err := rt.Open(runCtx, rb1, routing.AttemptCandidate{Primary: routing.Primary{Model: modelID}})
+		s1, err := rt.Open(runCtx, rb1, AttemptCandidate{Primary: Primary{Model: modelID}})
 		if err != nil {
 			record("canonical_rebootstrap", "failed", err.Error())
 			return finalize(err)
@@ -413,7 +412,7 @@ func runLiveBridgeHarness(ctx context.Context, in liveBridgeInput) (*liveBridgeS
 			return finalize(err)
 		}
 		rb2 := liveBridgeTextCall(modelID, "rb-2", rbSession, lc.RebootstrapRebuilt)
-		s2, err := rt.Open(runCtx, rb2, routing.AttemptCandidate{Primary: routing.Primary{Model: modelID}})
+		s2, err := rt.Open(runCtx, rb2, AttemptCandidate{Primary: Primary{Model: modelID}})
 		if err != nil {
 			record("canonical_rebootstrap", "failed", err.Error())
 			return finalize(err)

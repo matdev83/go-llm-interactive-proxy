@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product/protocol"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
 func FuzzMapBridgeEvent(f *testing.F) {
@@ -17,7 +16,7 @@ func FuzzMapBridgeEvent(f *testing.F) {
 	f.Add([]byte(`{}`), int64(1), "activity", "run-1")
 	f.Add([]byte(`{`), int64(2), "text_delta", "run-1")
 	f.Fuzz(func(t *testing.T, payload []byte, seq int64, kind, runID string) {
-		payload = testkit.CapBytes(payload, 64<<10)
+		payload = capFuzzBytes(payload, 64<<10)
 		if seq < 0 {
 			seq = -seq
 		}
@@ -43,4 +42,11 @@ func FuzzMapBridgeEvent(f *testing.F) {
 		_, _ = mapBridgeEvent(frame, runID, seq+1, "") // sequence mismatch path
 		_, _ = mapBridgeEvent(nil, runID, seq, "")
 	})
+}
+
+func capFuzzBytes(b []byte, max int) []byte {
+	if max <= 0 || len(b) <= max {
+		return b
+	}
+	return b[:max]
 }

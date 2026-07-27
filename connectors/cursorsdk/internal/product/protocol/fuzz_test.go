@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product/protocol"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
 func FuzzDecodeLine(f *testing.F) {
@@ -14,7 +13,7 @@ func FuzzDecodeLine(f *testing.F) {
 	f.Add([]byte(`not-json`))
 	f.Add([]byte(`{"schemaVersion":1,"type":"event","runId":"r","seq":2,"kind":"text_delta","payload":{}}`))
 	f.Fuzz(func(t *testing.T, raw []byte) {
-		raw = testkit.CapBytes(raw, protocol.MaxFrameBytes+1024)
+		raw = capFuzzBytes(raw, protocol.MaxFrameBytes+1024)
 		frame, err := protocol.DecodeLine(raw)
 		if err != nil || frame == nil {
 			return
@@ -25,4 +24,11 @@ func FuzzDecodeLine(f *testing.F) {
 		}
 		_, _ = protocol.EncodeFrame(frame)
 	})
+}
+
+func capFuzzBytes(b []byte, max int) []byte {
+	if max <= 0 || len(b) <= max {
+		return b
+	}
+	return b[:max]
 }

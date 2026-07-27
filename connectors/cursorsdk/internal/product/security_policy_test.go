@@ -14,7 +14,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product/fakebridge"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product/protocol"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -69,8 +68,8 @@ func TestSettingSources_InvalidFailsBeforeProcess(t *testing.T) {
 	rt := newBackendRuntime(cfg, runtimeOpts{Starter: starter, HostEnv: openTestHostEnv()})
 	t.Cleanup(func() { _ = rt.Close() })
 	acceptNatives(t, rt.tracking, "gpt-5.3-codex")
-	_, err = rt.Open(context.Background(), textCall("gpt-5.3-codex"), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	_, err = rt.Open(context.Background(), textCall("gpt-5.3-codex"), AttemptCandidate{
+		Primary: Primary{Model: "gpt-5.3-codex"},
 	})
 	require.Error(t, err)
 	require.Contains(t, strings.ToLower(err.Error()), "setting")
@@ -138,8 +137,8 @@ func TestMCP_BridgeReceivesNormalizedConfigOnly(t *testing.T) {
 	require.NoError(t, err)
 	rt.tracking.AcceptInventory(snap.Models)
 
-	stream, err := rt.Open(ctx, textCall("gpt-5.3-codex"), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	stream, err := rt.Open(ctx, textCall("gpt-5.3-codex"), AttemptCandidate{
+		Primary: Primary{Model: "gpt-5.3-codex"},
 	})
 	require.NoError(t, err)
 	defer func() { _ = stream.Close() }()
@@ -177,8 +176,8 @@ func TestSecurity_NoCustomToolsOrImplicitGoLIPMCP(t *testing.T) {
 	snap, err := rt.tracking.LoadModels(ctx)
 	require.NoError(t, err)
 	rt.tracking.AcceptInventory(snap.Models)
-	stream, err := rt.Open(ctx, textCall("gpt-5.3-codex"), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	stream, err := rt.Open(ctx, textCall("gpt-5.3-codex"), AttemptCandidate{
+		Primary: Primary{Model: "gpt-5.3-codex"},
 	})
 	require.NoError(t, err)
 	defer func() { _ = stream.Close() }()
@@ -233,8 +232,8 @@ func TestSandbox_UnavailableFailsClosedWhenRequired(t *testing.T) {
 	t.Cleanup(func() { _ = rt.Close() })
 
 	acceptNatives(t, rt.tracking, "gpt-5.3-codex")
-	_, err := rt.Open(context.Background(), textCall("gpt-5.3-codex"), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	_, err := rt.Open(context.Background(), textCall("gpt-5.3-codex"), AttemptCandidate{
+		Primary: Primary{Model: "gpt-5.3-codex"},
 	})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrSandboxUnavailable)
@@ -256,8 +255,8 @@ func TestSandbox_MissingInitializeFieldFailsClosed(t *testing.T) {
 	require.False(t, info.SandboxSupported, "missing initialize field must decode as false")
 
 	acceptNatives(t, rt.tracking, "gpt-5.3-codex")
-	_, err = rt.Open(context.Background(), textCall("gpt-5.3-codex"), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	_, err = rt.Open(context.Background(), textCall("gpt-5.3-codex"), AttemptCandidate{
+		Primary: Primary{Model: "gpt-5.3-codex"},
 	})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrSandboxUnavailable)
@@ -291,8 +290,8 @@ func TestSandbox_ExplicitOffAllowedIncludingWindows(t *testing.T) {
 	snap, err := rt.tracking.LoadModels(ctx)
 	require.NoError(t, err)
 	rt.tracking.AcceptInventory(snap.Models)
-	stream, err := rt.Open(ctx, textCall("gpt-5.3-codex"), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	stream, err := rt.Open(ctx, textCall("gpt-5.3-codex"), AttemptCandidate{
+		Primary: Primary{Model: "gpt-5.3-codex"},
 	})
 	require.NoError(t, err)
 	defer func() { _ = stream.Close() }()
@@ -311,8 +310,8 @@ func TestSandbox_RequiredNeverSilentDowngrade(t *testing.T) {
 	t.Cleanup(func() { _ = rt.Close() })
 
 	acceptNatives(t, rt.tracking, "gpt-5.3-codex")
-	_, err := rt.Open(context.Background(), textCall("gpt-5.3-codex"), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	_, err := rt.Open(context.Background(), textCall("gpt-5.3-codex"), AttemptCandidate{
+		Primary: Primary{Model: "gpt-5.3-codex"},
 	})
 	require.Error(t, err)
 	require.Nil(t, capBridge.lastCreate, "must not create with sandbox silently disabled")
@@ -346,8 +345,8 @@ func TestSecurity_EnableAgentRetriesAlwaysFalse(t *testing.T) {
 	snap, err := rt.tracking.LoadModels(ctx)
 	require.NoError(t, err)
 	rt.tracking.AcceptInventory(snap.Models)
-	stream, err := rt.Open(ctx, textCall("gpt-5.3-codex"), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	stream, err := rt.Open(ctx, textCall("gpt-5.3-codex"), AttemptCandidate{
+		Primary: Primary{Model: "gpt-5.3-codex"},
 	})
 	require.NoError(t, err)
 	defer func() { _ = stream.Close() }()

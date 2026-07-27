@@ -10,7 +10,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product/fakebridge"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk/internal/product/protocol"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -77,7 +76,7 @@ func TestBridgeProcess_ProcessExitBeforeFinishedStampsTypedBridgeExited(t *testi
 	modelID := snap.Models[0].NativeID
 
 	stream, err := rt.Open(ctx, liveBridgeTextCall(modelID, "exit-1", "sess-exit", "go"),
-		routing.AttemptCandidate{Primary: routing.Primary{Model: modelID}})
+		AttemptCandidate{Primary: Primary{Model: modelID}})
 	require.NoError(t, err)
 	defer func() { _ = stream.Close() }()
 
