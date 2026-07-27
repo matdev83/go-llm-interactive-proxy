@@ -93,6 +93,7 @@ func (p *linuxProc) SignalKill() error {
 	}
 	return unix.Kill(-p.pgid, unix.SIGKILL)
 }
+
 func (p *linuxProc) GracefulStop(timeout time.Duration) error {
 	if p.cmd.Process == nil {
 		return nil
@@ -114,6 +115,7 @@ func (p *linuxProc) GracefulStop(timeout time.Duration) error {
 		return p.err
 	}
 }
+
 func (p *linuxProc) Wait() error {
 	if p.waited {
 		return p.err
@@ -122,6 +124,7 @@ func (p *linuxProc) Wait() error {
 	p.err = p.cmd.Wait()
 	return p.err
 }
+
 func (p *linuxProc) Close() error {
 	_ = p.SignalKill()
 	err := p.Wait()
