@@ -1,0 +1,16 @@
+# Connector release metadata — packaging indexes are generated from this file.
+schema: golip.connector.release/v1
+plugin_id: io.golip.backend.cursorsdk
+factory_kind: cursorsdk
+module: github.com/matdev83/go-llm-interactive-proxy/connectors/cursorsdk
+command: ./cmd/lip-backend-cursorsdk
+manifest_template: manifest/template.backendplugin.json
+version: 0.1.0
+build_id: localdev
+tag: cursorsdk-v0.1.0
+profiles:
+  - full
+published_root_module: github.com/matdev83/go-llm-interactive-proxy
+replace_policy: development-replace-to-monorepo-root
+private_companions:
+  - bridge-node

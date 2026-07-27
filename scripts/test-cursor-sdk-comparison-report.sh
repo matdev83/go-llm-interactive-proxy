@@ -2,7 +2,7 @@
 # ACP vs Cursor SDK comparison report (offline/synthetic by default; no credentials).
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$root"
+cd "$root/connectors/cursorsdk"
 
-go test -count=1 ./internal/plugins/backends/cursorsdk/comparison/...
-go run ./internal/plugins/backends/cursorsdk/comparison/cmd/report -format=markdown
+GOWORK=off go test -count=1 ./internal/product/comparison/...
+GOWORK=off go run ./internal/product/comparison/cmd/report -format=markdown

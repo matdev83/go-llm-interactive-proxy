@@ -16,7 +16,7 @@ type UpstreamAPIKeys struct {
 	OpenAI    []string
 	Anthropic []string
 	Gemini    []string
-	// Cursor is an optional composition-root default for experimental cursorsdk
+	// Cursor is an optional composition-root default for external cursorsdk connector
 	// helpers (CURSOR_API_KEY). It is not part of the essential backend table;
 	// optional connectors still receive credentials via plugin YAML / secrets.
 	Cursor string
@@ -25,7 +25,7 @@ type UpstreamAPIKeys struct {
 // ResolveUpstreamAPIKeysFromEnv reads OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY
 // plus numbered suffixes until the first missing or empty value. The bare env var fills
 // the first slot; OpenAI/Anthropic/Gemini read suffixes starting at _2.
-// CURSOR_API_KEY is a single non-numbered optional default for experimental cursorsdk
+// CURSOR_API_KEY is a single non-numbered optional default for external cursorsdk connector
 // helpers retained outside EssentialBackendBundle.
 // Migrated external connectors (OpenRouter, NVIDIA, Hugging Face, Ollama, local runtimes,
 // OpenCode, Codex) receive credentials only via plugin config YAML / secrets.

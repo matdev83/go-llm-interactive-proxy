@@ -166,8 +166,8 @@ test-fuzz:
 	cd connector-support/acp && GOWORK=off $(FUZZ_WRAPPER) -fuzz=FuzzParseNDJSONLine$$ -fuzztime=$(FUZZTIME) -run=^$$ .
 	cd connector-support/acp && GOWORK=off $(FUZZ_WRAPPER) -fuzz=FuzzMapSessionUpdateToEvents$$ -fuzztime=$(FUZZTIME) -run=^$$ .
 	cd connector-support/acp && GOWORK=off $(FUZZ_WRAPPER) -fuzz=FuzzMergeHandshakeProfileExtensions$$ -fuzztime=$(FUZZTIME) -run=^$$ .
-	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeLine$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/cursorsdk/protocol
-	$(FUZZ_WRAPPER) -fuzz=FuzzMapBridgeEvent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/cursorsdk
+	cd connectors/cursorsdk && GOWORK=off $(FUZZ_WRAPPER) -fuzz=FuzzDecodeLine$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/product/protocol
+	cd connectors/cursorsdk && GOWORK=off $(FUZZ_WRAPPER) -fuzz=FuzzMapBridgeEvent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/product
 	$(FUZZ_WRAPPER) -fuzz=FuzzHookMutationValidators$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/hooks
 	$(FUZZ_WRAPPER) -fuzz=FuzzManifest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/infra/backendplugins/manifest
 	$(FUZZ_WRAPPER) -fuzz=FuzzServerFrame$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/backendplugin

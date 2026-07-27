@@ -36,8 +36,8 @@ $allowed = @(
     # ACP stdio transport: owned stdout reader + stderr drain (shared helper parity).
     "connector-support/acp/transport_stdio.go"
     "internal/plugins/backends/acp/transport_stdio.go"
-    "internal/plugins/backends/cursorsdk/bridge_process.go"
-    "internal/plugins/backends/cursorsdk/fakebridge/harness.go"
+    "connectors/cursorsdk/internal/product/bridge_process.go"
+    "connectors/cursorsdk/internal/product/fakebridge/harness.go"
     "internal/core/terminalwork/app/processor.go"
     "internal/core/terminalwork/app/ambiguous_append_reconciler.go"
     "cmd/lipstd/reload_signal_adapter_unix.go"

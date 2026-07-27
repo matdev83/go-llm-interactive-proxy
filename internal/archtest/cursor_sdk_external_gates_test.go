@@ -10,16 +10,15 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-// Cursor SDK merge posture: origin/main landed an in-tree experimental adapter
-// under internal/plugins/backends/cursorsdk; the product direction remains an
-// external connectors/cursorsdk executable. These gates keep both facts honest.
+// Cursor SDK delivery is an external connectors/cursorsdk artifact. These gates
+// keep the forbidden root-tree path absent and optional composition honest.
 
-func TestCursorSDK_experimentalRootAdapterMayExistOutsideEssential(t *testing.T) {
+func TestCursorSDK_forbiddenInternalPathAbsent(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
 	path := filepath.Join(root, "internal", "plugins", "backends", "cursorsdk")
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("experimental in-tree cursorsdk adapter missing: %v", err)
+	if _, err := os.Stat(path); err == nil {
+		t.Fatal("forbidden path exists: internal/plugins/backends/cursorsdk")
 	}
 	for _, e := range standardplugins.EssentialBackendBundle(standardplugins.UpstreamAPIKeys{}).Backends {
 		if e.ID == "cursorsdk" {
@@ -31,9 +30,20 @@ func TestCursorSDK_experimentalRootAdapterMayExistOutsideEssential(t *testing.T)
 			t.Fatal("cursorsdk must not be in StandardBackendBundle")
 		}
 	}
-	reg := standardplugins.ExperimentalCursorSDKRegistration(standardplugins.UpstreamAPIKeys{})
-	if strings.TrimSpace(reg.ID) != "cursorsdk" {
-		t.Fatalf("ExperimentalCursorSDKRegistration id=%q want cursorsdk", reg.ID)
+}
+
+func TestCursorSDK_connectorModulePresent(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	for _, rel := range []string{
+		filepath.Join("connectors", "cursorsdk", "go.mod"),
+		filepath.Join("connectors", "cursorsdk", "release.yaml"),
+		filepath.Join("connectors", "cursorsdk", "manifest", "template.backendplugin.json"),
+		filepath.Join("connectors", "cursorsdk", "bridge-node", "package.json"),
+	} {
+		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
+			t.Fatalf("missing %s: %v", rel, err)
+		}
 	}
 }
 

@@ -190,4 +190,4 @@ Spec-check (this task) asserts the **specification text** encodes these gates be
 
 ## Merge note (2026-07-27T00:45:00+02:00)
 
-After merging `origin/main`, the repository temporarily retains an in-tree experimental `cursorsdk` package for continuity of main's implemented bridge/tests. It is **not** part of `EssentialBackendBundle`. Composition roots that need it must opt in explicitly; discovered external connectors remain the long-term delivery path described above. Versioned runtime config reload / ProcessServices from main are orthogonal and take precedence for runtime APIs.
+After merging `origin/main`, the temporary in-tree experimental `cursorsdk` package under `internal/plugins/backends/cursorsdk` has been externalized to `connectors/cursorsdk` (independent module + `bridge-node` private companion). It is **not** part of `EssentialBackendBundle`. Operators obtain the kind through manifest-driven discovery; root static registration remains forbidden. Versioned runtime config reload / ProcessServices from main are orthogonal and take precedence for runtime APIs.

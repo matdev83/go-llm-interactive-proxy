@@ -1,13 +1,14 @@
 # Cursor SDK backend (experimental)
 
-The `cursorsdk` backend is an **experimental**, separately routable Cursor connector that drives a project-owned Node bridge over exact `@cursor/sdk` **1.0.23**. It does **not** replace `cursorcliacp`. ACP remains registered and independently selectable. There is no connector-local fallback between the two.
+The `cursorsdk` backend is an **experimental**, separately routable Cursor connector delivered as the external module `connectors/cursorsdk` (manifest-discovered executable plugin + `bridge-node` private companion over exact `@cursor/sdk` **1.0.23**). It does **not** replace `cursorcliacp`. ACP remains independently selectable. There is no connector-local fallback between the two.
 
-Operator sample: [`config/examples/cursor-sdk-experimental.yaml`](../config/examples/cursor-sdk-experimental.yaml). Companion bridge notes: [`internal/plugins/backends/cursorsdk/bridge/README.md`](../internal/plugins/backends/cursorsdk/bridge/README.md).
+Operator sample: [`config/examples/cursor-sdk-experimental.yaml`](../config/examples/cursor-sdk-experimental.yaml). Companion bridge notes: [`connectors/cursorsdk/bridge-node/README.md`](../connectors/cursorsdk/bridge-node/README.md).
 
 ## Status
 
-- Experimental and **non-default**. Not part of `lipsdk.StandardDistributionRequirements`.
-- Local-only (`BackendAccessLocalOnly`): single-user loopback only. Rejected under `access.mode: multi_user`.
+- Experimental and **non-default**. Not part of `lipsdk.StandardDistributionRequirements` or `EssentialBackendBundle`.
+- Delivered only as `connectors/cursorsdk` (closed manifest + digest-bound executable). Root-static registration is forbidden.
+- Local-only (`BackendAccessLocalOnly` / `access_scope: local_only`): single-user loopback only. Rejected under `access.mode: multi_user`.
 - Future default switch or ACP deprecation requires a separate reviewed migration; this feature retains both connectors.
 
 ## Install the bridge (manual)
@@ -25,7 +26,7 @@ Prerequisites:
 From the repo:
 
 ```bash
-cd internal/plugins/backends/cursorsdk/bridge
+cd connectors/cursorsdk/bridge-node
 npm ci
 npm run typecheck
 npm test

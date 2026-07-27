@@ -13,9 +13,9 @@ This runs schema/redaction tests and prints a bounded Markdown report from the *
 Optional:
 
 ```bash
-go run ./internal/plugins/backends/cursorsdk/comparison/cmd/report -format=json
-go run ./internal/plugins/backends/cursorsdk/comparison/cmd/report -format=markdown -out=temp
-go run ./internal/plugins/backends/cursorsdk/comparison/cmd/report -fixture=./safe-input.json
+go run ./connectors/cursorsdk/internal/product/comparison/cmd/report -format=json
+go run ./connectors/cursorsdk/internal/product/comparison/cmd/report -format=markdown -out=temp
+go run ./connectors/cursorsdk/internal/product/comparison/cmd/report -fixture=./safe-input.json
 ```
 
 Do **not** commit generated report artifacts. Use stdout or a temp file. The docs example path above is relative on purpose; absolute paths are rejected in report inputs.

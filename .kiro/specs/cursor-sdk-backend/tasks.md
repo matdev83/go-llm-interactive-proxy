@@ -91,4 +91,4 @@ Spec-driven product implementation remains pending. Paths below target the **ext
 
 ## Merge note (2026-07-27T00:45:00+02:00)
 
-Main completed substantial in-tree `internal/plugins/backends/cursorsdk` work (checked tasks on main). This branch's open external-connector task list remains the product path. Treat main's completed in-tree evidence as reusable material for `connectors/cursorsdk` externalization rather than as approval to keep optional connectors in the essential/static root table.
+Main completed substantial in-tree `internal/plugins/backends/cursorsdk` work (checked tasks on main). That tree has been moved to `connectors/cursorsdk` on the hybrid connector branch. Remaining open tasks below continue the external-connector checklist (ABI conformance polish, packaging proofs, host e2e). Do not reintroduce optional connectors into the essential/static root table.
