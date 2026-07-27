@@ -3,8 +3,11 @@ package archtest
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestBackendPluginReleaseGates_makefileAndCIWired(t *testing.T) {
@@ -67,10 +70,38 @@ func TestBackendPluginReleaseGates_makefileAndCIWired(t *testing.T) {
 	if !strings.Contains(text, "make backend-plugin-release-gates") {
 		t.Fatal("workflow must run make backend-plugin-release-gates")
 	}
-	for _, osName := range []string{"ubuntu-latest", "macos-latest", "windows-latest"} {
-		if !strings.Contains(text, osName) {
-			t.Fatalf("workflow must include %s runner", osName)
-		}
+	// Full installed-plugin release gates run only where manifests advertise
+	// native support (Linux + Windows). Darwin is not advertised by connector
+	// templates; macOS coverage stays in focused native/packaging workflows.
+	var wfDoc struct {
+		Jobs map[string]struct {
+			Strategy struct {
+				Matrix struct {
+					OS []string `yaml:"os"`
+				} `yaml:"matrix"`
+			} `yaml:"strategy"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(body, &wfDoc); err != nil {
+		t.Fatalf("parse release-gates workflow: %v", err)
+	}
+	job, ok := wfDoc.Jobs["release-gates"]
+	if !ok {
+		t.Fatal("release-gates workflow missing release-gates job")
+	}
+	wantOS := []string{"ubuntu-latest", "windows-latest"}
+	gotOS := job.Strategy.Matrix.OS
+	if !slices.Equal(gotOS, wantOS) {
+		t.Fatalf("release-gates matrix os must be exactly %v; got %v", wantOS, gotOS)
+	}
+
+	crossWF := filepath.Join(root, filepath.FromSlash(".github/workflows/backend-plugin-cross-platform.yml"))
+	crossBody, err := os.ReadFile(crossWF)
+	if err != nil {
+		t.Fatalf("cross-platform workflow required for macOS coverage guard: %v", err)
+	}
+	if !strings.Contains(string(crossBody), "macos-latest") {
+		t.Fatal("macOS must remain in backend-plugin-cross-platform matrix when omitted from full release gates")
 	}
 
 	blocker := filepath.Join(root, filepath.FromSlash(".kiro/specs/backend-connector-plugin-architecture/phase9-task95-external-release-blocker.md"))
