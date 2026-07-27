@@ -539,10 +539,7 @@ func oversizedJSONRPCBody(t *testing.T, id string) []byte {
 	t.Helper()
 	prefix := "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"method\":\"session/prompt\",\"params\":{\"p\":\""
 	suffix := "\"}}"
-	need := maxStdioLineBytes - len(prefix) - len(suffix) + 1
-	if need < 1 {
-		need = 1
-	}
+	need := max(1, maxStdioLineBytes-len(prefix)-len(suffix)+1)
 	return []byte(prefix + strings.Repeat("a", need) + suffix)
 }
 
