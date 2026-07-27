@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
 )
 
@@ -150,5 +151,5 @@ func writePublicMultiUserConfig(t *testing.T) string {
 	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return path
+	return bpkit.MaterializeExampleConfig(t, path)
 }

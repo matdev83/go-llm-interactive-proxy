@@ -48,10 +48,17 @@ func StrictDecode(raw []byte) (*Config, LoadCategory, error) {
 	var cfg Config
 	if err := dec.Decode(&cfg); err != nil {
 		msg := err.Error()
-		if strings.Contains(msg, "field") && strings.Contains(msg, "not found") {
-			return nil, CategoryUnknownCoreField, &LoadError{Category: CategoryUnknownCoreField}
+		switch {
+		case strings.Contains(msg, "field") && strings.Contains(msg, "not found"):
+			return nil, CategoryUnknownCoreField, &LoadError{Category: CategoryUnknownCoreField, err: err}
+		case strings.Contains(msg, "unknown config key"):
+			// Custom UnmarshalYAML unknown-key rejections (e.g. plugins.backend_discovery)
+			// are classified with the unknown-field category and preserve the cause for
+			// errors.Is / Error() inspection.
+			return nil, CategoryUnknownCoreField, &LoadError{Category: CategoryUnknownCoreField, err: err}
+		default:
+			return nil, CategoryMalformedYAML, &LoadError{Category: CategoryMalformedYAML, err: err}
 		}
-		return nil, CategoryMalformedYAML, &LoadError{Category: CategoryMalformedYAML}
 	}
 
 	var extra yaml.Node

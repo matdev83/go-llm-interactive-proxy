@@ -16,9 +16,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Launch uses a duplicated held descriptor via /proc/self/fd/%d so the caller
-// may Close the VerifiedArtifact without affecting the generation. Shell is
-// never used. Env must already be allowlisted by the supervisor.
+// Launch duplicates the held verified descriptor and executes it through a
+// child ExtraFiles slot via /proc/self/fd/%d. The executable FD is appended
+// after channel ExtraFiles so os/exec's FD-3+ remapping keeps channelChildFD
+// stable and the exec path resolves to the verified bytes (not the channel).
+// Shell is never used. Env must already be allowlisted by the supervisor.
 func (PlatformLauncher) Launch(ctx context.Context, spec LaunchSpec) (Process, error) {
 	if spec.Artifact == nil || spec.Artifact.OpenFile() == nil {
 		return nil, ReasonArtifactRequired
@@ -37,11 +39,17 @@ func (PlatformLauncher) Launch(ctx context.Context, spec LaunchSpec) (Process, e
 		_ = unix.Close(dupFD)
 		return nil, fmt.Errorf("%w: newfile", ReasonLaunchFailed)
 	}
-	fdPath := "/proc/self/fd/" + strconv.Itoa(int(held.Fd()))
+	extras := append([]*os.File{}, spec.ExtraFiles...)
+	// os/exec places ExtraFiles[i] at child FD 3+i. Append the executable last
+	// so channel ExtraFiles[0] remains FD 3 (channelChildFD) while the exec
+	// path targets the post-remap child FD for the held descriptor.
+	execChildFD := 3 + len(extras)
+	extras = append(extras, held)
+	fdPath := "/proc/self/fd/" + strconv.Itoa(execChildFD)
 	cmd := exec.CommandContext(ctx, fdPath)
 	cmd.Dir = spec.WorkDir
 	cmd.Env = append([]string{}, spec.Env...)
-	cmd.ExtraFiles = append([]*os.File{}, spec.ExtraFiles...)
+	cmd.ExtraFiles = extras
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {

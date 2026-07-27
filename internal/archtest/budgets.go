@@ -46,7 +46,7 @@ type PackageTreeBudget struct {
 
 // PackageTreeBudgets locks exact-measured convergence tree ceilings.
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 10267},
+	{Tree: "internal/infra/runtimebundle", Max: 10280},
 	{Tree: "internal/stdhttp", Max: 4313},
 	{Tree: "cmd/lipstd", Max: 954},
 	{Tree: "pkg/lipruntime", Max: 537},
@@ -61,10 +61,10 @@ type LineBudget struct {
 // LineBudgets covers core/pluginreg plus the convergence trees (kept in sync
 // with PackageTreeBudgets for overlapping entries).
 var LineBudgets = []LineBudget{
-	{Dir: "internal/core", Max: 68754},
+	{Dir: "internal/core", Max: 68761},
 	{Dir: "internal/pluginreg", Max: 939},
 	{Dir: "internal/stdhttp", Max: 4313},
-	{Dir: "internal/infra/runtimebundle", Max: 10267},
+	{Dir: "internal/infra/runtimebundle", Max: 10280},
 	{Dir: "cmd/lipstd", Max: 954},
 	{Dir: "pkg/lipruntime", Max: 537},
 }
@@ -146,7 +146,7 @@ const RuntimeConvergenceMinNetLineReduction = 800
 
 // ConnectorArchitectureOverlayMax is the exact-measured ADR 0008 connector
 // architecture overlay ratchet (non-test lines in structurally selected files).
-const ConnectorArchitectureOverlayMax = 933
+const ConnectorArchitectureOverlayMax = 946
 
 // AffectedSurfaceBaseline locks one Req 11.5 surface baseline.
 type AffectedSurfaceBaseline struct {

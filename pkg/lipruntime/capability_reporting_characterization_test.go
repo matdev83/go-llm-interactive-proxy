@@ -3,10 +3,9 @@ package lipruntime_test
 import (
 	"context"
 	"io"
-	"path/filepath"
-	"runtime"
 	"testing"
 
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
 	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 )
@@ -16,11 +15,7 @@ import (
 // for the standard dogfood composition.
 func TestCapabilityReporting_DogfoodFacadeHostSnapshot(t *testing.T) {
 	t.Parallel()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	path := filepath.Join(filepath.Dir(file), "..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	path := bpkit.WriteDogfoodLocalStubConfig(t)
 	ctx := context.Background()
 	rt, err := lipruntime.Build(ctx, lipruntime.Options{ConfigPath: path, LogWriter: io.Discard})
 	if err != nil {

@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
+	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -22,7 +23,7 @@ import (
 func TestHostBuild_ServeUsesSingleHostBuildCall(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	cfgPath := bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml"))
 
 	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
 		ConfigPath:      cfgPath,
@@ -162,7 +163,7 @@ func writeServeMarkerConfig(t *testing.T, address string, mode accessmode.Mode) 
 	if err := os.WriteFile(path, applyServeMarker(t, string(base), address, mode), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return path
+	return bpkit.MaterializeExampleConfig(t, path)
 }
 
 func applyServeMarker(t *testing.T, text, address string, mode accessmode.Mode) []byte {

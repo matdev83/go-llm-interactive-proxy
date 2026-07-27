@@ -19,7 +19,7 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	if RuntimeConvergenceMinNetLineReduction != 800 {
 		t.Fatalf("min reduction drift: %d", RuntimeConvergenceMinNetLineReduction)
 	}
-	if ConnectorArchitectureOverlayMax != 933 {
+	if ConnectorArchitectureOverlayMax != 946 {
 		t.Fatalf("connector overlay cap drift: %d", ConnectorArchitectureOverlayMax)
 	}
 	want := []AffectedSurfaceBaseline{

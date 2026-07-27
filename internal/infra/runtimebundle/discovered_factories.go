@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/adapter"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/catalog"
@@ -154,10 +155,18 @@ func buildDiscoveredBackend(
 		return pluginreg.BackendBuildResult{}, fmt.Errorf("runtimebundle: discovered backend %q: encode config: %w", factoryKind, err)
 	}
 
+	// Per-instance overlap across generations must not collide on Host's
+	// InstanceID map: mint a unique activation handle while dialing with the
+	// logical configured instance id (req 8.8 / reload candidate coexistence).
+	hostInstanceID := instanceID
+	if export.Model == processhost.ProcessModelPerInstance {
+		hostInstanceID = fmt.Sprintf("%s#%d", instanceID, discoveredActivationSeq.Add(1))
+	}
+
 	var session ExecuteSession
 	var profile backendplugin.ResolvedProfile
 	act, err := host.Activate(context.Background(), processhost.ActivateRequest{
-		InstanceID:  instanceID,
+		InstanceID:  hostInstanceID,
 		Artifact:    export.Artifact,
 		Model:       export.Model,
 		Sharing:     export.Sharing,
@@ -215,6 +224,10 @@ func buildDiscoveredBackend(
 	}
 	return pluginreg.BackendBuildResult{Backend: br.Backend, Cleanup: cleanup}, nil
 }
+
+// discoveredActivationSeq mints unique Host Activate handles for per_instance
+// overlap across candidate generations that share a logical instance id.
+var discoveredActivationSeq atomic.Uint64
 
 func defaultDialSession(ctx context.Context, req DialSessionRequest) (ExecuteSession, backendplugin.ResolvedProfile, error) {
 	return adapter.DialConfiguredSession(ctx, req.Conn, req.InstanceID, req.FactoryKind, req.ConfigYAML, req.Secrets, req.Policy)
