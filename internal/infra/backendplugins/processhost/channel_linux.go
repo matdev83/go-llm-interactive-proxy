@@ -91,11 +91,13 @@ func (u *unixPairListener) Accept(ctx context.Context) (net.Conn, PeerIdentity, 
 		return nil, PeerIdentity{}, err
 	}
 	peer.Generation = u.generation
-	if u.expectedPID > 0 && peer.PID != u.expectedPID {
-		_ = u.conn.Close()
-		u.conn = nil
-		u.closed = true
-		return nil, PeerIdentity{}, ReasonPeerRejected
+	// SO_PEERCRED on socketpair(2) reports the credentials of the process that
+	// created the pair (the host), not the child that inherited the peer FD.
+	// Trust comes from FD inheritance via ExtraFiles; override PID with the
+	// known child PID so authorizePeer/ContainsPID sees the correct process.
+	// UID from SO_PEERCRED remains valid and is still checked below.
+	if u.expectedPID > 0 {
+		peer.PID = u.expectedPID
 	}
 	if u.expectedUID >= 0 && peer.UID != u.expectedUID {
 		_ = u.conn.Close()
