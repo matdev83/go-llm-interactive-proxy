@@ -47,6 +47,9 @@ $allowed = @(
     "internal/infra/backendplugins/processhost/launch_linux.go"
     "internal/infra/backendplugins/processhost/launch_windows.go"
     "pkg/lipsdk/backendplugin/server.go"
+    # ForwardExecute: one bounded cancel watcher per plugin Execute stream, disarmed
+    # via stopWatch when the pump returns (review finding M3 remediation).
+    "pkg/lipsdk/backendplugin/forward_execute.go"
 )
 
 $raw = @(rg --files-with-matches --glob "!*_test.go" "^\s+go\s" internal pkg cmd 2>$null)
