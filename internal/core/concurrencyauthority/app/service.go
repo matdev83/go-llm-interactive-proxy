@@ -244,16 +244,18 @@ func acquiredLeaseIDs(leases []AdmittedLease) []string {
 }
 
 // rollbackAcquired idempotently releases leases acquired earlier in the same Admit.
+// Rollback must complete even when the trigger is client cancellation.
 func (s *Service) rollbackAcquired(ctx context.Context, leaseIDs []string, requestID string, now time.Time) {
 	if s == nil || s.store == nil {
 		return
 	}
+	releaseCtx := context.WithoutCancel(ctx)
 	for _, id := range leaseIDs {
 		id = strings.TrimSpace(id)
 		if id == "" {
 			continue
 		}
-		_, _ = s.store.Release(ctx, ReleaseCommand{
+		_, _ = s.store.Release(releaseCtx, ReleaseCommand{
 			LeaseID:   id,
 			RequestID: requestID,
 			Reason:    "admit_deny_rollback",

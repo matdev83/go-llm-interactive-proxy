@@ -33,6 +33,8 @@ func TestParity_OpenAICompat_toolCallStreamFinishContract(t *testing.T) {
 			"EventToolCallFinished",
 			"call_a", // multi-tool index order lock
 			"call_b",
+			"call_idonly", // id-only ToolCallStarted split-chunk lock
+			"call_split",  // id-then-name split-chunk lock
 		} {
 			if !strings.Contains(text, needle) {
 				t.Fatalf("%s missing dual-mapper finish contract needle %q", path, needle)

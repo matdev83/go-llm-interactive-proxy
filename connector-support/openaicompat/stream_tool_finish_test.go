@@ -102,6 +102,69 @@ func TestDecodeChatSSE_toolCallFinishSemantics(t *testing.T) {
 	}
 }
 
+// idOnlyToolCallSSE emits ToolCallStarted on an id-only tool_call chunk (no name).
+func idOnlyToolCallSSE() string {
+	return strings.Join([]string{
+		`data: {"id":"cc_idonly","choices":[{"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_idonly","type":"function","function":{}}]},"finish_reason":null}]}`,
+		`data: {"id":"cc_idonly","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"q\":1}"}}]},"finish_reason":null}]}`,
+		`data: {"id":"cc_idonly","choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
+		`data: [DONE]`,
+		"",
+	}, "\n")
+}
+
+// idThenNameToolCallSSE starts with id-only then delivers the name in a later chunk.
+func idThenNameToolCallSSE() string {
+	return strings.Join([]string{
+		`data: {"id":"cc_split","choices":[{"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_split","type":"function","function":{}}]},"finish_reason":null}]}`,
+		`data: {"id":"cc_split","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"get_weather","arguments":"{\"city\""}}]},"finish_reason":null}]}`,
+		`data: {"id":"cc_split","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":":\"NYC\"}"}}]},"finish_reason":null}]}`,
+		`data: {"id":"cc_split","choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
+		`data: [DONE]`,
+		"",
+	}, "\n")
+}
+
+func TestDecodeChatSSE_toolCallStartedOnIDOnlyChunk(t *testing.T) {
+	t.Parallel()
+	events := collectChatSSE(t, idOnlyToolCallSSE())
+	lifecycle := toolLifecycle(events)
+
+	want := []lipapi.Event{
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "call_idonly", ToolName: ""},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_idonly", Delta: `{"q":1}`},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "call_idonly"},
+	}
+	if len(lifecycle) != len(want) {
+		t.Fatalf("tool lifecycle len=%d want %d\ngot=%+v", len(lifecycle), len(want), lifecycle)
+	}
+	for i := range want {
+		got, w := lifecycle[i], want[i]
+		if got.Kind != w.Kind || got.ToolCallID != w.ToolCallID || got.ToolName != w.ToolName || got.Delta != w.Delta {
+			t.Fatalf("lifecycle[%d]=%+v want %+v", i, got, w)
+		}
+	}
+}
+
+func TestDecodeChatSSE_toolCallStartedOnceOnIDThenNameSplit(t *testing.T) {
+	t.Parallel()
+	events := collectChatSSE(t, idThenNameToolCallSSE())
+	lifecycle := toolLifecycle(events)
+
+	started := 0
+	for _, ev := range lifecycle {
+		if ev.Kind == lipapi.EventToolCallStarted {
+			started++
+			if ev.ToolCallID != "call_split" || ev.ToolName != "" {
+				t.Fatalf("Started=%+v want id=call_split name=\"\"", ev)
+			}
+		}
+	}
+	if started != 1 {
+		t.Fatalf("ToolCallStarted count=%d want exactly one (essential does not re-emit on name-only chunk)", started)
+	}
+}
+
 func TestDecodeChatSSE_multiToolCallFinishByIndex(t *testing.T) {
 	t.Parallel()
 	events := collectChatSSE(t, multiToolCallFinishSSE())
