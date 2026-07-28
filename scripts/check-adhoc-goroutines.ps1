@@ -47,7 +47,8 @@ $allowed = @(
     "internal/infra/backendplugins/processhost/launch_linux.go"
     "internal/infra/backendplugins/processhost/launch_windows.go"
     "pkg/lipsdk/backendplugin/server.go"
-    # Backend plugin SDK Execute bridge: one owned Recv pump, joined before return.
+    # ForwardExecute: one bounded cancel watcher per plugin Execute stream, disarmed
+    # via stopWatch when the pump returns (review finding M3 remediation).
     "pkg/lipsdk/backendplugin/forward_execute.go"
 )
 

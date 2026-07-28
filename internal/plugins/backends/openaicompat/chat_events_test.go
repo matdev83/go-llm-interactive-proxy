@@ -458,12 +458,89 @@ func TestHandleChatChunk_toolCallArgsBufferedUntilID(t *testing.T) {
 	}
 }
 
+func TestHandleChatChunk_toolCallStartedOnIDOnlyChunk(t *testing.T) {
+	t.Parallel()
+	chunks := []string{
+		`{"id":"cc_idonly","choices":[{"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_idonly","type":"function","function":{}}]},"finish_reason":null}]}`,
+		`{"id":"cc_idonly","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"q\":1}"}}]},"finish_reason":null}]}`,
+		`{"id":"cc_idonly","choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
+	}
+
+	s := &chatStream{pending: stream.NewPendingEventQueue(0)}
+	for _, raw := range chunks {
+		var ch openai.ChatCompletionChunk
+		if err := json.Unmarshal([]byte(raw), &ch); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.handleChunk(ch); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	toolEvents := []lipapi.Event{}
+	for _, ev := range stream.DrainPending(&s.pending) {
+		switch ev.Kind {
+		case lipapi.EventToolCallStarted, lipapi.EventToolCallArgsDelta, lipapi.EventToolCallFinished:
+			toolEvents = append(toolEvents, ev)
+		}
+	}
+	want := []lipapi.Event{
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "call_idonly", ToolName: ""},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_idonly", Delta: `{"q":1}`},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "call_idonly"},
+	}
+	if len(toolEvents) != len(want) {
+		t.Fatalf("tool events len=%d want %d\ngot=%+v", len(toolEvents), len(want), toolEvents)
+	}
+	for i := range want {
+		got, w := toolEvents[i], want[i]
+		if got.Kind != w.Kind || got.ToolCallID != w.ToolCallID || got.ToolName != w.ToolName || got.Delta != w.Delta {
+			t.Fatalf("toolEvents[%d]=%+v want %+v", i, got, w)
+		}
+	}
+}
+
+func TestHandleChatChunk_toolCallStartedOnceOnIDThenNameSplit(t *testing.T) {
+	t.Parallel()
+	chunks := []string{
+		`{"id":"cc_split","choices":[{"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_split","type":"function","function":{}}]},"finish_reason":null}]}`,
+		`{"id":"cc_split","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"get_weather","arguments":"{\"city\""}}]},"finish_reason":null}]}`,
+		`{"id":"cc_split","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":":\"NYC\"}"}}]},"finish_reason":null}]}`,
+		`{"id":"cc_split","choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
+	}
+
+	s := &chatStream{pending: stream.NewPendingEventQueue(0)}
+	for _, raw := range chunks {
+		var ch openai.ChatCompletionChunk
+		if err := json.Unmarshal([]byte(raw), &ch); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.handleChunk(ch); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	started := 0
+	for _, ev := range stream.DrainPending(&s.pending) {
+		if ev.Kind != lipapi.EventToolCallStarted {
+			continue
+		}
+		started++
+		if ev.ToolCallID != "call_split" || ev.ToolName != "" {
+			t.Fatalf("Started=%+v want id=call_split name=\"\"", ev)
+		}
+	}
+	if started != 1 {
+		t.Fatalf("ToolCallStarted count=%d want exactly one", started)
+	}
+}
+
 func TestHandleChatChunk_multiToolCallFinishByIndex(t *testing.T) {
 	t.Parallel()
 	// Mirrors connector-support/openaicompat.TestDecodeChatSSE_multiToolCallFinishByIndex.
 	chunks := []string{
-		`{"id":"cc_multi","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"alpha"}}]},"finish_reason":null}]}`,
-		`{"id":"cc_multi","choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_b","type":"function","function":{"name":"beta"}}]},"finish_reason":null}]}`,
+		`{"id":"cc_multi","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_ma","type":"function","function":{"name":"alpha"}}]},"finish_reason":null}]}`,
+		`{"id":"cc_multi","choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_mb","type":"function","function":{"name":"beta"}}]},"finish_reason":null}]}`,
 		`{"id":"cc_multi","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"a\":1}"}}]},"finish_reason":null}]}`,
 		`{"id":"cc_multi","choices":[{"delta":{"tool_calls":[{"index":1,"function":{"arguments":"{\"b\":2}"}}]},"finish_reason":null}]}`,
 		`{"id":"cc_multi","choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
@@ -488,12 +565,12 @@ func TestHandleChatChunk_multiToolCallFinishByIndex(t *testing.T) {
 		}
 	}
 	want := []lipapi.Event{
-		{Kind: lipapi.EventToolCallStarted, ToolCallID: "call_a", ToolName: "alpha"},
-		{Kind: lipapi.EventToolCallStarted, ToolCallID: "call_b", ToolName: "beta"},
-		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_a", Delta: `{"a":1}`},
-		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_b", Delta: `{"b":2}`},
-		{Kind: lipapi.EventToolCallFinished, ToolCallID: "call_a"},
-		{Kind: lipapi.EventToolCallFinished, ToolCallID: "call_b"},
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "call_ma", ToolName: "alpha"},
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "call_mb", ToolName: "beta"},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_ma", Delta: `{"a":1}`},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_mb", Delta: `{"b":2}`},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "call_ma"},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "call_mb"},
 	}
 	if len(toolEvents) != len(want) {
 		t.Fatalf("tool events len=%d want %d\ngot=%+v", len(toolEvents), len(want), toolEvents)

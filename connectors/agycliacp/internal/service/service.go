@@ -115,6 +115,9 @@ func (i *instance) Close(context.Context) error {
 
 func (i *instance) Execute(stream backendplugin.ExecuteStream) error {
 	return backendplugin.ForwardExecute(stream, func(ctx context.Context, _ backendplugin.Invocation, call lipapi.Call) (lipapi.ManagedEventStream, error) {
+		if i == nil || i.eng == nil {
+			return nil, fmt.Errorf("agycliacp: engine not configured")
+		}
 		return i.eng.Open(ctx, &call)
 	})
 }

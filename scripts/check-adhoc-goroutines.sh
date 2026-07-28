@@ -26,6 +26,8 @@ mapfile -t hits < <(
 # listen/serve worker (task 5.3; separate from data-plane generation host).
 # cmd/lipstd/reload_signal_adapter_unix.go: one process-owned SIGHUP worker
 # delivering bounded reload triggers into the coordinator sink (task 5.2).
+# pkg/lipsdk/backendplugin/forward_execute.go: one bounded cancel watcher per
+# plugin Execute stream, disarmed via stopWatch when the pump returns (M3).
 bad=()
 for f in "${hits[@]}"; do
 	case "$f" in
