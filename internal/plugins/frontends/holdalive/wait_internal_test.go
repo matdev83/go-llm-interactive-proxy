@@ -19,6 +19,8 @@ func (w *recordingWriter) WriteHeader(statusCode int) {
 // When fn ignores ctx, Wait must not block forever on the post-cancel drain: after
 // the drain grace it returns ctx.Err() while fn keeps running (buffered done channel
 // absorbs the late send, so the goroutine does not leak).
+//
+//nolint:paralleltest // stubs package-level cancelDrainGrace
 func TestWait_contextCancelWithCtxIgnoringFnReturnsAfterDrainGrace(t *testing.T) {
 	orig := cancelDrainGrace
 	cancelDrainGrace = 20 * time.Millisecond

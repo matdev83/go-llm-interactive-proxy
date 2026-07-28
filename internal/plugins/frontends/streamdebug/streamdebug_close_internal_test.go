@@ -66,6 +66,7 @@ func (h *ctxCorrHandler) terminal() (ctxCorrRecord, bool) {
 }
 
 func TestClose_LogsTerminalWithCapturedCallDiag(t *testing.T) {
+	t.Parallel()
 	h := &ctxCorrHandler{}
 	log := slog.New(h)
 	call := &lipapi.Call{ID: "call-1"}
@@ -101,6 +102,7 @@ func TestClose_LogsTerminalWithCapturedCallDiag(t *testing.T) {
 }
 
 func TestClose_FallsBackToCallDerivedDiag(t *testing.T) {
+	t.Parallel()
 	h := &ctxCorrHandler{}
 	log := slog.New(h)
 	call := &lipapi.Call{ID: "call-2"}

@@ -96,5 +96,5 @@ func bedrockHTTPStatus(err error) (int, bool) {
 	if res == nil || res.Response == nil {
 		return 0, false
 	}
-	return res.Response.StatusCode, true
+	return res.StatusCode, true
 }
