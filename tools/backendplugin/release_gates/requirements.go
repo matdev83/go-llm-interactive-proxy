@@ -17,7 +17,7 @@ var (
 // parseRequirementIDs reads requirements.md and returns acceptance IDs as N.M
 // from each "### Requirement N" section's numbered acceptance criteria.
 func parseRequirementIDs(root string) ([]string, error) {
-	path := filepath.Join(root, filepath.FromSlash(".kiro/specs/backend-connector-plugin-architecture/requirements.md"))
+	path := filepath.Join(root, filepath.FromSlash(".kiro/specs/archive/backend-connector-plugin-architecture/requirements.md"))
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
