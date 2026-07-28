@@ -217,7 +217,7 @@ func (s *MemoryStore) Attempts(ctx context.Context, q cp.AttemptQuery) (cp.Page[
 	rows := make([]sequenced[cp.AttemptRow], 0)
 	for _, se := range s.events {
 		ev := se.event
-		if ev.Detail == nil {
+		if ev.Attempt() == nil {
 			continue
 		}
 		if !commonFiltersMatch(q.Common, ev, s.unsupportedFields) {
@@ -251,7 +251,7 @@ func (s *MemoryStore) Usage(ctx context.Context, q cp.UsageQuery) (cp.Page[cp.Us
 	rows := make([]sequenced[cp.UsageRow], 0)
 	for _, se := range s.events {
 		ev := se.event
-		if ev.Detail == nil {
+		if ev.Usage() == nil {
 			continue
 		}
 		if !commonFiltersMatch(q.Common, ev, s.unsupportedFields) {
@@ -283,7 +283,7 @@ func (s *MemoryStore) UsageAggregate(ctx context.Context, q cp.UsageAggregateQue
 	seqFor := map[string]int64{}
 	for _, se := range s.events {
 		ev := se.event
-		if ev.Detail == nil {
+		if ev.Usage() == nil {
 			continue
 		}
 		if !commonFiltersMatch(q.Common, ev, s.unsupportedFields) {
@@ -332,7 +332,7 @@ func (s *MemoryStore) PolicyAudit(ctx context.Context, q cp.EvidenceQuery) (cp.P
 			continue
 		}
 		if q.Effect != "" && !isUnsupportedField(s.unsupportedFields, fields.EvidenceEffect) {
-			if ev.Detail == nil || ev.Policy().Effect != q.Effect {
+			if ev.Policy() == nil || ev.Policy().Effect != q.Effect {
 				continue
 			}
 		}

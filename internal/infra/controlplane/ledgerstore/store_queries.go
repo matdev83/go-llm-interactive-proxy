@@ -178,7 +178,7 @@ func (s *DurableStore) Attempts(ctx context.Context, q cp.AttemptQuery) (cp.Page
 		if decodeErr != nil {
 			return cp.Page[cp.AttemptRow]{}, decodeErr
 		}
-		if ev.Detail == nil {
+		if ev.Attempt() == nil {
 			continue
 		}
 		items = append(items, sequenced[cp.AttemptRow]{row: attemptRowFromEvent(ev), seq: r.id})
@@ -237,7 +237,7 @@ func (s *DurableStore) Usage(ctx context.Context, q cp.UsageQuery) (cp.Page[cp.U
 		if decodeErr != nil {
 			return cp.Page[cp.UsageRow]{}, decodeErr
 		}
-		if ev.Detail == nil {
+		if ev.Usage() == nil {
 			continue
 		}
 		if !usageDetailMatchesQuery(ev.Usage(), q, s.unsupportedFields) {
@@ -287,7 +287,7 @@ func (s *DurableStore) UsageAggregate(ctx context.Context, q cp.UsageAggregateQu
 		if decodeErr != nil {
 			return cp.Page[cp.UsageAggregate]{}, decodeErr
 		}
-		if ev.Detail == nil {
+		if ev.Usage() == nil {
 			continue
 		}
 		key, a := aggregateRow(q.GroupBy, ev)
