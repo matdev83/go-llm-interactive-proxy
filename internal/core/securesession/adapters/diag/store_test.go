@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/bunstore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/sqlite"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
 )
@@ -14,9 +14,9 @@ import (
 // and optional usage rollup without exposing write methods to HTTP composition.
 var (
 	_ Store              = (*memory.Store)(nil)
-	_ Store              = (*sqlite.Store)(nil)
+	_ Store              = (*bunstore.Store)(nil)
 	_ SessionUsageRollup = (*memory.Store)(nil)
-	_ SessionUsageRollup = (*sqlite.Store)(nil)
+	_ SessionUsageRollup = (*bunstore.Store)(nil)
 )
 
 // Compile-time: app.Store method set is a superset of diagnostics Store

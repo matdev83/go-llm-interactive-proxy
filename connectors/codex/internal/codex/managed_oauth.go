@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/credpool"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/credpool"
 )
 
 const (

@@ -4,12 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/bunstore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/sqlite"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/storecontract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
@@ -23,23 +24,25 @@ func TestStoreContract_Quarantine_Memory(t *testing.T) {
 	})
 }
 
-var sqliteQuarantineMemSeq atomic.Int64
-
-// TestStoreContract_Quarantine_SQLite uses isolated in-memory databases: no
-// quarantine subtest asserts restart/file persistence (see TestStoreContract_SQLite).
 func TestStoreContract_Quarantine_SQLite(t *testing.T) {
 	t.Parallel()
 	storecontract.RunQuarantineContracts(t, func(t *testing.T) app.Store {
 		t.Helper()
-		id := sqliteQuarantineMemSeq.Add(1)
-		dsn := fmt.Sprintf("file:memsqlitequarantine%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)", id)
-		sqlDB, err := sql.Open("sqlite", dsn)
+		dir, err := os.MkdirTemp("", "securesession-quarantine-")
 		if err != nil {
 			t.Fatal(err)
 		}
-		s, err := sqlite.NewContext(context.Background(), sqlDB)
+		t.Cleanup(func() { _ = os.RemoveAll(dir) })
+		path := filepath.Join(dir, "store.db")
+		ctx, cancel := context.WithTimeout(context.Background(), db.DefaultPostgresOpenMigrateTimeout)
+		defer cancel()
+		bunDB, err := db.OpenSQLiteBun(ctx, path)
 		if err != nil {
-			_ = sqlDB.Close()
+			t.Fatal(err)
+		}
+		s, err := bunstore.NewContext(ctx, bunDB)
+		if err != nil {
+			_ = bunDB.Close()
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = s.Close() })

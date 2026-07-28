@@ -13,8 +13,8 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/catalog"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/checkcfg"
-	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/credpool"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/routingstub"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/credpool"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )

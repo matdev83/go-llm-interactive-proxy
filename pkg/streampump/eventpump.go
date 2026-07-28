@@ -19,6 +19,7 @@ type EventPump[T any] struct {
 	OnEOF    func() (bool, error)
 }
 
+// Recv returns the next canonical event, draining the pending queue before reading wire input.
 func (p EventPump[T]) Recv(ctx context.Context) (lipapi.Event, error) {
 	if ctx == nil {
 		return lipapi.Event{}, lipapi.ErrNilContext

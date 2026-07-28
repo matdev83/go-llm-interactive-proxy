@@ -84,4 +84,28 @@ try {
   Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 }
 
+Write-Host "== acp mirror byte-identical files =="
+$RootAcp = Join-Path $Root "internal/plugins/backends/acp"
+$ConnAcp = Join-Path $Root "connector-support/acp"
+$MirrorFiles = @(
+  "acp_protocol.go", "call_extract_test.go", "call_extract.go", "cancel.go", "client.go",
+  "connector_config_test.go", "doc.go", "handshake.go", "history_transcript_test.go", "history_transcript.go",
+  "invoke_test.go", "invoke.go", "main_test.go", "model_index_test.go", "model_index.go",
+  "process_identity_test.go", "process_identity_unix_test.go", "process_identity_unix.go",
+  "process_identity_windows.go", "process_identity.go", "rpc_error_test.go", "rpc_error.go",
+  "rpc_id.go", "rpc.go", "runtime_pool_claim_test.go", "runtime_pool_ensure_test.go", "runtime_pool_ensure.go",
+  "runtime_pool_test.go", "runtime_pool.go", "server_handler.go", "server_request_test.go",
+  "session_update_test.go", "session.go", "session_update.go", "stderr_sanitize_test.go", "stderr_sanitize.go",
+  "subprocess_protocol.go", "subprocess_spec_test.go", "tool_sink.go", "tool_summary_test.go", "tool_summary.go",
+  "transport_stdio_os_unix.go", "transport_stdio_os_windows.go", "transport_stdio_os.go", "transport_stdio.go",
+  "workspace_test.go", "workspace.go"
+)
+foreach ($f in $MirrorFiles) {
+  $a = Get-FileHash (Join-Path $RootAcp $f)
+  $b = Get-FileHash (Join-Path $ConnAcp $f)
+  if ($a.Hash -ne $b.Hash) {
+    Write-Error "acp mirror drift (expected byte-identical): $f"
+  }
+}
+
 Write-Host "OK backend-plugin-module-checks"
