@@ -81,6 +81,8 @@ __pycache__/
 /codex-history.jsonl
 .letta/
 .opencode/
+/.pi/
+/.pi-subagents/
 
 # Cross-platform QA artifacts (Phase 9.4)
 .golip-crossplatform-matrix.json
