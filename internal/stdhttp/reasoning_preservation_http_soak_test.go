@@ -114,5 +114,5 @@ func soakFail(tp reasoninge2e.TranscriptPlan, idx int, reasonCode string, err er
 			}
 		}
 	}
-	return reasoninge2e.FormatSoakFail(tp, idx, code)
+	return reasoninge2e.FormatSoakFail(tp, idx, code) + reasoninge2e.FormatRetentionDiag(err)
 }

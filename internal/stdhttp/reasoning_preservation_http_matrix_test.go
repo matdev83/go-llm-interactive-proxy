@@ -122,7 +122,7 @@ func executeReasoningMatrixSeed(
 	}
 	plan := tp.Plan()
 	scripted := toRefchatScripted(tp.ScriptedTurns())
-	validators := chatRestoreValidatorsPerTurnStream(plan, turnCount)
+	validators := chatRestoreValidatorsPerTurnStream(plan, turnCount, rpHarnessMaxTurnsPerSession)
 	stack, err := startReasoningPreservationChatStackErr("restore", scripted, validators...)
 	if err != nil {
 		return 0, errors.New(fail(tp, 0, "stack_bootstrap", err))
@@ -241,5 +241,5 @@ func matrixFail(tp reasoninge2e.TranscriptPlan, idx int, reasonCode string, err 
 			}
 		}
 	}
-	return reasoninge2e.FormatMatrixFail(tp, idx, code)
+	return reasoninge2e.FormatMatrixFail(tp, idx, code) + reasoninge2e.FormatRetentionDiag(err)
 }
