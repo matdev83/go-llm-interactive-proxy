@@ -192,7 +192,8 @@ type AdmitResult struct {
 	RenewBefore     time.Duration
 	TTL             time.Duration
 	FailureBehavior domain.FailureBehavior
-	// Leases holds all rule occupancies from this Admit (empty on deny after rollback).
+	// Leases holds all rule occupancies from this Admit. It is empty on deny,
+	// and on error every lease acquired by this Admit is rolled back.
 	Leases []AdmittedLease
 	SetID  string
 }

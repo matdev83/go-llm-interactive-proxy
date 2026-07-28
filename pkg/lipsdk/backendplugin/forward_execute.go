@@ -2,8 +2,10 @@ package backendplugin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -38,7 +40,12 @@ func ForwardExecute(stream ExecuteStream, open OpenManagedStream) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = ms.Close() }()
+	if ms == nil {
+		return fmt.Errorf("backendplugin: open returned nil stream")
+	}
+	var closeOnce sync.Once
+	closeManaged := func() { closeOnce.Do(func() { _ = ms.Close() }) }
+	defer closeManaged()
 
 	stopWatch := make(chan struct{})
 	defer close(stopWatch)
@@ -46,7 +53,7 @@ func ForwardExecute(stream ExecuteStream, open OpenManagedStream) error {
 		select {
 		case <-stream.Context().Done():
 			_ = ms.Cancel(context.Background(), lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: "plugin_cancel"})
-			_ = ms.Close()
+			closeManaged()
 		case <-stopWatch:
 		}
 	}()
@@ -57,7 +64,7 @@ func ForwardExecute(stream ExecuteStream, open OpenManagedStream) error {
 			return err
 		}
 		ev, err := ms.Recv(stream.Context())
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return stream.Send(ServerFrame{
 				Kind: ServerFrameTerminal, Sequence: seq,
 				Terminal: &Terminal{Status: TerminalSuccess},

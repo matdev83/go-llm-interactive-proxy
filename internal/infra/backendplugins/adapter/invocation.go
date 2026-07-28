@@ -121,9 +121,10 @@ func mapParts(in []lipapi.Part) ([]backendplugin.Part, error) {
 			}
 		case lipapi.PartJSON:
 			bp.Kind = backendplugin.PartKindJSON
-			if len(p.Content) > 0 {
-				bp.ToolArgsJSON = backendplugin.RawJSONFromBytes(p.Content)
+			if len(p.Content) == 0 {
+				return nil, fmt.Errorf("%w: json part requires content", backendplugin.ErrInvalidInvocation)
 			}
+			bp.ToolArgsJSON = backendplugin.RawJSONFromBytes(p.Content)
 		default:
 			return nil, fmt.Errorf("%w: %q", backendplugin.ErrUnsupportedPartKind, p.Kind)
 		}

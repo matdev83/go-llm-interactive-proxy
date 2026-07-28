@@ -61,7 +61,7 @@ type LineBudget struct {
 // LineBudgets covers core/pluginreg plus the convergence trees (kept in sync
 // with PackageTreeBudgets for overlapping entries).
 var LineBudgets = []LineBudget{
-	{Dir: "internal/core", Max: 68804},
+	{Dir: "internal/core", Max: 68822},
 	{Dir: "internal/pluginreg", Max: 939},
 	{Dir: "internal/stdhttp", Max: 4315},
 	{Dir: "internal/infra/runtimebundle", Max: 10320},
