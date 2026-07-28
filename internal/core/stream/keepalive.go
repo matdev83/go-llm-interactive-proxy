@@ -127,9 +127,7 @@ func NewKeepalive(s lipapi.EventStream, cfg KeepaliveConfig) (*Keepalive, error)
 
 func (k *Keepalive) startReader() {
 	k.once.Do(func() {
-		k.readerWG.Add(1)
-		go func() {
-			defer k.readerWG.Done()
+		k.readerWG.Go(func() {
 			defer func() {
 				if r := recover(); r != nil {
 					pe := safety.Capture(safety.BoundaryWorker, "stream_keepalive_reader", r)
@@ -177,7 +175,7 @@ func (k *Keepalive) startReader() {
 					return
 				}
 			}
-		}()
+		})
 	})
 }
 
