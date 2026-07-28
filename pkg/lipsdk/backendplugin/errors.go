@@ -29,6 +29,9 @@ var (
 	ErrUnknownEventKind = errors.New("backendplugin: unknown event kind")
 	// ErrUnknownEnum is returned for unspecified or unknown closed enum values.
 	ErrUnknownEnum = errors.New("backendplugin: unknown enum value")
+	// ErrUnsupportedPartKind is returned when a content part kind has no
+	// canonical<->ABI mapping; unmapped kinds fail closed, never silently drop.
+	ErrUnsupportedPartKind = errors.New("backendplugin: unsupported part kind")
 	// ErrInvalidRawJSON is returned for invalid or unset RawJSON oneof wire values.
 	ErrInvalidRawJSON = errors.New("backendplugin: invalid raw JSON wire value")
 	// ErrMultipleTerminals is returned when more than one terminal frame is observed.

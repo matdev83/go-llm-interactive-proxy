@@ -57,6 +57,7 @@ enum PartKind {
   PART_KIND_REASONING = 4;
   PART_KIND_TOOL_CALL = 5;
   PART_KIND_TOOL_RESULT = 6;
+  PART_KIND_JSON = 7;
 }
 
 enum ErrorCode {

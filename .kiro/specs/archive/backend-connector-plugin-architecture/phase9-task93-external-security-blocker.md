@@ -2,8 +2,11 @@
 
 ## Status
 
+> [!warning] DEPRECATED
+> Resolved on 2026-07-28. Local `make backend-plugin-security-checks` passed, Ubuntu release gates run `30382809655` passed, Codex Linux race run `30382811954` passed, and cross-platform run `30382807401` passed on SHA `e796998cc8f7095bce65e450211cb1aef3b76def`. Darwin connector IPC remains deliberately unsupported/fail-closed and unclaimed. Task `9.3` is complete. The remainder of this file preserves the historical blocker contract.
+
 Local Task 9.3 threat-model hardening, adversarial tests, fuzz targets, and
-`make backend-plugin-security-checks` are implemented on this Windows host.
+`make backend-plugin-security-checks` were implemented on this Windows host.
 
 Task validation still requires native evidence that cannot be honestly claimed
 from Windows-only runs:

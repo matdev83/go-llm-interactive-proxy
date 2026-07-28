@@ -54,6 +54,7 @@ const (
 	PartKindReasoning   PartKind = "reasoning"
 	PartKindToolCall    PartKind = "tool_call"
 	PartKindToolResult  PartKind = "tool_result"
+	PartKindJSON        PartKind = "json"
 )
 
 // ErrorCode classifies plugin errors.

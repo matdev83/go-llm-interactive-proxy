@@ -1,6 +1,7 @@
 package adapter
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -33,6 +34,14 @@ func InvocationFromCall(call lipapi.Call, cand routing.AttemptCandidate) (backen
 	if model == "" {
 		model = "model"
 	}
+	instructions, err := mapMessages(call.Instructions)
+	if err != nil {
+		return backendplugin.Invocation{}, err
+	}
+	messages, err := mapMessages(call.Messages)
+	if err != nil {
+		return backendplugin.Invocation{}, err
+	}
 	inv := backendplugin.Invocation{
 		RequestID:        reqID,
 		AttemptID:        attemptID,
@@ -40,8 +49,8 @@ func InvocationFromCall(call lipapi.Call, cand routing.AttemptCandidate) (backen
 		BLegID:           bLeg,
 		CanonicalModelID: model,
 		NativeModelID:    model,
-		Instructions:     mapMessages(call.Instructions),
-		Messages:         mapMessages(call.Messages),
+		Instructions:     instructions,
+		Messages:         messages,
 		Tools:            mapTools(call.Tools),
 		Options:          mapOptions(call.Options),
 	}
@@ -60,18 +69,22 @@ func InvocationFromCall(call lipapi.Call, cand routing.AttemptCandidate) (backen
 	return inv, nil
 }
 
-func mapMessages(in []lipapi.Message) []backendplugin.Message {
+func mapMessages(in []lipapi.Message) ([]backendplugin.Message, error) {
 	out := make([]backendplugin.Message, 0, len(in))
 	for _, m := range in {
+		parts, err := mapParts(m.Parts)
+		if err != nil {
+			return nil, err
+		}
 		out = append(out, backendplugin.Message{
 			Role:  backendplugin.Role(m.Role),
-			Parts: mapParts(m.Parts),
+			Parts: parts,
 		})
 	}
-	return out
+	return out, nil
 }
 
-func mapParts(in []lipapi.Part) []backendplugin.Part {
+func mapParts(in []lipapi.Part) ([]backendplugin.Part, error) {
 	out := make([]backendplugin.Part, 0, len(in))
 	for _, p := range in {
 		bp := backendplugin.Part{
@@ -106,12 +119,17 @@ func mapParts(in []lipapi.Part) []backendplugin.Part {
 			if len(p.Content) > 0 {
 				bp.ToolArgsJSON = backendplugin.RawJSONFromBytes(p.Content)
 			}
+		case lipapi.PartJSON:
+			bp.Kind = backendplugin.PartKindJSON
+			if len(p.Content) > 0 {
+				bp.ToolArgsJSON = backendplugin.RawJSONFromBytes(p.Content)
+			}
 		default:
-			continue
+			return nil, fmt.Errorf("%w: %q", backendplugin.ErrUnsupportedPartKind, p.Kind)
 		}
 		out = append(out, bp)
 	}
-	return out
+	return out, nil
 }
 
 func mapTools(in []lipapi.ToolDef) []backendplugin.ToolDef {
