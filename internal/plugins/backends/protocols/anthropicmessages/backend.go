@@ -51,12 +51,13 @@ func NewBackend(cfg Config) execbackend.Backend {
 		rateLimitFallback = defaultRateLimitFallback
 	}
 	return execbackend.Backend{
-		Caps:                    defaultBackendCaps(),
-		ReplaySupport:           ReplaySupport(),
-		BackendPrefixes:         []string{id},
-		EnforcesMaxOutputTokens: true,
-		ProviderCounter:         cfg.ProviderCounter,
-		ModelInventory:          cfg.ModelInventory,
+		Caps:                                 defaultBackendCaps(),
+		ReplaySupport:                        ReplaySupport(),
+		BackendPrefixes:                      []string{id},
+		EnforcesMaxOutputTokens:              true,
+		IgnoresAuthorityMaxOutputTokensClamp: execbackend.IgnoresClampViaCodexUnsupportedGenParams,
+		ProviderCounter:                      cfg.ProviderCounter,
+		ModelInventory:                       cfg.ModelInventory,
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return ModelCapabilities(resolveModel(cand, call))
 		},

@@ -45,6 +45,9 @@ type Backend struct {
 	// opening with an unenforced limit. Backends that drop or omit the option
 	// (Codex, ACP family, OpenCode, local-stub) must leave this false.
 	EnforcesMaxOutputTokens bool
+	// IgnoresAuthorityMaxOutputTokensClamp, when set, reports call-specific reasons
+	// the backend drops MaxOutputTokens despite EnforcesMaxOutputTokens.
+	IgnoresAuthorityMaxOutputTokensClamp func(call lipapi.Call) bool
 
 	ProviderCounter accountingapp.ProviderCounter
 

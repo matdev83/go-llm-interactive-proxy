@@ -54,6 +54,9 @@ func Build(session ExecuteSession, profile backendplugin.ResolvedProfile, opt Op
 		BackendPrefixes:              prefixes,
 		BillingFinalizationSupported: profile.SupportsFinalizeBilling,
 	}
+	if be.EnforcesMaxOutputTokens {
+		be.IgnoresAuthorityMaxOutputTokensClamp = execbackend.IgnoresClampViaCodexUnsupportedGenParams
+	}
 
 	be.ResolveCaps = func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 		model := cand.Primary.Model

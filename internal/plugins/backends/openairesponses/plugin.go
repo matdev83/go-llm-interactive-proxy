@@ -54,10 +54,11 @@ func New(cfg Config) execbackend.Backend {
 	}
 	prefixes := []string{ID}
 	return execbackend.Backend{
-		Caps:                    openaicaps.HostedFull,
-		ReplaySupport:           lipapi.ReasoningReplaySupport{},
-		BackendPrefixes:         prefixes,
-		EnforcesMaxOutputTokens: true,
+		Caps:                                 openaicaps.HostedFull,
+		ReplaySupport:                        lipapi.ReasoningReplaySupport{},
+		BackendPrefixes:                      prefixes,
+		EnforcesMaxOutputTokens:              true,
+		IgnoresAuthorityMaxOutputTokensClamp: execbackend.IgnoresClampViaCodexUnsupportedGenParams,
 		ModelInventory: modeldiscover.OpenAICompatibleModelsProvider{
 			BaseURL:         cfg.BaseURL,
 			APIKey:          cfg.APIKey,

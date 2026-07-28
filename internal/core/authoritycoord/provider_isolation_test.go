@@ -444,7 +444,7 @@ func TestAttemptCoordinator_IsolatesSettleAttemptPanicFailClosed(t *testing.T) {
 	}
 }
 
-func TestAttemptCoordinator_AdvisorySettlePanicFailOpen(t *testing.T) {
+func TestAttemptCoordinator_AdvisorySettleFailureRemainsObservable(t *testing.T) {
 	t.Parallel()
 	hard := &fakeAttemptProvider{id: "hard"}
 	adv := &fakeAttemptProvider{id: "adv"}
@@ -466,8 +466,8 @@ func TestAttemptCoordinator_AdvisorySettlePanicFailOpen(t *testing.T) {
 		AttemptID: "b-adv-settle",
 		BLegID:    "b-adv-settle",
 		Handles:   d.Stack.Handles(),
-	}); err != nil {
-		t.Fatalf("advisory settle panic must fail-open: %v", err)
+	}); err == nil {
+		t.Fatal("advisory settle failure must remain observable for reconciliation retry (req 15.5)")
 	}
 	if hard.settled.Load() != 1 {
 		t.Fatalf("hard settled=%d want 1", hard.settled.Load())

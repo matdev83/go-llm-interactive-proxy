@@ -65,7 +65,8 @@ func New(cfg Config) execbackend.Backend {
 			HTTPClient:      cfg.HTTPClient,
 			CanonicalPrefix: "openai",
 		},
-		EnforcesMaxOutputTokens: true,
+		EnforcesMaxOutputTokens:              true,
+		IgnoresAuthorityMaxOutputTokensClamp: execbackend.IgnoresClampViaCodexUnsupportedGenParams,
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return openaicaps.ForHostedModelCompatibleReplay(resolveModel(cand, call), prefixes)
 		},

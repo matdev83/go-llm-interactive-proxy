@@ -354,19 +354,6 @@ func (l *authorityLifecycle) settlementInput(kind authorityapp.SettlementKind, u
 			MeasurementAuthority: descriptorAuthority,
 		})
 	}
-	if len(input.Reservations) > 0 {
-		first := input.Reservations[0]
-		input.Authority = first.Authority
-		input.MeasurementAuthority = first.MeasurementAuthority
-		input.ReservationKey = first.Reservation.ReservationKey
-		input.ReservationID = first.Reservation.ReservationID
-		input.RuleID = first.Reservation.RuleID
-		input.FinalUsage = first.FinalUsage
-		input.FinalCost = first.FinalCost
-		input.ReservedUsage = first.Reservation.Amount
-		input.EstimatedUsage = first.EstimatedUsage
-		input.EstimatedCost = first.EstimatedCost
-	}
 	return input
 }
 
@@ -426,7 +413,7 @@ func (l *authorityLifecycle) Settle(ctx context.Context, kind authorityapp.Settl
 	}
 	cleanupCtx, cancel := cleanupContext(ctx, l.control.state.cleanupTimeout)
 	reservations := l.reservationStates()
-	result, err := l.svc.Settle(cleanupCtx, l.settlementInput(kind, usageEv, clientCanceled, reservations))
+	result, err := l.svc.Settle(cleanupCtx, authorityapp.DeriveSettleScalars(l.settlementInput(kind, usageEv, clientCanceled, reservations)))
 	cancel()
 	if result.Applied {
 		l.control.terminal = authorityTerminalSettled
@@ -481,7 +468,7 @@ func (l *authorityLifecycle) settleViaCoordinatorLocked(ctx context.Context, kin
 	// through AttemptCoordinator with their owning handles and full evidence.
 	if l.svc != nil && len(uaStack.Handles()) > 0 && !providerSettled(state.settledProviders, usageAuthorityAttemptProviderID) {
 		reservations := filterReservationsByHandles(l.reservationStates(), uaStack.Handles())
-		result, err := l.svc.Settle(cleanupCtx, l.settlementInput(kind, usageEv, clientCanceled, reservations))
+		result, err := l.svc.Settle(cleanupCtx, authorityapp.DeriveSettleScalars(l.settlementInput(kind, usageEv, clientCanceled, reservations)))
 		if result.Applied {
 			markProviderSettled(&l.control.state, usageAuthorityAttemptProviderID)
 			for _, reservation := range reservations {
@@ -837,14 +824,7 @@ func (l *authorityLifecycle) releaseReservationSet(ctx context.Context, kind aut
 			Amount:         reservation.reservedAmount,
 		}})
 	}
-	if len(input.Reservations) > 0 {
-		first := input.Reservations[0].Reservation
-		input.ReservationKey = first.ReservationKey
-		input.ReservationID = first.ReservationID
-		input.RuleID = first.RuleID
-		input.Amount = first.Amount
-	}
-	result, err := l.svc.Release(ctx, input)
+	result, err := l.svc.Release(ctx, authorityapp.DeriveReleaseScalars(input))
 	if err != nil && l.log != nil {
 		l.log.DebugContext(ctx, "usage authority release failed", "error", err, "candidate_key", l.control.cand.Key)
 	}
@@ -854,14 +834,8 @@ func (l *authorityLifecycle) releaseReservationSet(ctx context.Context, kind aut
 // ReconcileAuthoritative adjusts a prior (typically estimated) settlement with
 // later authoritative final usage (requirement 7.6, 8.4-8.6). It bypasses the
 // settled guard — the prior settlement stays in evidence — and calls Settle
-// once with the complete reservation set, marking each descriptor
-// authoritative with a distinct source key (the ReservationID carries an "|authoritative"
-// suffix so the app service's sourceEventKey produces a key the store has not
-// seen before). The store finds the reservation by ReservationKey (unchanged),
-// sees it is already settled, and applies an authoritative adjustment via
-// authoritativeResettle instead of no-opping. Idempotent per authoritative
-// source key: a replay produces the same source key and the store's settleBySrc
-// catches it as a no-op. Returns true when at least one adjustment applied.
+// once with the complete reservation set using authoritative Sequence values so
+// the store applies authoritativeResettle instead of no-opping.
 func (l *authorityLifecycle) ReconcileAuthoritative(ctx context.Context, usageEv lipapi.Event) bool {
 	if l == nil || l.svc == nil || l.control == nil {
 		return false
@@ -889,14 +863,9 @@ func (l *authorityLifecycle) reconcileAuthoritativeLocked(ctx context.Context, u
 		if !measurementAuthorityNeedsUpgradeForAmount(prior, incoming, reservation.Reservation.Amount) {
 			continue
 		}
-		if reservation.Reservation.Amount.Unit == domain.AmountUnitMoneyNano {
-			reservation.Reservation.ReservationID += "|authoritative_cost"
-		} else {
-			// Preserve the established token-only reconciliation key. Monetary
-			// reconciliation uses a distinct suffix because cost authority is
-			// tracked independently from token authority.
-			reservation.Reservation.ReservationID += "|authoritative"
-		}
+		reservation.Authority = domain.AuthorityLevelAuthoritative
+		reservation.MeasurementAuthority = incoming
+		reservation.Reservation.Authority = domain.AuthorityLevelAuthoritative
 		filtered = append(filtered, reservation)
 	}
 	input.Reservations = filtered
@@ -907,22 +876,9 @@ func (l *authorityLifecycle) reconcileAuthoritativeLocked(ctx context.Context, u
 		input.Reservations[i].SourceKey = ""
 		input.Reservations[i].Reservation.SourceKey = ""
 	}
-	if len(input.Reservations) > 0 {
-		// Keep the legacy aggregate fields aligned with the descriptor set for
-		// callers and test doubles that inspect the first reservation directly.
-		first := input.Reservations[0]
-		input.ReservationKey = first.Reservation.ReservationKey
-		input.ReservationID = first.Reservation.ReservationID
-		input.RuleID = first.Reservation.RuleID
-		input.FinalUsage = first.FinalUsage
-		input.FinalCost = first.FinalCost
-		input.ReservedUsage = first.Reservation.Amount
-		input.EstimatedUsage = first.EstimatedUsage
-		input.EstimatedCost = first.EstimatedCost
-		input.Authority = first.Authority
-		input.MeasurementAuthority = first.MeasurementAuthority
-	}
-	result, err := l.svc.Settle(cleanupCtx, input)
+	input.Authority = domain.AuthorityLevelAuthoritative
+	input.Sequence = authorityapp.SettlementSequence(authorityapp.SettlementKindFinal, domain.AuthorityLevelAuthoritative)
+	result, err := l.svc.Settle(cleanupCtx, authorityapp.DeriveSettleScalars(input))
 	if err != nil && l.log != nil {
 		l.log.DebugContext(ctx, "usage authority authoritative reconcile failed", "error", err, "candidate_key", l.control.cand.Key)
 	}

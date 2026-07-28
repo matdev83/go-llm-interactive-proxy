@@ -170,8 +170,8 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		// With authoritative usage available (usageObserved=true) and the reservation
 		// already settled, the cancellation path calls ReconcileAuthoritative instead
 		// of no-op double-settling. The reconcile sends a Final/Authoritative settle
-		// with a distinct source key (reservation ID + "|authoritative") so the store
-		// applies an authoritative adjustment, not a replay of the prior settle.
+		// with authoritative Sequence so the store applies an authoritative adjustment,
+		// not a replay of the prior settle.
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("settle calls = %d, want 1 (authoritative reconcile on already-settled reservation)", auth.settleCalls.Load())
 		}
@@ -185,8 +185,11 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		if got.ClientCanceled {
 			t.Fatal("reconcile settle must not carry client canceled (it is an authoritative adjustment)")
 		}
-		if got.ReservationID != reservationID+"|authoritative" {
-			t.Fatalf("reconcile settle reservation ID = %q, want %q|authoritative", got.ReservationID, reservationID)
+		if got.ReservationID != reservationID {
+			t.Fatalf("reconcile settle reservation ID = %q, want %q unchanged", got.ReservationID, reservationID)
+		}
+		if got.Sequence != authorityapp.SettlementSequence(authorityapp.SettlementKindFinal, authoritydomain.AuthorityLevelAuthoritative) {
+			t.Fatalf("reconcile settle sequence = %d, want authoritative final sequence", got.Sequence)
 		}
 		if auth.releaseCalls.Load() != 0 {
 			t.Fatalf("release calls = %d, want 0 (reconcile must not release)", auth.releaseCalls.Load())

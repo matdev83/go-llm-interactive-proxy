@@ -67,10 +67,11 @@ func NewBackend(spec BackendSpec) execbackend.Backend {
 			}
 			return openaicaps.ResolveCompatibleReplaySupport(flavor, model, prefixes)
 		},
-		TransportCaps:           hostedTransportCaps(),
-		BackendPrefixes:         prefixes,
-		EnforcesMaxOutputTokens: true,
-		ModelInventory:          spec.Inventory,
+		TransportCaps:                        hostedTransportCaps(),
+		BackendPrefixes:                      prefixes,
+		EnforcesMaxOutputTokens:              true,
+		IgnoresAuthorityMaxOutputTokensClamp: execbackend.IgnoresClampViaCodexUnsupportedGenParams,
+		ModelInventory:                       spec.Inventory,
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return openaicaps.ForHostedModelCompatibleReplay(resolveModel(spec, cand, call), prefixes)
 		},
