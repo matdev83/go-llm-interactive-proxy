@@ -39,7 +39,6 @@ import (
 )
 
 type attemptOpenParams struct {
-	ctx                 context.Context
 	bus                 *hooks.Bus
 	traceID             string
 	aLegID              string
@@ -91,9 +90,9 @@ type attemptOpenResult struct {
 	memoUpdate  *interleavedthinking.PendingMemoUpdate
 }
 
-func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, error) {
+func (e *Executor) tryPlanOpenOnce(ctx context.Context, p attemptOpenParams) (attemptOpenResult, error) {
 	var zero attemptOpenResult
-	stickyBackendID, stickyBinding, err := e.lookupAffinityBinding(p.ctx, p.traceID, p.sel, p.affinityKey, p.affinitySet)
+	stickyBackendID, stickyBinding, err := e.lookupAffinityBinding(ctx, p.traceID, p.sel, p.affinityKey, p.affinitySet)
 	if err != nil {
 		return zero, err
 	}
@@ -102,7 +101,7 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 		Unhealthy:              e.mergePlannerHealth(),
 		RequestSize:            p.requestSize,
 		Session:                p.session,
-		PreferredCandidateKeys: execctx.RouteCandidatePreferences(p.ctx),
+		PreferredCandidateKeys: execctx.RouteCandidatePreferences(ctx),
 		StickyBackendID:        stickyBackendID,
 		Rand:                   p.rng,
 		IsRetryPath:            p.isRetryPath,
@@ -111,7 +110,7 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 	})
 	if stickyBinding && stickyBackendID != "" &&
 		(err != nil || len(groups) == 0 || len(groups[0].Candidates) == 0 || groups[0].Candidates[0].Primary.Backend != stickyBackendID) {
-		e.clearAffinityBinding(p.ctx, p.traceID, p.affinityKey, p.affinitySet, "ineligible")
+		e.clearAffinityBinding(ctx, p.traceID, p.affinityKey, p.affinitySet, "ineligible")
 		stickyBackendID = ""
 		stickyBinding = false
 		groups, err = routing.ExpandFailoverGroups(p.sel, routing.PlanOptions{
@@ -119,7 +118,7 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 			Unhealthy:              e.mergePlannerHealth(),
 			RequestSize:            p.requestSize,
 			Session:                p.session,
-			PreferredCandidateKeys: execctx.RouteCandidatePreferences(p.ctx),
+			PreferredCandidateKeys: execctx.RouteCandidatePreferences(ctx),
 			Rand:                   p.rng,
 			IsRetryPath:            p.isRetryPath,
 			ThinkerCycle:           p.interleaved.Cycle,
@@ -156,7 +155,7 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 			continue
 		}
 		if candidates[0].IsParallel {
-			out, err := e.tryOpenParallelGroup(p, candidates, group.NextThinkerCycle, stickyBackendID, stickyBinding)
+			out, err := e.tryOpenParallelGroup(ctx, p, candidates, group.NextThinkerCycle, stickyBackendID, stickyBinding)
 			if err != nil {
 				return zero, err
 			}
@@ -174,7 +173,7 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 			return lastNoOpen, nil
 		}
 		c := candidates[0]
-		out, err := e.openPlannedCandidate(p, c, group.NextThinkerCycle, stickyBackendID, stickyBinding)
+		out, err := e.openPlannedCandidate(ctx, p, c, group.NextThinkerCycle, stickyBackendID, stickyBinding)
 		if err == nil && out.opened && p.lastParallelFailure != nil {
 			*p.lastParallelFailure = nil
 		}
@@ -184,6 +183,7 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 }
 
 func (e *Executor) openPlannedCandidate(
+	ctx context.Context,
 	p attemptOpenParams,
 	c routing.AttemptCandidate,
 	nextCycle *interleavedstate.CycleState,
@@ -202,12 +202,12 @@ func (e *Executor) openPlannedCandidate(
 	// Thinker candidates get instructions prepended and tools suppressed; executor candidates
 	// get the latest memo injected. The shaped call is the one used for negotiation and open.
 	interleaved := p.interleaved
-	shapeRes, err := e.shapeAttemptCall(p.ctx, attempt, c, p.aLegID, interleaved, p.suppressVisibleMemo)
+	shapeRes, err := e.shapeAttemptCall(ctx, attempt, c, p.aLegID, interleaved, p.suppressVisibleMemo)
 	if err != nil {
 		return zero, fmt.Errorf("executor: interleaved shape: %w", err)
 	}
 	attempt = shapeRes.Call
-	e.logInterleavedMemoShape(p.ctx, p.traceID, "", c, shapeRes)
+	e.logInterleavedMemoShape(ctx, p.traceID, "", c, shapeRes)
 	noOpen := attemptOpenResult{interleaved: interleaved}
 	be, ok := e.Backends[c.Primary.Backend]
 	if !ok {
@@ -219,15 +219,15 @@ func (e *Executor) openPlannedCandidate(
 		transforms = e.RuntimeSnapshot.AttemptTransforms()
 		atSvc = request.Services{State: e.RuntimeSnapshot.State(), Aux: e.RuntimeSnapshot.Aux()}
 	}
-	atMeta := e.candidateAttemptMeta(p, attempt, c, be)
+	atMeta := e.candidateAttemptMeta(ctx, p, attempt, c, be)
 	xformRes, xformErr := extensions.RunCandidateAttemptTransformStage(
-		p.ctx, e.Log, e.ExtensionMetrics, transforms, &attempt, atMeta, atSvc,
+		ctx, e.Log, e.ExtensionMetrics, transforms, &attempt, atMeta, atSvc,
 	)
 	if xformErr != nil {
 		return zero, fmt.Errorf("executor: candidate attempt transform: %w", xformErr)
 	}
 	if xformRes.Excluded {
-		e.noteAttemptTransformExclude(p, c, xformRes)
+		e.noteAttemptTransformExclude(ctx, p, c, xformRes)
 		p.excluded[c.Key] = struct{}{}
 		return noOpen, nil
 	}
@@ -238,7 +238,7 @@ func (e *Executor) openPlannedCandidate(
 		safety.BoundaryBackend,
 		"backend_capability_negotiate",
 		func() (lipapi.NegotiationResult, error) {
-			facts = e.effectiveFactsForAttempt(p.ctx, be, attempt, c)
+			facts = e.effectiveFactsForAttempt(ctx, be, attempt, c)
 			return lipapi.Negotiate(req, facts.EffectiveCaps), nil
 		},
 	)
@@ -246,12 +246,12 @@ func (e *Executor) openPlannedCandidate(
 		var pe *safety.PanicError
 		if errors.As(negotiatePanicErr, &pe) {
 			if e != nil && e.Log != nil {
-				attrs := diag.IsolatedCrashAttrs(p.ctx, pe, diag.CrashAttrOpts{AttrOpts: diag.AttrOpts{CallID: p.traceID}})
+				attrs := diag.IsolatedCrashAttrs(ctx, pe, diag.CrashAttrOpts{AttrOpts: diag.AttrOpts{CallID: p.traceID}})
 				attrs = diag.AppendIsolatedCrashStack(attrs, pe)
-				e.Log.LogAttrs(p.ctx, slog.LevelError, "isolated_panic_capability_negotiate", attrs...)
+				e.Log.LogAttrs(ctx, slog.LevelError, "isolated_panic_capability_negotiate", attrs...)
 			}
 			diag.LogDecision(
-				p.ctx, e.Log, "capability_negotiate_panic_exclude", diag.AttrOpts{CallID: p.traceID},
+				ctx, e.Log, "capability_negotiate_panic_exclude", diag.AttrOpts{CallID: p.traceID},
 				slog.String("candidate_key", c.Key),
 				slog.String("backend", c.Primary.Backend),
 			)
@@ -265,20 +265,20 @@ func (e *Executor) openPlannedCandidate(
 	}
 	if res.Kind == lipapi.NegotiationReject {
 		if stickyBinding && c.Primary.Backend == stickyBackendID {
-			e.clearAffinityBinding(p.ctx, p.traceID, p.affinityKey, p.affinitySet, "capability_reject")
+			e.clearAffinityBinding(ctx, p.traceID, p.affinityKey, p.affinitySet, "capability_reject")
 		}
 		if p.lastReject != nil {
 			*p.lastReject = res
 		}
 		diag.LogDecision(
-			p.ctx, e.Log, "capability_reject", diag.AttrOpts{CallID: p.traceID},
+			ctx, e.Log, "capability_reject", diag.AttrOpts{CallID: p.traceID},
 			slog.String("decision", "exclude_candidate"),
 			slog.String("candidate_key", c.Key),
 			slog.String("backend", c.Primary.Backend),
 		)
 		// Req 9.3 / task 6.2: same route-trace surface as context exclusions (negotiation outcome + catalog metadata).
 		cat := catalogRouteTraceIfEnabled(e, facts, res, nil, false)
-		e.notePlanCandidate(p.ctx, p.traceID, c.Key, cat)
+		e.notePlanCandidate(ctx, p.traceID, c.Key, cat)
 		if p.transformExcludes != nil {
 			p.transformExcludes.noteOther()
 		}
@@ -289,7 +289,7 @@ func (e *Executor) openPlannedCandidate(
 		*p.lastReject = lipapi.NegotiationResult{}
 	}
 	transportCtx, transportSpan := otel.Tracer(otelScopeExecutor).Start(
-		p.ctx, "lip.executor.transport_negotiate",
+		ctx, "lip.executor.transport_negotiate",
 		trace.WithAttributes(
 			attribute.String("lip.backend", c.Primary.Backend),
 			attribute.String("lip.operation", string(attempt.Invocation.Operation)),
@@ -313,19 +313,19 @@ func (e *Executor) openPlannedCandidate(
 		transportSpan.SetStatus(codes.Error, "transport negotiation rejected")
 		e.recordTransportNegotiation(attempt.Invocation.Operation, transportRes.Mode, "reject")
 		if stickyBinding && c.Primary.Backend == stickyBackendID {
-			e.clearAffinityBinding(p.ctx, p.traceID, p.affinityKey, p.affinitySet, "transport_reject")
+			e.clearAffinityBinding(ctx, p.traceID, p.affinityKey, p.affinitySet, "transport_reject")
 		}
 		if p.lastTransportReject != nil {
 			*p.lastTransportReject = transportRes
 		}
 		diag.LogDecision(
-			p.ctx, e.Log, "transport_reject", diag.AttrOpts{CallID: p.traceID},
+			ctx, e.Log, "transport_reject", diag.AttrOpts{CallID: p.traceID},
 			slog.String("decision", "exclude_candidate"),
 			slog.String("candidate_key", c.Key),
 			slog.String("backend", c.Primary.Backend),
 		)
 		cat := catalogRouteTraceIfEnabled(e, facts, res, nil, false)
-		e.notePlanCandidate(p.ctx, p.traceID, c.Key, cat)
+		e.notePlanCandidate(ctx, p.traceID, c.Key, cat)
 		if p.transformExcludes != nil {
 			p.transformExcludes.noteOther()
 		}
@@ -339,7 +339,7 @@ func (e *Executor) openPlannedCandidate(
 	attempt.Invocation.TransportMode = transportRes.Selected
 	if res.Kind == lipapi.NegotiationDowngrade {
 		diag.LogDecision(
-			p.ctx, e.Log, "capability_downgrade", diag.AttrOpts{CallID: p.traceID},
+			ctx, e.Log, "capability_downgrade", diag.AttrOpts{CallID: p.traceID},
 			slog.String("candidate_key", c.Key),
 			slog.String("backend", c.Primary.Backend),
 		)
@@ -348,23 +348,23 @@ func (e *Executor) openPlannedCandidate(
 	var elig *modelcatalog.EligibilityDecision
 	eligRan := e != nil && e.EligibilityResolver != nil
 	if eligRan {
-		facts = e.effectiveFactsForAttempt(p.ctx, be, attempt, c)
-		d := e.EligibilityResolver.Check(p.ctx, c, attempt, facts)
+		facts = e.effectiveFactsForAttempt(ctx, be, attempt, c)
+		d := e.EligibilityResolver.Check(ctx, c, attempt, facts)
 		elig = &d
 		if !d.IsEligible {
 			if stickyBinding && c.Primary.Backend == stickyBackendID {
-				e.clearAffinityBinding(p.ctx, p.traceID, p.affinityKey, p.affinitySet, string(d.Reason))
+				e.clearAffinityBinding(ctx, p.traceID, p.affinityKey, p.affinitySet, string(d.Reason))
 			}
 			if p.isContextLimitExhaustion != nil && d.Reason == modelcatalog.EligibilityContextLimitExceeded {
 				*p.isContextLimitExhaustion = true
 			}
 			diag.LogDecision(
-				p.ctx, e.Log, "context_limit_exclude", diag.AttrOpts{CallID: p.traceID},
+				ctx, e.Log, "context_limit_exclude", diag.AttrOpts{CallID: p.traceID},
 				slog.String("candidate_key", c.Key),
 				slog.String("backend", c.Primary.Backend),
 			)
 			cat := catalogRouteTraceIfEnabled(e, facts, res, elig, true)
-			e.notePlanCandidate(p.ctx, p.traceID, c.Key, cat)
+			e.notePlanCandidate(ctx, p.traceID, c.Key, cat)
 			if p.transformExcludes != nil {
 				p.transformExcludes.noteOther()
 			}
@@ -373,12 +373,12 @@ func (e *Executor) openPlannedCandidate(
 		}
 	}
 	if res.Kind == lipapi.NegotiationDowngrade && !eligRan && e != nil {
-		facts = e.effectiveFactsForAttempt(p.ctx, be, attempt, c)
+		facts = e.effectiveFactsForAttempt(ctx, be, attempt, c)
 	}
 	cat := catalogRouteTraceIfEnabled(e, facts, res, elig, eligRan)
-	e.notePlanCandidate(p.ctx, p.traceID, c.Key, cat)
+	e.notePlanCandidate(ctx, p.traceID, c.Key, cat)
 	var preflightDecision accountingpreflight.Decision
-	if decision, ok := e.runPreflight(p.ctx, p.traceID, attempt, c, facts.Facts); ok {
+	if decision, ok := e.runPreflight(ctx, p.traceID, attempt, c, facts.Facts); ok {
 		preflightDecision = decision
 		if !decision.Allowed {
 			return zero, fmt.Errorf("executor: token accounting preflight: %w", decision.Err)
@@ -388,7 +388,7 @@ func (e *Executor) openPlannedCandidate(
 			attempt.Options.MaxOutputTokens = &adjusted
 		}
 	}
-	precheckState, err := e.admitAttemptAuthority(p.ctx, p.traceID, p.aLegID, b2bua.BLegRecord{}, attempt, c, preflightDecision, true)
+	precheckState, err := e.admitAttemptAuthority(ctx, p.traceID, p.aLegID, b2bua.BLegRecord{}, attempt, c, preflightDecision, true)
 	if err != nil {
 		return zero, err
 	}
@@ -402,7 +402,7 @@ func (e *Executor) openPlannedCandidate(
 	// LoadAttempts needs no contiguous seqs) and reclaimed on A-leg eviction. Rollback was
 	// rejected: it breaks the stable continuity.Store contract (contract test pins the method
 	// set), nextSeq-- is ABA-unsafe; a delete-only variant-B touches ~9-11 files for cosmetic tidiness.
-	bleg, err := e.Store.NextBLeg(p.ctx, p.aLegID)
+	bleg, err := e.Store.NextBLeg(ctx, p.aLegID)
 	if err != nil {
 		// tryAcquire already consumed a routing attempt slot; refund it so a
 		// failed B-leg allocation does not permanently consume an attempt.
@@ -412,9 +412,9 @@ func (e *Executor) openPlannedCandidate(
 
 	// Assemble the final provider-neutral attempt call before attempt authorization
 	// (design Backend Ingress: transforms/hooks/route → freeze → count → admit → open).
-	hookCtx := p.ctx
+	hookCtx := ctx
 	if e != nil && e.Log != nil {
-		hookCtx = hooks.WithDiagnosticsLogger(p.ctx, e.Log)
+		hookCtx = hooks.WithDiagnosticsLogger(ctx, e.Log)
 	}
 	if err := p.bus.RunRequestPartHooks(hookCtx, &attempt, sdk.PartMeta{
 		TraceID:    p.traceID,
@@ -426,7 +426,7 @@ func (e *Executor) openPlannedCandidate(
 		p.budget.release()
 		return zero, fmt.Errorf("executor: request hooks: %w", err)
 	}
-	postHook, postErr := e.rederiveAfterRequestHooks(p, &attempt, c, be, stickyBackendID, stickyBinding)
+	postHook, postErr := e.rederiveAfterRequestHooks(ctx, p, &attempt, c, be, stickyBackendID, stickyBinding)
 	if postErr != nil {
 		p.budget.release()
 		return zero, postErr
@@ -448,7 +448,7 @@ func (e *Executor) openPlannedCandidate(
 
 	// Clamp preview (V-15): converge non-widening clamps without holds, then
 	// freeze/count/persist the final call and AdmitAttempt once.
-	previewedClamps, previewRan, perr := e.previewAndApplyAttemptClamps(p.ctx, &openCall, c, p.aLegID, bleg.BLegID)
+	previewedClamps, previewRan, perr := e.previewAndApplyAttemptClamps(ctx, &openCall, c, p.aLegID, bleg.BLegID)
 	if perr != nil {
 		p.budget.release()
 		return zero, perr
@@ -458,10 +458,10 @@ func (e *Executor) openPlannedCandidate(
 	// MaxOutputTokens afterward; AssertNotWidened treats that as non-widening (7.5).
 	authorizedFreeze := lipapi.CloneCall(openCall)
 	admitDecision := preflightDecision
-	if holder := meteringHolderFrom(p.ctx); holder != nil {
+	if holder := meteringHolderFrom(ctx); holder != nil {
 		if _, cerr := holder.StoreBackendIngress(checkpoint.BackendIngressInput{
 			Call:         authorizedFreeze,
-			Scope:        scopeFromCtx(p.ctx),
+			Scope:        scopeFromCtx(ctx),
 			AttemptID:    bleg.BLegID,
 			BLegID:       bleg.BLegID,
 			ALegID:       p.aLegID,
@@ -475,7 +475,7 @@ func (e *Executor) openPlannedCandidate(
 			p.budget.release()
 			return zero, fmt.Errorf("executor: metering backend ingress: %w", cerr)
 		}
-		if beDecision, ok := e.runPreflight(p.ctx, p.traceID, openCall, c, facts.Facts); ok {
+		if beDecision, ok := e.runPreflight(ctx, p.traceID, openCall, c, facts.Facts); ok {
 			if !beDecision.Allowed {
 				p.budget.release()
 				return zero, fmt.Errorf("executor: token accounting preflight: %w", beDecision.Err)
@@ -489,18 +489,18 @@ func (e *Executor) openPlannedCandidate(
 		} else {
 			e.enrichBackendIngressQuantitiesWithDecision(holder, bleg.BLegID, admitDecision)
 		}
-		if _, ferr := e.persistBackendIngressFact(p.ctx, holder, bleg.BLegID); ferr != nil {
+		if _, ferr := e.persistBackendIngressFact(ctx, holder, bleg.BLegID); ferr != nil {
 			p.budget.release()
 			return zero, fmt.Errorf("executor: metering backend ingress fact: %w", ferr)
 		}
 	}
 
-	authState, err := e.admitAttemptAuthority(p.ctx, p.traceID, p.aLegID, bleg, openCall, c, admitDecision, false)
+	authState, err := e.admitAttemptAuthority(ctx, p.traceID, p.aLegID, bleg, openCall, c, admitDecision, false)
 	if err != nil {
 		if authState.admissionResult.Reserved {
 			cleanup := e.newAttemptAuthorityLifecycle(authState, c)
 			cleanup.backendAttempted.Store(false)
-			_ = terminalizeAttemptEphemeral(p.ctx, sdkterminal.CommandPreBackendDenial, false, func(cctx context.Context) error {
+			_ = terminalizeAttemptEphemeral(ctx, sdkterminal.CommandPreBackendDenial, false, func(cctx context.Context) error {
 				cleanup.Release(cctx, authorityapp.ReleaseKindAdmissionFailure)
 				return nil
 			})
@@ -527,20 +527,20 @@ func (e *Executor) openPlannedCandidate(
 			if cleanupAuthority.backendAttempted == nil || !cleanupAuthority.backendAttempted.Load() {
 				cmd = sdkterminal.CommandPreBackendDenial
 			}
-			_ = terminalizeAttemptEphemeral(p.ctx, cmd, false, func(cctx context.Context) error {
+			_ = terminalizeAttemptEphemeral(ctx, cmd, false, func(cctx context.Context) error {
 				cleanupAuthority.finalizeIncurredOrRelease(cctx, releaseKind, emptyOperatorUsageShell())
 				return nil
 			})
 		}
 	}()
-	if err := e.enforcePostAdmitClamps(p.ctx, &openCall, authorizedFreeze, previewedClamps, previewRan, authState, c, int64(admitDecision.Count.InputTokens)); err != nil {
+	if err := e.enforcePostAdmitClamps(ctx, &openCall, authorizedFreeze, previewedClamps, previewRan, authState, c, int64(admitDecision.Count.InputTokens)); err != nil {
 		releaseKind = authorityapp.ReleaseKindAdmissionFailure
 		p.budget.release()
 		return zero, err
 	}
 	if len(previewedClamps) > 0 && !backendCanEnforceAuthorityClamp(be, &openCall) {
 		diag.LogDecision(
-			p.ctx, e.Log, "authority_clamp_unenforceable_exclude", diag.AttrOpts{CallID: p.traceID},
+			ctx, e.Log, "authority_clamp_unenforceable_exclude", diag.AttrOpts{CallID: p.traceID},
 			slog.String("candidate_key", c.Key),
 			slog.String("backend", c.Primary.Backend),
 		)
@@ -552,7 +552,7 @@ func (e *Executor) openPlannedCandidate(
 	// Preflight-applied max-output clamps must be enforceable on the wire (7.4).
 	if admitDecision.RequireMaxOutputEnforcement && !backendCanEnforceAuthorityClamp(be, &openCall) {
 		diag.LogDecision(
-			p.ctx, e.Log, "unknown_output_clamp_unenforceable_exclude", diag.AttrOpts{CallID: p.traceID},
+			ctx, e.Log, "unknown_output_clamp_unenforceable_exclude", diag.AttrOpts{CallID: p.traceID},
 			slog.String("candidate_key", c.Key),
 			slog.String("backend", c.Primary.Backend),
 		)
@@ -571,7 +571,7 @@ func (e *Executor) openPlannedCandidate(
 
 	if e.RuntimeSnapshot != nil {
 		if rawPayload, jerr := json.Marshal(wireCall); jerr == nil {
-			sc := scopeFromCtx(p.ctx)
+			sc := scopeFromCtx(ctx)
 			meta := sdktraffic.CaptureMeta{
 				TraceID:     p.traceID,
 				ALegID:      p.aLegID,
@@ -582,7 +582,7 @@ func (e *Executor) openPlannedCandidate(
 				Scope:       sc,
 			}
 			coretraffic.PortBundleFromSnapshot(e.RuntimeSnapshot).Emit(
-				p.ctx,
+				ctx,
 				sdktraffic.LegPTB,
 				meta,
 				"lip/canonical+json",
@@ -591,11 +591,11 @@ func (e *Executor) openPlannedCandidate(
 			)
 		}
 	}
-	baseOpenCtx := p.ctx
+	baseOpenCtx := ctx
 	var cancelOpen context.CancelFunc = func() {}
 	ttftDeadline := ttftContextDeadline{}
 	if p.ttft != nil {
-		baseOpenCtx, cancelOpen, ttftDeadline = p.ttft.scopedContext(p.ctx, e.now(), c.Key, c.Primary.TTFTTimeout)
+		baseOpenCtx, cancelOpen, ttftDeadline = p.ttft.scopedContext(ctx, e.now(), c.Key, c.Primary.TTFTTimeout)
 	}
 	defer cancelOpen()
 
@@ -632,7 +632,7 @@ func (e *Executor) openPlannedCandidate(
 			ttftScope := ttftDeadline.scope
 			tf := ttftFailure(ttftScope, c.Key)
 			if ttftScope == ttftTimeoutLeaf {
-				e.recordAttemptLogged(p.ctx, recordAttemptParams{
+				e.recordAttemptLogged(ctx, recordAttemptParams{
 					ALegID:    p.aLegID,
 					BLeg:      bleg,
 					Cand:      c,
@@ -640,12 +640,12 @@ func (e *Executor) openPlannedCandidate(
 					Reason:    ttftAttemptReason(ttftScope),
 					DetailErr: tf,
 				}, diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID})
-				e.emitBackendEgressMeteringFact(p.ctx, bleg.BLegID, metering.AttemptOutcomeFailed, metering.SurfacedNo, lipapi.Event{Kind: lipapi.EventUsageDelta})
+				e.emitBackendEgressMeteringFact(ctx, bleg.BLegID, metering.AttemptOutcomeFailed, metering.SurfacedNo, lipapi.Event{Kind: lipapi.EventUsageDelta})
 				releaseKind = authorityapp.ReleaseKindSwallowed
 				p.excluded[c.Key] = struct{}{}
 				return noOpen, nil
 			}
-			e.recordAttemptLogged(p.ctx, recordAttemptParams{
+			e.recordAttemptLogged(ctx, recordAttemptParams{
 				ALegID:    p.aLegID,
 				BLeg:      bleg,
 				Cand:      c,
@@ -653,16 +653,16 @@ func (e *Executor) openPlannedCandidate(
 				Reason:    ttftAttemptReason(ttftScope),
 				DetailErr: tf,
 			}, diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID})
-			e.emitBackendEgressMeteringFact(p.ctx, bleg.BLegID, metering.AttemptOutcomeFailed, metering.SurfacedYes, lipapi.Event{Kind: lipapi.EventUsageDelta})
+			e.emitBackendEgressMeteringFact(ctx, bleg.BLegID, metering.AttemptOutcomeFailed, metering.SurfacedYes, lipapi.Event{Kind: lipapi.EventUsageDelta})
 			return zero, fmt.Errorf("executor: backend open %q: %w", c.Primary.Backend, lipapi.ErrTTFTTimeout)
 		}
 		openSpan.RecordError(err)
 		openSpan.SetStatus(codes.Error, "backend open failed")
 		if lipapi.IsRecoverablePreOutput(err) {
 			if stickyBinding && c.Primary.Backend == stickyBackendID {
-				e.clearAffinityBinding(p.ctx, p.traceID, p.affinityKey, p.affinitySet, "recoverable_pre_output_open")
+				e.clearAffinityBinding(ctx, p.traceID, p.affinityKey, p.affinitySet, "recoverable_pre_output_open")
 			}
-			e.recordAttemptLogged(p.ctx, recordAttemptParams{
+			e.recordAttemptLogged(ctx, recordAttemptParams{
 				ALegID:    p.aLegID,
 				BLeg:      bleg,
 				Cand:      c,
@@ -671,17 +671,17 @@ func (e *Executor) openPlannedCandidate(
 				DetailErr: err,
 			}, diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID})
 			diag.LogDecision(
-				p.ctx, e.Log, "recoverable_pre_output_swallowed",
+				ctx, e.Log, "recoverable_pre_output_swallowed",
 				diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID},
 				slog.String("candidate_key", c.Key),
 				slog.String("phase", "open"),
 			)
-			e.emitBackendEgressMeteringFact(p.ctx, bleg.BLegID, metering.AttemptOutcomeFailed, metering.SurfacedNo, lipapi.Event{Kind: lipapi.EventUsageDelta})
+			e.emitBackendEgressMeteringFact(ctx, bleg.BLegID, metering.AttemptOutcomeFailed, metering.SurfacedNo, lipapi.Event{Kind: lipapi.EventUsageDelta})
 			releaseKind = authorityapp.ReleaseKindSwallowed
 			p.excluded[c.Key] = struct{}{}
 			return noOpen, nil
 		}
-		e.recordAttemptLogged(p.ctx, recordAttemptParams{
+		e.recordAttemptLogged(ctx, recordAttemptParams{
 			ALegID:    p.aLegID,
 			BLeg:      bleg,
 			Cand:      c,
@@ -689,7 +689,7 @@ func (e *Executor) openPlannedCandidate(
 			Reason:    attemptReasonDetail(err),
 			DetailErr: err,
 		}, diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID})
-		e.emitBackendEgressMeteringFact(p.ctx, bleg.BLegID, metering.AttemptOutcomeFailed, metering.SurfacedYes, lipapi.Event{Kind: lipapi.EventUsageDelta})
+		e.emitBackendEgressMeteringFact(ctx, bleg.BLegID, metering.AttemptOutcomeFailed, metering.SurfacedYes, lipapi.Event{Kind: lipapi.EventUsageDelta})
 		return zero, fmt.Errorf("executor: backend open %q: %w", c.Primary.Backend, err)
 	}
 	if nextCycle != nil {
@@ -698,7 +698,7 @@ func (e *Executor) openPlannedCandidate(
 	var memoUpdate *interleavedthinking.PendingMemoUpdate
 	if p.deferMemoInjectionCommit {
 		if nextCycle != nil {
-			if perr := e.persistInterleavedState(p.ctx, p.aLegID, interleaved); perr != nil {
+			if perr := e.persistInterleavedState(ctx, p.aLegID, interleaved); perr != nil {
 				if stream != nil {
 					_ = stream.Close()
 				}
@@ -708,7 +708,7 @@ func (e *Executor) openPlannedCandidate(
 		memoUpdate = shapeRes.MemoUpdate
 	} else {
 		if shapeRes.MemoUpdate != nil {
-			interleaved, err = e.commitMemoInjection(p.ctx, p.aLegID, interleaved, shapeRes.MemoUpdate)
+			interleaved, err = e.commitMemoInjection(ctx, p.aLegID, interleaved, shapeRes.MemoUpdate)
 			if err != nil {
 				if stream != nil {
 					_ = stream.Close()
@@ -716,7 +716,7 @@ func (e *Executor) openPlannedCandidate(
 				return zero, err
 			}
 		} else if nextCycle != nil {
-			if perr := e.persistInterleavedState(p.ctx, p.aLegID, interleaved); perr != nil {
+			if perr := e.persistInterleavedState(ctx, p.aLegID, interleaved); perr != nil {
 				if stream != nil {
 					_ = stream.Close()
 				}
@@ -734,7 +734,7 @@ func (e *Executor) openPlannedCandidate(
 		}
 	}
 	diag.LogDecision(
-		p.ctx, e.Log, "backend_attempt_opened", diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID},
+		ctx, e.Log, "backend_attempt_opened", diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID},
 		slog.String("candidate_key", c.Key),
 		slog.String("backend", c.Primary.Backend),
 		slog.String("model", c.Primary.Model),
@@ -745,9 +745,9 @@ func (e *Executor) openPlannedCandidate(
 		slog.String("verbosity", string(openCall.Options.Verbosity)),
 		slog.Int64("open_duration_ms", time.Since(openStart).Milliseconds()),
 	)
-	e.logInterleavedRouteSelected(p.ctx, p.traceID, bleg.BLegID, c)
+	e.logInterleavedRouteSelected(ctx, p.traceID, bleg.BLegID, c)
 	if c.MarkedFirst {
-		if err := e.Store.SetWeightedFirstConsumed(p.ctx, p.aLegID, true); err != nil {
+		if err := e.Store.SetWeightedFirstConsumed(ctx, p.aLegID, true); err != nil {
 			if stream != nil {
 				_ = stream.Close()
 			}

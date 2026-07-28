@@ -50,7 +50,6 @@ func TestParallelRaceWinnerPropagatesAuthority(t *testing.T) {
 	}
 
 	p := attemptOpenParams{
-		ctx:     context.Background(),
 		bus:     hooks.New(hooks.Config{}),
 		traceID: "trace-parallel",
 		aLegID:  aLegID,
@@ -70,7 +69,7 @@ func TestParallelRaceWinnerPropagatesAuthority(t *testing.T) {
 		{Primary: routing.Primary{Backend: "backend-2", Model: "model-2"}, Key: "backend-2:model-2"},
 	}
 
-	out, err := ex.tryOpenParallelGroup(p, candidates, nil, "", false)
+	out, err := ex.tryOpenParallelGroup(context.Background(), p, candidates, nil, "", false)
 	if err != nil {
 		t.Fatalf("tryOpenParallelGroup: %v", err)
 	}

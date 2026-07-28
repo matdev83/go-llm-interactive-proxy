@@ -91,9 +91,6 @@ type InventoryPrivileges struct {
 }
 
 func buildInventoryExtensions(ctx context.Context, cfg *config.Config, extras *InventoryExtras) InventoryExtensions {
-	if ctx == nil {
-		ctx = context.TODO()
-	}
 	pipeline := extensions.LegalPipelineStageNames()
 	stages := make([]InventoryExtensionStage, 0, len(pipeline))
 	for _, id := range pipeline {

@@ -51,7 +51,7 @@ func TestExecutorAuthorityClampFailureReleasesBeforeBackendAttempt(t *testing.T)
 	ex, backend, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	budget := &attemptBudget{max: 1}
 
-	_, err := ex.openPlannedCandidate(authorityOpenParams(t, aLegID, budget), authorityCandidate(), nil, "", false)
+	_, err := ex.openPlannedCandidate(context.Background(), authorityOpenParams(t, aLegID, budget), authorityCandidate(), nil, "", false)
 	if err == nil {
 		t.Fatal("expected clamp conversion failure")
 	}
@@ -204,7 +204,7 @@ func TestExecutorAuthorityAdmissionDenialStopsBudgetAndBackend(t *testing.T) {
 		}), accountingpreflight.Config{Enabled: true, Mode: accountingpreflight.ModeAdvisory})
 
 		budget := &attemptBudget{max: 0}
-		_, err := ex.openPlannedCandidate(authorityOpenParams(t, aLegID, budget), authorityCandidate(), nil, "", false)
+		_, err := ex.openPlannedCandidate(context.Background(), authorityOpenParams(t, aLegID, budget), authorityCandidate(), nil, "", false)
 		if err == nil {
 			t.Fatal("expected authority denial error")
 		}
@@ -261,7 +261,7 @@ func TestExecutorAuthorityAdmissionDenialStopsBudgetAndBackend(t *testing.T) {
 		}), accountingpreflight.Config{Enabled: true, Mode: accountingpreflight.ModeAdvisory})
 
 		budget := &attemptBudget{max: 0}
-		_, err := ex.openPlannedCandidate(authorityOpenParams(t, aLegID, budget), authorityCandidate(), nil, "", false)
+		_, err := ex.openPlannedCandidate(context.Background(), authorityOpenParams(t, aLegID, budget), authorityCandidate(), nil, "", false)
 		if err == nil {
 			t.Fatal("expected authority denial error")
 		}
@@ -324,7 +324,7 @@ func TestExecutorAuthorityAdmissionDenialStopsBudgetAndBackend(t *testing.T) {
 		}), accountingpreflight.Config{Enabled: true, Mode: accountingpreflight.ModeAdvisory})
 
 		budget := &attemptBudget{max: 0}
-		_, err = ex.openPlannedCandidate(authorityOpenParams(t, aLegID, budget), authorityCandidate(), nil, "", false)
+		_, err = ex.openPlannedCandidate(context.Background(), authorityOpenParams(t, aLegID, budget), authorityCandidate(), nil, "", false)
 		if err == nil {
 			t.Fatal("expected authority denial error")
 		}
@@ -384,7 +384,7 @@ func TestExecutorAuthorityRealAdmitFailureReleasesBudget(t *testing.T) {
 	ex, store, backend, aLegID := newAuthorityRuntimeTestExecutorWithStore(t, auth)
 
 	budget := &attemptBudget{max: 1}
-	_, err := ex.openPlannedCandidate(authorityOpenParams(t, aLegID, budget), authorityCandidate(), nil, "", false)
+	_, err := ex.openPlannedCandidate(context.Background(), authorityOpenParams(t, aLegID, budget), authorityCandidate(), nil, "", false)
 	if err == nil {
 		t.Fatal("expected authority denial error from real admit")
 	}

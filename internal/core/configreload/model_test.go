@@ -23,10 +23,11 @@ func TestCoordinatorResultCategories_BusyNoopFaultShutdownCoalesceVocabulary(t *
 		sdkreload.ResultPreparationFailed: true,
 		sdkreload.ResultInternalFailed:    true,
 	}
-	if len(sdkreload.AllResultCategories) != len(want) {
-		t.Fatalf("AllResultCategories len=%d want %d", len(sdkreload.AllResultCategories), len(want))
+	got := sdkreload.ResultCategories()
+	if len(got) != len(want) {
+		t.Fatalf("ResultCategories len=%d want %d", len(got), len(want))
 	}
-	for _, c := range sdkreload.AllResultCategories {
+	for _, c := range got {
 		if !want[c] {
 			t.Fatalf("unexpected category %q", c)
 		}

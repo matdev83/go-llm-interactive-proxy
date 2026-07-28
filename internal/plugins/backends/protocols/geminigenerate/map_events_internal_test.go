@@ -222,7 +222,7 @@ func TestGenaiStream_Recv_wrapsIteratorErr(t *testing.T) {
 	seq := func(yield func(*genai.GenerateContentResponse, error) bool) {
 		yield(nil, root)
 	}
-	es := newGenaiStream(seq, 0)
+	es := newGenaiStream(seq, "gemini", 0)
 	_, err := es.Recv(context.Background())
 	if err == nil {
 		t.Fatal("expected error")
@@ -240,7 +240,7 @@ func TestGenaiStream_Recv_afterClose_returnsEOF(t *testing.T) {
 	seq := func(yield func(*genai.GenerateContentResponse, error) bool) {
 		_ = yield // empty iterator (no responses)
 	}
-	es := newGenaiStream(seq, 0)
+	es := newGenaiStream(seq, "gemini", 0)
 	if err := es.Close(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestGenaiStream_Close_idempotent_race(t *testing.T) {
 	seq := func(yield func(*genai.GenerateContentResponse, error) bool) {
 		_ = yield(&genai.GenerateContentResponse{}, nil)
 	}
-	es := newGenaiStream(seq, 0)
+	es := newGenaiStream(seq, "gemini", 0)
 	var wg sync.WaitGroup
 	for range 32 {
 		wg.Go(func() {

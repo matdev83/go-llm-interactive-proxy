@@ -2,49 +2,44 @@ package bedrock
 
 import "testing"
 
-func TestValidateBedrockEndpointSecurity_rejectsNonLoopbackWithoutFlag(t *testing.T) {
+func TestValidateBedrockEndpointInput_rejectsDisableHTTPSWithoutBaseEndpoint(t *testing.T) {
 	t.Parallel()
-	err := validateBedrockEndpointSecurity(Config{
+	err := validateBedrockEndpointInput(Config{
 		DisableHTTPS: true,
-		BaseEndpoint: "http://example.com",
 	})
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
-func TestValidateBedrockEndpointSecurity_allowsNonLoopbackWithFlag(t *testing.T) {
+func TestValidateBedrockEndpointInput_allowsDisableHTTPSWithBaseEndpoint(t *testing.T) {
 	t.Parallel()
-	err := validateBedrockEndpointSecurity(Config{
-		DisableHTTPS:             true,
-		BaseEndpoint:             "http://example.com",
-		AllowInsecureNonLoopback: true,
+	err := validateBedrockEndpointInput(Config{
+		DisableHTTPS: true,
+		BaseEndpoint: "http://127.0.0.1:9",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestValidateBedrockEndpointSecurity_allowsLoopbackHTTP(t *testing.T) {
+// The adapter accepts non-loopback plaintext endpoints: the loopback-only security
+// policy for the standard distribution is enforced at registration by
+// internal/standardplugins, not by the adapter, so embedders can apply their own policy.
+func TestValidateBedrockEndpointInput_nonLoopbackIsPolicyNotInputValidation(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name string
-		base string
-	}{
-		{"ipv4_loopback", "http://127.0.0.1:9"},
-		{"localhost", "http://localhost:8080"},
-		{"ipv6_loopback", "http://[::1]:1234"},
+	err := validateBedrockEndpointInput(Config{
+		DisableHTTPS: true,
+		BaseEndpoint: "http://example.com",
+	})
+	if err != nil {
+		t.Fatalf("non-loopback endpoint must pass adapter input validation: %v", err)
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			err := validateBedrockEndpointSecurity(Config{
-				DisableHTTPS: true,
-				BaseEndpoint: tc.base,
-			})
-			if err != nil {
-				t.Fatalf("base %q: %v", tc.base, err)
-			}
-		})
+}
+
+func TestValidateBedrockEndpointInput_httpsAlwaysAllowed(t *testing.T) {
+	t.Parallel()
+	if err := validateBedrockEndpointInput(Config{}); err != nil {
+		t.Fatal(err)
 	}
 }

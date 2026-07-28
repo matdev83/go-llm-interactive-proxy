@@ -25,7 +25,6 @@ func (e *repairErr) Error() string {
 }
 
 type repairState struct {
-	ctx        context.Context
 	rootSchema any
 	reason     string
 	changed    bool
@@ -39,11 +38,11 @@ func (st *repairState) note(reason string) {
 	}
 }
 
-func (st *repairState) checkCtx() error {
-	if st == nil || st.ctx == nil {
+func checkRepairCtx(ctx context.Context) error {
+	if ctx == nil {
 		return nil
 	}
-	if err := st.ctx.Err(); err != nil {
+	if err := ctx.Err(); err != nil {
 		return &repairErr{reason: toolcall.ReasonCanceled}
 	}
 	return nil
@@ -89,8 +88,8 @@ func repairPreflightedArgsJSON(ctx context.Context, args []byte, schema json.Raw
 	if err != nil {
 		return nil, "", &repairErr{reason: toolcall.ReasonSchemaInvalid}
 	}
-	st := &repairState{ctx: ctx, rootSchema: schemaDoc}
-	repaired, err := repairValue(root, schemaDoc, 0, st)
+	st := &repairState{rootSchema: schemaDoc}
+	repaired, err := repairValue(ctx, root, schemaDoc, 0, st)
 	if err != nil {
 		return nil, "", err
 	}
@@ -104,8 +103,8 @@ func repairPreflightedArgsJSON(ctx context.Context, args []byte, schema json.Raw
 	return encoded, st.reason, nil
 }
 
-func repairValue(v any, schema any, depth int, st *repairState) (any, error) {
-	if err := st.checkCtx(); err != nil {
+func repairValue(ctx context.Context, v any, schema any, depth int, st *repairState) (any, error) {
+	if err := checkRepairCtx(ctx); err != nil {
 		return nil, err
 	}
 	if depth > maxRepairDepth {
@@ -127,15 +126,15 @@ func repairValue(v any, schema any, depth int, st *repairState) (any, error) {
 	}
 	switch typed := v.(type) {
 	case orderedObject:
-		return repairObject(typed, sch, depth, st)
+		return repairObject(ctx, typed, sch, depth, st)
 	case []any:
-		return repairArray(typed, sch, depth, st)
+		return repairArray(ctx, typed, sch, depth, st)
 	default:
 		return v, nil
 	}
 }
 
-func repairObject(obj orderedObject, sch map[string]any, depth int, st *repairState) (any, error) {
+func repairObject(ctx context.Context, obj orderedObject, sch map[string]any, depth int, st *repairState) (any, error) {
 	propsVal := sch["properties"]
 	_, props, propsOK := objectFields(propsVal)
 	if !propsOK {
@@ -168,7 +167,7 @@ func repairObject(obj orderedObject, sch map[string]any, depth int, st *repairSt
 	seen := make(map[string]struct{}, len(obj.keys))
 
 	for _, key := range obj.keys {
-		if err := st.checkCtx(); err != nil {
+		if err := checkRepairCtx(ctx); err != nil {
 			return nil, err
 		}
 		val := obj.values[key]
@@ -201,14 +200,14 @@ func repairObject(obj orderedObject, sch map[string]any, depth int, st *repairSt
 					continue
 				}
 				if addSchema, ok := asSchemaMap(addProps); ok {
-					repaired, err := repairValue(val, addSchema, depth+1, st)
+					repaired, err := repairValue(ctx, val, addSchema, depth+1, st)
 					if err != nil {
 						return nil, err
 					}
 					val = repaired
 				}
 			case 1:
-				repaired, err := repairValue(val, matched[0], depth+1, st)
+				repaired, err := repairValue(ctx, val, matched[0], depth+1, st)
 				if err != nil {
 					return nil, err
 				}
@@ -218,7 +217,7 @@ func repairObject(obj orderedObject, sch map[string]any, depth int, st *repairSt
 				if err != nil || !same {
 					return nil, &repairErr{reason: toolcall.ReasonUnrepairable}
 				}
-				repaired, err := repairValue(val, matched[0], depth+1, st)
+				repaired, err := repairValue(ctx, val, matched[0], depth+1, st)
 				if err != nil {
 					return nil, err
 				}
@@ -231,7 +230,7 @@ func repairObject(obj orderedObject, sch map[string]any, depth int, st *repairSt
 			seen[canon] = struct{}{}
 			continue
 		}
-		repaired, err := repairValue(val, propSchema, depth+1, st)
+		repaired, err := repairValue(ctx, val, propSchema, depth+1, st)
 		if err != nil {
 			return nil, err
 		}
@@ -404,17 +403,17 @@ func materializeFillValue(v any) (any, error) {
 	}
 }
 
-func repairArray(arr []any, sch map[string]any, depth int, st *repairState) (any, error) {
+func repairArray(ctx context.Context, arr []any, sch map[string]any, depth int, st *repairState) (any, error) {
 	items, ok := sch["items"]
 	if !ok {
 		return arr, nil
 	}
 	out := make([]any, len(arr))
 	for i, el := range arr {
-		if err := st.checkCtx(); err != nil {
+		if err := checkRepairCtx(ctx); err != nil {
 			return nil, err
 		}
-		repaired, err := repairValue(el, items, depth+1, st)
+		repaired, err := repairValue(ctx, el, items, depth+1, st)
 		if err != nil {
 			return nil, err
 		}

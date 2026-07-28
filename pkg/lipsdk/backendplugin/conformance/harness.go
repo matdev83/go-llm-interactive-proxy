@@ -102,8 +102,10 @@ func require(cond bool, name, detail, stable string) Result {
 	return fail(name, detail, stable)
 }
 
-func runExecute(inst backendplugin.ConfiguredInstance, inbox ...backendplugin.ClientFrame) ([]backendplugin.ServerFrame, error) {
-	ms := &memStream{ctx: context.Background(), inbox: inbox}
+// runExecute threads the runner ctx into the stream (memStream must carry a ctx to
+// satisfy ExecuteStream.Context); context.Background is never substituted here.
+func runExecute(ctx context.Context, inst backendplugin.ConfiguredInstance, inbox ...backendplugin.ClientFrame) ([]backendplugin.ServerFrame, error) {
+	ms := &memStream{ctx: ctx, inbox: inbox}
 	err := inst.Execute(ms)
 	return ms.outbox, err
 }

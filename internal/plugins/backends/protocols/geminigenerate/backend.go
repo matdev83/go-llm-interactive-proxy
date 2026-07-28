@@ -71,7 +71,7 @@ func NewBackend(cfg Config) execbackend.Backend {
 					return nil, fmt.Errorf("%s: client: %w", id, cerr)
 				}
 				seq := cli.Models.GenerateContentStream(ctx, sp.Model, sp.Contents, sp.Config)
-				es := newGenaiStream(seq, call.MaxPendingWireEvents)
+				es := newGenaiStream(seq, id, call.MaxPendingWireEvents)
 				ev, rerr := es.Recv(ctx)
 				if rerr == nil {
 					return streampeek.NewManagedPrependFirst(ev, es), nil
@@ -85,6 +85,11 @@ func NewBackend(cfg Config) execbackend.Backend {
 				case apiFailureRateLimited:
 					until := credpool.CooldownFromRetryAfterOrFallback(retryAfter, now, defaultRateLimitFallback)
 					pool.MarkRateLimited(cred.ID, until)
+				case apiFailureRetryable:
+					// First Recv failed before the stream was returned: still pre-output,
+					// so a transient upstream/transport failure is a core failover candidate.
+					// rerr already carries this backend's ID prefix from the stream layer.
+					return nil, lipapi.RecoverablePreOutputError(rerr)
 				default:
 					return nil, rerr
 				}

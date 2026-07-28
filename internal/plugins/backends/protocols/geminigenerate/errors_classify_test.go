@@ -1,8 +1,13 @@
 package geminigenerate
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"os"
+	"syscall"
 	"testing"
 	"time"
 
@@ -65,6 +70,66 @@ func TestClassifyGenaiAPIError_401(t *testing.T) {
 		t.Fatalf("got kind=%v ra=%q", kind, ra)
 	}
 }
+
+func TestClassifyGenaiAPIError_5xxAndTimeoutAreRetryable(t *testing.T) {
+	t.Parallel()
+	for _, code := range []int{http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusRequestTimeout} {
+		kind, ra := classifyGenaiAPIError(genai.APIError{Code: code})
+		if kind != apiFailureRetryable || ra != "" {
+			t.Fatalf("code %d: got kind=%v ra=%q want retryable", code, kind, ra)
+		}
+	}
+}
+
+func TestClassifyGenaiAPIError_transportErrorsAreRetryable(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		err  error
+		want apiFailureKind
+	}{
+		{
+			name: "net_timeout",
+			err:  &url.Error{Op: "Post", URL: "http://x", Err: timeoutNetError{}},
+			want: apiFailureRetryable,
+		},
+		{
+			name: "conn_reset",
+			err:  &url.Error{Op: "Post", URL: "http://x", Err: &os.SyscallError{Syscall: "read", Err: syscall.ECONNRESET}},
+			want: apiFailureRetryable,
+		},
+		{
+			name: "context_deadline_not_transport",
+			err:  context.DeadlineExceeded,
+			want: apiFailureNone,
+		},
+		{
+			name: "nil",
+			err:  nil,
+			want: apiFailureNone,
+		},
+		{
+			name: "plain_error",
+			err:  errors.New("plain"),
+			want: apiFailureNone,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			kind, ra := classifyGenaiAPIError(tt.err)
+			if kind != tt.want || ra != "" {
+				t.Fatalf("got kind=%v ra=%q want kind=%v", kind, ra, tt.want)
+			}
+		})
+	}
+}
+
+type timeoutNetError struct{}
+
+func (timeoutNetError) Error() string   { return "i/o timeout" }
+func (timeoutNetError) Timeout() bool   { return true }
+func (timeoutNetError) Temporary() bool { return true }
 
 func TestClassifyGenaiAPIError_retryInfoFeedsCredpoolCooldown(t *testing.T) {
 	t.Parallel()

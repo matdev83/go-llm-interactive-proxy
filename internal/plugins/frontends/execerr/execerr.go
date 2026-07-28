@@ -33,6 +33,10 @@ const PolicyFailureWireMessage = "policy decision unavailable"
 // decisions (requirements 1.5, 6.6).
 const PolicyMalformedWireMessage = "policy decision was malformed"
 
+// ClientRejectWireMessage is the stable client-safe wire message for capability rejects
+// whose normalized reason is empty (control-only or whitespace input).
+const ClientRejectWireMessage = "request rejected"
+
 type Kind int
 
 const (
@@ -114,7 +118,17 @@ func ClassifyExecute(err error) Outcome {
 		}
 	}
 	if lipapi.IsReject(err) {
-		return Outcome{Kind: KindClientReject, Status: http.StatusBadRequest, Message: err.Error(), Err: err}
+		msg := ClientRejectWireMessage
+		var rej *lipapi.RejectError
+		if errors.As(err, &rej) && rej != nil {
+			// Bound the reject's own reason, never the wrapped chain text: err.Error()
+			// would leak wrapping layers (upstream hosts, tokens, executor internals)
+			// to the wire. Same normalizer as the prerequest.IsRejected branch below.
+			if bounded := lipapi.NormalizeClientMessage(rej.Error()); bounded != "" {
+				msg = bounded
+			}
+		}
+		return Outcome{Kind: KindClientReject, Status: http.StatusBadRequest, Message: msg, Err: err}
 	}
 	if prerequest.IsRejected(err) {
 		msg := "request denied"

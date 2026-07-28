@@ -73,7 +73,8 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 
 // Close releases runtime resources by delegating to Host.Close (req 8.6-8.7).
 // Calls are serialized. A successful Close is idempotent; a deadline or teardown
-// failure remains retryable.
+// failure remains retryable. A nil ctx is tolerated and substituted with
+// [context.Background].
 func (r *Runtime) Close(ctx context.Context) error {
 	if r == nil {
 		return nil

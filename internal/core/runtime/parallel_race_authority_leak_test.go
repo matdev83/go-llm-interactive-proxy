@@ -221,7 +221,7 @@ func TestParallelRaceAuthorityLeak_L2_RegisterBLegFailureReleasesAuthority(t *te
 	p.aScope = aScope
 
 	err := runRaceInGoroutine(t, 5*time.Second, func() error {
-		_, err := ex.tryOpenParallelGroup(p, []routing.AttemptCandidate{authorityCandidate()}, nil, "", false)
+		_, err := ex.tryOpenParallelGroup(context.Background(), p, []routing.AttemptCandidate{authorityCandidate()}, nil, "", false)
 		return err
 	})
 	if err == nil {
@@ -267,7 +267,7 @@ func TestParallelRaceAuthorityLeak_L3_FatalLegErrorReleasesOpenedLegs(t *testing
 	p.ttft = &ttftBudget{start: time.Now(), global: 80 * time.Millisecond}
 
 	err := runRaceInGoroutine(t, 5*time.Second, func() error {
-		_, err := ex.tryOpenParallelGroup(p, []routing.AttemptCandidate{authorityCandidate()}, nil, "", false)
+		_, err := ex.tryOpenParallelGroup(context.Background(), p, []routing.AttemptCandidate{authorityCandidate()}, nil, "", false)
 		return err
 	})
 	if err == nil {
@@ -315,12 +315,11 @@ func TestParallelRaceAuthorityLeak_L4_CtxDoneReleasesOpenedLegs(t *testing.T) {
 	defer cancel()
 
 	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 10})
-	p.ctx = ctx
 	p.aScope = aScope
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := ex.tryOpenParallelGroup(p, []routing.AttemptCandidate{authorityCandidate()}, nil, "", false)
+		_, err := ex.tryOpenParallelGroup(ctx, p, []routing.AttemptCandidate{authorityCandidate()}, nil, "", false)
 		done <- err
 	}()
 
@@ -423,7 +422,6 @@ func TestParallelRaceAuthorityLeak_L5_CommitMemoInjectionFailureReleasesAuthorit
 	}
 
 	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 10})
-	p.ctx = ctx
 	p.aScope = aScope
 	p.interleaved = interleavedstate.State{MemoRef: &memoRef}
 	p.baseline.Messages = []lipapi.Message{{
@@ -432,7 +430,7 @@ func TestParallelRaceAuthorityLeak_L5_CommitMemoInjectionFailureReleasesAuthorit
 	}}
 
 	raceErr := runRaceInGoroutine(t, 5*time.Second, func() error {
-		_, err := ex.tryOpenParallelGroup(p, []routing.AttemptCandidate{loserCand, winnerCand}, nil, "", false)
+		_, err := ex.tryOpenParallelGroup(ctx, p, []routing.AttemptCandidate{loserCand, winnerCand}, nil, "", false)
 		return err
 	})
 	if raceErr == nil {
@@ -493,7 +491,7 @@ func TestParallelRaceAuthorityLeak_L10_NoWinnerDoesNotRefundBudget(t *testing.T)
 		{Primary: routing.Primary{Backend: "backend-2", Model: "model-1"}, Key: "backend-2:model-1"},
 	}
 
-	_, err := ex.tryOpenParallelGroup(p, cands, nil, "", false)
+	_, err := ex.tryOpenParallelGroup(context.Background(), p, cands, nil, "", false)
 	if err != nil {
 		t.Fatalf("no-winner parallel race must not surface an error (it failovers), got: %v", err)
 	}

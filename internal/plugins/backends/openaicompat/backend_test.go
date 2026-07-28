@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -235,6 +236,64 @@ func TestNewBackend_noUsableCredentialIsRecoverablePreOutput(t *testing.T) {
 	_, err := be.Open(context.Background(), call, invokeTestCandidate("gpt-test"))
 	if !errors.Is(err, lipapi.ErrRecoverablePreOutput) {
 		t.Fatalf("expected recoverable pre-output error, got %v", err)
+	}
+}
+
+func alwaysStatusServer(t *testing.T, status int, attempts *atomic.Int32) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, `{"error":{"message":"forced","type":"server_error","code":"forced"}}`)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestNewBackend_internalServerErrorIsRecoverablePreOutput(t *testing.T) {
+	t.Parallel()
+	var attempts atomic.Int32
+	srv := alwaysStatusServer(t, http.StatusInternalServerError, &attempts)
+	be := NewBackend(validBackendSpec(srv.URL))
+	call := invokeTestCall()
+	call.Invocation.TransportMode = lipapi.TransportModeNonStreaming
+
+	_, err := be.Open(context.Background(), call, invokeTestCandidate("gpt-test"))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !lipapi.IsRecoverablePreOutput(err) {
+		t.Fatalf("expected recoverable pre-output for 500, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "test: ") {
+		t.Fatalf("expected backend ID prefix in error, got %v", err)
+	}
+	if n := attempts.Load(); n != 1 {
+		t.Fatalf("upstream attempts: %d want 1 (no credential rotation on 500)", n)
+	}
+}
+
+func TestNewBackend_unclassifiedErrorCarriesBackendID(t *testing.T) {
+	t.Parallel()
+	var attempts atomic.Int32
+	srv := alwaysStatusServer(t, http.StatusBadRequest, &attempts)
+	be := NewBackend(validBackendSpec(srv.URL))
+	call := invokeTestCall()
+	call.Invocation.TransportMode = lipapi.TransportModeNonStreaming
+
+	_, err := be.Open(context.Background(), call, invokeTestCandidate("gpt-test"))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if lipapi.IsRecoverablePreOutput(err) {
+		t.Fatalf("did not expect recoverable pre-output for 400: %v", err)
+	}
+	if !strings.Contains(err.Error(), "test: ") {
+		t.Fatalf("expected backend ID prefix in error, got %v", err)
+	}
+	if n := attempts.Load(); n != 1 {
+		t.Fatalf("upstream attempts: %d want 1 (no credential rotation on 400)", n)
 	}
 }
 

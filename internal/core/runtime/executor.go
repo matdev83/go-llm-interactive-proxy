@@ -104,7 +104,7 @@ func (e *Executor) policyEvidenceEmitter(snap *extensions.RequestRuntimeSnapshot
 const otelScopeExecutor = "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 
 func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.EventStream, err error) {
-	prep, cleanup, perr := e.prepareRequest(ctx, call)
+	prep, prepCtx, cleanup, perr := e.prepareRequest(ctx, call)
 	if perr != nil {
 		return nil, perr
 	}
@@ -113,13 +113,13 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 		cleanup()
 	}()
 
-	plan, err := e.buildRoutePlan(prep)
+	plan, err := e.buildRoutePlan(prepCtx, prep)
 	if err != nil {
 		return nil, err
 	}
-	out, err := e.openInitialAttempt(prep, plan)
+	out, err := e.openInitialAttempt(prepCtx, prep, plan)
 	if err != nil {
 		return nil, err
 	}
-	return e.assembleExecutorStream(prep, plan, out)
+	return e.assembleExecutorStream(prepCtx, prep, plan, out)
 }

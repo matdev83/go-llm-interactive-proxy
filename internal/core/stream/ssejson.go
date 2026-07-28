@@ -4,9 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"net/http"
 	"sync"
 )
+
+// Flusher is the flush-only surface SSE writers need from an HTTP response
+// writer; net/http.ResponseWriter satisfies it structurally.
+type Flusher interface {
+	Flush()
+}
 
 const maxPooledSSEBufferCap = 4 << 20 // drop oversized buffers instead of pooling them
 
@@ -73,7 +78,7 @@ func acquireSSERawBuffer() *bytes.Buffer {
 }
 
 // FlushSSEEventJSON writes one SSE record: "event: name\ndata: <json>\n\n" using a pooled buffer.
-func FlushSSEEventJSON(w io.Writer, fl http.Flusher, eventName string, payload any) error {
+func FlushSSEEventJSON(w io.Writer, fl Flusher, eventName string, payload any) error {
 	s := acquireSSEJSONBuf()
 	defer putSSEJSONBuf(s)
 	buf := s.buf
@@ -92,7 +97,7 @@ func FlushSSEEventJSON(w io.Writer, fl http.Flusher, eventName string, payload a
 }
 
 // FlushSSEDataJSON writes one SSE data line: "data: <json>\n\n" using a pooled buffer.
-func FlushSSEDataJSON(w io.Writer, fl http.Flusher, payload any) error {
+func FlushSSEDataJSON(w io.Writer, fl Flusher, payload any) error {
 	s := acquireSSEJSONBuf()
 	defer putSSEJSONBuf(s)
 	buf := s.buf
@@ -110,7 +115,7 @@ func FlushSSEDataJSON(w io.Writer, fl http.Flusher, payload any) error {
 
 // FlushSSEDataJoined writes data: prefix+mid+suffix followed by "\n\n" using a pooled buffer.
 // prefix+mid+suffix must concatenate to one valid JSON value (no leading "data: " prefix).
-func FlushSSEDataJoined(w io.Writer, fl http.Flusher, prefix, mid, suffix []byte) error {
+func FlushSSEDataJoined(w io.Writer, fl Flusher, prefix, mid, suffix []byte) error {
 	buf := acquireSSERawBuffer()
 	defer putSSERawBuffer(buf)
 	buf.Reset()

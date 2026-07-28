@@ -30,6 +30,49 @@ func TestClassifyExecute_reject(t *testing.T) {
 	}
 }
 
+func TestClassifyExecute_rejectWrappedUpstreamDetailNotOnWire(t *testing.T) {
+	t.Parallel()
+	rej := &lipapi.RejectError{Reason: "missing required capabilities: vision"}
+	err := fmt.Errorf("executor submit upstream=http://internal-host:9090/v1 token=sekret: %w", rej)
+	out := execerr.ClassifyExecute(err)
+	if out.Kind != execerr.KindClientReject || out.Status != http.StatusBadRequest {
+		t.Fatalf("kind=%v status=%d", out.Kind, out.Status)
+	}
+	if strings.Contains(out.Message, "internal-host") || strings.Contains(out.Message, "sekret") ||
+		strings.Contains(out.Message, "executor submit") {
+		t.Fatalf("message must not leak wrapped upstream detail: %q", out.Message)
+	}
+	if out.Message != "missing required capabilities: vision" {
+		t.Fatalf("message: %q", out.Message)
+	}
+	if !errors.Is(out.Err, err) {
+		t.Fatalf("Err: want original wrapped error for logging")
+	}
+}
+
+func TestClassifyExecute_rejectUnsafeReasonFallsBack(t *testing.T) {
+	t.Parallel()
+	// Reason carrying only control characters normalizes to empty: the wire must
+	// get the stable fallback, never raw control-laden text.
+	err := &lipapi.RejectError{Reason: "\n\r\t"}
+	out := execerr.ClassifyExecute(err)
+	if out.Message != execerr.ClientRejectWireMessage {
+		t.Fatalf("message: %q want fallback %q", out.Message, execerr.ClientRejectWireMessage)
+	}
+}
+
+func TestClassifyExecute_rejectReasonNormalized(t *testing.T) {
+	t.Parallel()
+	err := &lipapi.RejectError{Reason: "bad\ninput\t" + strings.Repeat("x", 400)}
+	out := execerr.ClassifyExecute(err)
+	if strings.ContainsAny(out.Message, "\n\t\r") {
+		t.Fatalf("message must be control-free: %q", out.Message)
+	}
+	if len(out.Message) > lipapi.MaxClientMessageBytes {
+		t.Fatalf("message len=%d exceeds %d", len(out.Message), lipapi.MaxClientMessageBytes)
+	}
+}
+
 func TestClassifyExecute_contextLimitExceeded(t *testing.T) {
 	t.Parallel()
 	err := lipapi.ErrAllCandidatesContextLimitExceeded

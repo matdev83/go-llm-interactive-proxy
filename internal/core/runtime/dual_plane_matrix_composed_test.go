@@ -161,7 +161,6 @@ func TestDualPlaneMatrix_SequentialFailoverIncurredSettlesViaOpen(t *testing.T) 
 		t.Fatal(err)
 	}
 	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 5})
-	p.ctx = ctx
 	p.sel = sel
 	p.baseline.Route.Selector = "backend-1:model-1|backend-2:model-2"
 	p.baseline.ID = "req-seq"
@@ -169,7 +168,7 @@ func TestDualPlaneMatrix_SequentialFailoverIncurredSettlesViaOpen(t *testing.T) 
 	var out attemptOpenResult
 	for range 4 {
 		var openErr error
-		out, openErr = ex.tryPlanOpenOnce(p)
+		out, openErr = ex.tryPlanOpenOnce(ctx, p)
 		if openErr != nil {
 			t.Fatalf("tryPlanOpenOnce: %v", openErr)
 		}
@@ -270,7 +269,6 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 	}
 	ctx = withMeteringHolder(ctx, holder)
 	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 10})
-	p.ctx = ctx
 	p.aScope = aScope
 	p.baseline.Route.Selector = "backend-1:model-1!backend-2:model-2"
 	p.baseline.ID = "req-par"
@@ -279,7 +277,7 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 		{Primary: routing.Primary{Backend: "backend-2", Model: "model-2"}, Key: "backend-2:model-2"},
 	}
 
-	out, err := ex.tryOpenParallelGroup(p, candidates, nil, "", false)
+	out, err := ex.tryOpenParallelGroup(ctx, p, candidates, nil, "", false)
 	if err != nil {
 		t.Fatalf("tryOpenParallelGroup: %v", err)
 	}
@@ -363,7 +361,7 @@ func TestDualPlaneMatrix_NoRetryAfterClientVisibleOutput(t *testing.T) {
 	}
 
 	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 5})
-	out, err := ex.openPlannedCandidate(p, authorityCandidate(), nil, "", false)
+	out, err := ex.openPlannedCandidate(context.Background(), p, authorityCandidate(), nil, "", false)
 	if err != nil || !out.opened {
 		t.Fatalf("open: err=%v opened=%v", err, out.opened)
 	}
@@ -418,8 +416,7 @@ func TestDualPlaneMatrix_CancellationSettlesIncurredAttempt(t *testing.T) {
 		t.Fatalf("admit request: %v", err)
 	}
 	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 3})
-	p.ctx = ctx
-	out, err := ex.openPlannedCandidate(p, authorityCandidate(), nil, "", false)
+	out, err := ex.openPlannedCandidate(ctx, p, authorityCandidate(), nil, "", false)
 	if err != nil || !out.opened {
 		t.Fatalf("open: err=%v opened=%v", err, out.opened)
 	}
@@ -734,7 +731,6 @@ func TestDualPlaneMatrix_CompressionPlanesSettleFromOwnEvidence(t *testing.T) {
 
 	ctx := withMeteringHolder(context.Background(), holder)
 	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 3})
-	p.ctx = ctx
 	p.bus = bus
 	p.baseline = orig
 	p.baseline.Route.Selector = "backend-1:model-1"
@@ -742,7 +738,7 @@ func TestDualPlaneMatrix_CompressionPlanesSettleFromOwnEvidence(t *testing.T) {
 		Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming,
 	}
 
-	out, err := ex.openPlannedCandidate(p, authorityCandidate(), nil, "", false)
+	out, err := ex.openPlannedCandidate(ctx, p, authorityCandidate(), nil, "", false)
 	if err != nil || !out.opened {
 		t.Fatalf("open: err=%v opened=%v", err, out.opened)
 	}

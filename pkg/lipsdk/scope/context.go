@@ -19,6 +19,7 @@ func WithScope(ctx context.Context, v PrincipalScopeView) context.Context {
 
 // ScopeFromContext returns the authoritative scope attached with [WithScope], if any.
 // The returned view is a copy of the stored snapshot.
+// A nil ctx is tolerated and returns (PrincipalScopeView{}, false).
 func ScopeFromContext(ctx context.Context) (PrincipalScopeView, bool) {
 	if ctx == nil {
 		return PrincipalScopeView{}, false
