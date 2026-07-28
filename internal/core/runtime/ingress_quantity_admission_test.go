@@ -208,7 +208,6 @@ func TestAttemptAdmit_ReceivesBackendIngressQuantitiesBeforeOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	params := attemptOpenParams{
-		ctx:     withMeteringHolder(context.Background(), holder),
 		bus:     bus,
 		traceID: "trace-be-qty",
 		aLegID:  aLegID,
@@ -230,7 +229,7 @@ func TestAttemptAdmit_ReceivesBackendIngressQuantitiesBeforeOpen(t *testing.T) {
 		budget:   &attemptBudget{max: 3},
 	}
 
-	out, err := ex.openPlannedCandidate(params, authorityCandidate(), nil, "", false)
+	out, err := ex.openPlannedCandidate(withMeteringHolder(context.Background(), holder), params, authorityCandidate(), nil, "", false)
 	if err != nil {
 		t.Fatalf("openPlannedCandidate: %v", err)
 	}

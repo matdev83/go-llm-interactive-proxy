@@ -27,6 +27,7 @@ func WithPrincipal(ctx context.Context, p PrincipalView) context.Context {
 }
 
 // PrincipalFromContext returns the principal attached with [WithPrincipal], if any.
+// A nil ctx is tolerated and returns (PrincipalView{}, false).
 func PrincipalFromContext(ctx context.Context) (PrincipalView, bool) {
 	if ctx == nil {
 		return PrincipalView{}, false
@@ -54,6 +55,7 @@ func WithFrontendID(ctx context.Context, frontendID string) context.Context {
 
 // FrontendIDFromContext returns the frontend id attached with [WithFrontendID], if any.
 // The second result is false when unset or when the stored value is not a string.
+// A nil ctx is tolerated and returns ("", false).
 func FrontendIDFromContext(ctx context.Context) (string, bool) {
 	if ctx == nil {
 		return "", false

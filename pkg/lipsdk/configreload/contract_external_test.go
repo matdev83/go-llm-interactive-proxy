@@ -66,8 +66,8 @@ func TestExternalPackage_ConstructsCanonicalContractWithoutInternalImport(t *tes
 	if st.LastResult.Category != configreload.ResultPublished {
 		t.Fatalf("status category=%q", st.LastResult.Category)
 	}
-	if len(configreload.AllResultCategories) == 0 {
-		t.Fatal("AllResultCategories must be non-empty")
+	if len(configreload.ResultCategories()) == 0 {
+		t.Fatal("ResultCategories must be non-empty")
 	}
 	// Compile-time inventory of every canonical named type.
 	var (
@@ -112,10 +112,11 @@ func TestClosedVocabulary_ExactTriggerAndResultCategories(t *testing.T) {
 		configreload.ResultPreparationFailed: true,
 		configreload.ResultInternalFailed:    true,
 	}
-	if len(configreload.AllResultCategories) != len(want) {
-		t.Fatalf("AllResultCategories len=%d want %d", len(configreload.AllResultCategories), len(want))
+	got := configreload.ResultCategories()
+	if len(got) != len(want) {
+		t.Fatalf("ResultCategories len=%d want %d", len(got), len(want))
 	}
-	for _, c := range configreload.AllResultCategories {
+	for _, c := range got {
 		if !want[c] {
 			t.Fatalf("unexpected category %q", c)
 		}
@@ -141,16 +142,11 @@ func TestClosedVocabulary_ExactTriggerAndResultCategories(t *testing.T) {
 	}
 }
 
-// TestNormalizeResultCategory_IndependentOfMutableAllResultCategories proves
-// normalization/known-category policy does not consult the exported mutable
-// AllResultCategories slice header.
-//
-//nolint:paralleltest // mutates exported configreload.AllResultCategories package state
-func TestNormalizeResultCategory_IndependentOfMutableAllResultCategories(t *testing.T) {
-	orig := append([]configreload.ResultCategory(nil), configreload.AllResultCategories...)
-	t.Cleanup(func() {
-		configreload.AllResultCategories = append([]configreload.ResultCategory(nil), orig...)
-	})
+// TestResultCategories_DefensiveCopyAndStableVocabulary proves the returned slice is
+// an independent copy: mutating it must not change later calls nor the
+// normalization/known-category policy, and the vocabulary set must stay stable.
+func TestResultCategories_DefensiveCopyAndStableVocabulary(t *testing.T) {
+	t.Parallel()
 
 	declared := []configreload.ResultCategory{
 		configreload.ResultPublished,
@@ -165,16 +161,39 @@ func TestNormalizeResultCategory_IndependentOfMutableAllResultCategories(t *test
 		configreload.ResultInternalFailed,
 	}
 
-	// Corrupt the exported slice: clear, reorder, and inject decoys.
-	configreload.AllResultCategories = []configreload.ResultCategory{
-		"decoy-a",
-		configreload.ResultBusy,
-		"decoy-b",
+	before := configreload.ResultCategories()
+	if len(before) != len(declared) {
+		t.Fatalf("ResultCategories len=%d want %d", len(before), len(declared))
+	}
+	wantSet := map[configreload.ResultCategory]bool{}
+	for _, c := range declared {
+		wantSet[c] = true
+	}
+	for _, c := range before {
+		if !wantSet[c] {
+			t.Fatalf("unexpected category %q", c)
+		}
+	}
+
+	// Corrupt the caller-owned copy: clear, reorder, and inject decoys.
+	before[0] = "decoy-a"
+	for i := range before {
+		before[i] = "decoy-b"
+	}
+
+	after := configreload.ResultCategories()
+	if len(after) != len(declared) {
+		t.Fatalf("after caller mutation, ResultCategories len=%d want %d", len(after), len(declared))
+	}
+	for i, c := range after {
+		if c != declared[i] {
+			t.Fatalf("after caller mutation, ResultCategories()[%d]=%q want %q", i, c, declared[i])
+		}
 	}
 
 	for _, c := range declared {
 		if got := configreload.NormalizeResultCategory(c); got != c {
-			t.Fatalf("after AllResultCategories mutation, NormalizeResultCategory(%q)=%q want self", c, got)
+			t.Fatalf("after caller mutation, NormalizeResultCategory(%q)=%q want self", c, got)
 		}
 	}
 	if got := configreload.NormalizeResultCategory(""); got != "" {
@@ -184,7 +203,7 @@ func TestNormalizeResultCategory_IndependentOfMutableAllResultCategories(t *test
 		t.Fatalf("unknown normalize=%q want %q", got, configreload.ResultInternalFailed)
 	}
 	if got := configreload.NormalizeResultCategory("decoy-a"); got != configreload.ResultInternalFailed {
-		t.Fatalf("decoy injected into AllResultCategories must not become known: got %q", got)
+		t.Fatalf("decoy injected into caller copy must not become known: got %q", got)
 	}
 }
 

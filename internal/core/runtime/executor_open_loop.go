@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -10,16 +11,15 @@ import (
 
 // openInitialAttempt runs the pre-output attempt-open loop until a backend
 // stream is opened and its B-leg is registered with the A-leg scope.
-func (e *Executor) openInitialAttempt(prep *preparedRequest, plan *routePlanState) (attemptOpenResult, error) {
+func (e *Executor) openInitialAttempt(ctx context.Context, prep *preparedRequest, plan *routePlanState) (attemptOpenResult, error) {
 	for {
-		if err := prep.ctx.Err(); err != nil {
+		if err := ctx.Err(); err != nil {
 			return attemptOpenResult{}, err
 		}
 		if err := prep.aScope.Err(); err != nil {
 			return attemptOpenResult{}, err
 		}
-		out, err := e.tryPlanOpenOnce(attemptOpenParams{
-			ctx:                      prep.ctx,
+		out, err := e.tryPlanOpenOnce(ctx, attemptOpenParams{
 			bus:                      prep.bus,
 			traceID:                  prep.traceID,
 			aLegID:                   prep.aLeg.ALegID,
@@ -50,7 +50,7 @@ func (e *Executor) openInitialAttempt(prep *preparedRequest, plan *routePlanStat
 			continue
 		}
 		if !out.registered {
-			if err := prep.aScope.RegisterBLeg(prep.ctx, leglifecycle.BLegHandle{
+			if err := prep.aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
 				ID:      out.bleg.BLegID,
 				Attempt: lifecycleAttempt(out.stream),
 			}); err != nil {
@@ -62,7 +62,7 @@ func (e *Executor) openInitialAttempt(prep *preparedRequest, plan *routePlanStat
 				// would otherwise be orphaned. Release it with ReleaseKindSwallowed,
 				// mirroring the swallowed-authority release sites in executor_recv_loop.
 				l := e.newAttemptAuthorityLifecycle(out.authority, out.cand)
-				l.finalizeIncurredOrRelease(prep.ctx, authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
+				l.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
 				return attemptOpenResult{}, err
 			}
 		}

@@ -28,6 +28,9 @@ type msgStream struct {
 
 	sdk *ssestream.Stream[anthropic.MessageStreamEventUnion]
 
+	// backendID prefixes stream-recv errors so failures attribute to the configured
+	// backend instance (hosted "anthropic" or a custom-compatible instance prefix).
+	backendID    string
 	pending      stream.PendingEventQueue
 	sawResp      bool
 	sawMsg       bool
@@ -36,13 +39,14 @@ type msgStream struct {
 	closed       bool
 }
 
-func newMessageStream(s *ssestream.Stream[anthropic.MessageStreamEventUnion], maxPending int) lipapi.ManagedEventStream {
+func newMessageStream(s *ssestream.Stream[anthropic.MessageStreamEventUnion], backendID string, maxPending int) lipapi.ManagedEventStream {
 	if s == nil {
 		return lipapi.NewFixedEventStream(nil)
 	}
 	return &msgStream{
-		sdk:     s,
-		pending: stream.NewPendingEventQueue(maxPending),
+		sdk:       s,
+		backendID: backendID,
+		pending:   stream.NewPendingEventQueue(maxPending),
 	}
 }
 
@@ -73,7 +77,7 @@ func (s *msgStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}
 			if err := s.sdk.Err(); err != nil {
 				s.mu.Unlock()
-				return lipapi.Event{}, fmt.Errorf("anthropic: recv stream: %w", err)
+				return lipapi.Event{}, fmt.Errorf("%s: recv stream: %w", s.backendID, err)
 			}
 			if s.terminal {
 				s.mu.Unlock()

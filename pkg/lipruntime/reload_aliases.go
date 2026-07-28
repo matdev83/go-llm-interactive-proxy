@@ -31,5 +31,6 @@ const (
 	ResultInternalFailed    = sdkreload.ResultInternalFailed
 )
 
-// AllResultCategories re-exports the canonical closed vocabulary; do not mutate.
-var AllResultCategories = sdkreload.AllResultCategories
+// ResultCategories re-exports the canonical closed-vocabulary accessor; each call
+// returns a defensive copy, so callers cannot mutate shared enumeration state.
+var ResultCategories = sdkreload.ResultCategories

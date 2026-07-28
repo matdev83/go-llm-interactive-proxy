@@ -206,6 +206,8 @@ func (e *Executor) cancelALegAfterQuarantine(ctx context.Context, aLegID string)
 	}
 	cleanupCtx := ctx
 	if cleanupCtx == nil {
+		// No parent context exists when the caller passes nil; Background is the
+		// only root available for the detached post-quarantine cancel.
 		cleanupCtx = context.Background()
 	} else {
 		cleanupCtx = context.WithoutCancel(cleanupCtx)

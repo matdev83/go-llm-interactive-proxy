@@ -99,6 +99,9 @@ func InstallDiscoveredExports(
 	policy := opt.RuntimePolicy
 	policy.DisableTransportRetries = true
 
+	// activationSeq mints unique per-instance Host Activate handles (install-owned).
+	activationSeq := new(atomic.Uint64)
+
 	seen := make(map[string]struct{}, len(exports))
 	for _, exp := range exports {
 		kind := strings.TrimSpace(exp.Kind)
@@ -122,7 +125,7 @@ func InstallDiscoveredExports(
 		export := exp
 		factoryKind := kind
 		fn := func(instanceID string, n yaml.Node, _ *http.Client, _ pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
-			return buildDiscoveredBackend(host, export, factoryKind, instanceID, n, dial, policy)
+			return buildDiscoveredBackend(host, export, factoryKind, instanceID, n, dial, policy, activationSeq)
 		}
 		if err := reg.RegisterDiscoveredLifecycleBackendWithProfile(kind, fn, export.Profile); err != nil {
 			return err
@@ -145,6 +148,7 @@ func buildDiscoveredBackend(
 	n yaml.Node,
 	dial DialSessionFunc,
 	policy backendplugin.RuntimePolicy,
+	activationSeq *atomic.Uint64,
 ) (pluginreg.BackendBuildResult, error) {
 	instanceID = strings.TrimSpace(instanceID)
 	if instanceID == "" {
@@ -160,7 +164,7 @@ func buildDiscoveredBackend(
 	// logical configured instance id (req 8.8 / reload candidate coexistence).
 	hostInstanceID := instanceID
 	if export.Model == processhost.ProcessModelPerInstance {
-		hostInstanceID = fmt.Sprintf("%s#%d", instanceID, discoveredActivationSeq.Add(1))
+		hostInstanceID = fmt.Sprintf("%s#%d", instanceID, activationSeq.Add(1))
 	}
 
 	var session ExecuteSession
@@ -224,10 +228,6 @@ func buildDiscoveredBackend(
 	}
 	return pluginreg.BackendBuildResult{Backend: br.Backend, Cleanup: cleanup}, nil
 }
-
-// discoveredActivationSeq mints unique Host Activate handles for per_instance
-// overlap across candidate generations that share a logical instance id.
-var discoveredActivationSeq atomic.Uint64
 
 func defaultDialSession(ctx context.Context, req DialSessionRequest) (ExecuteSession, backendplugin.ResolvedProfile, error) {
 	return adapter.DialConfiguredSession(ctx, req.Conn, req.InstanceID, req.FactoryKind, req.ConfigYAML, req.Secrets, req.Policy)

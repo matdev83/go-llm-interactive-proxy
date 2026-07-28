@@ -284,8 +284,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		})
 		s.resetAttemptTerminal()
 	}
-	out, err := s.executor.tryPlanOpenOnce(attemptOpenParams{
-		ctx:                      ctx,
+	out, err := s.executor.tryPlanOpenOnce(ctx, attemptOpenParams{
 		bus:                      s.bus,
 		traceID:                  s.traceID,
 		aLegID:                   s.aLegID,

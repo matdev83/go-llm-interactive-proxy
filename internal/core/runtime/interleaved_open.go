@@ -200,8 +200,7 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 	// resulting stream afterward is too late.
 	boundCtx := from.recvExecContext(ctx)
 	e.logInterleavedThinkerSuppressed(boundCtx, from.traceID)
-	out, err := e.tryPlanOpenOnce(attemptOpenParams{
-		ctx:                 boundCtx,
+	out, err := e.tryPlanOpenOnce(boundCtx, attemptOpenParams{
 		bus:                 from.bus,
 		traceID:             from.traceID,
 		aLegID:              from.aLegID,

@@ -33,6 +33,7 @@ var reloadContractVocabularySelectors = map[string]bool{
 	"ResultPreparationFailed": true,
 	"ResultInternalFailed":    true,
 	"AllResultCategories":     true,
+	"ResultCategories":        true,
 	"Status":                  true,
 	"HistoryEntry":            true,
 	"ReloadTrigger":           true,

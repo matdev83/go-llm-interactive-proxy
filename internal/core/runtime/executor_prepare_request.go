@@ -31,7 +31,6 @@ type preparedRequest struct {
 	secureTurn     execctx.SecureSessionTurn
 	secureTurnOK   bool
 	routePrefs     []string
-	ctx            context.Context
 	streamReturned bool
 	execSpan       trace.Span
 	metering       *checkpoint.RequestHolder
@@ -43,21 +42,23 @@ type preparedRequest struct {
 // extraction, and route-preference clone. It returns a [preparedRequest] holding all
 // state the downstream phases need, plus a cleanup function the caller must defer.
 //
-// Error wrapping is identical to the former inline code.
-func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*preparedRequest, func(), error) {
+// Error wrapping is identical to the former inline code. The returned context is
+// the prepared request context (execute span + submit enrichments) the caller
+// threads into downstream phases.
+func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*preparedRequest, context.Context, func(), error) {
 	noop := func() {}
 	if e == nil || e.Store == nil || call == nil {
-		return nil, noop, fmt.Errorf("executor: invalid arguments")
+		return nil, nil, noop, fmt.Errorf("executor: invalid arguments")
 	}
 	if e.Bus == nil {
-		return nil, noop, fmt.Errorf("executor: nil hook bus")
+		return nil, nil, noop, fmt.Errorf("executor: nil hook bus")
 	}
 	bus := e.Bus
 	if err := call.Validate(); err != nil {
-		return nil, noop, fmt.Errorf("executor: validate call: %w", err)
+		return nil, nil, noop, fmt.Errorf("executor: validate call: %w", err)
 	}
 	if ctx == nil {
-		return nil, noop, lipapi.ErrNilContext
+		return nil, nil, noop, lipapi.ErrNilContext
 	}
 	if e.RuntimeSnapshot != nil {
 		ctx = extensions.WithRequestRuntimeSnapshot(ctx, e.RuntimeSnapshot)
@@ -69,24 +70,24 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 	secureSessionReady := e.SecureSession != nil
 	e.secureSessionMu.Unlock()
 	if !secureSessionReady {
-		return nil, noop, fmt.Errorf("executor: secure session manager is required")
+		return nil, nil, noop, fmt.Errorf("executor: secure session manager is required")
 	}
 
-	var prep preparedRequest
+	prep := &preparedRequest{bus: bus}
 	var err error
-	prep.ctx, prep.execSpan = otel.Tracer(otelScopeExecutor).Start(ctx, "lip.executor.execute")
-	prep.bus = bus
+	prepCtx, execSpan := otel.Tracer(otelScopeExecutor).Start(ctx, "lip.executor.execute")
+	prep.execSpan = execSpan
 
-	prep.traceID, prep.baseline, prep.aLeg, prep.ctx, err = e.prepareSubmitAndALeg(prep.ctx, bus, call)
+	prep.traceID, prep.baseline, prep.aLeg, prepCtx, err = e.prepareSubmitAndALeg(prepCtx, bus, call)
 	if err != nil {
 		// Route through finalize so the lip.executor.execute span records the
 		// prepare-submit failure (RecordError + SetStatus) before ending, matching
 		// the former inline Execute defer. Execute does not call finalize when
 		// prepareRequest returns an error (prep is nil), so the span ends here.
 		prep.finalize(err)
-		return nil, noop, fmt.Errorf("executor: prepare submit: %w", err)
+		return nil, nil, noop, fmt.Errorf("executor: prepare submit: %w", err)
 	}
-	prep.metering = meteringHolderFrom(prep.ctx)
+	prep.metering = meteringHolderFrom(prepCtx)
 
 	lifecycle := e.lifecycleCoordinator()
 	prep.aScope = lifecycle.StartALeg(prep.aLeg.ALegID)
@@ -97,27 +98,27 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 		}
 		// Release logical-request concurrency occupancy on post-admit prepare/
 		// route/open failures before a stream is returned (requirement 10.5).
-		_ = e.releaseRequestAuthority(prep.ctx)
+		_ = e.releaseRequestAuthority(prepCtx)
 		if prep.aScope == nil {
 			return
 		}
-		cleanupCtx, cleanupCancel := detachedCleanupContext(prep.ctx, cancelLosersTimeout)
+		cleanupCtx, cleanupCancel := detachedCleanupContext(prepCtx, cancelLosersTimeout)
 		defer cleanupCancel()
 		_ = prep.aScope.Cancel(cleanupCtx, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone})
 		prep.aScope.End()
 	}
 
-	if v, ok := execctx.FromContext(prep.ctx); ok {
+	if v, ok := execctx.FromContext(prepCtx); ok {
 		prep.recvViews = v
 		prep.recvViewsOK = true
 	}
-	if st, ok := execctx.SecureSessionTurnFromContext(prep.ctx); ok {
+	if st, ok := execctx.SecureSessionTurnFromContext(prepCtx); ok {
 		prep.secureTurn = st
 		prep.secureTurnOK = true
 	}
-	prep.routePrefs = slices.Clone(execctx.RouteCandidatePreferences(prep.ctx))
+	prep.routePrefs = slices.Clone(execctx.RouteCandidatePreferences(prepCtx))
 
-	return &prep, cleanup, nil
+	return prep, prepCtx, cleanup, nil
 }
 
 // finalize ends the tracing span and records any error. The caller's

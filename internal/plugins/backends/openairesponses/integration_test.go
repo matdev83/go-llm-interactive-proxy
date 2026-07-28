@@ -428,6 +428,49 @@ func TestIntegration_multiKeyAllRateLimitedRecoverablePreOutput(t *testing.T) {
 	}
 }
 
+func TestIntegration_refbackend500_recoverablePreOutputWhenSDKMaxRetriesZero(t *testing.T) {
+	t.Parallel()
+	var reqs atomic.Int32
+	rb := refbackend.NewHandler(refbackend.Config{
+		ForcedHTTPStatus: http.StatusInternalServerError,
+	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		rb.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{
+		BaseURL:       srv.URL + "/v1",
+		APIKey:        "sk-test",
+		HTTPClient:    srv.Client(),
+		SDKMaxRetries: new(int),
+	})
+	call := lipapi.Call{
+		ID: "ise",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{
+		Primary: routing.Primary{Backend: backend.ID, Model: "gpt-4o-mini"},
+	}
+	_, err := be.Open(context.Background(), call, cand)
+	if err == nil {
+		t.Fatal("expected Open error from 500 refbackend")
+	}
+	if !lipapi.IsRecoverablePreOutput(err) {
+		t.Fatalf("expected recoverable pre-output, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "openai-responses: ") {
+		t.Fatalf("expected backend ID prefix in error, got: %v", err)
+	}
+	if n := reqs.Load(); n != 1 {
+		t.Fatalf("upstream HTTP attempts: %d want 1 (no credential rotation on 500)", n)
+	}
+}
+
 func TestIntegration_multiKeyFirstReturns400NoRotation(t *testing.T) {
 	t.Parallel()
 	var reqs atomic.Int32
@@ -466,6 +509,9 @@ func TestIntegration_multiKeyFirstReturns400NoRotation(t *testing.T) {
 	}
 	if lipapi.IsRecoverablePreOutput(err) {
 		t.Fatalf("did not expect recoverable pre-output for 400: %v", err)
+	}
+	if !strings.Contains(err.Error(), "openai-responses: ") {
+		t.Fatalf("expected backend ID prefix in error, got: %v", err)
 	}
 	if n := reqs.Load(); n != 1 {
 		t.Fatalf("upstream HTTP attempts: %d want 1 (no second credential try)", n)

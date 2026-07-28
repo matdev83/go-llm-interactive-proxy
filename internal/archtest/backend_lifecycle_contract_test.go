@@ -37,6 +37,8 @@ func TestOfficialBackendsHaveLifecycleContractTests(t *testing.T) {
 		"protocols":     {},
 		// Shared final-wire User-Agent decorator for approved connectors (not a B-leg itself).
 		"httpidentity": {},
+		// Shared transport-error classification helper (not a B-leg itself).
+		"transporterr": {},
 	}
 	entries, err := os.ReadDir(backendsDir)
 	if err != nil {

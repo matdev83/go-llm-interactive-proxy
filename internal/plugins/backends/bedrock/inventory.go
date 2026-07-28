@@ -23,7 +23,7 @@ type foundationModelsProvider struct {
 }
 
 func newFoundationModelsProvider(ctx context.Context, cfg Config) modelinventory.Provider {
-	if err := validateBedrockEndpointSecurity(cfg); err != nil {
+	if err := validateBedrockEndpointInput(cfg); err != nil {
 		return modelinventory.ErrorProvider{Err: fmt.Errorf("bedrock model inventory: validate endpoint: %w", err)}
 	}
 	if ctx == nil {
