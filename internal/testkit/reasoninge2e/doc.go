@@ -17,4 +17,7 @@
 //
 // AssistantTurn.Streaming is plan/client metadata; Check / BackendTurnObservation do
 // not validate streaming wire shape (HTTP drivers assert Content-Type / SSE framing).
+//
+// CheckPrefixRetention models FIFO store bounds for ModeDropped restoration; Check and
+// CheckPrefix remain eviction-blind. CheckPrefixRetention requires maxArtifactTurns > 0.
 package reasoninge2e

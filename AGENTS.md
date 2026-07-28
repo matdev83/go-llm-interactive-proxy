@@ -26,6 +26,11 @@
 - Never claim success without direct verification evidence.
 - Preserve user-authored changes; never use destructive git commands unless explicitly requested.
 
+## Respect git workflow: No work on main
+
+Keep `main` branch clean. It should be only a PR merge receiver, never a merge donor. 
+Each time you start work on some fixes or implementation of new features create a new local worktree based on `main` with adequatly named fix/spec/feat branch and work there, NOT ON MAIN.
+
 ## OKF Knowledge Base
 
 - Treat `EchoesVault/pages/` as an Open Knowledge Format concept bundle: one concept per Markdown file with YAML frontmatter and required `type`.

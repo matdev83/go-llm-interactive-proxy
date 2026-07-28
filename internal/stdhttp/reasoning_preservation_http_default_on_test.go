@@ -82,7 +82,7 @@ func runChatDefaultOnDropScenario(t *testing.T, opts rpChatStackOpts, expectRest
 	}
 	var validators []refchat.RequestValidator
 	if expectRestore {
-		validators = chatRestoreValidators(plan, 2, nil)
+		validators = chatRestoreValidators(plan, 2, nil, rpHarnessMaxTurnsPerSession)
 	} else {
 		validators = chatNoRestoreValidators(plan, 2)
 	}

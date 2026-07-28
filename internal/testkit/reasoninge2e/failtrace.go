@@ -49,6 +49,59 @@ func FormatFail(plan Plan, turnID string, mode RetentionMode, field, detail stri
 	}.String()
 }
 
+// FormatRetentionDiag extracts content-safe retention fields from an oracle error
+// for matrix/soak fail lines. Returns "" when err is nil or carries no retention diagnostics.
+func FormatRetentionDiag(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	var b strings.Builder
+	for _, key := range []string{
+		"request_turn_id=",
+		"history_turn_id=",
+		"request_turn=",
+		"history_turn=",
+		"artifact_state=",
+	} {
+		tok, ok := retentionDiagToken(msg, key)
+		if !ok {
+			continue
+		}
+		b.WriteByte(' ')
+		b.WriteString(tok)
+	}
+	return b.String()
+}
+
+func retentionDiagToken(msg, key string) (string, bool) {
+	start := 0
+	for {
+		i := strings.Index(msg[start:], key)
+		if i < 0 {
+			return "", false
+		}
+		abs := start + i
+		if key == "request_turn=" && strings.HasPrefix(msg[abs:], "request_turn_id=") {
+			start = abs + len("request_turn_")
+			continue
+		}
+		if key == "history_turn=" && strings.HasPrefix(msg[abs:], "history_turn_id=") {
+			start = abs + len("history_turn_")
+			continue
+		}
+		rest := msg[abs:]
+		end := len(rest)
+		for j, r := range rest {
+			if r == ' ' || r == '\t' {
+				end = j
+				break
+			}
+		}
+		return rest[:end], true
+	}
+}
+
 // CheckPrefix validates a prefix of the plan against a backend observation.
 // Used by multi-turn HTTP drivers where each request carries only history to date.
 func CheckPrefix(plan Plan, obs BackendRequestObservation) error {
