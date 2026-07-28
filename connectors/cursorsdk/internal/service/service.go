@@ -2,9 +2,7 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
@@ -152,54 +150,17 @@ func (i *instance) Execute(stream backendplugin.ExecuteStream) error {
 	if i == nil || i.be.Open == nil {
 		return fmt.Errorf("cursorsdk: backend not configured")
 	}
-	start, err := stream.Recv()
-	if err != nil {
-		return err
-	}
-	if start.Kind != backendplugin.ClientFrameStart || start.Invocation == nil {
-		return fmt.Errorf("%w: expected start", backendplugin.ErrInvalidFrame)
-	}
-	if err := stream.Send(backendplugin.ServerFrame{Kind: backendplugin.ServerFrameAccepted}); err != nil {
-		return err
-	}
-	call, err := backendplugin.CallFromInvocation(*start.Invocation)
-	if err != nil {
-		return err
-	}
-	model := strings.TrimSpace(start.Invocation.CanonicalModelID)
-	if model == "" {
-		model = strings.TrimSpace(start.Invocation.NativeModelID)
-	}
-	cand := product.AttemptCandidate{
-		Primary: product.Primary{Backend: FactoryKind, Model: model},
-		Key:     FactoryKind + ":" + model,
-	}
-	ctx := context.Background()
-	ms, err := i.be.Open(ctx, call, cand)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = ms.Close() }()
-	seq := uint64(1)
-	for {
-		ev, err := ms.Recv(ctx)
-		if errors.Is(err, io.EOF) {
-			return stream.Send(backendplugin.ServerFrame{
-				Kind: backendplugin.ServerFrameTerminal, Sequence: seq,
-				Terminal: &backendplugin.Terminal{Status: backendplugin.TerminalSuccess},
-			})
+	return backendplugin.ForwardExecute(stream, func(ctx context.Context, inv backendplugin.Invocation, call lipapi.Call) (lipapi.ManagedEventStream, error) {
+		model := strings.TrimSpace(inv.CanonicalModelID)
+		if model == "" {
+			model = strings.TrimSpace(inv.NativeModelID)
 		}
-		if err != nil {
-			return err
+		cand := product.AttemptCandidate{
+			Primary: product.Primary{Backend: FactoryKind, Model: model},
+			Key:     FactoryKind + ":" + model,
 		}
-		if err := stream.Send(backendplugin.ServerFrame{
-			Kind: backendplugin.ServerFrameEvent, Sequence: seq,
-			Event: backendplugin.CanonicalEventFromLipapi(ev),
-		}); err != nil {
-			return err
-		}
-		seq++
-	}
+		return i.be.Open(ctx, call, cand)
+	})
 }
 
 var (

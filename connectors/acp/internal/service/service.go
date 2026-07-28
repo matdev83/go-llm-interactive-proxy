@@ -2,12 +2,11 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"net/http"
 
 	acpsupport "github.com/matdev83/go-llm-interactive-proxy/connector-support/acp"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 )
 
@@ -87,50 +86,12 @@ func (i *instance) ListModels(context.Context, uint32) (backendplugin.ListModels
 func (i *instance) Close(context.Context) error { return nil }
 
 func (i *instance) Execute(stream backendplugin.ExecuteStream) error {
-	start, err := stream.Recv()
-	if err != nil {
-		return err
-	}
-	if start.Kind != backendplugin.ClientFrameStart || start.Invocation == nil {
-		return fmt.Errorf("%w: expected start", backendplugin.ErrInvalidFrame)
-	}
-	if err := stream.Send(backendplugin.ServerFrame{Kind: backendplugin.ServerFrameAccepted}); err != nil {
-		return err
-	}
-	call, err := backendplugin.CallFromInvocation(*start.Invocation)
-	if err != nil {
-		return err
-	}
-	ctx := context.Background()
-	ms, err := acpsupport.OpenHTTPPrompt(ctx, acpsupport.Config{
-		BaseURL:    i.cfg.BaseURL,
-		HTTPClient: i.hc,
-	}, call)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = ms.Close() }()
-
-	seq := uint64(1)
-	for {
-		ev, err := ms.Recv(ctx)
-		if errors.Is(err, io.EOF) {
-			return stream.Send(backendplugin.ServerFrame{
-				Kind: backendplugin.ServerFrameTerminal, Sequence: seq,
-				Terminal: &backendplugin.Terminal{Status: backendplugin.TerminalSuccess},
-			})
-		}
-		if err != nil {
-			return err
-		}
-		if err := stream.Send(backendplugin.ServerFrame{
-			Kind: backendplugin.ServerFrameEvent, Sequence: seq,
-			Event: backendplugin.CanonicalEventFromLipapi(ev),
-		}); err != nil {
-			return err
-		}
-		seq++
-	}
+	return backendplugin.ForwardExecute(stream, func(ctx context.Context, _ backendplugin.Invocation, call lipapi.Call) (lipapi.ManagedEventStream, error) {
+		return acpsupport.OpenHTTPPrompt(ctx, acpsupport.Config{
+			BaseURL:    i.cfg.BaseURL,
+			HTTPClient: i.hc,
+		}, call)
+	})
 }
 
 var (
