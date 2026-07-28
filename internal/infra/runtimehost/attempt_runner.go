@@ -34,19 +34,18 @@ type attemptRunnerDeps struct {
 	Compile  CandidateCompiler
 	Manager  *Manager
 	Observer *ReloadObserver
-	// ShuttingDown is a narrow opaque shutdown predicate (typically the gate). Nil is false.
-	ShuttingDown func() bool
+	Gate     *attemptGate
 }
 
 // attemptRunner exclusively owns one admitted reload attempt transaction.
 type attemptRunner struct {
-	source       StableConfigSource
-	loader       EffectiveLoader
-	classify     func(active, candidate *config.EffectiveConfig) ([]configreload.SafeChange, error)
-	compile      CandidateCompiler
-	mgr          *Manager
-	observer     *ReloadObserver
-	shuttingDown func() bool
+	source   StableConfigSource
+	loader   EffectiveLoader
+	classify func(active, candidate *config.EffectiveConfig) ([]configreload.SafeChange, error)
+	compile  CandidateCompiler
+	mgr      *Manager
+	observer *ReloadObserver
+	gate     *attemptGate
 }
 
 func newAttemptRunner(deps attemptRunnerDeps) *attemptRunner {
@@ -57,7 +56,7 @@ func newAttemptRunner(deps attemptRunnerDeps) *attemptRunner {
 	return &attemptRunner{
 		source: deps.Source, loader: deps.Loader, classify: classify,
 		compile: deps.Compile, mgr: deps.Manager, observer: deps.Observer,
-		shuttingDown: deps.ShuttingDown,
+		gate: deps.Gate,
 	}
 }
 
@@ -65,7 +64,7 @@ func (r *attemptRunner) isShuttingDown() bool {
 	if r == nil {
 		return true
 	}
-	if r.shuttingDown != nil && r.shuttingDown() {
+	if r.gate != nil && r.gate.shuttingDown() {
 		return true
 	}
 	return r.mgr != nil && r.mgr.ShuttingDown()
