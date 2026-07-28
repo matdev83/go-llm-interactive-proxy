@@ -83,7 +83,7 @@ func recorderEvent() cp.Event {
 		Visibility:     cp.VisibilityDefault,
 		EvidenceState:  cp.EvidenceRecorded,
 		RedactionState: cp.RedactionNone,
-		Auth:           &cp.AuthDetail{Outcome: "allow"},
+		Detail:         &cp.AuthDetail{Outcome: "allow"},
 		Source:         cp.SourceRef{Name: "test"},
 	}
 }
@@ -177,8 +177,8 @@ func TestRecorderRequiredPreWorkSucceedsForBestEffortCategory(t *testing.T) {
 	// usage category is NOT in required set, so required_pre_work policy treats it as best-effort.
 	ev := recorderEvent()
 	ev.Category = cp.CategoryUsage
-	ev.Auth = nil
-	ev.Usage = &cp.UsageDetail{Plane: cp.UsagePlaneObserved, Availability: cp.UsageAvailabilityObserved}
+	ev.Detail = nil
+	ev.Detail = &cp.UsageDetail{Plane: cp.UsagePlaneObserved, Availability: cp.UsageAvailabilityObserved}
 	_, err := rec.Record(context.Background(), ev)
 	if err != nil {
 		t.Fatalf("non-required category under required_pre_work must be best-effort, got %v", err)
@@ -539,13 +539,13 @@ func TestRecorderRejectsAsUnsafeEvidence(t *testing.T) {
 		},
 		{
 			name:        "zero_detail_blocks",
-			mutate:      func(e *cp.Event) { e.Auth = nil },
+			mutate:      func(e *cp.Event) { e.Detail = nil },
 			expectedSub: "exactly one detail block is required",
 		},
 		{
-			name:        "multiple_detail_blocks",
-			mutate:      func(e *cp.Event) { e.Session = &cp.SessionDetail{Action: cp.SessionActionCreated} },
-			expectedSub: "exactly one detail block is required",
+			name:        "category_detail_mismatch_from_detail_swap",
+			mutate:      func(e *cp.Event) { e.Detail = &cp.SessionDetail{Action: cp.SessionActionCreated} },
+			expectedSub: "requires auth detail",
 		},
 		{
 			name:        "oversized_summary",

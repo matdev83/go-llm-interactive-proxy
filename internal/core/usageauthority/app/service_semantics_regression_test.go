@@ -77,8 +77,8 @@ func TestAdmissionDenialReasonUsesDecisiveRuleKind(t *testing.T) {
 			if got.PolicyRecord.ReasonCode != string(tc.wantReason) {
 				t.Fatalf("policy reason = %q, want %q", got.PolicyRecord.ReasonCode, tc.wantReason)
 			}
-			if got.AccountingEvent.AccountingAuthority == nil || got.AccountingEvent.AccountingAuthority.ReasonCode != string(tc.wantReason) {
-				t.Fatalf("accounting reason = %#v, want %q", got.AccountingEvent.AccountingAuthority, tc.wantReason)
+			if got.AccountingEvent.AccountingAuthority() == nil || got.AccountingEvent.AccountingAuthority().ReasonCode != string(tc.wantReason) {
+				t.Fatalf("accounting reason = %#v, want %q", got.AccountingEvent.AccountingAuthority(), tc.wantReason)
 			}
 		})
 	}
@@ -122,7 +122,7 @@ func TestAdmissionEvidenceUsesDecisiveRuleInMultiRuleMatch(t *testing.T) {
 	if got.Allowed || got.SelectedRuleID != budget.ID || got.RuleKind != domain.RuleKindBudget {
 		t.Fatalf("admission metadata = %#v, want budget decisive rule", got)
 	}
-	detail := got.AccountingEvent.AccountingAuthority
+	detail := got.AccountingEvent.AccountingAuthority()
 	if detail == nil {
 		t.Fatal("accounting authority detail is nil")
 	}

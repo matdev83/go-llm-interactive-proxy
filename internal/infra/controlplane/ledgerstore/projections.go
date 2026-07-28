@@ -96,7 +96,7 @@ func (s *MemoryStore) groupSessionsLocked(common cp.CommonFilters, unsupported m
 		if se.seq > g.maxSeq {
 			g.maxSeq = se.seq
 		}
-		if ev.Session != nil {
+		if ev.Session() != nil {
 			if se.seq > g.scopeSeq {
 				g.scope = ev.Scope
 				g.scopeSeq = se.seq
@@ -105,13 +105,13 @@ func (s *MemoryStore) groupSessionsLocked(common cp.CommonFilters, unsupported m
 			g.fallbackScope = ev.Scope
 			g.fallbackSeq = se.seq
 		}
-		if ev.Usage != nil {
-			g.usage.InputTokens += ev.Usage.InputTokens
-			g.usage.OutputTokens += ev.Usage.OutputTokens
-			g.usage.TotalTokens += ev.Usage.TotalTokens
-			g.usage.CostNanoUnits += ev.Usage.CostNanoUnits
+		if ev.Usage() != nil {
+			g.usage.InputTokens += ev.Usage().InputTokens
+			g.usage.OutputTokens += ev.Usage().OutputTokens
+			g.usage.TotalTokens += ev.Usage().TotalTokens
+			g.usage.CostNanoUnits += ev.Usage().CostNanoUnits
 		}
-		if ev.Attempt != nil {
+		if ev.Attempt() != nil {
 			g.attempts++
 		}
 	}
@@ -148,7 +148,10 @@ func (g *sessionGroup) toSummary() sequenced[cp.SessionSummary] {
 // ---- attempts ----
 
 func attemptRowFromEvent(ev cp.Event) cp.AttemptRow {
-	a := ev.Attempt
+	a := ev.Attempt()
+	if a == nil {
+		return cp.AttemptRow{Correlation: ev.Correlation, EvidenceState: ev.EvidenceState}
+	}
 	row := cp.AttemptRow{
 		Correlation:   ev.Correlation,
 		BackendID:     a.BackendID,
@@ -176,7 +179,10 @@ func usageRowFromEvent(ev cp.Event) cp.UsageRow {
 // ---- usage aggregate ----
 
 func aggregateRow(groupBy []string, ev cp.Event) (string, *cp.UsageAggregate) {
-	u := ev.Usage
+	u := ev.Usage()
+	if u == nil {
+		return "", &cp.UsageAggregate{EvidenceState: ev.EvidenceState}
+	}
 	parts := make([]string, 0, len(groupBy))
 	agg := &cp.UsageAggregate{
 		Plane:          u.Plane,
@@ -249,16 +255,16 @@ func policyAuditRowFromEvent(ev cp.Event) cp.PolicyAuditRow {
 		RedactionState: ev.RedactionState,
 		EvidenceState:  ev.EvidenceState,
 	}
-	if ev.Policy != nil {
-		row.Stage = ev.Policy.Stage
-		row.Outcome = ev.Policy.Outcome
-		row.Effect = ev.Policy.Effect
-		row.ReasonCode = ev.Policy.ReasonCode
+	if ev.Policy() != nil {
+		row.Stage = ev.Policy().Stage
+		row.Outcome = ev.Policy().Outcome
+		row.Effect = ev.Policy().Effect
+		row.ReasonCode = ev.Policy().ReasonCode
 	}
-	if ev.Audit != nil {
+	if ev.Audit() != nil {
 		row.Stage = "audit"
-		row.Outcome = ev.Audit.Action
-		row.ReasonCode = ev.Audit.ReasonCode
+		row.Outcome = ev.Audit().Action
+		row.ReasonCode = ev.Audit().ReasonCode
 	}
 	if row.EvidenceState == "" {
 		row.EvidenceState = cp.EvidenceRecorded

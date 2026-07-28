@@ -188,7 +188,7 @@ func authEvent(seq int, key, principal string) cp.Event {
 		Visibility:     cp.VisibilityDefault,
 		EvidenceState:  cp.EvidenceRecorded,
 		RedactionState: cp.RedactionNone,
-		Auth: &cp.AuthDetail{
+		Detail: &cp.AuthDetail{
 			Outcome:    "allowed",
 			ReasonCode: "ok",
 			Frontend:   "openai-responses",
@@ -218,7 +218,7 @@ func attemptEvent(seq int, key, principal, backend, model, outcome string, surfa
 		Visibility:     cp.VisibilityDefault,
 		EvidenceState:  cp.EvidenceRecorded,
 		RedactionState: cp.RedactionNone,
-		Attempt: &cp.AttemptDetail{
+		Detail: &cp.AttemptDetail{
 			ALegID:       "aleg-" + principal,
 			BLegID:       "bleg-" + principal,
 			AttemptSeq:   seq,
@@ -253,7 +253,7 @@ func usageEvent(seq int, key, principal, backend, model string, input, output in
 		Visibility:     cp.VisibilityDefault,
 		EvidenceState:  cp.EvidenceRecorded,
 		RedactionState: cp.RedactionNone,
-		Usage: &cp.UsageDetail{
+		Detail: &cp.UsageDetail{
 			Plane:               cp.UsagePlaneAccounting,
 			Availability:        cp.UsageAvailabilityAccountingAuth,
 			InputTokens:         input,
@@ -284,7 +284,7 @@ func policyEvent(seq int, key, principal string, effect, reason string) cp.Event
 		Visibility:     cp.VisibilityDefault,
 		EvidenceState:  cp.EvidenceRecorded,
 		RedactionState: cp.RedactionNone,
-		Policy: &cp.PolicyDetail{
+		Detail: &cp.PolicyDetail{
 			Stage:      "admission",
 			Outcome:    "allow",
 			Effect:     effect,
@@ -310,7 +310,7 @@ func auditEvent(seq int, key, principal, action string) cp.Event {
 		Visibility:     cp.VisibilityDefault,
 		EvidenceState:  cp.EvidenceRecorded,
 		RedactionState: cp.RedactionNone,
-		Audit: &cp.AuditDetail{
+		Detail: &cp.AuditDetail{
 			Action:     action,
 			Result:     "ok",
 			ReasonCode: "audit_ok",

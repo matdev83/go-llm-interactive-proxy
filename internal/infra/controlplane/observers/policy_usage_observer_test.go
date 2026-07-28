@@ -60,12 +60,12 @@ func TestPolicyObserverAdapter_RecordsDecisionAndRemainsFailOpen(t *testing.T) {
 		t.Fatalf("policy observer must be fail-open, got %v", err)
 	}
 	evs := h.events()
-	if len(evs) != 1 || evs[0].Policy == nil || evs[0].Policy.Outcome != "deny" {
+	if len(evs) != 1 || evs[0].Policy() == nil || evs[0].Policy().Outcome != "deny" {
 		t.Fatalf("policy decision not recorded: %#v", evs)
 	}
 	// Outcome is preserved unchanged.
-	if evs[0].Policy.Effect != "swallow" || evs[0].Policy.ReasonCode != "policy_violation" {
-		t.Fatalf("policy effect/reason lost: %#v", evs[0].Policy)
+	if evs[0].Policy().Effect != "swallow" || evs[0].Policy().ReasonCode != "policy_violation" {
+		t.Fatalf("policy effect/reason lost: %#v", evs[0].Policy())
 	}
 	if evs[0].SourceEventKey != "policy:trace-p:pre_backend:opa:aleg-p:bleg-p:1:policy_violation" {
 		t.Fatalf("policy source key = %q", evs[0].SourceEventKey)
@@ -139,11 +139,11 @@ func TestUsageObserverAdapter_RecordsSafeUsageAndDropsRawJSON(t *testing.T) {
 		t.Fatalf("usage observer must be fail-open, got %v", err)
 	}
 	evs := h.events()
-	if len(evs) != 1 || evs[0].Usage == nil {
+	if len(evs) != 1 || evs[0].Usage() == nil {
 		t.Fatalf("usage event not recorded: %#v", evs)
 	}
-	if evs[0].Usage.InputTokens != 100 || evs[0].Usage.TotalTokens != 150 {
-		t.Fatalf("usage dimensions lost: %#v", evs[0].Usage)
+	if evs[0].Usage().InputTokens != 100 || evs[0].Usage().TotalTokens != 150 {
+		t.Fatalf("usage dimensions lost: %#v", evs[0].Usage())
 	}
 	for _, bad := range []string{"secret", `{"secret":`, "RawUsageJSON"} {
 		if contains(string(mustMarshal(t, evs[0])), bad) {

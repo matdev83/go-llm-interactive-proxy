@@ -116,18 +116,17 @@ func TestEventRequiresExactlyOneDetail(t *testing.T) {
 		t.Fatalf("event with no detail must be invalid")
 	}
 	withAuth := base
-	withAuth.Auth = &controlplane.AuthDetail{Outcome: "allow"}
+	withAuth.Detail = &controlplane.AuthDetail{Outcome: "allow"}
 	if err := withAuth.Validate(); err != nil {
 		t.Fatalf("event with one auth detail must be valid: %v", err)
 	}
-	two := withAuth
-	two.Session = &controlplane.SessionDetail{Action: controlplane.SessionActionCreated}
-	if err := two.Validate(); err == nil {
-		t.Fatalf("event with two details must be invalid")
+	var two controlplane.Event
+	if err := json.Unmarshal([]byte(`{"category":"auth","occurred_at":"2020-01-01T00:00:01Z","recorded_at":"2020-01-01T00:00:01Z","correlation":{},"scope":{"principal":{},"principal_id":{},"credential_id":{},"tenant_id":{},"organization_id":{},"workspace_id":{},"project_id":{},"department_id":{},"cost_center_id":{}},"source":{},"visibility":"default","evidence_state":"recorded","redaction_state":"none","auth":{"outcome":"allow"},"session":{"action":"created"}}`), &two); err == nil {
+		t.Fatalf("JSON with two detail blocks must be invalid")
 	}
 	withAccountingAuthority := base
 	withAccountingAuthority.Category = controlplane.CategoryAccountingAuthority
-	withAccountingAuthority.AccountingAuthority = &controlplane.AccountingAuthorityDetail{
+	withAccountingAuthority.Detail = &controlplane.AccountingAuthorityDetail{
 		Outcome:         controlplane.AccountingOutcomeReserve,
 		EvidenceState:   controlplane.EvidenceRecorded,
 		RedactionState:  controlplane.RedactionNone,
@@ -141,9 +140,9 @@ func TestEventRequiresExactlyOneDetail(t *testing.T) {
 		t.Fatalf("event with accounting-authority detail must be valid: %v", err)
 	}
 	withMismatch := withAccountingAuthority
-	withMismatch.Auth = &controlplane.AuthDetail{Outcome: "allow"}
+	withMismatch.Detail = &controlplane.AuthDetail{Outcome: "allow"}
 	if err := withMismatch.Validate(); err == nil {
-		t.Fatalf("event with multiple details must be invalid")
+		t.Fatalf("event with category/detail mismatch must be invalid")
 	}
 }
 
@@ -166,7 +165,7 @@ func TestEventValidateRejectsZeroRecordedAt(t *testing.T) {
 		Visibility:     controlplane.VisibilityDefault,
 		EvidenceState:  controlplane.EvidenceRecorded,
 		RedactionState: controlplane.RedactionNone,
-		Auth:           &controlplane.AuthDetail{Outcome: "allow"},
+		Detail:         &controlplane.AuthDetail{Outcome: "allow"},
 	}
 	err := ev.Validate()
 	if err == nil {
@@ -189,7 +188,7 @@ func TestEventValidateRejectsZeroOccurredAt(t *testing.T) {
 		Visibility:     controlplane.VisibilityDefault,
 		EvidenceState:  controlplane.EvidenceRecorded,
 		RedactionState: controlplane.RedactionNone,
-		Auth:           &controlplane.AuthDetail{Outcome: "allow"},
+		Detail:         &controlplane.AuthDetail{Outcome: "allow"},
 	}
 	err := ev.Validate()
 	if err == nil {
@@ -215,7 +214,7 @@ func TestEventValidateRejectsRecordedAtBeforeOccurredAt(t *testing.T) {
 		Visibility:     controlplane.VisibilityDefault,
 		EvidenceState:  controlplane.EvidenceRecorded,
 		RedactionState: controlplane.RedactionNone,
-		Auth:           &controlplane.AuthDetail{Outcome: "allow"},
+		Detail:         &controlplane.AuthDetail{Outcome: "allow"},
 	}
 	err := ev.Validate()
 	if err == nil {
@@ -247,7 +246,7 @@ func TestEventValidateAcceptsZeroWindowFields(t *testing.T) {
 		Visibility:     controlplane.VisibilityDefault,
 		EvidenceState:  controlplane.EvidenceRecorded,
 		RedactionState: controlplane.RedactionNone,
-		AccountingAuthority: &controlplane.AccountingAuthorityDetail{
+		Detail: &controlplane.AccountingAuthorityDetail{
 			Correlation:     controlplane.Correlation{TraceID: "trace-1", RequestID: "req-1"},
 			RuleID:          "tenant.quota",
 			Outcome:         controlplane.AccountingOutcomeReserve,
@@ -266,9 +265,9 @@ func TestEventValidateAcceptsZeroWindowFields(t *testing.T) {
 			// signal "no window" — see AccountingAuthorityDetail godoc.
 		},
 	}
-	if !ev.AccountingAuthority.WindowStart.IsZero() ||
-		!ev.AccountingAuthority.WindowEnd.IsZero() ||
-		!ev.AccountingAuthority.WindowResetAt.IsZero() {
+	if !ev.AccountingAuthority().WindowStart.IsZero() ||
+		!ev.AccountingAuthority().WindowEnd.IsZero() ||
+		!ev.AccountingAuthority().WindowResetAt.IsZero() {
 		t.Fatalf("test precondition: window fields must be zero before validation")
 	}
 	if err := ev.Validate(); err != nil {
@@ -287,14 +286,14 @@ func TestEventValidateAcceptsZeroWindowFields(t *testing.T) {
 	if err := json.Unmarshal(raw, &back); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if back.AccountingAuthority == nil {
+	if back.AccountingAuthority() == nil {
 		t.Fatalf("accounting-authority detail lost in round-trip")
 	}
-	if !back.AccountingAuthority.WindowStart.IsZero() ||
-		!back.AccountingAuthority.WindowEnd.IsZero() ||
-		!back.AccountingAuthority.WindowResetAt.IsZero() {
+	if !back.AccountingAuthority().WindowStart.IsZero() ||
+		!back.AccountingAuthority().WindowEnd.IsZero() ||
+		!back.AccountingAuthority().WindowResetAt.IsZero() {
 		t.Fatalf("round-tripped window fields must remain zero (no-window semantic preserved): got start=%v end=%v reset=%v",
-			back.AccountingAuthority.WindowStart, back.AccountingAuthority.WindowEnd, back.AccountingAuthority.WindowResetAt)
+			back.AccountingAuthority().WindowStart, back.AccountingAuthority().WindowEnd, back.AccountingAuthority().WindowResetAt)
 	}
 }
 
@@ -308,7 +307,7 @@ func TestEventRejectsCategoryDetailMismatch(t *testing.T) {
 		Visibility:     controlplane.VisibilityDefault,
 		EvidenceState:  controlplane.EvidenceRecorded,
 		RedactionState: controlplane.RedactionNone,
-		Auth:           &controlplane.AuthDetail{Outcome: "allow"},
+		Detail:         &controlplane.AuthDetail{Outcome: "allow"},
 	}
 	if err := ev.Validate(); err == nil {
 		t.Fatalf("event with auth detail under usage category must be invalid")
@@ -325,7 +324,7 @@ func TestEventRejectsAccountingAuthorityCategoryDetailMismatch(t *testing.T) {
 		Visibility:     controlplane.VisibilityDefault,
 		EvidenceState:  controlplane.EvidenceRecorded,
 		RedactionState: controlplane.RedactionNone,
-		Auth:           &controlplane.AuthDetail{Outcome: "allow"},
+		Detail:         &controlplane.AuthDetail{Outcome: "allow"},
 	}
 	if err := ev.Validate(); err == nil {
 		t.Fatalf("event with auth detail under accounting-authority category must be invalid")
@@ -348,7 +347,7 @@ func TestEventValidateRejectsUnknownVisibility(t *testing.T) {
 		Visibility:     controlplane.Visibility("bogus"),
 		EvidenceState:  controlplane.EvidenceRecorded,
 		RedactionState: controlplane.RedactionNone,
-		Auth:           &controlplane.AuthDetail{Outcome: "allow"},
+		Detail:         &controlplane.AuthDetail{Outcome: "allow"},
 	}
 	err := ev.Validate()
 	if err == nil {
@@ -375,7 +374,7 @@ func TestEventValidateRejectsUnknownEvidenceState(t *testing.T) {
 		Visibility:     controlplane.VisibilityDefault,
 		EvidenceState:  controlplane.EvidenceState("bogus"),
 		RedactionState: controlplane.RedactionNone,
-		Auth:           &controlplane.AuthDetail{Outcome: "allow"},
+		Detail:         &controlplane.AuthDetail{Outcome: "allow"},
 	}
 	err := ev.Validate()
 	if err == nil {
@@ -402,7 +401,7 @@ func TestEventValidateRejectsUnknownRedactionState(t *testing.T) {
 		Visibility:     controlplane.VisibilityDefault,
 		EvidenceState:  controlplane.EvidenceRecorded,
 		RedactionState: controlplane.RedactionState("bogus"),
-		Auth:           &controlplane.AuthDetail{Outcome: "allow"},
+		Detail:         &controlplane.AuthDetail{Outcome: "allow"},
 	}
 	err := ev.Validate()
 	if err == nil {
@@ -429,7 +428,7 @@ func TestEventValidateRejectsPrivilegedVisibilityWithoutPrivilegedRedaction(t *t
 		Visibility:     controlplane.VisibilityPrivileged,
 		EvidenceState:  controlplane.EvidenceRecorded,
 		RedactionState: controlplane.RedactionNone, // explicitly NOT privileged
-		Auth:           &controlplane.AuthDetail{Outcome: "allow"},
+		Detail:         &controlplane.AuthDetail{Outcome: "allow"},
 	}
 	err := ev.Validate()
 	if err == nil {
@@ -454,7 +453,7 @@ func TestEventJSONRoundTripPreservesDetailAndState(t *testing.T) {
 		Visibility:     controlplane.VisibilityDefault,
 		EvidenceState:  controlplane.EvidenceRecorded,
 		RedactionState: controlplane.RedactionNone,
-		Auth:           &controlplane.AuthDetail{Outcome: "allow", ReasonCode: "ok"},
+		Detail:         &controlplane.AuthDetail{Outcome: "allow", ReasonCode: "ok"},
 	}
 	raw, err := json.Marshal(ev)
 	if err != nil {
@@ -467,10 +466,10 @@ func TestEventJSONRoundTripPreservesDetailAndState(t *testing.T) {
 	if back.Category != ev.Category {
 		t.Fatalf("category lost: %q vs %q", back.Category, ev.Category)
 	}
-	if back.Auth == nil || back.Auth.Outcome != "allow" {
-		t.Fatalf("auth detail lost: %#v", back.Auth)
+	if back.Auth() == nil || back.Auth().Outcome != "allow" {
+		t.Fatalf("auth detail lost: %#v", back.Auth())
 	}
-	if back.Session != nil || back.Attempt != nil {
+	if back.Session() != nil || back.Attempt() != nil {
 		t.Fatalf("other details leaked through JSON: %#v", back)
 	}
 }
@@ -489,7 +488,7 @@ func TestEventJSONRoundTripPreservesAccountingAuthorityDetail(t *testing.T) {
 		Visibility:     controlplane.VisibilityDefault,
 		EvidenceState:  controlplane.EvidenceRecorded,
 		RedactionState: controlplane.RedactionNone,
-		AccountingAuthority: &controlplane.AccountingAuthorityDetail{
+		Detail: &controlplane.AccountingAuthorityDetail{
 			Correlation:    controlplane.Correlation{TraceID: "trace-1", RequestID: "req-1", BLegID: "b-1"},
 			Scope:          controlplane.ScopeSnapshot{PrincipalID: scope.Known("principal-1")},
 			RuleID:         "tenant.quota",
@@ -521,10 +520,10 @@ func TestEventJSONRoundTripPreservesAccountingAuthorityDetail(t *testing.T) {
 	if back.Category != ev.Category {
 		t.Fatalf("category lost: %q vs %q", back.Category, ev.Category)
 	}
-	if back.AccountingAuthority == nil || back.AccountingAuthority.RuleID != "tenant.quota" {
-		t.Fatalf("accounting-authority detail lost: %#v", back.AccountingAuthority)
+	if back.AccountingAuthority() == nil || back.AccountingAuthority().RuleID != "tenant.quota" {
+		t.Fatalf("accounting-authority detail lost: %#v", back.AccountingAuthority())
 	}
-	if back.Auth != nil || back.Session != nil || back.Attempt != nil || back.Usage != nil {
+	if back.Auth() != nil || back.Session() != nil || back.Attempt() != nil || back.Usage() != nil {
 		t.Fatalf("other details leaked through JSON: %#v", back)
 	}
 }

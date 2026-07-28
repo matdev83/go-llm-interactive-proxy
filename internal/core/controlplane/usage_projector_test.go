@@ -28,7 +28,7 @@ func TestNormalizeObservedUsageExposesDualPlaneFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FromUsage: %v", err)
 	}
-	u := got.Usage
+	u := got.Usage()
 	if u == nil {
 		t.Fatal("usage detail missing")
 	}
@@ -62,7 +62,7 @@ func TestProjectUsageRowCopiesDualPlaneFields(t *testing.T) {
 	t.Parallel()
 	ev := cp.Event{
 		Category: cp.CategoryUsage,
-		Usage: &cp.UsageDetail{
+		Detail: &cp.UsageDetail{
 			Plane:          cp.UsagePlaneObserved,
 			Availability:   cp.UsageAvailabilityObserved,
 			Perspective:    cp.UsagePerspectiveOperator,

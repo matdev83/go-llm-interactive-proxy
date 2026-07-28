@@ -64,8 +64,8 @@ func TestNormalizeAuthDecisionPreservesCorrelationAndScope(t *testing.T) {
 	if got.Category != cp.CategoryAuth {
 		t.Fatalf("category = %q, want auth", got.Category)
 	}
-	if got.Auth == nil || got.Auth.Outcome != "allow" {
-		t.Fatalf("auth detail lost: %#v", got.Auth)
+	if got.Auth() == nil || got.Auth().Outcome != "allow" {
+		t.Fatalf("auth detail lost: %#v", got.Auth())
 	}
 	if got.Correlation.TraceID != "trace-1" {
 		t.Fatalf("trace correlation lost: %#v", got.Correlation)
@@ -122,17 +122,17 @@ func TestNormalizeSessionStartMapsActionAndCertainty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FromSessionStart: %v", err)
 	}
-	if got.Category != cp.CategorySession || got.Session == nil {
+	if got.Category != cp.CategorySession || got.Session() == nil {
 		t.Fatalf("session detail lost: %#v", got)
 	}
-	if got.Session.SessionID != "sess-2" || got.Session.ALegID != "aleg-2" {
-		t.Fatalf("session correlation lost: %#v", got.Session)
+	if got.Session().SessionID != "sess-2" || got.Session().ALegID != "aleg-2" {
+		t.Fatalf("session correlation lost: %#v", got.Session())
 	}
-	if got.Session.Action != cp.SessionActionCreated {
-		t.Fatalf("action = %q, want created", got.Session.Action)
+	if got.Session().Action != cp.SessionActionCreated {
+		t.Fatalf("action = %q, want created", got.Session().Action)
 	}
-	if got.Session.Certainty != "known" {
-		t.Fatalf("certainty lost: %q", got.Session.Certainty)
+	if got.Session().Certainty != "known" {
+		t.Fatalf("certainty lost: %q", got.Session().Certainty)
 	}
 	if got.Correlation.SessionID != "sess-2" || got.Correlation.ALegID != "aleg-2" {
 		t.Fatalf("correlation not projected: %#v", got.Correlation)
@@ -152,8 +152,8 @@ func TestNormalizeSessionStartDeniedActionForUncertain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FromSessionStart: %v", err)
 	}
-	if got.Session.Action != cp.SessionActionDenied {
-		t.Fatalf("uncertain non-new session must map to denied, got %q", got.Session.Action)
+	if got.Session().Action != cp.SessionActionDenied {
+		t.Fatalf("uncertain non-new session must map to denied, got %q", got.Session().Action)
 	}
 }
 
@@ -181,14 +181,14 @@ func TestNormalizeAttemptDistinguishesSurfacedFromLostRace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FromAttempt: %v", err)
 	}
-	if got.Attempt == nil || got.Attempt.Surfaced != cp.AttemptSurfacedSwallowed || got.Attempt.Outcome != cp.AttemptOutcomeLostRace {
-		t.Fatalf("attempt surfacing/outcome lost: %#v", got.Attempt)
+	if got.Attempt() == nil || got.Attempt().Surfaced != cp.AttemptSurfacedSwallowed || got.Attempt().Outcome != cp.AttemptOutcomeLostRace {
+		t.Fatalf("attempt surfacing/outcome lost: %#v", got.Attempt())
 	}
 	if got.Correlation.BLegID != "bleg-a" || got.Correlation.AttemptSeq != 2 {
 		t.Fatalf("attempt correlation lost: %#v", got.Correlation)
 	}
-	if got.Attempt.BackendID != "openai" || got.Attempt.Model != "gpt-4o" {
-		t.Fatalf("backend/model attribution lost: %#v", got.Attempt)
+	if got.Attempt().BackendID != "openai" || got.Attempt().Model != "gpt-4o" {
+		t.Fatalf("backend/model attribution lost: %#v", got.Attempt())
 	}
 }
 
@@ -223,8 +223,8 @@ func TestNormalizeAttemptUnknownIDsStayUnknown(t *testing.T) {
 	if got.Correlation.SessionID != "" || got.Correlation.ALegID != "" || got.Correlation.BLegID != "" {
 		t.Fatalf("unknown IDs must stay empty, not invented: %#v", got.Correlation)
 	}
-	if got.Attempt.Surfaced != cp.AttemptSurfacedUnknown || got.Attempt.Outcome != cp.AttemptOutcomeUnknown {
-		t.Fatalf("unknown surfacing/outcome must be preserved: %#v", got.Attempt)
+	if got.Attempt().Surfaced != cp.AttemptSurfacedUnknown || got.Attempt().Outcome != cp.AttemptOutcomeUnknown {
+		t.Fatalf("unknown surfacing/outcome must be preserved: %#v", got.Attempt())
 	}
 }
 
@@ -257,17 +257,17 @@ func TestNormalizeUsageDropsRawUsageJSONAndPreservesPlane(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FromUsage: %v", err)
 	}
-	if got.Usage == nil {
+	if got.Usage() == nil {
 		t.Fatalf("usage detail lost")
 	}
-	if got.Usage.Plane != cp.UsagePlaneObserved {
-		t.Fatalf("plane = %q, want observed", got.Usage.Plane)
+	if got.Usage().Plane != cp.UsagePlaneObserved {
+		t.Fatalf("plane = %q, want observed", got.Usage().Plane)
 	}
-	if got.Usage.Availability != cp.UsageAvailabilityObserved {
-		t.Fatalf("availability = %q, want observed", got.Usage.Availability)
+	if got.Usage().Availability != cp.UsageAvailabilityObserved {
+		t.Fatalf("availability = %q, want observed", got.Usage().Availability)
 	}
-	if got.Usage.InputTokens != 100 || got.Usage.TotalTokens != 150 {
-		t.Fatalf("token dimensions lost: %#v", got.Usage)
+	if got.Usage().InputTokens != 100 || got.Usage().TotalTokens != 150 {
+		t.Fatalf("token dimensions lost: %#v", got.Usage())
 	}
 	for _, bad := range []string{"secret", "RawUsageJSON", `{"secret":`} {
 		if strings.Contains(serializeEvent(t, got), bad) {
@@ -299,14 +299,14 @@ func TestNormalizePolicyDecisionPreservesOutcomeButDoesNotChangeIt(t *testing.T)
 	if err != nil {
 		t.Fatalf("FromPolicyDecision: %v", err)
 	}
-	if got.Policy == nil || got.Policy.Outcome != "deny" || got.Policy.Effect != "swallow" {
-		t.Fatalf("policy outcome/effect lost: %#v", got.Policy)
+	if got.Policy() == nil || got.Policy().Outcome != "deny" || got.Policy().Effect != "swallow" {
+		t.Fatalf("policy outcome/effect lost: %#v", got.Policy())
 	}
-	if got.Policy.Stage != "pre_backend" {
-		t.Fatalf("policy stage lost: %q", got.Policy.Stage)
+	if got.Policy().Stage != "pre_backend" {
+		t.Fatalf("policy stage lost: %q", got.Policy().Stage)
 	}
-	if got.Policy.ProviderID != "opa" {
-		t.Fatalf("provider id lost: %q", got.Policy.ProviderID)
+	if got.Policy().ProviderID != "opa" {
+		t.Fatalf("provider id lost: %q", got.Policy().ProviderID)
 	}
 	if got.Correlation.TraceID != "trace-p" {
 		t.Fatalf("correlation lost: %#v", got.Correlation)
@@ -350,8 +350,8 @@ func TestNormalizeAuditMarksRedactedForPrivilegedContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FromAudit: %v", err)
 	}
-	if got.Audit == nil || got.Audit.Action != "transcript.view" {
-		t.Fatalf("audit detail lost: %#v", got.Audit)
+	if got.Audit() == nil || got.Audit().Action != "transcript.view" {
+		t.Fatalf("audit detail lost: %#v", got.Audit())
 	}
 	if got.Visibility != cp.VisibilityPrivileged || got.RedactionState != cp.RedactionPrivileged {
 		t.Fatalf("privileged audit must keep privileged+privileged redaction state, got %q/%q",
@@ -447,8 +447,8 @@ func TestNormalizeSessionRecordUsesExplicitSourceKeyAndAction(t *testing.T) {
 	if got.SourceEventKey != "secure-create:sess-1" {
 		t.Fatalf("source key lost: %q", got.SourceEventKey)
 	}
-	if got.Category != cp.CategorySession || got.Session == nil || got.Session.Action != cp.SessionActionCreated {
-		t.Fatalf("session detail lost: %#v", got.Session)
+	if got.Category != cp.CategorySession || got.Session() == nil || got.Session().Action != cp.SessionActionCreated {
+		t.Fatalf("session detail lost: %#v", got.Session())
 	}
 	if got.Correlation.SessionID != "sess-1" || got.Correlation.ALegID != "aleg-1" {
 		t.Fatalf("correlation lost: %#v", got.Correlation)
@@ -470,8 +470,8 @@ func TestNormalizeSessionRecordDefaultsUnknownActionToUpdated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FromSessionRecord: %v", err)
 	}
-	if got.Session.Action != cp.SessionActionUpdated {
-		t.Fatalf("unknown action must default to updated, got %q", got.Session.Action)
+	if got.Session().Action != cp.SessionActionUpdated {
+		t.Fatalf("unknown action must default to updated, got %q", got.Session().Action)
 	}
 }
 
@@ -515,11 +515,11 @@ func TestNormalizeUsageRecordUsesExplicitSourceKeyAndDropsRawJSON(t *testing.T) 
 	if got.SourceEventKey != "secure-usage:sess-1:turn-1:bleg-1:2026-07-04T00:05:00Z" {
 		t.Fatalf("source key lost: %q", got.SourceEventKey)
 	}
-	if got.Usage == nil || got.Usage.InputTokens != 100 || got.Usage.TotalTokens != 150 {
-		t.Fatalf("usage dimensions lost: %#v", got.Usage)
+	if got.Usage() == nil || got.Usage().InputTokens != 100 || got.Usage().TotalTokens != 150 {
+		t.Fatalf("usage dimensions lost: %#v", got.Usage())
 	}
-	if got.Usage.Plane != cp.UsagePlaneObserved || got.Usage.Availability != cp.UsageAvailabilityObserved {
-		t.Fatalf("plane/availability lost: %#v", got.Usage)
+	if got.Usage().Plane != cp.UsagePlaneObserved || got.Usage().Availability != cp.UsageAvailabilityObserved {
+		t.Fatalf("plane/availability lost: %#v", got.Usage())
 	}
 	if err := controlplane.ValidateEvent(got); err != nil {
 		t.Fatalf("normalized usage record invalid: %v", err)
@@ -664,14 +664,15 @@ func TestNormalizerEventWithMultipleDetailBlocksRejected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FromAuthDecision: %v", err)
 	}
-	// Mutate the result to add a second detail block.
-	ev.Session = &cp.SessionDetail{Action: cp.SessionActionCreated}
+	// Replacing the auth detail with a session detail while category stays auth
+	// must fail category/detail matching (single Detail field enforces one block).
+	ev.Detail = &cp.SessionDetail{Action: cp.SessionActionCreated}
 	err = controlplane.ValidateEvent(ev)
 	if err == nil {
-		t.Fatalf("ValidateEvent must reject event with multiple detail blocks")
+		t.Fatalf("ValidateEvent must reject category/detail mismatch")
 	}
-	if !strings.Contains(err.Error(), "exactly one detail block is required") {
-		t.Fatalf("error must mention explicit-guard 'exactly one detail block is required', got: %v", err)
+	if !strings.Contains(err.Error(), "requires auth detail") {
+		t.Fatalf("error must mention category/detail mismatch, got: %v", err)
 	}
 }
 

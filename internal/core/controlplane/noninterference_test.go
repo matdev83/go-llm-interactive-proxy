@@ -122,7 +122,7 @@ func TestControlPlaneNonInterference_PostOutputFailureNeverRequestsRetryOrFailov
 		RedactionState: cp.RedactionNone,
 		Source:         cp.SourceRef{Name: "ni"},
 		Correlation:    cp.Correlation{TraceID: "trace-post", BLegID: "bleg-post"},
-		Attempt:        &cp.AttemptDetail{Surfaced: cp.AttemptSurfacedSurfaced, Outcome: cp.AttemptOutcomeSucceeded, BackendID: "openai", Model: "gpt-4o"},
+		Detail:         &cp.AttemptDetail{Surfaced: cp.AttemptSurfacedSurfaced, Outcome: cp.AttemptOutcomeSucceeded, BackendID: "openai", Model: "gpt-4o"},
 	}
 	if _, err := recorder.RecordBestEffort(context.Background(), ev); err != nil {
 		t.Fatalf("post-output RecordBestEffort must never surface error (no retry/failover/replacement): %v", err)
@@ -154,7 +154,7 @@ func TestControlPlaneNonInterference_RequiredPreWorkFailsBeforeBackendExecution(
 		EvidenceState:  cp.EvidenceRecorded,
 		RedactionState: cp.RedactionNone,
 		Source:         cp.SourceRef{Name: "ni"},
-		Auth:           &cp.AuthDetail{Outcome: "allow"},
+		Detail:         &cp.AuthDetail{Outcome: "allow"},
 	}
 	_, err := recorder.Record(context.Background(), ev)
 	if err == nil {

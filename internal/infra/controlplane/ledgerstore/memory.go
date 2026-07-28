@@ -217,13 +217,13 @@ func (s *MemoryStore) Attempts(ctx context.Context, q cp.AttemptQuery) (cp.Page[
 	rows := make([]sequenced[cp.AttemptRow], 0)
 	for _, se := range s.events {
 		ev := se.event
-		if ev.Attempt == nil {
+		if ev.Detail == nil {
 			continue
 		}
 		if !commonFiltersMatch(q.Common, ev, s.unsupportedFields) {
 			continue
 		}
-		if q.Surfaced != "" && !isUnsupportedField(s.unsupportedFields, fields.AttemptSurfaced) && string(ev.Attempt.Surfaced) != q.Surfaced {
+		if q.Surfaced != "" && !isUnsupportedField(s.unsupportedFields, fields.AttemptSurfaced) && string(ev.Attempt().Surfaced) != q.Surfaced {
 			continue
 		}
 		rows = append(rows, sequenced[cp.AttemptRow]{row: attemptRowFromEvent(ev), seq: se.seq})
@@ -251,13 +251,13 @@ func (s *MemoryStore) Usage(ctx context.Context, q cp.UsageQuery) (cp.Page[cp.Us
 	rows := make([]sequenced[cp.UsageRow], 0)
 	for _, se := range s.events {
 		ev := se.event
-		if ev.Usage == nil {
+		if ev.Detail == nil {
 			continue
 		}
 		if !commonFiltersMatch(q.Common, ev, s.unsupportedFields) {
 			continue
 		}
-		if !usageDetailMatchesQuery(ev.Usage, q, s.unsupportedFields) {
+		if !usageDetailMatchesQuery(ev.Usage(), q, s.unsupportedFields) {
 			continue
 		}
 		rows = append(rows, sequenced[cp.UsageRow]{row: usageRowFromEvent(ev), seq: se.seq})
@@ -283,7 +283,7 @@ func (s *MemoryStore) UsageAggregate(ctx context.Context, q cp.UsageAggregateQue
 	seqFor := map[string]int64{}
 	for _, se := range s.events {
 		ev := se.event
-		if ev.Usage == nil {
+		if ev.Detail == nil {
 			continue
 		}
 		if !commonFiltersMatch(q.Common, ev, s.unsupportedFields) {
@@ -291,7 +291,7 @@ func (s *MemoryStore) UsageAggregate(ctx context.Context, q cp.UsageAggregateQue
 		}
 		key, a := aggregateRow(q.GroupBy, ev)
 		if existing, ok := aggMap[key]; ok {
-			mergeAggregate(existing, ev.Usage)
+			mergeAggregate(existing, ev.Usage())
 			if se.seq > seqFor[key] {
 				seqFor[key] = se.seq
 			}
@@ -325,14 +325,14 @@ func (s *MemoryStore) PolicyAudit(ctx context.Context, q cp.EvidenceQuery) (cp.P
 	rows := make([]sequenced[cp.PolicyAuditRow], 0)
 	for _, se := range s.events {
 		ev := se.event
-		if ev.Policy == nil && ev.Audit == nil {
+		if ev.Policy() == nil && ev.Audit() == nil {
 			continue
 		}
 		if q.Category != "" && !isUnsupportedField(s.unsupportedFields, fields.EvidenceCategory) && ev.Category != q.Category {
 			continue
 		}
 		if q.Effect != "" && !isUnsupportedField(s.unsupportedFields, fields.EvidenceEffect) {
-			if ev.Policy == nil || ev.Policy.Effect != q.Effect {
+			if ev.Detail == nil || ev.Policy().Effect != q.Effect {
 				continue
 			}
 		}
@@ -422,13 +422,7 @@ func (e storedEvent) recordedAt() time.Time {
 }
 
 func clearDetail(ev *cp.Event) {
-	ev.Auth = nil
-	ev.Session = nil
-	ev.Attempt = nil
-	ev.Usage = nil
-	ev.Policy = nil
-	ev.Audit = nil
-	ev.Lifecycle = nil
+	ev.Detail = nil
 }
 
 // applyQueryVisibility downgrades privileged evidence for default-visibility

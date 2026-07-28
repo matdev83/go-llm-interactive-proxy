@@ -235,8 +235,8 @@ func TestMemoryStore_redactionProfileStrictClearsDetails(t *testing.T) {
 	if got.EvidenceState != cp.EvidenceRedacted {
 		t.Fatalf("strict redaction state = %q, want redacted", got.EvidenceState)
 	}
-	if got.Auth != nil {
-		t.Fatalf("strict redaction must clear auth detail, got %#v", got.Auth)
+	if got.Auth() != nil {
+		t.Fatalf("strict redaction must clear auth detail, got %#v", got.Auth())
 	}
 }
 
@@ -348,7 +348,7 @@ func contractEventAt(seq int) cp.Event {
 		Visibility:     cp.VisibilityDefault,
 		EvidenceState:  cp.EvidenceRecorded,
 		RedactionState: cp.RedactionNone,
-		Auth: &cp.AuthDetail{
+		Detail: &cp.AuthDetail{
 			Outcome:    "allowed",
 			ReasonCode: "ok",
 			Frontend:   "openai-responses",

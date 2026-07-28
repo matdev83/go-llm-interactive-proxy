@@ -47,10 +47,10 @@ func New(cfg Config) *Bus {
 // (order, id, registration index). Diagnostics and tests use it without constructing a Bus.
 func MaterializeSorted(cfg Config) Config {
 	return Config{
-		SubmitHooks:            sortSubmit(slices.Clone(cfg.SubmitHooks)),
-		RequestPartHooks:       sortRequestParts(slices.Clone(cfg.RequestPartHooks)),
-		ResponsePartHooks:      sortResponseParts(slices.Clone(cfg.ResponsePartHooks)),
-		ToolReactors:           sortTools(slices.Clone(cfg.ToolReactors)),
+		SubmitHooks:            sortChain(slices.Clone(cfg.SubmitHooks)),
+		RequestPartHooks:       sortChain(slices.Clone(cfg.RequestPartHooks)),
+		ResponsePartHooks:      sortChain(slices.Clone(cfg.ResponsePartHooks)),
+		ToolReactors:           sortChain(slices.Clone(cfg.ToolReactors)),
 		ToolReactorErrorPolicy: cfg.ToolReactorErrorPolicy,
 	}
 }
@@ -63,31 +63,15 @@ func (b *Bus) HookChainLengths() (submit, requestParts, responseParts, tools int
 	return len(b.submit), len(b.requestParts), len(b.responseParts), len(b.tools)
 }
 
-// sortSubmit orders submit hooks by StableParticipantLess.
-//
-// It uses a permutation slice idx initialized to [0..n); slices.SortFunc compares two
-// elements of idx (each an original hook index), not two positions in idx. sortRequestParts,
-// sortResponseParts, and sortTools follow the same pattern.
-func sortSubmit(h []sdk.SubmitHook) []sdk.SubmitHook {
-	if len(h) == 0 {
-		return nil
-	}
-	idx := make([]int, len(h))
-	for i := range idx {
-		idx[i] = i
-	}
-	slices.SortFunc(idx, func(hi, hj int) int {
-		a, b := h[hi], h[hj]
-		return StableParticipantLess(a.Order(), b.Order(), a.ID(), b.ID(), hi, hj)
-	})
-	out := make([]sdk.SubmitHook, len(h))
-	for k, ii := range idx {
-		out[k] = h[ii]
-	}
-	return out
+type chainParticipant interface {
+	ID() string
+	Order() int
 }
 
-func sortRequestParts(h []sdk.RequestPartHook) []sdk.RequestPartHook {
+// sortChain orders hook chains by StableParticipantLess using a permutation slice
+// idx initialized to [0..n); slices.SortFunc compares two elements of idx (each an
+// original hook index), not two positions in idx.
+func sortChain[T chainParticipant](h []T) []T {
 	if len(h) == 0 {
 		return nil
 	}
@@ -99,45 +83,7 @@ func sortRequestParts(h []sdk.RequestPartHook) []sdk.RequestPartHook {
 		a, b := h[hi], h[hj]
 		return StableParticipantLess(a.Order(), b.Order(), a.ID(), b.ID(), hi, hj)
 	})
-	out := make([]sdk.RequestPartHook, len(h))
-	for k, ii := range idx {
-		out[k] = h[ii]
-	}
-	return out
-}
-
-func sortResponseParts(h []sdk.ResponsePartHook) []sdk.ResponsePartHook {
-	if len(h) == 0 {
-		return nil
-	}
-	idx := make([]int, len(h))
-	for i := range idx {
-		idx[i] = i
-	}
-	slices.SortFunc(idx, func(hi, hj int) int {
-		a, b := h[hi], h[hj]
-		return StableParticipantLess(a.Order(), b.Order(), a.ID(), b.ID(), hi, hj)
-	})
-	out := make([]sdk.ResponsePartHook, len(h))
-	for k, ii := range idx {
-		out[k] = h[ii]
-	}
-	return out
-}
-
-func sortTools(h []sdk.ToolReactor) []sdk.ToolReactor {
-	if len(h) == 0 {
-		return nil
-	}
-	idx := make([]int, len(h))
-	for i := range idx {
-		idx[i] = i
-	}
-	slices.SortFunc(idx, func(hi, hj int) int {
-		a, b := h[hi], h[hj]
-		return StableParticipantLess(a.Order(), b.Order(), a.ID(), b.ID(), hi, hj)
-	})
-	out := make([]sdk.ToolReactor, len(h))
+	out := make([]T, len(h))
 	for k, ii := range idx {
 		out[k] = h[ii]
 	}

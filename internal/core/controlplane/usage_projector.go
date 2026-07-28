@@ -104,7 +104,10 @@ func ProjectUsageDetail(in UsageDetailFromEventInput) cp.UsageDetail {
 
 // UsageRowFromEvent projects a usage query row from a normalized usage event.
 func UsageRowFromEvent(ev cp.Event) cp.UsageRow {
-	u := ev.Usage
+	u := ev.Usage()
+	if u == nil {
+		return cp.UsageRow{}
+	}
 	row := cp.UsageRow{
 		Correlation:      ev.Correlation,
 		Plane:            u.Plane,
@@ -258,7 +261,7 @@ func UsageRowFromMeteringFact(f metering.Fact) cp.UsageRow {
 			BackendID:  f.BackendID,
 			Model:      f.Model,
 		},
-		Usage:          &u,
+		Detail:         &u,
 		EvidenceState:  cp.EvidenceRecorded,
 		RedactionState: cp.RedactionNone,
 	})

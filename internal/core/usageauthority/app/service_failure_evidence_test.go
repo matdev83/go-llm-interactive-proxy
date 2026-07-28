@@ -58,7 +58,7 @@ func TestSettlementFailureEmitsUnavailableLifecycleEvidence(t *testing.T) {
 	if policy.ReasonCode != "unavailable" || policy.Outcome == "deny" {
 		t.Fatalf("failure policy posture = outcome=%q reason=%q, want non-denial unavailable", policy.Outcome, policy.ReasonCode)
 	}
-	detail := evidence.accounting[0].AccountingAuthority
+	detail := evidence.accounting[0].AccountingAuthority()
 	if detail == nil || detail.Outcome != controlplane.AccountingOutcomeUnavailable || detail.Authority != controlplane.AccountingAuthoritySourceUnavailable {
 		t.Fatalf("failure accounting detail = %#v, want unavailable evidence", detail)
 	}

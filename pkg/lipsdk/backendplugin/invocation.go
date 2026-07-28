@@ -1,6 +1,9 @@
 package backendplugin
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // Validate reports whether the invocation is well-formed and within bounds.
 func (inv Invocation) Validate() error {
@@ -23,7 +26,7 @@ func (inv Invocation) Validate() error {
 			return err
 		}
 	}
-	for _, m := range append(inv.Instructions, inv.Messages...) {
+	for _, m := range slices.Concat(inv.Instructions, inv.Messages) {
 		if m.Role == RoleUnspecified {
 			return ErrUnknownEnum
 		}

@@ -50,21 +50,21 @@ func TestHTTPPrivacyScan_QueryResponsesContainNoRawSecrets(t *testing.T) {
 			Visibility: cp.VisibilityDefault, EvidenceState: cp.EvidenceRecorded, RedactionState: cp.RedactionNone,
 			Correlation: cp.Correlation{SessionID: "sess-scan", TraceID: "trace-scan"},
 			Summary:     "session started for principal-scan",
-			Session:     &cp.SessionDetail{Action: cp.SessionActionCreated, Certainty: "known", SessionID: "sess-scan"},
+			Detail:      &cp.SessionDetail{Action: cp.SessionActionCreated, Certainty: "known", SessionID: "sess-scan"},
 		},
 		{
 			Category: cp.CategoryAttempt, OccurredAt: now, RecordedAt: now,
 			Source:     cp.SourceRef{Name: "privacy-scan", Version: "v1"},
 			Visibility: cp.VisibilityDefault, EvidenceState: cp.EvidenceRecorded, RedactionState: cp.RedactionNone,
 			Correlation: cp.Correlation{SessionID: "sess-scan", TraceID: "trace-scan", ALegID: "aleg-scan", BLegID: "bleg-scan", AttemptSeq: 1, BackendID: "openai", Model: "gpt-4o"},
-			Attempt:     &cp.AttemptDetail{Surfaced: cp.AttemptSurfacedSurfaced, Outcome: cp.AttemptOutcomeSucceeded, BackendID: "openai", Model: "gpt-4o"},
+			Detail:      &cp.AttemptDetail{Surfaced: cp.AttemptSurfacedSurfaced, Outcome: cp.AttemptOutcomeSucceeded, BackendID: "openai", Model: "gpt-4o"},
 		},
 		{
 			Category: cp.CategoryUsage, OccurredAt: now, RecordedAt: now,
 			Source:     cp.SourceRef{Name: "privacy-scan", Version: "v1"},
 			Visibility: cp.VisibilityDefault, EvidenceState: cp.EvidenceRecorded, RedactionState: cp.RedactionNone,
 			Correlation: cp.Correlation{SessionID: "sess-scan", TraceID: "trace-scan", BLegID: "bleg-scan", AttemptSeq: 1, BackendID: "openai", Model: "gpt-4o"},
-			Usage:       &cp.UsageDetail{Plane: cp.UsagePlaneObserved, Availability: cp.UsageAvailabilityObserved, InputTokens: 100, OutputTokens: 50, TotalTokens: 150},
+			Detail:      &cp.UsageDetail{Plane: cp.UsagePlaneObserved, Availability: cp.UsageAvailabilityObserved, InputTokens: 100, OutputTokens: 50, TotalTokens: 150},
 		},
 	}
 	for _, ev := range events {

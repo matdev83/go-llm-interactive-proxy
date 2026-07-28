@@ -115,11 +115,10 @@ func validateSecureSession(cfg *Config) error {
 		store = "memory"
 		ss.Store = "memory"
 	}
-	switch store {
-	case "memory", "sqlite", "postgres":
-	default:
-		return fmt.Errorf("secure_session.store: want memory, sqlite, or postgres, got %q", ss.Store)
+	if err := normalizeEnum(&ss.Store, "secure_session.store", "memory", "memory", "sqlite", "postgres"); err != nil {
+		return err
 	}
+	store = ss.Store
 	key := strings.TrimSpace(ss.TokenFingerprintKey)
 	if store == "sqlite" || store == "postgres" {
 		if len(key) < 32 {
@@ -132,22 +131,13 @@ func validateSecureSession(cfg *Config) error {
 		)
 	}
 	rw := strings.TrimSpace(ss.ResumeWindow)
-	if rw != "" {
-		d, err := time.ParseDuration(rw)
-		if err != nil {
-			return fmt.Errorf("secure_session.resume_window: %w", err)
-		}
-		if d <= 0 {
-			return fmt.Errorf("secure_session.resume_window: must be a positive duration")
-		}
+	if err := parsePositiveDurationField("secure_session.resume_window", rw); err != nil {
+		return err
 	}
-	audit := strings.ToLower(strings.TrimSpace(ss.AuditDurability))
-	if audit == "" {
-		audit = "best_effort"
+	if err := normalizeEnum(&ss.AuditDurability, "secure_session.audit_durability", "best_effort", "best_effort", "durable"); err != nil {
+		return err
 	}
-	if audit != "best_effort" && audit != "durable" {
-		return fmt.Errorf("secure_session.audit_durability: want best_effort or durable, got %q", ss.AuditDurability)
-	}
+	audit := ss.AuditDurability
 	if audit == "durable" {
 		if store != "sqlite" && store != "postgres" {
 			return fmt.Errorf(
@@ -178,22 +168,12 @@ func validateSecureSession(cfg *Config) error {
 		return fmt.Errorf("secure_session.postgres_dsn: may only be set when store is \"postgres\" (got %q)", store)
 	}
 
-	nd := strings.ToLower(strings.TrimSpace(ss.NonDurableWarning))
-	if nd == "" {
-		nd = "log"
-	}
-	switch nd {
-	case "silent", "log", "strict":
-	default:
-		return fmt.Errorf("secure_session.non_durable_warning: want silent, log, or strict, got %q", ss.NonDurableWarning)
+	if err := normalizeEnum(&ss.NonDurableWarning, "secure_session.non_durable_warning", "log", "silent", "log", "strict"); err != nil {
+		return err
 	}
 
-	red := strings.ToLower(strings.TrimSpace(ss.RedactionDefault))
-	if red == "" {
-		red = "standard"
-	}
-	if red != "standard" && red != "strict" {
-		return fmt.Errorf("secure_session.redaction_default: want standard or strict, got %q", ss.RedactionDefault)
+	if err := normalizeEnum(&ss.RedactionDefault, "secure_session.redaction_default", "standard", "standard", "strict"); err != nil {
+		return err
 	}
 
 	if ss.DiagnosticsExposeSummaries {
@@ -212,24 +192,11 @@ func validateSecureSession(cfg *Config) error {
 			return fmt.Errorf("secure_session.diagnostics_path_prefix: must start with /")
 		}
 	}
-	wsErr := strings.ToLower(strings.TrimSpace(ss.WorkspaceResolveOnError))
-	if wsErr == "" {
-		wsErr = "fail_open"
+	if err := normalizeEnum(&ss.WorkspaceResolveOnError, "secure_session.workspace_resolve_on_error", "fail_open", "fail_open", "fail_closed"); err != nil {
+		return err
 	}
-	if wsErr != "fail_open" && wsErr != "fail_closed" {
-		return fmt.Errorf(
-			"secure_session.workspace_resolve_on_error: want fail_open or fail_closed, got %q",
-			ss.WorkspaceResolveOnError,
-		)
-	}
-	if ttlRaw := strings.TrimSpace(ss.SQLQueryCacheTTL); ttlRaw != "" {
-		d, err := time.ParseDuration(ttlRaw)
-		if err != nil {
-			return fmt.Errorf("secure_session.sql_query_cache_ttl: %w", err)
-		}
-		if d <= 0 {
-			return fmt.Errorf("secure_session.sql_query_cache_ttl: must be a positive duration")
-		}
+	if err := parsePositiveDurationField("secure_session.sql_query_cache_ttl", ss.SQLQueryCacheTTL); err != nil {
+		return err
 	}
 	if ss.SQLQueryCacheMaxEntries < 0 {
 		return fmt.Errorf("secure_session.sql_query_cache_max_entries: must be >= 0")
@@ -263,20 +230,6 @@ func validateServer(cfg *Config) error {
 	if s.MaxInflightDecodeBytes < s.EffectiveMaxRequestBodyBytesForBudget() {
 		return fmt.Errorf("server.max_inflight_decode_bytes: must be >= max single request body (%d bytes)", s.EffectiveMaxRequestBodyBytesForBudget())
 	}
-	parse := func(name, val string) error {
-		val = strings.TrimSpace(val)
-		if val == "" {
-			return nil
-		}
-		d, err := time.ParseDuration(val)
-		if err != nil {
-			return fmt.Errorf("server.%s: invalid duration %q", name, val)
-		}
-		if d <= 0 {
-			return fmt.Errorf("server.%s: duration must be positive", name)
-		}
-		return nil
-	}
 	for _, chk := range []struct {
 		name string
 		val  string
@@ -287,7 +240,7 @@ func validateServer(cfg *Config) error {
 		{"idle_timeout", s.IdleTimeout},
 		{"pre_request_keepalive.interval", s.PreRequestKeepalive.Interval},
 	} {
-		if err := parse(chk.name, chk.val); err != nil {
+		if err := parsePositiveDurationOptional("server."+chk.name, chk.val); err != nil {
 			return err
 		}
 	}
@@ -305,20 +258,7 @@ func validateHTTPClient(cfg *Config) error {
 	if hc.MaxIdleConnsPerHost != nil && *hc.MaxIdleConnsPerHost < 1 {
 		return fmt.Errorf("http_client.max_idle_conns_per_host: must be >= 1 when set")
 	}
-	parseDur := func(name, s string) error {
-		s = strings.TrimSpace(s)
-		if s == "" {
-			return nil
-		}
-		d, err := time.ParseDuration(s)
-		if err != nil {
-			return fmt.Errorf("http_client.%s: invalid duration %q", name, s)
-		}
-		if d <= 0 {
-			return fmt.Errorf("http_client.%s: duration must be positive", name)
-		}
-		return nil
-	}
+	parseDur := parsePositiveDurationOptional
 	for _, chk := range []struct {
 		name string
 		val  string
@@ -331,7 +271,7 @@ func validateHTTPClient(cfg *Config) error {
 		{"expect_continue_timeout", hc.ExpectContinueTimeout},
 		{"client_timeout", hc.ClientTimeout},
 	} {
-		if err := parseDur(chk.name, chk.val); err != nil {
+		if err := parseDur("http_client."+chk.name, chk.val); err != nil {
 			return err
 		}
 	}
@@ -474,55 +414,10 @@ func validateDiagnosticsPaths(cfg *Config) error {
 			return err
 		}
 	}
-	// accounting.admin.path is a protected operator mount on the same mux and
-	// must satisfy the same dot-segment and overlap rules as the other
-	// diagnostics surfaces so the admin handler cannot register a conflicting
-	// pattern (the mount happens only when admin is enabled and the path is set).
-	if cfg.Accounting.Admin.Enabled {
-		aap := strings.TrimSpace(cfg.Accounting.Admin.Path)
-		if aap != "" {
-			if !strings.HasPrefix(aap, "/") {
-				return fmt.Errorf("accounting.admin.path: must start with /")
-			}
-			if err := rejectHTTPPathDotDot("accounting.admin.path", aap); err != nil {
-				return err
-			}
-			aap = norm(aap)
-			if err := add(aap); err != nil {
-				return err
-			}
-		}
-	}
-	// accounting.authority.query.path_prefix is a protected operator mount on
-	// the same mux and must satisfy the same dot-segment and overlap rules as
-	// the other diagnostics surfaces so the authority handler cannot register a
-	// conflicting pattern.
-	if AuthorityQueryEffectivelyExposed(cfg) {
-		aqp := strings.TrimSpace(cfg.Accounting.Authority.Query.PathPrefix)
-		if !strings.HasPrefix(aqp, "/") {
-			return fmt.Errorf("accounting.authority.query.path_prefix: must start with /")
-		}
-		if err := rejectHTTPPathDotDot("accounting.authority.query.path_prefix", aqp); err != nil {
-			return err
-		}
-		aqp = norm(aqp)
-		if err := add(aqp); err != nil {
-			return err
-		}
-	}
-	// control_plane.query.path_prefix is a protected operator mount and must
-	// satisfy the same dot-segment and overlap rules as the other diagnostics
-	// surfaces so mountControlPlaneQuery cannot register a conflicting handler.
-	if ControlPlaneQueryEffectivelyExposed(cfg) {
-		cpp := strings.TrimSpace(cfg.ControlPlane.Query.PathPrefix)
-		if !strings.HasPrefix(cpp, "/") {
-			return fmt.Errorf("control_plane.query.path_prefix: must start with /")
-		}
-		if err := rejectHTTPPathDotDot("control_plane.query.path_prefix", cpp); err != nil {
-			return err
-		}
-		cpp = norm(cpp)
-		if err := add(cpp); err != nil {
+	// accounting.admin.path, authority query, and control_plane query are protected
+	// operator mounts and must satisfy the same dot-segment and overlap rules.
+	for _, mount := range protectedMountPaths {
+		if err := validateProtectedMountPath(cfg, mount, norm, add); err != nil {
 			return err
 		}
 	}
@@ -590,12 +485,14 @@ func validateLogging(cfg *Config) error {
 	lvl := strings.ToLower(strings.TrimSpace(cfg.Logging.Level))
 	switch lvl {
 	case "debug", "info", "warn", "error":
+		cfg.Logging.Level = lvl
 	default:
 		return fmt.Errorf("logging.level: unknown %q (want debug, info, warn, error)", cfg.Logging.Level)
 	}
 	f := strings.ToLower(strings.TrimSpace(cfg.Logging.Format))
 	switch f {
 	case "json", "text":
+		cfg.Logging.Format = f
 	default:
 		return fmt.Errorf("logging.format: unknown %q (want json, text)", cfg.Logging.Format)
 	}
@@ -624,15 +521,8 @@ func validateRoutingHealth(cfg *Config) error {
 		return fmt.Errorf("routing.health.circuit_breaker: failure_threshold must be >= 1 when enabled")
 	}
 	raw := strings.TrimSpace(cb.OpenFor)
-	if raw == "" {
-		return nil
-	}
-	d, err := time.ParseDuration(raw)
-	if err != nil {
-		return fmt.Errorf("routing.health.circuit_breaker.open_for: %w", err)
-	}
-	if d <= 0 {
-		return fmt.Errorf("routing.health.circuit_breaker.open_for: must be a positive duration")
+	if err := parsePositiveDurationField("routing.health.circuit_breaker.open_for", raw); err != nil {
+		return err
 	}
 	return nil
 }
@@ -645,22 +535,13 @@ func validateRoutingAffinity(cfg *Config) error {
 	if store == "" {
 		store = "memory"
 	}
-	switch store {
-	case "memory":
-	default:
-		return fmt.Errorf("routing.affinity.store: want memory, got %q", cfg.Routing.Affinity.Store)
+	if err := normalizeEnum(&store, "routing.affinity.store", "memory", "memory"); err != nil {
+		return err
 	}
-	missing := strings.ToLower(strings.TrimSpace(cfg.Routing.Affinity.MissingIdentity))
-	if missing == "" {
-		missing = "fail_closed"
-	}
-	switch missing {
-	case "ignore", "fail_closed":
-	default:
-		return fmt.Errorf("routing.affinity.missing_identity: want ignore or fail_closed, got %q", cfg.Routing.Affinity.MissingIdentity)
+	if err := normalizeEnum(&cfg.Routing.Affinity.MissingIdentity, "routing.affinity.missing_identity", "fail_closed", "ignore", "fail_closed"); err != nil {
+		return err
 	}
 	cfg.Routing.Affinity.Store = store
-	cfg.Routing.Affinity.MissingIdentity = missing
 	return nil
 }
 
@@ -794,15 +675,14 @@ func validateModelCatalog(cfg *Config) error {
 			return fmt.Errorf("model_catalog.source_url: want https URL when model_catalog.external_updates_enabled is true")
 		}
 		ui := strings.TrimSpace(mc.UpdateInterval)
-		d, err := time.ParseDuration(ui)
-		if err != nil {
-			return fmt.Errorf("model_catalog.update_interval: %w", err)
-		}
-		if d <= 0 {
-			return fmt.Errorf(
-				"model_catalog.update_interval: must be positive when " +
-					"model_catalog.external_updates_enabled is true",
-			)
+		if err := parsePositiveDurationFieldRequired("model_catalog.update_interval", ui); err != nil {
+			if strings.Contains(err.Error(), "required") {
+				return fmt.Errorf(
+					"model_catalog.update_interval: must be positive when " +
+						"model_catalog.external_updates_enabled is true",
+				)
+			}
+			return err
 		}
 	}
 	if su := strings.TrimSpace(mc.SourceURL); su != "" {
@@ -812,14 +692,11 @@ func validateModelCatalog(cfg *Config) error {
 		}
 	}
 	ft := strings.TrimSpace(mc.FetchTimeout)
-	if ft != "" {
-		d, err := time.ParseDuration(ft)
-		if err != nil {
-			return fmt.Errorf("model_catalog.fetch_timeout: %w", err)
-		}
-		if d <= 0 {
+	if err := parsePositiveDurationField("model_catalog.fetch_timeout", ft); err != nil {
+		if ft != "" && strings.Contains(err.Error(), "must be a positive duration") {
 			return fmt.Errorf("model_catalog.fetch_timeout: must be a positive duration when set")
 		}
+		return err
 	}
 	posLimit := func(field string, v *int64) error {
 		if v == nil {
