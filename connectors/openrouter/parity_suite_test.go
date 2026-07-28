@@ -264,3 +264,70 @@ func TestParity_ConformanceAdvertised(t *testing.T) {
 		t.Fatalf("failures=%v", rep.Failures())
 	}
 }
+
+// TestParity_ToolCallStreamFinish locks connector-support decodeChatSSE finish
+// semantics (M4): finish_reason=="tool_calls" must emit EventToolCallFinished,
+// matching essential openaicompat chatStream handling.
+func TestParity_ToolCallStreamFinish(t *testing.T) {
+	t.Parallel()
+	sse := strings.Join([]string{
+		`data: {"id":"cc_tool","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_ab","type":"function","function":{"name":"get_weather"}}]},"finish_reason":null}]}`,
+		`data: {"id":"cc_tool","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\":\"NYC\"}"}}]},"finish_reason":null}]}`,
+		`data: {"id":"cc_tool","choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
+		`data: [DONE]`,
+		"",
+	}, "\n")
+	srv := httptest.NewServer(openaicompat.NewEmulator(openaicompat.EmulatorConfig{
+		RequireBearer: true,
+		ChatStreamSSE: sse,
+	}))
+	t.Cleanup(srv.Close)
+	cfg, err := service.ParseConfigYAML([]byte("base_url: " + srv.URL + "/v1\napi_key: sk\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cl := service.NewCompatClient(cfg, srv.Client())
+	call := lipapi.Call{
+		Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "hi"}}}},
+		Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming, TransportMode: lipapi.TransportModeStreaming},
+	}
+	es, err := cl.Open(context.Background(), call, "auto", openaicompat.FlavorChat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer es.Close()
+	var sawStarted, sawFinished bool
+	var args strings.Builder
+	for {
+		ev, err := es.Recv(context.Background())
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		switch ev.Kind {
+		case lipapi.EventToolCallStarted:
+			if ev.ToolCallID == "call_ab" && ev.ToolName == "get_weather" {
+				sawStarted = true
+			}
+		case lipapi.EventToolCallArgsDelta:
+			if ev.ToolCallID == "call_ab" {
+				args.WriteString(ev.Delta)
+			}
+		case lipapi.EventToolCallFinished:
+			if ev.ToolCallID == "call_ab" {
+				sawFinished = true
+			}
+		}
+	}
+	if !sawStarted {
+		t.Fatal("expected ToolCallStarted")
+	}
+	if args.String() != `{"city":"NYC"}` {
+		t.Fatalf("args=%q", args.String())
+	}
+	if !sawFinished {
+		t.Fatal("expected ToolCallFinished for call_ab")
+	}
+}

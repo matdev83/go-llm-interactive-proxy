@@ -458,6 +458,54 @@ func TestHandleChatChunk_toolCallArgsBufferedUntilID(t *testing.T) {
 	}
 }
 
+func TestHandleChatChunk_multiToolCallFinishByIndex(t *testing.T) {
+	t.Parallel()
+	// Mirrors connector-support/openaicompat.TestDecodeChatSSE_multiToolCallFinishByIndex.
+	chunks := []string{
+		`{"id":"cc_multi","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"alpha"}}]},"finish_reason":null}]}`,
+		`{"id":"cc_multi","choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_b","type":"function","function":{"name":"beta"}}]},"finish_reason":null}]}`,
+		`{"id":"cc_multi","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"a\":1}"}}]},"finish_reason":null}]}`,
+		`{"id":"cc_multi","choices":[{"delta":{"tool_calls":[{"index":1,"function":{"arguments":"{\"b\":2}"}}]},"finish_reason":null}]}`,
+		`{"id":"cc_multi","choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
+	}
+
+	s := &chatStream{pending: stream.NewPendingEventQueue(0)}
+	for _, raw := range chunks {
+		var ch openai.ChatCompletionChunk
+		if err := json.Unmarshal([]byte(raw), &ch); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.handleChunk(ch); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	toolEvents := []lipapi.Event{}
+	for _, ev := range stream.DrainPending(&s.pending) {
+		switch ev.Kind {
+		case lipapi.EventToolCallStarted, lipapi.EventToolCallArgsDelta, lipapi.EventToolCallFinished:
+			toolEvents = append(toolEvents, ev)
+		}
+	}
+	want := []lipapi.Event{
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "call_a", ToolName: "alpha"},
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "call_b", ToolName: "beta"},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_a", Delta: `{"a":1}`},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_b", Delta: `{"b":2}`},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "call_a"},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "call_b"},
+	}
+	if len(toolEvents) != len(want) {
+		t.Fatalf("tool events len=%d want %d\ngot=%+v", len(toolEvents), len(want), toolEvents)
+	}
+	for i := range want {
+		got, w := toolEvents[i], want[i]
+		if got.Kind != w.Kind || got.ToolCallID != w.ToolCallID || got.ToolName != w.ToolName || got.Delta != w.Delta {
+			t.Fatalf("toolEvents[%d]=%+v want %+v", i, got, w)
+		}
+	}
+}
+
 func TestHandleChatChunk_usageChunk(t *testing.T) {
 	t.Parallel()
 	raw := `{"id":"cc_u","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":7,"total_tokens":10}}`
