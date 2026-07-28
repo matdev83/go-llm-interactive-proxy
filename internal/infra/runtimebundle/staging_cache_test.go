@@ -63,16 +63,22 @@ func cachedBuiltBinary(tb testing.TB, spec connectorBuildSpec) builtBinary {
 	once := onceFor(&connectorBuildsMu, connectorBuilds, spec.name)
 	once.Do(func() {
 		bin, err := buildConnectorBinary(spec)
+		connectorBuildsMu.Lock()
+		defer connectorBuildsMu.Unlock()
 		if err != nil {
 			builtBinaryErrs[spec.name] = err
 			return
 		}
 		builtBinaries[spec.name] = bin
 	})
-	if err := builtBinaryErrs[spec.name]; err != nil {
+	connectorBuildsMu.Lock()
+	err := builtBinaryErrs[spec.name]
+	bin := builtBinaries[spec.name]
+	connectorBuildsMu.Unlock()
+	if err != nil {
 		tb.Fatalf("build %s: %v", spec.name, err)
 	}
-	return builtBinaries[spec.name]
+	return bin
 }
 
 func buildConnectorBinary(spec connectorBuildSpec) (builtBinary, error) {
@@ -132,37 +138,47 @@ func sharedStagedRoot(tb testing.TB, key string, spec connectorBuildSpec, manife
 	tb.Helper()
 	once := onceFor(&stagedRootsMu, stagedRoots, key)
 	once.Do(func() {
-		bin, err := buildConnectorBinary(spec)
+		root, err := stageConnectorRoot(spec, manifest)
+		stagedRootsMu.Lock()
+		defer stagedRootsMu.Unlock()
 		if err != nil {
-			stagedRootErrs[key] = err
-			return
-		}
-		binName := filepath.Base(bin.path)
-		rel := filepath.ToSlash(filepath.Join("bin", binName))
-		root, err := os.MkdirTemp("", "lip-staged-root-*")
-		if err != nil {
-			stagedRootErrs[key] = err
-			return
-		}
-		dst := filepath.Join(root, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
-			stagedRootErrs[key] = err
-			return
-		}
-		if err := copyFileMode(dst, bin.path, 0o700); err != nil {
-			stagedRootErrs[key] = err
-			return
-		}
-		if err := os.WriteFile(filepath.Join(root, "plugin.backendplugin.json"), []byte(manifest(rel, bin.digest)), 0o600); err != nil {
 			stagedRootErrs[key] = err
 			return
 		}
 		stagedRootPaths[key] = root
 	})
-	if err := stagedRootErrs[key]; err != nil {
+	stagedRootsMu.Lock()
+	err := stagedRootErrs[key]
+	root := stagedRootPaths[key]
+	stagedRootsMu.Unlock()
+	if err != nil {
 		tb.Fatalf("stage %s: %v", key, err)
 	}
-	return stagedRootPaths[key]
+	return root
+}
+
+func stageConnectorRoot(spec connectorBuildSpec, manifest func(rel, digest string) string) (string, error) {
+	bin, err := buildConnectorBinary(spec)
+	if err != nil {
+		return "", err
+	}
+	binName := filepath.Base(bin.path)
+	rel := filepath.ToSlash(filepath.Join("bin", binName))
+	root, err := os.MkdirTemp("", "lip-staged-root-*")
+	if err != nil {
+		return "", err
+	}
+	dst := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+		return "", err
+	}
+	if err := copyFileMode(dst, bin.path, 0o700); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(root, "plugin.backendplugin.json"), []byte(manifest(rel, bin.digest)), 0o600); err != nil {
+		return "", err
+	}
+	return root, nil
 }
 
 // copyStagedRoot clones a staged root into the caller's per-test temp dir so
