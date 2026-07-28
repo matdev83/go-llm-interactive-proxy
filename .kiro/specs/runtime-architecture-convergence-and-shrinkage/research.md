@@ -45,7 +45,7 @@ This `research.md` records both mandatory brownfield reviews:
 - `.kiro/specs/archive/versioned-runtime-reloadable-proxy-configuration/*`
 - `.kiro/specs/backend-connector-plugin-architecture/*`
 - `.kiro/specs/generic-compatible-backend-modes/*`
-- `.kiro/specs/cursor-sdk-backend/*`
+- `.kiro/specs/archive/cursor-sdk-backend/*`
 - archived runtime hardening, extension platform, executable generation, and dual-plane specifications
 
 ### Runtime composition and host ownership

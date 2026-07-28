@@ -33,7 +33,7 @@ The host (`cmd/lipstd` / `runtimebundle`) discovers and lazily activates the tru
 
 - Future `connectors/cursorsdk/**` (Go module, release.yaml, closed manifest, plugin cmd).
 - Future `connectors/cursorsdk/bridge-node/**` (pinned `@cursor/sdk`, lockfile, packaged entry).
-- Spec artifacts under `.kiro/specs/cursor-sdk-backend/` including `file-plan.md`, `packaging.md`, `AGENTS.md`.
+- Spec artifacts under `.kiro/specs/archive/cursor-sdk-backend/` including `file-plan.md`, `packaging.md`, `AGENTS.md`.
 - Architecture / `kiro-spec-check` gates that block root-tree implementation.
 - SDK-specific deterministic test plans (fake bridge), opt-in live smoke plan, operator docs plan.
 

@@ -8,8 +8,8 @@ Generated: 2026-07-17T17:27:04+02:00
 - Reviewed ref: `main` at `7fd53d275168170bb0a31cd42b1c73c5311c505a`
 - Inspiration repository: `fitchmultz/pi-cursor-sdk`
 - Supporting Go bridge reference: `remdev/cursor-go-sdk`
-- Requirements source: `.kiro/specs/cursor-sdk-backend/requirements.md`
-- Design source: `.kiro/specs/cursor-sdk-backend/design.md`
+- Requirements source: `.kiro/specs/archive/cursor-sdk-backend/requirements.md`
+- Design source: `.kiro/specs/archive/cursor-sdk-backend/design.md`
 - Review mode: static source, steering, archived-spec, external repository, lifecycle, model-inventory, and composition-root review through the connected GitHub repositories.
 - Scope: brownfield requirements analysis followed by design validation. This pull request changes Kiro specifications only.
 

@@ -93,7 +93,7 @@ func TestCursorSDK_standardDistributionDoesNotMandateCursorSDK(t *testing.T) {
 func TestCursorSDK_specArtifactsPresent(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	dir := filepath.Join(root, ".kiro", "specs", "cursor-sdk-backend")
+	dir := filepath.Join(root, ".kiro", "specs", "archive", "cursor-sdk-backend")
 	for _, name := range []string{
 		"AGENTS.md",
 		"requirements.md",
