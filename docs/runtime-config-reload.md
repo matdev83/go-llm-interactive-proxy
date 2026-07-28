@@ -171,7 +171,7 @@ Responses, logs, and metrics must not include raw YAML, credentials, DSNs, priva
 
 ## Related
 
-- Spec: `.kiro/specs/versioned-runtime-reloadable-proxy-configuration/`
+- Spec: `.kiro/specs/archive/versioned-runtime-reloadable-proxy-configuration/`
 - ADR: [adr/0008-versioned-runtime-config-reload.md](adr/0008-versioned-runtime-config-reload.md)
 - Dogfood workflow: [dogfood-local.md](dogfood-local.md)
 - Architecture: [architecture.md](architecture.md), [runtime-flow.md](runtime-flow.md)

@@ -1,6 +1,6 @@
 # Implementation Plan
 
-**Source context:** Follow-up full HTTP E2E validation for [`.kiro/specs/reasoning-output-preservation/`](../reasoning-output-preservation/) (issue [#157](https://github.com/matdev83/go-llm-interactive-proxy/issues/157)).
+**Source context:** Follow-up full HTTP E2E validation for [`.kiro/specs/archive/reasoning-output-preservation/`](../reasoning-output-preservation/) (issue [#157](https://github.com/matdev83/go-llm-interactive-proxy/issues/157)).
 
 > **TDD gate:** Preserve existing branch WIP under `internal/testkit/reasoninge2e` and `internal/refbackend/openaichat` exactly as the reusable base—extend, do not rewrite. Every behavioral production change starts from a failing E2E/focused red test. No relaxed matching or synthesis. OpenAI Responses HTTP E2E remains deferred.
 

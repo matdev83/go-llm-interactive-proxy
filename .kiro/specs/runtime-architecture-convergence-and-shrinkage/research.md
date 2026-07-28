@@ -42,7 +42,7 @@ This `research.md` records both mandatory brownfield reviews:
 ### Prior architecture and active specifications
 
 - `specs/go_llm_proxy_arch_review/{architecture-review,resolution-plan,findings-register,executive-summary}.md`
-- `.kiro/specs/versioned-runtime-reloadable-proxy-configuration/*`
+- `.kiro/specs/archive/versioned-runtime-reloadable-proxy-configuration/*`
 - `.kiro/specs/backend-connector-plugin-architecture/*`
 - `.kiro/specs/generic-compatible-backend-modes/*`
 - `.kiro/specs/cursor-sdk-backend/*`
@@ -63,7 +63,7 @@ This `research.md` records both mandatory brownfield reviews:
 
 - `internal/archtest/{guardrails,critical_files,reload_ownership_scan}.go`
 - `docs/{architecture,architecture-guardrails,runtime-flow,runtime-config-reload,release-gates}.md`
-- `.kiro/specs/versioned-runtime-reloadable-proxy-configuration/release-evidence.md`
+- `.kiro/specs/archive/versioned-runtime-reloadable-proxy-configuration/release-evidence.md`
 - focused runtimehost/runtimebundle/stdhttp/lipruntime characterization, race, soak, rollback, and compatibility tests
 
 ## Executive Assessment

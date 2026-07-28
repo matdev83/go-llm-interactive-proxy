@@ -21,7 +21,7 @@ Editing the config file alone has **no** effect. Reload runs only after an expli
 
 There is no file watcher, mtime poller, debounce loop, periodic rescan, or automatic retry. Every attempt re-reads the absolute `--config` path fixed at startup.
 
-Authoritative operator guide: [`docs/runtime-config-reload.md`](../../docs/runtime-config-reload.md). ADR: [`docs/adr/0008-versioned-runtime-config-reload.md`](../../docs/adr/0008-versioned-runtime-config-reload.md). Spec: `.kiro/specs/versioned-runtime-reloadable-proxy-configuration/`.
+Authoritative operator guide: [`docs/runtime-config-reload.md`](../../docs/runtime-config-reload.md). ADR: [`docs/adr/0008-versioned-runtime-config-reload.md`](../../docs/adr/0008-versioned-runtime-config-reload.md). Spec: `.kiro/specs/archive/versioned-runtime-reloadable-proxy-configuration/`.
 
 ## Source and limits
 

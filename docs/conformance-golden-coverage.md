@@ -46,7 +46,7 @@ Not a new migration-golden inventory row. Evidence lives in:
 |------|----------|
 | Runtime/lifecycle/isolation | `TestPhase5_*` in `internal/core/runtime` + `internal/plugins/features/reasoningpreservation` |
 | Frontend wire legality | `TestVisibleThinkerReasoning_*` in `internal/plugins/frontends/parity` |
-| Adapter dialect encode | Phase 4 backend/frontend tests fulfilled in [phase-1-red-manifest.md](../.kiro/specs/reasoning-output-preservation/phase-1-red-manifest.md) |
+| Adapter dialect encode | Phase 4 backend/frontend tests fulfilled in [phase-1-red-manifest.md](../.kiro/specs/archive/reasoning-output-preservation/phase-1-red-manifest.md) |
 | Fuzz | `FuzzComputeAnchor`, `FuzzDecodeConfig` (Tier-1 via `make test-fuzz`) |
 | Operator examples | `config/examples/reasoning-preservation-*.yaml` |
 

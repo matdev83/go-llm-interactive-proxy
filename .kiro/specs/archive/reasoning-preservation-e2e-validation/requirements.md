@@ -1,6 +1,6 @@
 # Requirements Document
 
-**Source context:** Follow-up validation for completed [`.kiro/specs/reasoning-output-preservation/`](../reasoning-output-preservation/) (issue [#157](https://github.com/matdev83/go-llm-interactive-proxy/issues/157)). Parent feature implements observe/restore; this specification proves it end-to-end on the standard HTTP distribution.
+**Source context:** Follow-up validation for completed [`.kiro/specs/archive/reasoning-output-preservation/`](../reasoning-output-preservation/) (issue [#157](https://github.com/matdev83/go-llm-interactive-proxy/issues/157)). Parent feature implements observe/restore; this specification proves it end-to-end on the standard HTTP distribution.
 
 ## Introduction
 

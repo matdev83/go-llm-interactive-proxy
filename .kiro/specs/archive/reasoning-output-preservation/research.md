@@ -7,8 +7,8 @@ Generated: 2026-07-17T08:52:15+02:00
 - Repository: `matdev83/go-llm-interactive-proxy`
 - Reviewed ref: `main` at `cda1c3f02ef6bbb7eec7c314c9469275f309fcc5`
 - Source issue: [#157 — Reasoning output preservation](https://github.com/matdev83/go-llm-interactive-proxy/issues/157)
-- Requirements source: `.kiro/specs/reasoning-output-preservation/requirements.md`
-- Design source: `.kiro/specs/reasoning-output-preservation/design.md`
+- Requirements source: `.kiro/specs/archive/reasoning-output-preservation/requirements.md`
+- Design source: `.kiro/specs/archive/reasoning-output-preservation/design.md`
 - Review mode: static source, contract, steering, archived-spec, issue-plan, and lifecycle review through the connected GitHub repository.
 - Scope: brownfield requirements analysis followed by design validation. This PR changes specifications only.
 

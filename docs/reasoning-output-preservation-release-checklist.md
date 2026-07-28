@@ -1,6 +1,6 @@
 # Reasoning Output Preservation — Release Checklist
 
-Issue [#157](https://github.com/matdev83/go-llm-interactive-proxy/issues/157). Parent spec: [`.kiro/specs/reasoning-output-preservation/`](../.kiro/specs/reasoning-output-preservation/). Follow-up full HTTP E2E spec: [`.kiro/specs/reasoning-preservation-e2e-validation/`](../.kiro/specs/reasoning-preservation-e2e-validation/). OpenAI Responses exact path: [`.kiro/specs/openai-responses-reasoning-preservation/`](../.kiro/specs/openai-responses-reasoning-preservation/). Operator guide: [reasoning-output-preservation.md](reasoning-output-preservation.md).
+Issue [#157](https://github.com/matdev83/go-llm-interactive-proxy/issues/157). Parent spec: [`.kiro/specs/archive/reasoning-output-preservation/`](../.kiro/specs/archive/reasoning-output-preservation/). Follow-up full HTTP E2E spec: [`.kiro/specs/archive/reasoning-preservation-e2e-validation/`](../.kiro/specs/archive/reasoning-preservation-e2e-validation/). OpenAI Responses exact path: [`.kiro/specs/openai-responses-reasoning-preservation/`](../.kiro/specs/openai-responses-reasoning-preservation/). Operator guide: [reasoning-output-preservation.md](reasoning-output-preservation.md).
 
 ## PR split (when review size warrants)
 
@@ -131,7 +131,7 @@ Historical Phase 6 gate record (pre default-on / catalog-v2 docs slice). Do not 
 
 ## Manifest hygiene
 
-- [phase-1-red-manifest.md](../.kiro/specs/reasoning-output-preservation/phase-1-red-manifest.md) intentional RED section must list no Phase 1–5 semantic gaps after Phase 6.
+- [phase-1-red-manifest.md](../.kiro/specs/archive/reasoning-output-preservation/phase-1-red-manifest.md) intentional RED section must list no Phase 1–5 semantic gaps after Phase 6.
 - Tasks 5.1–6.4 marked complete in `tasks.md` only when gate evidence matches.
 - No stale `*_RED` names claimed as still-failing once fulfilled.
 

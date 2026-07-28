@@ -28,5 +28,5 @@ Stage four ([ADR 0006](0006-stage-four-extension-seam-map-and-migration.md)) kep
 
 ## Related
 
-- Spec requirements/design/tasks under `.kiro/specs/versioned-runtime-reloadable-proxy-configuration/`
+- Spec requirements/design/tasks under `.kiro/specs/archive/versioned-runtime-reloadable-proxy-configuration/`
 - [architecture.md](../architecture.md), [runtime-flow.md](../runtime-flow.md), [release-gates.md](../release-gates.md)

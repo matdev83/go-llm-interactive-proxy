@@ -2,7 +2,7 @@
 
 Standard-distribution default-on, catalog-gated multi-turn reasoning replay for LLM Interactive Proxy ([issue #157](https://github.com/matdev83/go-llm-interactive-proxy/issues/157)).
 
-When a client later submits an assistant turn without reasoning that the proxy previously observed on the same authoritative session, this feature can restore uniquely missing reasoning onto a fresh candidate clone before backend open. Spec: [`.kiro/specs/reasoning-output-preservation/`](../.kiro/specs/reasoning-output-preservation/).
+When a client later submits an assistant turn without reasoning that the proxy previously observed on the same authoritative session, this feature can restore uniquely missing reasoning onto a fresh candidate clone before backend open. Spec: [`.kiro/specs/archive/reasoning-output-preservation/`](../.kiro/specs/archive/reasoning-output-preservation/).
 
 ## Goals
 
@@ -166,7 +166,7 @@ Hard capability: `reasoning_replay`. Every restored dialect must be explicitly s
 
 ## Full HTTP E2E validation
 
-Follow-up spec: [`.kiro/specs/reasoning-preservation-e2e-validation/`](../.kiro/specs/reasoning-preservation-e2e-validation/) (parent issue [#157](https://github.com/matdev83/go-llm-interactive-proxy/issues/157); parent feature spec [`.kiro/specs/reasoning-output-preservation/`](../.kiro/specs/reasoning-output-preservation/)).
+Follow-up spec: [`.kiro/specs/archive/reasoning-preservation-e2e-validation/`](../.kiro/specs/archive/reasoning-preservation-e2e-validation/) (parent issue [#157](https://github.com/matdev83/go-llm-interactive-proxy/issues/157); parent feature spec [`.kiro/specs/archive/reasoning-output-preservation/`](../.kiro/specs/archive/reasoning-output-preservation/)).
 
 Proofs drive a stateful client transcript and independent backend-request oracle through `runtimebundle.BuildHost` + `stdhttp` + real Chat/Anthropic adapters + protocol emulators (`internal/refbackend`). Failures report seed/mode/turn/structural reason codes only — never reasoning text, signatures, opaque payloads, anchors, or raw bodies.
 
