@@ -500,7 +500,7 @@ func TestPhase33_BackendIngress_AppendFailureFailClosedBeforeAuthority(t *testin
 	ex.Now = func() time.Time { return time.Unix(80, 0).UTC() }
 	holder := &checkpoint.RequestHolder{}
 	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 5})
-	p.ctx = withMeteringHolder(p.ctx, holder)
+	ctx := withMeteringHolder(context.Background(), holder)
 	p.baseline = lipapi.Call{
 		ID:    "req-be-fail",
 		Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
@@ -509,7 +509,7 @@ func TestPhase33_BackendIngress_AppendFailureFailClosedBeforeAuthority(t *testin
 		},
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
 	}
-	_, err := ex.openPlannedCandidate(p, authorityCandidate(), nil, "", false)
+	_, err := ex.openPlannedCandidate(ctx, p, authorityCandidate(), nil, "", false)
 	if err == nil || !strings.Contains(err.Error(), "backend ingress fact") {
 		t.Fatalf("want fail-closed backend ingress fact error, got %v", err)
 	}

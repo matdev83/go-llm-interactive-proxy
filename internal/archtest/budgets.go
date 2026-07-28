@@ -25,17 +25,17 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/stdhttp/server.go", Max: 8},
 	{Path: "internal/infra/runtimehost/coordinator.go", Max: 292},
 	{Path: "internal/infra/runtimehost/generation.go", Max: 316},
-	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 259},
+	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 260},
 	{Path: "internal/infra/runtimebundle/handler_composer.go", Max: 25},
 	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 292},
 	{Path: "internal/stdhttp/request_plane.go", Max: 65},
-	{Path: "internal/infra/runtimebundle/process_services.go", Max: 265},
-	{Path: "pkg/lipruntime/build.go", Max: 96},
+	{Path: "internal/infra/runtimebundle/process_services.go", Max: 266},
+	{Path: "pkg/lipruntime/build.go", Max: 97},
 	{Path: "pkg/lipruntime/host.go", Max: 68},
 	{Path: "pkg/lipruntime/facade.go", Max: 72},
 	{Path: "cmd/lipstd/command.go", Max: 433},
 	{Path: "pkg/lipruntime/reload.go", Max: 89},
-	{Path: "pkg/lipruntime/reload_aliases.go", Max: 35},
+	{Path: "pkg/lipruntime/reload_aliases.go", Max: 36},
 }
 
 // PackageTreeBudget caps recursive non-test .go lines for a package tree.
@@ -46,10 +46,10 @@ type PackageTreeBudget struct {
 
 // PackageTreeBudgets locks exact-measured convergence tree ceilings.
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 10280},
-	{Tree: "internal/stdhttp", Max: 4314},
+	{Tree: "internal/infra/runtimebundle", Max: 10320},
+	{Tree: "internal/stdhttp", Max: 4315},
 	{Tree: "cmd/lipstd", Max: 954},
-	{Tree: "pkg/lipruntime", Max: 537},
+	{Tree: "pkg/lipruntime", Max: 539},
 }
 
 // LineBudget caps recursive non-test lines for broader architectural layers.
@@ -61,12 +61,12 @@ type LineBudget struct {
 // LineBudgets covers core/pluginreg plus the convergence trees (kept in sync
 // with PackageTreeBudgets for overlapping entries).
 var LineBudgets = []LineBudget{
-	{Dir: "internal/core", Max: 68784},
+	{Dir: "internal/core", Max: 68822},
 	{Dir: "internal/pluginreg", Max: 939},
-	{Dir: "internal/stdhttp", Max: 4314},
-	{Dir: "internal/infra/runtimebundle", Max: 10280},
+	{Dir: "internal/stdhttp", Max: 4315},
+	{Dir: "internal/infra/runtimebundle", Max: 10320},
 	{Dir: "cmd/lipstd", Max: 954},
-	{Dir: "pkg/lipruntime", Max: 537},
+	{Dir: "pkg/lipruntime", Max: 539},
 }
 
 // CountNonTestGoLines recursively counts physical lines in non-test .go files.

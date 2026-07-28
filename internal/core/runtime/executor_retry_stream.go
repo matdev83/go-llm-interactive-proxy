@@ -224,6 +224,19 @@ func (s *retryRecvStream) markCommitted() {
 	}
 }
 
+// cachedExecContext returns the request-scoped exec context derived from the most
+// recent Recv parent, or nil when Recv never ran. Close and other caller-less
+// terminal paths derive from it via context.WithoutCancel so work that must
+// outlive request cancellation still sees request-scoped values.
+func (s *retryRecvStream) cachedExecContext() context.Context {
+	if s == nil {
+		return nil
+	}
+	s.cachedCtxMu.Lock()
+	defer s.cachedCtxMu.Unlock()
+	return s.cachedCtx
+}
+
 // takeAndNilInner clears s.inner and returns the previous value; the caller should Close it when non-nil.
 func (s *retryRecvStream) takeAndNilInner() lipapi.ManagedEventStream {
 	s.innerMu.Lock()
@@ -537,7 +550,15 @@ func (s *retryRecvStream) Close() error {
 	}
 	s.resetToolFinal()
 	c := s.takeAndNilInner()
-	ctx := context.Background()
+	// lipapi.EventStream.Close has no caller context. Terminal Close work must
+	// outlive request cancellation, so detach cancel from the last Recv parent
+	// when one was observed; Background only when no parent exists.
+	ctx := s.cachedExecContext()
+	if ctx == nil {
+		ctx = context.Background()
+	} else {
+		ctx = context.WithoutCancel(ctx)
+	}
 	if c == nil {
 		if !s.isFinished() {
 			s.runStreamTerminal(ctx, sdkterminal.CommandClose, func(cctx context.Context) error {
@@ -584,9 +605,9 @@ func (s *retryRecvStream) Close() error {
 	if errors.As(err, &pe) {
 		s.runStreamTerminal(ctx, sdkterminal.CommandPanic, func(context.Context) error { return nil })
 		if s.executor != nil && s.executor.Log != nil {
-			// lipapi.EventStream.Close has no context; use Background plus call/leg ids from EnsureCallDiag so
-			// isolated-panic logs still correlate by trace_id / b_leg. Request-scoped trace fields are omitted here.
-			logCtx := diag.EnsureCallDiag(context.Background(), s.traceID, s.aLegID)
+			// lipapi.EventStream.Close has no context; EnsureCallDiag guarantees call/leg ids
+			// on the detached close context so isolated-panic logs still correlate by trace_id / b_leg.
+			logCtx := diag.EnsureCallDiag(ctx, s.traceID, s.aLegID)
 			attrs := diag.IsolatedCrashAttrs(logCtx, pe, diag.CrashAttrOpts{
 				AttrOpts:   diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID},
 				AttemptSeq: int(s.bleg.Seq),
@@ -644,12 +665,14 @@ func (s *retryRecvStream) applyToolPolicies(ctx context.Context, te lipapi.ToolE
 // observers and authority settlement see consistent per-event evidence.
 // When EconomicsRater is attached, it is the exclusive pricing authority and
 // catalog EstimateCost must not silently substitute (requirements 6.3, 6.4, 12.1).
-func (s *retryRecvStream) enrichUsageCost(ev lipapi.Event) lipapi.Event {
+func (s *retryRecvStream) enrichUsageCost(ctx context.Context, ev lipapi.Event) lipapi.Event {
 	if s == nil || s.executor == nil || ev.Kind != lipapi.EventUsageDelta || ev.CostPresent {
 		return ev
 	}
 	if s.executor.EconomicsRater != nil {
-		rated, err := s.executor.rateMonetaryExposure(context.Background(), economics.RatingRequest{
+		// Rating must outlive request cancellation (previously Background); detach
+		// cancel from the recv parent but keep its request-scoped values.
+		rated, err := s.executor.rateMonetaryExposure(context.WithoutCancel(ctx), economics.RatingRequest{
 			Perspective: metering.PerspectiveOperator,
 			BackendID:   strings.TrimSpace(s.cand.Primary.Backend),
 			Model:       strings.TrimSpace(s.cand.Primary.Model),

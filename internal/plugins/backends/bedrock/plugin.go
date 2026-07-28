@@ -28,6 +28,12 @@ const DefaultLoadConfigTimeout = 30 * time.Second
 // ensureLoadConfigDeadline returns a context for awsconfig.LoadDefaultConfig. If ctx is nil, or
 // has no deadline, it wraps with [DefaultLoadConfigTimeout] so config load cannot hang
 // indefinitely. The caller must invoke the returned CancelFunc.
+//
+// The nil coercion is a deliberate, documented fallback: NewWithContext cannot return an
+// error mid-construction, so a nil ctx is coerced rather than panicking. Production
+// composition roots must always pass a context (see DefaultLoadConfigTimeout); the nil
+// path exists for tests and defensive robustness, and Open still fails explicitly on a
+// nil caller context with lipapi.ErrNilContext.
 func ensureLoadConfigDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		return context.WithTimeout(context.Background(), DefaultLoadConfigTimeout)
@@ -78,9 +84,21 @@ func NewWithContext(ctx context.Context, cfg Config) execbackend.Backend {
 			}
 			out, err := client.ConverseStream(ctx, in)
 			if err != nil {
-				return nil, fmt.Errorf("bedrock: ConverseStream: %w", err)
+				return nil, converseStreamOpenError(err)
 			}
 			return newConverseStream(out.GetStream(), call.MaxPendingWireEvents), nil
 		},
 	}
+}
+
+// converseStreamOpenError attributes a ConverseStream open failure to this backend.
+// The open error is always pre-output (the stream has not been returned to the caller),
+// so classified transient/auth classes are marked recoverable for core failover; stream
+// recv failures after open stay non-recoverable (see converseStream.Recv).
+func converseStreamOpenError(err error) error {
+	werr := fmt.Errorf("bedrock: ConverseStream: %w", err)
+	if classifyBedrockError(err) != failureNone {
+		return lipapi.RecoverablePreOutputError(werr)
+	}
+	return werr
 }

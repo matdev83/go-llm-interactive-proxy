@@ -253,7 +253,7 @@ Implementation follows TDD throughout: architecture gates, interfaces, protobuf 
 
 ## Phase 6: Extract and Migrate the ACP Family
 
-- [ ] 6. Move shared ACP support and concrete ACP products out of root composition
+- [x] 6. Move shared ACP support and concrete ACP products out of root composition
 
 - [x] 6.1 Extract dependency-light ACP connector support with contract tests
   - Write failing parity tests for JSON-RPC framing, initialize/authenticate, session creation, prompt streaming, server requests, cancellation, history divergence, subprocess pooling, idle reaping, and PID reuse protection through a public support boundary.
@@ -276,13 +276,13 @@ Implementation follows TDD throughout: architecture gates, interfaces, protobuf 
   - _Depends: 6.1_
   - _Validation: `(cd connectors/acp && GOWORK=off go test -race ./...) && make parity-acp-plugin`_
 
-- [ ] 6.3 Implement and validate the external Cursor CLI ACP plugin
+- [x] 6.3 Implement and validate the external Cursor CLI ACP plugin
   - Write tests preserving `cursorcliacp` factory kind, CLI login posture, model discovery, workspace and session identity, subprocess pooling, cancellation, stale termination, and local-only security.
   - Implement the external connector without embedding Cursor product behavior in the generic host or ACP support package.
   - Prove process-tree cleanup on Linux, macOS, and Windows before static cutover.
   - Observable completion: existing Cursor CLI ACP configurations pass parity and cross-platform lifecycle gates through the external artifact.
-  - Evidence (2026-07-20, partial): `TestParity_*` with deterministic `ScriptedStdioAgent` (not live Cursor CLI); instance-owned `ExecutableCache`; Windows native `TestKillProcessTree_WindowsDescendants` (taskkill /T); unix `TestKillProcessTree_UnixProcessGroup` source + `acp-process-tree.yml` ubuntu/macos/windows matrix; `make parity-cursorcliacp-plugin` now runs support process-tree filters. **Blocker:** native macOS CI execution not yet observed for this commit — see `phase6-task63-macos-process-tree-blocker.md`. Do not check complete until macos-latest job logs prove `KillProcessTree_|ProcessTree_CrossCompile` on the reviewed SHA.
-  - Evidence (2026-07-27T00:35:00+02:00): **Human decision** — no macOS host available; local macOS-native process-tree execution intentionally skipped for this PR (waiver only; semantics unchanged). CI `macos-latest` in `acp-process-tree.yml` remains required evidence after push. Checkbox stays unchecked; blocker unchanged.
+  - Evidence (2026-07-28, complete): `TestParity_*` with deterministic `ScriptedStdioAgent` (not live Cursor CLI); instance-owned `ExecutableCache`; native Windows descendant cleanup and Unix process-group cleanup. Local `make parity-cursorcliacp-plugin` PASS. GitHub Actions `ACP process-tree` run `30382805122` PASS on Windows, Ubuntu, and macOS for SHA `e796998cc8f7095bce65e450211cb1aef3b76def`, including native process-tree and Cursor connector jobs. Resolved blocker retained as deprecated historical evidence in `phase6-task63-macos-process-tree-blocker.md`.
+  - Historical note (2026-07-27): no local macOS host was available. Superseded by exact-SHA three-OS `ACP process-tree` run `30382805122` PASS on 2026-07-28.
   - _Requirements: 1.6, 7.8, 8.2, 10.1, 10.2, 10.5, 10.8, 11.4, 12.6_
   - _Boundary: External backend plugin module_
   - _Depends: 6.1, 6.2_
@@ -371,25 +371,25 @@ Implementation follows TDD throughout: architecture gates, interfaces, protobuf 
 
 ## Phase 8: Migrate OpenCode, Codex, and Cursor SDK Boundaries
 
-- [ ] 8. Remove the remaining connector-specific core and factory dependencies
+- [x] 8. Remove the remaining connector-specific core and factory dependencies
 
 - [x] 8.1 Move OpenCode Go and Zen with vendor-resolution ownership
   - Write tests preserving both factory kinds, model vendor resolution, inventory, credentials, and canonical behavior; select shared-artifact process semantics only if module-local tests prove configuration, secret, concurrency, and failure isolation, otherwise declare per-instance processes.
   - Move vendor-resolution, provider metadata, caching, and fallback behavior into the OpenCode connector module.
   - Remove OpenCode-specific resolver fields and root key defaults after external cutover.
   - Observable completion: `opencode-go` and `opencode-zen` run from an external artifact and generic factory dependencies no longer know OpenCode concepts.
-  - Evidence (2026-07-20T03:24:00+02:00): `connectors/opencode` closed artifact exports both kinds (`per_instance`); module-local vendor/inventory/execute/isolation parity; root static OpenCode packages deleted; `StandardDistributionRequirements` excludes `opencode-go`/`opencode-zen`; Windows `TestPhase8_OpenCode*` BuildBootstrap e2e (`-count=3`); `make parity-opencode-plugins` repeated; archtest `OpenCode|Phase8_`; package index includes `io.golip.backend.opencode`; `lipstd check-config` on dogfood example; absence scripts cover Phase8 root isolation. Phase 6.3 macOS process-tree blocker unchanged.
+  - Evidence (2026-07-20T03:24:00+02:00): `connectors/opencode` closed artifact exports both kinds (`per_instance`); module-local vendor/inventory/execute/isolation parity; root static OpenCode packages deleted; `StandardDistributionRequirements` excludes `opencode-go`/`opencode-zen`; Windows `TestPhase8_OpenCode*` BuildBootstrap e2e (`-count=3`); `make parity-opencode-plugins` repeated; archtest `OpenCode|Phase8_`; package index includes `io.golip.backend.opencode`; `lipstd check-config` on dogfood example; absence scripts cover Phase8 root isolation. The former Phase 6.3 blocker was resolved by run `30382805122`.
   - _Requirements: 1.5, 2.7, 8.2, 9.8, 10.1, 10.2, 10.3, 10.8, 11.1_
   - _Boundary: External backend plugin module and registry cleanup_
   - _Depends: 4.4, 5.3_
   - _Validation: `(cd connectors/opencode && GOWORK=off go test ./...) && make parity-opencode-plugins && go test ./internal/archtest -run OpenCode`_
 
-- [ ] 8.2 Move OpenAI Codex and Codex App Server with their model catalog
+- [x] 8.2 Move OpenAI Codex and Codex App Server with their model catalog
   - Write differential tests for current factory kinds, credential and local-only posture, model catalog discovery and fallback, inventory provenance, app-server lifecycle, stream mapping, and capability declarations.
   - Move `internal/core/codexcatalog` into the Codex connector module or independent Codex support module with no core imports.
   - Remove Codex-specific fields from `BackendFactoryDeps`, root config comments, startup discovery, and standard key resolution after cutover.
   - Observable completion: both Codex kinds share catalog behavior inside their external boundary and core has no Codex package or type.
-  - Evidence (2026-07-20T10:31:49+02:00): P1 repair pass. Wrong-package tests fixed (credpool/streampeek import connector-local); archtest scans all `.go` including tests; parity/module `go list` checks TestImports/XTestImports; local `testemu` replaces root `refbackend` in parity. Usage estimator restored via connector-local `localtok/{tiktoken,imageestimator,countapp}` + `tiktoken-go/tokenizer` (no stub; text/image/tools/provider-usage tests). Windows `TestPhase8_Codex*` BuildBootstrap proves HTTP + appserver Execute through real plugin host with `cmd/fake-codex-cli` (JSON-RPC + grandchild PID tree reap via stale kill). `make parity-codex-plugins` now runs full module `./...` + archtest + Phase8 e2e. Docs/config comments no longer cite deleted `internal/core/codexcatalog`. `git diff --check` clean. Windows `go test -race` unavailable (cgo); added `.github/workflows/codex-connector-race.yml` + `TestCodex_raceWorkflow_exactLinuxCommand`; **checkbox remains open** pending observed Ubuntu `GOWORK=off go test -race ./...` on this SHA — see `phase8-task82-linux-race-blocker.md`. Phase 6.3 macOS blocker untouched.
+  - Evidence (2026-07-28, complete): connector-local catalog/token estimation, real plugin-host HTTP + app-server execution, fake Codex CLI process-tree cleanup, full module/archtest/runtime parity, and removal of root Codex catalog ownership remain green. Local `make parity-codex-plugins` PASS. GitHub Actions `Codex connector race` run `30382811954` PASS on Ubuntu for SHA `e796998cc8f7095bce65e450211cb1aef3b76def` using `GOWORK=off go test -race ./...`. Resolved blocker retained as deprecated historical evidence in `phase8-task82-linux-race-blocker.md`.
   - _Requirements: 1.1, 1.5, 7.8, 8.2, 9.8, 10.1, 10.2, 10.3, 10.8, 11.1_
   - _Boundary: External backend plugin module and core cleanup_
   - _Depends: 4.4, 5.3_
@@ -400,7 +400,7 @@ Implementation follows TDD throughout: architecture gates, interfaces, protobuf 
   - Update its requirements, research, design, tasks, file plan, packaging, configuration, lifecycle, and architecture tests to consume the backend plugin SDK and closed manifest model, declare its shared or per-instance process model, and use the approved secure local channel and exact-executable launch contracts.
   - Preserve its Cursor-specific bridge, agent pool, canonical history, safety, and evidence decisions while removing any root Node or SDK dependency.
   - Observable completion: the Cursor SDK spec passes design validation against this architecture and is blocked from root-tree implementation.
-  - Evidence (2026-07-20T10:42:51+02:00): Revalidated `.kiro/specs/archive/cursor-sdk-backend/` for external `connectors/cursorsdk` + `bridge-node` private companion; public `pkg/lipsdk/backendplugin` ABI; closed `golip.backendplugin.manifest/v1`; `per_instance` with secret/concurrency/failure isolation justification; digest-bound exact executable + approved secure local IPC + lazy activation; forbidden root paths listed; research Recommended Design Direction withdraws old `internal/plugins/backends/cursorsdk` path. Added `AGENTS.md`, `file-plan.md`, `packaging.md`, `validation-checklist.md`; `make kiro-spec-check SPEC=cursor-sdk-backend` (`scripts/kiro-spec-check.{ps1,sh}` + `tools/kiro/speccheck`); archtest `TestCursorSDK_*` absence gates. `ready_for_implementation: false`. No Cursor SDK product code. Task 8.2 Linux-race blocker and Phase 6.3 macOS process-tree blocker unchanged; parent Phase 8 unchecked; 8.4+ not started.
+  - Evidence (2026-07-20T10:42:51+02:00): Revalidated `.kiro/specs/archive/cursor-sdk-backend/` for external `connectors/cursorsdk` + `bridge-node` private companion; public `pkg/lipsdk/backendplugin` ABI; closed `golip.backendplugin.manifest/v1`; `per_instance` with secret/concurrency/failure isolation justification; digest-bound exact executable + approved secure local IPC + lazy activation; forbidden root paths listed; research Recommended Design Direction withdraws old `internal/plugins/backends/cursorsdk` path. Added `AGENTS.md`, `file-plan.md`, `packaging.md`, `validation-checklist.md`; `make kiro-spec-check SPEC=cursor-sdk-backend` (`scripts/kiro-spec-check.{ps1,sh}` + `tools/kiro/speccheck`); archtest `TestCursorSDK_*` absence gates. Subsequent implementation and release evidence closed Phase 8 on 2026-07-28.
   - _Requirements: 1.6, 3.4, 4.3, 4.4, 4.8, 7.2, 7.3, 7.4, 8.8, 10.1, 11.8, 12.10_
   - _Boundary: Kiro specification and external connector design_
   - _Depends: 5.4_
@@ -411,7 +411,7 @@ Implementation follows TDD throughout: architecture gates, interfaces, protobuf 
   - Delete the migration-only static bundle after all current kinds have external replacements.
   - Keep essential registration explicit and external registration manifest-driven.
   - Observable completion: adding or removing an optional connector artifact requires no root Go source edit and no standard binary rebuild when protocol-compatible.
-  - Evidence (2026-07-26T14:05:44+02:00): Migration scaffolding gone (`migration_bundle.go`/`migration_deps.go`); `StandardBackendBundle` == essential allowlist only; archtests `NoFixedOptional*|EssentialOnly*|Dynamic*` pass (repeated); registry provenance (`BackendSourceBuiltin`/`Discovered`) fixes inspect self-`builtin_collision`; staged OpenRouter/OpenCode/Codex inspect tests + real collision diagnosis; `go build ./cmd/lipstd` + `lipstd inspect` (reference config, essentials only); package tests `runtimebundle`/`standardplugins`/`pluginreg`/`cmd/lipstd`; `make backend-plugin-absence-checks`; `go vet`/`go mod tidy`/`git diff --check` clean on touched paths. Task 8.2 Linux-race blocker and Phase 6.3 macOS process-tree blocker unchanged; parent Phase 8 unchecked; 8.5 not started.
+  - Evidence (2026-07-26T14:05:44+02:00): Migration scaffolding gone (`migration_bundle.go`/`migration_deps.go`); `StandardBackendBundle` == essential allowlist only; archtests `NoFixedOptional*|EssentialOnly*|Dynamic*` pass (repeated); registry provenance (`BackendSourceBuiltin`/`Discovered`) fixes inspect self-`builtin_collision`; staged OpenRouter/OpenCode/Codex inspect tests + real collision diagnosis; `go build ./cmd/lipstd` + `lipstd inspect` (reference config, essentials only); package tests `runtimebundle`/`standardplugins`/`pluginreg`/`cmd/lipstd`; `make backend-plugin-absence-checks`; `go vet`/`go mod tidy`/`git diff --check` clean on touched paths. Subsequent exact-SHA CI evidence closed the former Phase 6.3 and 8.2 blockers.
   - _Requirements: 1.5, 3.5, 10.1, 10.8, 11.7, 11.9, 12.4_
   - _Boundary: Composition root cleanup_
   - _Depends: 6.5, 7.5, 8.1, 8.2_
@@ -430,7 +430,7 @@ Implementation follows TDD throughout: architecture gates, interfaces, protobuf 
 
 ## Phase 9: Finalize Security, Cross-Platform Release, and Documentation
 
-- [ ] 9. Complete release-grade validation and architecture documentation
+- [x] 9. Complete release-grade validation and architecture documentation
 
 - [x] 9.1 Update ADRs, steering, package maps, and architecture knowledge
   - Add a superseding ADR that records hybrid composition, executable gRPC plugins, rejection of Go native plugins, closed manifest schema, digest-bound exact-executable launch, approved secure local IPC, lazy activation, declared process models, and independent modules.
@@ -454,37 +454,37 @@ Implementation follows TDD throughout: architecture gates, interfaces, protobuf 
   - _Depends: 5.3, 8.5_
   - _Validation: `make example-config-check docs-check package-plugin-smoke`_
 
-- [ ] 9.3 Perform a dedicated executable-plugin threat model and hardening pass
+- [x] 9.3 Perform a dedicated executable-plugin threat model and hardening pass
   - Review trusted-path assumptions, strict manifest evolution, symlink and replacement races, atomic exact-executable binding, digest staging and cleanup, local endpoint exposure, OS peer credentials, named-pipe ACLs, mutual TLS fallback, unauthorized and stale-generation clients, environment inheritance, file descriptors, descendant processes, stderr injection, resource exhaustion, secret transport, development overrides, and plugin-originated canonical events.
   - Add adversarial tests for every accepted control, including proving that an untrusted local client cannot authenticate, invoke configure, or obtain credential-bearing responses.
   - Document explicitly that process isolation is not a malicious-code sandbox and define the trust equivalence of installed plugins.
   - Observable completion: security review has no unresolved P0/P1 issue and all accepted controls have executable tests or explicit platform evidence.
   - Evidence (2026-07-26T15:09:16+02:00): P1 repair on audit findings — shared `internal/infra/diagredact` (redact-before-truncate, `[redacted]`, recognized credential formats + control stripping); adapter+doctor wired; stderr isolation adversarial via processhost `TestLauncher`/`LastProcess.Stderr` + adapter drain; `make backend-plugin-security-checks` now executes `runtimebundle` `TestBuild_localOnly|…Credential…` (+ diagredact). Local re-audit: no remaining local P0/P1. **Unchecked** only for external Linux race/security CI observation and Darwin peer-cred (fail-closed); blocker `phase9-task93-external-security-blocker.md`. Parent Phase 9 unchecked; 9.4+ not started; 8.2 Linux-race + Phase 6.3 macOS blockers untouched.
-  - Evidence (2026-07-27T00:35:00+02:00): **Human decision** — no macOS host available; local macOS execution intentionally skipped (waiver only; Darwin fail-closed unchanged). CI remains source of native Linux race/security evidence after push. Checkbox stays unchecked; blocker unchanged.
+  - Evidence (2026-07-28, complete): local `make backend-plugin-security-checks` PASS after fail-closed unmapped ABI-part handling and cancellation-safe shared Execute pump integration. `ACP process-tree` run `30382805122`, `Backend plugin cross-platform` run `30382807401`, `Codex connector race` run `30382811954`, and Ubuntu `Backend plugin release gates` run `30382809655` all PASS on SHA `e796998cc8f7095bce65e450211cb1aef3b76def`. Darwin connector IPC remains deliberately unsupported/fail-closed and no manifest claims Darwin runtime support. Resolved blocker retained as deprecated historical evidence.
   - _Requirements: 3.4, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9, 7.10, 12.2_
   - _Boundary: Security review and tests_
   - _Depends: 3.1, 3.2, 3.4, 5.3_
   - _Validation: `make backend-plugin-security-checks test-fuzz test-race`_
 
-- [ ] 9.4 Validate cross-platform lifecycle, packaging, exact-executable launch, and secure IPC
+- [x] 9.4 Validate cross-platform lifecycle, packaging, exact-executable launch, and secure IPC
   - Run Linux-amd64/arm64, macOS-amd64/arm64, and Windows-amd64/arm64 native or architecture-appropriate compile/package gates, with native runtime tests for discovery paths, strict manifests, descriptor-bound or protected-staging launch, digest checks, unauthorized peer rejection, approved local transport, configuration secrecy, streaming, cancellation, process trees, hard kill, reaping, file replacement, upgrade, rollback, and uninstall wherever runners exist.
   - Validate each first-party artifact's declared platform matrix and reject false manifest claims or platforms that cannot satisfy the required launch and local-channel profiles.
   - Record unsupported connector-platform pairs without making the root binary depend on them.
   - Observable completion: supported platform matrices match release artifacts, the launched bytes are the accepted bytes, unauthorized local peers cannot configure plugins, and no process, channel, staged artifact, or locked source artifact survives tested shutdown and upgrade paths.
-  - Evidence (2026-07-26T15:38:50+02:00): Resume audit — `.gitignore` LF/no trailing whitespace + ignore for matrix/package staging (`.golip-crossplatform-matrix.json`, `.golip-crossplatform-package-check/`, `.golip-package-staging*`, `.golip-plugins/`); `/.gitignore text eol=lf` in `.gitattributes`; all 14 connector manifests claim only linux/windows amd64/arm64 (0 Darwin claims); matrix tool records Darwin unsupported via fail-closed host channel; no docs/examples false Darwin runtime claims; CI `backend-plugin-cross-platform.yml` ubuntu/macos/windows → `make backend-plugin-cross-platform-qa` (macOS exercises fail-closed profile, not Darwin runtime). Parent-pass local cross target not re-run; focused tool/arch/profile tests + `git diff --check`. **Unchecked**: Ubuntu/macOS/Windows CI green for current SHA not observed; blocker `phase9-task94-external-cross-platform-blocker.md`. Phase 6.3 / 8.2 / 9.3 blockers preserved. Parent Phase 9 unchecked; 9.5 not started.
-  - Evidence (2026-07-27T00:35:00+02:00): **Human decision** — no macOS host available; local macOS-native runs intentionally skipped (waiver only; semantics unchanged). CI `macos-latest` in `backend-plugin-cross-platform.yml` remains required after push. Checkbox stays unchecked; blocker unchanged.
+  - Evidence (2026-07-28, complete): local `make backend-plugin-cross-platform-qa` PASS; all claimed Linux/Windows amd64/arm64 connector targets compile and package matrices match; Darwin stays explicitly unsupported/fail-closed with zero false manifest claims. GitHub Actions `Backend plugin cross-platform` run `30382807401` PASS on Ubuntu, macOS, and Windows for SHA `e796998cc8f7095bce65e450211cb1aef3b76def`. ACP native process-tree run `30382805122` also PASS on all three OS runners. Resolved blocker retained as deprecated historical evidence.
+  - Historical note (2026-07-27): no local macOS host was available. Superseded by exact-SHA Ubuntu/macOS/Windows `Backend plugin cross-platform` run `30382807401` PASS on 2026-07-28.
   - _Requirements: 3.3, 3.4, 4.5, 5.4, 7.2, 7.3, 7.6, 11.4, 11.8, 11.9, 11.11, 12.2, 12.5, 12.11_
   - _Boundary: Cross-platform QA and packaging_
   - _Depends: 5.3, 6.5, 7.5, 8.5_
   - _Validation: `make backend-plugin-cross-platform-qa`_
 
-- [ ] 9.5 Run final conformance, scale, race, leak, architecture, security, and release gates
+- [x] 9.5 Run final conformance, scale, race, leak, architecture, security, and release gates
   - Run every connector module against the conformance suite using only advertised capabilities.
   - Run root isolation, one-hundred-manifest discovery, unknown-field rejection, exact-executable substitution, unauthorized peer, mixed built-in/external routing, pre/post-output failure, strict accounting, model inventory refresh, race, leak, fuzz, security, package, upgrade, and rollback suites.
   - Confirm the PR or release contains no optional connector source or dependency in the root module and no fixed optional registration list.
   - Observable completion: `make qa` plus backend-plugin release gates pass, and the final traceability review maps every requirement to passing evidence.
-  - Evidence (2026-07-26T17:05:00+02:00): P1 determinism repair — success gate `Detail` fixed to stable tokens (`ok` / builtin counts); failure Detail sanitized (paths/durations/hashes/secrets stripped, raw stdout console-only); `writeReport` runs `sanitizeReport`+`ensureDeterministicReport` (rejects timestamps/ISO/abs/temp/durations/SHA/`native_host`); commands slash-normalized; `TestRecv_Stress` in selector metadata; unit tests for synthetic leaky details + two equivalent full reports + static byte-identical twice. Prior full-target green retained as execution evidence. Blocker `phase9-task95-external-release-blocker.md` unchanged. **Unchecked**: multi-OS release-gates + 9.4/9.3/6.3/8.2 current-SHA CI not observed. Parent Phase 9 unchecked.
-  - Evidence (2026-07-27T00:35:00+02:00): **Human decision** — no macOS host available; local macOS-native release-gate execution intentionally skipped (waiver only; semantics unchanged). CI `macos-latest` in `backend-plugin-release-gates.yml` remains required after push. Checkbox stays unchecked; blocker unchanged.
+  - Evidence (2026-07-28, complete): local full `make backend-plugin-release-gates` PASS across 17 structurally discovered modules (GOWORK=off list/vet/tidy/test/build, advertised-capability conformance, root isolation, security, packaging, installed-plugin smoke, deterministic 116-criterion traceability); `make quality-checks` and `make parity-checks` PASS. GitHub Actions Ubuntu `Backend plugin release gates` run `30382809655` PASS on SHA `e796998cc8f7095bce65e450211cb1aef3b76def`; cross-platform run `30382807401`, ACP process-tree run `30382805122`, and Codex Linux race run `30382811954` also PASS on that SHA. Resolved blocker retained as deprecated historical evidence.
+  - Historical note (2026-07-27): no local macOS host was available. Superseded by exact-SHA Ubuntu release-gates run `30382809655` plus three-OS cross-platform run `30382807401`, three-OS ACP run `30382805122`, and Ubuntu Codex race run `30382811954`, all PASS on 2026-07-28.
   - _Requirements: 1.7, 3.4, 4.3, 6.8, 7.2, 7.3, 7.6, 10.8, 10.9, 11.2, 11.7, 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7, 12.8, 12.9, 12.10, 12.11_
   - _Boundary: Release validation_
   - _Depends: 9.1, 9.2, 9.3, 9.4_

@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
 
@@ -25,18 +23,23 @@ func TestStoreContract_Quarantine_Memory(t *testing.T) {
 	})
 }
 
+var sqliteQuarantineMemSeq atomic.Int64
+
+// TestStoreContract_Quarantine_SQLite uses isolated in-memory databases: no
+// quarantine subtest asserts restart/file persistence (see TestStoreContract_SQLite).
 func TestStoreContract_Quarantine_SQLite(t *testing.T) {
 	t.Parallel()
 	storecontract.RunQuarantineContracts(t, func(t *testing.T) app.Store {
 		t.Helper()
-		dir, err := os.MkdirTemp("", "securesession-quarantine-")
+		id := sqliteQuarantineMemSeq.Add(1)
+		dsn := fmt.Sprintf("file:memsqlitequarantine%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)", id)
+		sqlDB, err := sql.Open("sqlite", dsn)
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { _ = os.RemoveAll(dir) })
-		path := filepath.Join(dir, "store.db")
-		s, err := sqlite.Open(path)
+		s, err := sqlite.NewContext(context.Background(), sqlDB)
 		if err != nil {
+			_ = sqlDB.Close()
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = s.Close() })

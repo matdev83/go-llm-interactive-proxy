@@ -49,8 +49,7 @@ func TestOpenPlannedCandidate_MaxAttemptsDoesNotPersistCycle(t *testing.T) {
 	}
 	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "think"}
 	ttft := newTTFTBudget(ex.now(), sel)
-	_, err = ex.tryPlanOpenOnce(attemptOpenParams{
-		ctx:         ctx,
+	_, err = ex.tryPlanOpenOnce(ctx, attemptOpenParams{
 		bus:         ex.Bus,
 		traceID:     "cycle-budget-test",
 		aLegID:      aLeg.ALegID,
@@ -125,7 +124,6 @@ func TestTryPlanOpenOnce_ParallelAllLegsFailPreservesInterleavedState(t *testing
 	excluded := map[string]struct{}{}
 	ttft := newTTFTBudget(ex.now(), sel)
 	p := attemptOpenParams{
-		ctx:         ctx,
 		bus:         ex.Bus,
 		traceID:     "parallel-fail-state",
 		aLegID:      aLeg.ALegID,
@@ -138,7 +136,7 @@ func TestTryPlanOpenOnce_ParallelAllLegsFailPreservesInterleavedState(t *testing
 		ttft:        &ttft,
 		interleaved: interleaved,
 	}
-	out1, err := ex.tryPlanOpenOnce(p)
+	out1, err := ex.tryPlanOpenOnce(ctx, p)
 	if err != nil {
 		t.Fatalf("first plan/open: %v", err)
 	}
@@ -220,7 +218,6 @@ func TestTryPlanOpenOnce_ParallelAllLegsFailFailoverToPrimaryInSamePass(t *testi
 	ttft := newTTFTBudget(ex.now(), sel)
 	var lastParallelFailure error
 	p := attemptOpenParams{
-		ctx:                 ctx,
 		bus:                 ex.Bus,
 		traceID:             "parallel-failover-primary",
 		aLegID:              aLeg.ALegID,
@@ -234,7 +231,7 @@ func TestTryPlanOpenOnce_ParallelAllLegsFailFailoverToPrimaryInSamePass(t *testi
 		interleaved:         interleaved,
 		lastParallelFailure: &lastParallelFailure,
 	}
-	out, err := ex.tryPlanOpenOnce(p)
+	out, err := ex.tryPlanOpenOnce(ctx, p)
 	if err != nil {
 		t.Fatalf("plan/open: %v", err)
 	}
@@ -328,8 +325,7 @@ func TestTryPlanOpenOnce_ThinkerRecoverableOpenFailureDoesNotPersistCycleAdvance
 		t.Fatal(err)
 	}
 	ttft := newTTFTBudget(ex.now(), sel)
-	out, err := ex.tryPlanOpenOnce(attemptOpenParams{
-		ctx:     ctx,
+	out, err := ex.tryPlanOpenOnce(ctx, attemptOpenParams{
 		bus:     ex.Bus,
 		traceID: "thinker-open-fail-cycle",
 		aLegID:  aLeg.ALegID,
@@ -416,8 +412,7 @@ func TestTryPlanOpenOnce_InterleavedCyclePersistFailureFailsClosed(t *testing.T)
 	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "think"}
 	ttft := newTTFTBudget(ex.now(), sel)
 	budget := &attemptBudget{max: 8}
-	_, err = ex.tryPlanOpenOnce(attemptOpenParams{
-		ctx:         ctx,
+	_, err = ex.tryPlanOpenOnce(ctx, attemptOpenParams{
 		bus:         ex.Bus,
 		traceID:     "persist-fail",
 		aLegID:      aLeg.ALegID,
@@ -495,8 +490,7 @@ func TestTryPlanOpenOnce_ParallelBudgetRejectsAllPreservesCycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	ttft := newTTFTBudget(ex.now(), sel)
-	_, err = ex.tryPlanOpenOnce(attemptOpenParams{
-		ctx:         ctx,
+	_, err = ex.tryPlanOpenOnce(ctx, attemptOpenParams{
 		bus:         ex.Bus,
 		traceID:     "parallel-budget-cycle",
 		aLegID:      aLeg.ALegID,

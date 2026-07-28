@@ -1,9 +1,11 @@
 // Package continuity defines the stable persistence contract for A-leg / B-leg continuity
 // and attempt lineage used by documentation and optional external tooling.
 //
-// Store, ALegRecord, and BLegRecord must stay aligned with the core implementation in
-// internal/core/b2bua (same field names, types, and Store method set). Drift is caught by
-// TestContinuityContract_* in internal/core/b2bua/store_contract_test.go.
+// Store, ALegRecord, and BLegRecord are the public continuity contract; the core
+// implementation in internal/core/b2bua implements this contract (same field names,
+// types, and Store method set), not vice versa. Drift is caught by the boundary
+// assertions in TestContinuityContract_* (internal/core/b2bua/store_contract_test.go),
+// which compare both directions reflectively.
 package continuity
 
 import (
@@ -29,7 +31,8 @@ type BLegRecord struct {
 	Seq    int
 }
 
-// Store persists continuity and attempt lineage (mirrors internal/core/b2bua.Store).
+// Store persists continuity and attempt lineage; internal/core/b2bua.Store implements
+// this public contract (drift guard: TestContinuityContract_StoreInterfaceMatchesSDK).
 type Store interface {
 	ResolveALeg(ctx context.Context, continuityKey string) (ALegRecord, error)
 	CreateALeg(ctx context.Context, continuityKey string) (ALegRecord, error)

@@ -20,7 +20,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
-	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -34,7 +33,7 @@ func validDistributionInput(cfgPath string) ValidateDistributionInput {
 
 func dogfoodConfigPath(tb testing.TB) string {
 	tb.Helper()
-	return bpkit.MaterializeExampleConfig(tb, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"))
+	return MaterializeExampleConfigForTest(tb, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"))
 }
 
 func failingHandlerComposer(context.Context, *config.Config, *slog.Logger, httpcontract.StandardHTTPInput) (http.Handler, error) {
@@ -63,8 +62,8 @@ func TestValidateDistribution_NilGuards(t *testing.T) {
 func TestValidateDistribution_OneStrictLoad(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	pathA := bpkit.MaterializeExampleConfig(t, writeOneSnapshotMarkerConfig(t, "127.0.0.1:18301", accessmode.ModeSingleUser))
-	pathB := bpkit.MaterializeExampleConfig(t, writeOneSnapshotMarkerConfig(t, "127.0.0.1:18302", accessmode.ModeSingleUser))
+	pathA := MaterializeExampleConfigForTest(t, writeOneSnapshotMarkerConfig(t, "127.0.0.1:18301", accessmode.ModeSingleUser))
+	pathB := MaterializeExampleConfigForTest(t, writeOneSnapshotMarkerConfig(t, "127.0.0.1:18302", accessmode.ModeSingleUser))
 	snapA := mustLoadBootstrapSnapshot(ctx, t, pathA)
 	snapB := mustLoadBootstrapSnapshot(ctx, t, pathB)
 
@@ -143,7 +142,7 @@ func TestValidateDistribution_NeverBindsListener(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = ln.Close() })
 	addr := ln.Addr().String()
-	cfgPath := bpkit.MaterializeExampleConfig(t, writeOneSnapshotMarkerConfig(t, addr, accessmode.ModeSingleUser))
+	cfgPath := MaterializeExampleConfigForTest(t, writeOneSnapshotMarkerConfig(t, addr, accessmode.ModeSingleUser))
 
 	if err := ValidateDistribution(context.Background(), validDistributionInput(cfgPath)); err != nil {
 		t.Fatalf("ValidateDistribution: %v", err)

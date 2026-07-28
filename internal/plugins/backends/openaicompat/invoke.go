@@ -29,7 +29,7 @@ func OpenChat(ctx context.Context, cli openai.Client, req InvokeRequest) (lipapi
 		opts = append(opts, option.WithJSONDel("stream_options"))
 		comp, err := cli.Chat.Completions.New(ctx, p, opts...)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s: %w", req.ProviderID, err)
 		}
 		return lipapi.NewFixedEventStream(ChatCompletionEvents(*comp)), nil
 	}
@@ -46,7 +46,7 @@ func OpenResponses(ctx context.Context, cli openai.Client, req InvokeRequest) (l
 	if req.Call.Invocation.TransportMode == lipapi.TransportModeNonStreaming {
 		resp, err := cli.Responses.New(ctx, p, req.SDKOptions...)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s: %w", req.ProviderID, err)
 		}
 		events, err := ResponseEvents(*resp)
 		if err != nil {

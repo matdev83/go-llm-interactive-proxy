@@ -40,6 +40,8 @@ type Retainer interface {
 type ctxKey struct{}
 
 // WithRetainer attaches a generation pin retainer to ctx.
+// A nil parent ctx is tolerated and substituted with [context.Background] so the
+// result is always non-nil.
 func WithRetainer(ctx context.Context, r Retainer) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -51,6 +53,7 @@ func WithRetainer(ctx context.Context, r Retainer) context.Context {
 }
 
 // FromContext returns the request-bound retainer when present.
+// A nil ctx is tolerated and returns (nil, false).
 func FromContext(ctx context.Context) (Retainer, bool) {
 	if ctx == nil {
 		return nil, false

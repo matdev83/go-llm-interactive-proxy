@@ -2,7 +2,10 @@
 
 ## Status
 
-Local Task 8.2 repair criteria are implemented on Windows. The task validation line still requires:
+> [!warning] DEPRECATED
+> Resolved on 2026-07-28. GitHub Actions `Codex connector race` run `30382811954` passed the Ubuntu `GOWORK=off go test -race ./...` gate on SHA `e796998cc8f7095bce65e450211cb1aef3b76def`. Task `8.2` is complete. The remainder of this file preserves the historical blocker contract.
+
+Local Task 8.2 repair criteria were implemented on Windows. The task validation line required:
 
 ```text
 (cd connectors/codex && GOWORK=off go test -race ./...)

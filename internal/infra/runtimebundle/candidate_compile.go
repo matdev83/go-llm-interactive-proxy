@@ -91,12 +91,13 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	if bus == nil {
 		bus = hooks.New(hooks.Config{})
 	}
-	parent := ps.parent
-	if ctx != nil {
+	// Compile ctx comes from the caller or StartupContext, never from ProcessServices state.
+	parent := opts.Startup.StartupContext
+	if parent == nil {
 		parent = ctx
 	}
-	if opts.Startup.StartupContext != nil {
-		parent = opts.Startup.StartupContext
+	if parent == nil {
+		return nil, fmt.Errorf("runtimebundle: nil compile context")
 	}
 
 	ledger := NewResourceLedger()

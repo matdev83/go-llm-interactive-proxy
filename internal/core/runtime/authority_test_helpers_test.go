@@ -154,7 +154,6 @@ func newAuthorityRuntimeTestExecutorWithStore(t *testing.T, authority UsageAutho
 func authorityOpenParams(t *testing.T, aLegID string, budget *attemptBudget) attemptOpenParams {
 	t.Helper()
 	return attemptOpenParams{
-		ctx:     context.Background(),
 		bus:     hooks.New(hooks.Config{}),
 		traceID: "trace-1",
 		aLegID:  aLegID,
@@ -213,7 +212,6 @@ func newAuthorityRuntimeTestExecutor(t *testing.T, authority UsageAuthorityServi
 func openAuthorityCandidate(t *testing.T, ex *Executor, aLegID string) (attemptOpenResult, error) {
 	t.Helper()
 	p := attemptOpenParams{
-		ctx:     context.Background(),
 		bus:     hooks.New(hooks.Config{}),
 		traceID: "trace-1",
 		aLegID:  aLegID,
@@ -227,7 +225,7 @@ func openAuthorityCandidate(t *testing.T, ex *Executor, aLegID string) (attemptO
 			Messages: testMinimalUserMessages(),
 		},
 	}
-	return ex.openPlannedCandidate(p, authorityCandidate(), nil, "", false)
+	return ex.openPlannedCandidate(context.Background(), p, authorityCandidate(), nil, "", false)
 }
 
 // authorityCandidate returns the standard "backend-1:model-1" attempt candidate

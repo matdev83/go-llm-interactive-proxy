@@ -9,13 +9,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/catalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/localstubreg"
 )
 
 func TestInstallDiscoveredBackendExports_SkipsWhenRegistryAuthoritative(t *testing.T) {
 	t.Parallel()
-	pluginRoot := bpkit.StageLocalStub(t)
+	pluginRoot := StageLocalStubForTest(t)
 	cfg := &config.Config{
 		Plugins: config.PluginsConfig{
 			BackendDiscovery: config.BackendDiscoveryConfig{
@@ -72,7 +71,7 @@ func TestInstallDiscoveredBackendExports_FailClosedWhenKindUnresolved(t *testing
 
 func TestInstallDiscoveredBackendExports_InstallsWhenDiscoveryEnabled(t *testing.T) {
 	t.Parallel()
-	pluginRoot := bpkit.StageLocalStub(t)
+	pluginRoot := StageLocalStubForTest(t)
 	cfg := &config.Config{
 		Plugins: config.PluginsConfig{
 			BackendDiscovery: config.BackendDiscoveryConfig{

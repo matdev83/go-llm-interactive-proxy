@@ -61,7 +61,7 @@ This applies to both the tree-level `lineBudgets` and the per-file `criticalFile
 
 ### Decreasing migration hotspot freezes
 
-Feature `runtime-architecture-convergence-and-shrinkage` adds five **exact-freeze** critical-file budgets (Task 1.2) for the measured reload/runtime gravity wells. Initial ceilings equal the Task 1.1 physical line counts at reviewed baseline SHA `efe4624909cea318c7211d5cb3734059d3210802` with **no growth headroom**. Requirement 11.3 final targets (unless the named file is removed) are:
+The archived `runtime-architecture-convergence-and-shrinkage` effort added five **exact-freeze** critical-file budgets (Task 1.2) for the measured reload/runtime gravity wells. Initial ceilings equal the Task 1.1 physical line counts at reviewed baseline SHA `efe4624909cea318c7211d5cb3734059d3210802` with **no growth headroom**. Requirement 11.3 final targets (unless the named file is removed) are:
 
 | Surface | Final ceiling | Intermediate ratchet |
 | --- | ---: | --- |

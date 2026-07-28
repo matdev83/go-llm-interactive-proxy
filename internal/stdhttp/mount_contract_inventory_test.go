@@ -13,7 +13,7 @@ import (
 
 // mountContractInventory is the Task 3.1 deterministic table of production mount
 // helpers / input structs. Kept in sync with
-// .kiro/specs/runtime-architecture-convergence-and-shrinkage/mount-dependency-inventory.md
+// .kiro/specs/archive/runtime-architecture-convergence-and-shrinkage/mount-dependency-inventory.md
 // by TestMountContract_InventoryComplete.
 var mountContractInventory = []mountInventoryRow{
 	{
@@ -140,7 +140,7 @@ var mountDiscoveryExclusions = map[string]bool{
 	// none
 }
 
-const mountDependencyInventoryRel = ".kiro/specs/runtime-architecture-convergence-and-shrinkage/mount-dependency-inventory.md"
+const mountDependencyInventoryRel = ".kiro/specs/archive/runtime-architecture-convergence-and-shrinkage/mount-dependency-inventory.md"
 
 // TestMountContract_BehaviorTestsExist proves every inventoried BehaviorTests
 // reference resolves to a live Test* function under internal/stdhttp (Task 4.3:

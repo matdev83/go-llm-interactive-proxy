@@ -13,7 +13,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
-	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -103,7 +102,7 @@ func TestBuildHost_serveSingleUserSecretGuardSnapshotsProcessEnv(t *testing.T) {
 	const secret = testkit.SyntheticOpenAIAPIKey
 	t.Setenv(probe, secret)
 
-	basePath := bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-single-user.yaml"))
+	basePath := runtimebundle.MaterializeExampleConfigForTest(t, filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-single-user.yaml"))
 	base, err := os.ReadFile(basePath)
 	if err != nil {
 		t.Fatal(err)

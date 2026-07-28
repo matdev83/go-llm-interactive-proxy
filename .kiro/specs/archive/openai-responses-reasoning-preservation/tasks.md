@@ -2,9 +2,12 @@
 
 **Spec:** `openai-responses-reasoning-preservation`
 **Handoff:** `EchoesVault/daily/2026-07-19.md`
-**Status:** Phases 0–8 + local release gates 9.1/9.3 evidenced (Windows 2026-07-19). `make qa` + fuzz 30s PASS; Linux `-race`, wide 1000×100 soak, live smoke still pending — `implementation_complete` stays false.
+**Status:** Completed and archived by human release-owner decision on 2026-07-28. Local quality/unit/parity/QA, targeted fuzz, deterministic matrices, retention-aware regression coverage, and selected 100-turn soak seeds are accepted as sufficient evidence.
 
-> **TDD gate:** Every behavioral change starts RED then GREEN. Preserve unrelated branch WIP. Historical specs are read-only. Mark tasks `[x]` only with evidence.
+> [!warning] DEPRECATED
+> The original closeout policy required Linux `-race`, a full 1000×100 soak, and live-provider smoke. The human release owner waived those requirements on 2026-07-28 as disproportionate for this completed test-harness correction. This waiver is a closeout decision, not fabricated execution evidence.
+
+> **TDD gate:** Every behavioral change starts RED then GREEN. Preserve unrelated branch WIP. Historical specs are read-only. Mark tasks `[x]` only with evidence or an explicit human waiver.
 
 ## Phase 0 — Approval Gate
 
@@ -87,8 +90,8 @@
   - _Depends: 2.2, 2.4_
   - _Validation: negative mapper tests_
 
-- [ ] 2.6 Optional: presentation-tagged progressive deltas
-  - Explicitly deferred (terminal exact-part path shipped). Dialect-tagged progressive UX not implemented.
+- [x] 2.6 Optional: presentation-tagged progressive deltas
+  - Explicitly deferred by human decision; terminal exact-part path shipped and dialect-tagged progressive UX remains outside this completed scope.
   - **Deliverable:** optional tests green or explicit defer note.
   - _Requirements: 1.4, 5.7_
   - _Boundary: openairesponses + feature + FE_
@@ -242,7 +245,7 @@
   - _Boundary: mapper/feature as touched_
   - _Depends: 2.4, 3.1_
   - _Validation: focused unit tests_
-  - _Evidence: Cancel/Close aborts drafts; Failed/Cancelled/Replaced/loser discard; privacy table; ordinary Windows concurrency tests. Linux `-race` pending (Windows cgo unsupported)_
+  - _Evidence: Cancel/Close aborts drafts; Failed/Cancelled/Replaced/loser discard; privacy table; ordinary Windows concurrency tests. Linux `-race` was not run and was waived for closeout by the human release owner on 2026-07-28._
 
 - [x] 8.4 Benchmarks if hot-path risk
   - Focused benches added; no hard threshold asserted.
@@ -257,7 +260,7 @@
   - _Boundary: stdhttp + reasoninge2e_
   - _Depends: 7.4_
   - _Validation: precommit matrix; soak smoke if env available_
-  - _Evidence: `ResponsesSmokeCases` + topology `responses_seeded_presence_smoke`; soak smoke `LIP_REASONING_E2E_SOAK=1 SEEDS=4 TURNS=2 WORKERS=2` PASS. Wide 1000×100 soak not run. Live provider smoke not run_
+  - _Evidence: `ResponsesSmokeCases` + topology `responses_seeded_presence_smoke`; soak smoke `LIP_REASONING_E2E_SOAK=1 SEEDS=4 TURNS=2 WORKERS=2` PASS. Retention-aware 100-turn combined soak seeds 488/490/491/499 PASS. Full 1000×100 and live-provider runs were not executed and were waived for closeout by the human release owner on 2026-07-28._
 
 ## Phase 9 — Release Gates and Docs
 
@@ -267,12 +270,12 @@
   - _Validation: focused tests; `make quality-checks`; `make test-unit`; `make parity-checks`_
   - _Evidence (Windows 2026-07-19): `git diff --check` OK; quality-checks ~35s OK (gofmt fix on `reasoning_part_event_test.go`); test-unit ~61s OK; parity-checks ~16s OK; precommit RandomMatrix OK; TopologyMatrix `-count=3` OK_
 
-- [ ] 9.2 QA + fuzz 30s + Linux race + soak evidence
-  - Local subset done; Linux race + wide soak + live smoke still required for full task close.
+- [x] 9.2 QA + fuzz + concurrency + soak evidence
+  - Closed by accepted evidence plus explicit human waiver of disproportionate external/wide gates.
   - _Requirements: 9.2, 9.3, 9.5, 10.1_
   - _Depends: 9.1_
-  - _Validation: `make qa`; fuzz 30s; Linux race; soak/smoke_
-  - _Evidence: `make qa` ~77s OK (lint+govulncheck); four fuzz targets 30s each PASS; soak smoke 4×2×2 re-run PASS. **Pending:** Linux `-race`, wide 1000×100 soak, live provider smoke_
+  - _Validation: `make qa`; targeted fuzz; ordinary concurrency tests; deterministic matrix; bounded-retention soak replays_
+  - _Evidence: `make qa` ~77s OK (lint+govulncheck); four fuzz targets 30s each PASS; soak smoke 4×2×2 PASS; retention-aware reasoninge2e/default stdhttp/precommit 64×20 PASS; combined 100-turn seeds 488/490/491/499 PASS; quality and parity checks PASS. Linux `-race`, full 1000×100, and live-provider smoke were not run and are explicitly waived by human release-owner decision dated 2026-07-28._
 
 - [x] 9.3 Docs + EchoesVault honesty update
   - Exact-only allowlist/presence; asymmetric cells; dialect controls; TurnStore non-durability; inert; BE streaming / FE collect nonstream. Do not edit historical specs.
@@ -281,11 +284,11 @@
   - _Depends: 8.x local evidence (docs may land before CI release gates)_
   - _Validation: doc review + consistency greps_
 
-- [ ] 9.4 Spec completion metadata
-  - Flip `implementation_complete` only after Requirement 10 gates including Linux race / wide soak evidence.
-  - _Requirements: 10.1, 10.5_
+- [x] 9.4 Spec completion metadata
+  - Set `phase: completed`, `implementation_complete: true`, and `completed: true`; archive the spec after recording the human closeout waiver.
+  - _Requirements: 10.1, 10.5 as amended by the 2026-07-28 release-owner decision_
   - _Depends: 9.1, 9.2, 9.3_
-  - _Validation: inspect tasks + spec.json_
+  - _Validation: inspect tasks + spec.json + archived path_
 
 ## Dependency Overview
 
@@ -302,5 +305,5 @@
         -> 5.3
  -> 6.1 -> 6.2
  -> 7.1 -> 7.2 -> 7.3 -> 7.4
- -> 8.x -> 9.x (release gates pending)
+ -> 8.x -> 9.x (completed; external/wide gates waived by human decision)
 ```

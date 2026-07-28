@@ -51,8 +51,8 @@ func TestBackendPluginSecurity_makefileAndCIWired(t *testing.T) {
 	if _, err := os.Stat(threat); err != nil {
 		t.Fatalf("threat-model.md required: %v", err)
 	}
-	blocker := filepath.Join(root, filepath.FromSlash(".kiro/specs/backend-connector-plugin-architecture/phase9-task93-external-security-blocker.md"))
-	if _, err := os.Stat(blocker); err != nil {
-		t.Fatalf("task 9.3 external blocker doc required: %v", err)
+	evidence := filepath.Join(root, filepath.FromSlash(".kiro/specs/archive/backend-connector-plugin-architecture/phase9-task93-external-security-blocker.md"))
+	if _, err := os.Stat(evidence); err != nil {
+		t.Fatalf("task 9.3 archived security evidence required: %v", err)
 	}
 }

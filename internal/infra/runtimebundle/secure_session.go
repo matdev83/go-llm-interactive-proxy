@@ -21,6 +21,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
+	"github.com/uptrace/bun"
 )
 
 type secureSessionRuntime struct {
@@ -39,6 +40,9 @@ type secureSessionBuildInput struct {
 	Log                   *slog.Logger
 	Bundle                *metrics.Bundle
 	ControlPlaneStoreWrap func(app.Store) app.Store
+	// PostgresPools shares postgres handles via the process registry when non-nil.
+	PostgresPools     *db.PoolRegistry
+	DualPlaneMigrator *dualPlaneMigrator
 }
 
 func buildSecureSessionRuntime(in secureSessionBuildInput) (*secureSessionRuntime, error) {
@@ -163,23 +167,28 @@ func buildSecureSessionRuntime(in secureSessionBuildInput) (*secureSessionRuntim
 		}
 		child, cancel := context.WithTimeout(startupCtx, db.DefaultPostgresOpenMigrateTimeout)
 		defer cancel()
-		bunDB, err := db.OpenPostgresBun(child, dsn, db.PoolSettings{
-			MaxOpenConns: poolCfg.MaxOpenConns, MaxIdleConns: poolCfg.MaxIdleConns,
-			ConnMaxLifetime: poolCfg.ConnMaxLifetime, ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("runtimebundle: secure_session: open postgres store: %w", err)
-		}
 		bunOpts := bunstore.Options{}
 		if ttl, maxE, ok := config.EffectiveSecureSessionSQLQueryCache(*ss); ok {
 			bunOpts.SQLQueryCacheTTL, bunOpts.SQLQueryCacheMaxEntries = ttl, int(maxE)
 		}
-		st, err := bunstore.NewContextWithOptions(child, bunDB, bunOpts)
+		st, closeFn, err := openPostgresStore(child, dsn, db.PoolSettings{
+			MaxOpenConns: poolCfg.MaxOpenConns, MaxIdleConns: poolCfg.MaxIdleConns,
+			ConnMaxLifetime: poolCfg.ConnMaxLifetime, ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
+		}, cfg.Database, in.PostgresPools, in.DualPlaneMigrator, postgresStoreLifecycle[*bunstore.Store]{
+			// Migrate/Verify nil: bunstore owns schema preparation on the handle.
+			Open: func(ctx context.Context, handle *bun.DB) (*bunstore.Store, error) {
+				s, err := bunstore.NewContextWithOptions(ctx, handle, bunOpts)
+				if err != nil {
+					return nil, fmt.Errorf("runtimebundle: secure_session: prepare postgres schema: %w", err)
+				}
+				return s, nil
+			},
+			// Close nil: registry-owned handles are disposed by the registry.
+		})
 		if err != nil {
-			return nil, ssCloseErr(func() error { return bunDB.Close() },
-				fmt.Errorf("runtimebundle: secure_session: prepare postgres schema: %w", err), "postgres bun db")
+			return nil, fmt.Errorf("runtimebundle: secure_session: open postgres store: %w", err)
 		}
-		closer := func() error { return st.Close() }
+		closer := closeFn
 		rt, err := assembleSecureSession(st, st, true, closer, common)
 		if err != nil {
 			return nil, ssCloseErr(closer, err, "postgres store")

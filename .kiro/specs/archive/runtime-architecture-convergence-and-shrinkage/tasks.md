@@ -140,7 +140,8 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 ## Phase 4: Delete the Legacy Runtime and Serve Path
 
-- [ ] 4. Remove the old runtime graph after consumers migrate
+- [x] 4. Remove the old runtime graph after consumers migrate
+  - _Completion: Tasks 4.1-4.4 complete; legacy `Built`, compatibility `Build`, production `RunWithRuntime`, legacy closer views, and their allowlists are removed and guarded against reintroduction._
 
 - [x] 4.1 Migrate remaining internal and test callers from `Build` and `Built`
   - Convert supported tests and helper constructors to ProcessRuntime plus GenerationRuntime or focused test builders.
@@ -184,7 +185,8 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 ## Phase 5: Converge Startup, Host Ownership, and Validation
 
-- [ ] 5. Build one complete host from one config snapshot
+- [x] 5. Build one complete host from one config snapshot
+  - _Completion: Tasks 5.1-5.5 complete; `BuildHost` owns one-snapshot startup, validation is unpublished, inspect operations are purpose-specific, and dual bootstrap/attachment paths are deleted._
 
 - [x] 5.1 Add one-snapshot host construction RED tests
   - Add a controlled source hook proving multi-user/startup gates, generation 1, process runtime, reload active source/effective, and public fingerprint use one accepted snapshot.
@@ -240,7 +242,8 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 ## Phase 6: Contract the Reload Coordinator by Ownership
 
-- [ ] 6. Separate reload concurrency, transaction, and state
+- [x] 6. Separate reload concurrency, transaction, and state
+  - _Completion: Tasks 6.1-6.5 complete; AttemptGate, AttemptRunner, ReloadState, and the reduced Coordinator have distinct ownership with race/soak coverage._
 
 - [x] 6.1 Add AttemptGate RED concurrency suite
   - Specify atomic start registration, busy API result, bounded HUP pending/coalescing, shutdown rejection, cancellation, exact finish, and idle wait.
@@ -294,7 +297,8 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 ## Phase 7: Consolidate Generation Lifecycle and Process Shutdown
 
-- [ ] 7. Establish one lifecycle truth per layer
+- [x] 7. Establish one lifecycle truth per layer
+  - _Completion: Tasks 7.1-7.4 complete; GenerationRuntime/resource ledger owns generation phases, Manager owns retirement, and Host owns process shutdown._
 
 - [x] 7.1 Add lifecycle ownership and duplicate-idempotency RED gates
   - Inventory every `sync.Once`, closed flag, close result, quiesce result, retirement status, and shutdown coordinator around generation resources.
@@ -339,7 +343,8 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 ## Phase 8: Simplify the Public Facade and Quarantine Legacy Options
 
-- [ ] 8. Converge the public standard-runtime API
+- [x] 8. Converge the public standard-runtime API
+  - _Completion: Tasks 8.1-8.4 complete under the approved alpha-stage compatibility amendment; the facade is host-backed and public options use canonical registrations only._
 
 - [x] 8.1 Reduce Runtime to one host-facing dependency
   - Add public external tests for ExecutorView, Ready, capabilities, reload/status, snapshot refresh, and Close retry/idempotency.
@@ -385,7 +390,8 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 ## Phase 9: Ratchet Budgets, Documentation, and Release Certification
 
-- [ ] 9. Prove the codebase is smaller and behaviorally unchanged
+- [x] 9. Prove the codebase is smaller and behaviorally unchanged
+  - _Completion: Tasks 9.1-9.5 complete. `baseline/final-release-evidence.md` records PASS for approved behavior, race, fuzz, soak, architecture, security, QA, shrinkage, and benchmark gates at certified implementation SHA `a5a2d375c767b3dad8225de0879f5a6c6f4b1ee5`._
 
 - [x] 9.1 Remove obsolete compatibility tests and stale documentation
   - Delete tests that only preserve removed production paths.

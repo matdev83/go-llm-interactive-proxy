@@ -121,9 +121,9 @@ func TestBackendPluginReleaseGates_makefileAndCIWired(t *testing.T) {
 		t.Fatalf("cross-platform-qa matrix os must be exactly %v; got %v", wantCrossOS, gotCrossOS)
 	}
 
-	blocker := filepath.Join(root, filepath.FromSlash(".kiro/specs/backend-connector-plugin-architecture/phase9-task95-external-release-blocker.md"))
-	if _, err := os.Stat(blocker); err != nil {
-		t.Fatalf("task 9.5 external blocker doc required: %v", err)
+	evidence := filepath.Join(root, filepath.FromSlash(".kiro/specs/archive/backend-connector-plugin-architecture/phase9-task95-external-release-blocker.md"))
+	if _, err := os.Stat(evidence); err != nil {
+		t.Fatalf("task 9.5 archived release evidence required: %v", err)
 	}
 }
 

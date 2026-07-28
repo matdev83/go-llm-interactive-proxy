@@ -98,6 +98,16 @@ func ttftTestCall(selector string) *lipapi.Call {
 	}
 }
 
+// ttftRemainingClock returns an executor clock backdated so a ttft_timeout=1s
+// budget has only `remaining` of real time left. The selector grammar accepts
+// whole seconds only, so tests shrink the remaining budget via the clock
+// instead of the configured value; the exercised path (real context deadline,
+// cancellation, TTFT classification, failover) is unchanged.
+func ttftRemainingClock(remaining time.Duration) func() time.Time {
+	base := time.Now()
+	return func() time.Time { return base.Add(remaining - time.Second) }
+}
+
 func TestExecutor_TTFTLeafOpenTimeoutFailsOver(t *testing.T) {
 	t.Parallel()
 	slow := &ttftBlockingOpenBackend{}
@@ -105,6 +115,7 @@ func TestExecutor_TTFTLeafOpenTimeoutFailsOver(t *testing.T) {
 		"slow": slow.backend(),
 		"fast": ttftImmediateBackend{}.backend(),
 	})
+	ex.Now = ttftRemainingClock(100 * time.Millisecond)
 	stream, err := ex.Execute(context.Background(), ttftTestCall("[ttft_timeout=1]slow:m|fast:m"))
 	if err != nil {
 		t.Fatal(err)
@@ -129,6 +140,7 @@ func TestRetryRecvStream_TTFTLeafRecvTimeoutFailsOver(t *testing.T) {
 		"slow": slow.backend(),
 		"fast": ttftImmediateBackend{}.backend(),
 	})
+	ex.Now = ttftRemainingClock(100 * time.Millisecond)
 	stream, err := ex.Execute(context.Background(), ttftTestCall("[ttft_timeout=1]slow:m|fast:m"))
 	if err != nil {
 		t.Fatal(err)
@@ -150,6 +162,7 @@ func TestExecutor_TTFTGlobalOpenTimeoutStopsAttempts(t *testing.T) {
 	t.Parallel()
 	slow := &ttftBlockingOpenBackend{}
 	ex := ttftTestExecutor(t, map[string]execbackend.Backend{"slow": slow.backend(), "fast": ttftImmediateBackend{}.backend()})
+	ex.Now = ttftRemainingClock(100 * time.Millisecond)
 	_, err := ex.Execute(context.Background(), ttftTestCall("{ttft_timeout=1}slow:m|fast:m"))
 	if !errors.Is(err, lipapi.ErrTTFTTimeout) {
 		t.Fatalf("expected ErrTTFTTimeout, got %v", err)

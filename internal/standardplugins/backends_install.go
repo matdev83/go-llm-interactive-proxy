@@ -13,7 +13,19 @@ type openAIStyleYAML struct {
 	APIKey      string                 `yaml:"api_key"`
 	APIKeys     []string               `yaml:"api_keys"`
 	Credentials []hostedCredentialYAML `yaml:"credentials"`
-	Models      modelInventoryYAML     `yaml:"models"`
+	// SDKMaxRetries optionally overrides the SDK-internal MaxRetries.
+	SDKMaxRetries *int               `yaml:"sdk_max_retries"`
+	Models        modelInventoryYAML `yaml:"models"`
+}
+
+// sdkMaxRetriesOrDefault returns the operator-configured SDK MaxRetries, or the
+// standard-distribution default of 0: retry policy above the HTTP round trip lives
+// in the credential-rotation loops and core failover, not in SDK-internal retries.
+func sdkMaxRetriesOrDefault(v *int) *int {
+	if v != nil {
+		return v
+	}
+	return new(int)
 }
 
 func resolveUpstreamHTTP(upstream *http.Client) *http.Client {

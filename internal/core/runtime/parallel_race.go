@@ -88,6 +88,7 @@ func (e *Executor) releaseLosers(ctx context.Context, aScope *leglifecycle.ALeg,
 }
 
 func (e *Executor) tryOpenParallelGroup(
+	ctx context.Context,
 	p attemptOpenParams,
 	candidates []routing.AttemptCandidate,
 	nextCycle *interleavedstate.CycleState,
@@ -95,7 +96,6 @@ func (e *Executor) tryOpenParallelGroup(
 	stickyBinding bool,
 ) (attemptOpenResult, error) {
 	var zero attemptOpenResult
-	ctx := p.ctx
 	interleaved := p.interleaved
 	cycleAdvance := nextCycle
 	maxHandicap := time.Duration(0)
@@ -208,7 +208,7 @@ func (e *Executor) tryOpenParallelGroup(
 			// Parallel legs reserve attempt-budget slots before launch to avoid racy over-open.
 			legParams.budget = nil
 
-			out, err := e.openPlannedCandidate(legParams, entry.cand, nil, stickyBackendID, stickyBinding)
+			out, err := e.openPlannedCandidate(ctx, legParams, entry.cand, nil, stickyBackendID, stickyBinding)
 			if err != nil {
 				if isParallelFatalErr(err) {
 					stopRace := false

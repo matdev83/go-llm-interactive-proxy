@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
@@ -42,7 +43,7 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 		t.Parallel()
 		localPrep := *prep
 		ex := TestExecutor()
-		got, err := ex.assembleExecutorStream(&localPrep, plan, out)
+		got, err := ex.assembleExecutorStream(context.Background(), &localPrep, plan, out)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -62,7 +63,7 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 		ex.InterleavedConfig = interleavedthinking.ShapeConfig{StreamToClient: "hidden"}
 		hiddenOut := out
 		hiddenOut.cand = thinkerCand
-		got, err := ex.assembleExecutorStream(&localPrep, plan, hiddenOut)
+		got, err := ex.assembleExecutorStream(context.Background(), &localPrep, plan, hiddenOut)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -79,7 +80,7 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 		ex.InterleavedConfig = interleavedthinking.ShapeConfig{StreamToClient: "visible"}
 		visibleOut := out
 		visibleOut.cand = thinkerCand
-		got, err := ex.assembleExecutorStream(&localPrep, plan, visibleOut)
+		got, err := ex.assembleExecutorStream(context.Background(), &localPrep, plan, visibleOut)
 		if err != nil {
 			t.Fatal(err)
 		}

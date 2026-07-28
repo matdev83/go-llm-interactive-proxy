@@ -41,8 +41,9 @@ const (
 	ResultInternalFailed    ResultCategory = "internal-failed"
 )
 
-// AllResultCategories is the closed vocabulary for terminal attempt results.
-var AllResultCategories = []ResultCategory{
+// allResultCategories is the private closed vocabulary for terminal attempt results.
+// It is never exposed by reference; callers receive a defensive copy via [ResultCategories].
+var allResultCategories = []ResultCategory{
 	ResultPublished,
 	ResultNoop,
 	ResultBusy,
@@ -53,6 +54,13 @@ var AllResultCategories = []ResultCategory{
 	ResultCanceled,
 	ResultPreparationFailed,
 	ResultInternalFailed,
+}
+
+// ResultCategories returns a defensive copy of the closed vocabulary for terminal
+// attempt results. Mutating the returned slice affects neither later calls nor
+// category validation policy.
+func ResultCategories() []ResultCategory {
+	return append([]ResultCategory(nil), allResultCategories...)
 }
 
 // Result is the bounded, secret-safe terminal outcome of one attempt.
@@ -116,8 +124,8 @@ func IsKnownTriggerKind(k TriggerKind) bool {
 
 // NormalizeResultCategory maps an unknown category to ResultInternalFailed once at the
 // error boundary. Empty stays empty so callers can distinguish "unset".
-// Policy uses a private closed switch independent of the exported mutable
-// AllResultCategories slice (compatibility enumeration only).
+// Policy uses a private closed switch independent of the [ResultCategories]
+// enumeration copy handed to callers.
 func NormalizeResultCategory(c ResultCategory) ResultCategory {
 	if c == "" {
 		return ""

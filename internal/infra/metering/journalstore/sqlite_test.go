@@ -4,13 +4,24 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"path/filepath"
+	"fmt"
+	"sync/atomic"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metering/journalstore"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
+
+var memSQLiteDSN atomic.Int64
+
+// memorySQLiteDSN returns a uniquely named shared-cache in-memory SQLite DSN
+// for tests that never close and reopen the database file; restart-persistence
+// tests must stay file-backed. The "jsx-" prefix keeps names disjoint from the
+// internal test package's helper within the shared test binary.
+func memorySQLiteDSN() string {
+	return fmt.Sprintf("file:jsx-mem-%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)", memSQLiteDSN.Add(1))
+}
 
 func TestSQLiteStore_AppendIdempotentMoneyAndList(t *testing.T) {
 	t.Parallel()
@@ -75,9 +86,7 @@ func TestSQLiteStore_AppendRejectsSameIdentityDifferentContent(t *testing.T) {
 
 func newSQLiteJournal(t *testing.T) *journalstore.DurableStore {
 	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "metering.db")
-	sqlDB, err := sql.Open("sqlite", path)
+	sqlDB, err := sql.Open("sqlite", memorySQLiteDSN())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,9 +2,8 @@
 
 ## Status
 
-**External blocker.** Task `9.4` remains unchecked until Ubuntu, macOS, and Windows
-CI jobs for `.github/workflows/backend-plugin-cross-platform.yml` are observed green
-for the **same commit SHA** under review.
+> [!warning] DEPRECATED
+> Resolved on 2026-07-28. GitHub Actions `Backend plugin cross-platform` run `30382807401` passed Ubuntu, macOS, and Windows jobs on SHA `e796998cc8f7095bce65e450211cb1aef3b76def`; ACP process-tree run `30382805122` also passed all three OS runners. Task `9.4` is complete. Darwin runtime support remains fail-closed and unclaimed. The remainder of this file preserves the historical blocker contract.
 
 Existing Phase 6.3 (macOS process-tree) and Phase 8.2 (Linux race) blockers remain
 open unless their dedicated workflows are likewise observed green for that SHA.

@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"context"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
@@ -8,7 +10,7 @@ import (
 
 // assembleExecutorStream builds the retry-capable recv stream and applies
 // interleaved-thinking wrappers when the opened candidate requires them.
-func (e *Executor) assembleExecutorStream(prep *preparedRequest, plan *routePlanState, out attemptOpenResult) (lipapi.EventStream, error) {
+func (e *Executor) assembleExecutorStream(ctx context.Context, prep *preparedRequest, plan *routePlanState, out attemptOpenResult) (lipapi.EventStream, error) {
 	fs, maxArgs := e.resolveToolCallFinalizers()
 	rs := &retryRecvStream{
 		executor:      e,
@@ -34,7 +36,7 @@ func (e *Executor) assembleExecutorStream(prep *preparedRequest, plan *routePlan
 		secureTurn:    prep.secureTurn,
 		secureTurnOK:  prep.secureTurnOK,
 		metering:      prep.metering,
-		requestAuth:   requestAuthorityFrom(prep.ctx),
+		requestAuth:   requestAuthorityFrom(ctx),
 		customer:      newCustomerEvidenceAccumulator(),
 		accounting:    newAttemptAccountingTracker(e.now()),
 		recoverPolicy: streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
@@ -44,9 +46,9 @@ func (e *Executor) assembleExecutorStream(prep *preparedRequest, plan *routePlan
 		requestTerm:   newStreamTerminal(sdkterminal.ScopeRequest),
 		attemptTerm:   newStreamTerminal(sdkterminal.ScopeAttempt),
 	}
-	captureBoundModelViews(prep.ctx, rs)
+	captureBoundModelViews(ctx, rs)
 	rs.storeInner(out.stream)
-	if err := rs.openFinalStreamObservation(prep.ctx); err != nil {
+	if err := rs.openFinalStreamObservation(ctx); err != nil {
 		if out.stream != nil {
 			_ = out.stream.Close()
 		}

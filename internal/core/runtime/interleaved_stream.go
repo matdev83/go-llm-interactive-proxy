@@ -437,7 +437,15 @@ func (s *interleavedContinuationStream) Close() error {
 	thinkerPhase := s.phase == interleavedPhaseThinker
 	s.mu.Unlock()
 	if thinkerPhase {
-		s.persistInterruptedThinkerMemo(context.Background())
+		// Close has no caller context; reuse the thinker's last Recv parent when one
+		// exists so memo persistence keeps request-scoped values. The interrupted path
+		// detaches cancellation via detachedCleanupContext, so persistence still
+		// outlives request cancellation. Background only when no parent exists.
+		parent := s.thinker.cachedExecContext()
+		if parent == nil {
+			parent = context.Background()
+		}
+		s.persistInterruptedThinkerMemo(parent)
 	}
 	s.markFinished()
 	return err

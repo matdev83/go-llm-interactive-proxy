@@ -6,16 +6,12 @@ import (
 	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
-// TestBoundResultIndependentOfMutablePublicEnumeration proves boundResultName
-// uses immutable canonical policy, not the exported mutable AllResultCategories
-// compatibility enumeration (Task 2.1 / Hermes review).
-//
-//nolint:paralleltest // mutates exported sdkreload.AllResultCategories package state
-func TestBoundResultIndependentOfMutablePublicEnumeration(t *testing.T) {
-	orig := append([]sdkreload.ResultCategory(nil), sdkreload.AllResultCategories...)
-	t.Cleanup(func() {
-		sdkreload.AllResultCategories = append([]sdkreload.ResultCategory(nil), orig...)
-	})
+// TestBoundResultIndependentOfReturnedEnumeration proves boundResultName uses
+// immutable canonical policy: mutating the slice returned by
+// sdkreload.ResultCategories must not change binding behavior (the accessor
+// returns a defensive copy; the former exported mutable var is gone).
+func TestBoundResultIndependentOfReturnedEnumeration(t *testing.T) {
+	t.Parallel()
 
 	declared := []sdkreload.ResultCategory{
 		sdkreload.ResultPublished,
@@ -30,11 +26,14 @@ func TestBoundResultIndependentOfMutablePublicEnumeration(t *testing.T) {
 		sdkreload.ResultInternalFailed,
 	}
 
-	sdkreload.AllResultCategories = []sdkreload.ResultCategory{"decoy"}
+	returned := sdkreload.ResultCategories()
+	for i := range returned {
+		returned[i] = "decoy"
+	}
 
 	for _, c := range declared {
 		if got := boundResultName(string(c)); got != string(c) {
-			t.Fatalf("after public enumeration mutation, boundResultName(%q)=%q want self", c, got)
+			t.Fatalf("after returned-slice mutation, boundResultName(%q)=%q want self", c, got)
 		}
 	}
 	if got := boundResultName("decoy"); got != "other" {

@@ -104,7 +104,7 @@ func caseExecuteOrdering(ctx context.Context, svc backendplugin.Service, opts Op
 		return fail(name, err.Error(), "execute")
 	}
 	inv := sampleInvocation(opts.SampleModel)
-	frames, err := runExecute(inst, backendplugin.ClientFrame{
+	frames, err := runExecute(ctx, inst, backendplugin.ClientFrame{
 		Kind: backendplugin.ClientFrameStart, InstanceID: "c-exec", Invocation: &inv,
 	})
 	if err != nil {
@@ -214,7 +214,7 @@ func RunBrokenMode(ctx context.Context, svc backendplugin.Service, wantCode stri
 		{Kind: backendplugin.ClientFrameStart, InstanceID: "c-broken", Invocation: &inv},
 		{Kind: backendplugin.ClientFrameCancel, CancelReason: backendplugin.CancelReasonHost},
 	}
-	_, execErr := runExecute(inst, inbox...)
+	_, execErr := runExecute(ctx, inst, inbox...)
 	if execErr == nil {
 		return fail(name, "expected failure", wantCode)
 	}

@@ -245,9 +245,9 @@ func TestFinalBackendExposure_PostAdmitMismatchCompensates(t *testing.T) {
 	}
 	holder := &checkpoint.RequestHolder{}
 	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 5})
-	p.ctx = withMeteringHolder(p.ctx, holder)
+	ctx := withMeteringHolder(context.Background(), holder)
 	p.baseline = lipapi.Call{ID: "req-mismatch", Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}}}
-	_, err := ex.openPlannedCandidate(p, authorityCandidate(), nil, "", false)
+	_, err := ex.openPlannedCandidate(ctx, p, authorityCandidate(), nil, "", false)
 	if err == nil {
 		t.Fatal("expected unpreviewed clamp rejection")
 	}
@@ -281,9 +281,9 @@ func TestFinalBackendExposure_OpenPathPreviewThenFactRateAdmitOnce(t *testing.T)
 	}
 	holder := &checkpoint.RequestHolder{}
 	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 5})
-	p.ctx = withMeteringHolder(p.ctx, holder)
+	ctx := withMeteringHolder(context.Background(), holder)
 	p.baseline = lipapi.Call{ID: "req-path", Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}}}
-	out, err := ex.openPlannedCandidate(p, authorityCandidate(), nil, "", false)
+	out, err := ex.openPlannedCandidate(ctx, p, authorityCandidate(), nil, "", false)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}

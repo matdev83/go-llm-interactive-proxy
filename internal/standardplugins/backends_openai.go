@@ -41,6 +41,7 @@ func backendOpenAIResponses(n yaml.Node, upstream *http.Client, keys UpstreamAPI
 		APIKeys:          ek,
 		Credentials:      hostedCredentials(y.Credentials),
 		HTTPClient:       httpClient,
+		SDKMaxRetries:    sdkMaxRetriesOrDefault(y.SDKMaxRetries),
 		DefaultVerbosity: verbosity,
 	}
 	return applyConfiguredModelInventory(openairesponses.New(cfg), y.Models)
@@ -67,6 +68,7 @@ func backendOpenAILegacy(n yaml.Node, upstream *http.Client, keys UpstreamAPIKey
 		APIKeys:          ek,
 		Credentials:      hostedCredentials(y.Credentials),
 		HTTPClient:       httpClient,
+		SDKMaxRetries:    sdkMaxRetriesOrDefault(y.SDKMaxRetries),
 		DefaultVerbosity: verbosity,
 	}
 	return applyConfiguredModelInventory(openailegacy.New(cfg), y.Models)
