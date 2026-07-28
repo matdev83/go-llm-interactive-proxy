@@ -71,8 +71,11 @@ func rogueExtraGateCaller() {
 	for _, bc := range archSupportedBuildContexts {
 		pkg := loadRuntimehostForContext(t, bc, overlay)
 		violations = append(violations, checkCallerInvariant(t, pkg, callerInvariant{
-			name:      "newAttemptGate sole construction site",
-			target:    func(t *testing.T, pkg *packages.Package) types.Object { return lookupPkgFunc(pkg, "newAttemptGate") },
+			name: "newAttemptGate sole construction site",
+			target: func(t *testing.T, pkg *packages.Package) types.Object {
+				t.Helper()
+				return lookupPkgFunc(pkg, "newAttemptGate")
+			},
 			wantSites: 1,
 			allow: func(site string) bool {
 				return site == "coordinator.go:NewCoordinator"
@@ -98,26 +101,38 @@ func rogueExtraGateCaller() {
 func runtimehostOwnershipInvariants() []callerInvariant {
 	return []callerInvariant{
 		{
-			name:      "newReloadState sole construction site",
-			target:    func(t *testing.T, pkg *packages.Package) types.Object { return lookupPkgFunc(pkg, "newReloadState") },
+			name: "newReloadState sole construction site",
+			target: func(t *testing.T, pkg *packages.Package) types.Object {
+				t.Helper()
+				return lookupPkgFunc(pkg, "newReloadState")
+			},
 			wantSites: 1,
 			allow:     exactCaller("coordinator.go:NewCoordinator"),
 		},
 		{
-			name:      "newAttemptRunner sole construction site",
-			target:    func(t *testing.T, pkg *packages.Package) types.Object { return lookupPkgFunc(pkg, "newAttemptRunner") },
+			name: "newAttemptRunner sole construction site",
+			target: func(t *testing.T, pkg *packages.Package) types.Object {
+				t.Helper()
+				return lookupPkgFunc(pkg, "newAttemptRunner")
+			},
 			wantSites: 1,
 			allow:     exactCaller("coordinator.go:NewCoordinator"),
 		},
 		{
-			name:      "newAttemptGate sole construction site",
-			target:    func(t *testing.T, pkg *packages.Package) types.Object { return lookupPkgFunc(pkg, "newAttemptGate") },
+			name: "newAttemptGate sole construction site",
+			target: func(t *testing.T, pkg *packages.Package) types.Object {
+				t.Helper()
+				return lookupPkgFunc(pkg, "newAttemptGate")
+			},
 			wantSites: 1,
 			allow:     exactCaller("coordinator.go:NewCoordinator"),
 		},
 		{
-			name:      "retireGeneration Manager-only scheduling",
-			target:    func(t *testing.T, pkg *packages.Package) types.Object { return lookupPkgFunc(pkg, "retireGeneration") },
+			name: "retireGeneration Manager-only scheduling",
+			target: func(t *testing.T, pkg *packages.Package) types.Object {
+				t.Helper()
+				return lookupPkgFunc(pkg, "retireGeneration")
+			},
 			wantSites: 2,
 			allow: func(site string) bool {
 				return site == "manager.go:RetireGeneration" || site == "manager.go:scheduleRetire"
@@ -126,6 +141,7 @@ func runtimehostOwnershipInvariants() []callerInvariant {
 		{
 			name: "attemptRunner.Run only from Coordinator.Reload",
 			target: func(t *testing.T, pkg *packages.Package) types.Object {
+				t.Helper()
 				return lookupNamedMethod(pkg, "attemptRunner", "Run")
 			},
 			wantSites: 1,
@@ -134,6 +150,7 @@ func runtimehostOwnershipInvariants() []callerInvariant {
 		{
 			name: "ReloadState.ActiveInput only from Coordinator.Reload",
 			target: func(t *testing.T, pkg *packages.Package) types.Object {
+				t.Helper()
 				return lookupNamedMethod(pkg, "ReloadState", "ActiveInput")
 			},
 			wantSites: 1,
@@ -142,6 +159,7 @@ func runtimehostOwnershipInvariants() []callerInvariant {
 		{
 			name: "ReloadState.Apply only from Coordinator.Reload",
 			target: func(t *testing.T, pkg *packages.Package) types.Object {
+				t.Helper()
 				return lookupNamedMethod(pkg, "ReloadState", "Apply")
 			},
 			wantSites: 1,
@@ -150,6 +168,7 @@ func runtimehostOwnershipInvariants() []callerInvariant {
 		{
 			name: "ReloadState.Snapshot only from Coordinator.Status",
 			target: func(t *testing.T, pkg *packages.Package) types.Object {
+				t.Helper()
 				return lookupNamedMethod(pkg, "ReloadState", "Snapshot")
 			},
 			wantSites: 1,
@@ -158,6 +177,7 @@ func runtimehostOwnershipInvariants() []callerInvariant {
 		{
 			name: "attemptGate.TryStart only from Coordinator.Reload",
 			target: func(t *testing.T, pkg *packages.Package) types.Object {
+				t.Helper()
 				return lookupNamedMethod(pkg, "attemptGate", "TryStart")
 			},
 			wantSites: 1,
@@ -166,6 +186,7 @@ func runtimehostOwnershipInvariants() []callerInvariant {
 		{
 			name: "attemptLease.Complete only from Coordinator.Reload",
 			target: func(t *testing.T, pkg *packages.Package) types.Object {
+				t.Helper()
 				return lookupNamedMethod(pkg, "attemptLease", "Complete")
 			},
 			wantSites: 1,
@@ -174,6 +195,7 @@ func runtimehostOwnershipInvariants() []callerInvariant {
 		{
 			name: "attemptLease.Abandon only from Coordinator.Reload",
 			target: func(t *testing.T, pkg *packages.Package) types.Object {
+				t.Helper()
 				return lookupNamedMethod(pkg, "attemptLease", "Abandon")
 			},
 			wantSites: 1,
@@ -182,6 +204,7 @@ func runtimehostOwnershipInvariants() []callerInvariant {
 		{
 			name: "attemptGate.WaitForIdle only from Coordinator.WaitForIdle",
 			target: func(t *testing.T, pkg *packages.Package) types.Object {
+				t.Helper()
 				return lookupNamedMethod(pkg, "attemptGate", "WaitForIdle")
 			},
 			wantSites: 1,
@@ -190,6 +213,7 @@ func runtimehostOwnershipInvariants() []callerInvariant {
 		{
 			name: "attemptGate.Snapshot only from Coordinator.Status",
 			target: func(t *testing.T, pkg *packages.Package) types.Object {
+				t.Helper()
 				return lookupNamedMethod(pkg, "attemptGate", "Snapshot")
 			},
 			wantSites: 1,
@@ -198,6 +222,7 @@ func runtimehostOwnershipInvariants() []callerInvariant {
 		{
 			name: "attemptGate.BeginShutdown from Coordinator shutdown paths",
 			target: func(t *testing.T, pkg *packages.Package) types.Object {
+				t.Helper()
 				return lookupNamedMethod(pkg, "attemptGate", "BeginShutdown")
 			},
 			wantSites: 2,
