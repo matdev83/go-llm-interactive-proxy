@@ -28,8 +28,8 @@ func toolCallFinishSSE() string {
 // multiToolCallFinishSSE starts two tool calls (index 0 and 1) then finishes both.
 func multiToolCallFinishSSE() string {
 	return strings.Join([]string{
-		`data: {"id":"cc_multi","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"alpha"}}]},"finish_reason":null}]}`,
-		`data: {"id":"cc_multi","choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_b","type":"function","function":{"name":"beta"}}]},"finish_reason":null}]}`,
+		`data: {"id":"cc_multi","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_ma","type":"function","function":{"name":"alpha"}}]},"finish_reason":null}]}`,
+		`data: {"id":"cc_multi","choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_mb","type":"function","function":{"name":"beta"}}]},"finish_reason":null}]}`,
 		`data: {"id":"cc_multi","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"a\":1}"}}]},"finish_reason":null}]}`,
 		`data: {"id":"cc_multi","choices":[{"delta":{"tool_calls":[{"index":1,"function":{"arguments":"{\"b\":2}"}}]},"finish_reason":null}]}`,
 		`data: {"id":"cc_multi","choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
@@ -171,12 +171,12 @@ func TestDecodeChatSSE_multiToolCallFinishByIndex(t *testing.T) {
 	lifecycle := toolLifecycle(events)
 
 	want := []lipapi.Event{
-		{Kind: lipapi.EventToolCallStarted, ToolCallID: "call_a", ToolName: "alpha"},
-		{Kind: lipapi.EventToolCallStarted, ToolCallID: "call_b", ToolName: "beta"},
-		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_a", Delta: `{"a":1}`},
-		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_b", Delta: `{"b":2}`},
-		{Kind: lipapi.EventToolCallFinished, ToolCallID: "call_a"},
-		{Kind: lipapi.EventToolCallFinished, ToolCallID: "call_b"},
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "call_ma", ToolName: "alpha"},
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "call_mb", ToolName: "beta"},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_ma", Delta: `{"a":1}`},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_mb", Delta: `{"b":2}`},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "call_ma"},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "call_mb"},
 	}
 	if len(lifecycle) != len(want) {
 		t.Fatalf("tool lifecycle len=%d want %d\ngot=%+v", len(lifecycle), len(want), lifecycle)

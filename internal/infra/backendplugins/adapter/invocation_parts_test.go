@@ -74,6 +74,25 @@ func TestInvocationFromCall_JSONPartGoldenRoundTrip(t *testing.T) {
 	}
 }
 
+// Empty canonical json parts must fail host-side mapping, matching reverse bridge rules.
+func TestInvocationFromCall_JSONPartEmptyContentFails(t *testing.T) {
+	t.Parallel()
+	call := testCall()
+	call.Messages[0].Parts = append(call.Messages[0].Parts, lipapi.Part{
+		Kind: lipapi.PartJSON,
+	})
+	_, err := adapter.InvocationFromCall(call, testCand())
+	if err == nil {
+		t.Fatal("expected error for empty json part content")
+	}
+	if !errors.Is(err, backendplugin.ErrInvalidInvocation) {
+		t.Fatalf("errors.Is(err, ErrInvalidInvocation)=false: %v", err)
+	}
+	if !strings.Contains(err.Error(), "json part requires content") {
+		t.Fatalf("error=%q", err.Error())
+	}
+}
+
 // A canonical part kind with no ABI mapping must fail explicitly
 // instead of being silently dropped from the plugin invocation.
 func TestInvocationFromCall_UnsupportedPartKindFailsClosed(t *testing.T) {

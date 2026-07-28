@@ -31,8 +31,8 @@ func TestParity_OpenAICompat_toolCallStreamFinishContract(t *testing.T) {
 		for _, needle := range []string{
 			`finish_reason":"tool_calls"`,
 			"EventToolCallFinished",
-			"call_a", // multi-tool index order lock
-			"call_b",
+			"call_ma", // multi-tool index order lock
+			"call_mb",
 			"call_idonly", // id-only ToolCallStarted split-chunk lock
 			"call_split",  // id-then-name split-chunk lock
 		} {
