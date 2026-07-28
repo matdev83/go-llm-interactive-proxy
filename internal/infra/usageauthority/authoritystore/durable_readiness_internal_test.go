@@ -2,7 +2,6 @@ package authoritystore
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -42,7 +41,7 @@ func TestDurableStore_Reserve_NilReceiver(t *testing.T) {
 func TestDurableStore_ReadinessRecoversAfterTransientPingFailure(t *testing.T) {
 	t.Parallel()
 
-	bunDB := openSeedRaceDB(t, filepath.Join(t.TempDir(), "authority-recover.db"))
+	bunDB := openSeedRaceMemDB(t)
 	store, err := NewDurable(context.Background(), bunDB, Config{
 		StoreID: "sqlite-readiness-recover",
 		Backing: domain.BackingCapabilityAtomic,
@@ -72,7 +71,7 @@ func TestDurableStore_ReadinessRecoversAfterTransientPingFailure(t *testing.T) {
 func TestDurableStore_ReadinessPreservesAdvisoryOnlyAfterRecovery(t *testing.T) {
 	t.Parallel()
 
-	bunDB := openSeedRaceDB(t, filepath.Join(t.TempDir(), "authority-advisory-recover.db"))
+	bunDB := openSeedRaceMemDB(t)
 	store, err := NewDurable(context.Background(), bunDB, Config{
 		StoreID:   "sqlite-readiness-advisory",
 		Backing:   domain.BackingCapabilityAtomic,

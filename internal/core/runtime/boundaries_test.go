@@ -2,15 +2,21 @@ package runtime_test
 
 import (
 	"encoding/json"
+	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
-type goListPackage struct {
+// listedPackage carries the `go list -json` fields the boundary rules need:
+// identity, standard-ness, and direct dependency edges for in-memory closure.
+type listedPackage struct {
 	ImportPath string
 	Standard   bool
+	Deps       []string
 }
 
 // depRule is a substring match against ImportPath with a dedicated failure line.
@@ -18,6 +24,53 @@ type depRule struct {
 	Substr string
 	ErrMsg string
 }
+
+// depScanRoots is a superset of every root pattern used by the tests below.
+// Both tests share a single `go list -deps` subprocess over this union and
+// compute their own closures in memory instead of paying one package-graph
+// load each.
+var depScanRoots = []string{"./cmd/...", "./internal/...", "./pkg/..."}
+
+var repoDepGraph = sync.OnceValues(func() (map[string]listedPackage, error) {
+	root, err := repoRootDir()
+	if err != nil {
+		return nil, err
+	}
+	args := append([]string{"list", "-deps", "-test=false", "-json=ImportPath,Standard,Deps"}, depScanRoots...)
+	cmd := exec.Command("go", args...)
+	cmd.Dir = root
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	graph := make(map[string]listedPackage, 1024)
+	decoder := json.NewDecoder(strings.NewReader(string(output)))
+	for decoder.More() {
+		var pkg listedPackage
+		if err := decoder.Decode(&pkg); err != nil {
+			return nil, err
+		}
+		graph[pkg.ImportPath] = pkg
+	}
+	return graph, nil
+})
+
+var modulePath = sync.OnceValues(func() (string, error) {
+	root, err := repoRootDir()
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
+			return strings.TrimSpace(rest), nil
+		}
+	}
+	return "", errors.New("go.mod: module directive not found")
+})
 
 // Core production packages must not import internal/plugins/...; integration tests that need
 // concrete plugins may import them from *_test.go only (go list -deps -test=false excludes test
@@ -53,56 +106,74 @@ func TestProductionPackagesDoNotDependOnReferenceBackendEmulators(t *testing.T) 
 	})
 }
 
-// assertDepsExcludeRules runs `go list -deps -test=false -json` on the given
-// patterns and fails if any non-standard package ImportPath matches a rule
-// substring. Test dependencies are excluded so imports from *_test.go files
-// do not affect the graph.
+// assertDepsExcludeRules resolves the transitive, test-free dependency closure
+// of the given patterns from the shared repo scan and fails if any non-standard
+// package ImportPath matches a rule substring. Test dependencies are excluded
+// so imports from *_test.go files do not affect the graph.
 func assertDepsExcludeRules(t *testing.T, patterns []string, rules []depRule) {
 	t.Helper()
 
-	args := append([]string{"list", "-deps", "-test=false", "-json"}, patterns...)
-
-	cmd := exec.Command("go", args...)
-	cmd.Dir = repoRoot(t)
-
-	output, err := cmd.Output()
+	graph, err := repoDepGraph()
 	if err != nil {
 		t.Fatalf("go list failed: %v", err)
 	}
+	mod, err := modulePath()
+	if err != nil {
+		t.Fatalf("resolve module path: %v", err)
+	}
 
-	decoder := json.NewDecoder(strings.NewReader(string(output)))
-	for decoder.More() {
-		var pkg goListPackage
-		if err := decoder.Decode(&pkg); err != nil {
-			t.Fatalf("decode go list output: %v", err)
-		}
-		if pkg.Standard {
-			continue
-		}
-		for _, rule := range rules {
-			if strings.Contains(pkg.ImportPath, rule.Substr) {
-				t.Fatalf("%s: %s", rule.ErrMsg, pkg.ImportPath)
+	var roots []string
+	for ip := range graph {
+		for _, pattern := range patterns {
+			if matchTreePattern(mod, pattern, ip) {
+				roots = append(roots, ip)
+				break
 			}
 		}
 	}
+
+	seen := make(map[string]struct{}, len(roots))
+	stack := roots
+	for len(stack) > 0 {
+		ip := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if _, ok := seen[ip]; ok {
+			continue
+		}
+		seen[ip] = struct{}{}
+		pkg, ok := graph[ip]
+		if !ok {
+			continue
+		}
+		if !pkg.Standard {
+			for _, rule := range rules {
+				if strings.Contains(pkg.ImportPath, rule.Substr) {
+					t.Fatalf("%s: %s", rule.ErrMsg, pkg.ImportPath)
+				}
+			}
+		}
+		stack = append(stack, pkg.Deps...)
+	}
 }
 
-func repoRoot(t *testing.T) string {
-	t.Helper()
+// matchTreePattern reports whether ip is selected by a "./dir/..." pattern
+// resolved against the module path.
+func matchTreePattern(mod, pattern, ip string) bool {
+	dir := mod + "/" + strings.TrimSuffix(strings.TrimPrefix(pattern, "./"), "/...")
+	return ip == dir || strings.HasPrefix(ip, dir+"/")
+}
 
-	cmd := exec.Command("go", "env", "GOMOD")
-	output, err := cmd.Output()
+var repoRootDir = sync.OnceValues(func() (string, error) {
+	output, err := exec.Command("go", "env", "GOMOD").Output()
 	if err != nil {
-		t.Fatalf("resolve repo root: %v", err)
+		return "", err
 	}
-
 	gomod := strings.TrimSpace(string(output))
 	if gomod == "" || gomod == osDevNull() {
-		t.Fatal("go env GOMOD did not return a module path")
+		return "", errors.New("go env GOMOD did not return a module path")
 	}
-
-	return filepath.Dir(gomod)
-}
+	return filepath.Dir(gomod), nil
+})
 
 func osDevNull() string {
 	return "NUL"

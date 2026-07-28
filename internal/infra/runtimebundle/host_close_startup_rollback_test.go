@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -25,7 +24,7 @@ import (
 func TestHostBuild_PostBindRollbackUsesOneHostClose(t *testing.T) {
 	t.Parallel()
 	in := hostBuildInput{
-		ConfigPath:      bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")),
+		ConfigPath:      MaterializeExampleConfigForTest(t, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")),
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: stubHandlerComposer,
@@ -92,7 +91,7 @@ func TestHostBuild_RollbackSourceHasNoHostDecomposition(t *testing.T) {
 func TestHostClose_HTTPHandlerIsStableDataPlaneSeam(t *testing.T) {
 	t.Parallel()
 	host, err := BuildHost(context.Background(), BuildHostInput{
-		ConfigPath:      bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")),
+		ConfigPath:      MaterializeExampleConfigForTest(t, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")),
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: stubHandlerComposer,

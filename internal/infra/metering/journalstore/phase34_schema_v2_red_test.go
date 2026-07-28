@@ -227,8 +227,7 @@ func TestPhase34_SQLite_CorrectionAggregateRestartDeterministic(t *testing.T) {
 
 func openPhase34SQLiteDB(t *testing.T) *bun.DB {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "phase34.db")
-	return openPhase34SQLiteDBAt(t, path)
+	return openPhase34SQLiteDBAt(t, memorySQLiteDSN())
 }
 
 func openPhase34SQLiteDBAt(t *testing.T, path string) *bun.DB {

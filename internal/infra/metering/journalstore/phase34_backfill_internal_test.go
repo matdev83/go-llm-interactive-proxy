@@ -3,7 +3,6 @@ package journalstore
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
@@ -12,8 +11,7 @@ import (
 
 func TestPhase34_SchemaV2_BackfillIdentityColumnsFromPayload(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), "p34-bf.db")
-	sqlDB, err := sql.Open("sqlite", path)
+	sqlDB, err := sql.Open("sqlite", memorySQLiteDSNInternal())
 	if err != nil {
 		t.Fatal(err)
 	}

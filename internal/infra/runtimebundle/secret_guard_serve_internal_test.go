@@ -12,7 +12,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
-	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -53,7 +52,7 @@ func TestInspect_DoesNotRequestSecretGuardEnvironment(t *testing.T) {
 func TestBuildHost_serveMultiUserSecretGuardDoesNotConsultEnvironment(t *testing.T) {
 	env := &countingSecretGuardEnv{}
 	host, err := buildHostWithEnv(t.Context(), hostBuildInput{
-		ConfigPath:      bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-multi-user.yaml")),
+		ConfigPath:      MaterializeExampleConfigForTest(t, filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-multi-user.yaml")),
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
 		HandlerComposer: stubHandlerComposer,
@@ -72,7 +71,7 @@ func TestBuildHost_serveMultiUserSecretGuardDoesNotConsultEnvironment(t *testing
 
 func TestBuildHost_serveDisabledSecretGuardDoesNotConsultEnvironment(t *testing.T) {
 	env := &countingSecretGuardEnv{}
-	base, err := os.ReadFile(bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-single-user.yaml")))
+	base, err := os.ReadFile(MaterializeExampleConfigForTest(t, filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-single-user.yaml")))
 	if err != nil {
 		t.Fatal(err)
 	}

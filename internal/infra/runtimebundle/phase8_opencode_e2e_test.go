@@ -18,7 +18,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
-	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
@@ -51,7 +50,7 @@ func TestPhase8_OpenCodeExternalViaBuildHost(t *testing.T) {
 	}))
 	t.Cleanup(zenEmu.Close)
 
-	pluginRoot := bpkit.StageOpenCode(t)
+	pluginRoot := runtimebundle.StageOpenCodeForTest(t)
 	cfgPath := writeOpenCodeDiscoveryConfig(t, pluginRoot, goEmu.URL, zenEmu.URL, true)
 	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
 		ConfigPath:      cfgPath,
