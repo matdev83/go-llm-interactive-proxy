@@ -17,6 +17,7 @@ func WithRequestMatcher(ctx context.Context, m Matcher) context.Context {
 }
 
 // RequestMatcherFromContext returns the Matcher attached with [WithRequestMatcher], if any.
+// A nil ctx is tolerated and returns (nil, false).
 func RequestMatcherFromContext(ctx context.Context) (Matcher, bool) {
 	if ctx == nil {
 		return nil, false

@@ -32,15 +32,16 @@ var annotateResponseHeaderNames = map[string]struct{}{
 }
 
 // terminalResponseHeaderNames allow-lists headers on TypeReject/TypeChallenge responses.
-var terminalResponseHeaderNames map[string]struct{}
+var terminalResponseHeaderNames = buildTerminalResponseHeaderNames()
 
-func init() {
-	terminalResponseHeaderNames = make(map[string]struct{}, len(annotateResponseHeaderNames)+3)
+func buildTerminalResponseHeaderNames() map[string]struct{} {
+	names := make(map[string]struct{}, len(annotateResponseHeaderNames)+3)
 	for k := range annotateResponseHeaderNames {
-		terminalResponseHeaderNames[k] = struct{}{}
+		names[k] = struct{}{}
 	}
-	terminalResponseHeaderNames["Www-Authenticate"] = struct{}{}
-	terminalResponseHeaderNames["Retry-After"] = struct{}{}
+	names["Www-Authenticate"] = struct{}{}
+	names["Retry-After"] = struct{}{}
+	return names
 }
 
 // Middleware returns an HTTP handler that runs providers in order before delegating to next.

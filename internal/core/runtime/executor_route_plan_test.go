@@ -34,9 +34,8 @@ func TestBuildRoutePlan_selectorAliasRewritesBeforeParse(t *testing.T) {
 	prep := &preparedRequest{
 		baseline: lipapi.Call{Route: lipapi.RouteIntent{Selector: "alias"}},
 		aLeg:     b2bua.ALegRecord{},
-		ctx:      context.Background(),
 	}
-	plan, err := ex.buildRoutePlan(prep)
+	plan, err := ex.buildRoutePlan(context.Background(), prep)
 	if err != nil {
 		t.Fatalf("buildRoutePlan: %v", err)
 	}
@@ -52,9 +51,8 @@ func TestBuildRoutePlan_modelOnlyAppliesDefaultBackend(t *testing.T) {
 	prep := &preparedRequest{
 		baseline: lipapi.Call{Route: lipapi.RouteIntent{Selector: "gpt-4"}},
 		aLeg:     b2bua.ALegRecord{},
-		ctx:      context.Background(),
 	}
-	plan, err := ex.buildRoutePlan(prep)
+	plan, err := ex.buildRoutePlan(context.Background(), prep)
 	if err != nil {
 		t.Fatalf("buildRoutePlan: %v", err)
 	}
@@ -69,9 +67,8 @@ func TestBuildRoutePlan_unresolvedModelOnlyFails(t *testing.T) {
 	prep := &preparedRequest{
 		baseline: lipapi.Call{Route: lipapi.RouteIntent{Selector: "gpt-4"}},
 		aLeg:     b2bua.ALegRecord{},
-		ctx:      context.Background(),
 	}
-	_, err := ex.buildRoutePlan(prep)
+	_, err := ex.buildRoutePlan(context.Background(), prep)
 	if err == nil || !errors.Is(err, lipapi.ErrUnresolvedModelOnlySelector) {
 		t.Fatalf("want ErrUnresolvedModelOnlySelector, got %v", err)
 	}
@@ -84,11 +81,10 @@ func TestBuildRoutePlan_affinityIdentityError(t *testing.T) {
 	prep := &preparedRequest{
 		baseline:    lipapi.Call{Route: lipapi.RouteIntent{Selector: "{affinity=session}backendA:model-x"}},
 		aLeg:        b2bua.ALegRecord{},
-		ctx:         context.Background(),
 		recvViewsOK: true,
 		recvViews:   execctx.Views{},
 	}
-	_, err := ex.buildRoutePlan(prep)
+	_, err := ex.buildRoutePlan(context.Background(), prep)
 	if err == nil || !strings.Contains(err.Error(), "affinity identity") {
 		t.Fatalf("want affinity identity error, got %v", err)
 	}
@@ -102,9 +98,8 @@ func TestBuildRoutePlan_initializesBudgetAndSession(t *testing.T) {
 	prep := &preparedRequest{
 		baseline: lipapi.Call{Route: lipapi.RouteIntent{Selector: "backendA:model-x"}},
 		aLeg:     b2bua.ALegRecord{WeightedFirstConsumed: true},
-		ctx:      context.Background(),
 	}
-	plan, err := ex.buildRoutePlan(prep)
+	plan, err := ex.buildRoutePlan(context.Background(), prep)
 	if err != nil {
 		t.Fatalf("buildRoutePlan: %v", err)
 	}

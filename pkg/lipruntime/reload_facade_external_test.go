@@ -82,8 +82,8 @@ func TestReloadFacade_ExactCategoryMapping(t *testing.T) {
 		{"preparation_failed", sdkreload.ResultPreparationFailed, lipruntime.ResultPreparationFailed},
 		{"internal_failed", sdkreload.ResultInternalFailed, lipruntime.ResultInternalFailed},
 	}
-	if len(cases) != len(sdkreload.AllResultCategories) {
-		t.Fatalf("cases=%d AllResultCategories=%d", len(cases), len(sdkreload.AllResultCategories))
+	if len(cases) != len(sdkreload.ResultCategories()) {
+		t.Fatalf("cases=%d ResultCategories=%d", len(cases), len(sdkreload.ResultCategories()))
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

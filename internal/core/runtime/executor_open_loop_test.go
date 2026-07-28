@@ -42,11 +42,10 @@ func TestOpenInitialAttempt_ContextCanceled(t *testing.T) {
 		rng:      routing.NewSeededRng(1),
 	}
 	prep := &preparedRequest{
-		ctx:    ctx,
 		aScope: aScope,
 		aLeg:   aLeg,
 	}
-	_, err = ex.openInitialAttempt(prep, plan)
+	_, err = ex.openInitialAttempt(ctx, prep, plan)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)
 	}

@@ -84,9 +84,20 @@ func LogExecuteOpened(ctx context.Context, log *slog.Logger, frontend string, ca
 }
 
 // Wrap logs stream progress and terminal state while preserving EventStream semantics.
-func Wrap(_ context.Context, log *slog.Logger, frontend string, call *lipapi.Call, es lipapi.EventStream, start time.Time) lipapi.EventStream {
+// Diag correlation fields (trace ID, A-leg ID) are captured from ctx now — not stored
+// as a context — so Close can log with the same correlation after the request ctx is
+// gone (AGENTS.md: do not store contexts in structs).
+func Wrap(ctx context.Context, log *slog.Logger, frontend string, call *lipapi.Call, es lipapi.EventStream, start time.Time) lipapi.EventStream {
 	if !Enabled() || es == nil || call == nil {
 		return es
+	}
+	traceID := diag.TraceID(ctx)
+	if traceID == "" {
+		traceID = diag.StableCallID(call)
+	}
+	aLegID := diag.ALegID(ctx)
+	if aLegID == "" {
+		aLegID = strings.TrimSpace(call.Session.ALegID)
 	}
 	return &stream{
 		log:      diag.LoggerOrDefault(log),
@@ -94,6 +105,8 @@ func Wrap(_ context.Context, log *slog.Logger, frontend string, call *lipapi.Cal
 		call:     call,
 		inner:    es,
 		start:    start,
+		traceID:  traceID,
+		aLegID:   aLegID,
 	}
 }
 
@@ -106,6 +119,8 @@ type stream struct {
 	call           *lipapi.Call
 	inner          lipapi.EventStream
 	start          time.Time
+	traceID        string
+	aLegID         string
 	count          int
 	kindCounts     map[string]int
 	firstTextMs    int64
@@ -163,7 +178,10 @@ func (s *stream) Recv(ctx context.Context) (lipapi.Event, error) {
 
 func (s *stream) Close() error {
 	err := s.inner.Close()
-	s.logTerminal(context.Background(), err)
+	// The request ctx is unavailable here by contract; rebuild a correlation-only ctx
+	// from the fields captured at Wrap so handlers that read trace/A-leg IDs from ctx
+	// keep terminal-log correlation.
+	s.logTerminal(diag.EnsureCallDiag(context.Background(), s.traceID, s.aLegID), err)
 	return err
 }
 

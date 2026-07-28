@@ -10,6 +10,9 @@ import (
 	"github.com/uptrace/bun"
 )
 
+// postgresStoreLifecycle splits a postgres-backed store open into phases.
+// Migrate and Verify may be nil when the Open constructor owns schema
+// preparation itself (self-migrating store constructors).
 type postgresStoreLifecycle[T any] struct {
 	Migrate func(context.Context, *bun.DB) error
 	Verify  func(context.Context, *bun.DB) error
@@ -64,19 +67,18 @@ func openPostgresStore[T any](
 	if err != nil {
 		return zero, nil, err
 	}
-	if !registryOwned && database.EffectiveSchemaMode() == config.DatabaseSchemaModeAutoMigrate {
-		if lifecycle.Migrate == nil {
-			return zero, nil, closeJoin(bunDB, fmt.Errorf("migrate postgres schema: migrate func is nil"))
-		}
+	if !registryOwned && database.EffectiveSchemaMode() == config.DatabaseSchemaModeAutoMigrate && lifecycle.Migrate != nil {
 		if err := lifecycle.Migrate(ctx, bunDB); err != nil {
 			return zero, nil, closeJoin(bunDB, fmt.Errorf("migrate postgres schema: %w", err))
 		}
 	}
-	if err := lifecycle.Verify(ctx, bunDB); err != nil {
-		if !registryOwned {
-			return zero, nil, closeJoin(bunDB, fmt.Errorf("verify schema: %w", err))
+	if lifecycle.Verify != nil {
+		if err := lifecycle.Verify(ctx, bunDB); err != nil {
+			if !registryOwned {
+				return zero, nil, closeJoin(bunDB, fmt.Errorf("verify schema: %w", err))
+			}
+			return zero, nil, fmt.Errorf("verify schema: %w", err)
 		}
-		return zero, nil, fmt.Errorf("verify schema: %w", err)
 	}
 	store, err := lifecycle.Open(ctx, bunDB)
 	if err != nil {

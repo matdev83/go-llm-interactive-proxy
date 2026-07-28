@@ -265,7 +265,7 @@ func TestInjectedRater_ChangesSettlementCostEnrichment(t *testing.T) {
 		OutputTokens: 1_000,
 		TotalTokens:  2_000,
 	}
-	got := stream.enrichUsageCost(ev)
+	got := stream.enrichUsageCost(context.Background(), ev)
 	if rater.calls.Load() < 1 {
 		t.Fatal("EconomicsRater.Rate must be used for settlement cost enrichment")
 	}
@@ -290,7 +290,7 @@ func TestInjectedRater_SettlementFailureDoesNotUseCatalog(t *testing.T) {
 	ex.EconomicsRater = rater
 	stream := &retryRecvStream{executor: ex, cand: authorityCandidate()}
 	ev := lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 1000, OutputTokens: 1000, TotalTokens: 2000}
-	got := stream.enrichUsageCost(ev)
+	got := stream.enrichUsageCost(context.Background(), ev)
 	if got.CostPresent {
 		t.Fatalf("rater failure must not invent CostPresent from catalog; got cost=%d source=%q", got.CostNanoUnits, got.CostSource)
 	}

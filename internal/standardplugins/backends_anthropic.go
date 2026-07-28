@@ -25,11 +25,12 @@ func backendAnthropic(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys, 
 		return execbackend.Backend{}, err
 	}
 	cfg := anthropic.Config{
-		BaseURL:     base,
-		APIKey:      primaryKey,
-		APIKeys:     ek,
-		Credentials: hostedCredentials(y.Credentials),
-		HTTPClient:  httpClient,
+		BaseURL:       base,
+		APIKey:        primaryKey,
+		APIKeys:       ek,
+		Credentials:   hostedCredentials(y.Credentials),
+		HTTPClient:    httpClient,
+		SDKMaxRetries: sdkMaxRetriesOrDefault(y.SDKMaxRetries),
 	}
 	return applyConfiguredModelInventory(anthropic.New(cfg), y.Models)
 }

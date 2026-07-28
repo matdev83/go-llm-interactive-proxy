@@ -19,6 +19,7 @@ import (
 	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
+	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect"
 	_ "modernc.org/sqlite" // register "sqlite" driver for durable control-plane stores
 )
@@ -41,6 +42,9 @@ type controlPlaneBuildInput struct {
 	Log            *slog.Logger
 	Clock          func() time.Time
 	StoreOverride  controlplane.Store // tests only
+	// PostgresPools shares postgres handles via the process registry when non-nil.
+	PostgresPools     *db.PoolRegistry
+	DualPlaneMigrator *dualPlaneMigrator
 }
 
 const controlPlaneStoreID = "lip-std-control-plane"
@@ -83,7 +87,7 @@ func buildControlPlaneRuntime(in controlPlaneBuildInput) (*controlPlaneRuntime, 
 		State: cp.CapabilityReady, RecordingPolicy: policy,
 	})
 
-	store, closer, storeErr := buildControlPlaneStore(startupCtx, in.Cfg, in.StoreOverride)
+	store, closer, storeErr := buildControlPlaneStore(startupCtx, in.Cfg, in.StoreOverride, in.PostgresPools, in.DualPlaneMigrator)
 	if storeErr != nil {
 		if in.Log != nil && storeErr != nil {
 			in.Log.WarnContext(startupCtx, "runtimebundle: control plane store unavailable",
@@ -159,7 +163,7 @@ func (r *controlPlaneRuntime) runStartupRetention(ctx context.Context, log *slog
 	}
 }
 
-func buildControlPlaneStore(ctx context.Context, cfg *config.Config, override controlplane.Store) (controlplane.Store, func() error, error) {
+func buildControlPlaneStore(ctx context.Context, cfg *config.Config, override controlplane.Store, pools *db.PoolRegistry, migrator *dualPlaneMigrator) (controlplane.Store, func() error, error) {
 	if override != nil {
 		var closer func() error
 		if c, ok := override.(interface{ Close() error }); ok {
@@ -219,22 +223,24 @@ func buildControlPlaneStore(ctx context.Context, cfg *config.Config, override co
 		}
 		child, cancel := context.WithTimeout(ctx, db.DefaultPostgresOpenMigrateTimeout)
 		defer cancel()
-		bunDB, err := db.OpenPostgresBun(child, dsn, db.PoolSettings{
+		durable, closeFn, err := openPostgresStore(child, dsn, db.PoolSettings{
 			MaxOpenConns: poolCfg.MaxOpenConns, MaxIdleConns: poolCfg.MaxIdleConns,
 			ConnMaxLifetime: poolCfg.ConnMaxLifetime, ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
+		}, cfg.Database, pools, migrator, postgresStoreLifecycle[*ledgerstore.DurableStore]{
+			// Migrate/Verify nil: NewDurableStore owns schema preparation; Close
+			// nil: registry-owned handles are disposed by the registry.
+			Open: func(ctx context.Context, handle *bun.DB) (*ledgerstore.DurableStore, error) {
+				s, err := ledgerstore.NewDurableStore(ctx, handle, ledgerstore.DurableConfig{StoreID: controlPlaneStoreID})
+				if err != nil {
+					return nil, fmt.Errorf("runtimebundle: control plane durable store: %w", err)
+				}
+				return s, nil
+			},
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("runtimebundle: control plane open postgres: %w", err)
 		}
-		durable, err := ledgerstore.NewDurableStore(child, bunDB, ledgerstore.DurableConfig{StoreID: controlPlaneStoreID})
-		if err != nil {
-			closeErr := bunDB.Close()
-			if closeErr == nil {
-				return nil, nil, fmt.Errorf("runtimebundle: control plane durable store: %w", err)
-			}
-			return nil, nil, fmt.Errorf("runtimebundle: control plane durable store: %w; close error: %v", err, closeErr)
-		}
-		return durable, durable.Close, nil
+		return durable, closeFn, nil
 	default:
 		return nil, nil, fmt.Errorf("runtimebundle: control plane.store %q is not supported (supported: memory, sqlite, postgres)", store)
 	}

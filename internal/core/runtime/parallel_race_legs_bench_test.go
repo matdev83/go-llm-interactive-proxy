@@ -74,7 +74,6 @@ func BenchmarkParallelRaceLegsAuthority(b *testing.B) {
 					b.Fatal(err)
 				}
 				p := attemptOpenParams{
-					ctx:     context.Background(),
 					bus:     hooks.New(hooks.Config{}),
 					traceID: fmt.Sprintf("trace-%d", i),
 					aLegID:  leg.ALegID,
@@ -91,7 +90,7 @@ func BenchmarkParallelRaceLegsAuthority(b *testing.B) {
 						}},
 					},
 				}
-				out, err := ex.tryOpenParallelGroup(p, candidates, nil, "", false)
+				out, err := ex.tryOpenParallelGroup(context.Background(), p, candidates, nil, "", false)
 				if err != nil {
 					b.Fatal(err)
 				}

@@ -95,11 +95,19 @@ func TestReloadPublicAliases_ConstantReexportsMatchSDK(t *testing.T) {
 			}
 		})
 	}
-	if len(lipruntime.AllResultCategories) == 0 || len(lipruntime.AllResultCategories) != len(sdkreload.AllResultCategories) {
-		t.Fatal("AllResultCategories must re-export the canonical vocabulary length")
+	pub := lipruntime.ResultCategories()
+	sdk := sdkreload.ResultCategories()
+	if len(pub) == 0 || len(pub) != len(sdk) {
+		t.Fatal("ResultCategories must re-export the canonical vocabulary length")
 	}
-	if &lipruntime.AllResultCategories[0] != &sdkreload.AllResultCategories[0] {
-		t.Fatal("AllResultCategories must share the canonical slice header")
+	if !reflect.DeepEqual(pub, sdk) {
+		t.Fatalf("ResultCategories pub=%v sdk=%v", pub, sdk)
+	}
+	// The alias must preserve defensive-copy semantics: mutating the public result
+	// must not leak into the SDK accessor.
+	pub[0] = "decoy"
+	if sdkreload.ResultCategories()[0] == "decoy" {
+		t.Fatal("ResultCategories must return an independent copy per call")
 	}
 }
 

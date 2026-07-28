@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"google.golang.org/genai"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/transporterr"
 )
 
 type apiFailureKind int
@@ -17,9 +19,15 @@ const (
 	apiFailureNone apiFailureKind = iota
 	apiFailureRateLimited
 	apiFailureAuthInvalid
+	// apiFailureRetryable is a transient upstream (5xx, 408) or transport failure
+	// (timeout, connection reset/refused) worth a pre-output failover.
+	apiFailureRetryable
 )
 
 func classifyGenaiAPIError(err error) (kind apiFailureKind, retryAfter string) {
+	if err == nil {
+		return apiFailureNone, ""
+	}
 	var pae *genai.APIError
 	if errors.As(err, &pae) && pae != nil {
 		return classifyFromAPIError(*pae)
@@ -27,6 +35,9 @@ func classifyGenaiAPIError(err error) (kind apiFailureKind, retryAfter string) {
 	var vae genai.APIError
 	if errors.As(err, &vae) {
 		return classifyFromAPIError(vae)
+	}
+	if transporterr.IsRetryable(err) {
+		return apiFailureRetryable, ""
 	}
 	return apiFailureNone, ""
 }
@@ -48,7 +59,12 @@ func classifyGenaiCode(code int, retryAfter string) (apiFailureKind, string) {
 		return apiFailureAuthInvalid, ""
 	case http.StatusTooManyRequests:
 		return apiFailureRateLimited, strings.TrimSpace(retryAfter)
+	case http.StatusRequestTimeout:
+		return apiFailureRetryable, ""
 	default:
+		if code >= 500 {
+			return apiFailureRetryable, ""
+		}
 		return apiFailureNone, ""
 	}
 }

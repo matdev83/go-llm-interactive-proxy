@@ -21,6 +21,8 @@ type IngressAttribution struct {
 }
 
 // WithIngressAttribution returns a child context carrying sanitized ingress attribution.
+// A nil parent ctx is tolerated and substituted with [context.TODO] so the result is
+// always non-nil.
 func WithIngressAttribution(ctx context.Context, a IngressAttribution) context.Context {
 	if ctx == nil {
 		ctx = context.TODO()
@@ -29,6 +31,7 @@ func WithIngressAttribution(ctx context.Context, a IngressAttribution) context.C
 }
 
 // IngressAttributionFromContext returns attribution attached with [WithIngressAttribution], if any.
+// A nil ctx is tolerated and returns (IngressAttribution{}, false).
 func IngressAttributionFromContext(ctx context.Context) (IngressAttribution, bool) {
 	if ctx == nil {
 		return IngressAttribution{}, false

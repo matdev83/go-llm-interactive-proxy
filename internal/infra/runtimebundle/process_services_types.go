@@ -74,7 +74,6 @@ type ProcessServices struct {
 	meteringRT        *meteringRuntime
 	cfg               *config.Config
 	opts              *BuildOptions
-	parent            context.Context
 
 	closers   []func() error
 	closeOnce sync.Once

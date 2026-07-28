@@ -19,4 +19,13 @@
 // StandardDistributionRequirements lists ids validated at startup.
 //
 // [BackendBuild] is intentionally opaque (see factory.go) so this package never depends on core runtime types.
+//
+// HTTP seam: the root package is the sanctioned minimal net/http surface of this tree.
+// It imports net/http only for [FrontendMount] wiring and the [AuthErrorRenderer]
+// contracts (factory.go, auth_error_render.go); that placement is deliberate so
+// internal/core can reference them without pulling pkg/lipsdk/transport into the
+// orchestration dependency closure (see the comment on [AuthErrorRenderInput]).
+// Every other subpackage must stay free of net/http; the sole exception is
+// pkg/lipsdk/transport (including transport/httpauth), which owns HTTP-native
+// auth provider and error-render contracts.
 package lipsdk

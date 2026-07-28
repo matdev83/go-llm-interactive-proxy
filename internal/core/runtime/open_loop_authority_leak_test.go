@@ -63,7 +63,6 @@ func TestOpenInitialAttempt_RegisterBLegFailureReleasesAuthority(t *testing.T) {
 		rng:      routing.NewSeededRng(1),
 	}
 	prep := &preparedRequest{
-		ctx:     context.Background(),
 		bus:     hooks.New(hooks.Config{}),
 		traceID: "trace-leak",
 		aLeg:    b2bua.ALegRecord{ALegID: aLegID},
@@ -79,7 +78,7 @@ func TestOpenInitialAttempt_RegisterBLegFailureReleasesAuthority(t *testing.T) {
 		},
 	}
 
-	_, err = ex.openInitialAttempt(prep, plan)
+	_, err = ex.openInitialAttempt(context.Background(), prep, plan)
 	if !errors.Is(err, leglifecycle.ErrALegCanceled) {
 		t.Fatalf("openInitialAttempt err = %v, want ErrALegCanceled", err)
 	}

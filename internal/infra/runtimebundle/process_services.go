@@ -57,7 +57,6 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		Tracing:        in.Tracing,
 		cfg:            in.Cfg,
 		opts:           in.Opts,
-		parent:         parent,
 	}
 
 	register := func(c func() error) {
@@ -107,11 +106,13 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	}()
 
 	controlPlane, err := buildControlPlaneRuntime(controlPlaneBuildInput{
-		StartupContext: parent,
-		Cfg:            in.Cfg,
-		Log:            in.Log,
-		Clock:          in.Opts.Testing.Clock,
-		StoreOverride:  in.Opts.Testing.ControlPlaneStoreOverride,
+		StartupContext:    parent,
+		Cfg:               in.Cfg,
+		Log:               in.Log,
+		Clock:             in.Opts.Testing.Clock,
+		StoreOverride:     in.Opts.Testing.ControlPlaneStoreOverride,
+		PostgresPools:     postgresPools,
+		DualPlaneMigrator: ps.dualPlaneMigrator,
 	})
 	if err != nil {
 		return fail(err)

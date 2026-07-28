@@ -114,6 +114,11 @@ func New(cfg Config) execbackend.Backend {
 				case openaicred.FailureRateLimited:
 					until := credpool.CooldownFromRetryAfterOrFallback(retryAfter, now, openAIRateLimitFallback)
 					pool.MarkRateLimited(cred.ID, until)
+				case openaicred.FailureRetryable:
+					// First Recv failed before the stream was returned: still pre-output,
+					// so a transient upstream/transport failure is a core failover candidate.
+					// rerr already carries this backend's ID prefix from the stream layer.
+					return nil, lipapi.RecoverablePreOutputError(rerr)
 				default:
 					return nil, rerr
 				}

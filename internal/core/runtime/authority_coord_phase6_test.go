@@ -43,8 +43,7 @@ func TestPhase6_requestAdmitOnceZerosAttemptRequestCount(t *testing.T) {
 	}
 
 	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 5})
-	p.ctx = ctx
-	out, err := ex.openPlannedCandidate(p, authorityCandidate(), nil, "", false)
+	out, err := ex.openPlannedCandidate(ctx, p, authorityCandidate(), nil, "", false)
 	if err != nil {
 		t.Fatalf("openPlannedCandidate: %v", err)
 	}
@@ -113,7 +112,6 @@ func TestPhase6_parallelRaceDoesNotReReserveCustomerRequestCount(t *testing.T) {
 	}
 
 	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 10})
-	p.ctx = ctx
 	p.aScope = aScope
 	p.baseline.Route.Selector = "backend-1:model-1!backend-2:model-2"
 	candidates := []routing.AttemptCandidate{
@@ -121,7 +119,7 @@ func TestPhase6_parallelRaceDoesNotReReserveCustomerRequestCount(t *testing.T) {
 		{Primary: routing.Primary{Backend: "backend-2", Model: "model-2"}, Key: "backend-2:model-2"},
 	}
 
-	out, err := ex.tryOpenParallelGroup(p, candidates, nil, "", false)
+	out, err := ex.tryOpenParallelGroup(ctx, p, candidates, nil, "", false)
 	if err != nil {
 		t.Fatalf("tryOpenParallelGroup: %v", err)
 	}

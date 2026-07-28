@@ -74,16 +74,22 @@ var closerAcquisitionOwnership = []ownershipEntry{
 		Notes:  "Nil-ledger partial-build rollback bag for BackendInstance.Close; ledger path uses AddClose instead.",
 	},
 	{
-		Symbol: "build_persistence.go:buildPersistenceRuntime:acq#0:append(closers, c.Close)#0",
+		Symbol: "build_persistence.go:buildPersistenceRuntime:acq#0:append(closers, storeCloser)#0",
 		Class:  ownershipProcess,
 		Source: "build_persistence.go",
-		Notes:  "Process continuity store closer when present.",
+		Notes:  "Process continuity store closer from openContinuityStore; no-op when the postgres handle is registry-owned (closed once by the pool registry).",
 	},
 	{
 		Symbol: "build_persistence.go:buildPersistenceRuntime:acq#1:append(closers, ssRun.closer)#0",
 		Class:  ownershipProcess,
 		Source: "build_persistence.go",
 		Notes:  "Process secure-session store closer when present.",
+	},
+	{
+		Symbol: "secure_session.go:buildSecureSessionRuntime:acq#0:assign:closer=closeFn#0",
+		Class:  ownershipProcess,
+		Source: "secure_session.go → buildSecureSessionRuntime postgres branch",
+		Notes:  "Postgres store closer from openPostgresStore: no-op when registry-owned, bunDB.Close for a dedicated handle.",
 	},
 	{
 		Symbol: "control_plane.go:buildControlPlaneStore:acq#0:assign:closer=c.Close#0",

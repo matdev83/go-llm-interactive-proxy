@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -33,7 +34,7 @@ type routePlanState struct {
 // buildRoutePlan parses the route selector, applies model-only defaulting, and
 // initializes attempt budgets, session routing state, affinity identity, and
 // interleaved preload for the initial open loop.
-func (e *Executor) buildRoutePlan(prep *preparedRequest) (*routePlanState, error) {
+func (e *Executor) buildRoutePlan(ctx context.Context, prep *preparedRequest) (*routePlanState, error) {
 	selStr := strings.TrimSpace(prep.baseline.Route.Selector)
 	if e.SelectorAliases != nil {
 		selStr = e.SelectorAliases.Resolve(selStr)
@@ -49,7 +50,7 @@ func (e *Executor) buildRoutePlan(prep *preparedRequest) (*routePlanState, error
 	// Bind-time registry view: set NativeModel on every leaf without rewriting
 	// Primary.Model so catalog/affinity/traces keep logical identity (req 9.4, 9.10).
 	// Wrong-backend canonical leaves fail closed with a typed error.
-	if resolver, ok := routing.NativeModelResolverFromContext(prep.ctx); ok {
+	if resolver, ok := routing.NativeModelResolverFromContext(ctx); ok {
 		if err := routing.BindNativeModelIDs(sel, resolver); err != nil {
 			return nil, fmt.Errorf("executor: bind native model ids: %w", err)
 		}
@@ -58,7 +59,7 @@ func (e *Executor) buildRoutePlan(prep *preparedRequest) (*routePlanState, error
 	if err != nil {
 		return nil, fmt.Errorf("executor: affinity identity: %w", err)
 	}
-	interleaved, err := e.loadInterleavedState(prep.ctx, prep.aLeg.ALegID)
+	interleaved, err := e.loadInterleavedState(ctx, prep.aLeg.ALegID)
 	if err != nil {
 		return nil, fmt.Errorf("executor: load interleaved state: %w", err)
 	}
@@ -68,7 +69,7 @@ func (e *Executor) buildRoutePlan(prep *preparedRequest) (*routePlanState, error
 		ttft:        newTTFTBudget(e.now(), sel),
 		session:     &routing.SessionRoutingState{FirstRequestConsumed: prep.aLeg.WeightedFirstConsumed},
 		excluded:    map[string]struct{}{},
-		requestSize: e.requestSizeEstimateForRouting(prep.ctx, sel, prep.baseline),
+		requestSize: e.requestSizeEstimateForRouting(ctx, sel, prep.baseline),
 		affinityKey: affinityKey,
 		affinitySet: affinityKeyOK,
 		interleaved: interleaved,

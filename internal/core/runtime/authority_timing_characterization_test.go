@@ -141,7 +141,7 @@ func TestAuthorityTiming_failoverIssuesAuthoritativeAdmitPerAttempt(t *testing.T
 	}
 
 	budget := &attemptBudget{max: 5}
-	out, err := ex.openPlannedCandidate(authorityOpenParams(t, aLegID, budget), authorityCandidate(), nil, "", false)
+	out, err := ex.openPlannedCandidate(context.Background(), authorityOpenParams(t, aLegID, budget), authorityCandidate(), nil, "", false)
 	if err != nil {
 		t.Fatalf("initial openPlannedCandidate: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestAuthorityTiming_parallelRaceIssuesAuthoritativeAdmitPerLeg(t *testing.T
 		{Primary: routing.Primary{Backend: "backend-2", Model: "model-2"}, Key: "backend-2:model-2"},
 	}
 
-	out, err := ex.tryOpenParallelGroup(p, candidates, nil, "", false)
+	out, err := ex.tryOpenParallelGroup(context.Background(), p, candidates, nil, "", false)
 	if err != nil {
 		t.Fatalf("tryOpenParallelGroup: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestAuthorityTiming_loserReleaseAfterOpenSetsBackendAttempted(t *testing.T)
 		{Primary: routing.Primary{Backend: "winner", Model: "m"}, Key: "winner:m"},
 	}
 
-	out, err := ex.tryOpenParallelGroup(p, candidates, nil, "", false)
+	out, err := ex.tryOpenParallelGroup(context.Background(), p, candidates, nil, "", false)
 	if err != nil {
 		t.Fatalf("tryOpenParallelGroup: %v", err)
 	}
@@ -398,7 +398,7 @@ func TestAuthorityTiming_requestHookMutatesBeforeAuthoritativeAdmit(t *testing.T
 		Parts: []lipapi.Part{lipapi.TextPart("hello")},
 	}}
 
-	out, err := ex.openPlannedCandidate(p, authorityCandidate(), nil, "", false)
+	out, err := ex.openPlannedCandidate(context.Background(), p, authorityCandidate(), nil, "", false)
 	if err != nil {
 		t.Fatalf("openPlannedCandidate: %v", err)
 	}

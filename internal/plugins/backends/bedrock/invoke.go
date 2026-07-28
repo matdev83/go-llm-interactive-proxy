@@ -6,9 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -27,7 +25,7 @@ import (
 const extModelJSONKey = "bedrock.modelId"
 
 func newRuntimeClient(ctx context.Context, cfg Config) (*bedrockruntime.Client, error) {
-	if err := validateBedrockEndpointSecurity(cfg); err != nil {
+	if err := validateBedrockEndpointInput(cfg); err != nil {
 		return nil, fmt.Errorf("bedrock: validate endpoint: %w", err)
 	}
 	if ctx == nil {
@@ -67,42 +65,20 @@ func newRuntimeClient(ctx context.Context, cfg Config) (*bedrockruntime.Client, 
 	return bedrockruntime.NewFromConfig(awsCfg, opts...), nil
 }
 
-func validateBedrockEndpointSecurity(cfg Config) error {
+// validateBedrockEndpointInput is plain input validation for the adapter: a plaintext
+// endpoint override is meaningless without a base_endpoint, so reject it explicitly
+// instead of silently ignoring DisableHTTPS. The standard distribution's endpoint
+// security policy (loopback-only plaintext) is enforced at registration by
+// internal/standardplugins; the adapter itself accepts any syntactically valid
+// endpoint so embedders can apply their own policy.
+func validateBedrockEndpointInput(cfg Config) error {
 	if !cfg.DisableHTTPS {
 		return nil
 	}
-	base := strings.TrimSpace(cfg.BaseEndpoint)
-	if base == "" {
+	if strings.TrimSpace(cfg.BaseEndpoint) == "" {
 		return fmt.Errorf("bedrock: disable_https requires a non-empty base_endpoint")
 	}
-	u, err := url.Parse(base)
-	if err != nil {
-		return fmt.Errorf("bedrock: disable_https: parse base_endpoint: %w", err)
-	}
-	if u.Hostname() == "" {
-		return fmt.Errorf("bedrock: disable_https: base_endpoint must include a host")
-	}
-	host := u.Hostname()
-	if isLoopbackHost(host) {
-		return nil
-	}
-	if cfg.AllowInsecureNonLoopback {
-		return nil
-	}
-	return fmt.Errorf("bedrock: disable_https is only allowed for loopback base_endpoint (got host %q); set allow_insecure_non_loopback for lab use", host)
-}
-
-func isLoopbackHost(host string) bool {
-	h := strings.TrimSpace(host)
-	if h == "" {
-		return false
-	}
-	h = strings.TrimSuffix(h, ".")
-	if strings.EqualFold(h, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(h)
-	return ip != nil && ip.IsLoopback()
+	return nil
 }
 
 func resolveModelID(cand routing.AttemptCandidate, call lipapi.Call) string {
@@ -459,7 +435,5 @@ type Config struct {
 	BaseEndpoint string
 	// DisableHTTPS must be true when BaseEndpoint is http:// (emulator).
 	DisableHTTPS bool
-	// AllowInsecureNonLoopback permits DisableHTTPS with a non-loopback base_endpoint (lab only).
-	AllowInsecureNonLoopback bool
-	HTTPClient               *http.Client
+	HTTPClient   *http.Client
 }

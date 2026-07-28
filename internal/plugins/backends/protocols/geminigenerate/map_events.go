@@ -29,7 +29,10 @@ type genaiStream struct {
 	next func() (*genai.GenerateContentResponse, error, bool)
 	stop func()
 
-	pending stream.PendingEventQueue
+	// backendID prefixes stream-recv errors so failures attribute to the configured
+	// backend instance (hosted "gemini" or a custom-compatible instance prefix).
+	backendID string
+	pending   stream.PendingEventQueue
 
 	sawResponse bool
 	sawMessage  bool
@@ -40,12 +43,13 @@ type genaiStream struct {
 	activeToolID string
 }
 
-func newGenaiStream(seq iter.Seq2[*genai.GenerateContentResponse, error], maxPending int) lipapi.ManagedEventStream {
+func newGenaiStream(seq iter.Seq2[*genai.GenerateContentResponse, error], backendID string, maxPending int) lipapi.ManagedEventStream {
 	next, stop := iter.Pull2(seq)
 	return &genaiStream{
-		next:    next,
-		stop:    stop,
-		pending: stream.NewPendingEventQueue(maxPending),
+		next:      next,
+		stop:      stop,
+		backendID: backendID,
+		pending:   stream.NewPendingEventQueue(maxPending),
 	}
 }
 
@@ -91,7 +95,7 @@ func (s *genaiStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		if !ok {
 			if err != nil {
 				s.mu.Unlock()
-				return lipapi.Event{}, fmt.Errorf("gemini: recv stream: %w", err)
+				return lipapi.Event{}, fmt.Errorf("%s: recv stream: %w", s.backendID, err)
 			}
 			if !s.sawResponse {
 				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted}); err != nil {
@@ -106,7 +110,7 @@ func (s *genaiStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		}
 		if err != nil {
 			s.mu.Unlock()
-			return lipapi.Event{}, fmt.Errorf("gemini: recv stream: %w", err)
+			return lipapi.Event{}, fmt.Errorf("%s: recv stream: %w", s.backendID, err)
 		}
 		if err := s.handleResponse(resp); err != nil {
 			s.mu.Unlock()
