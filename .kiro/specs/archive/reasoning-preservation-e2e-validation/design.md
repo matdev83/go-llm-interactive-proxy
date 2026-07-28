@@ -1,6 +1,6 @@
 # Design Document
 
-**Source context:** Follow-up full HTTP E2E validation for completed [`.kiro/specs/reasoning-output-preservation/`](../reasoning-output-preservation/) (issue [#157](https://github.com/matdev83/go-llm-interactive-proxy/issues/157)).
+**Source context:** Follow-up full HTTP E2E validation for completed [`.kiro/specs/archive/reasoning-output-preservation/`](../reasoning-output-preservation/) (issue [#157](https://github.com/matdev83/go-llm-interactive-proxy/issues/157)).
 
 ## Overview
 
@@ -314,7 +314,7 @@ func Check(plan Plan, obs BackendRequestObservation) error
 
 ## Supporting References
 
-- Parent: [`.kiro/specs/reasoning-output-preservation/`](../reasoning-output-preservation/)
+- Parent: [`.kiro/specs/archive/reasoning-output-preservation/`](../reasoning-output-preservation/)
 - Issue: [#157](https://github.com/matdev83/go-llm-interactive-proxy/issues/157)
 - Steering: `.kiro/steering/testing.md`, `api-standards.md`, `routing-and-orchestration.md`, `tech.md`
 - Checklist: `docs/reasoning-output-preservation-release-checklist.md`

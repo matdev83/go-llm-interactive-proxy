@@ -36,7 +36,7 @@ The final requirements and design remediate both points without changing public 
 - `.kiro/rules/{ears-format,gap-analysis,design-principles,design-review}.md`
 - `.kiro/templates/specs/{init.json,requirements.md,design.md,tasks.md}`
 - `.kiro/specs/archive/base-api-connector-porting/`
-- `.kiro/specs/reasoning-output-preservation/`
+- `.kiro/specs/archive/reasoning-output-preservation/`
 - `EchoesVault/pages/plugin-system.md`
 
 ### Current Cursor and subprocess implementation

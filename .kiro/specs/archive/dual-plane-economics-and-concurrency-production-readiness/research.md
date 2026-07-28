@@ -37,7 +37,7 @@ The selected direction is a staged hybrid hardening: preserve existing stores an
 - `.kiro/steering/{product,structure,api-standards,routing-and-orchestration,tech,testing}.md`
 - `.kiro/rules/{ears-format,gap-analysis,design-principles}.md`
 - `.kiro/settings/templates/specs/{init.json,requirements.md,design.md,tasks.md}`
-- latest closed full-workflow spec: `.kiro/specs/reasoning-output-preservation/*`
+- latest closed full-workflow spec: `.kiro/specs/archive/reasoning-output-preservation/*`
 
 ### Public contracts and composition
 

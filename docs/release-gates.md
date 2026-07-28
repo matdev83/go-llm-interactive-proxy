@@ -136,7 +136,7 @@ Canonical ownership (see [architecture.md](architecture.md)): **one process runt
 
 ## Versioned runtime config reload
 
-Operator contract: [runtime-config-reload.md](runtime-config-reload.md) (`pkg/lipsdk/configreload`). ADR: [adr/0008-versioned-runtime-config-reload.md](adr/0008-versioned-runtime-config-reload.md). Spec: `.kiro/specs/versioned-runtime-reloadable-proxy-configuration/`.
+Operator contract: [runtime-config-reload.md](runtime-config-reload.md) (`pkg/lipsdk/configreload`). ADR: [adr/0008-versioned-runtime-config-reload.md](adr/0008-versioned-runtime-config-reload.md). Spec: `.kiro/specs/archive/versioned-runtime-reloadable-proxy-configuration/`.
 
 | Gate | Criterion | Command / evidence |
 |------|-----------|-------------------|

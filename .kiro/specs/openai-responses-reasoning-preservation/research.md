@@ -5,7 +5,7 @@
 - **Feature**: `openai-responses-reasoning-preservation`
 - **Discovery Scope**: Extension of shipped `reasoning-output-preservation` into OpenAI Responses fidelity
 - **Primary handoff**: `EchoesVault/daily/2026-07-19.md`
-- **Historical specs (read-only)**: `.kiro/specs/reasoning-output-preservation/`, `.kiro/specs/reasoning-preservation-e2e-validation/`
+- **Historical specs (read-only)**: `.kiro/specs/archive/reasoning-output-preservation/`, `.kiro/specs/archive/reasoning-preservation-e2e-validation/`
 - **Spec state**: artifacts generated; **not approved**; `ready_for_implementation: false`
 - **Key Findings**:
   - Dialect ID `openai.responses.reasoning_item.v1` exists; stream capture cannot populate it from provider output.
