@@ -47,6 +47,8 @@ $allowed = @(
     "internal/infra/backendplugins/processhost/launch_linux.go"
     "internal/infra/backendplugins/processhost/launch_windows.go"
     "pkg/lipsdk/backendplugin/server.go"
+    # Backend plugin SDK Execute bridge: one owned Recv pump, joined before return.
+    "pkg/lipsdk/backendplugin/forward_execute.go"
 )
 
 $raw = @(rg --files-with-matches --glob "!*_test.go" "^\s+go\s" internal pkg cmd 2>$null)
