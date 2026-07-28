@@ -1,8 +1,21 @@
 //go:build ignore
 
-// One-shot generator for legacy SQLite fixtures. Run from repo root:
+// Manual fixture regenerator for golden legacy SQLite compat tests.
 //
-//	go run ./internal/core/testdata/genlegacyfixtures
+// This program OVERWRITES the committed testdata files:
+//   - internal/core/securesession/adapters/bunstore/testdata/legacy_sqlite.db
+//   - internal/core/continuity/bunstore/testdata/legacy_sqlite.db
+//
+// Run only when intentionally refreshing fixtures after a schema change — not
+// during normal test runs (compat tests copy fixtures into t.TempDir() so they
+// never mutate the committed files).
+//
+// From repo root:
+//
+//	go run ./internal/core/testdata/genlegacyfixtures/main.go
+//
+// Note: requires the legacy hand-written sqlite adapters; if those are removed,
+// regenerate fixtures via an equivalent one-off script or restore adapters temporarily.
 package main
 
 import (
