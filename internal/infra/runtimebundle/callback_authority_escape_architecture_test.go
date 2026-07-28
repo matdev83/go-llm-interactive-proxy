@@ -409,15 +409,6 @@ func loadOwnerReachablePackagesForContext(bc callbackBuildContext, overlay map[s
 	return typed, analyzed, nil
 }
 
-func loadTypedPackageForContext(t *testing.T, pattern string, bc callbackBuildContext, overlay map[string][]byte) *packages.Package {
-	t.Helper()
-	pkg, err := typedPackageForContextE(pattern, bc, overlay)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return pkg
-}
-
 func typedPackageForContextE(pattern string, bc callbackBuildContext, overlay map[string][]byte) (*packages.Package, error) {
 	pkgs, err := packages.Load(&packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedImports |
@@ -586,15 +577,6 @@ func protectedOwnersE(pkg *packages.Package) (protectedOwners, error) {
 		ledger:      ownerID{pkgPath: runtimebundlePkgPath, name: "ResourceLedger"},
 		coordinator: ownerID{pkgPath: runtimehostPkgPath, name: "Coordinator"},
 	}, nil
-}
-
-func typesPackageByPath(t *testing.T, from *packages.Package, path string) *types.Package {
-	t.Helper()
-	pkg, err := typesPackageByPathE(from, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return pkg
 }
 
 func typesPackageByPathE(from *packages.Package, path string) (*types.Package, error) {
