@@ -11,16 +11,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 )
 
-func charStrPtr(s string) *string { return &s }
-
-func int32Ptr(v int32) *int32 { return &v }
-
-func int64Ptr(v int64) *int64 { return &v }
-
-func uint32Ptr(v uint32) *uint32 { return &v }
-
-func boolPtr(v bool) *bool { return &v }
-
 func TestConvertCharacterization_NegotiationRoundTrip(t *testing.T) {
 	t.Parallel()
 	offer := backendplugin.ProtocolOffer{
@@ -242,20 +232,20 @@ func messageRoundTrip(t *testing.T, name string, role backendplugin.Role, kind b
 		part := backendplugin.Part{Kind: kind}
 		switch kind {
 		case backendplugin.PartKindText:
-			part.Text = charStrPtr("hello")
+			part.Text = new("hello")
 		case backendplugin.PartKindImageRef:
-			part.ImageRef = charStrPtr("img://1")
+			part.ImageRef = new("img://1")
 		case backendplugin.PartKindFileRef:
-			part.FileRef = charStrPtr("file://1")
+			part.FileRef = new("file://1")
 		case backendplugin.PartKindReasoning:
-			part.ReasoningText = charStrPtr("think")
+			part.ReasoningText = new("think")
 		case backendplugin.PartKindToolCall:
-			part.ToolCallID = charStrPtr("tc1")
-			part.ToolName = charStrPtr("tool")
+			part.ToolCallID = new("tc1")
+			part.ToolName = new("tool")
 			part.ToolArgsJSON = backendplugin.RawJSONFromBytes([]byte(`{"a":1}`))
 		case backendplugin.PartKindToolResult:
-			part.ToolCallID = charStrPtr("tc1")
-			part.ToolName = charStrPtr("tool")
+			part.ToolCallID = new("tc1")
+			part.ToolName = new("tool")
 			part.ToolArgsJSON = backendplugin.RawJSONFromBytes([]byte(`{"ok":true}`))
 		case backendplugin.PartKindJSON:
 			part.ToolArgsJSON = backendplugin.RawJSONFromBytes([]byte(`{"k":"v"}`))
@@ -363,7 +353,7 @@ func serverFrameRoundTrip(t *testing.T, name string, kind backendplugin.ServerFr
 		frame := backendplugin.ServerFrame{Kind: kind, Sequence: 1}
 		switch kind {
 		case backendplugin.ServerFrameEvent:
-			frame.Event = &backendplugin.CanonicalEvent{Kind: backendplugin.EventTextDelta, Delta: charStrPtr("x")}
+			frame.Event = &backendplugin.CanonicalEvent{Kind: backendplugin.EventTextDelta, Delta: new("x")}
 		case backendplugin.ServerFrameDiagnostic:
 			frame.Diagnostic = "diag"
 		case backendplugin.ServerFrameCancelOutcome:
@@ -392,12 +382,12 @@ func canonicalEventRoundTrip(t *testing.T, name string, kind backendplugin.Event
 		inTok, outTok, total := int64(1), int64(2), int64(3)
 		ev := &backendplugin.CanonicalEvent{
 			Kind:         kind,
-			MessageIndex: int32Ptr(2),
-			Delta:        charStrPtr("delta"),
-			Signature:    charStrPtr("sig"),
+			MessageIndex: new(int32(2)),
+			Delta:        new("delta"),
+			Signature:    new("sig"),
 			Opaque:       []byte(`{"type":"redacted_thinking"}`),
-			ToolCallID:   charStrPtr("tc1"),
-			ToolName:     charStrPtr("fn"),
+			ToolCallID:   new("tc1"),
+			ToolName:     new("fn"),
 			Usage: &backendplugin.UsageEvidence{
 				InputTokens:  &inTok,
 				OutputTokens: &outTok,
@@ -407,10 +397,10 @@ func canonicalEventRoundTrip(t *testing.T, name string, kind backendplugin.Event
 				},
 				RawUsageJSON: backendplugin.RawJSONFromBytes([]byte(`{"n":3}`)),
 			},
-			Warning:  charStrPtr("warn"),
+			Warning:  new("warn"),
 			Error:    &backendplugin.PluginError{Code: backendplugin.ErrorCodeInternal, Message: "e"},
-			ImageRef: charStrPtr("img://1"),
-			FileRef:  charStrPtr("file://1"),
+			ImageRef: new("img://1"),
+			FileRef:  new("file://1"),
 		}
 		wire, err := backendplugin.CanonicalEventToProto(ev)
 		if err != nil {
@@ -483,9 +473,9 @@ func TestConvertCharacterization_FullyPopulatedInvocation(t *testing.T) {
 			Role: backendplugin.RoleUser,
 			Parts: []backendplugin.Part{
 				{Kind: backendplugin.PartKindText, Text: &text},
-				{Kind: backendplugin.PartKindImageRef, ImageRef: charStrPtr("img://x")},
-				{Kind: backendplugin.PartKindFileRef, FileRef: charStrPtr("file://x")},
-				{Kind: backendplugin.PartKindReasoning, ReasoningText: charStrPtr("chain")},
+				{Kind: backendplugin.PartKindImageRef, ImageRef: new("img://x")},
+				{Kind: backendplugin.PartKindFileRef, FileRef: new("file://x")},
+				{Kind: backendplugin.PartKindReasoning, ReasoningText: new("chain")},
 				{Kind: backendplugin.PartKindJSON, ToolArgsJSON: backendplugin.RawJSONFromBytes([]byte(`{"x":1}`))},
 			},
 		}},
@@ -495,11 +485,11 @@ func TestConvertCharacterization_FullyPopulatedInvocation(t *testing.T) {
 		}},
 		ToolChoice: &toolChoice,
 		Options: backendplugin.GenerationOptions{
-			MaxOutputTokens:    uint32Ptr(128),
-			TemperatureMillis:  int32Ptr(700),
-			ReasoningEffort:    charStrPtr("high"),
-			ParallelToolCalls:  boolPtr(true),
-			ResponseMIMEType:   charStrPtr("application/json"),
+			MaxOutputTokens:    new(uint32(128)),
+			TemperatureMillis:  new(int32(700)),
+			ReasoningEffort:    new("high"),
+			ParallelToolCalls:  new(true),
+			ResponseMIMEType:   new("application/json"),
 			ResponseSchemaJSON: schema,
 		},
 		SafeMetadata: map[string]string{"op": "chat"},
@@ -562,7 +552,7 @@ func TestConvertCharacterization_RemainingDTOConverters(t *testing.T) {
 		ReasoningReplaySupported: true,
 		RoutePrefixes:            []string{"p/"},
 		EnforceMaxOutput:         true,
-		MaxOutputTokens:          uint32Ptr(99),
+		MaxOutputTokens:          new(uint32(99)),
 		SupportsCountTokens:      true,
 		SupportsFinalizeBilling:  true,
 		SupportsDynamicInventory: true,
@@ -585,7 +575,7 @@ func TestConvertCharacterization_RemainingDTOConverters(t *testing.T) {
 		}},
 		InventorySource:    "static",
 		FetchedUnixMS:      100,
-		RefreshAfterUnixMS: int64Ptr(200),
+		RefreshAfterUnixMS: new(int64(200)),
 		ErrorCode:          "",
 	}
 	listBack, err := backendplugin.ListModelsResponseFromProto(backendplugin.ListModelsResponseToProto(list))
@@ -686,6 +676,7 @@ func TestConvertCharacterization_UnknownEnumFailClosed(t *testing.T) {
 		{
 			name: "credential_mode_unspecified",
 			run: func(t *testing.T) error {
+				t.Helper()
 				_, err := backendplugin.PluginDescriptorFromProto(&backendpluginv1.PluginDescriptor{
 					ProtocolMajor: 1, PluginId: "io.golip.x", Version: "1",
 					Factories: []*backendpluginv1.FactoryDescriptor{{
@@ -701,12 +692,13 @@ func TestConvertCharacterization_UnknownEnumFailClosed(t *testing.T) {
 		{
 			name: "role_unspecified",
 			run: func(t *testing.T) error {
+				t.Helper()
 				_, err := backendplugin.InvocationFromProto(&backendpluginv1.Invocation{
 					RequestId: "r", AttemptId: "a", ALegId: "aleg", BLegId: "bleg", CanonicalModelId: "m",
 					Messages: []*backendpluginv1.Message{{
 						Role: backendpluginv1.Role_ROLE_UNSPECIFIED,
 						Parts: []*backendpluginv1.Part{{
-							Kind: backendpluginv1.PartKind_PART_KIND_TEXT, Text: charStrPtr("x"),
+							Kind: backendpluginv1.PartKind_PART_KIND_TEXT, Text: new("x"),
 						}},
 					}},
 				})
@@ -716,12 +708,13 @@ func TestConvertCharacterization_UnknownEnumFailClosed(t *testing.T) {
 		{
 			name: "part_kind_unspecified",
 			run: func(t *testing.T) error {
+				t.Helper()
 				_, err := backendplugin.InvocationFromProto(&backendpluginv1.Invocation{
 					RequestId: "r", AttemptId: "a", ALegId: "aleg", BLegId: "bleg", CanonicalModelId: "m",
 					Messages: []*backendpluginv1.Message{{
 						Role: backendpluginv1.Role_ROLE_USER,
 						Parts: []*backendpluginv1.Part{{
-							Kind: backendpluginv1.PartKind_PART_KIND_UNSPECIFIED, Text: charStrPtr("x"),
+							Kind: backendpluginv1.PartKind_PART_KIND_UNSPECIFIED, Text: new("x"),
 						}},
 					}},
 				})
@@ -731,6 +724,7 @@ func TestConvertCharacterization_UnknownEnumFailClosed(t *testing.T) {
 		{
 			name: "event_kind_unspecified",
 			run: func(t *testing.T) error {
+				t.Helper()
 				_, err := backendplugin.CanonicalEventFromProto(&backendpluginv1.CanonicalEvent{
 					Kind: backendpluginv1.EventKind_EVENT_KIND_UNSPECIFIED,
 				})
@@ -740,6 +734,7 @@ func TestConvertCharacterization_UnknownEnumFailClosed(t *testing.T) {
 		{
 			name: "error_code_unspecified",
 			run: func(t *testing.T) error {
+				t.Helper()
 				_, err := backendplugin.PluginErrorFromProto(&backendpluginv1.PluginError{
 					Code: backendpluginv1.ErrorCode_ERROR_CODE_UNSPECIFIED,
 				})
@@ -749,6 +744,7 @@ func TestConvertCharacterization_UnknownEnumFailClosed(t *testing.T) {
 		{
 			name: "client_frame_unspecified",
 			run: func(t *testing.T) error {
+				t.Helper()
 				_, err := backendplugin.ClientFrameFromProto(&backendpluginv1.ExecuteClientFrame{
 					Kind: backendpluginv1.ClientFrameKind_CLIENT_FRAME_KIND_UNSPECIFIED,
 				})
@@ -758,6 +754,7 @@ func TestConvertCharacterization_UnknownEnumFailClosed(t *testing.T) {
 		{
 			name: "server_frame_unspecified",
 			run: func(t *testing.T) error {
+				t.Helper()
 				_, err := backendplugin.ServerFrameFromProto(&backendpluginv1.ExecuteServerFrame{
 					Kind: backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_UNSPECIFIED,
 				})
@@ -767,6 +764,7 @@ func TestConvertCharacterization_UnknownEnumFailClosed(t *testing.T) {
 		{
 			name: "terminal_status_unspecified",
 			run: func(t *testing.T) error {
+				t.Helper()
 				_, err := backendplugin.TerminalFromProto(&backendpluginv1.Terminal{
 					Status: backendpluginv1.TerminalStatus_TERMINAL_STATUS_UNSPECIFIED,
 				})
@@ -776,6 +774,7 @@ func TestConvertCharacterization_UnknownEnumFailClosed(t *testing.T) {
 		{
 			name: "cancel_reason_unknown_dto",
 			run: func(t *testing.T) error {
+				t.Helper()
 				_, err := backendplugin.CancelOutcomeToProto(&backendplugin.CancelOutcome{
 					Acknowledged: true,
 					Reason:       backendplugin.CancelReason("evil"),
@@ -786,13 +785,13 @@ func TestConvertCharacterization_UnknownEnumFailClosed(t *testing.T) {
 		{
 			name: "dto_unknown_event_kind",
 			run: func(t *testing.T) error {
+				t.Helper()
 				_, err := backendplugin.CanonicalEventToProto(&backendplugin.CanonicalEvent{Kind: backendplugin.EventKind("not_real")})
 				return err
 			},
 		},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := tc.run(t)

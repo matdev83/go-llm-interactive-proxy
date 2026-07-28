@@ -5,11 +5,13 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
 
-type DimensionKey = authorityattribution.DimensionKey
-type Dimensions = authorityattribution.Dimensions
-type DimensionMatcher = authorityattribution.DimensionMatcher
-type DimensionsMatcher = authorityattribution.DimensionsMatcher
-type MatchValue = DimensionMatcher
+type (
+	DimensionKey      = authorityattribution.DimensionKey
+	Dimensions        = authorityattribution.Dimensions
+	DimensionMatcher  = authorityattribution.DimensionMatcher
+	DimensionsMatcher = authorityattribution.DimensionsMatcher
+	MatchValue        = DimensionMatcher
+)
 
 var IsSafeLabelKey = authorityattribution.IsSafeLabelKey
 

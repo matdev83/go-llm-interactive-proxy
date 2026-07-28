@@ -110,15 +110,10 @@ func validateSecureSession(cfg *Config) error {
 				"(secure sessions default on) or set secure_session.enabled: true",
 		)
 	}
-	store := strings.ToLower(strings.TrimSpace(ss.Store))
-	if store == "" {
-		store = "memory"
-		ss.Store = "memory"
-	}
 	if err := normalizeEnum(&ss.Store, "secure_session.store", "memory", "memory", "sqlite", "postgres"); err != nil {
 		return err
 	}
-	store = ss.Store
+	store := ss.Store
 	key := strings.TrimSpace(ss.TokenFingerprintKey)
 	if store == "sqlite" || store == "postgres" {
 		if len(key) < 32 {

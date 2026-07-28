@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -63,11 +64,9 @@ func normalizeEnum(field *string, fieldName, defaultVal string, allowed ...strin
 	if v == "" {
 		v = defaultVal
 	}
-	for _, a := range allowed {
-		if v == a {
-			*field = v
-			return nil
-		}
+	if slices.Contains(allowed, v) {
+		*field = v
+		return nil
 	}
 	return fmt.Errorf("%s: want %s, got %q", fieldName, strings.Join(allowed, " or "), *field)
 }

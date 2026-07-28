@@ -36,7 +36,7 @@ type Handler struct {
 }
 
 func (h *Handler) spec() *frontendpipe.Spec[EncodeOptions] {
-	if h.pipe.Config.Exec != nil || h.pipe.Decode != nil {
+	if h.pipe.Exec != nil || h.pipe.Decode != nil {
 		return &h.pipe
 	}
 	h.pipe = frontendpipe.Spec[EncodeOptions]{
