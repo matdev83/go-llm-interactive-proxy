@@ -60,7 +60,7 @@ Stock HashiCorp `go-plugin` v1.8.0 is not sufficient as a drop-in substrate: its
 - `internal/core/codexcatalog/*`
 - `internal/archtest/guardrails_test.go`
 - `testdata/architecture/hexagonal_migration_baseline.json`
-- active `.kiro/specs/cursor-sdk-backend/*`
+- archived `.kiro/specs/archive/cursor-sdk-backend/*`
 - archived connector and brownfield specs
 
 ## Existing Strengths to Preserve

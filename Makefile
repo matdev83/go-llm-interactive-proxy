@@ -30,7 +30,7 @@ help:
 	@echo "  make qa              - quality-checks + one full test pass (-tags=precommit,integration) + lint + vuln + release-gates-static"
 	@echo "  make lint            - golangci-lint if installed, else staticcheck"
 	@echo "  make hooks-install   - git config core.hooksPath .githooks (pre-commit: secrets + quality gate)"
-	@echo "  make kiro-spec-check SPEC=<name> - validate a Kiro spec (e.g. SPEC=cursor-sdk-backend)"
+	@echo "  make kiro-spec-check SPEC=<name> - validate a Kiro spec development gate"
 	@echo "  make isolated-root-qa - GOWORK=off QA on a temp root copy without connectors/support/Node/artifacts"
 	@echo "  make installed-plugin-smoke - one lipstd binary; install release artifacts; same-binary inspect/doctor/invoke"
 	@echo "  make docs-check      - backend-plugin authoring/operator/example documentation tests"
@@ -414,7 +414,7 @@ example-config-check: docs-check
 # Validate Kiro specification artifacts. SPEC is required (e.g. cursor-sdk-backend).
 kiro-spec-check:
 ifndef SPEC
-	$(error SPEC is required, e.g. make kiro-spec-check SPEC=cursor-sdk-backend)
+	$(error SPEC is required, e.g. make kiro-spec-check SPEC=<spec-name>)
 endif
 ifeq ($(OS),Windows_NT)
 	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/kiro-spec-check.ps1 -Spec "$(SPEC)"
