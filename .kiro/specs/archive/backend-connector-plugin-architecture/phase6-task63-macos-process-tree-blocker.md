@@ -2,7 +2,8 @@
 
 ## Status
 
-**External blocker.** Tasks `6` and `6.3` remain unchecked until native macOS CI evidence is observed for the current tree.
+> [!warning] DEPRECATED
+> Resolved on 2026-07-28. GitHub Actions `ACP process-tree` run `30382805122` passed Windows, Ubuntu, and macOS jobs on SHA `e796998cc8f7095bce65e450211cb1aef3b76def`. Tasks `6` and `6.3` are complete. The remainder of this file preserves the historical blocker contract.
 
 ## Requirement (not weakened)
 

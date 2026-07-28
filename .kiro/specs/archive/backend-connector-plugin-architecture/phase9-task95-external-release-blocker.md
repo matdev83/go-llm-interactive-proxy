@@ -2,8 +2,10 @@
 
 ## Status
 
-**External blocker.** Task `9.5` and parent Phase `9` remain unchecked until the
-following workflows are observed green for the **same commit SHA** under review:
+> [!warning] DEPRECATED
+> Resolved on 2026-07-28. Ubuntu `Backend plugin release gates` run `30382809655`, three-OS cross-platform run `30382807401`, three-OS ACP process-tree run `30382805122`, and Ubuntu Codex race run `30382811954` all passed on SHA `e796998cc8f7095bce65e450211cb1aef3b76def`. Task `9.5` and parent Phase `9` are complete. The release workflow intentionally targets Ubuntu; cross-platform and ACP workflows provide the separate macOS/Windows evidence. The remainder of this file preserves the historical blocker contract.
+
+The original blocker required the following workflows on the same reviewed SHA:
 
 1. `.github/workflows/backend-plugin-release-gates.yml` — ubuntu/macOS/Windows
 2. `.github/workflows/backend-plugin-cross-platform.yml` — task 9.4 matrix
