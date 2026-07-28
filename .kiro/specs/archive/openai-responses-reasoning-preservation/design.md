@@ -4,7 +4,10 @@
 
 This design extends the shipped reasoning-output-preservation stack so OpenAI Responses reasoning can be ingested, stored, restored, and replayed as **exact opaque items** through the canonical middle. It does not replace the parent feature’s catalog gating, TurnStore, exact anchor matching, or inert unmatched posture. It closes the Responses fidelity gap with precise rules for presence semantics under SDK `openai-go/v3 v3.43.0`, progressive-vs-terminal stream duplication avoidance, `output_index` ordering, post-output failure timing, transform vs encoder ownership, and asymmetric FE/BE combination cells.
 
-Historical specs remain historical. This active spec owns the Responses production-grade claim. **Status:** requirements/design/tasks approved; local implementation + hardening evidenced; `ready_for_implementation` true; `implementation_complete` false until Requirement 10 release gates (Linux race, fuzz 30s, wide soak, `make qa`).
+Historical specs remain historical. This archived spec records the completed Responses production-grade implementation. **Status:** requirements/design/tasks approved; implementation and accepted hardening evidence complete; archived by human release-owner decision on 2026-07-28.
+
+> [!warning] DEPRECATED
+> The original design required Linux race evidence and a full wide soak before closeout. The human release owner waived Linux `-race`, the full 1000×100 soak, and live-provider smoke on 2026-07-28 after accepting deterministic local gates, retention-aware regression coverage, and selected 100-turn soak seeds. The waiver does not assert that the omitted gates ran.
 
 ### Goals
 
@@ -270,7 +273,7 @@ TDD: RED contracts -> RED mapper/encoder/FE -> GREEN -> feature ignore/capture -
 - Requirements + design approved; `ready_for_implementation` true.
 - Local implementation + hardening evidenced; Chat default suite remains green.
 - Operator docs describe exact Responses semantics and four FE/BE combinations.
-- Requirement 10 release gates (Linux race, fuzz 30s, wide soak, `make qa`) remain pending — `implementation_complete` stays false until evidenced.
+- Requirement 10 is closed by accepted local evidence and the explicit 2026-07-28 human release-owner waiver for Linux `-race`, the full 1000×100 soak, and live-provider smoke; `implementation_complete` is true.
 - Optional presentation-tagged progressive deltas remain deferred (terminal exact-part path shipped).
 
 ## Open Items For Human Approval (not open design defects)

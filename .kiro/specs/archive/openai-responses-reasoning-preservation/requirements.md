@@ -219,7 +219,10 @@ Acceptance criteria use stable **`N.M`** IDs for design/tasks/evidence traceabil
 
 ### Requirement 9: Hardening, performance, and soak evidence
 
-**Objective:** As a maintainer, I want fuzz/race/benchmark/matrix/soak evidence before claiming Responses production coverage.
+> [!warning] DEPRECATED
+> The original mandatory Linux-race and full-wide-soak interpretation was superseded for closeout by human release-owner decision on 2026-07-28. Deterministic local gates, targeted fuzz, ordinary concurrency coverage, bounded-retention regressions, and selected 100-turn soak seeds are accepted; Linux `-race`, full 1000×100 soak, and live-provider smoke are waived and were not executed.
+
+**Objective:** As a maintainer, I want proportionate fuzz/concurrency/benchmark/matrix/soak evidence before claiming Responses production coverage.
 
 #### Acceptance Criteria
 
@@ -227,7 +230,7 @@ Acceptance criteria use stable **`N.M`** IDs for design/tasks/evidence traceabil
 
 **9.2.** Fuzz targets shall cover new/extended parsers, envelope validators, and/or collect paths where practical, with a targeted ~30s gate before release claim.
 
-**9.3.** Linux race evidence shall be recorded for concurrency-sensitive paths; Windows may skip race per repository policy only when Linux evidence exists.
+**9.3.** Concurrency-sensitive paths shall have deterministic cancellation, ownership, and ordinary concurrency coverage. Linux race execution is recommended but is not a closeout prerequisite when explicitly waived by the human release owner.
 
 **9.4.** Hot ingest/encode/reorder paths shall have benchmarks or allocation checks if regressions are suspected.
 
@@ -241,7 +244,7 @@ Acceptance criteria use stable **`N.M`** IDs for design/tasks/evidence traceabil
 
 #### Acceptance Criteria
 
-**10.1.** Before claiming Responses production-grade coverage, the following shall pass: focused package tests for touched packages; `make quality-checks`; `make test-unit`; `make parity-checks`; applicable precommit/inventory/check-config dogfood; `make qa`; targeted fuzz ~30s; Linux race evidence; mixed-protocol soak/smoke evidence per Requirement 9.
+**10.1.** Before claiming Responses production-grade coverage, focused package tests, applicable quality/unit/parity/QA gates, targeted fuzz, deterministic matrix coverage, and proportionate mixed-protocol soak/smoke evidence shall pass. Linux race, full 1000×100 soak, and live-provider smoke may be waived by explicit human release-owner decision; a waiver shall record that omitted gates were not executed.
 
 **10.2.** Docs and EchoesVault shall stop stating that OpenAI Responses HTTP E2E / fidelity is deferred only after 10.1 evidence exists.
 
