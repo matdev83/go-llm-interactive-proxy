@@ -15,11 +15,11 @@ func TestEventKind_ValidateRejectsUnknown(t *testing.T) {
 		backendplugin.EventKind("text_delta\n"),
 		backendplugin.EventKind("TEXT_DELTA"),
 	} {
-		if err := kind.Validate(); !errors.Is(err, backendplugin.ErrUnknownEventKind) {
+		if err := backendplugin.ValidateEventKind(kind); !errors.Is(err, backendplugin.ErrUnknownEventKind) {
 			t.Fatalf("kind %q: want ErrUnknownEventKind, got %v", kind, err)
 		}
 	}
-	if err := backendplugin.EventTextDelta.Validate(); err != nil {
+	if err := backendplugin.ValidateEventKind(backendplugin.EventTextDelta); err != nil {
 		t.Fatal(err)
 	}
 }

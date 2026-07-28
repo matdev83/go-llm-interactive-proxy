@@ -301,10 +301,10 @@ func findManifestExport(m sdkmanifest.Manifest, kind string) (sdkmanifest.Export
 }
 
 func securityProfileFromExport(exp sdkmanifest.Export) (pluginreg.BackendSecurityProfile, error) {
-	if err := exp.CredentialMode.Validate(); err != nil {
+	if err := backendplugin.ValidateCredentialMode(exp.CredentialMode); err != nil {
 		return pluginreg.BackendSecurityProfile{}, err
 	}
-	if err := exp.AccessScope.Validate(); err != nil {
+	if err := backendplugin.ValidateAccessScope(exp.AccessScope); err != nil {
 		return pluginreg.BackendSecurityProfile{}, err
 	}
 	return pluginreg.BackendSecurityProfile{

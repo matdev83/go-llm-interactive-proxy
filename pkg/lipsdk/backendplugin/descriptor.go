@@ -26,10 +26,10 @@ func (d PluginDescriptor) Validate() error {
 			return ErrInvalidDescriptor
 		}
 		seen[kind] = struct{}{}
-		if err := f.CredentialMode.Validate(); err != nil {
+		if err := ValidateCredentialMode(f.CredentialMode); err != nil {
 			return err
 		}
-		if err := f.AccessScope.Validate(); err != nil {
+		if err := ValidateAccessScope(f.AccessScope); err != nil {
 			return err
 		}
 		if err := f.ProcessSharing.Validate(); err != nil {

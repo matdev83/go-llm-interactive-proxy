@@ -1,15 +1,5 @@
 package backendplugin
 
-// UsagePresence records which usage counters were explicitly supplied.
-type UsagePresence struct {
-	InputTokens      bool
-	OutputTokens     bool
-	CacheReadTokens  bool
-	CacheWriteTokens bool
-	ReasoningTokens  bool
-	TotalTokens      bool
-}
-
 // UsageEvidence is canonical usage/billing evidence with explicit presence.
 type UsageEvidence struct {
 	InputTokens      *int64

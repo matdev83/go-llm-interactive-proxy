@@ -1,5 +1,7 @@
 package backendplugin
 
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+
 // StreamValidator enforces accepted-before-sequence, monotonic sequences, and one terminal.
 type StreamValidator struct {
 	accepted   bool
@@ -51,12 +53,5 @@ func (v *StreamValidator) Push(frame ServerFrame) error {
 
 // OutputCommittedEvent reports whether an event kind commits output for failover.
 func OutputCommittedEvent(kind EventKind) bool {
-	switch kind {
-	case EventTextDelta, EventReasoningDelta, EventReasoningOpaqueDelta,
-		EventToolCallStarted, EventToolCallArgsDelta,
-		EventAssistantImageRef, EventAssistantFileRef:
-		return true
-	default:
-		return false
-	}
+	return lipapi.OutputCommitted(lipapi.Event{Kind: kind})
 }

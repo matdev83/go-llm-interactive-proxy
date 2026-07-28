@@ -58,7 +58,7 @@ func TestForwardExecute_ForwardsEventsVerbatim(t *testing.T) {
 				t.Fatalf("frame[%d]: nil event", i)
 			}
 			gotEvents = append(gotEvents, lipapi.Event{
-				Kind:  lipapi.EventKind(f.Event.Kind),
+				Kind:  f.Event.Kind,
 				Delta: derefStr(f.Event.Delta),
 			})
 		case backendplugin.ServerFrameTerminal:
