@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonpresence"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/identitywire"
 	frontendlimits "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/limits"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openaiwire"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -420,16 +421,5 @@ func parseToolConfig(raw json.RawMessage, toolCount int) (lipapi.ToolChoice, err
 
 // ModelFromCall returns the wire model string stored during decode.
 func ModelFromCall(c *lipapi.Call) string {
-	if c == nil || c.Extensions == nil {
-		return ""
-	}
-	raw, ok := c.Extensions[extModelJSONKey]
-	if !ok || len(raw) == 0 {
-		return ""
-	}
-	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		return strings.TrimSpace(s)
-	}
-	return ""
+	return openaiwire.ModelFromExtensions(c, extModelJSONKey)
 }

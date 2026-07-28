@@ -3,7 +3,6 @@ package openailegacy
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,15 +27,6 @@ type EncodeOptions struct {
 	CompletionID             string
 	CreatedAt                int64
 	ExposeLipUsageExtensions bool
-}
-
-type wireAPIError struct {
-	Error struct {
-		Message string  `json:"message"`
-		Type    string  `json:"type"`
-		Param   any     `json:"param"`
-		Code    *string `json:"code,omitempty"`
-	} `json:"error"`
 }
 
 type wireChatCompletion struct {
@@ -177,20 +167,6 @@ func defaultEncodeOptions(call *lipapi.Call, opts EncodeOptions) EncodeOptions {
 	return opts
 }
 
-// WriteErrorJSON writes an OpenAI-shaped JSON error.
-func WriteErrorJSON(w http.ResponseWriter, status int, message, errType, code string) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	var we wireAPIError
-	we.Error.Message = message
-	we.Error.Type = errType
-	we.Error.Param = nil
-	if code != "" {
-		we.Error.Code = &code
-	}
-	return json.NewEncoder(w).Encode(we)
-}
-
 // WriteNonStreamJSON encodes a completed canonical stream as chat.completion JSON.
 func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts EncodeOptions) error {
 	col, err := lipapi.Collect(ctx, es)
@@ -245,22 +221,7 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 }
 
 // WriteStreamSSE emits chat.completion.chunk SSE events incrementally from the canonical stream.
-func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts EncodeOptions) (err error) {
-	ka, err := stream.WrapRecoveryKeepalive(es)
-	if err != nil {
-		return err
-	}
-	es = ka
-	defer func() {
-		if cerr := es.Close(); cerr != nil {
-			closeErr := fmt.Errorf("openailegacy: close event stream: %w", cerr)
-			if err != nil {
-				err = errors.Join(err, closeErr)
-			} else {
-				err = closeErr
-			}
-		}
-	}()
+func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts EncodeOptions) error {
 	model := ModelFromCall(call)
 	if model == "" {
 		model = "gpt-4o-mini"
@@ -297,15 +258,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 	nextToolStreamIndex := 0
 	sawTool := false
 
-	var ev lipapi.Event
-	for {
-		ev, err = es.Recv(ctx)
-		if errors.Is(err, io.EOF) {
-			return fmt.Errorf("openailegacy: stream ended without response_finished")
-		}
-		if err != nil {
-			return err
-		}
+	return stream.PumpSSE(ctx, w, es, fmt.Errorf("openailegacy: stream ended without response_finished"), func(ev lipapi.Event) (bool, error) {
 		switch ev.Kind {
 		case lipapi.EventResponseStarted, lipapi.EventMessageStarted:
 		case lipapi.EventUsageDelta:
@@ -315,7 +268,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			st.delta = wireDelta{Content: ev.Delta}
 			st.choices[0].Delta = &st.delta
 			if err := stream.FlushSSEDataJSON(w, fl, st.chunk); err != nil {
-				return err
+				return false, err
 			}
 		case lipapi.EventToolCallStarted:
 			sawTool = true
@@ -333,7 +286,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			st.delta = wireDelta{ToolCalls: st.tools[:]}
 			st.choices[0].Delta = &st.delta
 			if err := stream.FlushSSEDataJSON(w, fl, st.chunk); err != nil {
-				return err
+				return false, err
 			}
 		case lipapi.EventToolCallArgsDelta:
 			sawTool = true
@@ -352,7 +305,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			st.delta = wireDelta{ToolCalls: st.tools[:]}
 			st.choices[0].Delta = &st.delta
 			if err := stream.FlushSSEDataJSON(w, fl, st.chunk); err != nil {
-				return err
+				return false, err
 			}
 		case lipapi.EventToolCallFinished:
 			sawTool = true
@@ -366,31 +319,22 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			st.choices[0].FinishReason = &stop
 			st.chunk.Usage = wireLegacyUsage(usageCol, opts.ExposeLipUsageExtensions)
 			if err := stream.FlushSSEDataJSON(w, fl, st.chunk); err != nil {
-				return err
+				return false, err
 			}
 			if _, err := io.WriteString(w, "data: [DONE]\n\n"); err != nil {
-				return err
+				return false, err
 			}
 			fl.Flush()
-			return nil
-		case lipapi.EventError:
-			return lipapi.NewStreamError(ev.ErrorCode, ev.ErrorMessage)
-		case lipapi.EventWarning:
-			if ev.WarningCode == stream.KeepaliveEventCode {
-				if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
-					return err
-				}
-				fl.Flush()
-				continue
-			}
+			return true, nil
 		case lipapi.EventReasoningDelta:
 			st.choices[0].FinishReason = nil
 			st.delta = wireDelta{ReasoningContent: ev.Delta, Reasoning: ev.Delta}
 			st.choices[0].Delta = &st.delta
 			if err := stream.FlushSSEDataJSON(w, fl, st.chunk); err != nil {
-				return err
+				return false, err
 			}
 		default:
 		}
-	}
+		return false, nil
+	})
 }

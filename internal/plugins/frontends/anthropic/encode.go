@@ -3,9 +3,7 @@ package anthropic
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -337,22 +335,7 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 	return json.NewEncoder(w).Encode(out)
 }
 
-func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts EncodeOptions) (err error) {
-	ka, err := stream.WrapRecoveryKeepalive(es)
-	if err != nil {
-		return err
-	}
-	es = ka
-	defer func() {
-		if cerr := es.Close(); cerr != nil {
-			closeErr := fmt.Errorf("anthropic: close event stream: %w", cerr)
-			if err != nil {
-				err = errors.Join(err, closeErr)
-			} else {
-				err = closeErr
-			}
-		}
-	}()
+func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts EncodeOptions) error {
 	model := ModelFromCall(call)
 	if model == "" {
 		model = "claude-3-5-haiku-20241022"
@@ -478,27 +461,18 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		return stream.FlushSSEEventJSON(w, fl, "content_block_start", &cb)
 	}
 
-	var ev lipapi.Event
-	for {
-		ev, err = es.Recv(ctx)
-		if errors.Is(err, io.EOF) {
-			return fmt.Errorf("anthropic: stream ended without response_finished")
-		}
-		if err != nil {
-			return err
-		}
+	return stream.PumpSSE(ctx, w, es, fmt.Errorf("anthropic: stream ended without response_finished"), func(ev lipapi.Event) (bool, error) {
 		switch ev.Kind {
-		case lipapi.EventResponseStarted:
-		case lipapi.EventMessageStarted:
+		case lipapi.EventResponseStarted, lipapi.EventMessageStarted:
 		case lipapi.EventUsageDelta:
 			usageCol.AccumulateUsage(ev)
 		case lipapi.EventToolCallStarted:
 			if err := openToolBlock(ev.ToolCallID, ev.ToolName); err != nil {
-				return err
+				return false, err
 			}
 		case lipapi.EventToolCallArgsDelta:
 			if err := openToolBlock(ev.ToolCallID, ""); err != nil {
-				return err
+				return false, err
 			}
 			idx := toolBlockIdx[ev.ToolCallID]
 			d := anthropicSSEDeltaJSON{
@@ -510,23 +484,23 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				},
 			}
 			if err := stream.FlushSSEEventJSON(w, fl, "content_block_delta", &d); err != nil {
-				return err
+				return false, err
 			}
 		case lipapi.EventToolCallFinished:
 			idx, ok := toolBlockIdx[ev.ToolCallID]
 			if !ok {
-				continue
+				return false, nil
 			}
 			cbStop := anthropicSSEContentBlockStop{Type: "content_block_stop", Index: idx}
 			if err := stream.FlushSSEEventJSON(w, fl, "content_block_stop", &cbStop); err != nil {
-				return err
+				return false, err
 			}
 		case lipapi.EventTextDelta:
 			if err := closeThinkingBlock(); err != nil {
-				return err
+				return false, err
 			}
 			if err := openTextBlock(); err != nil {
-				return err
+				return false, err
 			}
 			d := anthropicSSEDeltaText{
 				Type:  "content_block_delta",
@@ -534,11 +508,11 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				Delta: anthropicSSETextDeltaInner{Type: "text_delta", Text: ev.Delta},
 			}
 			if err := stream.FlushSSEEventJSON(w, fl, "content_block_delta", &d); err != nil {
-				return err
+				return false, err
 			}
 		case lipapi.EventReasoningDelta:
 			if err := openThinkingBlock(); err != nil {
-				return err
+				return false, err
 			}
 			d := anthropicSSEDeltaThinking{
 				Type:  "content_block_delta",
@@ -546,22 +520,22 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				Delta: anthropicSSEThinkingDeltaInner{Type: "thinking_delta", Thinking: ev.Delta},
 			}
 			if err := stream.FlushSSEEventJSON(w, fl, "content_block_delta", &d); err != nil {
-				return err
+				return false, err
 			}
 		case lipapi.EventReasoningSignatureDelta:
 			if err := openThinkingBlock(); err != nil {
-				return err
+				return false, err
 			}
 			if len(thinkingSignature)+len(ev.Signature) > lipapi.MaxRefStringBytes {
-				return fmt.Errorf("anthropic: thinking signature exceeds %d byte limit", lipapi.MaxRefStringBytes)
+				return false, fmt.Errorf("anthropic: thinking signature exceeds %d byte limit", lipapi.MaxRefStringBytes)
 			}
 			thinkingSignature += ev.Signature
 		case lipapi.EventReasoningOpaqueDelta:
 			if err := closeThinkingBlock(); err != nil {
-				return err
+				return false, err
 			}
 			if err := flushMessageStart(); err != nil {
-				return err
+				return false, err
 			}
 			data := ""
 			if len(ev.Opaque) > 0 {
@@ -570,12 +544,12 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 					Data string `json:"data"`
 				}
 				if err := json.Unmarshal(ev.Opaque, &envelope); err != nil {
-					return fmt.Errorf("anthropic: redacted_thinking opaque: %w", err)
+					return false, fmt.Errorf("anthropic: redacted_thinking opaque: %w", err)
 				}
 				data = envelope.Data
 			}
 			if err := frontendlimits.StringBytes("redacted_thinking.data", data, lipapi.MaxReasoningOpaqueBytes); err != nil {
-				return err
+				return false, err
 			}
 			idx := nextBlockIdx
 			nextBlockIdx++
@@ -585,15 +559,15 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				ContentBlock: anthropicSSERedactedBlock{Type: "redacted_thinking", Data: data},
 			}
 			if err := stream.FlushSSEEventJSON(w, fl, "content_block_start", &cb); err != nil {
-				return err
+				return false, err
 			}
 			cbStop := anthropicSSEContentBlockStop{Type: "content_block_stop", Index: idx}
 			if err := stream.FlushSSEEventJSON(w, fl, "content_block_stop", &cbStop); err != nil {
-				return err
+				return false, err
 			}
 		case lipapi.EventAssistantImageRef, lipapi.EventAssistantFileRef:
 			if err := closeThinkingBlock(); err != nil {
-				return err
+				return false, err
 			}
 			idx := nextBlockIdx
 			nextBlockIdx++
@@ -611,25 +585,25 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			}
 			cb.ContentBlock.Source = src
 			if err := stream.FlushSSEEventJSON(w, fl, "content_block_start", &cb); err != nil {
-				return err
+				return false, err
 			}
 			cbStop := anthropicSSEContentBlockStop{Type: "content_block_stop", Index: idx}
 			if err := stream.FlushSSEEventJSON(w, fl, "content_block_stop", &cbStop); err != nil {
-				return err
+				return false, err
 			}
 		case lipapi.EventResponseFinished:
 			if err := closeThinkingBlock(); err != nil {
-				return err
+				return false, err
 			}
 			if !msgStarted {
 				if err := openTextBlock(); err != nil {
-					return err
+					return false, err
 				}
 			}
 			if textBlockIdx >= 0 {
 				cbStop := anthropicSSEContentBlockStop{Type: "content_block_stop", Index: textBlockIdx}
 				if err := stream.FlushSSEEventJSON(w, fl, "content_block_stop", &cbStop); err != nil {
-					return err
+					return false, err
 				}
 			}
 			stop := "end_turn"
@@ -642,24 +616,15 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			msgDelta.Delta.StopSequence = anthropicJSONNull
 			msgDelta.Usage = wireAnthropicUsage(usageCol, opts.ExposeLipUsageExtensions)
 			if err := stream.FlushSSEEventJSON(w, fl, "message_delta", &msgDelta); err != nil {
-				return err
+				return false, err
 			}
 			stopPayload := anthropicSSEMessageStop{Type: "message_stop"}
 			if err := stream.FlushSSEEventJSON(w, fl, "message_stop", &stopPayload); err != nil {
-				return err
+				return false, err
 			}
-			return nil
-		case lipapi.EventError:
-			return lipapi.NewStreamError(ev.ErrorCode, ev.ErrorMessage)
-		case lipapi.EventWarning:
-			if ev.WarningCode == stream.KeepaliveEventCode {
-				if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
-					return err
-				}
-				fl.Flush()
-				continue
-			}
+			return true, nil
 		default:
 		}
-	}
+		return false, nil
+	})
 }

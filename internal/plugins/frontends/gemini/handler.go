@@ -1,32 +1,20 @@
 package gemini
 
 import (
-	"context"
 	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/execerr"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/holdalive"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/jsonguard"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/reqbody"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/routeselect"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/streamdebug"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
 
-const (
-	// HeaderRouteSelector carries the core routing selector (e.g. stub:gemini-2.0-flash).
-	HeaderRouteSelector = "X-LIP-Route"
-)
+const HeaderRouteSelector = routeselect.HeaderRouteSelector
 
 // Handler wires HTTP POST …/models/{model}:generateContent (and stream variant) to decode → executor → encode.
-// Tool/function-call history follows the subset documented with the Gemini adapter (see requirements 8.x).
 type Handler struct {
 	Exec lipsdk.ExecutorView
 	// DefaultRouteSelector is used when HeaderRouteSelector is absent.
@@ -39,150 +27,62 @@ type Handler struct {
 	DecodeAdmission     lipsdk.DecodeAdmission
 	PreRequestKeepalive lipsdk.FrontendKeepaliveConfig
 	Config              Config
+
+	pipe frontendpipe.Spec[EncodeOptions]
 }
 
-func (h *Handler) maxBodyLimit() int64 {
-	if h != nil && h.MaxRequestBodyBytes > 0 {
-		return h.MaxRequestBodyBytes
+func (h *Handler) spec() *frontendpipe.Spec[EncodeOptions] {
+	if h.pipe.Config.Exec != nil || h.pipe.Decode != nil {
+		return &h.pipe
 	}
-	return reqbody.DefaultMaxBytes
-}
-
-func (h *Handler) logWriteJSONErr(ctx context.Context, msg string, werr error) {
-	if h.Log == nil || werr == nil {
-		return
+	h.pipe = frontendpipe.Spec[EncodeOptions]{
+		Config: frontendpipe.Config{
+			Exec:                 h.Exec,
+			DefaultRouteSelector: h.DefaultRouteSelector,
+			RoutePrefixes:        h.RoutePrefixes,
+			MaxRequestBodyBytes:  h.MaxRequestBodyBytes,
+			Log:                  h.Log,
+			TrafficPorts:         h.TrafficPorts,
+			DecodeAdmission:      h.DecodeAdmission,
+			PreRequestKeepalive:  h.PreRequestKeepalive,
+			FrontendID:           ID,
+		},
+		Wire: WireErrors{},
+		ResolveRouteSelector: func(r *http.Request, _ []byte, pm frontendpipe.PathMatch) string {
+			if sel := strings.TrimSpace(r.Header.Get(routeselect.HeaderRouteSelector)); sel != "" {
+				return sel
+			}
+			return h.RoutePrefixes.InlineOrDefault(pm.Model, h.DefaultRouteSelector)
+		},
+		MatchPath: func(path string) (frontendpipe.PathMatch, bool) {
+			model, stream, ok := ParseGenerateContentPath(path)
+			if !ok {
+				return frontendpipe.PathMatch{}, false
+			}
+			return frontendpipe.PathMatch{Model: model, Stream: stream}, true
+		},
+		Decode: func(dctx frontendpipe.DecodeContext) (*frontendpipe.Decoded, error) {
+			decoded, err := DecodeGenerateContentRequest(dctx.Body, DecodeOptions{
+				RouteSelector: dctx.RouteSelector,
+				Model:         dctx.Path.Model,
+				Stream:        dctx.Path.Stream,
+				Headers:       dctx.Headers,
+			})
+			if err != nil {
+				return nil, err
+			}
+			return &frontendpipe.Decoded{Call: decoded.Call, Stream: dctx.Path.Stream, RouteSelector: dctx.RouteSelector}, nil
+		},
+		BuildEncodeOpts: func(_ *lipapi.Call, _ bool) EncodeOptions {
+			return EncodeOptions{ExposeLipUsageExtensions: h.Config.ExposeLipUsageExtensions}
+		},
+		WriteStream:    WriteStreamSSE,
+		WriteNonStream: WriteNonStreamJSON,
 	}
-	diag.LogError(ctx, h.Log, msg, diag.AttrOpts{}, werr)
-}
-
-func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, stream bool) (lipapi.EventStream, error) {
-	if !stream {
-		return h.Exec.Execute(ctx, call)
-	}
-	return holdalive.Wait(ctx, w, holdalive.Config{
-		Enabled:  h.PreRequestKeepalive.Enabled,
-		Interval: h.PreRequestKeepalive.Interval,
-	}, func(ctx context.Context) (lipapi.EventStream, error) {
-		return h.Exec.Execute(ctx, call)
-	})
+	return &h.pipe
 }
 
 // ServeHTTP implements generateContent / streamGenerateContent for the Google AI (ML dev) layout.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	model, stream, ok := ParseGenerateContentPath(r.URL.Path)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-
-	limits := jsonguard.Limits{MaxBytes: h.maxBodyLimit()}
-	body, err := reqbody.ReadAll(w, r, limits.MaxBytes)
-	if err != nil {
-		if reqbody.TooLarge(err) {
-			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusRequestEntityTooLarge, "request body too large"))
-			return
-		}
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusBadRequest, "could not read request body"))
-		return
-	}
-	ct := strings.TrimSpace(r.Header.Get("Content-Type"))
-	if ct == "" {
-		ct = "application/octet-stream"
-	}
-	if h.Exec == nil {
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusInternalServerError, "executor not configured"))
-		return
-	}
-
-	sel := strings.TrimSpace(r.Header.Get(HeaderRouteSelector))
-	if _, err := jsonguard.PreflightContext(ctx, body, limits); err != nil {
-		if jsonguard.Classify(err) == jsonguard.KindCanceled {
-			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusServiceUnavailable, execerr.InternalWireMessage))
-			return
-		}
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusBadRequest, "invalid request JSON"))
-		return
-	}
-	if sel == "" {
-		sel = h.RoutePrefixes.InlineOrDefault(model, h.DefaultRouteSelector)
-	}
-	releaseDecode, ok, err := decodeqos.TryAdmit(ctx, h.DecodeAdmission, int64(len(body)))
-	if d := decodeqos.Decide(ok, err); d.Status != 0 {
-		if d.RetryAfter {
-			w.Header().Set("Retry-After", decodeqos.RetryAfterSeconds)
-		}
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, d.Status, d.Message))
-		return
-	}
-	var decoded *DecodedGenerate
-	err = decodeqos.Guard(releaseDecode, func() error {
-		var derr error
-		decoded, derr = DecodeGenerateContentRequest(body, DecodeOptions{
-			RouteSelector: sel,
-			Model:         model,
-			Stream:        stream,
-			Headers:       r.Header,
-		})
-		return derr
-	})
-	if err != nil {
-		log := diag.LoggerOrDefault(h.Log)
-		diag.LogError(ctx, log, "decode request failed", diag.AttrOpts{}, err, slog.String("detail", diag.TruncErrDetail(err, 512)))
-		streamdebug.LogDecodeFailure(ctx, log, ID, body, err)
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusBadRequest, "invalid request JSON"))
-		return
-	}
-	call := decoded.Call
-	if err := call.Validate(); err != nil {
-		if h.Log != nil {
-			diag.LogError(ctx, h.Log, "validate call failed", diag.AttrOpts{CallID: call.ID}, err, slog.String("detail", diag.TruncErrDetail(err, 512)))
-		}
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusBadRequest, "invalid request"))
-		return
-	}
-
-	traceID := diag.StableCallID(call)
-	ctx = diag.EnsureCallDiag(ctx, traceID, strings.TrimSpace(call.Session.ALegID))
-	h.TrafficPorts.Emit(ctx, traffic.LegCTP, traffic.CaptureMeta{
-		TraceID:   traceID,
-		SessionID: call.Session.CorrelationID(),
-	}, "http", ct, body)
-
-	streamdebug.LogCall(ctx, h.Log, ID, call, stream, len(body), sel)
-	executeStart := time.Now()
-	es, err := h.execute(ctx, w, call, stream)
-	if err != nil {
-		out := execerr.ClassifyExecute(err)
-		if out.Kind == execerr.KindInternalError && h.Log != nil && out.Err != nil {
-			diag.LogError(ctx, h.Log, "execute failed", diag.AttrOpts{CallID: call.ID}, out.Err)
-		}
-		msg := out.Message
-		if out.Kind == execerr.KindInternalError {
-			msg = execerr.InternalWireMessage
-		}
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, out.Status, msg))
-		return
-	}
-
-	streamdebug.LogExecuteOpened(ctx, h.Log, ID, call, executeStart)
-	ctx = diag.EnsureCallDiag(ctx, traceID, strings.TrimSpace(call.Session.ALegID))
-	es = streamdebug.Wrap(ctx, h.Log, ID, call, es, executeStart)
-
-	opts := EncodeOptions{ExposeLipUsageExtensions: h.Config.ExposeLipUsageExtensions}
-	if stream {
-		if err := WriteStreamSSE(ctx, w, call, es, opts); err != nil {
-			diag.LogError(ctx, h.Log, "stream encode failed", diag.AttrOpts{CallID: call.ID}, err)
-			return
-		}
-		return
-	}
-	if err := WriteNonStreamJSON(ctx, w, call, es, opts); err != nil {
-		diag.LogError(ctx, h.Log, "non-stream encode failed", diag.AttrOpts{CallID: call.ID}, err)
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusInternalServerError, execerr.InternalWireMessage))
-	}
+	frontendpipe.ServeHTTP(h.spec(), w, r)
 }
