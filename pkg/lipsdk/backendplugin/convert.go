@@ -317,6 +317,8 @@ func partKindFromProto(v backendpluginv1.PartKind) (PartKind, error) {
 		return PartKindToolCall, nil
 	case backendpluginv1.PartKind_PART_KIND_TOOL_RESULT:
 		return PartKindToolResult, nil
+	case backendpluginv1.PartKind_PART_KIND_JSON:
+		return PartKindJSON, nil
 	default:
 		return PartKindUnspecified, ErrUnknownEnum
 	}
@@ -336,6 +338,8 @@ func partKindToProto(v PartKind) (backendpluginv1.PartKind, error) {
 		return backendpluginv1.PartKind_PART_KIND_TOOL_CALL, nil
 	case PartKindToolResult:
 		return backendpluginv1.PartKind_PART_KIND_TOOL_RESULT, nil
+	case PartKindJSON:
+		return backendpluginv1.PartKind_PART_KIND_JSON, nil
 	default:
 		return backendpluginv1.PartKind_PART_KIND_UNSPECIFIED, ErrUnknownEnum
 	}
