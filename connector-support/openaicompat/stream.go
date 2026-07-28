@@ -42,6 +42,14 @@ func (s *sliceStream) Close() error {
 	return nil
 }
 
+// chatToolTrack mirrors essential openaicompat chatStream index→id tracking so
+// finish_reason=="tool_calls" can emit EventToolCallFinished with stable IDs.
+type chatToolTrack struct {
+	activeTools     map[int64]string
+	pendingToolArgs map[int64][]string
+	activeToolOrder []int64
+}
+
 type sseStream struct {
 	resp     *http.Response
 	flavor   Flavor
@@ -51,6 +59,7 @@ type sseStream struct {
 	pending  []lipapi.Event
 	started  bool
 	msgStart bool
+	tools    chatToolTrack
 	done     bool
 	closed   bool
 	mu       sync.Mutex
@@ -111,7 +120,7 @@ func (s *sseStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}
 			continue
 		}
-		events, err := decodeSSEData([]byte(payload), s.flavor, &s.started, &s.msgStart)
+		events, err := decodeSSEData([]byte(payload), s.flavor, &s.started, &s.msgStart, &s.tools)
 		if err != nil {
 			return lipapi.Event{}, err
 		}
@@ -129,16 +138,16 @@ func (s *sseStream) Close() error {
 	return nil
 }
 
-func decodeSSEData(raw []byte, flavor Flavor, started, msgStart *bool) ([]lipapi.Event, error) {
+func decodeSSEData(raw []byte, flavor Flavor, started, msgStart *bool, tools *chatToolTrack) ([]lipapi.Event, error) {
 	switch flavor {
 	case FlavorResponses:
 		return decodeResponsesSSE(raw, started, msgStart)
 	default:
-		return decodeChatSSE(raw, started, msgStart)
+		return decodeChatSSE(raw, started, msgStart, tools)
 	}
 }
 
-func decodeChatSSE(raw []byte, started, msgStart *bool) ([]lipapi.Event, error) {
+func decodeChatSSE(raw []byte, started, msgStart *bool, tools *chatToolTrack) ([]lipapi.Event, error) {
 	var chunk struct {
 		Choices []struct {
 			Delta struct {
@@ -146,6 +155,7 @@ func decodeChatSSE(raw []byte, started, msgStart *bool) ([]lipapi.Event, error) 
 				ReasoningContent string `json:"reasoning_content"`
 				Reasoning        string `json:"reasoning"`
 				ToolCalls        []struct {
+					Index    int64  `json:"index"`
 					ID       string `json:"id"`
 					Function struct {
 						Name      string `json:"name"`
@@ -153,6 +163,7 @@ func decodeChatSSE(raw []byte, started, msgStart *bool) ([]lipapi.Event, error) 
 					} `json:"function"`
 				} `json:"tool_calls"`
 			} `json:"delta"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 		Usage *struct {
 			PromptTokens     int `json:"prompt_tokens"`
@@ -161,6 +172,9 @@ func decodeChatSSE(raw []byte, started, msgStart *bool) ([]lipapi.Event, error) 
 	}
 	if err := json.Unmarshal(raw, &chunk); err != nil {
 		return nil, fmt.Errorf("openaicompat: chat sse: %w", err)
+	}
+	if tools == nil {
+		tools = &chatToolTrack{}
 	}
 	var out []lipapi.Event
 	ensure := func() {
@@ -181,20 +195,55 @@ func decodeChatSSE(raw []byte, started, msgStart *bool) ([]lipapi.Event, error) 
 		}
 		for _, tc := range d.ToolCalls {
 			ensure()
-			if tc.ID != "" && tc.Function.Name != "" {
-				out = append(out, lipapi.Event{
-					Kind: lipapi.EventToolCallStarted, ToolCallID: tc.ID, ToolName: tc.Function.Name,
-				})
+			if tc.ID != "" {
+				if tools.activeTools == nil {
+					tools.activeTools = make(map[int64]string)
+				}
+				if _, seen := tools.activeTools[tc.Index]; !seen {
+					tools.activeToolOrder = append(tools.activeToolOrder, tc.Index)
+				}
+				tools.activeTools[tc.Index] = tc.ID
+				if tc.Function.Name != "" {
+					out = append(out, lipapi.Event{
+						Kind: lipapi.EventToolCallStarted, ToolCallID: tc.ID, ToolName: tc.Function.Name,
+					})
+				}
+				for _, args := range tools.pendingToolArgs[tc.Index] {
+					out = append(out, lipapi.Event{
+						Kind: lipapi.EventToolCallArgsDelta, ToolCallID: tc.ID, Delta: args,
+					})
+				}
+				delete(tools.pendingToolArgs, tc.Index)
 			}
 			if tc.Function.Arguments != "" {
+				id := tools.activeTools[tc.Index]
+				if id == "" {
+					if tools.pendingToolArgs == nil {
+						tools.pendingToolArgs = make(map[int64][]string)
+					}
+					tools.pendingToolArgs[tc.Index] = append(tools.pendingToolArgs[tc.Index], tc.Function.Arguments)
+					continue
+				}
 				out = append(out, lipapi.Event{
-					Kind: lipapi.EventToolCallArgsDelta, ToolCallID: tc.ID, Delta: tc.Function.Arguments,
+					Kind: lipapi.EventToolCallArgsDelta, ToolCallID: id, Delta: tc.Function.Arguments,
 				})
 			}
 		}
 		if d.Content != "" {
 			ensure()
 			out = append(out, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: d.Content})
+		}
+		if ch.FinishReason == "tool_calls" {
+			for _, idx := range tools.activeToolOrder {
+				if id := tools.activeTools[idx]; id != "" {
+					out = append(out, lipapi.Event{
+						Kind: lipapi.EventToolCallFinished, ToolCallID: id,
+					})
+				}
+			}
+			tools.activeTools = nil
+			tools.pendingToolArgs = nil
+			tools.activeToolOrder = nil
 		}
 	}
 	if chunk.Usage != nil {

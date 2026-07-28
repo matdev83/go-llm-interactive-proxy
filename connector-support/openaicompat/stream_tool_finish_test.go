@@ -1,0 +1,127 @@
+package openaicompat_test
+
+import (
+	"context"
+	"io"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/connector-support/openaicompat"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+)
+
+// toolCallFinishSSE mirrors the essential adapter fixture in
+// internal/plugins/backends/openaicompat.TestHandleChatChunk_toolCallsStreamingFromJSON:
+// tool-call deltas then finish_reason=="tool_calls".
+func toolCallFinishSSE() string {
+	return strings.Join([]string{
+		`data: {"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_ab","type":"function","function":{"name":"get_weather"}}]},"finish_reason":null}]}`,
+		`data: {"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\""}}]},"finish_reason":null}]}`,
+		`data: {"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":":\"NYC\"}"}}]},"finish_reason":null}]}`,
+		`data: {"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
+		`data: [DONE]`,
+		"",
+	}, "\n")
+}
+
+// multiToolCallFinishSSE starts two tool calls (index 0 and 1) then finishes both.
+func multiToolCallFinishSSE() string {
+	return strings.Join([]string{
+		`data: {"id":"cc_multi","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"alpha"}}]},"finish_reason":null}]}`,
+		`data: {"id":"cc_multi","choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_b","type":"function","function":{"name":"beta"}}]},"finish_reason":null}]}`,
+		`data: {"id":"cc_multi","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"a\":1}"}}]},"finish_reason":null}]}`,
+		`data: {"id":"cc_multi","choices":[{"delta":{"tool_calls":[{"index":1,"function":{"arguments":"{\"b\":2}"}}]},"finish_reason":null}]}`,
+		`data: {"id":"cc_multi","choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
+		`data: [DONE]`,
+		"",
+	}, "\n")
+}
+
+func collectChatSSE(t *testing.T, sse string) []lipapi.Event {
+	t.Helper()
+	srv := httptest.NewServer(openaicompat.NewEmulator(openaicompat.EmulatorConfig{
+		ChatStreamSSE: sse,
+	}))
+	t.Cleanup(srv.Close)
+	c := &openaicompat.Client{
+		BaseURL:    srv.URL + "/v1",
+		APIKey:     "sk-test",
+		HTTPClient: srv.Client(),
+	}
+	es, err := c.Open(context.Background(), sampleCall(), "emu-model", openaicompat.FlavorChat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = es.Close() })
+	var events []lipapi.Event
+	for {
+		ev, err := es.Recv(context.Background())
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, ev)
+	}
+	return events
+}
+
+func toolLifecycle(events []lipapi.Event) []lipapi.Event {
+	out := make([]lipapi.Event, 0, len(events))
+	for _, ev := range events {
+		switch ev.Kind {
+		case lipapi.EventToolCallStarted, lipapi.EventToolCallArgsDelta, lipapi.EventToolCallFinished:
+			out = append(out, ev)
+		}
+	}
+	return out
+}
+
+func TestDecodeChatSSE_toolCallFinishSemantics(t *testing.T) {
+	t.Parallel()
+	events := collectChatSSE(t, toolCallFinishSSE())
+	lifecycle := toolLifecycle(events)
+
+	// Essential adapter sequence for the same SSE: Started, Args, Args, Finished.
+	want := []lipapi.Event{
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "call_ab", ToolName: "get_weather"},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_ab", Delta: `{"city"`},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_ab", Delta: `:"NYC"}`},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "call_ab"},
+	}
+	if len(lifecycle) != len(want) {
+		t.Fatalf("tool lifecycle len=%d want %d\ngot=%+v", len(lifecycle), len(want), lifecycle)
+	}
+	for i := range want {
+		got, w := lifecycle[i], want[i]
+		if got.Kind != w.Kind || got.ToolCallID != w.ToolCallID || got.ToolName != w.ToolName || got.Delta != w.Delta {
+			t.Fatalf("lifecycle[%d]=%+v want %+v", i, got, w)
+		}
+	}
+}
+
+func TestDecodeChatSSE_multiToolCallFinishByIndex(t *testing.T) {
+	t.Parallel()
+	events := collectChatSSE(t, multiToolCallFinishSSE())
+	lifecycle := toolLifecycle(events)
+
+	want := []lipapi.Event{
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "call_a", ToolName: "alpha"},
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "call_b", ToolName: "beta"},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_a", Delta: `{"a":1}`},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_b", Delta: `{"b":2}`},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "call_a"},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "call_b"},
+	}
+	if len(lifecycle) != len(want) {
+		t.Fatalf("tool lifecycle len=%d want %d\ngot=%+v", len(lifecycle), len(want), lifecycle)
+	}
+	for i := range want {
+		got, w := lifecycle[i], want[i]
+		if got.Kind != w.Kind || got.ToolCallID != w.ToolCallID || got.ToolName != w.ToolName || got.Delta != w.Delta {
+			t.Fatalf("lifecycle[%d]=%+v want %+v", i, got, w)
+		}
+	}
+}
