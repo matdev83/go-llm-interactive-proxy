@@ -90,9 +90,6 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 	}
 
 	stageOut, err := runStageAdmit(ctx, &out.Stack, slots, in, timeout, requestAdmitConfig())
-	if err != nil {
-		return stageOut, err
-	}
 	out.Kind = stageOut.Kind
 	out.Clamps = stageOut.Clamps
 	out.Stack = stageOut.Stack
@@ -102,7 +99,7 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 	out.Evidence = stageOut.Evidence
 	out.DeniedBy = stageOut.DeniedBy
 	out.BoundVersions = append(out.BoundVersions, stageOut.BoundVersions...)
-	return out, nil
+	return out, err
 }
 
 func (c *RequestCoordinator) Settle(parent context.Context, stack CompensationStack, in authority.RequestSettlement) error {
