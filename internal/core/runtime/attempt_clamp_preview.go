@@ -41,7 +41,7 @@ func (e *Executor) resolveAttemptClampPreviewer() attemptClampPreviewFunc {
 		}
 		return nil
 	}
-	adapter := newUsageAuthorityProviderAdapter(e.authorityService())
+	adapter := newUsageAuthorityProviderAdapter(e.UsageAuthority)
 	if adapter == nil {
 		return nil
 	}

@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -75,8 +74,6 @@ type Registry struct {
 	reloadPolicies     map[string]BackendReloadPolicy
 	discovered         map[string]struct{}
 	discoveryFrozen    bool
-	rescanAttempts     atomic.Int64
-	installAttempts    atomic.Int64
 	frontends          map[string]FrontendMount
 	features           map[string]FeatureFactory
 	authErrorRenderers map[string]lipsdk.AuthErrorRenderer

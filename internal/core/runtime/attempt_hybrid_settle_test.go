@@ -237,7 +237,7 @@ func TestAuthorityLifecycle_CoordinatorPreservesBuiltinReservationMetadata(t *te
 		Rules:     []authoritydomain.Rule{rule},
 		FetchedAt: now,
 	}}, store, nil, hybridAuthorityClock{at: now})
-	req, att := buildDefaultCoordinators(svc, nil)
+	req, att := BuildAuthorityCoordinators(svc, nil)
 	_ = req
 	external := &controllableAttemptProvider{id: "enterprise-attempt"}
 	att.Slots = append(att.Slots, authoritycoord.AttemptSlot{

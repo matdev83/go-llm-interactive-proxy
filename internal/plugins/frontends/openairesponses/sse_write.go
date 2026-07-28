@@ -2,16 +2,7 @@ package openairesponses
 
 import (
 	"encoding/json"
-	"io"
-	"net/http"
-
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 )
-
-// flushSSE writes one Server-Sent Events frame: event line, data line (JSON), blank line.
-func flushSSE(w io.Writer, fl http.Flusher, eventName string, payload any) error {
-	return stream.FlushSSEEventJSON(w, fl, eventName, payload)
-}
 
 // Typed SSE JSON payloads (avoid map[string]any boxing in the hot loop).
 

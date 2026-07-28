@@ -223,7 +223,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		nextOutIdx++
 		toolByCallID[callID] = st
 		toolOrder = append(toolOrder, st)
-		if err := flushSSE(w, fl, "response.output_item.added", streamOutputItemAddedFunc{
+		if err := stream.FlushSSEEventJSON(w, fl, "response.output_item.added", streamOutputItemAddedFunc{
 			Type:           "response.output_item.added",
 			SequenceNumber: nextSeq(),
 			OutputIndex:    st.OutputIndex,
@@ -249,14 +249,14 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		Model:     model,
 		Output:    []any{},
 	}
-	if err := flushSSE(w, fl, "response.created", wireStreamEnvelope{
+	if err := stream.FlushSSEEventJSON(w, fl, "response.created", wireStreamEnvelope{
 		Type:           "response.created",
 		SequenceNumber: nextSeq(),
 		Response:       createdResponse,
 	}); err != nil {
 		return err
 	}
-	if err := flushSSE(w, fl, "response.in_progress", wireStreamEnvelope{
+	if err := stream.FlushSSEEventJSON(w, fl, "response.in_progress", wireStreamEnvelope{
 		Type:           "response.in_progress",
 		SequenceNumber: nextSeq(),
 		Response:       createdResponse,
@@ -304,7 +304,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		}
 		idx := nextOutIdx
 		nextOutIdx++
-		if err := flushSSE(w, fl, "response.output_item.added", streamOutputItemExactReasoning{
+		if err := stream.FlushSSEEventJSON(w, fl, "response.output_item.added", streamOutputItemExactReasoning{
 			Type:           "response.output_item.added",
 			SequenceNumber: nextSeq(),
 			OutputIndex:    idx,
@@ -313,7 +313,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			return err
 		}
 		for i, text := range summaries {
-			if err := flushSSE(w, fl, "response.reasoning_summary_part.added", streamReasoningSummaryPartAdded{
+			if err := stream.FlushSSEEventJSON(w, fl, "response.reasoning_summary_part.added", streamReasoningSummaryPartAdded{
 				Type:           "response.reasoning_summary_part.added",
 				SequenceNumber: nextSeq(),
 				ItemID:         id,
@@ -323,7 +323,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			}); err != nil {
 				return err
 			}
-			if err := flushSSE(w, fl, "response.reasoning_summary_text.done", streamReasoningSummaryTextDone{
+			if err := stream.FlushSSEEventJSON(w, fl, "response.reasoning_summary_text.done", streamReasoningSummaryTextDone{
 				Type:           "response.reasoning_summary_text.done",
 				SequenceNumber: nextSeq(),
 				ItemID:         id,
@@ -333,7 +333,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			}); err != nil {
 				return err
 			}
-			if err := flushSSE(w, fl, "response.reasoning_summary_part.done", streamReasoningSummaryPartDone{
+			if err := stream.FlushSSEEventJSON(w, fl, "response.reasoning_summary_part.done", streamReasoningSummaryPartDone{
 				Type:           "response.reasoning_summary_part.done",
 				SequenceNumber: nextSeq(),
 				ItemID:         id,
@@ -344,7 +344,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				return err
 			}
 		}
-		if err := flushSSE(w, fl, "response.output_item.done", streamOutputItemExactReasoning{
+		if err := stream.FlushSSEEventJSON(w, fl, "response.output_item.done", streamOutputItemExactReasoning{
 			Type:           "response.output_item.done",
 			SequenceNumber: nextSeq(),
 			OutputIndex:    idx,
@@ -363,7 +363,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		reasoningStarted = true
 		reasoningOutputIndex = nextOutIdx
 		nextOutIdx++
-		if err := flushSSE(w, fl, "response.output_item.added", streamOutputItemAddedReasoning{
+		if err := stream.FlushSSEEventJSON(w, fl, "response.output_item.added", streamOutputItemAddedReasoning{
 			Type:           "response.output_item.added",
 			SequenceNumber: nextSeq(),
 			OutputIndex:    reasoningOutputIndex,
@@ -376,7 +376,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		}); err != nil {
 			return err
 		}
-		return flushSSE(w, fl, "response.reasoning_summary_part.added", streamReasoningSummaryPartAdded{
+		return stream.FlushSSEEventJSON(w, fl, "response.reasoning_summary_part.added", streamReasoningSummaryPartAdded{
 			Type:           "response.reasoning_summary_part.added",
 			SequenceNumber: nextSeq(),
 			ItemID:         reasoningItemID,
@@ -397,7 +397,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		}
 		reasoningClosed = true
 		text := fullReasoning.String()
-		if err := flushSSE(w, fl, "response.reasoning_summary_text.done", streamReasoningSummaryTextDone{
+		if err := stream.FlushSSEEventJSON(w, fl, "response.reasoning_summary_text.done", streamReasoningSummaryTextDone{
 			Type:           "response.reasoning_summary_text.done",
 			SequenceNumber: nextSeq(),
 			ItemID:         reasoningItemID,
@@ -407,7 +407,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		}); err != nil {
 			return err
 		}
-		if err := flushSSE(w, fl, "response.reasoning_summary_part.done", streamReasoningSummaryPartDone{
+		if err := stream.FlushSSEEventJSON(w, fl, "response.reasoning_summary_part.done", streamReasoningSummaryPartDone{
 			Type:           "response.reasoning_summary_part.done",
 			SequenceNumber: nextSeq(),
 			ItemID:         reasoningItemID,
@@ -417,7 +417,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		}); err != nil {
 			return err
 		}
-		return flushSSE(w, fl, "response.output_item.done", streamOutputItemDoneReasoning{
+		return stream.FlushSSEEventJSON(w, fl, "response.output_item.done", streamOutputItemDoneReasoning{
 			Type:           "response.output_item.done",
 			SequenceNumber: nextSeq(),
 			OutputIndex:    reasoningOutputIndex,
@@ -436,7 +436,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		messageStarted = true
 		messageOutputIndex = nextOutIdx
 		nextOutIdx++
-		if err := flushSSE(w, fl, "response.output_item.added", streamOutputItemAddedMsg{
+		if err := stream.FlushSSEEventJSON(w, fl, "response.output_item.added", streamOutputItemAddedMsg{
 			Type:           "response.output_item.added",
 			SequenceNumber: nextSeq(),
 			OutputIndex:    messageOutputIndex,
@@ -457,7 +457,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		partAdded.OutputIndex = messageOutputIndex
 		partAdded.Part.Type = "output_text"
 		partAdded.Part.Text = ""
-		return flushSSE(w, fl, "response.content_part.added", partAdded)
+		return stream.FlushSSEEventJSON(w, fl, "response.content_part.added", partAdded)
 	}
 	closeMessageItem := func() error {
 		if !messageStarted || messageClosed {
@@ -465,7 +465,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		}
 		messageClosed = true
 		text := fullText.String()
-		if err := flushSSE(w, fl, "response.output_text.done", streamOutputTextDone{
+		if err := stream.FlushSSEEventJSON(w, fl, "response.output_text.done", streamOutputTextDone{
 			Type:           "response.output_text.done",
 			SequenceNumber: nextSeq(),
 			ItemID:         messageItemID,
@@ -483,7 +483,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				messageParts = append(messageParts, streamMsgContent{Type: "input_file", FileID: p.FileRef, FileName: p.FileName})
 			}
 		}
-		if err := flushSSE(w, fl, "response.content_part.done", streamContentPartDone{
+		if err := stream.FlushSSEEventJSON(w, fl, "response.content_part.done", streamContentPartDone{
 			Type:           "response.content_part.done",
 			SequenceNumber: nextSeq(),
 			ItemID:         messageItemID,
@@ -492,7 +492,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		}); err != nil {
 			return err
 		}
-		return flushSSE(w, fl, "response.output_item.done", streamOutputItemDoneMessage{
+		return stream.FlushSSEEventJSON(w, fl, "response.output_item.done", streamOutputItemDoneMessage{
 			Type:           "response.output_item.done",
 			SequenceNumber: nextSeq(),
 			OutputIndex:    messageOutputIndex,
@@ -527,7 +527,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				return err
 			}
 			fullText.WriteString(ev.Delta)
-			if err := flushSSE(w, fl, "response.output_text.delta", streamOutputTextDelta{
+			if err := stream.FlushSSEEventJSON(w, fl, "response.output_text.delta", streamOutputTextDelta{
 				Type:           "response.output_text.delta",
 				SequenceNumber: nextSeq(),
 				ItemID:         messageItemID,
@@ -555,7 +555,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			nextOutIdx++
 			toolByCallID[ev.ToolCallID] = st
 			toolOrder = append(toolOrder, st)
-			if err := flushSSE(w, fl, "response.output_item.added", streamOutputItemAddedFunc{
+			if err := stream.FlushSSEEventJSON(w, fl, "response.output_item.added", streamOutputItemAddedFunc{
 				Type:           "response.output_item.added",
 				SequenceNumber: nextSeq(),
 				OutputIndex:    st.OutputIndex,
@@ -576,7 +576,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				return err
 			}
 			st.Args.WriteString(ev.Delta)
-			if err := flushSSE(w, fl, "response.function_call_arguments.delta", streamFuncArgsDelta{
+			if err := stream.FlushSSEEventJSON(w, fl, "response.function_call_arguments.delta", streamFuncArgsDelta{
 				Type:           "response.function_call_arguments.delta",
 				SequenceNumber: nextSeq(),
 				ItemID:         st.ItemID,
@@ -611,7 +611,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				continue
 			}
 			args := st.Args.String()
-			if err := flushSSE(w, fl, "response.function_call_arguments.done", streamFuncArgsDone{
+			if err := stream.FlushSSEEventJSON(w, fl, "response.function_call_arguments.done", streamFuncArgsDone{
 				Type:           "response.function_call_arguments.done",
 				SequenceNumber: nextSeq(),
 				ItemID:         st.ItemID,
@@ -621,7 +621,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			}); err != nil {
 				return err
 			}
-			if err := flushSSE(w, fl, "response.output_item.done", streamOutputItemDone{
+			if err := stream.FlushSSEEventJSON(w, fl, "response.output_item.done", streamOutputItemDone{
 				Type:           "response.output_item.done",
 				SequenceNumber: nextSeq(),
 				OutputIndex:    st.OutputIndex,
@@ -692,7 +692,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			completed.Response.Model = model
 			completed.Response.Output = out
 			completed.Response.Usage = wireResponsesUsage(usageCol, opts.ExposeLipUsageExtensions)
-			if err := flushSSE(w, fl, "response.completed", completed); err != nil {
+			if err := stream.FlushSSEEventJSON(w, fl, "response.completed", completed); err != nil {
 				return err
 			}
 			if _, err := io.WriteString(w, "data: [DONE]\n\n"); err != nil {
@@ -715,7 +715,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				return err
 			}
 			fullReasoning.WriteString(ev.Delta)
-			if err := flushSSE(w, fl, "response.reasoning_summary_text.delta", streamReasoningSummaryTextDelta{
+			if err := stream.FlushSSEEventJSON(w, fl, "response.reasoning_summary_text.delta", streamReasoningSummaryTextDelta{
 				Type:           "response.reasoning_summary_text.delta",
 				SequenceNumber: nextSeq(),
 				ItemID:         reasoningItemID,

@@ -527,7 +527,7 @@ func TestBuild_failSoftInvalidInventoryDoesNotAcceptDuringBuild(t *testing.T) {
 	if got := built.Registry.All(); len(got) != 1 || got[0].BackendID != "good" {
 		t.Fatalf("models = %+v, want only good", got)
 	}
-	// Allowlists stay untouched during Build; Runtime.publish/syncAllowlists commits.
+	// Allowlists stay untouched during Build; Runtime.publish/syncAllowlistsUnion commits.
 	if len(corrupt.Accepted()) != 0 {
 		t.Fatalf("corrupt AcceptInventory during Build = %+v, want none", corrupt.Accepted())
 	}

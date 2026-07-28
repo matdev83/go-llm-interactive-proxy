@@ -356,11 +356,6 @@ func exposureSpend(exp economics.ExposureBasis) domain.Amount {
 // BuildAuthorityCoordinators wires thin adapters into request/attempt coordinators
 // when a usage-authority service and/or concurrency provider is present.
 func BuildAuthorityCoordinators(svc UsageAuthorityService, concurrency authority.ConcurrencyProvider) (*authoritycoord.RequestCoordinator, *authoritycoord.AttemptCoordinator) {
-	return buildDefaultCoordinators(svc, concurrency)
-}
-
-// buildDefaultCoordinators wires thin adapters into request/attempt coordinators.
-func buildDefaultCoordinators(svc UsageAuthorityService, concurrency authority.ConcurrencyProvider) (*authoritycoord.RequestCoordinator, *authoritycoord.AttemptCoordinator) {
 	adapter := newUsageAuthorityProviderAdapter(svc)
 	if adapter == nil && concurrency == nil {
 		return nil, nil

@@ -463,8 +463,7 @@ func leaseIDsFromDecision(ld authority.LeaseDecision) []string {
 }
 
 // Release compensates request-stage holds using a fresh cleanup context.
-func (c *RequestCoordinator) Release(ctx context.Context, stack CompensationStack, reqID string) []CompensateFailed {
-	_ = reqID
+func (c *RequestCoordinator) Release(ctx context.Context, stack CompensationStack) []CompensateFailed {
 	timeout := defaultCleanupTimeout
 	if c != nil && c.CleanupTimeout > 0 {
 		timeout = c.CleanupTimeout
