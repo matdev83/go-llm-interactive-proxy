@@ -3,7 +3,6 @@ package journalstore_test
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -200,8 +199,7 @@ func TestPhase3_SQLite_VerifySchemaRequiresFiltersStoreIDAndMigrationNames(t *te
 
 func openEmptySQLiteBun(t *testing.T) *bun.DB {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "upgrade.db")
-	sqlDB, err := sql.Open("sqlite", path)
+	sqlDB, err := sql.Open("sqlite", memorySQLiteDSN())
 	if err != nil {
 		t.Fatal(err)
 	}

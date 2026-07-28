@@ -1,14 +1,7 @@
 package runtimebundle_test
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"fmt"
 	"net/http"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -17,7 +10,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
-	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"gopkg.in/yaml.v3"
 )
 
@@ -27,10 +19,10 @@ func TestInspect_DiscoveredOptionalKinds_NoBuiltinCollision(t *testing.T) {
 		kind  string
 		stage func(testing.TB) string
 	}{
-		{kind: "openrouter", stage: bpkit.StageOpenRouter},
-		{kind: "opencode-go", stage: bpkit.StageOpenCode},
-		{kind: "opencode-zen", stage: bpkit.StageOpenCode},
-		{kind: "openai-codex", stage: bpkit.StageCodex},
+		{kind: "openrouter", stage: runtimebundle.StageOpenRouterForTest},
+		{kind: "opencode-go", stage: runtimebundle.StageOpenCodeForTest},
+		{kind: "opencode-zen", stage: runtimebundle.StageOpenCodeForTest},
+		{kind: "openai-codex", stage: runtimebundle.StageCodexForTest},
 	}
 	for _, tc := range cases {
 		t.Run(tc.kind, func(t *testing.T) {
@@ -153,67 +145,5 @@ func TestInspect_RealBuiltinCollision_Diagnosed(t *testing.T) {
 
 func stageColliderExportingEssential(t *testing.T, kind string) string {
 	t.Helper()
-	repo := findInspectRepoRoot(t)
-	root := t.TempDir()
-	binName := "lip-backendplugin-fake"
-	if runtime.GOOS == "windows" {
-		binName += ".exe"
-	}
-	rel := filepath.ToSlash(filepath.Join("bin", binName))
-	dst := filepath.Join(root, filepath.FromSlash(rel))
-	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command("go", "build", "-o", dst, "./internal/testkit/backendplugin/cmd/lip-backendplugin-fake")
-	cmd.Dir = repo
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build collider fake: %v\n%s", err, out)
-	}
-	data, err := os.ReadFile(dst)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sum := sha256.Sum256(data)
-	digest := hex.EncodeToString(sum[:])
-	body := fmt.Sprintf(`{
-  "schema":"golip.backendplugin.manifest/v1",
-  "plugin_id":"io.golip.backend.collider",
-  "version":"1.0.0",
-  "build_id":"b",
-  "executable":%q,
-  "sha256":%q,
-  "protocol_major":1,
-  "protocol_min_minor":0,
-  "protocol_max_minor":0,
-  "platforms":[{"os":%q,"arch":%q}],
-  "exports":[{
-    "kind":%q,
-    "credential_mode":"none",
-    "access_scope":"local_only",
-    "process_sharing":"per_instance"
-  }]
-}`, rel, digest, runtime.GOOS, runtime.GOARCH, kind)
-	if err := os.WriteFile(filepath.Join(root, "plugin.backendplugin.json"), []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return root
-}
-
-func findInspectRepoRoot(t *testing.T) string {
-	t.Helper()
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := wd
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("go.mod not found")
-		}
-		dir = parent
-	}
+	return runtimebundle.StageColliderExportingEssentialForTest(t, kind)
 }

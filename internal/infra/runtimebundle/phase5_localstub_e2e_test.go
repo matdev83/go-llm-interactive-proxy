@@ -15,7 +15,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
-	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
@@ -23,7 +22,7 @@ import (
 func TestPhase5_LocalStubExternalViaBuildHost(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	pluginRoot := bpkit.StageLocalStub(t)
+	pluginRoot := runtimebundle.StageLocalStubForTest(t)
 	cfgPath := writeLocalStubDiscoveryConfig(t, pluginRoot)
 	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
 		ConfigPath:      cfgPath,

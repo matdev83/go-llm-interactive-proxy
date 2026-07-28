@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -231,8 +230,7 @@ func TestPhase32_Memory_Literal1NUL_ReplayRaw0_NoDuplicate(t *testing.T) {
 
 func openPhase32SQLite(t *testing.T, storeID string) (*journalstore.DurableStore, *bun.DB) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), storeID+".db")
-	sqlDB, err := sql.Open("sqlite", path)
+	sqlDB, err := sql.Open("sqlite", memorySQLiteDSN())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3,7 +3,9 @@ package authoritystore
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,6 +29,27 @@ func reconcileReserveCommandInternal(ruleID string, value int64) app.ReserveComm
 func openSeedRaceDB(t *testing.T, path string) *bun.DB {
 	t.Helper()
 	sqlDB, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=busy_timeout(5000)&_txlock=immediate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
+	if err != nil {
+		_ = sqlDB.Close()
+		t.Fatal(err)
+	}
+	return bunDB
+}
+
+var seedRaceMemDSN atomic.Int64
+
+// openSeedRaceMemDB mirrors openSeedRaceDB over a uniquely named in-memory
+// database for tests that never close and reopen the database file; restart
+// and backfill-after-reopen tests must keep using the file-backed helper.
+func openSeedRaceMemDB(t *testing.T) *bun.DB {
+	t.Helper()
+	name := fmt.Sprintf("file:seed-race-%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)&_txlock=immediate", seedRaceMemDSN.Add(1))
+	sqlDB, err := sql.Open("sqlite", name)
 	if err != nil {
 		t.Fatal(err)
 	}

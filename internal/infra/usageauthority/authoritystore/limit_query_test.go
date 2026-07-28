@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,7 +55,7 @@ func TestDurableLimitStatusBackfillsLegacyRows(t *testing.T) {
 func TestDurableLimitStatusFiltersBeforeDecodeAndPagesBySortKey(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	db := openSeedRaceDB(t, filepath.Join(t.TempDir(), "authority.db"))
+	db := openSeedRaceMemDB(t)
 	store, err := NewDurable(ctx, db, Config{StoreID: "bounded-limits", Backing: domain.BackingCapabilityAtomic})
 	if err != nil {
 		t.Fatal(err)
@@ -67,6 +68,50 @@ func TestDurableLimitStatusFiltersBeforeDecodeAndPagesBySortKey(t *testing.T) {
 	}
 	base := time.Unix(1_700_000_000, 0).UTC()
 	var firstCorruptKey string
+	type pendingRow struct {
+		key string
+		row controlplane.AccountingLimitStatusRow
+		raw string
+	}
+	const flushSize = 200
+	pending := make([]pendingRow, 0, flushSize)
+	var targetRows []pendingRow
+	// Batched multi-row INSERTs: the 2000-row seed must keep every row and
+	// filter identical to per-row seeding, but pure-Go SQLite per-statement
+	// cost dominates, so rows are flushed in chunks.
+	flush := func() {
+		if len(pending) == 0 {
+			return
+		}
+		var rowsQuery strings.Builder
+		rowsArgs := make([]any, 0, len(pending)*3)
+		rowsQuery.WriteString(`INSERT INTO usage_authority_limit_rows(store_id, row_key, row_json) VALUES `)
+		var filtersQuery strings.Builder
+		filtersArgs := make([]any, 0, len(pending)*80)
+		filtersQuery.WriteString(`INSERT INTO usage_authority_limit_filters(store_id, row_key, field_name, field_value) VALUES `)
+		for i, p := range pending {
+			if i > 0 {
+				rowsQuery.WriteByte(',')
+			}
+			rowsQuery.WriteString(`(?,?,?)`)
+			rowsArgs = append(rowsArgs, "bounded-limits", p.key, p.raw)
+			for j, filter := range limitFiltersForRow(p.key, p.row) {
+				if i > 0 || j > 0 {
+					filtersQuery.WriteByte(',')
+				}
+				filtersQuery.WriteString(`(?,?,?,?)`)
+				filtersArgs = append(filtersArgs, "bounded-limits", p.key, filter.name, filter.value)
+			}
+		}
+		filtersQuery.WriteString(` ON CONFLICT DO NOTHING`)
+		if _, err := tx.ExecContext(ctx, rowsQuery.String(), rowsArgs...); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.ExecContext(ctx, filtersQuery.String(), filtersArgs...); err != nil {
+			t.Fatal(err)
+		}
+		pending = pending[:0]
+	}
 	for i := 1; i <= 2000; i++ {
 		ruleID := "unrelated"
 		traceID := "other"
@@ -81,10 +126,21 @@ func TestDurableLimitStatusFiltersBeforeDecodeAndPagesBySortKey(t *testing.T) {
 			firstCorruptKey = key
 		}
 		raw, _ := json.Marshal(row)
-		if _, err := tx.ExecContext(ctx, `INSERT INTO usage_authority_limit_rows(store_id, row_key, row_json) VALUES(?,?,?)`, "bounded-limits", key, string(raw)); err != nil {
-			t.Fatal(err)
+		seeded := pendingRow{key: key, row: row, raw: string(raw)}
+		if ruleID == "target" {
+			targetRows = append(targetRows, seeded)
 		}
-		if err := store.replaceLimitFiltersTx(ctx, tx, "bounded-limits", key, row); err != nil {
+		pending = append(pending, seeded)
+		if len(pending) == flushSize {
+			flush()
+		}
+	}
+	flush()
+	// Route the target rows through the production filter-replacement helper so
+	// this test keeps covering it; the batched seed above already wrote
+	// identical filter rows for them, so the final state is unchanged.
+	for _, seeded := range targetRows {
+		if err := store.replaceLimitFiltersTx(ctx, tx, "bounded-limits", seeded.key, seeded.row); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -126,7 +182,7 @@ func TestDurableLimitStatusFiltersBeforeDecodeAndPagesBySortKey(t *testing.T) {
 func TestDurableLimitStatusReportsUnsupportedFilters(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	db := openSeedRaceDB(t, filepath.Join(t.TempDir(), "authority.db"))
+	db := openSeedRaceMemDB(t)
 	row := controlplane.AccountingLimitStatusRow{
 		RuleID: "unsupported", RuleType: string(domain.RuleKindQuota), Unit: string(domain.AmountUnitRequests),
 		Limit: 10, Remaining: 10, Authority: controlplane.AccountingAuthoritySourceAuthoritative,

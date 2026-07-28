@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -161,8 +160,7 @@ func TestPhase35_MemoryList_ComposesPerspectiveBoundarySourceAuthority(t *testin
 func TestPhase35_SQLite_IndexedFilterRowsAndList(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "p35-idx.db")
-	sqlDB, err := sql.Open("sqlite", path)
+	sqlDB, err := sql.Open("sqlite", memorySQLiteDSN())
 	if err != nil {
 		t.Fatal(err)
 	}

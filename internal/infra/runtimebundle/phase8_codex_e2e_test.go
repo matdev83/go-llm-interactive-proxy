@@ -20,7 +20,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	refbackend "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openaicodex"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
-	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
@@ -33,7 +32,7 @@ func TestPhase8_CodexHTTPExternalViaBuildHost(t *testing.T) {
 	srv := httptest.NewServer(emu.Handler())
 	t.Cleanup(srv.Close)
 
-	pluginRoot := bpkit.StageCodex(t)
+	pluginRoot := runtimebundle.StageCodexForTest(t)
 	fakeCLI := stageFakeCodexCLI(t)
 	pidFile := fakeCLI + ".pid"
 	childPIDFile := fakeCLI + ".child.pid"
@@ -131,36 +130,7 @@ func TestPhase8_CodexConfiguredMissingFails(t *testing.T) {
 
 func stageFakeCodexCLI(t *testing.T) (exe string) {
 	t.Helper()
-	dir := t.TempDir()
-	exe = filepath.Join(dir, "fake-codex-cli.exe")
-	cmd := exec.Command("go", "build", "-o", exe, "./cmd/fake-codex-cli")
-	cmd.Dir = filepath.Join(codexRepoRoot(t), "connectors", "codex")
-	cmd.Env = append(os.Environ(), "GOWORK=off")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build fake-codex-cli: %v\n%s", err, out)
-	}
-	return exe
-}
-
-func codexRepoRoot(t *testing.T) string {
-	t.Helper()
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := wd
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			if _, err := os.Stat(filepath.Join(dir, "connectors", "codex", "go.mod")); err == nil {
-				return dir
-			}
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("repo root not found")
-		}
-		dir = parent
-	}
+	return runtimebundle.StageFakeCodexCLIForTest(t)
 }
 
 func writeCodexDiscoveryConfig(t *testing.T, pluginRoot, codexURL string, enable bool, fakeCLI string) string {

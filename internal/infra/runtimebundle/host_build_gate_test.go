@@ -12,13 +12,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/osenv"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
-	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
 func gateConfigPath(t *testing.T, address string, mode accessmode.Mode) string {
 	t.Helper()
-	return bpkit.MaterializeExampleConfig(t, writeOneSnapshotMarkerConfig(t, address, mode))
+	return MaterializeExampleConfigForTest(t, writeOneSnapshotMarkerConfig(t, address, mode))
 }
 
 // TestBuildHost_CLIMultiUserGateRejectsBeforeTracing proves the serve-only CLI
@@ -154,7 +153,7 @@ func TestBuildHost_PublicPathSkipsCLIMultiUserGate(t *testing.T) {
 func TestHostClose_TracingShutdownExactlyOnceOnSuccess(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	cfgPath := bpkit.MaterializeExampleConfig(t, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"))
+	cfgPath := MaterializeExampleConfigForTest(t, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"))
 	host, err := BuildHost(ctx, BuildHostInput{
 		ConfigPath:      cfgPath,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),

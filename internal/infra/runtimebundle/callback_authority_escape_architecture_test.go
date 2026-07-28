@@ -182,19 +182,45 @@ type windowsOverlayHostCB = func(*Host) int
 func useWindowsOverlayHostCB(f windowsOverlayHostCB) int { return f(nil) }
 `),
 		}
+		var mu sync.Mutex
 		var hits []string
+		var errs []error
 		analyzed := map[string]bool{}
+		analyzed[filepath.Clean(overlayPath)] = true
+		var wg sync.WaitGroup
 		for _, bc := range callbackSupportedBuildContexts {
-			pkg := loadTypedPackageForContext(t, runtimebundlePkgPath, bc, overlay)
-			for _, f := range pkg.CompiledGoFiles {
-				analyzed[filepath.Clean(f)] = true
-			}
-			for _, f := range pkg.GoFiles {
-				analyzed[filepath.Clean(f)] = true
-			}
-			analyzed[filepath.Clean(overlayPath)] = true
-			owners := resolveProtectedOwners(t, pkg)
-			hits = append(hits, findOwnerCallbackEscapes(pkg, owners)...)
+			wg.Add(1)
+			go func(bc callbackBuildContext) {
+				defer wg.Done()
+				pkg, err := typedPackageForContextE(runtimebundlePkgPath, bc, overlay)
+				if err != nil {
+					mu.Lock()
+					errs = append(errs, err)
+					mu.Unlock()
+					return
+				}
+				owners, err := protectedOwnersE(pkg)
+				if err != nil {
+					mu.Lock()
+					errs = append(errs, err)
+					mu.Unlock()
+					return
+				}
+				contextHits := findOwnerCallbackEscapes(pkg, owners)
+				mu.Lock()
+				defer mu.Unlock()
+				for _, f := range pkg.CompiledGoFiles {
+					analyzed[filepath.Clean(f)] = true
+				}
+				for _, f := range pkg.GoFiles {
+					analyzed[filepath.Clean(f)] = true
+				}
+				hits = append(hits, contextHits...)
+			}(bc)
+		}
+		wg.Wait()
+		if len(errs) > 0 {
+			t.Fatalf("windows overlay context load failed: %v", errs)
 		}
 		hits = dedupeStrings(hits)
 		joined := strings.Join(hits, "\n")
@@ -278,72 +304,31 @@ func packageByPath(t *testing.T, pkgs []*packages.Package, path string) *package
 
 func loadOwnerReachablePackagesAcrossContexts(t *testing.T, overlay map[string][]byte) ([]*packages.Package, map[string]bool) {
 	t.Helper()
+	var mu sync.Mutex
 	var all []*packages.Package
+	var errs []error
 	analyzed := map[string]bool{}
+	var wg sync.WaitGroup
 	for _, bc := range callbackSupportedBuildContexts {
-		graph, err := packages.Load(&packages.Config{
-			Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-				packages.NeedImports | packages.NeedDeps | packages.NeedModule,
-			Tests: false, Env: callbackPackagesEnv(bc), Overlay: overlay,
-		}, runtimeModulePattern)
-		if err != nil || packages.PrintErrors(graph) > 0 || len(graph) == 0 {
-			t.Fatalf("load module import graph (%s/%s): err=%v packages=%d (fail closed)", bc.GOOS, bc.GOARCH, err, len(graph))
-		}
-		memo, visiting := map[string]bool{}, map[string]bool{}
-		var reachesOwner func(*packages.Package) bool
-		reachesOwner = func(pkg *packages.Package) bool {
-			if pkg == nil {
-				return false
+		wg.Add(1)
+		go func(bc callbackBuildContext) {
+			defer wg.Done()
+			typed, analyzedFiles, err := loadOwnerReachablePackagesForContext(bc, overlay)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				errs = append(errs, err)
+				return
 			}
-			if pkg.PkgPath == runtimebundlePkgPath || pkg.PkgPath == runtimehostPkgPath {
-				return true
+			for path := range analyzedFiles {
+				analyzed[path] = true
 			}
-			if v, ok := memo[pkg.PkgPath]; ok {
-				return v
-			}
-			if visiting[pkg.PkgPath] {
-				return false
-			}
-			visiting[pkg.PkgPath] = true
-			for _, imported := range pkg.Imports {
-				if reachesOwner(imported) {
-					visiting[pkg.PkgPath] = false
-					memo[pkg.PkgPath] = true
-					return true
-				}
-			}
-			visiting[pkg.PkgPath] = false
-			memo[pkg.PkgPath] = false
-			return false
-		}
-		var paths []string
-		for _, pkg := range graph {
-			if reachesOwner(pkg) {
-				paths = append(paths, pkg.PkgPath)
-			}
-		}
-		if len(paths) == 0 {
-			t.Fatalf("module import graph (%s/%s) contains no owner-reachable packages", bc.GOOS, bc.GOARCH)
-		}
-		sort.Strings(paths)
-		typed, err := packages.Load(&packages.Config{
-			Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-				packages.NeedImports | packages.NeedTypes | packages.NeedTypesSizes |
-				packages.NeedSyntax | packages.NeedTypesInfo | packages.NeedModule,
-			Tests: false, Env: callbackPackagesEnv(bc), Overlay: overlay,
-		}, paths...)
-		if err != nil || packages.PrintErrors(typed) > 0 || len(typed) != len(paths) {
-			t.Fatalf("type-load owner-reachable packages (%s/%s): err=%v want=%d got=%d (fail closed)", bc.GOOS, bc.GOARCH, err, len(paths), len(typed))
-		}
-		for _, pkg := range typed {
-			if pkg.Types == nil || pkg.TypesInfo == nil {
-				t.Fatalf("owner-reachable package %s missing types info", pkg.PkgPath)
-			}
-			for _, path := range append(pkg.GoFiles, pkg.CompiledGoFiles...) {
-				analyzed[filepath.Clean(path)] = true
-			}
-		}
-		all = append(all, typed...)
+			all = append(all, typed...)
+		}(bc)
+	}
+	wg.Wait()
+	if len(errs) > 0 {
+		t.Fatalf("owner-reachable load failed: %v", errs)
 	}
 	for path := range overlay {
 		analyzed[filepath.Clean(path)] = true
@@ -357,17 +342,83 @@ func loadOwnerReachablePackagesAcrossContexts(t *testing.T, overlay map[string][
 	return all, analyzed
 }
 
-func loadTypedPackageForContext(t *testing.T, pattern string, bc callbackBuildContext, overlay map[string][]byte) *packages.Package {
-	t.Helper()
+func loadOwnerReachablePackagesForContext(bc callbackBuildContext, overlay map[string][]byte) ([]*packages.Package, map[string]bool, error) {
+	analyzed := map[string]bool{}
+	graph, err := packages.Load(&packages.Config{
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
+			packages.NeedImports | packages.NeedDeps | packages.NeedModule,
+		Tests: false, Env: callbackPackagesEnv(bc), Overlay: overlay,
+	}, runtimeModulePattern)
+	if err != nil || packages.PrintErrors(graph) > 0 || len(graph) == 0 {
+		return nil, nil, fmt.Errorf("load module import graph (%s/%s): err=%v packages=%d (fail closed)", bc.GOOS, bc.GOARCH, err, len(graph))
+	}
+	memo, visiting := map[string]bool{}, map[string]bool{}
+	var reachesOwner func(*packages.Package) bool
+	reachesOwner = func(pkg *packages.Package) bool {
+		if pkg == nil {
+			return false
+		}
+		if pkg.PkgPath == runtimebundlePkgPath || pkg.PkgPath == runtimehostPkgPath {
+			return true
+		}
+		if v, ok := memo[pkg.PkgPath]; ok {
+			return v
+		}
+		if visiting[pkg.PkgPath] {
+			return false
+		}
+		visiting[pkg.PkgPath] = true
+		for _, imported := range pkg.Imports {
+			if reachesOwner(imported) {
+				visiting[pkg.PkgPath] = false
+				memo[pkg.PkgPath] = true
+				return true
+			}
+		}
+		visiting[pkg.PkgPath] = false
+		memo[pkg.PkgPath] = false
+		return false
+	}
+	var paths []string
+	for _, pkg := range graph {
+		if reachesOwner(pkg) {
+			paths = append(paths, pkg.PkgPath)
+		}
+	}
+	if len(paths) == 0 {
+		return nil, nil, fmt.Errorf("module import graph (%s/%s) contains no owner-reachable packages", bc.GOOS, bc.GOARCH)
+	}
+	sort.Strings(paths)
+	typed, err := packages.Load(&packages.Config{
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
+			packages.NeedImports | packages.NeedTypes | packages.NeedTypesSizes |
+			packages.NeedSyntax | packages.NeedTypesInfo | packages.NeedModule,
+		Tests: false, Env: callbackPackagesEnv(bc), Overlay: overlay,
+	}, paths...)
+	if err != nil || packages.PrintErrors(typed) > 0 || len(typed) != len(paths) {
+		return nil, nil, fmt.Errorf("type-load owner-reachable packages (%s/%s): err=%v want=%d got=%d (fail closed)", bc.GOOS, bc.GOARCH, err, len(paths), len(typed))
+	}
+	for _, pkg := range typed {
+		if pkg.Types == nil || pkg.TypesInfo == nil {
+			return nil, nil, fmt.Errorf("owner-reachable package %s missing types info", pkg.PkgPath)
+		}
+		for _, path := range append(pkg.GoFiles, pkg.CompiledGoFiles...) {
+			analyzed[filepath.Clean(path)] = true
+		}
+	}
+	return typed, analyzed, nil
+}
+
+func typedPackageForContextE(pattern string, bc callbackBuildContext, overlay map[string][]byte) (*packages.Package, error) {
 	pkgs, err := packages.Load(&packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedImports |
 			packages.NeedTypes | packages.NeedTypesSizes | packages.NeedSyntax | packages.NeedTypesInfo | packages.NeedModule,
 		Tests: false, Env: callbackPackagesEnv(bc), Overlay: overlay,
 	}, pattern)
 	if err != nil || packages.PrintErrors(pkgs) > 0 || len(pkgs) != 1 || pkgs[0].Types == nil || pkgs[0].TypesInfo == nil {
-		t.Fatalf("packages.Load(%q, %s/%s): err=%v packages=%d (fail closed)", pattern, bc.GOOS, bc.GOARCH, err, len(pkgs))
+		return nil, fmt.Errorf("packages.Load(%q, %s/%s): err=%v packages=%d (fail closed)", pattern, bc.GOOS, bc.GOARCH, err, len(pkgs))
 	}
-	return pkgs[0]
+	return pkgs[0], nil
 }
 
 func callbackPackagesEnv(bc callbackBuildContext) []string {
@@ -490,37 +541,60 @@ var (
 
 func resolveProtectedOwners(t *testing.T, pkg *packages.Package) protectedOwners {
 	t.Helper()
-	hostPkg := typesPackageByPath(t, pkg, runtimebundlePkgPath)
-	coordPkg := typesPackageByPath(t, pkg, runtimehostPkgPath)
-	mustTypeName(t, hostPkg, "Host")
-	mustTypeName(t, hostPkg, "candidateAssembly")
-	mustTypeName(t, hostPkg, "ResourceLedger")
-	mustTypeName(t, coordPkg, "Coordinator")
+	owners, err := protectedOwnersE(pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return owners
+}
+
+func protectedOwnersE(pkg *packages.Package) (protectedOwners, error) {
+	hostPkg, err := typesPackageByPathE(pkg, runtimebundlePkgPath)
+	if err != nil {
+		return protectedOwners{}, err
+	}
+	coordPkg, err := typesPackageByPathE(pkg, runtimehostPkgPath)
+	if err != nil {
+		return protectedOwners{}, err
+	}
+	for _, check := range []struct {
+		pkg  *types.Package
+		name string
+	}{
+		{hostPkg, "Host"},
+		{hostPkg, "candidateAssembly"},
+		{hostPkg, "ResourceLedger"},
+		{coordPkg, "Coordinator"},
+	} {
+		obj := check.pkg.Scope().Lookup(check.name)
+		if tn, ok := obj.(*types.TypeName); !ok || tn == nil {
+			return protectedOwners{}, fmt.Errorf("package %s missing type %s", check.pkg.Path(), check.name)
+		}
+	}
 	return protectedOwners{
 		host:        ownerID{pkgPath: runtimebundlePkgPath, name: "Host"},
 		assembly:    ownerID{pkgPath: runtimebundlePkgPath, name: "candidateAssembly"},
 		ledger:      ownerID{pkgPath: runtimebundlePkgPath, name: "ResourceLedger"},
 		coordinator: ownerID{pkgPath: runtimehostPkgPath, name: "Coordinator"},
-	}
+	}, nil
 }
 
-func typesPackageByPath(t *testing.T, from *packages.Package, path string) *types.Package {
-	t.Helper()
+func typesPackageByPathE(from *packages.Package, path string) (*types.Package, error) {
 	if from.PkgPath == path && from.Types != nil {
-		return from.Types
+		return from.Types, nil
 	}
 	if imp := from.Imports[path]; imp != nil && imp.Types != nil {
-		return imp.Types
+		return imp.Types, nil
 	}
 	for _, imp := range from.Imports {
 		if imp == nil {
 			continue
 		}
 		if imp.PkgPath == path && imp.Types != nil {
-			return imp.Types
+			return imp.Types, nil
 		}
 		if nested := imp.Imports[path]; nested != nil && nested.Types != nil {
-			return nested.Types
+			return nested.Types, nil
 		}
 	}
 	loaded, err := packages.Load(&packages.Config{
@@ -528,19 +602,53 @@ func typesPackageByPath(t *testing.T, from *packages.Package, path string) *type
 		Tests: false,
 	}, path)
 	if err != nil || packages.PrintErrors(loaded) > 0 || len(loaded) != 1 || loaded[0].Types == nil {
-		t.Fatalf("resolve package %s: err=%v", path, err)
+		return nil, fmt.Errorf("resolve package %s: err=%v", path, err)
 	}
-	return loaded[0].Types
+	return loaded[0].Types, nil
 }
 
-func mustTypeName(t *testing.T, pkg *types.Package, name string) *types.TypeName {
-	t.Helper()
-	obj := pkg.Scope().Lookup(name)
-	tn, ok := obj.(*types.TypeName)
-	if !ok || tn == nil {
-		t.Fatalf("package %s missing type %s", pkg.Path(), name)
+// ownerPredicateCache memoizes the exact results of the three type predicates
+// below when invoked with a fresh cycle guard (nil seen map). A fresh-seen
+// traversal is a pure function of (owners, type): types.Type graphs are
+// immutable after go/types construction, so caching preserves semantics while
+// collapsing the per-expression re-traversal of large shared type graphs
+// (previously the dominant cost of this gate at ~15s CPU per package load).
+var ownerPredicateCache = struct {
+	sync.Mutex
+	results map[ownerPredicateCacheKey]bool
+}{results: map[ownerPredicateCacheKey]bool{}}
+
+type ownerPredicateCacheKey struct {
+	kind   uint8 // 1=callback, 2=contains, 3=signature
+	owners protectedOwners
+	typ    types.Type
+}
+
+func cachedOwnerPredicate(kind uint8, t types.Type, owners protectedOwners, compute func() bool) bool {
+	key := ownerPredicateCacheKey{kind: kind, owners: owners, typ: t}
+	ownerPredicateCache.Lock()
+	v, ok := ownerPredicateCache.results[key]
+	ownerPredicateCache.Unlock()
+	if ok {
+		return v
 	}
-	return tn
+	v = compute()
+	ownerPredicateCache.Lock()
+	ownerPredicateCache.results[key] = v
+	ownerPredicateCache.Unlock()
+	return v
+}
+
+func memoCallbackTypeMentionsOwner(t types.Type, owners protectedOwners) bool {
+	return cachedOwnerPredicate(1, t, owners, func() bool { return callbackTypeMentionsOwner(t, owners, nil) })
+}
+
+func memoTypeContainsProtectedOwner(t types.Type, owners protectedOwners) bool {
+	return cachedOwnerPredicate(2, t, owners, func() bool { return typeContainsProtectedOwner(t, owners, nil) })
+}
+
+func memoSignatureMentionsOwner(t types.Type, owners protectedOwners) bool {
+	return cachedOwnerPredicate(3, t, owners, func() bool { return signatureMentionsOwner(t, owners, nil) })
 }
 
 func findOwnerCallbackEscapes(pkg *packages.Package, owners protectedOwners) []string {
@@ -604,20 +712,20 @@ func findOwnerCallbackEscapes(pkg *packages.Package, owners protectedOwners) []s
 		}
 		switch obj := obj.(type) {
 		case *types.TypeName:
-			if callbackTypeMentionsOwner(obj.Type(), owners, nil) || ownerConstraintMentionsOwner(obj.Type(), owners) {
+			if memoCallbackTypeMentionsOwner(obj.Type(), owners) || ownerConstraintMentionsOwner(obj.Type(), owners) {
 				report(obj.Pos(), fmt.Sprintf("named type %s is a complete-owner callback escape", obj.Name()))
 			}
 			if named, ok := obj.Type().(*types.Named); ok {
 				if tparams := named.TypeParams(); tparams != nil {
 					for tp := range tparams.TypeParams() {
-						if callbackTypeMentionsOwner(tp.Constraint(), owners, nil) {
+						if memoCallbackTypeMentionsOwner(tp.Constraint(), owners) {
 							report(tp.Obj().Pos(), fmt.Sprintf("type parameter %s constraint is a complete-owner callback escape", tp.Obj().Name()))
 						}
 					}
 				}
 			}
 		case *types.Var:
-			if callbackTypeMentionsOwner(obj.Type(), owners, nil) {
+			if memoCallbackTypeMentionsOwner(obj.Type(), owners) {
 				report(obj.Pos(), fmt.Sprintf("variable/field/parameter %s has complete-owner callback type", obj.Name()))
 			}
 		case *types.Func:
@@ -627,7 +735,7 @@ func findOwnerCallbackEscapes(pkg *packages.Package, owners protectedOwners) []s
 			}
 			if tparams := sig.TypeParams(); tparams != nil {
 				for tp := range tparams.TypeParams() {
-					if callbackTypeMentionsOwner(tp.Constraint(), owners, nil) {
+					if memoCallbackTypeMentionsOwner(tp.Constraint(), owners) {
 						report(tp.Obj().Pos(), fmt.Sprintf("func %s type parameter %s constraint is a complete-owner callback escape", obj.Name(), tp.Obj().Name()))
 					}
 				}
@@ -637,7 +745,7 @@ func findOwnerCallbackEscapes(pkg *packages.Package, owners protectedOwners) []s
 					return
 				}
 				for v := range tup.Variables() {
-					if callbackTypeMentionsOwner(v.Type(), owners, nil) {
+					if memoCallbackTypeMentionsOwner(v.Type(), owners) {
 						report(v.Pos(), fmt.Sprintf("func %s %s has complete-owner callback type", obj.Name(), kind))
 					}
 				}
@@ -681,7 +789,7 @@ func findOwnerCallbackEscapes(pkg *packages.Package, owners protectedOwners) []s
 				if !ok || tv.Type == nil {
 					return true
 				}
-				if signatureMentionsOwner(tv.Type, owners, nil) || callbackTypeMentionsOwner(tv.Type, owners, nil) {
+				if memoSignatureMentionsOwner(tv.Type, owners) || memoCallbackTypeMentionsOwner(tv.Type, owners) {
 					report(n.Type.Pos(), fmt.Sprintf(
 						"type assertion recovers complete-owner callback (%s)",
 						types.TypeString(tv.Type, func(other *types.Package) string {
@@ -746,7 +854,7 @@ func expressionCallbackMentionsOwner(pkg *packages.Package, expr ast.Expr, owner
 			}
 		}
 	}
-	return typ != nil && (signatureMentionsOwner(typ, owners, nil) || callbackTypeMentionsOwner(typ, owners, nil))
+	return typ != nil && (memoSignatureMentionsOwner(typ, owners) || memoCallbackTypeMentionsOwner(typ, owners))
 }
 
 // funcLitCapturesProtectedOwner reports whether a non-immediately-invoked
@@ -778,7 +886,7 @@ func funcLitCapturesProtectedOwner(pkg *packages.Package, lit *ast.FuncLit, owne
 			if lit.Pos() <= v.Pos() && v.Pos() < lit.End() {
 				return true
 			}
-			if typeContainsProtectedOwner(v.Type(), owners, nil) {
+			if memoTypeContainsProtectedOwner(v.Type(), owners) {
 				captured = true
 				return false
 			}
@@ -836,7 +944,7 @@ func scanGenericInstantiation(pkg *packages.Package, n ast.Expr, isCallFun bool,
 	if !ok || tv.Type == nil {
 		return
 	}
-	if callbackTypeMentionsOwner(tv.Type, owners, nil) || signatureMentionsOwner(tv.Type, owners, nil) {
+	if memoCallbackTypeMentionsOwner(tv.Type, owners) || memoSignatureMentionsOwner(tv.Type, owners) {
 		report(n.Pos(), "generic instantiation carries complete-owner callback type")
 	}
 }
@@ -979,7 +1087,7 @@ func ownerConstraintMentionsOwner(t types.Type, owners protectedOwners) bool {
 		return false
 	}
 	for emb := range iface.EmbeddedTypes() {
-		if typeContainsProtectedOwner(emb, owners, nil) {
+		if memoTypeContainsProtectedOwner(emb, owners) {
 			return true
 		}
 	}
@@ -1001,7 +1109,7 @@ func callbackTypeMentionsOwner(t types.Type, owners protectedOwners, seen map[ty
 
 	switch t := t.(type) {
 	case *types.Signature:
-		return signatureMentionsOwner(t, owners, nil)
+		return memoSignatureMentionsOwner(t, owners)
 	case *types.Named:
 		if isProtectedOwner(t.Obj(), owners) {
 			return false
@@ -1032,7 +1140,7 @@ func callbackTypeMentionsOwner(t types.Type, owners protectedOwners, seen map[ty
 		return callbackTypeMentionsOwner(t.Elem(), owners, seen)
 	case *types.Interface:
 		for method := range t.Methods() {
-			if signatureMentionsOwner(method.Type(), owners, nil) {
+			if memoSignatureMentionsOwner(method.Type(), owners) {
 				return true
 			}
 		}

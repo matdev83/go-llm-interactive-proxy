@@ -18,7 +18,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
-	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
@@ -42,7 +41,7 @@ func TestPhase7_OpenRouterExternalViaBuildHost(t *testing.T) {
 	}))
 	t.Cleanup(emu.Close)
 
-	pluginRoot := bpkit.StageOpenRouter(t)
+	pluginRoot := runtimebundle.StageOpenRouterForTest(t)
 	cfgPath := writeOpenRouterDiscoveryConfig(t, pluginRoot, emu.URL+"/v1", true)
 	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
 		ConfigPath:      cfgPath,

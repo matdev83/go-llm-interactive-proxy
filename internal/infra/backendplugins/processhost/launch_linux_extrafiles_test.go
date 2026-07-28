@@ -4,14 +4,17 @@ package processhost_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	inframanifest "github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/manifest"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/processhost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
-	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 )
 
 // TestLaunch_ExtraFilesDoesNotDisplaceExecutableFD proves channel ExtraFiles[0]
@@ -19,7 +22,7 @@ import (
 // artifact descriptor (historical permission-denied on /proc/self/fd/3).
 func TestLaunch_ExtraFilesDoesNotDisplaceExecutableFD(t *testing.T) {
 	t.Parallel()
-	root := bpkit.StageLocalStub(t)
+	root := stageExecFixture(t)
 	raw, err := os.ReadFile(filepath.Join(root, "plugin.backendplugin.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -53,4 +56,62 @@ func TestLaunch_ExtraFilesDoesNotDisplaceExecutableFD(t *testing.T) {
 	if proc.PID() <= 0 {
 		t.Fatal("expected live pid")
 	}
+}
+
+// stageExecFixture stages a trivial pre-existing executable as a discovery
+// root without invoking `go build` (a cold localstub connector build costs
+// ~60s). The launcher execs the verified bytes through /proc/self/fd/<n>
+// regardless of payload and the test never handshakes the child, so any
+// executable preserves the same FD-displacement regression coverage.
+func stageExecFixture(t *testing.T) string {
+	t.Helper()
+	src := firstExecutable(t, "/bin/true", "/usr/bin/true", "/bin/sh", "/usr/bin/sh")
+	data, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	rel := "bin/lip-backend-execfixture"
+	dst := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(data)
+	body := fmt.Sprintf(`{
+  "schema":"golip.backendplugin.manifest/v1",
+  "plugin_id":"io.golip.backend.execfixture",
+  "version":"0.1.0",
+  "build_id":"test",
+  "executable":%q,
+  "sha256":%q,
+  "protocol_major":1,
+  "protocol_min_minor":0,
+  "protocol_max_minor":0,
+  "platforms":[{"os":%q,"arch":%q}],
+  "exports":[{
+    "kind":"exec-fixture",
+    "credential_mode":"none",
+    "access_scope":"any",
+    "process_sharing":"per_instance"
+  }]
+}`, rel, hex.EncodeToString(sum[:]), runtime.GOOS, runtime.GOARCH)
+	if err := os.WriteFile(filepath.Join(root, "plugin.backendplugin.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func firstExecutable(t *testing.T, candidates ...string) string {
+	t.Helper()
+	for _, c := range candidates {
+		fi, err := os.Stat(c)
+		if err == nil && fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0 {
+			return c
+		}
+	}
+	t.Fatalf("no executable fixture found among %v", candidates)
+	return ""
 }

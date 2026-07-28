@@ -5,13 +5,24 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"path/filepath"
+	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
+
+var memSQLiteDSNInternal atomic.Int64
+
+// memorySQLiteDSNInternal returns a uniquely named shared-cache in-memory
+// SQLite DSN for tests that never close and reopen the database file;
+// restart-persistence tests must stay file-backed. The "jsi-" prefix keeps
+// names disjoint from the external test package within the shared binary.
+func memorySQLiteDSNInternal() string {
+	return fmt.Sprintf("file:jsi-mem-%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)", memSQLiteDSNInternal.Add(1))
+}
 
 func TestResolveAppendConflictMissingWinner(t *testing.T) {
 	t.Parallel()
@@ -117,8 +128,7 @@ INSERT INTO metering_facts(
 
 func newSQLiteConflictStore(t *testing.T, storeID string) *DurableStore {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), storeID+".db")
-	sqlDB, err := sql.Open("sqlite", path)
+	sqlDB, err := sql.Open("sqlite", memorySQLiteDSNInternal())
 	if err != nil {
 		t.Fatal(err)
 	}
