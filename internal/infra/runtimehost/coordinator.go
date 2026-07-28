@@ -54,13 +54,13 @@ func NewCoordinator(deps CoordinatorDeps) (*Coordinator, error) {
 		gate:     gate,
 	}
 	c.runner = newAttemptRunner(attemptRunnerDeps{
-		Source:       deps.Source,
-		Loader:       deps.Loader,
-		Classify:     deps.Classify,
-		Compile:      deps.Compile,
-		Manager:      deps.Manager,
-		Observer:     deps.Observer,
-		ShuttingDown: gate.shuttingDown,
+		Source:   deps.Source,
+		Loader:   deps.Loader,
+		Classify: deps.Classify,
+		Compile:  deps.Compile,
+		Manager:  deps.Manager,
+		Observer: deps.Observer,
+		Gate:     gate,
 	})
 
 	initial := reloadStateInitial{
