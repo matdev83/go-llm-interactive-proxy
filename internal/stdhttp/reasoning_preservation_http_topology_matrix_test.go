@@ -388,7 +388,7 @@ func runResponsesFEChatBEPositive(t *testing.T, feStream bool) {
 		{VisibleText: "answer-one", Reasoning: "think-one"},
 		{VisibleText: "answer-two", Reasoning: "think-two"},
 	}
-	stack := startReasoningPreservationChatStack(t, "restore", scripted, chatRestoreValidators(plan, 2, nil)...)
+	stack := startReasoningPreservationChatStack(t, "restore", scripted, chatRestoreValidators(plan, 2, nil, rpHarnessMaxTurnsPerSession)...)
 	sid, tok := "", ""
 	cli := refclientresp.New(refclientresp.Config{
 		BaseURL:    stack.proxyURL + "/v1",

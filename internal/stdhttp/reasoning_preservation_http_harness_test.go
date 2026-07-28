@@ -29,6 +29,10 @@ const (
 	rpE2EAnthModel = "claude-3-5-haiku-20241022"
 	rpE2EFakeKey   = "sk-test-reasoning-e2e"
 	rpE2EAnthKey   = "sk-ant-test-reasoning-e2e"
+	// rpHarnessMaxTurnsPerSession is the reasoning store FIFO bound used by the
+	// HTTP harness YAML and retention-aware restore validators. Keep a single
+	// source of truth — do not hardcode 64 in reasoninge2e.
+	rpHarnessMaxTurnsPerSession = 64
 )
 
 // rpFeatureRowMode selects how the reasoning-output-preservation features row is written.
@@ -728,33 +732,33 @@ func reasoningPreservationFeatureYAML(opts rpChatStackOpts, backendKind string) 
 		switch opts.Action {
 		case "disabled":
 			enabled = "false"
-			featureBlock = `
+			featureBlock = fmt.Sprintf(`
         action: observe
         use_builtin_catalog: false
-        rules:` + rulesYAML.String() + `
+        rules:%s
         on_ambiguous: log_skip
-        on_unrepresentable: ` + onUnrep + `
+        on_unrepresentable: %s
         on_state_error: reject
         state:
           ttl: 1h
-          max_turns_per_session: 64
+          max_turns_per_session: %d
           max_reasoning_bytes_per_turn: 65536
           max_session_bytes: 1048576
-`
+`, rulesYAML.String(), onUnrep, rpHarnessMaxTurnsPerSession)
 		case "observe", "restore":
-			featureBlock = `
-        action: ` + opts.Action + `
+			featureBlock = fmt.Sprintf(`
+        action: %s
         use_builtin_catalog: false
-        rules:` + rulesYAML.String() + `
+        rules:%s
         on_ambiguous: log_skip
-        on_unrepresentable: ` + onUnrep + `
+        on_unrepresentable: %s
         on_state_error: reject
         state:
           ttl: 1h
-          max_turns_per_session: 64
+          max_turns_per_session: %d
           max_reasoning_bytes_per_turn: 65536
           max_session_bytes: 1048576
-`
+`, opts.Action, rulesYAML.String(), onUnrep, rpHarnessMaxTurnsPerSession)
 		default:
 			return "", fmt.Errorf("unknown action %q", opts.Action)
 		}
@@ -782,10 +786,11 @@ func planTurnIDs(plan reasoninge2e.Plan) []string {
 	return ids
 }
 
-// chatRestoreValidators precomputes per-request oracle checks against plan ExpectedBackend.
+// chatRestoreValidators precomputes per-request oracle checks against plan ExpectedBackend
+// with FIFO artifact retention bounded by maxArtifactTurns.
 // Request i is expected to carry assistant history prefix length i.
 // When requireStream is non-nil, each backend body must decode with that stream flag.
-func chatRestoreValidators(plan reasoninge2e.Plan, requestCount int, requireStream *bool) []refchat.RequestValidator {
+func chatRestoreValidators(plan reasoninge2e.Plan, requestCount int, requireStream *bool, maxArtifactTurns int) []refchat.RequestValidator {
 	ids := planTurnIDs(plan)
 	out := make([]refchat.RequestValidator, requestCount)
 	for i := range requestCount {
@@ -810,7 +815,7 @@ func chatRestoreValidators(plan reasoninge2e.Plan, requestCount int, requireStre
 			if err != nil {
 				return fmt.Errorf("reasoninge2e oracle: seed=%d structural mismatch: backend_body_parse", plan.Seed)
 			}
-			return reasoninge2e.CheckPrefix(plan, obs)
+			return reasoninge2e.CheckPrefixRetention(plan, obs, maxArtifactTurns)
 		}
 	}
 	return out
@@ -819,7 +824,7 @@ func chatRestoreValidators(plan reasoninge2e.Plan, requestCount int, requireStre
 // chatRestoreValidatorsPerTurnStream is like chatRestoreValidators and asserts the
 // backend stream flag is true on every request (streaming-primary distribution).
 // Client stream vs non-stream framing is asserted by the HTTP driver against the plan.
-func chatRestoreValidatorsPerTurnStream(plan reasoninge2e.Plan, requestCount int) []refchat.RequestValidator {
+func chatRestoreValidatorsPerTurnStream(plan reasoninge2e.Plan, requestCount int, maxArtifactTurns int) []refchat.RequestValidator {
 	ids := planTurnIDs(plan)
 	out := make([]refchat.RequestValidator, requestCount)
 	for i := range requestCount {
@@ -842,7 +847,7 @@ func chatRestoreValidatorsPerTurnStream(plan reasoninge2e.Plan, requestCount int
 			if err != nil {
 				return fmt.Errorf("reasoninge2e oracle: seed=%d structural mismatch: backend_body_parse", plan.Seed)
 			}
-			return reasoninge2e.CheckPrefix(plan, obs)
+			return reasoninge2e.CheckPrefixRetention(plan, obs, maxArtifactTurns)
 		}
 	}
 	return out
@@ -998,4 +1003,65 @@ func truncateRunLog(s string, n int) string {
 		return s
 	}
 	return s[len(s)-n:]
+}
+
+func TestHarnessMaxTurnsBound_yamlAndValidatorsShareConstant(t *testing.T) {
+	t.Parallel()
+	yaml, err := reasoningPreservationFeatureYAML(rpChatStackOpts{
+		FeatureRow: rpFeatureRowExplicit,
+		Action:     "restore",
+	}, "openai_chat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("max_turns_per_session: %d", rpHarnessMaxTurnsPerSession)
+	if !strings.Contains(yaml, want) {
+		t.Fatalf("feature YAML missing %q in %q", want, yaml)
+	}
+	if n := strings.Count(yaml, "max_turns_per_session:"); n != 1 {
+		t.Fatalf("want exactly one max_turns_per_session in state block, got %d in %q", n, yaml)
+	}
+	if !strings.Contains(yaml, "state:") {
+		t.Fatalf("feature YAML missing state block: %q", yaml)
+	}
+
+	plan, err := reasoninge2e.BuildPlan(reasoninge2e.PlanConfig{
+		Seed:   490,
+		Policy: reasoninge2e.DropAllReasoning,
+		Turns: []reasoninge2e.TurnSpec{
+			{VisibleText: "a", Reasoning: chatReasoning("ra")},
+			{VisibleText: "b", Reasoning: chatReasoning("rb")},
+			{VisibleText: "c", Reasoning: chatReasoning("rc")},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const tinyBound = 2
+	turns := plan.Turns()
+	// Eviction-blind observation at request_turn=3 must fail tiny-bound validators.
+	blind := map[string]any{
+		"stream": true,
+		"messages": []map[string]any{
+			{"role": "user", "content": "u0"},
+			{"role": "assistant", "content": turns[0].ExpectedBackend.VisibleText, "reasoning_content": "ra"},
+			{"role": "user", "content": "u1"},
+			{"role": "assistant", "content": turns[1].ExpectedBackend.VisibleText, "reasoning_content": "rb"},
+			{"role": "user", "content": "u2"},
+			{"role": "assistant", "content": turns[2].ExpectedBackend.VisibleText, "reasoning_content": "rc"},
+			{"role": "user", "content": "u3"},
+		},
+	}
+	body, err := json.Marshal(blind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validators := chatRestoreValidatorsPerTurnStream(plan, 4, tinyBound)
+	if err := validators[3](body); err == nil {
+		t.Fatal("bound=2 validator must reject restored reasoning for evicted turn A")
+	} else if !strings.Contains(err.Error(), "artifact_state=evicted") {
+		t.Fatalf("want artifact_state=evicted: %v", err)
+	} else if !strings.Contains(err.Error(), "history_turn_id="+turns[0].ID) {
+		t.Fatalf("want history_turn_id: %v", err)
+	}
 }

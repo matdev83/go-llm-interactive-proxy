@@ -87,7 +87,7 @@ func runChatDropScenario(t *testing.T, action string, expectRestore, streaming b
 			v := true
 			streamFlag = &v
 		}
-		validators = chatRestoreValidators(plan, 2, streamFlag)
+		validators = chatRestoreValidators(plan, 2, streamFlag, rpHarnessMaxTurnsPerSession)
 	} else {
 		validators = chatNoRestoreValidators(plan, 2)
 	}
@@ -154,7 +154,7 @@ func runChatPreserveAll(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	validators := chatRestoreValidators(plan, 2, nil)
+	validators := chatRestoreValidators(plan, 2, nil, rpHarnessMaxTurnsPerSession)
 	stack := startReasoningPreservationChatStack(t, "restore", []refchat.ScriptedTurn{
 		{VisibleText: "keep-me", Reasoning: "kept-think"},
 		{VisibleText: "next", Reasoning: "next-think"},
@@ -206,7 +206,7 @@ func runChatMixedNoSynthesis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	validators := chatRestoreValidators(plan, 3, nil)
+	validators := chatRestoreValidators(plan, 3, nil, rpHarnessMaxTurnsPerSession)
 	stack := startReasoningPreservationChatStack(t, "restore", []refchat.ScriptedTurn{
 		{VisibleText: "with-r", Reasoning: "r-a"},
 		{VisibleText: "no-r"},
@@ -268,7 +268,7 @@ func runChatReasoningToolsRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	validators := chatRestoreValidators(plan, 2, nil)
+	validators := chatRestoreValidators(plan, 2, nil, rpHarnessMaxTurnsPerSession)
 	stack := startReasoningPreservationChatStack(t, "restore", []refchat.ScriptedTurn{
 		{VisibleText: "checking", Reasoning: "need-tool", ToolID: tool.ID, ToolName: tool.Name, ToolArgs: tool.Arguments},
 		{VisibleText: "done", Reasoning: "after-tool"},
@@ -336,7 +336,7 @@ func runChatConflictUntouched(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	validators := chatRestoreValidators(plan, 2, nil)
+	validators := chatRestoreValidators(plan, 2, nil, rpHarnessMaxTurnsPerSession)
 	stack := startReasoningPreservationChatStack(t, "restore", []refchat.ScriptedTurn{
 		{VisibleText: "ans", Reasoning: "observed-think"},
 		{VisibleText: "next"},
