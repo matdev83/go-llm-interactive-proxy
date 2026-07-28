@@ -51,9 +51,9 @@ func TestBackendPluginCrossPlatform_makefileAndCIWired(t *testing.T) {
 		}
 	}
 
-	blocker := filepath.Join(root, filepath.FromSlash(".kiro/specs/backend-connector-plugin-architecture/phase9-task94-external-cross-platform-blocker.md"))
-	if _, err := os.Stat(blocker); err != nil {
-		t.Fatalf("task 9.4 external blocker doc required: %v", err)
+	evidence := filepath.Join(root, filepath.FromSlash(".kiro/specs/archive/backend-connector-plugin-architecture/phase9-task94-external-cross-platform-blocker.md"))
+	if _, err := os.Stat(evidence); err != nil {
+		t.Fatalf("task 9.4 archived cross-platform evidence required: %v", err)
 	}
 }
 
