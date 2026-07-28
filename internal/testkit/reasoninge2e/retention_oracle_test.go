@@ -13,7 +13,7 @@ import (
 func obsFromExpected(plan reasoninge2e.Plan, histLen int) reasoninge2e.BackendRequestObservation {
 	turns := plan.Turns()
 	out := make([]reasoninge2e.BackendTurnObservation, histLen)
-	for i := 0; i < histLen; i++ {
+	for i := range histLen {
 		out[i] = reasoninge2e.BackendTurnObservation{
 			TurnID:      turns[i].ID,
 			VisibleText: turns[i].ExpectedBackend.VisibleText,
@@ -31,7 +31,7 @@ func obsCustom(
 ) reasoninge2e.BackendRequestObservation {
 	turns := plan.Turns()
 	out := make([]reasoninge2e.BackendTurnObservation, histLen)
-	for i := 0; i < histLen; i++ {
+	for i := range histLen {
 		r := turns[i].ExpectedBackend.Reasoning
 		if v, ok := reasoningByIndex[i]; ok {
 			r = v
@@ -265,7 +265,6 @@ func TestCheckPrefixRetention_rejectsNonPositiveBound(t *testing.T) {
 	}
 	obs := obsFromExpected(plan, 1)
 	for _, bound := range []int{0, -1} {
-		bound := bound
 		t.Run(fmt.Sprintf("bound_%d", bound), func(t *testing.T) {
 			t.Parallel()
 			err := reasoninge2e.CheckPrefixRetention(plan, obs, bound)
