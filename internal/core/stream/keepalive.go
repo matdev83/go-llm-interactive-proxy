@@ -73,8 +73,11 @@ type Keepalive struct {
 	// ends (deadline/cancel) so we do not leak the reader goroutine when Close is
 	// never called. Timer-based keepalive returns clear the pending AfterFunc via
 	// defer stop() without cancelling the inner read.
-	abortMu   sync.Mutex
-	abortRead context.CancelFunc
+	abortMu      sync.Mutex
+	abortRead    context.CancelFunc
+	abortPending bool
+
+	readerWG sync.WaitGroup
 }
 
 var _ lipapi.EventStream = (*Keepalive)(nil)
@@ -124,7 +127,7 @@ func NewKeepalive(s lipapi.EventStream, cfg KeepaliveConfig) (*Keepalive, error)
 
 func (k *Keepalive) startReader() {
 	k.once.Do(func() {
-		go func() {
+		k.readerWG.Go(func() {
 			defer func() {
 				if r := recover(); r != nil {
 					pe := safety.Capture(safety.BoundaryWorker, "stream_keepalive_reader", r)
@@ -154,6 +157,12 @@ func (k *Keepalive) startReader() {
 				// deadline; the consumer's ctx only aborts the inner read via AfterFunc/Close.
 				innerCtx, cancelInner := context.WithCancel(context.Background())
 				k.setAbortRead(cancelInner)
+				select {
+				case <-k.done:
+					cancelInner()
+					return
+				default:
+				}
 				ev, err := k.inner.Recv(innerCtx)
 				k.clearAbortRead()
 				select {
@@ -166,26 +175,35 @@ func (k *Keepalive) startReader() {
 					return
 				}
 			}
-		}()
+		})
 	})
 }
 
 func (k *Keepalive) setAbortRead(cancel context.CancelFunc) {
 	k.abortMu.Lock()
 	k.abortRead = cancel
+	pending := k.abortPending
 	k.abortMu.Unlock()
+	if pending {
+		cancel()
+	}
 }
 
 func (k *Keepalive) clearAbortRead() {
 	k.abortMu.Lock()
 	k.abortRead = nil
+	k.abortPending = false
 	k.abortMu.Unlock()
 }
 
 func (k *Keepalive) abortCurrentRead() {
 	k.abortMu.Lock()
 	fn := k.abortRead
-	k.abortRead = nil
+	if fn != nil {
+		k.abortRead = nil
+	} else {
+		k.abortPending = true
+	}
 	k.abortMu.Unlock()
 	if fn != nil {
 		fn()
@@ -261,11 +279,15 @@ func (k *Keepalive) Close() error {
 		k.mu.Lock()
 		k.closed = true
 		k.mu.Unlock()
-		// Unblock an in-flight inner.Recv before closing k.done so the reader does not
-		// start another iteration after shutdown (inner Close may be a no-op).
-		k.abortCurrentRead()
+		// Close k.done first so the reader loop cannot start another inner Recv after
+		// shutdown; abortCurrentRead then cancels any in-flight read (including one
+		// whose cancel func was not yet registered — see abortPending). Inner Close
+		// runs before Wait so backends that ignore ctx while blocked still release the
+		// reader goroutine (see recv_context_contract_test).
 		close(k.done)
+		k.abortCurrentRead()
 		k.shutdownErr = k.inner.Close()
+		k.readerWG.Wait()
 	})
 	return k.shutdownErr
 }
