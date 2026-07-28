@@ -96,14 +96,13 @@ func (f Fact) LegacySourceEventKeyPhase31() string {
 		sourceID = strings.TrimSpace(f.FactID)
 	}
 	lifecycleID := strings.TrimSpace(f.StreamID)
-	return fmt.Sprintf("%d\x00%s\x00%s\x00%s\x00%s\x00%d",
-		f.IdentityVersion,
-		lifecycleID,
-		string(f.Boundary),
-		kind,
-		sourceID,
-		f.SourceRevision,
-	)
+	// ⚡ Bolt: replace fmt.Sprintf with direct string concatenation and strconv for performance
+	return strconv.Itoa(f.IdentityVersion) + "\x00" +
+		lifecycleID + "\x00" +
+		string(f.Boundary) + "\x00" +
+		kind + "\x00" +
+		sourceID + "\x00" +
+		strconv.FormatInt(f.SourceRevision, 10)
 }
 
 // SourceEventLookupKeys returns durable lookup candidates in order: current

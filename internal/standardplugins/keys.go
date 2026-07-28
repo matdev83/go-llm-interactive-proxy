@@ -1,8 +1,8 @@
 package standardplugins
 
 import (
-	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -45,7 +45,8 @@ func collectNumberedEnvKeys(prefix string) []string {
 		out = append(out, s)
 	}
 	for i := 2; i <= maxNumberedAPIKeysEnv; i++ {
-		name := fmt.Sprintf("%s_%d", prefix, i)
+		// ⚡ Bolt: replace fmt.Sprintf with direct string concatenation and strconv for performance
+		name := prefix + "_" + strconv.Itoa(i)
 		v := strings.TrimSpace(os.Getenv(name))
 		if v == "" {
 			break
