@@ -515,30 +515,35 @@ func redactAuditResultJSON(raw string, pol domain.PolicyMetadata, allowRaw bool)
 	if allowRaw {
 		return raw
 	}
-	var m map[string]any
-	if err := json.Unmarshal([]byte(raw), &m); err != nil {
-		// security: invalid JSON must not bypass digest-only audit exposure (stored rows are untrusted bytes).
-		dig := app.DigestJSONFields(raw, pol)
+
+	fallbackDigest := func(input string) string {
+		dig := app.DigestJSONFields(input, pol)
 		b, mErr := json.Marshal(map[string]any{"event_digest": json.RawMessage([]byte(dig))})
 		if mErr != nil {
 			return `{"event_digest":{"digest":"invalid_json"}}`
 		}
 		return string(b)
 	}
+
+	var m map[string]any
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		// security: invalid JSON must not bypass digest-only audit exposure (stored rows are untrusted bytes).
+		return fallbackDigest(raw)
+	}
 	ev, ok := m["event"]
 	if !ok {
-		return raw
+		return fallbackDigest(raw)
 	}
 	evJSON, err := json.Marshal(ev)
 	if err != nil {
-		return raw
+		return fallbackDigest(raw)
 	}
 	dig := app.DigestJSONFields(string(evJSON), pol)
 	m["event_digest"] = json.RawMessage([]byte(dig))
 	delete(m, "event")
 	b, err := json.Marshal(m)
 	if err != nil {
-		return raw
+		return fallbackDigest(raw)
 	}
 	return string(b)
 }
