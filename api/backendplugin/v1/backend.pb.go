@@ -242,6 +242,7 @@ const (
 	PartKind_PART_KIND_REASONING   PartKind = 4
 	PartKind_PART_KIND_TOOL_CALL   PartKind = 5
 	PartKind_PART_KIND_TOOL_RESULT PartKind = 6
+	PartKind_PART_KIND_JSON        PartKind = 7
 )
 
 // Enum value maps for PartKind.
@@ -254,6 +255,7 @@ var (
 		4: "PART_KIND_REASONING",
 		5: "PART_KIND_TOOL_CALL",
 		6: "PART_KIND_TOOL_RESULT",
+		7: "PART_KIND_JSON",
 	}
 	PartKind_value = map[string]int32{
 		"PART_KIND_UNSPECIFIED": 0,
@@ -263,6 +265,7 @@ var (
 		"PART_KIND_REASONING":   4,
 		"PART_KIND_TOOL_CALL":   5,
 		"PART_KIND_TOOL_RESULT": 6,
+		"PART_KIND_JSON":        7,
 	}
 )
 
@@ -4145,7 +4148,7 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\vROLE_SYSTEM\x10\x01\x12\r\n" +
 	"\tROLE_USER\x10\x02\x12\x12\n" +
 	"\x0eROLE_ASSISTANT\x10\x03\x12\r\n" +
-	"\tROLE_TOOL\x10\x04*\xb7\x01\n" +
+	"\tROLE_TOOL\x10\x04*\xcb\x01\n" +
 	"\bPartKind\x12\x19\n" +
 	"\x15PART_KIND_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0ePART_KIND_TEXT\x10\x01\x12\x17\n" +
@@ -4153,7 +4156,8 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\x12PART_KIND_FILE_REF\x10\x03\x12\x17\n" +
 	"\x13PART_KIND_REASONING\x10\x04\x12\x17\n" +
 	"\x13PART_KIND_TOOL_CALL\x10\x05\x12\x19\n" +
-	"\x15PART_KIND_TOOL_RESULT\x10\x06*\xba\x03\n" +
+	"\x15PART_KIND_TOOL_RESULT\x10\x06\x12\x12\n" +
+	"\x0ePART_KIND_JSON\x10\a*\xba\x03\n" +
 	"\tErrorCode\x12\x1a\n" +
 	"\x16ERROR_CODE_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bERROR_CODE_INVALID_ARGUMENT\x10\x01\x12\x1e\n" +

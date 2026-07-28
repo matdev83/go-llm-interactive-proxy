@@ -1,6 +1,7 @@
 package backendplugin
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -12,10 +13,18 @@ func CallFromInvocation(inv Invocation) (lipapi.Call, error) {
 	if err := inv.Validate(); err != nil {
 		return lipapi.Call{}, err
 	}
+	instructions, err := messagesToLipapi(inv.Instructions)
+	if err != nil {
+		return lipapi.Call{}, err
+	}
+	messages, err := messagesToLipapi(inv.Messages)
+	if err != nil {
+		return lipapi.Call{}, err
+	}
 	call := lipapi.Call{
 		ID:           strings.TrimSpace(inv.RequestID),
-		Instructions: messagesToLipapi(inv.Instructions),
-		Messages:     messagesToLipapi(inv.Messages),
+		Instructions: instructions,
+		Messages:     messages,
 		Tools:        toolsToLipapi(inv.Tools),
 		Options:      optionsToLipapi(inv.Options),
 		Route: lipapi.RouteIntent{
@@ -93,18 +102,22 @@ func CanonicalEventFromLipapi(ev lipapi.Event) *CanonicalEvent {
 	return out
 }
 
-func messagesToLipapi(in []Message) []lipapi.Message {
+func messagesToLipapi(in []Message) ([]lipapi.Message, error) {
 	out := make([]lipapi.Message, 0, len(in))
 	for _, m := range in {
+		parts, err := partsToLipapi(m.Parts)
+		if err != nil {
+			return nil, err
+		}
 		out = append(out, lipapi.Message{
 			Role:  lipapi.Role(m.Role),
-			Parts: partsToLipapi(m.Parts),
+			Parts: parts,
 		})
 	}
-	return out
+	return out, nil
 }
 
-func partsToLipapi(in []Part) []lipapi.Part {
+func partsToLipapi(in []Part) ([]lipapi.Part, error) {
 	out := make([]lipapi.Part, 0, len(in))
 	for _, p := range in {
 		switch p.Kind {
@@ -147,11 +160,17 @@ func partsToLipapi(in []Part) []lipapi.Part {
 				part.Content = b
 			}
 			out = append(out, part)
+		case PartKindJSON:
+			b := p.ToolArgsJSON.Bytes()
+			if len(b) == 0 {
+				return nil, fmt.Errorf("%w: json part requires content", ErrInvalidInvocation)
+			}
+			out = append(out, lipapi.Part{Kind: lipapi.PartJSON, Content: b})
 		default:
-			continue
+			return nil, fmt.Errorf("%w: %q", ErrUnsupportedPartKind, p.Kind)
 		}
 	}
-	return out
+	return out, nil
 }
 
 func toolsToLipapi(in []ToolDef) []lipapi.ToolDef {
