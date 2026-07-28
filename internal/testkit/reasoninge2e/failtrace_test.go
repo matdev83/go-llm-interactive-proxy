@@ -119,8 +119,8 @@ func TestFormatRetentionDiag_composedWithMatrixAndSoakFail(t *testing.T) {
 				t.Fatalf("composed fail missing %q in %q", need, line)
 			}
 		}
-		// Matrix/soak turn= is current request id from transcript plan idx.
-		if !strings.Contains(line, "turn="+turns[idx].ID) && !strings.Contains(line, "idx=3") {
+		// Matrix/soak fail lines carry the current request turn id from transcript plan idx.
+		if !strings.Contains(line, " turn="+turns[idx].ID) {
 			t.Fatalf("composed fail missing current request context in %q", line)
 		}
 		assertNoPayloadLeak(t, line)
