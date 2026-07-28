@@ -1,6 +1,9 @@
 // Package jsonguard provides low-cost preflight checks for untrusted frontend JSON bodies.
 // Shape scanning is delegated to internal/core/jsonshape; this package keeps the
 // frontend HTTP read helpers and historical type/error surface.
+//
+// Frozen compat shim: callers depend on this package path for legacy imports and error
+// types; do not extend behavior here—add new shape policy under jsonshape or wire frontends.
 package jsonguard
 
 import (

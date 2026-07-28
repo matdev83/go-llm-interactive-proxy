@@ -52,9 +52,6 @@ func Resolve(in Input) (Snapshot, error) {
 	var owners []owner
 	for _, d := range in.Discovered {
 		if d.Status != discovery.StatusDiscovered {
-			for _, e := range d.Manifest.Exports {
-				_ = e
-			}
 			owners = append(owners, owner{safeID: d.SafeID, plugin: d.Manifest.PluginID, status: d.Status})
 			continue
 		}

@@ -101,7 +101,7 @@ func TestPhase5Remediation_FiveToTwoAdmitUsesLiveCoordinators(t *testing.T) {
 	if held.EvidenceObjectID() == cur.EvidenceObjectID() {
 		t.Fatal("rating evidence must change with generation")
 	}
-	for i, d := range leases {
-		_ = held.RequestCoord.Release(context.Background(), d.Stack, fmt.Sprintf("old-%d", i))
+	for _, d := range leases {
+		_ = held.RequestCoord.Release(context.Background(), d.Stack)
 	}
 }

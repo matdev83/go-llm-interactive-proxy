@@ -30,7 +30,7 @@ func TestExecutorAuthorityReleaseOnSwallowedOpen(t *testing.T) {
 		status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
 	}
 	ex, _, _ := newAuthorityRuntimeTestExecutor(t, auth)
-	l := newAuthorityLifecycle(ex.authorityService(), ex.Log, attemptAuthorityState{
+	l := newAuthorityLifecycle(ex.UsageAuthority, ex.Log, attemptAuthorityState{
 		admissionInput:  testAuthorityAdmissionInput(12),
 		admissionResult: auth.admitResult,
 	}, authorityCandidate())

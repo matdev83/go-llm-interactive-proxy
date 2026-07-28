@@ -43,13 +43,6 @@ type attemptAuthorityState struct {
 	settledProviders map[string]struct{}
 }
 
-func (e *Executor) authorityService() UsageAuthorityService {
-	if e == nil {
-		return nil
-	}
-	return e.UsageAuthority
-}
-
 func (e *Executor) admitAttemptAuthority(
 	ctx context.Context,
 	traceID string,
@@ -67,7 +60,7 @@ func (e *Executor) admitAttemptAuthority(
 			return e.admitAttemptViaCoordinator(ctx, traceID, aLegID, bleg, call, c, decision)
 		}
 	}
-	svc := e.authorityService()
+	svc := e.UsageAuthority
 	if svc == nil {
 		return attemptAuthorityState{}, nil
 	}
@@ -827,12 +820,8 @@ func attemptAuthorityAdmissionError(result authorityapp.AdmissionResult, err err
 	}
 }
 
-// applyGenerationBoundVersion prefers the request-bound executable generation's
+// applyGenerationBoundVersionFrom prefers the request-bound executable generation's
 // evaluator object identity (requirements 9.3, 9.5, 9.9; design D10).
-func (e *Executor) applyGenerationBoundVersion(res *authorityapp.AdmissionResult) {
-	e.applyGenerationBoundVersionFrom(nil, res)
-}
-
 func (e *Executor) applyGenerationBoundVersionFrom(bound *snapshotgen.ExecutableGeneration, res *authorityapp.AdmissionResult) {
 	if e == nil || res == nil {
 		return

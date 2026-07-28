@@ -85,60 +85,6 @@ func (r *Registry) DiscoveryFrozen() bool {
 	return r.discoveryFrozen
 }
 
-// RescanTrustedDirectories is the reload-forbidden discovery entrypoint.
-// After FreezeDiscovery it records the attempt and returns ErrDiscoveryFrozen
-// without scanning paths or mutating the catalog (req 8.7).
-func (r *Registry) RescanTrustedDirectories(paths []string) error {
-	_ = paths
-	if r == nil {
-		return fmt.Errorf("pluginreg: nil registry")
-	}
-	r.rescanAttempts.Add(1)
-	r.mu.RLock()
-	frozen := r.discoveryFrozen
-	r.mu.RUnlock()
-	if frozen {
-		return ErrDiscoveryFrozen
-	}
-	// Pre-freeze rescans are no-ops in the initial implementation: discovery is
-	// explicit registration only. Callers must RegisterDiscoveredBackend then FreezeDiscovery.
-	return nil
-}
-
-// InstallConnectorArtifact is the reload-forbidden install entrypoint.
-// After FreezeDiscovery it records the attempt and returns ErrDiscoveryFrozen
-// without downloading or executing artifacts (req 8.7).
-func (r *Registry) InstallConnectorArtifact(path string) error {
-	_ = path
-	if r == nil {
-		return fmt.Errorf("pluginreg: nil registry")
-	}
-	r.installAttempts.Add(1)
-	r.mu.RLock()
-	frozen := r.discoveryFrozen
-	r.mu.RUnlock()
-	if frozen {
-		return ErrDiscoveryFrozen
-	}
-	return fmt.Errorf("pluginreg: connector installation is not supported in-process")
-}
-
-// RescanAttempts returns how many times RescanTrustedDirectories was invoked.
-func (r *Registry) RescanAttempts() int64 {
-	if r == nil {
-		return 0
-	}
-	return r.rescanAttempts.Load()
-}
-
-// InstallAttempts returns how many times InstallConnectorArtifact was invoked.
-func (r *Registry) InstallAttempts() int64 {
-	if r == nil {
-		return 0
-	}
-	return r.installAttempts.Load()
-}
-
 // BackendReloadPolicy returns the reload/overlap policy for a factory kind.
 // Built-in RegisterBackend kinds default to AllowsCandidateOverlap=true.
 func (r *Registry) BackendReloadPolicy(factoryID string) (BackendReloadPolicy, bool) {
