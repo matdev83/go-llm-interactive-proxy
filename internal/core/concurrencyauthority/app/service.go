@@ -34,6 +34,8 @@ func (s *Service) now() time.Time {
 
 // Admit acquires or replays occupancy for matching rules. Strict multi-rule
 // matches use one atomic lease set; advisory rules still use per-lease Acquire.
+// If admission fails after occupancy was acquired, the leases newly acquired by
+// this call are rolled back (replayed pre-existing leases are left untouched).
 func (s *Service) Admit(ctx context.Context, in AdmitInput) (AdmitResult, error) {
 	if s == nil || s.store == nil || s.rules == nil {
 		return AdmitResult{}, WrapError("admit", ErrUnavailable)
@@ -189,6 +191,7 @@ func (s *Service) Admit(ctx context.Context, in AdmitInput) (AdmitResult, error)
 			Lease: proposed, RuleID: rule.ID, Dimensions: dims, Limit: rule.Limit, Mode: rule.Mode, Now: now,
 		})
 		if err != nil {
+			s.rollbackAcquired(ctx, acquiredLeaseIDs(acquiredLeases), requestID, now)
 			return AdmitResult{}, WrapError("admit", err)
 		}
 		if acq.CapacityExceeded {
@@ -226,6 +229,18 @@ func (s *Service) Admit(ctx context.Context, in AdmitInput) (AdmitResult, error)
 		return advise, nil
 	}
 	return AdmitResult{Kind: domain.DecisionAllow, Readiness: ready}, nil
+}
+
+// acquiredLeaseIDs returns the IDs of leases newly acquired by this Admit call.
+// Replayed occupancies are excluded so rollback never frees pre-existing leases.
+func acquiredLeaseIDs(leases []AdmittedLease) []string {
+	ids := make([]string, 0, len(leases))
+	for _, l := range leases {
+		if l.Acquired {
+			ids = append(ids, l.LeaseID)
+		}
+	}
+	return ids
 }
 
 // rollbackAcquired idempotently releases leases acquired earlier in the same Admit.
