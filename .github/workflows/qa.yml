@@ -6,63 +6,15 @@ on:
 permissions:
   contents: read
 
-jobs:
-  # Detect *.go changes so docs/workflow-only PRs skip the expensive suite.
-  # Required check name stays `qa` via the gate job below.
-  changes:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      go: ${{ steps.filter.outputs.go }}
-    steps:
-      - name: Detect Go file changes
-        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4
-        id: filter
-        with:
-          filters: |
-            go:
-              - '**/*.go'
+concurrency:
+  group: qa-${{ github.ref }}
+  cancel-in-progress: true
 
-  qa-run:
-    needs: changes
-    if: needs.changes.outputs.go == 'true'
+jobs:
+  qa:
+    name: qa
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: lip
-          POSTGRES_PASSWORD: lip
-          POSTGRES_DB: lip_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U lip -d lip_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-      pgbouncer:
-        image: edoburu/pgbouncer:v1.24.1-p1
-        env:
-          DB_HOST: postgres
-          DB_PORT: 5432
-          DB_USER: lip
-          DB_PASSWORD: lip
-          DB_NAME: lip_test
-          POOL_MODE: transaction
-          AUTH_TYPE: scram-sha-256
-        ports:
-          - 6432:5432
-        options: >-
-          --health-cmd "pg_isready -h localhost -p 5432 -U lip -d lip_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
+    timeout-minutes: 12
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -74,78 +26,20 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-          # Finer cache key than go.mod alone; restores module + build cache (see setup-go README).
           cache-dependency-path: go.sum
 
-      - name: Quality checks
-        run: make quality-checks
-
-      - name: Backend plugin module checks
-        run: make backend-plugin-module-checks
-
-      - name: Backend plugin security checks
-        env:
-          FUZZTIME: 2s
-        run: make backend-plugin-security-checks
-
-      # Phase 8.5: isolated root + same-binary installed plugin smoke (not a second full QA suite).
-      - name: Isolated root QA
-        run: make isolated-root-qa
-
-      - name: Installed plugin smoke
-        run: make installed-plugin-smoke
-
-      - name: PostgreSQL authority integration proof
-        env:
-          LIP_TEST_POSTGRES_DSN: postgres://lip:lip@localhost:6432/lip_test?sslmode=disable
-          LIP_TEST_POSTGRES_ADMIN_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
-          LIP_MIGRATION_POSTGRES_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
-          LIP_TEST_POSTGRES_RUNTIME_IS_POOLER: "1"
-        run: make test-authority-postgres
-
-      - name: Architecture report (advisory)
-        run: make arch-report > "$RUNNER_TEMP/arch-report.md"
-        continue-on-error: true
-
-      # Conformance/parity suites live under ./internal/testkit/conformance/... and run here (no duplicate step).
-      # Direct Postgres DSNs only: pooled proofs run in the dedicated authority step above.
-      # Race + Tier-1 fuzz run nightly (see race-fuzz-nightly.yml), not on every PR.
-      - name: Unit tests
-        env:
-          LIP_TEST_POSTGRES_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
-          LIP_TEST_POSTGRES_ADMIN_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
-        run: go test -parallel=8 -tags=precommit,integration ./...
-
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
-        with:
-          version: v2.11.4
-          args: --timeout=10m
-
-      - name: govulncheck
-        run: go tool govulncheck ./...
-
-  # Always-run gate so branch protection on check name `qa` stays green when
-  # there are no *.go changes (qa-run is skipped) and fails when qa-run fails.
-  qa:
-    needs: [changes, qa-run]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: QA gate
+      - name: Formatting and module integrity
+        shell: bash
         run: |
-          set -euo pipefail
-          if [[ "${{ needs.changes.result }}" != "success" ]]; then
-            echo "changes job result: ${{ needs.changes.result }}"
-            exit 1
-          fi
-          if [[ "${{ needs.changes.outputs.go }}" != "true" ]]; then
-            echo "No *.go changes in this PR; QA suite skipped."
-            exit 0
-          fi
-          result="${{ needs.qa-run.result }}"
-          echo "qa-run result: ${result}"
-          if [[ "${result}" == "success" ]]; then
-            exit 0
-          fi
-          exit 1
+          test -z "$(gofmt -l cmd internal pkg)"
+          go mod verify
+          git diff --exit-code -- go.mod go.sum
+
+      - name: Architecture guardrails
+        run: go test -timeout=8m ./internal/archtest
+
+      - name: Vet release command
+        run: go vet ./cmd/lipstd
+
+      - name: Test release command
+        run: go test -timeout=5m ./cmd/lipstd

@@ -34,7 +34,7 @@ archives:
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:
       - README.md
-      - SECURITY.md
+      - .github/SECURITY.md
 
 checksum:
   name_template: checksums.txt

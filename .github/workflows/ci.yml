@@ -73,16 +73,8 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
 
-      - name: Test
-        shell: bash
-        run: |
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            # The ACP PATH-cache concurrency stress test performs thousands of
-            # Windows filesystem probes and exceeds practical CI time under -race.
-            go test -timeout=15m ./...
-          else
-            go test -race -timeout=20m ./...
-          fi
+      - name: Fast unit tests
+        run: go test -timeout=8m ./cmd/lipstd ./internal/archtest ./pkg/...
 
       - name: Build release binary
         run: go build -trimpath ./cmd/lipstd

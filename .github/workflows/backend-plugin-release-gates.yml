@@ -10,14 +10,9 @@ name: Backend plugin release gates
 on:
   pull_request:
     paths:
-      - "connectors/**"
-      - "connector-support/**"
-      - "tools/backendplugin/**"
-      - "internal/infra/backendplugins/**"
-      - "internal/archtest/backend_plugin_release_gates_ci_test.go"
-      - "pkg/lipsdk/backendplugin/**"
-      - "Makefile"
       - ".github/workflows/backend-plugin-release-gates.yml"
+  schedule:
+    - cron: "23 3 * * *"
   push:
     branches: [main]
     paths:

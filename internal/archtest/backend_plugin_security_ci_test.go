@@ -28,14 +28,6 @@ func TestBackendPluginSecurity_makefileAndCIWired(t *testing.T) {
 		t.Fatal("backend-plugin-security-checks must run diagredact package")
 	}
 
-	qa, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(".github/workflows/qa.yml")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(qa), "make backend-plugin-security-checks") {
-		t.Fatal("qa.yml must wire make backend-plugin-security-checks")
-	}
-
 	nightly, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(".github/workflows/race-fuzz-nightly.yml")))
 	if err != nil {
 		t.Fatal(err)

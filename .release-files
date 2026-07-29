@@ -1,5 +1,5 @@
-# Exact repository file manifest. Every tracked path must appear here.
 # Comments and blank lines are ignored by scripts/check-release-clean.sh.
+# Exact repository file manifest. Every tracked path must appear here.
 .coderabbit.yaml
 .cursor/.gitignore
 .cursor/skills/golang-benchmark/SKILL.md
@@ -243,6 +243,7 @@
 .gitattributes
 .githooks/pre-commit
 .github/CODEOWNERS
+.github/SECURITY.md
 .github/dependabot.yml
 .github/workflows/acp-process-tree.yml
 .github/workflows/backend-plugin-cross-platform.yml
@@ -658,7 +659,6 @@ EchoesVault/pages/testing-strategy.md
 EchoesVault/pages/tool-call-repair.md
 Makefile
 README.md
-SECURITY.md
 api/backendplugin/v1/README.md
 api/backendplugin/v1/backend.pb.go
 api/backendplugin/v1/backend.proto
