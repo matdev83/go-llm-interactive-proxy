@@ -52,7 +52,7 @@ func TestProjectAccountingAuthorityEventDualPlaneFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("project: %v", err)
 	}
-	d := ev.AccountingAuthority
+	d := ev.AccountingAuthority()
 	if d == nil {
 		t.Fatal("missing accounting authority detail")
 	}

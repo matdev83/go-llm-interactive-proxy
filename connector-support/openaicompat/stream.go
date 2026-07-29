@@ -203,11 +203,9 @@ func decodeChatSSE(raw []byte, started, msgStart *bool, tools *chatToolTrack) ([
 					tools.activeToolOrder = append(tools.activeToolOrder, tc.Index)
 				}
 				tools.activeTools[tc.Index] = tc.ID
-				if tc.Function.Name != "" {
-					out = append(out, lipapi.Event{
-						Kind: lipapi.EventToolCallStarted, ToolCallID: tc.ID, ToolName: tc.Function.Name,
-					})
-				}
+				out = append(out, lipapi.Event{
+					Kind: lipapi.EventToolCallStarted, ToolCallID: tc.ID, ToolName: tc.Function.Name,
+				})
 				for _, args := range tools.pendingToolArgs[tc.Index] {
 					out = append(out, lipapi.Event{
 						Kind: lipapi.EventToolCallArgsDelta, ToolCallID: tc.ID, Delta: args,

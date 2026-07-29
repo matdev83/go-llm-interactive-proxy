@@ -11,7 +11,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/bunstore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/sqlite"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/storecontract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
@@ -35,8 +34,15 @@ func TestStoreContract_Quarantine_SQLite(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = os.RemoveAll(dir) })
 		path := filepath.Join(dir, "store.db")
-		s, err := sqlite.Open(path)
+		ctx, cancel := context.WithTimeout(context.Background(), db.DefaultPostgresOpenMigrateTimeout)
+		defer cancel()
+		bunDB, err := db.OpenSQLiteBun(ctx, path)
 		if err != nil {
+			t.Fatal(err)
+		}
+		s, err := bunstore.NewContext(ctx, bunDB)
+		if err != nil {
+			_ = bunDB.Close()
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = s.Close() })

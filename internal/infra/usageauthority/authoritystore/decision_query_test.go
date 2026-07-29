@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
@@ -52,7 +53,7 @@ func TestDurableDecisionHistoryBackfillsLegacyRows(t *testing.T) {
 func TestDurableDecisionHistoryFiltersBeforeDecodeAndPagesBySequence(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	db := openSeedRaceDB(t, filepath.Join(t.TempDir(), "authority.db"))
+	db := openSeedRaceMemDB(t)
 	store, err := NewDurable(ctx, db, Config{StoreID: "bounded-decisions", Backing: domain.BackingCapabilityAtomic})
 	if err != nil {
 		t.Fatal(err)
@@ -63,6 +64,45 @@ func TestDurableDecisionHistoryFiltersBeforeDecodeAndPagesBySequence(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Batched multi-row INSERTs: same 2000 decisions and filter rows as
+	// per-row seeding, chunked to avoid pure-Go SQLite per-statement cost.
+	const flushSize = 200
+	pending := make([]decisionRecord, 0, flushSize)
+	var targetRecs []decisionRecord
+	flush := func() {
+		if len(pending) == 0 {
+			return
+		}
+		var rowsQuery strings.Builder
+		rowsArgs := make([]any, 0, len(pending)*4)
+		rowsQuery.WriteString(`INSERT INTO usage_authority_decisions(store_id, decision_seq, source_key, row_json) VALUES `)
+		var filtersQuery strings.Builder
+		filtersArgs := make([]any, 0, len(pending)*60)
+		filtersQuery.WriteString(`INSERT INTO usage_authority_decision_filters(store_id, decision_seq, field_name, field_value) VALUES `)
+		for i, rec := range pending {
+			if i > 0 {
+				rowsQuery.WriteByte(',')
+			}
+			rowsQuery.WriteString(`(?,?,?,?)`)
+			raw, _ := json.Marshal(rec.Row)
+			rowsArgs = append(rowsArgs, "bounded-decisions", rec.Seq, rec.SourceKey, string(raw))
+			for j, filter := range decisionFiltersForRow(rec.Row) {
+				if i > 0 || j > 0 {
+					filtersQuery.WriteByte(',')
+				}
+				filtersQuery.WriteString(`(?,?,?,?)`)
+				filtersArgs = append(filtersArgs, "bounded-decisions", rec.Seq, filter.name, filter.value)
+			}
+		}
+		filtersQuery.WriteString(` ON CONFLICT DO NOTHING`)
+		if _, err := tx.ExecContext(ctx, rowsQuery.String(), rowsArgs...); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.ExecContext(ctx, filtersQuery.String(), filtersArgs...); err != nil {
+			t.Fatal(err)
+		}
+		pending = pending[:0]
+	}
 	for i := 1; i <= 2000; i++ {
 		ruleID := "unrelated"
 		traceID := "other"
@@ -71,10 +111,18 @@ func TestDurableDecisionHistoryFiltersBeforeDecodeAndPagesBySequence(t *testing.
 			traceID = "target-trace"
 		}
 		rec := decisionRecord{Seq: int64(i + 10), SourceKey: fmt.Sprintf("source-%d", i), Row: queryDecisionRow(ruleID, traceID, scope.Known("project"))}
-		raw, _ := json.Marshal(rec.Row)
-		if _, err := tx.ExecContext(ctx, `INSERT INTO usage_authority_decisions(store_id, decision_seq, source_key, row_json) VALUES(?,?,?,?)`, "bounded-decisions", rec.Seq, rec.SourceKey, string(raw)); err != nil {
-			t.Fatal(err)
+		if ruleID == "target" {
+			targetRecs = append(targetRecs, rec)
 		}
+		pending = append(pending, rec)
+		if len(pending) == flushSize {
+			flush()
+		}
+	}
+	flush()
+	// Route the target records through the production filter-replacement
+	// helper so this test keeps covering it; final state is unchanged.
+	for _, rec := range targetRecs {
 		if err := store.replaceDecisionFiltersTx(ctx, tx, "bounded-decisions", rec); err != nil {
 			t.Fatal(err)
 		}
@@ -111,7 +159,7 @@ func TestDurableDecisionHistoryFiltersBeforeDecodeAndPagesBySequence(t *testing.
 func TestDurableDecisionProjectionFailureRollsBackMutation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	db := openSeedRaceDB(t, filepath.Join(t.TempDir(), "authority.db"))
+	db := openSeedRaceMemDB(t)
 	row := controlplane.AccountingLimitStatusRow{RuleID: "atomic-projection", RuleType: string(domain.RuleKindQuota), Unit: string(domain.AmountUnitRequests), Limit: 10, Remaining: 10, Authority: controlplane.AccountingAuthoritySourceAuthoritative}
 	store, err := NewDurable(ctx, db, Config{StoreID: "atomic-projection", Backing: domain.BackingCapabilityAtomic, LimitRows: []controlplane.AccountingLimitStatusRow{row}})
 	if err != nil {

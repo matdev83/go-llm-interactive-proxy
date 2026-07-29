@@ -1,26 +1,31 @@
 package backendplugin
 
-import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+import (
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+)
 
 // CredentialMode is the closed credential posture for a factory export.
-type CredentialMode string
+// Wire values match lipsdk.BackendCredentialMode; Validate() is the ABI gate.
+type CredentialMode = lipsdk.BackendCredentialMode
 
 const (
 	CredentialModeUnspecified CredentialMode = ""
-	CredentialModeStatic      CredentialMode = "static"
-	CredentialModeWorkload    CredentialMode = "workload"
-	CredentialModeOAuthUser   CredentialMode = "oauth_user"
-	CredentialModeNone        CredentialMode = "none"
-	CredentialModeUnknown     CredentialMode = "unknown"
+	CredentialModeStatic      CredentialMode = lipsdk.CredentialStatic
+	CredentialModeWorkload    CredentialMode = lipsdk.CredentialWorkload
+	CredentialModeOAuthUser   CredentialMode = lipsdk.CredentialOAuthUser
+	CredentialModeNone        CredentialMode = lipsdk.CredentialNone
+	CredentialModeUnknown     CredentialMode = lipsdk.CredentialUnknown
 )
 
 // AccessScope is the closed multi-user access posture for a factory export.
-type AccessScope string
+// Wire values match lipsdk.BackendAccessScope; Validate() is the ABI gate.
+type AccessScope = lipsdk.BackendAccessScope
 
 const (
 	AccessScopeUnspecified AccessScope = ""
-	AccessScopeAny         AccessScope = "any"
-	AccessScopeLocalOnly   AccessScope = "local_only"
+	AccessScopeAny         AccessScope = lipsdk.BackendAccessAny
+	AccessScopeLocalOnly   AccessScope = lipsdk.BackendAccessLocalOnly
 )
 
 // ProcessSharing declares the plugin process model.
@@ -32,16 +37,19 @@ const (
 	ProcessSharingSharedArtifact ProcessSharing = "shared_artifact"
 )
 
-// Role is a canonical message role.
-type Role string
+// Role is a canonical message role (alias of lipapi.Role).
+type Role = lipapi.Role
 
 const (
 	RoleUnspecified Role = ""
-	RoleSystem      Role = "system"
-	RoleUser        Role = "user"
-	RoleAssistant   Role = "assistant"
-	RoleTool        Role = "tool"
+	RoleSystem      Role = lipapi.RoleSystem
+	RoleUser        Role = lipapi.RoleUser
+	RoleAssistant   Role = lipapi.RoleAssistant
+	RoleTool        Role = lipapi.RoleTool
 )
+
+// UsagePresence records which usage counters were explicitly supplied (alias of lipapi.UsagePresence).
+type UsagePresence = lipapi.UsagePresence
 
 // PartKind identifies a canonical content part.
 type PartKind string
@@ -110,26 +118,27 @@ const (
 	ServerFrameTerminal      ServerFrameKind = "terminal"
 )
 
-// EventKind identifies a canonical stream event.
-type EventKind string
+// EventKind identifies a canonical stream event (alias of lipapi.EventKind).
+// Validate() rejects values outside the ABI wire subset (no reasoning_part on the plugin ABI).
+type EventKind = lipapi.EventKind
 
 const (
 	EventUnspecified             EventKind = ""
-	EventResponseStarted         EventKind = "response_started"
-	EventMessageStarted          EventKind = "message_started"
-	EventTextDelta               EventKind = "text_delta"
-	EventReasoningDelta          EventKind = "reasoning_delta"
-	EventReasoningSignatureDelta EventKind = "reasoning_signature_delta"
-	EventReasoningOpaqueDelta    EventKind = "reasoning_opaque_delta"
-	EventToolCallStarted         EventKind = "tool_call_started"
-	EventToolCallArgsDelta       EventKind = "tool_call_args_delta"
-	EventToolCallFinished        EventKind = "tool_call_finished"
-	EventUsageDelta              EventKind = "usage_delta"
-	EventWarning                 EventKind = "warning"
-	EventError                   EventKind = "error"
-	EventResponseFinished        EventKind = "response_finished"
-	EventAssistantImageRef       EventKind = "assistant_image_ref"
-	EventAssistantFileRef        EventKind = "assistant_file_ref"
+	EventResponseStarted         EventKind = lipapi.EventResponseStarted
+	EventMessageStarted          EventKind = lipapi.EventMessageStarted
+	EventTextDelta               EventKind = lipapi.EventTextDelta
+	EventReasoningDelta          EventKind = lipapi.EventReasoningDelta
+	EventReasoningSignatureDelta EventKind = lipapi.EventReasoningSignatureDelta
+	EventReasoningOpaqueDelta    EventKind = lipapi.EventReasoningOpaqueDelta
+	EventToolCallStarted         EventKind = lipapi.EventToolCallStarted
+	EventToolCallArgsDelta       EventKind = lipapi.EventToolCallArgsDelta
+	EventToolCallFinished        EventKind = lipapi.EventToolCallFinished
+	EventUsageDelta              EventKind = lipapi.EventUsageDelta
+	EventWarning                 EventKind = lipapi.EventWarning
+	EventError                   EventKind = lipapi.EventError
+	EventResponseFinished        EventKind = lipapi.EventResponseFinished
+	EventAssistantImageRef       EventKind = lipapi.EventAssistantImageRef
+	EventAssistantFileRef        EventKind = lipapi.EventAssistantFileRef
 )
 
 // TerminalStatus is the execute terminal outcome.
@@ -144,36 +153,24 @@ const (
 
 // CredentialModeFromLipsdk maps public lipsdk registration modes into ABI modes.
 func CredentialModeFromLipsdk(m lipsdk.BackendCredentialMode) (CredentialMode, error) {
-	switch m {
-	case lipsdk.CredentialStatic:
-		return CredentialModeStatic, nil
-	case lipsdk.CredentialWorkload:
-		return CredentialModeWorkload, nil
-	case lipsdk.CredentialOAuthUser:
-		return CredentialModeOAuthUser, nil
-	case lipsdk.CredentialNone:
-		return CredentialModeNone, nil
-	case lipsdk.CredentialUnknown:
-		return CredentialModeUnknown, nil
-	default:
-		return CredentialModeUnspecified, ErrUnknownEnum
+	cm := CredentialMode(m)
+	if err := ValidateCredentialMode(cm); err != nil {
+		return CredentialModeUnspecified, err
 	}
+	return cm, nil
 }
 
 // AccessScopeFromLipsdk maps public lipsdk access scopes into ABI scopes.
 func AccessScopeFromLipsdk(s lipsdk.BackendAccessScope) (AccessScope, error) {
-	switch s {
-	case lipsdk.BackendAccessAny:
-		return AccessScopeAny, nil
-	case lipsdk.BackendAccessLocalOnly:
-		return AccessScopeLocalOnly, nil
-	default:
-		return AccessScopeUnspecified, ErrUnknownEnum
+	as := AccessScope(s)
+	if err := ValidateAccessScope(as); err != nil {
+		return AccessScopeUnspecified, err
 	}
+	return as, nil
 }
 
-// Validate rejects unspecified and unknown canonical event kinds (fail closed).
-func (k EventKind) Validate() error {
+// ValidateEventKind rejects unspecified and unknown canonical event kinds (fail closed).
+func ValidateEventKind(k EventKind) error {
 	switch k {
 	case EventResponseStarted, EventMessageStarted, EventTextDelta, EventReasoningDelta,
 		EventReasoningSignatureDelta, EventReasoningOpaqueDelta, EventToolCallStarted,
@@ -185,7 +182,8 @@ func (k EventKind) Validate() error {
 	}
 }
 
-func (m CredentialMode) Validate() error {
+// ValidateCredentialMode rejects unspecified and unknown credential modes.
+func ValidateCredentialMode(m CredentialMode) error {
 	switch m {
 	case CredentialModeStatic, CredentialModeWorkload, CredentialModeOAuthUser, CredentialModeNone, CredentialModeUnknown:
 		return nil
@@ -194,7 +192,8 @@ func (m CredentialMode) Validate() error {
 	}
 }
 
-func (s AccessScope) Validate() error {
+// ValidateAccessScope rejects unspecified and unknown access scopes.
+func ValidateAccessScope(s AccessScope) error {
 	switch s {
 	case AccessScopeAny, AccessScopeLocalOnly:
 		return nil

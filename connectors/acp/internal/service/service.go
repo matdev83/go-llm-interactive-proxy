@@ -87,6 +87,9 @@ func (i *instance) Close(context.Context) error { return nil }
 
 func (i *instance) Execute(stream backendplugin.ExecuteStream) error {
 	return backendplugin.ForwardExecute(stream, func(ctx context.Context, _ backendplugin.Invocation, call lipapi.Call) (lipapi.ManagedEventStream, error) {
+		if i == nil || i.hc == nil {
+			return nil, fmt.Errorf("acp: instance not configured")
+		}
 		return acpsupport.OpenHTTPPrompt(ctx, acpsupport.Config{
 			BaseURL:    i.cfg.BaseURL,
 			HTTPClient: i.hc,

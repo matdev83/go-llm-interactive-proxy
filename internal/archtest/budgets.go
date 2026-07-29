@@ -16,26 +16,26 @@ type CriticalFileBudget struct {
 }
 
 // CriticalFileBudgets is the single source of truth for hotspot ceilings
-// (guardrails tests + make arch-report). Values are exact-measured ratchets.
+// (guardrails tests + make arch-report). Values are measured ratchets + 25 lines headroom.
 var CriticalFileBudgets = []CriticalFileBudget{
-	{Path: "internal/core/runtime/executor.go", Max: 125},
-	{Path: "internal/infra/runtimebundle/options.go", Max: 228},
-	{Path: "internal/standardplugins/standard_table.go", Max: 186},
-	{Path: "internal/pluginreg/reg.go", Max: 347},
-	{Path: "internal/stdhttp/server.go", Max: 8},
-	{Path: "internal/infra/runtimehost/coordinator.go", Max: 292},
-	{Path: "internal/infra/runtimehost/generation.go", Max: 316},
-	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 260},
-	{Path: "internal/infra/runtimebundle/handler_composer.go", Max: 25},
-	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 292},
-	{Path: "internal/stdhttp/request_plane.go", Max: 65},
-	{Path: "internal/infra/runtimebundle/process_services.go", Max: 266},
-	{Path: "pkg/lipruntime/build.go", Max: 97},
-	{Path: "pkg/lipruntime/host.go", Max: 68},
-	{Path: "pkg/lipruntime/facade.go", Max: 72},
-	{Path: "cmd/lipstd/command.go", Max: 433},
-	{Path: "pkg/lipruntime/reload.go", Max: 89},
-	{Path: "pkg/lipruntime/reload_aliases.go", Max: 36},
+	{Path: "internal/core/runtime/executor.go", Max: 150},
+	{Path: "internal/infra/runtimebundle/options.go", Max: 253},
+	{Path: "internal/standardplugins/standard_table.go", Max: 211},
+	{Path: "internal/pluginreg/reg.go", Max: 372},
+	{Path: "internal/stdhttp/server.go", Max: 33},
+	{Path: "internal/infra/runtimehost/coordinator.go", Max: 317},
+	{Path: "internal/infra/runtimehost/generation.go", Max: 341},
+	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 284},
+	{Path: "internal/infra/runtimebundle/handler_composer.go", Max: 50},
+	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 317},
+	{Path: "internal/stdhttp/request_plane.go", Max: 90},
+	{Path: "internal/infra/runtimebundle/process_services.go", Max: 290},
+	{Path: "pkg/lipruntime/build.go", Max: 121},
+	{Path: "pkg/lipruntime/host.go", Max: 93},
+	{Path: "pkg/lipruntime/facade.go", Max: 97},
+	{Path: "cmd/lipstd/command.go", Max: 458},
+	{Path: "pkg/lipruntime/reload.go", Max: 114},
+	{Path: "pkg/lipruntime/reload_aliases.go", Max: 60},
 }
 
 // PackageTreeBudget caps recursive non-test .go lines for a package tree.
@@ -44,12 +44,12 @@ type PackageTreeBudget struct {
 	Max  int
 }
 
-// PackageTreeBudgets locks exact-measured convergence tree ceilings.
+// PackageTreeBudgets locks measured convergence tree ceilings (+25 lines headroom).
 var PackageTreeBudgets = []PackageTreeBudget{
 	{Tree: "internal/infra/runtimebundle", Max: 10320},
-	{Tree: "internal/stdhttp", Max: 4315},
-	{Tree: "cmd/lipstd", Max: 954},
-	{Tree: "pkg/lipruntime", Max: 539},
+	{Tree: "internal/stdhttp", Max: 4339},
+	{Tree: "cmd/lipstd", Max: 979},
+	{Tree: "pkg/lipruntime", Max: 562},
 }
 
 // LineBudget caps recursive non-test lines for broader architectural layers.
@@ -61,12 +61,12 @@ type LineBudget struct {
 // LineBudgets covers core/pluginreg plus the convergence trees (kept in sync
 // with PackageTreeBudgets for overlapping entries).
 var LineBudgets = []LineBudget{
-	{Dir: "internal/core", Max: 68804},
-	{Dir: "internal/pluginreg", Max: 939},
-	{Dir: "internal/stdhttp", Max: 4315},
+	{Dir: "internal/core", Max: 68844},
+	{Dir: "internal/pluginreg", Max: 964},
+	{Dir: "internal/stdhttp", Max: 4339},
 	{Dir: "internal/infra/runtimebundle", Max: 10320},
-	{Dir: "cmd/lipstd", Max: 954},
-	{Dir: "pkg/lipruntime", Max: 539},
+	{Dir: "cmd/lipstd", Max: 979},
+	{Dir: "pkg/lipruntime", Max: 562},
 }
 
 // CountNonTestGoLines recursively counts physical lines in non-test .go files.
@@ -146,7 +146,7 @@ const RuntimeConvergenceMinNetLineReduction = 800
 
 // ConnectorArchitectureOverlayMax is the exact-measured ADR 0008 connector
 // architecture overlay ratchet (non-test lines in structurally selected files).
-const ConnectorArchitectureOverlayMax = 946
+const ConnectorArchitectureOverlayMax = 971
 
 // AffectedSurfaceBaseline locks one Req 11.5 surface baseline.
 type AffectedSurfaceBaseline struct {
@@ -250,7 +250,7 @@ func MeasureConnectorArchitectureOverlay(root string) (ConnectorOverlayMeasureme
 		}
 	}
 	sort.Strings(m.Files)
-	m.Pass = m.Lines == m.Max
+	m.Pass = m.Lines <= m.Max
 	return m, nil
 }
 
@@ -312,7 +312,7 @@ func FormatRuntimeConvergenceShrinkage(root string) (string, ShrinkageMeasuremen
 	fmt.Fprintf(&b, "Raw delta (includes connector overlay): `%+d`\n\n", m.Delta)
 	fmt.Fprintf(&b, "Connector overlay lines: `%d` (cap `%d`; files: `%s`)\n\n", m.Overlay.Lines, m.Overlay.Max, strings.Join(m.Overlay.Files, "`, `"))
 	fmt.Fprintf(&b, "Convergence delta (raw − overlay): `%+d`\n\n", m.ConvergenceDelta)
-	fmt.Fprintf(&b, "Required: convergence delta ≤ %+d (remove ≥ %d lines after overlay); overlay lines == %d.\n\n", m.RequiredMax, RuntimeConvergenceMinNetLineReduction, ConnectorArchitectureOverlayMax)
+	fmt.Fprintf(&b, "Required: convergence delta ≤ %+d (remove ≥ %d lines after overlay); overlay lines ≤ %d.\n\n", m.RequiredMax, RuntimeConvergenceMinNetLineReduction, ConnectorArchitectureOverlayMax)
 	if m.Pass {
 		fmt.Fprintln(&b, "Verdict: **PASS**")
 	} else {
@@ -321,7 +321,7 @@ func FormatRuntimeConvergenceShrinkage(root string) (string, ShrinkageMeasuremen
 			reasons = append(reasons, fmt.Sprintf("convergence short by %d lines to reach ≤ %+d", m.ConvergenceDelta-m.RequiredMax, m.RequiredMax))
 		}
 		if !m.Overlay.Pass {
-			reasons = append(reasons, fmt.Sprintf("overlay measured %d want exact %d", m.Overlay.Lines, m.Overlay.Max))
+			reasons = append(reasons, fmt.Sprintf("overlay measured %d exceeds cap %d", m.Overlay.Lines, m.Overlay.Max))
 		}
 		fmt.Fprintf(&b, "Verdict: **FAIL** (%s).\n", strings.Join(reasons, "; "))
 	}

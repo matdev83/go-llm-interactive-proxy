@@ -18,7 +18,7 @@ func validBaseEvent() cp.Event {
 		Visibility:     cp.VisibilityDefault,
 		EvidenceState:  cp.EvidenceRecorded,
 		RedactionState: cp.RedactionNone,
-		Auth:           &cp.AuthDetail{Outcome: "allow"},
+		Detail:         &cp.AuthDetail{Outcome: "allow"},
 		Source:         cp.SourceRef{Name: "authsink"},
 	}
 }
@@ -119,16 +119,16 @@ func TestValidateEventRejectsProblems(t *testing.T) {
 		},
 		{
 			name: "zero_detail_blocks",
-			mut:  func(e cp.Event) cp.Event { e.Auth = nil; return e },
+			mut:  func(e cp.Event) cp.Event { e.Detail = nil; return e },
 			want: "exactly one detail block is required",
 		},
 		{
-			name: "multiple_detail_blocks",
+			name: "category_detail_mismatch_from_detail_swap",
 			mut: func(e cp.Event) cp.Event {
-				e.Session = &cp.SessionDetail{Action: cp.SessionActionCreated}
+				e.Detail = &cp.SessionDetail{Action: cp.SessionActionCreated}
 				return e
 			},
-			want: "exactly one detail block is required",
+			want: "requires auth detail",
 		},
 		{
 			name: "category_detail_mismatch",

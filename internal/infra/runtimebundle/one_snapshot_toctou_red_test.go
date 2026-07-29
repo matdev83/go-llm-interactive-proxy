@@ -13,7 +13,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
-	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -217,7 +216,7 @@ func writeOneSnapshotMarkerConfig(t *testing.T, address string, mode accessmode.
 	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return bpkit.MaterializeExampleConfig(t, path)
+	return MaterializeExampleConfigForTest(t, path)
 }
 
 func cleanupHost(t *testing.T, host *Host) {

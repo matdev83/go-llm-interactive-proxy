@@ -110,7 +110,7 @@ func projectAuthorityEvidence(status domain.AuthorityStatus, reserved bool, in E
 		EvidenceState:  evidenceLevel,
 		RedactionState: redactionLevel,
 		Summary:        summaryForReason(in.ReasonCode),
-		AccountingAuthority: &controlplane.AccountingAuthorityDetail{
+		Detail: &controlplane.AccountingAuthorityDetail{
 			Correlation:        correlation,
 			Scope:              snapshot,
 			RuleID:             in.RuleID,

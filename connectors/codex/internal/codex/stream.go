@@ -13,8 +13,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/reasoning"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/responsestream"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/safecast"
-	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/streampump"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/streampump"
 )
 
 // codexEventMapper holds the canonical-event mapping state shared by SSE and

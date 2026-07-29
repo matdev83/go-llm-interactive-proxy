@@ -108,7 +108,7 @@ func (s *DurableStore) Sessions(ctx context.Context, q cp.SessionQuery) (cp.Page
 		if r.id > g.maxSeq {
 			g.maxSeq = r.id
 		}
-		if ev.Session != nil {
+		if ev.Session() != nil {
 			if r.id > g.scopeSeq {
 				g.scope = ev.Scope
 				g.scopeSeq = r.id
@@ -117,13 +117,13 @@ func (s *DurableStore) Sessions(ctx context.Context, q cp.SessionQuery) (cp.Page
 			g.scope = ev.Scope
 			g.scopeSeq = r.id
 		}
-		if ev.Usage != nil {
-			g.usage.InputTokens += ev.Usage.InputTokens
-			g.usage.OutputTokens += ev.Usage.OutputTokens
-			g.usage.TotalTokens += ev.Usage.TotalTokens
-			g.usage.CostNanoUnits += ev.Usage.CostNanoUnits
+		if ev.Usage() != nil {
+			g.usage.InputTokens += ev.Usage().InputTokens
+			g.usage.OutputTokens += ev.Usage().OutputTokens
+			g.usage.TotalTokens += ev.Usage().TotalTokens
+			g.usage.CostNanoUnits += ev.Usage().CostNanoUnits
 		}
-		if ev.Attempt != nil {
+		if ev.Attempt() != nil {
 			g.attempts++
 		}
 	}
@@ -178,7 +178,7 @@ func (s *DurableStore) Attempts(ctx context.Context, q cp.AttemptQuery) (cp.Page
 		if decodeErr != nil {
 			return cp.Page[cp.AttemptRow]{}, decodeErr
 		}
-		if ev.Attempt == nil {
+		if ev.Attempt() == nil {
 			continue
 		}
 		items = append(items, sequenced[cp.AttemptRow]{row: attemptRowFromEvent(ev), seq: r.id})
@@ -237,10 +237,10 @@ func (s *DurableStore) Usage(ctx context.Context, q cp.UsageQuery) (cp.Page[cp.U
 		if decodeErr != nil {
 			return cp.Page[cp.UsageRow]{}, decodeErr
 		}
-		if ev.Usage == nil {
+		if ev.Usage() == nil {
 			continue
 		}
-		if !usageDetailMatchesQuery(ev.Usage, q, s.unsupportedFields) {
+		if !usageDetailMatchesQuery(ev.Usage(), q, s.unsupportedFields) {
 			continue
 		}
 		items = append(items, sequenced[cp.UsageRow]{row: usageRowFromEvent(ev), seq: r.id})
@@ -287,12 +287,12 @@ func (s *DurableStore) UsageAggregate(ctx context.Context, q cp.UsageAggregateQu
 		if decodeErr != nil {
 			return cp.Page[cp.UsageAggregate]{}, decodeErr
 		}
-		if ev.Usage == nil {
+		if ev.Usage() == nil {
 			continue
 		}
 		key, a := aggregateRow(q.GroupBy, ev)
 		if existing, ok := aggMap[key]; ok {
-			mergeAggregate(existing, ev.Usage)
+			mergeAggregate(existing, ev.Usage())
 			if r.id > seqFor[key] {
 				seqFor[key] = r.id
 			}
@@ -357,7 +357,7 @@ func (s *DurableStore) PolicyAudit(ctx context.Context, q cp.EvidenceQuery) (cp.
 		if decodeErr != nil {
 			return cp.Page[cp.PolicyAuditRow]{}, decodeErr
 		}
-		if ev.Policy == nil && ev.Audit == nil {
+		if ev.Policy() == nil && ev.Audit() == nil {
 			continue
 		}
 		items = append(items, sequenced[cp.PolicyAuditRow]{row: policyAuditRowFromEvent(ev), seq: r.id})

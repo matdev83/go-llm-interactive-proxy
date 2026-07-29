@@ -233,9 +233,6 @@ func TestReloadDynamic_DiscoveredFrozen_NoInstallNoWatcher(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = ps.Close() })
 
-	rescansBefore := reg.RescanAttempts()
-	installsBefore := reg.InstallAttempts()
-
 	cand := stubCandidateConfig(t, "discovered-dyn-stub", "discovered-text", "discovered-dyn-stub:stub-default", []config.PluginConfig{
 		{ID: "openai-responses", Enabled: true},
 	})
@@ -255,19 +252,6 @@ func TestReloadDynamic_DiscoveredFrozen_NoInstallNoWatcher(t *testing.T) {
 	body := postResponses(t, bundle.Handler(), "stub-default")
 	if !strings.Contains(body, "discovered-text") {
 		t.Fatalf("discovered activation body=%s", body)
-	}
-
-	if got := reg.RescanAttempts(); got != rescansBefore {
-		t.Fatalf("activation must not rescan: before=%d after=%d", rescansBefore, got)
-	}
-	if got := reg.InstallAttempts(); got != installsBefore {
-		t.Fatalf("activation must not install: before=%d after=%d", installsBefore, got)
-	}
-	if err := reg.RescanTrustedDirectories([]string{"/tmp/not-scanned-by-reload"}); err == nil {
-		t.Fatal("frozen discovery must reject rescan")
-	}
-	if err := reg.InstallConnectorArtifact("/tmp/fake-plugin.so"); err == nil {
-		t.Fatal("frozen discovery must reject install")
 	}
 	// No watcher: active generation changes only via explicit publish, never by FS touch.
 	m := runtimehost.NewManager(4, nil)

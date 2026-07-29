@@ -465,32 +465,65 @@ func stageBuiltPlugin(t *testing.T) *trust.VerifiedArtifact {
 	return res.Artifact
 }
 
-func buildFakePlugin(t *testing.T) string {
-	t.Helper()
-	root := repoRoot(t)
-	bin := filepath.Join(t.TempDir(), "lip-backendplugin-fake.exe")
-	cmd := exec.Command("go", "build", "-o", bin, "./internal/testkit/backendplugin/cmd/lip-backendplugin-fake")
-	cmd.Dir = root
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build fake: %v\n%s", err, out)
+var (
+	fixtureDir     string
+	fakePluginOnce sync.Once
+	fakePluginPath string
+	fakePluginErr  error
+)
+
+// TestMain owns the package-level fixture directory so the fake connector
+// binary is compiled once per run (a cold `go build` costs ~30s) and shared
+// by every test. No test mutates the shared binary: stageBuiltPlugin copies
+// it into per-test staging dirs, other tests only execute it.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "lip-processhost-fixture-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "fixture dir:", err)
+		os.Exit(1)
 	}
-	return bin
+	fixtureDir = dir
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
 }
 
-func repoRoot(t *testing.T) string {
+func buildFakePlugin(t *testing.T) string {
 	t.Helper()
+	fakePluginOnce.Do(func() {
+		root, err := repoRoot()
+		if err != nil {
+			fakePluginErr = err
+			return
+		}
+		bin := filepath.Join(fixtureDir, "lip-backendplugin-fake.exe")
+		cmd := exec.Command("go", "build", "-o", bin, "./internal/testkit/backendplugin/cmd/lip-backendplugin-fake")
+		cmd.Dir = root
+		if out, err := cmd.CombinedOutput(); err != nil {
+			fakePluginErr = fmt.Errorf("build fake: %v\n%s", err, out)
+			return
+		}
+		fakePluginPath = bin
+	})
+	if fakePluginErr != nil {
+		t.Fatal(fakePluginErr)
+	}
+	return fakePluginPath
+}
+
+func repoRoot() (string, error) {
 	wd, err := os.Getwd()
 	if err != nil {
-		t.Fatal(err)
+		return "", err
 	}
 	dir := wd
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
+			return dir, nil
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			t.Fatal("go.mod not found")
+			return "", errors.New("go.mod not found")
 		}
 		dir = parent
 	}

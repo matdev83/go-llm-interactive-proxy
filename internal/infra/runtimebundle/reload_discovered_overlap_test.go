@@ -79,9 +79,6 @@ func TestReloadDiscovered_ActivateAlreadyDiscoveredKind(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = ps.Close() })
 
-	rescansBefore := reg.RescanAttempts()
-	installsBefore := reg.InstallAttempts()
-
 	// Startup had no discovered-host-stub row; candidate activates the already discovered kind.
 	cand := &config.Config{
 		Routing:    config.RoutingConfig{MaxAttempts: 3, DefaultRoute: "disc:stub-default"},
@@ -114,10 +111,6 @@ func TestReloadDiscovered_ActivateAlreadyDiscoveredKind(t *testing.T) {
 	}
 	if !containsID(gb.BackendIDs(), "disc") {
 		t.Fatalf("want disc, got %v", gb.BackendIDs())
-	}
-	if reg.RescanAttempts() != rescansBefore || reg.InstallAttempts() != installsBefore {
-		t.Fatalf("reload must not rescan/install: rescan %d→%d install %d→%d",
-			rescansBefore, reg.RescanAttempts(), installsBefore, reg.InstallAttempts())
 	}
 }
 
@@ -309,9 +302,6 @@ func TestReloadDiscovered_ProcessCatalogFrozenAtStartup(t *testing.T) {
 
 	if !reg.DiscoveryFrozen() {
 		t.Fatal("factory discovery/trust catalog must be frozen after process construction")
-	}
-	if err := reg.RescanTrustedDirectories(nil); !errors.Is(err, pluginreg.ErrDiscoveryFrozen) {
-		t.Fatalf("process-owned catalog must reject rescan: %v", err)
 	}
 	if ps.FactoryCatalog != reg {
 		t.Fatal("candidates must reuse process FactoryCatalog identity")

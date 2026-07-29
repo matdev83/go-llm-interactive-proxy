@@ -41,10 +41,10 @@ func eventToLipapi(ev *backendplugin.CanonicalEvent) (lipapi.Event, error) {
 	if ev == nil {
 		return lipapi.Event{}, fmt.Errorf("nil event")
 	}
-	if err := ev.Kind.Validate(); err != nil {
+	if err := backendplugin.ValidateEventKind(ev.Kind); err != nil {
 		return lipapi.Event{}, err
 	}
-	out := lipapi.Event{Kind: lipapi.EventKind(ev.Kind)}
+	out := lipapi.Event{Kind: ev.Kind}
 	if ev.MessageIndex != nil {
 		out.MessageIndex = int(*ev.MessageIndex)
 	}

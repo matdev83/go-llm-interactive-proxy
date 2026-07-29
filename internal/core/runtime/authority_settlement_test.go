@@ -700,7 +700,7 @@ func TestExecutorAuthoritySettlementUsesAdmissionUnit(t *testing.T) {
 				admissionResult: auth.admitResult,
 			}
 
-			lifecycle := newAuthorityLifecycle(ex.authorityService(), ex.Log, state, authorityCandidate())
+			lifecycle := newAuthorityLifecycle(ex.UsageAuthority, ex.Log, state, authorityCandidate())
 			lifecycle.Settle(context.Background(), authorityapp.SettlementKindFinal, tc.usage, false)
 			if auth.settleCalls.Load() != 1 {
 				t.Fatalf("settle calls = %d, want 1", auth.settleCalls.Load())
@@ -864,7 +864,7 @@ func TestAuthorityFinalSettlementZeroVsMissingUsage(t *testing.T) {
 			},
 			admissionResult: auth.admitResult,
 		}
-		return auth, newAuthorityLifecycle(ex.authorityService(), ex.Log, state, authorityCandidate())
+		return auth, newAuthorityLifecycle(ex.UsageAuthority, ex.Log, state, authorityCandidate())
 	}
 
 	t.Run("present-but-zero-tokens-settles-at-zero", func(t *testing.T) {

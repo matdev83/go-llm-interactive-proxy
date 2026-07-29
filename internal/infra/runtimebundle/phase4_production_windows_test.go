@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -189,28 +188,7 @@ func stageProductionFakePlugin(t *testing.T, kind string) string {
 
 func buildProductionFakePlugin(t *testing.T) string {
 	t.Helper()
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := wd
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			break
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("go.mod not found")
-		}
-		dir = parent
-	}
-	bin := filepath.Join(t.TempDir(), "lip-backendplugin-fake.exe")
-	cmd := exec.Command("go", "build", "-o", bin, "./internal/testkit/backendplugin/cmd/lip-backendplugin-fake")
-	cmd.Dir = dir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build fake: %v\n%s", err, out)
-	}
-	return bin
+	return runtimebundle.BackendPluginFakeBinaryForTest(t)
 }
 
 func writeProductionDiscoveryConfig(t *testing.T, pluginRoot, kind string) string {

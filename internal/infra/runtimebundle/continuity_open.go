@@ -2,6 +2,7 @@ package runtimebundle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -9,26 +10,17 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/continuity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/continuity/bunstore"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/continuity/sqlitestore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/uptrace/bun"
 )
 
-// OpenContinuityStore opens the continuity store described by cfg with a dedicated
-// (non-shared) postgres pool; closing the returned store closes that pool.
-// Composition roots sharing process-wide pools use [openContinuityStore] instead.
-// For Postgres, ctx bounds open + schema migrate (with [db.DefaultPostgresOpenMigrateTimeout]).
-// For SQLite, ctx is used for ping and migration DDL. ctx and cfg must be non-nil.
+// OpenContinuityStore opens a store with a dedicated database handle.
 func OpenContinuityStore(ctx context.Context, cfg *config.Config) (b2bua.Store, error) {
 	store, _, err := openContinuityStore(ctx, cfg, nil, nil)
 	return store, err
 }
 
-// openContinuityStore opens the continuity store described by cfg. When pools is
-// non-nil the postgres handle is shared through the registry (claimed on success,
-// closed once by the registry owner) and the returned closer is a pool no-op;
-// when nil the store owns a dedicated handle released by the returned closer.
-// A nil closer means there is nothing to close.
+// openContinuityStore optionally shares its Postgres handle through pools.
 func openContinuityStore(ctx context.Context, cfg *config.Config, pools *db.PoolRegistry, migrator *dualPlaneMigrator) (b2bua.Store, func() error, error) {
 	if cfg == nil {
 		return nil, nil, fmt.Errorf("continuity: nil config")
@@ -43,9 +35,17 @@ func openContinuityStore(ctx context.Context, cfg *config.Config, pools *db.Pool
 		if path == "" {
 			return nil, nil, fmt.Errorf("continuity: sqlite_path is required when store is \"sqlite\"")
 		}
-		s, err := sqlitestore.OpenContext(ctx, path)
+		bunDB, err := db.OpenSQLiteBun(ctx, path)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("continuity: open sqlite store: %w", err)
+		}
+		s, err := bunstore.NewContext(ctx, bunDB)
+		if err != nil {
+			schemaErr := fmt.Errorf("continuity: prepare sqlite schema: %w", err)
+			if cerr := bunDB.Close(); cerr != nil {
+				return nil, nil, errors.Join(schemaErr, fmt.Errorf("continuity: close db after schema error: %w", cerr))
+			}
+			return nil, nil, schemaErr
 		}
 		return s, s.Close, nil
 	case "memory":
@@ -59,12 +59,8 @@ func openContinuityStore(ctx context.Context, cfg *config.Config, pools *db.Pool
 		if err != nil {
 			return nil, nil, fmt.Errorf("continuity: %w", err)
 		}
-		pool := db.PoolSettings{
-			MaxOpenConns:    poolCfg.MaxOpenConns,
-			MaxIdleConns:    poolCfg.MaxIdleConns,
-			ConnMaxLifetime: poolCfg.ConnMaxLifetime,
-			ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
-		}
+		pool := db.PoolSettings{MaxOpenConns: poolCfg.MaxOpenConns, MaxIdleConns: poolCfg.MaxIdleConns,
+			ConnMaxLifetime: poolCfg.ConnMaxLifetime, ConnMaxIdleTime: poolCfg.ConnMaxIdleTime}
 		dsn := strings.TrimSpace(cc.PostgresDSN)
 		child, cancel := context.WithTimeout(ctx, db.DefaultPostgresOpenMigrateTimeout)
 		defer cancel()
@@ -91,7 +87,6 @@ func openContinuityStore(ctx context.Context, cfg *config.Config, pools *db.Pool
 	}
 }
 
-// NewMemoryContinuityStore creates an in-memory continuity store from the given config section.
 func NewMemoryContinuityStore(cfg config.ContinuityConfig) (b2bua.Store, error) {
 	cfg.InMemory = true
 	return continuity.NewMemoryStoreFromConfig(cfg)

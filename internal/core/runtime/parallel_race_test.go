@@ -423,7 +423,7 @@ func TestParallelRace_TTFTTimeoutActuallyKillsLeg(t *testing.T) {
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Backends = map[string]execbackend.Backend{
 		"stuck": delayedBackend(60*time.Second, completionEvents("stuck")),
-		"ok":    delayedBackend(200*time.Millisecond, completionEvents("ok")),
+		"ok":    delayedBackend(50*time.Millisecond, completionEvents("ok")),
 	}
 	ex.Rand = routing.NewSeededRng(1)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
@@ -447,8 +447,10 @@ func TestParallelRace_KeepaliveEmittedWhileWaiting(t *testing.T) {
 	ex := runtime.TestExecutor()
 	ex.Store = st
 	ex.Bus = hooks.New(hooks.Config{})
+	// 400ms tail delay gives the 50ms keepalive timer ~8 chances to fire while
+	// the winner stream idles before its final event; one emission suffices.
 	ex.Backends = map[string]execbackend.Backend{
-		"slow": delayedTailBackend(2*time.Second, "ok"),
+		"slow": delayedTailBackend(400*time.Millisecond, "ok"),
 	}
 	ex.Rand = routing.NewSeededRng(1)
 	s, err := ex.Execute(t.Context(), parallelCall("slow:model!slow:model2"))
@@ -880,9 +882,10 @@ func TestParallelRace_FailoverArmsAreNotFlattenedIntoSingleRace(t *testing.T) {
 	ex.Store = st
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Backends = map[string]execbackend.Backend{
-		// First failover arm (parallel): should race only these two.
-		"a": delayedBackend(120*time.Millisecond, completionEvents("first-arm-a")),
-		"b": delayedBackend(140*time.Millisecond, completionEvents("first-arm-b")),
+		// First failover arm (parallel): should race only these two. Any positive
+		// delay discriminates a broken flattened race (instant c/d would win).
+		"a": delayedBackend(30*time.Millisecond, completionEvents("first-arm-a")),
+		"b": delayedBackend(40*time.Millisecond, completionEvents("first-arm-b")),
 		// Second failover arm (parallel): must not participate unless first arm fully fails.
 		"c": parallelBackend(completionEvents("second-arm-c")),
 		"d": parallelBackend(completionEvents("second-arm-d")),

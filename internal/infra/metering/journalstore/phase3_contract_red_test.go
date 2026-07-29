@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -62,9 +61,7 @@ func TestPhase3_MemoryJournalContracts(t *testing.T) {
 
 func TestPhase3_SQLiteJournalContracts(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "phase3-metering.db")
-	sqlDB, err := sql.Open("sqlite", path)
+	sqlDB, err := sql.Open("sqlite", memorySQLiteDSN())
 	if err != nil {
 		t.Fatal(err)
 	}

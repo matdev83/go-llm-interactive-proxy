@@ -50,7 +50,7 @@ func TestPhase6Correlate_ControlPlaneUsageAlignsWithTokenAccountingDimensions(t 
 		t.Fatalf("usage observer must be fail-open: %v", err)
 	}
 	evs := h.events()
-	if len(evs) != 1 || evs[0].Usage == nil {
+	if len(evs) != 1 || evs[0].Usage() == nil {
 		t.Fatalf("usage event not recorded: %#v", evs)
 	}
 	cor := evs[0].Correlation
@@ -62,13 +62,13 @@ func TestPhase6Correlate_ControlPlaneUsageAlignsWithTokenAccountingDimensions(t 
 
 	// Control-plane evidence is observed, not accounting-authoritative: it must
 	// be distinguishable from the authoritative token-accounting ledger record.
-	if evs[0].Usage.Plane != cp.UsagePlaneObserved {
-		t.Fatalf("control-plane usage plane must be observed, got %q", evs[0].Usage.Plane)
+	if evs[0].Usage().Plane != cp.UsagePlaneObserved {
+		t.Fatalf("control-plane usage plane must be observed, got %q", evs[0].Usage().Plane)
 	}
-	if evs[0].Usage.Availability != cp.UsageAvailabilityObserved {
-		t.Fatalf("control-plane usage availability must be observed, got %q", evs[0].Usage.Availability)
+	if evs[0].Usage().Availability != cp.UsageAvailabilityObserved {
+		t.Fatalf("control-plane usage availability must be observed, got %q", evs[0].Usage().Availability)
 	}
-	if evs[0].Usage.Availability == cp.UsageAvailabilityAccountingAuth {
+	if evs[0].Usage().Availability == cp.UsageAvailabilityAccountingAuth {
 		t.Fatalf("control-plane observed usage must not masquerade as accounting-authoritative")
 	}
 

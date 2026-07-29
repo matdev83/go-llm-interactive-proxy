@@ -143,12 +143,9 @@ func NormalizeClientMessage(s string) string {
 	return trimmed[:cut]
 }
 
-// NewPolicyDeniedError returns a stable denial error. clientMessage and clientCategory
-// are the only fields intended for frontend rendering; cause is preserved for
-// diagnostics only. clientMessage is normalized to the wire-safe bound at construction.
-func NewPolicyDeniedError(stage, providerID, reasonCode, clientCategory, clientMessage string, cause error) *PolicyDecisionError {
+func newPolicyDecisionError(kind PolicyDecisionErrorKind, stage, providerID, reasonCode, clientCategory, clientMessage string, cause error) *PolicyDecisionError {
 	return &PolicyDecisionError{
-		Kind:           PolicyErrorKindDenied,
+		Kind:           kind,
 		Stage:          stage,
 		ProviderID:     providerID,
 		ReasonCode:     reasonCode,
@@ -158,19 +155,18 @@ func NewPolicyDeniedError(stage, providerID, reasonCode, clientCategory, clientM
 	}
 }
 
+// NewPolicyDeniedError returns a stable denial error. clientMessage and clientCategory
+// are the only fields intended for frontend rendering; cause is preserved for
+// diagnostics only. clientMessage is normalized to the wire-safe bound at construction.
+func NewPolicyDeniedError(stage, providerID, reasonCode, clientCategory, clientMessage string, cause error) *PolicyDecisionError {
+	return newPolicyDecisionError(PolicyErrorKindDenied, stage, providerID, reasonCode, clientCategory, clientMessage, cause)
+}
+
 // NewPolicyFailureError returns a stable policy failure error for fail-closed
 // provider failures (requirement 6.1). clientMessage is normalized to the wire-safe
 // bound at construction.
 func NewPolicyFailureError(stage, providerID, reasonCode, clientCategory, clientMessage string, cause error) *PolicyDecisionError {
-	return &PolicyDecisionError{
-		Kind:           PolicyErrorKindFailure,
-		Stage:          stage,
-		ProviderID:     providerID,
-		ReasonCode:     reasonCode,
-		ClientCategory: clientCategory,
-		ClientMessage:  NormalizeClientMessage(clientMessage),
-		Cause:          cause,
-	}
+	return newPolicyDecisionError(PolicyErrorKindFailure, stage, providerID, reasonCode, clientCategory, clientMessage, cause)
 }
 
 // NewPolicyMalformedError returns a stable malformed-policy error for unknown
@@ -178,15 +174,7 @@ func NewPolicyFailureError(stage, providerID, reasonCode, clientCategory, client
 // (requirements 1.5, 6.6). clientMessage is normalized to the wire-safe bound at
 // construction.
 func NewPolicyMalformedError(stage, providerID, reasonCode, clientCategory, clientMessage string, cause error) *PolicyDecisionError {
-	return &PolicyDecisionError{
-		Kind:           PolicyErrorKindMalformed,
-		Stage:          stage,
-		ProviderID:     providerID,
-		ReasonCode:     reasonCode,
-		ClientCategory: clientCategory,
-		ClientMessage:  NormalizeClientMessage(clientMessage),
-		Cause:          cause,
-	}
+	return newPolicyDecisionError(PolicyErrorKindMalformed, stage, providerID, reasonCode, clientCategory, clientMessage, cause)
 }
 
 // IsPolicyDecisionError reports whether err is or wraps a *PolicyDecisionError or one

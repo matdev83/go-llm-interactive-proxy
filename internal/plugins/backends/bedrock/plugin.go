@@ -67,10 +67,11 @@ func NewWithContext(ctx context.Context, cfg Config) execbackend.Backend {
 	}
 	client := cli
 	return execbackend.Backend{
-		Caps:                    defaultBackendCaps(),
-		BackendPrefixes:         []string{ID},
-		EnforcesMaxOutputTokens: true,
-		ModelInventory:          newFoundationModelsProvider(loadCtx, cfg),
+		Caps:                                 defaultBackendCaps(),
+		BackendPrefixes:                      []string{ID},
+		EnforcesMaxOutputTokens:              true,
+		IgnoresAuthorityMaxOutputTokensClamp: execbackend.IgnoresClampViaCodexUnsupportedGenParams,
+		ModelInventory:                       newFoundationModelsProvider(loadCtx, cfg),
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return ModelCapabilities(resolveModelID(cand, call))
 		},

@@ -3,7 +3,9 @@ package backendplugin_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -56,7 +58,7 @@ func TestForwardExecute_ForwardsEventsVerbatim(t *testing.T) {
 				t.Fatalf("frame[%d]: nil event", i)
 			}
 			gotEvents = append(gotEvents, lipapi.Event{
-				Kind:  lipapi.EventKind(f.Event.Kind),
+				Kind:  f.Event.Kind,
 				Delta: derefStr(f.Event.Delta),
 			})
 		case backendplugin.ServerFrameTerminal:
@@ -161,6 +163,81 @@ func TestForwardExecute_NilOpen(t *testing.T) {
 	}
 }
 
+func TestForwardExecute_WrappedEOFEmitsTerminalSuccess(t *testing.T) {
+	t.Parallel()
+
+	ms := &wrappedEOFManaged{}
+	stream := newFakeExecuteStream(context.Background(), validStartFrame(t))
+
+	err := backendplugin.ForwardExecute(stream, func(context.Context, backendplugin.Invocation, lipapi.Call) (lipapi.ManagedEventStream, error) {
+		return ms, nil
+	})
+	if err != nil {
+		t.Fatalf("ForwardExecute: %v", err)
+	}
+	var sawTerminal bool
+	for _, f := range stream.sent {
+		if f.Kind == backendplugin.ServerFrameTerminal {
+			sawTerminal = true
+			if f.Terminal == nil || f.Terminal.Status != backendplugin.TerminalSuccess {
+				t.Fatalf("terminal=%+v, want success", f.Terminal)
+			}
+		}
+	}
+	if !sawTerminal {
+		t.Fatal("wrapped io.EOF must emit terminal success")
+	}
+}
+
+func TestForwardExecute_NilStreamFromOpen(t *testing.T) {
+	t.Parallel()
+	stream := newFakeExecuteStream(context.Background(), validStartFrame(t))
+	err := backendplugin.ForwardExecute(stream, func(context.Context, backendplugin.Invocation, lipapi.Call) (lipapi.ManagedEventStream, error) {
+		return nil, nil
+	})
+	if err == nil {
+		t.Fatal("expected error for nil stream from open")
+	}
+	if !strings.Contains(err.Error(), "nil stream") {
+		t.Fatalf("err=%v, want nil stream error", err)
+	}
+}
+
+func TestForwardExecute_CloseExactlyOnceOnCancel(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ms := &closeCountManaged{unblocked: make(chan struct{})}
+	stream := newFakeExecuteStream(ctx, validStartFrame(t))
+
+	done := make(chan error, 1)
+	go func() {
+		done <- backendplugin.ForwardExecute(stream, func(context.Context, backendplugin.Invocation, lipapi.Call) (lipapi.ManagedEventStream, error) {
+			return ms, nil
+		})
+	}()
+
+	waitUntil(t, 2*time.Second, func() bool { return ms.recvEntered.Load() })
+	cancel()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected ForwardExecute to return on stream cancel")
+		}
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("err=%v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ForwardExecute did not return after stream context cancel")
+	}
+
+	waitUntil(t, 2*time.Second, func() bool { return ms.closeCalls.Load() == 1 })
+	if got := ms.closeCalls.Load(); got != 1 {
+		t.Fatalf("Close calls=%d, want exactly 1", got)
+	}
+}
+
 func validStartFrame(t *testing.T) backendplugin.ClientFrame {
 	t.Helper()
 	text := "hi"
@@ -258,6 +335,43 @@ func (m *blockingManaged) Cancel(_ context.Context, cause lipapi.CancelCause) li
 	m.cancelCalled.Store(true)
 	m.closeOnce.Do(func() { close(m.unblocked) })
 	return lipapi.CancelResult{Mode: lipapi.CancelModeProvider}
+}
+
+type wrappedEOFManaged struct{}
+
+func (m *wrappedEOFManaged) Recv(context.Context) (lipapi.Event, error) {
+	return lipapi.Event{}, fmt.Errorf("wrapped: %w", io.EOF)
+}
+
+func (m *wrappedEOFManaged) Close() error { return nil }
+
+func (m *wrappedEOFManaged) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
+	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
+}
+
+type closeCountManaged struct {
+	recvEntered atomic.Bool
+	closeCalls  atomic.Int32
+	unblocked   chan struct{}
+}
+
+func (m *closeCountManaged) Recv(ctx context.Context) (lipapi.Event, error) {
+	m.recvEntered.Store(true)
+	select {
+	case <-ctx.Done():
+		return lipapi.Event{}, ctx.Err()
+	case <-m.unblocked:
+		return lipapi.Event{}, context.Canceled
+	}
+}
+
+func (m *closeCountManaged) Close() error {
+	m.closeCalls.Add(1)
+	return nil
+}
+
+func (m *closeCountManaged) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
+	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
 }
 
 func waitUntil(t *testing.T, d time.Duration, cond func() bool) {

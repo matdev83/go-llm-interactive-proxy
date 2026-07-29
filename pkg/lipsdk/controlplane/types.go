@@ -166,14 +166,11 @@ type Event struct {
 	RedactionState RedactionState `json:"redaction_state"`
 	Summary        string         `json:"summary,omitempty"`
 
-	Auth                *AuthDetail                `json:"auth,omitempty"`
-	Session             *SessionDetail             `json:"session,omitempty"`
-	Attempt             *AttemptDetail             `json:"attempt,omitempty"`
-	Usage               *UsageDetail               `json:"usage,omitempty"`
-	AccountingAuthority *AccountingAuthorityDetail `json:"accounting_authority,omitempty"`
-	Policy              *PolicyDetail              `json:"policy,omitempty"`
-	Audit               *AuditDetail               `json:"audit,omitempty"`
-	Lifecycle           *LifecycleDetail           `json:"lifecycle,omitempty"`
+	// Detail carries exactly one typed detail block matching Category. Use the
+	// typed accessors (Auth, Session, …) or assign a concrete *XDetail pointer.
+	// JSON wire shape remains the historical category-keyed object via custom
+	// marshaling (Go API v2-compatible; see package doc).
+	Detail EventDetail `json:"-"`
 }
 
 // Validate performs structural invariant checks for an Event. It is the
@@ -253,75 +250,35 @@ func validateTimestamps(e Event) error {
 // fields are pointers; a typed nil pointer inside an `any` is not equal to
 // untyped nil, so each field is checked directly rather than via a slice.
 func ensureSingleDetail(e Event) error {
-	set := 0
-	if e.Auth != nil {
-		set++
-	}
-	if e.Session != nil {
-		set++
-	}
-	if e.Attempt != nil {
-		set++
-	}
-	if e.Usage != nil {
-		set++
-	}
-	if e.AccountingAuthority != nil {
-		set++
-	}
-	if e.Policy != nil {
-		set++
-	}
-	if e.Audit != nil {
-		set++
-	}
-	if e.Lifecycle != nil {
-		set++
-	}
-	if set == 0 {
+	if e.Detail == nil {
 		return errf("controlplane event: exactly one detail block is required, got none")
-	}
-	if set > 1 {
-		return errf("controlplane event: exactly one detail block is required, got %d", set)
 	}
 	return nil
 }
 
 // ensureDetailMatchesCategory verifies the set detail block matches the category.
 func ensureDetailMatchesCategory(e Event) error {
+	want := string(e.Category)
 	switch e.Category {
 	case CategoryAuth:
-		if e.Auth == nil {
-			return errf("controlplane event: category %q requires auth detail", e.Category)
-		}
+		want = "auth"
 	case CategorySession:
-		if e.Session == nil {
-			return errf("controlplane event: category %q requires session detail", e.Category)
-		}
+		want = "session"
 	case CategoryAttempt:
-		if e.Attempt == nil {
-			return errf("controlplane event: category %q requires attempt detail", e.Category)
-		}
+		want = "attempt"
 	case CategoryUsage:
-		if e.Usage == nil {
-			return errf("controlplane event: category %q requires usage detail", e.Category)
-		}
+		want = "usage"
 	case CategoryAccountingAuthority:
-		if e.AccountingAuthority == nil {
-			return errf("controlplane event: category %q requires accounting_authority detail", e.Category)
-		}
+		want = "accounting_authority"
 	case CategoryPolicy:
-		if e.Policy == nil {
-			return errf("controlplane event: category %q requires policy detail", e.Category)
-		}
+		want = "policy"
 	case CategoryAudit:
-		if e.Audit == nil {
-			return errf("controlplane event: category %q requires audit detail", e.Category)
-		}
+		want = "audit"
 	case CategoryLifecycle:
-		if e.Lifecycle == nil {
-			return errf("controlplane event: category %q requires lifecycle detail", e.Category)
-		}
+		want = "lifecycle"
+	}
+	if detailCategory(e.Detail) != e.Category {
+		return errf("controlplane event: category %q requires %s detail", e.Category, want)
 	}
 	return nil
 }

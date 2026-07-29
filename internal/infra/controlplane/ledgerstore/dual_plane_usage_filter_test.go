@@ -84,7 +84,7 @@ func usageEvent(key string, perspective cp.UsagePerspective, boundary cp.UsageBo
 		Visibility:     cp.VisibilityDefault,
 		EvidenceState:  cp.EvidenceRecorded,
 		RedactionState: cp.RedactionSummarized,
-		Usage: &cp.UsageDetail{
+		Detail: &cp.UsageDetail{
 			Plane:          cp.UsagePlaneObserved,
 			Availability:   cp.UsageAvailabilityObserved,
 			Perspective:    perspective,

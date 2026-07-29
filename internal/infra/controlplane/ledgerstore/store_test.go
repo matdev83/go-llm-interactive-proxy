@@ -4,7 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"path/filepath"
+	"fmt"
+	"sync/atomic"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
@@ -12,6 +13,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 )
+
+var memSQLiteDSN atomic.Int64
 
 // sqliteFactory implements contract.Factory for the SQLite durable store.
 type sqliteFactory struct {
@@ -174,8 +177,9 @@ func TestSQLiteStore_storageErrorClassified(t *testing.T) {
 
 func newSQLiteStoreForTest(t *testing.T, unsupported []string) *DurableStore {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "controlplane.db")
-	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
+	// No ledgerstore SQLite test reopens the database file, so a uniquely
+	// named shared-cache in-memory DSN avoids per-commit fsync latency.
+	dsn := fmt.Sprintf("file:ls-mem-%d?mode=memory&cache=shared&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)", memSQLiteDSN.Add(1))
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatal(err)

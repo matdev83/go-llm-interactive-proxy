@@ -310,13 +310,13 @@ func TestSettlementEvidenceRuleKindAndStatus(t *testing.T) {
 		if err != nil {
 			t.Fatalf("settle: %v", err)
 		}
-		if got.AccountingEvent.AccountingAuthority == nil {
+		if got.AccountingEvent.AccountingAuthority() == nil {
 			t.Fatalf("settlement must project accounting authority detail")
 		}
-		if got.AccountingEvent.AccountingAuthority.RuleType != string(domain.RuleKindBudget) {
-			t.Fatalf("budget settlement must emit budget rule type, got %q", got.AccountingEvent.AccountingAuthority.RuleType)
+		if got.AccountingEvent.AccountingAuthority().RuleType != string(domain.RuleKindBudget) {
+			t.Fatalf("budget settlement must emit budget rule type, got %q", got.AccountingEvent.AccountingAuthority().RuleType)
 		}
-		if got.AccountingEvent.AccountingAuthority.RuleType == string(domain.RuleKindQuota) {
+		if got.AccountingEvent.AccountingAuthority().RuleType == string(domain.RuleKindQuota) {
 			t.Fatalf("budget settlement must not fabricate quota rule type")
 		}
 		if got.PolicyRecord.Annotations["accounting.rule_id"] != budgetRule.ID {
@@ -361,11 +361,11 @@ func TestSettlementEvidenceRuleKindAndStatus(t *testing.T) {
 		if err != nil {
 			t.Fatalf("settle: %v", err)
 		}
-		if got.AccountingEvent.AccountingAuthority == nil {
+		if got.AccountingEvent.AccountingAuthority() == nil {
 			t.Fatalf("settlement must project accounting authority detail")
 		}
-		if got.AccountingEvent.AccountingAuthority.RuleType != string(domain.RuleKindSpendCap) {
-			t.Fatalf("spend-cap settlement must emit spend_cap rule type, got %q", got.AccountingEvent.AccountingAuthority.RuleType)
+		if got.AccountingEvent.AccountingAuthority().RuleType != string(domain.RuleKindSpendCap) {
+			t.Fatalf("spend-cap settlement must emit spend_cap rule type, got %q", got.AccountingEvent.AccountingAuthority().RuleType)
 		}
 	})
 
@@ -384,21 +384,21 @@ func TestSettlementEvidenceRuleKindAndStatus(t *testing.T) {
 		if err != nil {
 			t.Fatalf("settle under degraded backing must stay error-tolerant: %v", err)
 		}
-		if got.AccountingEvent.AccountingAuthority == nil {
+		if got.AccountingEvent.AccountingAuthority() == nil {
 			t.Fatalf("settlement must project accounting authority detail")
 		}
-		if got.AccountingEvent.AccountingAuthority.RuleType != string(domain.RuleKindBudget) {
-			t.Fatalf("degraded settlement must still emit the real budget rule type, got %q", got.AccountingEvent.AccountingAuthority.RuleType)
+		if got.AccountingEvent.AccountingAuthority().RuleType != string(domain.RuleKindBudget) {
+			t.Fatalf("degraded settlement must still emit the real budget rule type, got %q", got.AccountingEvent.AccountingAuthority().RuleType)
 		}
 		// resolveAuthoritySource gives settlement-state priority (Settled ->
 		// Reconciled) regardless of the backing status, so the authority field
 		// is Reconciled, not a Ready/authoritative posture. The point of passing
 		// the real (degraded) status is to stop fabricating Ready; the release
 		// subtest below observes the fabricated-status effect directly.
-		if got.AccountingEvent.AccountingAuthority.Authority != controlplane.AccountingAuthoritySourceReconciled {
-			t.Fatalf("degraded settlement authority must stay reconciled by settlement-state priority, got %v", got.AccountingEvent.AccountingAuthority.Authority)
+		if got.AccountingEvent.AccountingAuthority().Authority != controlplane.AccountingAuthoritySourceReconciled {
+			t.Fatalf("degraded settlement authority must stay reconciled by settlement-state priority, got %v", got.AccountingEvent.AccountingAuthority().Authority)
 		}
-		if got.AccountingEvent.AccountingAuthority.Authority == controlplane.AccountingAuthoritySourceAuthoritative {
+		if got.AccountingEvent.AccountingAuthority().Authority == controlplane.AccountingAuthoritySourceAuthoritative {
 			t.Fatalf("degraded settlement must not project a fabricated Ready/authoritative posture")
 		}
 	})
@@ -427,13 +427,13 @@ func TestSettlementEvidenceRuleKindAndStatus(t *testing.T) {
 		if err != nil {
 			t.Fatalf("release: %v", err)
 		}
-		if got.AccountingEvent.AccountingAuthority == nil {
+		if got.AccountingEvent.AccountingAuthority() == nil {
 			t.Fatalf("release must project accounting authority detail")
 		}
-		if got.AccountingEvent.AccountingAuthority.RuleType != string(domain.RuleKindBudget) {
-			t.Fatalf("budget release must emit budget rule type, got %q", got.AccountingEvent.AccountingAuthority.RuleType)
+		if got.AccountingEvent.AccountingAuthority().RuleType != string(domain.RuleKindBudget) {
+			t.Fatalf("budget release must emit budget rule type, got %q", got.AccountingEvent.AccountingAuthority().RuleType)
 		}
-		if got.AccountingEvent.AccountingAuthority.RuleType == string(domain.RuleKindQuota) {
+		if got.AccountingEvent.AccountingAuthority().RuleType == string(domain.RuleKindQuota) {
 			t.Fatalf("budget release must not fabricate quota rule type")
 		}
 		if !reflect.DeepEqual(got.PolicyRecord, evidence.policy[0]) || !reflect.DeepEqual(got.AccountingEvent, evidence.accounting[0]) {
@@ -471,20 +471,20 @@ func TestSettlementEvidenceRuleKindAndStatus(t *testing.T) {
 		if err != nil {
 			t.Fatalf("release under degraded backing must stay error-tolerant: %v", err)
 		}
-		if got.AccountingEvent.AccountingAuthority == nil {
+		if got.AccountingEvent.AccountingAuthority() == nil {
 			t.Fatalf("release must project accounting authority detail")
 		}
 		// Authority is checked before rule type so a pre-fix run reports the
 		// fabricated-status failure (Authoritative from the hardcoded Ready)
 		// directly, independent of the rule-type fix.
-		if got.AccountingEvent.AccountingAuthority.Authority != controlplane.AccountingAuthoritySourceEstimated {
-			t.Fatalf("degraded release must project estimated authority from the live degraded status, got %v", got.AccountingEvent.AccountingAuthority.Authority)
+		if got.AccountingEvent.AccountingAuthority().Authority != controlplane.AccountingAuthoritySourceEstimated {
+			t.Fatalf("degraded release must project estimated authority from the live degraded status, got %v", got.AccountingEvent.AccountingAuthority().Authority)
 		}
-		if got.AccountingEvent.AccountingAuthority.Authority == controlplane.AccountingAuthoritySourceAuthoritative {
+		if got.AccountingEvent.AccountingAuthority().Authority == controlplane.AccountingAuthoritySourceAuthoritative {
 			t.Fatalf("degraded release must not project a fabricated Ready/authoritative posture")
 		}
-		if got.AccountingEvent.AccountingAuthority.RuleType != string(domain.RuleKindBudget) {
-			t.Fatalf("degraded release must still emit the real budget rule type, got %q", got.AccountingEvent.AccountingAuthority.RuleType)
+		if got.AccountingEvent.AccountingAuthority().RuleType != string(domain.RuleKindBudget) {
+			t.Fatalf("degraded release must still emit the real budget rule type, got %q", got.AccountingEvent.AccountingAuthority().RuleType)
 		}
 	})
 }
@@ -559,13 +559,13 @@ func TestSettlementReleaseTolerantToSourceFailures(t *testing.T) {
 		if err != nil {
 			t.Fatalf("settle must not hard-fail when rule source/readiness are unavailable: %v", err)
 		}
-		if got.AccountingEvent.AccountingAuthority == nil {
+		if got.AccountingEvent.AccountingAuthority() == nil {
 			t.Fatalf("settlement must still project evidence under source failure")
 		}
 		// With the rule source unavailable, selectedRuleKind returns "" over an
 		// empty rule set, so the previously-fabricated "quota" literal is gone.
-		if got.AccountingEvent.AccountingAuthority.RuleType != "" {
-			t.Fatalf("settlement under rule-source failure must emit empty rule type, got %q", got.AccountingEvent.AccountingAuthority.RuleType)
+		if got.AccountingEvent.AccountingAuthority().RuleType != "" {
+			t.Fatalf("settlement under rule-source failure must emit empty rule type, got %q", got.AccountingEvent.AccountingAuthority().RuleType)
 		}
 		if !reflect.DeepEqual(got.PolicyRecord, evidence.policy[0]) || !reflect.DeepEqual(got.AccountingEvent, evidence.accounting[0]) {
 			t.Fatalf("settlement must return the same evidence it records")
@@ -591,11 +591,11 @@ func TestSettlementReleaseTolerantToSourceFailures(t *testing.T) {
 		if err != nil {
 			t.Fatalf("release must not hard-fail when rule source/readiness are unavailable: %v", err)
 		}
-		if got.AccountingEvent.AccountingAuthority == nil {
+		if got.AccountingEvent.AccountingAuthority() == nil {
 			t.Fatalf("release must still project evidence under source failure")
 		}
-		if got.AccountingEvent.AccountingAuthority.RuleType != "" {
-			t.Fatalf("release under rule-source failure must emit empty rule type, got %q", got.AccountingEvent.AccountingAuthority.RuleType)
+		if got.AccountingEvent.AccountingAuthority().RuleType != "" {
+			t.Fatalf("release under rule-source failure must emit empty rule type, got %q", got.AccountingEvent.AccountingAuthority().RuleType)
 		}
 		if !reflect.DeepEqual(got.PolicyRecord, evidence.policy[0]) || !reflect.DeepEqual(got.AccountingEvent, evidence.accounting[0]) {
 			t.Fatalf("release must return the same evidence it records")

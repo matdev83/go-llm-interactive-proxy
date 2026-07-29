@@ -9,80 +9,73 @@ import (
 	"testing"
 )
 
-// TestFrontendServeHTTPPreflightBeforeDecode locks ServeHTTP call order by
+// TestFrontendServeHTTPPreflightBeforeDecode locks shared create-pipeline call order by
 // source position (not CFG dominance): reqbody.ReadAll -> jsonguard.PreflightContext ->
-// decodeqos.TryAdmit -> (optional FromModelOrDefault) -> Decode*. Behavioral
-// depth/gzip/UTF-8 tests prove the runtime gate. Body-touching route extraction
-// must not precede TryAdmit.
+// decodeqos.TryAdmit -> (optional FromModelOrDefault) -> decode (via spec.Decode inside
+// decodeqos.Guard). Frontends delegate ServeHTTP to frontendpipe.ServeHTTP.
 func TestFrontendServeHTTPPreflightBeforeDecode(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	frontends := []string{"openairesponses", "openailegacy", "anthropic", "gemini"}
-	for _, name := range frontends {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			path := filepath.Join(root, "internal", "plugins", "frontends", name, "handler.go")
-			fset := token.NewFileSet()
-			f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-			if err != nil {
-				t.Fatalf("parse %s: %v", path, err)
+	path := filepath.Join(root, "internal", "plugins", "frontends", "frontendpipe", "pipe.go")
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	var serve *ast.FuncDecl
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name == nil || fn.Name.Name != "ServeHTTP" || fn.Body == nil {
+			continue
+		}
+		serve = fn
+		break
+	}
+	if serve == nil {
+		t.Fatalf("frontendpipe: ServeHTTP not found")
+	}
+	var readAllPos, preflightPos, tryAdmitPos, routeExtractPos, decodeGuardPos token.Pos
+	ast.Inspect(serve.Body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		pkg, cname := qualifiedCall(call.Fun)
+		switch {
+		case pkg == "reqbody" && cname == "ReadAll":
+			if readAllPos == 0 {
+				readAllPos = call.Pos()
 			}
-			var serve *ast.FuncDecl
-			for _, decl := range f.Decls {
-				fn, ok := decl.(*ast.FuncDecl)
-				if !ok || fn.Name == nil || fn.Name.Name != "ServeHTTP" || fn.Body == nil {
-					continue
-				}
-				serve = fn
-				break
+		case pkg == "jsonguard" && cname == "PreflightContext":
+			if preflightPos == 0 {
+				preflightPos = call.Pos()
 			}
-			if serve == nil {
-				t.Fatalf("%s: ServeHTTP not found", name)
+		case pkg == "decodeqos" && cname == "TryAdmit":
+			if tryAdmitPos == 0 {
+				tryAdmitPos = call.Pos()
 			}
-			var readAllPos, preflightPos, tryAdmitPos, routeExtractPos, decodePos token.Pos
-			ast.Inspect(serve.Body, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok {
-					return true
-				}
-				pkg, cname := qualifiedCall(call.Fun)
-				switch {
-				case pkg == "reqbody" && cname == "ReadAll":
-					if readAllPos == 0 {
-						readAllPos = call.Pos()
-					}
-				case pkg == "jsonguard" && cname == "PreflightContext":
-					if preflightPos == 0 {
-						preflightPos = call.Pos()
-					}
-				case pkg == "decodeqos" && cname == "TryAdmit":
-					if tryAdmitPos == 0 {
-						tryAdmitPos = call.Pos()
-					}
-				case cname == "FromModelOrDefault":
-					if routeExtractPos == 0 {
-						routeExtractPos = call.Pos()
-					}
-				case strings.HasPrefix(cname, "Decode") && pkg == "":
-					if decodePos == 0 {
-						decodePos = call.Pos()
-					}
-				}
-				return true
-			})
-			if readAllPos == 0 || preflightPos == 0 || tryAdmitPos == 0 || decodePos == 0 {
-				t.Fatalf("%s ServeHTTP: missing ReadAll(%v) PreflightContext(%v) TryAdmit(%v) Decode*(%v)",
-					name, readAllPos != 0, preflightPos != 0, tryAdmitPos != 0, decodePos != 0)
+		case cname == "FromModelOrDefault":
+			if routeExtractPos == 0 {
+				routeExtractPos = call.Pos()
 			}
-			if readAllPos >= preflightPos || preflightPos >= tryAdmitPos || tryAdmitPos >= decodePos {
-				t.Fatalf("%s ServeHTTP: want ReadAll < PreflightContext < TryAdmit < Decode*; positions %d %d %d %d",
-					name, readAllPos, preflightPos, tryAdmitPos, decodePos)
+		case pkg == "decodeqos" && cname == "Guard":
+			if decodeGuardPos == 0 {
+				decodeGuardPos = call.Pos()
 			}
-			if routeExtractPos != 0 && (routeExtractPos <= tryAdmitPos || routeExtractPos >= decodePos) {
-				t.Fatalf("%s ServeHTTP: want TryAdmit < FromModelOrDefault < Decode*; positions admit=%d route=%d decode=%d",
-					name, tryAdmitPos, routeExtractPos, decodePos)
-			}
-		})
+		}
+		return true
+	})
+	if readAllPos == 0 || preflightPos == 0 || tryAdmitPos == 0 || decodeGuardPos == 0 {
+		t.Fatalf("frontendpipe ServeHTTP: missing ReadAll(%v) PreflightContext(%v) TryAdmit(%v) decodeqos.Guard(%v)",
+			readAllPos != 0, preflightPos != 0, tryAdmitPos != 0, decodeGuardPos != 0)
+	}
+	if readAllPos >= preflightPos || preflightPos >= tryAdmitPos || tryAdmitPos >= decodeGuardPos {
+		t.Fatalf("frontendpipe ServeHTTP: want ReadAll < PreflightContext < TryAdmit < decodeqos.Guard; positions %d %d %d %d",
+			readAllPos, preflightPos, tryAdmitPos, decodeGuardPos)
+	}
+	if routeExtractPos != 0 && routeExtractPos <= tryAdmitPos {
+		t.Fatalf("frontendpipe ServeHTTP: want TryAdmit < FromModelOrDefault; positions admit=%d route=%d",
+			tryAdmitPos, routeExtractPos)
 	}
 }
 

@@ -17,7 +17,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/bunstore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/lipapidenial"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/sqlite"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
@@ -142,18 +141,25 @@ func buildSecureSessionRuntime(in secureSessionBuildInput) (*secureSessionRuntim
 		if p == "" {
 			return nil, fmt.Errorf("runtimebundle: secure_session.sqlite_path is required for store sqlite")
 		}
-		sqlOpts := sqlite.Options{}
-		if ttl, maxE, ok := config.EffectiveSecureSessionSQLQueryCache(*ss); ok {
-			sqlOpts.SQLQueryCacheTTL, sqlOpts.SQLQueryCacheMaxEntries = ttl, int(maxE)
-		}
-		db, err := sqlite.OpenContextWithOptions(startupCtx, p, sqlOpts)
+		child, cancel := context.WithTimeout(startupCtx, db.DefaultPostgresOpenMigrateTimeout)
+		defer cancel()
+		bunDB, err := db.OpenSQLiteBun(child, p)
 		if err != nil {
 			return nil, fmt.Errorf("runtimebundle: open secure session sqlite: %w", err)
 		}
-		closer := func() error { return db.Close() }
-		rt, err := assembleSecureSession(db, db, true, closer, common)
+		bunOpts := bunstore.Options{}
+		if ttl, maxE, ok := config.EffectiveSecureSessionSQLQueryCache(*ss); ok {
+			bunOpts.SQLQueryCacheTTL, bunOpts.SQLQueryCacheMaxEntries = ttl, int(maxE)
+		}
+		st, err := bunstore.NewContextWithOptions(child, bunDB, bunOpts)
 		if err != nil {
-			return nil, ssCloseErr(closer, err, "sqlite")
+			return nil, ssCloseErr(func() error { return bunDB.Close() },
+				fmt.Errorf("runtimebundle: secure_session: prepare sqlite schema: %w", err), "sqlite bun db")
+		}
+		closer := func() error { return st.Close() }
+		rt, err := assembleSecureSession(st, st, true, closer, common)
+		if err != nil {
+			return nil, ssCloseErr(closer, err, "sqlite store")
 		}
 		return rt, nil
 	case "postgres":

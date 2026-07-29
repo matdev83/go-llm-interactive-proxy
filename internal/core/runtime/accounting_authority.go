@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -43,13 +42,6 @@ type attemptAuthorityState struct {
 	settledProviders map[string]struct{}
 }
 
-func (e *Executor) authorityService() UsageAuthorityService {
-	if e == nil {
-		return nil
-	}
-	return e.UsageAuthority
-}
-
 func (e *Executor) admitAttemptAuthority(
 	ctx context.Context,
 	traceID string,
@@ -67,7 +59,7 @@ func (e *Executor) admitAttemptAuthority(
 			return e.admitAttemptViaCoordinator(ctx, traceID, aLegID, bleg, call, c, decision)
 		}
 	}
-	svc := e.authorityService()
+	svc := e.UsageAuthority
 	if svc == nil {
 		return attemptAuthorityState{}, nil
 	}
@@ -574,43 +566,10 @@ func (e *Executor) authorityClampViaEconomics(ctx context.Context, c routing.Att
 	}
 }
 
-// authorityClampIgnoreUnsupportedGenParamsExt is the extension key used by
-// codex-client-compat to drop unsupported generation parameters. Core must not
-// import the Codex plugin; the string is the stable wire contract.
-const authorityClampIgnoreUnsupportedGenParamsExt = "openai_codex.ignore_unsupported_gen_params"
-
 // backendCanEnforceAuthorityClamp reports whether the selected backend can
-// represent a MaxOutputTokens authority clamp on the wire. Enforcement is an
-// explicit execbackend.Backend port contract (EnforcesMaxOutputTokens); the
-// zero value is fail-closed so unknown adapters never accept a spend clamp
-// they cannot bind. The codex-client-compat ignore extension also drops the
-// limit, so an otherwise-capable backend still fails closed when it is set.
+// represent a MaxOutputTokens authority clamp on the wire.
 func backendCanEnforceAuthorityClamp(be execbackend.Backend, call *lipapi.Call) bool {
-	if call == nil || call.Options.MaxOutputTokens == nil {
-		return true
-	}
-	if !be.EnforcesMaxOutputTokens {
-		return false
-	}
-	if ignore, ok := callExtensionBool(call, authorityClampIgnoreUnsupportedGenParamsExt); ok && ignore {
-		return false
-	}
-	return true
-}
-
-func callExtensionBool(call *lipapi.Call, key string) (bool, bool) {
-	if call == nil || len(call.Extensions) == 0 {
-		return false, false
-	}
-	raw, ok := call.Extensions[key]
-	if !ok {
-		return false, false
-	}
-	var b bool
-	if err := json.Unmarshal(raw, &b); err != nil {
-		return false, false
-	}
-	return b, true
+	return be.CanEnforceAuthorityMaxOutputTokens(call)
 }
 
 func attemptAuthorityUsageAmount(ev lipapi.Event, estimate domain.Amount) domain.Amount {
@@ -827,12 +786,8 @@ func attemptAuthorityAdmissionError(result authorityapp.AdmissionResult, err err
 	}
 }
 
-// applyGenerationBoundVersion prefers the request-bound executable generation's
+// applyGenerationBoundVersionFrom prefers the request-bound executable generation's
 // evaluator object identity (requirements 9.3, 9.5, 9.9; design D10).
-func (e *Executor) applyGenerationBoundVersion(res *authorityapp.AdmissionResult) {
-	e.applyGenerationBoundVersionFrom(nil, res)
-}
-
 func (e *Executor) applyGenerationBoundVersionFrom(bound *snapshotgen.ExecutableGeneration, res *authorityapp.AdmissionResult) {
 	if e == nil || res == nil {
 		return

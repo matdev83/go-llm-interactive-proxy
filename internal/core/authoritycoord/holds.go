@@ -110,3 +110,28 @@ func pushLeaseDecisionHolds(
 		})
 	}
 }
+
+func leaseIDsFromDecision(ld authority.LeaseDecision) []string {
+	if len(ld.Leases) > 0 {
+		out := make([]string, 0, len(ld.Leases))
+		seen := make(map[string]struct{}, len(ld.Leases))
+		for _, occ := range ld.Leases {
+			id := strings.TrimSpace(occ.LeaseID)
+			if id == "" {
+				continue
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			out = append(out, id)
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	if id := strings.TrimSpace(ld.LeaseID); id != "" {
+		return []string{id}
+	}
+	return nil
+}

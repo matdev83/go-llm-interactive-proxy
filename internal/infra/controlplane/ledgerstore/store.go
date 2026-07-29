@@ -327,26 +327,26 @@ func (s *DurableStore) knownArg(known int) any {
 // single typed detail block so SQL WHERE clauses can filter without parsing
 // JSON (requirement 2.5).
 func extractDetailColumns(ev cp.Event) (outcome, effect, reasonCode, surfaced, plane, availability string) {
-	if ev.Attempt != nil {
-		surfaced = string(ev.Attempt.Surfaced)
-		outcome = string(ev.Attempt.Outcome)
+	if ev.Attempt() != nil {
+		surfaced = string(ev.Attempt().Surfaced)
+		outcome = string(ev.Attempt().Outcome)
 	}
-	if ev.Auth != nil {
-		outcome = ev.Auth.Outcome
-		reasonCode = ev.Auth.ReasonCode
+	if ev.Auth() != nil {
+		outcome = ev.Auth().Outcome
+		reasonCode = ev.Auth().ReasonCode
 	}
-	if ev.Policy != nil {
-		outcome = ev.Policy.Outcome
-		effect = ev.Policy.Effect
-		reasonCode = ev.Policy.ReasonCode
+	if ev.Policy() != nil {
+		outcome = ev.Policy().Outcome
+		effect = ev.Policy().Effect
+		reasonCode = ev.Policy().ReasonCode
 	}
-	if ev.Audit != nil {
-		outcome = ev.Audit.Action
-		reasonCode = ev.Audit.ReasonCode
+	if ev.Audit() != nil {
+		outcome = ev.Audit().Action
+		reasonCode = ev.Audit().ReasonCode
 	}
-	if ev.Usage != nil {
-		plane = string(ev.Usage.Plane)
-		availability = string(ev.Usage.Availability)
+	if ev.Usage() != nil {
+		plane = string(ev.Usage().Plane)
+		availability = string(ev.Usage().Availability)
 	}
 	return
 }

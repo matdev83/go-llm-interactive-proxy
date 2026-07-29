@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 // Recv returning early due to caller context cancellation must unblock the inner
@@ -48,4 +50,63 @@ func TestKeepalive_recvDeadlineWithoutClose_doesNotLeakReaderGoroutines(t *testi
 	}
 
 	t.Fatalf("goroutine leak suspected after %d abandoned Recv waits: baseline=%d now=%d", iters, baseline, runtime.NumGoroutine())
+}
+
+// gateRecvStream blocks in Recv until the caller closes entered, then waits on ctx
+// or unblock. Tests can observe when the keepalive reader has entered inner.Recv.
+type gateRecvStream struct {
+	entered atomic.Bool
+	unblock chan struct{}
+}
+
+func (g *gateRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if ctx == nil {
+		return lipapi.Event{}, lipapi.ErrNilContext
+	}
+	g.entered.Store(true)
+	select {
+	case <-ctx.Done():
+		return lipapi.Event{}, ctx.Err()
+	case <-g.unblock:
+		return lipapi.Event{}, context.Canceled
+	}
+}
+
+func (g *gateRecvStream) Close() error { return nil }
+
+// Close must abort an in-flight inner Recv and wait for the reader goroutine so
+// goleak sees zero survivors when tests tear down without draining the stream.
+func TestKeepalive_closeReleasesReaderBlockedOnInnerRecv(t *testing.T) {
+	t.Parallel()
+
+	gate := &gateRecvStream{unblock: make(chan struct{})}
+	ka := mustNewKeepalive(t, gate, stream.KeepaliveConfig{
+		Interval: time.Hour,
+	})
+
+	recvDone := make(chan struct{})
+	go func() {
+		defer close(recvDone)
+		ctx := context.Background()
+		_, _ = ka.Recv(ctx)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !gate.entered.Load() {
+		if time.Now().After(deadline) {
+			t.Fatal("reader never entered inner Recv")
+		}
+		runtime.Gosched()
+	}
+
+	if err := ka.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	close(gate.unblock)
+
+	select {
+	case <-recvDone:
+	case <-time.After(time.Second):
+		t.Fatal("outer Recv did not return after Close aborted inner Recv")
+	}
 }

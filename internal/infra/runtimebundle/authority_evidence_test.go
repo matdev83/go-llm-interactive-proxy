@@ -125,11 +125,11 @@ func TestUsageAuthority_EvidenceProjectedThroughRealBundle(t *testing.T) {
 	if len(allowEvs) != 1 {
 		t.Fatalf("accounting-authority events after allow = %d, want 1", len(allowEvs))
 	}
-	if allowEvs[0].AccountingAuthority == nil {
+	if allowEvs[0].AccountingAuthority() == nil {
 		t.Fatal("expected AccountingAuthority detail on the allow event")
 	}
-	if allowEvs[0].AccountingAuthority.Outcome != cp.AccountingOutcomeAllow {
-		t.Fatalf("allow event outcome = %q, want %q", allowEvs[0].AccountingAuthority.Outcome, cp.AccountingOutcomeAllow)
+	if allowEvs[0].AccountingAuthority().Outcome != cp.AccountingOutcomeAllow {
+		t.Fatalf("allow event outcome = %q, want %q", allowEvs[0].AccountingAuthority().Outcome, cp.AccountingOutcomeAllow)
 	}
 
 	recs := cap.snapshot()
@@ -161,10 +161,10 @@ func TestUsageAuthority_EvidenceProjectedThroughRealBundle(t *testing.T) {
 	if len(settleEvs) != 2 {
 		t.Fatalf("accounting-authority events after settle = %d, want 2", len(settleEvs))
 	}
-	if settleEvs[1].AccountingAuthority == nil {
+	if settleEvs[1].AccountingAuthority() == nil {
 		t.Fatal("expected AccountingAuthority detail on the settlement event")
 	}
-	if got := settleEvs[1].AccountingAuthority.SettlementState; got != cp.AccountingSettlementSettled {
+	if got := settleEvs[1].AccountingAuthority().SettlementState; got != cp.AccountingSettlementSettled {
 		t.Fatalf("settlement event state = %q, want %q", got, cp.AccountingSettlementSettled)
 	}
 	if recs2 := cap.snapshot(); len(recs2) != 2 {
@@ -206,11 +206,11 @@ func TestUsageAuthority_DenialEvidenceProjectedThroughRealBundle(t *testing.T) {
 	if len(denyEvs) != 1 {
 		t.Fatalf("accounting-authority events after deny = %d, want 1", len(denyEvs))
 	}
-	if denyEvs[0].AccountingAuthority == nil {
+	if denyEvs[0].AccountingAuthority() == nil {
 		t.Fatal("expected AccountingAuthority detail on the deny event")
 	}
-	if denyEvs[0].AccountingAuthority.Outcome != cp.AccountingOutcomeDeny {
-		t.Fatalf("deny event outcome = %q, want %q", denyEvs[0].AccountingAuthority.Outcome, cp.AccountingOutcomeDeny)
+	if denyEvs[0].AccountingAuthority().Outcome != cp.AccountingOutcomeDeny {
+		t.Fatalf("deny event outcome = %q, want %q", denyEvs[0].AccountingAuthority().Outcome, cp.AccountingOutcomeDeny)
 	}
 	if recs := cap.snapshot(); len(recs) != 1 {
 		t.Fatalf("policy observer records after deny = %d, want 1", len(recs))
