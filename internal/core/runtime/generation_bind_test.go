@@ -74,7 +74,7 @@ func TestApplyGenerationBoundVersion_PrefersPublishedGeneration(t *testing.T) {
 			PolicyID:   "usage_authority",
 		},
 	}
-	ex.applyGenerationBoundVersion(&res)
+	ex.applyGenerationBoundVersionFrom(nil, &res)
 	if res.BoundVersion.Version != "gen-v9" {
 		t.Fatalf("bound=%+v, want gen-v9 from SnapshotGeneration", res.BoundVersion)
 	}
@@ -101,7 +101,7 @@ func TestApplyGenerationBoundVersion_DeprecatedPublishCompatibility(t *testing.T
 			PolicyID:   "usage_authority",
 		},
 	}
-	ex.applyGenerationBoundVersion(&res)
+	ex.applyGenerationBoundVersionFrom(nil, &res)
 	if res.BoundVersion.Version != "gen-v9" {
 		t.Fatalf("bound=%+v, want gen-v9 from SnapshotGeneration", res.BoundVersion)
 	}
@@ -130,7 +130,7 @@ func TestApplyGenerationBoundVersion_MetadataOnlyPublishMetadataFallback(t *test
 			PolicyID:   "usage_authority",
 		},
 	}
-	ex.applyGenerationBoundVersion(&res)
+	ex.applyGenerationBoundVersionFrom(nil, &res)
 	if res.BoundVersion.Version != "meta-v3" {
 		t.Fatalf("bound=%+v, want meta-v3 from PublishMetadata Current()", res.BoundVersion)
 	}

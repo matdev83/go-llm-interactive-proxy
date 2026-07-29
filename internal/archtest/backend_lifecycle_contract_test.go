@@ -31,7 +31,6 @@ func TestOfficialBackendsHaveLifecycleContractTests(t *testing.T) {
 		"credpool": {}, "openaicaps": {}, "openaicred": {}, "streampeek": {}, "checkcfg": {},
 		"modeldiscover": {},
 		"openaicompat":  {},
-		"openaifamily":  {},
 		"openaiusage":   {},
 		"opencodetest":  {},
 		"protocols":     {},

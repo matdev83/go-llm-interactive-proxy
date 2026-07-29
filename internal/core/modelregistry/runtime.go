@@ -260,7 +260,7 @@ func (r *Runtime) refresh(ctx context.Context) error {
 			// Retain last-good registry. Publish discovery status for the failed
 			// attempt, then re-sync allowlists to the retained snapshot.
 			r.setDiscoveries(built.Discoveries)
-			r.syncAllowlists(prev.snap.Models)
+			r.syncAllowlistsUnion(prev.snap.Models)
 			return refreshFailureError{category: RefreshFailureFetch, err: ErrNoUsableInventory}
 		}
 		reg = &Registry{byCanonical: map[string][]BackendModel{}, all: []BackendModel{}}
@@ -435,12 +435,6 @@ func (r *Runtime) syncAllowlistsUnion(models []BackendModel) {
 		id := strings.TrimSpace(inv.BackendID)
 		a.AcceptInventory(unionByBackend[id])
 	}
-}
-
-// syncAllowlists is retained for tests that call the union path under the
-// historical name; it never clears previously accepted natives.
-func (r *Runtime) syncAllowlists(models []BackendModel) {
-	r.syncAllowlistsUnion(models)
 }
 
 func (r *Runtime) setFailure(cat RefreshFailureCategory) {

@@ -96,7 +96,7 @@ func (e *Executor) newAttemptAuthorityLifecycle(state attemptAuthorityState, can
 	if e == nil {
 		return newAuthorityLifecycle(nil, nil, state, cand)
 	}
-	lifecycle := newAuthorityLifecycle(e.authorityService(), e.Log, state, cand)
+	lifecycle := newAuthorityLifecycle(e.UsageAuthority, e.Log, state, cand)
 	lifecycle.attemptCoord = e.AttemptCoordinator
 	return lifecycle
 }

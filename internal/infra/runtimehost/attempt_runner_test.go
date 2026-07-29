@@ -148,9 +148,6 @@ func (c *runnerControllableCompiler) Compile(ctx context.Context, _ *config.Conf
 		maps.Copy(cp, live)
 		c.liveSeen.Store(cp)
 	}
-	if c.panicMsg != "" {
-		panic(c.panicMsg)
-	}
 	if c.gate != nil {
 		if err := c.gate.Hold(ctx); err != nil {
 			return nil, err
@@ -162,6 +159,9 @@ func (c *runnerControllableCompiler) Compile(ctx context.Context, _ *config.Conf
 	p := newRunnerFakePlane(c.kinds)
 	if c.onPlane != nil {
 		c.onPlane(p)
+	}
+	if c.panicMsg != "" {
+		panic(c.panicMsg)
 	}
 	return p, nil
 }
@@ -180,7 +180,7 @@ func runnerBaseEffective(fp string, digest byte) *config.EffectiveConfig {
 }
 
 // newTestRunner builds an attemptRunner with sane defaults; each field can be
-// overridden by the caller before use. No AttemptGate is ever constructed.
+// overridden by the caller before use.
 func newTestRunner(t *testing.T, mgr *Manager, src StableConfigSource, loader EffectiveLoader, compile CandidateCompiler, obs *ReloadObserver) *attemptRunner {
 	t.Helper()
 	if mgr == nil {
@@ -208,6 +208,7 @@ func newTestRunner(t *testing.T, mgr *Manager, src StableConfigSource, loader Ef
 		Compile:  compile,
 		Manager:  mgr,
 		Observer: obs,
+		Gate:     newAttemptGate(),
 	})
 }
 
@@ -233,7 +234,7 @@ func TestAttemptRunner_ShutdownBeforeRead(t *testing.T) {
 	t.Parallel()
 	src := &runnerFakeSource{path: "/x/config.yaml", snap: configsource.SourceSnapshot{Bytes: []byte("x: 1")}, atomic: configsource.AtomicEligible}
 	r := newTestRunner(t, nil, src, nil, nil, nil)
-	r.shuttingDown = func() bool { return true }
+	r.gate.BeginShutdown()
 	out := r.Run(context.Background(), attemptInput{AttemptID: 1, ActiveGeneration: 1})
 	if out.Result.Category != sdkreload.ResultCanceled || out.Result.ReasonCategory != configreload.StageShutdown {
 		t.Fatalf("result=%+v", out.Result)
@@ -245,13 +246,8 @@ func TestAttemptRunner_ShutdownBeforeRead(t *testing.T) {
 
 // TestAttemptRunner_ShutdownBeforePublish deterministically hits the
 // shutdown checkpoint that runs after a successful prepare and before
-// publish. attemptRunner.Run queries its shutdown predicate exactly four
-// times along the successful-until-publish path: entry, before-compile,
-// before-transfer(prepare), and before-publish. Returning false for the
-// first three and true from the fourth call onward isolates that last
-// checkpoint deterministically (no wall-clock/goroutine race needed) and
-// proves cleanup goes through Generation.Discard (candidate plane closed),
-// not a direct rollback.
+// publish. Gate shutdown after compile isolates the pre-transfer checkpoint
+// deterministically and proves owned-plane cleanup closes the candidate.
 func TestAttemptRunner_ShutdownBeforePublish(t *testing.T) {
 	t.Parallel()
 	mgr := NewManager(8, nil)
@@ -259,21 +255,22 @@ func TestAttemptRunner_ShutdownBeforePublish(t *testing.T) {
 	if err := mgr.Publish(g0); err != nil {
 		t.Fatal(err)
 	}
+	gate := newAttemptGate()
 	var plane *runnerFakePlane
 	compile := &runnerControllableCompiler{onPlane: func(p *runnerFakePlane) {
 		p.closeCh = make(chan struct{})
 		plane = p
+		gate.BeginShutdown()
 	}}
 	src := &runnerFakeSource{path: "/x/config.yaml", snap: configsource.SourceSnapshot{Bytes: []byte("x: 1")}, atomic: configsource.AtomicEligible}
-	var checks atomic.Int64
 	r := newAttemptRunner(attemptRunnerDeps{
 		Source: src,
 		Loader: FuncEffectiveLoader(func(context.Context, []byte) (*config.EffectiveConfig, error) {
 			return runnerBaseEffective("fp-new", 2), nil
 		}),
-		Compile:      compile,
-		Manager:      mgr,
-		ShuttingDown: func() bool { return checks.Add(1) >= 4 },
+		Compile: compile,
+		Manager: mgr,
+		Gate:    gate,
 	})
 
 	out := r.Run(context.Background(), attemptInput{AttemptID: 1, ActiveGeneration: 1, ActiveEffective: runnerBaseEffective("fp-old", 1)})
@@ -288,7 +285,7 @@ func TestAttemptRunner_ShutdownBeforePublish(t *testing.T) {
 	select {
 	case <-plane.closeCh:
 	case <-guard.Done():
-		t.Fatal("candidate must be discarded via Generation.Discard before publish")
+		t.Fatal("candidate must be closed before publish")
 	}
 	if out.EffectiveUpdate != nil || out.SourceUpdate != nil {
 		t.Fatalf("shutdown-before-publish must not carry state updates: %+v", out)
@@ -790,13 +787,16 @@ func TestAttemptRunner_PrimaryPanicSurvivesCleanupPanic(t *testing.T) {
 	if err := mgr.Publish(g0); err != nil {
 		t.Fatal(err)
 	}
+	gate := newAttemptGate()
 	var plane *runnerFakePlane
-	compile := &runnerControllableCompiler{onPlane: func(p *runnerFakePlane) {
-		p.closePanic = "cleanup-close-panic"
-		plane = p
-	}}
+	compile := &runnerControllableCompiler{
+		panicMsg: "primary-workflow-panic",
+		onPlane: func(p *runnerFakePlane) {
+			p.closePanic = "cleanup-close-panic"
+			plane = p
+		},
+	}
 	src := &runnerFakeSource{path: "/x/config.yaml", atomic: configsource.AtomicEligible, snap: configsource.SourceSnapshot{Bytes: []byte("x: 1")}}
-	var checks atomic.Int64
 	r := newAttemptRunner(attemptRunnerDeps{
 		Source: src,
 		Loader: FuncEffectiveLoader(func(context.Context, []byte) (*config.EffectiveConfig, error) {
@@ -804,24 +804,17 @@ func TestAttemptRunner_PrimaryPanicSurvivesCleanupPanic(t *testing.T) {
 		}),
 		Compile: compile,
 		Manager: mgr,
-		// Third isShuttingDown check is the post-compile/pre-transfer
-		// checkpoint where the runner still owns the candidate plane.
-		ShuttingDown: func() bool {
-			if checks.Add(1) == 3 {
-				panic("primary-workflow-panic")
-			}
-			return false
-		},
+		Gate:    gate,
 	})
 	out := r.Run(context.Background(), attemptInput{AttemptID: 1, ActiveGeneration: 1, ActiveEffective: runnerBaseEffective("fp-old", 1)})
 	if out.Result.Category != sdkreload.ResultInternalFailed || out.Result.ReasonCategory != configreload.StagePanic {
 		t.Fatalf("result=%+v want internal-failed/StagePanic", out.Result)
 	}
 	if plane == nil {
-		t.Fatal("expected compiled plane")
+		t.Fatal("expected compiled plane before compile panic")
 	}
-	if n := plane.closeCalls.Load(); n != 1 {
-		t.Fatalf("Close() call count=%d want exactly 1", n)
+	if n := plane.closeCalls.Load(); n != 0 {
+		t.Fatalf("compile panic must not run owned-plane cleanup; Close() calls=%d", n)
 	}
 }
 
@@ -836,13 +829,14 @@ func TestAttemptRunner_CleanupPanicPostTransferDiscard(t *testing.T) {
 	if err := mgr.Publish(g0); err != nil {
 		t.Fatal(err)
 	}
+	gate := newAttemptGate()
 	var plane *runnerFakePlane
 	compile := &runnerControllableCompiler{onPlane: func(p *runnerFakePlane) {
 		p.closePanic = "discard-close-panic"
 		plane = p
+		gate.BeginShutdown()
 	}}
 	src := &runnerFakeSource{path: "/x/config.yaml", atomic: configsource.AtomicEligible, snap: configsource.SourceSnapshot{Bytes: []byte("x: 1")}}
-	var checks atomic.Int64
 	r := newAttemptRunner(attemptRunnerDeps{
 		Source: src,
 		Loader: FuncEffectiveLoader(func(context.Context, []byte) (*config.EffectiveConfig, error) {
@@ -850,9 +844,7 @@ func TestAttemptRunner_CleanupPanicPostTransferDiscard(t *testing.T) {
 		}),
 		Compile: compile,
 		Manager: mgr,
-		// Fourth isShuttingDown check is post-transfer/pre-publish; cleanup
-		// must go through Generation.Discard only.
-		ShuttingDown: func() bool { return checks.Add(1) >= 4 },
+		Gate:    gate,
 	})
 	out := r.Run(context.Background(), attemptInput{AttemptID: 1, ActiveGeneration: 1, ActiveEffective: runnerBaseEffective("fp-old", 1)})
 	if out.Result.Category != sdkreload.ResultCanceled || out.Result.ReasonCategory != configreload.StageShutdown {

@@ -356,7 +356,7 @@ func (e *Executor) releaseRequestAuthority(ctx context.Context) error {
 			return errors.Join(err, terminalworkapp.ErrDurablePending)
 		}
 	}
-	fails := coord.Release(ctx, st.Decision.Stack, st.RequestID)
+	fails := coord.Release(ctx, st.Decision.Stack)
 	if len(fails) > 0 {
 		// Live release incomplete: keep Released=false and accept durable intents.
 		return e.acceptReleaseDurableIntents(ctx, st, fails)

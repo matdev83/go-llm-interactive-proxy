@@ -16,17 +16,11 @@ type UpstreamAPIKeys struct {
 	OpenAI    []string
 	Anthropic []string
 	Gemini    []string
-	// Cursor is an optional composition-root default for external cursorsdk connector
-	// helpers (CURSOR_API_KEY). It is not part of the essential backend table;
-	// optional connectors still receive credentials via plugin YAML / secrets.
-	Cursor string
 }
 
 // ResolveUpstreamAPIKeysFromEnv reads OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY
 // plus numbered suffixes until the first missing or empty value. The bare env var fills
 // the first slot; OpenAI/Anthropic/Gemini read suffixes starting at _2.
-// CURSOR_API_KEY is a single non-numbered optional default for external cursorsdk connector
-// helpers retained outside EssentialBackendBundle.
 // Migrated external connectors (OpenRouter, NVIDIA, Hugging Face, Ollama, local runtimes,
 // OpenCode, Codex) receive credentials only via plugin config YAML / secrets.
 // Call from the composition root and pass the result to [InstallStandardBundleOn].
@@ -35,7 +29,6 @@ func ResolveUpstreamAPIKeysFromEnv() UpstreamAPIKeys {
 		OpenAI:    collectNumberedEnvKeys("OPENAI_API_KEY"),
 		Anthropic: collectNumberedEnvKeys("ANTHROPIC_API_KEY"),
 		Gemini:    collectNumberedEnvKeys("GEMINI_API_KEY"),
-		Cursor:    strings.TrimSpace(os.Getenv("CURSOR_API_KEY")),
 	}
 }
 
