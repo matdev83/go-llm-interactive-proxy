@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -86,6 +87,12 @@ type acpProtocolSession struct {
 }
 
 func (s *acpProtocolSession) SendPrompt(ctx context.Context, model, userMessage string, call *lipapi.Call) (io.ReadCloser, int64, error) {
+	if effort := strings.ToLower(strings.TrimSpace(call.Options.ReasoningEffort)); effort != "" {
+		if err := s.cli.setSessionConfigOption(ctx, s.sessionID, "reasoning_effort", effort); err != nil {
+			s.proto.log.Error("ACP reasoning effort configuration failed", "error", err, "effort", effort)
+			return nil, 0, fmt.Errorf("reasoning effort: %w", err)
+		}
+	}
 	callPtr := prepareTranscriptCall(call, userMessage)
 	blocks, err := promptBlocksForCall(callPtr)
 	if err != nil {

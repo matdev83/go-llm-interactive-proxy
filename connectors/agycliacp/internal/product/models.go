@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"strings"
 	"time"
 
@@ -14,14 +15,14 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )
 
-const defaultCanonicalModel = "google/gemini-3.5-flash-high"
+const defaultCanonicalModel = "google/gemini-3.5-flash"
 
 // ErrUnknownModel is returned when a route model is not a known AGY pretty
 // name or mapped canonical identity in the active provider allowlist.
 var ErrUnknownModel = errors.New("agycliacp: unknown model")
 
 type modelIdentity struct {
-	pretty    string
+	native    string
 	canonical string
 }
 
@@ -29,21 +30,24 @@ type modelIdentity struct {
 // discovery parsing. Open/BuildCommand allowlists come from the active provider
 // snapshot/override, not this table alone.
 var knownModelTable = [...]modelIdentity{
-	{pretty: "Gemini 3.5 Flash (Medium)", canonical: "google/gemini-3.5-flash-medium"},
-	{pretty: "Gemini 3.5 Flash (High)", canonical: "google/gemini-3.5-flash-high"},
-	{pretty: "Gemini 3.5 Flash (Low)", canonical: "google/gemini-3.5-flash-low"},
-	{pretty: "Gemini 3.1 Pro (Low)", canonical: "google/gemini-3.1-pro-low"},
-	{pretty: "Gemini 3.1 Pro (High)", canonical: "google/gemini-3.1-pro-high"},
-	{pretty: "Claude Sonnet 4.6 (Thinking)", canonical: "anthropic/claude-sonnet-4.6-thinking"},
-	{pretty: "Claude Opus 4.6 (Thinking)", canonical: "anthropic/claude-opus-4.6-thinking"},
-	{pretty: "GPT-OSS 120B (Medium)", canonical: "openai/gpt-oss-120b-medium"},
+	{native: "gemini-3.6-flash-low", canonical: "google/gemini-3.6-flash"},
+	{native: "gemini-3.6-flash-medium", canonical: "google/gemini-3.6-flash"},
+	{native: "gemini-3.6-flash-high", canonical: "google/gemini-3.6-flash"},
+	{native: "gemini-3.5-flash-low", canonical: "google/gemini-3.5-flash"},
+	{native: "gemini-3.5-flash-medium", canonical: "google/gemini-3.5-flash"},
+	{native: "gemini-3.5-flash-high", canonical: "google/gemini-3.5-flash"},
+	{native: "gemini-3.1-pro-low", canonical: "google/gemini-3.1-pro"},
+	{native: "gemini-3.1-pro-high", canonical: "google/gemini-3.1-pro"},
+	{native: "claude-sonnet-4-6", canonical: "anthropic/claude-sonnet-4.6"},
+	{native: "claude-opus-4-6-thinking", canonical: "anthropic/claude-opus-4.6"},
+	{native: "gpt-oss-120b-medium", canonical: "openai/gpt-oss-120b"},
 }
 
 func nativePrettyForCanonical(canonical string) (string, bool) {
 	canonical = strings.TrimSpace(canonical)
 	for i := range knownModelTable {
 		if knownModelTable[i].canonical == canonical {
-			return knownModelTable[i].pretty, true
+			return knownModelTable[i].native, true
 		}
 	}
 	return "", false
@@ -52,7 +56,7 @@ func nativePrettyForCanonical(canonical string) (string, bool) {
 func canonicalForPretty(pretty string) (string, bool) {
 	pretty = strings.TrimSpace(pretty)
 	for i := range knownModelTable {
-		if knownModelTable[i].pretty == pretty {
+		if knownModelTable[i].native == pretty {
 			return knownModelTable[i].canonical, true
 		}
 	}
@@ -107,10 +111,14 @@ func parseAGYModelsListing(stdout string) ([]modelinventory.Model, []string) {
 			warnings = append(warnings, fmt.Sprintf("agy models: unrecognized model name omitted: %q", line))
 			continue
 		}
+		if _, ok := seen[canonical]; ok {
+			continue
+		}
+		seen[canonical] = struct{}{}
 		models = append(models, modelinventory.Model{
 			CanonicalID: canonical,
-			NativeID:    line,
-			DisplayName: line,
+			NativeID:    canonical,
+			DisplayName: canonical,
 		})
 	}
 	return models, warnings
@@ -156,6 +164,7 @@ func defaultModelsCommandRunner(ctx context.Context, binary string) ([]byte, err
 		return nil, modelinventory.ErrNilContext
 	}
 	cmd := exec.CommandContext(ctx, binary, "models")
+	cmd.Env = agyProcessEnv()
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -166,6 +175,28 @@ func defaultModelsCommandRunner(ctx context.Context, binary string) ([]byte, err
 		return nil, err
 	}
 	return out, nil
+}
+
+func agyProcessEnv() []string {
+	env := os.Environ()
+	home := strings.TrimSpace(os.Getenv("USERPROFILE"))
+	if home == "" {
+		home = strings.TrimSpace(os.Getenv("HOME"))
+	}
+	if home == "" {
+		if current, err := user.Current(); err == nil {
+			home = strings.TrimSpace(current.HomeDir)
+		}
+	}
+	if home != "" {
+		if os.Getenv("USERPROFILE") == "" {
+			env = append(env, "USERPROFILE="+home)
+		}
+		if os.Getenv("HOME") == "" {
+			env = append(env, "HOME="+home)
+		}
+	}
+	return env
 }
 
 func (p modelsProvider) LoadModels(ctx context.Context) (modelinventory.Snapshot, error) {

@@ -80,7 +80,7 @@ func (s *agySpec) BuildCommand(model string, workspace string) ([]string, string
 	if len(s.cfg.ExtraArgs) > 0 {
 		cmd = append(cmd, s.cfg.ExtraArgs...)
 	}
-	return cmd, workspace, nil, nil
+	return cmd, workspace, agyProcessEnv(), nil
 }
 
 // HandshakeProfile returns the AGY-specific handshake configuration.
