@@ -2,9 +2,14 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 )
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }
 
 func TestRunVersion(t *testing.T) {
 	oldVersion := version
@@ -21,5 +26,15 @@ func TestRunVersion(t *testing.T) {
 				t.Fatalf("output = %q", got)
 			}
 		})
+	}
+}
+
+func TestRunVersionWriteFailure(t *testing.T) {
+	var stderr bytes.Buffer
+	if code := run([]string{"--version"}, failingWriter{}, &stderr); code == 0 {
+		t.Fatal("expected non-zero exit code")
+	}
+	if !strings.Contains(stderr.String(), "write version") {
+		t.Fatalf("stderr = %q", stderr.String())
 	}
 }

@@ -10,7 +10,6 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - dependencies
-      - security
     groups:
       go-patch:
         patterns:
@@ -33,7 +32,6 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - dependencies
-      - security
     groups:
       github-actions:
         patterns:
