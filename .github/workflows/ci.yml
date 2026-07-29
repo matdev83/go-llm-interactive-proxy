@@ -58,7 +58,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            packages: ./cmd/lipstd ./pkg/credpool ./pkg/lipapi ./pkg/lipsdk/... ./pkg/streampump
+          - os: windows-latest
+            packages: ./pkg/credpool ./pkg/lipapi ./pkg/lipsdk/... ./pkg/streampump
+          - os: macos-latest
+            packages: ./pkg/credpool ./pkg/lipapi ./pkg/lipsdk/... ./pkg/streampump
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
@@ -75,7 +81,10 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Fast unit tests
-        run: go test -timeout=8m ./cmd/lipstd ./internal/archtest ./pkg/credpool ./pkg/lipapi ./pkg/lipsdk/... ./pkg/streampump
+        # CLI integration and architecture gates run once on Ubuntu in QA. The
+        # platform matrix covers portable public packages without invoking
+        # host security posture checks on administrative Windows runners.
+        run: go test -timeout=8m ${{ matrix.packages }}
 
       - name: Build release binary
         run: go build -trimpath ./cmd/lipstd
