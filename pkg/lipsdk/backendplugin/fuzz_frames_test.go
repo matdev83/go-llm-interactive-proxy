@@ -28,7 +28,7 @@ func FuzzServerFrame(f *testing.F) {
 			Kind:  backendplugin.ServerFrameEvent,
 			Event: &backendplugin.CanonicalEvent{Kind: backendplugin.EventKind(in)},
 		}).ValidateShape()
-		_ = backendplugin.EventKind(string(in)).Validate()
+		_ = backendplugin.ValidateEventKind(backendplugin.EventKind(string(in)))
 	})
 }
 

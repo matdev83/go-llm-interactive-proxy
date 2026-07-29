@@ -28,7 +28,7 @@ func requiredEvidenceEvent() cp.Event {
 		Visibility:     cp.VisibilityDefault,
 		EvidenceState:  cp.EvidenceRecorded,
 		RedactionState: cp.RedactionNone,
-		AccountingAuthority: &cp.AccountingAuthorityDetail{
+		Detail: &cp.AccountingAuthorityDetail{
 			Outcome:        cp.AccountingOutcomeAllow,
 			ReasonCode:     "allowed",
 			Authority:      cp.AccountingAuthoritySourceAuthoritative,

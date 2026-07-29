@@ -39,10 +39,11 @@ func NewBackend(cfg Config) execbackend.Backend {
 		return newConfigErrorBackend(id, fmt.Errorf("%s: credentials: %w", id, err))
 	}
 	return execbackend.Backend{
-		Caps:                    defaultBackendCaps(),
-		BackendPrefixes:         []string{id},
-		EnforcesMaxOutputTokens: true,
-		ModelInventory:          cfg.ModelInventory,
+		Caps:                                 defaultBackendCaps(),
+		BackendPrefixes:                      []string{id},
+		EnforcesMaxOutputTokens:              true,
+		IgnoresAuthorityMaxOutputTokensClamp: execbackend.IgnoresClampViaCodexUnsupportedGenParams,
+		ModelInventory:                       cfg.ModelInventory,
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return ModelCapabilities(resolveModel(cand, call))
 		},

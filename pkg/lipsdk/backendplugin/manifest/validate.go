@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 )
 
 const (
@@ -83,10 +85,10 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("%w: %s", ErrDuplicateExport, e.Kind)
 		}
 		seen[e.Kind] = struct{}{}
-		if err := e.CredentialMode.Validate(); err != nil {
+		if err := backendplugin.ValidateCredentialMode(e.CredentialMode); err != nil {
 			return fmt.Errorf("%w: credential_mode", ErrInvalidManifest)
 		}
-		if err := e.AccessScope.Validate(); err != nil {
+		if err := backendplugin.ValidateAccessScope(e.AccessScope); err != nil {
 			return fmt.Errorf("%w: access_scope", ErrInvalidManifest)
 		}
 		if err := e.ProcessSharing.Validate(); err != nil {

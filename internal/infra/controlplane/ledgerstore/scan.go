@@ -134,7 +134,7 @@ func decodeDetailJSON(raw string, ev *cp.Event) error {
 		if err := json.Unmarshal(v, &d); err != nil {
 			return err
 		}
-		ev.Auth = &d
+		ev.Detail = &d
 		return nil
 	}
 	if v, ok := probe["session"]; ok {
@@ -142,7 +142,7 @@ func decodeDetailJSON(raw string, ev *cp.Event) error {
 		if err := json.Unmarshal(v, &d); err != nil {
 			return err
 		}
-		ev.Session = &d
+		ev.Detail = &d
 		return nil
 	}
 	if v, ok := probe["attempt"]; ok {
@@ -150,7 +150,7 @@ func decodeDetailJSON(raw string, ev *cp.Event) error {
 		if err := json.Unmarshal(v, &d); err != nil {
 			return err
 		}
-		ev.Attempt = &d
+		ev.Detail = &d
 		return nil
 	}
 	if v, ok := probe["usage"]; ok {
@@ -158,7 +158,7 @@ func decodeDetailJSON(raw string, ev *cp.Event) error {
 		if err := json.Unmarshal(v, &d); err != nil {
 			return err
 		}
-		ev.Usage = &d
+		ev.Detail = &d
 		return nil
 	}
 	if v, ok := probe["policy"]; ok {
@@ -166,7 +166,7 @@ func decodeDetailJSON(raw string, ev *cp.Event) error {
 		if err := json.Unmarshal(v, &d); err != nil {
 			return err
 		}
-		ev.Policy = &d
+		ev.Detail = &d
 		return nil
 	}
 	if v, ok := probe["audit"]; ok {
@@ -174,7 +174,7 @@ func decodeDetailJSON(raw string, ev *cp.Event) error {
 		if err := json.Unmarshal(v, &d); err != nil {
 			return err
 		}
-		ev.Audit = &d
+		ev.Detail = &d
 		return nil
 	}
 	if v, ok := probe["lifecycle"]; ok {
@@ -182,7 +182,7 @@ func decodeDetailJSON(raw string, ev *cp.Event) error {
 		if err := json.Unmarshal(v, &d); err != nil {
 			return err
 		}
-		ev.Lifecycle = &d
+		ev.Detail = &d
 		return nil
 	}
 	return nil
@@ -195,20 +195,20 @@ func encodeDetailJSON(ev cp.Event) (string, error) {
 	var key string
 	var raw any
 	switch {
-	case ev.Auth != nil:
-		key, raw = "auth", ev.Auth
-	case ev.Session != nil:
-		key, raw = "session", ev.Session
-	case ev.Attempt != nil:
-		key, raw = "attempt", ev.Attempt
-	case ev.Usage != nil:
-		key, raw = "usage", ev.Usage
-	case ev.Policy != nil:
-		key, raw = "policy", ev.Policy
-	case ev.Audit != nil:
-		key, raw = "audit", ev.Audit
-	case ev.Lifecycle != nil:
-		key, raw = "lifecycle", ev.Lifecycle
+	case ev.Auth() != nil:
+		key, raw = "auth", ev.Auth()
+	case ev.Session() != nil:
+		key, raw = "session", ev.Session()
+	case ev.Attempt() != nil:
+		key, raw = "attempt", ev.Attempt()
+	case ev.Usage() != nil:
+		key, raw = "usage", ev.Usage()
+	case ev.Policy() != nil:
+		key, raw = "policy", ev.Policy()
+	case ev.Audit() != nil:
+		key, raw = "audit", ev.Audit()
+	case ev.Lifecycle() != nil:
+		key, raw = "lifecycle", ev.Lifecycle()
 	default:
 		return "{}", nil
 	}

@@ -41,7 +41,7 @@ func seedSessionEvent(t *testing.T, store controlplane.Store) {
 		RedactionState: cp.RedactionNone,
 		Correlation:    cp.Correlation{SessionID: "sess-1", TraceID: "tr-1"},
 		Summary:        "session started",
-		Session: &cp.SessionDetail{
+		Detail: &cp.SessionDetail{
 			Action:    cp.SessionActionCreated,
 			Certainty: "known",
 		},

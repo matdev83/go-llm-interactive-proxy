@@ -132,7 +132,10 @@ func TestBackendCanEnforceAuthorityClamp(t *testing.T) {
 	t.Parallel()
 	max := 100
 	call := lipapi.Call{Options: lipapi.GenerationOptions{MaxOutputTokens: &max}}
-	enforcing := execbackend.Backend{EnforcesMaxOutputTokens: true}
+	enforcing := execbackend.Backend{
+		EnforcesMaxOutputTokens:              true,
+		IgnoresAuthorityMaxOutputTokensClamp: execbackend.IgnoresClampViaCodexUnsupportedGenParams,
+	}
 	nonEnforcing := execbackend.Backend{}
 	if !backendCanEnforceAuthorityClamp(enforcing, &call) {
 		t.Fatal("backend with EnforcesMaxOutputTokens must enforce the clamp")
@@ -141,7 +144,7 @@ func TestBackendCanEnforceAuthorityClamp(t *testing.T) {
 		t.Fatal("backend without EnforcesMaxOutputTokens must fail closed")
 	}
 	call.Extensions = map[string]json.RawMessage{
-		authorityClampIgnoreUnsupportedGenParamsExt: json.RawMessage(`true`),
+		execbackend.CodexIgnoreUnsupportedGenParamsExt: json.RawMessage(`true`),
 	}
 	if backendCanEnforceAuthorityClamp(enforcing, &call) {
 		t.Fatal("ignore_unsupported_gen_params must make the clamp unenforceable")

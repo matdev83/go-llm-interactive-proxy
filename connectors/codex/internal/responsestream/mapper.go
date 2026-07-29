@@ -1,8 +1,8 @@
 package responsestream
 
 import (
-	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/streampump"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/streampump"
 )
 
 // Mapper is not concurrency-safe; callers must serialize Handle calls on a single

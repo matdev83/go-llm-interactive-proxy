@@ -8,26 +8,20 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/execerr"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/holdalive"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/jsonguard"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/reqbody"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openaiwire"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/routeselect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/streamdebug"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
 
 const (
-	// HeaderRouteSelector carries the core routing selector (e.g. stub:gpt-4o-mini).
-	HeaderRouteSelector  = "X-LIP-Route"
+	HeaderRouteSelector  = routeselect.HeaderRouteSelector
 	responseIDALegPrefix = "resp_lip_"
 )
 
@@ -45,6 +39,8 @@ type Handler struct {
 	DecodeAdmission     lipsdk.DecodeAdmission
 	PreRequestKeepalive lipsdk.FrontendKeepaliveConfig
 	Config              Config
+
+	pipe frontendpipe.Spec[EncodeOptions]
 }
 
 type aLegCanceler interface {
@@ -56,11 +52,70 @@ type responseIDCancelCarrier struct {
 	SessionID string `json:"s,omitempty"`
 }
 
-func (h *Handler) maxBodyLimit() int64 {
-	if h != nil && h.MaxRequestBodyBytes > 0 {
-		return h.MaxRequestBodyBytes
+func (h *Handler) spec() *frontendpipe.Spec[EncodeOptions] {
+	if h.pipe.Exec != nil || h.pipe.Decode != nil {
+		return &h.pipe
 	}
-	return reqbody.DefaultMaxBytes
+	h.pipe = frontendpipe.Spec[EncodeOptions]{
+		Config: frontendpipe.Config{
+			Exec:                 h.Exec,
+			DefaultRouteSelector: h.DefaultRouteSelector,
+			RoutePrefixes:        h.RoutePrefixes,
+			MaxRequestBodyBytes:  h.MaxRequestBodyBytes,
+			Log:                  h.Log,
+			TrafficPorts:         h.TrafficPorts,
+			DecodeAdmission:      h.DecodeAdmission,
+			PreRequestKeepalive:  h.PreRequestKeepalive,
+			FrontendID:           ID,
+		},
+		Wire:               frontendpipe.OpenAIWire{},
+		RouteFromBodyModel: true,
+		MatchPath: func(path string) (frontendpipe.PathMatch, bool) {
+			if strings.HasSuffix(path, "/responses") || path == "/responses" {
+				return frontendpipe.PathMatch{}, true
+			}
+			return frontendpipe.PathMatch{}, false
+		},
+		AltServe: func(ctx context.Context, w http.ResponseWriter, r *http.Request) bool {
+			if isCancelPath(r.URL.Path) {
+				h.serveCancel(ctx, w, r)
+				return true
+			}
+			return false
+		},
+		Decode: func(dctx frontendpipe.DecodeContext) (*frontendpipe.Decoded, error) {
+			decoded, err := DecodeCreateRequest(dctx.Body, DecodeOptions{RouteSelector: dctx.RouteSelector, Headers: dctx.Headers})
+			if err != nil {
+				return nil, err
+			}
+			return &frontendpipe.Decoded{Call: decoded.Call, Stream: decoded.Stream, RouteSelector: dctx.RouteSelector}, nil
+		},
+		BuildEncodeOpts: func(call *lipapi.Call, _ bool) EncodeOptions {
+			opts := EncodeOptions{
+				ResponseID:               responseIDForCall(call),
+				CreatedAt:                diag.StableUnix(call),
+				ExposeLipUsageExtensions: h.Config.ExposeLipUsageExtensions,
+			}
+			opts.MessageID = "msg_" + opts.ResponseID
+			if clk := h.Exec.WallClock(); clk != nil {
+				opts.CreatedAt = clk().Unix()
+			}
+			return opts
+		},
+		WriteStream:    WriteStreamSSE,
+		WriteNonStream: WriteNonStreamJSON,
+	}
+	return &h.pipe
+}
+
+// ServeHTTP implements OpenAI Responses create on POST …/responses.
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	frontendpipe.ServeHTTP(h.spec(), w, r)
+}
+
+func isCancelPath(path string) bool {
+	path = strings.TrimSpace(path)
+	return strings.HasSuffix(path, "/cancel") && responseIDFromCancelPath(path) != ""
 }
 
 func (h *Handler) logWriteJSONErr(ctx context.Context, msg string, werr error) {
@@ -70,220 +125,9 @@ func (h *Handler) logWriteJSONErr(ctx context.Context, msg string, werr error) {
 	diag.LogError(ctx, h.Log, msg, diag.AttrOpts{}, werr)
 }
 
-func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, stream bool) (lipapi.EventStream, error) {
-	if !stream {
-		return h.Exec.Execute(ctx, call)
-	}
-	return holdalive.Wait(ctx, w, holdalive.Config{
-		Enabled:  h.PreRequestKeepalive.Enabled,
-		Interval: h.PreRequestKeepalive.Interval,
-	}, func(ctx context.Context) (lipapi.EventStream, error) {
-		return h.Exec.Execute(ctx, call)
-	})
-}
-
-// ServeHTTP implements OpenAI Responses create on POST …/responses.
-func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	path := r.URL.Path
-	if isCancelPath(path) {
-		h.serveCancel(ctx, w, r)
-		return
-	}
-	if !strings.HasSuffix(path, "/responses") && path != "/responses" {
-		http.NotFound(w, r)
-		return
-	}
-
-	limits := jsonguard.Limits{MaxBytes: h.maxBodyLimit()}
-	body, err := reqbody.ReadAll(w, r, limits.MaxBytes)
-	if err != nil {
-		if reqbody.TooLarge(err) {
-			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
-				w,
-				http.StatusRequestEntityTooLarge,
-				"request body too large",
-				"invalid_request_error",
-				"",
-			))
-			return
-		}
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
-			w,
-			http.StatusBadRequest,
-			"could not read request body",
-			"invalid_request_error",
-			"",
-		))
-		return
-	}
-	ct := strings.TrimSpace(r.Header.Get("Content-Type"))
-	if ct == "" {
-		ct = "application/octet-stream"
-	}
-	if h.Exec == nil {
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
-			w,
-			http.StatusInternalServerError,
-			"executor not configured",
-			"api_error",
-			"",
-		))
-		return
-	}
-
-	sel := strings.TrimSpace(r.Header.Get(HeaderRouteSelector))
-	if _, err := jsonguard.PreflightContext(ctx, body, limits); err != nil {
-		if jsonguard.Classify(err) == jsonguard.KindCanceled {
-			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusServiceUnavailable, execerr.InternalWireMessage, "api_error", ""))
-			return
-		}
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
-			w,
-			http.StatusBadRequest,
-			"invalid request JSON",
-			"invalid_request_error",
-			"",
-		))
-		return
-	}
-	releaseDecode, ok, err := decodeqos.TryAdmit(ctx, h.DecodeAdmission, int64(len(body)))
-	if d := decodeqos.Decide(ok, err); d.Status != 0 {
-		if d.RetryAfter {
-			w.Header().Set("Retry-After", decodeqos.RetryAfterSeconds)
-		}
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, d.Status, d.Message, "api_error", ""))
-		return
-	}
-	var decoded *DecodedCreate
-	err = decodeqos.Guard(releaseDecode, func() error {
-		if sel == "" {
-			sel = h.RoutePrefixes.FromModelOrDefault(body, h.DefaultRouteSelector)
-		}
-		var derr error
-		decoded, derr = DecodeCreateRequest(body, DecodeOptions{RouteSelector: sel, Headers: r.Header})
-		return derr
-	})
-	if err != nil {
-		log := diag.LoggerOrDefault(h.Log)
-		diag.LogError(ctx, log, "decode request failed", diag.AttrOpts{}, err, slog.String("detail", diag.TruncErrDetail(err, 512)))
-		streamdebug.LogDecodeFailure(ctx, log, ID, body, err)
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
-			w,
-			http.StatusBadRequest,
-			"invalid request JSON",
-			"invalid_request_error",
-			"",
-		))
-		return
-	}
-	call := decoded.Call
-	if err := call.Validate(); err != nil {
-		if h.Log != nil {
-			diag.LogError(ctx, h.Log, "validate call failed", diag.AttrOpts{CallID: call.ID}, err, slog.String("detail", diag.TruncErrDetail(err, 512)))
-		}
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
-			w,
-			http.StatusBadRequest,
-			"invalid request",
-			"invalid_request_error",
-			"",
-		))
-		return
-	}
-
-	traceID := diag.StableCallID(call)
-	ctx = diag.EnsureCallDiag(ctx, traceID, strings.TrimSpace(call.Session.ALegID))
-	h.TrafficPorts.Emit(ctx, traffic.LegCTP, traffic.CaptureMeta{
-		TraceID:   traceID,
-		SessionID: call.Session.CorrelationID(),
-	}, "http", ct, body)
-
-	streamdebug.LogCall(ctx, h.Log, ID, call, decoded.Stream, len(body), sel)
-	executeStart := time.Now()
-	es, err := h.execute(ctx, w, call, decoded.Stream)
-	if err != nil {
-		out := execerr.ClassifyExecute(err)
-		if out.Kind == execerr.KindInternalError && h.Log != nil && out.Err != nil {
-			diag.LogError(ctx, h.Log, "execute failed", diag.AttrOpts{CallID: call.ID}, out.Err)
-		}
-		switch out.Kind {
-		case execerr.KindSessionDenial, execerr.KindPolicyDenied, execerr.KindPolicyFailure, execerr.KindPolicyMalformed:
-			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
-				w,
-				out.Status,
-				out.Message,
-				execerr.OpenAIWireErrorType(out.Status),
-				"",
-			))
-		case execerr.KindClientReject:
-			code := "unsupported_parameter"
-			if out.Status == http.StatusRequestEntityTooLarge {
-				code = ""
-			}
-			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
-				w,
-				out.Status,
-				out.Message,
-				"invalid_request_error",
-				code,
-			))
-		default:
-			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
-				w,
-				out.Status,
-				execerr.InternalWireMessage,
-				"api_error",
-				"",
-			))
-		}
-		return
-	}
-	streamdebug.LogExecuteOpened(ctx, h.Log, ID, call, executeStart)
-
-	ctx = diag.EnsureCallDiag(ctx, traceID, call.Session.ALegID)
-	es = streamdebug.Wrap(ctx, h.Log, ID, call, es, executeStart)
-
-	opts := EncodeOptions{
-		ResponseID:               responseIDForCall(call),
-		CreatedAt:                diag.StableUnix(call),
-		ExposeLipUsageExtensions: h.Config.ExposeLipUsageExtensions,
-	}
-	opts.MessageID = "msg_" + opts.ResponseID
-	if clk := h.Exec.WallClock(); clk != nil {
-		opts.CreatedAt = clk().Unix()
-	}
-	if decoded.Stream {
-		if err := WriteStreamSSE(ctx, w, call, es, opts); err != nil {
-			diag.LogError(ctx, h.Log, "stream encode failed", diag.AttrOpts{CallID: call.ID}, err)
-			return
-		}
-		return
-	}
-	if err := WriteNonStreamJSON(ctx, w, call, es, opts); err != nil {
-		diag.LogError(ctx, h.Log, "non-stream encode failed", diag.AttrOpts{CallID: call.ID}, err)
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
-			w,
-			http.StatusInternalServerError,
-			execerr.InternalWireMessage,
-			"api_error",
-			"",
-		))
-	}
-}
-
-func isCancelPath(path string) bool {
-	path = strings.TrimSpace(path)
-	return strings.HasSuffix(path, "/cancel") && responseIDFromCancelPath(path) != ""
-}
-
 func (h *Handler) serveCancel(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	if h.Exec == nil {
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
+		h.logWriteJSONErr(ctx, "write error json failed", openaiwire.WriteErrorJSON(
 			w,
 			http.StatusInternalServerError,
 			"executor not configured",
@@ -294,7 +138,7 @@ func (h *Handler) serveCancel(ctx context.Context, w http.ResponseWriter, r *htt
 	}
 	canceler, ok := h.Exec.(aLegCanceler)
 	if !ok {
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
+		h.logWriteJSONErr(ctx, "write error json failed", openaiwire.WriteErrorJSON(
 			w,
 			http.StatusNotImplemented,
 			"response cancellation is not configured",
@@ -309,7 +153,7 @@ func (h *Handler) serveCancel(ctx context.Context, w http.ResponseWriter, r *htt
 	if aLegID == "" {
 		decodedALegID, decodedSessionID, ok := cancelCarrierFromResponseID(responseID)
 		if !ok {
-			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
+			h.logWriteJSONErr(ctx, "write error json failed", openaiwire.WriteErrorJSON(
 				w,
 				http.StatusBadRequest,
 				"missing A-leg cancellation carrier",
@@ -323,7 +167,7 @@ func (h *Handler) serveCancel(ctx context.Context, w http.ResponseWriter, r *htt
 			sessionID = decodedSessionID
 		}
 		if sessionID == "" {
-			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
+			h.logWriteJSONErr(ctx, "write error json failed", openaiwire.WriteErrorJSON(
 				w,
 				http.StatusBadRequest,
 				"missing session cancellation carrier",
@@ -344,13 +188,7 @@ func (h *Handler) serveCancel(ctx context.Context, w http.ResponseWriter, r *htt
 			diag.LogError(ctx, h.Log, "cancel a-leg failed", diag.AttrOpts{}, err)
 		}
 		status, msg, typ := cancelErrorWire(err)
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
-			w,
-			status,
-			msg,
-			typ,
-			"",
-		))
+		h.logWriteJSONErr(ctx, "write error json failed", openaiwire.WriteErrorJSON(w, status, msg, typ, ""))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -425,6 +263,6 @@ func cancelErrorWire(err error) (int, string, string) {
 	case errors.Is(err, domain.ErrSessionNotFound):
 		return http.StatusNotFound, "cancellation target not found", "invalid_request_error"
 	default:
-		return http.StatusInternalServerError, execerr.InternalWireMessage, "api_error"
+		return http.StatusInternalServerError, "internal error", "api_error"
 	}
 }

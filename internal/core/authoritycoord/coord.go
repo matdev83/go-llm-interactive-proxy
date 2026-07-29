@@ -2,6 +2,7 @@ package authoritycoord
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -176,4 +177,9 @@ func (e *ErrUnavailable) Unwrap() error {
 		return nil
 	}
 	return e.Err
+}
+
+func IsDenied(err error) bool {
+	var d *ErrDenied
+	return errors.As(err, &d)
 }

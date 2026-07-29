@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/streampump"
 )
 
 type fakeStrategy struct {
@@ -279,7 +280,7 @@ func TestNDJSONStreamBase_pushPendingLockedRespectsQueueCap(t *testing.T) {
 	if err := base.PushPendingLocked(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "a"}); err != nil {
 		t.Fatalf("first push: %v", err)
 	}
-	if err := base.PushPendingLocked(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "b"}); !errors.Is(err, ErrPendingQueueFull) {
+	if err := base.PushPendingLocked(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "b"}); !errors.Is(err, streampump.ErrPendingQueueFull) {
 		t.Fatalf("second push: got %v, want ErrPendingQueueFull", err)
 	}
 }

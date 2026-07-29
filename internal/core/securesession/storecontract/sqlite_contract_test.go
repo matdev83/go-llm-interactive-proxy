@@ -2,35 +2,35 @@ package storecontract_test
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
-	"sync/atomic"
+	"os"
+	"path/filepath"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/sqlite"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/bunstore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/storecontract"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 )
 
-var sqliteContractMemSeq atomic.Int64
-
-// TestStoreContract_SQLite runs the full contract suite against the SQLite store.
-// No contract subtest asserts restart/file persistence, so each subtest uses an
-// isolated in-memory database (same migration and DML path, no fsync cost).
-// File-backed open/persistence stays covered in internal/core/securesession/adapters/sqlite.
 func TestStoreContract_SQLite(t *testing.T) {
 	t.Parallel()
 	storecontract.RunAll(t, func(t *testing.T) app.Store {
 		t.Helper()
-		id := sqliteContractMemSeq.Add(1)
-		dsn := fmt.Sprintf("file:memsqlitecontract%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)", id)
-		sqlDB, err := sql.Open("sqlite", dsn)
+		dir, err := os.MkdirTemp("", "securesession-storecontract-")
 		if err != nil {
 			t.Fatal(err)
 		}
-		s, err := sqlite.NewContext(context.Background(), sqlDB)
+		t.Cleanup(func() { _ = os.RemoveAll(dir) })
+		path := filepath.Join(dir, "store.db")
+		ctx, cancel := context.WithTimeout(context.Background(), db.DefaultPostgresOpenMigrateTimeout)
+		defer cancel()
+		bunDB, err := db.OpenSQLiteBun(ctx, path)
 		if err != nil {
-			_ = sqlDB.Close()
+			t.Fatal(err)
+		}
+		s, err := bunstore.NewContext(ctx, bunDB)
+		if err != nil {
+			_ = bunDB.Close()
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = s.Close() })

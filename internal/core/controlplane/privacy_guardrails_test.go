@@ -195,7 +195,7 @@ func TestPrivacyGuardrails_RecorderRejectsRawSecretsInAnyFreeTextField(t *testin
 			RedactionState: cp.RedactionNone,
 			Source:         cp.SourceRef{Name: "privacy"},
 			Summary:        bad,
-			Auth:           &cp.AuthDetail{Outcome: "allow"},
+			Detail:         &cp.AuthDetail{Outcome: "allow"},
 		}
 		if _, err := recorder.Record(context.Background(), ev); err == nil {
 			t.Fatalf("recorder must reject summary containing %q", bad)

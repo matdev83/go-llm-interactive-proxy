@@ -32,6 +32,7 @@ func (s *Service) Settle(ctx context.Context, in SettleInput) (result SettleResu
 
 	now := s.now()
 	snap := s.snapshotForSettle(ctx, in.BoundVersion)
+	in = DeriveSettleScalars(in)
 	in = s.normalizeSettleInput(snap.UnknownAttribution, in, snap.Rules)
 	settle, err := s.storeSettle(ctx, in, now, snap.Rules)
 	if err != nil {
@@ -85,6 +86,7 @@ func (s *Service) Release(ctx context.Context, in ReleaseInput) (result ReleaseR
 
 	now := s.now()
 	snap := s.snapshotTolerant(ctx)
+	in = DeriveReleaseScalars(in)
 	in = s.normalizeReleaseInput(snap.UnknownAttribution, in, snap.Rules)
 	release, err := s.storeRelease(ctx, in, now)
 	if err != nil {
@@ -186,6 +188,7 @@ func (s *Service) storeSettle(ctx context.Context, in SettleInput, now time.Time
 	if s == nil || s.store == nil {
 		return SettleResult{}, WrapError(ErrUnavailable, "settle", errors.New("store not configured"))
 	}
+	in = DeriveSettleScalars(in)
 	if in.Sequence <= 0 {
 		in.Sequence = SettlementSequence(in.Kind, in.Authority)
 	}
@@ -294,6 +297,68 @@ func applySelectedSettlementAmounts(in SettleInput, descriptors []SettlementDesc
 		}
 	}
 	return out, in, nil
+}
+
+// DeriveSettleScalars copies aggregate fields from the first reservation descriptor
+// when callers supply only the descriptor set (runtime lifecycle path).
+func DeriveSettleScalars(in SettleInput) SettleInput {
+	if len(in.Reservations) == 0 {
+		return in
+	}
+	first := in.Reservations[0]
+	if in.ReservationKey.LogicalRequestID == "" {
+		in.ReservationKey = first.Reservation.ReservationKey
+	}
+	if in.ReservationID == "" {
+		in.ReservationID = first.Reservation.ReservationID
+	}
+	if in.RuleID == "" {
+		in.RuleID = first.Reservation.RuleID
+	}
+	if in.Authority == "" {
+		in.Authority = first.Authority
+	}
+	if in.MeasurementAuthority.Usage == "" && in.MeasurementAuthority.Cost == "" {
+		in.MeasurementAuthority = first.MeasurementAuthority
+	}
+	if in.FinalUsage.Unit == "" {
+		in.FinalUsage = first.FinalUsage
+	}
+	if in.FinalCost.Unit == "" {
+		in.FinalCost = first.FinalCost
+	}
+	if in.ReservedUsage.Unit == "" {
+		in.ReservedUsage = first.Reservation.Amount
+	}
+	if in.EstimatedUsage.Unit == "" {
+		in.EstimatedUsage = first.EstimatedUsage
+	}
+	if in.EstimatedCost.Unit == "" {
+		in.EstimatedCost = first.EstimatedCost
+	}
+	return in
+}
+
+// DeriveReleaseScalars copies aggregate fields from the first reservation descriptor
+// when callers supply only the descriptor set (runtime lifecycle path).
+func DeriveReleaseScalars(in ReleaseInput) ReleaseInput {
+	if len(in.Reservations) == 0 {
+		return in
+	}
+	first := in.Reservations[0].Reservation
+	if in.ReservationKey.LogicalRequestID == "" {
+		in.ReservationKey = first.ReservationKey
+	}
+	if in.ReservationID == "" {
+		in.ReservationID = first.ReservationID
+	}
+	if in.RuleID == "" {
+		in.RuleID = first.RuleID
+	}
+	if in.Amount.Unit == "" {
+		in.Amount = first.Amount
+	}
+	return in
 }
 
 func settlementDescriptors(in SettleInput, now time.Time) []SettlementDescriptor {
@@ -427,6 +492,7 @@ func (s *Service) storeRelease(ctx context.Context, in ReleaseInput, now time.Ti
 	if s == nil || s.store == nil {
 		return ReleaseResult{}, WrapError(ErrUnavailable, "release", errors.New("store not configured"))
 	}
+	in = DeriveReleaseScalars(in)
 	if in.Sequence <= 0 {
 		in.Sequence = ReleaseSequence(in.Kind)
 	}

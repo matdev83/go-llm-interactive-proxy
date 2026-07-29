@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/streampump"
 )
 
 // IsInboundServerRequest reports whether probe is a JSON-RPC server-initiated
@@ -77,7 +78,7 @@ type NDJSONStreamBase struct {
 	body    io.ReadCloser
 	scanner *bufio.Scanner
 
-	pending         PendingEventQueue
+	pending         streampump.PendingEventQueue
 	responseStarted bool
 	messageStarted  bool
 	after           bool
@@ -98,7 +99,7 @@ func NewNDJSONStreamBase(parent context.Context, body io.ReadCloser, maxPending 
 		body:     body,
 		ctx:      ctx,
 		cancel:   cancel,
-		pending:  NewPendingEventQueue(maxPending),
+		pending:  streampump.NewPendingEventQueue(maxPending),
 		strategy: strategy,
 	}
 	b.scanner = bufio.NewScanner(body)

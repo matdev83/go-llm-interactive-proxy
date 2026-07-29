@@ -47,14 +47,14 @@ func TestSecureSession_CreateRecordsSessionEventAfterDelegate(t *testing.T) {
 		t.Fatalf("delegate Create must be called once, got %d", fake.createCalls)
 	}
 	evs := h.events()
-	if len(evs) != 1 || evs[0].Category != cp.CategorySession || evs[0].Session == nil {
+	if len(evs) != 1 || evs[0].Category != cp.CategorySession || evs[0].Session() == nil {
 		t.Fatalf("session event not recorded: %#v", evs)
 	}
 	if evs[0].SourceEventKey != "secure-create:sess-1" {
 		t.Fatalf("source key = %q, want secure-create:sess-1", evs[0].SourceEventKey)
 	}
-	if evs[0].Session.SessionID != "sess-1" || evs[0].Session.ALegID != "aleg-1" {
-		t.Fatalf("session correlation lost: %#v", evs[0].Session)
+	if evs[0].Session().SessionID != "sess-1" || evs[0].Session().ALegID != "aleg-1" {
+		t.Fatalf("session correlation lost: %#v", evs[0].Session())
 	}
 }
 
@@ -86,7 +86,7 @@ func TestSecureSession_TouchActivityRecordsSessionUpdate(t *testing.T) {
 		t.Fatalf("delegate TouchActivity must be called once, got %d", fake.touchCalls)
 	}
 	evs := h.events()
-	if len(evs) != 1 || evs[0].Session == nil || evs[0].Session.Action != cp.SessionActionUpdated {
+	if len(evs) != 1 || evs[0].Session() == nil || evs[0].Session().Action != cp.SessionActionUpdated {
 		t.Fatalf("session update not recorded: %#v", evs)
 	}
 	want := "secure-touch:sess-1:client_request:" + at.Format(time.RFC3339Nano)
@@ -109,14 +109,14 @@ func TestSecureSession_AppendAttemptTraceRecordsAttempt(t *testing.T) {
 		t.Fatalf("AppendAttemptTrace: %v", err)
 	}
 	evs := h.events()
-	if len(evs) != 1 || evs[0].Attempt == nil {
+	if len(evs) != 1 || evs[0].Attempt() == nil {
 		t.Fatalf("attempt event not recorded: %#v", evs)
 	}
 	if evs[0].SourceEventKey != "secure-attempt-trace:sess-1:bleg-1:3" {
 		t.Fatalf("source key = %q", evs[0].SourceEventKey)
 	}
-	if evs[0].Attempt.BackendID != "openai" || evs[0].Attempt.Model != "gpt-4o" {
-		t.Fatalf("backend/model lost: %#v", evs[0].Attempt)
+	if evs[0].Attempt().BackendID != "openai" || evs[0].Attempt().Model != "gpt-4o" {
+		t.Fatalf("backend/model lost: %#v", evs[0].Attempt())
 	}
 }
 
@@ -134,11 +134,11 @@ func TestSecureSession_UpdateAttemptOutcomeMapsSurfaceState(t *testing.T) {
 		t.Fatalf("UpdateAttemptOutcome: %v", err)
 	}
 	evs := h.events()
-	if len(evs) != 1 || evs[0].Attempt == nil {
+	if len(evs) != 1 || evs[0].Attempt() == nil {
 		t.Fatalf("attempt outcome not recorded: %#v", evs)
 	}
-	if evs[0].Attempt.Surfaced != cp.AttemptSurfacedSurfaced || evs[0].Attempt.Outcome != cp.AttemptOutcomeSucceeded {
-		t.Fatalf("surface state mapping lost: %#v", evs[0].Attempt)
+	if evs[0].Attempt().Surfaced != cp.AttemptSurfacedSurfaced || evs[0].Attempt().Outcome != cp.AttemptOutcomeSucceeded {
+		t.Fatalf("surface state mapping lost: %#v", evs[0].Attempt())
 	}
 	if evs[0].SourceEventKey != "secure-attempt-outcome:sess-1:bleg-1" {
 		t.Fatalf("source key = %q", evs[0].SourceEventKey)
@@ -162,11 +162,11 @@ func TestSecureSession_AddUsageDropsRawJSONAndRecords(t *testing.T) {
 		t.Fatalf("AddUsage: %v", err)
 	}
 	evs := h.events()
-	if len(evs) != 1 || evs[0].Usage == nil {
+	if len(evs) != 1 || evs[0].Usage() == nil {
 		t.Fatalf("usage event not recorded: %#v", evs)
 	}
-	if evs[0].Usage.InputTokens != 100 || evs[0].Usage.TotalTokens != 150 {
-		t.Fatalf("usage dimensions lost: %#v", evs[0].Usage)
+	if evs[0].Usage().InputTokens != 100 || evs[0].Usage().TotalTokens != 150 {
+		t.Fatalf("usage dimensions lost: %#v", evs[0].Usage())
 	}
 	for _, bad := range []string{"secret", `{"secret":`, "RawUsageJSON"} {
 		if contains(string(mustMarshal(t, evs[0])), bad) {
@@ -222,7 +222,7 @@ func TestSecureSession_AppendAuditRecordsAuditEvent(t *testing.T) {
 		t.Fatalf("AppendAudit: %v", err)
 	}
 	evs := h.events()
-	if len(evs) != 1 || evs[0].Audit == nil || evs[0].Audit.Action != "transcript.view" {
+	if len(evs) != 1 || evs[0].Audit() == nil || evs[0].Audit().Action != "transcript.view" {
 		t.Fatalf("audit event not recorded: %#v", evs)
 	}
 	if evs[0].SourceEventKey != "secure-audit:sess-1:turn-1:transcript.view:7" {

@@ -1,6 +1,10 @@
 // Package controlplane defines the stable, safe control-plane evidence and query
 // contracts for the LLM Interactive Proxy runtime.
 //
+// Go API note (v2-compatible): [Event] carries a single [EventDetail] interface
+// field instead of parallel nullable detail pointers. JSON on the wire is
+// unchanged — category-keyed detail objects are preserved via custom marshaling.
+//
 // The package is additive public SDK surface for future feature plugins, internal
 // adapters, and protected operator query routes. It is safe-by-construction:
 // raw bearer tokens, API keys, OAuth/resume tokens, credential secrets, raw

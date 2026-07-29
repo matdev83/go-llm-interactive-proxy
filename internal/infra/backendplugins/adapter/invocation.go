@@ -77,7 +77,7 @@ func mapMessages(in []lipapi.Message) ([]backendplugin.Message, error) {
 			return nil, err
 		}
 		out = append(out, backendplugin.Message{
-			Role:  backendplugin.Role(m.Role),
+			Role:  m.Role,
 			Parts: parts,
 		})
 	}

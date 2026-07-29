@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/authorityattribution"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 )
 
@@ -65,28 +66,5 @@ func clampIndex(clamps []authority.Clamp, kind authority.ClampKind) int {
 
 // AggregateReadiness picks the most severe readiness among inputs.
 func AggregateReadiness(values ...authority.Readiness) authority.Readiness {
-	worst := authority.ReadinessReady
-	rank := func(r authority.Readiness) int {
-		switch r {
-		case "", authority.ReadinessReady:
-			return 0
-		case authority.ReadinessDegraded:
-			return 1
-		case authority.ReadinessDisabled:
-			return 2
-		case authority.ReadinessUnavailable:
-			return 3
-		default:
-			return 1
-		}
-	}
-	for _, r := range values {
-		if rank(r) > rank(worst) {
-			worst = r
-		}
-	}
-	if worst == "" {
-		return authority.ReadinessReady
-	}
-	return worst
+	return authorityattribution.AggregateReadiness(values...)
 }

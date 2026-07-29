@@ -235,7 +235,7 @@ func TestAdversarial_DarwinChannelSourceFailsClosed(t *testing.T) {
 
 func TestAdversarial_UnknownEventKindContract(t *testing.T) {
 	t.Parallel()
-	if err := backendplugin.EventKind("evil_kind").Validate(); !errors.Is(err, backendplugin.ErrUnknownEventKind) {
+	if err := backendplugin.ValidateEventKind(backendplugin.EventKind("evil_kind")); !errors.Is(err, backendplugin.ErrUnknownEventKind) {
 		t.Fatalf("%v", err)
 	}
 	err := (backendplugin.ServerFrame{

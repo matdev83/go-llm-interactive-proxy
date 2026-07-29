@@ -3,15 +3,11 @@ package authoritycoord
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 )
 
-// PreviewClamps invokes optional AttemptClampPreviewer slots without holds and
-// merges non-widening known clamps (design Clamp Preview). Preview reservations,
-// compensation handles, and unknown clamp kinds are rejected.
 func (c *AttemptCoordinator) PreviewClamps(ctx context.Context, in authority.AttemptAdmission) ([]authority.Clamp, error) {
 	if c == nil {
 		return nil, nil
@@ -19,26 +15,21 @@ func (c *AttemptCoordinator) PreviewClamps(ctx context.Context, in authority.Att
 	if err := in.Validate(); err != nil {
 		return nil, err
 	}
-	if err := validateAttemptSlots(c.Slots); err != nil {
+	slots := attemptStageSlots(c.Slots)
+	if err := validateStageSlots(slots, func(p authority.AttemptProvider) bool { return p == nil }); err != nil {
 		return nil, err
 	}
 	var merged []authority.Clamp
-	slots := append([]AttemptSlot(nil), c.Slots...)
-	sort.SliceStable(slots, func(i, j int) bool {
-		if slots[i].Class != slots[j].Class {
-			return slots[i].Class < slots[j].Class
-		}
-		return slots[i].ID < slots[j].ID
-	})
+	sortStageSlots(slots)
 	for _, slot := range slots {
-		previewer, ok := slot.Provider.(authority.AttemptClampPreviewer)
+		previewer, ok := slot.provider.(authority.AttemptClampPreviewer)
 		if !ok || previewer == nil {
 			continue
 		}
-		id := strings.TrimSpace(slot.ID)
+		id := strings.TrimSpace(slot.id)
 		d, err := invokePreviewAttempt(ctx, previewer, in)
 		if err != nil {
-			strength, _ := resolveAttemptPosture(slot)
+			strength, _ := resolveStagePosture(slot)
 			if strength == authority.StrengthRequired {
 				return nil, fmt.Errorf("authoritycoord: preview %s: %w", id, err)
 			}

@@ -16,7 +16,7 @@ func (f ServerFrame) ValidateShape() error {
 		if f.Event == nil {
 			return ErrUnknownEventKind
 		}
-		if err := f.Event.Kind.Validate(); err != nil {
+		if err := ValidateEventKind(f.Event.Kind); err != nil {
 			return err
 		}
 		if f.CancelOutcome != nil || f.Terminal != nil || f.Diagnostic != "" {

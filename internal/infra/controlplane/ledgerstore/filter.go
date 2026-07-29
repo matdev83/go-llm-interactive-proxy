@@ -119,31 +119,31 @@ func timeRangeMatch(r cp.TimeRange, t time.Time) bool {
 }
 
 func outcomeMatches(ev cp.Event, want string) bool {
-	if ev.Attempt != nil && ev.Attempt.Outcome.IsKnown() {
-		if string(ev.Attempt.Outcome) == want {
+	if ev.Attempt() != nil && ev.Attempt().Outcome.IsKnown() {
+		if string(ev.Attempt().Outcome) == want {
 			return true
 		}
 	}
-	if ev.Attempt != nil && ev.Attempt.RouteOutcome == want {
+	if ev.Attempt() != nil && ev.Attempt().RouteOutcome == want {
 		return true
 	}
-	if ev.Policy != nil && ev.Policy.Outcome == want {
+	if ev.Policy() != nil && ev.Policy().Outcome == want {
 		return true
 	}
-	if ev.Auth != nil && ev.Auth.Outcome == want {
+	if ev.Auth() != nil && ev.Auth().Outcome == want {
 		return true
 	}
 	return false
 }
 
 func reasonCodeMatches(ev cp.Event, want string) bool {
-	if ev.Auth != nil && ev.Auth.ReasonCode == want {
+	if ev.Auth() != nil && ev.Auth().ReasonCode == want {
 		return true
 	}
-	if ev.Policy != nil && ev.Policy.ReasonCode == want {
+	if ev.Policy() != nil && ev.Policy().ReasonCode == want {
 		return true
 	}
-	if ev.Audit != nil && ev.Audit.ReasonCode == want {
+	if ev.Audit() != nil && ev.Audit().ReasonCode == want {
 		return true
 	}
 	return false

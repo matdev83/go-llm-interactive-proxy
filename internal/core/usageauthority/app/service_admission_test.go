@@ -715,8 +715,8 @@ func TestAdmissionServiceUnknownAttributionModesAffectMatchingAndEvidence(t *tes
 			if !got.PolicyRecord.Scope.ProjectID.Equal(tt.wantScope) {
 				t.Fatalf("policy evidence project scope = %#v, want %#v", got.PolicyRecord.Scope.ProjectID, tt.wantScope)
 			}
-			if !got.AccountingEvent.AccountingAuthority.Scope.ProjectID.Equal(tt.wantScope) {
-				t.Fatalf("accounting evidence project scope = %#v, want %#v", got.AccountingEvent.AccountingAuthority.Scope.ProjectID, tt.wantScope)
+			if !got.AccountingEvent.AccountingAuthority().Scope.ProjectID.Equal(tt.wantScope) {
+				t.Fatalf("accounting evidence project scope = %#v, want %#v", got.AccountingEvent.AccountingAuthority().Scope.ProjectID, tt.wantScope)
 			}
 		})
 	}

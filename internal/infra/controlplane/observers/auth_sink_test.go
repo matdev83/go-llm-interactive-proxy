@@ -60,13 +60,13 @@ func TestAuthSinkAdapter_FansOutToDelegateAndRecorder(t *testing.T) {
 	if len(evs) != 2 {
 		t.Fatalf("expected 2 recorded events, got %d", len(evs))
 	}
-	if evs[0].Category != cp.CategoryAuth || evs[0].Auth == nil || evs[0].Auth.Outcome != "allow" {
+	if evs[0].Category != cp.CategoryAuth || evs[0].Auth() == nil || evs[0].Auth().Outcome != "allow" {
 		t.Fatalf("auth event not recorded correctly: %#v", evs[0])
 	}
 	if evs[0].Correlation.TraceID != "trace-auth-1" {
 		t.Fatalf("auth event correlation lost: %#v", evs[0].Correlation)
 	}
-	if evs[1].Category != cp.CategorySession || evs[1].Session == nil || evs[1].Session.SessionID != "sess-1" {
+	if evs[1].Category != cp.CategorySession || evs[1].Session() == nil || evs[1].Session().SessionID != "sess-1" {
 		t.Fatalf("session event not recorded correctly: %#v", evs[1])
 	}
 	// Deterministic source keys (design "Source Event Mapping").

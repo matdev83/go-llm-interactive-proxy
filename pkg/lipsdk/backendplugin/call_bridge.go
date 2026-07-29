@@ -40,7 +40,7 @@ func CallFromInvocation(inv Invocation) (lipapi.Call, error) {
 
 // CanonicalEventFromLipapi maps a canonical stream event into the plugin wire DTO.
 func CanonicalEventFromLipapi(ev lipapi.Event) *CanonicalEvent {
-	out := &CanonicalEvent{Kind: EventKind(ev.Kind)}
+	out := &CanonicalEvent{Kind: ev.Kind}
 	if ev.MessageIndex != 0 {
 		v := int32(ev.MessageIndex)
 		out.MessageIndex = &v
@@ -110,7 +110,7 @@ func messagesToLipapi(in []Message) ([]lipapi.Message, error) {
 			return nil, err
 		}
 		out = append(out, lipapi.Message{
-			Role:  lipapi.Role(m.Role),
+			Role:  m.Role,
 			Parts: parts,
 		})
 	}

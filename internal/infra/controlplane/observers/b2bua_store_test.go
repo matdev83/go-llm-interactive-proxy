@@ -47,17 +47,17 @@ func TestB2BUA_RecordAttemptRecordsLineageAfterDelegate(t *testing.T) {
 		t.Fatalf("delegate RecordAttempt must be called once, got %d", fake.recordCalls)
 	}
 	evs := h.events()
-	if len(evs) != 1 || evs[0].Attempt == nil {
+	if len(evs) != 1 || evs[0].Attempt() == nil {
 		t.Fatalf("attempt event not recorded: %#v", evs)
 	}
 	if evs[0].SourceEventKey != "b2bua-attempt:aleg-1:bleg-1:2" {
 		t.Fatalf("source key = %q, want b2bua-attempt:aleg-1:bleg-1:2", evs[0].SourceEventKey)
 	}
-	if evs[0].Attempt.ALegID != "aleg-1" || evs[0].Attempt.BLegID != "bleg-1" || evs[0].Attempt.AttemptSeq != 2 {
-		t.Fatalf("lineage lost: %#v", evs[0].Attempt)
+	if evs[0].Attempt().ALegID != "aleg-1" || evs[0].Attempt().BLegID != "bleg-1" || evs[0].Attempt().AttemptSeq != 2 {
+		t.Fatalf("lineage lost: %#v", evs[0].Attempt())
 	}
-	if evs[0].Attempt.BackendID != "openai" || evs[0].Attempt.Model != "gpt-4o" {
-		t.Fatalf("backend/model lost: %#v", evs[0].Attempt)
+	if evs[0].Attempt().BackendID != "openai" || evs[0].Attempt().Model != "gpt-4o" {
+		t.Fatalf("backend/model lost: %#v", evs[0].Attempt())
 	}
 }
 
@@ -84,9 +84,9 @@ func TestB2BUA_RecordAttemptMapsSurfacedVsSwallowed(t *testing.T) {
 				t.Fatalf("RecordAttempt: %v", err)
 			}
 			evs := h.events()
-			if len(evs) != 1 || evs[0].Attempt.Surfaced != c.surfaced || evs[0].Attempt.Outcome != c.outResult {
+			if len(evs) != 1 || evs[0].Attempt().Surfaced != c.surfaced || evs[0].Attempt().Outcome != c.outResult {
 				t.Fatalf("mapping %s = surfaced %q outcome %q, want %q %q",
-					c.name, evs[0].Attempt.Surfaced, evs[0].Attempt.Outcome, c.surfaced, c.outResult)
+					c.name, evs[0].Attempt().Surfaced, evs[0].Attempt().Outcome, c.surfaced, c.outResult)
 			}
 		})
 	}

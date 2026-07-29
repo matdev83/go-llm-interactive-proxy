@@ -37,9 +37,9 @@ func (a Amount) Validate() error {
 	return nil
 }
 
-func (m DimensionsMatcher) Validate() error {
+func validateDimensionsMatcher(m DimensionsMatcher) error {
 	for key := range m.Labels {
-		if !isSafeLabelKey(key) {
+		if !IsSafeLabelKey(key) {
 			return fmt.Errorf("%w: invalid policy label key %q", ErrInvalidDimension, key)
 		}
 	}
@@ -75,7 +75,7 @@ func (r Rule) Validate() error {
 	if unit != r.Limit.Unit {
 		return fmt.Errorf("%w: rule unit %q does not match limit unit %q", ErrInvalidRule, unit, r.Limit.Unit)
 	}
-	if err := r.Match.Validate(); err != nil {
+	if err := validateDimensionsMatcher(r.Match); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidRule, err)
 	}
 	if r.Window.configured() {

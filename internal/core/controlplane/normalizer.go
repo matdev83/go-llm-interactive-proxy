@@ -127,7 +127,7 @@ func (n *Normalizer) FromAuthDecision(ev auth.AuthDecisionEvent) (cp.Event, erro
 	if err != nil {
 		return cp.Event{}, err
 	}
-	out.Auth = &cp.AuthDetail{
+	out.Detail = &cp.AuthDetail{
 		Outcome:    string(ev.Outcome),
 		ReasonCode: ev.ReasonCode,
 		Frontend:   ev.Frontend,
@@ -167,7 +167,7 @@ func (n *Normalizer) FromSessionStart(ev auth.SessionStartEvent) (cp.Event, erro
 	if ev.Certainty == auth.SessionCertaintyUnknown && !ev.IsNew {
 		action = cp.SessionActionDenied
 	}
-	out.Session = &cp.SessionDetail{
+	out.Detail = &cp.SessionDetail{
 		SessionID:        ev.SessionID,
 		ClientSessionRef: ev.ClientSessionRef,
 		ALegID:           ev.ALegID,
@@ -223,7 +223,7 @@ func (n *Normalizer) FromSessionRecord(rec SessionSourceRecord) (cp.Event, error
 	if !action.IsKnown() {
 		action = cp.SessionActionUpdated
 	}
-	out.Session = &cp.SessionDetail{
+	out.Detail = &cp.SessionDetail{
 		SessionID:        rec.SessionID,
 		ClientSessionRef: rec.ClientSessionRef,
 		ALegID:           rec.ALegID,
@@ -291,7 +291,7 @@ func (n *Normalizer) FromUsageRecord(rec UsageSourceRecord) (cp.Event, error) {
 	if err != nil {
 		return cp.Event{}, err
 	}
-	out.Usage = new(ProjectObservedStreamUsage(ObservedStreamUsageInput{
+	out.Detail = new(ProjectObservedStreamUsage(ObservedStreamUsageInput{
 		InputTokens:      rec.InputTokens,
 		OutputTokens:     rec.OutputTokens,
 		CacheReadTokens:  rec.CacheReadTokens,
@@ -342,7 +342,7 @@ func (n *Normalizer) FromAttempt(rec AttemptSourceRecord) (cp.Event, error) {
 	if err != nil {
 		return cp.Event{}, err
 	}
-	out.Attempt = &cp.AttemptDetail{
+	out.Detail = &cp.AttemptDetail{
 		ALegID:       rec.ALegID,
 		BLegID:       rec.BLegID,
 		AttemptSeq:   rec.AttemptSeq,
@@ -389,7 +389,7 @@ func (n *Normalizer) FromUsage(ev usage.Event) (cp.Event, error) {
 	if err != nil {
 		return cp.Event{}, err
 	}
-	out.Usage = new(ProjectObservedStreamUsage(ObservedStreamInputFromUsageEvent(ev)))
+	out.Detail = new(ProjectObservedStreamUsage(ObservedStreamInputFromUsageEvent(ev)))
 	if err := ValidateEvent(out); err != nil {
 		return cp.Event{}, fmt.Errorf("%w: usage: %v", ErrUnsafeEvidence, err)
 	}
@@ -430,7 +430,7 @@ func (n *Normalizer) FromPolicyDecision(rec policydecision.Record) (cp.Event, er
 	if err != nil {
 		return cp.Event{}, err
 	}
-	out.Policy = &cp.PolicyDetail{
+	out.Detail = &cp.PolicyDetail{
 		Stage:      rec.Stage,
 		Outcome:    string(rec.Outcome),
 		Effect:     string(rec.Effect),
@@ -479,7 +479,7 @@ func (n *Normalizer) FromAudit(rec AuditSourceRecord) (cp.Event, error) {
 	if err != nil {
 		return cp.Event{}, err
 	}
-	out.Audit = &cp.AuditDetail{
+	out.Detail = &cp.AuditDetail{
 		Action:     rec.Action,
 		Result:     rec.Result,
 		ReasonCode: rec.ReasonCode,

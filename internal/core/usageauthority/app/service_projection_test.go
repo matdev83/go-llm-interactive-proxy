@@ -65,7 +65,7 @@ func TestProjectAccountingEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("accounting authority event projection: %v", err)
 	}
-	if ev.Category != controlplane.CategoryAccountingAuthority || ev.AccountingAuthority == nil {
+	if ev.Category != controlplane.CategoryAccountingAuthority || ev.Detail == nil {
 		t.Fatalf("projection must produce accounting authority event: %#v", ev)
 	}
 	if ev.Source.Name != "usageauthority" || ev.Source.Version != "app" {
@@ -73,17 +73,17 @@ func TestProjectAccountingEvidence(t *testing.T) {
 	}
 	// Authority is derived from (status, reserved, in) by the projector; it
 	// must agree with resolveAuthoritySource's reserved-with-id branch.
-	if ev.AccountingAuthority.Authority != controlplane.AccountingAuthoritySourceReserved {
-		t.Fatalf("authority derivation must honor reserved+reservationID: got %v", ev.AccountingAuthority.Authority)
+	if ev.AccountingAuthority().Authority != controlplane.AccountingAuthoritySourceReserved {
+		t.Fatalf("authority derivation must honor reserved+reservationID: got %v", ev.AccountingAuthority().Authority)
 	}
 	// WindowStart/End/ResetAt are left as the time.Time zero value to signal
 	// "no window" — the rule snapshot, not this projector, owns window metadata.
 	// Defaulting them to in.At would read as a zero-length window that resets
 	// now, which is misleading for unbounded or admission-only decisions.
-	if !ev.AccountingAuthority.WindowStart.IsZero() ||
-		!ev.AccountingAuthority.WindowEnd.IsZero() ||
-		!ev.AccountingAuthority.WindowResetAt.IsZero() {
-		t.Fatalf("window fields must be left as the zero value to signal no window: got start=%v end=%v reset=%v", ev.AccountingAuthority.WindowStart, ev.AccountingAuthority.WindowEnd, ev.AccountingAuthority.WindowResetAt)
+	if !ev.AccountingAuthority().WindowStart.IsZero() ||
+		!ev.AccountingAuthority().WindowEnd.IsZero() ||
+		!ev.AccountingAuthority().WindowResetAt.IsZero() {
+		t.Fatalf("window fields must be left as the zero value to signal no window: got start=%v end=%v reset=%v", ev.AccountingAuthority().WindowStart, ev.AccountingAuthority().WindowEnd, ev.AccountingAuthority().WindowResetAt)
 	}
 	if ev.SourceEventKey == "" {
 		t.Fatalf("projection must produce a stable source key")
