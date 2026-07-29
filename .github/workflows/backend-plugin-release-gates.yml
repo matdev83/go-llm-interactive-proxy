@@ -10,14 +10,9 @@ name: Backend plugin release gates
 on:
   pull_request:
     paths:
-      - "connectors/**"
-      - "connector-support/**"
-      - "tools/backendplugin/**"
-      - "internal/infra/backendplugins/**"
-      - "internal/archtest/backend_plugin_release_gates_ci_test.go"
-      - "pkg/lipsdk/backendplugin/**"
-      - "Makefile"
       - ".github/workflows/backend-plugin-release-gates.yml"
+  schedule:
+    - cron: "23 3 * * *"
   push:
     branches: [main]
     paths:
@@ -36,6 +31,7 @@ permissions:
 
 jobs:
   release-gates:
+    if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
@@ -44,10 +40,12 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
           cache: true

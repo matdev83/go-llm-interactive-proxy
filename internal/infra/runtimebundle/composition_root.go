@@ -35,10 +35,8 @@ func installRegistryAndRegistrations(cfg *config.Config, mandatory []lipsdk.Requ
 	return reg, regs, nil
 }
 
-// registrySatisfiesEnabledBackendProfiles reports whether every enabled
-// configured backend factory is already registered with a security profile.
-// Used to treat a preloaded/custom registry as authoritative and skip artifact
-// discovery (avoids unresolved-kind failures and discovered factory collisions).
+// registrySatisfiesEnabledBackendProfiles lets authoritative registries skip
+// discovery when every enabled backend already has a security profile.
 func registrySatisfiesEnabledBackendProfiles(cfg *config.Config, reg *pluginreg.Registry) bool {
 	if cfg == nil || reg == nil {
 		return false

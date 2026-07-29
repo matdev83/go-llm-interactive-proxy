@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Push and PR events for the same branch share a group, avoiding duplicate runs.
+  group: ci-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  repo-hygiene:
+    name: Repo hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check repository file manifest
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PUSHED_REF: ${{ github.ref }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            commits=$(git rev-list --reverse "$BASE_SHA..HEAD")
+          elif [[ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]] && git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
+            commits=$(git rev-list --reverse "$BEFORE_SHA..HEAD")
+          else
+            # For a new branch, exclude commits reachable from other tracking
+            # refs on origin, but not the just-created destination ref itself.
+            exclusions=()
+            while read -r tracking_ref; do
+              [[ "$tracking_ref" == "refs/remotes/origin/${PUSHED_REF#refs/heads/}" ]] && continue
+              exclusions+=("$tracking_ref")
+            done < <(git for-each-ref --format='%(refname)' refs/remotes/origin)
+            commits=$(git rev-list --reverse HEAD --not "${exclusions[@]}")
+          fi
+
+          while read -r commit; do
+            [[ -n "$commit" ]] && bash scripts/check-release-clean.sh --ref "$commit"
+          done <<< "$commits"
+
+          bash scripts/check-release-clean.sh --ref HEAD
+
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            packages: ./cmd/lipstd ./pkg/credpool ./pkg/lipapi ./pkg/lipsdk/... ./pkg/streampump
+          - os: windows-latest
+            packages: ./pkg/credpool ./pkg/lipapi ./pkg/lipsdk/... ./pkg/streampump
+          - os: macos-latest
+            packages: ./pkg/credpool ./pkg/lipapi ./pkg/lipsdk/... ./pkg/streampump
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Fast unit tests
+        # CLI integration and architecture gates run once on Ubuntu in QA. The
+        # platform matrix covers portable public packages without invoking
+        # host security posture checks on administrative Windows runners.
+        run: go test -timeout=8m ${{ matrix.packages }}
+
+      - name: Build release binary
+        run: go build -trimpath ./cmd/lipstd

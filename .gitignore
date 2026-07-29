@@ -96,3 +96,38 @@ __pycache__/
 
 # Local architecture/dev scratchpad (private, not for sharing)
 .dev/
+
+# Ignore unlisted root-level files; tracked top-level paths are listed in .release-files.
+/*
+!/.coderabbit.yaml
+!/.gitattributes
+!/.githooks/
+!/.github/
+!/.gitleaks.toml
+!/.golangci.yml
+!/.goreleaser.yaml
+!/.jules/
+!/.kiro/
+!/.release-files
+!/AGENTS.md
+!/EchoesVault/
+!/Makefile
+!/README.md
+!/.github/SECURITY.md
+!/api/
+!/cmd/
+!/config/
+!/config.yaml
+!/connector-support/
+!/connectors/
+!/docs/
+!/go.mod
+!/go.sum
+!/internal/
+!/pkg/
+!/scripts/
+!/skills-lock.json
+!/specs/
+!/testdata/
+!/tools/
+!/.gitignore

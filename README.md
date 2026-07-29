@@ -52,6 +52,41 @@ For hosted providers, use [`config/config.yaml`](config/config.yaml) as the samp
 go run ./cmd/lipstd --config ./config/config.yaml
 ```
 
+## Releases and installation
+
+Prebuilt `lipstd` binaries for Linux, macOS, and Windows (`amd64` and `arm64`) are published through GitHub Releases when a semantic version tag (`vX.Y.Z`) is pushed. Each release includes platform archives (`.tar.gz` on Linux/macOS, `.zip` on Windows), `checksums.txt` (SHA-256), and build-provenance attestations.
+
+After downloading an archive for your OS/architecture:
+
+```bash
+# Linux/macOS example
+tar -xzf go-llm-interactive-proxy_vX.Y.Z_linux_amd64.tar.gz
+./lipstd --version
+./lipstd check-config --config ./config/config.yaml
+```
+
+Verify the archive checksum against `checksums.txt` before use. Connector plugins remain separate installable artifacts; see [`docs/backend-plugins/operator.md`](docs/backend-plugins/operator.md).
+
+**License:** This repository does not currently ship an owner-approved open-source license. Public redistribution rights remain undefined until one is added.
+
+## Repository file policy
+
+Every tracked file must be listed in [`.release-files`](.release-files). The manifest is enforced locally and in CI (`Repo hygiene`):
+
+```bash
+bash scripts/check-release-clean.sh          # working tree
+bash scripts/check-release-clean.sh --staged   # staged index (pre-commit)
+bash scripts/check-release-clean.sh --ref HEAD # specific revision
+```
+
+Install versioned Git hooks (manifest check on commit/push):
+
+```bash
+bash scripts/setup-hooks.sh
+```
+
+New legitimate files must be added to `.release-files` in the same commit. CI never auto-updates the manifest.
+
 `lipstd` accepts `--config` before or after the subcommand; if it appears more than once, the later value wins. See [`docs/dogfood-local.md`](docs/dogfood-local.md) for the full local dogfood flow. Truncated tool-call repair can be exercised with [`config/examples/dogfood-tool-call-repair.yaml`](config/examples/dogfood-tool-call-repair.yaml) (see ADR [`docs/adr/0007-canonical-tool-call-repair.md`](docs/adr/0007-canonical-tool-call-repair.md)).
 
 ## Configuration and operations
@@ -92,12 +127,19 @@ make example-config-check  # operator/example YAML + config/examples bootstrap i
 make backend-plugin-cross-platform-qa # connector platform matrix compile/package + native lifecycle gates
 make backend-plugin-release-gates-static # release report/traceability/wiring (also via make qa)
 make backend-plugin-release-gates # full connector/support module matrix + root release suites
-make hooks-install         # install optional pre-commit hooks
+make hooks-install         # install optional legacy pre-commit hooks (.githooks)
+bash scripts/setup-hooks.sh # install manifest pre-commit/pre-push hooks (recommended)
 ```
 
 Operator install/trust/diagnostics/upgrade/rollback for executable backend plugins: [`docs/backend-plugins/operator.md`](docs/backend-plugins/operator.md); threat model / trust equivalence: [`docs/backend-plugins/threat-model.md`](docs/backend-plugins/threat-model.md) (`make backend-plugin-security-checks`); cross-platform packaging/IPC matrix: `make backend-plugin-cross-platform-qa`; final release gates: `make backend-plugin-release-gates` ([ADR 0008](docs/adr/0008-hybrid-backend-connector-plugins.md)).
 
-PR CI (`.github/workflows/qa.yml`) runs when the PR changes any `*.go` file: `make quality-checks`, `make backend-plugin-module-checks`, `make isolated-root-qa`, `make installed-plugin-smoke`, PostgreSQL authority proofs, `go test -parallel=8 -tags=precommit,integration ./...`, golangci-lint v2, and `go tool govulncheck ./...`. PRs with no `*.go` changes skip the suite; the required `qa` gate still reports success. Nightly CI (`.github/workflows/race-fuzz-nightly.yml`, also `workflow_dispatch`) runs strict Linux race and Tier-1 fuzz smoke (`FUZZTIME=6s`). Locally, `make lint` prefers `go tool golangci-lint` (pinned in `go.mod` `tool`) and falls back to a PATH install. A monthly modernization workflow (`.github/workflows/modernize-monthly.yml`) re-runs the `modernize` linter suite and govulncheck. Linter config lives in [`.golangci.yml`](.golangci.yml).
+PR CI includes:
+
+- **Repo hygiene** (`.github/workflows/ci.yml`) — exact `.release-files` manifest on every push/PR; cross-platform tests and `lipstd` build. Linux/macOS run `go test -race`; Windows runs `go test` because the ACP PATH-cache stress test is prohibitively slow under the Windows race runtime.
+- **QA** (`.github/workflows/qa.yml`) — when `*.go` changes: quality checks, plugin gates, PostgreSQL proofs, integration tests, lint, govulncheck.
+- **CodeQL**, **Go vulnerability check**, and **OpenSSF Scorecard** on `main` and PRs (where configured).
+
+Nightly CI (`.github/workflows/race-fuzz-nightly.yml`, also `workflow_dispatch`) runs strict Linux race and Tier-1 fuzz smoke (`FUZZTIME=6s`). Locally, `make lint` prefers `go tool golangci-lint` (pinned in `go.mod` `tool`) and falls back to a PATH install. A monthly modernization workflow (`.github/workflows/modernize-monthly.yml`) re-runs the `modernize` linter suite and govulncheck. Linter config lives in [`.golangci.yml`](.golangci.yml).
 
 Recoverability is defined by the specification bundle: tests, `testdata/` goldens, stable `pkg/lipapi` / `pkg/lipsdk` contracts, steering, and parity/scenario docs. Start at [`docs/spec-bundle-index.md`](docs/spec-bundle-index.md), [`docs/conformance-golden-coverage.md`](docs/conformance-golden-coverage.md), and [`docs/conformance-matrix-evidence.md`](docs/conformance-matrix-evidence.md).
 

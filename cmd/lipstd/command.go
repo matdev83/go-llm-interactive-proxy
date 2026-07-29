@@ -92,7 +92,6 @@ func RunCommand(ctx context.Context, opts CommandOptions) int {
 
 const migrationPostgresDSNEnv = "LIP_MIGRATION_POSTGRES_DSN"
 
-// runPostgresMigrate applies and verifies selected components. Tests may override.
 var runPostgresMigrate = dbmigrate.PostgresComponents
 
 func runMigrateCommand(ctx context.Context, opts CommandOptions) int {
@@ -172,10 +171,7 @@ func flagTakesValue(a string) bool {
 	}
 }
 
-// hasInlineFlagValue reports whether a is a flag-shaped token that has its value
-// embedded after an '=' separator (e.g. "--config=./x.yaml"). The leading '-'
-// guard prevents treating positional arguments that contain '=' (e.g.
-// "something=other") as flag-with-embedded-value tokens.
+// hasInlineFlagValue recognizes embedded values without misclassifying positionals.
 func hasInlineFlagValue(a string) bool {
 	return len(a) > 0 && a[0] == '-' && strings.Contains(a, "=")
 }
@@ -314,11 +310,6 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 	return 0
 }
 
-// runCheckConfigCommand performs one true unpublished dry-run validation
-// (design Dry-Run Validation; req 5.1-5.6). [runtimebundle.ValidateDistribution]
-// owns and closes every resource it acquires internally — no Manager,
-// generation ID, active pointer, listener, or retirement worker is ever
-// constructed, and no cleanup is left to this command.
 func runCheckConfigCommand(ctx context.Context, opts CommandOptions) int {
 	err := runtimebundle.ValidateDistribution(ctx, runtimebundle.ValidateDistributionInput{
 		ConfigPath:              opts.ConfigPath,

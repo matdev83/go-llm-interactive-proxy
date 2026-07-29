@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+"$repo_root/scripts/check-staged-secrets.sh"
+"$repo_root/scripts/check-release-clean.sh" --staged
+"$repo_root/scripts/quality-gate.sh"

@@ -1,0 +1,13 @@
+# Repository ownership and security-sensitive automation.
+* @matdev83
+/.github/ @matdev83
+/.goreleaser.yaml @matdev83
+/.release-files @matdev83
+/scripts/ @matdev83
+/connectors/ @matdev83
+/connector-support/ @matdev83
+/cmd/lipstd/ @matdev83
+/internal/core/ @matdev83
+/internal/stdhttp/ @matdev83
+/pkg/lipapi/ @matdev83
+/pkg/lipsdk/ @matdev83
