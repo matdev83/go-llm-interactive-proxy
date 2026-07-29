@@ -7,11 +7,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 )
 
 var version = "dev"
 
-func run(args []string, stdout, stderr io.Writer) int {
+func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 1 && (args[0] == "--version" || args[0] == "version") {
 		if _, err := fmt.Fprintf(stdout, "lipstd %s\n", version); err != nil {
 			_, _ = fmt.Fprintf(stderr, "lipstd: write version: %v\n", err)
@@ -28,7 +29,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	return RunCommand(context.Background(), CommandOptions{
+	return RunCommand(ctx, CommandOptions{
 		Name:           parsed.Name,
 		ConfigPath:     parsed.ConfigPath,
 		StreamRecovery: parsed.StreamRecovery,
@@ -40,5 +41,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	})
 }
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	ctx, stop := signal.NotifyContext(context.Background(), ShutdownSignals()...)
+	code := run(ctx, os.Args[1:], os.Stdout, os.Stderr)
+	stop()
+	os.Exit(code)
 }

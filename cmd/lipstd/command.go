@@ -92,7 +92,6 @@ func RunCommand(ctx context.Context, opts CommandOptions) int {
 
 const migrationPostgresDSNEnv = "LIP_MIGRATION_POSTGRES_DSN"
 
-// runPostgresMigrate applies and verifies selected components. Tests may override.
 var runPostgresMigrate = dbmigrate.PostgresComponents
 
 func runMigrateCommand(ctx context.Context, opts CommandOptions) int {
@@ -172,8 +171,7 @@ func flagTakesValue(a string) bool {
 	}
 }
 
-// hasInlineFlagValue recognizes embedded flag values without misclassifying
-// positional arguments that contain '='.
+// hasInlineFlagValue recognizes embedded values without misclassifying positionals.
 func hasInlineFlagValue(a string) bool {
 	return len(a) > 0 && a[0] == '-' && strings.Contains(a, "=")
 }
@@ -312,8 +310,6 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 	return 0
 }
 
-// runCheckConfigCommand delegates unpublished validation and resource cleanup to
-// runtimebundle.ValidateDistribution without constructing a published generation.
 func runCheckConfigCommand(ctx context.Context, opts CommandOptions) int {
 	err := runtimebundle.ValidateDistribution(ctx, runtimebundle.ValidateDistributionInput{
 		ConfigPath:              opts.ConfigPath,
