@@ -13,16 +13,18 @@ import (
 const FactoryKind = "agycliacp"
 
 type Config struct {
-	Executable        string   `yaml:"executable"`
-	Model             string   `yaml:"model"`
-	ExtraArgs         []string `yaml:"extra_args"`
-	DefaultWorkspace  string   `yaml:"default_workspace"`
-	IdleTimeoutS      float64  `yaml:"idle_timeout_seconds"`
-	StaleKillDelayS   float64  `yaml:"stale_kill_delay_seconds"`
-	WrapperExecutable string   `yaml:"wrapper_executable"`
-	AGYBinary         string   `yaml:"agy_binary"`
-	SkipPermissions   *bool    `yaml:"skip_permissions"`
-	TimeoutSeconds    int      `yaml:"timeout_seconds"`
+	Executable          string   `yaml:"executable"`
+	Model               string   `yaml:"model"`
+	ExtraArgs           []string `yaml:"extra_args"`
+	DefaultWorkspace    string   `yaml:"default_workspace"`
+	IdleTimeoutS        float64  `yaml:"idle_timeout_seconds"`
+	StaleKillDelayS     float64  `yaml:"stale_kill_delay_seconds"`
+	WrapperExecutable   string   `yaml:"wrapper_executable"`
+	WrapperAutoDownload *bool    `yaml:"wrapper_auto_download"`
+	WrapperCacheDir     string   `yaml:"wrapper_cache_dir"`
+	AGYBinary           string   `yaml:"agy_binary"`
+	SkipPermissions     *bool    `yaml:"skip_permissions"`
+	TimeoutSeconds      int      `yaml:"timeout_seconds"`
 }
 
 func ParseConfigYAML(raw []byte) (Config, error) {
@@ -41,9 +43,14 @@ func (c Config) toProduct() product.Config {
 			Executable: strings.TrimSpace(c.Executable), Model: strings.TrimSpace(c.Model),
 			ExtraArgs: c.ExtraArgs, DefaultWorkspace: strings.TrimSpace(c.DefaultWorkspace),
 		},
-		WrapperExecutable: strings.TrimSpace(c.WrapperExecutable),
-		AGYBinary:         strings.TrimSpace(c.AGYBinary),
-		TimeoutSeconds:    c.TimeoutSeconds,
+		WrapperExecutable:   strings.TrimSpace(c.WrapperExecutable),
+		WrapperAutoDownload: true,
+		WrapperCacheDir:     strings.TrimSpace(c.WrapperCacheDir),
+		AGYBinary:           strings.TrimSpace(c.AGYBinary),
+		TimeoutSeconds:      c.TimeoutSeconds,
+	}
+	if c.WrapperAutoDownload != nil {
+		pc.WrapperAutoDownload = *c.WrapperAutoDownload
 	}
 	if c.SkipPermissions != nil {
 		pc.SkipPermissions = *c.SkipPermissions

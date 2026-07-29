@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connector-support/acp"
+	"github.com/matdev83/go-llm-interactive-proxy/connectors/agycliacp/internal/product/wrapperinstall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )
@@ -24,8 +25,12 @@ const vendorPrefix = "agy"
 type Config struct {
 	acp.ConnectorConfig
 	// WrapperExecutable is the path to the go-agy-acp-wrapper binary.
-	// If empty, resolves from AGY_ACP_WRAPPER_BIN env or PATH.
+	// If empty, resolves from AGY_ACP_WRAPPER_BIN, PATH, or managed installation.
 	WrapperExecutable string
+	// WrapperAutoDownload installs the latest stable wrapper when local resolution fails.
+	WrapperAutoDownload bool
+	// WrapperCacheDir overrides the managed wrapper cache directory.
+	WrapperCacheDir string
 	// AGYBinary is an optional --agy-binary flag value pointing to the agy binary.
 	AGYBinary string
 	// SkipPermissions controls the --skip-permissions vs --no-skip-permissions flag.
@@ -181,6 +186,9 @@ func New(cfg Config) (*Engine, error) {
 		RequireExplicit: spec.RequiresExplicitWorkspace(),
 	}
 	exe, exeErr := resolveWrapper(cache, cfg.WrapperExecutable)
+	if exeErr != nil && cfg.WrapperAutoDownload {
+		exe, exeErr = wrapperinstall.Ensure(context.Background(), wrapperinstall.Options{CacheDir: cfg.WrapperCacheDir})
+	}
 	spec.exe = exe
 	inv := cfg.Inventory
 	if inv == nil {
