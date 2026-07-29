@@ -3,4 +3,5 @@ testdata/**/fuzz/** text eol=lf
 
 # Keep root ignore file LF-only so `git diff --check` stays clean on Windows checkouts.
 /.gitignore text eol=lf
+/.github/workflows/*.yml text eol=lf
 docs/dogfood-local.md whitespace=cr-at-eol

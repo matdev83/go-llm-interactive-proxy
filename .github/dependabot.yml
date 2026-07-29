@@ -1,25 +1,40 @@
 version: 2
 updates:
-  - package-ecosystem: "gomod"
-    directory: "/"
+  - package-ecosystem: gomod
+    directory: /
     schedule:
-      interval: "weekly"
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
     open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - security
     groups:
-      # Patch-only PRs: safest routine bumps (semver patch promise).
       go-patch:
         patterns:
           - "*"
         update-types:
-          - "patch"
-      # Minor bumps reviewed separately; can include behavior/API changes.
+          - patch
       go-minor:
         patterns:
           - "*"
         update-types:
-          - "minor"
-  - package-ecosystem: "github-actions"
-    directory: "/"
+          - minor
+
+  - package-ecosystem: github-actions
+    directory: /
     schedule:
-      interval: "weekly"
+      interval: weekly
+      day: monday
+      time: "06:30"
+      timezone: Etc/UTC
     open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - security
+    groups:
+      github-actions:
+        patterns:
+          - "*"

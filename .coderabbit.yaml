@@ -41,6 +41,7 @@ reviews:
     - "!package-lock.json"
     - "!pnpm-lock.yaml"
     - "!yarn.lock"
+    - "!EchoesVault/**"
 
   path_instructions:
     - path: "**/*.go"
@@ -91,8 +92,35 @@ reviews:
     - path: ".github/workflows/**"
       instructions: >
         Review CI changes for Go version consistency, caching correctness,
-        reproducibility, permissions minimization, race detector usage where
+        reproducibility, permissions minimization, SHA-pinned actions,
+        persist-credentials: false on checkout, race detector usage where
         appropriate, and whether tests/linting actually run on pull requests.
+
+    - path: ".goreleaser.yaml"
+      instructions: >
+        Review release configuration for least-privilege artifact contents,
+        correct binary targets, ldflags/version injection, and exclusion of
+        dev-only commands.
+
+    - path: ".release-files"
+      instructions: >
+        Treat as a security boundary: every new tracked path must be explicitly
+        listed; flag unexpected additions or removals.
+
+    - path: "connectors/**"
+      instructions: >
+        Review connector process execution, IPC boundaries, manifest validation,
+        and credential handling. Flag unsafe command invocation or trust bypasses.
+
+    - path: "connector-support/**"
+      instructions: >
+        Review shared connector support for secure defaults in process management,
+        TLS, and credential propagation.
+
+    - path: "internal/stdhttp/auth/**"
+      instructions: >
+        Review authentication middleware, credential matching, and error rendering
+        for bypass risks and information leakage.
 
     - path: "Dockerfile"
       instructions: >
