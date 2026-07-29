@@ -1,7 +1,11 @@
 name: CI
 
 on:
+  # Feature branches are validated by their pull request. Restricting push
+  # avoids running the same commit twice after a PR has been opened.
   push:
+    branches:
+      - main
   pull_request:
 
 permissions:
