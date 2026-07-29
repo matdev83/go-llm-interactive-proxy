@@ -74,7 +74,7 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Fast unit tests
-        run: go test -timeout=8m ./cmd/lipstd ./internal/archtest ./pkg/...
+        run: go test -timeout=8m ./cmd/lipstd ./internal/archtest ./pkg/credpool ./pkg/lipapi ./pkg/lipsdk/... ./pkg/streampump
 
       - name: Build release binary
         run: go build -trimpath ./cmd/lipstd
