@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -298,9 +297,7 @@ func enumerateLiveCoreImports(t *testing.T) liveCoreImportSet {
 		Transitive: map[string]bool{},
 	}
 
-	cmd := exec.Command("go", "list", "-test=false", "-json", "./internal/core/...")
-	cmd.Dir = repoRoot(t)
-	directOut, err := cmd.Output()
+	directOut, err := cachedGoList(t, "-test=false", "-json", "./internal/core/...")
 	if err != nil {
 		t.Fatalf("go list direct core imports: %v", err)
 	}
@@ -315,9 +312,7 @@ func enumerateLiveCoreImports(t *testing.T) liveCoreImportSet {
 		}
 	}
 
-	cmd = exec.Command("go", "list", "-deps", "-test=false", "-json", "./internal/core/...")
-	cmd.Dir = repoRoot(t)
-	depsOut, err := cmd.Output()
+	depsOut, err := cachedGoList(t, "-deps", "-test=false", "-json", "./internal/core/...")
 	if err != nil {
 		t.Fatalf("go list transitive core deps: %v", err)
 	}

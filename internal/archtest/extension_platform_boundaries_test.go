@@ -3,7 +3,6 @@ package archtest
 import (
 	"bytes"
 	"encoding/json"
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -171,9 +170,7 @@ func TestInternalCoreDoesNotDependOnStdhttpOrProtocolPlugins(t *testing.T) {
 // on net/http directly. Subpackages of internal/core/runtime are the same [runtime] module package.
 func TestInternalCoreRuntimeDoesNotImportNetHTTP(t *testing.T) {
 	t.Parallel()
-	cmd := exec.Command("go", "list", "-json", "-test=false", "./internal/core/runtime")
-	cmd.Dir = repoRoot(t)
-	out, err := cmd.Output()
+	out, err := cachedGoList(t, "-json", "-test=false", "./internal/core/runtime")
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}
@@ -202,10 +199,8 @@ func TestInternalCoreRuntimeDoesNotImportNetHTTP(t *testing.T) {
 
 func assertDepsExcludeForbidden(t *testing.T, patterns []string, rules []forbiddenDep) {
 	t.Helper()
-	args := append([]string{"list", "-deps", "-test=false", "-json"}, patterns...)
-	cmd := exec.Command("go", args...)
-	cmd.Dir = repoRoot(t)
-	out, err := cmd.Output()
+	args := append([]string{"-deps", "-test=false", "-json"}, patterns...)
+	out, err := cachedGoList(t, args...)
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}

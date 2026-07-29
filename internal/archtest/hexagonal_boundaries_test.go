@@ -3,7 +3,6 @@ package archtest
 import (
 	"bytes"
 	"encoding/json"
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -55,9 +54,7 @@ func TestStdHTTPProductionExcludesConcreteFrontends(t *testing.T) {
 // production imports (Imports field, not Deps) containing substr.
 func assertDirectImportsExclude(t *testing.T, pattern, substr, errMsg string) {
 	t.Helper()
-	cmd := exec.Command("go", "list", "-test=false", "-json", pattern)
-	cmd.Dir = repoRoot(t)
-	out, err := cmd.Output()
+	out, err := cachedGoList(t, "-test=false", "-json", pattern)
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}
@@ -80,9 +77,7 @@ func assertDirectImportsExclude(t *testing.T, pattern, substr, errMsg string) {
 // recursive pattern can cover a whole tree while exempting the intended consumer.
 func assertDirectImportsExcludeExcept(t *testing.T, pattern, substr, exemptSubstr, errMsg string) {
 	t.Helper()
-	cmd := exec.Command("go", "list", "-test=false", "-json", pattern)
-	cmd.Dir = repoRoot(t)
-	out, err := cmd.Output()
+	out, err := cachedGoList(t, "-test=false", "-json", pattern)
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}

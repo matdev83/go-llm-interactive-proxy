@@ -3,7 +3,6 @@ package archtest
 import (
 	"bytes"
 	"encoding/json"
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -69,10 +68,8 @@ func TestInternalCoreConfigDoesNotTransitivelyImportBun(t *testing.T) {
 
 func assertTransitiveDepsExcludeBun(t *testing.T, patterns []string) {
 	t.Helper()
-	args := append([]string{"list", "-deps", "-test=false", "-json"}, patterns...)
-	cmd := exec.Command("go", args...)
-	cmd.Dir = repoRoot(t)
-	out, err := cmd.Output()
+	args := append([]string{"-deps", "-test=false", "-json"}, patterns...)
+	out, err := cachedGoList(t, args...)
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}
@@ -93,10 +90,8 @@ func assertTransitiveDepsExcludeBun(t *testing.T, patterns []string) {
 
 func assertDirectImportsExcludeBunFamily(t *testing.T, patterns []string) {
 	t.Helper()
-	args := append([]string{"list", "-json", "-test=false"}, patterns...)
-	cmd := exec.Command("go", args...)
-	cmd.Dir = repoRoot(t)
-	out, err := cmd.Output()
+	args := append([]string{"-json", "-test=false"}, patterns...)
+	out, err := cachedGoList(t, args...)
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}
@@ -121,9 +116,7 @@ func assertDirectImportsExcludeBunFamily(t *testing.T, patterns []string) {
 // directly from internal/core.
 func TestInternalCoreBunDirectImportsAreAllowlisted(t *testing.T) {
 	t.Parallel()
-	cmd := exec.Command("go", "list", "-json", "-test=false", "./internal/core/...")
-	cmd.Dir = repoRoot(t)
-	out, err := cmd.Output()
+	out, err := cachedGoList(t, "-json", "-test=false", "./internal/core/...")
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}
@@ -151,9 +144,7 @@ func TestInternalCoreBunDirectImportsAreAllowlisted(t *testing.T) {
 // composition roots, not in config or unrelated core packages.
 func TestInternalCoreInfraDBDirectImportsAreAllowlisted(t *testing.T) {
 	t.Parallel()
-	cmd := exec.Command("go", "list", "-json", "-test=false", "./internal/core/...")
-	cmd.Dir = repoRoot(t)
-	out, err := cmd.Output()
+	out, err := cachedGoList(t, "-json", "-test=false", "./internal/core/...")
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}
@@ -181,9 +172,7 @@ func TestInternalCoreInfraDBDirectImportsAreAllowlisted(t *testing.T) {
 // infrastructure for pool typing.
 func TestInternalCoreConfigDoesNotImportInfraDBDirectly(t *testing.T) {
 	t.Parallel()
-	cmd := exec.Command("go", "list", "-json", "-test=false", "./internal/core/config")
-	cmd.Dir = repoRoot(t)
-	out, err := cmd.Output()
+	out, err := cachedGoList(t, "-json", "-test=false", "./internal/core/config")
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}
@@ -209,9 +198,7 @@ func TestInternalCoreConfigDoesNotImportInfraDBDirectly(t *testing.T) {
 // factory wires Bun only through bunstore, not by importing ORM symbols at the factory package.
 func TestContinuityFactoryDoesNotImportBunDirectly(t *testing.T) {
 	t.Parallel()
-	cmd := exec.Command("go", "list", "-json", "-test=false", "./internal/core/continuity")
-	cmd.Dir = repoRoot(t)
-	out, err := cmd.Output()
+	out, err := cachedGoList(t, "-json", "-test=false", "./internal/core/continuity")
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}
