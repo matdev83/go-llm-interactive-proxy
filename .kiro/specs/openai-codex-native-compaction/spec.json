@@ -1,0 +1,23 @@
+{
+  "feature_name": "openai-codex-native-compaction",
+  "created_at": "2026-07-30T18:28:00+02:00",
+  "updated_at": "2026-07-30T18:28:00+02:00",
+  "language": "en",
+  "phase": "tasks-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": false
+    },
+    "design": {
+      "generated": true,
+      "approved": false
+    },
+    "tasks": {
+      "generated": true,
+      "approved": false
+    }
+  },
+  "ready_for_implementation": false,
+  "project_description": "Add opt-in, connector-private native context compaction to the direct openai-codex backend by preserving opaque OpenAI Responses reasoning and compaction items, creating account- and model-bound in-memory checkpoints, rewriting exact matching history prefixes, and integrating safely with existing prompt caching, WebSocket continuation, managed OAuth rotation, accounting, and streaming invariants. The feature is disabled by default and controlled through typed connector configuration."
+}
