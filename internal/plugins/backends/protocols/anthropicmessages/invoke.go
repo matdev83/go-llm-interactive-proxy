@@ -123,11 +123,16 @@ func thinkingRequestOptions(effort string, enabled bool) []option.RequestOption 
 	if !enabled || strings.TrimSpace(effort) == "" {
 		return nil
 	}
-	thinkingType := "enabled"
-	if strings.EqualFold(strings.TrimSpace(effort), "none") {
-		thinkingType = "disabled"
+	thinkingType := "disabled"
+	if reasoningEffortEnablesThinking(effort) {
+		thinkingType = "enabled"
 	}
 	return []option.RequestOption{option.WithJSONSet("thinking", map[string]string{"type": thinkingType})}
+}
+
+func reasoningEffortEnablesThinking(effort string) bool {
+	effort = strings.TrimSpace(effort)
+	return effort != "" && !strings.EqualFold(effort, "none")
 }
 
 func buildSystemBlocks(call *lipapi.Call) []anthropic.TextBlockParam {

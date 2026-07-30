@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -56,8 +57,12 @@ func NewBackend(cfg Config) execbackend.Backend {
 	if rateLimitFallback <= 0 {
 		rateLimitFallback = defaultRateLimitFallback
 	}
+	backendCaps := defaultBackendCaps()
+	if cfg.ThinkingFromEffort {
+		backendCaps[lipapi.CapabilityReasoning] = struct{}{}
+	}
 	return execbackend.Backend{
-		Caps:                                 defaultBackendCaps(),
+		Caps:                                 backendCaps,
 		ReplaySupport:                        ReplaySupport(),
 		BackendPrefixes:                      []string{id},
 		EnforcesMaxOutputTokens:              true,
@@ -65,7 +70,11 @@ func NewBackend(cfg Config) execbackend.Backend {
 		ProviderCounter:                      cfg.ProviderCounter,
 		ModelInventory:                       cfg.ModelInventory,
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
-			return ModelCapabilities(resolveModel(cand, call))
+			caps := ModelCapabilities(resolveModel(cand, call))
+			if cfg.ThinkingFromEffort {
+				caps[lipapi.CapabilityReasoning] = struct{}{}
+			}
+			return caps
 		},
 		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			if ctx == nil {
@@ -92,6 +101,9 @@ func NewBackend(cfg Config) execbackend.Backend {
 				}
 				cli := newSDKClientForSecret(cfg, cred.Secret)
 				requestOpts := thinkingRequestOptions(call.Options.ReasoningEffort, cfg.ThinkingFromEffort)
+				if cfg.ThinkingFromEffort && reasoningEffortEnablesThinking(call.Options.ReasoningEffort) {
+					requestOpts = append(requestOpts, option.WithHeader("anthropic-beta", "interleaved-thinking-2025-05-14"))
+				}
 				stream := cli.Messages.NewStreaming(ctx, p, requestOpts...)
 				es := newMessageStream(stream, id, call.MaxPendingWireEvents)
 				ev, rerr := es.Recv(ctx)
