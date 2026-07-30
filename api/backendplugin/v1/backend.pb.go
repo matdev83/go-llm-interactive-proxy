@@ -562,6 +562,7 @@ const (
 	EventKind_EVENT_KIND_RESPONSE_FINISHED         EventKind = 13
 	EventKind_EVENT_KIND_ASSISTANT_IMAGE_REF       EventKind = 14
 	EventKind_EVENT_KIND_ASSISTANT_FILE_REF        EventKind = 15
+	EventKind_EVENT_KIND_REASONING_PART            EventKind = 16
 )
 
 // Enum value maps for EventKind.
@@ -583,6 +584,7 @@ var (
 		13: "EVENT_KIND_RESPONSE_FINISHED",
 		14: "EVENT_KIND_ASSISTANT_IMAGE_REF",
 		15: "EVENT_KIND_ASSISTANT_FILE_REF",
+		16: "EVENT_KIND_REASONING_PART",
 	}
 	EventKind_value = map[string]int32{
 		"EVENT_KIND_UNSPECIFIED":               0,
@@ -601,6 +603,7 @@ var (
 		"EVENT_KIND_RESPONSE_FINISHED":         13,
 		"EVENT_KIND_ASSISTANT_IMAGE_REF":       14,
 		"EVENT_KIND_ASSISTANT_FILE_REF":        15,
+		"EVENT_KIND_REASONING_PART":            16,
 	}
 )
 
@@ -2908,17 +2911,19 @@ func (x *Message) GetParts() []*Part {
 }
 
 type Part struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Kind          PartKind               `protobuf:"varint,1,opt,name=kind,proto3,enum=golip.backendplugin.v1.PartKind" json:"kind,omitempty"`
-	Text          *string                `protobuf:"bytes,2,opt,name=text,proto3,oneof" json:"text,omitempty"`
-	ImageRef      *string                `protobuf:"bytes,3,opt,name=image_ref,json=imageRef,proto3,oneof" json:"image_ref,omitempty"`
-	FileRef       *string                `protobuf:"bytes,4,opt,name=file_ref,json=fileRef,proto3,oneof" json:"file_ref,omitempty"`
-	ReasoningText *string                `protobuf:"bytes,5,opt,name=reasoning_text,json=reasoningText,proto3,oneof" json:"reasoning_text,omitempty"`
-	ToolArgsJson  *RawJSONValue          `protobuf:"bytes,6,opt,name=tool_args_json,json=toolArgsJson,proto3" json:"tool_args_json,omitempty"`
-	ToolCallId    *string                `protobuf:"bytes,7,opt,name=tool_call_id,json=toolCallId,proto3,oneof" json:"tool_call_id,omitempty"`
-	ToolName      *string                `protobuf:"bytes,8,opt,name=tool_name,json=toolName,proto3,oneof" json:"tool_name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Kind             PartKind               `protobuf:"varint,1,opt,name=kind,proto3,enum=golip.backendplugin.v1.PartKind" json:"kind,omitempty"`
+	Text             *string                `protobuf:"bytes,2,opt,name=text,proto3,oneof" json:"text,omitempty"`
+	ImageRef         *string                `protobuf:"bytes,3,opt,name=image_ref,json=imageRef,proto3,oneof" json:"image_ref,omitempty"`
+	FileRef          *string                `protobuf:"bytes,4,opt,name=file_ref,json=fileRef,proto3,oneof" json:"file_ref,omitempty"`
+	ReasoningText    *string                `protobuf:"bytes,5,opt,name=reasoning_text,json=reasoningText,proto3,oneof" json:"reasoning_text,omitempty"`
+	ToolArgsJson     *RawJSONValue          `protobuf:"bytes,6,opt,name=tool_args_json,json=toolArgsJson,proto3" json:"tool_args_json,omitempty"`
+	ToolCallId       *string                `protobuf:"bytes,7,opt,name=tool_call_id,json=toolCallId,proto3,oneof" json:"tool_call_id,omitempty"`
+	ToolName         *string                `protobuf:"bytes,8,opt,name=tool_name,json=toolName,proto3,oneof" json:"tool_name,omitempty"`
+	ReasoningDialect *string                `protobuf:"bytes,9,opt,name=reasoning_dialect,json=reasoningDialect,proto3,oneof" json:"reasoning_dialect,omitempty"`
+	ReasoningOpaque  *RawJSONValue          `protobuf:"bytes,10,opt,name=reasoning_opaque,json=reasoningOpaque,proto3" json:"reasoning_opaque,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Part) Reset() {
@@ -3005,6 +3010,20 @@ func (x *Part) GetToolName() string {
 		return *x.ToolName
 	}
 	return ""
+}
+
+func (x *Part) GetReasoningDialect() string {
+	if x != nil && x.ReasoningDialect != nil {
+		return *x.ReasoningDialect
+	}
+	return ""
+}
+
+func (x *Part) GetReasoningOpaque() *RawJSONValue {
+	if x != nil {
+		return x.ReasoningOpaque
+	}
+	return nil
 }
 
 type ToolDef struct {
@@ -3236,21 +3255,23 @@ func (x *ExecuteClientFrame) GetCancelDeadlineUnixMs() int64 {
 }
 
 type CanonicalEvent struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Kind          EventKind              `protobuf:"varint,1,opt,name=kind,proto3,enum=golip.backendplugin.v1.EventKind" json:"kind,omitempty"`
-	MessageIndex  *int32                 `protobuf:"varint,2,opt,name=message_index,json=messageIndex,proto3,oneof" json:"message_index,omitempty"`
-	Delta         *string                `protobuf:"bytes,3,opt,name=delta,proto3,oneof" json:"delta,omitempty"`
-	Signature     *string                `protobuf:"bytes,4,opt,name=signature,proto3,oneof" json:"signature,omitempty"`
-	Opaque        []byte                 `protobuf:"bytes,5,opt,name=opaque,proto3" json:"opaque,omitempty"`
-	ToolCallId    *string                `protobuf:"bytes,6,opt,name=tool_call_id,json=toolCallId,proto3,oneof" json:"tool_call_id,omitempty"`
-	ToolName      *string                `protobuf:"bytes,7,opt,name=tool_name,json=toolName,proto3,oneof" json:"tool_name,omitempty"`
-	Usage         *UsageEvidence         `protobuf:"bytes,8,opt,name=usage,proto3" json:"usage,omitempty"`
-	Warning       *string                `protobuf:"bytes,9,opt,name=warning,proto3,oneof" json:"warning,omitempty"`
-	Error         *PluginError           `protobuf:"bytes,10,opt,name=error,proto3" json:"error,omitempty"`
-	ImageRef      *string                `protobuf:"bytes,11,opt,name=image_ref,json=imageRef,proto3,oneof" json:"image_ref,omitempty"`
-	FileRef       *string                `protobuf:"bytes,12,opt,name=file_ref,json=fileRef,proto3,oneof" json:"file_ref,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Kind             EventKind              `protobuf:"varint,1,opt,name=kind,proto3,enum=golip.backendplugin.v1.EventKind" json:"kind,omitempty"`
+	MessageIndex     *int32                 `protobuf:"varint,2,opt,name=message_index,json=messageIndex,proto3,oneof" json:"message_index,omitempty"`
+	Delta            *string                `protobuf:"bytes,3,opt,name=delta,proto3,oneof" json:"delta,omitempty"`
+	Signature        *string                `protobuf:"bytes,4,opt,name=signature,proto3,oneof" json:"signature,omitempty"`
+	Opaque           []byte                 `protobuf:"bytes,5,opt,name=opaque,proto3" json:"opaque,omitempty"`
+	ToolCallId       *string                `protobuf:"bytes,6,opt,name=tool_call_id,json=toolCallId,proto3,oneof" json:"tool_call_id,omitempty"`
+	ToolName         *string                `protobuf:"bytes,7,opt,name=tool_name,json=toolName,proto3,oneof" json:"tool_name,omitempty"`
+	Usage            *UsageEvidence         `protobuf:"bytes,8,opt,name=usage,proto3" json:"usage,omitempty"`
+	Warning          *string                `protobuf:"bytes,9,opt,name=warning,proto3,oneof" json:"warning,omitempty"`
+	Error            *PluginError           `protobuf:"bytes,10,opt,name=error,proto3" json:"error,omitempty"`
+	ImageRef         *string                `protobuf:"bytes,11,opt,name=image_ref,json=imageRef,proto3,oneof" json:"image_ref,omitempty"`
+	FileRef          *string                `protobuf:"bytes,12,opt,name=file_ref,json=fileRef,proto3,oneof" json:"file_ref,omitempty"`
+	ReasoningDialect *string                `protobuf:"bytes,13,opt,name=reasoning_dialect,json=reasoningDialect,proto3,oneof" json:"reasoning_dialect,omitempty"`
+	ReasoningOpaque  []byte                 `protobuf:"bytes,14,opt,name=reasoning_opaque,json=reasoningOpaque,proto3" json:"reasoning_opaque,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *CanonicalEvent) Reset() {
@@ -3365,6 +3386,20 @@ func (x *CanonicalEvent) GetFileRef() string {
 		return *x.FileRef
 	}
 	return ""
+}
+
+func (x *CanonicalEvent) GetReasoningDialect() string {
+	if x != nil && x.ReasoningDialect != nil {
+		return *x.ReasoningDialect
+	}
+	return ""
+}
+
+func (x *CanonicalEvent) GetReasoningOpaque() []byte {
+	if x != nil {
+		return x.ReasoningOpaque
+	}
+	return nil
 }
 
 type Terminal struct {
@@ -4027,7 +4062,7 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\f_tool_choice\"o\n" +
 	"\aMessage\x120\n" +
 	"\x04role\x18\x01 \x01(\x0e2\x1c.golip.backendplugin.v1.RoleR\x04role\x122\n" +
-	"\x05parts\x18\x02 \x03(\v2\x1c.golip.backendplugin.v1.PartR\x05parts\"\xae\x03\n" +
+	"\x05parts\x18\x02 \x03(\v2\x1c.golip.backendplugin.v1.PartR\x05parts\"\xc7\x04\n" +
 	"\x04Part\x124\n" +
 	"\x04kind\x18\x01 \x01(\x0e2 .golip.backendplugin.v1.PartKindR\x04kind\x12\x17\n" +
 	"\x04text\x18\x02 \x01(\tH\x00R\x04text\x88\x01\x01\x12 \n" +
@@ -4037,7 +4072,10 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\x0etool_args_json\x18\x06 \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\ftoolArgsJson\x12%\n" +
 	"\ftool_call_id\x18\a \x01(\tH\x04R\n" +
 	"toolCallId\x88\x01\x01\x12 \n" +
-	"\ttool_name\x18\b \x01(\tH\x05R\btoolName\x88\x01\x01B\a\n" +
+	"\ttool_name\x18\b \x01(\tH\x05R\btoolName\x88\x01\x01\x120\n" +
+	"\x11reasoning_dialect\x18\t \x01(\tH\x06R\x10reasoningDialect\x88\x01\x01\x12O\n" +
+	"\x10reasoning_opaque\x18\n" +
+	" \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\x0freasoningOpaqueB\a\n" +
 	"\x05_textB\f\n" +
 	"\n" +
 	"_image_refB\v\n" +
@@ -4045,7 +4083,8 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\x0f_reasoning_textB\x0f\n" +
 	"\r_tool_call_idB\f\n" +
 	"\n" +
-	"_tool_name\"\x8e\x01\n" +
+	"_tool_nameB\x14\n" +
+	"\x12_reasoning_dialect\"\x8e\x01\n" +
 	"\aToolDef\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12M\n" +
@@ -4071,7 +4110,7 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"invocation\x18\x04 \x01(\v2\".golip.backendplugin.v1.InvocationR\n" +
 	"invocation\x12I\n" +
 	"\rcancel_reason\x18\x05 \x01(\x0e2$.golip.backendplugin.v1.CancelReasonR\fcancelReason\x125\n" +
-	"\x17cancel_deadline_unix_ms\x18\x06 \x01(\x03R\x14cancelDeadlineUnixMs\"\xd9\x04\n" +
+	"\x17cancel_deadline_unix_ms\x18\x06 \x01(\x03R\x14cancelDeadlineUnixMs\"\xcc\x05\n" +
 	"\x0eCanonicalEvent\x125\n" +
 	"\x04kind\x18\x01 \x01(\x0e2!.golip.backendplugin.v1.EventKindR\x04kind\x12(\n" +
 	"\rmessage_index\x18\x02 \x01(\x05H\x00R\fmessageIndex\x88\x01\x01\x12\x19\n" +
@@ -4086,7 +4125,9 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\x05error\x18\n" +
 	" \x01(\v2#.golip.backendplugin.v1.PluginErrorR\x05error\x12 \n" +
 	"\timage_ref\x18\v \x01(\tH\x06R\bimageRef\x88\x01\x01\x12\x1e\n" +
-	"\bfile_ref\x18\f \x01(\tH\aR\afileRef\x88\x01\x01B\x10\n" +
+	"\bfile_ref\x18\f \x01(\tH\aR\afileRef\x88\x01\x01\x120\n" +
+	"\x11reasoning_dialect\x18\r \x01(\tH\bR\x10reasoningDialect\x88\x01\x01\x12)\n" +
+	"\x10reasoning_opaque\x18\x0e \x01(\fR\x0freasoningOpaqueB\x10\n" +
 	"\x0e_message_indexB\b\n" +
 	"\x06_deltaB\f\n" +
 	"\n" +
@@ -4098,7 +4139,8 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\b_warningB\f\n" +
 	"\n" +
 	"_image_refB\v\n" +
-	"\t_file_ref\"\x85\x01\n" +
+	"\t_file_refB\x14\n" +
+	"\x12_reasoning_dialect\"\x85\x01\n" +
 	"\bTerminal\x12>\n" +
 	"\x06status\x18\x01 \x01(\x0e2&.golip.backendplugin.v1.TerminalStatusR\x06status\x129\n" +
 	"\x05error\x18\x02 \x01(\v2#.golip.backendplugin.v1.PluginErrorR\x05error\"\x89\x01\n" +
@@ -4191,7 +4233,7 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\x17SERVER_FRAME_KIND_EVENT\x10\x02\x12 \n" +
 	"\x1cSERVER_FRAME_KIND_DIAGNOSTIC\x10\x03\x12$\n" +
 	" SERVER_FRAME_KIND_CANCEL_OUTCOME\x10\x04\x12\x1e\n" +
-	"\x1aSERVER_FRAME_KIND_TERMINAL\x10\x05*\x91\x04\n" +
+	"\x1aSERVER_FRAME_KIND_TERMINAL\x10\x05*\xb0\x04\n" +
 	"\tEventKind\x12\x1a\n" +
 	"\x16EVENT_KIND_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bEVENT_KIND_RESPONSE_STARTED\x10\x01\x12\x1e\n" +
@@ -4209,7 +4251,8 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\x10EVENT_KIND_ERROR\x10\f\x12 \n" +
 	"\x1cEVENT_KIND_RESPONSE_FINISHED\x10\r\x12\"\n" +
 	"\x1eEVENT_KIND_ASSISTANT_IMAGE_REF\x10\x0e\x12!\n" +
-	"\x1dEVENT_KIND_ASSISTANT_FILE_REF\x10\x0f*\x8a\x01\n" +
+	"\x1dEVENT_KIND_ASSISTANT_FILE_REF\x10\x0f\x12\x1d\n" +
+	"\x19EVENT_KIND_REASONING_PART\x10\x10*\x8a\x01\n" +
 	"\x0eTerminalStatus\x12\x1f\n" +
 	"\x1bTERMINAL_STATUS_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17TERMINAL_STATUS_SUCCESS\x10\x01\x12\x1b\n" +
@@ -4334,49 +4377,50 @@ var file_backendplugin_v1_backend_proto_depIdxs = []int32{
 	41, // 29: golip.backendplugin.v1.Message.parts:type_name -> golip.backendplugin.v1.Part
 	4,  // 30: golip.backendplugin.v1.Part.kind:type_name -> golip.backendplugin.v1.PartKind
 	38, // 31: golip.backendplugin.v1.Part.tool_args_json:type_name -> golip.backendplugin.v1.RawJSONValue
-	38, // 32: golip.backendplugin.v1.ToolDef.parameters_json:type_name -> golip.backendplugin.v1.RawJSONValue
-	38, // 33: golip.backendplugin.v1.GenerationOptions.response_schema_json:type_name -> golip.backendplugin.v1.RawJSONValue
-	7,  // 34: golip.backendplugin.v1.ExecuteClientFrame.kind:type_name -> golip.backendplugin.v1.ClientFrameKind
-	39, // 35: golip.backendplugin.v1.ExecuteClientFrame.invocation:type_name -> golip.backendplugin.v1.Invocation
-	6,  // 36: golip.backendplugin.v1.ExecuteClientFrame.cancel_reason:type_name -> golip.backendplugin.v1.CancelReason
-	9,  // 37: golip.backendplugin.v1.CanonicalEvent.kind:type_name -> golip.backendplugin.v1.EventKind
-	37, // 38: golip.backendplugin.v1.CanonicalEvent.usage:type_name -> golip.backendplugin.v1.UsageEvidence
-	49, // 39: golip.backendplugin.v1.CanonicalEvent.error:type_name -> golip.backendplugin.v1.PluginError
-	10, // 40: golip.backendplugin.v1.Terminal.status:type_name -> golip.backendplugin.v1.TerminalStatus
-	49, // 41: golip.backendplugin.v1.Terminal.error:type_name -> golip.backendplugin.v1.PluginError
-	6,  // 42: golip.backendplugin.v1.CancelOutcome.reason:type_name -> golip.backendplugin.v1.CancelReason
-	8,  // 43: golip.backendplugin.v1.ExecuteServerFrame.kind:type_name -> golip.backendplugin.v1.ServerFrameKind
-	45, // 44: golip.backendplugin.v1.ExecuteServerFrame.event:type_name -> golip.backendplugin.v1.CanonicalEvent
-	47, // 45: golip.backendplugin.v1.ExecuteServerFrame.cancel_outcome:type_name -> golip.backendplugin.v1.CancelOutcome
-	46, // 46: golip.backendplugin.v1.ExecuteServerFrame.terminal:type_name -> golip.backendplugin.v1.Terminal
-	5,  // 47: golip.backendplugin.v1.PluginError.code:type_name -> golip.backendplugin.v1.ErrorCode
-	12, // 48: golip.backendplugin.v1.BackendPlugin.Negotiate:input_type -> golip.backendplugin.v1.NegotiateRequest
-	14, // 49: golip.backendplugin.v1.BackendPlugin.Describe:input_type -> golip.backendplugin.v1.DescribeRequest
-	22, // 50: golip.backendplugin.v1.BackendPlugin.Configure:input_type -> golip.backendplugin.v1.ConfigureRequest
-	24, // 51: golip.backendplugin.v1.BackendPlugin.CloseInstance:input_type -> golip.backendplugin.v1.CloseInstanceRequest
-	26, // 52: golip.backendplugin.v1.BackendPlugin.ResolveProfile:input_type -> golip.backendplugin.v1.ResolveProfileRequest
-	29, // 53: golip.backendplugin.v1.BackendPlugin.ListModels:input_type -> golip.backendplugin.v1.ListModelsRequest
-	32, // 54: golip.backendplugin.v1.BackendPlugin.CountTokens:input_type -> golip.backendplugin.v1.CountTokensRequest
-	34, // 55: golip.backendplugin.v1.BackendPlugin.FinalizeBilling:input_type -> golip.backendplugin.v1.FinalizeBillingRequest
-	44, // 56: golip.backendplugin.v1.BackendPlugin.Execute:input_type -> golip.backendplugin.v1.ExecuteClientFrame
-	50, // 57: golip.backendplugin.v1.BackendPlugin.Health:input_type -> golip.backendplugin.v1.HealthRequest
-	52, // 58: golip.backendplugin.v1.BackendPlugin.GracefulShutdown:input_type -> golip.backendplugin.v1.GracefulShutdownRequest
-	13, // 59: golip.backendplugin.v1.BackendPlugin.Negotiate:output_type -> golip.backendplugin.v1.NegotiateResponse
-	15, // 60: golip.backendplugin.v1.BackendPlugin.Describe:output_type -> golip.backendplugin.v1.DescribeResponse
-	23, // 61: golip.backendplugin.v1.BackendPlugin.Configure:output_type -> golip.backendplugin.v1.ConfigureResponse
-	25, // 62: golip.backendplugin.v1.BackendPlugin.CloseInstance:output_type -> golip.backendplugin.v1.CloseInstanceResponse
-	27, // 63: golip.backendplugin.v1.BackendPlugin.ResolveProfile:output_type -> golip.backendplugin.v1.ResolveProfileResponse
-	30, // 64: golip.backendplugin.v1.BackendPlugin.ListModels:output_type -> golip.backendplugin.v1.ListModelsResponse
-	33, // 65: golip.backendplugin.v1.BackendPlugin.CountTokens:output_type -> golip.backendplugin.v1.CountTokensResponse
-	35, // 66: golip.backendplugin.v1.BackendPlugin.FinalizeBilling:output_type -> golip.backendplugin.v1.FinalizeBillingResponse
-	48, // 67: golip.backendplugin.v1.BackendPlugin.Execute:output_type -> golip.backendplugin.v1.ExecuteServerFrame
-	51, // 68: golip.backendplugin.v1.BackendPlugin.Health:output_type -> golip.backendplugin.v1.HealthResponse
-	53, // 69: golip.backendplugin.v1.BackendPlugin.GracefulShutdown:output_type -> golip.backendplugin.v1.GracefulShutdownResponse
-	59, // [59:70] is the sub-list for method output_type
-	48, // [48:59] is the sub-list for method input_type
-	48, // [48:48] is the sub-list for extension type_name
-	48, // [48:48] is the sub-list for extension extendee
-	0,  // [0:48] is the sub-list for field type_name
+	38, // 32: golip.backendplugin.v1.Part.reasoning_opaque:type_name -> golip.backendplugin.v1.RawJSONValue
+	38, // 33: golip.backendplugin.v1.ToolDef.parameters_json:type_name -> golip.backendplugin.v1.RawJSONValue
+	38, // 34: golip.backendplugin.v1.GenerationOptions.response_schema_json:type_name -> golip.backendplugin.v1.RawJSONValue
+	7,  // 35: golip.backendplugin.v1.ExecuteClientFrame.kind:type_name -> golip.backendplugin.v1.ClientFrameKind
+	39, // 36: golip.backendplugin.v1.ExecuteClientFrame.invocation:type_name -> golip.backendplugin.v1.Invocation
+	6,  // 37: golip.backendplugin.v1.ExecuteClientFrame.cancel_reason:type_name -> golip.backendplugin.v1.CancelReason
+	9,  // 38: golip.backendplugin.v1.CanonicalEvent.kind:type_name -> golip.backendplugin.v1.EventKind
+	37, // 39: golip.backendplugin.v1.CanonicalEvent.usage:type_name -> golip.backendplugin.v1.UsageEvidence
+	49, // 40: golip.backendplugin.v1.CanonicalEvent.error:type_name -> golip.backendplugin.v1.PluginError
+	10, // 41: golip.backendplugin.v1.Terminal.status:type_name -> golip.backendplugin.v1.TerminalStatus
+	49, // 42: golip.backendplugin.v1.Terminal.error:type_name -> golip.backendplugin.v1.PluginError
+	6,  // 43: golip.backendplugin.v1.CancelOutcome.reason:type_name -> golip.backendplugin.v1.CancelReason
+	8,  // 44: golip.backendplugin.v1.ExecuteServerFrame.kind:type_name -> golip.backendplugin.v1.ServerFrameKind
+	45, // 45: golip.backendplugin.v1.ExecuteServerFrame.event:type_name -> golip.backendplugin.v1.CanonicalEvent
+	47, // 46: golip.backendplugin.v1.ExecuteServerFrame.cancel_outcome:type_name -> golip.backendplugin.v1.CancelOutcome
+	46, // 47: golip.backendplugin.v1.ExecuteServerFrame.terminal:type_name -> golip.backendplugin.v1.Terminal
+	5,  // 48: golip.backendplugin.v1.PluginError.code:type_name -> golip.backendplugin.v1.ErrorCode
+	12, // 49: golip.backendplugin.v1.BackendPlugin.Negotiate:input_type -> golip.backendplugin.v1.NegotiateRequest
+	14, // 50: golip.backendplugin.v1.BackendPlugin.Describe:input_type -> golip.backendplugin.v1.DescribeRequest
+	22, // 51: golip.backendplugin.v1.BackendPlugin.Configure:input_type -> golip.backendplugin.v1.ConfigureRequest
+	24, // 52: golip.backendplugin.v1.BackendPlugin.CloseInstance:input_type -> golip.backendplugin.v1.CloseInstanceRequest
+	26, // 53: golip.backendplugin.v1.BackendPlugin.ResolveProfile:input_type -> golip.backendplugin.v1.ResolveProfileRequest
+	29, // 54: golip.backendplugin.v1.BackendPlugin.ListModels:input_type -> golip.backendplugin.v1.ListModelsRequest
+	32, // 55: golip.backendplugin.v1.BackendPlugin.CountTokens:input_type -> golip.backendplugin.v1.CountTokensRequest
+	34, // 56: golip.backendplugin.v1.BackendPlugin.FinalizeBilling:input_type -> golip.backendplugin.v1.FinalizeBillingRequest
+	44, // 57: golip.backendplugin.v1.BackendPlugin.Execute:input_type -> golip.backendplugin.v1.ExecuteClientFrame
+	50, // 58: golip.backendplugin.v1.BackendPlugin.Health:input_type -> golip.backendplugin.v1.HealthRequest
+	52, // 59: golip.backendplugin.v1.BackendPlugin.GracefulShutdown:input_type -> golip.backendplugin.v1.GracefulShutdownRequest
+	13, // 60: golip.backendplugin.v1.BackendPlugin.Negotiate:output_type -> golip.backendplugin.v1.NegotiateResponse
+	15, // 61: golip.backendplugin.v1.BackendPlugin.Describe:output_type -> golip.backendplugin.v1.DescribeResponse
+	23, // 62: golip.backendplugin.v1.BackendPlugin.Configure:output_type -> golip.backendplugin.v1.ConfigureResponse
+	25, // 63: golip.backendplugin.v1.BackendPlugin.CloseInstance:output_type -> golip.backendplugin.v1.CloseInstanceResponse
+	27, // 64: golip.backendplugin.v1.BackendPlugin.ResolveProfile:output_type -> golip.backendplugin.v1.ResolveProfileResponse
+	30, // 65: golip.backendplugin.v1.BackendPlugin.ListModels:output_type -> golip.backendplugin.v1.ListModelsResponse
+	33, // 66: golip.backendplugin.v1.BackendPlugin.CountTokens:output_type -> golip.backendplugin.v1.CountTokensResponse
+	35, // 67: golip.backendplugin.v1.BackendPlugin.FinalizeBilling:output_type -> golip.backendplugin.v1.FinalizeBillingResponse
+	48, // 68: golip.backendplugin.v1.BackendPlugin.Execute:output_type -> golip.backendplugin.v1.ExecuteServerFrame
+	51, // 69: golip.backendplugin.v1.BackendPlugin.Health:output_type -> golip.backendplugin.v1.HealthResponse
+	53, // 70: golip.backendplugin.v1.BackendPlugin.GracefulShutdown:output_type -> golip.backendplugin.v1.GracefulShutdownResponse
+	60, // [60:71] is the sub-list for method output_type
+	49, // [49:60] is the sub-list for method input_type
+	49, // [49:49] is the sub-list for extension type_name
+	49, // [49:49] is the sub-list for extension extendee
+	0,  // [0:49] is the sub-list for field type_name
 }
 
 func init() { file_backendplugin_v1_backend_proto_init() }

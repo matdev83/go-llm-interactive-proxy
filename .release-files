@@ -870,6 +870,7 @@ connectors/codex/internal/codex/payload_tools.go
 connectors/codex/internal/codex/plugin.go
 connectors/codex/internal/codex/sessionturns.go
 connectors/codex/internal/codex/stream.go
+connectors/codex/internal/codex/stream_opaque_items_test.go
 connectors/codex/internal/codex/toolschema.go
 connectors/codex/internal/codex/transport.go
 connectors/codex/internal/codex/usage_estimator.go
@@ -886,6 +887,8 @@ connectors/codex/internal/localtok/imageestimator/estimator.go
 connectors/codex/internal/localtok/tiktoken/counter.go
 connectors/codex/internal/reasoning/sanitize.go
 connectors/codex/internal/reasoning/sanitize_test.go
+connectors/codex/internal/responseitem/reasoning_envelope.go
+connectors/codex/internal/responseitem/reasoning_envelope_test.go
 connectors/codex/internal/responsestream/mapper.go
 connectors/codex/internal/routingstub/routingstub.go
 connectors/codex/internal/safecast/int.go
@@ -2518,6 +2521,7 @@ internal/infra/backendplugins/adapter/grpc_session.go
 internal/infra/backendplugins/adapter/invalidation_test.go
 internal/infra/backendplugins/adapter/invocation.go
 internal/infra/backendplugins/adapter/invocation_parts_test.go
+internal/infra/backendplugins/adapter/reasoning_event_test.go
 internal/infra/backendplugins/adapter/recv_stress_test.go
 internal/infra/backendplugins/adapter/security_sanitize_test.go
 internal/infra/backendplugins/adapter/session.go

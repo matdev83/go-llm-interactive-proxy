@@ -118,6 +118,7 @@ enum EventKind {
   EVENT_KIND_RESPONSE_FINISHED = 13;
   EVENT_KIND_ASSISTANT_IMAGE_REF = 14;
   EVENT_KIND_ASSISTANT_FILE_REF = 15;
+  EVENT_KIND_REASONING_PART = 16;
 }
 
 enum TerminalStatus {
@@ -367,6 +368,8 @@ message Part {
   RawJSONValue tool_args_json = 6;
   optional string tool_call_id = 7;
   optional string tool_name = 8;
+  optional string reasoning_dialect = 9;
+  RawJSONValue reasoning_opaque = 10;
 }
 
 message ToolDef {
@@ -406,6 +409,8 @@ message CanonicalEvent {
   PluginError error = 10;
   optional string image_ref = 11;
   optional string file_ref = 12;
+  optional string reasoning_dialect = 13;
+  bytes reasoning_opaque = 14;
 }
 
 message Terminal {
