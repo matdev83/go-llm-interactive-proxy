@@ -3,7 +3,6 @@ package knowledge_test
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -29,35 +28,6 @@ func repoRoot(t *testing.T) string {
 	return ""
 }
 
-func TestKnowledge_EchoesVaultIndexMatchesPages(t *testing.T) {
-	t.Parallel()
-	root := repoRoot(t)
-	idx := read(t, filepath.Join(root, "EchoesVault", "index.md"))
-	re := regexp.MustCompile(`\[\[([a-z0-9-]+)\]\]`)
-	matches := re.FindAllStringSubmatch(idx, -1)
-	if len(matches) < 5 {
-		t.Fatalf("expected index wiki-links, got %d", len(matches))
-	}
-	for _, m := range matches {
-		name := m[1]
-		page := filepath.Join(root, "EchoesVault", "pages", name+".md")
-		raw, err := os.ReadFile(page)
-		if err != nil {
-			t.Errorf("index lists [[%s]] but page missing: %v", name, err)
-			continue
-		}
-		if !strings.HasPrefix(string(raw), "---") {
-			t.Errorf("%s missing YAML frontmatter", name)
-		}
-		if !strings.Contains(string(raw), "\ntype:") && !strings.Contains(string(raw), "\rtype:") {
-			// frontmatter type on its own line after ---
-			if !regexp.MustCompile(`(?m)^type:\s+\S+`).Match(raw) {
-				t.Errorf("%s missing required type frontmatter", name)
-			}
-		}
-	}
-}
-
 func TestKnowledge_AuthoritativeSourcesLinkADR0008(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -66,10 +36,6 @@ func TestKnowledge_AuthoritativeSourcesLinkADR0008(t *testing.T) {
 		".kiro/steering/structure.md",
 		".kiro/steering/tech.md",
 		"docs/architecture.md",
-		"EchoesVault/pages/backend-connector-plugins.md",
-		"EchoesVault/pages/plugin-system.md",
-		"EchoesVault/pages/package-map.md",
-		"EchoesVault/pages/architecture-overview.md",
 	}
 	for _, rel := range paths {
 		body := read(t, filepath.Join(root, filepath.FromSlash(rel)))
@@ -105,13 +71,6 @@ func TestKnowledge_SteeringAlignsWithHybridConnectors(t *testing.T) {
 func TestKnowledge_OperatorGuideLinked(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	page := read(t, filepath.Join(root, "EchoesVault", "pages", "backend-connector-plugins.md"))
-	if !strings.Contains(page, "operator.md") {
-		t.Fatal("backend-connector-plugins.md must link operator.md")
-	}
-	if !strings.Contains(page, "threat-model.md") {
-		t.Fatal("backend-connector-plugins.md must link threat-model.md")
-	}
 	readme := read(t, filepath.Join(root, "README.md"))
 	if !strings.Contains(readme, "docs/backend-plugins/operator.md") {
 		t.Fatal("README must link docs/backend-plugins/operator.md")
@@ -123,33 +82,6 @@ func TestKnowledge_OperatorGuideLinked(t *testing.T) {
 	threat := filepath.Join(root, "docs", "backend-plugins", "threat-model.md")
 	if _, err := os.Stat(threat); err != nil {
 		t.Fatalf("threat-model.md missing: %v", err)
-	}
-}
-
-func TestKnowledge_EchoesVaultPagesForbidMigratedOptionalPaths(t *testing.T) {
-	t.Parallel()
-	root := repoRoot(t)
-	pagesDir := filepath.Join(root, "EchoesVault", "pages")
-	entries, err := os.ReadDir(pagesDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	forbidden := []string{
-		"internal/plugins/backends/openrouter/",
-		"internal/plugins/backends/openaicodex/",
-		"internal/plugins/backends/codexappserver/",
-		"internal/core/codexcatalog",
-	}
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-			continue
-		}
-		body := read(t, filepath.Join(pagesDir, e.Name()))
-		for _, bad := range forbidden {
-			if strings.Contains(body, bad) {
-				t.Errorf("%s contains migrated path %q", e.Name(), bad)
-			}
-		}
 	}
 }
 

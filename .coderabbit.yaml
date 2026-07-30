@@ -41,8 +41,6 @@ reviews:
     - "!package-lock.json"
     - "!pnpm-lock.yaml"
     - "!yarn.lock"
-    - "!EchoesVault/**"
-
   path_instructions:
     - path: "**/*.go"
       instructions: >

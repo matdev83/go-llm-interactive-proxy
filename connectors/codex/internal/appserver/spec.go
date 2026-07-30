@@ -137,7 +137,7 @@ func mustMarshalJSON(v any) []byte {
 // compatibility with the Codex CLI: the flat {"id": "thread-xxx"} shape and
 // the nested {"thread": {"id": "thread-xxx"}} shape. The flat shape is
 // preferred; the nested shape is a fallback. See
-// EchoesVault/pages/codex-app-server-backend.md.
+// docs/codex-app-server-backend.md.
 func runCodexHandshake(ctx context.Context, cli *codexClient, transport acp.Transport, workspace, model string) (string, error) {
 	// 1. initialize
 	initID := cli.rpcID()

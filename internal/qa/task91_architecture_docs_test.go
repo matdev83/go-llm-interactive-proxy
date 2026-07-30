@@ -64,21 +64,6 @@ func TestDocs_Architecture_OneRuntimeOwnershipContract(t *testing.T) {
 			"pkg/lipsdk/configreload",
 			"Host.Close",
 		},
-		"EchoesVault/pages/architecture-overview.md": {
-			"one process runtime",
-			"one generation runtime",
-			"one host",
-			"one reload contract",
-		},
-		"EchoesVault/pages/package-map.md": {
-			"BuildHost",
-			"GenerationRuntime",
-			"configreload",
-		},
-		"EchoesVault/pages/runtime-config-reload.md": {
-			"pkg/lipsdk/configreload",
-			"Host.Close",
-		},
 	}
 	for rel, needles := range anchors {
 		parts := strings.Split(rel, "/")
@@ -128,11 +113,6 @@ func TestDocs_Architecture_NoStaleCompatibilityPaths(t *testing.T) {
 		"README.md",
 		".kiro/steering/structure.md",
 		".kiro/steering/tech.md",
-		"EchoesVault/pages/architecture-overview.md",
-		"EchoesVault/pages/package-map.md",
-		"EchoesVault/pages/runtime-config-reload.md",
-		"EchoesVault/pages/plugin-system.md",
-		"EchoesVault/pages/decode-qos-admission.md",
 	}
 	for _, rel := range docs {
 		parts := strings.Split(rel, "/")

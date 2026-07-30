@@ -50,9 +50,6 @@ func TestPhase91_AuthoritativeSourcesForbidStaticOnlyOptionalTable(t *testing.T)
 		".kiro/steering/testing.md",
 		"docs/backend-adapter-boundaries.md",
 		"docs/architecture.md",
-		"EchoesVault/pages/plugin-system.md",
-		"EchoesVault/pages/package-map.md",
-		"EchoesVault/pages/architecture-overview.md",
 		"README.md",
 	}
 	forbidden := []string{
@@ -87,26 +84,6 @@ func TestPhase91_AuthoritativeSourcesForbidStaticOnlyOptionalTable(t *testing.T)
 					t.Errorf("%s must describe hybrid/external connector composition", rel)
 				}
 			}
-		}
-	}
-}
-
-func TestPhase91_EchoesVaultIndexListsHybridConnectorPage(t *testing.T) {
-	t.Parallel()
-	root := repoRoot(t)
-	idx := readFile(t, filepath.Join(root, "EchoesVault", "index.md"))
-	if !strings.Contains(idx, "[[backend-connector-plugins]]") {
-		t.Fatal("EchoesVault/index.md must list [[backend-connector-plugins]]")
-	}
-	page := filepath.Join(root, "EchoesVault", "pages", "backend-connector-plugins.md")
-	raw, err := os.ReadFile(page)
-	if err != nil {
-		t.Fatalf("missing EchoesVault page: %v", err)
-	}
-	body := string(raw)
-	for _, want := range []string{"type:", "connectors/", "manifest", "essential", "gRPC"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("backend-connector-plugins.md missing %q", want)
 		}
 	}
 }
