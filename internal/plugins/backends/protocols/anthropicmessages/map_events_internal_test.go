@@ -37,6 +37,88 @@ func TestHandleEvent_thinkingDeltaFromJSON(t *testing.T) {
 	}
 }
 
+func TestHandleEvent_reasoningDeltaAliasesFromJSON(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "reasoning field", raw: `{"type":"content_block_delta","index":0,"delta":{"type":"reasoning_delta","reasoning":"reason-alias"}}`, want: "reason-alias"},
+		{name: "text field", raw: `{"type":"content_block_delta","index":0,"delta":{"type":"reasoning_delta","text":"text-alias"}}`, want: "text-alias"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var u anthropic.MessageStreamEventUnion
+			if err := json.Unmarshal([]byte(tc.raw), &u); err != nil {
+				t.Fatal(err)
+			}
+			s := &msgStream{}
+			if err := s.handleEvent(u); err != nil {
+				t.Fatalf("handleEvent: %v", err)
+			}
+			var got []string
+			for _, ev := range stream.DrainPending(&s.pending) {
+				if ev.Kind == lipapi.EventReasoningDelta {
+					got = append(got, ev.Delta)
+				}
+			}
+			if len(got) != 1 || got[0] != tc.want {
+				t.Fatalf("reasoning deltas: %v, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestHandleEvent_thinkingBlockStartMapsInitialReasoningAndSignature(t *testing.T) {
+	t.Parallel()
+	raw := `{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"initial plan","signature":"sig-start"}}`
+	var u anthropic.MessageStreamEventUnion
+	if err := json.Unmarshal([]byte(raw), &u); err != nil {
+		t.Fatal(err)
+	}
+	s := &msgStream{}
+	if err := s.handleEvent(u); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+	events := stream.DrainPending(&s.pending)
+	gotKinds := kindsOf(events)
+	wantKinds := []lipapi.EventKind{
+		lipapi.EventResponseStarted,
+		lipapi.EventMessageStarted,
+		lipapi.EventReasoningDelta,
+		lipapi.EventReasoningSignatureDelta,
+	}
+	if !slices.Equal(gotKinds, wantKinds) {
+		t.Fatalf("kinds = %v, want %v", gotKinds, wantKinds)
+	}
+	if events[2].Delta != "initial plan" || events[3].Signature != "sig-start" {
+		t.Fatalf("thinking start events = %+v", events)
+	}
+}
+
+func TestHandleEvent_reasoningBlockStartAliasMapsInitialReasoning(t *testing.T) {
+	t.Parallel()
+	raw := `{"type":"content_block_start","index":0,"content_block":{"type":"reasoning","reasoning":"initial alias"}}`
+	var u anthropic.MessageStreamEventUnion
+	if err := json.Unmarshal([]byte(raw), &u); err != nil {
+		t.Fatal(err)
+	}
+	s := &msgStream{}
+	if err := s.handleEvent(u); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+	var got []string
+	for _, ev := range stream.DrainPending(&s.pending) {
+		if ev.Kind == lipapi.EventReasoningDelta {
+			got = append(got, ev.Delta)
+		}
+	}
+	if len(got) != 1 || got[0] != "initial alias" {
+		t.Fatalf("reasoning deltas: %v", got)
+	}
+}
+
 func TestHandleEvent_signatureDeltaFromJSON(t *testing.T) {
 	t.Parallel()
 	raw := `{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-123"}}`

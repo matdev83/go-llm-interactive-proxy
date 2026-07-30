@@ -53,15 +53,18 @@ func TestNewNormalizesNestedAlibabaModelAndMapsThinking(t *testing.T) {
 		name           string
 		effort         string
 		wantThinking   string
+		wantBeta       bool
 		forbidThinking bool
 	}{
 		{name: "none disables", effort: "none", wantThinking: `"thinking":{"type":"disabled"}`},
-		{name: "high enables", effort: "high", wantThinking: `"thinking":{"type":"enabled"}`},
+		{name: "high enables", effort: "high", wantThinking: `"thinking":{"type":"enabled"}`, wantBeta: true},
 		{name: "absent unchanged", forbidThinking: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var body string
+			var betaHeader string
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				betaHeader = r.Header.Get("anthropic-beta")
 				b, err := io.ReadAll(r.Body)
 				if err != nil {
 					t.Errorf("read request body: %v", err)
@@ -97,7 +100,70 @@ func TestNewNormalizesNestedAlibabaModelAndMapsThinking(t *testing.T) {
 			} else if !strings.Contains(body, tc.wantThinking) {
 				t.Fatalf("thinking mismatch: %s", body)
 			}
+			const interleavedThinkingBeta = "interleaved-thinking-2025-05-14"
+			if tc.wantBeta && betaHeader != interleavedThinkingBeta {
+				t.Fatalf("anthropic-beta = %q, want %q", betaHeader, interleavedThinkingBeta)
+			}
+			if !tc.wantBeta && betaHeader != "" {
+				t.Fatalf("anthropic-beta = %q, want empty", betaHeader)
+			}
 		})
+	}
+}
+
+func TestNewAdvertisesReasoningCapability(t *testing.T) {
+	be := backend.New(backend.Config{BaseURL: "https://example.test", APIKey: "env-key"})
+	if _, ok := be.Caps[lipapi.CapabilityReasoning]; !ok {
+		t.Fatal("Alibaba Token Plan must advertise reasoning so effort survives negotiation")
+	}
+	if be.ResolveCaps == nil {
+		t.Fatal("expected ResolveCaps")
+	}
+	caps := be.ResolveCaps(
+		context.Background(),
+		lipapi.Call{Options: lipapi.GenerationOptions{ReasoningEffort: "high"}},
+		routing.AttemptCandidate{Primary: routing.Primary{Backend: backend.ID, Model: "qwen3.8-max-preview"}},
+	)
+	if _, ok := caps[lipapi.CapabilityReasoning]; !ok {
+		t.Fatal("resolved Alibaba model caps must preserve reasoning")
+	}
+}
+
+func TestNewForwardsThinkingEventsAsReasoning(t *testing.T) {
+	const reasoningSSE = "event: message_start\ndata: " +
+		`{"type":"message_start","message":{"id":"m","type":"message","role":"assistant","model":"qwen3.7-plus","content":[],"stop_reason":"","stop_sequence":"","usage":{"input_tokens":0,"output_tokens":0}}}` + "\n\n" +
+		"event: content_block_start\ndata: " + `{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"Plan","signature":"sig"}}` + "\n\n" +
+		"event: content_block_delta\ndata: " + `{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" carefully"}}` + "\n\n" +
+		"event: content_block_delta\ndata: " + `{"type":"content_block_delta","index":0,"delta":{"type":"reasoning_delta","reasoning":" now"}}` + "\n\n" +
+		"event: content_block_stop\ndata: " + `{"type":"content_block_stop","index":0}` + "\n\n" +
+		"event: content_block_start\ndata: " + `{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}` + "\n\n" +
+		"event: content_block_delta\ndata: " + `{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Answer"}}` + "\n\n" +
+		"event: content_block_stop\ndata: " + `{"type":"content_block_stop","index":1}` + "\n\n" +
+		"event: message_stop\ndata: " + `{"type":"message_stop"}` + "\n\n"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(reasoningSSE))
+	}))
+	defer srv.Close()
+
+	zero := 0
+	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: "env-key", HTTPClient: srv.Client(), SDKMaxRetries: &zero})
+	call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("question")}}}}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Backend: backend.ID, Model: "qwen3.7-plus"}}
+	stream, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collected, err := lipapi.Collect(context.Background(), stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := collected.Reasoning.String(); got != "Plan carefully now" {
+		t.Fatalf("reasoning = %q", got)
+	}
+	if got := collected.Text.String(); got != "Answer" {
+		t.Fatalf("text = %q", got)
 	}
 }
 

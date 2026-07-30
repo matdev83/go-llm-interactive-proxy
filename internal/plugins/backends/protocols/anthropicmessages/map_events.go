@@ -139,6 +139,35 @@ func (s *msgStream) handleEvent(cur anthropic.MessageStreamEventUnion) error {
 			}
 		} else {
 			switch cb.Type {
+			case "thinking", "reasoning":
+				thinking := cb.Thinking
+				if thinking == "" && cb.Type == "reasoning" {
+					var raw struct {
+						Reasoning string `json:"reasoning"`
+						Text      string `json:"text"`
+					}
+					if err := json.Unmarshal([]byte(cb.RawJSON()), &raw); err == nil {
+						thinking = raw.Reasoning
+						if thinking == "" {
+							thinking = raw.Text
+						}
+					}
+				}
+				if thinking != "" || cb.Signature != "" {
+					if err := s.ensureFrameStarted(); err != nil {
+						return err
+					}
+				}
+				if thinking != "" {
+					if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: thinking}); err != nil {
+						return err
+					}
+				}
+				if cb.Signature != "" {
+					if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningSignatureDelta, Signature: cb.Signature}); err != nil {
+						return err
+					}
+				}
 			case "tool_use":
 				tu := cb.AsToolUse()
 				s.activeToolID = tu.ID
@@ -171,6 +200,30 @@ func (s *msgStream) handleEvent(cur anthropic.MessageStreamEventUnion) error {
 		}
 	case anthropic.ContentBlockDeltaEvent:
 		d := v.Delta
+		if d.Type == "reasoning_delta" {
+			thinking := d.Thinking
+			if thinking == "" {
+				var raw struct {
+					Reasoning string `json:"reasoning"`
+					Text      string `json:"text"`
+				}
+				if err := json.Unmarshal([]byte(d.RawJSON()), &raw); err == nil {
+					thinking = raw.Reasoning
+					if thinking == "" {
+						thinking = raw.Text
+					}
+				}
+			}
+			if thinking != "" {
+				if err := s.ensureFrameStarted(); err != nil {
+					return err
+				}
+				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: thinking}); err != nil {
+					return err
+				}
+			}
+			break
+		}
 		switch t := d.AsAny().(type) {
 		case anthropic.TextDelta:
 			if t.Text != "" {
