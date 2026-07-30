@@ -20,6 +20,8 @@ var envelopeKeyOrder = [...]string{
 	"status",
 }
 
+const maxOpaqueJSONDepth = 100
+
 var (
 	envelopeAllowed     = keySet(envelopeKeyOrder[:])
 	reasoningTextFields = keySet([]string{"type", "text"})
@@ -302,13 +304,16 @@ func rejectDuplicateJSONObjectKeys(raw []byte) error {
 	if !ok || delim != '{' {
 		return itemError("malformed")
 	}
-	if err := rejectDuplicateKeysInObject(dec); err != nil {
+	if err := rejectDuplicateKeysInObject(dec, 1); err != nil {
 		return err
 	}
 	return nil
 }
 
-func rejectDuplicateKeysInObject(dec *json.Decoder) error {
+func rejectDuplicateKeysInObject(dec *json.Decoder, depth int) error {
+	if depth > maxOpaqueJSONDepth {
+		return itemError("max depth exceeded")
+	}
 	seen := make(map[string]struct{})
 	for dec.More() {
 		keyTok, err := dec.Token()
@@ -323,7 +328,7 @@ func rejectDuplicateKeysInObject(dec *json.Decoder) error {
 			return itemError("duplicate key")
 		}
 		seen[key] = struct{}{}
-		if err := skipJSONValueRejectingDuplicateKeys(dec); err != nil {
+		if err := skipJSONValueRejectingDuplicateKeys(dec, depth); err != nil {
 			return err
 		}
 	}
@@ -338,18 +343,21 @@ func rejectDuplicateKeysInObject(dec *json.Decoder) error {
 	return nil
 }
 
-func skipJSONValueRejectingDuplicateKeys(dec *json.Decoder) error {
+func skipJSONValueRejectingDuplicateKeys(dec *json.Decoder, depth int) error {
 	tok, err := dec.Token()
 	if err != nil {
 		return itemError("malformed")
 	}
 	if delim, ok := tok.(json.Delim); ok {
+		if depth >= maxOpaqueJSONDepth {
+			return itemError("max depth exceeded")
+		}
 		switch delim {
 		case '{':
-			return rejectDuplicateKeysInObject(dec)
+			return rejectDuplicateKeysInObject(dec, depth+1)
 		case '[':
 			for dec.More() {
-				if err := skipJSONValueRejectingDuplicateKeys(dec); err != nil {
+				if err := skipJSONValueRejectingDuplicateKeys(dec, depth+1); err != nil {
 					return err
 				}
 			}

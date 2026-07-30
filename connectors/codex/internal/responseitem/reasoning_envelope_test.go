@@ -57,6 +57,7 @@ func TestCanonizeReasoningItemOpaque_ValidationAndOrdering(t *testing.T) {
 	}
 
 	oversize := `{"id":"rs_1","summary":[],"encrypted_content":"` + strings.Repeat("x", lipapi.MaxReasoningOpaqueBytes) + `"}`
+	deep := `{"id":"rs_1","summary":[],"content":` + strings.Repeat("[", maxOpaqueJSONDepth+1) + `0` + strings.Repeat("]", maxOpaqueJSONDepth+1) + `}`
 	for _, tc := range []struct {
 		name string
 		raw  string
@@ -68,6 +69,7 @@ func TestCanonizeReasoningItemOpaque_ValidationAndOrdering(t *testing.T) {
 		{name: "invalid type", raw: `{"id":"rs_1","type":"message","summary":[]}`},
 		{name: "invalid status", raw: `{"id":"rs_1","summary":[],"status":"done"}`},
 		{name: "oversize", raw: oversize},
+		{name: "excessive depth", raw: deep},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -75,6 +77,30 @@ func TestCanonizeReasoningItemOpaque_ValidationAndOrdering(t *testing.T) {
 				t.Fatal("expected validation error")
 			}
 		})
+	}
+}
+
+func TestCanonizeReasoningItemOpaque_NonEmptyElements(t *testing.T) {
+	t.Parallel()
+
+	got, err := CanonizeReasoningItemOpaque([]byte(`{"id":"rs_1","summary":[{"text":"sum","type":"summary_text"}],"content":[{"text":"body","type":"reasoning_text"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"id":"rs_1","type":"reasoning","summary":[{"text":"sum","type":"summary_text"}],"content":[{"text":"body","type":"reasoning_text"}]}`
+	if string(got) != want {
+		t.Fatalf("canonical JSON = %s, want %s", got, want)
+	}
+
+	for _, raw := range []string{
+		`{"id":"rs_1","summary":[{"type":"summary_text","text":"x","extra":true}]}`,
+		`{"id":"rs_1","summary":[{"type":"reasoning_text","text":"x"}]}`,
+		`{"id":"rs_1","summary":[{"type":"summary_text","text":1}]}`,
+		`{"id":"rs_1","summary":[{"type":"summary_text","text":"x","text":"y"}]}`,
+	} {
+		if _, err := CanonizeReasoningItemOpaque([]byte(raw)); err == nil {
+			t.Fatalf("expected element validation error for %s", raw)
+		}
 	}
 }
 
