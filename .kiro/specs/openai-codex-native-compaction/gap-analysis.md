@@ -1,173 +1,212 @@
-# Requirements Gap Analysis
+# Brownfield Gap Analysis
 
 ## Scope and Method
 
-This analysis compares `requirements.md` with the current direct `openai-codex` connector and adjacent canonical/runtime assets. It follows `.kiro/rules/gap-analysis.md`: current assets are identified first, gaps are classified as **Missing**, **Constraint**, or **Unknown**, and multiple implementation approaches are evaluated before design selection.
+This review compares the revised native-context requirements against repository `main` after:
 
-The analysis is intentionally limited to information needed to choose a design. Deep protocol verification against the live ChatGPT Codex backend remains a design/implementation research item.
+- PR #235, which added exact Codex reasoning/compaction output transport and backend-plugin replay capability;
+- the existing `reasoning-output-preservation` feature and its full-stack validation;
+- the current direct Codex HTTP/WebSocket continuation implementation; and
+- current OpenAI Codex CLI source at commit `3016671bb077c43448b8fa88f3edfa9772e17058`.
 
-## Current State Investigation
+The analysis treats exact reasoning continuity and native compaction as one quality-sensitive workflow while preserving their separate controls and evidence.
 
-### Existing connector assets
+## Current Assets
 
-| Asset | Current responsibility | Reuse value |
-|---|---|---|
-| `connectors/codex/internal/codex/payload.go` | Builds Codex Responses requests, including `prompt_cache_key`, `previous_response_id`, reasoning controls, and `include: reasoning.encrypted_content`. | Provides the normal request envelope and existing cache/continuation controls. |
-| `connectors/codex/internal/codex/payload_input.go` | Projects canonical messages and function call/output history into connector-local input items. | Existing typed item seam can be extended with validated provider-native replay items. |
-| `connectors/codex/internal/codex/continuation.go` | Stores response IDs and exact input/output fingerprints for WebSocket delta continuation with TTL/LRU and in-flight protection. | Strong pattern for scoped bounded checkpoint state and exact-prefix validation. |
-| `connectors/codex/internal/codex/ws.go` | Owns WebSocket sessions, continuation application/rollback, stale retry, and recording. | Integration point for chain reset and post-checkpoint continuation. |
-| `connectors/codex/internal/codex/stream.go` | Parses SSE/WS events into canonical output and records response IDs plus completed function-call items. | Natural location to capture bounded exact reasoning items and internal compaction output. |
-| `connectors/codex/internal/codex/attempt.go` | Prepares request identity, prompt-cache key, HTTP attempts, OAuth refresh, and stream opening. | Pre-output orchestration point for applying or creating checkpoints. |
-| `connectors/codex/internal/codex/plugin.go` | Owns backend runtime state and static/managed HTTP/WS paths. | Composition root for a connector-private compaction manager/store. |
-| `connectors/codex/internal/codex/sessionturns.go` | Bounded per-conversation state with reservation/commit/release behavior. | Additional concurrency/lifecycle precedent. |
-| `connectors/codex/internal/catalog` | Parses model context windows and reasoning profiles from `codex debug models`. | Can retain auto-compaction threshold and compatibility hash without a core catalog change. |
-| `connectors/codex/internal/localtok` and `usage_estimator.go` | Estimates request/output token usage with existing image handling and accounting provenance. | Can support threshold planning and before/after performance evidence. |
-| `connectors/codex/internal/service/config.go` | Decodes connector YAML and maps service config to direct HTTP/app-server configs. | Existing typed configuration boundary for an opt-in nested block. |
-| `pkg/lipapi.ReasoningPart` and `internal/plugins/protocols/openairesponsesitem` | Existing dialect-tagged exact OpenAI Responses reasoning envelope. | Avoids a new canonical reasoning concept; direct connector can emit/consume the existing dialect. |
-| `internal/plugins/features/reasoningpreservation` | Captures and restores exact reasoning parts across compatible routes. | Existing feature integration to revalidate, not duplicate. |
+### Direct Codex connector
 
-### Dominant patterns and constraints
+Reusable assets:
 
-- `openai-codex` is an optional executable backend connector. Provider protocol logic belongs inside `connectors/codex`; core and public SDK contracts must remain provider-neutral.
-- Streaming is primary. Internal optimization may happen only before downstream output commitment.
-- Managed OAuth selection is account-scoped and may rotate accounts before output. Any opaque provider state must therefore be account-bound.
-- WebSocket continuation is an optimization with a full-payload rollback path. Native compaction must preserve that fallback property.
-- The canonical message model is intentionally not a universal ordered Responses item model. A connector-private checkpoint is viable only while it remains private and exact-lineage-bound.
-- Existing debug and error code deliberately bounds payload leakage. Ciphertext must not enter logs or errors.
+- exact Responses reasoning-item canonicalization and replay;
+- completed compaction-item capture;
+- `reasoning.encrypted_content` request support when a reasoning object is present;
+- static and managed OAuth account execution;
+- HTTP/SSE and experimental WebSocket transports;
+- stable prompt-cache identity;
+- WebSocket continuation store with exact input fingerprints and `previous_response_id`;
+- model catalog with context windows;
+- local token estimation and provider usage mapping.
+
+### Reasoning-preservation feature
+
+Reusable assets:
+
+- surfaced-winner observation after hooks and completion gates;
+- authoritative-session partitioning;
+- exact assistant-anchor matching;
+- ordered `PlacedReasoning` positions relative to non-reasoning parts;
+- ambiguity/conflict/state policies;
+- exact dialect capability checks;
+- bounded TTL/turn/byte state;
+- attempt-transform restoration before backend open;
+- deterministic, random, and soak validation.
+
+### Canonical and plugin contracts
+
+Reusable assets:
+
+- `PartReasoning` and `ReasoningPart`;
+- exact dialect `openai.responses.reasoning_item.v1`;
+- `EventReasoningPart`;
+- backend-plugin ABI carriage added by PR #235;
+- attempt metadata containing backend identity, model, authoritative session, and replay support.
 
 ## Requirement-to-Asset Map
 
-| Requirement area | Existing assets | Gap classification | Gap |
+| Requirement area | Existing asset | Gap | Classification |
 |---|---|---|---|
-| 1. Configuration/default parity | Typed YAML config, connector config validation, runtime composition | Missing | No native-compaction block, defaults, bounds, diagnostics, or disabled-path parity tests. |
-| 2. Opaque item fidelity | Existing canonical reasoning dialect; Codex requests encrypted reasoning | Missing | Codex stream mapper drops non-function completed items; payload builder cannot replay exact reasoning or compaction items. |
-| 3. Trigger planning | Context windows in catalog; local token counter | Partial | Catalog drops `auto_compact_token_limit` and `comp_hash`; no payload-level post-rewrite estimator or safe split planner. |
-| 4. Compaction request | Normal `/responses` HTTP/WS clients and stream parser | Missing | No compaction-trigger item, internal collector, strict output validation, retained-message construction, or hidden internal request path. |
-| 5. Checkpoint lifecycle | Continuation/session-turn TTL/LRU stores | Partial | No account/model/static-fingerprint-bound checkpoint store or committed-vs-candidate lifecycle. |
-| 6. Rewrite/chain reset | Exact input fingerprints and continuation rollback | Partial | No source-prefix substitution, live-tail preservation, explicit previous-response reset, or continuation invalidation on checkpoint install. |
-| 7. Failure handling | Pre-output HTTP/WS fallback and no-post-output retry rules | Partial | No compaction-specific fail-open/hard-fail classification, cancellation cleanup, or negative cooldown. |
-| 8. Usage/diagnostics | Provider usage mapping, estimator, debug shape logging | Partial | No internal-request usage aggregation, compaction metrics, before/after measurements, or ciphertext-specific privacy tests. |
-| 9. Verification/rollout | Connector unit/integration tests, WS tests, managed account tests | Partial | No compaction emulator scenarios, live compatibility smoke, race/fuzz coverage, or default-off promotion gate. |
+| 1 Configuration | Codex typed YAML and feature config | No coordinated native-context mode; compaction defaults not implemented | Missing |
+| 2 Always request encrypted reasoning | Payload include exists only when `Reasoning != nil` | Continuity-enabled requests without explicit effort may omit encrypted reasoning | Missing |
+| 2 Exact item fidelity | PR #235 | Core codec/replay largely complete; compaction validation still needs hardening | Partial |
+| 3 Surfaced reasoning continuity | reasoning-preservation observer/transform | Codex is not automatically eligible under current catalog; no continuity marker contract | Partial |
+| 3 Winner ownership | final-stream observer | Connector-local capture would be unsafe; existing feature is correct owner | Constraint |
+| 4 Action ordering | placed reasoning positions and Codex payload input expansion | Must prove reasoning around function calls/outputs and preserve exact compaction history before no-tools projection | Partial |
+| 5 Model metadata | context windows parsed | `auto_compact_token_limit` and `comp_hash` are dropped | Missing |
+| 5 Planning | WebSocket fingerprints/token estimator | No reasoning-aware compaction planner or safe trajectory split | Missing |
+| 6 V2 compaction | connector Responses stream infrastructure | No trigger item, strict collector, retained predicate, or installation workflow | Missing |
+| 7 Checkpoint store | WebSocket continuation TTL/LRU pattern | No separate account/model/static-shape-bound compaction store | Missing |
+| 8 Response chain | WebSocket `previous_response_id` | Correct as optimization; must not be promoted to durable cross-turn authority | Constraint |
+| 9 Usage/privacy | provider usage and diagnostics infrastructure | No internal compaction usage aggregation or continuity/compaction metrics | Partial |
+| 10 Quality evidence | reasoning E2E harness and testkit | No four-mode Codex evaluation or coding-oriented quality measures | Missing |
 
-## Requirements Feasibility Findings
+## Brownfield Findings That Changed the Original Requirements
 
-### Confirmed feasible
+### Finding 1: Exact codec support is not automatic continuity
 
-1. **Opaque pass-through does not require decryption.** The connector can validate the outer item shape, store exact JSON, and replay it only to the same implementor/lineage.
-2. **A connector-private implementation fits current architecture.** The feature can live entirely in the independent Codex connector while reusing the existing canonical reasoning dialect.
-3. **Exact-prefix substitution is compatible with stateless clients.** The connector already fingerprints request items for WebSocket continuation and can apply the same technique to client-replayed full histories.
-4. **Default-off rollout is straightforward.** The connector config already uses explicit experimental transport gates and typed validation.
-5. **Pre-output fail-open is compatible with routing invariants.** The internal compaction request can complete or fail before the normal response stream is opened.
+PR #235 allows exact reasoning items to cross the connector boundary, but a later request only replays them when they are already present in the canonical call. Many agent clients resend visible assistant/tool history without encrypted reasoning. Requirements were amended to make surfaced-response observation and automatic restoration explicit.
 
-### Constraints
+### Finding 2: Connector-local reasoning storage is the wrong owner
 
-1. **Opaque state is not portable.** It must pin account, model, implementor, static request shape, and compatibility hash.
-2. **The current canonical call is message-authority.** A provider-private compaction item must not be forced into `PartJSON` or widened into a public concept in this spec.
-3. **Managed account selection occurs after common request preparation.** Checkpoint lookup/creation must happen per selected account rather than mutating one shared request before account choice.
-4. **The latest live turn cannot be summarized accidentally.** The implementation must split old history from the latest user message and subsequent tool tail.
-5. **Compaction starts a new chain.** Reusing the old `previous_response_id` would mix incompatible state and must be prevented explicitly.
-6. **Ciphertext length is not model token cost.** Threshold estimates must use provider-reported compaction output tokens or conservative replay-cost metadata rather than tokenizing encrypted bytes as prompt text.
+A connector does not know whether its B-leg response becomes the surfaced winner after failover, parallel races, response hooks, or completion gates. Capturing reasoning inside the connector could persist losing or swallowed reasoning. Requirements now mandate the existing final-stream reasoning-preservation feature as the authoritative cross-request store.
 
-### Research Needed
+### Finding 3: Codex CLI does not rely on cross-turn response IDs
 
-1. Verify with an environment-gated live test that the ChatGPT Codex endpoint accepts `type: "compaction_trigger"` with the connector's current authentication/header contract.
-2. Confirm whether successful replay is bound only to account/model or also to a backend-generated compatibility identity not exposed in the current catalog.
-3. Confirm response event details and usage counters for V2 compaction across current Codex models.
-4. Measure break-even turns and latency for HTTPS and WebSocket sessions before proposing default enablement.
+Current Codex CLI creates a fresh `ModelClientSession` per Codex turn. Its WebSocket `previous_response_id` reuse is mainly an incremental within-turn transport optimization. Durable cross-turn behavior comes from exact `ResponseItem` history. Requirements now make exact encrypted item replay the correctness baseline and explicitly exclude new automatic HTTP response-ID chaining.
 
-## Implementation Approach Options
+### Finding 4: Compaction must consume restored native history
 
-### Option A: Add Canonical Compaction Now
+Running compaction directly on the client transcript can omit private reasoning even though restorable artifacts exist. Requirements now require attempt-transform restoration and an eligibility marker before required-continuity compaction.
 
-Add ordered compaction items and a context-compaction operation to `pkg/lipapi`, extend the backend plugin ABI, and route compaction through core.
+### Finding 5: Ordinary no-tools projection is unsuitable for compaction
 
-**Advantages**
-- Aligns with the long-term OpenResponses design.
-- Enables future cross-backend capability negotiation and client-facing compaction.
+The direct connector intentionally converts historical tool records to display text when no current tool schema exists. Native compaction needs the exact structured trajectory. Requirements now separate the compaction history view from normal-request projection.
 
-**Disadvantages**
-- Large public-contract and core change for a single provider optimization.
-- Overlaps the active `openresponses-api-support` specification.
-- Requires broad FE×BE conformance and plugin ABI revalidation.
-- Delays a focused experiment and increases risk.
+### Finding 6: Quality evidence must be binding
 
-**Assessment:** Technically viable but disproportionate for the requested experiment. Effort **XL**, risk **High**.
+The original spec mentioned task-quality comparison only in research notes. The revised requirements make a four-mode quality evaluation and coding-oriented metrics release criteria.
 
-### Option B: Connector-Private Native Checkpoints
+## Implementation Options
 
-Add validated opaque item types, a compaction planner/client, and a bounded checkpoint store inside `connectors/codex`. Use existing canonical reasoning contracts only where they already exist.
+### Option A: Connector-Local Reasoning and Compaction Store
+
+**Approach**
+
+- capture reasoning and compaction items in the connector;
+- match later client history locally;
+- compact and replay from connector-owned state.
 
 **Advantages**
-- Respects provider ownership and keeps core/public contracts unchanged.
-- Reuses the continuation store, model catalog, request pipeline, and token estimator.
-- Can be feature-gated and fully removed or disabled without migration.
-- Supports direct performance measurement before standardization.
+
+- one configuration block;
+- minimal changes outside the connector.
 
 **Disadvantages**
-- Native state is intentionally nonportable.
-- Requires careful integration across static/managed and HTTP/WS paths.
-- Some implementation may later be superseded by canonical OpenResponses compaction.
 
-**Assessment:** Best fit for initial scope. Effort **L**, risk **Medium-High**.
+- cannot reliably distinguish surfaced winners from losing/swallowed B-legs;
+- duplicates mature reasoning-preservation matching, policies, and bounds;
+- risks divergence between reasoning-only and compaction history;
+- weakens failover/parallel correctness.
 
-### Option C: Delegate All Compaction to `openai-codex-app-server`
+**Disposition:** Rejected.
 
-Recommend the app-server backend for long sessions and avoid changes to the direct HTTP connector.
+### Option B: Extend Only the Global Reasoning-Preservation Feature
+
+**Approach**
+
+- make Codex eligible;
+- restore reasoning into canonical calls;
+- leave compaction for a future generic spec.
 
 **Advantages**
-- Upstream Codex CLI already owns compaction behavior.
-- Lowest implementation cost.
+
+- correct surfaced-response ownership;
+- low connector state complexity;
+- immediate potential quality benefit.
 
 **Disadvantages**
-- Does not improve the direct connector requested by the user.
-- Requires a local Codex subprocess and changes operational characteristics.
-- Cannot provide transparent performance benefits to existing direct-backend deployments.
 
-**Assessment:** Useful operational alternative, not a solution. Effort **S**, risk **Low**, requirement coverage **insufficient**.
+- does not deliver native compaction or checkpoint reuse;
+- cannot test the two-setting combination described by OpenAI;
+- leaves context-window benefits unresolved.
 
-### Option D: Hybrid Private First, Canonical Later
+**Disposition:** Viable subset, insufficient for requested scope.
 
-Implement Option B now and define explicit migration boundaries to a later canonical compaction operation once OpenResponses item authority lands.
+### Option C: Hybrid Feature/Connector Design
+
+**Approach**
+
+- reasoning-preservation owns surfaced exact reasoning observation and restoration;
+- a small internal continuity marker proves eligible restoration ran;
+- direct Codex always requests encrypted reasoning for marked attempts;
+- connector builds an exact native history view after restoration;
+- connector owns provider-specific V2 compaction and checkpoint state;
+- WebSocket response IDs remain optional transport optimization.
 
 **Advantages**
-- Delivers experimental evidence quickly.
-- Preserves a clean future migration path.
-- Avoids prematurely changing public contracts.
+
+- preserves winner ownership and existing policy;
+- closest match to Codex CLI durable item history;
+- keeps provider-specific compaction at the adapter edge;
+- independently configurable and testable;
+- supports four-mode evaluation.
 
 **Disadvantages**
-- Requires discipline to keep connector-private types private.
-- May entail future replacement rather than direct reuse.
 
-**Assessment:** Preferred program strategy. Initial implementation remains Option B. Overall effort **L**, risk **Medium-High**.
+- spans root feature and optional connector modules;
+- requires a narrow shared extension-key contract;
+- needs careful cross-module integration tests.
 
-## Requirements Corrections Applied After Gap Analysis
+**Disposition:** Preferred.
 
-The first requirements draft was revised to add these mandatory constraints:
+## Required Design Decisions
 
-1. **Account/model binding** — opaque state cannot survive managed OAuth rotation unless the same account is selected.
-2. **Live-tail split** — compaction must exclude the latest user message and all subsequent tool state.
-3. **Chain reset** — the first post-checkpoint request must omit `previous_response_id` and invalidate old WS continuation.
-4. **Failure cooldown** — fail-open behavior without negative caching would create repeated high-cost failures.
-5. **Usage honesty** — compaction usage must be separately accounted and included in break-even evidence.
-6. **No canonical expansion** — this spec must not pre-empt the OpenResponses ordered-item and context-compaction design.
-7. **Exact reasoning prerequisite** — the direct connector currently requests encrypted reasoning but drops exact completed items; fidelity must be corrected before relying on native history state.
+1. **Continuity ownership:** `reasoning-output-preservation` is authoritative for automatic cross-request reasoning state.
+2. **Compaction ownership:** direct `openai-codex` connector owns V2 trigger, collection, retained policy, checkpoint store, and request rewrite.
+3. **Eligibility:** use an explicit backend-only reasoning-preservation rule for the Codex instance; do not widen the global GPT model ceiling.
+4. **Continuity proof:** the attempt transform sets a bounded internal call-extension marker only for an eligible exact-replay candidate.
+5. **Request shape:** continuity-marked Codex attempts always request encrypted reasoning and use model-supported/default reasoning controls.
+6. **Planning order:** restore reasoning → build exact native history → rewrite existing checkpoint → decide compaction → normal transport.
+7. **Response IDs:** keep existing WebSocket continuation as optimization; no new cross-turn HTTP chain.
+8. **Safety:** full reasoning-complete history is authoritative fallback; required-continuity compaction skips without the marker.
+9. **Quality:** four-mode evaluation is mandatory before default-on discussion.
 
-## Recommendation for Design
+## Research Needed During Implementation
 
-Adopt **connector-private native checkpoints** with these design commitments:
+- Live ChatGPT Codex acceptance of a reasoning object with no explicit effort but encrypted-content inclusion.
+- Live acceptance of structured historical function calls/outputs when the current request advertises no tools.
+- Exact required Codex metadata/header parity for V2 compaction.
+- Whether current backend compaction retained-agent predicate should be mirrored exactly or version-gated.
+- Whether model-switch previous-model compaction is accepted through the direct endpoint.
 
-- nested typed config, disabled by default;
-- V2 compaction only in the initial implementation;
-- per-account/per-model planning after account selection;
-- exact-prefix source fingerprinting and a verbatim live tail;
-- committed checkpoint state separate from in-flight candidates;
-- explicit old-chain invalidation and post-checkpoint chain restart;
-- strict bounded opaque item validation and ciphertext-safe observability;
-- pre-output fail-open with hard-limit fail-closed behavior;
-- deterministic emulators plus environment-gated live verification;
-- no canonical/public/core contract changes.
+Each unknown has deterministic fail-open behavior and an environment-gated live test.
 
 ## Complexity and Risk
 
-- **Effort: L (1–2 weeks)** — multiple connector subsystems, four execution variants (static/managed × HTTP/WS), new state lifecycle, protocol parsing, accounting, and broad tests.
-- **Risk: Medium-High** — the architecture path is clear, but live backend acceptance, opaque lineage compatibility, token economics, and continuation interaction require direct evidence.
+- **Effort: XL** — multiple modules, stateful provider workflow, feature/connector integration, transport/account matrix, and quality harness.
+- **Risk: High** — opaque provider-bound state, live endpoint behavior, concurrency, winner ownership, and quality claims.
+- **Risk controls:** default-off compaction, explicit reasoning rule, continuity marker, process-local bounded state, exact prefix checks, live gates, cooldown, full-history fallback, and separate default-on review.
+
+## Requirements Gap Review Result
+
+The requirements were corrected to cover:
+
+- automatic surfaced reasoning retention;
+- unconditional encrypted-reasoning request under eligible continuity;
+- action-level reasoning/tool ordering;
+- exact native compaction history;
+- explicit response-ID scope;
+- companion feature configuration;
+- four-mode quality evaluation; and
+- already-implemented PR #235 work as a brownfield baseline rather than future tasks.
+
+No unresolved requirement gap remains. Proceed to design with the hybrid approach.
