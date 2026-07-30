@@ -184,6 +184,30 @@ func jsonRPCIDEqual(id any, want int64) bool {
 	}
 }
 
+func formatACPError(errObj map[string]any) string {
+	message := "unknown error"
+	if raw, ok := errObj["message"].(string); ok && strings.TrimSpace(raw) != "" {
+		message = strings.TrimSpace(raw)
+	}
+
+	var detail string
+	switch data := errObj["data"].(type) {
+	case string:
+		detail = strings.TrimSpace(data)
+	case map[string]any:
+		for _, key := range []string{"error", "message", "details"} {
+			if raw, ok := data[key].(string); ok && strings.TrimSpace(raw) != "" {
+				detail = strings.TrimSpace(raw)
+				break
+			}
+		}
+	}
+	if detail != "" && !strings.Contains(strings.ToLower(message), strings.ToLower(detail)) {
+		return message + ": " + detail
+	}
+	return message
+}
+
 // parseNDJSONLine maps one NDJSON line to lipapi events (session/update, terminal prompt result, errors).
 func parseNDJSONLine(ctx context.Context, o SessionUpdateMapperOptions, line string, promptRPCID int64) ([]lipapi.Event, error) {
 	probe, err := decodeProbeLine(line)
@@ -192,12 +216,8 @@ func parseNDJSONLine(ctx context.Context, o SessionUpdateMapperOptions, line str
 	}
 
 	if errObj, ok := probe["error"].(map[string]any); ok && probe["method"] == nil {
-		msg := "unknown error"
-		if m, ok := errObj["message"].(string); ok && m != "" {
-			msg = m
-		}
 		return []lipapi.Event{
-			{Kind: lipapi.EventError, ErrorMessage: msg},
+			{Kind: lipapi.EventError, ErrorMessage: formatACPError(errObj)},
 			{Kind: lipapi.EventResponseFinished},
 		}, nil
 	}
@@ -223,12 +243,8 @@ func parseNDJSONLine(ctx context.Context, o SessionUpdateMapperOptions, line str
 	}
 
 	if errObj, ok := probe["error"].(map[string]any); ok {
-		msg := "unknown error"
-		if m, ok := errObj["message"].(string); ok && m != "" {
-			msg = m
-		}
 		return []lipapi.Event{
-			{Kind: lipapi.EventError, ErrorMessage: msg},
+			{Kind: lipapi.EventError, ErrorMessage: formatACPError(errObj)},
 			{Kind: lipapi.EventResponseFinished},
 		}, nil
 	}
