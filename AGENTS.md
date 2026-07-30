@@ -10,7 +10,6 @@
 ## Source Of Truth
 
 - Steering is durable project memory: `.kiro/steering/`.
-- EchoesVault is the OKF-compatible compiled knowledge base: start at `EchoesVault/index.md`, then read targeted pages in `EchoesVault/pages/` before changing documented concepts.
 - Fast package map: `.kiro/steering/structure.md`.
 - API/translation rules: `.kiro/steering/api-standards.md`.
 - Routing/failover/B2BUA rules: `.kiro/steering/routing-and-orchestration.md`.
@@ -30,15 +29,6 @@
 
 Keep `main` branch clean. It should be only a PR merge receiver, never a merge donor. 
 Each time you start work on some fixes or implementation of new features create a new local worktree based on `main` with adequatly named fix/spec/feat branch and work there, NOT ON MAIN.
-
-## OKF Knowledge Base
-
-- Treat `EchoesVault/pages/` as an Open Knowledge Format concept bundle: one concept per Markdown file with YAML frontmatter and required `type`.
-- Use `EchoesVault/index.md` for progressive discovery; keep new page entries in `- [[filename]]: description` format.
-- Prefer normal Markdown links inside concept bodies; the `[[filename]]` format is reserved for the EchoesVault index convention.
-- Read relevant EchoesVault pages before editing documented architecture, APIs, routing, plugins, testing policy, or agent workflow.
-- Use EchoesVault tools when available: `echoes_search_vault_pages` for lookup, `echoes_create_or_update_page` for page writes, `echoes_append_to_daily_log` after completed tasks or durable decisions.
-- Source truth still flows from `.kiro/steering/`, `AGENTS.md`, code, tests, and `docs/`; update EchoesVault when compiled knowledge becomes stale.
 
 ## Skill Loading
 

@@ -34,7 +34,7 @@ help:
 	@echo "  make isolated-root-qa - GOWORK=off QA on a temp root copy without connectors/support/Node/artifacts"
 	@echo "  make installed-plugin-smoke - one lipstd binary; install release artifacts; same-binary inspect/doctor/invoke"
 	@echo "  make docs-check      - backend-plugin authoring/operator/example documentation tests"
-	@echo "  make knowledge-check - EchoesVault index/pages + steering/ADR hybrid consistency"
+	@echo "  make knowledge-check - steering/ADR hybrid consistency"
 	@echo "  make example-config-check - operator/example YAML + config/examples bootstrap inspect"
 	@echo "  make backend-plugin-security-checks - executable-plugin threat-model adversarial + bounded fuzz"
 	@echo "  make backend-plugin-cross-platform-qa - connector platform matrix compile/package + native lifecycle gates"
@@ -403,7 +403,7 @@ backend-plugin-release-gates-static:
 backend-plugin-release-gates: backend-plugin-release-gates-static
 	$(GO) run ./tools/backendplugin/release_gates -root . -out .golip-release-gates-report.json -mode=full
 
-# EchoesVault index/pages + steering/ADR hybrid consistency (Phase 9.1).
+# Steering/ADR hybrid consistency (Phase 9.1).
 knowledge-check:
 	$(GO) test $(GO_TEST_FLAGS) ./docs/knowledge/ -run 'TestKnowledge_'
 
