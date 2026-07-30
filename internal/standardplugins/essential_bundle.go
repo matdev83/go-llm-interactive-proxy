@@ -6,6 +6,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/alibabatokenplanintl"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
@@ -20,6 +21,7 @@ var EssentialBackendKinds = []string{
 	openairesponses.ID,
 	openailegacy.ID,
 	anthropic.ID,
+	alibabatokenplanintl.ID,
 	gemini.ID,
 	bedrock.ID,
 	CustomOpenAIResponsesCompatibleID,
@@ -44,6 +46,9 @@ func EssentialBackendBundle(keys UpstreamAPIKeys) Bundle {
 		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
 		{ID: anthropic.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendAnthropic(n, upstream, keys, deps.Identity)
+		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
+		{ID: alibabatokenplanintl.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
+			return backendAlibabaTokenPlanIntl(n, upstream, keys, deps.Identity)
 		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
 		{ID: gemini.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendGemini(n, upstream, keys, deps.Identity)

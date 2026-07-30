@@ -50,12 +50,26 @@ func resolveModel(cand routing.AttemptCandidate, call lipapi.Call) string {
 	return ""
 }
 
-// ParamsForCall builds an Anthropic message create payload from a canonical call.
+// ParamsForCall builds an Anthropic message create payload from a canonical call
+// using the default Anthropic behavior (no role normalization, no model
+// normalization). It is retained for callers and tests that exercise the shared
+// protocol directly; the runtime path uses paramsForCall.
 func ParamsForCall(call *lipapi.Call, cand routing.AttemptCandidate) (anthropic.MessageNewParams, error) {
+	return paramsForCall(call, cand, false, nil)
+}
+
+// paramsForCall builds the wire payload, applying optional connector-specific
+// behavior: normalizeModel rewrites the resolved model (e.g. stripping a
+// provider namespace) and normalizeRoles coerces non-system/non-tool messages to
+// user for strict endpoints such as Alibaba Token Plan.
+func paramsForCall(call *lipapi.Call, cand routing.AttemptCandidate, normalizeRoles bool, normalizeModel func(string) string) (anthropic.MessageNewParams, error) {
 	if call == nil {
 		return anthropic.MessageNewParams{}, fmt.Errorf("anthropic: nil call")
 	}
 	model := resolveModel(cand, *call)
+	if normalizeModel != nil {
+		model = normalizeModel(model)
+	}
 	if model == "" {
 		return anthropic.MessageNewParams{}, fmt.Errorf("anthropic: model is required (route candidate or %s extension)", extModelJSONKey)
 	}
@@ -65,7 +79,7 @@ func ParamsForCall(call *lipapi.Call, cand routing.AttemptCandidate) (anthropic.
 		maxTok = int64(*call.Options.MaxOutputTokens)
 	}
 
-	msgs, err := buildAnthropicMessages(call)
+	msgs, err := buildAnthropicMessagesWithRolePolicy(call, normalizeRoles)
 	if err != nil {
 		return anthropic.MessageNewParams{}, fmt.Errorf("anthropic: build messages: %w", err)
 	}
@@ -98,6 +112,22 @@ func ParamsForCall(call *lipapi.Call, cand routing.AttemptCandidate) (anthropic.
 	}
 
 	return p, nil
+}
+
+// thinkingRequestOptions maps a reasoning-effort hint onto Alibaba Token Plan's
+// Anthropic-compatible thinking switch. "none" disables thinking; any other
+// non-empty value enables it. When enabled is false (the connector did not opt
+// in) or effort is empty, no option is returned and the provider default is left
+// unchanged. The effort name only selects on/off, not graded intensity.
+func thinkingRequestOptions(effort string, enabled bool) []option.RequestOption {
+	if !enabled || strings.TrimSpace(effort) == "" {
+		return nil
+	}
+	thinkingType := "enabled"
+	if strings.EqualFold(strings.TrimSpace(effort), "none") {
+		thinkingType = "disabled"
+	}
+	return []option.RequestOption{option.WithJSONSet("thinking", map[string]string{"type": thinkingType})}
 }
 
 func buildSystemBlocks(call *lipapi.Call) []anthropic.TextBlockParam {
@@ -133,11 +163,27 @@ func buildSystemBlocks(call *lipapi.Call) []anthropic.TextBlockParam {
 	return out
 }
 
+// buildAnthropicMessages builds message params with default role handling.
 func buildAnthropicMessages(call *lipapi.Call) ([]anthropic.MessageParam, error) {
+	return buildAnthropicMessagesWithRolePolicy(call, false)
+}
+
+// buildAnthropicMessagesWithRolePolicy builds message params, optionally
+// coercing messages whose role is neither system nor a structured tool exchange
+// (assistant tool_use / tool tool_result) to user, for providers that reject
+// other roles.
+func buildAnthropicMessagesWithRolePolicy(call *lipapi.Call, normalizeRoles bool) ([]anthropic.MessageParam, error) {
 	out := make([]anthropic.MessageParam, 0, len(call.Messages))
 	for _, m := range call.Messages {
 		if m.Role == lipapi.RoleSystem {
 			continue
+		}
+		if normalizeRoles && m.Role != lipapi.RoleUser {
+			structuredToolMessage := (m.Role == lipapi.RoleAssistant && messageHasPartKind(m, lipapi.PartJSON)) ||
+				(m.Role == lipapi.RoleTool && messageHasPartKind(m, lipapi.PartToolResult))
+			if !structuredToolMessage {
+				m.Role = lipapi.RoleUser
+			}
 		}
 		u, err := messageToParam(m)
 		if err != nil {
@@ -146,6 +192,16 @@ func buildAnthropicMessages(call *lipapi.Call) ([]anthropic.MessageParam, error)
 		out = append(out, u)
 	}
 	return out, nil
+}
+
+// messageHasPartKind reports whether any part of m has the given kind.
+func messageHasPartKind(m lipapi.Message, kind lipapi.PartKind) bool {
+	for _, part := range m.Parts {
+		if part.Kind == kind {
+			return true
+		}
+	}
+	return false
 }
 
 func messageToParam(m lipapi.Message) (anthropic.MessageParam, error) {

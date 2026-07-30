@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropics/anthropic-sdk-go"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
@@ -20,16 +22,20 @@ import (
 )
 
 type Config struct {
-	BackendID         string
-	BaseURL           string
-	APIKey            string
-	APIKeys           []string
-	Credentials       []credpool.Credential
-	HTTPClient        *http.Client
-	SDKMaxRetries     *int
-	RateLimitFallback time.Duration
-	ModelInventory    modelinventory.Provider
-	ProviderCounter   accountingapp.ProviderCounter
+	BackendID          string
+	BaseURL            string
+	APIKey             string
+	APIKeys            []string
+	Credentials        []credpool.Credential
+	HTTPClient         *http.Client
+	SDKMaxRetries      *int
+	RateLimitFallback  time.Duration
+	ModelInventory     modelinventory.Provider
+	ProviderCounter    accountingapp.ProviderCounter
+	NormalizeRoles     bool
+	NormalizeModel     func(string) string
+	ThinkingFromEffort bool
+	OmitToolChoice     bool
 }
 
 const defaultRateLimitFallback = 60 * time.Second
@@ -65,7 +71,10 @@ func NewBackend(cfg Config) execbackend.Backend {
 			if ctx == nil {
 				return nil, fmt.Errorf("%s: %w", id, lipapi.ErrNilContext)
 			}
-			p, err := ParamsForCall(&call, cand)
+			p, err := paramsForCall(&call, cand, cfg.NormalizeRoles, cfg.NormalizeModel)
+			if cfg.OmitToolChoice {
+				p.ToolChoice = anthropic.ToolChoiceUnionParam{}
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -82,7 +91,8 @@ func NewBackend(cfg Config) execbackend.Backend {
 					return nil, fmt.Errorf("%s: %w", id, aerr)
 				}
 				cli := newSDKClientForSecret(cfg, cred.Secret)
-				stream := cli.Messages.NewStreaming(ctx, p)
+				requestOpts := thinkingRequestOptions(call.Options.ReasoningEffort, cfg.ThinkingFromEffort)
+				stream := cli.Messages.NewStreaming(ctx, p, requestOpts...)
 				es := newMessageStream(stream, id, call.MaxPendingWireEvents)
 				ev, rerr := es.Recv(ctx)
 				if rerr == nil {

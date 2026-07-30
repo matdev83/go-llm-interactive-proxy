@@ -3215,6 +3215,8 @@ internal/plugins/backends/anthropic/doc.go
 internal/plugins/backends/anthropic/integration_test.go
 internal/plugins/backends/anthropic/plugin.go
 internal/plugins/backends/anthropic/plugin_config_test.go
+internal/plugins/backends/alibabatokenplanintl/plugin.go
+internal/plugins/backends/alibabatokenplanintl/plugin_test.go
 internal/plugins/backends/bedrock/caps.go
 internal/plugins/backends/bedrock/caps_test.go
 internal/plugins/backends/bedrock/classify_bedrock.go
@@ -3734,6 +3736,8 @@ internal/safecast/int_test.go
 internal/standardplugins/backend_model_inventory_config_test.go
 internal/standardplugins/backend_prefix_inventory_test.go
 internal/standardplugins/backend_security_test.go
+internal/standardplugins/backends_alibaba_token_plan_intl.go
+internal/standardplugins/backends_alibaba_token_plan_intl_test.go
 internal/standardplugins/backends_anthropic.go
 internal/standardplugins/backends_bedrock.go
 internal/standardplugins/backends_bedrock_security_test.go
@@ -3765,6 +3769,9 @@ internal/standardplugins/identity_transport_test.go
 internal/standardplugins/keys.go
 internal/standardplugins/localstub_build_test.go
 internal/standardplugins/modelinventory_yaml.go
+internal/standardplugins/persistent_env_other.go
+internal/standardplugins/persistent_env_windows.go
+internal/standardplugins/persistent_env_windows_test.go
 internal/standardplugins/reasoning_preservation_inject.go
 internal/standardplugins/reasoning_preservation_optout_test.go
 internal/standardplugins/registry_zero_test.go
