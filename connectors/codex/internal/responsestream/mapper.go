@@ -91,6 +91,20 @@ func (m *Mapper) ReasoningDelta(delta string) error {
 	return m.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: delta})
 }
 
+// ReasoningPart enqueues one complete dialect-tagged reasoning artifact.
+func (m *Mapper) ReasoningPart(part *lipapi.ReasoningPart) error {
+	if part == nil {
+		return nil
+	}
+	if err := m.ensureResponseStarted(); err != nil {
+		return err
+	}
+	if err := m.ensureMessageStarted(); err != nil {
+		return err
+	}
+	return m.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningPart, Reasoning: part})
+}
+
 func (m *Mapper) BeginCompleted() error {
 	if err := m.ensureResponseStarted(); err != nil {
 		return err

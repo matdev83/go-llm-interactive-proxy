@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/reasoning"
+	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/responseitem"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/responsestream"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/safecast"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -26,6 +27,8 @@ type codexEventMapper struct {
 	reasoningSummarySanitizer reasoning.SummarySanitizer
 	responseID                string
 	outputItems               []inputItem
+	outputItemIndexes         map[string]int
+	outputItemPayloads        map[string]string
 	toolCallIDs               map[string]string
 	provisional               map[string]bool
 	terminal                  bool
@@ -33,9 +36,11 @@ type codexEventMapper struct {
 
 func newCodexEventMapper(maxPending int) *codexEventMapper {
 	m := &codexEventMapper{
-		pending:     streampump.NewPendingEventQueue(maxPending),
-		toolCallIDs: make(map[string]string),
-		provisional: make(map[string]bool),
+		pending:            streampump.NewPendingEventQueue(maxPending),
+		toolCallIDs:        make(map[string]string),
+		provisional:        make(map[string]bool),
+		outputItemIndexes:  make(map[string]int),
+		outputItemPayloads: make(map[string]string),
 	}
 	m.mapper = responsestream.New(&m.pending)
 	return m
@@ -103,7 +108,10 @@ func (m *codexEventMapper) handleReasoningDelta(data string, stripEmptyHTMLComme
 			return nil
 		}
 	}
-	return m.mapper.ReasoningDelta(ev.Delta)
+	// Codex requests encrypted reasoning and emits the complete item at
+	// output_item.done. Keep deltas mapper-private so preservation captures one
+	// exact Responses item rather than an additional lossy chat-text artifact.
+	return nil
 }
 
 func looksLikeToolProtocolText(delta string) bool {
@@ -158,14 +166,7 @@ func (m *codexEventMapper) handleResponseCompleted(data string) error {
 		}
 	}
 	for _, item := range ev.Response.Output {
-		if item.Type != "function_call" {
-			continue
-		}
-		if err := m.mapper.EmitCompletedToolCall(
-			codexCanonicalToolCallID(item.ID, item.CallID),
-			item.Name,
-			item.Arguments,
-		); err != nil {
+		if err := m.handleCompletedOutputItem(item); err != nil {
 			return err
 		}
 	}
@@ -183,19 +184,9 @@ func (m *codexEventMapper) handleResponseCompleted(data string) error {
 }
 
 type completedResponse struct {
-	ID     string `json:"id"`
-	Output []struct {
-		Type      string `json:"type"`
-		ID        string `json:"id"`
-		CallID    string `json:"call_id"`
-		Name      string `json:"name"`
-		Arguments string `json:"arguments"`
-		Content   []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-	} `json:"output"`
-	Usage *completedUsage `json:"usage"`
+	ID     string            `json:"id"`
+	Output []json.RawMessage `json:"output"`
+	Usage  *completedUsage   `json:"usage"`
 }
 
 type completedUsage struct {
@@ -206,7 +197,16 @@ type completedUsage struct {
 
 func (r completedResponse) outputText() string {
 	var b strings.Builder
-	for _, item := range r.Output {
+	for _, raw := range r.Output {
+		var item struct {
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		}
+		if json.Unmarshal(raw, &item) != nil {
+			continue
+		}
 		for _, c := range item.Content {
 			if c.Type == "output_text" {
 				b.WriteString(c.Text)
@@ -252,30 +252,79 @@ func completedUsageValue(value *int64) int {
 
 func (m *codexEventMapper) handleOutputItemDone(data string) error {
 	var ev struct {
-		Item struct {
-			Type      string `json:"type"`
-			ID        string `json:"id"`
-			CallID    string `json:"call_id"`
-			Name      string `json:"name"`
-			Arguments string `json:"arguments"`
-		} `json:"item"`
+		Item json.RawMessage `json:"item"`
 	}
 	if err := json.Unmarshal([]byte(data), &ev); err != nil {
 		return fmt.Errorf("%s: malformed stream event: %w", ID, err)
 	}
-	if ev.Item.Type != "function_call" {
-		return nil
+	return m.handleCompletedOutputItem(ev.Item)
+}
+
+func (m *codexEventMapper) handleCompletedOutputItem(raw json.RawMessage) error {
+	var item struct {
+		Type      string `json:"type"`
+		ID        string `json:"id"`
+		CallID    string `json:"call_id"`
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
 	}
-	m.rememberToolCallID(ev.Item.ID, ev.Item.CallID)
-	m.remapProvisionalToolCall(ev.Item.ID, ev.Item.CallID)
-	if item, ok := outputFunctionCallInputItem(ev.Item.Type, ev.Item.ID, ev.Item.CallID, ev.Item.Name, ev.Item.Arguments); ok {
-		m.outputItems = append(m.outputItems, item)
+	if err := json.Unmarshal(raw, &item); err != nil {
+		return fmt.Errorf("%s: malformed output item: %w", ID, err)
 	}
-	return m.mapper.FinishToolCallArguments(
-		codexCanonicalToolCallID(ev.Item.ID, ev.Item.CallID),
-		ev.Item.Name,
-		ev.Item.Arguments,
-	)
+	key := item.Type + "\x00" + item.ID
+	if item.ID == "" {
+		key = item.Type + "\x00" + string(raw)
+	}
+	switch item.Type {
+	case "function_call":
+		if _, seen := m.outputItemIndexes[key]; seen {
+			return nil
+		}
+		m.rememberToolCallID(item.ID, item.CallID)
+		m.remapProvisionalToolCall(item.ID, item.CallID)
+		output, ok := outputFunctionCallInputItem(item.Type, item.ID, item.CallID, item.Name, item.Arguments)
+		if !ok {
+			return nil
+		}
+		m.outputItemIndexes[key] = len(m.outputItems)
+		m.outputItems = append(m.outputItems, output)
+		return m.mapper.FinishToolCallArguments(codexCanonicalToolCallID(item.ID, item.CallID), item.Name, item.Arguments)
+	case "reasoning":
+		opaque, err := responseitem.CanonizeReasoningItemOpaque(raw)
+		if err != nil {
+			return fmt.Errorf("%s: invalid reasoning output item: %w", ID, err)
+		}
+		payload := string(opaque)
+		if previous, seen := m.outputItemPayloads[key]; seen && previous == payload {
+			return nil
+		}
+		retained := opaqueResponseItem{raw: append(json.RawMessage(nil), opaque...)}
+		if index, seen := m.outputItemIndexes[key]; seen {
+			m.outputItems[index] = retained
+		} else {
+			m.outputItemIndexes[key] = len(m.outputItems)
+			m.outputItems = append(m.outputItems, retained)
+		}
+		m.outputItemPayloads[key] = payload
+		return m.mapper.ReasoningPart(&lipapi.ReasoningPart{
+			Dialect: lipapi.ReasoningDialectOpenAIResponsesItemV1,
+			Opaque:  opaque,
+		})
+	case "compaction":
+		payload := string(raw)
+		if previous, seen := m.outputItemPayloads[key]; seen && previous == payload {
+			return nil
+		}
+		retained := opaqueResponseItem{raw: append(json.RawMessage(nil), raw...)}
+		if index, seen := m.outputItemIndexes[key]; seen {
+			m.outputItems[index] = retained
+		} else {
+			m.outputItemIndexes[key] = len(m.outputItems)
+			m.outputItems = append(m.outputItems, retained)
+		}
+		m.outputItemPayloads[key] = payload
+	}
+	return nil
 }
 
 func outputFunctionCallInputItem(itemType, id, callID, name, arguments string) (functionCallItem, bool) {

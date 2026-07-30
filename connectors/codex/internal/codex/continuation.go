@@ -300,7 +300,7 @@ func sliceInputAfterReplayedOutputItems(prior []string, outputItems int, current
 	idx := len(prior)
 	skipped := 0
 	for idx < len(current) && skipped < outputItems {
-		if _, ok := current[idx].(functionCallItem); !ok {
+		if !isReplayableOutputItem(current[idx]) {
 			break
 		}
 		idx++
@@ -313,6 +313,15 @@ func sliceInputAfterReplayedOutputItems(prior []string, outputItems int, current
 		return nil, false
 	}
 	return append([]inputItem(nil), current[idx:]...), true
+}
+
+func isReplayableOutputItem(item inputItem) bool {
+	switch item.(type) {
+	case functionCallItem, opaqueResponseItem:
+		return true
+	default:
+		return false
+	}
 }
 
 func fingerprintInputItems(items []inputItem) []string {

@@ -356,15 +356,21 @@ func partFromProto(p *backendpluginv1.Part) (Part, error) {
 	if err != nil {
 		return Part{}, err
 	}
+	reasoningOpaque, err := RawJSONFromProto(p.GetReasoningOpaque())
+	if err != nil {
+		return Part{}, err
+	}
 	return Part{
-		Kind:          kind,
-		Text:          optString(p.Text),
-		ImageRef:      optString(p.ImageRef),
-		FileRef:       optString(p.FileRef),
-		ReasoningText: optString(p.ReasoningText),
-		ToolArgsJSON:  raw,
-		ToolCallID:    optString(p.ToolCallId),
-		ToolName:      optString(p.ToolName),
+		Kind:             kind,
+		Text:             optString(p.Text),
+		ImageRef:         optString(p.ImageRef),
+		FileRef:          optString(p.FileRef),
+		ReasoningText:    optString(p.ReasoningText),
+		ReasoningDialect: optString(p.ReasoningDialect),
+		ReasoningOpaque:  reasoningOpaque,
+		ToolArgsJSON:     raw,
+		ToolCallID:       optString(p.ToolCallId),
+		ToolName:         optString(p.ToolName),
 	}, nil
 }
 
@@ -374,14 +380,16 @@ func partToProto(p Part) (*backendpluginv1.Part, error) {
 		return nil, err
 	}
 	return &backendpluginv1.Part{
-		Kind:          kind,
-		Text:          optString(p.Text),
-		ImageRef:      optString(p.ImageRef),
-		FileRef:       optString(p.FileRef),
-		ReasoningText: optString(p.ReasoningText),
-		ToolArgsJson:  RawJSONToProto(p.ToolArgsJSON),
-		ToolCallId:    optString(p.ToolCallID),
-		ToolName:      optString(p.ToolName),
+		Kind:             kind,
+		Text:             optString(p.Text),
+		ImageRef:         optString(p.ImageRef),
+		FileRef:          optString(p.FileRef),
+		ReasoningText:    optString(p.ReasoningText),
+		ReasoningDialect: optString(p.ReasoningDialect),
+		ReasoningOpaque:  RawJSONToProto(p.ReasoningOpaque),
+		ToolArgsJson:     RawJSONToProto(p.ToolArgsJSON),
+		ToolCallId:       optString(p.ToolCallID),
+		ToolName:         optString(p.ToolName),
 	}, nil
 }
 
@@ -883,18 +891,20 @@ func CanonicalEventFromProto(p *backendpluginv1.CanonicalEvent) (*CanonicalEvent
 		return nil, err
 	}
 	return &CanonicalEvent{
-		Kind:         kind,
-		MessageIndex: optInt32(p.MessageIndex),
-		Delta:        optString(p.Delta),
-		Signature:    optString(p.Signature),
-		Opaque:       append([]byte(nil), p.GetOpaque()...),
-		ToolCallID:   optString(p.ToolCallId),
-		ToolName:     optString(p.ToolName),
-		Usage:        usage,
-		Warning:      optString(p.Warning),
-		Error:        pe,
-		ImageRef:     optString(p.ImageRef),
-		FileRef:      optString(p.FileRef),
+		Kind:             kind,
+		MessageIndex:     optInt32(p.MessageIndex),
+		Delta:            optString(p.Delta),
+		Signature:        optString(p.Signature),
+		Opaque:           append([]byte(nil), p.GetOpaque()...),
+		ToolCallID:       optString(p.ToolCallId),
+		ToolName:         optString(p.ToolName),
+		Usage:            usage,
+		Warning:          optString(p.Warning),
+		Error:            pe,
+		ImageRef:         optString(p.ImageRef),
+		FileRef:          optString(p.FileRef),
+		ReasoningDialect: optString(p.ReasoningDialect),
+		ReasoningOpaque:  append([]byte(nil), p.GetReasoningOpaque()...),
 	}, nil
 }
 
@@ -919,18 +929,20 @@ func CanonicalEventToProto(e *CanonicalEvent) (*backendpluginv1.CanonicalEvent, 
 		return nil, err
 	}
 	return &backendpluginv1.CanonicalEvent{
-		Kind:         kind,
-		MessageIndex: optInt32(e.MessageIndex),
-		Delta:        optString(e.Delta),
-		Signature:    optString(e.Signature),
-		Opaque:       append([]byte(nil), e.Opaque...),
-		ToolCallId:   optString(e.ToolCallID),
-		ToolName:     optString(e.ToolName),
-		Usage:        usage,
-		Warning:      optString(e.Warning),
-		Error:        pe,
-		ImageRef:     optString(e.ImageRef),
-		FileRef:      optString(e.FileRef),
+		Kind:             kind,
+		MessageIndex:     optInt32(e.MessageIndex),
+		Delta:            optString(e.Delta),
+		Signature:        optString(e.Signature),
+		Opaque:           append([]byte(nil), e.Opaque...),
+		ToolCallId:       optString(e.ToolCallID),
+		ToolName:         optString(e.ToolName),
+		Usage:            usage,
+		Warning:          optString(e.Warning),
+		Error:            pe,
+		ImageRef:         optString(e.ImageRef),
+		FileRef:          optString(e.FileRef),
+		ReasoningDialect: optString(e.ReasoningDialect),
+		ReasoningOpaque:  append([]byte(nil), e.ReasoningOpaque...),
 	}, nil
 }
 

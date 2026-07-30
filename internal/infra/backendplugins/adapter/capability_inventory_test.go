@@ -18,6 +18,35 @@ type flakyInventorySession struct {
 	fail atomic.Bool
 }
 
+type reasoningReplaySession struct {
+	minimalSession
+}
+
+func (s *reasoningReplaySession) Resolve(context.Context, *string) (backendplugin.ResolvedProfile, error) {
+	return backendplugin.ResolvedProfile{
+		Capabilities:             backendplugin.CapabilitySummary{Streaming: true, ReasoningReplay: true},
+		ReasoningReplaySupported: true,
+	}, nil
+}
+
+func TestCapability_ReasoningReplayReturnsExactResponsesDialect(t *testing.T) {
+	t.Parallel()
+
+	sess := &reasoningReplaySession{}
+	profile, err := sess.Resolve(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	br := adapter.Build(sess, profile, adapter.Options{InstanceID: "reasoning"})
+	if br.Backend.ResolveReplaySupport == nil {
+		t.Fatal("expected replay support resolver")
+	}
+	support := br.Backend.ResolveReplaySupport(context.Background(), testCall(), testCand())
+	if len(support.Dialects) != 1 || support.Dialects[0] != lipapi.ReasoningDialectOpenAIResponsesItemV1 {
+		t.Fatalf("dialects = %v", support.Dialects)
+	}
+}
+
 func (s *flakyInventorySession) Resolve(context.Context, *string) (backendplugin.ResolvedProfile, error) {
 	return backendplugin.ResolvedProfile{
 		Capabilities:             backendplugin.CapabilitySummary{Streaming: true},
