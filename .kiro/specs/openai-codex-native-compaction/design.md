@@ -2,264 +2,294 @@
 
 ## Overview
 
-This feature adds an opt-in native context-compaction layer to the direct `openai-codex` backend connector. Long-running clients may continue sending complete replayed history, but the connector can replace an exact old-history prefix with a smaller OpenAI-native checkpoint composed of retained user context and an opaque `type: "compaction"` item. The connector never decrypts or interprets `encrypted_content`; it validates the envelope, binds it to compatible lineage, and replays it only to the ChatGPT Codex backend that produced it.
+This feature adds an experimental native-context workflow for the direct `openai-codex` backend. It combines two independent mechanisms that OpenAI uses in Codex-style agent loops:
 
-The design is intentionally connector-private. It does not add a canonical compaction operation or widen public APIs. It reuses the existing OpenAI Responses reasoning dialect for exact reasoning fidelity, existing connector-local request item abstractions, existing session/account affinity, and the WebSocket continuation pattern. Native compaction runs synchronously before client-visible output and is disabled by default.
+1. **exact encrypted reasoning continuity** across model invocations; and
+2. **Responses Compaction V2** when the reasoning-complete history approaches model limits.
 
-The principal safety model is: **full client history remains authoritative; a checkpoint is only an optimization over an exact matching prefix**. Any mismatch, expiry, incompatibility, or rejected compaction candidate falls back to the unmodified history when the hard context limit permits.
+The implementation does not decrypt or interpret private reasoning. It requests `reasoning.encrypted_content`, preserves exact OpenAI Responses reasoning items through the existing canonical dialect, restores missing reasoning through the existing surfaced-output reasoning-preservation feature, and compacts only after that restoration has completed.
+
+Native compaction remains disabled by default. Exact client-supplied reasoning replay introduced by PR #235 remains available regardless of compaction. Automatic reasoning restoration is controlled by the existing reasoning-preservation feature through an explicit Codex backend rule. Full client history remains the authoritative fallback.
 
 ### Goals
 
-- Reduce model-visible context and serialized request size for long direct Codex sessions.
-- Preserve opaque OpenAI reasoning and compaction items without decryption or lossy text conversion.
-- Keep checkpoints isolated by connector instance, session, account, model, and static request shape.
-- Preserve the latest live user/tool turn verbatim.
-- Integrate safely with prompt caching, managed OAuth rotation, and WebSocket continuation.
-- Keep the feature configurable, bounded, observable, and disabled by default.
-- Produce implementation and live evidence required for any later default-on proposal.
+- Match Codex CLI's durable exact-item history model as closely as the proxy architecture permits.
+- Preserve reasoning → action → observation ordering across client-executed tool loops.
+- Ensure compaction summarizes reasoning-complete native history.
+- Keep winner-owned reasoning state outside the connector.
+- Keep provider-specific compaction and opaque checkpoints inside the connector.
+- Preserve HTTP/WebSocket and static/managed-account parity.
+- Make quality evidence a release criterion.
+- Keep compaction reversible and disabled by default.
 
 ### Non-Goals
 
-- Client-facing `/responses/compact`.
-- A new canonical ordered-item model or context-compaction operation.
-- Changes to routing, failover, secure-session authority, or the backend plugin ABI.
+- Client-facing compaction endpoints.
+- New generic canonical compaction items or operations.
+- Decryption, display, editing, or semantic inspection of private reasoning.
+- Automatic cross-turn HTTP `previous_response_id`.
+- Durable/distributed reasoning or checkpoint storage.
+- Cross-account, cross-model, or cross-provider opaque-state portability.
 - Changes to `openai-codex-app-server`.
-- Legacy `/responses/compact` support in the initial release.
-- Background or detached compaction.
-- Cross-account, cross-model, cross-provider, or cross-connector checkpoint reuse.
-- Durable checkpoint storage across restart.
-- Decryption, display, editing, or semantic inspection of opaque items.
-- Automatic default enablement.
+- Automatic default-on promotion.
 
 ## Boundary Commitments
 
 ### This Spec Owns
 
-- Direct Codex connector configuration for native compaction.
-- Connector-private model metadata needed for planning.
-- Exact Codex reasoning-item ingestion and replay using the existing canonical dialect.
-- Connector-private compaction trigger/output wire items.
-- Safe split planning between compactable history and the latest live turn.
-- Pre-output V2 compaction request execution and strict collection.
-- Account/model/static-shape-bound in-memory checkpoints.
-- Exact-prefix request rewriting and old-chain invalidation.
-- Compaction usage, metrics, bounded diagnostics, and privacy controls.
-- Deterministic and live validation for this feature.
+- direct Codex native-context configuration;
+- exact encrypted-reasoning request behavior;
+- explicit Codex integration with `reasoning-output-preservation`;
+- the internal continuity eligibility marker;
+- action-level exact-history construction for compaction;
+- model-aware compaction planning;
+- Responses Compaction V2 request/collection;
+- connector-private checkpoint lifecycle;
+- continuation reset and fallback behavior;
+- usage, privacy, and four-mode quality evidence.
 
 ### Out of Boundary
 
-- Core/canonical product compaction semantics.
-- Generic OpenResponses item authority and standalone compaction.
-- Provider-independent checkpoint portability.
-- Changes to client protocol payloads or routes.
-- Changes to standard routing candidate eligibility.
-- Persistent secure state or distributed checkpoint coordination.
-- Compaction policy for other connectors.
-- App-server lifecycle or its upstream Codex-managed compaction.
+- generic reasoning-preservation architecture;
+- canonical item-authority migration;
+- generic OpenResponses compaction;
+- core routing/failover policy;
+- secure-session authority;
+- client frontend behavior;
+- provider-independent persistence;
+- app-server managed Codex history.
 
 ### Allowed Dependencies
 
-- Existing `pkg/lipapi` call, event, usage, and `ReasoningPart` contracts.
-- Existing OpenAI Responses reasoning item dialect and validators where import boundaries permit; otherwise a connector-local equivalent constrained to the same canonical envelope.
-- Existing connector-local token counter, continuation store patterns, HTTP/WebSocket transports, account store, and model catalog loader.
-- Standard library synchronization, JSON, context, HTTP, and time packages.
-- Existing connector test helpers and deterministic protocol emulators.
+- existing `lipapi.PartReasoning` and exact Responses reasoning dialect;
+- backend-plugin exact reasoning ABI from PR #235;
+- reasoning-preservation attempt transform, observer, store, and matching;
+- existing direct Codex HTTP/WS transports, account manager, continuation store, token estimator, and model catalog;
+- existing hook/call-extension support;
+- stdlib JSON, synchronization, context, time, and hashing.
 
 ### Revalidation Triggers
 
-Re-run design review and adjacent tests if implementation changes:
+Re-run design validation if implementation changes:
 
-- the canonical reasoning dialect or `EventReasoningPart`;
-- backend plugin ABI serialization;
-- managed OAuth selection/rotation;
-- WebSocket `previous_response_id` semantics;
+- canonical reasoning representation;
+- backend-plugin ABI;
+- attempt-transform order or surfaced-output observation point;
+- managed account selection/rotation;
+- WebSocket continuation authority;
 - prompt-cache identity;
+- no-retry-after-output;
 - provider usage accounting;
-- no-retry-after-output behavior;
-- connector process reload/shutdown ownership;
-- OpenResponses compaction ownership.
+- root/connector configuration ownership;
+- OpenResponses generic compaction ownership.
 
 ## Requirements Traceability
 
-| Requirement | Summary | Components | Interfaces | Flows |
-|---|---|---|---|---|
-| 1.1–1.7 | Explicit default-off configuration and lifecycle | NativeCompactionConfig, Runtime Owner | Config validation | Disabled path, runtime close |
-| 2.1–2.7 | Opaque reasoning/compaction fidelity | NativeItemCodec, Codex Event Mapper | Exact item validation/replay | Normal response capture, compaction capture |
-| 3.1–3.8 | Model-aware trigger and safe split | Catalog Metadata, CompactionPlanner, PayloadEstimator | Plan | Planning flow |
-| 4.1–4.9 | V2 request and checkpoint creation | CompactionClient, CompactionCollector, ReplacementBuilder | Compact | Compaction sequence |
-| 5.1–5.8 | Isolation, bounds, concurrency | CheckpointStore | Reserve/Get/Commit/Abort | Store state flow |
-| 6.1–6.8 | Exact-prefix rewrite and chain reset | CheckpointRewriter, ContinuationCoordinator | Rewrite/Invalidate | Reuse sequence |
-| 7.1–7.8 | Failure and streaming invariants | CompactionCoordinator, FailureCooldown | Prepare | Error flow |
-| 8.1–8.7 | Accounting, diagnostics, evidence | UsageAccumulator, Metrics, Diagnostics | Usage attachment | Completion flow |
-| 9.1–9.9 | Boundary safety and verification | Connector composition, test suites | Existing backend contract | All flows |
+| Requirement | Summary | Components | Flows |
+|---|---|---|---|
+| 1.1–1.10 | Configuration and modes | NativeContextConfig, config examples/tests | Disabled, ablation |
+| 2.1–2.10 | Request exact encrypted reasoning | RequestPolicy, NativeItemCodec | Normal request |
+| 3.1–3.12 | Surfaced reasoning continuity | Reasoning feature integration, marker | Observe/restore |
+| 4.1–4.10 | Action ordering | ExactHistoryBuilder, placement validation | Tool trajectory |
+| 5.1–5.10 | Metadata and planning | ModelProfile, Estimator, Planner | Plan |
+| 6.1–6.12 | V2 compaction | CompactionClient, Collector, ReplacementBuilder | Create checkpoint |
+| 7.1–7.12 | Isolation/reuse | CheckpointStore, Rewriter | Reuse |
+| 8.1–8.10 | Response-chain semantics | ContinuationCoordinator | HTTP/WS |
+| 9.1–9.12 | Failure/accounting/privacy | Coordinator, UsageDecorator, telemetry | Failure |
+| 10.1–10.15 | Verification/quality | Test harness and evaluation runner | Four-mode evidence |
 
 ## Architecture
 
 ### Existing Architecture Analysis
 
-The direct connector has four effective execution variants:
+The runtime already has the correct ownership split for reasoning:
 
-1. static credentials over HTTPS/SSE;
-2. static credentials over WebSocket;
-3. managed OAuth accounts over HTTPS/SSE;
-4. managed OAuth accounts over WebSocket.
+- the final-stream observer sees only surfaced output and stores reasoning artifacts;
+- the attempt transform restores reasoning on a candidate-local clone before backend open;
+- the direct Codex connector converts canonical calls to provider input;
+- the connector sees selected account/model and therefore owns provider-bound compaction;
+- the WebSocket continuation store optimizes repeated direct requests but is not durable conversation authority.
 
-Common request preparation currently builds one `Payload` before the static/managed transport branch. Managed execution then selects an account and may rotate accounts on authentication or rate-limit failures. WebSocket execution can mutate a request copy with `previous_response_id` and a delta input, but it retains a full-payload snapshot for rollback.
+PR #235 completed exact item transport, but the current request path still has two gaps:
 
-Native checkpoints cannot be applied globally before account selection because opaque state may be account-bound. The feature therefore introduces a per-attempt preparation stage after the effective account and model are known but before either HTTP request submission or WebSocket continuation trimming.
+1. encrypted reasoning is requested only when a reasoning object already exists; and
+2. native compaction does not exist.
 
-The current event mapper already sees raw SSE/WS output events. It emits canonical text/reasoning deltas and function calls but records only completed function-call items for continuation. The design extends raw completed-item capture while keeping canonical streaming behavior unchanged.
+The current no-tools input path also projects prior structured calls/outputs to text. That projection remains appropriate for ordinary generation safety, but compaction requires a separate exact-history view.
 
-### Architecture Pattern and Boundary Map
+### Selected Pattern
 
-Selected pattern: **connector-local anti-corruption layer with a bounded stateful optimization**.
+**Hybrid surfaced-state feature plus connector-local provider optimization.**
 
 ```mermaid
 graph TB
-    ClientCall[Canonical call]
-    CommonPrep[Common payload preparation]
-    AccountSelect[Account and model selection]
-    CompactionCoord[Native compaction coordinator]
+    Client[Client request]
+    Frontend[Frontend adapter]
+    Core[Core attempt orchestration]
+    Restore[Reasoning preservation transform]
+    Marker[Continuity marker]
+    Account[Codex account and model selection]
+    Coordinator[Native context coordinator]
+    History[Exact history builder]
     Planner[Compaction planner]
-    CheckpointStore[Checkpoint store]
-    CompactClient[Internal compaction client]
-    Rewrite[Checkpoint rewriter]
-    Continuation[WebSocket continuation]
-    NormalTransport[Normal HTTP or WebSocket transport]
-    CodexBackend[ChatGPT Codex backend]
-    EventMapper[Codex event mapper]
-    CanonicalStream[Canonical event stream]
+    Store[Checkpoint store]
+    Compact[Compaction client]
+    Normal[Normal Codex transport]
+    Mapper[Codex event mapper]
+    Observer[Surfaced reasoning observer]
+    Backend[ChatGPT Codex backend]
 
-    ClientCall --> CommonPrep
-    CommonPrep --> AccountSelect
-    AccountSelect --> CompactionCoord
-    CompactionCoord --> Planner
-    Planner --> CheckpointStore
-    Planner --> CompactClient
-    CompactClient --> CodexBackend
-    CompactClient --> CheckpointStore
-    CheckpointStore --> Rewrite
-    Rewrite --> Continuation
-    Continuation --> NormalTransport
-    NormalTransport --> CodexBackend
-    CodexBackend --> EventMapper
-    EventMapper --> CanonicalStream
-    EventMapper --> Continuation
-    EventMapper --> CheckpointStore
+    Client --> Frontend
+    Frontend --> Core
+    Core --> Restore
+    Restore --> Marker
+    Marker --> Account
+    Account --> Coordinator
+    Coordinator --> History
+    History --> Planner
+    Planner --> Store
+    Planner --> Compact
+    Compact --> Backend
+    Store --> Coordinator
+    Coordinator --> Normal
+    Normal --> Backend
+    Backend --> Mapper
+    Mapper --> Core
+    Core --> Observer
 ```
 
-Key decisions:
+### Ownership Decisions
 
-- The coordinator is invoked per selected account/model.
-- The planner and fingerprint logic are pure/testable.
-- The checkpoint store owns only committed optimization state; in-flight candidates use reservations.
-- The compaction client uses a private stream collector and never emits assistant content downstream.
-- The normal transport remains the sole producer of the client-visible stream.
-- The full prepared payload remains available for fail-open rollback.
+- **Reasoning observation/store:** reasoning-preservation feature.
+- **Reasoning wire codec:** direct Codex connector and existing shared exact dialect.
+- **Continuity marker:** feature-to-connector internal call extension.
+- **Exact compaction history:** direct connector, built from post-transform canonical call.
+- **Compaction checkpoints:** connector-private in-memory store.
+- **Response IDs:** existing connector continuation optimization.
+- **Quality evaluation:** repository test/evaluation support, not runtime policy.
 
 ### Project Boundary Questions
 
-- **Core-owned or plugin-owned?** Plugin-owned. The behavior is an OpenAI Codex provider optimization and does not change route planning.
-- **New canonical concept or provider-specific?** Provider-specific checkpoint state. Exact reasoning uses an existing canonical dialect; compaction remains connector-private.
-- **Streaming-first path preserved?** Yes. Compaction is a pre-output preparation step; the normal response remains streaming-first and non-streaming remains a collector over canonical events.
-- **Provider SDK leakage avoided?** Yes. Connector-local JSON/wire types do not enter `pkg/lipapi`, `pkg/lipsdk`, or `internal/core`.
-- **No retry after first output preserved?** Yes. All compaction work and fail-open decisions finish before the normal stream opens.
-- **Secure-session/diagnostics/startup affected?** Session authority is unchanged. Connector diagnostics and config validation require revalidation for ciphertext redaction and bounded state reporting.
-- **Extension platform seam used?** No new extension is required. This is backend-private behavior; existing reasoning-preservation hooks consume the already canonical reasoning part.
+- **Core-owned or plugin-owned?** Plugin/connector-owned. Core only supplies existing attempt and observation seams.
+- **New canonical concept?** No. Existing exact reasoning parts and ordinary canonical messages/tools are sufficient.
+- **Streaming-first preserved?** Yes. Restoration/compaction complete before the normal stream opens.
+- **Provider SDK leakage avoided?** Yes. Compaction trigger/output types remain connector-local JSON.
+- **No retry after output preserved?** Yes. All fallback decisions are pre-output.
+- **Secure-session affected?** Only authoritative session partitioning is reused; authority semantics do not change.
+- **Extension seam used?** Yes. A bounded call-extension marker connects the attempt transform to the connector.
 
-### Technology Stack
+## Configuration
 
-| Layer | Choice | Role | Notes |
-|---|---|---|---|
-| Backend connector | Go connector module | Planning, state, transport integration | Existing `connectors/codex` module |
-| Wire protocol | OpenAI Responses Compaction V2 | Trigger and opaque checkpoint output | Normal Codex Responses endpoint |
-| State | In-memory mutex-protected TTL/LRU store | Committed checkpoints and failure cooldown | Per connector process and instance |
-| Token estimation | Existing connector-local tiktoken support | Trigger and before/after evidence | Never tokenizes ciphertext as prompt text |
-| Transport | Existing HTTP/SSE and WebSocket clients | Internal compaction and normal response | Internal compaction initially uses HTTP/SSE collection |
-| Observability | Existing canonical usage + connector metrics/logging | Cost and benefit evidence | Payload-safe labels only |
+### Connector Configuration
 
-## File Structure Plan
+Conceptual configuration:
 
-### New Connector-Local Files
-
-```text
-connectors/codex/internal/codex/
-├── native_compaction_config.go       # Defaults, normalization, validation
-├── native_compaction_items.go        # Bounded trigger, reasoning, and compaction item codecs
-├── native_compaction_plan.go         # Pure threshold, split, and rewrite planning
-├── native_compaction_client.go       # V2 internal request and strict collector
-├── native_compaction_store.go        # Scoped TTL LRU committed state and reservations
-├── native_compaction_coordinator.go  # Per-account prepare, fail-open, chain reset
-├── native_compaction_usage.go        # Usage accumulation and before/after evidence
-└── native_compaction_test_helpers.go # Test-only helpers if package conventions permit
+```yaml
+- id: codex-primary
+  kind: openai-codex
+  config:
+    native_context:
+      enabled: false
+      request_encrypted_reasoning: true
+      reasoning_continuity: required
+      compaction:
+        enabled: true
+        trigger_tokens: 0
+        retained_message_tokens: 64000
+        min_savings_tokens: 8192
+        state_ttl: 1h
+        max_entries: 1024
+        max_entry_bytes: 1048576
+        failure_cooldown: 5m
 ```
 
-Test files mirror the responsibility files and remain in the same package unless black-box package tests improve boundary evidence.
+Semantics:
 
-### Modified Files
+- missing `native_context` equals disabled;
+- `enabled: false` constructs no compaction store/coordinator;
+- `request_encrypted_reasoning` applies only to attempts carrying the continuity marker or to explicit exact reasoning inputs;
+- `reasoning_continuity` values:
+  - `required`: compaction skips without marker;
+  - `best_effort`: compaction may run without marker for controlled evaluation;
+  - `disabled`: no marker requirement and no automatic request shaping; evaluation only;
+- nested `compaction.enabled` can disable compaction while retaining reasoning request behavior;
+- compaction remains globally default-off.
 
-- `connectors/codex/internal/service/config.go` — decode and map the nested direct-backend configuration; reject enabled use for app-server.
-- `connectors/codex/internal/codex/config.go` — carry normalized direct-backend settings.
-- `connectors/codex/internal/catalog/catalog.go` — retain `auto_compact_token_limit` and `comp_hash`.
-- `connectors/codex/internal/catalog/codex_model_catalog.json` — refresh fallback fields when generated catalog data contains them.
-- `connectors/codex/internal/codex/payload.go` — support private request-control changes without changing the public canonical call.
-- `connectors/codex/internal/codex/payload_input.go` — replay exact existing reasoning parts and private checkpoint items.
-- `connectors/codex/internal/codex/attempt.go` — keep full payload snapshot and invoke per-attempt compaction preparation.
-- `connectors/codex/internal/codex/plugin.go` — construct/close coordinator state and thread it through static/managed paths.
-- `connectors/codex/internal/codex/stream.go` — capture exact completed reasoning/output items and usage needed by continuation/checkpoint evidence.
-- `connectors/codex/internal/codex/continuation.go` — add exact lineage invalidation/reset integration without absorbing checkpoint ownership.
-- `connectors/codex/internal/codex/ws.go` — apply checkpoint preparation before continuation and restart the chain after installation.
-- Connector manifest/config examples and operator documentation may be updated during implementation but are not separate implementation tasks under this spec's task-generation rules.
+### Reasoning-Preservation Configuration
 
-No root canonical/core package is expected to change. Any discovered need to change one is a design revalidation trigger.
+Full mode requires an explicit backend-only rule:
+
+```yaml
+features:
+  - id: reasoning-output-preservation
+    enabled: true
+    config:
+      action: restore
+      use_builtin_catalog: true
+      rules:
+        - id: codex-native-context
+          backend: codex-primary
+          enabled: true
+      on_ambiguous: log_skip
+      on_unrepresentable: reject
+      on_state_error: reject
+      state:
+        ttl: 24h
+        max_turns_per_session: 64
+        max_reasoning_bytes_per_turn: 65536
+        max_session_bytes: 1048576
+```
+
+The rule targets the backend instance ID and therefore does not depend on the shared GPT version matcher.
+
+### Internal Continuity Marker
+
+Extension key:
+
+```text
+lip.internal.openai_codex.reasoning_continuity.v1
+```
+
+Value is a small fixed JSON object:
+
+```json
+{"eligible":true,"dialect":"openai.responses.reasoning_item.v1"}
+```
+
+Rules:
+
+- set by the reasoning-preservation attempt transform only after match eligibility and state-policy processing;
+- contains no session/account/model/payload identifiers;
+- candidate-local and cloned with the call;
+- consumed by the direct connector;
+- removed/ignored by provider payload builders;
+- absent on unrelated backends and ineligible attempts.
+
+No new typed public SDK contract is introduced. Architecture tests pin the literal and prevent upstream forwarding.
 
 ## Data Models
 
-### Native Compaction Configuration
+### Native Context Config
 
 ```go
+type NativeContextConfig struct {
+    Enabled                   bool
+    RequestEncryptedReasoning bool
+    ReasoningContinuity       ContinuityMode
+    Compaction                NativeCompactionConfig
+}
+
 type NativeCompactionConfig struct {
-    Enabled                bool
-    TriggerTokens          int64
-    RetainedMessageTokens  int64
-    StateTTL               time.Duration
-    MaxEntries             int
-    FailureCooldown        time.Duration
+    Enabled               bool
+    TriggerTokens         int64
+    RetainedMessageTokens int64
+    MinSavingsTokens      int64
+    StateTTL              time.Duration
+    MaxEntries            int
+    MaxEntryBytes         int
+    FailureCooldown       time.Duration
 }
 ```
-
-Normalization rules:
-
-- omitted block equals `Enabled: false`;
-- zero numeric values select reviewed defaults;
-- hard caps remain code-owned;
-- `TriggerTokens` must be below the resolved hard context limit;
-- retained budget plus headroom must remain below the trigger threshold;
-- enabled app-server configuration is invalid.
-
-### Native Replay Item
-
-```go
-type NativeReplayItem struct {
-    Type NativeReplayItemType
-    ID   string
-    Raw  json.RawMessage
-}
-```
-
-Allowed initial types:
-
-- `reasoning` for exact canonical reasoning replay;
-- `compaction` for connector-private checkpoints;
-- typed normal `message` and `function_call` items continue using existing input structures.
-
-Invariants:
-
-- `Raw` is valid JSON and under the opaque item hard cap;
-- discriminator equals `Type`;
-- required ID and encrypted-content presence follow the allowlisted schema;
-- ciphertext is never extracted into logs, metrics, or errors;
-- compaction items never enter canonical client output.
 
 ### Model Compaction Profile
 
@@ -270,215 +300,253 @@ type CompactionModelProfile struct {
     MaxContextWindow      int64
     AutoCompactTokenLimit int64
     CompHash              string
+    DefaultReasoning      string
+    SupportedReasoning    []string
 }
 ```
 
-The resolved hard window uses existing model resolution rules. Initial compatibility requires exact model slug and equal non-empty `CompHash` where available. Missing hashes do not permit cross-model reuse.
+Exact model equality is required initially. Equal comp hashes do not widen cross-model replay; they only detect incompatibility and model-switch compaction needs.
+
+### Exact Native History
+
+```go
+type NativeHistory struct {
+    Items        []inputItem
+    Fingerprints []string
+    Boundaries   []TrajectoryBoundary
+}
+
+type TrajectoryBoundary struct {
+    ItemIndex      int
+    UserTurnStart  bool
+    AssistantStart bool
+    PairSafe       bool
+}
+```
+
+The builder consumes the post-transform canonical call and preserves:
+
+- exact reasoning parts;
+- messages/content order;
+- structured function calls;
+- function outputs;
+- assistant trajectory boundaries.
+
+It does not apply normal no-tools text projection.
 
 ### Checkpoint Key
 
 ```go
 type CheckpointKey struct {
-    ConnectorInstanceID     string
-    SessionID               string
-    AccountID               string
-    Model                   string
-    PromptCacheKey          string
-    ClientFamily            string
-    CompHash                string
-    InstructionsFingerprint string
-    ToolsFingerprint        string
+    ConnectorInstanceID string
+    SessionID           string
+    AccountID           string
+    Model               string
+    PromptCacheKey      string
+    ClientFamily        string
+    CompHash            string
+    InstructionsFP      string
+    ToolsFP             string
+    ContinuityMode      string
 }
 ```
 
-The connector instance identity is process/composition-local and need not be serialized. Empty account IDs are valid only for the static credential configuration they identify.
-
-### Checkpoint Entry
+### Checkpoint
 
 ```go
-type Checkpoint struct {
-    SourcePrefixFingerprints []string
-    ReplacementItems         []inputItem
-    RetainedMessageTokens    int64
-    CompactionOutputTokens   int64
-    CreatedAt                time.Time
-    ExpiresAt                time.Time
-    Generation               uint64
+type NativeCheckpoint struct {
+    Key                    CheckpointKey
+    SourcePrefixFP         []string
+    Replacement            []inputItem
+    CreatedAt              time.Time
+    ExpiresAt              time.Time
+    SourceEstimatedTokens  int64
+    ResultEstimatedTokens  int64
+    CompactionInputTokens  int64
+    CompactionOutputTokens int64
 }
 ```
 
-`ReplacementItems` are immutable after commit. Store getters return defensive copies or immutable snapshots consistent with existing connector store patterns.
-
-### Store State
-
-```go
-type checkpointRecord struct {
-    committed      *Checkpoint
-    reservationID  uint64
-    inFlight       bool
-    cooldownUntil  time.Time
-    expiresAt      time.Time
-}
-```
-
-A failed candidate does not replace `committed`. Cooldown is lineage-scoped and does not prevent reuse of an already valid committed checkpoint.
+All slices/raw JSON are defensively copied.
 
 ## Components and Interfaces
 
 ### Component Summary
 
-| Component | Layer | Intent | Requirements | Key dependencies | Contracts |
-|---|---|---|---|---|---|
-| NativeCompactionConfig | Config adapter | Normalize safe opt-in settings | 1.1–1.7, 9.8–9.9 | Service config P0 | State |
-| NativeItemCodec | Provider wire | Validate/replay exact opaque items | 2.1–2.7, 4.4–4.6 | JSON, existing reasoning dialect P0 | Service |
-| CatalogMetadata | Provider inventory | Preserve trigger and compatibility metadata | 3.1–3.3 | `codex debug models` P0 | State |
-| PayloadEstimator | Provider helper | Estimate effective model input | 3.2–3.4, 8.5–8.7 | local tokenizer P0 | Service |
-| CompactionPlanner | Domain policy | Decide split, reuse, create, or bypass | 3.4–3.8, 6.1–6.8 | fingerprints, profile P0 | Service |
-| CompactionClient | Driven adapter | Execute strict V2 internal request | 4.1–4.9, 7.5 | HTTP/SSE client P0 | Service |
-| ReplacementBuilder | Domain policy | Build retained window plus opaque item | 4.6–4.7 | estimator, codec P0 | Service |
-| CheckpointStore | State adapter | Bound committed state and reservations | 5.1–5.8, 7.6 | clock, mutex P0 | State |
-| CheckpointRewriter | Domain policy | Replace exact prefix and preserve suffix | 6.1–6.8 | checkpoint store P0 | Service |
-| ContinuationCoordinator | Adapter integration | Reset/re-establish WS chain safely | 6.3–6.5, 7.8 | continuation store P0 | Service |
-| CompactionCoordinator | App orchestration | Per-account pre-output workflow | 4, 5, 6, 7 | all above P0 | Service |
-| UsageAccumulator | Stream decorator | Include internal request usage/evidence | 8.1–8.7 | canonical usage P0 | Event |
+| Component | Layer | Intent | Requirements |
+|---|---|---|---|
+| NativeContextConfig | connector config | safe modes/defaults | 1 |
+| ContinuityMarkerPolicy | feature integration | prove eligible restore path | 3 |
+| RequestPolicy | connector wire | always request encrypted reasoning | 2 |
+| ExactHistoryBuilder | connector domain | preserve native trajectory | 4 |
+| ModelProfileResolver | connector inventory | thresholds/compatibility | 5 |
+| CompactionPlanner | connector domain | decide bypass/reuse/create | 5, 7 |
+| CompactionClient | connector adapter | execute V2 request | 6, 9 |
+| ReplacementBuilder | connector domain | Codex-aligned retained window | 6 |
+| CheckpointStore | connector state | bounded isolated checkpoints | 7 |
+| ContinuationCoordinator | connector orchestration | reset/rebuild response chain | 8 |
+| NativeContextCoordinator | connector app | order full workflow | 5–9 |
+| QualityHarness | tests | four-mode evidence | 10 |
 
-### Domain Policy
+### Reasoning Feature Integration
 
-#### CompactionPlanner
+#### Attempt Transform Changes
+
+After existing `ResolveMatch`, store snapshot, and restore processing:
+
+1. if the candidate is eligible for the explicit Codex rule;
+2. if exact Responses dialect replay is supported; and
+3. if policy processing did not exclude the candidate;
+
+the transform adds the internal continuity marker.
+
+The marker is added whether the result is:
+
+- restored;
+- preserved because the client already supplied reasoning; or
+- no prior artifact exists for the first turn.
+
+It is not added for ambiguous/conflicting/ineligible/state-failed paths unless configured policy explicitly continues and the implementation can still guarantee exact eligibility. Required mode uses fail-closed absence.
+
+#### Observation Changes
+
+No ownership change. The observer continues committing only surfaced successful output. Tests extend coverage for exact Codex action trajectories.
+
+### RequestPolicy
 
 ```go
-type PlanInput struct {
-    FullPayload            Payload
-    FullInputFingerprints  []string
-    ModelProfile           CompactionModelProfile
-    Checkpoint             *Checkpoint
-    Config                 NativeCompactionConfig
+type RequestPolicy interface {
+    Apply(call lipapi.Call, profile CompactionModelProfile, cfg NativeContextConfig) (RequestReasoningPolicy, error)
 }
 
-type PlanDecision string
-
-const (
-    PlanBypass           PlanDecision = "bypass"
-    PlanUseCheckpoint    PlanDecision = "use_checkpoint"
-    PlanCreateCheckpoint PlanDecision = "create_checkpoint"
-    PlanHardFailure      PlanDecision = "hard_failure"
-)
-
-type PlanResult struct {
-    Decision          PlanDecision
-    EffectivePayload  Payload
-    CompactablePrefix []inputItem
-    LiveTail          []inputItem
-    SourcePrefixFP    []string
-    EstimatedTokens   int64
-    Reason            string
+type RequestReasoningPolicy struct {
+    IncludeEncryptedReasoning bool
+    Effort                    string
+    Summary                   string
 }
 ```
 
-Responsibilities and constraints:
+Rules:
 
-- Use a valid committed checkpoint before considering a new compaction request.
-- Split before the last user message and preserve the complete tail.
-- Reject splits that separate function calls from outputs.
-- Compare the effective rewritten input with the threshold.
-- Remain deterministic and side-effect free.
-- Return stable reason categories suitable for bounded metrics.
+- explicit call/route effort wins;
+- otherwise use connector configured effort if present;
+- otherwise use model default or omit effort while still sending a valid reasoning object;
+- include encrypted reasoning when continuity marker is present and config permits;
+- include remains present on internal compaction requests;
+- marker is never serialized.
 
-#### ReplacementBuilder
-
-Input:
-
-- compactable prefix;
-- validated compaction item;
-- configured retained user-message budget;
-- compaction response usage.
-
-Output:
-
-- replacement items;
-- retained-message token count;
-- compaction-output token estimate.
-
-The builder walks source messages newest-to-oldest, retains eligible user-context items until the budget is consumed, reverses them back to original order, and appends exactly one compaction item. It never retains assistant or tool items already represented by the opaque state.
-
-### Provider Wire Layer
-
-#### NativeItemCodec
+### ExactHistoryBuilder
 
 ```go
-type NativeItemCodec interface {
-    DecodeCompletedReasoning(raw json.RawMessage) (lipapi.ReasoningPart, error)
-    EncodeReasoningInput(part lipapi.ReasoningPart) (inputItem, error)
-    DecodeCompletedCompaction(raw json.RawMessage) (inputItem, error)
-    NewCompactionTrigger() inputItem
+type ExactHistoryBuilder interface {
+    Build(call lipapi.Call) (NativeHistory, error)
 }
 ```
 
 Preconditions:
 
-- raw item size is below the hard cap;
-- discriminator is known;
-- required field presence is valid.
+- post-attempt-transform call;
+- valid canonical message/part envelopes;
+- supported exact reasoning dialect only.
 
 Postconditions:
 
-- exact replay JSON is semantically unchanged apart from canonical field ordering when the existing canonicalizer defines it;
-- no ciphertext is returned separately;
-- errors contain field/category context only.
+- reasoning and structured call ordering preserved;
+- every function output has a prior matching call;
+- no normal no-tools projection;
+- deterministic fingerprints;
+- safe user/assistant trajectory boundaries.
 
-#### CompactionClient
+### CompactionPlanner
+
+```go
+type CompactionDecisionKind string
+
+const (
+    DecisionBypass CompactionDecisionKind = "bypass"
+    DecisionReuse  CompactionDecisionKind = "reuse"
+    DecisionCreate CompactionDecisionKind = "create"
+    DecisionHardFailure CompactionDecisionKind = "hard_failure"
+)
+
+type CompactionPlan struct {
+    Kind              CompactionDecisionKind
+    Reason            string
+    PrefixEnd         int
+    LiveTailStart     int
+    EffectiveTokens   int64
+    ExpectedSavings   int64
+    ExistingCheckpoint *NativeCheckpoint
+}
+```
+
+Decision order:
+
+1. if feature disabled or compaction disabled: bypass;
+2. if required continuity marker absent: bypass with `continuity_not_eligible`;
+3. validate/reuse exact checkpoint prefix;
+4. estimate effective rewritten history;
+5. if below trigger: reuse/bypass;
+6. find latest-user live-tail boundary;
+7. validate trajectory/pair boundary;
+8. estimate expected checkpoint size/savings;
+9. create only if minimum savings met;
+10. hard-fail only when full history cannot fit and no safe plan exists.
+
+### CompactionClient
 
 ```go
 type CompactRequest struct {
     Payload      Payload
     Account      Config
     Conversation string
+    Metadata     CompactionMetadata
 }
 
 type CompactResult struct {
-    CompactionItem inputItem
-    ResponseID     string
-    Usage          *ProviderUsage
-}
-
-type NativeCompactionClient interface {
-    Compact(ctx context.Context, request CompactRequest) (CompactResult, error)
+    Item       inputItem
+    ResponseID string
+    Usage      *ProviderUsage
 }
 ```
 
-Request rules:
+Request construction:
 
-- copy the normal pending payload;
-- replace input with compactable prefix plus one trigger;
-- clear `PreviousResponseID`;
-- preserve prompt-cache, model, instructions, tools, and reasoning controls;
-- use streaming HTTP/SSE collection internally even when normal transport is WebSocket;
-- do not pass the internal stream to core/frontends.
+- use exact prefix plus one trigger;
+- preserve account/model/instructions/tools/reasoning/text/prompt-cache/conversation metadata;
+- clear response ID;
+- use HTTP/SSE internally in the initial implementation;
+- apply bounded retry budget before visible output.
 
-Collector rules:
+Collector:
 
-- exactly one `response.completed`;
+- exactly one completed response;
 - exactly one completed compaction item;
-- no assistant text or tool output;
-- bounded event count and bytes;
-- cancellation closes the response body;
-- provider error bodies remain truncated and ciphertext-safe.
+- reject assistant text/tool items;
+- bounded events/bytes;
+- close on cancellation;
+- truncate/redact errors.
 
-### State Layer
+### ReplacementBuilder
 
-#### CheckpointStore
+Retained predicate mirrors current Codex behavior:
+
+- user/developer/system messages retained;
+- non-final agent messages retained when below per-item cap;
+- final-answer agent messages excluded;
+- reasoning, function calls, outputs, and assistant messages represented by the compaction item are not redundantly retained;
+- total retained text budget defaults to 64,000 tokens;
+- images count toward independent safety limits;
+- append exactly one compaction item last.
+
+### CheckpointStore
 
 ```go
-type CheckpointReservation struct {
-    Key CheckpointKey
-    ID  uint64
-}
-
 type NativeCheckpointStore interface {
-    Get(key CheckpointKey) (Checkpoint, bool)
-    Reserve(key CheckpointKey) (CheckpointReservation, bool)
-    Commit(reservation CheckpointReservation, checkpoint Checkpoint) error
-    Abort(reservation CheckpointReservation)
+    Get(key CheckpointKey) (NativeCheckpoint, bool)
+    Reserve(key CheckpointKey) (Reservation, bool)
+    Commit(reservation Reservation, checkpoint NativeCheckpoint) error
+    Abort(reservation Reservation)
     MarkFailure(key CheckpointKey, until time.Time)
     InCooldown(key CheckpointKey) bool
     Invalidate(key CheckpointKey)
@@ -486,382 +554,345 @@ type NativeCheckpointStore interface {
 }
 ```
 
-Concurrency invariants:
+Invariants:
 
 - one reservation per key;
-- commit requires the active reservation ID;
-- abort is idempotent;
-- a rejected candidate cannot erase a prior committed checkpoint;
-- expiry/LRU operations do not evict in-flight reservations in a way that permits duplicate commit;
-- close prevents later commit and clears raw state.
+- old committed state survives failed candidate creation;
+- TTL/LRU/byte bounds;
+- no in-flight eviction allowing stale commit;
+- close rejects later commits;
+- defensive copies;
+- no payload observability.
 
-### App Orchestration
+### ContinuationCoordinator
 
-#### CompactionCoordinator
+Responsibilities:
+
+- run native-context preparation before `continuation.prepare`;
+- invalidate old continuation when installing a checkpoint;
+- force first post-checkpoint request to omit response ID;
+- record new baseline only after successful completion;
+- retain full payload snapshot for stale-ID fallback;
+- never add automatic HTTP response-ID chaining.
+
+### NativeContextCoordinator
 
 ```go
 type PrepareInput struct {
-    Call          lipapi.Call
-    FullPayload   Payload
-    InputFP       []string
-    AccountConfig Config
-    ModelProfile  CompactionModelProfile
+    Call           lipapi.Call
+    FullPayload    Payload
+    AccountConfig  Config
+    ModelProfile   CompactionModelProfile
+    ClientFamily   string
 }
 
 type PreparedAttempt struct {
     Payload             Payload
-    InputFP             []string
+    InputFingerprints   []string
     InternalUsage       []lipapi.Event
     CheckpointInstalled bool
     ChainReset          bool
-}
-
-type NativeCompactionCoordinator interface {
-    Prepare(ctx context.Context, input PrepareInput) (PreparedAttempt, error)
-    ObserveCompleted(key CheckpointKey, usage *ProviderUsage)
-    Close()
+    Outcome             string
 }
 ```
 
 Sequence:
 
-1. Derive key after account/model selection.
-2. Fetch and validate committed checkpoint.
-3. Plan using effective rewritten input.
-4. Return bypass/reuse immediately when no creation is needed.
-5. For creation, reserve state and execute internal compaction.
-6. Validate/build/commit checkpoint.
-7. Rewrite full input with the new checkpoint.
-8. invalidate prior continuation and set chain reset.
-9. Return internal usage for later canonical accounting.
-10. On failure, abort reservation, apply cooldown where classified, and return full-history fallback or hard error.
-
-The coordinator never opens the normal client-visible stream. The caller does so only after `Prepare` returns.
-
-### Adapter Integration
-
-#### Static HTTP
-
-- Prepare common full payload.
-- Resolve effective model.
-- Call coordinator with static account identity.
-- Marshal the prepared payload and open the existing HTTP stream.
-- Decorate the normal stream with internal usage events.
-
-#### Managed HTTP
-
-- Prepare common full payload once.
-- For each selected account attempt, call coordinator with that account and effective model using a fresh payload copy.
-- Auth/rate-limit rotation discards the per-account prepared copy.
-- Never transfer checkpoint state between accounts.
-
-#### Static and Managed WebSocket
-
-- Call coordinator before `continuation.prepare`.
-- If `ChainReset` is true, skip old continuation and ensure no previous response ID.
-- Otherwise allow existing continuation logic to trim the prepared compacted payload.
-- Record a new continuation baseline only after normal response completion.
-- A stale response-ID retry restores the full coordinator-prepared payload, not the client's unreduced payload, unless checkpoint validation itself fails.
+1. verify mode and continuity marker;
+2. derive account/model-bound key;
+3. build exact reasoning-complete history;
+4. load and validate checkpoint;
+5. plan on effective history;
+6. bypass/reuse or reserve creation;
+7. execute V2 compaction;
+8. build/commit replacement;
+9. rewrite full payload from checkpoint plus untouched suffix;
+10. invalidate old continuation when installed;
+11. return internal usage and safe outcome;
+12. on failure, abort/cooldown and return full-history fallback or hard error.
 
 ## System Flows
 
-### Existing Checkpoint Reuse
+### Normal Reasoning Continuity
 
 ```mermaid
 sequenceDiagram
-    participant Client
-    participant Connector
-    participant Store
-    participant Continuation
-    participant Codex
+    participant Core
+    participant Restore as Reasoning feature
+    participant Codex as Codex connector
+    participant Upstream as Codex backend
+    participant Observe as Final observer
 
-    Client->>Connector: Full replayed history plus new turn
-    Connector->>Store: Lookup scoped checkpoint
-    Store-->>Connector: Source fingerprints and replacement
-    Connector->>Connector: Verify exact prefix and static fingerprints
-    Connector->>Connector: Replace prefix and preserve live suffix
-    Connector->>Continuation: Apply eligible new-chain continuation
-    Continuation-->>Connector: Optional response id and delta
-    Connector->>Codex: Normal compacted request
-    Codex-->>Connector: Streaming response
-    Connector-->>Client: Canonical events
-    Connector->>Store: Update bounded usage evidence
+    Core->>Restore: Candidate call
+    Restore->>Restore: Match exact prior artifact
+    Restore->>Core: Restored call plus marker
+    Core->>Codex: Open candidate
+    Codex->>Codex: Request encrypted reasoning
+    Codex->>Upstream: Responses request
+    Upstream-->>Codex: Reasoning and action items
+    Codex-->>Core: Canonical exact reasoning
+    Core-->>Observe: Surfaced winning stream
+    Observe->>Observe: Commit exact placements
 ```
 
 ### New Checkpoint Creation
 
 ```mermaid
 sequenceDiagram
-    participant Client
-    participant Connector
-    participant Planner
+    participant Core
+    participant Restore as Reasoning feature
+    participant Coord as Native coordinator
     participant Store
-    participant Compact
-    participant Codex
-    participant Normal
+    participant Compact as Compaction client
+    participant Upstream
 
-    Client->>Connector: Full replayed long history
-    Connector->>Planner: Effective payload and model limits
-    Planner-->>Connector: Compact prefix and live tail
-    Connector->>Store: Reserve lineage
-    Connector->>Compact: Prefix plus compaction trigger
-    Compact->>Codex: Internal Responses request
-    Codex-->>Compact: One compaction item and completion
-    Compact-->>Connector: Validated opaque item and usage
-    Connector->>Store: Commit replacement checkpoint
-    Connector->>Connector: Invalidate old response chain
-    Connector->>Normal: Replacement plus live tail
-    Normal->>Codex: Normal request without old response id
-    Codex-->>Normal: Streaming response
-    Normal-->>Client: Canonical events and usage
+    Core->>Restore: Candidate call
+    Restore-->>Core: Reasoning-complete call plus marker
+    Core->>Coord: Prepare selected account
+    Coord->>Coord: Build exact history and plan
+    Coord->>Store: Reserve lineage
+    Coord->>Compact: Exact prefix plus trigger
+    Compact->>Upstream: V2 Responses request
+    Upstream-->>Compact: One compaction item
+    Compact-->>Coord: Item and usage
+    Coord->>Store: Commit checkpoint
+    Coord->>Coord: Rewrite and reset chain
+    Coord-->>Core: Prepared normal request
 ```
 
-### Failure Decision
+### Existing Checkpoint Reuse
 
 ```mermaid
 flowchart TD
-    Start[Compaction attempt fails] --> Cancelled{Caller cancelled}
-    Cancelled -->|Yes| ReturnCancel[Return cancellation]
-    Cancelled -->|No| Fits{Full history fits hard limit}
-    Fits -->|Yes| Cooldown[Record bounded cooldown]
-    Cooldown --> Full[Open one full history request]
-    Fits -->|No| Hard[Return deterministic pre output error]
+    Start[Prepared candidate call] --> Marker{Required marker present}
+    Marker -- No --> Full[Use full reasoning-complete history]
+    Marker -- Yes --> Lookup[Lookup scoped checkpoint]
+    Lookup --> Match{Exact prefix and static shape match}
+    Match -- No --> Plan[Plan new compaction or bypass]
+    Match -- Yes --> Rewrite[Replace prefix and preserve suffix]
+    Rewrite --> Threshold{Still above threshold}
+    Threshold -- No --> Send[Send normal request]
+    Threshold -- Yes --> Plan
 ```
+
+### Failure
+
+```mermaid
+flowchart TD
+    Compact[Internal compaction] --> Result{Success}
+    Result -- Yes --> Commit[Commit checkpoint]
+    Result -- No --> Fit{Full history fits}
+    Fit -- Yes --> Abort[Abort candidate and cooldown]
+    Abort --> Full[Send full reasoning-complete history]
+    Fit -- No --> Hard[Return pre-output context error]
+```
+
+## File Structure Plan
+
+### Connector Module
+
+New or revised files:
+
+```text
+connectors/codex/internal/codex/
+├── native_context_config.go
+├── native_context_marker.go
+├── native_context_history.go
+├── native_context_plan.go
+├── native_context_client.go
+├── native_context_replacement.go
+├── native_context_store.go
+├── native_context_coordinator.go
+└── native_context_usage.go
+```
+
+Modified:
+
+- `payload.go` — request reasoning policy and internal-marker exclusion.
+- `payload_input.go` — exact item reuse; shared helpers for exact history.
+- `stream.go` — characterize/reuse PR #235 exact item capture.
+- `attempt.go` / `plugin.go` — per-account coordinator integration.
+- `ws.go` / `continuation.go` — preparation order and chain reset.
+- `config.go` / service config — typed nested settings.
+- catalog files — auto compact limit and comp hash.
+
+### Root Feature
+
+Modified:
+
+- reasoning-preservation attempt transform — marker emission.
+- matching/restore tests — backend-only Codex rule and action placements.
+- final observer tests — surfaced winner and post-compaction capture.
+- internal continuity-marker contract tests.
+
+No new core package is expected. A discovered core/public-contract need triggers design review.
 
 ## Error Handling
 
-### Error Categories
+### Stable Categories
 
-| Category | Example | State action | User-request action |
-|---|---|---|---|
-| Configuration | invalid threshold/budget | startup reject | no serving |
-| Optimization miss | expired or prefix mismatch | evict/miss metric | full history |
-| Protocol incompatibility | trigger rejected, missing compaction item | abort + cooldown | fail-open if possible |
-| Candidate validation | multiple items, text/tool output | abort + cooldown | fail-open if possible |
-| Managed auth/rate limit | account rejected | no commit; account-scoped state | existing account rotation |
-| Cancellation/deadline | caller stops | abort reservation | propagate cancellation |
-| Hard context overflow | full request cannot fit | no invalid checkpoint | deterministic pre-output error |
-| Normal post-output failure | stream error after content | checkpoint unchanged | existing committed failure behavior |
+- `continuity_not_eligible`
+- `continuity_ambiguous`
+- `continuity_unrepresentable`
+- `checkpoint_miss`
+- `checkpoint_mismatch`
+- `checkpoint_cooldown`
+- `no_safe_split`
+- `insufficient_savings`
+- `compaction_protocol`
+- `compaction_context_hard_failure`
+- `compaction_cancelled`
 
-### Error Contract
+No category includes payload excerpts.
 
-Compaction-specific errors remain connector-internal until they must be surfaced. Surfaced errors use existing backend error categories; raw upstream bodies remain truncated. No error message includes serialized items, instructions, tool schemas, or ciphertext.
+### Recovery Policy
 
-### Failure Cooldown
+| Failure | Behavior |
+|---|---|
+| Missing marker in required mode | Skip compaction; use full restored/client history |
+| Restore ambiguity/conflict | Existing configured feature policy |
+| Checkpoint mismatch | Full history; optionally plan new checkpoint |
+| V2 protocol failure | Abort, cooldown, full history if fit |
+| Auth/rate limit | Existing account rotation; rebuild per account |
+| Context cannot fit | Deterministic pre-output error |
+| Cancellation | Close/abort; no stale commit |
+| Error after visible output | Surface; no compaction retry/failover |
 
-Cooldown applies to a checkpoint key after protocol/compatibility/server failures that would otherwise repeat each turn. It does not:
+## Security and Privacy
 
-- block reuse of a previously committed valid checkpoint;
-- cross accounts or models;
-- survive runtime restart;
-- suppress a caller cancellation;
-- hide hard-context failure.
+Threats:
 
-## Usage Accounting and Observability
+- cross-account ciphertext replay;
+- session-key forgery;
+- payload leakage through logs/errors;
+- hostile oversized JSON;
+- replay of losing-attempt reasoning;
+- marker spoofing by clients;
+- checkpoint/history authority conflict.
 
-### Usage Flow
+Controls:
 
-The compaction request may report `input_tokens`, `output_tokens`, cached tokens, and total tokens. The coordinator retains this usage as an internal usage delta. The normal response stream decorator emits/merges it using existing provider-billable authority semantics before terminal completion.
+- authoritative session partitioning;
+- selected-account keying;
+- exact model and comp-hash checks;
+- surfaced-winner observation only;
+- marker set only by internal attempt transform and overwritten/validated against client input;
+- strict JSON allowlists/depth/byte caps;
+- no raw payload telemetry;
+- exact-prefix fingerprints;
+- process-local state;
+- response-chain reset;
+- architecture and privacy tests.
 
-Rules:
+Client-supplied extension values using the internal marker key are deleted before eligibility calculation; only the transform may set the trusted marker on the candidate clone.
 
-- compaction and normal response usage remain distinguishable in raw/scoped metadata;
-- compatibility totals include both exactly once;
-- estimated usage is marked estimated when provider fields are absent;
-- compaction output tokens are stored as replay-cost evidence, not as decrypted content;
-- no opaque payload enters `RawUsageJSON`.
+## Usage and Observability
 
-### Metrics
+### Usage
 
-Recommended bounded labels:
+Compaction usage is emitted as separate provider-billable usage evidence before or alongside normal response usage, preserving source/authority.
 
-- connector instance ID or configured backend ID;
-- model;
-- transport;
-- managed/static;
-- outcome category;
-- trigger source;
-- checkpoint hit/miss reason.
+No ciphertext is tokenized as ordinary text. Estimate priority:
 
-Measurements:
+1. provider usage;
+2. recorded checkpoint metadata;
+3. conservative opaque-state length estimate.
 
-- attempts, success, rejected, fail-open, hard-fail;
-- checkpoint hit, miss, expiry, incompatibility, eviction;
-- cooldown hit;
-- full vs rewritten input tokens;
-- full vs rewritten body bytes;
-- compaction latency;
-- normal request TTFT after preparation;
-- compaction input/output tokens;
-- estimated break-even turn count.
+### Safe Metrics
 
-No session IDs, account IDs, prompt text, tool names, response IDs, or item hashes appear as metric labels.
+- reasoning request eligible/count;
+- exact reasoning captured/preserved/restored/missed;
+- action-trajectory restore outcome;
+- compaction attempts/success/protocol failure/cancel;
+- checkpoint hits/misses/mismatch/eviction;
+- full vs effective tokens/bytes;
+- compaction latency and usage;
+- break-even turn;
+- cooldown skips;
+- hard failures.
 
-### Diagnostics
-
-Diagnostics may expose:
-
-- enabled/disabled;
-- normalized settings;
-- current entry count and capacity;
-- aggregate hit/miss/cooldown counters;
-- last compatibility outcome category.
-
-Diagnostics must not expose keys or payload bodies.
-
-## Security Considerations
-
-### Threats
-
-1. Cross-account replay of provider-bound opaque state.
-2. Cross-model or incompatible-hash replay.
-3. Ciphertext leakage through logs/errors/debug dumps.
-4. Memory exhaustion from large checkpoint items or unbounded histories.
-5. Tampered client replay causing partial-prefix substitution.
-6. Concurrent candidate corruption.
-7. Repeated failed compaction consuming usage.
-
-### Controls
-
-- Exact key scoping and prefix fingerprints.
-- Exact model equality initially; comp-hash equality adds rejection, not widening.
-- Hard item, event, retained-message, entry-count, and TTL caps.
-- Validated allowlisted item discriminators.
-- Candidate reservation and immutable committed snapshots.
-- Full-history authority and mismatch fallback.
-- Payload-safe logging and tests that scan logs/errors.
-- Per-lineage failure cooldown.
-- In-memory-only state and complete runtime-close clearing.
-
-## Performance and Scalability
-
-### Expected Cost Model
-
-A compaction attempt adds one synchronous provider request. Benefit appears only when the resulting checkpoint is reused. Therefore:
-
-- compaction triggers near the model limit rather than early;
-- an existing valid checkpoint is reused before creating another;
-- failed protocol attempts enter cooldown;
-- metrics include one-time cost;
-- default enablement requires break-even evidence.
-
-### Bounds
-
-Reviewed defaults:
-
-| Setting | Default | Hard-cap intent |
-|---|---:|---|
-| Enabled | false | explicit opt-in |
-| Trigger override | 0 | catalog/derived |
-| Retained messages | 64,000 tokens | below trigger with headroom |
-| TTL | 1 hour | no unlimited state |
-| Entries | 1,024 | process-memory bound |
-| Failure cooldown | 5 minutes | prevent repeated expensive failure |
-
-Hard caps and exact derived ratio are implementation constants tested against catalog windows. Configuration cannot disable hard caps.
-
-### Scaling
-
-State is per connector process. Multiple proxy replicas do not share checkpoints; each replica safely falls back to client-provided full history. Sticky client routing may improve hit rate but is not required for correctness.
+Labels use fixed enums and model/connector identifiers already approved for diagnostics. No session IDs or prompt hashes are exported.
 
 ## Testing Strategy
 
-### Contract-First Unit Tests
+### Unit
 
-- Config defaults, enabled gating, bounds, unsupported app-server use.
-- Catalog parsing and threshold precedence.
-- Opaque reasoning/compaction exact envelope validation and privacy.
-- Prefix/live-tail splitting including tool call/output boundaries.
-- Threshold planning using full and rewritten histories.
-- Replacement retained-message ordering/budget.
-- Store reservation, commit, abort, TTL, LRU, cooldown, account/model isolation.
-- Rewrite exact match, rollback/fork mismatch, and chain reset.
-- Usage aggregation and no double counting.
+- config normalization and invalid combinations;
+- marker trust/removal;
+- request reasoning defaults and include behavior;
+- action-placement restore;
+- exact history construction and call/output validation;
+- trigger precedence and split;
+- retained predicate;
+- checkpoint TTL/LRU/reservations;
+- chain reset;
+- usage authority and privacy.
 
-### Deterministic Integration Tests
+### Integration
 
-- Disabled feature produces the existing request and exactly one upstream normal call.
-- V2 compaction request emits one trigger and no `previous_response_id`.
-- Valid compaction creates replacement and the following normal request uses it.
-- Invalid/multiple/text/tool compaction responses fail open once.
-- Full-history hard overflow fails before normal upstream work.
-- Static and managed HTTP paths.
-- Static and managed WebSocket paths.
-- Account rotation never reuses state.
-- Checkpoint install invalidates old continuation and later completion creates a new baseline.
-- Cancellation closes internal HTTP response and releases reservations.
-- Ciphertext does not appear in logs/errors/diagnostics.
+- HTTP and WebSocket;
+- static and managed accounts;
+- no explicit reasoning effort;
+- reasoning → function call → output → reasoning;
+- client-preserved vs missing vs conflicting reasoning;
+- compaction request contains exact restored history;
+- no-tools normal projection does not alter compaction history;
+- post-checkpoint reasoning capture;
+- disabled path request counts.
 
-### Race and Fuzz Tests
+### Race/Fuzz
 
-- Race: concurrent prepare/get/reserve/commit/invalidate/close with continuation operations.
-- Fuzz: raw reasoning and compaction item codec.
-- Fuzz: compaction stream event ordering/count limits.
-- Fuzz: source-prefix/suffix rewrite and call/output boundary preservation.
+- observer/store/transform under concurrent sessions;
+- checkpoint reservation/close/invalidation;
+- continuation recording versus checkpoint reset;
+- opaque JSON and event-order fuzzing;
+- leakage assertions.
 
-### Live Validation
+### Live Codex
 
-Environment-gated test prerequisites:
+Environment-gated and explicit credentials/model:
 
-- explicit opt-in environment variable;
-- valid ChatGPT Codex credentials;
-- a supported model;
-- isolated conversation identity;
-- bounded synthetic history.
+1. normal request returns encrypted reasoning;
+2. later stateless exact item replay is accepted;
+3. V2 trigger returns one compaction item;
+4. checkpoint replay retains seeded facts/strategy;
+5. post-compaction request emits new reasoning;
+6. model/account mismatch is rejected or bypassed safely.
 
-Assertions:
+### Four-Mode Quality Evaluation
 
-- trigger accepted;
-- exactly one compaction output received;
-- opaque item can be replayed in the next normal request;
-- no plaintext compaction output required;
-- usage captured;
-- a follow-up question retains a seeded fact/task state;
-- all captured artifacts are redacted after test.
+Modes:
 
-### Validation Commands
+- baseline;
+- reasoning-only;
+- compaction-only evaluation;
+- full native context.
 
-Implementation tasks use focused connector-module tests first, followed by repository integration where the connector ABI is staged:
+Use deterministic long-horizon repository tasks. Record quality, repetition, contradictions, rediscovery, tool/turn count, tokens, cache, latency, context, and failures. Require paired runs and fixed seeds/environment snapshots.
 
-```text
-go test ./internal/codex/... ./internal/catalog/... ./internal/service/...
-go test -race ./internal/codex/...
-go test -fuzz=Fuzz -fuzztime=30s ./internal/codex/...
-make test-unit
-make quality-checks
-make parity-checks
-```
-
-Commands are run from the appropriate module/root context as defined by the repository Makefiles.
+No claim of improved coding quality is accepted without measured evidence. Neutral quality with meaningful efficiency gains may support opt-in stability; default-on requires positive or clearly non-inferior evidence.
 
 ## Migration and Rollout
 
-1. Ship code with `native_compaction.enabled: false`.
-2. Run deterministic connector tests in normal CI.
-3. Run environment-gated live smoke on reviewed Codex versions/models.
-4. Enable manually for controlled long-session testing.
-5. Collect cost, latency, hit rate, fail-open rate, context reduction, and task-quality evidence.
-6. Fix compatibility issues without changing default.
-7. Propose default enablement only in a separate PR/spec review.
+1. Merge exact-item baseline characterization.
+2. Add marker/request reasoning continuity integration.
+3. Ship compaction code disabled by default.
+4. Run deterministic tests in CI.
+5. Run environment-gated live compatibility.
+6. Enable reasoning-only for controlled sessions.
+7. Enable full mode for controlled long sessions.
+8. Run four-mode evaluation.
+9. Fix compatibility/quality regressions while default remains off.
+10. Propose default-on compaction in a separate review.
 
-Rollback is configuration-only: disable the block or set `enabled: false`, restart/reload the connector runtime, and all in-memory state disappears. No migration is required.
+Rollback:
 
-## Design Risks and Mitigations
+- disable native compaction;
+- remove/disable the explicit Codex reasoning-preservation rule if automatic continuity must also be rolled back;
+- restart/reload runtime;
+- process-local state disappears;
+- exact client-supplied reasoning replay from PR #235 remains available.
 
-| Risk | Mitigation |
-|---|---|
-| Backend rejects V2 trigger | Default off, live gate, fail-open, cooldown |
-| Opaque item account/model binding stronger than expected | Exact account/model/comp-hash/static fingerprint binding |
-| Current user/tool tail duplicated or summarized | Explicit split before latest user and verbatim suffix |
-| Old response ID mixed with checkpoint | Mandatory continuation invalidation and chain reset |
-| Repeated compaction costs exceed savings | Near-limit trigger, reuse-first planner, cooldown, break-even metrics |
-| Ciphertext leaks in debug | Shape-only logging and adversarial log tests |
-| Connector-private design conflicts with future OpenResponses | No public contract; isolated files and explicit replacement boundary |
-| Concurrent managed attempts corrupt state | Per-key reservations, immutable committed snapshots, account-scoped preparation |
+## Implementation Readiness
 
-## Supporting References
-
-- `research.md` — upstream/current-code investigation, configuration proposal, token-estimation notes, and open questions.
-- `gap-analysis.md` — brownfield requirement-to-asset map and approach comparison.
-- `.kiro/specs/openresponses-api-support/` — future canonical/portable compaction authority; not implemented by this spec.
-- `.kiro/specs/archive/reasoning-output-preservation/` — existing exact reasoning dialect and preservation behavior to revalidate.
+The design has no unresolved architectural dependency. External endpoint behavior is intentionally deferred to gated live tests with fail-open/default-off controls. Implementation may proceed after requirements/design approval.
