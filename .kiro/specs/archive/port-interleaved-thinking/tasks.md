@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. Establish interleaved state, config, and memo foundations
+- [x] 1. Establish interleaved state, config, and memo foundations
 - [x] 1.1 Define shared interleaved route state values
   - Add role, cycle state, cycle entry, and memo reference value semantics used by routing, continuity, and runtime.
   - Include validation for empty state, stale selector state, cursor bounds, and JSON round-trip behavior.
@@ -25,7 +25,7 @@
   - _Boundary: Interleaved memo state_
   - _Validation: go test ./internal/core/interleavedthinking_
 
-- [ ] 2. Add thinker selector grammar and planner behavior
+- [x] 2. Add thinker selector grammar and planner behavior
 - [x] 2.1 Parse and validate thinker annotations
   - Accept bare and true-valued thinker forms on weighted branches.
   - Reject false, empty, duplicate, misplaced, and first-plus-thinker forms with selector validation errors.
@@ -59,7 +59,7 @@
   - _Boundary: Core routing tests_
   - _Validation: go test ./internal/core/routing_
 
-- [ ] 3. Persist cycle state and memo references through continuity
+- [x] 3. Persist cycle state and memo references through continuity
 - [x] 3.1 Extend in-memory A-leg continuity for thinker cycle and memo references
   - Store and fetch cycle state and memo reference with the A-leg record.
   - Preserve zero-value behavior for routes without thinker.
@@ -84,7 +84,7 @@
   - _Boundary: Secure-session integration_
   - _Validation: go test ./internal/core/securesession/... ./internal/core/b2bua_
 
-- [ ] 4. Build canonical memo processing and call shaping
+- [x] 4. Build canonical memo processing and call shaping
 - [x] 4.1 Extract bounded thinker memos from canonical events
   - Capture complete memo wrapper blocks from text and reasoning deltas.
   - Produce bounded fallback memo content when wrapper blocks are absent or incomplete.
@@ -121,7 +121,7 @@
   - _Boundary: Call Shaper_
   - _Validation: go test ./internal/core/interleavedthinking_
 
-- [ ] 5. Wire candidate-specific shaping and hidden continuation runtime
+- [x] 5. Wire candidate-specific shaping and hidden continuation runtime
 - [x] 5.1 Apply interleaved call shaping in the attempt-open path
   - Shape thinker and executor calls after route selection and before capability negotiation.
   - Persist cycle/reference updates at the same points that route selection and memo injection become authoritative.
@@ -150,7 +150,7 @@
   - _Boundary: Interleaved Stream Coordinator_
   - _Validation: go test ./internal/core/runtime_
 
-- [ ] 6. Add visible continuation and hybrid executor behavior
+- [x] 6. Add visible continuation and hybrid executor behavior
 - [x] 6.1 Implement visible thinker continuation stream
   - Surface sanitized thinker reasoning deltas before executor output.
   - Treat surfaced thinker deltas as client-visible output for recovery decisions.
@@ -178,7 +178,7 @@
   - _Boundary: Frontend compatibility tests_
   - _Validation: go test ./internal/plugins/frontends/...
 
-- [ ] 7. Wire operator configuration, diagnostics, and scenario evidence
+- [x] 7. Wire operator configuration, diagnostics, and scenario evidence
 - [x] 7.1 Wire interleaved config through runtime construction
   - Pass validated interleaved settings into executor construction from runtime bundle config.
   - Keep behavior inert when disabled or when selectors do not contain thinker.
@@ -204,7 +204,7 @@
   - _Boundary: Spec bundle evidence and migration notes_
   - _Validation: go test -tags=precommit ./internal/core/routing ./internal/core/runtime_
 
-- [ ] 8. Complete cross-boundary validation and quality gates
+- [x] 8. Complete cross-boundary validation and quality gates
 - [x] 8.1 Validate hidden interleaved thinking end to end
   - Exercise selector parse, thinker selection, hidden memo capture, stored state, continuation executor selection, and final stream output in one composed runtime test.
   - Done when the composed test fails if any phase is skipped or state is not persisted.
