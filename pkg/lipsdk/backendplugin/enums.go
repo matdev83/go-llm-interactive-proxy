@@ -130,6 +130,7 @@ const (
 	EventReasoningDelta          EventKind = lipapi.EventReasoningDelta
 	EventReasoningSignatureDelta EventKind = lipapi.EventReasoningSignatureDelta
 	EventReasoningOpaqueDelta    EventKind = lipapi.EventReasoningOpaqueDelta
+	EventReasoningPart           EventKind = lipapi.EventReasoningPart
 	EventToolCallStarted         EventKind = lipapi.EventToolCallStarted
 	EventToolCallArgsDelta       EventKind = lipapi.EventToolCallArgsDelta
 	EventToolCallFinished        EventKind = lipapi.EventToolCallFinished
@@ -172,7 +173,7 @@ func AccessScopeFromLipsdk(s lipsdk.BackendAccessScope) (AccessScope, error) {
 // ValidateEventKind rejects unspecified and unknown canonical event kinds (fail closed).
 func ValidateEventKind(k EventKind) error {
 	switch k {
-	case EventResponseStarted, EventMessageStarted, EventTextDelta, EventReasoningDelta,
+	case EventResponseStarted, EventMessageStarted, EventTextDelta, EventReasoningDelta, EventReasoningPart,
 		EventReasoningSignatureDelta, EventReasoningOpaqueDelta, EventToolCallStarted,
 		EventToolCallArgsDelta, EventToolCallFinished, EventUsageDelta, EventWarning,
 		EventError, EventResponseFinished, EventAssistantImageRef, EventAssistantFileRef:

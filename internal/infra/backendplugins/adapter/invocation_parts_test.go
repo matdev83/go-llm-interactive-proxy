@@ -74,6 +74,44 @@ func TestInvocationFromCall_JSONPartGoldenRoundTrip(t *testing.T) {
 	}
 }
 
+func TestInvocationFromCall_ExactReasoningGoldenRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	opaque := json.RawMessage(`{"id":"rs_1","type":"reasoning","summary":[],"encrypted_content":"encrypted-state"}`)
+	call := testCall()
+	call.Messages[0].Role = lipapi.RoleAssistant
+	call.Messages[0].Parts = []lipapi.Part{{
+		Kind: lipapi.PartReasoning,
+		Reasoning: &lipapi.ReasoningPart{
+			Dialect: lipapi.ReasoningDialectOpenAIResponsesItemV1,
+			Opaque:  opaque,
+		},
+	}}
+	inv, err := adapter.InvocationFromCall(call, testCand())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err := backendplugin.InvocationToProto(inv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := backendplugin.InvocationFromProto(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := backendplugin.CallFromInvocation(back)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := out.Messages[0].Parts[0].Reasoning
+	if got == nil || got.Dialect != lipapi.ReasoningDialectOpenAIResponsesItemV1 {
+		t.Fatalf("reasoning = %+v", got)
+	}
+	if string(got.Opaque) != string(opaque) {
+		t.Fatalf("opaque = %s, want %s", got.Opaque, opaque)
+	}
+}
+
 // Empty canonical json parts must fail host-side mapping, matching reverse bridge rules.
 func TestInvocationFromCall_JSONPartEmptyContentFails(t *testing.T) {
 	t.Parallel()

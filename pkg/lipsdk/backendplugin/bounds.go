@@ -4,6 +4,11 @@ package backendplugin
 const (
 	// ProtocolMajorV1 is the only major version accepted by this package.
 	ProtocolMajorV1 = uint32(1)
+	// ProtocolMinorExactReasoningParts adds dialect-tagged opaque reasoning parts
+	// to invocation parts and canonical stream events.
+	ProtocolMinorExactReasoningParts = uint32(1)
+	// FeatureExactReasoningParts gates use of the additive v1.1 wire fields.
+	FeatureExactReasoningParts = "exact_reasoning_parts"
 
 	// DefaultMaxMessageBytes is the default whole-message size ceiling.
 	DefaultMaxMessageBytes = uint64(4 << 20)

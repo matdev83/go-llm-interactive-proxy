@@ -57,6 +57,14 @@ func eventToLipapi(ev *backendplugin.CanonicalEvent) (lipapi.Event, error) {
 	if len(ev.Opaque) > 0 {
 		out.Opaque = append([]byte(nil), ev.Opaque...)
 	}
+	if ev.ReasoningDialect != nil || len(ev.ReasoningOpaque) > 0 {
+		out.Reasoning = &lipapi.ReasoningPart{
+			Opaque: append([]byte(nil), ev.ReasoningOpaque...),
+		}
+		if ev.ReasoningDialect != nil {
+			out.Reasoning.Dialect = lipapi.ReasoningDialect(*ev.ReasoningDialect)
+		}
+	}
 	if ev.ToolCallID != nil {
 		out.ToolCallID = *ev.ToolCallID
 	}

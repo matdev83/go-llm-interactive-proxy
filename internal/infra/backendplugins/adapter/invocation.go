@@ -109,6 +109,11 @@ func mapParts(in []lipapi.Part) ([]backendplugin.Part, error) {
 			if p.Reasoning != nil {
 				t := p.Reasoning.Text
 				bp.ReasoningText = &t
+				dialect := string(p.Reasoning.Dialect)
+				bp.ReasoningDialect = &dialect
+				if len(p.Reasoning.Opaque) > 0 {
+					bp.ReasoningOpaque = backendplugin.RawJSONFromBytes(p.Reasoning.Opaque)
+				}
 			}
 		case lipapi.PartToolResult:
 			id := p.ToolCallID

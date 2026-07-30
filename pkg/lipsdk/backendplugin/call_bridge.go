@@ -56,6 +56,11 @@ func CanonicalEventFromLipapi(ev lipapi.Event) *CanonicalEvent {
 	if len(ev.Opaque) > 0 {
 		out.Opaque = append([]byte(nil), ev.Opaque...)
 	}
+	if ev.Reasoning != nil {
+		dialect := string(ev.Reasoning.Dialect)
+		out.ReasoningDialect = &dialect
+		out.ReasoningOpaque = append([]byte(nil), ev.Reasoning.Opaque...)
+	}
 	if ev.ToolCallID != "" {
 		id := ev.ToolCallID
 		out.ToolCallID = &id
@@ -144,9 +149,16 @@ func partsToLipapi(in []Part) ([]lipapi.Part, error) {
 			if p.ReasoningText != nil {
 				text = *p.ReasoningText
 			}
+			reasoning := &lipapi.ReasoningPart{Text: text}
+			if p.ReasoningDialect != nil {
+				reasoning.Dialect = lipapi.ReasoningDialect(*p.ReasoningDialect)
+			}
+			if opaque := p.ReasoningOpaque.Bytes(); len(opaque) > 0 {
+				reasoning.Opaque = opaque
+			}
 			out = append(out, lipapi.Part{
 				Kind:      lipapi.PartReasoning,
-				Reasoning: &lipapi.ReasoningPart{Text: text},
+				Reasoning: reasoning,
 			})
 		case PartKindToolResult:
 			part := lipapi.Part{Kind: lipapi.PartToolResult}

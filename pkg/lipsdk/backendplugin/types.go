@@ -154,14 +154,16 @@ type Message struct {
 
 // Part is one canonical content part with explicit optional fields.
 type Part struct {
-	Kind          PartKind
-	Text          *string
-	ImageRef      *string
-	FileRef       *string
-	ReasoningText *string
-	ToolArgsJSON  RawJSON
-	ToolCallID    *string
-	ToolName      *string
+	Kind             PartKind
+	Text             *string
+	ImageRef         *string
+	FileRef          *string
+	ReasoningText    *string
+	ReasoningDialect *string
+	ReasoningOpaque  RawJSON
+	ToolArgsJSON     RawJSON
+	ToolCallID       *string
+	ToolName         *string
 }
 
 // ToolDef describes a tool the model may call.
@@ -234,18 +236,20 @@ type Terminal struct {
 
 // CanonicalEvent is one ordered stream event payload (sequence lives on the frame).
 type CanonicalEvent struct {
-	Kind         EventKind
-	MessageIndex *int32
-	Delta        *string
-	Signature    *string
-	Opaque       []byte
-	ToolCallID   *string
-	ToolName     *string
-	Usage        *UsageEvidence
-	Warning      *string
-	Error        *PluginError
-	ImageRef     *string
-	FileRef      *string
+	Kind             EventKind
+	MessageIndex     *int32
+	Delta            *string
+	Signature        *string
+	Opaque           []byte
+	ToolCallID       *string
+	ToolName         *string
+	Usage            *UsageEvidence
+	Warning          *string
+	Error            *PluginError
+	ImageRef         *string
+	FileRef          *string
+	ReasoningDialect *string
+	ReasoningOpaque  []byte
 }
 
 // ClientFrame is a host-to-plugin Execute frame.

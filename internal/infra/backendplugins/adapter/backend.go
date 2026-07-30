@@ -90,7 +90,9 @@ func Build(session ExecuteSession, profile backendplugin.ResolvedProfile, opt Op
 			if !p.ReasoningReplaySupported && !p.Capabilities.ReasoningReplay {
 				return lipapi.ReasoningReplaySupport{}
 			}
-			return lipapi.ReasoningReplaySupport{}
+			return lipapi.ReasoningReplaySupport{
+				Dialects: []lipapi.ReasoningDialect{lipapi.ReasoningDialectOpenAIResponsesItemV1},
+			}
 		}
 	}
 

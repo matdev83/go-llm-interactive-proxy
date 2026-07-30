@@ -22,14 +22,16 @@ func New() *Service { return &Service{} }
 func (s *Service) Describe(context.Context) (backendplugin.PluginDescriptor, error) {
 	httpCaps := backendplugin.CapabilitySummary{
 		Streaming: true, Tools: true, Vision: true, Documents: true,
-		ParallelToolCalls: true, Reasoning: true,
+		ParallelToolCalls: true, Reasoning: true, ReasoningReplay: true,
 	}
 	appCaps := backendplugin.CapabilitySummary{
 		Streaming: true, Tools: true, Vision: true, Reasoning: true,
 	}
 	transport := backendplugin.TransportCapabilitySummary{Cancellation: true, BidirectionalStream: true}
 	return backendplugin.PluginDescriptor{
-		ProtocolMajor: 1, ProtocolMinor: 0, PluginID: PluginID, Version: "0.1.0", BuildID: "localdev",
+		ProtocolMajor: 1, ProtocolMinor: backendplugin.ProtocolMinorExactReasoningParts,
+		PluginID: PluginID, Version: "0.1.0", BuildID: "localdev",
+		Features: []backendplugin.Feature{{Name: backendplugin.FeatureExactReasoningParts, Required: true}},
 		Factories: []backendplugin.FactoryDescriptor{{
 			Kind: FactoryKindHTTP, DisplayName: "OpenAI Codex", Description: "OpenAI Codex Responses backend",
 			CredentialMode: backendplugin.CredentialModeStatic, AccessScope: backendplugin.AccessScopeLocalOnly,
@@ -119,13 +121,14 @@ func (i *instance) Resolve(context.Context, *string) (backendplugin.ResolvedProf
 	if i.kind == FactoryKindHTTP {
 		caps = backendplugin.CapabilitySummary{
 			Streaming: true, Tools: true, Vision: true, Documents: true,
-			ParallelToolCalls: true, Reasoning: true,
+			ParallelToolCalls: true, Reasoning: true, ReasoningReplay: true,
 		}
 	} else {
 		caps = backendplugin.CapabilitySummary{Streaming: true, Tools: true, Vision: true, Reasoning: true}
 	}
 	return backendplugin.ResolvedProfile{
 		Capabilities:             caps,
+		ReasoningReplaySupported: i.kind == FactoryKindHTTP,
 		TransportCapabilities:    backendplugin.TransportCapabilitySummary{Cancellation: true, BidirectionalStream: true},
 		SupportsDynamicInventory: true,
 		RoutePrefixes:            []string{i.kind},

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/jsonpresence"
+	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/responseitem"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -46,6 +47,19 @@ type functionCallItem struct {
 }
 
 func (functionCallItem) inputItem() {}
+
+type opaqueResponseItem struct {
+	raw json.RawMessage
+}
+
+func (opaqueResponseItem) inputItem() {}
+
+func (i opaqueResponseItem) MarshalJSON() ([]byte, error) {
+	if !json.Valid(i.raw) {
+		return nil, fmt.Errorf("%s: invalid opaque response item", ID)
+	}
+	return append([]byte(nil), i.raw...), nil
+}
 
 type contentBlock interface {
 	contentBlock()
@@ -210,7 +224,7 @@ func buildInputItems(call *lipapi.Call) ([]inputItem, error) {
 func assistantFunctionCallItems(parts []lipapi.Part, hasTools bool) ([]inputItem, bool, error) {
 	out := make([]inputItem, 0, len(parts))
 	contentParts := make([]lipapi.Part, 0, len(parts))
-	sawFunctionCall := false
+	sawStructuredItem := false
 	flushContent := func() error {
 		if len(contentParts) == 0 {
 			return nil
@@ -224,6 +238,16 @@ func assistantFunctionCallItems(parts []lipapi.Part, hasTools bool) ([]inputItem
 		return nil
 	}
 	for _, p := range parts {
+		if item, ok, err := partToOpaqueResponseItem(p); err != nil {
+			return nil, false, err
+		} else if ok {
+			if err := flushContent(); err != nil {
+				return nil, false, err
+			}
+			sawStructuredItem = true
+			out = append(out, item)
+			continue
+		}
 		item, ok, err := partToFunctionCallItem(p)
 		if err != nil {
 			return nil, false, err
@@ -233,7 +257,7 @@ func assistantFunctionCallItems(parts []lipapi.Part, hasTools bool) ([]inputItem
 			continue
 		}
 		if !hasTools {
-			sawFunctionCall = true
+			sawStructuredItem = true
 			// Preserve the fact that a prior assistant action happened, but do not
 			// send Codex a structured function_call when this request has no tool
 			// schema. The structured form is reserved for tool-enabled turns where
@@ -244,16 +268,48 @@ func assistantFunctionCallItems(parts []lipapi.Part, hasTools bool) ([]inputItem
 		if err := flushContent(); err != nil {
 			return nil, false, err
 		}
-		sawFunctionCall = true
+		sawStructuredItem = true
 		out = append(out, item)
 	}
-	if !sawFunctionCall {
+	if !sawStructuredItem {
 		return nil, false, nil
 	}
 	if err := flushContent(); err != nil {
 		return nil, false, err
 	}
 	return out, true, nil
+}
+
+func partToOpaqueResponseItem(p lipapi.Part) (inputItem, bool, error) {
+	var raw json.RawMessage
+	switch {
+	case p.Kind == lipapi.PartReasoning:
+		if p.Reasoning == nil {
+			return nil, false, fmt.Errorf("%s: reasoning input item requires a payload", ID)
+		}
+		if p.Reasoning.Dialect != lipapi.ReasoningDialectOpenAIResponsesItemV1 {
+			return nil, false, fmt.Errorf("%s: unsupported reasoning input dialect %q", ID, p.Reasoning.Dialect)
+		}
+		canon, err := responseitem.CanonizeReasoningItemOpaque(p.Reasoning.Opaque)
+		if err != nil {
+			return nil, false, fmt.Errorf("%s: invalid reasoning input item: %w", ID, err)
+		}
+		raw = canon
+	case p.Kind == lipapi.PartJSON:
+		var header struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(p.Content, &header) != nil || header.Type != "compaction" {
+			return nil, false, nil
+		}
+		raw = p.Content
+	default:
+		return nil, false, nil
+	}
+	if !json.Valid(raw) {
+		return nil, false, fmt.Errorf("%s: invalid opaque response item", ID)
+	}
+	return opaqueResponseItem{raw: append(json.RawMessage(nil), raw...)}, true, nil
 }
 
 func noToolsFunctionCallText(item inputItem) string {

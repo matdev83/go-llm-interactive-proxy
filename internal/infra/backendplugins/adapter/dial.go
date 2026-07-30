@@ -47,7 +47,9 @@ func DialConfiguredSession(
 	}
 	client := backendpluginv1.NewBackendPluginClient(gc)
 	neg, err := client.Negotiate(ctx, &backendpluginv1.NegotiateRequest{
-		HostMajor: 1, HostMinor: 0, DisableTransportRetries: true,
+		HostMajor: 1, HostMinor: backendplugin.ProtocolMinorExactReasoningParts,
+		HostFeatures:            []*backendpluginv1.Feature{{Name: backendplugin.FeatureExactReasoningParts}},
+		DisableTransportRetries: true,
 	})
 	if err != nil {
 		_ = gc.Close()
