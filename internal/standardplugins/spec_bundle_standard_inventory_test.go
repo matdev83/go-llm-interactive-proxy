@@ -28,6 +28,7 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 	}
 
 	wantBE := []string{
+		"alibaba-token-plan-intl",
 		"anthropic",
 		"bedrock",
 		"custom-anthropic-compatible",

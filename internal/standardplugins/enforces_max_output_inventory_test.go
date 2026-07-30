@@ -18,7 +18,8 @@ func TestStandardBackends_declareMaxOutputEnforcement(t *testing.T) {
 	t.Parallel()
 
 	reg := pluginreg.NewRegistry()
-	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
+	keys := UpstreamAPIKeys{AlibabaTokenPlan: []string{"test"}}
+	if err := InstallStandardBackendsOn(reg, keys); err != nil {
 		t.Fatal(err)
 	}
 
@@ -52,7 +53,7 @@ func TestStandardBackends_declareMaxOutputEnforcement(t *testing.T) {
 // the candidate when a clamp is required. New backends must be added here.
 func standardBackendEnforcesMaxOutput(id string) (bool, bool) {
 	switch id {
-	case "openai-responses", "openai-legacy", "anthropic", "gemini", "bedrock",
+	case "openai-responses", "openai-legacy", "anthropic", "alibaba-token-plan-intl", "gemini", "bedrock",
 		CustomOpenAILegacyCompatibleID, CustomOpenAIResponsesCompatibleID, CustomAnthropicCompatibleID:
 		return true, true
 	default:

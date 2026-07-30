@@ -12,16 +12,17 @@ func TestOfficialBackendsHaveLifecycleContractTests(t *testing.T) {
 	root := repoRoot(t)
 	backendsDir := filepath.Join(root, "internal", "plugins", "backends")
 	lifecycleDelegatedToSharedAdapter := map[string]string{
-		"anthropic":    filepath.Join("protocols", "anthropicmessages"),
-		"gemini":       filepath.Join("protocols", "geminigenerate"),
-		"ollama":       "openaicompat",
-		"ollama-cloud": "openaicompat",
-		"llamacpp":     "openaicompat",
-		"lmstudio":     "openaicompat",
-		"openrouter":   "openaicompat",
-		"nvidia":       "openaicompat",
-		"huggingface":  "openaicompat",
-		"vllm":         "openaicompat",
+		"anthropic":            filepath.Join("protocols", "anthropicmessages"),
+		"alibabatokenplanintl": filepath.Join("protocols", "anthropicmessages"),
+		"gemini":               filepath.Join("protocols", "geminigenerate"),
+		"ollama":               "openaicompat",
+		"ollama-cloud":         "openaicompat",
+		"llamacpp":             "openaicompat",
+		"lmstudio":             "openaicompat",
+		"openrouter":           "openaicompat",
+		"nvidia":               "openaicompat",
+		"huggingface":          "openaicompat",
+		"vllm":                 "openaicompat",
 		// ACP CLI connectors delegate streaming to the shared acp.promptStream.
 		"cursorcliacp": "acp",
 		"geminicliacp": "acp",
