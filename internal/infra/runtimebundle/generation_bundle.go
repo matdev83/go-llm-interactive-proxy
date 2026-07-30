@@ -18,10 +18,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
-// GenerationRuntime is the canonical immutable publication and generation-resource
-// ownership contract (design GenerationRuntime; Task 3.3). Concrete runtimes
-// satisfy it directly — no generationOwner delegate, CandidateRuntime owner, or
-// generic dependency lookup surface.
 type GenerationRuntime interface {
 	runtimehost.PublishedRequestPlane
 	runtimehost.ExecutorProvider
@@ -54,13 +50,6 @@ type generationOperations struct {
 	readiness         controlplane.ReadinessReportReader
 }
 
-// GenerationBundle is the concrete GenerationRuntime: immutable publication unit
-// for one request-plane generation. Fields are private cohesive groups plus the
-// canonical ResourceLedger pointer; accessors return narrow interfaces,
-// immutable values, or defensive copies. It never stores CandidateRuntime,
-// generationOwner, mutable *config.Config, *runtime.App, *Built, RequestPlane,
-// ProcessServices ownership, or a dependency map. Lifecycle is delegated
-// directly to the ledger (task 7.2).
 type GenerationBundle struct {
 	execution   generationExecution
 	publication generationHTTPPublication
@@ -80,9 +69,6 @@ var (
 	_ routing.NativeModelResolver           = modelregistry.BoundView{}
 )
 
-// BindModelViews captures this generation's model-registry and catalog
-// publications into ctx exactly once for the logical request (req 9.4-9.5).
-// It also attaches one aggregate model-view identity for diagnostics/ETag.
 func (b *GenerationBundle) BindModelViews(ctx context.Context) context.Context {
 	ctx = ctxOrBackground(ctx)
 	if b == nil {
@@ -100,46 +86,34 @@ func (b *GenerationBundle) BindModelViews(ctx context.Context) context.Context {
 	id := modelview.Derive(configGen, configFP, regView.Generation(), catView.Generation())
 	ctx = modelregistry.WithBoundView(ctx, regView)
 	ctx = modelcatalog.WithBoundView(ctx, catView)
-	// Attach the same frozen registry as the routing native resolver so the
-	// executor can bind leaf NativeModel without importing modelregistry.
 	ctx = routing.WithNativeModelResolver(ctx, regView)
 	ctx = modelview.WithIdentity(ctx, id)
 	return ctx
 }
-
-// TerminalProviders returns this generation's immutable terminal-effect provider view.
 func (b *GenerationBundle) TerminalProviders() terminalworkapp.TerminalProviderView {
 	if b == nil || b.operations.terminalProviders == nil {
 		return terminalworkapp.SnapshotTerminalProviders(nil)
 	}
 	return b.operations.terminalProviders
 }
-
-// Handler returns the generation request-plane handler (no listener).
 func (b *GenerationBundle) Handler() http.Handler {
 	if b == nil {
 		return nil
 	}
 	return b.publication.handler
 }
-
-// ExecutorView returns the narrow SDK executor view.
 func (b *GenerationBundle) ExecutorView() lipsdk.ExecutorView {
 	if b == nil || b.execution.executor == nil {
 		return nil
 	}
 	return b.execution.executor
 }
-
-// ReadinessReport returns the generation readiness report service, or nil.
 func (b *GenerationBundle) ReadinessReport() controlplane.ReadinessReportReader {
 	if b == nil {
 		return nil
 	}
 	return b.operations.readiness
 }
-
-// BackendIDs returns a defensive copy of generation backend instance IDs.
 func (b *GenerationBundle) BackendIDs() []string {
 	if b == nil {
 		return nil
@@ -147,8 +121,6 @@ func (b *GenerationBundle) BackendIDs() []string {
 	return append([]string(nil), b.execution.backendIDs...)
 }
 
-// BackendFactoryKindCounts returns enabled backend factory-kind occurrence
-// counts for LiveFactoryKinds admission (task 5.1 / req 8.8).
 func (b *GenerationBundle) BackendFactoryKindCounts() map[string]int {
 	if b == nil || len(b.publication.registrations) == 0 {
 		return nil
@@ -170,7 +142,6 @@ func (b *GenerationBundle) BackendFactoryKindCounts() map[string]int {
 	return out
 }
 
-// Routing returns a defensive copy of the frozen routing view.
 func (b *GenerationBundle) Routing() FrozenRoutingView {
 	if b == nil {
 		return FrozenRoutingView{}
@@ -181,7 +152,6 @@ func (b *GenerationBundle) Routing() FrozenRoutingView {
 	}
 }
 
-// RoutePrefixes returns a defensive copy of route-selector prefixes.
 func (b *GenerationBundle) RoutePrefixes() []string {
 	if b == nil {
 		return nil
@@ -189,7 +159,6 @@ func (b *GenerationBundle) RoutePrefixes() []string {
 	return append([]string(nil), b.publication.routing.RoutePrefixes...)
 }
 
-// FrozenFrontends returns a defensive copy of frontend plugin rows.
 func (b *GenerationBundle) FrozenFrontends() []config.PluginConfig {
 	if b == nil {
 		return nil
@@ -197,7 +166,6 @@ func (b *GenerationBundle) FrozenFrontends() []config.PluginConfig {
 	return freezePluginConfigs(b.publication.frontends)
 }
 
-// Registrations returns a defensive deep copy of plugin registrations.
 func (b *GenerationBundle) Registrations() []lipsdk.Registration {
 	if b == nil {
 		return nil
@@ -205,7 +173,6 @@ func (b *GenerationBundle) Registrations() []lipsdk.Registration {
 	return freezeRegistrations(b.publication.registrations)
 }
 
-// HTTPAuthProviders returns a defensive copy of transport-auth providers.
 func (b *GenerationBundle) HTTPAuthProviders() []httpauth.Provider {
 	if b == nil || b.publication.httpAuth == nil {
 		return nil
@@ -213,8 +180,6 @@ func (b *GenerationBundle) HTTPAuthProviders() []httpauth.Provider {
 	return append([]httpauth.Provider(nil), b.publication.httpAuth...)
 }
 
-// ResourceCount returns the current generation-owned ledger entry count.
-// Intended for tests and diagnostics; it does not expose mutation controls.
 func (b *GenerationBundle) ResourceCount() int {
 	if b == nil || b.ledger == nil {
 		return 0
@@ -222,8 +187,6 @@ func (b *GenerationBundle) ResourceCount() int {
 	return b.ledger.Len()
 }
 
-// Quiesce stops admission-independent generation workers via the canonical
-// ResourceLedger (req 10.5 / 8.3-8.4).
 func (b *GenerationBundle) Quiesce(ctx context.Context) error {
 	if b == nil || b.ledger == nil {
 		return nil
@@ -231,8 +194,6 @@ func (b *GenerationBundle) Quiesce(ctx context.Context) error {
 	return b.ledger.Quiesce(ctx)
 }
 
-// Close rolls back/closes generation-owned resources via the canonical ledger.
-// It never closes ProcessServices.
 func (b *GenerationBundle) Close() error {
 	if b == nil || b.ledger == nil {
 		return nil

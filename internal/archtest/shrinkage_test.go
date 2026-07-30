@@ -19,8 +19,11 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	if RuntimeConvergenceMinNetLineReduction != 800 {
 		t.Fatalf("min reduction drift: %d", RuntimeConvergenceMinNetLineReduction)
 	}
-	if ConnectorArchitectureOverlayMax != 971 {
+	if ConnectorArchitectureOverlayMax != 1000 {
 		t.Fatalf("connector overlay cap drift: %d", ConnectorArchitectureOverlayMax)
+	}
+	if GenericCompatibleBackendOverlayMax != 900 {
+		t.Fatalf("generic compatible overlay cap drift: %d", GenericCompatibleBackendOverlayMax)
 	}
 	want := []AffectedSurfaceBaseline{
 		{Tree: "internal/infra/runtimebundle", BaselineLines: 9898},
@@ -106,10 +109,10 @@ func TestShrinkage_MeasureDeterministicTotals(t *testing.T) {
 	if m.Delta != m.CurrentTotal-m.BaselineTotal {
 		t.Fatalf("aggregate delta inconsistency: %d", m.Delta)
 	}
-	if m.ConvergenceDelta != m.Delta-m.Overlay.Lines {
-		t.Fatalf("convergence delta inconsistency: got %d want %d-%d", m.ConvergenceDelta, m.Delta, m.Overlay.Lines)
+	if m.ConvergenceDelta != m.Delta-m.Overlay.Lines-m.GenericCompatibleOverlay.Lines {
+		t.Fatalf("convergence delta inconsistency: got %d want %d-%d-%d", m.ConvergenceDelta, m.Delta, m.Overlay.Lines, m.GenericCompatibleOverlay.Lines)
 	}
-	wantPass := m.ConvergenceDelta <= m.RequiredMax && m.Overlay.Pass
+	wantPass := m.ConvergenceDelta <= m.RequiredMax && m.Overlay.Pass && m.GenericCompatibleOverlay.Pass
 	if m.Pass != wantPass {
 		t.Fatalf("pass flag inconsistency: pass=%v convergence=%+d overlay=%d", m.Pass, m.ConvergenceDelta, m.Overlay.Lines)
 	}
@@ -127,7 +130,7 @@ func TestShrinkage_ReportSectionIncludesVerdict(t *testing.T) {
 		"Baseline SHA: `" + RuntimeConvergenceShrinkageBaselineSHA + "`",
 		"| **TOTAL** |",
 		"ADR 0008 connector-architecture overlay",
-		"Convergence delta (raw − overlay):",
+		"Convergence delta (raw − overlays):",
 		"Required: convergence delta ≤ -800",
 	} {
 		if !strings.Contains(section, needle) {

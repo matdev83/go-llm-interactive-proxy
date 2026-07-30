@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	cpadmin "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/controlplane"
 	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
@@ -21,13 +22,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
-// CompileGeneration builds one complete immutable generation bundle: isolated
-// candidate runtime (executor/backends/features/ledger) plus a standard request-
-// plane http.Handler with no listener bind (design Generation Compiler).
-//
-// Each compile consumes an isolated candidate effective configuration and rebuilds
-// registrations/feature surface from the process-owned factory catalog. It does
-// not mutate ProcessServices, an active generation, or a prior candidate.
 func CompileGeneration(ctx context.Context, in GenerationCompileInput) (GenerationRuntime, error) {
 	if in.Process == nil {
 		return nil, fmt.Errorf("runtimebundle: nil ProcessServices")
@@ -51,8 +45,12 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if err != nil {
 		return nil, err
 	}
-	if err := standardplugins.ValidateCustomCompatibleBackendPrefixes(frozen.Plugins.Backends); err != nil {
-		return nil, fmt.Errorf("runtimebundle: %w", err)
+	var pluginReg *pluginreg.Registry
+	if ps.opts != nil {
+		pluginReg = ps.opts.PluginRegistry
+	}
+	if err := validateCandidateManifestOwnership(frozen, pluginReg); err != nil {
+		return nil, err
 	}
 
 	regs := freezeRegistrations(config.RegistrationsFromConfig(frozen))
@@ -162,9 +160,6 @@ func composeStandardHTTPIsolated(ctx context.Context, compose HandlerComposer, c
 	return compose(ctx, cfg, log, in)
 }
 
-// buildStandardHTTPInput projects one compiled candidate plus its frozen
-// config/registrations directly into the focused HTTP composition input
-// (task 3.4–3.5). It never allocates a legacy RequestPlane or Built aggregate.
 func buildStandardHTTPInput(cand *candidateAssembly, frozen *config.Config, regs []lipsdk.Registration, route string) httpcontract.StandardHTTPInput {
 	var maxBody int64
 	var preKA lipsdk.FrontendKeepaliveConfig
@@ -222,11 +217,6 @@ func injectCandidateFault(fi CandidateFaultInject, boundary string) error {
 	return fmt.Errorf("%w: after %s", ErrCandidateFaultInjected, boundary)
 }
 
-// extensionsFromMerged builds candidate feature extensions from the newly merged
-// candidate surface plus process-fixed enterprise Production injections and
-// required secret environment/decision seams. It does not append startup-merged
-// feature observers from ProcessServices.opts.Extensions (those already contain
-// the bootstrap merged surface and would leak/duplicate into later candidates).
 func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, processOpts *BuildOptions) ExtensionsOptions {
 	ext := ExtensionsOptions{
 		SessionOpeners:                   append(merged.SessionOpeners[:0:0], merged.SessionOpeners...),
@@ -265,7 +255,6 @@ func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
 	dst.WorkspaceResolvers = append(dst.WorkspaceResolvers, src.WorkspaceResolvers...)
 	dst.ToolCatalogFilters = append(dst.ToolCatalogFilters, src.ToolCatalogFilters...)
 	dst.ToolCallPolicies = append(dst.ToolCallPolicies, src.ToolCallPolicies...)
-	// Local names avoid ownership closer scanner false-positives on "*Finalizer*".
 	curTCF := dst.ToolCallFinalizers
 	addTCF := src.ToolCallFinalizers
 	dst.ToolCallFinalizers = append(curTCF, addTCF...)

@@ -10,5 +10,10 @@ import (
 )
 
 func InventorySnapshotForOperator(ctx context.Context, cfg *config.Config, reg *pluginreg.Registry, registrations []lipsdk.Registration) (diag.InventorySnapshot, error) {
-	return diag.InventorySnapshotForConfig(ctx, cfg, &diag.InventoryExtras{Reg: reg, Registrations: registrations})
+	var live *inventoryLiveSnapshot
+	if snap, err := tryLoadInventoryLiveSnapshot(ctx, cfg, reg); err == nil {
+		live = snap
+		defer func() { _ = live.Close(ctx) }()
+	}
+	return inventorySnapshotForOperator(ctx, cfg, reg, registrations, live)
 }

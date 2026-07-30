@@ -11,37 +11,20 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 )
 
-// GenerationCompileInput is the non-owning input to [compileCandidate] /
-// [CompileGeneration]. Process must outlive the candidate; candidate Close must
-// not Close Process.
 type GenerationCompileInput struct {
-	Process *ProcessServices
-	Bus     *hooks.Bus
-	// Candidate is the isolated effective configuration for this compile.
-	// When nil, Process startup config is used as the canonical startup-candidate default.
-	Candidate *config.Config
-	// CandidateOpts supplies generation-owned options (feature lifecycles /
-	// extensions) without mutating Process startup options. Process-fixed
-	// fields (PluginRegistry, Infra, Testing, Production, Auth, …) remain
-	// sourced from ProcessServices.
-	CandidateOpts *BuildOptions
-	// Compose builds the request-plane http.Handler without binding a listener.
-	// Required by [CompileGeneration]; unused by [compileCandidate].
-	Compose HandlerComposer
-	// LiveFactoryKinds counts factory kinds held by active/retained generations.
-	// Used to reject shared-process exclusive kinds before publication (req 8.8).
+	Process          *ProcessServices
+	Bus              *hooks.Bus
+	Candidate        *config.Config
+	CandidateOpts    *BuildOptions
+	Compose          HandlerComposer
 	LiveFactoryKinds map[string]int
-	// FaultInject is test-only; production leaves it zero.
-	FaultInject CandidateFaultInject
+	FaultInject      CandidateFaultInject
 }
 
-// compileCandidate builds one generation-owned candidate against shared process services.
-// On failure, only candidate-acquired resources are disposed; Process survives.
 func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidateAssembly, error) {
 	if in.Process == nil {
 		return nil, fmt.Errorf("runtimebundle: nil ProcessServices")
@@ -60,29 +43,18 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		return nil, fmt.Errorf("runtimebundle: ProcessServices missing config or PluginRegistry")
 	}
 
-	// Classify the candidate against the process baseline before any generation
-	// resource acquisition (req 3.5, 7.5): a startup-only/process-topology
-	// change fails with a typed RestartRequiredError before publication. Skipped
-	// when the caller reused the process startup config (in.Candidate == nil) or
-	// when the candidate is the identical config pointer already known compatible
-	// with itself.
 	if in.Candidate != nil && ps.cfg != nil && cfg != ps.cfg {
 		if _, err := configreload.Classify(ps.cfg, cfg); err != nil {
 			return nil, err
 		}
 	}
-
-	if err := standardplugins.ValidateCustomCompatibleBackendPrefixes(cfg.Plugins.Backends); err != nil {
-		return nil, fmt.Errorf("runtimebundle: %w", err)
+	if err := validateCandidateManifestOwnership(cfg, opts.PluginRegistry); err != nil {
+		return nil, err
 	}
 
-	// Reject unsafe feature lifecycles before any generation resource acquisition
-	// so unmarked plugins cannot escape cleanup (req 8.8, task 3.2).
 	if err := ClassifyFeatureLifecycles(opts.FeatureLifecycles); err != nil {
 		return nil, err
 	}
-	// Reject shared-process exclusive backend kinds that cannot overlap a live
-	// instance before constructing candidate resources (req 8.8, task 4.2).
 	if err := ClassifyBackendOverlap(opts.PluginRegistry, cfg, in.LiveFactoryKinds); err != nil {
 		return nil, err
 	}
@@ -91,7 +63,6 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	if bus == nil {
 		bus = hooks.New(hooks.Config{})
 	}
-	// Compile ctx comes from the caller or StartupContext, never from ProcessServices state.
 	parent := opts.Startup.StartupContext
 	if parent == nil {
 		parent = ctx

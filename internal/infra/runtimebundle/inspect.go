@@ -131,7 +131,12 @@ func inspectRoutes(ctx context.Context, in InspectInput, loadEffective bootstrap
 	if err != nil {
 		return RoutesSnapshot{}, err
 	}
-	return RoutesSnapshotFrom(cfg, reg)
+	var live *inventoryLiveSnapshot
+	if snap, loadErr := tryLoadInventoryLiveSnapshot(ctx, cfg, reg); loadErr == nil {
+		live = snap
+		defer func() { _ = live.Close(ctx) }()
+	}
+	return routesSnapshotFrom(cfg, reg, live)
 }
 
 // InspectInventory loads one effective snapshot and projects an inventory-only read model.

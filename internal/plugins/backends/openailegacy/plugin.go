@@ -97,8 +97,28 @@ func New(cfg Config) execbackend.Backend {
 					return nil, fmt.Errorf("%s: %w", ID, aerr)
 				}
 				cli := openaicred.NewOpenAIClient(cfg.BaseURL, cred.Secret, cfg.HTTPClient, cfg.SDKMaxRetries)
+				if call.Invocation.TransportMode == lipapi.TransportModeNonStreaming {
+					comp, nerr := cli.Chat.Completions.New(ctx, p)
+					if nerr != nil {
+						kind, retryAfter := openaicred.ClassifyOpenAIAPIError(nerr)
+						now = time.Now()
+						switch kind {
+						case openaicred.FailureAuthInvalid:
+							pool.MarkAuthInvalid(cred.ID)
+						case openaicred.FailureRateLimited:
+							until := credpool.CooldownFromRetryAfterOrFallback(retryAfter, now, openAIRateLimitFallback)
+							pool.MarkRateLimited(cred.ID, until)
+						case openaicred.FailureRetryable:
+							return nil, lipapi.RecoverablePreOutputError(nerr)
+						default:
+							return nil, nerr
+						}
+						continue
+					}
+					return lipapi.NewFixedEventStream(CompletionEvents(*comp)), nil
+				}
 				raw := cli.Chat.Completions.NewStreaming(ctx, p)
-				es := newChatStream(raw, call.MaxPendingWireEvents)
+				es := NewChatStream(raw, call.MaxPendingWireEvents)
 				ev, rerr := es.Recv(ctx)
 				if rerr == nil {
 					return streampeek.NewManagedPrependFirst(ev, es), nil

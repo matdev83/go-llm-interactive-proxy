@@ -1,15 +1,48 @@
 # Current-State Review, Requirements Gap Analysis, Architecture Research, and Design Validation
 
 Generated: 2026-07-19T16:20:00+02:00
+Task 1.1 revalidation evidence updated: 2026-07-28
 
 ## Status
 
-- Repository: `matdev83/go-llm-interactive-proxy`
+- Repository: `matdev83/go-llm-interactive-proxy` (worktree branch `feat/generic-backends`)
 - Feature: `generic-compatible-backend-modes`
 - Source feature request: issue `#187`
-- Workflow completed: initialization, requirements generation, mandatory brownfield gap analysis, requirements remediation, design generation, design validation, design correction, and task generation
-- Change scope: Kiro specification artifacts only
-- Implementation readiness: design validated; requirements, design, and tasks remain unapproved in `spec.json`
+- Workflow completed: initialization, requirements generation, mandatory brownfield gap analysis, requirements remediation, design generation, design validation, design correction, task generation, Task 1.1 brownfield revalidation against landed plugin architecture
+- Change scope: active specification plus Task 1.1/1.2 implementation
+- Implementation readiness: requirements, design, and tasks approved; `ready_for_implementation: true`
+
+## Task 1.1 Landed Interface / Package Mapping (2026-07-28)
+
+Dependency: archived `.kiro/specs/archive/backend-connector-plugin-architecture/` (landed; do not treat transitional paths as final).
+
+| Concern | Landed package / symbol | Notes for this spec |
+|---|---|---|
+| Built-in essential + compatible kinds | `internal/standardplugins.EssentialBackendKinds`, `EssentialBackendBundle`, `IsEssentialBackendKind` | Three kinds already registered: `custom-openai-legacy-compatible`, `custom-openai-responses-compatible`, `custom-anthropic-compatible` |
+| Transitional construction | `internal/standardplugins/custom_backends.go` (`customCompatibleBackendYAML`, factories) | Still accepts literal `api_key` / `api_keys` / `credentials`; replaced by strict `config.CompatibleModeConfig` decode (Task 1.2+) then composition cutover |
+| Registry / factory ABI | `internal/pluginreg.Registry`, `BackendFactoryDeps` (= `GenericBackendFactoryDeps`) | Generic host deps only (`Identity`); no provider-specific fields |
+| Executable plugin ABI | `pkg/lipsdk/backendplugin`, `pkg/lipsdk/backendplugin/manifest` (schema `golip.backendplugin.manifest/v1`) | Manifest exports factory kinds before launch; route prefixes arrive from resolved profiles after activation |
+| Discovery (no launch) | `internal/infra/backendplugins/discovery.Discover` | Manifest-available catalog for `check-config` / first-stage ownership |
+| Host ownership | `internal/infra/runtimebundle.Host` | Owns reload coordinator, manager, process services, active generation publication |
+| Immutable generation | `internal/infra/runtimebundle.GenerationRuntime` / `GenerationBundle` | Published request plane; no mutable config retained on the generation |
+| Credentials (shared) | `internal/plugins/backends/credpool`, numbered env keys via `collectNumberedEnvKeys` | Compatible modes: env-root only after Task 2.1; no-auth is valid |
+| Inventory | `internal/plugins/backends/modeldiscover`, `pkg/lipsdk/modelinventory` | Reuse OpenAI-compatible / static providers; provenance stays instance-scoped |
+| Tokenizer / accounting | `internal/infra/tokenizers`, `internal/core/tokenaccounting` | Spec adds composition-edge resolver; **no** `internal/core/tokenization` package |
+| Concurrency / admission | `internal/core/config` accounting concurrency rules + runtime terminal ownership | Per-instance `max_concurrent_requests` maps to concurrency-authority dimensions; not codec semaphore / reload `attemptGate` |
+| Diagnostics / CLI | `cmd/lipstd`, `internal/core/diag`, runtimebundle inspect/check-config paths | Must distinguish `built_in_compatible` origin later |
+| Architecture gates | `internal/archtest` (`TestEssentialBackendBundle_ExactAllowlist`, `TestCoreExcludesBackendPluginHostAndWire`, Phase 7/8 connector gates) plus Task 1.1 probes in `generic_compatible_boundaries_test.go` | Built-in membership, no core kind naming, no host/manifest externalization |
+
+### Two-stage external ownership (ABI preserved)
+
+1. **Manifest-available (check-config / pre-activation):** built-in kinds+prefixes, enabled generic prefixes, discovered external **factory kinds** from validated manifests — no process launch.
+2. **Post-activation (startup/reload):** merge advertised **route prefixes** from resolved external profiles; reject collisions before publishing the candidate `GenerationRuntime` through `Host`.
+
+### Boundary evidence recorded for Task 1.1
+
+- Existing: `TestEssentialBackendBundle_ExactAllowlist` locks essential membership including the three generic kinds.
+- Existing: Phase 8 optional-connector gates reject essential kinds in connector manifests.
+- Added: `TestGenericCompatible_remainBuiltIn`, `TestGenericCompatible_absentFromConnectorManifestsAndHostPackages`, `TestGenericCompatible_notNamedByInternalCore` in `internal/archtest/generic_compatible_boundaries_test.go`.
+- Validation: `go test ./internal/archtest -run GenericCompatible` and full `go test ./internal/archtest` plus `GOWORK=off go build ./cmd/lipstd`.
 
 ## Reviewed Steering, Rules, Templates, and Patterns
 
@@ -201,10 +234,13 @@ The final design preserves core/plugin-host boundaries, keeps dependency-free mo
 
 ## Open Implementation Decisions
 
-The following may be finalized after the adjacent architecture lands without changing requirements:
+Resolved during Task 1.1/1.2:
 
-1. Exact final package names.
-2. Whether config types live beside each adapter or in a small built-in compatibility package.
+1. Exact final package names follow landed packages listed in the Task 1.1 mapping table.
+2. Strict compatible config lives in `internal/core/config` as `CompatibleModeConfig` / `DecodeCompatibleModeConfig` (kind-agnostic schema; factories remain in `internal/standardplugins` until cutover).
+
+Still open without changing requirements:
+
 3. Exact admission API name and zero-limit default.
 4. Supported tokenizer identifier vocabulary.
 5. Disabled-row visibility in diagnostics.

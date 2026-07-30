@@ -76,7 +76,6 @@ func TestReloadDynamic_FrontendFeatureAuthRouteAliasModelLimitsRecompose(t *test
 		Config: genYAMLNode(t, `
 backend_prefix: dyngeneric
 base_url: http://127.0.0.1:9/v1
-api_key: test-key
 models:
   source: inline
   items:

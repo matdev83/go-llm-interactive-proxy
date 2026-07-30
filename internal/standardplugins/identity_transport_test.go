@@ -482,7 +482,7 @@ identity:
 }
 
 func TestIdentityTransport_excludedHTTPConnectorsIgnoreGlobalCustomUA(t *testing.T) {
-	t.Parallel()
+	t.Setenv("EXCL_LEGACY_API_KEY", "sk-test")
 
 	cases := []struct {
 		name  string
@@ -495,7 +495,7 @@ func TestIdentityTransport_excludedHTTPConnectorsIgnoreGlobalCustomUA(t *testing
 			name: "custom-openai-legacy-compatible",
 			id:   standardplugins.CustomOpenAILegacyCompatibleID,
 			yaml: func(u string) string {
-				return "backend_prefix: excl-legacy\nbase_url: " + u + "/v1\napi_key: sk-test\n"
+				return "backend_prefix: excl-legacy\nbase_url: " + u + "/v1\napi_key_env_var_root: EXCL_LEGACY_API_KEY\n"
 			},
 			model: "excl-legacy/gpt-4o-mini",
 			op:    lipapi.OperationOpenAIChatCompletions,
@@ -504,7 +504,6 @@ func TestIdentityTransport_excludedHTTPConnectorsIgnoreGlobalCustomUA(t *testing
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
 			var sawUA string
 			var sawPresent bool
 			inner := refchat.NewHandler(refchat.Config{})
@@ -536,10 +535,11 @@ func TestIdentityTransport_excludedHTTPConnectorsIgnoreGlobalCustomUA(t *testing
 			if err := yaml.Unmarshal([]byte(tc.yaml(srv.URL)), &node); err != nil {
 				t.Fatal(err)
 			}
-			be, err := reg.BuildBackend(tc.id, node, srv.Client(), pluginreg.BackendFactoryDeps{Identity: g})
+			res, err := reg.BuildBackendWithLifecycle(tc.id, "excl-legacy", node, srv.Client(), pluginreg.BackendFactoryDeps{Identity: g})
 			if err != nil {
 				t.Fatal(err)
 			}
+			be := res.Backend
 			es, err := be.Open(identity.WithClientUserAgent(context.Background(), "ClientMustNotAppear/1"), identityTransportCall(tc.op), routing.AttemptCandidate{Primary: routing.Primary{Model: tc.model}})
 			if err != nil {
 				t.Fatal(err)

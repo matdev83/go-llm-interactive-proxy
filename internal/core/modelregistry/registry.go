@@ -41,13 +41,15 @@ type BackendInventory struct {
 }
 
 type BackendModel struct {
-	CanonicalID string
-	NativeID    string
-	DisplayName string
-	BackendID   string
-	Kind        string
-	Source      modelinventory.Source
-	LoadedAt    time.Time
+	CanonicalID      string
+	NativeID         string
+	DisplayName      string
+	BackendID        string
+	Kind             string
+	Source           modelinventory.Source
+	LoadedAt         time.Time
+	Prefix           string
+	CapabilitySource string
 }
 
 type Snapshot struct {
@@ -216,7 +218,7 @@ func Build(ctx context.Context, inventories []BackendInventory, log *slog.Logger
 			}
 			results[i] = inventoryLoadResult{
 				disc: newBackendDiscovery(backendID, kind, disc),
-				rows: backendRows,
+				rows: enrichBackendModels(backendRows, inv),
 			}
 			return nil
 		})

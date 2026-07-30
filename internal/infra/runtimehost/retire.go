@@ -9,18 +9,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 )
 
-// QuiesceCloser is generation-owned teardown with an explicit quiesce phase.
-// OwnedCloser.Close runs after drain; Quiesce runs while retiring/quiescing.
 type QuiesceCloser interface {
 	OwnedCloser
 	Quiesce(ctx context.Context) error
 }
 
-// retireAdmission is a context-aware per-generation retirement admission gate.
-// It replaces a plain mutex so a background retirement blocked on a pin cannot
-// make a context-bounded caller (e.g. ShutdownDetached) block forever: a
-// waiter gives up as soon as its own context is done instead of waiting on an
-// unbounded Lock(). No polling/sleeps are used.
 type retireAdmission struct {
 	mu   sync.Mutex
 	held bool
@@ -31,8 +24,6 @@ func newRetireAdmission() retireAdmission {
 	return retireAdmission{wait: make(chan struct{})}
 }
 
-// acquire blocks until this generation's retirement admission is free or ctx
-// is done, whichever happens first.
 func (a *retireAdmission) acquire(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -55,8 +46,6 @@ func (a *retireAdmission) acquire(ctx context.Context) error {
 	}
 }
 
-// release frees admission and wakes any waiters. Safe to call once per
-// successful acquire.
 func (a *retireAdmission) release() {
 	a.mu.Lock()
 	a.held = false
@@ -66,26 +55,6 @@ func (a *retireAdmission) release() {
 	close(woken)
 }
 
-// retireGeneration quiesces once, then either waits for drain (sync) or arms a
-// post-drain close callback (async) before closing with bounded cleanup retries.
-// Quiesce/cleanup errors and panics are isolated without altering the active
-// generation. Idempotent: a second call on an already-closed generation returns
-// ErrAlreadyClosed. Concurrent calls for different generations do not block
-// each other; concurrent calls for the *same* generation are serialized by that
-// generation's own context-aware retirement admission (no process-wide lock or
-// worker map).
-//
-// The QuiesceCloser is derived solely from the Generation: its bound
-// RequestPlane when set, otherwise its owned payload when it implements
-// QuiesceCloser. Callers cannot substitute an unrelated collaborator.
-//
-// When retirement drained with zero refs before this ran (no quiesce window),
-// it still invokes Quiesce once before BeginClose so generation workers stop.
-//
-// waitDrain=true (Manager.RetireGeneration / shutdown): block on Drained with
-// ctx, then close. waitDrain=false (Publish scheduleRetire): never park on
-// Drained — if still pinned, arm post-drain close (when a QuiesceCloser owns
-// teardown) and return so the background goroutine exits promptly.
 func retireGeneration(ctx context.Context, g *Generation, policy CleanupPolicy, observer *ReloadObserver, waitDrain bool, afterClose func()) (RetirementStatus, error) {
 	if g == nil {
 		return RetirementStatus{}, nil
@@ -119,10 +88,8 @@ func retireGeneration(ctx context.Context, g *Generation, policy CleanupPolicy, 
 			out = errors.Join(out, err)
 		}
 	case GenDrained:
-		// Zero-ref fast path skipped quiescing; still stop workers before close.
 		out = errors.Join(out, runQuiesce(ctx, owned, observer, &status))
 	case GenQuiesced, GenClosing:
-		// resume without re-entering Quiesce
 	default:
 		return status, ErrIllegalTransition
 	}
@@ -131,11 +98,7 @@ func retireGeneration(ctx context.Context, g *Generation, policy CleanupPolicy, 
 		return finishOrArmAsync(g, policy, observer, owned != nil, afterClose, status, out)
 	}
 
-	// Sync path takes over any previously armed async close for the wait, but
-	// must re-arm on ctx cancel so a pinned generation still finishes when the
-	// pin drops (ShutdownDetached / bounded RetireGeneration).
 	priorArm := g.takePostDrainClose()
-
 	select {
 	case <-g.Drained():
 	case <-ctx.Done():
@@ -161,12 +124,6 @@ func retireGeneration(ctx context.Context, g *Generation, policy CleanupPolicy, 
 	return stOut, err
 }
 
-// finishOrArmAsync completes close immediately when already drained; otherwise
-// arms a one-shot post-drain close when a QuiesceCloser owns teardown. Without
-// a QuiesceCloser, async retirement never BeginClose/Close — drain is left
-// GenDrained for explicit RetireGeneration or a manual BeginClose/Close drive
-// (e.g. OwnedCloser-only helpers). This also covers the race where a pin
-// releases while still GenRetiring and zero-ref drains before MarkQuiesced.
 func finishOrArmAsync(g *Generation, policy CleanupPolicy, observer *ReloadObserver, hasQuiesceCloser bool, afterClose func(), status RetirementStatus, out error) (RetirementStatus, error) {
 	if !hasQuiesceCloser {
 		return status, out
@@ -184,8 +141,6 @@ func finishOrArmAsync(g *Generation, policy CleanupPolicy, observer *ReloadObser
 			afterClose()
 		}
 	})
-	// If drain raced in between the lifecycle check and arm, armPostDrainClose
-	// runs the callback immediately.
 	return status, out
 }
 
@@ -201,9 +156,6 @@ func finishRetireClose(ctx context.Context, g *Generation, policy CleanupPolicy,
 	return status, out
 }
 
-// generationQuiesceCloser derives the authoritative QuiesceCloser from the
-// generation alone: the bound RequestPlane is authoritative when set, else
-// the owned payload when it satisfies QuiesceCloser.
 func generationQuiesceCloser(g *Generation) QuiesceCloser {
 	if plane := g.RequestPlane(); plane != nil {
 		return plane

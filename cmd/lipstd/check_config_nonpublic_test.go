@@ -15,11 +15,10 @@ import (
 )
 
 // TestCheckConfig_NonPublicNoListenAndPrivateCleanup proves check-config
-// validates via the serve composer/compile path (runtimebundle.ValidateDistribution)
-// without binding a data-plane listener, and never publishes a generation:
-// [runtimebundle.ValidateDistribution] owns and closes every resource it
-// acquires internally, so there is no command-owned handle left to inspect
-// (Task 5.4; design Dry-Run Validation).
+// validates via runtimebundle.ValidateStructural without binding a data-plane
+// listener, and never publishes a generation:
+// [runtimebundle.ValidateStructural] performs structural validation only and
+// does not compile or activate runtime resources.
 func TestCheckConfig_NonPublicNoListenAndPrivateCleanup(t *testing.T) {
 	t.Parallel()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

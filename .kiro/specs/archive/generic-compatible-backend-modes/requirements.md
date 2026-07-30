@@ -10,7 +10,7 @@ Go-LIP already contains three config-defined generic compatible backend kinds:
 
 They let operators point the proxy at third-party or local endpoints implementing a supported wire protocol without adding provider-specific Go code. The implementation is substantial but incomplete: it accepts literal YAML credentials, lacks the requested tokenizer and per-instance concurrency options, and is coupled to the current `internal/standardplugins` composition shape.
 
-The active `backend-connector-plugin-architecture` specification changes the surrounding architecture. Non-essential provider connectors become external executable plugins, while dependency-free OpenAI- and Anthropic-compatible modes may remain built-in aliases of the essential protocol-family adapters. This feature must target that final architecture rather than preserve transitional files or registration tables.
+The completed and archived `backend-connector-plugin-architecture` specification established the surrounding architecture. Non-essential provider connectors are external executable plugins, while dependency-free OpenAI- and Anthropic-compatible modes remain built-in aliases of the essential protocol-family adapters. This feature targets the landed `internal/pluginreg`, `internal/standardplugins`, and `internal/infra/runtimebundle` composition boundaries rather than preserving transitional construction code.
 
 The result is a built-in protocol capability, not an external connector framework or provider catalog. OpenRouter and providers requiring proprietary authentication, headers, routing, inventory, billing, extensions, or error behavior remain external connector plugins.
 
@@ -18,7 +18,7 @@ The result is a built-in protocol capability, not an external connector framewor
 
 - **In scope:** the three generic compatible kinds; strict configuration; environment-only credential references; unauthenticated endpoints; base URL and route-prefix validation; shared adapter reuse; per-instance concurrency; tokenizer selection; model inventory; canonical parity; diagnostics; migration into the final built-in composition boundary; tests and documentation.
 - **Out of scope:** executable plugin discovery/ABI work; provider-specific extensions; OpenRouter; arbitrary YAML transformations; dynamic code loading; canonical redesign; hot reload.
-- **Adjacent dependency:** implementation must use the final interfaces delivered by `.kiro/specs/backend-connector-plugin-architecture/`, even if those changes are not yet visible on `main`.
+- **Adjacent dependency:** implementation must use the landed interfaces evidenced by `.kiro/specs/archive/backend-connector-plugin-architecture/` (completed at `e796998c`) and must preserve current `Host`/`GenerationRuntime` ownership.
 - **Ownership:** configuration and composition at the application edge; protocol behavior in built-in adapters; common admission, tokenization, inventory, credentials, and diagnostics in shared infrastructure; routing and canonical policy in core.
 
 ## Requirements
@@ -89,8 +89,8 @@ The result is a built-in protocol capability, not an external connector framewor
 1. `backend_prefix` shall be non-empty after trimming and contain neither `/` nor `:`.
 2. Enabled generic instances shall have unique prefixes.
 3. A generic prefix shall not collide with built-in connector kinds or route prefixes.
-4. It shall not collide with dynamically discovered external-plugin factory kinds or advertised route prefixes.
-5. Validation shall use immutable composed registry/catalog state, not a manually maintained list.
+4. Before plugin activation, it shall not collide with dynamically discovered external-plugin factory kinds available from validated manifests. After activation resolves an external instance profile, its advertised route prefixes shall be checked against the same ownership rules before that generation is published.
+5. Validation shall use immutable generation-scoped registry/catalog state, not a manually maintained list; `check-config` shall perform only the manifest-available subset and shall not launch plugin processes.
 6. Conflicts shall fail deterministically and identify both bounded owners without secrets.
 7. Disabled rows shall follow the repository's established enabled-instance ownership policy.
 
@@ -175,13 +175,13 @@ The result is a built-in protocol capability, not an external connector framewor
 
 #### Acceptance Criteria
 
-1. Implementation shall be rebased onto or adapted to the completed backend-plugin architecture before merge.
+1. Implementation shall use the completed backend-plugin architecture already present on the branch, including `pluginreg` lifecycle/discovery composition and `runtimebundle.Host` ownership of immutable `GenerationRuntime` snapshots.
 2. Transitional files scheduled for removal shall not be treated as permanent architecture.
 3. The root module shall build and test with `GOWORK=off` and without external connector modules present.
 4. Generic modes shall remain available in the minimal distribution with no plugin directory.
 5. No external connector module requirement, replacement, generated optional table, blank import, or build tag shall be added.
 6. Existing valid kinds, runtime IDs, prefixes, and route semantics shall remain stable.
-7. Prefix tests shall combine built-ins with discovered external descriptors without activating plugin processes.
+7. Prefix tests shall combine built-ins with manifest-discovered external factory kinds without activating plugin processes, and shall separately prove post-activation advertised-prefix collision rejection before generation publication.
 8. Architecture tests shall fail if behavior leaks into core or external plugin-host infrastructure.
 9. Native built-in connectors and the external plugin ABI shall remain unchanged.
 
@@ -196,7 +196,7 @@ The result is a built-in protocol capability, not an external connector framewor
 3. Tests shall cover same-kind instances with independent credentials, tokenizer, inventory, and concurrency.
 4. Tests shall cover streaming/non-streaming admission, cancellation, terminal release, race, and leaks.
 5. Tests shall cover canonical parity for all three families including reasoning, tools, multimodal, usage, errors, and terminal ordering.
-6. Tests shall cover external-prefix collisions without process launch.
+6. Tests shall cover external factory-kind collisions without process launch and advertised external route-prefix collisions with a fake activated profile, without launching a real process.
 7. CLI tests shall cover check-config, routes, inspect/inventory, and examples.
 8. Root architecture and module-isolation gates shall pass with `GOWORK=off`.
 9. Deterministic pre-merge validation shall require no live provider or real credential.

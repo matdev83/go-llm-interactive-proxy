@@ -50,6 +50,12 @@ type Backend struct {
 	IgnoresAuthorityMaxOutputTokensClamp func(call lipapi.Call) bool
 
 	ProviderCounter accountingapp.ProviderCounter
+	// LocalCounter, when set, supplies instance-local tokenizer counting for
+	// compatible modes configured with an explicit tokenizer override.
+	LocalCounter accountingapp.LocalCounter
+	// TokenizerID is the bounded configured local tokenizer identifier exposed
+	// for diagnostics and accounting when LocalCounter is attached.
+	TokenizerID string
 
 	// Close, when non-nil, releases backend-owned persistent runtime resources
 	// (for example a companion process). nil means the backend owns no such

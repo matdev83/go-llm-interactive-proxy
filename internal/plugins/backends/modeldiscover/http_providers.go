@@ -14,26 +14,37 @@ import (
 
 type OpenAICompatibleModelsProvider struct {
 	BaseURL           string
+	ModelsEndpoint    string
 	APIKey            string
 	APIKeys           []string
 	Credentials       []string
 	HTTPClient        *http.Client
 	CanonicalPrefix   string
 	PreserveVendorIDs bool
+	// CompatibleModeAuth allows remote inventory without Authorization when no key exists.
+	CompatibleModeAuth bool
 }
 
 func (p OpenAICompatibleModelsProvider) LoadModels(ctx context.Context) (modelinventory.Snapshot, error) {
 	key, err := firstSecret(p.APIKey, p.APIKeys, p.Credentials)
+	headers := map[string]string{}
 	if err != nil {
-		return modelinventory.Snapshot{}, err
+		if !p.CompatibleModeAuth {
+			return modelinventory.Snapshot{}, err
+		}
+	} else {
+		headers["Authorization"] = "Bearer " + key
 	}
-	endpoint := strings.TrimRight(strings.TrimSpace(p.BaseURL), "/") + "/models"
+	endpoint := strings.TrimSpace(p.ModelsEndpoint)
+	if endpoint == "" {
+		endpoint = strings.TrimRight(strings.TrimSpace(p.BaseURL), "/") + "/models"
+	}
 	var payload struct {
 		Data []struct {
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	if err := getJSON(ctx, p.HTTPClient, endpoint, map[string]string{"Authorization": "Bearer " + key}, &payload); err != nil {
+	if err := getJSON(ctx, p.HTTPClient, endpoint, headers, &payload); err != nil {
 		return modelinventory.Snapshot{}, err
 	}
 	models := make([]modelinventory.Model, 0, len(payload.Data))
@@ -50,27 +61,36 @@ func (p OpenAICompatibleModelsProvider) LoadModels(ctx context.Context) (modelin
 
 type AnthropicModelsProvider struct {
 	BaseURL         string
+	ModelsEndpoint  string
 	APIKey          string
 	APIKeys         []string
 	HTTPClient      *http.Client
 	CanonicalPrefix string
+	// CompatibleModeAuth allows remote inventory without x-api-key when no key exists.
+	CompatibleModeAuth bool
 }
 
 func (p AnthropicModelsProvider) LoadModels(ctx context.Context) (modelinventory.Snapshot, error) {
 	key, err := firstSecret(p.APIKey, p.APIKeys)
-	if err != nil {
-		return modelinventory.Snapshot{}, err
+	headers := map[string]string{
+		"anthropic-version": "2023-06-01",
 	}
-	endpoint := strings.TrimRight(strings.TrimSpace(p.BaseURL), "/") + "/v1/models"
+	if err != nil {
+		if !p.CompatibleModeAuth {
+			return modelinventory.Snapshot{}, err
+		}
+	} else {
+		headers["x-api-key"] = key
+	}
+	endpoint := strings.TrimSpace(p.ModelsEndpoint)
+	if endpoint == "" {
+		endpoint = strings.TrimRight(strings.TrimSpace(p.BaseURL), "/") + "/v1/models"
+	}
 	var payload struct {
 		Data []struct {
 			ID          string `json:"id"`
 			DisplayName string `json:"display_name"`
 		} `json:"data"`
-	}
-	headers := map[string]string{
-		"x-api-key":         key,
-		"anthropic-version": "2023-06-01",
 	}
 	if err := getJSON(ctx, p.HTTPClient, endpoint, headers, &payload); err != nil {
 		return modelinventory.Snapshot{}, err
@@ -184,11 +204,12 @@ func snapshot(models []modelinventory.Model) (modelinventory.Snapshot, error) {
 	if len(models) == 0 {
 		return modelinventory.Snapshot{}, fmt.Errorf("model discovery returned no models")
 	}
+	bounded, warnings := boundInventoryModels(models)
 	return modelinventory.Snapshot{
 		Source:   modelinventory.SourceRemote,
 		LoadedAt: time.Now(),
-		Models:   slices.Clone(models),
-		Warnings: []string{},
+		Models:   slices.Clone(bounded),
+		Warnings: warnings,
 	}, nil
 }
 

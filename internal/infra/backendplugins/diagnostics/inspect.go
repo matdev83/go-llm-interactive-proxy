@@ -3,6 +3,7 @@ package diagnostics
 import (
 	"sort"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/catalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/discovery"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
@@ -34,7 +35,8 @@ type Entry struct {
 
 // Report is the inspect snapshot.
 type Report struct {
-	Entries []Entry `json:"entries"`
+	Entries            []Entry                     `json:"entries"`
+	CompatibleBackends []diag.CompatibleBackendRow `json:"compatible_backends,omitempty"`
 }
 
 // TrustFunc verifies a discovered manifest executable without launching it.
@@ -67,15 +69,33 @@ func Inspect(in InspectInput) (Report, error) {
 
 // FormatInspectReport projects a CatalogResolution into operator-facing entries.
 func FormatInspectReport(res CatalogResolution, builtinKinds []string, configured []ConfiguredBackend) Report {
+	return FormatInspectReportWithCompatible(res, builtinKinds, nil, configured)
+}
+
+// FormatInspectReportWithCompatible splits native built-ins from built-in-compatible factory kinds.
+func FormatInspectReportWithCompatible(res CatalogResolution, builtinKinds, builtinCompatibleKinds []string, configured []ConfiguredBackend) Report {
 	builtinSet := map[string]struct{}{}
 	for _, k := range builtinKinds {
 		builtinSet[k] = struct{}{}
+	}
+	compatibleSet := map[string]struct{}{}
+	for _, k := range builtinCompatibleKinds {
+		compatibleSet[k] = struct{}{}
+		delete(builtinSet, k)
 	}
 
 	var entries []Entry
 	for _, k := range builtinKinds {
 		entries = append(entries, Entry{
 			Source: "builtin",
+			Kind:   k,
+			State:  catalog.StateBuiltin,
+			Reason: catalog.ReasonOK,
+		})
+	}
+	for _, k := range builtinCompatibleKinds {
+		entries = append(entries, Entry{
+			Source: "built_in_compatible",
 			Kind:   k,
 			State:  catalog.StateBuiltin,
 			Reason: catalog.ReasonOK,
@@ -92,6 +112,9 @@ func FormatInspectReport(res CatalogResolution, builtinKinds []string, configure
 		}
 		if e.State == catalog.StateFailed && (e.Reason == catalog.ReasonEnabledMissing || e.Reason == catalog.ReasonEnabledInvalid) {
 			src = "configured"
+		}
+		if _, ok := compatibleSet[e.ExportKind]; ok && e.Reason == catalog.ReasonBuiltinCollision {
+			src = "discovered"
 		}
 		if _, ok := builtinSet[e.ExportKind]; ok && e.Reason == catalog.ReasonBuiltinCollision {
 			src = "discovered"
@@ -110,6 +133,17 @@ func FormatInspectReport(res CatalogResolution, builtinKinds []string, configure
 
 	for _, c := range configured {
 		if !c.Enabled {
+			continue
+		}
+		if _, isCompatible := compatibleSet[c.Kind]; isCompatible {
+			entries = append(entries, Entry{
+				Source:             "built_in_compatible",
+				InstanceID:         c.InstanceID,
+				Kind:               c.Kind,
+				State:              catalog.StateConfigured,
+				Reason:             catalog.ReasonOK,
+				ActivationRequired: false,
+			})
 			continue
 		}
 		if _, isBuiltin := builtinSet[c.Kind]; isBuiltin {
@@ -155,4 +189,10 @@ func FormatInspectReport(res CatalogResolution, builtinKinds []string, configure
 	})
 
 	return Report{Entries: entries}
+}
+
+// WithCompatibleBackends attaches config-derived compatible rows to a report.
+func (r Report) WithCompatibleBackends(rows []diag.CompatibleBackendRow) Report {
+	r.CompatibleBackends = rows
+	return r
 }

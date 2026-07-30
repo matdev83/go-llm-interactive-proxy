@@ -153,13 +153,15 @@ func TestIdentityTransport_standardpluginsImportsHTTPIdentity(t *testing.T) {
 	t.Fatalf("standardplugins must import httpidentity for approved connector wrapping; imports=%v", pkg.Imports)
 }
 
-// identityTransportExcludedFactoryFns are root standardplugins factory functions for
-// excluded connectors that still register statically (custom-compatible kinds).
-// External excluded backends (Codex, OpenCode, ACP products) have no root factory.
-var identityTransportExcludedFactoryFns = []string{
-	"backendCustomOpenAILegacyCompatible",
-	"backendCustomOpenAIResponsesCompatible",
-	"backendCustomAnthropicCompatible",
+// identityTransportExcludedCompatibleLifecycleFns are built-in compatible factories
+// colocated with protocol families (not identity-transport wrapped).
+var identityTransportExcludedCompatibleLifecycleFns = []struct {
+	dir string
+	fn  string
+}{
+	{dir: "internal/plugins/backends/openaicompat", fn: "LifecycleOpenAILegacyCompatible"},
+	{dir: "internal/plugins/backends/openaicompat", fn: "LifecycleOpenAIResponsesCompatible"},
+	{dir: "internal/plugins/backends/anthropic", fn: "LifecycleAnthropicCompatible"},
 }
 
 // historicalPartialStandardpluginsIdentityScan is the pre-fix incomplete file list that
@@ -177,24 +179,25 @@ func TestIdentityTransport_partialStandardpluginsScanMissesExcludedFactories(t *
 	root := repoRoot(t)
 	dir := filepath.Join(root, "internal", "standardplugins")
 	partial := readStandardpluginsNamedGo(t, dir, historicalPartialStandardpluginsIdentityScan)
-	full := readStandardpluginsProductionGo(t, dir)
 
 	var missed []string
-	for _, fn := range identityTransportExcludedFactoryFns {
-		inPartial := factoryFuncBody(partial, fn) != ""
-		inFull := factoryFuncBody(full, fn) != ""
+	for _, entry := range identityTransportExcludedCompatibleLifecycleFns {
+		protoDir := filepath.Join(root, entry.dir)
+		full := readStandardpluginsProductionGo(t, protoDir)
+		inPartial := factoryFuncBody(partial, entry.fn) != ""
+		inFull := factoryFuncBody(full, entry.fn) != ""
 		if !inFull {
-			t.Fatalf("full production scan missing excluded factory %s", fn)
+			t.Fatalf("protocol package scan missing compatible lifecycle factory %s in %s", entry.fn, entry.dir)
 		}
 		if !inPartial {
-			missed = append(missed, fn)
+			missed = append(missed, entry.fn)
 		}
 	}
 	if len(missed) == 0 {
-		t.Fatal("partial historical scan unexpectedly found every excluded factory; update demonstration if file layout changed")
+		t.Fatal("partial historical standardplugins scan unexpectedly found every compatible lifecycle factory; update demonstration if file layout changed")
 	}
-	if !slices.Contains(missed, "backendCustomOpenAILegacyCompatible") {
-		t.Fatalf("expected partial scan to miss backendCustomOpenAILegacyCompatible; missed=%v", missed)
+	if !slices.Contains(missed, "LifecycleOpenAILegacyCompatible") {
+		t.Fatalf("expected partial scan to miss LifecycleOpenAILegacyCompatible; missed=%v", missed)
 	}
 }
 
@@ -246,20 +249,21 @@ func TestIdentityTransport_approvedFactoriesCallResolveIdentityHTTP(t *testing.T
 		}
 	}
 
-	// Static excluded factories must not receive identity HTTP wrapping.
-	for _, fn := range identityTransportExcludedFactoryFns {
-		body := factoryFuncBody(src, fn)
+	// Compatible lifecycle factories colocated in protocol packages must not receive identity HTTP wrapping.
+	for _, entry := range identityTransportExcludedCompatibleLifecycleFns {
+		protoSrc := readStandardpluginsProductionGo(t, filepath.Join(root, entry.dir))
+		body := factoryFuncBody(protoSrc, entry.fn)
 		if body == "" {
-			t.Fatalf("excluded factory %s absent from standardplugins production sources", fn)
+			t.Fatalf("compatible lifecycle factory %s absent from %s", entry.fn, entry.dir)
 		}
 		if strings.Contains(body, "resolveIdentityHTTP") {
-			t.Fatalf("excluded factory %s must not call resolveIdentityHTTP", fn)
+			t.Fatalf("compatible lifecycle factory %s must not call resolveIdentityHTTP", entry.fn)
 		}
 		if strings.Contains(body, "httpidentity.WrapClient") {
-			t.Fatalf("excluded factory %s must not call httpidentity.WrapClient", fn)
+			t.Fatalf("compatible lifecycle factory %s must not call httpidentity.WrapClient", entry.fn)
 		}
 		if strings.Contains(body, "deps.Identity") {
-			t.Fatalf("excluded factory %s must not reference deps.Identity", fn)
+			t.Fatalf("compatible lifecycle factory %s must not reference deps.Identity", entry.fn)
 		}
 	}
 }

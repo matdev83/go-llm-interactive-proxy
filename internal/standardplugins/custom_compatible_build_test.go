@@ -25,6 +25,15 @@ func customCompatibleRegistry(t *testing.T) *pluginreg.Registry {
 	return reg
 }
 
+func buildCompatibleBackend(t *testing.T, reg *pluginreg.Registry, kind, instanceID string, node yaml.Node, client *http.Client) execbackend.Backend {
+	t.Helper()
+	res, err := reg.BuildBackendWithLifecycle(kind, instanceID, node, client, pluginreg.BackendFactoryDeps{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res.Backend
+}
+
 func customCompatibleTestCall(op lipapi.Operation) lipapi.Call {
 	return lipapi.Call{
 		Messages: []lipapi.Message{{
@@ -40,7 +49,9 @@ func customCompatibleTestCall(op lipapi.Operation) lipapi.Call {
 }
 
 func TestBuildBackend_customOpenAILegacyCompatible_usesBackendPrefixAndChatTransport(t *testing.T) {
-	t.Parallel()
+	root := "COMPAT_BUILD_LEGACY_KEY"
+	clearCustomEnvRoot(t, root)
+	t.Setenv(root, "yaml-key")
 
 	modelsSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
@@ -60,16 +71,13 @@ func TestBuildBackend_customOpenAILegacyCompatible_usesBackendPrefixAndChatTrans
 	reg := customCompatibleRegistry(t)
 	raw := fmt.Sprintf(`backend_prefix: my-legacy
 base_url: %s/v1
-api_key: yaml-key
-`, modelsSrv.URL)
+api_key_env_var_root: %s
+`, modelsSrv.URL, root)
 	var node yaml.Node
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend(CustomOpenAILegacyCompatibleID, node, modelsSrv.Client(), pluginreg.BackendFactoryDeps{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	be := buildCompatibleBackend(t, reg, CustomOpenAILegacyCompatibleID, "my-legacy", node, modelsSrv.Client())
 	if be.Open == nil {
 		t.Fatal("expected backend Open")
 	}
@@ -101,7 +109,9 @@ api_key: yaml-key
 }
 
 func TestBuildBackend_customOpenAIResponsesCompatible_usesBackendPrefixAndResponsesTransport(t *testing.T) {
-	t.Parallel()
+	root := "COMPAT_BUILD_RESPONSES_KEY"
+	clearCustomEnvRoot(t, root)
+	t.Setenv(root, "yaml-key")
 
 	modelsSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
@@ -121,16 +131,13 @@ func TestBuildBackend_customOpenAIResponsesCompatible_usesBackendPrefixAndRespon
 	reg := customCompatibleRegistry(t)
 	raw := fmt.Sprintf(`backend_prefix: my-responses
 base_url: %s/v1
-api_key: yaml-key
-`, modelsSrv.URL)
+api_key_env_var_root: %s
+`, modelsSrv.URL, root)
 	var node yaml.Node
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend(CustomOpenAIResponsesCompatibleID, node, modelsSrv.Client(), pluginreg.BackendFactoryDeps{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	be := buildCompatibleBackend(t, reg, CustomOpenAIResponsesCompatibleID, "my-responses", node, modelsSrv.Client())
 	if be.Open == nil {
 		t.Fatal("expected backend Open")
 	}
@@ -167,7 +174,6 @@ func TestBuildBackend_customOpenAIResponsesCompatible_staticModelsOverrideDiscov
 	reg := customCompatibleRegistry(t)
 	raw := `backend_prefix: my-responses
 base_url: http://127.0.0.1:9/v1
-api_key: yaml-key
 models:
   source: inline
   items:
@@ -178,10 +184,7 @@ models:
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend(CustomOpenAIResponsesCompatibleID, node, nil, pluginreg.BackendFactoryDeps{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	be := buildCompatibleBackend(t, reg, CustomOpenAIResponsesCompatibleID, "my-responses-static", node, nil)
 	snap, err := be.ModelInventory.LoadModels(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -195,7 +198,9 @@ models:
 }
 
 func TestBuildBackend_customAnthropicCompatible_usesBackendPrefixAndRemoteDiscovery(t *testing.T) {
-	t.Parallel()
+	root := "COMPAT_BUILD_ANTHROPIC_KEY"
+	clearCustomEnvRoot(t, root)
+	t.Setenv(root, "yaml-key")
 
 	modelsSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
@@ -216,16 +221,13 @@ func TestBuildBackend_customAnthropicCompatible_usesBackendPrefixAndRemoteDiscov
 	reg := customCompatibleRegistry(t)
 	raw := fmt.Sprintf(`backend_prefix: my-anthropic
 base_url: %s
-api_key: yaml-key
-`, modelsSrv.URL)
+api_key_env_var_root: %s
+`, modelsSrv.URL, root)
 	var node yaml.Node
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend(CustomAnthropicCompatibleID, node, modelsSrv.Client(), pluginreg.BackendFactoryDeps{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	be := buildCompatibleBackend(t, reg, CustomAnthropicCompatibleID, "my-anthropic", node, modelsSrv.Client())
 	if len(be.BackendPrefixes) != 1 || be.BackendPrefixes[0] != "my-anthropic" {
 		t.Fatalf("BackendPrefixes = %#v, want [my-anthropic]", be.BackendPrefixes)
 	}
@@ -247,7 +249,6 @@ func TestBuildBackend_customAnthropicCompatible_staticModelsOverrideDiscovery(t 
 	reg := customCompatibleRegistry(t)
 	raw := `backend_prefix: my-anthropic
 base_url: http://127.0.0.1:9
-api_key: yaml-key
 models:
   source: inline
   items:
@@ -258,10 +259,7 @@ models:
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend(CustomAnthropicCompatibleID, node, nil, pluginreg.BackendFactoryDeps{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	be := buildCompatibleBackend(t, reg, CustomAnthropicCompatibleID, "my-anthropic-static", node, nil)
 	snap, err := be.ModelInventory.LoadModels(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -274,23 +272,19 @@ models:
 	}
 }
 
-func TestBuildBackend_customAnthropicCompatible_missingBaseURLUsesCustomPrefix(t *testing.T) {
+func TestBuildBackend_customAnthropicCompatible_missingBaseURLRejected(t *testing.T) {
 	t.Parallel()
 
 	reg := customCompatibleRegistry(t)
 	var node yaml.Node
-	if err := yaml.Unmarshal([]byte("backend_prefix: my-anthropic\napi_key: yaml-key\n"), &node); err != nil {
+	if err := yaml.Unmarshal([]byte("backend_prefix: my-anthropic\n"), &node); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend(CustomAnthropicCompatibleID, node, nil, pluginreg.BackendFactoryDeps{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = be.Open(context.Background(), customCompatibleTestCall(lipapi.OperationOpenAIChatCompletions), routing.AttemptCandidate{})
+	_, err := reg.BuildBackendWithLifecycle(CustomAnthropicCompatibleID, "my-anthropic", node, nil, pluginreg.BackendFactoryDeps{})
 	if err == nil {
 		t.Fatal("expected missing base_url error")
 	}
-	if !strings.Contains(err.Error(), "my-anthropic: base_url is required") {
-		t.Fatalf("error = %v, want custom prefix", err)
+	if !strings.Contains(err.Error(), "base_url is required") {
+		t.Fatalf("error = %v, want base_url required", err)
 	}
 }

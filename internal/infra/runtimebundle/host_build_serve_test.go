@@ -2,6 +2,7 @@ package runtimebundle_test
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	coreruntime "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -199,8 +201,16 @@ func TestInspectRoutes_RejectsInvalidCustomBackendPrefix(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected custom backend prefix validation error")
 	}
-	if !strings.Contains(err.Error(), "custom backend prefix") || !strings.Contains(err.Error(), "reserved") {
-		t.Fatalf("error = %v, want custom backend prefix reserved", err)
+	var coll *pluginreg.OwnershipCollisionError
+	if !errors.As(err, &coll) {
+		t.Fatalf("error = %v, want OwnershipCollisionError", err)
+	}
+	if coll.Key != "openai-legacy" {
+		t.Fatalf("collision key = %q, want openai-legacy", coll.Key)
+	}
+	msg := coll.Error()
+	if !strings.Contains(msg, "openai-legacy") || !strings.Contains(msg, "openai-legacy-copy") {
+		t.Fatalf("collision error %q must identify both owners", msg)
 	}
 }
 

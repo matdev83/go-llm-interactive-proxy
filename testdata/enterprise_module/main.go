@@ -203,7 +203,6 @@ plugins:
       config:
         backend_prefix: enterprise
         base_url: %q
-        api_key: enterprise-fixture-key
         models:
           source: inline
           items:

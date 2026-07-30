@@ -36,7 +36,7 @@ type chatStream struct {
 	activeToolOrder []int64
 }
 
-func newChatStream(s *ssestream.Stream[openai.ChatCompletionChunk], maxPending int) lipapi.ManagedEventStream {
+func NewChatStream(s *ssestream.Stream[openai.ChatCompletionChunk], maxPending int) lipapi.ManagedEventStream {
 	if s == nil {
 		return lipapi.NewFixedEventStream(nil)
 	}

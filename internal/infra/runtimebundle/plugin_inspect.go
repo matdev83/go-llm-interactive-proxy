@@ -28,6 +28,11 @@ type PluginDoctorReport = diagnostics.DoctorReport
 // InspectBackendPlugins runs non-executing discovery/catalog inspect for cfg.
 // It uses the same ResolvePluginCatalog path as standard serve bootstrap.
 func InspectBackendPlugins(cfg *config.Config, reg *pluginreg.Registry) (PluginInspectReport, error) {
+	return InspectBackendPluginsCtx(context.Background(), cfg, reg)
+}
+
+// InspectBackendPluginsCtx is like InspectBackendPlugins but accepts a context for live inventory projection.
+func InspectBackendPluginsCtx(ctx context.Context, cfg *config.Config, reg *pluginreg.Registry) (PluginInspectReport, error) {
 	if cfg == nil {
 		return PluginInspectReport{}, fmt.Errorf("runtimebundle: InspectBackendPlugins: nil config")
 	}
@@ -40,12 +45,17 @@ func InspectBackendPlugins(cfg *config.Config, reg *pluginreg.Registry) (PluginI
 	if err != nil {
 		return PluginInspectReport{}, err
 	}
-	rep := diagnostics.FormatInspectReport(diagnostics.CatalogResolution{
+	compatibleRows := standardplugins.ProjectCompatibleBackendRows(cfg)
+	if live, loadErr := tryLoadInventoryLiveSnapshot(ctx, cfg, reg); loadErr == nil {
+		defer func() { _ = live.Close(ctx) }()
+		compatibleRows = standardplugins.ProjectCompatibleBackendRowsLive(cfg, live.compatibleInputs())
+	}
+	rep := diagnostics.FormatInspectReportWithCompatible(diagnostics.CatalogResolution{
 		Discovered:  resolved.Discovered,
 		TrustBySafe: resolved.TrustBySafe,
 		Snapshot:    resolved.Snapshot,
 		CatalogErr:  resolved.CatalogErr,
-	}, collectBuiltinKinds(reg), configuredBackends(cfg))
+	}, collectNativeBuiltinKinds(reg), standardplugins.CollectBuiltinCompatibleKinds(reg), configuredBackends(cfg)).WithCompatibleBackends(compatibleRows)
 	return rep, resolved.CatalogErr
 }
 
@@ -87,6 +97,22 @@ func DoctorBackendPlugin(ctx context.Context, cfg *config.Config, reg *pluginreg
 		Targets:     targets,
 		Host:        host,
 	})
+}
+
+func collectNativeBuiltinKinds(reg *pluginreg.Registry) []string {
+	all := collectBuiltinKinds(reg)
+	compatible := map[string]struct{}{}
+	for _, k := range standardplugins.CollectBuiltinCompatibleKinds(reg) {
+		compatible[k] = struct{}{}
+	}
+	out := make([]string, 0, len(all))
+	for _, k := range all {
+		if _, ok := compatible[k]; ok {
+			continue
+		}
+		out = append(out, k)
+	}
+	return out
 }
 
 func collectBuiltinKinds(reg *pluginreg.Registry) []string {

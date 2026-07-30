@@ -26,7 +26,7 @@ Hybrid backends ([ADR 0008](docs/adr/0008-hybrid-backend-connector-plugins.md)):
 | --- | --- |
 | Frontends | `openai-responses`, `openai-legacy`, `anthropic`, `gemini` |
 | Hosted/provider backends | Built-in: `openai-responses`, `openai-legacy`, `anthropic`, `gemini`, `bedrock`. External plugins: `acp` family, `openrouter`, `nvidia`, `huggingface`, `opencode-go`/`opencode-zen` (`connectors/opencode` one artifact), `openai-codex`/`openai-codex-app-server` (`connectors/codex` one artifact) |
-| Local / compatible backends | External: `ollama`, `ollama-cloud`, `llamacpp`, `lmstudio`, `vllm`, `local-stub`. Built-in: custom OpenAI/Anthropic-compatible kinds |
+| Local / compatible backends | External: `ollama`, `ollama-cloud`, `llamacpp`, `lmstudio`, `vllm`, `local-stub`. Built-in: custom OpenAI/Anthropic-compatible kinds — see [`docs/custom-compatible-backends.md`](docs/custom-compatible-backends.md) |
 | Local-agent / experimental | External `cursorcliacp` connector; experimental external `cursorsdk` connector (Node `bridge-node` over `@cursor/sdk` 1.0.23) discovered via closed manifest — see [`docs/cursor-sdk-backend.md`](docs/cursor-sdk-backend.md) |
 | Feature plugins | no-op compatibility hooks plus reference/proof plugins for submit, parts, tools, workspace guard, traffic transcript, verifier, pre-request policy, auto-append, and Codex client compatibility; standard distro also default-enables canonical `tool-call-repair` (ADR 0007; opt out with `enabled: false`) |
 

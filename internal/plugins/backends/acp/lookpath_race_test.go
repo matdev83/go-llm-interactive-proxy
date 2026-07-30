@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"path/filepath"
 	"sync"
 	"testing"
 )
@@ -13,6 +14,7 @@ import (
 func TestResetLookPathCache_concurrentWithLookups(t *testing.T) {
 	t.Cleanup(ResetLookPathCache)
 
+	relMissingProbe := filepath.Join("nonexistent", "lip-lookpath-race-probe-missing")
 	const goroutines = 32
 	const iters = 200
 	var wg sync.WaitGroup
@@ -20,8 +22,8 @@ func TestResetLookPathCache_concurrentWithLookups(t *testing.T) {
 		wg.Go(func() {
 			for range iters {
 				ResetLookPathCache()
-				_, _ = LookPathCached("lip-lookpath-race-probe-missing")
-				_, _ = CheckExecutable("lip-lookpath-race-probe-missing")
+				_, _ = LookPathCached(relMissingProbe)
+				_, _ = CheckExecutable(relMissingProbe)
 				_, _ = CheckExecutable("/nonexistent/lip-lookpath-race-abs")
 			}
 		})

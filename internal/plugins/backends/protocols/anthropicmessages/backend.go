@@ -37,6 +37,9 @@ type Config struct {
 	NormalizeModel     func(string) string
 	ThinkingFromEffort bool
 	OmitToolChoice     bool
+	// CompatibleModeAuth enables optional credentials for built-in compatible
+	// modes: empty resolved keys omit x-api-key. Native Anthropic must leave false.
+	CompatibleModeAuth bool
 }
 
 const defaultRateLimitFallback = 60 * time.Second
@@ -49,7 +52,7 @@ func NewBackend(cfg Config) execbackend.Backend {
 	if err := checkcfg.RequireNonEmpty(id, "base_url", cfg.BaseURL); err != nil {
 		return newConfigErrorBackend(id, err)
 	}
-	pool, err := credpool.NewPoolFromCredentials(cfg.APIKey, cfg.APIKeys, cfg.Credentials)
+	pool, noAuth, err := buildCompatibleOrRequiredPool(cfg)
 	if err != nil {
 		return newConfigErrorBackend(id, fmt.Errorf("%s: credentials: %w", id, err))
 	}
@@ -86,6 +89,17 @@ func NewBackend(cfg Config) execbackend.Backend {
 			}
 			if err != nil {
 				return nil, err
+			}
+			if noAuth {
+				cli := newSDKClientForSecret(cfg, "")
+				stream := cli.Messages.NewStreaming(ctx, p)
+				es := newMessageStream(stream, id, call.MaxPendingWireEvents)
+				ev, rerr := es.Recv(ctx)
+				if rerr == nil {
+					return streampeek.NewManagedPrependFirst(ev, es), nil
+				}
+				_ = es.Close()
+				return nil, rerr
 			}
 			now := time.Now()
 			for {
@@ -130,6 +144,43 @@ func NewBackend(cfg Config) execbackend.Backend {
 			}
 		},
 	}
+}
+
+func buildCompatibleOrRequiredPool(cfg Config) (*credpool.Pool, bool, error) {
+	if !cfg.CompatibleModeAuth {
+		pool, err := credpool.NewPoolFromCredentials(cfg.APIKey, cfg.APIKeys, cfg.Credentials)
+		return pool, false, err
+	}
+	if len(cfg.Credentials) > 0 {
+		pool, err := credpool.New(cfg.Credentials)
+		return pool, false, err
+	}
+	secrets := make([]string, 0, 1+len(cfg.APIKeys))
+	seen := make(map[string]struct{})
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		if _, ok := seen[s]; ok {
+			return
+		}
+		seen[s] = struct{}{}
+		secrets = append(secrets, s)
+	}
+	add(cfg.APIKey)
+	for _, k := range cfg.APIKeys {
+		add(k)
+	}
+	if len(secrets) == 0 {
+		return nil, true, nil
+	}
+	creds := make([]credpool.Credential, len(secrets))
+	for i, s := range secrets {
+		creds[i] = credpool.Credential{Secret: s}
+	}
+	pool, err := credpool.New(creds)
+	return pool, false, err
 }
 
 func newConfigErrorBackend(id string, err error) execbackend.Backend {

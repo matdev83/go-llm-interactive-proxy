@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatibleutil"
 	"gopkg.in/yaml.v3"
 )
 
@@ -55,123 +57,37 @@ func TestCollectNumberedEnvKeys_stopsAtGap(t *testing.T) {
 	}
 }
 
-func TestResolveCustomCompatibleAPIKeys_yamlOverridesEnvRoot(t *testing.T) {
+func TestCompatibleCredential_resolveEnvRootOnly(t *testing.T) {
 	root := "MY_PROVIDER_API_KEY"
 	clearCustomEnvRoot(t, root)
 	t.Setenv(root, "env-one")
 	t.Setenv(root+"_2", "env-two")
-	raw := `api_key: yaml-key
-api_key_env_var_root: MY_PROVIDER_API_KEY
-`
-	var node yaml.Node
-	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
-		t.Fatal(err)
-	}
-	y, err := decodeCustomCompatibleBackendYAML(node)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := resolveCustomCompatibleAPIKeys(y)
-	want := []string{"yaml-key"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("resolveCustomCompatibleAPIKeys(...) = %#v, want %#v", got, want)
-	}
-}
-
-func TestResolveCustomCompatibleAPIKeys_envRootFallbackWhenYAMLMissing(t *testing.T) {
-	root := "MY_PROVIDER_API_KEY"
-	clearCustomEnvRoot(t, root)
-	t.Setenv(root, "env-one")
-	t.Setenv(root+"_2", "env-two")
-	raw := `api_key_env_var_root: MY_PROVIDER_API_KEY
-`
-	var node yaml.Node
-	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
-		t.Fatal(err)
-	}
-	y, err := decodeCustomCompatibleBackendYAML(node)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := resolveCustomCompatibleAPIKeys(y)
+	got := compatibleutil.ResolveEnvAPIKeys(root)
 	want := []string{"env-one", "env-two"}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("resolveCustomCompatibleAPIKeys(...) = %#v, want %#v", got, want)
+		t.Fatalf("resolveCompatibleEnvAPIKeys(%q) = %#v, want %#v", root, got, want)
 	}
 }
 
-func TestResolveCustomCompatibleAPIKeys_mergesYAMLAPIKeys(t *testing.T) {
-	root := "MY_PROVIDER_API_KEY"
-	clearCustomEnvRoot(t, root)
-	t.Setenv(root, "env-one")
-	raw := `api_key: yaml-primary
-api_keys:
-  - yaml-secondary
-  - yaml-primary
+func TestCompatibleCredential_emptyRootIsNoAuth(t *testing.T) {
+	got := compatibleutil.ResolveEnvAPIKeys("")
+	if len(got) != 0 {
+		t.Fatalf("empty root want nil/empty, got %#v", got)
+	}
+}
+
+func TestCompatibleCredential_decodeRejectsLiteralAPIKey(t *testing.T) {
+	raw := `backend_prefix: provider
+base_url: https://api.example.com/v1
+api_key: yaml-key
 api_key_env_var_root: MY_PROVIDER_API_KEY
 `
 	var node yaml.Node
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	y, err := decodeCustomCompatibleBackendYAML(node)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := resolveCustomCompatibleAPIKeys(y)
-	want := []string{"yaml-primary", "yaml-secondary"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("resolveCustomCompatibleAPIKeys(...) = %#v, want %#v", got, want)
-	}
-}
-
-func TestResolveCustomCompatibleAPIKeys_credentialsPrecedeEnvRoot(t *testing.T) {
-	root := "MY_PROVIDER_API_KEY"
-	clearCustomEnvRoot(t, root)
-	t.Setenv(root, "env-one")
-	raw := `api_key_env_var_root: MY_PROVIDER_API_KEY
-credentials:
-  - id: primary
-    api_key: cred-key
-`
-	var node yaml.Node
-	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
-		t.Fatal(err)
-	}
-	y, err := decodeCustomCompatibleBackendYAML(node)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := resolveCustomCompatibleAPIKeys(y)
-	want := []string{"cred-key"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("resolveCustomCompatibleAPIKeys(...) = %#v, want %#v (credentials must override env root fallback)", got, want)
-	}
-}
-
-func TestResolveCustomCompatibleAPIKeys_credentialsPrecedeYAMLAndEnvRoot(t *testing.T) {
-	root := "MY_PROVIDER_API_KEY"
-	clearCustomEnvRoot(t, root)
-	t.Setenv(root, "env-one")
-	raw := `api_key: yaml-primary
-api_keys:
-  - yaml-secondary
-api_key_env_var_root: MY_PROVIDER_API_KEY
-credentials:
-  - id: primary
-    api_key: cred-key
-`
-	var node yaml.Node
-	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
-		t.Fatal(err)
-	}
-	y, err := decodeCustomCompatibleBackendYAML(node)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := resolveCustomCompatibleAPIKeys(y)
-	want := []string{"cred-key"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("resolveCustomCompatibleAPIKeys(...) = %#v, want %#v (credentials must override YAML and env root)", got, want)
+	_, err := config.DecodeCompatibleModeConfig("inst", CustomOpenAILegacyCompatibleID, node)
+	if err == nil {
+		t.Fatal("expected forbidden api_key rejection")
 	}
 }

@@ -31,6 +31,7 @@ type FeatureRegistry interface {
 type InventoryExtras struct {
 	Reg                          FeatureRegistry
 	Registrations                []lipsdk.Registration
+	CompatibleBackends           CompatibleBackendProjector
 	SecretGuardCatalogEntryCount int
 	SecretGuardSourceCategories  []string
 	SecretGuardAccessMode        string

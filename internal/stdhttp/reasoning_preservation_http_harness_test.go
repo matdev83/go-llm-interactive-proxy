@@ -822,13 +822,18 @@ func chatRestoreValidators(plan reasoninge2e.Plan, requestCount int, requireStre
 }
 
 // chatRestoreValidatorsPerTurnStream is like chatRestoreValidators and asserts the
-// backend stream flag is true on every request (streaming-primary distribution).
+// backend stream flag matches each turn's expected stream mode.
 // Client stream vs non-stream framing is asserted by the HTTP driver against the plan.
 func chatRestoreValidatorsPerTurnStream(plan reasoninge2e.Plan, requestCount int, maxArtifactTurns int) []refchat.RequestValidator {
 	ids := planTurnIDs(plan)
+	turns := plan.Turns()
 	out := make([]refchat.RequestValidator, requestCount)
 	for i := range requestCount {
 		histLen := i
+		wantStream := true
+		if i < len(turns) {
+			wantStream = turns[i].Observed.Streaming
+		}
 		out[i] = func(body []byte) error {
 			var probe struct {
 				Stream bool `json:"stream"`
@@ -836,7 +841,7 @@ func chatRestoreValidatorsPerTurnStream(plan reasoninge2e.Plan, requestCount int
 			if err := json.Unmarshal(body, &probe); err != nil {
 				return fmt.Errorf("reasoninge2e oracle: seed=%d structural mismatch: backend_body_parse", plan.Seed)
 			}
-			if !probe.Stream {
+			if probe.Stream != wantStream {
 				return fmt.Errorf("reasoninge2e oracle: seed=%d structural mismatch: stream_flag", plan.Seed)
 			}
 			prefixIDs := ids

@@ -44,6 +44,11 @@ func buildModelRuntime(bctx buildContext, upstream *http.Client) (*modelRuntime,
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: %w", err)
 	}
+	// Post-activation ownership: merge resolved external route prefixes and
+	// reject collisions before any GenerationRuntime publication.
+	if err := validateCandidateResolvedOwnership(cfg, reg, inventories); err != nil {
+		return nil, err
+	}
 	modelRegistryRuntime, modelRegistry, err := startModelRegistryRuntime(parent, cfg, inventories, bctx.Log, bctx.Ledger)
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: model registry: %w", err)

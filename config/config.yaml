@@ -471,10 +471,12 @@ plugins:
       #   catalog: true
       #   catalog_url: https://models.dev/api.json
       #   timeout: 15s
-    # Custom compatible backends let operators add API-compatible providers without code.
+    # Custom compatible backends are built-in protocol aliases (origin: built_in_compatible).
+    # See docs/custom-compatible-backends.md. Literal api_key/api_keys/credentials in YAML are rejected.
     # Use kind to select the generic factory; id remains the runtime route backend instance.
-    # backend_prefix must be unique, cannot contain / or :, and cannot use standard connector prefixes such as nvidia/openrouter/huggingface/anthropic.
-    # api_key_env_var_root reads ROOT, ROOT_2, ROOT_3, ... using the standard static key convention.
+    # backend_prefix must be unique, cannot contain / or :, and cannot collide with built-in or discovered prefixes.
+    # api_key_env_var_root reads ROOT, ROOT_2, ROOT_3, ... Omit for no-auth endpoints.
+    # Optional: tokenizer (cl100k_base|o200k_base), max_concurrent_requests, models (inline|file).
     # - id: provider123
     #   kind: custom-openai-legacy-compatible
     #   enabled: false

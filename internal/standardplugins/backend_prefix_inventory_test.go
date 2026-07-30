@@ -2,11 +2,13 @@ package standardplugins
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"gopkg.in/yaml.v3"
 )
@@ -27,10 +29,7 @@ func TestStandardBackends_exposeInventoryPrefixes(t *testing.T) {
 			if err := yaml.Unmarshal([]byte(standardBackendBuildYAML(id)), &node); err != nil {
 				t.Fatal(err)
 			}
-			be, err := reg.BuildBackend(id, node, nil, pluginreg.BackendFactoryDeps{})
-			if err != nil {
-				t.Fatalf("BuildBackend(%q) error = %v", id, err)
-			}
+			be := buildStandardBackend(t, reg, id, node, nil)
 			if len(be.BackendPrefixes) == 0 {
 				t.Fatalf("BuildBackend(%q) BackendPrefixes is empty", id)
 			}
@@ -48,8 +47,14 @@ func TestStandardBackends_exposeInventoryPrefixes(t *testing.T) {
 	}
 }
 
-func TestReservedStandardBackendPrefixes_coverStandardBackendPrefixes(t *testing.T) {
+func TestBuiltInOwnership_coversStandardBackendPrefixes(t *testing.T) {
 	t.Parallel()
+
+	owners := CollectBuiltInBackendOwners(nil)
+	reserved := make(map[string]struct{}, len(owners))
+	for _, owner := range owners {
+		reserved[owner.Prefix] = struct{}{}
+	}
 
 	for _, id := range standardBackendFactoryIDs(t) {
 		if IsCustomCompatibleBackendKind(id) {
@@ -66,13 +71,10 @@ func TestReservedStandardBackendPrefixes_coverStandardBackendPrefixes(t *testing
 			if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 				t.Fatal(err)
 			}
-			be, err := reg.BuildBackend(id, node, nil, pluginreg.BackendFactoryDeps{})
-			if err != nil {
-				t.Fatalf("BuildBackend(%q) error = %v", id, err)
-			}
+			be := buildStandardBackend(t, reg, id, node, nil)
 			for _, prefix := range be.BackendPrefixes {
-				if !isReservedStandardBackendPrefix(prefix) {
-					t.Fatalf("standard backend %q exposes prefix %q not reserved for custom connectors", id, prefix)
+				if _, ok := reserved[prefix]; !ok {
+					t.Fatalf("standard backend %q exposes prefix %q not covered by built-in ownership", id, prefix)
 				}
 			}
 		})
@@ -103,7 +105,7 @@ func standardBackendBuildYAML(id string) string {
 	case CustomOpenAIResponsesCompatibleID:
 		return "backend_prefix: custom-openai-responses\nbase_url: http://127.0.0.1:9/v1\n"
 	case CustomAnthropicCompatibleID:
-		return "backend_prefix: custom-anthropic\nbase_url: http://127.0.0.1:9\n"
+		return "backend_prefix: custom-anthropic\nbase_url: http://127.0.0.1:9/v1\n"
 	case "cursorsdk":
 		exe, err := os.Executable()
 		if err != nil {
@@ -113,6 +115,22 @@ func standardBackendBuildYAML(id string) string {
 	default:
 		return ""
 	}
+}
+
+func buildStandardBackend(t *testing.T, reg *pluginreg.Registry, id string, node yaml.Node, client *http.Client) execbackend.Backend {
+	t.Helper()
+	if IsCustomCompatibleBackendKind(id) {
+		res, err := reg.BuildBackendWithLifecycle(id, standardBackendWantPrefix(id), node, client, pluginreg.BackendFactoryDeps{})
+		if err != nil {
+			t.Fatalf("BuildBackendWithLifecycle(%q) error = %v", id, err)
+		}
+		return res.Backend
+	}
+	be, err := reg.BuildBackend(id, node, client, pluginreg.BackendFactoryDeps{})
+	if err != nil {
+		t.Fatalf("BuildBackend(%q) error = %v", id, err)
+	}
+	return be
 }
 
 func standardBackendWantPrefix(id string) string {

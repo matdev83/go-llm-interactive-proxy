@@ -55,8 +55,10 @@ type FeatureFactory func(n yaml.Node) (lipfeature.FeatureBundle, error)
 type BackendRegistrationSource string
 
 const (
-	// BackendSourceBuiltin marks in-process composition-root registrations.
+	// BackendSourceBuiltin marks essential in-process composition-root registrations.
 	BackendSourceBuiltin BackendRegistrationSource = "builtin"
+	// BackendSourceBuiltinCompatible marks dependency-free configurable protocol aliases.
+	BackendSourceBuiltinCompatible BackendRegistrationSource = "built_in_compatible"
 	// BackendSourceDiscovered marks factories installed from trusted plugin artifacts.
 	BackendSourceDiscovered BackendRegistrationSource = "discovered"
 )
@@ -130,8 +132,13 @@ func (r *Registry) RegisterBackend(id string, fn BackendFactory) error {
 	return r.RegisterBackendWithProfile(id, fn, BackendSecurityProfile{CredentialMode: CredentialUnknown})
 }
 
-// RegisterBackendWithProfile records a backend factory with credential posture metadata.
+// RegisterBackendWithProfile records a builtin backend factory with credential posture metadata.
 func (r *Registry) RegisterBackendWithProfile(id string, fn BackendFactory, profile BackendSecurityProfile) error {
+	return r.RegisterBackendWithSource(id, fn, profile, BackendSourceBuiltin)
+}
+
+// RegisterBackendWithSource records a backend factory with bounded composition provenance.
+func (r *Registry) RegisterBackendWithSource(id string, fn BackendFactory, profile BackendSecurityProfile, source BackendRegistrationSource) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.ensureMaps()
@@ -152,9 +159,18 @@ func (r *Registry) RegisterBackendWithProfile(id string, fn BackendFactory, prof
 		// on this default; see pkg/lipsdk.BackendAccessAny.
 		profile.AccessScope = BackendAccessAny
 	}
+	if source == "" {
+		source = BackendSourceBuiltin
+	}
+	if source != BackendSourceBuiltin && source != BackendSourceBuiltinCompatible && source != BackendSourceDiscovered {
+		return fmt.Errorf("pluginreg: RegisterBackend: unsupported source %q", source)
+	}
 	r.backends[id] = fn
 	r.backendProfiles[id] = profile
-	r.backendSources[id] = BackendSourceBuiltin
+	r.backendSources[id] = source
+	if source == BackendSourceDiscovered {
+		r.discovered[id] = struct{}{}
+	}
 	return nil
 }
 
@@ -228,6 +244,18 @@ func (r *Registry) RegisterFeature(id string, fn FeatureFactory) error {
 	}
 	r.features[id] = fn
 	return nil
+}
+
+// BackendRegistrationSource returns bounded provenance for a registered factory.
+func (r *Registry) BackendRegistrationSource(factoryID string) (BackendRegistrationSource, bool) {
+	if r == nil {
+		return "", false
+	}
+	factoryID = strings.TrimSpace(factoryID)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	source, ok := r.backendSources[factoryID]
+	return source, ok
 }
 
 // BackendSecurityProfile returns credential posture metadata for a registered backend factory.
