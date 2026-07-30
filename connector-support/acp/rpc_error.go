@@ -5,13 +5,13 @@ import (
 	"strings"
 )
 
-// RPCError is a JSON-RPC error object returned by an ACP agent. Error() is stable for
-// aggregation; use Code, Message, and Data for operator-facing detail (logs, not Error() strings).
+// RPCError is a JSON-RPC error object returned by an ACP agent. Error() stays
+// stable for aggregation. Message is operator-facing and may include a concise
+// detail extracted from the response's data field.
 type RPCError struct {
 	Method  string
 	Code    int64
 	Message string
-	Data    json.RawMessage
 }
 
 func (e *RPCError) Error() string {
@@ -32,7 +32,6 @@ func rpcErrFromBody(method string, body *rpcErrorBody) error {
 		Method:  method,
 		Code:    int64(body.Code),
 		Message: formatACPErrorBody(body),
-		Data:    body.Data,
 	}
 }
 

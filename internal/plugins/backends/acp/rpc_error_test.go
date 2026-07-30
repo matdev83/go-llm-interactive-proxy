@@ -51,7 +51,4 @@ func TestRPCErrFromBody_includesStructuredDetail(t *testing.T) {
 	if got, want := re.Message, "Internal error: Gemini quota exhausted for this account"; got != want {
 		t.Fatalf("message = %q, want %q", got, want)
 	}
-	if string(re.Data) != `{"error":"Gemini quota exhausted for this account"}` {
-		t.Fatalf("data = %s", re.Data)
-	}
 }

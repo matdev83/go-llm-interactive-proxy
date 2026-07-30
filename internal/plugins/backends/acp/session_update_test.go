@@ -57,7 +57,7 @@ func TestParseNDJSONLine_resultLargeIDMismatch(t *testing.T) {
 
 func TestParseNDJSONLine_errorIncludesStructuredDetail(t *testing.T) {
 	t.Parallel()
-	line := `{"jsonrpc":"2.0","id":99,"error":{"code":-32603,"message":"Internal error","data":{"error":"Gemini quota exhausted for this account"}}}`
+	line := `{"jsonrpc":"2.0","id":99,"method":"session/prompt","error":{"code":-32603,"message":"Internal error","data":{"error":"Gemini quota exhausted for this account"}}}`
 	evs, err := parseNDJSONLine(context.Background(), mergeMapperOptions(Config{}), line, 99)
 	if err != nil {
 		t.Fatal(err)
@@ -72,13 +72,16 @@ func TestParseNDJSONLine_errorIncludesStructuredDetail(t *testing.T) {
 
 func TestParseNDJSONLine_errorDoesNotDuplicateDetail(t *testing.T) {
 	t.Parallel()
-	line := `{"jsonrpc":"2.0","id":99,"error":{"code":-32003,"message":"Quota exceeded: no tokens left","data":{"error":"no tokens left"}}}`
+	line := `{"jsonrpc":"2.0","id":99,"method":"session/prompt","error":{"code":-32003,"message":"Quota exceeded: no tokens left","data":{"error":"no tokens left"}}}`
 	evs, err := parseNDJSONLine(context.Background(), mergeMapperOptions(Config{}), line, 99)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(evs) != 2 || evs[0].ErrorMessage != "Quota exceeded: no tokens left" {
+	if len(evs) != 2 || evs[0].Kind != lipapi.EventError || evs[1].Kind != lipapi.EventResponseFinished {
 		t.Fatalf("got %#v", evs)
+	}
+	if got, want := evs[0].ErrorMessage, "Quota exceeded: no tokens left"; got != want {
+		t.Fatalf("error message = %q, want %q", got, want)
 	}
 }
 
