@@ -1,6 +1,7 @@
 package runtimebundle_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -73,9 +74,7 @@ func TestBuild_customBackendsRejectDuplicatePrefixBeforeModelRegistry(t *testing
 	if err == nil {
 		t.Fatal("expected duplicate custom backend prefix error")
 	}
-	if !strings.Contains(err.Error(), "custom backend prefix") || !strings.Contains(err.Error(), "duplicate") {
-		t.Fatalf("error = %v, want custom backend prefix duplicate", err)
-	}
+	assertOwnershipCollisionErr(t, err, "provider123", "provider-chat", "provider-responses")
 }
 
 func TestBuild_customBackendsRejectReservedStandardPrefix(t *testing.T) {
@@ -102,7 +101,20 @@ func TestBuild_customBackendsRejectReservedStandardPrefix(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected reserved custom backend prefix error")
 	}
-	if !strings.Contains(err.Error(), "custom backend prefix") || !strings.Contains(err.Error(), "reserved") {
-		t.Fatalf("error = %v, want custom backend prefix reserved", err)
+	assertOwnershipCollisionErr(t, err, "openai-legacy", "openai-legacy", "openai-legacy-copy")
+}
+
+func assertOwnershipCollisionErr(t *testing.T, err error, key, ownerA, ownerB string) {
+	t.Helper()
+	var coll *pluginreg.OwnershipCollisionError
+	if !errors.As(err, &coll) {
+		t.Fatalf("error type %T (%v) is not OwnershipCollisionError", err, err)
+	}
+	if coll.Key != key {
+		t.Fatalf("collision key = %q, want %q", coll.Key, key)
+	}
+	msg := coll.Error()
+	if !strings.Contains(msg, ownerA) || !strings.Contains(msg, ownerB) {
+		t.Fatalf("collision error %q must identify owners %q and %q", msg, ownerA, ownerB)
 	}
 }

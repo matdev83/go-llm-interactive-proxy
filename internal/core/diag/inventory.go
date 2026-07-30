@@ -12,10 +12,11 @@ import (
 
 // InventorySnapshot is a JSON-serializable view of configured plugins for operators.
 type InventorySnapshot struct {
-	Frontends  []PluginRow         `json:"frontends"`
-	Backends   []PluginRow         `json:"backends"`
-	Features   []PluginRow         `json:"features"`
-	Extensions InventoryExtensions `json:"extensions"`
+	Frontends          []PluginRow            `json:"frontends"`
+	Backends           []PluginRow            `json:"backends"`
+	CompatibleBackends []CompatibleBackendRow `json:"compatible_backends,omitempty"`
+	Features           []PluginRow            `json:"features"`
+	Extensions         InventoryExtensions    `json:"extensions"`
 	// ServerLimits exposes effective decode/admission caps and configured pending-wire
 	// (0 = unlimited) as numbers only; no payloads.
 	ServerLimits InventoryServerLimits `json:"server_limits"`
@@ -38,6 +39,9 @@ type PluginRow struct {
 }
 
 // InventorySnapshotForConfig builds the same operator inventory view as [InventoryHandler] without HTTP.
+// CompatibleBackendProjector builds bounded compatible-backend rows for inventory.
+type CompatibleBackendProjector func(cfg *config.Config) []CompatibleBackendRow
+
 func InventorySnapshotForConfig(
 	ctx context.Context,
 	cfg *config.Config,
@@ -49,7 +53,7 @@ func InventorySnapshotForConfig(
 	if ctx == nil {
 		return InventorySnapshot{}, errors.New("diag: inventory snapshot for config: nil context")
 	}
-	return InventorySnapshot{
+	snap := InventorySnapshot{
 		Frontends:  rows(cfg.Plugins.Frontends),
 		Backends:   rows(cfg.Plugins.Backends),
 		Features:   rows(cfg.Plugins.Features),
@@ -60,7 +64,11 @@ func InventorySnapshotForConfig(
 			MaxInflightDecodeBytes: cfg.Server.EffectiveMaxInflightDecodeBytes(),
 			MaxPendingWireEvents:   cfg.Server.EffectiveMaxPendingWireEvents(),
 		},
-	}, nil
+	}
+	if extras != nil && extras.CompatibleBackends != nil {
+		snap.CompatibleBackends = extras.CompatibleBackends(cfg)
+	}
+	return snap, nil
 }
 
 // InventoryHandler serves GET JSON describing enabled plugin rows from cfg.

@@ -1,80 +1,126 @@
 package standardplugins
 
 import (
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"gopkg.in/yaml.v3"
 )
 
-func TestValidateCustomBackendPrefix_rejectsEmpty(t *testing.T) {
+func TestValidatePrefixSyntax_rejectsEmpty(t *testing.T) {
 	t.Parallel()
-	if err := validateCustomBackendPrefix(""); err == nil {
+	if err := pluginreg.ValidatePrefixSyntax(""); err == nil {
 		t.Fatal("expected error for empty backend_prefix")
 	}
-	if err := validateCustomBackendPrefix("   "); err == nil {
+	if err := pluginreg.ValidatePrefixSyntax("   "); err == nil {
 		t.Fatal("expected error for whitespace-only backend_prefix")
 	}
 }
 
-func TestValidateCustomBackendPrefix_rejectsInvalidCharacters(t *testing.T) {
+func TestValidatePrefixSyntax_rejectsInvalidCharacters(t *testing.T) {
 	t.Parallel()
 	for _, prefix := range []string{"acme/prod", "acme:prod", "ac/me", "a:cme"} {
-		if err := validateCustomBackendPrefix(prefix); err == nil {
+		if err := pluginreg.ValidatePrefixSyntax(prefix); err == nil {
 			t.Fatalf("expected error for backend_prefix %q", prefix)
 		}
 	}
 }
 
-func TestValidateCustomBackendPrefix_rejectsReservedStandardPrefixes(t *testing.T) {
+func TestValidateCompatibleManifestOwnership_rejectsReservedBuiltInPrefixes(t *testing.T) {
 	t.Parallel()
-	for prefix := range standardBackendPrefixSet() {
-		err := validateCustomBackendPrefix(prefix)
+	for _, owner := range CollectBuiltInBackendOwners(nil) {
+		prefix := owner.Prefix
+		err := ValidateCompatibleManifestOwnership([]config.PluginConfig{
+			mustCompatibleRow(t, "nv-copy", prefix),
+		}, nil)
 		if err == nil {
 			t.Fatalf("expected error for reserved backend_prefix %q", prefix)
 		}
-		if !strings.Contains(err.Error(), "reserved") {
-			t.Fatalf("error for %q = %v, want reserved wording", prefix, err)
+		var coll *pluginreg.OwnershipCollisionError
+		if !errors.As(err, &coll) {
+			t.Fatalf("error for %q = %v, want OwnershipCollisionError", prefix, err)
+		}
+		if coll.Key != prefix {
+			t.Fatalf("collision key = %q, want %q", coll.Key, prefix)
 		}
 	}
 }
 
-func TestValidateCustomBackendPrefix_acceptsValidPrefix(t *testing.T) {
+func TestValidateCompatibleManifestOwnership_acceptsValidPrefix(t *testing.T) {
 	t.Parallel()
-	if err := validateCustomBackendPrefix("my-provider"); err != nil {
+	if err := ValidateCompatibleManifestOwnership([]config.PluginConfig{
+		mustCompatibleRow(t, "ok", "my-provider"),
+	}, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestValidateEnabledCustomBackendPrefixes_rejectsDuplicateEnabledPrefixes(t *testing.T) {
+func TestValidateCompatibleManifestOwnership_rejectsDuplicateEnabledPrefixes(t *testing.T) {
 	t.Parallel()
-	err := validateEnabledCustomBackendPrefixes([]customBackendPrefixEntry{
-		{Enabled: true, BackendPrefix: "same", InstanceID: "a"},
-		{Enabled: true, BackendPrefix: "same", InstanceID: "b"},
-	})
+	err := ValidateCompatibleManifestOwnership([]config.PluginConfig{
+		mustCompatibleRow(t, "a", "same"),
+		mustCompatibleRow(t, "b", "same"),
+	}, nil)
 	if err == nil {
 		t.Fatal("expected duplicate backend_prefix error")
 	}
-	if !strings.Contains(err.Error(), "duplicate") {
-		t.Fatalf("error = %v, want duplicate wording", err)
+	var coll *pluginreg.OwnershipCollisionError
+	if !errors.As(err, &coll) {
+		t.Fatalf("error = %v, want OwnershipCollisionError", err)
+	}
+	if coll.Key != "same" {
+		t.Fatalf("collision key = %q, want same", coll.Key)
+	}
+	msg := coll.Error()
+	if !strings.Contains(msg, "a") || !strings.Contains(msg, "b") {
+		t.Fatalf("error %q must name both instances", msg)
 	}
 }
 
-func TestValidateEnabledCustomBackendPrefixes_ignoresDisabledRows(t *testing.T) {
+func TestValidateCompatibleManifestOwnership_ignoresDisabledRows(t *testing.T) {
 	t.Parallel()
-	err := validateEnabledCustomBackendPrefixes([]customBackendPrefixEntry{
-		{Enabled: false, BackendPrefix: "same", InstanceID: "disabled"},
-		{Enabled: true, BackendPrefix: "same", InstanceID: "enabled"},
-	})
+	disabled := mustCompatibleRow(t, "disabled", "same")
+	disabled.Enabled = false
+	err := ValidateCompatibleManifestOwnership([]config.PluginConfig{
+		disabled,
+		mustCompatibleRow(t, "enabled", "same"),
+	}, nil)
 	if err != nil {
-		t.Fatalf("disabled rows must not participate in duplicate detection: %v", err)
+		t.Fatalf("disabled rows must not participate in ownership: %v", err)
 	}
 }
 
-func TestValidateEnabledCustomBackendPrefixes_rejectsReservedAmongEnabled(t *testing.T) {
+func TestValidateCompatibleManifestOwnership_rejectsReservedAmongEnabled(t *testing.T) {
 	t.Parallel()
-	err := validateEnabledCustomBackendPrefixes([]customBackendPrefixEntry{
-		{Enabled: true, BackendPrefix: "anthropic", InstanceID: "nv-copy"},
-	})
+	err := ValidateCompatibleManifestOwnership([]config.PluginConfig{
+		mustCompatibleRow(t, "nv-copy", "anthropic"),
+	}, nil)
 	if err == nil {
 		t.Fatal("expected reserved backend_prefix error")
+	}
+	var coll *pluginreg.OwnershipCollisionError
+	if !errors.As(err, &coll) {
+		t.Fatalf("error = %v, want OwnershipCollisionError", err)
+	}
+}
+
+func mustCompatibleRow(t *testing.T, id, prefix string) config.PluginConfig {
+	t.Helper()
+	var n yaml.Node
+	raw := "backend_prefix: " + prefix + "\nbase_url: http://127.0.0.1:9/v1\n"
+	if err := yaml.Unmarshal([]byte(raw), &n); err != nil {
+		t.Fatal(err)
+	}
+	for n.Kind == yaml.DocumentNode && len(n.Content) > 0 {
+		n = *n.Content[0]
+	}
+	return config.PluginConfig{
+		Kind:    CustomOpenAILegacyCompatibleID,
+		ID:      id,
+		Enabled: true,
+		Config:  n,
 	}
 }

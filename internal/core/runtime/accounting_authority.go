@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/authoritycoord"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	compatibleadmission "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/compatible"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
@@ -230,6 +231,9 @@ func (e *Executor) admitAttemptViaCoordinator(
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return attemptAuthorityState{}, err
+		}
+		if mapped := mapAttemptAuthorityCoordinatorError(err); mapped != nil {
+			return attemptAuthorityState{}, mapped
 		}
 		outcome := domain.DecisionOutcomeDeny
 		if !authoritycoord.IsDenied(err) {
@@ -766,6 +770,24 @@ func attemptAuthorityRuleID(state attemptAuthorityState) string {
 		return state.admissionResult.RuleIDs[0]
 	}
 	return state.admissionInput.ReservationKey.RuleID
+}
+
+func mapAttemptAuthorityCoordinatorError(err error) error {
+	var denied *authoritycoord.ErrDenied
+	if !errors.As(err, &denied) || denied == nil {
+		return nil
+	}
+	if denied.ProviderID == compatibleadmission.ProviderID || denied.Decision.Evidence.Category == "concurrency_limit" {
+		return lipapi.NewPolicyDeniedError(
+			"compatible_backend_attempt",
+			"",
+			"concurrency_limit",
+			"concurrency_limit",
+			"compatible backend concurrent request limit reached",
+			nil,
+		)
+	}
+	return nil
 }
 
 func attemptAuthorityAdmissionError(result authorityapp.AdmissionResult, err error) error {

@@ -221,6 +221,7 @@ endif
 
 parity-checks:
 	$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./internal/testkit/conformance/...
+	$(GO) test $(GO_TEST_FLAGS) ./internal/testkit/compatibleparity/... -run 'CompatibleParity'
 
 # Phase 6 ACP external connector parity (testemu/scripted ACP; not live Cursor/Gemini/Agy CLIs).
 parity-acp-plugin:

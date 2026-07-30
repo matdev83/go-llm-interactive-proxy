@@ -124,7 +124,7 @@ max_concurrent_requests: integer?
 models: shared inventory config?
 ```
 
-It detects forbidden `api_key`, `api_keys`, and inline credential-secret fields so errors are explicit. A successfully decoded model contains references and policy, never literal credentials.
+It detects forbidden `api_key`, `api_keys`, and inline credential-secret fields so errors are explicit. Strictness is scoped to these three compatible-mode configs: the decoder validates the YAML mapping key set before typed decode rather than changing the repository-wide, currently non-strict `config.DecodeYAMLNode` behavior. A successfully decoded model contains references and policy, never literal credentials.
 
 Conceptual shape:
 
@@ -176,15 +176,16 @@ Config stores only an optional env-root name. During runtime construction, a sha
 - creates independent pool state per instance;
 - returns no credentials when none exist.
 
-Adapters receive an optional credential provider. Header injection is conditional and protocol-correct. Secret values are excluded from snapshots and diagnostics.
+Adapters receive a compatible-mode-only optional credential provider. The OpenAI-compatible construction path bypasses empty-pool acquisition and only constructs authenticated SDK request options after selecting a key. The Anthropic-compatible construction path adds `option.WithAPIKey` only after selecting a non-empty key. Native built-in dummy-credential behavior and executable-plugin secret projection remain unchanged. Secret values are excluded from snapshots and diagnostics.
 
 ### 5. Composed ownership catalog
 
-Before backend activation, composition assembles immutable ownership from:
+Ownership is generation-scoped and assembled in two stages:
 
-- built-in kinds and prefixes;
-- enabled generic instance prefixes;
-- discovered external factory kinds and advertised prefixes.
+- before activation: built-in kinds and prefixes, enabled generic instance prefixes, and manifest-discovered external factory kinds;
+- after a discovered instance is activated: advertised route prefixes from its resolved profile, checked before the candidate generation is published.
+
+`check-config` performs only the first, manifest-available stage and never activates a process. Startup/reload performs both stages. This preserves manifest v1 and the executable plugin ABI.
 
 Conceptual record:
 
@@ -203,19 +204,20 @@ The catalog detects duplicate or reserved prefixes and returns both bounded owne
 Ordering:
 
 1. load built-in descriptors;
-2. discover and validate external descriptors without process launch;
+2. discover and validate external manifest exports without process launch;
 3. decode enabled backend rows;
-4. compose ownership and detect conflicts;
-5. construct instances;
-6. publish runtime and serve.
+4. compose manifest-available ownership and detect conflicts;
+5. construct built-ins and activate configured external instances;
+6. merge resolved external route prefixes and reject conflicts;
+7. publish the immutable `GenerationRuntime` through the owning `Host` and serve.
 
 ### 6. Common tokenizer attachment
 
-A shared resolver maps an optional identifier to tokenizer/counting capability. The mode factory attaches the result to backend metadata or counting providers. Wire adapters remain unaware of tokenizer names. Unknown IDs fail before runtime publication.
+A small composition-edge resolver, backed by the existing `internal/infra/tokenizers` implementations and `internal/core/tokenaccounting` contracts, maps an optional bounded identifier to tokenizer/counting capability. This spec creates that missing resolver and its initial documented identifier vocabulary; it does not introduce `internal/core/tokenization`. The mode factory attaches the result to backend metadata or counting providers. Wire adapters remain unaware of tokenizer names. Unknown IDs fail before runtime publication.
 
 ### 7. Common per-instance admission
 
-A common admission contribution is created from runtime instance identity and `max_concurrent_requests`. It wraps backend operation admission at the runtime/backend seam, not inside protocol codecs.
+A common admission contribution is created from runtime instance identity and `max_concurrent_requests`. It is expressed through the landed concurrency-authority rule/dimension model and acquired at the runtime backend-attempt seam, with release transferred to existing terminal ownership. It does not use the reload-only `attemptGate` and does not place a semaphore inside protocol codecs.
 
 ```text
 request accepted
@@ -372,7 +374,7 @@ Errors identify runtime instance and bounded conflicting owner. They never inclu
 
 ## Migration Strategy
 
-1. Land or rebase onto the backend plugin architecture implementation.
+1. Confirm and map the already-landed backend plugin architecture (`pluginreg`, essential built-ins, discovered factories, and `runtimebundle.Host`/`GenerationRuntime` ownership).
 2. Add characterization tests for current generic behavior.
 3. Introduce final strict config and forbidden-secret tests.
 4. Establish built-in mode descriptors and composed ownership.
@@ -400,7 +402,8 @@ Existing valid `kind`, `id`, `backend_prefix`, and routes remain stable. Literal
 - modes available in minimal built-in bundle;
 - no branches/imports in core or external plugin host;
 - no optional table or external module dependency;
-- fake discovered descriptor collisions without process launch;
+- manifest-discovered factory-kind collisions without process launch;
+- fake resolved-profile prefix collisions before generation publication;
 - `GOWORK=off` build with connector modules absent.
 
 ### Runtime
@@ -427,7 +430,7 @@ Differential fixtures compare each generic mode with its essential adapter for r
 
 The initial design was corrected so that:
 
-- prefix validation occurs against fully composed ownership before activation;
+- manifest-available ownership is validated before activation and resolved external prefixes before generation publication;
 - secrets cannot enter the decoded model;
 - concurrency uses common terminal-aware admission rather than codec semaphores;
 - tokenizer resolution remains outside adapters;

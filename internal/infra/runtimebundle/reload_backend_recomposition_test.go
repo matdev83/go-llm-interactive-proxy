@@ -263,7 +263,6 @@ func TestReloadBackend_GenericCompatibleKindsAdd(t *testing.T) {
 			Config: genYAMLNode(t, fmt.Sprintf(`
 backend_prefix: %s
 base_url: http://127.0.0.1:9/v1
-api_key: test-key
 models:
   source: inline
   items:

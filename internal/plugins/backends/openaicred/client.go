@@ -2,6 +2,7 @@ package openaicred
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -15,12 +16,14 @@ func NewOpenAIClient(baseURL, apiSecret string, httpClient *http.Client, maxRetr
 
 // NewOpenAIClientWithOptions builds an openai-go client with additional per-client request options.
 // extraOpts are appended after base URL, API key, HTTP client, and max retries.
+// An empty apiSecret omits Authorization entirely (compatible-mode no-auth); non-empty
+// secrets including native dummy credentials still set option.WithAPIKey.
 func NewOpenAIClientWithOptions(baseURL, apiSecret string, httpClient *http.Client, maxRetries *int, extraOpts []option.RequestOption) openai.Client {
 	opts := make([]option.RequestOption, 0, 4+len(extraOpts))
-	opts = append(opts,
-		option.WithBaseURL(baseURL),
-		option.WithAPIKey(apiSecret),
-	)
+	opts = append(opts, option.WithBaseURL(baseURL))
+	if secret := strings.TrimSpace(apiSecret); secret != "" {
+		opts = append(opts, option.WithAPIKey(secret))
+	}
 	if httpClient != nil {
 		opts = append(opts, option.WithHTTPClient(httpClient))
 	}

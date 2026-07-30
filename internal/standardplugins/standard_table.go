@@ -94,9 +94,11 @@ type FrontendRegistration struct {
 
 // BackendRegistration is one explicit backend contribution to a bundle.
 type BackendRegistration struct {
-	ID      string
-	Factory pluginreg.BackendFactory
-	Profile pluginreg.BackendSecurityProfile
+	ID               string
+	Factory          pluginreg.BackendFactory
+	LifecycleFactory pluginreg.LifecycleBackendFactory
+	Profile          pluginreg.BackendSecurityProfile
+	Source           pluginreg.BackendRegistrationSource
 }
 
 // FeatureRegistration is one explicit feature contribution to a bundle.
@@ -163,7 +165,17 @@ func InstallBundleOn(reg *pluginreg.Registry, b Bundle) error {
 		return fmt.Errorf("pluginreg: InstallBundleOn: nil registry")
 	}
 	for _, e := range b.Backends {
-		if err := reg.RegisterBackendWithProfile(e.ID, e.Factory, e.Profile); err != nil {
+		if e.LifecycleFactory != nil {
+			source := e.Source
+			if source == "" {
+				source = pluginreg.BackendSourceBuiltin
+			}
+			if err := reg.RegisterLifecycleBackendWithSource(e.ID, e.LifecycleFactory, e.Profile, source); err != nil {
+				return fmt.Errorf("pluginreg: InstallBundleOn: register lifecycle backend %q: %w", e.ID, err)
+			}
+			continue
+		}
+		if err := reg.RegisterBackendWithSource(e.ID, e.Factory, e.Profile, e.Source); err != nil {
 			return fmt.Errorf("pluginreg: InstallBundleOn: register backend %q: %w", e.ID, err)
 		}
 	}

@@ -282,8 +282,6 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
 		return 1
 	}
-	// Every post-BuildHost path — startup failure and normal serve return alike
-	// — tears down through the one host close seam, which owns tracing last.
 	if err := logBootstrapAccessAuth(ctx, host.Logger(), host.Config()); err != nil {
 		cleanupErr := closeServeHostAfterBuild(ctx, host, nil)
 		host.Logger().ErrorContext(ctx, "lipstd: bootstrap access/auth", "error", errors.Join(err, cleanupErr))
@@ -295,7 +293,6 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 		host.Logger().ErrorContext(ctx, "lipstd: management server", "error", errors.Join(err, cleanupErr))
 		return 1
 	}
-	// INT/TERM shut down the server; SIGHUP delivers through the Host reload seam.
 	sigCtx, stop := startServeSignalHandling(ctx, host)
 	defer stop()
 	if err := stdhttp.RunWithGenerationHost(sigCtx, stdhttp.GenerationHostInput{
@@ -311,11 +308,10 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 }
 
 func runCheckConfigCommand(ctx context.Context, opts CommandOptions) int {
-	err := runtimebundle.ValidateDistribution(ctx, runtimebundle.ValidateDistributionInput{
+	err := runtimebundle.ValidateStructural(ctx, runtimebundle.ValidateStructuralInput{
 		ConfigPath:              opts.ConfigPath,
 		Mandatory:               mandatoryStandardPlugins(),
 		StreamRecoveryOverrides: opts.StreamRecovery,
-		HandlerComposer:         stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "configuration invalid: %v\n", err)
@@ -374,7 +370,7 @@ func runInspectCommand(ctx context.Context, opts CommandOptions) int {
 		return 1
 	}
 	defer func() { _ = prep.Close() }()
-	rep, inspectErr := runtimebundle.InspectBackendPlugins(prep.Config, prep.Registry)
+	rep, inspectErr := runtimebundle.InspectBackendPluginsCtx(ctx, prep.Config, prep.Registry)
 	enc := json.NewEncoder(opts.Output)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(rep); err != nil {

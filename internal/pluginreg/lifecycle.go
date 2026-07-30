@@ -31,6 +31,11 @@ func (r *Registry) RegisterLifecycleBackendWithProfile(id string, fn LifecycleBa
 	return r.registerLifecycleBackendWithSource(id, fn, profile, BackendSourceBuiltin)
 }
 
+// RegisterLifecycleBackendWithSource records a lifecycle-aware builtin factory with provenance.
+func (r *Registry) RegisterLifecycleBackendWithSource(id string, fn LifecycleBackendFactory, profile BackendSecurityProfile, source BackendRegistrationSource) error {
+	return r.registerLifecycleBackendWithSource(id, fn, profile, source)
+}
+
 // RegisterDiscoveredLifecycleBackendWithProfile records a lifecycle-aware factory
 // installed from a trusted discovered artifact. Inspect treats these as non-builtins.
 func (r *Registry) RegisterDiscoveredLifecycleBackendWithProfile(id string, fn LifecycleBackendFactory, profile BackendSecurityProfile) error {

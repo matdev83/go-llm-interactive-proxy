@@ -31,7 +31,7 @@ type sdkStream struct {
 	closed  bool
 }
 
-func newSDKStream(s *ssestream.Stream[responses.ResponseStreamEventUnion], maxPending int) lipapi.ManagedEventStream {
+func NewSDKStream(s *ssestream.Stream[responses.ResponseStreamEventUnion], maxPending int) lipapi.ManagedEventStream {
 	if s == nil {
 		return lipapi.NewFixedEventStream(nil)
 	}

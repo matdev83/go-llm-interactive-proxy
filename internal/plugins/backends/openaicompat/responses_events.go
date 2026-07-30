@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
+	responsesbackend "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaiusage"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/protocols/openairesponsestream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -101,7 +102,11 @@ func (s *responsesStream) handleUnion(cur responses.ResponseStreamEventUnion) er
 		return nil
 	case "error":
 		ev := cur.AsError()
-		return m.StreamError(ev.Code, ev.Message, "stream error")
+		if err := m.StreamError(ev.Code, ev.Message, "stream error"); err != nil {
+			return err
+		}
+		s.terminalEmitted = true
+		return nil
 	case "response.output_item.added":
 		addEv := cur.AsResponseOutputItemAdded()
 		item := addEv.Item
@@ -189,12 +194,7 @@ func (s *responsesStream) usageFromResponse(resp responses.Response) *lipapi.Eve
 }
 
 func ResponseEvents(resp responses.Response) ([]lipapi.Event, error) {
-	s := newUnitResponsesStream()
-	cur := responses.ResponseStreamEventUnion{Type: "response.completed", Response: resp}
-	if err := s.handleUnion(cur); err != nil {
-		return nil, fmt.Errorf("responses events: %w", err)
-	}
-	return stream.DrainPending(&s.pending), nil
+	return responsesbackend.CompletionEvents(resp)
 }
 
 func (s *responsesStream) Close() error {

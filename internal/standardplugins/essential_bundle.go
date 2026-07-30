@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	"gopkg.in/yaml.v3"
@@ -56,14 +57,8 @@ func EssentialBackendBundle(keys UpstreamAPIKeys) Bundle {
 		{ID: bedrock.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendBedrock(n, upstream, deps.Identity)
 		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialWorkload}},
-		{ID: CustomOpenAILegacyCompatibleID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendCustomOpenAILegacyCompatible(n, upstream)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
-		{ID: CustomOpenAIResponsesCompatibleID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendCustomOpenAIResponsesCompatible(n, upstream)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
-		{ID: CustomAnthropicCompatibleID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendCustomAnthropicCompatible(n, upstream)
-		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
+		{ID: CustomOpenAILegacyCompatibleID, LifecycleFactory: openaicompat.LifecycleOpenAILegacyCompatible, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}, Source: pluginreg.BackendSourceBuiltinCompatible},
+		{ID: CustomOpenAIResponsesCompatibleID, LifecycleFactory: openaicompat.LifecycleOpenAIResponsesCompatible, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}, Source: pluginreg.BackendSourceBuiltinCompatible},
+		{ID: CustomAnthropicCompatibleID, LifecycleFactory: anthropic.LifecycleAnthropicCompatible, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}, Source: pluginreg.BackendSourceBuiltinCompatible},
 	}}
 }

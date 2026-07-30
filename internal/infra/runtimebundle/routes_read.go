@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
@@ -12,9 +13,10 @@ import (
 
 // RoutesSnapshot is a config-derived operator read model (no provider I/O).
 type RoutesSnapshot struct {
-	EffectiveDefaultRoute string         `json:"effective_default_route"`
-	Backends              []RouteBackend `json:"backends"`
-	ModelAliases          []RouteAlias   `json:"model_aliases"`
+	EffectiveDefaultRoute string                      `json:"effective_default_route"`
+	Backends              []RouteBackend              `json:"backends"`
+	CompatibleBackends    []diag.CompatibleBackendRow `json:"compatible_backends,omitempty"`
+	ModelAliases          []RouteAlias                `json:"model_aliases"`
 	// CredentialPosture is derived from enabled backend factory ids only: all_local_stub when every
 	// enabled backend uses factory kind local-stub; live_provider when any enabled backend is not
 	// local-stub; no_enabled_backends when there are no enabled backend rows.
@@ -67,6 +69,7 @@ func RoutesSnapshotFrom(cfg *config.Config, reg *pluginreg.Registry) (RoutesSnap
 			Replacement: a.Replacement,
 		})
 	}
+	out.CompatibleBackends = standardplugins.ProjectCompatibleBackendRows(cfg)
 	return out, nil
 }
 

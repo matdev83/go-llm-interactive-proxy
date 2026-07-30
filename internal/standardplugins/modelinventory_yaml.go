@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/modeldiscover"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"gopkg.in/yaml.v3"
 )
@@ -142,8 +143,10 @@ func staticModelInventory(source modelinventory.Source, rows []modelInventoryIte
 			DisplayName: strings.TrimSpace(row.DisplayName),
 		})
 	}
+	bounded, warnings := modeldiscover.BoundInventoryModels(models)
 	return modelinventory.StaticProvider{
-		Source: source,
-		Models: models,
+		Source:   source,
+		Models:   bounded,
+		Warnings: warnings,
 	}, true, nil
 }

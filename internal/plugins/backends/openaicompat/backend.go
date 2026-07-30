@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -36,6 +37,11 @@ type BackendSpec struct {
 	SDKMaxRetries     *int
 	RateLimitFallback time.Duration
 
+	// CompatibleModeAuth enables optional credentials for built-in compatible
+	// modes: an empty resolved key set proceeds without Authorization headers.
+	// Native hosted backends must leave this false (dummy-credential policy).
+	CompatibleModeAuth bool
+
 	ClientOptions  func(lipapi.Call, routing.AttemptCandidate) []option.RequestOption
 	RequestOptions func(lipapi.Call) []option.RequestOption
 	ResolveModel   func(routing.AttemptCandidate, lipapi.Call) string
@@ -51,7 +57,7 @@ func NewBackend(spec BackendSpec) execbackend.Backend {
 	if err := checkcfg.RequireNonEmpty(spec.ID, "base_url", spec.BaseURL); err != nil {
 		return newConfigErrorBackend(spec.ID, err)
 	}
-	pool, err := openaicred.NewPoolFromCredentials(spec.APIKey, spec.APIKeys, spec.Credentials)
+	pool, noAuth, err := buildCompatibleOrRequiredPool(spec)
 	if err != nil {
 		return newConfigErrorBackend(spec.ID, fmt.Errorf("%s: credentials: %w", spec.ID, err))
 	}
@@ -87,6 +93,9 @@ func NewBackend(spec BackendSpec) execbackend.Backend {
 			if spec.RequestOptions != nil {
 				req.SDKOptions = spec.RequestOptions(call)
 			}
+			if noAuth {
+				return openOnce(ctx, spec, req, call, cand, "")
+			}
 			now := time.Now()
 			for {
 				if err := ctx.Err(); err != nil {
@@ -99,28 +108,11 @@ func NewBackend(spec BackendSpec) execbackend.Backend {
 					}
 					return nil, fmt.Errorf("%s: %w", spec.ID, aerr)
 				}
-				var clientOptions []option.RequestOption
-				if spec.ClientOptions != nil {
-					clientOptions = spec.ClientOptions(call, cand)
-				}
-				cli := openaicred.NewOpenAIClientWithOptions(spec.BaseURL, cred.Secret, spec.HTTPClient, spec.SDKMaxRetries, clientOptions)
-
-				var es lipapi.ManagedEventStream
-				var openErr error
-				switch resolveFlavor(spec, call) {
-				case FlavorResponses:
-					es, openErr = OpenResponses(ctx, cli, req)
-				default:
-					es, openErr = OpenChat(ctx, cli, req)
-				}
+				es, openErr := openOnce(ctx, spec, req, call, cand, cred.Secret)
 				if openErr == nil {
-					ev, rerr := es.Recv(ctx)
-					if rerr == nil {
-						return streampeek.NewManagedPrependFirst(ev, es), nil
-					}
-					openErr = errors.Join(rerr, es.Close())
+					return es, nil
 				}
-
+				// openOnce returns either a prepended stream or a raw open/recv error.
 				kind, retryAfter := openaicred.ClassifyOpenAIAPIError(openErr)
 				now = time.Now()
 				switch kind {
@@ -140,6 +132,78 @@ func NewBackend(spec BackendSpec) execbackend.Backend {
 			}
 		},
 	}
+}
+
+func buildCompatibleOrRequiredPool(spec BackendSpec) (*credpool.Pool, bool, error) {
+	if !spec.CompatibleModeAuth {
+		pool, err := openaicred.NewPoolFromCredentials(spec.APIKey, spec.APIKeys, spec.Credentials)
+		return pool, false, err
+	}
+	creds, err := optionalCompatibleCredentials(spec.APIKey, spec.APIKeys, spec.Credentials)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(creds) == 0 {
+		return nil, true, nil
+	}
+	pool, err := credpool.New(creds)
+	return pool, false, err
+}
+
+func optionalCompatibleCredentials(apiKey string, apiKeys []string, credentials []credpool.Credential) ([]credpool.Credential, error) {
+	if len(credentials) > 0 {
+		out := make([]credpool.Credential, 0, len(credentials))
+		for i, c := range credentials {
+			if c.Secret == "" {
+				return nil, fmt.Errorf("credpool: empty secret at index %d", i)
+			}
+			out = append(out, c)
+		}
+		return out, nil
+	}
+	seen := make(map[string]struct{})
+	out := make([]credpool.Credential, 0, 1+len(apiKeys))
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		if _, ok := seen[s]; ok {
+			return
+		}
+		seen[s] = struct{}{}
+		out = append(out, credpool.Credential{Secret: s})
+	}
+	add(apiKey)
+	for _, k := range apiKeys {
+		add(k)
+	}
+	return out, nil
+}
+
+func openOnce(ctx context.Context, spec BackendSpec, req InvokeRequest, call lipapi.Call, cand routing.AttemptCandidate, apiSecret string) (lipapi.ManagedEventStream, error) {
+	var clientOptions []option.RequestOption
+	if spec.ClientOptions != nil {
+		clientOptions = spec.ClientOptions(call, cand)
+	}
+	cli := openaicred.NewOpenAIClientWithOptions(spec.BaseURL, apiSecret, spec.HTTPClient, spec.SDKMaxRetries, clientOptions)
+
+	var es lipapi.ManagedEventStream
+	var openErr error
+	switch resolveFlavor(spec, call) {
+	case FlavorResponses:
+		es, openErr = OpenResponses(ctx, cli, req)
+	default:
+		es, openErr = OpenChat(ctx, cli, req)
+	}
+	if openErr != nil {
+		return nil, openErr
+	}
+	ev, rerr := es.Recv(ctx)
+	if rerr == nil {
+		return streampeek.NewManagedPrependFirst(ev, es), nil
+	}
+	return nil, errors.Join(rerr, es.Close())
 }
 
 func newConfigErrorBackend(id string, err error) execbackend.Backend {

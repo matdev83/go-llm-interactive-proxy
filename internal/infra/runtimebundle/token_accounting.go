@@ -116,13 +116,62 @@ func buildTokenCounters(cfg *config.Config, backends map[string]execbackend.Back
 	if mode == accountingapp.ModeProviderOnly {
 		return provider, nil, nil
 	}
-	counter, err := tiktokenlocal.NewCounter(tiktokenlocal.Config{
+	fallback, err := tiktokenlocal.NewCounter(tiktokenlocal.Config{
 		DefaultEncoding: cfg.Accounting.Tokenizer.DefaultEncoding, ModelMappings: cfg.Accounting.Tokenizer.ModelMappings,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("runtimebundle: accounting local tokenizer: %w", err)
 	}
-	return provider, counter, nil
+	return provider, newBackendLocalCounter(backends, fallback), nil
+}
+
+type backendLocalCounter struct {
+	overrides map[string]accountingapp.LocalCounter
+	fallback  accountingapp.LocalCounter
+}
+
+func newBackendLocalCounter(backends map[string]execbackend.Backend, fallback accountingapp.LocalCounter) accountingapp.LocalCounter {
+	overrides := map[string]accountingapp.LocalCounter{}
+	for id, be := range backends {
+		if be.LocalCounter != nil {
+			overrides[id] = be.LocalCounter
+		}
+	}
+	if len(overrides) == 0 {
+		return fallback
+	}
+	return &backendLocalCounter{overrides: overrides, fallback: fallback}
+}
+
+func (c *backendLocalCounter) lookup(backend string) accountingapp.LocalCounter {
+	if counter, ok := c.overrides[backend]; ok {
+		return counter
+	}
+	return c.fallback
+}
+
+func (c *backendLocalCounter) CountText(ctx context.Context, input accountingapp.CountTextInput) (accountingapp.CountResult, error) {
+	counter := c.lookup(input.Backend)
+	if counter == nil {
+		return accountingapp.CountResult{}, accountingapp.ErrLocalUnavailable
+	}
+	return counter.CountText(ctx, input)
+}
+
+func (c *backendLocalCounter) CountCall(ctx context.Context, input accountingapp.CountCallInput) (accountingapp.CountResult, error) {
+	counter := c.lookup(input.Backend)
+	if counter == nil {
+		return accountingapp.CountResult{}, accountingapp.ErrLocalUnavailable
+	}
+	return counter.CountCall(ctx, input)
+}
+
+func (c *backendLocalCounter) CountOutput(ctx context.Context, input accountingapp.CountOutputInput) (accountingapp.CountResult, error) {
+	counter := c.lookup(input.Backend)
+	if counter == nil {
+		return accountingapp.CountResult{}, accountingapp.ErrLocalUnavailable
+	}
+	return counter.CountOutput(ctx, input)
 }
 
 type backendProviderCounter struct {

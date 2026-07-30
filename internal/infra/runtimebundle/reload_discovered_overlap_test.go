@@ -36,7 +36,12 @@ func discoveredFactoryCatalog(t *testing.T) *pluginreg.Registry {
 	}
 	if err := reg.RegisterDiscoveredBackend("discovered-host-stub", func(n yaml.Node, _ *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		// Deterministic hosted/local stub shape via already-discovered kind.
-		return localstub.NewFromYAML(n)
+		be, err := localstub.NewFromYAML(n)
+		if err != nil {
+			return execbackend.Backend{}, err
+		}
+		be.BackendPrefixes = []string{"disc"}
+		return be, nil
 	}, pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialNone}, pluginreg.BackendReloadPolicy{
 		AllowsCandidateOverlap: true,
 	}); err != nil {

@@ -44,7 +44,7 @@ func TestEffectivePrefixValidationCharacterization(t *testing.T) {
 		mustCustomRow(t, "a", "shared"),
 		mustCustomRow(t, "b", "shared"),
 	}
-	err := standardplugins.ValidateCustomCompatibleBackendPrefixes(rows)
+	err := standardplugins.ValidateCompatibleManifestOwnership(rows, nil)
 	if err == nil {
 		t.Fatal("expected prefix collision error")
 	}
@@ -84,7 +84,7 @@ plugins:
 	if err != nil {
 		t.Fatalf("LoadFile should accept structural YAML: %v", err)
 	}
-	err = standardplugins.ValidateCustomCompatibleBackendPrefixes(cfg.Plugins.Backends)
+	err = standardplugins.ValidateCompatibleManifestOwnership(cfg.Plugins.Backends, nil)
 	if err == nil {
 		t.Fatal("full-build seam must reject custom-compatible prefix collision")
 	}

@@ -30,6 +30,11 @@ type Config struct {
 	// SDKMaxRetries optionally sets the official SDK MaxRetries (nil = SDK default).
 	// Integration tests that assert a single upstream attempt on 429/401 should use a pointer to 0.
 	SDKMaxRetries *int
+	// CompatibleModeAuth enables optional credentials for custom-anthropic-compatible.
+	CompatibleModeAuth bool
+	// ModelsEndpoint, when set, is the absolute inventory URL from the shared
+	// endpoint descriptor join table. Empty uses BaseURL+"/v1/models".
+	ModelsEndpoint string
 }
 
 const anthropicRateLimitFallback = 60 * time.Second
@@ -41,21 +46,24 @@ func New(cfg Config) execbackend.Backend {
 		id = ID
 	}
 	return anthropicmessages.NewBackend(anthropicmessages.Config{
-		BackendID:         id,
-		BaseURL:           cfg.BaseURL,
-		APIKey:            cfg.APIKey,
-		APIKeys:           cfg.APIKeys,
-		Credentials:       cfg.Credentials,
-		HTTPClient:        cfg.HTTPClient,
-		SDKMaxRetries:     cfg.SDKMaxRetries,
-		RateLimitFallback: anthropicRateLimitFallback,
-		ProviderCounter:   NewTokenCounter(cfg),
+		BackendID:          id,
+		BaseURL:            cfg.BaseURL,
+		APIKey:             cfg.APIKey,
+		APIKeys:            cfg.APIKeys,
+		Credentials:        cfg.Credentials,
+		HTTPClient:         cfg.HTTPClient,
+		SDKMaxRetries:      cfg.SDKMaxRetries,
+		RateLimitFallback:  anthropicRateLimitFallback,
+		ProviderCounter:    NewTokenCounter(cfg),
+		CompatibleModeAuth: cfg.CompatibleModeAuth,
 		ModelInventory: modeldiscover.AnthropicModelsProvider{
-			BaseURL:         cfg.BaseURL,
-			APIKey:          cfg.APIKey,
-			APIKeys:         cfg.APIKeys,
-			HTTPClient:      cfg.HTTPClient,
-			CanonicalPrefix: id,
+			BaseURL:            cfg.BaseURL,
+			ModelsEndpoint:     cfg.ModelsEndpoint,
+			APIKey:             cfg.APIKey,
+			APIKeys:            cfg.APIKeys,
+			HTTPClient:         cfg.HTTPClient,
+			CanonicalPrefix:    id,
+			CompatibleModeAuth: cfg.CompatibleModeAuth,
 		},
 	})
 }

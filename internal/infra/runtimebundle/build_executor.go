@@ -152,6 +152,9 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		accountingRT.UsageAuthorityCleanupTimeout = cleanupTimeout
 	}
 	attachConcurrencyToAccounting(&accountingRT, in.Concurrency)
+	if err := attachCompatibleAdmission(&prod, cfg); err != nil {
+		return nil, err
+	}
 	if accountingRT.UsageAuthority != nil || accountingRT.ConcurrencyProvider != nil || prod.HasAuthorityOverrides() {
 		if err := attachAuthorityCoordinators(&accountingRT, prod); err != nil {
 			return nil, err

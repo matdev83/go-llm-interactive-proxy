@@ -35,10 +35,7 @@ func TestStandardBackends_declareMaxOutputEnforcement(t *testing.T) {
 			if err := yaml.Unmarshal([]byte(standardBackendEnforcementBuildYAML(id)), &node); err != nil {
 				t.Fatal(err)
 			}
-			be, err := reg.BuildBackend(id, node, nil, pluginreg.BackendFactoryDeps{})
-			if err != nil {
-				t.Fatalf("BuildBackend(%q) error = %v", id, err)
-			}
+			be := buildStandardBackend(t, reg, id, node, nil)
 			if be.EnforcesMaxOutputTokens != want {
 				t.Fatalf("backend %q EnforcesMaxOutputTokens = %v, want %v", id, be.EnforcesMaxOutputTokens, want)
 			}
@@ -64,12 +61,11 @@ func standardBackendEnforcesMaxOutput(id string) (bool, bool) {
 // standardBackendEnforcementBuildYAML returns minimal YAML that builds the
 // success-path backend (not a config-error backend) so the real
 // EnforcesMaxOutputTokens declaration is observed. Credential-requiring
-// backends get a dummy api_key appended to the shared base YAML.
+// native backends get a dummy api_key appended; compatible modes use no-auth.
 func standardBackendEnforcementBuildYAML(id string) string {
 	base := standardBackendBuildYAML(id)
 	switch id {
-	case "anthropic", "openai-legacy", "openai-responses",
-		CustomOpenAILegacyCompatibleID, CustomOpenAIResponsesCompatibleID, CustomAnthropicCompatibleID:
+	case "anthropic", "openai-legacy", "openai-responses":
 		if !strings.Contains(base, "api_key:") {
 			return base + "api_key: test\n"
 		}

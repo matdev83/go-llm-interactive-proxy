@@ -1,10 +1,21 @@
 # Custom Compatible Backends
 
-Custom compatible backends let operators add API-compatible providers without writing a Go plugin. Use them when a provider exposes an OpenAI Chat Completions, OpenAI Responses, or Anthropic Messages compatible API but the standard distribution does not ship a dedicated connector.
+Built-in compatible backend modes let operators add OpenAI Chat Completions, OpenAI Responses, or Anthropic Messages compatible providers without an external connector plugin. They are dependency-free protocol-family aliases registered in the essential bundle (`built_in_compatible` origin), not executable backend plugins.
+
+Use them when a provider exposes a wire-compatible HTTP API and you do not need a dedicated connector (OAuth bridges, vendor SDKs, agent runtimes, or other non-trivial protocol extensions).
+
+## When to use generic modes vs external connectors
+
+| Need | Use |
+| --- | --- |
+| OpenAI `/chat/completions`, `/responses`, or Anthropic `/v1/messages` against a custom base URL | Built-in `custom-*-compatible` kinds (this guide) |
+| OpenRouter routing, attribution, and provider-specific headers | Dedicated **OpenRouter external connector** (`openrouter` kind under `connectors/openrouter/`) — not a generic compatible row |
+| OAuth/user login, agent IPC, local process spawning, vendor SDK features | Matching external connector under `connectors/` |
+| Local no-key stub for development | `local-stub` connector or dogfood examples |
+
+Generic modes reuse the same adapters as native OpenAI/Anthropic essentials with validated endpoint, optional env credentials, shared tokenizer/admission/inventory policy, and canonical parity. They never launch a plugin process and never accept literal YAML secrets.
 
 ## Factory kinds
-
-Use the existing backend `kind` field to select the factory and `id` as the runtime route backend instance:
 
 | Factory kind | Upstream API |
 | --- | --- |
@@ -12,29 +23,85 @@ Use the existing backend `kind` field to select the factory and `id` as the runt
 | `custom-openai-responses-compatible` | OpenAI-compatible `/responses` |
 | `custom-anthropic-compatible` | Anthropic-compatible `/v1/messages` |
 
-Each enabled custom backend requires a unique `config.backend_prefix`. The prefix is used for backend inventory and prefixed routing. It must not contain `/` or `:`, must not duplicate another enabled custom backend, and must not use a reserved standard backend prefix such as `anthropic`, `openai-legacy`, or `openai-responses`.
+Each enabled row requires a unique runtime `id` and `config.backend_prefix`. The prefix is used for inventory and prefixed routing. It must not contain `/` or `:`, must not duplicate another enabled backend prefix, and must not collide with built-in or discovered connector prefixes.
 
-## API keys
+## Credentials (environment only)
 
-Custom backends follow the existing static API key convention:
+Literal credential fields in YAML are **rejected** for compatible modes:
 
-- `api_key`, `api_keys`, and `credentials` in YAML are explicit operator credentials.
-- `credentials` take precedence when present because they preserve credential IDs and remote account metadata.
-- If YAML credentials are omitted, `api_key_env_var_root` supplies environment fallback keys.
-- Numbered environment keys use the standard convention: `ROOT`, then `ROOT_2`, `ROOT_3`, and so on.
+- Forbidden: `api_key`, `api_keys`, `credentials`
 
-For example, `api_key_env_var_root: PROVIDER123_API_KEY` reads `PROVIDER123_API_KEY`, `PROVIDER123_API_KEY_2`, `PROVIDER123_API_KEY_3`, etc.
+Use `api_key_env_var_root` to reference numbered environment keys only:
+
+- `ROOT`, then `ROOT_2`, `ROOT_3`, …
+
+Example: `api_key_env_var_root: PROVIDER123_API_KEY` reads `PROVIDER123_API_KEY`, `PROVIDER123_API_KEY_2`, etc.
+
+Omit `api_key_env_var_root` for unauthenticated endpoints (no auth headers are sent).
+
+Restart or reload the process after changing environment variables; config validation does not read live env values into diagnostics output.
+
+## Base URL rules
+
+- Required absolute `http` or `https` URL
+- No userinfo (`https://user:pass@host` is rejected)
+- No URL fragments
+- Host required; explicit ports preserved
+- Path prefixes are preserved and joined deterministically for execution and inventory (`/models`, `/chat/completions`, `/responses`, `/v1/messages`, `/v1/models`)
+
+`check-config` validates URLs structurally only; it does not perform DNS or upstream requests.
+
+## Tokenizer and concurrency
+
+Optional fields:
+
+- `tokenizer`: `cl100k_base` or `o200k_base` (omit for default accounting behavior)
+- `max_concurrent_requests`: positive per-instance limit (omit or `0` for default admission)
+
+Each instance owns independent tokenizer, credential pool, admission, and inventory state.
 
 ## Model inventory
 
-By default, custom backends probe the provider for models and register them in the central model registry under `backend_prefix`:
+Default: remote discovery using the same endpoint and optional credentials as execution.
 
-- OpenAI-compatible backends call `<base_url>/models` with bearer authentication.
-- Anthropic-compatible backends call `<base_url>/v1/models` with `x-api-key` and `anthropic-version` headers.
+- OpenAI-compatible kinds: `<base_url>/models`
+- Anthropic-compatible kind: `<base_url>/v1/models`
 
-Operators can override remote discovery with static `models:` config using the same inline or file inventory shape as other backends.
+Override with static inventory:
 
-## Example: New OpenAI-compatible provider
+```yaml
+models:
+  source: inline   # or file
+  items:
+    - canonical_id: provider123/deepseek-chat
+      native_id: deepseek-chat
+      display_name: Provider123 DeepSeek Chat
+```
+
+Static inline/file inventory takes precedence over remote discovery. Inventory refresh during serving is separate from execution concurrency unless common policy combines them.
+
+## Diagnostics
+
+`lipstd inventory`, `lipstd routes`, and `lipstd inspect` expose bounded `compatible_backends` rows:
+
+- origin `built_in_compatible`
+- factory kind, runtime id, prefix, sanitized endpoint identity
+- auth configured yes/no (never secret values)
+- tokenizer and concurrency policy
+- inventory state (`static_inline`, `static_file`, `remote`, …)
+
+Compatible rows never show plugin process, manifest, or digest fields.
+
+## Examples
+
+Runnable configs (validate with `go run ./cmd/lipstd check-config --config <path>`):
+
+- `config/examples/custom-openai-legacy-compatible.yaml`
+- `config/examples/custom-openai-responses-compatible.yaml`
+- `config/examples/custom-anthropic-compatible.yaml`
+- `config/examples/custom-compatible-no-auth.yaml`
+
+## Example: OpenAI-compatible provider
 
 ```yaml
 plugins:
@@ -48,26 +115,17 @@ plugins:
         api_key_env_var_root: PROVIDER123_API_KEY
 ```
 
-With this config, route selectors can target discovered models from the `provider123` backend prefix after model inventory refresh.
-
-## Example: Static inventory override
+## Example: Unauthenticated local gateway
 
 ```yaml
 plugins:
   backends:
-    - id: provider123
-      kind: custom-openai-responses-compatible
+    - id: local-openai
+      kind: custom-openai-legacy-compatible
       enabled: true
       config:
-        backend_prefix: provider123
-        base_url: https://api.provider123.example/v1
-        api_key_env_var_root: PROVIDER123_API_KEY
-        models:
-          source: inline
-          items:
-            - canonical_id: provider123/deepseek-chat
-              native_id: deepseek-chat
-              display_name: Provider123 DeepSeek Chat
+        backend_prefix: local-openai
+        base_url: http://127.0.0.1:8080/v1
 ```
 
 ## Example: Anthropic-compatible provider
@@ -83,3 +141,14 @@ plugins:
         base_url: https://api.provider-anthropic.example
         api_key_env_var_root: PROVIDER_ANTHROPIC_API_KEY
 ```
+
+## Migration from literal YAML secrets
+
+If you previously used `api_key`, `api_keys`, or `credentials` under a compatible backend row:
+
+1. Remove literal secret fields from YAML.
+2. Export secrets to environment variables.
+3. Set `api_key_env_var_root` to the env key prefix.
+4. Run `lipstd check-config` — validation fails until secrets are removed from YAML.
+
+Kinds, runtime ids, `backend_prefix` values, and route selectors remain stable; only secret placement changes.
