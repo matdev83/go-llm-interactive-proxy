@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -18,6 +19,7 @@ type toolAccum struct {
 	name        string
 	startedAt   time.Time
 	endedAt     time.Time
+	input       any
 	inputBytes  int
 	outputBytes int
 	inputSet    bool // prevents double-counting if rawInput appears in updates
@@ -90,7 +92,9 @@ func (s *toolSummarySink) HandleToolUpdate(_ context.Context, kind string, updat
 	// Set input/output bytes once (first writer wins), avoiding double-counting
 	// when a tool_call_update repeats the rawInput field from the initial tool_call.
 	if !accum.inputSet {
-		if ib := extractToolInputBytes(merged); ib > 0 {
+		if input, ok := extractToolInput(merged); ok {
+			ib := estimateJSONSize(input)
+			accum.input = input
 			accum.inputBytes = ib
 			accum.inputSet = true
 		}
@@ -110,7 +114,7 @@ func (s *toolSummarySink) HandleToolUpdate(_ context.Context, kind string, updat
 		}
 		accum.summarySent = true
 		accum.endedAt = s.now()
-		summary := formatToolCompletionSummary(accum.name, accum.inputBytes, accum.outputBytes, accum.startedAt, accum.endedAt)
+		summary := formatToolCompletionSummaryWithInput(accum.name, accum.input, accum.inputBytes, accum.outputBytes, accum.startedAt, accum.endedAt)
 		// Keep the entry in the map (with summarySent=true) so duplicate
 		// completion updates are silently ignored rather than producing a
 		// second summary.
@@ -133,7 +137,7 @@ func (s *toolSummarySink) FlushIncomplete() []lipapi.Event {
 		}
 		accum.summarySent = true
 		accum.endedAt = s.now()
-		summary := formatToolCompletionSummary(accum.name, accum.inputBytes, accum.outputBytes, accum.startedAt, accum.endedAt)
+		summary := formatToolCompletionSummaryWithInput(accum.name, accum.input, accum.inputBytes, accum.outputBytes, accum.startedAt, accum.endedAt)
 		events = append(events, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: summary})
 		delete(s.tools, key)
 	}
@@ -224,14 +228,14 @@ func extractToolName(d map[string]any) string {
 	return "tool"
 }
 
-// extractToolInputBytes estimates the input size from the tool payload.
-func extractToolInputBytes(d map[string]any) int {
+// extractToolInput returns the first input payload exposed by ACP.
+func extractToolInput(d map[string]any) (any, bool) {
 	for _, key := range []string{"rawInput", "arguments", "params", "args"} {
 		if v, ok := d[key]; ok {
-			return estimateJSONSize(v)
+			return v, true
 		}
 	}
-	return 0
+	return nil, false
 }
 
 // extractToolOutputBytes estimates the output size from the tool payload.
@@ -295,15 +299,47 @@ func estimateJSONSize(v any) int {
 // started and ended are normalized to UTC for stable cross-path output. The
 // elapsed seconds are derived from ended-started.
 func FormatToolCompletionSummary(name string, inputBytes, outputBytes int, started, ended time.Time) string {
+	return formatToolCompletionSummaryWithInput(name, nil, inputBytes, outputBytes, started, ended)
+}
+
+const maxToolArgumentChars = 1024
+
+func formatToolCompletionSummaryWithInput(name string, input any, inputBytes, outputBytes int, started, ended time.Time) string {
 	elapsed := ended.Sub(started).Seconds()
-	return fmt.Sprintf("---\n```text\nTool: %s\nInput size: %d bytes\nStarted: %s\nEnded: %s (%.3f s)\nOutput size: %d bytes\n```\n",
-		name,
-		inputBytes,
-		started.UTC().Format(time.RFC3339Nano),
-		ended.UTC().Format(time.RFC3339Nano),
-		elapsed,
-		outputBytes,
+	lines := []string{"---", "```text", fmt.Sprintf("Tool: %s", name)}
+	if input != nil {
+		lines = append(lines, "Arguments: "+formatToolArguments(input))
+	}
+	lines = append(lines,
+		fmt.Sprintf("Input size: %d bytes", inputBytes),
+		fmt.Sprintf("Started: %s", started.UTC().Format(time.RFC3339Nano)),
+		fmt.Sprintf("Ended: %s (%.3f s)", ended.UTC().Format(time.RFC3339Nano), elapsed),
+		fmt.Sprintf("Output size: %d bytes", outputBytes),
+		"```",
 	)
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func formatToolArguments(input any) string {
+	var rendered string
+	if raw, ok := input.(string); ok {
+		var compact bytes.Buffer
+		if err := json.Compact(&compact, []byte(raw)); err == nil {
+			rendered = compact.String()
+		} else {
+			rendered = raw
+		}
+	} else if encoded, err := json.Marshal(input); err == nil {
+		rendered = string(encoded)
+	} else {
+		rendered = fmt.Sprint(input)
+	}
+
+	runes := []rune(rendered)
+	if len(runes) > maxToolArgumentChars {
+		rendered = strings.TrimSpace(string(runes[:maxToolArgumentChars])) + "… [truncated]"
+	}
+	return rendered
 }
 
 // formatToolCompletionSummary is retained as an unexported alias for in-package
