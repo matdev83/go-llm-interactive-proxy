@@ -22,7 +22,6 @@ func BundledBackendIDs() []string {
 		"anthropic",
 		"gemini",
 		"bedrock",
-		"acp",
 	}
 }
 
@@ -34,7 +33,7 @@ type SubsetMeta struct {
 	SubsetJustification string // non-empty when any row is intentionally limited or deferred
 }
 
-// MatrixCell is one frontend × backend combination (24 total).
+// MatrixCell is one frontend × backend combination (20 total).
 type MatrixCell struct {
 	Frontend string
 	Backend  string
@@ -60,15 +59,6 @@ func newCell(frontend, backend string) MatrixCell {
 		ToolsViable:      true,
 		MultimodalViable: true,
 	}
-	switch backend {
-	case "acp":
-		meta.ToolsViable = false
-		meta.MultimodalViable = false
-		meta.SubsetJustification = "ACP v1 prompt-turn subset rejects canonical tools (validateACPCall); " +
-			"multimodal matrix rows for FE×ACP are deferred per design.md conformance table footnote " +
-			"(Tasks 12.2–12.3 use text-only + tool-exclusion documentation for this column)."
-	default:
-		meta.SubsetJustification = ""
-	}
+	meta.SubsetJustification = ""
 	return MatrixCell{Frontend: frontend, Backend: backend, Meta: meta}
 }

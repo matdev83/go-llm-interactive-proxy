@@ -71,8 +71,11 @@ func TestACP_productPackagesRemovedFromRoot(t *testing.T) {
 		"internal/plugins/backends/geminicliacp",
 		"internal/plugins/backends/agycliacp",
 	} {
-		if _, err := os.Stat(filepath.Join(root, rel)); err == nil {
+		_, err := os.Stat(filepath.Join(root, rel))
+		if err == nil {
 			t.Fatalf("%s must be deleted after Phase 6 cutover", rel)
+		} else if !os.IsNotExist(err) {
+			t.Fatalf("unexpected error statting %s: %v", rel, err)
 		}
 	}
 }
@@ -89,5 +92,17 @@ func TestACP_externalConnectorModulesPresent(t *testing.T) {
 		if _, err := os.Stat(rel); err != nil {
 			t.Fatalf("missing %s: %v", rel, err)
 		}
+	}
+}
+
+func TestACP_internalBackendPackageDeleted(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	rel := "internal/plugins/backends/acp"
+	_, err := os.Stat(filepath.Join(root, rel))
+	if err == nil {
+		t.Fatalf("%s must be deleted after ACP deduplication", rel)
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("unexpected error statting %s: %v", rel, err)
 	}
 }

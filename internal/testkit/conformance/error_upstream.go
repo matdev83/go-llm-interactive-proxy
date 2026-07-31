@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
@@ -33,8 +32,6 @@ func NewUpstream400Server(tb testing.TB, backendID string) *httptest.Server {
 			_, _ = w.Write([]byte(`{"error":{"code":400,"message":"invalid argument","status":"INVALID_ARGUMENT"}}`))
 		case bedrock.ID:
 			_, _ = w.Write([]byte(`{"message":"ValidationException","__type":"ValidationException"}`))
-		case acp.ID:
-			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"invalid params"}}`))
 		default:
 			_, _ = w.Write([]byte(`{"error":"unknown backend"}`))
 		}

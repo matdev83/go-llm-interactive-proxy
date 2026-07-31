@@ -21,6 +21,8 @@ if (-not (Get-Command rg -ErrorAction SilentlyContinue)) {
 # listen/serve worker (task 5.3; separate from data-plane generation host).
 # cmd/lipstd/reload_signal_adapter_unix.go: one process-owned SIGHUP worker
 # delivering bounded reload triggers into the coordinator sink (task 5.2).
+# connector-support/acp/scripted_stdio.go: in-process scripted mock ACP agent background loop for connector tests.
+# connectors/codex/cmd/fake-codex-cli/main.go: deterministic emulator grandchild process waiter for e2e tests.
 $allowed = @(
     "internal/stdhttp/server.go"
     "internal/stdhttp/generation_host.go"
@@ -33,12 +35,14 @@ $allowed = @(
     "internal/core/extensions/decision_timeout.go"
     "internal/plugins/frontends/holdalive/wait.go"
     "internal/infra/runtimebundle/modelcatalog_refresh_loop.go"
-    # ACP stdio transport: owned stdout reader + stderr drain (shared helper parity).
     "connector-support/acp/transport_stdio.go"
-    "internal/plugins/backends/acp/transport_stdio.go"
+    # connector-support/acp/scripted_stdio.go: in-process scripted mock ACP agent background loop for connector tests.
+    "connector-support/acp/scripted_stdio.go"
     "connectors/cursorsdk/internal/product/bridge_process.go"
     "connectors/cursorsdk/internal/product/reap.go"
     "connectors/cursorsdk/internal/product/fakebridge/harness.go"
+    # connectors/codex/cmd/fake-codex-cli/main.go: deterministic emulator grandchild process waiter for e2e tests.
+    "connectors/codex/cmd/fake-codex-cli/main.go"
     "internal/core/terminalwork/app/processor.go"
     "internal/core/terminalwork/app/ambiguous_append_reconciler.go"
     "cmd/lipstd/reload_signal_adapter_unix.go"
@@ -53,7 +57,7 @@ $allowed = @(
     "pkg/lipsdk/backendplugin/forward_execute.go"
 )
 
-$raw = @(rg --files-with-matches --glob "!*_test.go" "^\s+go\s" internal pkg cmd 2>$null)
+$raw = @(rg --files-with-matches --glob "!*_test.go" "^\s+go\s" internal pkg cmd connector-support connectors 2>$null)
 $hits = @()
 foreach ($line in $raw) {
     if ([string]::IsNullOrWhiteSpace($line)) { continue }

@@ -57,9 +57,9 @@ Normative matrices and row IDs: [.kiro/specs/llm-api-parity/design.md](../.kiro/
 | `FuzzBuildToolsParametersJSON` | `internal/plugins/backends/protocols/geminigenerate` | Gemini tool params unmarshal |
 | `FuzzMessageToContentToolResultJSON` | `internal/plugins/backends/protocols/geminigenerate` | Tool result JSON in invoke |
 | `FuzzAssistantPartsToContentBlocksJSON` | `internal/plugins/backends/bedrock` | Assistant JSON part → Converse blocks |
-| `FuzzParseNDJSONLine` | `internal/plugins/backends/acp` | ACP NDJSON line mapping |
-| `FuzzMapSessionUpdateToEvents` | `internal/plugins/backends/acp` | ACP session/update map |
-| `FuzzMergeHandshakeProfileExtensions` | `internal/plugins/backends/acp` | Handshake extensions + session id |
+| `FuzzParseNDJSONLine` | `connector-support/acp` | ACP NDJSON line mapping |
+| `FuzzMapSessionUpdateToEvents` | `connector-support/acp` | ACP session/update map |
+| `FuzzMergeHandshakeProfileExtensions` | `connector-support/acp` | Handshake extensions + session id |
 | `FuzzHookMutationValidators` | `internal/core/hooks` | Post-hook call + event validation |
 | `FuzzAcceptClientUserAgent` | `internal/core/identity` | User-Agent accept bounds / controls |
 | `FuzzAcceptClientAppURL` | `internal/core/identity` | OpenRouter app URL accept shape |

@@ -76,21 +76,3 @@ func TestMatrixEvidence_sourceFilesIterateAllCells(t *testing.T) {
 		}
 	}
 }
-
-func TestMatrixEvidence_acpSubsetMatchesMatrixMeta(t *testing.T) {
-	t.Parallel()
-	for _, cell := range AllCells() {
-		if cell.Backend != "acp" {
-			continue
-		}
-		if cell.Meta.ToolsViable {
-			t.Fatalf("ACP tools must be non-viable per matrix footnote, cell=%+v", cell)
-		}
-		if cell.Meta.MultimodalViable {
-			t.Fatalf("ACP multimodal must be non-viable per matrix footnote, cell=%+v", cell)
-		}
-		if cell.Meta.SubsetJustification == "" {
-			t.Fatal("ACP matrix cells must carry SubsetJustification")
-		}
-	}
-}
