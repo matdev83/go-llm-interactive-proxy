@@ -2,9 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
-	"os"
-	"os/exec"
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/tools/backendplugin/runner"
+	"github.com/matdev83/go-llm-interactive-proxy/tools/taskrunner"
 )
 
 // canonicalModuleFile normalizes recognized text line endings (CRLF/CR → LF)
@@ -118,15 +121,20 @@ func tidyDiffOnlyLineEndings(diff []byte) bool {
 // go mod tidy -diff restores module files itself; this gate does not leave
 // lasting worktree mutations.
 func checkModuleTidy(modRoot string) ([]byte, error) {
-	cmd := exec.Command("go", "mod", "tidy", "-diff")
-	cmd.Dir = modRoot
-	cmd.Env = append(os.Environ(), "GOWORK=off")
-	out, err := cmd.CombinedOutput()
-	if err == nil {
+	result := runner.Run(context.Background(), runner.Request{
+		Argv:    []string{"go", "mod", "tidy", "-diff"},
+		Dir:     modRoot,
+		Env:     []string{"GOWORK=off"},
+		Timeout: 8 * time.Minute,
+		Output:  taskrunner.Capture,
+		Label:   "release_gates:" + modRoot + ":tidy_diff",
+	})
+	out := result.Stdout
+	if result.Kind == taskrunner.Success {
 		return out, nil
 	}
 	if tidyDiffOnlyLineEndings(out) {
 		return out, nil
 	}
-	return out, fmt.Errorf("go mod tidy -diff: %w", err)
+	return out, fmt.Errorf("go mod tidy -diff: %w", runner.Error(result))
 }

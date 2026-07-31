@@ -3,7 +3,7 @@ package runtimebundle
 import (
 	"context"
 	"fmt"
-	"os"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/processhost"
@@ -66,17 +66,27 @@ func (d *discoveredBackendInstall) release() {
 	if d == nil {
 		return
 	}
-	for _, a := range d.Artifacts {
-		_ = a.Close()
-	}
-	d.Artifacts = nil
 	if d.Host != nil {
 		_ = d.Host.Close()
 		d.Host = nil
 	}
+	for _, a := range d.Artifacts {
+		_ = a.Close()
+	}
+	d.Artifacts = nil
 	if d.StagingDir != "" {
-		_ = os.RemoveAll(d.StagingDir)
+		_ = removeAllRetry(d.StagingDir, 8, 25*time.Millisecond)
 		d.StagingDir = ""
+	}
+}
+
+// closeVerifiedArtifacts releases every verified artifact in a resolve result
+// (used on error paths where the install bundle never transfers ownership).
+func closeVerifiedArtifacts(m map[string]trust.VerifyResult) {
+	for _, tr := range m {
+		if tr.Artifact != nil {
+			_ = tr.Artifact.Close()
+		}
 	}
 }
 
@@ -110,17 +120,16 @@ func installDiscoveredBackendExports(cfg *config.Config, reg *pluginreg.Registry
 		if disc.Host != nil {
 			_ = disc.Host.Close()
 		}
+		for _, a := range disc.Trusted {
+			_ = a.Close()
+		}
 		if staging != "" {
-			_ = os.RemoveAll(staging)
+			_ = removeAllRetry(staging, 8, 25*time.Millisecond)
 		}
 		return nil, fmt.Errorf("runtimebundle: discovered plugin install: %w", err)
 	}
-	arts := make([]*trust.VerifiedArtifact, 0, len(disc.Exports))
-	for _, exp := range disc.Exports {
-		if exp.Artifact != nil {
-			arts = append(arts, exp.Artifact)
-		}
-	}
+	arts := make([]*trust.VerifiedArtifact, 0, len(disc.Trusted))
+	arts = append(arts, disc.Trusted...)
 	return &discoveredBackendInstall{
 		Host:       disc.Host,
 		StagingDir: staging,

@@ -19,10 +19,13 @@ import (
 
 // DurableConfig configures a Bun-backed metering journal.
 type DurableConfig struct {
-	StoreID         string
-	DefaultPageSize int
-	MaxPageSize     int
-	Now             func() time.Time
+	StoreID             string
+	DefaultPageSize     int
+	MaxPageSize         int
+	Now                 func() time.Time
+	SQLiteRetryNow      func() time.Time
+	SQLiteRetrySleep    func(context.Context, time.Duration) error
+	SQLiteRetryObserver SQLiteRetryObserver
 }
 
 // DurableStore persists metering facts via Bun (SQLite or Postgres).
@@ -376,12 +379,70 @@ func (s *DurableStore) Append(ctx context.Context, fact metering.Fact) error {
 		cloned.RecordedAt = s.now().UTC()
 	}
 	key := cloned.SourceEventKey()
-	lookupKeys := cloned.SourceEventLookupKeys()
 	payload, err := json.Marshal(cloned)
 	if err != nil {
 		return fmt.Errorf("metering/journalstore: marshal payload: %w", err)
 	}
 
+	return s.appendWithSQLiteRetry(ctx, cloned, key, payload)
+}
+
+func (s *DurableStore) appendWithSQLiteRetry(ctx context.Context, cloned metering.Fact, key string, payload []byte) error {
+	if s.db.Dialect().Name() != dialect.SQLite {
+		return s.appendAttempt(ctx, cloned, key, payload)
+	}
+
+	now := sqliteRetryNow(s.cfg)
+	started := now()
+	deadline := started.Add(sqliteRetryBudget)
+	sleep := sqliteRetrySleep(s.cfg)
+	for attempt := 1; attempt <= sqliteRetryMaxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("%w: %v", ErrSQLiteRetryCanceled, err)
+		}
+		if attempt > 1 && !now().Before(deadline) {
+			attempted := attempt - 1
+			s.notifySQLiteRetry(SQLiteRetryEvent{Attempt: attempted, Classification: "busy", TerminalOutcome: "budget_exhausted"})
+			return fmt.Errorf("%w after %d attempts: retry budget elapsed", ErrSQLiteBusyRetryExhausted, attempted)
+		}
+
+		err := s.appendAttempt(ctx, cloned, key, payload)
+		if err == nil {
+			s.notifySQLiteRetry(SQLiteRetryEvent{Attempt: attempt, Classification: "success", TerminalOutcome: "success"})
+			return nil
+		}
+		if ctx.Err() != nil {
+			return fmt.Errorf("%w: %v", ErrSQLiteRetryCanceled, ctx.Err())
+		}
+		if !isSQLiteBusy(s.db.Dialect().Name(), err) {
+			return err
+		}
+		if attempt == sqliteRetryMaxAttempts {
+			s.notifySQLiteRetry(SQLiteRetryEvent{Attempt: attempt, Classification: "busy", TerminalOutcome: "attempt_limit"})
+			return fmt.Errorf("%w after %d attempts: %v", ErrSQLiteBusyRetryExhausted, attempt, err)
+		}
+
+		backoff := sqliteRetryBackoffs[attempt-1]
+		remaining := time.Until(deadline)
+		if s.cfg.SQLiteRetryNow != nil {
+			remaining = deadline.Sub(now())
+		}
+		if remaining <= 0 {
+			s.notifySQLiteRetry(SQLiteRetryEvent{Attempt: attempt, Classification: "busy", TerminalOutcome: "budget_exhausted"})
+			return fmt.Errorf("%w after %d attempts: retry budget elapsed", ErrSQLiteBusyRetryExhausted, attempt)
+		}
+		if backoff > remaining {
+			backoff = remaining
+		}
+		s.notifySQLiteRetry(SQLiteRetryEvent{Attempt: attempt, Classification: "busy", Backoff: backoff})
+		if err := sleep(ctx, backoff); err != nil {
+			return fmt.Errorf("%w: %v", ErrSQLiteRetryCanceled, err)
+		}
+	}
+	panic("unreachable")
+}
+
+func (s *DurableStore) appendAttempt(ctx context.Context, cloned metering.Fact, key string, payload []byte) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("metering/journalstore: begin: %w", err)
@@ -392,7 +453,7 @@ func (s *DurableStore) Append(ctx context.Context, fact metering.Fact) error {
 		return err
 	}
 
-	existingPayload, found, lerr := lookupDurableSourcePayload(ctx, tx, s.cfg.StoreID, lookupKeys)
+	existingPayload, found, lerr := lookupDurableSourcePayload(ctx, tx, s.cfg.StoreID, cloned.SourceEventLookupKeys())
 	if lerr != nil {
 		return lerr
 	}

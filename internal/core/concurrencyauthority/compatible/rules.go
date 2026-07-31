@@ -3,6 +3,7 @@ package compatible
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -115,9 +116,7 @@ func cloneLimits(in Limits) Limits {
 		return nil
 	}
 	out := make(Limits, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }
 

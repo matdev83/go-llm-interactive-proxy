@@ -17,6 +17,7 @@ import (
 )
 
 func TestVerify_WindowsTempPathAccepted(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	exeName := "bin/plugin.exe"
 	exePath := filepath.Join(root, filepath.FromSlash(exeName))
@@ -37,6 +38,7 @@ func TestVerify_WindowsTempPathAccepted(t *testing.T) {
 }
 
 func TestVerify_WindowsParentJunctionEscapeRejected(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	outside := t.TempDir()
 	payload := []byte{'M', 'Z', 0x90, 0x00, 0x03, 0x00, 0x00, 0x00}
@@ -57,6 +59,7 @@ func TestVerify_WindowsParentJunctionEscapeRejected(t *testing.T) {
 }
 
 func TestVerify_WindowsFinalComponentSymlinkRejected(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	outside := t.TempDir()
 	payload := []byte{'M', 'Z', 0x90, 0x00, 0x03, 0x00, 0x00, 0x00}

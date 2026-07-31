@@ -592,6 +592,11 @@
 .kiro/specs/archive/versioned-runtime-reloadable-proxy-configuration/research.md
 .kiro/specs/archive/versioned-runtime-reloadable-proxy-configuration/spec.json
 .kiro/specs/archive/versioned-runtime-reloadable-proxy-configuration/tasks.md
+.kiro/specs/archive/windows-task-reliability/design.md
+.kiro/specs/archive/windows-task-reliability/requirements.md
+.kiro/specs/archive/windows-task-reliability/research.md
+.kiro/specs/archive/windows-task-reliability/spec.json
+.kiro/specs/archive/windows-task-reliability/tasks.md
 .kiro/specs/openai-codex-native-compaction/design-review.md
 .kiro/specs/openai-codex-native-compaction/design.md
 .kiro/specs/openai-codex-native-compaction/gap-analysis.md
@@ -2750,6 +2755,8 @@ internal/infra/metering/journalstore/postgres_pooled_integration_test.go
 internal/infra/metering/journalstore/postgres_pooled_support_test.go
 internal/infra/metering/journalstore/query_filters_test.go
 internal/infra/metering/journalstore/query_list.go
+internal/infra/metering/journalstore/sqlite_retry.go
+internal/infra/metering/journalstore/sqlite_retry_contract_test.go
 internal/infra/metering/journalstore/sqlite_test.go
 internal/infra/metering/journalstore/store_scoped_source_key_migration_test.go
 internal/infra/metering/journalstore/store_scoped_source_key_postgres_integration_test.go
@@ -2877,6 +2884,7 @@ internal/infra/runtimebundle/control_plane_test.go
 internal/infra/runtimebundle/discovered_factories.go
 internal/infra/runtimebundle/discovered_factories_test.go
 internal/infra/runtimebundle/doc.go
+internal/infra/runtimebundle/doctor_ownership_test.go
 internal/infra/runtimebundle/dual_backend_test.go
 internal/infra/runtimebundle/effective_load_contract_test.go
 internal/infra/runtimebundle/errors.go
@@ -2961,6 +2969,8 @@ internal/infra/runtimebundle/plugin_inspect_discovered_test.go
 internal/infra/runtimebundle/plugin_inspect_test.go
 internal/infra/runtimebundle/plugin_lifecycle_integration_test.go
 internal/infra/runtimebundle/plugin_lifecycle_test.go
+internal/infra/runtimebundle/plugin_serve_leak_test.go
+internal/infra/runtimebundle/plugin_serve_leak_windows_test.go
 internal/infra/runtimebundle/policy_recomposition_test.go
 internal/infra/runtimebundle/pooled_postgres_runtime_integration_test.go
 internal/infra/runtimebundle/postgres_pool_build_abort_test.go
@@ -3006,6 +3016,7 @@ internal/infra/runtimebundle/snapshot_controller.go
 internal/infra/runtimebundle/snapshot_generation.go
 internal/infra/runtimebundle/snapshot_generation_test.go
 internal/infra/runtimebundle/sqlite_closer_test.go
+internal/infra/runtimebundle/staging_cache_main_test.go
 internal/infra/runtimebundle/staging_cache_test.go
 internal/infra/runtimebundle/stream_recovery_overrides.go
 internal/infra/runtimebundle/terminal_work.go
@@ -3664,6 +3675,7 @@ internal/qa/regex_hotpath_test.go
 internal/qa/root_hygiene_test.go
 internal/qa/task84_legacy_absent_docs_test.go
 internal/qa/task91_architecture_docs_test.go
+internal/qa/windows_task_reliability_contract_test.go
 internal/reasoningreplay/eligible.go
 internal/reasoningreplay/eligible_test.go
 internal/refbackend/acp/doc.go
@@ -4534,6 +4546,7 @@ scripts/regex-hotpath-check.sh
 scripts/secret-scan-allowlist.txt
 scripts/setup-hooks.sh
 scripts/setup-windows-msys2-path.ps1
+scripts/taskrunner.ps1
 scripts/test-cursor-sdk-comparison-report.ps1
 scripts/test-cursor-sdk-comparison-report.sh
 scripts/test-cursor-sdk-live-bridge.ps1
@@ -4544,7 +4557,9 @@ scripts/test-cursor-sdk-platform.ps1
 scripts/test-cursor-sdk-platform.sh
 scripts/test-staged.ps1
 scripts/test-staged.sh
+scripts/tmp-clean.ps1
 scripts/vllm-text-smoke.ps1
+scripts/windows-task.ps1
 skills-lock.json
 specs/go_llm_proxy_arch_review/README.md
 specs/go_llm_proxy_arch_review/architecture-review.md
@@ -4558,6 +4573,7 @@ testdata/cross_protocol/user_thread.json
 testdata/enterprise_module/go.mod
 testdata/enterprise_module/go.sum
 testdata/enterprise_module/main.go
+testdata/enterprise_module/main_internal_test.go
 testdata/enterprise_module/main_test.go
 testdata/fuzz/README.md
 testdata/golden/sample.json
@@ -4600,12 +4616,14 @@ testdata/tool-call-repair/syntax_truncated_object.json
 testdata/tool-call-repair/tool_name_ambiguous.json
 testdata/tool-call-repair/tool_name_unique_normalized.json
 testdata/tool-call-repair/valid_exact.json
+tools/backendplugin/bounded_orchestration_contract_test.go
 tools/backendplugin/crossplatform_qa/main.go
 tools/backendplugin/crossplatform_qa/package_matrix_test.go
 tools/backendplugin/discover_modules/main.go
 tools/backendplugin/installed_plugin_smoke/main.go
 tools/backendplugin/installed_plugin_smoke/select_test.go
 tools/backendplugin/isolated_root_qa/main.go
+tools/backendplugin/main_test.go
 tools/backendplugin/package_plugins/main.go
 tools/backendplugin/package_plugins/platform_filter_test.go
 tools/backendplugin/release_gates/catalog.go
@@ -4618,6 +4636,21 @@ tools/backendplugin/release_gates/requirements.go
 tools/backendplugin/release_gates/requirements_test.go
 tools/backendplugin/release_gates/tidy_check.go
 tools/backendplugin/release_gates/tidy_check_test.go
+tools/backendplugin/runner/runner.go
+tools/backendplugin/runner/runner_test.go
 tools/backendplugin/tools_test.go
 tools/kiro/speccheck/cursor_sdk_backend_test.go
+tools/taskrunner/cmd/lip-taskrunner/main.go
+tools/taskrunner/cmd/lip-taskrunner/main_test.go
+tools/taskrunner/cmd/lip-taskrunner/profile.go
+tools/taskrunner/cmd/lip-taskrunner/profile_test.go
+tools/taskrunner/process.go
+tools/taskrunner/process_other.go
+tools/taskrunner/process_posix.go
+tools/taskrunner/process_tree_posix_test.go
+tools/taskrunner/process_tree_windows_test.go
+tools/taskrunner/process_windows.go
+tools/taskrunner/runner.go
+tools/taskrunner/runner_contract_test.go
+tools/taskrunner/testhelper/main.go
 tools/tools.go

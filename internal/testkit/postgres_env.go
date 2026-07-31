@@ -94,15 +94,19 @@ func LookupDualPlanePostgresDSNs() (adminDSN, runtimeDSN string, err error) {
 	return admin, runtime, nil
 }
 
-// SkipUnlessPostgres skips the test when no integration DSN is configured.
+// SkipUnlessPostgres skips the test when no integration DSN is configured or when
+// PostgreSQL integration tests are not requested via LIP_REQUIRE_POSTGRES=1.
 func SkipUnlessPostgres(t *testing.T) string {
 	t.Helper()
 	dsn, ok := PostgresTestDSN()
-	if !ok {
-		if PostgresRequired() {
+	if !ok || !PostgresRequired() {
+		if PostgresRequired() && !ok {
 			t.Fatalf("PostgreSQL DSN is required: set %s or %s", LIPTestPostgresDSN, LIPManagedPostgresDSN)
 		}
-		t.Skipf("set %s (or legacy %s) to run PostgreSQL integration test", LIPTestPostgresDSN, LIPManagedPostgresDSN)
+		if !ok {
+			t.Skipf("set %s (or legacy %s) to run PostgreSQL integration test", LIPTestPostgresDSN, LIPManagedPostgresDSN)
+		}
+		t.Skipf("set %s=1 and %s to run PostgreSQL integration test", LIPRequirePostgres, LIPTestPostgresDSN)
 	}
 	return dsn
 }

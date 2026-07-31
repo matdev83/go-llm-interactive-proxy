@@ -2,7 +2,6 @@ package runtimebundle_test
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -86,7 +85,7 @@ func writeStructuralCompatibleConfig(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := fmt.Sprintf(`    - id: compat-structural
+	rows := `    - id: compat-structural
       kind: custom-openai-legacy-compatible
       enabled: true
       config:
@@ -100,7 +99,7 @@ func writeStructuralCompatibleConfig(t *testing.T) string {
           items:
             - canonical_id: compat-structural/model-a
               native_id: model-a
-`)
+`
 	text := strings.Replace(string(base), "  features:\n", rows+"  features:\n", 1)
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {

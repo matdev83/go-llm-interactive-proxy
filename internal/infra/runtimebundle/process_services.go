@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
 )
@@ -21,8 +21,12 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 			_ = in.PluginHost.Close()
 			in.PluginHost = nil
 		}
+		for _, a := range in.PluginArtifacts {
+			_ = a.Close()
+		}
+		in.PluginArtifacts = nil
 		if dir := strings.TrimSpace(in.PluginStagingDir); dir != "" {
-			_ = os.RemoveAll(dir)
+			_ = removeAllRetry(dir, 8, 25*time.Millisecond)
 			in.PluginStagingDir = ""
 		}
 	}
@@ -74,14 +78,28 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		return err
 	}
 
-	// Process-owned host/staging: register first → dispose last (… → host → staging).
+	// Process-owned host/artifacts/staging: register first → dispose last in
+	// reverse acquisition order (… → host → artifacts → staging). Staging
+	// removal must run only after VerifiedArtifact handles are closed so
+	// Windows can delete the staged executables.
 	if dir := strings.TrimSpace(in.PluginStagingDir); dir != "" {
 		stagingDir := dir
 		register(func() error {
-			_ = os.RemoveAll(stagingDir)
-			return nil
+			return removeAllRetry(stagingDir, 8, 25*time.Millisecond)
 		})
 		in.PluginStagingDir = ""
+	}
+	if arts := in.PluginArtifacts; len(arts) > 0 {
+		artifacts := make([]*trust.VerifiedArtifact, 0, len(arts))
+		artifacts = append(artifacts, arts...)
+		register(func() error {
+			var out error
+			for _, a := range artifacts {
+				out = errors.Join(out, a.Close())
+			}
+			return out
+		})
+		in.PluginArtifacts = nil
 	}
 	if in.PluginHost != nil {
 		pluginHost := in.PluginHost

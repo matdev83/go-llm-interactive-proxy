@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -78,9 +77,7 @@ func TestCoreAndProviderBoundaryDoNotImportCursorSDKBackend(t *testing.T) {
 		"./pkg/lipapi/...",
 		"./pkg/lipsdk/...",
 	}
-	cmd := exec.Command("go", append([]string{"list", "-json", "-test=false"}, patterns...)...)
-	cmd.Dir = repoRoot(t)
-	out, err := cmd.Output()
+	out, err := cachedGoList(t, append([]string{"-json", "-test=false"}, patterns...)...)
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}

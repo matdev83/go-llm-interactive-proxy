@@ -219,8 +219,8 @@ func TestEndpointJoin_operationMatrix(t *testing.T) {
 				t.Fatalf("Join(%s) = %q, want %q", tc.op, got, tc.want)
 			}
 			rest := got
-			if i := strings.Index(got, "://"); i >= 0 {
-				rest = got[i+3:]
+			if _, after, ok := strings.Cut(got, "://"); ok {
+				rest = after
 			}
 			if strings.Contains(rest, "//") {
 				t.Fatalf("Join produced duplicated separators: %q", got)

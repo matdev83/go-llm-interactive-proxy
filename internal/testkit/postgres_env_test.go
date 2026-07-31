@@ -154,3 +154,27 @@ func TestLookupDualPlanePostgresDSNs_bothPresent(t *testing.T) {
 		t.Fatalf("admin=%q runtime=%q", admin, runtime)
 	}
 }
+
+func TestSkipUnlessPostgresContract(t *testing.T) {
+	t.Run("ambient_dsn_without_require_skips", func(t *testing.T) {
+		t.Setenv(LIPTestPostgresDSN, "postgres://unreachable:5432/db")
+		t.Setenv(LIPRequirePostgres, "")
+		skipped := false
+		// SkipUnlessPostgres will call t.Skipf when LIP_REQUIRE_POSTGRES is empty
+		t.Run("sub", func(st *testing.T) {
+			SkipUnlessPostgres(st)
+			st.Error("should have skipped")
+		})
+		_ = skipped
+	})
+
+	t.Run("require_1_with_dsn_returns_dsn", func(t *testing.T) {
+		expectedDSN := "postgres://user:pass@localhost:5432/db"
+		t.Setenv(LIPTestPostgresDSN, expectedDSN)
+		t.Setenv(LIPRequirePostgres, "1")
+		dsn := SkipUnlessPostgres(t)
+		if dsn != expectedDSN {
+			t.Fatalf("expected DSN %q, got %q", expectedDSN, dsn)
+		}
+	})
+}

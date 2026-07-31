@@ -5,10 +5,8 @@ import (
 	"database/sql"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metering/journalstore"
@@ -22,7 +20,7 @@ func TestSQLiteStore_ConcurrentSameKeyAppendIsIdempotent(t *testing.T) {
 	store := newSQLiteJournalMultiConn(t)
 	ctx := context.Background()
 
-	const workers = 8
+	const workers = 10
 	const rounds = 20
 	for round := range rounds {
 		fact := validFact("fact-race-"+strconv.Itoa(round), "stream-race-shared", int64(round+1))
@@ -35,9 +33,7 @@ func TestSQLiteStore_ConcurrentSameKeyAppendIsIdempotent(t *testing.T) {
 			go func(i int) {
 				defer wg.Done()
 				<-start
-				errs[i] = retrySQLiteBusy(func() error {
-					return store.Append(ctx, fact)
-				})
+				errs[i] = store.Append(ctx, fact)
 			}(i)
 		}
 		close(start)
@@ -80,24 +76,4 @@ func newSQLiteJournalMultiConn(t *testing.T) *journalstore.DurableStore {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	return store
-}
-
-func retrySQLiteBusy(fn func() error) error {
-	var err error
-	for attempt := range 16 {
-		err = fn()
-		if err == nil || !isSQLiteBusy(err) {
-			return err
-		}
-		time.Sleep(time.Duration(attempt+1) * 5 * time.Millisecond)
-	}
-	return err
-}
-
-func isSQLiteBusy(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "database is locked") || strings.Contains(msg, "sqlite_busy")
 }

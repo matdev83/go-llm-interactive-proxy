@@ -21,7 +21,7 @@ func TestSIGHUP_APIOnlyPlatform(t *testing.T) {
 		t.Fatal("unexpected overlap")
 	}
 	tr := NewRefSIGHUPTrigger()
-	stop := StartRefSIGHUPAdapter(nil, tr)
+	stop := StartRefSIGHUPAdapter(context.TODO(), tr)
 	stop()
 	if tr.Delivered() != 0 {
 		t.Fatal("API-only stub must not deliver signal triggers")

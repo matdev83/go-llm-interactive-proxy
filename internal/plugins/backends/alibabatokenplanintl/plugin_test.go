@@ -22,6 +22,7 @@ const streamSSE = "event: message_start\ndata: " +
 	"event: message_stop\ndata: " + `{"type":"message_stop"}` + "\n\n"
 
 func TestNewDiscoversModelsFromDedicatedCatalogAndPrefixesThem(t *testing.T) {
+	t.Parallel()
 	var modelRequests int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/catalog/models" {
@@ -49,6 +50,7 @@ func TestNewDiscoversModelsFromDedicatedCatalogAndPrefixesThem(t *testing.T) {
 }
 
 func TestNewNormalizesNestedAlibabaModelAndMapsThinking(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name           string
 		effort         string
@@ -61,6 +63,7 @@ func TestNewNormalizesNestedAlibabaModelAndMapsThinking(t *testing.T) {
 		{name: "absent unchanged", forbidThinking: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			var body string
 			var betaHeader string
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -112,6 +115,7 @@ func TestNewNormalizesNestedAlibabaModelAndMapsThinking(t *testing.T) {
 }
 
 func TestNewAdvertisesReasoningCapability(t *testing.T) {
+	t.Parallel()
 	be := backend.New(backend.Config{BaseURL: "https://example.test", APIKey: "env-key"})
 	if _, ok := be.Caps[lipapi.CapabilityReasoning]; !ok {
 		t.Fatal("Alibaba Token Plan must advertise reasoning so effort survives negotiation")
@@ -130,6 +134,7 @@ func TestNewAdvertisesReasoningCapability(t *testing.T) {
 }
 
 func TestNewForwardsThinkingEventsAsReasoning(t *testing.T) {
+	t.Parallel()
 	const reasoningSSE = "event: message_start\ndata: " +
 		`{"type":"message_start","message":{"id":"m","type":"message","role":"assistant","model":"qwen3.7-plus","content":[],"stop_reason":"","stop_sequence":"","usage":{"input_tokens":0,"output_tokens":0}}}` + "\n\n" +
 		"event: content_block_start\ndata: " + `{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"Plan","signature":"sig"}}` + "\n\n" +
@@ -168,6 +173,7 @@ func TestNewForwardsThinkingEventsAsReasoning(t *testing.T) {
 }
 
 func TestNewPreservesStructuredToolHistoryAndOmitsToolChoice(t *testing.T) {
+	t.Parallel()
 	var body string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, err := io.ReadAll(r.Body)
@@ -208,6 +214,7 @@ func TestNewPreservesStructuredToolHistoryAndOmitsToolChoice(t *testing.T) {
 }
 
 func TestNewNormalizesNonSystemRolesToUser(t *testing.T) {
+	t.Parallel()
 	var body string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/messages" {
