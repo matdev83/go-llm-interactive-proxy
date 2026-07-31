@@ -114,7 +114,7 @@ func (s *toolSummarySink) HandleToolUpdate(_ context.Context, kind string, updat
 		}
 		accum.summarySent = true
 		accum.endedAt = s.now()
-		summary := formatToolCompletionSummaryWithInput(accum.name, accum.input, accum.inputBytes, accum.outputBytes, accum.startedAt, accum.endedAt)
+		summary := formatToolCompletionSummaryWithInput(accum.name, accum.input, accum.inputSet, accum.inputBytes, accum.outputBytes, accum.startedAt, accum.endedAt)
 		// Keep the entry in the map (with summarySent=true) so duplicate
 		// completion updates are silently ignored rather than producing a
 		// second summary.
@@ -137,7 +137,7 @@ func (s *toolSummarySink) FlushIncomplete() []lipapi.Event {
 		}
 		accum.summarySent = true
 		accum.endedAt = s.now()
-		summary := formatToolCompletionSummaryWithInput(accum.name, accum.input, accum.inputBytes, accum.outputBytes, accum.startedAt, accum.endedAt)
+		summary := formatToolCompletionSummaryWithInput(accum.name, accum.input, accum.inputSet, accum.inputBytes, accum.outputBytes, accum.startedAt, accum.endedAt)
 		events = append(events, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: summary})
 		delete(s.tools, key)
 	}
@@ -299,15 +299,16 @@ func estimateJSONSize(v any) int {
 // started and ended are normalized to UTC for stable cross-path output. The
 // elapsed seconds are derived from ended-started.
 func FormatToolCompletionSummary(name string, inputBytes, outputBytes int, started, ended time.Time) string {
-	return formatToolCompletionSummaryWithInput(name, nil, inputBytes, outputBytes, started, ended)
+	return formatToolCompletionSummaryWithInput(name, nil, false, inputBytes, outputBytes, started, ended)
 }
 
 const maxToolArgumentChars = 1024
+const toolArgumentTruncationMarker = "… [truncated]"
 
-func formatToolCompletionSummaryWithInput(name string, input any, inputBytes, outputBytes int, started, ended time.Time) string {
+func formatToolCompletionSummaryWithInput(name string, input any, inputSet bool, inputBytes, outputBytes int, started, ended time.Time) string {
 	elapsed := ended.Sub(started).Seconds()
 	lines := []string{"---", "```text", fmt.Sprintf("Tool: %s", name)}
-	if input != nil {
+	if inputSet {
 		lines = append(lines, "Arguments: "+formatToolArguments(input))
 	}
 	lines = append(lines,
@@ -337,7 +338,8 @@ func formatToolArguments(input any) string {
 
 	runes := []rune(rendered)
 	if len(runes) > maxToolArgumentChars {
-		rendered = strings.TrimSpace(string(runes[:maxToolArgumentChars])) + "… [truncated]"
+		limit := maxToolArgumentChars - len([]rune(toolArgumentTruncationMarker))
+		rendered = strings.TrimSpace(string(runes[:limit])) + toolArgumentTruncationMarker
 	}
 	return rendered
 }

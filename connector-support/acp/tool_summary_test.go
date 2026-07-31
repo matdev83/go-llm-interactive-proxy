@@ -111,7 +111,7 @@ func TestToolSummarySink_FlushIncomplete(t *testing.T) {
 	// Start a tool that never completes.
 	_, err := sink.HandleToolUpdate(context.Background(), acpToolCall, map[string]any{
 		"toolCallId": "tc-incomplete",
-		"toolCall":   map[string]any{"title": "Incomplete Tool"},
+		"toolCall":   map[string]any{"title": "Incomplete Tool", "rawInput": nil},
 	})
 	if err != nil {
 		t.Fatalf("start: %v", err)
@@ -128,6 +128,9 @@ func TestToolSummarySink_FlushIncomplete(t *testing.T) {
 	}
 	if !strings.Contains(evs[0].Delta, "Incomplete Tool") {
 		t.Fatalf("flushed summary missing tool name: %s", evs[0].Delta)
+	}
+	if !strings.Contains(evs[0].Delta, "Arguments: null") {
+		t.Fatalf("flushed summary missing explicit null input: %s", evs[0].Delta)
 	}
 
 	// Second flush should emit nothing (already flushed).
@@ -153,6 +156,26 @@ func TestToolSummarySink_DefaultToolName(t *testing.T) {
 	}
 	if !strings.Contains(evs[0].Delta, "Tool: tool") {
 		t.Fatalf("expected default name 'tool', got: %s", evs[0].Delta)
+	}
+}
+
+func TestToolSummarySink_CompletionPreservesExplicitNullInput(t *testing.T) {
+	t.Parallel()
+	sink := NewToolSummarySink(nil)
+
+	evs, err := sink.HandleToolUpdate(context.Background(), acpToolCall, map[string]any{
+		"toolCallId": "tc-null-input",
+		"rawInput":   nil,
+		"status":     "completed",
+	})
+	if err != nil {
+		t.Fatalf("HandleToolUpdate: %v", err)
+	}
+	if len(evs) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(evs))
+	}
+	if !strings.Contains(evs[0].Delta, "Arguments: null") {
+		t.Fatalf("summary missing explicit null input: %s", evs[0].Delta)
 	}
 }
 
@@ -309,8 +332,9 @@ func TestToolSummarySink_TruncatesLargeArguments(t *testing.T) {
 	if argumentsLine == "" {
 		t.Fatalf("summary missing arguments: %s", evs[0].Delta)
 	}
-	if len([]rune(argumentsLine)) > 1100 {
-		t.Fatalf("arguments line was not bounded: %d chars", len([]rune(argumentsLine)))
+	renderedArguments := strings.TrimPrefix(argumentsLine, "Arguments: ")
+	if len([]rune(renderedArguments)) > maxToolArgumentChars {
+		t.Fatalf("arguments were not bounded: %d chars", len([]rune(renderedArguments)))
 	}
 	if !strings.HasSuffix(argumentsLine, "… [truncated]") {
 		t.Fatalf("arguments line missing truncation marker: %s", argumentsLine)
