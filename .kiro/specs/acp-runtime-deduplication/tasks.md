@@ -140,7 +140,7 @@ This task list enforces TDD: architecture and testkit importers are updated firs
 
 ### Phase 4: PR #239 Upstream Reconciliation (RECONCILE)
 
-- [x] **Task 4.1: Rebase / Reconcile Branch onto `origin/main` Pre-submission**
+- [ ] **Task 4.1: Rebase / Reconcile Branch onto `origin/main` Pre-submission**
   - **_Boundary:_**: Git workspace / PR readiness
   - **_Depends:_**: Task 3.1, Task 3.2, Task 3.3, Task 3.4
   - **Goal**: Ensure final PR is rebased on `origin/main` after PR #239 merges without losing structured error propagation.
