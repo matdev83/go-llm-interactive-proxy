@@ -76,8 +76,6 @@ func backendDir(id string) string {
 		return "gemini"
 	case "bedrock":
 		return "bedrock"
-	case "acp":
-		return "acp"
 	default:
 		return id
 	}

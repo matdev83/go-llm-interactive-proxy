@@ -112,7 +112,6 @@ func TestIdentityTransport_ID147_allowlistAndExclusionLiterals(t *testing.T) {
 func TestIdentityTransport_excludedPackagesDoNotImportHTTPIdentity(t *testing.T) {
 	t.Parallel()
 	excludedPkgs := []string{
-		"./internal/plugins/backends/acp",
 		"./internal/plugins/backends/localstub",
 	}
 	assertDepsExcludeForbidden(t, excludedPkgs, []forbiddenDep{

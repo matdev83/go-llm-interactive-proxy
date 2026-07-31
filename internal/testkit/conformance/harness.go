@@ -10,7 +10,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
@@ -42,7 +41,7 @@ func NewTestExecutor(tb testing.TB, backendID, upstreamBaseURL string, httpClien
 }
 
 // NewTestExecutorDualCredential wires hosted OpenAI, Anthropic, and Gemini backends with two ordered
-// API keys so credential pools are populated. Bedrock and ACP use the same construction as
+// API keys so credential pools are populated. Bedrock uses the same construction as
 // [NewTestExecutor] (no multi-key pool in this harness).
 func NewTestExecutorDualCredential(tb testing.TB, backendID, upstreamBaseURL string, httpClient *http.Client) *runtime.Executor {
 	tb.Helper()
@@ -105,11 +104,6 @@ func BackendFor(tb testing.TB, backendID, upstreamBaseURL string, httpClient *ht
 			DisableHTTPS:    true,
 			HTTPClient:      httpClient,
 		})
-	case acp.ID:
-		return acp.New(acp.Config{
-			BaseURL:    upstreamBaseURL,
-			HTTPClient: httpClient,
-		})
 	default:
 		tb.Fatalf("unknown backend id %q", backendID)
 		return execbackend.Backend{}
@@ -151,7 +145,7 @@ func BackendForDualCredential(tb testing.TB, backendID, upstreamBaseURL string, 
 			APIKeys:    []string{"fake-key", "fake-key-pool2"},
 			HTTPClient: httpClient,
 		})
-	case bedrock.ID, acp.ID:
+	case bedrock.ID:
 		return BackendFor(tb, backendID, upstreamBaseURL, httpClient)
 	default:
 		tb.Fatalf("unknown backend id %q", backendID)

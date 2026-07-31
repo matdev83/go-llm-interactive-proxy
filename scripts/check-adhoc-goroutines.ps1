@@ -33,9 +33,7 @@ $allowed = @(
     "internal/core/extensions/decision_timeout.go"
     "internal/plugins/frontends/holdalive/wait.go"
     "internal/infra/runtimebundle/modelcatalog_refresh_loop.go"
-    # ACP stdio transport: owned stdout reader + stderr drain (shared helper parity).
     "connector-support/acp/transport_stdio.go"
-    "internal/plugins/backends/acp/transport_stdio.go"
     "connectors/cursorsdk/internal/product/bridge_process.go"
     "connectors/cursorsdk/internal/product/reap.go"
     "connectors/cursorsdk/internal/product/fakebridge/harness.go"
