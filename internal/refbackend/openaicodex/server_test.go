@@ -170,6 +170,13 @@ func TestServer_missingCodexHeaders_400(t *testing.T) {
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status: %d", resp.StatusCode)
 	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(body)); got != "invalid headers" {
+		t.Fatalf("body: %q, want %q", got, "invalid headers")
+	}
 }
 
 func TestServer_forced429_includesRetryAfter(t *testing.T) {
@@ -349,5 +356,40 @@ func TestServer_webSocketForcedFail_closesBeforeEvents(t *testing.T) {
 	_ = conn.WriteMessage(gorillawebsocket.TextMessage, []byte(`{"type":"response.create"}`))
 	if _, _, rerr := conn.ReadMessage(); rerr == nil {
 		t.Fatal("expected read failure before first event")
+	}
+}
+
+func TestServer_webSocketUpgrade_missingCodexHeaders_400(t *testing.T) {
+	t.Parallel()
+	srv := refbackend.New(refbackend.Config{Token: "sk-codex"})
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	dialer := gorillawebsocket.Dialer{HandshakeTimeout: 5 * time.Second}
+	hdr := http.Header{}
+	hdr.Set("Authorization", "Bearer sk-codex")
+	hdr.Set("OpenAI-Beta", "responses=experimental")
+	hdr.Set("originator", "lip-test")
+	hdr.Set("conversation_id", "conv-ws")
+	hdr.Set("session_id", "sess-ws")
+
+	wsURL := strings.Replace(ts.URL, "http://", "ws://", 1) + "/backend-api/codex/responses"
+	_, resp, err := dialer.Dial(wsURL, hdr)
+	if err == nil {
+		t.Fatal("expected dial to fail due to missing headers")
+	}
+	if resp == nil {
+		t.Fatal("expected HTTP response from failed upgrade")
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status: %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(body)); got != "invalid headers" {
+		t.Fatalf("body: %q, want %q", got, "invalid headers")
 	}
 }
