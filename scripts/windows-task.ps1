@@ -18,7 +18,7 @@ function Run-NestedGoTest {
 
 function Run-RootGoTestWithMatches {
     param([string]$Label, [string]$Package, [string]$Pattern, [string[]]$TestArgs, [string[]]$Env = @(), [string]$Timeout = "15m")
-    $listResult = Invoke-TaskRunner -Label "$Label:list" -Cwd $root -Timeout $Timeout -Env $Env -Output capture -Command (@("go", "test", "-tags=integration", "-list", $Pattern, $Package))
+    $listResult = Invoke-TaskRunner -Label "${Label}:list" -Cwd $root -Timeout $Timeout -Env $Env -Output capture -Command (@("go", "test", "-tags=integration", "-list", $Pattern, $Package))
     $matches = @($listResult | Where-Object { $_ -match '^Test[A-Za-z0-9_]+$' })
     if ($matches.Count -eq 0) {
         throw "$Label selector $Pattern matched zero tests in $Package"
