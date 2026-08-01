@@ -142,6 +142,7 @@ func startReasoningPreservationChatStackOptsErr(opts rpChatStackOpts, turns []re
 	proxy, proxyCleanup, err := startRPBootstrapProxyErr(cfgPath)
 	if err != nil {
 		emu.Close()
+		_ = os.RemoveAll(filepath.Dir(cfgPath))
 		return nil, err
 	}
 	stack := &rpHTTPStack{
@@ -210,6 +211,7 @@ func startReasoningPreservationResponsesStackOptsErr(opts rpChatStackOpts, turns
 	proxy, proxyCleanup, err := startRPBootstrapProxyErr(cfgPath)
 	if err != nil {
 		emu.Close()
+		_ = os.RemoveAll(filepath.Dir(cfgPath))
 		return nil, err
 	}
 	return &rpHTTPStack{
@@ -1008,6 +1010,40 @@ func truncateRunLog(s string, n int) string {
 		return s
 	}
 	return s[len(s)-n:]
+}
+
+// TestHarness_BootstrapFailureCleansConfigDir proves a stack whose bootstrap
+// fails after writeReasoningPreservationConfigOptsErr created its rp-e2e-*
+// config dir reclaims that dir on the error path. Non-parallel so the
+// before/after os.TempDir snapshot cannot race the parallel reasoning tests.
+func TestHarness_BootstrapFailureCleansConfigDir(t *testing.T) {
+	before := rpE2ETempDirs()
+	// An invalid on_unrepresentable policy is rejected during BuildHost feature
+	// validation, i.e. after the harness already created its rp-e2e-* config dir.
+	stack, err := startReasoningPreservationChatStackOptsErr(rpChatStackOpts{
+		FeatureRow:        rpFeatureRowExplicit,
+		Action:            "restore",
+		OnUnrepresentable: "bogus",
+	}, nil)
+	if err == nil {
+		stack.cleanup()
+		t.Fatal("expected BuildHost rejection of invalid on_unrepresentable policy")
+	}
+	after := rpE2ETempDirs()
+	for d := range after {
+		if !before[d] {
+			t.Fatalf("bootstrap failure leaked config dir %q", d)
+		}
+	}
+}
+
+func rpE2ETempDirs() map[string]bool {
+	matches, _ := filepath.Glob(filepath.Join(os.TempDir(), "rp-e2e-*"))
+	set := make(map[string]bool, len(matches))
+	for _, m := range matches {
+		set[m] = true
+	}
+	return set
 }
 
 func TestHarnessMaxTurnsBound_yamlAndValidatorsShareConstant(t *testing.T) {

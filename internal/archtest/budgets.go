@@ -46,7 +46,7 @@ type PackageTreeBudget struct {
 
 // PackageTreeBudgets locks measured convergence tree ceilings (+25 lines headroom).
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 10721},
+	{Tree: "internal/infra/runtimebundle", Max: 10851},
 	{Tree: "internal/stdhttp", Max: 4339},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 562},
@@ -64,7 +64,7 @@ var LineBudgets = []LineBudget{
 	{Dir: "internal/core", Max: 68844},
 	{Dir: "internal/pluginreg", Max: 1079},
 	{Dir: "internal/stdhttp", Max: 4339},
-	{Dir: "internal/infra/runtimebundle", Max: 10721},
+	{Dir: "internal/infra/runtimebundle", Max: 10851},
 	{Dir: "cmd/lipstd", Max: 979},
 	{Dir: "pkg/lipruntime", Max: 562},
 }
@@ -146,7 +146,10 @@ const RuntimeConvergenceMinNetLineReduction = 800
 
 // ConnectorArchitectureOverlayMax is the exact-measured ADR 0008 connector
 // architecture overlay ratchet (non-test lines in structurally selected files).
-const ConnectorArchitectureOverlayMax = 1000
+// The reliability work adds explicit discovered-plugin artifact ownership and
+// cleanup to the connector composition path. Keep 25 lines of ratchet headroom
+// over the reviewed 1,912-line overlay.
+const ConnectorArchitectureOverlayMax = 1937
 
 // GenericCompatibleBackendOverlayMax is the measured generic-compatible-backend-modes
 // overlay ratchet (production files selected by path, excluding connector overlay).

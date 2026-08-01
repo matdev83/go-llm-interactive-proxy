@@ -3,7 +3,6 @@ package archtest
 import (
 	"bytes"
 	"encoding/json"
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -43,9 +42,7 @@ func assertGoListImportsExclude(t *testing.T, goListPattern string, forbidden []
 },
 ) {
 	t.Helper()
-	cmd := exec.Command("go", "list", "-json", "-test=false", goListPattern)
-	cmd.Dir = repoRoot(t)
-	out, err := cmd.Output()
+	out, err := cachedGoList(t, "-json", "-test=false", goListPattern)
 	if err != nil {
 		t.Fatalf("go list %s: %v", goListPattern, err)
 	}

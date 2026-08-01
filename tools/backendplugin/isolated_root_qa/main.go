@@ -2,17 +2,23 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"go/parser"
 	"go/token"
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/tools/backendplugin/runner"
+	"github.com/matdev83/go-llm-interactive-proxy/tools/taskrunner"
 )
+
+const isolatedCommandTimeout = 20 * time.Minute
 
 func main() {
 	root := "."
@@ -53,7 +59,7 @@ func run(repoRoot string) error {
 	if err := assertNoConnectorImports(tmp); err != nil {
 		return err
 	}
-	env := append(os.Environ(), "GOWORK=off")
+	env := []string{"GOWORK=off"}
 	// Architecture/unit gates that do not require connectors/ or connector-support/
 	// trees (those trees are intentionally absent from the isolated copy).
 	safeArchRun := "TestRootGoMod_NoConnectorModules|TestEssentialBackendBundle_ExactAllowlist|TestEssentialAllowlistFixture_DetectsViolation|TestNoFixedOptional|TestEssentialOnly|TestDynamic_NoOptionalKindNamesInGenericPluginreg|TestPhase85_|TestGenericBackendFactoryDeps|TestDynamic_BackendFactoryDepsIsGenericAlias|TestCriticalFileLineBudgets|TestRootHygiene"
@@ -75,13 +81,18 @@ func run(repoRoot string) error {
 			}
 			continue
 		}
-		cmd := exec.Command("go", st.args...)
-		cmd.Dir = tmp
-		cmd.Env = env
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("%s: %w", st.name, err)
+		result := runner.Run(context.Background(), runner.Request{
+			Argv:      append([]string{"go"}, st.args...),
+			Dir:       tmp,
+			Env:       env,
+			Timeout:   isolatedCommandTimeout,
+			Output:    taskrunner.Stream,
+			StreamOut: os.Stdout,
+			StreamErr: os.Stderr,
+			Label:     "isolated_root_qa:" + st.name,
+		})
+		if result.Kind != taskrunner.Success {
+			return fmt.Errorf("%s: %w", st.name, runner.Error(result))
 		}
 	}
 	return nil
@@ -268,13 +279,17 @@ func assertNoConnectorImports(root string) error {
 }
 
 func checkGofmt(root string) error {
-	cmd := exec.Command("gofmt", "-l", ".")
-	cmd.Dir = root
-	out, err := cmd.Output()
-	if err != nil {
-		return fmt.Errorf("gofmt: %w", err)
+	result := runner.Run(context.Background(), runner.Request{
+		Argv:    []string{"gofmt", "-l", "."},
+		Dir:     root,
+		Timeout: isolatedCommandTimeout,
+		Output:  taskrunner.Capture,
+		Label:   "isolated_root_qa:gofmt-check",
+	})
+	if result.Kind != taskrunner.Success {
+		return fmt.Errorf("gofmt: %w", runner.Error(result))
 	}
-	lines := strings.TrimSpace(string(out))
+	lines := strings.TrimSpace(string(result.Stdout))
 	if lines != "" {
 		return fmt.Errorf("gofmt drift:\n%s", lines)
 	}

@@ -253,7 +253,7 @@ func runFactIdentityRace(t *testing.T, store interface {
 			f.Quantities = []metering.Quantity{{
 				Component: metering.ComponentInputToken, Unit: metering.UnitToken, Value: int64(10 + i), Present: true,
 			}}
-			err := retrySQLiteBusy(func() error { return store.Append(ctx, f) })
+			err := store.Append(ctx, f)
 			errs[i] = err
 			switch {
 			case err == nil:

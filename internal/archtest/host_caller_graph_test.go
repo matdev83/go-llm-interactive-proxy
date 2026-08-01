@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"golang.org/x/tools/go/packages"
@@ -110,8 +111,23 @@ func bindHostCallersAcrossContexts(t *testing.T, overlay map[string][]byte) (cal
 	return callers, analyzed
 }
 
+var (
+	runtimebundleCacheMu   sync.Mutex
+	runtimebundleCache     = make(map[archBuildContext]*packages.Package)
+	runtimebundleDirOnce   sync.Once
+	runtimebundleDirCached string
+)
+
 func loadRuntimebundleForContext(t *testing.T, bc archBuildContext, overlay map[string][]byte) *packages.Package {
 	t.Helper()
+	if len(overlay) == 0 {
+		runtimebundleCacheMu.Lock()
+		if pkg, ok := runtimebundleCache[bc]; ok {
+			runtimebundleCacheMu.Unlock()
+			return pkg
+		}
+		runtimebundleCacheMu.Unlock()
+	}
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedImports | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo,
@@ -125,6 +141,11 @@ func loadRuntimebundleForContext(t *testing.T, bc archBuildContext, overlay map[
 	}
 	if packages.PrintErrors(pkgs) > 0 || len(pkgs) != 1 || pkgs[0].Types == nil || pkgs[0].TypesInfo == nil {
 		t.Fatalf("load runtimebundle (%s/%s) for bindHost caller graph: packages=%d (fail closed)", bc.GOOS, bc.GOARCH, len(pkgs))
+	}
+	if len(overlay) == 0 {
+		runtimebundleCacheMu.Lock()
+		runtimebundleCache[bc] = pkgs[0]
+		runtimebundleCacheMu.Unlock()
 	}
 	return pkgs[0]
 }
@@ -154,15 +175,21 @@ func packagesLoadEnv(goos, goarch string) []string {
 
 func runtimebundleDir(t *testing.T) string {
 	t.Helper()
-	pkgs, err := packages.Load(&packages.Config{
-		Mode:  packages.NeedName | packages.NeedFiles,
-		Tests: false,
-		Env:   packagesLoadEnv("linux", "amd64"),
-	}, runtimebundlePackagePath)
-	if err != nil || packages.PrintErrors(pkgs) > 0 || len(pkgs) != 1 || len(pkgs[0].GoFiles) == 0 {
-		t.Fatalf("resolve runtimebundle dir: err=%v pkgs=%v", err, pkgs)
+	runtimebundleDirOnce.Do(func() {
+		pkgs, err := packages.Load(&packages.Config{
+			Mode:  packages.NeedName | packages.NeedFiles,
+			Tests: false,
+			Env:   packagesLoadEnv("linux", "amd64"),
+		}, runtimebundlePackagePath)
+		if err != nil || packages.PrintErrors(pkgs) > 0 || len(pkgs) != 1 || len(pkgs[0].GoFiles) == 0 {
+			return
+		}
+		runtimebundleDirCached = filepath.Dir(pkgs[0].GoFiles[0])
+	})
+	if runtimebundleDirCached == "" {
+		t.Fatalf("resolve runtimebundle dir failed")
 	}
-	return filepath.Dir(pkgs[0].GoFiles[0])
+	return runtimebundleDirCached
 }
 
 // assertProductionGoInventory fails closed when a non-test production .go file

@@ -175,7 +175,7 @@ func TestGOWORKOff_RootListBuildModuleGraph(t *testing.T) {
 
 	run("go", "list", "./...")
 	run("go", "list", "-m", "all")
-	run("go", "build", "./cmd/lipstd")
+	run("go", "build", "-o", filepath.Join(t.TempDir(), "lipstd.exe"), "./cmd/lipstd")
 
 	// Compile-only proof for public/root packages without invoking archtest recursively.
 	run(
@@ -390,9 +390,7 @@ func packagesDeclaringInstallDiscovered(t *testing.T, root string) []string {
 
 func TestGOListJSON_CorePackagesDecodable(t *testing.T) {
 	t.Parallel()
-	cmd := exec.Command("go", "list", "-test=false", "-json", "./internal/core/...")
-	cmd.Dir = repoRoot(t)
-	out, err := cmd.Output()
+	out, err := cachedGoList(t, "-test=false", "-json", "./internal/core/...")
 	if err != nil {
 		t.Fatal(err)
 	}

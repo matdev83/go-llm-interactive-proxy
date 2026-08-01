@@ -3,7 +3,6 @@ package archtest
 import (
 	"bytes"
 	"encoding/json"
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -70,9 +69,7 @@ func listDirectImports(t *testing.T, pattern string) []string {
 
 func listPackages(t *testing.T, pattern string) []goListPackage {
 	t.Helper()
-	cmd := exec.Command("go", "list", "-test=false", "-json", pattern)
-	cmd.Dir = repoRoot(t)
-	out, err := cmd.Output()
+	out, err := cachedGoList(t, "-test=false", "-json", pattern)
 	if err != nil {
 		t.Fatalf("go list %s: %v", pattern, err)
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretsguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/processhost"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/logging"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/osenv"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -93,8 +94,10 @@ func validateDistribution(
 	}
 	var pluginHost *processhost.Host
 	var pluginStaging string
+	var pluginArtifacts []*trust.VerifiedArtifact
 	if discInstall != nil {
 		pluginHost, pluginStaging = discInstall.Host, discInstall.StagingDir
+		pluginArtifacts = discInstall.Artifacts
 	}
 
 	logger, err := logging.NewLogger(cfg.Logging, io.Discard,
@@ -110,6 +113,7 @@ func validateDistribution(
 		Cfg: cfg, Logger: logger, Registry: reg, SecretEnv: secretEnv, Production: in.Production,
 		Tracing:          ProcessTracing{Shutdown: traceShutdownRaw, Active: traceRes.Active},
 		PluginHost:       pluginHost,
+		PluginArtifacts:  pluginArtifacts,
 		PluginStagingDir: pluginStaging,
 	})
 	if err != nil {

@@ -70,6 +70,7 @@ func TestCompatibleCredential_resolveEnvRootOnly(t *testing.T) {
 }
 
 func TestCompatibleCredential_emptyRootIsNoAuth(t *testing.T) {
+	t.Parallel()
 	got := compatibleutil.ResolveEnvAPIKeys("")
 	if len(got) != 0 {
 		t.Fatalf("empty root want nil/empty, got %#v", got)
@@ -77,6 +78,7 @@ func TestCompatibleCredential_emptyRootIsNoAuth(t *testing.T) {
 }
 
 func TestCompatibleCredential_decodeRejectsLiteralAPIKey(t *testing.T) {
+	t.Parallel()
 	raw := `backend_prefix: provider
 base_url: https://api.example.com/v1
 api_key: yaml-key

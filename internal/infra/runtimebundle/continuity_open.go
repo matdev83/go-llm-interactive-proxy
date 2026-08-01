@@ -59,8 +59,12 @@ func openContinuityStore(ctx context.Context, cfg *config.Config, pools *db.Pool
 		if err != nil {
 			return nil, nil, fmt.Errorf("continuity: %w", err)
 		}
-		pool := db.PoolSettings{MaxOpenConns: poolCfg.MaxOpenConns, MaxIdleConns: poolCfg.MaxIdleConns,
-			ConnMaxLifetime: poolCfg.ConnMaxLifetime, ConnMaxIdleTime: poolCfg.ConnMaxIdleTime}
+		pool := db.PoolSettings{
+			MaxOpenConns:    poolCfg.MaxOpenConns,
+			MaxIdleConns:    poolCfg.MaxIdleConns,
+			ConnMaxLifetime: poolCfg.ConnMaxLifetime,
+			ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
+		}
 		dsn := strings.TrimSpace(cc.PostgresDSN)
 		child, cancel := context.WithTimeout(ctx, db.DefaultPostgresOpenMigrateTimeout)
 		defer cancel()

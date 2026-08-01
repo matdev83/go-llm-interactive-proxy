@@ -21,12 +21,15 @@ func TestEnterpriseModulePublicOnlyCompileGate(t *testing.T) {
 
 	assertNoInternalImportsInDir(t, dir)
 
-	cmd := exec.Command("go", "test", ".")
+	cmd := exec.Command("go", "run", ".")
 	cmd.Dir = dir
 	cmd.Env = enterpriseModuleTestEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("enterprise module go test: %v\n%s", err, out)
+		t.Fatalf("enterprise module go run: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "enterprise_module: ok") {
+		t.Fatalf("output=%q", out)
 	}
 }
 
