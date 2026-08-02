@@ -37,7 +37,8 @@ type kiroSpec struct {
 // registeredSpecs lists active spec development gates. Specs whose
 // implementation is complete are archived under .kiro/specs/archive/ and
 // removed here; their architecture invariants stay enforced by
-// internal/archtest. The cursor-sdk-backend gate was retired on closeout.
+// internal/archtest. The cursor-sdk-backend and windows-task-reliability
+// gates were retired on closeout.
 func registeredSpecs() []kiroSpec {
 	return nil
 }

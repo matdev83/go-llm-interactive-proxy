@@ -3,7 +3,6 @@ package archtest
 import (
 	"bytes"
 	"encoding/json"
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -24,9 +23,7 @@ func TestInternalCoreAuthDoesNotImportConcretePluginsOrStdhttp(t *testing.T) {
 		{name: "no_aws_sdk", sub: "github.com/aws/aws-sdk-go-v2", msg: "internal/core/auth must not import AWS SDKs"},
 		{name: "no_slog", sub: "log/slog", msg: "internal/core/auth must not import log/slog; use EventSink wiring from infra"},
 	}
-	cmd := exec.Command("go", "list", "-json", "-test=false", "./internal/core/auth")
-	cmd.Dir = repoRoot(t)
-	out, err := cmd.Output()
+	out, err := cachedGoList(t, "-json", "-test=false", "./internal/core/auth")
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}

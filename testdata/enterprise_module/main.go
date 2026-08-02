@@ -144,13 +144,13 @@ func startEssentialStub() *httptest.Server {
 	}))
 }
 
-func writeEssentialConfig(baseURL string) (string, error) {
+func writeEssentialConfig(baseURL string) (path string, cleanup func(), err error) {
 	if p := strings.TrimSpace(os.Getenv("LIP_ENTERPRISE_CONFIG")); p != "" {
-		return filepath.Clean(p), nil
+		return filepath.Clean(p), nil, nil
 	}
 	dir, err := os.MkdirTemp("", "lip-enterprise-module-*")
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	body := fmt.Sprintf(`server:
   address: "127.0.0.1:18080"
@@ -219,20 +219,48 @@ plugins:
       enabled: true
       config: {}
 `, enterpriseRoute, enterpriseBackendID, strings.TrimRight(baseURL, "/")+"/v1", enterpriseModelID)
-	path := filepath.Join(dir, "enterprise-essential.yaml")
+	path = filepath.Join(dir, "enterprise-essential.yaml")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return path, nil
+	return path, func() { _ = removeAllRetry(dir, 20, 50*time.Millisecond) }, nil
+}
+
+// removeAllRetry deletes path, retrying briefly so Windows releases the
+// config file (antivirus/scan handle) before the fixture temp dir is reclaimed.
+func removeAllRetry(path string, attempts int, delay time.Duration) error {
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+	if attempts < 1 {
+		attempts = 1
+	}
+	var last error
+	for i := 0; i < attempts; i++ {
+		last = os.RemoveAll(path)
+		if last == nil {
+			if _, err := os.Stat(path); os.IsNotExist(err) {
+				return nil
+			}
+			last = fmt.Errorf("enterprise_module: %q still present after RemoveAll", path)
+		}
+		if i+1 < attempts && delay > 0 {
+			time.Sleep(delay)
+		}
+	}
+	return last
 }
 
 func run(ctx context.Context) error {
 	stub := startEssentialStub()
 	defer stub.Close()
 
-	cfgPath, err := writeEssentialConfig(stub.URL)
+	cfgPath, cleanupCfg, err := writeEssentialConfig(stub.URL)
 	if err != nil {
 		return err
+	}
+	if cleanupCfg != nil {
+		defer cleanupCfg()
 	}
 	rater := &enterpriseRater{}
 	evidence := &enterpriseEvidence{}

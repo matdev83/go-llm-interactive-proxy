@@ -8,7 +8,7 @@ This note classifies **intentional entropy** versus **stable translation** behav
 |-----------|----------|---------|
 | `crypto/rand` | `internal/core/diag/trace.go` (`NewTraceID`) | Opaque trace IDs |
 | `crypto/rand` | `internal/core/b2bua/store.go` (`newID`) | A-leg / B-leg identifiers |
-| `crypto/rand` | `internal/plugins/backends/acp/prompt_msg.go` (`newMessageID`) | Message IDs when call extensions omit a stable id |
+| `crypto/rand` | `connector-support/acp/prompt_msg.go` (`newMessageID`) | Message IDs when call extensions omit a stable id |
 | `time.Now()` | `internal/core/runtime/executor.go` | Wall clock when `Executor.Now` is nil |
 | `time.Now()` | Frontend `encode.go` (Anthropic, OpenAI Responses, legacy) | Default response/message IDs and `created` timestamps when `EncodeOptions` fields are empty |
 | Polling | `internal/refbackend/acp/server.go` | Emulator wait loops (not used for ordering guarantees) |

@@ -42,7 +42,7 @@ func TestConformance_TextOnly_roundTrip(t *testing.T) {
 			t.Cleanup(feSrv.Close)
 
 			got := nonStreamAssistantText(t, cell.Frontend, feSrv.URL, feSrv.Client())
-			if cell.Backend == "acp" {
+			if cell.Backend == BackendACP {
 				if !strings.Contains(got, "ok") {
 					t.Fatalf("expected ACP stock emulator text containing ok, got %q", got)
 				}
@@ -75,7 +75,7 @@ func TestConformance_TextOnly_streamAndNonStreamParity(t *testing.T) {
 
 			ns := nonStreamAssistantText(t, cell.Frontend, feSrv.URL, feSrv.Client())
 			st := streamAssistantText(t, cell.Frontend, feSrv.URL, feSrv.Client())
-			if cell.Backend == "acp" {
+			if cell.Backend == BackendACP {
 				if !strings.Contains(ns, "ok") || !strings.Contains(st, "ok") {
 					t.Fatalf("expected ok in both paths non-stream=%q stream=%q", ns, st)
 				}

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -220,7 +219,7 @@ func writeCompatibleExampleConfig(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := fmt.Sprintf(`    - id: compat-example
+	rows := `    - id: compat-example
       kind: custom-openai-legacy-compatible
       enabled: true
       config:
@@ -233,7 +232,7 @@ func writeCompatibleExampleConfig(t *testing.T) string {
           items:
             - canonical_id: compat-example/model-a
               native_id: model-a
-`)
+`
 	text := strings.Replace(string(base), "  features:\n", rows+"  features:\n", 1)
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {

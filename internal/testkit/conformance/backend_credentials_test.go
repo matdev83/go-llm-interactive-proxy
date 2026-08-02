@@ -37,7 +37,7 @@ func TestConformance_CredentialPool_TextOnly_roundTrip(t *testing.T) {
 			t.Cleanup(feSrv.Close)
 
 			got := nonStreamAssistantText(t, cell.Frontend, feSrv.URL, feSrv.Client())
-			if cell.Backend == "acp" {
+			if cell.Backend == BackendACP {
 				if !strings.Contains(got, "ok") {
 					t.Fatalf("expected ACP stock emulator text containing ok, got %q", got)
 				}
@@ -70,7 +70,7 @@ func TestConformance_CredentialPool_TextOnly_streamAndNonStreamParity(t *testing
 
 			ns := nonStreamAssistantText(t, cell.Frontend, feSrv.URL, feSrv.Client())
 			st := streamAssistantText(t, cell.Frontend, feSrv.URL, feSrv.Client())
-			if cell.Backend == "acp" {
+			if cell.Backend == BackendACP {
 				if !strings.Contains(ns, "ok") || !strings.Contains(st, "ok") {
 					t.Fatalf("expected ok in both paths non-stream=%q stream=%q", ns, st)
 				}
@@ -189,8 +189,8 @@ func TestConformance_CredentialPool_Multimodal_imageInUpstream(t *testing.T) {
 		}
 		t.Run(cell.Frontend+"__"+cell.Backend, func(t *testing.T) {
 			t.Parallel()
-			var captured string
-			beSrv := NewSuccessRefBackend(t, cell.Backend, func(b []byte) { captured = string(b) })
+			var captured []string
+			beSrv := NewSuccessRefBackend(t, cell.Backend, func(b []byte) { captured = append(captured, string(b)) })
 			exec := NewTestExecutorDualCredential(t, cell.Backend, beSrv.URL, beSrv.Client())
 			route := RouteSelector(cell.Backend, DefaultModel(cell.Backend))
 			mux := http.NewServeMux()
@@ -202,7 +202,7 @@ func TestConformance_CredentialPool_Multimodal_imageInUpstream(t *testing.T) {
 
 			png := refclienttest.ReadRefclientFixture(t, "tiny.png")
 			multimodalImageOnly(t, cell.Frontend, feSrv.URL, feSrv.Client(), png)
-			assertUpstreamImageMarker(t, cell.Backend, captured)
+			assertUpstreamImageMarker(t, cell.Backend, strings.Join(captured, "\n"))
 		})
 	}
 }
@@ -221,8 +221,8 @@ func TestConformance_CredentialPool_Multimodal_pdfInUpstream(t *testing.T) {
 				assertMultimodalPDFRejectedBeforeNetwork(t, cell.Frontend, cell.Backend)
 				return
 			}
-			var captured string
-			beSrv := NewSuccessRefBackend(t, cell.Backend, func(b []byte) { captured = string(b) })
+			var captured []string
+			beSrv := NewSuccessRefBackend(t, cell.Backend, func(b []byte) { captured = append(captured, string(b)) })
 			exec := NewTestExecutorDualCredential(t, cell.Backend, beSrv.URL, beSrv.Client())
 			route := RouteSelector(cell.Backend, DefaultModel(cell.Backend))
 			mux := http.NewServeMux()
@@ -234,7 +234,7 @@ func TestConformance_CredentialPool_Multimodal_pdfInUpstream(t *testing.T) {
 
 			pdf := refclienttest.ReadRefclientFixture(t, "minimal.pdf")
 			multimodalPDFOnly(t, cell.Frontend, feSrv.URL, feSrv.Client(), pdf)
-			assertUpstreamPDFMarker(t, cell.Backend, captured)
+			assertUpstreamPDFMarker(t, cell.Backend, strings.Join(captured, "\n"))
 		})
 	}
 }

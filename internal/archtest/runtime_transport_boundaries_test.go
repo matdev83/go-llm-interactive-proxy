@@ -3,7 +3,6 @@ package archtest
 import (
 	"bytes"
 	"encoding/json"
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -19,9 +18,7 @@ func TestInternalCoreRuntimeDoesNotImportProviderSDKsOrProtocolPlugins(t *testin
 		{name: "no_genai_sdk", sub: "google.golang.org/genai", msg: "internal/core/runtime must not import Google GenAI SDK"},
 		{name: "no_bedrock_sdk", sub: "github.com/aws/aws-sdk-go-v2/service/bedrockruntime", msg: "internal/core/runtime must not import Bedrock runtime SDK"},
 	}
-	cmd := exec.Command("go", "list", "-json", "-test=false", "./internal/core/runtime/...")
-	cmd.Dir = repoRoot(t)
-	out, err := cmd.Output()
+	out, err := cachedGoList(t, "-json", "-test=false", "./internal/core/runtime/...")
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}

@@ -34,6 +34,7 @@ func TestCompatibleTokenizer_omissionDefaultValidOverrideUnknown(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			raw := compatibleTokenizerYAML("tok-"+tc.name, srv.URL, tc.tokenizer)
 			be, err := buildCompatibleExecBackend(t, reg, CustomOpenAILegacyCompatibleID, "tok-"+tc.name, raw, srv.Client())
 			if tc.wantErr != "" {

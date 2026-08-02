@@ -131,6 +131,13 @@ validated by [`matrix_45_evidence_test.go`](../internal/testkit/conformance/matr
 - OpenRouter/NVIDIA cells are driven through the configured OpenAI-compatible
   provider-mode backend (`BackendFor` constructs the provider-mode backend, never
   the optional connectors); the OpenResponses row proves the route.
+- ACP cells are driven through the actual relocated executable connector: the
+  harness builds `connectors/acp` once per test binary and launches a dedicated
+  `lip-backend-acp` process per cell, configured with the cell's observing origin
+  and driven through the backendplugin host adapter APIs
+  ([`acp_connector.go`](../internal/testkit/conformance/acp_connector.go));
+  ACP stays an optional connector column (never an essential backend kind) and
+  its protocol adapter is never linked into the root module.
 - Full-path compliance: `make test-openresponses-compliance` runs the independent
   client → frontend → core → OpenResponses backend → independent provider path,
   the direct independent-emulator wire suites, the 45-cell matrix, and the

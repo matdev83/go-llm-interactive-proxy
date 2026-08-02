@@ -2,21 +2,26 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/tools/backendplugin/runner"
+	"github.com/matdev83/go-llm-interactive-proxy/tools/taskrunner"
 	"gopkg.in/yaml.v3"
 )
+
+const packageCommandTimeout = 15 * time.Minute
 
 type releaseMeta struct {
 	Schema              string   `yaml:"schema"`
@@ -305,11 +310,16 @@ func packageOne(staging string, r discoveredRelease, platform, access string) (m
 	if err != nil {
 		return nil, err
 	}
-	build := exec.Command("go", "build", "-trimpath", "-ldflags=-buildid=", "-o", absOut, r.Meta.Command)
-	build.Dir = r.Root
-	build.Env = append(os.Environ(), "GOWORK=off")
-	if out, err := build.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("build %s: %w\n%s", r.DirName, err, out)
+	result := runner.Run(context.Background(), runner.Request{
+		Argv:    []string{"go", "build", "-trimpath", "-ldflags=-buildid=", "-o", absOut, r.Meta.Command},
+		Dir:     r.Root,
+		Env:     []string{"GOWORK=off", "CGO_ENABLED=0"},
+		Timeout: packageCommandTimeout,
+		Output:  taskrunner.Capture,
+		Label:   "package_plugins:" + r.DirName + ":build",
+	})
+	if result.Kind != taskrunner.Success {
+		return nil, fmt.Errorf("build %s: %w", r.DirName, runner.Error(result))
 	}
 	exeDig, err := fileSHA256(absOut)
 	if err != nil {

@@ -1,18 +1,24 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/tools/backendplugin/runner"
+	"github.com/matdev83/go-llm-interactive-proxy/tools/taskrunner"
 )
 
 const reportSchema = "golip.release.gates/v1"
+
+const releaseCommandTimeout = 8 * time.Minute
 
 type moduleResult struct {
 	Module string   `json:"module"`
@@ -401,14 +407,18 @@ func runModuleMatrix(root string, mods []string) ([]moduleResult, error) {
 				res.Steps = append(res.Steps, "tidy_diff:ok")
 				continue
 			}
-			cmd := exec.Command("go", st.args...)
-			cmd.Dir = modRoot
-			cmd.Env = append(os.Environ(), "GOWORK=off")
-			out, err := cmd.CombinedOutput()
-			if err != nil {
+			result := runner.Run(context.Background(), runner.Request{
+				Argv:    append([]string{"go"}, st.args...),
+				Dir:     modRoot,
+				Env:     []string{"GOWORK=off"},
+				Timeout: releaseCommandTimeout,
+				Output:  taskrunner.Capture,
+				Label:   fmt.Sprintf("release_gates:%s:%s", mod, st.name),
+			})
+			if result.Kind != taskrunner.Success {
 				res.OK = false
-				fmt.Fprintf(os.Stderr, "release_gates: %s %s:\n%s\n", mod, st.name, out)
-				res.Error = sanitizeFailureDetail(root, fmt.Sprintf("%s: %v", st.name, err))
+				fmt.Fprintf(os.Stderr, "release_gates: %s %s:\n%s\n", mod, st.name, result.Stdout)
+				res.Error = sanitizeFailureDetail(root, fmt.Sprintf("%s: %v", st.name, runner.Error(result)))
 				res.Steps = append(res.Steps, st.name+":fail")
 				if firstErr == nil {
 					firstErr = fmt.Errorf("%s: %s failed", mod, st.name)
@@ -463,14 +473,18 @@ func buildModuleCmds(modRoot string, res *moduleResult) error {
 		if runtime.GOOS == "windows" {
 			outBin += ".exe"
 		}
-		cmd := exec.Command("go", "build", "-o", outBin, rel)
-		cmd.Dir = modRoot
-		cmd.Env = append(os.Environ(), "GOWORK=off", "CGO_ENABLED=0")
-		out, err := cmd.CombinedOutput()
+		result := runner.Run(context.Background(), runner.Request{
+			Argv:    []string{"go", "build", "-o", outBin, rel},
+			Dir:     modRoot,
+			Env:     []string{"GOWORK=off", "CGO_ENABLED=0"},
+			Timeout: releaseCommandTimeout,
+			Output:  taskrunner.Capture,
+			Label:   "release_gates:" + filepath.ToSlash(rel),
+		})
 		_ = os.Remove(outBin)
-		if err != nil {
+		if result.Kind != taskrunner.Success {
 			res.Steps = append(res.Steps, "build:"+e.Name()+":fail")
-			return fmt.Errorf("build %s: %v\n%s", rel, err, out)
+			return fmt.Errorf("build %s: %w", rel, runner.Error(result))
 		}
 		res.Steps = append(res.Steps, "build:"+e.Name()+":ok")
 	}

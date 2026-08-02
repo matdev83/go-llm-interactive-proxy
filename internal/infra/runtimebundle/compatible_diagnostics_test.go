@@ -108,10 +108,12 @@ func TestCompatibleDiagnostics_inspectDistinguishesFromExternalPlugins(t *testin
 	}
 	var factoryEntry, instanceEntry bool
 	for _, e := range rep.Entries {
-		if e.Kind == "custom-openai-legacy-compatible" && e.Source == "built_in_compatible" {
-			if e.InstanceID == "" {
+		switch {
+		case e.Kind == "custom-openai-legacy-compatible" && e.Source == "built_in_compatible":
+			switch {
+			case e.InstanceID == "":
 				factoryEntry = true
-			} else if e.InstanceID == "compat-diag" {
+			case e.InstanceID == "compat-diag":
 				instanceEntry = true
 				if e.ActivationRequired {
 					t.Fatal("compatible instance must not require plugin activation")
@@ -184,7 +186,7 @@ func writeCompatibleDiagnosticsConfig(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := fmt.Sprintf(`    - id: compat-diag
+	rows := `    - id: compat-diag
       kind: custom-openai-legacy-compatible
       enabled: true
       config:
@@ -198,7 +200,7 @@ func writeCompatibleDiagnosticsConfig(t *testing.T) string {
           items:
             - canonical_id: compat-diag/model-a
               native_id: model-a
-`)
+`
 	text := strings.Replace(string(base), "  features:\n", rows+"  features:\n", 1)
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {

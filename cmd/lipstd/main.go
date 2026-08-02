@@ -40,6 +40,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		ErrorOut:       stderr,
 	})
 }
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), ShutdownSignals()...)
 	code := run(ctx, os.Args[1:], os.Stdout, os.Stderr)

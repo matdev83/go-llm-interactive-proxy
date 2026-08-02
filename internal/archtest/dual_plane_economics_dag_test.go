@@ -3,7 +3,6 @@ package archtest
 import (
 	"bytes"
 	"encoding/json"
-	"os/exec"
 	"testing"
 )
 
@@ -34,9 +33,7 @@ func TestDualPlaneEconomicsPublicPackageDAG(t *testing.T) {
 
 func directPackageImports(t *testing.T, pattern string) map[string]struct{} {
 	t.Helper()
-	cmd := exec.Command("go", "list", "-json", "-test=false", pattern)
-	cmd.Dir = repoRoot(t)
-	out, err := cmd.Output()
+	out, err := cachedGoList(t, "-json", "-test=false", pattern)
 	if err != nil {
 		t.Fatalf("go list %s: %v", pattern, err)
 	}

@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 )
@@ -33,5 +34,21 @@ func TestRPCErrFromBody(t *testing.T) {
 	}
 	if re.Method != "session/new" || re.Code != 1 || re.Message != "x" {
 		t.Fatalf("fields: %+v", re)
+	}
+}
+
+func TestRPCErrFromBody_includesStructuredDetail(t *testing.T) {
+	t.Parallel()
+	err := rpcErrFromBody("initialize", &rpcErrorBody{
+		Code:    -32603,
+		Message: "Internal error",
+		Data:    json.RawMessage(`{"error":"Gemini quota exhausted for this account"}`),
+	})
+	var re *RPCError
+	if !errors.As(err, &re) {
+		t.Fatalf("want *RPCError, got %T", err)
+	}
+	if got, want := re.Message, "Internal error: Gemini quota exhausted for this account"; got != want {
+		t.Fatalf("message = %q, want %q", got, want)
 	}
 }

@@ -18,12 +18,15 @@ func BundledFrontendIDs() []string {
 }
 
 // BundledBackendIDs is the authoritative list of v1 bundled backend compatibility
-// identities (Requirement 13.5): the six essential backends, the generic OpenResponses
-// backend, and the OpenRouter/NVIDIA provider-connector identities. OpenRouter and NVIDIA
-// are authoritative compatibility identities but remain optional connectors; their matrix
-// cells are driven through the classified configured provider-mode path
-// (DeployConfiguredProviderMode / the openai-compat provider-mode backend) and are never
-// promoted to essential backend kinds.
+// identities (Requirement 13.5): the essential backends, the generic OpenResponses
+// backend, and the provider-connector identities (ACP, OpenRouter, NVIDIA). ACP is an
+// authoritative compatibility identity but, like OpenRouter/NVIDIA, stays an optional
+// connector column: after the origin/main ACP relocation it is executed through the
+// harness's connector host (acp_connector.go launches the relocated connectors/acp
+// executable via the backendplugin host adapter APIs) and is never promoted to an
+// essential backend kind. OpenRouter/NVIDIA matrix cells are driven through the
+// classified configured OpenAI-compatible provider-mode path (DeployConfiguredProviderMode
+// / the openai-compat provider-mode backend) and are never promoted either.
 func BundledBackendIDs() []string {
 	return []string{
 		"openai-responses",
@@ -45,8 +48,9 @@ type MatrixCellDriver string
 
 const (
 	// DriverBase is the base-bundle construct/mount path: a real essential/OpenResponses
-	// backend adapter behind the real core executor and the real frontend handler, with an
-	// injectable reference-provider origin.
+	// backend adapter (or, for the ACP connector column, the host-built connector backend
+	// from acp_connector.go) behind the real core executor and the real frontend handler,
+	// with an injectable reference-provider origin.
 	DriverBase MatrixCellDriver = "base"
 	// DriverConfiguredProviderMode is the classified configured-mode path for the
 	// OpenRouter/NVIDIA optional-connector columns: the real frontend behind the real core

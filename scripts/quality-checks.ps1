@@ -2,6 +2,13 @@
 # Fast quality checks before tests. Order: fastest to slowest, fail-fast.
 
 $ErrorActionPreference = "Stop"
+. "$PSScriptRoot/taskrunner.ps1"
+$RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+
+function Invoke-QualityChild {
+    param([string]$Label, [string[]]$Command, [string[]]$Env = @(), [string]$Timeout = "2m")
+    Invoke-TaskRunner -Label "quality-checks:$Label" -Cwd $RepositoryRoot -Timeout $Timeout -Env $Env -Command $Command | Out-Host
+}
 
 function Test-UnderNestedGoModule {
     param([string]$NormalizedPath)
@@ -62,7 +69,7 @@ Write-Host "Quality scope: $($qualityPackages -join ' ')" -ForegroundColor DarkG
 Write-Host ""
 
 Write-Host "[1/7] Checking Go formatting..." -ForegroundColor Yellow
-$unformatted = @(gofmt -l . 2>$null | Where-Object { $_ })
+$unformatted = @(Invoke-TaskRunner -Label "quality-checks:gofmt" -Cwd $RepositoryRoot -Timeout "2m" -Output capture -Command @("gofmt", "-l", ".") 2>$null | Where-Object { $_ })
 if ($unformatted.Count -gt 0) {
     Write-Host "Unformatted files:" -ForegroundColor Red
     $unformatted | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
@@ -75,10 +82,7 @@ Write-Host ""
 Write-Host "[2/7] Checking Go modules..." -ForegroundColor Yellow
 $preTidyMod = if (Test-Path go.mod) { (git hash-object go.mod 2>$null).Trim() } else { "missing-go-mod" }
 $preTidySum = if (Test-Path go.sum) { (git hash-object go.sum 2>$null).Trim() } else { "missing-go-sum" }
-go mod tidy
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
+$null = Invoke-QualityChild "go-mod-tidy" @("go", "mod", "tidy") -Timeout "3m"
 $postTidyMod = if (Test-Path go.mod) { (git hash-object go.mod 2>$null).Trim() } else { "missing-go-mod" }
 $postTidySum = if (Test-Path go.sum) { (git hash-object go.sum 2>$null).Trim() } else { "missing-go-sum" }
 if ($preTidyMod -ne $postTidyMod -or $preTidySum -ne $postTidySum) {
@@ -111,43 +115,25 @@ Write-Host "OK: Module check passed" -ForegroundColor Green
 Write-Host ""
 
 Write-Host "[3/7] Checking build..." -ForegroundColor Yellow
-go build @qualityPackages
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: Build failed" -ForegroundColor Red
-    exit $LASTEXITCODE
-}
+$null = Invoke-QualityChild "build" (@("go", "build") + $qualityPackages)
 Write-Host "OK: Build check passed" -ForegroundColor Green
 Write-Host ""
 
 Write-Host "[4/7] Running go vet..." -ForegroundColor Yellow
-go vet @qualityPackages
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: go vet failed" -ForegroundColor Red
-    exit $LASTEXITCODE
-}
+$null = Invoke-QualityChild "vet" (@("go", "vet") + $qualityPackages)
 Write-Host "OK: Vet check passed" -ForegroundColor Green
 Write-Host ""
 
 Write-Host "[5/7] Ad-hoc goroutine allowlist (non-test)..." -ForegroundColor Yellow
-& "$PSScriptRoot/check-adhoc-goroutines.ps1"
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
+$null = Invoke-QualityChild "adhoc-goroutines" @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot/check-adhoc-goroutines.ps1")
 Write-Host ""
 
 Write-Host "[6/7] Regex hot-path check (regexp compile in frontends/runtime)..." -ForegroundColor Yellow
-& "$PSScriptRoot/regex-hotpath-check.ps1"
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
+$null = Invoke-QualityChild "regex-hotpath" @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot/regex-hotpath-check.ps1")
 Write-Host ""
 
 Write-Host "[7/7] Architecture guardrails (line budgets, no init in bundle path)..." -ForegroundColor Yellow
-go test ./internal/archtest/...
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: internal/archtest failed" -ForegroundColor Red
-    exit $LASTEXITCODE
-}
+$null = Invoke-QualityChild "archtest" @("go", "test", "./internal/archtest/...")
 Write-Host ""
 
 Write-Host "=== All Quality Checks Passed ===" -ForegroundColor Green

@@ -10,7 +10,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
@@ -116,11 +115,12 @@ func BackendFor(tb testing.TB, backendID, upstreamBaseURL string, httpClient *ht
 			DisableHTTPS:    true,
 			HTTPClient:      httpClient,
 		})
-	case acp.ID:
-		return acp.New(acp.Config{
-			BaseURL:    upstreamBaseURL,
-			HTTPClient: httpClient,
-		})
+	case BackendACP:
+		// ACP is an executable connector column (connectors/acp); the harness
+		// launches the real connector and drives it through the backendplugin
+		// host adapter APIs (acp_connector.go). It is never an essential kind
+		// and its protocol adapter is never linked into the root module.
+		return acpConnectorBackend(tb, upstreamBaseURL)
 	case BackendOpenResponses:
 		// The generic OpenResponses backend is constructed from strict
 		// compatible-mode YAML against the observing origin (Requirement 9.1).
@@ -205,7 +205,7 @@ func BackendForDualCredential(tb testing.TB, backendID, upstreamBaseURL string, 
 			APIKeys:    []string{"fake-key", "fake-key-pool2"},
 			HTTPClient: httpClient,
 		})
-	case bedrock.ID, acp.ID, BackendOpenResponses, BackendOpenRouter, BackendNVIDIA:
+	case bedrock.ID, BackendACP, BackendOpenResponses, BackendOpenRouter, BackendNVIDIA:
 		return BackendFor(tb, backendID, upstreamBaseURL, httpClient)
 	default:
 		tb.Fatalf("unknown backend id %q", backendID)

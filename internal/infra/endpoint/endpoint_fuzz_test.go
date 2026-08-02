@@ -77,8 +77,8 @@ func FuzzCompatibleEndpoint(f *testing.F) {
 			t.Fatalf("normalized base is not a clean absolute URL: %q err=%v user=%v", d.BaseURL(), perr, parsed.User)
 		}
 		rest := d.BaseURL()
-		if i := strings.Index(rest, "://"); i >= 0 {
-			rest = rest[i+3:]
+		if _, after, ok := strings.Cut(rest, "://"); ok {
+			rest = after
 		}
 		if strings.Contains(rest, "//") {
 			t.Fatalf("normalized base has duplicated separators: %q", d.BaseURL())
@@ -92,8 +92,8 @@ func FuzzCompatibleEndpoint(f *testing.F) {
 				t.Fatalf("Join(%s)=%q does not preserve base %q", op, joined, d.BaseURL())
 			}
 			rest := joined
-			if i := strings.Index(joined, "://"); i >= 0 {
-				rest = joined[i+3:]
+			if _, after, ok := strings.Cut(joined, "://"); ok {
+				rest = after
 			}
 			if strings.Contains(rest, "//") {
 				t.Fatalf("Join duplicated separators: %q", joined)

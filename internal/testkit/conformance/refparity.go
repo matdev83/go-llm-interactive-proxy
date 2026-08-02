@@ -19,7 +19,6 @@ import (
 	refopenaichat "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openaichat"
 	refopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openairesponses"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
@@ -34,7 +33,7 @@ const parityText = "conformance-parity"
 // Optional onRequestBody observes the raw upstream HTTP body after route/auth checks.
 func NewSuccessRefBackend(tb testing.TB, backendID string, onRequestBody func([]byte)) *httptest.Server {
 	tb.Helper()
-	if backendID == acp.ID {
+	if backendID == BackendACP {
 		srv := httptest.NewServer(refacp.NewHandler(refacp.Config{OnRequestBody: onRequestBody}))
 		tb.Cleanup(srv.Close)
 		return srv

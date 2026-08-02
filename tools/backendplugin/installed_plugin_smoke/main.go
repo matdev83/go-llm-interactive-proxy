@@ -11,7 +11,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -19,8 +18,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/tools/backendplugin/runner"
+	"github.com/matdev83/go-llm-interactive-proxy/tools/taskrunner"
 	"gopkg.in/yaml.v3"
 )
+
+const smokeCommandTimeout = 20 * time.Minute
+const smokeProcessTimeout = 2 * time.Minute
 
 type releaseMeta struct {
 	Schema       string   `yaml:"schema"`
@@ -56,7 +60,7 @@ func run(repoRoot string) error {
 	if err != nil {
 		return err
 	}
-	env := append(os.Environ(), "GOWORK=off")
+	env := []string{"GOWORK=off"}
 	work, err := os.MkdirTemp("", "golip-installed-smoke-*")
 	if err != nil {
 		return err
@@ -69,13 +73,18 @@ func run(repoRoot string) error {
 	}
 	binPath := filepath.Join(work, binName)
 	fmt.Println("== build lipstd once (GOWORK=off) ==")
-	build := exec.Command("go", "build", "-o", binPath, "./cmd/lipstd")
-	build.Dir = absRoot
-	build.Env = env
-	build.Stdout = os.Stdout
-	build.Stderr = os.Stderr
-	if err := build.Run(); err != nil {
-		return fmt.Errorf("build lipstd: %w", err)
+	result := runner.Run(context.Background(), runner.Request{
+		Argv:      []string{"go", "build", "-o", binPath, "./cmd/lipstd"},
+		Dir:       absRoot,
+		Env:       env,
+		Timeout:   smokeCommandTimeout,
+		Output:    taskrunner.Stream,
+		StreamOut: os.Stdout,
+		StreamErr: os.Stderr,
+		Label:     "installed_plugin_smoke:build",
+	})
+	if result.Kind != taskrunner.Success {
+		return fmt.Errorf("build lipstd: %w", runner.Error(result))
 	}
 	hashBefore, err := fileSHA256(binPath)
 	if err != nil {
@@ -109,14 +118,19 @@ func run(repoRoot string) error {
 	pkgDest := filepath.Join(work, "plugins")
 	selectArg := stub.DirName + "," + multi.DirName
 	fmt.Println("== package selected release artifacts ==")
-	pkg := exec.Command("go", "run", "./tools/backendplugin/package_plugins",
-		"-root", absRoot, "-profile", "full", "-dest", pkgDest, "-select", selectArg)
-	pkg.Dir = absRoot
-	pkg.Env = env
-	pkg.Stdout = os.Stdout
-	pkg.Stderr = os.Stderr
-	if err := pkg.Run(); err != nil {
-		return fmt.Errorf("package_plugins: %w", err)
+	result = runner.Run(context.Background(), runner.Request{
+		Argv: []string{"go", "run", "./tools/backendplugin/package_plugins",
+			"-root", absRoot, "-profile", "full", "-dest", pkgDest, "-select", selectArg},
+		Dir:       absRoot,
+		Env:       env,
+		Timeout:   smokeCommandTimeout,
+		Output:    taskrunner.Stream,
+		StreamOut: os.Stdout,
+		StreamErr: os.Stderr,
+		Label:     "installed_plugin_smoke:package_plugins",
+	})
+	if result.Kind != taskrunner.Success {
+		return fmt.Errorf("package_plugins: %w", runner.Error(result))
 	}
 
 	hashAfterPkg, err := fileSHA256(binPath)
@@ -153,11 +167,15 @@ func run(repoRoot string) error {
 	}
 
 	fmt.Println("== doctor stub instance ==")
-	doc := exec.Command(binPath, "--config", pluginCfg, "-instance", "smoke-stub", "doctor")
-	doc.Env = env
-	docOut, docErr := doc.CombinedOutput()
-	if docErr != nil {
-		return fmt.Errorf("doctor: %w\n%s", docErr, docOut)
+	result = runner.Run(context.Background(), runner.Request{
+		Argv:    []string{binPath, "--config", pluginCfg, "-instance", "smoke-stub", "doctor"},
+		Env:     env,
+		Timeout: smokeCommandTimeout,
+		Output:  taskrunner.Capture,
+		Label:   "installed_plugin_smoke:doctor",
+	})
+	if result.Kind != taskrunner.Success {
+		return fmt.Errorf("doctor: %w", runner.Error(result))
 	}
 
 	fmt.Println("== invoke stub via serve (same binary) ==")
@@ -301,10 +319,21 @@ func fileSHA256(path string) (string, error) {
 }
 
 func runLipstd(bin, cfg, cmd string) (string, error) {
-	c := exec.Command(bin, "--config", cfg, cmd)
-	c.Env = append(os.Environ(), "GOWORK=off")
-	out, err := c.CombinedOutput()
-	return string(out), err
+	result := runner.Run(context.Background(), runner.Request{
+		Argv:    []string{bin, "--config", cfg, cmd},
+		Env:     []string{"GOWORK=off"},
+		Timeout: smokeCommandTimeout,
+		Output:  taskrunner.Capture,
+		Label:   "installed_plugin_smoke:" + cmd,
+	})
+	return string(result.Stdout), resultError(result)
+}
+
+func resultError(result taskrunner.Result) error {
+	if result.Kind == taskrunner.Success {
+		return nil
+	}
+	return runner.Error(result)
 }
 
 func assertInspectEssentialsOnly(out string) error {
@@ -395,21 +424,22 @@ func invokeStubViaServe(bin, cfg string, env []string) error {
 	if err := os.WriteFile(serveCfg, []byte(patched), 0o600); err != nil {
 		return err
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), smokeProcessTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "--config", serveCfg, "serve")
-	cmd.Env = env
-	var stderr bytes.Buffer
-	cmd.Stdout = io.Discard
-	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	defer func() {
-		cancel()
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
+	resultCh := make(chan taskrunner.Result, 1)
+	go func() {
+		resultCh <- runner.Run(ctx, runner.Request{
+			Argv:    []string{bin, "--config", serveCfg, "serve"},
+			Env:     env,
+			Timeout: smokeProcessTimeout,
+			Output:  taskrunner.Capture,
+			Label:   "installed_plugin_smoke:serve",
+		})
 	}()
+	stopServer := func() taskrunner.Result {
+		cancel()
+		return <-resultCh
+	}
 
 	deadline := time.Now().Add(45 * time.Second)
 	var lastErr error
@@ -419,6 +449,11 @@ func invokeStubViaServe(bin, cfg string, env []string) error {
 		req.Header.Set("Authorization", "Bearer test")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
+			select {
+			case result := <-resultCh:
+				return fmt.Errorf("serve exited before readiness: %w", runner.Error(result))
+			default:
+			}
 			lastErr = err
 			time.Sleep(200 * time.Millisecond)
 			continue
@@ -426,10 +461,21 @@ func invokeStubViaServe(bin, cfg string, env []string) error {
 		body, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			result := stopServer()
+			if result.Kind != taskrunner.DeadlineExceeded && result.Kind != taskrunner.ChildFailure {
+				return fmt.Errorf("serve cleanup: %w", runner.Error(result))
+			}
 			return nil
 		}
-		lastErr = fmt.Errorf("status=%d body=%s stderr=%s", resp.StatusCode, truncate(string(body), 400), truncate(stderr.String(), 400))
+		lastErr = fmt.Errorf("status=%d body=%s", resp.StatusCode, truncate(string(body), 400))
 		time.Sleep(200 * time.Millisecond)
+	}
+	result := stopServer()
+	if result.Kind != taskrunner.DeadlineExceeded && result.Kind != taskrunner.ChildFailure {
+		return fmt.Errorf("invoke stub via serve: %v; cleanup: %w", lastErr, runner.Error(result))
+	}
+	if result.Stderr != nil {
+		return fmt.Errorf("invoke stub via serve: %v; stderr: %s", lastErr, truncate(string(result.Stderr), 400))
 	}
 	return fmt.Errorf("invoke stub via serve: %v", lastErr)
 }

@@ -41,8 +41,8 @@ func TestConformance_Multimodal_imageInUpstream(t *testing.T) {
 		}
 		t.Run(cell.Frontend+"__"+cell.Backend, func(t *testing.T) {
 			t.Parallel()
-			var captured string
-			beSrv := NewSuccessRefBackend(t, cell.Backend, func(b []byte) { captured = string(b) })
+			var captured []string
+			beSrv := NewSuccessRefBackend(t, cell.Backend, func(b []byte) { captured = append(captured, string(b)) })
 			exec := NewTestExecutor(t, cell.Backend, beSrv.URL, beSrv.Client())
 			route := RouteSelector(cell.Backend, DefaultModel(cell.Backend))
 			mux := http.NewServeMux()
@@ -54,7 +54,11 @@ func TestConformance_Multimodal_imageInUpstream(t *testing.T) {
 
 			png := refclienttest.ReadRefclientFixture(t, "tiny.png")
 			multimodalImageOnly(t, cell.Frontend, feSrv.URL, feSrv.Client(), png)
-			assertUpstreamImageMarker(t, cell.Backend, captured)
+			// ACP (and other streaming connectors) may emit a trailing
+			// best-effort cancel/close RPC after the terminal event, so the
+			// projection marker is asserted against any captured upstream
+			// request, matching the row/general "any request" evidence checks.
+			assertUpstreamImageMarker(t, cell.Backend, strings.Join(captured, "\n"))
 		})
 	}
 }
@@ -75,8 +79,8 @@ func TestConformance_Multimodal_pdfInUpstream(t *testing.T) {
 				assertMultimodalPDFRejectedBeforeNetwork(t, cell.Frontend, cell.Backend)
 				return
 			}
-			var captured string
-			beSrv := NewSuccessRefBackend(t, cell.Backend, func(b []byte) { captured = string(b) })
+			var captured []string
+			beSrv := NewSuccessRefBackend(t, cell.Backend, func(b []byte) { captured = append(captured, string(b)) })
 			exec := NewTestExecutor(t, cell.Backend, beSrv.URL, beSrv.Client())
 			route := RouteSelector(cell.Backend, DefaultModel(cell.Backend))
 			mux := http.NewServeMux()
@@ -88,7 +92,7 @@ func TestConformance_Multimodal_pdfInUpstream(t *testing.T) {
 
 			pdf := refclienttest.ReadRefclientFixture(t, "minimal.pdf")
 			multimodalPDFOnly(t, cell.Frontend, feSrv.URL, feSrv.Client(), pdf)
-			assertUpstreamPDFMarker(t, cell.Backend, captured)
+			assertUpstreamPDFMarker(t, cell.Backend, strings.Join(captured, "\n"))
 		})
 	}
 }

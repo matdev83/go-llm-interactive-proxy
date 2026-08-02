@@ -504,6 +504,7 @@ func TestIdentityTransport_excludedHTTPConnectorsIgnoreGlobalCustomUA(t *testing
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			var sawUA string
 			var sawPresent bool
 			inner := refchat.NewHandler(refchat.Config{})

@@ -136,7 +136,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := validateCodexHeaders(r); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "invalid headers", http.StatusBadRequest)
 		return
 	}
 
@@ -192,7 +192,7 @@ func (s *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := validateCodexHeaders(r); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "invalid headers", http.StatusBadRequest)
 		return
 	}
 	respHeader := http.Header{}
