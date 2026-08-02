@@ -9,6 +9,9 @@ import (
 	frontgemini "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/gemini"
 	frontopenailegacy "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"
 	frontopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
+	frontopenresponses "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openresponses"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"gopkg.in/yaml.v3"
 )
 
 // MountFrontend registers the bundled frontend handler on mux for conformance tests.
@@ -36,6 +39,17 @@ func MountFrontend(mux *http.ServeMux, frontendID string, exec *runtime.Executor
 		}
 		mux.Handle("/v1beta/", h)
 		mux.Handle("/v1beta1/", h)
+	case "openresponses":
+		var cfg yaml.Node
+		if err := yaml.Unmarshal([]byte("{}"), &cfg); err != nil {
+			return fmt.Errorf("openresponses config: %w", err)
+		}
+		return frontopenresponses.Mount(mux, lipsdk.FrontendMountOptions{
+			PluginCfg:            cfg,
+			Exec:                 exec,
+			DefaultRoute:         routeSelector,
+			AllowUnauthenticated: true, // isolated conformance mount has no outer auth middleware
+		})
 	default:
 		return fmt.Errorf("unknown frontend id %q", frontendID)
 	}

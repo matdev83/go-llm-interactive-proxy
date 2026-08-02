@@ -3,6 +3,7 @@ package lipapi
 import (
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // Envelope size limits for Call validation. They bound how much work a single
@@ -46,7 +47,63 @@ const (
 	MaxReasoningOpaqueBytes     = MaxPartJSONBytes
 	MaxReasoningPartsPerMessage = MaxPartsPerMessage
 	MaxReasoningBytesPerCall    = MaxPartTextBytes
+
+	MaxItems                  = 4_096
+	MaxItemKindBytes          = 64
+	MaxItemStatusBytes        = 64
+	MaxAssistantPhaseBytes    = 64
+	MaxItemReferenceIDBytes   = 512
+	MaxCompactionDialectBytes = 8192
+	// MaxCompactionEncryptedContentBytes bounds the provider compaction blob on a
+	// compaction item (pinned profile encrypted_content). Aligned with the 8 MiB
+	// part cap so a single opaque blob cannot force unbounded allocations.
+	MaxCompactionEncryptedContentBytes = MaxPartJSONBytes
+	MaxExtensionNamespaceBytes         = 256
+	MaxExtensionTypeBytes              = 256
+	MaxExtensionImplementorBytes       = 256
+	MaxExtensionDirectionBytes         = 64
+	MaxExtensionDataBytes              = 4 * 1024 * 1024
+	MaxContentPartsPerItem             = 2_048
+	MaxJSONDepth                       = 64
+
+	// MaxAllowedToolRefs bounds the OpenResponses allowed_tools subset size to
+	// the pinned wire schema max (128 refs).
+	MaxAllowedToolRefs = 128
 )
+
+func validateJSONDepth(data []byte, maxDepth int) error {
+	depth := 0
+	inString := false
+	escaped := false
+	for i := 0; i < len(data); i++ {
+		b := data[i]
+		if inString {
+			if escaped {
+				escaped = false
+			} else if b == '\\' {
+				escaped = true
+			} else if b == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch b {
+		case '"':
+			inString = true
+		case '{', '[':
+			depth++
+			if depth > maxDepth {
+				return fmt.Errorf("exceeds maximum JSON depth of %d", maxDepth)
+			}
+		case '}', ']':
+			depth--
+			if depth < 0 {
+				return fmt.Errorf("malformed JSON structure")
+			}
+		}
+	}
+	return nil
+}
 
 func validateStringField(name, s string, max int) error {
 	if max <= 0 {
@@ -54,6 +111,16 @@ func validateStringField(name, s string, max int) error {
 	}
 	if len(s) > max {
 		return &ValidationError{Field: name, Message: fmt.Sprintf("exceeds %d bytes", max)}
+	}
+	return nil
+}
+
+func validateExactStringField(name, s string, max int) error {
+	if err := validateStringField(name, s, max); err != nil {
+		return err
+	}
+	if s != "" && s != strings.TrimSpace(s) {
+		return &ValidationError{Field: name, Message: "must not contain leading or trailing whitespace"}
 	}
 	return nil
 }
@@ -86,6 +153,9 @@ func (c Call) validateEnvelopeSizes() error {
 	}
 	if len(c.Messages) > MaxMessages {
 		return &ValidationError{Field: "Messages", Message: fmt.Sprintf("at most %d messages", MaxMessages)}
+	}
+	if len(c.Items) > MaxItems {
+		return &ValidationError{Field: "Items", Message: fmt.Sprintf("at most %d items", MaxItems)}
 	}
 	if len(c.Instructions) > MaxInstructionMessages {
 		return &ValidationError{Field: "Instructions", Message: fmt.Sprintf("at most %d instruction messages", MaxInstructionMessages)}
@@ -125,7 +195,7 @@ func (c Call) validateEnvelopeSizes() error {
 		}
 	}
 	for i, t := range c.Tools {
-		if err := validateStringField(fmt.Sprintf("Tools[%d].Name", i), t.Name, MaxToolNameBytes); err != nil {
+		if err := validateExactStringField(fmt.Sprintf("Tools[%d].Name", i), t.Name, MaxToolNameBytes); err != nil {
 			return err
 		}
 		if err := validateStringField(fmt.Sprintf("Tools[%d].Description", i), t.Description, MaxToolDescriptionBytes); err != nil {
@@ -165,7 +235,7 @@ func validatePartSizes(field string, p Part) error {
 		if err := validateStringField(field+".ToolCallID", p.ToolCallID, MaxRefStringBytes); err != nil {
 			return err
 		}
-		if err := validateStringField(field+".ToolName", p.ToolName, MaxRefStringBytes); err != nil {
+		if err := validateExactStringField(field+".ToolName", p.ToolName, MaxToolNameBytes); err != nil {
 			return err
 		}
 		if len(p.Content) > MaxPartJSONBytes {

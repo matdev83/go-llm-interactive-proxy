@@ -34,6 +34,30 @@ func capsToLipapi(c backendplugin.CapabilitySummary) lipapi.BackendCaps {
 	if c.ParallelToolCalls {
 		list = append(list, lipapi.CapabilityParallelToolCalls)
 	}
+	if c.OrderedItems {
+		list = append(list, lipapi.CapabilityOrderedItems)
+	}
+	if c.ItemReferences {
+		list = append(list, lipapi.CapabilityItemReferences)
+	}
+	if c.Compaction {
+		list = append(list, lipapi.CapabilityCompaction)
+	}
+	if c.AssistantPhase {
+		list = append(list, lipapi.CapabilityAssistantPhase)
+	}
+	if c.OpaqueExtensions {
+		list = append(list, lipapi.CapabilityOpaqueExtensions)
+	}
+	if c.VideoInput {
+		list = append(list, lipapi.CapabilityVideoInput)
+	}
+	if c.Annotations {
+		list = append(list, lipapi.CapabilityAnnotations)
+	}
+	if c.AssistantMediaRefs {
+		list = append(list, lipapi.CapabilityAssistantMediaRefs)
+	}
 	return lipapi.NewBackendCaps(list...)
 }
 

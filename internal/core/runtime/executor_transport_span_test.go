@@ -65,7 +65,7 @@ func TestExecutor_transportRejectSpan_recordsDecisionAttributes(t *testing.T) {
 		t.Fatal("expected transport reject")
 	}
 
-	span := findEndedSpan(t, rec.Ended(), "lip.executor.transport_negotiate")
+	span := findEndedSpan(t, rec.Ended(), "lip.executor.candidate_admission")
 	if span.Status().Code != codes.Error {
 		t.Fatalf("span status = %v, want error", span.Status())
 	}

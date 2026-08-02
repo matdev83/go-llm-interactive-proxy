@@ -37,6 +37,12 @@ func TestConformance_CredentialPool_TextOnly_roundTrip(t *testing.T) {
 			t.Cleanup(feSrv.Close)
 
 			got := nonStreamAssistantText(t, cell.Frontend, feSrv.URL, feSrv.Client())
+			if cell.Backend == BackendACP {
+				if !strings.Contains(got, "ok") {
+					t.Fatalf("expected ACP stock emulator text containing ok, got %q", got)
+				}
+				return
+			}
 			if !strings.Contains(got, parityText) {
 				t.Fatalf("expected parity text in response, got %q", got)
 			}
@@ -64,6 +70,12 @@ func TestConformance_CredentialPool_TextOnly_streamAndNonStreamParity(t *testing
 
 			ns := nonStreamAssistantText(t, cell.Frontend, feSrv.URL, feSrv.Client())
 			st := streamAssistantText(t, cell.Frontend, feSrv.URL, feSrv.Client())
+			if cell.Backend == BackendACP {
+				if !strings.Contains(ns, "ok") || !strings.Contains(st, "ok") {
+					t.Fatalf("expected ok in both paths non-stream=%q stream=%q", ns, st)
+				}
+				return
+			}
 			if !strings.Contains(ns, parityText) || !strings.Contains(st, parityText) {
 				t.Fatalf("expected parity in both paths non-stream=%q stream=%q", ns, st)
 			}
@@ -121,6 +133,10 @@ func TestConformance_CredentialPool_TextOnly_upstreamErrorShape(t *testing.T) {
 				if !strings.Contains(lower, "400") && !strings.Contains(lower, "invalid") && !strings.Contains(lower, "internal error") {
 					t.Fatalf("expected client-visible error mentioning status, invalid, or generic internal failure, got %v", err)
 				}
+			case "openresponses":
+				if err == nil {
+					t.Fatal("expected error")
+				}
 			default:
 				t.Fatalf("unexpected frontend %q", cell.Frontend)
 			}
@@ -173,8 +189,8 @@ func TestConformance_CredentialPool_Multimodal_imageInUpstream(t *testing.T) {
 		}
 		t.Run(cell.Frontend+"__"+cell.Backend, func(t *testing.T) {
 			t.Parallel()
-			var captured string
-			beSrv := NewSuccessRefBackend(t, cell.Backend, func(b []byte) { captured = string(b) })
+			var captured []string
+			beSrv := NewSuccessRefBackend(t, cell.Backend, func(b []byte) { captured = append(captured, string(b)) })
 			exec := NewTestExecutorDualCredential(t, cell.Backend, beSrv.URL, beSrv.Client())
 			route := RouteSelector(cell.Backend, DefaultModel(cell.Backend))
 			mux := http.NewServeMux()
@@ -186,7 +202,7 @@ func TestConformance_CredentialPool_Multimodal_imageInUpstream(t *testing.T) {
 
 			png := refclienttest.ReadRefclientFixture(t, "tiny.png")
 			multimodalImageOnly(t, cell.Frontend, feSrv.URL, feSrv.Client(), png)
-			assertUpstreamImageMarker(t, cell.Backend, captured)
+			assertUpstreamImageMarker(t, cell.Backend, strings.Join(captured, "\n"))
 		})
 	}
 }
@@ -199,8 +215,14 @@ func TestConformance_CredentialPool_Multimodal_pdfInUpstream(t *testing.T) {
 		}
 		t.Run(cell.Frontend+"__"+cell.Backend, func(t *testing.T) {
 			t.Parallel()
-			var captured string
-			beSrv := NewSuccessRefBackend(t, cell.Backend, func(b []byte) { captured = string(b) })
+			if !multimodalPDFCellPositive(cell.Frontend, cell.Backend) {
+				// See TestConformance_Multimodal_pdfInUpstream: OpenResponses
+				// profile/backend cells reject document input before network.
+				assertMultimodalPDFRejectedBeforeNetwork(t, cell.Frontend, cell.Backend)
+				return
+			}
+			var captured []string
+			beSrv := NewSuccessRefBackend(t, cell.Backend, func(b []byte) { captured = append(captured, string(b)) })
 			exec := NewTestExecutorDualCredential(t, cell.Backend, beSrv.URL, beSrv.Client())
 			route := RouteSelector(cell.Backend, DefaultModel(cell.Backend))
 			mux := http.NewServeMux()
@@ -212,7 +234,7 @@ func TestConformance_CredentialPool_Multimodal_pdfInUpstream(t *testing.T) {
 
 			pdf := refclienttest.ReadRefclientFixture(t, "minimal.pdf")
 			multimodalPDFOnly(t, cell.Frontend, feSrv.URL, feSrv.Client(), pdf)
-			assertUpstreamPDFMarker(t, cell.Backend, captured)
+			assertUpstreamPDFMarker(t, cell.Backend, strings.Join(captured, "\n"))
 		})
 	}
 }

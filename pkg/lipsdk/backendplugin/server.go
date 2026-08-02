@@ -302,6 +302,9 @@ func (s *GRPCServer) Execute(stream backendpluginv1.BackendPlugin_ExecuteServer)
 	if err != nil {
 		return status.Error(codes.InvalidArgument, err.Error())
 	}
+	if err := ValidateClientFrameBounds(frame); err != nil {
+		return status.Error(codes.InvalidArgument, err.Error())
+	}
 	if frame.Kind != ClientFrameStart || frame.Invocation == nil {
 		return status.Error(codes.InvalidArgument, fmt.Sprintf("%v: execute requires start frame", ErrInvalidFrame))
 	}
@@ -387,10 +390,20 @@ func (g *grpcExecuteStream) Recv() (ClientFrame, error) {
 	if err != nil {
 		return ClientFrame{}, err
 	}
-	return ClientFrameFromProto(msg)
+	frame, err := ClientFrameFromProto(msg)
+	if err != nil {
+		return ClientFrame{}, err
+	}
+	if err := ValidateClientFrameBounds(frame); err != nil {
+		return ClientFrame{}, err
+	}
+	return frame, nil
 }
 
 func (g *grpcExecuteStream) Send(frame ServerFrame) error {
+	if err := ValidateServerFrameBounds(frame); err != nil {
+		return err
+	}
 	msg, err := ServerFrameToProto(frame)
 	if err != nil {
 		return err

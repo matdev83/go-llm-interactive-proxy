@@ -111,6 +111,8 @@ func TestDualPlaneEconomic_ProtocolErrorShape(t *testing.T) {
 				}
 			case "gemini":
 				// Gemini client errors are stringly typed.
+			case "openresponses":
+				// The harness raw wire client surfaces the upstream failure as a status error.
 			default:
 				t.Fatalf("unexpected frontend %q", cell.Frontend)
 			}

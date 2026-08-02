@@ -18,15 +18,10 @@ func buildClientTurnRecordInput(now time.Time, traceID string, br app.BeginResul
 			Policy:    br.EffectivePolicy,
 		}
 	}
-	lines := make([]app.ClientInputLine, 0, len(call.Instructions)+len(call.Messages))
-	ord := 0
-	for _, m := range call.Instructions {
-		lines = append(lines, clientInputLineFromMessage(m, ord))
-		ord++
-	}
-	for _, m := range call.Messages {
-		lines = append(lines, clientInputLineFromMessage(m, ord))
-		ord++
+	items := lipapi.NormalizedItems(*call)
+	lines := make([]app.ClientInputLine, 0, len(items))
+	for ord, item := range items {
+		lines = append(lines, clientInputLineFromItem(item, ord))
 	}
 	return app.ClientTurnRecordInput{
 		Now:       now,
@@ -38,14 +33,21 @@ func buildClientTurnRecordInput(now time.Time, traceID string, br app.BeginResul
 	}
 }
 
-func clientInputLineFromMessage(m lipapi.Message, ordinal int) app.ClientInputLine {
-	kinds := make([]string, 0, len(m.Parts))
-	for _, p := range m.Parts {
-		kinds = append(kinds, string(p.Kind))
+func clientInputLineFromItem(item lipapi.Item, ordinal int) app.ClientInputLine {
+	if item.Kind == lipapi.ItemKindMessage {
+		kinds := make([]string, 0, len(item.Content))
+		for _, cp := range item.Content {
+			kinds = append(kinds, string(cp.Kind))
+		}
+		return app.ClientInputLine{
+			Role:    string(item.Role),
+			Ordinal: ordinal,
+			Parts:   kinds,
+		}
 	}
 	return app.ClientInputLine{
-		Role:    string(m.Role),
+		Role:    string(item.Kind),
 		Ordinal: ordinal,
-		Parts:   kinds,
+		Parts:   []string{string(item.Kind)},
 	}
 }

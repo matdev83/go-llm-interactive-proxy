@@ -46,8 +46,8 @@ type PackageTreeBudget struct {
 
 // PackageTreeBudgets locks measured convergence tree ceilings (+25 lines headroom).
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 10851},
-	{Tree: "internal/stdhttp", Max: 4339},
+	{Tree: "internal/infra/runtimebundle", Max: 10888},
+	{Tree: "internal/stdhttp", Max: 4815},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 562},
 }
@@ -63,8 +63,8 @@ type LineBudget struct {
 var LineBudgets = []LineBudget{
 	{Dir: "internal/core", Max: 68844},
 	{Dir: "internal/pluginreg", Max: 1079},
-	{Dir: "internal/stdhttp", Max: 4339},
-	{Dir: "internal/infra/runtimebundle", Max: 10851},
+	{Dir: "internal/stdhttp", Max: 4815},
+	{Dir: "internal/infra/runtimebundle", Max: 10888},
 	{Dir: "cmd/lipstd", Max: 979},
 	{Dir: "pkg/lipruntime", Max: 562},
 }

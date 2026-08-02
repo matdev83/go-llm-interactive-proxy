@@ -79,6 +79,9 @@ func validateStructural(ctx context.Context, in ValidateStructuralInput, ops str
 	if err := validateCompatibleBackendProjection(cfg); err != nil {
 		return err
 	}
+	if err := validateOpenResponsesFrontendProjection(cfg); err != nil {
+		return err
+	}
 	if _, err := RoutesSnapshotFrom(cfg, reg); err != nil {
 		return fmt.Errorf("runtimebundle: structural routes: %w", err)
 	}
@@ -98,6 +101,20 @@ func validateCompatibleBackendProjection(cfg *config.Config) error {
 			inst = "<unknown>"
 		}
 		return fmt.Errorf("runtimebundle: compatible backend %q: %s", inst, row.ConfigError)
+	}
+	return nil
+}
+
+func validateOpenResponsesFrontendProjection(cfg *config.Config) error {
+	for _, row := range standardplugins.ProjectOpenResponsesFrontendRows(cfg) {
+		if strings.TrimSpace(row.ConfigError) == "" {
+			continue
+		}
+		inst := strings.TrimSpace(row.InstanceID)
+		if inst == "" {
+			inst = "<unknown>"
+		}
+		return fmt.Errorf("runtimebundle: openresponses frontend %q: %s", inst, row.ConfigError)
 	}
 	return nil
 }

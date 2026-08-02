@@ -24,6 +24,7 @@ import (
 	frontgemini "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/gemini"
 	frontopenailegacy "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"
 	frontopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
+	frontopenresponses "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openresponses"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -130,6 +131,7 @@ func StandardBundle() Bundle {
 			{ID: frontopenailegacy.ID, Mount: frontopenailegacy.Mount},
 			{ID: frontanthropic.ID, Mount: frontanthropic.Mount},
 			{ID: frontgemini.ID, Mount: frontgemini.Mount},
+			{ID: frontopenresponses.ID, Mount: frontopenresponses.Mount},
 		},
 		Features: []FeatureRegistration{
 			{ID: submitnoop.ID, Factory: featureSubmitNoop},

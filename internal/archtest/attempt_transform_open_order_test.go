@@ -8,7 +8,10 @@ import (
 	"testing"
 )
 
-const runCandidateAttemptTransformStage = "RunCandidateAttemptTransformStage"
+const (
+	runCandidateAttemptTransformStage = "RunCandidateAttemptTransformStage"
+	evaluateCandidateAdmission        = "evaluateCandidateAdmission"
+)
 
 func findFunc(f *ast.File, name string) *ast.FuncDecl {
 	for _, decl := range f.Decls {
@@ -63,8 +66,8 @@ func TestOpenPlannedCandidate_attemptTransformBetweenShapeAndCapabilities(t *tes
 	transformPos := firstCallPos(openFn.Body, func(_, name string, _ *ast.CallExpr) bool {
 		return name == runCandidateAttemptTransformStage
 	})
-	capsPos := firstCallPos(openFn.Body, func(pkg, name string, _ *ast.CallExpr) bool {
-		return pkg == "lipapi" && name == "RequiredCapabilities"
+	admitPos := firstCallPos(openFn.Body, func(_, name string, _ *ast.CallExpr) bool {
+		return name == evaluateCandidateAdmission
 	})
 	openPos := firstCallPos(openFn.Body, func(pkg, name string, call *ast.CallExpr) bool {
 		if name != "Open" {
@@ -86,19 +89,19 @@ func TestOpenPlannedCandidate_attemptTransformBetweenShapeAndCapabilities(t *tes
 	if shapePos == 0 {
 		t.Fatal("openPlannedCandidate must call shapeAttemptCall")
 	}
-	if capsPos == 0 {
-		t.Fatal("openPlannedCandidate must call RequiredCapabilities")
+	if admitPos == 0 {
+		t.Fatal("openPlannedCandidate must call evaluateCandidateAdmission")
 	}
 	if transformPos == 0 {
-		t.Fatalf("RED: openPlannedCandidate must call %s after shapeAttemptCall and before RequiredCapabilities (stage %s)",
+		t.Fatalf("RED: openPlannedCandidate must call %s after shapeAttemptCall and before evaluateCandidateAdmission (stage %s)",
 			runCandidateAttemptTransformStage, "candidate_attempt_transform")
 	}
-	if shapePos >= transformPos || transformPos >= capsPos {
-		t.Fatalf("want shapeAttemptCall < %s < RequiredCapabilities; positions shape=%d transform=%d caps=%d",
-			runCandidateAttemptTransformStage, shapePos, transformPos, capsPos)
+	if shapePos >= transformPos || transformPos >= admitPos {
+		t.Fatalf("want shapeAttemptCall < %s < evaluateCandidateAdmission; positions shape=%d transform=%d admission=%d",
+			runCandidateAttemptTransformStage, shapePos, transformPos, admitPos)
 	}
-	if openPos != 0 && capsPos >= openPos {
-		t.Fatalf("RequiredCapabilities must precede backend Open; caps=%d open=%d", capsPos, openPos)
+	if openPos != 0 && admitPos >= openPos {
+		t.Fatalf("evaluateCandidateAdmission must precede backend Open; admission=%d open=%d", admitPos, openPos)
 	}
 }
 

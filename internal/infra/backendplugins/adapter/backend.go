@@ -28,6 +28,7 @@ type Options struct {
 	EnforcesMaxOutput    bool
 	Stderr               io.Reader
 	InvalidateGeneration func()
+	Negotiation          backendplugin.Negotiation
 }
 
 // Build constructs a composition-owned backend from a configured plugin session.
@@ -50,6 +51,7 @@ func Build(session ExecuteSession, profile backendplugin.ResolvedProfile, opt Op
 
 	be := execbackend.Backend{
 		Caps:                         capsToLipapi(profile.Capabilities),
+		DialectSupport:               backendplugin.DialectSupportToLipapi(profile.DialectSupport),
 		EnforcesMaxOutputTokens:      opt.EnforcesMaxOutput || profile.EnforceMaxOutput,
 		BackendPrefixes:              prefixes,
 		BillingFinalizationSupported: profile.SupportsFinalizeBilling,
@@ -69,6 +71,18 @@ func Build(session ExecuteSession, profile backendplugin.ResolvedProfile, opt Op
 			return be.Caps
 		}
 		return capsToLipapi(p.Capabilities)
+	}
+	be.ResolveDialectSupport = func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.DialectSupport {
+		model := cand.Primary.Model
+		var mid *string
+		if model != "" {
+			mid = &model
+		}
+		p, err := session.Resolve(ctx, mid)
+		if err != nil {
+			return be.DialectSupport
+		}
+		return backendplugin.DialectSupportToLipapi(p.DialectSupport)
 	}
 
 	be.ResolveTransportCaps = func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) lipapi.BackendTransportCaps {

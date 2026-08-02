@@ -25,8 +25,9 @@ Each bundled protocol id must appear in `ParityProtocolEvidence` and have at lea
 | `gemini` | `parity_gemini_test.go` |
 | `bedrock` | `parity_bedrock_test.go` |
 | `acp` | `parity_acp_test.go` |
-| `openrouter` | `parity_openai_test.go` |
-| `nvidia` | `parity_openai_test.go` |
+| `openresponses` | `openresponses_frontend_row_conformance_test.go`, `openresponses_backend_column_conformance_test.go`, `openresponses_frontend_row_scenarios_test.go`, `openresponses_backend_column_scenarios_test.go` |
+| `openrouter` | `openresponses_provider_mode.go` |
+| `nvidia` | `openresponses_provider_mode.go` |
 
 ## Migration golden JSON (testdata/migration)
 

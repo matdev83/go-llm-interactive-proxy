@@ -56,4 +56,6 @@ var (
 	ErrInstanceExists = errors.New("backendplugin: instance already exists")
 	// ErrInstanceBusy is returned when close is attempted while execute leases remain.
 	ErrInstanceBusy = errors.New("backendplugin: instance has active execute leases")
+	// ErrOrderedItemsUnsupported is returned when item authority is requested against an older plugin ABI.
+	ErrOrderedItemsUnsupported = errors.New("backendplugin: ordered item ABI not negotiated")
 )

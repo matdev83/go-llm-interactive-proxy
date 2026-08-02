@@ -19,6 +19,16 @@ const (
 	CapabilityReasoning         Capability = "reasoning"
 	CapabilityReasoningReplay   Capability = "reasoning_replay" // hard; required when historical reasoning parts are present
 	CapabilityParallelToolCalls Capability = "parallel_tool_calls"
+
+	// OpenResponses ordered-item semantic capabilities (Task 1.4).
+	CapabilityOrderedItems       Capability = "ordered_items"
+	CapabilityAssistantPhase     Capability = "assistant_phase"
+	CapabilityVideoInput         Capability = "video_input"
+	CapabilityItemReferences     Capability = "item_references"
+	CapabilityCompaction         Capability = "compaction"
+	CapabilityOpaqueExtensions   Capability = "opaque_extensions"
+	CapabilityAnnotations        Capability = "annotations"
+	CapabilityAssistantMediaRefs Capability = "assistant_media_refs"
 )
 
 // BackendCaps is a set of capabilities supported by a backend adapter instance.
@@ -82,8 +92,45 @@ func RequiredCapabilities(c Call) []Capability {
 			}
 		}
 	}
-	scanMessageParts(c.Instructions)
-	scanMessageParts(c.Messages)
+	if c.HasItemAuthority() {
+		for _, item := range NormalizedItems(c) {
+			for _, cp := range item.Content {
+				switch cp.Kind {
+				case ContentPartImageRef:
+					add(CapabilityVision)
+				case ContentPartFileRef:
+					add(CapabilityDocuments)
+				case ContentPartVideoRef:
+					add(CapabilityVideoInput)
+				case ContentPartReasoning:
+					add(CapabilityReasoningReplay)
+				}
+			}
+			if item.Kind == ItemKindToolCall || item.Kind == ItemKindToolResult {
+				add(CapabilityTools)
+			}
+		}
+		add(CapabilityOrderedItems)
+	} else {
+		scanMessageParts(c.Instructions)
+		scanMessageParts(c.Messages)
+		for _, m := range c.Messages {
+			if m.Role == RoleAssistant {
+				for _, p := range m.Parts {
+					if p.Kind == PartJSON && p.ToolCallID != "" {
+						add(CapabilityTools)
+					}
+				}
+			}
+			if m.Role == RoleTool {
+				for _, p := range m.Parts {
+					if p.Kind == PartToolResult {
+						add(CapabilityTools)
+					}
+				}
+			}
+		}
+	}
 	if len(c.Tools) > 0 {
 		add(CapabilityTools)
 	}

@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -10,7 +11,13 @@ import (
 )
 
 // InvocationFromCall maps a core call into the public plugin Invocation DTO.
-func InvocationFromCall(call lipapi.Call, cand routing.AttemptCandidate) (backendplugin.Invocation, error) {
+func InvocationFromCall(call lipapi.Call, cand routing.AttemptCandidate, neg backendplugin.Negotiation) (backendplugin.Invocation, error) {
+	if err := lipapi.ValidateToolChoice(call.ToolChoice, call.Tools); err != nil {
+		return backendplugin.Invocation{}, err
+	}
+	if err := backendplugin.ValidateToolChoiceABI(call.ToolChoice); err != nil {
+		return backendplugin.Invocation{}, err
+	}
 	reqID := strings.TrimSpace(call.ID)
 	if reqID == "" {
 		reqID = "req"
@@ -52,6 +59,7 @@ func InvocationFromCall(call lipapi.Call, cand routing.AttemptCandidate) (backen
 		Instructions:     instructions,
 		Messages:         messages,
 		Tools:            mapTools(call.Tools),
+		ToolChoice:       backendplugin.ToolChoiceToWire(call.ToolChoice),
 		Options:          mapOptions(call.Options),
 	}
 	routeParams := map[string]string{}
@@ -62,7 +70,9 @@ func InvocationFromCall(call lipapi.Call, cand routing.AttemptCandidate) (backen
 			}
 		}
 	}
-	backendplugin.ApplyCallWireMetadata(&inv, call, routeParams)
+	if err := backendplugin.ApplyCallWireMetadataWithNegotiation(&inv, call, routeParams, neg); err != nil {
+		return backendplugin.Invocation{}, err
+	}
 	if err := inv.Validate(); err != nil {
 		return backendplugin.Invocation{}, err
 	}
@@ -160,7 +170,7 @@ func mapOptions(o lipapi.GenerationOptions) backendplugin.GenerationOptions {
 		v := uint32(*o.MaxOutputTokens)
 		out.MaxOutputTokens = &v
 	}
-	if o.Temperature != nil {
+	if o.Temperature != nil && !math.IsNaN(*o.Temperature) {
 		ms := int32(*o.Temperature * 1000)
 		out.TemperatureMillis = &ms
 	}

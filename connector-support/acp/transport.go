@@ -108,7 +108,11 @@ func (t *httpTransport) CallUnary(ctx context.Context, body []byte, expectStatus
 		if err != nil {
 			return nil, fmt.Errorf("acp: unary http error body: %w", err)
 		}
-		return nil, fmt.Errorf("acp: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(snippet)))
+		return nil, &httpStatusError{
+			Op:     "unary",
+			Status: resp.StatusCode,
+			Detail: strings.TrimSpace(string(snippet)),
+		}
 	}
 	return readHTTPBodyLimited(resp.Body, maxUnaryHTTPResponseBytes)
 }
@@ -128,7 +132,11 @@ func (t *httpTransport) CallPromptStream(ctx context.Context, body []byte) (io.R
 		if err != nil {
 			return nil, fmt.Errorf("acp: prompt stream http error body: %w", err)
 		}
-		return nil, fmt.Errorf("acp: session/prompt: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		return nil, &httpStatusError{
+			Op:     "session/prompt",
+			Status: resp.StatusCode,
+			Detail: strings.TrimSpace(string(b)),
+		}
 	}
 	return resp.Body, nil
 }
@@ -150,7 +158,11 @@ func (t *httpTransport) SendJSONRPC(ctx context.Context, body []byte) (err error
 		if err != nil {
 			return fmt.Errorf("acp: send jsonrpc http error body: %w", err)
 		}
-		return fmt.Errorf("acp: SendJSONRPC: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		return &httpStatusError{
+			Op:     "SendJSONRPC",
+			Status: resp.StatusCode,
+			Detail: strings.TrimSpace(string(b)),
+		}
 	}
 	defer func() {
 		if cerr := resp.Body.Close(); cerr != nil {

@@ -5,9 +5,13 @@ package conformance
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -37,8 +41,8 @@ func TestConformance_Multimodal_imageInUpstream(t *testing.T) {
 		}
 		t.Run(cell.Frontend+"__"+cell.Backend, func(t *testing.T) {
 			t.Parallel()
-			var captured string
-			beSrv := NewSuccessRefBackend(t, cell.Backend, func(b []byte) { captured = string(b) })
+			var captured []string
+			beSrv := NewSuccessRefBackend(t, cell.Backend, func(b []byte) { captured = append(captured, string(b)) })
 			exec := NewTestExecutor(t, cell.Backend, beSrv.URL, beSrv.Client())
 			route := RouteSelector(cell.Backend, DefaultModel(cell.Backend))
 			mux := http.NewServeMux()
@@ -50,7 +54,11 @@ func TestConformance_Multimodal_imageInUpstream(t *testing.T) {
 
 			png := refclienttest.ReadRefclientFixture(t, "tiny.png")
 			multimodalImageOnly(t, cell.Frontend, feSrv.URL, feSrv.Client(), png)
-			assertUpstreamImageMarker(t, cell.Backend, captured)
+			// ACP (and other streaming connectors) may emit a trailing
+			// best-effort cancel/close RPC after the terminal event, so the
+			// projection marker is asserted against any captured upstream
+			// request, matching the row/general "any request" evidence checks.
+			assertUpstreamImageMarker(t, cell.Backend, strings.Join(captured, "\n"))
 		})
 	}
 }
@@ -63,8 +71,16 @@ func TestConformance_Multimodal_pdfInUpstream(t *testing.T) {
 		}
 		t.Run(cell.Frontend+"__"+cell.Backend, func(t *testing.T) {
 			t.Parallel()
-			var captured string
-			beSrv := NewSuccessRefBackend(t, cell.Backend, func(b []byte) { captured = string(b) })
+			if !multimodalPDFCellPositive(cell.Frontend, cell.Backend) {
+				// The OpenResponses profile has no document/file input surface, so
+				// cells whose frontend is OpenResponses reject before network; the
+				// generic OpenResponses backend likewise rejects canonical file parts
+				// as unrepresentable (Requirement 13.16 negative evidence).
+				assertMultimodalPDFRejectedBeforeNetwork(t, cell.Frontend, cell.Backend)
+				return
+			}
+			var captured []string
+			beSrv := NewSuccessRefBackend(t, cell.Backend, func(b []byte) { captured = append(captured, string(b)) })
 			exec := NewTestExecutor(t, cell.Backend, beSrv.URL, beSrv.Client())
 			route := RouteSelector(cell.Backend, DefaultModel(cell.Backend))
 			mux := http.NewServeMux()
@@ -76,8 +92,47 @@ func TestConformance_Multimodal_pdfInUpstream(t *testing.T) {
 
 			pdf := refclienttest.ReadRefclientFixture(t, "minimal.pdf")
 			multimodalPDFOnly(t, cell.Frontend, feSrv.URL, feSrv.Client(), pdf)
-			assertUpstreamPDFMarker(t, cell.Backend, captured)
+			assertUpstreamPDFMarker(t, cell.Backend, strings.Join(captured, "\n"))
 		})
+	}
+}
+
+// multimodalPDFCellPositive reports whether a cell can represent document/file
+// input on the upstream wire. The OpenResponses frontend profile and the generic
+// OpenResponses backend have no document surface, so those cells reject before
+// network (Requirement 13.16).
+func multimodalPDFCellPositive(frontend, backend string) bool {
+	if frontend == "openresponses" {
+		return false
+	}
+	if backend == "openresponses" {
+		return false
+	}
+	return true
+}
+
+// assertMultimodalPDFRejectedBeforeNetwork drives a PDF create through the cell
+// and asserts the rejection happens before any upstream request.
+func assertMultimodalPDFRejectedBeforeNetwork(t *testing.T, frontend, backend string) {
+	t.Helper()
+	var captured atomic.Int64
+	beSrv := NewSuccessRefBackend(t, backend, func([]byte) { captured.Add(1) })
+	exec := NewTestExecutor(t, backend, beSrv.URL, beSrv.Client())
+	route := RouteSelector(backend, DefaultModel(backend))
+	mux := http.NewServeMux()
+	if err := MountFrontend(mux, frontend, exec, route); err != nil {
+		t.Fatal(err)
+	}
+	feSrv := httptest.NewServer(mux)
+	t.Cleanup(feSrv.Close)
+
+	pdf := refclienttest.ReadRefclientFixture(t, "minimal.pdf")
+	err := multimodalPDFExpectReject(t, frontend, feSrv.URL, feSrv.Client(), pdf)
+	if err == nil {
+		t.Fatalf("cell %s × %s: PDF create unexpectedly round-tripped", frontend, backend)
+	}
+	if n := captured.Load(); n != 0 {
+		t.Fatalf("cell %s × %s: PDF rejection caused %d upstream requests, want 0", frontend, backend, n)
 	}
 }
 
@@ -172,12 +227,58 @@ func multimodalImageOnly(tb testing.TB, frontendID, proxyOrigin string, httpClie
 		if err != nil {
 			tb.Fatalf("gemini: %v", err)
 		}
+	case "openresponses":
+		imgB64 := base64.StdEncoding.EncodeToString(png)
+		openResponsesMultimodalPost(tb, proxyOrigin, httpClient, map[string]any{
+			"model": wireModelForFrontend("openresponses"),
+			"store": false,
+			"input": []any{map[string]any{
+				"type": "message", "role": "user",
+				"content": []any{
+					map[string]any{"type": "input_text", "text": "describe image"},
+					map[string]any{"type": "input_image", "image_url": "data:image/png;base64," + imgB64},
+				},
+			}},
+		})
 	default:
 		tb.Fatalf("unknown frontend %q", frontendID)
 	}
 }
 
+// openResponsesMultimodalPost posts one multimodal create to the OpenResponses
+// frontend and fails the test unless it round-trips successfully.
+func openResponsesMultimodalPost(tb testing.TB, proxyOrigin string, httpClient *http.Client, body map[string]any) {
+	tb.Helper()
+	raw, err := json.Marshal(body)
+	if err != nil {
+		tb.Fatalf("openresponses multimodal body: %v", err)
+	}
+	resp, err := httpClient.Post(strings.TrimRight(proxyOrigin, "/")+"/openresponses/v1/responses", "application/json", strings.NewReader(string(raw)))
+	if err != nil {
+		tb.Fatalf("openresponses multimodal post: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		rb, _ := io.ReadAll(resp.Body)
+		tb.Fatalf("openresponses multimodal status %d body=%s", resp.StatusCode, string(rb))
+	}
+}
+
 func multimodalPDFOnly(tb testing.TB, frontendID, proxyOrigin string, httpClient *http.Client, pdf []byte) {
+	tb.Helper()
+	if err := multimodalPDFRoundTrip(tb, frontendID, proxyOrigin, httpClient, pdf); err != nil {
+		tb.Fatalf("%s: %v", frontendID, err)
+	}
+}
+
+// multimodalPDFExpectReject drives a document create through the cell and
+// returns the rejection error (used for pre-network negative evidence).
+func multimodalPDFExpectReject(tb testing.TB, frontendID, proxyOrigin string, httpClient *http.Client, pdf []byte) error {
+	tb.Helper()
+	return multimodalPDFRoundTrip(tb, frontendID, proxyOrigin, httpClient, pdf)
+}
+
+func multimodalPDFRoundTrip(tb testing.TB, frontendID, proxyOrigin string, httpClient *http.Client, pdf []byte) error {
 	tb.Helper()
 	ctx := context.Background()
 	pdfB64 := base64.StdEncoding.EncodeToString(pdf)
@@ -208,9 +309,7 @@ func multimodalPDFOnly(tb testing.TB, frontendID, proxyOrigin string, httpClient
 				},
 			},
 		})
-		if err != nil {
-			tb.Fatalf("responses: %v", err)
-		}
+		return err
 	case openailegacy.ID:
 		cli := refopenaichat.New(refopenaichat.Config{
 			BaseURL:    strings.TrimRight(proxyOrigin, "/") + "/v1",
@@ -230,9 +329,7 @@ func multimodalPDFOnly(tb testing.TB, frontendID, proxyOrigin string, httpClient
 				openai.UserMessage(parts),
 			},
 		})
-		if err != nil {
-			tb.Fatalf("chat: %v", err)
-		}
+		return err
 	case "anthropic":
 		cli := refanthropic.New(refanthropic.Config{
 			BaseURL:    proxyOrigin,
@@ -247,9 +344,7 @@ func multimodalPDFOnly(tb testing.TB, frontendID, proxyOrigin string, httpClient
 				anthropic.NewUserMessage(anthropic.NewTextBlock("summarize"), doc),
 			},
 		})
-		if err != nil {
-			tb.Fatalf("anthropic: %v", err)
-		}
+		return err
 	case "gemini":
 		cli, err := refgemini.New(ctx, refgemini.Config{
 			BaseURL:    GeminiConformanceBaseURL(proxyOrigin),
@@ -257,7 +352,7 @@ func multimodalPDFOnly(tb testing.TB, frontendID, proxyOrigin string, httpClient
 			HTTPClient: httpClient,
 		})
 		if err != nil {
-			tb.Fatalf("gemini client: %v", err)
+			return err
 		}
 		contents := []*genai.Content{{
 			Role: genai.RoleUser,
@@ -267,11 +362,34 @@ func multimodalPDFOnly(tb testing.TB, frontendID, proxyOrigin string, httpClient
 			},
 		}}
 		_, err = cli.GenerateContent(ctx, wireModelForFrontend(frontendID), contents, nil)
+		return err
+	case "openresponses":
+		body, err := json.Marshal(map[string]any{
+			"model": wireModelForFrontend("openresponses"),
+			"store": false,
+			"input": []any{map[string]any{
+				"type": "message", "role": "user",
+				"content": []any{
+					map[string]any{"type": "input_text", "text": "summarize"},
+					map[string]any{"type": "input_file", "file_data": pdfB64, "filename": "minimal.pdf"},
+				},
+			}},
+		})
 		if err != nil {
-			tb.Fatalf("gemini: %v", err)
+			return err
 		}
+		resp, err := httpClient.Post(strings.TrimRight(proxyOrigin, "/")+"/openresponses/v1/responses", "application/json", strings.NewReader(string(body)))
+		if err != nil {
+			return err
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("openresponses pdf status %d", resp.StatusCode)
+		}
+		return nil
 	default:
 		tb.Fatalf("unknown frontend %q", frontendID)
+		return nil
 	}
 }
 
@@ -298,6 +416,14 @@ func assertUpstreamImageMarker(tb testing.TB, backendID, captured string) {
 	case bedrock.ID:
 		if !strings.Contains(lower, "image") && !strings.Contains(lower, "png") {
 			tb.Fatalf("expected image payload markers in upstream body, got: %s", trim(captured, 500))
+		}
+	case BackendOpenResponses, BackendOpenRouter, BackendNVIDIA:
+		if !strings.Contains(lower, "input_image") && !strings.Contains(lower, "image_url") {
+			tb.Fatalf("expected OpenAI-compatible image payload in upstream body, got: %s", trim(captured, 500))
+		}
+	case BackendACP:
+		if !strings.Contains(lower, `"resource"`) || !strings.Contains(lower, `"uri"`) {
+			tb.Fatalf("expected ACP resource prompt block (image uri) in upstream body, got: %s", trim(captured, 500))
 		}
 	default:
 		tb.Fatalf("unexpected backend %q for multimodal image assertion", backendID)
@@ -328,6 +454,17 @@ func assertUpstreamPDFMarker(tb testing.TB, backendID, captured string) {
 	case bedrock.ID:
 		if !strings.Contains(lower, "pdf") && !strings.Contains(lower, "document") {
 			tb.Fatalf("expected pdf/document markers in upstream body, got: %s", trim(captured, 500))
+		}
+	case BackendOpenRouter, BackendNVIDIA:
+		// The configured OpenAI-compatible provider-mode route forwards document
+		// input as the OpenAI Responses file surface.
+		if !strings.Contains(lower, "input_file") && !strings.Contains(lower, "file_data") {
+			tb.Fatalf("expected OpenAI-compatible file payload in upstream body, got: %s", trim(captured, 500))
+		}
+	case BackendACP:
+		if !strings.Contains(lower, `"resource"`) || !strings.Contains(lower, `"uri"`) ||
+			!strings.Contains(lower, "pdf") {
+			tb.Fatalf("expected ACP resource prompt block (pdf file uri/mime/name) in upstream body, got: %s", trim(captured, 500))
 		}
 	default:
 		tb.Fatalf("unexpected backend %q for multimodal pdf assertion", backendID)

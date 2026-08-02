@@ -18,21 +18,35 @@ const (
 )
 
 // ApplyCallWireMetadata projects operation, delivery, transport, route params,
-// and Call.Extensions into Invocation.SafeMetadata for cross-process execute.
+// ordered item wire fields, and Call.Extensions into an invocation for cross-process execute.
 func ApplyCallWireMetadata(inv *Invocation, call lipapi.Call, routeParams map[string]string) {
+	applyLegacyCallWireMetadata(inv, call, routeParams)
+	ApplyOrderedItemWire(inv, call)
+}
+
+// ApplyCallWireMetadataWithNegotiation projects wire metadata and enforces ordered-item ABI gates.
+func ApplyCallWireMetadataWithNegotiation(inv *Invocation, call lipapi.Call, routeParams map[string]string, neg Negotiation) error {
+	if err := RequireOrderedItemABISupport(neg, call); err != nil {
+		return err
+	}
+	ApplyCallWireMetadata(inv, call, routeParams)
+	return nil
+}
+
+func applyLegacyCallWireMetadata(inv *Invocation, call lipapi.Call, routeParams map[string]string) {
 	if inv == nil {
 		return
 	}
 	if inv.SafeMetadata == nil {
 		inv.SafeMetadata = make(map[string]string)
 	}
-	if op := strings.TrimSpace(string(call.Invocation.Operation)); op != "" {
+	if op := string(call.Invocation.Operation); op != "" {
 		inv.SafeMetadata[MetaOperation] = op
 	}
-	if dm := strings.TrimSpace(string(call.Invocation.DeliveryMode)); dm != "" {
+	if dm := string(call.Invocation.DeliveryMode); dm != "" {
 		inv.SafeMetadata[MetaDeliveryMode] = dm
 	}
-	if tm := strings.TrimSpace(string(call.Invocation.TransportMode)); tm != "" {
+	if tm := string(call.Invocation.TransportMode); tm != "" {
 		inv.SafeMetadata[MetaTransportMode] = tm
 	}
 	for k, v := range routeParams {

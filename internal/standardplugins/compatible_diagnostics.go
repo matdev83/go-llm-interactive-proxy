@@ -1,6 +1,7 @@
 package standardplugins
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 
@@ -9,16 +10,19 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/endpoint"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tokenizers"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openresponsescompat"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 const compatibleOriginBuiltIn = "built_in_compatible"
 
-// CompatibleBackendKinds returns the three stable built-in compatible factory ids.
+// CompatibleBackendKinds returns the stable built-in compatible factory ids.
 func CompatibleBackendKinds() []string {
 	return []string{
 		CustomOpenAILegacyCompatibleID,
 		CustomOpenAIResponsesCompatibleID,
 		CustomAnthropicCompatibleID,
+		CustomOpenResponsesCompatibleID,
 	}
 }
 
@@ -39,6 +43,11 @@ func ProjectCompatibleBackendRows(cfg *config.Config) []diag.CompatibleBackendRo
 			InstanceID:  row.InstanceID(),
 			FactoryKind: kind,
 			Enabled:     row.Enabled,
+		}
+		if IsOpenResponsesCompatibleBackendKind(kind) {
+			projectOpenResponsesCompatibleRow(&entry, row)
+			out = append(out, entry)
+			continue
 		}
 		decoded, err := config.DecodeCompatibleModeConfig(row.InstanceID(), kind, row.Config)
 		if err != nil {
@@ -91,6 +100,47 @@ func compatibleInventoryState(models config.CompatibleModeModelsConfig) string {
 	default:
 		return "remote"
 	}
+}
+
+func projectOpenResponsesCompatibleRow(entry *diag.CompatibleBackendRow, row config.PluginConfig) {
+	cfg, err := openresponsescompat.DecodeConfig(row.InstanceID(), row.FactoryID(), row.Config)
+	if err != nil {
+		entry.ConfigError = err.Error()
+		return
+	}
+	if ep, err := endpoint.ParseBaseURL(cfg.BaseURL); err != nil {
+		entry.ConfigError = err.Error()
+		return
+	} else {
+		entry.EndpointIdentity = ep.BaseURL()
+	}
+	entry.Prefix = strings.TrimSpace(cfg.BackendPrefix)
+	entry.AuthConfigured = strings.TrimSpace(cfg.APIKeyEnvVarRoot) != ""
+	entry.Profile = strings.TrimSpace(cfg.Profile)
+	entry.Capabilities = sanitizedOpenResponsesCapabilities(cfg.Capabilities)
+	entry.Conformance = "profile:" + strings.TrimSpace(cfg.Profile)
+	entry.InventoryState = compatibleInventoryState(cfg.Models)
+}
+
+// sanitizedOpenResponsesCapabilities returns a deterministic, deduplicated,
+// sanitized list of declared semantic capabilities for OpenResponses-compatible
+// backends.
+func sanitizedOpenResponsesCapabilities(in []lipapi.Capability) []string {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, c := range in {
+		name := sanitizedOpenResponsesString(string(c))
+		if name == "" {
+			continue
+		}
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // CollectBuiltinCompatibleKinds returns registered factory ids with built-in-compatible provenance.

@@ -15,7 +15,7 @@ const (
 
 func IsCustomCompatibleBackendKind(kind string) bool {
 	switch strings.TrimSpace(kind) {
-	case CustomOpenAILegacyCompatibleID, CustomOpenAIResponsesCompatibleID, CustomAnthropicCompatibleID:
+	case CustomOpenAILegacyCompatibleID, CustomOpenAIResponsesCompatibleID, CustomAnthropicCompatibleID, CustomOpenResponsesCompatibleID:
 		return true
 	default:
 		return false
