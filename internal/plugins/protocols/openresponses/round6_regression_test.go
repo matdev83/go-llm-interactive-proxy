@@ -119,7 +119,11 @@ func TestRound6StateMachineRollbackAfterMaterializationCheckpointFailure(t *test
 	}
 	beforeLength := len(builder.data)
 	beforePart := sm.textPartIndexes[0]
-	sm.limits.MaxResourceSizeBytes = sm.resourceBytes - 1
+	_, serializedBefore, err := sm.AccumulateResource()
+	if err != nil {
+		t.Fatalf("snapshot before finish: %v", err)
+	}
+	sm.limits.MaxResourceSizeBytes = len(serializedBefore) - 1
 	if _, err := sm.ProcessCanonicalEvent(lipapi.Event{Kind: lipapi.EventResponseFinished}); !errors.Is(err, ErrLimitExceeded) {
 		t.Fatalf("finish error = %v, want resource limit", err)
 	}

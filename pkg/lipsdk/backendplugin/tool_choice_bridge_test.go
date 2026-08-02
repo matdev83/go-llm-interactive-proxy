@@ -2,6 +2,7 @@ package backendplugin_test
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -20,6 +21,9 @@ func TestToolChoiceBridge_roundTripAllModes(t *testing.T) {
 		{name: "none", in: lipapi.ToolChoice{Mode: lipapi.ToolChoiceNone}, want: "none"},
 		{name: "any", in: lipapi.ToolChoice{Mode: lipapi.ToolChoiceAny}, want: "any"},
 		{name: "required named", in: lipapi.ToolChoice{Mode: lipapi.ToolChoiceRequired, Name: "weather"}, want: "required:weather"},
+		{name: "allowed auto", in: lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto, AllowedTools: []string{"get_a", "get_b"}}, want: "allowed:auto:get_a,get_b"},
+		{name: "allowed none", in: lipapi.ToolChoice{Mode: lipapi.ToolChoiceNone, AllowedTools: []string{"get_a"}}, want: "allowed:none:get_a"},
+		{name: "allowed any", in: lipapi.ToolChoice{Mode: lipapi.ToolChoiceAny, AllowedTools: []string{"get_a"}}, want: "allowed:any:get_a"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -46,6 +50,9 @@ func TestToolChoiceBridge_roundTripAllModes(t *testing.T) {
 			}
 			if back.Mode != tc.in.Mode || back.Name != tc.in.Name {
 				t.Fatalf("back=%+v want=%+v", back, tc.in)
+			}
+			if !slices.Equal(back.AllowedTools, tc.in.AllowedTools) {
+				t.Fatalf("allowed subset back=%v want=%v", back.AllowedTools, tc.in.AllowedTools)
 			}
 		})
 	}
@@ -171,6 +178,48 @@ func TestToolChoiceBridge_rejectsWhitespacePaddedWire(t *testing.T) {
 				t.Fatalf("err=%v", err)
 			}
 		})
+	}
+}
+
+func TestToolChoiceBridge_requiredWithAllowedToolsRejectedByABI(t *testing.T) {
+	t.Parallel()
+
+	tc := lipapi.ToolChoice{Mode: lipapi.ToolChoiceRequired, AllowedTools: []string{"get_a"}}
+	err := backendplugin.ValidateToolChoiceABI(tc)
+	if err == nil {
+		t.Fatal("expected ABI rejection for required mode with allowed tools")
+	}
+	if !errors.Is(err, backendplugin.ErrInvalidInvocation) {
+		t.Fatalf("err=%v", err)
+	}
+
+	// The public encoder has no error channel, so it cannot signal the invalid
+	// combination. Document that it still emits an encoding the ABI decoder
+	// rejects: callers must validate via ValidateToolChoiceABI (or canonical
+	// ValidateToolChoice) before encoding so invalid Required+AllowedTools never
+	// reaches the ABI.
+	wire := backendplugin.ToolChoiceToWire(tc)
+	if wire == nil || *wire != "allowed:required:get_a" {
+		t.Fatalf("wire=%v", wire)
+	}
+	if _, err := backendplugin.ToolChoiceFromWire(wire); err == nil {
+		t.Fatal("expected the emitted allowed:required wire to be rejected by the decoder")
+	}
+}
+
+func TestToolChoiceBridge_rejectsCommaToolNameInABI(t *testing.T) {
+	t.Parallel()
+
+	cases := []lipapi.ToolChoice{
+		{Mode: lipapi.ToolChoiceAuto, AllowedTools: []string{"get,a"}},
+		{Mode: lipapi.ToolChoiceAny, AllowedTools: []string{"get_a,b"}},
+	}
+	for _, tc := range cases {
+		if err := backendplugin.ValidateToolChoiceABI(tc); err == nil {
+			t.Fatalf("expected ABI rejection for comma-containing allowed tool name %v", tc.AllowedTools)
+		} else if !errors.Is(err, backendplugin.ErrInvalidInvocation) {
+			t.Fatalf("err=%v", err)
+		}
 	}
 }
 

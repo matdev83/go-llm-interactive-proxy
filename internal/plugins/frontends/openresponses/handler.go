@@ -8,14 +8,18 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
 	proto "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/protocols/openresponses"
+
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	sdkauth "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
 	lipcont "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/continuation"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
+	httpauth "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
 // ExecutorView is the canonical event-stream executor used by create.
@@ -25,8 +29,10 @@ type ExecutorView interface {
 
 // HandlerConfig configures the HTTP handler for OpenResponses.
 type HandlerConfig struct {
-	Authorizer Authorizer
-	Executor   ExecutorView
+	Authorizer            Authorizer
+	RequireAuthentication bool
+	AllowUnauthenticated  bool
+	Executor              ExecutorView
 	// ContinuationResolver is the narrow injected seam for resolving parent continuation state.
 	ContinuationResolver ContinuationResolver
 	// ContinuationStore is the injected protocol-neutral store port for continuation
@@ -48,13 +54,18 @@ type HandlerConfig struct {
 	RecorderFactory ContinuationRecorderFactory
 }
 
-// Handler wires OpenResponses HTTP requests to auth → decode → executor.
+// Handler wires OpenResponses HTTP requests to auth → decode → executor. Direct
+// handlers require an authenticated transport context by default; callers must
+// explicitly opt into anonymous access with AllowUnauthenticated.
 type Handler struct {
 	cfg HandlerConfig
 }
 
 // NewHandler creates a new OpenResponses HTTP handler.
 func NewHandler(cfg HandlerConfig) *Handler {
+	if !cfg.AllowUnauthenticated {
+		cfg.RequireAuthentication = true
+	}
 	return &Handler{cfg: cfg}
 }
 
@@ -102,6 +113,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		authDecision = dec
+	} else if h.cfg.RequireAuthentication {
+		if _, ok := httpauth.PrincipalFromContext(ctx); !ok {
+			writeWireError(w, http.StatusUnauthorized, "authentication_error", "unauthorized", "Authentication required")
+			return
+		}
 	}
 
 	mediaType, _, err := mime.ParseMediaType(strings.TrimSpace(r.Header.Get("Content-Type")))
@@ -110,11 +126,28 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Read bounded request body
+	// 2. Reserve decode capacity before reading the body. Content-Length is
+	// only an upper bound; unknown-length requests reserve the hard cap.
 	maxBytes := h.cfg.MaxRequestBodyBytes
 	if maxBytes <= 0 {
 		maxBytes = proto.MaxRequestBytes
 	}
+	// Reserve the hard cap rather than trusting Content-Length: clients can
+	// under-report it while the bounded reader still accepts maxBytes bytes.
+	releaseDecode, admitted, admissionErr := decodeqos.TryAdmit(ctx, h.cfg.DecodeAdmission, maxBytes)
+	if decision := decodeqos.Decide(admitted, admissionErr); decision.Status != 0 {
+		if decision.RetryAfter {
+			w.Header().Set("Retry-After", decodeqos.RetryAfterSeconds)
+		}
+		writeWireError(w, decision.Status, "server_error", "decode_admission_rejected", decision.Message)
+		return
+	}
+	releaseDecodeOnce := sync.OnceFunc(func() {
+		if releaseDecode != nil {
+			releaseDecode()
+		}
+	})
+	defer releaseDecodeOnce()
 
 	bodyReader := io.LimitReader(r.Body, maxBytes+1)
 	body, err := io.ReadAll(bodyReader)
@@ -159,7 +192,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// second policy evaluation while retaining the direct decode seam's auth.
 	}
 
-	decoded, err := AuthenticateAndDecodeCreate(ctx, body, opts)
+	var decoded *DecodedCreate
+	err = decodeqos.Guard(releaseDecodeOnce, func() error {
+		var decodeErr error
+		decoded, decodeErr = AuthenticateAndDecodeCreate(ctx, body, opts)
+		return decodeErr
+	})
+	releaseDecode = nil
 	if err != nil {
 		status := http.StatusBadRequest
 		errType := "invalid_request_error"
@@ -293,11 +332,40 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeWireError(w, status, typ, code, message)
 			return
 		}
+		if stream == nil {
+			// A nil executor stream has no transport lifecycle on which an
+			// observer could close itself. Transfer ownership before closing
+			// recorder-backed observers so the frontend fallback cannot release
+			// the same reservation a second time.
+			if owner, ok := observer.(continuationReservationOwner); ok && owner.OwnsContinuationReservation() {
+				// There is no stream lifecycle to finalize. Consume the
+				// recorder-owned reservation before closing the observer.
+				safeReleaseContinuationReservation(owner)
+				isReserved = false
+			}
+			safeCloseObserverFrontend(observer)
+			if isReserved && store != nil {
+				cleanupContinuationReservation(store, scope, responseID)
+				isReserved = false
+			}
+			writeWireError(w, http.StatusBadGateway, "server_error", "backend_error", "Backend execution failed")
+			return
+		}
+		// Enforce the allowed_tools hard constraint before any client output
+		// path (streaming and non-streaming both consume this stream).
+		stream = newAllowedToolsStream(decoded.Call, stream)
+		var owner continuationReservationOwner
 		if observer != nil {
 			stream = &observedEventStream{EventStream: stream, observer: observer}
+			if candidate, ok := observer.(continuationReservationOwner); ok && candidate.OwnsContinuationReservation() {
+				// The built-in recorder has transferred reservation ownership to
+				// its Close/FinalizeIncomplete lifecycle.
+				owner = candidate
+				isReserved = false
+			}
 		}
 		if decoded.Stream {
-			h.serveStreaming(ctx, w, stream, decoded, responseID, store, scope, isReserved)
+			h.serveStreaming(ctx, w, stream, decoded, responseID, store, scope, isReserved, owner)
 			return
 		}
 		if !decoded.Stream {
@@ -470,6 +538,11 @@ func (h *Handler) handleCompact(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		authDecision = dec
+	} else if h.cfg.RequireAuthentication {
+		if _, ok := httpauth.PrincipalFromContext(ctx); !ok {
+			writeWireError(w, http.StatusUnauthorized, "authentication_error", "unauthorized", "Authentication required")
+			return
+		}
 	}
 
 	mediaType, _, err := mime.ParseMediaType(strings.TrimSpace(r.Header.Get("Content-Type")))
@@ -478,11 +551,28 @@ func (h *Handler) handleCompact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Read bounded request body
+	// 2. Reserve decode capacity before reading the body. Content-Length is
+	// only an upper bound; unknown-length requests reserve the hard cap.
 	maxBytes := h.cfg.MaxRequestBodyBytes
 	if maxBytes <= 0 {
 		maxBytes = proto.MaxRequestBytes
 	}
+	// Reserve the hard cap rather than trusting Content-Length: clients can
+	// under-report it while the bounded reader still accepts maxBytes bytes.
+	releaseDecode, admitted, admissionErr := decodeqos.TryAdmit(ctx, h.cfg.DecodeAdmission, maxBytes)
+	if decision := decodeqos.Decide(admitted, admissionErr); decision.Status != 0 {
+		if decision.RetryAfter {
+			w.Header().Set("Retry-After", decodeqos.RetryAfterSeconds)
+		}
+		writeWireError(w, decision.Status, "server_error", "decode_admission_rejected", decision.Message)
+		return
+	}
+	releaseDecodeOnce := sync.OnceFunc(func() {
+		if releaseDecode != nil {
+			releaseDecode()
+		}
+	})
+	defer releaseDecodeOnce()
 
 	bodyReader := io.LimitReader(r.Body, maxBytes+1)
 	body, err := io.ReadAll(bodyReader)
@@ -509,7 +599,13 @@ func (h *Handler) handleCompact(w http.ResponseWriter, r *http.Request) {
 		Limits:               h.cfg.ProtocolLimits,
 	}
 
-	decoded, err := DecodeCompactRequest(ctx, body, opts)
+	var decoded *DecodedCompact
+	err = decodeqos.Guard(releaseDecodeOnce, func() error {
+		var decodeErr error
+		decoded, decodeErr = DecodeCompactRequest(ctx, body, opts)
+		return decodeErr
+	})
+	releaseDecode = nil
 	if err != nil {
 		status := http.StatusBadRequest
 		errType := "invalid_request_error"
@@ -551,6 +647,8 @@ func (h *Handler) handleCompact(w http.ResponseWriter, r *http.Request) {
 		writeWireError(w, status, typ, code, message)
 		return
 	}
+	// Enforce the allowed_tools hard constraint before compact output too.
+	stream = newAllowedToolsStream(operation.Call, stream)
 
 	clock := h.cfg.ResponseClock
 	if clock == nil {

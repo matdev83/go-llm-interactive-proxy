@@ -1,6 +1,7 @@
 package openresponses
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -20,26 +21,27 @@ func TestStateMachine_ValidLifecycle(t *testing.T) {
 		t.Fatalf("expected initial status in_progress, got %q", sm.Status())
 	}
 
-	// 1. Response started
+	// 1. Response started reserves the response but emits no wire event. The
+	// pinned profile requires response.output_item.added to be first.
 	evs, err := sm.ProcessCanonicalEvent(lipapi.Event{Kind: lipapi.EventResponseStarted})
 	if err != nil {
 		t.Fatalf("ProcessCanonicalEvent ResponseStarted failed: %v", err)
 	}
-	if len(evs) != 1 || evs[0].Type != "response.created" {
-		t.Fatalf("expected 1 response.created event, got %v", evs)
-	}
-	if evs[0].SequenceNumber != 0 {
-		t.Fatalf("expected sequence_number 0, got %d", evs[0].SequenceNumber)
+	if len(evs) != 0 {
+		t.Fatalf("expected no wire event before the first output item, got %v", evs)
 	}
 
-	// 2. Message started
+	// 2. Message started emits output_item.added first, followed by the
+	// compatibility response.created envelope and content-part lifecycle.
 	evs, err = sm.ProcessCanonicalEvent(lipapi.Event{Kind: lipapi.EventMessageStarted})
 	if err != nil {
 		t.Fatalf("ProcessCanonicalEvent MessageStarted failed: %v", err)
 	}
-	// Expect response.output_item.added and response.content_part.added
-	if len(evs) != 2 || evs[0].Type != "response.output_item.added" || evs[1].Type != "response.content_part.added" {
-		t.Fatalf("expected item.added and content_part.added, got %v", evs)
+	if len(evs) != 3 || evs[0].Type != "response.output_item.added" || evs[1].Type != "response.created" || evs[2].Type != "response.content_part.added" {
+		t.Fatalf("expected item.added, response.created, and content_part.added, got %v", evs)
+	}
+	if evs[0].SequenceNumber != 0 || evs[1].SequenceNumber != 1 {
+		t.Fatalf("expected first sequence numbers 0 and 1, got %d and %d", evs[0].SequenceNumber, evs[1].SequenceNumber)
 	}
 
 	// 3. Text deltas
@@ -121,8 +123,8 @@ func TestStateMachine_ToolCallsAndArgumentDeltas(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ToolCallStarted failed: %v", err)
 	}
-	if len(evs) != 1 || evs[0].Type != "response.output_item.added" {
-		t.Fatalf("expected output_item.added, got %v", evs)
+	if len(evs) != 2 || evs[0].Type != "response.output_item.added" || evs[1].Type != "response.created" {
+		t.Fatalf("expected output_item.added followed by response.created, got %v", evs)
 	}
 
 	evs, err = sm.ProcessCanonicalEvent(lipapi.Event{
@@ -464,10 +466,10 @@ func TestStateMachine_ItemIDAndIndicesOnStreamEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MessageStarted failed: %v", err)
 	}
-	if len(msgEvs) != 2 {
-		t.Fatalf("expected 2 events, got %d", len(msgEvs))
+	if len(msgEvs) != 3 {
+		t.Fatalf("expected 3 events, got %d", len(msgEvs))
 	}
-	contentPartAdded := msgEvs[1]
+	contentPartAdded := msgEvs[2]
 	if contentPartAdded.ItemID == "" {
 		t.Fatalf("expected item_id on content_part.added event, got empty")
 	}
@@ -491,8 +493,8 @@ func TestStateMachine_ItemIDAndIndicesOnStreamEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReasoningDelta failed: %v", err)
 	}
-	if len(rEvs) != 2 || rEvs[1].ItemID == "" {
-		t.Fatalf("expected non-empty item_id on reasoning_text.delta, got %v", rEvs)
+	if len(rEvs) != 3 || rEvs[2].ItemID == "" {
+		t.Fatalf("expected non-empty item_id on response.reasoning.delta, got %v", rEvs)
 	}
 }
 
@@ -687,7 +689,109 @@ func TestStateMachine_LegacyReasoningThenTextStreamEvents(t *testing.T) {
 	for _, e := range all {
 		types = append(types, e.Type)
 	}
-	if strings.Join(types, "|") != "response.created|response.output_item.added|response.reasoning_text.delta|response.reasoning_text.done|response.output_item.done|response.output_item.added|response.content_part.added|response.output_text.delta|response.output_text.done|response.content_part.done|response.output_item.done|response.completed" {
+	if strings.Join(types, "|") != "response.output_item.added|response.created|response.reasoning.delta|response.reasoning.done|response.output_item.done|response.output_item.added|response.content_part.added|response.output_text.delta|response.output_text.done|response.content_part.done|response.output_item.done|response.completed" {
 		t.Fatalf("unexpected event trajectory: %s", strings.Join(types, "|"))
+	}
+}
+
+func TestStateMachine_ReasoningEventPinnedNames(t *testing.T) {
+	envelope := EnvelopeMetadata{
+		ResponseID: "resp_pinned_names",
+		CreatedAt:  time.Unix(1715620000, 0),
+		Model:      "gpt-4o",
+	}
+	sm := NewStateMachine(envelope, lipapi.GenerationOptions{})
+	var all []StreamEvent
+	for _, ev := range []lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventReasoningDelta, Delta: "think"},
+		{Kind: lipapi.EventResponseFinished},
+	} {
+		evs, err := sm.ProcessCanonicalEvent(ev)
+		if err != nil {
+			t.Fatalf("%s failed: %v", ev.Kind, err)
+		}
+		all = append(all, evs...)
+	}
+
+	// Pinned official names (responseReasoningDeltaStreamingEventSchema /
+	// responseReasoningDoneStreamingEventSchema) must be emitted; the legacy
+	// reasoning_text variants must never appear.
+	var delta, done *StreamEvent
+	for i := range all {
+		switch all[i].Type {
+		case "response.reasoning.delta":
+			delta = &all[i]
+		case "response.reasoning.done":
+			done = &all[i]
+		case "response.reasoning_text.delta", "response.reasoning_text.done":
+			t.Fatalf("legacy reasoning_text event name emitted: %s", all[i].Type)
+		}
+	}
+	if delta == nil {
+		t.Fatalf("missing response.reasoning.delta event")
+	}
+	if done == nil {
+		t.Fatalf("missing response.reasoning.done event")
+	}
+
+	// Required fields per responseReasoningDeltaStreamingEventSchema:
+	// item_id, output_index, content_index, delta.
+	if delta.ItemID == "" {
+		t.Fatalf("response.reasoning.delta missing item_id")
+	}
+	if delta.OutputIndex == nil || *delta.OutputIndex != 0 {
+		t.Fatalf("response.reasoning.delta output_index = %v, want 0", delta.OutputIndex)
+	}
+	if delta.ContentIndex == nil || *delta.ContentIndex != 0 {
+		t.Fatalf("response.reasoning.delta content_index = %v, want 0", delta.ContentIndex)
+	}
+	if delta.Delta != "think" {
+		t.Fatalf("response.reasoning.delta delta = %q, want think", delta.Delta)
+	}
+
+	// Required fields per responseReasoningDoneStreamingEventSchema:
+	// item_id, output_index, content_index, text.
+	if done.ItemID != delta.ItemID {
+		t.Fatalf("response.reasoning.done item_id %q != delta item_id %q", done.ItemID, delta.ItemID)
+	}
+	if done.OutputIndex == nil || *done.OutputIndex != 0 {
+		t.Fatalf("response.reasoning.done output_index = %v, want 0", done.OutputIndex)
+	}
+	if done.ContentIndex == nil || *done.ContentIndex != 0 {
+		t.Fatalf("response.reasoning.done content_index = %v, want 0", done.ContentIndex)
+	}
+	if done.Text != "think" {
+		t.Fatalf("response.reasoning.done text = %q, want think", done.Text)
+	}
+
+	// SSE and the WebSocket text frame path share the same StreamEvent surface:
+	// FormatSSEEvent drives the `event:` header from Type, and json.Marshal (the
+	// WebSocket frame serializer) embeds Type as the JSON `type` discriminator.
+	// Both must carry the pinned names and never the legacy reasoning_text ones.
+	for _, ev := range []*StreamEvent{delta, done} {
+		want := ev.Type
+		sseBytes, err := FormatSSEEvent(*ev)
+		if err != nil {
+			t.Fatalf("FormatSSEEvent(%s) failed: %v", want, err)
+		}
+		if !strings.HasPrefix(string(sseBytes), "event: "+want+"\n") {
+			t.Fatalf("SSE header = %q, want event: %s", sseBytes, want)
+		}
+		if strings.Contains(string(sseBytes), "reasoning_text") {
+			t.Fatalf("SSE frame references legacy reasoning_text name: %s", sseBytes)
+		}
+
+		wsBytes, err := json.Marshal(ev)
+		if err != nil {
+			t.Fatalf("json.Marshal(%s) failed: %v", want, err)
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal(wsBytes, &parsed); err != nil {
+			t.Fatalf("WebSocket frame not valid JSON: %v", err)
+		}
+		if parsed["type"] != want {
+			t.Fatalf("WebSocket frame type = %v, want %q (frame %s)", parsed["type"], want, wsBytes)
+		}
 	}
 }

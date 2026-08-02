@@ -42,20 +42,33 @@ type WireResponseParam struct {
 
 // WireItem represents a single item on the wire in OpenResponses.
 type WireItem struct {
-	ID             string          `json:"id,omitempty"`
-	Type           string          `json:"type"`
-	Status         string          `json:"status,omitempty"`
-	Role           string          `json:"role,omitempty"`
-	Phase          string          `json:"phase,omitempty"`
-	Content        json.RawMessage `json:"content,omitempty"`
-	CallID         string          `json:"call_id,omitempty"`
-	Name           string          `json:"name,omitempty"`
-	Arguments      json.RawMessage `json:"arguments,omitempty"`
-	Output         json.RawMessage `json:"output,omitempty"`
-	Reasoning      json.RawMessage `json:"reasoning,omitempty"`
-	EncapsulatedID string          `json:"encapsulated_id,omitempty"`
-	Dialect        string          `json:"dialect,omitempty"`
-	Implementor    string          `json:"implementor,omitempty"`
+	ID        string          `json:"id,omitempty"`
+	Type      string          `json:"type"`
+	Status    string          `json:"status,omitempty"`
+	Role      string          `json:"role,omitempty"`
+	Phase     string          `json:"phase,omitempty"`
+	Content   json.RawMessage `json:"content,omitempty"`
+	CallID    string          `json:"call_id,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
+	Output    json.RawMessage `json:"output,omitempty"`
+	Reasoning json.RawMessage `json:"reasoning,omitempty"`
+	// Summary is the official reasoning-item summary array. Content is reused
+	// for the official reasoning-item content array and for message content.
+	Summary json.RawMessage `json:"summary,omitempty"`
+	// Signature preserves canonical reasoning integrity metadata that is not
+	// represented by the legacy text-only reasoning field.
+	Signature string `json:"signature,omitempty"`
+	// ReasoningEncryptedContent carries exact reasoning-item encrypted_content
+	// presence without changing the legacy string compaction field below.
+	ReasoningEncryptedContent        json.RawMessage `json:"-"`
+	ReasoningEncryptedContentPresent bool            `json:"-"`
+	SummaryPresent                   bool            `json:"-"`
+	ContentPresent                   bool            `json:"-"`
+
+	EncapsulatedID string `json:"encapsulated_id,omitempty"`
+	Dialect        string `json:"dialect,omitempty"`
+	Implementor    string `json:"implementor,omitempty"`
 	// EncryptedContent is the pinned-profile compaction blob carried on a
 	// response.compaction output item.
 	EncryptedContent string          `json:"encrypted_content,omitempty"`
@@ -63,6 +76,87 @@ type WireItem struct {
 	Namespace        string          `json:"namespace,omitempty"`
 	Direction        string          `json:"direction,omitempty"`
 	Data             json.RawMessage `json:"data,omitempty"`
+}
+
+// UnmarshalJSON preserves reasoning encrypted_content, including explicit null,
+// while retaining the legacy string field used by compaction items.
+func (w *WireItem) UnmarshalJSON(data []byte) error {
+	type alias WireItem
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	enc := raw["encrypted_content"]
+	summary, summaryPresent := raw["summary"]
+	content, contentPresent := raw["content"]
+	delete(raw, "encrypted_content")
+	base, err := json.Marshal(raw)
+	if err != nil {
+		return err
+	}
+	var decoded alias
+	if err := json.Unmarshal(base, &decoded); err != nil {
+		return err
+	}
+	*w = WireItem(decoded)
+	if w.Type == "reasoning" {
+		w.SummaryPresent = summaryPresent
+		w.ContentPresent = contentPresent
+		if summaryPresent {
+			w.Summary = append(json.RawMessage(nil), summary...)
+		}
+		if contentPresent {
+			w.Content = append(json.RawMessage(nil), content...)
+		}
+	}
+	if len(enc) > 0 {
+		if w.Type == "reasoning" {
+			w.ReasoningEncryptedContentPresent = true
+			w.ReasoningEncryptedContent = append(json.RawMessage(nil), enc...)
+		} else if err := json.Unmarshal(enc, &w.EncryptedContent); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// MarshalJSON emits official reasoning encrypted_content presence without
+// affecting compaction's legacy string field.
+func (w WireItem) MarshalJSON() ([]byte, error) {
+	type alias WireItem
+	base, err := json.Marshal(alias(w))
+	if err != nil {
+		return nil, err
+	}
+	if w.Type != "reasoning" || (!w.ReasoningEncryptedContentPresent && !w.SummaryPresent && !w.ContentPresent) {
+		return base, nil
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(base, &raw); err != nil {
+		return nil, err
+	}
+	if w.SummaryPresent {
+		if len(w.Summary) == 0 {
+			raw["summary"] = json.RawMessage("null")
+		} else {
+			raw["summary"] = append(json.RawMessage(nil), w.Summary...)
+		}
+	}
+	if w.ContentPresent {
+		if len(w.Content) == 0 {
+			raw["content"] = json.RawMessage("null")
+		} else {
+			raw["content"] = append(json.RawMessage(nil), w.Content...)
+		}
+	}
+	if w.ReasoningEncryptedContentPresent {
+		if len(w.ReasoningEncryptedContent) == 0 {
+			raw["encrypted_content"] = json.RawMessage("null")
+		} else {
+			raw["encrypted_content"] = append(json.RawMessage(nil), w.ReasoningEncryptedContent...)
+		}
+	}
+	return json.Marshal(raw)
 }
 
 // WireContentPart represents a content part inside a message or tool result on the wire.
@@ -113,14 +207,32 @@ type WireUsage struct {
 	TotalTokens         int                    `json:"total_tokens"`
 }
 
-// WireToolChoiceFunction is the object form of a required tool choice naming one function.
+// WireToolChoiceFunction is the official direct object form of a required
+// function tool choice: {"type":"function","name":"..."}.
 type WireToolChoiceFunction struct {
-	Function WireToolChoiceFunctionName `json:"function"`
-	Type     string                     `json:"type"`
+	Type string `json:"type"`
+	Name string `json:"name"`
 }
 
-// WireToolChoiceFunctionName names the specific function for a required tool choice.
+// WireToolChoiceFunctionName is retained as a decode-only compatibility shape
+// for older nested function tool_choice payloads.
 type WireToolChoiceFunctionName struct {
+	Name string `json:"name"`
+}
+
+// WireToolChoiceAllowedTools is the object form of an allowed_tools tool choice:
+// it restricts which tools the model may invoke to the named subset while the
+// full Tools list stays visible (cache-preserving control surface). Mode is one
+// of "auto", "none", or "required"; empty means auto.
+type WireToolChoiceAllowedTools struct {
+	Type  string                         `json:"type"`
+	Tools []WireToolChoiceAllowedToolRef `json:"tools"`
+	Mode  string                         `json:"mode,omitempty"`
+}
+
+// WireToolChoiceAllowedToolRef names one tool in an allowed_tools subset.
+type WireToolChoiceAllowedToolRef struct {
+	Type string `json:"type"`
 	Name string `json:"name"`
 }
 

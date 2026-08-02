@@ -123,9 +123,10 @@ func TestPreviousResponseParentResolveSuccess(t *testing.T) {
 
 	executor := &scriptedContinuationExecutor{stream: func() lipapi.EventStream { return &responseStream{} }}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Authorizer:        staticAuth{tenant: "tenant-1", principal: "principal-1", allow: true},
-		Executor:          executor,
-		ContinuationStore: store,
+		AllowUnauthenticated: true,
+		Authorizer:           staticAuth{tenant: "tenant-1", principal: "principal-1", allow: true},
+		Executor:             executor,
+		ContinuationStore:    store,
 	})
 
 	body := `{"previous_response_id":"` + parentID.String() + `","input":"new-input"}`
@@ -163,9 +164,10 @@ func TestPreviousResponseParentResolveNotFound(t *testing.T) {
 	store := continuation.NewMemoryStore()
 	executor := &scriptedContinuationExecutor{stream: func() lipapi.EventStream { return &responseStream{} }}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Authorizer:        staticAuth{tenant: "tenant-1", principal: "principal-1", allow: true},
-		Executor:          executor,
-		ContinuationStore: store,
+		AllowUnauthenticated: true,
+		Authorizer:           staticAuth{tenant: "tenant-1", principal: "principal-1", allow: true},
+		Executor:             executor,
+		ContinuationStore:    store,
 	})
 
 	body := `{"previous_response_id":"resp_missing_999","input":"new-input"}`
@@ -203,9 +205,10 @@ func TestPreviousResponseParentResolveExpired(t *testing.T) {
 
 	executor := &scriptedContinuationExecutor{stream: func() lipapi.EventStream { return &responseStream{} }}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Authorizer:        staticAuth{tenant: "tenant-1", principal: "principal-1", allow: true},
-		Executor:          executor,
-		ContinuationStore: store,
+		AllowUnauthenticated: true,
+		Authorizer:           staticAuth{tenant: "tenant-1", principal: "principal-1", allow: true},
+		Executor:             executor,
+		ContinuationStore:    store,
 	})
 
 	body := `{"previous_response_id":"` + parentID.String() + `","input":"new-input"}`
@@ -232,9 +235,10 @@ func TestPreviousResponseParentResolveWrongScope(t *testing.T) {
 	executor := &scriptedContinuationExecutor{stream: func() lipapi.EventStream { return &responseStream{} }}
 	// Request authenticated under tenant-1 / principal-OTHER
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Authorizer:        staticAuth{tenant: "tenant-1", principal: "principal-other", allow: true},
-		Executor:          executor,
-		ContinuationStore: store,
+		AllowUnauthenticated: true,
+		Authorizer:           staticAuth{tenant: "tenant-1", principal: "principal-other", allow: true},
+		Executor:             executor,
+		ContinuationStore:    store,
 	})
 
 	body := `{"previous_response_id":"` + parentID.String() + `","input":"new-input"}`
@@ -258,6 +262,7 @@ func TestPreviousResponseUnauthorizedNoWork(t *testing.T) {
 
 	resolver := &trackingResolver{}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
+		AllowUnauthenticated: true,
 		Authorizer:           staticAuth{allow: false},
 		Executor:             executor,
 		ContinuationStore:    store,
@@ -293,6 +298,7 @@ func TestNoPreviousResponseNoStoreLookup(t *testing.T) {
 
 	resolver := &trackingResolver{}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
+		AllowUnauthenticated: true,
 		Authorizer:           staticAuth{tenant: "tenant-1", principal: "principal-1", allow: true},
 		Executor:             executor,
 		ContinuationStore:    store,

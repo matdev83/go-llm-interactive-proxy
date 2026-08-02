@@ -107,6 +107,36 @@ func TestBuildStreamEvents_ToolAndReasoningAndExtension(t *testing.T) {
 	t.Fatal("extension item not preserved in stream")
 }
 
+func TestBuildStreamEvents_ReasoningContentPinnedNames(t *testing.T) {
+	t.Parallel()
+	res := NewResource("r", "m", 1, []Item{
+		NewReasoningItem("rs_1", nil, []ContentPart{{Type: "output_text", Text: "trace"}}),
+	})
+	events := buildStreamEvents(res)
+	var delta, done bool
+	for _, e := range events {
+		switch e.Type {
+		case "response.reasoning.delta":
+			delta = true
+		case "response.reasoning.done":
+			done = true
+		case "response.reasoning_text.delta", "response.reasoning_text.done":
+			t.Fatalf("legacy reasoning_text event emitted: %s", e.Type)
+		}
+	}
+	if !delta || !done {
+		t.Fatalf("missing pinned reasoning delta/done events (have %v)", eventTypes(events))
+	}
+}
+
+func eventTypes(events []StreamEvent) []string {
+	out := make([]string, 0, len(events))
+	for _, e := range events {
+		out = append(out, e.Type)
+	}
+	return out
+}
+
 func TestBuildStreamEvents_PhasePreserved(t *testing.T) {
 	t.Parallel()
 	res := NewResource("r", "m", 1, []Item{

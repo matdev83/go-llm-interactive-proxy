@@ -3,6 +3,7 @@ package openresponses
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -134,16 +135,6 @@ func TestSSE_WriteDONEBeforeTerminal(t *testing.T) {
 		t.Fatalf("expected error writing DONE before terminal response event")
 	}
 
-	// Failed response events are already terminal. Cleanup may call WriteDONE,
-	// which must be idempotently ignored rather than producing a sequence error.
-	failed := NewSSEWriter(new(bytes.Buffer))
-	if err := failed.WriteEvent(StreamEvent{Type: "response.failed"}); err != nil {
-		t.Fatalf("unexpected failed terminal error: %v", err)
-	}
-	if err := failed.WriteDONE(); err != nil {
-		t.Fatalf("failed terminal cleanup must suppress DONE error: %v", err)
-	}
-
 	// Duplicate successful DONE must still fail
 	buf2 := new(bytes.Buffer)
 	w2 := NewSSEWriter(buf2)
@@ -153,6 +144,38 @@ func TestSSE_WriteDONEBeforeTerminal(t *testing.T) {
 	}
 	if err := w2.WriteDONE(); err == nil {
 		t.Fatalf("expected error on duplicate WriteDONE, got nil")
+	}
+}
+
+func TestSSE_WriteDONEAfterFailedTerminal(t *testing.T) {
+	buf := new(bytes.Buffer)
+	w := NewSSEWriter(buf)
+
+	if err := w.WriteEvent(StreamEvent{Type: "response.created"}); err != nil {
+		t.Fatalf("unexpected pre-terminal error: %v", err)
+	}
+	if err := w.WriteEvent(StreamEvent{Type: "response.failed"}); err != nil {
+		t.Fatalf("unexpected failed terminal error: %v", err)
+	}
+	// Output after the failed terminal is rejected before DONE is written.
+	if err := w.WriteEvent(StreamEvent{Type: "response.output_text.delta"}); err == nil {
+		t.Fatal("expected output_after_terminal error after response.failed")
+	}
+	if err := w.WriteDONE(); err != nil {
+		t.Fatalf("failed terminal must still emit DONE: %v", err)
+	}
+
+	out := buf.String()
+	if got := bytes.Count([]byte(out), []byte("data: [DONE]")); got != 1 {
+		t.Fatalf("expected exactly one DONE sentinel after response.failed, got %d: %q", got, out)
+	}
+	if !strings.HasSuffix(out, "data: [DONE]\n\n") {
+		t.Fatalf("expected output to end with data: [DONE]\\n\\n, got %q", out)
+	}
+
+	// Duplicate DONE after a failed terminal must error like any other duplicate.
+	if err := w.WriteDONE(); !errors.Is(err, ErrDuplicateTerminal) {
+		t.Fatalf("expected ErrDuplicateTerminal on duplicate DONE after failed, got %v", err)
 	}
 }
 

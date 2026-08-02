@@ -17,6 +17,12 @@ type phase42Recorder struct {
 	record lipcont.ContinuationRecord
 }
 
+type phase42PanicRecorder struct{}
+
+func (*phase42PanicRecorder) RecordTerminal(context.Context, lipcont.ContinuationRecord) error {
+	panic("recorder panic")
+}
+
 type phase42TrackingStore struct {
 	*corecont.MemoryStore
 	deletes int
@@ -71,10 +77,100 @@ func TestStreamRecorderCloseReleasesUnfinishedReservation(t *testing.T) {
 
 func TestStreamRecorderStorageFailureDoesNotBecomeStreamFailure(t *testing.T) {
 	backend := &phase42Recorder{err: errors.New("storage down")}
-	r := corecont.NewStreamRecorder(backend, lipcont.ContinuationRecord{}, func() {})
+	cleanupCalls := 0
+	r := corecont.NewStreamRecorder(backend, lipcont.ContinuationRecord{}, func() {
+		cleanupCalls++
+	})
 	r.Observe(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
 	if !errors.Is(r.StorageError(), backend.err) || backend.calls != 1 {
 		t.Fatalf("storage error=%v calls=%d", r.StorageError(), backend.calls)
+	}
+	if cleanupCalls != 1 {
+		t.Fatalf("generic terminal persistence failure cleanup calls=%d, want 1", cleanupCalls)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if cleanupCalls != 1 {
+		t.Fatalf("generic terminal persistence failure cleanup calls after Close=%d, want 1", cleanupCalls)
+	}
+}
+
+func TestStreamRecorderPanickingCleanupDoesNotPropagateOrRepeat(t *testing.T) {
+	cleanupCalls := 0
+	r := corecont.NewStreamRecorder(&phase42Recorder{err: errors.New("storage down")}, lipcont.ContinuationRecord{}, func() {
+		cleanupCalls++
+		panic("cleanup panic")
+	})
+	// A cleanup panic must not escape Observe, and the detached callback must
+	// not be invoked again by Close.
+	r.Observe(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+	if cleanupCalls != 1 {
+		t.Fatalf("panicking cleanup calls=%d, want 1", cleanupCalls)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if cleanupCalls != 1 {
+		t.Fatalf("panicking cleanup calls after Close=%d, want 1", cleanupCalls)
+	}
+}
+
+func TestStreamRecorderObservePanicReleasesExactlyOnce(t *testing.T) {
+	cleanupCalls := 0
+	r := corecont.NewStreamRecorder(&phase42PanicRecorder{}, lipcont.ContinuationRecord{}, func() {
+		cleanupCalls++
+	})
+	r.Observe(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+	if cleanupCalls != 1 {
+		t.Fatalf("cleanup calls=%d, want exactly 1 after Observe panic", cleanupCalls)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if cleanupCalls != 1 {
+		t.Fatalf("cleanup calls=%d, want exactly 1 after Close", cleanupCalls)
+	}
+}
+
+func TestStreamRecorderFinalizeIncompletePanicReleasesExactlyOnce(t *testing.T) {
+	cleanupCalls := 0
+	r := corecont.NewStreamRecorder(&phase42PanicRecorder{}, lipcont.ContinuationRecord{}, func() {
+		cleanupCalls++
+	})
+	r.Observe(context.Background(), lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "partial"})
+	if err := r.FinalizeIncomplete(context.Background()); err == nil {
+		t.Fatal("FinalizeIncomplete unexpectedly succeeded after recorder panic")
+	}
+	if cleanupCalls != 1 {
+		t.Fatalf("cleanup calls=%d, want exactly 1 after panic", cleanupCalls)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if cleanupCalls != 1 {
+		t.Fatalf("cleanup calls=%d, want exactly 1 after Close", cleanupCalls)
+	}
+}
+
+func TestStreamRecorderFinalizeIncompleteFailureReleasesExactlyOnce(t *testing.T) {
+	backend := &phase42Recorder{err: errors.New("storage down")}
+	cleanupCalls := 0
+	r := corecont.NewStreamRecorder(backend, lipcont.ContinuationRecord{}, func() {
+		cleanupCalls++
+	})
+	r.Observe(context.Background(), lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "partial"})
+	if err := r.FinalizeIncomplete(context.Background()); !errors.Is(err, backend.err) {
+		t.Fatalf("FinalizeIncomplete error=%v, want %v", err, backend.err)
+	}
+	if cleanupCalls != 1 {
+		t.Fatalf("cleanup calls=%d, want exactly 1 after failed finalization", cleanupCalls)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if cleanupCalls != 1 {
+		t.Fatalf("cleanup calls=%d, want exactly 1 after Close", cleanupCalls)
 	}
 }
 

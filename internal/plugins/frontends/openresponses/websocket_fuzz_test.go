@@ -283,8 +283,9 @@ func newFuzzWSServer() *httptest.Server {
 			},
 		}
 		fuzzWSServer = httptest.NewServer(NewWebSocketHandler(WebSocketHandlerConfig{
-			Config: cfg,
-			Runner: runner,
+			AllowUnauthenticated: true,
+			Config:               cfg,
+			Runner:               runner,
 		}))
 	})
 	return fuzzWSServer
@@ -374,10 +375,11 @@ func FuzzWebSocketTurnLifecycle(f *testing.F) {
 			typ, _ := m["type"].(string)
 			switch typ {
 			case "response.created":
-				if inTurn {
-					t.Fatalf("turn opened while a previous turn was still active")
+				// response.created follows the first output_item.added event in
+				// the pinned profile, so it confirms an already-open turn.
+				if !inTurn {
+					t.Fatalf("response.created emitted without an output item")
 				}
-				inTurn = true
 			case "response.completed", "response.failed", "response.incomplete":
 				if !inTurn {
 					t.Fatalf("terminal %q emitted without an active turn", typ)
@@ -390,6 +392,13 @@ func FuzzWebSocketTurnLifecycle(f *testing.F) {
 				}
 				outcomes++
 			default:
+				if typ == "response.output_item.added" {
+					if inTurn {
+						t.Fatalf("turn opened while a previous turn was still active")
+					}
+					inTurn = true
+					continue
+				}
 				if !inTurn {
 					t.Fatalf("event %q emitted outside an active turn", typ)
 				}

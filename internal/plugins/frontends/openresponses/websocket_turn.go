@@ -11,8 +11,6 @@ import (
 	"reflect"
 	"strings"
 
-	corecontinuation "github.com/matdev83/go-llm-interactive-proxy/internal/core/continuation"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/routeselect"
 	proto "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/protocols/openresponses"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	lipcont "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/continuation"
@@ -116,22 +114,10 @@ func (r *SessionRunner) HandleMessage(ctx context.Context, s *WSSession, data []
 	return r.executeTurn(ctx, s, decoded)
 }
 
-// evictWSParentIfReferenced deletes the local parent referenced by a rejected
-// turn. A malformed frame cannot carry a usable ID; a classified rejection that
-// did reference one must evict it.
-func evictWSParentIfReferenced(s *WSSession, decoded *decodedWSTurn) {
-	if decoded == nil || decoded.previousResponseID == "" {
-		return
-	}
-	evictWSContinuationParent(s.LocalStore(), s.ContinuationScope(), lipcont.ResponseID(decoded.previousResponseID))
-}
-
-// extractWSPreviousResponseID reads the previous_response_id field from a raw
-// turn frame without requiring the frame to be otherwise valid.
+// extractWSPreviousResponseID is retained as a small parser utility for fuzz and
+// compatibility tests. Runtime rejection handling uses decodedWSTurn instead, so
+// it does not parse the raw frame a second time.
 func extractWSPreviousResponseID(data []byte) string {
-	// Use the same strict object parser as turn admission. In particular, do
-	// not extract a value from a malformed/duplicate-key frame: eviction is a
-	// destructive side effect and must never disagree with admission parsing.
 	fields, err := parseWSTurnObject(data)
 	if err != nil {
 		return ""
@@ -140,11 +126,21 @@ func extractWSPreviousResponseID(data []byte) string {
 	if !ok || !isPresentNonNullJSON(raw) {
 		return ""
 	}
-	var prev string
-	if err := json.Unmarshal(raw, &prev); err != nil {
+	var previous string
+	if err := json.Unmarshal(raw, &previous); err != nil {
 		return ""
 	}
-	return strings.TrimSpace(prev)
+	return strings.TrimSpace(previous)
+}
+
+// evictWSParentIfReferenced deletes the local parent referenced by a rejected
+// turn. A malformed frame cannot carry a usable ID; a classified rejection that
+// did reference one must evict it.
+func evictWSParentIfReferenced(s *WSSession, decoded *decodedWSTurn) {
+	if decoded == nil || decoded.previousResponseID == "" {
+		return
+	}
+	evictWSContinuationParent(s.LocalStore(), s.ContinuationScope(), lipcont.ResponseID(decoded.previousResponseID))
 }
 
 // isNilExecutor reports whether an ExecutorView holds no callable implementation,
@@ -235,7 +231,7 @@ func (r *SessionRunner) executeTurn(ctx context.Context, s *WSSession, decoded *
 			}
 			return r.failClassified(s, localStore, scope, parentID, previousNotFoundTurnError())
 		}
-		materialized, _, err := corecontinuation.MaterializeCall(turnCtx, lipcont.MaterializeInput{
+		materialized, _, err := lipcont.MaterializeCall(turnCtx, lipcont.MaterializeInput{
 			Store:    localStore,
 			Scope:    scope,
 			StartID:  parentID,
@@ -299,6 +295,8 @@ func (r *SessionRunner) executeTurn(ctx context.Context, s *WSSession, decoded *
 	if stream == nil {
 		return r.failClassified(s, localStore, scope, parentID, backendErrorTurn())
 	}
+	// Enforce the allowed_tools hard constraint before any WebSocket turn output.
+	stream = newAllowedToolsStream(&execCall, stream)
 	defer stream.Close()
 
 	if localStore != nil {
@@ -331,14 +329,6 @@ func (r *SessionRunner) executeTurn(ctx context.Context, s *WSSession, decoded *
 				return r.failTerminal(s, localStore, scope, parentID, sm)
 			}
 			return r.failClassified(s, localStore, scope, parentID, backendErrorTurn())
-		}
-		if ev.Kind == lipapi.EventError && !committed {
-			status, _, code, message := classifyCanonicalEventError(ev)
-			return r.failClassified(s, localStore, scope, parentID, &wsTurnError{
-				status:  status,
-				code:    code,
-				message: message,
-			})
 		}
 		if ev.Kind == lipapi.EventError {
 			// Preserve the semantic code while applying the same safe-message
@@ -547,14 +537,6 @@ func decodeWSCreateEnvelope(data []byte, opts wsTurnDecodeOptions) (decoded *dec
 	if max <= 0 {
 		max = proto.MaxRequestBytes
 	}
-	if int64(len(data)) > max {
-		return nil, &wsTurnError{
-			status:  http.StatusRequestEntityTooLarge,
-			code:    "limit_exceeded",
-			message: "turn payload exceeds the message size limit",
-			param:   "request_size",
-		}
-	}
 
 	fields, err := parseWSTurnObject(data)
 	if err != nil {
@@ -570,6 +552,14 @@ func decodeWSCreateEnvelope(data []byte, opts wsTurnDecodeOptions) (decoded *dec
 		var previous string
 		if json.Unmarshal(rawPrevious, &previous) == nil {
 			previousResponseID = strings.TrimSpace(previous)
+		}
+	}
+	if int64(len(data)) > max {
+		return nil, &wsTurnError{
+			status:  http.StatusRequestEntityTooLarge,
+			code:    "limit_exceeded",
+			message: "turn payload exceeds the message size limit",
+			param:   "request_size",
 		}
 	}
 
@@ -639,6 +629,12 @@ func decodeWSCreateEnvelope(data []byte, opts wsTurnDecodeOptions) (decoded *dec
 	}
 	wireParam, canonicalCall, err := proto.DecodeRequest(body, limits)
 	if err != nil {
+		return nil, wsTurnErrorFromProtoErr(err)
+	}
+
+	// Create admission: official non-null controls the canonical call cannot
+	// represent must fail this turn rather than reach execution while ignored.
+	if err := rejectUnsupportedControls(wireParam, createUnsupportedControls); err != nil {
 		return nil, wsTurnErrorFromProtoErr(err)
 	}
 

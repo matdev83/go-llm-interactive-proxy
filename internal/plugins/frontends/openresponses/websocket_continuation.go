@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	corecontinuation "github.com/matdev83/go-llm-interactive-proxy/internal/core/continuation"
 	sdkauth "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
 	lipcont "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/continuation"
 )
@@ -145,7 +144,7 @@ func (s *wsLocalStore) Reserve(ctx context.Context, scope lipcont.Scope, _ lipco
 	if !s.scope.Equal(scope) {
 		return "", lipcont.ErrPreviousResponseNotFound
 	}
-	id, err := corecontinuation.NewResponseID(ctx)
+	id, err := lipcont.NewResponseID(ctx)
 	if err != nil {
 		return "", lipcont.ErrStorageFailure
 	}

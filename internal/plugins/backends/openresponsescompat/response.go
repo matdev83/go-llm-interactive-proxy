@@ -186,8 +186,25 @@ func reasoningOutputEvents(id string, item lipapi.Item) ([]lipapi.Event, int, er
 	if item.Reasoning == nil || item.Reasoning.Reasoning == nil {
 		return nil, 0, fmt.Errorf("%s: %w: reasoning output item is missing its payload", id, ErrMalformedResponse)
 	}
-	text := item.Reasoning.Reasoning.Text
-	return []lipapi.Event{{Kind: lipapi.EventReasoningDelta, Delta: text}}, len(text), nil
+	r := item.Reasoning.Reasoning
+	var events []lipapi.Event
+	var bytes int
+	if r.Text != "" {
+		events = append(events, lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: r.Text})
+		bytes += len(r.Text)
+	}
+	if r.Signature != "" {
+		events = append(events, lipapi.Event{Kind: lipapi.EventReasoningSignatureDelta, Signature: r.Signature})
+		bytes += len(r.Signature)
+	}
+	if len(r.Opaque) > 0 {
+		events = append(events, lipapi.Event{Kind: lipapi.EventReasoningOpaqueDelta, Opaque: append([]byte(nil), r.Opaque...)})
+		bytes += len(r.Opaque)
+	}
+	if len(events) == 0 {
+		events = append(events, lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: ""})
+	}
+	return events, bytes, nil
 }
 
 // toolArgumentsDelta converts wire function_call arguments (a JSON string on

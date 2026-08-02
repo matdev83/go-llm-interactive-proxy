@@ -76,6 +76,9 @@ type HTTPFrontendInput struct {
 	// to every mounted frontend through [lipsdk.FrontendMountOptions] so
 	// long-lived transports (WebSocket sessions) close exactly once on retire.
 	GenerationContext context.Context
+	// ContinuationWiringFactory creates composition-root-owned continuation
+	// state for each frontend mount generation.
+	ContinuationWiringFactory lipsdk.ContinuationMountWiringFactory
 	// FrontendRouteClaims optionally maps a frontend factory id to a provider
 	// that computes the normalized owner-aware route claims for one frontend
 	// instance. When set, [stdhttp.MountBundledFrontends] validates route

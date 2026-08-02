@@ -15,6 +15,9 @@ func InvocationFromCall(call lipapi.Call, cand routing.AttemptCandidate, neg bac
 	if err := lipapi.ValidateToolChoice(call.ToolChoice, call.Tools); err != nil {
 		return backendplugin.Invocation{}, err
 	}
+	if err := backendplugin.ValidateToolChoiceABI(call.ToolChoice); err != nil {
+		return backendplugin.Invocation{}, err
+	}
 	reqID := strings.TrimSpace(call.ID)
 	if reqID == "" {
 		reqID = "req"

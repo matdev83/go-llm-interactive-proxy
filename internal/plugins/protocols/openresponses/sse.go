@@ -26,6 +26,8 @@ type StreamEvent struct {
 	Refusal        string                `json:"refusal,omitempty"`
 	Summary        string                `json:"summary,omitempty"`
 	Arguments      string                `json:"arguments,omitempty"`
+	Signature      string                `json:"signature,omitempty"`
+	Opaque         json.RawMessage       `json:"opaque,omitempty"`
 	Error          json.RawMessage       `json:"error,omitempty"`
 }
 
@@ -61,7 +63,6 @@ func FormattedDONE() []byte {
 type SSEWriter struct {
 	writer          io.Writer
 	terminalEmitted bool
-	terminalFailed  bool
 	doneEmitted     bool
 }
 
@@ -98,7 +99,6 @@ func (s *SSEWriter) WriteEvent(evt StreamEvent) error {
 
 	if isTerminalEventType(evt.Type) {
 		s.terminalEmitted = true
-		s.terminalFailed = evt.Type == "response.failed"
 	}
 	return nil
 }
@@ -113,12 +113,6 @@ func (s *SSEWriter) WriteDONE() error {
 		}
 	}
 
-	if s.terminalFailed {
-		// response.failed is already terminal. Failure streams do not emit a
-		// successful [DONE] marker, but cleanup callers may still invoke this
-		// method while closing the stream.
-		return nil
-	}
 	if !s.terminalEmitted {
 		return &SequenceError{
 			Code:    "done_before_terminal",

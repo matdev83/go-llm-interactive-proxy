@@ -65,8 +65,8 @@ evidence never points at a generic `-json-text` or `-usage-commitment` proof:
 | Cancellation/backpressure | blocking origin + client cancel → upstream stops, candidate untouched (candidate receives zero requests) | lossless / projection |
 | Failover | failing primary + succeeding candidate; both origin counts asserted | lossless / projection |
 | No-retry after visible output | mid-stream-death origin emits first content then dies; candidate receives zero requests | lossless / projection |
-| Reasoning replay / phase / item refs / compaction / extensions | raw unrepresentable wire form → rejected with zero upstream requests (OpenResponses backend cell: compaction round-trips losslessly) | rejected_before_network (lossless for compaction on the openresponses cell) |
-| Assistant media output | no assistant media reference output surface in the row configuration | out_of_scope |
+| Reasoning replay / phase / item refs / compaction / extensions | raw unrepresentable wire form → rejected with zero upstream requests (OpenResponses backend cell: the positive `-compaction` scenario round-trips compaction losslessly) | rejected_before_network (lossless for compaction on the openresponses cell) |
+| Assistant media output | the OpenResponses frontend has no EventAssistantImageRef/EventAssistantFileRef output mapping, so no assistant media reference output surface exists in the row configuration | out_of_scope |
 
 ## OpenResponses backend compatibility column (spec Phase 8, Task 8.4)
 
@@ -94,7 +94,10 @@ before any network work; no pairwise translator exists.
   `-phase-reject`, `-itemref-reject`, `-compaction-reject`, `-extension-reject`,
   plus a dedicated `-continuation`, `-cancellation`, `-failover`, and `-no-retry`
   scenario so evidence never points at a generic `-json-text` or
-  `-usage-commitment` proof. `-json-text` also carries the instructions/roles and
+  `-usage-commitment` proof. The OpenResponses frontend cell's compaction proof
+  uses the positive `-compaction` suffix (the generic backend declares the
+  compaction capability); the four legacy column cells keep `-compaction-reject`.
+  `-json-text` also carries the instructions/roles and
   history evidence.
 - **Continuation is positive only for the OpenResponses frontend cell** (the
   proxy-owned continuation surface); every legacy column frontend has no

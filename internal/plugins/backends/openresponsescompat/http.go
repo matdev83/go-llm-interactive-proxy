@@ -149,8 +149,8 @@ func doNonStreaming(ctx context.Context, hc *http.Client, endpointURL string, bo
 		_, _ = readHTTPBodyLimited(resp.Body, maxErrorSnippetBytes)
 		return nil, classifyHTTPStatus(resp.StatusCode)
 	}
-	defer resp.Body.Close()
 	if !isApplicationJSON(resp.Header.Get("Content-Type")) {
+		_, _ = readHTTPBodyLimited(resp.Body, maxErrorSnippetBytes)
 		return nil, fmt.Errorf("%s: %w: unexpected content-type %q", ID, ErrMalformedResponse, resp.Header.Get("Content-Type"))
 	}
 	return readHTTPBodyLimited(resp.Body, maxBodyBytes)

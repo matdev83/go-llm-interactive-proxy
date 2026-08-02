@@ -20,9 +20,10 @@ func TestClientSelectedResponseIDRejection(t *testing.T) {
 	store := continuation.NewMemoryStore()
 	executor := &scriptedContinuationExecutor{stream: func() lipapi.EventStream { return &responseStream{} }}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Authorizer:        staticAuth{tenant: "tenant-1", principal: "principal-1", allow: true},
-		Executor:          executor,
-		ContinuationStore: store,
+		AllowUnauthenticated: true,
+		Authorizer:           staticAuth{tenant: "tenant-1", principal: "principal-1", allow: true},
+		Executor:             executor,
+		ContinuationStore:    store,
 	})
 
 	// Client passes custom "response_id" attempting response ID fixation
@@ -87,9 +88,10 @@ func TestUniformErrorShapeForParentResolutionFailures(t *testing.T) {
 
 	executor := &scriptedContinuationExecutor{stream: func() lipapi.EventStream { return &responseStream{} }}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Authorizer:        staticAuth{tenant: "tenant-1", principal: "principal-1", allow: true},
-		Executor:          executor,
-		ContinuationStore: store,
+		AllowUnauthenticated: true,
+		Authorizer:           staticAuth{tenant: "tenant-1", principal: "principal-1", allow: true},
+		Executor:             executor,
+		ContinuationStore:    store,
 	})
 
 	cases := []struct {

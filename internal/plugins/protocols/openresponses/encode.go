@@ -35,7 +35,28 @@ func EncodeRequest(call lipapi.Call) ([]byte, error) {
 	}
 
 	var toolChoiceBytes json.RawMessage
-	if call.ToolChoice.Mode != "" {
+	if len(call.ToolChoice.AllowedTools) > 0 {
+		refs := make([]WireToolChoiceAllowedToolRef, 0, len(call.ToolChoice.AllowedTools))
+		for _, name := range call.ToolChoice.AllowedTools {
+			refs = append(refs, WireToolChoiceAllowedToolRef{Type: "function", Name: name})
+		}
+		mode := "auto"
+		switch call.ToolChoice.Mode {
+		case lipapi.ToolChoiceNone:
+			mode = "none"
+		case lipapi.ToolChoiceAny:
+			mode = "required"
+		}
+		tcBytes, err := json.Marshal(WireToolChoiceAllowedTools{
+			Type:  "allowed_tools",
+			Tools: refs,
+			Mode:  mode,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("%w: failed to marshal tool_choice: %v", ErrEncodeFailed, err)
+		}
+		toolChoiceBytes = tcBytes
+	} else if call.ToolChoice.Mode != "" {
 		switch call.ToolChoice.Mode {
 		case lipapi.ToolChoiceAuto:
 			toolChoiceBytes = json.RawMessage(`"auto"`)
@@ -46,8 +67,8 @@ func EncodeRequest(call lipapi.Call) ([]byte, error) {
 		case lipapi.ToolChoiceRequired:
 			if call.ToolChoice.Name != "" {
 				tcBytes, err := json.Marshal(WireToolChoiceFunction{
-					Type:     "function",
-					Function: WireToolChoiceFunctionName{Name: call.ToolChoice.Name},
+					Type: "function",
+					Name: call.ToolChoice.Name,
 				})
 				if err != nil {
 					return nil, fmt.Errorf("%w: failed to marshal tool_choice: %v", ErrEncodeFailed, err)
@@ -177,15 +198,67 @@ func EncodeItem(item lipapi.Item) (WireItem, error) {
 
 	case lipapi.ItemKindReasoning:
 		var reasoningBytes json.RawMessage
+		var summary, content json.RawMessage
+		var signature string
+		var opaque json.RawMessage
+		var encrypted json.RawMessage
+		var encryptedPresent bool
 		if item.Reasoning != nil && item.Reasoning.Reasoning != nil {
-			b, _ := json.Marshal(item.Reasoning.Reasoning.Text)
-			reasoningBytes = b
+			r := item.Reasoning.Reasoning
+			if lipapi.ReasoningHasExactResponsesFields(r) {
+				if r.SummaryPresent || len(r.Summary) > 0 {
+					summary = cloneBytes(r.Summary)
+				}
+				if r.ContentPresent || len(r.Content) > 0 {
+					content = cloneBytes(r.Content)
+				}
+				encrypted = cloneBytes(r.EncryptedContent)
+				encryptedPresent = r.EncryptedContentPresent
+				signature = r.Signature
+				opaque = cloneBytes(r.Opaque)
+				if r.Text != "" || r.Signature != "" || len(r.Opaque) > 0 {
+					obj := map[string]any{}
+					if r.Text != "" {
+						obj["text"] = r.Text
+					}
+					if r.Signature != "" {
+						obj["signature"] = r.Signature
+					}
+					if len(r.Opaque) > 0 {
+						obj["opaque"] = json.RawMessage(r.Opaque)
+					}
+					reasoningBytes, _ = json.Marshal(obj)
+				}
+			} else if r.Text != "" && r.Signature == "" && len(r.Opaque) == 0 {
+				b, _ := json.Marshal(r.Text)
+				reasoningBytes = b
+			} else {
+				obj := map[string]any{}
+				if r.Text != "" {
+					obj["text"] = r.Text
+				}
+				if r.Signature != "" {
+					signature = r.Signature
+					obj["signature"] = r.Signature
+				}
+				if len(r.Opaque) > 0 {
+					opaque = cloneBytes(r.Opaque)
+					obj["opaque"] = json.RawMessage(r.Opaque)
+				}
+				reasoningBytes, _ = json.Marshal(obj)
+			}
 		}
 		return WireItem{
-			ID:        item.ID,
-			Type:      "reasoning",
-			Status:    status,
-			Reasoning: reasoningBytes,
+			ID:                               item.ID,
+			Type:                             "reasoning",
+			Status:                           status,
+			Reasoning:                        reasoningBytes,
+			Summary:                          summary,
+			Content:                          content,
+			Signature:                        signature,
+			Opaque:                           opaque,
+			ReasoningEncryptedContent:        encrypted,
+			ReasoningEncryptedContentPresent: encryptedPresent,
 		}, nil
 
 	case lipapi.ItemKindCompaction:

@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 
-	corecont "github.com/matdev83/go-llm-interactive-proxy/internal/core/continuation"
 	proto "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/protocols/openresponses"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 
@@ -125,26 +124,74 @@ func Mount(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error {
 		return err
 	}
 
-	// The standard runtime constructs one bounded continuation store per config
-	// instance (no globals) and closes it exactly once when the generation begins
-	// shutdown, so reload and reverse shutdown never leave an orphan store.
-	store, bounds := newConfigContinuationStore(cfg)
-	handler := NewHandler(HandlerConfig{
-		Executor:             opts.Exec,
-		DefaultRouteSelector: opts.DefaultRoute,
-		RoutePrefixes:        opts.RoutePrefixes,
-		MaxRequestBodyBytes:  opts.MaxRequestBodyBytes,
-		ProtocolLimits:       proto.DefaultLimits(),
-		DecodeAdmission:      opts.DecodeAdmission,
-		TrafficPorts:         opts.TrafficPorts,
-		PreRequestKeepalive:  opts.PreRequestKeepalive,
-		ContinuationStore:    store,
-		ContinuationResolver: NewStoreContinuationResolver(store, bounds),
-		Config:               cfg,
-	})
-	if opts.GenerationContext != nil {
-		_ = context.AfterFunc(opts.GenerationContext, func() { _ = store.Close() })
+	// Prefer lifecycle-owned composition-root continuation wiring. Direct/minimal
+	// mounts retain a bounded SDK fallback so the plugin never imports core.
+	store := opts.ContinuationStore
+	resolver := opts.ContinuationResolver
+	var ownedWiring lipsdk.ContinuationMountWiring
+	if opts.ContinuationWiring == nil && opts.ContinuationWiringFactory != nil {
+		instanceID := opts.FrontendInstanceID
+		if instanceID == "" {
+			instanceID = ID
+		}
+		ownedWiring, err = opts.ContinuationWiringFactory(ID, instanceID, opts.PluginCfg)
+		if err != nil {
+			return err
+		}
+		if ownedWiring.Store != nil {
+			store = ownedWiring.Store
+		}
+		if ownedWiring.Resolver != nil {
+			resolver = ownedWiring.Resolver
+		}
 	}
+	if opts.ContinuationWiring != nil {
+		if opts.ContinuationWiring.Store != nil {
+			store = opts.ContinuationWiring.Store
+		}
+		if opts.ContinuationWiring.Resolver != nil {
+			resolver = opts.ContinuationWiring.Resolver
+		}
+	}
+	var fallbackStore *lipcont.MemoryStore
+	if store == nil {
+		var bounds lipcont.Bounds
+		fallbackStore, bounds = newConfigContinuationStore(cfg)
+		store = fallbackStore
+		if resolver == nil {
+			resolver = lipcont.NewResolver(store, bounds)
+		}
+	}
+	if opts.GenerationContext != nil && fallbackStore != nil {
+		_ = context.AfterFunc(opts.GenerationContext, func() { _ = fallbackStore.Close() })
+	}
+	activeClose := ownedWiring.Close
+	if opts.ContinuationWiring != nil {
+		activeClose = opts.ContinuationWiring.Close
+	}
+	if activeClose != nil {
+		if opts.GenerationContext == nil {
+			_ = activeClose()
+			return fmt.Errorf("openresponses: continuation wiring requires generation context for lifecycle ownership")
+		}
+		_ = context.AfterFunc(opts.GenerationContext, func() { _ = activeClose() })
+	}
+	handler := NewHandler(HandlerConfig{
+		Executor:              opts.Exec,
+		DefaultRouteSelector:  opts.DefaultRoute,
+		RoutePrefixes:         opts.RoutePrefixes,
+		MaxRequestBodyBytes:   opts.MaxRequestBodyBytes,
+		ProtocolLimits:        proto.DefaultLimits(),
+		DecodeAdmission:       opts.DecodeAdmission,
+		Authorizer:            opts.Authorizer,
+		RequireAuthentication: !opts.AllowUnauthenticated,
+		AllowUnauthenticated:  opts.AllowUnauthenticated,
+		TrafficPorts:          opts.TrafficPorts,
+		PreRequestKeepalive:   opts.PreRequestKeepalive,
+		ContinuationStore:     store,
+		ContinuationResolver:  resolver,
+		Config:                cfg,
+	})
 
 	if mux != nil {
 		createPath := cfg.BasePath + "/responses"
@@ -166,8 +213,11 @@ func Mount(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error {
 				// The generation context is the runtime-owned shutdown signal:
 				// every session of this handler observes it and closes exactly once
 				// when the generation quiesces during reload or server shutdown.
-				ShutdownCtx:     opts.GenerationContext,
-				MaxMessageBytes: opts.MaxRequestBodyBytes,
+				ShutdownCtx:           opts.GenerationContext,
+				MaxMessageBytes:       opts.MaxRequestBodyBytes,
+				Authorizer:            opts.Authorizer,
+				RequireAuthentication: !opts.AllowUnauthenticated,
+				AllowUnauthenticated:  opts.AllowUnauthenticated,
 			})
 			mux.Handle("GET "+wsPath, wsHandler)
 		}
@@ -180,7 +230,7 @@ func Mount(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error {
 // newConfigContinuationStore derives a bounded in-memory continuation store and
 // materialization bounds from a validated frontend config. Zero fields fall back
 // to profile defaults so the default config stays consistent with the contract.
-func newConfigContinuationStore(cfg Config) (*corecont.MemoryStore, lipcont.Bounds) {
+func newConfigContinuationStore(cfg Config) (*lipcont.MemoryStore, lipcont.Bounds) {
 	depth := cfg.Continuation.MaxChainDepth
 	if depth <= 0 {
 		depth = DefaultMaxChainDepth
@@ -189,7 +239,7 @@ func newConfigContinuationStore(cfg Config) (*corecont.MemoryStore, lipcont.Boun
 	if maxBytes <= 0 {
 		maxBytes = DefaultMaxMaterializedBytes
 	}
-	store := corecont.NewMemoryStoreWithLimits(lipcont.StorageLimits{
+	store := lipcont.NewMemoryStoreWithLimits(lipcont.StorageLimits{
 		MaxRecords:     10_000,
 		MaxBytes:       maxBytes,
 		MaxRecordBytes: 16 << 20,

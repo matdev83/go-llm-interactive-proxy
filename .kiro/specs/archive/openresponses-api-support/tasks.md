@@ -12,6 +12,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 1.1 Pin official profile and dependency evidence
 
+- [x] 1.1 Pin official profile and dependency evidence
+
 - Write failing manifest tests for profile, immutable source commit, schema/compliance digests, Apache-2.0 attribution, and deviations.
 - Commit reproducible official fixtures/examples without mutable network download.
 - Add dependency policy gates rejecting source-unavailable, unlicensed, or unreviewed unstable runtime modules.
@@ -24,6 +26,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 1.2 Characterize existing adapters and the current 32-cell matrix
 
+- [x] 1.2 Characterize existing adapters and the current 32-cell matrix
+
 - Write/lock request, response, streaming, tools, multimodal, reasoning, errors, cancellation, commitment, and route fixtures for all existing frontends/backends.
 - Snapshot authoritative frontend/backend lists, current Cartesian cells, ACP exclusions, frontend mounting, backend construction, and reference parity behavior.
 - Add differential helpers that compare only deliberately shared semantics.
@@ -34,6 +38,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 - _Validation: `go test ./internal/plugins/frontends/... ./internal/plugins/backends/... ./internal/testkit/conformance/... ./internal/archtest/...`_
 
 ### 1.3 Define ordered canonical items and normalized walkers
+
+- [x] 1.3 Define ordered canonical items and normalized walkers
 
 - Write failing round-trip/validation tests for messages, references, calls/results, reasoning, compaction, phase, content, status/identity, and opaque extensions.
 - Add one-authority tests for item versus legacy message calls.
@@ -47,6 +53,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 1.4 Define both projector directions and capability/dialect contracts
 
+- [x] 1.4 Define both projector directions and capability/dialect contracts
+
 - Write failing item-authority→legacy-view and legacy-message-authority→ordered-item projector tests.
 - Require all-or-nothing deterministic projection with stable rejection reasons.
 - Define operation, transport, semantic capability, exact item/reasoning/compaction/extension dialect requirements.
@@ -59,6 +67,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 - _Validation: `go test ./pkg/lipapi/... ./internal/core/capabilities/... ./internal/core/routing/... ./pkg/lipsdk/backendplugin/... -run 'Project|Authority|Dialect|Capability|NoNetwork'`_
 
 ### 1.5 Define route claims and continuation contracts
+
+- [x] 1.5 Define route claims and continuation contracts
 
 - Write failing tests for normalized method/path claims, duplicate owners, non-colliding defaults, canonical-path takeover, and diagnostics.
 - Define protocol-neutral response ID, scope, continuation record/store, persistence, and recorder contracts.
@@ -75,6 +85,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 2.1 Implement production request/item/content/tool/control codecs
 
+- [x] 2.1 Implement production request/item/content/tool/control codecs
+
 - Start with failing official-example and negative goldens.
 - Implement typed portable unions, presence distinctions, tools/tool choice, phase, reasoning, structured outputs, residual controls, and extension precedence.
 - Reject unknown unprefixed types and unsupported background/conversation modes.
@@ -85,6 +97,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 - _Validation: `go test ./internal/plugins/protocols/openresponses/... -run 'Request|Item|Content|Tool|Control|Presence'`_
 
 ### 2.2 Implement complete response and compaction builders
+
+- [x] 2.2 Implement complete response and compaction builders
 
 - Write exhaustive required-presence tests, including absent/null/default distinctions.
 - Build resources from envelope metadata, canonical trajectories, usage, controls, errors, and timestamps.
@@ -97,6 +111,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 2.3 Implement semantic event state machine and SSE framing
 
+- [x] 2.3 Implement semantic event state machine and SSE framing
+
 - Write failing lifecycle/sequence tests for response, items, content, text, refusal, reasoning, function arguments, errors, and terminal ownership.
 - Use one state machine for final resource, SSE, and WebSocket event output.
 - Add conservative legacy-stream normalization that never invents phase, replay, compaction, structured output, or extensions.
@@ -107,6 +123,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 - _Validation: `go test ./internal/plugins/protocols/openresponses/... -run 'StateMachine|SSE|Lifecycle|Sequence|Terminal|LegacyNormalize'`_
 
 ### 2.4 Implement errors, bounds, production fuzz targets, and coverage baseline
+
+- [x] 2.4 Implement errors, bounds, production fuzz targets, and coverage baseline
 
 - Add table tests for HTTP/SSE/WS error mapping and stable internal classification.
 - Enforce independent request/resource/event/item/schema/opaque/continuation limits and sanitized messages.
@@ -119,6 +137,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 - _Validation: `go test -coverprofile=/tmp/openresponses-codec.cover ./internal/plugins/protocols/openresponses/... && go test -fuzz=Fuzz -fuzztime=30s ./internal/plugins/protocols/openresponses/...`_
 
 ### 2.5 Define independent emulator contracts, immutable fixtures, and anti-tautology gates
+
+- [x] 2.5 Define independent emulator contracts, immutable fixtures, and anti-tautology gates
 
 - Write failing architecture tests requiring `internal/refclient/openresponses` and `internal/refbackend/openresponses` to remain test-only and independent from production OpenResponses adapters/codecs/state machines.
 - Define declarative scenario IDs, immutable official fixture bytes/digests, neutral binary fixtures, request-observation and script contracts, virtual clock interfaces, bounded captures, and cleanup rules.
@@ -136,6 +156,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 3.1 Implement strict frontend configuration and route ownership
 
+- [x] 3.1 Implement strict frontend configuration and route ownership
+
 - Test profile/path/WS/continuation/origin/unknown fields and every route collision.
 - Register immutable claims before handlers and expose sanitized diagnostics.
 - **Observable completion:** default coexistence works and conflicting `/v1` fails before serving.
@@ -145,6 +167,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 - _Validation: `go test ./internal/plugins/frontends/openresponses/... ./internal/stdhttp/... -run 'Config|Route|Collision|Coexist'`_
 
 ### 3.2 Implement authenticated create decode and canonical construction
+
+- [x] 3.2 Implement authenticated create decode and canonical construction
 
 - Test authentication/authority before body/state work.
 - Decode string/items, tools, controls, metadata policy, extensions, conditional model/input, and limits.
@@ -157,6 +181,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 3.3 Implement complete non-streaming response envelopes
 
+- [x] 3.3 Implement complete non-streaming response envelopes
+
 - Test proxy IDs, timestamps, model/parent linkage, required presence, output order, usage, errors, and incomplete state.
 - Execute through standard core and build via the shared state machine.
 - Keep native IDs private.
@@ -168,6 +194,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 3.4 Implement incremental SSE and terminal ownership
 
+- [x] 3.4 Implement incremental SSE and terminal ownership
+
 - Test event order, lifecycle, errors, `[DONE]`, slow clients, writer failures, cancellation, and first-output commitment.
 - Stream incrementally and close backend/recorder/HTTP resources exactly once.
 - **Observable completion:** official streaming scenarios pass under bounded slow consumption with no retry or leaks.
@@ -177,6 +205,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 - _Validation: `go test -race ./internal/plugins/frontends/openresponses/... -run 'SSE|Backpressure|Cancel|WriteFailure|Commit|Terminal'`_
 
 ### 3.5 Prove frontend isolation and differential behavior
+
+- [x] 3.5 Prove frontend isolation and differential behavior
 
 - Mount all existing frontends plus OpenResponses and assert routes, resources, errors, identity, and unsupported features remain separate.
 - Run existing adapter characterization unchanged.
@@ -192,6 +222,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 4.1 Implement bounded continuation storage and proxy IDs
 
+- [x] 4.1 Implement bounded continuation storage and proxy IDs
+
 - Test reserve/put/get/delete, scope, TTL, restart, cleanup, storage failure, entropy, limits, and incomplete eligibility.
 - Store canonical trajectory, requirements, lineage, status, and protected native refs.
 - **Observable completion:** memory/durable contract implementations pass isolation/restart/expiry/security tests.
@@ -201,6 +233,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 - _Validation: `go test -race ./internal/core/continuation/... ./internal/infra/continuation/... -run 'Store|Scope|TTL|Restart|Limit|ID'`_
 
 ### 4.2 Implement materialization, recording, and routing constraints
+
+- [x] 4.2 Implement materialization, recording, and routing constraints
 
 - Test previous-input→previous-output→new-input order, portable rerouting, provider-bound pinning, native optimization, and canonical fallback.
 - Add incremental terminal recorder without changing commitment.
@@ -212,6 +246,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 4.3 Integrate HTTP continuation and storage policy
 
+- [x] 4.3 Integrate HTTP continuation and storage policy
+
 - Test `store:true`, defaults, success, missing/expired/unauthorized/incompatible IDs, parent echo, and unauthorized zero-work behavior.
 - **Observable completion:** official multi-turn works with new input only and all non-resolvable parents fail identically.
 - _Requirements: 2.7, 6.1–6.3, 6.8–6.10, 10.8–10.9_
@@ -220,6 +256,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 - _Validation: `go test ./internal/plugins/frontends/openresponses/... ./internal/core/continuation/... -run 'PreviousResponse|StoreTrue|NotFound|Scope'`_
 
 ### 4.4 Implement compaction through normal execution
+
+- [x] 4.4 Implement compaction through normal execution
 
 - Test model-required validation, input, eligibility, failover, usage, required resource, later new chain, and unsupported capability.
 - Route through the normal executor/backend stream port.
@@ -230,6 +268,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 - _Validation: `go test ./internal/plugins/frontends/openresponses/... ./internal/core/runtime/... ./internal/core/routing/... -run 'Compact|MissingModel|Failover|NewChain'`_
 
 ### 4.5 Harden continuation/compaction security and lifecycle
+
+- [x] 4.5 Harden continuation/compaction security and lifecycle
 
 - Test probing, fixation, cycles, amplification, expired native refs, persistence/cancellation failure, redaction, reload, and shutdown.
 - **Observable completion:** race/leak suites leave no record/stream/goroutine/lock/native-ref leak and errors remain bounded.
@@ -244,6 +284,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 5.1 Implement strict configuration and factory registration
 
+- [x] 5.1 Implement strict configuration and factory registration
+
 - Test stable kind, independent IDs/prefixes, profile, endpoint, env credentials, no-auth, inventory, capabilities/dialects, limits, unknown fields, and collisions.
 - Reuse shared infrastructure without provider SDKs or external plugin requirements.
 - **Observable completion:** multiple independent instances construct correctly and root builds without external modules.
@@ -253,6 +295,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 - _Validation: `go test ./internal/standardplugins/... ./internal/plugins/backends/openresponsescompat/... -run 'Config|Factory|NoAuth|Instance|Prefix|Caps' && GOWORK=off go build ./cmd/lipstd`_
 
 ### 5.2 Implement item-authority request and JSON response mapping
+
+- [x] 5.2 Implement item-authority request and JSON response mapping
 
 - Test ordered portable items, controls, tools/results, phase, reasoning, extensions, endpoints, and unsupported semantics.
 - Never forward proxy IDs or arbitrary fields.
@@ -265,6 +309,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 5.3 Implement legacy-message-authority projection into ordered requests
 
+- [x] 5.3 Implement legacy-message-authority projection into ordered requests
+
 - Start with failing calls produced by OpenAI Chat, OpenAI Responses, Anthropic, and Gemini frontend canonical fixtures.
 - Use the explicit legacy→item projector; preserve order, instructions, tools/results, multimodal parts, controls, and exact replay requirements.
 - Reject conflicts and incompatible source extensions/replay before network work.
@@ -276,6 +322,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 5.4 Implement SSE mapping, errors, commitment, and remote compaction
 
+- [x] 5.4 Implement SSE mapping, errors, commitment, and remote compaction
+
 - Test every claimed event, unknown prefixed output, malformed/unprefixed data, event mismatch, duplicate terminal, slow consumers, cancellation, provider disconnect, compact endpoint, usage, and dialect output.
 - Peek first canonical event before commitment and retain no-retry-after-output policy.
 - **Observable completion:** incremental streams/compact preserve semantics under backpressure and classify pre/post-output failures correctly.
@@ -285,6 +333,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 - _Validation: `go test -race ./internal/plugins/backends/openresponsescompat/... ./internal/core/routing/... -run 'SSE|Extension|Backpressure|Cancel|Commit|Retry|Compact'`_
 
 ### 5.5 Enforce provider-specific boundaries and inventory provenance
+
+- [x] 5.5 Enforce provider-specific boundaries and inventory provenance
 
 - Define/test a narrow codec customization seam for provider connectors.
 - Prove generic config rejects OpenRouter attribution/routing/billing/catalog/proprietary controls.
@@ -301,6 +351,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 6.1 Implement authenticated upgrade, origin policy, and limits
 
+- [x] 6.1 Implement authenticated upgrade, origin policy, and limits
+
 - Test non-upgrade GET, auth, origins, dev relaxation, routing, message limits, idle/ping/pong, and max age.
 - Allocate local continuation only after authorization.
 - **Observable completion:** invalid attempts allocate no session/state; valid clients establish bounded sessions.
@@ -310,6 +362,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 - _Validation: `go test ./internal/plugins/frontends/openresponses/... -run 'WebSocketUpgrade|Auth|Origin|Limit|Ping|Age'`_
 
 ### 6.2 Implement sequential turn execution and shared event output
+
+- [x] 6.2 Implement sequential turn execution and shared event output
 
 - Test valid/invalid create envelopes, forbidden fields, one active turn, bounded queue, sequential reuse, and event parity.
 - Use the same executor and state machine as HTTP/SSE.
@@ -321,6 +375,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 6.3 Implement connection-local continuation and classified eviction
 
+- [x] 6.3 Implement connection-local continuation and classified eviction
+
 - Test recording, continuation with new input, reconnect loss, missing parent, 4xx/5xx eviction, transport/cancel retention, success retention, bounds, and close cleanup.
 - Integrate compact output as a new base without old response ID.
 - **Observable completion:** every pinned continuation/reconnect/eviction/compact-new-chain scenario passes.
@@ -331,6 +387,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 6.4 Implement connection-age, disconnect, and terminal cleanup
 
+- [x] 6.4 Implement connection-age, disconnect, and terminal cleanup
+
 - Test age expiry/error, idle close, disconnect before/after output, writer failure, backend block, shutdown, and reload generation.
 - Close all resources exactly once.
 - **Observable completion:** closure paths terminate promptly with no duplicate terminal, cross-generation work, or leaks.
@@ -340,6 +398,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 - _Validation: `go test -race ./internal/plugins/frontends/openresponses/... ./internal/infra/runtimebundle/... -run 'WebSocketClose|ConnectionLimit|Disconnect|Reload|Shutdown|Leak'`_
 
 ### 6.5 Fuzz and stress the WebSocket state machine
+
+- [x] 6.5 Fuzz and stress the WebSocket state machine
 
 - Fuzz malformed JSON/unions/fields/UTF-8/frames/repeated creates/errors/lifecycle.
 - Stress slow IO, queue/local-state saturation, virtual one-hour age, and cancellation races.
@@ -355,6 +415,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 7.1 Integrate registration, diagnostics, reload, and shutdown
 
+- [x] 7.1 Integrate registration, diagnostics, reload, and shutdown
+
 - Register frontend/backend with immutable route/prefix ownership.
 - Add sanitized profile/origin/path/endpoint/transport/continuation/capability/inventory/conformance diagnostics.
 - Integrate state and WS ownership into rollback, atomic reload, drain, and reverse shutdown.
@@ -366,6 +428,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 7.2 Complete external backend plugin ABI integration
 
+- [x] 7.2 Complete external backend plugin ABI integration
+
 - Implement versioned DTO/host changes for ordered items, requirements, create, compaction, opaque output, and operation capabilities.
 - Update fake external connectors and reject unsupported old versions before execution.
 - **Observable completion:** built-in generic and external fake connector pass equivalent canonical create/compact contracts.
@@ -375,6 +439,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 - _Validation: `go test ./pkg/lipsdk/backendplugin/... ./internal/infra/backendplugins/... ./internal/archtest/... && GOWORK=off go build ./cmd/lipstd`_
 
 ### 7.3 Build the reusable full-path conformance deployment harness
+
+- [x] 7.3 Build the reusable full-path conformance deployment harness
 
 - Compose configurable client entrypoint, all real frontends, core, all real backends, and injectable reference-provider origins.
 - Add hooks for the independent OpenResponses refclient/refbackend contracts from Task 2.5 and existing reference families.
@@ -388,6 +454,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 7.4 Execute base security, failover, and existing-adapter regression proofs
 
+- [x] 7.4 Execute base security, failover, and existing-adapter regression proofs
+
 - Test extension smuggling, incompatible failover, ID probing/native leakage, route collision, origin abuse, amplification, event injection, and opaque replay.
 - Prove pre-output classification and post-output commitment.
 - Run all existing protocol differential/matrix fixtures unchanged.
@@ -398,6 +466,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 - _Validation: `go test -race ./internal/integration/openresponses/... ./internal/core/... ./internal/plugins/... -run 'Security|Failover|Commitment|Redaction|Regression'`_
 
 ### 7.5 Run base architecture and production-package quality gates
+
+- [x] 7.5 Run base architecture and production-package quality gates
 
 - Run focused/default/tagged tests, changed-package races, production fuzz smoke, architecture tests, vet, and required static analysis.
 - Build with `GOWORK=off`, no external connector modules, no JavaScript, and OpenResponses enabled/disabled.

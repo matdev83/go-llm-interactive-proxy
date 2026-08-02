@@ -384,6 +384,10 @@ func validateBaseURL(raw string) (endpoint.Descriptor, error) {
 }
 
 func isLoopbackHost(host string) bool {
+	host = strings.TrimSpace(host)
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+		host = parsedHost
+	}
 	host = strings.Trim(strings.TrimSpace(host), "[]")
 	if strings.EqualFold(host, "localhost") {
 		return true

@@ -416,31 +416,88 @@ func decodeToolChoice(raw []byte) (lipapi.ToolChoice, error) {
 		}
 
 		if typeVal == "function" {
-			var funcObj struct {
-				Name string `json:"name"`
-			}
-			if fn, ok := rawObj["function"]; ok {
-				if err := json.Unmarshal(fn, &funcObj); err != nil {
-					return lipapi.ToolChoice{}, fmt.Errorf("%w: invalid function tool_choice object", ErrDecodeFailed)
+			// The pinned OpenResponses shape names the function directly. Accept
+			// the historical nested form as a compatibility input, but never
+			// emit it (the encoder uses the official direct form).
+			name := ""
+			if rawName, ok := rawObj["name"]; ok {
+				if err := json.Unmarshal(rawName, &name); err != nil {
+					return lipapi.ToolChoice{}, fmt.Errorf("%w: invalid function tool_choice name", ErrDecodeFailed)
 				}
 			}
-			if funcObj.Name == "" {
+			if name == "" {
+				if fn, ok := rawObj["function"]; ok {
+					var funcObj WireToolChoiceFunctionName
+					if err := json.Unmarshal(fn, &funcObj); err != nil {
+						return lipapi.ToolChoice{}, fmt.Errorf("%w: invalid function tool_choice object", ErrDecodeFailed)
+					}
+					name = funcObj.Name
+				}
+			}
+			if name == "" {
 				return lipapi.ToolChoice{}, fmt.Errorf("%w: invalid function tool_choice object missing name", ErrDecodeFailed)
 			}
-			return lipapi.ToolChoice{
-				Mode: lipapi.ToolChoiceRequired,
-				Name: funcObj.Name,
-			}, nil
+			return lipapi.ToolChoice{Mode: lipapi.ToolChoiceRequired, Name: name}, nil
 		}
 
 		if typeVal == "allowed_tools" {
-			return lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto}, nil
+			return decodeAllowedTools(rawObj)
 		}
 
 		return lipapi.ToolChoice{}, fmt.Errorf("%w: unknown object tool_choice type %q", ErrDecodeFailed, typeVal)
 	}
 
 	return lipapi.ToolChoice{}, fmt.Errorf("%w: invalid tool_choice format", ErrDecodeFailed)
+}
+
+// decodeAllowedTools parses the pinned allowed_tools tool_choice object into the
+// canonical subset. The subset is a hard constraint: only the named tools may be
+// invoked, while the full Tools list stays visible. The optional mode is one of
+// "auto" (default), "none", or "required".
+func decodeAllowedTools(rawObj map[string]json.RawMessage) (lipapi.ToolChoice, error) {
+	mode := lipapi.ToolChoiceAuto
+	if raw, ok := rawObj["mode"]; ok {
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return lipapi.ToolChoice{}, fmt.Errorf("%w: invalid allowed_tools mode", ErrDecodeFailed)
+		}
+		switch s {
+		case "auto":
+			mode = lipapi.ToolChoiceAuto
+		case "none":
+			mode = lipapi.ToolChoiceNone
+		case "required":
+			mode = lipapi.ToolChoiceAny
+		default:
+			return lipapi.ToolChoice{}, fmt.Errorf("%w: unknown allowed_tools mode %q", ErrDecodeFailed, s)
+		}
+	}
+
+	rawTools, ok := rawObj["tools"]
+	if !ok {
+		return lipapi.ToolChoice{}, fmt.Errorf("%w: allowed_tools requires a tools array", ErrDecodeFailed)
+	}
+	var refs []WireToolChoiceAllowedToolRef
+	if err := json.Unmarshal(rawTools, &refs); err != nil {
+		return lipapi.ToolChoice{}, fmt.Errorf("%w: invalid allowed_tools tools array", ErrDecodeFailed)
+	}
+	if len(refs) == 0 {
+		return lipapi.ToolChoice{}, fmt.Errorf("%w: allowed_tools tools must not be empty", ErrDecodeFailed)
+	}
+	if len(refs) > lipapi.MaxAllowedToolRefs {
+		return lipapi.ToolChoice{}, fmt.Errorf("%w: allowed_tools tools array exceeds %d references", ErrDecodeFailed, lipapi.MaxAllowedToolRefs)
+	}
+	names := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref.Type != "function" {
+			return lipapi.ToolChoice{}, fmt.Errorf("%w: allowed_tools tool reference has unsupported type %q", ErrDecodeFailed, ref.Type)
+		}
+		if ref.Name == "" || ref.Name != strings.TrimSpace(ref.Name) {
+			return lipapi.ToolChoice{}, fmt.Errorf("%w: allowed_tools tool reference requires a valid name", ErrDecodeFailed)
+		}
+		names = append(names, ref.Name)
+	}
+	return lipapi.ToolChoice{Mode: mode, AllowedTools: names}, nil
 }
 
 // DecodeItem converts a WireItem into a canonical lipapi.Item under the
@@ -582,19 +639,35 @@ func DecodeItem(wire WireItem, limits Limits) (lipapi.Item, error) {
 		if len(bytes.TrimSpace(wire.Reasoning)) > 0 && jsonpresence.IsJSONNull(bytes.TrimSpace(wire.Reasoning)) {
 			return lipapi.Item{}, fmt.Errorf("%w: reasoning cannot be null", ErrDecodeFailed)
 		}
+		if wire.Signature != "" {
+			rItem.Reasoning.Signature = wire.Signature
+		}
+		if jsonpresence.IsPresentNonNullJSON(wire.Opaque) {
+			rItem.Reasoning.Opaque = cloneBytes(wire.Opaque)
+		}
+		if len(wire.Summary) > 0 {
+			rItem.Reasoning.Summary = cloneBytes(wire.Summary)
+			rItem.Reasoning.SummaryPresent = wire.SummaryPresent || jsonpresence.IsPresentNonNullJSON(wire.Summary)
+		}
+		if len(wire.Content) > 0 {
+			rItem.Reasoning.Content = cloneBytes(wire.Content)
+			rItem.Reasoning.ContentPresent = wire.ContentPresent || jsonpresence.IsPresentNonNullJSON(wire.Content)
+		}
+		if wire.ReasoningEncryptedContentPresent {
+			rItem.Reasoning.EncryptedContentPresent = true
+			rItem.Reasoning.EncryptedContent = cloneBytes(wire.ReasoningEncryptedContent)
+		}
 		if jsonpresence.IsPresentNonNullJSON(wire.Reasoning) {
-			var reasStr string
-			if err := json.Unmarshal(wire.Reasoning, &reasStr); err == nil {
-				rItem.Reasoning.Text = reasStr
-			} else {
-				trimmed := bytes.TrimSpace(wire.Reasoning)
-				if json.Valid(trimmed) {
-					return lipapi.Item{}, fmt.Errorf("%w: reasoning cannot be a non-string JSON primitive", ErrDecodeFailed)
-				}
-				if len(trimmed) > 0 && (trimmed[0] == '"' || trimmed[0] == '{' || trimmed[0] == '[') {
-					return lipapi.Item{}, fmt.Errorf("%w: reasoning must be a valid string", ErrDecodeFailed)
-				}
-				rItem.Reasoning.Text = string(trimmed)
+			text, signature, opaque, err := decodeReasoningPayload(wire.Reasoning)
+			if err != nil {
+				return lipapi.Item{}, err
+			}
+			rItem.Reasoning.Text = text
+			if signature != "" {
+				rItem.Reasoning.Signature = signature
+			}
+			if len(opaque) > 0 {
+				rItem.Reasoning.Opaque = opaque
 			}
 		} else if len(bytes.TrimSpace(wire.Content)) > 0 && jsonpresence.IsJSONNull(bytes.TrimSpace(wire.Content)) {
 			return lipapi.Item{}, fmt.Errorf("%w: reasoning content cannot be null", ErrDecodeFailed)
@@ -647,6 +720,46 @@ func DecodeItem(wire WireItem, limits Limits) (lipapi.Item, error) {
 	}
 
 	return item, nil
+}
+
+func decodeReasoningPayload(raw []byte) (text, signature string, opaque json.RawMessage, err error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) > 0 && trimmed[0] == '"' {
+		if err := json.Unmarshal(trimmed, &text); err != nil {
+			return "", "", nil, fmt.Errorf("%w: reasoning must be a valid string", ErrDecodeFailed)
+		}
+		return text, "", nil, nil
+	}
+	var obj struct {
+		Text      string            `json:"text"`
+		Signature string            `json:"signature"`
+		Opaque    json.RawMessage   `json:"opaque"`
+		Summary   []WireContentPart `json:"summary"`
+		Content   []WireContentPart `json:"content"`
+		Encrypted string            `json:"encrypted_content"`
+	}
+	if !json.Valid(trimmed) {
+		// Older OpenResponses adapters carried plain reasoning text in the raw
+		// field. Preserve that established compatibility form.
+		return string(trimmed), "", nil, nil
+	}
+	if err := json.Unmarshal(trimmed, &obj); err != nil {
+		return "", "", nil, fmt.Errorf("%w: reasoning must be a valid string or object", ErrDecodeFailed)
+	}
+	text, signature, opaque = obj.Text, obj.Signature, cloneBytes(obj.Opaque)
+	for _, part := range append(obj.Summary, obj.Content...) {
+		if part.Text == "" {
+			continue
+		}
+		if text != "" {
+			text += "\n"
+		}
+		text += part.Text
+	}
+	if len(opaque) == 0 && obj.Encrypted != "" {
+		opaque, _ = json.Marshal(obj.Encrypted)
+	}
+	return text, signature, opaque, nil
 }
 
 // decodeContentParts parses wire content array into canonical []lipapi.ContentPart.

@@ -25,7 +25,11 @@ type StateMachine struct {
 	state       StateMachineState
 	status      string
 	sequenceNum int
-	eventCount  int // resourceBytes is a conservative incremental upper bound for the serialized
+	// responseCreatedEmitted is deferred until the first output item is
+	// announced. The pinned profile requires response.output_item.added to be
+	// the first wire event.
+	responseCreatedEmitted bool
+	eventCount             int // resourceBytes is a conservative incremental upper bound for the serialized
 	// response resource. It avoids re-marshaling the full trajectory per delta.
 	resourceBytes int
 	limits        Limits
@@ -95,23 +99,24 @@ func (b *deltaBuffer) Truncate(length int) {
 }
 
 type smSnapshot struct {
-	state            StateMachineState
-	status           string
-	sequenceNum      int
-	eventCount       int
-	resourceBytes    int
-	trajectoryLen    int
-	trajectoryWasNil bool
-	itemCopies       map[int]lipapi.Item
-	toolChanges      map[string]toolCallChange
-	usage            UsageStats
-	streamErr        *lipapi.StreamError
-	activeItemIdx    int
-	activeContentIdx int
-	textBuffers      map[int]bufferCheckpoint
-	textPartIndexes  map[int]int
-	reasoningBuffers map[int]bufferCheckpoint
-	toolArgBuffers   map[int]bufferCheckpoint
+	state                  StateMachineState
+	status                 string
+	sequenceNum            int
+	eventCount             int
+	resourceBytes          int
+	trajectoryLen          int
+	trajectoryWasNil       bool
+	itemCopies             map[int]lipapi.Item
+	toolChanges            map[string]toolCallChange
+	usage                  UsageStats
+	streamErr              *lipapi.StreamError
+	activeItemIdx          int
+	activeContentIdx       int
+	responseCreatedEmitted bool
+	textBuffers            map[int]bufferCheckpoint
+	textPartIndexes        map[int]int
+	reasoningBuffers       map[int]bufferCheckpoint
+	toolArgBuffers         map[int]bufferCheckpoint
 }
 
 func (sm *StateMachine) takeSnapshot() smSnapshot {
@@ -131,13 +136,13 @@ func (sm *StateMachine) takeSnapshot() smSnapshot {
 		itemCopies:       make(map[int]lipapi.Item),
 		toolChanges:      make(map[string]toolCallChange),
 		usage:            sm.usage,
-		streamErr:        errCp,
-		activeItemIdx:    sm.activeItemIdx,
-		activeContentIdx: sm.activeContentIdx,
-		textBuffers:      snapshotBuffers(sm.textBuilders),
-		textPartIndexes:  cloneIntMap(sm.textPartIndexes),
-		reasoningBuffers: snapshotBuffers(sm.reasoningBuilders),
-		toolArgBuffers:   snapshotBuffers(sm.toolArgBuilders),
+		streamErr:        errCp, activeItemIdx: sm.activeItemIdx,
+		activeContentIdx:       sm.activeContentIdx,
+		responseCreatedEmitted: sm.responseCreatedEmitted,
+		textBuffers:            snapshotBuffers(sm.textBuilders),
+		textPartIndexes:        cloneIntMap(sm.textPartIndexes),
+		reasoningBuffers:       snapshotBuffers(sm.reasoningBuilders),
+		toolArgBuffers:         snapshotBuffers(sm.toolArgBuilders),
 	}
 	sm.tx = &snap
 	return snap
@@ -225,6 +230,7 @@ func (sm *StateMachine) restoreSnapshot(snap smSnapshot) {
 	sm.textPartIndexes = cloneIntMap(snap.textPartIndexes)
 	sm.activeItemIdx = snap.activeItemIdx
 	sm.activeContentIdx = snap.activeContentIdx
+	sm.responseCreatedEmitted = snap.responseCreatedEmitted
 	sm.rebindActivePointers()
 }
 
@@ -365,20 +371,19 @@ func (sm *StateMachine) ProcessCanonicalEvent(ev lipapi.Event) (events []StreamE
 			}
 		}
 		sm.state = StateStarted
-		wireRes, resourceData, err := sm.snapshotResource("in_progress")
-		if err != nil {
-			return nil, err
+		// Reserve the initial response envelope now, even though its wire event
+		// is deferred until an output item can be announced.
+		if _, resourceData, snapshotErr := sm.snapshotResource("in_progress"); snapshotErr != nil {
+			return nil, snapshotErr
+		} else {
+			sm.resourceBytes = len(resourceData)
+			if err := sm.validateResourceBudget(); err != nil {
+				return nil, err
+			}
 		}
-		sm.resourceBytes = len(resourceData)
-		if err := sm.validateResourceBudget(); err != nil {
-			return nil, err
-		}
-		events = append(events, StreamEvent{
-			Type: "response.created",
-
-			SequenceNumber: sm.nextSeq(),
-			Response:       wireRes,
-		})
+		// The response.created event is deliberately deferred until an output
+		// item has been announced. This makes output_item.added the first event
+		// while retaining the created lifecycle event for compatibility.
 
 	case lipapi.EventMessageStarted:
 		if err := sm.closeActiveContentPart(&events); err != nil {
@@ -440,7 +445,7 @@ func (sm *StateMachine) ProcessCanonicalEvent(ev lipapi.Event) (events []StreamE
 			Delta:          ev.Delta,
 		})
 
-	case lipapi.EventReasoningDelta:
+	case lipapi.EventReasoningDelta, lipapi.EventReasoningSignatureDelta, lipapi.EventReasoningOpaqueDelta, lipapi.EventReasoningPart:
 		if sm.activeItem == nil || sm.activeItem.Kind != lipapi.ItemKindReasoning {
 			if err := sm.closeActiveContentPart(&events); err != nil {
 				return nil, err
@@ -455,7 +460,8 @@ func (sm *StateMachine) ProcessCanonicalEvent(ev lipapi.Event) (events []StreamE
 				Status: lipapi.ItemStatusInProgress,
 				Reasoning: &lipapi.ReasoningItem{
 					Reasoning: &lipapi.ReasoningPart{
-						Text: "",
+						Dialect: lipapi.ReasoningDialect("openresponses.reasoning.v1"),
+						Text:    "",
 					},
 				},
 			}
@@ -481,29 +487,83 @@ func (sm *StateMachine) ProcessCanonicalEvent(ev lipapi.Event) (events []StreamE
 				OutputIndex:    intPtr(sm.activeItemIdx),
 				Item:           &wItem,
 			})
+			if err := sm.appendResponseCreated(&events); err != nil {
+				return nil, err
+			}
 		}
 
-		if err := sm.reserveEncodedDelta(ev.Delta); err != nil {
-			return nil, err
+		if sm.activeItem.Reasoning == nil || sm.activeItem.Reasoning.Reasoning == nil {
+			return nil, &SequenceError{Code: "reasoning_item_missing", Event: string(ev.Kind), Sequence: sm.sequenceNum, Message: "reasoning item payload is unavailable", Err: ErrInvalidLifecycleState}
 		}
-		if sm.activeItem.Reasoning != nil && sm.activeItem.Reasoning.Reasoning != nil {
+		sm.touchItem(sm.activeItemIdx)
+		// Rebind after touchItem: the snapshot stores a deep copy for rollback,
+		// while the active pointer remains the live trajectory item.
+		sm.activeItem = &sm.trajectory[sm.activeItemIdx]
+		part := sm.activeItem.Reasoning.Reasoning
+		switch ev.Kind {
+		case lipapi.EventReasoningPart:
+			if ev.Reasoning == nil {
+				return nil, &SequenceError{Code: "reasoning_part_missing", Event: string(ev.Kind), Sequence: sm.sequenceNum, Message: "reasoning part payload is unavailable", Err: ErrInvalidLifecycleState}
+			}
+			part.Dialect = ev.Reasoning.Dialect
+			part.Text = ev.Reasoning.Text
+			part.Signature = ev.Reasoning.Signature
+			part.Opaque = append(part.Opaque[:0], ev.Reasoning.Opaque...)
+			part.Summary = append(part.Summary[:0], ev.Reasoning.Summary...)
+			part.SummaryPresent = ev.Reasoning.SummaryPresent
+			part.Content = append(part.Content[:0], ev.Reasoning.Content...)
+			part.ContentPresent = ev.Reasoning.ContentPresent
+			part.EncryptedContent = append(part.EncryptedContent[:0], ev.Reasoning.EncryptedContent...)
+			part.EncryptedContentPresent = ev.Reasoning.EncryptedContentPresent
+			if part.Text != "" {
+				events = append(events, StreamEvent{Type: "response.reasoning.delta", SequenceNumber: sm.nextSeq(), ItemID: sm.activeItem.ID, OutputIndex: intPtr(sm.activeItemIdx), ContentIndex: intPtr(0), Delta: part.Text})
+			}
+			if part.Signature != "" {
+				events = append(events, StreamEvent{Type: "response.reasoning.signature.delta", SequenceNumber: sm.nextSeq(), ItemID: sm.activeItem.ID, OutputIndex: intPtr(sm.activeItemIdx), ContentIndex: intPtr(0), Signature: part.Signature})
+			}
+			if len(part.Opaque) > 0 {
+				events = append(events, StreamEvent{Type: "response.reasoning.opaque.delta", SequenceNumber: sm.nextSeq(), ItemID: sm.activeItem.ID, OutputIndex: intPtr(sm.activeItemIdx), ContentIndex: intPtr(0), Opaque: append([]byte(nil), part.Opaque...)})
+			}
+		case lipapi.EventReasoningDelta:
+			if err := sm.reserveEncodedDelta(ev.Delta); err != nil {
+				return nil, err
+			}
 			builder := sm.reasoningBuilders[sm.activeItemIdx]
-
 			if builder == nil {
 				builder = &deltaBuffer{}
-				builder.WriteString(sm.activeItem.Reasoning.Reasoning.Text)
+				builder.WriteString(part.Text)
 				sm.reasoningBuilders[sm.activeItemIdx] = builder
 			}
 			builder.WriteString(ev.Delta)
+			events = append(events, StreamEvent{
+				Type:           "response.reasoning.delta",
+				SequenceNumber: sm.nextSeq(),
+				ItemID:         sm.activeItem.ID,
+				OutputIndex:    intPtr(sm.activeItemIdx),
+				ContentIndex:   intPtr(0),
+				Delta:          ev.Delta,
+			})
+		case lipapi.EventReasoningSignatureDelta:
+			part.Signature += ev.Signature
+			events = append(events, StreamEvent{
+				Type:           "response.reasoning.signature.delta",
+				SequenceNumber: sm.nextSeq(),
+				ItemID:         sm.activeItem.ID,
+				OutputIndex:    intPtr(sm.activeItemIdx),
+				ContentIndex:   intPtr(0),
+				Signature:      ev.Signature,
+			})
+		case lipapi.EventReasoningOpaqueDelta:
+			part.Opaque = append(part.Opaque, ev.Opaque...)
+			events = append(events, StreamEvent{
+				Type:           "response.reasoning.opaque.delta",
+				SequenceNumber: sm.nextSeq(),
+				ItemID:         sm.activeItem.ID,
+				OutputIndex:    intPtr(sm.activeItemIdx),
+				ContentIndex:   intPtr(0),
+				Opaque:         append([]byte(nil), ev.Opaque...),
+			})
 		}
-		events = append(events, StreamEvent{
-			Type:           "response.reasoning_text.delta",
-			SequenceNumber: sm.nextSeq(),
-			ItemID:         sm.activeItem.ID,
-			OutputIndex:    intPtr(sm.activeItemIdx),
-			ContentIndex:   intPtr(0),
-			Delta:          ev.Delta,
-		})
 
 	case lipapi.EventToolCallStarted:
 		// A new parallel tool call may begin while another tool call remains
@@ -562,6 +622,9 @@ func (sm *StateMachine) ProcessCanonicalEvent(ev lipapi.Event) (events []StreamE
 			OutputIndex:    intPtr(sm.activeItemIdx),
 			Item:           &wItem,
 		})
+		if err := sm.appendResponseCreated(&events); err != nil {
+			return nil, err
+		}
 
 	case lipapi.EventToolCallArgsDelta:
 		callID := ev.ToolCallID
@@ -643,6 +706,9 @@ func (sm *StateMachine) ProcessCanonicalEvent(ev lipapi.Event) (events []StreamE
 			OutputIndex:    intPtr(sm.activeItemIdx),
 			Item:           &wItem,
 		})
+		if err := sm.appendResponseCreated(&events); err != nil {
+			return nil, err
+		}
 		// Standalone items are complete when carried; emit the done marker.
 		if err := sm.closeActiveItem(&events); err != nil {
 			return nil, err
@@ -656,6 +722,11 @@ func (sm *StateMachine) ProcessCanonicalEvent(ev lipapi.Event) (events []StreamE
 		sm.usage.ReasoningTokens = ev.ReasoningTokens
 
 	case lipapi.EventError:
+		if !sm.responseCreatedEmitted {
+			if err := sm.startMessageItem(&events); err != nil {
+				return nil, err
+			}
+		}
 		if err := sm.reserveEncodedDelta(ev.ErrorMessage); err != nil {
 			return nil, err
 		}
@@ -690,6 +761,11 @@ func (sm *StateMachine) ProcessCanonicalEvent(ev lipapi.Event) (events []StreamE
 		})
 
 	case lipapi.EventResponseFinished:
+		if !sm.responseCreatedEmitted {
+			if err := sm.startMessageItem(&events); err != nil {
+				return nil, err
+			}
+		}
 		if err := sm.closeActiveContentPart(&events); err != nil {
 			return nil, err
 		}
@@ -821,6 +897,27 @@ func (sm *StateMachine) validateResourceBudget() error {
 // startMessageItem opens a new assistant message item with one empty text
 // content part and emits the output_item.added/content_part.added events. It
 // must be called only after any active item has been closed.
+func (sm *StateMachine) appendResponseCreated(events *[]StreamEvent) error {
+	if sm.responseCreatedEmitted {
+		return nil
+	}
+	wireRes, resourceData, err := sm.snapshotResource("in_progress")
+	if err != nil {
+		return err
+	}
+	sm.resourceBytes = len(resourceData)
+	if err := sm.validateResourceBudget(); err != nil {
+		return err
+	}
+	*events = append(*events, StreamEvent{
+		Type:           "response.created",
+		SequenceNumber: sm.nextSeq(),
+		Response:       wireRes,
+	})
+	sm.responseCreatedEmitted = true
+	return nil
+}
+
 func (sm *StateMachine) startMessageItem(events *[]StreamEvent) error {
 	msgItem := lipapi.Item{
 		ID:     fmt.Sprintf("msg_%d", len(sm.trajectory)),
@@ -846,6 +943,9 @@ func (sm *StateMachine) startMessageItem(events *[]StreamEvent) error {
 		OutputIndex:    intPtr(sm.activeItemIdx),
 		Item:           &wItem,
 	})
+	if err := sm.appendResponseCreated(events); err != nil {
+		return err
+	}
 
 	// Start content part
 	cPart := lipapi.ContentPart{Kind: lipapi.ContentPartText}
@@ -907,7 +1007,10 @@ func (sm *StateMachine) closeActiveItem(events *[]StreamEvent) error {
 		return nil
 	}
 	if sm.activeItem.Kind == lipapi.ItemKindToolCall {
-		return sm.closeToolCallAt(sm.activeItemIdx, events)
+		// Tool calls are explicitly bounded by EventToolCallFinished.
+		sm.activeItem = nil
+		sm.activeItemIdx = -1
+		return nil
 	}
 
 	sm.touchItem(sm.activeItemIdx)
@@ -916,7 +1019,7 @@ func (sm *StateMachine) closeActiveItem(events *[]StreamEvent) error {
 	sm.activeItem.Status = lipapi.ItemStatusCompleted
 	if sm.activeItem.Kind == lipapi.ItemKindReasoning && sm.activeItem.Reasoning != nil && sm.activeItem.Reasoning.Reasoning != nil {
 		*events = append(*events, StreamEvent{
-			Type:           "response.reasoning_text.done",
+			Type:           "response.reasoning.done",
 			SequenceNumber: sm.nextSeq(),
 			ItemID:         sm.activeItem.ID,
 			OutputIndex:    intPtr(sm.activeItemIdx),
@@ -1067,6 +1170,18 @@ func cloneItem(item lipapi.Item) lipapi.Item {
 		r := *item.Reasoning
 		if item.Reasoning.Reasoning != nil {
 			rp := *item.Reasoning.Reasoning
+			if item.Reasoning.Reasoning.Opaque != nil {
+				rp.Opaque = append([]byte(nil), item.Reasoning.Reasoning.Opaque...)
+			}
+			if item.Reasoning.Reasoning.Summary != nil {
+				rp.Summary = append([]byte(nil), item.Reasoning.Reasoning.Summary...)
+			}
+			if item.Reasoning.Reasoning.Content != nil {
+				rp.Content = append([]byte(nil), item.Reasoning.Reasoning.Content...)
+			}
+			if item.Reasoning.Reasoning.EncryptedContent != nil {
+				rp.EncryptedContent = append([]byte(nil), item.Reasoning.Reasoning.EncryptedContent...)
+			}
 			r.Reasoning = &rp
 		}
 		cp.Reasoning = &r

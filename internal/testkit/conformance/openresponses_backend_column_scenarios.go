@@ -48,6 +48,19 @@ func OpenResponsesBackendColumnFeatureSuffixes() map[FeatureID]string {
 	}
 }
 
+// columnFeatureSuffix returns the scenario-ID suffix for one column feature of
+// one cell. The OpenResponses frontend cell declares the compaction capability,
+// so its compaction scenario uses the positive "compaction" suffix; every other
+// column cell rejects compaction before network and keeps the
+// "compaction-reject" suffix so scenario-ID naming agrees with the evidence
+// outcome.
+func columnFeatureSuffix(frontend string, feat FeatureID) string {
+	if feat == FeatureCompaction && frontend == FrontendOpenResponses {
+		return "compaction"
+	}
+	return OpenResponsesBackendColumnFeatureSuffixes()[feat]
+}
+
 // OpenResponsesBackendColumnScenario is one executable proof for one feature of
 // one column cell. ScenarioID is derived deterministically from the cell
 // frontend and the feature's suffix.
@@ -72,14 +85,14 @@ func columnContinuationViable(frontend string) bool {
 func OpenResponsesBackendColumnScenarios() []OpenResponsesBackendColumnScenario {
 	var out []OpenResponsesBackendColumnScenario
 	for _, frontend := range OpenResponsesBackendColumnFrontendIDs() {
-		for feat, suffix := range OpenResponsesBackendColumnFeatureSuffixes() {
+		for feat := range OpenResponsesBackendColumnFeatureSuffixes() {
 			if feat == FeatureContinuation && !columnContinuationViable(frontend) {
 				continue
 			}
 			out = append(out, OpenResponsesBackendColumnScenario{
 				Frontend:   frontend,
 				Feature:    feat,
-				ScenarioID: columnScenarioID(frontend, suffix),
+				ScenarioID: columnScenarioID(frontend, columnFeatureSuffix(frontend, feat)),
 			})
 		}
 	}
@@ -90,12 +103,12 @@ func OpenResponsesBackendColumnScenarios() []OpenResponsesBackendColumnScenario 
 // one feature (normally exactly one); features without an executable proof
 // return nil so out_of_scope evidence never claims a scenario.
 func columnScenarioIDsByFeature(frontend string, feat FeatureID) []string {
-	suffix, ok := OpenResponsesBackendColumnFeatureSuffixes()[feat]
+	_, ok := OpenResponsesBackendColumnFeatureSuffixes()[feat]
 	if !ok {
 		return nil
 	}
 	if feat == FeatureContinuation && !columnContinuationViable(frontend) {
 		return nil
 	}
-	return []string{columnScenarioID(frontend, suffix)}
+	return []string{columnScenarioID(frontend, columnFeatureSuffix(frontend, feat))}
 }

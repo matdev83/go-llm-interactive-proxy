@@ -60,10 +60,11 @@ func TestMount_PerConfigContinuationStoreClosedOnGenerationQuiesce(t *testing.T)
 	mux := http.NewServeMux()
 	exec := &wsTurnExecutor{streams: []lipapi.EventStream{successStream("ok")}}
 	if err := openresponses.Mount(mux, lipsdk.FrontendMountOptions{
-		PluginCfg:         mountContinuationNode(t),
-		Exec:              lipsdkExecutorAdapter{ExecutorView: exec},
-		DefaultRoute:      "gpt-4o",
-		GenerationContext: genCtx,
+		AllowUnauthenticated: true,
+		PluginCfg:            mountContinuationNode(t),
+		Exec:                 lipsdkExecutorAdapter{ExecutorView: exec},
+		DefaultRoute:         "gpt-4o",
+		GenerationContext:    genCtx,
 	}); err != nil {
 		t.Fatalf("Mount: %v", err)
 	}
@@ -94,10 +95,10 @@ func TestMount_PerConfigContinuationStoreIndependentInstances(t *testing.T) {
 	muxB := http.NewServeMux()
 	execA := &wsTurnExecutor{streams: []lipapi.EventStream{successStream("a")}}
 	execB := &wsTurnExecutor{streams: []lipapi.EventStream{successStream("b")}}
-	if err := openresponses.Mount(muxA, lipsdk.FrontendMountOptions{PluginCfg: mountContinuationNode(t), Exec: lipsdkExecutorAdapter{ExecutorView: execA}, DefaultRoute: "gpt-4o"}); err != nil {
+	if err := openresponses.Mount(muxA, lipsdk.FrontendMountOptions{AllowUnauthenticated: true, PluginCfg: mountContinuationNode(t), Exec: lipsdkExecutorAdapter{ExecutorView: execA}, DefaultRoute: "gpt-4o"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := openresponses.Mount(muxB, lipsdk.FrontendMountOptions{PluginCfg: mountContinuationNode(t), Exec: lipsdkExecutorAdapter{ExecutorView: execB}, DefaultRoute: "gpt-4o"}); err != nil {
+	if err := openresponses.Mount(muxB, lipsdk.FrontendMountOptions{AllowUnauthenticated: true, PluginCfg: mountContinuationNode(t), Exec: lipsdkExecutorAdapter{ExecutorView: execB}, DefaultRoute: "gpt-4o"}); err != nil {
 		t.Fatal(err)
 	}
 

@@ -212,9 +212,9 @@ func buildStandardHTTPInput(cand *candidateAssembly, frozen *config.Config, regs
 			MaxRequestBodyBytes:  maxBody,
 			DecodeAdmission:      cand.execution.decodeAdmission,
 			TrafficPorts:         httpcontract.TrafficPortsFromSnapshot(cand.security.runtimeSnapshot),
-			PreRequestKeepalive:  preKA,
-			GenerationContext:    genCtx,
-			FrontendRouteClaims:  standardplugins.StandardFrontendRouteClaims(),
+			PreRequestKeepalive:  preKA, GenerationContext: genCtx,
+			ContinuationWiringFactory: standardplugins.StandardContinuationWiringFactory(frozen),
+			FrontendRouteClaims:       standardplugins.StandardFrontendRouteClaims(),
 		},
 	}
 }

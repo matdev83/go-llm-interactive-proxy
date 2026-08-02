@@ -3,7 +3,6 @@ package openresponses_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -132,7 +131,8 @@ func eventually(t *testing.T, timeout time.Duration, fn func() bool) {
 
 func TestWebSocketUpgrade_NonUpgradeGETRejectedSafely(t *testing.T) {
 	cfg := wsTestConfig(nil)
-	handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{Config: cfg})
+	handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
+		AllowUnauthenticated: true, Config: cfg})
 	counters := handler.Counters()
 
 	rec := httptest.NewRecorder()
@@ -153,7 +153,8 @@ func TestWebSocketUpgrade_NonUpgradeGETRejectedSafely(t *testing.T) {
 
 func TestWebSocketUpgrade_MethodGateRejectsNonGET(t *testing.T) {
 	cfg := wsTestConfig(nil)
-	handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{Config: cfg})
+	handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
+		AllowUnauthenticated: true, Config: cfg})
 	counters := handler.Counters()
 
 	rec := httptest.NewRecorder()
@@ -174,7 +175,8 @@ func TestWebSocketUpgrade_MethodGateRejectsNonGET(t *testing.T) {
 
 func TestWebSocketUpgrade_GorillaHandshakeErrorsUseWireJSON(t *testing.T) {
 	cfg := wsTestConfig(nil)
-	handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{Config: cfg})
+	handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
+		AllowUnauthenticated: true, Config: cfg})
 	req := validWSRequest()
 	// This passes the handler's presence checks but is rejected by Gorilla's
 	// upgrader, exercising the Upgrader.Error hook rather than writeWireError's
@@ -199,7 +201,8 @@ func TestWebSocketUpgrade_GorillaHandshakeErrorsUseWireJSON(t *testing.T) {
 
 func TestWebSocketUpgrade_HandshakeFieldValidation(t *testing.T) {
 	cfg := wsTestConfig(nil)
-	handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{Config: cfg})
+	handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
+		AllowUnauthenticated: true, Config: cfg})
 	counters := handler.Counters()
 
 	cases := []struct {
@@ -235,8 +238,9 @@ func TestWebSocketUpgrade_HandshakeFieldValidation(t *testing.T) {
 func TestWebSocketUpgrade_AuthBeforeUpgrade(t *testing.T) {
 	cfg := wsTestConfig(nil)
 	handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
-		Config:     cfg,
-		Authorizer: staticAuth{tenant: "t1", principal: "p1", allow: false},
+		AllowUnauthenticated: true,
+		Config:               cfg,
+		Authorizer:           staticAuth{tenant: "t1", principal: "p1", allow: false},
 	})
 	counters := handler.Counters()
 
@@ -275,7 +279,8 @@ func TestWebSocketUpgrade_OriginPolicy(t *testing.T) {
 			cfg := wsTestConfig(func(w *openresponses.WebSocketConfig) {
 				w.AllowedOrigins = append([]string(nil), tc.allowedOrigins...)
 			})
-			handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{Config: cfg})
+			handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
+				AllowUnauthenticated: true, Config: cfg})
 			counters := handler.Counters()
 
 			var header http.Header
@@ -316,9 +321,10 @@ func TestWebSocketUpgrade_ValidHandshakeEstablishesBoundedSession(t *testing.T) 
 	})
 	runner := &recordingRunner{}
 	srv, counters := newWSTestServer(t, openresponses.WebSocketHandlerConfig{
-		Config:     cfg,
-		Runner:     runner,
-		Authorizer: staticAuth{tenant: "t1", principal: "p1", allow: true},
+		AllowUnauthenticated: true,
+		Config:               cfg,
+		Runner:               runner,
+		Authorizer:           staticAuth{tenant: "t1", principal: "p1", allow: true},
 	})
 
 	conn := wsDial(t, srv, http.Header{"Origin": []string{"https://example.com"}})
@@ -360,25 +366,39 @@ func TestWebSocketUpgrade_ValidHandshakeEstablishesBoundedSession(t *testing.T) 
 func TestWebSocketSession_MessageSizeBound(t *testing.T) {
 	cfg := wsTestConfig(nil)
 	srv, counters := newWSTestServer(t, openresponses.WebSocketHandlerConfig{
-		Config:          cfg,
-		MaxMessageBytes: 1024,
+		AllowUnauthenticated: true,
+		Config:               cfg,
+		MaxMessageBytes:      1024,
+		Runner: openresponses.NewSessionRunner(openresponses.SessionRunnerConfig{
+			MaxMessageBytes: 1024,
+		}),
 	})
 	conn := wsDial(t, srv, nil)
 
-	if err := conn.WriteMessage(websocket.TextMessage, make([]byte, 4096)); err != nil {
+	oversized := []byte(`{"type":"response.create","model":"gpt-4o","input":"` + strings.Repeat("x", 4000) + `"}`)
+	if err := conn.WriteMessage(websocket.TextMessage, oversized); err != nil {
 		t.Fatalf("client write failed: %v", err)
 	}
 	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-	var closeErr *websocket.CloseError
+	var env wsTestEnvelope
+	gotLimit := false
 	for {
-		_, _, err := conn.ReadMessage()
+		mt, data, err := conn.ReadMessage()
 		if err != nil {
-			if errors.As(err, &closeErr) && closeErr.Code != websocket.CloseMessageTooBig {
-				t.Errorf("expected close code 1009, got %d", closeErr.Code)
-			}
+			break
+		}
+		if mt == websocket.TextMessage && json.Unmarshal(data, &env) == nil && env.Error.Code == "limit_exceeded" {
+			gotLimit = true
 			break
 		}
 	}
+	if !gotLimit {
+		t.Fatal("did not receive application-level limit_exceeded envelope")
+	}
+	if env.Status != http.StatusRequestEntityTooLarge || env.Error.Param != "request_size" {
+		t.Fatalf("unexpected size-limit envelope: %+v", env)
+	}
+	_ = conn.Close()
 	eventually(t, 3*time.Second, func() bool {
 		return counters.Snapshot().SessionsClosed == 1
 	})
@@ -389,7 +409,8 @@ func TestWebSocketSession_AgeLimitEmitsLimitReached(t *testing.T) {
 		w.MaxConnectionAge = "40ms"
 		w.IdleTimeout = "5m"
 	})
-	srv, counters := newWSTestServer(t, openresponses.WebSocketHandlerConfig{Config: cfg})
+	srv, counters := newWSTestServer(t, openresponses.WebSocketHandlerConfig{
+		AllowUnauthenticated: true, Config: cfg})
 	conn := wsDial(t, srv, nil)
 
 	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
@@ -425,7 +446,8 @@ func TestWebSocketSession_IdleProbePingKeepsAlivePeer(t *testing.T) {
 		w.MaxConnectionAge = "60m"
 		w.IdleTimeout = "250ms"
 	})
-	srv, counters := newWSTestServer(t, openresponses.WebSocketHandlerConfig{Config: cfg})
+	srv, counters := newWSTestServer(t, openresponses.WebSocketHandlerConfig{
+		AllowUnauthenticated: true, Config: cfg})
 	conn := wsDial(t, srv, nil)
 
 	var mu sync.Mutex
@@ -473,7 +495,8 @@ func TestWebSocketSession_IdleUnresponsivePeerClosed(t *testing.T) {
 		w.MaxConnectionAge = "60m"
 		w.IdleTimeout = "80ms"
 	})
-	srv, counters := newWSTestServer(t, openresponses.WebSocketHandlerConfig{Config: cfg})
+	srv, counters := newWSTestServer(t, openresponses.WebSocketHandlerConfig{
+		AllowUnauthenticated: true, Config: cfg})
 	conn := wsDial(t, srv, nil)
 
 	// Do not read: the peer never answers the server's ping probe, so the server
@@ -502,8 +525,9 @@ func TestWebSocketSession_ShutdownContextClosesSession(t *testing.T) {
 	shutdownCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	srv, counters := newWSTestServer(t, openresponses.WebSocketHandlerConfig{
-		Config:      cfg,
-		ShutdownCtx: shutdownCtx,
+		AllowUnauthenticated: true,
+		Config:               cfg,
+		ShutdownCtx:          shutdownCtx,
 	})
 	conn := wsDial(t, srv, nil)
 
@@ -528,8 +552,9 @@ func TestWebSocketSession_ShutdownContextClosesSession(t *testing.T) {
 func TestWebSocketUpgrade_RejectedAttemptsAllocateNoSession(t *testing.T) {
 	cfg := wsTestConfig(nil)
 	handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
-		Config:     cfg,
-		Authorizer: staticAuth{tenant: "t1", principal: "p1", allow: true},
+		AllowUnauthenticated: true,
+		Config:               cfg,
+		Authorizer:           staticAuth{tenant: "t1", principal: "p1", allow: true},
 	})
 	counters := handler.Counters()
 
@@ -560,8 +585,9 @@ func TestWebSocketUpgrade_RejectedAttemptsAllocateNoSession(t *testing.T) {
 
 	// Auth rejection via a deny authorizer on a fresh handler.
 	deny := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
-		Config:     cfg,
-		Authorizer: staticAuth{allow: false},
+		AllowUnauthenticated: true,
+		Config:               cfg,
+		Authorizer:           staticAuth{allow: false},
 	})
 	rec = httptest.NewRecorder()
 	deny.ServeHTTP(rec, validWSRequest())

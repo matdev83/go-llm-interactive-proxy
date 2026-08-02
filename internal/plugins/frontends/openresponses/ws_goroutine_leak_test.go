@@ -26,7 +26,8 @@ func TestWebSocketSession_NoGoroutineLeak(t *testing.T) {
 	}()
 
 	for i := 0; i < 5; i++ {
-		srv := httptest.NewServer(openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{Config: cfg}))
+		srv := httptest.NewServer(openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
+			AllowUnauthenticated: true, Config: cfg}))
 		servers = append(servers, srv)
 		conn := wsDial(t, srv, nil)
 		if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","store":false}`)); err != nil {

@@ -184,7 +184,7 @@ func openResponsesBackendColumnCellFor(frontend string) OpenResponsesBackendColu
 		cell.Features[FeatureMultimodal] = columnProjection(frontend, FeatureMultimodal, "Image input projects to an ordered image item in the portable trajectory.")
 	}
 
-	cell.Features[FeatureAssistantMedia] = columnOutOfScope("The OpenResponses backend column has no assistant media reference output surface in the cell configuration.")
+	cell.Features[FeatureAssistantMedia] = columnOutOfScope("The OpenResponses backend emits no assistant media reference output events and the OpenResponses frontend has no EventAssistantImageRef/EventAssistantFileRef output mapping, so assistant media reference output has no surface in the column configuration.")
 
 	cell.Features[FeatureUsageErrors] = text(FeatureUsageErrors,
 		"Usage is surfaced on the response resource when reported and upstream errors map to stable client-visible error envelopes.")

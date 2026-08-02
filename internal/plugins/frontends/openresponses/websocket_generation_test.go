@@ -135,10 +135,11 @@ func TestWebSocketSession_GenerationContextQuiesceClosesSessionsStreamAndStoreOn
 	}
 
 	srv, counters := newWSTestServer(t, openresponses.WebSocketHandlerConfig{
-		Config:            wsTestConfig(nil),
-		Runner:            openresponses.NewSessionRunner(openresponses.SessionRunnerConfig{Executor: exec}),
-		ShutdownCtx:       genCtx,
-		LocalContinuation: &lc,
+		AllowUnauthenticated: true,
+		Config:               wsTestConfig(nil),
+		Runner:               openresponses.NewSessionRunner(openresponses.SessionRunnerConfig{Executor: exec}),
+		ShutdownCtx:          genCtx,
+		LocalContinuation:    &lc,
 	})
 	conn := wsDial(t, srv, nil)
 	wsText(t, conn, `{"type":"response.create","model":"gpt-4o","input":"hi"}`)
@@ -173,12 +174,14 @@ func TestWebSocketSession_GenerationContextNewGenerationUnaffected(t *testing.T)
 	defer cancelB()
 
 	srvA, countersA := newWSTestServer(t, openresponses.WebSocketHandlerConfig{
-		Config:      wsTestConfig(nil),
-		ShutdownCtx: genA,
+		AllowUnauthenticated: true,
+		Config:               wsTestConfig(nil),
+		ShutdownCtx:          genA,
 	})
 	srvB, countersB := newWSTestServer(t, openresponses.WebSocketHandlerConfig{
-		Config:      wsTestConfig(nil),
-		ShutdownCtx: genB,
+		AllowUnauthenticated: true,
+		Config:               wsTestConfig(nil),
+		ShutdownCtx:          genB,
 	})
 	connA := wsDial(t, srvA, nil)
 	connB := wsDial(t, srvB, nil)
@@ -270,9 +273,10 @@ func TestWebSocketClose_WriterFailureClosesStreamAndSessionOnce(t *testing.T) {
 			writer := newFailAtWriter(tc.failAt)
 
 			handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
-				Config:           wsTestConfig(nil),
-				Runner:           openresponses.NewSessionRunner(openresponses.SessionRunnerConfig{Executor: exec}),
-				WriteTextWrapper: writer.Wrap,
+				AllowUnauthenticated: true,
+				Config:               wsTestConfig(nil),
+				Runner:               openresponses.NewSessionRunner(openresponses.SessionRunnerConfig{Executor: exec}),
+				WriteTextWrapper:     writer.Wrap,
 			})
 			srv := httptest.NewServer(handler)
 			t.Cleanup(srv.Close)
@@ -286,8 +290,8 @@ func TestWebSocketClose_WriterFailureClosesStreamAndSessionOnce(t *testing.T) {
 				t.Fatalf("client frames=%d, want %d: %v", len(frames), tc.wantFrames, frameTypes(frames))
 			}
 			if tc.wantFrames == 1 {
-				if got := frames[0].data["type"]; got != "response.created" {
-					t.Fatalf("committed frame type=%v, want response.created", got)
+				if got := frames[0].data["type"]; got != "response.output_item.added" {
+					t.Fatalf("committed frame type=%v, want response.output_item.added", got)
 				}
 			}
 			if exec.count() != 1 {
@@ -359,8 +363,9 @@ func TestWebSocketConnectionLimit_AgeExpiryClosesLocalStoreExactlyOnce(t *testin
 		return captured
 	}
 	srv, counters := newWSTestServer(t, openresponses.WebSocketHandlerConfig{
-		Config:            cfg,
-		LocalContinuation: &lc,
+		AllowUnauthenticated: true,
+		Config:               cfg,
+		LocalContinuation:    &lc,
 	})
 	conn := wsDial(t, srv, nil)
 	// The store is allocated in the handler goroutine after the upgrade
@@ -397,6 +402,7 @@ func TestMount_GenerationContextClosesWebSocketSessions(t *testing.T) {
 	exec := &wsTurnExecutor{streams: []lipapi.EventStream{successStream("mounted")}}
 	mux := http.NewServeMux()
 	if err := openresponses.Mount(mux, lipsdk.FrontendMountOptions{
+		AllowUnauthenticated: true,
 		PluginCfg: wsMountYAMLNode(t, `
 base_path: /openresponses/v1
 websocket:
@@ -437,9 +443,10 @@ func TestWebSocketLifecycle_NoGoroutineLeak(t *testing.T) {
 	stream := &streamingEventStream{events: []lipapi.Event{{Kind: lipapi.EventResponseStarted}}}
 	writer := newFailAtWriter(1)
 	handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
-		Config:           wsTestConfig(nil),
-		Runner:           openresponses.NewSessionRunner(openresponses.SessionRunnerConfig{Executor: &wsTurnExecutor{streams: []lipapi.EventStream{stream}}}),
-		WriteTextWrapper: writer.Wrap,
+		AllowUnauthenticated: true,
+		Config:               wsTestConfig(nil),
+		Runner:               openresponses.NewSessionRunner(openresponses.SessionRunnerConfig{Executor: &wsTurnExecutor{streams: []lipapi.EventStream{stream}}}),
+		WriteTextWrapper:     writer.Wrap,
 	})
 	srv := httptest.NewServer(handler)
 	conn := wsDial(t, srv, nil)
@@ -453,9 +460,10 @@ func TestWebSocketLifecycle_NoGoroutineLeak(t *testing.T) {
 	blocked := &streamingEventStream{events: []lipapi.Event{{Kind: lipapi.EventResponseStarted}}, wait: make(chan struct{})}
 	exec2 := &wsTurnExecutor{streams: []lipapi.EventStream{blocked}}
 	h2 := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
-		Config:      wsTestConfig(nil),
-		Runner:      openresponses.NewSessionRunner(openresponses.SessionRunnerConfig{Executor: exec2}),
-		ShutdownCtx: genCtx,
+		AllowUnauthenticated: true,
+		Config:               wsTestConfig(nil),
+		Runner:               openresponses.NewSessionRunner(openresponses.SessionRunnerConfig{Executor: exec2}),
+		ShutdownCtx:          genCtx,
 	})
 	srv2 := httptest.NewServer(h2)
 	conn2 := wsDial(t, srv2, nil)

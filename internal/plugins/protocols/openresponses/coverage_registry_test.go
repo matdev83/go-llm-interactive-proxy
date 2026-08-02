@@ -175,8 +175,16 @@ func TestAdditionalCoverageEdgeCases(t *testing.T) {
 		}
 
 		tcAllowed, err := decodeToolChoice([]byte(`{"type":"allowed_tools"}`))
+		if err == nil {
+			t.Error("expected error for allowed_tools without a tools array")
+		}
+
+		tcAllowed, err = decodeToolChoice([]byte(`{"type":"allowed_tools","tools":[{"type":"function","name":"x"}]}`))
 		if err != nil || tcAllowed.Mode != lipapi.ToolChoiceAuto {
 			t.Errorf("expected ToolChoiceAuto for allowed_tools, got mode %s, err %v", tcAllowed.Mode, err)
+		}
+		if len(tcAllowed.AllowedTools) != 1 || tcAllowed.AllowedTools[0] != "x" {
+			t.Errorf("expected allowed subset [x], got %v", tcAllowed.AllowedTools)
 		}
 	})
 

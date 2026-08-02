@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"time"
 
+	sdkauth "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
+	lipcont "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/continuation"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"gopkg.in/yaml.v3"
 )
@@ -32,6 +34,21 @@ type BackendBuild = any
 // BackendFactory builds a backend adapter from opaque per-plugin YAML.
 type BackendFactory func(n yaml.Node) (BackendBuild, error)
 
+// ContinuationMountWiring supplies composition-root-owned continuation state to
+// a frontend mount. Close is owned by the composition root and should be bound
+// to the generation lifecycle by the mount coordinator.
+type ContinuationMountWiring struct {
+	Store    lipcont.Store
+	Resolver lipcont.Resolver
+	Close    func() error
+}
+
+// ContinuationMountWiringFactory creates one independent wiring instance for a
+// mounted frontend generation. The factory receives immutable plugin identity
+// and opaque configuration so the composition root can apply plugin-specific
+// bounds without making frontend plugins depend on core packages.
+type ContinuationMountWiringFactory func(frontendID, instanceID string, cfg yaml.Node) (ContinuationMountWiring, error)
+
 // FrontendMountOptions carries runtime wiring for [FrontendMount] beyond the [http.ServeMux].
 // Use composite literals with named fields at call sites.
 type FrontendMountOptions struct {
@@ -50,6 +67,16 @@ type FrontendMountOptions struct {
 	// DecodeAdmission optionally bounds concurrent decode work and weighted in-flight decode bytes.
 	// Nil means unlimited for custom/minimal mounts.
 	DecodeAdmission DecodeAdmission
+	// Authorizer optionally performs frontend-local authentication for direct mounts.
+	// Standard HTTP composition authenticates in the outer transport middleware; a
+	// custom/direct mount should provide this seam when it is externally reachable.
+	Authorizer interface {
+		Authenticate(context.Context, sdkauth.InboundCallMeta) (sdkauth.Decision, error)
+	}
+	// AllowUnauthenticated explicitly opts a direct mount into anonymous access.
+	// It defaults to false; standard composition satisfies the default through its
+	// outer transport-auth context.
+	AllowUnauthenticated bool
 	// TrafficPorts optionally emits client→proxy raw bytes after body read (design §10).
 	TrafficPorts traffic.PortBundle
 	// PreRequestKeepalive optionally emits standards-compliant HTTP informational keepalives
@@ -69,7 +96,21 @@ type FrontendMountOptions struct {
 	// sessions) must observe it and close their owned resources exactly once so retired
 	// generations drain without leaks and new sessions never bind to a closing generation.
 	// A nil value means the mount is not generation-bound (tests, custom minimal mounts).
-	GenerationContext context.Context
+	GenerationContext context.Context // ContinuationStore and ContinuationResolver are optional composition-root
+	// injections for frontends that expose proxy-owned response continuation.
+	// Minimal/direct mounts may omit them; the frontend then uses its bounded
+	// protocol-neutral fallback store.
+	ContinuationStore    lipcont.Store
+	ContinuationResolver lipcont.Resolver
+	// ContinuationWiring is an already-created lifecycle-owned resource. It takes
+	// precedence over the factory when both are provided.
+	ContinuationWiring *ContinuationMountWiring
+	// ContinuationWiringFactory creates lifecycle-owned resources. The standard
+	// composition requires GenerationContext when this factory returns Close.
+	ContinuationWiringFactory ContinuationMountWiringFactory
+	// FrontendInstanceID is the immutable configured instance identity passed to
+	// ContinuationWiringFactory. Empty falls back to the factory ID.
+	FrontendInstanceID string
 }
 
 type FrontendKeepaliveConfig struct {

@@ -210,13 +210,20 @@ func runOpenResponsesFrontendRowCell(t *testing.T, backend string) {
 
 	// Negatives (replay/phase/itemref/compaction/extension): reject before any
 	// network request. The OpenResponses backend cell is the documented positive
-	// exception for compaction (the generic backend declares the capability).
+	// exception for compaction (the generic backend declares the capability), so
+	// its executable scenario uses the positive "compaction" suffix; every other
+	// row cell keeps the "compaction-reject" suffix.
 	negatives := map[string]string{
-		"phase-reject":      `{"model":"gpt-4o-mini","store":false,"input":[{"type":"message","role":"assistant","phase":"in_progress","content":[{"type":"output_text","text":"x"}]}]}`,
-		"replay-reject":     `{"model":"gpt-4o-mini","store":false,"input":[{"type":"reasoning","reasoning":"think"}]}`,
-		"compaction-reject": `{"model":"gpt-4o-mini","store":false,"input":[{"type":"compaction","prior_response_id":"resp_1"}]}`,
-		"extension-reject":  `{"model":"gpt-4o-mini","store":false,"input":[{"type":"acme:telemetry","namespace":"acme","data":{"x":1}}]}`,
-		"itemref-reject":    `{"model":"gpt-4o-mini","store":false,"input":[{"type":"item_reference","id":"item_1"}]}`,
+		"phase-reject":     `{"model":"gpt-4o-mini","store":false,"input":[{"type":"message","role":"assistant","phase":"in_progress","content":[{"type":"output_text","text":"x"}]}]}`,
+		"replay-reject":    `{"model":"gpt-4o-mini","store":false,"input":[{"type":"reasoning","reasoning":"think"}]}`,
+		"extension-reject": `{"model":"gpt-4o-mini","store":false,"input":[{"type":"acme:telemetry","namespace":"acme","data":{"x":1}}]}`,
+		"itemref-reject":   `{"model":"gpt-4o-mini","store":false,"input":[{"type":"item_reference","id":"item_1"}]}`,
+	}
+	compactionBody := `{"model":"gpt-4o-mini","store":false,"input":[{"type":"compaction","prior_response_id":"resp_1"}]}`
+	if be == BackendOpenResponses {
+		negatives["compaction"] = compactionBody
+	} else {
+		negatives["compaction-reject"] = compactionBody
 	}
 	for suffix, body := range negatives {
 		before := d.RequestCount(be)
@@ -224,7 +231,7 @@ func runOpenResponsesFrontendRowCell(t *testing.T, backend string) {
 		if err != nil {
 			t.Fatalf("negative %s post openresponses -> %s: %v", suffix, be, err)
 		}
-		if be == BackendOpenResponses && suffix == "compaction-reject" {
+		if suffix == "compaction" {
 			if status != http.StatusOK {
 				t.Fatalf("openresponses compaction status = %d, want 200 (compaction capability declared)", status)
 			}
@@ -280,92 +287,95 @@ func runOpenResponsesFrontendRowCell(t *testing.T, backend string) {
 	// failover: pre-output failure fails over to the succeeding OpenResponses
 	// candidate; both origin counts are asserted.
 	dfail := rowCellDeployFailover(t, be)
-	if dfail != nil {
-		defer dfail.Close()
-		fres, err := dfail.Client.RoundTrip(context.Background(), "ping")
-		if err != nil {
-			t.Fatalf("failover round trip openresponses -> %s: %v", be, err)
-		}
-		if !strings.Contains(fres.Text, HarnessFakeText) {
-			t.Fatalf("failover text = %q, want candidate text %q (openresponses -> %s)", fres.Text, HarnessFakeText, be)
-		}
-		if dfail.RequestCount(be) < 1 {
-			t.Fatalf("failover primary origin received no requests (openresponses -> %s)", be)
-		}
-		cand := dfail.CandidateOrigin(0)
-		if cand == nil {
-			t.Fatalf("failover deployment has no candidate origin (openresponses -> %s)", be)
-		}
-		if cand.Count() < 1 {
-			t.Fatalf("failover candidate origin received %d requests, want >= 1 (openresponses -> %s)", cand.Count(), be)
-		}
+	if dfail == nil {
+		t.Fatalf("deploy(openresponses, %s, failover) failed", be)
+	}
+	defer dfail.Close()
+	fres, err := dfail.Client.RoundTrip(context.Background(), "ping")
+	if err != nil {
+		t.Fatalf("failover round trip openresponses -> %s: %v", be, err)
+	}
+	if !strings.Contains(fres.Text, HarnessFakeText) {
+		t.Fatalf("failover text = %q, want candidate text %q (openresponses -> %s)", fres.Text, HarnessFakeText, be)
+	}
+	if dfail.RequestCount(be) < 1 {
+		t.Fatalf("failover primary origin received no requests (openresponses -> %s)", be)
+	}
+	cand := dfail.CandidateOrigin(0)
+	if cand == nil {
+		t.Fatalf("failover deployment has no candidate origin (openresponses -> %s)", be)
+	}
+	if cand.Count() < 1 {
+		t.Fatalf("failover candidate origin received %d requests, want >= 1 (openresponses -> %s)", cand.Count(), be)
 	}
 
 	// no-retry-after-visible-output: an origin that emits the first content
 	// event then dies must not trigger retry or failover (candidate stays
 	// untouched).
 	dnr := rowCellDeployNoRetry(t, be)
-	if dnr != nil {
-		defer dnr.Close()
-		if _, err := rawRowStreamPost(t, dnr, 20*time.Second); err != nil {
-			// A post-output stream failure is expected; the assertion is the count.
-			t.Logf("no-retry stream terminated with error (expected): %v", err)
-		}
-		if dnr.RequestCount(be) < 1 {
-			t.Fatalf("no-retry primary origin received %d requests, want >= 1 (openresponses -> %s)", dnr.RequestCount(be), be)
-		}
-		cand := dnr.CandidateOrigin(0)
-		if cand == nil {
-			t.Fatalf("no-retry deployment has no candidate origin (openresponses -> %s)", be)
-		}
-		if cand.Count() != 0 {
-			t.Fatalf("no-retry candidate origin received %d requests, want 0 (no failover after visible output, openresponses -> %s)", cand.Count(), be)
-		}
+	if dnr == nil {
+		t.Fatalf("deploy(openresponses, %s, no-retry) failed", be)
+	}
+	defer dnr.Close()
+	if _, err := rawRowStreamPost(t, dnr, 20*time.Second); err != nil {
+		// A post-output stream failure is expected; the assertion is the count.
+		t.Logf("no-retry stream terminated with error (expected): %v", err)
+	}
+	if dnr.RequestCount(be) < 1 {
+		t.Fatalf("no-retry primary origin received %d requests, want >= 1 (openresponses -> %s)", dnr.RequestCount(be), be)
+	}
+	cand = dnr.CandidateOrigin(0)
+	if cand == nil {
+		t.Fatalf("no-retry deployment has no candidate origin (openresponses -> %s)", be)
+	}
+	if cand.Count() != 0 {
+		t.Fatalf("no-retry candidate origin received %d requests, want 0 (no failover after visible output, openresponses -> %s)", cand.Count(), be)
 	}
 
 	// cancellation/backpressure: a canceled client context stops upstream work
 	// with no second attempt on the candidate.
 	dc := rowCellDeployCancel(t, be)
-	if dc != nil {
-		defer dc.Close()
-		cctx, ccancel := context.WithCancel(context.Background())
-		defer ccancel()
-		req, err := http.NewRequestWithContext(cctx, http.MethodPost, dc.Server.URL+"/openresponses/v1/responses", strings.NewReader(rowStreamingCreateBody()))
+	if dc == nil {
+		t.Fatalf("deploy(openresponses, %s, cancellation) failed", be)
+	}
+	defer dc.Close()
+	cctx, ccancel := context.WithCancel(context.Background())
+	defer ccancel()
+	req, err := http.NewRequestWithContext(cctx, http.MethodPost, dc.Server.URL+"/openresponses/v1/responses", strings.NewReader(rowStreamingCreateBody()))
+	if err != nil {
+		t.Fatalf("cancellation request build openresponses -> %s: %v", be, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	done := make(chan error, 1)
+	go func() {
+		resp, err := dc.Server.Client().Do(req)
 		if err != nil {
-			t.Fatalf("cancellation request build openresponses -> %s: %v", be, err)
+			done <- err
+			return
 		}
-		req.Header.Set("Content-Type", "application/json")
-		done := make(chan error, 1)
-		go func() {
-			resp, err := dc.Server.Client().Do(req)
-			if err != nil {
-				done <- err
-				return
-			}
-			defer resp.Body.Close()
-			_, _ = io.Copy(io.Discard, resp.Body)
-			done <- nil
-		}()
-		deadline := time.Now().Add(5 * time.Second)
-		for dc.RequestCount(be) < 1 && time.Now().Before(deadline) {
-			time.Sleep(10 * time.Millisecond)
-		}
-		ccancel()
-		select {
-		case <-done:
-		case <-time.After(15 * time.Second):
-			t.Fatalf("cancellation request did not terminate (openresponses -> %s)", be)
-		}
-		if dc.RequestCount(be) < 1 {
-			t.Fatalf("cancellation primary origin received no request (openresponses -> %s)", be)
-		}
-		cand := dc.CandidateOrigin(0)
-		if cand == nil {
-			t.Fatalf("cancellation deployment has no candidate origin (openresponses -> %s)", be)
-		}
-		if cand.Count() != 0 {
-			t.Fatalf("cancellation candidate origin received %d requests, want 0 (no retry after cancellation, openresponses -> %s)", cand.Count(), be)
-		}
+		defer resp.Body.Close()
+		_, _ = io.Copy(io.Discard, resp.Body)
+		done <- nil
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for dc.RequestCount(be) < 1 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	ccancel()
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("cancellation request did not terminate (openresponses -> %s)", be)
+	}
+	if dc.RequestCount(be) < 1 {
+		t.Fatalf("cancellation primary origin received no request (openresponses -> %s)", be)
+	}
+	cand = dc.CandidateOrigin(0)
+	if cand == nil {
+		t.Fatalf("cancellation deployment has no candidate origin (openresponses -> %s)", be)
+	}
+	if cand.Count() != 0 {
+		t.Fatalf("cancellation candidate origin received %d requests, want 0 (no retry after cancellation, openresponses -> %s)", cand.Count(), be)
 	}
 }
 

@@ -339,8 +339,8 @@ func TestQualityGate_StateMachineSnapshotWithStreamError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EventError failed: %v", err)
 	}
-	if len(evs) != 1 || evs[0].Type != "response.failed" {
-		t.Fatalf("expected response.failed event, got %v", evs)
+	if len(evs) == 0 || evs[len(evs)-1].Type != "response.failed" {
+		t.Fatalf("expected response.failed as the terminal event, got %v", evs)
 	}
 	// takeSnapshot must copy the stream error; next event triggers snapshot + error.
 	_, err = sm.ProcessCanonicalEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "late"})

@@ -662,6 +662,8 @@ func TestParseEvent_MalformedFields(t *testing.T) {
 		{"bad_arguments", `{"type":"response.function_call_arguments.done","arguments":123}`},
 		{"bad_delta", `{"type":"response.output_text.delta","delta":123}`},
 		{"bad_text", `{"type":"response.output_text.done","text":123}`},
+		{"bad_reasoning_delta", `{"type":"response.reasoning.delta","delta":123}`},
+		{"bad_reasoning_done", `{"type":"response.reasoning.done","text":123}`},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -671,6 +673,60 @@ func TestParseEvent_MalformedFields(t *testing.T) {
 				t.Fatal("expected event field error")
 			}
 		})
+	}
+}
+
+// TestParseEvent_ReasoningPinnedNames asserts the refclient parser accepts the
+// pinned official reasoning event names with their required payloads and no
+// longer classifies the legacy response.reasoning_text.* names as standard.
+func TestParseEvent_ReasoningPinnedNames(t *testing.T) {
+	t.Parallel()
+
+	deltaPayload := `{"type":"response.reasoning.delta","sequence_number":5,"item_id":"rs_1","output_index":0,"content_index":0,"delta":"think"}`
+	evt, err := ParseEvent([]byte(deltaPayload), DefaultParseOptions())
+	if err != nil {
+		t.Fatalf("ParseEvent(response.reasoning.delta) failed: %v", err)
+	}
+	if evt.Type != "response.reasoning.delta" {
+		t.Fatalf("type = %q, want response.reasoning.delta", evt.Type)
+	}
+	if evt.SequenceNumber != 5 || evt.ItemID != "rs_1" || evt.Delta != "think" {
+		t.Fatalf("delta event fields: seq=%d item_id=%q delta=%q", evt.SequenceNumber, evt.ItemID, evt.Delta)
+	}
+	if evt.OutputIndex == nil || *evt.OutputIndex != 0 {
+		t.Fatalf("output_index = %v, want 0", evt.OutputIndex)
+	}
+	if evt.ContentIndex == nil || *evt.ContentIndex != 0 {
+		t.Fatalf("content_index = %v, want 0", evt.ContentIndex)
+	}
+
+	donePayload := `{"type":"response.reasoning.done","sequence_number":6,"item_id":"rs_1","output_index":0,"content_index":0,"text":"think"}`
+	evt, err = ParseEvent([]byte(donePayload), DefaultParseOptions())
+	if err != nil {
+		t.Fatalf("ParseEvent(response.reasoning.done) failed: %v", err)
+	}
+	if evt.Type != "response.reasoning.done" {
+		t.Fatalf("type = %q, want response.reasoning.done", evt.Type)
+	}
+	if evt.SequenceNumber != 6 || evt.ItemID != "rs_1" || evt.Text != "think" {
+		t.Fatalf("done event fields: seq=%d item_id=%q text=%q", evt.SequenceNumber, evt.ItemID, evt.Text)
+	}
+	if evt.OutputIndex == nil || *evt.OutputIndex != 0 {
+		t.Fatalf("output_index = %v, want 0", evt.OutputIndex)
+	}
+	if evt.ContentIndex == nil || *evt.ContentIndex != 0 {
+		t.Fatalf("content_index = %v, want 0", evt.ContentIndex)
+	}
+
+	// Legacy names are no longer standard: they are unprefixed and must be
+	// rejected, otherwise conformance streams misparse as unknown events.
+	for _, legacy := range []string{
+		`{"type":"response.reasoning_text.delta","item_id":"rs_1","output_index":0,"content_index":0,"delta":"think"}`,
+		`{"type":"response.reasoning_text.done","item_id":"rs_1","output_index":0,"content_index":0,"text":"think"}`,
+	} {
+		if _, err := ParseEvent([]byte(legacy), DefaultParseOptions()); err == nil {
+			t.Fatalf("legacy reasoning_text event accepted as standard: %s", legacy)
+		}
 	}
 }
 

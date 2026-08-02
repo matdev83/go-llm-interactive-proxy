@@ -2,6 +2,7 @@ package continuation
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -45,45 +46,30 @@ func (r *StreamRecorder) Observe(ctx context.Context, event lipapi.Event) {
 	if r == nil {
 		return
 	}
+
 	r.mu.Lock()
 	if r.closed || r.stored || r.overflow {
 		r.mu.Unlock()
 		return
 	}
+
 	if max := r.record.Policy.Limits.MaxRecordBytes; max > 0 && r.eventBytes+recorderEventSize(event) > max {
 		r.overflow = true
 		r.stored = true
-		record := lipcont.CloneRecord(r.record)
-		record.Terminal = true
-		record.Status = lipcont.RecordStatusFailed
-		recorder := r.recorder
 		release := r.cleanup
+		r.cleanup = nil
 		r.mu.Unlock()
-		if release != nil {
-			// The cleanup callback owns reservation release for overflow. Do
-			// not also call RecordTerminal: the standard TerminalRecorder
-			// treats failed records as ineligible and would delete the same
-			// reservation a second time.
-			release()
-			return
-		}
-		// Keep the recorder fallback for callers that intentionally provide no
-		// cleanup callback and use a recorder that owns failed-record cleanup.
-		if recorder != nil {
-			if err := recorder.RecordTerminal(ctx, record); err != nil {
-				r.mu.Lock()
-				r.storeErr = err
-				r.mu.Unlock()
-			}
-		}
+		safeRunCleanup(release)
 		return
 	}
+
 	r.events = append(r.events, cloneEvent(event))
 	r.eventBytes += recorderEventSize(event)
 	if event.Kind != lipapi.EventResponseFinished && event.Kind != lipapi.EventError {
 		r.mu.Unlock()
 		return
 	}
+
 	record := lipcont.CloneRecord(r.record)
 	record.Terminal = true
 	if event.Kind == lipapi.EventError {
@@ -95,16 +81,124 @@ func (r *StreamRecorder) Observe(ctx context.Context, event lipapi.Event) {
 	}
 	record.OutputItems = outputItems(r.events)
 	record.MaterializedBytes = lipcont.EstimateItemsBytes(record.InputItems) + lipcont.EstimateItemsBytes(record.OutputItems)
+
 	recorder := r.recorder
+	release := r.cleanup
+	r.cleanup = nil
 	r.stored = true
 	r.mu.Unlock()
-	if recorder != nil {
-		if err := recorder.RecordTerminal(ctx, record); err != nil {
-			r.mu.Lock()
-			r.storeErr = err
-			r.mu.Unlock()
-		}
+
+	if recorder == nil {
+		safeRunCleanup(release)
+		return
 	}
+	if err := safeRecordTerminal(recorder, ctx, record); err != nil {
+		r.mu.Lock()
+		r.storeErr = err
+		r.mu.Unlock()
+		safeRunCleanup(release)
+	}
+}
+
+func safeRecordTerminal(recorder lipcont.Recorder, ctx context.Context, record lipcont.ContinuationRecord) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("continuation: terminal recorder panicked: %v", recovered)
+		}
+	}()
+	return recorder.RecordTerminal(ctx, record)
+}
+
+func safeRunCleanup(release func()) {
+	if release == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	release()
+}
+
+// OwnsContinuationReservation identifies the recorder as the owner of the
+// reservation cleanup callback passed at construction time. Frontend code uses
+// this explicit capability before transferring cleanup ownership.
+func (r *StreamRecorder) OwnsContinuationReservation() bool { return r != nil }
+
+// ContinuationReservationCleanupConsumed reports whether the recorder detached
+// its cleanup callback. The frontend uses this to distinguish a finalizer that
+// failed after consuming cleanup from one that panicked before doing so.
+func (r *StreamRecorder) ContinuationReservationCleanupConsumed() bool {
+	if r == nil {
+		return true
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.cleanup == nil
+}
+
+// ReleaseContinuationReservation consumes the reservation cleanup callback
+// without attempting to persist a terminal record. It is used when execution
+// never produced a stream lifecycle (for example, a nil executor stream).
+func (r *StreamRecorder) ReleaseContinuationReservation() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	release := r.cleanup
+	r.cleanup = nil
+	r.stored = true
+	r.mu.Unlock()
+	safeRunCleanup(release)
+}
+
+// FinalizeIncomplete persists the events observed so far as an incomplete
+// terminal record. It is idempotent and is used when the client disconnects
+// after output commitment but before the provider emits a terminal event.
+// On persistence failure it releases the reservation because no usable terminal
+// record was stored; callers should not release it again.
+func (r *StreamRecorder) FinalizeIncomplete(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	if r.stored || r.overflow {
+		err := r.storeErr
+		r.mu.Unlock()
+		return err
+	}
+	record := lipcont.CloneRecord(r.record)
+	record.Terminal = true
+	record.Status = lipcont.RecordStatusIncomplete
+	record.OutputItems = outputItems(r.events)
+	record.MaterializedBytes = lipcont.EstimateItemsBytes(record.InputItems) + lipcont.EstimateItemsBytes(record.OutputItems)
+	recorder := r.recorder
+	release := r.cleanup
+	r.stored = true
+	r.cleanup = nil
+	r.mu.Unlock()
+	if recorder == nil {
+		safeRunCleanup(release)
+		return nil
+	}
+	var recordErr error
+	func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				recordErr = fmt.Errorf("continuation: terminal recorder panicked: %v", recovered)
+			}
+		}()
+		recordErr = recorder.RecordTerminal(ctx, record)
+	}()
+	if recordErr != nil {
+		r.mu.Lock()
+		r.storeErr = recordErr
+		r.mu.Unlock()
+		// Finalization owns the callback for recorder-owned reservations;
+		// consume it here even when persistence fails or panics. The
+		// callback was detached before the call, so Close cannot release it
+		// a second time.
+		safeRunCleanup(release)
+		return recordErr
+	}
+	return nil
 }
 
 func recorderEventSize(event lipapi.Event) int64 {
@@ -131,8 +225,8 @@ func (r *StreamRecorder) Close() error {
 		r.cleanup = nil
 	}
 	r.mu.Unlock()
-	if !stored && release != nil {
-		release()
+	if !stored {
+		safeRunCleanup(release)
 	}
 	return nil
 }

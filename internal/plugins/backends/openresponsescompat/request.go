@@ -162,6 +162,28 @@ func wireToolArguments(raw []byte) (json.RawMessage, error) {
 }
 
 func toolChoiceWire(tc lipapi.ToolChoice) (json.RawMessage, error) {
+	if len(tc.AllowedTools) > 0 {
+		refs := make([]proto.WireToolChoiceAllowedToolRef, 0, len(tc.AllowedTools))
+		for _, name := range tc.AllowedTools {
+			refs = append(refs, proto.WireToolChoiceAllowedToolRef{Type: "function", Name: name})
+		}
+		mode := "auto"
+		switch tc.Mode {
+		case lipapi.ToolChoiceNone:
+			mode = "none"
+		case lipapi.ToolChoiceAny:
+			mode = "required"
+		}
+		b, err := json.Marshal(proto.WireToolChoiceAllowedTools{
+			Type:  "allowed_tools",
+			Tools: refs,
+			Mode:  mode,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("%w: marshal tool_choice: %v", ErrUnrepresentable, err)
+		}
+		return b, nil
+	}
 	switch tc.Mode {
 	case lipapi.ToolChoiceAuto:
 		return json.RawMessage(`"auto"`), nil
@@ -172,8 +194,8 @@ func toolChoiceWire(tc lipapi.ToolChoice) (json.RawMessage, error) {
 	case lipapi.ToolChoiceRequired:
 		if tc.Name != "" {
 			b, err := json.Marshal(proto.WireToolChoiceFunction{
-				Type:     "function",
-				Function: proto.WireToolChoiceFunctionName{Name: tc.Name},
+				Type: "function",
+				Name: tc.Name,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("%w: marshal tool_choice: %v", ErrUnrepresentable, err)

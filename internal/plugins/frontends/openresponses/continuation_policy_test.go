@@ -70,9 +70,10 @@ func TestHTTPContinuationStorePolicyAndMaterialization(t *testing.T) {
 	store := continuation.NewMemoryStore()
 	executor := &scriptedContinuationExecutor{stream: func() lipapi.EventStream { return &responseStream{} }}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Authorizer:        continuationAuth{},
-		Executor:          executor,
-		ContinuationStore: store,
+		AllowUnauthenticated: true,
+		Authorizer:           continuationAuth{},
+		Executor:             executor,
+		ContinuationStore:    store,
 	})
 
 	first := serveContinuationRequest(t, handler, `{"model":"gpt-4o","input":"first","store":true}`)
@@ -121,9 +122,10 @@ func TestHTTPContinuationStoreFalseDoesNotReserveOrPersist(t *testing.T) {
 	store := continuation.NewMemoryStore()
 	executor := &scriptedContinuationExecutor{stream: func() lipapi.EventStream { return &responseStream{} }}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Authorizer:        continuationAuth{},
-		Executor:          executor,
-		ContinuationStore: store,
+		AllowUnauthenticated: true,
+		Authorizer:           continuationAuth{},
+		Executor:             executor,
+		ContinuationStore:    store,
 	})
 	response := serveContinuationRequest(t, handler, `{"model":"gpt-4o","input":"one","store":false}`)
 	if response.Code != http.StatusOK {
@@ -202,9 +204,10 @@ func TestContinuation_StoreTrue(t *testing.T) {
 	tStore := newTrackingTestStore(memStore)
 	executor := &scriptedContinuationExecutor{stream: func() lipapi.EventStream { return &responseStream{} }}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Authorizer:        continuationAuth{},
-		Executor:          executor,
-		ContinuationStore: tStore,
+		AllowUnauthenticated: true,
+		Authorizer:           continuationAuth{},
+		Executor:             executor,
+		ContinuationStore:    tStore,
 	})
 
 	// Non-streaming with store: true
@@ -236,9 +239,10 @@ func TestContinuation_StoreFalse(t *testing.T) {
 	tStore := newTrackingTestStore(memStore)
 	executor := &scriptedContinuationExecutor{stream: func() lipapi.EventStream { return &responseStream{} }}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Authorizer:        continuationAuth{},
-		Executor:          executor,
-		ContinuationStore: tStore,
+		AllowUnauthenticated: true,
+		Authorizer:           continuationAuth{},
+		Executor:             executor,
+		ContinuationStore:    tStore,
 	})
 
 	rec := serveContinuationRequest(t, handler, `{"model":"gpt-4o","input":"hello","store":false}`)
@@ -266,9 +270,10 @@ func TestContinuation_StoreDefault(t *testing.T) {
 	tStore := newTrackingTestStore(memStore)
 	executor := &scriptedContinuationExecutor{stream: func() lipapi.EventStream { return &responseStream{} }}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Authorizer:        continuationAuth{},
-		Executor:          executor,
-		ContinuationStore: tStore,
+		AllowUnauthenticated: true,
+		Authorizer:           continuationAuth{},
+		Executor:             executor,
+		ContinuationStore:    tStore,
 	})
 
 	// Omitted store field
@@ -298,9 +303,10 @@ func TestContinuation_ReserveFailure(t *testing.T) {
 	tStore.reserveErr = errors.New("reserve storage failure")
 	executor := &scriptedContinuationExecutor{stream: func() lipapi.EventStream { return &responseStream{} }}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Authorizer:        continuationAuth{},
-		Executor:          executor,
-		ContinuationStore: tStore,
+		AllowUnauthenticated: true,
+		Authorizer:           continuationAuth{},
+		Executor:             executor,
+		ContinuationStore:    tStore,
 	})
 
 	rec := serveContinuationRequest(t, handler, `{"model":"gpt-4o","input":"hello","store":true}`)
@@ -325,9 +331,10 @@ func TestContinuation_ParentEcho(t *testing.T) {
 
 	executor := &scriptedContinuationExecutor{stream: func() lipapi.EventStream { return &responseStream{} }}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Authorizer:        continuationAuth{},
-		Executor:          executor,
-		ContinuationStore: memStore,
+		AllowUnauthenticated: true,
+		Authorizer:           continuationAuth{},
+		Executor:             executor,
+		ContinuationStore:    memStore,
 	})
 
 	// Non-streaming parent echo
@@ -357,9 +364,10 @@ func TestContinuation_Recorder(t *testing.T) {
 	tStore := newTrackingTestStore(memStore)
 	executor := &scriptedContinuationExecutor{stream: func() lipapi.EventStream { return &responseStream{} }}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Authorizer:        continuationAuth{},
-		Executor:          executor,
-		ContinuationStore: tStore,
+		AllowUnauthenticated: true,
+		Authorizer:           continuationAuth{},
+		Executor:             executor,
+		ContinuationStore:    tStore,
 	})
 
 	rec := serveContinuationRequest(t, handler, `{"model":"gpt-4o","input":"record me","store":true}`)
@@ -389,9 +397,10 @@ func TestContinuation_StorageFailure(t *testing.T) {
 		tStore.putErr = errors.New("post-output put terminal failure")
 		executor := &scriptedContinuationExecutor{stream: func() lipapi.EventStream { return &responseStream{} }}
 		handler := openresponses.NewHandler(openresponses.HandlerConfig{
-			Authorizer:        continuationAuth{},
-			Executor:          executor,
-			ContinuationStore: tStore,
+			AllowUnauthenticated: true,
+			Authorizer:           continuationAuth{},
+			Executor:             executor,
+			ContinuationStore:    tStore,
 		})
 
 		rec := serveContinuationRequest(t, handler, `{"model":"gpt-4o","input":"hello","store":true}`)
@@ -406,9 +415,10 @@ func TestContinuation_StorageFailure(t *testing.T) {
 		tStore := newTrackingTestStore(memStore)
 		failingExec := &failingContinuationExecutor{err: errors.New("backend failed")}
 		handler := openresponses.NewHandler(openresponses.HandlerConfig{
-			Authorizer:        continuationAuth{},
-			Executor:          failingExec,
-			ContinuationStore: tStore,
+			AllowUnauthenticated: true,
+			Authorizer:           continuationAuth{},
+			Executor:             failingExec,
+			ContinuationStore:    tStore,
 		})
 
 		rec := serveContinuationRequest(t, handler, `{"model":"gpt-4o","input":"hello","store":true}`)

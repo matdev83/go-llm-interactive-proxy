@@ -69,11 +69,10 @@ func MountBundledFrontends(in MountBundledFrontendsInput) error {
 					Exec:                fe.Executor,
 					DefaultRoute:        fe.DefaultRouteSelector,
 					RoutePrefixes:       fe.RoutePrefixes,
-					MaxRequestBodyBytes: fe.MaxRequestBodyBytes,
-					DecodeAdmission:     fe.DecodeAdmission,
+					MaxRequestBodyBytes: fe.MaxRequestBodyBytes, DecodeAdmission: fe.DecodeAdmission,
 					TrafficPorts:        fe.TrafficPorts,
-					PreRequestKeepalive: fe.PreRequestKeepalive,
-					GenerationContext:   fe.GenerationContext,
+					PreRequestKeepalive: fe.PreRequestKeepalive, GenerationContext: fe.GenerationContext, ContinuationWiringFactory: fe.ContinuationWiringFactory,
+					FrontendInstanceID: p.InstanceID(),
 				},
 			); err != nil {
 				return err

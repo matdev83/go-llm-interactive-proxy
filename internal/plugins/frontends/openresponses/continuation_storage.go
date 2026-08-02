@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/continuation"
 	lipcont "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/continuation"
 )
 
@@ -15,11 +14,11 @@ type ContinuationRecorderFactory interface {
 	NewRecorder(store lipcont.Store, record lipcont.ContinuationRecord) lipcont.StreamObserver
 }
 
-type coreContinuationRecorderFactory struct{}
+type sdkContinuationRecorderFactory struct{}
 
-var _ ContinuationRecorderFactory = coreContinuationRecorderFactory{}
+var _ ContinuationRecorderFactory = sdkContinuationRecorderFactory{}
 
-func (coreContinuationRecorderFactory) NewRecorder(store lipcont.Store, record lipcont.ContinuationRecord) lipcont.StreamObserver {
+func (sdkContinuationRecorderFactory) NewRecorder(store lipcont.Store, record lipcont.ContinuationRecord) lipcont.StreamObserver {
 	cleanup := func() {
 		if store == nil || record.ID.IsZero() || record.Scope.IsZero() {
 			return
@@ -28,9 +27,9 @@ func (coreContinuationRecorderFactory) NewRecorder(store lipcont.Store, record l
 		defer cancel()
 		_ = store.Delete(ctx, record.Scope, record.ID)
 	}
-	return continuation.NewStreamRecorder(lipcont.TerminalRecorder{Store: store}, record, cleanup)
+	return lipcont.NewStreamRecorder(lipcont.TerminalRecorder{Store: store}, record, cleanup)
 }
 
 func defaultContinuationRecorderFactory() ContinuationRecorderFactory {
-	return coreContinuationRecorderFactory{}
+	return sdkContinuationRecorderFactory{}
 }

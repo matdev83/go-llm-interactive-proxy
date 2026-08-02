@@ -207,7 +207,8 @@ func TestWebSocketUpgrade_DevModeOriginRelaxation(t *testing.T) {
 		w.DevelopmentMode = true
 		w.AllowAnyOrigin = true
 	})
-	handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{Config: cfg})
+	handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
+		AllowUnauthenticated: true, Config: cfg})
 	srv := newWSTestServerFor(t, handler)
 	counters := handler.Counters()
 
@@ -229,7 +230,8 @@ func TestWebSocketUpgrade_DevModeOriginRelaxation(t *testing.T) {
 		w.AllowAnyOrigin = true
 		w.DevelopmentMode = false
 	})
-	strictHandler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{Config: strict})
+	strictHandler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
+		AllowUnauthenticated: true, Config: strict})
 	rec := httptest.NewRecorder()
 	req := validWSRequest()
 	req.Header.Set("Origin", "https://evil.example")
@@ -239,7 +241,8 @@ func TestWebSocketUpgrade_DevModeOriginRelaxation(t *testing.T) {
 	}
 
 	// Malformed origins stay rejected even in dev mode (input hygiene).
-	hHandler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{Config: cfg})
+	hHandler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
+		AllowUnauthenticated: true, Config: cfg})
 	rec = httptest.NewRecorder()
 	req = validWSRequest()
 	req.Header.Set("Origin", "https://user:pass@example.com")

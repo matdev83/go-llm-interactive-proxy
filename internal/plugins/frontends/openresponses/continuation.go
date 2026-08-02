@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	corecontinuation "github.com/matdev83/go-llm-interactive-proxy/internal/core/continuation"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	lipcont "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/continuation"
 )
@@ -14,7 +13,7 @@ type ContinuationResolver interface {
 	ResolveParent(ctx context.Context, scope lipcont.Scope, parentID string, baseCall lipapi.Call) (lipapi.Call, lipcont.ContinuationRecord, error)
 }
 
-// storeContinuationResolver delegates parent resolution to core MaterializeCall and lipcont.Store.
+// storeContinuationResolver delegates parent resolution to the protocol-neutral SDK materializer and store.
 type storeContinuationResolver struct {
 	store  lipcont.Store
 	bounds lipcont.Bounds
@@ -42,7 +41,7 @@ func (r *storeContinuationResolver) ResolveParent(ctx context.Context, scope lip
 		}
 		return lipapi.Call{}, lipcont.ContinuationRecord{}, lipcont.ErrPreviousResponseNotFound
 	}
-	materializedCall, _, err := corecontinuation.MaterializeCall(ctx, lipcont.MaterializeInput{
+	materializedCall, _, err := lipcont.MaterializeCall(ctx, lipcont.MaterializeInput{
 		Store:    r.store,
 		Scope:    scope,
 		StartID:  pid,

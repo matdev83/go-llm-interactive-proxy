@@ -178,6 +178,74 @@ func TestOpenResponsesBackendColumn_ContinuationHonestClassification(t *testing.
 	}
 }
 
+// TestOpenResponsesRowColumn_CompactionNamingOutcomeAgreement pins the
+// compaction scenario-ID naming to the evidence outcome: the OpenResponses
+// backend cell in the row and the OpenResponses frontend cell in the column are
+// the documented positive compaction exceptions and must link the positive
+// "-compaction" scenario; every reject cell must link the "-compaction-reject"
+// scenario. Scenario-ID naming and outcome must never disagree.
+func TestOpenResponsesRowColumn_CompactionNamingOutcomeAgreement(t *testing.T) {
+	t.Parallel()
+	for _, backend := range OpenResponsesFrontendRowBackendIDs() {
+		cell := openResponsesFrontendRowCellFor(backend)
+		ev, ok := cell.Features[FeatureCompaction]
+		if !ok {
+			t.Fatalf("row cell %s has no compaction evidence", backend)
+		}
+		if backend == BackendOpenResponses {
+			if ev.Outcome != OutcomeLossless {
+				t.Fatalf("row cell %s compaction = %q, want lossless (generic backend declares the compaction capability)", backend, ev.Outcome)
+			}
+			for _, sid := range ev.ScenarioIDs {
+				if !hasSuffix(sid, "-compaction") {
+					t.Fatalf("row cell %s compaction links generic scenario %q, want the positive -compaction scenario", backend, sid)
+				}
+				if hasSuffix(sid, "-compaction-reject") {
+					t.Fatalf("row cell %s compaction links reject scenario %q for a positive outcome", backend, sid)
+				}
+			}
+			continue
+		}
+		if ev.Outcome != OutcomeRejectBeforeNet {
+			t.Fatalf("row cell %s compaction = %q, want rejected_before_network", backend, ev.Outcome)
+		}
+		for _, sid := range ev.ScenarioIDs {
+			if !hasSuffix(sid, "-compaction-reject") {
+				t.Fatalf("row cell %s compaction links scenario %q, want the -compaction-reject scenario", backend, sid)
+			}
+		}
+	}
+	for _, frontend := range OpenResponsesBackendColumnFrontendIDs() {
+		cell := openResponsesBackendColumnCellFor(frontend)
+		ev, ok := cell.Features[FeatureCompaction]
+		if !ok {
+			t.Fatalf("column cell %s has no compaction evidence", frontend)
+		}
+		if frontend == FrontendOpenResponses {
+			if ev.Outcome != OutcomeLossless {
+				t.Fatalf("column cell %s compaction = %q, want lossless (generic backend declares the compaction capability)", frontend, ev.Outcome)
+			}
+			for _, sid := range ev.ScenarioIDs {
+				if !hasSuffix(sid, "-compaction") {
+					t.Fatalf("column cell %s compaction links generic scenario %q, want the positive -compaction scenario", frontend, sid)
+				}
+				if hasSuffix(sid, "-compaction-reject") {
+					t.Fatalf("column cell %s compaction links reject scenario %q for a positive outcome", frontend, sid)
+				}
+			}
+			continue
+		}
+		if ev.Outcome != OutcomeRejectBeforeNet {
+			t.Fatalf("column cell %s compaction = %q, want rejected_before_network", frontend, ev.Outcome)
+		}
+		for _, sid := range ev.ScenarioIDs {
+			if !hasSuffix(sid, "-compaction-reject") {
+				t.Fatalf("column cell %s compaction links scenario %q, want the -compaction-reject scenario", frontend, sid)
+			}
+		}
+	}
+}
+
 // TestOpenResponsesRowColumn_TransportEvidenceLinksExecutableScenarios pins the
 // F3 repair: continuation, cancellation, failover, and no-retry evidence in the
 // row and column never point at the generic json-text or usage-commitment

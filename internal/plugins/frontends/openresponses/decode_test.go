@@ -95,9 +95,10 @@ func TestDecode_AuthBeforeBodyOrStore(t *testing.T) {
 	store := &mockContinuationStore{}
 
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Authorizer:        auth,
-		Executor:          exec,
-		ContinuationStore: store,
+		AllowUnauthenticated: true,
+		Authorizer:           auth,
+		Executor:             exec,
+		ContinuationStore:    store,
 	})
 
 	body := []byte(`{"model":"gpt-4o","input":"hello"}`)
@@ -133,9 +134,10 @@ func TestDecode_InvalidUnauthorizedCausesNoWork(t *testing.T) {
 	store := &mockContinuationStore{}
 
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Authorizer:        auth,
-		Executor:          exec,
-		ContinuationStore: store,
+		AllowUnauthenticated: true,
+		Authorizer:           auth,
+		Executor:             exec,
+		ContinuationStore:    store,
 	})
 
 	// Malformed JSON payload + unauthenticated
@@ -164,8 +166,9 @@ func TestDecode_CreateRequest_StringInput(t *testing.T) {
 	exec := &mockExecutor{}
 
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Authorizer: auth,
-		Executor:   exec,
+		AllowUnauthenticated: true,
+		Authorizer:           auth,
+		Executor:             exec,
 	})
 
 	body := []byte(`{
@@ -215,8 +218,9 @@ func TestDecode_CreateRequest_ToolsControlsExtensions(t *testing.T) {
 	exec := &mockExecutor{}
 
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Authorizer: auth,
-		Executor:   exec,
+		AllowUnauthenticated: true,
+		Authorizer:           auth,
+		Executor:             exec,
 	})
 
 	body := []byte(`{
@@ -289,8 +293,9 @@ func TestDecode_ConditionalModelInput(t *testing.T) {
 	exec := &mockExecutor{}
 
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Authorizer: auth,
-		Executor:   exec,
+		AllowUnauthenticated: true,
+		Authorizer:           auth,
+		Executor:             exec,
 	})
 
 	// Missing input without previous_response_id must fail decode with 400
@@ -401,7 +406,8 @@ func TestHandler_ExecutorErrorIsSanitized(t *testing.T) {
 	t.Parallel()
 
 	exec := &mockExecutor{err: errors.New("provider secret: token=abc")}
-	handler := openresponses.NewHandler(openresponses.HandlerConfig{Executor: exec})
+	handler := openresponses.NewHandler(openresponses.HandlerConfig{
+		AllowUnauthenticated: true, Executor: exec})
 	req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", bytes.NewBufferString(`{"model":"gpt-4o","input":"hello"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -422,8 +428,9 @@ func TestCompact_AuthBeforeBodyOrWork(t *testing.T) {
 	auth := &mockAuthorizer{authenticated: false}
 	exec := &mockExecutor{}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Authorizer: auth,
-		Executor:   exec,
+		AllowUnauthenticated: true,
+		Authorizer:           auth,
+		Executor:             exec,
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses/compact", bytes.NewBufferString(`{"model":"gpt-4o","input":"hello"}`))
@@ -447,7 +454,8 @@ func TestCompact_MissingModel_CausesNoWork(t *testing.T) {
 	t.Parallel()
 
 	exec := &mockExecutor{}
-	handler := openresponses.NewHandler(openresponses.HandlerConfig{Executor: exec})
+	handler := openresponses.NewHandler(openresponses.HandlerConfig{
+		AllowUnauthenticated: true, Executor: exec})
 
 	req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses/compact", bytes.NewBufferString(`{"input":"hello"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -467,7 +475,8 @@ func TestCompact_MissingInput_CausesNoWork(t *testing.T) {
 	t.Parallel()
 
 	exec := &mockExecutor{}
-	handler := openresponses.NewHandler(openresponses.HandlerConfig{Executor: exec})
+	handler := openresponses.NewHandler(openresponses.HandlerConfig{
+		AllowUnauthenticated: true, Executor: exec})
 
 	req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses/compact", bytes.NewBufferString(`{"model":"gpt-4o"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -496,7 +505,8 @@ func TestCompact_ForbiddenFields_CausesNoWork(t *testing.T) {
 
 	for _, payload := range forbiddenPayloads {
 		exec := &mockExecutor{}
-		handler := openresponses.NewHandler(openresponses.HandlerConfig{Executor: exec})
+		handler := openresponses.NewHandler(openresponses.HandlerConfig{
+			AllowUnauthenticated: true, Executor: exec})
 
 		req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses/compact", bytes.NewBufferString(payload))
 		req.Header.Set("Content-Type", "application/json")
@@ -556,7 +566,8 @@ func TestCompact_DecodeAndDispatchContract(t *testing.T) {
 
 	// Now verify Handler dispatch
 	compactExec := &mockExecutor{}
-	handler := openresponses.NewHandler(openresponses.HandlerConfig{Executor: compactExec})
+	handler := openresponses.NewHandler(openresponses.HandlerConfig{
+		AllowUnauthenticated: true, Executor: compactExec})
 
 	req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses/compact", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -578,7 +589,8 @@ func TestCompact_UsesNormalExecutorStreamPort(t *testing.T) {
 
 	exec := &mockExecutor{}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Executor: exec,
+		AllowUnauthenticated: true,
+		Executor:             exec,
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses/compact", bytes.NewBufferString(`{"model":"gpt-4o","input":"Compress this"}`))
@@ -660,6 +672,36 @@ func TestCompactDecode_ForbiddenCreateOnlyFieldsAreRejected(t *testing.T) {
 		if err == nil {
 			t.Fatalf("forbidden field %q unexpectedly decoded", field)
 		}
+	}
+}
+
+func TestDecode_ExplicitRouteSelectorMustMatchConfiguredPrefix(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`{"model":"backend:model","input":"hello"}`)
+	_, err := openresponses.AuthenticateAndDecodeCreate(context.Background(), body, openresponses.DecodeCreateOptions{
+		Auth:                 &mockAuthorizer{authenticated: true},
+		RouteSelector:        "forbidden:model",
+		RoutePrefixes:        []string{"backend"},
+		DefaultRouteSelector: "backend:default",
+	})
+	if err == nil {
+		t.Fatal("forbidden explicit route selector unexpectedly decoded")
+	}
+}
+
+func TestCompactDecode_ExplicitRouteSelectorMustMatchConfiguredPrefix(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`{"model":"backend:model","input":"hello"}`)
+	_, err := openresponses.AuthenticateAndDecodeCompact(context.Background(), body, openresponses.DecodeCompactOptions{
+		Auth:                 &mockAuthorizer{authenticated: true},
+		RouteSelector:        "forbidden:model",
+		RoutePrefixes:        []string{"backend"},
+		DefaultRouteSelector: "backend:default",
+	})
+	if err == nil {
+		t.Fatal("forbidden explicit compact route selector unexpectedly decoded")
 	}
 }
 

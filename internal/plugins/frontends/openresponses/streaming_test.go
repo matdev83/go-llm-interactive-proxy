@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -43,7 +44,7 @@ func (s *streamingEventStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	if s.recvSeen != nil {
 		s.recvSeen <- pos
 	}
-	if s.wait != nil && pos > 1 {
+	if s.wait != nil && pos > 2 {
 		select {
 		case <-s.wait:
 		case <-ctx.Done():
@@ -84,6 +85,7 @@ type streamingResponseWriter struct {
 	flushes          int
 	failAt           int
 	failBeforeCommit bool
+	partialFail      bool
 	blockAt          int
 	release          <-chan struct{}
 }
@@ -110,6 +112,22 @@ func (w *streamingResponseWriter) Write(p []byte) (int, error) {
 	block := writes == w.blockAt
 	w.mu.Unlock()
 	if fail {
+		if w.partialFail {
+			// Simulate net/http committing the response (status 200, headers
+			// flushed) and accepting some body bytes before the connection
+			// fails. The stream seam must treat this as committed.
+			half := len(p) / 2
+			if half == 0 {
+				return 0, errors.New("writer failed mid-write")
+			}
+			w.mu.Lock()
+			if w.status == 0 {
+				w.status = http.StatusOK
+			}
+			_, _ = w.body.Write(p[:half])
+			w.mu.Unlock()
+			return half, errors.New("writer failed mid-write")
+		}
 		if w.failBeforeCommit {
 			return 0, errors.New("writer failed before commit")
 		}
@@ -143,9 +161,10 @@ func (w *streamingResponseWriter) snapshot() (string, int, int, int) {
 
 func newStreamingHandler(executor openresponses.ExecutorView) *openresponses.Handler {
 	return openresponses.NewHandler(openresponses.HandlerConfig{
-		Executor:         executor,
-		ResponseIDSource: deterministicResponseMetadata{id: "resp_stream", now: time.Unix(1_700_000_100, 0)},
-		ResponseClock:    deterministicResponseMetadata{id: "resp_stream", now: time.Unix(1_700_000_100, 0)},
+		AllowUnauthenticated: true,
+		Executor:             executor,
+		ResponseIDSource:     deterministicResponseMetadata{id: "resp_stream", now: time.Unix(1_700_000_100, 0)},
+		ResponseClock:        deterministicResponseMetadata{id: "resp_stream", now: time.Unix(1_700_000_100, 0)},
 	})
 }
 
@@ -186,12 +205,12 @@ func TestStreamingSSEIsIncrementalOrderedFlushedAndExecutorRunsOnce(t *testing.T
 	deadline := time.After(time.Second)
 	for {
 		body, _, _, _ := w.snapshot()
-		if bytes.Contains([]byte(body), []byte("response.created")) {
+		if bytes.Contains([]byte(body), []byte("response.output_item.added")) {
 			break
 		}
 		select {
 		case <-deadline:
-			t.Fatal("first SSE frame was buffered")
+			t.Fatal("first SSE output item was buffered")
 		default:
 			time.Sleep(time.Millisecond)
 		}
@@ -234,7 +253,7 @@ func TestStreamingErrorsBeforeAndAfterCommitment(t *testing.T) {
 		wantSSE    bool
 	}{
 		{name: "before output", stream: &streamingEventStream{err: errors.New("native secret")}, wantStatus: http.StatusBadGateway},
-		{name: "after output", stream: &streamingEventStream{events: []lipapi.Event{{Kind: lipapi.EventResponseStarted}}, err: errors.New("native secret")}, wantStatus: http.StatusOK, wantSSE: true},
+		{name: "after output", stream: &streamingEventStream{events: []lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventMessageStarted}}, err: errors.New("native secret")}, wantStatus: http.StatusOK, wantSSE: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -252,8 +271,11 @@ func TestStreamingErrorsBeforeAndAfterCommitment(t *testing.T) {
 				if !bytes.Contains([]byte(body), []byte("event: response.failed")) {
 					t.Fatalf("expected failed terminal: %s", body)
 				}
-				if bytes.Contains([]byte(body), []byte("data: [DONE]")) {
-					t.Fatalf("failed terminal must not be followed by DONE: %s", body)
+				if got := bytes.Count([]byte(body), []byte("data: [DONE]")); got != 1 {
+					t.Fatalf("failed terminal must be followed by exactly one DONE, got %d: %s", got, body)
+				}
+				if !strings.HasSuffix(body, "data: [DONE]\n\n") {
+					t.Fatalf("expected stream to end with data: [DONE]\\n\\n: %q", body)
 				}
 			} else if bytes.Contains([]byte(body), []byte("event:")) || bytes.Contains([]byte(body), []byte("native secret")) {
 				t.Fatalf("pre-commit error was not normal bounded JSON: %s", body)
@@ -262,6 +284,38 @@ func TestStreamingErrorsBeforeAndAfterCommitment(t *testing.T) {
 				t.Fatalf("expected no retry and one close, calls=%d closes=%d", executor.calls, tc.stream.closeCount())
 			}
 		})
+	}
+}
+
+func TestStreamingCanonicalEventErrorEmitsFailedThenDONE(t *testing.T) {
+	stream := &streamingEventStream{events: []lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventError, ErrorCode: "backend_error", ErrorMessage: "boom"},
+	}}
+	executor := &streamingExecutor{stream: stream}
+	w := newStreamingResponseWriter()
+	newStreamingHandler(executor).ServeHTTP(w, streamingRequest(context.Background()))
+
+	body, status, _, _ := w.snapshot()
+	if status != http.StatusOK || w.Header().Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("unexpected stream response: status=%d content-type=%q", status, w.Header().Get("Content-Type"))
+	}
+	failedIdx := bytes.Index([]byte(body), []byte("event: response.failed"))
+	doneIdx := bytes.Index([]byte(body), []byte("data: [DONE]"))
+	if failedIdx < 0 {
+		t.Fatalf("expected response.failed terminal: %s", body)
+	}
+	if doneIdx < 0 || doneIdx < failedIdx {
+		t.Fatalf("expected response.failed before DONE: %s", body)
+	}
+	if got := bytes.Count([]byte(body), []byte("data: [DONE]")); got != 1 {
+		t.Fatalf("expected exactly one DONE sentinel, got %d: %s", got, body)
+	}
+	if !strings.HasSuffix(body, "data: [DONE]\n\n") {
+		t.Fatalf("expected stream to end with data: [DONE]\\n\\n: %q", body)
+	}
+	if executor.calls != 1 || stream.closeCount() != 1 {
+		t.Fatalf("expected one execution and one close, calls=%d closes=%d", executor.calls, stream.closeCount())
 	}
 }
 
@@ -286,6 +340,29 @@ func TestStreamingWriterFailureDoesNotRewriteCommittedHTTPStatus(t *testing.T) {
 	_, status, _, _ := w.snapshot()
 	if status != http.StatusOK {
 		t.Fatalf("writer failure after first frame rewrote HTTP status to %d", status)
+	}
+	if executor.calls != 1 || stream.closeCount() != 1 {
+		t.Fatalf("expected one execution and one close, calls=%d closes=%d", executor.calls, stream.closeCount())
+	}
+}
+
+func TestStreamingPartialWriteFailureIsTreatedAsCommitted(t *testing.T) {
+	stream := &streamingEventStream{events: []lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventMessageStarted}}}
+	executor := &streamingExecutor{stream: stream}
+	w := newStreamingResponseWriter()
+	w.failAt = 1
+	w.partialFail = true
+	newStreamingHandler(executor).ServeHTTP(w, streamingRequest(context.Background()))
+
+	body, status, _, _ := w.snapshot()
+	if status != http.StatusOK {
+		t.Fatalf("partial write after bytes committed rewrote status to %d; body=%s", status, body)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("partial write after commit mutated headers, content-type=%q", ct)
+	}
+	if bytes.Contains([]byte(body), []byte(`"code"`)) || bytes.Contains([]byte(body), []byte(`{"error"`)) {
+		t.Fatalf("partial write after commit appended a JSON error after SSE bytes: %s", body)
 	}
 	if executor.calls != 1 || stream.closeCount() != 1 {
 		t.Fatalf("expected one execution and one close, calls=%d closes=%d", executor.calls, stream.closeCount())

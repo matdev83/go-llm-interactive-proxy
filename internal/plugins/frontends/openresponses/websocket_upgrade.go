@@ -16,6 +16,7 @@ import (
 	proto "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/protocols/openresponses"
 	sdkauth "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
 	lipcont "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/continuation"
+	httpauth "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
 const (
@@ -100,9 +101,11 @@ func (c *WSCounters) Snapshot() WSCounterSnapshot {
 // WebSocketHandlerConfig configures the OpenResponses WebSocket upgrade/transport handler.
 type WebSocketHandlerConfig struct {
 	// Authorizer is evaluated before the upgrade and before any session state is
-	// allocated. When nil, transport-level authentication is assumed (the same
-	// seam as the POST handler).
-	Authorizer Authorizer
+	// allocated. When nil, the handler requires an authenticated transport context
+	// unless AllowUnauthenticated is explicitly set.
+	Authorizer            Authorizer
+	RequireAuthentication bool
+	AllowUnauthenticated  bool
 	// Config is the validated frontend configuration supplying the WebSocket policy.
 	Config Config
 	// Runner processes established sessions (Task 6.2). A nil runner keeps the
@@ -125,15 +128,16 @@ type WebSocketHandlerConfig struct {
 
 // WebSocketHandler serves the OpenResponses `GET <base_path>/responses` upgrade.
 type WebSocketHandler struct {
-	auth      Authorizer
-	config    Config
-	runner    WSSessionRunner
-	shutdown  context.Context
-	bounds    wsBounds
-	counters  *WSCounters
-	localCont WSLocalContinuationConfig
-	writeText func(func([]byte) error) func([]byte) error
-	upgrader  websocket.Upgrader
+	auth                  Authorizer
+	requireAuthentication bool
+	config                Config
+	runner                WSSessionRunner
+	shutdown              context.Context
+	bounds                wsBounds
+	counters              *WSCounters
+	localCont             WSLocalContinuationConfig
+	writeText             func(func([]byte) error) func([]byte) error
+	upgrader              websocket.Upgrader
 }
 
 // NewWebSocketHandler creates a bounded, strict WebSocket upgrade handler.
@@ -142,25 +146,37 @@ func NewWebSocketHandler(cfg WebSocketHandlerConfig) *WebSocketHandler {
 	if cfg.MaxMessageBytes > 0 {
 		bounds.maxMessageBytes = cfg.MaxMessageBytes
 	}
-	// The byte budget must always admit at least one full-size envelope, even
-	// when the programmatic message bound is raised above the configured budget.
-	if bounds.maxQueuedBytes < bounds.maxMessageBytes {
-		bounds.maxQueuedBytes = bounds.maxMessageBytes
+	// Keep the application limit representable by the bounded queue. The
+	// transport accepts an additional padding window so the decoder can emit a
+	// graceful 413, but no accepted frame may exceed the queue ceiling.
+	maxMessageBytes := wsMaxMessageBytes()
+	if bounds.maxMessageBytes > maxMessageBytes {
+		bounds.maxMessageBytes = maxMessageBytes
+	}
+	if bounds.maxQueuedBytes < wsMinimumQueuedBytes(bounds.maxMessageBytes) {
+		bounds.maxQueuedBytes = wsMinimumQueuedBytes(bounds.maxMessageBytes)
+	}
+	if bounds.maxQueuedBytes > MaxAllowedQueuedBytes {
+		bounds.maxQueuedBytes = MaxAllowedQueuedBytes
 	}
 	localCont := cfg.LocalContinuation
 	if localCont == nil {
 		derived := DefaultWSLocalContinuation(cfg.Config)
 		localCont = &derived
 	}
+	if !cfg.AllowUnauthenticated {
+		cfg.RequireAuthentication = true
+	}
 	return &WebSocketHandler{
-		auth:      cfg.Authorizer,
-		config:    cfg.Config,
-		runner:    cfg.Runner,
-		shutdown:  cfg.ShutdownCtx,
-		bounds:    bounds,
-		counters:  &WSCounters{},
-		localCont: *localCont,
-		writeText: cfg.WriteTextWrapper,
+		auth:                  cfg.Authorizer,
+		requireAuthentication: cfg.RequireAuthentication,
+		config:                cfg.Config,
+		runner:                cfg.Runner,
+		shutdown:              cfg.ShutdownCtx,
+		bounds:                bounds,
+		counters:              &WSCounters{},
+		localCont:             *localCont,
+		writeText:             cfg.WriteTextWrapper,
 		upgrader: websocket.Upgrader{
 			HandshakeTimeout: wsHandshakeTimeout,
 			Error: func(w http.ResponseWriter, _ *http.Request, status int, _ error) {
@@ -223,6 +239,12 @@ func (h *WebSocketHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		authDecision = dec
+	} else if h.requireAuthentication {
+		if _, ok := httpauth.PrincipalFromContext(ctx); !ok {
+			h.counters.authRejected.Add(1)
+			writeWireError(w, http.StatusUnauthorized, "authentication_error", "unauthorized", "Authentication required")
+			return
+		}
 	}
 
 	originAllowed, normalizedOrigin := h.config.WebSocket.originAllowed(strings.TrimSpace(r.Header.Get("Origin")))
@@ -269,9 +291,14 @@ func (h *WebSocketHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		defer stop()
 	}
 
+	// Teardown must run even when a downstream runner/executor panics. Let the
+	// enclosing HTTP server recover the panic after the socket and telemetry have
+	// been handled exactly once.
+	defer func() {
+		_ = session.Close()
+		h.counters.sessionsClosed.Add(1)
+	}()
 	_ = session.Run(runCtx, h.runner)
-	_ = session.Close()
-	h.counters.sessionsClosed.Add(1)
 }
 
 // validateUpgradeRequest checks the WebSocket handshake fields before any upgrade.
@@ -397,6 +424,20 @@ type wsBounds struct {
 	maxQueuedBytes  int64
 }
 
+func wsMaxMessageBytes() int64 {
+	if MaxAllowedQueuedBytes <= wsTransportReadLimitPadding {
+		return MaxAllowedQueuedBytes
+	}
+	return MaxAllowedQueuedBytes - wsTransportReadLimitPadding
+}
+
+func wsMinimumQueuedBytes(maxMessageBytes int64) int64 {
+	if maxMessageBytes > (1<<63-1)-wsTransportReadLimitPadding {
+		return maxMessageBytes
+	}
+	return maxMessageBytes + wsTransportReadLimitPadding
+}
+
 func wsBoundsFromConfig(c WebSocketConfig) wsBounds {
 	maxAge, err := time.ParseDuration(c.MaxConnectionAge)
 	if err != nil || maxAge <= 0 || maxAge > MaxAllowedWSConnectionAgeDur {
@@ -417,8 +458,8 @@ func wsBoundsFromConfig(c WebSocketConfig) wsBounds {
 	if queuedBytes > MaxAllowedQueuedBytes {
 		queuedBytes = MaxAllowedQueuedBytes
 	}
-	if queuedBytes < wsDefaultMaxMessageBytes {
-		queuedBytes = wsDefaultMaxMessageBytes
+	if queuedBytes < wsMinimumQueuedBytes(wsDefaultMaxMessageBytes) {
+		queuedBytes = wsMinimumQueuedBytes(wsDefaultMaxMessageBytes)
 	}
 	return wsBounds{
 		maxAge:          maxAge,
@@ -644,6 +685,15 @@ func (s *WSSession) Run(ctx context.Context, runner WSSessionRunner) error {
 		<-peerWatcherDone
 		<-shutdownWatcherDone
 	}()
+	// Run owns pump teardown, including panic paths from the turn runner. The
+	// HTTP handler's Close defer is a second idempotent safety net, not the owner
+	// of joining these goroutines.
+	defer func() {
+		budget.close()
+		_ = s.close()
+		close(stop)
+		wg.Wait()
+	}()
 
 	var result error
 loop:
@@ -742,12 +792,6 @@ loop:
 		}
 	}
 
-	budget.close()
-	// Ownership discipline: closing the socket unblocks the read pump, closing
-	// stop unblocks the pumps' select paths, and Wait joins both goroutines.
-	_ = s.close()
-	close(stop)
-	wg.Wait()
 	return result
 }
 
@@ -781,10 +825,11 @@ func pollReadTermination(doneCh <-chan sessionPumpResult, peerClosed <-chan stru
 			if r.fromRead && isReadTimeout(r.err) {
 				return r, true
 			}
-			if !found {
-				first = r
-				found = true
+			if found {
+				return first, true
 			}
+			first = r
+			found = true
 		case <-peerClosed:
 			// readPump signals peerClosed before publishing its result. Disable
 			// this case after observing it and continue waiting for the result.

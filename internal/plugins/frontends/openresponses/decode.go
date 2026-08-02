@@ -122,6 +122,12 @@ func AuthenticateAndDecodeCreate(ctx context.Context, body []byte, opts DecodeCr
 		return nil, fmt.Errorf("%w: %w", proto.ErrDecodeFailed, err)
 	}
 
+	// Create admission: official non-null controls the canonical call cannot
+	// represent must fail here rather than reach execution while ignored.
+	if err := rejectUnsupportedControls(wireParam, createUnsupportedControls); err != nil {
+		return nil, err
+	}
+
 	// 3. Resolve route selector / model conditional rules
 	modelStr := ""
 	if wireParam.Model != nil {
@@ -206,21 +212,35 @@ func splitStreamControl(body []byte) ([]byte, bool, error) {
 	if !ok || delim != '{' {
 		return nil, false, fmt.Errorf("%w: request must be an object", proto.ErrDecodeFailed)
 	}
-	fields := make(map[string]json.RawMessage)
+	type field struct {
+		key      string
+		raw      json.RawMessage
+		keyStart int
+		valueEnd int
+	}
+	fields := make([]field, 0, 8)
+	seen := make(map[string]struct{})
 	for dec.More() {
 		keyToken, err := dec.Token()
 		key, ok := keyToken.(string)
 		if err != nil || !ok {
 			return nil, false, fmt.Errorf("%w: invalid request field", proto.ErrDecodeFailed)
 		}
-		if _, exists := fields[key]; exists {
+		if _, exists := seen[key]; exists {
 			return nil, false, fmt.Errorf("%w: duplicate request field %q", proto.ErrDecodeFailed, key)
 		}
+		keyEnd := int(dec.InputOffset())
 		var raw json.RawMessage
 		if err := dec.Decode(&raw); err != nil {
 			return nil, false, fmt.Errorf("%w: invalid request field %q", proto.ErrDecodeFailed, key)
 		}
-		fields[key] = raw
+		valueEnd := int(dec.InputOffset())
+		keyStart := jsonStringStart(body, keyEnd)
+		if keyStart < 0 || valueEnd > len(body) {
+			return nil, false, fmt.Errorf("%w: invalid request field %q", proto.ErrDecodeFailed, key)
+		}
+		seen[key] = struct{}{}
+		fields = append(fields, field{key: key, raw: raw, keyStart: keyStart, valueEnd: valueEnd})
 	}
 	if _, err := dec.Token(); err != nil {
 		return nil, false, fmt.Errorf("%w: invalid request object", proto.ErrDecodeFailed)
@@ -228,20 +248,84 @@ func splitStreamControl(body []byte) ([]byte, bool, error) {
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return nil, false, fmt.Errorf("%w: trailing request data", proto.ErrDecodeFailed)
 	}
-	raw, ok := fields["stream"]
-	if !ok {
+	streamIndex := -1
+	var streamRaw json.RawMessage
+	for i, item := range fields {
+		if item.key == "stream" {
+			streamIndex = i
+			streamRaw = item.raw
+			break
+		}
+	}
+	if streamIndex < 0 {
 		return body, false, nil
 	}
 	var stream bool
-	if err := json.Unmarshal(raw, &stream); err != nil {
+	if err := json.Unmarshal(streamRaw, &stream); err != nil {
 		return nil, false, fmt.Errorf("%w: stream must be a boolean", proto.ErrDecodeFailed)
 	}
-	delete(fields, "stream")
-	withoutStream, err := json.Marshal(fields)
-	if err != nil {
+	start := fields[streamIndex].keyStart
+	end := fields[streamIndex].valueEnd
+	if streamIndex > 0 {
+		start = commaBefore(body, start)
+	} else if streamIndex+1 < len(fields) {
+		end = commaAfter(body, end)
+	}
+	if start < 1 || end <= start || end > len(body) {
 		return nil, false, fmt.Errorf("%w: stream control", proto.ErrDecodeFailed)
 	}
+	withoutStream := make([]byte, 0, len(body)-(end-start))
+	withoutStream = append(withoutStream, body[:start]...)
+	withoutStream = append(withoutStream, body[end:]...)
 	return withoutStream, stream, nil
+}
+
+func jsonStringStart(data []byte, end int) int {
+	if end > len(data) {
+		end = len(data)
+	}
+	i := end - 1
+	for i >= 0 && (data[i] == ' ' || data[i] == '\t' || data[i] == '\r' || data[i] == '\n') {
+		i--
+	}
+	if i < 0 || data[i] != '"' {
+		return -1
+	}
+	for i--; i >= 0; i-- {
+		if data[i] != '"' {
+			continue
+		}
+		backslashes := 0
+		for j := i - 1; j >= 0 && data[j] == '\\'; j-- {
+			backslashes++
+		}
+		if backslashes%2 == 0 {
+			return i
+		}
+	}
+	return -1
+}
+
+func commaBefore(data []byte, start int) int {
+	i := start - 1
+	for i >= 0 && (data[i] == ' ' || data[i] == '\t' || data[i] == '\r' || data[i] == '\n') {
+		i--
+	}
+	if i >= 0 && data[i] == ',' {
+		return i
+	}
+	return start
+}
+
+func commaAfter(data []byte, end int) int {
+	i := end
+	for i < len(data) && (data[i] == ' ' || data[i] == '\t' || data[i] == '\r' || data[i] == '\n') {
+		i++
+	}
+	if i < len(data) && data[i] == ',' {
+		return i + 1
+	}
+	return end
 }
 
 func decodeMetadata(raw json.RawMessage) (map[string]string, error) {
@@ -256,6 +340,60 @@ func decodeMetadata(raw json.RawMessage) (map[string]string, error) {
 		return nil, err
 	}
 	return metadata, nil
+}
+
+// unsupportedControl describes one official request control the canonical call
+// cannot represent. Admission-time rejection of a non-null value prevents it
+// from reaching execution while silently ignored. Null and omitted values stay
+// accepted per the pinned schema.
+type unsupportedControl struct {
+	name  string
+	isSet func(*proto.WireResponseParam) bool
+}
+
+// createUnsupportedControls are the create-operation controls that must fail
+// create admission when non-null. The compact operation permits a
+// schema-approved subset (instructions, prompt_cache_key) and is governed
+// separately by compactUnsupportedControls. Metadata is deliberately excluded:
+// it maps to Call.Session.Metadata end-to-end.
+var createUnsupportedControls = []unsupportedControl{
+	{"instructions", func(p *proto.WireResponseParam) bool { return p.Instructions != nil }},
+	{"text", func(p *proto.WireResponseParam) bool { return isPresentNonNullJSON(p.Text) }},
+	{"reasoning", func(p *proto.WireResponseParam) bool { return isPresentNonNullJSON(p.Reasoning) }},
+	{"truncation", func(p *proto.WireResponseParam) bool { return p.Truncation != nil }},
+	{"service_tier", func(p *proto.WireResponseParam) bool { return p.ServiceTier != nil }},
+	{"safety_identifier", func(p *proto.WireResponseParam) bool { return p.SafetyIdentifier != nil }},
+	{"prompt_cache_key", func(p *proto.WireResponseParam) bool { return p.PromptCacheKey != nil }},
+	{"prompt_cache_retention", func(p *proto.WireResponseParam) bool { return p.PromptCacheRetention != nil }},
+	{"max_tool_calls", func(p *proto.WireResponseParam) bool { return p.MaxToolCalls != nil }},
+}
+
+// compactUnsupportedControls are the request controls absent from the pinned
+// compact schema (compactResponseMethodPublicBodySchema) that the compact
+// operation cannot represent. instructions and prompt_cache_key are
+// deliberately absent here: the compact schema permits them and compaction
+// semantics treat them as intentionally optional, so they are accepted and
+// ignored rather than rejected.
+var compactUnsupportedControls = []unsupportedControl{
+	{"text", func(p *proto.WireResponseParam) bool { return isPresentNonNullJSON(p.Text) }},
+	{"reasoning", func(p *proto.WireResponseParam) bool { return isPresentNonNullJSON(p.Reasoning) }},
+	{"truncation", func(p *proto.WireResponseParam) bool { return p.Truncation != nil }},
+	{"service_tier", func(p *proto.WireResponseParam) bool { return p.ServiceTier != nil }},
+	{"safety_identifier", func(p *proto.WireResponseParam) bool { return p.SafetyIdentifier != nil }},
+	{"prompt_cache_retention", func(p *proto.WireResponseParam) bool { return p.PromptCacheRetention != nil }},
+	{"max_tool_calls", func(p *proto.WireResponseParam) bool { return p.MaxToolCalls != nil }},
+}
+
+// rejectUnsupportedControls fails admission when a request sets an official but
+// unsupported non-null control. The error wraps proto.ErrDecodeFailed so the
+// stable invalid_request classification matches existing decode failures.
+func rejectUnsupportedControls(wire *proto.WireResponseParam, controls []unsupportedControl) error {
+	for _, c := range controls {
+		if c.isSet(wire) {
+			return fmt.Errorf("%w: non-null request control %q is not supported", proto.ErrDecodeFailed, c.name)
+		}
+	}
+	return nil
 }
 
 func resolveRouteSelector(model, explicit string, prefixes []string, defaultRoute string) (string, error) {
@@ -334,6 +472,13 @@ func AuthenticateAndDecodeCompact(ctx context.Context, body []byte, opts DecodeC
 	wireParam, canonicalCall, err := proto.DecodeRequest(body, limits)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", proto.ErrDecodeFailed, err)
+	}
+
+	// Compact admission: reject non-null controls absent from the pinned compact
+	// schema. instructions and prompt_cache_key are schema-permitted optional
+	// hints and are intentionally accepted-and-ignored, not rejected.
+	if err := rejectUnsupportedControls(wireParam, compactUnsupportedControls); err != nil {
+		return nil, err
 	}
 
 	// 4. Validate model is required

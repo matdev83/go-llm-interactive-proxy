@@ -72,8 +72,8 @@ func TestHarness_SSERoundTrip(t *testing.T) {
 		t.Fatalf("SSE saw only %d events, want ordered created/delta/terminal", len(res.Events))
 	}
 	first := res.Events[0]
-	if first != "response.created" {
-		t.Fatalf("SSE first event = %q, want response.created", first)
+	if first != "response.output_item.added" {
+		t.Fatalf("SSE first event = %q, want response.output_item.added", first)
 	}
 	last := res.Events[len(res.Events)-1]
 	if last != "response.completed" {

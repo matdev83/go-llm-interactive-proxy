@@ -369,93 +369,96 @@ func runGeneralCell(t *testing.T, cell MatrixCell) {
 	// so ACP cells execute the failover chain too. The failing primary is excluded
 	// and the candidate's deterministic text surfaces.
 	dfail := generalCellDeployFailover(t, cell)
-	if dfail != nil {
-		defer dfail.Close()
-		fres, err := dfail.Client.RoundTrip(context.Background(), "ping")
-		if err != nil {
-			t.Fatalf("failover round trip %s × %s: %v", fe, be, err)
-		}
-		if !strings.Contains(fres.Text, parityText) {
-			t.Fatalf("failover text = %q, want candidate text %q", fres.Text, parityText)
-		}
-		if dfail.RequestCount(be) < 1 {
-			t.Fatalf("failover primary origin received no requests")
-		}
-		cand := dfail.CandidateOrigin(0)
-		if cand == nil {
-			t.Fatalf("failover deployment has no candidate origin")
-		}
-		if cand.Count() < 1 {
-			t.Fatalf("failover candidate origin received %d requests, want >= 1", cand.Count())
-		}
+	if dfail == nil {
+		t.Fatalf("deploy(%s × %s, failover) failed", fe, be)
+	}
+	defer dfail.Close()
+	fres, err := dfail.Client.RoundTrip(context.Background(), "ping")
+	if err != nil {
+		t.Fatalf("failover round trip %s × %s: %v", fe, be, err)
+	}
+	if !strings.Contains(fres.Text, parityText) {
+		t.Fatalf("failover text = %q, want candidate text %q", fres.Text, parityText)
+	}
+	if dfail.RequestCount(be) < 1 {
+		t.Fatalf("failover primary origin received no requests")
+	}
+	cand := dfail.CandidateOrigin(0)
+	if cand == nil {
+		t.Fatalf("failover deployment has no candidate origin")
+	}
+	if cand.Count() < 1 {
+		t.Fatalf("failover candidate origin received %d requests, want >= 1", cand.Count())
 	}
 
 	// no-retry-after-visible-output: an origin that emits the first content event
 	// then dies must not trigger retry or failover (candidate stays untouched).
 	dnr := generalCellDeployNoRetry(t, cell)
-	if dnr != nil {
-		defer dnr.Close()
-		if _, err := rawFrontendStreamPost(t, dnr, fe, 20*time.Second); err != nil {
-			// A post-output stream failure is expected; the assertion is the count.
-			t.Logf("no-retry stream terminated with error (expected): %v", err)
-		}
-		if got := dnr.RequestCount(be); got < 1 {
-			t.Fatalf("no-retry primary origin received %d requests, want >= 1", got)
-		}
-		cand := dnr.CandidateOrigin(0)
-		if cand == nil {
-			t.Fatalf("no-retry deployment has no candidate origin")
-		}
-		if cand.Count() != 0 {
-			t.Fatalf("no-retry candidate origin received %d requests, want 0 (no failover after visible output)", cand.Count())
-		}
+	if dnr == nil {
+		t.Fatalf("deploy(%s × %s, no-retry) failed", fe, be)
+	}
+	defer dnr.Close()
+	if _, err := rawFrontendStreamPost(t, dnr, fe, 20*time.Second); err != nil {
+		// A post-output stream failure is expected; the assertion is the count.
+		t.Logf("no-retry stream terminated with error (expected): %v", err)
+	}
+	if got := dnr.RequestCount(be); got < 1 {
+		t.Fatalf("no-retry primary origin received %d requests, want >= 1", got)
+	}
+	cand = dnr.CandidateOrigin(0)
+	if cand == nil {
+		t.Fatalf("no-retry deployment has no candidate origin")
+	}
+	if cand.Count() != 0 {
+		t.Fatalf("no-retry candidate origin received %d requests, want 0 (no failover after visible output)", cand.Count())
 	}
 
 	// cancellation/backpressure: a canceled client context stops upstream work
 	// with no second attempt on the candidate.
 	dc := generalCellDeployCancel(t, cell)
-	if dc != nil {
-		defer dc.Close()
-		cctx, ccancel := context.WithCancel(context.Background())
-		defer ccancel()
-		req, err := http.NewRequestWithContext(cctx, http.MethodPost, dc.Server.URL+generalStreamFrontendPath(fe), strings.NewReader(generalStreamBody(fe)))
+	if dc == nil {
+		t.Fatalf("deploy(%s × %s, cancellation) failed", fe, be)
+	}
+	defer dc.Close()
+	cctx, ccancel := context.WithCancel(context.Background())
+	defer ccancel()
+	req, err := http.NewRequestWithContext(cctx, http.MethodPost, dc.Server.URL+generalStreamFrontendPath(fe), strings.NewReader(generalStreamBody(fe)))
+	if err != nil {
+		t.Fatalf("cancellation request build %s × %s: %v", fe, be, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	done := make(chan error, 1)
+	go func() {
+		resp, err := dc.Server.Client().Do(req)
 		if err != nil {
-			t.Fatalf("cancellation request build %s × %s: %v", fe, be, err)
+			done <- err
+			return
 		}
-		req.Header.Set("Content-Type", "application/json")
-		done := make(chan error, 1)
-		go func() {
-			resp, err := dc.Server.Client().Do(req)
-			if err != nil {
-				done <- err
-				return
-			}
-			defer resp.Body.Close()
-			_, _ = io.Copy(io.Discard, resp.Body)
-			done <- nil
-		}()
-		// Wait until the upstream origin has received the request, then cancel, so
-		// the cancellation is observed mid-flight (never before the origin).
-		deadline := time.Now().Add(5 * time.Second)
-		for dc.RequestCount(be) < 1 && time.Now().Before(deadline) {
-			time.Sleep(10 * time.Millisecond)
-		}
-		ccancel()
-		select {
-		case <-done:
-		case <-time.After(15 * time.Second):
-			t.Fatalf("cancellation request did not terminate (%s × %s)", fe, be)
-		}
-		if dc.RequestCount(be) < 1 {
-			t.Fatalf("cancellation primary origin received no request (%s × %s)", fe, be)
-		}
-		cand := dc.CandidateOrigin(0)
-		if cand == nil {
-			t.Fatalf("cancellation deployment has no candidate origin")
-		}
-		if cand.Count() != 0 {
-			t.Fatalf("cancellation candidate origin received %d requests, want 0 (no retry after cancellation)", cand.Count())
-		}
+		defer resp.Body.Close()
+		_, _ = io.Copy(io.Discard, resp.Body)
+		done <- nil
+	}()
+	// Wait until the upstream origin has received the request, then cancel, so
+	// the cancellation is observed mid-flight (never before the origin).
+	deadline := time.Now().Add(5 * time.Second)
+	for dc.RequestCount(be) < 1 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	ccancel()
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("cancellation request did not terminate (%s × %s)", fe, be)
+	}
+	if dc.RequestCount(be) < 1 {
+		t.Fatalf("cancellation primary origin received no request (%s × %s)", fe, be)
+	}
+	cand = dc.CandidateOrigin(0)
+	if cand == nil {
+		t.Fatalf("cancellation deployment has no candidate origin")
+	}
+	if cand.Count() != 0 {
+		t.Fatalf("cancellation candidate origin received %d requests, want 0 (no retry after cancellation)", cand.Count())
 	}
 
 	// assistant-media: the cell's assistant media reference output surface.
@@ -469,52 +472,53 @@ func runGeneralCell(t *testing.T, cell MatrixCell) {
 	// assistant-media-ref call and asserts the origin observes zero upstream
 	// requests.
 	dmedia := generalCellDeployAssistantMedia(t, cell)
-	if dmedia != nil {
-		defer dmedia.Close()
-		if assistantMediaRejectBackend(be) {
-			amCall := &lipapi.Call{
-				ID: "am-" + fe + "-" + be,
-				Route: lipapi.RouteIntent{
-					Selector: dmedia.RouteSelector,
-				},
-				Items: []lipapi.Item{{
-					Kind:   lipapi.ItemKindMessage,
-					ID:     "am-1",
-					Status: lipapi.ItemStatusCompleted,
-					Role:   lipapi.RoleAssistant,
-					Content: []lipapi.ContentPart{{
-						Kind:         lipapi.ContentPartAssistantRef,
-						AssistantRef: "https://cdn.example.com/out.png",
-					}},
+	if dmedia == nil {
+		t.Fatalf("deploy(%s × %s, assistant-media) failed", fe, be)
+	}
+	defer dmedia.Close()
+	if assistantMediaRejectBackend(be) {
+		amCall := &lipapi.Call{
+			ID: "am-" + fe + "-" + be,
+			Route: lipapi.RouteIntent{
+				Selector: dmedia.RouteSelector,
+			},
+			Items: []lipapi.Item{{
+				Kind:   lipapi.ItemKindMessage,
+				ID:     "am-1",
+				Status: lipapi.ItemStatusCompleted,
+				Role:   lipapi.RoleAssistant,
+				Content: []lipapi.ContentPart{{
+					Kind:         lipapi.ContentPartAssistantRef,
+					AssistantRef: "https://cdn.example.com/out.png",
 				}},
-			}
-			before := dmedia.RequestCount(be)
-			_, err := dmedia.Exec.Execute(context.Background(), amCall)
-			if err == nil {
-				t.Fatalf("assistant-media request unexpectedly round-tripped (%s × %s)", fe, be)
-			}
-			if strings.Contains(err.Error(), "assistant media refs not supported") == false {
-				t.Fatalf("assistant-media rejection reason = %v, want capability reject (%s × %s)", err, fe, be)
-			}
-			if dmedia.RequestCount(be) != before {
-				t.Fatalf("assistant-media rejection caused %d upstream requests, want 0 (%s × %s)", dmedia.RequestCount(be)-before, fe, be)
-			}
-			return
+			}},
 		}
 		before := dmedia.RequestCount(be)
-		status, body, err := generalRawFrontendPostBody(dmedia, generalFrontendPath(fe), generalPlainCreateBody(fe))
-		if err != nil {
-			t.Fatalf("assistant-media post %s × %s: %v", fe, be, err)
+		_, err := dmedia.Exec.Execute(context.Background(), amCall)
+		if err == nil {
+			t.Fatalf("assistant-media request unexpectedly round-tripped (%s × %s)", fe, be)
 		}
-		if status != http.StatusOK {
-			t.Fatalf("assistant-media status = %d, want 200 (%s × %s)", status, fe, be)
+		if strings.Contains(err.Error(), "assistant media refs not supported") == false {
+			t.Fatalf("assistant-media rejection reason = %v, want capability reject (%s × %s)", err, fe, be)
 		}
-		if !strings.Contains(body, generalAssistantMediaWireMarker) {
-			t.Fatalf("assistant-media client wire did not carry the media reference %q (%s × %s): %s", generalAssistantMediaWireMarker, fe, be, body)
+		if dmedia.RequestCount(be) != before {
+			t.Fatalf("assistant-media rejection caused %d upstream requests, want 0 (%s × %s)", dmedia.RequestCount(be)-before, fe, be)
 		}
-		if dmedia.RequestCount(be) != before+1 {
-			t.Fatalf("assistant-media request count delta = %d, want 1 (%s × %s)", dmedia.RequestCount(be)-before, fe, be)
-		}
+		return
+	}
+	before = dmedia.RequestCount(be)
+	status, body, err := generalRawFrontendPostBody(dmedia, generalFrontendPath(fe), generalPlainCreateBody(fe))
+	if err != nil {
+		t.Fatalf("assistant-media post %s × %s: %v", fe, be, err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("assistant-media status = %d, want 200 (%s × %s)", status, fe, be)
+	}
+	if !strings.Contains(body, generalAssistantMediaWireMarker) {
+		t.Fatalf("assistant-media client wire did not carry the media reference %q (%s × %s): %s", generalAssistantMediaWireMarker, fe, be, body)
+	}
+	if dmedia.RequestCount(be) != before+1 {
+		t.Fatalf("assistant-media request count delta = %d, want 1 (%s × %s)", dmedia.RequestCount(be)-before, fe, be)
 	}
 }
 

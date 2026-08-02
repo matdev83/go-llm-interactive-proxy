@@ -134,9 +134,10 @@ func newWSContinuationServer(t *testing.T, exec *wsTurnExecutor, ids interface {
 		MaterializeBounds: lc.MaterializeBounds,
 	})
 	hcfg := openresponses.WebSocketHandlerConfig{
-		Config:            wsTestConfig(nil),
-		Runner:            runner,
-		LocalContinuation: &lc,
+		AllowUnauthenticated: true,
+		Config:               wsTestConfig(nil),
+		Runner:               runner,
+		LocalContinuation:    &lc,
 	}
 	handler := openresponses.NewWebSocketHandler(hcfg)
 	srv := httptest.NewServer(handler)

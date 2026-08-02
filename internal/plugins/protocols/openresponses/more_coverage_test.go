@@ -131,7 +131,7 @@ func TestEncode_ToolChoiceModes(t *testing.T) {
 		{tc: lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto}, wantStr: `"auto"`},
 		{tc: lipapi.ToolChoice{Mode: lipapi.ToolChoiceNone}, wantStr: `"none"`},
 		{tc: lipapi.ToolChoice{Mode: lipapi.ToolChoiceAny}, wantStr: `"required"`},
-		{tc: lipapi.ToolChoice{Mode: lipapi.ToolChoiceRequired, Name: "my_fn"}, wantStr: `{"function":{"name":"my_fn"},"type":"function"}`},
+		{tc: lipapi.ToolChoice{Mode: lipapi.ToolChoiceRequired, Name: "my_fn"}, wantStr: `{"type":"function","name":"my_fn"}`},
 		{tc: lipapi.ToolChoice{Mode: lipapi.ToolChoiceRequired}, wantStr: `"required"`},
 	}
 
@@ -299,8 +299,8 @@ func TestStateMachine_EventErrorAndIncomplete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EventError failed: %v", err)
 	}
-	if len(evs) != 1 || evs[0].Type != "response.failed" {
-		t.Fatalf("expected response.failed event, got %v", evs)
+	if len(evs) == 0 || evs[len(evs)-1].Type != "response.failed" {
+		t.Fatalf("expected response.failed as the terminal event, got %v", evs)
 	}
 	if sm.Status() != "failed" || sm.State() != StateTerminal {
 		t.Fatalf("expected failed terminal state, got status=%s state=%s", sm.Status(), sm.State())
@@ -316,8 +316,8 @@ func TestStateMachine_EventErrorAndIncomplete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EventResponseFinished length failed: %v", err)
 	}
-	if len(evs) != 1 || evs[0].Type != "response.incomplete" {
-		t.Fatalf("expected response.incomplete event, got %v", evs)
+	if len(evs) == 0 || evs[len(evs)-1].Type != "response.incomplete" {
+		t.Fatalf("expected response.incomplete as the terminal event, got %v", evs)
 	}
 	if sm2.Status() != "incomplete" {
 		t.Fatalf("expected status incomplete, got %s", sm2.Status())

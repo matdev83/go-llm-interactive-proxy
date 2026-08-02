@@ -198,7 +198,7 @@ func openResponsesFrontendRowCellFor(backend string) OpenResponsesFrontendRowCel
 		cell.Features[FeatureMultimodal] = rowProjection(backend, FeatureMultimodal, "Image input projects to the target's portable image representation.")
 	}
 
-	cell.Features[FeatureAssistantMedia] = rowOutOfScope("The target cell has no assistant media reference output surface in the row configuration.")
+	cell.Features[FeatureAssistantMedia] = rowOutOfScope("The OpenResponses frontend has no EventAssistantImageRef/EventAssistantFileRef output mapping on its client wire, so assistant media reference output has no surface in the row configuration.")
 
 	cell.Features[FeatureUsageErrors] = text(FeatureUsageErrors,
 		"Usage is surfaced on the response resource when reported and upstream errors map to stable client-visible error envelopes.")

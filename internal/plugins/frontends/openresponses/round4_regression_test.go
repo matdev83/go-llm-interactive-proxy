@@ -40,7 +40,8 @@ func (a *round4CapturingAuth) tokenValue() string {
 func TestRound4WebSocketBearerSubprotocolAndHeaderAuth(t *testing.T) {
 	cfg := wsTestConfig(nil)
 	auth := &round4CapturingAuth{}
-	handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{Config: cfg, Authorizer: auth})
+	handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
+		AllowUnauthenticated: true, Config: cfg, Authorizer: auth})
 	srv := newWSTestServerFor(t, handler)
 
 	token := "browser-secret"
@@ -56,7 +57,8 @@ func TestRound4WebSocketBearerSubprotocolAndHeaderAuth(t *testing.T) {
 	}
 
 	authHeader := &round4CapturingAuth{}
-	handler = openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{Config: cfg, Authorizer: authHeader})
+	handler = openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
+		AllowUnauthenticated: true, Config: cfg, Authorizer: authHeader})
 	srv2 := newWSTestServerFor(t, handler)
 	conn = wsDial(t, srv2, http.Header{"Authorization": []string{"Bearer header-secret"}})
 	_ = conn.Close()
@@ -73,8 +75,9 @@ func TestRound4HTTPEventErrorReleasesContinuationReservation(t *testing.T) {
 			{Kind: lipapi.EventError, ErrorCode: "provider_failed", ErrorMessage: "secret provider detail"},
 		})
 		handler := openresponses.NewHandler(openresponses.HandlerConfig{
-			Executor:          &round4FixedExecutor{stream: stream},
-			ContinuationStore: store,
+			AllowUnauthenticated: true,
+			Executor:             &round4FixedExecutor{stream: stream},
+			ContinuationStore:    store,
 		})
 		body := `{"model":"m","input":"hi","store":true}`
 		req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", bytes.NewBufferString(body))

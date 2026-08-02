@@ -61,6 +61,92 @@ func (m *lifecycleMockExecutor) Execute(ctx context.Context, call *lipapi.Call) 
 	return nil, errors.New("lifecycleMockExecutor not implemented")
 }
 
+type lifecyclePartialDisconnectStream struct {
+	events []lipapi.Event
+	index  int
+	block  chan struct{}
+	closed atomic.Bool
+}
+
+func (s *lifecyclePartialDisconnectStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if s.index < len(s.events) {
+		ev := s.events[s.index]
+		s.index++
+		return ev, nil
+	}
+	select {
+	case <-ctx.Done():
+		return lipapi.Event{}, ctx.Err()
+	case <-s.block:
+		return lipapi.Event{}, io.EOF
+	}
+}
+
+func (s *lifecyclePartialDisconnectStream) Close() error {
+	s.closed.Store(true)
+	return nil
+}
+
+type lifecycleDeleteCountingStore struct {
+	*corecont.MemoryStore
+	deletes atomic.Int32
+}
+
+func (s *lifecycleDeleteCountingStore) Delete(ctx context.Context, scope lipcont.Scope, id lipcont.ResponseID) error {
+	s.deletes.Add(1)
+	return s.MemoryStore.Delete(ctx, scope, id)
+}
+
+type lifecycleFailingOwnerObserver struct {
+	store         *lifecycleDeleteCountingStore
+	record        lipcont.ContinuationRecord
+	ready         chan struct{}
+	once          sync.Once
+	seen          atomic.Int32
+	finalizeCalls atomic.Int32
+	releaseCalls  atomic.Int32
+	ownsCalls     atomic.Int32
+	cleanupUsed   atomic.Bool
+}
+
+func (o *lifecycleFailingOwnerObserver) Observe(context.Context, lipapi.Event) {
+	if o.seen.Add(1) == 2 {
+		o.once.Do(func() { close(o.ready) })
+	}
+}
+func (o *lifecycleFailingOwnerObserver) Close() error { return nil }
+func (o *lifecycleFailingOwnerObserver) OwnsContinuationReservation() bool {
+	o.ownsCalls.Add(1)
+	return true
+}
+func (o *lifecycleFailingOwnerObserver) ContinuationReservationCleanupConsumed() bool {
+	return o.cleanupUsed.Load()
+}
+func (o *lifecycleFailingOwnerObserver) ReleaseContinuationReservation() {
+	o.releaseCalls.Add(1)
+	o.cleanupUsed.Store(true)
+	_ = o.store.Delete(context.Background(), o.record.Scope, o.record.ID)
+}
+func (o *lifecycleFailingOwnerObserver) FinalizeIncomplete(ctx context.Context) error {
+	o.finalizeCalls.Add(1)
+	if err := o.store.Delete(ctx, o.record.Scope, o.record.ID); err != nil {
+		return err
+	}
+	o.cleanupUsed.Store(true)
+	return errors.New("incomplete persistence failed")
+}
+
+type lifecycleFailingOwnerFactory struct {
+	store    *lifecycleDeleteCountingStore
+	observer *lifecycleFailingOwnerObserver
+	ready    chan struct{}
+}
+
+func (f *lifecycleFailingOwnerFactory) NewRecorder(_ lipcont.Store, record lipcont.ContinuationRecord) lipcont.StreamObserver {
+	f.observer = &lifecycleFailingOwnerObserver{store: f.store, record: record, ready: f.ready}
+	return f.observer
+}
+
 type failResponseWriter struct {
 	http.ResponseWriter
 	header    http.Header
@@ -83,6 +169,59 @@ func (f *failResponseWriter) Write(b []byte) (int, error) {
 }
 func (f *failResponseWriter) Flush() {}
 
+func TestStreamingLifecycle_CustomOwnerFailureCleansExactlyOnce(t *testing.T) {
+	store := &lifecycleDeleteCountingStore{MemoryStore: corecont.NewMemoryStore()}
+	factory := &lifecycleFailingOwnerFactory{store: store, ready: make(chan struct{})}
+	stream := &lifecyclePartialDisconnectStream{
+		events: []lipapi.Event{
+			{Kind: lipapi.EventResponseStarted},
+			{Kind: lipapi.EventTextDelta, Delta: "partial"},
+		},
+		block: make(chan struct{}),
+	}
+	handler := openresponses.NewHandler(openresponses.HandlerConfig{
+		AllowUnauthenticated: true,
+		Executor:             &lifecycleMockExecutor{executeFn: func(context.Context, *lipapi.Call) (lipapi.EventStream, error) { return stream, nil }},
+		ContinuationStore:    store,
+		RecorderFactory:      factory,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"m","input":"hi","stream":true,"store":true}`)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-LIP-Session-ID", "sess_custom_owner")
+	rec := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(rec, req)
+		close(done)
+	}()
+	// Wait until both committed events reach the recorder before canceling
+	// the blocked receive. The finalizer performs the one cleanup and reports
+	// its persistence failure; the frontend must not delete a second time.
+	select {
+	case <-factory.ready:
+	case <-time.After(2 * time.Second):
+		t.Fatal("custom recorder did not observe committed events")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ServeHTTP timed out on custom-owner cancellation")
+	}
+	if factory.observer == nil {
+		t.Fatal("custom recorder factory was not invoked")
+	}
+	if got := store.deletes.Load(); got != 1 {
+		t.Fatalf("reservation deletes=%d, want exactly 1 (owns=%d finalize=%d release=%d)", got, factory.observer.ownsCalls.Load(), factory.observer.finalizeCalls.Load(), factory.observer.releaseCalls.Load())
+	}
+	if !stream.closed.Load() {
+		t.Fatal("partial stream was not closed")
+	}
+}
+
 func TestStreamingLifecycle_CancellationAndWriterFailureCleanup(t *testing.T) {
 	t.Parallel()
 
@@ -97,8 +236,9 @@ func TestStreamingLifecycle_CancellationAndWriterFailureCleanup(t *testing.T) {
 		}
 
 		handler := openresponses.NewHandler(openresponses.HandlerConfig{
-			Executor:          &lifecycleMockExecutor{executeFn: func(ctx context.Context, call *lipapi.Call) (lipapi.EventStream, error) { return st, nil }},
-			ContinuationStore: store,
+			AllowUnauthenticated: true,
+			Executor:             &lifecycleMockExecutor{executeFn: func(ctx context.Context, call *lipapi.Call) (lipapi.EventStream, error) { return st, nil }},
+			ContinuationStore:    store,
 		})
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -137,8 +277,9 @@ func TestStreamingLifecycle_CancellationAndWriterFailureCleanup(t *testing.T) {
 		}
 
 		handler := openresponses.NewHandler(openresponses.HandlerConfig{
-			Executor:          &lifecycleMockExecutor{executeFn: func(ctx context.Context, call *lipapi.Call) (lipapi.EventStream, error) { return st, nil }},
-			ContinuationStore: store,
+			AllowUnauthenticated: true,
+			Executor:             &lifecycleMockExecutor{executeFn: func(ctx context.Context, call *lipapi.Call) (lipapi.EventStream, error) { return st, nil }},
+			ContinuationStore:    store,
 		})
 
 		req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"m","input":"hi","stream":true,"store":true}`))
@@ -225,8 +366,9 @@ func TestContinuationStressAndGoroutineTolerance(t *testing.T) {
 	}
 
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Executor:          &lifecycleMockExecutor{executeFn: func(ctx context.Context, call *lipapi.Call) (lipapi.EventStream, error) { return st, nil }},
-		ContinuationStore: store,
+		AllowUnauthenticated: true,
+		Executor:             &lifecycleMockExecutor{executeFn: func(ctx context.Context, call *lipapi.Call) (lipapi.EventStream, error) { return st, nil }},
+		ContinuationStore:    store,
 	})
 
 	const iterations = 50

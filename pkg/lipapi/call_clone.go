@@ -12,6 +12,9 @@ func CloneCall(c Call) Call {
 	out.Items = cloneItems(c.Items)
 	out.Tools = cloneTools(c.Tools)
 	out.Options = CloneGenerationOptions(c.Options)
+	if len(c.ToolChoice.AllowedTools) > 0 {
+		out.ToolChoice.AllowedTools = append([]string(nil), c.ToolChoice.AllowedTools...)
+	}
 	if len(c.Extensions) > 0 {
 		out.Extensions = make(map[string]json.RawMessage, len(c.Extensions))
 		for k, v := range c.Extensions {
@@ -87,6 +90,15 @@ func cloneReasoningPart(in *ReasoningPart) *ReasoningPart {
 		out.Opaque = append(json.RawMessage{}, in.Opaque...)
 	} else {
 		out.Opaque = nil
+	}
+	if in.Summary != nil {
+		out.Summary = append(json.RawMessage{}, in.Summary...)
+	}
+	if in.Content != nil {
+		out.Content = append(json.RawMessage{}, in.Content...)
+	}
+	if in.EncryptedContent != nil {
+		out.EncryptedContent = append(json.RawMessage{}, in.EncryptedContent...)
 	}
 	return &out
 }

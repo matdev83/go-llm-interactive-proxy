@@ -292,18 +292,25 @@ func TestFrontendRow_OpenResponsesToACPSubset(t *testing.T) {
 // scenarios (phase, reasoning replay, compaction, extensions, item references)
 // for every row cell and asserts zero remote requests. The OpenResponses cell
 // is the documented exception for compaction (the generic backend declares the
-// compaction capability, so compaction input round-trips).
+// compaction capability, so compaction input round-trips): its executable
+// scenario uses the positive "compaction" suffix while the other row cells keep
+// "compaction-reject".
 func TestFrontendRow_OpenResponsesToNoNetwork(t *testing.T) {
 	t.Parallel()
-	neg := map[string]string{
-		"phase-reject":      `{"model":"gpt-4o-mini","store":false,"input":[{"type":"message","role":"assistant","phase":"in_progress","content":[{"type":"output_text","text":"x"}]}]}`,
-		"replay-reject":     `{"model":"gpt-4o-mini","store":false,"input":[{"type":"reasoning","reasoning":"think"}]}`,
-		"compaction-reject": `{"model":"gpt-4o-mini","store":false,"input":[{"type":"compaction","prior_response_id":"resp_1"}]}`,
-		"extension-reject":  `{"model":"gpt-4o-mini","store":false,"input":[{"type":"acme:telemetry","namespace":"acme","data":{"x":1}}]}`,
-		"itemref-reject":    `{"model":"gpt-4o-mini","store":false,"input":[{"type":"item_reference","id":"item_1"}]}`,
-	}
+	compactionBody := `{"model":"gpt-4o-mini","store":false,"input":[{"type":"compaction","prior_response_id":"resp_1"}]}`
 	for _, backend := range OpenResponsesFrontendRowBackendIDs() {
 		backend := backend
+		neg := map[string]string{
+			"phase-reject":     `{"model":"gpt-4o-mini","store":false,"input":[{"type":"message","role":"assistant","phase":"in_progress","content":[{"type":"output_text","text":"x"}]}]}`,
+			"replay-reject":    `{"model":"gpt-4o-mini","store":false,"input":[{"type":"reasoning","reasoning":"think"}]}`,
+			"extension-reject": `{"model":"gpt-4o-mini","store":false,"input":[{"type":"acme:telemetry","namespace":"acme","data":{"x":1}}]}`,
+			"itemref-reject":   `{"model":"gpt-4o-mini","store":false,"input":[{"type":"item_reference","id":"item_1"}]}`,
+		}
+		if backend == BackendOpenResponses {
+			neg["compaction"] = compactionBody
+		} else {
+			neg["compaction-reject"] = compactionBody
+		}
 		for suffix, body := range neg {
 			suffix, body := suffix, body
 			t.Run(backend+"__"+suffix, func(t *testing.T) {
@@ -314,7 +321,7 @@ func TestFrontendRow_OpenResponsesToNoNetwork(t *testing.T) {
 				}
 				defer d.Close()
 				status, _ := rowRawCreate(t, d, body)
-				if backend == BackendOpenResponses && suffix == "compaction-reject" {
+				if suffix == "compaction" {
 					if status != http.StatusOK {
 						t.Fatalf("openresponses compaction status = %d, want 200 (compaction capability declared)", status)
 					}

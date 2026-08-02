@@ -65,6 +65,10 @@ const (
 	MaxExtensionDataBytes              = 4 * 1024 * 1024
 	MaxContentPartsPerItem             = 2_048
 	MaxJSONDepth                       = 64
+
+	// MaxAllowedToolRefs bounds the OpenResponses allowed_tools subset size to
+	// the pinned wire schema max (128 refs).
+	MaxAllowedToolRefs = 128
 )
 
 func validateJSONDepth(data []byte, maxDepth int) error {

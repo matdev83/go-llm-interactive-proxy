@@ -502,10 +502,11 @@ func mountHarnessFrontend(mux *http.ServeMux, frontendID string, exec *runtime.E
 			return fmt.Errorf("openresponses config: %w", err)
 		}
 		opts := lipsdk.FrontendMountOptions{
-			PluginCfg:         cfg,
-			Exec:              exec,
-			DefaultRoute:      routeSelector,
-			GenerationContext: genCtx,
+			PluginCfg:            cfg,
+			Exec:                 exec,
+			DefaultRoute:         routeSelector,
+			GenerationContext:    genCtx,
+			AllowUnauthenticated: true, // isolated conformance deployment has no outer auth middleware
 		}
 		return frontopenresponses.Mount(mux, opts)
 	default:

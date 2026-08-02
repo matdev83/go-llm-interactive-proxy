@@ -32,9 +32,10 @@ func mountORFrontend(t *testing.T, ex *runtime.Executor) (baseURL, origin string
 	}
 	mux := http.NewServeMux()
 	if err := front.Mount(mux, lipsdk.FrontendMountOptions{
-		PluginCfg:    cfg,
-		Exec:         ex,
-		DefaultRoute: "stub:gpt-4o-mini",
+		AllowUnauthenticated: true,
+		PluginCfg:            cfg,
+		Exec:                 ex,
+		DefaultRoute:         "stub:gpt-4o-mini",
 	}); err != nil {
 		t.Fatalf("mount openresponses frontend: %v", err)
 	}

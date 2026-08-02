@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -194,14 +196,17 @@ func TestRequestCodec_ToolAndControlParameters(t *testing.T) {
 	}
 }
 
+const allowedToolsDeclaredTools = `"tools": [
+		{"type": "function", "name": "fn1", "description": "desc", "parameters": {"type": "object"}},
+		{"type": "function", "name": "fn2", "parameters": {"type": "object"}}
+	]`
+
 func TestRequestCodec_AllowedTools(t *testing.T) {
 	t.Parallel()
 	data := []byte(`{
 		"model": "gpt-4o",
 		"input": "test",
-		"tools": [
-			{"type": "function", "name": "fn1", "description": "desc", "parameters": {"type": "object"}}
-		],
+		` + allowedToolsDeclaredTools + `,
 		"tool_choice": {
 			"type": "allowed_tools",
 			"tools": [{"type": "function", "name": "fn1"}]
@@ -215,6 +220,137 @@ func TestRequestCodec_AllowedTools(t *testing.T) {
 
 	if call.ToolChoice.Mode != lipapi.ToolChoiceAuto {
 		t.Fatalf("expected ToolChoiceAuto mode, got %v", call.ToolChoice.Mode)
+	}
+	if !slices.Equal(call.ToolChoice.AllowedTools, []string{"fn1"}) {
+		t.Fatalf("expected allowed subset [fn1], got %v", call.ToolChoice.AllowedTools)
+	}
+	if call.ToolChoice.Name != "" {
+		t.Fatalf("expected empty ToolChoice.Name, got %q", call.ToolChoice.Name)
+	}
+}
+
+func TestRequestCodec_AllowedToolsEncodeRoundTrip(t *testing.T) {
+	t.Parallel()
+	data := []byte(`{
+		"model": "gpt-4o",
+		"input": "test",
+		` + allowedToolsDeclaredTools + `,
+		"tool_choice": {
+			"type": "allowed_tools",
+			"tools": [{"type": "function", "name": "fn2"}, {"type": "function", "name": "fn1"}],
+			"mode": "required"
+		}
+	}`)
+
+	_, call, err := DecodeRequest(data)
+	if err != nil {
+		t.Fatalf("DecodeRequest failed: %v", err)
+	}
+	if call.ToolChoice.Mode != lipapi.ToolChoiceAny {
+		t.Fatalf("expected ToolChoiceAny for mode required, got %v", call.ToolChoice.Mode)
+	}
+	if !slices.Equal(call.ToolChoice.AllowedTools, []string{"fn2", "fn1"}) {
+		t.Fatalf("expected allowed subset [fn2 fn1], got %v", call.ToolChoice.AllowedTools)
+	}
+
+	reEncoded, err := EncodeRequest(call)
+	if err != nil {
+		t.Fatalf("EncodeRequest failed: %v", err)
+	}
+	_, reDecodedCall, err := DecodeRequest(reEncoded)
+	if err != nil {
+		t.Fatalf("DecodeRequest failed on re-encoded request: %v", err)
+	}
+	if reDecodedCall.ToolChoice.Mode != lipapi.ToolChoiceAny {
+		t.Fatalf("re-decoded mode mismatch: got %v", reDecodedCall.ToolChoice.Mode)
+	}
+	if !slices.Equal(reDecodedCall.ToolChoice.AllowedTools, []string{"fn2", "fn1"}) {
+		t.Fatalf("re-decoded allowed subset mismatch: got %v", reDecodedCall.ToolChoice.AllowedTools)
+	}
+}
+
+func TestRequestCodec_AllowedToolsModeVariants(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		json string
+		want lipapi.ToolChoiceMode
+	}{
+		{name: "mode absent defaults to auto", json: `{"type":"allowed_tools","tools":[{"type":"function","name":"fn1"}]}`, want: lipapi.ToolChoiceAuto},
+		{name: "mode auto", json: `{"type":"allowed_tools","tools":[{"type":"function","name":"fn1"}],"mode":"auto"}`, want: lipapi.ToolChoiceAuto},
+		{name: "mode required", json: `{"type":"allowed_tools","tools":[{"type":"function","name":"fn1"}],"mode":"required"}`, want: lipapi.ToolChoiceAny},
+		{name: "mode none", json: `{"type":"allowed_tools","tools":[{"type":"function","name":"fn1"}],"mode":"none"}`, want: lipapi.ToolChoiceNone},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			body := []byte(`{"model": "gpt-4o", "input": "test", ` + allowedToolsDeclaredTools + `, "tool_choice": ` + tc.json + `}`)
+			_, call, err := DecodeRequest(body)
+			if err != nil {
+				t.Fatalf("DecodeRequest failed: %v", err)
+			}
+			if call.ToolChoice.Mode != tc.want {
+				t.Fatalf("mode mismatch: got %v, want %v", call.ToolChoice.Mode, tc.want)
+			}
+			if !slices.Equal(call.ToolChoice.AllowedTools, []string{"fn1"}) {
+				t.Fatalf("subset mismatch: got %v", call.ToolChoice.AllowedTools)
+			}
+		})
+	}
+}
+
+func TestRequestCodec_AllowedToolsRejectsMalformed(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		json string
+	}{
+		{name: "missing tools array", json: `{"type":"allowed_tools"}`},
+		{name: "empty tools array", json: `{"type":"allowed_tools","tools":[]}`},
+		{name: "tools not array", json: `{"type":"allowed_tools","tools":"fn1"}`},
+		{name: "tool reference wrong type", json: `{"type":"allowed_tools","tools":[{"type":"hosted","name":"fn1"}]}`},
+		{name: "tool reference missing type", json: `{"type":"allowed_tools","tools":[{"name":"fn1"}]}`},
+		{name: "tool reference missing name", json: `{"type":"allowed_tools","tools":[{"type":"function"}]}`},
+		{name: "tool reference empty name", json: `{"type":"allowed_tools","tools":[{"type":"function","name":""}]}`},
+		{name: "tool reference unknown mode", json: `{"type":"allowed_tools","tools":[{"type":"function","name":"fn1"}],"mode":"bogus"}`},
+		{name: "allowed tool not declared", json: `{"type":"allowed_tools","tools":[{"type":"function","name":"fn_missing"}]}`},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			body := []byte(`{"model": "gpt-4o", "input": "test", ` + allowedToolsDeclaredTools + `, "tool_choice": ` + tc.json + `}`)
+			if _, _, err := DecodeRequest(body); err == nil {
+				t.Fatalf("expected error for allowed_tools %s", tc.json)
+			}
+		})
+	}
+}
+
+func TestRequestCodec_AllowedToolsRefCountBound(t *testing.T) {
+	t.Parallel()
+
+	allowedTools := func(n int) []byte {
+		var b strings.Builder
+		b.WriteString(`{"type":"allowed_tools","tools":[`)
+		for i := 0; i < n; i++ {
+			if i > 0 {
+				b.WriteString(",")
+			}
+			b.WriteString(`{"type":"function","name":"fn`)
+			b.WriteString(strconv.Itoa(i))
+			b.WriteString(`"}`)
+		}
+		b.WriteString(`]}`)
+		return []byte(b.String())
+	}
+
+	if _, err := decodeToolChoice(allowedTools(lipapi.MaxAllowedToolRefs)); err != nil {
+		t.Fatalf("exactly %d allowed tool refs must be accepted: %v", lipapi.MaxAllowedToolRefs, err)
+	}
+	if _, err := decodeToolChoice(allowedTools(lipapi.MaxAllowedToolRefs + 1)); err == nil {
+		t.Fatalf("expected allowed_tools with more than %d refs to be rejected", lipapi.MaxAllowedToolRefs)
 	}
 }
 
@@ -439,5 +575,17 @@ func TestRequestCodec_DeterministicEncode(t *testing.T) {
 
 	if !bytes.Equal(b1, b2) {
 		t.Fatalf("EncodeRequest is not deterministic: %s != %s", string(b1), string(b2))
+	}
+}
+
+func TestWireResponseParam_OmitsNilOptionalPointers(t *testing.T) {
+	data, err := json.Marshal(WireResponseParam{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"model", "instructions", "parallel_tool_calls", "temperature", "top_p", "max_output_tokens", "max_tool_calls", "truncation", "store", "background", "previous_response_id", "service_tier", "safety_identifier", "prompt_cache_key", "prompt_cache_retention"} {
+		if bytes.Contains(data, []byte(`"`+field+`":null`)) {
+			t.Fatalf("nil optional field %q serialized as null: %s", field, data)
+		}
 	}
 }

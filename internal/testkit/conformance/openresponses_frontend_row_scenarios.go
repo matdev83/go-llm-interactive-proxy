@@ -42,6 +42,18 @@ func OpenResponsesFrontendRowFeatureSuffixes() map[FeatureID]string {
 	}
 }
 
+// rowFeatureSuffix returns the scenario-ID suffix for one row feature of one
+// cell. The OpenResponses backend cell declares the compaction capability, so
+// its compaction scenario uses the positive "compaction" suffix; every other
+// row cell rejects compaction before network and keeps the "compaction-reject"
+// suffix so scenario-ID naming agrees with the evidence outcome.
+func rowFeatureSuffix(backend string, feat FeatureID) string {
+	if feat == FeatureCompaction && backend == BackendOpenResponses {
+		return "compaction"
+	}
+	return OpenResponsesFrontendRowFeatureSuffixes()[feat]
+}
+
 // OpenResponsesFrontendRowScenario is one executable proof for one feature of
 // one row cell. ScenarioID is derived deterministically from the cell backend
 // and the feature's suffix.
@@ -57,11 +69,11 @@ type OpenResponsesFrontendRowScenario struct {
 func OpenResponsesFrontendRowScenarios() []OpenResponsesFrontendRowScenario {
 	var out []OpenResponsesFrontendRowScenario
 	for _, backend := range OpenResponsesFrontendRowBackendIDs() {
-		for feat, suffix := range OpenResponsesFrontendRowFeatureSuffixes() {
+		for feat := range OpenResponsesFrontendRowFeatureSuffixes() {
 			out = append(out, OpenResponsesFrontendRowScenario{
 				Backend:    backend,
 				Feature:    feat,
-				ScenarioID: rowScenarioID(backend, suffix),
+				ScenarioID: rowScenarioID(backend, rowFeatureSuffix(backend, feat)),
 			})
 		}
 	}
@@ -72,9 +84,9 @@ func OpenResponsesFrontendRowScenarios() []OpenResponsesFrontendRowScenario {
 // feature (normally exactly one); features without an executable proof return
 // nil so out_of_scope evidence never claims a scenario.
 func rowScenarioIDsByFeature(backend string, feat FeatureID) []string {
-	suffix, ok := OpenResponsesFrontendRowFeatureSuffixes()[feat]
+	_, ok := OpenResponsesFrontendRowFeatureSuffixes()[feat]
 	if !ok {
 		return nil
 	}
-	return []string{rowScenarioID(backend, suffix)}
+	return []string{rowScenarioID(backend, rowFeatureSuffix(backend, feat))}
 }

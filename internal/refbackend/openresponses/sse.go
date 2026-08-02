@@ -85,10 +85,10 @@ func buildStreamEvents(res *Resource) []StreamEvent {
 				}
 				for j := range it.Reasoning.Content {
 					part := it.Reasoning.Content[j]
-					add("response.reasoning_text.delta", map[string]any{
+					add("response.reasoning.delta", map[string]any{
 						"item_id": it.ID, "output_index": i, "content_index": j, "delta": part.Text,
 					})
-					add("response.reasoning_text.done", map[string]any{
+					add("response.reasoning.done", map[string]any{
 						"item_id": it.ID, "output_index": i, "content_index": j, "text": part.Text,
 					})
 				}

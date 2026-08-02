@@ -15,6 +15,8 @@ import (
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	httpauth "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 	"gopkg.in/yaml.v3"
 )
 
@@ -40,6 +42,7 @@ func TestFrontendIsolation_CoexistenceAndIdentity(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.path, func(t *testing.T) {
 			r := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
+			r = r.WithContext(httpauth.WithPrincipal(r.Context(), execview.PrincipalView{ID: "isolation-test"}))
 			r.Header.Set("Content-Type", "application/json")
 			r.Header.Set("User-Agent", "isolation-test")
 			// The OpenResponses frontend defaults store:true, so a continuation scope
@@ -80,6 +83,7 @@ func TestFrontendIsolation_PathOwnsProtocolOverBodyHeadersAndUserAgent(t *testin
 		t.Fatal(err)
 	}
 	r := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", strings.NewReader(`{"model":"stub:x","messages":[{"role":"user","content":"wrong"}]}`))
+	r = r.WithContext(httpauth.WithPrincipal(r.Context(), execview.PrincipalView{ID: "isolation-test"}))
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("X-LIP-Route", "switch")
 	r.Header.Set("User-Agent", "switcher")

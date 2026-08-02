@@ -526,6 +526,12 @@
 .kiro/specs/archive/openai-responses-reasoning-preservation/research.md
 .kiro/specs/archive/openai-responses-reasoning-preservation/spec.json
 .kiro/specs/archive/openai-responses-reasoning-preservation/tasks.md
+.kiro/specs/archive/openresponses-api-support/design.md
+.kiro/specs/archive/openresponses-api-support/gap-analysis.md
+.kiro/specs/archive/openresponses-api-support/requirements.md
+.kiro/specs/archive/openresponses-api-support/research.md
+.kiro/specs/archive/openresponses-api-support/spec.json
+.kiro/specs/archive/openresponses-api-support/tasks.md
 .kiro/specs/archive/port-interleaved-thinking/design.md
 .kiro/specs/archive/port-interleaved-thinking/requirements.md
 .kiro/specs/archive/port-interleaved-thinking/research.md
@@ -595,12 +601,6 @@
 .kiro/specs/openai-codex-native-compaction/research.md
 .kiro/specs/openai-codex-native-compaction/spec.json
 .kiro/specs/openai-codex-native-compaction/tasks.md
-.kiro/specs/openresponses-api-support/design.md
-.kiro/specs/openresponses-api-support/gap-analysis.md
-.kiro/specs/openresponses-api-support/requirements.md
-.kiro/specs/openresponses-api-support/research.md
-.kiro/specs/openresponses-api-support/spec.json
-.kiro/specs/openresponses-api-support/tasks.md
 .kiro/steering/api-standards.md
 .kiro/steering/product.md
 .kiro/steering/routing-and-orchestration.md

@@ -185,8 +185,9 @@ func newWSTurnServer(t *testing.T, exec *wsTurnExecutor, ids deterministicRespon
 		ResponseClock:    ids,
 	})
 	hcfg := openresponses.WebSocketHandlerConfig{
-		Config: wsTestConfig(nil),
-		Runner: runner,
+		AllowUnauthenticated: true,
+		Config:               wsTestConfig(nil),
+		Runner:               runner,
 	}
 	if mutate != nil {
 		mutate(&hcfg)
@@ -212,8 +213,8 @@ func TestWebSocketTurn_ValidCreateEmitsProtocolStreamEvents(t *testing.T) {
 	_ = conn.Close()
 
 	want := []string{
-		"response.created",
 		"response.output_item.added",
+		"response.created",
 		"response.content_part.added",
 		"response.output_text.delta",
 		"response.output_text.done",
@@ -288,9 +289,10 @@ func TestWebSocketTurn_EventParityWithHTTPSSE(t *testing.T) {
 
 	// HTTP/SSE side: the same canonical events through the same state machine.
 	sseHandler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Executor:         &streamingExecutor{stream: fixedStream(scripted...)},
-		ResponseIDSource: ids,
-		ResponseClock:    ids,
+		AllowUnauthenticated: true,
+		Executor:             &streamingExecutor{stream: fixedStream(scripted...)},
+		ResponseIDSource:     ids,
+		ResponseClock:        ids,
 	})
 	req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses",
 		strings.NewReader(`{"model":"gpt-4o","input":"hello","stream":true,"store":false}`))
@@ -678,8 +680,8 @@ func TestWebSocketTurn_PostOutputFailureEmitsFailedTerminalOnce(t *testing.T) {
 	_ = conn.Close()
 
 	got := frameTypes(frames)
-	if len(got) == 0 || got[0] != "response.created" {
-		t.Fatalf("first frame=%q, want response.created (committed output): %v", got[0], got)
+	if len(got) == 0 || got[0] != "response.output_item.added" {
+		t.Fatalf("first frame=%q, want response.output_item.added (committed output): %v", got[0], got)
 	}
 	if got[len(got)-1] != "response.failed" {
 		t.Fatalf("terminal frame=%q, want response.failed: %v", got[len(got)-1], got)

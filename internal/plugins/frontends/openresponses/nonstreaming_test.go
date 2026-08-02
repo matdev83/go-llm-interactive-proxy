@@ -74,9 +74,10 @@ func TestNonStreamingResponseResourceSuccess(t *testing.T) {
 	}}
 	executor := &nonStreamingExecutor{stream: stream}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Executor:         executor,
-		ResponseIDSource: deterministicResponseMetadata{id: "resp_proxy_1", now: created},
-		ResponseClock:    deterministicResponseMetadata{id: "resp_proxy_1", now: created},
+		AllowUnauthenticated: true,
+		Executor:             executor,
+		ResponseIDSource:     deterministicResponseMetadata{id: "resp_proxy_1", now: created},
+		ResponseClock:        deterministicResponseMetadata{id: "resp_proxy_1", now: created},
 	})
 
 	rec := executeNonStreaming(t, handler, `{"model":"gpt-4o","input":"hello","stream":false}`)
@@ -117,9 +118,10 @@ func TestNonStreamingResponseResourceToolAndReasoningOrder(t *testing.T) {
 		{Kind: lipapi.EventResponseFinished},
 	}}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Executor:         &nonStreamingExecutor{stream: stream},
-		ResponseIDSource: deterministicResponseMetadata{id: "resp_tools", now: time.Unix(1_700_000_001, 0)},
-		ResponseClock:    deterministicResponseMetadata{id: "resp_tools", now: time.Unix(1_700_000_001, 0)},
+		AllowUnauthenticated: true,
+		Executor:             &nonStreamingExecutor{stream: stream},
+		ResponseIDSource:     deterministicResponseMetadata{id: "resp_tools", now: time.Unix(1_700_000_001, 0)},
+		ResponseClock:        deterministicResponseMetadata{id: "resp_tools", now: time.Unix(1_700_000_001, 0)},
 	})
 
 	rec := executeNonStreaming(t, handler, `{"model":"gpt-4o","input":"find","stream":false}`)
@@ -149,9 +151,10 @@ func TestNonStreamingPreservesNativeCallIDAndDoesNotEchoArbitraryMetadata(t *tes
 		{Kind: lipapi.EventResponseFinished},
 	}}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		Executor:         &nonStreamingExecutor{stream: stream},
-		ResponseIDSource: deterministicResponseMetadata{id: "resp_native", now: time.Unix(1_700_000_004, 0)},
-		ResponseClock:    deterministicResponseMetadata{id: "resp_native", now: time.Unix(1_700_000_004, 0)},
+		AllowUnauthenticated: true,
+		Executor:             &nonStreamingExecutor{stream: stream},
+		ResponseIDSource:     deterministicResponseMetadata{id: "resp_native", now: time.Unix(1_700_000_004, 0)},
+		ResponseClock:        deterministicResponseMetadata{id: "resp_native", now: time.Unix(1_700_000_004, 0)},
 	})
 
 	rec := executeNonStreaming(t, handler, `{"model":"gpt-4o","input":"find","metadata":{"tenant":"private"},"stream":false}`)
@@ -180,9 +183,10 @@ func TestNonStreamingResponseResourceFailedAndIncomplete(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			stream := &scriptedEventStream{events: []lipapi.Event{{Kind: lipapi.EventResponseStarted}, tc.event}}
 			handler := openresponses.NewHandler(openresponses.HandlerConfig{
-				Executor:         &nonStreamingExecutor{stream: stream},
-				ResponseIDSource: deterministicResponseMetadata{id: "resp_" + tc.name, now: time.Unix(1_700_000_002, 0)},
-				ResponseClock:    deterministicResponseMetadata{id: "resp_" + tc.name, now: time.Unix(1_700_000_002, 0)},
+				AllowUnauthenticated: true,
+				Executor:             &nonStreamingExecutor{stream: stream},
+				ResponseIDSource:     deterministicResponseMetadata{id: "resp_" + tc.name, now: time.Unix(1_700_000_002, 0)},
+				ResponseClock:        deterministicResponseMetadata{id: "resp_" + tc.name, now: time.Unix(1_700_000_002, 0)},
 			})
 			rec := executeNonStreaming(t, handler, `{"model":"gpt-4o","input":"hello","stream":false}`)
 			if tc.name == "failed" {
@@ -229,9 +233,10 @@ func TestNonStreamingMalformedStreamAndCancellationAreSanitized(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			stream, ctx := tc.make()
 			handler := openresponses.NewHandler(openresponses.HandlerConfig{
-				Executor:         &nonStreamingExecutor{stream: stream},
-				ResponseIDSource: deterministicResponseMetadata{id: "resp_bad", now: time.Unix(1_700_000_003, 0)},
-				ResponseClock:    deterministicResponseMetadata{id: "resp_bad", now: time.Unix(1_700_000_003, 0)},
+				AllowUnauthenticated: true,
+				Executor:             &nonStreamingExecutor{stream: stream},
+				ResponseIDSource:     deterministicResponseMetadata{id: "resp_bad", now: time.Unix(1_700_000_003, 0)},
+				ResponseClock:        deterministicResponseMetadata{id: "resp_bad", now: time.Unix(1_700_000_003, 0)},
 			})
 			req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", bytes.NewBufferString(`{"model":"gpt-4o","input":"hello","stream":false}`)).WithContext(ctx)
 			req.Header.Set("Content-Type", "application/json")

@@ -45,9 +45,10 @@ func MountFrontend(mux *http.ServeMux, frontendID string, exec *runtime.Executor
 			return fmt.Errorf("openresponses config: %w", err)
 		}
 		return frontopenresponses.Mount(mux, lipsdk.FrontendMountOptions{
-			PluginCfg:    cfg,
-			Exec:         exec,
-			DefaultRoute: routeSelector,
+			PluginCfg:            cfg,
+			Exec:                 exec,
+			DefaultRoute:         routeSelector,
+			AllowUnauthenticated: true, // isolated conformance mount has no outer auth middleware
 		})
 	default:
 		return fmt.Errorf("unknown frontend id %q", frontendID)
