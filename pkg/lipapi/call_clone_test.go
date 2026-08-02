@@ -13,6 +13,7 @@ func TestCloneCall_deepCopiesSlicesAndOptionPointers(t *testing.T) {
 	temp := 0.5
 	parallel := true
 	orig := lipapi.Call{
+		Session: lipapi.SessionRef{Metadata: map[string]string{"tenant": "private"}},
 		Messages: []lipapi.Message{{
 			Role:  lipapi.RoleUser,
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
@@ -30,6 +31,7 @@ func TestCloneCall_deepCopiesSlicesAndOptionPointers(t *testing.T) {
 	*cl.Options.Temperature = 0.1
 	*cl.Options.ParallelToolCalls = false
 	cl.Tools[0].Name = "y"
+	cl.Session.Metadata["tenant"] = "mutated"
 
 	if orig.Messages[0].Parts[0].Text != "hi" {
 		t.Fatalf("messages mutated")
@@ -42,6 +44,9 @@ func TestCloneCall_deepCopiesSlicesAndOptionPointers(t *testing.T) {
 	}
 	if orig.Tools[0].Name != "x" {
 		t.Fatalf("tools slice shared")
+	}
+	if orig.Session.Metadata["tenant"] != "private" {
+		t.Fatalf("session metadata map shared")
 	}
 	if orig.Options.Verbosity != lipapi.VerbosityHigh {
 		t.Fatalf("verbosity should be copied")

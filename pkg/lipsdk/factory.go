@@ -62,6 +62,14 @@ type FrontendMountOptions struct {
 	// by auth wire frontend id (see stdhttp/auth DefaultFrontendIDFromRequest); [runtimebundle.BuildOptions.AuthErrorRenderersByFrontend]
 	// overrides registry entries per key. This field remains for custom mounts outside pluginreg.
 	AuthErrorRenderer AuthErrorRenderer
+	// GenerationContext is the runtime-owned lifecycle context of the generation this
+	// frontend is mounted into. It cancels when the generation begins shutdown (quiesce
+	// during a reload, or full server shutdown) and stays alive for the generation's
+	// entire service life. Frontends that own long-lived transport state (WebSocket
+	// sessions) must observe it and close their owned resources exactly once so retired
+	// generations drain without leaks and new sessions never bind to a closing generation.
+	// A nil value means the mount is not generation-bound (tests, custom minimal mounts).
+	GenerationContext context.Context
 }
 
 type FrontendKeepaliveConfig struct {

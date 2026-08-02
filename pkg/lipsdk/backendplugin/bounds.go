@@ -7,8 +7,13 @@ const (
 	// ProtocolMinorExactReasoningParts adds dialect-tagged opaque reasoning parts
 	// to invocation parts and canonical stream events.
 	ProtocolMinorExactReasoningParts = uint32(1)
+	// ProtocolMinorOrderedItems adds ordered item invocation fields, operation metadata,
+	// and explicit protocol requirement DTOs.
+	ProtocolMinorOrderedItems = uint32(2)
 	// FeatureExactReasoningParts gates use of the additive v1.1 wire fields.
 	FeatureExactReasoningParts = "exact_reasoning_parts"
+	// FeatureOrderedItems gates ordered item invocation DTO fields.
+	FeatureOrderedItems = "ordered_items"
 
 	// DefaultMaxMessageBytes is the default whole-message size ceiling.
 	DefaultMaxMessageBytes = uint64(4 << 20)

@@ -32,6 +32,7 @@ type InventoryExtras struct {
 	Reg                          FeatureRegistry
 	Registrations                []lipsdk.Registration
 	CompatibleBackends           CompatibleBackendProjector
+	OpenResponsesFrontends       OpenResponsesFrontendProjector
 	SecretGuardCatalogEntryCount int
 	SecretGuardSourceCategories  []string
 	SecretGuardAccessMode        string

@@ -180,9 +180,12 @@ func TestGRPCServer_NegotiateConfigureExecuteClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	text := "hi"
 	inv := &backendpluginv1.Invocation{
 		RequestId: "r", AttemptId: "a", ALegId: "a", BLegId: "b", CanonicalModelId: "m",
-		Messages: []*backendpluginv1.Message{{Role: backendpluginv1.Role_ROLE_USER}},
+		Messages: []*backendpluginv1.Message{{Role: backendpluginv1.Role_ROLE_USER, Parts: []*backendpluginv1.Part{
+			{Kind: backendpluginv1.PartKind_PART_KIND_TEXT, Text: &text},
+		}}},
 	}
 	if err := stream.Send(&backendpluginv1.ExecuteClientFrame{
 		Kind: backendpluginv1.ClientFrameKind_CLIENT_FRAME_KIND_START, InstanceId: "i1", Invocation: inv,
@@ -293,9 +296,12 @@ func TestGRPCServer_CloseWaitsForExecuteLease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	text := "hi"
 	inv := &backendpluginv1.Invocation{
 		RequestId: "r", AttemptId: "a", ALegId: "a", BLegId: "b", CanonicalModelId: "m",
-		Messages: []*backendpluginv1.Message{{Role: backendpluginv1.Role_ROLE_USER}},
+		Messages: []*backendpluginv1.Message{{Role: backendpluginv1.Role_ROLE_USER, Parts: []*backendpluginv1.Part{
+			{Kind: backendpluginv1.PartKind_PART_KIND_TEXT, Text: &text},
+		}}},
 	}
 	if err := stream.Send(&backendpluginv1.ExecuteClientFrame{
 		Kind: backendpluginv1.ClientFrameKind_CLIENT_FRAME_KIND_START, InstanceId: "lease", Invocation: inv,

@@ -24,7 +24,7 @@ func openStream(
 	call lipapi.Call,
 	cand routing.AttemptCandidate,
 ) (lipapi.ManagedEventStream, error) {
-	inv, err := InvocationFromCall(call, cand)
+	inv, err := InvocationFromCall(call, cand, opt.Negotiation)
 	if err != nil {
 		return nil, err
 	}
@@ -37,6 +37,12 @@ func openStream(
 		Kind:       backendplugin.ClientFrameStart,
 		InstanceID: opt.InstanceID,
 		Invocation: &inv,
+	}
+	if err := start.ValidateShape(); err != nil {
+		return nil, &ClassifiedError{Code: "invalid_invocation", Message: err.Error(), Retryable: false}
+	}
+	if err := backendplugin.ValidateClientFrameBounds(start); err != nil {
+		return nil, &ClassifiedError{Code: "oversized_frame", Message: err.Error(), Retryable: false}
 	}
 	select {
 	case hostFrames <- start:

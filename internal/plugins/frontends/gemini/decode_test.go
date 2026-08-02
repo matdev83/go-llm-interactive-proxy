@@ -97,6 +97,28 @@ func TestDecodeGenerateContent_streamFlag(t *testing.T) {
 	if !d.Stream {
 		t.Fatal("expected stream true")
 	}
+	if d.Call.Invocation.DeliveryMode != lipapi.DeliveryModeStreaming {
+		t.Fatalf("delivery mode = %q, want %q", d.Call.Invocation.DeliveryMode, lipapi.DeliveryModeStreaming)
+	}
+}
+
+func TestDecodeGenerateContent_nonStreamFlag(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	d, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{
+		RouteSelector: "stub:x",
+		Model:         "gemini-2.0-flash",
+		Stream:        false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Stream {
+		t.Fatal("expected stream false")
+	}
+	if d.Call.Invocation.DeliveryMode != lipapi.DeliveryModeNonStreaming {
+		t.Fatalf("delivery mode = %q, want %q", d.Call.Invocation.DeliveryMode, lipapi.DeliveryModeNonStreaming)
+	}
 }
 
 func TestDecodeGenerateContent_invalidJSON(t *testing.T) {

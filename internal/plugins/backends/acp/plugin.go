@@ -88,11 +88,11 @@ func New(cfg Config) execbackend.Backend {
 			callPtr := &call
 			hp := mergeHandshakeProfile(cfg, callPtr)
 			if err := runHandshake(ctx, c, hp); err != nil {
-				return nil, err
+				return nil, classifyPreOutputError(err)
 			}
 			sid, err := resolveSessionID(ctx, c, callPtr, hp)
 			if err != nil {
-				return nil, err
+				return nil, classifyPreOutputError(err)
 			}
 			blocks, err := promptBlocksForCall(callPtr)
 			if err != nil {
@@ -103,7 +103,7 @@ func New(cfg Config) execbackend.Backend {
 			rpcID := c.rpcID()
 			body, err := c.sessionPrompt(ctx, params, rpcID)
 			if err != nil {
-				return nil, err
+				return nil, classifyPreOutputError(err)
 			}
 			return newPromptNDJSONStream(ctx, body, c, sid, rpcID, msgID, mapper, cfg.ServerRequest, cancelProf, call.MaxPendingWireEvents), nil
 		},

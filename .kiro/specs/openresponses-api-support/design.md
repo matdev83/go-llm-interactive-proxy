@@ -311,8 +311,26 @@ Conceptual configuration:
       max_connection_age: 60m
       idle_timeout: 5m
       max_queued_turns: 1
+      max_queued_bytes: 8388608
       allowed_origins: []
+      development_mode: false
+      allow_any_origin: false
 ```
+
+`websocket.max_queued_bytes` (default 8 MiB, one full-size turn envelope) is the
+per-session queued-byte bound. The read pump reserves each queued envelope's byte
+size against this bound and the session pump releases it on consume, so the total
+turn payload buffered in one session queue never exceeds the bound regardless of
+`max_queued_turns`. The validator couples it to the message/queue limits: it must
+admit at least one full-size envelope (else the read pump could never place the
+message it already holds) and must not exceed the 256 MiB ceiling. The default
+keeps the safe single-turn behavior unchanged.
+
+Origin relaxation is development-only: `websocket.allow_any_origin` relaxes the
+strict Origin allowlist only when `websocket.development_mode` is also true, and
+the validator rejects `allow_any_origin` without `development_mode`. The runtime
+policy never relaxes unless both flags are set, so a config can never be
+accidentally origin-open; the default is strict.
 
 ## Production OpenResponses Wire Package
 
@@ -555,7 +573,7 @@ Required features include JSON text, streaming text, instructions/roles, history
 |---|---|---|
 | OpenAI Chat Completions | portable messages/tools/common multimodal and streaming through explicit item→legacy projection | reject phase, compaction, incompatible replay/extensions/item refs/video/structured forms before request |
 | OpenAI Responses | broad portable item/tool/reasoning intersection | reject incompatible dialects/extensions/phase or compaction semantics not honestly supported |
-| ACP | positive prompt-text/resource subset | reject tools, multimodal, phase, replay, compaction, extensions, full-agent features with zero requests |
+| ACP | positive prompt-text/resource subset (image/file URI references project to ACP resource prompt blocks) | reject tools, video/audio/structured multimodal, phase, replay, compaction, extensions, full-agent features with zero requests |
 | Anthropic Messages | portable text/system/tools/results/image/document/streaming | reject incompatible phase, compaction, item refs, replay, video/extensions |
 | Gemini/Vertex | contents/system/tools/function responses/multimodal/streaming | reject incompatible phase, compaction, replay/item refs/extensions |
 | Amazon Bedrock | Converse messages/system/tools/results/image/document/streaming | reject incompatible phase, compaction, replay/item refs/extensions/video |

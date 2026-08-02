@@ -29,6 +29,26 @@ func TestStageChecklist14_backendIntegrationTestsPresent(t *testing.T) {
 	t.Parallel()
 	root := refclienttest.ModuleRoot(t)
 	for _, be := range BundledBackendIDs() {
+		switch be {
+		case "openrouter", "nvidia":
+			// Optional provider-connector columns keep their evidence in the
+			// independent connector modules (service + parity suites), not under
+			// internal/plugins/backends (which stays essential-only).
+			rel := filepath.Join("connectors", be, "parity_suite_test.go")
+			p := filepath.Join(root, rel)
+			if _, err := os.Stat(p); err != nil {
+				t.Fatalf("task 14.2 connector evidence missing: %s (%v)", rel, err)
+			}
+			if be == "openrouter" {
+				// OpenRouter additionally keeps a service-level suite.
+				rel := filepath.Join("connectors", be, "service_test.go")
+				p := filepath.Join(root, rel)
+				if _, err := os.Stat(p); err != nil {
+					t.Fatalf("task 14.2 connector evidence missing: %s (%v)", rel, err)
+				}
+			}
+			continue
+		}
 		rel := filepath.Join("internal", "plugins", "backends", backendDir(be), "integration_test.go")
 		p := filepath.Join(root, rel)
 		if _, err := os.Stat(p); err != nil {
@@ -78,6 +98,8 @@ func backendDir(id string) string {
 		return "bedrock"
 	case "acp":
 		return "acp"
+	case "openresponses":
+		return "openresponsescompat"
 	default:
 		return id
 	}

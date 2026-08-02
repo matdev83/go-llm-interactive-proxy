@@ -210,7 +210,7 @@ func TestUnadvertisedOptionalNil(t *testing.T) {
 
 func TestInvocationFromCall_Validates(t *testing.T) {
 	t.Parallel()
-	inv, err := adapter.InvocationFromCall(testCall(), testCand())
+	inv, err := adapter.InvocationFromCall(testCall(), testCand(), backendplugin.Negotiation{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,6 +220,167 @@ func TestInvocationFromCall_Validates(t *testing.T) {
 	if len(inv.Messages) != 1 || inv.Messages[0].Parts[0].Text == nil {
 		t.Fatalf("%+v", inv)
 	}
+}
+
+func TestOrderedItemAuthorityCapabilityNoNetwork_rejectsOldMinorBeforeExecute(t *testing.T) {
+	t.Parallel()
+
+	call := lipapi.Call{
+		ID:         "req-ordered",
+		Session:    lipapi.SessionRef{ALegID: "aleg-1"},
+		Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenResponsesCreate},
+		Items: []lipapi.Item{{
+			Kind:    lipapi.ItemKindMessage,
+			ID:      "msg-1",
+			Status:  lipapi.ItemStatusCompleted,
+			Role:    lipapi.RoleUser,
+			Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "hi"}},
+		}},
+	}
+	fake := &testkit.FakeService{Mode: testkit.ModeValid}
+	inst, err := fake.Configure(context.Background(), backendplugin.ConfigureRequest{
+		InstanceID: "ord-old", FactoryKind: "fake",
+		Negotiation: backendplugin.Negotiation{
+			Compatible: true, NegotiatedMinor: backendplugin.ProtocolMinorOrderedItems,
+			EnabledFeatures: []string{backendplugin.FeatureOrderedItems},
+		},
+		RuntimePolicy: backendplugin.RuntimePolicy{DisableTransportRetries: true, MaxPendingEvents: 8},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := inst.Resolve(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	br := adapter.Build(inst, profile, adapter.Options{
+		InstanceID: "ord-old",
+		Negotiation: backendplugin.Negotiation{
+			Compatible: true, NegotiatedMinor: 0,
+		},
+	})
+	_, err = br.Backend.Open(context.Background(), call, testCand())
+	if err == nil {
+		t.Fatal("expected ABI rejection before Execute")
+	}
+	if fake.ExecuteCount.Load() != 0 {
+		t.Fatalf("ExecuteCount=%d want 0", fake.ExecuteCount.Load())
+	}
+	_ = br.Cleanup()
+}
+
+func TestOrderedItemAuthorityCapabilityNoNetwork_executesViaAdapterSession(t *testing.T) {
+	t.Parallel()
+
+	call := lipapi.Call{
+		ID:         "req-ordered",
+		Session:    lipapi.SessionRef{ALegID: "aleg-1"},
+		Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenResponsesCreate},
+		Items: []lipapi.Item{
+			{Kind: lipapi.ItemKindItemReference, ID: "ref-1", Status: lipapi.ItemStatusCompleted, Reference: &lipapi.ItemReference{ID: "prev"}},
+			{Kind: lipapi.ItemKindReasoning, ID: "rs-1", Status: lipapi.ItemStatusCompleted, Reasoning: &lipapi.ReasoningItem{Reasoning: &lipapi.ReasoningPart{
+				Dialect: lipapi.ReasoningDialectOpenAIChatTextV1, Text: "chain",
+			}}},
+			{Kind: lipapi.ItemKindMessage, ID: "msg-1", Status: lipapi.ItemStatusCompleted, Role: lipapi.RoleUser,
+				Content: []lipapi.ContentPart{
+					{Kind: lipapi.ContentPartJSON, Text: `{"k":1}`},
+					{Kind: lipapi.ContentPartToolResult, Text: "72F"},
+				}},
+		},
+	}
+	fake := &testkit.FakeService{Mode: testkit.ModeValid}
+	neg := backendplugin.Negotiation{
+		Compatible: true, NegotiatedMinor: backendplugin.ProtocolMinorOrderedItems,
+		EnabledFeatures: []string{backendplugin.FeatureOrderedItems},
+	}
+	inst, err := fake.Configure(context.Background(), backendplugin.ConfigureRequest{
+		InstanceID: "ord-new", FactoryKind: "fake",
+		Negotiation:   neg,
+		RuntimePolicy: backendplugin.RuntimePolicy{DisableTransportRetries: true, MaxPendingEvents: 8},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := inst.Resolve(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	br := adapter.Build(inst, profile, adapter.Options{InstanceID: "ord-new", Negotiation: neg})
+	stream, err := br.Backend.Open(context.Background(), call, testCand())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = stream.Close() })
+	var sawText bool
+	for {
+		ev, err := stream.Recv(context.Background())
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ev.Kind == lipapi.EventTextDelta {
+			sawText = true
+		}
+	}
+	if fake.ExecuteCount.Load() != 1 {
+		t.Fatalf("ExecuteCount=%d", fake.ExecuteCount.Load())
+	}
+	if !sawText {
+		t.Fatal("expected text delta from fake Execute path")
+	}
+	if fake.LastStartInvocation == nil || !fake.LastStartInvocation.ItemAuthority {
+		t.Fatal("expected ordered item invocation at Execute")
+	}
+	if fake.LastStartCall == nil || len(fake.LastStartCall.Items) != 3 {
+		t.Fatalf("reconstructed call=%#v", fake.LastStartCall)
+	}
+	_ = br.Cleanup()
+}
+
+func TestOrderedItemAuthorityCapabilityNoNetwork_rejectsMinor2WithoutFeature(t *testing.T) {
+	t.Parallel()
+
+	call := lipapi.Call{
+		ID:         "req-ordered",
+		Session:    lipapi.SessionRef{ALegID: "aleg-1"},
+		Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenResponsesCreate},
+		Items: []lipapi.Item{{
+			Kind: lipapi.ItemKindMessage, ID: "msg-1", Status: lipapi.ItemStatusCompleted, Role: lipapi.RoleUser,
+			Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "hi"}},
+		}},
+	}
+	fake := &testkit.FakeService{Mode: testkit.ModeValid}
+	inst, err := fake.Configure(context.Background(), backendplugin.ConfigureRequest{
+		InstanceID: "ord-m2", FactoryKind: "fake",
+		Negotiation: backendplugin.Negotiation{
+			Compatible: true, NegotiatedMinor: backendplugin.ProtocolMinorOrderedItems,
+			EnabledFeatures: nil,
+		},
+		RuntimePolicy: backendplugin.RuntimePolicy{DisableTransportRetries: true, MaxPendingEvents: 8},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := inst.Resolve(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	br := adapter.Build(inst, profile, adapter.Options{
+		InstanceID: "ord-m2",
+		Negotiation: backendplugin.Negotiation{
+			Compatible: true, NegotiatedMinor: backendplugin.ProtocolMinorOrderedItems,
+		},
+	})
+	_, err = br.Backend.Open(context.Background(), call, testCand())
+	if err == nil {
+		t.Fatal("expected ABI rejection before Execute")
+	}
+	if fake.ExecuteCount.Load() != 0 {
+		t.Fatalf("ExecuteCount=%d want 0", fake.ExecuteCount.Load())
+	}
+	_ = br.Cleanup()
 }
 
 type minimalSession struct{}

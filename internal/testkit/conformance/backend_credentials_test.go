@@ -133,6 +133,10 @@ func TestConformance_CredentialPool_TextOnly_upstreamErrorShape(t *testing.T) {
 				if !strings.Contains(lower, "400") && !strings.Contains(lower, "invalid") && !strings.Contains(lower, "internal error") {
 					t.Fatalf("expected client-visible error mentioning status, invalid, or generic internal failure, got %v", err)
 				}
+			case "openresponses":
+				if err == nil {
+					t.Fatal("expected error")
+				}
 			default:
 				t.Fatalf("unexpected frontend %q", cell.Frontend)
 			}
@@ -211,6 +215,12 @@ func TestConformance_CredentialPool_Multimodal_pdfInUpstream(t *testing.T) {
 		}
 		t.Run(cell.Frontend+"__"+cell.Backend, func(t *testing.T) {
 			t.Parallel()
+			if !multimodalPDFCellPositive(cell.Frontend, cell.Backend) {
+				// See TestConformance_Multimodal_pdfInUpstream: OpenResponses
+				// profile/backend cells reject document input before network.
+				assertMultimodalPDFRejectedBeforeNetwork(t, cell.Frontend, cell.Backend)
+				return
+			}
 			var captured string
 			beSrv := NewSuccessRefBackend(t, cell.Backend, func(b []byte) { captured = string(b) })
 			exec := NewTestExecutorDualCredential(t, cell.Backend, beSrv.URL, beSrv.Client())

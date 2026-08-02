@@ -28,10 +28,15 @@ mapfile -t hits < <(
 # delivering bounded reload triggers into the coordinator sink (task 5.2).
 # pkg/lipsdk/backendplugin/forward_execute.go: one bounded cancel watcher per
 # plugin Execute stream, disarmed via stopWatch when the pump returns (M3).
+# internal/plugins/frontends/openresponses/websocket_upgrade.go: per-session read
+# pump + pinger owned and joined by WSSession.Run before it returns (Task 6.1).
+# internal/plugins/frontends/openresponses/websocket_turn.go: one peer-close
+# watcher per in-flight turn, owned and joined by executeTurn's deferred stop
+# (Task 6.2); exits on peer close or derived-context cancel.
 bad=()
 for f in "${hits[@]}"; do
 	case "$f" in
-	internal/stdhttp/server.go | internal/stdhttp/generation_host.go | internal/stdhttp/admin/configreload/server.go | internal/infra/runtimehost/shutdown.go | internal/infra/runtimehost/manager.go | internal/core/stream/keepalive.go | internal/core/runtime/parallel_race.go | internal/core/runtime/lease_heartbeat.go | internal/core/extensions/decision_timeout.go | internal/plugins/frontends/holdalive/wait.go | internal/infra/runtimebundle/modelcatalog_refresh_loop.go | connector-support/acp/transport_stdio.go | internal/plugins/backends/acp/transport_stdio.go | connectors/cursorsdk/internal/product/bridge_process.go | connectors/cursorsdk/internal/product/reap.go | connectors/cursorsdk/internal/product/fakebridge/harness.go | internal/core/terminalwork/app/processor.go | internal/core/terminalwork/app/ambiguous_append_reconciler.go | cmd/lipstd/reload_signal_adapter_unix.go | internal/infra/backendplugins/adapter/grpc_session.go | internal/infra/backendplugins/adapter/stream.go | internal/infra/backendplugins/processhost/launch_linux.go | internal/infra/backendplugins/processhost/launch_windows.go | pkg/lipsdk/backendplugin/server.go | pkg/lipsdk/backendplugin/forward_execute.go) ;;
+	internal/stdhttp/server.go | internal/stdhttp/generation_host.go | internal/stdhttp/admin/configreload/server.go | internal/infra/runtimehost/shutdown.go | internal/infra/runtimehost/manager.go | internal/core/stream/keepalive.go | internal/core/runtime/parallel_race.go | internal/core/runtime/lease_heartbeat.go | internal/core/extensions/decision_timeout.go | internal/plugins/frontends/holdalive/wait.go | internal/infra/runtimebundle/modelcatalog_refresh_loop.go | connector-support/acp/transport_stdio.go | internal/plugins/backends/acp/transport_stdio.go | connectors/cursorsdk/internal/product/bridge_process.go | connectors/cursorsdk/internal/product/reap.go | connectors/cursorsdk/internal/product/fakebridge/harness.go | internal/core/terminalwork/app/processor.go | internal/core/terminalwork/app/ambiguous_append_reconciler.go | cmd/lipstd/reload_signal_adapter_unix.go | internal/infra/backendplugins/adapter/grpc_session.go | internal/infra/backendplugins/adapter/stream.go | internal/infra/backendplugins/processhost/launch_linux.go | internal/infra/backendplugins/processhost/launch_windows.go | pkg/lipsdk/backendplugin/server.go | pkg/lipsdk/backendplugin/forward_execute.go | internal/plugins/frontends/openresponses/websocket_upgrade.go | internal/plugins/frontends/openresponses/websocket_turn.go) ;;
 	*) bad+=("$f") ;;
 	esac
 done

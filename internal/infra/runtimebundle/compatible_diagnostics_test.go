@@ -206,3 +206,105 @@ func writeCompatibleDiagnosticsConfig(t *testing.T) string {
 	}
 	return path
 }
+
+func writeOpenResponsesFrontendConfig(t *testing.T, enabled bool, extra string) string {
+	t.Helper()
+	base, err := os.ReadFile(filepath.Join("..", "..", "..", "config", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := fmt.Sprintf(`    - id: or-diag
+      kind: openresponses
+      enabled: %v
+      config:
+        profile: 2026-04-24
+        base_path: /openresponses/v1
+        continuation:
+          persistent_store: standard
+          ttl: 24h
+        websocket:
+          enabled: true
+          max_connection_age: 60m
+          idle_timeout: 5m
+          max_queued_turns: 1
+          allowed_origins:
+            - https://app.example.test
+%s`, enabled, extra)
+	text := strings.Replace(string(base), "  backends:\n", rows+"  backends:\n", 1)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestOpenResponsesFrontendDiagnostics_routesAndInventoryExposeSanitizedRow(t *testing.T) {
+	t.Parallel()
+	path := writeOpenResponsesFrontendConfig(t, true, "")
+
+	ctx := context.Background()
+	regInput := runtimebundle.InspectInput{
+		ConfigPath: path,
+		Mandatory:  lipsdk.StandardDistributionRequirements(),
+	}
+
+	routes, err := runtimebundle.InspectRoutes(ctx, regInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(routes.OpenResponsesFrontends) != 1 {
+		t.Fatalf("routes openresponses_frontends=%d", len(routes.OpenResponsesFrontends))
+	}
+	fe := routes.OpenResponsesFrontends[0]
+	if fe.Origin != "client_facing" || fe.InstanceID != "or-diag" {
+		t.Fatalf("origin/instance = %+v", fe)
+	}
+	if fe.Profile != "2026-04-24" || fe.BasePath != "/openresponses/v1" {
+		t.Fatalf("profile/base_path = %+v", fe)
+	}
+	if !fe.WebSocketEnabled || fe.ContinuationStore != "standard" {
+		t.Fatalf("ws/continuation = %+v", fe)
+	}
+	if fe.Conformance != "profile:2026-04-24" {
+		t.Fatalf("conformance=%q", fe.Conformance)
+	}
+	if len(fe.RouteClaims) != 3 {
+		t.Fatalf("route_claims=%v", fe.RouteClaims)
+	}
+	if fe.ConfigError != "" {
+		t.Fatalf("config_error=%q", fe.ConfigError)
+	}
+
+	inv, err := runtimebundle.InspectInventory(ctx, regInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inv.OpenResponsesFrontends) != 1 {
+		t.Fatalf("inventory openresponses_frontends=%d", len(inv.OpenResponsesFrontends))
+	}
+	if inv.OpenResponsesFrontends[0].InstanceID != "or-diag" {
+		t.Fatalf("inventory row instance=%q", inv.OpenResponsesFrontends[0].InstanceID)
+	}
+	raw, err := json.Marshal(inv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "sk-") {
+		t.Fatalf("inventory json leaked secret-like value: %s", raw)
+	}
+}
+
+func TestOpenResponsesFrontendDiagnostics_unknownFieldFailsStructuralValidation(t *testing.T) {
+	t.Parallel()
+	path := writeOpenResponsesFrontendConfig(t, true, "        sniffing: enabled\n")
+	err := runtimebundle.ValidateStructural(context.Background(), runtimebundle.ValidateStructuralInput{
+		ConfigPath: path,
+		Mandatory:  lipsdk.StandardDistributionRequirements(),
+	})
+	if err == nil {
+		t.Fatal("expected structural validation failure for unknown openresponses frontend field")
+	}
+	if !strings.Contains(err.Error(), "or-diag") || !strings.Contains(err.Error(), "sniffing") {
+		t.Fatalf("structural error must name instance + unknown field: %v", err)
+	}
+}

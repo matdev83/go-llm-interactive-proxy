@@ -6,6 +6,8 @@
 package contract
 
 import (
+	"context"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
@@ -69,7 +71,26 @@ type HTTPFrontendInput struct {
 	DecodeAdmission      lipsdk.DecodeAdmission
 	TrafficPorts         traffic.PortBundle
 	PreRequestKeepalive  lipsdk.FrontendKeepaliveConfig
+	// GenerationContext is the runtime-owned generation lifecycle context. It
+	// cancels when the generation begins shutdown (quiesce/drain) and is passed
+	// to every mounted frontend through [lipsdk.FrontendMountOptions] so
+	// long-lived transports (WebSocket sessions) close exactly once on retire.
+	GenerationContext context.Context
+	// FrontendRouteClaims optionally maps a frontend factory id to a provider
+	// that computes the normalized owner-aware route claims for one frontend
+	// instance. When set, [stdhttp.MountBundledFrontends] validates route
+	// ownership (owner-aware claims + canonical path takeover) in a
+	// generation-scoped RouteRegistry BEFORE any ServeMux handler is mounted; a
+	// conflict fails the candidate atomically with both-owner diagnostics.
+	// Frontends without a provider participate in no route-ownership
+	// validation, so the seam stays fully generic plugin architecture.
+	FrontendRouteClaims map[string]FrontendRouteClaims
 }
+
+// FrontendRouteClaims computes the normalized owner-aware route claims for one
+// enabled frontend instance. instanceID is the immutable owner identity used
+// for the route-ownership registry; cfg is the plugin-local config subtree.
+type FrontendRouteClaims func(instanceID string, cfg yaml.Node) ([]RouteClaim, error)
 
 // TrafficSnapshot is the narrow capability a generation extension snapshot
 // exposes for traffic-port projection. Both runtimebundle's frozen extension

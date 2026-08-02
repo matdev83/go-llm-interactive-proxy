@@ -162,8 +162,13 @@ func (tc ToolChoice) validate(toolCount int, tools []ToolDef) error {
 	if mode == ToolChoiceNone && toolCount > 0 {
 		return &ValidationError{Field: "ToolChoice", Message: "ToolChoiceNone is incompatible with declared tools"}
 	}
-	if tc.Name != "" && len(tc.Name) > MaxToolNameBytes {
-		return &ValidationError{Field: "ToolChoice.Name", Message: fmt.Sprintf("exceeds %d bytes", MaxToolNameBytes)}
+	if tc.Name != "" {
+		if err := validateExactStringField("ToolChoice.Name", tc.Name, MaxToolNameBytes); err != nil {
+			return err
+		}
+	}
+	if tc.Name != "" && mode != ToolChoiceRequired {
+		return &ValidationError{Field: "ToolChoice.Name", Message: "ToolChoice.Name is only allowed with ToolChoiceRequired mode"}
 	}
 	if mode == ToolChoiceRequired {
 		if toolCount == 0 {
@@ -186,6 +191,11 @@ func (tc ToolChoice) validate(toolCount int, tools []ToolDef) error {
 	return nil
 }
 
+// ValidateToolChoice checks tool choice against declared tools.
+func ValidateToolChoice(tc ToolChoice, tools []ToolDef) error {
+	return tc.validate(len(tools), tools)
+}
+
 // GenerationOptions captures cross-protocol generation controls.
 // Pointer fields mean "unset" (no override). Non-pointer strings use "" as unset;
 // validation applies only when a field participates in an invariant (see validateOptionStrings).
@@ -202,13 +212,15 @@ type GenerationOptions struct {
 func (o GenerationOptions) validate() error {
 	if o.Temperature != nil {
 		t := *o.Temperature
-		if t < 0 || t > 2 {
+		// NaN fails both range comparisons, so reject it explicitly; int32 casts of
+		// NaN downstream are implementation-defined and would corrupt wire options.
+		if math.IsNaN(t) || t < 0 || t > 2 {
 			return &ValidationError{Field: "Options.Temperature", Message: "temperature must be between 0 and 2"}
 		}
 	}
 	if o.TopP != nil {
 		p := *o.TopP
-		if p < 0 || p > 1 {
+		if math.IsNaN(p) || p < 0 || p > 1 {
 			return &ValidationError{Field: "Options.TopP", Message: "top_p must be between 0 and 1"}
 		}
 	}

@@ -25,7 +25,7 @@ func NewUpstream400Server(tb testing.TB, backendID string) *httptest.Server {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		switch backendID {
-		case openairesponses.ID, openailegacy.ID:
+		case openairesponses.ID, openailegacy.ID, BackendOpenResponses, BackendOpenRouter, BackendNVIDIA:
 			_, _ = w.Write([]byte(`{"error":{"message":"bad","type":"invalid_request_error","param":"","code":"invalid_request_error"}}`))
 		case anthropic.ID:
 			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error","message":"bad request"}}`))

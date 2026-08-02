@@ -103,11 +103,105 @@ func parityRefHandler(tb testing.TB, backendID string) http.Handler {
 			ConverseJSON: ns,
 			StreamEvents: bedrockParityStreamEvents(tb, parityText),
 		})
+	case BackendOpenResponses, BackendOpenRouter, BackendNVIDIA:
+		// The generic OpenResponses backend and the configured OpenAI-compatible
+		// provider-mode route both consume the OpenAI Responses-shaped wire. The
+		// origin serves the complete rich wire plus the /models discovery path the
+		// provider-mode inventory resolver queries.
+		return newOpenResponsesParityOrigin(parityText)
 	default:
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 		})
 	}
+}
+
+// openResponsesParityOrigin serves the rich OpenAI Responses-shaped wire (JSON
+// resource + streaming SSE) with deterministic parity text, plus the /models
+// discovery path the configured provider-mode inventory resolver queries.
+type openResponsesParityOrigin struct {
+	text string
+}
+
+func newOpenResponsesParityOrigin(text string) http.Handler {
+	return &openResponsesParityOrigin{text: text}
+}
+
+func (p *openResponsesParityOrigin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(strings.TrimRight(r.URL.Path, "/"), "/models") {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"gpt-4o-mini","object":"model","owned_by":"provider"}]}`)
+		return
+	}
+	if isStreamingRequest(r) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, openResponsesRichSSE(p.text, 1715620000))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = io.WriteString(w, openResponsesRichResource(p.text, 1715620000))
+}
+
+// openResponsesRichResource builds a completed OpenResponses response resource
+// carrying text as the assistant output.
+func openResponsesRichResource(text string, created int64) string {
+	txt, _ := json.Marshal(text)
+	return `{
+  "id": "resp_harness_1",
+  "object": "response",
+  "created_at": ` + itoa64(created) + `,
+  "status": "completed",
+  "model": "gpt-4o-mini",
+  "output": [
+    {
+      "type": "message",
+      "id": "msg_harness_out",
+      "status": "completed",
+      "role": "assistant",
+      "content": [{"type": "output_text", "text": ` + string(txt) + `}]
+    }
+  ],
+  "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}
+}`
+}
+
+// openResponsesRichSSE builds the full incremental OpenResponses SSE trajectory
+// (created → item/part → delta → done → completed → [DONE]) carrying text.
+func openResponsesRichSSE(text string, created int64) string {
+	txt, _ := json.Marshal(text)
+	return "event: response.created\n" +
+		"data: " + `{"type":"response.created","sequence_number":1,"response":{"id":"resp_harness_stream","object":"response","created_at":` + itoa64(created) + `,"status":"in_progress","model":"gpt-4o-mini","output":[]}}` + "\n\n" +
+		"event: response.output_item.added\n" +
+		"data: " + `{"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"type":"message","id":"msg_harness_1","status":"in_progress","role":"assistant","content":[{"type":"output_text","text":""}]}}` + "\n\n" +
+		"event: response.content_part.added\n" +
+		"data: " + `{"type":"response.content_part.added","sequence_number":3,"item_id":"msg_harness_1","output_index":0,"content_index":0,"part":{"type":"output_text","text":""}}` + "\n\n" +
+		"event: response.output_text.delta\n" +
+		"data: " + `{"type":"response.output_text.delta","sequence_number":4,"item_id":"msg_harness_1","output_index":0,"content_index":0,"delta":` + string(txt) + `}` + "\n\n" +
+		"event: response.output_text.done\n" +
+		"data: " + `{"type":"response.output_text.done","sequence_number":5,"item_id":"msg_harness_1","output_index":0,"content_index":0,"text":` + string(txt) + `}` + "\n\n" +
+		"event: response.content_part.done\n" +
+		"data: " + `{"type":"response.content_part.done","sequence_number":6,"item_id":"msg_harness_1","output_index":0,"content_index":0}` + "\n\n" +
+		"event: response.output_item.done\n" +
+		"data: " + `{"type":"response.output_item.done","sequence_number":7,"output_index":0,"item":{"type":"message","id":"msg_harness_1","status":"completed","role":"assistant","content":[{"type":"output_text","text":` + string(txt) + `}]}}` + "\n\n" +
+		"event: response.completed\n" +
+		"data: " + `{"type":"response.completed","sequence_number":8,"response":{"id":"resp_harness_stream","object":"response","created_at":` + itoa64(created) + `,"status":"completed","model":"gpt-4o-mini","output":[{"type":"message","id":"msg_harness_1","status":"completed","role":"assistant","content":[{"type":"output_text","text":` + string(txt) + `}]}]}}` + "\n\n" +
+		"data: [DONE]\n\n"
+}
+
+// providerModeOrigin serves the /models discovery path the configured
+// OpenAI-compatible provider-mode inventory queries, delegating every other
+// request to the OpenAI Responses-shaped reference responder.
+type providerModeOrigin struct {
+	responses http.Handler
+}
+
+func (p *providerModeOrigin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(strings.TrimRight(r.URL.Path, "/"), "/models") {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"gpt-4o-mini","object":"model","owned_by":"provider"}]}`)
+		return
+	}
+	p.responses.ServeHTTP(w, r)
 }
 
 const openAIResponsesNonStreamDefault = `{

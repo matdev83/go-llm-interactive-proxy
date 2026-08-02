@@ -7,6 +7,10 @@ const (
 	OperationOpenAIChatCompletions Operation = "openai.chat_completions"
 	// OperationOpenAIResponses identifies OpenAI Responses API requests.
 	OperationOpenAIResponses Operation = "openai.responses"
+	// OperationOpenResponsesCreate identifies OpenResponses create requests.
+	OperationOpenResponsesCreate Operation = "openresponses.create"
+	// OperationContextCompaction identifies protocol-neutral context compaction.
+	OperationContextCompaction Operation = "context.compaction"
 )
 
 // DeliveryMode records whether the client requested streaming or non-streaming delivery.

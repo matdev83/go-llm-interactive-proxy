@@ -200,28 +200,81 @@ func capabilityFromProto(p *backendpluginv1.CapabilitySummary) CapabilitySummary
 		return CapabilitySummary{}
 	}
 	return CapabilitySummary{
-		Streaming:         p.GetStreaming(),
-		Tools:             p.GetTools(),
-		Vision:            p.GetVision(),
-		Documents:         p.GetDocuments(),
-		StructuredOutputs: p.GetStructuredOutputs(),
-		Reasoning:         p.GetReasoning(),
-		ReasoningReplay:   p.GetReasoningReplay(),
-		ParallelToolCalls: p.GetParallelToolCalls(),
+		Streaming:          p.GetStreaming(),
+		Tools:              p.GetTools(),
+		Vision:             p.GetVision(),
+		Documents:          p.GetDocuments(),
+		StructuredOutputs:  p.GetStructuredOutputs(),
+		Reasoning:          p.GetReasoning(),
+		ReasoningReplay:    p.GetReasoningReplay(),
+		ParallelToolCalls:  p.GetParallelToolCalls(),
+		OrderedItems:       p.GetOrderedItems(),
+		ItemReferences:     p.GetItemReferences(),
+		Compaction:         p.GetCompaction(),
+		AssistantPhase:     p.GetAssistantPhase(),
+		OpaqueExtensions:   p.GetOpaqueExtensions(),
+		VideoInput:         p.GetVideoInput(),
+		Annotations:        p.GetAnnotations(),
+		AssistantMediaRefs: p.GetAssistantMediaRefs(),
 	}
 }
 
 func capabilityToProto(c CapabilitySummary) *backendpluginv1.CapabilitySummary {
 	return &backendpluginv1.CapabilitySummary{
-		Streaming:         c.Streaming,
-		Tools:             c.Tools,
-		Vision:            c.Vision,
-		Documents:         c.Documents,
-		StructuredOutputs: c.StructuredOutputs,
-		Reasoning:         c.Reasoning,
-		ReasoningReplay:   c.ReasoningReplay,
-		ParallelToolCalls: c.ParallelToolCalls,
+		Streaming:          c.Streaming,
+		Tools:              c.Tools,
+		Vision:             c.Vision,
+		Documents:          c.Documents,
+		StructuredOutputs:  c.StructuredOutputs,
+		Reasoning:          c.Reasoning,
+		ReasoningReplay:    c.ReasoningReplay,
+		ParallelToolCalls:  c.ParallelToolCalls,
+		OrderedItems:       c.OrderedItems,
+		ItemReferences:     c.ItemReferences,
+		Compaction:         c.Compaction,
+		AssistantPhase:     c.AssistantPhase,
+		OpaqueExtensions:   c.OpaqueExtensions,
+		VideoInput:         c.VideoInput,
+		Annotations:        c.Annotations,
+		AssistantMediaRefs: c.AssistantMediaRefs,
 	}
+}
+
+func dialectSupportFromProto(p *backendpluginv1.DialectSupportWire) DialectSupportDTO {
+	if p == nil {
+		return DialectSupportDTO{}
+	}
+	out := DialectSupportDTO{}
+	for _, d := range p.GetItemDialects() {
+		out.ItemDialects = append(out.ItemDialects, dialectRequirementFromProto(d))
+	}
+	for _, d := range p.GetReasoningDialects() {
+		out.ReasoningDialects = append(out.ReasoningDialects, dialectRequirementFromProto(d))
+	}
+	for _, d := range p.GetCompactionDialects() {
+		out.CompactionDialects = append(out.CompactionDialects, dialectRequirementFromProto(d))
+	}
+	for _, e := range p.GetExtensionTypes() {
+		out.ExtensionTypes = append(out.ExtensionTypes, extensionRequirementFromProto(e))
+	}
+	return out
+}
+
+func dialectSupportToProto(d DialectSupportDTO) *backendpluginv1.DialectSupportWire {
+	out := &backendpluginv1.DialectSupportWire{}
+	for _, d := range d.ItemDialects {
+		out.ItemDialects = append(out.ItemDialects, dialectRequirementToProto(d))
+	}
+	for _, d := range d.ReasoningDialects {
+		out.ReasoningDialects = append(out.ReasoningDialects, dialectRequirementToProto(d))
+	}
+	for _, d := range d.CompactionDialects {
+		out.CompactionDialects = append(out.CompactionDialects, dialectRequirementToProto(d))
+	}
+	for _, e := range d.ExtensionTypes {
+		out.ExtensionTypes = append(out.ExtensionTypes, extensionRequirementToProto(e))
+	}
+	return out
 }
 
 func transportCapabilityFromProto(p *backendpluginv1.TransportCapabilitySummary) TransportCapabilitySummary {
@@ -517,6 +570,9 @@ func InvocationFromProto(p *backendpluginv1.Invocation) (Invocation, error) {
 		}
 		inv.Tools = append(inv.Tools, td)
 	}
+	if err := invocationWireFromProto(p, &inv); err != nil {
+		return Invocation{}, err
+	}
 	if err := inv.Validate(); err != nil {
 		return Invocation{}, err
 	}
@@ -563,6 +619,9 @@ func InvocationToProto(inv Invocation) (*backendpluginv1.Invocation, error) {
 			return nil, err
 		}
 		out.Tools = append(out.Tools, pt)
+	}
+	if err := invocationWireToProto(inv, out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -691,6 +750,7 @@ func ResolvedProfileFromProto(p *backendpluginv1.ResolvedProfile) (ResolvedProfi
 	return ResolvedProfile{
 		Capabilities:             capabilityFromProto(p.GetCapabilities()),
 		TransportCapabilities:    transportCapabilityFromProto(p.GetTransportCapabilities()),
+		DialectSupport:           dialectSupportFromProto(p.GetDialectSupport()),
 		ReasoningReplaySupported: p.GetReasoningReplaySupported(),
 		RoutePrefixes:            append([]string(nil), p.GetRoutePrefixes()...),
 		EnforceMaxOutput:         p.GetEnforceMaxOutput(),
@@ -708,6 +768,7 @@ func ResolvedProfileToProto(p ResolvedProfile) *backendpluginv1.ResolvedProfile 
 	return &backendpluginv1.ResolvedProfile{
 		Capabilities:             capabilityToProto(p.Capabilities),
 		TransportCapabilities:    transportCapabilityToProto(p.TransportCapabilities),
+		DialectSupport:           dialectSupportToProto(p.DialectSupport),
 		ReasoningReplaySupported: p.ReasoningReplaySupported,
 		RoutePrefixes:            append([]string(nil), p.RoutePrefixes...),
 		EnforceMaxOutput:         p.EnforceMaxOutput,

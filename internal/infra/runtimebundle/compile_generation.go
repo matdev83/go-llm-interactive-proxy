@@ -109,21 +109,31 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	}
 	authProviders := append([]httpauth.Provider(nil), cand.security.httpAuth...)
 
-	httpInput := buildStandardHTTPInput(cand, frozen, regs, route)
+	// The generation lifecycle context is the runtime shutdown signal for
+	// long-lived transport state mounted into this generation (WebSocket
+	// sessions). The ledger cancels it at PhaseQuiesce on reload/shutdown;
+	// failure paths below also cancel it before rolling the ledger back.
+	genCtx, genCancel := context.WithCancel(context.Background())
+	if cand.ledger != nil {
+		cand.ledger.AddClose("openresponses-generation-lifecycle", PhaseQuiesce, func() error { genCancel(); return nil })
+	}
+	failWithGenCtx := func(err error) (GenerationRuntime, error) { genCancel(); return failBeforeTransfer(err) }
+
+	httpInput := buildStandardHTTPInput(cand, frozen, regs, route, genCtx)
 	if err := injectCandidateFault(in.FaultInject, "composer-clone"); err != nil {
-		return failBeforeTransfer(fmt.Errorf("runtimebundle: composer config clone: %w", err))
+		return failWithGenCtx(fmt.Errorf("runtimebundle: composer config clone: %w", err))
 	}
 	composerCfg, err := freezeConfig(frozen)
 	if err != nil {
-		return failBeforeTransfer(fmt.Errorf("runtimebundle: composer config clone: %w", err))
+		return failWithGenCtx(fmt.Errorf("runtimebundle: composer config clone: %w", err))
 	}
 
 	handler, err := composeStandardHTTPIsolated(ctx, in.Compose, composerCfg, ps.Logger, httpInput)
 	if err != nil {
-		return failBeforeTransfer(fmt.Errorf("runtimebundle: compose request plane: %w", err))
+		return failWithGenCtx(fmt.Errorf("runtimebundle: compose request plane: %w", err))
 	}
 	if handler == nil {
-		return failBeforeTransfer(fmt.Errorf("runtimebundle: handler composer returned nil handler"))
+		return failWithGenCtx(fmt.Errorf("runtimebundle: handler composer returned nil handler"))
 	}
 
 	if err := injectCandidateFault(in.FaultInject, "ledger-transfer"); err != nil {
@@ -131,7 +141,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	}
 	ledger := cand.transferLedgerOwnership()
 	if ledger == nil {
-		return failBeforeTransfer(fmt.Errorf("runtimebundle: candidate resource ledger unavailable for transfer"))
+		return failWithGenCtx(fmt.Errorf("runtimebundle: candidate resource ledger unavailable for transfer"))
 	}
 	bundle := newGenerationBundle(generationBundleInput{
 		handler:           handler,
@@ -160,7 +170,7 @@ func composeStandardHTTPIsolated(ctx context.Context, compose HandlerComposer, c
 	return compose(ctx, cfg, log, in)
 }
 
-func buildStandardHTTPInput(cand *candidateAssembly, frozen *config.Config, regs []lipsdk.Registration, route string) httpcontract.StandardHTTPInput {
+func buildStandardHTTPInput(cand *candidateAssembly, frozen *config.Config, regs []lipsdk.Registration, route string, genCtx context.Context) httpcontract.StandardHTTPInput {
 	var maxBody int64
 	var preKA lipsdk.FrontendKeepaliveConfig
 	if frozen != nil {
@@ -203,6 +213,8 @@ func buildStandardHTTPInput(cand *candidateAssembly, frozen *config.Config, regs
 			DecodeAdmission:      cand.execution.decodeAdmission,
 			TrafficPorts:         httpcontract.TrafficPortsFromSnapshot(cand.security.runtimeSnapshot),
 			PreRequestKeepalive:  preKA,
+			GenerationContext:    genCtx,
+			FrontendRouteClaims:  standardplugins.StandardFrontendRouteClaims(),
 		},
 	}
 }

@@ -209,9 +209,14 @@ func buildDiscoveredBackend(
 	if len(prefixes) == 0 {
 		prefixes = []string{factoryKind}
 	}
+	neg := backendplugin.Negotiation{Compatible: true}
+	if ns, ok := session.(adapter.NegotiatedSession); ok {
+		neg = ns.Negotiation()
+	}
 	br := adapter.Build(session, profile, adapter.Options{
 		InstanceID:    instanceID,
 		RoutePrefixes: prefixes,
+		Negotiation:   neg,
 		InvalidateGeneration: func() {
 			_ = host.InvalidateProcessGeneration(generation)
 		},

@@ -78,6 +78,7 @@ func processSharingToProto(v ProcessSharing) (backendpluginv1.ProcessSharing, er
 
 var roleFromProtoTable = map[backendpluginv1.Role]Role{
 	backendpluginv1.Role_ROLE_SYSTEM:    RoleSystem,
+	backendpluginv1.Role_ROLE_DEVELOPER: RoleDeveloper,
 	backendpluginv1.Role_ROLE_USER:      RoleUser,
 	backendpluginv1.Role_ROLE_ASSISTANT: RoleAssistant,
 	backendpluginv1.Role_ROLE_TOOL:      RoleTool,
@@ -85,6 +86,7 @@ var roleFromProtoTable = map[backendpluginv1.Role]Role{
 
 var roleToProtoTable = map[Role]backendpluginv1.Role{
 	RoleSystem:    backendpluginv1.Role_ROLE_SYSTEM,
+	RoleDeveloper: backendpluginv1.Role_ROLE_DEVELOPER,
 	RoleUser:      backendpluginv1.Role_ROLE_USER,
 	RoleAssistant: backendpluginv1.Role_ROLE_ASSISTANT,
 	RoleTool:      backendpluginv1.Role_ROLE_TOOL,
@@ -99,23 +101,33 @@ func roleToProto(v Role) (backendpluginv1.Role, error) {
 }
 
 var partKindFromProtoTable = map[backendpluginv1.PartKind]PartKind{
-	backendpluginv1.PartKind_PART_KIND_TEXT:        PartKindText,
-	backendpluginv1.PartKind_PART_KIND_IMAGE_REF:   PartKindImageRef,
-	backendpluginv1.PartKind_PART_KIND_FILE_REF:    PartKindFileRef,
-	backendpluginv1.PartKind_PART_KIND_REASONING:   PartKindReasoning,
-	backendpluginv1.PartKind_PART_KIND_TOOL_CALL:   PartKindToolCall,
-	backendpluginv1.PartKind_PART_KIND_TOOL_RESULT: PartKindToolResult,
-	backendpluginv1.PartKind_PART_KIND_JSON:        PartKindJSON,
+	backendpluginv1.PartKind_PART_KIND_TEXT:          PartKindText,
+	backendpluginv1.PartKind_PART_KIND_IMAGE_REF:     PartKindImageRef,
+	backendpluginv1.PartKind_PART_KIND_FILE_REF:      PartKindFileRef,
+	backendpluginv1.PartKind_PART_KIND_REASONING:     PartKindReasoning,
+	backendpluginv1.PartKind_PART_KIND_TOOL_CALL:     PartKindToolCall,
+	backendpluginv1.PartKind_PART_KIND_TOOL_RESULT:   PartKindToolResult,
+	backendpluginv1.PartKind_PART_KIND_JSON:          PartKindJSON,
+	backendpluginv1.PartKind_PART_KIND_VIDEO_REF:     PartKindVideoRef,
+	backendpluginv1.PartKind_PART_KIND_REFUSAL:       PartKindRefusal,
+	backendpluginv1.PartKind_PART_KIND_SUMMARY:       PartKindSummary,
+	backendpluginv1.PartKind_PART_KIND_ANNOTATION:    PartKindAnnotation,
+	backendpluginv1.PartKind_PART_KIND_ASSISTANT_REF: PartKindAssistantRef,
 }
 
 var partKindToProtoTable = map[PartKind]backendpluginv1.PartKind{
-	PartKindText:       backendpluginv1.PartKind_PART_KIND_TEXT,
-	PartKindImageRef:   backendpluginv1.PartKind_PART_KIND_IMAGE_REF,
-	PartKindFileRef:    backendpluginv1.PartKind_PART_KIND_FILE_REF,
-	PartKindReasoning:  backendpluginv1.PartKind_PART_KIND_REASONING,
-	PartKindToolCall:   backendpluginv1.PartKind_PART_KIND_TOOL_CALL,
-	PartKindToolResult: backendpluginv1.PartKind_PART_KIND_TOOL_RESULT,
-	PartKindJSON:       backendpluginv1.PartKind_PART_KIND_JSON,
+	PartKindText:         backendpluginv1.PartKind_PART_KIND_TEXT,
+	PartKindImageRef:     backendpluginv1.PartKind_PART_KIND_IMAGE_REF,
+	PartKindFileRef:      backendpluginv1.PartKind_PART_KIND_FILE_REF,
+	PartKindReasoning:    backendpluginv1.PartKind_PART_KIND_REASONING,
+	PartKindToolCall:     backendpluginv1.PartKind_PART_KIND_TOOL_CALL,
+	PartKindToolResult:   backendpluginv1.PartKind_PART_KIND_TOOL_RESULT,
+	PartKindJSON:         backendpluginv1.PartKind_PART_KIND_JSON,
+	PartKindVideoRef:     backendpluginv1.PartKind_PART_KIND_VIDEO_REF,
+	PartKindRefusal:      backendpluginv1.PartKind_PART_KIND_REFUSAL,
+	PartKindSummary:      backendpluginv1.PartKind_PART_KIND_SUMMARY,
+	PartKindAnnotation:   backendpluginv1.PartKind_PART_KIND_ANNOTATION,
+	PartKindAssistantRef: backendpluginv1.PartKind_PART_KIND_ASSISTANT_REF,
 }
 
 func partKindFromProto(v backendpluginv1.PartKind) (PartKind, error) {

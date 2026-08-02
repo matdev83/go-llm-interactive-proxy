@@ -22,6 +22,7 @@ func TestSanityTask13_BundledFrontendsWiredForConformance(t *testing.T) {
 		"openai-legacy":    {},
 		"anthropic":        {},
 		"gemini":           {},
+		"openresponses":    {},
 	}
 	ids := BundledFrontendIDs()
 	if len(ids) != len(wired) {
@@ -48,6 +49,9 @@ func TestSanityTask13_BundledBackendsWiredForRefParity(t *testing.T) {
 		gemini.ID:          {},
 		bedrock.ID:         {},
 		acp.ID:             {},
+		"openresponses":    {},
+		"openrouter":       {},
+		"nvidia":           {},
 	}
 	ids := BundledBackendIDs()
 	if len(ids) != len(wired) {

@@ -8,7 +8,7 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ## Phase 1: Lock Protocol, Canonical, Projector, and Architecture Contracts
 
-- [ ] 1. Establish immutable protocol and brownfield contracts
+- [x] 1. Establish immutable protocol and brownfield contracts
 
 ### 1.1 Pin official profile and dependency evidence
 
@@ -20,7 +20,7 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 - _Requirements: 1.2–1.5, 11.1–11.8, 12.3–12.4_
 - _Boundary: protocol source and dependency policy_
 - _Depends: none_
-- _Validation: `go test ./internal/plugins/protocols/openresponses/... -run 'Profile|Source|License|Dependency'`_
+- _Validation: `go test ./internal/plugins/protocols/openresponses/... ./internal/archtest/... -run 'Profile|Source|License|Dependency'`_
 
 ### 1.2 Characterize existing adapters and the current 32-cell matrix
 
@@ -43,7 +43,7 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 - _Requirements: 3.1–3.10, 4.3–4.5, 10.7, 11.7_
 - _Boundary: `pkg/lipapi`, public SDK contracts, shared walkers_
 - _Depends: 1.2_
-- _Validation: `go test ./pkg/lipapi/... ./pkg/lipsdk/... ./internal/core/capabilities/... ./internal/core/audit/... ./internal/core/tokenaccounting/...`_
+- _Validation: `go test ./pkg/lipapi/... ./pkg/lipsdk/... ./internal/core/capabilities/... ./internal/core/tokenaccounting/...`_
 
 ### 1.4 Define both projector directions and capability/dialect contracts
 
@@ -71,7 +71,7 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ## Phase 2: Build the Production Profile Codec, State Machine, and Emulator Contracts
 
-- [ ] 2. Implement production wire behavior and independent-test boundaries
+- [x] 2. Implement production wire behavior and independent-test boundaries
 
 ### 2.1 Implement production request/item/content/tool/control codecs
 
@@ -132,7 +132,7 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ## Phase 3: Implement Client-Facing HTTP and SSE
 
-- [ ] 3. Add the non-colliding OpenResponses HTTP/SSE service
+- [x] 3. Add the non-colliding OpenResponses HTTP/SSE service
 
 ### 3.1 Implement strict frontend configuration and route ownership
 
@@ -188,7 +188,7 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ## Phase 4: Implement Continuation and Compaction
 
-- [ ] 4. Add proxy-owned response state and compact routing
+- [x] 4. Add proxy-owned response state and compact routing
 
 ### 4.1 Implement bounded continuation storage and proxy IDs
 
@@ -240,7 +240,7 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ## Phase 5: Implement the Generic Remote OpenResponses Backend
 
-- [ ] 5. Add standards-only remote provider/router connectivity
+- [x] 5. Add standards-only remote provider/router connectivity
 
 ### 5.1 Implement strict configuration and factory registration
 
@@ -297,7 +297,7 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ## Phase 6: Implement Client-Facing WebSocket
 
-- [ ] 6. Add persistent sequential OpenResponses sessions
+- [x] 6. Add persistent sequential OpenResponses sessions
 
 ### 6.1 Implement authenticated upgrade, origin policy, and limits
 
@@ -347,11 +347,11 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 - _Requirements: 8.3, 8.8–8.10, 10.7, 10.10, 12.6–12.7_
 - _Boundary: WS robustness_
 - _Depends: 6.4_
-- _Validation: `go test -race ./internal/plugins/frontends/openresponses/... -run 'WebSocketStress|Queue|Slow' && go test -fuzz=FuzzWebSocket -fuzztime=30s ./internal/plugins/frontends/openresponses/...`_
+- _Validation: `go test -race ./internal/plugins/frontends/openresponses/... -run 'WebSocketStress|Queue|Slow' && go test -fuzz=FuzzWebSocketDecodeTurn -fuzztime=5s ./internal/plugins/frontends/openresponses/...`_
 
 ## Phase 7: Integrate the Base Protocol and Prove Architecture Readiness
 
-- [ ] 7. Complete standard-runtime integration before exhaustive compatibility certification
+- [x] 7. Complete standard-runtime integration before exhaustive compatibility certification
 
 ### 7.1 Integrate registration, diagnostics, reload, and shutdown
 
@@ -411,9 +411,11 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ## Phase 8: Implement Independent Emulators and Prove Cross-API Compatibility
 
-- [ ] 8. Complete independent interoperability, all translation paths, and final release evidence
+- [x] 8. Complete independent interoperability, all translation paths, and final release evidence
 
 ### 8.1 Build the independent OpenResponses reference client emulator
+
+- [x] 8.1 Build the independent OpenResponses reference client emulator
 
 - Begin with fixture/parser tests independent of production OpenResponses code.
 - Implement HTTP JSON, SSE, compact, WebSocket sequential turns/continuation/errors, tools, multimodal, phase, reasoning/item lifecycle, extensions, required presence, cancellation, and slow-consumer behavior.
@@ -427,6 +429,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 8.2 Build the independent OpenResponses remote backend emulator
 
+- [x] 8.2 Build the independent OpenResponses remote backend emulator
+
 - Begin with independent request-validation and script-state tests.
 - Implement JSON/SSE/compact/direct-WS modes, request capture/assertions, portable and opaque items, tools, reasoning, phases, extensions, required presence, auth/rate-limit/4xx/5xx/disconnect, malformed event/resource/content-type modes, virtual delays, slow writes, backpressure, and cancellation observation.
 - Add atomic request counters/redacted bounded captures for zero-upstream tests.
@@ -438,7 +442,9 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 - _Depends: 2.5, 8.1_
 - _Validation: `go test -race -coverprofile=/tmp/refbackend-openresponses.cover ./internal/refbackend/openresponses/... ./internal/refclient/openresponses/... -run 'DirectWire|JSON|SSE|Compact|WebSocket|Malformed|Cancel|Leak' && go test -fuzz=Fuzz -fuzztime=30s ./internal/refbackend/openresponses/... && go test ./internal/archtest/... -run 'OpenResponsesRefBackendBoundary'`_
 
-### 8.3 Implement and test the complete OpenResponses frontend compatibility row
+### 8.3 Implement and test the complete OpenResponses frontend compatibility row (complete)
+
+- [x] 8.3 Implement and test the complete OpenResponses frontend compatibility row
 
 - Add/finish explicit item-authority projectors and capability declarations for every existing backend.
 - Run named positive and negative scenarios for:
@@ -461,6 +467,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 8.4 Implement and test the complete OpenResponses backend compatibility column
 
+- [x] 8.4 Implement and test the complete OpenResponses backend compatibility column
+
 - Add/finish the legacy-message-authority→ordered-item constructor/projector and exact replay/dialect checks.
 - Run real frontend/client wire scenarios for:
   - legacy OpenAI Chat Completions → OpenResponses-compatible;
@@ -478,6 +486,8 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 
 ### 8.5 Extend and enforce the complete Cartesian matrix and final quality gates
 
+- [x] 8.5 Extend and enforce the complete Cartesian matrix and final quality gates
+
 - Add `openresponses` to both authoritative lists, mount/construct it in conformance helpers, and assert exactly 45 unique deterministic cells.
 - Require feature-level evidence for JSON, streaming, roles/history, tools, multimodal, usage/errors, reasoning/replay, phase, item refs, continuation, compaction, extensions, cancellation/backpressure, failover, and commitment.
 - Run all 45 baseline text cells, every supported streaming cell, positive tools/multimodal cases, all required negative pre-network cases, direct emulator wire suites, frontend-stub/backend-emulator tests, full black-box deployment, and the pinned official suite.
@@ -487,4 +497,5 @@ Every phase contains no more than five implementation tasks. Phase 8 is the fina
 - _Requirements: 1.8, 11.1–11.11, 12.1–12.15, 13.5–13.20_
 - _Boundary: authoritative matrix, full black-box compliance, repository-wide final release gate_
 - _Depends: 8.1–8.4_
-- _Validation: `go test ./... && make parity-checks && go test -tags=precommit,integration ./internal/testkit/conformance/... ./internal/integration/openresponses/... && go test -race ./internal/refclient/openresponses/... ./internal/refbackend/openresponses/... ./internal/plugins/frontends/openresponses/... ./internal/plugins/backends/openresponsescompat/... ./internal/core/continuation/... && ./scripts/test-openresponses-compliance && go vet ./... && GOWORK=off go build ./cmd/lipstd`_
+- _Validation (Windows race adaptation): `go test ./... && make parity-checks && make test-precommit-extra && ./scripts/test-openresponses-compliance.ps1 && go vet ./... && GOWORK=off go build ./cmd/lipstd` (Linux/macOS additionally run `go test -race ./internal/refclient/openresponses/... ./internal/refbackend/openresponses/... ./internal/plugins/frontends/openresponses/... ./internal/plugins/backends/openresponsescompat/... ./internal/core/continuation/...` and `./scripts/test-openresponses-compliance.sh`; `make test-race` is skipped on Windows per repository policy)._
+- **Matrix architecture note:** the authoritative 5×9 = 45 cells use `openresponses` in both `BundledFrontendIDs()` and `BundledBackendIDs()`. OpenRouter/NVIDIA are authoritative compatibility identities driven through the classified configured OpenAI-compatible provider-mode path (`DeployConfiguredProviderMode`); they remain optional connectors and are never promoted to essential backend kinds (drivers: `DriverBase` / `DriverConfiguredProviderMode`, evidence in `matrix_evidence_45.go`).

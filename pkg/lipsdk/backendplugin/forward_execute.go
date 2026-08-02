@@ -29,7 +29,10 @@ func ForwardExecute(stream ExecuteStream, open OpenManagedStream) error {
 	if start.Kind != ClientFrameStart || start.Invocation == nil {
 		return fmt.Errorf("%w: expected start", ErrInvalidFrame)
 	}
-	if err := stream.Send(ServerFrame{Kind: ServerFrameAccepted}); err != nil {
+	if err := ValidateClientFrameBounds(start); err != nil {
+		return err
+	}
+	if err := sendServerFrame(stream, ServerFrame{Kind: ServerFrameAccepted}); err != nil {
 		return err
 	}
 	call, err := CallFromInvocation(*start.Invocation)
@@ -65,7 +68,7 @@ func ForwardExecute(stream ExecuteStream, open OpenManagedStream) error {
 		}
 		ev, err := ms.Recv(stream.Context())
 		if errors.Is(err, io.EOF) {
-			return stream.Send(ServerFrame{
+			return sendServerFrame(stream, ServerFrame{
 				Kind: ServerFrameTerminal, Sequence: seq,
 				Terminal: &Terminal{Status: TerminalSuccess},
 			})
@@ -76,7 +79,7 @@ func ForwardExecute(stream ExecuteStream, open OpenManagedStream) error {
 			}
 			return err
 		}
-		if err := stream.Send(ServerFrame{
+		if err := sendServerFrame(stream, ServerFrame{
 			Kind: ServerFrameEvent, Sequence: seq,
 			Event: CanonicalEventFromLipapi(ev),
 		}); err != nil {
@@ -84,4 +87,11 @@ func ForwardExecute(stream ExecuteStream, open OpenManagedStream) error {
 		}
 		seq++
 	}
+}
+
+func sendServerFrame(stream ExecuteStream, frame ServerFrame) error {
+	if err := ValidateServerFrameBounds(frame); err != nil {
+		return err
+	}
+	return stream.Send(frame)
 }

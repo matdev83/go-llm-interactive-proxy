@@ -43,6 +43,7 @@ type Role = lipapi.Role
 const (
 	RoleUnspecified Role = ""
 	RoleSystem      Role = lipapi.RoleSystem
+	RoleDeveloper   Role = lipapi.RoleDeveloper
 	RoleUser        Role = lipapi.RoleUser
 	RoleAssistant   Role = lipapi.RoleAssistant
 	RoleTool        Role = lipapi.RoleTool
@@ -55,14 +56,19 @@ type UsagePresence = lipapi.UsagePresence
 type PartKind string
 
 const (
-	PartKindUnspecified PartKind = ""
-	PartKindText        PartKind = "text"
-	PartKindImageRef    PartKind = "image_ref"
-	PartKindFileRef     PartKind = "file_ref"
-	PartKindReasoning   PartKind = "reasoning"
-	PartKindToolCall    PartKind = "tool_call"
-	PartKindToolResult  PartKind = "tool_result"
-	PartKindJSON        PartKind = "json"
+	PartKindUnspecified  PartKind = ""
+	PartKindText         PartKind = "text"
+	PartKindImageRef     PartKind = "image_ref"
+	PartKindFileRef      PartKind = "file_ref"
+	PartKindReasoning    PartKind = "reasoning"
+	PartKindToolCall     PartKind = "tool_call"
+	PartKindToolResult   PartKind = "tool_result"
+	PartKindJSON         PartKind = "json"
+	PartKindVideoRef     PartKind = "video_ref"
+	PartKindRefusal      PartKind = "refusal"
+	PartKindSummary      PartKind = "summary"
+	PartKindAnnotation   PartKind = "annotation"
+	PartKindAssistantRef PartKind = "assistant_ref"
 )
 
 // ErrorCode classifies plugin errors.
