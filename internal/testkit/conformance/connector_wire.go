@@ -107,16 +107,54 @@ func chatNonStreamResource(text string) string {
 
 // chatStreamSSE builds the incremental OpenAI chat-completions SSE trajectory
 // (assistant delta → finish → usage → [DONE]) carrying text. Every event payload
-// is a typed value encoded with encoding/json.
+// is constructed as a typed value and encoded with encoding/json so no
+// interpolated string can corrupt the wire format.
 func chatStreamSSE(text string) string {
-	escaped, _ := json.Marshal(text)
-	chunk := func(fields string) string {
-		return "data: " + `{"id":"chatcmpl_connector_stream","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[{` + fields + `}]}` + "\n\n"
-	}
 	var b strings.Builder
-	b.WriteString(chunk(`"index":0,"delta":{"role":"assistant","content":` + string(escaped) + `},"finish_reason":null`))
-	b.WriteString(chunk(`"index":0,"delta":{},"finish_reason":"stop"`))
-	b.WriteString(`data: {"id":"chatcmpl_connector_stream","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}` + "\n\n")
+	b.WriteString(chatDataEvent(map[string]any{
+		"id":      "chatcmpl_connector_stream",
+		"object":  "chat.completion.chunk",
+		"created": 1715620000,
+		"model":   "gpt-4o-mini",
+		"choices": []any{
+			map[string]any{
+				"index":         0,
+				"delta":         map[string]any{"role": "assistant", "content": text},
+				"finish_reason": nil,
+			},
+		},
+	}))
+	b.WriteString(chatDataEvent(map[string]any{
+		"id":      "chatcmpl_connector_stream",
+		"object":  "chat.completion.chunk",
+		"created": 1715620000,
+		"model":   "gpt-4o-mini",
+		"choices": []any{
+			map[string]any{
+				"index":         0,
+				"delta":         map[string]any{},
+				"finish_reason": "stop",
+			},
+		},
+	}))
+	b.WriteString(chatDataEvent(map[string]any{
+		"id":      "chatcmpl_connector_stream",
+		"object":  "chat.completion.chunk",
+		"created": 1715620000,
+		"model":   "gpt-4o-mini",
+		"choices": []any{},
+		"usage": map[string]any{
+			"prompt_tokens":     1,
+			"completion_tokens": 1,
+			"total_tokens":      2,
+		},
+	}))
 	b.WriteString("data: [DONE]\n\n")
 	return b.String()
+}
+
+// chatDataEvent encodes data as a single OpenAI-compatible SSE data frame.
+func chatDataEvent(data map[string]any) string {
+	payload, _ := json.Marshal(data)
+	return "data: " + string(payload) + "\n\n"
 }

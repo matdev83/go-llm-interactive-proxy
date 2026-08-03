@@ -129,6 +129,52 @@ func TestConnectorColumnResourceIsValidJSON(t *testing.T) {
 	}
 }
 
+func TestConnectorChatNonStreamResourcePreservesHostileText(t *testing.T) {
+	raw := chatNonStreamResource(hostileParityText)
+	var res map[string]any
+	if err := json.Unmarshal([]byte(raw), &res); err != nil {
+		t.Fatalf("chat resource is not valid JSON: %v", err)
+	}
+	choices, _ := res["choices"].([]any)
+	if len(choices) == 0 {
+		t.Fatal("chat resource carries no choices")
+	}
+	choice, _ := choices[0].(map[string]any)
+	msg, _ := choice["message"].(map[string]any)
+	content, _ := msg["content"].(string)
+	if content != hostileParityText {
+		t.Fatalf("chat content = %q, want exact value %q", content, hostileParityText)
+	}
+}
+
+func TestConnectorChatStreamSSEPreservesHostileText(t *testing.T) {
+	raw := chatStreamSSE(hostileParityText)
+	events := sseDataEvents(t, raw)
+	if len(events) != 3 {
+		t.Fatalf("want 3 data events, got %d", len(events))
+	}
+	var assembled string
+	for _, ev := range events {
+		choices, _ := ev["choices"].([]any)
+		if len(choices) == 0 {
+			continue
+		}
+		choice, _ := choices[0].(map[string]any)
+		delta, _ := choice["delta"].(map[string]any)
+		content, _ := delta["content"].(string)
+		if content == "" {
+			continue
+		}
+		if content != hostileParityText {
+			t.Fatalf("delta content = %q, want exact value %q", content, hostileParityText)
+		}
+		assembled += content
+	}
+	if assembled != hostileParityText {
+		t.Fatalf("assembled delta content = %q, want %q", assembled, hostileParityText)
+	}
+}
+
 func TestConnectorColumnSSEIsValidJSON(t *testing.T) {
 	raw := connectorColumnSSE(testCreated)
 	events := sseDataEvents(t, raw)
