@@ -71,24 +71,31 @@ func TestDecodeCreate_textNonStream(t *testing.T) {
 	}
 }
 
-func TestDecodeCreate_nestedTextVerbosityBecomesCanonicalAndPreservesSiblings(t *testing.T) {
+func TestDecodeCreate_textFormatIsCanonicalAndStrict(t *testing.T) {
 	t.Parallel()
-	body := []byte(`{"model":"gpt-4o-mini","input":"hi","text":{"verbosity":" HIGH ","format":{"type":"text"}}}`)
+	body := []byte(`{"model":"gpt-4o-mini","input":"hi","text":{"format":{"type":"text"}}}`)
 	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Call.Options.Verbosity != lipapi.VerbosityHigh {
-		t.Fatalf("verbosity = %q, want high", d.Call.Options.Verbosity)
-	}
-	textRaw := d.Call.Extensions[openrouterwire.ExtraBodyExtPrefix+"text"]
-	if string(textRaw) != `{"format":{"type":"text"}}` {
-		t.Fatalf("preserved text fields = %s", textRaw)
+	if d.Call.Options.ResponseMIMEType != "text/plain" {
+		t.Fatalf("mime = %q, want text/plain", d.Call.Options.ResponseMIMEType)
 	}
 
-	bad := []byte(`{"model":"gpt-4o-mini","input":"hi","text":{"verbosity":"extreme"}}`)
-	if _, err := openairesponses.DecodeCreateRequest(bad, openairesponses.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"}); err == nil {
-		t.Fatal("expected invalid verbosity error")
+	for _, text := range []string{
+		`{"verbosity":"high"}`,
+		`{"format":{"type":"text","verbosity":"high"}}`,
+		`{"format":null}`,
+	} {
+		body := []byte(`{"model":"gpt-4o-mini","input":"hi","text":` + text + `}`)
+		_, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+		if text == `{"format":null}` {
+			if err != nil {
+				t.Fatalf("accepted null format: %v", err)
+			}
+		} else if err == nil {
+			t.Fatalf("expected rejection for text %s", text)
+		}
 	}
 }
 

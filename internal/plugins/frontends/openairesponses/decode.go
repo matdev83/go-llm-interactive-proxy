@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/openrouterwire"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/protocols/openairesponsesitem"
+	openresponsesprotocol "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/protocols/openresponses"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -113,7 +114,7 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 	if err != nil {
 		return nil, fmt.Errorf("openairesponses: tool_choice: %w", err)
 	}
-	verbosity, remainingText, err := parseTextConfig(w.Text)
+	responseMIME, err := openresponsesprotocol.DecodeTextFormat(w.Text)
 	if err != nil {
 		return nil, fmt.Errorf("openairesponses: text: %w", err)
 	}
@@ -125,9 +126,6 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 	ext := map[string]json.RawMessage{extModelJSONKey: modelRaw}
 	if b, err := json.Marshal(openrouterwire.FlavorResponses); err == nil {
 		ext[openrouterwire.ExtUpstreamFlavor] = b
-	}
-	if len(remainingText) > 0 {
-		ext[openrouterwire.ExtraBodyExtPrefix+"text"] = remainingText
 	}
 
 	var rawBody map[string]json.RawMessage
@@ -155,7 +153,7 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 			TopP:              w.TopP,
 			MaxOutputTokens:   w.MaxOut,
 			ParallelToolCalls: w.ParallelTools,
-			Verbosity:         verbosity,
+			ResponseMIMEType:  responseMIME,
 		},
 	}
 	if len(w.Metadata) > 0 {
@@ -166,44 +164,6 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 		identitywire.CaptureClientUserAgent(&call.Invocation, opts.Headers)
 	}
 	return &DecodedCreate{Call: call, Stream: w.Stream, Model: model}, nil
-}
-
-// parseTextConfig extracts the canonical Responses text verbosity while
-// returning any other text configuration for provider-specific passthrough.
-func parseTextConfig(raw json.RawMessage) (lipapi.VerbosityLevel, json.RawMessage, error) {
-	if jsonpresence.IsAbsentOrJSONNull(raw) {
-		return "", nil, nil
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
-		if err == nil {
-			err = errors.New("must be a JSON object")
-		}
-		return "", nil, err
-	}
-	var verbosity lipapi.VerbosityLevel
-	if rawVerbosity, ok := fields["verbosity"]; ok {
-		if jsonpresence.IsPresentNonNullJSON(rawVerbosity) {
-			var value string
-			if err := json.Unmarshal(rawVerbosity, &value); err != nil {
-				return "", nil, fmt.Errorf("verbosity must be a string: %w", err)
-			}
-			parsed, err := lipapi.ParseVerbosityLevel(value)
-			if err != nil {
-				return "", nil, err
-			}
-			verbosity = parsed
-		}
-		delete(fields, "verbosity")
-	}
-	if len(fields) == 0 {
-		return verbosity, nil, nil
-	}
-	remaining, err := json.Marshal(fields)
-	if err != nil {
-		return "", nil, fmt.Errorf("preserve fields: %w", err)
-	}
-	return verbosity, remaining, nil
 }
 
 func parseInstructions(raw json.RawMessage) ([]lipapi.Message, error) {

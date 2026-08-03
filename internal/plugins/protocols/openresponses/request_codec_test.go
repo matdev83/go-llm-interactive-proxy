@@ -3,6 +3,7 @@ package openresponses
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -633,5 +634,24 @@ func TestDecodeRequestRejectsUnsupportedTextFormatShape(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected rejection for text %s", text)
 		}
+	}
+}
+
+func TestDecodeRequestTextFormatNullAndEmptyAreAbsent(t *testing.T) {
+	for _, text := range []string{"", `null`, `{}`, `{"format":null}`} {
+		t.Run(fmt.Sprintf("text_%d", len(text)), func(t *testing.T) {
+			body := []byte(`{"input":"hello"`)
+			if text != "" {
+				body = append(body, []byte(`,"text":`+text)...)
+			}
+			body = append(body, '}')
+			_, call, err := DecodeRequest(body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if call.Options.ResponseMIMEType != "" {
+				t.Fatalf("mime = %q, want absent", call.Options.ResponseMIMEType)
+			}
+		})
 	}
 }

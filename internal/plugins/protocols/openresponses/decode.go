@@ -358,7 +358,7 @@ func DecodeRequest(data []byte, configured ...Limits) (*WireResponseParam, lipap
 		})
 	}
 
-	responseMIME, err := decodeTextFormat(param.Text)
+	responseMIME, err := DecodeTextFormat(param.Text)
 	if err != nil {
 		return nil, lipapi.Call{}, err
 	}
@@ -450,30 +450,53 @@ func validReasoningEffort(effort string) bool {
 		return false
 }
 
-// decodeTextFormat accepts only the pinned text.format variants that have an
-// exact canonical carrier. json_schema has no canonical name/schema/strict/
-// description carrier, so it is intentionally rejected rather than narrowed.
+// decodeTextFormat validates the pinned text control and returns its canonical
+// MIME type. Empty text controls and null format are equivalent to omission.
+// The canonical contract has no carrier for any other text-level or format
+// fields, so they are rejected before execution.
 func decodeTextFormat(raw json.RawMessage) (string, error) {
 	if !jsonpresence.IsPresentNonNullJSON(raw) {
 		return "", nil
 	}
-	var text struct {
-		Format json.RawMessage `json:"format"`
+	var text map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &text); err != nil || text == nil {
+		if err == nil {
+			err = fmt.Errorf("text must be a JSON object")
+		}
+		return "", fmt.Errorf("%w: %v", ErrDecodeFailed, err)
 	}
-	if err := json.Unmarshal(raw, &text); err != nil || len(text.Format) == 0 {
-		return "", fmt.Errorf("%w: text.format is required", ErrDecodeFailed)
+	if len(text) == 0 {
+		return "", nil
+	}
+	formatRaw, ok := text["format"]
+	if !ok {
+		return "", fmt.Errorf("%w: text contains unsupported fields", ErrDecodeFailed)
+	}
+	if jsonpresence.IsJSONNull(bytes.TrimSpace(formatRaw)) {
+		if len(text) == 1 {
+			return "", nil
+		}
+		return "", fmt.Errorf("%w: text contains unsupported fields", ErrDecodeFailed)
+	}
+	if len(text) != 1 {
+		return "", fmt.Errorf("%w: text contains unsupported fields", ErrDecodeFailed)
 	}
 	var format map[string]json.RawMessage
-	if err := json.Unmarshal(text.Format, &format); err != nil {
-		// Keep the raw protocol codec compatible with the pinned wire-shape
-		// characterization; frontend admission rejects this non-object shape.
-		return "", nil
+	if err := json.Unmarshal(formatRaw, &format); err != nil || format == nil {
+		if err == nil {
+			err = fmt.Errorf("text.format must be a JSON object")
+		}
+		return "", fmt.Errorf("%w: %v", ErrDecodeFailed, err)
 	}
 	if len(format) != 1 {
 		return "", fmt.Errorf("%w: text.format contains unsupported fields", ErrDecodeFailed)
 	}
+	typeRaw, ok := format["type"]
+	if !ok {
+		return "", fmt.Errorf("%w: text.format.type is required", ErrDecodeFailed)
+	}
 	var typ string
-	if err := json.Unmarshal(format["type"], &typ); err != nil {
+	if err := json.Unmarshal(typeRaw, &typ); err != nil {
 		return "", fmt.Errorf("%w: text.format.type is required", ErrDecodeFailed)
 	}
 	switch typ {
