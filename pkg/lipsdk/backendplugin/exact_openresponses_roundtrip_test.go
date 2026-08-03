@@ -150,6 +150,37 @@ func TestConvertCharacterization_LegacyPartExactReasoningRoundTrip(t *testing.T)
 	}
 }
 
+func TestConvertCharacterization_LegacyPartExactReasoningPresenceAndEmptyValues(t *testing.T) {
+	t.Parallel()
+	dialect := string(lipapi.ReasoningDialectOpenAIResponsesItemV1)
+	for _, tc := range []struct {
+		name                        string
+		summary, content, encrypted backendplugin.RawJSON
+	}{
+		{name: "absent", summary: backendplugin.RawJSONAbsentValue(), content: backendplugin.RawJSONAbsentValue(), encrypted: backendplugin.RawJSONAbsentValue()},
+		{name: "null encrypted", summary: backendplugin.RawJSONFromBytes([]byte(`[]`)), content: backendplugin.RawJSONFromBytes([]byte(`[]`)), encrypted: backendplugin.RawJSONNullValue()},
+		{name: "empty arrays", summary: backendplugin.RawJSONFromBytes([]byte(`[]`)), content: backendplugin.RawJSONFromBytes([]byte(`[]`)), encrypted: backendplugin.RawJSONFromBytes([]byte(`""`))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			part := backendplugin.Part{Kind: backendplugin.PartKindReasoning, ReasoningDialect: &dialect,
+				ReasoningText: strPtr(" exact "), ReasoningSummary: tc.summary, ReasoningContent: tc.content, ReasoningEncryptedContent: tc.encrypted}
+			inv := backendplugin.Invocation{RequestID: "r", AttemptID: "a", ALegID: "aleg", BLegID: "bleg", CanonicalModelID: "m",
+				Messages: []backendplugin.Message{{Role: backendplugin.RoleAssistant, Parts: []backendplugin.Part{part}}}}
+			wire, err := backendplugin.InvocationToProto(inv)
+			if err != nil {
+				t.Fatal(err)
+			}
+			back, err := backendplugin.InvocationFromProto(wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(inv, back) {
+				t.Fatalf("presence/value mismatch: want %#v got %#v", inv, back)
+			}
+		})
+	}
+}
+
 func TestApplyOrderedItemWire_preservesExactOpenResponsesFields(t *testing.T) {
 	t.Parallel()
 

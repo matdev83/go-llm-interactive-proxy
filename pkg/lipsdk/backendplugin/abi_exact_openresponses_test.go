@@ -198,3 +198,14 @@ func TestRequireExactOpenResponsesABISupport_incompatibleNegotiation(t *testing.
 		t.Fatalf("err=%v want ErrExactOpenResponsesUnsupported", err)
 	}
 }
+
+func TestCanonicalEventConversionRejectsInvalidExactShape(t *testing.T) {
+	t.Parallel()
+	_, err := backendplugin.CanonicalEventToProto(&backendplugin.CanonicalEvent{
+		Kind:             backendplugin.EventReasoningPart,
+		ReasoningSummary: backendplugin.RawJSONFromBytes([]byte(`{"not":"an array"}`)),
+	})
+	if err == nil {
+		t.Fatal("expected invalid summary shape rejection")
+	}
+}

@@ -426,7 +426,7 @@ func partFromProto(p *backendpluginv1.Part) (Part, error) {
 	if err != nil {
 		return Part{}, err
 	}
-	return Part{
+	part := Part{
 		Kind:                      kind,
 		Text:                      optString(p.Text),
 		ImageRef:                  optString(p.ImageRef),
@@ -440,7 +440,11 @@ func partFromProto(p *backendpluginv1.Part) (Part, error) {
 		ReasoningSummary:          reasoningSummary,
 		ReasoningContent:          reasoningContent,
 		ReasoningEncryptedContent: reasoningEncrypted,
-	}, nil
+	}
+	if err := validateExactReasoningRawFields(part.ReasoningSummary, part.ReasoningContent, part.ReasoningEncryptedContent, "Part"); err != nil {
+		return Part{}, err
+	}
+	return part, nil
 }
 
 func partToProto(p Part) (*backendpluginv1.Part, error) {
@@ -984,7 +988,7 @@ func CanonicalEventFromProto(p *backendpluginv1.CanonicalEvent) (*CanonicalEvent
 	if err != nil {
 		return nil, err
 	}
-	return &CanonicalEvent{
+	event := &CanonicalEvent{
 		Kind:                      kind,
 		MessageIndex:              optInt32(p.MessageIndex),
 		Delta:                     optString(p.Delta),
@@ -1002,13 +1006,20 @@ func CanonicalEventFromProto(p *backendpluginv1.CanonicalEvent) (*CanonicalEvent
 		ReasoningSummary:          reasoningSummary,
 		ReasoningContent:          reasoningContent,
 		ReasoningEncryptedContent: reasoningEncrypted,
-	}, nil
+	}
+	if err := validateExactReasoningRawFields(event.ReasoningSummary, event.ReasoningContent, event.ReasoningEncryptedContent, "CanonicalEvent"); err != nil {
+		return nil, err
+	}
+	return event, nil
 }
 
 // CanonicalEventToProto encodes stream events.
 func CanonicalEventToProto(e *CanonicalEvent) (*backendpluginv1.CanonicalEvent, error) {
 	if e == nil {
 		return nil, nil
+	}
+	if err := validateExactReasoningRawFields(e.ReasoningSummary, e.ReasoningContent, e.ReasoningEncryptedContent, "CanonicalEvent"); err != nil {
+		return nil, err
 	}
 	kind, err := eventKindToProto(e.Kind)
 	if err != nil {

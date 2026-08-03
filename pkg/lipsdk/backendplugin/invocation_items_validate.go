@@ -519,6 +519,9 @@ func validatePartKind(k PartKind) error {
 // the exact OpenAI Responses reasoning-item fields: summary/content must be JSON
 // arrays (null rejected), encrypted_content may be absent/null/value.
 func validateReasoningExactFields(summary, content, encrypted RawJSON, field string) error {
+	if err := validateExactReasoningRawFields(summary, content, encrypted, field); err != nil {
+		return err
+	}
 	for _, r := range []struct {
 		name string
 		raw  RawJSON
@@ -527,9 +530,7 @@ func validateReasoningExactFields(summary, content, encrypted RawJSON, field str
 		case RawJSONNull:
 			return fmt.Errorf("%w: %s %s must not be null", ErrInvalidInvocation, field, r.name)
 		case RawJSONValue:
-			if err := r.raw.Validate(DefaultMaxRawJSONBytes); err != nil {
-				return err
-			}
+			// Shape and bounds are checked by validateExactReasoningRawFields.
 		}
 	}
 	return encrypted.Validate(DefaultMaxRawJSONBytes)

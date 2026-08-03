@@ -64,6 +64,24 @@ func TestExactOpenResponsesValidate_rejectsNullReasoningSummary(t *testing.T) {
 	}
 }
 
+func TestExactOpenResponsesValidate_rejectsNonArrayReasoningFields(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []backendplugin.RawJSON{
+		backendplugin.RawJSONFromBytes([]byte(`{"type":"summary_text"}`)),
+		backendplugin.RawJSONFromBytes([]byte(`"content"`)),
+	} {
+		inv := exactItemInvocation(t)
+		dialect := string(lipapi.ReasoningDialectOpenAIResponsesItemV1)
+		inv.Items[0] = backendplugin.InvocationItem{
+			Kind: "reasoning", ID: "rs-1", Status: "completed",
+			Reasoning: &backendplugin.InvocationReasoningItem{Dialect: &dialect, Summary: raw},
+		}
+		if err := inv.Validate(); err == nil {
+			t.Fatalf("expected non-array reasoning field rejection for %#v", raw)
+		}
+	}
+}
+
 func TestExactOpenResponsesValidate_rejectsOversizedReasoningSummary(t *testing.T) {
 	t.Parallel()
 	inv := exactItemInvocation(t)

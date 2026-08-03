@@ -1,10 +1,6 @@
 package backendplugin
 
-import (
-	"strings"
-
-	backendpluginv1 "github.com/matdev83/go-llm-interactive-proxy/api/backendplugin/v1"
-)
+import backendpluginv1 "github.com/matdev83/go-llm-interactive-proxy/api/backendplugin/v1"
 
 func invocationWireFromProto(p *backendpluginv1.Invocation, inv *Invocation) error {
 	if p == nil || inv == nil {
@@ -14,7 +10,7 @@ func invocationWireFromProto(p *backendpluginv1.Invocation, inv *Invocation) err
 	inv.DeliveryMode = p.GetDeliveryMode()
 	inv.TransportMode = p.GetTransportMode()
 	inv.ItemAuthority = p.GetItemAuthority()
-	inv.PromptCacheKey = strings.TrimSpace(p.GetPromptCacheKey())
+	inv.PromptCacheKey = p.GetPromptCacheKey()
 	for _, item := range p.GetItems() {
 		mapped, err := invocationItemFromProto(item)
 		if err != nil {
@@ -36,7 +32,7 @@ func invocationWireToProto(inv Invocation, out *backendpluginv1.Invocation) erro
 	out.DeliveryMode = inv.DeliveryMode
 	out.TransportMode = inv.TransportMode
 	out.ItemAuthority = inv.ItemAuthority
-	out.PromptCacheKey = strings.TrimSpace(inv.PromptCacheKey)
+	out.PromptCacheKey = inv.PromptCacheKey
 	for _, item := range inv.Items {
 		pi, err := invocationItemToProto(item)
 		if err != nil {
