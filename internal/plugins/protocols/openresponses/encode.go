@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -88,6 +89,21 @@ func EncodeRequest(call lipapi.Call) ([]byte, error) {
 		TopP:              call.Options.TopP,
 		MaxOutputTokens:   call.Options.MaxOutputTokens,
 		ParallelToolCalls: call.Options.ParallelToolCalls,
+	}
+	if mime := strings.ToLower(strings.TrimSpace(call.Options.ResponseMIMEType)); mime != "" {
+		var typ string
+		switch mime {
+		case "text/plain":
+			typ = "text"
+		case "application/json":
+			typ = "json_object"
+		default:
+			return nil, fmt.Errorf("%w: response MIME type %q is not representable", ErrEncodeFailed, mime)
+		}
+		param.Text, err = json.Marshal(map[string]any{"format": map[string]string{"type": typ}})
+		if err != nil {
+			return nil, fmt.Errorf("%w: marshal text: %v", ErrEncodeFailed, err)
+		}
 	}
 	if call.PromptCacheKey != "" {
 		v := call.PromptCacheKey

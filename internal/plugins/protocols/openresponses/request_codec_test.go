@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -586,6 +587,51 @@ func TestWireResponseParam_OmitsNilOptionalPointers(t *testing.T) {
 	for _, field := range []string{"model", "instructions", "parallel_tool_calls", "temperature", "top_p", "max_output_tokens", "max_tool_calls", "truncation", "store", "background", "previous_response_id", "service_tier", "safety_identifier", "prompt_cache_key", "prompt_cache_retention", "include", "presence_penalty", "frequency_penalty", "top_logprobs", "stream_options"} {
 		if bytes.Contains(data, []byte(`"`+field+`":null`)) {
 			t.Fatalf("nil optional field %q serialized as null: %s", field, data)
+		}
+	}
+}
+
+func TestDecodeRequestTextFormatLosslessSubset(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		text string
+		mime string
+	}{
+		{name: "text", text: `{"format":{"type":"text"}}`, mime: "text/plain"},
+		{name: "json_object", text: `{"format":{"type":"json_object"}}`, mime: "application/json"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, call, err := DecodeRequest([]byte(`{"input":"hello","text":` + tc.text + `}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if call.Options.ResponseMIMEType != tc.mime {
+				t.Fatalf("mime = %q, want %q", call.Options.ResponseMIMEType, tc.mime)
+			}
+			encoded, err := EncodeRequest(call)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(encoded, &got); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got["text"], map[string]any{"format": map[string]any{"type": tc.name}}) {
+				t.Fatalf("text = %#v", got["text"])
+			}
+		})
+	}
+}
+
+func TestDecodeRequestRejectsUnsupportedTextFormatShape(t *testing.T) {
+	for _, text := range []string{
+		`{"format":{"type":"json_schema","name":"x","schema":{}}}`,
+		`{"format":{"type":"text","verbosity":"high"}}`,
+		`{"format":{"type":"json_object","extra":true}}`,
+	} {
+		_, _, err := DecodeRequest([]byte(`{"input":"hello","text":` + text + `}`))
+		if err == nil {
+			t.Fatalf("expected rejection for text %s", text)
 		}
 	}
 }

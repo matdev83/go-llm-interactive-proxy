@@ -358,6 +358,11 @@ func DecodeRequest(data []byte, configured ...Limits) (*WireResponseParam, lipap
 		})
 	}
 
+	responseMIME, err := decodeTextFormat(param.Text)
+	if err != nil {
+		return nil, lipapi.Call{}, err
+	}
+
 	// Decode tool_choice
 	var toolChoice lipapi.ToolChoice
 	if jsonpresence.IsPresentNonNullJSON(param.ToolChoice) {
@@ -379,6 +384,7 @@ func DecodeRequest(data []byte, configured ...Limits) (*WireResponseParam, lipap
 		MaxOutputTokens:   param.MaxOutputTokens,
 		ParallelToolCalls: param.ParallelToolCalls,
 		ReasoningEffort:   reasoningEffort,
+		ResponseMIMEType:  responseMIME,
 	}
 
 	call := lipapi.Call{
@@ -442,6 +448,41 @@ func validReasoningEffort(effort string) bool {
 		return true
 	default:
 		return false
+}
+
+// decodeTextFormat accepts only the pinned text.format variants that have an
+// exact canonical carrier. json_schema has no canonical name/schema/strict/
+// description carrier, so it is intentionally rejected rather than narrowed.
+func decodeTextFormat(raw json.RawMessage) (string, error) {
+	if !jsonpresence.IsPresentNonNullJSON(raw) {
+		return "", nil
+	}
+	var text struct {
+		Format json.RawMessage `json:"format"`
+	}
+	if err := json.Unmarshal(raw, &text); err != nil || len(text.Format) == 0 {
+		return "", fmt.Errorf("%w: text.format is required", ErrDecodeFailed)
+	}
+	var format map[string]json.RawMessage
+	if err := json.Unmarshal(text.Format, &format); err != nil {
+		// Keep the raw protocol codec compatible with the pinned wire-shape
+		// characterization; frontend admission rejects this non-object shape.
+		return "", nil
+	}
+	if len(format) != 1 {
+		return "", fmt.Errorf("%w: text.format contains unsupported fields", ErrDecodeFailed)
+	}
+	var typ string
+	if err := json.Unmarshal(format["type"], &typ); err != nil {
+		return "", fmt.Errorf("%w: text.format.type is required", ErrDecodeFailed)
+	}
+	switch typ {
+	case "text":
+		return "text/plain", nil
+	case "json_object":
+		return "application/json", nil
+	default:
+		return "", fmt.Errorf("%w: text.format.type %q is not supported", ErrDecodeFailed, typ)
 	}
 }
 

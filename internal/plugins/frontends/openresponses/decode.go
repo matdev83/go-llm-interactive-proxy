@@ -362,13 +362,34 @@ var createUnsupportedControls = []unsupportedControl{
 	{"frequency_penalty", func(p *proto.WireResponseParam) bool { return p.FrequencyPenalty != nil }},
 	{"stream_options", func(p *proto.WireResponseParam) bool { return isPresentNonNullJSON(p.StreamOptions) }},
 	{"top_logprobs", func(p *proto.WireResponseParam) bool { return p.TopLogprobs != nil }},
-	{"text", func(p *proto.WireResponseParam) bool { return isPresentNonNullJSON(p.Text) }},
+	{"text", func(p *proto.WireResponseParam) bool { return !supportedTextFormat(p.Text) }},
 	{"truncation", func(p *proto.WireResponseParam) bool { return p.Truncation != nil }},
 	{"service_tier", func(p *proto.WireResponseParam) bool { return p.ServiceTier != nil }},
 	{"safety_identifier", func(p *proto.WireResponseParam) bool { return p.SafetyIdentifier != nil }},
 	{"prompt_cache_key", func(p *proto.WireResponseParam) bool { return p.PromptCacheKey != nil }},
 	{"prompt_cache_retention", func(p *proto.WireResponseParam) bool { return p.PromptCacheRetention != nil }},
 	{"max_tool_calls", func(p *proto.WireResponseParam) bool { return p.MaxToolCalls != nil }},
+}
+
+func supportedTextFormat(raw json.RawMessage) bool {
+	if !isPresentNonNullJSON(raw) {
+		return true
+	}
+	var text struct {
+		Format json.RawMessage `json:"format"`
+	}
+	if json.Unmarshal(raw, &text) != nil || len(text.Format) == 0 {
+		return false
+	}
+	var f map[string]json.RawMessage
+	if json.Unmarshal(text.Format, &f) != nil || len(f) != 1 {
+		return false
+	}
+	var typ string
+	if json.Unmarshal(f["type"], &typ) != nil {
+		return false
+	}
+	return typ == "text" || typ == "json_object"
 }
 
 // compactUnsupportedControls are the request controls absent from the pinned

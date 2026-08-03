@@ -148,3 +148,14 @@ Fields the pinned profile does **not** define are rejected rather than dropped:
   rejected before canonical construction.
 
 Explicit `null` for these fields is treated as absent.
+## Create `text.format` support
+
+The pinned generated create schema supports `text.format` with the lossless
+subset `{"type":"text"}` and `{"type":"json_object"}`. These map to the
+canonical response MIME types `text/plain` and `application/json`, and are
+forwarded by the compatible backend with the same shape. `json_schema` is not
+supported: the canonical model has no carriers for its `name`, `schema`,
+`strict`, or `description`, so narrowing it would lose information. Unknown
+format fields, invalid objects, and `text.verbosity` are rejected at frontend
+admission before executor/network activity. Omitted and null `text` remain
+accepted as absent according to the pinned schema.
