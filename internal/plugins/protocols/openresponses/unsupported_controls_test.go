@@ -23,7 +23,6 @@ var unsupportedRequestControls = []struct {
 	{"frequency_penalty", `0.5`},
 	{"stream_options", `{"include_obfuscation":true}`},
 	{"top_logprobs", `1`},
-	{"text", `{"format":"json_object"}`},
 	{"truncation", `"auto"`},
 	{"service_tier", `"auto"`},
 	{"safety_identifier", `"safety_001"`},

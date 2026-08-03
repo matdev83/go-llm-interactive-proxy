@@ -448,6 +448,7 @@ func validReasoningEffort(effort string) bool {
 		return true
 	default:
 		return false
+	}
 }
 
 // decodeTextFormat validates the pinned text control and returns its canonical
