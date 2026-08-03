@@ -268,6 +268,18 @@ type officialSuiteResult struct {
 	} `json:"results"`
 }
 
+// officialSuiteCaseIDs is the authoritative 17-case list vendored with the
+// pinned upstream runner. Keep this list explicit so a smaller or duplicated
+// result set cannot pass on summary counts alone.
+var officialSuiteCaseIDs = [...]string{
+	"basic-response", "assistant-phase", "response-output-phase-schema",
+	"streaming-response", "websocket-response", "websocket-sequential-responses",
+	"websocket-continuation", "websocket-reconnect-store-false-recovery",
+	"websocket-previous-response-not-found", "websocket-failed-continuation-evicts-cache",
+	"websocket-compact-new-chain", "system-prompt", "tool-calling", "image-input",
+	"multi-turn", "compact-response", "compact-missing-model",
+}
+
 // runOfficialSuite executes the vendored official runner against baseURL and
 // returns the parsed JSON result plus the runner exit code. A non-zero exit
 // means at least one official case failed (the runner's own contract); the
@@ -378,6 +390,32 @@ func TestOfficialComplianceSuite_FullDeployment(t *testing.T) {
 	}
 	if res.Summary.Total != 17 {
 		t.Fatalf("official compliance suite reported %d cases; expected the pinned 17-case suite", res.Summary.Total)
+	}
+	if len(res.Cases) != len(officialSuiteCaseIDs) {
+		t.Fatalf("official compliance suite returned %d results; expected exactly %d", len(res.Cases), len(officialSuiteCaseIDs))
+	}
+	expected := make(map[string]struct{}, len(officialSuiteCaseIDs))
+	for _, id := range officialSuiteCaseIDs {
+		expected[id] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(res.Cases))
+	for _, c := range res.Cases {
+		if _, ok := expected[c.ID]; !ok {
+			t.Fatalf("official compliance suite returned unexpected result ID %q", c.ID)
+		}
+		if _, ok := seen[c.ID]; ok {
+			t.Fatalf("official compliance suite returned duplicate result ID %q", c.ID)
+		}
+		seen[c.ID] = struct{}{}
+		if c.Status != "passed" {
+			t.Fatalf("official compliance suite result %q has status %q; every result must pass", c.ID, c.Status)
+		}
+	}
+	if len(seen) != len(expected) {
+		t.Fatalf("official compliance suite omitted %d authoritative result ID(s)", len(expected)-len(seen))
+	}
+	if res.Summary.Passed != len(res.Cases) || res.Summary.Failed != 0 || res.Summary.Skipped != 0 || res.Summary.Total != len(res.Cases) {
+		t.Fatalf("official compliance suite summary is inconsistent: summary=%+v results=%d", res.Summary, len(res.Cases))
 	}
 	t.Logf("official compliance suite: %d/%d passed, %d failed, %d skipped", res.Summary.Passed, res.Summary.Total, res.Summary.Failed, res.Summary.Skipped)
 }
