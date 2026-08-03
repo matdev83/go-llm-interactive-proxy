@@ -70,11 +70,11 @@ func CollectEnabledCompatibleOwners(rows []config.PluginConfig) ([]pluginreg.Bac
 		if !IsCustomCompatibleBackendKind(kind) {
 			continue
 		}
-		cfg, err := config.DecodeCompatibleModeConfig(row.InstanceID(), kind, row.Config)
+		prefix, err := DecodeCompatibleBackendPrefix(kind, row)
 		if err != nil {
 			return nil, err
 		}
-		prefix := strings.TrimSpace(cfg.BackendPrefix)
+		prefix = strings.TrimSpace(prefix)
 		if err := pluginreg.ValidatePrefixSyntax(prefix); err != nil {
 			return nil, err
 		}

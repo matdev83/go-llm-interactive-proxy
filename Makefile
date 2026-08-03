@@ -1,4 +1,4 @@
-.PHONY: help test test-fast test-unit test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks parity-acp-plugin parity-cursorcliacp-plugin parity-cli-acp-plugins parity-openrouter-plugin parity-hosted-compatible-plugins parity-ollama-plugins parity-opencode-plugins parity-codex-plugins parity-local-compatible-plugins test-local-compatible-plugin-modules release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install backend-plugin-module-checks backend-plugin-absence-checks backend-plugin-security-checks backend-plugin-cross-platform-qa backend-plugin-release-gates-static backend-plugin-release-gates package-minimal package-full package-plugin-smoke docs-check knowledge-check example-config-check backend-plugin-example-check kiro-spec-check isolated-root-qa installed-plugin-smoke test-cursor-sdk-live test-cursor-sdk-live-bridge test-cursor-sdk-platform test-cursor-sdk-comparison-report tmp-clean
+.PHONY: help test test-fast test-unit test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks parity-acp-plugin parity-cursorcliacp-plugin parity-cli-acp-plugins parity-openrouter-plugin parity-hosted-compatible-plugins parity-ollama-plugins parity-opencode-plugins parity-codex-plugins parity-local-compatible-plugins test-local-compatible-plugin-modules release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install backend-plugin-module-checks backend-plugin-absence-checks backend-plugin-security-checks backend-plugin-cross-platform-qa backend-plugin-release-gates-static backend-plugin-release-gates package-minimal package-full package-plugin-smoke docs-check knowledge-check example-config-check backend-plugin-example-check kiro-spec-check isolated-root-qa installed-plugin-smoke test-cursor-sdk-live test-cursor-sdk-live-bridge test-cursor-sdk-platform test-cursor-sdk-comparison-report tmp-clean test-openresponses-compliance test-openresponses-compliance-static
 
 GO ?= go
 GO_TEST_FLAGS ?= -parallel=8 -timeout=10m
@@ -32,7 +32,7 @@ help:
 	@echo "  make bench           - benchmarks (testkit, stream, core runtime/routing/diag/toolcallrepair, frontend encoders)"
 	@echo "  make pgo-profile     - collect default.pgo from core benches (move under cmd/lipstd before build)"
 	@echo "  make pgo-build       - build cmd/lipstd (uses cmd/lipstd/default.pgo when present)"
-	@echo "  make qa              - quality-checks + one full test pass (-tags=precommit,integration) + lint + vuln + release-gates-static"
+	@echo "  make qa              - quality-checks + one full test pass (-tags=precommit,integration) + lint + vuln + release-gates-static + OpenResponses compliance static gate"
 	@echo "  make lint            - golangci-lint if installed, else staticcheck"
 	@echo "  make hooks-install   - git config core.hooksPath .githooks (pre-commit: secrets + quality gate)"
 	@echo "  make kiro-spec-check SPEC=<name> - validate a Kiro spec development gate"
@@ -189,6 +189,22 @@ else
 	$(FUZZ_WRAPPER) -fuzz=FuzzAcceptClientAppTitle$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
 	$(FUZZ_WRAPPER) -fuzz=FuzzValidateIdentityYAML$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
 	$(FUZZ_WRAPPER) -fuzz=FuzzCaptureClientUserAgent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/identitywire
+
+	# OpenResponses codec/state-machine/emulator fuzz smoke (spec Phase 8)
+	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeItem$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzSSEParser$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzStateMachine$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzResourceBuilder$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzParseResponseResource$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refclient/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzParseCompactResource$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refclient/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzParseEvent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refclient/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzParseSSE$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refclient/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzParseCreateRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refbackend/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzParseCompactRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refbackend/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzBuildStream$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refbackend/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzParseWSTurn$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refbackend/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzWebSocketDecodeTurn$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/openresponses
 
 	$(FUZZ_WRAPPER) -fuzz=FuzzCompleteJSONSuffix$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
 	$(FUZZ_WRAPPER) -fuzz=FuzzSchemaPreScanCompile$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
@@ -369,7 +385,11 @@ pgo-build:
 
 # Single test invocation matches CI (go test -tags=precommit,integration ./...) and avoids compiling twice.
 # Static release-gate wiring only (no recursive full backend-plugin-release-gates / module matrix).
-qa: quality-checks qa-tests lint vuln backend-plugin-release-gates-static
+# The OpenResponses compliance static gate (Task 8.5) verifies the wiring and the
+# release-ready evidence without re-running the huge tagged suites that qa-tests
+# already covers; the full `test-openresponses-compliance` script remains the
+# standalone Task 8.5 gate.
+qa: quality-checks qa-tests lint vuln backend-plugin-release-gates-static test-openresponses-compliance-static
 
 qa-tests:
 ifeq ($(OS),Windows_NT)
@@ -547,4 +567,26 @@ ifeq ($(OS),Windows_NT)
 	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/installed-plugin-smoke.ps1
 else
 	@bash scripts/installed-plugin-smoke.sh
+endif
+
+# OpenResponses full-path compliance suite (spec Phase 8, Task 8.5): independent
+# client -> frontend -> core -> OpenResponses backend -> independent provider,
+# the direct independent-emulator wire suites, the 45-cell matrix, and the
+# emulator boundary gates.
+test-openresponses-compliance:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-openresponses-compliance.ps1
+else
+	@bash scripts/test-openresponses-compliance.sh
+endif
+
+# Fast Task 8.5 wiring/evidence gate wired into `make qa`: verifies the
+# compliance scripts, Makefile wiring, and docs reference exist and runs the
+# default-build evidence validators plus the emulator boundary gates, without
+# re-running the huge tagged conformance/integration suites that qa-tests covers.
+test-openresponses-compliance-static:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-openresponses-compliance.ps1 -Static
+else
+	@bash scripts/test-openresponses-compliance.sh -static
 endif

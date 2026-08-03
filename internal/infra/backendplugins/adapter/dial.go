@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"slices"
 	"sync"
 
 	backendpluginv1 "github.com/matdev83/go-llm-interactive-proxy/api/backendplugin/v1"
@@ -47,8 +48,12 @@ func DialConfiguredSession(
 	}
 	client := backendpluginv1.NewBackendPluginClient(gc)
 	neg, err := client.Negotiate(ctx, &backendpluginv1.NegotiateRequest{
-		HostMajor: 1, HostMinor: backendplugin.ProtocolMinorExactReasoningParts,
-		HostFeatures:            []*backendpluginv1.Feature{{Name: backendplugin.FeatureExactReasoningParts}},
+		HostMajor: 1, HostMinor: backendplugin.ProtocolMinorExactOpenResponsesFields,
+		HostFeatures: []*backendpluginv1.Feature{
+			{Name: backendplugin.FeatureExactReasoningParts},
+			{Name: backendplugin.FeatureOrderedItems},
+			{Name: backendplugin.FeatureExactOpenResponsesFields},
+		},
 		DisableTransportRetries: true,
 	})
 	if err != nil {
@@ -72,7 +77,19 @@ func DialConfiguredSession(
 		_ = gc.Close()
 		return nil, backendplugin.ResolvedProfile{}, fmt.Errorf("adapter: configure: %w", err)
 	}
-	sess := &GRPCSession{Client: client, Conn: gc, InstanceID: instanceID}
+	enabled := append([]string(nil), neg.GetEnabledFeatures()...)
+	slices.Sort(enabled)
+	sess := &GRPCSession{
+		Client:          client,
+		Conn:            gc,
+		InstanceID:      instanceID,
+		NegotiatedMinor: neg.GetNegotiatedMinor(),
+		negotiation: backendplugin.Negotiation{
+			Compatible:      true,
+			NegotiatedMinor: neg.GetNegotiatedMinor(),
+			EnabledFeatures: enabled,
+		},
+	}
 	profile, err := sess.Resolve(ctx, nil)
 	if err != nil {
 		_ = sess.Close(ctx)

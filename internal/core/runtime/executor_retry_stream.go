@@ -73,6 +73,7 @@ type retryRecvStream struct {
 
 	lastHardReject           lipapi.NegotiationResult
 	lastHardTransportReject  lipapi.TransportNegotiationResult
+	lastAdmissionErr         error
 	isContextLimitExhaustion bool
 	transformExcludes        transformExcludeTracker
 

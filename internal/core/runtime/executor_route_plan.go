@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -24,8 +25,10 @@ type routePlanState struct {
 	affinitySet            bool
 	interleaved            interleavedstate.State
 	rng                    routing.Rng
+	failoverReq            capabilities.FailoverRequirementSet
 	lastReject             lipapi.NegotiationResult
 	lastTransportReject    lipapi.TransportNegotiationResult
+	lastAdmissionErr       error
 	contextLimitExhaustion bool
 	lastParallelFailure    error
 	transformExcludes      transformExcludeTracker
@@ -74,5 +77,6 @@ func (e *Executor) buildRoutePlan(ctx context.Context, prep *preparedRequest) (*
 		affinitySet: affinityKeyOK,
 		interleaved: interleaved,
 		rng:         e.rng(),
+		failoverReq: capabilities.NewFailoverRequirementSet(prep.baseline),
 	}, nil
 }

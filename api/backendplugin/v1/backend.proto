@@ -47,6 +47,7 @@ enum Role {
   ROLE_USER = 2;
   ROLE_ASSISTANT = 3;
   ROLE_TOOL = 4;
+  ROLE_DEVELOPER = 5;
 }
 
 enum PartKind {
@@ -58,6 +59,14 @@ enum PartKind {
   PART_KIND_TOOL_CALL = 5;
   PART_KIND_TOOL_RESULT = 6;
   PART_KIND_JSON = 7;
+  PART_KIND_VIDEO_REF = 8;
+  PART_KIND_REFUSAL = 9;
+  PART_KIND_SUMMARY = 10;
+  PART_KIND_ANNOTATION = 11;
+  PART_KIND_ASSISTANT_REF = 12;
+  // PART_KIND_EXTENSION is an opaque vendor-prefixed custom content part
+  // preserved losslessly (minor >= 3, feature exact_openresponses_fields).
+  PART_KIND_EXTENSION = 13;
 }
 
 enum ErrorCode {
@@ -196,6 +205,21 @@ message CapabilitySummary {
   bool reasoning = 6;
   bool reasoning_replay = 7;
   bool parallel_tool_calls = 8;
+  bool ordered_items = 9;
+  bool item_references = 10;
+  bool compaction = 11;
+  bool assistant_phase = 12;
+  bool opaque_extensions = 13;
+  bool video_input = 14;
+  bool annotations = 15;
+  bool assistant_media_refs = 16;
+}
+
+message DialectSupportWire {
+  repeated DialectRequirementWire item_dialects = 1;
+  repeated DialectRequirementWire reasoning_dialects = 2;
+  repeated DialectRequirementWire compaction_dialects = 3;
+  repeated ExtensionRequirementWire extension_types = 4;
 }
 
 message TransportCapabilitySummary {
@@ -262,6 +286,7 @@ message ResolvedProfile {
   bool supports_dynamic_inventory = 9;
   string evidence_source = 10;
   string profile_version = 11;
+  DialectSupportWire dialect_support = 12;
 }
 
 message ListModelsRequest {
@@ -352,6 +377,129 @@ message Invocation {
   optional string tool_choice = 10;
   GenerationOptions options = 11;
   map<string, string> safe_metadata = 12;
+  string operation = 13;
+  string delivery_mode = 14;
+  string transport_mode = 15;
+  bool item_authority = 16;
+  repeated InvocationItem items = 17;
+  ProtocolRequirementsWire protocol_requirements = 18;
+  // prompt_cache_key is a proxy-carried prompt-caching hint (minor >= 3,
+  // feature exact_openresponses_fields). Never forwarded to legacy ABIs.
+  string prompt_cache_key = 19;
+}
+
+message ProtocolRequirementsWire {
+  repeated string capabilities = 1;
+  repeated DialectRequirementWire item_dialects = 2;
+  repeated DialectRequirementWire reasoning_dialects = 3;
+  repeated DialectRequirementWire compaction_dialects = 4;
+  repeated ExtensionRequirementWire extension_types = 5;
+}
+
+message DialectRequirementWire {
+  string kind = 1;
+  string dialect = 2;
+  string implementor = 3;
+}
+
+message ExtensionRequirementWire {
+  string namespace = 1;
+  string type = 2;
+  string implementor = 3;
+}
+
+message InvocationItem {
+  string kind = 1;
+  string id = 2;
+  string status = 3;
+  Role role = 4;
+  string phase = 5;
+  repeated InvocationContentPart content = 6;
+  InvocationToolCall tool_call = 7;
+  InvocationToolResult tool_result = 8;
+  InvocationItemReference item_reference = 9;
+  InvocationReasoningItem reasoning = 10;
+  InvocationCompactionItem compaction = 11;
+  InvocationExtensionItem extension = 12;
+}
+
+message InvocationItemReference {
+  string id = 1;
+}
+
+message InvocationReasoningItem {
+  optional string dialect = 1;
+  optional string text = 2;
+  RawJSONValue opaque = 3;
+  optional string signature = 4;
+  // Exact OpenAI Responses reasoning-item fields (minor >= 3, feature
+  // exact_openresponses_fields). Presence: absent vs null vs value.
+  RawJSONValue summary = 5;
+  RawJSONValue content = 6;
+  RawJSONValue encrypted_content = 7;
+}
+
+message InvocationCompactionItem {
+  string dialect = 1;
+  string implementor = 2;
+  RawJSONValue opaque = 3;
+  optional string encapsulated_id = 4;
+  // Exact provider compaction blob (minor >= 3, feature exact_openresponses_fields).
+  optional string encrypted_content = 5;
+}
+
+message InvocationExtensionItem {
+  string namespace = 1;
+  string type = 2;
+  string implementor = 3;
+  RawJSONValue opaque = 4;
+  optional string direction = 5;
+}
+
+message InvocationContentPart {
+  PartKind kind = 1;
+  optional string text = 2;
+  optional string image_ref = 3;
+  optional string file_ref = 4;
+  optional string video_ref = 5;
+  optional string reasoning_dialect = 6;
+  optional string reasoning_text = 7;
+  RawJSONValue reasoning_opaque = 8;
+  optional string refusal = 9;
+  optional string summary = 10;
+  optional string annotation_type = 11;
+  RawJSONValue annotation_data = 12;
+  optional string assistant_ref = 13;
+  optional string image_mime = 14;
+  optional string file_mime = 15;
+  optional string file_name = 16;
+  optional string video_mime = 17;
+  optional string reasoning_signature = 18;
+  // Exact OpenAI Responses content-part fields (minor >= 3, feature
+  // exact_openresponses_fields). Presence: absent vs null vs value.
+  optional string file_data = 19;
+  optional string extension_type = 20;
+  RawJSONValue extension_data = 21;
+  RawJSONValue reasoning_summary = 22;
+  RawJSONValue reasoning_content = 23;
+  RawJSONValue reasoning_encrypted_content = 24;
+  // Canonical extension identity metadata. These do not alter OpenResponses
+  // wire data; the object in extension_data remains the lossless carrier.
+  optional string extension_namespace = 25;
+  optional string extension_implementor = 26;
+}
+
+message InvocationToolCall {
+  string call_id = 1;
+  string name = 2;
+  RawJSONValue arguments = 3;
+}
+
+message InvocationToolResult {
+  string call_id = 1;
+  string name = 2;
+  optional string output = 3;
+  repeated InvocationContentPart structured_parts = 4;
 }
 
 message Message {
@@ -370,6 +518,11 @@ message Part {
   optional string tool_name = 8;
   optional string reasoning_dialect = 9;
   RawJSONValue reasoning_opaque = 10;
+  // Exact OpenAI Responses reasoning-item fields (minor >= 3, feature
+  // exact_openresponses_fields). Presence: absent vs null vs value.
+  RawJSONValue reasoning_summary = 11;
+  RawJSONValue reasoning_content = 12;
+  RawJSONValue reasoning_encrypted_content = 13;
 }
 
 message ToolDef {
@@ -411,6 +564,11 @@ message CanonicalEvent {
   optional string file_ref = 12;
   optional string reasoning_dialect = 13;
   bytes reasoning_opaque = 14;
+  // Exact OpenAI Responses reasoning-item fields (minor >= 3, feature
+  // exact_openresponses_fields). Presence: absent vs null vs value.
+  RawJSONValue reasoning_summary = 15;
+  RawJSONValue reasoning_content = 16;
+  RawJSONValue reasoning_encrypted_content = 17;
 }
 
 message Terminal {

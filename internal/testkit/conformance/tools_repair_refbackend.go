@@ -84,6 +84,15 @@ func NewToolCallRepairRefBackend(tb testing.TB, backendID string) *httptest.Serv
 		srv := httptest.NewServer(refbedrock.NewHandler(refbedrock.Config{StreamEvents: bedrockToolStreamTruncated(tb)}))
 		tb.Cleanup(srv.Close)
 		return srv
+	case BackendOpenResponses, BackendOpenRouter, BackendNVIDIA:
+		srv := httptest.NewServer(&providerModeOrigin{
+			responses: refopenairesponses.NewHandler(refopenairesponses.Config{
+				AllowMissingBearer: true,
+				StreamSSE:          openAICompatToolResponsesTruncatedSSE(DefaultModel(backendID), `{"city":"NYC"`),
+			}),
+		})
+		tb.Cleanup(srv.Close)
+		return srv
 	default:
 		tb.Fatalf("no truncated tool-call-repair refbackend for %q", backendID)
 		return nil
@@ -95,18 +104,26 @@ func openAICompatToolResponsesTruncatedSSE(model, truncArgs string) string {
 		event   string
 		payload any
 	}{
+		{"response.created", map[string]any{
+			"type": "response.created", "sequence_number": 0,
+			"response": map[string]any{"id": "r_tool", "object": "response", "status": "in_progress", "model": model, "output": []any{}},
+		}},
 		{"response.output_item.added", map[string]any{
-			"type": "response.output_item.added", "sequence_number": 0, "output_index": 0,
+			"type": "response.output_item.added", "sequence_number": 1, "output_index": 0,
 			"item": map[string]any{"type": "function_call", "id": "fc_int_t", "call_id": "call_fc", "name": "get_weather", "status": "in_progress"},
 		}},
 		{"response.function_call_arguments.delta", map[string]any{
-			"type": "response.function_call_arguments.delta", "sequence_number": 1, "item_id": "fc_int_t", "output_index": 0, "delta": truncArgs,
+			"type": "response.function_call_arguments.delta", "sequence_number": 2, "item_id": "fc_int_t", "output_index": 0, "delta": truncArgs,
 		}},
 		{"response.function_call_arguments.done", map[string]any{
-			"type": "response.function_call_arguments.done", "sequence_number": 2, "item_id": "fc_int_t", "output_index": 0, "name": "get_weather", "arguments": truncArgs,
+			"type": "response.function_call_arguments.done", "sequence_number": 3, "item_id": "fc_int_t", "output_index": 0, "name": "get_weather", "arguments": truncArgs,
+		}},
+		{"response.output_item.done", map[string]any{
+			"type": "response.output_item.done", "sequence_number": 4, "output_index": 0,
+			"item": map[string]any{"type": "function_call", "id": "fc_int_t", "name": "get_weather", "arguments": truncArgs},
 		}},
 		{"response.completed", map[string]any{
-			"type": "response.completed", "sequence_number": 3,
+			"type": "response.completed", "sequence_number": 5,
 			"response": map[string]any{
 				"id": "r_tool", "object": "response", "status": "completed", "model": model,
 				"usage": map[string]any{

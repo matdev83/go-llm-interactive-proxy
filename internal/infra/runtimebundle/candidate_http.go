@@ -177,7 +177,7 @@ func (c *CandidateHTTPCompile) Store() b2bua.Store {
 }
 func (c *CandidateHTTPCompile) StandardHTTPInput(frozen *config.Config, regs []lipsdk.Registration, route string) httpcontract.StandardHTTPInput {
 	if a := c.a(); a != nil {
-		return buildStandardHTTPInput(a, frozen, regs, route)
+		return buildStandardHTTPInput(a, frozen, regs, route, nil)
 	}
 	return httpcontract.StandardHTTPInput{}
 }

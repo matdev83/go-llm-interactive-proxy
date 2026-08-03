@@ -87,7 +87,6 @@ func TestConvertCharacterization_EnumValuesRoundTrip(t *testing.T) {
 		backendplugin.PartKindImageRef,
 		backendplugin.PartKindFileRef,
 		backendplugin.PartKindReasoning,
-		backendplugin.PartKindToolCall,
 		backendplugin.PartKindToolResult,
 		backendplugin.PartKindJSON,
 	}
@@ -160,7 +159,11 @@ func TestConvertCharacterization_EnumValuesRoundTrip(t *testing.T) {
 		messageRoundTrip(t, "role_"+string(role), role, backendplugin.PartKindText)
 	}
 	for _, kind := range partKinds {
-		messageRoundTrip(t, "part_"+string(kind), backendplugin.RoleUser, kind)
+		role := backendplugin.RoleUser
+		if kind == backendplugin.PartKindReasoning {
+			role = backendplugin.RoleAssistant
+		}
+		messageRoundTrip(t, "part_"+string(kind), role, kind)
 	}
 	for _, code := range errorCodes {
 		pluginErrorRoundTrip(t, "error_"+string(code), code)
@@ -238,7 +241,9 @@ func messageRoundTrip(t *testing.T, name string, role backendplugin.Role, kind b
 		case backendplugin.PartKindFileRef:
 			part.FileRef = new("file://1")
 		case backendplugin.PartKindReasoning:
+			d := "openai.chat.text.v1"
 			part.ReasoningText = new("think")
+			part.ReasoningDialect = &d
 		case backendplugin.PartKindToolCall:
 			part.ToolCallID = new("tc1")
 			part.ToolName = new("tool")
@@ -475,8 +480,12 @@ func TestConvertCharacterization_FullyPopulatedInvocation(t *testing.T) {
 				{Kind: backendplugin.PartKindText, Text: &text},
 				{Kind: backendplugin.PartKindImageRef, ImageRef: new("img://x")},
 				{Kind: backendplugin.PartKindFileRef, FileRef: new("file://x")},
-				{Kind: backendplugin.PartKindReasoning, ReasoningText: new("chain")},
 				{Kind: backendplugin.PartKindJSON, ToolArgsJSON: backendplugin.RawJSONFromBytes([]byte(`{"x":1}`))},
+			},
+		}, {
+			Role: backendplugin.RoleAssistant,
+			Parts: []backendplugin.Part{
+				{Kind: backendplugin.PartKindReasoning, ReasoningText: new("chain"), ReasoningDialect: new("openai.chat.text.v1")},
 			},
 		}},
 		Tools: []backendplugin.ToolDef{{

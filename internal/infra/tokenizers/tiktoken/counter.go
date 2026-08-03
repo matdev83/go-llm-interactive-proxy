@@ -175,27 +175,19 @@ func (c *Counter) count(ctx context.Context, model, text string, input bool) (ap
 }
 
 func countCallTokens(ctx context.Context, codec tiktokenlib.Codec, imageEstimator imageestimator.Estimator, call lipapi.Call) (int, error) {
-	// OpenAI-compatible chat framing is an estimator: per-message overhead plus assistant reply priming.
+	// OpenAI-compatible chat framing is an estimator: per-item overhead plus assistant reply priming.
 	tokens := chatReplyPriming
-	for i, message := range call.Instructions {
+	items := lipapi.NormalizedItems(call)
+	for i, item := range items {
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
-		messageTokens, err := countMessageTokens(ctx, codec, imageEstimator, message, fmt.Sprintf("Instructions[%d]", i))
+		path := fmt.Sprintf("Items[%d]", i)
+		itemTokens, err := countItemTokens(ctx, codec, imageEstimator, item, path)
 		if err != nil {
 			return 0, err
 		}
-		tokens += messageTokens
-	}
-	for i, message := range call.Messages {
-		if err := ctx.Err(); err != nil {
-			return 0, err
-		}
-		messageTokens, err := countMessageTokens(ctx, codec, imageEstimator, message, fmt.Sprintf("Messages[%d]", i))
-		if err != nil {
-			return 0, err
-		}
-		tokens += messageTokens
+		tokens += itemTokens
 	}
 	for i, tool := range call.Tools {
 		if err := ctx.Err(); err != nil {
@@ -224,80 +216,158 @@ func countCallTokens(ctx context.Context, codec tiktokenlib.Codec, imageEstimato
 	return tokens, nil
 }
 
-func countMessageTokens(ctx context.Context, codec tiktokenlib.Codec, imageEstimator imageestimator.Estimator, message lipapi.Message, path string) (int, error) {
+func countItemTokens(ctx context.Context, codec tiktokenlib.Codec, imageEstimator imageestimator.Estimator, item lipapi.Item, path string) (int, error) {
 	tokens := chatTokensPerMessage
-	// Canonical roles are counted explicitly as a stable estimator choice, not as provider-exact framing.
-	roleTokens, err := countText(codec, string(message.Role))
-	if err != nil {
-		return 0, err
+	if item.Role != "" {
+		roleTokens, err := countText(codec, string(item.Role))
+		if err != nil {
+			return 0, err
+		}
+		tokens += roleTokens
 	}
-	tokens += roleTokens
-	for i, part := range message.Parts {
+	for j, cp := range item.Content {
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
-		partTokens, err := countPartTokens(codec, imageEstimator, part, fmt.Sprintf("%s.Parts[%d]", path, i))
+		cpTokens, err := countContentPartTokens(codec, imageEstimator, cp, fmt.Sprintf("%s.Content[%d]", path, j))
 		if err != nil {
 			return 0, err
 		}
-		tokens += partTokens
+		tokens += cpTokens
 	}
-	return tokens, nil
-}
-
-func countPartTokens(codec tiktokenlib.Codec, imageEstimator imageestimator.Estimator, part lipapi.Part, path string) (int, error) {
-	switch part.Kind {
-	case lipapi.PartText:
-		return countText(codec, part.Text)
-	case lipapi.PartJSON:
-		text, err := canonicalJSON(part.Content)
-		if err != nil {
-			return 0, fmt.Errorf("%w: %s contains invalid json part content: %v", app.ErrLocalUnavailable, path, err)
+	if item.ToolCall != nil {
+		if item.ToolCall.Name != "" {
+			n, err := countText(codec, item.ToolCall.Name)
+			if err != nil {
+				return 0, err
+			}
+			tokens += n
 		}
-		return countText(codec, text)
-	case lipapi.PartImageRef:
-		tokens, err := imageEstimator.Count(imageestimator.Input{Ref: part.ImageRef, Detail: imageDetail(part.Content)})
-		if err != nil {
-			return 0, fmt.Errorf("%w: %s image estimate unavailable: %v", app.ErrLocalUnavailable, path, err)
+		if len(item.ToolCall.Arguments) > 0 {
+			n, err := countText(codec, string(item.ToolCall.Arguments))
+			if err != nil {
+				return 0, err
+			}
+			tokens += n
 		}
-		return tokens, nil
-	case lipapi.PartReasoning:
-		return countReasoningPartTokens(codec, part, path)
-	case lipapi.PartFileRef, lipapi.PartToolResult:
-		return 0, fmt.Errorf("%w: %s contains unsupported %s part for local call counting", app.ErrLocalUnavailable, path, part.Kind)
-	case "":
-		return 0, fmt.Errorf("%w: %s has empty part kind", app.ErrLocalUnavailable, path)
-	default:
-		return 0, fmt.Errorf("%w: %s contains unsupported %s part for local call counting", app.ErrLocalUnavailable, path, part.Kind)
 	}
-}
-
-// countReasoningPartTokens includes text and signature via the text encoder and opaque JSON
-// as raw UTF-8 bytes through the same encoder (opaque is not treated as natural language).
-func countReasoningPartTokens(codec tiktokenlib.Codec, part lipapi.Part, path string) (int, error) {
-	if part.Reasoning == nil {
-		return 0, fmt.Errorf("%w: %s reasoning part requires Reasoning payload", app.ErrLocalUnavailable, path)
+	if item.ToolResult != nil {
+		if item.ToolResult.Output != "" {
+			n, err := countText(codec, item.ToolResult.Output)
+			if err != nil {
+				return 0, err
+			}
+			tokens += n
+		}
+		for j, cp := range item.ToolResult.Parts {
+			if err := ctx.Err(); err != nil {
+				return 0, err
+			}
+			cpTokens, err := countContentPartTokens(codec, imageEstimator, cp, fmt.Sprintf("%s.ToolResult.Parts[%d]", path, j))
+			if err != nil {
+				return 0, err
+			}
+			tokens += cpTokens
+		}
 	}
-	tokens := 0
-	n, err := countText(codec, part.Reasoning.Text)
-	if err != nil {
-		return 0, err
+	if item.Reasoning != nil && item.Reasoning.Reasoning != nil {
+		r := item.Reasoning.Reasoning
+		if r.Text != "" {
+			n, err := countText(codec, r.Text)
+			if err != nil {
+				return 0, err
+			}
+			tokens += n
+		}
+		if r.Signature != "" {
+			n, err := countText(codec, r.Signature)
+			if err != nil {
+				return 0, err
+			}
+			tokens += n
+		}
+		if len(r.Opaque) > 0 {
+			n, err := countText(codec, string(r.Opaque))
+			if err != nil {
+				return 0, err
+			}
+			tokens += n
+		}
 	}
-	tokens += n
-	n, err = countText(codec, part.Reasoning.Signature)
-	if err != nil {
-		return 0, err
-	}
-	tokens += n
-	if len(part.Reasoning.Opaque) > 0 {
-		// Byte-faithful tokenization of opaque JSON bytes; do not canonical-rewrite provider blobs.
-		n, err = countText(codec, string(part.Reasoning.Opaque))
+	if item.Compaction != nil && len(item.Compaction.Opaque) > 0 {
+		n, err := countText(codec, string(item.Compaction.Opaque))
 		if err != nil {
 			return 0, err
 		}
 		tokens += n
 	}
 	return tokens, nil
+}
+
+func countContentPartTokens(codec tiktokenlib.Codec, imageEstimator imageestimator.Estimator, cp lipapi.ContentPart, path string) (int, error) {
+	switch cp.Kind {
+	case lipapi.ContentPartText:
+		return countText(codec, cp.Text)
+	case lipapi.ContentPartJSON:
+		var raw json.RawMessage
+		if cp.Annotation != nil && len(cp.Annotation.Data) > 0 {
+			raw = cp.Annotation.Data
+		} else {
+			raw = json.RawMessage(cp.Text)
+		}
+		text, err := canonicalJSON(raw)
+		if err != nil {
+			return 0, fmt.Errorf("%w: %s contains invalid json part content: %v", app.ErrLocalUnavailable, path, err)
+		}
+		return countText(codec, text)
+	case lipapi.ContentPartImageRef:
+		var detail string
+		if cp.Annotation != nil && len(cp.Annotation.Data) > 0 {
+			detail = imageDetail(cp.Annotation.Data)
+		}
+		tokens, err := imageEstimator.Count(imageestimator.Input{Ref: cp.ImageRef, Detail: detail})
+		if err != nil {
+			return 0, fmt.Errorf("%w: %s image estimate unavailable: %v", app.ErrLocalUnavailable, path, err)
+		}
+		return tokens, nil
+	case lipapi.ContentPartRefusal:
+		return countText(codec, cp.Refusal)
+	case lipapi.ContentPartSummary:
+		return countText(codec, cp.Summary)
+	case lipapi.ContentPartReasoning:
+		if cp.Reasoning == nil {
+			return 0, fmt.Errorf("%w: %s reasoning part requires Reasoning payload", app.ErrLocalUnavailable, path)
+		}
+		tokens := 0
+		if cp.Reasoning.Text != "" {
+			n, err := countText(codec, cp.Reasoning.Text)
+			if err != nil {
+				return 0, err
+			}
+			tokens += n
+		}
+		if cp.Reasoning.Signature != "" {
+			n, err := countText(codec, cp.Reasoning.Signature)
+			if err != nil {
+				return 0, err
+			}
+			tokens += n
+		}
+		if len(cp.Reasoning.Opaque) > 0 {
+			n, err := countText(codec, string(cp.Reasoning.Opaque))
+			if err != nil {
+				return 0, err
+			}
+			tokens += n
+		}
+		return tokens, nil
+	case lipapi.ContentPartFileRef, lipapi.ContentPartVideoRef, lipapi.ContentPartToolResult:
+		return 0, fmt.Errorf("%w: %s contains unsupported %s part for local call counting", app.ErrLocalUnavailable, path, cp.Kind)
+	case "":
+		return 0, fmt.Errorf("%w: %s has empty part kind", app.ErrLocalUnavailable, path)
+	default:
+		return 0, fmt.Errorf("%w: %s contains unsupported %s part for local call counting", app.ErrLocalUnavailable, path, cp.Kind)
+	}
 }
 
 func imageDetail(raw json.RawMessage) string {
