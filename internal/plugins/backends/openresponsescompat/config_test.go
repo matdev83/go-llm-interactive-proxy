@@ -68,8 +68,8 @@ func TestConfig_Defaults(t *testing.T) {
 	if !configHasCapability(cfg.Capabilities, lipapi.CapabilityAssistantPhase) {
 		t.Fatal("default capabilities must include assistant_phase")
 	}
-	if len(cfg.Dialects.Item) != 1 || cfg.Dialects.Item[0].Dialect != DefaultItemDialect {
-		t.Fatalf("item dialects = %+v, want [%s]", cfg.Dialects.Item, DefaultItemDialect)
+	if len(cfg.Dialects.Item) != 2 || cfg.Dialects.Item[0].Dialect != DefaultItemDialect || cfg.Dialects.Item[1].Dialect != "item_reference" {
+		t.Fatalf("item dialects = %+v, want [%s item_reference]", cfg.Dialects.Item, DefaultItemDialect)
 	}
 	if len(cfg.Dialects.Compaction) != 1 || cfg.Dialects.Compaction[0].Dialect != DefaultCompactionDialect {
 		t.Fatalf("compaction dialects = %+v, want [%s]", cfg.Dialects.Compaction, DefaultCompactionDialect)

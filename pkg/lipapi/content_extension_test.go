@@ -131,11 +131,19 @@ func TestContentPartFileRef_RequiresRefOrData(t *testing.T) {
 
 func TestContentPartExtension_ClonePreservesData(t *testing.T) {
 	t.Parallel()
-	call := callWith(itemWith(extContentPart("acme:input_file", `{"type":"acme:input_file","file_url":"https://x/f"}`)))
+	call := callWith(itemWith(lipapi.ContentPart{
+		Kind: lipapi.ContentPartExtension,
+		Extension: &lipapi.ExtensionContentPart{
+			Namespace:   "acme",
+			Type:        "acme:input_file",
+			Implementor: "acme-vendor",
+			Data:        json.RawMessage(`{"type":"acme:input_file","file_url":"https://x/f"}`),
+		},
+	}))
 	cloned := lipapi.CloneCall(call)
 	orig := call.Items[0].Content[0].Extension
 	got := cloned.Items[0].Content[0].Extension
-	if got == nil || got.Type != orig.Type || string(got.Data) != string(orig.Data) {
+	if got == nil || got.Type != orig.Type || got.Namespace != orig.Namespace || got.Implementor != orig.Implementor || string(got.Data) != string(orig.Data) {
 		t.Fatalf("clone did not preserve extension content part: %+v vs %+v", got, orig)
 	}
 	got.Data[0] = ' '

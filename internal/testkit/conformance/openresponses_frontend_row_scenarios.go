@@ -43,15 +43,20 @@ func OpenResponsesFrontendRowFeatureSuffixes() map[FeatureID]string {
 }
 
 // rowFeatureSuffix returns the scenario-ID suffix for one row feature of one
-// cell. The OpenResponses backend cell declares the compaction capability, so
-// its compaction scenario uses the positive "compaction" suffix; every other
-// row cell rejects compaction before network and keeps the "compaction-reject"
-// suffix so scenario-ID naming agrees with the evidence outcome.
+// cell. The OpenResponses backend cell declares the compaction capability and
+// the exact item_reference item dialect, so its compaction and item-reference
+// scenarios use the positive "compaction"/"itemref" suffixes; every other row
+// cell rejects those semantics before network and keeps the "-reject" suffix so
+// scenario-ID naming agrees with the evidence outcome.
 func rowFeatureSuffix(backend string, feat FeatureID) string {
-	if feat == FeatureCompaction && backend == BackendOpenResponses {
+	switch {
+	case feat == FeatureCompaction && backend == BackendOpenResponses:
 		return "compaction"
+	case feat == FeatureItemReferences && backend == BackendOpenResponses:
+		return "itemref"
+	default:
+		return OpenResponsesFrontendRowFeatureSuffixes()[feat]
 	}
-	return OpenResponsesFrontendRowFeatureSuffixes()[feat]
 }
 
 // OpenResponsesFrontendRowScenario is one executable proof for one feature of

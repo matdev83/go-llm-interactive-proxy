@@ -78,14 +78,15 @@ func columnMultimodalBody(frontend string) string {
 // unrepresentable canonical semantics in each column frontend's wire. Every
 // body is rejected at the frontend adapter boundary (before any
 // reference-backend request). The OpenResponses frontend cell is the positive
-// compaction exception (the generic backend declares the capability), so its
-// compaction body uses the positive "compaction" suffix.
+// compaction exception (the generic backend declares the capability) and the
+// positive item-reference exception (the exact item_reference item dialect is
+// declared), so those bodies use the positive "compaction"/"itemref" suffixes.
 func columnNegativeBodies(frontend string) map[string]string {
 	if frontend == FrontendOpenResponses {
 		return map[string]string{
 			"replay-reject":    `{"model":"gpt-4o-mini","store":false,"input":[{"type":"reasoning","reasoning":"think"}]}`,
 			"phase-reject":     `{"model":"gpt-4o-mini","store":false,"input":[{"type":"message","role":"assistant","phase":"in_progress","content":[{"type":"output_text","text":"x"}]}]}`,
-			"itemref-reject":   `{"model":"gpt-4o-mini","store":false,"input":[{"type":"item_reference","id":"item_1"}]}`,
+			"itemref":          `{"model":"gpt-4o-mini","store":false,"input":[{"type":"item_reference","id":"item_1"}]}`,
 			"compaction":       `{"model":"gpt-4o-mini","store":false,"input":[{"type":"compaction","prior_response_id":"resp_1"}]}`,
 			"extension-reject": `{"model":"gpt-4o-mini","store":false,"input":[{"type":"acme:telemetry","namespace":"acme","data":{"x":1}}]}`,
 		}
@@ -197,8 +198,9 @@ func runOpenResponsesBackendColumnCell(t *testing.T, frontend string) {
 	// Negatives (replay/phase/itemref/compaction/extension): rejected at the
 	// frontend adapter boundary with zero reference-backend requests. The
 	// OpenResponses frontend cell is the documented positive exception for
-	// compaction (the generic backend declares the capability); its executable
-	// scenario uses the positive "compaction" suffix.
+	// compaction (the generic backend declares the capability) and for item
+	// references (the exact item_reference item dialect is declared); its
+	// executable scenarios use the positive "compaction"/"itemref" suffixes.
 	negatives := columnNegativeBodies(fe)
 	for suffix, body := range negatives {
 		before := ref.Capture().Total()
@@ -206,12 +208,15 @@ func runOpenResponsesBackendColumnCell(t *testing.T, frontend string) {
 		if err != nil {
 			t.Fatalf("negative %s post through %s: %v", suffix, fe, err)
 		}
-		if suffix == "compaction" {
+		if suffix == "compaction" || suffix == "itemref" {
 			if status != http.StatusOK {
-				t.Fatalf("%s compaction status = %d, want 200 (compaction capability declared)", fe, status)
+				t.Fatalf("%s %s status = %d, want 200 (%s capability/dialect declared)", fe, suffix, status, suffix)
 			}
 			if ref.Capture().Total() != before+1 {
-				t.Fatalf("%s compaction refbackend request delta = %d, want exactly 1", fe, ref.Capture().Total()-before)
+				t.Fatalf("%s %s refbackend request delta = %d, want exactly 1", fe, suffix, ref.Capture().Total()-before)
+			}
+			if suffix == "itemref" && !rowOriginHasSubstring(d, BackendOpenResponses, `"item_reference"`) {
+				t.Fatalf("%s itemref reference-backend request did not carry the item reference", fe)
 			}
 			continue
 		}

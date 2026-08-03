@@ -783,6 +783,29 @@ func decodeReasoningPayload(raw []byte) (text, signature string, opaque json.Raw
 	return text, signature, opaque, nil
 }
 
+// decodeExtensionContentPart builds a canonical extension content part from a
+// vendor-prefixed wire discriminator and its verbatim wire object. An explicit
+// wire namespace/implementor is carried exactly; an absent namespace falls back
+// to the deterministic derivation from the prefixed type.
+func decodeExtensionContentPart(wireType string, raw []byte) *lipapi.ExtensionContentPart {
+	ext := &lipapi.ExtensionContentPart{
+		Type: wireType,
+		Data: cloneBytes(raw),
+	}
+	ext.Namespace = lipapi.DeriveExtensionNamespace(wireType)
+	var obj struct {
+		Namespace   string `json:"namespace"`
+		Implementor string `json:"implementor"`
+	}
+	if err := json.Unmarshal(raw, &obj); err == nil {
+		if obj.Namespace != "" {
+			ext.Namespace = obj.Namespace
+		}
+		ext.Implementor = obj.Implementor
+	}
+	return ext
+}
+
 // decodeContentParts parses wire content array into canonical []lipapi.ContentPart.
 func decodeContentParts(raw []byte) ([]lipapi.ContentPart, error) {
 	trimmed := bytes.TrimSpace(raw)
@@ -894,10 +917,7 @@ func decodeContentParts(raw []byte) ([]lipapi.ContentPart, error) {
 			// Vendor-prefixed custom content part: preserve the bounded
 			// structured payload opaquely. It is never stringified to text.
 			cp.Kind = lipapi.ContentPartExtension
-			cp.Extension = &lipapi.ExtensionContentPart{
-				Type: wPart.Type,
-				Data: cloneBytes(rp),
-			}
+			cp.Extension = decodeExtensionContentPart(wPart.Type, rp)
 		}
 
 		parts = append(parts, cp)

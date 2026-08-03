@@ -3387,6 +3387,7 @@ internal/plugins/backends/openresponsescompat/compact.go
 internal/plugins/backends/openresponsescompat/compact_mapping_test.go
 internal/plugins/backends/openresponsescompat/config.go
 internal/plugins/backends/openresponsescompat/config_test.go
+internal/plugins/backends/openresponsescompat/content_extension_admission_test.go
 internal/plugins/backends/openresponsescompat/content_representability_test.go
 internal/plugins/backends/openresponsescompat/doc.go
 internal/plugins/backends/openresponsescompat/errors.go
@@ -3395,6 +3396,7 @@ internal/plugins/backends/openresponsescompat/factory.go
 internal/plugins/backends/openresponsescompat/http.go
 internal/plugins/backends/openresponsescompat/http_test.go
 internal/plugins/backends/openresponsescompat/integration_test.go
+internal/plugins/backends/openresponsescompat/item_reference_dialect_test.go
 internal/plugins/backends/openresponsescompat/legacy.go
 internal/plugins/backends/openresponsescompat/legacy_projection_test.go
 internal/plugins/backends/openresponsescompat/lifecycle_contract_test.go
@@ -3796,6 +3798,7 @@ internal/plugins/protocols/openairesponsesitem/reasoning_envelope_fuzz_test.go
 internal/plugins/protocols/openairesponsesitem/reasoning_envelope_test.go
 internal/plugins/protocols/openresponses/compact_resource_test.go
 internal/plugins/protocols/openresponses/compaction_item_preservation_test.go
+internal/plugins/protocols/openresponses/content_extension_requirement_test.go
 internal/plugins/protocols/openresponses/content_part_mapping_test.go
 internal/plugins/protocols/openresponses/coverage_registry_test.go
 internal/plugins/protocols/openresponses/decode.go
@@ -4341,6 +4344,7 @@ pkg/lipapi/capabilities.go
 pkg/lipapi/capabilities_negotiate_test.go
 pkg/lipapi/collect_tool_test.go
 pkg/lipapi/compile_contract_test.go
+pkg/lipapi/content_extension_requirement_test.go
 pkg/lipapi/content_extension_test.go
 pkg/lipapi/dataurl.go
 pkg/lipapi/dataurl_test.go

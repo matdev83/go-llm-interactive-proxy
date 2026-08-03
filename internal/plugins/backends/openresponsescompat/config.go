@@ -491,7 +491,14 @@ func decodeCapabilities(scope string, n yaml.Node) ([]lipapi.Capability, error) 
 
 func defaultDialects() DialectConfig {
 	return DialectConfig{
-		Item:       []DialectRequirementConfig{{Dialect: DefaultItemDialect}},
+		// The pinned profile carries item_reference items verbatim, so the
+		// default item_references capability is truthful only when the exact
+		// item_reference item dialect is declared alongside the portable profile
+		// item dialect.
+		Item: []DialectRequirementConfig{
+			{Dialect: DefaultItemDialect},
+			{Dialect: "item_reference"},
+		},
 		Compaction: []DialectRequirementConfig{{Dialect: DefaultCompactionDialect}},
 	}
 }

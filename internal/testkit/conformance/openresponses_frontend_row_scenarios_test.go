@@ -221,20 +221,23 @@ func runOpenResponsesFrontendRowCell(t *testing.T, backend string) {
 
 	// Negatives (replay/phase/itemref/compaction/extension): reject before any
 	// network request. The OpenResponses backend cell is the documented positive
-	// exception for compaction (the generic backend declares the capability), so
-	// its executable scenario uses the positive "compaction" suffix; every other
-	// row cell keeps the "compaction-reject" suffix.
+	// exception for compaction (the generic backend declares the capability) and
+	// for item references (the exact item_reference item dialect is declared), so
+	// its executable scenarios use the positive "compaction"/"itemref" suffixes;
+	// every other row cell keeps the "-reject" suffix.
 	negatives := map[string]string{
 		"phase-reject":     `{"model":"gpt-4o-mini","store":false,"input":[{"type":"message","role":"assistant","phase":"in_progress","content":[{"type":"output_text","text":"x"}]}]}`,
 		"replay-reject":    `{"model":"gpt-4o-mini","store":false,"input":[{"type":"reasoning","reasoning":"think"}]}`,
 		"extension-reject": `{"model":"gpt-4o-mini","store":false,"input":[{"type":"acme:telemetry","namespace":"acme","data":{"x":1}}]}`,
-		"itemref-reject":   `{"model":"gpt-4o-mini","store":false,"input":[{"type":"item_reference","id":"item_1"}]}`,
+		"itemref":          `{"model":"gpt-4o-mini","store":false,"input":[{"type":"item_reference","id":"item_1"}]}`,
 	}
 	compactionBody := `{"model":"gpt-4o-mini","store":false,"input":[{"type":"compaction","prior_response_id":"resp_1"}]}`
 	if be == BackendOpenResponses {
 		negatives["compaction"] = compactionBody
 	} else {
 		negatives["compaction-reject"] = compactionBody
+		negatives["itemref-reject"] = negatives["itemref"]
+		delete(negatives, "itemref")
 	}
 	for suffix, body := range negatives {
 		before := d.RequestCount(be)
@@ -242,12 +245,15 @@ func runOpenResponsesFrontendRowCell(t *testing.T, backend string) {
 		if err != nil {
 			t.Fatalf("negative %s post openresponses -> %s: %v", suffix, be, err)
 		}
-		if suffix == "compaction" {
+		if suffix == "compaction" || suffix == "itemref" {
 			if status != http.StatusOK {
-				t.Fatalf("openresponses compaction status = %d, want 200 (compaction capability declared)", status)
+				t.Fatalf("openresponses %s status = %d, want 200 (%s capability/dialect declared)", suffix, status, suffix)
 			}
 			if d.RequestCount(be) != before+1 {
-				t.Fatalf("openresponses compaction request count delta = %d, want 1", d.RequestCount(be)-before)
+				t.Fatalf("openresponses %s request count delta = %d, want 1", suffix, d.RequestCount(be)-before)
+			}
+			if suffix == "itemref" && !rowOriginHasSubstring(d, be, `"item_reference"`) {
+				t.Fatalf("openresponses itemref upstream request did not carry the item reference")
 			}
 			continue
 		}

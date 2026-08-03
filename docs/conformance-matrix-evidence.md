@@ -65,7 +65,7 @@ evidence never points at a generic `-json-text` or `-usage-commitment` proof:
 | Cancellation/backpressure | blocking origin + client cancel → upstream stops, candidate untouched (candidate receives zero requests) | lossless / projection |
 | Failover | failing primary + succeeding candidate; both origin counts asserted | lossless / projection |
 | No-retry after visible output | mid-stream-death origin emits first content then dies; candidate receives zero requests | lossless / projection |
-| Reasoning replay / phase / item refs / compaction / extensions | raw unrepresentable wire form → rejected with zero upstream requests (OpenResponses backend cell: the positive `-compaction` scenario round-trips compaction losslessly) | rejected_before_network (lossless for compaction on the openresponses cell) |
+| Reasoning replay / phase / item refs / compaction / extensions | raw unrepresentable wire form → rejected with zero upstream requests (OpenResponses backend cell: the positive `-compaction` scenario round-trips compaction losslessly and the positive `-itemref` scenario round-trips item references losslessly) | rejected_before_network (lossless for compaction and item references on the openresponses cell) |
 | Assistant media output | the OpenResponses frontend has no EventAssistantImageRef/EventAssistantFileRef output mapping, so no assistant media reference output surface exists in the row configuration | out_of_scope |
 
 ## OpenResponses backend compatibility column (spec Phase 8, Task 8.4)
@@ -96,7 +96,10 @@ before any network work; no pairwise translator exists.
   scenario so evidence never points at a generic `-json-text` or
   `-usage-commitment` proof. The OpenResponses frontend cell's compaction proof
   uses the positive `-compaction` suffix (the generic backend declares the
-  compaction capability); the four legacy column cells keep `-compaction-reject`.
+  compaction capability) and its item-reference proof uses the positive
+  `-itemref` suffix (the generic backend declares the exact `item_reference`
+  item dialect); the four legacy column cells keep `-compaction-reject` and
+  `-itemref-reject`.
   `-json-text` also carries the instructions/roles and
   history evidence.
 - **Continuation is positive only for the OpenResponses frontend cell** (the

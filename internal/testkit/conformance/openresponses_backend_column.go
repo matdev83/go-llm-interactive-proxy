@@ -205,6 +205,10 @@ func openResponsesBackendColumnCellFor(frontend string) OpenResponsesBackendColu
 		"Assistant phase on input items is rejected before network with zero requests.")
 	cell.Features[FeatureItemReferences] = columnReject(frontend, FeatureItemReferences,
 		"No column cell declares a compatible item-reference dialect; item references are rejected before network with zero requests.")
+	if frontend == FrontendOpenResponses {
+		cell.Features[FeatureItemReferences] = columnLossless(frontend, FeatureItemReferences,
+			"The generic OpenResponses backend declares the exact item_reference item dialect and the pinned wire carries item_reference items verbatim; an item-reference call round-trips losslessly (the executable itemref scenario asserts the reference-backend request carries the item reference).")
+	}
 	cell.Features[FeatureCompaction] = columnReject(frontend, FeatureCompaction,
 		"Compaction input is rejected before network with zero requests.")
 	if frontend == FrontendOpenResponses {

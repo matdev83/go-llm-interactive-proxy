@@ -49,6 +49,35 @@ an explicit declaration to claim:
 
 Declaring the full default surface plus any of those is valid.
 
+## Exact dialect and extension declaration
+
+Admission is exact, not just capability-wide. A call is rejected before any
+network round trip unless the instance declares every exact dialect and
+extension type the call requires:
+
+- The default `dialects.item` list declares the portable profile item dialect
+  (`openresponses.2026-04-24`) **and** the exact `item_reference` item dialect,
+  which is what makes the default `item_references` capability truthful:
+  `item_reference` input items forward verbatim on the pinned wire.
+- Opaque extension content parts and extension items require the exact
+  namespace/type/implementor in `dialects.extensions`. The canonical namespace
+  of a vendor-prefixed wire type (`acme:widget` → `acme`) is derived
+  deterministically from the leading segment before the first `:` or `/`, so an
+  operator declares `{namespace: acme, type: acme:widget}` to admit it.
+  Structured tool-result extension parts are admitted under the same exact
+  declaration.
+
+```yaml
+dialects:
+  extensions:
+    - namespace: acme
+      type: acme:widget
+```
+
+Removing the default `item_reference` item dialect (or the exact extension
+declarations) makes the corresponding calls fail closed before any HTTP request
+instead of being silently degraded.
+
 ## Removed / rejected capabilities
 
 Two capability names are **not representable on the pinned `2026-04-24`

@@ -172,6 +172,39 @@ func extensionKey(e ExtensionRequirement) string {
 	return ns + "\x00" + typ + "\x00" + strings.ToLower(strings.TrimSpace(e.Implementor))
 }
 
+// DeriveExtensionNamespace deterministically derives the namespace of a
+// prefixed wire extension discriminator from its leading segment before the
+// first ':' or '/'. This mirrors the operator dialect declarations used by
+// exact extension admission (namespace "acme" for wire type "acme:widget").
+// Types without a separator return the whole trimmed type unchanged.
+func DeriveExtensionNamespace(wireType string) string {
+	typ := strings.TrimSpace(wireType)
+	for i := 0; i < len(typ); i++ {
+		if typ[i] == ':' || typ[i] == '/' {
+			return typ[:i]
+		}
+	}
+	return typ
+}
+
+// extensionRequirementFromContentPart derives the exact ExtensionRequirement of
+// a canonical opaque content-part extension. Namespace falls back to the
+// deterministic derivation from the prefixed Type when not carried explicitly.
+func extensionRequirementFromContentPart(e *ExtensionContentPart) ExtensionRequirement {
+	if e == nil {
+		return ExtensionRequirement{}
+	}
+	ns := strings.TrimSpace(e.Namespace)
+	if ns == "" {
+		ns = DeriveExtensionNamespace(e.Type)
+	}
+	return ExtensionRequirement{
+		Namespace:   ns,
+		Type:        e.Type,
+		Implementor: e.Implementor,
+	}
+}
+
 // DeriveProtocolRequirements derives complete protocol requirements from call shape.
 func DeriveProtocolRequirements(c Call) ProtocolRequirements {
 	req := ProtocolRequirements{
@@ -259,6 +292,7 @@ func DeriveProtocolRequirements(c Call) ProtocolRequirements {
 				req.Capabilities = append(req.Capabilities, CapabilityAssistantMediaRefs)
 			case ContentPartExtension:
 				req.Capabilities = append(req.Capabilities, CapabilityOpaqueExtensions)
+				req.ExtensionTypes = append(req.ExtensionTypes, extensionRequirementFromContentPart(cp.Extension))
 			}
 		}
 		if item.ToolResult != nil {
@@ -268,6 +302,7 @@ func DeriveProtocolRequirements(c Call) ProtocolRequirements {
 				}
 				if cp.Kind == ContentPartExtension {
 					req.Capabilities = append(req.Capabilities, CapabilityOpaqueExtensions)
+					req.ExtensionTypes = append(req.ExtensionTypes, extensionRequirementFromContentPart(cp.Extension))
 				}
 			}
 		}

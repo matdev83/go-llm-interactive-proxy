@@ -127,8 +127,11 @@ func TestBackend_ZeroNetworkRejectionForUnrepresentableContent(t *testing.T) {
 func TestBackend_FileVideoExtensionContentForwardedLosslessly(t *testing.T) {
 	t.Setenv("MY_OR_KEY", "sk-doc-secret")
 	// Declare video_input explicitly; defaults claim documents and opaque
-	// extensions so file and extension content parts are representable.
-	caps := "capabilities: [streaming, tools, vision, documents, video_input, reasoning, parallel_tool_calls, ordered_items, assistant_phase, item_references, compaction, opaque_extensions]\n"
+	// extensions so file and extension content parts are representable. The
+	// exact acme:part extension type is declared so content-part admission
+	// matches the derived extension requirement.
+	caps := "capabilities: [streaming, tools, vision, documents, video_input, reasoning, parallel_tool_calls, ordered_items, assistant_phase, item_references, compaction, opaque_extensions]\n" +
+		"dialects:\n  extensions:\n    - namespace: acme\n      type: acme:part\n"
 	be, obs := newObserverBackend(t, "api_key_env_var_root: MY_OR_KEY\n"+caps, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, completeResourceJSON)

@@ -96,9 +96,19 @@ models:
 	if len(be.BackendPrefixes) != 1 || be.BackendPrefixes[0] != "my-or" {
 		t.Fatalf("instance prefix = %#v", be.BackendPrefixes)
 	}
-	if len(be.DialectSupport.ItemDialects) != 1 {
+	itemDialects := be.DialectSupport.ItemDialects
+	if len(itemDialects) != 2 || !dialectDeclared(itemDialects, "item", DefaultItemDialect) || !dialectDeclared(itemDialects, "item", "item_reference") {
 		t.Fatalf("dialect support lost through Build: %+v", be.DialectSupport)
 	}
+}
+
+func dialectDeclared(in []lipapi.DialectRequirement, kind, dialect string) bool {
+	for _, d := range in {
+		if d.Kind == kind && d.Dialect == dialect {
+			return true
+		}
+	}
+	return false
 }
 
 // TestProviderBoundary_ConfigRejectsProviderControlsAtBuild proves the generic

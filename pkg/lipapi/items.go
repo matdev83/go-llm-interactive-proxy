@@ -69,14 +69,36 @@ type AnnotationPart struct {
 // "acme.com/part"); Data is the full raw wire part object (including its type
 // field) so encoding can emit it verbatim without stringifying the structured
 // payload.
+//
+// Namespace and Implementor are the exact ExtensionRequirement identity of the
+// part. When Namespace is empty it is derived deterministically from the
+// prefixed Type (the leading segment before the first ':' or '/'), matching the
+// operator dialect declarations used by exact admission. Namespace and
+// Implementor are canonical metadata; the wire object in Data remains the
+// authoritative lossless carrier, so an explicit namespace that diverges from
+// the deterministic derivation is merged into the emitted wire object rather
+// than silently dropped.
 type ExtensionContentPart struct {
-	Type string          `json:"type"`
-	Data json.RawMessage `json:"data,omitempty"`
+	Namespace   string          `json:"namespace,omitempty"`
+	Type        string          `json:"type"`
+	Implementor string          `json:"implementor,omitempty"`
+	Data        json.RawMessage `json:"data,omitempty"`
 }
 
 func (e *ExtensionContentPart) validate(field string) error {
 	if e == nil {
 		return &ValidationError{Field: field, Message: "extension content part is nil"}
+	}
+	if ns := strings.TrimSpace(e.Namespace); ns != "" {
+		if strings.ContainsAny(ns, " \t\r\n") {
+			return &ValidationError{Field: field + ".Namespace", Message: "extension namespace must not contain whitespace"}
+		}
+		if err := validateStringField(field+".Namespace", e.Namespace, MaxExtensionNamespaceBytes); err != nil {
+			return err
+		}
+	}
+	if err := validateStringField(field+".Implementor", e.Implementor, MaxExtensionImplementorBytes); err != nil {
+		return err
 	}
 	if strings.TrimSpace(e.Type) == "" {
 		return &ValidationError{Field: field + ".Type", Message: "extension type is required"}
