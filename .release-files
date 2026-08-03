@@ -1288,6 +1288,7 @@ docs/backend-plugins/threat_model_test.go
 docs/capability-catalogs.md
 docs/conformance-golden-coverage.md
 docs/conformance-matrix-evidence.md
+docs/connector-capability-disposition.md
 docs/controlplane-evidence.md
 docs/core-boundaries.md
 docs/cursor-sdk-backend.md
@@ -1378,6 +1379,7 @@ internal/archtest/modelregistry_boundaries_test.go
 internal/archtest/openaicompat_boundaries_test.go
 internal/archtest/opencode_boundaries_test.go
 internal/archtest/openresponses_dependency_policy_test.go
+internal/archtest/openresponses_official_manifest_test.go
 internal/archtest/openresponses_js_tool_boundary_test.go
 internal/archtest/openresponses_provider_boundary_test.go
 internal/archtest/openresponses_refbackend_boundary_test.go
@@ -3763,6 +3765,7 @@ internal/plugins/frontends/openresponses/route_test.go
 internal/plugins/frontends/openresponses/streaming.go
 internal/plugins/frontends/openresponses/streaming_seam_test.go
 internal/plugins/frontends/openresponses/streaming_test.go
+internal/plugins/frontends/openresponses/text_format_integration_test.go
 internal/plugins/frontends/openresponses/unsupported_controls_test.go
 internal/plugins/frontends/openresponses/websocket_continuation.go
 internal/plugins/frontends/openresponses/websocket_continuation_store_test.go
@@ -4508,6 +4511,7 @@ pkg/lipsdk/backendplugin/errors.go
 pkg/lipsdk/backendplugin/event_kind_validate_test.go
 pkg/lipsdk/backendplugin/exact_openresponses_bounds_test.go
 pkg/lipsdk/backendplugin/exact_openresponses_roundtrip_test.go
+pkg/lipsdk/backendplugin/exact_reasoning_validate.go
 pkg/lipsdk/backendplugin/forward_execute.go
 pkg/lipsdk/backendplugin/forward_execute_test.go
 pkg/lipsdk/backendplugin/frame_size_test.go
