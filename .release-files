@@ -4943,6 +4943,8 @@ testdata/tool-call-repair/tool_name_ambiguous.json
 testdata/tool-call-repair/tool_name_unique_normalized.json
 testdata/tool-call-repair/valid_exact.json
 tools/backendplugin/bounded_orchestration_contract_test.go
+tools/backendplugin/crossplatform_qa/compile_pool.go
+tools/backendplugin/crossplatform_qa/compile_pool_test.go
 tools/backendplugin/crossplatform_qa/main.go
 tools/backendplugin/crossplatform_qa/package_matrix_test.go
 tools/backendplugin/discover_modules/main.go
