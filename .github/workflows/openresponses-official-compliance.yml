@@ -38,7 +38,14 @@ jobs:
           cache-dependency-path: tools/openresponses-compliance/package-lock.json
 
       - name: Verify pinned official manifest
+        id: manifest
+        continue-on-error: true
         run: go test -v -run '^TestOpenResponsesOfficialVendoredManifest$' ./internal/archtest 2>&1 | tee openresponses-manifest-output.txt
+
+      - name: Run OpenResponses static architecture checks
+        id: static_archtest
+        continue-on-error: true
+        run: go test -timeout=8m ./internal/archtest -run 'TestOpenResponses'
 
       - name: Install pinned official suite tooling
         working-directory: tools/openresponses-compliance
@@ -82,24 +89,37 @@ jobs:
         shell: bash
         env:
           SUITE_OUTCOME: ${{ steps.suite.outcome }}
+          MANIFEST_OUTCOME: ${{ steps.manifest.outcome }}
+          STATIC_ARCHTEST_OUTCOME: ${{ steps.static_archtest.outcome }}
         run: |
-          set -euo pipefail
-          test -s openresponses-official-output.txt || { echo 'official suite produced no output' >&2; exit 1; }
-          if grep -Eq 'SKIPPED|skipped [1-9]|no `node` binary|dependencies are not installed|reported zero cases' openresponses-official-output.txt; then
-            echo 'official suite skipped or tooling was missing' >&2
-            exit 1
-          fi
-          grep -Eq 'official compliance suite: 17/17 passed, 0 failed, 0 skipped' openresponses-official-output.txt || {
-            echo 'expected exact 17-case passing summary was not found' >&2
-            exit 1
-          }
-          printf 'suite_outcome=%s\n' "$SUITE_OUTCOME" >> openresponses-official-evidence.txt
-          printf 'tested_sha=%s\n' "$(git rev-parse HEAD)" >> openresponses-official-evidence.txt
-          sha256sum tools/openresponses-compliance/MANIFEST.json >> openresponses-official-evidence.txt
-          printf '\n--- manifest verification output ---\n' >> openresponses-official-evidence.txt
-          cat openresponses-manifest-output.txt >> openresponses-official-evidence.txt
-          printf '\n--- test output ---\n' >> openresponses-official-evidence.txt
-          cat openresponses-official-output.txt >> openresponses-official-evidence.txt
+          set -u
+          actual_sha="$(git rev-parse HEAD 2>/dev/null || printf 'unavailable')"
+          {
+            printf 'suite_outcome=%s\n' "${SUITE_OUTCOME:-unknown}"
+            printf 'manifest_outcome=%s\n' "${MANIFEST_OUTCOME:-unknown}"
+            printf 'static_archtest_outcome=%s\n' "${STATIC_ARCHTEST_OUTCOME:-unknown}"
+            printf 'tested_sha=%s\n' "$actual_sha"
+            if [ -f tools/openresponses-compliance/MANIFEST.json ]; then
+            printf 'manifest_sha256='
+              sha256sum tools/openresponses-compliance/MANIFEST.json | awk '{print $1}'
+            else
+              printf 'manifest_sha256=unavailable\n'
+            fi
+            printf 'evidence_status=diagnostic_finalized\n'
+            printf 'attestation=diagnostic_only\n'
+            printf '\n--- manifest verification output ---\n'
+            if [ -f openresponses-manifest-output.txt ]; then
+              while IFS= read -r line; do printf '%s\n' "$line"; done < openresponses-manifest-output.txt
+            else
+              printf 'manifest verification output unavailable\n'
+            fi
+            printf '\n--- test output ---\n'
+            if [ -f openresponses-official-output.txt ]; then
+              while IFS= read -r line; do printf '%s\n' "$line"; done < openresponses-official-output.txt
+            else
+              printf 'official suite output unavailable\n'
+            fi
+          } > openresponses-official-evidence.txt
           sha256sum openresponses-official-evidence.txt > openresponses-official-evidence.sha256
 
       - name: Upload immutable compliance evidence
@@ -113,6 +133,18 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
-      - name: Fail if suite failed
-        if: steps.suite.outcome != 'success'
-        run: exit 1
+      - name: Independently validate official compliance attestation
+        if: always()
+        shell: bash
+        env:
+          SUITE_OUTCOME: ${{ steps.suite.outcome }}
+          MANIFEST_OUTCOME: ${{ steps.manifest.outcome }}
+          STATIC_ARCHTEST_OUTCOME: ${{ steps.static_archtest.outcome }}
+        run: |
+          set -euo pipefail
+          test "$MANIFEST_OUTCOME" = success
+          test "$STATIC_ARCHTEST_OUTCOME" = success
+          test "$SUITE_OUTCOME" = success
+          test -s openresponses-official-output.txt
+          ! grep -Eiq 'SKIPPED|skipped [1-9]|no `node` binary|dependencies are not installed|reported zero cases|tooling' openresponses-official-output.txt
+          grep -Eq 'official compliance suite: 17/17 passed, 0 failed, 0 skipped' openresponses-official-output.txt
