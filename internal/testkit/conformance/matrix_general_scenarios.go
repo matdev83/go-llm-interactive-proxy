@@ -164,6 +164,11 @@ func matrix45GeneralFeatures(frontend, backend string) map[FeatureID]FeatureEvid
 			"ACP v1 prompt-turn subset rejects tools before any network request; the executable tools scenario asserts zero upstream requests.")
 		cell[FeatureMultimodal] = projection(FeatureMultimodal,
 			"Image input projects to ACP resource prompt blocks (the executable multimodal scenario round-trips with upstream resource projection); unrepresentable forms (video/audio) are rejected before network.")
+	case backend == BackendOpenRouter || backend == BackendNVIDIA:
+		cell[FeatureTools] = reject(FeatureTools,
+			"The OpenRouter/NVIDIA connector executables advertise streaming-only capabilities, so canonical tools are rejected before any network request by the host-adapter backend admission; the executable tools scenario asserts zero upstream requests.")
+		cell[FeatureMultimodal] = reject(FeatureMultimodal,
+			"The OpenRouter/NVIDIA connector executables advertise streaming-only capabilities (no vision), so multimodal input is rejected before any network request by the host-adapter backend admission; the executable multimodal scenario asserts zero upstream requests.")
 	case native:
 		cell[FeatureTools] = lossless(FeatureTools,
 			"The native tool surface round-trips losslessly through the canonical trajectory (executable tools round trip).")
@@ -210,16 +215,17 @@ func matrix45GeneralFeatures(frontend, backend string) map[FeatureID]FeatureEvid
 // general matrix cell.
 //
 // Backends that emit canonical EventAssistantImageRef/EventAssistantFileRef
-// events from their native wire (openai-responses, anthropic, gemini, and the
-// configured OpenAI-compatible provider-mode route for openrouter/nvidia) are
+// events from their native wire (openai-responses, anthropic, gemini) are
 // positive: the executable assistant-media scenario drives the origin to emit
 // assistant media and asserts the actual client wire carries the media
 // reference with exactly one upstream request. Same-wire cells are lossless;
 // cross-protocol cells preserve the reference through the target wire
 // (projection).
 //
-// Backends whose native wire cannot represent assistant media output
-// (openai-legacy chat, bedrock Converse, ACP) cannot support the feature. The
+// Backends whose wire cannot represent assistant media output (openai-legacy
+// chat, bedrock Converse, ACP, and the openrouter/nvidia connectors, whose
+// stream decoder surfaces no assistant media reference output on either the
+// chat-completions or the Responses wire) cannot support the feature. The
 // executable scenario drives a canonical assistant-media-ref call through the
 // cell and asserts the executor rejects it before any network request — the
 // origin observes zero upstream requests.
@@ -231,10 +237,10 @@ func assistantMediaOutcome(frontend, backend string) (CompatibilityOutcome, stri
 		return OutcomeRejectBeforeNet, "The Bedrock Converse wire has no assistant media reference output surface in the bundled mapper; the executable assistant-media scenario drives a canonical assistant-media-ref call and asserts it is rejected before any network request (zero upstream requests)."
 	case BackendACP:
 		return OutcomeRejectBeforeNet, "The ACP v1 prompt-turn subset has no assistant media reference output surface; the executable assistant-media scenario drives a canonical assistant-media-ref call and asserts it is rejected before any network request (zero upstream requests)."
+	case BackendOpenRouter, BackendNVIDIA:
+		return OutcomeRejectBeforeNet, "The real " + backend + " connector's stream decoder surfaces no assistant media reference output on either the chat-completions or the Responses wire it selects per operation; the executable assistant-media scenario drives a canonical assistant-media-ref call and asserts it is rejected before any network request (zero upstream requests)."
 	}
-	native := frontend == backend ||
-		(backend == BackendOpenRouter && frontend == FrontendOpenAIResponses) ||
-		(backend == BackendNVIDIA && frontend == FrontendOpenAIResponses)
+	native := frontend == backend
 	if native {
 		return OutcomeLossless, "The native " + frontend + " ↔ " + backend + " wire carries assistant media references exactly; the executable assistant-media round trip asserts the client wire media reference with a single upstream request."
 	}

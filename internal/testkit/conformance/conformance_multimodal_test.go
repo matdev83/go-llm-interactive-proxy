@@ -72,10 +72,9 @@ func TestConformance_Multimodal_pdfInUpstream(t *testing.T) {
 		t.Run(cell.Frontend+"__"+cell.Backend, func(t *testing.T) {
 			t.Parallel()
 			if !multimodalPDFCellPositive(cell.Frontend, cell.Backend) {
-				// The OpenResponses profile has no document/file input surface, so
-				// cells whose frontend is OpenResponses reject before network; the
-				// generic OpenResponses backend likewise rejects canonical file parts
-				// as unrepresentable (Requirement 13.16 negative evidence).
+				// The remaining cells cannot represent the executable inline
+				// file_data PDF form on the upstream wire, so they reject before
+				// network (Requirement 13.16 negative evidence).
 				assertMultimodalPDFRejectedBeforeNetwork(t, cell.Frontend, cell.Backend)
 				return
 			}
@@ -98,14 +97,19 @@ func TestConformance_Multimodal_pdfInUpstream(t *testing.T) {
 }
 
 // multimodalPDFCellPositive reports whether a cell can represent document/file
-// input on the upstream wire. The OpenResponses frontend profile and the generic
-// OpenResponses backend have no document surface, so those cells reject before
-// network (Requirement 13.16).
+// input on the upstream wire. The generic OpenResponses backend represents
+// documents losslessly as pinned-profile input_file (CapabilityDocuments is
+// truthful end-to-end). The OpenResponses frontend accepts input_file, but the
+// executable PDF scenario drives inline file_data (base64) without a file
+// reference; legacy-message backends cannot carry inline file data through the
+// item→legacy projector, and other item backends reject the unrepresentable
+// form, so those cells reject before network (Requirement 13.16 negative
+// evidence).
 func multimodalPDFCellPositive(frontend, backend string) bool {
-	if frontend == "openresponses" {
-		return false
-	}
 	if backend == "openresponses" {
+		return true
+	}
+	if frontend == "openresponses" {
 		return false
 	}
 	return true
@@ -455,9 +459,14 @@ func assertUpstreamPDFMarker(tb testing.TB, backendID, captured string) {
 		if !strings.Contains(lower, "pdf") && !strings.Contains(lower, "document") {
 			tb.Fatalf("expected pdf/document markers in upstream body, got: %s", trim(captured, 500))
 		}
+	case BackendOpenResponses:
+		if !strings.Contains(lower, "input_file") && !strings.Contains(lower, "file_data") {
+			tb.Fatalf("expected input_file file payload in upstream body, got: %s", trim(captured, 500))
+		}
 	case BackendOpenRouter, BackendNVIDIA:
-		// The configured OpenAI-compatible provider-mode route forwards document
-		// input as the OpenAI Responses file surface.
+		// The connector-column path forwards document input through the OpenAI
+		// Responses file surface (these cells are multimodal-reject in the matrix
+		// subset, so this branch is defensive).
 		if !strings.Contains(lower, "input_file") && !strings.Contains(lower, "file_data") {
 			tb.Fatalf("expected OpenAI-compatible file payload in upstream body, got: %s", trim(captured, 500))
 		}

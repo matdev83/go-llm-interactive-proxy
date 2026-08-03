@@ -16,28 +16,40 @@ type UsageStats struct {
 
 // WireResponseParam represents the wire request body for OpenResponses POST /responses.
 type WireResponseParam struct {
-	Model                *string                    `json:"model,omitempty"`
-	Input                json.RawMessage            `json:"input"`
-	Instructions         *string                    `json:"instructions,omitempty"`
-	Tools                []WireTool                 `json:"tools,omitempty"`
-	ToolChoice           json.RawMessage            `json:"tool_choice,omitempty"`
-	ParallelToolCalls    *bool                      `json:"parallel_tool_calls,omitempty"`
-	Temperature          *float64                   `json:"temperature,omitempty"`
-	TopP                 *float64                   `json:"top_p,omitempty"`
-	MaxOutputTokens      *int                       `json:"max_output_tokens,omitempty"`
-	MaxToolCalls         *int                       `json:"max_tool_calls,omitempty"`
-	Truncation           *string                    `json:"truncation,omitempty"`
-	Text                 json.RawMessage            `json:"text,omitempty"`
-	Reasoning            json.RawMessage            `json:"reasoning,omitempty"`
-	Store                *bool                      `json:"store,omitempty"`
-	Background           *bool                      `json:"background,omitempty"`
-	PreviousResponseID   *string                    `json:"previous_response_id,omitempty"`
-	Metadata             json.RawMessage            `json:"metadata,omitempty"`
-	ServiceTier          *string                    `json:"service_tier,omitempty"`
-	SafetyIdentifier     *string                    `json:"safety_identifier,omitempty"`
-	PromptCacheKey       *string                    `json:"prompt_cache_key,omitempty"`
-	PromptCacheRetention *string                    `json:"prompt_cache_retention,omitempty"`
-	ExtraFields          map[string]json.RawMessage `json:"-"`
+	Model                *string         `json:"model,omitempty"`
+	Input                json.RawMessage `json:"input"`
+	Instructions         *string         `json:"instructions,omitempty"`
+	Tools                []WireTool      `json:"tools,omitempty"`
+	ToolChoice           json.RawMessage `json:"tool_choice,omitempty"`
+	ParallelToolCalls    *bool           `json:"parallel_tool_calls,omitempty"`
+	Temperature          *float64        `json:"temperature,omitempty"`
+	TopP                 *float64        `json:"top_p,omitempty"`
+	MaxOutputTokens      *int            `json:"max_output_tokens,omitempty"`
+	MaxToolCalls         *int            `json:"max_tool_calls,omitempty"`
+	Truncation           *string         `json:"truncation,omitempty"`
+	Text                 json.RawMessage `json:"text,omitempty"`
+	Reasoning            json.RawMessage `json:"reasoning,omitempty"`
+	Store                *bool           `json:"store,omitempty"`
+	Background           *bool           `json:"background,omitempty"`
+	PreviousResponseID   *string         `json:"previous_response_id,omitempty"`
+	Metadata             json.RawMessage `json:"metadata,omitempty"`
+	ServiceTier          *string         `json:"service_tier,omitempty"`
+	SafetyIdentifier     *string         `json:"safety_identifier,omitempty"`
+	PromptCacheKey       *string         `json:"prompt_cache_key,omitempty"`
+	PromptCacheRetention *string         `json:"prompt_cache_retention,omitempty"`
+	// Include selects additional fields to include in the response resource.
+	Include []string `json:"include,omitempty"`
+	// PresencePenalty/FrequencyPenalty/TopLogprobs are pinned standard sampling
+	// controls the canonical call cannot represent; non-null values are rejected
+	// before network by frontend admission.
+	PresencePenalty  *float64 `json:"presence_penalty,omitempty"`
+	FrequencyPenalty *float64 `json:"frequency_penalty,omitempty"`
+	TopLogprobs      *int     `json:"top_logprobs,omitempty"`
+	// StreamOptions is the pinned standard SSE transport control. It is a typed
+	// known field; non-null values are rejected before network because the
+	// canonical call has no lossless carrier.
+	StreamOptions json.RawMessage            `json:"stream_options,omitempty"`
+	ExtraFields   map[string]json.RawMessage `json:"-"`
 }
 
 // WireItem represents a single item on the wire in OpenResponses.
@@ -161,17 +173,40 @@ func (w WireItem) MarshalJSON() ([]byte, error) {
 
 // WireContentPart represents a content part inside a message or tool result on the wire.
 type WireContentPart struct {
-	Type         string          `json:"type"`
-	Text         string          `json:"text"`
-	ImageURL     json.RawMessage `json:"image_url,omitempty"`
-	FileURL      json.RawMessage `json:"file_url,omitempty"`
-	VideoURL     json.RawMessage `json:"video_url,omitempty"`
-	Refusal      string          `json:"refusal,omitempty"`
+	Type     string          `json:"type"`
+	Text     string          `json:"text"`
+	ImageURL json.RawMessage `json:"image_url,omitempty"`
+	// FileID and VideoData capture wire fields that the pinned 2026-04-24
+	// profile does not define. The decoder rejects non-null values before
+	// canonical construction so an unpinned file/video carrier is never silently
+	// dropped; the fields exist only to prove presence and are never emitted.
+	FileID    json.RawMessage `json:"file_id,omitempty"`
+	FileURL   json.RawMessage `json:"file_url,omitempty"`
+	FileData  json.RawMessage `json:"file_data,omitempty"`
+	Filename  string          `json:"filename,omitempty"`
+	VideoURL  json.RawMessage `json:"video_url,omitempty"`
+	VideoData json.RawMessage `json:"video_data,omitempty"`
+	Refusal   string          `json:"refusal,omitempty"`
+
 	Reasoning    json.RawMessage `json:"reasoning,omitempty"`
 	Summary      string          `json:"summary,omitempty"`
 	Annotations  json.RawMessage `json:"annotations,omitempty"`
 	AssistantRef string          `json:"assistant_ref,omitempty"`
 	Logprobs     json.RawMessage `json:"logprobs,omitempty"`
+	// rawExtension carries the verbatim wire object of a vendor-prefixed custom
+	// content part so encoding preserves the structured payload losslessly
+	// instead of re-flattening it through the typed struct.
+	rawExtension json.RawMessage `json:"-"`
+}
+
+// MarshalJSON emits a prefixed custom content part verbatim when the decoder
+// preserved its raw structured payload; otherwise it renders the typed struct.
+func (p WireContentPart) MarshalJSON() ([]byte, error) {
+	if len(p.rawExtension) > 0 {
+		return p.rawExtension, nil
+	}
+	type alias WireContentPart
+	return json.Marshal(alias(p))
 }
 
 // WireTool represents a tool definition on the wire.

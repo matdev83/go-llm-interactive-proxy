@@ -13,7 +13,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openresponsescompat"
@@ -26,8 +25,8 @@ import (
 func DefaultModel(backendID string) string {
 	switch backendID {
 	case BackendOpenResponses, BackendOpenRouter, BackendNVIDIA:
-		// The generic OpenResponses backend and the configured OpenAI-compatible
-		// provider-mode route use a small canonical model the harness origins serve.
+		// The generic OpenResponses backend and the connector columns use a small
+		// canonical model the harness origins serve.
 		return "gpt-4o-mini"
 	default:
 		return standardplugins.DefaultWireModel(backendID)
@@ -126,10 +125,12 @@ func BackendFor(tb testing.TB, backendID, upstreamBaseURL string, httpClient *ht
 		// compatible-mode YAML against the observing origin (Requirement 9.1).
 		return buildOpenResponsesCompatibleBackend(tb, upstreamBaseURL, httpClient)
 	case BackendOpenRouter, BackendNVIDIA:
-		// The OpenRouter/NVIDIA compatibility identities route through the
-		// configured OpenAI-compatible Responses provider-mode backend. The
-		// connectors themselves stay optional and are never constructed here.
-		return buildProviderModeBackend(tb, backendID, upstreamBaseURL, httpClient)
+		// OpenRouter/NVIDIA are optional connector columns (connectors/openrouter,
+		// connectors/nvidia). Like ACP, the harness launches the real connector
+		// executable and drives it through the backendplugin host adapter APIs
+		// (connector_host.go). They stay optional and are never constructed as
+		// essential bundled backends.
+		return connectorHostBackend(tb, backendID, upstreamBaseURL)
 	default:
 		tb.Fatalf("unknown backend id %q", backendID)
 		return execbackend.Backend{}
@@ -148,24 +149,6 @@ func buildOpenResponsesCompatibleBackend(tb testing.TB, upstreamBaseURL string, 
 	be, err := openresponsescompat.Build("harness-or", n, httpClient)
 	if err != nil {
 		tb.Fatalf("harness: openresponses backend: %v", err)
-	}
-	return be
-}
-
-// buildProviderModeBackend constructs the configured OpenAI-compatible Responses
-// provider-mode backend used to prove the OpenRouter/NVIDIA compatibility
-// identities (DeployConfiguredProviderMode route). It never constructs the
-// optional connectors.
-func buildProviderModeBackend(tb testing.TB, backendID, upstreamBaseURL string, httpClient *http.Client) execbackend.Backend {
-	tb.Helper()
-	raw := "backend_prefix: provider-or\nbase_url: " + upstreamBaseURL + "\n"
-	var n yaml.Node
-	if err := yaml.Unmarshal([]byte(raw), &n); err != nil {
-		tb.Fatalf("harness: provider-mode config: %v", err)
-	}
-	be, err := openaicompat.BuildCompatible(backendID, "custom-openai-responses-compatible", n, httpClient, openaicompat.FlavorResponses, providerModeTransportCaps())
-	if err != nil {
-		tb.Fatalf("harness: provider-mode backend: %v", err)
 	}
 	return be
 }

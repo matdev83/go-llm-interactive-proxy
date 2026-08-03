@@ -17,17 +17,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream/eventstreamapi"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatibleutil"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/modeldiscover"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicompat"
 	refacp "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/acp"
 	refanthropic "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/anthropicmessages"
 	refgemini "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/gemini"
 	refopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	"gopkg.in/yaml.v3"
 )
 
 // Executable proofs for the 32 general matrix cells (spec Phase 8, Task 8.5).
@@ -44,12 +39,12 @@ import (
 // and sharing one deployment across the scenarios that can reuse it.
 
 // generalCellDeploy deploys one general matrix cell. OpenRouter/NVIDIA cells go
-// through the actual configured OpenAI-compatible provider mode; constructible
+// through the actual connector executable (connector-host path); constructible
 // cells go through the generic base-bundle selector.
 func generalCellDeploy(tb testing.TB, cell MatrixCell, transport ClientTransport) *Deployment {
 	tb.Helper()
 	if cell.Backend == BackendOpenRouter || cell.Backend == BackendNVIDIA {
-		return DeployConfiguredProviderModeFor(tb, cell.Frontend, cell.Backend, transport)
+		return DeployConnectorColumnFor(tb, cell.Frontend, cell.Backend, transport)
 	}
 	return Deploy(tb, DeploymentSpec{Frontend: cell.Frontend, Backend: cell.Backend, Transport: transport})
 }
@@ -266,19 +261,21 @@ func runGeneralCell(t *testing.T, cell MatrixCell) {
 		t.Fatalf("json request count = %d, want exactly 1 (single-terminal commitment)", got)
 	}
 
-	// tools: admitted and projected for non-ACP cells; rejected with zero
-	// requests for the ACP v1 subset.
+	// tools: admitted and projected for constructible cells; rejected with zero
+	// requests for the ACP v1 subset and the streaming-only OpenRouter/NVIDIA
+	// connector columns (the host-adapter backend admission fails closed on the
+	// connectors' declared capabilities).
 	before := d.RequestCount(be)
 	status, err := d.RawFrontendPost(context.Background(), generalFrontendPath(fe), generalToolBody(fe))
 	if err != nil {
 		t.Fatalf("tools post %s × %s: %v", fe, be, err)
 	}
-	if be == BackendACP {
+	if be == BackendACP || be == BackendOpenRouter || be == BackendNVIDIA {
 		if status == http.StatusOK {
-			t.Fatalf("ACP tools unexpectedly round-tripped")
+			t.Fatalf("%s tools unexpectedly round-tripped", be)
 		}
 		if d.RequestCount(be) != before {
-			t.Fatalf("ACP tools rejection caused %d upstream requests, want 0", d.RequestCount(be)-before)
+			t.Fatalf("%s tools rejection caused %d upstream requests, want 0", be, d.RequestCount(be)-before)
 		}
 	} else {
 		if status != http.StatusOK {
@@ -292,20 +289,31 @@ func runGeneralCell(t *testing.T, cell MatrixCell) {
 		}
 	}
 
-	// multimodal: image input is admitted and projected (ACP via resource blocks).
+	// multimodal: image input is admitted and projected for constructible cells
+	// (ACP via resource blocks); the streaming-only OpenRouter/NVIDIA connector
+	// columns reject before network.
 	before = d.RequestCount(be)
 	status, err = d.RawFrontendPost(context.Background(), generalFrontendPath(fe), generalMultimodalBody(fe))
 	if err != nil {
 		t.Fatalf("multimodal post %s × %s: %v", fe, be, err)
 	}
-	if status != http.StatusOK {
-		t.Fatalf("multimodal status = %d, want 200", status)
-	}
-	if d.RequestCount(be) == before {
-		t.Fatalf("multimodal caused no upstream request")
-	}
-	if !generalOriginCarries(d, be, "AAAA") {
-		t.Fatalf("multimodal upstream request did not carry the projected image")
+	if be == BackendOpenRouter || be == BackendNVIDIA {
+		if status == http.StatusOK {
+			t.Fatalf("%s multimodal unexpectedly round-tripped", be)
+		}
+		if d.RequestCount(be) != before {
+			t.Fatalf("%s multimodal rejection caused %d upstream requests, want 0", be, d.RequestCount(be)-before)
+		}
+	} else {
+		if status != http.StatusOK {
+			t.Fatalf("multimodal status = %d, want 200", status)
+		}
+		if d.RequestCount(be) == before {
+			t.Fatalf("multimodal caused no upstream request")
+		}
+		if !generalOriginCarries(d, be, "AAAA") {
+			t.Fatalf("multimodal upstream request did not carry the projected image")
+		}
 	}
 
 	// Negatives (replay/phase/itemref/compaction/extension): reject before any
@@ -463,14 +471,14 @@ func runGeneralCell(t *testing.T, cell MatrixCell) {
 
 	// assistant-media: the cell's assistant media reference output surface.
 	// Backends whose native wire emits canonical assistant media events
-	// (openai-responses, anthropic, gemini, and the configured provider-mode
-	// route for openrouter/nvidia) deliver the media reference to the actual
-	// client wire with exactly one upstream request (lossless native /
+	// (openai-responses, anthropic, gemini) deliver the media reference to the
+	// actual client wire with exactly one upstream request (lossless native /
 	// projection). Backends without a native assistant-media output surface
-	// (openai-legacy, bedrock, ACP) reject assistant-media requests before any
-	// network request: the executable scenario drives a canonical
-	// assistant-media-ref call and asserts the origin observes zero upstream
-	// requests.
+	// (openai-legacy, bedrock, ACP, and the openrouter/nvidia connectors, whose
+	// stream decoder surfaces no assistant media reference output regardless of
+	// the wire they select) reject assistant-media requests before any network
+	// request: the executable scenario drives a canonical assistant-media-ref
+	// call and asserts the origin observes zero upstream requests.
 	dmedia := generalCellDeployAssistantMedia(t, cell)
 	if dmedia == nil {
 		t.Fatalf("deploy(%s × %s, assistant-media) failed", fe, be)
@@ -529,13 +537,15 @@ func runGeneralCell(t *testing.T, cell MatrixCell) {
 // wire across all positive cells.
 const generalAssistantMediaWireMarker = "cdn.example.com/out.png"
 
-// assistantMediaRejectBackend reports whether a backend's native wire has no
-// assistant media reference output surface. These cells reject assistant-media
-// requests before any network request; every other general backend emits
-// canonical EventAssistantImageRef/EventAssistantFileRef events.
+// assistantMediaRejectBackend reports whether a cell's wire has no assistant
+// media reference output surface. These cells reject assistant-media requests
+// before any network request; every other cell emits canonical
+// EventAssistantImageRef/EventAssistantFileRef events. OpenRouter/NVIDIA cells
+// always reject: the connectors' stream decoder surfaces no assistant media
+// reference output regardless of the wire they select.
 func assistantMediaRejectBackend(backendID string) bool {
 	switch backendID {
-	case BackendOpenAILegacy, BackendBedrock, BackendACP:
+	case BackendOpenAILegacy, BackendBedrock, BackendACP, BackendOpenRouter, BackendNVIDIA:
 		return true
 	}
 	return false
@@ -553,11 +563,6 @@ func generalMediaOriginHandler(backendID string) http.Handler {
 			NonStreamJSON: generalResponsesMediaResource,
 			StreamSSE:     generalResponsesMediaSSE(),
 		})
-	case BackendOpenRouter, BackendNVIDIA:
-		return &providerModeOrigin{responses: refopenairesponses.NewHandler(refopenairesponses.Config{
-			NonStreamJSON: generalResponsesMediaResource,
-			StreamSSE:     generalResponsesMediaSSE(),
-		})}
 	case BackendAnthropic:
 		return refanthropic.NewHandler(refanthropic.Config{
 			NonStreamJSON: generalAnthropicMediaResource,
@@ -575,15 +580,12 @@ func generalMediaOriginHandler(backendID string) http.Handler {
 
 // generalCellDeployAssistantMedia deploys one general matrix cell for the
 // assistant-media scenario. Positive cells use the media-emitting origin; cells
-// whose backend rejects assistant media use the standard deployment (only the
+// whose wire rejects assistant media use the standard deployment (only the
 // executor admission and the origin request counter matter).
 func generalCellDeployAssistantMedia(tb testing.TB, cell MatrixCell) *Deployment {
 	tb.Helper()
 	if assistantMediaRejectBackend(cell.Backend) {
 		return generalCellDeploy(tb, cell, TransportJSON)
-	}
-	if cell.Backend == BackendOpenRouter || cell.Backend == BackendNVIDIA {
-		return deployProviderModeChain(tb, cell.Frontend, cell.Backend, TransportJSON, OriginFailNone, generalMediaOriginHandler(cell.Backend), nil)
 	}
 	return Deploy(tb, DeploymentSpec{
 		Frontend:      cell.Frontend,
@@ -718,7 +720,7 @@ func failoverCandidateBackend(frontend string) string {
 func generalCellDeployError(tb testing.TB, cell MatrixCell) *Deployment {
 	tb.Helper()
 	if cell.Backend == BackendOpenRouter || cell.Backend == BackendNVIDIA {
-		return deployProviderModeChain(tb, cell.Frontend, cell.Backend, TransportJSON, OriginFailServerError, nil, nil)
+		return deployConnectorChain(tb, cell.Frontend, cell.Backend, TransportJSON, OriginFailServerError, nil, nil)
 	}
 	return Deploy(tb, DeploymentSpec{
 		Frontend:   cell.Frontend,
@@ -734,7 +736,7 @@ func generalCellDeployFailover(tb testing.TB, cell MatrixCell) *Deployment {
 	tb.Helper()
 	cand := failoverCandidateBackend(cell.Frontend)
 	if cell.Backend == BackendOpenRouter || cell.Backend == BackendNVIDIA {
-		return deployProviderModeChain(tb, cell.Frontend, cell.Backend, TransportJSON, OriginFailServerError, nil, []Candidate{{Backend: cand, OriginFail: OriginFailNone}})
+		return deployConnectorChain(tb, cell.Frontend, cell.Backend, TransportJSON, OriginFailServerError, nil, []Candidate{{Backend: cand, OriginFail: OriginFailNone}})
 	}
 	return Deploy(tb, DeploymentSpec{
 		Frontend:   cell.Frontend,
@@ -752,7 +754,7 @@ func generalCellDeployNoRetry(tb testing.TB, cell MatrixCell) *Deployment {
 	tb.Helper()
 	cand := failoverCandidateBackend(cell.Frontend)
 	if cell.Backend == BackendOpenRouter || cell.Backend == BackendNVIDIA {
-		return deployProviderModeChain(tb, cell.Frontend, cell.Backend, TransportSSE, OriginFailNone, newMidStreamDeathHandler(cell.Backend), []Candidate{{Backend: cand, OriginFail: OriginFailNone}})
+		return deployConnectorChain(tb, cell.Frontend, cell.Backend, TransportSSE, OriginFailNone, newMidStreamDeathHandler(cell.Backend), []Candidate{{Backend: cand, OriginFail: OriginFailNone}})
 	}
 	return Deploy(tb, DeploymentSpec{
 		Frontend:      cell.Frontend,
@@ -770,7 +772,7 @@ func generalCellDeployCancel(tb testing.TB, cell MatrixCell) *Deployment {
 	tb.Helper()
 	cand := failoverCandidateBackend(cell.Frontend)
 	if cell.Backend == BackendOpenRouter || cell.Backend == BackendNVIDIA {
-		return deployProviderModeChain(tb, cell.Frontend, cell.Backend, TransportSSE, OriginFailNone, blockingOriginHandler(), []Candidate{{Backend: cand, OriginFail: OriginFailNone}})
+		return deployConnectorChain(tb, cell.Frontend, cell.Backend, TransportSSE, OriginFailNone, blockingOriginHandler(), []Candidate{{Backend: cand, OriginFail: OriginFailNone}})
 	}
 	return Deploy(tb, DeploymentSpec{
 		Frontend:      cell.Frontend,
@@ -781,10 +783,10 @@ func generalCellDeployCancel(tb testing.TB, cell MatrixCell) *Deployment {
 	})
 }
 
-// deployProviderModeChain deploys a general frontend over the configured
-// OpenAI-compatible provider-mode backend (openrouter/nvidia) with an optional
+// deployConnectorChain deploys a general frontend over the actual
+// OpenRouter/NVIDIA connector executable (connector_host.go) with an optional
 // primary origin handler/failure mode and succeeding essential candidates.
-func deployProviderModeChain(tb testing.TB, frontend, backendID string, transport ClientTransport, primaryFail OriginFailMode, primaryHandler http.Handler, candidates []Candidate) *Deployment {
+func deployConnectorChain(tb testing.TB, frontend, backendID string, transport ClientTransport, primaryFail OriginFailMode, primaryHandler http.Handler, candidates []Candidate) *Deployment {
 	tb.Helper()
 	d := &Deployment{
 		Spec:     DeploymentSpec{Frontend: frontend, Backend: backendID, Transport: transport},
@@ -793,18 +795,18 @@ func deployProviderModeChain(tb testing.TB, frontend, backendID string, transpor
 	}
 	custom := primaryHandler
 	if custom == nil {
-		custom = openAIResponsesCompatOrigin{}
+		custom = &connectorWire{text: "provider-mode-ok"}
 	}
 	primaryOrigin := newHarnessOrigin(tb, backendID, primaryFail, nil, 100, "", nil, custom)
 	d.origins[backendID] = primaryOrigin
 
-	d.backends[backendID] = buildProviderModeBackendCredentialed(tb, backendID, primaryOrigin.URL(), primaryOrigin.Client())
+	d.backends[backendID] = connectorHostBackend(tb, backendID, primaryOrigin.URL())
 
-	model := ProviderModeModel
+	model := ConnectorColumnModel
 	route := backendID + ":" + model
 	for i, cand := range candidates {
 		if !containsString(HarnessBackendIDs(), cand.Backend) || cand.Backend == BackendOpenRouter || cand.Backend == BackendNVIDIA {
-			tb.Fatalf("harness: invalid provider-mode candidate %q", cand.Backend)
+			tb.Fatalf("harness: invalid connector-chain candidate %q", cand.Backend)
 		}
 		candOrigin := newHarnessOrigin(tb, cand.Backend, cand.OriginFail, nil, 100, cand.ProviderOrigin, nil, nil)
 		key := candidateBackendKey(backendID, i)
@@ -828,57 +830,6 @@ func deployProviderModeChain(tb testing.TB, frontend, backendID string, transpor
 	return d
 }
 
-// buildProviderModeBackendCredentialed constructs the configured OpenAI-compatible
-// Responses provider-mode backend (openrouter/nvidia) with a synthetic credential
-// so the compatible backend's credential-pool path classifies upstream failures
-// for pre-output failover. It mirrors BuildCompatible exactly except that the
-// compatible-mode config's env-only credential resolution is replaced by an
-// explicit test credential (the provider origin accepts any bearer token).
-func buildProviderModeBackendCredentialed(tb testing.TB, backendID, originURL string, httpClient *http.Client) execbackend.Backend {
-	tb.Helper()
-	raw := "backend_prefix: provider-or\nbase_url: " + originURL + "\n"
-	var n yaml.Node
-	if err := yaml.Unmarshal([]byte(raw), &n); err != nil {
-		tb.Fatalf("harness: provider-mode config: %v", err)
-	}
-	cfg, err := config.DecodeCompatibleModeConfig(backendID, "custom-openai-responses-compatible", n)
-	if err != nil {
-		tb.Fatalf("harness: provider-mode config decode: %v", err)
-	}
-	ep, err := compatibleutil.ParseEndpoint(cfg)
-	if err != nil {
-		tb.Fatalf("harness: provider-mode endpoint: %v", err)
-	}
-	modelsEndpoint, err := compatibleutil.OpenAIModelsEndpoint(ep)
-	if err != nil {
-		tb.Fatalf("harness: provider-mode models endpoint: %v", err)
-	}
-	base := ep.BaseURL()
-	inventory := modeldiscover.OpenAICompatibleModelsProvider{
-		BaseURL:            base,
-		ModelsEndpoint:     modelsEndpoint,
-		APIKey:             "sk-test",
-		APIKeys:            []string{"sk-test"},
-		HTTPClient:         httpClient,
-		CanonicalPrefix:    cfg.BackendPrefix,
-		CompatibleModeAuth: true,
-	}
-	zero := 0
-	be := openaicompat.NewBackend(openaicompat.BackendSpec{
-		ID:                 cfg.BackendPrefix,
-		BaseURL:            base,
-		APIKey:             "sk-test",
-		APIKeys:            []string{"sk-test"},
-		HTTPClient:         httpClient,
-		SDKMaxRetries:      &zero,
-		Inventory:          inventory,
-		CompatibleModeAuth: true,
-		ResolveFlavor:      func(lipapi.Call) openaicompat.Flavor { return openaicompat.FlavorResponses },
-	})
-	be.TransportCaps = providerModeTransportCaps()
-	return be
-}
-
 // blockingOriginHandler returns an origin responder that blocks until the
 func blockingOriginHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -888,7 +839,8 @@ func blockingOriginHandler() http.Handler {
 
 // newMidStreamDeathHandler returns an origin responder that serves non-create
 // requests normally (provider /models, ACP handshake) and emits the first
-// content event of the backend's wire before abruptly closing the connection.
+// content event of the wire the connector requests before abruptly closing the
+// connection.
 func newMidStreamDeathHandler(backendID string) http.Handler {
 	var acpRef http.Handler
 	if backendID == BackendACP {
@@ -906,6 +858,16 @@ func newMidStreamDeathHandler(backendID string) http.Handler {
 				return
 			}
 		}
+		if backendID == BackendOpenRouter || backendID == BackendNVIDIA {
+			// The connector maps the operation to a wire by flavor: the
+			// openai-responses frontend reaches /responses, every other frontend
+			// reaches /chat/completions. Emit the first content event of the
+			// actual wire.
+			if strings.TrimRight(r.URL.Path, "/") == "/chat/completions" {
+				writeChatFirstContentThenHijack(w, r)
+				return
+			}
+		}
 		writeFirstContentThenHijack(w, backendID, r)
 	})
 }
@@ -920,6 +882,26 @@ func isACPPromptRequest(r *http.Request) bool {
 	}
 	_ = json.Unmarshal(body, &probe)
 	return probe.Method == "session/prompt"
+}
+
+// writeChatFirstContentThenHijack writes the opening content of the OpenAI
+// chat-completions streaming wire then hijacks and closes the connection
+// abruptly (the wire the openrouter/nvidia connectors request for every
+// non-openai.responses operation).
+func writeChatFirstContentThenHijack(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	fl, _ := w.(http.Flusher)
+	write := func(s string) {
+		if _, err := io.WriteString(w, s); err != nil {
+			return
+		}
+		if fl != nil {
+			fl.Flush()
+		}
+	}
+	write("data: " + `{"id":"chatcmpl_death","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"role":"assistant","content":"partial"},"finish_reason":null}]}` + "\n\n")
+	hijackClose(w)
 }
 
 // writeFirstContentThenHijack writes the opening content of the backend's
@@ -951,8 +933,8 @@ func writeFirstContentThenHijack(w http.ResponseWriter, backendID string, r *htt
 		sid := acpPromptSessionID(r)
 		write("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":" + jsonEncodeString(sid) + ",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"partial\"}}}}\n")
 	default:
-		// openai-responses and the OpenAI-compatible provider mode share the
-		// Responses streaming wire.
+		// openai-responses and the connector columns' Responses wire share the
+		// OpenAI Responses streaming wire.
 		write("event: response.created\ndata: " + `{"type":"response.created","sequence_number":1,"response":{"id":"resp_death","object":"response","created_at":1715620000,"status":"in_progress","model":"gpt-4o-mini","output":[]}}` + "\n\n")
 		write("event: response.output_item.added\ndata: " + `{"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"type":"message","id":"msg_death","status":"in_progress","role":"assistant","content":[{"type":"output_text","text":""}]}}` + "\n\n")
 		write("event: response.content_part.added\ndata: " + `{"type":"response.content_part.added","sequence_number":3,"item_id":"msg_death","output_index":0,"content_index":0,"part":{"type":"output_text","text":""}}` + "\n\n")

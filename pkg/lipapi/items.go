@@ -51,12 +51,67 @@ const (
 	ContentPartAssistantRef ContentPartKind = "assistant_ref"
 	ContentPartJSON         ContentPartKind = "json"
 	ContentPartToolResult   ContentPartKind = "tool_result"
+	// ContentPartExtension is an opaque vendor-prefixed custom content part that
+	// the canonical model cannot interpret but must preserve losslessly. Its
+	// structured payload is carried as raw JSON (never stringified to text).
+	ContentPartExtension ContentPartKind = "extension"
 )
 
 // AnnotationPart holds annotation metadata for text/content.
 type AnnotationPart struct {
 	Type string          `json:"type,omitempty"`
 	Data json.RawMessage `json:"data,omitempty"`
+}
+
+// ExtensionContentPart carries a vendor-prefixed custom content part that the
+// canonical model cannot interpret but must preserve losslessly. Type is the
+// prefixed wire discriminator (for example "acme:input_file" or
+// "acme.com/part"); Data is the full raw wire part object (including its type
+// field) so encoding can emit it verbatim without stringifying the structured
+// payload.
+type ExtensionContentPart struct {
+	Type string          `json:"type"`
+	Data json.RawMessage `json:"data,omitempty"`
+}
+
+func (e *ExtensionContentPart) validate(field string) error {
+	if e == nil {
+		return &ValidationError{Field: field, Message: "extension content part is nil"}
+	}
+	if strings.TrimSpace(e.Type) == "" {
+		return &ValidationError{Field: field + ".Type", Message: "extension type is required"}
+	}
+	if !strings.ContainsAny(e.Type, ":/") {
+		return &ValidationError{Field: field + ".Type", Message: "extension type must be vendor-prefixed (contains ':' or '/')"}
+	}
+	if e.Type != strings.TrimSpace(e.Type) {
+		return &ValidationError{Field: field + ".Type", Message: "extension type must not contain leading or trailing whitespace"}
+	}
+	if err := validateStringField(field+".Type", e.Type, MaxExtensionTypeBytes); err != nil {
+		return err
+	}
+	if len(e.Data) > MaxExtensionDataBytes {
+		return &ValidationError{Field: field + ".Data", Message: fmt.Sprintf("extension data exceeds %d bytes", MaxExtensionDataBytes)}
+	}
+	if len(e.Data) == 0 {
+		return &ValidationError{Field: field + ".Data", Message: "extension content part requires Data"}
+	}
+	if !json.Valid(e.Data) {
+		return &ValidationError{Field: field + ".Data", Message: "extension data must be valid JSON"}
+	}
+	if err := validateJSONDepth(e.Data, MaxJSONDepth); err != nil {
+		return &ValidationError{Field: field + ".Data", Message: err.Error()}
+	}
+	var obj struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(e.Data, &obj); err != nil {
+		return &ValidationError{Field: field + ".Data", Message: "extension data must be a JSON object"}
+	}
+	if obj.Type != e.Type {
+		return &ValidationError{Field: field + ".Data", Message: "extension data type field must match Type"}
+	}
+	return nil
 }
 
 // ContentPart is one ordered content fragment within a canonical item.
@@ -69,6 +124,7 @@ type ContentPart struct {
 	ImageMIME string `json:"image_mime,omitempty"`
 
 	FileRef  string `json:"file_ref,omitempty"`
+	FileData string `json:"file_data,omitempty"`
 	FileMIME string `json:"file_mime,omitempty"`
 	FileName string `json:"file_name,omitempty"`
 
@@ -84,6 +140,10 @@ type ContentPart struct {
 	Annotation *AnnotationPart `json:"annotation,omitempty"`
 
 	AssistantRef string `json:"assistant_ref,omitempty"`
+
+	// Extension carries a vendor-prefixed custom content part preserved
+	// opaquely when Kind is ContentPartExtension.
+	Extension *ExtensionContentPart `json:"extension,omitempty"`
 }
 
 func (cp ContentPart) validate(field string) error {
@@ -106,11 +166,14 @@ func (cp ContentPart) validate(field string) error {
 			return err
 		}
 	case ContentPartFileRef:
-		if cp.FileRef == "" {
-			return &ValidationError{Field: field + ".FileRef", Message: "file_ref part requires FileRef"}
+		if cp.FileRef == "" && cp.FileData == "" {
+			return &ValidationError{Field: field + ".FileRef", Message: "file_ref part requires FileRef or FileData"}
 		}
 		if err := validateStringField(field+".FileRef", cp.FileRef, MaxRefStringBytes); err != nil {
 			return err
+		}
+		if len(cp.FileData) > MaxFileDataBytes {
+			return &ValidationError{Field: field + ".FileData", Message: fmt.Sprintf("file_data exceeds %d bytes", MaxFileDataBytes)}
 		}
 		if err := validateStringField(field+".FileMIME", cp.FileMIME, MaxRefStringBytes); err != nil {
 			return err
@@ -190,6 +253,13 @@ func (cp ContentPart) validate(field string) error {
 		}
 		if len(cp.Text) > MaxPartTextBytes {
 			return &ValidationError{Field: field + ".Text", Message: fmt.Sprintf("tool_result exceeds %d bytes", MaxPartTextBytes)}
+		}
+	case ContentPartExtension:
+		if cp.Extension == nil {
+			return &ValidationError{Field: field + ".Extension", Message: "extension part requires Extension"}
+		}
+		if err := cp.Extension.validate(field + ".Extension"); err != nil {
+			return err
 		}
 	case "":
 		return &ValidationError{Field: field + ".Kind", Message: "content part kind is required"}

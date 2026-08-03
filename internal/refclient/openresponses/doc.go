@@ -117,8 +117,10 @@ type ContentPart struct {
 	Text        string
 	Refusal     string
 	Summary     string
+	Filename    string
 	ImageURL    json.RawMessage
 	FileURL     json.RawMessage
+	FileData    json.RawMessage
 	VideoURL    json.RawMessage
 	Annotations json.RawMessage
 	Logprobs    json.RawMessage

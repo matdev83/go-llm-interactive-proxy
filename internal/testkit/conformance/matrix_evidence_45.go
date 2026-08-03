@@ -35,6 +35,9 @@ var matrix45Artifacts = []string{
 	"internal/testkit/conformance/matrix_general_scenarios.go",
 	"internal/testkit/conformance/matrix_contract.go",
 	"internal/testkit/conformance/openresponses_provider_mode.go",
+	"internal/testkit/conformance/connector_host.go",
+	"internal/testkit/conformance/connector_wire.go",
+	"internal/testkit/conformance/connector_columns_matrix_test.go",
 	"internal/core/capabilities/admit.go",
 	"internal/core/routing/candidate_admission.go",
 }

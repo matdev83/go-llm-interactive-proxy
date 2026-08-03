@@ -35,6 +35,8 @@ var standardContentPartTypes = map[string]bool{
 	"output_text": true,
 	"text":        true,
 	"input_image": true,
+	"input_file":  true,
+	"input_video": true,
 	"refusal":     true,
 }
 
@@ -235,6 +237,12 @@ func DecodeRequest(data []byte, configured ...Limits) (*WireResponseParam, lipap
 		"background": true, "previous_response_id": true, "metadata": true,
 		"service_tier": true, "safety_identifier": true, "prompt_cache_key": true,
 		"prompt_cache_retention": true, "messages": true,
+		// Pinned standard create controls are recognized typed fields. The
+		// canonical call cannot represent them losslessly (no speculative
+		// generation fields), so frontend admission rejects non-null values as
+		// unsupported standard controls before any network work.
+		"include": true, "presence_penalty": true, "frequency_penalty": true,
+		"stream_options": true, "top_logprobs": true,
 	}
 
 	extensions := make(map[string]json.RawMessage)
@@ -316,6 +324,19 @@ func DecodeRequest(data []byte, configured ...Limits) (*WireResponseParam, lipap
 		if err := ValidateContinuationRef(strings.TrimSpace(*param.PreviousResponseID), limits); err != nil {
 			return nil, lipapi.Call{}, err
 		}
+	}
+
+	// The pinned instructions control maps losslessly into a leading canonical
+	// system message item so it forwards through the ordered item trajectory on
+	// both create and compact. Null and empty instructions are treated as
+	// absent; the exact instruction text is preserved in the item.
+	if param.Instructions != nil && strings.TrimSpace(*param.Instructions) != "" {
+		canonicalItems = append([]lipapi.Item{{
+			Kind:    lipapi.ItemKindMessage,
+			Status:  lipapi.ItemStatusCompleted,
+			Role:    lipapi.RoleSystem,
+			Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: *param.Instructions}},
+		}}, canonicalItems...)
 	}
 
 	// Decode tools
@@ -823,14 +844,60 @@ func decodeContentParts(raw []byte) ([]lipapi.ContentPart, error) {
 				}
 			}
 
+		case "input_file":
+			cp.Kind = lipapi.ContentPartFileRef
+			if jsonpresence.IsPresentNonNullJSON(wPart.FileID) {
+				// The pinned 2026-04-24 InputFileContentParam shape carries only
+				// filename, file_data, and file_url. A non-null file_id cannot be
+				// represented by the canonical file_ref part, so admitting it would
+				// silently drop the file reference before the upstream backend.
+				return nil, fmt.Errorf("content[%d]: %w: input_file field file_id is not part of the pinned 2026-04-24 profile", i, ErrDecodeFailed)
+			}
+			if jsonpresence.IsPresentNonNullJSON(wPart.FileURL) {
+				var fileURL string
+				if err := json.Unmarshal(wPart.FileURL, &fileURL); err != nil {
+					return nil, fmt.Errorf("content[%d]: %w: input_file file_url must be a string", i, ErrDecodeFailed)
+				}
+				cp.FileRef = fileURL
+			}
+			if jsonpresence.IsPresentNonNullJSON(wPart.FileData) {
+				var fileData string
+				if err := json.Unmarshal(wPart.FileData, &fileData); err != nil {
+					return nil, fmt.Errorf("content[%d]: %w: input_file file_data must be a string", i, ErrDecodeFailed)
+				}
+				cp.FileData = fileData
+			}
+			cp.FileName = wPart.Filename
+
+		case "input_video":
+			cp.Kind = lipapi.ContentPartVideoRef
+			if jsonpresence.IsPresentNonNullJSON(wPart.VideoData) {
+				// The pinned 2026-04-24 InputVideoContent shape carries only
+				// video_url. A non-null video_data cannot be represented by the
+				// canonical video_ref part, so admitting it would silently drop
+				// the video data before the upstream backend.
+				return nil, fmt.Errorf("content[%d]: %w: input_video field video_data is not part of the pinned 2026-04-24 profile", i, ErrDecodeFailed)
+			}
+			if jsonpresence.IsPresentNonNullJSON(wPart.VideoURL) {
+				var videoURL string
+				if err := json.Unmarshal(wPart.VideoURL, &videoURL); err != nil {
+					return nil, fmt.Errorf("content[%d]: %w: input_video video_url must be a string", i, ErrDecodeFailed)
+				}
+				cp.VideoRef = videoURL
+			}
+
 		case "refusal":
 			cp.Kind = lipapi.ContentPartRefusal
 			cp.Refusal = wPart.Refusal
 
 		default:
-			// Vendor-prefixed custom content part mapped to text
-			cp.Kind = lipapi.ContentPartText
-			cp.Text = string(rp)
+			// Vendor-prefixed custom content part: preserve the bounded
+			// structured payload opaquely. It is never stringified to text.
+			cp.Kind = lipapi.ContentPartExtension
+			cp.Extension = &lipapi.ExtensionContentPart{
+				Type: wPart.Type,
+				Data: cloneBytes(rp),
+			}
 		}
 
 		parts = append(parts, cp)

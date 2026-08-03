@@ -10,7 +10,8 @@ Normative parity matrices and row IDs: [.kiro/specs/archive/llm-api-parity/desig
 |------|---------|
 | **Parity suite** (`parity_*_test.go`) | Reference-client ↔ frontend ↔ core ↔ bundled backend ↔ refbackend or stubs; protocol-faithful cells per design matrix. |
 | **Migration goldens** (`testdata/migration/*.json`) | Anchored wire snapshots from the Python LIP lineage (Req. 15.13); not the full protocol surface but regression anchors for cross-implementation shape. |
-| **FE×BE matrix** | `matrix.go` / `matrix_test.go` enumerates bundled frontend × backend cells with subset metadata (e.g. ACP tools posture). |
+| **FE×BE matrix** | `matrix.go` / `matrix_test.go` enumerates bundled frontend × backend cells with subset metadata (e.g. ACP tools posture, OpenRouter/NVIDIA streaming-only posture). |
+| **Connector columns** | OpenRouter/NVIDIA cells run the real `connectors/openrouter` / `connectors/nvidia` executables through the backendplugin host adapter (`connector_host.go`); connector-specific headers/credentials/inventory/error evidence lives in `connector_columns_matrix_test.go`. |
 | **Conformance scenarios** | `conformance_*_test.go` — text, tools, multimodal, credentials, streaming auth — exercise composed wiring beyond single-protocol parity files. |
 
 ## Parity suite files (by protocol id)
@@ -26,8 +27,8 @@ Each bundled protocol id must appear in `ParityProtocolEvidence` and have at lea
 | `bedrock` | `parity_bedrock_test.go` |
 | `acp` | `parity_acp_test.go` |
 | `openresponses` | `openresponses_frontend_row_conformance_test.go`, `openresponses_backend_column_conformance_test.go`, `openresponses_frontend_row_scenarios_test.go`, `openresponses_backend_column_scenarios_test.go` |
-| `openrouter` | `openresponses_provider_mode.go` |
-| `nvidia` | `openresponses_provider_mode.go` |
+| `openrouter` | `openresponses_provider_mode.go`, `connector_host.go`, `connector_columns_matrix_test.go` |
+| `nvidia` | `openresponses_provider_mode.go`, `connector_host.go`, `connector_columns_matrix_test.go` |
 
 ## Migration golden JSON (testdata/migration)
 

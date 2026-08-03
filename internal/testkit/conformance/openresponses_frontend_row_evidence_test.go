@@ -70,8 +70,8 @@ func TestOpenResponsesFrontendRow_ScenarioRegistration(t *testing.T) {
 
 // TestOpenResponsesFrontendRow_OptionalConnectorsStayOptional proves the row did
 // not silently promote the OpenRouter/NVIDIA connector columns to essential
-// status: they remain absent from the essential backend kinds and the generic
-// provider-mode route is the evidence path (Task 8.5 owns any authoritative list
+// status: they remain absent from the essential backend kinds and the connector
+// executables are the evidence path (Task 8.5 owns any authoritative list
 // expansion).
 func TestOpenResponsesFrontendRow_OptionalConnectorsStayOptional(t *testing.T) {
 	t.Parallel()

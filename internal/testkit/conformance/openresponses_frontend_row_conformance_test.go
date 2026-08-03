@@ -19,12 +19,12 @@ import (
 // rejected feature shows zero remote requests.
 
 // rowDeploy deploys the OpenResponses frontend → backend cell through the
-// generic harness (constructible cells) or the configured OpenAI-compatible
-// provider mode (OpenRouter/NVIDIA connector columns).
+// generic harness (constructible cells) or the actual connector executable
+// (OpenRouter/NVIDIA connector columns, via connector_host.go).
 func rowDeploy(tb testing.TB, backend string, transport ClientTransport) *Deployment {
 	tb.Helper()
 	if backend == BackendOpenRouter || backend == BackendNVIDIA {
-		return DeployConfiguredProviderMode(tb, backend, transport)
+		return DeployConnectorColumn(tb, backend, transport)
 	}
 	return Deploy(tb, DeploymentSpec{
 		Frontend:  FrontendOpenResponses,
@@ -155,7 +155,8 @@ func TestFrontendRow_OpenResponsesToStreaming(t *testing.T) {
 
 // TestFrontendRow_OpenResponsesToTools runs the tools scenario: the tool request
 // is admitted and projected to the upstream wire (exactly one create request for
-// non-ACP cells), or rejected before any network request for the ACP v1 subset.
+// constructible cells), or rejected before any network request for the ACP v1
+// subset and the streaming-only OpenRouter/NVIDIA connector columns.
 func TestFrontendRow_OpenResponsesToTools(t *testing.T) {
 	t.Parallel()
 	toolsBody := `{"model":"gpt-4o-mini","store":false,"input":"hi","tools":[{"type":"function","name":"get_weather","description":"get weather","parameters":{"type":"object","properties":{"location":{"type":"string"}}}}]}`
@@ -169,12 +170,12 @@ func TestFrontendRow_OpenResponsesToTools(t *testing.T) {
 			}
 			defer d.Close()
 			status, _ := rowRawCreate(t, d, toolsBody)
-			if backend == BackendACP {
+			if backend == BackendACP || backend == BackendOpenRouter || backend == BackendNVIDIA {
 				if status == http.StatusOK {
-					t.Fatal("ACP tools unexpectedly round-tripped; v1 prompt-turn subset rejects tools")
+					t.Fatalf("%s tools unexpectedly round-tripped; streaming-only/ACP subset rejects tools", backend)
 				}
 				if got := d.RequestCount(backend); got != 0 {
-					t.Fatalf("ACP tools rejection caused %d upstream requests, want 0", got)
+					t.Fatalf("%s tools rejection caused %d upstream requests, want 0", backend, got)
 				}
 				return
 			}
@@ -193,7 +194,8 @@ func TestFrontendRow_OpenResponsesToTools(t *testing.T) {
 
 // TestFrontendRow_OpenResponsesToMultimodal runs the multimodal image scenario:
 // image input is admitted and projected to the upstream wire for every cell that
-// can represent it (including ACP as URI resource prompt blocks).
+// can represent it (including ACP as URI resource prompt blocks); the
+// streaming-only OpenRouter/NVIDIA connector columns reject before network.
 func TestFrontendRow_OpenResponsesToMultimodal(t *testing.T) {
 	t.Parallel()
 	imageBody := `{"model":"gpt-4o-mini","store":false,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"look"},{"type":"input_image","image_url":"data:image/png;base64,AAAA"}]}]}`
@@ -207,6 +209,15 @@ func TestFrontendRow_OpenResponsesToMultimodal(t *testing.T) {
 			}
 			defer d.Close()
 			status, _ := rowRawCreate(t, d, imageBody)
+			if backend == BackendOpenRouter || backend == BackendNVIDIA {
+				if status == http.StatusOK {
+					t.Fatalf("%s multimodal unexpectedly round-tripped", backend)
+				}
+				if got := d.RequestCount(backend); got != 0 {
+					t.Fatalf("%s multimodal rejection caused %d upstream requests, want 0", backend, got)
+				}
+				return
+			}
 			if status != http.StatusOK {
 				t.Fatalf("openresponses -> %s multimodal status = %d, want 200", backend, status)
 			}
@@ -428,26 +439,29 @@ func TestFrontendRow_OpenResponsesToUsageErrorsCommitment(t *testing.T) {
 	}
 }
 
-// TestFrontendRow_OpenResponsesToOpenRouterAndNVIDIA_RouteProves the configured
-// provider-mode route for the OpenRouter and NVIDIA connector columns: a real
-// request reaches the configured OpenAI-compatible provider origin with the
-// OpenAI Responses wire and round-trips exactly once, while the connectors stay
-// optional (asserted separately by the evidence validator).
-func TestFrontendRow_OpenResponsesToOpenRouterAndNVIDIA_RouteProves(t *testing.T) {
+// TestFrontendRow_OpenResponsesToOpenRouterAndNVIDIA_ConnectorColumnsProves the
+// OpenRouter and NVIDIA connector-column route: a real request reaches the actual
+// connector executable (connectors/openrouter, connectors/nvidia) which forwards
+// it to the configured OpenAI-compatible provider origin and round-trips exactly
+// once, while the connectors stay optional (asserted separately by the evidence
+// validator). For the openresponses.create operation the connector selects the
+// OpenAI chat-completions wire, so the forwarded body carries the chat shape and
+// never leaks proxy-owned fields.
+func TestFrontendRow_OpenResponsesToOpenRouterAndNVIDIA_ConnectorColumnsProves(t *testing.T) {
 	t.Parallel()
 	for _, backend := range []string{BackendOpenRouter, BackendNVIDIA} {
 		backend := backend
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
-			d := DeployConfiguredProviderMode(t, backend, TransportJSON)
+			d := DeployConnectorColumn(t, backend, TransportJSON)
 			if d == nil {
-				t.Fatalf("provider-mode deploy failed for %s", backend)
+				t.Fatalf("connector-column deploy failed for %s", backend)
 			}
 			defer d.Close()
 
 			res, err := d.Client.RoundTrip(context.Background(), "ping")
 			if err != nil {
-				t.Fatalf("%s configured provider-mode route: %v", backend, err)
+				t.Fatalf("%s connector-column route: %v", backend, err)
 			}
 			if !strings.Contains(res.Text, "provider-mode-ok") {
 				t.Fatalf("%s route text = %q, want provider-mode-ok", backend, res.Text)
@@ -457,13 +471,15 @@ func TestFrontendRow_OpenResponsesToOpenRouterAndNVIDIA_RouteProves(t *testing.T
 			}
 			captured := d.OriginFor(backend).Capture()
 			if len(captured) == 0 {
-				t.Fatal("no captured request at the configured provider origin")
+				t.Fatal("no captured request at the connector-column provider origin")
 			}
 			last := captured[len(captured)-1]
-			if !strings.Contains(string(last.Body), `"input"`) {
-				t.Fatalf("%s route request is not the OpenAI-compatible Responses create wire: %s", backend, string(last.Body))
+			if !strings.Contains(string(last.Body), `"messages"`) {
+				t.Fatalf("%s route request is not the OpenAI chat-completions wire the connector selects for openresponses.create: %s", backend, string(last.Body))
 			}
-			for _, forbidden := range []string{`"previous_response_id"`, `"store"`, `"stream"`, `"background"`} {
+			// The connector's own wire body carries stream/stream_options (it
+			// decides streaming); proxy-owned fields must never leak upstream.
+			for _, forbidden := range []string{`"previous_response_id"`, `"store"`, `"background"`} {
 				if strings.Contains(string(last.Body), forbidden) {
 					t.Fatalf("%s route request forwarded forbidden proxy field %q: %s", backend, forbidden, string(last.Body))
 				}

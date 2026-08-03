@@ -257,12 +257,17 @@ func DeriveProtocolRequirements(c Call) ProtocolRequirements {
 				req.Capabilities = append(req.Capabilities, CapabilityAnnotations)
 			case ContentPartAssistantRef:
 				req.Capabilities = append(req.Capabilities, CapabilityAssistantMediaRefs)
+			case ContentPartExtension:
+				req.Capabilities = append(req.Capabilities, CapabilityOpaqueExtensions)
 			}
 		}
 		if item.ToolResult != nil {
 			for _, cp := range item.ToolResult.Parts {
 				if cp.Kind == ContentPartReasoning && cp.Reasoning != nil {
 					addReasoningDialect(cp.Reasoning.Dialect)
+				}
+				if cp.Kind == ContentPartExtension {
+					req.Capabilities = append(req.Capabilities, CapabilityOpaqueExtensions)
 				}
 			}
 		}

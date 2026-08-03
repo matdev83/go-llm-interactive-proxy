@@ -216,8 +216,10 @@ type ContentPart struct {
 	Text        string
 	Refusal     string
 	Summary     string
+	Filename    string
 	ImageURL    json.RawMessage
 	FileURL     json.RawMessage
+	FileData    json.RawMessage
 	VideoURL    json.RawMessage
 	Annotations json.RawMessage
 	Logprobs    json.RawMessage
@@ -251,6 +253,7 @@ func (p *ContentPart) UnmarshalJSON(data []byte) error {
 		dst *string
 	}{
 		{"text", &p.Text}, {"refusal", &p.Refusal}, {"summary", &p.Summary},
+		{"filename", &p.Filename},
 	} {
 		if v, e := objectString(m, f.key, false); e != nil {
 			return e
@@ -262,7 +265,7 @@ func (p *ContentPart) UnmarshalJSON(data []byte) error {
 		key string
 		dst *json.RawMessage
 	}{
-		{"image_url", &p.ImageURL}, {"file_url", &p.FileURL}, {"video_url", &p.VideoURL},
+		{"image_url", &p.ImageURL}, {"file_url", &p.FileURL}, {"file_data", &p.FileData}, {"video_url", &p.VideoURL},
 		{"annotations", &p.Annotations}, {"logprobs", &p.Logprobs},
 	} {
 		if raw, ok := m[f.key]; ok {
@@ -287,11 +290,17 @@ func (p ContentPart) MarshalJSON() ([]byte, error) {
 	if p.Summary != "" {
 		m["summary"] = p.Summary
 	}
+	if p.Filename != "" {
+		m["filename"] = p.Filename
+	}
 	if p.ImageURL != nil {
 		m["image_url"] = p.ImageURL
 	}
 	if p.FileURL != nil {
 		m["file_url"] = p.FileURL
+	}
+	if p.FileData != nil {
+		m["file_data"] = p.FileData
 	}
 	if p.VideoURL != nil {
 		m["video_url"] = p.VideoURL

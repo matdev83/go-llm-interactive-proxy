@@ -1,6 +1,6 @@
 # FE×BE conformance matrix — test evidence
 
-The bundled matrix is the Cartesian product of [`BundledFrontendIDs()` and `BundledBackendIDs()`](../internal/testkit/conformance/matrix.go) (authoritative 5×9 = 45 cells: five frontends × nine backend compatibility identities, including OpenResponses, OpenRouter, and NVIDIA). Subset rules (ACP tools/multimodal) and the cell driver classification live in [`newCell`](../internal/testkit/conformance/matrix.go). OpenRouter/NVIDIA are authoritative compatibility identities driven through the classified configured OpenAI-compatible provider-mode path ([`DeployConfiguredProviderMode`](../internal/testkit/conformance/openresponses_provider_mode.go)) and remain optional connectors (never essential backend kinds). Per-cell feature evidence for all 45 cells lives in [`matrix_evidence_45.go`](../internal/testkit/conformance/matrix_evidence_45.go).
+The bundled matrix is the Cartesian product of [`BundledFrontendIDs()` and `BundledBackendIDs()`](../internal/testkit/conformance/matrix.go) (authoritative 5×9 = 45 cells: five frontends × nine backend compatibility identities, including OpenResponses, OpenRouter, and NVIDIA). Subset rules (ACP tools/multimodal, OpenRouter/NVIDIA tools/multimodal) and the cell driver classification live in [`newCell`](../internal/testkit/conformance/matrix.go). OpenRouter/NVIDIA are authoritative compatibility identities driven through the actual connector executables via the backendplugin host adapter: [`DeployConnectorColumnFor`](../internal/testkit/conformance/openresponses_provider_mode.go) and the generalized connector-host harness ([`connector_host.go`](../internal/testkit/conformance/connector_host.go)) build and launch the real `connectors/openrouter` / `connectors/nvidia` processes, so connector-specific headers, credentials, inventory, and error behavior have executable matrix evidence ([`connector_columns_matrix_test.go`](../internal/testkit/conformance/connector_columns_matrix_test.go)). The connectors remain optional modules (never essential backend kinds). Per-cell feature evidence for all 45 cells lives in [`matrix_evidence_45.go`](../internal/testkit/conformance/matrix_evidence_45.go).
 
 ## How cells are covered (iteration model)
 
@@ -12,7 +12,7 @@ Instead of one test function per cell, the conformance package **iterates `AllCe
 | **Text (credential pool)** | `TextViable` | `TestConformance_CredentialPool_TextOnly_*` in [`backend_credentials_test.go`](../internal/testkit/conformance/backend_credentials_test.go) |
 | **Tools** | `ToolsViable` | `TestConformance_Tools_roundTripAndUsage` in [`conformance_tools_test.go`](../internal/testkit/conformance/conformance_tools_test.go) — **excludes** FE×`acp` because [`SubsetMeta`](../internal/testkit/conformance/matrix.go) sets `ToolsViable: false` for ACP |
 | **Tool-call repair** | `ToolsViable` | `TestConformance_ToolCallRepairCanonicalMatrix` uses truncated-args refbackends ([`NewToolCallRepairRefBackend`](../internal/testkit/conformance/tools_repair_refbackend.go)) and asserts closed repaired args; gemini cells skip (wire materializes args as objects) |
-| **Multimodal** | `MultimodalViable` | `TestConformance_Multimodal_imageInUpstream`, `TestConformance_Multimodal_pdfInUpstream` in [`conformance_multimodal_test.go`](../internal/testkit/conformance/conformance_multimodal_test.go) — image/file URI references project to ACP resource prompt blocks, so FE×`acp` is viable; unrepresentable forms (video/audio) reject before network |
+| **Multimodal** | `MultimodalViable` | `TestConformance_Multimodal_imageInUpstream`, `TestConformance_Multimodal_pdfInUpstream` in [`conformance_multimodal_test.go`](../internal/testkit/conformance/conformance_multimodal_test.go) — image/file URI references project to ACP resource prompt blocks, so FE×`acp` is viable; the generic OpenResponses backend represents inline file_data losslessly as pinned `input_file`, so document cells are positive there too; unrepresentable forms (video/audio) reject before network |
 | **Multimodal (credential pool)** | `MultimodalViable` | `TestConformance_CredentialPool_Multimodal_*` in [`backend_credentials_test.go`](../internal/testkit/conformance/backend_credentials_test.go) |
 | **Dual-plane economic** | `DualPlaneEconomicCells()` (FE × stream/nonstream/protocol_error/cancel/encoding_failure) | `TestDualPlaneEconomic_*` in [`dual_plane_economic_conformance_test.go`](../internal/testkit/conformance/dual_plane_economic_conformance_test.go); customer FE quantity equivalence in [`phase71_cross_protocol_economic_conformance_red_test.go`](../internal/core/runtime/phase71_cross_protocol_economic_conformance_red_test.go) |
 
@@ -40,13 +40,13 @@ matrix (Task 8.5).
 - Row evidence validator (default build): [`openresponses_frontend_row_evidence_test.go`](../internal/testkit/conformance/openresponses_frontend_row_evidence_test.go)
 - Row cell scenarios (`//go:build integration`): [`openresponses_frontend_row_conformance_test.go`](../internal/testkit/conformance/openresponses_frontend_row_conformance_test.go)
 - Row executable scenario table (`openresponses_frontend_row_scenarios.go`) and its table-driven executor (`openresponses_frontend_row_scenarios_test.go`, `//go:build integration`)
-- OpenRouter/NVIDIA configured provider-mode route proof: [`openresponses_provider_mode.go`](../internal/testkit/conformance/openresponses_provider_mode.go)
+- OpenRouter/NVIDIA connector-column route proof: [`openresponses_provider_mode.go`](../internal/testkit/conformance/openresponses_provider_mode.go) and the connector-host harness [`connector_host.go`](../internal/testkit/conformance/connector_host.go)
 
 Every cell feature is classified lossless / documented_deterministic_projection /
 rejected_before_network / out_of_scope with linked scenario IDs and test artifacts;
 every rejection asserts zero upstream requests. OpenRouter/NVIDIA remain optional
 connector columns (not in the essential backend table) and are proven through the
-configured OpenAI-compatible provider-mode route.
+actual connector executables (connector host).
 
 Scenario IDs are derived from the **row executable scenario table**: the tagged
 table-driven executor consumes [`OpenResponsesFrontendRowScenarios`](../internal/testkit/conformance/openresponses_frontend_row_scenarios.go)
@@ -56,10 +56,10 @@ evidence never points at a generic `-json-text` or `-usage-commitment` proof:
 
 | Row feature | Executable proof (per row cell) | Outcome |
 |---|---|---|
-| JSON text / instructions / history | JSON round trip, exact text, exactly one upstream request (ACP ≥ 1) | lossless / projection (ACP, provider-mode cells) |
+| JSON text / instructions / history | JSON round trip, exact text, exactly one upstream request (ACP ≥ 1) | lossless / projection (ACP, connector-column cells) |
 | SSE text | SSE round trip over the same canonical stream | lossless / projection |
-| Tools | raw tool create; ACP rejects with zero requests, others project to the wire | projection / lossless (openai-responses, openresponses) / reject (ACP) |
-| Multimodal | raw image create with upstream projection; ACP projects to resource blocks | projection / lossless |
+| Tools | raw tool create; ACP rejects with zero requests, others project to the wire | projection / lossless (openai-responses, openresponses) / reject (ACP, openrouter, nvidia) |
+| Multimodal | raw image create with upstream projection; ACP projects to resource blocks | projection / lossless / reject (openrouter, nvidia) |
 | Usage/errors | upstream 500 → stable client-visible error envelope, upstream attempt | lossless / projection |
 | Continuation | proxy-owned continuation: second `store:true` create with `previous_response_id` re-executes through the same projector; non-ACP cells assert exactly one additional upstream request; the **ACP v1 prompt-turn subset cannot replay a materialized trajectory that carries the prior ACP reasoning output, so the ACP continuation call is honestly rejected before network with zero additional upstream requests** | lossless / rejected_before_network (ACP) |
 | Cancellation/backpressure | blocking origin + client cancel → upstream stops, candidate untouched (candidate receives zero requests) | lossless / projection |
@@ -128,16 +128,24 @@ validated by [`matrix_45_evidence_test.go`](../internal/testkit/conformance/matr
 - All 45 baseline text cells run through the all-cells loops (non-streaming +
   streaming), tools/multimodal run for every viable cell (with pre-network
   rejections asserted for unrepresentable forms), and error shapes map stably.
-- OpenRouter/NVIDIA cells are driven through the configured OpenAI-compatible
-  provider-mode backend (`BackendFor` constructs the provider-mode backend, never
-  the optional connectors); the OpenResponses row proves the route.
+- OpenRouter/NVIDIA cells are driven through the actual connector executables
+  (`connector_host.go` builds and launches `connectors/openrouter` /
+  `connectors/nvidia` and drives each backend through the backendplugin host
+  adapter APIs; `DeployConnectorColumnFor` / `deployConnectorChain` compose the
+  frontend → core → connector backend → observing origin path). The connectors
+  advertise streaming-only capabilities, so canonical tools and multimodal input
+  are rejected before network on those cells, and the connectors' stream decoder
+  surfaces no assistant media output (rejected before network too). Connector-
+  specific headers/credentials/inventory/error evidence is executed in
+  [`connector_columns_matrix_test.go`](../internal/testkit/conformance/connector_columns_matrix_test.go).
 - ACP cells are driven through the actual relocated executable connector: the
   harness builds `connectors/acp` once per test binary and launches a dedicated
   `lip-backend-acp` process per cell, configured with the cell's observing origin
   and driven through the backendplugin host adapter APIs
-  ([`acp_connector.go`](../internal/testkit/conformance/acp_connector.go));
-  ACP stays an optional connector column (never an essential backend kind) and
-  its protocol adapter is never linked into the root module.
+  ([`connector_host.go`](../internal/testkit/conformance/connector_host.go),
+  generalized from the original ACP harness in `acp_connector.go`); ACP stays an
+  optional connector column (never an essential backend kind) and its protocol
+  adapter is never linked into the root module.
 - Full-path compliance: `make test-openresponses-compliance` runs the independent
   client → frontend → core → OpenResponses backend → independent provider path,
   the direct independent-emulator wire suites, the 45-cell matrix, and the
@@ -172,19 +180,18 @@ executed tables):
 |---|---|---|
 | JSON text / instructions / history | JSON round trip, exact text, exactly one upstream request (ACP ≥ 1) | lossless |
 | SSE text | SSE round trip over the same canonical stream | lossless |
-| Tools | raw tool create; ACP rejects with zero requests, others project to the wire | projection / reject (ACP) |
-| Multimodal | raw image create with upstream projection; ACP projects to resource blocks | projection / lossless (native) |
+| Tools | raw tool create; ACP rejects with zero requests, others project to the wire | projection / reject (ACP, openrouter, nvidia) |
+| Multimodal | raw image create with upstream projection; ACP projects to resource blocks | projection / lossless (native) / reject (openrouter, nvidia) |
 | Usage/errors | upstream 500 → stable client-visible error envelope, upstream attempt | lossless |
 | Cancellation/backpressure | blocking origin + client cancel → upstream stops, candidate untouched | lossless |
 | Failover | failing primary + succeeding candidate; **ACP cells fail over too** (the ACP connector classifies transport/HTTP 5xx/protocol failures before canonical output as recoverable pre-output, with terminal auth/validation staying terminal) | lossless |
 | No-retry after visible output | mid-stream-death origin emits first content then dies; candidate receives zero requests | lossless |
 | Reasoning replay / phase / item refs / compaction / extensions | raw unrepresentable wire form → rejected with zero upstream requests | rejected_before_network |
 | Continuation | **out-of-scope** for all general cells (no general frontend exposes proxy-owned continuation; legacy APIs lack a parent concept and the openai-responses frontend does not materialize `previous_response_id`). Proxy-owned continuation is positive in the OpenResponses frontend row (and the OpenResponses frontend column cell) via the executable `-continuation` scenario | out_of_scope |
-| Assistant media output | Backends that emit canonical `assistant_image_ref`/`assistant_file_ref` events from their native wire (openai-responses, anthropic, gemini, and the configured provider-mode route for openrouter/nvidia) deliver the media reference to the actual client wire (lossless native same-wire cells, projection cross-protocol); backends without a native assistant-media output surface (openai-legacy chat, bedrock Converse, ACP) reject assistant-media requests before any network request with zero upstream requests — the executable `assistant-media` scenario inspects the client wire/media reference and the remote count for every general cell | lossless / projection / reject (openai-legacy, bedrock, acp) |
+| Assistant media output | Backends that emit canonical `assistant_image_ref`/`assistant_file_ref` events from their native wire (openai-responses, anthropic, gemini) deliver the media reference to the actual client wire (lossless native same-wire cells, projection cross-protocol); backends without a native assistant-media output surface (openai-legacy chat, bedrock Converse, ACP, and the openrouter/nvidia connectors whose stream decoder surfaces no assistant media output) reject assistant-media requests before any network request with zero upstream requests — the executable `assistant-media` scenario inspects the client wire/media reference and the remote count for every general cell | lossless / projection / reject (openai-legacy, bedrock, acp, openrouter, nvidia) |
 
-Provider-mode cells (`*` × openrouter/nvidia) execute through the actual
-configured OpenAI-compatible provider-mode backend (`deployProviderModeChain`),
-including the failover chain.
+Connector-column cells (`*` × openrouter/nvidia) execute through the actual
+connector executables (`deployConnectorChain`), including the failover chain.
 
 ## Integration-only suites (build tag)
 

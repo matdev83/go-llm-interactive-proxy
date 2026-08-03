@@ -1307,6 +1307,7 @@ docs/knowledge/knowledge_test.go
 docs/legacy-options-migration.md
 docs/mutation-testing.md
 docs/openai-codex-backend.md
+docs/openresponses-compatible-backend.md
 docs/performance-checks.md
 docs/plugin-authoring.md
 docs/pre-request-policy.md
@@ -1634,6 +1635,7 @@ internal/core/continuation/round5_regression_test.go
 internal/core/continuation/security_test.go
 internal/core/continuation/store_close_test.go
 internal/core/continuation/stream_recorder.go
+internal/core/continuation/stream_recorder_overflow_internal_test.go
 internal/core/continuation/stream_recorder_phase42_test.go
 internal/core/continuity/bunstore/20250426000000_continuity_baseline.go
 internal/core/continuity/bunstore/20250427000000_interleaved_state.go
@@ -3385,6 +3387,7 @@ internal/plugins/backends/openresponsescompat/compact.go
 internal/plugins/backends/openresponsescompat/compact_mapping_test.go
 internal/plugins/backends/openresponsescompat/config.go
 internal/plugins/backends/openresponsescompat/config_test.go
+internal/plugins/backends/openresponsescompat/content_representability_test.go
 internal/plugins/backends/openresponsescompat/doc.go
 internal/plugins/backends/openresponsescompat/errors.go
 internal/plugins/backends/openresponsescompat/errors_test.go
@@ -3793,6 +3796,7 @@ internal/plugins/protocols/openairesponsesitem/reasoning_envelope_fuzz_test.go
 internal/plugins/protocols/openairesponsesitem/reasoning_envelope_test.go
 internal/plugins/protocols/openresponses/compact_resource_test.go
 internal/plugins/protocols/openresponses/compaction_item_preservation_test.go
+internal/plugins/protocols/openresponses/content_part_mapping_test.go
 internal/plugins/protocols/openresponses/coverage_registry_test.go
 internal/plugins/protocols/openresponses/decode.go
 internal/plugins/protocols/openresponses/encode.go
@@ -3890,6 +3894,7 @@ internal/refbackend/openresponses/delay_cancel_test.go
 internal/refbackend/openresponses/direct_wire_test.go
 internal/refbackend/openresponses/doc.go
 internal/refbackend/openresponses/errors.go
+internal/refbackend/openresponses/file_data_test.go
 internal/refbackend/openresponses/fuzz_test.go
 internal/refbackend/openresponses/helpers_test.go
 internal/refbackend/openresponses/main_test.go
@@ -3933,6 +3938,7 @@ internal/refclient/openresponses/coverage2_test.go
 internal/refclient/openresponses/coverage_test.go
 internal/refclient/openresponses/doc.go
 internal/refclient/openresponses/event.go
+internal/refclient/openresponses/file_data_test.go
 internal/refclient/openresponses/fixtures_test.go
 internal/refclient/openresponses/fuzz_test.go
 internal/refclient/openresponses/item.go
@@ -4191,6 +4197,10 @@ internal/testkit/conformance/conformance_stream_authenticated_test.go
 internal/testkit/conformance/conformance_text_test.go
 internal/testkit/conformance/conformance_tier_presence_test.go
 internal/testkit/conformance/conformance_tools_test.go
+internal/testkit/conformance/connector_columns_matrix_test.go
+internal/testkit/conformance/connector_host.go
+internal/testkit/conformance/connector_host_test.go
+internal/testkit/conformance/connector_wire.go
 internal/testkit/conformance/deployment.go
 internal/testkit/conformance/deployment_test.go
 internal/testkit/conformance/doc.go
@@ -4319,6 +4329,7 @@ pkg/credpool/retry_after_test.go
 pkg/credpool/secrets.go
 pkg/credpool/secrets_test.go
 pkg/lipapi/admission.go
+pkg/lipapi/admission_content_extension_test.go
 pkg/lipapi/call.go
 pkg/lipapi/call_clone.go
 pkg/lipapi/call_clone_test.go
@@ -4330,6 +4341,7 @@ pkg/lipapi/capabilities.go
 pkg/lipapi/capabilities_negotiate_test.go
 pkg/lipapi/collect_tool_test.go
 pkg/lipapi/compile_contract_test.go
+pkg/lipapi/content_extension_test.go
 pkg/lipapi/dataurl.go
 pkg/lipapi/dataurl_test.go
 pkg/lipapi/doc.go
@@ -4501,6 +4513,7 @@ pkg/lipsdk/backendplugin/invocation_validate_test.go
 pkg/lipsdk/backendplugin/items_convert.go
 pkg/lipsdk/backendplugin/items_dto.go
 pkg/lipsdk/backendplugin/items_wire.go
+pkg/lipsdk/backendplugin/items_wire_extension_test.go
 pkg/lipsdk/backendplugin/items_wire_test.go
 pkg/lipsdk/backendplugin/manifest/doc.go
 pkg/lipsdk/backendplugin/manifest/errors.go
@@ -4552,6 +4565,7 @@ pkg/lipsdk/continuation/scope.go
 pkg/lipsdk/continuation/security_slice_a_test.go
 pkg/lipsdk/continuation/store.go
 pkg/lipsdk/continuation/stream_recorder.go
+pkg/lipsdk/continuation/stream_recorder_overflow_internal_test.go
 pkg/lipsdk/continuity/store.go
 pkg/lipsdk/contracts.go
 pkg/lipsdk/controlplane/accounting_authority.go

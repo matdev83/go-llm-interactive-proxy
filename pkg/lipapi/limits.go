@@ -35,6 +35,10 @@ const (
 	MaxPartTextBytes  = 8 * 1024 * 1024
 	MaxPartJSONBytes  = 8 * 1024 * 1024
 	MaxRefStringBytes = 8 * 1024
+	// MaxFileDataBytes bounds inline file payloads (pinned profile input_file
+	// file_data base64). It matches the part text cap so a single inline file
+	// cannot force unbounded allocations.
+	MaxFileDataBytes = MaxPartTextBytes
 
 	// Canonical streaming Event field caps (adapter/hook mutations).
 	MaxEventDeltaBytes       = MaxPartTextBytes  // TextDelta, ReasoningDelta, ToolCallArgsDelta

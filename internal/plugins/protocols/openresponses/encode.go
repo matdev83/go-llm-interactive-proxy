@@ -89,6 +89,10 @@ func EncodeRequest(call lipapi.Call) ([]byte, error) {
 		MaxOutputTokens:   call.Options.MaxOutputTokens,
 		ParallelToolCalls: call.Options.ParallelToolCalls,
 	}
+	if call.PromptCacheKey != "" {
+		v := call.PromptCacheKey
+		param.PromptCacheKey = &v
+	}
 
 	rawMap := make(map[string]json.RawMessage)
 	paramBytes, err := json.Marshal(param)
@@ -350,6 +354,31 @@ func encodeContentPart(cp lipapi.ContentPart, role lipapi.Role) WireContentPart 
 		return WireContentPart{
 			Type:     "input_image",
 			ImageURL: imgBytes,
+		}
+
+	case lipapi.ContentPartFileRef:
+		part := WireContentPart{Type: "input_file", Filename: cp.FileName}
+		if cp.FileRef != "" {
+			part.FileURL, _ = json.Marshal(cp.FileRef)
+		}
+		if cp.FileData != "" {
+			part.FileData, _ = json.Marshal(cp.FileData)
+		}
+		return part
+
+	case lipapi.ContentPartVideoRef:
+		videoBytes, _ := json.Marshal(cp.VideoRef)
+		return WireContentPart{
+			Type:     "input_video",
+			VideoURL: videoBytes,
+		}
+
+	case lipapi.ContentPartExtension:
+		if cp.Extension == nil {
+			return WireContentPart{Type: "input_text", Text: cp.Text}
+		}
+		return WireContentPart{
+			rawExtension: cloneBytes(cp.Extension.Data),
 		}
 
 	case lipapi.ContentPartRefusal:

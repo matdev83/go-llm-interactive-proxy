@@ -3,6 +3,7 @@ package continuation
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 
@@ -50,7 +51,12 @@ func (r *StreamRecorder) Observe(ctx context.Context, event lipapi.Event) {
 		r.mu.Unlock()
 		return
 	}
-	if max := r.record.Policy.Limits.MaxRecordBytes; max > 0 && r.eventBytes+recorderEventSize(event) > max {
+	size := recorderEventSize(event)
+	overflow := size < 0 || r.eventBytes > math.MaxInt64-size
+	if max := r.record.Policy.Limits.MaxRecordBytes; !overflow && max > 0 && r.eventBytes+size > max {
+		overflow = true
+	}
+	if overflow {
 		r.overflow = true
 		r.stored = true
 		release := r.cleanup
@@ -59,8 +65,9 @@ func (r *StreamRecorder) Observe(ctx context.Context, event lipapi.Event) {
 		safeRunCleanup(release)
 		return
 	}
+
 	r.events = append(r.events, cloneEvent(event))
-	r.eventBytes += recorderEventSize(event)
+	r.eventBytes += size
 	if event.Kind != lipapi.EventResponseFinished && event.Kind != lipapi.EventError {
 		r.mu.Unlock()
 		return

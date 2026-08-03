@@ -164,6 +164,35 @@ func TestBuildCreateRequest_OrderedPortableItemsAndControls(t *testing.T) {
 	}
 }
 
+func TestBuildCreateRequest_InstructionsMapToLeadingSystemItem(t *testing.T) {
+	t.Parallel()
+	call := itemAuthorityCreateCall()
+	call.Items = append([]lipapi.Item{{
+		Kind:    lipapi.ItemKindMessage,
+		Status:  lipapi.ItemStatusCompleted,
+		Role:    lipapi.RoleSystem,
+		Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "Be concise."}},
+	}}, call.Items...)
+	body, err := buildCreateRequest("my-or", testSpec(), call, routing.AttemptCandidate{Primary: routing.Primary{Model: "model-x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("body is not valid JSON: %v body=%s", err, string(body))
+	}
+	var input []map[string]json.RawMessage
+	if err := json.Unmarshal(payload["input"], &input); err != nil {
+		t.Fatalf("input unmarshal: %v", err)
+	}
+	if len(input) < 1 || string(input[0]["type"]) != `"message"` || string(input[0]["role"]) != `"system"` {
+		t.Fatalf("instructions must forward as a leading system message item, got %+v", input)
+	}
+	if string(input[0]["content"]) != `[{"type":"input_text","text":"Be concise."}]` {
+		t.Fatalf("leading system content = %s", string(input[0]["content"]))
+	}
+}
+
 func TestBuildCreateRequest_NeverForwardsProxyOrArbitraryFields(t *testing.T) {
 	t.Parallel()
 	call := itemAuthorityCreateCall()
@@ -199,14 +228,11 @@ func TestBuildCreateRequest_UnrepresentableContentRejected(t *testing.T) {
 	t.Parallel()
 	base := itemAuthorityCreateCall()
 	for name, mutate := range map[string]func(*lipapi.Call){
-		"video_content": func(c *lipapi.Call) {
-			c.Items[0].Content = []lipapi.ContentPart{{Kind: lipapi.ContentPartVideoRef, VideoRef: "https://example.com/v.mp4"}}
-		},
-		"file_content": func(c *lipapi.Call) {
-			c.Items[0].Content = []lipapi.ContentPart{{Kind: lipapi.ContentPartFileRef, FileRef: "data:application/pdf;base64,AAAA"}}
-		},
 		"annotation_content": func(c *lipapi.Call) {
 			c.Items[0].Content = []lipapi.ContentPart{{Kind: lipapi.ContentPartAnnotation, Annotation: &lipapi.AnnotationPart{Type: "url_citation"}}}
+		},
+		"assistant_ref_content": func(c *lipapi.Call) {
+			c.Items[0].Content = []lipapi.ContentPart{{Kind: lipapi.ContentPartAssistantRef, AssistantRef: "file_1"}}
 		},
 		"unprefixed_extension": func(c *lipapi.Call) {
 			c.Items = []lipapi.Item{{Kind: lipapi.ItemKindExtension, Extension: &lipapi.OpaqueExtension{Namespace: "acme", Type: "widget", Data: json.RawMessage(`{"k":1}`)}}}

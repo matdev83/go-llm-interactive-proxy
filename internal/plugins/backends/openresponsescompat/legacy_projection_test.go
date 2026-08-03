@@ -332,7 +332,7 @@ func TestLegacyAuthority_ReplayDialectRejectedZeroRoundTrips(t *testing.T) {
 			name:    "declared_reasoning_never_downgraded",
 			dialect: lipapi.ReasoningDialectOpenAIChatTextV1,
 			extra: `capabilities: [streaming, tools, vision, documents, reasoning, parallel_tool_calls,
-  ordered_items, assistant_phase, item_references, compaction, opaque_extensions, annotations, reasoning_replay]
+  ordered_items, assistant_phase, item_references, compaction, opaque_extensions, reasoning_replay]
 dialects:
   reasoning:
     - dialect: openai.chat.reasoning_text.v1
@@ -408,13 +408,6 @@ func TestLegacyAuthority_UnsupportedContentRejectedZeroRoundTrips(t *testing.T) 
 		call       lipapi.Call
 		wantReason lipapi.ProjectionReason
 	}{
-		{
-			name: "file_document_part",
-			call: lipapi.Call{
-				Invocation: openResponsesCreateInvocation(),
-				Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.FilePart("data:application/pdf;base64,AAAA", "application/pdf", "doc.pdf")}}},
-			},
-		},
 		{
 			name: "anthropic_user_tool_result",
 			call: lipapi.Call{

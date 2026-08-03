@@ -2,20 +2,27 @@ package openresponses
 
 import (
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 // unsupportedRequestControls are official request controls the profile
 // recognizes. The raw codec accepts their non-null wire shapes (they are valid
 // JSON per the pinned schema); admission-time rejection of controls the
-// canonical call cannot represent is a frontend concern, because the compact
-// operation legitimately accepts a schema-permitted subset (instructions,
-// prompt_cache_key). Metadata is deliberately excluded from rejection lists:
-// the frontend maps it to Call.Session.Metadata.
+// canonical call cannot represent is a frontend concern. instructions is
+// deliberately absent here: it maps into a leading canonical system message
+// item and forwards (see TestDecodeRequest_InstructionsMapsToLeadingSystemItem).
+// Metadata is deliberately excluded from rejection lists: the frontend maps it
+// to Call.Session.Metadata.
 var unsupportedRequestControls = []struct {
 	field string
 	value string // JSON value
 }{
-	{"instructions", `"Be brief"`},
+	{"include", `["reasoning.encrypted_content"]`},
+	{"presence_penalty", `0.5`},
+	{"frequency_penalty", `0.5`},
+	{"stream_options", `{"include_obfuscation":true}`},
+	{"top_logprobs", `1`},
 	{"text", `{"format":"json_object"}`},
 	{"reasoning", `{"effort":"low"}`},
 	{"truncation", `"auto"`},
@@ -24,6 +31,50 @@ var unsupportedRequestControls = []struct {
 	{"prompt_cache_key", `"k1"`},
 	{"prompt_cache_retention", `"recent"`},
 	{"max_tool_calls", `5`},
+}
+
+func TestDecodeRequest_InstructionsMapsToLeadingSystemItem(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-4o","input":"hello","instructions":"Be brief"}`)
+	_, call, err := DecodeRequest(body)
+	if err != nil {
+		t.Fatalf("DecodeRequest failed with instructions: %v", err)
+	}
+	if !call.HasItemAuthority() || len(call.Items) != 2 {
+		t.Fatalf("instructions must map into a leading system item plus input, got %d items: %+v", len(call.Items), call.Items)
+	}
+	leading := call.Items[0]
+	if leading.Kind != lipapi.ItemKindMessage || leading.Role != lipapi.RoleSystem {
+		t.Fatalf("leading item must be a system message, got %+v", leading)
+	}
+	if len(leading.Content) != 1 || leading.Content[0].Kind != lipapi.ContentPartText || leading.Content[0].Text != "Be brief" {
+		t.Fatalf("leading system item must preserve the exact instruction text, got %+v", leading.Content)
+	}
+	if trailing := call.Items[1]; trailing.Role != lipapi.RoleUser {
+		t.Fatalf("input must follow the leading system item, got %+v", trailing)
+	}
+}
+
+func TestDecodeRequest_InstructionsNullOrEmptyTreatedAsAbsent(t *testing.T) {
+	t.Parallel()
+	for name, instr := range map[string]string{
+		"null":  `null`,
+		"empty": `""`,
+		"blank": `"   "`,
+	} {
+		instr := instr
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			body := []byte(`{"model":"gpt-4o","input":"hello","instructions":` + instr + `}`)
+			_, call, err := DecodeRequest(body)
+			if err != nil {
+				t.Fatalf("DecodeRequest failed for instructions=%s: %v", instr, err)
+			}
+			if len(call.Items) != 1 {
+				t.Fatalf("instructions=%s must be treated as absent (1 item), got %d: %+v", instr, len(call.Items), call.Items)
+			}
+		})
+	}
 }
 
 func TestDecodeRequest_UnsupportedControlsRawDecodeAccepted(t *testing.T) {
@@ -72,6 +123,10 @@ func TestDecodeRequest_UnsupportedControlsMalformedFailDeterministically(t *test
 		value string
 	}{
 		{"instructions", `5`},
+		{"include", `5`},
+		{"presence_penalty", `"x"`},
+		{"frequency_penalty", `true`},
+		{"top_logprobs", `1.5`},
 		{"truncation", `123`},
 		{"service_tier", `true`},
 		{"max_tool_calls", `"five"`},

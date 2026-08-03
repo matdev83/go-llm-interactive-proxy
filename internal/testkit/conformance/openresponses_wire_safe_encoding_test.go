@@ -115,8 +115,8 @@ func TestOpenResponsesRichSSEPreservesHostileText(t *testing.T) {
 	}
 }
 
-func TestOpenAIResponsesCompatResourceIsValidJSON(t *testing.T) {
-	raw := openAIResponsesCompatResource(testCreated)
+func TestConnectorColumnResourceIsValidJSON(t *testing.T) {
+	raw := connectorColumnResource(testCreated)
 	var res map[string]any
 	if err := json.Unmarshal([]byte(raw), &res); err != nil {
 		t.Fatalf("resource is not valid JSON: %v", err)
@@ -129,8 +129,8 @@ func TestOpenAIResponsesCompatResourceIsValidJSON(t *testing.T) {
 	}
 }
 
-func TestOpenAIResponsesCompatSSEIsValidJSON(t *testing.T) {
-	raw := openAIResponsesCompatSSE(testCreated)
+func TestConnectorColumnSSEIsValidJSON(t *testing.T) {
+	raw := connectorColumnSSE(testCreated)
 	events := sseDataEvents(t, raw)
 	if len(events) != 8 {
 		t.Fatalf("want 8 data events, got %d", len(events))

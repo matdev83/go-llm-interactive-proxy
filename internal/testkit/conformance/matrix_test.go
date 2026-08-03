@@ -36,12 +36,12 @@ func TestMatrixIsCompleteCartesianProduct(t *testing.T) {
 			t.Fatalf("cell %q × %q: missing matrix cell driver classification", c.Frontend, c.Backend)
 		}
 		switch c.Driver {
-		case DriverBase, DriverConfiguredProviderMode:
+		case DriverBase, DriverConnectorHost:
 		default:
 			t.Fatalf("cell %q × %q: unknown driver %q", c.Frontend, c.Backend, c.Driver)
 		}
-		if (c.Backend == "openrouter" || c.Backend == "nvidia") && c.Driver != DriverConfiguredProviderMode {
-			t.Fatalf("cell %q × %q: OpenRouter/NVIDIA must use the configured provider-mode driver, got %q", c.Frontend, c.Backend, c.Driver)
+		if (c.Backend == "openrouter" || c.Backend == "nvidia") && c.Driver != DriverConnectorHost {
+			t.Fatalf("cell %q × %q: OpenRouter/NVIDIA must use the connector-host driver, got %q", c.Frontend, c.Backend, c.Driver)
 		}
 		if c.Backend != "openrouter" && c.Backend != "nvidia" && c.Driver != DriverBase {
 			t.Fatalf("cell %q × %q: constructible backend must use the base driver, got %q", c.Frontend, c.Backend, c.Driver)

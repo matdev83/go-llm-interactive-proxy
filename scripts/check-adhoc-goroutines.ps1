@@ -65,6 +65,9 @@ $allowed = @(
     # internal/testkit/conformance/acp_connector.go: test harness stderr drain for
     # the launched connector process (conformance matrix harness; test-only package).
     "internal/testkit/conformance/acp_connector.go"
+    # internal/testkit/conformance/connector_host.go: test harness stderr drain for
+    # the launched connector processes (conformance matrix harness; test-only package).
+    "internal/testkit/conformance/connector_host.go"
 )
 
 $raw = @(rg --files-with-matches --glob "!*_test.go" "^\s+go\s" internal pkg cmd connector-support connectors 2>$null)

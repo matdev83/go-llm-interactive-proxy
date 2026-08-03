@@ -39,9 +39,9 @@ const (
 // Authoritative harness backend identities. openrouter and nvidia are provider
 // connector columns that are not constructible in the base essential bundle;
 // the generic selector fails them closed and the OpenResponses row (Task 8.3)
-// proves their actual route through the configured OpenAI-compatible provider
-// mode (DeployConfiguredProviderMode) without promoting the connectors to
-// essential status.
+// proves their actual route through the real connector executables
+// (DeployConnectorColumnFor / connector_host.go) without promoting the
+// connectors to essential status.
 const (
 	BackendOpenAIResponses = "openai-responses"
 	BackendOpenAILegacy    = "openai-legacy"
@@ -325,6 +325,16 @@ func (d *Deployment) OriginFor(backendID string) *Origin {
 		return nil
 	}
 	return d.origins[backendID]
+}
+
+// Backend returns the constructed backend for a backend slot. It exposes the
+// host-built connector backend so evidence can drive connector-specific surfaces
+// (for example dynamic model inventory) that only the real connector exposes.
+func (d *Deployment) Backend(backendID string) execbackend.Backend {
+	if d == nil {
+		return execbackend.Backend{}
+	}
+	return d.backends[backendID]
 }
 
 // CandidateOrigin returns the i-th candidate origin.

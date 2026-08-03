@@ -165,19 +165,20 @@ func runOpenResponsesFrontendRowCell(t *testing.T, backend string) {
 		}
 	}
 
-	// tools: admitted and projected for non-ACP cells; rejected with zero
-	// requests for the ACP v1 subset.
+	// tools: admitted and projected for constructible cells; rejected with zero
+	// requests for the ACP v1 subset and the streaming-only OpenRouter/NVIDIA
+	// connector columns.
 	before := d.RequestCount(be)
 	status, err := d.RawFrontendPost(context.Background(), "/openresponses/v1/responses", `{"model":"gpt-4o-mini","store":false,"input":"hi","tools":[{"type":"function","name":"get_weather","description":"get weather","parameters":{"type":"object","properties":{"location":{"type":"string"}}}}]}`)
 	if err != nil {
 		t.Fatalf("tools post openresponses -> %s: %v", be, err)
 	}
-	if be == BackendACP {
+	if be == BackendACP || be == BackendOpenRouter || be == BackendNVIDIA {
 		if status == http.StatusOK {
-			t.Fatalf("ACP tools unexpectedly round-tripped; v1 prompt-turn subset rejects tools")
+			t.Fatalf("%s tools unexpectedly round-tripped; streaming-only/ACP subset rejects tools", be)
 		}
 		if d.RequestCount(be) != before {
-			t.Fatalf("ACP tools rejection caused %d upstream requests, want 0", d.RequestCount(be)-before)
+			t.Fatalf("%s tools rejection caused %d upstream requests, want 0", be, d.RequestCount(be)-before)
 		}
 	} else {
 		if status != http.StatusOK {
@@ -192,20 +193,30 @@ func runOpenResponsesFrontendRowCell(t *testing.T, backend string) {
 	}
 
 	// multimodal: image input is admitted and projected to the upstream wire
-	// (ACP via resource prompt blocks).
+	// (ACP via resource prompt blocks); the streaming-only OpenRouter/NVIDIA
+	// connector columns reject before network.
 	before = d.RequestCount(be)
 	status, err = d.RawFrontendPost(context.Background(), "/openresponses/v1/responses", `{"model":"gpt-4o-mini","store":false,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"look"},{"type":"input_image","image_url":"data:image/png;base64,AAAA"}]}]}`)
 	if err != nil {
 		t.Fatalf("multimodal post openresponses -> %s: %v", be, err)
 	}
-	if status != http.StatusOK {
-		t.Fatalf("multimodal status = %d, want 200 (openresponses -> %s)", status, be)
-	}
-	if d.RequestCount(be) == before {
-		t.Fatalf("multimodal caused no upstream request (openresponses -> %s)", be)
-	}
-	if !rowOriginHasSubstring(d, be, "AAAA") {
-		t.Fatalf("multimodal upstream request did not carry the projected image (openresponses -> %s)", be)
+	if be == BackendOpenRouter || be == BackendNVIDIA {
+		if status == http.StatusOK {
+			t.Fatalf("%s multimodal unexpectedly round-tripped", be)
+		}
+		if d.RequestCount(be) != before {
+			t.Fatalf("%s multimodal rejection caused %d upstream requests, want 0", be, d.RequestCount(be)-before)
+		}
+	} else {
+		if status != http.StatusOK {
+			t.Fatalf("multimodal status = %d, want 200 (openresponses -> %s)", status, be)
+		}
+		if d.RequestCount(be) == before {
+			t.Fatalf("multimodal caused no upstream request (openresponses -> %s)", be)
+		}
+		if !rowOriginHasSubstring(d, be, "AAAA") {
+			t.Fatalf("multimodal upstream request did not carry the projected image (openresponses -> %s)", be)
+		}
 	}
 
 	// Negatives (replay/phase/itemref/compaction/extension): reject before any
@@ -408,7 +419,7 @@ func rawRowStreamPost(t *testing.T, d *Deployment, timeout time.Duration) (int, 
 func rowCellDeployError(tb testing.TB, backend string) *Deployment {
 	tb.Helper()
 	if backend == BackendOpenRouter || backend == BackendNVIDIA {
-		return deployProviderModeChain(tb, FrontendOpenResponses, backend, TransportJSON, OriginFailServerError, nil, nil)
+		return deployConnectorChain(tb, FrontendOpenResponses, backend, TransportJSON, OriginFailServerError, nil, nil)
 	}
 	return Deploy(tb, DeploymentSpec{
 		Frontend:   FrontendOpenResponses,
@@ -424,7 +435,7 @@ func rowCellDeployFailover(tb testing.TB, backend string) *Deployment {
 	tb.Helper()
 	cand := BackendOpenResponses
 	if backend == BackendOpenRouter || backend == BackendNVIDIA {
-		return deployProviderModeChain(tb, FrontendOpenResponses, backend, TransportJSON, OriginFailServerError, nil, []Candidate{{Backend: cand, OriginFail: OriginFailNone}})
+		return deployConnectorChain(tb, FrontendOpenResponses, backend, TransportJSON, OriginFailServerError, nil, []Candidate{{Backend: cand, OriginFail: OriginFailNone}})
 	}
 	return Deploy(tb, DeploymentSpec{
 		Frontend:   FrontendOpenResponses,
@@ -442,7 +453,7 @@ func rowCellDeployNoRetry(tb testing.TB, backend string) *Deployment {
 	tb.Helper()
 	cand := BackendOpenResponses
 	if backend == BackendOpenRouter || backend == BackendNVIDIA {
-		return deployProviderModeChain(tb, FrontendOpenResponses, backend, TransportSSE, OriginFailNone, newMidStreamDeathHandler(backend), []Candidate{{Backend: cand, OriginFail: OriginFailNone}})
+		return deployConnectorChain(tb, FrontendOpenResponses, backend, TransportSSE, OriginFailNone, newMidStreamDeathHandler(backend), []Candidate{{Backend: cand, OriginFail: OriginFailNone}})
 	}
 	return Deploy(tb, DeploymentSpec{
 		Frontend:      FrontendOpenResponses,
@@ -459,7 +470,7 @@ func rowCellDeployCancel(tb testing.TB, backend string) *Deployment {
 	tb.Helper()
 	cand := BackendOpenResponses
 	if backend == BackendOpenRouter || backend == BackendNVIDIA {
-		return deployProviderModeChain(tb, FrontendOpenResponses, backend, TransportSSE, OriginFailNone, blockingOriginHandler(), []Candidate{{Backend: cand, OriginFail: OriginFailNone}})
+		return deployConnectorChain(tb, FrontendOpenResponses, backend, TransportSSE, OriginFailNone, blockingOriginHandler(), []Candidate{{Backend: cand, OriginFail: OriginFailNone}})
 	}
 	return Deploy(tb, DeploymentSpec{
 		Frontend:      FrontendOpenResponses,

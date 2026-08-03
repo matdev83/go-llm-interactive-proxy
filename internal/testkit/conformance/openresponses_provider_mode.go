@@ -4,61 +4,35 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicompat"
-	testkitopenresponses "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/openresponses"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	"gopkg.in/yaml.v3"
 )
 
-// ProviderModeModel is the canonical model used by configured provider-mode
-// deployments (OpenRouter/NVIDIA OpenAI-compatible provider modes). The value is
-// shared with the route-selector the frontend default routes to.
-const ProviderModeModel = "gpt-4o-mini"
+// OpenRouter/NVIDIA connector-column deployment.
+//
+// The authoritative 5×9 matrix references the OpenRouter and NVIDIA connector
+// columns. The connectors stay optional modules (never essential backend kinds
+// and never root go.mod requirements), so the matrix drives each cell through
+// the actual relocated connector executable via the backendplugin host adapter:
+// DeployConnectorColumnFor launches connectors/openrouter or connectors/nvidia
+// (built once per test binary), configures the process with the cell's observing
+// origin as base_url plus the synthetic api_key secret, and builds the
+// execbackend.Backend through the same host-adapter APIs the production
+// composition uses (connector_host.go). No connector protocol code is duplicated
+// in the harness.
 
-// openAIResponsesCompatOrigin is a minimal OpenAI Responses-compatible wire
-// origin (non-streaming JSON resource and streaming SSE create) used to prove
-// the configured OpenAI-compatible provider-mode route. It also serves the
-// /models discovery path so the compatible inventory provider can resolve.
-type openAIResponsesCompatOrigin struct {
-	clock testkitopenresponses.VirtualClock
-}
+// ConnectorColumnModel is the canonical model used by connector-column
+// deployments (OpenRouter/NVIDIA). The value is shared with the route-selector
+// the frontend default routes to.
+const ConnectorColumnModel = "gpt-4o-mini"
 
-func (h openAIResponsesCompatOrigin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-	r.Body = io.NopCloser(bytes.NewReader(body))
-	if strings.HasSuffix(strings.TrimRight(r.URL.Path, "/"), "/models") {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"gpt-4o-mini","object":"model","owned_by":"provider"}]}`)
-		return
-	}
-	var probe struct {
-		Stream *bool `json:"stream"`
-	}
-	_ = json.Unmarshal(body, &probe)
-	if probe.Stream != nil && *probe.Stream {
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, openAIResponsesCompatSSE(h.created()))
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = io.WriteString(w, openAIResponsesCompatResource(h.created()))
-}
-
-func (h openAIResponsesCompatOrigin) created() int64 {
-	if h.clock != nil {
-		return h.clock.Now().Unix()
-	}
-	return 1715620000
-}
-
-func openAIResponsesCompatResource(created int64) string {
+// connectorColumnResource builds a completed OpenAI-compatible Responses resource
+// with deterministic connector-column text. The payload is a typed value encoded
+// with encoding/json so no interpolated string can corrupt the wire format.
+func connectorColumnResource(created int64) string {
 	payload := map[string]any{
 		"id":         "resp_provider_1",
 		"object":     "response",
@@ -84,11 +58,10 @@ func openAIResponsesCompatResource(created int64) string {
 	return string(b)
 }
 
-// openAIResponsesCompatSSE builds the streaming SSE trajectory of the
-// OpenAI-compatible provider-mode origin. Every event payload is constructed as
-// a typed value and encoded with encoding/json so no interpolated string can
-// corrupt the wire format.
-func openAIResponsesCompatSSE(created int64) string {
+// connectorColumnSSE builds the streaming SSE trajectory of the connector-column
+// origin. Every event payload is constructed as a typed value and encoded with
+// encoding/json so no interpolated string can corrupt the wire format.
+func connectorColumnSSE(created int64) string {
 	txt := "provider-mode-ok"
 	item := func(status, text string) map[string]any {
 		return map[string]any{
@@ -177,62 +150,65 @@ func openAIResponsesCompatSSE(created int64) string {
 	return buf.String()
 }
 
-// providerModeTransportCaps declares the OpenAI Responses operation+transport
-// surface for the configured provider mode (OpenRouter/NVIDIA).
-func providerModeTransportCaps() lipapi.BackendTransportCaps {
-	return lipapi.NewBackendTransportCaps(
-		lipapi.OperationTransportSupport{
-			Operation: lipapi.OperationOpenAIResponses,
-			Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},
-		},
-	)
-}
-
-// DeployConfiguredProviderMode deploys the OpenResponses frontend over the
-// OpenAI-compatible Responses provider mode (custom-openai-responses-compatible)
-// configured with base_url pointing at a fresh origin that emulates an
-// OpenAI-compatible provider endpoint (OpenRouter/NVIDIA). The observing origin
-// counts and redacts every request so tests can prove the actual configured
-// route reaches the provider endpoint. backendID must be one of BackendOpenRouter
-// / BackendNVIDIA (evidence identity only; the route is the configured mode).
-func DeployConfiguredProviderMode(tb testing.TB, backendID string, transport ClientTransport) *Deployment {
+// DeployConnectorColumn deploys the OpenResponses frontend over the actual
+// connectors/openrouter or connectors/nvidia executable for the connector-column
+// evidence identity. The connector process is configured with a fresh origin
+// that emulates an OpenAI-compatible provider endpoint; the observing origin
+// counts and redacts every request so tests can prove the actual connector route
+// reaches the provider endpoint. backendID must be one of BackendOpenRouter /
+// BackendNVIDIA.
+func DeployConnectorColumn(tb testing.TB, backendID string, transport ClientTransport) *Deployment {
 	tb.Helper()
-	return DeployConfiguredProviderModeFor(tb, FrontendOpenResponses, backendID, transport)
+	return DeployConnectorColumnFor(tb, FrontendOpenResponses, backendID, transport)
 }
 
-// DeployConfiguredProviderModeFor deploys an arbitrary bundled frontend over the
-// configured OpenAI-compatible Responses provider mode backend for the
-// OpenRouter/NVIDIA evidence identities. frontend must be a bundled frontend ID;
-// only frontends that produce an OpenAI Responses operation (openresponses,
-// openai-responses) can round-trip the Responses-wire provider mode; other
-// frontend operations fail closed before any upstream request.
-func DeployConfiguredProviderModeFor(tb testing.TB, frontend, backendID string, transport ClientTransport) *Deployment {
+// DeployConnectorColumnFor deploys an arbitrary bundled frontend over the actual
+// OpenRouter/NVIDIA connector executable for the connector-column evidence
+// identities. frontend must be a bundled frontend ID; only frontends that
+// produce an OpenAI Responses operation (openresponses, openai-responses) can
+// round-trip the Responses-wire connector; other frontend operations fail closed
+// before any upstream request.
+func DeployConnectorColumnFor(tb testing.TB, frontend, backendID string, transport ClientTransport) *Deployment {
+	tb.Helper()
+	return DeployConnectorColumnWithOrigin(tb, frontend, backendID, transport, nil)
+}
+
+// DeployConnectorColumnWithOrigin deploys a connector-column cell with a custom
+// observing-origin responder (nil keeps the default connectorColumnOrigin).
+// Custom origins let evidence assert on the real request headers/body the
+// connector process sends.
+func DeployConnectorColumnWithOrigin(tb testing.TB, frontend, backendID string, transport ClientTransport, originHandler http.Handler) *Deployment {
+	tb.Helper()
+	return deployConnectorColumn(tb, frontend, backendID, transport, OriginFailNone, originHandler)
+}
+
+// DeployConnectorColumnWithFail deploys a connector-column cell whose observing
+// origin injects a deterministic failure mode (e.g. OriginFailUnauthorized).
+func DeployConnectorColumnWithFail(tb testing.TB, frontend, backendID string, transport ClientTransport, fail OriginFailMode) *Deployment {
+	tb.Helper()
+	return deployConnectorColumn(tb, frontend, backendID, transport, fail, nil)
+}
+
+func deployConnectorColumn(tb testing.TB, frontend, backendID string, transport ClientTransport, fail OriginFailMode, originHandler http.Handler) *Deployment {
 	tb.Helper()
 	if backendID != BackendOpenRouter && backendID != BackendNVIDIA {
-		tb.Fatalf("DeployConfiguredProviderMode: unknown provider column %q", backendID)
+		tb.Fatalf("DeployConnectorColumn: unknown connector column %q", backendID)
 	}
 	d := &Deployment{
 		Spec:     DeploymentSpec{Frontend: frontend, Backend: backendID, Transport: transport},
 		origins:  map[string]*Origin{},
 		backends: map[string]execbackend.Backend{},
 	}
-	primaryOrigin := newHarnessOrigin(tb, backendID, OriginFailNone, nil, 100, "", nil, openAIResponsesCompatOrigin{})
+	custom := originHandler
+	if custom == nil {
+		custom = &connectorWire{text: "provider-mode-ok"}
+	}
+	primaryOrigin := newHarnessOrigin(tb, backendID, fail, nil, 100, "", nil, custom)
 	d.origins[backendID] = primaryOrigin
 
-	raw := "backend_prefix: provider-or\nbase_url: " + primaryOrigin.URL() + "\n"
-	var n yaml.Node
-	if err := yaml.Unmarshal([]byte(raw), &n); err != nil {
-		_ = d.Close()
-		tb.Fatalf("harness: provider-mode config: %v", err)
-	}
-	be, err := openaicompat.BuildCompatible(backendID, "custom-openai-responses-compatible", n, primaryOrigin.Client(), openaicompat.FlavorResponses, providerModeTransportCaps())
-	if err != nil {
-		_ = d.Close()
-		tb.Fatalf("harness: provider-mode backend: %v", err)
-	}
-	d.backends[backendID] = be
+	d.backends[backendID] = connectorHostBackend(tb, backendID, primaryOrigin.URL())
 
-	d.RouteSelector = backendID + ":" + ProviderModeModel
+	d.RouteSelector = ConnectorColumnRouteSelector(backendID)
 	d.Exec = harnessExecutor(tb, d.backends, backendID)
 	d.Mux = http.NewServeMux()
 	genCtx, genCancel := context.WithCancel(context.Background())
@@ -247,8 +223,8 @@ func DeployConfiguredProviderModeFor(tb testing.TB, frontend, backendID string, 
 	return d
 }
 
-// ProviderModeRouteSelector returns the route selector the configured
-// provider-mode deployment resolves to (backendID:ProviderModeModel).
-func ProviderModeRouteSelector(backendID string) string {
-	return backendID + ":" + ProviderModeModel
+// ConnectorColumnRouteSelector returns the route selector a connector-column
+// deployment resolves to (backendID:ConnectorColumnModel).
+func ConnectorColumnRouteSelector(backendID string) string {
+	return backendID + ":" + ConnectorColumnModel
 }

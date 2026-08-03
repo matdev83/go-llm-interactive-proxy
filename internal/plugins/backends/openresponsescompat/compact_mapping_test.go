@@ -178,6 +178,44 @@ func TestCompact_OperationPostsStrictNonStreamingBodyToCompactEndpoint(t *testin
 	}
 }
 
+func TestCompact_ForwardsSchemaPermittedInstructionsAndPromptCacheKey(t *testing.T) {
+	be, obs := newObserverBackend(t, "", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, completeCompactResourceJSON)
+	})
+	call := itemAuthorityCompactCall()
+	call.Items = append([]lipapi.Item{{
+		Kind:    lipapi.ItemKindMessage,
+		Status:  lipapi.ItemStatusCompleted,
+		Role:    lipapi.RoleSystem,
+		Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "Summarize concisely."}},
+	}}, call.Items...)
+	call.PromptCacheKey = "openresponses-compact-test"
+	es, err := be.Open(context.Background(), call, routing.AttemptCandidate{Primary: routing.Primary{Model: "model-x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = drainManagedEvents(t, es)
+	if obs.count() != 1 {
+		t.Fatalf("observer request count = %d, want exactly 1", obs.count())
+	}
+	req := obs.last(t)
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(req.Body, &payload); err != nil {
+		t.Fatalf("body is not valid JSON: %v body=%s", err, string(req.Body))
+	}
+	if got := string(payload["prompt_cache_key"]); got != `"openresponses-compact-test"` {
+		t.Fatalf("prompt_cache_key = %s, want the schema-permitted hint forwarded", got)
+	}
+	var input []map[string]json.RawMessage
+	if err := json.Unmarshal(payload["input"], &input); err != nil {
+		t.Fatalf("input unmarshal: %v", err)
+	}
+	if len(input) < 1 || string(input[0]["type"]) != `"message"` || string(input[0]["role"]) != `"system"` {
+		t.Fatalf("instructions must forward as a leading system message item, got %+v", input)
+	}
+}
+
 func TestCompact_RemoteCompactResourceParsedToCanonicalLifecycleStream(t *testing.T) {
 	events, native, err := parseCompactResource("my-or", []byte(completeCompactResourceJSON), defaultResponseTestLimits())
 	if err != nil {

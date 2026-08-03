@@ -10,8 +10,9 @@ import (
 // TestBaselineAdapterMatrixLock locks the authoritative FE×BE conformance matrix.
 // Code truth: 5 bundled frontends × 9 backend compatibility identities = 45 Cartesian
 // cells (spec Requirement 13.5 / design.md "Authoritative Lists"). OpenRouter and NVIDIA
-// are authoritative compatibility identities driven through the classified configured
-// provider-mode path and remain optional connectors (never essential backend kinds).
+// are authoritative compatibility identities driven through the actual connector
+// executables via the backendplugin host adapter and remain optional connectors (never
+// essential backend kinds).
 func TestBaselineAdapterMatrixLock(t *testing.T) {
 	t.Parallel()
 
@@ -43,7 +44,8 @@ func TestBaselineAdapterMatrixLock(t *testing.T) {
 
 	// ACP exclusions stay locked (tools rejected before network; multimodal is
 	// viable via ACP resource prompt block projection); openrouter/nvidia use the
-	// configured provider-mode driver.
+	// connector-host driver and reject tools/multimodal before network (the
+	// connectors advertise streaming-only capabilities).
 	for _, c := range cells {
 		switch c.Backend {
 		case "acp":
@@ -60,11 +62,14 @@ func TestBaselineAdapterMatrixLock(t *testing.T) {
 				t.Fatalf("ACP cell %s x %s must use the base driver, got %q", c.Frontend, c.Backend, c.Driver)
 			}
 		case "openrouter", "nvidia":
-			if c.Driver != DriverConfiguredProviderMode {
-				t.Fatalf("%s cell %s x %s must use the configured provider-mode driver, got %q", c.Backend, c.Frontend, c.Backend, c.Driver)
+			if c.Driver != DriverConnectorHost {
+				t.Fatalf("%s cell %s x %s must use the connector-host driver, got %q", c.Backend, c.Frontend, c.Backend, c.Driver)
+			}
+			if c.Meta.ToolsViable || c.Meta.MultimodalViable {
+				t.Fatalf("%s cell %s x %s must reject tools and multimodal before network (streaming-only connector capabilities), tools=%v multimodal=%v", c.Backend, c.Frontend, c.Backend, c.Meta.ToolsViable, c.Meta.MultimodalViable)
 			}
 			if c.Meta.SubsetJustification == "" {
-				t.Fatalf("%s cell %s x %s must carry the configured provider-mode justification", c.Backend, c.Frontend, c.Backend)
+				t.Fatalf("%s cell %s x %s must carry the connector-host justification", c.Backend, c.Frontend, c.Backend)
 			}
 		default:
 			if c.Driver != DriverBase {
@@ -109,8 +114,8 @@ func TestOpenRouterNVIDIAIdentityStaysOptional(t *testing.T) {
 			t.Fatalf("optional connector %q must not be an essential backend kind", id)
 		}
 		for _, c := range AllCells() {
-			if c.Backend == id && c.Driver != DriverConfiguredProviderMode {
-				t.Fatalf("cell %s x %s must use the configured provider-mode driver", c.Frontend, c.Backend)
+			if c.Backend == id && c.Driver != DriverConnectorHost {
+				t.Fatalf("cell %s x %s must use the connector-host driver", c.Frontend, c.Backend)
 			}
 		}
 	}

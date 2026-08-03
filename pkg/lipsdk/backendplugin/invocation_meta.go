@@ -29,6 +29,11 @@ func ApplyCallWireMetadataWithNegotiation(inv *Invocation, call lipapi.Call, rou
 	if err := RequireOrderedItemABISupport(neg, call); err != nil {
 		return err
 	}
+	if call.HasItemAuthority() {
+		if err := checkOrderedItemContentABIRepresentable(call.Items); err != nil {
+			return err
+		}
+	}
 	ApplyCallWireMetadata(inv, call, routeParams)
 	return nil
 }

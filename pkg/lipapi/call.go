@@ -69,11 +69,16 @@ type Call struct {
 	// an item-authoritative continuation request to carry an intentionally empty
 	// input item slice; the continuation resolver supplies the materialized items.
 	PreviousResponseID string
-	Tools              []ToolDef
-	ToolChoice         ToolChoice
-	Options            GenerationOptions
-	Extensions         map[string]json.RawMessage
-	Invocation         Invocation `json:"-"`
+	// PromptCacheKey is a proxy-carried prompt-caching hint for the remote
+	// OpenResponses endpoint. It is protocol-neutral metadata (never a canonical
+	// trajectory control); the OpenResponses backend forwards it on compact
+	// requests so a schema-permitted client hint is never silently dropped.
+	PromptCacheKey string
+	Tools          []ToolDef
+	ToolChoice     ToolChoice
+	Options        GenerationOptions
+	Extensions     map[string]json.RawMessage
+	Invocation     Invocation `json:"-"`
 
 	// MaxPendingWireEvents caps backend adapter-internal pending event queues per stream (0 = unlimited).
 	// Not client API; the core executor sets this from server config when non-zero.

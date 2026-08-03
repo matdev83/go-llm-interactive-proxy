@@ -14,12 +14,20 @@ import (
 
 // unsupportedFrontendControls mirror the protocol-level table: non-null values
 // must fail in create frontend admission before any executor/upstream work, on
-// both HTTP and WebSocket transports. Metadata is deliberately excluded.
+// both HTTP and WebSocket transports. instructions is deliberately absent here:
+// the protocol decoder maps it into a leading canonical system item, so create
+// forwards it (see TestFrontendHTTP_InstructionsForwardedToExecutor).
+// stream_options is deliberately absent: it is an HTTP-only transport control
+// that WebSocket rejects as field_not_allowed, and HTTP create rejects it via
+// TestFrontendHTTP_StreamOptionsRejectedBeforeExecutor. Metadata is excluded.
 var unsupportedFrontendControls = []struct {
 	field string
 	value string
 }{
-	{"instructions", `"Be brief"`},
+	{"include", `["reasoning.encrypted_content"]`},
+	{"presence_penalty", `0.5`},
+	{"frequency_penalty", `0.5`},
+	{"top_logprobs", `1`},
 	{"text", `{"format":"json_object"}`},
 	{"reasoning", `{"effort":"low"}`},
 	{"truncation", `"auto"`},
@@ -30,9 +38,20 @@ var unsupportedFrontendControls = []struct {
 	{"max_tool_calls", `5`},
 }
 
+// createHTTPOnlyUnsupportedControls are pinned standard controls rejected on
+// the HTTP create transport before network. stream_options is HTTP-only: the
+// WebSocket turn path rejects it earlier as field_not_allowed.
+var createHTTPOnlyUnsupportedControls = []struct {
+	field string
+	value string
+}{
+	{"stream_options", `{"include_obfuscation":true}`},
+}
+
 // compactSchemaPermittedFrontendControls are permitted by the pinned compact
-// schema (compactResponseMethodPublicBodySchema): accepted and ignored because
-// compaction semantics treat them as intentionally optional.
+// schema (compactResponseMethodPublicBodySchema): instructions forwards as a
+// leading canonical system item and prompt_cache_key is carried on the
+// canonical call, so neither is silently dropped.
 var compactSchemaPermittedFrontendControls = []struct {
 	field string
 	value string
@@ -47,6 +66,18 @@ var compactUnsupportedFrontendControls = []struct {
 	field string
 	value string
 }{
+	{"tools", `[{"type":"function","name":"f"}]`},
+	{"tool_choice", `"auto"`},
+	{"parallel_tool_calls", `true`},
+	{"temperature", `0.5`},
+	{"top_p", `0.9`},
+	{"max_output_tokens", `100`},
+	{"metadata", `{"tenant":"acme"}`},
+	{"include", `["reasoning.encrypted_content"]`},
+	{"presence_penalty", `0.5`},
+	{"frequency_penalty", `0.5`},
+	{"stream_options", `{"include_obfuscation":true}`},
+	{"top_logprobs", `1`},
 	{"text", `{"format":"json_object"}`},
 	{"reasoning", `{"effort":"low"}`},
 	{"truncation", `"auto"`},
@@ -96,6 +127,72 @@ func TestFrontendHTTP_UnsupportedControlsNullAccepted(t *testing.T) {
 			}
 			if decoded.Call == nil || !decoded.Call.HasItemAuthority() {
 				t.Fatalf("null %s produced an invalid canonical call: %+v", tc.field, decoded.Call)
+			}
+		})
+	}
+}
+
+func TestFrontendHTTP_UnpinnedContentFieldsRejectBeforeExecutor(t *testing.T) {
+	t.Parallel()
+	// The pinned 2026-04-24 profile does not define input_file.file_id or
+	// input_video.video_data. A non-null value must fail create admission before
+	// any executor/upstream work instead of being silently dropped during
+	// canonical construction.
+	cases := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "input_file_file_id",
+			body: `{"model":"gpt-4o","input":[{"type":"message","role":"user","content":[{"type":"input_file","file_id":"file-abc","file_url":"https://x/report.pdf"}]}]}`,
+		},
+		{
+			name: "input_video_video_data",
+			body: `{"model":"gpt-4o","input":[{"type":"message","role":"user","content":[{"type":"input_video","video_data":"aGVsbG8=","video_url":"https://x/v.mp4"}]}]}`,
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			exec := &mockExecutor{}
+			handler := openresponses.NewHandler(openresponses.HandlerConfig{
+				AllowUnauthenticated: true, Executor: exec})
+			req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", bytes.NewReader([]byte(tc.body)))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d, want 400 (body=%s)", rec.Code, rec.Body.String())
+			}
+			if exec.executeCalls != 0 {
+				t.Fatalf("unpinned content field reached the executor: calls=%d", exec.executeCalls)
+			}
+		})
+	}
+}
+
+func TestFrontendHTTP_StreamOptionsRejectedBeforeExecutor(t *testing.T) {
+	t.Parallel()
+	for _, tc := range createHTTPOnlyUnsupportedControls {
+		tc := tc
+		t.Run(tc.field, func(t *testing.T) {
+			t.Parallel()
+			exec := &mockExecutor{}
+			handler := openresponses.NewHandler(openresponses.HandlerConfig{
+				AllowUnauthenticated: true, Executor: exec})
+			body := []byte(`{"model":"gpt-4o","input":"hello","` + tc.field + `":` + tc.value + `}`)
+			req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("non-null %s=%s: status=%d, want 400 (body=%s)", tc.field, tc.value, rec.Code, rec.Body.String())
+			}
+			if exec.executeCalls != 0 {
+				t.Fatalf("non-null %s reached the executor: calls=%d", tc.field, exec.executeCalls)
 			}
 		})
 	}
@@ -161,6 +258,16 @@ func TestFrontendHTTP_CompactSchemaPermittedControlsAccepted(t *testing.T) {
 			if decoded.Call == nil || !decoded.Call.HasItemAuthority() {
 				t.Fatalf("schema-permitted %s produced an invalid compact call", tc.field)
 			}
+			switch tc.field {
+			case "instructions":
+				if len(decoded.Call.Items) == 0 || decoded.Call.Items[0].Role != lipapi.RoleSystem {
+					t.Fatalf("compact instructions must map into a leading system item, got %+v", decoded.Call.Items)
+				}
+			case "prompt_cache_key":
+				if decoded.Call.PromptCacheKey != "openresponses-compact-test" {
+					t.Fatalf("compact prompt_cache_key must be carried on the canonical call, got %q", decoded.Call.PromptCacheKey)
+				}
+			}
 
 			exec := &mockExecutor{}
 			handler := openresponses.NewHandler(openresponses.HandlerConfig{
@@ -173,6 +280,32 @@ func TestFrontendHTTP_CompactSchemaPermittedControlsAccepted(t *testing.T) {
 				t.Fatalf("schema-permitted %s=%s compact request must reach the executor: calls=%d (status=%d)", tc.field, tc.value, exec.executeCalls, rec.Code)
 			}
 		})
+	}
+}
+
+func TestFrontendHTTP_InstructionsForwardedToExecutor(t *testing.T) {
+	t.Parallel()
+	exec := &mockExecutor{}
+	handler := openresponses.NewHandler(openresponses.HandlerConfig{
+		AllowUnauthenticated: true, Executor: exec})
+	body := []byte(`{"model":"gpt-4o","input":"hello","instructions":"Be brief"}`)
+	req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if exec.executeCalls != 1 {
+		t.Fatalf("create instructions must reach the executor: calls=%d (status=%d body=%s)", exec.executeCalls, rec.Code, rec.Body.String())
+	}
+	call := exec.lastCall
+	if call == nil {
+		t.Fatal("no canonical call captured")
+	}
+	if len(call.Items) != 2 || call.Items[0].Role != lipapi.RoleSystem {
+		t.Fatalf("create instructions must map into a leading system item, got %+v", call.Items)
+	}
+	if call.Items[0].Content[0].Text != "Be brief" {
+		t.Fatalf("leading system item must preserve the exact instruction text, got %+v", call.Items[0].Content)
 	}
 }
 

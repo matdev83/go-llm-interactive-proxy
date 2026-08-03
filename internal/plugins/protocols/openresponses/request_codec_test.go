@@ -403,7 +403,7 @@ func TestRequestCodec_NegativeTable(t *testing.T) {
 		},
 		{
 			name:    "InventedContentDiscriminator",
-			json:    `{"model": "gpt-4o", "input": [{"type": "message", "role": "user", "content": [{"type": "input_video", "video_url": "http://example.com/v.mp4"}]}]}`,
+			json:    `{"model": "gpt-4o", "input": [{"type": "message", "role": "user", "content": [{"type": "fancy_new_part", "value": 1}]}]}`,
 			wantErr: "unknown unprefixed discriminator",
 		},
 		{
@@ -583,7 +583,7 @@ func TestWireResponseParam_OmitsNilOptionalPointers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"model", "instructions", "parallel_tool_calls", "temperature", "top_p", "max_output_tokens", "max_tool_calls", "truncation", "store", "background", "previous_response_id", "service_tier", "safety_identifier", "prompt_cache_key", "prompt_cache_retention"} {
+	for _, field := range []string{"model", "instructions", "parallel_tool_calls", "temperature", "top_p", "max_output_tokens", "max_tool_calls", "truncation", "store", "background", "previous_response_id", "service_tier", "safety_identifier", "prompt_cache_key", "prompt_cache_retention", "include", "presence_penalty", "frequency_penalty", "top_logprobs", "stream_options"} {
 		if bytes.Contains(data, []byte(`"`+field+`":null`)) {
 			t.Fatalf("nil optional field %q serialized as null: %s", field, data)
 		}

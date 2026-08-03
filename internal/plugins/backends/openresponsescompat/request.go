@@ -28,6 +28,10 @@ type createRequest struct {
 	Text              json.RawMessage  `json:"text,omitempty"`
 	Reasoning         json.RawMessage  `json:"reasoning,omitempty"`
 	Stream            bool             `json:"stream,omitempty"`
+	// PromptCacheKey is the pinned profile cache hint. It is carried on the
+	// canonical call only for compaction (create admission rejects it), so it
+	// reaches the compact endpoint without being silently dropped.
+	PromptCacheKey *string `json:"prompt_cache_key,omitempty"`
 }
 
 // resolveModel returns the wire model for the request from the route candidate.
@@ -43,10 +47,14 @@ func isPrefixedWireType(t string) bool {
 
 // representableContentPartKind reports whether a canonical content part can be
 // encoded to the pinned profile by the production request codec without silent
-// semantic loss (the codec falls back to text for unhandled part kinds).
+// semantic loss. Inline file_data (input_file), video references
+// (input_video), and opaque prefixed extension content parts are representable;
+// every other kind is rejected before any HTTP round trip rather than being
+// silently text-mapped.
 func representableContentPartKind(k lipapi.ContentPartKind) bool {
 	switch k {
-	case lipapi.ContentPartText, lipapi.ContentPartImageRef, lipapi.ContentPartRefusal:
+	case lipapi.ContentPartText, lipapi.ContentPartImageRef, lipapi.ContentPartRefusal,
+		lipapi.ContentPartFileRef, lipapi.ContentPartVideoRef, lipapi.ContentPartExtension:
 		return true
 	}
 	return false
@@ -314,6 +322,10 @@ func buildCreateRequestBody(id string, spec BackendSpec, call lipapi.Call, cand 
 		Text:              text,
 		Reasoning:         reasoning,
 		Stream:            stream,
+	}
+	if strings.TrimSpace(call.PromptCacheKey) != "" {
+		v := strings.TrimSpace(call.PromptCacheKey)
+		req.PromptCacheKey = &v
 	}
 	if len(call.Tools) > 0 {
 		tools := make([]proto.WireTool, 0, len(call.Tools))

@@ -317,11 +317,18 @@ func (p *ContentPart) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
+	p.Filename, err = rawString(m["filename"], false)
+	if err != nil {
+		return err
+	}
 	if raw, ok := m["image_url"]; ok {
 		p.ImageURL = append(json.RawMessage(nil), raw...)
 	}
 	if raw, ok := m["file_url"]; ok {
 		p.FileURL = append(json.RawMessage(nil), raw...)
+	}
+	if raw, ok := m["file_data"]; ok {
+		p.FileData = append(json.RawMessage(nil), raw...)
 	}
 	if raw, ok := m["video_url"]; ok {
 		p.VideoURL = append(json.RawMessage(nil), raw...)
@@ -359,6 +366,9 @@ func (p ContentPart) MarshalJSON() ([]byte, error) {
 	if p.FileURL != nil {
 		m["file_url"] = p.FileURL
 	}
+	if p.FileData != nil {
+		m["file_data"] = p.FileData
+	}
 	if p.VideoURL != nil {
 		m["video_url"] = p.VideoURL
 	}
@@ -367,6 +377,9 @@ func (p ContentPart) MarshalJSON() ([]byte, error) {
 	}
 	if p.Logprobs != nil {
 		m["logprobs"] = p.Logprobs
+	}
+	if p.Filename != "" {
+		m["filename"] = p.Filename
 	}
 	return json.Marshal(m)
 }

@@ -94,17 +94,25 @@ func RequiredCapabilities(c Call) []Capability {
 	}
 	if c.HasItemAuthority() {
 		for _, item := range NormalizedItems(c) {
-			for _, cp := range item.Content {
-				switch cp.Kind {
-				case ContentPartImageRef:
-					add(CapabilityVision)
-				case ContentPartFileRef:
-					add(CapabilityDocuments)
-				case ContentPartVideoRef:
-					add(CapabilityVideoInput)
-				case ContentPartReasoning:
-					add(CapabilityReasoningReplay)
+			scanParts := func(parts []ContentPart) {
+				for _, cp := range parts {
+					switch cp.Kind {
+					case ContentPartImageRef:
+						add(CapabilityVision)
+					case ContentPartFileRef:
+						add(CapabilityDocuments)
+					case ContentPartVideoRef:
+						add(CapabilityVideoInput)
+					case ContentPartReasoning:
+						add(CapabilityReasoningReplay)
+					case ContentPartExtension:
+						add(CapabilityOpaqueExtensions)
+					}
 				}
+			}
+			scanParts(item.Content)
+			if item.ToolResult != nil {
+				scanParts(item.ToolResult.Parts)
 			}
 			if item.Kind == ItemKindToolCall || item.Kind == ItemKindToolResult {
 				add(CapabilityTools)

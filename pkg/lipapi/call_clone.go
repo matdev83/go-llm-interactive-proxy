@@ -196,6 +196,13 @@ func cloneContentParts(in []ContentPart) []ContentPart {
 			}
 			out[i].Annotation = &ann
 		}
+		if in[i].Extension != nil {
+			ext := *in[i].Extension
+			if len(in[i].Extension.Data) > 0 {
+				ext.Data = append(json.RawMessage(nil), in[i].Extension.Data...)
+			}
+			out[i].Extension = &ext
+		}
 	}
 	return out
 }

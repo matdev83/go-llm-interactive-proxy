@@ -230,8 +230,10 @@ var capabilityNames = map[string]lipapi.Capability{
 }
 
 // defaultCapabilities is the portable pinned-profile capability surface the
-// generic mode satisfies unless the operator narrows it. Replay, video input,
-// and assistant media references require explicit declaration.
+// generic mode satisfies unless the operator narrows it. Video input and
+// reasoning replay require explicit declaration; annotations and assistant
+// media references are not representable on the pinned profile and cannot be
+// claimed at all (see unsupportedCapabilities).
 var defaultCapabilities = []lipapi.Capability{
 	lipapi.CapabilityStreaming,
 	lipapi.CapabilityTools,
@@ -244,7 +246,14 @@ var defaultCapabilities = []lipapi.Capability{
 	lipapi.CapabilityItemReferences,
 	lipapi.CapabilityCompaction,
 	lipapi.CapabilityOpaqueExtensions,
-	lipapi.CapabilityAnnotations,
+}
+
+// unsupportedCapabilities are known capability names the generic mode cannot
+// satisfy end-to-end on the pinned profile. Declaring them is rejected so
+// operators never make dishonest capability claims.
+var unsupportedCapabilities = map[lipapi.Capability]struct{}{
+	lipapi.CapabilityAnnotations:        {},
+	lipapi.CapabilityAssistantMediaRefs: {},
 }
 
 // DecodeConfig strictly decodes opaque compatible-mode YAML for the generic
@@ -468,6 +477,9 @@ func decodeCapabilities(scope string, n yaml.Node) ([]lipapi.Capability, error) 
 		cap, ok := capabilityNames[name]
 		if !ok {
 			return nil, fmt.Errorf("%s: unknown capability %q", scope, name)
+		}
+		if _, unsupported := unsupportedCapabilities[cap]; unsupported {
+			return nil, fmt.Errorf("%s: capability %q is not representable on the pinned OpenResponses profile and cannot be claimed", scope, name)
 		}
 		out = append(out, cap)
 	}

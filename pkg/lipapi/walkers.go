@@ -206,6 +206,20 @@ func WalkCallOpaqueData(c Call, fn func(field string, data []byte) error) error 
 					return err
 				}
 			}
+			if cp.Extension != nil && len(cp.Extension.Data) > 0 {
+				if err := fn("ExtensionContent.Data", cp.Extension.Data); err != nil {
+					return err
+				}
+			}
+		}
+		if item.ToolResult != nil {
+			for _, cp := range item.ToolResult.Parts {
+				if cp.Extension != nil && len(cp.Extension.Data) > 0 {
+					if err := fn("ToolResult.Parts.ExtensionContent.Data", cp.Extension.Data); err != nil {
+						return err
+					}
+				}
+			}
 		}
 		return nil
 	})

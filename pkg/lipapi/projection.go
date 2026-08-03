@@ -329,6 +329,8 @@ func checkItemLegacyRepresentable(item Item, field string, target LegacyProjecti
 			if !target.SupportsVideoInput {
 				return projectionErr(ProjectionReasonVideoInput, cf, "video input not supported")
 			}
+		case ContentPartExtension:
+			return projectionErr(ProjectionReasonOpaqueExtension, cf, "opaque extension content parts have no legacy carrier")
 		case ContentPartAnnotation:
 			if !target.SupportsAnnotations {
 				return projectionErr(ProjectionReasonAnnotation, cf, "annotations not supported")
@@ -420,6 +422,9 @@ func contentPartsToLegacyParts(parts []ContentPart) ([]Part, error) {
 			}
 			out = append(out, p)
 		case ContentPartFileRef:
+			if cp.FileRef == "" {
+				return nil, fmt.Errorf("%s: inline file data has no legacy carrier", field)
+			}
 			out = append(out, FilePart(cp.FileRef, cp.FileMIME, cp.FileName))
 		case ContentPartRefusal:
 			return nil, fmt.Errorf("%s: refusal has no legacy carrier", field)
@@ -431,6 +436,8 @@ func contentPartsToLegacyParts(parts []ContentPart) ([]Part, error) {
 			return nil, fmt.Errorf("%s: summary has no legacy carrier", field)
 		case ContentPartToolResult:
 			out = append(out, Part{Kind: PartToolResult, Text: cp.Text})
+		case ContentPartExtension:
+			return nil, fmt.Errorf("%s: opaque extension content part has no legacy carrier", field)
 		default:
 			return nil, fmt.Errorf("%s: unsupported content kind %q", field, cp.Kind)
 		}

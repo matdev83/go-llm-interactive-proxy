@@ -352,12 +352,16 @@ type unsupportedControl struct {
 }
 
 // createUnsupportedControls are the create-operation controls that must fail
-// create admission when non-null. The compact operation permits a
-// schema-approved subset (instructions, prompt_cache_key) and is governed
-// separately by compactUnsupportedControls. Metadata is deliberately excluded:
-// it maps to Call.Session.Metadata end-to-end.
+// create admission when non-null. instructions is deliberately absent here: the
+// protocol decoder maps it losslessly into a leading canonical system message
+// item, so it forwards instead of being rejected. Metadata is deliberately
+// excluded: it maps to Call.Session.Metadata end-to-end.
 var createUnsupportedControls = []unsupportedControl{
-	{"instructions", func(p *proto.WireResponseParam) bool { return p.Instructions != nil }},
+	{"include", func(p *proto.WireResponseParam) bool { return p.Include != nil }},
+	{"presence_penalty", func(p *proto.WireResponseParam) bool { return p.PresencePenalty != nil }},
+	{"frequency_penalty", func(p *proto.WireResponseParam) bool { return p.FrequencyPenalty != nil }},
+	{"stream_options", func(p *proto.WireResponseParam) bool { return isPresentNonNullJSON(p.StreamOptions) }},
+	{"top_logprobs", func(p *proto.WireResponseParam) bool { return p.TopLogprobs != nil }},
 	{"text", func(p *proto.WireResponseParam) bool { return isPresentNonNullJSON(p.Text) }},
 	{"reasoning", func(p *proto.WireResponseParam) bool { return isPresentNonNullJSON(p.Reasoning) }},
 	{"truncation", func(p *proto.WireResponseParam) bool { return p.Truncation != nil }},
@@ -369,12 +373,25 @@ var createUnsupportedControls = []unsupportedControl{
 }
 
 // compactUnsupportedControls are the request controls absent from the pinned
-// compact schema (compactResponseMethodPublicBodySchema) that the compact
-// operation cannot represent. instructions and prompt_cache_key are
-// deliberately absent here: the compact schema permits them and compaction
-// semantics treat them as intentionally optional, so they are accepted and
-// ignored rather than rejected.
+// compact schema (compactResponseMethodPublicBodySchema), which permits only
+// model, input, previous_response_id, instructions, and prompt_cache_key.
+// instructions and prompt_cache_key are deliberately absent here: instructions
+// maps into a leading canonical system item (protocol decoder) and
+// prompt_cache_key forwards on the canonical call, so both are carried rather
+// than dropped. Every other pinned create control is rejected before network.
 var compactUnsupportedControls = []unsupportedControl{
+	{"tools", func(p *proto.WireResponseParam) bool { return len(p.Tools) > 0 }},
+	{"tool_choice", func(p *proto.WireResponseParam) bool { return isPresentNonNullJSON(p.ToolChoice) }},
+	{"parallel_tool_calls", func(p *proto.WireResponseParam) bool { return p.ParallelToolCalls != nil }},
+	{"temperature", func(p *proto.WireResponseParam) bool { return p.Temperature != nil }},
+	{"top_p", func(p *proto.WireResponseParam) bool { return p.TopP != nil }},
+	{"max_output_tokens", func(p *proto.WireResponseParam) bool { return p.MaxOutputTokens != nil }},
+	{"metadata", func(p *proto.WireResponseParam) bool { return isPresentNonNullJSON(p.Metadata) }},
+	{"include", func(p *proto.WireResponseParam) bool { return p.Include != nil }},
+	{"presence_penalty", func(p *proto.WireResponseParam) bool { return p.PresencePenalty != nil }},
+	{"frequency_penalty", func(p *proto.WireResponseParam) bool { return p.FrequencyPenalty != nil }},
+	{"stream_options", func(p *proto.WireResponseParam) bool { return isPresentNonNullJSON(p.StreamOptions) }},
+	{"top_logprobs", func(p *proto.WireResponseParam) bool { return p.TopLogprobs != nil }},
 	{"text", func(p *proto.WireResponseParam) bool { return isPresentNonNullJSON(p.Text) }},
 	{"reasoning", func(p *proto.WireResponseParam) bool { return isPresentNonNullJSON(p.Reasoning) }},
 	{"truncation", func(p *proto.WireResponseParam) bool { return p.Truncation != nil }},
@@ -475,8 +492,9 @@ func AuthenticateAndDecodeCompact(ctx context.Context, body []byte, opts DecodeC
 	}
 
 	// Compact admission: reject non-null controls absent from the pinned compact
-	// schema. instructions and prompt_cache_key are schema-permitted optional
-	// hints and are intentionally accepted-and-ignored, not rejected.
+	// schema. instructions maps into a leading canonical system item in the
+	// protocol decoder, and prompt_cache_key is carried on the canonical call
+	// below, so both are forwarded instead of dropped.
 	if err := rejectUnsupportedControls(wireParam, compactUnsupportedControls); err != nil {
 		return nil, err
 	}
@@ -513,6 +531,11 @@ func AuthenticateAndDecodeCompact(ctx context.Context, body []byte, opts DecodeC
 		Operation:     lipapi.OperationContextCompaction,
 		DeliveryMode:  lipapi.DeliveryModeNonStreaming,
 		TransportMode: lipapi.TransportModeNonStreaming,
+	}
+	// The pinned compact schema permits prompt_cache_key; carry it on the
+	// canonical call so the generic backend forwards it instead of dropping it.
+	if wireParam.PromptCacheKey != nil {
+		canonicalCall.PromptCacheKey = strings.TrimSpace(*wireParam.PromptCacheKey)
 	}
 	if opts.Headers != nil {
 		canonicalCall.Invocation.ClientUserAgent = strings.TrimSpace(opts.Headers.Get("User-Agent"))

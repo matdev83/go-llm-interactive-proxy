@@ -433,7 +433,7 @@ func TestObserver_ItemAuthorityRouteDerivedReasoningEffortForwarded(t *testing.T
 }
 
 func TestObserver_ItemAuthorityStructuredOutputMIMEForwarded(t *testing.T) {
-	be, obs := newObserverBackend(t, "capabilities:\n  - streaming\n  - tools\n  - vision\n  - documents\n  - reasoning\n  - structured_outputs\n  - parallel_tool_calls\n  - ordered_items\n  - assistant_phase\n  - item_references\n  - compaction\n  - opaque_extensions\n  - annotations\n", func(w http.ResponseWriter, r *http.Request) {
+	be, obs := newObserverBackend(t, "capabilities:\n  - streaming\n  - tools\n  - vision\n  - documents\n  - reasoning\n  - structured_outputs\n  - parallel_tool_calls\n  - ordered_items\n  - assistant_phase\n  - item_references\n  - compaction\n  - opaque_extensions\n", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, completeResourceJSON)
 	})

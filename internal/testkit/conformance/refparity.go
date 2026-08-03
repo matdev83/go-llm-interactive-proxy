@@ -102,12 +102,15 @@ func parityRefHandler(tb testing.TB, backendID string) http.Handler {
 			ConverseJSON: ns,
 			StreamEvents: bedrockParityStreamEvents(tb, parityText),
 		})
-	case BackendOpenResponses, BackendOpenRouter, BackendNVIDIA:
-		// The generic OpenResponses backend and the configured OpenAI-compatible
-		// provider-mode route both consume the OpenAI Responses-shaped wire. The
-		// origin serves the complete rich wire plus the /models discovery path the
-		// provider-mode inventory resolver queries.
+	case BackendOpenResponses:
+		// The generic OpenResponses backend consumes the OpenAI Responses-shaped wire.
 		return newOpenResponsesParityOrigin(parityText)
+	case BackendOpenRouter, BackendNVIDIA:
+		// The OpenRouter/NVIDIA connector columns dispatch on the operation flavor:
+		// openai.responses reaches the Responses wire, every other operation
+		// reaches the chat-completions wire. The per-wire origin serves both with
+		// deterministic parity text.
+		return &connectorWire{text: parityText}
 	default:
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)

@@ -101,6 +101,8 @@ var rowArtifacts = []string{
 	"internal/testkit/conformance/openresponses_frontend_row_conformance_test.go",
 	"internal/testkit/conformance/openresponses_frontend_row_evidence_test.go",
 	"internal/testkit/conformance/openresponses_provider_mode.go",
+	"internal/testkit/conformance/connector_host.go",
+	"internal/testkit/conformance/connector_columns_matrix_test.go",
 }
 
 // rowArtifactRef points evidence at the row artifact set.
@@ -166,7 +168,7 @@ func openResponsesFrontendRowCellFor(backend string) OpenResponsesFrontendRowCel
 	if backend == BackendACP {
 		textRationale = "Portable text and system instructions project to ACP prompt-turn text blocks through the item→message projector."
 	} else if backend == BackendOpenRouter || backend == BackendNVIDIA {
-		textRationale = "Portable text projects through the item→legacy view to the OpenAI-compatible Responses provider-mode wire."
+		textRationale = "Portable text projects through the item→legacy view to the OpenAI-compatible wire the connector selects for the openresponses.create operation (the chat-completions wire)."
 	}
 	text := func(feat FeatureID, rationale string) FeatureEvidence {
 		return FeatureEvidence{
@@ -190,6 +192,11 @@ func openResponsesFrontendRowCellFor(backend string) OpenResponsesFrontendRowCel
 		cell.Features[FeatureTools] = rowReject(backend, FeatureTools, "ACP v1 prompt-turn subset rejects tools before any network request (validateACPCall).")
 		cell.Features[FeatureMultimodal] = rowProjection(backend, FeatureMultimodal,
 			"Image/file URI references project to ACP resource prompt blocks (positive resource subset); unrepresentable multimodal forms (video/audio) are rejected before network.")
+	case BackendOpenRouter, BackendNVIDIA:
+		cell.Features[FeatureTools] = rowReject(backend, FeatureTools,
+			"The connector executables advertise streaming-only capabilities, so canonical tools are rejected before any network request by the host-adapter backend admission.")
+		cell.Features[FeatureMultimodal] = rowReject(backend, FeatureMultimodal,
+			"The connector executables advertise streaming-only capabilities (no vision), so multimodal input is rejected before any network request by the host-adapter backend admission.")
 	case BackendOpenAIResponses, BackendOpenResponses:
 		cell.Features[FeatureTools] = rowLossless(backend, FeatureTools, "Semantics survive the canonical item trajectory unchanged.")
 		cell.Features[FeatureMultimodal] = rowProjection(backend, FeatureMultimodal, "Image input projects to the target's portable image representation.")
@@ -293,7 +300,8 @@ func artifactExists(moduleRoot, rel string) bool {
 // AssertOpenRouterNVIDIAStayOptional proves the OpenRouter/NVIDIA connector
 // columns remain optional: they are absent from the essential backend kinds and
 // from the base harness constructible backend set (the Task 8.3 route proof uses
-// the configured OpenAI-compatible provider mode, not an essential connector).
+// the actual connector executables through the connector host, not an essential
+// connector).
 func AssertOpenRouterNVIDIAStayOptional(moduleRoot string) error {
 	for _, id := range []string{BackendOpenRouter, BackendNVIDIA} {
 		if slices.Contains(standardplugins.EssentialBackendKinds, id) {

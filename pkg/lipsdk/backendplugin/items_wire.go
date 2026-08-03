@@ -1,6 +1,8 @@
 package backendplugin
 
 import (
+	"fmt"
+
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -236,4 +238,40 @@ func mapContentPartKind(k lipapi.ContentPartKind) PartKind {
 	default:
 		return PartKindUnspecified
 	}
+}
+
+// checkOrderedItemContentABIRepresentable verifies that item-authority content
+// parts can be carried on the backendplugin ABI without silent semantic loss.
+// Opaque extension content parts and inline file_data are not representable on
+// the ABI and are rejected explicitly before execution (never silently dropped).
+func checkOrderedItemContentABIRepresentable(items []lipapi.Item) error {
+	for i, item := range items {
+		for j, cp := range item.Content {
+			if err := checkABIContentPart(cp, fmt.Sprintf("Items[%d].Content[%d]", i, j)); err != nil {
+				return err
+			}
+		}
+		if item.ToolResult != nil {
+			for j, cp := range item.ToolResult.Parts {
+				if err := checkABIContentPart(cp, fmt.Sprintf("Items[%d].ToolResult.Parts[%d]", i, j)); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// checkABIContentPart rejects canonical content parts the backendplugin ABI
+// cannot represent losslessly.
+func checkABIContentPart(cp lipapi.ContentPart, field string) error {
+	switch cp.Kind {
+	case lipapi.ContentPartExtension:
+		return fmt.Errorf("%w: %s: opaque extension content parts are not representable on the backendplugin ABI", ErrUnsupportedPartKind, field)
+	case lipapi.ContentPartFileRef:
+		if cp.FileData != "" {
+			return fmt.Errorf("%w: %s: inline file_data is not representable on the backendplugin ABI", ErrUnsupportedPartKind, field)
+		}
+	}
+	return nil
 }

@@ -19,14 +19,14 @@ func BundledFrontendIDs() []string {
 
 // BundledBackendIDs is the authoritative list of v1 bundled backend compatibility
 // identities (Requirement 13.5): the essential backends, the generic OpenResponses
-// backend, and the provider-connector identities (ACP, OpenRouter, NVIDIA). ACP is an
-// authoritative compatibility identity but, like OpenRouter/NVIDIA, stays an optional
-// connector column: after the origin/main ACP relocation it is executed through the
-// harness's connector host (acp_connector.go launches the relocated connectors/acp
-// executable via the backendplugin host adapter APIs) and is never promoted to an
-// essential backend kind. OpenRouter/NVIDIA matrix cells are driven through the
-// classified configured OpenAI-compatible provider-mode path (DeployConfiguredProviderMode
-// / the openai-compat provider-mode backend) and are never promoted either.
+// backend, and the provider-connector identities (ACP, OpenRouter, NVIDIA). The
+// connector identities stay optional connector columns: after the origin/main
+// connector relocation they are executed through the harness's connector host
+// (connector_host.go builds and launches the relocated connectors/* executable
+// via the backendplugin host adapter APIs). ACP is constructible through the base
+// harness selector; OpenRouter/NVIDIA cells are driven through the dedicated
+// connector-column deploy path (DeployConnectorColumnFor). No connector identity
+// is ever promoted to an essential backend kind.
 func BundledBackendIDs() []string {
 	return []string{
 		"openai-responses",
@@ -43,22 +43,22 @@ func BundledBackendIDs() []string {
 
 // MatrixCellDriver classifies how one matrix cell is constructed and driven. Every cell
 // must have exactly one driver; cells without a working construct/mount helper or a
-// classified configured-mode path fail the matrix completeness test.
+// classified connector-host path fail the matrix completeness test.
 type MatrixCellDriver string
 
 const (
 	// DriverBase is the base-bundle construct/mount path: a real essential/OpenResponses
 	// backend adapter (or, for the ACP connector column, the host-built connector backend
-	// from acp_connector.go) behind the real core executor and the real frontend handler,
+	// from connector_host.go) behind the real core executor and the real frontend handler,
 	// with an injectable reference-provider origin.
 	DriverBase MatrixCellDriver = "base"
-	// DriverConfiguredProviderMode is the classified configured-mode path for the
-	// OpenRouter/NVIDIA optional-connector columns: the real frontend behind the real core
-	// executor and the configured OpenAI-compatible provider-mode backend
-	// (custom-openai-responses-compatible) reaching an OpenAI-compatible provider origin.
-	// The connectors themselves stay optional and are never constructed as essential
-	// backends (AssertOpenRouterNVIDIAStayOptional).
-	DriverConfiguredProviderMode MatrixCellDriver = "configured_provider_mode"
+	// DriverConnectorHost is the connector-host path for the OpenRouter/NVIDIA
+	// optional-connector columns: the real frontend behind the real core executor and the
+	// actual connectors/openrouter / connectors/nvidia executable processes driven through
+	// the backendplugin host adapter (DeployConnectorColumnFor). The connectors themselves
+	// stay optional and are never constructed as essential backends
+	// (AssertOpenRouterNVIDIAStayOptional).
+	DriverConnectorHost MatrixCellDriver = "connector_host"
 )
 
 // SubsetMeta records which conformance rows apply to a matrix cell.
@@ -106,10 +106,13 @@ func newCell(frontend, backend string) MatrixCell {
 			"executable multimodal scenarios and the OpenResponses row resource-subset evidence), while " +
 			"unrepresentable multimodal forms (video/audio) are rejected before network."
 	case "openrouter", "nvidia":
-		meta.SubsetJustification = "OpenRouter/NVIDIA are optional provider-connector compatibility " +
-			"identities driven through the classified configured OpenAI-compatible provider-mode path " +
-			"(DeployConfiguredProviderMode); they are not constructible as essential bundled backends and " +
-			"are never promoted to essential status (AssertOpenRouterNVIDIAStayOptional)."
+		meta.ToolsViable = false
+		meta.MultimodalViable = false
+		meta.SubsetJustification = "OpenRouter/NVIDIA are optional connector-column compatibility " +
+			"identities driven through the actual connector executables (connector_host.go). The " +
+			"connectors advertise streaming-only capabilities, so canonical tools and multimodal input " +
+			"are rejected before network by the host-adapter backend admission; they are never promoted " +
+			"to essential status (AssertOpenRouterNVIDIAStayOptional)."
 	default:
 		meta.SubsetJustification = ""
 	}
@@ -139,13 +142,14 @@ func GeneralMatrixCells() []MatrixCell {
 }
 
 // driverForBackend classifies the construct/mount driver for one backend compatibility
-// identity: base-bundle construction for the six essential backends and the generic
-// OpenResponses backend; the configured provider-mode path for the optional connector
+// identity: base-bundle construction for the six essential backends, the generic
+// OpenResponses backend, and the ACP connector column (constructed in BackendFor via
+// the connector host); the dedicated connector-column path for the optional connector
 // columns.
 func driverForBackend(backend string) MatrixCellDriver {
 	switch backend {
 	case "openrouter", "nvidia":
-		return DriverConfiguredProviderMode
+		return DriverConnectorHost
 	default:
 		return DriverBase
 	}
