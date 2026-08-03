@@ -220,6 +220,8 @@ func DeriveProtocolRequirements(c Call) ProtocolRequirements {
 		})
 	}
 	addItemDialect := func(dialect, implementor string) {
+		// Item dialects describe item-level wire kinds. Content-part extensions
+		// intentionally contribute only ExtensionTypes, not ItemDialects.
 		dialect = strings.ToLower(strings.TrimSpace(dialect))
 		if dialect == "" {
 			return

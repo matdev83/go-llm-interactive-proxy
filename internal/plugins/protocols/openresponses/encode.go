@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -331,49 +330,13 @@ func wireToolArguments(raw json.RawMessage) json.RawMessage {
 	return b
 }
 
-// encodeExtensionContentPart emits the verbatim wire object of a canonical
-// opaque extension content part. The raw Data is preserved byte-for-byte;
-// canonical namespace/implementor metadata is merged in only when it diverges
-// from the deterministic derivation (namespace) or is non-empty (implementor)
-// and the wire object does not already carry the field, so a part decoded from
-// a plain wire object is re-emitted unchanged.
+// encodeExtensionContentPart emits opaque extension data without parsing or
+// re-marshaling it. Identity is carried by the enclosing wire discriminator.
 func encodeExtensionContentPart(e *lipapi.ExtensionContentPart) json.RawMessage {
 	if e == nil {
 		return nil
 	}
-	raw := cloneBytes(e.Data)
-	if len(raw) == 0 {
-		return raw
-	}
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &obj); err != nil {
-		return raw
-	}
-	merged := false
-	if ns := strings.TrimSpace(e.Namespace); ns != "" && lipapi.DeriveExtensionNamespace(e.Type) != ns {
-		if _, ok := obj["namespace"]; !ok {
-			if b, err := json.Marshal(ns); err == nil {
-				obj["namespace"] = b
-				merged = true
-			}
-		}
-	}
-	if imp := strings.TrimSpace(e.Implementor); imp != "" {
-		if _, ok := obj["implementor"]; !ok {
-			if b, err := json.Marshal(imp); err == nil {
-				obj["implementor"] = b
-				merged = true
-			}
-		}
-	}
-	if !merged {
-		return raw
-	}
-	out, err := json.Marshal(obj)
-	if err != nil {
-		return raw
-	}
-	return out
+	return cloneBytes(e.Data)
 }
 
 // encodeContentPart converts canonical lipapi.ContentPart into WireContentPart.

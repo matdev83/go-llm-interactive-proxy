@@ -41,7 +41,7 @@ func TestContentPartExtension_DerivesRequirementFromStructuredToolResultPart(t *
 	}
 }
 
-func TestContentPartExtension_CarriedNamespaceAndImplementorOverrideDerivation(t *testing.T) {
+func TestContentPartExtension_CanonicalMetadataIsUsedForNonWireSources(t *testing.T) {
 	t.Parallel()
 	part := lipapi.ContentPart{
 		Kind: lipapi.ContentPartExtension,

@@ -46,9 +46,8 @@ func TestContentPartExtension_NamespaceDerivedOnDecode(t *testing.T) {
 	}
 }
 
-// TestContentPartExtension_WireNamespaceAndImplementorRoundTrip proves that an
-// explicit wire namespace/implementor is carried exactly and preserved on
-// re-encoding.
+// Payload namespace and implementor are malicious opaque fields: they must not
+// affect canonical identity, even though the payload remains lossless.
 func TestContentPartExtension_WireNamespaceAndImplementorRoundTrip(t *testing.T) {
 	t.Parallel()
 	body, err := json.Marshal(map[string]any{
@@ -65,33 +64,20 @@ func TestContentPartExtension_WireNamespaceAndImplementorRoundTrip(t *testing.T)
 		t.Fatalf("DecodeRequest: %v", err)
 	}
 	cp := call.Items[0].Content[0]
-	if cp.Extension == nil || cp.Extension.Namespace != "custom" || cp.Extension.Implementor != "acme-vendor" {
+	if cp.Extension == nil || cp.Extension.Namespace != "acme" || cp.Extension.Implementor != "" {
 		t.Fatalf("canonical extension metadata mismatch: %+v", cp.Extension)
 	}
 	encoded, err := EncodeRequest(call)
 	if err != nil {
 		t.Fatalf("EncodeRequest: %v", err)
 	}
-	var out struct {
-		Input []struct {
-			Content []map[string]json.RawMessage `json:"content"`
-		} `json:"input"`
-	}
-	if err := json.Unmarshal(encoded, &out); err != nil {
-		t.Fatalf("re-encoded request: %v", err)
-	}
-	part := out.Input[0].Content[0]
-	if got := string(part["namespace"]); got != `"custom"` {
-		t.Fatalf("re-encoded namespace = %s, want \"custom\"", got)
-	}
-	if got := string(part["implementor"]); got != `"acme-vendor"` {
-		t.Fatalf("re-encoded implementor = %s, want \"acme-vendor\"", got)
+	if !strings.Contains(string(encoded), `"namespace":"custom"`) || !strings.Contains(string(encoded), `"implementor":"acme-vendor"`) {
+		t.Fatalf("opaque payload metadata was not preserved: %s", encoded)
 	}
 }
 
-// TestContentPartExtension_ExplicitNamespaceMergedOnEncode proves that a
-// canonical part carrying an explicit namespace diverging from the derived one
-// is merged into the emitted wire object instead of silently dropped.
+// TestContentPartExtension_ExplicitNamespaceMergedOnEncode proves that encoding
+// never changes opaque Data, even when canonical metadata is present.
 func TestContentPartExtension_ExplicitNamespaceMergedOnEncode(t *testing.T) {
 	t.Parallel()
 	call := lipapi.Call{Items: []lipapi.Item{{
@@ -119,15 +105,26 @@ func TestContentPartExtension_ExplicitNamespaceMergedOnEncode(t *testing.T) {
 	if err := json.Unmarshal(encoded, &out); err != nil {
 		t.Fatalf("re-encoded request: %v", err)
 	}
-	part := out.Input[0].Content[0]
-	if got := string(part["namespace"]); got != `"custom"` {
-		t.Fatalf("merged namespace = %s, want \"custom\"", got)
+	if got := string(out.Input[0].Content[0]["namespace"]); got != "" {
+		t.Fatalf("unexpected top-level namespace injection: %s", got)
 	}
-	if got := string(part["implementor"]); got != `"acme-vendor"` {
-		t.Fatalf("merged implementor = %s, want \"acme-vendor\"", got)
+	if !strings.Contains(string(encoded), `"payload":{"k":1}`) {
+		t.Fatalf("payload = %s, want preserved", encoded)
 	}
-	if got := string(part["payload"]); got != `{"k":1}` {
-		t.Fatalf("payload = %s, want preserved", got)
+}
+
+func TestContentPartExtension_EncodePreservesOpaqueDataBytes(t *testing.T) {
+	t.Parallel()
+	raw := json.RawMessage(`{"z":[1,  2], "namespace":"payload-ns", "implementor":"payload-impl"}`)
+	part := encodeContentPart(lipapi.ContentPart{
+		Kind: lipapi.ContentPartExtension,
+		Extension: &lipapi.ExtensionContentPart{
+			Type: "acme:part",
+			Data: raw,
+		},
+	}, lipapi.RoleUser)
+	if got := part.rawExtension; string(got) != string(raw) {
+		t.Fatalf("opaque data bytes changed: got %s, want raw %s", got, raw)
 	}
 }
 

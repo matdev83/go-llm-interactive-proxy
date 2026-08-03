@@ -783,25 +783,13 @@ func decodeReasoningPayload(raw []byte) (text, signature string, opaque json.Raw
 	return text, signature, opaque, nil
 }
 
-// decodeExtensionContentPart builds a canonical extension content part from a
-// vendor-prefixed wire discriminator and its verbatim wire object. An explicit
-// wire namespace/implementor is carried exactly; an absent namespace falls back
-// to the deterministic derivation from the prefixed type.
+// decodeExtensionContentPart binds identity only to the trusted wire
+// discriminator. Payload metadata is opaque extension data, not identity.
 func decodeExtensionContentPart(wireType string, raw []byte) *lipapi.ExtensionContentPart {
 	ext := &lipapi.ExtensionContentPart{
-		Type: wireType,
-		Data: cloneBytes(raw),
-	}
-	ext.Namespace = lipapi.DeriveExtensionNamespace(wireType)
-	var obj struct {
-		Namespace   string `json:"namespace"`
-		Implementor string `json:"implementor"`
-	}
-	if err := json.Unmarshal(raw, &obj); err == nil {
-		if obj.Namespace != "" {
-			ext.Namespace = obj.Namespace
-		}
-		ext.Implementor = obj.Implementor
+		Namespace: lipapi.DeriveExtensionNamespace(wireType),
+		Type:      wireType,
+		Data:      cloneBytes(raw),
 	}
 	return ext
 }
