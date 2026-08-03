@@ -1,6 +1,7 @@
 # Comments and blank lines are ignored by scripts/check-release-clean.sh.
 # Exact repository file manifest. Every tracked path must appear here.
 .coderabbit.yaml
+.github/workflows/openresponses-official-compliance.yml
 .cursor/.gitignore
 .cursor/skills/golang-benchmark/SKILL.md
 .cursor/skills/golang-benchmark/evals/evals.json

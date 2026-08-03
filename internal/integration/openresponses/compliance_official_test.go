@@ -376,5 +376,8 @@ func TestOfficialComplianceSuite_FullDeployment(t *testing.T) {
 	if res.Summary.Total == 0 {
 		t.Fatal("official compliance suite reported zero cases; expected the pinned suite to run")
 	}
+	if res.Summary.Total != 17 {
+		t.Fatalf("official compliance suite reported %d cases; expected the pinned 17-case suite", res.Summary.Total)
+	}
 	t.Logf("official compliance suite: %d/%d passed, %d failed, %d skipped", res.Summary.Passed, res.Summary.Total, res.Summary.Failed, res.Summary.Skipped)
 }

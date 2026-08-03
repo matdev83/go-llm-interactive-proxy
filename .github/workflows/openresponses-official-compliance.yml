@@ -1,0 +1,107 @@
+name: OpenResponses Official Compliance
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openresponses-official-compliance-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  official-suite:
+    name: Pinned official 17-case suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: tools/openresponses-compliance/package.json
+          cache: npm
+          cache-dependency-path: tools/openresponses-compliance/package-lock.json
+
+      - name: Install pinned official suite tooling
+        working-directory: tools/openresponses-compliance
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Record exact-head evidence
+        shell: bash
+        env:
+          EVENT_SHA: ${{ github.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          manifest_hash="$(sha256sum tools/openresponses-compliance/MANIFEST.json | awk '{print $1}')"
+          {
+            printf 'github_sha=%s\n' "$EVENT_SHA"
+            printf 'pr_head_sha=%s\n' "${PR_HEAD_SHA:-not-a-pull-request}"
+            printf 'checked_out_sha=%s\n' "$actual_sha"
+            printf 'upstream_revision=92c12d96d7b61d6d15e2214daa5e9c6000ab6e1c\n'
+            printf 'manifest_sha256=%s\n' "$manifest_hash"
+            printf 'command=LIP_RUN_OFFICIAL_COMPLIANCE=1 go test -parallel=8 -timeout=10m -run TestOfficialComplianceSuite_FullDeployment -timeout 15m ./internal/integration/openresponses/\n'
+          } > openresponses-official-evidence.txt
+          echo "github.sha=$EVENT_SHA"
+          echo "PR head SHA=${PR_HEAD_SHA:-not-a-pull-request}"
+          echo "checked out SHA=$actual_sha"
+
+      - name: Run actual pinned official suite
+        id: suite
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          LIP_RUN_OFFICIAL_COMPLIANCE=1 go test -parallel=8 -timeout=10m -run 'TestOfficialComplianceSuite_FullDeployment' -timeout 15m ./internal/integration/openresponses/ 2>&1 | tee openresponses-official-output.txt
+
+      - name: Validate and finalize evidence
+        if: always()
+        shell: bash
+        env:
+          SUITE_OUTCOME: ${{ steps.suite.outcome }}
+        run: |
+          set -euo pipefail
+          test -s openresponses-official-output.txt || { echo 'official suite produced no output' >&2; exit 1; }
+          if grep -Eq 'SKIPPED|skipped [1-9]|no `node` binary|dependencies are not installed|reported zero cases' openresponses-official-output.txt; then
+            echo 'official suite skipped or tooling was missing' >&2
+            exit 1
+          fi
+          grep -Eq 'official compliance suite: 17/17 passed, 0 failed, 0 skipped' openresponses-official-output.txt || {
+            echo 'expected exact 17-case passing summary was not found' >&2
+            exit 1
+          }
+          printf 'suite_outcome=%s\n' "$SUITE_OUTCOME" >> openresponses-official-evidence.txt
+          printf '\n--- test output ---\n' >> openresponses-official-evidence.txt
+          cat openresponses-official-output.txt >> openresponses-official-evidence.txt
+          sha256sum openresponses-official-evidence.txt > openresponses-official-evidence.sha256
+
+      - name: Upload immutable compliance evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: openresponses-official-evidence-${{ github.run_id }}
+          path: |
+            openresponses-official-evidence.txt
+            openresponses-official-evidence.sha256
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Fail if suite failed
+        if: steps.suite.outcome != 'success'
+        run: exit 1
