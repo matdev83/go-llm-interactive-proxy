@@ -531,7 +531,7 @@ func TestReasoningFixtures_validate(t *testing.T) {
 				t.Fatalf("reasoning parts=%d want %d", reasoningCount, tc.reasoningKinds)
 			}
 			if first == nil || first.Dialect != tc.firstDialect {
-				t.Fatalf("first dialect=%q want %q", first, tc.firstDialect)
+				t.Fatalf("first dialect=%q want %q", first.Dialect, tc.firstDialect)
 			}
 			if tc.requireSignature && first.Signature == "" {
 				t.Fatal("fixture must carry signature")

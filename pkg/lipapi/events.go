@@ -61,6 +61,12 @@ const (
 	EventWarning           EventKind = "warning"
 	EventError             EventKind = "error"
 	EventResponseFinished  EventKind = "response_finished"
+	// EventItem carries one complete validated canonical Item (for example a
+	// provider compaction item in a compacted ordered window). It is a
+	// standalone item carrier: it must not be treated as content-class output
+	// and is not synthesized by legacy normalizers. The OR state machine maps it
+	// into the canonical output trajectory; other frontends ignore it.
+	EventItem EventKind = "item"
 
 	// Assistant-side multimodal references (streaming). Adapters emit these instead of
 	// overloading text_delta when the vendor returns image/file output items.
@@ -97,7 +103,12 @@ type Event struct {
 	// Reasoning carries one complete dialect-tagged reasoning part on
 	// EventReasoningPart. Nil for other kinds. Callers must not mutate Opaque
 	// bytes after the event is handed to streams/collectors; receivers deep-copy.
-	Reasoning  *ReasoningPart
+	Reasoning *ReasoningPart
+	// Item carries one complete canonical Item on EventItem (for example a
+	// compaction item preserved in a compacted ordered window). Nil for other
+	// kinds; EventItem events must not carry content-class fields. Receivers
+	// deep-copy before retaining.
+	Item       *Item
 	ToolCallID string
 	ToolName   string
 
@@ -142,6 +153,16 @@ type Event struct {
 	// FinishReason is optional metadata on EventResponseFinished (vendor stop/finish taxonomy).
 	FinishReason string
 
+	// ResponseStatus is explicit terminal status on EventResponseFinished
+	// ("completed" or "incomplete"). It is authoritative when set: producers that
+	// know the upstream response status (for example an OpenResponses backend
+	// mapping an upstream resource whose status is "incomplete") set it so
+	// downstream state machines never have to infer incompleteness solely from
+	// FinishReason, which is ambiguous (a completed response may legitimately
+	// carry finish_reason "content_filter"). Empty means the producer left the
+	// terminal semantics to the frontend's legacy inference.
+	ResponseStatus string
+
 	// AssistantRef / AssistantMIME / AssistantName apply to EventAssistantImageRef and
 	// EventAssistantFileRef (same meaning as Part.ImageRef / Part.FileRef fields).
 	AssistantRef  string
@@ -180,6 +201,9 @@ func ValidateEventEnvelope(ev *Event) error {
 	if err := validateStringField("FinishReason", ev.FinishReason, MaxRefStringBytes); err != nil {
 		return err
 	}
+	if err := validateStringField("ResponseStatus", ev.ResponseStatus, MaxRefStringBytes); err != nil {
+		return err
+	}
 	if err := validateStringField("AssistantRef", ev.AssistantRef, MaxRefStringBytes); err != nil {
 		return err
 	}
@@ -204,6 +228,9 @@ func ValidateEventEnvelope(ev *Event) error {
 	if ev.Kind != EventReasoningPart && ev.Reasoning != nil {
 		return &ValidationError{Field: "Reasoning", Message: "only allowed on reasoning_part"}
 	}
+	if ev.Kind != EventItem && ev.Item != nil {
+		return &ValidationError{Field: "Item", Message: "only allowed on item events"}
+	}
 	switch ev.Kind {
 	case EventReasoningPart:
 		if ev.Reasoning == nil {
@@ -214,6 +241,13 @@ func ValidateEventEnvelope(ev *Event) error {
 		}
 		if err := validateReasoningPartExclusiveFields(ev); err != nil {
 			return err
+		}
+	case EventItem:
+		if ev.Item == nil {
+			return &ValidationError{Field: "Item", Message: "required for item events"}
+		}
+		if err := ev.Item.validate("Item"); err != nil {
+			return &ValidationError{Field: "Item", Message: err.Error()}
 		}
 	case EventAssistantImageRef, EventAssistantFileRef:
 		if strings.TrimSpace(ev.AssistantRef) == "" {
@@ -465,11 +499,13 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 				return out, fmt.Errorf("%s before %s", EventMessageStarted, EventResponseStarted)
 			}
 			sawMessage = true
-		case EventUsageDelta, EventWarning:
+		case EventUsageDelta, EventWarning, EventItem:
 			if !sawResponseStarted {
 				return out, fmt.Errorf("%s before %s", ev.Kind, EventResponseStarted)
 			}
 			// Usage and warnings may appear without a message frame on some adapters.
+			// Standalone item carriers (EventItem) are preserved by OR-specific
+			// consumers; the generic aggregate simply acknowledges them.
 		case EventError:
 			if !sawResponseStarted {
 				return out, fmt.Errorf("%s before %s", EventError, EventResponseStarted)
@@ -676,10 +712,12 @@ func ValidateEventSequence(events []Event) error {
 				return fmt.Errorf("%s before %s", EventMessageStarted, EventResponseStarted)
 			}
 			sawMessage = true
-		case EventUsageDelta, EventWarning:
+		case EventUsageDelta, EventWarning, EventItem:
 			if !sawResponseStarted {
 				return fmt.Errorf("%s before %s", ev.Kind, EventResponseStarted)
 			}
+			// Usage, warnings, and standalone item carriers may appear without a
+			// message frame on some adapters.
 		case EventError:
 			if !sawResponseStarted {
 				return fmt.Errorf("%s before %s", EventError, EventResponseStarted)

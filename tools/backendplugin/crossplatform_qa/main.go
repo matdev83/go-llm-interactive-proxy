@@ -12,7 +12,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/tools/backendplugin/runner"
@@ -73,6 +72,12 @@ type compileResult struct {
 	Arch      string `json:"arch"`
 	OK        bool   `json:"ok"`
 	Error     string `json:"error,omitempty"`
+}
+
+// claimJob pairs a discovered release with one of its claimed platforms.
+type claimJob struct {
+	r discoveredRelease
+	c platformClaim
 }
 
 type matrixReport struct {
@@ -186,10 +191,6 @@ func runQA(root string, selectSet map[string]struct{}, runNative bool) (*matrixR
 	var compileResults []compileResult
 	var unsupported []unsupportedPair
 
-	type claimJob struct {
-		r discoveredRelease
-		c platformClaim
-	}
 	var jobs []claimJob
 	for _, r := range selected {
 		claims, err := readManifestPlatforms(filepath.Join(r.Root, r.Meta.ManifestTmpl))
@@ -219,36 +220,24 @@ func runQA(root string, selectSet map[string]struct{}, runNative bool) (*matrixR
 	}
 
 	if len(jobs) > 0 {
-		resCh := make(chan compileResult, len(jobs))
-		var wg sync.WaitGroup
-		for _, jb := range jobs {
-			wg.Add(1)
-			go func(j claimJob) {
-				defer wg.Done()
-				resCh <- crossCompile(j.r, j.c.OS, j.c.Arch)
-			}(jb)
-		}
-		wg.Wait()
-		close(resCh)
-		for cr := range resCh {
-			compileResults = append(compileResults, cr)
-			if !cr.OK {
-				return report, fmt.Errorf("compile %s %s/%s: %s", cr.Connector, cr.OS, cr.Arch, cr.Error)
-			}
-		}
-		sort.Slice(compileResults, func(i, j int) bool {
-			if compileResults[i].Connector != compileResults[j].Connector {
-				return compileResults[i].Connector < compileResults[j].Connector
-			}
-			if compileResults[i].OS != compileResults[j].OS {
-				return compileResults[i].OS < compileResults[j].OS
-			}
-			return compileResults[i].Arch < compileResults[j].Arch
-		})
+		compileResults = runCompilePhase(jobs, func(ctx context.Context, j claimJob) compileResult {
+			return crossCompile(ctx, j.r, j.c.OS, j.c.Arch)
+		}, defaultCompilePhaseConfig(len(jobs)))
 	}
 	report.Unsupported = unsupported
 	report.ClaimedCompile = compileResults
 	report.FalseClaimsRejected = falseClaims
+	if len(compileResults) > 0 {
+		var failed []string
+		for _, cr := range compileResults {
+			if !cr.OK {
+				failed = append(failed, fmt.Sprintf("compile %s %s/%s: %s", cr.Connector, cr.OS, cr.Arch, cr.Error))
+			}
+		}
+		if len(failed) > 0 {
+			return report, fmt.Errorf("%s", strings.Join(failed, "\n"))
+		}
+	}
 	if len(falseClaims) > 0 {
 		return report, fmt.Errorf("false manifest platform claims: %s", strings.Join(falseClaims, "; "))
 	}
@@ -401,7 +390,7 @@ func readManifestPlatforms(path string) ([]platformClaim, error) {
 	return man.Platforms, nil
 }
 
-func crossCompile(r discoveredRelease, goos, goarch string) compileResult {
+func crossCompile(ctx context.Context, r discoveredRelease, goos, goarch string) compileResult {
 	tmp, err := os.MkdirTemp("", "golip-xplat-*")
 	if err != nil {
 		return compileResult{Connector: r.DirName, OS: goos, Arch: goarch, Error: err.Error()}
@@ -411,7 +400,7 @@ func crossCompile(r discoveredRelease, goos, goarch string) compileResult {
 	if goos == "windows" {
 		outBin += ".exe"
 	}
-	result := runner.Run(context.Background(), runner.Request{
+	result := runner.Run(ctx, runner.Request{
 		Argv: []string{"go", "build", "-trimpath", "-ldflags=-buildid=", "-o", outBin, r.Meta.Command},
 		Dir:  r.Root,
 		Env: append(

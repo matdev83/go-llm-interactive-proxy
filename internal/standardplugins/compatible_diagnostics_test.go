@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openresponsescompat"
 	"gopkg.in/yaml.v3"
 )
 
@@ -81,6 +82,78 @@ base_url: http://127.0.0.1:9
 	}
 	if row.InventoryState != "remote" {
 		t.Fatalf("inventory=%q", row.InventoryState)
+	}
+}
+
+func TestProjectCompatibleBackendRows_openResponsesProfileProvenance(t *testing.T) {
+	t.Parallel()
+	cfg := compatibleDiagnosticsConfigOpenResponses(t, `backend_prefix: my-or
+base_url: https://api.example.test/openresponses/v1
+profile: `+openresponsescompat.DefaultProfile+`
+models:
+  source: inline
+  items:
+    - canonical_id: my-or/model-a
+      native_id: model-a
+`)
+	rows := ProjectCompatibleBackendRows(cfg)
+	if len(rows) != 1 {
+		t.Fatalf("rows=%d", len(rows))
+	}
+	row := rows[0]
+	if row.Origin != "built_in_compatible" {
+		t.Fatalf("origin=%q", row.Origin)
+	}
+	if row.InstanceID != "or-prov" || row.FactoryKind != CustomOpenResponsesCompatibleID {
+		t.Fatalf("instance/factory provenance = %+v", row)
+	}
+	if row.Prefix != "my-or" {
+		t.Fatalf("prefix=%q", row.Prefix)
+	}
+	if row.Profile != openresponsescompat.DefaultProfile {
+		t.Fatalf("profile=%q, want %q", row.Profile, openresponsescompat.DefaultProfile)
+	}
+	if row.EndpointIdentity != "https://api.example.test/openresponses/v1" {
+		t.Fatalf("endpoint=%q", row.EndpointIdentity)
+	}
+	if row.InventoryState != "static_inline" {
+		t.Fatalf("inventory=%q", row.InventoryState)
+	}
+}
+
+func TestProjectCompatibleBackendRows_openResponsesUnknownConfigRejected(t *testing.T) {
+	t.Parallel()
+	cfg := compatibleDiagnosticsConfigOpenResponses(t, `backend_prefix: my-or
+base_url: https://api.example.test/openresponses/v1
+openrouter_attribution: on
+`)
+	rows := ProjectCompatibleBackendRows(cfg)
+	if len(rows) != 1 {
+		t.Fatalf("rows=%d", len(rows))
+	}
+	if rows[0].ConfigError == "" {
+		t.Fatal("expected config error for provider-boundary key")
+	}
+	if !strings.Contains(rows[0].ConfigError, "openrouter_attribution") {
+		t.Fatalf("config error = %q, want key named", rows[0].ConfigError)
+	}
+}
+
+func compatibleDiagnosticsConfigOpenResponses(t *testing.T, raw string) *config.Config {
+	t.Helper()
+	var node yaml.Node
+	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
+		t.Fatal(err)
+	}
+	return &config.Config{
+		Plugins: config.PluginsConfig{
+			Backends: []config.PluginConfig{{
+				ID:      "or-prov",
+				Kind:    CustomOpenResponsesCompatibleID,
+				Enabled: true,
+				Config:  node,
+			}},
+		},
 	}
 }
 

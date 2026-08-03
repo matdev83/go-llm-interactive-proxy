@@ -262,8 +262,8 @@ func TestWindowsTaskReliability_LinuxEvidence(t *testing.T) {
 	t.Parallel()
 
 	release := workflowJob(t, "release.yml", "verify")
-	if !strings.Contains(release, "go test -race ./...") {
-		t.Fatal("release verify job no longer carries root race evidence")
+	if !strings.Contains(release, "bash scripts/race-check.sh --strict") {
+		t.Fatal("release verify job no longer carries strict root race evidence")
 	}
 
 	qa := workflowJob(t, "qa.yml", "qa")
@@ -279,7 +279,7 @@ func TestWindowsTaskReliability_LinuxEvidence(t *testing.T) {
 
 	nightly := workflowJob(t, "race-fuzz-nightly.yml", "race-fuzz")
 	for _, command := range []string{
-		"go test -race -timeout=20m",
+		"bash scripts/race-check.sh --strict",
 		"make backend-plugin-security-checks",
 		"make test-fuzz",
 	} {

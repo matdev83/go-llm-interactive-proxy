@@ -265,3 +265,187 @@ func TestCallValidate_validMinimalCall(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestCallValidate_toolChoiceNameOnlyAllowedWithRequired(t *testing.T) {
+	t.Parallel()
+
+	tools := []lipapi.ToolDef{{Name: "fn", Parameters: json.RawMessage(`{"type":"object"}`)}}
+	messages := []lipapi.Message{{
+		Role:  lipapi.RoleUser,
+		Parts: []lipapi.Part{lipapi.TextPart("hi")},
+	}}
+
+	cases := []struct {
+		name  string
+		tc    lipapi.ToolChoice
+		tools []lipapi.ToolDef
+		field string
+	}{
+		{name: "auto named", tc: lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto, Name: "fn"}, tools: tools, field: "ToolChoice.Name"},
+		{name: "any named", tc: lipapi.ToolChoice{Mode: lipapi.ToolChoiceAny, Name: "fn"}, tools: tools, field: "ToolChoice.Name"},
+		{name: "none named", tc: lipapi.ToolChoice{Mode: lipapi.ToolChoiceNone, Name: "fn"}, tools: nil, field: "ToolChoice.Name"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			call := lipapi.Call{Messages: messages, Tools: tc.tools, ToolChoice: tc.tc}
+			err := call.Validate()
+			if err == nil {
+				t.Fatal("expected validation error")
+			}
+			var v *lipapi.ValidationError
+			if !errors.As(err, &v) || v.Field != tc.field {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+
+	required := lipapi.Call{Messages: messages, Tools: tools, ToolChoice: lipapi.ToolChoice{
+		Mode: lipapi.ToolChoiceRequired, Name: "fn",
+	}}
+	if err := required.Validate(); err != nil {
+		t.Fatalf("required named should validate: %v", err)
+	}
+}
+
+func TestCallValidate_allowedToolsCommaNameAcceptedInProcess(t *testing.T) {
+	t.Parallel()
+
+	// The comma limitation is an artifact of the plugin ABI comma-joined
+	// encoding, not of the canonical model or the JSON protocol. A protocol Call
+	// executing in-process (no plugin ABI) must keep accepting comma-containing
+	// tool names, so canonical validation must not reject them.
+	messages := []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}}
+	tools := []lipapi.ToolDef{{Name: "get,a", Parameters: []byte(`{"type":"object"}`)}}
+	call := lipapi.Call{
+		Messages:   messages,
+		Tools:      tools,
+		ToolChoice: lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto, AllowedTools: []string{"get,a"}},
+	}
+	if err := call.Validate(); err != nil {
+		t.Fatalf("canonical validation must accept comma tool names for in-process use: %v", err)
+	}
+}
+
+func TestCallValidate_rejectsWhitespacePaddedToolNames(t *testing.T) {
+	t.Parallel()
+
+	messages := []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}}
+	cases := []struct {
+		name  string
+		tools []lipapi.ToolDef
+		field string
+	}{
+		{
+			name:  "leading whitespace",
+			tools: []lipapi.ToolDef{{Name: " fn", Parameters: []byte(`{"type":"object"}`)}},
+			field: "Tools[0].Name",
+		},
+		{
+			name:  "trailing whitespace",
+			tools: []lipapi.ToolDef{{Name: "fn ", Parameters: []byte(`{"type":"object"}`)}},
+			field: "Tools[0].Name",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			call := lipapi.Call{Messages: messages, Tools: tc.tools}
+			err := call.Validate()
+			if err == nil {
+				t.Fatal("expected validation error")
+			}
+			var v *lipapi.ValidationError
+			if !errors.As(err, &v) || v.Field != tc.field {
+				t.Fatalf("err=%v", err)
+			}
+			if !strings.Contains(v.Message, "whitespace") {
+				t.Fatalf("message=%q", v.Message)
+			}
+		})
+	}
+}
+
+func TestCallValidate_rejectsWhitespacePaddedToolChoiceName(t *testing.T) {
+	t.Parallel()
+
+	messages := []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}}
+	tools := []lipapi.ToolDef{{Name: "fn", Parameters: []byte(`{"type":"object"}`)}}
+	cases := []struct {
+		name string
+		tc   lipapi.ToolChoice
+	}{
+		{name: "leading whitespace", tc: lipapi.ToolChoice{Mode: lipapi.ToolChoiceRequired, Name: " fn"}},
+		{name: "trailing whitespace", tc: lipapi.ToolChoice{Mode: lipapi.ToolChoiceRequired, Name: "fn "}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			call := lipapi.Call{Messages: messages, Tools: tools, ToolChoice: tc.tc}
+			err := call.Validate()
+			if err == nil {
+				t.Fatal("expected validation error")
+			}
+			var v *lipapi.ValidationError
+			if !errors.As(err, &v) || v.Field != "ToolChoice.Name" {
+				t.Fatalf("err=%v", err)
+			}
+			if !strings.Contains(v.Message, "whitespace") {
+				t.Fatalf("message=%q", v.Message)
+			}
+		})
+	}
+}
+
+func TestCallValidate_allowedToolsSubset(t *testing.T) {
+	t.Parallel()
+
+	messages := []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}}
+	tools := []lipapi.ToolDef{{Name: "fn1", Parameters: []byte(`{"type":"object"}`)}, {Name: "fn2", Parameters: []byte(`{"type":"object"}`)}}
+
+	valid := []lipapi.ToolChoice{
+		{Mode: lipapi.ToolChoiceAuto, AllowedTools: []string{"fn1"}},
+		{Mode: lipapi.ToolChoiceAny, AllowedTools: []string{"fn1", "fn2"}},
+		// mode none + subset is schema-legal (the subset is vacuous) and must not
+		// trip the plain "none with declared tools" incompatibility rule.
+		{Mode: lipapi.ToolChoiceNone, AllowedTools: []string{"fn1"}},
+	}
+	for i, tc := range valid {
+		call := lipapi.Call{Messages: messages, Tools: tools, ToolChoice: tc}
+		if err := call.Validate(); err != nil {
+			t.Fatalf("valid case %d (%+v) rejected: %v", i, tc, err)
+		}
+	}
+
+	invalid := []struct {
+		name  string
+		tc    lipapi.ToolChoice
+		field string
+	}{
+		{name: "required mode with subset", tc: lipapi.ToolChoice{Mode: lipapi.ToolChoiceRequired, AllowedTools: []string{"fn1"}}, field: "ToolChoice.Mode"},
+		{name: "name with subset", tc: lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto, Name: "fn1", AllowedTools: []string{"fn1"}}, field: "ToolChoice.Name"},
+		{name: "unknown tool not declared", tc: lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto, AllowedTools: []string{"fn_missing"}}, field: "ToolChoice.AllowedTools"},
+		{name: "empty entry", tc: lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto, AllowedTools: []string{""}}, field: "ToolChoice.AllowedTools"},
+		{name: "whitespace entry", tc: lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto, AllowedTools: []string{" fn1"}}, field: "ToolChoice.AllowedTools"},
+		{name: "duplicate entries", tc: lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto, AllowedTools: []string{"fn1", "fn1"}}, field: "ToolChoice.AllowedTools"},
+		{name: "subset with no tools declared", tc: lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto, AllowedTools: []string{"fn1"}}, field: "ToolChoice.AllowedTools"},
+	}
+	for _, tc := range invalid {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			callTools := tools
+			if tc.name == "subset with no tools declared" {
+				callTools = nil
+			}
+			call := lipapi.Call{Messages: messages, Tools: callTools, ToolChoice: tc.tc}
+			err := call.Validate()
+			if err == nil {
+				t.Fatal("expected validation error")
+			}
+			var v *lipapi.ValidationError
+			if !errors.As(err, &v) || v.Field != tc.field {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+}

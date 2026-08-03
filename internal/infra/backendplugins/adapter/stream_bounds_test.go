@@ -157,3 +157,70 @@ func TestClassifiedError_UnwrapRecoverablePreOutput(t *testing.T) {
 		t.Fatal("post-output must not be recoverable")
 	}
 }
+
+func TestStream_ExactReasoningEventPreservedAtMinor3(t *testing.T) {
+	t.Parallel()
+	fake := &testkit.FakeService{Mode: testkit.ModeExactReasoning}
+	neg := backendplugin.Negotiation{
+		Compatible:      true,
+		NegotiatedMinor: backendplugin.ProtocolMinorExactOpenResponsesFields,
+		EnabledFeatures: []string{backendplugin.FeatureOrderedItems, backendplugin.FeatureExactOpenResponsesFields},
+	}
+	inst, err := fake.Configure(context.Background(), backendplugin.ConfigureRequest{
+		InstanceID: "exact3", FactoryKind: "fake",
+		Negotiation:   neg,
+		RuntimePolicy: backendplugin.RuntimePolicy{DisableTransportRetries: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, _ := inst.Resolve(context.Background(), nil)
+	br := adapter.Build(inst, profile, adapter.Options{InstanceID: "exact3", Negotiation: neg})
+	stream, err := br.Backend.Open(context.Background(), testCall(), testCand())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stream.Close() })
+	ev, err := stream.Recv(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.Kind != lipapi.EventReasoningPart || ev.Reasoning == nil {
+		t.Fatalf("event=%#v", ev)
+	}
+	if !ev.Reasoning.SummaryPresent || !ev.Reasoning.ContentPresent || !ev.Reasoning.EncryptedContentPresent {
+		t.Fatalf("exact reasoning presence lost: %#v", ev.Reasoning)
+	}
+	if string(ev.Reasoning.EncryptedContent) != "null" {
+		t.Fatalf("encrypted_content=%s", ev.Reasoning.EncryptedContent)
+	}
+}
+
+func TestStream_ExactReasoningEventRejectedAtOldMinor(t *testing.T) {
+	t.Parallel()
+	fake := &testkit.FakeService{Mode: testkit.ModeExactReasoning}
+	neg := backendplugin.Negotiation{
+		Compatible:      true,
+		NegotiatedMinor: backendplugin.ProtocolMinorOrderedItems,
+		EnabledFeatures: []string{backendplugin.FeatureOrderedItems},
+	}
+	inst, err := fake.Configure(context.Background(), backendplugin.ConfigureRequest{
+		InstanceID: "exact-old", FactoryKind: "fake",
+		Negotiation:   neg,
+		RuntimePolicy: backendplugin.RuntimePolicy{DisableTransportRetries: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, _ := inst.Resolve(context.Background(), nil)
+	br := adapter.Build(inst, profile, adapter.Options{InstanceID: "exact-old", Negotiation: neg})
+	stream, err := br.Backend.Open(context.Background(), testCall(), testCand())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stream.Close() })
+	_, err = stream.Recv(context.Background())
+	if err == nil || errors.Is(err, io.EOF) {
+		t.Fatal("expected fail-closed rejection of exact reasoning event on old minor")
+	}
+}

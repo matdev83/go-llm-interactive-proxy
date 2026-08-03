@@ -214,6 +214,8 @@ The rows are the complete names from `Makefile` line 1. `Windows-supported bound
 | `test-cursor-sdk-platform` | Windows-supported bounded | fake bridge/current-OS smoke |
 | `test-cursor-sdk-comparison-report` | Windows-supported bounded | synthetic/blocked-offline report; no credentials |
 | `tmp-clean` | Windows-supported bounded | native residue scan; dry-run by default, explicit `-Apply` delete; never invoked automatically |
+| `test-openresponses-compliance` | Windows-supported bounded | full-path compliance suite; direct PS1 route, go tests carry their own `-timeout` |
+| `test-openresponses-compliance-static` | Windows-supported bounded | qa static wiring/evidence gate; direct PS1 `-Static` route |
 
 ### Make invocation policy
 

@@ -43,11 +43,11 @@ func OpenHTTPPrompt(ctx context.Context, cfg Config, call lipapi.Call) (lipapi.M
 	callPtr := &call
 	hp := mergeHandshakeProfile(cfg, callPtr)
 	if err := runHandshake(ctx, cli, hp); err != nil {
-		return nil, err
+		return nil, classifyPreOutputError(err)
 	}
 	sid, err := resolveSessionID(ctx, cli, callPtr, hp)
 	if err != nil {
-		return nil, err
+		return nil, classifyPreOutputError(err)
 	}
 	blocks, err := promptBlocksForCall(callPtr)
 	if err != nil {
@@ -58,7 +58,7 @@ func OpenHTTPPrompt(ctx context.Context, cfg Config, call lipapi.Call) (lipapi.M
 	rpcID := cli.rpcID()
 	body, err := cli.sessionPrompt(ctx, params, rpcID)
 	if err != nil {
-		return nil, err
+		return nil, classifyPreOutputError(err)
 	}
 	return newPromptNDJSONStream(ctx, body, cli, sid, rpcID, msgID, mapper, cfg.ServerRequest, cancelProf, call.MaxPendingWireEvents), nil
 }

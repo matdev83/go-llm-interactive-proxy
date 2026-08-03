@@ -15,6 +15,23 @@ func ReconcileToolChoiceAfterToolListChange(c *Call) {
 	}
 	tools := c.Tools
 	n := len(tools)
+	if len(c.ToolChoice.AllowedTools) > 0 {
+		// The allowed_tools subset must stay consistent with the surviving tool
+		// list: drop removed names, and when none survive the subset is vacuous
+		// so only the mode is retained.
+		kept := make([]string, 0, len(c.ToolChoice.AllowedTools))
+		for _, name := range c.ToolChoice.AllowedTools {
+			if slices.ContainsFunc(tools, func(t ToolDef) bool { return t.Name == name }) {
+				kept = append(kept, name)
+			}
+		}
+		if len(kept) == 0 {
+			c.ToolChoice = ToolChoice{Mode: c.ToolChoice.Mode}
+			return
+		}
+		c.ToolChoice.AllowedTools = kept
+		return
+	}
 	mode := c.ToolChoice.Mode
 	if mode == "" {
 		mode = ToolChoiceAuto

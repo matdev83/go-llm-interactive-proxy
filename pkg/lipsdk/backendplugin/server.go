@@ -40,6 +40,7 @@ type GRPCServer struct {
 
 type trackedInstance struct {
 	inst          ConfiguredInstance
+	negotiation   Negotiation
 	leases        int
 	closing       bool
 	closeInFlight bool
@@ -150,7 +151,7 @@ func (s *GRPCServer) Configure(ctx context.Context, req *backendpluginv1.Configu
 		_ = inst.Close(ctx)
 		return nil, status.Error(codes.AlreadyExists, ErrInstanceExists.Error())
 	}
-	s.instances[cfg.InstanceID] = &trackedInstance{inst: inst}
+	s.instances[cfg.InstanceID] = &trackedInstance{inst: inst, negotiation: neg}
 	return &backendpluginv1.ConfigureResponse{InstanceId: cfg.InstanceID}, nil
 }
 
@@ -222,7 +223,7 @@ func (s *GRPCServer) CloseInstance(ctx context.Context, req *backendpluginv1.Clo
 
 // ResolveProfile resolves capabilities for an instance.
 func (s *GRPCServer) ResolveProfile(ctx context.Context, req *backendpluginv1.ResolveProfileRequest) (*backendpluginv1.ResolveProfileResponse, error) {
-	inst, release, err := s.acquire(req.GetInstanceId())
+	inst, release, _, err := s.acquire(req.GetInstanceId())
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +237,7 @@ func (s *GRPCServer) ResolveProfile(ctx context.Context, req *backendpluginv1.Re
 
 // ListModels returns inventory when supported.
 func (s *GRPCServer) ListModels(ctx context.Context, req *backendpluginv1.ListModelsRequest) (*backendpluginv1.ListModelsResponse, error) {
-	inst, release, err := s.acquire(req.GetInstanceId())
+	inst, release, _, err := s.acquire(req.GetInstanceId())
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +251,7 @@ func (s *GRPCServer) ListModels(ctx context.Context, req *backendpluginv1.ListMo
 
 // CountTokens delegates when the instance implements TokenCounter.
 func (s *GRPCServer) CountTokens(ctx context.Context, req *backendpluginv1.CountTokensRequest) (*backendpluginv1.CountTokensResponse, error) {
-	inst, release, err := s.acquire(req.GetInstanceId())
+	inst, release, _, err := s.acquire(req.GetInstanceId())
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +273,7 @@ func (s *GRPCServer) CountTokens(ctx context.Context, req *backendpluginv1.Count
 
 // FinalizeBilling delegates when the instance implements BillingFinalizer.
 func (s *GRPCServer) FinalizeBilling(ctx context.Context, req *backendpluginv1.FinalizeBillingRequest) (*backendpluginv1.FinalizeBillingResponse, error) {
-	inst, release, err := s.acquire(req.GetInstanceId())
+	inst, release, _, err := s.acquire(req.GetInstanceId())
 	if err != nil {
 		return nil, err
 	}
@@ -302,14 +303,24 @@ func (s *GRPCServer) Execute(stream backendpluginv1.BackendPlugin_ExecuteServer)
 	if err != nil {
 		return status.Error(codes.InvalidArgument, err.Error())
 	}
+	if err := ValidateClientFrameBounds(frame); err != nil {
+		return status.Error(codes.InvalidArgument, err.Error())
+	}
 	if frame.Kind != ClientFrameStart || frame.Invocation == nil {
 		return status.Error(codes.InvalidArgument, fmt.Sprintf("%v: execute requires start frame", ErrInvalidFrame))
 	}
-	inst, release, err := s.acquire(frame.InstanceID)
+	inst, release, neg, err := s.acquire(frame.InstanceID)
 	if err != nil {
 		return err
 	}
 	defer release()
+	call, err := CallFromInvocation(*frame.Invocation)
+	if err != nil {
+		return status.Error(codes.InvalidArgument, err.Error())
+	}
+	if err := RequireExactOpenResponsesABISupport(neg, call); err != nil {
+		return status.Error(codes.FailedPrecondition, err.Error())
+	}
 	adapter := &grpcExecuteStream{ctx: stream.Context(), stream: stream, pending: &frame}
 	return inst.Execute(adapter)
 }
@@ -333,15 +344,15 @@ func (s *GRPCServer) GracefulShutdown(ctx context.Context, req *backendpluginv1.
 	return &backendpluginv1.GracefulShutdownResponse{Accepted: true}, nil
 }
 
-func (s *GRPCServer) acquire(id string) (ConfiguredInstance, func(), error) {
+func (s *GRPCServer) acquire(id string) (ConfiguredInstance, func(), Negotiation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tr, ok := s.instances[id]
 	if !ok {
-		return nil, nil, status.Error(codes.InvalidArgument, fmt.Sprintf("%v: instance %q", ErrInvalidInvocation, id))
+		return nil, nil, Negotiation{}, status.Error(codes.InvalidArgument, fmt.Sprintf("%v: instance %q", ErrInvalidInvocation, id))
 	}
 	if tr.closing {
-		return nil, nil, status.Error(codes.FailedPrecondition, ErrInstanceBusy.Error())
+		return nil, nil, Negotiation{}, status.Error(codes.FailedPrecondition, ErrInstanceBusy.Error())
 	}
 	tr.leases++
 	return tr.inst, func() {
@@ -351,7 +362,7 @@ func (s *GRPCServer) acquire(id string) (ConfiguredInstance, func(), error) {
 			cur.leases--
 			s.leaseCond.Broadcast()
 		}
-	}, nil
+	}, tr.negotiation, nil
 }
 
 func mintNegotiationToken() (string, error) {
@@ -387,10 +398,20 @@ func (g *grpcExecuteStream) Recv() (ClientFrame, error) {
 	if err != nil {
 		return ClientFrame{}, err
 	}
-	return ClientFrameFromProto(msg)
+	frame, err := ClientFrameFromProto(msg)
+	if err != nil {
+		return ClientFrame{}, err
+	}
+	if err := ValidateClientFrameBounds(frame); err != nil {
+		return ClientFrame{}, err
+	}
+	return frame, nil
 }
 
 func (g *grpcExecuteStream) Send(frame ServerFrame) error {
+	if err := ValidateServerFrameBounds(frame); err != nil {
+		return err
+	}
 	msg, err := ServerFrameToProto(frame)
 	if err != nil {
 		return err

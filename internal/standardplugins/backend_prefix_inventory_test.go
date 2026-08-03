@@ -106,6 +106,8 @@ func standardBackendBuildYAML(id string) string {
 		return "backend_prefix: custom-openai-responses\nbase_url: http://127.0.0.1:9/v1\n"
 	case CustomAnthropicCompatibleID:
 		return "backend_prefix: custom-anthropic\nbase_url: http://127.0.0.1:9/v1\n"
+	case CustomOpenResponsesCompatibleID:
+		return "backend_prefix: custom-openresponses\nbase_url: http://127.0.0.1:9/openresponses/v1\n"
 	case "cursorsdk":
 		exe, err := os.Executable()
 		if err != nil {
@@ -141,6 +143,8 @@ func standardBackendWantPrefix(id string) string {
 		return "custom-openai-responses"
 	case CustomAnthropicCompatibleID:
 		return "custom-anthropic"
+	case CustomOpenResponsesCompatibleID:
+		return "custom-openresponses"
 	default:
 		return id
 	}

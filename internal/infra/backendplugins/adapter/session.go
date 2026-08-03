@@ -14,6 +14,12 @@ type ExecuteSession interface {
 	Close(ctx context.Context) error
 }
 
+// NegotiatedSession exposes the protocol negotiation outcome bound at dial time.
+type NegotiatedSession interface {
+	ExecuteSession
+	Negotiation() backendplugin.Negotiation
+}
+
 // OptionalTokenCounter is satisfied when counting is advertised.
 type OptionalTokenCounter interface {
 	CountTokens(ctx context.Context, req backendplugin.CountTokensRequest) (backendplugin.CountTokensResponse, error)

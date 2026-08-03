@@ -225,12 +225,18 @@ func (b *NDJSONStreamBase) Recv(ctx context.Context) (lipapi.Event, error) {
 
 		if !b.scanner.Scan() {
 			if err := b.scanner.Err(); err != nil {
+				b.mu.Lock()
+				preOutput := !b.responseStarted
+				b.mu.Unlock()
+				if preOutput {
+					return lipapi.Event{}, recoverablePreOutput(fmt.Errorf("%s: scan stream: %w", b.strategy.Label(), err))
+				}
 				return lipapi.Event{}, fmt.Errorf("%s: scan stream: %w", b.strategy.Label(), err)
 			}
 			b.mu.Lock()
 			if !b.responseStarted {
 				b.mu.Unlock()
-				return lipapi.Event{}, io.ErrUnexpectedEOF
+				return lipapi.Event{}, recoverablePreOutput(io.ErrUnexpectedEOF)
 			}
 			if !b.after {
 				if err := b.ensureResponseStartedLocked(); err != nil {
@@ -255,6 +261,12 @@ func (b *NDJSONStreamBase) Recv(ctx context.Context) (lipapi.Event, error) {
 
 		var probe map[string]any
 		if err := json.Unmarshal([]byte(line), &probe); err != nil {
+			b.mu.Lock()
+			preOutput := !b.responseStarted
+			b.mu.Unlock()
+			if preOutput {
+				return lipapi.Event{}, recoverablePreOutput(fmt.Errorf("%s: decode inbound line: %w", b.strategy.Label(), err))
+			}
 			return lipapi.Event{}, fmt.Errorf("%s: decode inbound line: %w", b.strategy.Label(), err)
 		}
 

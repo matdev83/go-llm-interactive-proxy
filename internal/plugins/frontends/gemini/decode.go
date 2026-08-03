@@ -111,6 +111,9 @@ func DecodeGenerateContentRequest(body []byte, opts DecodeOptions) (*DecodedGene
 		ToolChoice:   toolChoice,
 		Options:      genOpts,
 		Extensions:   ext,
+		Invocation: lipapi.Invocation{
+			DeliveryMode: lipapi.DeliveryModeFromClientStream(opts.Stream),
+		},
 	}
 	if opts.Headers != nil {
 		sessionwire.ApplyAuthoritativeHeaders(&call.Session, opts.Headers)

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	backendpluginv1 "github.com/matdev83/go-llm-interactive-proxy/api/backendplugin/v1"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -180,9 +181,12 @@ func TestGRPCServer_NegotiateConfigureExecuteClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	text := "hi"
 	inv := &backendpluginv1.Invocation{
 		RequestId: "r", AttemptId: "a", ALegId: "a", BLegId: "b", CanonicalModelId: "m",
-		Messages: []*backendpluginv1.Message{{Role: backendpluginv1.Role_ROLE_USER}},
+		Messages: []*backendpluginv1.Message{{Role: backendpluginv1.Role_ROLE_USER, Parts: []*backendpluginv1.Part{
+			{Kind: backendpluginv1.PartKind_PART_KIND_TEXT, Text: &text},
+		}}},
 	}
 	if err := stream.Send(&backendpluginv1.ExecuteClientFrame{
 		Kind: backendpluginv1.ClientFrameKind_CLIENT_FRAME_KIND_START, InstanceId: "i1", Invocation: inv,
@@ -221,6 +225,45 @@ func TestGRPCServer_ConfigureRequiresNegotiationToken(t *testing.T) {
 	})
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("code=%v err=%v", status.Code(err), err)
+	}
+}
+
+func TestGRPCServer_OldMinorExactInvocationRejectedBeforeExecute(t *testing.T) {
+	t.Parallel()
+	started := make(chan struct{})
+	client, stop := startBufServer(t, &stubService{executeStarted: started})
+	defer stop()
+	token := negotiateOK(t, client)
+	if _, err := client.Configure(context.Background(), &backendpluginv1.ConfigureRequest{
+		InstanceId: "old", FactoryKind: "stub", NegotiationToken: token,
+		RuntimePolicy: &backendpluginv1.RuntimePolicy{DisableTransportRetries: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dialect := string(lipapi.ReasoningDialectOpenAIResponsesItemV1)
+	inv := &backendpluginv1.Invocation{
+		RequestId: "r", AttemptId: "a", ALegId: "a", BLegId: "b", CanonicalModelId: "m",
+		Messages: []*backendpluginv1.Message{{Role: backendpluginv1.Role_ROLE_ASSISTANT, Parts: []*backendpluginv1.Part{{
+			Kind: backendpluginv1.PartKind_PART_KIND_REASONING, ReasoningDialect: &dialect,
+			ReasoningSummary: &backendpluginv1.RawJSONValue{State: &backendpluginv1.RawJSONValue_Json{Json: []byte(`[]`)}},
+		}}}},
+	}
+	stream, err := client.Execute(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&backendpluginv1.ExecuteClientFrame{Kind: backendpluginv1.ClientFrameKind_CLIENT_FRAME_KIND_START, InstanceId: "old", Invocation: inv}); err != nil {
+		t.Fatal(err)
+	}
+	_ = stream.CloseSend()
+	_, err = stream.Recv()
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("code=%v err=%v, want failed precondition", status.Code(err), err)
+	}
+	select {
+	case <-started:
+		t.Fatal("old-minor exact invocation reached plugin execution")
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 
@@ -293,9 +336,12 @@ func TestGRPCServer_CloseWaitsForExecuteLease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	text := "hi"
 	inv := &backendpluginv1.Invocation{
 		RequestId: "r", AttemptId: "a", ALegId: "a", BLegId: "b", CanonicalModelId: "m",
-		Messages: []*backendpluginv1.Message{{Role: backendpluginv1.Role_ROLE_USER}},
+		Messages: []*backendpluginv1.Message{{Role: backendpluginv1.Role_ROLE_USER, Parts: []*backendpluginv1.Part{
+			{Kind: backendpluginv1.PartKind_PART_KIND_TEXT, Text: &text},
+		}}},
 	}
 	if err := stream.Send(&backendpluginv1.ExecuteClientFrame{
 		Kind: backendpluginv1.ClientFrameKind_CLIENT_FRAME_KIND_START, InstanceId: "lease", Invocation: inv,

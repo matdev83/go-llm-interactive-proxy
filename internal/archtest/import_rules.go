@@ -74,6 +74,136 @@ var ForbiddenImports = []ForbiddenImportRule{
 		TargetPattern: "github.com/rjeczalik/notify",
 		Reason:        "core must not import filesystem watchers",
 	},
+	{
+		SourcePattern: "internal/core",
+		TargetPattern: "/internal/plugins/protocols/openresponses",
+		Reason:        "core must not import protocol wire codecs",
+	},
+	{
+		SourcePattern: "internal/plugins/protocols/openresponses",
+		TargetPattern: "/internal/refclient",
+		Reason:        "production protocol wire code must not import reference clients",
+	},
+	{
+		SourcePattern: "internal/plugins/protocols/openresponses",
+		TargetPattern: "/internal/refbackend",
+		Reason:        "production protocol wire code must not import reference backends",
+	},
+	{
+		SourcePattern: "internal/plugins/protocols/openresponses",
+		TargetPattern: "github.com/openai/openai-go",
+		Reason:        "openresponses must not import provider SDKs",
+	},
+	{
+		SourcePattern: "internal/plugins/protocols/openresponses",
+		TargetPattern: "github.com/anthropics/anthropic-sdk-go",
+		Reason:        "openresponses must not import provider SDKs",
+	},
+	{
+		SourcePattern: "internal/plugins/protocols/openresponses",
+		TargetPattern: "github.com/google/generative-ai-go",
+		Reason:        "openresponses must not import provider SDKs",
+	},
+	{
+		SourcePattern: "internal/plugins/protocols/openresponses",
+		TargetPattern: "github.com/aws/aws-sdk-go-v2",
+		Reason:        "openresponses must not import provider SDKs",
+	},
+	{
+		SourcePattern: "pkg/lipapi",
+		TargetPattern: "/internal/plugins/protocols/openresponses",
+		Reason:        "public canonical SDK must not import protocol wire codecs",
+	},
+	{
+		SourcePattern: "pkg/lipsdk",
+		TargetPattern: "/internal/plugins/protocols/openresponses",
+		Reason:        "public plugin SDK must not import protocol wire codecs",
+	},
+	{
+		SourcePattern: "internal/refclient/openresponses",
+		TargetPattern: "/internal/plugins/protocols/openresponses",
+		Reason:        "reference client emulator must not import production OpenResponses codecs",
+	},
+	{
+		SourcePattern: "internal/refclient/openresponses",
+		TargetPattern: "/internal/plugins/frontends/openresponses",
+		Reason:        "reference client emulator must not import production OpenResponses frontend",
+	},
+	{
+		SourcePattern: "internal/refclient/openresponses",
+		TargetPattern: "/internal/plugins/backends/openresponsescompat",
+		Reason:        "reference client emulator must not import production OpenResponses backend",
+	},
+	{
+		SourcePattern: "internal/refclient/openresponses",
+		TargetPattern: "/internal/refbackend",
+		Reason:        "reference client emulator must not import reference backend emulators",
+	},
+	{
+		SourcePattern: "internal/refclient/openresponses",
+		TargetPattern: "/internal/testkit/conformance",
+		Reason:        "reference client emulator must not import the conformance matrix",
+	},
+	{
+		SourcePattern: "internal/refbackend/openresponses",
+		TargetPattern: "/internal/plugins/protocols/openresponses",
+		Reason:        "reference backend emulator must not import production OpenResponses codecs",
+	},
+	{
+		SourcePattern: "internal/refbackend/openresponses",
+		TargetPattern: "/internal/plugins/frontends/openresponses",
+		Reason:        "reference backend emulator must not import production OpenResponses frontend",
+	},
+	{
+		SourcePattern: "internal/refbackend/openresponses",
+		TargetPattern: "/internal/plugins/backends/openresponsescompat",
+		Reason:        "reference backend emulator must not import production OpenResponses backend",
+	},
+	{
+		SourcePattern: "internal/refbackend/openresponses",
+		TargetPattern: "/internal/refclient",
+		Reason:        "reference backend emulator wire code must not import reference client wire types",
+	},
+	{
+		SourcePattern: "internal/refbackend/openresponses",
+		TargetPattern: "/internal/testkit/conformance",
+		Reason:        "reference backend emulator must not import the conformance matrix",
+	},
+	{
+		SourcePattern: "internal/refbackend/openresponses",
+		TargetPattern: "/internal/testkit/openresponses",
+		Reason:        "reference backend emulator must not import testkit wire contracts",
+	},
+	{
+		SourcePattern: "internal/plugins/frontends/openresponses",
+		TargetPattern: "/internal/refbackend",
+		Reason:        "production frontend must not import reference backend emulators",
+	},
+	{
+		SourcePattern: "internal/plugins/backends/openresponsescompat",
+		TargetPattern: "/internal/refbackend",
+		Reason:        "production backend must not import reference backend emulators",
+	},
+	{
+		SourcePattern: "internal/testkit/openresponses",
+		TargetPattern: "/internal/plugins/protocols/openresponses",
+		Reason:        "testkit contracts must not import production OpenResponses codecs",
+	},
+	{
+		SourcePattern: "internal/plugins/backends/openresponsescompat",
+		TargetPattern: "github.com/openai/openai-go",
+		Reason:        "generic OpenResponses backend must not import provider SDKs",
+	},
+	{
+		SourcePattern: "internal/plugins/backends/openresponsescompat",
+		TargetPattern: "/connectors/",
+		Reason:        "generic OpenResponses backend must not import provider connectors",
+	},
+	{
+		SourcePattern: "internal/plugins/backends/openresponsescompat",
+		TargetPattern: "/connector-support/",
+		Reason:        "generic OpenResponses backend must not import provider connector support",
+	},
 }
 
 // fileScopedImportRule restricts specific production files.

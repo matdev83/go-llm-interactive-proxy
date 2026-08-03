@@ -1,6 +1,7 @@
 package backendplugin
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 )
@@ -14,14 +15,20 @@ func (inv Invocation) Validate() error {
 		strings.TrimSpace(inv.CanonicalModelID) == "" {
 		return ErrInvalidInvocation
 	}
-	if len(inv.Messages) == 0 {
+	if len(inv.Messages) == 0 && !(inv.ItemAuthority && len(inv.Items) > 0) {
 		return ErrInvalidInvocation
 	}
 	max := DefaultMaxRawJSONBytes
 	if err := inv.Options.ResponseSchemaJSON.Validate(max); err != nil {
 		return err
 	}
-	for _, t := range inv.Tools {
+	for i, t := range inv.Tools {
+		if strings.TrimSpace(t.Name) == "" {
+			return fmt.Errorf("%w: Tools[%d].Name is required", ErrInvalidInvocation, i)
+		}
+		if t.Name != strings.TrimSpace(t.Name) {
+			return fmt.Errorf("%w: Tools[%d].Name must not contain leading or trailing whitespace", ErrInvalidInvocation, i)
+		}
 		if err := t.ParametersJSON.Validate(max); err != nil {
 			return err
 		}
@@ -39,5 +46,5 @@ func (inv Invocation) Validate() error {
 			}
 		}
 	}
-	return nil
+	return validateInvocationWire(inv)
 }

@@ -1,7 +1,9 @@
 package adapter
 
 import (
+	"bytes"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -10,7 +12,13 @@ import (
 )
 
 // InvocationFromCall maps a core call into the public plugin Invocation DTO.
-func InvocationFromCall(call lipapi.Call, cand routing.AttemptCandidate) (backendplugin.Invocation, error) {
+func InvocationFromCall(call lipapi.Call, cand routing.AttemptCandidate, neg backendplugin.Negotiation) (backendplugin.Invocation, error) {
+	if err := lipapi.ValidateToolChoice(call.ToolChoice, call.Tools); err != nil {
+		return backendplugin.Invocation{}, err
+	}
+	if err := backendplugin.ValidateToolChoiceABI(call.ToolChoice); err != nil {
+		return backendplugin.Invocation{}, err
+	}
 	reqID := strings.TrimSpace(call.ID)
 	if reqID == "" {
 		reqID = "req"
@@ -52,6 +60,7 @@ func InvocationFromCall(call lipapi.Call, cand routing.AttemptCandidate) (backen
 		Instructions:     instructions,
 		Messages:         messages,
 		Tools:            mapTools(call.Tools),
+		ToolChoice:       backendplugin.ToolChoiceToWire(call.ToolChoice),
 		Options:          mapOptions(call.Options),
 	}
 	routeParams := map[string]string{}
@@ -62,7 +71,9 @@ func InvocationFromCall(call lipapi.Call, cand routing.AttemptCandidate) (backen
 			}
 		}
 	}
-	backendplugin.ApplyCallWireMetadata(&inv, call, routeParams)
+	if err := backendplugin.ApplyCallWireMetadataWithNegotiation(&inv, call, routeParams, neg); err != nil {
+		return backendplugin.Invocation{}, err
+	}
 	if err := inv.Validate(); err != nil {
 		return backendplugin.Invocation{}, err
 	}
@@ -114,6 +125,7 @@ func mapParts(in []lipapi.Part) ([]backendplugin.Part, error) {
 				if len(p.Reasoning.Opaque) > 0 {
 					bp.ReasoningOpaque = backendplugin.RawJSONFromBytes(p.Reasoning.Opaque)
 				}
+				mapReasoningExactPartFields(p.Reasoning, &bp)
 			}
 		case lipapi.PartToolResult:
 			id := p.ToolCallID
@@ -138,6 +150,31 @@ func mapParts(in []lipapi.Part) ([]backendplugin.Part, error) {
 	return out, nil
 }
 
+// mapReasoningExactPartFields projects canonical OpenAI Responses reasoning-item
+// exact fields onto the legacy ABI Part carrier with absent/null/value presence.
+func mapReasoningExactPartFields(r *lipapi.ReasoningPart, bp *backendplugin.Part) {
+	if bp == nil || r == nil {
+		return
+	}
+	if r.SummaryPresent || len(r.Summary) > 0 {
+		bp.ReasoningSummary = backendplugin.RawJSONFromBytes(r.Summary)
+	}
+	if r.ContentPresent || len(r.Content) > 0 {
+		bp.ReasoningContent = backendplugin.RawJSONFromBytes(r.Content)
+	}
+	if r.EncryptedContentPresent {
+		if isNullJSON(r.EncryptedContent) {
+			bp.ReasoningEncryptedContent = backendplugin.RawJSONNullValue()
+		} else {
+			bp.ReasoningEncryptedContent = backendplugin.RawJSONFromBytes(r.EncryptedContent)
+		}
+	}
+}
+
+func isNullJSON(b []byte) bool {
+	return bytes.Equal(bytes.TrimSpace(b), []byte("null"))
+}
+
 func mapTools(in []lipapi.ToolDef) []backendplugin.ToolDef {
 	out := make([]backendplugin.ToolDef, 0, len(in))
 	for _, t := range in {
@@ -160,7 +197,7 @@ func mapOptions(o lipapi.GenerationOptions) backendplugin.GenerationOptions {
 		v := uint32(*o.MaxOutputTokens)
 		out.MaxOutputTokens = &v
 	}
-	if o.Temperature != nil {
+	if o.Temperature != nil && !math.IsNaN(*o.Temperature) {
 		ms := int32(*o.Temperature * 1000)
 		out.TemperatureMillis = &ms
 	}

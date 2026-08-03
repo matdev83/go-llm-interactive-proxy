@@ -3,8 +3,10 @@
 package conformance
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -295,10 +297,82 @@ func toolStreamRawAndArgs(tb testing.TB, frontendID, proxyOrigin string, httpCli
 			}
 		}
 		return b.String(), argsJSON
+	case "openresponses":
+		return openResponsesToolStreamRawAndArgs(tb, proxyOrigin, httpClient, backendID)
 	default:
 		tb.Fatalf("unknown frontend %q", frontendID)
 		return "", ""
 	}
+}
+
+// openResponsesToolStreamRawAndArgs drives one streaming tool create against the
+// OpenResponses frontend and returns the joined SSE event payloads plus the
+// decoded function-call arguments JSON.
+func openResponsesToolStreamRawAndArgs(tb testing.TB, proxyOrigin string, httpClient *http.Client, backendID string) (raw, argsJSON string) {
+	tb.Helper()
+	name := toolNameForBackend(backendID)
+	schema, err := json.Marshal(toolParamsMap(backendID))
+	if err != nil {
+		tb.Fatalf("openresponses tools schema: %v", err)
+	}
+	body, err := json.Marshal(map[string]any{
+		"model":  wireModelForFrontend("openresponses"),
+		"stream": true,
+		"store":  false,
+		"input": []any{map[string]any{
+			"type": "message", "role": "user",
+			"content": []any{map[string]any{"type": "input_text", "text": "weather?"}},
+		}},
+		"tools": []any{map[string]any{
+			"type": "function", "name": name, "description": "tool",
+			"parameters": json.RawMessage(schema),
+		}},
+	})
+	if err != nil {
+		tb.Fatalf("openresponses tools body: %v", err)
+	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		strings.TrimRight(proxyOrigin, "/")+"/openresponses/v1/responses", strings.NewReader(string(body)))
+	if err != nil {
+		tb.Fatalf("openresponses tools request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		tb.Fatalf("openresponses tools post: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		rb, _ := io.ReadAll(resp.Body)
+		tb.Fatalf("openresponses tools status %d body=%s", resp.StatusCode, string(rb))
+	}
+	br := bufio.NewReader(resp.Body)
+	var b strings.Builder
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil && err != io.EOF {
+			tb.Fatalf("openresponses tools read: %v", err)
+		}
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "data: ") {
+			payload := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+			if payload == "[DONE]" {
+				break
+			}
+			b.WriteString(payload)
+			var ev struct {
+				Type      string `json:"type"`
+				Arguments string `json:"arguments"`
+			}
+			if json.Unmarshal([]byte(payload), &ev) == nil && ev.Type == "response.function_call_arguments.done" {
+				argsJSON = ev.Arguments
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+	}
+	return b.String(), argsJSON
 }
 
 func geminiFunctionCallArgsJSON(res *genai.GenerateContentResponse) string {

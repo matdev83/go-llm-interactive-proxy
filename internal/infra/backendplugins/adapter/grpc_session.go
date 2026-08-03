@@ -15,9 +15,16 @@ import (
 
 // GRPCSession is a host-side ExecuteSession over a BackendPlugin gRPC client.
 type GRPCSession struct {
-	Client     backendpluginv1.BackendPluginClient
-	Conn       *grpc.ClientConn
-	InstanceID string
+	Client          backendpluginv1.BackendPluginClient
+	Conn            *grpc.ClientConn
+	InstanceID      string
+	NegotiatedMinor uint32
+	negotiation     backendplugin.Negotiation
+}
+
+// Negotiation returns the protocol negotiation outcome bound at dial time.
+func (s *GRPCSession) Negotiation() backendplugin.Negotiation {
+	return s.negotiation
 }
 
 func (s *GRPCSession) Resolve(ctx context.Context, modelID *string) (backendplugin.ResolvedProfile, error) {
@@ -94,6 +101,10 @@ func (s *GRPCSession) Execute(stream backendplugin.ExecuteStream) error {
 		for {
 			fr, err := stream.Recv()
 			if err != nil {
+				report(err)
+				return
+			}
+			if err := backendplugin.ValidateClientFrameBounds(fr); err != nil {
 				report(err)
 				return
 			}

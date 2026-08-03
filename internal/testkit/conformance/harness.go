@@ -15,13 +15,22 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openresponsescompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	"gopkg.in/yaml.v3"
 )
 
 // DefaultModel returns the model name wired into routing.AttemptCandidate for a bundled backend ID.
 func DefaultModel(backendID string) string {
-	return standardplugins.DefaultWireModel(backendID)
+	switch backendID {
+	case BackendOpenResponses, BackendOpenRouter, BackendNVIDIA:
+		// The generic OpenResponses backend and the connector columns use a small
+		// canonical model the harness origins serve.
+		return "gpt-4o-mini"
+	default:
+		return standardplugins.DefaultWireModel(backendID)
+	}
 }
 
 // RouteSelector builds a core routing selector primary for a single-backend executor.
@@ -41,7 +50,7 @@ func NewTestExecutor(tb testing.TB, backendID, upstreamBaseURL string, httpClien
 }
 
 // NewTestExecutorDualCredential wires hosted OpenAI, Anthropic, and Gemini backends with two ordered
-// API keys so credential pools are populated. Bedrock uses the same construction as
+// API keys so credential pools are populated. Bedrock and ACP use the same construction as
 // [NewTestExecutor] (no multi-key pool in this harness).
 func NewTestExecutorDualCredential(tb testing.TB, backendID, upstreamBaseURL string, httpClient *http.Client) *runtime.Executor {
 	tb.Helper()
@@ -61,6 +70,7 @@ func newExecutorWithBackend(tb testing.TB, backendID string, be execbackend.Back
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Rand = routing.NewSeededRng(42)
 	ex.Backends = map[string]execbackend.Backend{backendID: be}
+	ex.DefaultBackend = backendID
 	testkit.WireConformanceExecutorSecureSession(tb, ex)
 	return ex
 }
@@ -104,10 +114,43 @@ func BackendFor(tb testing.TB, backendID, upstreamBaseURL string, httpClient *ht
 			DisableHTTPS:    true,
 			HTTPClient:      httpClient,
 		})
+	case BackendACP:
+		// ACP is an executable connector column (connectors/acp); the harness
+		// launches the real connector and drives it through the backendplugin
+		// host adapter APIs (acp_connector.go). It is never an essential kind
+		// and its protocol adapter is never linked into the root module.
+		return acpConnectorBackend(tb, upstreamBaseURL)
+	case BackendOpenResponses:
+		// The generic OpenResponses backend is constructed from strict
+		// compatible-mode YAML against the observing origin (Requirement 9.1).
+		return buildOpenResponsesCompatibleBackend(tb, upstreamBaseURL, httpClient)
+	case BackendOpenRouter, BackendNVIDIA:
+		// OpenRouter/NVIDIA are optional connector columns (connectors/openrouter,
+		// connectors/nvidia). Like ACP, the harness launches the real connector
+		// executable and drives it through the backendplugin host adapter APIs
+		// (connector_host.go). They stay optional and are never constructed as
+		// essential bundled backends.
+		return connectorHostBackend(tb, backendID, upstreamBaseURL)
 	default:
 		tb.Fatalf("unknown backend id %q", backendID)
 		return execbackend.Backend{}
 	}
+}
+
+// buildOpenResponsesCompatibleBackend constructs the generic remote OpenResponses
+// backend for a conformance origin.
+func buildOpenResponsesCompatibleBackend(tb testing.TB, upstreamBaseURL string, httpClient *http.Client) execbackend.Backend {
+	tb.Helper()
+	raw := "backend_prefix: harness-or\nbase_url: " + upstreamBaseURL + "\n"
+	var n yaml.Node
+	if err := yaml.Unmarshal([]byte(raw), &n); err != nil {
+		tb.Fatalf("harness: openresponses config: %v", err)
+	}
+	be, err := openresponsescompat.Build("harness-or", n, httpClient)
+	if err != nil {
+		tb.Fatalf("harness: openresponses backend: %v", err)
+	}
+	return be
 }
 
 // BackendForDualCredential is like [BackendFor] but supplies a second synthetic key for hosted
@@ -145,7 +188,7 @@ func BackendForDualCredential(tb testing.TB, backendID, upstreamBaseURL string, 
 			APIKeys:    []string{"fake-key", "fake-key-pool2"},
 			HTTPClient: httpClient,
 		})
-	case bedrock.ID:
+	case bedrock.ID, BackendACP, BackendOpenResponses, BackendOpenRouter, BackendNVIDIA:
 		return BackendFor(tb, backendID, upstreamBaseURL, httpClient)
 	default:
 		tb.Fatalf("unknown backend id %q", backendID)

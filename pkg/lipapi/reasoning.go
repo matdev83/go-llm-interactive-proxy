@@ -47,12 +47,31 @@ func NormalizeReasoningDialects(in []ReasoningDialect) []ReasoningDialect {
 }
 
 // ReasoningPart is the provider-neutral historical reasoning payload for PartReasoning.
-// At least one of Text, Signature, or Opaque must be present.
+// At least one of the legacy carriers or official exact fields must be present.
 type ReasoningPart struct {
 	Dialect   ReasoningDialect
 	Text      string
 	Signature string
 	Opaque    json.RawMessage
+
+	// Summary and Content preserve the official OpenResponses reasoning-item
+	// arrays when the canonical adapter can carry them without flattening.
+	// They remain raw JSON because their element vocabulary is protocol-owned.
+	Summary        json.RawMessage
+	SummaryPresent bool
+	Content        json.RawMessage
+	ContentPresent bool
+	// EncryptedContent preserves the official encrypted_content value,
+	// including JSON null. EncryptedContentPresent distinguishes an omitted
+	// field from an explicitly present null value.
+	EncryptedContent        json.RawMessage
+	EncryptedContentPresent bool
+}
+
+// ReasoningHasExactResponsesFields reports whether rp carries any official
+// OpenResponses reasoning-item fields rather than only the legacy text carrier.
+func ReasoningHasExactResponsesFields(rp *ReasoningPart) bool {
+	return rp != nil && (rp.SummaryPresent || rp.ContentPresent || rp.EncryptedContentPresent || len(rp.Summary) > 0 || len(rp.Content) > 0)
 }
 
 // ReasoningPayloadBytes returns Text+Signature+Opaque byte length (dialect excluded).
@@ -60,7 +79,7 @@ func ReasoningPayloadBytes(rp *ReasoningPart) int {
 	if rp == nil {
 		return 0
 	}
-	return len(rp.Text) + len(rp.Signature) + len(rp.Opaque)
+	return len(rp.Text) + len(rp.Signature) + len(rp.Opaque) + len(rp.Summary) + len(rp.Content) + len(rp.EncryptedContent)
 }
 
 // ReasoningReplaySupport declares which historical reasoning dialects a backend candidate can replay.
