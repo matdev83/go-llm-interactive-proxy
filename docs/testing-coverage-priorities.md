@@ -49,3 +49,24 @@ Use this as a **checklist for PRs** that touch related code—not a mandate to i
 ## Maintenance
 
 Review this file when **major** orchestration or conformance layout changes; update gap hypotheses based on recent incidents or recurring review comments.
+
+## OpenResponses measured evidence
+
+The PR/manual CI workflow `.github/workflows/openresponses-coverage.yml` runs each
+package separately and uploads the `go test` profile plus the `go tool cover -func`
+summary under the exact tested commit SHA. The current baseline from commit
+`02a1daac` is:
+
+| Package | Measured statements | CI policy |
+|---------|---------------------|-----------|
+| `protocols/openresponses` | 84.2% | Reviewed ratchet at 84.2%; exception to the archived SDD target of >=90. |
+| `refclient/openresponses` | 92.3% | Enforce >=90%. |
+| `refbackend/openresponses` | 90.6% | Enforce >=90%. |
+| `frontends/openresponses` | 79.3% | Record evidence; no unsupported >=90% claim. |
+| `backends/openresponsescompat` | 83.0% | Record evidence; no unsupported >=90% claim. |
+
+The archived SDD target is a target with reviewed exceptions, not a universal
+steering requirement. Threshold decisions use the measured `go tool cover`
+total rather than scenario registries or constants. The protocol exception is
+explicitly ratcheted at the current baseline so it cannot regress silently;
+frontend and backend gaps remain visible evidence for future focused tests.
