@@ -114,14 +114,19 @@ request** — never silently text-mapped or dropped.
 ## Create reasoning control compatibility
 
 For the pinned `2026-04-24` create profile, this backend supports only the
-lossless canonical reasoning control `reasoning: {"effort": "..."}`. The effort
-string is forwarded unchanged. Omitted, `null`, `{}`, and `{"effort":null}`
+lossless canonical reasoning control `reasoning: {"effort": "..."}`. The
+authoritative pinned schema enumerates `none`, `low`, `medium`, `high`, and
+`xhigh`; the selected effort is forwarded unchanged. Omitted, `null`, `{}`, and `{"effort":null}`
 map to the canonical empty effort because that contract has no presence bit.
-Unknown nested reasoning fields, non-object reasoning values, and non-string or
-empty `effort` values are rejected before any upstream request. Reasoning output
+Unknown nested reasoning fields, non-object reasoning values, unknown enum
+values, and non-string or empty `effort` values are rejected before any upstream request. Reasoning output
 fields such as `summary`, `content`, and `encrypted_content` are response-item
 fields, not supported create controls; other create reasoning fields remain
 unsupported.
+
+The request control is consumed while constructing the canonical call and does
+not alter response-item construction, so no separate response regression is
+needed for this subset.
 
 ## Pinned content-part profile
 

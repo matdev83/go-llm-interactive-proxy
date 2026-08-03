@@ -284,8 +284,11 @@ func TestBuildCreateRequest_ReasoningEffortMappedToWire(t *testing.T) {
 		effort string
 		want   string
 	}{
+		{name: "none", effort: "none", want: `{"effort":"none"}`},
 		{name: "low", effort: "low", want: `{"effort":"low"}`},
+		{name: "medium", effort: "medium", want: `{"effort":"medium"}`},
 		{name: "high", effort: "high", want: `{"effort":"high"}`},
+		{name: "xhigh", effort: "xhigh", want: `{"effort":"xhigh"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

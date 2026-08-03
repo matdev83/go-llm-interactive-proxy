@@ -192,7 +192,7 @@ func TestDecodeRequest_ReasoningEffortSubset(t *testing.T) {
 			}
 		})
 	}
-	for _, raw := range []string{`[]`, `{"effort":1}`, `{"summary":[]}`, `{"effort":"low","summary":[]}`} {
+	for _, raw := range []string{`[]`, `{"effort":1}`, `{"effort":""}`, `{"effort":"minimal"}`, `{"summary":[]}`, `{"effort":"low","summary":[]}`} {
 		if _, _, err := DecodeRequest([]byte(`{"model":"gpt-4o","input":"hello","reasoning":` + raw + `}`)); err == nil {
 			t.Fatalf("reasoning=%s should be rejected", raw)
 		}

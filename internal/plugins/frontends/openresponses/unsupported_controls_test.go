@@ -97,6 +97,9 @@ func TestFrontendHTTP_UnsupportedControlsRejectBeforeExecutor(t *testing.T) {
 			body := []byte(`{"model":"gpt-4o","input":"hello","` + tc.field + `":` + tc.value + `}`)
 			req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 
@@ -183,6 +186,9 @@ func TestFrontendHTTP_StreamOptionsRejectedBeforeExecutor(t *testing.T) {
 			body := []byte(`{"model":"gpt-4o","input":"hello","` + tc.field + `":` + tc.value + `}`)
 			req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 
@@ -236,6 +242,64 @@ func TestFrontendHTTP_SupportedControlsPreserved(t *testing.T) {
 	}
 	if got := call.Session.Metadata["tenant"]; got != "acme" {
 		t.Errorf("metadata=%v, want tenant=acme", call.Session.Metadata)
+	}
+}
+
+func TestFrontendHTTP_ReasoningEffortAllPinnedValuesReachExecutor(t *testing.T) {
+	for _, effort := range []string{"none", "low", "medium", "high", "xhigh"} {
+		t.Run(effort, func(t *testing.T) {
+			exec := &mockExecutor{}
+			handler := openresponses.NewHandler(openresponses.HandlerConfig{AllowUnauthenticated: true, Executor: exec})
+			body := []byte(`{"model":"gpt-4o","input":"hello","reasoning":{"effort":"` + effort + `"}}`)
+			req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if exec.executeCalls != 1 || exec.lastCall == nil {
+				t.Fatalf("effort %q did not reach executor: status=%d calls=%d body=%s", effort, rec.Code, exec.executeCalls, rec.Body.String())
+			}
+			if got := exec.lastCall.Options.ReasoningEffort; got != effort {
+				t.Fatalf("canonical effort=%q, want %q", got, effort)
+			}
+		})
+	}
+}
+
+func TestFrontendHTTP_ReasoningEmptyFormsAccepted(t *testing.T) {
+	for _, raw := range []string{`null`, `{}`, `{"effort":null}`} {
+		t.Run(raw, func(t *testing.T) {
+			exec := &mockExecutor{}
+			handler := openresponses.NewHandler(openresponses.HandlerConfig{AllowUnauthenticated: true, Executor: exec})
+			body := []byte(`{"model":"gpt-4o","input":"hello","reasoning":` + raw + `}`)
+			req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if exec.executeCalls != 1 {
+				t.Fatalf("empty reasoning %s rejected or skipped: status=%d calls=%d", raw, rec.Code, exec.executeCalls)
+			}
+			if exec.lastCall.Options.ReasoningEffort != "" {
+				t.Fatalf("canonical effort=%q, want empty", exec.lastCall.Options.ReasoningEffort)
+			}
+		})
+	}
+}
+
+func TestFrontendHTTP_ReasoningInvalidValuesRejectBeforeExecutor(t *testing.T) {
+	for _, raw := range []string{`{"effort":"minimal"}`, `{"effort":1}`, `{"unknown":"low"}`} {
+		t.Run(raw, func(t *testing.T) {
+			exec := &mockExecutor{}
+			handler := openresponses.NewHandler(openresponses.HandlerConfig{AllowUnauthenticated: true, Executor: exec})
+			body := []byte(`{"model":"gpt-4o","input":"hello","reasoning":` + raw + `}`)
+			req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest || exec.executeCalls != 0 {
+				t.Fatalf("invalid reasoning %s was not rejected before executor: status=%d calls=%d", raw, rec.Code, exec.executeCalls)
+			}
+		})
 	}
 }
 
@@ -415,6 +479,67 @@ func TestWebSocketTurn_UnsupportedControlsNullAccepted(t *testing.T) {
 			if exec.count() != 1 {
 				t.Fatalf("executor calls=%d, want 1", exec.count())
 			}
+		})
+	}
+}
+
+func TestWebSocketTurn_ReasoningEffortAllPinnedValuesReachExecutor(t *testing.T) {
+	for _, effort := range []string{"none", "low", "medium", "high", "xhigh"} {
+		t.Run(effort, func(t *testing.T) {
+			exec := &wsTurnExecutor{streams: []lipapi.EventStream{fixedStream(
+				lipapi.Event{Kind: lipapi.EventResponseStarted}, lipapi.Event{Kind: lipapi.EventMessageStarted},
+				lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "ok"}, lipapi.Event{Kind: lipapi.EventResponseFinished},
+			)}}
+			srv, _ := newWSTurnServer(t, exec, deterministicResponseMetadata{id: "resp_effort", now: time.Unix(1_700_002_200, 0)}, nil)
+			conn := wsDial(t, srv, nil)
+			wsText(t, conn, `{"type":"response.create","model":"gpt-4o","input":"hello","reasoning":{"effort":"`+effort+`"}}`)
+			frames := wsReadUntilTerminal(t, conn, 3*time.Second)
+			if !containsDelta(frames, "ok") || exec.count() != 1 {
+				t.Fatalf("effort %q did not execute: frames=%v calls=%d", effort, frameTypes(frames), exec.count())
+			}
+			if got := exec.callAt(0).Options.ReasoningEffort; got != effort {
+				t.Fatalf("canonical effort=%q, want %q", got, effort)
+			}
+			_ = conn.Close()
+		})
+	}
+}
+
+func TestWebSocketTurn_ReasoningInvalidValuesRejectBeforeExecutor(t *testing.T) {
+	for _, raw := range []string{`{"effort":"minimal"}`, `{"effort":1}`, `{"unknown":"low"}`} {
+		t.Run(raw, func(t *testing.T) {
+			exec := &wsTurnExecutor{}
+			srv, _ := newWSTurnServer(t, exec, deterministicResponseMetadata{id: "resp_bad_effort", now: time.Unix(1_700_002_300, 0)}, nil)
+			conn := wsDial(t, srv, nil)
+			wsText(t, conn, `{"type":"response.create","model":"gpt-4o","input":"hello","reasoning":`+raw+`}`)
+			frame := wsReadTextFrame(t, conn, 3*time.Second)
+			code, _ := wsErrorEnvelope(t, frame)
+			if code != "invalid_request" || exec.count() != 0 {
+				t.Fatalf("invalid reasoning %s was not rejected before executor: code=%q calls=%d", raw, code, exec.count())
+			}
+			_ = conn.Close()
+		})
+	}
+}
+
+func TestWebSocketTurn_ReasoningEmptyFormsReachExecutor(t *testing.T) {
+	for _, raw := range []string{`null`, `{}`, `{"effort":null}`} {
+		t.Run(raw, func(t *testing.T) {
+			exec := &wsTurnExecutor{streams: []lipapi.EventStream{fixedStream(
+				lipapi.Event{Kind: lipapi.EventResponseStarted}, lipapi.Event{Kind: lipapi.EventMessageStarted},
+				lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "ok"}, lipapi.Event{Kind: lipapi.EventResponseFinished},
+			)}}
+			srv, _ := newWSTurnServer(t, exec, deterministicResponseMetadata{id: "resp_empty_effort", now: time.Unix(1_700_002_400, 0)}, nil)
+			conn := wsDial(t, srv, nil)
+			wsText(t, conn, `{"type":"response.create","model":"gpt-4o","input":"hello","reasoning":`+raw+`}`)
+			frames := wsReadUntilTerminal(t, conn, 3*time.Second)
+			if !containsDelta(frames, "ok") || exec.count() != 1 {
+				t.Fatalf("empty reasoning %s rejected or skipped: frames=%v calls=%d", raw, frameTypes(frames), exec.count())
+			}
+			if got := exec.callAt(0).Options.ReasoningEffort; got != "" {
+				t.Fatalf("canonical effort=%q, want empty", got)
+			}
+			_ = conn.Close()
 		})
 	}
 }

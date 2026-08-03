@@ -428,7 +428,21 @@ func decodeReasoningControl(raw json.RawMessage) (string, error) {
 	if effort == "" {
 		return "", fmt.Errorf("%w: reasoning.effort must not be empty", ErrDecodeFailed)
 	}
+	if !validReasoningEffort(effort) {
+		return "", fmt.Errorf("%w: reasoning.effort %q is not supported", ErrDecodeFailed, effort)
+	}
 	return effort, nil
+}
+
+// validReasoningEffort mirrors the pinned OpenResponses create schema rather
+// than accepting arbitrary provider-specific effort names.
+func validReasoningEffort(effort string) bool {
+	switch effort {
+	case "none", "low", "medium", "high", "xhigh":
+		return true
+	default:
+		return false
+	}
 }
 
 // decodeToolChoice decodes wire tool_choice JSON into lipapi.ToolChoice.
