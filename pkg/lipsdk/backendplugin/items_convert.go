@@ -396,6 +396,14 @@ func invocationContentPartFromProto(p *backendpluginv1.InvocationContentPart) (I
 		v := p.GetExtensionType()
 		part.ExtensionType = &v
 	}
+	if p.ExtensionNamespace != nil {
+		v := p.GetExtensionNamespace()
+		part.ExtensionNamespace = &v
+	}
+	if p.ExtensionImplementor != nil {
+		v := p.GetExtensionImplementor()
+		part.ExtensionImplementor = &v
+	}
 	if raw := p.GetExtensionData(); raw != nil {
 		data, err := RawJSONFromProto(raw)
 		if err != nil {
@@ -493,6 +501,12 @@ func invocationContentPartToProto(part InvocationContentPart) (*backendpluginv1.
 	}
 	if part.ExtensionType != nil {
 		out.ExtensionType = part.ExtensionType
+	}
+	if part.ExtensionNamespace != nil {
+		out.ExtensionNamespace = part.ExtensionNamespace
+	}
+	if part.ExtensionImplementor != nil {
+		out.ExtensionImplementor = part.ExtensionImplementor
 	}
 	if part.ExtensionData.State() == RawJSONValue {
 		out.ExtensionData = RawJSONToProto(part.ExtensionData)

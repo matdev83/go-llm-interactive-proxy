@@ -107,6 +107,10 @@ type InvocationContentPart struct {
 	// Additive v1.3 fields gated by FeatureExactOpenResponsesFields.
 	ExtensionType *string
 	ExtensionData RawJSON
+	// ExtensionNamespace and ExtensionImplementor preserve canonical extension
+	// identity metadata independently of the derived Type namespace.
+	ExtensionNamespace   *string
+	ExtensionImplementor *string
 }
 
 // InvocationReasoningPart carries reasoning payload on the plugin ABI.

@@ -205,6 +205,12 @@ func contentPartFromInvocationDTO(cp InvocationContentPart, field string) (lipap
 			return lipapi.ContentPart{}, fmt.Errorf("%w: %s requires extension type", ErrInvalidInvocation, field)
 		}
 		ext := &lipapi.ExtensionContentPart{Type: *cp.ExtensionType}
+		if cp.ExtensionNamespace != nil {
+			ext.Namespace = *cp.ExtensionNamespace
+		}
+		if cp.ExtensionImplementor != nil {
+			ext.Implementor = *cp.ExtensionImplementor
+		}
 		if cp.ExtensionData.State() == RawJSONValue {
 			ext.Data = append(json.RawMessage(nil), cp.ExtensionData.Bytes()...)
 		}

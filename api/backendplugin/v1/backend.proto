@@ -483,6 +483,10 @@ message InvocationContentPart {
   RawJSONValue reasoning_summary = 22;
   RawJSONValue reasoning_content = 23;
   RawJSONValue reasoning_encrypted_content = 24;
+  // Canonical extension identity metadata. These do not alter OpenResponses
+  // wire data; the object in extension_data remains the lossless carrier.
+  optional string extension_namespace = 25;
+  optional string extension_implementor = 26;
 }
 
 message InvocationToolCall {

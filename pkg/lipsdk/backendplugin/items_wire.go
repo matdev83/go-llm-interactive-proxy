@@ -219,6 +219,14 @@ func mapContentPartToDTO(cp lipapi.ContentPart) InvocationContentPart {
 		if cp.Extension != nil {
 			typ := cp.Extension.Type
 			part.ExtensionType = &typ
+			if cp.Extension.Namespace != "" {
+				ns := cp.Extension.Namespace
+				part.ExtensionNamespace = &ns
+			}
+			if cp.Extension.Implementor != "" {
+				impl := cp.Extension.Implementor
+				part.ExtensionImplementor = &impl
+			}
 			if len(cp.Extension.Data) > 0 {
 				part.ExtensionData = RawJSONFromBytes(cp.Extension.Data)
 			}

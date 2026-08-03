@@ -478,6 +478,12 @@ func validateInvocationContentPart(cp InvocationContentPart, field string) error
 	if cp.ExtensionType != nil && len(*cp.ExtensionType) > int(lipapi.MaxExtensionTypeBytes) {
 		return ErrOversizedMessage
 	}
+	if cp.ExtensionNamespace != nil && len(*cp.ExtensionNamespace) > int(lipapi.MaxExtensionNamespaceBytes) {
+		return ErrOversizedMessage
+	}
+	if cp.ExtensionImplementor != nil && len(*cp.ExtensionImplementor) > int(lipapi.MaxExtensionImplementorBytes) {
+		return ErrOversizedMessage
+	}
 	if err := cp.ExtensionData.Validate(DefaultMaxRawJSONBytes); err != nil {
 		return err
 	}
@@ -607,6 +613,9 @@ func validateInvocationContentPartUnion(cp InvocationContentPart, field string) 
 		}
 		if cp.ExtensionData.State() != RawJSONValue {
 			return fmt.Errorf("%w: %s requires extension data", ErrInvalidInvocation, field)
+		}
+		if cp.ExtensionNamespace != nil && strings.TrimSpace(*cp.ExtensionNamespace) == "" {
+			return fmt.Errorf("%w: %s extension namespace must not be empty", ErrInvalidInvocation, field)
 		}
 		if hasConflictingContentFields(cp, "extension") {
 			return fmt.Errorf("%w: %s has conflicting content payloads", ErrInvalidInvocation, field)

@@ -644,6 +644,7 @@ api/backendplugin/v1/backend.proto
 api/backendplugin/v1/backend_grpc.pb.go
 api/backendplugin/v1/compile_test.go
 api/backendplugin/v1/doc.go
+pkg/lipsdk/backendplugin/content_extension_metadata_test.go
 api/buf.gen.yaml
 api/buf.yaml
 api/tools.go

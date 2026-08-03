@@ -3726,8 +3726,12 @@ type InvocationContentPart struct {
 	ReasoningSummary          *RawJSONValue `protobuf:"bytes,22,opt,name=reasoning_summary,json=reasoningSummary,proto3" json:"reasoning_summary,omitempty"`
 	ReasoningContent          *RawJSONValue `protobuf:"bytes,23,opt,name=reasoning_content,json=reasoningContent,proto3" json:"reasoning_content,omitempty"`
 	ReasoningEncryptedContent *RawJSONValue `protobuf:"bytes,24,opt,name=reasoning_encrypted_content,json=reasoningEncryptedContent,proto3" json:"reasoning_encrypted_content,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// Canonical extension identity metadata. These do not alter OpenResponses
+	// wire data; the object in extension_data remains the lossless carrier.
+	ExtensionNamespace   *string `protobuf:"bytes,25,opt,name=extension_namespace,json=extensionNamespace,proto3,oneof" json:"extension_namespace,omitempty"`
+	ExtensionImplementor *string `protobuf:"bytes,26,opt,name=extension_implementor,json=extensionImplementor,proto3,oneof" json:"extension_implementor,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *InvocationContentPart) Reset() {
@@ -3926,6 +3930,20 @@ func (x *InvocationContentPart) GetReasoningEncryptedContent() *RawJSONValue {
 		return x.ReasoningEncryptedContent
 	}
 	return nil
+}
+
+func (x *InvocationContentPart) GetExtensionNamespace() string {
+	if x != nil && x.ExtensionNamespace != nil {
+		return *x.ExtensionNamespace
+	}
+	return ""
+}
+
+func (x *InvocationContentPart) GetExtensionImplementor() string {
+	if x != nil && x.ExtensionImplementor != nil {
+		return *x.ExtensionImplementor
+	}
+	return ""
 }
 
 type InvocationToolCall struct {
@@ -5396,7 +5414,7 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\x06opaque\x18\x04 \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\x06opaque\x12!\n" +
 	"\tdirection\x18\x05 \x01(\tH\x00R\tdirection\x88\x01\x01B\f\n" +
 	"\n" +
-	"_direction\"\xd3\v\n" +
+	"_direction\"\xf5\f\n" +
 	"\x15InvocationContentPart\x124\n" +
 	"\x04kind\x18\x01 \x01(\x0e2 .golip.backendplugin.v1.PartKindR\x04kind\x12\x17\n" +
 	"\x04text\x18\x02 \x01(\tH\x00R\x04text\x88\x01\x01\x12 \n" +
@@ -5425,7 +5443,9 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\x0eextension_data\x18\x15 \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\rextensionData\x12Q\n" +
 	"\x11reasoning_summary\x18\x16 \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\x10reasoningSummary\x12Q\n" +
 	"\x11reasoning_content\x18\x17 \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\x10reasoningContent\x12d\n" +
-	"\x1breasoning_encrypted_content\x18\x18 \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\x19reasoningEncryptedContentB\a\n" +
+	"\x1breasoning_encrypted_content\x18\x18 \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\x19reasoningEncryptedContent\x124\n" +
+	"\x13extension_namespace\x18\x19 \x01(\tH\x11R\x12extensionNamespace\x88\x01\x01\x128\n" +
+	"\x15extension_implementor\x18\x1a \x01(\tH\x12R\x14extensionImplementor\x88\x01\x01B\a\n" +
 	"\x05_textB\f\n" +
 	"\n" +
 	"_image_refB\v\n" +
@@ -5449,7 +5469,9 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\x14_reasoning_signatureB\f\n" +
 	"\n" +
 	"_file_dataB\x11\n" +
-	"\x0f_extension_type\"\x85\x01\n" +
+	"\x0f_extension_typeB\x16\n" +
+	"\x14_extension_namespaceB\x18\n" +
+	"\x16_extension_implementor\"\x85\x01\n" +
 	"\x12InvocationToolCall\x12\x17\n" +
 	"\acall_id\x18\x01 \x01(\tR\x06callId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12B\n" +
