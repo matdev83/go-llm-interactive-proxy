@@ -53,7 +53,6 @@ type wireCreate struct {
 	TopP          *float64        `json:"top_p"`
 	MaxOut        *int            `json:"max_output_tokens"`
 	Text          json.RawMessage `json:"text"`
-	Reasoning     json.RawMessage `json:"reasoning"`
 	// Metadata may include LIP session keys ([sessionwire.MetaKeyAuthoritativeSessionID]).
 	Metadata map[string]string `json:"metadata,omitempty"`
 }
@@ -71,7 +70,6 @@ var responsesKnownBodyKeys = map[string]bool{
 	"tools": true, "tool_choice": true, "parallel_tool_calls": true,
 	"temperature": true, "top_p": true, "max_output_tokens": true, "metadata": true,
 	"text":                 true,
-	"reasoning":            true,
 	"previous_response_id": true, "store": true, "truncation": true,
 }
 
@@ -119,10 +117,6 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 	if err != nil {
 		return nil, fmt.Errorf("openairesponses: text: %w", err)
 	}
-	reasoningEffort, err := parseReasoningConfig(w.Reasoning)
-	if err != nil {
-		return nil, fmt.Errorf("openairesponses: reasoning: %w", err)
-	}
 
 	modelRaw, err := json.Marshal(model)
 	if err != nil {
@@ -162,7 +156,6 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 			MaxOutputTokens:   w.MaxOut,
 			ParallelToolCalls: w.ParallelTools,
 			Verbosity:         verbosity,
-			ReasoningEffort:   reasoningEffort,
 		},
 	}
 	if len(w.Metadata) > 0 {
@@ -173,37 +166,6 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 		identitywire.CaptureClientUserAgent(&call.Invocation, opts.Headers)
 	}
 	return &DecodedCreate{Call: call, Stream: w.Stream, Model: model}, nil
-}
-
-func parseReasoningConfig(raw json.RawMessage) (string, error) {
-	if jsonpresence.IsAbsentOrJSONNull(raw) {
-		return "", nil
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
-		if err == nil {
-			err = errors.New("must be a JSON object")
-		}
-		return "", err
-	}
-	for key := range fields {
-		if key != "effort" {
-			return "", fmt.Errorf("reasoning field %q is unsupported", key)
-		}
-	}
-	effortRaw, ok := fields["effort"]
-	if !ok || jsonpresence.IsAbsentOrJSONNull(effortRaw) {
-		return "", nil
-	}
-	var effort string
-	if err := json.Unmarshal(effortRaw, &effort); err != nil {
-		return "", errors.New("reasoning.effort must be a string")
-	}
-	effort = strings.TrimSpace(effort)
-	if effort == "" {
-		return "", errors.New("reasoning.effort must not be empty")
-	}
-	return effort, nil
 }
 
 // parseTextConfig extracts the canonical Responses text verbosity while

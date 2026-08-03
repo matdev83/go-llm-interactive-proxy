@@ -71,21 +71,6 @@ func TestDecodeCreate_textNonStream(t *testing.T) {
 	}
 }
 
-func TestDecodeCreate_reasoningEffortSubset(t *testing.T) {
-	d, err := openairesponses.DecodeCreateRequest([]byte(`{"model":"gpt-4o-mini","input":"hi","reasoning":{"effort":" high "}}`), openairesponses.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d.Call.Options.ReasoningEffort != "high" {
-		t.Fatalf("effort=%q", d.Call.Options.ReasoningEffort)
-	}
-	for _, raw := range []string{`[]`, `{"effort":1}`, `{"summary":[]}`} {
-		if _, err := openairesponses.DecodeCreateRequest([]byte(`{"model":"gpt-4o-mini","input":"hi","reasoning":`+raw+`}`), openairesponses.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"}); err == nil {
-			t.Fatalf("reasoning=%s should be rejected", raw)
-		}
-	}
-}
-
 func TestDecodeCreate_nestedTextVerbosityBecomesCanonicalAndPreservesSiblings(t *testing.T) {
 	t.Parallel()
 	body := []byte(`{"model":"gpt-4o-mini","input":"hi","text":{"verbosity":" HIGH ","format":{"type":"text"}}}`)
