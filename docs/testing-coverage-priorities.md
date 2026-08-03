@@ -54,19 +54,18 @@ Review this file when **major** orchestration or conformance layout changes; upd
 
 The PR/manual CI workflow `.github/workflows/openresponses-coverage.yml` runs each
 package separately and uploads the `go test` profile plus the `go tool cover -func`
-summary under the exact tested commit SHA. The current baseline from commit
-`02a1daac` is:
+summary under the exact tested commit SHA. The exact current baselines,
+reviewed exceptions, and non-regression ratchets from commit `cc1af454` are:
 
 | Package | Measured statements | CI policy |
 |---------|---------------------|-----------|
-| `protocols/openresponses` | 84.2% | Reviewed ratchet at 84.2%; exception to the archived SDD target of >=90. |
+| `protocols/openresponses` | 84.2% | Enforce >=84.2%; reviewed exception to the archived SDD target of >=90. |
 | `refclient/openresponses` | 92.3% | Enforce >=90%. |
 | `refbackend/openresponses` | 90.6% | Enforce >=90%. |
-| `frontends/openresponses` | 79.3% | Record evidence; no unsupported >=90% claim. |
-| `backends/openresponsescompat` | 83.0% | Record evidence; no unsupported >=90% claim. |
+| `frontends/openresponses` | 79.7% | Enforce >=79.7%; reviewed exception to the archived SDD target of >=90. |
+| `backends/openresponsescompat` | 83.0% | Enforce >=83.0%; reviewed exception to the archived SDD target of >=90. |
 
-The archived SDD target is a target with reviewed exceptions, not a universal
-steering requirement. Threshold decisions use the measured `go tool cover`
-total rather than scenario registries or constants. The protocol exception is
-explicitly ratcheted at the current baseline so it cannot regress silently;
-frontend and backend gaps remain visible evidence for future focused tests.
+These are exact current baselines and reviewed exceptions, not claimed future
+targets. The workflow enforces them as honest non-regression ratchets using the
+measured `go tool cover` total rather than scenario registries or constants.
+The archived SDD target is not a universal steering requirement.

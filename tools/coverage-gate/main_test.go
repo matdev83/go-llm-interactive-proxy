@@ -15,10 +15,27 @@ func TestParseTotal(t *testing.T) {
 	}
 }
 
-func TestParseTotalUsesLastTotalLine(t *testing.T) {
-	got, err := parseTotal("total: (statements) 89.9%\ntotal: (statements) 90.0%\n")
-	if err != nil || got.Cmp(mustRat("90")) != 0 {
-		t.Fatalf("got %v, err %v", got, err)
+func TestParseTotalRejectsDuplicateTotalLines(t *testing.T) {
+	if _, err := parseTotal("total: (statements) 89.9%\ntotal: (statements) 90.0%\n"); err == nil {
+		t.Fatal("expected duplicate total error")
+	}
+}
+
+func TestParseTotalRejectsSpoofedTotal(t *testing.T) {
+	if _, err := parseTotal("total: (statements) 90.0%\ntotal: spoofed 99.9%\n"); err == nil {
+		t.Fatal("expected malformed total error")
+	}
+}
+
+func TestParseTotalRejectsMalformedTotal(t *testing.T) {
+	for _, input := range []string{
+		"total: (statements) 90%\n",
+		"total: (functions) 90.0%\n",
+		"total: (statements) 100.00%\n",
+	} {
+		if _, err := parseTotal(input); err == nil {
+			t.Fatalf("expected malformed total error for %q", input)
+		}
 	}
 }
 

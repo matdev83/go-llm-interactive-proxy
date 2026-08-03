@@ -55,9 +55,9 @@ jobs:
           gate='./coverage-gate'
           go run ./tools/coverage-gate -func artifacts/openresponses-coverage/refclient-openresponses.summary.txt -threshold 90 -name refclient/openresponses
           go run ./tools/coverage-gate -func artifacts/openresponses-coverage/refbackend-openresponses.summary.txt -threshold 90 -name refbackend/openresponses
-          # Protocols, frontend, and backend are reported as measured evidence;
-          # only the reviewed protocol baseline has an explicit ratchet threshold.
           go run ./tools/coverage-gate -func artifacts/openresponses-coverage/protocols-openresponses.summary.txt -threshold 84.2 -name protocols/openresponses
+          go run ./tools/coverage-gate -func artifacts/openresponses-coverage/frontends-openresponses.summary.txt -threshold 79.7 -name frontends/openresponses
+          go run ./tools/coverage-gate -func artifacts/openresponses-coverage/backends-openresponsescompat.summary.txt -threshold 83.0 -name backends/openresponsescompat
 
       - name: Upload profiles and summaries for exact SHA
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4

@@ -4977,6 +4977,8 @@ tools/backendplugin/release_gates/tidy_check_test.go
 tools/backendplugin/runner/runner.go
 tools/backendplugin/runner/runner_test.go
 tools/backendplugin/tools_test.go
+tools/coverage-gate/main.go
+tools/coverage-gate/main_test.go
 tools/kiro/speccheck/cursor_sdk_backend_test.go
 tools/openresponses-compliance/.gitignore
 tools/openresponses-compliance/LICENSE

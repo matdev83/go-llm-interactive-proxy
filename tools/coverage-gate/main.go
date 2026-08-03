@@ -11,22 +11,32 @@ import (
 	"strings"
 )
 
-var totalPattern = regexp.MustCompile(`^total:\s+.*\s+(\d+(?:\.\d+)?)%\s*$`)
+var totalPattern = regexp.MustCompile(`^total:\s+\(statements\)\s+(\d+\.\d)%$`)
 
 func parseTotal(input string) (*big.Rat, error) {
 	var value string
+	matched := 0
 	scanner := bufio.NewScanner(strings.NewReader(input))
 	for scanner.Scan() {
-		matches := totalPattern.FindStringSubmatch(strings.TrimSpace(scanner.Text()))
+		line := strings.TrimSpace(scanner.Text())
+		matches := totalPattern.FindStringSubmatch(line)
 		if len(matches) == 2 {
+			matched++
 			value = matches[1]
+			continue
+		}
+		if strings.HasPrefix(line, "total:") {
+			return nil, fmt.Errorf("malformed coverage total line %q", line)
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
-	if value == "" {
+	if matched == 0 {
 		return nil, errors.New("go tool cover output has no total line")
+	}
+	if matched != 1 {
+		return nil, errors.New("go tool cover output has duplicate total lines")
 	}
 	result, ok := new(big.Rat).SetString(value)
 	if !ok {
