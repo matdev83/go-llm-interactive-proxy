@@ -1,0 +1,68 @@
+name: OpenResponses coverage evidence
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    name: Measured OpenResponses coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact tested SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Generate profiles and summaries
+        shell: bash
+        env:
+          TESTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/openresponses-coverage
+          declare -A packages=(
+            [protocols-openresponses]=./internal/plugins/protocols/openresponses
+            [refclient-openresponses]=./internal/refclient/openresponses
+            [refbackend-openresponses]=./internal/refbackend/openresponses
+            [frontends-openresponses]=./internal/plugins/frontends/openresponses
+            [backends-openresponsescompat]=./internal/plugins/backends/openresponsescompat
+          )
+          for name in "${!packages[@]}"; do
+            profile="artifacts/openresponses-coverage/${name}.coverprofile"
+            summary="artifacts/openresponses-coverage/${name}.summary.txt"
+            go test -covermode=atomic -coverprofile="$profile" "${packages[$name]}"
+            go tool cover -func="$profile" > "$summary"
+            printf 'tested_sha=%s\npackage=%s\n' "$TESTED_SHA" "${packages[$name]}" >> "$summary"
+          done
+
+      - name: Enforce measured thresholds
+        shell: bash
+        run: |
+          set -euo pipefail
+          gate='./coverage-gate'
+          go run ./tools/coverage-gate -func artifacts/openresponses-coverage/refclient-openresponses.summary.txt -threshold 90 -name refclient/openresponses
+          go run ./tools/coverage-gate -func artifacts/openresponses-coverage/refbackend-openresponses.summary.txt -threshold 90 -name refbackend/openresponses
+          go run ./tools/coverage-gate -func artifacts/openresponses-coverage/protocols-openresponses.summary.txt -threshold 84.2 -name protocols/openresponses
+          go run ./tools/coverage-gate -func artifacts/openresponses-coverage/frontends-openresponses.summary.txt -threshold 79.7 -name frontends/openresponses
+          go run ./tools/coverage-gate -func artifacts/openresponses-coverage/backends-openresponsescompat.summary.txt -threshold 83.0 -name backends/openresponsescompat
+
+      - name: Upload profiles and summaries for exact SHA
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4
+        with:
+          name: openresponses-coverage-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/openresponses-coverage
+          if-no-files-found: error
+          retention-days: 14

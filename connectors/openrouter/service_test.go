@@ -2,6 +2,8 @@ package openrouter_test
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/openrouter/internal/service"
@@ -31,5 +33,49 @@ func TestConfigure_DefaultBaseURL(t *testing.T) {
 	_, err = service.New().Configure(context.Background(), mustCfg(t, "api_key: k\n"))
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCapabilitiesAreStreamingOnlyUntilModelFactsExist(t *testing.T) {
+	t.Parallel()
+	d, err := service.New().Describe(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := d.Factories[0]
+	want := backendplugin.CapabilitySummary{Streaming: true}
+	if f.StaticCapabilities != want || f.StaticCapabilities.Tools || f.StaticCapabilities.Vision || f.StaticCapabilities.Documents || f.StaticCapabilities.VideoInput {
+		t.Fatalf("static capabilities=%+v", f.StaticCapabilities)
+	}
+	inst, err := service.New().Configure(context.Background(), mustCfg(t, "api_key: k\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := inst.Resolve(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Capabilities != want {
+		t.Fatalf("resolved capabilities=%+v", resolved.Capabilities)
+	}
+}
+
+func TestListedModelsDoNotGuessCapabilities(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"model-a"}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	inst, err := service.New().Configure(context.Background(), mustCfg(t, "api_key: k\nbase_url: "+srv.URL+"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := inst.ListModels(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Models) != 1 || listed.Models[0].Capabilities != (backendplugin.CapabilitySummary{Streaming: true}) {
+		t.Fatalf("listed=%+v", listed.Models)
 	}
 }

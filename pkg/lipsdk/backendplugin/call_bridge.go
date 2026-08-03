@@ -2,6 +2,7 @@ package backendplugin
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -21,12 +22,18 @@ func CallFromInvocation(inv Invocation) (lipapi.Call, error) {
 	if err != nil {
 		return lipapi.Call{}, err
 	}
+	toolChoice, err := ToolChoiceFromWire(inv.ToolChoice)
+	if err != nil {
+		return lipapi.Call{}, err
+	}
 	call := lipapi.Call{
-		ID:           strings.TrimSpace(inv.RequestID),
-		Instructions: instructions,
-		Messages:     messages,
-		Tools:        toolsToLipapi(inv.Tools),
-		Options:      optionsToLipapi(inv.Options),
+		ID:             strings.TrimSpace(inv.RequestID),
+		Instructions:   instructions,
+		Messages:       messages,
+		Tools:          toolsToLipapi(inv.Tools),
+		ToolChoice:     toolChoice,
+		Options:        optionsToLipapi(inv.Options),
+		PromptCacheKey: strings.TrimSpace(inv.PromptCacheKey),
 		Route: lipapi.RouteIntent{
 			Selector: strings.TrimSpace(inv.CanonicalModelID),
 		},
@@ -35,13 +42,22 @@ func CallFromInvocation(inv Invocation) (lipapi.Call, error) {
 		},
 	}
 	RestoreCallWireMetadata(&call, inv.SafeMetadata)
+	if err := applyInvocationWireToCall(&call, inv); err != nil {
+		return lipapi.Call{}, err
+	}
+	if err := call.Validate(); err != nil {
+		return lipapi.Call{}, err
+	}
 	return call, nil
 }
 
 // CanonicalEventFromLipapi maps a canonical stream event into the plugin wire DTO.
 func CanonicalEventFromLipapi(ev lipapi.Event) *CanonicalEvent {
 	out := &CanonicalEvent{Kind: ev.Kind}
-	if ev.MessageIndex != 0 {
+	// The wire carries MessageIndex as int32; skip rather than silently wrap when
+	// the canonical int exceeds the representable range (defensive: positions are
+	// bounded by input size in practice, but nothing else enforces that).
+	if ev.MessageIndex >= math.MinInt32 && ev.MessageIndex <= math.MaxInt32 && ev.MessageIndex != 0 {
 		v := int32(ev.MessageIndex)
 		out.MessageIndex = &v
 	}
@@ -60,6 +76,8 @@ func CanonicalEventFromLipapi(ev lipapi.Event) *CanonicalEvent {
 		dialect := string(ev.Reasoning.Dialect)
 		out.ReasoningDialect = &dialect
 		out.ReasoningOpaque = append([]byte(nil), ev.Reasoning.Opaque...)
+		mapReasoningExactFields(ev.Reasoning,
+			&out.ReasoningSummary, &out.ReasoningContent, &out.ReasoningEncryptedContent)
 	}
 	if ev.ToolCallID != "" {
 		id := ev.ToolCallID
@@ -156,6 +174,7 @@ func partsToLipapi(in []Part) ([]lipapi.Part, error) {
 			if opaque := p.ReasoningOpaque.Bytes(); len(opaque) > 0 {
 				reasoning.Opaque = opaque
 			}
+			applyReasoningExactFields(p.ReasoningSummary, p.ReasoningContent, p.ReasoningEncryptedContent, reasoning)
 			out = append(out, lipapi.Part{
 				Kind:      lipapi.PartReasoning,
 				Reasoning: reasoning,

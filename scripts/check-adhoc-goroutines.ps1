@@ -55,6 +55,19 @@ $allowed = @(
     # ForwardExecute: one bounded cancel watcher per plugin Execute stream, disarmed
     # via stopWatch when the pump returns (review finding M3 remediation).
     "pkg/lipsdk/backendplugin/forward_execute.go"
+    # OpenResponses WS transport: per-session read pump + pinger owned and joined
+    # by WSSession.Run before it returns (spec openresponses Task 6.1).
+    "internal/plugins/frontends/openresponses/websocket_upgrade.go"
+    # OpenResponses WS turn runner: one peer-close watcher per in-flight turn,
+    # owned and joined by executeTurn's deferred stop (spec openresponses
+    # Task 6.2). The watcher exits on peer close or derived-context cancel.
+    "internal/plugins/frontends/openresponses/websocket_turn.go"
+    # internal/testkit/conformance/acp_connector.go: test harness stderr drain for
+    # the launched connector process (conformance matrix harness; test-only package).
+    "internal/testkit/conformance/acp_connector.go"
+    # internal/testkit/conformance/connector_host.go: test harness stderr drain for
+    # the launched connector processes (conformance matrix harness; test-only package).
+    "internal/testkit/conformance/connector_host.go"
 )
 
 $raw = @(rg --files-with-matches --glob "!*_test.go" "^\s+go\s" internal pkg cmd connector-support connectors 2>$null)

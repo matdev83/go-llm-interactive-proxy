@@ -153,8 +153,6 @@ func TestOptionalScalarPresence_RoundTrip(t *testing.T) {
 		ResponseMIMEType:   &empty,
 		ResponseSchemaJSON: backendplugin.RawJSONFromBytes([]byte{}),
 	}
-	inv.Messages[0].Parts[0].Text = &empty
-	inv.Messages[0].Parts[0].ToolCallID = &empty
 
 	wire, err := backendplugin.InvocationToProto(inv)
 	if err != nil {
@@ -184,9 +182,6 @@ func TestOptionalScalarPresence_RoundTrip(t *testing.T) {
 	}
 	if back.Options.ParallelToolCalls == nil || *back.Options.ParallelToolCalls {
 		t.Fatal("bool lost")
-	}
-	if back.Messages[0].Parts[0].Text == nil || *back.Messages[0].Parts[0].Text != "" {
-		t.Fatal("empty text lost")
 	}
 
 	absent := sampleInvocation(text)

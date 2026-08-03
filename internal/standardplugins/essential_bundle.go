@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openresponsescompat"
 	"gopkg.in/yaml.v3"
 )
 
@@ -28,6 +29,7 @@ var EssentialBackendKinds = []string{
 	CustomOpenAIResponsesCompatibleID,
 	CustomOpenAILegacyCompatibleID,
 	CustomAnthropicCompatibleID,
+	CustomOpenResponsesCompatibleID,
 }
 
 // IsEssentialBackendKind reports whether id is in the final essential allowlist.
@@ -60,5 +62,6 @@ func EssentialBackendBundle(keys UpstreamAPIKeys) Bundle {
 		{ID: CustomOpenAILegacyCompatibleID, LifecycleFactory: openaicompat.LifecycleOpenAILegacyCompatible, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}, Source: pluginreg.BackendSourceBuiltinCompatible},
 		{ID: CustomOpenAIResponsesCompatibleID, LifecycleFactory: openaicompat.LifecycleOpenAIResponsesCompatible, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}, Source: pluginreg.BackendSourceBuiltinCompatible},
 		{ID: CustomAnthropicCompatibleID, LifecycleFactory: anthropic.LifecycleAnthropicCompatible, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}, Source: pluginreg.BackendSourceBuiltinCompatible},
+		{ID: CustomOpenResponsesCompatibleID, LifecycleFactory: openresponsescompat.LifecycleOpenResponsesCompatible, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}, Source: pluginreg.BackendSourceBuiltinCompatible},
 	}}
 }

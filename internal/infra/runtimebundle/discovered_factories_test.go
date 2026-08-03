@@ -408,12 +408,17 @@ func stubDialSession(t *testing.T) runtimebundle.DialSessionFunc {
 
 func inProcessFakeDial(fake *bpkit.FakeService) runtimebundle.DialSessionFunc {
 	return func(ctx context.Context, req runtimebundle.DialSessionRequest) (runtimebundle.ExecuteSession, backendplugin.ResolvedProfile, error) {
+		neg := backendplugin.Negotiation{
+			Compatible:      true,
+			NegotiatedMinor: backendplugin.ProtocolMinorOrderedItems,
+			EnabledFeatures: []string{backendplugin.FeatureOrderedItems},
+		}
 		inst, err := fake.Configure(ctx, backendplugin.ConfigureRequest{
 			InstanceID:    req.InstanceID,
 			FactoryKind:   req.FactoryKind,
 			ConfigYAML:    req.ConfigYAML,
 			Secrets:       req.Secrets,
-			Negotiation:   backendplugin.Negotiation{Compatible: true},
+			Negotiation:   neg,
 			RuntimePolicy: req.Policy,
 		})
 		if err != nil {
@@ -424,5 +429,77 @@ func inProcessFakeDial(fake *bpkit.FakeService) runtimebundle.DialSessionFunc {
 			return nil, backendplugin.ResolvedProfile{}, err
 		}
 		return inst, profile, nil
+	}
+}
+
+func TestOrderedItemAuthorityCapabilityNoNetwork_discoveredFactoryExecute(t *testing.T) {
+	t.Parallel()
+
+	reg := pluginreg.NewRegistry()
+	host := processhost.NewHost(processhost.Config{
+		Launcher: &processhost.TestLauncher{PID: 9010},
+		Channel:  &processhost.TestChannel{},
+	})
+	t.Cleanup(func() { _ = host.Close() })
+
+	const kind = "fake-ordered-runtimebundle"
+	fake := &bpkit.FakeService{Mode: bpkit.ModeValid}
+	export := runtimebundle.ValidatedExport{
+		Kind: kind,
+		Profile: pluginreg.BackendSecurityProfile{
+			CredentialMode: pluginreg.CredentialNone,
+			AccessScope:    pluginreg.BackendAccessLocalOnly,
+		},
+		Artifact: &trust.VerifiedArtifact{DigestHex: "digest-fake-ordered"},
+		Model:    processhost.ProcessModelPerInstance,
+	}
+	if err := runtimebundle.InstallDiscoveredExports(reg, host, []runtimebundle.ValidatedExport{export}, runtimebundle.DiscoveredInstallOptions{
+		DialSession: inProcessFakeDial(fake),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var cfgNode yaml.Node
+	if err := yaml.Unmarshal([]byte("instance: ordered\n"), &cfgNode); err != nil {
+		t.Fatal(err)
+	}
+	res, err := reg.BuildBackendWithLifecycle(kind, "inst-ord-1", cfgNode, http.DefaultClient, pluginreg.BackendFactoryDeps{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if res.Cleanup != nil {
+			_ = res.Cleanup()
+		}
+	})
+
+	call := lipapi.Call{
+		ID:         "req-ordered-rb",
+		Session:    lipapi.SessionRef{ALegID: "aleg-rb"},
+		Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenResponsesCreate},
+		Items: []lipapi.Item{{
+			Kind: lipapi.ItemKindMessage, ID: "msg-1", Status: lipapi.ItemStatusCompleted, Role: lipapi.RoleUser,
+			Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "hi"}},
+		}},
+	}
+	stream, err := res.Backend.Open(context.Background(), call, routing.AttemptCandidate{
+		Primary: routing.Primary{Backend: "inst-ord-1", Model: "fake-model"},
+		Key:     "inst-ord-1:fake-model",
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = stream.Close() })
+	for {
+		_, err := stream.Recv(context.Background())
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if fake.ExecuteCount.Load() != 1 {
+		t.Fatalf("ExecuteCount=%d want 1", fake.ExecuteCount.Load())
 	}
 }

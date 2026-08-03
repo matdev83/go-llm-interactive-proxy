@@ -1,0 +1,150 @@
+name: OpenResponses Official Compliance
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openresponses-official-compliance-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  official-suite:
+    name: Pinned official 17-case suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: tools/openresponses-compliance/package.json
+          cache: npm
+          cache-dependency-path: tools/openresponses-compliance/package-lock.json
+
+      - name: Verify pinned official manifest
+        id: manifest
+        continue-on-error: true
+        run: go test -v -run '^TestOpenResponsesOfficialVendoredManifest$' ./internal/archtest 2>&1 | tee openresponses-manifest-output.txt
+
+      - name: Run OpenResponses static architecture checks
+        id: static_archtest
+        continue-on-error: true
+        run: go test -timeout=8m ./internal/archtest -run 'TestOpenResponses'
+
+      - name: Install pinned official suite tooling
+        working-directory: tools/openresponses-compliance
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Record exact-head evidence
+        shell: bash
+        env:
+          EVENT_SHA: ${{ github.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          expected_sha="${PR_HEAD_SHA:-$EVENT_SHA}"
+          test "$actual_sha" = "$expected_sha"
+          manifest_hash="$(sha256sum tools/openresponses-compliance/MANIFEST.json | awk '{print $1}')"
+          suite_command="LIP_RUN_OFFICIAL_COMPLIANCE=1 go test -v -parallel=8 -run 'TestOfficialComplianceSuite_FullDeployment' -timeout 15m ./internal/integration/openresponses/"
+          {
+            printf 'github_sha=%s\n' "$EVENT_SHA"
+            printf 'pr_head_sha=%s\n' "${PR_HEAD_SHA:-not-a-pull-request}"
+            printf 'checked_out_sha=%s\n' "$actual_sha"
+            printf 'upstream_revision=92c12d96d7b61d6d15e2214daa5e9c6000ab6e1c\n'
+            printf 'manifest_sha256=%s\n' "$manifest_hash"
+            printf 'command=%s\n' "$suite_command"
+          } > openresponses-official-evidence.txt
+          echo "github.sha=$EVENT_SHA"
+          echo "PR head SHA=${PR_HEAD_SHA:-not-a-pull-request}"
+          echo "checked out SHA=$actual_sha"
+
+      - name: Run actual pinned official suite
+        id: suite
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          suite_command="LIP_RUN_OFFICIAL_COMPLIANCE=1 go test -v -parallel=8 -run 'TestOfficialComplianceSuite_FullDeployment' -timeout 15m ./internal/integration/openresponses/"
+          eval "$suite_command" 2>&1 | tee openresponses-official-output.txt
+
+      - name: Validate and finalize evidence
+        if: always()
+        shell: bash
+        env:
+          SUITE_OUTCOME: ${{ steps.suite.outcome }}
+          MANIFEST_OUTCOME: ${{ steps.manifest.outcome }}
+          STATIC_ARCHTEST_OUTCOME: ${{ steps.static_archtest.outcome }}
+        run: |
+          set -u
+          actual_sha="$(git rev-parse HEAD 2>/dev/null || printf 'unavailable')"
+          {
+            printf 'suite_outcome=%s\n' "${SUITE_OUTCOME:-unknown}"
+            printf 'manifest_outcome=%s\n' "${MANIFEST_OUTCOME:-unknown}"
+            printf 'static_archtest_outcome=%s\n' "${STATIC_ARCHTEST_OUTCOME:-unknown}"
+            printf 'tested_sha=%s\n' "$actual_sha"
+            if [ -f tools/openresponses-compliance/MANIFEST.json ]; then
+            printf 'manifest_sha256='
+              sha256sum tools/openresponses-compliance/MANIFEST.json | awk '{print $1}'
+            else
+              printf 'manifest_sha256=unavailable\n'
+            fi
+            printf 'evidence_status=diagnostic_finalized\n'
+            printf 'attestation=diagnostic_only\n'
+            printf '\n--- manifest verification output ---\n'
+            if [ -f openresponses-manifest-output.txt ]; then
+              while IFS= read -r line; do printf '%s\n' "$line"; done < openresponses-manifest-output.txt
+            else
+              printf 'manifest verification output unavailable\n'
+            fi
+            printf '\n--- test output ---\n'
+            if [ -f openresponses-official-output.txt ]; then
+              while IFS= read -r line; do printf '%s\n' "$line"; done < openresponses-official-output.txt
+            else
+              printf 'official suite output unavailable\n'
+            fi
+          } > openresponses-official-evidence.txt
+          sha256sum openresponses-official-evidence.txt > openresponses-official-evidence.sha256
+
+      - name: Upload immutable compliance evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: openresponses-official-evidence-${{ github.run_id }}
+          path: |
+            openresponses-official-evidence.txt
+            openresponses-official-evidence.sha256
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Independently validate official compliance attestation
+        if: always()
+        shell: bash
+        env:
+          SUITE_OUTCOME: ${{ steps.suite.outcome }}
+          MANIFEST_OUTCOME: ${{ steps.manifest.outcome }}
+          STATIC_ARCHTEST_OUTCOME: ${{ steps.static_archtest.outcome }}
+        run: |
+          set -euo pipefail
+          test "$MANIFEST_OUTCOME" = success
+          test "$STATIC_ARCHTEST_OUTCOME" = success
+          test "$SUITE_OUTCOME" = success
+          test -s openresponses-official-output.txt
+          ! grep -Eiq 'SKIPPED|skipped [1-9]|no `node` binary|dependencies are not installed|reported zero cases' openresponses-official-output.txt
+          grep -Eq 'official compliance suite: 17/17 passed, 0 failed, 0 skipped' openresponses-official-output.txt

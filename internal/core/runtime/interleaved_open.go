@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
@@ -206,6 +207,7 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 		aLegID:              from.aLegID,
 		aScope:              from.aScope,
 		baseline:            from.baseline,
+		failoverReq:         capabilities.NewFailoverRequirementSet(from.baseline),
 		sel:                 from.sel,
 		requestSize:         from.requestSize,
 		session:             from.session,

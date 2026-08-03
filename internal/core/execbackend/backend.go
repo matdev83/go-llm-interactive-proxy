@@ -35,6 +35,11 @@ type Backend struct {
 	// ResolveReplaySupport, when set, supplies candidate/model-aware replay support; otherwise ReplaySupport is used.
 	ResolveReplaySupport func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.ReasoningReplaySupport
 
+	// DialectSupport declares exact item/reasoning/compaction/extension dialects this backend satisfies.
+	DialectSupport lipapi.DialectSupport
+	// ResolveDialectSupport, when set, supplies candidate/model-aware dialect support; otherwise DialectSupport is used.
+	ResolveDialectSupport func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.DialectSupport
+
 	BillingFinalizationSupported bool
 	FinalizeBilling              func(ctx context.Context, in BillingFinalizationInput) (lipapi.Event, error)
 
@@ -129,6 +134,26 @@ func EffectiveReplaySupport(
 	}
 	support.Dialects = lipapi.NormalizeReasoningDialects(support.Dialects)
 	return support
+}
+
+func EffectiveDialectSupport(
+	ctx context.Context,
+	be Backend,
+	call lipapi.Call,
+	cand routing.AttemptCandidate,
+) lipapi.DialectSupport {
+	support := be.DialectSupport
+	if be.ResolveDialectSupport != nil {
+		support = be.ResolveDialectSupport(ctx, call, cand)
+	}
+	replay := EffectiveReplaySupport(ctx, be, call, cand)
+	for _, d := range replay.Dialects {
+		support.ReasoningDialects = append(support.ReasoningDialects, lipapi.DialectRequirement{
+			Kind:    "reasoning",
+			Dialect: string(lipapi.NormalizeReasoningDialect(d)),
+		})
+	}
+	return lipapi.NormalizeDialectSupport(support)
 }
 
 func CloneBackendPrefixes(be Backend) []string {

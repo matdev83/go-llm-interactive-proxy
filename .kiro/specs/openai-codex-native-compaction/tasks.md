@@ -1,341 +1,385 @@
 # Implementation Plan
 
-## 1. Establish experimental configuration and model metadata contracts
+## 1. Re-baseline exact Codex item support and configuration
 
-- [ ] 1.1 Add failing configuration tests for the default-off native-compaction block
-  - Prove omitted configuration resolves to disabled and preserves the existing direct connector behavior.
-  - Cover normalization of zero values to reviewed defaults and rejection of negative or over-bound values.
-  - Prove enabled native compaction is rejected for the app-server connector kind.
-  - Observable completion: configuration tests describe the full supported block and fail against the current implementation.
-  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.7, 9.2, 9.8_
-  - _Boundary: config/wiring_
+- [ ] 1.1 Add failing native-context configuration contract tests
+  - Prove omitted configuration leaves compaction disabled and constructs no checkpoint state.
+  - Cover separate reasoning request, continuity mode, compaction, bounds, and evaluation-only mode controls.
+  - Reject invalid combinations and enabled app-server use.
+  - Observable completion: tests define all defaults and invalid states before runtime changes.
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.8, 1.9, 1.10_
+  - _Boundary: config/wiring, tests_
   - _Depends: none_
   - _Validation: go test ./internal/service/... ./internal/codex/..._
 
-- [ ] 1.2 Implement typed native-compaction configuration and lifecycle ownership
-  - Add normalized defaults, hard caps, startup validation, effective diagnostics, and runtime close behavior.
-  - Keep checkpoint state unconstructed or inactive on the disabled path.
-  - Preserve per-connector-instance isolation.
-  - Observable completion: the tests from 1.1 pass without changing existing disabled requests.
-  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 8.4, 9.8_
-  - _Boundary: config/wiring, backend connector composition root_
+- [ ] 1.2 Implement typed native-context configuration and lifecycle
+  - Normalize reviewed defaults and hard caps.
+  - Keep compaction coordinator/store absent on the disabled path.
+  - Clear checkpoint/cooldown state on close.
+  - Preserve existing exact client-supplied replay when automatic continuity is disabled.
+  - Observable completion: configuration tests pass with no disabled-path request changes.
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 1.10, 10.15_
+  - _Boundary: config/wiring, backend connector composition_
   - _Depends: 1.1_
   - _Validation: go test ./internal/service/... ./internal/codex/..._
 
-- [ ] 1.3 (P) Add failing catalog tests for compaction threshold and compatibility metadata
-  - Cover `auto_compact_token_limit` and `comp_hash` presence, absence, malformed entries, and fallback catalog behavior.
-  - Cover trigger precedence: explicit configuration, catalog value, then derived context-window limit.
-  - Observable completion: model-profile tests fail because the current catalog drops the fields.
-  - _Requirements: 3.1, 3.2, 3.3_
-  - _Boundary: backend connector inventory_
+- [ ] 1.3 Characterize merged PR #235 exact-item behavior
+  - Add/retain tests proving completed reasoning capture, canonical exact dialect emission, exact replay, compaction-item retention, and plugin ABI transport.
+  - Mark already-delivered behavior as a prerequisite rather than reimplementing it.
+  - Cover malformed/oversize/duplicate items and content-safe errors.
+  - Observable completion: the baseline suite passes on current main and identifies only new continuity/compaction gaps.
+  - _Requirements: 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 2.10, 10.1_
+  - _Boundary: backend connector, SDK contract tests_
   - _Depends: none_
-  - _Validation: go test ./internal/catalog/..._
-
-- [ ] 1.4 Implement connector-private model compaction profiles
-  - Preserve catalog metadata without changing root model inventory/public contracts.
-  - Validate effective trigger and retained-budget headroom against the resolved hard context window.
-  - Keep exact model equality as the initial replay rule.
-  - Observable completion: catalog and threshold tests pass for discovered and fallback profiles.
-  - _Requirements: 3.1, 3.2, 3.3, 5.1, 9.1_
-  - _Boundary: backend connector inventory_
-  - _Depends: 1.3_
-  - _Validation: go test ./internal/catalog/... ./internal/codex/..._
-
-## 2. Preserve exact OpenAI reasoning and compaction item envelopes
-
-- [ ] 2.1 Add failing exact-item codec and privacy tests
-  - Cover valid completed reasoning, valid compaction, missing identity/content, wrong discriminator, invalid JSON, and hard-size limits.
-  - Assert errors and logs never contain `encrypted_content` values.
-  - Cover exact round-trip stability for the existing OpenAI Responses reasoning dialect.
-  - Observable completion: tests demonstrate that current Codex mapping drops or cannot replay required items.
-  - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.7_
-  - _Boundary: backend connector driven adapter, tests_
-  - _Depends: none_
-  - _Validation: go test ./internal/codex/..._
-
-- [ ] 2.2 Implement bounded native replay item codecs
-  - Add typed compaction trigger and opaque reasoning/compaction replay carriers with strict allowlists.
-  - Treat ciphertext as one opaque field and avoid plaintext/token inspection.
-  - Ensure malformed or oversized items cannot enter continuation or checkpoint state.
-  - Observable completion: codec, round-trip, and privacy tests pass.
-  - _Requirements: 2.1, 2.3, 2.4, 2.5, 2.6, 2.7, 4.1, 4.4_
-  - _Boundary: backend connector driven adapter_
-  - _Depends: 2.1_
-  - _Validation: go test ./internal/codex/..._
-
-- [ ] 2.3 Integrate exact reasoning with canonical input/output
-  - Emit the existing canonical OpenAI Responses reasoning-part dialect from completed Codex reasoning items.
-  - Replay compatible canonical reasoning parts as their original exact envelopes.
-  - Reject incompatible dialects before upstream work instead of converting them to text.
-  - Observable completion: direct Codex reasoning survives a canonical round trip and remains candidate-bound.
-  - _Requirements: 2.1, 2.2, 2.5, 2.6, 9.1, 9.3_
-  - _Boundary: backend connector canonical adapter_
-  - _Depends: 2.2_
   - _Validation: go test ./internal/codex/... && make parity-checks_
 
-- [ ] 2.4 (P) Fuzz opaque item and event-envelope validation
-  - Fuzz arbitrary JSON, discriminator mutation, large encrypted fields, nested content, and malformed output-item events.
-  - Assert bounded allocations, no panic, no payload leakage, and stable rejection categories.
-  - Observable completion: targeted fuzz runs complete without crash or unbounded growth.
-  - _Requirements: 2.4, 2.7, 9.6_
-  - _Boundary: tests_
+## 2. Integrate surfaced-response reasoning continuity
+
+- [ ] 2.1 Add failing Codex eligibility and marker tests
+  - Configure an explicit backend-only reasoning-preservation rule with no model keywords.
+  - Prove it matches the selected Codex instance regardless of GPT minor version while unrelated backends remain unchanged.
+  - Prove client-supplied marker values are removed and only the internal transform can set the trusted marker.
+  - Observable completion: tests fail until eligible Codex attempts receive the marker and ineligible attempts do not.
+  - _Requirements: 3.1, 3.3, 3.4, 3.8, 3.10, 3.11, 10.13_
+  - _Boundary: feature plugin, tests_
+  - _Depends: 1.3_
+  - _Validation: go test ./internal/plugins/features/reasoningpreservation/..._
+
+- [ ] 2.2 Implement bounded continuity marker emission
+  - Set the marker after eligibility, artifact classification, replay-support validation, and configured state policy.
+  - Emit it for first-turn/no-artifact, preserved, and restored exact Codex attempts.
+  - Do not emit it after exclusion, ambiguity/conflict requiring skip, or state failure that cannot guarantee continuity.
+  - Ensure the marker contains fixed posture only and is never provider serialized.
+  - Observable completion: marker security and eligibility tests pass.
+  - _Requirements: 3.3, 3.4, 3.7, 3.10, 3.11_
+  - _Boundary: feature plugin, backend connector integration contract_
+  - _Depends: 2.1_
+  - _Validation: go test ./internal/plugins/features/reasoningpreservation/... ./connectors/codex/internal/codex/..._
+
+- [ ] 2.3 Extend surfaced-winner continuity tests
+  - Prove only successful surfaced output is observed.
+  - Prove parallel losers, swallowed retries, cancelled attempts, and gate-replaced output do not commit reasoning.
+  - Prove authoritative-session partitioning, expiry, restart miss, and policy behavior.
+  - Observable completion: no connector-local or non-surfaced reasoning becomes restorable.
+  - _Requirements: 3.1, 3.2, 3.7, 3.8, 3.9, 9.11, 10.11, 10.13_
+  - _Boundary: feature plugin, core integration tests_
   - _Depends: 2.2_
-  - _Validation: go test -fuzz=Fuzz -fuzztime=30s ./internal/codex/..._
+  - _Validation: go test ./internal/plugins/features/reasoningpreservation/... ./internal/core/runtime/..._
 
-## 3. Define compaction planning, estimation, and replacement policy
+## 3. Request and replay exact reasoning on every eligible attempt
 
-- [ ] 3.1 Add failing planner tests for safe prefix and live-tail behavior
-  - Cover ordinary chat, multi-tool turns, no user boundary, orphan/cross-boundary calls, rollback/edit/fork drift, and a live tail larger than the threshold.
-  - Prove the split occurs before the latest user message and preserves every later item exactly.
-  - Observable completion: deterministic table tests define bypass, reuse, create, and hard-failure decisions.
-  - _Requirements: 3.4, 3.5, 3.6, 3.7, 6.1, 6.2, 6.6_
-  - _Boundary: backend connector domain policy, tests_
-  - _Depends: 1.4, 2.2_
-  - _Validation: go test ./internal/codex/..._
-
-- [ ] 3.2 Implement payload-level effective token estimation
-  - Reuse connector-local token/image estimators for instructions, tools, messages, and live suffixes.
-  - Model compaction replay cost from provider-reported output tokens or conservative checkpoint metadata, never ciphertext byte tokenization.
-  - Return before/after input and serialized-byte measurements for diagnostics.
-  - Observable completion: estimator tests distinguish full client history from effective rewritten history.
-  - _Requirements: 3.2, 3.3, 3.4, 4.7, 8.2, 8.5, 8.6_
-  - _Boundary: backend connector domain policy_
-  - _Depends: 1.4, 2.2_
-  - _Validation: go test ./internal/codex/..._
-
-- [ ] 3.3 Implement the pure compaction planner
-  - Prefer a valid checkpoint, then compare effective input with the trigger, then create only from a safe prefix.
-  - Enforce one decision with stable reason categories and no side effects.
-  - Skip automatic compaction when no safe benefit exists.
-  - Observable completion: all planner tables pass and disabled configuration always returns bypass.
-  - _Requirements: 3.4, 3.5, 3.6, 3.7, 3.8, 6.6, 6.7_
-  - _Boundary: backend connector domain policy_
-  - _Depends: 3.1, 3.2_
-  - _Validation: go test ./internal/codex/..._
-
-- [ ] 3.4 Implement retained-message replacement construction
-  - Retain eligible recent user-context items newest-first within budget, restore original order, and append exactly one validated compaction item.
-  - Keep system instructions outside the replacement and reject unexpected assistant/tool items in a candidate.
-  - Observable completion: replacement tests prove ordering, truncation budget, no live-turn duplication, and exactly one compaction item.
-  - _Requirements: 4.5, 4.6, 4.7_
-  - _Boundary: backend connector domain policy_
-  - _Depends: 2.2, 3.2_
-  - _Validation: go test ./internal/codex/..._
-
-## 4. Build bounded account- and model-scoped checkpoint state
-
-- [ ] 4.1 Add failing store tests for isolation and committed-candidate semantics
-  - Cover session, connector instance, account, model, cache key, client family, comp hash, instructions, and tools scoping.
-  - Cover reserve/commit/abort, prior committed checkpoint survival, TTL, LRU, cooldown, close, and defensive-copy behavior.
-  - Cover concurrent reservations and managed-account rotation.
-  - Observable completion: race-safe store behavior is fully specified before implementation.
-  - _Requirements: 3.8, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 7.6_
-  - _Boundary: backend connector state adapter, tests_
-  - _Depends: 1.2_
-  - _Validation: go test ./internal/codex/..._
-
-- [ ] 4.2 Implement the native checkpoint store
-  - Maintain immutable committed state separately from one active reservation per key.
-  - Enforce configured TTL/LRU and code-owned hard caps.
-  - Preserve a valid committed checkpoint when a new candidate fails.
-  - Observable completion: all store tests pass without exposing keys or payload bodies through diagnostics.
-  - _Requirements: 5.1, 5.2, 5.5, 5.6, 5.7, 5.8, 7.6, 8.4_
-  - _Boundary: backend connector state adapter_
-  - _Depends: 4.1_
-  - _Validation: go test ./internal/codex/..._
-
-- [ ] 4.3 (P) Run race coverage for store, cooldown, and shutdown
-  - Exercise concurrent get/reserve/commit/abort/invalidate/evict/close operations.
-  - Include continuation invalidation calls sharing the same logical lineage.
-  - Observable completion: targeted race tests pass repeatedly with no stale commit or data race.
-  - _Requirements: 5.5, 5.6, 5.8, 7.5_
-  - _Boundary: tests_
-  - _Depends: 4.2_
-  - _Validation: go test -race ./internal/codex/..._
-
-## 5. Implement strict Responses Compaction V2 execution
-
-- [ ] 5.1 Add failing internal compaction protocol tests
-  - Assert the request uses the selected account/model/static shape, appends one trigger, and clears `previous_response_id`.
-  - Cover success, missing/multiple compaction items, text output, tool output, malformed events, non-success completion, cancellation, body limits, and provider errors.
-  - Assert the internal stream produces no canonical assistant output.
-  - Observable completion: deterministic SSE fixtures define the complete accepted protocol.
-  - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.8, 4.9, 7.5_
+- [ ] 3.1 Add failing request-policy tests
+  - Cover eligible continuity with no explicit reasoning effort.
+  - Cover explicit call/route effort precedence, configured/default effort, unsupported levels, and summary behavior.
+  - Assert `reasoning.encrypted_content` is included on normal and internal compaction requests.
+  - Assert no internal marker reaches upstream JSON.
+  - Observable completion: current conditional request behavior fails the new tests.
+  - _Requirements: 2.1, 2.2, 2.3, 3.10, 9.11, 10.3_
   - _Boundary: backend connector driven adapter, tests_
   - _Depends: 2.2_
-  - _Validation: go test ./internal/codex/..._
+  - _Validation: go test ./connectors/codex/internal/codex/..._
 
-- [ ] 5.2 Implement the V2 internal compaction client and collector
-  - Use the existing Codex HTTP/auth/header path with an isolated payload copy and bounded streaming collector.
-  - Require exactly one compaction item and successful completion before returning a candidate.
-  - Close on cancellation and keep provider error text bounded and ciphertext-safe.
-  - Observable completion: protocol tests pass and no legacy compact endpoint is called.
-  - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.8, 4.9, 7.5_
+- [ ] 3.2 Implement model-aware encrypted-reasoning request policy
+  - Build a valid reasoning object for eligible attempts without inventing an effort.
+  - Preserve explicit and route overrides.
+  - Request exact encrypted reasoning for continuity-marked attempts and compaction requests.
+  - Strip internal marker before serialization.
+  - Observable completion: request snapshots pass across supported model profiles.
+  - _Requirements: 2.1, 2.2, 2.3, 2.7, 2.9, 3.10_
   - _Boundary: backend connector driven adapter_
-  - _Depends: 5.1_
-  - _Validation: go test ./internal/codex/..._
+  - _Depends: 3.1_
+  - _Validation: go test ./connectors/codex/internal/codex/..._
 
-- [ ] 5.3 Capture compaction usage and checkpoint evidence
-  - Preserve provider-reported input/output totals separately from normal response usage.
-  - Carry output token count into checkpoint replay-cost metadata.
-  - Mark estimates with existing provenance when provider usage is absent.
-  - Observable completion: usage tests prove no double counting and stable provider-vs-estimated authority.
-  - _Requirements: 4.7, 8.1, 8.2, 8.6, 8.7_
-  - _Boundary: backend connector accounting_
-  - _Depends: 5.2, 3.2_
-  - _Validation: go test ./internal/codex/..._
+- [ ] 3.3 Add failing action-trajectory restoration tests
+  - Cover reasoning before a function call, multiple reasoning parts, tool output, and later reasoning across client requests.
+  - Cover client-preserved, missing, conflicting, ambiguous, rollback, edit, fork, and reordered trajectories.
+  - Assert exact placement and call/output identity.
+  - Observable completion: tests define native causal ordering beyond final assistant messages.
+  - _Requirements: 3.5, 3.6, 3.7, 3.12, 4.1, 4.2, 4.3, 4.4, 4.5, 4.8, 4.9, 10.4_
+  - _Boundary: feature plugin, canonical adapter tests_
+  - _Depends: 1.3, 2.2_
+  - _Validation: go test ./internal/plugins/features/reasoningpreservation/... ./connectors/codex/internal/codex/..._
 
-## 6. Orchestrate per-account checkpoint creation and exact rewrite
+- [ ] 3.4 Complete exact action-trajectory replay support
+  - Extend only the placement/assistant-trajectory behavior proven missing by 3.3.
+  - Preserve exact reasoning envelopes and structured call order.
+  - Reject unrepresentable dialects before upstream work.
+  - Continue capture/replay after a compaction item.
+  - Observable completion: all action-level tables and post-compaction continuity tests pass.
+  - _Requirements: 3.5, 3.6, 3.7, 3.12, 4.1, 4.2, 4.3, 4.4, 4.5, 4.9_
+  - _Boundary: feature plugin, backend connector canonical adapter_
+  - _Depends: 3.3_
+  - _Validation: go test ./internal/plugins/features/reasoningpreservation/... ./connectors/codex/internal/codex/... && make parity-checks_
 
-- [ ] 6.1 Add failing coordinator tests for reuse, creation, and fail-open
-  - Cover valid checkpoint reuse, source-prefix mismatch, first creation, later re-compaction, in-flight contention, cooldown skip, and hard-limit failure.
-  - Prove the full payload snapshot remains available and authoritative.
-  - Prove managed account attempts receive independent prepared payloads.
-  - Observable completion: coordinator state-machine tests fail against the current request pipeline.
-  - _Requirements: 3.8, 5.3, 5.4, 5.6, 5.7, 6.1, 6.2, 6.6, 6.7, 7.1, 7.2, 7.3, 7.4, 7.6, 7.7_
-  - _Boundary: backend connector app orchestration, tests_
-  - _Depends: 3.3, 3.4, 4.2, 5.3_
-  - _Validation: go test ./internal/codex/..._
+## 4. Build reasoning-complete exact native history
 
-- [ ] 6.2 Implement exact-prefix rewriting
-  - Replace only a verified source prefix, append the untouched suffix, and preserve function-call/output ordering.
-  - Reject edits, rollback, fork, model/static-shape drift, or incompatible opaque lineage as optimization misses.
-  - Observable completion: rewrite tests pass with byte-stable live-tail fixtures.
-  - _Requirements: 5.3, 6.1, 6.2, 6.6, 6.8_
+- [ ] 4.1 Add failing exact-history builder tests
+  - Cover messages, exact reasoning, structured calls/outputs, multiple assistant trajectories, and deterministic fingerprints.
+  - Prove no-tools normal projection does not affect compaction history.
+  - Reject orphan outputs, split pairs, unsupported opaque dialects, and malformed ordering.
+  - Observable completion: tests distinguish exact compaction history from normal payload projection.
+  - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 4.10, 6.2, 10.5_
+  - _Boundary: backend connector domain policy, tests_
+  - _Depends: 3.4_
+  - _Validation: go test ./connectors/codex/internal/codex/..._
+
+- [ ] 4.2 Implement the exact native history builder
+  - Consume the post-transform canonical call.
+  - Preserve reasoning placement, structured action identities, and user/assistant trajectory boundaries.
+  - Produce deterministic item fingerprints and pair-safe split metadata.
+  - Leave ordinary generation projection unchanged.
+  - Observable completion: exact-history tests pass and no public canonical authority is added.
+  - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.10, 5.4, 6.2_
   - _Boundary: backend connector domain policy_
-  - _Depends: 3.1, 4.2_
-  - _Validation: go test ./internal/codex/..._
+  - _Depends: 4.1_
+  - _Validation: go test ./connectors/codex/internal/codex/..._
 
-- [ ] 6.3 Implement the per-attempt compaction coordinator
-  - Run after effective account/model selection and before normal transport opening.
-  - Reuse-first, reserve/create/validate/commit, rewrite, and return internal usage.
-  - Abort candidates safely, apply classified cooldown, and fail open once only when full history fits.
-  - Observable completion: coordinator tests pass for static and managed account preparation.
-  - _Requirements: 4.2, 5.4, 5.6, 5.7, 7.1, 7.2, 7.3, 7.5, 7.6, 7.7, 7.8_
-  - _Boundary: backend connector app orchestration_
-  - _Depends: 6.1, 6.2_
-  - _Validation: go test ./internal/codex/..._
+- [ ] 4.3 Fuzz ordering and exact-history validation
+  - Fuzz reasoning placement, item discriminators, call/output identities, malformed JSON, oversized opaque fields, and boundary mutation.
+  - Assert bounded memory, stable errors, no panic, and no payload leakage.
+  - Observable completion: targeted fuzz runs complete without invariant violation.
+  - _Requirements: 2.7, 2.8, 2.10, 4.5, 4.7, 9.11, 10.12_
+  - _Boundary: tests_
+  - _Depends: 4.2_
+  - _Validation: go test -fuzz=Fuzz -fuzztime=30s ./connectors/codex/internal/codex/..._
 
-- [ ] 6.4 Integrate coordinator with static and managed HTTPS paths
-  - Prepare a fresh account-scoped payload for each managed attempt.
-  - Preserve existing OAuth refresh, account rotation, downgrade, prompt cache, and stream opening behavior.
-  - Decorate the normal stream with internal compaction usage before terminal accounting.
-  - Observable completion: deterministic HTTP integration tests show one compaction plus one compacted normal request when enabled and one normal request when disabled.
-  - _Requirements: 1.4, 7.2, 7.7, 8.1, 9.2, 9.3, 9.5_
+## 5. Resolve model metadata and pure compaction planning
+
+- [ ] 5.1 Add failing catalog/profile tests
+  - Cover `auto_compact_token_limit`, `comp_hash`, context windows, reasoning defaults/levels, missing/malformed fields, and fallback catalog.
+  - Cover trigger precedence and model/hash incompatibility.
+  - Observable completion: current catalog omissions are captured by failing tests.
+  - _Requirements: 5.1, 5.2, 5.3, 5.10_
+  - _Boundary: backend connector inventory, tests_
+  - _Depends: none_
+  - _Validation: go test ./connectors/codex/internal/catalog/..._
+
+- [ ] 5.2 Implement connector-private compaction model profiles
+  - Preserve catalog metadata without widening root inventory contracts.
+  - Resolve hard limit, trigger, retained budget, safety headroom, and default reasoning policy.
+  - Require exact model equality for replay; use comp hash only for incompatibility/model-switch decisions.
+  - Observable completion: profile tests pass for discovered and fallback models.
+  - _Requirements: 2.2, 2.9, 5.1, 5.2, 5.3, 5.10, 7.5_
+  - _Boundary: backend connector inventory_
+  - _Depends: 5.1_
+  - _Validation: go test ./connectors/codex/internal/catalog/... ./connectors/codex/internal/codex/..._
+
+- [ ] 5.3 Add failing planner and estimator tables
+  - Cover disabled/missing-marker bypass, checkpoint reuse, threshold crossing, latest-user live tail, pair/trajectory boundaries, minimum savings, hard-limit failure, and one in-flight attempt.
+  - Estimate from effective rewritten exact history and opaque-state metadata rather than ciphertext tokenization.
+  - Observable completion: pure decisions and stable reason codes are fully specified.
+  - _Requirements: 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 5.9, 7.3, 7.9, 9.2, 9.3_
+  - _Boundary: backend connector domain policy, tests_
+  - _Depends: 1.2, 4.2, 5.2_
+  - _Validation: go test ./connectors/codex/internal/codex/..._
+
+- [ ] 5.4 Implement payload estimation and pure planning
+  - Prefer valid checkpoint reuse, then compare effective history to trigger.
+  - Preserve latest live turn and pair-safe trajectories.
+  - Require configured minimum savings and continuity marker in required mode.
+  - Produce bypass/reuse/create/hard-failure decisions without side effects.
+  - Observable completion: planner tables pass and ciphertext is never fed to normal tokenizer.
+  - _Requirements: 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 5.9, 7.3, 7.4, 7.9, 9.2, 9.3_
+  - _Boundary: backend connector domain policy_
+  - _Depends: 5.3_
+  - _Validation: go test ./connectors/codex/internal/codex/..._
+
+## 6. Implement Responses Compaction V2 and retained history
+
+- [ ] 6.1 Add failing V2 request/collector tests
+  - Assert exact history plus one trigger, same account/model/static request shape, required metadata, encrypted reasoning include, and cleared response ID.
+  - Cover exactly-one compaction item, assistant/tool output rejection, duplicate/missing item, malformed events, cancellation, retry budget, and usage capture.
+  - Observable completion: tests define the complete internal protocol contract.
+  - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.10, 6.11, 6.12, 9.5, 9.8_
+  - _Boundary: backend connector driven adapter, tests_
+  - _Depends: 3.2, 4.2, 5.4_
+  - _Validation: go test ./connectors/codex/internal/codex/..._
+
+- [ ] 6.2 Implement the bounded V2 compaction client
+  - Reuse existing HTTP/SSE transport/auth/error infrastructure.
+  - Build a private stream collector and never expose internal output as assistant content.
+  - Enforce event/byte/item bounds and content-safe errors.
+  - Preserve provider usage and response ID as internal evidence only.
+  - Observable completion: all request/collector tests pass.
+  - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.10, 6.11, 6.12, 9.5, 9.8, 9.11_
   - _Boundary: backend connector driven adapter_
+  - _Depends: 6.1_
+  - _Validation: go test ./connectors/codex/internal/codex/..._
+
+- [ ] 6.3 Add failing Codex-aligned replacement-policy tests
+  - Cover retained user/developer/system items, bounded non-final agent context, final-answer exclusion, per-agent cap, total budget, image bounds, and exactly one final compaction item.
+  - Assert no redundant reasoning/call/output retention.
+  - Observable completion: replacement policy matches the documented current Codex predicate.
+  - _Requirements: 6.7, 6.8, 6.9, 6.10_
+  - _Boundary: backend connector domain policy, tests_
+  - _Depends: 4.2, 5.2_
+  - _Validation: go test ./connectors/codex/internal/codex/..._
+
+- [ ] 6.4 Implement retained replacement construction
+  - Apply the versioned Codex-aligned predicate and configured budget.
+  - Preserve original retained-item order and append one validated compaction item.
+  - Record source/result token evidence for checkpoints.
+  - Observable completion: replacement tests pass with deterministic output.
+  - _Requirements: 6.7, 6.8, 6.9, 6.10, 7.11_
+  - _Boundary: backend connector domain policy_
   - _Depends: 6.3_
-  - _Validation: go test ./internal/codex/..._
+  - _Validation: go test ./connectors/codex/internal/codex/..._
 
-## 7. Reset and rebuild WebSocket continuation around checkpoints
+## 7. Build isolated checkpoint state and exact-prefix rewrite
 
-- [ ] 7.1 Add failing continuation-reset integration tests
-  - Prove a newly installed checkpoint clears old `previous_response_id` and invalidates the prior continuation entry.
-  - Prove a successful post-checkpoint response creates a new continuation baseline.
-  - Cover stale previous-response retry, checkpoint mismatch, and managed account rotation.
-  - Observable completion: tests reproduce the invalid mixed-chain behavior before the fix.
-  - _Requirements: 6.3, 6.4, 6.5, 6.8, 7.7, 9.3_
-  - _Boundary: backend connector WebSocket adapter, tests_
-  - _Depends: 6.3_
-  - _Validation: go test ./internal/codex/..._
+- [ ] 7.1 Add failing checkpoint-store tests
+  - Cover all key dimensions, TTL/LRU/byte caps, reserve/commit/abort, previous committed state survival, cooldown, defensive copies, close, and managed-account rotation.
+  - Run concurrent reservation and stale-commit scenarios.
+  - Observable completion: race-safe state semantics are fixed before implementation.
+  - _Requirements: 7.1, 7.2, 7.5, 7.6, 7.7, 7.8, 7.9, 7.10, 7.12, 9.5, 9.6, 9.7, 10.11_
+  - _Boundary: backend connector state adapter, tests_
+  - _Depends: 1.2_
+  - _Validation: go test ./connectors/codex/internal/codex/..._
 
-- [ ] 7.2 Integrate checkpoint preparation before WebSocket continuation
-  - Apply the coordinator to the full payload before continuation prefix slicing.
-  - Skip old continuation when chain reset is required.
-  - Ensure retries restore the coordinator-prepared full payload rather than mixing unreduced and compacted histories.
-  - Observable completion: WebSocket continuation-reset tests pass for static and managed paths.
-  - _Requirements: 6.3, 6.4, 6.5, 6.8, 7.8, 9.3_
-  - _Boundary: backend connector WebSocket adapter_
+- [ ] 7.2 Implement bounded checkpoint store
+  - Maintain immutable committed state and one reservation per key.
+  - Enforce TTL/LRU/entry-byte limits and cooldown.
+  - Reject commits after close and preserve old checkpoints after failed candidates.
+  - Observable completion: store tests and race tests pass.
+  - _Requirements: 7.1, 7.2, 7.6, 7.7, 7.8, 7.9, 7.10, 7.12, 9.5, 9.6_
+  - _Boundary: backend connector state adapter_
   - _Depends: 7.1_
-  - _Validation: go test ./internal/codex/..._
+  - _Validation: go test -race ./connectors/codex/internal/codex/..._
 
-- [ ] 7.3 Expand completed output-item recording for valid new-chain continuation
-  - Record exact assistant/reasoning/function output items required to recognize client replay after a normal response.
-  - Keep compaction items private to checkpoint state and keep all captured items bounded.
-  - Observable completion: ordinary and tool-call post-checkpoint turns can use delta continuation without losing exact reasoning.
-  - _Requirements: 2.1, 2.6, 6.5, 8.7_
-  - _Boundary: backend connector stream adapter_
-  - _Depends: 2.3, 7.2_
-  - _Validation: go test ./internal/codex/..._
+- [ ] 7.3 Add failing exact-prefix rewrite tests
+  - Cover exact match, append-only suffix, edits, rollback, fork, truncation, reordered items, static-shape drift, model/account change, and later checkpoint-over-checkpoint compaction.
+  - Assert the latest live suffix is byte/semantically unchanged.
+  - Observable completion: all authority conflicts fail closed to full history.
+  - _Requirements: 4.8, 7.3, 7.4, 7.5, 7.11, 8.7_
+  - _Boundary: backend connector domain policy, tests_
+  - _Depends: 4.2, 6.4, 7.2_
+  - _Validation: go test ./connectors/codex/internal/codex/..._
 
-- [ ] 7.4 Run combined race tests for checkpoint and continuation lifecycles
-  - Exercise concurrent normal turns, checkpoint installation, continuation recording, invalidation, cancellation, and connector close.
-  - Observable completion: repeated race runs show no duplicate reservation, stale baseline, or unsafe post-close commit.
-  - _Requirements: 5.5, 5.6, 5.8, 6.4, 6.5, 7.5, 9.6_
-  - _Boundary: tests_
-  - _Depends: 7.2, 7.3_
-  - _Validation: go test -race ./internal/codex/..._
+- [ ] 7.4 Implement exact-prefix checkpoint rewriting
+  - Replace only the committed source prefix.
+  - Append untouched suffix and recompute effective fingerprints.
+  - Permit later checkpoint creation over an existing checkpoint under normal validation.
+  - Observable completion: rewrite tests pass and mismatch never causes conversation loss.
+  - _Requirements: 7.3, 7.4, 7.5, 7.9, 7.11, 8.7_
+  - _Boundary: backend connector domain policy_
+  - _Depends: 7.3_
+  - _Validation: go test ./connectors/codex/internal/codex/..._
 
-## 8. Add diagnostics, privacy, and performance evidence
+## 8. Orchestrate accounts, transports, continuation, and failures
 
-- [ ] 8.1 Add failing accounting and diagnostics tests
-  - Cover separate compaction and normal usage, compatibility totals, estimated provenance, metrics outcome categories, and bounded state summaries.
-  - Assert raw prompts, account/session IDs, response IDs, item JSON, tool schemas, and ciphertext never appear in logs or diagnostic output.
-  - Observable completion: tests define exact privacy and accounting behavior before metrics wiring.
-  - _Requirements: 1.5, 2.7, 8.1, 8.2, 8.3, 8.4_
-  - _Boundary: backend connector observability, tests_
-  - _Depends: 5.3, 6.3_
-  - _Validation: go test ./internal/codex/..._
+- [ ] 8.1 Add failing coordinator matrix tests
+  - Cover static/managed account × HTTP/WebSocket × disabled/reasoning-only/compaction-only/full modes.
+  - Prove preparation occurs after selected account/model and after reasoning transform.
+  - Cover fail-open, hard-limit error, cancellation, cooldown, auth/rate-limit rotation, and no post-output retry.
+  - Observable completion: one deterministic matrix defines the end-to-end preparation contract.
+  - _Requirements: 3.11, 5.4, 5.9, 7.6, 8.1, 8.8, 8.10, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 10.2_
+  - _Boundary: backend connector app orchestration, tests_
+  - _Depends: 3.2, 5.4, 6.2, 6.4, 7.4_
+  - _Validation: go test ./connectors/codex/internal/codex/..._
 
-- [ ] 8.2 Implement compaction metrics, diagnostics, and stream usage attachment
-  - Emit bounded attempt/hit/miss/failure/cooldown/eviction measurements and before/after token/byte values.
-  - Include one-time compaction usage exactly once in provider-billable accounting.
-  - Keep labels low-cardinality and content-free.
-  - Observable completion: accounting and privacy tests pass and disabled mode produces no compaction measurements.
-  - _Requirements: 1.5, 2.7, 8.1, 8.2, 8.3, 8.4, 8.7_
-  - _Boundary: backend connector observability_
+- [ ] 8.2 Implement per-account native-context coordinator
+  - Verify marker, build exact history, derive key, plan, reserve, compact, commit, rewrite, and return internal usage.
+  - Rebuild independently for every managed-account attempt.
+  - Fall back once to full reasoning-complete history when safe.
+  - Observable completion: coordinator matrix passes without changing core routing.
+  - _Requirements: 3.11, 5.4, 5.9, 7.6, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7_
+  - _Boundary: backend connector app orchestration_
   - _Depends: 8.1_
-  - _Validation: go test ./internal/codex/..._
+  - _Validation: go test ./connectors/codex/internal/codex/..._
 
-- [ ] 8.3 Add deterministic long-history performance benchmarks
-  - Compare full-history, prompt-cache-only, WebSocket continuation, and checkpoint-reuse request shapes.
-  - Include compaction request tokens/latency in break-even reporting.
-  - Assert the fixture's reused checkpoint reduces serialized bytes and estimated effective input.
-  - Observable completion: benchmark output reports before/after and break-even evidence without claiming universal savings.
-  - _Requirements: 8.5, 8.6, 8.7_
-  - _Boundary: tests/performance_
-  - _Depends: 6.4, 7.3, 8.2_
-  - _Validation: go test -bench=NativeCompaction -benchmem ./internal/codex/..._
+- [ ] 8.3 Add failing continuation-authority tests
+  - Prove exact item replay works with no response ID.
+  - Prove WebSocket response ID is used only on exact incremental extension.
+  - Prove checkpoint installation invalidates old continuation and first post-checkpoint request omits response ID.
+  - Prove no automatic HTTP response-ID chain or cross-turn sticky state is added.
+  - Observable completion: response-ID optimization cannot conflict with checkpoint/full-history authority.
+  - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8, 8.9, 8.10_
+  - _Boundary: backend connector transport/state, tests_
+  - _Depends: 7.4, 8.2_
+  - _Validation: go test ./connectors/codex/internal/codex/..._
 
-## 9. Prove compatibility and retain default-off rollout
+- [ ] 8.4 Integrate chain reset with HTTP/WebSocket paths
+  - Run native-context preparation before WebSocket continuation trimming.
+  - Invalidate old continuation on checkpoint commit and record a new baseline only after success.
+  - Preserve full payload rollback for stale response IDs.
+  - Keep HTTP stateless exact-history behavior.
+  - Observable completion: continuation tests and transport matrix pass.
+  - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8, 8.9, 8.10_
+  - _Boundary: backend connector transport/state_
+  - _Depends: 8.3_
+  - _Validation: go test ./connectors/codex/internal/codex/..._
 
-- [ ] 9.1 Add full disabled-path parity and architecture guard tests
-  - Prove no canonical/public/core contract change and no behavior change for app-server or non-Codex backends.
-  - Prove disabled direct requests preserve normal payload/event/request-count behavior for HTTP and WebSocket.
-  - Observable completion: architecture and parity checks fail if the feature leaks outside the connector or changes default behavior.
-  - _Requirements: 1.4, 9.1, 9.2, 9.3, 9.4, 9.5, 9.8_
-  - _Boundary: tests/architecture_
-  - _Depends: 6.4, 7.3, 8.2_
-  - _Validation: make parity-checks && make quality-checks_
+## 9. Account for usage and prove privacy
 
-- [ ] 9.2 Add environment-gated live Codex compaction smoke coverage
-  - Require explicit opt-in credentials/model/environment and use bounded synthetic history.
-  - Verify trigger acceptance, exactly one compaction item, successful replay in the next normal turn, retained seeded state, and usage capture.
-  - Redact or delete all live artifacts after assertions.
-  - Observable completion: the test is skipped by default and produces direct compatibility evidence when explicitly enabled.
-  - _Requirements: 9.7_
+- [ ] 9.1 Add failing usage and diagnostics tests
+  - Cover separate provider compaction usage, estimated fallback authority, no double count, before/after context/bytes, reasoning outcomes, and fixed diagnostic categories.
+  - Scan logs/errors/metrics/traces for synthetic ciphertext and prompt markers.
+  - Observable completion: current implementation cannot satisfy the full evidence contract.
+  - _Requirements: 9.8, 9.9, 9.10, 9.11, 9.12, 10.9_
+  - _Boundary: backend connector accounting/observability, tests_
+  - _Depends: 6.2, 8.2_
+  - _Validation: go test ./connectors/codex/internal/codex/... ./internal/core/tokenaccounting/..._
+
+- [ ] 9.2 Implement usage aggregation and safe telemetry
+  - Attach compaction usage as separate provider-billable evidence.
+  - Use checkpoint/provider metadata before conservative opaque estimates.
+  - Emit only fixed outcomes and aggregate counts/sizes/latencies.
+  - Preserve disabled-path accounting semantics.
+  - Observable completion: usage/privacy tests pass with zero payload leakage.
+  - _Requirements: 2.7, 2.10, 7.10, 9.8, 9.9, 9.10, 9.11, 9.12_
+  - _Boundary: backend connector accounting/observability_
+  - _Depends: 9.1_
+  - _Validation: go test ./connectors/codex/internal/codex/... ./internal/core/tokenaccounting/..._
+
+## 10. Build quality and compatibility evidence
+
+- [ ] 10.1 Add deterministic full-path native-context integration scenarios
+  - Drive multiple client requests through runtime, reasoning feature, connector, and HTTP/WS emulators.
+  - Prove encrypted reasoning request, surfaced capture, exact action restore, reasoning-complete compaction input, checkpoint replay, and post-checkpoint capture.
+  - Include disabled zero-extra-request controls.
+  - Observable completion: full path passes for static/managed and HTTP/WebSocket cases.
+  - _Requirements: 3.2, 3.5, 3.12, 4.9, 6.2, 8.10, 10.2, 10.3, 10.4, 10.5_
   - _Boundary: tests/integration_
-  - _Depends: 6.4, 7.3, 8.2_
-  - _Validation: environment-gated connector live test_
+  - _Depends: 3.4, 8.4, 9.2_
+  - _Validation: go test ./internal/stdhttp/... ./connectors/codex/..._
 
-- [ ] 9.3 Execute the connector and repository quality gates
-  - Run focused unit/integration tests, race tests, fuzz smoke, parity, and quality checks.
-  - Record any environment-only live test as run or explicitly skipped.
-  - Confirm disabling the feature removes all checkpoint behavior without migration.
-  - Observable completion: all required deterministic gates pass and remaining uncertainty is limited to documented live evidence.
-  - _Requirements: 9.4, 9.5, 9.6, 9.8_
-  - _Boundary: tests_
-  - _Depends: 9.1, 9.2_
-  - _Validation: go test ./internal/codex/... ./internal/catalog/... ./internal/service/... && go test -race ./internal/codex/... && make test-unit && make quality-checks && make parity-checks_
+- [ ] 10.2 Add environment-gated live Codex validation
+  - Require explicit credentials, model, and opt-in environment.
+  - Verify normal encrypted reasoning, stateless replay, V2 compaction, checkpoint replay, post-compaction reasoning, and content-safe cleanup.
+  - Probe structured history with empty current tools and previous-model compaction as classified optional subtests.
+  - Observable completion: compatibility is recorded as pass/fail/unsupported without leaking artifacts.
+  - _Requirements: 2.1, 3.12, 5.10, 6.3, 6.5, 10.6_
+  - _Boundary: tests/live integration_
+  - _Depends: 10.1_
+  - _Validation: environment-gated Codex live test_
 
-- [ ] 9.4 Keep enablement promotion outside this implementation
-  - Verify shipped examples/defaults remain disabled and no automatic promotion logic exists.
-  - Produce the metrics and live evidence needed for a separate future default-on review.
-  - Observable completion: the implementation is fully usable by explicit opt-in and impossible to enable accidentally.
-  - _Requirements: 1.1, 1.7, 8.5, 8.6, 9.9_
-  - _Boundary: config/wiring, tests_
-  - _Depends: 9.3_
-  - _Validation: configuration snapshot tests and final diff review_
+- [ ] 10.3 Build the four-mode quality evaluation harness
+  - Run fixed long-horizon repository tasks in baseline, reasoning-only, compaction-only, and full modes.
+  - Record task quality, repeated/contradictory actions, rediscovery, turns, tools, tokens, latency, context, compaction cost, and failures.
+  - Use fixed seeds and environment snapshots with paired reports.
+  - Observable completion: the harness produces comparable machine-readable results and a concise evidence summary.
+  - _Requirements: 1.4, 10.7, 10.8, 10.9, 10.10_
+  - _Boundary: tests/evaluation_
+  - _Depends: 10.1_
+  - _Validation: targeted evaluation command documented by the test package_
 
-## Requirements Coverage Check
+- [ ] 10.4 Add race, fuzz, and architecture gates
+  - Run concurrent observer/restore/checkpoint/continuation/close tests.
+  - Fuzz opaque parsing, event order, exact history, and collector bounds.
+  - Assert no provider payload type enters core and no connector-local non-surfaced reasoning store is introduced.
+  - Observable completion: race/fuzz/architecture gates pass.
+  - _Requirements: 10.11, 10.12, 10.13_
+  - _Boundary: tests/architecture_
+  - _Depends: 4.3, 7.2, 8.4, 9.2_
+  - _Validation: go test -race ./connectors/codex/... ./internal/plugins/features/reasoningpreservation/... && make quality-checks_
 
-All acceptance criteria in Requirements 1–9 are mapped to at least one implementation task. No requirement is intentionally deferred inside this specification. Default enablement is explicitly deferred to a separate reviewed change under 1.7 and 9.9.
+- [ ] 10.5 Execute release-quality checks and preserve default-off rollout
+  - Run focused tests, unit suite, parity, quality checks, and relevant precommit integration.
+  - Record live tests as passed or explicitly skipped.
+  - Verify default examples keep compaction disabled and rollback requires no migration.
+  - Require a separate future review for default-on based on quality, break-even, compatibility, and failure evidence.
+  - Observable completion: deterministic gates pass and remaining uncertainty is only documented live evidence.
+  - _Requirements: 6.12, 9.12, 10.1, 10.14, 10.15_
+  - _Boundary: tests/release gating_
+  - _Depends: 10.2, 10.3, 10.4_
+  - _Validation: make test-unit && make parity-checks && make quality-checks_

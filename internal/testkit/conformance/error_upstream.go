@@ -24,7 +24,7 @@ func NewUpstream400Server(tb testing.TB, backendID string) *httptest.Server {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		switch backendID {
-		case openairesponses.ID, openailegacy.ID:
+		case openairesponses.ID, openailegacy.ID, BackendOpenResponses, BackendOpenRouter, BackendNVIDIA:
 			_, _ = w.Write([]byte(`{"error":{"message":"bad","type":"invalid_request_error","param":"","code":"invalid_request_error"}}`))
 		case anthropic.ID:
 			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error","message":"bad request"}}`))
@@ -32,6 +32,8 @@ func NewUpstream400Server(tb testing.TB, backendID string) *httptest.Server {
 			_, _ = w.Write([]byte(`{"error":{"code":400,"message":"invalid argument","status":"INVALID_ARGUMENT"}}`))
 		case bedrock.ID:
 			_, _ = w.Write([]byte(`{"message":"ValidationException","__type":"ValidationException"}`))
+		case BackendACP:
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"invalid params"}}`))
 		default:
 			_, _ = w.Write([]byte(`{"error":"unknown backend"}`))
 		}
