@@ -125,6 +125,8 @@ func chatMessage(m lipapi.Message) (map[string]any, error) {
 				"tool_call_id": p.ToolCallID,
 				"content":      string(p.Content),
 			}, nil
+		default:
+			return nil, unsupportedPartError(p.Kind)
 		}
 	}
 	return map[string]any{
@@ -142,8 +144,13 @@ func responsesInput(call lipapi.Call) ([]map[string]any, error) {
 		}
 		var text string
 		for _, p := range m.Parts {
-			if p.Kind == lipapi.PartText {
+			switch p.Kind {
+			case lipapi.PartText:
 				text += p.Text
+			case lipapi.PartToolResult:
+				return nil, unsupportedPartError(p.Kind)
+			default:
+				return nil, unsupportedPartError(p.Kind)
 			}
 		}
 		out = append(out, map[string]any{
@@ -155,4 +162,8 @@ func responsesInput(call lipapi.Call) ([]map[string]any, error) {
 		return nil, fmt.Errorf("openaicompat: no input")
 	}
 	return out, nil
+}
+
+func unsupportedPartError(kind lipapi.PartKind) error {
+	return fmt.Errorf("openaicompat: unsupported canonical content part %q; conversion is not implemented", kind)
 }
