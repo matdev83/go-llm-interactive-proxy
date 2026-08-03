@@ -378,8 +378,15 @@ func supportedTextFormat(raw json.RawMessage) bool {
 	var text struct {
 		Format json.RawMessage `json:"format"`
 	}
-	if json.Unmarshal(raw, &text) != nil || len(text.Format) == 0 {
+	if json.Unmarshal(raw, &text) != nil {
 		return false
+	}
+	if len(text.Format) == 0 || bytes.Equal(bytes.TrimSpace(text.Format), []byte("null")) {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(raw, &fields) != nil {
+			return false
+		}
+		return len(fields) == 0 || (len(fields) == 1 && fields["format"] != nil)
 	}
 	var f map[string]json.RawMessage
 	if json.Unmarshal(text.Format, &f) != nil || len(f) != 1 {

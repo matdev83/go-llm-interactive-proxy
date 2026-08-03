@@ -358,7 +358,7 @@ func DecodeRequest(data []byte, configured ...Limits) (*WireResponseParam, lipap
 		})
 	}
 
-	responseMIME, err := DecodeTextFormat(param.Text)
+	responseMIME, err := decodeTextFormat(param.Text)
 	if err != nil {
 		return nil, lipapi.Call{}, err
 	}
