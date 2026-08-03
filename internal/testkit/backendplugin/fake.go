@@ -28,6 +28,7 @@ const (
 	ModeShutdown          Mode = "shutdown"
 	ModeUnknownEventKind  Mode = "unknown_event_kind"
 	ModeSecretTerminal    Mode = "secret_terminal"
+	ModeExactReasoning    Mode = "exact_reasoning_event"
 )
 
 // Stable diagnostic codes for broken modes.
@@ -43,6 +44,7 @@ const (
 	DiagShutdown          = "fake:shutdown"
 	DiagUnknownEventKind  = "fake:unknown_event_kind"
 	DiagSecretTerminal    = "fake:secret_terminal"
+	DiagExactReasoning    = "fake:exact_reasoning_event"
 )
 
 // FakeService is an in-process deterministic backendplugin.Service for conformance.
@@ -59,11 +61,12 @@ func (f *FakeService) Describe(ctx context.Context) (backendplugin.PluginDescrip
 	_ = ctx
 	return backendplugin.PluginDescriptor{
 		ProtocolMajor: 1,
-		ProtocolMinor: backendplugin.ProtocolMinorOrderedItems,
+		ProtocolMinor: backendplugin.ProtocolMinorExactOpenResponsesFields,
 		PluginID:      "io.golip.fake",
 		Version:       "0.0.1",
 		Features: []backendplugin.Feature{
 			{Name: backendplugin.FeatureOrderedItems, Required: false},
+			{Name: backendplugin.FeatureExactOpenResponsesFields, Required: false},
 			{Name: "count_tokens", Required: false},
 			{Name: "finalize_billing", Required: false},
 		},
@@ -121,8 +124,8 @@ func (f *fakeInstance) Negotiation() backendplugin.Negotiation {
 	}
 	return backendplugin.Negotiation{
 		Compatible:      true,
-		NegotiatedMinor: backendplugin.ProtocolMinorOrderedItems,
-		EnabledFeatures: []string{backendplugin.FeatureOrderedItems},
+		NegotiatedMinor: backendplugin.ProtocolMinorExactOpenResponsesFields,
+		EnabledFeatures: []string{backendplugin.FeatureOrderedItems, backendplugin.FeatureExactOpenResponsesFields},
 	}
 }
 
@@ -281,6 +284,22 @@ func (f *fakeInstance) Execute(stream backendplugin.ExecuteStream) error {
 					Message: `provider rejected api_key=sk-or-v1-openrouter-leak Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig sk-ant-api03-ABCDEFGHIJKLMNOP`,
 				},
 			},
+		})
+	case ModeExactReasoning:
+		dialect := string(lipapi.ReasoningDialectOpenAIResponsesItemV1)
+		ev := &backendplugin.CanonicalEvent{
+			Kind:                      backendplugin.EventReasoningPart,
+			ReasoningDialect:          &dialect,
+			ReasoningSummary:          backendplugin.RawJSONFromBytes([]byte(`[{"type":"summary_text","text":"s"}]`)),
+			ReasoningContent:          backendplugin.RawJSONFromBytes([]byte(`[{"type":"output_text","text":"t"}]`)),
+			ReasoningEncryptedContent: backendplugin.RawJSONNullValue(),
+		}
+		if err := stream.Send(backendplugin.ServerFrame{Kind: backendplugin.ServerFrameEvent, Sequence: seq, Event: ev}); err != nil {
+			return err
+		}
+		return stream.Send(backendplugin.ServerFrame{
+			Kind: backendplugin.ServerFrameTerminal, Sequence: seq + 1,
+			Terminal: &backendplugin.Terminal{Status: backendplugin.TerminalSuccess},
 		})
 	}
 

@@ -24,9 +24,13 @@ func ApplyCallWireMetadata(inv *Invocation, call lipapi.Call, routeParams map[st
 	ApplyOrderedItemWire(inv, call)
 }
 
-// ApplyCallWireMetadataWithNegotiation projects wire metadata and enforces ordered-item ABI gates.
+// ApplyCallWireMetadataWithNegotiation projects wire metadata and enforces ordered-item and
+// exact OpenResponses ABI gates before execution.
 func ApplyCallWireMetadataWithNegotiation(inv *Invocation, call lipapi.Call, routeParams map[string]string, neg Negotiation) error {
 	if err := RequireOrderedItemABISupport(neg, call); err != nil {
+		return err
+	}
+	if err := RequireExactOpenResponsesABISupport(neg, call); err != nil {
 		return err
 	}
 	if call.HasItemAuthority() {

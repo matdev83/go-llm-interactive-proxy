@@ -64,6 +64,9 @@ enum PartKind {
   PART_KIND_SUMMARY = 10;
   PART_KIND_ANNOTATION = 11;
   PART_KIND_ASSISTANT_REF = 12;
+  // PART_KIND_EXTENSION is an opaque vendor-prefixed custom content part
+  // preserved losslessly (minor >= 3, feature exact_openresponses_fields).
+  PART_KIND_EXTENSION = 13;
 }
 
 enum ErrorCode {
@@ -380,6 +383,9 @@ message Invocation {
   bool item_authority = 16;
   repeated InvocationItem items = 17;
   ProtocolRequirementsWire protocol_requirements = 18;
+  // prompt_cache_key is a proxy-carried prompt-caching hint (minor >= 3,
+  // feature exact_openresponses_fields). Never forwarded to legacy ABIs.
+  string prompt_cache_key = 19;
 }
 
 message ProtocolRequirementsWire {
@@ -426,6 +432,11 @@ message InvocationReasoningItem {
   optional string text = 2;
   RawJSONValue opaque = 3;
   optional string signature = 4;
+  // Exact OpenAI Responses reasoning-item fields (minor >= 3, feature
+  // exact_openresponses_fields). Presence: absent vs null vs value.
+  RawJSONValue summary = 5;
+  RawJSONValue content = 6;
+  RawJSONValue encrypted_content = 7;
 }
 
 message InvocationCompactionItem {
@@ -433,6 +444,8 @@ message InvocationCompactionItem {
   string implementor = 2;
   RawJSONValue opaque = 3;
   optional string encapsulated_id = 4;
+  // Exact provider compaction blob (minor >= 3, feature exact_openresponses_fields).
+  optional string encrypted_content = 5;
 }
 
 message InvocationExtensionItem {
@@ -462,6 +475,14 @@ message InvocationContentPart {
   optional string file_name = 16;
   optional string video_mime = 17;
   optional string reasoning_signature = 18;
+  // Exact OpenAI Responses content-part fields (minor >= 3, feature
+  // exact_openresponses_fields). Presence: absent vs null vs value.
+  optional string file_data = 19;
+  optional string extension_type = 20;
+  RawJSONValue extension_data = 21;
+  RawJSONValue reasoning_summary = 22;
+  RawJSONValue reasoning_content = 23;
+  RawJSONValue reasoning_encrypted_content = 24;
 }
 
 message InvocationToolCall {
@@ -493,6 +514,11 @@ message Part {
   optional string tool_name = 8;
   optional string reasoning_dialect = 9;
   RawJSONValue reasoning_opaque = 10;
+  // Exact OpenAI Responses reasoning-item fields (minor >= 3, feature
+  // exact_openresponses_fields). Presence: absent vs null vs value.
+  RawJSONValue reasoning_summary = 11;
+  RawJSONValue reasoning_content = 12;
+  RawJSONValue reasoning_encrypted_content = 13;
 }
 
 message ToolDef {
@@ -534,6 +560,11 @@ message CanonicalEvent {
   optional string file_ref = 12;
   optional string reasoning_dialect = 13;
   bytes reasoning_opaque = 14;
+  // Exact OpenAI Responses reasoning-item fields (minor >= 3, feature
+  // exact_openresponses_fields). Presence: absent vs null vs value.
+  RawJSONValue reasoning_summary = 15;
+  RawJSONValue reasoning_content = 16;
+  RawJSONValue reasoning_encrypted_content = 17;
 }
 
 message Terminal {

@@ -58,4 +58,7 @@ var (
 	ErrInstanceBusy = errors.New("backendplugin: instance has active execute leases")
 	// ErrOrderedItemsUnsupported is returned when item authority is requested against an older plugin ABI.
 	ErrOrderedItemsUnsupported = errors.New("backendplugin: ordered item ABI not negotiated")
+	// ErrExactOpenResponsesUnsupported is returned when a call or event requires exact
+	// OpenAI Responses semantics against an ABI minor or feature that cannot represent them.
+	ErrExactOpenResponsesUnsupported = errors.New("backendplugin: exact OpenResponses ABI not negotiated")
 )

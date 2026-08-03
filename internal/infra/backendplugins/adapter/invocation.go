@@ -1,6 +1,7 @@
 package adapter
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"strings"
@@ -124,6 +125,7 @@ func mapParts(in []lipapi.Part) ([]backendplugin.Part, error) {
 				if len(p.Reasoning.Opaque) > 0 {
 					bp.ReasoningOpaque = backendplugin.RawJSONFromBytes(p.Reasoning.Opaque)
 				}
+				mapReasoningExactPartFields(p.Reasoning, &bp)
 			}
 		case lipapi.PartToolResult:
 			id := p.ToolCallID
@@ -146,6 +148,31 @@ func mapParts(in []lipapi.Part) ([]backendplugin.Part, error) {
 		out = append(out, bp)
 	}
 	return out, nil
+}
+
+// mapReasoningExactPartFields projects canonical OpenAI Responses reasoning-item
+// exact fields onto the legacy ABI Part carrier with absent/null/value presence.
+func mapReasoningExactPartFields(r *lipapi.ReasoningPart, bp *backendplugin.Part) {
+	if bp == nil || r == nil {
+		return
+	}
+	if r.SummaryPresent || len(r.Summary) > 0 {
+		bp.ReasoningSummary = backendplugin.RawJSONFromBytes(r.Summary)
+	}
+	if r.ContentPresent || len(r.Content) > 0 {
+		bp.ReasoningContent = backendplugin.RawJSONFromBytes(r.Content)
+	}
+	if r.EncryptedContentPresent {
+		if isNullJSON(r.EncryptedContent) {
+			bp.ReasoningEncryptedContent = backendplugin.RawJSONNullValue()
+		} else {
+			bp.ReasoningEncryptedContent = backendplugin.RawJSONFromBytes(r.EncryptedContent)
+		}
+	}
+}
+
+func isNullJSON(b []byte) bool {
+	return bytes.Equal(bytes.TrimSpace(b), []byte("null"))
 }
 
 func mapTools(in []lipapi.ToolDef) []backendplugin.ToolDef {

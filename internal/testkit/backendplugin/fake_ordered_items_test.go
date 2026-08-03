@@ -3,6 +3,7 @@ package backendplugin_test
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"testing"
 
 	fakebp "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
@@ -89,4 +90,125 @@ func TestFake_orderedItemWire_rejectsOldMinor(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected ABI rejection")
 	}
+}
+
+func TestFake_exactOpenResponsesConformanceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	call := lipapi.Call{
+		PromptCacheKey: "conv-1",
+		Items: []lipapi.Item{
+			{
+				Kind: lipapi.ItemKindMessage, ID: "file-1", Status: lipapi.ItemStatusCompleted, Role: lipapi.RoleUser,
+				Content: []lipapi.ContentPart{{
+					Kind: lipapi.ContentPartFileRef, FileRef: "https://x/f", FileData: "aGVsbG8=", FileName: "minimal.pdf",
+				}},
+			},
+			{
+				Kind: lipapi.ItemKindMessage, ID: "ext-1", Status: lipapi.ItemStatusCompleted, Role: lipapi.RoleUser,
+				Content: []lipapi.ContentPart{{
+					Kind:      lipapi.ContentPartExtension,
+					Extension: &lipapi.ExtensionContentPart{Type: "acme:input_file", Data: json.RawMessage(`{"type":"acme:input_file"}`)},
+				}},
+			},
+			{
+				Kind: lipapi.ItemKindReasoning, ID: "rs-1", Status: lipapi.ItemStatusCompleted,
+				Reasoning: &lipapi.ReasoningItem{Reasoning: &lipapi.ReasoningPart{
+					Dialect:                 lipapi.ReasoningDialectOpenAIResponsesItemV1,
+					Summary:                 json.RawMessage(`[]`),
+					SummaryPresent:          true,
+					EncryptedContent:        json.RawMessage("null"),
+					EncryptedContentPresent: true,
+				}},
+			},
+			{
+				Kind: lipapi.ItemKindCompaction, ID: "cmp-1", Status: lipapi.ItemStatusCompleted,
+				Compaction: &lipapi.CompactionItem{Dialect: "compact.v1", EncryptedContent: "gAAAAABpayload"},
+			},
+		},
+	}
+	inv := backendplugin.Invocation{
+		RequestID: "req", AttemptID: "att", ALegID: "a", BLegID: "b", CanonicalModelID: "m",
+	}
+	neg := backendplugin.Negotiation{
+		Compatible:      true,
+		NegotiatedMinor: backendplugin.ProtocolMinorExactOpenResponsesFields,
+		EnabledFeatures: []string{backendplugin.FeatureOrderedItems, backendplugin.FeatureExactOpenResponsesFields},
+	}
+	if err := backendplugin.ApplyCallWireMetadataWithNegotiation(&inv, call, nil, neg); err != nil {
+		t.Fatal(err)
+	}
+	p, err := backendplugin.InvocationToProto(inv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := backendplugin.InvocationFromProto(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	svc := &fakebp.FakeService{Mode: fakebp.ModeValid}
+	inst, err := svc.Configure(context.Background(), backendplugin.ConfigureRequest{
+		InstanceID: "inst", FactoryKind: "fake",
+		RuntimePolicy: backendplugin.RuntimePolicy{DisableTransportRetries: true},
+		Negotiation:   neg,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stream := &memExecuteStream{ctx: ctx, start: back}
+	if err := inst.Execute(stream); err != nil {
+		t.Fatal(err)
+	}
+	if svc.LastStartInvocation == nil {
+		t.Fatal("fake did not capture start invocation")
+	}
+	got := svc.LastStartInvocation
+	if got.PromptCacheKey != "conv-1" {
+		t.Fatalf("prompt_cache_key=%q", got.PromptCacheKey)
+	}
+	if got.Items[0].Content[0].FileData == nil || *got.Items[0].Content[0].FileData != "aGVsbG8=" {
+		t.Fatalf("file_data=%#v", got.Items[0].Content[0])
+	}
+	if got.Items[1].Content[0].ExtensionType == nil || *got.Items[1].Content[0].ExtensionType != "acme:input_file" {
+		t.Fatalf("extension=%#v", got.Items[1].Content[0])
+	}
+	if got.Items[2].Reasoning == nil || got.Items[2].Reasoning.EncryptedContent.State() != backendplugin.RawJSONNull {
+		t.Fatalf("reasoning=%#v", got.Items[2].Reasoning)
+	}
+	if got.Items[3].Compaction == nil || got.Items[3].Compaction.EncryptedContent != "gAAAAABpayload" {
+		t.Fatalf("compaction=%#v", got.Items[3].Compaction)
+	}
+	if svc.LastStartCall == nil {
+		t.Fatal("fake did not capture start call")
+	}
+	gotCall := svc.LastStartCall
+	if gotCall.PromptCacheKey != "conv-1" || gotCall.Items[0].Content[0].FileData != "aGVsbG8=" {
+		t.Fatalf("start call=%#v", gotCall)
+	}
+	if gotCall.Items[2].Reasoning.Reasoning.EncryptedContentPresent == false {
+		t.Fatalf("reasoning presence lost in start call: %#v", gotCall.Items[2].Reasoning)
+	}
+}
+
+type memExecuteStream struct {
+	ctx    context.Context
+	start  backendplugin.Invocation
+	frames []backendplugin.ServerFrame
+	sent   bool
+}
+
+func (m *memExecuteStream) Context() context.Context { return m.ctx }
+func (m *memExecuteStream) Recv() (backendplugin.ClientFrame, error) {
+	if !m.sent {
+		m.sent = true
+		return backendplugin.ClientFrame{Kind: backendplugin.ClientFrameStart, InstanceID: "inst", Invocation: &m.start}, nil
+	}
+	return backendplugin.ClientFrame{}, io.EOF
+}
+func (m *memExecuteStream) Send(f backendplugin.ServerFrame) error {
+	m.frames = append(m.frames, f)
+	return nil
 }

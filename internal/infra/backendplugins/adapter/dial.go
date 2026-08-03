@@ -48,10 +48,11 @@ func DialConfiguredSession(
 	}
 	client := backendpluginv1.NewBackendPluginClient(gc)
 	neg, err := client.Negotiate(ctx, &backendpluginv1.NegotiateRequest{
-		HostMajor: 1, HostMinor: backendplugin.ProtocolMinorOrderedItems,
+		HostMajor: 1, HostMinor: backendplugin.ProtocolMinorExactOpenResponsesFields,
 		HostFeatures: []*backendpluginv1.Feature{
 			{Name: backendplugin.FeatureExactReasoningParts},
 			{Name: backendplugin.FeatureOrderedItems},
+			{Name: backendplugin.FeatureExactOpenResponsesFields},
 		},
 		DisableTransportRetries: true,
 	})

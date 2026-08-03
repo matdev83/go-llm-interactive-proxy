@@ -69,6 +69,9 @@ const (
 	PartKindSummary      PartKind = "summary"
 	PartKindAnnotation   PartKind = "annotation"
 	PartKindAssistantRef PartKind = "assistant_ref"
+	// PartKindExtension is an opaque vendor-prefixed custom content part preserved
+	// losslessly (minor >= ProtocolMinorExactOpenResponsesFields).
+	PartKindExtension PartKind = "extension"
 )
 
 // ErrorCode classifies plugin errors.

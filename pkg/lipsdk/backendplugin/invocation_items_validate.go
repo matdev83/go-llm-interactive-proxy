@@ -2,6 +2,7 @@ package backendplugin
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -154,6 +155,7 @@ func partFromInvocationDTO(p Part, field string) (lipapi.Part, error) {
 		if opaque := p.ReasoningOpaque.Bytes(); len(opaque) > 0 {
 			reasoning.Opaque = opaque
 		}
+		applyReasoningExactFields(p.ReasoningSummary, p.ReasoningContent, p.ReasoningEncryptedContent, reasoning)
 		return lipapi.Part{Kind: lipapi.PartReasoning, Reasoning: reasoning}, nil
 	case PartKindToolResult:
 		part := lipapi.Part{Kind: lipapi.PartToolResult}
@@ -421,7 +423,10 @@ func validateInvocationReasoningItem(r InvocationReasoningItem, field string) er
 	if r.Signature != nil && len(*r.Signature) > int(lipapi.MaxReasoningSignatureBytes) {
 		return ErrOversizedMessage
 	}
-	return r.Opaque.Validate(DefaultMaxRawJSONBytes)
+	if err := r.Opaque.Validate(DefaultMaxRawJSONBytes); err != nil {
+		return err
+	}
+	return validateReasoningExactFields(r.Summary, r.Content, r.EncryptedContent, field)
 }
 
 func validateInvocationCompactionItem(c InvocationCompactionItem, field string) error {
@@ -429,6 +434,9 @@ func validateInvocationCompactionItem(c InvocationCompactionItem, field string) 
 		return ErrOversizedMessage
 	}
 	if len(c.EncapsulatedID) > lipapi.MaxRefStringBytes {
+		return ErrOversizedMessage
+	}
+	if len(c.EncryptedContent) > lipapi.MaxCompactionEncryptedContentBytes {
 		return ErrOversizedMessage
 	}
 	return c.Opaque.Validate(DefaultMaxRawJSONBytes)
@@ -464,6 +472,15 @@ func validateInvocationContentPart(cp InvocationContentPart, field string) error
 	if cp.FileName != nil && len(*cp.FileName) > int(lipapi.MaxRefStringBytes) {
 		return ErrOversizedMessage
 	}
+	if cp.FileData != nil && len(*cp.FileData) > int(lipapi.MaxFileDataBytes) {
+		return ErrOversizedMessage
+	}
+	if cp.ExtensionType != nil && len(*cp.ExtensionType) > int(lipapi.MaxExtensionTypeBytes) {
+		return ErrOversizedMessage
+	}
+	if err := cp.ExtensionData.Validate(DefaultMaxRawJSONBytes); err != nil {
+		return err
+	}
 	if cp.Reasoning != nil {
 		if cp.Reasoning.Dialect == nil || strings.TrimSpace(*cp.Reasoning.Dialect) == "" {
 			return fmt.Errorf("%w: %s requires normalized reasoning dialect", ErrInvalidInvocation, field)
@@ -477,6 +494,9 @@ func validateInvocationContentPart(cp InvocationContentPart, field string) error
 		if err := cp.Reasoning.Opaque.Validate(DefaultMaxRawJSONBytes); err != nil {
 			return err
 		}
+		if err := validateReasoningExactFields(cp.Reasoning.Summary, cp.Reasoning.Content, cp.Reasoning.EncryptedContent, field+".Reasoning"); err != nil {
+			return err
+		}
 	}
 	if err := cp.AnnotationData.Validate(DefaultMaxRawJSONBytes); err != nil {
 		return err
@@ -488,11 +508,31 @@ func validatePartKind(k PartKind) error {
 	switch k {
 	case PartKindText, PartKindJSON, PartKindToolResult, PartKindImageRef, PartKindFileRef,
 		PartKindVideoRef, PartKindReasoning, PartKindRefusal, PartKindSummary,
-		PartKindAnnotation, PartKindAssistantRef:
+		PartKindAnnotation, PartKindAssistantRef, PartKindExtension:
 		return nil
 	default:
 		return ErrUnknownEnum
 	}
+}
+
+// validateReasoningExactFields enforces canonical bounds and presence rules for
+// the exact OpenAI Responses reasoning-item fields: summary/content must be JSON
+// arrays (null rejected), encrypted_content may be absent/null/value.
+func validateReasoningExactFields(summary, content, encrypted RawJSON, field string) error {
+	for _, r := range []struct {
+		name string
+		raw  RawJSON
+	}{{"summary", summary}, {"content", content}} {
+		switch r.raw.State() {
+		case RawJSONNull:
+			return fmt.Errorf("%w: %s %s must not be null", ErrInvalidInvocation, field, r.name)
+		case RawJSONValue:
+			if err := r.raw.Validate(DefaultMaxRawJSONBytes); err != nil {
+				return err
+			}
+		}
+	}
+	return encrypted.Validate(DefaultMaxRawJSONBytes)
 }
 
 func validateInvocationContentPartUnion(cp InvocationContentPart, field string) error {
@@ -512,10 +552,10 @@ func validateInvocationContentPartUnion(cp InvocationContentPart, field string) 
 			return fmt.Errorf("%w: %s has conflicting content payloads", ErrInvalidInvocation, field)
 		}
 	case PartKindFileRef:
-		if cp.FileRef == nil || strings.TrimSpace(*cp.FileRef) == "" {
-			return fmt.Errorf("%w: %s requires file_ref", ErrInvalidInvocation, field)
+		if cp.FileRef == nil && cp.FileData == nil {
+			return fmt.Errorf("%w: %s requires file_ref or file_data", ErrInvalidInvocation, field)
 		}
-		if hasConflictingContentFields(cp, "file_ref") {
+		if hasConflictingContentFields(cp, "file_ref", "file_data") {
 			return fmt.Errorf("%w: %s has conflicting content payloads", ErrInvalidInvocation, field)
 		}
 	case PartKindVideoRef:
@@ -560,24 +600,36 @@ func validateInvocationContentPartUnion(cp InvocationContentPart, field string) 
 		if hasConflictingContentFields(cp, "assistant_ref") {
 			return fmt.Errorf("%w: %s has conflicting content payloads", ErrInvalidInvocation, field)
 		}
+	case PartKindExtension:
+		if cp.ExtensionType == nil || strings.TrimSpace(*cp.ExtensionType) == "" {
+			return fmt.Errorf("%w: %s requires extension type", ErrInvalidInvocation, field)
+		}
+		if cp.ExtensionData.State() != RawJSONValue {
+			return fmt.Errorf("%w: %s requires extension data", ErrInvalidInvocation, field)
+		}
+		if hasConflictingContentFields(cp, "extension") {
+			return fmt.Errorf("%w: %s has conflicting content payloads", ErrInvalidInvocation, field)
+		}
 	}
 	return nil
 }
 
-func hasConflictingContentFields(cp InvocationContentPart, keep string) bool {
+func hasConflictingContentFields(cp InvocationContentPart, keep ...string) bool {
 	checks := map[string]bool{
 		"text":          cp.Text != nil && strings.TrimSpace(*cp.Text) != "",
 		"image_ref":     cp.ImageRef != nil && strings.TrimSpace(*cp.ImageRef) != "",
 		"file_ref":      cp.FileRef != nil && strings.TrimSpace(*cp.FileRef) != "",
+		"file_data":     cp.FileData != nil && strings.TrimSpace(*cp.FileData) != "",
 		"video_ref":     cp.VideoRef != nil && strings.TrimSpace(*cp.VideoRef) != "",
 		"reasoning":     cp.Reasoning != nil,
 		"refusal":       cp.Refusal != nil && strings.TrimSpace(*cp.Refusal) != "",
 		"summary":       cp.Summary != nil && strings.TrimSpace(*cp.Summary) != "",
 		"annotation":    cp.AnnotationType != nil && strings.TrimSpace(*cp.AnnotationType) != "",
 		"assistant_ref": cp.AssistantRef != nil && strings.TrimSpace(*cp.AssistantRef) != "",
+		"extension":     cp.ExtensionType != nil && strings.TrimSpace(*cp.ExtensionType) != "",
 	}
 	for k, set := range checks {
-		if k != keep && set {
+		if set && !slices.Contains(keep, k) {
 			return true
 		}
 	}

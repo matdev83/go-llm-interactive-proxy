@@ -162,6 +162,11 @@ type Invocation struct {
 	Options          GenerationOptions
 	SafeMetadata     map[string]string
 
+	// PromptCacheKey is the proxy-carried prompt-caching hint forwarded verbatim.
+	// It is an additive v1.3 field gated by FeatureExactOpenResponsesFields;
+	// calls that require it fail closed against older negotiated minors.
+	PromptCacheKey string
+
 	// Ordered-item ABI fields (protocol minor >= ProtocolMinorOrderedItems).
 	Operation            string
 	DeliveryMode         string
@@ -189,6 +194,13 @@ type Part struct {
 	ToolArgsJSON     RawJSON
 	ToolCallID       *string
 	ToolName         *string
+
+	// ReasoningSummary, ReasoningContent, and ReasoningEncryptedContent preserve
+	// exact OpenAI Responses reasoning-item fields with absent/null/value presence.
+	// Additive v1.3 fields gated by FeatureExactOpenResponsesFields.
+	ReasoningSummary          RawJSON
+	ReasoningContent          RawJSON
+	ReasoningEncryptedContent RawJSON
 }
 
 // ToolDef describes a tool the model may call.
@@ -275,6 +287,13 @@ type CanonicalEvent struct {
 	FileRef          *string
 	ReasoningDialect *string
 	ReasoningOpaque  []byte
+
+	// ReasoningSummary, ReasoningContent, and ReasoningEncryptedContent preserve
+	// exact OpenAI Responses reasoning-item fields with absent/null/value presence.
+	// Additive v1.3 fields gated by FeatureExactOpenResponsesFields.
+	ReasoningSummary          RawJSON
+	ReasoningContent          RawJSON
+	ReasoningEncryptedContent RawJSON
 }
 
 // ClientFrame is a host-to-plugin Execute frame.

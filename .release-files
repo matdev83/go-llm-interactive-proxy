@@ -4473,6 +4473,8 @@ pkg/lipsdk/auxiliary/doc.go
 pkg/lipsdk/auxiliary/errors.go
 pkg/lipsdk/backend_security.go
 pkg/lipsdk/backend_security_test.go
+pkg/lipsdk/backendplugin/abi_exact_openresponses.go
+pkg/lipsdk/backendplugin/abi_exact_openresponses_test.go
 pkg/lipsdk/backendplugin/abi_ordered_items.go
 pkg/lipsdk/backendplugin/abi_ordered_items_test.go
 pkg/lipsdk/backendplugin/accounting.go
@@ -4497,6 +4499,8 @@ pkg/lipsdk/backendplugin/enum_convert.go
 pkg/lipsdk/backendplugin/enums.go
 pkg/lipsdk/backendplugin/errors.go
 pkg/lipsdk/backendplugin/event_kind_validate_test.go
+pkg/lipsdk/backendplugin/exact_openresponses_bounds_test.go
+pkg/lipsdk/backendplugin/exact_openresponses_roundtrip_test.go
 pkg/lipsdk/backendplugin/forward_execute.go
 pkg/lipsdk/backendplugin/forward_execute_test.go
 pkg/lipsdk/backendplugin/frame_size_test.go

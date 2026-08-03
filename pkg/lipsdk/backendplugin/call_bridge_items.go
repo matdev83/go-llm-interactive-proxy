@@ -18,6 +18,9 @@ func applyInvocationWireToCall(call *lipapi.Call, inv Invocation) error {
 	if inv.TransportMode != "" {
 		call.Invocation.TransportMode = lipapi.TransportMode(inv.TransportMode)
 	}
+	if pck := strings.TrimSpace(inv.PromptCacheKey); pck != "" {
+		call.PromptCacheKey = pck
+	}
 	if !inv.ItemAuthority {
 		return nil
 	}
@@ -95,10 +98,11 @@ func itemFromInvocationDTO(item InvocationItem, field string) (lipapi.Item, erro
 	}
 	if item.Compaction != nil {
 		out.Compaction = &lipapi.CompactionItem{
-			EncapsulatedID: item.Compaction.EncapsulatedID,
-			Dialect:        item.Compaction.Dialect,
-			Implementor:    item.Compaction.Implementor,
-			Opaque:         append(json.RawMessage(nil), item.Compaction.Opaque.Bytes()...),
+			EncapsulatedID:   item.Compaction.EncapsulatedID,
+			Dialect:          item.Compaction.Dialect,
+			Implementor:      item.Compaction.Implementor,
+			EncryptedContent: item.Compaction.EncryptedContent,
+			Opaque:           append(json.RawMessage(nil), item.Compaction.Opaque.Bytes()...),
 		}
 	}
 	if item.Extension != nil {
@@ -140,15 +144,20 @@ func contentPartFromInvocationDTO(cp InvocationContentPart, field string) (lipap
 			out.ImageMIME = *cp.ImageMIME
 		}
 	case PartKindFileRef:
-		if cp.FileRef == nil {
-			return lipapi.ContentPart{}, fmt.Errorf("%w: %s requires file_ref", ErrInvalidInvocation, field)
+		if cp.FileRef == nil && cp.FileData == nil {
+			return lipapi.ContentPart{}, fmt.Errorf("%w: %s requires file_ref or file_data", ErrInvalidInvocation, field)
 		}
-		out.FileRef = *cp.FileRef
+		if cp.FileRef != nil {
+			out.FileRef = *cp.FileRef
+		}
 		if cp.FileMIME != nil {
 			out.FileMIME = *cp.FileMIME
 		}
 		if cp.FileName != nil {
 			out.FileName = *cp.FileName
+		}
+		if cp.FileData != nil {
+			out.FileData = *cp.FileData
 		}
 	case PartKindVideoRef:
 		if cp.VideoRef == nil {
@@ -191,6 +200,15 @@ func contentPartFromInvocationDTO(cp InvocationContentPart, field string) (lipap
 			ann.Data = append(json.RawMessage(nil), cp.AnnotationData.Bytes()...)
 		}
 		out.Annotation = ann
+	case PartKindExtension:
+		if cp.ExtensionType == nil {
+			return lipapi.ContentPart{}, fmt.Errorf("%w: %s requires extension type", ErrInvalidInvocation, field)
+		}
+		ext := &lipapi.ExtensionContentPart{Type: *cp.ExtensionType}
+		if cp.ExtensionData.State() == RawJSONValue {
+			ext.Data = append(json.RawMessage(nil), cp.ExtensionData.Bytes()...)
+		}
+		out.Extension = ext
 	default:
 		return lipapi.ContentPart{}, fmt.Errorf("%w: %s unsupported kind %q", ErrInvalidInvocation, field, cp.Kind)
 	}
@@ -211,6 +229,7 @@ func reasoningPartFromInvocationItem(r InvocationReasoningItem, field string) (*
 	if r.Opaque.State() == RawJSONValue {
 		out.Opaque = append([]byte(nil), r.Opaque.Bytes()...)
 	}
+	applyReasoningExactFields(r.Summary, r.Content, r.EncryptedContent, out)
 	return out, nil
 }
 
@@ -228,6 +247,7 @@ func reasoningPartFromInvocationPart(r InvocationReasoningPart, field string) (*
 	if r.Opaque.State() == RawJSONValue {
 		out.Opaque = append([]byte(nil), r.Opaque.Bytes()...)
 	}
+	applyReasoningExactFields(r.Summary, r.Content, r.EncryptedContent, out)
 	return out, nil
 }
 
@@ -255,6 +275,8 @@ func mapContentPartKindToLipapi(k PartKind) lipapi.ContentPartKind {
 		return lipapi.ContentPartAnnotation
 	case PartKindAssistantRef:
 		return lipapi.ContentPartAssistantRef
+	case PartKindExtension:
+		return lipapi.ContentPartExtension
 	default:
 		return lipapi.ContentPartKind(k)
 	}

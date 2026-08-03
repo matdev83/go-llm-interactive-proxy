@@ -113,6 +113,7 @@ var partKindFromProtoTable = map[backendpluginv1.PartKind]PartKind{
 	backendpluginv1.PartKind_PART_KIND_SUMMARY:       PartKindSummary,
 	backendpluginv1.PartKind_PART_KIND_ANNOTATION:    PartKindAnnotation,
 	backendpluginv1.PartKind_PART_KIND_ASSISTANT_REF: PartKindAssistantRef,
+	backendpluginv1.PartKind_PART_KIND_EXTENSION:     PartKindExtension,
 }
 
 var partKindToProtoTable = map[PartKind]backendpluginv1.PartKind{
@@ -128,6 +129,7 @@ var partKindToProtoTable = map[PartKind]backendpluginv1.PartKind{
 	PartKindSummary:      backendpluginv1.PartKind_PART_KIND_SUMMARY,
 	PartKindAnnotation:   backendpluginv1.PartKind_PART_KIND_ANNOTATION,
 	PartKindAssistantRef: backendpluginv1.PartKind_PART_KIND_ASSISTANT_REF,
+	PartKindExtension:    backendpluginv1.PartKind_PART_KIND_EXTENSION,
 }
 
 func partKindFromProto(v backendpluginv1.PartKind) (PartKind, error) {

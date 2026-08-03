@@ -1,6 +1,7 @@
 package adapter
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/diagredact"
@@ -81,13 +82,17 @@ func eventToLipapi(ev *backendplugin.CanonicalEvent) (lipapi.Event, error) {
 	if len(ev.Opaque) > 0 {
 		out.Opaque = append([]byte(nil), ev.Opaque...)
 	}
-	if ev.ReasoningDialect != nil || len(ev.ReasoningOpaque) > 0 {
+	if ev.ReasoningDialect != nil || len(ev.ReasoningOpaque) > 0 ||
+		ev.ReasoningSummary.State() != backendplugin.RawJSONAbsent ||
+		ev.ReasoningContent.State() != backendplugin.RawJSONAbsent ||
+		ev.ReasoningEncryptedContent.State() != backendplugin.RawJSONAbsent {
 		out.Reasoning = &lipapi.ReasoningPart{
 			Opaque: append([]byte(nil), ev.ReasoningOpaque...),
 		}
 		if ev.ReasoningDialect != nil {
 			out.Reasoning.Dialect = lipapi.ReasoningDialect(*ev.ReasoningDialect)
 		}
+		applyReasoningExactFieldsToLipapi(ev, out.Reasoning)
 	}
 	if ev.ToolCallID != nil {
 		out.ToolCallID = *ev.ToolCallID
@@ -127,6 +132,30 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+// applyReasoningExactFieldsToLipapi restores canonical OpenAI Responses
+// reasoning-item exact fields (summary/content arrays, nullable encrypted_content)
+// from ABI RawJSON carriers with absent/null/value presence.
+func applyReasoningExactFieldsToLipapi(ev *backendplugin.CanonicalEvent, out *lipapi.ReasoningPart) {
+	switch ev.ReasoningSummary.State() {
+	case backendplugin.RawJSONValue:
+		out.Summary = append(json.RawMessage(nil), ev.ReasoningSummary.Bytes()...)
+		out.SummaryPresent = true
+	}
+	switch ev.ReasoningContent.State() {
+	case backendplugin.RawJSONValue:
+		out.Content = append(json.RawMessage(nil), ev.ReasoningContent.Bytes()...)
+		out.ContentPresent = true
+	}
+	switch ev.ReasoningEncryptedContent.State() {
+	case backendplugin.RawJSONNull:
+		out.EncryptedContent = json.RawMessage("null")
+		out.EncryptedContentPresent = true
+	case backendplugin.RawJSONValue:
+		out.EncryptedContent = append(json.RawMessage(nil), ev.ReasoningEncryptedContent.Bytes()...)
+		out.EncryptedContentPresent = true
+	}
 }
 
 // ClassifiedError is a sanitized plugin/transport error for core ownership.

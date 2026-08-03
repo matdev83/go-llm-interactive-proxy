@@ -251,6 +251,9 @@ const (
 	PartKind_PART_KIND_SUMMARY       PartKind = 10
 	PartKind_PART_KIND_ANNOTATION    PartKind = 11
 	PartKind_PART_KIND_ASSISTANT_REF PartKind = 12
+	// PART_KIND_EXTENSION is an opaque vendor-prefixed custom content part
+	// preserved losslessly (minor >= 3, feature exact_openresponses_fields).
+	PartKind_PART_KIND_EXTENSION PartKind = 13
 )
 
 // Enum value maps for PartKind.
@@ -269,6 +272,7 @@ var (
 		10: "PART_KIND_SUMMARY",
 		11: "PART_KIND_ANNOTATION",
 		12: "PART_KIND_ASSISTANT_REF",
+		13: "PART_KIND_EXTENSION",
 	}
 	PartKind_value = map[string]int32{
 		"PART_KIND_UNSPECIFIED":   0,
@@ -284,6 +288,7 @@ var (
 		"PART_KIND_SUMMARY":       10,
 		"PART_KIND_ANNOTATION":    11,
 		"PART_KIND_ASSISTANT_REF": 12,
+		"PART_KIND_EXTENSION":     13,
 	}
 )
 
@@ -2904,8 +2909,11 @@ type Invocation struct {
 	ItemAuthority        bool                      `protobuf:"varint,16,opt,name=item_authority,json=itemAuthority,proto3" json:"item_authority,omitempty"`
 	Items                []*InvocationItem         `protobuf:"bytes,17,rep,name=items,proto3" json:"items,omitempty"`
 	ProtocolRequirements *ProtocolRequirementsWire `protobuf:"bytes,18,opt,name=protocol_requirements,json=protocolRequirements,proto3" json:"protocol_requirements,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// prompt_cache_key is a proxy-carried prompt-caching hint (minor >= 3,
+	// feature exact_openresponses_fields). Never forwarded to legacy ABIs.
+	PromptCacheKey string `protobuf:"bytes,19,opt,name=prompt_cache_key,json=promptCacheKey,proto3" json:"prompt_cache_key,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Invocation) Reset() {
@@ -3062,6 +3070,13 @@ func (x *Invocation) GetProtocolRequirements() *ProtocolRequirementsWire {
 		return x.ProtocolRequirements
 	}
 	return nil
+}
+
+func (x *Invocation) GetPromptCacheKey() string {
+	if x != nil {
+		return x.PromptCacheKey
+	}
+	return ""
 }
 
 type ProtocolRequirementsWire struct {
@@ -3437,13 +3452,18 @@ func (x *InvocationItemReference) GetId() string {
 }
 
 type InvocationReasoningItem struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Dialect       *string                `protobuf:"bytes,1,opt,name=dialect,proto3,oneof" json:"dialect,omitempty"`
-	Text          *string                `protobuf:"bytes,2,opt,name=text,proto3,oneof" json:"text,omitempty"`
-	Opaque        *RawJSONValue          `protobuf:"bytes,3,opt,name=opaque,proto3" json:"opaque,omitempty"`
-	Signature     *string                `protobuf:"bytes,4,opt,name=signature,proto3,oneof" json:"signature,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Dialect   *string                `protobuf:"bytes,1,opt,name=dialect,proto3,oneof" json:"dialect,omitempty"`
+	Text      *string                `protobuf:"bytes,2,opt,name=text,proto3,oneof" json:"text,omitempty"`
+	Opaque    *RawJSONValue          `protobuf:"bytes,3,opt,name=opaque,proto3" json:"opaque,omitempty"`
+	Signature *string                `protobuf:"bytes,4,opt,name=signature,proto3,oneof" json:"signature,omitempty"`
+	// Exact OpenAI Responses reasoning-item fields (minor >= 3, feature
+	// exact_openresponses_fields). Presence: absent vs null vs value.
+	Summary          *RawJSONValue `protobuf:"bytes,5,opt,name=summary,proto3" json:"summary,omitempty"`
+	Content          *RawJSONValue `protobuf:"bytes,6,opt,name=content,proto3" json:"content,omitempty"`
+	EncryptedContent *RawJSONValue `protobuf:"bytes,7,opt,name=encrypted_content,json=encryptedContent,proto3" json:"encrypted_content,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *InvocationReasoningItem) Reset() {
@@ -3504,14 +3524,37 @@ func (x *InvocationReasoningItem) GetSignature() string {
 	return ""
 }
 
+func (x *InvocationReasoningItem) GetSummary() *RawJSONValue {
+	if x != nil {
+		return x.Summary
+	}
+	return nil
+}
+
+func (x *InvocationReasoningItem) GetContent() *RawJSONValue {
+	if x != nil {
+		return x.Content
+	}
+	return nil
+}
+
+func (x *InvocationReasoningItem) GetEncryptedContent() *RawJSONValue {
+	if x != nil {
+		return x.EncryptedContent
+	}
+	return nil
+}
+
 type InvocationCompactionItem struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Dialect        string                 `protobuf:"bytes,1,opt,name=dialect,proto3" json:"dialect,omitempty"`
 	Implementor    string                 `protobuf:"bytes,2,opt,name=implementor,proto3" json:"implementor,omitempty"`
 	Opaque         *RawJSONValue          `protobuf:"bytes,3,opt,name=opaque,proto3" json:"opaque,omitempty"`
 	EncapsulatedId *string                `protobuf:"bytes,4,opt,name=encapsulated_id,json=encapsulatedId,proto3,oneof" json:"encapsulated_id,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Exact provider compaction blob (minor >= 3, feature exact_openresponses_fields).
+	EncryptedContent *string `protobuf:"bytes,5,opt,name=encrypted_content,json=encryptedContent,proto3,oneof" json:"encrypted_content,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *InvocationCompactionItem) Reset() {
@@ -3568,6 +3611,13 @@ func (x *InvocationCompactionItem) GetOpaque() *RawJSONValue {
 func (x *InvocationCompactionItem) GetEncapsulatedId() string {
 	if x != nil && x.EncapsulatedId != nil {
 		return *x.EncapsulatedId
+	}
+	return ""
+}
+
+func (x *InvocationCompactionItem) GetEncryptedContent() string {
+	if x != nil && x.EncryptedContent != nil {
+		return *x.EncryptedContent
 	}
 	return ""
 }
@@ -3668,8 +3718,16 @@ type InvocationContentPart struct {
 	FileName           *string                `protobuf:"bytes,16,opt,name=file_name,json=fileName,proto3,oneof" json:"file_name,omitempty"`
 	VideoMime          *string                `protobuf:"bytes,17,opt,name=video_mime,json=videoMime,proto3,oneof" json:"video_mime,omitempty"`
 	ReasoningSignature *string                `protobuf:"bytes,18,opt,name=reasoning_signature,json=reasoningSignature,proto3,oneof" json:"reasoning_signature,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Exact OpenAI Responses content-part fields (minor >= 3, feature
+	// exact_openresponses_fields). Presence: absent vs null vs value.
+	FileData                  *string       `protobuf:"bytes,19,opt,name=file_data,json=fileData,proto3,oneof" json:"file_data,omitempty"`
+	ExtensionType             *string       `protobuf:"bytes,20,opt,name=extension_type,json=extensionType,proto3,oneof" json:"extension_type,omitempty"`
+	ExtensionData             *RawJSONValue `protobuf:"bytes,21,opt,name=extension_data,json=extensionData,proto3" json:"extension_data,omitempty"`
+	ReasoningSummary          *RawJSONValue `protobuf:"bytes,22,opt,name=reasoning_summary,json=reasoningSummary,proto3" json:"reasoning_summary,omitempty"`
+	ReasoningContent          *RawJSONValue `protobuf:"bytes,23,opt,name=reasoning_content,json=reasoningContent,proto3" json:"reasoning_content,omitempty"`
+	ReasoningEncryptedContent *RawJSONValue `protobuf:"bytes,24,opt,name=reasoning_encrypted_content,json=reasoningEncryptedContent,proto3" json:"reasoning_encrypted_content,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *InvocationContentPart) Reset() {
@@ -3826,6 +3884,48 @@ func (x *InvocationContentPart) GetReasoningSignature() string {
 		return *x.ReasoningSignature
 	}
 	return ""
+}
+
+func (x *InvocationContentPart) GetFileData() string {
+	if x != nil && x.FileData != nil {
+		return *x.FileData
+	}
+	return ""
+}
+
+func (x *InvocationContentPart) GetExtensionType() string {
+	if x != nil && x.ExtensionType != nil {
+		return *x.ExtensionType
+	}
+	return ""
+}
+
+func (x *InvocationContentPart) GetExtensionData() *RawJSONValue {
+	if x != nil {
+		return x.ExtensionData
+	}
+	return nil
+}
+
+func (x *InvocationContentPart) GetReasoningSummary() *RawJSONValue {
+	if x != nil {
+		return x.ReasoningSummary
+	}
+	return nil
+}
+
+func (x *InvocationContentPart) GetReasoningContent() *RawJSONValue {
+	if x != nil {
+		return x.ReasoningContent
+	}
+	return nil
+}
+
+func (x *InvocationContentPart) GetReasoningEncryptedContent() *RawJSONValue {
+	if x != nil {
+		return x.ReasoningEncryptedContent
+	}
+	return nil
 }
 
 type InvocationToolCall struct {
@@ -4020,8 +4120,13 @@ type Part struct {
 	ToolName         *string                `protobuf:"bytes,8,opt,name=tool_name,json=toolName,proto3,oneof" json:"tool_name,omitempty"`
 	ReasoningDialect *string                `protobuf:"bytes,9,opt,name=reasoning_dialect,json=reasoningDialect,proto3,oneof" json:"reasoning_dialect,omitempty"`
 	ReasoningOpaque  *RawJSONValue          `protobuf:"bytes,10,opt,name=reasoning_opaque,json=reasoningOpaque,proto3" json:"reasoning_opaque,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Exact OpenAI Responses reasoning-item fields (minor >= 3, feature
+	// exact_openresponses_fields). Presence: absent vs null vs value.
+	ReasoningSummary          *RawJSONValue `protobuf:"bytes,11,opt,name=reasoning_summary,json=reasoningSummary,proto3" json:"reasoning_summary,omitempty"`
+	ReasoningContent          *RawJSONValue `protobuf:"bytes,12,opt,name=reasoning_content,json=reasoningContent,proto3" json:"reasoning_content,omitempty"`
+	ReasoningEncryptedContent *RawJSONValue `protobuf:"bytes,13,opt,name=reasoning_encrypted_content,json=reasoningEncryptedContent,proto3" json:"reasoning_encrypted_content,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *Part) Reset() {
@@ -4120,6 +4225,27 @@ func (x *Part) GetReasoningDialect() string {
 func (x *Part) GetReasoningOpaque() *RawJSONValue {
 	if x != nil {
 		return x.ReasoningOpaque
+	}
+	return nil
+}
+
+func (x *Part) GetReasoningSummary() *RawJSONValue {
+	if x != nil {
+		return x.ReasoningSummary
+	}
+	return nil
+}
+
+func (x *Part) GetReasoningContent() *RawJSONValue {
+	if x != nil {
+		return x.ReasoningContent
+	}
+	return nil
+}
+
+func (x *Part) GetReasoningEncryptedContent() *RawJSONValue {
+	if x != nil {
+		return x.ReasoningEncryptedContent
 	}
 	return nil
 }
@@ -4368,8 +4494,13 @@ type CanonicalEvent struct {
 	FileRef          *string                `protobuf:"bytes,12,opt,name=file_ref,json=fileRef,proto3,oneof" json:"file_ref,omitempty"`
 	ReasoningDialect *string                `protobuf:"bytes,13,opt,name=reasoning_dialect,json=reasoningDialect,proto3,oneof" json:"reasoning_dialect,omitempty"`
 	ReasoningOpaque  []byte                 `protobuf:"bytes,14,opt,name=reasoning_opaque,json=reasoningOpaque,proto3" json:"reasoning_opaque,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Exact OpenAI Responses reasoning-item fields (minor >= 3, feature
+	// exact_openresponses_fields). Presence: absent vs null vs value.
+	ReasoningSummary          *RawJSONValue `protobuf:"bytes,15,opt,name=reasoning_summary,json=reasoningSummary,proto3" json:"reasoning_summary,omitempty"`
+	ReasoningContent          *RawJSONValue `protobuf:"bytes,16,opt,name=reasoning_content,json=reasoningContent,proto3" json:"reasoning_content,omitempty"`
+	ReasoningEncryptedContent *RawJSONValue `protobuf:"bytes,17,opt,name=reasoning_encrypted_content,json=reasoningEncryptedContent,proto3" json:"reasoning_encrypted_content,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *CanonicalEvent) Reset() {
@@ -4496,6 +4627,27 @@ func (x *CanonicalEvent) GetReasoningDialect() string {
 func (x *CanonicalEvent) GetReasoningOpaque() []byte {
 	if x != nil {
 		return x.ReasoningOpaque
+	}
+	return nil
+}
+
+func (x *CanonicalEvent) GetReasoningSummary() *RawJSONValue {
+	if x != nil {
+		return x.ReasoningSummary
+	}
+	return nil
+}
+
+func (x *CanonicalEvent) GetReasoningContent() *RawJSONValue {
+	if x != nil {
+		return x.ReasoningContent
+	}
+	return nil
+}
+
+func (x *CanonicalEvent) GetReasoningEncryptedContent() *RawJSONValue {
+	if x != nil {
+		return x.ReasoningEncryptedContent
 	}
 	return nil
 }
@@ -5153,7 +5305,7 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\fRawJSONValue\x12\x19\n" +
 	"\ais_null\x18\x01 \x01(\bH\x00R\x06isNull\x12\x14\n" +
 	"\x04json\x18\x02 \x01(\fH\x00R\x04jsonB\a\n" +
-	"\x05state\"\xda\a\n" +
+	"\x05state\"\x84\b\n" +
 	"\n" +
 	"Invocation\x12\x1d\n" +
 	"\n" +
@@ -5177,7 +5329,8 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\x0etransport_mode\x18\x0f \x01(\tR\rtransportMode\x12%\n" +
 	"\x0eitem_authority\x18\x10 \x01(\bR\ritemAuthority\x12<\n" +
 	"\x05items\x18\x11 \x03(\v2&.golip.backendplugin.v1.InvocationItemR\x05items\x12e\n" +
-	"\x15protocol_requirements\x18\x12 \x01(\v20.golip.backendplugin.v1.ProtocolRequirementsWireR\x14protocolRequirements\x1a?\n" +
+	"\x15protocol_requirements\x18\x12 \x01(\v20.golip.backendplugin.v1.ProtocolRequirementsWireR\x14protocolRequirements\x12(\n" +
+	"\x10prompt_cache_key\x18\x13 \x01(\tR\x0epromptCacheKey\x1a?\n" +
 	"\x11SafeMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x0e\n" +
@@ -5214,23 +5367,28 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"compaction\x12M\n" +
 	"\textension\x18\f \x01(\v2/.golip.backendplugin.v1.InvocationExtensionItemR\textension\")\n" +
 	"\x17InvocationItemReference\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xd5\x01\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xa8\x03\n" +
 	"\x17InvocationReasoningItem\x12\x1d\n" +
 	"\adialect\x18\x01 \x01(\tH\x00R\adialect\x88\x01\x01\x12\x17\n" +
 	"\x04text\x18\x02 \x01(\tH\x01R\x04text\x88\x01\x01\x12<\n" +
 	"\x06opaque\x18\x03 \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\x06opaque\x12!\n" +
-	"\tsignature\x18\x04 \x01(\tH\x02R\tsignature\x88\x01\x01B\n" +
+	"\tsignature\x18\x04 \x01(\tH\x02R\tsignature\x88\x01\x01\x12>\n" +
+	"\asummary\x18\x05 \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\asummary\x12>\n" +
+	"\acontent\x18\x06 \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\acontent\x12Q\n" +
+	"\x11encrypted_content\x18\a \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\x10encryptedContentB\n" +
 	"\n" +
 	"\b_dialectB\a\n" +
 	"\x05_textB\f\n" +
 	"\n" +
-	"_signature\"\xd6\x01\n" +
+	"_signature\"\x9e\x02\n" +
 	"\x18InvocationCompactionItem\x12\x18\n" +
 	"\adialect\x18\x01 \x01(\tR\adialect\x12 \n" +
 	"\vimplementor\x18\x02 \x01(\tR\vimplementor\x12<\n" +
 	"\x06opaque\x18\x03 \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\x06opaque\x12,\n" +
-	"\x0fencapsulated_id\x18\x04 \x01(\tH\x00R\x0eencapsulatedId\x88\x01\x01B\x12\n" +
-	"\x10_encapsulated_id\"\xdc\x01\n" +
+	"\x0fencapsulated_id\x18\x04 \x01(\tH\x00R\x0eencapsulatedId\x88\x01\x01\x120\n" +
+	"\x11encrypted_content\x18\x05 \x01(\tH\x01R\x10encryptedContent\x88\x01\x01B\x12\n" +
+	"\x10_encapsulated_idB\x14\n" +
+	"\x12_encrypted_content\"\xdc\x01\n" +
 	"\x17InvocationExtensionItem\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12 \n" +
@@ -5238,7 +5396,7 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\x06opaque\x18\x04 \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\x06opaque\x12!\n" +
 	"\tdirection\x18\x05 \x01(\tH\x00R\tdirection\x88\x01\x01B\f\n" +
 	"\n" +
-	"_direction\"\x8b\b\n" +
+	"_direction\"\xd3\v\n" +
 	"\x15InvocationContentPart\x124\n" +
 	"\x04kind\x18\x01 \x01(\x0e2 .golip.backendplugin.v1.PartKindR\x04kind\x12\x17\n" +
 	"\x04text\x18\x02 \x01(\tH\x00R\x04text\x88\x01\x01\x12 \n" +
@@ -5261,7 +5419,13 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\tfile_name\x18\x10 \x01(\tH\fR\bfileName\x88\x01\x01\x12\"\n" +
 	"\n" +
 	"video_mime\x18\x11 \x01(\tH\rR\tvideoMime\x88\x01\x01\x124\n" +
-	"\x13reasoning_signature\x18\x12 \x01(\tH\x0eR\x12reasoningSignature\x88\x01\x01B\a\n" +
+	"\x13reasoning_signature\x18\x12 \x01(\tH\x0eR\x12reasoningSignature\x88\x01\x01\x12 \n" +
+	"\tfile_data\x18\x13 \x01(\tH\x0fR\bfileData\x88\x01\x01\x12*\n" +
+	"\x0eextension_type\x18\x14 \x01(\tH\x10R\rextensionType\x88\x01\x01\x12K\n" +
+	"\x0eextension_data\x18\x15 \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\rextensionData\x12Q\n" +
+	"\x11reasoning_summary\x18\x16 \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\x10reasoningSummary\x12Q\n" +
+	"\x11reasoning_content\x18\x17 \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\x10reasoningContent\x12d\n" +
+	"\x1breasoning_encrypted_content\x18\x18 \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\x19reasoningEncryptedContentB\a\n" +
 	"\x05_textB\f\n" +
 	"\n" +
 	"_image_refB\v\n" +
@@ -5282,7 +5446,10 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\n" +
 	"_file_nameB\r\n" +
 	"\v_video_mimeB\x16\n" +
-	"\x14_reasoning_signature\"\x85\x01\n" +
+	"\x14_reasoning_signatureB\f\n" +
+	"\n" +
+	"_file_dataB\x11\n" +
+	"\x0f_extension_type\"\x85\x01\n" +
 	"\x12InvocationToolCall\x12\x17\n" +
 	"\acall_id\x18\x01 \x01(\tR\x06callId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12B\n" +
@@ -5295,7 +5462,7 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\a_output\"o\n" +
 	"\aMessage\x120\n" +
 	"\x04role\x18\x01 \x01(\x0e2\x1c.golip.backendplugin.v1.RoleR\x04role\x122\n" +
-	"\x05parts\x18\x02 \x03(\v2\x1c.golip.backendplugin.v1.PartR\x05parts\"\xc7\x04\n" +
+	"\x05parts\x18\x02 \x03(\v2\x1c.golip.backendplugin.v1.PartR\x05parts\"\xd3\x06\n" +
 	"\x04Part\x124\n" +
 	"\x04kind\x18\x01 \x01(\x0e2 .golip.backendplugin.v1.PartKindR\x04kind\x12\x17\n" +
 	"\x04text\x18\x02 \x01(\tH\x00R\x04text\x88\x01\x01\x12 \n" +
@@ -5308,7 +5475,10 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\ttool_name\x18\b \x01(\tH\x05R\btoolName\x88\x01\x01\x120\n" +
 	"\x11reasoning_dialect\x18\t \x01(\tH\x06R\x10reasoningDialect\x88\x01\x01\x12O\n" +
 	"\x10reasoning_opaque\x18\n" +
-	" \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\x0freasoningOpaqueB\a\n" +
+	" \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\x0freasoningOpaque\x12Q\n" +
+	"\x11reasoning_summary\x18\v \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\x10reasoningSummary\x12Q\n" +
+	"\x11reasoning_content\x18\f \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\x10reasoningContent\x12d\n" +
+	"\x1breasoning_encrypted_content\x18\r \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\x19reasoningEncryptedContentB\a\n" +
 	"\x05_textB\f\n" +
 	"\n" +
 	"_image_refB\v\n" +
@@ -5343,7 +5513,7 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"invocation\x18\x04 \x01(\v2\".golip.backendplugin.v1.InvocationR\n" +
 	"invocation\x12I\n" +
 	"\rcancel_reason\x18\x05 \x01(\x0e2$.golip.backendplugin.v1.CancelReasonR\fcancelReason\x125\n" +
-	"\x17cancel_deadline_unix_ms\x18\x06 \x01(\x03R\x14cancelDeadlineUnixMs\"\xcc\x05\n" +
+	"\x17cancel_deadline_unix_ms\x18\x06 \x01(\x03R\x14cancelDeadlineUnixMs\"\xd8\a\n" +
 	"\x0eCanonicalEvent\x125\n" +
 	"\x04kind\x18\x01 \x01(\x0e2!.golip.backendplugin.v1.EventKindR\x04kind\x12(\n" +
 	"\rmessage_index\x18\x02 \x01(\x05H\x00R\fmessageIndex\x88\x01\x01\x12\x19\n" +
@@ -5360,7 +5530,10 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\timage_ref\x18\v \x01(\tH\x06R\bimageRef\x88\x01\x01\x12\x1e\n" +
 	"\bfile_ref\x18\f \x01(\tH\aR\afileRef\x88\x01\x01\x120\n" +
 	"\x11reasoning_dialect\x18\r \x01(\tH\bR\x10reasoningDialect\x88\x01\x01\x12)\n" +
-	"\x10reasoning_opaque\x18\x0e \x01(\fR\x0freasoningOpaqueB\x10\n" +
+	"\x10reasoning_opaque\x18\x0e \x01(\fR\x0freasoningOpaque\x12Q\n" +
+	"\x11reasoning_summary\x18\x0f \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\x10reasoningSummary\x12Q\n" +
+	"\x11reasoning_content\x18\x10 \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\x10reasoningContent\x12d\n" +
+	"\x1breasoning_encrypted_content\x18\x11 \x01(\v2$.golip.backendplugin.v1.RawJSONValueR\x19reasoningEncryptedContentB\x10\n" +
 	"\x0e_message_indexB\b\n" +
 	"\x06_deltaB\f\n" +
 	"\n" +
@@ -5424,7 +5597,7 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\tROLE_USER\x10\x02\x12\x12\n" +
 	"\x0eROLE_ASSISTANT\x10\x03\x12\r\n" +
 	"\tROLE_TOOL\x10\x04\x12\x12\n" +
-	"\x0eROLE_DEVELOPER\x10\x05*\xc9\x02\n" +
+	"\x0eROLE_DEVELOPER\x10\x05*\xe2\x02\n" +
 	"\bPartKind\x12\x19\n" +
 	"\x15PART_KIND_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0ePART_KIND_TEXT\x10\x01\x12\x17\n" +
@@ -5439,7 +5612,8 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\x11PART_KIND_SUMMARY\x10\n" +
 	"\x12\x18\n" +
 	"\x14PART_KIND_ANNOTATION\x10\v\x12\x1b\n" +
-	"\x17PART_KIND_ASSISTANT_REF\x10\f*\xba\x03\n" +
+	"\x17PART_KIND_ASSISTANT_REF\x10\f\x12\x17\n" +
+	"\x13PART_KIND_EXTENSION\x10\r*\xba\x03\n" +
 	"\tErrorCode\x12\x1a\n" +
 	"\x16ERROR_CODE_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bERROR_CODE_INVALID_ARGUMENT\x10\x01\x12\x1e\n" +
@@ -5597,109 +5771,122 @@ var file_backendplugin_v1_backend_proto_goTypes = []any{
 	nil,                                // 67: golip.backendplugin.v1.Invocation.SafeMetadataEntry
 }
 var file_backendplugin_v1_backend_proto_depIdxs = []int32{
-	11, // 0: golip.backendplugin.v1.NegotiateRequest.host_features:type_name -> golip.backendplugin.v1.Feature
-	11, // 1: golip.backendplugin.v1.NegotiateResponse.plugin_features:type_name -> golip.backendplugin.v1.Feature
-	16, // 2: golip.backendplugin.v1.DescribeResponse.descriptor:type_name -> golip.backendplugin.v1.PluginDescriptor
-	11, // 3: golip.backendplugin.v1.PluginDescriptor.features:type_name -> golip.backendplugin.v1.Feature
-	17, // 4: golip.backendplugin.v1.PluginDescriptor.factories:type_name -> golip.backendplugin.v1.FactoryDescriptor
-	0,  // 5: golip.backendplugin.v1.FactoryDescriptor.credential_mode:type_name -> golip.backendplugin.v1.CredentialMode
-	1,  // 6: golip.backendplugin.v1.FactoryDescriptor.access_scope:type_name -> golip.backendplugin.v1.AccessScope
-	2,  // 7: golip.backendplugin.v1.FactoryDescriptor.process_sharing:type_name -> golip.backendplugin.v1.ProcessSharing
-	18, // 8: golip.backendplugin.v1.FactoryDescriptor.static_capabilities:type_name -> golip.backendplugin.v1.CapabilitySummary
-	20, // 9: golip.backendplugin.v1.FactoryDescriptor.transport_capabilities:type_name -> golip.backendplugin.v1.TransportCapabilitySummary
-	42, // 10: golip.backendplugin.v1.DialectSupportWire.item_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
-	42, // 11: golip.backendplugin.v1.DialectSupportWire.reasoning_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
-	42, // 12: golip.backendplugin.v1.DialectSupportWire.compaction_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
-	43, // 13: golip.backendplugin.v1.DialectSupportWire.extension_types:type_name -> golip.backendplugin.v1.ExtensionRequirementWire
-	66, // 14: golip.backendplugin.v1.SecretBundle.values:type_name -> golip.backendplugin.v1.SecretBundle.ValuesEntry
-	21, // 15: golip.backendplugin.v1.ConfigureRequest.secrets:type_name -> golip.backendplugin.v1.SecretBundle
-	22, // 16: golip.backendplugin.v1.ConfigureRequest.runtime_policy:type_name -> golip.backendplugin.v1.RuntimePolicy
-	29, // 17: golip.backendplugin.v1.ResolveProfileResponse.profile:type_name -> golip.backendplugin.v1.ResolvedProfile
-	18, // 18: golip.backendplugin.v1.ResolvedProfile.capabilities:type_name -> golip.backendplugin.v1.CapabilitySummary
-	20, // 19: golip.backendplugin.v1.ResolvedProfile.transport_capabilities:type_name -> golip.backendplugin.v1.TransportCapabilitySummary
-	19, // 20: golip.backendplugin.v1.ResolvedProfile.dialect_support:type_name -> golip.backendplugin.v1.DialectSupportWire
-	32, // 21: golip.backendplugin.v1.ListModelsResponse.models:type_name -> golip.backendplugin.v1.ModelDescriptor
-	18, // 22: golip.backendplugin.v1.ModelDescriptor.capabilities:type_name -> golip.backendplugin.v1.CapabilitySummary
-	40, // 23: golip.backendplugin.v1.CountTokensRequest.invocation:type_name -> golip.backendplugin.v1.Invocation
-	37, // 24: golip.backendplugin.v1.CountTokensResponse.presence:type_name -> golip.backendplugin.v1.UsagePresence
-	38, // 25: golip.backendplugin.v1.FinalizeBillingResponse.usage:type_name -> golip.backendplugin.v1.UsageEvidence
-	37, // 26: golip.backendplugin.v1.UsageEvidence.presence:type_name -> golip.backendplugin.v1.UsagePresence
-	39, // 27: golip.backendplugin.v1.UsageEvidence.raw_usage_json:type_name -> golip.backendplugin.v1.RawJSONValue
-	52, // 28: golip.backendplugin.v1.Invocation.instructions:type_name -> golip.backendplugin.v1.Message
-	52, // 29: golip.backendplugin.v1.Invocation.messages:type_name -> golip.backendplugin.v1.Message
-	54, // 30: golip.backendplugin.v1.Invocation.tools:type_name -> golip.backendplugin.v1.ToolDef
-	55, // 31: golip.backendplugin.v1.Invocation.options:type_name -> golip.backendplugin.v1.GenerationOptions
-	67, // 32: golip.backendplugin.v1.Invocation.safe_metadata:type_name -> golip.backendplugin.v1.Invocation.SafeMetadataEntry
-	44, // 33: golip.backendplugin.v1.Invocation.items:type_name -> golip.backendplugin.v1.InvocationItem
-	41, // 34: golip.backendplugin.v1.Invocation.protocol_requirements:type_name -> golip.backendplugin.v1.ProtocolRequirementsWire
-	42, // 35: golip.backendplugin.v1.ProtocolRequirementsWire.item_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
-	42, // 36: golip.backendplugin.v1.ProtocolRequirementsWire.reasoning_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
-	42, // 37: golip.backendplugin.v1.ProtocolRequirementsWire.compaction_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
-	43, // 38: golip.backendplugin.v1.ProtocolRequirementsWire.extension_types:type_name -> golip.backendplugin.v1.ExtensionRequirementWire
-	3,  // 39: golip.backendplugin.v1.InvocationItem.role:type_name -> golip.backendplugin.v1.Role
-	49, // 40: golip.backendplugin.v1.InvocationItem.content:type_name -> golip.backendplugin.v1.InvocationContentPart
-	50, // 41: golip.backendplugin.v1.InvocationItem.tool_call:type_name -> golip.backendplugin.v1.InvocationToolCall
-	51, // 42: golip.backendplugin.v1.InvocationItem.tool_result:type_name -> golip.backendplugin.v1.InvocationToolResult
-	45, // 43: golip.backendplugin.v1.InvocationItem.item_reference:type_name -> golip.backendplugin.v1.InvocationItemReference
-	46, // 44: golip.backendplugin.v1.InvocationItem.reasoning:type_name -> golip.backendplugin.v1.InvocationReasoningItem
-	47, // 45: golip.backendplugin.v1.InvocationItem.compaction:type_name -> golip.backendplugin.v1.InvocationCompactionItem
-	48, // 46: golip.backendplugin.v1.InvocationItem.extension:type_name -> golip.backendplugin.v1.InvocationExtensionItem
-	39, // 47: golip.backendplugin.v1.InvocationReasoningItem.opaque:type_name -> golip.backendplugin.v1.RawJSONValue
-	39, // 48: golip.backendplugin.v1.InvocationCompactionItem.opaque:type_name -> golip.backendplugin.v1.RawJSONValue
-	39, // 49: golip.backendplugin.v1.InvocationExtensionItem.opaque:type_name -> golip.backendplugin.v1.RawJSONValue
-	4,  // 50: golip.backendplugin.v1.InvocationContentPart.kind:type_name -> golip.backendplugin.v1.PartKind
-	39, // 51: golip.backendplugin.v1.InvocationContentPart.reasoning_opaque:type_name -> golip.backendplugin.v1.RawJSONValue
-	39, // 52: golip.backendplugin.v1.InvocationContentPart.annotation_data:type_name -> golip.backendplugin.v1.RawJSONValue
-	39, // 53: golip.backendplugin.v1.InvocationToolCall.arguments:type_name -> golip.backendplugin.v1.RawJSONValue
-	49, // 54: golip.backendplugin.v1.InvocationToolResult.structured_parts:type_name -> golip.backendplugin.v1.InvocationContentPart
-	3,  // 55: golip.backendplugin.v1.Message.role:type_name -> golip.backendplugin.v1.Role
-	53, // 56: golip.backendplugin.v1.Message.parts:type_name -> golip.backendplugin.v1.Part
-	4,  // 57: golip.backendplugin.v1.Part.kind:type_name -> golip.backendplugin.v1.PartKind
-	39, // 58: golip.backendplugin.v1.Part.tool_args_json:type_name -> golip.backendplugin.v1.RawJSONValue
-	39, // 59: golip.backendplugin.v1.Part.reasoning_opaque:type_name -> golip.backendplugin.v1.RawJSONValue
-	39, // 60: golip.backendplugin.v1.ToolDef.parameters_json:type_name -> golip.backendplugin.v1.RawJSONValue
-	39, // 61: golip.backendplugin.v1.GenerationOptions.response_schema_json:type_name -> golip.backendplugin.v1.RawJSONValue
-	7,  // 62: golip.backendplugin.v1.ExecuteClientFrame.kind:type_name -> golip.backendplugin.v1.ClientFrameKind
-	40, // 63: golip.backendplugin.v1.ExecuteClientFrame.invocation:type_name -> golip.backendplugin.v1.Invocation
-	6,  // 64: golip.backendplugin.v1.ExecuteClientFrame.cancel_reason:type_name -> golip.backendplugin.v1.CancelReason
-	9,  // 65: golip.backendplugin.v1.CanonicalEvent.kind:type_name -> golip.backendplugin.v1.EventKind
-	38, // 66: golip.backendplugin.v1.CanonicalEvent.usage:type_name -> golip.backendplugin.v1.UsageEvidence
-	61, // 67: golip.backendplugin.v1.CanonicalEvent.error:type_name -> golip.backendplugin.v1.PluginError
-	10, // 68: golip.backendplugin.v1.Terminal.status:type_name -> golip.backendplugin.v1.TerminalStatus
-	61, // 69: golip.backendplugin.v1.Terminal.error:type_name -> golip.backendplugin.v1.PluginError
-	6,  // 70: golip.backendplugin.v1.CancelOutcome.reason:type_name -> golip.backendplugin.v1.CancelReason
-	8,  // 71: golip.backendplugin.v1.ExecuteServerFrame.kind:type_name -> golip.backendplugin.v1.ServerFrameKind
-	57, // 72: golip.backendplugin.v1.ExecuteServerFrame.event:type_name -> golip.backendplugin.v1.CanonicalEvent
-	59, // 73: golip.backendplugin.v1.ExecuteServerFrame.cancel_outcome:type_name -> golip.backendplugin.v1.CancelOutcome
-	58, // 74: golip.backendplugin.v1.ExecuteServerFrame.terminal:type_name -> golip.backendplugin.v1.Terminal
-	5,  // 75: golip.backendplugin.v1.PluginError.code:type_name -> golip.backendplugin.v1.ErrorCode
-	12, // 76: golip.backendplugin.v1.BackendPlugin.Negotiate:input_type -> golip.backendplugin.v1.NegotiateRequest
-	14, // 77: golip.backendplugin.v1.BackendPlugin.Describe:input_type -> golip.backendplugin.v1.DescribeRequest
-	23, // 78: golip.backendplugin.v1.BackendPlugin.Configure:input_type -> golip.backendplugin.v1.ConfigureRequest
-	25, // 79: golip.backendplugin.v1.BackendPlugin.CloseInstance:input_type -> golip.backendplugin.v1.CloseInstanceRequest
-	27, // 80: golip.backendplugin.v1.BackendPlugin.ResolveProfile:input_type -> golip.backendplugin.v1.ResolveProfileRequest
-	30, // 81: golip.backendplugin.v1.BackendPlugin.ListModels:input_type -> golip.backendplugin.v1.ListModelsRequest
-	33, // 82: golip.backendplugin.v1.BackendPlugin.CountTokens:input_type -> golip.backendplugin.v1.CountTokensRequest
-	35, // 83: golip.backendplugin.v1.BackendPlugin.FinalizeBilling:input_type -> golip.backendplugin.v1.FinalizeBillingRequest
-	56, // 84: golip.backendplugin.v1.BackendPlugin.Execute:input_type -> golip.backendplugin.v1.ExecuteClientFrame
-	62, // 85: golip.backendplugin.v1.BackendPlugin.Health:input_type -> golip.backendplugin.v1.HealthRequest
-	64, // 86: golip.backendplugin.v1.BackendPlugin.GracefulShutdown:input_type -> golip.backendplugin.v1.GracefulShutdownRequest
-	13, // 87: golip.backendplugin.v1.BackendPlugin.Negotiate:output_type -> golip.backendplugin.v1.NegotiateResponse
-	15, // 88: golip.backendplugin.v1.BackendPlugin.Describe:output_type -> golip.backendplugin.v1.DescribeResponse
-	24, // 89: golip.backendplugin.v1.BackendPlugin.Configure:output_type -> golip.backendplugin.v1.ConfigureResponse
-	26, // 90: golip.backendplugin.v1.BackendPlugin.CloseInstance:output_type -> golip.backendplugin.v1.CloseInstanceResponse
-	28, // 91: golip.backendplugin.v1.BackendPlugin.ResolveProfile:output_type -> golip.backendplugin.v1.ResolveProfileResponse
-	31, // 92: golip.backendplugin.v1.BackendPlugin.ListModels:output_type -> golip.backendplugin.v1.ListModelsResponse
-	34, // 93: golip.backendplugin.v1.BackendPlugin.CountTokens:output_type -> golip.backendplugin.v1.CountTokensResponse
-	36, // 94: golip.backendplugin.v1.BackendPlugin.FinalizeBilling:output_type -> golip.backendplugin.v1.FinalizeBillingResponse
-	60, // 95: golip.backendplugin.v1.BackendPlugin.Execute:output_type -> golip.backendplugin.v1.ExecuteServerFrame
-	63, // 96: golip.backendplugin.v1.BackendPlugin.Health:output_type -> golip.backendplugin.v1.HealthResponse
-	65, // 97: golip.backendplugin.v1.BackendPlugin.GracefulShutdown:output_type -> golip.backendplugin.v1.GracefulShutdownResponse
-	87, // [87:98] is the sub-list for method output_type
-	76, // [76:87] is the sub-list for method input_type
-	76, // [76:76] is the sub-list for extension type_name
-	76, // [76:76] is the sub-list for extension extendee
-	0,  // [0:76] is the sub-list for field type_name
+	11,  // 0: golip.backendplugin.v1.NegotiateRequest.host_features:type_name -> golip.backendplugin.v1.Feature
+	11,  // 1: golip.backendplugin.v1.NegotiateResponse.plugin_features:type_name -> golip.backendplugin.v1.Feature
+	16,  // 2: golip.backendplugin.v1.DescribeResponse.descriptor:type_name -> golip.backendplugin.v1.PluginDescriptor
+	11,  // 3: golip.backendplugin.v1.PluginDescriptor.features:type_name -> golip.backendplugin.v1.Feature
+	17,  // 4: golip.backendplugin.v1.PluginDescriptor.factories:type_name -> golip.backendplugin.v1.FactoryDescriptor
+	0,   // 5: golip.backendplugin.v1.FactoryDescriptor.credential_mode:type_name -> golip.backendplugin.v1.CredentialMode
+	1,   // 6: golip.backendplugin.v1.FactoryDescriptor.access_scope:type_name -> golip.backendplugin.v1.AccessScope
+	2,   // 7: golip.backendplugin.v1.FactoryDescriptor.process_sharing:type_name -> golip.backendplugin.v1.ProcessSharing
+	18,  // 8: golip.backendplugin.v1.FactoryDescriptor.static_capabilities:type_name -> golip.backendplugin.v1.CapabilitySummary
+	20,  // 9: golip.backendplugin.v1.FactoryDescriptor.transport_capabilities:type_name -> golip.backendplugin.v1.TransportCapabilitySummary
+	42,  // 10: golip.backendplugin.v1.DialectSupportWire.item_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
+	42,  // 11: golip.backendplugin.v1.DialectSupportWire.reasoning_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
+	42,  // 12: golip.backendplugin.v1.DialectSupportWire.compaction_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
+	43,  // 13: golip.backendplugin.v1.DialectSupportWire.extension_types:type_name -> golip.backendplugin.v1.ExtensionRequirementWire
+	66,  // 14: golip.backendplugin.v1.SecretBundle.values:type_name -> golip.backendplugin.v1.SecretBundle.ValuesEntry
+	21,  // 15: golip.backendplugin.v1.ConfigureRequest.secrets:type_name -> golip.backendplugin.v1.SecretBundle
+	22,  // 16: golip.backendplugin.v1.ConfigureRequest.runtime_policy:type_name -> golip.backendplugin.v1.RuntimePolicy
+	29,  // 17: golip.backendplugin.v1.ResolveProfileResponse.profile:type_name -> golip.backendplugin.v1.ResolvedProfile
+	18,  // 18: golip.backendplugin.v1.ResolvedProfile.capabilities:type_name -> golip.backendplugin.v1.CapabilitySummary
+	20,  // 19: golip.backendplugin.v1.ResolvedProfile.transport_capabilities:type_name -> golip.backendplugin.v1.TransportCapabilitySummary
+	19,  // 20: golip.backendplugin.v1.ResolvedProfile.dialect_support:type_name -> golip.backendplugin.v1.DialectSupportWire
+	32,  // 21: golip.backendplugin.v1.ListModelsResponse.models:type_name -> golip.backendplugin.v1.ModelDescriptor
+	18,  // 22: golip.backendplugin.v1.ModelDescriptor.capabilities:type_name -> golip.backendplugin.v1.CapabilitySummary
+	40,  // 23: golip.backendplugin.v1.CountTokensRequest.invocation:type_name -> golip.backendplugin.v1.Invocation
+	37,  // 24: golip.backendplugin.v1.CountTokensResponse.presence:type_name -> golip.backendplugin.v1.UsagePresence
+	38,  // 25: golip.backendplugin.v1.FinalizeBillingResponse.usage:type_name -> golip.backendplugin.v1.UsageEvidence
+	37,  // 26: golip.backendplugin.v1.UsageEvidence.presence:type_name -> golip.backendplugin.v1.UsagePresence
+	39,  // 27: golip.backendplugin.v1.UsageEvidence.raw_usage_json:type_name -> golip.backendplugin.v1.RawJSONValue
+	52,  // 28: golip.backendplugin.v1.Invocation.instructions:type_name -> golip.backendplugin.v1.Message
+	52,  // 29: golip.backendplugin.v1.Invocation.messages:type_name -> golip.backendplugin.v1.Message
+	54,  // 30: golip.backendplugin.v1.Invocation.tools:type_name -> golip.backendplugin.v1.ToolDef
+	55,  // 31: golip.backendplugin.v1.Invocation.options:type_name -> golip.backendplugin.v1.GenerationOptions
+	67,  // 32: golip.backendplugin.v1.Invocation.safe_metadata:type_name -> golip.backendplugin.v1.Invocation.SafeMetadataEntry
+	44,  // 33: golip.backendplugin.v1.Invocation.items:type_name -> golip.backendplugin.v1.InvocationItem
+	41,  // 34: golip.backendplugin.v1.Invocation.protocol_requirements:type_name -> golip.backendplugin.v1.ProtocolRequirementsWire
+	42,  // 35: golip.backendplugin.v1.ProtocolRequirementsWire.item_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
+	42,  // 36: golip.backendplugin.v1.ProtocolRequirementsWire.reasoning_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
+	42,  // 37: golip.backendplugin.v1.ProtocolRequirementsWire.compaction_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
+	43,  // 38: golip.backendplugin.v1.ProtocolRequirementsWire.extension_types:type_name -> golip.backendplugin.v1.ExtensionRequirementWire
+	3,   // 39: golip.backendplugin.v1.InvocationItem.role:type_name -> golip.backendplugin.v1.Role
+	49,  // 40: golip.backendplugin.v1.InvocationItem.content:type_name -> golip.backendplugin.v1.InvocationContentPart
+	50,  // 41: golip.backendplugin.v1.InvocationItem.tool_call:type_name -> golip.backendplugin.v1.InvocationToolCall
+	51,  // 42: golip.backendplugin.v1.InvocationItem.tool_result:type_name -> golip.backendplugin.v1.InvocationToolResult
+	45,  // 43: golip.backendplugin.v1.InvocationItem.item_reference:type_name -> golip.backendplugin.v1.InvocationItemReference
+	46,  // 44: golip.backendplugin.v1.InvocationItem.reasoning:type_name -> golip.backendplugin.v1.InvocationReasoningItem
+	47,  // 45: golip.backendplugin.v1.InvocationItem.compaction:type_name -> golip.backendplugin.v1.InvocationCompactionItem
+	48,  // 46: golip.backendplugin.v1.InvocationItem.extension:type_name -> golip.backendplugin.v1.InvocationExtensionItem
+	39,  // 47: golip.backendplugin.v1.InvocationReasoningItem.opaque:type_name -> golip.backendplugin.v1.RawJSONValue
+	39,  // 48: golip.backendplugin.v1.InvocationReasoningItem.summary:type_name -> golip.backendplugin.v1.RawJSONValue
+	39,  // 49: golip.backendplugin.v1.InvocationReasoningItem.content:type_name -> golip.backendplugin.v1.RawJSONValue
+	39,  // 50: golip.backendplugin.v1.InvocationReasoningItem.encrypted_content:type_name -> golip.backendplugin.v1.RawJSONValue
+	39,  // 51: golip.backendplugin.v1.InvocationCompactionItem.opaque:type_name -> golip.backendplugin.v1.RawJSONValue
+	39,  // 52: golip.backendplugin.v1.InvocationExtensionItem.opaque:type_name -> golip.backendplugin.v1.RawJSONValue
+	4,   // 53: golip.backendplugin.v1.InvocationContentPart.kind:type_name -> golip.backendplugin.v1.PartKind
+	39,  // 54: golip.backendplugin.v1.InvocationContentPart.reasoning_opaque:type_name -> golip.backendplugin.v1.RawJSONValue
+	39,  // 55: golip.backendplugin.v1.InvocationContentPart.annotation_data:type_name -> golip.backendplugin.v1.RawJSONValue
+	39,  // 56: golip.backendplugin.v1.InvocationContentPart.extension_data:type_name -> golip.backendplugin.v1.RawJSONValue
+	39,  // 57: golip.backendplugin.v1.InvocationContentPart.reasoning_summary:type_name -> golip.backendplugin.v1.RawJSONValue
+	39,  // 58: golip.backendplugin.v1.InvocationContentPart.reasoning_content:type_name -> golip.backendplugin.v1.RawJSONValue
+	39,  // 59: golip.backendplugin.v1.InvocationContentPart.reasoning_encrypted_content:type_name -> golip.backendplugin.v1.RawJSONValue
+	39,  // 60: golip.backendplugin.v1.InvocationToolCall.arguments:type_name -> golip.backendplugin.v1.RawJSONValue
+	49,  // 61: golip.backendplugin.v1.InvocationToolResult.structured_parts:type_name -> golip.backendplugin.v1.InvocationContentPart
+	3,   // 62: golip.backendplugin.v1.Message.role:type_name -> golip.backendplugin.v1.Role
+	53,  // 63: golip.backendplugin.v1.Message.parts:type_name -> golip.backendplugin.v1.Part
+	4,   // 64: golip.backendplugin.v1.Part.kind:type_name -> golip.backendplugin.v1.PartKind
+	39,  // 65: golip.backendplugin.v1.Part.tool_args_json:type_name -> golip.backendplugin.v1.RawJSONValue
+	39,  // 66: golip.backendplugin.v1.Part.reasoning_opaque:type_name -> golip.backendplugin.v1.RawJSONValue
+	39,  // 67: golip.backendplugin.v1.Part.reasoning_summary:type_name -> golip.backendplugin.v1.RawJSONValue
+	39,  // 68: golip.backendplugin.v1.Part.reasoning_content:type_name -> golip.backendplugin.v1.RawJSONValue
+	39,  // 69: golip.backendplugin.v1.Part.reasoning_encrypted_content:type_name -> golip.backendplugin.v1.RawJSONValue
+	39,  // 70: golip.backendplugin.v1.ToolDef.parameters_json:type_name -> golip.backendplugin.v1.RawJSONValue
+	39,  // 71: golip.backendplugin.v1.GenerationOptions.response_schema_json:type_name -> golip.backendplugin.v1.RawJSONValue
+	7,   // 72: golip.backendplugin.v1.ExecuteClientFrame.kind:type_name -> golip.backendplugin.v1.ClientFrameKind
+	40,  // 73: golip.backendplugin.v1.ExecuteClientFrame.invocation:type_name -> golip.backendplugin.v1.Invocation
+	6,   // 74: golip.backendplugin.v1.ExecuteClientFrame.cancel_reason:type_name -> golip.backendplugin.v1.CancelReason
+	9,   // 75: golip.backendplugin.v1.CanonicalEvent.kind:type_name -> golip.backendplugin.v1.EventKind
+	38,  // 76: golip.backendplugin.v1.CanonicalEvent.usage:type_name -> golip.backendplugin.v1.UsageEvidence
+	61,  // 77: golip.backendplugin.v1.CanonicalEvent.error:type_name -> golip.backendplugin.v1.PluginError
+	39,  // 78: golip.backendplugin.v1.CanonicalEvent.reasoning_summary:type_name -> golip.backendplugin.v1.RawJSONValue
+	39,  // 79: golip.backendplugin.v1.CanonicalEvent.reasoning_content:type_name -> golip.backendplugin.v1.RawJSONValue
+	39,  // 80: golip.backendplugin.v1.CanonicalEvent.reasoning_encrypted_content:type_name -> golip.backendplugin.v1.RawJSONValue
+	10,  // 81: golip.backendplugin.v1.Terminal.status:type_name -> golip.backendplugin.v1.TerminalStatus
+	61,  // 82: golip.backendplugin.v1.Terminal.error:type_name -> golip.backendplugin.v1.PluginError
+	6,   // 83: golip.backendplugin.v1.CancelOutcome.reason:type_name -> golip.backendplugin.v1.CancelReason
+	8,   // 84: golip.backendplugin.v1.ExecuteServerFrame.kind:type_name -> golip.backendplugin.v1.ServerFrameKind
+	57,  // 85: golip.backendplugin.v1.ExecuteServerFrame.event:type_name -> golip.backendplugin.v1.CanonicalEvent
+	59,  // 86: golip.backendplugin.v1.ExecuteServerFrame.cancel_outcome:type_name -> golip.backendplugin.v1.CancelOutcome
+	58,  // 87: golip.backendplugin.v1.ExecuteServerFrame.terminal:type_name -> golip.backendplugin.v1.Terminal
+	5,   // 88: golip.backendplugin.v1.PluginError.code:type_name -> golip.backendplugin.v1.ErrorCode
+	12,  // 89: golip.backendplugin.v1.BackendPlugin.Negotiate:input_type -> golip.backendplugin.v1.NegotiateRequest
+	14,  // 90: golip.backendplugin.v1.BackendPlugin.Describe:input_type -> golip.backendplugin.v1.DescribeRequest
+	23,  // 91: golip.backendplugin.v1.BackendPlugin.Configure:input_type -> golip.backendplugin.v1.ConfigureRequest
+	25,  // 92: golip.backendplugin.v1.BackendPlugin.CloseInstance:input_type -> golip.backendplugin.v1.CloseInstanceRequest
+	27,  // 93: golip.backendplugin.v1.BackendPlugin.ResolveProfile:input_type -> golip.backendplugin.v1.ResolveProfileRequest
+	30,  // 94: golip.backendplugin.v1.BackendPlugin.ListModels:input_type -> golip.backendplugin.v1.ListModelsRequest
+	33,  // 95: golip.backendplugin.v1.BackendPlugin.CountTokens:input_type -> golip.backendplugin.v1.CountTokensRequest
+	35,  // 96: golip.backendplugin.v1.BackendPlugin.FinalizeBilling:input_type -> golip.backendplugin.v1.FinalizeBillingRequest
+	56,  // 97: golip.backendplugin.v1.BackendPlugin.Execute:input_type -> golip.backendplugin.v1.ExecuteClientFrame
+	62,  // 98: golip.backendplugin.v1.BackendPlugin.Health:input_type -> golip.backendplugin.v1.HealthRequest
+	64,  // 99: golip.backendplugin.v1.BackendPlugin.GracefulShutdown:input_type -> golip.backendplugin.v1.GracefulShutdownRequest
+	13,  // 100: golip.backendplugin.v1.BackendPlugin.Negotiate:output_type -> golip.backendplugin.v1.NegotiateResponse
+	15,  // 101: golip.backendplugin.v1.BackendPlugin.Describe:output_type -> golip.backendplugin.v1.DescribeResponse
+	24,  // 102: golip.backendplugin.v1.BackendPlugin.Configure:output_type -> golip.backendplugin.v1.ConfigureResponse
+	26,  // 103: golip.backendplugin.v1.BackendPlugin.CloseInstance:output_type -> golip.backendplugin.v1.CloseInstanceResponse
+	28,  // 104: golip.backendplugin.v1.BackendPlugin.ResolveProfile:output_type -> golip.backendplugin.v1.ResolveProfileResponse
+	31,  // 105: golip.backendplugin.v1.BackendPlugin.ListModels:output_type -> golip.backendplugin.v1.ListModelsResponse
+	34,  // 106: golip.backendplugin.v1.BackendPlugin.CountTokens:output_type -> golip.backendplugin.v1.CountTokensResponse
+	36,  // 107: golip.backendplugin.v1.BackendPlugin.FinalizeBilling:output_type -> golip.backendplugin.v1.FinalizeBillingResponse
+	60,  // 108: golip.backendplugin.v1.BackendPlugin.Execute:output_type -> golip.backendplugin.v1.ExecuteServerFrame
+	63,  // 109: golip.backendplugin.v1.BackendPlugin.Health:output_type -> golip.backendplugin.v1.HealthResponse
+	65,  // 110: golip.backendplugin.v1.BackendPlugin.GracefulShutdown:output_type -> golip.backendplugin.v1.GracefulShutdownResponse
+	100, // [100:111] is the sub-list for method output_type
+	89,  // [89:100] is the sub-list for method input_type
+	89,  // [89:89] is the sub-list for extension type_name
+	89,  // [89:89] is the sub-list for extension extendee
+	0,   // [0:89] is the sub-list for field type_name
 }
 
 func init() { file_backendplugin_v1_backend_proto_init() }

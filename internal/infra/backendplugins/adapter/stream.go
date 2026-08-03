@@ -264,6 +264,9 @@ func (s *managedStream) onPluginFrame(frame backendplugin.ServerFrame) error {
 	case backendplugin.ServerFrameAccepted, backendplugin.ServerFrameDiagnostic, backendplugin.ServerFrameCancelOutcome:
 		return nil
 	case backendplugin.ServerFrameEvent:
+		if err := backendplugin.RequireExactOpenResponsesEventABISupport(s.opt.Negotiation, frame.Event); err != nil {
+			return err
+		}
 		ev, err := eventToLipapi(frame.Event)
 		if err != nil {
 			return err

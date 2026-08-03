@@ -2,6 +2,7 @@ package backendplugin
 
 import (
 	"fmt"
+	"strings"
 
 	backendpluginv1 "github.com/matdev83/go-llm-interactive-proxy/api/backendplugin/v1"
 )
@@ -413,17 +414,32 @@ func partFromProto(p *backendpluginv1.Part) (Part, error) {
 	if err != nil {
 		return Part{}, err
 	}
+	reasoningSummary, err := RawJSONFromProto(p.GetReasoningSummary())
+	if err != nil {
+		return Part{}, err
+	}
+	reasoningContent, err := RawJSONFromProto(p.GetReasoningContent())
+	if err != nil {
+		return Part{}, err
+	}
+	reasoningEncrypted, err := RawJSONFromProto(p.GetReasoningEncryptedContent())
+	if err != nil {
+		return Part{}, err
+	}
 	return Part{
-		Kind:             kind,
-		Text:             optString(p.Text),
-		ImageRef:         optString(p.ImageRef),
-		FileRef:          optString(p.FileRef),
-		ReasoningText:    optString(p.ReasoningText),
-		ReasoningDialect: optString(p.ReasoningDialect),
-		ReasoningOpaque:  reasoningOpaque,
-		ToolArgsJSON:     raw,
-		ToolCallID:       optString(p.ToolCallId),
-		ToolName:         optString(p.ToolName),
+		Kind:                      kind,
+		Text:                      optString(p.Text),
+		ImageRef:                  optString(p.ImageRef),
+		FileRef:                   optString(p.FileRef),
+		ReasoningText:             optString(p.ReasoningText),
+		ReasoningDialect:          optString(p.ReasoningDialect),
+		ReasoningOpaque:           reasoningOpaque,
+		ToolArgsJSON:              raw,
+		ToolCallID:                optString(p.ToolCallId),
+		ToolName:                  optString(p.ToolName),
+		ReasoningSummary:          reasoningSummary,
+		ReasoningContent:          reasoningContent,
+		ReasoningEncryptedContent: reasoningEncrypted,
 	}, nil
 }
 
@@ -433,16 +449,19 @@ func partToProto(p Part) (*backendpluginv1.Part, error) {
 		return nil, err
 	}
 	return &backendpluginv1.Part{
-		Kind:             kind,
-		Text:             optString(p.Text),
-		ImageRef:         optString(p.ImageRef),
-		FileRef:          optString(p.FileRef),
-		ReasoningText:    optString(p.ReasoningText),
-		ReasoningDialect: optString(p.ReasoningDialect),
-		ReasoningOpaque:  RawJSONToProto(p.ReasoningOpaque),
-		ToolArgsJson:     RawJSONToProto(p.ToolArgsJSON),
-		ToolCallId:       optString(p.ToolCallID),
-		ToolName:         optString(p.ToolName),
+		Kind:                      kind,
+		Text:                      optString(p.Text),
+		ImageRef:                  optString(p.ImageRef),
+		FileRef:                   optString(p.FileRef),
+		ReasoningText:             optString(p.ReasoningText),
+		ReasoningDialect:          optString(p.ReasoningDialect),
+		ReasoningOpaque:           RawJSONToProto(p.ReasoningOpaque),
+		ToolArgsJson:              RawJSONToProto(p.ToolArgsJSON),
+		ToolCallId:                optString(p.ToolCallID),
+		ToolName:                  optString(p.ToolName),
+		ReasoningSummary:          RawJSONToProto(p.ReasoningSummary),
+		ReasoningContent:          RawJSONToProto(p.ReasoningContent),
+		ReasoningEncryptedContent: RawJSONToProto(p.ReasoningEncryptedContent),
 	}, nil
 }
 
@@ -548,6 +567,7 @@ func InvocationFromProto(p *backendpluginv1.Invocation) (Invocation, error) {
 		ToolChoice:       optString(p.ToolChoice),
 		Options:          opts,
 		SafeMetadata:     p.GetSafeMetadata(),
+		PromptCacheKey:   strings.TrimSpace(p.GetPromptCacheKey()),
 	}
 	for _, m := range p.GetInstructions() {
 		msg, err := messageFromProto(m)
@@ -598,6 +618,7 @@ func InvocationToProto(inv Invocation) (*backendpluginv1.Invocation, error) {
 		ToolChoice:       optString(inv.ToolChoice),
 		Options:          opts,
 		SafeMetadata:     inv.SafeMetadata,
+		PromptCacheKey:   strings.TrimSpace(inv.PromptCacheKey),
 	}
 	for _, m := range inv.Instructions {
 		pm, err := messageToProto(m)
@@ -951,21 +972,36 @@ func CanonicalEventFromProto(p *backendpluginv1.CanonicalEvent) (*CanonicalEvent
 	if err != nil {
 		return nil, err
 	}
+	reasoningSummary, err := RawJSONFromProto(p.GetReasoningSummary())
+	if err != nil {
+		return nil, err
+	}
+	reasoningContent, err := RawJSONFromProto(p.GetReasoningContent())
+	if err != nil {
+		return nil, err
+	}
+	reasoningEncrypted, err := RawJSONFromProto(p.GetReasoningEncryptedContent())
+	if err != nil {
+		return nil, err
+	}
 	return &CanonicalEvent{
-		Kind:             kind,
-		MessageIndex:     optInt32(p.MessageIndex),
-		Delta:            optString(p.Delta),
-		Signature:        optString(p.Signature),
-		Opaque:           append([]byte(nil), p.GetOpaque()...),
-		ToolCallID:       optString(p.ToolCallId),
-		ToolName:         optString(p.ToolName),
-		Usage:            usage,
-		Warning:          optString(p.Warning),
-		Error:            pe,
-		ImageRef:         optString(p.ImageRef),
-		FileRef:          optString(p.FileRef),
-		ReasoningDialect: optString(p.ReasoningDialect),
-		ReasoningOpaque:  append([]byte(nil), p.GetReasoningOpaque()...),
+		Kind:                      kind,
+		MessageIndex:              optInt32(p.MessageIndex),
+		Delta:                     optString(p.Delta),
+		Signature:                 optString(p.Signature),
+		Opaque:                    append([]byte(nil), p.GetOpaque()...),
+		ToolCallID:                optString(p.ToolCallId),
+		ToolName:                  optString(p.ToolName),
+		Usage:                     usage,
+		Warning:                   optString(p.Warning),
+		Error:                     pe,
+		ImageRef:                  optString(p.ImageRef),
+		FileRef:                   optString(p.FileRef),
+		ReasoningDialect:          optString(p.ReasoningDialect),
+		ReasoningOpaque:           append([]byte(nil), p.GetReasoningOpaque()...),
+		ReasoningSummary:          reasoningSummary,
+		ReasoningContent:          reasoningContent,
+		ReasoningEncryptedContent: reasoningEncrypted,
 	}, nil
 }
 
@@ -990,20 +1026,23 @@ func CanonicalEventToProto(e *CanonicalEvent) (*backendpluginv1.CanonicalEvent, 
 		return nil, err
 	}
 	return &backendpluginv1.CanonicalEvent{
-		Kind:             kind,
-		MessageIndex:     optInt32(e.MessageIndex),
-		Delta:            optString(e.Delta),
-		Signature:        optString(e.Signature),
-		Opaque:           append([]byte(nil), e.Opaque...),
-		ToolCallId:       optString(e.ToolCallID),
-		ToolName:         optString(e.ToolName),
-		Usage:            usage,
-		Warning:          optString(e.Warning),
-		Error:            pe,
-		ImageRef:         optString(e.ImageRef),
-		FileRef:          optString(e.FileRef),
-		ReasoningDialect: optString(e.ReasoningDialect),
-		ReasoningOpaque:  append([]byte(nil), e.ReasoningOpaque...),
+		Kind:                      kind,
+		MessageIndex:              optInt32(e.MessageIndex),
+		Delta:                     optString(e.Delta),
+		Signature:                 optString(e.Signature),
+		Opaque:                    append([]byte(nil), e.Opaque...),
+		ToolCallId:                optString(e.ToolCallID),
+		ToolName:                  optString(e.ToolName),
+		Usage:                     usage,
+		Warning:                   optString(e.Warning),
+		Error:                     pe,
+		ImageRef:                  optString(e.ImageRef),
+		FileRef:                   optString(e.FileRef),
+		ReasoningDialect:          optString(e.ReasoningDialect),
+		ReasoningOpaque:           append([]byte(nil), e.ReasoningOpaque...),
+		ReasoningSummary:          RawJSONToProto(e.ReasoningSummary),
+		ReasoningContent:          RawJSONToProto(e.ReasoningContent),
+		ReasoningEncryptedContent: RawJSONToProto(e.ReasoningEncryptedContent),
 	}, nil
 }
 

@@ -27,12 +27,13 @@ func CallFromInvocation(inv Invocation) (lipapi.Call, error) {
 		return lipapi.Call{}, err
 	}
 	call := lipapi.Call{
-		ID:           strings.TrimSpace(inv.RequestID),
-		Instructions: instructions,
-		Messages:     messages,
-		Tools:        toolsToLipapi(inv.Tools),
-		ToolChoice:   toolChoice,
-		Options:      optionsToLipapi(inv.Options),
+		ID:             strings.TrimSpace(inv.RequestID),
+		Instructions:   instructions,
+		Messages:       messages,
+		Tools:          toolsToLipapi(inv.Tools),
+		ToolChoice:     toolChoice,
+		Options:        optionsToLipapi(inv.Options),
+		PromptCacheKey: strings.TrimSpace(inv.PromptCacheKey),
 		Route: lipapi.RouteIntent{
 			Selector: strings.TrimSpace(inv.CanonicalModelID),
 		},
@@ -75,6 +76,8 @@ func CanonicalEventFromLipapi(ev lipapi.Event) *CanonicalEvent {
 		dialect := string(ev.Reasoning.Dialect)
 		out.ReasoningDialect = &dialect
 		out.ReasoningOpaque = append([]byte(nil), ev.Reasoning.Opaque...)
+		mapReasoningExactFields(ev.Reasoning,
+			&out.ReasoningSummary, &out.ReasoningContent, &out.ReasoningEncryptedContent)
 	}
 	if ev.ToolCallID != "" {
 		id := ev.ToolCallID
@@ -171,6 +174,7 @@ func partsToLipapi(in []Part) ([]lipapi.Part, error) {
 			if opaque := p.ReasoningOpaque.Bytes(); len(opaque) > 0 {
 				reasoning.Opaque = opaque
 			}
+			applyReasoningExactFields(p.ReasoningSummary, p.ReasoningContent, p.ReasoningEncryptedContent, reasoning)
 			out = append(out, lipapi.Part{
 				Kind:      lipapi.PartReasoning,
 				Reasoning: reasoning,

@@ -1,7 +1,10 @@
 package backendplugin
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -19,6 +22,9 @@ func ApplyOrderedItemWire(inv *Invocation, call lipapi.Call) {
 	}
 	if tm := string(call.Invocation.TransportMode); tm != "" {
 		inv.TransportMode = tm
+	}
+	if pck := strings.TrimSpace(call.PromptCacheKey); pck != "" {
+		inv.PromptCacheKey = pck
 	}
 	if !call.HasItemAuthority() {
 		return
@@ -104,19 +110,22 @@ func mapItemsToDTO(items []lipapi.Item) []InvocationItem {
 			d := string(item.Reasoning.Reasoning.Dialect)
 			t := item.Reasoning.Reasoning.Text
 			sig := item.Reasoning.Reasoning.Signature
+			rp := item.Reasoning.Reasoning
 			dto.Reasoning = &InvocationReasoningItem{
 				Dialect:   &d,
 				Text:      &t,
 				Signature: strPtrIfNonEmpty(sig),
-				Opaque:    RawJSONFromBytes(item.Reasoning.Reasoning.Opaque),
+				Opaque:    RawJSONFromBytes(rp.Opaque),
 			}
+			mapReasoningExactFields(rp, &dto.Reasoning.Summary, &dto.Reasoning.Content, &dto.Reasoning.EncryptedContent)
 		}
 		if item.Compaction != nil {
 			dto.Compaction = &InvocationCompactionItem{
-				EncapsulatedID: item.Compaction.EncapsulatedID,
-				Dialect:        item.Compaction.Dialect,
-				Implementor:    item.Compaction.Implementor,
-				Opaque:         RawJSONFromBytes(item.Compaction.Opaque),
+				EncapsulatedID:   item.Compaction.EncapsulatedID,
+				Dialect:          item.Compaction.Dialect,
+				Implementor:      item.Compaction.Implementor,
+				Opaque:           RawJSONFromBytes(item.Compaction.Opaque),
+				EncryptedContent: item.Compaction.EncryptedContent,
 			}
 		}
 		if item.Extension != nil {
@@ -157,6 +166,10 @@ func mapContentPartToDTO(cp lipapi.ContentPart) InvocationContentPart {
 			n := cp.FileName
 			part.FileName = &n
 		}
+		if cp.FileData != "" {
+			fd := cp.FileData
+			part.FileData = &fd
+		}
 	case lipapi.ContentPartVideoRef:
 		r := cp.VideoRef
 		part.VideoRef = &r
@@ -185,6 +198,8 @@ func mapContentPartToDTO(cp lipapi.ContentPart) InvocationContentPart {
 			if len(cp.Reasoning.Opaque) > 0 {
 				part.Reasoning.Opaque = RawJSONFromBytes(cp.Reasoning.Opaque)
 			}
+			mapReasoningExactFields(cp.Reasoning,
+				&part.Reasoning.Summary, &part.Reasoning.Content, &part.Reasoning.EncryptedContent)
 		}
 	case lipapi.ContentPartAnnotation:
 		if cp.Annotation != nil {
@@ -200,6 +215,14 @@ func mapContentPartToDTO(cp lipapi.ContentPart) InvocationContentPart {
 	case lipapi.ContentPartToolResult:
 		t := cp.Text
 		part.Text = &t
+	case lipapi.ContentPartExtension:
+		if cp.Extension != nil {
+			typ := cp.Extension.Type
+			part.ExtensionType = &typ
+			if len(cp.Extension.Data) > 0 {
+				part.ExtensionData = RawJSONFromBytes(cp.Extension.Data)
+			}
+		}
 	}
 	return part
 }
@@ -209,6 +232,61 @@ func strPtrIfNonEmpty(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// mapReasoningExactFields projects canonical OpenAI Responses reasoning-item
+// exact fields (summary/content arrays, nullable encrypted_content) into ABI
+// RawJSON carriers with absent/null/value presence.
+func mapReasoningExactFields(rp *lipapi.ReasoningPart, summary, content, encrypted *RawJSON) {
+	*summary = RawJSONAbsentValue()
+	*content = RawJSONAbsentValue()
+	*encrypted = RawJSONAbsentValue()
+	if rp == nil {
+		return
+	}
+	if rp.SummaryPresent || len(rp.Summary) > 0 {
+		*summary = RawJSONFromBytes(rp.Summary)
+	}
+	if rp.ContentPresent || len(rp.Content) > 0 {
+		*content = RawJSONFromBytes(rp.Content)
+	}
+	if rp.EncryptedContentPresent {
+		if isJSONNullBytes(rp.EncryptedContent) {
+			*encrypted = RawJSONNullValue()
+		} else {
+			*encrypted = RawJSONFromBytes(rp.EncryptedContent)
+		}
+	}
+}
+
+// applyReasoningExactFields restores canonical OpenAI Responses reasoning-item
+// exact fields from ABI RawJSON carriers with absent/null/value presence.
+func applyReasoningExactFields(summary, content, encrypted RawJSON, out *lipapi.ReasoningPart) {
+	if out == nil {
+		return
+	}
+	switch summary.State() {
+	case RawJSONValue:
+		out.Summary = append(json.RawMessage(nil), summary.Bytes()...)
+		out.SummaryPresent = true
+	}
+	switch content.State() {
+	case RawJSONValue:
+		out.Content = append(json.RawMessage(nil), content.Bytes()...)
+		out.ContentPresent = true
+	}
+	switch encrypted.State() {
+	case RawJSONNull:
+		out.EncryptedContent = json.RawMessage("null")
+		out.EncryptedContentPresent = true
+	case RawJSONValue:
+		out.EncryptedContent = append(json.RawMessage(nil), encrypted.Bytes()...)
+		out.EncryptedContentPresent = true
+	}
+}
+
+func isJSONNullBytes(b []byte) bool {
+	return bytes.Equal(bytes.TrimSpace(b), []byte("null"))
 }
 
 func mapContentPartKind(k lipapi.ContentPartKind) PartKind {
@@ -235,6 +313,8 @@ func mapContentPartKind(k lipapi.ContentPartKind) PartKind {
 		return PartKindAnnotation
 	case lipapi.ContentPartAssistantRef:
 		return PartKindAssistantRef
+	case lipapi.ContentPartExtension:
+		return PartKindExtension
 	default:
 		return PartKindUnspecified
 	}
@@ -242,8 +322,10 @@ func mapContentPartKind(k lipapi.ContentPartKind) PartKind {
 
 // checkOrderedItemContentABIRepresentable verifies that item-authority content
 // parts can be carried on the backendplugin ABI without silent semantic loss.
-// Opaque extension content parts and inline file_data are not representable on
-// the ABI and are rejected explicitly before execution (never silently dropped).
+// Exact OpenAI Responses semantics (inline file_data, opaque extension content
+// parts, reasoning exact fields, compaction encrypted_content) are gated by
+// RequireExactOpenResponsesABISupport before execution; this function remains
+// as a structural safety net for anything the ABI genuinely cannot represent.
 func checkOrderedItemContentABIRepresentable(items []lipapi.Item) error {
 	for i, item := range items {
 		for j, cp := range item.Content {
@@ -263,15 +345,12 @@ func checkOrderedItemContentABIRepresentable(items []lipapi.Item) error {
 }
 
 // checkABIContentPart rejects canonical content parts the backendplugin ABI
-// cannot represent losslessly.
+// cannot represent under any negotiated minor. Exact OpenAI Responses semantics
+// (inline file_data, opaque extension parts, reasoning exact fields) are carried
+// at minor >= 3 and gated by RequireExactOpenResponsesABISupport before execution.
 func checkABIContentPart(cp lipapi.ContentPart, field string) error {
-	switch cp.Kind {
-	case lipapi.ContentPartExtension:
-		return fmt.Errorf("%w: %s: opaque extension content parts are not representable on the backendplugin ABI", ErrUnsupportedPartKind, field)
-	case lipapi.ContentPartFileRef:
-		if cp.FileData != "" {
-			return fmt.Errorf("%w: %s: inline file_data is not representable on the backendplugin ABI", ErrUnsupportedPartKind, field)
-		}
+	if mapContentPartKind(cp.Kind) == PartKindUnspecified {
+		return fmt.Errorf("%w: %s: unknown content part kind %q", ErrUnsupportedPartKind, field, cp.Kind)
 	}
 	return nil
 }
