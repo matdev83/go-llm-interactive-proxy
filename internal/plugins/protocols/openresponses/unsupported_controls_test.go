@@ -24,7 +24,6 @@ var unsupportedRequestControls = []struct {
 	{"stream_options", `{"include_obfuscation":true}`},
 	{"top_logprobs", `1`},
 	{"text", `{"format":"json_object"}`},
-	{"reasoning", `{"effort":"low"}`},
 	{"truncation", `"auto"`},
 	{"service_tier", `"auto"`},
 	{"safety_identifier", `"safety_001"`},
@@ -169,5 +168,33 @@ func TestDecodeRequest_SupportedControlsPreserved(t *testing.T) {
 	}
 	if call.Options.ParallelToolCalls == nil || !*call.Options.ParallelToolCalls {
 		t.Fatalf("parallel_tool_calls=%v, want true", call.Options.ParallelToolCalls)
+	}
+}
+
+func TestDecodeRequest_ReasoningEffortSubset(t *testing.T) {
+	for name, raw := range map[string]string{
+		"valid":       `{"effort":" low "}`,
+		"null":        `null`,
+		"empty":       `{}`,
+		"effort-null": `{"effort":null}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, call, err := DecodeRequest([]byte(`{"model":"gpt-4o","input":"hello","reasoning":` + raw + `}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := ""
+			if name == "valid" {
+				want = "low"
+			}
+			if call.Options.ReasoningEffort != want {
+				t.Fatalf("effort=%q, want %q", call.Options.ReasoningEffort, want)
+			}
+		})
+	}
+	for _, raw := range []string{`[]`, `{"effort":1}`, `{"summary":[]}`, `{"effort":"low","summary":[]}`} {
+		if _, _, err := DecodeRequest([]byte(`{"model":"gpt-4o","input":"hello","reasoning":` + raw + `}`)); err == nil {
+			t.Fatalf("reasoning=%s should be rejected", raw)
+		}
 	}
 }

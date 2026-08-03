@@ -86,6 +86,22 @@ func itemAuthorityCreateCall() lipapi.Call {
 	}
 }
 
+func TestBuildCreateRequest_ReasoningEffortRoundTrips(t *testing.T) {
+	call := itemAuthorityCreateCall()
+	call.Options.ReasoningEffort = "low"
+	body, err := buildCreateRequest("my-or", testSpec(), call, routing.AttemptCandidate{Primary: routing.Primary{Model: "model-x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if string(got["reasoning"]) != `{"effort":"low"}` {
+		t.Fatalf("reasoning=%s", got["reasoning"])
+	}
+}
+
 func floatPtr(f float64) *float64 { return &f }
 func intPtr(i int) *int           { return &i }
 func boolPtr(b bool) *bool        { return &b }

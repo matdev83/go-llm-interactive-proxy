@@ -369,11 +369,16 @@ func DecodeRequest(data []byte, configured ...Limits) (*WireResponseParam, lipap
 	}
 
 	// Decode GenerationOptions
+	reasoningEffort, err := decodeReasoningControl(param.Reasoning)
+	if err != nil {
+		return nil, lipapi.Call{}, err
+	}
 	options := lipapi.GenerationOptions{
 		Temperature:       param.Temperature,
 		TopP:              param.TopP,
 		MaxOutputTokens:   param.MaxOutputTokens,
 		ParallelToolCalls: param.ParallelToolCalls,
+		ReasoningEffort:   reasoningEffort,
 	}
 
 	call := lipapi.Call{
@@ -390,6 +395,40 @@ func DecodeRequest(data []byte, configured ...Limits) (*WireResponseParam, lipap
 	}
 
 	return &param, call, nil
+}
+
+// decodeReasoningControl accepts only the lossless subset represented by the
+// canonical contract: an object containing only a string effort. Null and
+// omission are equivalent because GenerationOptions has no presence carrier.
+func decodeReasoningControl(raw json.RawMessage) (string, error) {
+	if jsonpresence.IsAbsentOrJSONNull(raw) {
+		return "", nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
+		if err == nil {
+			err = errors.New("must be a JSON object")
+		}
+		return "", fmt.Errorf("%w: reasoning must be an object: %v", ErrDecodeFailed, err)
+	}
+	for key := range fields {
+		if key != "effort" {
+			return "", fmt.Errorf("%w: reasoning field %q is unsupported", ErrDecodeFailed, key)
+		}
+	}
+	rawEffort, ok := fields["effort"]
+	if !ok || jsonpresence.IsAbsentOrJSONNull(rawEffort) {
+		return "", nil
+	}
+	var effort string
+	if err := json.Unmarshal(rawEffort, &effort); err != nil {
+		return "", fmt.Errorf("%w: reasoning.effort must be a string", ErrDecodeFailed)
+	}
+	effort = strings.TrimSpace(effort)
+	if effort == "" {
+		return "", fmt.Errorf("%w: reasoning.effort must not be empty", ErrDecodeFailed)
+	}
+	return effort, nil
 }
 
 // decodeToolChoice decodes wire tool_choice JSON into lipapi.ToolChoice.

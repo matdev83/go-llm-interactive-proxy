@@ -111,6 +111,18 @@ encode (annotations, assistant media references, summaries, reasoning parts,
 and other unrepresentable canonical kinds) are rejected **before any upstream
 request** — never silently text-mapped or dropped.
 
+## Create reasoning control compatibility
+
+For the pinned `2026-04-24` create profile, this backend supports only the
+lossless canonical reasoning control `reasoning: {"effort": "..."}`. The effort
+string is forwarded unchanged. Omitted, `null`, `{}`, and `{"effort":null}`
+map to the canonical empty effort because that contract has no presence bit.
+Unknown nested reasoning fields, non-object reasoning values, and non-string or
+empty `effort` values are rejected before any upstream request. Reasoning output
+fields such as `summary`, `content`, and `encrypted_content` are response-item
+fields, not supported create controls; other create reasoning fields remain
+unsupported.
+
 ## Pinned content-part profile
 
 The generic mode encodes canonical message content to the pinned `2026-04-24`
