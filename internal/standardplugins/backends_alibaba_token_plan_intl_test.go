@@ -11,6 +11,7 @@ import (
 )
 
 func TestAlibabaTokenPlanIntlFactoryUsesEnvironmentKeyOnly(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":[{"id":"qwen3.7-plus"}]}`))
@@ -43,6 +44,7 @@ func TestAlibabaTokenPlanIntlFactoryUsesEnvironmentKeyOnly(t *testing.T) {
 }
 
 func TestAlibabaTokenPlanIntlFactoryRejectsConfiguredAPIKey(t *testing.T) {
+	t.Parallel()
 	bundle := EssentialBackendBundle(UpstreamAPIKeys{AlibabaTokenPlan: []string{"env-secret"}})
 	var factory pluginreg.BackendFactory
 	for _, reg := range bundle.Backends {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/catalog"
@@ -57,6 +58,7 @@ func ResolvePluginCatalog(cfg *config.Config, reg *pluginreg.Registry, stagingDi
 	}
 	exports, err := CollectInstallableExports(res.Snapshot, res.TrustBySafe, res.Discovered)
 	if err != nil {
+		closeVerifiedArtifacts(res.TrustBySafe)
 		return PluginCatalogResolution{}, err
 	}
 	out.Installable = exports
@@ -77,17 +79,26 @@ func prepareDiscoveredPluginInstall(cfg *config.Config, reg *pluginreg.Registry)
 	}
 	resolved, err := ResolvePluginCatalog(cfg, reg, staging)
 	if err != nil {
-		_ = os.RemoveAll(staging)
+		closeVerifiedArtifacts(resolved.TrustBySafe)
+		_ = removeAllRetry(staging, 8, 25*time.Millisecond)
 		return nil, "", err
 	}
 	if resolved.CatalogErr != nil {
-		_ = os.RemoveAll(staging)
+		closeVerifiedArtifacts(resolved.TrustBySafe)
+		_ = removeAllRetry(staging, 8, 25*time.Millisecond)
 		return nil, "", resolved.CatalogErr
+	}
+	trusted := make([]*trust.VerifiedArtifact, 0, len(resolved.TrustBySafe))
+	for _, tr := range resolved.TrustBySafe {
+		if tr.Artifact != nil {
+			trusted = append(trusted, tr.Artifact)
+		}
 	}
 	host := processhost.NewHost(processhost.Config{})
 	return &DiscoveredPluginInstall{
 		Host:    host,
 		Exports: resolved.Installable,
+		Trusted: trusted,
 		Options: DiscoveredInstallOptions{},
 	}, staging, nil
 }

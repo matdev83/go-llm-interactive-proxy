@@ -3,6 +3,7 @@ package interleavedthinking
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -171,7 +172,7 @@ func TestShapeCall_ExecutorNotMutatedWhenNoMemo(t *testing.T) {
 	if !toolsEqual(res.Call.Tools, in.Tools) {
 		t.Fatalf("executor tools must be unchanged: got %+v want %+v", res.Call.Tools, in.Tools)
 	}
-	if res.Call.ToolChoice != in.ToolChoice {
+	if !reflect.DeepEqual(res.Call.ToolChoice, in.ToolChoice) {
 		t.Fatalf("executor ToolChoice must be unchanged: got %+v want %+v", res.Call.ToolChoice, in.ToolChoice)
 	}
 	if len(res.Call.Instructions) != len(in.Instructions) {
@@ -677,7 +678,7 @@ func TestShapeCall_ExecutorInjectionPreservesTools(t *testing.T) {
 	if !toolsEqual(res.Call.Tools, in.Tools) {
 		t.Fatalf("executor tools must be preserved on injection: got %+v want %+v", res.Call.Tools, in.Tools)
 	}
-	if res.Call.ToolChoice != in.ToolChoice {
+	if !reflect.DeepEqual(res.Call.ToolChoice, in.ToolChoice) {
 		t.Fatalf("executor ToolChoice must be preserved on injection: got %+v want %+v", res.Call.ToolChoice, in.ToolChoice)
 	}
 }

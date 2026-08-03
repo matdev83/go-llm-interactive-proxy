@@ -20,7 +20,7 @@ func TestInvocationFromCall_JSONPartMapped(t *testing.T) {
 		Kind:    lipapi.PartJSON,
 		Content: json.RawMessage(`{"key":"value"}`),
 	})
-	inv, err := adapter.InvocationFromCall(call, testCand())
+	inv, err := adapter.InvocationFromCall(call, testCand(), backendplugin.Negotiation{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestInvocationFromCall_JSONPartGoldenRoundTrip(t *testing.T) {
 		Kind:    lipapi.PartJSON,
 		Content: payload,
 	})
-	inv, err := adapter.InvocationFromCall(call, testCand())
+	inv, err := adapter.InvocationFromCall(call, testCand(), backendplugin.Negotiation{})
 	if err != nil {
 		t.Fatalf("canonical->ABI: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestInvocationFromCall_ExactReasoningGoldenRoundTrip(t *testing.T) {
 			Opaque:  opaque,
 		},
 	}}
-	inv, err := adapter.InvocationFromCall(call, testCand())
+	inv, err := adapter.InvocationFromCall(call, testCand(), backendplugin.Negotiation{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestInvocationFromCall_JSONPartEmptyContentFails(t *testing.T) {
 	call.Messages[0].Parts = append(call.Messages[0].Parts, lipapi.Part{
 		Kind: lipapi.PartJSON,
 	})
-	_, err := adapter.InvocationFromCall(call, testCand())
+	_, err := adapter.InvocationFromCall(call, testCand(), backendplugin.Negotiation{})
 	if err == nil {
 		t.Fatal("expected error for empty json part content")
 	}
@@ -137,7 +137,7 @@ func TestInvocationFromCall_UnsupportedPartKindFailsClosed(t *testing.T) {
 	t.Parallel()
 	call := testCall()
 	call.Messages[0].Parts = append(call.Messages[0].Parts, lipapi.Part{Kind: lipapi.PartKind("bogus")})
-	_, err := adapter.InvocationFromCall(call, testCand())
+	_, err := adapter.InvocationFromCall(call, testCand(), backendplugin.Negotiation{})
 	if err == nil {
 		t.Fatal("expected explicit error for unmappable part kind, got nil (part silently dropped)")
 	}

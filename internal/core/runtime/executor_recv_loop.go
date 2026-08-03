@@ -11,6 +11,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
@@ -290,6 +291,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		aLegID:                   s.aLegID,
 		aScope:                   s.aScope,
 		baseline:                 s.baseline,
+		failoverReq:              capabilities.NewFailoverRequirementSet(s.baseline),
 		sel:                      s.sel,
 		requestSize:              s.requestSize,
 		session:                  s.session,
@@ -300,6 +302,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		isRetryPath:              true,
 		lastReject:               &s.lastHardReject,
 		lastTransportReject:      &s.lastHardTransportReject,
+		lastAdmissionErr:         &s.lastAdmissionErr,
 		affinityKey:              s.affinityKey,
 		affinitySet:              s.affinitySet,
 		isContextLimitExhaustion: &s.isContextLimitExhaustion,

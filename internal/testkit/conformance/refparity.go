@@ -19,7 +19,6 @@ import (
 	refopenaichat "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openaichat"
 	refopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openairesponses"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
@@ -34,7 +33,7 @@ const parityText = "conformance-parity"
 // Optional onRequestBody observes the raw upstream HTTP body after route/auth checks.
 func NewSuccessRefBackend(tb testing.TB, backendID string, onRequestBody func([]byte)) *httptest.Server {
 	tb.Helper()
-	if backendID == acp.ID {
+	if backendID == BackendACP {
 		srv := httptest.NewServer(refacp.NewHandler(refacp.Config{OnRequestBody: onRequestBody}))
 		tb.Cleanup(srv.Close)
 		return srv
@@ -103,11 +102,183 @@ func parityRefHandler(tb testing.TB, backendID string) http.Handler {
 			ConverseJSON: ns,
 			StreamEvents: bedrockParityStreamEvents(tb, parityText),
 		})
+	case BackendOpenResponses:
+		// The generic OpenResponses backend consumes the OpenAI Responses-shaped wire.
+		return newOpenResponsesParityOrigin(parityText)
+	case BackendOpenRouter, BackendNVIDIA:
+		// The OpenRouter/NVIDIA connector columns dispatch on the operation flavor:
+		// openai.responses reaches the Responses wire, every other operation
+		// reaches the chat-completions wire. The per-wire origin serves both with
+		// deterministic parity text.
+		return &connectorWire{text: parityText}
 	default:
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 		})
 	}
+}
+
+// openResponsesParityOrigin serves the rich OpenAI Responses-shaped wire (JSON
+// resource + streaming SSE) with deterministic parity text, plus the /models
+// discovery path the configured provider-mode inventory resolver queries.
+type openResponsesParityOrigin struct {
+	text string
+}
+
+func newOpenResponsesParityOrigin(text string) http.Handler {
+	return &openResponsesParityOrigin{text: text}
+}
+
+func (p *openResponsesParityOrigin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(strings.TrimRight(r.URL.Path, "/"), "/models") {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"gpt-4o-mini","object":"model","owned_by":"provider"}]}`)
+		return
+	}
+	if isStreamingRequest(r) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, openResponsesRichSSE(p.text, 1715620000))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = io.WriteString(w, openResponsesRichResource(p.text, 1715620000))
+}
+
+// openResponsesRichResource builds a completed OpenResponses response resource
+// carrying text as the assistant output. The payload is a typed value encoded
+// with encoding/json; no string is interpolated into the wire format.
+func openResponsesRichResource(text string, created int64) string {
+	payload := map[string]any{
+		"id":         "resp_harness_1",
+		"object":     "response",
+		"created_at": created,
+		"status":     "completed",
+		"model":      "gpt-4o-mini",
+		"output": []any{
+			map[string]any{
+				"type":    "message",
+				"id":      "msg_harness_out",
+				"status":  "completed",
+				"role":    "assistant",
+				"content": []any{map[string]any{"type": "output_text", "text": text}},
+			},
+		},
+		"usage": map[string]any{
+			"input_tokens":  1,
+			"output_tokens": 1,
+			"total_tokens":  2,
+		},
+	}
+	b, _ := json.Marshal(payload)
+	return string(b)
+}
+
+// openResponsesRichSSE builds the full incremental OpenResponses SSE trajectory
+// (created → item/part → delta → done → completed → [DONE]) carrying text. Every
+// event payload is constructed as a typed value and encoded with encoding/json
+// so no interpolated string can corrupt the wire format.
+func openResponsesRichSSE(text string, created int64) string {
+	item := func(status, itemText string) map[string]any {
+		return map[string]any{
+			"type":    "message",
+			"id":      "msg_harness_1",
+			"status":  status,
+			"role":    "assistant",
+			"content": []any{map[string]any{"type": "output_text", "text": itemText}},
+		}
+	}
+	response := func(status string, output []any) map[string]any {
+		return map[string]any{
+			"id":         "resp_harness_stream",
+			"object":     "response",
+			"created_at": created,
+			"status":     status,
+			"model":      "gpt-4o-mini",
+			"output":     output,
+		}
+	}
+	events := []struct {
+		name string
+		data map[string]any
+	}{
+		{"response.created", map[string]any{
+			"type":            "response.created",
+			"sequence_number": 1,
+			"response":        response("in_progress", []any{}),
+		}},
+		{"response.output_item.added", map[string]any{
+			"type":            "response.output_item.added",
+			"sequence_number": 2,
+			"output_index":    0,
+			"item":            item("in_progress", ""),
+		}},
+		{"response.content_part.added", map[string]any{
+			"type":            "response.content_part.added",
+			"sequence_number": 3,
+			"item_id":         "msg_harness_1",
+			"output_index":    0,
+			"content_index":   0,
+			"part":            map[string]any{"type": "output_text", "text": ""},
+		}},
+		{"response.output_text.delta", map[string]any{
+			"type":            "response.output_text.delta",
+			"sequence_number": 4,
+			"item_id":         "msg_harness_1",
+			"output_index":    0,
+			"content_index":   0,
+			"delta":           text,
+		}},
+		{"response.output_text.done", map[string]any{
+			"type":            "response.output_text.done",
+			"sequence_number": 5,
+			"item_id":         "msg_harness_1",
+			"output_index":    0,
+			"content_index":   0,
+			"text":            text,
+		}},
+		{"response.content_part.done", map[string]any{
+			"type":            "response.content_part.done",
+			"sequence_number": 6,
+			"item_id":         "msg_harness_1",
+			"output_index":    0,
+			"content_index":   0,
+		}},
+		{"response.output_item.done", map[string]any{
+			"type":            "response.output_item.done",
+			"sequence_number": 7,
+			"output_index":    0,
+			"item":            item("completed", text),
+		}},
+		{"response.completed", map[string]any{
+			"type":            "response.completed",
+			"sequence_number": 8,
+			"response":        response("completed", []any{item("completed", text)}),
+		}},
+	}
+	var buf bytes.Buffer
+	for _, ev := range events {
+		data, _ := json.Marshal(ev.data)
+		buf.WriteString("event: " + ev.name + "\n")
+		buf.WriteString("data: " + string(data) + "\n\n")
+	}
+	buf.WriteString("data: [DONE]\n\n")
+	return buf.String()
+}
+
+// providerModeOrigin serves the /models discovery path the configured
+// OpenAI-compatible provider-mode inventory queries, delegating every other
+// request to the OpenAI Responses-shaped reference responder.
+type providerModeOrigin struct {
+	responses http.Handler
+}
+
+func (p *providerModeOrigin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(strings.TrimRight(r.URL.Path, "/"), "/models") {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"gpt-4o-mini","object":"model","owned_by":"provider"}]}`)
+		return
+	}
+	p.responses.ServeHTTP(w, r)
 }
 
 const openAIResponsesNonStreamDefault = `{

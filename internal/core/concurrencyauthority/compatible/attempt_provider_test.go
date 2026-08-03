@@ -162,7 +162,7 @@ func TestAttemptProvider_noOverAdmissionUnderRace(t *testing.T) {
 	block := make(chan struct{})
 	var peak atomic.Int32
 	var wg sync.WaitGroup
-	for i := 0; i < 24; i++ {
+	for i := range 24 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

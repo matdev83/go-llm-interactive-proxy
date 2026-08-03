@@ -60,6 +60,10 @@ type DiscoveredPluginInstall struct {
 	Host    *processhost.Host
 	Exports []ValidatedExport
 	Options DiscoveredInstallOptions
+	// Trusted holds every verified artifact bound to the shared staging root.
+	// Exports reference the same pointers; the ownership holder must close all
+	// of them before removing staging (Windows locks staged executables).
+	Trusted []*trust.VerifiedArtifact
 }
 
 func installDiscoveredPlugins(opts *BuildOptions) error {
@@ -209,9 +213,14 @@ func buildDiscoveredBackend(
 	if len(prefixes) == 0 {
 		prefixes = []string{factoryKind}
 	}
+	neg := backendplugin.Negotiation{Compatible: true}
+	if ns, ok := session.(adapter.NegotiatedSession); ok {
+		neg = ns.Negotiation()
+	}
 	br := adapter.Build(session, profile, adapter.Options{
 		InstanceID:    instanceID,
 		RoutePrefixes: prefixes,
+		Negotiation:   neg,
 		InvalidateGeneration: func() {
 			_ = host.InvalidateProcessGeneration(generation)
 		},

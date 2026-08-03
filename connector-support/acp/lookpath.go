@@ -9,10 +9,19 @@ import (
 	"sync"
 )
 
+// Resolver resolves an executable name to a path.
+type Resolver func(string) (string, error)
+
+type executableCacheGeneration struct {
+	m sync.Map // map[string]func() lookPathResult
+}
+
 // ExecutableCache is an instance-owned LookPath cache. Callers (connector
 // instances) own a cache so PATH mutations in tests do not race other instances.
 type ExecutableCache struct {
-	m sync.Map // map[string]func() lookPathResult
+	mu         sync.Mutex
+	generation *executableCacheGeneration
+	resolver   Resolver
 }
 
 type lookPathResult struct {
@@ -20,12 +29,28 @@ type lookPathResult struct {
 	err  error
 }
 
+// NewExecutableCache creates an instance-owned executable cache. A nil
+// resolver uses exec.LookPath.
+func NewExecutableCache(resolver Resolver) *ExecutableCache {
+	return &ExecutableCache{resolver: resolver}
+}
+
 func (c *ExecutableCache) LookPath(file string) (string, error) {
 	if c == nil {
 		return exec.LookPath(file)
 	}
-	v, _ := c.m.LoadOrStore(file, sync.OnceValue(func() lookPathResult {
-		p, e := exec.LookPath(file)
+	c.mu.Lock()
+	if c.generation == nil {
+		c.generation = &executableCacheGeneration{}
+	}
+	generation := c.generation
+	resolver := c.resolver
+	c.mu.Unlock()
+	if resolver == nil {
+		resolver = exec.LookPath
+	}
+	v, _ := generation.m.LoadOrStore(file, sync.OnceValue(func() lookPathResult {
+		p, e := resolver(file)
 		return lookPathResult{path: p, err: e}
 	}))
 	r, ok := v.(func() lookPathResult)
@@ -40,9 +65,11 @@ func (c *ExecutableCache) Reset() {
 	if c == nil {
 		return
 	}
-	// Clear is concurrent-safe with Load/Store; replacing the Map value is not
-	// (a sync.Map must not be copied after first use).
-	c.m.Clear()
+	// Publish a new generation instead of clearing the old map. Lookups that
+	// already captured the old generation may finish without blocking Reset.
+	c.mu.Lock()
+	c.generation = &executableCacheGeneration{}
+	c.mu.Unlock()
 }
 
 func (c *ExecutableCache) CheckExecutable(candidate string) (string, bool) {

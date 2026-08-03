@@ -53,6 +53,11 @@ func standardBackendEnforcesMaxOutput(id string) (bool, bool) {
 	case "openai-responses", "openai-legacy", "anthropic", "alibaba-token-plan-intl", "gemini", "bedrock",
 		CustomOpenAILegacyCompatibleID, CustomOpenAIResponsesCompatibleID, CustomAnthropicCompatibleID:
 		return true, true
+	case CustomOpenResponsesCompatibleID:
+		// The generic OpenResponses create request serializes a non-nil
+		// MaxOutputTokens (max_output_tokens) on both streaming and
+		// non-streaming transport, so an authority spend-cap clamp binds.
+		return true, true
 	default:
 		return false, false
 	}

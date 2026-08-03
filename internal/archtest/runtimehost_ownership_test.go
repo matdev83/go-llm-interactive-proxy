@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"golang.org/x/tools/go/packages"
@@ -365,8 +366,23 @@ func lookupNamedMethod(pkg *packages.Package, typeName, methodName string) *type
 	return fn
 }
 
+var (
+	runtimehostCacheMu   sync.Mutex
+	runtimehostCache     = make(map[archBuildContext]*packages.Package)
+	runtimehostDirOnce   sync.Once
+	runtimehostDirCached string
+)
+
 func loadRuntimehostForContext(t *testing.T, bc archBuildContext, overlay map[string][]byte) *packages.Package {
 	t.Helper()
+	if len(overlay) == 0 {
+		runtimehostCacheMu.Lock()
+		if pkg, ok := runtimehostCache[bc]; ok {
+			runtimehostCacheMu.Unlock()
+			return pkg
+		}
+		runtimehostCacheMu.Unlock()
+	}
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedImports | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo,
@@ -381,18 +397,29 @@ func loadRuntimehostForContext(t *testing.T, bc archBuildContext, overlay map[st
 	if packages.PrintErrors(pkgs) > 0 || len(pkgs) != 1 || pkgs[0].Types == nil || pkgs[0].TypesInfo == nil {
 		t.Fatalf("load runtimehost (%s/%s): packages=%d (fail closed)", bc.GOOS, bc.GOARCH, len(pkgs))
 	}
+	if len(overlay) == 0 {
+		runtimehostCacheMu.Lock()
+		runtimehostCache[bc] = pkgs[0]
+		runtimehostCacheMu.Unlock()
+	}
 	return pkgs[0]
 }
 
 func runtimehostDir(t *testing.T) string {
 	t.Helper()
-	pkgs, err := packages.Load(&packages.Config{
-		Mode:  packages.NeedName | packages.NeedFiles,
-		Tests: false,
-		Env:   packagesLoadEnv("linux", "amd64"),
-	}, runtimehostPackagePath)
-	if err != nil || packages.PrintErrors(pkgs) > 0 || len(pkgs) != 1 || len(pkgs[0].GoFiles) == 0 {
-		t.Fatalf("resolve runtimehost dir: err=%v pkgs=%v", err, pkgs)
+	runtimehostDirOnce.Do(func() {
+		pkgs, err := packages.Load(&packages.Config{
+			Mode:  packages.NeedName | packages.NeedFiles,
+			Tests: false,
+			Env:   packagesLoadEnv("linux", "amd64"),
+		}, runtimehostPackagePath)
+		if err != nil || packages.PrintErrors(pkgs) > 0 || len(pkgs) != 1 || len(pkgs[0].GoFiles) == 0 {
+			return
+		}
+		runtimehostDirCached = filepath.Dir(pkgs[0].GoFiles[0])
+	})
+	if runtimehostDirCached == "" {
+		t.Fatalf("resolve runtimehost dir failed")
 	}
-	return filepath.Dir(pkgs[0].GoFiles[0])
+	return runtimehostDirCached
 }

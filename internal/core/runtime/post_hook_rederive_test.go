@@ -235,7 +235,8 @@ func TestPostHookRederive_dimensionsTable(t *testing.T) {
 			ex.Rand = routing.NewSeededRng(3)
 			ex.Bus = hooks.New(hooks.Config{RequestPartHooks: []sdkhooks.RequestPartHook{postHookMutator{mode: tc.mode}}})
 			tc.setup(ex, &openedA, &openedB)
-			stream, execErr := ex.Execute(t.Context(), postHookBaseCall(tc.selector))
+			call := postHookBaseCall(tc.selector)
+			stream, execErr := ex.Execute(t.Context(), call)
 			if tc.wantErrSub != "" {
 				if execErr == nil || !strings.Contains(strings.ToLower(execErr.Error()), strings.ToLower(tc.wantErrSub)) {
 					t.Fatalf("want err containing %q, got %v", tc.wantErrSub, execErr)

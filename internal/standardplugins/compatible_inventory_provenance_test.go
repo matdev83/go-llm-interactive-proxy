@@ -17,6 +17,7 @@ import (
 )
 
 func TestCompatibleInventory_provenanceCompleteOnBuild(t *testing.T) {
+	t.Parallel()
 	reg := customCompatibleRegistry(t)
 	be := buildCompatibleFromYAML(t, reg, CustomOpenAILegacyCompatibleID, "prov-a", `backend_prefix: prov-a
 base_url: http://127.0.0.1:9/v1
@@ -48,10 +49,11 @@ models:
 }
 
 func TestCompatibleInventory_remoteResultsBounded(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"data":[`)
-		for i := 0; i < modeldiscover.MaxInventoryModels+1; i++ {
+		for i := range modeldiscover.MaxInventoryModels + 1 {
 			if i > 0 {
 				_, _ = io.WriteString(w, ",")
 			}
@@ -75,6 +77,7 @@ base_url: %s/v1
 }
 
 func TestCompatibleInventory_sameKindStaticRowsDoNotCross(t *testing.T) {
+	t.Parallel()
 	reg := customCompatibleRegistry(t)
 	beA := buildCompatibleFromYAML(t, reg, CustomOpenAILegacyCompatibleID, "inv-a", `backend_prefix: inv-a
 base_url: http://127.0.0.1:9/v1

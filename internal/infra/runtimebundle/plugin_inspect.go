@@ -2,10 +2,12 @@ package runtimebundle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/catalog"
@@ -40,11 +42,16 @@ func InspectBackendPluginsCtx(ctx context.Context, cfg *config.Config, reg *plug
 	if err != nil {
 		return PluginInspectReport{}, fmt.Errorf("runtimebundle: InspectBackendPlugins: staging: %w", err)
 	}
-	defer func() { _ = os.RemoveAll(staging) }()
 	resolved, err := ResolvePluginCatalog(cfg, reg, staging)
 	if err != nil {
+		closeVerifiedArtifacts(resolved.TrustBySafe)
+		_ = removeAllRetry(staging, 8, 25*time.Millisecond)
 		return PluginInspectReport{}, err
 	}
+	defer func() {
+		closeVerifiedArtifacts(resolved.TrustBySafe)
+		_ = removeAllRetry(staging, 8, 25*time.Millisecond)
+	}()
 	compatibleRows := standardplugins.ProjectCompatibleBackendRows(cfg)
 	if live, loadErr := tryLoadInventoryLiveSnapshot(ctx, cfg, reg); loadErr == nil {
 		defer func() { _ = live.Close(ctx) }()
@@ -59,6 +66,33 @@ func InspectBackendPluginsCtx(ctx context.Context, cfg *config.Config, reg *plug
 	return rep, resolved.CatalogErr
 }
 
+// doctorStagedArtifact bundles a verified doctor artifact with its private
+// staging root so DoctorBackendPlugin can close the staged executable handle
+// before removing the root (Windows locks staged executables until
+// VerifiedArtifact.Close).
+type doctorStagedArtifact struct {
+	Artifact   *trust.VerifiedArtifact
+	StagingDir string
+}
+
+// Close releases the verified handle first, then removes the staging root.
+func (d *doctorStagedArtifact) Close() error {
+	if d == nil {
+		return nil
+	}
+	var out error
+	if d.Artifact != nil {
+		out = errors.Join(out, d.Artifact.Close())
+		d.Artifact = nil
+	}
+	if d.StagingDir != "" {
+		dir := d.StagingDir
+		d.StagingDir = ""
+		out = errors.Join(out, removeAllRetry(dir, 8, 25*time.Millisecond))
+	}
+	return out
+}
+
 // DoctorBackendPlugin launches only the selected configured instance id.
 func DoctorBackendPlugin(ctx context.Context, cfg *config.Config, reg *pluginreg.Registry, instanceID string, host *processhost.Host) (PluginDoctorReport, error) {
 	if cfg == nil {
@@ -67,9 +101,6 @@ func DoctorBackendPlugin(ctx context.Context, cfg *config.Config, reg *pluginreg
 	instanceID = strings.TrimSpace(instanceID)
 	if instanceID == "" {
 		return PluginDoctorReport{}, fmt.Errorf("runtimebundle: DoctorBackendPlugin: empty instance id")
-	}
-	if host == nil {
-		host = processhost.NewHost(processhost.Config{})
 	}
 
 	for _, b := range cfg.Plugins.Backends {
@@ -88,10 +119,29 @@ func DoctorBackendPlugin(ctx context.Context, cfg *config.Config, reg *pluginreg
 		}
 	}
 
-	targets, err := resolveDoctorTargets(cfg, reg, []string{instanceID})
+	// Doctor owns the host it creates (never the caller's). Artifact/staging
+	// ownership comes back from target resolution and is closed after the
+	// operation so Windows handles are released before staging removal.
+	ownsHost := host == nil
+	if host == nil {
+		host = processhost.NewHost(processhost.Config{})
+	}
+
+	targets, owned, err := resolveDoctorTargets(cfg, reg, []string{instanceID})
 	if err != nil {
+		if ownsHost {
+			_ = host.Close()
+		}
 		return PluginDoctorReport{}, err
 	}
+	defer func() {
+		for _, a := range owned {
+			_ = a.Close()
+		}
+		if ownsHost {
+			_ = host.Close()
+		}
+	}()
 	return diagnostics.Doctor(ctx, diagnostics.DoctorInput{
 		InstanceIDs: []string{instanceID},
 		Targets:     targets,
@@ -138,7 +188,7 @@ func configuredBackends(cfg *config.Config) []diagnostics.ConfiguredBackend {
 	return out
 }
 
-func resolveDoctorTargets(cfg *config.Config, reg *pluginreg.Registry, instanceIDs []string) (map[string]diagnostics.DoctorTarget, error) {
+func resolveDoctorTargets(cfg *config.Config, reg *pluginreg.Registry, instanceIDs []string) (map[string]diagnostics.DoctorTarget, []*doctorStagedArtifact, error) {
 	want := map[string]struct{}{}
 	for _, id := range instanceIDs {
 		want[strings.TrimSpace(id)] = struct{}{}
@@ -146,6 +196,7 @@ func resolveDoctorTargets(cfg *config.Config, reg *pluginreg.Registry, instanceI
 	targets := map[string]diagnostics.DoctorTarget{}
 	bd := cfg.Plugins.BackendDiscovery
 
+	var owned []*doctorStagedArtifact
 	for _, b := range cfg.Plugins.Backends {
 		id := b.InstanceID()
 		if _, ok := want[id]; !ok || !b.Enabled {
@@ -162,18 +213,21 @@ func resolveDoctorTargets(cfg *config.Config, reg *pluginreg.Registry, instanceI
 			targets[id] = diagnostics.DoctorTarget{InstanceID: id, Kind: kind}
 			continue
 		}
+		if art != nil {
+			owned = append(owned, art)
+		}
 		raw, _ := encodeOpaqueYAML(b.Config)
 		targets[id] = diagnostics.DoctorTarget{
 			InstanceID: id,
 			Kind:       kind,
-			Artifact:   art,
+			Artifact:   art.Artifact,
 			ConfigYAML: raw,
 			// Doctor never preloads connector credentials; channel check uses empty secrets.
 			Secrets: backendplugin.SecretBundle{},
 			Model:   processhost.ProcessModelPerInstance,
 		}
 	}
-	return targets, nil
+	return targets, owned, nil
 }
 
 func isExternalDiscoveryKind(kind string, bd config.BackendDiscoveryConfig, reg *pluginreg.Registry) bool {
@@ -186,7 +240,10 @@ func isExternalDiscoveryKind(kind string, bd config.BackendDiscoveryConfig, reg 
 	return !slices.Contains(standardplugins.EssentialBackendKinds, kind)
 }
 
-func resolveConfiguredArtifact(bd config.BackendDiscoveryConfig, kind string) (*trust.VerifiedArtifact, error) {
+// resolveConfiguredArtifact returns a verified doctor artifact together with
+// its private staging root. The caller owns both and must Close the result so
+// the staged executable handle is released before the staging root is removed.
+func resolveConfiguredArtifact(bd config.BackendDiscoveryConfig, kind string) (*doctorStagedArtifact, error) {
 	if !bd.Enabled {
 		return nil, fmt.Errorf("discovery disabled")
 	}
@@ -198,7 +255,8 @@ func resolveConfiguredArtifact(bd config.BackendDiscoveryConfig, kind string) (*
 	if err != nil {
 		return nil, err
 	}
-	// Caller (doctor session) owns cleanup via processhost/staging lifecycle; keep dir for Verify bind.
+	owned := &doctorStagedArtifact{StagingDir: staging}
+	var trustFail error
 	for _, d := range res.Descriptors {
 		if d.Status != discovery.StatusDiscovered {
 			continue
@@ -208,10 +266,22 @@ func resolveConfiguredArtifact(bd config.BackendDiscoveryConfig, kind string) (*
 		}
 		tr := trust.Verify(d.Root, d.Manifest, trust.VerifyOptions{StagingDir: staging})
 		if tr.Reason == trust.ReasonOK && tr.Artifact != nil {
-			return tr.Artifact, nil
+			owned.Artifact = tr.Artifact
+			return owned, nil
 		}
+		// Failed descriptor loop: close any verified-but-unreturned handle and
+		// keep scanning so no staged executable stays locked.
+		if tr.Artifact != nil {
+			_ = tr.Artifact.Close()
+		}
+		trustFail = fmt.Errorf("trust %q: %s", d.SafeID, tr.Reason)
 	}
-	_ = os.RemoveAll(staging)
+	if err := owned.Close(); err != nil {
+		return nil, err
+	}
+	if trustFail != nil {
+		return nil, trustFail
+	}
 	return nil, fmt.Errorf("no trusted artifact for kind %q", kind)
 }
 

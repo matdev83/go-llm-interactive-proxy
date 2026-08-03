@@ -181,5 +181,14 @@ func eventPayloadBytes(e *CanonicalEvent) uint64 {
 	if e.Usage != nil && e.Usage.RawUsageJSON.State() == RawJSONValue {
 		n += uint64(len(e.Usage.RawUsageJSON.Bytes()))
 	}
+	if e.ReasoningSummary.State() == RawJSONValue {
+		n += uint64(len(e.ReasoningSummary.Bytes()))
+	}
+	if e.ReasoningContent.State() == RawJSONValue {
+		n += uint64(len(e.ReasoningContent.Bytes()))
+	}
+	if e.ReasoningEncryptedContent.State() == RawJSONValue {
+		n += uint64(len(e.ReasoningEncryptedContent.Bytes()))
+	}
 	return n
 }

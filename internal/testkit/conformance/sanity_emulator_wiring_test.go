@@ -5,7 +5,6 @@ package conformance
 import (
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
@@ -22,6 +21,7 @@ func TestSanityTask13_BundledFrontendsWiredForConformance(t *testing.T) {
 		"openai-legacy":    {},
 		"anthropic":        {},
 		"gemini":           {},
+		"openresponses":    {},
 	}
 	ids := BundledFrontendIDs()
 	if len(ids) != len(wired) {
@@ -47,7 +47,10 @@ func TestSanityTask13_BundledBackendsWiredForRefParity(t *testing.T) {
 		anthropic.ID:       {},
 		gemini.ID:          {},
 		bedrock.ID:         {},
-		acp.ID:             {},
+		"acp":              {},
+		"openresponses":    {},
+		"openrouter":       {},
+		"nvidia":           {},
 	}
 	ids := BundledBackendIDs()
 	if len(ids) != len(wired) {

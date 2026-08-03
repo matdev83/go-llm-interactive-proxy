@@ -22,7 +22,9 @@ var ParitySuiteGoFiles = []string{
 
 // ParityProtocolEvidence maps every bundled frontend/backend protocol id to at least one
 // parity suite source file in this package (llm-api-parity P5.1). Shared families may
-// list the same file for multiple ids.
+// list the same file for multiple ids. OpenResponses evidence spans the explicit
+// frontend row and backend column conformance suites; the OpenRouter/NVIDIA
+// compatibility identities reuse the configured provider-mode row proof.
 var ParityProtocolEvidence = map[string][]string{
 	"openai-responses": {"parity_openai_test.go"},
 	"openai-legacy":    {"parity_openai_test.go"},
@@ -30,6 +32,12 @@ var ParityProtocolEvidence = map[string][]string{
 	"gemini":           {"parity_gemini_test.go"},
 	"bedrock":          {"parity_bedrock_test.go"},
 	"acp":              {"parity_acp_test.go"},
+	"openresponses": {
+		"openresponses_frontend_row_conformance_test.go",
+		"openresponses_backend_column_conformance_test.go",
+	},
+	"openrouter": {"openresponses_provider_mode.go"},
+	"nvidia":     {"openresponses_provider_mode.go"},
 }
 
 // AllBundledProtocolIDs returns the sorted union of bundled frontend and backend protocol ids.

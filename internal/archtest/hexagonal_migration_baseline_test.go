@@ -3,7 +3,6 @@ package archtest
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -159,9 +158,7 @@ func TestHexagonalMigrationBaselineMatchesGoList(t *testing.T) {
 func directInternalCoreImports(t *testing.T, repoRootDir, listPattern string) []string {
 	t.Helper()
 
-	cmd := exec.CommandContext(t.Context(), "go", "list", "-e", "-json", "-test=false", listPattern)
-	cmd.Dir = repoRootDir
-	out, err := cmd.Output()
+	out, err := cachedGoList(t, "-e", "-json", "-test=false", listPattern)
 	if err != nil {
 		t.Fatalf("go list %s: %v", listPattern, err)
 	}

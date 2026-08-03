@@ -29,6 +29,29 @@ func TestStageChecklist14_backendIntegrationTestsPresent(t *testing.T) {
 	t.Parallel()
 	root := refclienttest.ModuleRoot(t)
 	for _, be := range BundledBackendIDs() {
+		switch be {
+		case "acp", "openrouter", "nvidia":
+			// Optional provider-connector columns keep their evidence in the
+			// independent connector modules (service + parity suites), not under
+			// internal/plugins/backends (which stays essential-only). ACP was
+			// relocated out of the essential bundle into the acp connector
+			// (origin/main ACP relocation); its matrix column keeps the
+			// connector-module evidence path.
+			rel := filepath.Join("connectors", be, "parity_suite_test.go")
+			p := filepath.Join(root, rel)
+			if _, err := os.Stat(p); err != nil {
+				t.Fatalf("task 14.2 connector evidence missing: %s (%v)", rel, err)
+			}
+			if be == "openrouter" || be == "acp" {
+				// OpenRouter and ACP additionally keep a service-level suite.
+				rel := filepath.Join("connectors", be, "service_test.go")
+				p := filepath.Join(root, rel)
+				if _, err := os.Stat(p); err != nil {
+					t.Fatalf("task 14.2 connector evidence missing: %s (%v)", rel, err)
+				}
+			}
+			continue
+		}
 		rel := filepath.Join("internal", "plugins", "backends", backendDir(be), "integration_test.go")
 		p := filepath.Join(root, rel)
 		if _, err := os.Stat(p); err != nil {
@@ -76,8 +99,8 @@ func backendDir(id string) string {
 		return "gemini"
 	case "bedrock":
 		return "bedrock"
-	case "acp":
-		return "acp"
+	case "openresponses":
+		return "openresponsescompat"
 	default:
 		return id
 	}

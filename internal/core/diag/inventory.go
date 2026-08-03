@@ -12,11 +12,12 @@ import (
 
 // InventorySnapshot is a JSON-serializable view of configured plugins for operators.
 type InventorySnapshot struct {
-	Frontends          []PluginRow            `json:"frontends"`
-	Backends           []PluginRow            `json:"backends"`
-	CompatibleBackends []CompatibleBackendRow `json:"compatible_backends,omitempty"`
-	Features           []PluginRow            `json:"features"`
-	Extensions         InventoryExtensions    `json:"extensions"`
+	Frontends              []PluginRow                `json:"frontends"`
+	Backends               []PluginRow                `json:"backends"`
+	CompatibleBackends     []CompatibleBackendRow     `json:"compatible_backends,omitempty"`
+	OpenResponsesFrontends []OpenResponsesFrontendRow `json:"openresponses_frontends,omitempty"`
+	Features               []PluginRow                `json:"features"`
+	Extensions             InventoryExtensions        `json:"extensions"`
 	// ServerLimits exposes effective decode/admission caps and configured pending-wire
 	// (0 = unlimited) as numbers only; no payloads.
 	ServerLimits InventoryServerLimits `json:"server_limits"`
@@ -41,6 +42,9 @@ type PluginRow struct {
 // InventorySnapshotForConfig builds the same operator inventory view as [InventoryHandler] without HTTP.
 // CompatibleBackendProjector builds bounded compatible-backend rows for inventory.
 type CompatibleBackendProjector func(cfg *config.Config) []CompatibleBackendRow
+
+// OpenResponsesFrontendProjector builds bounded client-facing OpenResponses frontend rows for inventory.
+type OpenResponsesFrontendProjector func(cfg *config.Config) []OpenResponsesFrontendRow
 
 func InventorySnapshotForConfig(
 	ctx context.Context,
@@ -67,6 +71,9 @@ func InventorySnapshotForConfig(
 	}
 	if extras != nil && extras.CompatibleBackends != nil {
 		snap.CompatibleBackends = extras.CompatibleBackends(cfg)
+	}
+	if extras != nil && extras.OpenResponsesFrontends != nil {
+		snap.OpenResponsesFrontends = extras.OpenResponsesFrontends(cfg)
 	}
 	return snap, nil
 }

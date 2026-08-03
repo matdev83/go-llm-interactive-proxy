@@ -2,10 +2,13 @@ package backendplugin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"sync/atomic"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 )
 
@@ -25,6 +28,7 @@ const (
 	ModeShutdown          Mode = "shutdown"
 	ModeUnknownEventKind  Mode = "unknown_event_kind"
 	ModeSecretTerminal    Mode = "secret_terminal"
+	ModeExactReasoning    Mode = "exact_reasoning_event"
 )
 
 // Stable diagnostic codes for broken modes.
@@ -40,12 +44,16 @@ const (
 	DiagShutdown          = "fake:shutdown"
 	DiagUnknownEventKind  = "fake:unknown_event_kind"
 	DiagSecretTerminal    = "fake:secret_terminal"
+	DiagExactReasoning    = "fake:exact_reasoning_event"
 )
 
 // FakeService is an in-process deterministic backendplugin.Service for conformance.
 type FakeService struct {
-	Mode     Mode
-	SlowWait time.Duration
+	Mode                Mode
+	SlowWait            time.Duration
+	ExecuteCount        atomic.Int64
+	LastStartInvocation *backendplugin.Invocation
+	LastStartCall       *lipapi.Call
 }
 
 // Describe returns a minimal advertised-capability descriptor.
@@ -53,10 +61,12 @@ func (f *FakeService) Describe(ctx context.Context) (backendplugin.PluginDescrip
 	_ = ctx
 	return backendplugin.PluginDescriptor{
 		ProtocolMajor: 1,
-		ProtocolMinor: 0,
+		ProtocolMinor: backendplugin.ProtocolMinorExactOpenResponsesFields,
 		PluginID:      "io.golip.fake",
 		Version:       "0.0.1",
 		Features: []backendplugin.Feature{
+			{Name: backendplugin.FeatureOrderedItems, Required: false},
+			{Name: backendplugin.FeatureExactOpenResponsesFields, Required: false},
 			{Name: "count_tokens", Required: false},
 			{Name: "finalize_billing", Required: false},
 		},
@@ -70,6 +80,7 @@ func (f *FakeService) Describe(ctx context.Context) (backendplugin.PluginDescrip
 			SupportsDynamicInventory: true,
 			StaticCapabilities: backendplugin.CapabilitySummary{
 				Streaming: true, Tools: true, Vision: true, Reasoning: true,
+				OrderedItems: true, ItemReferences: true, Compaction: true, OpaqueExtensions: true,
 			},
 			TransportCapabilities: backendplugin.TransportCapabilitySummary{
 				Cancellation: true, BidirectionalStream: true,
@@ -90,20 +101,53 @@ func (f *FakeService) Configure(ctx context.Context, req backendplugin.Configure
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
-	return &fakeInstance{mode: f.Mode, slow: f.SlowWait, id: req.InstanceID}, nil
+	return &fakeInstance{
+		svc:  f,
+		mode: f.Mode,
+		slow: f.SlowWait,
+		id:   req.InstanceID,
+		neg:  req.Negotiation,
+	}, nil
 }
 
 type fakeInstance struct {
+	svc  *FakeService
 	mode Mode
 	slow time.Duration
 	id   string
+	neg  backendplugin.Negotiation
+}
+
+func (f *fakeInstance) Negotiation() backendplugin.Negotiation {
+	if f.neg.Compatible {
+		return f.neg
+	}
+	return backendplugin.Negotiation{
+		Compatible:      true,
+		NegotiatedMinor: backendplugin.ProtocolMinorExactOpenResponsesFields,
+		EnabledFeatures: []string{backendplugin.FeatureOrderedItems, backendplugin.FeatureExactOpenResponsesFields},
+	}
 }
 
 func (f *fakeInstance) Resolve(ctx context.Context, modelID *string) (backendplugin.ResolvedProfile, error) {
 	_ = ctx
 	_ = modelID
 	return backendplugin.ResolvedProfile{
-		Capabilities:             backendplugin.CapabilitySummary{Streaming: true, Tools: true, Vision: true, Reasoning: true},
+		Capabilities: backendplugin.CapabilitySummary{
+			Streaming: true, Tools: true, Vision: true, Reasoning: true,
+			OrderedItems: true, ItemReferences: true, Compaction: true, OpaqueExtensions: true,
+		},
+		DialectSupport: backendplugin.DialectSupportDTO{
+			ItemDialects: []backendplugin.DialectRequirementDTO{
+				{Kind: "item", Dialect: "item_reference"},
+			},
+			CompactionDialects: []backendplugin.DialectRequirementDTO{
+				{Kind: "compaction", Dialect: "compact.v1"},
+			},
+			ReasoningDialects: []backendplugin.DialectRequirementDTO{
+				{Kind: "reasoning", Dialect: string(lipapi.ReasoningDialectOpenAIChatTextV1)},
+			},
+		},
 		TransportCapabilities:    backendplugin.TransportCapabilitySummary{Cancellation: true, BidirectionalStream: true},
 		SupportsCountTokens:      true,
 		SupportsFinalizeBilling:  true,
@@ -136,8 +180,19 @@ func (f *fakeInstance) Execute(stream backendplugin.ExecuteStream) error {
 	if err != nil {
 		return err
 	}
-	if start.Kind != backendplugin.ClientFrameStart {
+	if start.Kind != backendplugin.ClientFrameStart || start.Invocation == nil {
 		return fmt.Errorf("%w: expected start", backendplugin.ErrInvalidFrame)
+	}
+	if err := backendplugin.ValidateClientFrameBounds(start); err != nil {
+		return err
+	}
+	if f.svc != nil {
+		f.svc.ExecuteCount.Add(1)
+		invCopy := *start.Invocation
+		f.svc.LastStartInvocation = &invCopy
+		if call, err := backendplugin.CallFromInvocation(*start.Invocation); err == nil {
+			f.svc.LastStartCall = &call
+		}
 	}
 	if err := stream.Send(backendplugin.ServerFrame{Kind: backendplugin.ServerFrameAccepted}); err != nil {
 		return err
@@ -179,7 +234,7 @@ func (f *fakeInstance) Execute(stream backendplugin.ExecuteStream) error {
 				if cerr := stream.Context().Err(); cerr != nil {
 					return cerr
 				}
-				if err == io.EOF {
+				if errors.Is(err, io.EOF) {
 					return backendplugin.ModeError{Code: DiagBlockedCancel}
 				}
 				return err
@@ -229,6 +284,22 @@ func (f *fakeInstance) Execute(stream backendplugin.ExecuteStream) error {
 					Message: `provider rejected api_key=sk-or-v1-openrouter-leak Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig sk-ant-api03-ABCDEFGHIJKLMNOP`,
 				},
 			},
+		})
+	case ModeExactReasoning:
+		dialect := string(lipapi.ReasoningDialectOpenAIResponsesItemV1)
+		ev := &backendplugin.CanonicalEvent{
+			Kind:                      backendplugin.EventReasoningPart,
+			ReasoningDialect:          &dialect,
+			ReasoningSummary:          backendplugin.RawJSONFromBytes([]byte(`[{"type":"summary_text","text":"s"}]`)),
+			ReasoningContent:          backendplugin.RawJSONFromBytes([]byte(`[{"type":"output_text","text":"t"}]`)),
+			ReasoningEncryptedContent: backendplugin.RawJSONNullValue(),
+		}
+		if err := stream.Send(backendplugin.ServerFrame{Kind: backendplugin.ServerFrameEvent, Sequence: seq, Event: ev}); err != nil {
+			return err
+		}
+		return stream.Send(backendplugin.ServerFrame{
+			Kind: backendplugin.ServerFrameTerminal, Sequence: seq + 1,
+			Terminal: &backendplugin.Terminal{Status: backendplugin.TerminalSuccess},
 		})
 	}
 

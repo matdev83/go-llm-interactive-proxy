@@ -37,6 +37,14 @@ func wireModelForFrontend(frontendID string) string {
 	}
 }
 
+// openResponsesWireRoundTrip drives the OpenResponses frontend over the harness
+// raw wire client (JSON or SSE) and returns the assembled assistant text.
+func openResponsesWireRoundTrip(tb testing.TB, proxyOrigin string, httpClient *http.Client, transport ClientTransport) (RoundTripResult, error) {
+	tb.Helper()
+	client := newOpenResponsesHTTPClient(proxyOrigin, httpClient, transport, wireModelForFrontend("openresponses"))
+	return client.RoundTrip(context.Background(), "ping")
+}
+
 func nonStreamAssistantText(tb testing.TB, frontendID, proxyOrigin string, httpClient *http.Client) string {
 	tb.Helper()
 	ctx := context.Background()
@@ -117,6 +125,12 @@ func nonStreamAssistantText(tb testing.TB, frontendID, proxyOrigin string, httpC
 			tb.Fatalf("gemini candidates: %+v", out.Candidates)
 		}
 		return out.Candidates[0].Content.Parts[0].Text
+	case "openresponses":
+		res, err := openResponsesWireRoundTrip(tb, proxyOrigin, httpClient, TransportJSON)
+		if err != nil {
+			tb.Fatalf("openresponses non-stream: %v", err)
+		}
+		return res.Text
 	default:
 		tb.Fatalf("unknown frontend %q", frontendID)
 		return ""
@@ -321,6 +335,12 @@ func streamAssistantText(tb testing.TB, frontendID, proxyOrigin string, httpClie
 			}
 		}
 		return b.String()
+	case "openresponses":
+		res, err := openResponsesWireRoundTrip(tb, proxyOrigin, httpClient, TransportSSE)
+		if err != nil {
+			tb.Fatalf("openresponses stream: %v", err)
+		}
+		return res.Text
 	default:
 		tb.Fatalf("unknown frontend %q", frontendID)
 		return ""

@@ -151,5 +151,9 @@ func cloneEvent(ev Event) Event {
 		ev.Opaque = append([]byte(nil), ev.Opaque...)
 	}
 	ev.Reasoning = cloneReasoningPart(ev.Reasoning)
+	if ev.Item != nil {
+		item := cloneItemValue(*ev.Item)
+		ev.Item = &item
+	}
 	return ev
 }

@@ -104,6 +104,18 @@ func NewToolRefBackend(tb testing.TB, backendID string, onBody func([]byte)) *ht
 		}))
 		tb.Cleanup(srv.Close)
 		return srv
+	case BackendOpenResponses, BackendOpenRouter, BackendNVIDIA:
+		// The generic OpenResponses backend and the configured OpenAI-compatible
+		// provider-mode route both consume the OpenAI Responses-shaped tool stream.
+		srv := httptest.NewServer(&providerModeOrigin{
+			responses: refopenairesponses.NewHandler(refopenairesponses.Config{
+				AllowMissingBearer: true,
+				StreamSSE:          openAICompatToolResponsesStreamSSE(DefaultModel(backendID)),
+				OnRequestBody:      cfgBody,
+			}),
+		})
+		tb.Cleanup(srv.Close)
+		return srv
 	default:
 		tb.Fatalf("no tool refbackend for %q", backendID)
 		return nil
@@ -111,11 +123,13 @@ func NewToolRefBackend(tb testing.TB, backendID string, onBody func([]byte)) *ht
 }
 
 func openAICompatToolResponsesStreamSSE(model string) string {
-	return "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":0,\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"fc_int_t\",\"call_id\":\"call_fc\",\"name\":\"get_weather\",\"status\":\"in_progress\"}}\n\n" +
-		"event: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"sequence_number\":1,\"item_id\":\"fc_int_t\",\"output_index\":0,\"delta\":\"{\\\"city\\\":\"}\n\n" +
-		"event: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"sequence_number\":2,\"item_id\":\"fc_int_t\",\"output_index\":0,\"delta\":\"\\\"NYC\\\"}\"}\n\n" +
-		"event: response.function_call_arguments.done\ndata: {\"type\":\"response.function_call_arguments.done\",\"sequence_number\":3,\"item_id\":\"fc_int_t\",\"output_index\":0,\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"NYC\\\"}\"}\n\n" +
-		"event: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":4,\"response\":{\"id\":\"r_tool\",\"object\":\"response\",\"status\":\"completed\",\"model\":\"" + model + "\",\"usage\":{\"input_tokens\":3,\"output_tokens\":7,\"total_tokens\":10,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens_details\":{\"reasoning_tokens\":0}},\"output\":[{\"type\":\"function_call\",\"id\":\"fc_int_t\",\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"NYC\\\"}\"}]}}\n\n" +
+	return "event: response.created\ndata: " + `{"type":"response.created","sequence_number":0,"response":{"id":"r_tool","object":"response","status":"in_progress","model":"` + model + `","output":[]}}` + "\n\n" +
+		"event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"fc_int_t\",\"call_id\":\"call_fc\",\"name\":\"get_weather\",\"status\":\"in_progress\"}}\n\n" +
+		"event: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"sequence_number\":2,\"item_id\":\"fc_int_t\",\"output_index\":0,\"delta\":\"{\\\"city\\\":\"}\n\n" +
+		"event: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"sequence_number\":3,\"item_id\":\"fc_int_t\",\"output_index\":0,\"delta\":\"\\\"NYC\\\"}\"}\n\n" +
+		"event: response.function_call_arguments.done\ndata: {\"type\":\"response.function_call_arguments.done\",\"sequence_number\":4,\"item_id\":\"fc_int_t\",\"output_index\":0,\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"NYC\\\"}\"}\n\n" +
+		"event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":5,\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"fc_int_t\",\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"NYC\\\"}\"}}\n\n" +
+		"event: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":6,\"response\":{\"id\":\"r_tool\",\"object\":\"response\",\"status\":\"completed\",\"model\":\"" + model + "\",\"usage\":{\"input_tokens\":3,\"output_tokens\":7,\"total_tokens\":10,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens_details\":{\"reasoning_tokens\":0}},\"output\":[{\"type\":\"function_call\",\"id\":\"fc_int_t\",\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"NYC\\\"}\"}]}}\n\n" +
 		"data: [DONE]\n\n"
 }
 

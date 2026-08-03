@@ -89,9 +89,7 @@ func liveCompatibleHealth(
 	}
 	if len(models) > 0 {
 		health.SampleModels = sampleCompatibleModels(models)
-		if health.ModelCount == 0 {
-			health.ModelCount = len(models)
-		}
+		health.ModelCount = max(health.ModelCount, len(models))
 		if health.Source == "" {
 			health.Source = string(models[0].Source)
 		}

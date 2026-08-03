@@ -86,8 +86,12 @@ func TestMatrixEvidence_acpSubsetMatchesMatrixMeta(t *testing.T) {
 		if cell.Meta.ToolsViable {
 			t.Fatalf("ACP tools must be non-viable per matrix footnote, cell=%+v", cell)
 		}
-		if cell.Meta.MultimodalViable {
-			t.Fatalf("ACP multimodal must be non-viable per matrix footnote, cell=%+v", cell)
+		// Multimodal is viable for ACP: image/file URI references project to ACP
+		// resource prompt blocks (see matrix.go SubsetJustification and the
+		// executable multimodal scenarios / OpenResponses row evidence). Only the
+		// tools subset stays rejected before network.
+		if !cell.Meta.MultimodalViable {
+			t.Fatalf("ACP multimodal must be viable (resource prompt block projection), cell=%+v", cell)
 		}
 		if cell.Meta.SubsetJustification == "" {
 			t.Fatal("ACP matrix cells must carry SubsetJustification")

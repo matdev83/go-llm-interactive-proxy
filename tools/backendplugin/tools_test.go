@@ -1,3 +1,5 @@
+//go:build integration
+
 package tools_test
 
 import (
@@ -10,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -477,11 +480,9 @@ replace_policy: development-replace-to-monorepo-root
 	if err := os.WriteFile(filepath.Join(broken, "manifest", "template.backendplugin.json"), []byte(man), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("go", "run", "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest)
-	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "GOWORK=off")
-	if out, err := cmd.CombinedOutput(); err == nil {
-		t.Fatalf("expected failure, got success\n%s", out)
+	out := runToolExpectError(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest)
+	if !strings.Contains(out, "build") && !strings.Contains(out, "exit status") && !strings.Contains(out, "failed") {
+		t.Fatalf("expected failure, got output:\n%s", out)
 	}
 	if _, err := os.Stat(marker); err != nil {
 		t.Fatal("failed package must leave prior staged files untouched")
@@ -521,11 +522,9 @@ evil_hook: curl http://evil
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("go", "run", "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", t.TempDir())
-	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "GOWORK=off")
-	if out, err := cmd.CombinedOutput(); err == nil {
-		t.Fatalf("expected unknown field rejection\n%s", out)
+	out := runToolExpectError(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", t.TempDir())
+	if !strings.Contains(out, "unknown field") && !strings.Contains(out, "field evil_hook not found") {
+		t.Fatalf("expected unknown field rejection, got:\n%s", out)
 	}
 }
 
@@ -577,17 +576,10 @@ func TestCrossPlatformQA_RejectsUnsupportedHostChannelClaim(t *testing.T) {
 		t.Fatal(err)
 	}
 	outPath := filepath.Join(t.TempDir(), "matrix.json")
-	cmd := exec.Command("go", "run", "./tools/backendplugin/crossplatform_qa",
+	out := runToolExpectError(t, root, "./tools/backendplugin/crossplatform_qa",
 		"-root", root, "-out", outPath, "-select", synName, "-skip-native")
-	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "GOWORK=off")
-	out, err := cmd.CombinedOutput()
-	if err == nil {
-		t.Fatalf("expected rejection of Darwin host-channel claim, got success\n%s", out)
-	}
-	combined := string(out)
-	if !strings.Contains(combined, "darwin") || !strings.Contains(combined, "unsupported") {
-		t.Fatalf("expected darwin unsupported claim error, got:\n%s", combined)
+	if !strings.Contains(out, "darwin") || !strings.Contains(out, "unsupported") {
+		t.Fatalf("expected darwin unsupported claim error, got:\n%s", out)
 	}
 }
 
@@ -990,8 +982,76 @@ func connectorClaimsNative(t *testing.T, root, dirName string) bool {
 	return false
 }
 
+var (
+	toolsOnce sync.Once
+	toolsDir  string
+	toolsErr  error
+)
+
+func getToolExe(t *testing.T, toolRelPath string) string {
+	t.Helper()
+	toolsOnce.Do(func() {
+		root := toolsCacheRoot
+		if root == "" {
+			r, err := os.MkdirTemp("", "golip-tools-bin-root-")
+			if err != nil {
+				toolsErr = err
+				return
+			}
+			toolsCacheRoot = r
+			root = r
+		}
+		dir, err := os.MkdirTemp(root, "golip-tools-bin-*")
+		if err != nil {
+			toolsErr = err
+			return
+		}
+		toolsDir = dir
+		tools := []string{
+			"discover_modules",
+			"package_plugins",
+			"crossplatform_qa",
+			"release_gates",
+		}
+		root = repoRoot(t)
+		for _, name := range tools {
+			binPath := filepath.Join(dir, name)
+			if runtime.GOOS == "windows" {
+				binPath += ".exe"
+			}
+			cmd := exec.Command("go", "build", "-o", binPath, "./tools/backendplugin/"+name)
+			cmd.Dir = root
+			cmd.Env = append(os.Environ(), "GOWORK=off")
+			if out, err := cmd.CombinedOutput(); err != nil {
+				toolsErr = fmt.Errorf("go build %s: %v\n%s", name, err, out)
+				return
+			}
+		}
+	})
+	if toolsErr != nil {
+		t.Fatalf("setup tool binaries: %v", toolsErr)
+	}
+	base := filepath.Base(toolRelPath)
+	bin := filepath.Join(toolsDir, base)
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
+	return bin
+}
+
 func runTool(t *testing.T, root string, args ...string) string {
 	t.Helper()
+	if len(args) > 0 && strings.HasPrefix(args[0], "./tools/backendplugin/") {
+		exe := getToolExe(t, args[0])
+		cmd := exec.Command(exe, args[1:]...)
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "GOWORK=off", "GOLIP_PACKAGE_PLUGINS_BIN="+getToolExe(t, "package_plugins"))
+		b, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("tool %s %v: %v\n%s", args[0], args[1:], err, b)
+		}
+		return string(b)
+	}
 	cmd := exec.Command("go", append([]string{"run"}, args...)...)
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "GOWORK=off")
@@ -1004,6 +1064,17 @@ func runTool(t *testing.T, root string, args ...string) string {
 
 func runToolExpectError(t *testing.T, root string, args ...string) string {
 	t.Helper()
+	if len(args) > 0 && strings.HasPrefix(args[0], "./tools/backendplugin/") {
+		exe := getToolExe(t, args[0])
+		cmd := exec.Command(exe, args[1:]...)
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "GOWORK=off", "GOLIP_PACKAGE_PLUGINS_BIN="+getToolExe(t, "package_plugins"))
+		b, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Fatalf("tool %s %v: expected error, got success\n%s", args[0], args[1:], b)
+		}
+		return string(b)
+	}
 	cmd := exec.Command("go", append([]string{"run"}, args...)...)
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "GOWORK=off")

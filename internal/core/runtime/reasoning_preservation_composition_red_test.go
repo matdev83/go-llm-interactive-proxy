@@ -210,7 +210,8 @@ func rpCollect(t *testing.T, ex *runtime.Executor, selector string) {
 
 func rpStreamingBackend(openFn func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error)) execbackend.Backend {
 	return execbackend.Backend{
-		Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityReasoningReplay),
+		Caps:          lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityReasoningReplay),
+		ReplaySupport: rpReplaySupport,
 		TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
 			Operation: lipapi.OperationOpenAIChatCompletions,
 			Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},

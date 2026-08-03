@@ -79,6 +79,9 @@ func validateStructural(ctx context.Context, in ValidateStructuralInput, ops str
 	if err := validateCompatibleBackendProjection(cfg); err != nil {
 		return err
 	}
+	if err := validateOpenResponsesFrontendProjection(cfg); err != nil {
+		return err
+	}
 	if _, err := RoutesSnapshotFrom(cfg, reg); err != nil {
 		return fmt.Errorf("runtimebundle: structural routes: %w", err)
 	}
@@ -102,6 +105,20 @@ func validateCompatibleBackendProjection(cfg *config.Config) error {
 	return nil
 }
 
+func validateOpenResponsesFrontendProjection(cfg *config.Config) error {
+	for _, row := range standardplugins.ProjectOpenResponsesFrontendRows(cfg) {
+		if strings.TrimSpace(row.ConfigError) == "" {
+			continue
+		}
+		inst := strings.TrimSpace(row.InstanceID)
+		if inst == "" {
+			inst = "<unknown>"
+		}
+		return fmt.Errorf("runtimebundle: openresponses frontend %q: %s", inst, row.ConfigError)
+	}
+	return nil
+}
+
 // registerManifestDiscoveredKinds resolves trusted plugin manifests from disk
 // and registers factory kinds on reg for manifest-available ownership checks.
 // It never creates a process host, activates plugins, or dials providers.
@@ -116,13 +133,15 @@ func registerManifestDiscoveredKinds(cfg *config.Config, reg *pluginreg.Registry
 	if err != nil {
 		return fmt.Errorf("runtimebundle: structural catalog staging: %w", err)
 	}
-	defer os.RemoveAll(staging)
+	defer func() { _ = os.RemoveAll(staging) }()
 
 	resolved, err := ResolvePluginCatalog(cfg, reg, staging)
 	if err != nil {
+		closeVerifiedArtifacts(resolved.TrustBySafe)
 		return fmt.Errorf("runtimebundle: structural plugin catalog: %w", err)
 	}
 	if resolved.CatalogErr != nil {
+		closeVerifiedArtifacts(resolved.TrustBySafe)
 		return fmt.Errorf("runtimebundle: structural plugin catalog: %w", resolved.CatalogErr)
 	}
 	for _, exp := range resolved.Installable {
@@ -131,6 +150,7 @@ func registerManifestDiscoveredKinds(cfg *config.Config, reg *pluginreg.Registry
 			continue
 		}
 		if reg.HasBackend(kind) {
+			closeVerifiedArtifacts(resolved.TrustBySafe)
 			return fmt.Errorf("runtimebundle: structural plugin catalog: duplicate backend registration: %s", kind)
 		}
 		profile := exp.Profile
@@ -140,20 +160,12 @@ func registerManifestDiscoveredKinds(cfg *config.Config, reg *pluginreg.Registry
 			profile,
 			pluginreg.BackendReloadPolicy{AllowsCandidateOverlap: true},
 		); err != nil {
-			closeValidatedExportArtifacts(resolved.Installable)
+			closeVerifiedArtifacts(resolved.TrustBySafe)
 			return fmt.Errorf("runtimebundle: structural manifest registration: %w", err)
 		}
 	}
-	closeValidatedExportArtifacts(resolved.Installable)
+	closeVerifiedArtifacts(resolved.TrustBySafe)
 	return nil
-}
-
-func closeValidatedExportArtifacts(exports []ValidatedExport) {
-	for _, exp := range exports {
-		if exp.Artifact != nil {
-			_ = exp.Artifact.Close()
-		}
-	}
 }
 
 func manifestOnlyStubFactory(kind string) func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {

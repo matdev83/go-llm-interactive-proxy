@@ -42,7 +42,7 @@ func TestConformance_TextOnly_roundTrip(t *testing.T) {
 			t.Cleanup(feSrv.Close)
 
 			got := nonStreamAssistantText(t, cell.Frontend, feSrv.URL, feSrv.Client())
-			if cell.Backend == "acp" {
+			if cell.Backend == BackendACP {
 				if !strings.Contains(got, "ok") {
 					t.Fatalf("expected ACP stock emulator text containing ok, got %q", got)
 				}
@@ -75,7 +75,7 @@ func TestConformance_TextOnly_streamAndNonStreamParity(t *testing.T) {
 
 			ns := nonStreamAssistantText(t, cell.Frontend, feSrv.URL, feSrv.Client())
 			st := streamAssistantText(t, cell.Frontend, feSrv.URL, feSrv.Client())
-			if cell.Backend == "acp" {
+			if cell.Backend == BackendACP {
 				if !strings.Contains(ns, "ok") || !strings.Contains(st, "ok") {
 					t.Fatalf("expected ok in both paths non-stream=%q stream=%q", ns, st)
 				}
@@ -140,6 +140,10 @@ func TestConformance_TextOnly_upstreamErrorShape(t *testing.T) {
 				lower := strings.ToLower(err.Error())
 				if !strings.Contains(lower, "400") && !strings.Contains(lower, "invalid") && !strings.Contains(lower, "internal error") {
 					t.Fatalf("expected client-visible error mentioning status, invalid, or generic internal failure, got %v", err)
+				}
+			case "openresponses":
+				if err == nil {
+					t.Fatal("expected error")
 				}
 			default:
 				t.Fatalf("unexpected frontend %q", cell.Frontend)
@@ -219,6 +223,9 @@ func nonStreamExpectError(tb testing.TB, frontendID, proxyOrigin string, httpCli
 		_, err = cli.GenerateContent(ctx, wireModelForFrontend(frontendID), []*genai.Content{
 			genai.NewContentFromText("ping", genai.RoleUser),
 		}, nil)
+		return err
+	case "openresponses":
+		_, err := openResponsesWireRoundTrip(tb, proxyOrigin, httpClient, TransportJSON)
 		return err
 	default:
 		tb.Fatalf("unknown frontend %q", frontendID)

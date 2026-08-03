@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -88,7 +89,16 @@ func TestSessionRef_JSONRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(b, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got != ref {
+	if !reflect.DeepEqual(got, lipapi.SessionRef{
+		ClientSessionID:        ref.ClientSessionID,
+		ContinuityKey:          ref.ContinuityKey,
+		ALegID:                 ref.ALegID,
+		AuthoritativeSessionID: ref.AuthoritativeSessionID,
+		ResumeToken:            ref.ResumeToken,
+	}) {
 		t.Fatalf("round trip: %+v vs %+v", got, ref)
+	}
+	if got.Metadata != nil {
+		t.Fatalf("session metadata must not be serialized: %#v", got.Metadata)
 	}
 }

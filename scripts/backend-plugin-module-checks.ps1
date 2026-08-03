@@ -1,111 +1,109 @@
 # Dynamic multi-module checks for connectors/* and connector-support/*.
-# Avoids recursive make: this script is invoked by Make once.
+param(
+    [switch]$SelfTest
+)
 $ErrorActionPreference = "Stop"
-$Root = Resolve-Path (Join-Path $PSScriptRoot "..")
-Set-Location $Root
-$env:GOWORK = "off"
+. "$PSScriptRoot/taskrunner.ps1"
+$Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+
+# Robocopy has its own exit-code protocol: 0-7 are success (1 means files were
+# copied) and >=8 is a failure. The generic taskrunner rejects every non-zero
+# child exit, so the copy is invoked directly and classified with this helper.
+function Test-RobocopySucceeded {
+    param([Parameter(Mandatory = $true)][int]$ExitCode)
+    return $ExitCode -ge 0 -and $ExitCode -le 7
+}
+
+function Invoke-Robocopy {
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Destination,
+        [Parameter(Mandatory = $true)][string[]]$Arguments
+    )
+    & robocopy $Source $Destination @Arguments
+    $exit = $LASTEXITCODE
+    if (-not (Test-RobocopySucceeded $exit)) {
+        throw "robocopy failed copying '$Source' to '$Destination' (robocopy exit $exit; 0-7 is success, >=8 is failure)"
+    }
+}
+
+if ($SelfTest) {
+    foreach ($ok in @(0, 1, 7)) {
+        if (-not (Test-RobocopySucceeded $ok)) { throw "robocopy classifier rejected successful exit $ok" }
+    }
+    foreach ($bad in @(8, 16, 32)) {
+        if (Test-RobocopySucceeded $bad) { throw "robocopy classifier accepted failure exit $bad" }
+    }
+    Write-Host "OK backend-plugin-module-checks robocopy exit-code classifier self-test"
+    exit 0
+}
+
+function Invoke-Go {
+    param(
+        [Parameter(Mandatory = $true)][string]$Label,
+        [Parameter(Mandatory = $true)][string]$Cwd,
+        [Parameter(Mandatory = $true)][string[]]$Args,
+        [string]$Timeout = "8m",
+        [string[]]$Env = @("GOWORK=off"),
+        [ValidateSet("stream", "capture")][string]$Output = "stream"
+    )
+    Invoke-TaskRunner -Label $Label -Cwd $Cwd -Timeout $Timeout -Env $Env -Output $Output -Command (@("go") + $Args)
+}
 
 Write-Host "== root go list/build/module graph =="
-& go list ./... | Out-Null
-& go build -o NUL ./cmd/lipstd
-$modsAll = & go list -m all
+Invoke-Go "backend-plugin-module-checks:root:list" $Root @("list", "./...") | Out-Host
+Invoke-Go "backend-plugin-module-checks:root:build" $Root @("build", "-o", "NUL", "./cmd/lipstd") | Out-Host
+$modsAll = @(Invoke-Go "backend-plugin-module-checks:root:module-graph" $Root @("list", "-m", "all") -Output capture)
 if ($modsAll | Select-String -Pattern "connectors/|connector-support/") {
-  Write-Error "root go list -m all must not contain connector modules"
+    throw "root go list -m all must not contain connector modules"
 }
 
 Write-Host "== root go test ./... =="
-& go test ./...
-if ($LASTEXITCODE -ne 0) {
-  Write-Error "root GOWORK=off go test ./... failed"
-}
+Invoke-Go "backend-plugin-module-checks:root:test" $Root @("test", "./...") | Out-Host
 
 Write-Host "== discover modules =="
-$discovered = & go run ./tools/backendplugin/discover_modules -root .
+$discovered = @(Invoke-Go "backend-plugin-module-checks:discovery" $Root @("run", "./tools/backendplugin/discover_modules", "-root", ".") -Output capture | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 Write-Host ("discovered: " + ($discovered -join " "))
 
-foreach ($mod in @($discovered)) {
-  if (-not $mod) { continue }
-  Write-Host "== module $mod =="
-  Push-Location $mod
-  try {
-    & go list ./... | Out-Null
-    & go test ./...
-    if (Test-Path cmd) {
-      Get-ChildItem cmd -Directory | ForEach-Object {
-        & go build -o NUL ("./cmd/" + $_.Name)
-      }
+foreach ($mod in $discovered) {
+    $module = $mod.Trim()
+    if (-not $module) { continue }
+    $moduleDir = Join-Path $Root $module
+    Write-Host "== module $module =="
+    Invoke-Go "backend-plugin-module-checks:$module:list" $moduleDir @("list", "./...") | Out-Host
+    Invoke-Go "backend-plugin-module-checks:$module:test" $moduleDir @("test", "./...") | Out-Host
+    if (Test-Path (Join-Path $moduleDir "cmd")) {
+        Get-ChildItem (Join-Path $moduleDir "cmd") -Directory | ForEach-Object {
+            Invoke-Go "backend-plugin-module-checks:$module:build:$($_.Name)" $moduleDir @("build", "-o", "NUL", ("./cmd/" + $_.Name)) | Out-Host
+        }
     }
-    $imports = & go list -f "{{.ImportPath}} {{.Imports}} {{.TestImports}} {{.XTestImports}}" ./...
+    $imports = @(Invoke-Go "backend-plugin-module-checks:$module:imports" $moduleDir @("list", "-f", "{{.ImportPath}} {{.Imports}} {{.TestImports}} {{.XTestImports}}", "./...") -Output capture)
     if ($imports | Select-String -Pattern "go-llm-interactive-proxy/internal/") {
-      Write-Error "$mod imports root internal/"
+        throw "$module imports root internal/"
     }
-  } finally {
-    Pop-Location
-  }
 }
 
 Write-Host "== synthetic connector discovery =="
 $syn = Join-Path $Root "connectors\_synthetic_ci_probe"
 New-Item -ItemType Directory -Force -Path $syn | Out-Null
-Set-Content -Path (Join-Path $syn "go.mod") -Value @"
-module github.com/matdev83/go-llm-interactive-proxy/connectors/_synthetic_ci_probe
-
-go 1.26.5
-"@
+Set-Content -Path (Join-Path $syn "go.mod") -Value "module github.com/matdev83/go-llm-interactive-proxy/connectors/_synthetic_ci_probe`n`ngo 1.26.5`n"
 try {
-  $found = & go run ./tools/backendplugin/discover_modules -root .
-  if (-not ($found | Where-Object { $_ -eq "connectors/_synthetic_ci_probe" })) {
-    Write-Error "synthetic connector not discovered"
-  }
+    $found = @(Invoke-Go "backend-plugin-module-checks:synthetic-discovery" $Root @("run", "./tools/backendplugin/discover_modules", "-root", ".") -Output capture)
+    if (-not ($found | Where-Object { $_ -eq "connectors/_synthetic_ci_probe" })) {
+        throw "synthetic connector not discovered"
+    }
 } finally {
-  Remove-Item -Recurse -Force $syn -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force $syn -ErrorAction SilentlyContinue
 }
 
 Write-Host "== root build with connectors/ absent (temp copy) =="
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("golip-root-no-connectors-" + [guid]::NewGuid().ToString("n"))
 New-Item -ItemType Directory -Force -Path $tmp | Out-Null
 try {
-  $robolog = Join-Path $tmp "robocopy.log"
-  & robocopy $Root $tmp /E /NFL /NDL /NJH /NJS /nc /ns /np `
-    /XD .git connectors connector-support .golip-package-staging .golip-plugins node_modules `
-    /XF *.exe | Out-File $robolog
-  if ($LASTEXITCODE -ge 8) {
-    Write-Error "robocopy failed with exit $LASTEXITCODE"
-  }
-  Push-Location $tmp
-  try {
-    $env:GOWORK = "off"
-    & go build -o NUL ./cmd/lipstd
-    if ($LASTEXITCODE -ne 0) { Write-Error "lipstd build failed without connectors/" }
-  } finally {
-    Pop-Location
-  }
+    Invoke-Robocopy -Source $Root -Destination $tmp -Arguments @("/E", "/NFL", "/NDL", "/NJH", "/NJS", "/nc", "/ns", "/np", "/XD", ".git", "connectors", "connector-support", ".golip-package-staging", ".golip-plugins", "node_modules", "/XF", "*.exe")
+    Invoke-Go "backend-plugin-module-checks:root-without-connectors:build" $tmp @("build", "-o", "NUL", "./cmd/lipstd") | Out-Host
 } finally {
-  Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
-}
-
-Write-Host "== acp mirror byte-identical files =="
-$RootAcp = Join-Path $Root "internal/plugins/backends/acp"
-$ConnAcp = Join-Path $Root "connector-support/acp"
-$MirrorFiles = @(
-  "acp_protocol.go", "call_extract_test.go", "call_extract.go", "cancel.go", "client.go",
-  "connector_config_test.go", "doc.go", "handshake.go", "history_transcript_test.go", "history_transcript.go",
-  "invoke_test.go", "invoke.go", "main_test.go", "model_index_test.go", "model_index.go",
-  "process_identity_test.go", "process_identity_unix_test.go", "process_identity_unix.go",
-  "process_identity_windows.go", "process_identity.go", "rpc_error_test.go", "rpc_error.go",
-  "rpc_id.go", "rpc.go", "runtime_pool_claim_test.go", "runtime_pool_ensure_test.go", "runtime_pool_ensure.go",
-  "runtime_pool_test.go", "runtime_pool.go", "server_handler.go", "server_request_test.go",
-  "session_update_test.go", "session.go", "session_update.go", "stderr_sanitize_test.go", "stderr_sanitize.go",
-  "subprocess_protocol.go", "subprocess_spec_test.go", "tool_sink.go", "tool_summary_test.go", "tool_summary.go",
-  "transport_stdio_os_unix.go", "transport_stdio_os_windows.go", "transport_stdio_os.go", "transport_stdio.go",
-  "workspace_test.go", "workspace.go"
-)
-foreach ($f in $MirrorFiles) {
-  $a = Get-FileHash (Join-Path $RootAcp $f)
-  $b = Get-FileHash (Join-Path $ConnAcp $f)
-  if ($a.Hash -ne $b.Hash) {
-    Write-Error "acp mirror drift (expected byte-identical): $f"
-  }
+    Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 }
 
 Write-Host "OK backend-plugin-module-checks"

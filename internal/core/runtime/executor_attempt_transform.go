@@ -103,52 +103,18 @@ func (e *Executor) rederiveAfterRequestHooks(
 	if vErr := attempt.Validate(); vErr != nil {
 		return out, fmt.Errorf("executor: post-hook validate: %w", vErr)
 	}
-	facts := e.effectiveFactsForAttempt(ctx, be, *attempt, c)
-	out.facts = facts
-	res := lipapi.Negotiate(lipapi.RequiredCapabilities(*attempt), facts.EffectiveCaps)
-	if res.Kind == lipapi.NegotiationReject {
-		if stickyBinding && c.Primary.Backend == stickyBackendID {
-			e.clearAffinityBinding(ctx, p.traceID, p.affinityKey, p.affinitySet, "capability_reject")
-		}
-		if p.lastReject != nil {
-			*p.lastReject = res
-		}
-		diag.LogDecision(ctx, e.Log, "capability_reject", diag.AttrOpts{CallID: p.traceID},
-			slog.String("decision", "exclude_candidate"), slog.String("candidate_key", c.Key),
-			slog.String("backend", c.Primary.Backend), slog.String("phase", "post_request_hooks"))
-		if p.transformExcludes != nil {
-			p.transformExcludes.noteOther()
-		}
+	admitOut := e.evaluateCandidateAdmission(ctx, p.traceID, *attempt, c, be, p.failoverReq)
+	out.facts = admitOut.facts
+	if admitOut.admitRes.Kind == lipapi.NegotiationReject {
+		e.noteCandidateAdmissionReject(ctx, p, c, stickyBackendID, stickyBinding, admitOut, "post_request_hooks")
 		out.excluded = true
 		return out, nil
 	}
-	if res.Kind == lipapi.NegotiationDowngrade {
-		lipapi.ApplyNegotiatedDowngrades(attempt, res)
+	if admitOut.admitRes.Capability.Kind == lipapi.NegotiationDowngrade {
+		lipapi.ApplyNegotiatedDowngrades(attempt, admitOut.admitRes.Capability)
 	}
-	transportCaps := e.transportCapsForAttempt(ctx, be, *attempt, c)
-	transportRes := lipapi.NegotiateTransport(attempt.Invocation, transportCaps, e.effectiveTransportFallbackPolicy())
-	if transportRes.Kind == lipapi.NegotiationReject {
-		e.recordTransportNegotiation(attempt.Invocation.Operation, transportRes.Mode, "reject")
-		if stickyBinding && c.Primary.Backend == stickyBackendID {
-			e.clearAffinityBinding(ctx, p.traceID, p.affinityKey, p.affinitySet, "transport_reject")
-		}
-		if p.lastTransportReject != nil {
-			*p.lastTransportReject = transportRes
-		}
-		diag.LogDecision(ctx, e.Log, "transport_reject", diag.AttrOpts{CallID: p.traceID},
-			slog.String("decision", "exclude_candidate"), slog.String("candidate_key", c.Key),
-			slog.String("backend", c.Primary.Backend), slog.String("phase", "post_request_hooks"))
-		if p.transformExcludes != nil {
-			p.transformExcludes.noteOther()
-		}
-		out.excluded = true
-		return out, nil
-	}
-	e.recordTransportNegotiation(attempt.Invocation.Operation, transportRes.Selected, "accept")
-	if p.lastTransportReject != nil {
-		*p.lastTransportReject = lipapi.TransportNegotiationResult{}
-	}
-	attempt.Invocation.TransportMode = transportRes.Selected
+	attempt.Invocation.TransportMode = admitOut.admitRes.Transport.Selected
+	facts := admitOut.facts
 	if e != nil && e.EligibilityResolver != nil {
 		facts = e.effectiveFactsForAttempt(ctx, be, *attempt, c)
 		out.facts = facts

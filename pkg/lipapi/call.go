@@ -12,6 +12,7 @@ type Role string
 
 const (
 	RoleSystem    Role = "system"
+	RoleDeveloper Role = "developer"
 	RoleUser      Role = "user"
 	RoleAssistant Role = "assistant"
 	RoleTool      Role = "tool"
@@ -31,6 +32,9 @@ type SessionRef struct {
 	ALegID                 string
 	AuthoritativeSessionID string `json:"SessionID,omitempty"`
 	ResumeToken            string
+	// Metadata carries validated client session metadata. It is never treated as
+	// proxy authority unless a separate trusted carrier establishes that field.
+	Metadata map[string]string `json:"-"`
 }
 
 // CorrelationID returns a stable identifier for diagnostics and traffic capture: authoritative id when set, otherwise the client hint.
@@ -60,77 +64,161 @@ type Call struct {
 	Route        RouteIntent
 	Instructions []Message
 	Messages     []Message
-	Tools        []ToolDef
-	ToolChoice   ToolChoice
-	Options      GenerationOptions
-	Extensions   map[string]json.RawMessage
-	Invocation   Invocation `json:"-"`
+	Items        []Item
+	// PreviousResponseID identifies a proxy-owned continuation parent. It allows
+	// an item-authoritative continuation request to carry an intentionally empty
+	// input item slice; the continuation resolver supplies the materialized items.
+	PreviousResponseID string
+	// PromptCacheKey is a proxy-carried prompt-caching hint for the remote
+	// OpenResponses endpoint. It is protocol-neutral metadata (never a canonical
+	// trajectory control); the OpenResponses backend forwards it on compact
+	// requests so a schema-permitted client hint is never silently dropped.
+	PromptCacheKey string
+	Tools          []ToolDef
+	ToolChoice     ToolChoice
+	Options        GenerationOptions
+	Extensions     map[string]json.RawMessage
+	Invocation     Invocation `json:"-"`
 
 	// MaxPendingWireEvents caps backend adapter-internal pending event queues per stream (0 = unlimited).
 	// Not client API; the core executor sets this from server config when non-zero.
 	MaxPendingWireEvents int `json:"-"`
 }
 
+// HasItemAuthority reports whether this call uses ordered item authority (non-nil Items slice).
+func (c Call) HasItemAuthority() bool {
+	return c.Items != nil
+}
+
 // Validate checks canonical invariants and unsupported combinations for this call.
 func (c Call) Validate() error {
-	if len(c.Messages) == 0 {
-		return &ValidationError{Field: "Messages", Message: "at least one message is required"}
-	}
-	if err := c.validateEnvelopeSizes(); err != nil {
-		return err
-	}
-	var reasoningBytes int64
-	for i, m := range c.Messages {
-		if m.Role == "" {
-			return &ValidationError{Field: fmt.Sprintf("Messages[%d].Role", i), Message: "role is required"}
+	if c.HasItemAuthority() {
+		if len(c.Messages) > 0 || len(c.Instructions) > 0 {
+			return &ValidationError{Field: "Items", Message: "conflicting raw item and legacy message authorities"}
 		}
-		if len(m.Parts) == 0 {
-			return &ValidationError{Field: fmt.Sprintf("Messages[%d].Parts", i), Message: "at least one part is required"}
+		if len(c.Items) == 0 && strings.TrimSpace(c.PreviousResponseID) == "" {
+			return &ValidationError{Field: "Items", Message: "at least one item is required unless previous_response_id is set"}
 		}
-		for j, p := range m.Parts {
-			if err := p.validate(); err != nil {
-				return &ValidationError{Field: fmt.Sprintf("Messages[%d].Parts[%d]", i, j), Message: err.Error()}
-			}
-			if p.Kind == PartReasoning {
-				if m.Role != RoleAssistant {
-					return &ValidationError{
-						Field:   fmt.Sprintf("Messages[%d].Parts[%d]", i, j),
-						Message: "reasoning parts are only allowed on assistant messages",
-					}
+		if err := c.validateEnvelopeSizes(); err != nil {
+			return err
+		}
+		allItemIDs := make(map[string]int, len(c.Items))
+		for i, item := range c.Items {
+			if item.ID != "" {
+				if _, exists := allItemIDs[item.ID]; exists {
+					return &ValidationError{Field: fmt.Sprintf("Items[%d].ID", i), Message: fmt.Sprintf("duplicate item ID %q", item.ID)}
 				}
-				reasoningBytes = addSaturatingInt64(reasoningBytes, int64(ReasoningPayloadBytes(p.Reasoning)))
-				if reasoningBytes > int64(MaxReasoningBytesPerCall) {
-					return &ValidationError{
-						Field:   fmt.Sprintf("Messages[%d].Parts[%d]", i, j),
-						Message: fmt.Sprintf("total reasoning payload exceeds %d bytes", MaxReasoningBytesPerCall),
-					}
-				}
+				allItemIDs[item.ID] = i
 			}
 		}
-	}
-	for i, m := range c.Instructions {
-		if m.Role == "" {
-			return &ValidationError{Field: fmt.Sprintf("Instructions[%d].Role", i), Message: "role is required"}
-		}
-		if len(m.Parts) == 0 {
-			return &ValidationError{Field: fmt.Sprintf("Instructions[%d].Parts", i), Message: "at least one part is required"}
-		}
-		for j, p := range m.Parts {
-			if err := p.validate(); err != nil {
-				return &ValidationError{Field: fmt.Sprintf("Instructions[%d].Parts[%d]", i, j), Message: err.Error()}
+
+		seenCallIDs := make(map[string]bool, len(c.Items))
+		var reasoningBytes int64
+
+		for i, item := range c.Items {
+			field := fmt.Sprintf("Items[%d]", i)
+			if err := item.validate(field); err != nil {
+				return err
 			}
-			if p.Kind == PartReasoning {
-				if m.Role != RoleAssistant {
-					return &ValidationError{
-						Field:   fmt.Sprintf("Instructions[%d].Parts[%d]", i, j),
-						Message: "reasoning parts are only allowed on assistant messages",
+			if item.Kind == ItemKindItemReference {
+				if idx, exists := allItemIDs[item.Reference.ID]; exists && idx > i {
+					return &ValidationError{Field: field + ".Reference.ID", Message: fmt.Sprintf("forward item reference to %q", item.Reference.ID)}
+				}
+			}
+			if item.Kind == ItemKindToolCall {
+				if seenCallIDs[item.ToolCall.CallID] {
+					return &ValidationError{Field: field + ".ToolCall.CallID", Message: fmt.Sprintf("duplicate call ID %q", item.ToolCall.CallID)}
+				}
+				seenCallIDs[item.ToolCall.CallID] = true
+			}
+			if item.Kind == ItemKindToolResult {
+				if !seenCallIDs[item.ToolResult.CallID] {
+					return &ValidationError{Field: field + ".ToolResult.CallID", Message: fmt.Sprintf("orphan tool result for call ID %q", item.ToolResult.CallID)}
+				}
+			}
+
+			if item.Reasoning != nil && item.Reasoning.Reasoning != nil {
+				reasoningBytes = addSaturatingInt64(reasoningBytes, int64(ReasoningPayloadBytes(item.Reasoning.Reasoning)))
+			}
+			for _, cp := range item.Content {
+				if cp.Kind == ContentPartReasoning && cp.Reasoning != nil {
+					reasoningBytes = addSaturatingInt64(reasoningBytes, int64(ReasoningPayloadBytes(cp.Reasoning)))
+				}
+			}
+			if item.ToolResult != nil {
+				for _, cp := range item.ToolResult.Parts {
+					if cp.Kind == ContentPartReasoning && cp.Reasoning != nil {
+						reasoningBytes = addSaturatingInt64(reasoningBytes, int64(ReasoningPayloadBytes(cp.Reasoning)))
 					}
 				}
-				reasoningBytes = addSaturatingInt64(reasoningBytes, int64(ReasoningPayloadBytes(p.Reasoning)))
-				if reasoningBytes > int64(MaxReasoningBytesPerCall) {
-					return &ValidationError{
-						Field:   fmt.Sprintf("Instructions[%d].Parts[%d]", i, j),
-						Message: fmt.Sprintf("total reasoning payload exceeds %d bytes", MaxReasoningBytesPerCall),
+			}
+			if reasoningBytes > int64(MaxReasoningBytesPerCall) {
+				return &ValidationError{
+					Field:   field,
+					Message: fmt.Sprintf("total reasoning payload exceeds %d bytes", MaxReasoningBytesPerCall),
+				}
+			}
+		}
+	} else {
+		if len(c.Messages) == 0 {
+			return &ValidationError{Field: "Messages", Message: "at least one message is required"}
+		}
+		if err := c.validateEnvelopeSizes(); err != nil {
+			return err
+		}
+		var reasoningBytes int64
+		for i, m := range c.Messages {
+			if m.Role == "" {
+				return &ValidationError{Field: fmt.Sprintf("Messages[%d].Role", i), Message: "role is required"}
+			}
+			if len(m.Parts) == 0 {
+				return &ValidationError{Field: fmt.Sprintf("Messages[%d].Parts", i), Message: "at least one part is required"}
+			}
+			for j, p := range m.Parts {
+				if err := p.validate(); err != nil {
+					return &ValidationError{Field: fmt.Sprintf("Messages[%d].Parts[%d]", i, j), Message: err.Error()}
+				}
+				if p.Kind == PartReasoning {
+					if m.Role != RoleAssistant {
+						return &ValidationError{
+							Field:   fmt.Sprintf("Messages[%d].Parts[%d]", i, j),
+							Message: "reasoning parts are only allowed on assistant messages",
+						}
+					}
+					reasoningBytes = addSaturatingInt64(reasoningBytes, int64(ReasoningPayloadBytes(p.Reasoning)))
+					if reasoningBytes > int64(MaxReasoningBytesPerCall) {
+						return &ValidationError{
+							Field:   fmt.Sprintf("Messages[%d].Parts[%d]", i, j),
+							Message: fmt.Sprintf("total reasoning payload exceeds %d bytes", MaxReasoningBytesPerCall),
+						}
+					}
+				}
+			}
+		}
+		for i, m := range c.Instructions {
+			if m.Role == "" {
+				return &ValidationError{Field: fmt.Sprintf("Instructions[%d].Role", i), Message: "role is required"}
+			}
+			if len(m.Parts) == 0 {
+				return &ValidationError{Field: fmt.Sprintf("Instructions[%d].Parts", i), Message: "at least one part is required"}
+			}
+			for j, p := range m.Parts {
+				if err := p.validate(); err != nil {
+					return &ValidationError{Field: fmt.Sprintf("Instructions[%d].Parts[%d]", i, j), Message: err.Error()}
+				}
+				if p.Kind == PartReasoning {
+					if m.Role != RoleAssistant {
+						return &ValidationError{
+							Field:   fmt.Sprintf("Instructions[%d].Parts[%d]", i, j),
+							Message: "reasoning parts are only allowed on assistant messages",
+						}
+					}
+					reasoningBytes = addSaturatingInt64(reasoningBytes, int64(ReasoningPayloadBytes(p.Reasoning)))
+					if reasoningBytes > int64(MaxReasoningBytesPerCall) {
+						return &ValidationError{
+							Field:   fmt.Sprintf("Instructions[%d].Parts[%d]", i, j),
+							Message: fmt.Sprintf("total reasoning payload exceeds %d bytes", MaxReasoningBytesPerCall),
+						}
 					}
 				}
 			}
@@ -170,23 +258,26 @@ func addSaturatingInt64(a, b int64) int64 {
 func SaturatingAddInt64(a, b int64) int64 { return addSaturatingInt64(a, b) }
 
 // CallReasoningPayloadBytes returns the saturating sum of reasoning Text+Signature+Opaque
-// lengths across Messages and Instructions (dialect and non-reasoning content excluded).
+// lengths across the normalized call trajectory (dialect and non-reasoning content excluded).
 func CallReasoningPayloadBytes(c *Call) int64 {
 	if c == nil {
 		return 0
 	}
 	var n int64
-	for _, m := range c.Messages {
-		for _, p := range m.Parts {
-			if p.Kind == PartReasoning {
-				n = addSaturatingInt64(n, int64(ReasoningPayloadBytes(p.Reasoning)))
+	for _, item := range NormalizedItems(*c) {
+		if item.Reasoning != nil && item.Reasoning.Reasoning != nil {
+			n = addSaturatingInt64(n, int64(ReasoningPayloadBytes(item.Reasoning.Reasoning)))
+		}
+		for _, cp := range item.Content {
+			if cp.Kind == ContentPartReasoning && cp.Reasoning != nil {
+				n = addSaturatingInt64(n, int64(ReasoningPayloadBytes(cp.Reasoning)))
 			}
 		}
-	}
-	for _, m := range c.Instructions {
-		for _, p := range m.Parts {
-			if p.Kind == PartReasoning {
-				n = addSaturatingInt64(n, int64(ReasoningPayloadBytes(p.Reasoning)))
+		if item.ToolResult != nil {
+			for _, cp := range item.ToolResult.Parts {
+				if cp.Kind == ContentPartReasoning && cp.Reasoning != nil {
+					n = addSaturatingInt64(n, int64(ReasoningPayloadBytes(cp.Reasoning)))
+				}
 			}
 		}
 	}

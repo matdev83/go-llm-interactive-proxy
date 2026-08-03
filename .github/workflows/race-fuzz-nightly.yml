@@ -1,23 +1,34 @@
-# Nightly race detector + Tier-1 fuzz smoke (not merge-blocking on PRs).
+# Nightly strict Linux race detector + Tier-1 fuzz smoke (not merge-blocking on PRs).
 # PR feedback lives in qa.yml; this preserves release-gate depth on a schedule.
 name: Race and fuzz (nightly)
 
 on:
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag, or commit SHA to test (use a PR head/branch for PR evidence)"
+        required: false
+        default: ""
+        type: string
   schedule:
     - cron: "17 4 * * *" # 04:17 UTC daily
 
 permissions:
   contents: read
 
+concurrency:
+  group: race-fuzz-${{ github.workflow }}-${{ inputs.ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   race-fuzz:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
       - name: Setup Go
@@ -27,8 +38,29 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
 
-      - name: Focused race detector
-        run: go test -race -timeout=20m ./cmd/lipstd ./internal/core/... ./internal/infra/backendplugins/... ./internal/plugins/... ./pkg/...
+      - name: Record tested revision
+        id: revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          tested_sha="$(git rev-parse HEAD)"
+          printf 'tested_sha=%s\ncommand=bash scripts/race-check.sh --strict\n' "$tested_sha" | tee .tmp-race-evidence.txt
+          echo "sha=$tested_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Strict Linux race detector
+        run: bash scripts/race-check.sh --strict
+
+      - name: Upload strict race evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: strict-linux-race-${{ steps.revision.outputs.sha || github.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            .tmp-race-evidence.txt
+            .tmp/race-check.log
+            .tmp/race-precheck.log
 
       - name: Focused backend security smoke
         env:

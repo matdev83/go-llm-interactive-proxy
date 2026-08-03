@@ -152,6 +152,27 @@ func TestClient_ChatOnlyRejectsResponses(t *testing.T) {
 	}
 }
 
+func TestClient_UnsupportedContentPartsFailBeforeNetwork(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []lipapi.PartKind{lipapi.PartImageRef, lipapi.PartFileRef} {
+		t.Run(string(kind), func(t *testing.T) {
+			called := false
+			srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
+			t.Cleanup(srv.Close)
+			call := sampleCall()
+			call.Messages[0].Parts = []lipapi.Part{{Kind: kind, ImageRef: "img://x", FileRef: "file://x"}}
+			c := &openaicompat.Client{BaseURL: srv.URL, HTTPClient: srv.Client()}
+			_, err := c.Open(context.Background(), call, "m", openaicompat.FlavorChat)
+			if err == nil || !strings.Contains(err.Error(), "unsupported canonical content part") {
+				t.Fatalf("err=%v", err)
+			}
+			if called {
+				t.Fatal("unsupported content reached network")
+			}
+		})
+	}
+}
+
 func TestClient_CancelContext(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

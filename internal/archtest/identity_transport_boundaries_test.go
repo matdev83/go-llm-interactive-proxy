@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -112,7 +111,6 @@ func TestIdentityTransport_ID147_allowlistAndExclusionLiterals(t *testing.T) {
 func TestIdentityTransport_excludedPackagesDoNotImportHTTPIdentity(t *testing.T) {
 	t.Parallel()
 	excludedPkgs := []string{
-		"./internal/plugins/backends/acp",
 		"./internal/plugins/backends/localstub",
 	}
 	assertDepsExcludeForbidden(t, excludedPkgs, []forbiddenDep{
@@ -136,9 +134,7 @@ func TestIdentityTransport_coreDoesNotImportHTTPIdentity(t *testing.T) {
 func TestIdentityTransport_standardpluginsImportsHTTPIdentity(t *testing.T) {
 	t.Parallel()
 	// Approved wiring lives in standardplugins; the package must reference httpidentity.
-	cmd := exec.Command("go", "list", "-json", "-test=false", "./internal/standardplugins")
-	cmd.Dir = repoRoot(t)
-	out, err := cmd.Output()
+	out, err := cachedGoList(t, "-json", "-test=false", "./internal/standardplugins")
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}

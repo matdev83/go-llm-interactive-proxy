@@ -2,21 +2,26 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/tools/backendplugin/runner"
+	"github.com/matdev83/go-llm-interactive-proxy/tools/taskrunner"
 	"gopkg.in/yaml.v3"
 )
 
 const matrixSchema = "golip.crossplatform.matrix/v1"
+
+const qaCommandTimeout = 20 * time.Minute
 
 type releaseMeta struct {
 	Schema              string   `yaml:"schema"`
@@ -67,6 +72,12 @@ type compileResult struct {
 	Arch      string `json:"arch"`
 	OK        bool   `json:"ok"`
 	Error     string `json:"error,omitempty"`
+}
+
+// claimJob pairs a discovered release with one of its claimed platforms.
+type claimJob struct {
+	r discoveredRelease
+	c platformClaim
 }
 
 type matrixReport struct {
@@ -180,6 +191,7 @@ func runQA(root string, selectSet map[string]struct{}, runNative bool) (*matrixR
 	var compileResults []compileResult
 	var unsupported []unsupportedPair
 
+	var jobs []claimJob
 	for _, r := range selected {
 		claims, err := readManifestPlatforms(filepath.Join(r.Root, r.Meta.ManifestTmpl))
 		if err != nil {
@@ -203,16 +215,29 @@ func runQA(root string, selectSet map[string]struct{}, runNative bool) (*matrixR
 				falseClaims = append(falseClaims, msg)
 				continue
 			}
-			cr := crossCompile(r, c.OS, c.Arch)
-			compileResults = append(compileResults, cr)
-			if !cr.OK {
-				return report, fmt.Errorf("compile %s %s/%s: %s", r.DirName, c.OS, c.Arch, cr.Error)
-			}
+			jobs = append(jobs, claimJob{r: r, c: c})
 		}
+	}
+
+	if len(jobs) > 0 {
+		compileResults = runCompilePhase(jobs, func(ctx context.Context, j claimJob) compileResult {
+			return crossCompile(ctx, j.r, j.c.OS, j.c.Arch)
+		}, defaultCompilePhaseConfig(len(jobs)))
 	}
 	report.Unsupported = unsupported
 	report.ClaimedCompile = compileResults
 	report.FalseClaimsRejected = falseClaims
+	if len(compileResults) > 0 {
+		var failed []string
+		for _, cr := range compileResults {
+			if !cr.OK {
+				failed = append(failed, fmt.Sprintf("compile %s %s/%s: %s", cr.Connector, cr.OS, cr.Arch, cr.Error))
+			}
+		}
+		if len(failed) > 0 {
+			return report, fmt.Errorf("%s", strings.Join(failed, "\n"))
+		}
+	}
 	if len(falseClaims) > 0 {
 		return report, fmt.Errorf("false manifest platform claims: %s", strings.Join(falseClaims, "; "))
 	}
@@ -365,7 +390,7 @@ func readManifestPlatforms(path string) ([]platformClaim, error) {
 	return man.Platforms, nil
 }
 
-func crossCompile(r discoveredRelease, goos, goarch string) compileResult {
+func crossCompile(ctx context.Context, r discoveredRelease, goos, goarch string) compileResult {
 	tmp, err := os.MkdirTemp("", "golip-xplat-*")
 	if err != nil {
 		return compileResult{Connector: r.DirName, OS: goos, Arch: goarch, Error: err.Error()}
@@ -375,22 +400,26 @@ func crossCompile(r discoveredRelease, goos, goarch string) compileResult {
 	if goos == "windows" {
 		outBin += ".exe"
 	}
-	cmd := exec.Command("go", "build", "-trimpath", "-ldflags=-buildid=", "-o", outBin, r.Meta.Command)
-	cmd.Dir = r.Root
-	cmd.Env = append(
-		os.Environ(),
-		"GOWORK=off",
-		"CGO_ENABLED=0",
-		"GOOS="+goos,
-		"GOARCH="+goarch,
-	)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
+	result := runner.Run(ctx, runner.Request{
+		Argv: []string{"go", "build", "-trimpath", "-ldflags=-buildid=", "-o", outBin, r.Meta.Command},
+		Dir:  r.Root,
+		Env: append(
+			os.Environ(),
+			"GOWORK=off",
+			"CGO_ENABLED=0",
+			"GOOS="+goos,
+			"GOARCH="+goarch,
+		),
+		Timeout: qaCommandTimeout,
+		Output:  taskrunner.Capture,
+		Label:   fmt.Sprintf("crossplatform_qa:%s:build:%s/%s", r.DirName, goos, goarch),
+	})
+	if result.Kind != taskrunner.Success {
 		return compileResult{
 			Connector: r.DirName,
 			OS:        goos,
 			Arch:      goarch,
-			Error:     strings.TrimSpace(string(out) + " " + err.Error()),
+			Error:     runner.Error(result).Error(),
 		}
 	}
 	return compileResult{Connector: r.DirName, OS: goos, Arch: goarch, OK: true}
@@ -476,25 +505,34 @@ func packageMatrixMatchesFor(root string, selected []discoveredRelease, selectSe
 	dest := filepath.Join(root, ".golip-crossplatform-package-check")
 	_ = os.RemoveAll(dest)
 	defer func() { _ = os.RemoveAll(dest) }()
-	args := []string{
-		"run", "./tools/backendplugin/package_plugins",
-		"-root", root, "-profile", "full", "-dest", dest,
+
+	pkgBin := os.Getenv("GOLIP_PACKAGE_PLUGINS_BIN")
+	var argv []string
+	if pkgBin != "" {
+		argv = []string{pkgBin, "-root", root, "-profile", "full", "-dest", dest}
+	} else {
+		argv = []string{"go", "run", "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest}
 	}
 	if selectSet != nil {
 		if len(fullNames) == 0 {
 			// Force an empty selection rather than treating "" as "select all".
-			args = append(args, "-select", "__no_full_profile_connectors__")
+			argv = append(argv, "-select", "__no_full_profile_connectors__")
 		} else {
 			// Pass full-profile selections (including native-unsupported); package_plugins
 			// omits unsupported platforms truthfully.
-			args = append(args, "-select", strings.Join(fullNames, ","))
+			argv = append(argv, "-select", strings.Join(fullNames, ","))
 		}
 	}
-	cmd := exec.Command("go", args...)
-	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "GOWORK=off")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return false, fmt.Errorf("package_plugins: %w\n%s", err, out)
+	result := runner.Run(context.Background(), runner.Request{
+		Argv:    argv,
+		Dir:     root,
+		Env:     []string{"GOWORK=off"},
+		Timeout: qaCommandTimeout,
+		Output:  taskrunner.Capture,
+		Label:   "crossplatform_qa:package_plugins",
+	})
+	if result.Kind != taskrunner.Success {
+		return false, fmt.Errorf("package_plugins: %w", runner.Error(result))
 	}
 	idxRaw, err := os.ReadFile(filepath.Join(dest, "package-index.json"))
 	if err != nil {
@@ -543,13 +581,16 @@ func runNativeGates(root string) error {
 		if _, err := os.Stat(s.dir); err != nil {
 			continue
 		}
-		cmd := exec.Command("go", s.args...)
-		cmd.Dir = s.dir
-		cmd.Env = append(os.Environ(), "GOWORK=off")
-		cmd.Env = append(cmd.Env, s.env...)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("native %s %v: %w\n%s", s.dir, s.args, err, out)
+		result := runner.Run(context.Background(), runner.Request{
+			Argv:    append([]string{"go"}, s.args...),
+			Dir:     s.dir,
+			Env:     append([]string{"GOWORK=off"}, s.env...),
+			Timeout: qaCommandTimeout,
+			Output:  taskrunner.Capture,
+			Label:   "crossplatform_qa:native:" + s.dir,
+		})
+		if result.Kind != taskrunner.Success {
+			return fmt.Errorf("native %s %v: %w", s.dir, s.args, runner.Error(result))
 		}
 	}
 	return nil

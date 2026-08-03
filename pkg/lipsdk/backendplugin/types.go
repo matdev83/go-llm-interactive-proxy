@@ -14,14 +14,30 @@ type UsageEvidence struct {
 
 // CapabilitySummary summarizes canonical backend capabilities.
 type CapabilitySummary struct {
-	Streaming         bool
-	Tools             bool
-	Vision            bool
-	Documents         bool
-	StructuredOutputs bool
-	Reasoning         bool
-	ReasoningReplay   bool
-	ParallelToolCalls bool
+	Streaming          bool
+	Tools              bool
+	Vision             bool
+	Documents          bool
+	StructuredOutputs  bool
+	Reasoning          bool
+	ReasoningReplay    bool
+	ParallelToolCalls  bool
+	OrderedItems       bool
+	ItemReferences     bool
+	Compaction         bool
+	AssistantPhase     bool
+	OpaqueExtensions   bool
+	VideoInput         bool
+	Annotations        bool
+	AssistantMediaRefs bool
+}
+
+// DialectSupportDTO carries exact dialect/extension support advertised by a plugin profile.
+type DialectSupportDTO struct {
+	ItemDialects       []DialectRequirementDTO
+	ReasoningDialects  []DialectRequirementDTO
+	CompactionDialects []DialectRequirementDTO
+	ExtensionTypes     []ExtensionRequirementDTO
 }
 
 // TransportCapabilitySummary summarizes transport capabilities.
@@ -100,6 +116,7 @@ type ConfigureRequest struct {
 type ResolvedProfile struct {
 	Capabilities             CapabilitySummary
 	TransportCapabilities    TransportCapabilitySummary
+	DialectSupport           DialectSupportDTO
 	ReasoningReplaySupported bool
 	RoutePrefixes            []string
 	EnforceMaxOutput         bool
@@ -144,6 +161,19 @@ type Invocation struct {
 	ToolChoice       *string
 	Options          GenerationOptions
 	SafeMetadata     map[string]string
+
+	// PromptCacheKey is the proxy-carried prompt-caching hint forwarded verbatim.
+	// It is an additive v1.3 field gated by FeatureExactOpenResponsesFields;
+	// calls that require it fail closed against older negotiated minors.
+	PromptCacheKey string
+
+	// Ordered-item ABI fields (protocol minor >= ProtocolMinorOrderedItems).
+	Operation            string
+	DeliveryMode         string
+	TransportMode        string
+	ItemAuthority        bool
+	Items                []InvocationItem
+	ProtocolRequirements ProtocolRequirementsDTO
 }
 
 // Message is an ordered role + parts unit.
@@ -164,6 +194,13 @@ type Part struct {
 	ToolArgsJSON     RawJSON
 	ToolCallID       *string
 	ToolName         *string
+
+	// ReasoningSummary, ReasoningContent, and ReasoningEncryptedContent preserve
+	// exact OpenAI Responses reasoning-item fields with absent/null/value presence.
+	// Additive v1.3 fields gated by FeatureExactOpenResponsesFields.
+	ReasoningSummary          RawJSON
+	ReasoningContent          RawJSON
+	ReasoningEncryptedContent RawJSON
 }
 
 // ToolDef describes a tool the model may call.
@@ -250,6 +287,13 @@ type CanonicalEvent struct {
 	FileRef          *string
 	ReasoningDialect *string
 	ReasoningOpaque  []byte
+
+	// ReasoningSummary, ReasoningContent, and ReasoningEncryptedContent preserve
+	// exact OpenAI Responses reasoning-item fields with absent/null/value presence.
+	// Additive v1.3 fields gated by FeatureExactOpenResponsesFields.
+	ReasoningSummary          RawJSON
+	ReasoningContent          RawJSON
+	ReasoningEncryptedContent RawJSON
 }
 
 // ClientFrame is a host-to-plugin Execute frame.

@@ -130,6 +130,9 @@ func TestNDJSONStreamBase_unexpectedEOFBeforeResponseStarted(t *testing.T) {
 	if !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("got %v, want io.ErrUnexpectedEOF", err)
 	}
+	if !lipapi.IsRecoverablePreOutput(err) {
+		t.Fatalf("pre-output unexpected EOF = terminal, want recoverable pre-output (%v)", err)
+	}
 }
 
 func TestNDJSONStreamBase_cleanEOFAfterStartEmitsResponseFinished(t *testing.T) {
@@ -191,6 +194,9 @@ func TestNDJSONStreamBase_scanErrorUsesLabel(t *testing.T) {
 	if !errors.Is(err, errRead) {
 		t.Fatalf("expected underlying read error, got %v", err)
 	}
+	if !lipapi.IsRecoverablePreOutput(err) {
+		t.Fatalf("pre-output scan error = terminal, want recoverable pre-output (%v)", err)
+	}
 }
 
 func TestNDJSONStreamBase_decodeErrorUsesLabel(t *testing.T) {
@@ -207,6 +213,62 @@ func TestNDJSONStreamBase_decodeErrorUsesLabel(t *testing.T) {
 	var se *json.SyntaxError
 	if !errors.As(err, &se) {
 		t.Fatalf("expected *json.SyntaxError in chain, got %v", err)
+	}
+	if !lipapi.IsRecoverablePreOutput(err) {
+		t.Fatalf("pre-output decode error = terminal, want recoverable pre-output (%v)", err)
+	}
+}
+
+func TestNDJSONStreamBase_postOutputScanErrorNotRecoverable(t *testing.T) {
+	t.Parallel()
+	errRead := errors.New("read boom")
+	line := `{"jsonrpc":"2.0","method":"x","params":{}}` + "\n"
+	start := &fakeStrategy{
+		label: "test",
+		mapLine: func(_ context.Context, _ string, _ map[string]any) ([]lipapi.Event, error) {
+			return []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "hi"}}, nil
+		},
+	}
+	r := &readOnceThenErr{data: []byte(line), err: errRead}
+	base := NewNDJSONStreamBase(context.Background(), io.NopCloser(r), 0, start)
+	for range 3 {
+		if _, err := base.Recv(context.Background()); err != nil {
+			t.Fatalf("drain pre-output events: %v", err)
+		}
+	}
+	_, err := base.Recv(context.Background())
+	if err == nil {
+		t.Fatal("expected scan error after output")
+	}
+	if !errors.Is(err, errRead) {
+		t.Fatalf("expected underlying read error, got %v", err)
+	}
+	if lipapi.IsRecoverablePreOutput(err) {
+		t.Fatalf("post-output scan error = recoverable, want terminal (no retry after output)")
+	}
+}
+
+func TestNDJSONStreamBase_postOutputDecodeErrorNotRecoverable(t *testing.T) {
+	t.Parallel()
+	data := `{"jsonrpc":"2.0","method":"x","params":{}}` + "\n" + "{not json\n"
+	start := &fakeStrategy{
+		label: "test",
+		mapLine: func(_ context.Context, _ string, _ map[string]any) ([]lipapi.Event, error) {
+			return []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "hi"}}, nil
+		},
+	}
+	base := NewNDJSONStreamBase(context.Background(), io.NopCloser(strings.NewReader(data)), 0, start)
+	for range 3 {
+		if _, err := base.Recv(context.Background()); err != nil {
+			t.Fatalf("drain pre-output events: %v", err)
+		}
+	}
+	_, err := base.Recv(context.Background())
+	if err == nil {
+		t.Fatal("expected decode error after output")
+	}
+	if lipapi.IsRecoverablePreOutput(err) {
+		t.Fatalf("post-output decode error = recoverable, want terminal (no retry after output)")
 	}
 }
 

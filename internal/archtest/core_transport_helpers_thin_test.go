@@ -3,7 +3,6 @@ package archtest
 import (
 	"bytes"
 	"encoding/json"
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -16,15 +15,13 @@ import (
 // transport/diagnostic concerns inward.
 func TestCoreTransportHelpersStayThin(t *testing.T) {
 	t.Parallel()
-	cmd := exec.Command(
-		"go", "list", "-json", "-test=false",
+	out, err := cachedGoList(
+		t, "-json", "-test=false",
 		"./internal/core/http/...",
 		"./internal/core/admin/...",
 		"./internal/core/diag/...",
 		"./internal/core/securesession/adapters/diag/...",
 	)
-	cmd.Dir = repoRoot(t)
-	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}

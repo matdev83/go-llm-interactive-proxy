@@ -7,8 +7,21 @@ const (
 	// ProtocolMinorExactReasoningParts adds dialect-tagged opaque reasoning parts
 	// to invocation parts and canonical stream events.
 	ProtocolMinorExactReasoningParts = uint32(1)
+	// ProtocolMinorOrderedItems adds ordered item invocation fields, operation metadata,
+	// and explicit protocol requirement DTOs.
+	ProtocolMinorOrderedItems = uint32(2)
+	// ProtocolMinorExactOpenResponsesFields adds exact OpenAI Responses semantics to
+	// the ABI: Invocation.PromptCacheKey, inline FileData, opaque extension content
+	// parts, reasoning Summary/Content/EncryptedContent presence, and compaction
+	// EncryptedContent on invocation items and canonical stream events.
+	ProtocolMinorExactOpenResponsesFields = uint32(3)
 	// FeatureExactReasoningParts gates use of the additive v1.1 wire fields.
 	FeatureExactReasoningParts = "exact_reasoning_parts"
+	// FeatureOrderedItems gates ordered item invocation DTO fields.
+	FeatureOrderedItems = "ordered_items"
+	// FeatureExactOpenResponsesFields gates the additive v1.3 exact OpenAI
+	// Responses wire fields on invocation items, canonical events, and Invocation.
+	FeatureExactOpenResponsesFields = "exact_openresponses_fields"
 
 	// DefaultMaxMessageBytes is the default whole-message size ceiling.
 	DefaultMaxMessageBytes = uint64(4 << 20)

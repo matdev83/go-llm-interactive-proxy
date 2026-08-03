@@ -1,7 +1,11 @@
-.PHONY: help test test-fast test-unit test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks parity-acp-plugin parity-cursorcliacp-plugin parity-cli-acp-plugins parity-openrouter-plugin parity-hosted-compatible-plugins parity-ollama-plugins parity-opencode-plugins parity-codex-plugins parity-local-compatible-plugins test-local-compatible-plugin-modules release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install backend-plugin-module-checks backend-plugin-absence-checks backend-plugin-security-checks backend-plugin-cross-platform-qa backend-plugin-release-gates-static backend-plugin-release-gates package-minimal package-full package-plugin-smoke docs-check knowledge-check example-config-check backend-plugin-example-check kiro-spec-check isolated-root-qa installed-plugin-smoke test-cursor-sdk-live test-cursor-sdk-live-bridge test-cursor-sdk-platform test-cursor-sdk-comparison-report
+.PHONY: help test test-fast test-unit test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks parity-acp-plugin parity-cursorcliacp-plugin parity-cli-acp-plugins parity-openrouter-plugin parity-hosted-compatible-plugins parity-ollama-plugins parity-opencode-plugins parity-codex-plugins parity-local-compatible-plugins test-local-compatible-plugin-modules release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install backend-plugin-module-checks backend-plugin-absence-checks backend-plugin-security-checks backend-plugin-cross-platform-qa backend-plugin-release-gates-static backend-plugin-release-gates package-minimal package-full package-plugin-smoke docs-check knowledge-check example-config-check backend-plugin-example-check kiro-spec-check isolated-root-qa installed-plugin-smoke test-cursor-sdk-live test-cursor-sdk-live-bridge test-cursor-sdk-platform test-cursor-sdk-comparison-report tmp-clean test-openresponses-compliance test-openresponses-compliance-static
 
 GO ?= go
 GO_TEST_FLAGS ?= -parallel=8 -timeout=10m
+
+ifeq ($(OS),Windows_NT)
+WINDOWS_TASK = powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-task.ps1 -Target
+endif
 
 help:
 	@echo "Targets:"
@@ -11,9 +15,10 @@ help:
 	@echo "  make test-fast       - quality-checks then tests for staged packages (or all)"
 	@echo "  make test-unit       - go test $(GO_TEST_FLAGS) ./... (excludes //go:build precommit tests)"
 	@echo "  make test-postgres-migrations - apply and verify dual-plane PostgreSQL migrations"
-	@echo "  make test-authority-postgres-direct - direct PostgreSQL runtime proof"
-	@echo "  make test-authority-postgres-pooled - transaction-pooled runtime proof"
-	@echo "  make test-authority-postgres - aggregate direct + pooled proof"
+	@echo "  PostgreSQL gates are intentional opt-in: make test-authority-postgres-direct needs only a configured DSN (Make sets LIP_REQUIRE_POSTGRES=1); pooled/aggregate proof also requires LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1"
+	@echo "  make test-authority-postgres-direct - direct PostgreSQL runtime proof (DSN; Make sets require flag)"
+	@echo "  make test-authority-postgres-pooled - transaction-pooled runtime proof (requires LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1)"
+	@echo "  make test-authority-postgres - aggregate direct + pooled proof (pooled attestation required)"
 	@echo "  make test-precommit-extra - hygiene + executor matrices (-tags=precommit; also in pre-commit hook + CI)"
 	@echo "  make test-race       - race scan (skipped on Windows; macOS/Linux: scripts/race-check.sh)"
 	@echo "  make test-fuzz       - short fuzz smoke (FUZZTIME=500ms locally; nightly CI uses 6s per target in .github/workflows/race-fuzz-nightly.yml)"
@@ -27,7 +32,7 @@ help:
 	@echo "  make bench           - benchmarks (testkit, stream, core runtime/routing/diag/toolcallrepair, frontend encoders)"
 	@echo "  make pgo-profile     - collect default.pgo from core benches (move under cmd/lipstd before build)"
 	@echo "  make pgo-build       - build cmd/lipstd (uses cmd/lipstd/default.pgo when present)"
-	@echo "  make qa              - quality-checks + one full test pass (-tags=precommit,integration) + lint + vuln + release-gates-static"
+	@echo "  make qa              - quality-checks + one full test pass (-tags=precommit,integration) + lint + vuln + release-gates-static + OpenResponses compliance static gate"
 	@echo "  make lint            - golangci-lint if installed, else staticcheck"
 	@echo "  make hooks-install   - git config core.hooksPath .githooks (pre-commit: secrets + quality gate)"
 	@echo "  make kiro-spec-check SPEC=<name> - validate a Kiro spec development gate"
@@ -41,6 +46,7 @@ help:
 	@echo "  make backend-plugin-release-gates-static - release report/traceability/arch wiring (used by make qa)"
 	@echo "  make backend-plugin-release-gates - full connector/support module matrix + root release suites"
 	@echo "  make run             - go run ./cmd/lipstd"
+	@echo "  make tmp-clean       - dry-run scan of stale project-owned TEMP residue (Windows; TMP_CLEAN_APPLY=1 or scripts/tmp-clean.ps1 -Apply to delete)"
 
 quality-checks:
 ifeq ($(OS),Windows_NT)
@@ -71,7 +77,11 @@ else
 endif
 
 test-unit:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) test-unit
+else
 	$(GO) test $(GO_TEST_FLAGS) ./...
+endif
 
 # PostgreSQL is the required proof surface for cross-instance authority
 # semantics. The test helper fails instead of skipping when this target is
@@ -137,6 +147,9 @@ else
 endif
 
 test-fuzz:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) test-fuzz
+else
 	@echo "Fuzz smoke (FUZZTIME=$(FUZZTIME)) one target per line"
 	$(FUZZ_WRAPPER) -fuzz=FuzzJSONRoundTrip$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/testkit
 	$(FUZZ_WRAPPER) -fuzz=FuzzParseSnapshot$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/infra/modelcatalog/modelsdev
@@ -177,6 +190,22 @@ test-fuzz:
 	$(FUZZ_WRAPPER) -fuzz=FuzzValidateIdentityYAML$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
 	$(FUZZ_WRAPPER) -fuzz=FuzzCaptureClientUserAgent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/identitywire
 
+	# OpenResponses codec/state-machine/emulator fuzz smoke (spec Phase 8)
+	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeItem$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzSSEParser$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzStateMachine$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzResourceBuilder$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzParseResponseResource$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refclient/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzParseCompactResource$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refclient/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzParseEvent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refclient/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzParseSSE$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refclient/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzParseCreateRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refbackend/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzParseCompactRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refbackend/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzBuildStream$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refbackend/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzParseWSTurn$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refbackend/openresponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzWebSocketDecodeTurn$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/openresponses
+
 	$(FUZZ_WRAPPER) -fuzz=FuzzCompleteJSONSuffix$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
 	$(FUZZ_WRAPPER) -fuzz=FuzzSchemaPreScanCompile$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
 	$(FUZZ_WRAPPER) -fuzz=FuzzEngineRepair$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
@@ -190,6 +219,7 @@ test-fuzz:
 	$(FUZZ_WRAPPER) -fuzz=FuzzParseDecimalToNano$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/economics
 	$(FUZZ_WRAPPER) -fuzz=FuzzPhase32_SourceEventKey_DelimiterSafety$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/metering
 	$(FUZZ_WRAPPER) -fuzz=FuzzPhase32_MoneyPresentCurrency$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/metering
+endif
 
 test-cursor-sdk-live:
 ifeq ($(OS),Windows_NT)
@@ -220,55 +250,105 @@ else
 endif
 
 parity-checks:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) parity-checks
+else
 	$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./internal/testkit/conformance/...
 	$(GO) test $(GO_TEST_FLAGS) ./internal/testkit/compatibleparity/... -run 'CompatibleParity'
+endif
 
 # Phase 6 ACP external connector parity (testemu/scripted ACP; not live Cursor/Gemini/Agy CLIs).
 parity-acp-plugin:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) parity-acp-plugin
+else
 	cd connector-support/acp && GOWORK=off $(GO) test $(GO_TEST_FLAGS) -run 'KillProcessTree_|ProcessTree_CrossCompile|PID|Pool|Cancel|Open_|MapSession|Scripted' ./...
 	cd connectors/acp && GOWORK=off $(GO) test $(GO_TEST_FLAGS) -run 'TestParity_|TestDescribe_|TestConfigure_' ./...
-	$(GO) test $(GO_TEST_FLAGS) -run 'TestExternalParity_ProfileFixture|TestIntegration_refbackend' ./internal/plugins/backends/acp
+endif
 
 parity-cursorcliacp-plugin:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) parity-cursorcliacp-plugin
+else
 	cd connector-support/acp && GOWORK=off $(GO) test $(GO_TEST_FLAGS) -run 'KillProcessTree_|ProcessTree_CrossCompile' ./...
 	cd connectors/cursorcliacp && GOWORK=off $(GO) test $(GO_TEST_FLAGS) -run 'TestParity_|TestDescribe_' ./...
+endif
 
 parity-cli-acp-plugins:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) parity-cli-acp-plugins
+else
 	cd connectors/geminicliacp && GOWORK=off $(GO) test $(GO_TEST_FLAGS) -run 'TestParity_|TestDescribe_' ./...
 	cd connectors/agycliacp && GOWORK=off $(GO) test $(GO_TEST_FLAGS) -run 'TestParity_|TestDescribe_' ./...
 	cd connectors/cursorcliacp && GOWORK=off $(GO) test $(GO_TEST_FLAGS) -run 'TestParity_|TestDescribe_' ./...
+endif
 
 # Phase 7 OpenAI-compatible external connectors (deterministic emulators; not live providers).
 parity-openrouter-plugin:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) parity-openrouter-plugin
+else
 	cd connector-support/openaicompat && GOWORK=off $(GO) test $(GO_TEST_FLAGS) ./...
 	cd connectors/openrouter && GOWORK=off $(GO) test $(GO_TEST_FLAGS) -run 'TestParity_|TestDescribe_|TestConfigure_|TestBilling_' ./...
 	$(GO) test $(GO_TEST_FLAGS) ./internal/archtest -run 'OpenRouter|Phase7_'
 	$(GO) test $(GO_TEST_FLAGS) ./internal/infra/runtimebundle -run 'TestPhase7_OpenRouter'
+endif
 
 parity-hosted-compatible-plugins:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) parity-hosted-compatible-plugins
+else
 	cd connectors/nvidia && GOWORK=off $(GO) test $(GO_TEST_FLAGS) -run 'TestParity_|TestDescribe_|TestConfigure_|TestInventory_' ./...
 	cd connectors/huggingface && GOWORK=off $(GO) test $(GO_TEST_FLAGS) -run 'TestParity_|TestDescribe_|TestConfigure_|TestInventory_' ./...
 	$(GO) test $(GO_TEST_FLAGS) ./internal/archtest -run 'Phase7_'
+endif
 
 parity-ollama-plugins:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) parity-ollama-plugins
+else
 	cd connectors/ollama && GOWORK=off $(GO) test $(GO_TEST_FLAGS) -run 'TestParity_|TestDescribe_|TestConfigure_|TestInventory_' ./...
+endif
 
 parity-opencode-plugins:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) parity-opencode-plugins
+else
 	cd connectors/opencode && GOWORK=off $(GO) test $(GO_TEST_FLAGS) -run 'TestParity_|TestDescribe_|TestConfigure_|TestInventory_' ./...
 	$(GO) test $(GO_TEST_FLAGS) ./internal/archtest -run 'OpenCode|Phase8_'
+endif
 
 parity-codex-plugins:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) parity-codex-plugins
+else
 	cd connectors/codex && GOWORK=off $(GO) test $(GO_TEST_FLAGS) ./...
 	$(GO) test $(GO_TEST_FLAGS) ./internal/archtest -run 'Codex|Phase8_.*Codex|TestCodex_'
 	$(GO) test $(GO_TEST_FLAGS) ./internal/infra/runtimebundle -run 'TestPhase8_Codex'
+endif
 
 test-local-compatible-plugin-modules:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) test-local-compatible-plugin-modules
+else
 	cd connectors/llamacpp && GOWORK=off $(GO) test $(GO_TEST_FLAGS) -run 'TestParity_|TestDescribe_|TestConfigure_|TestInventory_' ./...
 	cd connectors/lmstudio && GOWORK=off $(GO) test $(GO_TEST_FLAGS) -run 'TestParity_|TestDescribe_|TestConfigure_|TestInventory_' ./...
 	cd connectors/vllm && GOWORK=off $(GO) test $(GO_TEST_FLAGS) -run 'TestParity_|TestDescribe_|TestConfigure_|TestInventory_' ./...
+endif
 
+# The three local-compatible module tests run exactly once per parity
+# invocation. On POSIX the prerequisite owns them and the recipe owns the Phase 7
+# archtest; on Windows the windows-task.ps1 parity case owns both in one script
+# call, so this prerequisite is guarded POSIX-only to avoid a double run.
+ifneq ($(OS),Windows_NT)
 parity-local-compatible-plugins: test-local-compatible-plugin-modules
+endif
+parity-local-compatible-plugins:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) parity-local-compatible-plugins
+else
 	$(GO) test $(GO_TEST_FLAGS) ./internal/archtest -run 'Phase7_'
+endif
 
 backend-plugin-absence-checks:
 ifeq ($(OS),Windows_NT)
@@ -305,15 +385,26 @@ pgo-build:
 
 # Single test invocation matches CI (go test -tags=precommit,integration ./...) and avoids compiling twice.
 # Static release-gate wiring only (no recursive full backend-plugin-release-gates / module matrix).
-qa: quality-checks qa-tests lint vuln backend-plugin-release-gates-static
+# The OpenResponses compliance static gate (Task 8.5) verifies the wiring and the
+# release-ready evidence without re-running the huge tagged suites that qa-tests
+# already covers; the full `test-openresponses-compliance` script remains the
+# standalone Task 8.5 gate.
+qa: quality-checks qa-tests lint vuln backend-plugin-release-gates-static test-openresponses-compliance-static
 
 qa-tests:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) qa-tests
+else
 	$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./...
+endif
 
 vet:
 	$(GO) vet ./...
 
 lint:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) lint
+else
 	@if command -v golangci-lint >/dev/null 2>&1; then \
 		golangci-lint run; \
 	elif command -v staticcheck >/dev/null 2>&1; then \
@@ -322,12 +413,27 @@ lint:
 		echo "Install golangci-lint (preferred) or staticcheck: https://golangci-lint.run/"; \
 		exit 1; \
 	fi
+endif
 
 vuln:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) vuln
+else
 	$(GO) tool govulncheck ./...
+endif
 
 run:
 	$(GO) run ./cmd/lipstd --config ./config/config.yaml
+
+# Conservative cleanup of stale project-owned temp residue left by hard-killed
+# tests. Dry-run by default; pass TMP_CLEAN_APPLY=1 to delete. Never invoked
+# automatically by tests or serve. See scripts/tmp-clean.ps1.
+tmp-clean:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tmp-clean.ps1 $(if $(TMP_CLEAN_APPLY),-Apply,)
+else
+	@echo "tmp-clean is Windows-only. On POSIX, review \$${TMPDIR:-/tmp} manually and remove only the allowlisted project prefixes listed in scripts/tmp-clean.ps1."
+endif
 
 hooks-install:
 ifeq ($(OS),Windows_NT)
@@ -335,6 +441,7 @@ ifeq ($(OS),Windows_NT)
 else
 	@bash scripts/install-hooks.sh
 endif
+
 
 # Phase 5: structural connector module discovery + GOWORK=off isolation (no recursive make).
 backend-plugin-module-checks:
@@ -361,7 +468,7 @@ else
 endif
 
 package-plugin-smoke: package-minimal package-full
-	$(GO) test $(GO_TEST_FLAGS) ./tools/backendplugin/ -run 'TestPackage_|TestDiscoverModules_'
+	@matches=$$($(GO) test $(GO_TEST_FLAGS) -tags=integration -list 'TestPackage_|TestDiscoverModules_' ./tools/backendplugin/ | awk '/^Test[A-Za-z0-9_]+$$/ { count++ } END { print count+0 }'); test "$$matches" -gt 0 || { echo "backend-plugin package selector matched zero tests" >&2; exit 1; }; $(GO) test $(GO_TEST_FLAGS) -tags=integration ./tools/backendplugin/ -run 'TestPackage_|TestDiscoverModules_'
 
 docs-check:
 	$(GO) test $(GO_TEST_FLAGS) ./docs/backend-plugins/ -run 'TestDocs|TestExample|TestOperator|TestExampleConfig|TestThreat'
@@ -369,6 +476,9 @@ docs-check:
 # Phase 9.3: executable-plugin threat model adversarial suite + bounded fuzz.
 # Pair with `make test-fuzz` and `make test-race` (Windows race is skip-only).
 backend-plugin-security-checks:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) backend-plugin-security-checks
+else
 	$(GO) test $(GO_TEST_FLAGS) ./internal/infra/backendplugins/...
 	$(GO) test $(GO_TEST_FLAGS) ./pkg/lipsdk/backendplugin/...
 	$(GO) test $(GO_TEST_FLAGS) ./internal/infra/diagredact/...
@@ -376,33 +486,46 @@ backend-plugin-security-checks:
 	$(GO) test $(GO_TEST_FLAGS) ./docs/backend-plugins/ -run 'TestThreat|TestOperator_|TestDocs_'
 	$(FUZZ_WRAPPER) -fuzz=FuzzManifest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/infra/backendplugins/manifest
 	$(FUZZ_WRAPPER) -fuzz=FuzzServerFrame$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/backendplugin
+endif
 
 # Phase 9.4: structural connector/support discovery, claimed GOOS/GOARCH compile matrix,
 # host secure-profile false-claim rejection, package matrix match, native lifecycle/IPC gates.
 # Emits machine-readable unsupported pairs to .golip-crossplatform-matrix.json (gitignored).
 backend-plugin-cross-platform-qa:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) backend-plugin-cross-platform-qa
+else
 	$(GO) run ./tools/backendplugin/crossplatform_qa -root . -out .golip-crossplatform-matrix.json -skip-native
 	$(GO) test $(GO_TEST_FLAGS) ./internal/infra/backendplugins/... -run 'TestAdversarial_|TestActivate_|TestStream_|TestDigest|TestManifest|TestDiscover|TestShutdown|TestReap|TestPeer|TestChannel|TestExact|TestUpgrade|TestRollback|TestUninstall|TestConfig|TestSecrecy|TestUnauthorized|TestProtected|TestLaunch|TestKill|TestCancel'
 	$(GO) test $(GO_TEST_FLAGS) ./pkg/lipsdk/backendplugin/... -run 'Test'
 	cd connector-support/acp && GOWORK=off $(GO) test $(GO_TEST_FLAGS) -run 'KillProcessTree_|ProcessTree_CrossCompile|Cancel' ./...
 	$(MAKE) package-plugin-smoke
-	$(GO) test $(GO_TEST_FLAGS) ./tools/backendplugin/ -run 'TestCrossPlatformQA_|TestPackage_|TestDiscoverModules_'
+	@matches=$$($(GO) test $(GO_TEST_FLAGS) -tags=integration -list 'TestCrossPlatformQA_|TestPackage_|TestDiscoverModules_' ./tools/backendplugin/ | awk '/^Test[A-Za-z0-9_]+$$/ { count++ } END { print count+0 }'); test "$$matches" -gt 0 || { echo "backend-plugin cross-platform selector matched zero tests" >&2; exit 1; }; $(GO) test $(GO_TEST_FLAGS) -tags=integration ./tools/backendplugin/ -run 'TestCrossPlatformQA_|TestPackage_|TestDiscoverModules_'
 	$(GO) test $(GO_TEST_FLAGS) ./internal/archtest/ -run 'TestBackendPluginCrossPlatform_'
 	$(GO) test $(GO_TEST_FLAGS) ./internal/infra/backendplugins/processhost/ -run 'TestHostSecureProfiles_'
+endif
 
 # Phase 9.5 (fast): structural discovery + deterministic release report/traceability + wiring tests.
 # Integrated into `make qa` without re-running the full module matrix or nested `make qa`.
 backend-plugin-release-gates-static:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) backend-plugin-release-gates-static
+else
 	$(GO) run ./tools/backendplugin/release_gates -root . -out .golip-release-gates-report.json -mode=static
-	$(GO) test $(GO_TEST_FLAGS) ./tools/backendplugin/ -run 'TestReleaseGates_'
+	@matches=$$($(GO) test $(GO_TEST_FLAGS) -tags=integration -list 'TestReleaseGates_' ./tools/backendplugin/ | awk '/^Test[A-Za-z0-9_]+$$/ { count++ } END { print count+0 }'); test "$$matches" -gt 0 || { echo "backend-plugin release-gates selector matched zero tests" >&2; exit 1; }; $(GO) test $(GO_TEST_FLAGS) -tags=integration ./tools/backendplugin/ -run 'TestReleaseGates_'
 	$(GO) test $(GO_TEST_FLAGS) ./tools/backendplugin/release_gates/ -run 'TestParseRequirementIDs_|TestListMatchingTests_|TestValidateSelectors_'
 	$(GO) test $(GO_TEST_FLAGS) ./internal/archtest/ -run 'TestBackendPluginReleaseGates_'
+endif
 
 # Phase 9.5 (full local): orchestrated by release_gates -mode=full (module matrix + root package
 # gates + package/security/absence/isolated/installed smoke + race honesty). Avoids fragile
 # Makefile -run filters; selectors are validated via go test -list inside the tool.
 backend-plugin-release-gates: backend-plugin-release-gates-static
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) backend-plugin-release-gates
+else
 	$(GO) run ./tools/backendplugin/release_gates -root . -out .golip-release-gates-report.json -mode=full
+endif
 
 # Steering/ADR hybrid consistency (Phase 9.1).
 knowledge-check:
@@ -444,4 +567,26 @@ ifeq ($(OS),Windows_NT)
 	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/installed-plugin-smoke.ps1
 else
 	@bash scripts/installed-plugin-smoke.sh
+endif
+
+# OpenResponses full-path compliance suite (spec Phase 8, Task 8.5): independent
+# client -> frontend -> core -> OpenResponses backend -> independent provider,
+# the direct independent-emulator wire suites, the 45-cell matrix, and the
+# emulator boundary gates.
+test-openresponses-compliance:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-openresponses-compliance.ps1
+else
+	@bash scripts/test-openresponses-compliance.sh
+endif
+
+# Fast Task 8.5 wiring/evidence gate wired into `make qa`: verifies the
+# compliance scripts, Makefile wiring, and docs reference exist and runs the
+# default-build evidence validators plus the emulator boundary gates, without
+# re-running the huge tagged conformance/integration suites that qa-tests covers.
+test-openresponses-compliance-static:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-openresponses-compliance.ps1 -Static
+else
+	@bash scripts/test-openresponses-compliance.sh -static
 endif

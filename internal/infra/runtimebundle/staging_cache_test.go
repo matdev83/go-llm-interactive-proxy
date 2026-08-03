@@ -90,7 +90,7 @@ func buildConnectorBinary(spec connectorBuildSpec) (builtBinary, error) {
 	if runtime.GOOS == "windows" && !strings.HasSuffix(binName, ".exe") {
 		binName += ".exe"
 	}
-	dir, err := os.MkdirTemp("", "lip-connector-build-*")
+	dir, err := os.MkdirTemp(stagingCacheRoot, "lip-connector-build-*")
 	if err != nil {
 		return builtBinary{}, err
 	}
@@ -164,7 +164,7 @@ func stageConnectorRoot(spec connectorBuildSpec, manifest func(rel, digest strin
 	}
 	binName := filepath.Base(bin.path)
 	rel := filepath.ToSlash(filepath.Join("bin", binName))
-	root, err := os.MkdirTemp("", "lip-staged-root-*")
+	root, err := os.MkdirTemp(stagingCacheRoot, "lip-staged-root-*")
 	if err != nil {
 		return "", err
 	}

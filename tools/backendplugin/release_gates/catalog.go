@@ -1,12 +1,17 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"os"
-	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/tools/backendplugin/runner"
+	"github.com/matdev83/go-llm-interactive-proxy/tools/taskrunner"
 )
 
 // gateSpec binds a gate name to an executable command observed in this process.
@@ -213,15 +218,20 @@ func runGate(root string, g gateSpec, observed map[string]gateResult) gateResult
 		res.Detail = "filled by orchestrator"
 	case "go_test":
 		args := append([]string{}, g.Args...)
-		cmd := exec.Command("go", args...)
-		cmd.Dir = root
-		out, err := cmd.CombinedOutput()
+		result := runner.Run(context.Background(), runner.Request{
+			Argv:    append([]string{"go"}, args...),
+			Dir:     root,
+			Env:     []string{"GOWORK=off"},
+			Timeout: 15 * time.Minute,
+			Output:  taskrunner.Capture,
+			Label:   "release_gates:" + g.Name,
+		})
 		res.Command = normalizeCommand("go " + strings.Join(args, " "))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "release_gates: gate %s failed:\n%s\n", g.Name, out)
+		if result.Kind != taskrunner.Success {
+			fmt.Fprintf(os.Stderr, "release_gates: gate %s failed:\n%s\n", g.Name, result.Stdout)
 			res.Status = "failed"
 			res.OK = false
-			res.Detail = sanitizeFailureDetail(root, fmt.Sprintf("%v", err))
+			res.Detail = sanitizeFailureDetail(root, runner.Error(result).Error())
 		} else {
 			res.Status = "local_executable"
 			res.OK = true
@@ -235,15 +245,19 @@ func runGate(root string, g gateSpec, observed map[string]gateResult) gateResult
 			res.Command = "make test-race"
 			break
 		}
-		cmd := exec.Command("make", g.Args...)
-		cmd.Dir = root
-		out, err := cmd.CombinedOutput()
+		result := runner.Run(context.Background(), runner.Request{
+			Argv:    append([]string{"make"}, g.Args...),
+			Dir:     root,
+			Timeout: 20 * time.Minute,
+			Output:  taskrunner.Capture,
+			Label:   "release_gates:" + g.Name,
+		})
 		res.Command = normalizeCommand("make " + strings.Join(g.Args, " "))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "release_gates: gate %s failed:\n%s\n", g.Name, out)
+		if result.Kind != taskrunner.Success {
+			fmt.Fprintf(os.Stderr, "release_gates: gate %s failed:\n%s\n", g.Name, result.Stdout)
 			res.Status = "failed"
 			res.OK = false
-			res.Detail = sanitizeFailureDetail(root, fmt.Sprintf("%v", err))
+			res.Detail = sanitizeFailureDetail(root, runner.Error(result).Error())
 		} else {
 			res.Status = "local_executable"
 			res.OK = true
@@ -280,19 +294,32 @@ func selectorChecks() []selectorCheck {
 }
 
 func validateSelectors(root string) error {
-	var errs []string
-	for _, c := range selectorChecks() {
-		n, err := goTestListHasMatches(root, c.pkg, c.pattern)
-		if err != nil {
-			errs = append(errs, err.Error())
-			continue
-		}
-		if n == 0 {
-			errs = append(errs, fmt.Sprintf("%s -list %q matched 0 tests", c.pkg, c.pattern))
+	checks := selectorChecks()
+	errs := make([]string, len(checks))
+	var wg sync.WaitGroup
+	for i, c := range checks {
+		wg.Add(1)
+		go func(idx int, ch selectorCheck) {
+			defer wg.Done()
+			n, err := goTestListHasMatches(root, ch.pkg, ch.pattern)
+			if err != nil {
+				errs[idx] = err.Error()
+				return
+			}
+			if n == 0 {
+				errs[idx] = fmt.Sprintf("%s -list %q matched 0 tests", ch.pkg, ch.pattern)
+			}
+		}(i, c)
+	}
+	wg.Wait()
+	var filtered []string
+	for _, e := range errs {
+		if e != "" {
+			filtered = append(filtered, e)
 		}
 	}
-	if len(errs) > 0 {
-		return fmt.Errorf("gate selector validation failed:\n%s", strings.Join(errs, "\n"))
+	if len(filtered) > 0 {
+		return fmt.Errorf("gate selector validation failed:\n%s", strings.Join(filtered, "\n"))
 	}
 	return nil
 }
