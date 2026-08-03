@@ -14,7 +14,7 @@ require (
 	github.com/aws/smithy-go v1.27.5
 	github.com/gorilla/websocket v1.5.3
 	github.com/jellydator/ttlcache/v3 v3.4.1
-	github.com/openai/openai-go/v3 v3.47.0
+	github.com/openai/openai-go/v3 v3.48.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.2
 	github.com/samber/slog-formatter v1.3.0
@@ -36,7 +36,7 @@ require (
 	golang.org/x/sys v0.47.0
 	golang.org/x/tools v0.48.0
 	google.golang.org/genai v1.66.0
-	google.golang.org/grpc v1.82.1
+	google.golang.org/grpc v1.83.0
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.55.0
@@ -44,7 +44,7 @@ require (
 
 require (
 	cloud.google.com/go v0.116.0 // indirect
-	cloud.google.com/go/auth v0.9.3 // indirect
+	cloud.google.com/go/auth v0.18.2 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.33 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.33 // indirect
@@ -67,11 +67,11 @@ require (
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/google/s2a-go v0.1.8 // indirect
+	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
+	github.com/googleapis/enterprise-certificate-proxy v0.3.11 // indirect
+	github.com/googleapis/gax-go/v2 v2.17.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
@@ -95,7 +95,6 @@ require (
 	github.com/tmthrgd/go-hex v0.0.0-20190904060850-447a3041c3bc // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
-	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.44.0 // indirect
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
