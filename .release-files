@@ -612,6 +612,13 @@
 .kiro/specs/openai-codex-native-compaction/research.md
 .kiro/specs/openai-codex-native-compaction/spec.json
 .kiro/specs/openai-codex-native-compaction/tasks.md
+.kiro/specs/safe-tool-call-tail-repair/design-review.md
+.kiro/specs/safe-tool-call-tail-repair/design.md
+.kiro/specs/safe-tool-call-tail-repair/gap-analysis.md
+.kiro/specs/safe-tool-call-tail-repair/requirements.md
+.kiro/specs/safe-tool-call-tail-repair/research.md
+.kiro/specs/safe-tool-call-tail-repair/spec.json
+.kiro/specs/safe-tool-call-tail-repair/tasks.md
 .kiro/steering/api-standards.md
 .kiro/steering/product.md
 .kiro/steering/routing-and-orchestration.md
