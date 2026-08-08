@@ -28,7 +28,7 @@
 ## Respect git workflow: No work on main
 
 Keep `main` branch clean. It should be only a PR merge receiver, never a merge donor. 
-Each time you start work on some fixes or implementation of new features create a new local worktree based on `main` with adequatly named fix/spec/feat branch and work there, NOT ON MAIN.
+Each time you start work on some fixes or implementation of new features create a new local worktree based on `main` with adequately named fix/spec/feat branch and work there, NOT ON MAIN.
 
 ## Skill Loading
 
