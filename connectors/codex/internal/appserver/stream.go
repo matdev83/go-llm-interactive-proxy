@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -75,7 +76,7 @@ func (s *codexStream) MapLine(_ context.Context, _ string, probe map[string]any)
 	if id, ok := probe["id"]; ok && id != nil {
 		idBytes, _ := json.Marshal(id)
 		idStr := strings.TrimSpace(string(idBytes))
-		turnIDStr := fmt.Sprintf("%d", s.turnRPCID)
+		turnIDStr := strconv.FormatInt(s.turnRPCID, 10)
 		if idStr == turnIDStr {
 			if errMsg, ok := probe["error"]; ok && errMsg != nil {
 				return nil, fmt.Errorf("codex: turn/start error: %v", errMsg)

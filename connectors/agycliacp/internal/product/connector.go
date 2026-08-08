@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connector-support/acp"
@@ -75,7 +76,7 @@ func (s *agySpec) BuildCommand(model string, workspace string) ([]string, string
 	}
 	cmd = append(cmd, "--model", model)
 	if s.cfg.TimeoutSeconds > 0 {
-		cmd = append(cmd, "--timeout-seconds", fmt.Sprintf("%d", s.cfg.TimeoutSeconds))
+		cmd = append(cmd, "--timeout-seconds", strconv.Itoa(s.cfg.TimeoutSeconds))
 	}
 	if s.cfg.SkipPermissions {
 		cmd = append(cmd, "--skip-permissions")
