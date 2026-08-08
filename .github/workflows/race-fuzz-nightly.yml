@@ -44,7 +44,11 @@ jobs:
         run: |
           set -euo pipefail
           tested_sha="$(git rev-parse HEAD)"
-          printf 'tested_sha=%s\ncommand=bash scripts/race-check.sh --strict\n' "$tested_sha" | tee .tmp-race-evidence.txt
+          # Keep the evidence artifact under .tmp/ (git-ignored) so it never
+          # trips internal/qa's root-hygiene test, which flags loose .txt/.log
+          # files in the repo root (issue #262).
+          mkdir -p .tmp
+          printf 'tested_sha=%s\ncommand=bash scripts/race-check.sh --strict\n' "$tested_sha" | tee .tmp/race-evidence.txt
           echo "sha=$tested_sha" >> "$GITHUB_OUTPUT"
 
       - name: Strict Linux race detector
@@ -58,7 +62,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
           path: |
-            .tmp-race-evidence.txt
+            .tmp/race-evidence.txt
             .tmp/race-check.log
             .tmp/race-precheck.log
 
