@@ -103,34 +103,91 @@ func (e *Engine) RepairContext(ctx context.Context, in Input) (Outcome, error) {
 
 	args := origArgs
 	syntaxChanged := false
+	tailReason := ""
+	var compiled *CompiledSchema
+	var err error
+	cache := e.cache
+	if cache == nil {
+		cache = packageSchemaCache()
+	}
 	if !json.Valid(args) {
 		repaired, ok := CompleteJSONSuffix(args)
-		if !ok || len(repaired) > maxBytes {
-			return fail(toolcall.ReasonUnrepairable), nil
+		if ok && len(repaired) <= maxBytes {
+			args = repaired
+			syntaxChanged = true
+			tailReason = toolcall.ReasonSyntaxRepaired
+		} else {
+			analysis, classified := analyzeJSONTail(ctx, args)
+			if !classified {
+				if err := ctx.Err(); err != nil {
+					return fail(toolcall.ReasonCanceled), nil
+				}
+				return fail(toolcall.ReasonUnrepairable), nil
+			}
+			switch analysis.kind {
+			case tailRepairTrailingComma:
+				candidate, ok := buildTrailingCommaCandidate(args, analysis, maxBytes)
+				if !ok {
+					return fail(toolcall.ReasonUnrepairable), nil
+				}
+				args = candidate
+				syntaxChanged = true
+				tailReason = toolcall.ReasonSyntaxRepaired
+			case tailRepairPendingRootValue:
+				if isEmptySchema(tool.Parameters) {
+					return fail(toolcall.ReasonUnrepairable), nil
+				}
+				compiled, err = cache.GetOrCompileContext(ctx, tool.Parameters)
+				if err != nil {
+					if reason := mapEngineArgsShapeReason(err); reason == toolcall.ReasonCanceled {
+						return fail(reason), nil
+					}
+					return fail(mapEngineSchemaReason(err)), nil
+				}
+				value, reason, ok, err := deterministicRootPendingValue(compiled, analysis.propertyName)
+				if err != nil {
+					var re *repairErr
+					if errors.As(err, &re) && re.reason != "" {
+						return fail(re.reason), nil
+					}
+					return fail(toolcall.ReasonUnrepairable), nil
+				}
+				if !ok {
+					return fail(toolcall.ReasonUnrepairable), nil
+				}
+				candidate, ok := buildPendingValueCandidate(args, analysis, value, maxBytes)
+				if !ok {
+					return fail(toolcall.ReasonUnrepairable), nil
+				}
+				args = candidate
+				syntaxChanged = true
+				tailReason = reason
+			default:
+				return fail(toolcall.ReasonUnrepairable), nil
+			}
 		}
-		args = repaired
-		syntaxChanged = true
 	}
 	if err := preflightArgsJSON(ctx, args, maxBytes); err != nil {
 		return fail(mapEngineArgsShapeReason(err)), nil
 	}
 
-	cache := e.cache
-	if cache == nil {
-		cache = packageSchemaCache()
-	}
 	if isEmptySchema(tool.Parameters) {
 		return syntaxOnlyOutcome(toolName, origArgs, args, nameChanged, syntaxChanged), nil
 	}
-	compiled, err := cache.GetOrCompileContext(ctx, tool.Parameters)
-	if err != nil {
-		if reason := mapEngineArgsShapeReason(err); reason == toolcall.ReasonCanceled {
-			return fail(reason), nil
+	if compiled == nil {
+		compiled, err = cache.GetOrCompileContext(ctx, tool.Parameters)
+		if err != nil {
+			if reason := mapEngineArgsShapeReason(err); reason == toolcall.ReasonCanceled {
+				return fail(reason), nil
+			}
+			return fail(mapEngineSchemaReason(err)), nil
 		}
-		return fail(mapEngineSchemaReason(err)), nil
 	}
 
 	if err := compiled.validateWithMaxArgs(ctx, args, maxBytes); err == nil {
+		if syntaxChanged {
+			return Outcome{Kind: OutcomeRewrite, ToolName: toolName, ArgsJSON: bytes.Clone(args), ReasonCode: tailReason}, nil
+		}
 		return syntaxOnlyOutcome(toolName, origArgs, args, nameChanged, syntaxChanged), nil
 	} else if reason := mapEngineArgsShapeReason(err); reason == toolcall.ReasonCanceled {
 		return fail(reason), nil
@@ -139,7 +196,7 @@ func (e *Engine) RepairContext(ctx context.Context, in Input) (Outcome, error) {
 	if err := ctx.Err(); err != nil {
 		return fail(toolcall.ReasonCanceled), nil
 	}
-	repaired, schemaReason, err := repairPreflightedArgsJSON(ctx, args, tool.Parameters)
+	repaired, schemaReason, err := repairPreflightedArgsJSONDocument(ctx, args, compiled.orderedDocument, maxBytes)
 	if err != nil {
 		var re *repairErr
 		if errors.As(err, &re) && re.reason != "" {
@@ -166,12 +223,12 @@ func (e *Engine) RepairContext(ctx context.Context, in Input) (Outcome, error) {
 	}
 
 	reason := schemaReason
-	if reason == "" {
-		if syntaxChanged {
-			reason = toolcall.ReasonSyntaxRepaired
-		} else {
-			reason = toolcall.ReasonToolNameNormalized
-		}
+	if syntaxChanged {
+		// Tail syntax is the primary repair path; existing schema repairs are
+		// secondary and must not obscure its stable public reason.
+		reason = tailReason
+	} else if reason == "" {
+		reason = toolcall.ReasonToolNameNormalized
 	}
 	var outArgs []byte
 	if schemaReason == "" && !syntaxChanged {

@@ -1,10 +1,12 @@
-# ADR 0007: Canonical tool-call repair (V1)
+# ADR 0007: Canonical tool-call repair (V1 + reviewed safe-tail extension)
 
 ## Status
 
 Accepted (issue [#152](https://github.com/matdev83/go-llm-interactive-proxy/issues/152)). Phase 2 landed the finalizer seam and core per-B-leg assembler. Phase 3 landed bounded offline schema compilation/validation and catalog indexing in `internal/core/toolcallrepair`. Phase 4 landed the deterministic `Engine.Repair` implementation. Phase 5 packaged the standard `tool-call-repair` feature plugin with bootstrap injection and opt-out. Phase 6 added adversarial, leakage, concurrency, fuzz, and panic-isolation hardening. Phase 7 added frontend/backend matrix conformance and an adapter dependency gate. Phase 8 wires repair fuzz/bench into `make test-fuzz` / `make bench`, documents operator-facing latency as `benchstat` evidence (not wall-clock asserts in the parallel unit suite), and adds a dogfood truncated-args example.
 
 ## Context
+
+The reviewed safe-tail extension preserves the V1 ownership and rollback model while covering two bounded terminal truncations that remain safe for immediate execution: one terminal comma after a complete JSON value, and one exact final top-level property whose value is selected by an existing deterministic schema fill.
 
 Upstream models sometimes emit native structured tool calls whose argument JSON is truncated, mis-keyed, or missing only schema-determinable values. Repair must stay at the canonical tool-event layer (after backend translation, before frontend encoding) so every wire frontend benefits once. `ToolReactor` is one-event-in/one-event-out and cannot replace a completed call with an ordered started/args/finished lifecycle, so V1 adds a purpose-built completed-call finalizer seam rather than overloading reactors or completion gates.
 
@@ -18,6 +20,14 @@ Upstream models sometimes emit native structured tool calls whose argument JSON 
 - Deterministic repair only; every rewrite is post-validated against the effective schema.
 
 ### Decision matrix
+
+| Safe-tail situation | Action |
+|---|---|
+| Terminal comma after a complete object member/array element | Delete exactly that comma, append required closers, shape-preflight, and post-validate |
+| Exact final root property with `const`, one-element `enum`, or `default` | Append the selected JSON value and required closers, shape-preflight, and post-validate |
+| Dangling colon without deterministic fill, partial literal/number/string, nested pending value, unsafe comma | Unrepairable; preserve original bytes under fail-open |
+
+The safe-tail classifier is one bounded linear scan. It never falls back to `{}`, inserts type-derived `null`, deletes escapes, coerces scalars, or searches multiple candidates. `CompleteJSONSuffix` remains append-only and runs first.
 
 | Situation | Action |
 |---|---|
@@ -107,3 +117,4 @@ Structured validation paths and their rendered form are bounded to 256 runes. Er
 - DoS hardening via `internal/core/jsonshape` (`encoding/json.Decoder.Token`): request envelopes keep historical duplicate-member acceptance (`RejectDuplicateNames=false`, depth 128, default 8 MiB / configurable); tool schema (256 KiB / depth 32 / 4096 nodes / 1024 members) and tool args (64 KiB default / depth 64) reject duplicates. Schema `MaxArrayElems` is `min(MaxNodes, profile cap)`. Overall HTTP request-body caps are **independent** of tool schema/args limits. Engine public reasons stay sparse: cancel → `canceled`, unsupported → `schema_unsupported`, other schema shape/limit/malformed → `schema_invalid`. `Engine.RepairContext` propagates cancellation as `OutcomeUnrepairable` + `canceled` without a Go error; originals are preserved. Step 3 locks preflight-before-materialize on all four frontend ServeHTTP paths (`reqbody` → `jsonguard.Preflight` → Decode*), schema/args/repair candidates (including `repairArgsJSON` and post-`CompleteJSONSuffix` candidates), with archtest call-order gates.
 - Step 5 ordered-args parser decision: retain the recursive `parseOrderedJSON` representation after preflight guarantees depth ≤ 64 (args) / ≤ 32 (schema). Duplicate rejection, key order, and `json.Number` spellings stay. An iterative token-stack builder is a future profiling-triggered optimization only — Windows `-benchtime=10x` evidence (not Linux baselines / not linearity claims) shows depth-64 parse ~8 µs and mixed ~60 KiB parse ~0.6 ms versus full `Engine.Repair` ~2 ms on the same payload (`docs/performance-checks.md`). No custom grammar scanner.
 - Observable compatibility note: tool lifecycle events may be held until `tool_call_finished`; valid originals are replayed unchanged with no extra model round trip.
+- Safe-tail compatibility note: the private terminal-comma candidate changes exactly one original byte; the private pending-value candidate is append-only. Published output may receive only existing bounded schema repairs after candidate preflight. Existing feature disablement remains a complete rollback.

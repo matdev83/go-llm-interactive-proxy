@@ -8,7 +8,7 @@ make bench
 
 This runs packages under `internal/testkit`, `internal/core/stream`, `internal/core/runtime`, `internal/core/routing`, `internal/core/diag`, `internal/core/toolcallrepair`, and streaming encoders. For a single package, e.g. `go test -bench=. -benchmem -run=Benchmark ./internal/core/runtime/...`.
 Secure-session recorder smoke: `go test -bench=BenchmarkRecorder -benchmem -run=^$ ./internal/core/securesession/app` (also included in `make bench`).
-Tool-call repair smoke: `go test -bench='BenchmarkEngineRepair|BenchmarkOrderedParse|BenchmarkOrderedPreflightPlusParse' -benchmem -run=^$ ./internal/core/toolcallrepair` (also included in `make bench`). Latency is for `benchstat` comparison only — the default unit suite does not assert wall-clock thresholds (allocation budgets and semantic bounds stay in unit tests).
+Tool-call repair smoke: `go test -bench='BenchmarkEngineRepair|BenchmarkSafeTailRepair|BenchmarkOrderedParse|BenchmarkOrderedPreflightPlusParse' -benchmem -run=^$ ./internal/core/toolcallrepair` (also included in `make bench`). `BenchmarkSafeTailRepair` separates valid pass-through, V1 append-only completion, terminal-comma deletion, deterministic pending `const`/`default`, and near-limit refusal. Latency is for `benchstat` comparison only — the default unit suite does not assert wall-clock thresholds (allocation budgets and semantic bounds stay in unit tests).
 
 ### JSON shape profiles (production)
 
@@ -18,7 +18,7 @@ Tool-call repair smoke: `go test -bench='BenchmarkEngineRepair|BenchmarkOrderedP
 | Tool schema (`ToolSchemaLimits`) | **256 KiB** | **32** | rejected | Offline compile path |
 | Tool args (`ToolArgumentsLimits`) | **64 KiB** default | **64** | rejected | Engine / repair materialize path |
 
-Preflight runs before materialize on frontend ServeHTTP (`reqbody` → `jsonguard.Preflight` → Decode*) and on schema/args/repair candidates in `toolcallrepair` (archtest order gates).
+Preflight runs before materialize on frontend ServeHTTP (`reqbody` → `jsonguard.Preflight` → Decode*) and on schema/args/repair candidates in `toolcallrepair` (archtest order gates). Safe-tail candidates remain private until this preflight succeeds; terminal-comma repair deletes exactly one final comma after a complete value, while pending-value repair appends only an exact root-property `const`, one-element `enum`, or `default` selected from the compiled schema.
 
 ### Ordered args parser retain decision (Step 5)
 

@@ -64,18 +64,33 @@ func repairArgsJSON(ctx context.Context, args []byte, schema json.RawMessage, ma
 		}
 		return nil, "", &repairErr{reason: toolcall.ReasonSchemaInvalid}
 	}
-	return repairPreflightedArgsJSON(ctx, args, schema)
+	schemaDoc, err := parseOrderedJSON(schema)
+	if err != nil {
+		return nil, "", &repairErr{reason: toolcall.ReasonSchemaInvalid}
+	}
+	return repairPreflightedArgsJSONDocument(ctx, args, schemaDoc, maxArgsBytes)
 }
 
 // repairPreflightedArgsJSON materializes and repairs args/schema that have already
 // passed preflightArgsJSON / preflightSchemaJSON (or schema cache compile) under
 // the caller's effective policy. Callers must not skip those guards.
 func repairPreflightedArgsJSON(ctx context.Context, args []byte, schema json.RawMessage) (out []byte, reason string, err error) {
+	schemaDoc, err := parseOrderedJSON(schema)
+	if err != nil {
+		return nil, "", &repairErr{reason: toolcall.ReasonSchemaInvalid}
+	}
+	return repairPreflightedArgsJSONDocument(ctx, args, schemaDoc, DefaultMaxArgsBytes)
+}
+
+func repairPreflightedArgsJSONDocument(ctx context.Context, args []byte, schemaDoc any, maxArgsBytes int) (out []byte, reason string, err error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, "", &repairErr{reason: toolcall.ReasonCanceled}
+	}
+	if err := preflightArgsJSON(ctx, args, maxArgsBytes); err != nil {
+		return nil, "", &repairErr{reason: mapEngineArgsShapeReason(err)}
 	}
 	root, err := parseOrderedJSON(args)
 	if err != nil {
@@ -83,10 +98,6 @@ func repairPreflightedArgsJSON(ctx context.Context, args []byte, schema json.Raw
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, "", &repairErr{reason: toolcall.ReasonCanceled}
-	}
-	schemaDoc, err := parseOrderedJSON(schema)
-	if err != nil {
-		return nil, "", &repairErr{reason: toolcall.ReasonSchemaInvalid}
 	}
 	st := &repairState{rootSchema: schemaDoc}
 	repaired, err := repairValue(ctx, root, schemaDoc, 0, st)

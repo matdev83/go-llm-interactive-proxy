@@ -18,7 +18,10 @@ Protocol-focused stub examples (same inspect coverage):
 | File | Intent |
 | --- | --- |
 | `dogfood-local-stub.yaml` | General local stub; multi-frontend |
-| `dogfood-tool-call-repair.yaml` | Truncated tool-args repair smoke (ADR 0007) |
+| `dogfood-tool-call-repair.yaml` | Terminal-comma tool-args repair smoke (ADR 0007) |
+| `dogfood-tool-call-repair-pending.yaml` | Schema-determined pending-value (`default`) repair smoke |
+
+| `dogfood-tool-call-repair-optout.yaml` | Explicit rollback: malformed tool args pass through unchanged |
 | `openai-responses-stub.yaml` | OpenAI Responses-shaped smoke |
 | `openai-legacy-stub.yaml` | Legacy OpenAI chat smoke |
 | `anthropic-stub.yaml` | Anthropic Messages smoke |
@@ -74,7 +77,7 @@ go run ./cmd/lipstd --config CONFIG
 
 **5. Minimal request**
 
-After serving with a stub example, exercise the mounted frontend URLs with your client of choice, or rely on the default-suite harness tests above for deterministic stubs.
+After serving with a stub example, exercise the mounted frontend URLs with your client of choice, or rely on the default-suite harness tests above for deterministic stubs. Safe-tail policy is intentionally narrow: a terminal comma is removed only after a complete value; a pending final root property is completed only from an exact compiled-schema `const`, single-valued `enum`, or `default`. The enabled terminal-comma and pending-value fixtures above are exercised by the standard dogfood smoke tests. No `{}` fallback, type-derived `null`, partial-token completion, nested pending path, or escape deletion is performed. The explicit opt-out example is the complete rollback and must replay the malformed original arguments.
 
 **Note:** Stub examples often set `diagnostics.enabled: false`, so **`/healthz` is not mounted** until you enable diagnostics and set `diagnostics.health_path` (default `/healthz`). A quick TCP check is a `GET` on a mounted frontend path (for example **`GET /v1/responses`** returns **405** Method Not Allowed when the OpenAI Responses surface is enabled—proving the listener and mux are up).
 
