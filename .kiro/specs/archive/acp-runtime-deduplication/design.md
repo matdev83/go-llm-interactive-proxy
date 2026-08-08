@@ -81,7 +81,7 @@ Retain:
 - **`scripts/check-adhoc-goroutines.sh` & `.ps1`**: Remove `internal/plugins/backends/acp/transport_stdio.go` path from the check script lists.
 - **`docs/release-gates.md`**: Update fuzz test locations for `FuzzParseNDJSONLine`, `FuzzMapSessionUpdateToEvents`, and `FuzzMergeHandshakeProfileExtensions` to `connector-support/acp`.
 - **`docs/testing-determinism.md`**: Update reference from `internal/plugins/backends/acp/prompt_msg.go` to `connector-support/acp/prompt_msg.go`.
-- **Reference Classification**: All stale/import/build/release/script/docs references to `internal/plugins/backends/acp` are eliminated. The path is exclusively permitted in `internal/archtest/acp_plugin_architecture_test.go` (assertion that it is deleted) and active spec documentation under `.kiro/specs/acp-runtime-deduplication/`.
+- **Reference Classification**: All stale/import/build/release/script/docs references to `internal/plugins/backends/acp` are eliminated. The path is exclusively permitted in `internal/archtest/acp_plugin_architecture_test.go` (assertion that it is deleted) and archived spec documentation under `.kiro/specs/archive/acp-runtime-deduplication/`.
 
 ---
 
