@@ -2,7 +2,7 @@
 
 ## 1. Freeze V1 compatibility and add RED safe-tail contracts
 
-- [ ] 1.1 Add fixture-level terminal-comma contracts
+- [x] 1.1 Add fixture-level terminal-comma contracts
   - Add positive object, array, nested-container, string-punctuation, literal, number, and whitespace cases.
   - Add explicit refusals for `{,`, `[,]`, `[1,,`, `{"a":,`, partial literals, mismatched closes, comma-in-string, and trailing garbage.
   - Preserve all existing fixture outputs and exact pass-through expectations.
@@ -13,7 +13,7 @@
   - _Depends: none_
   - _Validation: go test ./internal/core/toolcallrepair/..._
 
-- [ ] 1.2 Add fixture-level pending-value contracts
+- [x] 1.2 Add fixture-level pending-value contracts
   - Add positive exact top-level `const`, single-enum, and default cases, including explicit null supplied by those keywords.
   - Add refusals for absent deterministic value, nested path, normalized/misspelled key, partial scalar/string, ambiguous branch, external ref, and missing schema.
   - Assert correct existing reason codes and final schema validity.
@@ -24,7 +24,7 @@
   - _Depends: none_
   - _Validation: go test ./internal/core/toolcallrepair/..._
 
-- [ ] 1.3 Add RED tail-classifier tables and invariant helpers
+- [x] 1.3 Add RED tail-classifier tables and invariant helpers
   - Freeze expectation-state transitions, completed-scalar recognition, final non-whitespace handling, closers, maximum depth, invalid UTF-8, escapes, and cancellation.
   - Assert at most one class, explicit refusal of incomplete numbers/literals, and no raw payload in structured errors.
   - Keep direct `CompleteJSONSuffix` append-only tests unchanged.
@@ -35,7 +35,7 @@
   - _Depends: 1.1, 1.2_
   - _Validation: go test ./internal/core/toolcallrepair/..._
 
-- [ ] 1.4 Add RED engine/runtime sequencing tests
+- [x] 1.4 Add RED engine/runtime sequencing tests
   - Prove append-only repair runs before safe-tail classification.
   - Prove candidates never escape before shape preflight; require compiled-schema final validation for non-empty schemas and the existing JSON-validity/shape-preflight exception for empty-schema syntax-only rewrites.
   - Cover fail-open exact originals, fail-closed reject, panic/error isolation, overflow, cancellation, interleaved IDs, and lifecycle synthesis.
@@ -48,7 +48,7 @@
 
 ## 2. Implement the bounded tail analyzer and terminal-comma repair
 
-- [ ] 2.1 Implement the private bounded JSON-tail grammar scanner
+- [x] 2.1 Implement the private bounded JSON-tail grammar scanner
   - Track object/array expectation, strings, escapes, exact literals, JSON numbers, completed values, and open-container closers.
   - Enforce byte/depth bounds and cancellation without regex, recursion, backtracking, or unbounded copies.
   - Return exactly one structural classification or none.
@@ -59,7 +59,7 @@
   - _Depends: 1.3_
   - _Validation: go test ./internal/core/toolcallrepair/..._
 
-- [ ] 2.2 Implement one-byte terminal-comma candidate construction
+- [x] 2.2 Implement one-byte terminal-comma candidate construction
   - Require final non-whitespace comma in object/array comma-or-end state.
   - Build a private syntax candidate that removes exactly that byte, preserves all other bytes/whitespace, appends closers, enforces max size, and requires valid JSON.
   - Reject every unsafe near-neighbor without attempting a second syntax edit.
@@ -70,7 +70,7 @@
   - _Depends: 2.1_
   - _Validation: go test ./internal/core/toolcallrepair/..._
 
-- [ ] 2.3 Integrate terminal-comma repair into `Engine.RepairContext`
+- [x] 2.3 Integrate terminal-comma repair into `Engine.RepairContext`
   - Keep append-only completion first.
   - Route the comma candidate through strict argument preflight; use current schema validation/repair and mandatory final validation for non-empty schemas, while preserving the existing empty-schema syntax-only path.
   - Publish `syntax_repaired` as the primary reason even when a later schema repair is needed; preserve original bytes on every failure.
@@ -81,7 +81,7 @@
   - _Depends: 2.2, 1.4_
   - _Validation: go test ./internal/core/toolcallrepair/... ./internal/core/runtime/..._
 
-- [ ] 2.4 Add terminal-comma fuzz and adversarial hardening
+- [x] 2.4 Add terminal-comma fuzz and adversarial hardening
   - Assert deterministic classification, exact one-byte deletion in the private syntax candidate, bounded suffix, valid accepted candidate, applicable final-schema validity, and no panic/leak.
   - Seed hostile deep/wide/near-limit/UTF-8/duplicate/escape/partial-token cases.
   - Observable completion: focused fuzz campaigns and hardening tests pass.
@@ -93,7 +93,7 @@
 
 ## 3. Implement schema-determined top-level pending-value repair
 
-- [ ] 3.1 Extract/reuse deterministic fill behind a pending-property resolver
+- [x] 3.1 Extract/reuse deterministic fill behind a pending-property resolver
   - Resolve only the effective root object schema and exact `properties` entry.
   - Reuse current local-ref/single-branch and `const`/single-enum/default precedence/materialization.
   - Return no value for type-derived null, multi-branch selection, normalized key, additional-property schema, external ref, or inference.
@@ -104,7 +104,7 @@
   - _Depends: 1.2, 2.1_
   - _Validation: go test ./internal/core/toolcallrepair/..._
 
-- [ ] 3.2 Implement append-only pending-value candidate construction
+- [x] 3.2 Implement append-only pending-value candidate construction
   - Accept only the final colon of an exact top-level property with no value bytes.
   - Build a private syntax candidate that appends the deterministic JSON value and required closer without deleting or changing original bytes.
   - Enforce max size, JSON validity, and strict argument shape preflight.
@@ -115,7 +115,7 @@
   - _Depends: 3.1_
   - _Validation: go test ./internal/core/toolcallrepair/..._
 
-- [ ] 3.3 Integrate pending-value repair with compiled-schema reuse
+- [x] 3.3 Integrate pending-value repair with compiled-schema reuse
   - Compile once when the pending class requires schema and reuse the compiled schema for validation.
   - Continue through existing deterministic schema repair only after candidate preflight.
   - Implement and fixture an explicit primary-reason matrix: existing no-tail V1 repairs keep current reasons; append-only/comma paths use `syntax_repaired`; pending paths use the selected `const_inserted`, `enum_inserted`, or `default_inserted`, even when later schema repair also occurs.
@@ -127,7 +127,7 @@
   - _Depends: 3.2, 1.4_
   - _Validation: go test ./internal/core/toolcallrepair/... ./internal/core/runtime/..._
 
-- [ ] 3.4 Add pending-value fuzz, cache, and hostile-schema tests
+- [x] 3.4 Add pending-value fuzz, cache, and hostile-schema tests
   - Fuzz exact top-level key extraction and append-only candidate behavior.
   - Cover invalid/unsupported/oversized schemas, local-ref cycles, multi-branch ambiguity, conflicting keywords, cache concurrency, and cancellation.
   - Assert inserted values never appear in diagnostics.
@@ -140,7 +140,7 @@
 
 ## 4. Prove canonical integration, rollback, and operator clarity
 
-- [ ] 4.1 Extend the tools-capable frontend/backend conformance matrix
+- [x] 4.1 Extend the tools-capable frontend/backend conformance matrix
   - Add canonical terminal-comma and pending-value cases to every tools-viable bundled cell.
   - Record unsupported/tools-inviable cells explicitly.
   - Assert streaming/non-streaming equivalence and adapter ignorance.
@@ -151,7 +151,7 @@
   - _Depends: 2.3, 3.3_
   - _Validation: make parity-checks_
 
-- [ ] 4.2 Extend local dogfood and standard feature regression coverage
+- [x] 4.2 Extend local dogfood and standard feature regression coverage
   - Add deterministic local-stub examples for both repair classes.
   - Prove standard injection enables the behavior and existing explicit opt-out returns exact malformed originals.
   - Prove no new YAML key, mode, or default drift.
@@ -162,7 +162,7 @@
   - _Depends: 4.1_
   - _Validation: go test ./internal/standardplugins/... ./internal/stdhttp/... ./cmd/lipstd/..._
 
-- [ ] 4.3 Harden diagnostics and failure isolation
+- [x] 4.3 Harden diagnostics and failure isolation
   - Extend reason/action diagnostics tests for both classes without raw arguments, inserted values, schema bodies, or user-controlled labels.
   - Re-run panic, finalizer error, cancellation, EOF, overflow, duplicate lifecycle, and interleaving matrices.
   - Observable completion: all failures remain typed, bounded, and exact-original safe.
@@ -172,7 +172,7 @@
   - _Depends: 2.3, 3.3_
   - _Validation: go test ./internal/core/toolcallrepair/... ./internal/core/runtime/..._
 
-- [ ] 4.4 Amend ADR 0007 and operator/performance documentation
+- [x] 4.4 Amend ADR 0007 and operator/performance documentation
   - Document the V2 safe-tail matrix, exact one-byte comma exception, deterministic pending-value boundary, reason-code reuse, refusal cases, rollback, and performance evidence procedure.
   - Explicitly contrast live repair with Reasonix history sanitation and keep broader behavior out of scope.
   - Observable completion: docs accurately match executable fixtures and no V1 append-only claim remains misleading.
@@ -184,7 +184,7 @@
 
 ## 5. Certify concurrency, performance, and release readiness
 
-- [ ] 5.1 Run and harden race/concurrency coverage
+- [x] 5.1 Run and harden race/concurrency coverage
   - Exercise shared cache with identical/distinct schemas, comma/pending mixes, cancellation, and concurrent B-leg streams.
   - Add no goroutines or global mutable repair state.
   - Observable completion: strict Linux race run is green or an explicit blocker is recorded without claiming success.
@@ -194,7 +194,7 @@
   - _Depends: 4.3_
   - _Validation: make test-race_
 
-- [ ] 5.2 Publish controlled benchmark evidence
+- [x] 5.2 Publish controlled benchmark evidence
   - Benchmark valid pass-through, V1 append-only, terminal comma, pending const/default, and near-limit unrepairable cases.
   - Compare repeated baseline/final samples with `benchstat`.
   - Record allocations, bytes, cache posture, platform, and any reviewed exception.
@@ -205,7 +205,7 @@
   - _Depends: 2.4, 3.4_
   - _Validation: make bench_
 
-- [ ] 5.3 Run full fuzz and quality gates
+- [x] 5.3 Run full fuzz and quality gates
   - Run registered repair fuzz smoke, focused longer tail fuzz campaigns, formatting, build, vet, architecture, unit, tagged conformance, and vulnerability/lint gates required by repository policy.
   - Verify no protocol adapter imports the engine and no new public/canonical dependency edge appears.
   - Observable completion: all mandatory gates pass at the exact implementation head or limitations are recorded truthfully.
@@ -215,7 +215,7 @@
   - _Depends: 4.4, 5.1, 5.2_
   - _Validation: make quality-checks && make test && make test-fuzz && make parity-checks_
 
-- [ ] 5.4 Complete traceability and spec closeout
+- [x] 5.4 Complete traceability and spec closeout
   - Verify every acceptance criterion has implementation/test evidence.
   - Record exact commands, platform/race scope, fuzz durations, benchmark comparison, conformance cells, and known limitations.
   - Update `spec.json` only after implementation and human approvals; archive only when all tasks and release evidence are complete.
