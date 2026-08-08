@@ -57,7 +57,7 @@ Core owns orchestration and policy. Core imports `pkg/lipapi` and `pkg/lipsdk`; 
 - `internal/pluginreg/` — Standard distribution plugin registry & validation.
 - `internal/standardplugins/` — Built-in bundle tables (`standard_table.go`), `InstallStandardBundleOn`, `ResolveUpstreamAPIKeysFromEnv`.
 - `internal/featurebundle/` — Feature merge engine (`MergeFeatureSurface`).
-- `internal/infra/runtimebundle/` — Process `Host` builder (`BuildHost`), immutable generation management (`GenerationRuntime`), shutdown coordinator.
+- `internal/infra/runtimebundle/` — Process `Host` builder (`runtimebundle.BuildHost`), immutable generation management (`GenerationRuntime`), shutdown coordinator; the host lifecycle ends through `Host.Close`.
 - `internal/stdhttp/` — Standard HTTP surface, route mounting, auth attachment, diagnostics, access logs.
 
 ### 3. Official Frontend Plugins (`internal/plugins/frontends/`)

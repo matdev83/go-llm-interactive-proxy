@@ -64,6 +64,62 @@ func FuzzSchemaPreScanCompile(f *testing.F) {
 	})
 }
 
+func FuzzJSONTail(f *testing.F) {
+	for _, seed := range []string{`{"a":1,`, `[1,2,`, `{"mode":`, `{,`, `[,]`, `{"a":tru,`, `{"a":"x,`, `{"a":1,}x`} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, raw string) {
+		if len(raw) > 4096 {
+			t.Skip()
+		}
+		out, err := toolcallrepair.NewEngine().Repair(toolcallrepair.Input{
+			ToolName:     "run",
+			ArgsJSON:     []byte(raw),
+			Catalog:      []lipapi.ToolDef{{Name: "run"}},
+			MaxArgsBytes: 4096,
+		})
+		if err != nil {
+			t.Fatalf("Repair returned error: %v", err)
+		}
+		if len(out.ArgsJSON) > 4096 {
+			t.Fatal("repair exceeded output bound")
+		}
+		if out.Kind == toolcallrepair.OutcomeRewrite && !json.Valid(out.ArgsJSON) {
+			t.Fatal("rewrite is invalid JSON")
+		}
+	})
+}
+
+func FuzzPendingRootValue(f *testing.F) {
+	for _, seed := range []string{`{"mode":`, `{"enabled":`, `{"Mod":`, `{"outer":{"mode":`, `{"mode":"sa`, `{"mode":t`} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, args string) {
+		if len(args) > 4096 {
+			t.Skip()
+		}
+		schema := json.RawMessage(`{"type":"object","properties":{"mode":{"const":"safe"},"enabled":{"default":true}}}`)
+		out, err := toolcallrepair.NewEngine().Repair(toolcallrepair.Input{
+			ToolName: "run", ArgsJSON: []byte(args), Catalog: []lipapi.ToolDef{{Name: "run", Parameters: schema}}, MaxArgsBytes: 4096,
+		})
+		if err != nil {
+			t.Fatalf("Repair returned error: %v", err)
+		}
+		if out.Kind == toolcallrepair.OutcomeRewrite {
+			if !json.Valid(out.ArgsJSON) {
+				t.Fatal("rewrite is invalid JSON")
+			}
+			compiled, err := toolcallrepair.NewSchemaCache(toolcallrepair.DefaultSchemaLimits()).GetOrCompile(schema)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := compiled.Validate(out.ArgsJSON); err != nil {
+				t.Fatalf("rewrite failed schema validation: %v", err)
+			}
+		}
+	})
+}
+
 func FuzzEngineRepair(f *testing.F) {
 	schema := `{"type":"object","properties":{"value":{"type":"integer","default":1}},"additionalProperties":false}`
 	for _, seed := range []string{

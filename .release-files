@@ -607,6 +607,13 @@
 .kiro/specs/archive/windows-task-reliability/research.md
 .kiro/specs/archive/windows-task-reliability/spec.json
 .kiro/specs/archive/windows-task-reliability/tasks.md
+.kiro/specs/extension-scalability-and-architecture-simplification/design-review.md
+.kiro/specs/extension-scalability-and-architecture-simplification/design.md
+.kiro/specs/extension-scalability-and-architecture-simplification/gap-analysis.md
+.kiro/specs/extension-scalability-and-architecture-simplification/requirements.md
+.kiro/specs/extension-scalability-and-architecture-simplification/research.md
+.kiro/specs/extension-scalability-and-architecture-simplification/spec.json
+.kiro/specs/extension-scalability-and-architecture-simplification/tasks.md
 .kiro/specs/openai-codex-native-compaction/design-review.md
 .kiro/specs/openai-codex-native-compaction/design.md
 .kiro/specs/openai-codex-native-compaction/gap-analysis.md
@@ -707,6 +714,7 @@ config/examples/custom-openai-legacy-compatible.yaml
 config/examples/custom-openai-responses-compatible.yaml
 config/examples/dogfood-local-stub.yaml
 config/examples/dogfood-tool-call-repair-optout.yaml
+config/examples/dogfood-tool-call-repair-pending.yaml
 config/examples/dogfood-tool-call-repair.yaml
 config/examples/gemini-stub.yaml
 config/examples/openai-legacy-stub.yaml
@@ -2270,6 +2278,7 @@ internal/core/runtime/ttft_budget.go
 internal/core/runtime/ttft_timeout_test.go
 internal/core/runtime/v1_review_matrix_test.go
 internal/core/runtime/weighted_first_post_hook_test.go
+internal/core/runtime/safe_tail_finalizer_integration_test.go
 internal/core/safety/doc.go
 internal/core/safety/panic.go
 internal/core/safety/panic_log.go
@@ -2499,6 +2508,10 @@ internal/core/toolcallrepair/schema_validate.go
 internal/core/toolcallrepair/schema_validate_test.go
 internal/core/toolcallrepair/shape_guard.go
 internal/core/toolcallrepair/shape_guard_test.go
+internal/core/toolcallrepair/json_tail.go
+internal/core/toolcallrepair/pending_value.go
+internal/core/toolcallrepair/safe_tail_bench_test.go
+internal/core/toolcallrepair/safe_tail_test.go
 internal/core/traffic/contract_test.go
 internal/core/traffic/doc.go
 internal/core/traffic/snapshot.go

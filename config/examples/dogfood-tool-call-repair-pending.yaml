@@ -1,7 +1,8 @@
-# Same terminal-comma local-stub args as dogfood-tool-call-repair.yaml, but tool-call-repair is
-# explicitly disabled (present row with enabled: false) so truncated args pass through.
+# NO-KEY LOCAL STUB — exercises canonical tool-call repair (ADR 0007 / issue #152).
+# local-stub emits a schema-determined pending-value tool tail; tool-call-repair completes it before the client wire.
+# Not a live-provider configuration.
 server:
-  address: "127.0.0.1:18083"
+  address: "127.0.0.1:18084"
 
 routing:
   max_attempts: 3
@@ -85,9 +86,10 @@ plugins:
       id: dogfood-local
       enabled: true
       config:
-        text: "[dogfood] tool-call repair opt-out"
+        text: "[dogfood] tool-call repair"
         tool_name: get_weather
-        tool_args: '{"location":"NYC",'
+        # Intentionally pending-value JSON; the request schema default supplies the value.
+        tool_args: '{"location":'
         input_tokens: 3
         output_tokens: 7
   features:
@@ -101,5 +103,5 @@ plugins:
       enabled: true
       config: {}
     - id: tool-call-repair
-      enabled: false
+      enabled: true
       config: {}

@@ -1,5 +1,5 @@
 # NO-KEY LOCAL STUB — exercises canonical tool-call repair (ADR 0007 / issue #152).
-# local-stub emits truncated tool args; tool-call-repair completes them before the client wire.
+# local-stub emits a terminal-comma tool tail; tool-call-repair completes it before the client wire.
 # Not a live-provider configuration.
 server:
   address: "127.0.0.1:18082"
@@ -88,8 +88,8 @@ plugins:
       config:
         text: "[dogfood] tool-call repair"
         tool_name: get_weather
-        # Intentionally truncated JSON; repair should append the closing brace.
-        tool_args: '{"location":"NYC"'
+        # Intentionally terminal-comma JSON; repair removes the comma and closes the object.
+        tool_args: '{"location":"NYC",'
         input_tokens: 3
         output_tokens: 7
   features:

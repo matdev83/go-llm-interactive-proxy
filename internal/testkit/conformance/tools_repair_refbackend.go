@@ -30,8 +30,17 @@ func WantRepairedToolArgsJSON(backendID string) string {
 	return `{"city":"NYC"}`
 }
 
+func WantSafeTailPendingArgsJSON(backendID string) string {
+	if backendID == openairesponses.ID {
+		return `{"q":1}`
+	}
+	return `{"city":"NYC"}`
+}
+
 // NewToolCallRepairRefBackend wires a reference backend that emits intentionally
-// truncated tool-call argument JSON so canonical tool-call repair must rewrite.
+// terminal-comma tool-call argument JSON so canonical safe-tail repair must rewrite.
+// Safe-tail engine/runtime and local-dogfood suites cover the schema-determined
+// pending-value class; protocol adapters remain unaware of both repair classes.
 func NewToolCallRepairRefBackend(tb testing.TB, backendID string) *httptest.Server {
 	tb.Helper()
 	switch backendID {
@@ -39,9 +48,9 @@ func NewToolCallRepairRefBackend(tb testing.TB, backendID string) *httptest.Serv
 		tb.Skip("gemini wire materializes functionCall.args as a JSON object; syntax truncation is not exercisable")
 		return nil
 	case openairesponses.ID:
-		// Truncated args JSON is {"q":1 (missing closing brace). Wire JSON must still be valid.
+		// Safe-tail args JSON ends after a complete value plus a terminal comma.
 		srv := httptest.NewServer(refopenairesponses.NewHandler(refopenairesponses.Config{
-			StreamSSE: openAICompatToolResponsesTruncatedSSE("gpt-4o-mini", `{"q":1`),
+			StreamSSE: openAICompatToolResponsesTruncatedSSE("gpt-4o-mini", `{"q":1,`),
 		}))
 		tb.Cleanup(srv.Close)
 		return srv
@@ -49,7 +58,7 @@ func NewToolCallRepairRefBackend(tb testing.TB, backendID string) *httptest.Serv
 		const sse = "data: " +
 			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_ab","type":"function","function":{"name":"get_weather"}}]},"finish_reason":null}]}` +
 			"\n\n" + "data: " +
-			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\":\"NYC\""}}]},"finish_reason":null}]}` +
+			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\":\"NYC\","}}]},"finish_reason":null}]}` +
 			"\n\n" + "data: " +
 			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}` +
 			"\n\n" + "data: " +
@@ -66,7 +75,7 @@ func NewToolCallRepairRefBackend(tb testing.TB, backendID string) *httptest.Serv
 			`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_01","name":"get_weather","input":{}}}` +
 			"\n\n" +
 			"event: content_block_delta\ndata: " +
-			`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"city\":\"NYC\""}}` +
+			`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"city\":\"NYC\","}}` +
 			"\n\n" +
 			"event: content_block_stop\ndata: " +
 			`{"type":"content_block_stop","index":0}` +
@@ -88,7 +97,7 @@ func NewToolCallRepairRefBackend(tb testing.TB, backendID string) *httptest.Serv
 		srv := httptest.NewServer(&providerModeOrigin{
 			responses: refopenairesponses.NewHandler(refopenairesponses.Config{
 				AllowMissingBearer: true,
-				StreamSSE:          openAICompatToolResponsesTruncatedSSE(DefaultModel(backendID), `{"city":"NYC"`),
+				StreamSSE:          openAICompatToolResponsesTruncatedSSE(DefaultModel(backendID), `{"city":"NYC",`),
 			}),
 		})
 		tb.Cleanup(srv.Close)
@@ -173,7 +182,7 @@ func bedrockToolStreamTruncated(tb testing.TB) []byte {
 		{"contentBlockDelta", map[string]any{
 			"contentBlockIndex": 0,
 			"delta": map[string]any{
-				"toolUse": map[string]any{"input": `{"city":"NYC"`},
+				"toolUse": map[string]any{"input": `{"city":"NYC",`},
 			},
 		}},
 		{"contentBlockStop", map[string]any{"contentBlockIndex": 0}},

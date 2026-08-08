@@ -6,7 +6,12 @@ import (
 	"unicode/utf8"
 )
 
-func preScanSchema(ctx context.Context, schema []byte, limits SchemaLimits) (any, error) {
+type preScannedSchema struct {
+	document        any
+	orderedDocument any
+}
+
+func preScanSchema(ctx context.Context, schema []byte, limits SchemaLimits) (*preScannedSchema, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, schemaErr(SchemaKindInvalid, ReasonCanceled, "")
 	}
@@ -26,6 +31,10 @@ func preScanSchema(ctx context.Context, schema []byte, limits SchemaLimits) (any
 	if err != nil {
 		return nil, schemaErr(SchemaKindMalformed, ReasonMalformedJSON, "")
 	}
+	orderedDoc, err := parseOrderedJSON(schema)
+	if err != nil {
+		return nil, schemaErr(SchemaKindMalformed, ReasonMalformedJSON, "")
+	}
 	state := &prescanState{limits: limits, root: doc}
 	if err := state.walk(ctx, doc, 0); err != nil {
 		return nil, err
@@ -36,7 +45,7 @@ func preScanSchema(ctx context.Context, schema []byte, limits SchemaLimits) (any
 	if err := state.checkLocalRefs(ctx); err != nil {
 		return nil, err
 	}
-	return doc, nil
+	return &preScannedSchema{document: doc, orderedDocument: orderedDoc}, nil
 }
 
 type prescanState struct {
