@@ -4,7 +4,7 @@
 
 Five-zone modular design: stable public contracts at the edge, a policy-owning internal core, frontend/backend/feature plugins, and infrastructure/harness support.
 
-```
+```text
                     ┌─────────────────────────┐
                     │      pkg/lipapi         │  Canonical Contracts
                     └───────────┬─────────────┘

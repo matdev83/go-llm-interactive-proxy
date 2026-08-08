@@ -34,8 +34,8 @@ Source of truth: [`internal/standardplugins/standard_table.go`](file:///C:/Users
 
 ## Architectural Non-Goals
 
-- NO Python-era legacy claims without Go implementation.
-- NO provider-specific or transport-specific logic in `internal/core/`.
-- NO textbook `app/domain/adapters` directory taxonomy churn.
-- NO Go native dynamic binary loading (Go `plugin` package forbidden; use out-of-process gRPC connectors under `connectors/`).
-- NO feature addition that compromises small core policy ownership or contract testability.
+- Avoid Python-era legacy claims without Go implementation.
+- Do not leak provider-specific or transport-specific logic into `internal/core/`.
+- Reject textbook `app/domain/adapters` directory taxonomy churn.
+- Forbid Go native dynamic binary loading (Go `plugin` package is forbidden; use out-of-process gRPC connectors under `connectors/`).
+- Prevent feature additions that compromise small core policy ownership or contract testability.

@@ -56,4 +56,4 @@
 - `make test` — Quality checks + default unit tests + parity checks.
 - `make test-unit` — `go test -parallel=8 -timeout=10m ./...`
 - `make parity-checks` — `go test -parallel=8 -timeout=10m -tags=precommit,integration ./internal/testkit/conformance/...`
-- `make qa` — Quality checks + full tagged test pass + golangci-lint v2 + govulncheck.
+- `make qa` — Quality checks + full tagged test pass + golangci-lint + govulncheck.

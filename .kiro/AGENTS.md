@@ -18,7 +18,7 @@ Applies ONLY when explicitly triggered via `/kiro:*`, explicit paths under `.kir
 
 ## Spec Directory Layout
 
-```
+```text
 .kiro/
 ├── specs/
 │   ├── {feature-name}/  (spec.json, requirements.md, design.md, tasks.md, research.md)

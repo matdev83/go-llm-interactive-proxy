@@ -4,7 +4,7 @@
 
 - **TDD by Default**: Red -> Green -> Refactor.
 - **Specification Bundle (Recoverability)**: Executable tests + `testdata/` golden fixtures + canonical types (`pkg/lipapi`, `pkg/lipsdk`) + steering rules + scenario index ([`docs/spec-bundle-index.md`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/docs/spec-bundle-index.md)).
-- **Composed Tests in Default Suite**: `*_test.go` and `integration_test.go` files inside package dirs use `httptest` + stubs without external networks. They run in default `go test ./...` and `make test`.
+- **Composed Tests in Default Suite**: Untagged `*_test.go` files inside package dirs use `httptest` + stubs without external networks. They run in default `go test ./...` and `make test`. Tests marked with `//go:build integration` are environment-gated.
 - **`goleak.VerifyTestMain`**: Mandatory in packages managing goroutines ([`runtime`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/runtime), `stream`, `pluginreg`, `standardplugins`, `bedrock`, `stdhttp`, `connectors/*`).
 
 ---
