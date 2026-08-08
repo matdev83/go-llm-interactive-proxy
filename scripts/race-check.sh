@@ -69,8 +69,6 @@ if [[ $PRECHECK_STATUS -ne 0 ]]; then
 fi
 
 declare -a PACKAGES
-PACKAGES=("./...")
-
 if [[ "$STAGED" == true ]]; then
 	mapfile -t STAGED_GO_FILES < <(git diff --cached --name-only --diff-filter=ACMR | sed 's#\\#/#g' | grep -E '\.go$' || true)
 	if [[ ${#STAGED_GO_FILES[@]} -eq 0 ]]; then
@@ -87,18 +85,46 @@ if [[ "$STAGED" == true ]]; then
 		fi
 	done
 	mapfile -t PACKAGES < <(printf '%s\n' "${!PACKAGE_SET[@]}" | sort)
+else
+	# internal/archtest is by far the slowest package under -race: its parallel
+	# repo-wide AST scans take ~90s without the detector and blow past the 10m
+	# default per-package timeout on CI while competing for CPU with the other
+	# concurrent package runs (issue #262). qa.yml already gives archtest its
+	# own step; mirror that here by scanning it separately with a dedicated 25m
+	# budget (measured ~90s non-race, >10m under CI contention) instead of
+	# raising the timeout for every package.
+	packages_list="$(go list ./... 2>&1)" || {
+		echo "ERROR: go list ./... failed; cannot compute the race scan package set" >&2
+		echo "$packages_list" >&2
+		exit 1
+	}
+	mapfile -t PACKAGES < <(printf '%s\n' "$packages_list" | grep -vE '/internal/archtest(/|$)')
+	if [[ ${#PACKAGES[@]} -eq 0 ]]; then
+		echo "ERROR: race scan package set is empty; refusing to run go test with no package args" >&2
+		exit 1
+	fi
 fi
 
 declare -a GO_ARGS
 GO_ARGS=("test" "-race" "-tags=precommit,integration" "-count=1")
-GO_ARGS+=("${PACKAGES[@]}")
-
-echo "Running race detector scan: go ${GO_ARGS[*]}"
 
 LOG_FILE=".tmp/race-check.log"
+: >"$LOG_FILE"
+
+STATUS=0
+run_race_scan() {
+	go "${GO_ARGS[@]}" "$@" 2>&1 | tee -a "$LOG_FILE"
+	local scan_status=${PIPESTATUS[0]}
+	[[ $scan_status -ne 0 ]] && STATUS=$scan_status
+}
+
+echo "Running race detector scan: go ${GO_ARGS[*]} ${PACKAGES[*]}"
 set +e
-go "${GO_ARGS[@]}" 2>&1 | tee "$LOG_FILE"
-STATUS=${PIPESTATUS[0]}
+run_race_scan "${PACKAGES[@]}"
+if [[ "$STAGED" != true ]]; then
+	echo "Running archtest race scan separately: go ${GO_ARGS[*]} -timeout=25m ./internal/archtest/..."
+	run_race_scan -timeout=25m ./internal/archtest/...
+fi
 set -e
 
 if [[ $STATUS -ne 0 ]]; then
