@@ -27,6 +27,12 @@ func preScanSchema(ctx context.Context, schema []byte, limits SchemaLimits) (*pr
 	if err := preflightSchemaJSON(ctx, schema, limits); err != nil {
 		return nil, err
 	}
+	// The schema is decoded twice on purpose: unmarshalSchemaJSON produces the
+	// plain document the jsonschema compiler consumes, while parseOrderedJSON
+	// preserves key order and duplicate rejection for the repair document that
+	// CompiledSchema retains. Both are bounded by preflightSchemaJSON above and
+	// cached per schema digest; the retained ordered document adds at most one
+	// schema-sized allocation to the LRU cache.
 	doc, err := unmarshalSchemaJSON(schema)
 	if err != nil {
 		return nil, schemaErr(SchemaKindMalformed, ReasonMalformedJSON, "")

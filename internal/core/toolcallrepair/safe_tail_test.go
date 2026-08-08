@@ -90,7 +90,7 @@ func TestEngine_TerminalCommaRepairsCompleteValues(t *testing.T) {
 func TestEngine_TerminalCommaRefusesUnsafeShapes(t *testing.T) {
 	t.Parallel()
 	for _, args := range []string{
-		`{,`, `[,]`, `[1,,`, `{"a":,`, `{"a":tru,`, `{"a":1,}x`,
+		`{,`, `[,]`, `[1,,`, `{"a":,`, `{"a":tru,`, `{"a":1,}x`, `[1]x`, `[1,2]x`,
 	} {
 		t.Run(args, func(t *testing.T) {
 			t.Parallel()

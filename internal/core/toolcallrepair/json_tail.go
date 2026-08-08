@@ -57,68 +57,49 @@ func analyzeJSONTail(ctx context.Context, in []byte) (tailAnalysis, bool) {
 			return tailAnalysis{}, false
 		}
 
-		f := &stack[len(stack)-1]
-		switch f.state {
+		switch stack[len(stack)-1].state {
 		case tailObjectKeyOrEnd:
 			if in[i] == '}' {
 				i++
 				stack = stack[:len(stack)-1]
-				if !completeTailChild(&stack, &rootDone) {
+				if len(stack) == 0 {
+					rootDone = true
+				} else if !completeTailChild(stack) {
 					return tailAnalysis{}, false
 				}
 				terminalComma = -1
 				continue
 			}
-			if in[i] != '"' {
-				return tailAnalysis{}, false
-			}
-			next, key, ok := consumeJSONString(ctx, in, i)
+			next, ok := consumeObjectKey(ctx, in, stack, i)
 			if !ok {
 				return tailAnalysis{}, false
 			}
-			f.key = key
-			f.propertyPresent = true
-			f.state = tailObjectColon
 			i = next
 			terminalComma = -1
 		case tailObjectKeyAfterComma:
-			if in[i] != '"' {
-				return tailAnalysis{}, false
-			}
-			next, key, ok := consumeJSONString(ctx, in, i)
+			next, ok := consumeObjectKey(ctx, in, stack, i)
 			if !ok {
 				return tailAnalysis{}, false
 			}
-			f.key = key
-			f.propertyPresent = true
-			f.state = tailObjectColon
 			i = next
 			terminalComma = -1
 		case tailObjectColon:
 			if in[i] != ':' {
 				return tailAnalysis{}, false
 			}
-			f.state = tailObjectValue
+			stack[len(stack)-1].state = tailObjectValue
 			i++
 			terminalComma = -1
 		case tailObjectValue:
-			next, ok := consumeValue(ctx, in, i)
+			var ok bool
+			stack, i, ok = consumeChildValue(ctx, in, stack, i, tailObjectCommaOrEnd)
 			if !ok {
 				return tailAnalysis{}, false
 			}
-			if next == i+1 && (in[i] == '{' || in[i] == '[') {
-				if len(stack) >= maxJSONScanDepth {
-					return tailAnalysis{}, false
-				}
-				stack = append(stack, newTailFrame(in[i]))
-			} else {
-				f.state = tailObjectCommaOrEnd
-			}
-			i = next
 			terminalComma = -1
 		case tailObjectCommaOrEnd:
 			if in[i] == ',' {
-				f.state = tailObjectKeyAfterComma
+				stack[len(stack)-1].state = tailObjectKeyAfterComma
 				terminalComma = i
 				i++
 				continue
@@ -126,7 +107,9 @@ func analyzeJSONTail(ctx context.Context, in []byte) (tailAnalysis, bool) {
 			if in[i] == '}' {
 				i++
 				stack = stack[:len(stack)-1]
-				if !completeTailChild(&stack, &rootDone) {
+				if len(stack) == 0 {
+					rootDone = true
+				} else if !completeTailChild(stack) {
 					return tailAnalysis{}, false
 				}
 				terminalComma = -1
@@ -137,44 +120,30 @@ func analyzeJSONTail(ctx context.Context, in []byte) (tailAnalysis, bool) {
 			if in[i] == ']' {
 				i++
 				stack = stack[:len(stack)-1]
-				if !completeTailChild(&stack, &rootDone) {
+				if len(stack) == 0 {
+					rootDone = true
+				} else if !completeTailChild(stack) {
 					return tailAnalysis{}, false
 				}
 				terminalComma = -1
 				continue
 			}
-			next, ok := consumeValue(ctx, in, i)
+			var ok bool
+			stack, i, ok = consumeChildValue(ctx, in, stack, i, tailArrayCommaOrEnd)
 			if !ok {
 				return tailAnalysis{}, false
 			}
-			if next == i+1 && (in[i] == '{' || in[i] == '[') {
-				if len(stack) >= maxJSONScanDepth {
-					return tailAnalysis{}, false
-				}
-				stack = append(stack, newTailFrame(in[i]))
-			} else {
-				f.state = tailArrayCommaOrEnd
-			}
-			i = next
 			terminalComma = -1
 		case tailArrayValueAfterComma:
-			next, ok := consumeValue(ctx, in, i)
+			var ok bool
+			stack, i, ok = consumeChildValue(ctx, in, stack, i, tailArrayCommaOrEnd)
 			if !ok {
 				return tailAnalysis{}, false
 			}
-			if next == i+1 && (in[i] == '{' || in[i] == '[') {
-				if len(stack) >= maxJSONScanDepth {
-					return tailAnalysis{}, false
-				}
-				stack = append(stack, newTailFrame(in[i]))
-			} else {
-				f.state = tailArrayCommaOrEnd
-			}
-			i = next
 			terminalComma = -1
 		case tailArrayCommaOrEnd:
 			if in[i] == ',' {
-				f.state = tailArrayValueAfterComma
+				stack[len(stack)-1].state = tailArrayValueAfterComma
 				terminalComma = i
 				i++
 				continue
@@ -182,7 +151,9 @@ func analyzeJSONTail(ctx context.Context, in []byte) (tailAnalysis, bool) {
 			if in[i] == ']' {
 				i++
 				stack = stack[:len(stack)-1]
-				if !completeTailChild(&stack, &rootDone) {
+				if len(stack) == 0 {
+					rootDone = true
+				} else if !completeTailChild(stack) {
 					return tailAnalysis{}, false
 				}
 				terminalComma = -1
@@ -204,9 +175,9 @@ func analyzeJSONTail(ctx context.Context, in []byte) (tailAnalysis, bool) {
 		}
 	}
 	if !rootDone && len(stack) == 1 {
-		f := stack[0]
-		if f.kind == '{' && f.state == tailObjectValue && f.propertyPresent {
-			return tailAnalysis{kind: tailRepairPendingRootValue, propertyName: f.key, propertyPresent: true, closers: tailClosers(stack)}, true
+		root := stack[0]
+		if root.kind == '{' && root.state == tailObjectValue && root.propertyPresent {
+			return tailAnalysis{kind: tailRepairPendingRootValue, propertyName: root.key, propertyPresent: true, closers: tailClosers(stack)}, true
 		}
 	}
 	return tailAnalysis{}, false
@@ -239,17 +210,16 @@ func newTailFrame(kind byte) tailFrame {
 	return tailFrame{kind: kind, state: tailArrayValueOrEnd}
 }
 
-func completeTailChild(stack *[]tailFrame, rootDone *bool) bool {
-	if len(*stack) == 0 {
-		*rootDone = true
-		return true
-	}
-	parent := &(*stack)[len(*stack)-1]
-	switch parent.state {
+// completeTailChild advances the new top frame after a container closed under
+// it. The caller handles the root-close case (empty stack), so this only runs
+// for nested containers and takes no pointers that could force an escape.
+func completeTailChild(stack []tailFrame) bool {
+	top := len(stack) - 1
+	switch stack[top].state {
 	case tailObjectValue:
-		parent.state = tailObjectCommaOrEnd
+		stack[top].state = tailObjectCommaOrEnd
 	case tailArrayValueOrEnd, tailArrayValueAfterComma:
-		parent.state = tailArrayCommaOrEnd
+		stack[top].state = tailArrayCommaOrEnd
 	default:
 		return false
 	}
@@ -272,6 +242,44 @@ func isJSONWhitespace(c byte) bool {
 	return c == ' ' || c == '\t' || c == '\r' || c == '\n'
 }
 
+// consumeObjectKey reads a quoted property key onto the top object frame and
+// moves it to the colon state. It returns the next scan index. The slice is
+// passed by value; element mutations share the caller's backing array.
+func consumeObjectKey(ctx context.Context, in []byte, stack []tailFrame, i int) (int, bool) {
+	if in[i] != '"' {
+		return i, false
+	}
+	next, key, ok := consumeJSONString(ctx, in, i)
+	if !ok {
+		return i, false
+	}
+	top := len(stack) - 1
+	stack[top].key = key
+	stack[top].propertyPresent = true
+	stack[top].state = tailObjectColon
+	return next, true
+}
+
+// consumeChildValue consumes the value expected by the top frame. An open
+// container marker pushes a new frame; a completed scalar moves the frame to
+// the completed state. It returns the (possibly appended) stack and the next
+// scan index; the caller adopts the returned slice so appends can never alias
+// stale elements.
+func consumeChildValue(ctx context.Context, in []byte, stack []tailFrame, i int, completed tailState) ([]tailFrame, int, bool) {
+	next, ok := consumeValue(ctx, in, i)
+	if !ok {
+		return stack, i, false
+	}
+	if next == i+1 && (in[i] == '{' || in[i] == '[') {
+		if len(stack) >= maxJSONScanDepth {
+			return stack, i, false
+		}
+		return append(stack, newTailFrame(in[i])), next, true
+	}
+	stack[len(stack)-1].state = completed
+	return stack, next, true
+}
+
 func consumeValue(ctx context.Context, in []byte, i int) (int, bool) {
 	if i >= len(in) {
 		return i, false
@@ -280,105 +288,26 @@ func consumeValue(ctx context.Context, in []byte, i int) (int, bool) {
 	case '{', '[':
 		return i + 1, true
 	case '"':
-		next, ok := scanJSONString(ctx, in, i)
-		return next, ok
+		return skipJSONString(ctx, in, i)
 	default:
 		return consumePrimitive(ctx, in, i)
 	}
 }
 
+// consumeJSONString validates and decodes a JSON string starting at in[i],
+// returning the index just past the closing quote and the decoded text. Only
+// callers that need the decoded value (object keys) use this; value scanning
+// uses skipJSONString.
 func consumeJSONString(ctx context.Context, in []byte, i int) (int, string, bool) {
-	if i >= len(in) || in[i] != '"' {
+	end, ok := skipJSONString(ctx, in, i)
+	if !ok {
 		return i, "", false
 	}
-	for j := i + 1; j < len(in); j++ {
-		if j&255 == 0 {
-			if err := tailContextErr(ctx); err != nil {
-				return j, "", false
-			}
-		}
-		c := in[j]
-		if c < 0x20 {
-			return j, "", false
-		}
-		if c == '\\' {
-			j++
-			if j >= len(in) {
-				return j, "", false
-			}
-			switch in[j] {
-			case '"', '\\', '/', 'b', 'f', 'n', 'r', 't':
-			case 'u':
-				if j+4 >= len(in) {
-					return j, "", false
-				}
-				for k := j + 1; k <= j+4; k++ {
-					if !isHex(in[k]) {
-						return k, "", false
-					}
-				}
-				j += 4
-			default:
-				return j, "", false
-			}
-			continue
-		}
-		if c == '"' {
-			var value string
-			if err := json.Unmarshal(in[i:j+1], &value); err != nil {
-				return j, "", false
-			}
-			return j + 1, value, true
-		}
+	var value string
+	if err := json.Unmarshal(in[i:end], &value); err != nil {
+		return i, "", false
 	}
-	return len(in), "", false
-}
-
-// scanJSONString validates a JSON string without decoding its text, returning
-// the index just past the closing quote. Value strings are scanned only for
-// validity and are never decoded, so the tail scan avoids one string allocation
-// per value; consumeJSONString remains only where decoded keys are required.
-func scanJSONString(ctx context.Context, in []byte, i int) (int, bool) {
-	if i >= len(in) || in[i] != '"' {
-		return i, false
-	}
-	for j := i + 1; j < len(in); j++ {
-		if j&255 == 0 {
-			if err := tailContextErr(ctx); err != nil {
-				return j, false
-			}
-		}
-		c := in[j]
-		if c < 0x20 {
-			return j, false
-		}
-		if c == '\\' {
-			j++
-			if j >= len(in) {
-				return j, false
-			}
-			switch in[j] {
-			case '"', '\\', '/', 'b', 'f', 'n', 'r', 't':
-			case 'u':
-				if j+4 >= len(in) {
-					return j, false
-				}
-				for k := j + 1; k <= j+4; k++ {
-					if !isHex(in[k]) {
-						return k, false
-					}
-				}
-				j += 4
-			default:
-				return j, false
-			}
-			continue
-		}
-		if c == '"' {
-			return j + 1, true
-		}
-	}
-	return len(in), false
+	return end, value, true
 }
 
 func consumePrimitive(ctx context.Context, in []byte, i int) (int, bool) {
@@ -395,75 +324,65 @@ func consumePrimitive(ctx context.Context, in []byte, i int) (int, bool) {
 		return i, false
 	}
 	token := in[start:i]
+	// Literals take the allocation-free fast path; every other accepted scalar
+	// must be a complete JSON number. Object/array shapes cannot appear here
+	// because consumeValue dispatches on delimiters first, so any map/slice
+	// result decoded below is rejected.
 	if bytes.Equal(token, []byte("true")) || bytes.Equal(token, []byte("false")) || bytes.Equal(token, []byte("null")) {
 		return i, true
 	}
-	if json.Valid(token) {
-		var v any
-		if err := json.Unmarshal(token, &v); err == nil {
-			if _, ok := v.(map[string]any); !ok {
-				if _, ok := v.([]any); !ok {
-					return i, true
-				}
-			}
-		}
+	if !json.Valid(token) {
+		return i, false
 	}
-	return i, false
-}
-
-func tailContextErr(ctx context.Context) error {
-	if ctx == nil {
-		return nil
+	var v any
+	if err := json.Unmarshal(token, &v); err != nil {
+		return i, false
 	}
-	return ctx.Err()
+	switch v.(type) {
+	case map[string]any, []any:
+		return i, false
+	default:
+		return i, true
+	}
 }
 
 func isPrimitiveDelimiter(c byte) bool {
 	return isJSONWhitespace(c) || c == ',' || c == ']' || c == '}'
 }
 
-func isHex(c byte) bool {
-	return c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
-}
-
-func buildTrailingCommaCandidate(in []byte, a tailAnalysis, maxBytes int) ([]byte, bool) {
-	if a.kind != tailRepairTrailingComma || a.commaOffset < 0 || a.commaOffset >= len(in) || in[a.commaOffset] != ',' {
-		return nil, false
-	}
-	outLen := len(in) - 1 + len(a.closers)
-	if maxBytes > 0 && outLen > maxBytes {
-		return nil, false
-	}
-	out := make([]byte, 0, outLen)
-	out = append(out, in[:a.commaOffset]...)
-	out = append(out, in[a.commaOffset+1:]...)
-	out = append(out, a.closers...)
-	if !json.Valid(out) || !utf8.Valid(out) {
-		return nil, false
-	}
-	return out, true
-}
-
-func buildPendingValueCandidate(in []byte, a tailAnalysis, value []byte, maxBytes int) ([]byte, bool) {
-	if a.kind != tailRepairPendingRootValue || !a.propertyPresent {
-		return nil, false
-	}
-	// Compute the append-only candidate size in uint64 first so the sum cannot
-	// overflow; the maxBytes bound then guarantees the size fits in an int.
-	total := uint64(len(in)) + uint64(len(value)) + uint64(len(a.closers))
+// assembleCandidate builds and validates an append-only candidate from the
+// three parts. The total size is computed in uint64 so the sum cannot overflow,
+// then bounded by maxBytes and int before the allocation; the result must be
+// valid JSON and UTF-8. The fixed signature avoids a variadic packing
+// allocation on the repair path.
+func assembleCandidate(maxBytes int, prefix, value, closers []byte) ([]byte, bool) {
+	total := uint64(len(prefix)) + uint64(len(value)) + uint64(len(closers))
 	if maxBytes > 0 && total > uint64(maxBytes) {
 		return nil, false
 	}
 	if total > uint64(math.MaxInt) {
 		return nil, false
 	}
-	outLen := int(total)
-	out := make([]byte, 0, outLen)
-	out = append(out, in...)
+	out := make([]byte, 0, int(total))
+	out = append(out, prefix...)
 	out = append(out, value...)
-	out = append(out, a.closers...)
+	out = append(out, closers...)
 	if !json.Valid(out) || !utf8.Valid(out) {
 		return nil, false
 	}
 	return out, true
+}
+
+func buildTrailingCommaCandidate(in []byte, a tailAnalysis, maxBytes int) ([]byte, bool) {
+	if a.kind != tailRepairTrailingComma || a.commaOffset < 0 || a.commaOffset >= len(in) || in[a.commaOffset] != ',' {
+		return nil, false
+	}
+	return assembleCandidate(maxBytes, in[:a.commaOffset], in[a.commaOffset+1:], a.closers)
+}
+
+func buildPendingValueCandidate(in []byte, a tailAnalysis, value []byte, maxBytes int) ([]byte, bool) {
+	if a.kind != tailRepairPendingRootValue || !a.propertyPresent {
+		return nil, false
+	}
+	return assembleCandidate(maxBytes, in, value, a.closers)
 }
