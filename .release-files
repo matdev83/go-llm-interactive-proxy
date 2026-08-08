@@ -401,10 +401,12 @@
 .kiro/skills/golang-testing/references/http-testing.md
 .kiro/skills/golang-testing/references/integration-testing.md
 .kiro/skills/golang-testing/references/mocking.md
-.kiro/specs/acp-runtime-deduplication/design.md
-.kiro/specs/acp-runtime-deduplication/requirements.md
-.kiro/specs/acp-runtime-deduplication/spec.json
-.kiro/specs/acp-runtime-deduplication/tasks.md
+.kiro/specs/archive/acp-runtime-deduplication/closeout-evidence.md
+.kiro/specs/archive/acp-runtime-deduplication/design.md
+.kiro/specs/archive/acp-runtime-deduplication/phase3-task31-race-blocker.md
+.kiro/specs/archive/acp-runtime-deduplication/requirements.md
+.kiro/specs/archive/acp-runtime-deduplication/spec.json
+.kiro/specs/archive/acp-runtime-deduplication/tasks.md
 .kiro/specs/archive/admission-policy-decision-core/design.md
 .kiro/specs/archive/admission-policy-decision-core/requirements.md
 .kiro/specs/archive/admission-policy-decision-core/research.md

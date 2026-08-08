@@ -93,13 +93,13 @@ This task list enforces TDD: architecture and testkit importers are updated firs
     - `Makefile`: Remove `./internal/plugins/backends/acp` line from `parity-acp-plugin`.
     - `scripts/check-adhoc-goroutines.{sh,ps1}`: Remove `internal/plugins/backends/acp/transport_stdio.go`.
     - `docs/release-gates.md` and `docs/testing-determinism.md`: Update path references to `connector-support/acp`.
-  - **Validation**: Run `git grep -n 'internal/plugins/backends/acp'` across the repository and verify that all remaining matches are strictly classified as either (a) architecture regression test assertions in `internal/archtest/acp_plugin_architecture_test.go` or (b) active spec documentation under `.kiro/specs/acp-runtime-deduplication/`, with zero matches in production code, testkit helpers, build manifests, scripts, Makefile, or docs.
+  - **Validation**: Run `git grep -n 'internal/plugins/backends/acp'` across the repository and verify that all remaining matches are strictly classified as either (a) architecture regression test assertions in `internal/archtest/acp_plugin_architecture_test.go` or (b) archived spec documentation under `.kiro/specs/archive/acp-runtime-deduplication/`, with zero matches in production code, testkit helpers, build manifests, scripts, Makefile, or docs.
 
 ---
 
 ### Phase 3: Verification & Parity Gate Validation (VERIFY)
 
-- [ ] **Task 3.1: Execute Canonical ACP Support Unit, Fuzz, and Race Tests**
+- [x] **Task 3.1: Execute Canonical ACP Support Unit, Fuzz, and Race Tests**
   - **_Boundary:_**: `connector-support/acp`
   - **_Depends:_**: Task 2.1, Task 2.3
   - **Goal**: Verify `connector-support/acp` unit, fuzz, and concurrency tests pass cleanly without weakening assertions.
@@ -120,7 +120,7 @@ This task list enforces TDD: architecture and testkit importers are updated firs
     - `make parity-acp-plugin`
     - `make parity-cli-acp-plugins`
 
-- [ ] **Task 3.3: Execute Root Architecture, Module Isolation, and Quality Checks**
+- [x] **Task 3.3: Execute Root Architecture, Module Isolation, and Quality Checks**
   - **_Boundary:_**: Repo root & `internal/archtest`
   - **_Depends:_**: Task 2.1, Task 2.2, Task 2.3
   - **Goal**: Confirm root build, arch tests, and module checks succeed without internal ACP.
@@ -140,7 +140,7 @@ This task list enforces TDD: architecture and testkit importers are updated firs
 
 ### Phase 4: PR #239 Upstream Reconciliation (RECONCILE)
 
-- [ ] **Task 4.1: Rebase / Reconcile Branch onto `origin/main` Pre-submission**
+- [x] **Task 4.1: Rebase / Reconcile Branch onto `origin/main` Pre-submission**
   - **_Boundary:_**: Git workspace / PR readiness
   - **_Depends:_**: Task 3.1, Task 3.2, Task 3.3, Task 3.4
   - **Goal**: Ensure final PR is rebased on `origin/main` after PR #239 merges without losing structured error propagation.
@@ -149,3 +149,14 @@ This task list enforces TDD: architecture and testkit importers are updated firs
     - Rebase `refactor/acp-runtime-dedup` branch.
     - Confirm structured JSON-RPC error propagation in `connector-support/acp/rpc_error.go` remains intact and tested.
   - **Validation**: `git log` clean merge/rebase state; `(cd connector-support/acp && GOWORK=off go test -run TestRPCError ./...)` passes.
+
+## Closeout evidence (2026-08-08)
+
+The implementation was delivered by PR [#242](https://github.com/matdev83/go-llm-interactive-proxy/pull/242), merged at `70d500d9935363da31c4368b7e320590bc6c9f6a` after PR [#239](https://github.com/matdev83/go-llm-interactive-proxy/pull/239) (`79605bb8e783399c424f3c00cf865459360c302f`) supplied the structured ACP error propagation prerequisite. The current archive was prepared from merged `origin/main` at `8eed2636549f4c6bdf1783a6d747ee94815a7135`.
+
+- **Task 3.1:** In the exact merged tree, `GOWORK=off go test ./...`, the three fuzz seed invocations, `TestRPCError`, and three 30-second campaigns (`FuzzParseNDJSONLine`, `FuzzMapSessionUpdateToEvents`, and `FuzzMergeHandshakeProfileExtensions`) passed in `connector-support/acp`. The local Windows race command cannot execute because the Windows cgo toolchain exits before tests start. Strict Linux workflow [31265106123](https://github.com/matdev83/go-llm-interactive-proxy/actions/runs/31265106123) failed on unrelated root-module findings in `internal/refclient/openresponses` and `tools/backendplugin`; it did not report an ACP failure. PR #242's cross-platform/QA CI checks passed. The dedicated ACP Linux race follow-up is recorded in `phase3-task31-race-blocker.md`.
+- **Task 3.2:** `make parity-acp-plugin` and `make parity-cli-acp-plugins` passed in the exact merged tree.
+- **Task 3.3 / 3.4:** `go test ./internal/archtest/...` and `make quality-checks` passed. The Windows `make backend-plugin-module-checks` run completed root discovery/build/module checks but stopped at unrelated existing Windows/root test failures (`TestDocs_Architecture_OneRuntimeOwnershipContract` and `TestProcessTree_WindowsJobObjectDirect`); this limitation is recorded rather than hidden. PR #242's required CI test, QA, cross-platform, process-tree, and platform-smoke checks passed.
+- **Task 4.1:** Reconciliation is complete: PR #239 merged before PR #242, PR #242 is merged to `main`, and the focused ACP RPC error test passes. No ACP implementation branch remains required.
+
+This closeout changes only ACP specification bookkeeping and release-manifest paths. The ongoing OpenAI Codex native compaction/encrypted-reasoning specification and implementation state were not modified.
