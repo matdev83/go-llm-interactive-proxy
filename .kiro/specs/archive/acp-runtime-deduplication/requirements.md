@@ -40,7 +40,7 @@ As established in ADR 0008 and Phase 6/8 plugin architecture cutovers, ACP is an
 ### Requirement 6: Repository and Release Hygiene
 
 - **R6.1**: *When* `.release-files` is validated, all 71 deleted `internal/plugins/backends/acp/*` paths *shall* be absent from the release manifest.
-- **R6.2**: *When* production imports, testkit imports, build manifests, developer scripts, Makefile targets, and documentation are checked, all stale references to `internal/plugins/backends/acp` *shall* be removed or updated to `connector-support/acp`, explicitly permitting the architecture regression guard (`internal/archtest/acp_plugin_architecture_test.go`) and active specs (`.kiro/specs/acp-runtime-deduplication/`) to name the deleted path for enforcement and tracking.
+- **R6.2**: *When* production imports, testkit imports, build manifests, developer scripts, Makefile targets, and documentation are checked, all stale references to `internal/plugins/backends/acp` *shall* be removed or updated to `connector-support/acp`, explicitly permitting the architecture regression guard (`internal/archtest/acp_plugin_architecture_test.go`) and archived spec (`.kiro/specs/archive/acp-runtime-deduplication/`) to name the deleted path for enforcement and tracking.
 
 ### Requirement 7: Fuzz Target, Corpus, and Concurrency Test Preservation
 
