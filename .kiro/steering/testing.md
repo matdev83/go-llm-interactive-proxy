@@ -1,164 +1,51 @@
 # Testing and TDD (Steering)
 
-## Testing philosophy
+## Core Testing Invariants
 
-This project treats tests as executable contracts.
-The goal is not maximum test count. The goal is to make behavior, boundaries, and regressions explicit.
+- **TDD by Default**: Red -> Green -> Refactor.
+- **Specification Bundle (Recoverability)**: Executable tests + `testdata/` golden fixtures + canonical types (`pkg/lipapi`, `pkg/lipsdk`) + steering rules + scenario index ([`docs/spec-bundle-index.md`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/docs/spec-bundle-index.md)).
+- **Composed Tests in Default Suite**: `*_test.go` and `integration_test.go` files inside package dirs use `httptest` + stubs without external networks. They run in default `go test ./...` and `make test`.
+- **`goleak.VerifyTestMain`**: Mandatory in packages managing goroutines ([`runtime`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/runtime), `stream`, `pluginreg`, `standardplugins`, `bedrock`, `stdhttp`, `connectors/*`).
 
-### Specification bundle (recoverability)
+---
 
-Literal “reimplement the entire tree from `_test.go` files alone” is **not** a realistic bar: finite examples underdetermine implementation details (structure, naming, SDK plumbing), and stable types in [`pkg/lipapi`](../../pkg/lipapi/) and [`pkg/lipsdk`](../../pkg/lipsdk/) are co-authored with tests rather than derivable only from them.
+## Build Tag & Environment Gating Rules
 
-Treat **recoverability** as a **specification bundle**:
+- **Default `go test ./...` / `make test`**: Fast, deterministic, composed tests only (no real network or database required).
+- **`//go:build integration`**: Env-gated tests requiring real services (e.g. PostgreSQL via `LIP_TEST_POSTGRES_DSN`). Skip automatically when env var is unset.
+- **`//go:build precommit`**: Non-blocking checks (hygiene in `internal/qa`, regression matrices in `internal/core/runtime`, reasoning HTTP matrix in `internal/stdhttp`). Executed in `make qa` / CI (`-tags=precommit,integration`).
+- **PostgreSQL Pooler Gate**: Dual-plane Postgres tests require `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1` attestation; direct DSN is `LIP_TEST_POSTGRES_ADMIN_DSN`.
 
-1. **Tests** — executable behavior, invariants, and regressions.
-2. **Committed fixtures** — `testdata/` goldens, migration JSON, canonical event streams (especially cross-protocol translation).
-3. **Stable package contracts** — exported APIs and canonical models in `pkg/lipapi` and `pkg/lipsdk`.
-4. **Steering and parity specs** — global rules (streaming-first, no retry after first output, boundaries) and matrix ownership under `.kiro/steering/` and `.kiro/specs/` where applicable.
-5. **Scenario registry index** — [`docs/spec-bundle-index.md`](../../docs/spec-bundle-index.md) lists core **SB-** IDs (orchestration, continuity, routing, hook bus) with doc ↔ test cross-checks (`go test -tags=precommit` per package).
+---
 
-For **which areas deserve new tests first** (without chasing coverage percentages), see [`docs/testing-coverage-priorities.md`](../../docs/testing-coverage-priorities.md).
+## High-Value Test Targets
 
-Together these bound ambiguity enough to re-implement behavior; tests in isolation do not.
+- **Canonical Translation**: `pkg/lipapi` request/event decoding/encoding, dialect preservation.
+- **OpenResponses API**: HTTP POST/SSE and WebSocket turn/continuation pipelines, allowed-tool filters ([`internal/plugins/frontends/openresponses`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/plugins/frontends/openresponses)).
+- **Authority & Stage Coordination**: Execution stage budgets, settle failures, provider isolation ([`internal/core/authoritycoord`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/authoritycoord)).
+- **Control Plane Projections**: Ledger projections, metering bridges, readiness reports ([`internal/core/controlplane`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/controlplane)).
+- **Interleaved Reasoning**: Reasoning memo stores, shape sanitization, Codex native compaction ([`internal/core/interleavedthinking`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/interleavedthinking), `codexclientcompat`).
+- **Durable Stores**: Dual-dialect Bun SQLite/PostgreSQL stores ([`internal/core/continuity/bunstore`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/continuity/bunstore), `securesession/adapters`).
+- **Routing & Resilience**: Selector parsing, model aliases, weighted groups, parallel races, TTFT budgets, pre-output failover swallowing.
+- **Secure Sessions**: Authority validation, BeginTurn, resume denial, diagnostics redaction.
 
-Core testing principles:
-- TDD by default: red -> green -> refactor.
-- Contract-first assertions: test observable behavior and protocol shape.
-- Deterministic by default: avoid flaky timing and real network dependencies.
-- Boundary-aware verification: prove that core, plugins, and hooks interact through contracts.
-- Streaming is a first-class test target, not an afterthought.
+---
 
-General Go testing skill guidance applies when it strengthens these principles, with repo-specific overrides below.
-In particular, do not copy generic build-tag rules over this repository's documented composed-test policy.
+## Mocking & Boundary Rules
 
-## Suite topology
+- Prefer `httptest.Server` and small stubs over mock frameworks.
+- NEVER mock internal call graphs.
+- Use fake clocks/stores/IDs for time or randomness.
+- Real canonical types (`pkg/lipapi`) MUST be used in tests. Hide vendor SDK types behind adapter edges.
+- Every bug fix MUST include a minimal regression test or fixture.
 
-### Unit tests
+---
 
-Use package-local tests for:
-- selector parsing and model alias rewrites,
-- capability negotiation,
-- canonical model validation,
-- stream collectors,
-- continuity stores and allocators,
-- secure-session managers, stores, redaction, and denial mapping,
-- model catalog/registry and capability inventory,
-- token accounting and usage propagation,
-- extension stage ordering, snapshots, and SDK facade behavior,
-- hook dispatch, ordering, and panic isolation.
+## Command Reference
 
-Table-driven tests should use named subtests (`name` plus `t.Run`) so failures identify the broken scenario.
-Tests must be independently runnable; avoid shared mutable package state unless the test owns setup and cleanup.
-Use `t.Parallel()` for independent cases when it does not hide ordering, timing, global-config, or goroutine-ownership problems.
-Prefer executable examples (`Example...`) for stable public contracts where a short usage sample is better than prose.
-
-### Integration tests
-
-Matrix-shaped parity sources under `internal/testkit/conformance/` use `//go:build integration` (they do not run in default `go test ./...`); see [`docs/conformance-matrix-evidence.md`](../../docs/conformance-matrix-evidence.md).
-
-**Alignment with generic golang-testing guidance:** Community materials often require `//go:build integration` on any file named `integration_test.go`. This repository **intentionally diverges** for the current `**/integration_test.go` set: they are in-process wiring tests only (see below). Prefer named `t.Run` subtests and `t.Parallel()` where safe; use `goleak.VerifyTestMain` in packages that spin goroutines in tests (see `internal/core/runtime`, `internal/core/stream`, `internal/pluginreg`, `internal/standardplugins`, `internal/plugins/backends/bedrock`, `internal/stdhttp`, and connector modules under `connectors/` when they own goroutines). `pluginreg` / `standardplugins` may ignore the OpenCensus stats worker started from a dependency `init`. Optional connector conformance and process-host proofs live with the connector/host packages, not by re-adding optional kinds to essential tables ([ADR 0008](../../docs/adr/0008-hybrid-backend-connector-plugins.md)).
-
-**Build tags:** This repo does **not** use `//go:build integration` on `integration_test.go` files. Those files are **fast, deterministic** composed tests (`httptest` + stub executor/backends, no real provider network). They belong in the default `go test ./...` / `make test` suite so every PR exercises decode/handler/refclient wiring. If we add tests that hit real networks, long-lived containers, or shared external state, gate them with `//go:build integration` **or** `testing.Short()` skips and run them in a separate CI job.
-
-The same policy applies to **integration-shaped** tests that are not named `integration_test.go` but still use composed wiring without external services—for example `internal/stdhttp/dogfood_smoke_test.go` and `internal/core/runtime/executor_local_stub_integration_test.go`. They stay in the default suite on purpose; do not add `//go:build integration` there unless the test becomes slow, non-deterministic, or env-dependent.
-
-**`integration` tag (optional PostgreSQL):** A small set of env-gated tests that call a real PostgreSQL when `LIP_TEST_POSTGRES_DSN` (or legacy `LIP_MANAGED_POSTGRES_DSN`) is set live under `//go:build integration` (for example `postgres_integration_test.go` in continuity `bunstore` and `postgres_bun_contract_test.go` in secure-session `storecontract`). They are compiled in `make qa` and CI (`-tags=precommit,integration`) but **skip** when the env var is unset, so default developer `go test ./...` stays fast and does not compile them unless `-tags=integration` is passed.
-
-Dual-plane durable-store proofs that must run through a **transaction pooler** use two explicit roles: `LIP_TEST_POSTGRES_ADMIN_DSN` (direct admin/bootstrap/cleanup/migration) and `LIP_TEST_POSTGRES_DSN` (transaction-pooled runtime DML); `LIP_MANAGED_POSTGRES_DSN` remains a documented legacy alias only. Do not isolate cases via session `search_path`. Use pooler-safe isolation (globally unique store/fact/lease/source IDs with admin cleanup by `store_id`, dedicated database/role, or admin-prepared fully-qualified objects). Keep migration compatibility, direct runtime, and pooled runtime as separate gates (`test-postgres-migrations`, `test-authority-postgres-direct`, `test-authority-postgres-pooled`; aggregate `test-authority-postgres`). `SkipUnlessPostgresPooled` always requires explicit `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1` attestation — ambient DSNs alone must skip (or fail closed under `LIP_REQUIRE_POSTGRES_POOLER`) so `make qa` cannot enter pooled-only shared-store helpers against a direct endpoint. Pooled runtime correctness proofs run with normal `-parallel=8`; `-parallel=1` is not an acceptable pooled runtime proof. CI should prefer local PostgreSQL + PgBouncer transaction mode over an external managed service for required gates.
-
-**`precommit` tag:** A small set of non-blocking checks (repo root hygiene under `internal/qa/`, and large executor regression matrices under `internal/core/runtime/`) use `//go:build precommit`. Default `make test` / `go test ./...` omits them; `make test-precommit-extra` runs only `./internal/qa/... ./internal/core/runtime/...`; `make qa` and CI unit tests run `go test -tags=precommit,integration ./...` so pushes still exercise the wider tagged tree (including compiling optional Postgres tests). Reasoning-preservation full HTTP matrix/soak tests under `internal/stdhttp` also use `//go:build precommit`: the Chat seeded matrix runs under `make qa` / CI tagged `./...` and the targeted command `go test -tags=precommit -run TestReasoningPreservationHTTP_RandomMatrix ./internal/stdhttp/` (not via lightweight `test-precommit-extra`); Responses-inclusive topology cells and deterministic seeded Responses presence smoke live in default-tag `TestReasoningPreservationHTTP*` / `reasoninge2e.ResponsesSmokeCases` (content-safe traces). The soak additionally requires `LIP_REASONING_E2E_SOAK=1` and is run only via `make test-reasoning-e2e-soak` or `.github/workflows/reasoning-e2e-soak-nightly.yml` (not a PR-mandatory gate). `make test-race` is a no-op on Windows; Linux race evidence is required before claiming race-green.
-
-**`testing.Short` and `-short`:** The default `GO_TEST_FLAGS` in the Makefile and the CI unit-test step do **not** pass `go test -short`, and no test uses `if testing.Short() { t.Skip(...) }` today. The full default suite is fast enough for every PR. If you add tests that are intentionally slow or need external services, gate them with `testing.Short()` and document a second command (or restore `-short` on the relevant `go test` line) so `go test -short` skips the expensive work while the full suite still runs the rest.
-
-Use composed tests with `httptest` and stub plugins/providers for:
-- frontend decode -> core -> backend -> frontend encode flows,
-- cancellation and timeout behavior,
-- weighted routing and failover decisions,
-- admin and diagnostics endpoints,
-- B2BUA continuity behavior across multiple attempts,
-- secure-session resume/new-turn behavior across frontend wire formats,
-- startup fail-closed behavior for auth mode, admin execution, diagnostics exposure, and backend credential posture.
-
-### Conformance and golden tests
-
-Use `testdata/` fixtures for:
-- canonical event streams,
-- protocol request/response payloads,
-- selector parsing examples,
-- capability mismatch errors,
-- no-retry-after-first-output behavior.
-
-Golden fixtures are especially important for cross-protocol translation and stream encoding.
-
-### Race and fuzz tests
-
-Required where practical for:
-- stream pumps,
-- cancellation-sensitive components,
-- stores with shared mutable state,
-- parsers and decoders,
-- selector syntax and protocol payload normalization.
-
-## High-value test targets in this codebase
-
-Always prioritize tests for:
-- canonical request and canonical event translation,
-- frontend/backend matrix compatibility on the shared subset,
-- routing selector syntax, model aliases, weighted behavior, parallel races, TTFT budgets, and circuit-breaker eligibility,
-- recoverable pre-output failure swallowing,
-- failover attempt budgets,
-- B2BUA A-leg continuity and B-leg attempt lineage,
-- secure-session BeginTurn, resume denial, redaction, durability posture, and diagnostics,
-- model catalog/capability inventory and local-compatible backend metadata,
-- token accounting, usage propagation, and tokenizer boundaries,
-- stream cancellation, keepalive behavior, and panic isolation,
-- plugin isolation boundaries and SDK-only feature plugins,
-- extension stage ordering, immutable snapshots, request/response hook ordering, completion gates, auxiliary calls, and traffic observation.
-
-## Mocking and boundary guidance
-
-- Prefer `httptest.Server` and small stubs over deep mocks.
-- Avoid mocking internal call graphs.
-- Fake clocks, stores, and id generators are encouraged when time or randomness matters.
-- For time-sensitive concurrent code, prefer deterministic clocks or repo fakes before real sleeps; consider `testing/synctest` only behind an explicit Go-version/toolchain decision because it is experimental.
-- Use real canonical types in tests whenever possible.
-- Provider SDKs should usually be hidden behind backend adapter seams in tests.
-- Do not introduce interfaces only to satisfy mocks; prefer small fakes around real consumer-owned seams.
-- Architecture tests should enforce ownership and dependency direction, not naming symmetry or textbook package taxonomy.
-- Panic and fail-closed tests should assert client-safe outputs plus operator-visible diagnostics, not raw panic/upstream text.
-
-## Regression policy
-
-Every bug fix in routing, translation, streaming, or continuity handling must add a regression test.
-If a production issue is diagnosed from a captured interaction, distill it into a minimal fixture or reproducer.
-
-Migration note:
-- existing Python LIP captures can be mined into Go `testdata/` fixtures for parity checks,
-- but the Go tests should assert the new canonical contracts, not Python internals.
-
-## Canonical commands
-
-Default commands:
-- `make quality-checks`
-- `make test` (quality checks + default unit tests + parity checks)
-- `make test-unit` (`go test -parallel=8 -timeout=10m ./...`)
-- `go test -run TestName ./path/to/pkg`
-- `go test -fuzz=FuzzName$ -fuzztime=30s -run=^$ ./path/to/pkg`
-- `make parity-checks` for conformance package tests (`-tags=precommit,integration`)
-- `make qa` for the local full profile (quality checks + one full tagged test pass + lint + govulncheck)
-
-Architecture and hygiene commands that should remain easy to run:
-- `go test ./internal/archtest/...`
-- `go test -tags=precommit ./internal/qa/... ./internal/core/runtime/...`
-
-Performance smoke (not part of default PR gates unless you opt in): `make bench` runs benchmarks across testkit, stream, secure-session, runtime, routing, diag, and frontend encoder packages; see `docs/performance-checks.md`. CI may upload weekly `make bench` output via `.github/workflows/benchmarks.yml` for manual `benchstat` comparison.
-
-## What to avoid
-
-- brittle assertions tied to logging text or call counts only,
-- tests that only prove mocks were invoked,
-- protocol tests that ignore streaming order and termination,
-- architecture tests that fail because a concrete inbound service is used instead of an interface,
-- architecture tests that force generic `ports` or `services` packages,
-- broad end-to-end tests with poor failure localization when a smaller contract test would suffice,
-- performance claims from a single benchmark run; use repeat runs and `benchstat` before treating a speedup or regression as real.
+- `make quality-checks` — Format, tidy, vet, ad-hoc goroutine allowlist, hot-path regex check, archtest guardrails.
+- `make test` — Quality checks + default unit tests + parity checks.
+- `make test-unit` — `go test -parallel=8 -timeout=10m ./...`
+- `go test ./internal/archtest/...` — Architecture guardrail tests.
+- `make parity-checks` — Conformance suite (`-tags=precommit,integration`).
+- `make qa` — Quality checks + full tagged test pass + golangci-lint + govulncheck.
