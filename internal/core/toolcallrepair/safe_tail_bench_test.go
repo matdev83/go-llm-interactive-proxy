@@ -28,6 +28,16 @@ func BenchmarkSafeTailRepair(b *testing.B) {
 		b.Run(tc.name, func(b *testing.B) {
 			b.ReportAllocs()
 			b.SetBytes(int64(len(tc.args)))
+			// One untimed call so the near-limit case is proven to take the
+			// refusal path before any timing is reported.
+			out, err := engine.Repair(toolcallrepair.Input{ToolName: "run", ArgsJSON: tc.args, Catalog: catalog})
+			if err != nil {
+				b.Fatal(err)
+			}
+			if tc.name == "near_limit_refusal" && out.Kind != toolcallrepair.OutcomeUnrepairable {
+				b.Fatalf("near-limit case must be unrepairable, got kind=%v", out.Kind)
+			}
+			b.ResetTimer()
 			for b.Loop() {
 				out, err := engine.Repair(toolcallrepair.Input{ToolName: "run", ArgsJSON: tc.args, Catalog: catalog})
 				if err != nil {

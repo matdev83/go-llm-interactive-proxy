@@ -103,7 +103,7 @@ func (e *Engine) RepairContext(ctx context.Context, in Input) (Outcome, error) {
 
 	args := origArgs
 	syntaxChanged := false
-	syntaxReason := ""
+	tailReason := ""
 	var compiled *CompiledSchema
 	var err error
 	cache := e.cache
@@ -115,7 +115,7 @@ func (e *Engine) RepairContext(ctx context.Context, in Input) (Outcome, error) {
 		if ok && len(repaired) <= maxBytes {
 			args = repaired
 			syntaxChanged = true
-			syntaxReason = toolcall.ReasonSyntaxRepaired
+			tailReason = toolcall.ReasonSyntaxRepaired
 		} else {
 			analysis, classified := analyzeJSONTail(ctx, args)
 			if !classified {
@@ -132,7 +132,7 @@ func (e *Engine) RepairContext(ctx context.Context, in Input) (Outcome, error) {
 				}
 				args = candidate
 				syntaxChanged = true
-				syntaxReason = toolcall.ReasonSyntaxRepaired
+				tailReason = toolcall.ReasonSyntaxRepaired
 			case tailRepairPendingRootValue:
 				if isEmptySchema(tool.Parameters) {
 					return fail(toolcall.ReasonUnrepairable), nil
@@ -144,7 +144,7 @@ func (e *Engine) RepairContext(ctx context.Context, in Input) (Outcome, error) {
 					}
 					return fail(mapEngineSchemaReason(err)), nil
 				}
-				value, reason, ok, err := deterministicRootPendingValue(tool.Parameters, compiled, analysis.propertyName)
+				value, reason, ok, err := deterministicRootPendingValue(compiled, analysis.propertyName)
 				if err != nil {
 					var re *repairErr
 					if errors.As(err, &re) && re.reason != "" {
@@ -161,7 +161,7 @@ func (e *Engine) RepairContext(ctx context.Context, in Input) (Outcome, error) {
 				}
 				args = candidate
 				syntaxChanged = true
-				syntaxReason = reason
+				tailReason = reason
 			default:
 				return fail(toolcall.ReasonUnrepairable), nil
 			}
@@ -186,7 +186,7 @@ func (e *Engine) RepairContext(ctx context.Context, in Input) (Outcome, error) {
 
 	if err := compiled.validateWithMaxArgs(ctx, args, maxBytes); err == nil {
 		if syntaxChanged {
-			return Outcome{Kind: OutcomeRewrite, ToolName: toolName, ArgsJSON: bytes.Clone(args), ReasonCode: syntaxReason}, nil
+			return Outcome{Kind: OutcomeRewrite, ToolName: toolName, ArgsJSON: bytes.Clone(args), ReasonCode: tailReason}, nil
 		}
 		return syntaxOnlyOutcome(toolName, origArgs, args, nameChanged, syntaxChanged), nil
 	} else if reason := mapEngineArgsShapeReason(err); reason == toolcall.ReasonCanceled {
@@ -196,7 +196,7 @@ func (e *Engine) RepairContext(ctx context.Context, in Input) (Outcome, error) {
 	if err := ctx.Err(); err != nil {
 		return fail(toolcall.ReasonCanceled), nil
 	}
-	repaired, schemaReason, err := repairPreflightedArgsJSONDocument(ctx, args, compiled.document, maxBytes)
+	repaired, schemaReason, err := repairPreflightedArgsJSONDocument(ctx, args, compiled.orderedDocument, maxBytes)
 	if err != nil {
 		var re *repairErr
 		if errors.As(err, &re) && re.reason != "" {
@@ -226,7 +226,7 @@ func (e *Engine) RepairContext(ctx context.Context, in Input) (Outcome, error) {
 	if syntaxChanged {
 		// Tail syntax is the primary repair path; existing schema repairs are
 		// secondary and must not obscure its stable public reason.
-		reason = syntaxReason
+		reason = tailReason
 	} else if reason == "" {
 		reason = toolcall.ReasonToolNameNormalized
 	}

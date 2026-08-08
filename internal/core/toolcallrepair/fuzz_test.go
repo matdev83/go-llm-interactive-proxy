@@ -87,6 +87,9 @@ func FuzzJSONTail(f *testing.F) {
 		if out.Kind == toolcallrepair.OutcomeRewrite && !json.Valid(out.ArgsJSON) {
 			t.Fatal("rewrite is invalid JSON")
 		}
+		if out.Kind == toolcallrepair.OutcomeUnrepairable && !bytes.Equal(out.ArgsJSON, []byte(raw)) {
+			t.Fatal("unrepairable must preserve exact original bytes")
+		}
 	})
 }
 
@@ -116,6 +119,9 @@ func FuzzPendingRootValue(f *testing.F) {
 			if err := compiled.Validate(out.ArgsJSON); err != nil {
 				t.Fatalf("rewrite failed schema validation: %v", err)
 			}
+		}
+		if out.Kind == toolcallrepair.OutcomeUnrepairable && !bytes.Equal(out.ArgsJSON, []byte(args)) {
+			t.Fatal("unrepairable must preserve exact original bytes")
 		}
 	})
 }

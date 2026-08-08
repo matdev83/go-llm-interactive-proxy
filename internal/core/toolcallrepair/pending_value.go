@@ -10,11 +10,11 @@ import (
 // The effective schema document is the same bounded, pre-scanned document held
 // by the compiled schema, so pending repair and final validation share one schema
 // interpretation and one cache compilation.
-func deterministicRootPendingValue(_ json.RawMessage, compiled *CompiledSchema, property string) ([]byte, string, bool, error) {
-	if compiled == nil || compiled.document == nil {
+func deterministicRootPendingValue(compiled *CompiledSchema, property string) ([]byte, string, bool, error) {
+	if compiled == nil || compiled.orderedDocument == nil {
 		return nil, "", false, nil
 	}
-	effective, err := effectiveSchemaObject(compiled.document, compiled.document, 0)
+	effective, err := effectiveSchemaObject(compiled.orderedDocument, compiled.orderedDocument, 0)
 	if err != nil {
 		return nil, "", false, err
 	}
@@ -29,9 +29,12 @@ func deterministicRootPendingValue(_ json.RawMessage, compiled *CompiledSchema, 
 	if !ok {
 		return nil, "", false, nil
 	}
-	value, reason, ok, err := deterministicFill(propertySchema, compiled.document, 0)
-	if err != nil || !ok {
-		return nil, reason, ok, err
+	value, reason, ok, err := deterministicFill(propertySchema, compiled.orderedDocument, 0)
+	if err != nil {
+		return nil, "", false, err
+	}
+	if !ok {
+		return nil, "", false, nil
 	}
 	encoded, err := json.Marshal(value)
 	if err != nil {

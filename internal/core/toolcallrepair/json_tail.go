@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"math"
 	"unicode/utf8"
 )
 
@@ -279,7 +280,7 @@ func consumeValue(ctx context.Context, in []byte, i int) (int, bool) {
 	case '{', '[':
 		return i + 1, true
 	case '"':
-		next, _, ok := consumeJSONString(ctx, in, i)
+		next, ok := scanJSONString(ctx, in, i)
 		return next, ok
 	default:
 		return consumePrimitive(ctx, in, i)
@@ -331,6 +332,53 @@ func consumeJSONString(ctx context.Context, in []byte, i int) (int, string, bool
 		}
 	}
 	return len(in), "", false
+}
+
+// scanJSONString validates a JSON string without decoding its text, returning
+// the index just past the closing quote. Value strings are scanned only for
+// validity and are never decoded, so the tail scan avoids one string allocation
+// per value; consumeJSONString remains only where decoded keys are required.
+func scanJSONString(ctx context.Context, in []byte, i int) (int, bool) {
+	if i >= len(in) || in[i] != '"' {
+		return i, false
+	}
+	for j := i + 1; j < len(in); j++ {
+		if j&255 == 0 {
+			if err := tailContextErr(ctx); err != nil {
+				return j, false
+			}
+		}
+		c := in[j]
+		if c < 0x20 {
+			return j, false
+		}
+		if c == '\\' {
+			j++
+			if j >= len(in) {
+				return j, false
+			}
+			switch in[j] {
+			case '"', '\\', '/', 'b', 'f', 'n', 'r', 't':
+			case 'u':
+				if j+4 >= len(in) {
+					return j, false
+				}
+				for k := j + 1; k <= j+4; k++ {
+					if !isHex(in[k]) {
+						return k, false
+					}
+				}
+				j += 4
+			default:
+				return j, false
+			}
+			continue
+		}
+		if c == '"' {
+			return j + 1, true
+		}
+	}
+	return len(in), false
 }
 
 func consumePrimitive(ctx context.Context, in []byte, i int) (int, bool) {
@@ -400,10 +448,16 @@ func buildPendingValueCandidate(in []byte, a tailAnalysis, value []byte, maxByte
 	if a.kind != tailRepairPendingRootValue || !a.propertyPresent {
 		return nil, false
 	}
-	outLen := len(in) + len(value) + len(a.closers)
-	if maxBytes > 0 && outLen > maxBytes {
+	// Compute the append-only candidate size in uint64 first so the sum cannot
+	// overflow; the maxBytes bound then guarantees the size fits in an int.
+	total := uint64(len(in)) + uint64(len(value)) + uint64(len(a.closers))
+	if maxBytes > 0 && total > uint64(maxBytes) {
 		return nil, false
 	}
+	if total > uint64(math.MaxInt) {
+		return nil, false
+	}
+	outLen := int(total)
 	out := make([]byte, 0, outLen)
 	out = append(out, in...)
 	out = append(out, value...)

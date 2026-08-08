@@ -50,6 +50,12 @@ func TestEngine_TerminalCommaRepairsCompleteValues(t *testing.T) {
 			want:   `{"a":1}`,
 			schema: `{"type":"object","properties":{"a":{"type":"integer"}},"required":["a"],"additionalProperties":false}`,
 		},
+		{
+			name:   "reason_precedence_after_schema_fill",
+			args:   `{"a":1,`,
+			want:   `{"a":1,"b":"x"}`,
+			schema: `{"type":"object","properties":{"a":{"type":"integer"},"b":{"const":"x"}},"required":["a","b"],"additionalProperties":false}`,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

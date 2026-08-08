@@ -14,10 +14,10 @@ import (
 const schemaResourceURL = "mem://toolcallrepair/schema.json"
 
 type CompiledSchema struct {
-	schema   *jsonschema.Schema
-	document any
-	digest   string
-	bytes    int
+	schema          *jsonschema.Schema
+	orderedDocument any
+	digest          string
+	bytes           int
 }
 
 type rejectingURLLoader struct{}
@@ -45,10 +45,10 @@ func compileSchema(ctx context.Context, schema json.RawMessage, limits SchemaLim
 		return nil, mapCompileError(err)
 	}
 	return &CompiledSchema{
-		schema:   sch,
-		document: scanned.orderedDocument,
-		digest:   schemaDigest(schema),
-		bytes:    len(schema),
+		schema:          sch,
+		orderedDocument: scanned.orderedDocument,
+		digest:          schemaDigest(schema),
+		bytes:           len(schema),
 	}, nil
 }
 
