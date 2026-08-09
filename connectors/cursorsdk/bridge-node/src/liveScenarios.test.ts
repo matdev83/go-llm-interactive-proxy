@@ -67,11 +67,12 @@ function mockSdk(overrides?: {
     agentId: string;
     prompts?: string[];
   };
-}): LiveScenariosSdk {
+}): LiveScenariosSdk & { releasePoison: () => void } {
   let disposed = false;
   let sendCount = 0;
   let lastPrompt = "";
   let cancelPoisoned = false;
+  let releasePoison: (() => void) | undefined;
 
   const makeRun = (mode: "normal" | "cancel" | "reuse"): ScenarioRun => {
     let status = "running";
@@ -146,7 +147,9 @@ function mockSdk(overrides?: {
         overrides.trackRun.agentId = agent.agentId;
       }
       if (overrides?.poisonAfterCancel && cancelPoisoned) {
-        await new Promise(() => undefined);
+        await new Promise<void>((resolve) => {
+          releasePoison = resolve;
+        });
       }
       if (overrides?.hangPhase === "agent.send") {
         await new Promise(() => undefined);
@@ -230,7 +233,11 @@ function mockSdk(overrides?: {
     get disposed() {
       return disposed;
     },
-  } as LiveScenariosSdk & { disposed: boolean };
+    releasePoison: () => {
+      releasePoison?.();
+      releasePoison = undefined;
+    },
+  } as LiveScenariosSdk & { disposed: boolean; releasePoison: () => void };
 }
 
 test("runLiveScenarios blocked without opt-in", async () => {
@@ -496,6 +503,8 @@ test("cancel poison: old cancel-then-reuse stalls; suite order keeps both passin
       (err: unknown) => err instanceof LiveScenariosTimeoutError,
     );
   } finally {
+    // Release the poisoned send so no promise is left pending when the test ends.
+    poisoned.releasePoison();
     await agent[Symbol.asyncDispose]();
   }
 

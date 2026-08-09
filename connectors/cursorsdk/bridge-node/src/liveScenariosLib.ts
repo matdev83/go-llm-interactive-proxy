@@ -341,7 +341,9 @@ export async function withTimeout<T>(
         settled.then(() => undefined),
         new Promise<void>((resolve) => {
           settleTimer = setTimeout(resolve, settleGraceMs);
-          settleTimer.unref?.();
+          // Intentionally ref'd: an unref'd settle timer lets the event loop
+          // drain mid-settle, which under tsx trips Node's test-runner
+          // pending-promise check and cancels tests (cancelledByParent).
         }),
       ]);
       throw new LiveScenariosTimeoutError(phase);
