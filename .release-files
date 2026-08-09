@@ -3640,6 +3640,7 @@ internal/plugins/frontends/anthropic/handler_policy_test.go
 internal/plugins/frontends/anthropic/integration_test.go
 internal/plugins/frontends/anthropic/mount.go
 internal/plugins/frontends/anthropic/reasoning_replay_red_test.go
+internal/plugins/frontends/anthropic/spec_concurrency_test.go
 internal/plugins/frontends/anthropic/testdata/fuzz/FuzzDecodeMessageRequest/corpus_packed
 internal/plugins/frontends/anthropic/testdata/fuzz/FuzzWriteNonStreamJSON_toolArguments/corpus_empty_obj
 internal/plugins/frontends/anthropic/wire_error_characterization_test.go
@@ -3678,6 +3679,7 @@ internal/plugins/frontends/gemini/integration_test.go
 internal/plugins/frontends/gemini/mount.go
 internal/plugins/frontends/gemini/path.go
 internal/plugins/frontends/gemini/path_test.go
+internal/plugins/frontends/gemini/spec_concurrency_test.go
 internal/plugins/frontends/gemini/testdata/fuzz/FuzzBuildGenerateContentResponse_toolJSON/corpus_small
 internal/plugins/frontends/gemini/testdata/fuzz/FuzzDecodeGenerateContentRequest/corpus_packed
 internal/plugins/frontends/gemini/wire_error_characterization_test.go
@@ -3713,6 +3715,7 @@ internal/plugins/frontends/openailegacy/integration_test.go
 internal/plugins/frontends/openailegacy/mount.go
 internal/plugins/frontends/openailegacy/reasoning_decode_exact_red_test.go
 internal/plugins/frontends/openailegacy/reasoning_replay_red_test.go
+internal/plugins/frontends/openailegacy/spec_concurrency_test.go
 internal/plugins/frontends/openailegacy/testdata/fuzz/FuzzDecodeChatRequest/corpus_packed
 internal/plugins/frontends/openailegacy/wire_error_characterization_test.go
 internal/plugins/frontends/openairesponses/bench_stream_alloc_test.go
@@ -3749,6 +3752,7 @@ internal/plugins/frontends/openairesponses/reasoning_fidelity_test.go
 internal/plugins/frontends/openairesponses/route_conflict_test.go
 internal/plugins/frontends/openairesponses/secure_session_e2e_test.go
 internal/plugins/frontends/openairesponses/session_wire_test.go
+internal/plugins/frontends/openairesponses/spec_concurrency_test.go
 internal/plugins/frontends/openairesponses/sse_write.go
 internal/plugins/frontends/openairesponses/testdata/fuzz/FuzzDecodeCreateRequest/corpus_packed
 internal/plugins/frontends/openairesponses/wire_error_characterization_test.go

@@ -25,7 +25,8 @@ type WSDialOptions struct {
 	// switched to ws(s).
 	BaseURL string
 	APIKey  string
-	// Dialer, when set, supplies the gorilla dialer.
+	// Dialer, when set, supplies the gorilla dialer. The dialer is copied per
+	// call so its configuration is never mutated by Dial.
 	Dialer *websocket.Dialer
 	// ParseOptions bounds frame parsing.
 	ParseOptions ParseOptions
@@ -67,11 +68,16 @@ func Dial(ctx context.Context, opts WSDialOptions) (*WSSession, error) {
 		return nil, fmt.Errorf("unsupported ws scheme %q", u.Scheme)
 	}
 
-	dialer := opts.Dialer
-	if dialer == nil {
-		dialer = websocket.DefaultDialer
+	// Copy the dialer so the handshake timeout is never written on a shared
+	// dialer (websocket.DefaultDialer or a caller-supplied one), which would
+	// race when multiple sessions dial concurrently.
+	dialer := websocket.DefaultDialer
+	if opts.Dialer != nil {
+		dialer = opts.Dialer
 	}
-	dialer.HandshakeTimeout = 15 * time.Second
+	copied := *dialer
+	copied.HandshakeTimeout = 15 * time.Second
+	dialer = &copied
 
 	header := http.Header{}
 	if opts.APIKey != "" {

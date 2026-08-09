@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/routeselect"
@@ -28,13 +29,19 @@ type Handler struct {
 	PreRequestKeepalive lipsdk.FrontendKeepaliveConfig
 	Config              Config
 
-	pipe frontendpipe.Spec[EncodeOptions]
+	// pipeOnce serializes the first spec() build; handlers serve concurrent requests.
+	pipeOnce sync.Once
+	pipe     frontendpipe.Spec[EncodeOptions]
 }
 
 func (h *Handler) spec() *frontendpipe.Spec[EncodeOptions] {
-	if h.pipe.Exec != nil || h.pipe.Decode != nil {
-		return &h.pipe
-	}
+	h.pipeOnce.Do(func() {
+		h.buildPipe()
+	})
+	return &h.pipe
+}
+
+func (h *Handler) buildPipe() {
 	h.pipe = frontendpipe.Spec[EncodeOptions]{
 		Config: frontendpipe.Config{
 			Exec:                 h.Exec,
@@ -79,7 +86,6 @@ func (h *Handler) spec() *frontendpipe.Spec[EncodeOptions] {
 		WriteStream:    WriteStreamSSE,
 		WriteNonStream: WriteNonStreamJSON,
 	}
-	return &h.pipe
 }
 
 // ServeHTTP implements generateContent / streamGenerateContent for the Google AI (ML dev) layout.
