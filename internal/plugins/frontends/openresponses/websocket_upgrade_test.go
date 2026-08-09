@@ -294,7 +294,7 @@ func TestWebSocketUpgrade_OriginPolicy(t *testing.T) {
 			}
 			if tc.wantCode == http.StatusSwitchingProtocols {
 				conn := wsDial(t, newWSTestServerFor(t, handler), header)
-				conn.Close()
+				_ = conn.Close()
 				// The server publishes SessionsOpened only after the 101 handshake is
 				// on the wire (upgrader.Upgrade writes the response before the counter
 				// is bumped), so the client can dial and close before the increment
