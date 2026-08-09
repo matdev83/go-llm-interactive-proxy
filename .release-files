@@ -529,6 +529,13 @@
 .kiro/specs/archive/model-capabilities-catalog/research.md
 .kiro/specs/archive/model-capabilities-catalog/spec.json
 .kiro/specs/archive/model-capabilities-catalog/tasks.md
+.kiro/specs/archive/openai-codex-native-compaction/design-review.md
+.kiro/specs/archive/openai-codex-native-compaction/design.md
+.kiro/specs/archive/openai-codex-native-compaction/gap-analysis.md
+.kiro/specs/archive/openai-codex-native-compaction/requirements.md
+.kiro/specs/archive/openai-codex-native-compaction/research.md
+.kiro/specs/archive/openai-codex-native-compaction/spec.json
+.kiro/specs/archive/openai-codex-native-compaction/tasks.md
 .kiro/specs/archive/openai-responses-reasoning-preservation/design.md
 .kiro/specs/archive/openai-responses-reasoning-preservation/requirements.md
 .kiro/specs/archive/openai-responses-reasoning-preservation/research.md
@@ -614,13 +621,6 @@
 .kiro/specs/extension-scalability-and-architecture-simplification/research.md
 .kiro/specs/extension-scalability-and-architecture-simplification/spec.json
 .kiro/specs/extension-scalability-and-architecture-simplification/tasks.md
-.kiro/specs/openai-codex-native-compaction/design-review.md
-.kiro/specs/openai-codex-native-compaction/design.md
-.kiro/specs/openai-codex-native-compaction/gap-analysis.md
-.kiro/specs/openai-codex-native-compaction/requirements.md
-.kiro/specs/openai-codex-native-compaction/research.md
-.kiro/specs/openai-codex-native-compaction/spec.json
-.kiro/specs/openai-codex-native-compaction/tasks.md
 .kiro/specs/archive/safe-tool-call-tail-repair/closeout-evidence.md
 .kiro/specs/archive/safe-tool-call-tail-repair/design-review.md
 .kiro/specs/archive/safe-tool-call-tail-repair/design.md
