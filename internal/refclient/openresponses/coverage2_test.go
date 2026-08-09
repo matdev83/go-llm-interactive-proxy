@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -519,6 +520,36 @@ func TestDial_CustomDialer(t *testing.T) {
 		Dialer:  &websocket.Dialer{},
 	}); err == nil {
 		t.Fatal("expected dial failure")
+	}
+}
+
+// TestDial_DoesNotMutateDialers guards against writing the handshake timeout
+// onto websocket.DefaultDialer or a caller-supplied dialer. Concurrent sessions
+// shared the same dialer, so any mutation is a data race (issue #262).
+func TestDial_DoesNotMutateDialers(t *testing.T) {
+	t.Parallel()
+
+	// The default-dialer path is what racy sessions hit: wsConn dials with no
+	// custom dialer, so the handshake timeout must never be written onto the
+	// shared websocket.DefaultDialer.
+	defaultBefore := websocket.DefaultDialer.HandshakeTimeout
+	if _, err := Dial(context.Background(), WSDialOptions{BaseURL: "http://127.0.0.1:1"}); err == nil {
+		t.Fatal("expected dial failure")
+	}
+	if got := websocket.DefaultDialer.HandshakeTimeout; got != defaultBefore {
+		t.Fatalf("websocket.DefaultDialer.HandshakeTimeout mutated: got %v, want %v", got, defaultBefore)
+	}
+
+	// A caller-supplied dialer must keep its own configuration untouched.
+	custom := &websocket.Dialer{HandshakeTimeout: 7 * time.Second}
+	if _, err := Dial(context.Background(), WSDialOptions{
+		BaseURL: "http://127.0.0.1:1",
+		Dialer:  custom,
+	}); err == nil {
+		t.Fatal("expected dial failure")
+	}
+	if got := custom.HandshakeTimeout; got != 7*time.Second {
+		t.Fatalf("caller-supplied dialer mutated: got %v, want 7s", got)
 	}
 }
 
