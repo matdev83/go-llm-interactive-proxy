@@ -6,7 +6,12 @@ import (
 	"unicode/utf8"
 )
 
-func preScanSchema(ctx context.Context, schema []byte, limits SchemaLimits) (any, error) {
+type preScannedSchema struct {
+	document        any
+	orderedDocument any
+}
+
+func preScanSchema(ctx context.Context, schema []byte, limits SchemaLimits) (*preScannedSchema, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, schemaErr(SchemaKindInvalid, ReasonCanceled, "")
 	}
@@ -22,7 +27,17 @@ func preScanSchema(ctx context.Context, schema []byte, limits SchemaLimits) (any
 	if err := preflightSchemaJSON(ctx, schema, limits); err != nil {
 		return nil, err
 	}
+	// The schema is decoded twice on purpose: unmarshalSchemaJSON produces the
+	// plain document the jsonschema compiler consumes, while parseOrderedJSON
+	// preserves key order and duplicate rejection for the repair document that
+	// CompiledSchema retains. Both are bounded by preflightSchemaJSON above and
+	// cached per schema digest; the retained ordered document adds at most one
+	// schema-sized allocation to the LRU cache.
 	doc, err := unmarshalSchemaJSON(schema)
+	if err != nil {
+		return nil, schemaErr(SchemaKindMalformed, ReasonMalformedJSON, "")
+	}
+	orderedDoc, err := parseOrderedJSON(schema)
 	if err != nil {
 		return nil, schemaErr(SchemaKindMalformed, ReasonMalformedJSON, "")
 	}
@@ -36,7 +51,7 @@ func preScanSchema(ctx context.Context, schema []byte, limits SchemaLimits) (any
 	if err := state.checkLocalRefs(ctx); err != nil {
 		return nil, err
 	}
-	return doc, nil
+	return &preScannedSchema{document: doc, orderedDocument: orderedDoc}, nil
 }
 
 type prescanState struct {

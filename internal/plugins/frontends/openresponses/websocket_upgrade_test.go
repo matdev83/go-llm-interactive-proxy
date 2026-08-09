@@ -294,10 +294,16 @@ func TestWebSocketUpgrade_OriginPolicy(t *testing.T) {
 			}
 			if tc.wantCode == http.StatusSwitchingProtocols {
 				conn := wsDial(t, newWSTestServerFor(t, handler), header)
-				_ = conn.Close()
-				if counters.Snapshot().SessionsOpened != 1 {
-					t.Errorf("sessions_opened=%d, want 1", counters.Snapshot().SessionsOpened)
-				}
+				conn.Close()
+				// The server publishes SessionsOpened only after the 101 handshake is
+				// on the wire (upgrader.Upgrade writes the response before the counter
+				// is bumped), so the client can dial and close before the increment
+				// lands — a window the race detector widens into the observed
+				// sessions_opened=0, want 1 flake (issue #262). Poll like the other
+				// session-lifecycle assertions instead of snapshotting immediately.
+				eventually(t, 3*time.Second, func() bool {
+					return counters.Snapshot().SessionsOpened == 1
+				})
 				return
 			}
 			rec := httptest.NewRecorder()

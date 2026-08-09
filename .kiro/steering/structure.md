@@ -1,193 +1,127 @@
 # Project Structure (Steering)
 
-## Mental model
+## Architecture Overview
 
-Treat the repository as a small runtime plus official plugins.
-The architecture has five primary zones:
+Five-zone modular design: stable public contracts at the edge, a policy-owning internal core, frontend/backend/feature plugins, and infrastructure/harness support.
 
-1. stable public contracts,
-2. small internal core runtime,
-3. official frontend plugins,
-4. official backend and feature plugins,
-5. test and operational support surfaces.
+```text
+                    ┌─────────────────────────┐
+                    │      pkg/lipapi         │  Canonical Contracts
+                    └───────────┬─────────────┘
+                                │
+┌──────────────────┐  ┌─────────▼───────────┐  ┌──────────────────┐
+│ Frontends (FEs)  ├──►    internal/core    ◄──┤  Backends (BEs)  │
+│ (openresponses,  │  │  (routing, b2bua,   │  │ (hosted, acp,    │
+│  responses, chat,│  │   authoritycoord,   │  │  connectors)     │
+│  anthropic, gmi) │  │   securesession)    │  │                  │
+└──────────────────┘  └─────────▲───────────┘  └──────────────────┘
+                                │
+                    ┌───────────┴─────────────┐
+                    │      pkg/lipsdk         │  Plugin Seams & SDK Facades
+                    └─────────────────────────┘
+```
 
-Around the core and plugins sit explicit **standard distribution** packages (`internal/pluginreg`, `internal/infra/runtimebundle`, `internal/stdhttp`) and **test-only harness** trees (`internal/refbackend`, `internal/refclient`) that must not blur ownership boundaries above.
+---
 
-## Repository layout
+## Package Inventory by Zone
 
-### 1. Public contracts
+### 1. Public Contracts (Stable Surface)
 
-`pkg/lipapi/`
-- canonical request, message, part, tool, capability, event, validation, collection, and error types
-- protocol-neutral
-- stable import surface for plugins and external tooling
+- `pkg/lipapi/` — Protocol-neutral canonical request, item, part, tool, event, capability, limit, and error types. Zero provider SDK or HTTP dependencies.
+- `pkg/lipsdk/` — Plugin registration contracts, frontend/backend/hook interfaces, SDK facades (`auth`, `session`, `workspace`, `request`, `routehint`, `toolcatalog`, `toolpolicy`, `completion`, `auxiliary`, `state`, `traffic`, `usage`, `modelinventory`, `securesession`, `continuation`).
+  - `pkg/lipsdk/secretguard/` — Ingress secret-guard contracts (`Guard`, `Matcher`, `DecisionEvent`).
+  - `pkg/lipsdk/configreload/` — Secret-safe runtime reload contract (`Trigger`, `Result`, `Status`, `HistoryEntry`).
+  - `pkg/lipsdk/backendplugin/` — Versioned gRPC connector ABI, DTOs, and table-driven converter helpers.
 
-`pkg/lipsdk/`
-- plugin registration contracts
-- frontend/backend/hook interfaces
-- feature SDK facades for auth, session, workspace, request shaping, route hints, tools, completion gates, auxiliary calls, state, traffic, usage, model inventory, and continuity
-- `secretguard/` — opaque ingress secret-guard contracts (`Guard`, `Matcher`, `MatcherResolver`, `DecisionEvent`)
-- `configreload/` (`pkg/lipsdk/configreload`) — dependency-neutral secret-safe reload contract (`Trigger`, `Result`, `Status`, `HistoryEntry`, closed categories; no paths/credentials/YAML). This is the **one reload contract**; process Host construction via `runtimebundle.BuildHost` and `Host.Close` live under `internal/infra/runtimebundle` / `runtimehost`.
-- plugin metadata, factory inputs, and standard distribution requirements
-- no core implementation details
+### 2. Internal Core Runtime (`internal/core/`)
 
-Orchestration policy (routing, recovery, extension stages) lives in `internal/core`, not in these public trees; see `docs/architecture-guardrails.md` for dependency checks.
+Core owns orchestration and policy. Core imports `pkg/lipapi` and `pkg/lipsdk`; core **never** imports concrete plugins or provider SDKs.
 
-### 2. Internal core runtime
+- **Execution & Lifecycle**: `runtime/` (executor), `execbackend/`, `execctx/`, `leglifecycle/`, `lineage/`, `terminal/`, `terminalwork/`, `continuation/`
+- **Routing & Policy**: `routing/` (selector parser, failover, parallel race, TTFT budgets), `affinity/`, `policy/`, `modelview/`
+- **Authority Coordination & Control Plane**:
+  - `authoritycoord/` — Stage evaluator (`stage_evaluator.go`), attempt coordination, attempt-stage settle failure recording.
+  - `concurrencyauthority/` & `usageauthority/` — Principal turn and usage quota tracking.
+  - `authorityattribution/` — Leg attribution tracking.
+  - `controlplane/` — Ledgerstore projections (`usage_projector.go`), metering bridges, readiness reports (`readiness_report.go`), query bounds, privacy guardrails.
+  - `metering/` — Usage/cost metering models.
+- **Continuity & Sessions**: `b2bua/` (attempt lineage/store), `continuity/` (`bunstore`), `securesession/` (`adapters/`, `storecontract/`, `domain/`, `app/`)
+- **Auth, Security & Identity**: `accessmode/`, `auth/`, `admin/`, `http/`, `safety/`, `proxycredentials/`, `identity/`, `secretsguard/` (ingress secrets catalog/matcher)
+- **Canonical Support & State**: `capabilities/`, `jsonpresence/`, `jsonshape/` (preflight guards), `toolcallrepair/`, `diag/`, `config/`, `configreload/`, `interleavedthinking/` (reasoning memo store/shape), `interleavedstate/`, `snapshotgen/`
+- **Streaming**: `stream/` (canonical stream, event pumps), `streamrecovery/`
+- **Hooks & Extensions**: `hooks/` (stage evaluation), `extensions/` (stage-four extension platform)
+- **Core State & Accounting**: `auxreq/`, `state/`, `traffic/`, `workspace/`, `modelcatalog/`, `modelregistry/`, `accounting/`, `tokenaccounting/`
 
-`internal/core/` owns product policy and cross-protocol orchestration. Current subpackages group into these capabilities:
+### 2a. Composition & Standard Distribution Assembly
 
-- execution and lifecycle: `runtime/`, `execbackend/`, `execctx/`, `leglifecycle/`, `lineage/`
-- routing and planning: `routing/`, `affinity/`, `policy/`
-- continuity and sessions: `b2bua/`, `continuity/`, `securesession/`
-- auth/access/trust: `accessmode/`, `auth/`, `admin/`, `http/`, `safety/`
-- ingress secret guard: `secretsguard/` (catalog, matcher, source policy; not the feature plugin)
-- canonical support: `capabilities/`, `jsonpresence/`, `jsonshape/`, `toolcallrepair/`, `diag/`, `config/`
-- streaming: `stream/`, `streamrecovery/`
-- hooks and extension pipeline: `hooks/`, `extensions/`
-- feature-facing core state: `auxreq/`, `state/`, `traffic/`, `workspace/`
-- model and usage support: `modelcatalog/`, `modelregistry/`, `accounting/`, `tokenaccounting/`
+- `internal/pluginreg/` — Standard distribution plugin registry & validation.
+- `internal/standardplugins/` — Built-in bundle tables (`standard_table.go`), `InstallStandardBundleOn`, `ResolveUpstreamAPIKeysFromEnv`.
+- `internal/featurebundle/` — Feature merge engine (`MergeFeatureSurface`).
+- `internal/infra/runtimebundle/` — Process `Host` builder (`runtimebundle.BuildHost`), immutable generation management (`GenerationRuntime`), shutdown coordinator; the host lifecycle ends through `Host.Close`.
+- `internal/stdhttp/` — Standard HTTP surface, route mounting, auth attachment, diagnostics, access logs.
 
-Core rules:
-- core imports `pkg/lipapi` and `pkg/lipsdk`,
-- core does not import concrete plugins,
-- core does not import official provider SDKs,
-- core owns orchestration but not provider-specific protocol logic.
+### 3. Official Frontend Plugins (`internal/plugins/frontends/`)
 
-### 2a. Standard distribution assembly (not “another core”)
+Wire frontends translate protocol payloads <-> canonical contracts:
+- **Wire Frontends**: `openresponses/` (OpenResponses 2026-04-24 API, HTTP/WS turns & continuation), `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`
+- **Frontend Helpers**: `frontendpipe/` (unified ServeHTTP pipeline & SSE `stream.PumpSSE`), `identitywire/` (product identity headers), `streamdebug/`, `decodeqos/`, `execerr/`, `exechold/`, `frontendconfig/`, `holdalive/`, `jsonguard/`, `limits/`, `openaiwire/`, `parity/`, `reqbody/`, `routeselect/`, `sessionwire/`
 
-`internal/pluginreg/`
-- explicit per-composition-root registration for the standard distribution (`NewRegistry` + `InstallStandardBundleOn(reg, keys)` via `internal/standardplugins`)
-- registry validation helpers, default wire metadata used by routing defaults, and backend credential/access-scope posture metadata
+### 4. Official Backend Plugins & Connectors (Hybrid Architecture — ADR 0008)
 
-`internal/standardplugins/`
-- standard frontend/backend/feature bundle tables (`standard_table.go`); per-family `*_install.go` factory helpers
-- `InstallStandardBundleOn`, `ResolveUpstreamAPIKeysFromEnv`, `DefaultWireModel`
+- **Essential Hosted Backends** (`internal/plugins/backends/` — statically linked): `alibabatokenplanintl/`, `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`, `bedrock/`
+- **Custom-Compatible Helpers**: `openresponsescompat/`, `openaicompat/`, `compatibleutil/`, `transporterr/`, `checkcfg/`, `credpool/`, `httpidentity/`, `modeldiscover/`, `openaicaps/`, `openaicred/`, `openaifamily/`, `openaiusage/`, `protocols/`, `streampeek/`
+- **Protocol Protocols**: `internal/plugins/protocols/openairesponsesitem` (exact OpenAI Responses reasoning-item Opaque schema).
+- **Optional Backend Connectors** (`connectors/` — independent modules, gRPC ABI over IPC): `acp`, `agycliacp`, `codex`, `cursorcliacp`, `cursorsdk`, `geminicliacp`, `huggingface`, `llamacpp`, `lmstudio`, `localstub`, `nvidia`, `ollama`, `opencode`, `openrouter`, `vllm`.
+- **Connector Support**: `connector-support/` (`acp/`, `openaicompat/`).
 
-`internal/featurebundle/`
-- feature merge surface: `MergeFeatureSurface` merges SDK hook slices and extension contributions from configured features (no `internal/core/hooks` import)
+### 5. Official Feature Plugins (`internal/plugins/features/`)
 
-`internal/infra/runtimebundle/`
-- process Host construction via `runtimebundle.BuildHost`: one process runtime, immutable `GenerationRuntime` generations, reload coordinator binding, and `Host.Close` as the sole process shutdown coordinator
-- composes generation-owned request-plane services from config + registrations: executor, continuity and secure-session views, shared upstream HTTP client, health/observer seams, model/catalog support, token accounting, and security policy checks
-- owns `BuildFeatureHooks` / `hooks.New`
+- `reasoningpreservation/` — Default-on reasoning output capture/restore (`EventReasoningPart` + Chat/Anthropic/Codex dialects).
+- `codexclientcompat/` — OpenAI Codex native compaction reasoning output preservation.
+- `secretsguard/` — Ingress credential scanner & enforcement Guard.
+- `toolcallrepair/` — Malformed tool-call YAML auto-repair.
+- Proof/Ref Features: `refsubmit/`, `refparts/`, `reftool/`, `reftoolpolicy/`, `refautoappend/`, `refworkspaceguard/`, `reftraffictranscript/`, `refverifier/`, `prerequestpolicy/`, `submitnoop/`, `partsnoop/`, `toolreactornoop/`.
 
-`internal/stdhttp/`
-- standard HTTP surface: route mounting, transport auth/principal attachment, security guard, recovery, diagnostics, model-catalog status, access logs, and generation-dispatcher serve entrypoints consumed by `cmd/lipstd` (Host-owned lifecycle; no separate `Built` / deleted attachment serve path)
+### 6. Support & Test Surfaces
 
-### 3. Official frontend plugins
+- `internal/infra/` — HTTP client tuning, structured logging, Prometheus metrics, OTLP tracing, DB connectors, secret audit.
+- `internal/refbackend/` — Test-only backend emulators (HTTP).
+- `internal/refclient/` — Test-only official SDK reference clients.
+- `internal/testkit/` — Stubs, fakes, fixtures, reasoning E2E plans (`reasoninge2e/`).
+- `internal/reasoningreplay/` — Reasoning prefix matcher (`compatible-auto.v2`).
+- `internal/qa/` & `internal/archtest/` — Repository hygiene & architecture guardrail gates.
 
-`internal/plugins/frontends/`
-- wire frontends: `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`
-- shared frontend helpers: `decodeqos/`, `execerr/`, `exechold/`, `frontendconfig/`, `holdalive/`, `jsonguard/`, `limits/`, `openaiwire/`, `parity/`, `reqbody/`, `routeselect/`, `sessionwire/`
+---
 
-Wire frontend packages decode incoming HTTP/SSE requests into canonical requests and encode canonical events back into protocol-specific responses. Helper packages should stay frontend-owned and not leak provider SDK types into core.
+## Quick Intent-to-Package Map
 
-### 4. Official backend plugins (hybrid — ADR 0008)
+| Developer Intent | Target Directory / File |
+| :--- | :--- |
+| Add/modify client API format | `internal/plugins/frontends/<protocol>/` |
+| Change unified HTTP/SSE pipeline | `internal/plugins/frontends/frontendpipe/`, `internal/core/stream/` |
+| Add essential hosted backend | `internal/plugins/backends/<provider>/`, register in `internal/standardplugins/` |
+| Add optional backend connector | `connectors/<name>/` (independent module with gRPC ABI) |
+| Change stage evaluation / attempt logic | `internal/core/authoritycoord/` |
+| Change control plane ledger / metering | `internal/core/controlplane/` |
+| Change dual SQLite/Postgres persistence | `internal/core/continuity/bunstore/`, `internal/core/securesession/adapters/` |
+| Modify canonical request/event structs | `pkg/lipapi/` |
+| Modify plugin SDK or extension facades | `pkg/lipsdk/` |
+| Change routing rules / selector syntax | `internal/core/routing/` |
+| Change stream semantics or keepalives | `internal/core/stream/`, `internal/core/streamrecovery/` |
+| Modify reasoning preservation | `internal/plugins/features/reasoningpreservation/`, `internal/core/interleavedthinking/` |
+| Update standard HTTP server / auth | `internal/stdhttp/`, `internal/infra/runtimebundle/` |
 
-Composition is **hybrid**: essential builtins are statically linked; optional backends are executable gRPC connector plugins. See [`docs/adr/0008-hybrid-backend-connector-plugins.md`](../../docs/adr/0008-hybrid-backend-connector-plugins.md).
+---
 
-`internal/plugins/backends/` (root module — essential + shared helpers)
-- essential hosted adapters: `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`, `bedrock/`
-- essential custom-compatible helpers used by built-in kinds: `openaicompat/` and related OpenAI-family helpers
-- shared helpers still used by root/tests where present: `checkcfg/`, `credpool/`, `modeldiscover/`, `openaicaps/`, `openaicred/`, `openaifamily/`, `openaiusage/`, `protocols/`, `streampeek/`, `httpidentity/`, leftover `acp/` / `localstub/` helpers only when still imported by root tests — not optional connector homes
+## Architectural Guardrails
 
-Essential registration lives in `internal/standardplugins` (`EssentialBackendBundle` / `EssentialBackendKinds`). Do **not** add optional connectors to those fixed tables.
-
-`connectors/` (independent modules — optional executable plugins)
-- discovered via closed manifests + digest-bound exact executables; examples: `openrouter`, `nvidia`, `huggingface`, `ollama`, `llamacpp`, `lmstudio`, `vllm`, `localstub`, `opencode`, `codex`, ACP-family connectors
-- process ABI: `pkg/lipsdk/backendplugin` over approved local IPC; lazy activation; declared process models
-
-`connector-support/`
-- shared support modules for connectors (for example ACP / OpenAI-compat helpers) with no root-core provider ownership
-
-`internal/plugins/openaiutil/`
-- currently empty/reserved; do not build new code here unless a real shared OpenAI adapter need appears
-
-`internal/plugins/protocols/`
-- protocol-neutral shared wire helpers usable by both frontends and backends (stdlib + `pkg/lipapi` limits only; no SDK/core/FE/BE imports)
-- `openairesponsesitem/`: exact OpenAI Responses reasoning-item Opaque schema (`CanonizeReasoningItemOpaque`, `ParseIncompleteFields`, content-safe `ItemError`)
-
-`internal/plugins/stores/`
-- bundled persistence / continuity store plugin seam; may remain sparse
-- current SQLite continuity implementation lives in `internal/core/continuity/sqlitestore/`, not here
-
-### 5. Official feature plugins and hook implementations
-
-`internal/plugins/features/`
-- bundled no-op compatibility hooks: `submitnoop/`, `partsnoop/`, `toolreactornoop/`
-- standard security feature: `secretsguard/` (call scanner + `block`/`redact`/`log` Guard)
-- standard feature: `toolcallrepair/` (YAML-only; engine in `internal/core/toolcallrepair`)
-- standard feature: `reasoningpreservation/` (`reasoning-output-preservation`; standard lipstd default-on inject + catalog-gated activation; config/catalog/store/observer/transform; exact Responses `EventReasoningPart` capture/restore + Chat/Anthropic dialects)
-- reference/proof features: `refsubmit/`, `refparts/`, `reftool/`, `reftoolpolicy/`, `refautoappend/`, `refworkspaceguard/`, `reftraffictranscript/`, `refverifier/`, `prerequestpolicy/`, `codexclientcompat/`, and related proof directories
-- feature plugins are expected to consume `pkg/lipsdk` facades rather than `internal/core`
-
-Hooks and extension stages are seams, not an excuse to reintroduce god objects.
-
-### 6. Support surfaces
-
-`internal/infra/`
-- cross-cutting infrastructure seams shared by runtime and plugins: HTTP client tuning (`httpclient`), structured logging helpers, Prometheus metrics wiring (`metrics`), OpenTelemetry tracing bootstrap (`tracing`), DB helpers (`db`), auth-event sinks, secret-decision audit sinks (`secretaudit/`), model catalog/registry loaders, routing health, token accounting/tokenizers, clocks, ids, OS identity checks, and other adapters not specific to one protocol codec
-
-`internal/refbackend/`
-- spec-shaped HTTP **emulator** servers for integration tests; import only from `*_test.go` (must not appear on production dependency paths)
-
-`internal/refclient/`
-- official-SDK-based **reference clients** for conformance and matrix tests; not for production runtime wiring
-
-`internal/testkit/`
-- stub providers, fixture loaders, fake streams, fake stores, fake clocks, builders, synthetic credentials, model-catalog snapshots, and conformance helpers
-- `reasoninge2e/`: stateful client/oracle plans for reasoning-preservation HTTP E2E (Chat + Responses cells, seeded smoke, env-gated soak helpers)
-
-`internal/safecast/`
-- small shared numeric conversion helpers
-
-`internal/reasoningreplay/`
-- provider-neutral automatic reasoning-replay model/prefix matcher (`compatible-auto.v2`) shared by `reasoningpreservation` built-in catalog and `openaicaps` compatible replay eligibility
-
-`internal/qa/`
-- repository hygiene and other non-domain quality tests (for example root-level file policy)
-
-`internal/archtest/`
-- architecture guardrail tests (complexity budgets, dependency direction, forbidden `init` patterns in the standard bundle path, etc.)
-
-`testdata/`
-- golden protocol payloads
-- routing selector fixtures
-- canonical event fixtures
-- migration captures reused from Python LIP where appropriate
-
-`docs/`
-- architecture notes, operator docs, migration guides, plugin authoring docs, release gates, performance checks, and specification-bundle indexes
-- `secrets-guard.md` — ingress secret detection design and operator guide (issue #151)
-- `reasoning-output-preservation.md` — standard default-on + `compatible-auto.v2` catalog-gated reasoning capture/restore (issue #157)
-
-`.kiro/`
-- steering and spec-driven development artifacts; active specs live under `.kiro/specs/`, completed historical specs under `.kiro/specs/archive/`
-
-## Where to change code (by intent)
-
-- Frontend/API behavior: `internal/plugins/frontends/`
-- Essential backend provider behavior: `internal/plugins/backends/` (essential families only)
-- Optional backend connectors: `connectors/<name>/` (+ `connector-support/` when shared); install via manifests — not fixed essential tables
-- Bundled store / persistence plugin seams: `internal/plugins/stores/`; current core continuity stores: `internal/core/continuity/`
-- Standard distribution registration tables: `internal/standardplugins/` (essential backends + frontends/features)
-- Lipstd HTTP wiring: `internal/stdhttp/`
-- Wiring executor + continuity + shared clients from config: `internal/infra/runtimebundle/`
-- Canonical model changes: `pkg/lipapi/`
-- Plugin contract changes: `pkg/lipsdk/`
-- Routing, failover, B2BUA continuity: `internal/core/routing/`, `internal/core/b2bua/`, and `internal/core/continuity/`
-- Stream semantics and collectors: `internal/core/stream/` and `internal/core/streamrecovery/`
-- Config semantics for the runtime: `internal/core/config/`
-- Secure-session authority, resume policy, and session diagnostics: `internal/core/securesession/`, `internal/infra/runtimebundle/`, `internal/stdhttp/`
-- Ingress secrets guard (catalog/matcher/source): `internal/core/secretsguard/`, `pkg/lipsdk/secretguard/`, `internal/plugins/features/secretsguard/`, `internal/proxycredentials/`, `internal/infra/osenv/`, `internal/stdhttp/auth/` (request-credential matcher), `internal/infra/secretaudit/`, `docs/secrets-guard.md`
-- Extension-platform stages and SDK facade assembly: `internal/core/extensions/`, `pkg/lipsdk/*`, `internal/featurebundle/`, `internal/infra/runtimebundle/`
-- Model catalog/registry and capability inventory: `internal/core/modelcatalog/`, `internal/core/modelregistry/`, `internal/infra/modelcatalog/`, `internal/infra/modelregistry/`, `pkg/lipsdk/modelinventory/`
-- Token accounting / usage: `internal/core/tokenaccounting/`, `internal/infra/tokenaccounting/`, `internal/infra/tokenizers/`, `pkg/lipsdk/usage/`
-- Observability and supporting infra: `internal/infra/` or feature plugins
-- Reference emulators/clients for tests: `internal/refbackend/`, `internal/refclient/`
-- Repo-wide hygiene checks: `internal/qa/`
-- Architecture budgets and import-pattern tests: `internal/archtest/`
+1. **No Core Leaks**: `internal/core` must never import provider SDKs or concrete plugins.
+2. **No Pairwise Translators**: All translation flows `Frontend -> Canonical (pkg/lipapi) -> Backend`.
+3. **Streaming First**: Non-streaming responses collect events over canonical streams.
+4. **No Hidden Downgrade**: Unsupported required capabilities must fail explicitly before backend call.
+5. **Pre-Output Swallowing Only**: Failover/retry allowed only before client-visible output starts. Committed legs cannot failover silently.
+6. **No Dynamic Loading**: Essential backends are statically linked; optional backends use out-of-process gRPC IPC connectors (`connectors/`).
+7. **Explicit Wiring**: No DI containers, reflection registries, global state, or `init()` setup functions.
 
 ## Structural guardrails
 

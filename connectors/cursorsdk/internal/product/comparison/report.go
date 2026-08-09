@@ -7,6 +7,7 @@ import (
 	"io"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -279,7 +280,7 @@ func samplesCell(n int) string {
 	if n <= 0 {
 		return "`-`"
 	}
-	return fmt.Sprintf("%d", n)
+	return strconv.Itoa(n)
 }
 
 func emptyDash(s string) string {

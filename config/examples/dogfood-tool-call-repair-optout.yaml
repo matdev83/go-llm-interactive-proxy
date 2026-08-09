@@ -1,4 +1,4 @@
-# Same truncated local-stub args as dogfood-tool-call-repair.yaml, but tool-call-repair is
+# Same terminal-comma local-stub args as dogfood-tool-call-repair.yaml, but tool-call-repair is
 # explicitly disabled (present row with enabled: false) so truncated args pass through.
 server:
   address: "127.0.0.1:18083"
@@ -87,7 +87,7 @@ plugins:
       config:
         text: "[dogfood] tool-call repair opt-out"
         tool_name: get_weather
-        tool_args: '{"location":"NYC"'
+        tool_args: '{"location":"NYC",'
         input_tokens: 3
         output_tokens: 7
   features:

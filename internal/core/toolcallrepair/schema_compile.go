@@ -14,9 +14,10 @@ import (
 const schemaResourceURL = "mem://toolcallrepair/schema.json"
 
 type CompiledSchema struct {
-	schema *jsonschema.Schema
-	digest string
-	bytes  int
+	schema          *jsonschema.Schema
+	orderedDocument any
+	digest          string
+	bytes           int
 }
 
 type rejectingURLLoader struct{}
@@ -29,14 +30,14 @@ func compileSchema(ctx context.Context, schema json.RawMessage, limits SchemaLim
 	if err := ctx.Err(); err != nil {
 		return nil, schemaErr(SchemaKindInvalid, ReasonCanceled, "")
 	}
-	doc, err := preScanSchema(ctx, schema, limits)
+	scanned, err := preScanSchema(ctx, schema, limits)
 	if err != nil {
 		return nil, err
 	}
 	compiler := jsonschema.NewCompiler()
 	compiler.DefaultDraft(jsonschema.Draft2020)
 	compiler.UseLoader(rejectingURLLoader{})
-	if err := compiler.AddResource(schemaResourceURL, doc); err != nil {
+	if err := compiler.AddResource(schemaResourceURL, scanned.document); err != nil {
 		return nil, mapCompileError(err)
 	}
 	sch, err := compiler.Compile(schemaResourceURL)
@@ -44,9 +45,10 @@ func compileSchema(ctx context.Context, schema json.RawMessage, limits SchemaLim
 		return nil, mapCompileError(err)
 	}
 	return &CompiledSchema{
-		schema: sch,
-		digest: schemaDigest(schema),
-		bytes:  len(schema),
+		schema:          sch,
+		orderedDocument: scanned.orderedDocument,
+		digest:          schemaDigest(schema),
+		bytes:           len(schema),
 	}, nil
 }
 

@@ -201,8 +201,55 @@ func TestDogfoodHarness_toolCallRepairOptOutTruncatedArgs(t *testing.T) {
 	if err := stream.Err(); err != nil {
 		t.Fatalf("tool-call repair opt-out dogfood: stream error: %v", err)
 	}
-	if gotArgs != `{"location":"NYC"` {
-		t.Fatalf("opt-out must pass truncated args through; got %q", gotArgs)
+	if gotArgs != `{"location":"NYC",` {
+		t.Fatalf("opt-out must pass terminal-comma args through; got %q", gotArgs)
+	}
+}
+
+func TestDogfoodHarness_toolCallRepairPendingValue(t *testing.T) {
+	t.Parallel()
+	h := startDogfoodHarness(t, exampleConfig(t, "dogfood-tool-call-repair-pending.yaml"))
+
+	cli := openairesponses.New(openairesponses.Config{
+		BaseURL:           h.baseURL + "/v1",
+		APIKey:            "sk-dogfood",
+		HTTPClient:        h.srv.Client(),
+		DisableSDKRetries: true,
+	})
+	stream := cli.CreateResponseStream(context.Background(), responses.ResponseNewParams{
+		Model: shared.ResponsesModel("stub-default"),
+		Input: responses.ResponseNewParamsInputUnion{
+			OfInputItemList: []responses.ResponseInputItemUnionParam{
+				responses.ResponseInputItemParamOfMessage("weather?", responses.EasyInputMessageRoleUser),
+			},
+		},
+		Tools: []responses.ToolUnionParam{{
+			OfFunction: &responses.FunctionToolParam{
+				Name:        "get_weather",
+				Description: openai.String("weather lookup"),
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"location": map[string]any{"type": "string", "default": "NYC"},
+					},
+					"required":             []any{"location"},
+					"additionalProperties": false,
+				},
+			},
+		}},
+	})
+	var gotArgs string
+	for stream.Next() {
+		ev := stream.Current()
+		if ev.Type == "response.function_call_arguments.done" {
+			gotArgs = ev.AsResponseFunctionCallArgumentsDone().Arguments
+		}
+	}
+	if err := stream.Err(); err != nil {
+		t.Fatalf("pending-value dogfood: stream error: %v", err)
+	}
+	if gotArgs != `{"location":"NYC"}` {
+		t.Fatalf("pending-value dogfood: repaired args %q want %q", gotArgs, `{"location":"NYC"}`)
 	}
 }
 

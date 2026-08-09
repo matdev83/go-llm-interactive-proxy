@@ -401,10 +401,12 @@
 .kiro/skills/golang-testing/references/http-testing.md
 .kiro/skills/golang-testing/references/integration-testing.md
 .kiro/skills/golang-testing/references/mocking.md
-.kiro/specs/acp-runtime-deduplication/design.md
-.kiro/specs/acp-runtime-deduplication/requirements.md
-.kiro/specs/acp-runtime-deduplication/spec.json
-.kiro/specs/acp-runtime-deduplication/tasks.md
+.kiro/specs/archive/acp-runtime-deduplication/closeout-evidence.md
+.kiro/specs/archive/acp-runtime-deduplication/design.md
+.kiro/specs/archive/acp-runtime-deduplication/phase3-task31-race-blocker.md
+.kiro/specs/archive/acp-runtime-deduplication/requirements.md
+.kiro/specs/archive/acp-runtime-deduplication/spec.json
+.kiro/specs/archive/acp-runtime-deduplication/tasks.md
 .kiro/specs/archive/admission-policy-decision-core/design.md
 .kiro/specs/archive/admission-policy-decision-core/requirements.md
 .kiro/specs/archive/admission-policy-decision-core/research.md
@@ -605,6 +607,13 @@
 .kiro/specs/archive/windows-task-reliability/research.md
 .kiro/specs/archive/windows-task-reliability/spec.json
 .kiro/specs/archive/windows-task-reliability/tasks.md
+.kiro/specs/extension-scalability-and-architecture-simplification/design-review.md
+.kiro/specs/extension-scalability-and-architecture-simplification/design.md
+.kiro/specs/extension-scalability-and-architecture-simplification/gap-analysis.md
+.kiro/specs/extension-scalability-and-architecture-simplification/requirements.md
+.kiro/specs/extension-scalability-and-architecture-simplification/research.md
+.kiro/specs/extension-scalability-and-architecture-simplification/spec.json
+.kiro/specs/extension-scalability-and-architecture-simplification/tasks.md
 .kiro/specs/openai-codex-native-compaction/design-review.md
 .kiro/specs/openai-codex-native-compaction/design.md
 .kiro/specs/openai-codex-native-compaction/gap-analysis.md
@@ -612,6 +621,14 @@
 .kiro/specs/openai-codex-native-compaction/research.md
 .kiro/specs/openai-codex-native-compaction/spec.json
 .kiro/specs/openai-codex-native-compaction/tasks.md
+.kiro/specs/archive/safe-tool-call-tail-repair/closeout-evidence.md
+.kiro/specs/archive/safe-tool-call-tail-repair/design-review.md
+.kiro/specs/archive/safe-tool-call-tail-repair/design.md
+.kiro/specs/archive/safe-tool-call-tail-repair/gap-analysis.md
+.kiro/specs/archive/safe-tool-call-tail-repair/requirements.md
+.kiro/specs/archive/safe-tool-call-tail-repair/research.md
+.kiro/specs/archive/safe-tool-call-tail-repair/spec.json
+.kiro/specs/archive/safe-tool-call-tail-repair/tasks.md
 .kiro/steering/api-standards.md
 .kiro/steering/product.md
 .kiro/steering/routing-and-orchestration.md
@@ -698,6 +715,7 @@ config/examples/custom-openai-legacy-compatible.yaml
 config/examples/custom-openai-responses-compatible.yaml
 config/examples/dogfood-local-stub.yaml
 config/examples/dogfood-tool-call-repair-optout.yaml
+config/examples/dogfood-tool-call-repair-pending.yaml
 config/examples/dogfood-tool-call-repair.yaml
 config/examples/gemini-stub.yaml
 config/examples/openai-legacy-stub.yaml
@@ -2261,6 +2279,7 @@ internal/core/runtime/ttft_budget.go
 internal/core/runtime/ttft_timeout_test.go
 internal/core/runtime/v1_review_matrix_test.go
 internal/core/runtime/weighted_first_post_hook_test.go
+internal/core/runtime/safe_tail_finalizer_integration_test.go
 internal/core/safety/doc.go
 internal/core/safety/panic.go
 internal/core/safety/panic_log.go
@@ -2490,6 +2509,10 @@ internal/core/toolcallrepair/schema_validate.go
 internal/core/toolcallrepair/schema_validate_test.go
 internal/core/toolcallrepair/shape_guard.go
 internal/core/toolcallrepair/shape_guard_test.go
+internal/core/toolcallrepair/json_tail.go
+internal/core/toolcallrepair/pending_value.go
+internal/core/toolcallrepair/safe_tail_bench_test.go
+internal/core/toolcallrepair/safe_tail_test.go
 internal/core/traffic/contract_test.go
 internal/core/traffic/doc.go
 internal/core/traffic/snapshot.go
@@ -3617,6 +3640,7 @@ internal/plugins/frontends/anthropic/handler_policy_test.go
 internal/plugins/frontends/anthropic/integration_test.go
 internal/plugins/frontends/anthropic/mount.go
 internal/plugins/frontends/anthropic/reasoning_replay_red_test.go
+internal/plugins/frontends/anthropic/spec_concurrency_test.go
 internal/plugins/frontends/anthropic/testdata/fuzz/FuzzDecodeMessageRequest/corpus_packed
 internal/plugins/frontends/anthropic/testdata/fuzz/FuzzWriteNonStreamJSON_toolArguments/corpus_empty_obj
 internal/plugins/frontends/anthropic/wire_error_characterization_test.go
@@ -3655,6 +3679,7 @@ internal/plugins/frontends/gemini/integration_test.go
 internal/plugins/frontends/gemini/mount.go
 internal/plugins/frontends/gemini/path.go
 internal/plugins/frontends/gemini/path_test.go
+internal/plugins/frontends/gemini/spec_concurrency_test.go
 internal/plugins/frontends/gemini/testdata/fuzz/FuzzBuildGenerateContentResponse_toolJSON/corpus_small
 internal/plugins/frontends/gemini/testdata/fuzz/FuzzDecodeGenerateContentRequest/corpus_packed
 internal/plugins/frontends/gemini/wire_error_characterization_test.go
@@ -3690,6 +3715,7 @@ internal/plugins/frontends/openailegacy/integration_test.go
 internal/plugins/frontends/openailegacy/mount.go
 internal/plugins/frontends/openailegacy/reasoning_decode_exact_red_test.go
 internal/plugins/frontends/openailegacy/reasoning_replay_red_test.go
+internal/plugins/frontends/openailegacy/spec_concurrency_test.go
 internal/plugins/frontends/openailegacy/testdata/fuzz/FuzzDecodeChatRequest/corpus_packed
 internal/plugins/frontends/openailegacy/wire_error_characterization_test.go
 internal/plugins/frontends/openairesponses/bench_stream_alloc_test.go
@@ -3726,6 +3752,7 @@ internal/plugins/frontends/openairesponses/reasoning_fidelity_test.go
 internal/plugins/frontends/openairesponses/route_conflict_test.go
 internal/plugins/frontends/openairesponses/secure_session_e2e_test.go
 internal/plugins/frontends/openairesponses/session_wire_test.go
+internal/plugins/frontends/openairesponses/spec_concurrency_test.go
 internal/plugins/frontends/openairesponses/sse_write.go
 internal/plugins/frontends/openairesponses/testdata/fuzz/FuzzDecodeCreateRequest/corpus_packed
 internal/plugins/frontends/openairesponses/wire_error_characterization_test.go

@@ -202,6 +202,48 @@ func TestEffectiveLoadContract_FixedStreamRecoveryCLIWins(t *testing.T) {
 	}
 }
 
+func TestEffectiveLoadContract_ExplicitToolCallRepairOptOutSurvivesEffectiveLoad(t *testing.T) {
+	t.Parallel()
+	path := bpkit.WriteDogfoodLocalStubConfig(t)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const enabledRow = `    - id: tool-call-repair
+      enabled: true
+      config: {}
+`
+	const disabledRow = `    - id: tool-call-repair
+      enabled: false
+      config: {}
+`
+	updated := strings.Replace(string(raw), enabledRow, disabledRow, 1)
+	if updated == string(raw) {
+		t.Fatal("test fixture did not contain the expected tool-call-repair row")
+	}
+	if err := os.WriteFile(path, []byte(updated), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	eff, _, _, err := runtimebundle.LoadBootstrapEffectiveWithSource(context.Background(), path, config.StreamRecoveryOverrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var matches int
+	for _, feature := range eff.Config.Plugins.Features {
+		if feature.FactoryID() != standardplugins.ToolCallRepairFeatureID && feature.InstanceID() != standardplugins.ToolCallRepairFeatureID {
+			continue
+		}
+		matches++
+		if feature.Enabled {
+			t.Fatalf("explicit tool-call-repair opt-out was re-enabled: %+v", feature)
+		}
+	}
+	if matches != 1 {
+		t.Fatalf("expected exactly one preserved opt-out row, got %d: %+v", matches, eff.Config.Plugins.Features)
+	}
+}
+
 func TestEffectiveLoadContract_InjectsStandardFeaturesWhenAbsent(t *testing.T) {
 	t.Parallel()
 	const body = `

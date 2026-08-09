@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -552,7 +553,7 @@ func boundVersionsForProvider(st *requestAuthorityState, providerID string) term
 		return ver
 	}
 	if st.ExecutableGen != nil {
-		ver.GenerationID = fmt.Sprintf("%d", st.ExecutableGen.ID)
+		ver.GenerationID = strconv.FormatInt(st.ExecutableGen.ID, 10)
 		if rid := strings.TrimSpace(st.ExecutableGen.RatingObjectID); rid != "" {
 			ver.RatingID = rid
 		} else if v := strings.TrimSpace(st.ExecutableGen.Version); v != "" {
