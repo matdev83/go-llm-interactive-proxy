@@ -88,9 +88,12 @@ func TestRunner_WorkingDirectory(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	result := Run(context.Background(), Request{
-		Argv:    []string{buildHelper(t), "-mode=print-cwd"},
-		Dir:     dir,
-		Timeout: time.Second,
+		Argv: []string{buildHelper(t), "-mode=print-cwd"},
+		Dir:  dir,
+		// Generous guard budget: the child is started from a race-instrumented
+		// test binary and this assertion needs its output; a 1s budget can be
+		// blown by startup alone under -race on a loaded runner.
+		Timeout: 30 * time.Second,
 		Output:  Capture,
 	})
 	if result.Kind != Success || !strings.Contains(string(result.Stdout), dir) {
@@ -115,7 +118,7 @@ func TestRunner_RelativeWorkingDirectory(t *testing.T) {
 	result := Run(context.Background(), Request{
 		Argv:    []string{buildHelper(t), "-mode=print-cwd"},
 		Dir:     relative,
-		Timeout: time.Second,
+		Timeout: 30 * time.Second,
 		Output:  Capture,
 	})
 	if result.Kind != Success || !strings.Contains(string(result.Stdout), dir) {
@@ -158,7 +161,7 @@ func TestRunner_ChildEnvironment(t *testing.T) {
 		Argv:      []string{buildHelper(t), "-mode=print-env", "-key", key},
 		Env:       []string{key + "=child-value"},
 		ClearEnv:  true,
-		Timeout:   time.Second,
+		Timeout:   30 * time.Second,
 		Output:    Capture,
 		StreamOut: &bytes.Buffer{},
 	})
@@ -194,7 +197,7 @@ func TestRunner_StreamDoesNotCapture(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	result := Run(context.Background(), Request{
 		Argv:      []string{buildHelper(t), "-mode=output", "-size=128"},
-		Timeout:   time.Second,
+		Timeout:   30 * time.Second,
 		Output:    Stream,
 		StreamOut: &stdout,
 		StreamErr: &stderr,
@@ -210,8 +213,13 @@ func TestRunner_StreamDoesNotCapture(t *testing.T) {
 func TestRunner_CaptureHeadTailAndAggregateBounds(t *testing.T) {
 	t.Parallel()
 	result := Run(context.Background(), Request{
-		Argv:           []string{buildHelper(t), "-mode=output", "-size=100000"},
-		Timeout:        time.Second,
+		Argv: []string{buildHelper(t), "-mode=output", "-size=100000"},
+		// Guard budget, not an assertion: the child emits 200 KiB total. At the
+		// 1s edge under -race on a loaded runner, the guard can expire while
+		// stderr capture is still in flight (observed StderrTruncated=false with
+		// a clean child exit). Deadline propagation stays covered by
+		// TestRunner_DeadlineExceeded and TestRunner_Cancellation.
+		Timeout:        30 * time.Second,
 		Output:         Capture,
 		StdoutLimit:    65536,
 		StderrLimit:    65536,
@@ -237,7 +245,7 @@ func TestRunner_RedactsCapturedSecrets(t *testing.T) {
 	t.Parallel()
 	result := Run(context.Background(), Request{
 		Argv:       []string{buildHelper(t), "-mode=print", "-text", "secret-token"},
-		Timeout:    time.Second,
+		Timeout:    30 * time.Second,
 		Output:     Capture,
 		Redactions: []string{"secret-token"},
 	})
