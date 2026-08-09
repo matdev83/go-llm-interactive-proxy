@@ -48,9 +48,10 @@ const (
 
 // rpChatStackOpts configures the full-HTTP BuildHost + stdhttp chat stack.
 type rpChatStackOpts struct {
-	FeatureRow rpFeatureRowMode
-	Action     string // observe|restore|disabled when FeatureRow==rpFeatureRowExplicit
-	Model      string // empty -> rpE2EModel
+	FeatureRow        rpFeatureRowMode
+	Action            string // observe|restore|disabled when FeatureRow==rpFeatureRowExplicit
+	UseBuiltinCatalog bool
+	Model             string // empty -> rpE2EModel
 	// OnUnrepresentable overrides feature policy (reject|log_skip). Empty -> reject.
 	OnUnrepresentable string
 	// FeatureRuleBackends, when non-empty, emits one explicit rule per backend id.
@@ -720,7 +721,7 @@ func reasoningPreservationFeatureYAML(opts rpChatStackOpts, backendKind string) 
 			onUnrep = "reject"
 		}
 		rules := opts.FeatureRuleBackends
-		if len(rules) == 0 {
+		if len(rules) == 0 && !opts.UseBuiltinCatalog {
 			rules = []string{backendKind}
 		}
 		var rulesYAML strings.Builder
@@ -730,13 +731,21 @@ func reasoningPreservationFeatureYAML(opts rpChatStackOpts, backendKind string) 
             backend: %s
             enabled: true`, i+1, be)
 		}
+		rulesValue := rulesYAML.String()
+		if len(rules) == 0 {
+			rulesValue = " []"
+		}
 		featureBlock := ""
 		switch opts.Action {
 		case "disabled":
 			enabled = "false"
+			catalog := "false"
+			if opts.UseBuiltinCatalog {
+				catalog = "true"
+			}
 			featureBlock = fmt.Sprintf(`
         action: observe
-        use_builtin_catalog: false
+        use_builtin_catalog: %s
         rules:%s
         on_ambiguous: log_skip
         on_unrepresentable: %s
@@ -746,11 +755,15 @@ func reasoningPreservationFeatureYAML(opts rpChatStackOpts, backendKind string) 
           max_turns_per_session: %d
           max_reasoning_bytes_per_turn: 65536
           max_session_bytes: 1048576
-`, rulesYAML.String(), onUnrep, rpHarnessMaxTurnsPerSession)
+`, catalog, rulesValue, onUnrep, rpHarnessMaxTurnsPerSession)
 		case "observe", "restore":
+			catalog := "false"
+			if opts.UseBuiltinCatalog {
+				catalog = "true"
+			}
 			featureBlock = fmt.Sprintf(`
         action: %s
-        use_builtin_catalog: false
+        use_builtin_catalog: %s
         rules:%s
         on_ambiguous: log_skip
         on_unrepresentable: %s
@@ -760,7 +773,7 @@ func reasoningPreservationFeatureYAML(opts rpChatStackOpts, backendKind string) 
           max_turns_per_session: %d
           max_reasoning_bytes_per_turn: 65536
           max_session_bytes: 1048576
-`, opts.Action, rulesYAML.String(), onUnrep, rpHarnessMaxTurnsPerSession)
+`, opts.Action, catalog, rulesValue, onUnrep, rpHarnessMaxTurnsPerSession)
 		default:
 			return "", fmt.Errorf("unknown action %q", opts.Action)
 		}

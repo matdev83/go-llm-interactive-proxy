@@ -17,7 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-func TestBuildHost_absentReasoningPreservationInjectsDefaultParticipants(t *testing.T) {
+func TestBuildHost_absentReasoningPreservationWithoutCodexHasNoParticipants(t *testing.T) {
 	t.Parallel()
 	path := runtimebundle.MaterializeExampleConfigForTest(t, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"))
 
@@ -30,7 +30,7 @@ func TestBuildHost_absentReasoningPreservationInjectsDefaultParticipants(t *test
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertInventoryFeatureRowEnabled(t, snap, standardplugins.ReasoningOutputPreservationFeatureID, true)
+		assertInventoryFeatureRowAbsent(t, snap, standardplugins.ReasoningOutputPreservationFeatureID)
 	})
 
 	t.Run("serve", func(t *testing.T) {
@@ -45,9 +45,9 @@ func TestBuildHost_absentReasoningPreservationInjectsDefaultParticipants(t *test
 			t.Fatal(err)
 		}
 		hostServeCleanup(t, host)
-		assertFeatureRowEnabled(t, host.Config(), standardplugins.ReasoningOutputPreservationFeatureID, true)
-		assertReasoningRegistrationEnabled(t, host, true)
-		assertHasReasoningParticipants(t, host, true)
+		assertFeatureRowAbsent(t, host.Config(), standardplugins.ReasoningOutputPreservationFeatureID)
+		assertReasoningRegistrationAbsent(t, host)
+		assertHasReasoningParticipants(t, host, false)
 		if runtimebundle.HostProcess(host) == nil || runtimebundle.HostManager(host).Active() == nil {
 			t.Fatal("BuildHost must publish generation host handles")
 		}
@@ -125,6 +125,15 @@ func assertFeatureRowEnabled(t *testing.T, cfg *config.Config, id string, wantEn
 	}
 }
 
+func assertFeatureRowAbsent(t *testing.T, cfg *config.Config, id string) {
+	t.Helper()
+	for _, row := range cfg.Plugins.Features {
+		if row.FactoryID() == id || row.InstanceID() == id {
+			t.Fatalf("feature %q unexpectedly present: %+v", id, row)
+		}
+	}
+}
+
 // assertInventoryFeatureRowEnabled is the [runtimebundle.InspectInventory]
 // equivalent of assertFeatureRowEnabled: [diag.InventorySnapshot].Features is
 // built directly from the same accepted config, so this proves the shared
@@ -142,6 +151,15 @@ func assertInventoryFeatureRowEnabled(t *testing.T, snap diag.InventorySnapshot,
 	}
 	if !found {
 		t.Fatalf("feature %q not present in inventory features", id)
+	}
+}
+
+func assertInventoryFeatureRowAbsent(t *testing.T, snap diag.InventorySnapshot, id string) {
+	t.Helper()
+	for _, row := range snap.Features {
+		if row.FactoryKind == id || row.ID == id {
+			t.Fatalf("feature %q unexpectedly present in inventory", id)
+		}
 	}
 }
 
@@ -163,6 +181,15 @@ func assertReasoningRegistrationEnabled(t *testing.T, host *runtimebundle.Host, 
 	}
 	if !found {
 		t.Fatalf("feature %q missing from recomputed Registrations (inject must precede RegistrationsFromConfig)", id)
+	}
+}
+
+func assertReasoningRegistrationAbsent(t *testing.T, host *runtimebundle.Host) {
+	t.Helper()
+	for _, r := range config.RegistrationsFromConfig(host.Config()) {
+		if r.Kind == lipsdk.PluginKindFeature && (r.FactoryKind == standardplugins.ReasoningOutputPreservationFeatureID || r.ID == standardplugins.ReasoningOutputPreservationFeatureID) {
+			t.Fatalf("reasoning feature unexpectedly registered: %+v", r)
+		}
 	}
 }
 

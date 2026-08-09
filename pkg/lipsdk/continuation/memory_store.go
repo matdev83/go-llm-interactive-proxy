@@ -82,7 +82,7 @@ func (s *MemoryStore) Reserve(ctx context.Context, scope Scope, policy StoragePo
 		return "", ErrStorageLimitExceeded
 	}
 	exp := s.expiry(policy)
-	for attempt := 0; attempt < 5; attempt++ {
+	for range 5 {
 		id, err := NewResponseID(ctx)
 		if err != nil {
 			return "", err

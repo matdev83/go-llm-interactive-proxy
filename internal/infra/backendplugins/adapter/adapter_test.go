@@ -281,11 +281,13 @@ func TestOrderedItemAuthorityCapabilityNoNetwork_executesViaAdapterSession(t *te
 			{Kind: lipapi.ItemKindReasoning, ID: "rs-1", Status: lipapi.ItemStatusCompleted, Reasoning: &lipapi.ReasoningItem{Reasoning: &lipapi.ReasoningPart{
 				Dialect: lipapi.ReasoningDialectOpenAIChatTextV1, Text: "chain",
 			}}},
-			{Kind: lipapi.ItemKindMessage, ID: "msg-1", Status: lipapi.ItemStatusCompleted, Role: lipapi.RoleUser,
+			{
+				Kind: lipapi.ItemKindMessage, ID: "msg-1", Status: lipapi.ItemStatusCompleted, Role: lipapi.RoleUser,
 				Content: []lipapi.ContentPart{
 					{Kind: lipapi.ContentPartJSON, Text: `{"k":1}`},
 					{Kind: lipapi.ContentPartToolResult, Text: "72F"},
-				}},
+				},
+			},
 		},
 	}
 	fake := &testkit.FakeService{Mode: testkit.ModeValid}

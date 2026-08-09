@@ -83,16 +83,20 @@ func (it *Item) UnmarshalJSON(data []byte) error {
 		key string
 		dst *string
 	}{
-		{"id", &it.ID}, {"status", &it.Status}, {"role", &it.Role},
-		{"phase", &it.Phase}, {"call_id", &it.CallID}, {"name", &it.Name},
+		{"id", &it.ID},
+		{"status", &it.Status},
+		{"role", &it.Role},
+		{"phase", &it.Phase},
+		{"call_id", &it.CallID},
+		{"name", &it.Name},
 		{"encapsulated_id", &it.EncapsulatedID},
 		{"encrypted_content", &it.EncryptedContent},
 	} {
-		if v, e := objectString(m, f.key, false); e != nil {
+		v, e := objectString(m, f.key, false)
+		if e != nil {
 			return e
-		} else {
-			*f.dst = v
 		}
+		*f.dst = v
 	}
 	if raw, ok := m["arguments"]; ok && string(raw) != "null" {
 		if it.Arguments, err = objectString(m, "arguments", false); err != nil {
@@ -252,21 +256,27 @@ func (p *ContentPart) UnmarshalJSON(data []byte) error {
 		key string
 		dst *string
 	}{
-		{"text", &p.Text}, {"refusal", &p.Refusal}, {"summary", &p.Summary},
+		{"text", &p.Text},
+		{"refusal", &p.Refusal},
+		{"summary", &p.Summary},
 		{"filename", &p.Filename},
 	} {
-		if v, e := objectString(m, f.key, false); e != nil {
+		v, e := objectString(m, f.key, false)
+		if e != nil {
 			return e
-		} else {
-			*f.dst = v
 		}
+		*f.dst = v
 	}
 	for _, f := range []struct {
 		key string
 		dst *json.RawMessage
 	}{
-		{"image_url", &p.ImageURL}, {"file_url", &p.FileURL}, {"file_data", &p.FileData}, {"video_url", &p.VideoURL},
-		{"annotations", &p.Annotations}, {"logprobs", &p.Logprobs},
+		{"image_url", &p.ImageURL},
+		{"file_url", &p.FileURL},
+		{"file_data", &p.FileData},
+		{"video_url", &p.VideoURL},
+		{"annotations", &p.Annotations},
+		{"logprobs", &p.Logprobs},
 	} {
 		if raw, ok := m[f.key]; ok {
 			*f.dst = append(json.RawMessage(nil), raw...)
@@ -397,11 +407,11 @@ func (t *Tool) UnmarshalJSON(data []byte) error {
 	}{
 		{"name", &t.Name}, {"description", &t.Description},
 	} {
-		if v, e := objectString(m, f.key, false); e != nil {
+		v, e := objectString(m, f.key, false)
+		if e != nil {
 			return e
-		} else {
-			*f.dst = v
 		}
+		*f.dst = v
 	}
 	if raw, ok := m["parameters"]; ok {
 		t.Parameters = append(json.RawMessage(nil), raw...)

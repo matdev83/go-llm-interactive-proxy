@@ -74,7 +74,8 @@ func (o *ReloadObserver) BeginAttempt(ctx context.Context, trigger sdkreload.Tri
 		obs: o, attemptID: attemptID, trigger: trigger.Kind, actor: trigger.SafeActor,
 		start: start, active: activeGen, parent: span, stages: make(map[string]time.Time),
 	}
-	o.logAttrs(ctx, slog.LevelInfo, "reload attempt accepted",
+	o.logAttrs(
+		ctx, slog.LevelInfo, "reload attempt accepted",
 		slog.Int64("attempt_id", attemptID),
 		slog.String("trigger", string(trigger.Kind)),
 		slog.String("stage", "accepted"),
@@ -140,7 +141,8 @@ func (scope *attemptScope) End(res sdkreload.Result) {
 		stage = string(res.Category)
 	}
 	stage = boundStageName(stage)
-	o.logAttrs(context.Background(), slog.LevelInfo, "reload attempt finished",
+	o.logAttrs(
+		context.Background(), slog.LevelInfo, "reload attempt finished",
 		slog.Int64("attempt_id", res.AttemptID),
 		slog.String("trigger", string(scope.trigger)),
 		slog.String("stage", stage),
@@ -183,7 +185,8 @@ func (o *ReloadObserver) ObserveLifecycle(ctx context.Context, stage string, res
 	if o.metrics != nil {
 		o.metrics.ObserveStage(stage, result, d)
 	}
-	o.logAttrs(ctx, slog.LevelInfo, "reload lifecycle stage",
+	o.logAttrs(
+		ctx, slog.LevelInfo, "reload lifecycle stage",
 		slog.String("stage", stage),
 		slog.String("result", result),
 		slog.Int64("duration_ms", d.Milliseconds()),

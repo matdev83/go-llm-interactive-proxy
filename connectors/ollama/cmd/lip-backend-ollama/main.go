@@ -91,6 +91,7 @@ func (l *singleConnListener) Accept() (net.Conn, error) {
 	<-l.closed
 	return nil, net.ErrClosed
 }
+
 func (l *singleConnListener) Close() error {
 	select {
 	case <-l.closed:

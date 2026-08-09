@@ -36,10 +36,7 @@ func (w *seamTestResponseWriter) Write(p []byte) (int, error) {
 	if w.partialLen > 0 {
 		// Accept some bytes (committing the response) then fail, the way a
 		// net/http connection failure can surface after body bytes were sent.
-		n := w.partialLen
-		if n > len(p) {
-			n = len(p)
-		}
+		n := min(w.partialLen, len(p))
 		if w.status == 0 {
 			w.status = http.StatusOK
 		}

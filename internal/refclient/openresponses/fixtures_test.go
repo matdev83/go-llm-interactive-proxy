@@ -48,7 +48,6 @@ func TestFixtureManifest_ImmutableDigests(t *testing.T) {
 	t.Parallel()
 	m := readManifest(t)
 	for _, a := range m.Artifacts {
-		a := a
 		t.Run(a.RelPath, func(t *testing.T) {
 			b, err := os.ReadFile("testdata/" + a.RelPath)
 			if err != nil {

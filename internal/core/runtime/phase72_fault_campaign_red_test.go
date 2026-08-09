@@ -167,7 +167,8 @@ func phase72FaultPartialAfterOutput(t *testing.T) {
 func phase72FaultPanicTerminal(t *testing.T) {
 	t.Helper()
 	term := newStreamTerminal(sdkterminal.ScopeRequest)
-	r := term.Terminalize(context.Background(), sdkterminal.CommandPanic,
+	r := term.Terminalize(
+		context.Background(), sdkterminal.CommandPanic,
 		func() coreterm.AccumulatorSnapshot {
 			return coreterm.NewAccumulatorSnapshot([]byte("p"), false)
 		},
@@ -181,7 +182,8 @@ func phase72FaultPanicTerminal(t *testing.T) {
 	if r.Err == nil {
 		t.Fatal("panic effect must surface as terminal error")
 	}
-	r2 := term.Terminalize(context.Background(), sdkterminal.CommandClose,
+	r2 := term.Terminalize(
+		context.Background(), sdkterminal.CommandClose,
 		func() coreterm.AccumulatorSnapshot {
 			return coreterm.NewAccumulatorSnapshot([]byte("c"), false)
 		},

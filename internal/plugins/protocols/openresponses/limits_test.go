@@ -7,6 +7,7 @@ import (
 )
 
 func TestLimits_DefaultLimits(t *testing.T) {
+	t.Parallel()
 	lim := DefaultLimits()
 	if lim.MaxRequestSizeBytes <= 0 {
 		t.Errorf("expected positive MaxRequestSizeBytes, got %d", lim.MaxRequestSizeBytes)
@@ -38,6 +39,7 @@ func TestLimits_DefaultLimits(t *testing.T) {
 }
 
 func TestLimits_Validations(t *testing.T) {
+	t.Parallel()
 	lim := Limits{
 		MaxRequestSizeBytes:         100,
 		MaxResourceSizeBytes:        200,
@@ -51,6 +53,7 @@ func TestLimits_Validations(t *testing.T) {
 	}
 
 	t.Run("ValidateRequestBytes", func(t *testing.T) {
+		t.Parallel()
 		if err := ValidateRequestBytes(make([]byte, 50), lim); err != nil {
 			t.Errorf("unexpected error for valid request bytes: %v", err)
 		}
@@ -71,6 +74,7 @@ func TestLimits_Validations(t *testing.T) {
 	})
 
 	t.Run("ValidateResourceBytes", func(t *testing.T) {
+		t.Parallel()
 		if err := ValidateResourceBytes(make([]byte, 150), lim); err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -84,6 +88,7 @@ func TestLimits_Validations(t *testing.T) {
 	})
 
 	t.Run("ValidateEventCount", func(t *testing.T) {
+		t.Parallel()
 		if err := ValidateEventCount(5, lim); err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -177,6 +182,7 @@ func TestLimits_Validations(t *testing.T) {
 }
 
 func TestLimitExceededError_Sanitization(t *testing.T) {
+	t.Parallel()
 	err := &LimitExceededError{
 		Param:   "secret_param",
 		Limit:   100,

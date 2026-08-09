@@ -54,7 +54,8 @@ func (s *Store) Quarantine(ctx context.Context, in domain.QuarantineInput) error
 			return nil
 		}
 
-		_, err = tx.ExecContext(ctx, `UPDATE lip_secure_sessions SET
+		_, err = tx.ExecContext(
+			ctx, `UPDATE lip_secure_sessions SET
 			status = ?,
 			resume_eligible = 0,
 			quarantined_at_unix = ?,
@@ -77,7 +78,8 @@ func (s *Store) Quarantine(ctx context.Context, in domain.QuarantineInput) error
 		if err != nil {
 			return opErr("quarantine next audit seq", err)
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO lip_secure_audit(
+		_, err = tx.ExecContext(
+			ctx, `INSERT INTO lip_secure_audit(
 			session_id, seq, turn_id, action, result, created_at_unix
 		) VALUES(?,?,?,?,?,?)`,
 			string(in.SessionID), nextSeq, string(in.TurnID), plan.AuditAction, plan.AuditResult, plan.QuarantinedAt.UnixNano(),

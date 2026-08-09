@@ -7,11 +7,11 @@ import (
 	"testing"
 )
 
-func mustReadScenario(t testing.TB, name string) []byte {
-	t.Helper()
+func mustReadScenario(tb testing.TB, name string) []byte {
+	tb.Helper()
 	b, err := os.ReadFile("testdata/scenarios/" + name)
 	if err != nil {
-		t.Fatalf("read scenario %s: %v", name, err)
+		tb.Fatalf("read scenario %s: %v", name, err)
 	}
 	return b
 }
@@ -34,6 +34,12 @@ func responseScenarioCases() []scenarioCase {
 			fixture:     "response_text.json",
 			description: "Pinned text response resource parses with required presence and one assistant message.",
 			parse: func(t *testing.T, data []byte) {
+				t.Helper()
+				t.Helper()
+				t.Helper()
+				t.Helper()
+				t.Helper()
+				t.Helper()
 				res := parseResponseOK(t, data)
 				if res.Status != "completed" || res.ID != "resp_5a3e04d550c84a63a1d4fc4e3e206abb" {
 					t.Fatalf("status/id: %q/%q", res.Status, res.ID)
@@ -55,6 +61,11 @@ func responseScenarioCases() []scenarioCase {
 			fixture:     "response_tools.json",
 			description: "Pinned function_call and function_call_output items parse with call identity preserved.",
 			parse: func(t *testing.T, data []byte) {
+				t.Helper()
+				t.Helper()
+				t.Helper()
+				t.Helper()
+				t.Helper()
 				res := parseResponseOK(t, data)
 				if len(res.Output) != 2 {
 					t.Fatalf("output len: %d", len(res.Output))
@@ -84,6 +95,9 @@ func responseScenarioCases() []scenarioCase {
 			fixture:     "response_reasoning.json",
 			description: "Reasoning item preserves summary/content and encrypted_content null presence.",
 			parse: func(t *testing.T, data []byte) {
+				t.Helper()
+				t.Helper()
+				t.Helper()
 				res := parseResponseOK(t, data)
 				if len(res.Output) != 2 {
 					t.Fatalf("output len: %d", len(res.Output))
@@ -118,6 +132,7 @@ func responseScenarioCases() []scenarioCase {
 			fixture:     "response_phase.json",
 			description: "Assistant phase commentary/final_answer preserved on output messages.",
 			parse: func(t *testing.T, data []byte) {
+				t.Helper()
 				res := parseResponseOK(t, data)
 				if len(res.Output) != 2 {
 					t.Fatalf("output len: %d", len(res.Output))
@@ -141,6 +156,7 @@ func responseScenarioCases() []scenarioCase {
 			fixture:     "response_extensions.json",
 			description: "Unknown prefixed extension items parse as opaque without loss.",
 			parse: func(t *testing.T, data []byte) {
+				t.Helper()
 				res := parseResponseOK(t, data)
 				if len(res.Output) != 2 {
 					t.Fatalf("output len: %d", len(res.Output))
@@ -156,7 +172,9 @@ func responseScenarioCases() []scenarioCase {
 				if err := json.Unmarshal(ext.Opaque, &m); err != nil {
 					t.Fatalf("opaque json: %v", err)
 				}
-				if m["latency_ms"].(float64) != 72 || m["cache_hit"].(bool) != true {
+				latency, latencyOK := m["latency_ms"].(float64)
+				cacheHit, cacheHitOK := m["cache_hit"].(bool)
+				if !latencyOK || !cacheHitOK || latency != 72 || !cacheHit {
 					t.Fatalf("opaque fields lost: %v", m)
 				}
 				if !ext.IsExtension() {
@@ -173,6 +191,7 @@ func responseScenarioCases() []scenarioCase {
 			fixture:     "response_error.json",
 			description: "Failed response resource carries structured error with code/type/param.",
 			parse: func(t *testing.T, data []byte) {
+				t.Helper()
 				res := parseResponseOK(t, data)
 				if res.Status != "failed" {
 					t.Fatalf("status: %q", res.Status)
@@ -191,7 +210,6 @@ func responseScenarioCases() []scenarioCase {
 func TestResponseScenario_Cases(t *testing.T) {
 	t.Parallel()
 	for _, tc := range responseScenarioCases() {
-		tc := tc
 		t.Run(tc.id, func(t *testing.T) {
 			t.Parallel()
 			data := mustReadScenario(t, tc.fixture)
@@ -272,7 +290,6 @@ func TestRequiredPresence_DetectsMissingFields(t *testing.T) {
 	base := mustReadScenario(t, "response_text.json")
 
 	for _, missing := range []string{"id", "object", "created_at", "status", "model", "output", "parallel_tool_calls", "reasoning", "store", "background", "temperature", "text", "tool_choice", "tools", "top_p", "truncation", "usage", "metadata", "service_tier", "max_output_tokens", "max_tool_calls", "instructions", "previous_response_id", "error", "incomplete_details"} {
-		missing := missing
 		t.Run("missing_"+missing, func(t *testing.T) {
 			t.Parallel()
 			var m map[string]json.RawMessage
@@ -330,7 +347,6 @@ func TestResponse_RejectsMalformed(t *testing.T) {
 		{"usage_missing_tokens", `{"id":"r","object":"response","created_at":1,"status":"completed","model":"m","output":[],"parallel_tool_calls":false,"reasoning":null,"store":true,"background":false,"temperature":1,"text":{},"tool_choice":"auto","tools":[],"top_p":1,"truncation":"disabled","usage":{},"metadata":{},"service_tier":"default","max_output_tokens":null,"max_tool_calls":null,"instructions":null,"previous_response_id":null,"error":null,"incomplete_details":null}`},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if _, err := ParseResponseResource([]byte(tc.data), DefaultParseOptions()); err == nil {

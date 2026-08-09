@@ -98,7 +98,7 @@ func (r *StreamRecorder) Observe(ctx context.Context, event lipapi.Event) {
 		safeRunCleanup(release)
 		return
 	}
-	if err := safeRecordTerminal(recorder, ctx, record); err != nil {
+	if err := safeRecordTerminal(ctx, recorder, record); err != nil {
 		r.mu.Lock()
 		r.storeErr = err
 		r.mu.Unlock()
@@ -106,7 +106,7 @@ func (r *StreamRecorder) Observe(ctx context.Context, event lipapi.Event) {
 	}
 }
 
-func safeRecordTerminal(recorder lipcont.Recorder, ctx context.Context, record lipcont.ContinuationRecord) (err error) {
+func safeRecordTerminal(ctx context.Context, recorder lipcont.Recorder, record lipcont.ContinuationRecord) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = fmt.Errorf("continuation: terminal recorder panicked: %v", recovered)

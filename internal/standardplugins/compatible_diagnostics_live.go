@@ -99,10 +99,7 @@ func liveCompatibleHealth(
 }
 
 func sampleCompatibleModels(models []modelregistry.BackendModel) []diag.CompatibleInventoryModelSample {
-	limit := compatibleInventorySampleLimit
-	if len(models) < limit {
-		limit = len(models)
-	}
+	limit := min(len(models), compatibleInventorySampleLimit)
 	out := make([]diag.CompatibleInventoryModelSample, 0, limit)
 	for _, m := range models[:limit] {
 		out = append(out, diag.CompatibleInventoryModelSample{

@@ -113,6 +113,20 @@ plugins:
     - id: tool-call-repair
       enabled: true
       config: {}
+    - id: reasoning-output-preservation
+      enabled: true
+      config:
+        action: restore
+        use_builtin_catalog: true
+        rules: []
+        on_ambiguous: log_skip
+        on_unrepresentable: reject
+        on_state_error: reject
+        state:
+          ttl: 24h
+          max_turns_per_session: 16
+          max_reasoning_bytes_per_turn: 65536
+          max_session_bytes: 262144
 `, filepath.ToSlash(pluginRoot))
 	path := filepath.Join(tb.TempDir(), "dogfood-local-stub.yaml")
 	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {

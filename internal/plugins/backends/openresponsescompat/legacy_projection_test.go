@@ -63,7 +63,7 @@ func legacyFamilyFixtures() []legacyFamilyFixture {
 			Description: "Get the current weather",
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"location":{"type":"string"}}}`),
 		}},
-		Options: lipapi.GenerationOptions{Temperature: floatPtr(0.7)},
+		Options: lipapi.GenerationOptions{Temperature: new(0.7)},
 		Extensions: map[string]json.RawMessage{
 			"openailegacy.model": json.RawMessage(`"gpt-4o-mini"`),
 		},
@@ -106,7 +106,7 @@ func legacyFamilyFixtures() []legacyFamilyFixture {
 				ImageMIME: "image/png",
 			}}},
 		},
-		Options: lipapi.GenerationOptions{MaxOutputTokens: intPtr(64)},
+		Options: lipapi.GenerationOptions{MaxOutputTokens: new(64)},
 		Extensions: map[string]json.RawMessage{
 			"anthropic.model": json.RawMessage(`"claude-3-5-haiku-20241022"`),
 		},
@@ -137,7 +137,7 @@ func legacyFamilyFixtures() []legacyFamilyFixture {
 			wantTools:  1,
 			wantCallID: "call_abc",
 			wantOutput: "Sunny 22C",
-			wantTemp:   floatPtr(0.7),
+			wantTemp:   new(0.7),
 		},
 		{
 			source:     "openai-responses",
@@ -153,7 +153,7 @@ func legacyFamilyFixtures() []legacyFamilyFixture {
 			wantTypes: []string{"message", "message", "message", "message"},
 			wantRoles: []string{"system", "user", "assistant", "user"},
 			wantImage: true,
-			wantMax:   intPtr(64),
+			wantMax:   new(64),
 		},
 		{
 			source:    "gemini",
@@ -167,7 +167,6 @@ func legacyFamilyFixtures() []legacyFamilyFixture {
 
 func TestLegacyAuthority_Open_ProjectsFourFamiliesIntoOrderedRequests(t *testing.T) {
 	for _, tc := range legacyFamilyFixtures() {
-		tc := tc
 		t.Run(tc.source, func(t *testing.T) {
 			t.Parallel()
 			be, obs := newObserverBackend(t, "", func(w http.ResponseWriter, r *http.Request) {
@@ -340,7 +339,6 @@ dialects:
 		},
 	}
 	for _, tc := range reasons {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			be, obs := newObserverBackend(t, tc.extra, unexpectedRequest)
@@ -378,7 +376,6 @@ func TestLegacyAuthority_SourceExtensionRejectedZeroRoundTrips(t *testing.T) {
 		{name: "proprietary_vendor", ext: map[string]json.RawMessage{"acme:widget": json.RawMessage(`{"a":1}`)}},
 	}
 	for _, tc := range sourceExtensions {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			be, obs := newObserverBackend(t, "", unexpectedRequest)
@@ -431,7 +428,6 @@ func TestLegacyAuthority_UnsupportedContentRejectedZeroRoundTrips(t *testing.T) 
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			be, obs := newObserverBackend(t, "", unexpectedRequest)

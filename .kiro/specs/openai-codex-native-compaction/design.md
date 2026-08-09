@@ -2,14 +2,14 @@
 
 ## Overview
 
-This feature adds an experimental native-context workflow for the direct `openai-codex` backend. It combines two independent mechanisms that OpenAI uses in Codex-style agent loops:
+This feature adds the default-on native-context workflow for the direct `openai-codex` backend. It combines two independent mechanisms that OpenAI uses in Codex-style agent loops:
 
 1. **exact encrypted reasoning continuity** across model invocations; and
 2. **Responses Compaction V2** when the reasoning-complete history approaches model limits.
 
 The implementation does not decrypt or interpret private reasoning. It requests `reasoning.encrypted_content`, preserves exact OpenAI Responses reasoning items through the existing canonical dialect, restores missing reasoning through the existing surfaced-output reasoning-preservation feature, and compacts only after that restoration has completed.
 
-Native compaction remains disabled by default. Exact client-supplied reasoning replay introduced by PR #235 remains available regardless of compaction. Automatic reasoning restoration is controlled by the existing reasoning-preservation feature through an explicit Codex backend rule. Full client history remains the authoritative fallback.
+Native context is enabled by default for direct Codex when `native_context` is omitted. Exact client-supplied reasoning replay introduced by PR #235 remains available even when an operator disables native context. Automatic reasoning restoration is controlled by the existing reasoning-preservation feature through an injected backend-specific Codex rule. Full client history remains the authoritative fallback.
 
 ### Goals
 
@@ -19,8 +19,8 @@ Native compaction remains disabled by default. Exact client-supplied reasoning r
 - Keep winner-owned reasoning state outside the connector.
 - Keep provider-specific compaction and opaque checkpoints inside the connector.
 - Preserve HTTP/WebSocket and static/managed-account parity.
-- Make quality evidence a release criterion.
-- Keep compaction reversible and disabled by default.
+- Make quality evidence visible and falsifiable without making unobserved quality claims.
+- Keep compaction reversible with explicit operator opt-out and no state migration.
 
 ### Non-Goals
 
@@ -30,8 +30,7 @@ Native compaction remains disabled by default. Exact client-supplied reasoning r
 - Automatic cross-turn HTTP `previous_response_id`.
 - Durable/distributed reasoning or checkpoint storage.
 - Cross-account, cross-model, or cross-provider opaque-state portability.
-- Changes to `openai-codex-app-server`.
-- Automatic default-on promotion.
+- Changes to `openai-codex-app-server`, which remains unsupported/off.
 
 ## Boundary Commitments
 
@@ -182,7 +181,7 @@ graph TB
 
 ### Connector Configuration
 
-Conceptual configuration:
+Conceptual explicit opt-out configuration:
 
 ```yaml
 - id: codex-primary
@@ -190,10 +189,10 @@ Conceptual configuration:
   config:
     native_context:
       enabled: false
-      request_encrypted_reasoning: true
-      reasoning_continuity: required
+      request_encrypted_reasoning: false
+      reasoning_continuity: disabled
       compaction:
-        enabled: true
+        enabled: false
         trigger_tokens: 0
         retained_message_tokens: 64000
         min_savings_tokens: 8192
@@ -203,21 +202,23 @@ Conceptual configuration:
         failure_cooldown: 5m
 ```
 
-Semantics:
+Default and precedence semantics:
 
-- missing `native_context` equals disabled;
-- `enabled: false` constructs no compaction store/coordinator;
-- `request_encrypted_reasoning` applies only to attempts carrying the continuity marker or to explicit exact reasoning inputs;
+- missing `native_context` equals full default-on mode: native context enabled, encrypted reasoning requested, `reasoning_continuity: required`, and compaction enabled;
+- `native_context.enabled: false` is the complete local opt-out and constructs no native coordinator/checkpoint store. It does not disable exact client-supplied replay;
+- an explicit `native_context` block supplies field-level overrides after the default-on base. `compaction.enabled: false` is an independent compaction-only opt-out;
+- `request_encrypted_reasoning` applies to eligible attempts and explicit exact reasoning inputs;
 - `reasoning_continuity` values:
   - `required`: compaction skips without marker;
   - `best_effort`: compaction may run without marker for controlled evaluation;
   - `disabled`: no marker requirement and no automatic request shaping; evaluation only;
 - nested `compaction.enabled` can disable compaction while retaining reasoning request behavior;
-- compaction remains globally default-off.
+- explicit operator configuration wins over defaults. A matching explicit disabled reasoning feature row wins over standard feature injection; an explicit enabled row may customize policy. Backend `native_context.enabled: false` wins locally over the companion feature and prevents automatic marker use for that connector.
+- app-server rejects native-context configuration and remains unsupported/off.
 
 ### Reasoning-Preservation Configuration
 
-Full mode requires an explicit backend-only rule:
+The standard runtime injects the following backend-specific rule when no matching feature row is supplied:
 
 ```yaml
 features:
@@ -228,7 +229,7 @@ features:
       use_builtin_catalog: true
       rules:
         - id: codex-native-context
-          backend: codex-primary
+          backend: openai-codex
           enabled: true
       on_ambiguous: log_skip
       on_unrepresentable: reject
@@ -240,7 +241,7 @@ features:
         max_session_bytes: 1048576
 ```
 
-The rule targets the backend instance ID and therefore does not depend on the shared GPT version matcher.
+The rule targets the direct Codex backend instance/factory and therefore does not depend on the shared GPT version matcher or a GPT version ceiling. A matching operator row suppresses injection; a matching disabled row is the explicit companion-feature opt-out. The connector's `native_context.enabled: false` is independently authoritative for that backend instance.
 
 ### Internal Continuity Marker
 
@@ -291,6 +292,26 @@ type NativeCompactionConfig struct {
 }
 ```
 
+`CodexHarnessHeadroomV1` is the named context-budget policy. It reserves budget
+for the Codex harness system prompt, tool schemas, other agent tools,
+cross-harness glue, and output/cancellation margin. Exact catalog/model metadata
+wins for headline hard context and provider auto-compact threshold, but every
+trigger is checked against a conservative usable ceiling.
+
+| Model metadata case | Headline hard context | Usable ceiling | Safe default trigger | Reserved headroom |
+|---|---:|---:|---:|---:|
+| Exact catalog profile | catalog hard context | exact hard context minus policy reserve | safe catalog `auto_compact_token_limit`, otherwise policy trigger | derived conservatively from exact hard context |
+| `gpt-5.3-codex-spark` fallback | 128,000 | 96,000 | 80,000 | 32,000 |
+| Other GPT-5.x fallback | not assumed | 250,000 | 220,000 | 30,000 |
+
+The GPT-5.x fallback is a usable planning ceiling after the approved 250K
+context-budget decision, not a claim about a provider headline limit. The Spark
+row is exact and takes precedence over the generic GPT-5.x fallback. An explicit
+`trigger_tokens` override is accepted only when positive, below the usable
+ceiling, and below the hard limit after retained-window and policy headroom;
+unsafe values fail validation. Exact catalog metadata wins over fallback metadata,
+but never removes the reserve or safe-trigger check.
+
 ### Model Compaction Profile
 
 ```go
@@ -302,6 +323,8 @@ type CompactionModelProfile struct {
     CompHash              string
     DefaultReasoning      string
     SupportedReasoning    []string
+    BudgetPolicyName      string // CodexHarnessHeadroomV1
+    UsableContextCeiling  int64
 }
 ```
 
@@ -482,7 +505,7 @@ type CompactionPlan struct {
 
 Decision order:
 
-1. if feature disabled or compaction disabled: bypass;
+1. if native context disabled or compaction disabled: bypass;
 2. if required continuity marker absent: bypass with `continuity_not_eligible`;
 3. validate/reuse exact checkpoint prefix;
 4. estimate effective rewritten history;
@@ -504,6 +527,9 @@ type CompactRequest struct {
 }
 
 type CompactResult struct {
+    // Dedicated unary compact responses return the complete replacement list.
+    Output     []inputItem
+    // Legacy streamed compatibility parser only.
     Item       inputItem
     ResponseID string
     Usage      *ProviderUsage
@@ -512,7 +538,7 @@ type CompactResult struct {
 
 Request construction:
 
-- use exact prefix plus one trigger;
+- use exact prefix; the dedicated unary endpoint does not receive a trigger;
 - preserve account/model/instructions/tools/reasoning/text/prompt-cache/conversation metadata;
 - clear response ID;
 - use HTTP/SSE internally in the initial implementation;
@@ -521,7 +547,7 @@ Request construction:
 Collector:
 
 - exactly one completed response;
-- exactly one completed compaction item;
+- exactly one completed `compaction_summary` plus bounded retained message items;
 - reject assistant text/tool items;
 - bounded events/bytes;
 - close on cancellation;
@@ -534,10 +560,10 @@ Retained predicate mirrors current Codex behavior:
 - user/developer/system messages retained;
 - non-final agent messages retained when below per-item cap;
 - final-answer agent messages excluded;
-- reasoning, function calls, outputs, and assistant messages represented by the compaction item are not redundantly retained;
+- for the legacy streamed result, reasoning, function calls, outputs, and assistant messages represented by the compaction item are not redundantly retained;
 - total retained text budget defaults to 64,000 tokens;
 - images count toward independent safety limits;
-- append exactly one compaction item last.
+- for the dedicated result, install the authoritative output list directly; its final item is the one `compaction_summary` envelope.
 
 ### CheckpointStore
 
@@ -870,29 +896,31 @@ Modes:
 
 Use deterministic long-horizon repository tasks. Record quality, repetition, contradictions, rediscovery, tool/turn count, tokens, cache, latency, context, and failures. Require paired runs and fixed seeds/environment snapshots.
 
-No claim of improved coding quality is accepted without measured evidence. Neutral quality with meaningful efficiency gains may support opt-in stability; default-on requires positive or clearly non-inferior evidence.
+No claim of improved coding quality is accepted without measured evidence. The
+evaluation reports quality, efficiency, compatibility, and failure observations;
+it does not convert unmeasured assumptions into a quality claim or undo the
+approved default-on policy.
 
 ## Migration and Rollout
 
 1. Merge exact-item baseline characterization.
 2. Add marker/request reasoning continuity integration.
-3. Ship compaction code disabled by default.
-4. Run deterministic tests in CI.
-5. Run environment-gated live compatibility.
-6. Enable reasoning-only for controlled sessions.
-7. Enable full mode for controlled long sessions.
-8. Run four-mode evaluation.
-9. Fix compatibility/quality regressions while default remains off.
-10. Propose default-on compaction in a separate review.
+3. Ship direct-Codex native context default-on with explicit backend and feature opt-outs.
+4. Implement and test `CodexHarnessHeadroomV1` model-aware planning, including Spark and GPT-5.x fallbacks.
+5. Run deterministic tests in CI.
+6. Run environment-gated live compatibility.
+7. Run the four-mode evaluation and report observed quality/efficiency evidence without claiming unmeasured gains.
+8. Tune or opt out explicitly if live compatibility, failure, or cost evidence requires it; do not silently change the default semantics.
 
 Rollback:
 
-- disable native compaction;
-- remove/disable the explicit Codex reasoning-preservation rule if automatic continuity must also be rolled back;
+- set `native_context.enabled: false` to disable all automatic native context behavior for a direct Codex instance;
+- set `compaction.enabled: false` for compaction-only opt-out while retaining reasoning continuity;
+- add a matching disabled `reasoning-output-preservation` row to disable the standard companion feature when required;
 - restart/reload runtime;
 - process-local state disappears;
 - exact client-supplied reasoning replay from PR #235 remains available.
 
 ## Implementation Readiness
 
-The design has no unresolved architectural dependency. External endpoint behavior is intentionally deferred to gated live tests with fail-open/default-off controls. Implementation may proceed after requirements/design approval.
+The design has no unresolved architectural dependency. External endpoint behavior remains covered by gated live tests and bounded pre-output fallback, while the approved runtime default is on and explicit opt-out remains available. Implementation may proceed after the synchronized requirements/design/tasks approval.

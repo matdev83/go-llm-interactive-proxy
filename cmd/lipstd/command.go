@@ -20,7 +20,8 @@ import (
 )
 
 func printLipstdUsage(fs *flag.FlagSet) {
-	_, _ = fmt.Fprintf(fs.Output(),
+	_, _ = fmt.Fprintf(
+		fs.Output(),
 		"Usage: lipstd [--config path] [serve|check-config|routes|inventory|inspect|doctor|migrate]\n\n",
 	)
 	fs.PrintDefaults()

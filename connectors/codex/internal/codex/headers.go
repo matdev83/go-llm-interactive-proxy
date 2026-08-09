@@ -31,6 +31,12 @@ func responsesEndpoint(baseURL string) string {
 	return normalizedResponsesBase(baseURL)
 }
 
+// responsesCompactionEndpoint is the upstream-only Codex/OpenResponses unary
+// compaction route. It is intentionally not exposed as a client-facing route.
+func responsesCompactionEndpoint(baseURL string) string {
+	return strings.TrimRight(responsesEndpoint(baseURL), "/") + "/compact"
+}
+
 func applyCodexHeaders(req *http.Request, cfg Config, conversationID string) {
 	mergeCodexHeaders(req.Header, cfg, conversationID)
 }
@@ -72,15 +78,11 @@ func codexUserAgent() string {
 	return codexUserAgentValue
 }
 
-// primaryConversationID returns the first proxy-recognized conversation affinity
-// identifier carried on the call: ContinuityKey, then the session correlation id,
-// then a non-generated call ID. It returns "" when none apply, so callers can
-// fall back to model- or input-derived ids.
+// primaryConversationID returns the proxy-owned conversation affinity when one is
+// available. Client-only session hints remain suitable for transport stickiness,
+// but are not used as native-context authority.
 func primaryConversationID(call lipapi.Call) string {
-	if id := strings.TrimSpace(call.Session.ContinuityKey); id != "" {
-		return id
-	}
-	if id := strings.TrimSpace(call.Session.CorrelationID()); id != "" {
+	if id := strings.TrimSpace(call.Session.AuthoritativeSessionID); id != "" {
 		return id
 	}
 	if id := strings.TrimSpace(call.ID); id != "" && !isGeneratedCallID(id) {

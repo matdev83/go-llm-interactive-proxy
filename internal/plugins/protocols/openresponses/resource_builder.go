@@ -80,7 +80,7 @@ func BuildResponseResource(envelope EnvelopeMetadata, trajectory []lipapi.Item, 
 		prevID = &pID
 	}
 
-	var errJSON json.RawMessage = json.RawMessage("null")
+	errJSON := json.RawMessage("null")
 	if streamErr != nil {
 		errMap := map[string]string{
 			"code":    streamErr.Code,
@@ -103,7 +103,7 @@ func BuildResponseResource(envelope EnvelopeMetadata, trajectory []lipapi.Item, 
 		Store:                store,
 		Background:           false,
 		Temperature:          temp,
-		Text:                 map[string]interface{}{"format": map[string]interface{}{"type": "text"}},
+		Text:                 map[string]any{"format": map[string]any{"type": "text"}},
 		ToolChoice:           json.RawMessage(`"auto"`),
 		Tools:                []WireTool{},
 		TopP:                 topP,
@@ -112,7 +112,7 @@ func BuildResponseResource(envelope EnvelopeMetadata, trajectory []lipapi.Item, 
 		TopLogprobs:          0,
 		Truncation:           "disabled",
 		Usage:                wireUsage,
-		Metadata:             make(map[string]interface{}),
+		Metadata:             make(map[string]any),
 		ServiceTier:          "default",
 		MaxOutputTokens:      options.MaxOutputTokens,
 		MaxToolCalls:         nil,

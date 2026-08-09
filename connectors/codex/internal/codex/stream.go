@@ -373,7 +373,7 @@ func (m *codexEventMapper) handleStreamError(data string) error {
 		msg = ev.Error.Message
 	}
 	if debugTurnsEnabled() {
-		slog.Debug("codex.debug.upstream_error", "code", code, "message", msg)
+		slog.Debug("codex.debug.upstream_error", "code_bytes", len(code), "message_bytes", len(msg))
 	}
 	m.reasoningSummarySanitizer.Reset()
 	return m.mapper.StreamError(code, msg, "upstream error")
@@ -409,7 +409,7 @@ func (m *codexEventMapper) handleFunctionCallArgumentsDelta(data string) error {
 		return fmt.Errorf("%s: malformed stream event: %w", ID, err)
 	}
 	if codexToolDeltaDebugEnabled() {
-		slog.Debug("codex.tool_args_delta", "item_id", ev.ItemID, "call_id", ev.CallID, "delta", truncateDebug(ev.Delta, 512))
+		slog.Debug("codex.tool_args_delta", "item_id_present", ev.ItemID != "", "call_id_present", ev.CallID != "", "delta_bytes", len(ev.Delta))
 	}
 	return m.mapper.ToolCallArgsDelta(m.toolCallID(ev.ItemID, ev.CallID), ev.Delta)
 }
@@ -425,7 +425,7 @@ func (m *codexEventMapper) handleFunctionCallArgumentsDone(data string) error {
 		return fmt.Errorf("%s: malformed stream event: %w", ID, err)
 	}
 	if codexToolDebugEnabled() {
-		slog.Debug("codex.tool_args_done", "item_id", ev.ItemID, "call_id", ev.CallID, "name", ev.Name, "arguments", truncateDebug(ev.Arguments, 512))
+		slog.Debug("codex.tool_args_done", "item_id_present", ev.ItemID != "", "call_id_present", ev.CallID != "", "name_bytes", len(ev.Name), "arguments_bytes", len(ev.Arguments))
 	}
 	return m.mapper.FinishToolCallArguments(m.toolCallID(ev.ItemID, ev.CallID), ev.Name, ev.Arguments)
 }
@@ -481,13 +481,6 @@ func (m *codexEventMapper) toolCallID(itemID, callID string) string {
 	return codexCanonicalToolCallID(itemID, callID)
 }
 
-func truncateDebug(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "..."
-}
-
 var _ lipapi.ManagedEventStream = (*codexStream)(nil)
 
 type codexStream struct {
@@ -522,20 +515,27 @@ func (s *codexStream) Recv(ctx context.Context) (lipapi.Event, error) {
 
 func (s *codexStream) readData() (string, bool, error) {
 	for s.scanner.Scan() {
-		line := strings.TrimSpace(s.scanner.Text())
-		if !strings.HasPrefix(line, "data: ") {
-			continue
+		data, ok := sseDataLine(s.scanner.Text())
+		if ok {
+			return data, true, nil
 		}
-		data := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
-		if data == "" || data == "[DONE]" {
-			continue
-		}
-		return data, true, nil
 	}
 	if err := s.scanner.Err(); err != nil {
 		return "", false, fmt.Errorf("%s: read stream: %w", ID, err)
 	}
 	return "", false, nil
+}
+
+func sseDataLine(line string) (string, bool) {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "data:") {
+		return "", false
+	}
+	data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+	if data == "" || data == "[DONE]" {
+		return "", false
+	}
+	return data, true
 }
 
 func (s *codexStream) Close() error {

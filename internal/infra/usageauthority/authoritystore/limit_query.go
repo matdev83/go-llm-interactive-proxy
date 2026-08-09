@@ -93,7 +93,8 @@ func limitFiltersForRow(rowKey string, row controlplane.AccountingLimitStatusRow
 	add("session_id", row.Correlation.SessionID)
 	add("a_leg_id", row.Correlation.ALegID)
 	add("b_leg_id", row.Correlation.BLegID)
-	filters = append(filters,
+	filters = append(
+		filters,
 		limitFilter{"principal_id", encodeScopeValue(row.Scope.PrincipalID)},
 		limitFilter{"credential_id", encodeScopeValue(row.Scope.CredentialID)},
 		limitFilter{"tenant_id", encodeScopeValue(row.Scope.TenantID)},

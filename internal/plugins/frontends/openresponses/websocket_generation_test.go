@@ -59,7 +59,7 @@ func (w *failAtWriter) callCount() int {
 // mid-stream, so the read must tolerate a terminal error instead of failing.
 func wsReadUntilError(t *testing.T, conn *websocket.Conn, timeout time.Duration) []wsTextFrame {
 	t.Helper()
-	conn.SetReadDeadline(time.Now().Add(timeout))
+	_ = conn.SetReadDeadline(time.Now().Add(timeout))
 	var frames []wsTextFrame
 	for {
 		mt, data, err := conn.ReadMessage()
@@ -115,7 +115,8 @@ type lipsdkExecutorAdapter struct {
 }
 
 func (lipsdkExecutorAdapter) CancelALeg(context.Context, lipapi.ALegCancelRequest) error { return nil }
-func (lipsdkExecutorAdapter) WallClock() func() time.Time                                { return nil }
+
+func (lipsdkExecutorAdapter) WallClock() func() time.Time { return nil }
 
 func TestWebSocketSession_GenerationContextQuiesceClosesSessionsStreamAndStoreOnce(t *testing.T) {
 	genCtx, cancel := context.WithCancel(context.Background())
@@ -170,8 +171,7 @@ func TestWebSocketSession_GenerationContextQuiesceClosesSessionsStreamAndStoreOn
 func TestWebSocketSession_GenerationContextNewGenerationUnaffected(t *testing.T) {
 	genA, cancelA := context.WithCancel(context.Background())
 	defer cancelA()
-	genB, cancelB := context.WithCancel(context.Background())
-	defer cancelB()
+	genB := t.Context()
 
 	srvA, countersA := newWSTestServer(t, openresponses.WebSocketHandlerConfig{
 		AllowUnauthenticated: true,
@@ -197,7 +197,7 @@ func TestWebSocketSession_GenerationContextNewGenerationUnaffected(t *testing.T)
 
 	// Generation B's session must remain open: a short read times out rather
 	// than observing a close frame.
-	connB.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	_ = connB.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
 	_, _, err := connB.ReadMessage()
 	if err == nil {
 		t.Fatal("generation B session produced a frame while idle")
@@ -211,10 +211,8 @@ func TestWebSocketSession_GenerationContextNewGenerationUnaffected(t *testing.T)
 }
 
 func TestWebSocketGeneration_NoCrossGenerationWork(t *testing.T) {
-	genOld, cancelOld := context.WithCancel(context.Background())
-	defer cancelOld()
-	genNew, cancelNew := context.WithCancel(context.Background())
-	defer cancelNew()
+	genOld := t.Context()
+	genNew := t.Context()
 
 	execOld := &wsTurnExecutor{streams: []lipapi.EventStream{successStream("old-gen")}}
 	execNew := &wsTurnExecutor{streams: []lipapi.EventStream{successStream("new-gen")}}

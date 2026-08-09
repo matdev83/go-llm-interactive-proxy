@@ -228,6 +228,7 @@ func isolationRegistry(t *testing.T) *pluginreg.Registry {
 	t.Helper()
 	return testRegistryWithStdBundle(t)
 }
+
 func yamlNode(t *testing.T, s string) yaml.Node {
 	t.Helper()
 	var n yaml.Node
@@ -236,6 +237,7 @@ func yamlNode(t *testing.T, s string) yaml.Node {
 	}
 	return n
 }
+
 func mustSeen(t *testing.T, seen *sync.Map) any {
 	t.Helper()
 	v, ok := seen.Load("last")
@@ -244,6 +246,7 @@ func mustSeen(t *testing.T, seen *sync.Map) any {
 	}
 	return v
 }
+
 func errString(err error) string {
 	if err == nil {
 		return "<nil>"

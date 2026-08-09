@@ -167,7 +167,8 @@ func Build(ctx context.Context, inventories []BackendInventory, log *slog.Logger
 				}
 				disc := modelinventory.DiscoveryFromLoadError(err)
 				mu.Lock()
-				warnInventory(ctx, log, "modelregistry: inventory load failed",
+				warnInventory(
+					ctx, log, "modelregistry: inventory load failed",
 					"backend_id", backendID,
 					"kind", kind,
 					"error_code", disc.ErrorCode,
@@ -203,7 +204,8 @@ func Build(ctx context.Context, inventories []BackendInventory, log *slog.Logger
 			}
 			if invalid {
 				mu.Lock()
-				warnInventory(ctx, log, "modelregistry: invalid inventory omitted",
+				warnInventory(
+					ctx, log, "modelregistry: invalid inventory omitted",
 					"backend_id", backendID,
 					"kind", kind,
 					"error_code", modelinventory.ErrorCodeInvalidInventory,

@@ -134,7 +134,8 @@ func assertPostOutputNonRecoverable(t *testing.T, err error) {
 func TestOutputCommitFailoverGate_preOutputRecoverableReachesSecondary(t *testing.T) {
 	t.Parallel()
 	var primaryOpens, secondaryOpens atomic.Int64
-	ex := newCommitGateExecutor(t,
+	ex := newCommitGateExecutor(
+		t,
 		commitGateOpenCounter(&primaryOpens, func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			return &failAfterCommittedStream{
 				events: []lipapi.Event{
@@ -182,7 +183,8 @@ func TestOutputCommitFailoverGate_preOutputRecoverableReachesSecondary(t *testin
 func TestOutputCommitFailoverGate_textDeltaThenRecoverableBlocksSecondary(t *testing.T) {
 	t.Parallel()
 	var primaryOpens, secondaryOpens atomic.Int64
-	ex := newCommitGateExecutor(t,
+	ex := newCommitGateExecutor(
+		t,
 		commitGateOpenCounter(&primaryOpens, func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			return &failAfterCommittedStream{
 				events: []lipapi.Event{
@@ -220,7 +222,8 @@ func TestOutputCommitFailoverGate_reasoningPartThenRecoverableBlocksSecondary(t 
 		Dialect: lipapi.ReasoningDialectOpenAIResponsesItemV1,
 		Opaque:  json.RawMessage(`{"id":"rs_gate","type":"reasoning","summary":[]}`),
 	}
-	ex := newCommitGateExecutor(t,
+	ex := newCommitGateExecutor(
+		t,
 		commitGateOpenCounter(&primaryOpens, func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			return &failAfterCommittedStream{
 				events: []lipapi.Event{

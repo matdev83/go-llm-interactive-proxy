@@ -100,7 +100,6 @@ func TestServer_ErrorStepMatrix(t *testing.T) {
 		{http.StatusServiceUnavailable, "overloaded"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.code, func(t *testing.T) {
 			t.Parallel()
 			_, ts := startServer(t, Options{}, &Script{

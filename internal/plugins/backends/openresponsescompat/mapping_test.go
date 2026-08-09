@@ -35,10 +35,10 @@ func itemAuthorityCreateCall() lipapi.Call {
 		}},
 		ToolChoice: lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto},
 		Options: lipapi.GenerationOptions{
-			Temperature:       floatPtr(0.5),
-			TopP:              floatPtr(0.9),
-			MaxOutputTokens:   intPtr(128),
-			ParallelToolCalls: boolPtr(true),
+			Temperature:       new(0.5),
+			TopP:              new(0.9),
+			MaxOutputTokens:   new(128),
+			ParallelToolCalls: new(true),
 		},
 		Items: []lipapi.Item{
 			{
@@ -102,9 +102,14 @@ func TestBuildCreateRequest_ReasoningEffortRoundTrips(t *testing.T) {
 	}
 }
 
-func floatPtr(f float64) *float64 { return &f }
-func intPtr(i int) *int           { return &i }
-func boolPtr(b bool) *bool        { return &b }
+//go:fix inline
+func floatPtr(f float64) *float64 { return new(f) }
+
+//go:fix inline
+func intPtr(i int) *int { return new(i) }
+
+//go:fix inline
+func boolPtr(b bool) *bool { return new(b) }
 
 func TestBuildCreateRequest_OrderedPortableItemsAndControls(t *testing.T) {
 	t.Parallel()
@@ -416,7 +421,8 @@ func TestMapping_ReasoningAndExtensionItems(t *testing.T) {
 		},
 	})
 	call := itemAuthorityCreateCall()
-	call.Items = append(call.Items,
+	call.Items = append(
+		call.Items,
 		lipapi.Item{Kind: lipapi.ItemKindReasoning, ID: "rs_1", Reasoning: &lipapi.ReasoningItem{Reasoning: &lipapi.ReasoningPart{Dialect: "openresponses.reasoning.v1", Text: "think"}}},
 		lipapi.Item{Kind: lipapi.ItemKindExtension, ID: "ext_1", Extension: &lipapi.OpaqueExtension{Namespace: "acme", Type: "acme:widget", Implementor: "acme-vendor", Data: json.RawMessage(`{"k":1}`)}},
 	)

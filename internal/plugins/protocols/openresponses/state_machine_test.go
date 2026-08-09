@@ -62,7 +62,7 @@ func TestStateMachine_ValidLifecycle(t *testing.T) {
 	}
 
 	// 4. Usage delta
-	evs, err = sm.ProcessCanonicalEvent(lipapi.Event{
+	_, err = sm.ProcessCanonicalEvent(lipapi.Event{
 		Kind:         lipapi.EventUsageDelta,
 		InputTokens:  10,
 		OutputTokens: 5,
@@ -139,7 +139,7 @@ func TestStateMachine_ToolCallsAndArgumentDeltas(t *testing.T) {
 		t.Fatalf("expected function_call_arguments.delta, got %v", evs)
 	}
 
-	evs, err = sm.ProcessCanonicalEvent(lipapi.Event{
+	_, err = sm.ProcessCanonicalEvent(lipapi.Event{
 		Kind:       lipapi.EventToolCallArgsDelta,
 		ToolCallID: "call_abc",
 		Delta:      `Paris"}`,

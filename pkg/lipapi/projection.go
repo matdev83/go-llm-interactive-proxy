@@ -375,10 +375,8 @@ func checkReasoningReplay(d ReasoningDialect, replay ReasoningReplaySupport) err
 	if d == "" {
 		return errors.New("reasoning dialect required")
 	}
-	for _, supported := range NormalizeReasoningDialects(replay.Dialects) {
-		if supported == d {
-			return nil
-		}
+	if slices.Contains(NormalizeReasoningDialects(replay.Dialects), d) {
+		return nil
 	}
 	return fmt.Errorf("unsupported reasoning dialect %q", d)
 }

@@ -165,9 +165,10 @@ func openResponsesFrontendRowCellFor(backend string) OpenResponsesFrontendRowCel
 		textOutcome = OutcomeProjection
 	}
 	textRationale := "Portable text projects through the explicit item→target view with exact ordering."
-	if backend == BackendACP {
+	switch backend {
+	case BackendACP:
 		textRationale = "Portable text and system instructions project to ACP prompt-turn text blocks through the item→message projector."
-	} else if backend == BackendOpenRouter || backend == BackendNVIDIA {
+	case BackendOpenRouter, BackendNVIDIA:
 		textRationale = "Portable text projects through the item→legacy view to the OpenAI-compatible wire the connector selects for the openresponses.create operation (the chat-completions wire)."
 	}
 	text := func(feat FeatureID, rationale string) FeatureEvidence {

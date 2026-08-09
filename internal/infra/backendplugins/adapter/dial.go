@@ -48,11 +48,12 @@ func DialConfiguredSession(
 	}
 	client := backendpluginv1.NewBackendPluginClient(gc)
 	neg, err := client.Negotiate(ctx, &backendpluginv1.NegotiateRequest{
-		HostMajor: 1, HostMinor: backendplugin.ProtocolMinorExactOpenResponsesFields,
+		HostMajor: 1, HostMinor: backendplugin.ProtocolMinorProxyOwnedSessionID,
 		HostFeatures: []*backendpluginv1.Feature{
 			{Name: backendplugin.FeatureExactReasoningParts},
 			{Name: backendplugin.FeatureOrderedItems},
 			{Name: backendplugin.FeatureExactOpenResponsesFields},
+			{Name: backendplugin.FeatureProxyOwnedSessionID},
 		},
 		DisableTransportRetries: true,
 	})
@@ -63,6 +64,25 @@ func DialConfiguredSession(
 	if !neg.GetCompatible() {
 		_ = gc.Close()
 		return nil, backendplugin.ResolvedProfile{}, fmt.Errorf("adapter: negotiate incompatible: %s", neg.GetRejectReason())
+	}
+	hostOffer := backendplugin.ProtocolOffer{
+		Major: 1, Minor: backendplugin.ProtocolMinorProxyOwnedSessionID,
+		Features: []backendplugin.Feature{
+			{Name: backendplugin.FeatureExactReasoningParts},
+			{Name: backendplugin.FeatureOrderedItems},
+			{Name: backendplugin.FeatureExactOpenResponsesFields},
+			{Name: backendplugin.FeatureProxyOwnedSessionID},
+		},
+		DisableTransportRetries: true,
+	}
+	negotiated, err := backendplugin.NegotiationFromNegotiateResponse(neg)
+	if err != nil {
+		_ = gc.Close()
+		return nil, backendplugin.ResolvedProfile{}, fmt.Errorf("adapter: negotiate response: %w", err)
+	}
+	if err := backendplugin.ValidateNegotiationResult(hostOffer, negotiated); err != nil {
+		_ = gc.Close()
+		return nil, backendplugin.ResolvedProfile{}, fmt.Errorf("adapter: negotiate response validation: %w", err)
 	}
 	cfgReq := backendplugin.ConfigureRequestToProto(backendplugin.ConfigureRequest{
 		InstanceID:       instanceID,
@@ -77,17 +97,21 @@ func DialConfiguredSession(
 		_ = gc.Close()
 		return nil, backendplugin.ResolvedProfile{}, fmt.Errorf("adapter: configure: %w", err)
 	}
-	enabled := append([]string(nil), neg.GetEnabledFeatures()...)
+	enabled := append([]string(nil), negotiated.EnabledFeatures...)
 	slices.Sort(enabled)
 	sess := &GRPCSession{
 		Client:          client,
 		Conn:            gc,
 		InstanceID:      instanceID,
-		NegotiatedMinor: neg.GetNegotiatedMinor(),
+		NegotiatedMinor: negotiated.NegotiatedMinor,
 		negotiation: backendplugin.Negotiation{
-			Compatible:      true,
-			NegotiatedMinor: neg.GetNegotiatedMinor(),
+			Compatible:      negotiated.Compatible,
+			NegotiatedMinor: negotiated.NegotiatedMinor,
 			EnabledFeatures: enabled,
+			PluginMajor:     negotiated.PluginMajor,
+			PluginMinor:     negotiated.PluginMinor,
+			PluginFeatures:  negotiated.PluginFeatures,
+			TransportPolicy: negotiated.TransportPolicy,
 		},
 	}
 	profile, err := sess.Resolve(ctx, nil)

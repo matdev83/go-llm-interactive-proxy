@@ -1,23 +1,23 @@
 {
   "feature_name": "openai-codex-native-compaction",
   "created_at": "2026-07-30T18:28:00+02:00",
-  "updated_at": "2026-07-31T00:56:00+02:00",
+  "updated_at": "2026-08-08T19:38:20+02:00",
   "language": "en",
-  "phase": "tasks-generated",
+  "phase": "tasks-approved",
   "approvals": {
     "requirements": {
       "generated": true,
-      "approved": false
+      "approved": true
     },
     "design": {
       "generated": true,
-      "approved": false
+      "approved": true
     },
     "tasks": {
       "generated": true,
-      "approved": false
+      "approved": true
     }
   },
-  "ready_for_implementation": false,
-  "project_description": "Add opt-in OpenAI Codex native context handling that preserves exact encrypted reasoning across turns and tool steps, compacts only reasoning-complete history with Responses Compaction V2, and validates quality as well as context/cost benefits while retaining safe default-off compaction behavior."
+  "ready_for_implementation": true,
+  "project_description": "Enable direct openai-codex native encrypted-reasoning preservation and automatic Responses Compaction V2 by default, with explicit operator opt-out, conservative model-aware context budgets, and truthful quality/compatibility evidence."
 }

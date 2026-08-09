@@ -2,6 +2,7 @@ package backendplugin_test
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -77,10 +78,5 @@ func TestApplyItemAuthorityMetadata_noOpForLegacyAuthority(t *testing.T) {
 }
 
 func containsCap(caps []lipapi.Capability, want lipapi.Capability) bool {
-	for _, c := range caps {
-		if c == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(caps, want)
 }

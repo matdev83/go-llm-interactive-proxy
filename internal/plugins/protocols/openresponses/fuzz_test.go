@@ -144,7 +144,7 @@ func FuzzStateMachine(f *testing.F) {
 
 		sm := NewStateMachine(env, lipapi.GenerationOptions{})
 
-		for i := 0; i < len(data); i++ {
+		for i := range data {
 			byteVal := data[i]
 			var event lipapi.Event
 

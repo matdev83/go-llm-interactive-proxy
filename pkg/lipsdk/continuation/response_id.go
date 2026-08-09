@@ -1,10 +1,9 @@
 package continuation
 
 import (
+	"encoding/base64"
 	"fmt"
 	"strings"
-
-	"encoding/base64"
 )
 
 const (

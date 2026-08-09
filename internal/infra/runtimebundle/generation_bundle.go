@@ -90,30 +90,35 @@ func (b *GenerationBundle) BindModelViews(ctx context.Context) context.Context {
 	ctx = modelview.WithIdentity(ctx, id)
 	return ctx
 }
+
 func (b *GenerationBundle) TerminalProviders() terminalworkapp.TerminalProviderView {
 	if b == nil || b.operations.terminalProviders == nil {
 		return terminalworkapp.SnapshotTerminalProviders(nil)
 	}
 	return b.operations.terminalProviders
 }
+
 func (b *GenerationBundle) Handler() http.Handler {
 	if b == nil {
 		return nil
 	}
 	return b.publication.handler
 }
+
 func (b *GenerationBundle) ExecutorView() lipsdk.ExecutorView {
 	if b == nil || b.execution.executor == nil {
 		return nil
 	}
 	return b.execution.executor
 }
+
 func (b *GenerationBundle) ReadinessReport() controlplane.ReadinessReportReader {
 	if b == nil {
 		return nil
 	}
 	return b.operations.readiness
 }
+
 func (b *GenerationBundle) BackendIDs() []string {
 	if b == nil {
 		return nil

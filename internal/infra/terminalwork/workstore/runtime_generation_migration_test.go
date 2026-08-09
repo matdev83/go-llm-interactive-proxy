@@ -58,7 +58,8 @@ CREATE TABLE economic_terminal_work (
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().UnixNano()
-	if _, err := sqlDB.Exec(`
+	if _, err := sqlDB.Exec(
+		`
 INSERT INTO economic_terminal_work(
   store_id, work_id, source_key, identity_version, payload_version, kind, state,
   provider_id, generation_id, bound_provider_id, payload_json, created_at_unix, updated_at_unix

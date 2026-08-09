@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	backendpluginv1 "github.com/matdev83/go-llm-interactive-proxy/api/backendplugin/v1"
@@ -317,6 +318,9 @@ func (s *GRPCServer) Execute(stream backendpluginv1.BackendPlugin_ExecuteServer)
 	call, err := CallFromInvocation(*frame.Invocation)
 	if err != nil {
 		return status.Error(codes.InvalidArgument, err.Error())
+	}
+	if strings.TrimSpace(call.Session.AuthoritativeSessionID) != "" && !ProxyOwnedSessionIDSupported(neg) {
+		return status.Error(codes.FailedPrecondition, ErrProxyOwnedSessionUnsupported.Error())
 	}
 	if err := RequireExactOpenResponsesABISupport(neg, call); err != nil {
 		return status.Error(codes.FailedPrecondition, err.Error())

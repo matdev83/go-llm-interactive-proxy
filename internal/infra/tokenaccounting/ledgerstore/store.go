@@ -52,7 +52,8 @@ func (s *Store) Record(ctx context.Context, record ledger.Record) error {
 	if err != nil {
 		return fmt.Errorf("tokenaccounting/ledgerstore: marshal metadata: %w", err)
 	}
-	_, err = s.db.NewRaw(`
+	_, err = s.db.NewRaw(
+		`
 INSERT INTO token_accounting_ledger_records(
 	request_id, attempt_id, backend, model, plane,
 	input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, total_tokens,

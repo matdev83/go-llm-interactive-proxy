@@ -333,7 +333,7 @@ func TestWindowsTaskReliability_LinuxEvidence(t *testing.T) {
 func TestWindowsTaskReliability_CallSiteAudit(t *testing.T) {
 	t.Parallel()
 	makefile := readRepositoryFile(t, "Makefile")
-	for _, line := range strings.Split(makefile, "\n") {
+	for line := range strings.SplitSeq(makefile, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.Contains(trimmed, "-fuzz=") && !strings.Contains(trimmed, "$(FUZZ_WRAPPER)") {
 			t.Errorf("unbounded fuzz invocation bypasses the FUZZ_WRAPPER: %q", trimmed)

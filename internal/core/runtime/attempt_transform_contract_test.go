@@ -42,6 +42,7 @@ func (r *recordingAttemptTransform) ID() string {
 }
 func (r *recordingAttemptTransform) Order() int                        { return 0 }
 func (r *recordingAttemptTransform) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailClosed }
+
 func (r *recordingAttemptTransform) HandleAttempt(_ context.Context, call *lipapi.Call, meta request.AttemptMeta, _ request.Services) (request.AttemptDecision, error) {
 	if r.calls != nil {
 		r.calls.Add(1)

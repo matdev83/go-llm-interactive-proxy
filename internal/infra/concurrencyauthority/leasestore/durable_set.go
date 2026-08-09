@@ -103,7 +103,8 @@ func (s *DurableStore) AcquireSet(ctx context.Context, cmd app.AcquireSetCommand
 		if err != nil {
 			return app.AcquireSetResult{}, err
 		}
-		if _, err := tx.NewRaw(`
+		if _, err := tx.NewRaw(
+			`
 INSERT INTO concurrency_leases(
 	store_id, lease_id, rule_id, rule_version, namespace, dimension_key,
 	logical_id, holder_id, acquired_at_unix, renewed_at_unix, expires_at_unix,
@@ -167,7 +168,8 @@ func (s *DurableStore) RenewSet(ctx context.Context, cmd app.RenewSetCommand) (a
 	}
 	expUnix := cmd.Now.Add(cmd.TTL).UnixNano()
 	next := set.Generation + 1
-	res, err := tx.NewRaw(`
+	res, err := tx.NewRaw(
+		`
 UPDATE concurrency_leases
 SET renewed_at_unix=?, expires_at_unix=?, generation=generation+1,
 	set_generation=?, set_state=?, state=?
@@ -214,7 +216,8 @@ func (s *DurableStore) ReleaseSet(ctx context.Context, cmd app.ReleaseSetCommand
 	if set.State == domain.LeaseSetStateReleased {
 		return app.ReleaseSetResult{Applied: false, Set: set}, nil
 	}
-	if _, err := tx.NewRaw(`
+	if _, err := tx.NewRaw(
+		`
 UPDATE concurrency_leases
 SET state=?, set_state=?, released_at_unix=?
 WHERE store_id=? AND set_id=?
@@ -333,7 +336,8 @@ func (s *DurableStore) MarkSetUncertain(ctx context.Context, setID string, now t
 	if s == nil || s.db == nil {
 		return fmt.Errorf("leasestore: nil store")
 	}
-	_, err := s.db.NewRaw(`
+	_, err := s.db.NewRaw(
+		`
 UPDATE concurrency_leases
 SET set_state=?, state=?, renewed_at_unix=?
 WHERE store_id=? AND set_id=?

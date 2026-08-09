@@ -68,7 +68,7 @@ func TestResponseResource_OfficialGolden(t *testing.T) {
 		t.Fatalf("expected object response, got %q", wireRes.Object)
 	}
 
-	var decodedMap map[string]interface{}
+	var decodedMap map[string]any
 	if err := json.Unmarshal(jsonBytes, &decodedMap); err != nil {
 		t.Fatalf("failed to unmarshal built JSON: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestResponseResource_RequiredPresence(t *testing.T) {
 		t.Fatalf("BuildResponseResource failed: %v", err)
 	}
 
-	var rawMap map[string]interface{}
+	var rawMap map[string]any
 	if err := json.Unmarshal(jsonBytes, &rawMap); err != nil {
 		t.Fatalf("failed to unmarshal built response JSON: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestResponseResource_20260424RequiredFidelity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildResponseResource failed: %v", err)
 	}
-	var rawMap map[string]interface{}
+	var rawMap map[string]any
 	if err := json.Unmarshal(jsonBytes, &rawMap); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -154,11 +154,11 @@ func TestResponseResource_20260424RequiredFidelity(t *testing.T) {
 		}
 	}
 
-	text, ok := rawMap["text"].(map[string]interface{})
+	text, ok := rawMap["text"].(map[string]any)
 	if !ok {
 		t.Fatalf("text field = %v (%T), want object", rawMap["text"], rawMap["text"])
 	}
-	format, ok := text["format"].(map[string]interface{})
+	format, ok := text["format"].(map[string]any)
 	if !ok {
 		t.Fatalf("text.format missing: %v", text)
 	}
@@ -166,18 +166,18 @@ func TestResponseResource_20260424RequiredFidelity(t *testing.T) {
 		t.Fatalf("text.format.type = %v, want text", format["type"])
 	}
 
-	usage, ok := rawMap["usage"].(map[string]interface{})
+	usage, ok := rawMap["usage"].(map[string]any)
 	if !ok {
 		t.Fatalf("usage = %v (%T), want object", rawMap["usage"], rawMap["usage"])
 	}
-	inDetail, ok := usage["input_tokens_details"].(map[string]interface{})
+	inDetail, ok := usage["input_tokens_details"].(map[string]any)
 	if !ok {
 		t.Fatalf("usage.input_tokens_details missing: %v", usage)
 	}
 	if cached, ok := inDetail["cached_tokens"].(float64); !ok || cached != 0 {
 		t.Errorf("usage.input_tokens_details.cached_tokens = %v, want 0", inDetail["cached_tokens"])
 	}
-	outDetail, ok := usage["output_tokens_details"].(map[string]interface{})
+	outDetail, ok := usage["output_tokens_details"].(map[string]any)
 	if !ok {
 		t.Fatalf("usage.output_tokens_details missing: %v", usage)
 	}

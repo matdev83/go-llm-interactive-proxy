@@ -18,7 +18,8 @@ func TestJoinInitialFailureCleanup_OrderAndJoin(t *testing.T) {
 	psErr := errors.New("process close failed")
 	traceErr := errors.New("trace shutdown failed")
 
-	err := joinInitialFailureCleanup(context.Background(), primary,
+	err := joinInitialFailureCleanup(
+		context.Background(), primary,
 		func() error {
 			order = append(order, "gen")
 			return genErr
@@ -53,7 +54,8 @@ func TestJoinInitialFailureCleanup_OrderAndJoin(t *testing.T) {
 func TestJoinInitialFailureCleanup_IgnoresAlreadyClosed(t *testing.T) {
 	t.Parallel()
 	primary := errors.New("primary")
-	err := joinInitialFailureCleanup(context.Background(), primary,
+	err := joinInitialFailureCleanup(
+		context.Background(), primary,
 		func() error { return runtimehost.ErrAlreadyClosed },
 		nil,
 		nil,
@@ -70,7 +72,8 @@ func TestJoinInitialFailureCleanup_PreservesMixedAlreadyClosedJoin(t *testing.T)
 	t.Parallel()
 	primary := errors.New("primary")
 	sentinel := errors.New("sentinel cleanup failure")
-	err := joinInitialFailureCleanup(context.Background(), primary,
+	err := joinInitialFailureCleanup(
+		context.Background(), primary,
 		func() error { return errors.Join(runtimehost.ErrAlreadyClosed, sentinel) },
 		nil,
 		nil,

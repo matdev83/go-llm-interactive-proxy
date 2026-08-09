@@ -65,8 +65,8 @@ func NormalizePath(path string) (string, error) {
 	if strings.Contains(p, "//") {
 		return "", fmt.Errorf("route claim: path contains double slash")
 	}
-	segments := strings.Split(p, "/")
-	for _, seg := range segments {
+	segments := strings.SplitSeq(p, "/")
+	for seg := range segments {
 		if seg == "." || seg == ".." {
 			return "", fmt.Errorf("route claim: path contains traversal segment %q", seg)
 		}

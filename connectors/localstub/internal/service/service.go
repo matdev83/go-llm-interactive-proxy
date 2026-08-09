@@ -157,7 +157,8 @@ func canonicalEvents(cfg Config) []*backendplugin.CanonicalEvent {
 		if args == "" {
 			args = DefaultToolArgs
 		}
-		out = append(out,
+		out = append(
+			out,
 			&backendplugin.CanonicalEvent{Kind: backendplugin.EventToolCallStarted, ToolCallID: &id, ToolName: &name},
 			&backendplugin.CanonicalEvent{Kind: backendplugin.EventToolCallArgsDelta, ToolCallID: &id, Delta: &args},
 			&backendplugin.CanonicalEvent{Kind: backendplugin.EventToolCallFinished, ToolCallID: &id},
@@ -166,7 +167,8 @@ func canonicalEvents(cfg Config) []*backendplugin.CanonicalEvent {
 	in := int64(cfg.InputTokens)
 	ot := int64(cfg.OutputTokens)
 	total := in + ot
-	out = append(out,
+	out = append(
+		out,
 		&backendplugin.CanonicalEvent{
 			Kind: backendplugin.EventUsageDelta,
 			Usage: &backendplugin.UsageEvidence{

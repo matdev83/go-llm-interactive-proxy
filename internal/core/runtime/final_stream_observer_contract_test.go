@@ -71,6 +71,7 @@ func (f *recordingStreamObserverFactory) ID() string {
 }
 func (f *recordingStreamObserverFactory) Order() int                        { return 0 }
 func (f *recordingStreamObserverFactory) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+
 func (f *recordingStreamObserverFactory) Open(_ context.Context, meta response.StreamMeta, _ response.Services) (response.StreamObserver, error) {
 	if f.opens != nil {
 		f.opens.Add(1)

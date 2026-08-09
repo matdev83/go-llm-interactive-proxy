@@ -52,6 +52,7 @@ func (s *setRenewConcurrency) RenewLease(_ context.Context, in authority.LeaseRe
 }
 
 func (s *setRenewConcurrency) ReleaseLease(context.Context, authority.LeaseRelease) error { return nil }
+
 func (s *setRenewConcurrency) QueryLeases(context.Context, authority.LeaseQuery) (authority.LeasePage, error) {
 	return authority.LeasePage{}, nil
 }

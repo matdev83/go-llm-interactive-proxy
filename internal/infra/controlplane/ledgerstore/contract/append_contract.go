@@ -14,7 +14,8 @@ func testAppendDedupeOrdering(t *testing.T, f Factory) {
 	s := f.Build(t)
 	c := ctx(t)
 
-	appendAll(t, s,
+	appendAll(
+		t, s,
 		authEvent(1, "auth:p1:1", "p1"),
 		attemptEvent(2, "attempt:p1:2", "p1", "openai", "gpt-4.1-mini", "routed", cp.AttemptSurfacedSurfaced),
 		usageEvent(3, "usage:p1:3", "p1", "openai", "gpt-4.1-mini", 10, 5),

@@ -120,7 +120,8 @@ func (f Fact) SourceEventLookupKeys() []string {
 		v0.IdentityVersion = 0
 		v1 := f
 		v1.IdentityVersion = IdentityVersionV1
-		candidates = append(candidates,
+		candidates = append(
+			candidates,
 			v0.LegacySourceEventKeyPhase31(),
 			v1.LegacySourceEventKeyPhase31(),
 		)

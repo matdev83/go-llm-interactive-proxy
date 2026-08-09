@@ -132,6 +132,36 @@ func TestNegotiate_OptionalUnknownFeatureIgnored(t *testing.T) {
 	}
 }
 
+func TestValidateNegotiationResult_RejectsPeerFeatureEscalation(t *testing.T) {
+	t.Parallel()
+	host := backendplugin.ProtocolOffer{Major: 1, Minor: 2, DisableTransportRetries: true}
+	neg := backendplugin.Negotiation{
+		Compatible: true, PluginMajor: 1, PluginMinor: 2, NegotiatedMinor: 2,
+		TransportPolicy: backendplugin.DefaultTransportPolicy(),
+		PluginFeatures:  []backendplugin.Feature{{Name: "plugin-only"}},
+		EnabledFeatures: []string{"plugin-only"},
+	}
+	if err := backendplugin.ValidateNegotiationResult(host, neg); !errors.Is(err, backendplugin.ErrUnknownRequiredFeature) {
+		t.Fatalf("err=%v, want feature escalation rejection", err)
+	}
+}
+
+func TestValidateNegotiationResult_RequiresAllRequiredFeatures(t *testing.T) {
+	t.Parallel()
+	host := backendplugin.ProtocolOffer{
+		Major: 1, Minor: 2, DisableTransportRetries: true,
+		Features: []backendplugin.Feature{{Name: "required", Required: true}},
+	}
+	neg := backendplugin.Negotiation{
+		Compatible: true, PluginMajor: 1, PluginMinor: 2, NegotiatedMinor: 2,
+		TransportPolicy: backendplugin.DefaultTransportPolicy(),
+		PluginFeatures:  []backendplugin.Feature{{Name: "required", Required: true}},
+	}
+	if err := backendplugin.ValidateNegotiationResult(host, neg); !errors.Is(err, backendplugin.ErrUnknownRequiredFeature) {
+		t.Fatalf("err=%v, want required feature rejection", err)
+	}
+}
+
 func TestTransportPolicy_RetriesMustBeDisabled(t *testing.T) {
 	t.Parallel()
 	p := backendplugin.DefaultTransportPolicy()

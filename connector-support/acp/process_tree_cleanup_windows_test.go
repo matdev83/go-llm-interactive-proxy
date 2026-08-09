@@ -22,7 +22,8 @@ func TestKillProcessTree_WindowsDescendants(t *testing.T) {
 	childPIDFile := filepath.Join(dir, "child.pid")
 	proc, err := acp.OSProcessStarter{}.Start([]string{
 		os.Args[0], "-test.run=TestHelperProcess_WindowsTreeParent$", "--",
-	}, "", append(os.Environ(),
+	}, "", append(
+		os.Environ(),
 		"ACP_WANT_HELPER=windows-tree-parent",
 		"ACP_CHILD_PID_FILE="+childPIDFile,
 	))

@@ -2,6 +2,7 @@ package backendplugin
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -17,10 +18,8 @@ func RequireOrderedItemABISupport(neg Negotiation, call lipapi.Call) error {
 	if neg.NegotiatedMinor < ProtocolMinorOrderedItems {
 		return fmt.Errorf("%w: negotiated minor %d", ErrOrderedItemsUnsupported, neg.NegotiatedMinor)
 	}
-	for _, name := range neg.EnabledFeatures {
-		if name == FeatureOrderedItems {
-			return nil
-		}
+	if slices.Contains(neg.EnabledFeatures, FeatureOrderedItems) {
+		return nil
 	}
 	return fmt.Errorf("%w: feature %q not enabled", ErrOrderedItemsUnsupported, FeatureOrderedItems)
 }

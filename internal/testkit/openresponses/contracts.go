@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 	"sync"
@@ -205,9 +206,7 @@ func cloneScriptStep(step ScriptStep) ScriptStep {
 	}
 	if step.ResponseHeaders != nil {
 		hMap := make(map[string]string, len(step.ResponseHeaders))
-		for k, v := range step.ResponseHeaders {
-			hMap[k] = v
-		}
+		maps.Copy(hMap, step.ResponseHeaders)
 		cp.ResponseHeaders = hMap
 	}
 	return cp

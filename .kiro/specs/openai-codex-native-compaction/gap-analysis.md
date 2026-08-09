@@ -9,7 +9,7 @@ This review compares the revised native-context requirements against repository 
 - the current direct Codex HTTP/WebSocket continuation implementation; and
 - current OpenAI Codex CLI source at commit `3016671bb077c43448b8fa88f3edfa9772e17058`.
 
-The analysis treats exact reasoning continuity and native compaction as one quality-sensitive workflow while preserving their separate controls and evidence.
+The analysis treats exact reasoning continuity and native compaction as one quality-sensitive workflow while preserving their separate controls and evidence. The current approved scope is default-on for direct Codex, with explicit operator opt-out; this is not deferred promotion work.
 
 ## Current Assets
 
@@ -172,13 +172,14 @@ The original spec mentioned task-quality comparison only in research notes. The 
 
 1. **Continuity ownership:** `reasoning-output-preservation` is authoritative for automatic cross-request reasoning state.
 2. **Compaction ownership:** direct `openai-codex` connector owns V2 trigger, collection, retained policy, checkpoint store, and request rewrite.
-3. **Eligibility:** use an explicit backend-only reasoning-preservation rule for the Codex instance; do not widen the global GPT model ceiling.
+3. **Eligibility:** standard runtime composition installs a backend-specific direct-Codex reasoning-preservation rule by default; do not widen the global GPT model ceiling or use a broad GPT matcher.
 4. **Continuity proof:** the attempt transform sets a bounded internal call-extension marker only for an eligible exact-replay candidate.
 5. **Request shape:** continuity-marked Codex attempts always request encrypted reasoning and use model-supported/default reasoning controls.
 6. **Planning order:** restore reasoning → build exact native history → rewrite existing checkpoint → decide compaction → normal transport.
 7. **Response IDs:** keep existing WebSocket continuation as optimization; no new cross-turn HTTP chain.
 8. **Safety:** full reasoning-complete history is authoritative fallback; required-continuity compaction skips without the marker.
-9. **Quality:** four-mode evaluation is mandatory before default-on discussion.
+9. **Quality:** four-mode evaluation remains required evidence and must distinguish observation from inference; it does not gate the already-approved default-on policy.
+10. **Context budget:** use `CodexHarnessHeadroomV1`: exact catalog metadata first; Spark fallback 128K headline/96K usable/80K trigger; other GPT-5.x fallback 250K usable/220K trigger; validate explicit overrides below usable ceilings.
 
 ## Research Needed During Implementation
 
@@ -194,7 +195,7 @@ Each unknown has deterministic fail-open behavior and an environment-gated live 
 
 - **Effort: XL** — multiple modules, stateful provider workflow, feature/connector integration, transport/account matrix, and quality harness.
 - **Risk: High** — opaque provider-bound state, live endpoint behavior, concurrency, winner ownership, and quality claims.
-- **Risk controls:** default-off compaction, explicit reasoning rule, continuity marker, process-local bounded state, exact prefix checks, live gates, cooldown, full-history fallback, and separate default-on review.
+- **Risk controls:** explicit operator opt-out, explicit reasoning rule, continuity marker, process-local bounded state, exact prefix checks, live gates, cooldown, full-history fallback, and conservative model-aware headroom.
 
 ## Requirements Gap Review Result
 

@@ -10,6 +10,7 @@ import (
 )
 
 func TestOrderedCanonicalItems_TableValidation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		call    lipapi.Call
@@ -548,6 +549,7 @@ func TestOrderedCanonicalItems_TableValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := tt.call.Validate()
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Validate() error = %v, wantErr %v", err, tt.wantErr)
@@ -562,13 +564,14 @@ func TestOrderedCanonicalItems_TableValidation(t *testing.T) {
 }
 
 func TestJSONDepthLimit(t *testing.T) {
+	t.Parallel()
 	// Build JSON with 70 nested braces
 	var sb strings.Builder
-	for i := 0; i < 70; i++ {
+	for range 70 {
 		sb.WriteString(`{"a":`)
 	}
 	sb.WriteString("1")
-	for i := 0; i < 70; i++ {
+	for range 70 {
 		sb.WriteString("}")
 	}
 
@@ -597,6 +600,7 @@ func TestJSONDepthLimit(t *testing.T) {
 }
 
 func TestHasItemAuthority(t *testing.T) {
+	t.Parallel()
 	callLegacy := lipapi.Call{
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
 	}
@@ -613,6 +617,7 @@ func TestHasItemAuthority(t *testing.T) {
 }
 
 func TestOrderedCanonicalItems_Bounds(t *testing.T) {
+	t.Parallel()
 	tooManyItems := make([]lipapi.Item, lipapi.MaxItems+1)
 	for i := range tooManyItems {
 		tooManyItems[i] = lipapi.Item{
@@ -640,6 +645,7 @@ func TestOrderedCanonicalItems_Bounds(t *testing.T) {
 }
 
 func TestWalkers_OpaqueDataInspection(t *testing.T) {
+	t.Parallel()
 	call := lipapi.Call{
 		ID: "opaque-walk-test",
 		Items: []lipapi.Item{
@@ -669,7 +675,6 @@ func TestWalkers_OpaqueDataInspection(t *testing.T) {
 		visitedOpaque = append(visitedOpaque, string(data))
 		return nil
 	})
-
 	if err != nil {
 		t.Fatalf("unexpected error walking opaque data: %v", err)
 	}
@@ -684,6 +689,7 @@ func TestWalkers_OpaqueDataInspection(t *testing.T) {
 }
 
 func TestCallReasoningPayloadBytes_ItemAuthority(t *testing.T) {
+	t.Parallel()
 	call := lipapi.Call{
 		ID: "reasoning-bytes-test",
 		Items: []lipapi.Item{
@@ -710,6 +716,7 @@ func TestCallReasoningPayloadBytes_ItemAuthority(t *testing.T) {
 }
 
 func TestCloneCall_ItemAuthority(t *testing.T) {
+	t.Parallel()
 	orig := lipapi.Call{
 		ID: "clone-test",
 		Items: []lipapi.Item{

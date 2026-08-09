@@ -67,7 +67,6 @@ func TestCellSelect_SmokeScaffold_DeployRejectsUnknownOrEmptyCells(t *testing.T)
 		{Frontend: FrontendOpenResponses, Backend: "nonsense-backend"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.Frontend+"__"+tc.Backend, func(t *testing.T) {
 			if err := tc.Validate(); err == nil {
 				t.Fatalf("Validate accepted invalid cell %q x %q", tc.Frontend, tc.Backend)
@@ -86,7 +85,6 @@ func TestCellSelect_SmokeScaffold_DeployRejectsUnknownOrEmptyCells(t *testing.T)
 func TestCellSelect_SmokeScaffold_ProviderConnectorColumnsFailClosed(t *testing.T) {
 	t.Parallel()
 	for _, backend := range []string{BackendOpenRouter, BackendNVIDIA} {
-		backend := backend
 		t.Run(backend, func(t *testing.T) {
 			spec := DeploymentSpec{Frontend: FrontendOpenResponses, Backend: backend}
 			if err := spec.Validate(); err == nil {
@@ -110,13 +108,12 @@ func TestCellSelect_SmokeScaffold_ProviderConnectorColumnsFailClosed(t *testing.
 func TestCellSelect_SmokeScaffold_GenericSelectorMountsEveryConstructibleFrontend(t *testing.T) {
 	t.Parallel()
 	for _, frontend := range HarnessFrontendIDs() {
-		frontend := frontend
 		t.Run(frontend, func(t *testing.T) {
 			d := Deploy(t, DeploymentSpec{Frontend: frontend, Backend: BackendOpenResponses, Transport: TransportJSON})
 			if d == nil {
 				t.Fatalf("Deploy(%q, openresponses) failed", frontend)
 			}
-			defer d.Close()
+			defer func() { _ = d.Close() }()
 			if d.Server == nil {
 				t.Fatal("deployment has no frontend server")
 			}
@@ -143,7 +140,7 @@ func TestHarness_DeployIsDeterministicAndClean(t *testing.T) {
 	if first == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer first.Close()
+	defer func() { _ = first.Close() }()
 
 	second := Deploy(t, DeploymentSpec{Frontend: FrontendOpenResponses, Backend: BackendOpenResponses, Transport: TransportJSON})
 	if second == nil {
@@ -155,7 +152,7 @@ func TestHarness_DeployIsDeterministicAndClean(t *testing.T) {
 		t.Fatalf("round trip text %q missing %q", got, harnessFakeText)
 	}
 	want := got
-	for j := 0; j < 2; j++ {
+	for range 2 {
 		again := mustHarnessRoundTrip(t, second.Client, "ping")
 		if again != want {
 			t.Fatalf("non-deterministic harness output: first=%q later=%q", want, again)
@@ -188,13 +185,13 @@ func TestHarness_RequestCountersBoundedRedactedArtifacts(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	origin := d.OriginFor(BackendOpenResponses)
 	if origin == nil {
 		t.Fatal("no primary origin")
 	}
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		mustHarnessRoundTrip(t, d.Client, "ping")
 	}
 	if got := origin.Count(); got != 5 {
@@ -237,7 +234,7 @@ func TestFailureInjection_UnauthorizedOriginClassifiedNoRetry(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	if _, err := d.Client.RoundTrip(context.Background(), "ping"); err == nil {
 		t.Fatal("expected unauthorized round trip to fail")
@@ -264,7 +261,7 @@ func TestFailureInjection_MultipleCandidatesFailOver(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	got := mustHarnessRoundTrip(t, d.Client, "ping")
 	if !strings.Contains(got, harnessFakeText) {
@@ -291,7 +288,7 @@ func TestFailureInjection_UnroutableModelZeroUpstreamRequests(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	if err := d.RoundTripModel(context.Background(), "unroutable:model", "ping"); err == nil {
 		t.Fatal("expected unroutable model to fail")
@@ -315,7 +312,7 @@ func TestHarness_VirtualClockDeterministicOriginTimestamps(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 	origin := d.OriginFor(BackendOpenResponses)
 	if origin == nil {
 		t.Fatal("no origin")

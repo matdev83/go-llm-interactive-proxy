@@ -91,21 +91,19 @@ func TestCodecOptions_immutableAndConcurrencySafe(t *testing.T) {
 		t.Fatal(err)
 	}
 	// No exported fields; only read accessors exist.
-	rt := reflect.TypeOf(CodecOptions{})
+	rt := reflect.TypeFor[CodecOptions]()
 	if rt.NumField() != 3 {
 		t.Fatalf("CodecOptions fields = %d, want 3 unexported", rt.NumField())
 	}
-	for i := range rt.NumField() {
-		if rt.Field(i).PkgPath == "" {
-			t.Fatalf("field %s is exported; CodecOptions must be immutable via accessors", rt.Field(i).Name)
+	for field := range rt.Fields() {
+		if field.PkgPath == "" {
+			t.Fatalf("field %s is exported; CodecOptions must be immutable via accessors", field.Name)
 		}
 	}
 	// Concurrent readers observe stable provenance.
 	var wg sync.WaitGroup
 	for range 16 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 100 {
 				if opts.Profile() != DefaultProfile {
 					t.Error("Profile() changed under concurrent read")
@@ -116,16 +114,15 @@ func TestCodecOptions_immutableAndConcurrencySafe(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }
 
 func TestCodecOptions_noArbitraryCallbacks(t *testing.T) {
 	t.Parallel()
-	rt := reflect.TypeOf(CodecOptions{})
-	for i := range rt.NumField() {
-		f := rt.Field(i)
+	rt := reflect.TypeFor[CodecOptions]()
+	for f := range rt.Fields() {
 		if f.Type.Kind() == reflect.Func || f.Type.Kind() == reflect.Interface {
 			t.Fatalf("CodecOptions field %s has kind %s; arbitrary callbacks are forbidden", f.Name, f.Type.Kind())
 		}

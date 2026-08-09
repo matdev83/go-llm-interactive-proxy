@@ -30,7 +30,6 @@ import (
 
 func TestInstanceIsolation_sameKindIndependentEndpointCredTokenizerInventoryConcurrency(t *testing.T) {
 	for _, pair := range compatibleparity.IsolationPairs() {
-		pair := pair
 		t.Run(string(pair.Family), func(t *testing.T) {
 			// Env credential roots require process env; keep sequential within the pair.
 			runInstanceIsolationPair(t, pair)

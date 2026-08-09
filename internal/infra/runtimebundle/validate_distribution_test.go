@@ -346,7 +346,8 @@ func TestValidateDistribution_CleanupFaultsJoinedInOrder(t *testing.T) {
 	// owner ValidateDistribution uses).
 	primary := errors.New("primary validate")
 	sentinel := errors.New("sentinel cleanup failure")
-	joined := joinInitialFailureCleanup(context.Background(), primary,
+	joined := joinInitialFailureCleanup(
+		context.Background(), primary,
 		func() error { return errors.Join(runtimehost.ErrAlreadyClosed, sentinel) },
 		func() error { return errors.New("process close failed") },
 		func(context.Context) error { return errors.New("trace shutdown failed") },

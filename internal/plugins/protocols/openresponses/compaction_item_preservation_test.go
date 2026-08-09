@@ -182,12 +182,12 @@ func TestCompactResource_NoContinuationMetadataOnCompactionOutput(t *testing.T) 
 }
 
 func jsonBytesContains(b []byte, sub string) bool {
-	return len(b) >= len(sub) && (func() bool {
+	return len(b) >= len(sub) && func() bool {
 		for i := 0; i+len(sub) <= len(b); i++ {
 			if string(b[i:i+len(sub)]) == sub {
 				return true
 			}
 		}
 		return false
-	})()
+	}()
 }

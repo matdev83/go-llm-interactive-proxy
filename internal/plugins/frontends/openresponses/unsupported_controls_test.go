@@ -88,12 +88,12 @@ var compactUnsupportedFrontendControls = []struct {
 func TestFrontendHTTP_UnsupportedControlsRejectBeforeExecutor(t *testing.T) {
 	t.Parallel()
 	for _, tc := range unsupportedFrontendControls {
-		tc := tc
 		t.Run(tc.field, func(t *testing.T) {
 			t.Parallel()
 			exec := &mockExecutor{}
 			handler := openresponses.NewHandler(openresponses.HandlerConfig{
-				AllowUnauthenticated: true, Executor: exec})
+				AllowUnauthenticated: true, Executor: exec,
+			})
 			body := []byte(`{"model":"gpt-4o","input":"hello","` + tc.field + `":` + tc.value + `}`)
 			req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
@@ -113,7 +113,6 @@ func TestFrontendHTTP_UnsupportedControlsRejectBeforeExecutor(t *testing.T) {
 func TestFrontendHTTP_UnsupportedControlsNullAccepted(t *testing.T) {
 	t.Parallel()
 	for _, tc := range unsupportedFrontendControls {
-		tc := tc
 		t.Run(tc.field, func(t *testing.T) {
 			t.Parallel()
 			body := []byte(`{"model":"gpt-4o","input":"hello","` + tc.field + `":null}`)
@@ -150,12 +149,12 @@ func TestFrontendHTTP_UnpinnedContentFieldsRejectBeforeExecutor(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			exec := &mockExecutor{}
 			handler := openresponses.NewHandler(openresponses.HandlerConfig{
-				AllowUnauthenticated: true, Executor: exec})
+				AllowUnauthenticated: true, Executor: exec,
+			})
 			req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", bytes.NewReader([]byte(tc.body)))
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
@@ -174,12 +173,12 @@ func TestFrontendHTTP_UnpinnedContentFieldsRejectBeforeExecutor(t *testing.T) {
 func TestFrontendHTTP_StreamOptionsRejectedBeforeExecutor(t *testing.T) {
 	t.Parallel()
 	for _, tc := range createHTTPOnlyUnsupportedControls {
-		tc := tc
 		t.Run(tc.field, func(t *testing.T) {
 			t.Parallel()
 			exec := &mockExecutor{}
 			handler := openresponses.NewHandler(openresponses.HandlerConfig{
-				AllowUnauthenticated: true, Executor: exec})
+				AllowUnauthenticated: true, Executor: exec,
+			})
 			body := []byte(`{"model":"gpt-4o","input":"hello","` + tc.field + `":` + tc.value + `}`)
 			req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
@@ -200,7 +199,8 @@ func TestFrontendHTTP_SupportedControlsPreserved(t *testing.T) {
 	t.Parallel()
 	exec := &mockExecutor{}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		AllowUnauthenticated: true, Executor: exec})
+		AllowUnauthenticated: true, Executor: exec,
+	})
 	body := []byte(`{
 		"model":"gpt-4o",
 		"input":"hello",
@@ -300,7 +300,6 @@ func TestFrontendHTTP_ReasoningInvalidValuesRejectBeforeExecutor(t *testing.T) {
 func TestFrontendHTTP_CompactSchemaPermittedControlsAccepted(t *testing.T) {
 	t.Parallel()
 	for _, tc := range compactSchemaPermittedFrontendControls {
-		tc := tc
 		t.Run(tc.field, func(t *testing.T) {
 			t.Parallel()
 			body := []byte(`{"model":"gpt-4o","input":"hello","` + tc.field + `":` + tc.value + `}`)
@@ -327,7 +326,8 @@ func TestFrontendHTTP_CompactSchemaPermittedControlsAccepted(t *testing.T) {
 
 			exec := &mockExecutor{}
 			handler := openresponses.NewHandler(openresponses.HandlerConfig{
-				AllowUnauthenticated: true, Executor: exec})
+				AllowUnauthenticated: true, Executor: exec,
+			})
 			req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses/compact", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
@@ -343,7 +343,8 @@ func TestFrontendHTTP_InstructionsForwardedToExecutor(t *testing.T) {
 	t.Parallel()
 	exec := &mockExecutor{}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		AllowUnauthenticated: true, Executor: exec})
+		AllowUnauthenticated: true, Executor: exec,
+	})
 	body := []byte(`{"model":"gpt-4o","input":"hello","instructions":"Be brief"}`)
 	req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -368,12 +369,12 @@ func TestFrontendHTTP_InstructionsForwardedToExecutor(t *testing.T) {
 func TestFrontendHTTP_CompactUnsupportedControlsRejectBeforeExecutor(t *testing.T) {
 	t.Parallel()
 	for _, tc := range compactUnsupportedFrontendControls {
-		tc := tc
 		t.Run(tc.field, func(t *testing.T) {
 			t.Parallel()
 			exec := &mockExecutor{}
 			handler := openresponses.NewHandler(openresponses.HandlerConfig{
-				AllowUnauthenticated: true, Executor: exec})
+				AllowUnauthenticated: true, Executor: exec,
+			})
 			req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses/compact",
 				bytes.NewReader([]byte(`{"model":"gpt-4o","input":"hello","`+tc.field+`":`+tc.value+`}`)))
 			req.Header.Set("Content-Type", "application/json")
@@ -393,7 +394,6 @@ func TestFrontendHTTP_CompactUnsupportedControlsRejectBeforeExecutor(t *testing.
 func TestFrontendHTTP_CompactUnsupportedControlsNullAccepted(t *testing.T) {
 	t.Parallel()
 	for _, tc := range compactUnsupportedFrontendControls {
-		tc := tc
 		t.Run(tc.field, func(t *testing.T) {
 			t.Parallel()
 			decoded, err := openresponses.AuthenticateAndDecodeCompact(context.Background(),
@@ -411,7 +411,6 @@ func TestFrontendHTTP_CompactUnsupportedControlsNullAccepted(t *testing.T) {
 
 func TestWebSocketTurn_UnsupportedControlsRejectBeforeExecutor(t *testing.T) {
 	for _, tc := range unsupportedFrontendControls {
-		tc := tc
 		t.Run(tc.field, func(t *testing.T) {
 			exec := &wsTurnExecutor{streams: []lipapi.EventStream{fixedStream(
 				lipapi.Event{Kind: lipapi.EventResponseStarted},
@@ -452,7 +451,6 @@ func TestWebSocketTurn_UnsupportedControlsRejectBeforeExecutor(t *testing.T) {
 
 func TestWebSocketTurn_UnsupportedControlsNullAccepted(t *testing.T) {
 	for _, tc := range unsupportedFrontendControls {
-		tc := tc
 		t.Run(tc.field, func(t *testing.T) {
 			exec := &wsTurnExecutor{streams: []lipapi.EventStream{fixedStream(
 				lipapi.Event{Kind: lipapi.EventResponseStarted},

@@ -21,6 +21,7 @@ type officialManifest struct {
 }
 
 func TestOpenResponsesOfficialVendoredManifest(t *testing.T) {
+	t.Parallel()
 	root := filepath.Join("..", "..", "tools", "openresponses-compliance")
 	manifestPath := filepath.Join(root, "MANIFEST.json")
 	manifestData, err := os.ReadFile(manifestPath)

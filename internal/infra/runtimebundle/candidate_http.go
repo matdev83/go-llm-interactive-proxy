@@ -97,87 +97,101 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 	}
 	return &CandidateHTTPCompile{assem: assem}, nil
 }
+
 func (c *CandidateHTTPCompile) a() *candidateAssembly {
 	if c == nil {
 		return nil
 	}
 	return c.assem
 }
+
 func (c *CandidateHTTPCompile) Close() error {
 	if a := c.a(); a != nil {
 		return a.Close()
 	}
 	return nil
 }
+
 func (c *CandidateHTTPCompile) Quiesce(ctx context.Context) error {
 	if a := c.a(); a != nil {
 		return a.Quiesce(ctx)
 	}
 	return nil
 }
+
 func (c *CandidateHTTPCompile) RollbackUnpublished() error {
 	if a := c.a(); a != nil {
 		return a.RollbackUnpublished()
 	}
 	return nil
 }
+
 func (c *CandidateHTTPCompile) Executor() *runtime.Executor {
 	if a := c.a(); a != nil {
 		return a.execution.executor
 	}
 	return nil
 }
+
 func (c *CandidateHTTPCompile) DecodeAdmission() lipsdk.DecodeAdmission {
 	if a := c.a(); a != nil {
 		return a.execution.decodeAdmission
 	}
 	return nil
 }
+
 func (c *CandidateHTTPCompile) EffectiveDefaultRoute() string {
 	if a := c.a(); a != nil {
 		return a.execution.effectiveDefaultRoute
 	}
 	return ""
 }
+
 func (c *CandidateHTTPCompile) RoutePrefixes() []string {
 	if a := c.a(); a != nil {
 		return append([]string(nil), a.execution.routePrefixes...)
 	}
 	return nil
 }
+
 func (c *CandidateHTTPCompile) ModelRegistry() *modelregistry.Registry {
 	if a := c.a(); a != nil {
 		return a.models.registry
 	}
 	return nil
 }
+
 func (c *CandidateHTTPCompile) PluginRegistry() *pluginreg.Registry {
 	if a := c.a(); a != nil {
 		return a.process.pluginRegistry
 	}
 	return nil
 }
+
 func (c *CandidateHTTPCompile) RuntimeSnapshot() *extensions.RequestRuntimeSnapshot {
 	if a := c.a(); a != nil {
 		return a.security.runtimeSnapshot
 	}
 	return nil
 }
+
 func (c *CandidateHTTPCompile) Metrics() *metrics.Bundle {
 	if a := c.a(); a != nil {
 		return a.process.metrics
 	}
 	return nil
 }
+
 func (c *CandidateHTTPCompile) Store() b2bua.Store {
 	if a := c.a(); a != nil {
 		return a.process.store
 	}
 	return nil
 }
+
 func (c *CandidateHTTPCompile) StandardHTTPInput(frozen *config.Config, regs []lipsdk.Registration, route string) httpcontract.StandardHTTPInput {
 	if a := c.a(); a != nil {
-		return buildStandardHTTPInput(a, frozen, regs, route, nil)
+		return buildStandardHTTPInput(context.TODO(), a, frozen, regs, route)
 	}
 	return httpcontract.StandardHTTPInput{}
 }

@@ -3,6 +3,7 @@ package openresponses
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -158,9 +159,7 @@ func snapshotBuffers(buffers map[int]*deltaBuffer) map[int]bufferCheckpoint {
 
 func cloneIntMap(values map[int]int) map[int]int {
 	out := make(map[int]int, len(values))
-	for key, value := range values {
-		out[key] = value
-	}
+	maps.Copy(out, values)
 	return out
 }
 
@@ -373,13 +372,13 @@ func (sm *StateMachine) ProcessCanonicalEvent(ev lipapi.Event) (events []StreamE
 		sm.state = StateStarted
 		// Reserve the initial response envelope now, even though its wire event
 		// is deferred until an output item can be announced.
-		if _, resourceData, snapshotErr := sm.snapshotResource("in_progress"); snapshotErr != nil {
+		_, resourceData, snapshotErr := sm.snapshotResource("in_progress")
+		if snapshotErr != nil {
 			return nil, snapshotErr
-		} else {
-			sm.resourceBytes = len(resourceData)
-			if err := sm.validateResourceBudget(); err != nil {
-				return nil, err
-			}
+		}
+		sm.resourceBytes = len(resourceData)
+		if err := sm.validateResourceBudget(); err != nil {
+			return nil, err
 		}
 		// The response.created event is deliberately deferred until an output
 		// item has been announced. This makes output_item.added the first event
@@ -440,8 +439,8 @@ func (sm *StateMachine) ProcessCanonicalEvent(ev lipapi.Event) (events []StreamE
 			Type:           "response.output_text.delta",
 			SequenceNumber: sm.nextSeq(),
 			ItemID:         sm.activeItem.ID,
-			OutputIndex:    intPtr(sm.activeItemIdx),
-			ContentIndex:   intPtr(sm.activeContentIdx),
+			OutputIndex:    new(sm.activeItemIdx),
+			ContentIndex:   new(sm.activeContentIdx),
 			Delta:          ev.Delta,
 		})
 
@@ -477,14 +476,13 @@ func (sm *StateMachine) ProcessCanonicalEvent(ev lipapi.Event) (events []StreamE
 
 			wItem, err := EncodeItem(*sm.activeItem)
 			if err != nil {
-
 				return nil, err
 			}
 
 			events = append(events, StreamEvent{
 				Type:           "response.output_item.added",
 				SequenceNumber: sm.nextSeq(),
-				OutputIndex:    intPtr(sm.activeItemIdx),
+				OutputIndex:    new(sm.activeItemIdx),
 				Item:           &wItem,
 			})
 			if err := sm.appendResponseCreated(&events); err != nil {
@@ -516,13 +514,13 @@ func (sm *StateMachine) ProcessCanonicalEvent(ev lipapi.Event) (events []StreamE
 			part.EncryptedContent = append(part.EncryptedContent[:0], ev.Reasoning.EncryptedContent...)
 			part.EncryptedContentPresent = ev.Reasoning.EncryptedContentPresent
 			if part.Text != "" {
-				events = append(events, StreamEvent{Type: "response.reasoning.delta", SequenceNumber: sm.nextSeq(), ItemID: sm.activeItem.ID, OutputIndex: intPtr(sm.activeItemIdx), ContentIndex: intPtr(0), Delta: part.Text})
+				events = append(events, StreamEvent{Type: "response.reasoning.delta", SequenceNumber: sm.nextSeq(), ItemID: sm.activeItem.ID, OutputIndex: new(sm.activeItemIdx), ContentIndex: new(0), Delta: part.Text})
 			}
 			if part.Signature != "" {
-				events = append(events, StreamEvent{Type: "response.reasoning.signature.delta", SequenceNumber: sm.nextSeq(), ItemID: sm.activeItem.ID, OutputIndex: intPtr(sm.activeItemIdx), ContentIndex: intPtr(0), Signature: part.Signature})
+				events = append(events, StreamEvent{Type: "response.reasoning.signature.delta", SequenceNumber: sm.nextSeq(), ItemID: sm.activeItem.ID, OutputIndex: new(sm.activeItemIdx), ContentIndex: new(0), Signature: part.Signature})
 			}
 			if len(part.Opaque) > 0 {
-				events = append(events, StreamEvent{Type: "response.reasoning.opaque.delta", SequenceNumber: sm.nextSeq(), ItemID: sm.activeItem.ID, OutputIndex: intPtr(sm.activeItemIdx), ContentIndex: intPtr(0), Opaque: append([]byte(nil), part.Opaque...)})
+				events = append(events, StreamEvent{Type: "response.reasoning.opaque.delta", SequenceNumber: sm.nextSeq(), ItemID: sm.activeItem.ID, OutputIndex: new(sm.activeItemIdx), ContentIndex: new(0), Opaque: append([]byte(nil), part.Opaque...)})
 			}
 		case lipapi.EventReasoningDelta:
 			if err := sm.reserveEncodedDelta(ev.Delta); err != nil {
@@ -539,8 +537,8 @@ func (sm *StateMachine) ProcessCanonicalEvent(ev lipapi.Event) (events []StreamE
 				Type:           "response.reasoning.delta",
 				SequenceNumber: sm.nextSeq(),
 				ItemID:         sm.activeItem.ID,
-				OutputIndex:    intPtr(sm.activeItemIdx),
-				ContentIndex:   intPtr(0),
+				OutputIndex:    new(sm.activeItemIdx),
+				ContentIndex:   new(0),
 				Delta:          ev.Delta,
 			})
 		case lipapi.EventReasoningSignatureDelta:
@@ -549,8 +547,8 @@ func (sm *StateMachine) ProcessCanonicalEvent(ev lipapi.Event) (events []StreamE
 				Type:           "response.reasoning.signature.delta",
 				SequenceNumber: sm.nextSeq(),
 				ItemID:         sm.activeItem.ID,
-				OutputIndex:    intPtr(sm.activeItemIdx),
-				ContentIndex:   intPtr(0),
+				OutputIndex:    new(sm.activeItemIdx),
+				ContentIndex:   new(0),
 				Signature:      ev.Signature,
 			})
 		case lipapi.EventReasoningOpaqueDelta:
@@ -559,8 +557,8 @@ func (sm *StateMachine) ProcessCanonicalEvent(ev lipapi.Event) (events []StreamE
 				Type:           "response.reasoning.opaque.delta",
 				SequenceNumber: sm.nextSeq(),
 				ItemID:         sm.activeItem.ID,
-				OutputIndex:    intPtr(sm.activeItemIdx),
-				ContentIndex:   intPtr(0),
+				OutputIndex:    new(sm.activeItemIdx),
+				ContentIndex:   new(0),
 				Opaque:         append([]byte(nil), ev.Opaque...),
 			})
 		}
@@ -619,7 +617,7 @@ func (sm *StateMachine) ProcessCanonicalEvent(ev lipapi.Event) (events []StreamE
 		events = append(events, StreamEvent{
 			Type:           "response.output_item.added",
 			SequenceNumber: sm.nextSeq(),
-			OutputIndex:    intPtr(sm.activeItemIdx),
+			OutputIndex:    new(sm.activeItemIdx),
 			Item:           &wItem,
 		})
 		if err := sm.appendResponseCreated(&events); err != nil {
@@ -646,7 +644,7 @@ func (sm *StateMachine) ProcessCanonicalEvent(ev lipapi.Event) (events []StreamE
 			sm.toolArgBuilders[idx] = builder
 		}
 		builder.WriteString(ev.Delta)
-		events = append(events, StreamEvent{Type: "response.function_call_arguments.delta", SequenceNumber: sm.nextSeq(), ItemID: item.ID, OutputIndex: intPtr(idx), CallID: item.ToolCall.CallID, Delta: ev.Delta})
+		events = append(events, StreamEvent{Type: "response.function_call_arguments.delta", SequenceNumber: sm.nextSeq(), ItemID: item.ID, OutputIndex: new(idx), CallID: item.ToolCall.CallID, Delta: ev.Delta})
 
 	case lipapi.EventToolCallFinished:
 		callID := ev.ToolCallID
@@ -703,7 +701,7 @@ func (sm *StateMachine) ProcessCanonicalEvent(ev lipapi.Event) (events []StreamE
 		events = append(events, StreamEvent{
 			Type:           "response.output_item.added",
 			SequenceNumber: sm.nextSeq(),
-			OutputIndex:    intPtr(sm.activeItemIdx),
+			OutputIndex:    new(sm.activeItemIdx),
 			Item:           &wItem,
 		})
 		if err := sm.appendResponseCreated(&events); err != nil {
@@ -810,12 +808,12 @@ func (sm *StateMachine) ProcessCanonicalEvent(ev lipapi.Event) (events []StreamE
 		events = append(events, StreamEvent{
 			Type:           eventType,
 			SequenceNumber: sm.nextSeq(),
-			Response:       wireRes})
+			Response:       wireRes,
+		})
 
 	default:
 		if strings.Contains(string(ev.Kind), ":") {
 			events = append(events, StreamEvent{
-
 				Type:           string(ev.Kind),
 				SequenceNumber: sm.nextSeq(),
 			})
@@ -835,16 +833,16 @@ func (sm *StateMachine) ProcessCanonicalEvent(ev lipapi.Event) (events []StreamE
 	// incremental and do not re-marshal the full trajectory.
 	switch ev.Kind {
 	case lipapi.EventUsageDelta, lipapi.EventItem, lipapi.EventError, lipapi.EventResponseFinished:
-		if _, data, snapshotErr := sm.snapshotResource(sm.status); snapshotErr != nil {
+		_, data, snapshotErr := sm.snapshotResource(sm.status)
+		if snapshotErr != nil {
 			return nil, snapshotErr
-		} else if limitErr := ValidateResourceBytes(data, sm.limits); limitErr != nil {
-			return nil, limitErr
-		} else {
-			sm.resourceBytes = len(data)
 		}
+		if limitErr := ValidateResourceBytes(data, sm.limits); limitErr != nil {
+			return nil, limitErr
+		}
+		sm.resourceBytes = len(data)
 	}
 	return events, nil
-
 }
 
 // reserveEncodedDelta bounds untrusted streamed text, reasoning, tool
@@ -940,7 +938,7 @@ func (sm *StateMachine) startMessageItem(events *[]StreamEvent) error {
 	*events = append(*events, StreamEvent{
 		Type:           "response.output_item.added",
 		SequenceNumber: sm.nextSeq(),
-		OutputIndex:    intPtr(sm.activeItemIdx),
+		OutputIndex:    new(sm.activeItemIdx),
 		Item:           &wItem,
 	})
 	if err := sm.appendResponseCreated(events); err != nil {
@@ -961,8 +959,8 @@ func (sm *StateMachine) startMessageItem(events *[]StreamEvent) error {
 		Type:           "response.content_part.added",
 		SequenceNumber: sm.nextSeq(),
 		ItemID:         sm.activeItem.ID,
-		OutputIndex:    intPtr(sm.activeItemIdx),
-		ContentIndex:   intPtr(sm.activeContentIdx),
+		OutputIndex:    new(sm.activeItemIdx),
+		ContentIndex:   new(sm.activeContentIdx),
 		Part:           &wPart,
 	})
 	return nil
@@ -982,8 +980,8 @@ func (sm *StateMachine) closeActiveContentPart(events *[]StreamEvent) error {
 			Type:           "response.output_text.done",
 			SequenceNumber: sm.nextSeq(),
 			ItemID:         sm.activeItem.ID,
-			OutputIndex:    intPtr(sm.activeItemIdx),
-			ContentIndex:   intPtr(sm.activeContentIdx),
+			OutputIndex:    new(sm.activeItemIdx),
+			ContentIndex:   new(sm.activeContentIdx),
 			Text:           sm.activeContentPart.Text,
 		})
 	}
@@ -992,8 +990,8 @@ func (sm *StateMachine) closeActiveContentPart(events *[]StreamEvent) error {
 		Type:           "response.content_part.done",
 		SequenceNumber: sm.nextSeq(),
 		ItemID:         sm.activeItem.ID,
-		OutputIndex:    intPtr(sm.activeItemIdx),
-		ContentIndex:   intPtr(sm.activeContentIdx),
+		OutputIndex:    new(sm.activeItemIdx),
+		ContentIndex:   new(sm.activeContentIdx),
 		Part:           &wPart,
 	})
 
@@ -1022,8 +1020,8 @@ func (sm *StateMachine) closeActiveItem(events *[]StreamEvent) error {
 			Type:           "response.reasoning.done",
 			SequenceNumber: sm.nextSeq(),
 			ItemID:         sm.activeItem.ID,
-			OutputIndex:    intPtr(sm.activeItemIdx),
-			ContentIndex:   intPtr(0),
+			OutputIndex:    new(sm.activeItemIdx),
+			ContentIndex:   new(0),
 			Text:           sm.activeItem.Reasoning.Reasoning.Text,
 		})
 	}
@@ -1035,7 +1033,7 @@ func (sm *StateMachine) closeActiveItem(events *[]StreamEvent) error {
 	*events = append(*events, StreamEvent{
 		Type:           "response.output_item.done",
 		SequenceNumber: sm.nextSeq(),
-		OutputIndex:    intPtr(sm.activeItemIdx),
+		OutputIndex:    new(sm.activeItemIdx),
 		Item:           &wItem,
 	})
 
@@ -1061,8 +1059,8 @@ func (sm *StateMachine) closeToolCallAt(idx int, events *[]StreamEvent) error {
 		return err
 	}
 	*events = append(*events,
-		StreamEvent{Type: "response.function_call_arguments.done", SequenceNumber: sm.nextSeq(), ItemID: item.ID, OutputIndex: intPtr(idx), CallID: callID, Arguments: string(item.ToolCall.Arguments)},
-		StreamEvent{Type: "response.output_item.done", SequenceNumber: sm.nextSeq(), OutputIndex: intPtr(idx), Item: &wItem})
+		StreamEvent{Type: "response.function_call_arguments.done", SequenceNumber: sm.nextSeq(), ItemID: item.ID, OutputIndex: new(idx), CallID: callID, Arguments: string(item.ToolCall.Arguments)},
+		StreamEvent{Type: "response.output_item.done", SequenceNumber: sm.nextSeq(), OutputIndex: new(idx), Item: &wItem})
 	sm.touchToolCall(callID)
 	delete(sm.activeToolCalls, callID)
 
@@ -1089,9 +1087,7 @@ func (sm *StateMachine) activeToolCallIndexes() []int {
 
 func cloneToolCallIndexes(in map[string]int) map[string]int {
 	out := make(map[string]int, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }
 
@@ -1129,8 +1125,9 @@ func ConservativeLegacyNormalize(envelope EnvelopeMetadata, options lipapi.Gener
 	return streamEvents, res, nil
 }
 
+//go:fix inline
 func intPtr(i int) *int {
-	return &i
+	return new(i)
 }
 
 func cloneItems(items []lipapi.Item) []lipapi.Item {

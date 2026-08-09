@@ -26,12 +26,17 @@ type codexOpenEnv struct {
 	downgrade         downgradePolicy
 	turns             *sessionTurnCounter
 	turnReserved      bool
+	markerEligible    bool
+	nativeOriginal    Payload
+	nativeOriginalFP  []string
+	nativeUsage       *NativeUsageEvidence
 }
 
 func prepareCodexOpenEnv(ctx context.Context, cfg *Config, call lipapi.Call, cand routingstub.AttemptCandidate, policy downgradePolicy, turns *sessionTurnCounter) (*codexOpenEnv, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("%s: %w", ID, lipapi.ErrNilContext)
 	}
+	markerEligible := peekNativeContinuityMarker(&call)
 	payload, err := PayloadForCall(&call, cand, *cfg)
 	if err != nil {
 		return nil, err
@@ -50,6 +55,10 @@ func prepareCodexOpenEnv(ctx context.Context, cfg *Config, call lipapi.Call, can
 	applyEarlySessionVerbosityBump(&payload, call, *cfg, turnNo)
 	applyMidSessionVerbosityBump(&payload, call, *cfg, turnNo)
 	logPayloadShape(ctx, &call, payload)
+	nativeOriginal, err := clonePayload(payload)
+	if err != nil {
+		return nil, fmt.Errorf("%s: clone native context baseline: %w", ID, err)
+	}
 	client := cfg.HTTPClient
 	if client == nil {
 		client = http.DefaultClient
@@ -66,7 +75,66 @@ func prepareCodexOpenEnv(ctx context.Context, cfg *Config, call lipapi.Call, can
 		downgrade:         policy,
 		turns:             turns,
 		turnReserved:      reserved,
+		markerEligible:    markerEligible,
+		nativeOriginal:    nativeOriginal,
+		nativeOriginalFP:  append([]string(nil), inputFingerprints...),
 	}, nil
+}
+
+func (env *codexOpenEnv) prepareNativeContext(ctx context.Context, cfg *Config, call lipapi.Call, model string, coordinator *NativeContextCoordinator, onCommit func()) error {
+	if env == nil || coordinator == nil {
+		return nil
+	}
+	// Managed account rotation and pre-output auth refresh can call preparation
+	// more than once. Always start from the immutable pre-native baseline so an
+	// earlier account cannot donate a rewritten input or response-id state.
+	baseline, err := clonePayload(env.nativeOriginal)
+	if err != nil {
+		return fmt.Errorf("%s: clone native context baseline: %w", ID, err)
+	}
+	env.payload = baseline
+	env.inputFingerprints = append([]string(nil), env.nativeOriginalFP...)
+	// A managed-account/auth retry rebuilds the attempt under a new identity.
+	// Never carry provider usage evidence from the losing account into the next
+	// account's surfaced stream.
+	env.nativeUsage = nil
+	prepared, err := coordinator.Prepare(ctx, NativeContextPrepareInput{
+		Call: call, Payload: env.payload, Account: *cfg, Model: model,
+		MarkerEligible: env.markerEligible, ClientFamily: continuationClientFamily(call), ConversationID: env.convID,
+		OnCheckpointCommit: onCommit,
+	})
+	if err != nil {
+		return err
+	}
+	env.payload = prepared.Payload
+	env.inputFingerprints = fingerprintInputItems(env.payload.Input)
+	// A normal-request/account retry may reuse a checkpoint after a previous
+	// compaction already completed. Keep that pending billable evidence until a
+	// successful normal stream can publish it; reuse itself is not a new charge.
+	if prepared.CompactionUsage != nil {
+		env.nativeUsage = cloneUsageEvidence(prepared.CompactionUsage)
+	}
+	return nil
+}
+
+func cloneUsageEvidence(src *NativeUsageEvidence) *NativeUsageEvidence {
+	if src == nil {
+		return nil
+	}
+	dst := *src
+	return &dst
+}
+
+func (env *codexOpenEnv) wrapNativeUsage(stream lipapi.ManagedEventStream) lipapi.ManagedEventStream {
+	if env == nil || stream == nil || env.nativeUsage == nil {
+		return stream
+	}
+	usage := cloneUsageEvidence(env.nativeUsage)
+	// Consume the prepared evidence at the stream boundary. A managed-account
+	// retry rebuilds env from its immutable baseline and gets its own evidence;
+	// Recv retries and Close cannot emit this evidence a second time.
+	env.nativeUsage = nil
+	return newNativeUsageStream(stream, usage)
 }
 
 // releaseVerbosityTurn undoes a turn reserved during prepare when the open

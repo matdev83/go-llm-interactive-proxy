@@ -12,7 +12,8 @@ func TestDefaultNegotiator_lossless(t *testing.T) {
 	t.Parallel()
 
 	var n capabilities.DefaultNegotiator
-	res := n.Negotiate(context.Background(),
+	res := n.Negotiate(
+		context.Background(),
 		[]lipapi.Capability{lipapi.CapabilityTools},
 		lipapi.NewBackendCaps(lipapi.CapabilityTools, lipapi.CapabilityStreaming),
 	)

@@ -65,7 +65,6 @@ func TestItem_ParsesMessageVariants(t *testing.T) {
 		{"developer_role", `{"type":"message","id":"m4","role":"developer","content":"dev"}`, "developer", "", ""},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var it Item

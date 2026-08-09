@@ -10,6 +10,7 @@ import (
 )
 
 func TestErrorMapping_TableDriven(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name                   string
 		inputErr               error
@@ -126,6 +127,7 @@ func TestErrorMapping_TableDriven(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			status, wireEnv, class := MapErrorToWire(tc.inputErr)
 			if status != tc.expectedStatus {
 				t.Errorf("status: expected %d, got %d", tc.expectedStatus, status)
@@ -157,6 +159,7 @@ func TestErrorMapping_TableDriven(t *testing.T) {
 }
 
 func TestErrorMapping_Sanitization(t *testing.T) {
+	t.Parallel()
 	sensitiveErr := fmt.Errorf("database connection failed at postgres://user:secret123@db.internal:5432/mydb: %w", ErrBuildResourceFailed)
 	_, wireEnv, _ := MapErrorToWire(sensitiveErr)
 

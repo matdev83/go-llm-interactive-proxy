@@ -19,8 +19,8 @@ const testCreated = int64(1715620000)
 func sseDataEvents(t *testing.T, raw string) []map[string]any {
 	t.Helper()
 	var out []map[string]any
-	for _, frame := range strings.Split(raw, "\n\n") {
-		for _, line := range strings.Split(frame, "\n") {
+	for frame := range strings.SplitSeq(raw, "\n\n") {
+		for line := range strings.SplitSeq(frame, "\n") {
 			if !strings.HasPrefix(line, "data: ") {
 				continue
 			}
@@ -83,14 +83,14 @@ func TestOpenResponsesRichSSEPreservesHostileText(t *testing.T) {
 	if len(events) != 8 {
 		t.Fatalf("want 8 data events, got %d", len(events))
 	}
-	var assembled string
+	var assembled strings.Builder
 	for _, ev := range events {
 		switch ev["type"] {
 		case "response.output_text.delta":
 			if got, _ := ev["delta"].(string); got != hostileParityText {
 				t.Fatalf("delta = %q, want exact value %q", got, hostileParityText)
 			}
-			assembled += hostileParityText
+			assembled.WriteString(hostileParityText)
 		case "response.output_text.done":
 			if got, _ := ev["text"].(string); got != hostileParityText {
 				t.Fatalf("done text = %q, want exact value %q", got, hostileParityText)
@@ -110,8 +110,8 @@ func TestOpenResponsesRichSSEPreservesHostileText(t *testing.T) {
 			}
 		}
 	}
-	if assembled != hostileParityText {
-		t.Fatalf("assembled delta text = %q, want %q", assembled, hostileParityText)
+	if assembled.String() != hostileParityText {
+		t.Fatalf("assembled delta text = %q, want %q", assembled.String(), hostileParityText)
 	}
 }
 
@@ -153,7 +153,7 @@ func TestConnectorChatStreamSSEPreservesHostileText(t *testing.T) {
 	if len(events) != 3 {
 		t.Fatalf("want 3 data events, got %d", len(events))
 	}
-	var assembled string
+	var assembled strings.Builder
 	for _, ev := range events {
 		choices, _ := ev["choices"].([]any)
 		if len(choices) == 0 {
@@ -168,10 +168,10 @@ func TestConnectorChatStreamSSEPreservesHostileText(t *testing.T) {
 		if content != hostileParityText {
 			t.Fatalf("delta content = %q, want exact value %q", content, hostileParityText)
 		}
-		assembled += content
+		assembled.WriteString(content)
 	}
-	if assembled != hostileParityText {
-		t.Fatalf("assembled delta content = %q, want %q", assembled, hostileParityText)
+	if assembled.String() != hostileParityText {
+		t.Fatalf("assembled delta content = %q, want %q", assembled.String(), hostileParityText)
 	}
 }
 
@@ -181,12 +181,12 @@ func TestConnectorColumnSSEIsValidJSON(t *testing.T) {
 	if len(events) != 8 {
 		t.Fatalf("want 8 data events, got %d", len(events))
 	}
-	var assembled string
+	var assembled strings.Builder
 	for _, ev := range events {
 		switch ev["type"] {
 		case "response.output_text.delta":
 			delta, _ := ev["delta"].(string)
-			assembled += delta
+			assembled.WriteString(delta)
 		case "response.completed":
 			resp, _ := ev["response"].(map[string]any)
 			if got := resp["created_at"]; got != float64(testCreated) {
@@ -197,7 +197,7 @@ func TestConnectorColumnSSEIsValidJSON(t *testing.T) {
 			}
 		}
 	}
-	if assembled != "provider-mode-ok" {
-		t.Fatalf("assembled delta text = %q, want provider-mode-ok", assembled)
+	if assembled.String() != "provider-mode-ok" {
+		t.Fatalf("assembled delta text = %q, want provider-mode-ok", assembled.String())
 	}
 }

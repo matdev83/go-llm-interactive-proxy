@@ -51,7 +51,7 @@ func TestOpenResponsesRefClientBoundary(t *testing.T) {
 
 	// 2. Every Go file (including tests) under the tree must not import forbidden
 	// targets and must use only stdlib plus the approved gorilla/websocket dependency.
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	if err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			t.Errorf("walk %s: %v", path, err)
 			return nil
@@ -86,7 +86,9 @@ func TestOpenResponsesRefClientBoundary(t *testing.T) {
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("walk %s: %v", dir, err)
+	}
 
 	// 3. Production must never import the reference client emulator.
 	findings, err := ScanForbiddenImports(root)

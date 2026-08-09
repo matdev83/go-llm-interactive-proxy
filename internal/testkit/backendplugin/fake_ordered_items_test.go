@@ -156,8 +156,7 @@ func TestFake_exactOpenResponsesConformanceRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	stream := &memExecuteStream{ctx: ctx, start: back}
 	if err := inst.Execute(stream); err != nil {
 		t.Fatal(err)
@@ -208,6 +207,7 @@ func (m *memExecuteStream) Recv() (backendplugin.ClientFrame, error) {
 	}
 	return backendplugin.ClientFrame{}, io.EOF
 }
+
 func (m *memExecuteStream) Send(f backendplugin.ServerFrame) error {
 	m.frames = append(m.frames, f)
 	return nil

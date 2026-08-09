@@ -194,10 +194,14 @@ func TestCountCallItemAuthority_ToolResultCountsOutput(t *testing.T) {
 	}
 	call := lipapi.Call{
 		Items: []lipapi.Item{
-			{Kind: lipapi.ItemKindMessage, ID: "m1", Status: lipapi.ItemStatusCompleted, Role: lipapi.RoleUser,
-				Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "call the tool"}}},
-			{Kind: lipapi.ItemKindToolResult, ID: "t1", Status: lipapi.ItemStatusCompleted,
-				ToolResult: &lipapi.ToolResultItem{CallID: "call_1", Name: "lookup", Output: "warsaw, poland"}},
+			{
+				Kind: lipapi.ItemKindMessage, ID: "m1", Status: lipapi.ItemStatusCompleted, Role: lipapi.RoleUser,
+				Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "call the tool"}},
+			},
+			{
+				Kind: lipapi.ItemKindToolResult, ID: "t1", Status: lipapi.ItemStatusCompleted,
+				ToolResult: &lipapi.ToolResultItem{CallID: "call_1", Name: "lookup", Output: "warsaw, poland"},
+			},
 		},
 	}
 	with, err := counter.CountCall(context.Background(), app.CountCallInput{Model: "cl100k_base", Call: call})

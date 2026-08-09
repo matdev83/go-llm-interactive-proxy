@@ -101,7 +101,7 @@ func TestSSEStream_ProviderDisconnectAfterOutputIsStreamError(t *testing.T) {
 		err:    io.ErrUnexpectedEOF,
 	}}
 	es := newSSEStream("my-or", body, defaultResponseTestLimits(), 0)
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 
 	ev, err := es.Recv(context.Background())
 	if err != nil {
@@ -133,9 +133,9 @@ func TestSSEStream_MissingDONEIsError(t *testing.T) {
 		b.WriteString("data: " + string(r.data) + "\n\n")
 	}
 	es := newSSEStream("my-or", &bodyRecorder{Reader: strings.NewReader(b.String())}, defaultResponseTestLimits(), 0)
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		if _, err := es.Recv(context.Background()); err != nil {
 			t.Fatalf("event %d: %v", i, err)
 		}
@@ -160,9 +160,9 @@ func TestSSEStream_EventAfterTerminalIsError(t *testing.T) {
 	}
 	b.WriteString("data: [DONE]\n\n")
 	es := newSSEStream("my-or", &bodyRecorder{Reader: strings.NewReader(b.String())}, defaultResponseTestLimits(), 0)
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		if _, err := es.Recv(context.Background()); err != nil {
 			t.Fatalf("event %d: %v", i, err)
 		}
@@ -180,7 +180,7 @@ func TestSSEStream_DONEBeforeTerminalIsError(t *testing.T) {
 	t.Parallel()
 	body := sseEvent("response.created", `{"type":"response.created","sequence_number":0}`) + "data: [DONE]\n\n"
 	es := newSSEStream("my-or", &bodyRecorder{Reader: strings.NewReader(body)}, defaultResponseTestLimits(), 0)
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 	if ev, err := es.Recv(context.Background()); err != nil || ev.Kind != lipapi.EventResponseStarted {
 		t.Fatalf("first recv = %+v, %v", ev, err)
 	}
@@ -193,7 +193,7 @@ func TestSSEStream_DONEBeforeTerminalIsError(t *testing.T) {
 func TestSSEStream_EmptyStreamRejected(t *testing.T) {
 	t.Parallel()
 	es := newSSEStream("my-or", &bodyRecorder{Reader: strings.NewReader("")}, defaultResponseTestLimits(), 0)
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 	_, err := es.Recv(context.Background())
 	if err == nil || !errors.Is(err, ErrMalformedResponse) {
 		t.Fatalf("error = %v, want ErrMalformedResponse", err)
@@ -203,8 +203,9 @@ func TestSSEStream_EmptyStreamRejected(t *testing.T) {
 func TestSSEStream_RecvNilContextRejected(t *testing.T) {
 	t.Parallel()
 	es := newSSEStream("my-or", &bodyRecorder{Reader: strings.NewReader(textSSEBody())}, defaultResponseTestLimits(), 0)
-	defer es.Close()
-	if _, err := es.Recv(nil); !errors.Is(err, lipapi.ErrNilContext) {
+	defer func() { _ = es.Close() }()
+	var nilContext context.Context
+	if _, err := es.Recv(nilContext); !errors.Is(err, lipapi.ErrNilContext) {
 		t.Fatalf("error = %v, want ErrNilContext", err)
 	}
 }
@@ -213,7 +214,7 @@ func TestSSEStream_BlockedRecvUnblockedByClose(t *testing.T) {
 	t.Parallel()
 	pr, pw := io.Pipe()
 	es := newSSEStream("my-or", pr, defaultResponseTestLimits(), 0)
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 
 	go func() {
 		_, _ = io.WriteString(pw, sseEvent("response.created", `{"type":"response.created","sequence_number":0}`))
@@ -255,7 +256,7 @@ func TestSSEStream_PullDrivenReadsDoNotRunAhead(t *testing.T) {
 	chunk2 := sseEvent("response.completed", `{"type":"response.completed","sequence_number":1}`) + "data: [DONE]\n\n"
 	sr := &stepReader{chunks: [][]byte{[]byte(chunk1), []byte(chunk2)}}
 	es := newSSEStream("my-or", &bodyRecorder{Reader: sr}, defaultResponseTestLimits(), 0)
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 
 	if ev, err := es.Recv(context.Background()); err != nil || ev.Kind != lipapi.EventResponseStarted {
 		t.Fatalf("first recv = %+v, %v", ev, err)
@@ -287,10 +288,10 @@ func TestSSEStream_PendingBoundRejectsBatchAtomicallyAndDrains(t *testing.T) {
 		b.WriteString("data: " + string(r.data) + "\n\n")
 	}
 	es := newSSEStream("my-or", &bodyRecorder{Reader: strings.NewReader(b.String())}, defaultResponseTestLimits(), 1)
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 
 	var got []lipapi.Event
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		ev, err := es.Recv(context.Background())
 		if err != nil {
 			t.Fatalf("event %d: %v", i, err)
@@ -302,7 +303,7 @@ func TestSSEStream_PendingBoundRejectsBatchAtomicallyAndDrains(t *testing.T) {
 	}
 	// No partial batch may surface after the rejection: the rejected usage and
 	// finished events must not be delivered out of order after the error.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		ev, err := es.Recv(context.Background())
 		if err == io.EOF {
 			break
@@ -343,7 +344,7 @@ func TestSSEStream_PendingBoundAcceptsWholeBatchWithinCap(t *testing.T) {
 		b.WriteString("data: " + string(r.data) + "\n\n")
 	}
 	es := newSSEStream("my-or", &bodyRecorder{Reader: strings.NewReader(b.String())}, defaultResponseTestLimits(), 2)
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 	events, err := drainStream(es)
 	if err != nil {
 		t.Fatal(err)

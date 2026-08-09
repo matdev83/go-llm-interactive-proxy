@@ -23,7 +23,7 @@ func TestFailureInjection_ServerErrorFailoverToHealthyCandidate(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	res, err := d.Client.RoundTrip(context.Background(), "ping")
 	if err != nil {
@@ -54,7 +54,7 @@ func TestFailureInjection_CredentialFailureSSEClassified(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	if _, err := d.Client.RoundTrip(context.Background(), "ping"); err == nil {
 		t.Fatal("expected credential failure to surface")
@@ -77,9 +77,9 @@ func TestFailureInjection_BoundedCaptureOverflowDoesNotBlock(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if _, err := d.Client.RoundTrip(context.Background(), "ping"); err != nil {
 			t.Fatalf("round trip %d: %v", i, err)
 		}

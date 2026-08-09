@@ -9,6 +9,7 @@ import (
 )
 
 func TestErrorIncludesEachBoundedDiagnosticOnce(t *testing.T) {
+	t.Parallel()
 	result := taskrunner.Result{
 		Kind:   taskrunner.ChildFailure,
 		Label:  "selector:test",

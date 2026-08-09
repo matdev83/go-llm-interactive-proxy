@@ -3,6 +3,7 @@ package lipapi_test
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -303,12 +304,7 @@ func TestRequiresProjectionAdaptation_authorityAware(t *testing.T) {
 }
 
 func containsCapability(caps []lipapi.Capability, want lipapi.Capability) bool {
-	for _, c := range caps {
-		if c == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(caps, want)
 }
 
 func TestProjectItemsToLegacyView_sourceNonMutation(t *testing.T) {
@@ -507,7 +503,6 @@ func TestProjectItemsToLegacyView_deterministicRejectionReasonsTable(t *testing.
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			_, err := lipapi.ProjectItemsToLegacyView(tt.call, tt.target)

@@ -239,7 +239,8 @@ func (s *Store) Create(ctx context.Context, rec domain.CreateRecord) (domain.Rec
 	if rec.ResumeEligible {
 		re = 1
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO lip_secure_sessions(
+	_, err := s.db.ExecContext(
+		ctx, `INSERT INTO lip_secure_sessions(
 		session_id, resume_fingerprint,
 		owner_id, owner_issuer, owner_tenant,
 		workspace_id, client_session_id, agent_digest,
@@ -328,7 +329,8 @@ func (s *Store) AppendAttemptTrace(ctx context.Context, trace domain.AttemptTrac
 		if err != nil {
 			return opErr("marshal trace", err)
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO lip_secure_attempt_traces(
+		_, err = tx.ExecContext(
+			ctx, `INSERT INTO lip_secure_attempt_traces(
 		session_id, turn_id, a_leg_id, b_leg_id, attempt_seq,
 		requested_model, requested_alias, resolved_backend, resolved_model,
 		route_source, route_reason, settings_json, started_at_unix
@@ -376,7 +378,8 @@ func (s *Store) UpdateAttemptOutcome(ctx context.Context, outcome domain.Attempt
 		success = 1
 	}
 	return s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		res, err := tx.ExecContext(ctx, `UPDATE lip_secure_attempt_traces SET
+		res, err := tx.ExecContext(
+			ctx, `UPDATE lip_secure_attempt_traces SET
 		ended_at_unix = ?,
 		success = ?,
 		surface_state = ?,
@@ -473,7 +476,8 @@ func (s *Store) AppendTranscript(ctx context.Context, item domain.TranscriptItem
 		if err != nil {
 			return opErr("transcript next seq", err)
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO lip_secure_transcript(
+		_, err = tx.ExecContext(
+			ctx, `INSERT INTO lip_secure_transcript(
 		session_id, seq, turn_id, event_kind, payload_ref, created_at_unix
 	) VALUES(?,?,?,?,?,?)`,
 			string(item.SessionID), nextSeq, string(item.TurnID), item.EventKind, item.PayloadRef, item.CreatedAt.UnixNano(),
@@ -508,7 +512,8 @@ func (s *Store) AddUsage(ctx context.Context, delta domain.UsageDelta) error {
 			return domain.ErrSessionNotFound
 		}
 		now := time.Now().UnixNano()
-		_, err = tx.ExecContext(ctx, `INSERT INTO lip_secure_usage(
+		_, err = tx.ExecContext(
+			ctx, `INSERT INTO lip_secure_usage(
 		session_id, turn_id, b_leg_id, input_tokens, output_tokens,
 		cache_read_tokens, cache_write_tokens, non_cached_input_tokens,
 		reasoning_tokens, non_reasoning_output_tokens, total_tokens,
@@ -651,7 +656,8 @@ func (s *Store) AppendAudit(ctx context.Context, item domain.AuditItem) error {
 		if err != nil {
 			return opErr("append audit next seq", err)
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO lip_secure_audit(
+		_, err = tx.ExecContext(
+			ctx, `INSERT INTO lip_secure_audit(
 		session_id, seq, turn_id, action, result, created_at_unix
 	) VALUES(?,?,?,?,?,?)`,
 			string(item.SessionID), nextSeq, string(item.TurnID), item.Action, item.Result, item.CreatedAt.UnixNano(),
@@ -1043,7 +1049,8 @@ func (s *Store) UsageTokenTotals(ctx context.Context, id domain.SessionID) (int6
 		return 0, 0, err
 	}
 	var in, out int64
-	err := s.db.QueryRowContext(ctx,
+	err := s.db.QueryRowContext(
+		ctx,
 		`SELECT usage_in, usage_out FROM lip_secure_sessions WHERE session_id = ?`, string(id),
 	).Scan(&in, &out)
 	if errors.Is(err, sql.ErrNoRows) {

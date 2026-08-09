@@ -120,7 +120,8 @@ func TestPhase3_CollapsedBaselineHistory_RecoversIdempotently(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Simulate production histories that recorded store-scoped Ups under the baseline name.
-	if _, err := bunDB.ExecContext(ctx, `
+	if _, err := bunDB.ExecContext(
+		ctx, `
 DELETE FROM bun_metering_journal_migrations
 WHERE name IN (?, ?)`,
 		journalstore.StoreScopedSourceKeyMigrationName,

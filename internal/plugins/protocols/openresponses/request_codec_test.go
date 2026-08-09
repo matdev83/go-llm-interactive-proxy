@@ -284,7 +284,6 @@ func TestRequestCodec_AllowedToolsModeVariants(t *testing.T) {
 		{name: "mode none", json: `{"type":"allowed_tools","tools":[{"type":"function","name":"fn1"}],"mode":"none"}`, want: lipapi.ToolChoiceNone},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			body := []byte(`{"model": "gpt-4o", "input": "test", ` + allowedToolsDeclaredTools + `, "tool_choice": ` + tc.json + `}`)
@@ -319,7 +318,6 @@ func TestRequestCodec_AllowedToolsRejectsMalformed(t *testing.T) {
 		{name: "allowed tool not declared", json: `{"type":"allowed_tools","tools":[{"type":"function","name":"fn_missing"}]}`},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			body := []byte(`{"model": "gpt-4o", "input": "test", ` + allowedToolsDeclaredTools + `, "tool_choice": ` + tc.json + `}`)
@@ -336,7 +334,7 @@ func TestRequestCodec_AllowedToolsRefCountBound(t *testing.T) {
 	allowedTools := func(n int) []byte {
 		var b strings.Builder
 		b.WriteString(`{"type":"allowed_tools","tools":[`)
-		for i := 0; i < n; i++ {
+		for i := range n {
 			if i > 0 {
 				b.WriteString(",")
 			}
@@ -436,7 +434,6 @@ func TestRequestCodec_NegativeTable(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			_, _, err := DecodeRequest([]byte(tt.json))
@@ -515,7 +512,6 @@ func TestRequestCodec_MessageContentStringShorthand(t *testing.T) {
 		"final_answer": {role: "assistant", phase: "final_answer", expected: "The number is four."},
 	}
 	for name, tc := range cases {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			item := map[string]any{"type": "message", "role": tc.role, "content": tc.expected}

@@ -107,7 +107,8 @@ func findingSummaryAttr(findings []secretguard.Finding) slog.Attr {
 		categories = append(categories, cat)
 	}
 	slices.Sort(categories)
-	return slog.Group("finding_summary",
+	return slog.Group(
+		"finding_summary",
 		slog.Int("count", count),
 		slog.String("first_secret_ref", firstRef),
 		slog.Any("source_categories", categories),

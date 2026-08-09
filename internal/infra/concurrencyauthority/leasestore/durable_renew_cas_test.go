@@ -37,7 +37,8 @@ func TestRenewCAS_GenerationOnlyWouldResurrectReleased(t *testing.T) {
 	// Stale Renew write values (domain.Renew on a pre-Release active copy).
 	renewedAt := now.Add(5 * time.Second).UnixNano()
 	expiresAt := now.Add(time.Minute).UnixNano()
-	res, err := store.db.NewRaw(`
+	res, err := store.db.NewRaw(
+		`
 UPDATE concurrency_leases SET
 	renewed_at_unix=?, expires_at_unix=?, generation=?, state=?
 WHERE store_id=? AND lease_id=? AND generation=?

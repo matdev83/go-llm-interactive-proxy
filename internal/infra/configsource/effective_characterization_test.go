@@ -13,7 +13,7 @@ import (
 
 func TestEffectiveStandardFeatureInjectionCharacterization(t *testing.T) {
 	t.Parallel()
-	cfg := &config.Config{}
+	cfg := &config.Config{Plugins: config.PluginsConfig{Backends: []config.PluginConfig{{Kind: "openai-codex", ID: "codex-primary", Enabled: true}}}}
 	if err := standardplugins.EnsureToolCallRepairInConfig(cfg, standardplugins.ToolCallRepairInjectOpts{
 		StandardDistribution: true,
 	}); err != nil {

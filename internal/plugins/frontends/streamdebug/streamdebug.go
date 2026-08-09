@@ -26,7 +26,8 @@ func LogCall(ctx context.Context, log *slog.Logger, frontend string, call *lipap
 		return
 	}
 	s := summarizeCall(call)
-	diag.LoggerOrDefault(log).DebugContext(ctx, "lip.debug.frontend_call",
+	diag.LoggerOrDefault(log).DebugContext(
+		ctx, "lip.debug.frontend_call",
 		"frontend", frontend,
 		"call_id", call.ID,
 		"trace_id", diag.StableCallID(call),
@@ -56,7 +57,8 @@ func LogDecodeFailure(ctx context.Context, log *slog.Logger, frontend string, bo
 		return
 	}
 	summary := summarizeBody(body)
-	diag.LoggerOrDefault(log).DebugContext(ctx, "lip.debug.frontend_decode_failed",
+	diag.LoggerOrDefault(log).DebugContext(
+		ctx, "lip.debug.frontend_decode_failed",
 		"frontend", frontend,
 		"body_bytes", len(body),
 		"json_valid", summary.valid,
@@ -74,7 +76,8 @@ func LogExecuteOpened(ctx context.Context, log *slog.Logger, frontend string, ca
 	if !Enabled() || call == nil {
 		return
 	}
-	diag.LoggerOrDefault(log).DebugContext(ctx, "lip.debug.frontend_execute_opened",
+	diag.LoggerOrDefault(log).DebugContext(
+		ctx, "lip.debug.frontend_execute_opened",
 		"frontend", frontend,
 		"call_id", call.ID,
 		"trace_id", diag.StableCallID(call),
@@ -152,7 +155,8 @@ func (s *stream) Recv(ctx context.Context) (lipapi.Event, error) {
 	}
 	if !s.firstLogged {
 		s.firstLogged = true
-		s.log.DebugContext(ctx, "lip.debug.stream_first_event",
+		s.log.DebugContext(
+			ctx, "lip.debug.stream_first_event",
 			"frontend", s.frontend,
 			"call_id", s.call.ID,
 			"trace_id", diag.StableCallID(s.call),
@@ -162,7 +166,8 @@ func (s *stream) Recv(ctx context.Context) (lipapi.Event, error) {
 		)
 	}
 	if shouldLogEvent(ev.Kind) {
-		s.log.DebugContext(ctx, "lip.debug.stream_event",
+		s.log.DebugContext(
+			ctx, "lip.debug.stream_event",
 			"frontend", s.frontend,
 			"call_id", s.call.ID,
 			"trace_id", diag.StableCallID(s.call),
@@ -199,7 +204,8 @@ func (s *stream) logTerminal(ctx context.Context, err error) {
 	case err != nil:
 		status = "error"
 	}
-	s.log.DebugContext(ctx, "lip.debug.stream_terminal",
+	s.log.DebugContext(
+		ctx, "lip.debug.stream_terminal",
 		"frontend", s.frontend,
 		"call_id", s.call.ID,
 		"trace_id", diag.StableCallID(s.call),
@@ -215,7 +221,8 @@ func (s *stream) logTerminal(ctx context.Context, err error) {
 }
 
 func (s *stream) logContentFirst(ctx context.Context, kind lipapi.EventKind, delta, detail string) {
-	s.log.DebugContext(ctx, "lip.debug.stream_first_content_event",
+	s.log.DebugContext(
+		ctx, "lip.debug.stream_first_content_event",
 		"frontend", s.frontend,
 		"call_id", s.call.ID,
 		"trace_id", diag.StableCallID(s.call),

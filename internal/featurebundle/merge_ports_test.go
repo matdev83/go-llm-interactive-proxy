@@ -28,6 +28,7 @@ type mergeStubStreamObserverFactory struct{ id string }
 func (s mergeStubStreamObserverFactory) ID() string                        { return s.id }
 func (s mergeStubStreamObserverFactory) Order() int                        { return 0 }
 func (s mergeStubStreamObserverFactory) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+
 func (s mergeStubStreamObserverFactory) Open(context.Context, response.StreamMeta, response.Services) (response.StreamObserver, error) {
 	return nil, nil
 }

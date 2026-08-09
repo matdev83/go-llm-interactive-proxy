@@ -110,10 +110,10 @@ func TestCompatibleDiagnostics_inspectDistinguishesFromExternalPlugins(t *testin
 	for _, e := range rep.Entries {
 		switch {
 		case e.Kind == "custom-openai-legacy-compatible" && e.Source == "built_in_compatible":
-			switch {
-			case e.InstanceID == "":
+			switch e.InstanceID {
+			case "":
 				factoryEntry = true
-			case e.InstanceID == "compat-diag":
+			case "compat-diag":
 				instanceEntry = true
 				if e.ActivationRequired {
 					t.Fatal("compatible instance must not require plugin activation")

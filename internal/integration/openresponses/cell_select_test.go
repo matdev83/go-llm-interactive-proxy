@@ -29,7 +29,6 @@ func TestCellSelect_OpenResponsesFrontendAcrossRealBackends(t *testing.T) {
 		conformance.BackendOpenResponses,
 	}
 	for _, backend := range constructible {
-		backend := backend
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
 			d := conformance.Deploy(t, conformance.DeploymentSpec{
@@ -40,7 +39,7 @@ func TestCellSelect_OpenResponsesFrontendAcrossRealBackends(t *testing.T) {
 			if d == nil {
 				t.Fatalf("Deploy(openresponses, %q) failed", backend)
 			}
-			defer d.Close()
+			defer func() { _ = d.Close() }()
 
 			res, err := d.Client.RoundTrip(context.Background(), "ping")
 			if err != nil {
@@ -74,7 +73,7 @@ func TestCellSelect_OpenResponsesFrontendToACPSubsetRoundTrips(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy(openresponses, acp) failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 	res, err := d.Client.RoundTrip(context.Background(), "ping")
 	if err != nil {
 		t.Fatalf("OpenResponses→ACP round trip: %v", err)
@@ -130,7 +129,6 @@ func TestCellSelect_ExistingFrontendsAcrossOpenResponsesBackend(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			d := conformance.Deploy(t, conformance.DeploymentSpec{
@@ -141,7 +139,7 @@ func TestCellSelect_ExistingFrontendsAcrossOpenResponsesBackend(t *testing.T) {
 			if d == nil {
 				t.Fatalf("Deploy(%q, openresponses) failed", tc.frontend)
 			}
-			defer d.Close()
+			defer func() { _ = d.Close() }()
 
 			status, err := d.RawFrontendPost(context.Background(), tc.path, tc.body)
 			if err != nil {
@@ -166,7 +164,6 @@ func TestCellSelect_StreamingSSEAcrossRealBackends(t *testing.T) {
 		conformance.BackendAnthropic,
 		conformance.BackendOpenResponses,
 	} {
-		backend := backend
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
 			d := conformance.Deploy(t, conformance.DeploymentSpec{
@@ -177,7 +174,7 @@ func TestCellSelect_StreamingSSEAcrossRealBackends(t *testing.T) {
 			if d == nil {
 				t.Fatalf("Deploy(openresponses, %q, sse) failed", backend)
 			}
-			defer d.Close()
+			defer func() { _ = d.Close() }()
 
 			res, err := d.Client.RoundTrip(context.Background(), "ping")
 			if err != nil {

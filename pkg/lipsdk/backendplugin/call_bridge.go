@@ -39,6 +39,9 @@ func CallFromInvocation(inv Invocation) (lipapi.Call, error) {
 		},
 		Session: lipapi.SessionRef{
 			ALegID: strings.TrimSpace(inv.ALegID),
+			// This field is host-injected at the ABI boundary; SafeMetadata is
+			// intentionally not consulted for session authority.
+			AuthoritativeSessionID: strings.TrimSpace(inv.ProxyOwnedSessionID),
 		},
 	}
 	RestoreCallWireMetadata(&call, inv.SafeMetadata)

@@ -26,7 +26,8 @@ import (
 // a blocked old stream remains pinned. It proves generations stay within the
 // retention budget and accepted work is never dropped (req 10.8-10.11, 15.7-15.10, 16.9).
 func TestRuntimeConfigReloadSoak(t *testing.T) {
-	defer goleak.VerifyNone(t, goleak.IgnoreCurrent(),
+	defer goleak.VerifyNone(
+		t, goleak.IgnoreCurrent(),
 		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
 	)
 
@@ -252,6 +253,7 @@ func (s *soakSource) set(snap configsource.SourceSnapshot, atomic configsource.A
 	s.snap, s.atomic, s.err = snap, atomic, err
 	s.mu.Unlock()
 }
+
 func (s *soakSource) ReadStable(context.Context, *configsource.ActiveSourceVersion) (configsource.SourceSnapshot, configsource.AtomicResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -269,6 +271,7 @@ func (l *soakLoader) set(eff *config.EffectiveConfig, err error) {
 	l.eff, l.err = eff, err
 	l.mu.Unlock()
 }
+
 func (l *soakLoader) LoadEffective(context.Context, []byte) (*config.EffectiveConfig, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

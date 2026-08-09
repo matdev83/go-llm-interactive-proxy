@@ -39,7 +39,7 @@ func TestHarness_NoGoroutineLeak(t *testing.T) {
 	t.Parallel()
 	baseline := settleGoroutines(t)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		d := conformance.Deploy(t, conformance.DeploymentSpec{
 			Frontend:  conformance.FrontendOpenResponses,
 			Backend:   conformance.BackendOpenResponses,
@@ -100,7 +100,7 @@ func TestHarness_WebSocketConnectionClosedOnClientDisconnect(t *testing.T) {
 	}
 	// A raw turn opens and closes a connection; repeated raw turns exercise
 	// session open/close without leaking.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if _, err := d.Client.RoundTrip(context.Background(), "ping"); err != nil {
 			t.Fatalf("ws turn %d: %v", i, err)
 		}

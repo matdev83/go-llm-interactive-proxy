@@ -18,7 +18,8 @@ import (
 
 func testClient(t *testing.T, srv *httptest.Server) *bedrockruntime.Client {
 	t.Helper()
-	cfg, err := config.LoadDefaultConfig(context.Background(),
+	cfg, err := config.LoadDefaultConfig(
+		context.Background(),
 		config.WithRegion("us-east-1"),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("AKID", "SECRET", "")),
 	)
@@ -108,7 +109,8 @@ func TestHandler_Converse_requiresAuthorization(t *testing.T) {
 	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{}))
 	t.Cleanup(srv.Close)
 
-	cfg, err := config.LoadDefaultConfig(context.Background(),
+	cfg, err := config.LoadDefaultConfig(
+		context.Background(),
 		config.WithRegion("us-east-1"),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("x", "y", "")),
 	)

@@ -161,6 +161,9 @@ type Invocation struct {
 	ToolChoice       *string
 	Options          GenerationOptions
 	SafeMetadata     map[string]string
+	// ProxyOwnedSessionID is injected by the proxy host from lipapi.Call.Session.
+	// It is not client metadata and must not be populated from SafeMetadata.
+	ProxyOwnedSessionID string
 
 	// PromptCacheKey is the proxy-carried prompt-caching hint forwarded verbatim.
 	// It is an additive v1.3 field gated by FeatureExactOpenResponsesFields;

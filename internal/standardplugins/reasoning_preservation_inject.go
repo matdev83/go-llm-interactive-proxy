@@ -2,6 +2,7 @@ package standardplugins
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
@@ -9,9 +10,7 @@ import (
 )
 
 // ReasoningOutputPreservationFeatureID is the standard factory/instance id for
-// reasoning-output-preservation. Any features config row matching this ID (instance)
-// or FactoryKind suppresses default standard-distribution injection. A present row
-// without enabled: true is an explicit disabled opt-out under plain-bool PluginConfig.Enabled.
+// reasoning-output-preservation. A matching disabled row is an explicit opt-out.
 const ReasoningOutputPreservationFeatureID = reasoningpreservation.ID
 
 // ReasoningOutputPreservationInjectOpts controls standard-distribution default injection.
@@ -19,60 +18,98 @@ type ReasoningOutputPreservationInjectOpts struct {
 	StandardDistribution bool
 }
 
-// EnsureReasoningOutputPreservationInConfig injects one enabled standard feature row when
-// absent on the standard distribution path. Explicit matching rows suppress injection.
+const openAICodexFactory = "openai-codex"
+
+// EnsureReasoningOutputPreservationInConfig discovers eligible direct Codex
+// instances, then delegates feature-schema mutation to the feature owner.
 func EnsureReasoningOutputPreservationInConfig(cfg *config.Config, opts ReasoningOutputPreservationInjectOpts) error {
 	if cfg == nil || !opts.StandardDistribution {
 		return nil
 	}
-	for _, p := range cfg.Plugins.Features {
-		if p.FactoryID() == ReasoningOutputPreservationFeatureID || p.InstanceID() == ReasoningOutputPreservationFeatureID {
+	featureIndex := -1
+	for i, row := range cfg.Plugins.Features {
+		if row.FactoryID() != ReasoningOutputPreservationFeatureID && row.InstanceID() != ReasoningOutputPreservationFeatureID {
+			continue
+		}
+		if !row.Enabled {
 			return nil
 		}
+		if featureIndex < 0 {
+			featureIndex = i
+		}
 	}
-	node, err := standardReasoningPreservationConfigNode()
+	backends, err := codexCompanionBackends(cfg.Plugins.Backends)
 	if err != nil {
 		return err
 	}
-	cfg.Plugins.Features = append(cfg.Plugins.Features, config.PluginConfig{
-		ID:      ReasoningOutputPreservationFeatureID,
-		Enabled: true,
-		Config:  node,
-	})
+	if len(backends) == 0 {
+		return nil
+	}
+
+	if featureIndex < 0 {
+		node, err := reasoningpreservation.NewCodexCompanionConfig(backends)
+		if err != nil {
+			return err
+		}
+		cfg.Plugins.Features = append(cfg.Plugins.Features, config.PluginConfig{
+			ID:      ReasoningOutputPreservationFeatureID,
+			Enabled: true,
+			Config:  node,
+		})
+		return nil
+	}
+
+	row := &cfg.Plugins.Features[featureIndex]
+	row.Config, err = reasoningpreservation.EnsureCodexCompanionRules(row.Config, backends)
+	if err != nil {
+		return fmt.Errorf("reasoning-output-preservation config: %w", err)
+	}
 	return nil
 }
 
-func standardReasoningPreservationConfigNode() (yaml.Node, error) {
-	raw := map[string]any{
-		"action":              reasoningpreservation.ActionRestore,
-		"use_builtin_catalog": true,
-		"on_ambiguous":        reasoningpreservation.PolicyLogSkip,
-		"on_unrepresentable":  reasoningpreservation.PolicyReject,
-		"on_state_error":      reasoningpreservation.PolicyReject,
-		"state": map[string]any{
-			"ttl":                          "24h",
-			"max_turns_per_session":        16,
-			"max_reasoning_bytes_per_turn": 65536,
-			"max_session_bytes":            262144,
-		},
-	}
-	b, err := yaml.Marshal(raw)
-	if err != nil {
-		return yaml.Node{}, fmt.Errorf("reasoning-output-preservation defaults: %w", err)
-	}
-	var doc yaml.Node
-	if err := yaml.Unmarshal(b, &doc); err != nil {
-		return yaml.Node{}, fmt.Errorf("reasoning-output-preservation defaults: %w", err)
-	}
-	node := doc
-	if doc.Kind == yaml.DocumentNode {
-		if len(doc.Content) == 0 {
-			return yaml.Node{}, fmt.Errorf("reasoning-output-preservation defaults: empty document")
+type nativeContextWire struct {
+	Enabled *bool `yaml:"enabled"`
+}
+
+type codexBackendWire struct {
+	NativeContext *nativeContextWire `yaml:"native_context"`
+}
+
+func codexCompanionBackends(rows []config.PluginConfig) ([]string, error) {
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if !row.Enabled || strings.TrimSpace(row.FactoryID()) != openAICodexFactory {
+			continue
 		}
-		node = *doc.Content[0]
+		nativeEnabled, err := nativeContextEnabled(row.Config)
+		if err != nil {
+			return nil, fmt.Errorf("backend %q native_context: %w", row.InstanceID(), err)
+		}
+		if !nativeEnabled || row.InstanceID() == "" {
+			continue
+		}
+		out = append(out, row.InstanceID())
 	}
-	if _, err := reasoningpreservation.DecodeConfig(node); err != nil {
-		return yaml.Node{}, fmt.Errorf("reasoning-output-preservation defaults: %w", err)
+	return out, nil
+}
+
+func nativeContextEnabled(n yaml.Node) (bool, error) {
+	root := n
+	if root.Kind == yaml.DocumentNode {
+		if len(root.Content) == 0 {
+			return true, nil
+		}
+		root = *root.Content[0]
 	}
-	return node, nil
+	if root.Kind == 0 {
+		return true, nil
+	}
+	var wire codexBackendWire
+	if err := root.Decode(&wire); err != nil {
+		return false, err
+	}
+	if wire.NativeContext == nil || wire.NativeContext.Enabled == nil {
+		return true, nil
+	}
+	return *wire.NativeContext.Enabled, nil
 }

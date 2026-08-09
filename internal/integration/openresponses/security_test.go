@@ -43,7 +43,7 @@ func rawORCreate(t *testing.T, d *conformance.Deployment, rawBody string) (int, 
 	if err != nil {
 		t.Fatalf("raw create: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, string(body)
 }
@@ -70,7 +70,7 @@ func storeTrueCreate(t *testing.T, d *conformance.Deployment, prevID string) (st
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("status %d: %s", resp.StatusCode, string(body))
@@ -173,7 +173,6 @@ func TestSecurity_ExtensionSmugglingRejectedBeforeNetwork(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			d := conformance.Deploy(t, conformance.DeploymentSpec{
@@ -184,7 +183,7 @@ func TestSecurity_ExtensionSmugglingRejectedBeforeNetwork(t *testing.T) {
 			if d == nil {
 				t.Fatal("Deploy failed")
 			}
-			defer d.Close()
+			defer func() { _ = d.Close() }()
 
 			status, _ := rawORCreate(t, d, tc.body)
 			if status == http.StatusOK {
@@ -213,7 +212,7 @@ func TestSecurity_IncompatibleFailoverZeroNetwork(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	status, _ := rawORCreate(t, d, `{"model":"gpt-4o-mini","store":false,"input":[{"type":"acme:telemetry","namespace":"acme","data":{"sample":1}}]}`)
 	if status == http.StatusOK {
@@ -240,7 +239,7 @@ func TestSecurity_IDProbingIndistinguishableNotFound(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	var wantCode, wantMessage, wantType string
 	for i, tc := range []struct {
@@ -288,7 +287,6 @@ func TestSecurity_IDProbingIndistinguishableNotFound(t *testing.T) {
 func TestSecurity_NativeResponseIDNotLeaked(t *testing.T) {
 	t.Parallel()
 	for _, transport := range []conformance.ClientTransport{conformance.TransportSSE, conformance.TransportJSON} {
-		transport := transport
 		t.Run(string(transport), func(t *testing.T) {
 			t.Parallel()
 			origin := &adversarialOROrigin{
@@ -304,7 +302,7 @@ func TestSecurity_NativeResponseIDNotLeaked(t *testing.T) {
 			if d == nil {
 				t.Fatal("Deploy failed")
 			}
-			defer d.Close()
+			defer func() { _ = d.Close() }()
 
 			res, err := d.Client.RoundTrip(context.Background(), "ping")
 			if err != nil {
@@ -359,7 +357,7 @@ func TestSecurity_EventInjectionAfterTerminalIgnored(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	res, err := d.Client.RoundTrip(context.Background(), "ping")
 	if err != nil {
@@ -406,7 +404,7 @@ func TestSecurity_EventInjectionBeforeStartRejected(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	if _, err := d.Client.RoundTrip(context.Background(), "ping"); err == nil {
 		t.Fatal("injected pre-start stream unexpectedly succeeded")
@@ -430,7 +428,7 @@ func TestSecurity_OpaqueReplayRequiresCompatibleDialect(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	status, _ := rawORCreate(t, d, `{"model":"gpt-4o-mini","store":false,"input":[{"type":"reasoning","reasoning":"think carefully"}]}`)
 	if status == http.StatusOK {
@@ -477,7 +475,7 @@ func TestSecurity_OpaqueReplayNotLeakedAsText(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	res, err := d.Client.RoundTrip(context.Background(), "ping")
 	if err != nil {
@@ -510,10 +508,10 @@ func TestSecurity_AmplificationChainDepthRejected(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	prev := ""
-	for i := 0; i < depth+1; i++ {
+	for i := range depth + 1 {
 		id, err := storeTrueCreate(t, d, prev)
 		if err != nil {
 			t.Fatalf("create at depth %d: %v", i+1, err)
@@ -597,7 +595,7 @@ func TestSecurity_WebSocketOriginAbuseRejected(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	u, err := url.Parse(strings.TrimRight(d.BaseURL(), "/") + "/openresponses/v1/responses")
 	if err != nil {
@@ -637,9 +635,9 @@ func TestSecurity_RedactedArtifactsBounded(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if _, err := d.Client.RoundTrip(context.Background(), "ping"); err != nil {
 			t.Fatalf("round trip %d: %v", i, err)
 		}
@@ -694,7 +692,7 @@ func TestCommitment_NoRetryAfterVisibleOutput(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	res, err := d.Client.RoundTrip(context.Background(), "ping")
 	if err == nil {
@@ -734,7 +732,7 @@ func TestCommitment_PreOutputClassifiedFailoverProceeds(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	res, err := d.Client.RoundTrip(context.Background(), "ping")
 	if err != nil {

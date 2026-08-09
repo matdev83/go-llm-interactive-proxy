@@ -119,7 +119,6 @@ func TestConfig_ValidationRejections(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.yaml, func(t *testing.T) {
 			t.Parallel()
 			var node yaml.Node

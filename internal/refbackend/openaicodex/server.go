@@ -237,7 +237,8 @@ func (s *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 	if rejectModel := strings.TrimSpace(s.cfg.ForcedWSRejectModel); rejectModel != "" {
 		if model, _ := payload["model"].(string); model == rejectModel {
 			_ = conn.WriteMessage(websocket.TextMessage, []byte(
-				`{"type":"error","error":{"message":"gpt-5.5 is not available on free plan"}}`))
+				`{"type":"error","error":{"message":"gpt-5.5 is not available on free plan"}}`,
+			))
 			return
 		}
 	}

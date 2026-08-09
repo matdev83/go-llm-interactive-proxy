@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -59,7 +60,7 @@ func NewFileStore(path string, limits lipcont.StorageLimits) (*FileStore, error)
 	if path == "" {
 		return nil, fmt.Errorf("%w: empty path", lipcont.ErrStorageFailure)
 	}
-	if filepath.IsAbs(path) == false {
+	if !filepath.IsAbs(path) {
 		return nil, fmt.Errorf("%w: path must be absolute", lipcont.ErrStorageFailure)
 	}
 	if hasParentTraversal(path) {
@@ -80,7 +81,7 @@ func NewFileStore(path string, limits lipcont.StorageLimits) (*FileStore, error)
 	if err != nil {
 		return nil, err
 	}
-	defer lock.close()
+	defer func() { _ = lock.close() }()
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		if err := s.persistLocked(context.Background(), fileState{}); err != nil {
@@ -140,7 +141,7 @@ func (s *FileStore) Reserve(ctx context.Context, scope lipcont.Scope, policy lip
 	if err != nil {
 		return "", err
 	}
-	defer lock.close()
+	defer func() { _ = lock.close() }()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -154,7 +155,7 @@ func (s *FileStore) Reserve(ctx context.Context, scope lipcont.Scope, policy lip
 		return "", lipcont.ErrStorageLimitExceeded
 	}
 	var id lipcont.ResponseID
-	for attempt := 0; attempt < 5; attempt++ {
+	for range 5 {
 		id, err = newID(ctx)
 		if err != nil {
 			return "", err
@@ -196,7 +197,7 @@ func (s *FileStore) PutTerminal(ctx context.Context, record lipcont.Continuation
 	if err != nil {
 		return err
 	}
-	defer lock.close()
+	defer func() { _ = lock.close() }()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -259,7 +260,7 @@ func (s *FileStore) Get(ctx context.Context, scope lipcont.Scope, id lipcont.Res
 	if err != nil {
 		return lipcont.ContinuationRecord{}, err
 	}
-	defer lock.close()
+	defer func() { _ = lock.close() }()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -291,7 +292,7 @@ func (s *FileStore) Delete(ctx context.Context, scope lipcont.Scope, id lipcont.
 	if err != nil {
 		return err
 	}
-	defer lock.close()
+	defer func() { _ = lock.close() }()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -331,7 +332,7 @@ func (s *FileStore) persistLocked(ctx context.Context, state fileState) error {
 		return fmt.Errorf("%w: create temp: %v", lipcont.ErrStorageFailure, err)
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	defer func() { _ = os.Remove(tmpName) }()
 	if err := ctx.Err(); err != nil {
 		_ = tmp.Close()
 		return err
@@ -517,12 +518,7 @@ func normalizeReservations(entries []fileEntry, now time.Time) {
 }
 
 func hasParentTraversal(path string) bool {
-	for _, part := range splitPath(path) {
-		if part == ".." {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(splitPath(path), "..")
 }
 
 func rejectSymlinkParents(path string) error {
@@ -544,7 +540,7 @@ func rejectSymlinkParents(path string) error {
 func splitPath(path string) []string {
 	path = filepath.ToSlash(path)
 	parts := make([]string, 0, 8)
-	for _, part := range strings.Split(path, "/") {
+	for part := range strings.SplitSeq(path, "/") {
 		if part != "" && part != "." {
 			parts = append(parts, part)
 		}

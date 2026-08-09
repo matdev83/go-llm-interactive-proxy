@@ -363,8 +363,11 @@ func (c *CandidateHTTPCompile) SnapshotGeneration() *snapshotgen.Publisher {
 func (c *CandidateHTTPCompile) SnapshotController() *SnapshotController {
 	return CandidateSnapshotController(c)
 }
-func (c *CandidateHTTPCompile) DatabasePools() *db.PoolRegistry   { return CandidateDatabasePools(c) }
+
+func (c *CandidateHTTPCompile) DatabasePools() *db.PoolRegistry { return CandidateDatabasePools(c) }
+
 func (c *CandidateHTTPCompile) MeteringQuerier() metering.Querier { return CandidateMeteringQuerier(c) }
+
 func (c *CandidateHTTPCompile) TokenAccountingAdmin() *accountingapp.Service {
 	return CandidateTokenAccountingAdmin(c)
 }

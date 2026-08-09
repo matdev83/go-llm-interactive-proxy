@@ -365,12 +365,14 @@ func (m *memStream) Recv() (backendplugin.ClientFrame, error) {
 	m.ri++
 	return f, nil
 }
+
 func (m *memStream) Send(frame backendplugin.ServerFrame) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.outbox = append(m.outbox, frame)
 	return nil
 }
+
 func (m *memStream) outLen() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()

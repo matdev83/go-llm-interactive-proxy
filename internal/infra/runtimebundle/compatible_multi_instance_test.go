@@ -41,7 +41,6 @@ func TestCompatibleMultiInstance_IsolationAcrossFamilies(t *testing.T) {
 	}
 
 	for _, pair := range compatibleparity.IsolationPairs() {
-		pair := pair
 		t.Run(string(pair.Family), func(t *testing.T) {
 			srvA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				writeMultiInstanceResponse(w, "A", pair.Family, r.URL.Path)
@@ -445,7 +444,7 @@ func writeCompatibleRoutingConfig(t *testing.T, specs map[string]routingInstance
 	}
 	var rows strings.Builder
 	for id, spec := range specs {
-		rows.WriteString(fmt.Sprintf(`    - id: %s
+		fmt.Fprintf(&rows, `    - id: %s
       kind: custom-openai-legacy-compatible
       enabled: true
       config:
@@ -459,7 +458,7 @@ func writeCompatibleRoutingConfig(t *testing.T, specs map[string]routingInstance
           items:
             - canonical_id: %s/model-a
               native_id: model-a
-`, id, id, spec.URL, spec.EnvRoot, spec.Tokenizer, spec.MaxConcurrent, id))
+`, id, id, spec.URL, spec.EnvRoot, spec.Tokenizer, spec.MaxConcurrent, id)
 	}
 	text := strings.Replace(string(base), "  features:\n", rows.String()+"  features:\n", 1)
 	path := filepath.Join(t.TempDir(), "config.yaml")

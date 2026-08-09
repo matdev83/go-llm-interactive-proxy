@@ -20,6 +20,10 @@ type Profile struct {
 	SupportedInAPI           bool
 	ContextWindow            int
 	MaxContextWindow         int
+	// These fields are connector-private Codex catalog metadata. They are not
+	// part of the root model inventory contract.
+	AutoCompactTokenLimit int64
+	CompHash              string
 }
 
 // APIAccepted reports whether the slug is selectable through the Codex
@@ -124,13 +128,15 @@ type wireLevel struct {
 
 // wireModel is a single model entry in the `codex debug models` payload.
 type wireModel struct {
-	Slug                     string      `json:"slug"`
-	DefaultReasoningLevel    string      `json:"default_reasoning_level"`
-	SupportedReasoningLevels []wireLevel `json:"supported_reasoning_levels"`
-	Visibility               string      `json:"visibility"`
-	SupportedInAPI           *bool       `json:"supported_in_api"`
-	ContextWindow            int         `json:"context_window"`
-	MaxContextWindow         int         `json:"max_context_window"`
+	Slug                     string          `json:"slug"`
+	DefaultReasoningLevel    string          `json:"default_reasoning_level"`
+	SupportedReasoningLevels []wireLevel     `json:"supported_reasoning_levels"`
+	Visibility               string          `json:"visibility"`
+	SupportedInAPI           *bool           `json:"supported_in_api"`
+	ContextWindow            json.RawMessage `json:"context_window"`
+	MaxContextWindow         json.RawMessage `json:"max_context_window"`
+	AutoCompactTokenLimit    json.RawMessage `json:"auto_compact_token_limit"`
+	CompHash                 json.RawMessage `json:"comp_hash"`
 }
 
 type wireCatalog struct {
@@ -193,8 +199,10 @@ func Parse(raw []byte) (*Catalog, error) {
 			SupportedReasoningLevels: levels,
 			Visibility:               visibility,
 			SupportedInAPI:           supportedInAPI,
-			ContextWindow:            m.ContextWindow,
-			MaxContextWindow:         m.MaxContextWindow,
+			ContextWindow:            parseNonNegativeInt(m.ContextWindow),
+			MaxContextWindow:         parseNonNegativeInt(m.MaxContextWindow),
+			AutoCompactTokenLimit:    parseNonNegativeInt64(m.AutoCompactTokenLimit),
+			CompHash:                 parseString(m.CompHash),
 		}
 		key := strings.ToLower(slug)
 		if _, exists := profiles[key]; exists {
@@ -214,4 +222,28 @@ func Parse(raw []byte) (*Catalog, error) {
 		effortOrder:        widest,
 		effortDescriptions: descriptions,
 	}, nil
+}
+
+func parseNonNegativeInt(raw json.RawMessage) int {
+	v := parseNonNegativeInt64(raw)
+	if v > int64(^uint(0)>>1) {
+		return 0
+	}
+	return int(v)
+}
+
+func parseNonNegativeInt64(raw json.RawMessage) int64 {
+	var v int64
+	if len(raw) == 0 || json.Unmarshal(raw, &v) != nil || v < 0 {
+		return 0
+	}
+	return v
+}
+
+func parseString(raw json.RawMessage) string {
+	var value string
+	if len(raw) == 0 || json.Unmarshal(raw, &value) != nil {
+		return ""
+	}
+	return value
 }

@@ -106,7 +106,7 @@ func TestMaterializeAmplificationCheckAtEntry(t *testing.T) {
 
 	// Huge input that exceeds bounds before store lookup
 	hugeInput := make([]lipapi.Item, 0, 100)
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		hugeInput = append(hugeInput, lipapi.Item{
 			Kind: lipapi.ItemKindMessage,
 			Role: lipapi.RoleUser,

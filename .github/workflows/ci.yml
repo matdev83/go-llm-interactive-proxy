@@ -72,7 +72,9 @@ jobs:
           PUSHED_REF: ${{ github.ref }}
         run: |
           if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            commits=$(git rev-list --reverse "$BASE_SHA..HEAD")
+            # The final PR tree is authoritative; the manifest may be completed
+            # by a later commit than the files it approves.
+            commits=""
           elif [[ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]] && git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
             commits=$(git rev-list --reverse "$BEFORE_SHA..HEAD")
           else
