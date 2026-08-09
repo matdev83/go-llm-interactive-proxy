@@ -17,7 +17,7 @@ Operator documentation: [`docs/cursor-sdk-backend.md`](../../../../../docs/curso
 - `src/liveProbe.ts` — opt-in live probe (`CURSOR_SDK_LIVE_PROBE=1` + `CURSOR_API_KEY`)
 - `src/liveScenarios.ts` — opt-in live scenarios (`CURSOR_SDK_LIVE=1` + `CURSOR_API_KEY`)
 
-Shared fixtures live in `../testdata/fixtures` and are consumed by both Go and TypeScript tests.
+Shared fixtures live in `../internal/product/testdata/fixtures` and are consumed by both Go and TypeScript tests.
 
 ## Release smoke (repo root)
 

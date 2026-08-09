@@ -4,9 +4,9 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-/** Shared Go/TS fixture root: ../testdata/fixtures */
+/** Shared Go/TS fixture root: ../../internal/product/testdata/fixtures */
 export function fixtureRoot(): string {
-  return join(here, "..", "..", "testdata", "fixtures");
+  return join(here, "..", "..", "internal", "product", "testdata", "fixtures");
 }
 
 export function readFixture(rel: string): string {
