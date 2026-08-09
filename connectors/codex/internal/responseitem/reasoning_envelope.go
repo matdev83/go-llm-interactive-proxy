@@ -22,9 +22,18 @@ var envelopeKeyOrder = [...]string{
 
 const maxOpaqueJSONDepth = 100
 
+// The OpenResponses compact schema permits a 10 MiB encrypted summary. Keep
+// this connector-private limit separate from the smaller canonical part cap.
+const maxCompactionSummaryBytes = 10 << 20
+
 var (
 	envelopeAllowed     = keySet(envelopeKeyOrder[:])
 	reasoningTextFields = keySet([]string{"type", "text"})
+	// Some Codex deployments include the response lifecycle status on the
+	// returned item even though the published compact-item schema omits it.
+	// It is validated and discarded during canonicalization.
+	compactionAllowed        = keySet([]string{"type", "id", "encrypted_content", "created_by", "status"})
+	compactionSummaryAllowed = keySet([]string{"type", "id", "encrypted_content", "created_by", "status"})
 )
 
 func keySet(keys []string) map[string]struct{} {
@@ -80,11 +89,51 @@ func ParseIncompleteFields(raw []byte) (map[string]json.RawMessage, error) {
 	return out, nil
 }
 
+// ValidateJSONObject applies the bounded JSON-object checks used for opaque
+// Responses resources without interpreting provider content.
+func ValidateJSONObject(raw []byte, maxBytes int) error {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || (maxBytes > 0 && len(trimmed) > maxBytes) {
+		return itemError("invalid object")
+	}
+	if err := rejectDuplicateJSONObjectKeys(trimmed); err != nil {
+		return err
+	}
+	dec := json.NewDecoder(bytes.NewReader(trimmed))
+	var object map[string]json.RawMessage
+	if err := dec.Decode(&object); err != nil || object == nil {
+		return itemError("invalid object")
+	}
+	var trailing json.RawMessage
+	if err := dec.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return itemError("trailing JSON")
+	}
+	return nil
+}
+
+// ParseObjectFields validates a bounded JSON object, rejects duplicate keys,
+// and applies an exact field allowlist. The returned fields are caller-owned.
+func ParseObjectFields(raw []byte, allowed map[string]struct{}, maxBytes int) (map[string]json.RawMessage, error) {
+	return parseAllowedObjectWithMax(raw, allowed, maxBytes)
+}
+
 // CanonizeReasoningItemOpaque validates a Responses reasoning item JSON object
 // against the exact Opaque allowlist and returns a presence-preserving canonical form.
 //
 // type may be absent on input; it is always emitted as "reasoning" (required semantically).
 func CanonizeReasoningItemOpaque(raw []byte) (json.RawMessage, error) {
+	return canonizeReasoningItem(raw, true)
+}
+
+// CanonizeReasoningItemForInput removes response-only lifecycle fields before a
+// reasoning item is replayed as Responses input. Codex CLI serializes its
+// internal reasoning model without status; the provider may reject status on
+// the stricter compaction path.
+func CanonizeReasoningItemForInput(raw []byte) (json.RawMessage, error) {
+	return canonizeReasoningItem(raw, false)
+}
+
+func canonizeReasoningItem(raw []byte, preserveStatus bool) (json.RawMessage, error) {
 	obj, err := ParseIncompleteFields(raw)
 	if err != nil {
 		return nil, err
@@ -154,20 +203,22 @@ func CanonizeReasoningItemOpaque(raw []byte) (json.RawMessage, error) {
 		}
 	}
 
-	if statusRaw, ok := obj["status"]; ok {
-		var status string
-		if err := json.Unmarshal(statusRaw, &status); err != nil {
-			return nil, itemError("invalid status")
-		}
-		switch status {
-		case "in_progress", "completed", "incomplete":
-			statusBytes, err := json.Marshal(status)
-			if err != nil {
+	if preserveStatus {
+		if statusRaw, ok := obj["status"]; ok {
+			var status string
+			if err := json.Unmarshal(statusRaw, &status); err != nil {
 				return nil, itemError("invalid status")
 			}
-			out["status"] = statusBytes
-		default:
-			return nil, itemError("invalid status")
+			switch status {
+			case "in_progress", "completed", "incomplete":
+				statusBytes, err := json.Marshal(status)
+				if err != nil {
+					return nil, itemError("invalid status")
+				}
+				out["status"] = statusBytes
+			default:
+				return nil, itemError("invalid status")
+			}
 		}
 	}
 
@@ -179,6 +230,150 @@ func CanonizeReasoningItemOpaque(raw []byte) (json.RawMessage, error) {
 		return nil, itemError("oversize")
 	}
 	return json.RawMessage(canon), nil
+}
+
+// CanonizeCompactionItemOpaque validates the exact Responses compaction output
+// envelope. A compaction trigger is only {"type":"compaction"}; this helper
+// is intentionally for the completed output item and does not accept reasoning
+// fields or a stream lifecycle status.
+func CanonizeCompactionItemOpaque(raw []byte) (json.RawMessage, error) {
+	obj, err := parseAllowedObject(raw, compactionAllowed)
+	if err != nil {
+		return nil, itemError("invalid compaction item")
+	}
+	var typ, id, encrypted, status string
+	if json.Unmarshal(obj["type"], &typ) != nil || typ != "compaction" ||
+		json.Unmarshal(obj["id"], &id) != nil || strings.TrimSpace(id) == "" ||
+		json.Unmarshal(obj["encrypted_content"], &encrypted) != nil || encrypted == "" {
+		return nil, itemError("invalid compaction item")
+	}
+	if statusRaw, ok := obj["status"]; ok {
+		if json.Unmarshal(statusRaw, &status) != nil || status != "completed" {
+			return nil, itemError("invalid compaction item")
+		}
+	}
+	fields := map[string]json.RawMessage{
+		"type":              json.RawMessage(`"compaction"`),
+		"id":                mustMarshalString(id),
+		"encrypted_content": mustMarshalString(encrypted),
+	}
+	if createdBy, ok := obj["created_by"]; ok {
+		var value string
+		if json.Unmarshal(createdBy, &value) != nil {
+			return nil, itemError("invalid compaction item")
+		}
+		fields["created_by"] = mustMarshalString(value)
+	}
+	canon, err := marshalCompactionEnvelope(fields)
+	if err != nil || len(canon) > lipapi.MaxPartJSONBytes {
+		return nil, itemError("invalid compaction item")
+	}
+	return json.RawMessage(canon), nil
+}
+
+// CanonizeCompactionSummaryItemOpaque validates the private input item emitted
+// by the dedicated Codex compact endpoint. The raw object is returned unchanged
+// after validation so provider fields and their presence survive replay.
+func CanonizeCompactionSummaryItemOpaque(raw []byte) (json.RawMessage, error) {
+	obj, err := parseAllowedObjectWithMax(raw, compactionSummaryAllowed, maxCompactionSummaryBytes)
+	if err != nil {
+		return nil, itemError("invalid compaction summary item")
+	}
+	var typ string
+	if json.Unmarshal(obj["type"], &typ) != nil || typ != "compaction_summary" {
+		return nil, itemError("invalid compaction summary item")
+	}
+	if encrypted, ok := obj["encrypted_content"]; !ok {
+		return nil, itemError("invalid compaction summary item")
+	} else {
+		var value string
+		if json.Unmarshal(encrypted, &value) != nil || value == "" || len(value) > maxCompactionSummaryBytes {
+			return nil, itemError("invalid compaction summary item")
+		}
+	}
+	if id, ok := obj["id"]; ok && !isJSONNull(id) {
+		var value string
+		if json.Unmarshal(id, &value) != nil || strings.TrimSpace(value) == "" {
+			return nil, itemError("invalid compaction summary item")
+		}
+	}
+	if status, ok := obj["status"]; ok {
+		var value string
+		if json.Unmarshal(status, &value) != nil || value != "completed" {
+			return nil, itemError("invalid compaction summary item")
+		}
+	}
+	if createdBy, ok := obj["created_by"]; ok {
+		var value string
+		if json.Unmarshal(createdBy, &value) != nil {
+			return nil, itemError("invalid compaction summary item")
+		}
+	}
+	return json.RawMessage(append([]byte(nil), bytes.TrimSpace(raw)...)), nil
+}
+
+// CompactionSummaryMaxBytes is the provider schema bound used by the Codex
+// connector for the opaque encrypted summary envelope.
+const CompactionSummaryMaxBytes = maxCompactionSummaryBytes
+
+func mustMarshalString(value string) json.RawMessage {
+	data, _ := json.Marshal(value)
+	return data
+}
+
+func parseAllowedObject(raw []byte, allowed map[string]struct{}) (map[string]json.RawMessage, error) {
+	return parseAllowedObjectWithMax(raw, allowed, lipapi.MaxPartJSONBytes)
+}
+
+func parseAllowedObjectWithMax(raw []byte, allowed map[string]struct{}, maxBytes int) (map[string]json.RawMessage, error) {
+	if len(bytes.TrimSpace(raw)) == 0 || (maxBytes > 0 && len(raw) > maxBytes) {
+		return nil, errors.New("invalid object")
+	}
+	if err := rejectDuplicateJSONObjectKeys(raw); err != nil {
+		return nil, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var obj map[string]json.RawMessage
+	if err := dec.Decode(&obj); err != nil || obj == nil {
+		return nil, errors.New("invalid object")
+	}
+	var trailing json.RawMessage
+	if err := dec.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return nil, errors.New("trailing JSON")
+	}
+	for key := range obj {
+		if _, ok := allowed[key]; !ok {
+			return nil, errors.New("unknown field")
+		}
+	}
+	return obj, nil
+}
+
+func marshalCompactionEnvelope(fields map[string]json.RawMessage) ([]byte, error) {
+	order := [...]string{"type", "id", "encrypted_content", "created_by"}
+	var b bytes.Buffer
+	b.WriteByte('{')
+	first := true
+	for _, key := range order {
+		value, ok := fields[key]
+		if !ok {
+			continue
+		}
+		if !first {
+			b.WriteByte(',')
+		}
+		first = false
+		encodedKey, err := json.Marshal(key)
+		if err != nil {
+			return nil, err
+		}
+		b.Write(encodedKey)
+		b.WriteByte(':')
+		b.Write(value)
+	}
+	b.WriteByte('}')
+	return b.Bytes(), nil
 }
 
 // MarshalEnvelope validates allowlisted fields and writes them in deterministic key order.

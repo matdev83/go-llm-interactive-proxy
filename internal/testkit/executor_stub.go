@@ -86,7 +86,8 @@ func NewStubExecutorWithDeltas(t *testing.T, caps lipapi.BackendCaps, deltas []s
 				_ = cand
 				prefix := stubToolPrefixEvents(call)
 				evs := make([]lipapi.Event, 0, 2+len(prefix)+len(deltas)+1)
-				evs = append(evs,
+				evs = append(
+					evs,
 					lipapi.Event{Kind: lipapi.EventResponseStarted},
 					lipapi.Event{Kind: lipapi.EventMessageStarted},
 				)
@@ -124,12 +125,14 @@ func NewStubExecutor(t *testing.T, caps lipapi.BackendCaps, text string, capture
 				_ = cand
 				prefix := stubToolPrefixEvents(call)
 				evs := make([]lipapi.Event, 0, 2+len(prefix)+2)
-				evs = append(evs,
+				evs = append(
+					evs,
 					lipapi.Event{Kind: lipapi.EventResponseStarted},
 					lipapi.Event{Kind: lipapi.EventMessageStarted},
 				)
 				evs = append(evs, prefix...)
-				evs = append(evs,
+				evs = append(
+					evs,
 					lipapi.Event{Kind: lipapi.EventTextDelta, Delta: text},
 					lipapi.Event{Kind: lipapi.EventResponseFinished},
 				)

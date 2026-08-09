@@ -98,7 +98,7 @@ func openResponsesLegacyFamilyFixtures() []openResponsesLegacyFamilyFixture {
 						ImageMIME: "image/png",
 					}}},
 				},
-				Options: lipapi.GenerationOptions{MaxOutputTokens: intPtr(64)},
+				Options: lipapi.GenerationOptions{MaxOutputTokens: new(64)},
 				Extensions: map[string]json.RawMessage{
 					"anthropic.model": json.RawMessage(`"claude-3-5-haiku-20241022"`),
 				},
@@ -190,7 +190,8 @@ func newOpenResponsesBackendObserver(t *testing.T, extraCfg string) (*openRespon
 	return obs, open
 }
 
-func intPtr(i int) *int { return &i }
+//go:fix inline
+func intPtr(i int) *int { return new(i) }
 
 func openResponsesCreateInvocation() lipapi.Invocation {
 	return lipapi.Invocation{
@@ -203,7 +204,6 @@ func openResponsesCreateInvocation() lipapi.Invocation {
 func TestConformance_OpenResponsesBackendColumnLegacyToItems(t *testing.T) {
 	t.Parallel()
 	for _, fixture := range openResponsesLegacyFamilyFixtures() {
-		fixture := fixture
 		t.Run(fixture.source, func(t *testing.T) {
 			t.Parallel()
 			obs, open := newOpenResponsesBackendObserver(t, "")
@@ -305,7 +305,6 @@ func TestConformance_OpenResponsesBackendColumnLegacyNoNetwork(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			obs, open := newOpenResponsesBackendObserver(t, "")

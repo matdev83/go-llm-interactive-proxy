@@ -39,7 +39,6 @@ func TestParseUsage_MalformedBranches(t *testing.T) {
 		{"bad_reasoning", `{"input_tokens":0,"output_tokens":0,"total_tokens":0,"output_tokens_details":{"reasoning_tokens":"x"}}`},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if _, err := ParseResponseResource([]byte(completeResponseJSON(tc.usage)), DefaultParseOptions()); err == nil {
@@ -120,7 +119,6 @@ func TestParseEvent_ErrorBranches(t *testing.T) {
 		{"bad_response", `{"type":"response.completed","response":"nope"}`, ParseOptions{}},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if _, err := ParseEvent([]byte(tc.data), tc.opts); err == nil {
@@ -154,7 +152,6 @@ func TestParseSSE_FieldErrors(t *testing.T) {
 		{"event_header_mismatch", "event: response.output_text.delta\ndata: {\"type\":\"response.created\",\"sequence_number\":1}\n\ndata: [DONE]\n\n"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if _, _, err := ParseSSE([]byte(tc.data), DefaultParseOptions()); err == nil {
@@ -366,7 +363,6 @@ func TestItem_MalformedFields(t *testing.T) {
 		{"bad_reasoning_summary", `{"type":"reasoning","summary":123}`},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var it Item
@@ -410,7 +406,7 @@ func TestCreateParams_MarshalExtraFields(t *testing.T) {
 	store := false
 	p := CreateParams{
 		Model: "m", Input: Input{Text: "x"},
-		Truncation: "auto", Store: &store, Background: boolPtr(true),
+		Truncation: "auto", Store: &store, Background: new(true),
 		SafetyIdentifier: "safe", PromptCacheRetention: "10m",
 		Extensions: map[string]json.RawMessage{"acme:k": json.RawMessage(`1`)},
 	}
@@ -494,6 +490,7 @@ func TestWS_BinaryFrame(t *testing.T) {
 	t.Parallel()
 	t.Run("binary_frame", func(t *testing.T) {
 		srv := wsTestServer(t, func(t *testing.T, conn *websocket.Conn) {
+			t.Helper()
 			_ = wsReadCreateEnvelope(t, conn)
 			_ = conn.WriteMessage(websocket.BinaryMessage, []byte(`{"type":"response.created","sequence_number":0}`))
 			_ = conn.WriteMessage(websocket.BinaryMessage, []byte(`{"type":"response.completed","sequence_number":1,"response":{"id":"resp_bin","object":"response","status":"completed"}}`))
@@ -666,7 +663,6 @@ func TestParseEvent_MalformedFields(t *testing.T) {
 		{"bad_reasoning_done", `{"type":"response.reasoning.done","text":123}`},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if _, err := ParseEvent([]byte(tc.data), DefaultParseOptions()); err == nil {
@@ -741,7 +737,6 @@ func TestContentPart_MalformedFields(t *testing.T) {
 		{"unknown_unprefixed", `{"type":"weird_part"}`},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var p ContentPart
@@ -768,7 +763,6 @@ func TestRequestUnmarshal_MalformedControls(t *testing.T) {
 		{"bad_store", `{"store":"x"}`},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var p CreateParams
@@ -796,7 +790,6 @@ func TestParseResponseResource_FieldErrors(t *testing.T) {
 		{"bad_completed_at", `{"completed_at":"x"}`},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			base := strings.Replace(completeResponseJSON(""), `"id":"r"`, `"id":"r"`, 1)
@@ -853,6 +846,7 @@ func TestSSE_OutputAfterDone(t *testing.T) {
 func TestWSTurn_ServerAbort(t *testing.T) {
 	t.Parallel()
 	srv := wsTestServer(t, func(t *testing.T, conn *websocket.Conn) {
+		t.Helper()
 		_ = wsReadCreateEnvelope(t, conn)
 		_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.created","sequence_number":0}`))
 		_ = conn.Close()

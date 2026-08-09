@@ -119,14 +119,17 @@ func (o *lifecycleFailingOwnerObserver) OwnsContinuationReservation() bool {
 	o.ownsCalls.Add(1)
 	return true
 }
+
 func (o *lifecycleFailingOwnerObserver) ContinuationReservationCleanupConsumed() bool {
 	return o.cleanupUsed.Load()
 }
+
 func (o *lifecycleFailingOwnerObserver) ReleaseContinuationReservation() {
 	o.releaseCalls.Add(1)
 	o.cleanupUsed.Store(true)
 	_ = o.store.Delete(context.Background(), o.record.Scope, o.record.ID)
 }
+
 func (o *lifecycleFailingOwnerObserver) FinalizeIncomplete(ctx context.Context) error {
 	o.finalizeCalls.Add(1)
 	if err := o.store.Delete(ctx, o.record.Scope, o.record.ID); err != nil {
@@ -375,7 +378,7 @@ func TestContinuationStressAndGoroutineTolerance(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(iterations)
 
-	for i := 0; i < iterations; i++ {
+	for range iterations {
 		go func() {
 			defer wg.Done()
 			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"m","input":"hi","stream":true,"store":true}`))

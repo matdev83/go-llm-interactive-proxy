@@ -42,13 +42,7 @@ func defaultCompilePhaseConfig(jobs int) compilePhaseConfig {
 // processors, capped at maxCompileWorkers, floored at one, and never exceeding
 // the number of jobs.
 func compileWorkerCount(procs, jobs int) int {
-	workers := procs
-	if workers > maxCompileWorkers {
-		workers = maxCompileWorkers
-	}
-	if workers < 1 {
-		workers = 1
-	}
+	workers := max(min(procs, maxCompileWorkers), 1)
 	if jobs > 0 && workers > jobs {
 		workers = jobs
 	}

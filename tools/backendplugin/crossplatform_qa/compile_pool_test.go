@@ -20,7 +20,7 @@ func makeCompileJobs(n int) []claimJob {
 	oss := []string{"linux", "darwin", "windows"}
 	arches := []string{"amd64", "arm64"}
 	jobs := make([]claimJob, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		jobs = append(jobs, claimJob{
 			r: discoveredRelease{DirName: fmt.Sprintf("conn-%03d", i)},
 			c: platformClaim{OS: oss[i%len(oss)], Arch: arches[(i/len(oss))%len(arches)]},
@@ -51,6 +51,7 @@ func TestCompileWorkerCount_CapFloorAndJobsBound(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			if got := compileWorkerCount(tc.procs, tc.jobs); got != tc.want {
 				t.Fatalf("compileWorkerCount(%d, %d) = %d, want %d", tc.procs, tc.jobs, got, tc.want)
 			}

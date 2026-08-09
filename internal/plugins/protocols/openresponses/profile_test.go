@@ -290,11 +290,11 @@ func TestManifestValidatorNegativeCases(t *testing.T) {
 			srcPath := filepath.Join("testdata", art.LocalPath)
 			content, _ := os.ReadFile(srcPath)
 			destPath := filepath.Join(tempDir, art.LocalPath)
-			_ = os.MkdirAll(filepath.Dir(destPath), 0755)
+			_ = os.MkdirAll(filepath.Dir(destPath), 0o755)
 			if art.Role == "official_example_param" {
 				content = []byte(`{"tampered": true}`)
 			}
-			_ = os.WriteFile(destPath, content, 0644)
+			_ = os.WriteFile(destPath, content, 0o644)
 		}
 
 		if err := ValidateManifest(validData, tempDir); err == nil {
@@ -311,11 +311,11 @@ func TestManifestValidatorNegativeCases(t *testing.T) {
 			srcPath := filepath.Join("testdata", art.LocalPath)
 			content, _ := os.ReadFile(srcPath)
 			destPath := filepath.Join(tempDir, art.LocalPath)
-			_ = os.MkdirAll(filepath.Dir(destPath), 0755)
-			_ = os.WriteFile(destPath, content, 0644)
+			_ = os.MkdirAll(filepath.Dir(destPath), 0o755)
+			_ = os.WriteFile(destPath, content, 0o644)
 		}
 		// Write an unlisted file
-		_ = os.WriteFile(filepath.Join(tempDir, "unlisted_extra.json"), []byte("{}"), 0644)
+		_ = os.WriteFile(filepath.Join(tempDir, "unlisted_extra.json"), []byte("{}"), 0o644)
 
 		if err := ValidateManifest(validData, tempDir); err == nil {
 			t.Error("expected error for unlisted file in testdata, got nil")

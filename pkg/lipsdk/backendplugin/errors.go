@@ -7,6 +7,7 @@ var (
 	// ErrIncompatibleMajor is returned when host and plugin protocol majors differ
 	// or are not ProtocolMajorV1.
 	ErrIncompatibleMajor = errors.New("backendplugin: incompatible protocol major version")
+	ErrIncompatibleMinor = errors.New("backendplugin: incompatible protocol minor version")
 	// ErrUnknownRequiredFeature is returned when a required feature is unknown to the peer.
 	ErrUnknownRequiredFeature = errors.New("backendplugin: unknown required feature")
 	// ErrDuplicateFeature is returned when a feature name appears more than once in an offer.
@@ -61,4 +62,7 @@ var (
 	// ErrExactOpenResponsesUnsupported is returned when a call or event requires exact
 	// OpenAI Responses semantics against an ABI minor or feature that cannot represent them.
 	ErrExactOpenResponsesUnsupported = errors.New("backendplugin: exact OpenResponses ABI not negotiated")
+	// ErrProxyOwnedSessionUnsupported is returned when a call carries validated
+	// session authority that the negotiated ABI cannot transport safely.
+	ErrProxyOwnedSessionUnsupported = errors.New("backendplugin: proxy-owned session ABI not negotiated")
 )

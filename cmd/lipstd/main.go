@@ -25,7 +25,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
-		fmt.Fprintf(stderr, "lipstd: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "lipstd: %v\n", err)
 		return 2
 	}
 

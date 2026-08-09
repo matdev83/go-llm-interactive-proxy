@@ -108,12 +108,12 @@ func projectOpenResponsesCompatibleRow(entry *diag.CompatibleBackendRow, row con
 		entry.ConfigError = err.Error()
 		return
 	}
-	if ep, err := endpoint.ParseBaseURL(cfg.BaseURL); err != nil {
+	ep, err := endpoint.ParseBaseURL(cfg.BaseURL)
+	if err != nil {
 		entry.ConfigError = err.Error()
 		return
-	} else {
-		entry.EndpointIdentity = ep.BaseURL()
 	}
+	entry.EndpointIdentity = ep.BaseURL()
 	entry.Prefix = strings.TrimSpace(cfg.BackendPrefix)
 	entry.AuthConfigured = strings.TrimSpace(cfg.APIKeyEnvVarRoot) != ""
 	entry.Profile = strings.TrimSpace(cfg.Profile)

@@ -386,6 +386,9 @@ message Invocation {
   // prompt_cache_key is a proxy-carried prompt-caching hint (minor >= 3,
   // feature exact_openresponses_fields). Never forwarded to legacy ABIs.
   string prompt_cache_key = 19;
+  // proxy_owned_session_id is injected by the proxy host from validated
+  // secure-session state. It is not client-provided metadata.
+  string proxy_owned_session_id = 20;
 }
 
 message ProtocolRequirementsWire {

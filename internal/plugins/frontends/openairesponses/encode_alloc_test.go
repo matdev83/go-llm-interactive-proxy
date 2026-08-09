@@ -12,7 +12,8 @@ import (
 func TestWriteStreamSSE_AllocBudget_textOnly(t *testing.T) {
 	const n = 200
 	events := make([]lipapi.Event, 0, n+3)
-	events = append(events,
+	events = append(
+		events,
 		lipapi.Event{Kind: lipapi.EventResponseStarted},
 		lipapi.Event{Kind: lipapi.EventMessageStarted},
 	)

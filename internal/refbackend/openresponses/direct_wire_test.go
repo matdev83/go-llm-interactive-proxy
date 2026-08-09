@@ -42,6 +42,10 @@ func directWireCases() []directWireCase {
 		{
 			id: "scenario-official-json", description: "refclient parses the pinned official response resource served verbatim",
 			run: func(t *testing.T) {
+				t.Helper()
+				t.Helper()
+				t.Helper()
+				t.Helper()
 				fixture := readRefClientFixture(t, "official_examples/ResponseResource.json")
 				_, ts := startServer(t, Options{}, &Script{
 					ID: "scenario-official-json", Description: "official json", Mode: ModeJSON,
@@ -70,6 +74,10 @@ func directWireCases() []directWireCase {
 		{
 			id: "scenario-official-sse", description: "refclient streams the pinned official SSE fixture verbatim",
 			run: func(t *testing.T) {
+				t.Helper()
+				t.Helper()
+				t.Helper()
+				t.Helper()
 				fixture := readRefClientFixture(t, "scenarios/stream_text.sse")
 				_, ts := startServer(t, Options{}, &Script{
 					ID: "scenario-official-sse", Description: "official sse", Mode: ModeSSE,
@@ -99,6 +107,7 @@ func directWireCases() []directWireCase {
 		{
 			id: "scenario-official-compact", description: "refclient parses the pinned official compaction resource",
 			run: func(t *testing.T) {
+				t.Helper()
 				fixture := readRefClientFixture(t, "scenarios/compact_resource.json")
 				_, ts := startServer(t, Options{}, &Script{
 					ID: "scenario-official-compact", Description: "official compact", Mode: ModeCompact,
@@ -256,7 +265,7 @@ func directWireCases() []directWireCase {
 					t.Fatalf("Dial: %v", err)
 				}
 				defer func() { _ = sess.Close() }()
-				for i := 0; i < 2; i++ {
+				for i := range 2 {
 					turn, err := sess.Turn(context.Background(), refclient.CreateParams{Model: "m", Input: refclient.Input{Text: "go"}})
 					if err != nil {
 						t.Fatalf("Turn %d: %v", i, err)
@@ -283,7 +292,7 @@ func directWireCases() []directWireCase {
 				prev := "resp_prev"
 				turn, err := sess.Turn(context.Background(), refclient.CreateParams{
 					Model: "m", Input: refclient.Input{Text: "next"},
-					Store:              boolRef(false),
+					Store:              new(false),
 					PreviousResponseID: &prev,
 				})
 				if err != nil {
@@ -699,10 +708,11 @@ func directWireCases() []directWireCase {
 // TestDirectWire_All is the direct refclient ↔ refbackend interoperability suite.
 // Every directWireCase ID is registered in the coverage registry and executed live.
 func TestDirectWire_All(t *testing.T) {
+	//nolint:paralleltest // subtests share the execution registry.
 	seen := map[string]bool{}
 	for _, tc := range directWireCases() {
-		tc := tc
 		t.Run(tc.id, func(t *testing.T) {
+			//nolint:paralleltest // cases share registry and scripted server lifecycle.
 			seen[tc.id] = true
 			if strings.TrimSpace(tc.description) == "" {
 				t.Fatal("direct wire case must have a description")
@@ -715,7 +725,8 @@ func TestDirectWire_All(t *testing.T) {
 	}
 }
 
-func boolRef(b bool) *bool { return &b }
+//go:fix inline
+func boolRef(b bool) *bool { return new(b) }
 
 // errAbortStream lets a client handler abort a direct-wire stream deterministically.
 var errAbortStream = &abortError{}

@@ -82,7 +82,8 @@ func AdaptOverlapSafeLifecycles(ledger *ResourceLedger, lifes []lipplugin.Lifecy
 		}
 		life := life
 		name := fmt.Sprintf("feature-lifecycle-%d", i)
-		ledger.AddAction(name, PhasePrepare,
+		ledger.AddAction(
+			name, PhasePrepare,
 			func(ctx context.Context) error { return life.Start(ctx) },
 			func(ctx context.Context) error { return life.Stop(ctx) },
 		)

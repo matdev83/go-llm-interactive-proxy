@@ -108,7 +108,8 @@ func TestResourceLedger_PrepareActivateFaultInjection(t *testing.T) {
 	t.Parallel()
 	ledger := runtimebundle.NewResourceLedger()
 	var prepared, activated, closed atomic.Int32
-	ledger.AddAction("life", runtimebundle.PhasePrepare,
+	ledger.AddAction(
+		"life", runtimebundle.PhasePrepare,
 		func(context.Context) error {
 			prepared.Add(1)
 			return nil
@@ -118,7 +119,8 @@ func TestResourceLedger_PrepareActivateFaultInjection(t *testing.T) {
 			return nil
 		},
 	)
-	ledger.AddAction("commit", runtimebundle.PhaseActivate,
+	ledger.AddAction(
+		"commit", runtimebundle.PhaseActivate,
 		func(context.Context) error {
 			activated.Add(1)
 			return nil
@@ -146,7 +148,8 @@ func TestResourceLedger_PrepareActivateFaultInjection(t *testing.T) {
 		rolled.Add(1)
 		return nil
 	})
-	bad.AddAction("boom", runtimebundle.PhasePrepare,
+	bad.AddAction(
+		"boom", runtimebundle.PhasePrepare,
 		func(context.Context) error { return errors.New("prepare-fail") },
 		nil,
 	)
@@ -184,15 +187,18 @@ func TestResourceLedger_RollbackSkipsUnstartedLifecycleEntries(t *testing.T) {
 		mu.Unlock()
 		return nil
 	})
-	ledger.AddAction("a", runtimebundle.PhasePrepare,
+	ledger.AddAction(
+		"a", runtimebundle.PhasePrepare,
 		func(context.Context) error { return nil },
 		trackStop("a"),
 	)
-	ledger.AddAction("b", runtimebundle.PhasePrepare,
+	ledger.AddAction(
+		"b", runtimebundle.PhasePrepare,
 		func(context.Context) error { return errors.New("prepare-b-fail") },
 		trackStop("b"),
 	)
-	ledger.AddAction("c", runtimebundle.PhasePrepare,
+	ledger.AddAction(
+		"c", runtimebundle.PhasePrepare,
 		func(context.Context) error {
 			t.Fatal("c start must never be attempted after b fails")
 			return nil

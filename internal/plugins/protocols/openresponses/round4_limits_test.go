@@ -7,6 +7,7 @@ import (
 )
 
 func TestRound4DecodeContentPartsRejectsInvalidImageObjectURL(t *testing.T) {
+	t.Parallel()
 	_, err := decodeContentParts([]byte(`[{"type":"input_image","image_url":{"url":123}}]`))
 	if err == nil {
 		t.Fatal("expected invalid image_url object to be rejected")
@@ -20,9 +21,11 @@ func TestRound4DecodeContentPartsRejectsInvalidImageObjectURL(t *testing.T) {
 }
 
 func TestRound4DecodeRequestEnforcesOperationalLimits(t *testing.T) {
+	t.Parallel()
 	base := DefaultLimits()
 
 	t.Run("item count", func(t *testing.T) {
+		t.Parallel()
 		limits := base
 		limits.MaxItemCount = 1
 		body := []byte(`{"model":"m","input":[{"type":"message","role":"user"},{"type":"message","role":"user"}]}`)
@@ -31,6 +34,7 @@ func TestRound4DecodeRequestEnforcesOperationalLimits(t *testing.T) {
 	})
 
 	t.Run("schema size", func(t *testing.T) {
+		t.Parallel()
 		limits := base
 		limits.MaxSchemaSizeBytes = 4
 		body := []byte(`{"model":"m","input":"hi","tools":[{"type":"function","name":"f","parameters":{"type":"object"}}]}`)
@@ -39,6 +43,7 @@ func TestRound4DecodeRequestEnforcesOperationalLimits(t *testing.T) {
 	})
 
 	t.Run("extension opaque payload", func(t *testing.T) {
+		t.Parallel()
 		limits := base
 		limits.MaxOpaquePayloadSizeBytes = 2
 		body := []byte(`{"model":"m","input":[{"type":"vendor:item","data":"large"}]}`)
@@ -47,6 +52,7 @@ func TestRound4DecodeRequestEnforcesOperationalLimits(t *testing.T) {
 	})
 
 	t.Run("compaction opaque payload", func(t *testing.T) {
+		t.Parallel()
 		limits := base
 		limits.MaxOpaquePayloadSizeBytes = 2
 		body := []byte(`{"model":"m","input":[{"type":"compaction","opaque":"large"}]}`)
@@ -55,6 +61,7 @@ func TestRound4DecodeRequestEnforcesOperationalLimits(t *testing.T) {
 	})
 
 	t.Run("item reference", func(t *testing.T) {
+		t.Parallel()
 		limits := base
 		limits.MaxContinuationRefSizeBytes = 3
 		body := []byte(`{"model":"m","input":[{"type":"item_reference","id":"long"}]}`)
@@ -63,6 +70,7 @@ func TestRound4DecodeRequestEnforcesOperationalLimits(t *testing.T) {
 	})
 
 	t.Run("previous response reference", func(t *testing.T) {
+		t.Parallel()
 		limits := base
 		limits.MaxContinuationRefSizeBytes = 3
 		body := []byte(`{"model":"m","previous_response_id":"long"}`)

@@ -27,7 +27,6 @@ func TestStreamRecorderEventBytesInt64Boundary(t *testing.T) {
 		{name: "overflowsByOne", eventBytes: math.MaxInt64, delta: "x", wantOverflow: true},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			backend := &overflowBoundaryRecorder{}

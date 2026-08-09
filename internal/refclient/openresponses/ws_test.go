@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -29,7 +30,7 @@ func wsTestServer(t *testing.T, handle func(t *testing.T, conn *websocket.Conn))
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		handle(t, conn)
 	}))
 	t.Cleanup(srv.Close)
@@ -91,9 +92,7 @@ func wsReadCreateEnvelope(t *testing.T, conn *websocket.Conn) CreateParams {
 // wsEvent builds a raw wire event.
 func wsEvent(typeName string, fields map[string]any) map[string]any {
 	m := map[string]any{"type": typeName, "sequence_number": 0}
-	for k, v := range fields {
-		m[k] = v
-	}
+	maps.Copy(m, fields)
 	return m
 }
 
@@ -175,7 +174,9 @@ func wsScenarioCases() []scenarioCase {
 			fixture:     "",
 			description: "A single WebSocket turn returns a terminal response.",
 			run: func(t *testing.T) {
+				t.Helper()
 				srv := wsTestServer(t, func(t *testing.T, conn *websocket.Conn) {
+					t.Helper()
 					params := wsReadCreateEnvelope(t, conn)
 					if params.Model != "gpt-openresponses-1" {
 						t.Errorf("model: %q", params.Model)
@@ -184,7 +185,7 @@ func wsScenarioCases() []scenarioCase {
 					wsHold(conn)
 				})
 				sess := wsConn(t, srv)
-				turn, err := sess.Turn(context.Background(), CreateParams{Model: "gpt-openresponses-1", Input: Input{Text: "hi"}, Store: boolPtr(false)})
+				turn, err := sess.Turn(context.Background(), CreateParams{Model: "gpt-openresponses-1", Input: Input{Text: "hi"}, Store: new(false)})
 				if err != nil {
 					t.Fatalf("Turn: %v", err)
 				}
@@ -205,8 +206,10 @@ func wsScenarioCases() []scenarioCase {
 			fixture:     "",
 			description: "Sequential turns on one connection produce two terminal responses.",
 			run: func(t *testing.T) {
+				t.Helper()
 				srv := wsTestServer(t, func(t *testing.T, conn *websocket.Conn) {
-					for i := 0; i < 2; i++ {
+					t.Helper()
+					for i := range 2 {
 						_ = wsReadCreateEnvelope(t, conn)
 						wsSendTextTurn(t, conn, fmt.Sprintf("resp_seq_%d", i+1), "m", "turn")
 					}
@@ -229,7 +232,9 @@ func wsScenarioCases() []scenarioCase {
 			fixture:     "",
 			description: "A follow-up turn continues from previous_response_id with only new input.",
 			run: func(t *testing.T) {
+				t.Helper()
 				srv := wsTestServer(t, func(t *testing.T, conn *websocket.Conn) {
+					t.Helper()
 					_ = wsReadCreateEnvelope(t, conn)
 					wsSendTextTurn(t, conn, "resp_cont_1", "m", "remembered")
 					second := wsReadCreateEnvelope(t, conn)
@@ -242,7 +247,7 @@ func wsScenarioCases() []scenarioCase {
 					wsSendTextTurn(t, conn, "resp_cont_2", "m", "cobalt")
 				})
 				sess := wsConn(t, srv)
-				first, err := sess.Turn(context.Background(), CreateParams{Model: "m", Input: Input{Text: "Remember cobalt. Reply OK."}, Store: boolPtr(false)})
+				first, err := sess.Turn(context.Background(), CreateParams{Model: "m", Input: Input{Text: "Remember cobalt. Reply OK."}, Store: new(false)})
 				if err != nil {
 					t.Fatalf("first turn: %v", err)
 				}
@@ -250,7 +255,7 @@ func wsScenarioCases() []scenarioCase {
 				second, err := sess.Turn(context.Background(), CreateParams{
 					Model:              "m",
 					Input:              Input{Text: "What is the code word?"},
-					Store:              boolPtr(false),
+					Store:              new(false),
 					PreviousResponseID: &prev,
 				})
 				if err != nil {
@@ -267,7 +272,9 @@ func wsScenarioCases() []scenarioCase {
 			fixture:     "",
 			description: "Missing local previous response yields previous_response_not_found error code.",
 			run: func(t *testing.T) {
+				t.Helper()
 				srv := wsTestServer(t, func(t *testing.T, conn *websocket.Conn) {
+					t.Helper()
 					_ = wsReadCreateEnvelope(t, conn)
 					wsErrorTurn(t, conn, "previous_response_not_found", "previous_response_id")
 				})
@@ -276,7 +283,7 @@ func wsScenarioCases() []scenarioCase {
 				turn, err := sess.Turn(context.Background(), CreateParams{
 					Model:              "m",
 					Input:              Input{Text: "continue"},
-					Store:              boolPtr(false),
+					Store:              new(false),
 					PreviousResponseID: &missing,
 				})
 				if err != nil {
@@ -296,6 +303,7 @@ func wsScenarioCases() []scenarioCase {
 			fixture:     "",
 			description: "Standalone compact output seeds a new WS chain without previous_response_id.",
 			run: func(t *testing.T) {
+				t.Helper()
 				compactData := mustReadScenario(t, "compact_resource.json")
 				srv := testServer(t, func(w http.ResponseWriter, r *http.Request) {
 					if strings.HasSuffix(r.URL.Path, "/compact") {
@@ -312,6 +320,7 @@ func wsScenarioCases() []scenarioCase {
 				}
 
 				wsSrv := wsTestServer(t, func(t *testing.T, conn *websocket.Conn) {
+					t.Helper()
 					params := wsReadCreateEnvelope(t, conn)
 					if params.PreviousResponseID != nil {
 						t.Errorf("compact new chain must omit previous_response_id: %+v", params.PreviousResponseID)
@@ -325,7 +334,7 @@ func wsScenarioCases() []scenarioCase {
 				sess := wsConn(t, wsSrv)
 				input := compact.Output
 				input = append(input, NewMessageItem("user", "input_text", "Continue from here."))
-				turn, err := sess.Turn(context.Background(), CreateParams{Model: "m", Input: Input{Items: input}, Store: boolPtr(false)})
+				turn, err := sess.Turn(context.Background(), CreateParams{Model: "m", Input: Input{Items: input}, Store: new(false)})
 				if err != nil {
 					t.Fatalf("Turn: %v", err)
 				}
@@ -340,7 +349,9 @@ func wsScenarioCases() []scenarioCase {
 			fixture:     "",
 			description: "Cancelled turn context aborts before a terminal arrives.",
 			run: func(t *testing.T) {
+				t.Helper()
 				srv := wsTestServer(t, func(t *testing.T, conn *websocket.Conn) {
+					t.Helper()
 					_ = wsReadCreateEnvelope(t, conn)
 					// Server stalls forever; client must cancel the turn.
 					for {
@@ -364,6 +375,7 @@ func wsScenarioCases() []scenarioCase {
 func TestWSTurn_RejectsClosedSession(t *testing.T) {
 	t.Parallel()
 	srv := wsTestServer(t, func(t *testing.T, conn *websocket.Conn) {
+		t.Helper()
 		_ = wsReadCreateEnvelope(t, conn)
 		wsSendTextTurn(t, conn, "resp_1", "m", "ok")
 		wsHold(conn)

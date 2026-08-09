@@ -44,7 +44,7 @@ func main() {
 	case "print":
 		fmt.Print(*text)
 	case "fail-output":
-		fmt.Fprint(os.Stdout, *marker)
+		_, _ = fmt.Fprint(os.Stdout, *marker)
 		fmt.Fprint(os.Stderr, "child stderr")
 		os.Exit(*exit)
 	case "grandchild":

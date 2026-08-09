@@ -61,7 +61,7 @@ func TestOpenResponsesRefBackendBoundary(t *testing.T) {
 	// 2. Non-test files: only stdlib + gorilla/websocket; no forbidden targets.
 	//    Test files: additionally the refclient (direct wire) and goleak, but
 	//    still never production codec/adapters or matrix wire packages.
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	if err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			t.Errorf("walk %s: %v", path, err)
 			return nil
@@ -106,7 +106,9 @@ func TestOpenResponsesRefBackendBoundary(t *testing.T) {
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("walk %s: %v", dir, err)
+	}
 
 	// 3. Production must never import the reference backend emulator.
 	findings, err := ScanForbiddenImports(root)

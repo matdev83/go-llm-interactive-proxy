@@ -14,7 +14,7 @@ import (
 func TestRound6DecodeRequestRejectsTooManyItemReferences(t *testing.T) {
 	var input strings.Builder
 	input.WriteString(`{"model":"m","input":[`)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if i > 0 {
 			input.WriteByte(',')
 		}

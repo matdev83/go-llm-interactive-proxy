@@ -22,23 +22,26 @@ const ExtToolStrict = "openai_codex.tool_strict"
 const ExtIgnoreUnsupportedGenParams = "openai_codex.ignore_unsupported_gen_params"
 
 type Payload struct {
-	Model              string         `json:"model"`
-	Stream             bool           `json:"stream,omitempty"`
-	Store              bool           `json:"store"`
-	Instructions       string         `json:"instructions"`
-	Input              []inputItem    `json:"input"`
-	Tools              []toolPayload  `json:"tools,omitempty"`
-	ToolChoice         string         `json:"tool_choice,omitempty"`
-	Reasoning          *reasoningSpec `json:"reasoning,omitempty"`
-	Text               *textSpec      `json:"text,omitempty"`
-	Include            []string       `json:"include,omitempty"`
-	ParallelToolCalls  *bool          `json:"parallel_tool_calls,omitempty"`
-	PromptCacheKey     string         `json:"prompt_cache_key,omitempty"`
-	PreviousResponseID string         `json:"previous_response_id,omitempty"`
+	Model              string            `json:"model"`
+	Stream             bool              `json:"stream,omitempty"`
+	Store              bool              `json:"store"`
+	Instructions       string            `json:"instructions"`
+	Input              []inputItem       `json:"input"`
+	Tools              []toolPayload     `json:"tools,omitempty"`
+	ToolChoice         string            `json:"tool_choice,omitempty"`
+	Reasoning          *reasoningSpec    `json:"reasoning,omitempty"`
+	Text               *textSpec         `json:"text,omitempty"`
+	Include            []string          `json:"include,omitempty"`
+	ParallelToolCalls  *bool             `json:"parallel_tool_calls,omitempty"`
+	PromptCacheKey     string            `json:"prompt_cache_key,omitempty"`
+	PreviousResponseID string            `json:"previous_response_id,omitempty"`
+	Metadata           map[string]string `json:"metadata,omitempty"`
 }
 
 type reasoningSpec struct {
-	Effort  string `json:"effort"`
+	// An empty effort must be omitted. The endpoint accepts its model default,
+	// but does not accept an explicit empty string.
+	Effort  string `json:"effort,omitempty"`
 	Summary string `json:"summary,omitempty"`
 }
 
@@ -53,9 +56,15 @@ func normalizeCodexModel(model string) string {
 }
 
 func PayloadForCall(call *lipapi.Call, cand routingstub.AttemptCandidate, cfg Config) (Payload, error) {
+	return payloadForCall(call, cand, cfg)
+}
+
+func payloadForCall(call *lipapi.Call, cand routingstub.AttemptCandidate, cfg Config) (Payload, error) {
 	if call == nil {
 		return Payload{}, fmt.Errorf("%s: nil call", ID)
 	}
+	callCopy := lipapi.CloneCall(*call)
+	call = &callCopy
 	model := normalizeCodexModel(cand.Primary.Model)
 	if model == "" {
 		return Payload{}, fmt.Errorf("%s: model is required", ID)
@@ -93,11 +102,7 @@ func PayloadForCall(call *lipapi.Call, cand routingstub.AttemptCandidate, cfg Co
 			p.ParallelToolCalls = &t
 		}
 	}
-	if effort := strings.TrimSpace(call.Options.ReasoningEffort); effort != "" {
-		p.Reasoning = &reasoningSpec{Effort: effort, Summary: "auto"}
-	} else if effort = strings.TrimSpace(cfg.DefaultReasoningEffort); effort != "" {
-		p.Reasoning = &reasoningSpec{Effort: effort, Summary: "auto"}
-	}
+	p.Reasoning = applyReasoningRequestPolicy(call, model, cfg)
 	verbosity, err := lipapi.ParseVerbosityLevel(string(call.Options.Verbosity))
 	if err != nil {
 		return Payload{}, fmt.Errorf("%s: request verbosity: %w", ID, err)

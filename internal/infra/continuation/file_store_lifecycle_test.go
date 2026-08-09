@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,7 +62,7 @@ func TestFileStoreCloseContractAndCleanup(t *testing.T) {
 		t.Fatalf("read dir: %v", err)
 	}
 	for _, entry := range entries {
-		if filepath.HasPrefix(entry.Name(), ".continuation-") {
+		if strings.HasPrefix(entry.Name(), ".continuation-") {
 			t.Fatalf("stale temp file found: %s", entry.Name())
 		}
 	}

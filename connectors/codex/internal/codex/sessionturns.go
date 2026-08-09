@@ -234,14 +234,10 @@ func (s *sessionTurnCounter) touchLocked(key string) {
 	s.order = out
 }
 
-// sessionTurnKey prefers the stable conversation identity for turn counting,
-// then falls back to session correlation and finally to the caller's own id so
-// callers without continuity metadata still retain a per-conversation counter.
+// sessionTurnKey uses proxy-owned authority for native turn state, then falls
+// back to caller-local identity for unrelated verbosity accounting.
 func sessionTurnKey(call lipapi.Call, fallback string) string {
-	if id := strings.TrimSpace(call.Session.ContinuityKey); id != "" {
-		return "continuity:" + id
-	}
-	if id := strings.TrimSpace(call.Session.CorrelationID()); id != "" {
+	if id := strings.TrimSpace(call.Session.AuthoritativeSessionID); id != "" {
 		return "session:" + id
 	}
 	if id := strings.TrimSpace(call.ID); id != "" && !isGeneratedCallID(id) {

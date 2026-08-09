@@ -41,6 +41,26 @@ linters:
       - path: ^connectors/cursorsdk/internal/product/.*_test\.go$
         linters:
           - paralleltest
+      # These composed protocol/backend suites use shared scripted transports,
+      # deterministic stream timing, or package-level test fixtures.
+      - path: ^(internal/plugins/backends/openresponsescompat|internal/plugins/protocols/openresponses|internal/plugins/frontends/openresponses|internal/refclient/openresponses)/.*_test\.go$
+        linters:
+          - paralleltest
+      - path: ^internal/integration/openresponses/(compliance_official_test|cell_select_test)\.go$
+        linters:
+          - paralleltest
+      - path: ^internal/refbackend/openresponses/direct_wire_test\.go$
+        linters:
+          - paralleltest
+      - path: ^internal/refbackend/openresponses/direct_wire_test\.go$
+        linters:
+          - thelper
+      - path: ^internal/standardplugins/reasoning_preservation_codex_companion_test\.go$
+        linters:
+          - paralleltest
+      - path: ^internal/stdhttp/(frontend_isolation_integration_test|reasoning_preservation_http_harness_test)\.go$
+        linters:
+          - paralleltest
       # JSON wire-shape changes need contract review, not bulk lint autofixes.
       - text: "Omitempty has no effect on nested struct fields"
         linters:

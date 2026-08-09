@@ -87,6 +87,9 @@ type Config struct {
 	// enabled, it must be greater than the early session turn count once defaults
 	// are applied. When the mid-session bump is disabled, the value is ignored.
 	MidSessionVerbosityBumpFrequency int
+	// NativeContext holds experimental native reasoning continuity and
+	// Responses Compaction V2 configuration. May be nil (compaction disabled).
+	NativeContext *NativeContextConfig
 }
 
 // NormalizeTransport returns the effective transport mode for cfg. An empty

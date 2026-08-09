@@ -129,7 +129,7 @@ func TestPortBundle_Emit_orderRawBeforeObs(t *testing.T) {
 
 func TestPortBundle_EmitIsNoop(t *testing.T) {
 	t.Parallel()
-	if !((traffic.PortBundle{}).EmitIsNoop()) {
+	if !(traffic.PortBundle{}).EmitIsNoop() {
 		t.Fatal("empty bundle should be no-op")
 	}
 	disabled := traffic.PortBundle{

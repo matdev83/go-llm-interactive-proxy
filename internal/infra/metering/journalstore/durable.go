@@ -469,7 +469,8 @@ func (s *DurableStore) appendAttempt(ctx context.Context, cloned metering.Fact, 
 	}
 
 	ref := cloned.SourceEventRef()
-	_, err = tx.NewRaw(`
+	_, err = tx.NewRaw(
+		`
 INSERT INTO metering_facts(
 	store_id, fact_id, stream_id, sequence, source_event_key, fact_kind,
 	perspective, boundary, lifecycle_scope,

@@ -134,7 +134,7 @@ func (c *Client) Create(ctx context.Context, params CreateParams) (*ResponseReso
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	raw, err := readBounded(resp.Body, c.opts.MaxBodyBytes)
 	if err != nil {
@@ -158,7 +158,7 @@ func (c *Client) CreateStream(ctx context.Context, params CreateParams, handler 
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.HasPrefix(ct, "text/event-stream") {
 		return nil, malformedf("streaming response content-type %q is not text/event-stream", ct)
@@ -210,7 +210,7 @@ func (c *Client) Compact(ctx context.Context, params CompactParams) (*CompactRes
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	raw, err := readBounded(resp.Body, c.opts.MaxBodyBytes)
 	if err != nil {
@@ -254,7 +254,7 @@ func (c *Client) do(ctx context.Context, method, url string, body []byte, conten
 	c.mu.Unlock()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		raw, rerr := readBounded(resp.Body, c.opts.MaxBodyBytes)
 		if rerr != nil {
 			return nil, rerr

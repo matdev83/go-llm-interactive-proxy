@@ -35,6 +35,11 @@ func clientScenarioCases() []scenarioCase {
 			fixture:     "response_text.json",
 			description: "HTTP JSON create returns the pinned response resource with required presence.",
 			run: func(t *testing.T) {
+				t.Helper()
+				t.Helper()
+				t.Helper()
+				t.Helper()
+				t.Helper()
 				data := mustReadScenario(t, "response_text.json")
 				srv := testServer(t, func(w http.ResponseWriter, r *http.Request) {
 					if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/responses") {
@@ -76,6 +81,11 @@ func clientScenarioCases() []scenarioCase {
 			fixture:     "stream_text.sse",
 			description: "HTTP SSE create streams events and returns the terminal response.",
 			run: func(t *testing.T) {
+				t.Helper()
+				t.Helper()
+				t.Helper()
+				t.Helper()
+				t.Helper()
 				data := mustReadScenario(t, "stream_text.sse")
 				srv := testServer(t, func(w http.ResponseWriter, r *http.Request) {
 					if !strings.HasSuffix(r.URL.Path, "/responses") {
@@ -115,6 +125,10 @@ func clientScenarioCases() []scenarioCase {
 			fixture:     "compact_resource.json",
 			description: "Standalone compact returns the response.compaction resource.",
 			run: func(t *testing.T) {
+				t.Helper()
+				t.Helper()
+				t.Helper()
+				t.Helper()
 				data := mustReadScenario(t, "compact_resource.json")
 				srv := testServer(t, func(w http.ResponseWriter, r *http.Request) {
 					if !strings.HasSuffix(r.URL.Path, "/responses/compact") {
@@ -140,6 +154,7 @@ func clientScenarioCases() []scenarioCase {
 			fixture:     "response_tools.json",
 			description: "Tool declaration and function_call/function_call_output round-trip through HTTP JSON create.",
 			run: func(t *testing.T) {
+				t.Helper()
 				data := mustReadScenario(t, "response_tools.json")
 				srv := testServer(t, func(w http.ResponseWriter, r *http.Request) {
 					body, _ := io.ReadAll(r.Body)
@@ -169,6 +184,7 @@ func clientScenarioCases() []scenarioCase {
 			fixture:     "request_multimodal.json",
 			description: "Multimodal input (image and file) marshals into the create request.",
 			run: func(t *testing.T) {
+				t.Helper()
 				srv := testServer(t, func(w http.ResponseWriter, r *http.Request) {
 					body, _ := io.ReadAll(r.Body)
 					if !strings.Contains(string(body), "input_image") || !strings.Contains(string(body), "input_file") {
@@ -200,6 +216,7 @@ func clientScenarioCases() []scenarioCase {
 			fixture:     "response_reasoning.json",
 			description: "Reasoning item lifecycle parses through the HTTP JSON client.",
 			run: func(t *testing.T) {
+				t.Helper()
 				srv := testServer(t, func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					_, _ = w.Write(mustReadScenario(t, "response_reasoning.json"))
@@ -223,6 +240,7 @@ func clientScenarioCases() []scenarioCase {
 			fixture:     "response_phase.json",
 			description: "Assistant phase labels survive HTTP JSON create.",
 			run: func(t *testing.T) {
+				t.Helper()
 				srv := testServer(t, func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					_, _ = w.Write(mustReadScenario(t, "response_phase.json"))
@@ -243,6 +261,7 @@ func clientScenarioCases() []scenarioCase {
 			fixture:     "response_extensions.json",
 			description: "Prefixed extension items parse opaquely through the HTTP JSON client.",
 			run: func(t *testing.T) {
+				t.Helper()
 				srv := testServer(t, func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					_, _ = w.Write(mustReadScenario(t, "response_extensions.json"))
@@ -263,6 +282,7 @@ func clientScenarioCases() []scenarioCase {
 			fixture:     "response_error.json",
 			description: "Non-2xx HTTP responses map to structured client errors.",
 			run: func(t *testing.T) {
+				t.Helper()
 				srv := testServer(t, func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusBadRequest)
@@ -288,6 +308,7 @@ func clientScenarioCases() []scenarioCase {
 			fixture:     "response_text.json",
 			description: "Cancelled context aborts the create before the server completes.",
 			run: func(t *testing.T) {
+				t.Helper()
 				block := make(chan struct{})
 				defer close(block)
 				srv := testServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -315,6 +336,7 @@ func compactScenarioCases() []scenarioCase {
 			fixture:     "compact_resource.json",
 			description: "Compact without model is still issued; server may reject with 4xx.",
 			run: func(t *testing.T) {
+				t.Helper()
 				srv := testServer(t, func(w http.ResponseWriter, r *http.Request) {
 					body, _ := io.ReadAll(r.Body)
 					var m map[string]json.RawMessage

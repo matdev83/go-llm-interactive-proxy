@@ -21,7 +21,7 @@ func TestHarness_JSONRoundTrip(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	res, err := d.Client.RoundTrip(context.Background(), "ping")
 	if err != nil {
@@ -56,7 +56,7 @@ func TestHarness_SSERoundTrip(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	res, err := d.Client.RoundTrip(context.Background(), "ping")
 	if err != nil {
@@ -96,7 +96,7 @@ func TestHarness_CompactRoundTrip(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	res, err := d.Client.RoundTrip(context.Background(), "compact this")
 	if err != nil {
@@ -125,7 +125,7 @@ func TestHarness_WebSocketTurn(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	res, err := d.Client.RoundTrip(context.Background(), "ping")
 	if err != nil {
@@ -151,7 +151,7 @@ func TestJSON_OpenResponsesCreateStrictDecode(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	if err := d.SendRawCreate(context.Background(), `{"stream":false,"store":false}`); err == nil {
 		t.Fatal("expected strict decode to reject a body without model/input")
@@ -173,7 +173,7 @@ func TestSSE_StreamingOrderedIncrementalEvents(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	res, err := d.Client.RoundTrip(context.Background(), "ping")
 	if err != nil {
@@ -209,7 +209,7 @@ func TestCompact_CompactRejectsStreamingControl(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	if err := d.SendRawCompact(context.Background(), `{"model":"gpt-4o-mini","input":"x","stream":true}`); err == nil {
 		t.Fatal("expected compact transport to reject streaming control")
@@ -228,7 +228,7 @@ func TestWebSocket_TurnRejectsStoreTrue(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	if err := d.SendRawWSTurn(context.Background(), `{"type":"response.create","model":"gpt-4o-mini","input":"x","store":true}`); err == nil {
 		t.Fatal("expected WebSocket turn with store:true to be rejected")

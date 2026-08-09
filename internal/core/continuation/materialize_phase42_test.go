@@ -16,6 +16,7 @@ func phase42Item(id string, role lipapi.Role) lipapi.Item {
 }
 
 func TestMaterializeExactTrajectoryOrderAndIsolation(t *testing.T) {
+	t.Parallel()
 	store := corecont.NewMemoryStore()
 	scope := lipcont.Scope{PrincipalID: "p", SessionID: "s"}
 	ctx := context.Background()
@@ -62,6 +63,7 @@ func TestMaterializeExactTrajectoryOrderAndIsolation(t *testing.T) {
 }
 
 func TestMaterializeItemBound(t *testing.T) {
+	t.Parallel()
 	store := corecont.NewMemoryStore()
 	scope := lipcont.Scope{PrincipalID: "p", SessionID: "s"}
 	id, err := store.Reserve(context.Background(), scope, lipcont.StoragePolicy{TTL: time.Hour})
@@ -78,6 +80,7 @@ func TestMaterializeItemBound(t *testing.T) {
 }
 
 func TestMaterializeCarriesNewInputRequirementsAndNativeLineage(t *testing.T) {
+	t.Parallel()
 	store := corecont.NewMemoryStore()
 	scope := lipcont.Scope{PrincipalID: "p", SessionID: "s"}
 	id, err := store.Reserve(context.Background(), scope, lipcont.StoragePolicy{TTL: time.Hour})
@@ -109,6 +112,7 @@ func TestMaterializeCarriesNewInputRequirementsAndNativeLineage(t *testing.T) {
 }
 
 func TestMaterializeCallPreservesCoreSessionUntilWireSanitization(t *testing.T) {
+	t.Parallel()
 	store := corecont.NewMemoryStore()
 	scope := lipcont.Scope{PrincipalID: "p", SessionID: "s"}
 	id, err := store.Reserve(context.Background(), scope, lipcont.StoragePolicy{TTL: time.Hour})

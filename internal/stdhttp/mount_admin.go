@@ -77,7 +77,8 @@ func mountControlPlaneQuery(in controlPlaneQueryMount) {
 	}
 	if strings.TrimSpace(cfg.Diagnostics.SharedSecret) == "" {
 		if log != nil {
-			log.WarnContext(logCtx, "control-plane query config enabled but diagnostics shared_secret is empty; mounting disabled (query surface would be unauthenticated)",
+			log.WarnContext(
+				logCtx, "control-plane query config enabled but diagnostics shared_secret is empty; mounting disabled (query surface would be unauthenticated)",
 				slog.String("component", "control_plane"),
 				slog.String("notice", "shared_secret_required"),
 			)
@@ -86,7 +87,8 @@ func mountControlPlaneQuery(in controlPlaneQueryMount) {
 	}
 	if ops.ControlPlaneQueries == nil {
 		if log != nil {
-			log.WarnContext(logCtx, "control-plane query config enabled but no query service wired; mounting disabled",
+			log.WarnContext(
+				logCtx, "control-plane query config enabled but no query service wired; mounting disabled",
 				slog.String("component", "control_plane"),
 				slog.String("notice", "query_service_unavailable"),
 			)
@@ -133,7 +135,8 @@ func mountAccountingAuthorityQuery(in accountingAuthorityQueryMount) {
 	}
 	if strings.TrimSpace(cfg.Diagnostics.SharedSecret) == "" {
 		if log != nil {
-			log.WarnContext(logCtx, "accounting authority query config enabled but diagnostics shared_secret is empty; mounting disabled",
+			log.WarnContext(
+				logCtx, "accounting authority query config enabled but diagnostics shared_secret is empty; mounting disabled",
 				slog.String("component", "accounting_authority"),
 				slog.String("notice", "shared_secret_required"),
 			)
@@ -142,7 +145,8 @@ func mountAccountingAuthorityQuery(in accountingAuthorityQueryMount) {
 	}
 	if sec.UsageAuthority == nil {
 		if log != nil {
-			log.WarnContext(logCtx, "accounting authority query config enabled but no authority service wired; mounting disabled",
+			log.WarnContext(
+				logCtx, "accounting authority query config enabled but no authority service wired; mounting disabled",
 				slog.String("component", "accounting_authority"),
 				slog.String("notice", "authority_service_unavailable"),
 			)

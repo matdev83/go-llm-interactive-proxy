@@ -72,7 +72,7 @@ func TestWebSocketStress_AgeLimitBoundsInflightBlockedTurn(t *testing.T) {
 		h.Config.WebSocket.IdleTimeout = "5m"
 	})
 	conn := wsDial(t, srv, nil)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	wsText(t, conn, `{"type":"response.create","model":"gpt-4o","input":"hi"}`)
 	eventually(t, 3*time.Second, func() bool { return exec.count() == 1 })
@@ -100,7 +100,7 @@ func TestWebSocketStress_SlowWriterBackpressureBoundsBuffering(t *testing.T) {
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 	}
-	for i := 0; i < events; i++ {
+	for i := range events {
 		script = append(script, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: fmt.Sprintf("d-%02d", i)})
 	}
 	script = append(script, lipapi.Event{Kind: lipapi.EventResponseFinished})
@@ -147,7 +147,7 @@ func TestWebSocketStress_SlowWriterBackpressureBoundsBuffering(t *testing.T) {
 	if countFrameType(frames, "response.completed") != 1 {
 		t.Fatalf("expected exactly one terminal: %v", frameTypes(frames))
 	}
-	for i := 0; i < events; i++ {
+	for i := range events {
 		want := fmt.Sprintf("d-%02d", i)
 		if !containsDelta(frames, want) {
 			t.Fatalf("missing delta %q: %v", want, frameTypes(frames))
@@ -181,7 +181,7 @@ func TestWebSocketStress_QueueSaturationOrderNoDuplicateExecution(t *testing.T) 
 		wait: release,
 	}
 	streams := []lipapi.EventStream{blocked}
-	for i := 0; i < queued; i++ {
+	for i := range queued {
 		streams = append(streams, fixedStream(
 			lipapi.Event{Kind: lipapi.EventResponseStarted},
 			lipapi.Event{Kind: lipapi.EventMessageStarted},
@@ -195,7 +195,7 @@ func TestWebSocketStress_QueueSaturationOrderNoDuplicateExecution(t *testing.T) 
 
 	wsText(t, conn, `{"type":"response.create","model":"gpt-4o","input":"first"}`)
 	eventually(t, 3*time.Second, func() bool { return exec.count() == 1 })
-	for i := 0; i < queued; i++ {
+	for i := range queued {
 		wsText(t, conn, fmt.Sprintf(`{"type":"response.create","model":"gpt-4o","input":"turn %d"}`, i))
 	}
 	time.Sleep(150 * time.Millisecond)
@@ -209,7 +209,7 @@ func TestWebSocketStress_QueueSaturationOrderNoDuplicateExecution(t *testing.T) 
 	if !containsDelta(frames1, "first") || countFrameType(frames1, "response.completed") != 1 {
 		t.Fatalf("first turn wrong: %v", frameTypes(frames1))
 	}
-	for i := 0; i < queued; i++ {
+	for i := range queued {
 		frames := wsReadUntilTerminal(t, conn, 5*time.Second)
 		want := fmt.Sprintf("turn-%02d", i)
 		if !containsDelta(frames, want) {
@@ -223,7 +223,7 @@ func TestWebSocketStress_QueueSaturationOrderNoDuplicateExecution(t *testing.T) 
 	if exec.count() != 1+queued {
 		t.Fatalf("executor calls=%d, want %d (no duplicate execution)", exec.count(), 1+queued)
 	}
-	for i := 0; i < queued; i++ {
+	for i := range queued {
 		want := fmt.Sprintf("turn %d", i)
 		call := exec.callAt(1 + i)
 		if call == nil || len(call.Items) == 0 || len(call.Items[0].Content) == 0 || call.Items[0].Content[0].Text != want {
@@ -265,7 +265,7 @@ func TestWebSocketStress_LocalStoreSaturationEvictsOldestBounds(t *testing.T) {
 	})
 	conn := wsDial(t, srv, nil)
 
-	for i := 0; i < turns; i++ {
+	for i := range turns {
 		wsText(t, conn, fmt.Sprintf(`{"type":"response.create","model":"gpt-4o","input":"turn %d"}`, i))
 		wsReadUntilTerminal(t, conn, 5*time.Second)
 	}
@@ -279,19 +279,19 @@ func TestWebSocketStress_LocalStoreSaturationEvictsOldestBounds(t *testing.T) {
 	// While the session is open the store is bounded: only the newest MaxRecords
 	// of the recorded turns remain and the oldest are evicted.
 	found := 0
-	for i := 0; i < turns; i++ {
+	for i := range turns {
 		id := lipcont.ResponseID(validProxyID(fmt.Sprintf("turn-%03d", i+1)))
-		if _, err := tracking.Store.Get(context.Background(), connScope, id); err == nil {
+		if _, err := tracking.Get(context.Background(), connScope, id); err == nil {
 			found++
 		}
 	}
 	if found != limits.MaxRecords {
 		t.Fatalf("retained %d records, want %d (bounded local state)", found, limits.MaxRecords)
 	}
-	if _, err := tracking.Store.Get(context.Background(), connScope, lipcont.ResponseID(validProxyID("turn-001"))); err != lipcont.ErrPreviousResponseNotFound {
+	if _, err := tracking.Get(context.Background(), connScope, lipcont.ResponseID(validProxyID("turn-001"))); err != lipcont.ErrPreviousResponseNotFound {
 		t.Fatalf("oldest record Get err=%v, want %v", err, lipcont.ErrPreviousResponseNotFound)
 	}
-	if _, err := tracking.Store.Get(context.Background(), connScope, lipcont.ResponseID(validProxyID("turn-010"))); err != nil {
+	if _, err := tracking.Get(context.Background(), connScope, lipcont.ResponseID(validProxyID("turn-010"))); err != nil {
 		t.Fatalf("newest record should resolve, err=%v", err)
 	}
 
@@ -302,7 +302,7 @@ func TestWebSocketStress_LocalStoreSaturationEvictsOldestBounds(t *testing.T) {
 	if !tracking.closed {
 		t.Fatal("connection-local store was not closed")
 	}
-	if _, err := tracking.Store.Get(context.Background(), connScope, lipcont.ResponseID(validProxyID("turn-010"))); err != lipcont.ErrStoreClosed {
+	if _, err := tracking.Get(context.Background(), connScope, lipcont.ResponseID(validProxyID("turn-010"))); err != lipcont.ErrStoreClosed {
 		t.Fatalf("Get after close err=%v, want %v", err, lipcont.ErrStoreClosed)
 	}
 }
@@ -311,7 +311,7 @@ func TestWebSocketStress_LocalStoreSaturationEvictsOldestBounds(t *testing.T) {
 // client while a downstream turn is blocked and asserts the stream is canceled
 // exactly once, the executor never runs a duplicate turn, and the session closes.
 func TestWebSocketStress_DisconnectRaceCancelsExactlyOnce(t *testing.T) {
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		blocked := &streamingEventStream{
 			events: []lipapi.Event{
 				{Kind: lipapi.EventResponseStarted},
@@ -354,7 +354,7 @@ func TestWebSocketStress_RepeatedTerminalExactlyOnePerTurn(t *testing.T) {
 	exec := &wsTurnExecutor{streams: streams}
 	srv, _ := newWSTurnServer(t, exec, deterministicResponseMetadata{id: "resp_dupterm", now: time.Now()}, nil)
 	conn := wsDial(t, srv, nil)
-	for i := 0; i < turns; i++ {
+	for i := range turns {
 		wsText(t, conn, `{"type":"response.create","model":"gpt-4o","input":"hi"}`)
 		frames := wsReadUntilTerminal(t, conn, 5*time.Second)
 		if countFrameType(frames, "response.completed") != 1 {
@@ -373,7 +373,7 @@ func TestWebSocketStress_RepeatedTerminalExactlyOnePerTurn(t *testing.T) {
 func TestWebSocketStress_NoGoroutineLeakRepetition(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		exec := &wsTurnExecutor{streams: []lipapi.EventStream{fixedStream(
 			lipapi.Event{Kind: lipapi.EventResponseStarted},
 			lipapi.Event{Kind: lipapi.EventMessageStarted},

@@ -292,7 +292,8 @@ func runOfficialSuite(t *testing.T, baseURL, model, apiKey string) (officialSuit
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "node", runner,
+	cmd := exec.CommandContext(
+		ctx, "node", runner,
 		"--base-url", baseURL,
 		"--api-key", apiKey,
 		"--model", model,
@@ -350,7 +351,7 @@ func TestOfficialComplianceSuite_FullDeployment(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy(frontend=openresponses, backend=openresponses) failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	baseURL := d.Server.URL + "/openresponses/v1"
 	res, exitCode := runOfficialSuite(t, baseURL, model, apiKey)

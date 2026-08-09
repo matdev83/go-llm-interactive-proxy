@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -311,7 +312,7 @@ const wsBearerAuthorizationSubprotocol = "base64url.bearer.authorization.lip"
 func websocketSubprotocols(h http.Header) []string {
 	var protocols []string
 	for _, value := range h.Values("Sec-WebSocket-Protocol") {
-		for _, part := range strings.Split(value, ",") {
+		for part := range strings.SplitSeq(value, ",") {
 			if token := strings.TrimSpace(part); token != "" {
 				protocols = append(protocols, token)
 			}
@@ -378,7 +379,7 @@ func validateUpgradeRequest(r *http.Request) error {
 
 func headerContainsToken(h http.Header, name, token string) bool {
 	for _, value := range h.Values(name) {
-		for _, part := range strings.Split(value, ",") {
+		for part := range strings.SplitSeq(value, ",") {
 			if strings.EqualFold(strings.TrimSpace(part), token) {
 				return true
 			}
@@ -408,10 +409,8 @@ func (c WebSocketConfig) originAllowed(headerOrigin string) (allowed bool, norma
 	if c.AllowAnyOrigin && c.DevelopmentMode {
 		return true, normalized
 	}
-	for _, allowedOrigin := range c.AllowedOrigins {
-		if normalized == allowedOrigin {
-			return true, normalized
-		}
+	if slices.Contains(c.AllowedOrigins, normalized) {
+		return true, normalized
 	}
 	return false, normalized
 }
@@ -447,10 +446,7 @@ func wsBoundsFromConfig(c WebSocketConfig) wsBounds {
 	if err != nil || idle <= 0 {
 		idle = 5 * time.Minute
 	}
-	queued := c.MaxQueuedTurns
-	if queued < 1 {
-		queued = 1
-	}
+	queued := max(c.MaxQueuedTurns, 1)
 	queuedBytes := c.MaxQueuedBytes
 	if queuedBytes < 1 {
 		queuedBytes = DefaultMaxQueuedBytes
@@ -627,10 +623,7 @@ type sessionPumpResult struct {
 // pings so a silent-but-live peer is kept alive and a dead peer is detected
 // within the idle window.
 func (s *WSSession) Run(ctx context.Context, runner WSSessionRunner) error {
-	queueCap := s.bounds.maxQueuedTurns
-	if queueCap < 1 {
-		queueCap = 1
-	}
+	queueCap := max(s.bounds.maxQueuedTurns, 1)
 	messageCh := make(chan []byte, queueCap)
 	doneCh := make(chan sessionPumpResult, 2)
 	stop := make(chan struct{})
@@ -900,10 +893,7 @@ func (s *WSSession) readPump(ctx context.Context, messageCh chan<- []byte, doneC
 // pinger emits periodic pings so liveness is observable while the reader is idle.
 func (s *WSSession) pinger(ctx context.Context, doneCh chan<- sessionPumpResult, stop <-chan struct{}, wg *sync.WaitGroup) {
 	defer wg.Done()
-	period := s.bounds.idleTimeout * 9 / 10
-	if period < time.Millisecond {
-		period = time.Millisecond
-	}
+	period := max(s.bounds.idleTimeout*9/10, time.Millisecond)
 	ticker := time.NewTicker(period)
 	defer ticker.Stop()
 	for {

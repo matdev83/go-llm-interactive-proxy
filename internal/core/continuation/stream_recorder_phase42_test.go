@@ -40,6 +40,7 @@ func (r *phase42Recorder) RecordTerminal(_ context.Context, record lipcont.Conti
 }
 
 func TestStreamRecorderStoresOnlyTerminalAndCloseIsIdempotent(t *testing.T) {
+	t.Parallel()
 	backend := &phase42Recorder{}
 	r := corecont.NewStreamRecorder(backend, lipcont.ContinuationRecord{InputItems: []lipapi.Item{phase42Item("input", lipapi.RoleUser)}}, func() {})
 	r.Observe(context.Background(), lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"})
@@ -60,6 +61,7 @@ func TestStreamRecorderStoresOnlyTerminalAndCloseIsIdempotent(t *testing.T) {
 }
 
 func TestStreamRecorderCloseReleasesUnfinishedReservation(t *testing.T) {
+	t.Parallel()
 	cleanupCalls := 0
 	recorder := corecont.NewStreamRecorder(&phase42Recorder{}, lipcont.ContinuationRecord{}, func() {
 		cleanupCalls++
@@ -76,6 +78,7 @@ func TestStreamRecorderCloseReleasesUnfinishedReservation(t *testing.T) {
 }
 
 func TestStreamRecorderStorageFailureDoesNotBecomeStreamFailure(t *testing.T) {
+	t.Parallel()
 	backend := &phase42Recorder{err: errors.New("storage down")}
 	cleanupCalls := 0
 	r := corecont.NewStreamRecorder(backend, lipcont.ContinuationRecord{}, func() {
@@ -97,6 +100,7 @@ func TestStreamRecorderStorageFailureDoesNotBecomeStreamFailure(t *testing.T) {
 }
 
 func TestStreamRecorderPanickingCleanupDoesNotPropagateOrRepeat(t *testing.T) {
+	t.Parallel()
 	cleanupCalls := 0
 	r := corecont.NewStreamRecorder(&phase42Recorder{err: errors.New("storage down")}, lipcont.ContinuationRecord{}, func() {
 		cleanupCalls++
@@ -117,6 +121,7 @@ func TestStreamRecorderPanickingCleanupDoesNotPropagateOrRepeat(t *testing.T) {
 }
 
 func TestStreamRecorderObservePanicReleasesExactlyOnce(t *testing.T) {
+	t.Parallel()
 	cleanupCalls := 0
 	r := corecont.NewStreamRecorder(&phase42PanicRecorder{}, lipcont.ContinuationRecord{}, func() {
 		cleanupCalls++
@@ -134,6 +139,7 @@ func TestStreamRecorderObservePanicReleasesExactlyOnce(t *testing.T) {
 }
 
 func TestStreamRecorderFinalizeIncompletePanicReleasesExactlyOnce(t *testing.T) {
+	t.Parallel()
 	cleanupCalls := 0
 	r := corecont.NewStreamRecorder(&phase42PanicRecorder{}, lipcont.ContinuationRecord{}, func() {
 		cleanupCalls++
@@ -154,6 +160,7 @@ func TestStreamRecorderFinalizeIncompletePanicReleasesExactlyOnce(t *testing.T) 
 }
 
 func TestStreamRecorderFinalizeIncompleteFailureReleasesExactlyOnce(t *testing.T) {
+	t.Parallel()
 	backend := &phase42Recorder{err: errors.New("storage down")}
 	cleanupCalls := 0
 	r := corecont.NewStreamRecorder(backend, lipcont.ContinuationRecord{}, func() {
@@ -175,6 +182,7 @@ func TestStreamRecorderFinalizeIncompleteFailureReleasesExactlyOnce(t *testing.T
 }
 
 func TestStreamRecorderOverflowReleasesReservedRecordIndependentlyOfRecorder(t *testing.T) {
+	t.Parallel()
 	store := &phase42TrackingStore{MemoryStore: corecont.NewMemoryStoreWithLimits(lipcont.StorageLimits{MaxRecords: 1})}
 	scope := lipcont.Scope{PrincipalID: "overflow-principal", SessionID: "overflow-session"}
 	policy := lipcont.StoragePolicy{
@@ -213,6 +221,7 @@ func TestStreamRecorderOverflowReleasesReservedRecordIndependentlyOfRecorder(t *
 }
 
 func TestStreamRecorderPreservesTextReasoningTextOrder(t *testing.T) {
+	t.Parallel()
 	backend := &phase42Recorder{}
 	r := corecont.NewStreamRecorder(backend, lipcont.ContinuationRecord{}, func() {})
 	r.Observe(context.Background(), lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "before"})
@@ -228,6 +237,7 @@ func TestStreamRecorderPreservesTextReasoningTextOrder(t *testing.T) {
 }
 
 func TestStreamRecorderPreservesToolCallItems(t *testing.T) {
+	t.Parallel()
 	backend := &phase42Recorder{}
 	r := corecont.NewStreamRecorder(backend, lipcont.ContinuationRecord{}, func() {})
 	r.Observe(context.Background(), lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "text before tool"})

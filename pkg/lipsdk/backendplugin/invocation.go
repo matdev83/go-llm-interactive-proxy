@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 // Validate reports whether the invocation is well-formed and within bounds.
@@ -15,7 +17,10 @@ func (inv Invocation) Validate() error {
 		strings.TrimSpace(inv.CanonicalModelID) == "" {
 		return ErrInvalidInvocation
 	}
-	if len(inv.Messages) == 0 && !(inv.ItemAuthority && len(inv.Items) > 0) {
+	if len(inv.ProxyOwnedSessionID) > lipapi.MaxAuthoritativeSessionIDBytes || inv.ProxyOwnedSessionID != strings.TrimSpace(inv.ProxyOwnedSessionID) {
+		return fmt.Errorf("%w: proxy-owned session id is invalid", ErrInvalidInvocation)
+	}
+	if len(inv.Messages) == 0 && (!inv.ItemAuthority || len(inv.Items) <= 0) {
 		return ErrInvalidInvocation
 	}
 	max := DefaultMaxRawJSONBytes

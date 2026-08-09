@@ -132,21 +132,19 @@ func TestFileStoreSerializesIndependentInstances(t *testing.T) {
 	ctx := context.Background()
 	var wg sync.WaitGroup
 	ids := make(chan lipcont.ResponseID, 20)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		store := first
 		if i%2 == 1 {
 			store = second
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			id, reserveErr := store.Reserve(ctx, scope, lipcont.StoragePolicy{TTL: time.Hour})
 			if reserveErr != nil {
 				t.Errorf("reserve: %v", reserveErr)
 				return
 			}
 			ids <- id
-		}()
+		})
 	}
 	wg.Wait()
 	close(ids)

@@ -1,6 +1,7 @@
 package openresponsescompat
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -36,12 +37,7 @@ func decodeConfigErr(t *testing.T, instanceID, raw string) error {
 }
 
 func configHasCapability(caps []lipapi.Capability, cap lipapi.Capability) bool {
-	for _, c := range caps {
-		if c == cap {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(caps, cap)
 }
 
 func TestConfig_Defaults(t *testing.T) {

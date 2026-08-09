@@ -25,13 +25,15 @@ func canonicalEvents(cfg Config) []lipapi.Event {
 		if args == "" {
 			args = DefaultToolArgs
 		}
-		evs = append(evs,
+		evs = append(
+			evs,
 			lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: stubToolCallID, ToolName: cfg.ToolName},
 			lipapi.Event{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: stubToolCallID, Delta: args},
 			lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: stubToolCallID},
 		)
 	}
-	evs = append(evs,
+	evs = append(
+		evs,
 		lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: cfg.InputTokens, OutputTokens: cfg.OutputTokens},
 		lipapi.Event{Kind: lipapi.EventResponseFinished},
 	)

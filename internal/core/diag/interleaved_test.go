@@ -44,7 +44,8 @@ func TestLogInterleavedTransition_excludesMemoBody(t *testing.T) {
 	ctx = diag.WithALeg(ctx, "a-diag")
 	buf := &bytes.Buffer{}
 	log := slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	diag.LogInterleavedTransition(ctx, log, "interleaved_memo_captured", diag.AttrOpts{CallID: "call-1"},
+	diag.LogInterleavedTransition(
+		ctx, log, "interleaved_memo_captured", diag.AttrOpts{CallID: "call-1"},
 		diag.InterleavedTransition{
 			Phase:             "thinker",
 			Role:              "thinker",

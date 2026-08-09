@@ -13,8 +13,10 @@ import (
 
 var errUnexpectedClosedProbeConnect = errors.New("closed sentinel probe unexpectedly connected")
 
-type closedProbeConnector struct{}
-type closedProbeDriver struct{}
+type (
+	closedProbeConnector struct{}
+	closedProbeDriver    struct{}
+)
 
 func (closedProbeConnector) Connect(context.Context) (driver.Conn, error) {
 	return nil, errUnexpectedClosedProbeConnect

@@ -43,6 +43,47 @@ func TestCanonizeReasoningItemOpaque_PreservesEncryptedContentPresence(t *testin
 	}
 }
 
+func TestCanonizeCompactionSummaryItemOpaquePreservesAllowlistedEnvelope(t *testing.T) {
+	raw := []byte(`{"status":"completed","type":"compaction_summary","id":null,"encrypted_content":"opaque","created_by":"codex"}`)
+	got, err := CanonizeCompactionSummaryItemOpaque(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(raw) {
+		t.Fatalf("summary envelope changed: got %s", got)
+	}
+}
+
+func TestCanonizeCompactionSummaryItemOpaqueRejectsUnsafeShapes(t *testing.T) {
+	tooDeep := `{"type":"compaction_summary","encrypted_content":"x","nested":` + strings.Repeat("[", maxOpaqueJSONDepth+2) + `0` + strings.Repeat("]", maxOpaqueJSONDepth+2) + `}`
+	for _, raw := range []string{
+		`{"type":"compaction_summary","encrypted_content":"x","extra":1}`,
+		`{"type":"compaction_summary","encrypted_content":"x","type":"compaction_summary"}`,
+		`{"type":"compaction_summary","encrypted_content":"x","status":"in_progress"}`,
+		tooDeep,
+	} {
+		if _, err := CanonizeCompactionSummaryItemOpaque([]byte(raw)); err == nil {
+			t.Fatalf("accepted unsafe summary shape: %s", raw[:min(len(raw), 80)])
+		}
+	}
+}
+
+func TestCanonizeReasoningItemForInput_RemovesResponseStatus(t *testing.T) {
+	t.Parallel()
+
+	got, err := CanonizeReasoningItemForInput([]byte(`{"id":"rs_1","summary":[],"encrypted_content":"opaque","status":"completed"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(got), `"status"`) {
+		t.Fatalf("input reasoning retained response status: %s", got)
+	}
+	want := `{"id":"rs_1","type":"reasoning","summary":[],"encrypted_content":"opaque"}`
+	if string(got) != want {
+		t.Fatalf("canonical JSON = %s, want %s", got, want)
+	}
+}
+
 func TestCanonizeReasoningItemOpaque_ValidationAndOrdering(t *testing.T) {
 	t.Parallel()
 
@@ -114,5 +155,20 @@ func TestMarshalEnvelopeRejectsInvalidFields(t *testing.T) {
 		if _, err := MarshalEnvelope(fields); err == nil {
 			t.Fatal("expected marshal error")
 		}
+	}
+}
+
+func TestCanonizeReasoningItemOpaque_ContentSafeErrors(t *testing.T) {
+	t.Parallel()
+
+	secretData := "SECRET_SENSITIVE_CIPHERTEXT_ABC123"
+	invalidItemWithSecret := `{"id":"rs_1","summary":[],"extra":"` + secretData + `"}`
+	_, err := CanonizeReasoningItemOpaque([]byte(invalidItemWithSecret))
+	if err == nil {
+		t.Fatal("expected error for invalid item with extra field")
+	}
+
+	if strings.Contains(err.Error(), secretData) {
+		t.Fatalf("error message leaked secret data: %v", err)
 	}
 }

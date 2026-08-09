@@ -562,16 +562,17 @@ func InvocationFromProto(p *backendpluginv1.Invocation) (Invocation, error) {
 		return Invocation{}, err
 	}
 	inv := Invocation{
-		RequestID:        p.GetRequestId(),
-		AttemptID:        p.GetAttemptId(),
-		ALegID:           p.GetALegId(),
-		BLegID:           p.GetBLegId(),
-		CanonicalModelID: p.GetCanonicalModelId(),
-		NativeModelID:    p.GetNativeModelId(),
-		ToolChoice:       optString(p.ToolChoice),
-		Options:          opts,
-		SafeMetadata:     p.GetSafeMetadata(),
-		PromptCacheKey:   strings.TrimSpace(p.GetPromptCacheKey()),
+		RequestID:           p.GetRequestId(),
+		AttemptID:           p.GetAttemptId(),
+		ALegID:              p.GetALegId(),
+		BLegID:              p.GetBLegId(),
+		CanonicalModelID:    p.GetCanonicalModelId(),
+		NativeModelID:       p.GetNativeModelId(),
+		ToolChoice:          optString(p.ToolChoice),
+		Options:             opts,
+		SafeMetadata:        p.GetSafeMetadata(),
+		ProxyOwnedSessionID: strings.TrimSpace(p.GetProxyOwnedSessionId()),
+		PromptCacheKey:      strings.TrimSpace(p.GetPromptCacheKey()),
 	}
 	for _, m := range p.GetInstructions() {
 		msg, err := messageFromProto(m)
@@ -613,16 +614,17 @@ func InvocationToProto(inv Invocation) (*backendpluginv1.Invocation, error) {
 		return nil, err
 	}
 	out := &backendpluginv1.Invocation{
-		RequestId:        inv.RequestID,
-		AttemptId:        inv.AttemptID,
-		ALegId:           inv.ALegID,
-		BLegId:           inv.BLegID,
-		CanonicalModelId: inv.CanonicalModelID,
-		NativeModelId:    inv.NativeModelID,
-		ToolChoice:       optString(inv.ToolChoice),
-		Options:          opts,
-		SafeMetadata:     inv.SafeMetadata,
-		PromptCacheKey:   strings.TrimSpace(inv.PromptCacheKey),
+		RequestId:           inv.RequestID,
+		AttemptId:           inv.AttemptID,
+		ALegId:              inv.ALegID,
+		BLegId:              inv.BLegID,
+		CanonicalModelId:    inv.CanonicalModelID,
+		NativeModelId:       inv.NativeModelID,
+		ToolChoice:          optString(inv.ToolChoice),
+		Options:             opts,
+		SafeMetadata:        inv.SafeMetadata,
+		ProxyOwnedSessionId: strings.TrimSpace(inv.ProxyOwnedSessionID),
+		PromptCacheKey:      strings.TrimSpace(inv.PromptCacheKey),
 	}
 	for _, m := range inv.Instructions {
 		pm, err := messageToProto(m)

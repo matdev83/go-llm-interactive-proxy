@@ -163,7 +163,6 @@ func TestCompatibleExampleConfigs_checkConfig(t *testing.T) {
 		"custom-compatible-no-auth.yaml",
 	}
 	for _, name := range examples {
-		name := name
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			path := filepath.Join("..", "..", "config", "examples", name)

@@ -360,6 +360,9 @@ func TestWSTurn_ErrorPaths(t *testing.T) {
 
 	t.Run("malformed_frame", func(t *testing.T) {
 		srv := wsTestServer(t, func(t *testing.T, conn *websocket.Conn) {
+			t.Helper()
+			t.Helper()
+			t.Helper()
 			_ = wsReadCreateEnvelope(t, conn)
 			wsWrite(t, conn, map[string]any{"type": "response.output_item.added", "sequence_number": 1, "item": "not-an-object"})
 		})
@@ -372,6 +375,7 @@ func TestWSTurn_ErrorPaths(t *testing.T) {
 
 	t.Run("done_frame_ends_turn", func(t *testing.T) {
 		srv := wsTestServer(t, func(t *testing.T, conn *websocket.Conn) {
+			t.Helper()
 			_ = wsReadCreateEnvelope(t, conn)
 			wsWrite(t, conn, map[string]any{"type": "response.created", "sequence_number": 0})
 			_ = conn.WriteMessage(websocket.TextMessage, []byte("[DONE]"))
@@ -389,6 +393,7 @@ func TestWSTurn_ErrorPaths(t *testing.T) {
 
 	t.Run("oversized_frame", func(t *testing.T) {
 		srv := wsTestServer(t, func(t *testing.T, conn *websocket.Conn) {
+			t.Helper()
 			_ = wsReadCreateEnvelope(t, conn)
 			big := `{"type":"response.created","sequence_number":0,"x":"` + strings.Repeat("a", 2048) + `"}`
 			_ = conn.WriteMessage(websocket.TextMessage, []byte(big))

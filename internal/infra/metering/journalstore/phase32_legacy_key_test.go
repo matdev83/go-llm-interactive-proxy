@@ -26,7 +26,8 @@ func TestPhase32_SQLite_LegacyNULSourceEventKey_ReplayNoDuplicate(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = bunDB.NewRaw(`
+	_, err = bunDB.NewRaw(
+		`
 INSERT INTO metering_facts(
 	store_id, fact_id, stream_id, sequence, source_event_key, fact_kind,
 	perspective, boundary, lifecycle_scope,
@@ -136,7 +137,8 @@ func TestPhase32_SQLite_Literal1NUL_ReplayRaw0_NoDuplicate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = bunDB.NewRaw(`
+	_, err = bunDB.NewRaw(
+		`
 INSERT INTO metering_facts(
 	store_id, fact_id, stream_id, sequence, source_event_key, fact_kind,
 	perspective, boundary, lifecycle_scope,

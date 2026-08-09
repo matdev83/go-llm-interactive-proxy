@@ -57,7 +57,8 @@ func decisionFiltersForRow(row controlplane.AccountingDecisionRow) []decisionFil
 	add("session_id", row.Correlation.SessionID)
 	add("a_leg_id", row.Correlation.ALegID)
 	add("b_leg_id", row.Correlation.BLegID)
-	filters = append(filters,
+	filters = append(
+		filters,
 		decisionFilter{"principal_id", encodeScopeValue(row.Scope.PrincipalID)},
 		decisionFilter{"credential_id", encodeScopeValue(row.Scope.CredentialID)},
 		decisionFilter{"tenant_id", encodeScopeValue(row.Scope.TenantID)},

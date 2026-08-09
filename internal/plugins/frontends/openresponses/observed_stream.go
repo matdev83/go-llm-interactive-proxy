@@ -18,7 +18,7 @@ type observedEventStream struct {
 func (s *observedEventStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	event, err := s.EventStream.Recv(ctx)
 	if err == nil {
-		safeObserveFrontend(s.observer, ctx, event)
+		safeObserveFrontend(ctx, s.observer, event)
 	}
 	return event, err
 }
@@ -78,7 +78,7 @@ func safeCleanupConsumed(owner continuationReservationOwner) (consumed bool) {
 	return owner.ContinuationReservationCleanupConsumed()
 }
 
-func safeFinalizeIncomplete(owner continuationReservationOwner, ctx context.Context) (err error) {
+func safeFinalizeIncomplete(ctx context.Context, owner continuationReservationOwner) (err error) {
 	if owner == nil || !safeOwnsContinuationReservation(owner) {
 		return errors.New("openresponses: observer does not own continuation reservation")
 	}
@@ -93,7 +93,7 @@ func safeFinalizeIncomplete(owner continuationReservationOwner, ctx context.Cont
 // safeObserveFrontend runs observer callbacks outside the client stream
 // contract: a recording panic must never abort a delivered response. Mirrors
 // the core continuationObservedStream isolation seam.
-func safeObserveFrontend(observer lipcont.StreamObserver, ctx context.Context, event lipapi.Event) {
+func safeObserveFrontend(ctx context.Context, observer lipcont.StreamObserver, event lipapi.Event) {
 	if observer == nil {
 		return
 	}

@@ -58,9 +58,17 @@ func TestBuildStreamEvents_TextDeltaAccumulates(t *testing.T) {
 	for _, e := range events {
 		switch e.Type {
 		case "response.output_text.delta":
-			delta += e.Fields["delta"].(string)
+			value, ok := e.Fields["delta"].(string)
+			if !ok {
+				t.Fatalf("delta field has type %T", e.Fields["delta"])
+			}
+			delta += value
 		case "response.output_text.done":
-			done = e.Fields["text"].(string)
+			value, ok := e.Fields["text"].(string)
+			if !ok {
+				t.Fatalf("text field has type %T", e.Fields["text"])
+			}
+			done = value
 		}
 	}
 	if delta != "Hello world" || done != "Hello world" {

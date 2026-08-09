@@ -166,7 +166,8 @@ func packagesLoadEnv(goos, goarch string) []string {
 			out = append(out, kv)
 		}
 	}
-	return append(out,
+	return append(
+		out,
 		"GOOS="+goos,
 		"GOARCH="+goarch,
 		"CGO_ENABLED=0",

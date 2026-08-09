@@ -87,7 +87,8 @@ func TestLookupDurableSourcePayloadLegacyIdempotencyKey(t *testing.T) {
 	fact := conflictTestFact("fact-legacy", "stream-legacy", 1)
 	legacy := fact.IdempotencyKey()
 	payload := mustMarshalFact(t, fact)
-	_, err := store.db.NewRaw(`
+	_, err := store.db.NewRaw(
+		`
 INSERT INTO metering_facts(
 	store_id, fact_id, stream_id, sequence, source_event_key, fact_kind,
 	perspective, boundary, lifecycle_scope,

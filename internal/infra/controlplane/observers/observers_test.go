@@ -355,7 +355,9 @@ func (f *fakeB2BUAStore) CreateALeg(_ context.Context, _ string) (b2bua.ALegReco
 func (f *fakeB2BUAStore) FetchALeg(context.Context, string) (b2bua.ALegRecord, error) {
 	return b2bua.ALegRecord{}, b2bua.ErrALegNotFound
 }
+
 func (f *fakeB2BUAStore) SetWeightedFirstConsumed(context.Context, string, bool) error { return nil }
+
 func (f *fakeB2BUAStore) NextBLeg(context.Context, string) (b2bua.BLegRecord, error) {
 	return b2bua.BLegRecord{BLegID: "bleg-1", ALegID: "aleg-1", Seq: 1}, nil
 }

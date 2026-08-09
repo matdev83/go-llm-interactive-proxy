@@ -193,7 +193,7 @@ func TestWebSocketSession_PeerClosedCancelsContextOnlyRunner(t *testing.T) {
 		CheckOrigin:      func(*http.Request) bool { return true },
 	}
 	serverConn, clientConn := pipeWSPair(t, upgrader)
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	runner := &contextOnlyRunner{started: make(chan struct{}), canceled: make(chan struct{})}
 	session := newWSSession(serverConn, wsBounds{
@@ -235,7 +235,7 @@ func TestWebSocketSession_QueuedByteBoundHolds(t *testing.T) {
 		CheckOrigin:      func(*http.Request) bool { return true },
 	}
 	serverConn, clientConn := pipeWSPair(t, upgrader)
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	counters := &WSCounters{}
 	release := make(chan struct{})
@@ -258,7 +258,7 @@ func TestWebSocketSession_QueuedByteBoundHolds(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- session.Run(context.Background(), runner) }()
 	go func() {
-		clientConn.SetReadDeadline(time.Now().Add(8 * time.Second))
+		_ = clientConn.SetReadDeadline(time.Now().Add(8 * time.Second))
 		for {
 			if _, _, err := clientConn.ReadMessage(); err != nil {
 				return
@@ -403,7 +403,7 @@ func TestWebSocketSession_RunShutdownWinsOverImmediateAge(t *testing.T) {
 		CheckOrigin:      func(*http.Request) bool { return true },
 	}
 	serverConn, clientConn := pipeWSPair(t, upgrader)
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	var frames [][]byte
 	session := newWSSession(serverConn, wsBounds{
@@ -439,7 +439,7 @@ func TestWebSocketSession_IdleDuringActiveTurnClassifiesIdle(t *testing.T) {
 		CheckOrigin:      func(*http.Request) bool { return true },
 	}
 	serverConn, clientConn := tcpWSPair(t, upgrader)
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	counters := &WSCounters{}
 	release := make(chan struct{})
@@ -475,7 +475,7 @@ func TestWebSocketSession_IdleDuringActiveTurnClassifiesIdle(t *testing.T) {
 	}
 
 	// Drain the client side so the server's close write completes cleanly.
-	clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_ = clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	for {
 		if _, _, err := clientConn.ReadMessage(); err != nil {
 			break

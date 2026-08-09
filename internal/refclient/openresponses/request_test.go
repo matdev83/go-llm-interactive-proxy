@@ -44,14 +44,14 @@ func TestCreateParams_MarshalsControlsAndPresence(t *testing.T) {
 	p := CreateParams{
 		Model:              "gpt-openresponses-1",
 		Input:              Input{Text: "hi"},
-		Instructions:       strPtr("be brief"),
+		Instructions:       new("be brief"),
 		Tools:              []Tool{{Type: "function", Name: "f", Description: "d"}},
 		ToolChoice:         json.RawMessage(`{"type":"function","name":"f"}`),
-		ParallelToolCalls:  boolPtr(true),
+		ParallelToolCalls:  new(true),
 		Temperature:        &tc,
 		TopP:               &topP,
 		MaxOutputTokens:    &maxOut,
-		MaxToolCalls:       intPtr(1),
+		MaxToolCalls:       new(1),
 		Truncation:         "disabled",
 		Text:               json.RawMessage(`{"format":{"type":"text"}}`),
 		Reasoning:          json.RawMessage(`{"effort":"medium","summary":"auto"}`),
@@ -156,6 +156,11 @@ func TestInput_MarshalRejectsBothForms(t *testing.T) {
 	}
 }
 
-func strPtr(s string) *string { return &s }
-func boolPtr(b bool) *bool    { return &b }
-func intPtr(i int) *int       { return &i }
+//go:fix inline
+func strPtr(s string) *string { return new(s) }
+
+//go:fix inline
+func boolPtr(b bool) *bool { return new(b) }
+
+//go:fix inline
+func intPtr(i int) *int { return new(i) }

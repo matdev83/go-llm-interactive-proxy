@@ -9,7 +9,8 @@ The revised design was reviewed in three passes against:
 - current direct Codex and reasoning-preservation code;
 - current OpenAI Codex source behavior;
 - all acceptance criteria in `requirements.md`; and
-- brownfield constraints introduced by PR #235.
+- brownfield constraints introduced by PR #235;
+- the approved default-on/explicit-opt-out policy and `CodexHarnessHeadroomV1` budget rules.
 
 Each pass was allowed to return NO-GO. Findings were applied to the artifacts before the next pass.
 
@@ -86,8 +87,9 @@ The ownership model was correct, but two request/history details remained unders
 - Every component maps to requirements.
 - Every task names boundary, dependency, and validation.
 - PR #235 functionality is treated as a characterized prerequisite rather than duplicated implementation.
-- Disabled/default behavior and rollback are explicit.
-- Quality evidence is a mandatory gate rather than a research note.
+- Default-on behavior, explicit opt-outs, and rollback are explicit.
+- Quality evidence is required to report observed behavior, not to defer the approved default or claim unmeasured gains.
+- Spark and GPT-5.x fallback ceilings, safe triggers, and override validation are explicit.
 
 ### Architecture Review
 
@@ -98,7 +100,7 @@ The ownership model was correct, but two request/history details remained unders
 - Streaming remains primary.
 - No retry occurs after visible output.
 - Managed account isolation and response-chain reset are explicit.
-- External API uncertainty is isolated behind default-off behavior and live tests.
+- External API uncertainty is isolated behind pre-output fallback/cooldown and live tests; operators retain explicit opt-out.
 
 ### Safety Review
 
@@ -115,21 +117,21 @@ The ownership model was correct, but two request/history details remained unders
 - Coding-task quality metrics are defined.
 - ARC findings are not extrapolated without evidence.
 - One-time compaction cost and break-even are included.
-- Default-on promotion requires positive or non-inferior quality and acceptable failure evidence.
+- Quality/failure evidence is required to report observed behavior accurately; it is not a separate gate for the approved default-on policy.
 
 ## Design Strengths
 
 - The design now mirrors Codex CLI's durable exact-item history rather than assuming response-ID persistence.
 - It reuses mature winner-owned reasoning preservation and confines provider-specific compaction to the adapter.
 - It separates exact compaction history from ordinary no-tools generation projection.
-- It provides a reversible, default-off rollout and a falsifiable quality evaluation.
+- It provides a reversible, explicitly opt-out rollout and a falsifiable quality evaluation.
 
 ## Final Assessment
 
 **Decision: GO**
 
-No critical requirement, ownership, ordering, security, transport, or evaluation gap remains. The remaining unknowns concern live ChatGPT Codex endpoint behavior, and each has a bounded environment-gated test plus fail-open/default-off containment.
+No critical requirement, ownership, ordering, security, transport, context-budget, or evaluation gap remains. The remaining unknowns concern live ChatGPT Codex endpoint behavior, and each has a bounded environment-gated test plus pre-output fallback and explicit opt-out containment.
 
 ## Implementation Gate
 
-Implementation should begin only after maintainers approve the revised `requirements.md` and `design.md` in `spec.json`. The first implementation work must characterize PR #235 behavior and add failing integration contracts before changing runtime behavior.
+Implementation should proceed from the human-approved synchronized `requirements.md`, `design.md`, and `tasks.md` in `spec.json`. New or changed default-on/headroom tasks remain unchecked until implemented; completed historical checkboxes remain historical evidence. The first implementation work must characterize PR #235 behavior and add failing integration contracts before changing runtime behavior.

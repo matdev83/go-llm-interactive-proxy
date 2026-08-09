@@ -108,7 +108,6 @@ func TestSSE_MalformedData(t *testing.T) {
 		{"terminal_duplicate", "data: {\"type\":\"response.completed\"}\ndata: {\"type\":\"response.completed\"}\ndata: [DONE]\n\n"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if _, _, err := ParseSSE([]byte(tc.data), DefaultParseOptions()); err == nil {
@@ -162,6 +161,7 @@ func sseScenarioCases() []scenarioCase {
 			fixture:     "stream_text.sse",
 			description: "Pinned SSE stream parses in order with lifecycle, deltas, single terminal, and [DONE].",
 			parse: func(t *testing.T, data []byte) {
+				t.Helper()
 				stream, done, err := ParseSSE(data, DefaultParseOptions())
 				if err != nil {
 					t.Fatalf("ParseSSE: %v", err)

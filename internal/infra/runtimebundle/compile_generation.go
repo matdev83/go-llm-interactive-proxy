@@ -119,7 +119,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	}
 	failWithGenCtx := func(err error) (GenerationRuntime, error) { genCancel(); return failBeforeTransfer(err) }
 
-	httpInput := buildStandardHTTPInput(cand, frozen, regs, route, genCtx)
+	httpInput := buildStandardHTTPInput(genCtx, cand, frozen, regs, route)
 	if err := injectCandidateFault(in.FaultInject, "composer-clone"); err != nil {
 		return failWithGenCtx(fmt.Errorf("runtimebundle: composer config clone: %w", err))
 	}
@@ -170,7 +170,7 @@ func composeStandardHTTPIsolated(ctx context.Context, compose HandlerComposer, c
 	return compose(ctx, cfg, log, in)
 }
 
-func buildStandardHTTPInput(cand *candidateAssembly, frozen *config.Config, regs []lipsdk.Registration, route string, genCtx context.Context) httpcontract.StandardHTTPInput {
+func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, frozen *config.Config, regs []lipsdk.Registration, route string) httpcontract.StandardHTTPInput {
 	var maxBody int64
 	var preKA lipsdk.FrontendKeepaliveConfig
 	if frozen != nil {

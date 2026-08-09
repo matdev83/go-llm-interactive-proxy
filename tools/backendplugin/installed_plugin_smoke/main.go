@@ -23,8 +23,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const smokeCommandTimeout = 20 * time.Minute
-const smokeProcessTimeout = 2 * time.Minute
+const (
+	smokeCommandTimeout = 20 * time.Minute
+	smokeProcessTimeout = 2 * time.Minute
+)
 
 type releaseMeta struct {
 	Schema       string   `yaml:"schema"`
@@ -119,8 +121,10 @@ func run(repoRoot string) error {
 	selectArg := stub.DirName + "," + multi.DirName
 	fmt.Println("== package selected release artifacts ==")
 	result = runner.Run(context.Background(), runner.Request{
-		Argv: []string{"go", "run", "./tools/backendplugin/package_plugins",
-			"-root", absRoot, "-profile", "full", "-dest", pkgDest, "-select", selectArg},
+		Argv: []string{
+			"go", "run", "./tools/backendplugin/package_plugins",
+			"-root", absRoot, "-profile", "full", "-dest", pkgDest, "-select", selectArg,
+		},
 		Dir:       absRoot,
 		Env:       env,
 		Timeout:   smokeCommandTimeout,

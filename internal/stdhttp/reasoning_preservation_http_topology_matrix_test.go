@@ -700,8 +700,10 @@ func runResponsesDefaultOnBoundary(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			runResponsesTwoTurnGating(t, rpChatStackOpts{
-				FeatureRow: rpFeatureRowOmit,
-				Model:      tc.model,
+				FeatureRow:        rpFeatureRowExplicit,
+				Action:            "restore",
+				UseBuiltinCatalog: true,
+				Model:             tc.model,
 			}, tc.expectRestore)
 		})
 	}
@@ -710,8 +712,10 @@ func runResponsesDefaultOnBoundary(t *testing.T) {
 func runResponsesDefaultOnUnrelated(t *testing.T) {
 	t.Helper()
 	runResponsesTwoTurnGating(t, rpChatStackOpts{
-		FeatureRow: rpFeatureRowOmit,
-		Model:      "claude-3-5-haiku",
+		FeatureRow:        rpFeatureRowExplicit,
+		Action:            "restore",
+		UseBuiltinCatalog: true,
+		Model:             "claude-3-5-haiku",
 	}, false)
 }
 
@@ -823,7 +827,8 @@ func runResponsesPresenceOracleMatrix(t *testing.T) {
 		{ResponseID: "resp_p1", Reasoning: items, VisibleText: "presence-one"},
 		{ResponseID: "resp_p2", VisibleText: "presence-two"},
 	}
-	stack := startReasoningPreservationResponsesStack(t, "restore", turns,
+	stack := startReasoningPreservationResponsesStack(
+		t, "restore", turns,
 		refresponses.ExpectNoReasoningInput(),
 		refresponses.ExpectReasoningInput(want),
 	)
@@ -884,7 +889,8 @@ func runResponsesSeededPresenceSmoke(t *testing.T) {
 				{ResponseID: "resp_s1", Reasoning: []refresponses.ReasoningOutputItem{item}, VisibleText: "seed-one"},
 				{ResponseID: "resp_s2", VisibleText: "seed-two"},
 			}
-			stack := startReasoningPreservationResponsesStack(t, "restore", turns,
+			stack := startReasoningPreservationResponsesStack(
+				t, "restore", turns,
 				refresponses.ExpectNoReasoningInput(),
 				refresponses.ExpectReasoningInput([]refresponses.ReasoningInputExpect{expect}),
 			)

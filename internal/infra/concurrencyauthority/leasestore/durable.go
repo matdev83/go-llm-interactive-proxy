@@ -389,7 +389,8 @@ func (s *DurableStore) Acquire(ctx context.Context, cmd app.AcquireCommand) (app
 		return app.AcquireResult{}, err
 	}
 	if found {
-		if _, err := tx.NewRaw(`
+		if _, err := tx.NewRaw(
+			`
 UPDATE concurrency_leases SET
 	rule_id=?, rule_version=?, namespace=?, dimension_key=?, logical_id=?, holder_id=?,
 	acquired_at_unix=?, renewed_at_unix=?, expires_at_unix=?, released_at_unix=?,
@@ -404,7 +405,8 @@ WHERE store_id=? AND lease_id=?
 			return app.AcquireResult{}, fmt.Errorf("leasestore: update lease: %w", err)
 		}
 	} else {
-		if _, err := tx.NewRaw(`
+		if _, err := tx.NewRaw(
+			`
 INSERT INTO concurrency_leases(
 	store_id, lease_id, rule_id, rule_version, namespace, dimension_key,
 	logical_id, holder_id, acquired_at_unix, renewed_at_unix, expires_at_unix,
@@ -451,7 +453,8 @@ FOR UPDATE
 // reclaimExpired marks expired live leases for one capacity key. Bounded by
 // (store_id, rule_id, dimension_key, state, expires_at) index predicates.
 func (s *DurableStore) reclaimExpired(ctx context.Context, tx bun.Tx, ruleID, dimKey string, nowUnix int64, _ time.Time) error {
-	_, err := tx.NewRaw(`
+	_, err := tx.NewRaw(
+		`
 UPDATE concurrency_leases
 SET state=?
 WHERE store_id=? AND rule_id=? AND dimension_key=?
@@ -575,7 +578,8 @@ func (s *DurableStore) Renew(ctx context.Context, cmd app.RenewCommand) (app.Ren
 // cannot be resurrected (requirements 10.7, 10.8, 16.2).
 // Callers must pass the preimage generation (ExpectedGeneration), not row.Generation.
 func (s *DurableStore) renewCASUpdate(ctx context.Context, tx bun.Tx, leaseID string, expectedGen int64, row leaseRow) (int64, error) {
-	res, err := tx.NewRaw(`
+	res, err := tx.NewRaw(
+		`
 UPDATE concurrency_leases SET
 	renewed_at_unix=?, expires_at_unix=?, generation=?, state=?
 WHERE store_id=? AND lease_id=? AND generation=? AND state IN (?, ?)
@@ -656,7 +660,8 @@ func (s *DurableStore) Release(ctx context.Context, cmd app.ReleaseCommand) (app
 // intentionally not part of the predicate: Renew bumps generation, and cleanup
 // Release must still win.
 func (s *DurableStore) releaseCASUpdate(ctx context.Context, tx bun.Tx, leaseID string, lease domain.Lease) (int64, error) {
-	res, err := tx.NewRaw(`
+	res, err := tx.NewRaw(
+		`
 UPDATE concurrency_leases SET state=?, released_at_unix=?
 WHERE store_id=? AND lease_id=? AND state IN (?, ?)
 `,

@@ -15,6 +15,7 @@ import (
 // (Requirement 12.13/12.14, design Coverage Quality >= 90% statement target).
 
 func TestQualityGate_DecodeRequestEmptyAndOversize(t *testing.T) {
+	t.Parallel()
 	if _, _, err := DecodeRequest(nil); err == nil {
 		t.Fatal("expected error for empty payload")
 	}
@@ -28,6 +29,7 @@ func TestQualityGate_DecodeRequestEmptyAndOversize(t *testing.T) {
 }
 
 func TestQualityGate_DecodeRequestInvalidInputForms(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		json string
@@ -39,6 +41,7 @@ func TestQualityGate_DecodeRequestInvalidInputForms(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			_, _, err := DecodeRequest([]byte(tc.json))
 			if err == nil {
 				t.Fatal("expected error")
@@ -51,6 +54,7 @@ func TestQualityGate_DecodeRequestInvalidInputForms(t *testing.T) {
 }
 
 func TestQualityGate_ValidateJSONStrictBranches(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		json string
@@ -69,6 +73,7 @@ func TestQualityGate_ValidateJSONStrictBranches(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			err := validateJSONStrict([]byte(tc.json), 64)
 			if tc.want == "" {
 				if err != nil {
@@ -87,6 +92,7 @@ func TestQualityGate_ValidateJSONStrictBranches(t *testing.T) {
 }
 
 func TestQualityGate_DecodeToolChoiceReachableErrors(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		raw  string
@@ -102,6 +108,7 @@ func TestQualityGate_DecodeToolChoiceReachableErrors(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := decodeToolChoice([]byte(tc.raw))
 			if err == nil {
 				t.Fatal("expected error")
@@ -114,6 +121,7 @@ func TestQualityGate_DecodeToolChoiceReachableErrors(t *testing.T) {
 }
 
 func TestQualityGate_DecodeItemCallIDFallbacksAndFallbacks(t *testing.T) {
+	t.Parallel()
 	// function_call without call_id falls back to item ID.
 	fc := WireItem{Type: "function_call", ID: "fc_1", Name: "fn", Arguments: []byte(`{}`)}
 	item, err := DecodeItem(fc, DefaultLimits())
@@ -206,6 +214,7 @@ func TestQualityGate_DecodeItemCallIDFallbacksAndFallbacks(t *testing.T) {
 }
 
 func TestQualityGate_DecodeContentPartsErrorPaths(t *testing.T) {
+	t.Parallel()
 	// empty content decodes to nil parts.
 	parts, err := decodeContentParts([]byte("   "))
 	if err != nil || parts != nil {
@@ -230,6 +239,7 @@ func TestQualityGate_DecodeContentPartsErrorPaths(t *testing.T) {
 }
 
 func TestQualityGate_EncodeRequestAndContentPartFallbacks(t *testing.T) {
+	t.Parallel()
 	// unknown item kind fails EncodeRequest with a wrapped error.
 	if _, err := EncodeRequest(lipapi.Call{Items: []lipapi.Item{{Kind: lipapi.ItemKind("nope")}}}); err == nil {
 		t.Fatal("expected error for unknown item kind in EncodeRequest")
@@ -247,6 +257,7 @@ func TestQualityGate_EncodeRequestAndContentPartFallbacks(t *testing.T) {
 }
 
 func TestQualityGate_MapErrorToWireNilAndSequence(t *testing.T) {
+	t.Parallel()
 	status, env, cls := MapErrorToWire(nil)
 	if status != 200 || cls != "" || env.Error.Type != "" {
 		t.Fatalf("unexpected nil-error mapping: status=%d class=%q env=%+v", status, cls, env)
@@ -260,6 +271,7 @@ func TestQualityGate_MapErrorToWireNilAndSequence(t *testing.T) {
 }
 
 func TestQualityGate_StateMachineSequenceErrors(t *testing.T) {
+	t.Parallel()
 	envelope := EnvelopeMetadata{ResponseID: "resp_g", CreatedAt: time.Unix(1715620000, 0), Model: "gpt-4o"}
 	opts := lipapi.GenerationOptions{}
 
@@ -307,6 +319,7 @@ func TestQualityGate_StateMachineSequenceErrors(t *testing.T) {
 }
 
 func TestQualityGate_StateMachineSnapshotRollbackActiveContent(t *testing.T) {
+	t.Parallel()
 	envelope := EnvelopeMetadata{ResponseID: "resp_rb", CreatedAt: time.Unix(1715620000, 0), Model: "gpt-4o"}
 	opts := lipapi.GenerationOptions{}
 
@@ -330,6 +343,7 @@ func TestQualityGate_StateMachineSnapshotRollbackActiveContent(t *testing.T) {
 }
 
 func TestQualityGate_StateMachineSnapshotWithStreamError(t *testing.T) {
+	t.Parallel()
 	envelope := EnvelopeMetadata{ResponseID: "resp_se", CreatedAt: time.Unix(1715620000, 0), Model: "gpt-4o"}
 	opts := lipapi.GenerationOptions{}
 
@@ -350,6 +364,7 @@ func TestQualityGate_StateMachineSnapshotWithStreamError(t *testing.T) {
 }
 
 func TestQualityGate_ConservativeLegacyNormalizeErrorPropagation(t *testing.T) {
+	t.Parallel()
 	envelope := EnvelopeMetadata{ResponseID: "resp_norm_err", CreatedAt: time.Unix(1715620000, 0), Model: "gpt-4o"}
 	// First event is a message start without a response start -> error propagates.
 	_, _, err := ConservativeLegacyNormalize(envelope, lipapi.GenerationOptions{}, []lipapi.Event{{Kind: lipapi.EventMessageStarted}})
@@ -359,6 +374,7 @@ func TestQualityGate_ConservativeLegacyNormalizeErrorPropagation(t *testing.T) {
 }
 
 func TestQualityGate_ResourceBuilderReachableBranches(t *testing.T) {
+	t.Parallel()
 	now := time.Unix(1715620000, 0)
 	store := false
 	prev := "resp_prev"
@@ -400,6 +416,7 @@ func TestQualityGate_ResourceBuilderReachableBranches(t *testing.T) {
 }
 
 func TestQualityGate_SSEWriterWriteErrors(t *testing.T) {
+	t.Parallel()
 	failing := &errWriter{err: errors.New("write boom")}
 	w := NewSSEWriter(failing)
 	if err := w.WriteEvent(StreamEvent{Type: "response.created"}); err == nil {
@@ -420,6 +437,7 @@ func TestQualityGate_SSEWriterWriteErrors(t *testing.T) {
 }
 
 func TestQualityGate_DecodeRequestUnknownTopLevelField(t *testing.T) {
+	t.Parallel()
 	_, _, err := DecodeRequest([]byte(`{"model":"gpt-4o","input":"hi","bogus_top_level":1}`))
 	if err == nil {
 		t.Fatal("expected error for unknown unprefixed top-level field")

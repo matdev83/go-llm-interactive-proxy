@@ -316,7 +316,8 @@ func (s *Store) RecordAttempt(ctx context.Context, rec lipapi.AttemptRecord) err
 			return fmt.Errorf("%w: b-leg mismatch for seq %d", b2bua.ErrInvalidAttempt, rec.Seq)
 		}
 		touch := time.Now().UnixNano()
-		_, err = tx.NewRaw(`
+		_, err = tx.NewRaw(
+			`
 INSERT INTO attempts(a_leg_id, seq, b_leg_id, backend_id, effective_model, started_at_unix, finished_at_unix, outcome, reason)
 VALUES(?,?,?,?,?,?,?,?,?)
 ON CONFLICT(a_leg_id, seq) DO UPDATE SET

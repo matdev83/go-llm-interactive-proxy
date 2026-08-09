@@ -73,7 +73,6 @@ func Negotiate(host, plugin ProtocolOffer) (Negotiation, error) {
 		base.RejectReason = reason
 		return base, ErrIncompatibleMajor
 	}
-
 	hostByName, err := indexFeatures(host.Features)
 	if err != nil {
 		base.Compatible = false
@@ -144,6 +143,65 @@ func MustNegotiateBeforeConfigure(neg Negotiation) error {
 			return fmt.Errorf("%w: %s", ErrConfigureBeforeNegotiate, neg.RejectReason)
 		}
 		return ErrConfigureBeforeNegotiate
+	}
+	return nil
+}
+
+// ValidateNegotiationResult verifies a peer's compatible response against the
+// host offer. It prevents a compromised or buggy peer from enabling features it
+// did not advertise, claiming a minor above either side, or bypassing required
+// feature gates after the initial Negotiate RPC.
+func ValidateNegotiationResult(host ProtocolOffer, neg Negotiation) error {
+	if !neg.Compatible {
+		return ErrConfigureBeforeNegotiate
+	}
+	if host.Major != ProtocolMajorV1 || neg.PluginMajor != host.Major || neg.PluginMajor != ProtocolMajorV1 {
+		return ErrIncompatibleMajor
+	}
+	if neg.PluginMinor < neg.NegotiatedMinor || host.Minor < neg.NegotiatedMinor {
+		return fmt.Errorf("%w: negotiated minor %d", ErrIncompatibleMinor, neg.NegotiatedMinor)
+	}
+	if err := neg.TransportPolicy.Validate(); err != nil {
+		return err
+	}
+	hostFeatures, err := indexFeatures(host.Features)
+	if err != nil {
+		return err
+	}
+	pluginFeatures, err := indexFeatures(neg.PluginFeatures)
+	if err != nil {
+		return err
+	}
+	enabled := make(map[string]struct{}, len(neg.EnabledFeatures))
+	for _, raw := range neg.EnabledFeatures {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			return ErrEmptyFeatureName
+		}
+		if _, duplicate := enabled[name]; duplicate {
+			return fmt.Errorf("%w: %s", ErrDuplicateFeature, name)
+		}
+		if _, ok := hostFeatures[name]; !ok {
+			return fmt.Errorf("%w: response enabled feature %s was not offered by host", ErrUnknownRequiredFeature, name)
+		}
+		if _, ok := pluginFeatures[name]; !ok {
+			return fmt.Errorf("%w: response enabled feature %s was not advertised by plugin", ErrUnknownRequiredFeature, name)
+		}
+		enabled[name] = struct{}{}
+	}
+	for name, feature := range hostFeatures {
+		if feature.Required {
+			if _, ok := enabled[name]; !ok {
+				return fmt.Errorf("%w: required host feature %s was not enabled", ErrUnknownRequiredFeature, name)
+			}
+		}
+	}
+	for name, feature := range pluginFeatures {
+		if feature.Required {
+			if _, ok := enabled[name]; !ok {
+				return fmt.Errorf("%w: required plugin feature %s was not enabled", ErrUnknownRequiredFeature, name)
+			}
+		}
 	}
 	return nil
 }

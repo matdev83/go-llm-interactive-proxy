@@ -56,8 +56,10 @@ func TestFakeConnector_EquivalentCanonicalCreateAndCompact(t *testing.T) {
 		Session:    lipapi.SessionRef{ALegID: "aleg-eq"},
 		Invocation: lipapi.Invocation{Operation: lipapi.OperationContextCompaction},
 		Items: []lipapi.Item{
-			{Kind: lipapi.ItemKindMessage, ID: "msg-1", Status: lipapi.ItemStatusCompleted, Role: lipapi.RoleUser,
-				Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "window"}}},
+			{
+				Kind: lipapi.ItemKindMessage, ID: "msg-1", Status: lipapi.ItemStatusCompleted, Role: lipapi.RoleUser,
+				Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "window"}},
+			},
 			{Kind: lipapi.ItemKindCompaction, ID: "cmp-1", Status: lipapi.ItemStatusCompleted, Compaction: &lipapi.CompactionItem{
 				Dialect: "compact.v1", Implementor: "fake", Opaque: json.RawMessage(`{"ok":true}`),
 			}},

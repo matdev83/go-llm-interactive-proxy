@@ -297,7 +297,7 @@ func (r *SessionRunner) executeTurn(ctx context.Context, s *WSSession, decoded *
 	}
 	// Enforce the allowed_tools hard constraint before any WebSocket turn output.
 	stream = newAllowedToolsStream(&execCall, stream)
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	if localStore != nil {
 		observer := r.newLocalRecorder(localStore, scope, lipcont.ResponseID(responseID), parentID, parentRec, &execCall, decoded)
@@ -307,7 +307,7 @@ func (r *SessionRunner) executeTurn(ctx context.Context, s *WSSession, decoded *
 	}
 
 	committed := false
-	for eventCount := 0; eventCount < maxStreamingEvents; eventCount++ {
+	for range maxStreamingEvents {
 		ev, err := stream.Recv(turnCtx)
 		if err != nil {
 			if turnCtx.Err() != nil {
@@ -379,7 +379,7 @@ func (r *SessionRunner) newLocalRecorder(store lipcont.Store, scope lipcont.Scop
 	if store == nil || responseID.IsZero() {
 		return nil
 	}
-	recorderFactory := defaultContinuationRecorderFactory()
+	recorderFactory := ContinuationRecorderFactory(connectionContinuationRecorderFactory{})
 	if r.cfg.RecorderFactory != nil {
 		recorderFactory = r.cfg.RecorderFactory
 	}

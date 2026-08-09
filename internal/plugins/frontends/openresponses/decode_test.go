@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openresponses"
@@ -121,8 +122,12 @@ func TestDecode_AuthBeforeBodyOrStore(t *testing.T) {
 	if store.getCalls != 0 {
 		t.Errorf("expected 0 continuation store calls when auth fails, got %d", store.getCalls)
 	}
-	if req.Body.(*countingReadCloser).reads != 0 {
-		t.Errorf("expected 0 body reads when auth fails, got %d", req.Body.(*countingReadCloser).reads)
+	countedBody, ok := req.Body.(*countingReadCloser)
+	if !ok {
+		t.Fatalf("request body type = %T", req.Body)
+	}
+	if countedBody.reads != 0 {
+		t.Errorf("expected 0 body reads when auth fails, got %d", countedBody.reads)
 	}
 }
 
@@ -407,7 +412,8 @@ func TestHandler_ExecutorErrorIsSanitized(t *testing.T) {
 
 	exec := &mockExecutor{err: errors.New("provider secret: token=abc")}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		AllowUnauthenticated: true, Executor: exec})
+		AllowUnauthenticated: true, Executor: exec,
+	})
 	req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", bytes.NewBufferString(`{"model":"gpt-4o","input":"hello"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -455,7 +461,8 @@ func TestCompact_MissingModel_CausesNoWork(t *testing.T) {
 
 	exec := &mockExecutor{}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		AllowUnauthenticated: true, Executor: exec})
+		AllowUnauthenticated: true, Executor: exec,
+	})
 
 	req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses/compact", bytes.NewBufferString(`{"input":"hello"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -476,7 +483,8 @@ func TestCompact_MissingInput_CausesNoWork(t *testing.T) {
 
 	exec := &mockExecutor{}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		AllowUnauthenticated: true, Executor: exec})
+		AllowUnauthenticated: true, Executor: exec,
+	})
 
 	req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses/compact", bytes.NewBufferString(`{"model":"gpt-4o"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -506,7 +514,8 @@ func TestCompact_ForbiddenFields_CausesNoWork(t *testing.T) {
 	for _, payload := range forbiddenPayloads {
 		exec := &mockExecutor{}
 		handler := openresponses.NewHandler(openresponses.HandlerConfig{
-			AllowUnauthenticated: true, Executor: exec})
+			AllowUnauthenticated: true, Executor: exec,
+		})
 
 		req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses/compact", bytes.NewBufferString(payload))
 		req.Header.Set("Content-Type", "application/json")
@@ -553,13 +562,7 @@ func TestCompact_DecodeAndDispatchContract(t *testing.T) {
 		t.Errorf("call must be item-authoritative")
 	}
 
-	hasCompaction := false
-	for _, c := range decoded.Requirements.Capabilities {
-		if c == lipapi.CapabilityCompaction {
-			hasCompaction = true
-			break
-		}
-	}
+	hasCompaction := slices.Contains(decoded.Requirements.Capabilities, lipapi.CapabilityCompaction)
 	if !hasCompaction {
 		t.Errorf("decoded requirements must contain CapabilityCompaction: %v", decoded.Requirements.Capabilities)
 	}
@@ -567,7 +570,8 @@ func TestCompact_DecodeAndDispatchContract(t *testing.T) {
 	// Now verify Handler dispatch
 	compactExec := &mockExecutor{}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		AllowUnauthenticated: true, Executor: compactExec})
+		AllowUnauthenticated: true, Executor: compactExec,
+	})
 
 	req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses/compact", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -706,10 +710,5 @@ func TestCompactDecode_ExplicitRouteSelectorMustMatchConfiguredPrefix(t *testing
 }
 
 func containsCapability(capabilities []lipapi.Capability, want lipapi.Capability) bool {
-	for _, capability := range capabilities {
-		if capability == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(capabilities, want)
 }

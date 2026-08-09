@@ -23,7 +23,8 @@ func TestKillProcessTree_UnixProcessGroup(t *testing.T) {
 	childPIDFile := filepath.Join(dir, "child.pid")
 	proc, err := acp.OSProcessStarter{}.Start([]string{
 		os.Args[0], "-test.run=TestHelperProcess_UnixTreeParent$", "--",
-	}, "", append(os.Environ(),
+	}, "", append(
+		os.Environ(),
 		"ACP_WANT_HELPER=unix-tree-parent",
 		"ACP_CHILD_PID_FILE="+childPIDFile,
 	))

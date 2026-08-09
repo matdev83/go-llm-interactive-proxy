@@ -44,7 +44,11 @@ func capturedMIME(t *testing.T, capture *sync.Map) string {
 	if !ok {
 		t.Fatal("executor was not called")
 	}
-	return value.(lipapi.Call).Options.ResponseMIMEType
+	call, ok := value.(lipapi.Call)
+	if !ok {
+		t.Fatalf("captured value type = %T", value)
+	}
+	return call.Options.ResponseMIMEType
 }
 
 func mountTextFormatHTTP(t *testing.T, ex *runtime.Executor) *httptest.Server {
@@ -71,9 +75,10 @@ func mountTextFormatHTTP(t *testing.T, ex *runtime.Executor) *httptest.Server {
 func TestHTTPTextFormatReachesExecutorOnce(t *testing.T) {
 	for name, body := range textFormatBodies() {
 		want := ""
-		if name == "text" {
+		switch name {
+		case "text":
 			want = "text/plain"
-		} else if name == "json_object" {
+		case "json_object":
 			want = "application/json"
 		}
 		t.Run(name, func(t *testing.T) {
@@ -84,7 +89,7 @@ func TestHTTPTextFormatReachesExecutorOnce(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 			if resp.StatusCode != http.StatusOK {
 				data, _ := io.ReadAll(resp.Body)
 				t.Fatalf("status = %d body = %s", resp.StatusCode, data)
@@ -106,7 +111,7 @@ func TestHTTPInvalidTextFormatDoesNotExecute(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 			if resp.StatusCode != http.StatusBadRequest {
 				t.Fatalf("status = %d", resp.StatusCode)
 			}
@@ -132,7 +137,7 @@ func TestWebSocketTextFormatReachesExecutorOnce(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 			if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create",`+body[1:])); err != nil {
 				t.Fatal(err)
 			}
@@ -155,7 +160,7 @@ func TestWebSocketInvalidTextFormatDoesNotExecute(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 			if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create",`+body[1:])); err != nil {
 				t.Fatal(err)
 			}

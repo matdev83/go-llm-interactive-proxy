@@ -13,7 +13,7 @@ This specification therefore expands native compaction into a coordinated **nati
 3. create and replay provider-bound compaction checkpoints from reasoning-complete history; and
 4. measure quality, not only request size and token savings.
 
-The feature remains experimental. Native compaction is disabled by default and enabled per direct Codex connector instance. Automatic reasoning restoration uses the existing `reasoning-output-preservation` feature through an explicit Codex rule and a bounded eligibility marker. Full client history remains the authoritative fallback.
+The feature is part of the current direct-Codex production scope. Native context is default-on for direct `openai-codex`: omitted `native_context` enables encrypted-reasoning preservation and automatic native compaction. Operators may explicitly opt out. Automatic reasoning restoration uses the existing `reasoning-output-preservation` feature through a standard backend-specific Codex rule and a bounded eligibility marker. Full client history remains the authoritative fallback.
 
 ## Boundary Context
 
@@ -25,22 +25,22 @@ The feature remains experimental. Native compaction is disabled by default and e
 
 ## Requirements
 
-### Requirement 1: Experimental Configuration and Safe Modes
+### Requirement 1: Default-On Configuration and Safe Modes
 
-**Objective:** As an operator, I want native context behavior explicitly configurable, so I can evaluate reasoning continuity and compaction independently without changing stable defaults.
+**Objective:** As an operator, I want native context enabled by default for direct Codex while retaining explicit, complete opt-outs and independent controls for safe operations and evaluation.
 
 #### Acceptance Criteria
 
-1. The direct Codex connector shall keep native compaction disabled when its configuration omits the native-context or native-compaction block.
-2. Where native context is configured, the connector shall expose separate controls for encrypted-reasoning requests, reasoning-continuity requirement, and compaction enablement.
-3. The default full-mode configuration shall require reasoning continuity before creating a compaction checkpoint.
-4. The configuration shall support evaluation-only modes for reasoning-only, compaction-only, both, and neither without changing production defaults.
-5. If a setting is negative, internally inconsistent, above a hard safety bound, or enabled for `openai-codex-app-server`, the connector shall reject configuration before serving.
-6. While compaction is disabled, the connector shall not issue a compaction trigger, allocate checkpoint state, rewrite history with a compaction item, or reset continuation because of compaction.
-7. Disabling automatic reasoning continuity shall not disable exact client-supplied reasoning replay already supported by the connector.
-8. Diagnostics shall expose effective mode and bounded numeric settings without exposing prompts, session keys, reasoning envelopes, or ciphertext.
-9. Runtime close or replacement shall clear connector-private checkpoint and cooldown state.
-10. Promotion of compaction to enabled-by-default shall require a separate reviewed change.
+1. For a direct `openai-codex` connector, omitting `native_context` shall activate full native context: encrypted-reasoning requests, required surfaced-reasoning continuity, and automatic native compaction.
+2. `native_context.enabled: false` shall be a complete native-context opt-out: it shall disable automatic encrypted-reasoning request shaping, automatic reasoning restoration activation for that backend, compaction planning/execution, checkpoint allocation, and continuation reset caused by compaction.
+3. Exact client-supplied compatible reasoning replay already supported by the connector shall remain unaffected by `native_context.enabled: false`.
+4. An explicit `native_context` block shall expose separate controls for encrypted-reasoning requests, reasoning-continuity mode, and compaction enablement. `compaction.enabled: false` shall disable only automatic compaction/checkpoints while retaining explicitly enabled reasoning controls.
+5. The default full mode shall require the trusted surfaced-continuity marker before creating a compaction checkpoint; missing eligibility shall use the full-history fallback.
+6. Configuration shall support reasoning-only, compaction-only evaluation, both, and neither through explicit controls without changing the default-on production semantics.
+7. If a setting is negative, internally inconsistent, above a hard safety bound, or enabled for `openai-codex-app-server`, the connector shall reject configuration before serving. App-server native context remains unsupported/off.
+8. While compaction is disabled, the connector shall not issue a compaction request, allocate checkpoint state, rewrite history with a compaction item, or reset continuation because of compaction.
+9. Diagnostics shall expose effective mode, source/precedence, and bounded numeric settings without exposing prompts, session keys, reasoning envelopes, or ciphertext.
+10. Runtime close or replacement shall clear connector-private checkpoint and cooldown state.
 
 ### Requirement 2: Encrypted Reasoning Request and Exact Item Fidelity
 
@@ -53,7 +53,7 @@ The feature remains experimental. Native compaction is disabled by default and e
 3. Existing explicit caller or route reasoning-effort overrides shall retain precedence.
 4. When the backend emits a completed OpenAI Responses reasoning item, the connector shall preserve the allowlisted bounded envelope exactly and emit the existing `openai.responses.reasoning_item.v1` canonical dialect.
 5. When a canonical request contains a compatible exact reasoning part, the connector shall replay the original envelope rather than synthesizing text or summary fallback.
-6. When an internal compaction response emits a completed compaction item, the connector shall preserve the complete bounded replay envelope.
+6. When the dedicated unary compaction response returns a retained output list and completed `compaction_summary`, the connector shall preserve the complete bounded replacement list and summary envelope.
 7. The connector shall treat `encrypted_content` as opaque and shall not decrypt, decode, summarize, edit, log, audit, or tokenize it as ordinary text.
 8. Malformed, oversized, duplicate, unsupported, or incomplete reasoning/compaction items shall not enter retained state.
 9. Opaque replay items shall remain bound to the Codex implementor, selected account, exact model lineage, and compatible compaction hash when available.
@@ -67,16 +67,17 @@ The feature remains experimental. Native compaction is disabled by default and e
 
 1. Automatic cross-request reasoning retention shall use the existing `reasoning-output-preservation` feature rather than a connector-local store that cannot distinguish surfaced winners from swallowed or losing attempts.
 2. Only reasoning observed from the successful surfaced B-leg after response hooks and completion gates shall become restorable state.
-3. An explicit backend-only reasoning-preservation rule shall be able to target the direct `openai-codex` connector without relying on a GPT version ceiling.
-4. When the rule is eligible, the attempt transform shall mark the candidate call with a bounded internal continuity marker before backend open.
-5. When a later exact assistant trajectory omits previously observed reasoning and matches one unique artifact, the feature shall restore exact reasoning at its recorded positions.
-6. Client-supplied exact reasoning shall be preserved and shall never be overwritten, duplicated, or reordered.
-7. Ambiguous, conflicting, unmatched, expired, oversize, or state-error cases shall follow configured reject/log-skip policy and shall not guess.
-8. Session partitioning shall use authoritative session identity and shall not trust client-only session hints.
-9. Restart, rebalance, expiry, or another feature instance shall produce a state miss rather than fabricated continuity.
-10. The continuity marker shall be removed or ignored before provider serialization and shall never be forwarded upstream.
-11. Native compaction in required-continuity mode shall not run unless the eligible continuity marker is present.
-12. Exact reasoning capture/replay shall continue after a compaction checkpoint is installed.
+3. The standard runtime shall install and activate a backend-specific direct-Codex reasoning-preservation rule by default; the rule shall not rely on a broad GPT matcher or version ceiling.
+4. An explicit operator feature row shall take precedence over the injected rule: a matching disabled feature row shall opt out, while an explicit enabled rule may customize policy. The backend's explicit `native_context.enabled: false` remains a complete local opt-out and shall not be overridden by the feature row.
+5. When the rule is eligible, the attempt transform shall mark the candidate call with a bounded internal continuity marker before backend open.
+6. When a later exact assistant trajectory omits previously observed reasoning and matches one unique artifact, the feature shall restore exact reasoning at its recorded positions.
+7. Client-supplied exact reasoning shall be preserved and shall never be overwritten, duplicated, or reordered.
+8. Ambiguous, conflicting, unmatched, expired, oversize, or state-error cases shall follow configured reject/log-skip policy and shall not guess.
+9. Session partitioning shall use authoritative session identity and shall not trust client-only session hints.
+10. Restart, rebalance, expiry, or another feature instance shall produce a state miss rather than fabricated continuity.
+11. The continuity marker shall be removed or ignored before provider serialization and shall never be forwarded upstream.
+12. Native compaction in required-continuity mode shall not run unless the eligible continuity marker is present.
+13. Exact reasoning capture/replay shall continue after a compaction checkpoint is installed.
 
 ### Requirement 4: Native Action-Trajectory Ordering
 
@@ -103,14 +104,17 @@ The feature remains experimental. Native compaction is disabled by default and e
 
 1. The connector shall preserve `auto_compact_token_limit` and `comp_hash` from the Codex model catalog when provided.
 2. Trigger precedence shall be explicit override, catalog threshold, then conservative context-window fraction.
-3. The effective trigger shall remain below the hard context limit and leave retained-window plus safety headroom.
-4. Before planning compaction, the connector shall operate on the candidate call after reasoning restoration and continuity marking.
-5. The planner shall estimate effective upstream input after any valid existing checkpoint rewrite.
-6. The compactable prefix shall exclude the latest live instruction turn: the most recent user message and every later item shall remain verbatim.
-7. The split shall not cross function-call/output pairing or divide one assistant action trajectory.
-8. If no safe prefix exists, the live tail alone is too large, or expected savings are below a configured minimum, the connector shall bypass automatic compaction.
-9. The planner shall allow at most one compaction attempt in flight per lineage.
-10. A compaction-hash change or model downshift shall invalidate reuse and may require compaction under the previous compatible model before switching, subject to live endpoint support.
+3. The planner shall apply the named `CodexHarnessHeadroomV1` policy. Exact catalog/model metadata wins for headline hard context and provider auto-compact threshold; the planner still enforces a conservative usable ceiling and safe trigger below it.
+4. When exact catalog metadata is unavailable, the planner shall use the exact `gpt-5.3-codex-spark` fallback rule: headline hard context `128000`, usable ceiling `96000`, and safe trigger `80000` tokens. It shall not treat the 128K headline as fully usable.
+5. For other GPT-5.x models without exact catalog metadata, the planner shall use a conservative usable ceiling of `250000` tokens after harness/tooling/glue/output reservation and a safe trigger of `220000` tokens. This fallback shall not widen eligibility matching.
+6. Explicit trigger overrides shall be validated against the usable ceiling, retained window, and named headroom; invalid or unsafe overrides shall fail configuration rather than silently exceed the safe trigger.
+7. Before planning compaction, the connector shall operate on the candidate call after reasoning restoration and continuity marking.
+8. The planner shall estimate effective upstream input after any valid existing checkpoint rewrite.
+9. The compactable prefix shall exclude the latest live instruction turn: the most recent user message and every later item shall remain verbatim.
+10. The split shall not cross function-call/output pairing or divide one assistant action trajectory.
+11. If no safe prefix exists, the live tail alone is too large, or expected savings are below a configured minimum, the connector shall bypass automatic compaction.
+12. The planner shall allow at most one compaction attempt in flight per lineage.
+13. A compaction-hash change or model downshift shall invalidate reuse and may require compaction under the previous compatible model before switching, subject to live endpoint support.
 
 ### Requirement 6: Native Compaction Request and Replacement History
 
@@ -118,18 +122,18 @@ The feature remains experimental. Native compaction is disabled by default and e
 
 #### Acceptance Criteria
 
-1. Where enabled and planned, the connector shall issue a pre-output Responses Compaction V2 request by appending exactly one compaction-trigger item.
+1. Where enabled and planned, the connector shall issue a pre-output dedicated `POST /responses/compact` request using the unary compaction contract; it shall not append a streamed compaction trigger to that request. The legacy streamed trigger parser remains compatibility-only.
 2. The compaction input shall be the exact reasoning-complete native history view, not the unaugmented client transcript or no-tools text projection.
 3. The request shall use the same selected account, model, instructions, tools, prompt-cache identity, reasoning controls, conversation identity, and required Codex metadata as the pending normal request.
 4. The internal compaction request shall omit `previous_response_id`.
-5. The collector shall accept only one successful completion containing exactly one completed compaction item.
-6. Assistant text, tool calls, multiple/zero compaction items, malformed events, or non-success completion shall reject the candidate.
-7. The replacement shall retain bounded recent user/developer/system context and bounded non-final agent context according to an explicitly tested Codex-aligned predicate, then append the compaction item.
+5. The collector shall accept only one successful unary `response.compaction` completion whose output contains retained message items followed by exactly one completed `compaction_summary` item.
+6. Assistant text outside the retained-message output, tool calls, multiple/zero summaries, malformed output, or a non-success completion shall reject the candidate.
+7. The replacement shall install the bounded unary output list directly: retained recent user/developer/system context and bounded non-final agent context followed by the validated `compaction_summary` item.
 8. Final-answer-style agent messages and assistant/tool items already represented by the opaque checkpoint shall not be redundantly retained.
 9. System instructions shall remain in their normal request field unless the active Codex wire mode requires an equivalent developer prefix.
 10. The checkpoint shall store source-prefix fingerprints, replacement items, account/model/comp-hash identity, static request fingerprints, creation time, and provider usage evidence.
 11. Internal compaction output shall never become ordinary client-visible assistant output.
-12. The legacy `/responses/compact` endpoint shall remain outside the initial implementation.
+12. The legacy streamed compaction trigger/result parser shall remain compatibility-only; the dedicated `/responses/compact` endpoint is the initial implementation path.
 
 ### Requirement 7: Checkpoint Isolation and Exact-Prefix Reuse
 
@@ -169,7 +173,7 @@ The feature remains experimental. Native compaction is disabled by default and e
 
 ### Requirement 9: Failure Handling, Accounting, and Privacy
 
-**Objective:** As an operator, I want experimental native context behavior contained and observable, so failures do not corrupt valid turns or hide cost.
+**Objective:** As an operator, I want native context behavior contained and observable, so failures do not corrupt valid turns or hide cost.
 
 #### Acceptance Criteria
 
@@ -205,5 +209,5 @@ The feature remains experimental. Native compaction is disabled by default and e
 11. Race tests shall cover feature-store observation, attempt restoration, checkpoint reservation, continuation invalidation, and close.
 12. Fuzz tests shall cover opaque item parsing, ordering, compaction stream collection, and bounded failure diagnostics.
 13. Architecture tests shall prevent provider payload leakage into core and prevent connector-local capture of non-surfaced reasoning.
-14. Promotion to default-on compaction shall require live compatibility, positive or neutral quality evidence, favorable break-even behavior, and acceptable failure rates.
-15. Disabling the feature shall be a complete rollback with no state migration.
+14. Quality evaluation shall distinguish observed evidence from inference and shall not claim coding-quality improvement without measured evidence; quality evidence shall inform tuning and release reporting, not reintroduce a separate default-on promotion gate for this approved scope.
+15. Disabling the feature shall be a complete rollback with no state migration; explicit operator opt-out remains supported regardless of quality evidence.

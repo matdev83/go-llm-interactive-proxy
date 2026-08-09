@@ -105,7 +105,6 @@ func TestBackend_ZeroNetworkRejectionForUnrepresentableContent(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			be, obs := newObserverBackend(t, tc.cfgExtra, func(w http.ResponseWriter, r *http.Request) {

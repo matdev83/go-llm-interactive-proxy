@@ -40,7 +40,7 @@ func TestWSLocalStore_ReserveIssuesValidProxyIDs(t *testing.T) {
 	store := openresponses.NewWSLocalStore(storeScope(), lipcont.DefaultStorageLimits())
 	ctx := context.Background()
 	seen := make(map[string]bool)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		id, err := store.Reserve(ctx, storeScope(), lipcont.StoragePolicy{Mode: lipcont.PersistenceConnection})
 		if err != nil {
 			t.Fatalf("reserve %d: %v", i, err)
@@ -129,7 +129,7 @@ func TestWSLocalStore_ByteBoundEvictsOldest(t *testing.T) {
 
 	var prev lipcont.ResponseID
 	var first lipcont.ResponseID
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		id := lipcont.ResponseID(validProxyID(itoa(i)))
 		if i == 0 {
 			first = id

@@ -415,6 +415,9 @@ func TestRestoreMissingReasoning_exactResponsesPositionAndOpaque(t *testing.T) {
 	if !got.Mutated || got.RestoredCount != 1 {
 		t.Fatalf("expected exact restore, got=%+v", got)
 	}
+	if got.RestoredBytes != lipapi.ReasoningPayloadBytes(stored.Reasoning) {
+		t.Fatalf("restored bytes = %d, want %d", got.RestoredBytes, lipapi.ReasoningPayloadBytes(stored.Reasoning))
+	}
 	parts := call.Messages[0].Parts
 	if len(parts) != 3 {
 		t.Fatalf("parts=%d want 3", len(parts))

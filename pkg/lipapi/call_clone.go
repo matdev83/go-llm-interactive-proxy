@@ -2,6 +2,7 @@ package lipapi
 
 import (
 	"encoding/json"
+	"maps"
 )
 
 // CloneCall returns a deep copy of c suitable as an immutable baseline for per-attempt derivation.
@@ -23,9 +24,7 @@ func CloneCall(c Call) Call {
 	}
 	if c.Session.Metadata != nil {
 		out.Session.Metadata = make(map[string]string, len(c.Session.Metadata))
-		for k, v := range c.Session.Metadata {
-			out.Session.Metadata[k] = v
-		}
+		maps.Copy(out.Session.Metadata, c.Session.Metadata)
 	}
 	return out
 }

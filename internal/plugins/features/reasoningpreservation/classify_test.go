@@ -75,7 +75,8 @@ func TestClassifyAssistantTurns_conflictingPlacement(t *testing.T) {
 	stored := reasoningPart(lipapi.ReasoningDialectOpenAIChatTextV1, "stored-thought", "", nil)
 	anchor := anchorFor(t, lipapi.TextPart("before"), lipapi.TextPart("after"))
 	artifacts := []reasoningpreservation.TurnArtifact{
-		turnArtifact("art-1", anchor,
+		turnArtifact(
+			"art-1", anchor,
 			placedReasoning(0, stored),
 		),
 	}

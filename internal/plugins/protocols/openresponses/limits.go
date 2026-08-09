@@ -5,10 +5,8 @@ import (
 	"fmt"
 )
 
-var (
-	// ErrLimitExceeded is the sentinel root error for limit exceedances.
-	ErrLimitExceeded = errors.New("openresponses: limit exceeded")
-)
+// ErrLimitExceeded is the sentinel root error for limit exceedances.
+var ErrLimitExceeded = errors.New("openresponses: limit exceeded")
 
 // Limits holds independent bounded configuration thresholds for OpenResponses payload and state processing.
 type Limits struct {

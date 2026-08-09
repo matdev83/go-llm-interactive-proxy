@@ -22,7 +22,8 @@ func TestDecode_InputFileAndInputVideoTyped(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"model": "gpt-4o",
 		"input": []any{
-			contentMessage("user",
+			contentMessage(
+				"user",
 				map[string]any{"type": "input_file", "file_url": "https://x/report.pdf", "filename": "report.pdf"},
 				map[string]any{"type": "input_file", "file_data": "aGVsbG8=", "filename": "minimal.pdf"},
 				map[string]any{"type": "input_video", "video_url": "https://x/v.mp4"},
@@ -150,7 +151,8 @@ func TestDecode_NullUnpinnedFieldsAccepted(t *testing.T) {
 	// jsonpresence convention. The pinned fields still round-trip losslessly.
 	body, err := json.Marshal(map[string]any{
 		"model": "gpt-4o",
-		"input": []any{contentMessage("user",
+		"input": []any{contentMessage(
+			"user",
 			map[string]any{"type": "input_file", "file_id": nil, "file_url": "https://x/report.pdf", "filename": "report.pdf"},
 			map[string]any{"type": "input_video", "video_data": nil, "video_url": "https://x/v.mp4"},
 		)},
@@ -178,7 +180,8 @@ func TestDecode_PrefixedCustomContentPartPreservedNotStringified(t *testing.T) {
 	t.Parallel()
 	body, err := json.Marshal(map[string]any{
 		"model": "gpt-4o",
-		"input": []any{contentMessage("user",
+		"input": []any{contentMessage(
+			"user",
 			map[string]any{"type": "acme:input_file", "file_url": "https://x/f", "meta": map[string]any{"k": 1}},
 		)},
 	})
@@ -256,7 +259,8 @@ func TestDecode_RejectsUnprefixedInventedContentDiscriminator(t *testing.T) {
 	t.Parallel()
 	body, err := json.Marshal(map[string]any{
 		"model": "gpt-4o",
-		"input": []any{contentMessage("user",
+		"input": []any{contentMessage(
+			"user",
 			map[string]any{"type": "fancy_new_content_part", "value": 1},
 		)},
 	})

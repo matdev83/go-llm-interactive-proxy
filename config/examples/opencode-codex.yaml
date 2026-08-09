@@ -98,6 +98,14 @@ plugins:
         # account_id is read from auth.json tokens.account_id; override here only if needed.
         default_reasoning_effort: "medium"
         # default_verbosity: "medium"  # low, medium, or high
+        # Native context is default-on when this block is omitted. This
+        # explicit block demonstrates the complete operator opt-out.
+        native_context:
+          enabled: false
+          request_encrypted_reasoning: false
+          reasoning_continuity: disabled
+          compaction:
+            enabled: false
   features:
     - id: submit-noop
       enabled: true

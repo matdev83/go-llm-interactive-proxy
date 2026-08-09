@@ -41,13 +41,13 @@ func TestSSE_FramingPrimitives(t *testing.T) {
 	lines := strings.Split(str, "\n")
 	var dataLine string
 	for _, l := range lines {
-		if strings.HasPrefix(l, "data: ") {
-			dataLine = strings.TrimPrefix(l, "data: ")
+		if after, ok := strings.CutPrefix(l, "data: "); ok {
+			dataLine = after
 			break
 		}
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal([]byte(dataLine), &parsed); err != nil {
 		t.Fatalf("failed to parse data JSON: %v", err)
 	}

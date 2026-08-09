@@ -46,6 +46,7 @@ type backendRuntime struct {
 	wsSessions   *wsSessionStore
 	continuation *wsContinuationStore
 	sessionTurns *sessionTurnCounter
+	native       *NativeContextCoordinator
 }
 
 func New(cfg Config) (*Engine, error) {
@@ -53,9 +54,20 @@ func New(cfg Config) (*Engine, error) {
 		return newConfigErrorEngine(err), nil
 	}
 	rt := &backendRuntime{}
+	if cfg.NativeContext == nil {
+		defaulted := DefaultNativeContextConfig()
+		cfg.NativeContext = &defaulted
+	}
 	resolved, store, err := resolveBackendConfig(cfg)
 	if err != nil {
 		return newConfigErrorEngine(err), nil
+	}
+	if resolved.NativeContext != nil {
+		norm, err := resolved.NativeContext.NormalizeAndValidate()
+		if err != nil {
+			return newConfigErrorEngine(err), nil
+		}
+		resolved.NativeContext = &norm
 	}
 	if err := validateVerbosityBumpConfig(resolved); err != nil {
 		return newConfigErrorEngine(err), nil
@@ -79,6 +91,7 @@ func New(cfg Config) (*Engine, error) {
 	rt.cooldown = newTransportCooldown(resolved.WebSocketFallbackCooldown)
 	rt.wsSessions = newWSSessionStore()
 	rt.continuation = newWSContinuationStore(codexContinuationTTL, codexContinuationMaxEntries)
+	rt.native = newNativeContextCoordinator(resolved, "")
 	rt.sessionTurns = newSessionTurnCounter(sessionTurnTTL, sessionTurnMaxEntries)
 	if store == nil {
 		if err := checkcfg.RequireNonEmpty(ID, "access_token", resolved.AccessToken); err != nil {
@@ -126,23 +139,26 @@ func (rt *backendRuntime) open(ctx context.Context, call lipapi.Call, cand routi
 	continuation := rt.continuation
 	downgrade := rt.downgrade
 	sessionTurns := rt.sessionTurns
+	native := rt.native
 	rt.mu.Unlock()
 	if store != nil {
-		return openWithFallback(ctx, &cfg, cooldown,
+		return openWithFallback(
+			ctx, &cfg, cooldown,
 			func() (lipapi.ManagedEventStream, error) {
-				return openManaged(ctx, &cfg, store, call, cand, downgrade, usageEst, sessionTurns)
+				return openManaged(ctx, &cfg, store, native, call, cand, downgrade, usageEst, continuation, sessionTurns)
 			},
 			func() (lipapi.ManagedEventStream, error) {
-				return openManagedWS(ctx, &cfg, store, call, cand, downgrade, usageEst, wsSessions, continuation, sessionTurns)
+				return openManagedWS(ctx, &cfg, store, native, call, cand, downgrade, usageEst, wsSessions, continuation, sessionTurns)
 			},
 		)
 	}
-	return openWithFallback(ctx, &cfg, cooldown,
+	return openWithFallback(
+		ctx, &cfg, cooldown,
 		func() (lipapi.ManagedEventStream, error) {
-			return openHTTP(ctx, &cfg, rt, downgrade, call, cand, sessionTurns)
+			return openHTTP(ctx, &cfg, rt, native, downgrade, call, cand, sessionTurns)
 		},
 		func() (lipapi.ManagedEventStream, error) {
-			return openWS(ctx, &cfg, downgrade, usageEst, wsSessions, continuation, call, cand, sessionTurns)
+			return openWS(ctx, &cfg, native, downgrade, usageEst, wsSessions, continuation, call, cand, sessionTurns)
 		},
 	)
 }
@@ -205,6 +221,12 @@ func selectManagedSession(env *codexOpenEnv, cfg *Config, store *accountStore, p
 
 type managedOpenAttemptFn func(ctx context.Context, env *codexOpenEnv, callCfg *Config, model string, usageEst *usageEstimator) (lipapi.ManagedEventStream, *http.Response, error)
 
+func prepareNativeContextForOpen(ctx context.Context, env *codexOpenEnv, cfg *Config, call lipapi.Call, model string, native *NativeContextCoordinator, continuation *wsContinuationStore) error {
+	return env.prepareNativeContext(ctx, cfg, call, model, native, func() {
+		continuation.invalidateLineage(cfg, call, &env.payload)
+	})
+}
+
 func openManagedAccountLoop(ctx context.Context, cfg *Config, store *accountStore, call lipapi.Call, cand routingstub.AttemptCandidate, policy downgradePolicy, usageEst *usageEstimator, attempt managedOpenAttemptFn, turns *sessionTurnCounter) (lipapi.ManagedEventStream, error) {
 	env, err := prepareCodexOpenEnv(ctx, cfg, call, cand, policy, turns)
 	if err != nil {
@@ -238,6 +260,16 @@ func openManagedAccountLoop(ctx context.Context, cfg *Config, store *accountStor
 				continue
 			}
 		}
+		if status := nativeContextStatus(err); status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusTooManyRequests {
+			if store != nil {
+				if status == http.StatusTooManyRequests {
+					store.markRateLimited(acct, credpool.CooldownFromRetryAfterOrFallback("", store.now(), store.fallback))
+				} else {
+					store.markAuthInvalid(acct)
+				}
+				continue
+			}
+		}
 		env.releaseVerbosityTurn()
 		return nil, err
 	}
@@ -245,14 +277,21 @@ func openManagedAccountLoop(ctx context.Context, cfg *Config, store *accountStor
 	return nil, fmt.Errorf("%s: no usable managed oauth accounts: %w", ID, errManagedAccountsExhausted)
 }
 
-func openManagedWS(ctx context.Context, cfg *Config, store *accountStore, call lipapi.Call, cand routingstub.AttemptCandidate, policy downgradePolicy, usageEst *usageEstimator, wsSessions *wsSessionStore, continuation *wsContinuationStore, turns *sessionTurnCounter) (lipapi.ManagedEventStream, error) {
+func openManagedWS(ctx context.Context, cfg *Config, store *accountStore, native *NativeContextCoordinator, call lipapi.Call, cand routingstub.AttemptCandidate, policy downgradePolicy, usageEst *usageEstimator, wsSessions *wsSessionStore, continuation *wsContinuationStore, turns *sessionTurnCounter) (lipapi.ManagedEventStream, error) {
 	return openManagedAccountLoop(ctx, cfg, store, call, cand, policy, usageEst, func(ctx context.Context, env *codexOpenEnv, callCfg *Config, model string, usageEst *usageEstimator) (lipapi.ManagedEventStream, *http.Response, error) {
-		return openWSPrepared(ctx, env, callCfg, model, call, usageEst, wsSessions, continuation)
+		if err := prepareNativeContextForOpen(ctx, env, callCfg, call, model, native, continuation); err != nil {
+			return nil, nil, err
+		}
+		es, resp, err := openWSPrepared(ctx, env, callCfg, model, call, usageEst, wsSessions, continuation)
+		return env.wrapNativeUsage(es), resp, err
 	}, turns)
 }
 
-func openManaged(ctx context.Context, cfg *Config, store *accountStore, call lipapi.Call, cand routingstub.AttemptCandidate, policy downgradePolicy, usageEst *usageEstimator, turns *sessionTurnCounter) (lipapi.ManagedEventStream, error) {
+func openManaged(ctx context.Context, cfg *Config, store *accountStore, native *NativeContextCoordinator, call lipapi.Call, cand routingstub.AttemptCandidate, policy downgradePolicy, usageEst *usageEstimator, continuation *wsContinuationStore, turns *sessionTurnCounter) (lipapi.ManagedEventStream, error) {
 	return openManagedAccountLoop(ctx, cfg, store, call, cand, policy, usageEst, func(ctx context.Context, env *codexOpenEnv, callCfg *Config, model string, usageEst *usageEstimator) (lipapi.ManagedEventStream, *http.Response, error) {
+		if err := prepareNativeContextForOpen(ctx, env, callCfg, call, model, native, continuation); err != nil {
+			return nil, nil, err
+		}
 		body, err := env.marshalWithModel(model)
 		if err != nil {
 			return nil, nil, err
@@ -267,7 +306,8 @@ func openManaged(ctx context.Context, cfg *Config, store *accountStore, call lip
 			b := readLimitedClose(resp)
 			return nil, resp, upstreamHTTPError(resp.StatusCode, b)
 		}
-		return completeCodexOpenAttempt(attempt, resp, callCfg)
+		es, response, err := completeCodexOpenAttempt(attempt, resp, callCfg)
+		return env.wrapNativeUsage(es), response, err
 	}, turns)
 }
 
@@ -278,12 +318,17 @@ func maxManagedRetries(store *accountStore) int {
 	return len(store.meta)
 }
 
-func openHTTP(ctx context.Context, cfg *Config, rt *backendRuntime, policy downgradePolicy, call lipapi.Call, cand routingstub.AttemptCandidate, turns *sessionTurnCounter) (lipapi.ManagedEventStream, error) {
+func openHTTP(ctx context.Context, cfg *Config, rt *backendRuntime, native *NativeContextCoordinator, policy downgradePolicy, call lipapi.Call, cand routingstub.AttemptCandidate, turns *sessionTurnCounter) (lipapi.ManagedEventStream, error) {
 	env, err := prepareCodexOpenEnv(ctx, cfg, call, cand, policy, turns)
 	if err != nil {
 		return nil, err
 	}
-	body, err := env.marshalWithModel(policy.modelForPlan(env.originalModel, cfg.PlanTypeHint))
+	model := policy.modelForPlan(env.originalModel, cfg.PlanTypeHint)
+	if err := prepareNativeContextForOpen(ctx, env, cfg, call, model, native, rt.continuation); err != nil {
+		env.releaseVerbosityTurn()
+		return nil, err
+	}
+	body, err := env.marshalWithModel(model)
 	if err != nil {
 		env.releaseVerbosityTurn()
 		return nil, err
@@ -312,6 +357,13 @@ func openHTTP(ctx context.Context, cfg *Config, rt *backendRuntime, policy downg
 			rt.cfg.RefreshToken = refreshedCfg.RefreshToken
 		}
 		rt.mu.Unlock()
+		// A refreshed static credential can carry a different account identity.
+		// Rebuild native preparation from the immutable baseline rather than letting
+		// the old account's checkpoint rewrite cross the identity boundary.
+		if err := prepareNativeContextForOpen(ctx, env, cfg, call, model, native, rt.continuation); err != nil {
+			env.releaseVerbosityTurn()
+			return nil, err
+		}
 		resp, err = attempt.doRequest(cfg)
 		if err != nil {
 			env.releaseVerbosityTurn()
@@ -319,6 +371,7 @@ func openHTTP(ctx context.Context, cfg *Config, rt *backendRuntime, policy downg
 		}
 	}
 	es, _, err := completeCodexOpenAttempt(attempt, resp, cfg)
+	es = env.wrapNativeUsage(es)
 	if err != nil {
 		env.releaseVerbosityTurn()
 	} else {
@@ -338,15 +391,25 @@ func callCfgFromAccount(cfg *Config, acct managedAccount) Config {
 }
 
 func doCodexRequest(ctx context.Context, client *http.Client, endpoint string, body []byte, cfg *Config, convID string) (*http.Response, error) {
+	return doCodexRequestWithHeaders(ctx, client, endpoint, body, cfg, convID, nil)
+}
+
+func doCodexRequestWithHeaders(ctx context.Context, client *http.Client, endpoint string, body []byte, cfg *Config, convID string, extra http.Header) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("%s: build request: %w", ID, err)
 	}
 	applyCodexHeaders(req, *cfg, convID)
+	for key, values := range extra {
+		for _, value := range values {
+			req.Header.Add(key, value)
+		}
+	}
 	start := time.Now()
 	if debugTurnsEnabled() {
-		slog.DebugContext(ctx, "codex.debug.http_request_start",
-			"endpoint", endpoint,
+		slog.DebugContext(
+			ctx, "codex.debug.http_request_start",
+			"endpoint_path", endpointPath(endpoint),
 			"body_bytes", len(body),
 			"conversation_id", convID,
 		)
@@ -354,8 +417,8 @@ func doCodexRequest(ctx context.Context, client *http.Client, endpoint string, b
 	resp, err := client.Do(req)
 	if err != nil {
 		if debugTurnsEnabled() {
-			slog.DebugContext(ctx, "codex.debug.http_request_done",
-				"endpoint", endpoint,
+			slog.DebugContext(
+				ctx, "codex.debug.http_request_done",
 				"duration_ms", time.Since(start).Milliseconds(),
 				"status", "error",
 				"error", err.Error(),
@@ -364,13 +427,23 @@ func doCodexRequest(ctx context.Context, client *http.Client, endpoint string, b
 		return nil, fmt.Errorf("%s: request: %w", ID, err)
 	}
 	if debugTurnsEnabled() {
-		slog.DebugContext(ctx, "codex.debug.http_request_done",
-			"endpoint", endpoint,
+		slog.DebugContext(
+			ctx, "codex.debug.http_request_done",
 			"duration_ms", time.Since(start).Milliseconds(),
 			"status", resp.StatusCode,
 		)
 	}
 	return resp, nil
+}
+
+func endpointPath(raw string) string {
+	if i := strings.IndexByte(raw, '?'); i >= 0 {
+		raw = raw[:i]
+	}
+	if i := strings.IndexByte(raw, '#'); i >= 0 {
+		raw = raw[:i]
+	}
+	return raw
 }
 
 func transportCaps() lipapi.BackendTransportCaps {

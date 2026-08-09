@@ -54,7 +54,7 @@ func TestEffectiveLoadContract_LoadEffectiveHelperMatchesBuildHost(t *testing.T)
 		t.Fatal("BuildHost must inject tool-call-repair via shared effective load")
 	}
 	if !hasFeatureID(host.Config(), standardplugins.ReasoningOutputPreservationFeatureID) {
-		t.Fatal("BuildHost must inject reasoning-output-preservation via shared effective load")
+		t.Fatal("BuildHost must preserve the explicit reasoning-output-preservation feature row")
 	}
 	id, err := config.ComputeEffectiveIdentity(host.Config())
 	if err != nil {
@@ -226,6 +226,10 @@ plugins:
       enabled: true
       config: {}
   backends:
+    - kind: openai-codex
+      id: codex-primary
+      enabled: true
+      config: {}
     - id: openai-responses
       enabled: false
       config: {}

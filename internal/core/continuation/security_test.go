@@ -35,7 +35,7 @@ func TestResponseIDEntropyAndValidation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	seen := make(map[lipcont.ResponseID]struct{})
-	for i := 0; i < 32; i++ {
+	for range 32 {
 		id, err := corecont.NewResponseID(ctx)
 		if err != nil {
 			t.Fatal(err)
@@ -93,6 +93,7 @@ func TestMemoryStoreIndistinguishableLookup(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := lipcont.Lookup(ctx, store, scope, tc.id)
 			if !errors.Is(err, lipcont.ErrPreviousResponseNotFound) {
 				t.Fatalf("got %v", err)
@@ -184,7 +185,7 @@ func TestMaterializeCycleAndDepthBounds(t *testing.T) {
 
 	chain := make([]lipcont.ResponseID, 0, 5)
 	var prev lipcont.ResponseID
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		id, err := store.Reserve(ctx, scope, lipcont.StoragePolicy{TTL: time.Hour})
 		if err != nil {
 			t.Fatal(err)
@@ -380,10 +381,10 @@ func TestMemoryStoreConcurrentAccess(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(workers)
 
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		go func(workerID int) {
 			defer wg.Done()
-			for j := 0; j < opsPerWorker; j++ {
+			for range opsPerWorker {
 				id, err := store.Reserve(ctx, scope, lipcont.StoragePolicy{TTL: time.Hour})
 				if err != nil {
 					t.Errorf("worker %d reserve: %v", workerID, err)
@@ -442,10 +443,10 @@ func TestConcurrencyProbingStress(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(workers)
 
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		go func(workerID int) {
 			defer wg.Done()
-			for j := 0; j < iterations; j++ {
+			for j := range iterations {
 				targetID := probingIDs[j%len(probingIDs)]
 				targetScope := scope
 				if j%2 == 1 {
@@ -473,6 +474,7 @@ func TestConcurrencyProbingStress(t *testing.T) {
 }
 
 func TestMemoryStoreRejectsFailedTerminalRecord(t *testing.T) {
+	t.Parallel()
 	store := corecont.NewMemoryStore()
 	ctx := context.Background()
 	scope := testScope("failed-principal", "failed-session")

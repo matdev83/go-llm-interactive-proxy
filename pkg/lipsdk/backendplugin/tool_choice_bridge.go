@@ -87,8 +87,8 @@ func ToolChoiceFromWire(s *string) (lipapi.ToolChoice, error) {
 	case string(lipapi.ToolChoiceRequired):
 		return lipapi.ToolChoice{Mode: lipapi.ToolChoiceRequired}, nil
 	}
-	if strings.HasPrefix(raw, toolChoiceRequiredPrefix) {
-		name := strings.TrimPrefix(raw, toolChoiceRequiredPrefix)
+	if after, ok := strings.CutPrefix(raw, toolChoiceRequiredPrefix); ok {
+		name := after
 		if name == "" {
 			return lipapi.ToolChoice{}, fmt.Errorf("%w: tool_choice required name is empty", ErrInvalidInvocation)
 		}

@@ -17,10 +17,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var _ = front.ID
-var _ = lipapi.CapabilityStreaming
-var _ = testkit.LocalTestServerHTTPClient
-var _ = lipsdk.FrontendMountOptions{}
+var (
+	_ = front.ID
+	_ = lipapi.CapabilityStreaming
+	_ = testkit.LocalTestServerHTTPClient
+	_ = lipsdk.FrontendMountOptions{}
+)
 
 // mountORFrontend mounts the real OpenResponses frontend over a stub executor and
 // returns the refclient base URL plus the full-path server origin.

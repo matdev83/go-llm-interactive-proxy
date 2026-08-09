@@ -65,7 +65,7 @@ func TestCapture_Redaction(t *testing.T) {
 func TestCapture_BoundedOverflow(t *testing.T) {
 	t.Parallel()
 	c := NewCapture(2, nil, false)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		req := httptest.NewRequest(http.MethodPost, "http://x/responses", nil)
 		c.Record(req, []byte(`{}`))
 	}

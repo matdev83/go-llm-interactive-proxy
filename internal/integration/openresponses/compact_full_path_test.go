@@ -33,7 +33,7 @@ func TestCompact_FullPathReturnsSchemaValidCompactionWindow(t *testing.T) {
 	if d == nil {
 		t.Fatal("Deploy(frontend=openresponses, backend=openresponses) failed")
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	body, err := json.Marshal(map[string]any{
 		"model":            model,
@@ -57,7 +57,7 @@ func TestCompact_FullPathReturnsSchemaValidCompactionWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compact request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)

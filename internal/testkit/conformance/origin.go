@@ -241,7 +241,7 @@ func (p *originProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "origin proxy: upstream unreachable", http.StatusBadGateway)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	for k, vs := range resp.Header {
 		for _, v := range vs {
 			w.Header().Add(k, v)
@@ -371,7 +371,7 @@ func (h openResponsesFakeHandler) serveStream(w http.ResponseWriter) {
 	sse := "event: response.created\n" +
 		"data: " + fmt.Sprintf(`{"type":"response.created","sequence_number":1,"response":{"id":"resp_harness_stream","object":"response","created_at":%d,"status":"in_progress","model":"gpt-4o-mini","output":[]}}`, created) + "\n\n" +
 		"event: response.output_item.added\n" +
-		"data: " + fmt.Sprintf(`{"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"type":"message","id":"msg_harness_1","status":"in_progress","role":"assistant","content":[{"type":"output_text","text":""}]}}`) + "\n\n" +
+		"data: " + `{"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"type":"message","id":"msg_harness_1","status":"in_progress","role":"assistant","content":[{"type":"output_text","text":""}]}}` + "\n\n" +
 		"event: response.content_part.added\n" +
 		"data: " + `{"type":"response.content_part.added","sequence_number":3,"item_id":"msg_harness_1","output_index":0,"content_index":0,"part":{"type":"output_text","text":""}}` + "\n\n" +
 		"event: response.output_text.delta\n" +

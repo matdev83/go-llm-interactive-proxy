@@ -10,6 +10,7 @@ import (
 )
 
 func TestContinuationCandidatePortableReroutes(t *testing.T) {
+	t.Parallel()
 	err := routing.CheckContinuationCandidate(routing.ContinuationConstraint{}, routing.AttemptCandidate{Key: "b:m", Primary: routing.Primary{Backend: "b", Model: "m"}})
 	if err != nil {
 		t.Fatal(err)
@@ -17,6 +18,7 @@ func TestContinuationCandidatePortableReroutes(t *testing.T) {
 }
 
 func TestContinuationCandidatePinsProviderBoundLineage(t *testing.T) {
+	t.Parallel()
 	err := routing.CheckContinuationCandidate(routing.ContinuationConstraint{Lineage: lipcont.Lineage{ProviderBound: true, ProviderID: "provider-a", Model: "model-a", CandidateKey: "provider-a:model-a"}}, routing.AttemptCandidate{Key: "provider-b:model-a", Primary: routing.Primary{Backend: "provider-b", Model: "model-a"}})
 	if !errors.Is(err, routing.ErrContinuationCandidatePinned) {
 		t.Fatalf("err=%v", err)
@@ -24,6 +26,7 @@ func TestContinuationCandidatePinsProviderBoundLineage(t *testing.T) {
 }
 
 func TestContinuationCandidateRejectsNativeMismatch(t *testing.T) {
+	t.Parallel()
 	err := routing.CheckContinuationCandidate(routing.ContinuationConstraint{NativeRequirements: []lipcont.NativeRequirement{{BackendID: "provider-a", Model: "model-a", Kind: "reasoning"}}}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "provider-a", Model: "model-b"}})
 	if !errors.Is(err, routing.ErrContinuationNativeMismatch) {
 		t.Fatalf("err=%v", err)
@@ -31,6 +34,7 @@ func TestContinuationCandidateRejectsNativeMismatch(t *testing.T) {
 }
 
 func TestContinuationCandidateAdmissionRetainsStoredRequirements(t *testing.T) {
+	t.Parallel()
 	result := (routing.CandidateAdmissionCheck{
 		Call:         lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("new")}}}},
 		Candidate:    routing.AttemptCandidate{Key: "provider-a:model-a", Primary: routing.Primary{Backend: "provider-a", Model: "model-a"}},
