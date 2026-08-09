@@ -373,7 +373,7 @@ func (m *codexEventMapper) handleStreamError(data string) error {
 		msg = ev.Error.Message
 	}
 	if debugTurnsEnabled() {
-		slog.Debug("codex.debug.upstream_error", "code", code, "message_bytes", len(msg))
+		slog.Debug("codex.debug.upstream_error", "code_bytes", len(code), "message_bytes", len(msg))
 	}
 	m.reasoningSummarySanitizer.Reset()
 	return m.mapper.StreamError(code, msg, "upstream error")
