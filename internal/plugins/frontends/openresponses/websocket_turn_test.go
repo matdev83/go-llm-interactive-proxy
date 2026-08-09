@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -331,9 +332,18 @@ func TestWebSocketTurn_EventParityWithHTTPSSE(t *testing.T) {
 		t.Fatalf("WS frame count=%d, SSE event count=%d", len(wsFrames), len(sseEvents))
 	}
 	for i := range wsFrames {
-		if canonicalJSON(wsFrames[i].data) != canonicalJSON(sseEvents[i]) {
+		// completed_at is real wall-clock time captured at different instants on
+		// each path; a second boundary between the sequential runs can make it
+		// differ by 1, which is not a parity violation. Every other field
+		// (including the deterministic created_at from the injected clock) must
+		// match exactly.
+		ws := maps.Clone(wsFrames[i].data)
+		sse := maps.Clone(sseEvents[i])
+		delete(ws, "completed_at")
+		delete(sse, "completed_at")
+		if canonicalJSON(ws) != canonicalJSON(sse) {
 			t.Fatalf("frame %d differs between WebSocket and SSE\nWS:  %s\nSSE: %s",
-				i, canonicalJSON(wsFrames[i].data), canonicalJSON(sseEvents[i]))
+				i, canonicalJSON(ws), canonicalJSON(sse))
 		}
 	}
 	if wsFrames[len(wsFrames)-1].data["type"] != "response.completed" {
