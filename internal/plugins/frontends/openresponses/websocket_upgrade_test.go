@@ -132,7 +132,8 @@ func eventually(t *testing.T, timeout time.Duration, fn func() bool) {
 func TestWebSocketUpgrade_NonUpgradeGETRejectedSafely(t *testing.T) {
 	cfg := wsTestConfig(nil)
 	handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
-		AllowUnauthenticated: true, Config: cfg})
+		AllowUnauthenticated: true, Config: cfg,
+	})
 	counters := handler.Counters()
 
 	rec := httptest.NewRecorder()
@@ -154,7 +155,8 @@ func TestWebSocketUpgrade_NonUpgradeGETRejectedSafely(t *testing.T) {
 func TestWebSocketUpgrade_MethodGateRejectsNonGET(t *testing.T) {
 	cfg := wsTestConfig(nil)
 	handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
-		AllowUnauthenticated: true, Config: cfg})
+		AllowUnauthenticated: true, Config: cfg,
+	})
 	counters := handler.Counters()
 
 	rec := httptest.NewRecorder()
@@ -176,7 +178,8 @@ func TestWebSocketUpgrade_MethodGateRejectsNonGET(t *testing.T) {
 func TestWebSocketUpgrade_GorillaHandshakeErrorsUseWireJSON(t *testing.T) {
 	cfg := wsTestConfig(nil)
 	handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
-		AllowUnauthenticated: true, Config: cfg})
+		AllowUnauthenticated: true, Config: cfg,
+	})
 	req := validWSRequest()
 	// This passes the handler's presence checks but is rejected by Gorilla's
 	// upgrader, exercising the Upgrader.Error hook rather than writeWireError's
@@ -202,7 +205,8 @@ func TestWebSocketUpgrade_GorillaHandshakeErrorsUseWireJSON(t *testing.T) {
 func TestWebSocketUpgrade_HandshakeFieldValidation(t *testing.T) {
 	cfg := wsTestConfig(nil)
 	handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
-		AllowUnauthenticated: true, Config: cfg})
+		AllowUnauthenticated: true, Config: cfg,
+	})
 	counters := handler.Counters()
 
 	cases := []struct {
@@ -280,7 +284,8 @@ func TestWebSocketUpgrade_OriginPolicy(t *testing.T) {
 				w.AllowedOrigins = append([]string(nil), tc.allowedOrigins...)
 			})
 			handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
-				AllowUnauthenticated: true, Config: cfg})
+				AllowUnauthenticated: true, Config: cfg,
+			})
 			counters := handler.Counters()
 
 			var header http.Header
@@ -289,7 +294,7 @@ func TestWebSocketUpgrade_OriginPolicy(t *testing.T) {
 			}
 			if tc.wantCode == http.StatusSwitchingProtocols {
 				conn := wsDial(t, newWSTestServerFor(t, handler), header)
-				conn.Close()
+				_ = conn.Close()
 				// The server publishes SessionsOpened only after the 101 handshake is
 				// on the wire (upgrader.Upgrade writes the response before the counter
 				// is bumped), so the client can dial and close before the increment
@@ -341,7 +346,7 @@ func TestWebSocketUpgrade_ValidHandshakeEstablishesBoundedSession(t *testing.T) 
 	if err := conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")); err != nil {
 		t.Fatal(err)
 	}
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	for {
 		if _, _, err := conn.ReadMessage(); err != nil {
 			break
@@ -385,7 +390,7 @@ func TestWebSocketSession_MessageSizeBound(t *testing.T) {
 	if err := conn.WriteMessage(websocket.TextMessage, oversized); err != nil {
 		t.Fatalf("client write failed: %v", err)
 	}
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	var env wsTestEnvelope
 	gotLimit := false
 	for {
@@ -416,10 +421,11 @@ func TestWebSocketSession_AgeLimitEmitsLimitReached(t *testing.T) {
 		w.IdleTimeout = "5m"
 	})
 	srv, counters := newWSTestServer(t, openresponses.WebSocketHandlerConfig{
-		AllowUnauthenticated: true, Config: cfg})
+		AllowUnauthenticated: true, Config: cfg,
+	})
 	conn := wsDial(t, srv, nil)
 
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	var env wsTestEnvelope
 	gotLimit := false
 	for {
@@ -453,7 +459,8 @@ func TestWebSocketSession_IdleProbePingKeepsAlivePeer(t *testing.T) {
 		w.IdleTimeout = "250ms"
 	})
 	srv, counters := newWSTestServer(t, openresponses.WebSocketHandlerConfig{
-		AllowUnauthenticated: true, Config: cfg})
+		AllowUnauthenticated: true, Config: cfg,
+	})
 	conn := wsDial(t, srv, nil)
 
 	var mu sync.Mutex
@@ -468,7 +475,7 @@ func TestWebSocketSession_IdleProbePingKeepsAlivePeer(t *testing.T) {
 	// Remain silent for several idle windows; the server probes with pings that
 	// the client answers, so the idle deadline must not close the connection.
 	// The window is generous so a pong is always processed before the next probe.
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	for {
 		if _, _, err := conn.ReadMessage(); err != nil {
 			break
@@ -502,20 +509,21 @@ func TestWebSocketSession_IdleUnresponsivePeerClosed(t *testing.T) {
 		w.IdleTimeout = "80ms"
 	})
 	srv, counters := newWSTestServer(t, openresponses.WebSocketHandlerConfig{
-		AllowUnauthenticated: true, Config: cfg})
+		AllowUnauthenticated: true, Config: cfg,
+	})
 	conn := wsDial(t, srv, nil)
 
 	// Do not read: the peer never answers the server's ping probe, so the server
 	// must classify the connection as dead and close it.
 	time.Sleep(600 * time.Millisecond)
 
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	for {
 		if _, _, err := conn.ReadMessage(); err != nil {
 			break
 		}
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	eventually(t, 3*time.Second, func() bool {
 		snap := counters.Snapshot()
@@ -539,13 +547,13 @@ func TestWebSocketSession_ShutdownContextClosesSession(t *testing.T) {
 
 	cancel()
 
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	for {
 		if _, _, err := conn.ReadMessage(); err != nil {
 			break
 		}
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	eventually(t, 3*time.Second, func() bool {
 		return counters.Snapshot().SessionsClosed == 1

@@ -83,7 +83,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	if strings.HasSuffix(strings.TrimRight(r.URL.Path, "/"), "/responses/compact") {
 		h.handleCompact(w, r)
 		return
@@ -326,7 +326,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			if isReserved && store != nil {
 				cleanupContinuationReservation(store, scope, responseID)
-				isReserved = false
 			}
 			status, typ, code, message := classifyExecutionError(err)
 			writeWireError(w, status, typ, code, message)
@@ -341,12 +340,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				// There is no stream lifecycle to finalize. Consume the
 				// recorder-owned reservation before closing the observer.
 				safeReleaseContinuationReservation(owner)
-				isReserved = false
 			}
 			safeCloseObserverFrontend(observer)
 			if isReserved && store != nil {
 				cleanupContinuationReservation(store, scope, responseID)
-				isReserved = false
 			}
 			writeWireError(w, http.StatusBadGateway, "server_error", "backend_error", "Backend execution failed")
 			return
@@ -377,7 +374,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if collectErr != nil {
 				if isReserved && store != nil {
 					cleanupContinuationReservation(store, scope, responseID)
-					isReserved = false
 				}
 				if ctx.Err() != nil {
 					return

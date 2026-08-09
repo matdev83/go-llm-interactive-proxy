@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -177,12 +178,7 @@ func (s DeploymentSpec) Validate() error {
 }
 
 func containsString(xs []string, v string) bool {
-	for _, x := range xs {
-		if x == v {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(xs, v)
 }
 
 // Deployment is one deterministic full-path deployment: a configurable client
@@ -236,7 +232,8 @@ func Deploy(tb testing.TB, spec DeploymentSpec) *Deployment {
 	d.origins[spec.Backend] = primaryOrigin
 	d.backends[spec.Backend] = harnessBackendFor(tb, spec.Backend, primaryOrigin.URL(), primaryOrigin.Client())
 
-	route := RouteSelector(spec.Backend, model)
+	var route strings.Builder
+	route.WriteString(RouteSelector(spec.Backend, model))
 	for i, cand := range spec.Candidates {
 		if !containsString(HarnessBackendIDs(), cand.Backend) || cand.Backend == BackendOpenRouter || cand.Backend == BackendNVIDIA {
 			tb.Fatalf("harness: invalid candidate %q", cand.Backend)
@@ -246,16 +243,16 @@ func Deploy(tb testing.TB, spec DeploymentSpec) *Deployment {
 		d.origins[candKey] = candOrigin
 		d.candidateOrigins = append(d.candidateOrigins, candOrigin)
 		d.backends[candKey] = harnessBackendFor(tb, cand.Backend, candOrigin.URL(), candOrigin.Client())
-		route += "|" + RouteSelector(candKey, model)
+		route.WriteString("|" + RouteSelector(candKey, model))
 	}
-	d.RouteSelector = route
+	d.RouteSelector = route.String()
 
 	d.Exec = harnessExecutor(tb, d.backends, spec.Backend)
 
 	d.Mux = http.NewServeMux()
 	genCtx, genCancel := context.WithCancel(context.Background())
 	d.genCancel = genCancel
-	if err := mountHarnessFrontend(d.Mux, spec.Frontend, d.Exec, d.RouteSelector, genCtx, spec.ContinuationMaxChainDepth); err != nil {
+	if err := mountHarnessFrontend(genCtx, d.Mux, spec.Frontend, d.Exec, d.RouteSelector, spec.ContinuationMaxChainDepth); err != nil {
 		_ = d.Close()
 		tb.Fatalf("harness: mount frontend %q: %v", spec.Frontend, err)
 	}
@@ -391,7 +388,7 @@ func (d *Deployment) SendRawWSTurn(ctx context.Context, rawTurn string) error {
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	return client.sendRaw(ctx, rawTurn)
 }
 
@@ -410,7 +407,7 @@ func (d *Deployment) RawFrontendPost(ctx context.Context, path, rawBody string) 
 	if err != nil {
 		return 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return resp.StatusCode, nil
 }
 
@@ -490,7 +487,7 @@ func harnessExecutor(tb testing.TB, backends map[string]execbackend.Backend, def
 // frontend ID on mux, bound to the executor and the primary route selector.
 // continuationDepth, when greater than zero, overrides the OpenResponses
 // frontend continuation max_chain_depth for amplification proofs.
-func mountHarnessFrontend(mux *http.ServeMux, frontendID string, exec *runtime.Executor, routeSelector string, genCtx context.Context, continuationDepth int) error {
+func mountHarnessFrontend(genCtx context.Context, mux *http.ServeMux, frontendID string, exec *runtime.Executor, routeSelector string, continuationDepth int) error {
 	switch frontendID {
 	case FrontendOpenAIResponses:
 		mux.Handle("POST /v1/responses", &frontopenairesponses.Handler{Exec: exec, DefaultRouteSelector: routeSelector})

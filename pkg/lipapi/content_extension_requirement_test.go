@@ -123,7 +123,6 @@ func TestContentPartExtension_ValidationNamespaceAndImplementor(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			err := callWith(itemWith(lipapi.ContentPart{Kind: lipapi.ContentPartExtension, Extension: tt.ext})).Validate()
@@ -189,7 +188,8 @@ func TestAdmitCandidate_ContentPartExtensionRequiresExactDeclaredType(t *testing
 			ReplaySupport:  lipapi.ReasoningReplaySupport{},
 			DialectSupport: lipapi.DialectSupport{},
 			ProjectionTarget: lipapi.DefaultLegacyProjectionTarget(
-				caps, lipapi.ReasoningReplaySupport{}),
+				caps, lipapi.ReasoningReplaySupport{},
+			),
 		}
 	}
 

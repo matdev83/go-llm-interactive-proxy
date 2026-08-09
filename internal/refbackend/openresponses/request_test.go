@@ -99,7 +99,6 @@ func TestParseCreateRequest_MalformedBodies(t *testing.T) {
 		{"item_missing_type", `{"input":[{"role":"user"}]}`},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if _, err := parseCreateRequest([]byte(tc.raw)); err == nil {

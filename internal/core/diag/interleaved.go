@@ -29,7 +29,8 @@ func InterleavedTransitionAttrs(t InterleavedTransition) []slog.Attr {
 	if t.Role != "" {
 		out = append(out, slog.String("interleaved_role", t.Role))
 	}
-	out = append(out,
+	out = append(
+		out,
 		slog.Bool("memo_present", t.MemoPresent),
 		slog.Bool("memo_visible", t.MemoVisible),
 		slog.Bool("memo_injected", t.MemoInjected),

@@ -41,7 +41,7 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = conn.Close() }()
 
 	ctx := context.Background()
-	for turn := 0; turn < wsTurnSeq; turn++ {
+	for range wsTurnSeq {
 		mt, msg, rerr := conn.ReadMessage()
 		if rerr != nil {
 			return

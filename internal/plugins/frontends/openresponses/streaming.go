@@ -74,7 +74,7 @@ func (h *Handler) serveStreaming(ctx context.Context, w http.ResponseWriter, str
 	var sm *proto.StateMachine
 	terminalSuccess := false
 	cleanupConsumed := false
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	defer func() {
 		if terminalSuccess || cleanupConsumed {
 			return
@@ -134,7 +134,7 @@ func (h *Handler) serveStreaming(ctx context.Context, w http.ResponseWriter, str
 		return nil
 	}
 
-	for eventCount := 0; eventCount < maxStreamingEvents; eventCount++ {
+	for range maxStreamingEvents {
 		ev, err := stream.Recv(ctx)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -152,7 +152,7 @@ func (h *Handler) serveStreaming(ctx context.Context, w http.ResponseWriter, str
 			if ctx.Err() != nil {
 				if committed() && owner != nil {
 					finalizeCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-					finalizeErr := safeFinalizeIncomplete(owner, finalizeCtx)
+					finalizeErr := safeFinalizeIncomplete(finalizeCtx, owner)
 					cancel()
 					if finalizeErr == nil {
 						terminalSuccess = true

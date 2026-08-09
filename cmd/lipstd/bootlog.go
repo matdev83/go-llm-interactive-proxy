@@ -17,7 +17,8 @@ func logBootstrapAccessAuth(ctx context.Context, log *slog.Logger, cfg *config.C
 		return fmt.Errorf("lipstd: bootstrap access/auth: %w", err)
 	}
 	effHandler, effLevel := cfg.EffectiveAuthForAudit()
-	log.InfoContext(ctx, "lipstd: effective access and authentication",
+	log.InfoContext(
+		ctx, "lipstd: effective access and authentication",
 		"access_mode", string(accessMode),
 		"listen_address", cfg.Server.Address,
 		"auth_handler", effHandler,

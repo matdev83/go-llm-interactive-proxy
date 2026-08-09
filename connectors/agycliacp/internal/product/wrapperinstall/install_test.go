@@ -113,6 +113,7 @@ func mustSuffix(t *testing.T) string {
 	}
 	return suffix
 }
+
 func testArchive(t *testing.T) []byte {
 	t.Helper()
 	name := "go-agy-acp-wrapper"

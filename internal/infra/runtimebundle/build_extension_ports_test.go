@@ -37,6 +37,7 @@ type portsStubStreamObserverFactory struct {
 func (s portsStubStreamObserverFactory) ID() string                      { return s.id }
 func (s portsStubStreamObserverFactory) Order() int                      { return s.ord }
 func (portsStubStreamObserverFactory) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+
 func (portsStubStreamObserverFactory) Open(context.Context, response.StreamMeta, response.Services) (response.StreamObserver, error) {
 	return nil, nil
 }

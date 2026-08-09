@@ -70,6 +70,9 @@ func (s *wsContinuationStore) prepareWithFingerprints(ctx context.Context, cfg *
 	if s == nil || payload == nil {
 		return false
 	}
+	if strings.TrimSpace(call.Session.AuthoritativeSessionID) == "" {
+		return false
+	}
 	key := continuationKeyWithFingerprints(cfg, call, payload, inputFingerprints)
 	instructionsFingerprint := fingerprintJSON(payload.Instructions)
 	toolsFingerprint := fingerprintJSON(payload.Tools)
@@ -119,6 +122,9 @@ func (s *wsContinuationStore) record(cfg *Config, call lipapi.Call, payload Payl
 
 func (s *wsContinuationStore) recordWithFingerprints(cfg *Config, call lipapi.Call, payload Payload, inputFingerprints []string, responseID string, outputItems ...inputItem) {
 	if s == nil {
+		return
+	}
+	if strings.TrimSpace(call.Session.AuthoritativeSessionID) == "" {
 		return
 	}
 	responseID = strings.TrimSpace(responseID)
@@ -174,6 +180,31 @@ func (s *wsContinuationStore) invalidateWithFingerprints(cfg *Config, call lipap
 	s.order = out
 }
 
+// invalidateLineage removes every turn-scoped response-id optimization for the
+// selected account/session lineage. A newly installed checkpoint changes the
+// upstream history authority, so the next normal request must send full exact
+// input and establish a fresh baseline only after successful completion.
+func (s *wsContinuationStore) invalidateLineage(cfg *Config, call lipapi.Call, payload *Payload) {
+	if s == nil || payload == nil {
+		return
+	}
+	key := continuationKeyWithFingerprints(cfg, call, payload, nil)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for existing := range s.entries {
+		if existing.sessionID == key.sessionID && existing.model == key.model && existing.accountID == key.accountID && existing.promptCacheKey == key.promptCacheKey && existing.clientFamily == key.clientFamily {
+			delete(s.entries, existing)
+		}
+	}
+	filtered := s.order[:0]
+	for _, existing := range s.order {
+		if _, ok := s.entries[existing]; ok {
+			filtered = append(filtered, existing)
+		}
+	}
+	s.order = filtered
+}
+
 func (s *wsContinuationStore) purgeExpiredLocked() {
 	now := s.now()
 	out := s.order[:0]
@@ -213,10 +244,10 @@ func continuationKeyWithFingerprints(cfg *Config, call lipapi.Call, payload *Pay
 		model = strings.TrimSpace(payload.Model)
 		promptCacheKey = strings.TrimSpace(payload.PromptCacheKey)
 	}
-	sessionID := strings.TrimSpace(call.Session.ContinuityKey)
-	if sessionID == "" {
-		sessionID = strings.TrimSpace(call.Session.CorrelationID())
-	}
+	// WebSocket response IDs are only an optimization. Like checkpoint state,
+	// they must be partitioned by proxy-owned authority; client continuity hints
+	// are insufficient to prevent cross-session reuse.
+	sessionID := strings.TrimSpace(call.Session.AuthoritativeSessionID)
 	if sessionID == "" && payload != nil && len(payload.Input) > 0 {
 		sessionID = "input:" + firstInputFingerprint(payload.Input, inputFingerprints)
 	}

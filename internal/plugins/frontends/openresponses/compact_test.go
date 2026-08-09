@@ -150,7 +150,8 @@ func TestCompact_ClosesCanonicalStreamExactlyOnceAndSanitizesPreOutputFailure(t 
 	}}
 	executor := &compactExecutor{stream: stream}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		AllowUnauthenticated: true, Executor: executor})
+		AllowUnauthenticated: true, Executor: executor,
+	})
 	req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses/compact", bytes.NewBufferString(`{"model":"gpt-4o","input":"compact this"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -171,7 +172,8 @@ func TestCompact_ClosesCanonicalStreamExactlyOnceAndSanitizesPreOutputFailure(t 
 func TestCompact_UnsupportedCapabilityIsSanitizedBeforeResource(t *testing.T) {
 	executor := &compactExecutor{err: &lipapi.RejectError{Reason: "provider-specific compaction secret"}}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		AllowUnauthenticated: true, Executor: executor})
+		AllowUnauthenticated: true, Executor: executor,
+	})
 	req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses/compact", bytes.NewBufferString(`{"model":"gpt-4o","input":"compact this"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -189,7 +191,8 @@ func TestCompact_UnsupportedCapabilityIsSanitizedBeforeResource(t *testing.T) {
 func TestCompact_ExecutorInvokedOnceForCanonicalOperation(t *testing.T) {
 	executor := &compactExecutor{err: errors.New("native_backend_secret")}
 	handler := openresponses.NewHandler(openresponses.HandlerConfig{
-		AllowUnauthenticated: true, Executor: executor})
+		AllowUnauthenticated: true, Executor: executor,
+	})
 	req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses/compact", bytes.NewBufferString(`{"model":"gpt-4o","input":"compact this"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()

@@ -51,7 +51,7 @@ func TestCompactResource_Build(t *testing.T) {
 		t.Fatalf("expected 1 output item, got %d", len(wireCompact.Output))
 	}
 
-	var rawMap map[string]interface{}
+	var rawMap map[string]any
 	if err := json.Unmarshal(jsonBytes, &rawMap); err != nil {
 		t.Fatalf("failed to unmarshal compact JSON: %v", err)
 	}

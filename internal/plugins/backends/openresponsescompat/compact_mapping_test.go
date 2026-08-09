@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -24,7 +25,7 @@ func itemAuthorityCompactCall() lipapi.Call {
 			DeliveryMode:  lipapi.DeliveryModeNonStreaming,
 			TransportMode: lipapi.TransportModeNonStreaming,
 		},
-		Options: lipapi.GenerationOptions{Temperature: floatPtr(0.2)},
+		Options: lipapi.GenerationOptions{Temperature: new(0.2)},
 		Items: []lipapi.Item{
 			{
 				Kind:   lipapi.ItemKindMessage,
@@ -225,13 +226,7 @@ func TestCompact_RemoteCompactResourceParsedToCanonicalLifecycleStream(t *testin
 		t.Fatalf("native response id = %q", native.ResponseID)
 	}
 	for _, wantID := range []string{"msg_comp_1", "msg_comp_2", "fc_comp_1", "rs_comp_1", "native_prev_item", "cmp_comp_1"} {
-		found := false
-		for _, got := range native.ItemIDs {
-			if got == wantID {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(native.ItemIDs, wantID)
 		if !found {
 			t.Fatalf("native item ids %v missing %q", native.ItemIDs, wantID)
 		}
@@ -365,12 +360,7 @@ func TestCompact_CompactionItemCarriedOnCanonicalStream(t *testing.T) {
 }
 
 func slicesContains(ids []string, want string) bool {
-	for _, id := range ids {
-		if id == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ids, want)
 }
 
 func TestCompact_UsageEventCarriesTokens(t *testing.T) {

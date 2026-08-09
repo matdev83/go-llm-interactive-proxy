@@ -121,7 +121,8 @@ func (s *trackingLocalStore) isClosed() bool {
 func newWSContinuationServer(t *testing.T, exec *wsTurnExecutor, ids interface {
 	openresponses.ResponseIDSource
 	openresponses.ResponseClock
-}, lc openresponses.WSLocalContinuationConfig) (*httptest.Server, *openresponses.WSCounters) {
+}, lc openresponses.WSLocalContinuationConfig,
+) (*httptest.Server, *openresponses.WSCounters) {
 	t.Helper()
 	var execView openresponses.ExecutorView
 	if exec != nil {
@@ -524,7 +525,7 @@ func TestWebSocketContinuation_TransportFailureRetainsParent(t *testing.T) {
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 	}
-	for i := 0; i < 2000; i++ {
+	for i := range 2000 {
 		events = append(events, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: fmt.Sprintf("d%05d-%s", i, strings.Repeat("x", 40))})
 	}
 	events = append(events, lipapi.Event{Kind: lipapi.EventResponseFinished})
@@ -772,7 +773,7 @@ func TestWebSocketContinuation_SequentialChainStress(t *testing.T) {
 	conn := wsDial(t, srv, nil)
 
 	prev := ""
-	for i := 0; i < turns; i++ {
+	for i := range turns {
 		body := `{"type":"response.create","model":"gpt-4o","input":"turn `
 		if prev == "" {
 			body += fmt.Sprintf(`%d"}`, i)

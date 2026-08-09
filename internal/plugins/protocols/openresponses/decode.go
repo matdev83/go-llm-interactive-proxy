@@ -816,9 +816,8 @@ func DecodeItem(wire WireItem, limits Limits) (lipapi.Item, error) {
 				var cStr string
 				if err := json.Unmarshal(trimmed, &cStr); err != nil {
 					return lipapi.Item{}, fmt.Errorf("%w: reasoning content is not a string union", ErrDecodeFailed)
-				} else {
-					rItem.Reasoning.Text = cStr
 				}
+				rItem.Reasoning.Text = cStr
 			} else if len(trimmed) > 0 && trimmed[0] == '[' {
 				parts, err := decodeContentParts(wire.Content)
 				if err != nil {

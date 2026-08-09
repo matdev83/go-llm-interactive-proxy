@@ -10,6 +10,7 @@ import (
 )
 
 func TestContentExtensionMetadataPreservedThroughInvocationProto(t *testing.T) {
+	t.Parallel()
 	ns, impl, typ := "declared.namespace", "vendor-implementor", "derived:part"
 	call := lipapi.Call{Items: []lipapi.Item{{
 		ID:     "msg_1",

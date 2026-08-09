@@ -65,6 +65,7 @@ func TestParseRequestTimeoutErrorDetail(t *testing.T) {
 }
 
 func TestRunCaptureWritesFailureDiagnosticsOnce(t *testing.T) {
+	t.Parallel()
 	const marker = "unique-taskrunner-failure-marker"
 	var stdout, stderr bytes.Buffer
 
@@ -85,6 +86,7 @@ func TestRunCaptureWritesFailureDiagnosticsOnce(t *testing.T) {
 }
 
 func TestRunCaptureWritesSuccessfulStdoutOnce(t *testing.T) {
+	t.Parallel()
 	var stdout, stderr bytes.Buffer
 
 	code := run([]string{

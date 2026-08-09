@@ -383,7 +383,8 @@ func TestResourceLedger_RollbackThenPrepare_NoRestart(t *testing.T) {
 	t.Parallel()
 	var starts, stops atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
-	ledger.AddAction("life", runtimebundle.PhasePrepare,
+	ledger.AddAction(
+		"life", runtimebundle.PhasePrepare,
 		func(context.Context) error { starts.Add(1); return nil },
 		func(context.Context) error { stops.Add(1); return nil },
 	)
@@ -405,7 +406,8 @@ func TestResourceLedger_CloseThenActivate_NoRestart(t *testing.T) {
 	t.Parallel()
 	var starts atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
-	ledger.AddAction("commit", runtimebundle.PhaseActivate,
+	ledger.AddAction(
+		"commit", runtimebundle.PhaseActivate,
 		func(context.Context) error { starts.Add(1); return nil },
 		nil,
 	)
@@ -424,7 +426,8 @@ func TestResourceLedger_QuiesceThenPrepare_NoRestart(t *testing.T) {
 	t.Parallel()
 	var starts, quiesces atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
-	ledger.AddAction("life", runtimebundle.PhasePrepare,
+	ledger.AddAction(
+		"life", runtimebundle.PhasePrepare,
 		func(context.Context) error { starts.Add(1); return nil },
 		func(context.Context) error { return nil },
 	)
@@ -457,7 +460,8 @@ func TestResourceLedger_PrepareActivateVsTerminalRace_NoStartAfterTerminal(t *te
 		release := make(chan struct{})
 		var enterOnce sync.Once
 		ledger := runtimebundle.NewResourceLedger()
-		ledger.AddAction("life", runtimebundle.PhasePrepare,
+		ledger.AddAction(
+			"life", runtimebundle.PhasePrepare,
 			func(context.Context) error { starts.Add(1); return nil },
 			func(context.Context) error { stops.Add(1); return nil },
 		)
@@ -491,11 +495,13 @@ func TestResourceLedger_NormalPrepareActivateQuiesceClose(t *testing.T) {
 	t.Parallel()
 	var starts, activates, quiesces, closes atomic.Int32
 	ledger := runtimebundle.NewResourceLedger()
-	ledger.AddAction("life", runtimebundle.PhasePrepare,
+	ledger.AddAction(
+		"life", runtimebundle.PhasePrepare,
 		func(context.Context) error { starts.Add(1); return nil },
 		func(context.Context) error { closes.Add(1); return nil },
 	)
-	ledger.AddAction("commit", runtimebundle.PhaseActivate,
+	ledger.AddAction(
+		"commit", runtimebundle.PhaseActivate,
 		func(context.Context) error { activates.Add(1); return nil },
 		nil,
 	)

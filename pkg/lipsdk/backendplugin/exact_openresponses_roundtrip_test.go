@@ -162,10 +162,15 @@ func TestConvertCharacterization_LegacyPartExactReasoningPresenceAndEmptyValues(
 		{name: "empty arrays", summary: backendplugin.RawJSONFromBytes([]byte(`[]`)), content: backendplugin.RawJSONFromBytes([]byte(`[]`)), encrypted: backendplugin.RawJSONFromBytes([]byte(`""`))},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			part := backendplugin.Part{Kind: backendplugin.PartKindReasoning, ReasoningDialect: &dialect,
-				ReasoningText: strPtr(" exact "), ReasoningSummary: tc.summary, ReasoningContent: tc.content, ReasoningEncryptedContent: tc.encrypted}
-			inv := backendplugin.Invocation{RequestID: "r", AttemptID: "a", ALegID: "aleg", BLegID: "bleg", CanonicalModelID: "m",
-				Messages: []backendplugin.Message{{Role: backendplugin.RoleAssistant, Parts: []backendplugin.Part{part}}}}
+			t.Parallel()
+			part := backendplugin.Part{
+				Kind: backendplugin.PartKindReasoning, ReasoningDialect: &dialect,
+				ReasoningText: strPtr(" exact "), ReasoningSummary: tc.summary, ReasoningContent: tc.content, ReasoningEncryptedContent: tc.encrypted,
+			}
+			inv := backendplugin.Invocation{
+				RequestID: "r", AttemptID: "a", ALegID: "aleg", BLegID: "bleg", CanonicalModelID: "m",
+				Messages: []backendplugin.Message{{Role: backendplugin.RoleAssistant, Parts: []backendplugin.Part{part}}},
+			}
 			wire, err := backendplugin.InvocationToProto(inv)
 			if err != nil {
 				t.Fatal(err)

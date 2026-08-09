@@ -149,7 +149,7 @@ func (c *openResponsesHTTPClient) create(ctx context.Context, prompt string, str
 	if err != nil {
 		return RoundTripResult{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return RoundTripResult{}, fmt.Errorf("openresponses create: status %d", resp.StatusCode)
 	}
@@ -178,7 +178,7 @@ func (c *openResponsesHTTPClient) compact(ctx context.Context, prompt string) (R
 	if err != nil {
 		return RoundTripResult{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return RoundTripResult{}, fmt.Errorf("openresponses compact: status %d", resp.StatusCode)
 	}
@@ -310,9 +310,7 @@ func parseSSEResult(r io.Reader) (RoundTripResult, error) {
 			eventType = strings.TrimSpace(line[len("event:"):])
 		case strings.HasPrefix(line, "data:"):
 			payload := line[len("data:"):]
-			if strings.HasPrefix(payload, " ") {
-				payload = payload[1:]
-			}
+			payload = strings.TrimPrefix(payload, " ")
 			if data.Len() > 0 {
 				data.WriteByte('\n')
 			}
@@ -412,7 +410,7 @@ func (c *openResponsesWSClient) run(ctx context.Context, rawTurn string, onEvent
 	if err != nil {
 		return fmt.Errorf("openresponses websocket: dial: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if resp != nil && resp.StatusCode != http.StatusSwitchingProtocols {
 		return fmt.Errorf("openresponses websocket: upgrade status %d", resp.StatusCode)
 	}
@@ -459,7 +457,7 @@ func rawOpenResponsesPost(ctx context.Context, client *http.Client, endpoint, ra
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("openresponses post: status %d", resp.StatusCode)
 	}
@@ -479,10 +477,7 @@ type existingFamilyClient struct {
 
 func (c *existingFamilyClient) Close() error { return nil }
 
-func (c *existingFamilyClient) RoundTrip(ctx context.Context, prompt string) (RoundTripResult, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+func (c *existingFamilyClient) RoundTrip(_ context.Context, prompt string) (RoundTripResult, error) {
 	proxyOrigin := c.deployment.BaseURL()
 	hc := c.deployment.Server.Client()
 	transport := c.deployment.Spec.Transport

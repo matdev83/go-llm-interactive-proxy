@@ -22,7 +22,7 @@ func TestReasoningOutputPreservation_NotMandatoryRequirement(t *testing.T) {
 
 func TestEnsureReasoningOutputPreservationInConfig_AbsentInjectsEnabled(t *testing.T) {
 	t.Parallel()
-	cfg := &config.Config{}
+	cfg := &config.Config{Plugins: config.PluginsConfig{Backends: []config.PluginConfig{{Kind: "openai-codex", ID: "codex-primary", Enabled: true}}}}
 	if err := standardplugins.EnsureReasoningOutputPreservationInConfig(cfg, standardplugins.ReasoningOutputPreservationInjectOpts{StandardDistribution: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestEnsureReasoningOutputPreservationInConfig_AbsentInjectsEnabled(t *testi
 
 func TestEnsureReasoningOutputPreservationInConfig_DisabledSuppressesInjection(t *testing.T) {
 	t.Parallel()
-	cfg := &config.Config{}
+	cfg := &config.Config{Plugins: config.PluginsConfig{Backends: []config.PluginConfig{{Kind: "openai-codex", ID: "codex-primary", Enabled: true}}}}
 	cfg.Plugins.Features = []config.PluginConfig{{
 		ID:      standardplugins.ReasoningOutputPreservationFeatureID,
 		Enabled: false,
@@ -55,7 +55,7 @@ func TestEnsureReasoningOutputPreservationInConfig_OmittedEnabledIsOptOut(t *tes
 	// Plain-bool PluginConfig.Enabled defaults to false when the key is omitted.
 	// Presence of a matching row (even without enabled: true) is an explicit opt-out
 	// and must suppress standard injection.
-	cfg := &config.Config{}
+	cfg := &config.Config{Plugins: config.PluginsConfig{Backends: []config.PluginConfig{{Kind: "openai-codex", ID: "codex-primary", Enabled: true}}}}
 	cfg.Plugins.Features = []config.PluginConfig{{
 		ID: standardplugins.ReasoningOutputPreservationFeatureID,
 	}}
@@ -75,7 +75,7 @@ func TestEnsureReasoningOutputPreservationInConfig_OmittedEnabledIsOptOut(t *tes
 
 func TestEnsureReasoningOutputPreservationInConfig_FactoryKindMatchSuppressesInjection(t *testing.T) {
 	t.Parallel()
-	cfg := &config.Config{}
+	cfg := &config.Config{Plugins: config.PluginsConfig{Backends: []config.PluginConfig{{Kind: "openai-codex", ID: "codex-primary", Enabled: true}}}}
 	cfg.Plugins.Features = []config.PluginConfig{{
 		Kind:    standardplugins.ReasoningOutputPreservationFeatureID,
 		ID:      "custom-rp-instance",
@@ -91,7 +91,7 @@ func TestEnsureReasoningOutputPreservationInConfig_FactoryKindMatchSuppressesInj
 
 func TestEnsureReasoningOutputPreservationInConfig_CustomBundleNoInjection(t *testing.T) {
 	t.Parallel()
-	cfg := &config.Config{}
+	cfg := &config.Config{Plugins: config.PluginsConfig{Backends: []config.PluginConfig{{Kind: "openai-codex", ID: "codex-primary", Enabled: true}}}}
 	if err := standardplugins.EnsureReasoningOutputPreservationInConfig(cfg, standardplugins.ReasoningOutputPreservationInjectOpts{StandardDistribution: false}); err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ state:
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := &config.Config{}
+	cfg := &config.Config{Plugins: config.PluginsConfig{Backends: []config.PluginConfig{{Kind: "openai-codex", ID: "codex-primary", Enabled: true}}}}
 	cfg.Plugins.Features = []config.PluginConfig{{
 		ID:      standardplugins.ReasoningOutputPreservationFeatureID,
 		Enabled: true,
@@ -143,7 +143,7 @@ state:
 
 func TestEnsureReasoningOutputPreservationInConfig_Idempotent(t *testing.T) {
 	t.Parallel()
-	cfg := &config.Config{}
+	cfg := &config.Config{Plugins: config.PluginsConfig{Backends: []config.PluginConfig{{Kind: "openai-codex", ID: "codex-primary", Enabled: true}}}}
 	opts := standardplugins.ReasoningOutputPreservationInjectOpts{StandardDistribution: true}
 	if err := standardplugins.EnsureReasoningOutputPreservationInConfig(cfg, opts); err != nil {
 		t.Fatal(err)
@@ -158,7 +158,7 @@ func TestEnsureReasoningOutputPreservationInConfig_Idempotent(t *testing.T) {
 
 func TestEnsureReasoningOutputPreservationInConfig_ExactDecodedDefaults(t *testing.T) {
 	t.Parallel()
-	cfg := &config.Config{}
+	cfg := &config.Config{Plugins: config.PluginsConfig{Backends: []config.PluginConfig{{Kind: "openai-codex", ID: "codex-primary", Enabled: true}}}}
 	if err := standardplugins.EnsureReasoningOutputPreservationInConfig(cfg, standardplugins.ReasoningOutputPreservationInjectOpts{StandardDistribution: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -175,8 +175,8 @@ func TestEnsureReasoningOutputPreservationInConfig_ExactDecodedDefaults(t *testi
 	if !got.UseBuiltinCatalog {
 		t.Fatal("use_builtin_catalog must be true")
 	}
-	if len(got.Rules) != 0 {
-		t.Fatalf("rules must be empty/absent, got %+v", got.Rules)
+	if len(got.Rules) != 1 || got.Rules[0].Backend != "codex-primary" {
+		t.Fatalf("rules must contain the exact Codex companion, got %+v", got.Rules)
 	}
 	if got.OnAmbiguous != reasoningpreservation.PolicyLogSkip {
 		t.Fatalf("on_ambiguous=%q", got.OnAmbiguous)

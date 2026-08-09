@@ -188,7 +188,8 @@ func TestPhase35_SQLite_IndexedFilterRowsAndList(t *testing.T) {
 		{"identity_version", "1"},
 	} {
 		var n int
-		if err := bunDB.NewRaw(`
+		if err := bunDB.NewRaw(
+			`
 SELECT COUNT(1) FROM metering_fact_filters
 WHERE store_id = ? AND fact_id = ? AND field_name = ? AND field_value = ?`,
 			"sqlite-p35-idx", "fact-idx", field.name, field.value,

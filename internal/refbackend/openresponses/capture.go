@@ -108,7 +108,9 @@ func (c *Capture) build(path, method string, headers http.Header, body []byte) O
 func (c *Capture) add(obs Observation) {
 	c.total.Add(1)
 	pc, _ := c.counts.LoadOrStore(obs.Path, new(atomic.Int64))
-	pc.(*atomic.Int64).Add(1)
+	if counter, ok := pc.(*atomic.Int64); ok {
+		counter.Add(1)
+	}
 	c.store(obs)
 }
 
@@ -128,7 +130,9 @@ func (c *Capture) Total() int64 { return c.total.Load() }
 // Count returns the atomic per-path request count.
 func (c *Capture) Count(path string) int64 {
 	if pc, ok := c.counts.Load(path); ok {
-		return pc.(*atomic.Int64).Load()
+		if counter, ok := pc.(*atomic.Int64); ok {
+			return counter.Load()
+		}
 	}
 	return 0
 }

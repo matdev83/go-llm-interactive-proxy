@@ -56,6 +56,7 @@ func pipeWSPair(t *testing.T, upgrader *websocket.Upgrader) (server *websocket.C
 		upCh <- upResult{c: c, err: err}
 	}()
 
+	//nolint:staticcheck // NewClient accepts the preconnected net.Conn used by this pipe test.
 	client, _, err := websocket.NewClient(cliConn, &url.URL{Scheme: "ws", Host: "pipe.test"}, nil, 1024, 1024)
 	if err != nil {
 		t.Fatalf("client handshake: %v", err)
@@ -73,7 +74,7 @@ func TestWebSocketStress_VirtualOneHourAgeTerminatesBackdatedSession(t *testing.
 		CheckOrigin:      func(*http.Request) bool { return true },
 	}
 	serverConn, clientConn := pipeWSPair(t, upgrader)
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	counters := &WSCounters{}
 	session := newWSSession(serverConn, wsBounds{
@@ -90,7 +91,7 @@ func TestWebSocketStress_VirtualOneHourAgeTerminatesBackdatedSession(t *testing.
 	done := make(chan error, 1)
 	go func() { done <- session.Run(context.Background(), nil) }()
 
-	clientConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_ = clientConn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	_, data, err := clientConn.ReadMessage()
 	if err != nil {
 		t.Fatalf("client read: %v", err)
@@ -105,7 +106,7 @@ func TestWebSocketStress_VirtualOneHourAgeTerminatesBackdatedSession(t *testing.
 
 	// Drain the server's close frame so the session's socket close over the
 	// unbuffered pipe completes before Run returns.
-	clientConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_ = clientConn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	for {
 		if _, _, err := clientConn.ReadMessage(); err != nil {
 			break

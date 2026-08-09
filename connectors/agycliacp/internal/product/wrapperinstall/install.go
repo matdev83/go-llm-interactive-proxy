@@ -202,6 +202,7 @@ func getJSON(ctx context.Context, client *http.Client, url string, out any) erro
 	}
 	return json.Unmarshal(body, out)
 }
+
 func download(ctx context.Context, client *http.Client, url string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -225,6 +226,7 @@ func download(ctx context.Context, client *http.Client, url string) ([]byte, err
 	}
 	return body, nil
 }
+
 func checksumFor(data, name string) (string, error) {
 	for _, line := range strings.Split(data, "\n") {
 		fields := strings.Fields(line)
@@ -236,6 +238,7 @@ func checksumFor(data, name string) (string, error) {
 	}
 	return "", fmt.Errorf("checksum missing for %s", name)
 }
+
 func extractZip(data []byte, name, target string) error {
 	reader, err := zip.NewReader(strings.NewReader(string(data)), int64(len(data)))
 	if err != nil {
@@ -254,6 +257,7 @@ func extractZip(data []byte, name, target string) error {
 	}
 	return errors.New("wrapper executable missing from archive")
 }
+
 func extractTarGz(data []byte, name, target string) error {
 	gz, err := gzip.NewReader(strings.NewReader(string(data)))
 	if err != nil {
@@ -275,6 +279,7 @@ func extractTarGz(data []byte, name, target string) error {
 	}
 	return errors.New("wrapper executable missing from archive")
 }
+
 func writeFile(path string, source io.Reader) error {
 	target, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o755)
 	if err != nil {
@@ -287,6 +292,7 @@ func writeFile(path string, source io.Reader) error {
 	}
 	return closeErr
 }
+
 func newestCached(root string) string {
 	name := "go-agy-acp-wrapper"
 	if runtime.GOOS == "windows" {

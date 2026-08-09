@@ -14,7 +14,8 @@ import (
 func BenchmarkWriteStreamSSE_textDeltas(b *testing.B) {
 	const nDelta = 200
 	events := make([]lipapi.Event, 0, nDelta+3)
-	events = append(events,
+	events = append(
+		events,
 		lipapi.Event{Kind: lipapi.EventResponseStarted},
 		lipapi.Event{Kind: lipapi.EventMessageStarted},
 	)

@@ -60,7 +60,6 @@ func TestDecodeRequest_InstructionsNullOrEmptyTreatedAsAbsent(t *testing.T) {
 		"empty": `""`,
 		"blank": `"   "`,
 	} {
-		instr := instr
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			body := []byte(`{"model":"gpt-4o","input":"hello","instructions":` + instr + `}`)
@@ -78,7 +77,6 @@ func TestDecodeRequest_InstructionsNullOrEmptyTreatedAsAbsent(t *testing.T) {
 func TestDecodeRequest_UnsupportedControlsRawDecodeAccepted(t *testing.T) {
 	t.Parallel()
 	for _, tc := range unsupportedRequestControls {
-		tc := tc
 		t.Run(tc.field, func(t *testing.T) {
 			t.Parallel()
 			body := []byte(`{"model":"gpt-4o","input":"hello","` + tc.field + `":` + tc.value + `}`)
@@ -96,7 +94,6 @@ func TestDecodeRequest_UnsupportedControlsRawDecodeAccepted(t *testing.T) {
 func TestDecodeRequest_UnsupportedControlsNullAccepted(t *testing.T) {
 	t.Parallel()
 	for _, tc := range unsupportedRequestControls {
-		tc := tc
 		t.Run(tc.field, func(t *testing.T) {
 			t.Parallel()
 			body := []byte(`{"model":"gpt-4o","input":"hello","` + tc.field + `":null}`)
@@ -130,7 +127,6 @@ func TestDecodeRequest_UnsupportedControlsMalformedFailDeterministically(t *test
 		{"max_tool_calls", `"five"`},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.field, func(t *testing.T) {
 			t.Parallel()
 			body := []byte(`{"model":"gpt-4o","input":"hello","` + tc.field + `":` + tc.value + `}`)

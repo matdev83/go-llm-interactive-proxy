@@ -37,6 +37,7 @@ func GetBranchScenarioRegistry() BranchScenarioRegistry {
 }
 
 func TestCoverageRegistry_Metadata(t *testing.T) {
+	t.Parallel()
 	reg := GetBranchScenarioRegistry()
 	if reg.PackageName == "" {
 		t.Error("expected non-empty PackageName in registry")
@@ -53,7 +54,9 @@ func TestCoverageRegistry_Metadata(t *testing.T) {
 }
 
 func TestAdditionalCoverageEdgeCases(t *testing.T) {
+	t.Parallel()
 	t.Run("LimitExceededError_EmptyMessage_And_NilErr", func(t *testing.T) {
+		t.Parallel()
 		err := &LimitExceededError{
 			Param:  "test_param",
 			Limit:  10,
@@ -68,12 +71,14 @@ func TestAdditionalCoverageEdgeCases(t *testing.T) {
 	})
 
 	t.Run("SanitizeErrorMessage_PasswordAndToken", func(t *testing.T) {
+		t.Parallel()
 		if res := sanitizeErrorMessage("failed with password123"); res != "an internal system error occurred" {
 			t.Errorf("unexpected sanitization result: %s", res)
 		}
 	})
 
 	t.Run("BuildResponseResource_CompletedAtEnvelope", func(t *testing.T) {
+		t.Parallel()
 		now := time.Now()
 		meta := EnvelopeMetadata{
 			ResponseID:  "resp_123",

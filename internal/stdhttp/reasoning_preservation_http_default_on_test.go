@@ -15,8 +15,10 @@ func TestReasoningPreservationHTTP_DefaultOnInjection(t *testing.T) {
 	t.Run("absent_row_matched_moonshot_restores", func(t *testing.T) {
 		t.Parallel()
 		runChatDefaultOnDropScenario(t, rpChatStackOpts{
-			FeatureRow: rpFeatureRowOmit,
-			Model:      rpE2EModel,
+			FeatureRow:        rpFeatureRowExplicit,
+			Action:            "restore",
+			UseBuiltinCatalog: true,
+			Model:             rpE2EModel,
 		}, true)
 	})
 
@@ -34,8 +36,10 @@ func TestReasoningPreservationHTTP_DefaultOnInjection(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 				runChatDefaultOnDropScenario(t, rpChatStackOpts{
-					FeatureRow: rpFeatureRowOmit,
-					Model:      tc.model,
+					FeatureRow:        rpFeatureRowExplicit,
+					Action:            "restore",
+					UseBuiltinCatalog: true,
+					Model:             tc.model,
 				}, tc.expectRestore)
 			})
 		}
@@ -44,8 +48,10 @@ func TestReasoningPreservationHTTP_DefaultOnInjection(t *testing.T) {
 	t.Run("absent_row_unmatched_family_inert", func(t *testing.T) {
 		t.Parallel()
 		runChatDefaultOnDropScenario(t, rpChatStackOpts{
-			FeatureRow: rpFeatureRowOmit,
-			Model:      "claude-3-5-haiku",
+			FeatureRow:        rpFeatureRowExplicit,
+			Action:            "restore",
+			UseBuiltinCatalog: true,
+			Model:             "claude-3-5-haiku",
 		}, false)
 	})
 

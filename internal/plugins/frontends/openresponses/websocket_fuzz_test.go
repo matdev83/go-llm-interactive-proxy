@@ -170,7 +170,7 @@ func FuzzWebSocketContinuationStore(f *testing.F) {
 		store := newWSLocalStore(scope, limits)
 		defer func() { _ = store.Close() }()
 
-		for i := 0; i < 20; i++ {
+		for i := range 20 {
 			b := byte(i * 37)
 			if i < len(payload) {
 				b = payload[i]
@@ -249,7 +249,7 @@ func (s *fuzzIDSource) NewResponseID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.n++
-	return "resp_" + base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("fuzz-turn-%016x", s.n)))
+	return "resp_" + base64.RawURLEncoding.EncodeToString(fmt.Appendf(nil, "fuzz-turn-%016x", s.n))
 }
 
 type fuzzClock struct{}
@@ -296,7 +296,7 @@ func newFuzzWSServer() *httptest.Server {
 // in a single session. Empty chunks are dropped.
 func splitWSFuzzFrames(data []byte, maxFrames, maxFrame int) [][]byte {
 	var frames [][]byte
-	for _, seg := range bytes.Split(data, []byte{0}) {
+	for seg := range bytes.SplitSeq(data, []byte{0}) {
 		if len(seg) == 0 {
 			continue
 		}
@@ -352,7 +352,7 @@ func FuzzWebSocketTurnLifecycle(f *testing.F) {
 		// a turn ending in exactly one terminal). Closing the client only after
 		// all outcomes arrive avoids racing the server's writes with gorilla's
 		// automatic close response, which would drop a frame's envelope.
-		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		deadlineHit := false
 		inTurn := false
 		outcomes := 0

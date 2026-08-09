@@ -44,7 +44,6 @@ func TestCompatibleParity_factoryBuiltMatchesEssential(t *testing.T) {
 func runEssentialGenericParitySequential(t *testing.T, buildGeneric func(*testing.T, compatibleparity.Family, string, string, string, *http.Client) execbackend.Backend) {
 	t.Helper()
 	for _, fx := range compatibleparity.ParityFixtures() {
-		fx := fx
 		t.Run(fx.Name, func(t *testing.T) {
 			runParityFixture(t, fx, buildGeneric)
 		})
@@ -54,7 +53,6 @@ func runEssentialGenericParitySequential(t *testing.T, buildGeneric func(*testin
 func runEssentialGenericParity(t *testing.T, buildGeneric func(*testing.T, compatibleparity.Family, string, string, string, *http.Client) execbackend.Backend) {
 	t.Helper()
 	for _, fx := range compatibleparity.ParityFixtures() {
-		fx := fx
 		t.Run(fx.Name, func(t *testing.T) {
 			t.Parallel()
 			runParityFixture(t, fx, buildGeneric)

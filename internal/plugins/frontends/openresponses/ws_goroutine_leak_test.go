@@ -25,16 +25,17 @@ func TestWebSocketSession_NoGoroutineLeak(t *testing.T) {
 		}
 	}()
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		srv := httptest.NewServer(openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
-			AllowUnauthenticated: true, Config: cfg}))
+			AllowUnauthenticated: true, Config: cfg,
+		}))
 		servers = append(servers, srv)
 		conn := wsDial(t, srv, nil)
 		if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","store":false}`)); err != nil {
 			t.Fatal(err)
 		}
 		_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 		for {
 			if _, _, err := conn.ReadMessage(); err != nil {
 				break

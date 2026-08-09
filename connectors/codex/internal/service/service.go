@@ -29,9 +29,14 @@ func (s *Service) Describe(context.Context) (backendplugin.PluginDescriptor, err
 	}
 	transport := backendplugin.TransportCapabilitySummary{Cancellation: true, BidirectionalStream: true}
 	return backendplugin.PluginDescriptor{
-		ProtocolMajor: 1, ProtocolMinor: backendplugin.ProtocolMinorExactReasoningParts,
+		ProtocolMajor: 1, ProtocolMinor: backendplugin.ProtocolMinorProxyOwnedSessionID,
 		PluginID: PluginID, Version: "0.1.0", BuildID: "localdev",
-		Features: []backendplugin.Feature{{Name: backendplugin.FeatureExactReasoningParts, Required: true}},
+		Features: []backendplugin.Feature{
+			{Name: backendplugin.FeatureExactReasoningParts, Required: true},
+			{Name: backendplugin.FeatureOrderedItems},
+			{Name: backendplugin.FeatureExactOpenResponsesFields},
+			{Name: backendplugin.FeatureProxyOwnedSessionID},
+		},
 		Factories: []backendplugin.FactoryDescriptor{{
 			Kind: FactoryKindHTTP, DisplayName: "OpenAI Codex", Description: "OpenAI Codex Responses backend",
 			CredentialMode: backendplugin.CredentialModeStatic, AccessScope: backendplugin.AccessScopeLocalOnly,
@@ -140,6 +145,9 @@ func (i *instance) Resolve(context.Context, *string) (backendplugin.ResolvedProf
 func (i *instance) Close(context.Context) error {
 	if i.app != nil {
 		return i.app.Close()
+	}
+	if i.http != nil {
+		return i.http.Close()
 	}
 	return nil
 }

@@ -21,6 +21,7 @@ func TestProfile_WindowsFullReleaseDeadlinePropagation(t *testing.T) {
 		t.Fatalf("profile phase list drift: %v", windowsFullReleasePhases)
 	}
 
+	//nolint:paralleltest // verifies deliberate sequential process execution.
 	t.Run("sequential stop on child failure", func(t *testing.T) {
 		parent, cancel := context.WithTimeout(context.Background(), time.Hour)
 		defer cancel()
@@ -46,6 +47,7 @@ func TestProfile_WindowsFullReleaseDeadlinePropagation(t *testing.T) {
 		}
 	})
 
+	//nolint:paralleltest // verifies deadline propagation in process execution.
 	t.Run("parent deadline propagation and distinct timeout exit", func(t *testing.T) {
 		parent, cancel := context.WithCancel(context.Background())
 		cancel()

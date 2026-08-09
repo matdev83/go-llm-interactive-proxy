@@ -1,7 +1,6 @@
 package openresponses
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -112,7 +111,7 @@ func TestWS_SequentialTurns(t *testing.T) {
 		Resource: NewResource("resp_ws", "m", 1719901000, []Item{NewMessagePartsItem("assistant", "", NewTextPart("turn"))}),
 	})
 	conn := dialWS(t, ts, "sk-test")
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		wsSendCreate(t, conn, "m")
 		_, terminalID := wsReadTurn(t, conn)
 		if terminalID != "resp_ws" {
@@ -228,8 +227,7 @@ func TestWS_AuthRequiredBeforeUpgrade(t *testing.T) {
 
 func TestWS_ServerObservesClientClose(t *testing.T) {
 	t.Parallel()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	_, ts := startServer(t, Options{}, &Script{
 		ID: "scenario-ws-close", Description: "ws client close", Mode: ModeWebSocket,
 		Delay:    DelayPlan{BetweenEvents: 40 * time.Millisecond},

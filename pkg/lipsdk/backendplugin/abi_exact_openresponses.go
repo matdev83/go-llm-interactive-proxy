@@ -2,6 +2,7 @@ package backendplugin
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -36,12 +37,20 @@ func requireExactOpenResponsesNegotiation(neg Negotiation) error {
 	if neg.NegotiatedMinor < ProtocolMinorExactOpenResponsesFields {
 		return fmt.Errorf("%w: negotiated minor %d", ErrExactOpenResponsesUnsupported, neg.NegotiatedMinor)
 	}
-	for _, name := range neg.EnabledFeatures {
-		if name == FeatureExactOpenResponsesFields {
-			return nil
-		}
+	if slices.Contains(neg.EnabledFeatures, FeatureExactOpenResponsesFields) {
+		return nil
 	}
 	return fmt.Errorf("%w: feature %q not enabled", ErrExactOpenResponsesUnsupported, FeatureExactOpenResponsesFields)
+}
+
+// ProxyOwnedSessionIDSupported reports whether the negotiated ABI can carry
+// proxy-owned session authority. It is intentionally optional: an older
+// connector must continue the request without native compaction state.
+func ProxyOwnedSessionIDSupported(neg Negotiation) bool {
+	if !neg.Compatible || neg.NegotiatedMinor < ProtocolMinorProxyOwnedSessionID {
+		return false
+	}
+	return slices.Contains(neg.EnabledFeatures, FeatureProxyOwnedSessionID)
 }
 
 func callRequiresExactOpenResponses(call lipapi.Call) bool {
@@ -49,25 +58,16 @@ func callRequiresExactOpenResponses(call lipapi.Call) bool {
 		return true
 	}
 	for i := range call.Instructions {
-		for _, p := range call.Instructions[i].Parts {
-			if partRequiresExactOpenResponses(p) {
-				return true
-			}
-		}
-	}
-	for i := range call.Messages {
-		for _, p := range call.Messages[i].Parts {
-			if partRequiresExactOpenResponses(p) {
-				return true
-			}
-		}
-	}
-	for _, item := range call.Items {
-		if itemRequiresExactOpenResponses(item) {
+		if slices.ContainsFunc(call.Instructions[i].Parts, partRequiresExactOpenResponses) {
 			return true
 		}
 	}
-	return false
+	for i := range call.Messages {
+		if slices.ContainsFunc(call.Messages[i].Parts, partRequiresExactOpenResponses) {
+			return true
+		}
+	}
+	return slices.ContainsFunc(call.Items, itemRequiresExactOpenResponses)
 }
 
 func partRequiresExactOpenResponses(p lipapi.Part) bool {

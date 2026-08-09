@@ -60,8 +60,8 @@ function Run-Parity {
         }
         "parity-codex-plugins" {
             Run-NestedGoTest "parity-codex-plugins:connectors/codex:test" "connectors/codex" $goTestFlags
-            Run-RootGoTest "parity-codex-plugins:internal/archtest:test" (@($goTestFlags) + @("-run", "Codex|Phase8_.*Codex|TestCodex_"))
-            Run-RootGoTest "parity-codex-plugins:internal/infra/runtimebundle:test" (@($goTestFlags) + @("-run", "TestPhase8_Codex"))
+            Run-RootGoTest "parity-codex-plugins:internal/archtest:test" (@($goTestFlags) + @("./internal/archtest", "-run", "Codex|Phase8_.*Codex|TestCodex_"))
+            Run-RootGoTest "parity-codex-plugins:internal/infra/runtimebundle:test" (@($goTestFlags) + @("./internal/infra/runtimebundle", "-run", "TestPhase8_Codex"))
         }
         "test-local-compatible-plugin-modules" { Run-LocalCompatibleModules }
         "parity-local-compatible-plugins" {

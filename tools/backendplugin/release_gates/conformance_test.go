@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/tools/taskrunner"
 )
 
+//nolint:paralleltest // mutates the package-level runCommand seam.
 func TestGoTestListHasMatches_FailsClosedOnFailedLookingOutput(t *testing.T) {
 	original := runCommand
 	t.Cleanup(func() { runCommand = original })
@@ -35,6 +36,7 @@ func TestGoTestListHasMatches_FailsClosedOnFailedLookingOutput(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // mutates the package-level runCommand seam.
 func TestListMatchingTests_FailsClosedOnFailedLookingOutput(t *testing.T) {
 	original := runCommand
 	t.Cleanup(func() { runCommand = original })
@@ -55,6 +57,7 @@ func TestListMatchingTests_FailsClosedOnFailedLookingOutput(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // mutates the package-level runCommand seam.
 func TestRunConformanceFilter_DoesNotDuplicateFailureOutput(t *testing.T) {
 	original := runCommand
 	t.Cleanup(func() { runCommand = original })

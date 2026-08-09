@@ -100,7 +100,8 @@ func TestNonStreamingResponseResourceSuccess(t *testing.T) {
 	if got := resource["created_at"]; got != float64(created.Unix()) {
 		t.Fatalf("unexpected created_at: %#v", got)
 	}
-	if got := resource["usage"].(map[string]any)["total_tokens"]; got != float64(5) {
+	usage, ok := resource["usage"].(map[string]any)
+	if !ok || usage["total_tokens"] != float64(5) {
 		t.Fatalf("unexpected usage: %#v", resource["usage"])
 	}
 	if executor.calls != 1 || stream.closes != 1 {

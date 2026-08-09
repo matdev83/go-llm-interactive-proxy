@@ -2,6 +2,7 @@ package backendplugin
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -17,8 +18,10 @@ const (
 	maxMetaExtensionFields = 64
 )
 
-// ApplyCallWireMetadata projects operation, delivery, transport, route params,
-// ordered item wire fields, and Call.Extensions into an invocation for cross-process execute.
+// ApplyCallWireMetadata projects the legacy-safe operation, delivery, transport,
+// route params, ordered item wire fields, and Call.Extensions into an invocation.
+// It intentionally does not project proxy-owned session authority: that typed
+// field exists only on the negotiated minor-4 ABI.
 func ApplyCallWireMetadata(inv *Invocation, call lipapi.Call, routeParams map[string]string) {
 	applyLegacyCallWireMetadata(inv, call, routeParams)
 	ApplyOrderedItemWire(inv, call)
@@ -27,6 +30,9 @@ func ApplyCallWireMetadata(inv *Invocation, call lipapi.Call, routeParams map[st
 // ApplyCallWireMetadataWithNegotiation projects wire metadata and enforces ordered-item and
 // exact OpenResponses ABI gates before execution.
 func ApplyCallWireMetadataWithNegotiation(inv *Invocation, call lipapi.Call, routeParams map[string]string, neg Negotiation) error {
+	if inv == nil {
+		return ErrInvalidInvocation
+	}
 	if err := RequireOrderedItemABISupport(neg, call); err != nil {
 		return err
 	}
@@ -38,7 +44,18 @@ func ApplyCallWireMetadataWithNegotiation(inv *Invocation, call lipapi.Call, rou
 			return err
 		}
 	}
-	ApplyCallWireMetadata(inv, call, routeParams)
+	// Session authority is security-sensitive: a negotiated legacy ABI cannot
+	// carry it without silently changing the connector's partition boundary.
+	// Fail closed instead of allowing the caller to proceed with an unsafe
+	// native-context request.
+	if strings.TrimSpace(call.Session.AuthoritativeSessionID) != "" && !ProxyOwnedSessionIDSupported(neg) {
+		return fmt.Errorf("%w: proxy-owned session authority requires negotiated minor %d and feature %q", ErrProxyOwnedSessionUnsupported, ProtocolMinorProxyOwnedSessionID, FeatureProxyOwnedSessionID)
+	}
+	applyLegacyCallWireMetadata(inv, call, routeParams)
+	ApplyOrderedItemWire(inv, call)
+	if ProxyOwnedSessionIDSupported(neg) {
+		inv.ProxyOwnedSessionID = strings.TrimSpace(call.Session.AuthoritativeSessionID)
+	}
 	return nil
 }
 
@@ -58,6 +75,9 @@ func applyLegacyCallWireMetadata(inv *Invocation, call lipapi.Call, routeParams 
 	if tm := string(call.Invocation.TransportMode); tm != "" {
 		inv.SafeMetadata[MetaTransportMode] = tm
 	}
+	// Session authority has a typed ABI field, but this helper is deliberately
+	// legacy-safe and cannot establish that field or put it in SafeMetadata.
+	inv.ProxyOwnedSessionID = ""
 	for k, v := range routeParams {
 		k = strings.TrimSpace(k)
 		v = strings.TrimSpace(v)

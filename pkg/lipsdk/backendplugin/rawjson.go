@@ -68,7 +68,7 @@ func validateRawJSONDepth(data []byte, maxDepth int) error {
 	var depth int
 	inString := false
 	escaped := false
-	for i := 0; i < len(data); i++ {
+	for i := range data {
 		b := data[i]
 		if inString {
 			if escaped {

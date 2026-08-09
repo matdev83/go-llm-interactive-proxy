@@ -11,6 +11,7 @@ import (
 )
 
 func TestRound5MemoryStoreRejectsUnprotectedNativeReferences(t *testing.T) {
+	t.Parallel()
 	store := corecont.NewMemoryStore()
 	scope := lipcont.Scope{PrincipalID: "round5-principal"}
 	id, err := store.Reserve(context.Background(), scope, lipcont.StoragePolicy{Mode: lipcont.PersistencePersistent})
@@ -36,6 +37,7 @@ func (r *round5Recorder) RecordTerminal(context.Context, lipcont.ContinuationRec
 }
 
 func TestRound5RecorderCountsReasoningBytesAgainstQuota(t *testing.T) {
+	t.Parallel()
 	backend := &round5Recorder{}
 	recorder := corecont.NewStreamRecorder(backend, lipcont.ContinuationRecord{
 		Policy: lipcont.StoragePolicy{Limits: lipcont.StorageLimits{MaxRecordBytes: 5}},

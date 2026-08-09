@@ -85,7 +85,7 @@ func (s *MemoryStore) Reserve(ctx context.Context, scope lipcont.Scope, policy l
 
 	var id lipcont.ResponseID
 	var err error
-	for attempt := 0; attempt < 5; attempt++ {
+	for range 5 {
 		id, err = NewResponseID(ctx)
 		if err != nil {
 			return "", err
@@ -134,17 +134,13 @@ func (s *MemoryStore) PutTerminal(ctx context.Context, record lipcont.Continuati
 		return lipcont.ErrStoreClosed
 	}
 	s.cleanupLocked(s.now())
-	exp := record.ExpiresAt
-	if exp.IsZero() {
-		exp = s.expiry(record.Policy)
-	}
 	reservation, reserved := s.reserved[key]
 	if !reserved {
 		return lipcont.ErrPreviousResponseNotFound
 	}
 	// Reservation policy and expiry are authoritative; callers cannot extend retention.
 	stored.Policy = reservation.record.Policy
-	exp = reservation.expiresAt
+	exp := reservation.expiresAt
 	if len(stored.NativeRefs) > 0 {
 		return lipcont.ErrNativeReferencesUnprotected
 	}

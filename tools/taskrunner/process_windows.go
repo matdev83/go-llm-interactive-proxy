@@ -31,7 +31,7 @@ func newPlatformProcessAdapter(cmd *exec.Cmd) (processAdapter, error) {
 	limits := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
 	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
 	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
-		windows.CloseHandle(job)
+		_ = windows.CloseHandle(job)
 		return nil, fmt.Errorf("configure job object: %w", err)
 	}
 	return &windowsProcess{cmd: cmd, job: job}, nil
@@ -78,6 +78,7 @@ func (p *windowsProcess) killDirect() error {
 	}
 	return p.cmd.Process.Kill()
 }
+
 func (p *windowsProcess) kill() error {
 	p.killOnce.Do(func() {
 		if p.assigned {
@@ -88,6 +89,7 @@ func (p *windowsProcess) kill() error {
 	})
 	return p.killErr
 }
+
 func (p *windowsProcess) close() error {
 	if p.closed {
 		return nil

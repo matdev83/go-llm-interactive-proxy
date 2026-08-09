@@ -41,7 +41,8 @@ func TestRound4WebSocketBearerSubprotocolAndHeaderAuth(t *testing.T) {
 	cfg := wsTestConfig(nil)
 	auth := &round4CapturingAuth{}
 	handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
-		AllowUnauthenticated: true, Config: cfg, Authorizer: auth})
+		AllowUnauthenticated: true, Config: cfg, Authorizer: auth,
+	})
 	srv := newWSTestServerFor(t, handler)
 
 	token := "browser-secret"
@@ -58,7 +59,8 @@ func TestRound4WebSocketBearerSubprotocolAndHeaderAuth(t *testing.T) {
 
 	authHeader := &round4CapturingAuth{}
 	handler = openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
-		AllowUnauthenticated: true, Config: cfg, Authorizer: authHeader})
+		AllowUnauthenticated: true, Config: cfg, Authorizer: authHeader,
+	})
 	srv2 := newWSTestServerFor(t, handler)
 	conn = wsDial(t, srv2, http.Header{"Authorization": []string{"Bearer header-secret"}})
 	_ = conn.Close()

@@ -43,7 +43,7 @@ func TestWebSocketAge_InFlightTurnEmitsLimitReachedExactlyOnce(t *testing.T) {
 		h.Config.WebSocket.IdleTimeout = "5m"
 	})
 	conn := wsDial(t, srv, nil)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	wsText(t, conn, `{"type":"response.create","model":"gpt-4o","input":"hi"}`)
 	eventually(t, 3*time.Second, func() bool { return exec.count() == 1 })
@@ -51,7 +51,7 @@ func TestWebSocketAge_InFlightTurnEmitsLimitReachedExactlyOnce(t *testing.T) {
 	// The client stays connected and silent. Only the connection age may release
 	// the blocked turn; the session must emit the limit-reached envelope before
 	// the close frame, exactly once.
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	var env wsTestEnvelope
 	limitCount := 0
 	readBeforeClose := false
@@ -208,7 +208,8 @@ func TestWebSocketUpgrade_DevModeOriginRelaxation(t *testing.T) {
 		w.AllowAnyOrigin = true
 	})
 	handler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
-		AllowUnauthenticated: true, Config: cfg})
+		AllowUnauthenticated: true, Config: cfg,
+	})
 	srv := newWSTestServerFor(t, handler)
 	counters := handler.Counters()
 
@@ -231,7 +232,8 @@ func TestWebSocketUpgrade_DevModeOriginRelaxation(t *testing.T) {
 		w.DevelopmentMode = false
 	})
 	strictHandler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
-		AllowUnauthenticated: true, Config: strict})
+		AllowUnauthenticated: true, Config: strict,
+	})
 	rec := httptest.NewRecorder()
 	req := validWSRequest()
 	req.Header.Set("Origin", "https://evil.example")
@@ -242,7 +244,8 @@ func TestWebSocketUpgrade_DevModeOriginRelaxation(t *testing.T) {
 
 	// Malformed origins stay rejected even in dev mode (input hygiene).
 	hHandler := openresponses.NewWebSocketHandler(openresponses.WebSocketHandlerConfig{
-		AllowUnauthenticated: true, Config: cfg})
+		AllowUnauthenticated: true, Config: cfg,
+	})
 	rec = httptest.NewRecorder()
 	req = validWSRequest()
 	req.Header.Set("Origin", "https://user:pass@example.com")

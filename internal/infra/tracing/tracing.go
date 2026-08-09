@@ -43,7 +43,8 @@ func Init(ctx context.Context, cfg *config.Config) (Result, error) {
 		serviceName = defaultServiceName
 	}
 
-	res, err := resource.New(ctx,
+	res, err := resource.New(
+		ctx,
 		resource.WithFromEnv(),
 		resource.WithTelemetrySDK(),
 		resource.WithHost(),
@@ -95,7 +96,8 @@ func HTTPMiddleware(active bool, next http.Handler) http.Handler {
 	if !active || next == nil {
 		return next
 	}
-	return otelhttp.NewHandler(next, "",
+	return otelhttp.NewHandler(
+		next, "",
 		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
 			return spanName(r)
 		}),

@@ -66,20 +66,18 @@ func logPayloadShape(ctx context.Context, call *lipapi.Call, payload Payload) {
 	}
 	raw, _ := json.Marshal(payload)
 	summary := summarizePayload(payload)
-	slog.DebugContext(ctx, "codex.debug.payload",
-		"call_id", call.ID,
-		"trace_id", stableCallID(call),
-		"a_leg_id", strings.TrimSpace(call.Session.ALegID),
+	slog.DebugContext(
+		ctx, "codex.debug.payload",
 		"model", payload.Model,
 		"payload_bytes", len(raw),
 		"instructions_bytes", len(payload.Instructions),
 		"input_text_bytes", summary.inputTextBytes,
 		"input_items", len(payload.Input),
 		"input_types", strings.Join(summary.inputTypes, ","),
-		"function_call_ids", strings.Join(summary.functionCallIDs, ","),
-		"function_output_ids", strings.Join(summary.functionOutputIDs, ","),
 		"tools", len(payload.Tools),
 		"tool_names", strings.Join(summary.toolNames, ","),
+		"function_call_count", len(summary.functionCallIDs),
+		"function_output_count", len(summary.functionOutputIDs),
 		"reasoning_effort", reasoningEffort(payload),
 		"verbosity", payloadVerbosity(payload),
 		"parallel_tool_calls", boolPtrString(payload.ParallelToolCalls),
@@ -91,9 +89,6 @@ func logFirstEventWait(ctx context.Context, call lipapi.Call, model string, star
 		return
 	}
 	attrs := []any{
-		"call_id", call.ID,
-		"trace_id", stableCallID(&call),
-		"a_leg_id", strings.TrimSpace(call.Session.ALegID),
 		"model", model,
 		"duration_ms", time.Since(start).Milliseconds(),
 	}
@@ -109,15 +104,13 @@ func logWSContinuation(ctx context.Context, call lipapi.Call, model, mode string
 	if !debugTurnsEnabled() {
 		return
 	}
-	slog.DebugContext(ctx, "codex.debug.ws_continuation",
-		"call_id", call.ID,
-		"trace_id", stableCallID(&call),
-		"a_leg_id", strings.TrimSpace(call.Session.ALegID),
+	slog.DebugContext(
+		ctx, "codex.debug.ws_continuation",
 		"model", model,
 		"mode", mode,
 		"input_before", inputBefore,
 		"input_after", inputAfter,
-		"previous_response_id", previousResponseID,
+		"previous_response_id_present", previousResponseID != "",
 	)
 }
 
@@ -144,11 +137,9 @@ func summarizePayload(payload Payload) payloadSummary {
 			inputTextBytes += richMessageTextBytes(v)
 		case functionCallItem:
 			typeCounts[v.Type]++
-			inputTextBytes += len(v.Arguments)
 			functionCallIDs = appendLimited(functionCallIDs, v.CallID, 12)
 		case functionCallOutputItem:
 			typeCounts[v.Type]++
-			inputTextBytes += len(v.Output)
 			functionOutputIDs = appendLimited(functionOutputIDs, v.CallID, 12)
 		default:
 			typeCounts["unknown"]++

@@ -79,7 +79,7 @@ func validateJSONDepth(data []byte, maxDepth int) error {
 	depth := 0
 	inString := false
 	escaped := false
-	for i := 0; i < len(data); i++ {
+	for i := range data {
 		b := data[i]
 		if inString {
 			if escaped {

@@ -33,3 +33,11 @@ func (sdkContinuationRecorderFactory) NewRecorder(store lipcont.Store, record li
 func defaultContinuationRecorderFactory() ContinuationRecorderFactory {
 	return sdkContinuationRecorderFactory{}
 }
+
+// connectionContinuationRecorderFactory records directly into a connection-local
+// store, which has no reservation to release when an in-flight turn is canceled.
+type connectionContinuationRecorderFactory struct{}
+
+func (connectionContinuationRecorderFactory) NewRecorder(store lipcont.Store, record lipcont.ContinuationRecord) lipcont.StreamObserver {
+	return lipcont.NewStreamRecorder(lipcont.TerminalRecorder{Store: store}, record, func() {})
+}

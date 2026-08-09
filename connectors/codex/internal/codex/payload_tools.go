@@ -34,7 +34,7 @@ func buildTools(tools []lipapi.ToolDef, toolStrictDisabled bool) ([]toolPayload,
 		schema, strict := normalizeToolSchemaForCodex(schema)
 		strict = strict && !toolStrictDisabled
 		if codexToolDebugEnabled() {
-			slog.Debug("codex.tool_schema", "tool", t.Name, "strict", strict, "keys", sortedSchemaKeys(schema))
+			slog.Debug("codex.tool_schema", "tool", t.Name, "strict", strict, "schema_keys", sortedSchemaKeys(schema))
 		}
 		out = append(out, toolPayload{
 			Type:        "function",

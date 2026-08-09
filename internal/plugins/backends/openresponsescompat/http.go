@@ -61,7 +61,7 @@ func pathHasTraversal(path string) bool {
 }
 
 func segmentTraverses(path string) bool {
-	for _, seg := range strings.Split(path, "/") {
+	for seg := range strings.SplitSeq(path, "/") {
 		if seg == ".." {
 			return true
 		}

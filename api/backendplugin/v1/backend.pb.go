@@ -2912,8 +2912,11 @@ type Invocation struct {
 	// prompt_cache_key is a proxy-carried prompt-caching hint (minor >= 3,
 	// feature exact_openresponses_fields). Never forwarded to legacy ABIs.
 	PromptCacheKey string `protobuf:"bytes,19,opt,name=prompt_cache_key,json=promptCacheKey,proto3" json:"prompt_cache_key,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// proxy_owned_session_id is injected by the proxy host from validated
+	// secure-session state. It is not client-provided metadata.
+	ProxyOwnedSessionId string `protobuf:"bytes,20,opt,name=proxy_owned_session_id,json=proxyOwnedSessionId,proto3" json:"proxy_owned_session_id,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *Invocation) Reset() {
@@ -3075,6 +3078,13 @@ func (x *Invocation) GetProtocolRequirements() *ProtocolRequirementsWire {
 func (x *Invocation) GetPromptCacheKey() string {
 	if x != nil {
 		return x.PromptCacheKey
+	}
+	return ""
+}
+
+func (x *Invocation) GetProxyOwnedSessionId() string {
+	if x != nil {
+		return x.ProxyOwnedSessionId
 	}
 	return ""
 }
@@ -5323,7 +5333,7 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\fRawJSONValue\x12\x19\n" +
 	"\ais_null\x18\x01 \x01(\bH\x00R\x06isNull\x12\x14\n" +
 	"\x04json\x18\x02 \x01(\fH\x00R\x04jsonB\a\n" +
-	"\x05state\"\x84\b\n" +
+	"\x05state\"\xb9\b\n" +
 	"\n" +
 	"Invocation\x12\x1d\n" +
 	"\n" +
@@ -5348,7 +5358,8 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\x0eitem_authority\x18\x10 \x01(\bR\ritemAuthority\x12<\n" +
 	"\x05items\x18\x11 \x03(\v2&.golip.backendplugin.v1.InvocationItemR\x05items\x12e\n" +
 	"\x15protocol_requirements\x18\x12 \x01(\v20.golip.backendplugin.v1.ProtocolRequirementsWireR\x14protocolRequirements\x12(\n" +
-	"\x10prompt_cache_key\x18\x13 \x01(\tR\x0epromptCacheKey\x1a?\n" +
+	"\x10prompt_cache_key\x18\x13 \x01(\tR\x0epromptCacheKey\x123\n" +
+	"\x16proxy_owned_session_id\x18\x14 \x01(\tR\x13proxyOwnedSessionId\x1a?\n" +
 	"\x11SafeMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x0e\n" +

@@ -105,7 +105,8 @@ func startManagementServer(ctx context.Context, cfg *config.Config, log *slog.Lo
 	}
 	if !enable {
 		if log != nil {
-			log.WarnContext(ctx,
+			log.WarnContext(
+				ctx,
 				"management reload API disabled: set "+reloadManagementAddressEnv+
 					" and, for multi_user/non-loopback, "+reloadManagementTokenEnv,
 			)
@@ -120,7 +121,8 @@ func startManagementServer(ctx context.Context, cfg *config.Config, log *slog.Lo
 		return nil, err
 	}
 	if log != nil {
-		log.InfoContext(ctx, "management listening",
+		log.InfoContext(
+			ctx, "management listening",
 			"addr", srv.Addr(),
 			"auth_mode", string(opts.AuthMode),
 		)

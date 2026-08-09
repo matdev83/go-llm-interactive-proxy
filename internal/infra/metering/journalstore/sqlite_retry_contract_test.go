@@ -282,7 +282,7 @@ func newRetrySQLiteJournal(t *testing.T, cfg DurableConfig) (*DurableStore, *sql
 		t.Fatal(err)
 	}
 	if _, err := holder.ExecContext(context.Background(), `BEGIN IMMEDIATE`); err != nil {
-		holder.Close()
+		_ = holder.Close()
 		t.Fatal(err)
 	}
 	return store, holder, func() { _, _ = holder.ExecContext(context.Background(), `ROLLBACK`) }

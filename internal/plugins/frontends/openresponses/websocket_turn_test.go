@@ -83,7 +83,7 @@ func wsText(t *testing.T, conn *websocket.Conn, msg string) {
 
 func wsReadTextFrame(t *testing.T, conn *websocket.Conn, timeout time.Duration) wsTextFrame {
 	t.Helper()
-	conn.SetReadDeadline(time.Now().Add(timeout))
+	_ = conn.SetReadDeadline(time.Now().Add(timeout))
 	for {
 		mt, data, err := conn.ReadMessage()
 		if err != nil {
@@ -302,7 +302,7 @@ func TestWebSocketTurn_EventParityWithHTTPSSE(t *testing.T) {
 	sseHandler.ServeHTTP(rec, req)
 
 	var sseEvents []map[string]any
-	for _, line := range strings.Split(rec.Body.String(), "\n") {
+	for line := range strings.SplitSeq(rec.Body.String(), "\n") {
 		if !strings.HasPrefix(line, "data: ") {
 			continue
 		}
@@ -413,7 +413,7 @@ func TestWebSocketTurn_SequentialStressManyTurns(t *testing.T) {
 	srv, _ := newWSTurnServer(t, exec, deterministicResponseMetadata{id: "resp_stress", now: time.Now()}, nil)
 	conn := wsDial(t, srv, nil)
 
-	for i := 0; i < turns; i++ {
+	for i := range turns {
 		wsText(t, conn, fmt.Sprintf(`{"type":"response.create","model":"gpt-4o","input":"turn %d"}`, i))
 		frames := wsReadUntilTerminal(t, conn, 5*time.Second)
 		if !containsDelta(frames, fmt.Sprintf("turn-%d", i)) {
@@ -427,7 +427,7 @@ func TestWebSocketTurn_SequentialStressManyTurns(t *testing.T) {
 	if exec.count() != turns {
 		t.Fatalf("executor calls=%d, want %d", exec.count(), turns)
 	}
-	for i := 0; i < turns; i++ {
+	for i := range turns {
 		if got := exec.callAt(i).Items[0].Content[0].Text; got != fmt.Sprintf("turn %d", i) {
 			t.Fatalf("turn %d input=%q", i, got)
 		}
@@ -494,7 +494,7 @@ func TestWebSocketTurn_BoundedQueueBackpressure(t *testing.T) {
 		wait: release,
 	}
 	streams := []lipapi.EventStream{blocked}
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		streams = append(streams, fixedStream(
 			lipapi.Event{Kind: lipapi.EventResponseStarted},
 			lipapi.Event{Kind: lipapi.EventMessageStarted},
@@ -512,7 +512,7 @@ func TestWebSocketTurn_BoundedQueueBackpressure(t *testing.T) {
 	// Burst five more creates while the first turn is blocked. The session queue
 	// is bounded (max_queued_turns=1) and the read pump stops reading once it is
 	// full, so the burst cannot start a second active stream.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		wsText(t, conn, fmt.Sprintf(`{"type":"response.create","model":"gpt-4o","input":"burst %d"}`, i))
 	}
 	time.Sleep(100 * time.Millisecond)
@@ -525,7 +525,7 @@ func TestWebSocketTurn_BoundedQueueBackpressure(t *testing.T) {
 	if !containsDelta(frames1, "slow") {
 		t.Fatalf("first turn output missing: %v", frameTypes(frames1))
 	}
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		frames := wsReadUntilTerminal(t, conn, 3*time.Second)
 		want := fmt.Sprintf("burst-%d", i)
 		if !containsDelta(frames, want) {
@@ -723,7 +723,7 @@ func TestWebSocketTurn_DuplicateBackendTerminalEmitsSingleTerminal(t *testing.T)
 	}
 
 	// No frame may follow the terminal: the frontend owns terminal ownership.
-	conn.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
+	_ = conn.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
 	if _, _, err := conn.ReadMessage(); err == nil {
 		t.Fatal("received a frame after the terminal event")
 	}

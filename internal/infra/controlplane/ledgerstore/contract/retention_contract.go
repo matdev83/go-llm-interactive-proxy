@@ -13,7 +13,8 @@ func testRetentionIdempotent(t *testing.T, f Factory) {
 	maybeParallel(t, f)
 	s := f.Build(t)
 	c := ctx(t)
-	appendAll(t, s,
+	appendAll(
+		t, s,
 		authEvent(1, "auth:ret:1", "p1"),
 		usageEvent(2, "usage:ret:2", "p1", "openai", "gpt-4.1-mini", 10, 5),
 	)

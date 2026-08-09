@@ -44,6 +44,9 @@ func (t *AttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Call,
 	if call == nil {
 		return request.AttemptDecision{}, fmt.Errorf("%s: call is required", ID)
 	}
+	// Client input cannot establish native continuity eligibility. Remove the
+	// reserved extension before matching and only add it after all checks pass.
+	deleteClientContinuityMarker(call)
 	if t.store == nil {
 		return request.AttemptDecision{}, fmt.Errorf("%s: store is required", ID)
 	}
@@ -85,6 +88,9 @@ func (t *AttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Call,
 			reason = "unrepresentable_replay"
 		}
 		return request.AttemptDecision{Kind: request.AttemptExcludeCandidate, ReasonCode: reason}, nil
+	}
+	if continuityOutcomeSafe(res.Outcomes) && supportsCodexContinuity(call, meta.ReplaySupport) {
+		setTrustedContinuityMarker(call)
 	}
 	return request.AttemptDecision{Kind: request.AttemptContinue}, nil
 }

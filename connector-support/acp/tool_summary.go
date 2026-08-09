@@ -302,8 +302,10 @@ func FormatToolCompletionSummary(name string, inputBytes, outputBytes int, start
 	return formatToolCompletionSummaryWithInput(name, nil, false, inputBytes, outputBytes, started, ended)
 }
 
-const maxToolArgumentChars = 1024
-const toolArgumentTruncationMarker = "… [truncated]"
+const (
+	maxToolArgumentChars         = 1024
+	toolArgumentTruncationMarker = "… [truncated]"
+)
 
 func formatToolCompletionSummaryWithInput(name string, input any, inputSet bool, inputBytes, outputBytes int, started, ended time.Time) string {
 	elapsed := ended.Sub(started).Seconds()
@@ -311,7 +313,8 @@ func formatToolCompletionSummaryWithInput(name string, input any, inputSet bool,
 	if inputSet {
 		lines = append(lines, "Arguments: "+formatToolArguments(input))
 	}
-	lines = append(lines,
+	lines = append(
+		lines,
 		fmt.Sprintf("Input size: %d bytes", inputBytes),
 		fmt.Sprintf("Started: %s", started.UTC().Format(time.RFC3339Nano)),
 		fmt.Sprintf("Ended: %s (%.3f s)", ended.UTC().Format(time.RFC3339Nano), elapsed),

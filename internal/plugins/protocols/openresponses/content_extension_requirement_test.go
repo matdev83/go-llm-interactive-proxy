@@ -16,7 +16,8 @@ func TestContentPartExtension_NamespaceDerivedOnDecode(t *testing.T) {
 	t.Parallel()
 	body, err := json.Marshal(map[string]any{
 		"model": "gpt-4o",
-		"input": []any{contentMessage("user",
+		"input": []any{contentMessage(
+			"user",
 			map[string]any{"type": "acme:input_file", "file_url": "https://x/f"},
 		)},
 	})
@@ -52,7 +53,8 @@ func TestContentPartExtension_WireNamespaceAndImplementorRoundTrip(t *testing.T)
 	t.Parallel()
 	body, err := json.Marshal(map[string]any{
 		"model": "gpt-4o",
-		"input": []any{contentMessage("user",
+		"input": []any{contentMessage(
+			"user",
 			map[string]any{"type": "acme:widget", "namespace": "custom", "implementor": "acme-vendor", "k": 1},
 		)},
 	})

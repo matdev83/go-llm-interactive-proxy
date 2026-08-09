@@ -140,7 +140,7 @@ func wsGenDial(t *testing.T, h http.Handler) *websocket.Conn {
 // the observation window by expecting a read timeout.
 func wsGenAssertAlive(t *testing.T, conn *websocket.Conn) {
 	t.Helper()
-	conn.SetReadDeadline(time.Now().Add(250 * time.Millisecond))
+	_ = conn.SetReadDeadline(time.Now().Add(250 * time.Millisecond))
 	_, _, err := conn.ReadMessage()
 	if err == nil {
 		t.Fatal("connection produced an unexpected frame")
@@ -154,7 +154,7 @@ func wsGenAssertAlive(t *testing.T, conn *websocket.Conn) {
 // wsGenAssertClosed asserts the connection is closed by the peer.
 func wsGenAssertClosed(t *testing.T, conn *websocket.Conn) {
 	t.Helper()
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	for {
 		if _, _, err := conn.ReadMessage(); err != nil {
 			return

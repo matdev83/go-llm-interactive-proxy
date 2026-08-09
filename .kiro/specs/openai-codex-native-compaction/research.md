@@ -128,7 +128,7 @@ Remote Compaction V2:
 3. normalizes the history for the model;
 4. appends one `CompactionTrigger`;
 5. streams a normal Responses request;
-6. accepts exactly one completed compaction item;
+6. accepts one completed compaction checkpoint in the legacy streamed path; the current dedicated unary response returns the full replacement list;
 7. builds replacement history;
 8. installs it and recomputes token usage.
 
@@ -285,6 +285,29 @@ Safety measures:
 - auth/account rotation;
 - ciphertext leakage scan.
 
+## Finding 16: Default Context Budget Must Reserve Harness Headroom
+
+The human-approved planning decision is an effective usable budget, not a
+provider-limit claim. GPT-5.* planning must reserve headroom for the original
+Codex harness system prompt/tooling, other agent harness tools, cross-harness
+glue, and output/cancellation margin. The named policy is
+`CodexHarnessHeadroomV1`.
+
+- Exact catalog/model metadata wins for headline hard context and
+  `auto_compact_token_limit` when present, but still passes the reserve and safe
+  trigger checks.
+- The exact `gpt-5.3-codex-spark` fallback is headline 128K, usable 96K, safe
+  trigger 80K, with 32K reserved headroom. It must not be treated as 128K of
+  conversation budget.
+- Other GPT-5.x models without exact metadata use a conservative usable ceiling
+  of 250K and a safe trigger of 220K, with 30K named planning headroom. This is a
+  fallback usable ceiling, not a guessed headline context limit.
+- Operator trigger overrides remain supported but must be validated below the
+  usable ceiling and below hard context after retained-window/headroom checks.
+
+These rules are deliberately conservative until exact catalog metadata is
+available. They are planning behavior, not quality evidence.
+
 ## Resolved Design Questions
 
 1. **Primary durable mechanism:** exact encrypted item replay.
@@ -296,9 +319,38 @@ Safety measures:
 7. **Request include:** encrypted reasoning requested for every eligible attempt.
 8. **Compaction history:** post-restoration exact native view.
 9. **Retained predicate:** Codex-aligned and bounded.
-10. **Rollout:** compaction default-off; quality evidence mandatory.
+10. **Rollout:** direct-Codex native context default-on with explicit backend,
+    compaction, and reasoning-feature opt-outs; quality evidence remains
+    reported without an unapproved claim of improvement.
 
 ## Open External Questions
+
+## Finding 15: Current Codex Uses the Dedicated Unary Compact Endpoint
+
+Authoritative current Codex source evidence is commit
+`3aae5d885bac39c1262491aa3fd100dfd8b3919f`, especially
+`codex-rs/core/src/client.rs` (`RESPONSES_COMPACT_ENDPOINT`, `CompactClient`, and
+`compact_conversation_history`). The client posts to `/responses/compact`, sends
+the compact input (`model`, `input`, `instructions`, and supported compact
+controls), and treats the response as unary JSON rather than a streamed normal
+`/responses` request. The OpenResponses contract at the local snapshot
+`C:\Users\Mateusz\AppData\Local\Temp\opencode\or-upstream\openresponses-92c12d96d7b61d6d15e2214daa5e9c6000ab6e1c\public\openapi\openapi.json`
+defines the same `POST /responses/compact` response as `object=response.compaction`
+with an output list containing retained `message` items followed by one compact
+summary item. The live dedicated endpoint confirmed that summary item uses
+`type=compaction_summary`, while the OpenResponses snapshot's item schema still
+names the related provider envelope `type=compaction`; the live wire shape is the
+authority for this connector. The response is unary JSON with top-level `id`,
+`object`, `created_at`, `output`, and `usage`; it has no response status field.
+The entire output list is the replacement history, not an opaque item to wrap in
+the old `ReplacementBuilder`. SSE remains a compatibility parser only; the
+connector does not send a compaction trigger to the dedicated endpoint.
+
+Compatibility adaptation: accepted requirements continue to describe the
+provider checkpoint as opaque and private, but the implementation now stores the
+authoritative output list directly and replays its `compaction_summary` item
+unchanged. The legacy streamed `compaction` trigger/result parser remains
+isolated for compatibility and is not used for the dedicated unary result.
 
 1. Does the ChatGPT Codex endpoint accept encrypted reasoning inclusion with no explicit effort in all supported models?
 2. Which Codex turn metadata fields/headers are mandatory for direct V2 compaction?
@@ -306,4 +358,4 @@ Safety measures:
 4. Is previous-model compaction supported on model switch through this direct connector?
 5. How stable are retained-item constants across backend revisions?
 
-All external questions are guarded by live tests, default-off compaction, fail-open behavior, and cooldown.
+All external questions are guarded by live tests, pre-output fallback behavior, explicit operator opt-out, and cooldown.

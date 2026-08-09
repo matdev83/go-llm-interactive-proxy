@@ -26,7 +26,6 @@ func TestExecuteAllScenarioCases(t *testing.T) {
 	t.Parallel()
 	all := allScenarioCases()
 	for _, tc := range all {
-		tc := tc
 		t.Run(tc.id, func(t *testing.T) {
 			t.Parallel()
 			if tc.run != nil {

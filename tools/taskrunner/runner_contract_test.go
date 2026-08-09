@@ -130,6 +130,7 @@ func TestRunner_RelativeWorkingDirectory(t *testing.T) {
 }
 
 func TestRunner_WorkingDirectoryAbsError(t *testing.T) {
+	t.Parallel()
 	helper := buildHelper(t)
 	dir := t.TempDir()
 	previous, err := os.Getwd()

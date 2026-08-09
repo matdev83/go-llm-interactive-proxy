@@ -257,6 +257,7 @@ func invalid(result Result, message string) Result {
 	result.Kind, result.Err = InvalidRequest, errors.New(message)
 	return result
 }
+
 func fail(result Result, kind Kind, err error) Result {
 	result.Kind, result.Err = kind, err
 	return result
@@ -355,16 +356,14 @@ func newBoundedBuffer(limit, head, tail int, budget *captureBudget) *boundedBuff
 		budget: budget,
 	}
 }
+
 func (b *boundedBuffer) Write(p []byte) (int, error) {
 	b.total += len(p)
 	if b.total > b.limit {
 		b.truncated = true
 	}
 	b.budget.mu.Lock()
-	allowed := len(p)
-	if allowed > b.budget.remaining {
-		allowed = b.budget.remaining
-	}
+	allowed := min(len(p), b.budget.remaining)
 	b.budget.remaining -= allowed
 	b.budget.mu.Unlock()
 	if allowed == 0 {
@@ -383,6 +382,7 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 	}
 	return len(p), nil
 }
+
 func (b *boundedBuffer) Bytes() []byte {
 	return append(append([]byte(nil), b.headBuf...), b.tailBuf...)
 }

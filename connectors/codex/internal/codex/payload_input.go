@@ -18,6 +18,7 @@ type textMessageItem struct {
 	Type    string `json:"type"`
 	Role    string `json:"role"`
 	Content string `json:"content"`
+	phase   string
 }
 
 func (textMessageItem) inputItem() {}
@@ -26,6 +27,7 @@ type richMessageItem struct {
 	Type    string         `json:"type"`
 	Role    string         `json:"role"`
 	Content []contentBlock `json:"content"`
+	phase   string
 }
 
 func (richMessageItem) inputItem() {}
@@ -168,7 +170,44 @@ func joinInstructionText(insts []lipapi.Message) string {
 	return strings.TrimSpace(b.String())
 }
 
+func normalizeCompactionInputItems(items []inputItem) ([]inputItem, error) {
+	out := cloneInputItems(items)
+	for i, item := range out {
+		opaque, ok := item.(opaqueResponseItem)
+		if !ok {
+			continue
+		}
+		var header struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(opaque.raw, &header) != nil {
+			return nil, fmt.Errorf("%s: invalid exact replay item", ID)
+		}
+		var canon json.RawMessage
+		var err error
+		switch header.Type {
+		case "reasoning":
+			canon, err = responseitem.CanonizeReasoningItemForInput(opaque.raw)
+		case "compaction_summary":
+			canon, err = responseitem.CanonizeCompactionSummaryItemOpaque(opaque.raw)
+		default:
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("%s: invalid exact replay item", ID)
+		}
+		out[i] = opaqueResponseItem{raw: canon}
+	}
+	return out, nil
+}
+
 func buildInputItems(call *lipapi.Call) ([]inputItem, error) {
+	if call.HasItemAuthority() {
+		if err := call.Validate(); err != nil {
+			return nil, fmt.Errorf("%s: invalid exact input: %w", ID, err)
+		}
+		return buildItemAuthorityInputItems(call.Items)
+	}
 	out := make([]inputItem, 0, len(call.Messages))
 	hasTools := len(call.Tools) > 0
 	for _, m := range call.Messages {
@@ -217,6 +256,100 @@ func buildInputItems(call *lipapi.Call) ([]inputItem, error) {
 			return nil, err
 		}
 		out = append(out, item)
+	}
+	return out, nil
+}
+
+func buildItemAuthorityInputItems(items []lipapi.Item) ([]inputItem, error) {
+	out := make([]inputItem, 0, len(items))
+	for i, item := range items {
+		field := fmt.Sprintf("Items[%d]", i)
+		switch item.Kind {
+		case lipapi.ItemKindMessage:
+			switch item.Role {
+			case lipapi.RoleUser, lipapi.RoleDeveloper, lipapi.RoleAssistant:
+			default:
+				return nil, fmt.Errorf("%s: message role %q is not legal in Codex input items", field, item.Role)
+			}
+			content, err := canonicalContentBlocks(item.Content)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", field, err)
+			}
+			if len(content) == 1 {
+				if text, ok := content[0].(inputTextPart); ok {
+					out = append(out, textMessageItem{Type: "message", Role: roleString(item.Role), Content: text.Text, phase: string(item.Phase)})
+					continue
+				}
+			}
+			out = append(out, richMessageItem{Type: "message", Role: roleString(item.Role), Content: content, phase: string(item.Phase)})
+		case lipapi.ItemKindReasoning:
+			if item.Reasoning == nil || item.Reasoning.Reasoning == nil {
+				return nil, fmt.Errorf("%s: reasoning payload is required", field)
+			}
+			if item.Reasoning.Reasoning.Dialect != lipapi.ReasoningDialectOpenAIResponsesItemV1 {
+				return nil, fmt.Errorf("%s: unsupported reasoning input dialect %q", field, item.Reasoning.Reasoning.Dialect)
+			}
+			canon, err := responseitem.CanonizeReasoningItemOpaque(item.Reasoning.Reasoning.Opaque)
+			if err != nil {
+				return nil, fmt.Errorf("%s: invalid reasoning input item: %w", field, err)
+			}
+			out = append(out, opaqueResponseItem{raw: canon})
+		case lipapi.ItemKindToolCall:
+			if item.ToolCall == nil {
+				return nil, fmt.Errorf("%s: tool call payload is required", field)
+			}
+			out = append(out, functionCallItem{
+				Type: "function_call", ID: item.ID, CallID: item.ToolCall.CallID,
+				Name: item.ToolCall.Name, Arguments: string(item.ToolCall.Arguments),
+			})
+		case lipapi.ItemKindToolResult:
+			if item.ToolResult == nil {
+				return nil, fmt.Errorf("%s: tool result payload is required", field)
+			}
+			out = append(out, functionCallOutputItem{Type: "function_call_output", CallID: item.ToolResult.CallID, Output: item.ToolResult.Output})
+		case lipapi.ItemKindCompaction:
+			if item.Compaction == nil {
+				return nil, fmt.Errorf("%s: invalid compaction item", field)
+			}
+			raw := item.Compaction.Opaque
+			if len(raw) == 0 {
+				if strings.TrimSpace(item.Compaction.EncapsulatedID) == "" && strings.TrimSpace(item.Compaction.EncryptedContent) == "" {
+					return nil, fmt.Errorf("%s: invalid compaction item", field)
+				}
+				raw, _ = json.Marshal(map[string]any{
+					"type": "compaction", "id": item.Compaction.EncapsulatedID,
+					"encrypted_content": item.Compaction.EncryptedContent,
+				})
+			}
+			var header struct {
+				Type string `json:"type"`
+			}
+			if !json.Valid(raw) || json.Unmarshal(raw, &header) != nil || header.Type != "compaction" {
+				return nil, fmt.Errorf("%s: invalid compaction item", field)
+			}
+			out = append(out, opaqueResponseItem{raw: append(json.RawMessage(nil), raw...)})
+		default:
+			return nil, fmt.Errorf("%s: unsupported exact input item kind %q", field, item.Kind)
+		}
+	}
+	return out, nil
+}
+
+func canonicalContentBlocks(parts []lipapi.ContentPart) ([]contentBlock, error) {
+	out := make([]contentBlock, 0, len(parts))
+	for _, p := range parts {
+		switch p.Kind {
+		case lipapi.ContentPartText:
+			if p.Text != "" {
+				out = append(out, inputTextPart{Type: "input_text", Text: p.Text})
+			}
+		case lipapi.ContentPartImageRef:
+			out = append(out, inputImagePart{Type: "input_image", ImageURL: p.ImageRef})
+		case lipapi.ContentPartFileRef:
+			out = append(out, inputFilePart{Type: "input_file", FileData: p.FileData, Filename: p.FileName})
+		default:
+			return nil, fmt.Errorf("unsupported exact message content kind %q", p.Kind)
+		}
 	}
 	return out, nil
 }
@@ -285,14 +418,14 @@ func partToOpaqueResponseItem(p lipapi.Part) (inputItem, bool, error) {
 	switch {
 	case p.Kind == lipapi.PartReasoning:
 		if p.Reasoning == nil {
-			return nil, false, fmt.Errorf("%s: reasoning input item requires a payload", ID)
+			return nil, false, newNativeHistoryBuildError("malformed_item")
 		}
 		if p.Reasoning.Dialect != lipapi.ReasoningDialectOpenAIResponsesItemV1 {
-			return nil, false, fmt.Errorf("%s: unsupported reasoning input dialect %q", ID, p.Reasoning.Dialect)
+			return nil, false, newNativeHistoryBuildError("unsupported_dialect")
 		}
 		canon, err := responseitem.CanonizeReasoningItemOpaque(p.Reasoning.Opaque)
 		if err != nil {
-			return nil, false, fmt.Errorf("%s: invalid reasoning input item: %w", ID, err)
+			return nil, false, newNativeHistoryBuildError("invalid_opaque")
 		}
 		raw = canon
 	case p.Kind == lipapi.PartJSON:
@@ -307,7 +440,7 @@ func partToOpaqueResponseItem(p lipapi.Part) (inputItem, bool, error) {
 		return nil, false, nil
 	}
 	if !json.Valid(raw) {
-		return nil, false, fmt.Errorf("%s: invalid opaque response item", ID)
+		return nil, false, newNativeHistoryBuildError("invalid_opaque")
 	}
 	return opaqueResponseItem{raw: append(json.RawMessage(nil), raw...)}, true, nil
 }
@@ -401,7 +534,7 @@ func partToFunctionCallItem(p lipapi.Part) (inputItem, bool, error) {
 		args = v.Function.Arguments
 	}
 	if callID == "" || name == "" {
-		return nil, false, fmt.Errorf("%s: function_call requires call_id and name", ID)
+		return nil, false, newNativeHistoryBuildError("missing_call_id")
 	}
 	argStr := "{}"
 	if jsonpresence.IsPresentNonNullJSON(args) {
@@ -481,6 +614,8 @@ func roleString(r lipapi.Role) string {
 	switch r {
 	case lipapi.RoleUser:
 		return "user"
+	case lipapi.RoleDeveloper:
+		return "developer"
 	case lipapi.RoleAssistant:
 		return "assistant"
 	case lipapi.RoleSystem:

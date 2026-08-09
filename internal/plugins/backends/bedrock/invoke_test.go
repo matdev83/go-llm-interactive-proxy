@@ -210,7 +210,8 @@ func TestUpstreamError_returnsResponseError(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	cfg, err := awsconfig.LoadDefaultConfig(context.Background(),
+	cfg, err := awsconfig.LoadDefaultConfig(
+		context.Background(),
 		awsconfig.WithRegion("us-east-1"),
 		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("AKID", "SECRET", "")),
 	)

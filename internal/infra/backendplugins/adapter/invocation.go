@@ -13,6 +13,9 @@ import (
 
 // InvocationFromCall maps a core call into the public plugin Invocation DTO.
 func InvocationFromCall(call lipapi.Call, cand routing.AttemptCandidate, neg backendplugin.Negotiation) (backendplugin.Invocation, error) {
+	if strings.TrimSpace(call.Session.AuthoritativeSessionID) != "" && !backendplugin.ProxyOwnedSessionIDSupported(neg) {
+		return backendplugin.Invocation{}, fmt.Errorf("%w: negotiated proxy-owned session authority is required", backendplugin.ErrProxyOwnedSessionUnsupported)
+	}
 	if err := lipapi.ValidateToolChoice(call.ToolChoice, call.Tools); err != nil {
 		return backendplugin.Invocation{}, err
 	}

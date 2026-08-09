@@ -35,3 +35,17 @@ func (e *Engine) Inventory() modelinventory.Provider {
 }
 
 func (e *Engine) Caps() lipapi.BackendCaps { return backendCaps }
+
+func (e *Engine) Close() error {
+	if e == nil || e.rt == nil {
+		return nil
+	}
+	e.rt.mu.Lock()
+	native := e.rt.native
+	e.rt.native = nil
+	e.rt.mu.Unlock()
+	if native != nil {
+		native.Close()
+	}
+	return nil
+}

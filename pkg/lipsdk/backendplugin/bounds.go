@@ -15,6 +15,10 @@ const (
 	// parts, reasoning Summary/Content/EncryptedContent presence, and compaction
 	// EncryptedContent on invocation items and canonical stream events.
 	ProtocolMinorExactOpenResponsesFields = uint32(3)
+	// ProtocolMinorProxyOwnedSessionID adds the optional typed proxy-owned session
+	// authority field. Hosts that negotiate an older minor must omit it and use
+	// full-history/native-compaction bypass rather than losing the request.
+	ProtocolMinorProxyOwnedSessionID = uint32(4)
 	// FeatureExactReasoningParts gates use of the additive v1.1 wire fields.
 	FeatureExactReasoningParts = "exact_reasoning_parts"
 	// FeatureOrderedItems gates ordered item invocation DTO fields.
@@ -22,6 +26,8 @@ const (
 	// FeatureExactOpenResponsesFields gates the additive v1.3 exact OpenAI
 	// Responses wire fields on invocation items, canonical events, and Invocation.
 	FeatureExactOpenResponsesFields = "exact_openresponses_fields"
+	// FeatureProxyOwnedSessionID gates the optional typed session authority field.
+	FeatureProxyOwnedSessionID = "proxy_owned_session_id"
 
 	// DefaultMaxMessageBytes is the default whole-message size ceiling.
 	DefaultMaxMessageBytes = uint64(4 << 20)

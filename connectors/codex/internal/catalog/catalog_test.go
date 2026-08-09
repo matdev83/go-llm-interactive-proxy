@@ -25,8 +25,10 @@ func sampleRawCatalog() []byte {
       ],
       "visibility": "list",
       "supported_in_api": true,
-      "context_window": 372000,
-      "max_context_window": 372000
+		"context_window": 372000,
+		"max_context_window": 372000,
+		"auto_compact_token_limit": 300000,
+		"comp_hash": "sol-hash"
     },
     {
       "slug": "gpt-5.6-luna",
@@ -233,6 +235,43 @@ func TestParse_DefaultsVisibilityAndSupportedInAPI(t *testing.T) {
 	}
 	if p.DefaultReasoningLevel != "medium" {
 		t.Fatalf("DefaultReasoningLevel = %q, want %q", p.DefaultReasoningLevel, "medium")
+	}
+}
+
+func TestParse_PreservesNativeCompactionMetadata(t *testing.T) {
+	t.Parallel()
+	raw := []byte(`{"models":[
+		{"slug":"discovered","default_reasoning_level":"high","supported_reasoning_levels":[{"effort":"high"}],"context_window":100,"max_context_window":200,"auto_compact_token_limit":150,"comp_hash":"h1"},
+		{"slug":"string-values","supported_reasoning_levels":[{"effort":"low"}],"context_window":"bad","max_context_window":"bad","auto_compact_token_limit":"bad","comp_hash":42}
+	]}`)
+	c, err := catalog.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, ok := c.Profile("discovered")
+	if !ok {
+		t.Fatal("discovered profile missing")
+	}
+	if p.AutoCompactTokenLimit != 150 || p.CompHash != "h1" {
+		t.Fatalf("native metadata = limit %d hash %q", p.AutoCompactTokenLimit, p.CompHash)
+	}
+	if bad, ok := c.Profile("string-values"); !ok || bad.AutoCompactTokenLimit != 0 || bad.CompHash != "" || bad.ContextWindow != 0 || bad.MaxContextWindow != 0 {
+		t.Fatalf("malformed native metadata was not safely ignored: %+v, %v", bad, ok)
+	}
+}
+
+func TestLoadFallback_PreservesNativeCompactionMetadata(t *testing.T) {
+	t.Parallel()
+	c, err := catalog.LoadFallback("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, ok := c.Profile("gpt-5.5")
+	if !ok {
+		t.Fatal("fallback gpt-5.5 profile missing")
+	}
+	if p.CompHash != "" || p.AutoCompactTokenLimit != 0 {
+		t.Fatalf("fallback contains unsupported native metadata: %+v", p)
 	}
 }
 

@@ -14,7 +14,6 @@ import (
 func TestHarness_ExistingFamilyClientRoundTrip(t *testing.T) {
 	t.Parallel()
 	for _, transport := range []conformance.ClientTransport{conformance.TransportJSON, conformance.TransportSSE} {
-		transport := transport
 		t.Run(string(transport), func(t *testing.T) {
 			t.Parallel()
 			d := conformance.Deploy(t, conformance.DeploymentSpec{
@@ -25,7 +24,7 @@ func TestHarness_ExistingFamilyClientRoundTrip(t *testing.T) {
 			if d == nil {
 				t.Fatal("Deploy failed")
 			}
-			defer d.Close()
+			defer func() { _ = d.Close() }()
 
 			res, err := d.Client.RoundTrip(context.Background(), "ping")
 			if err != nil {

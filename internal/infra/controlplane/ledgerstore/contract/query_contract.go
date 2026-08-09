@@ -106,7 +106,8 @@ func testEventsQueryFilters(t *testing.T, f Factory) {
 	s := f.Build(t)
 	c := ctx(t)
 	cfg := unsupportedConfigOf(f)
-	appendAll(t, s,
+	appendAll(
+		t, s,
 		authEvent(1, "auth:p1:1", "p1"),
 		attemptEvent(2, "attempt:p1:2", "p1", "openai", "gpt-4.1-mini", "routed", cp.AttemptSurfacedSurfaced),
 		usageEvent(3, "usage:p1:3", "p1", "openai", "gpt-4.1-mini", 10, 5),
@@ -163,7 +164,8 @@ func testSessionsProjection(t *testing.T, f Factory) {
 	maybeParallel(t, f)
 	s := f.Build(t)
 	c := ctx(t)
-	appendAll(t, s,
+	appendAll(
+		t, s,
 		authEvent(1, "auth:p1:1", "p1"),
 		attemptEvent(2, "attempt:p1:2", "p1", "openai", "gpt-4.1-mini", "routed", cp.AttemptSurfacedSurfaced),
 		usageEvent(3, "usage:p1:3", "p1", "openai", "gpt-4.1-mini", 10, 5),
@@ -195,7 +197,8 @@ func testAttemptsProjection(t *testing.T, f Factory) {
 	maybeParallel(t, f)
 	s := f.Build(t)
 	c := ctx(t)
-	appendAll(t, s,
+	appendAll(
+		t, s,
 		attemptEvent(1, "attempt:p1:1", "p1", "openai", "gpt-4.1-mini", "routed", cp.AttemptSurfacedSurfaced),
 		attemptEvent(2, "attempt:p1:2", "p1", "anthropic", "claude-haiku", "replaced", cp.AttemptSurfacedSwallowed),
 	)
@@ -224,7 +227,8 @@ func testUsageProjection(t *testing.T, f Factory) {
 	maybeParallel(t, f)
 	s := f.Build(t)
 	c := ctx(t)
-	appendAll(t, s,
+	appendAll(
+		t, s,
 		usageEvent(1, "usage:p1:1", "p1", "openai", "gpt-4.1-mini", 10, 5),
 		usageEvent(2, "usage:p1:2", "p1", "openai", "gpt-4.1-mini", 20, 7),
 	)
@@ -258,7 +262,8 @@ func testPolicyAuditProjection(t *testing.T, f Factory) {
 	maybeParallel(t, f)
 	s := f.Build(t)
 	c := ctx(t)
-	appendAll(t, s,
+	appendAll(
+		t, s,
 		policyEvent(1, "policy:p1:1", "p1", "allow", "ok"),
 		auditEvent(2, "audit:p1:2", "p1", "session_started"),
 	)
@@ -332,7 +337,8 @@ func testContinuationShapeBound(t *testing.T, f Factory) {
 	maybeParallel(t, f)
 	s := f.Build(t)
 	c := ctx(t)
-	appendAll(t, s,
+	appendAll(
+		t, s,
 		authEvent(1, "auth:cb:1", "p1"),
 		authEvent(2, "auth:cb:2", "p2"),
 	)
@@ -372,7 +378,8 @@ func testContinuationTimeRangeShape(t *testing.T, f Factory) {
 	}
 	s := f.Build(t)
 	c := ctx(t)
-	appendAll(t, s,
+	appendAll(
+		t, s,
 		authEvent(1, "auth:trs:1", "p1"),
 		authEvent(2, "auth:trs:2", "p2"),
 	)
@@ -422,7 +429,8 @@ func testUnsupportedFiltersReported(t *testing.T, f Factory) {
 	}
 	s := f.Build(t)
 	c := ctx(t)
-	appendAll(t, s,
+	appendAll(
+		t, s,
 		authEvent(1, "auth:unsup:1", "p1"),
 		attemptEvent(2, "attempt:unsup:2", "p1", "openai", "gpt-4.1-mini", "routed", cp.AttemptSurfacedSurfaced),
 		usageEvent(3, "usage:unsup:3", "p1", "openai", "gpt-4.1-mini", 10, 5),

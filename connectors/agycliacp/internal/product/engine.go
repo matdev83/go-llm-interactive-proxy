@@ -34,6 +34,7 @@ func (e *Engine) ExecutableCache() *acp.ExecutableCache {
 func (e *Engine) Open(ctx context.Context, call *lipapi.Call) (lipapi.ManagedEventStream, error) {
 	return e.open(ctx, call)
 }
+
 func (e *Engine) Close() error {
 	if e.closeFn == nil {
 		return nil

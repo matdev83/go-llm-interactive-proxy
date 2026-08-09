@@ -27,13 +27,13 @@ func runtimeField[T any](r *Runtime, pick func(hostAPI) T, zero T) T {
 }
 
 func (r *Runtime) ExecutorView() lipsdk.ExecutorView {
-	return runtimeField(r, (hostAPI).ExecutorView, nil)
+	return runtimeField(r, hostAPI.ExecutorView, nil)
 }
 
 func (r *Runtime) Ready() bool { h := r.api(); return h != nil && h.Ready() }
 
 func (r *Runtime) Capabilities() HostCapabilities {
-	return runtimeField(r, (hostAPI).Capabilities, HostCapabilities{ExecutableState: controlplane.CapabilityDisabled})
+	return runtimeField(r, hostAPI.Capabilities, HostCapabilities{ExecutableState: controlplane.CapabilityDisabled})
 }
 func (r *Runtime) HasProductionMetering() bool     { return r.Capabilities().ProductionMetering }
 func (r *Runtime) HasTrafficObservers() bool       { return r.Capabilities().TrafficObservers }
@@ -43,8 +43,11 @@ func (r *Runtime) HasProductionRater() bool        { return r.Capabilities().Pro
 func (r *Runtime) HasProductionMeteringQuerier() bool {
 	return r.Capabilities().ProductionMeteringQuerier
 }
-func (r *Runtime) SnapshotGenerationID() int64         { return r.Capabilities().SnapshotGenerationID }
-func (r *Runtime) SnapshotUsageVersion() string        { return r.Capabilities().SnapshotUsageVersion }
+
+func (r *Runtime) SnapshotGenerationID() int64 { return r.Capabilities().SnapshotGenerationID }
+
+func (r *Runtime) SnapshotUsageVersion() string { return r.Capabilities().SnapshotUsageVersion }
+
 func (r *Runtime) ExecutableGenerationID() int64       { return r.Capabilities().ExecutableGenerationID }
 func (r *Runtime) ExecutableGenerationVersion() string { return r.Capabilities().ExecutableVersion }
 func (r *Runtime) ExecutableGenerationState() controlplane.CapabilityState {
@@ -56,11 +59,11 @@ func (r *Runtime) ExecutableEvidenceObjectID() string {
 }
 
 func (r *Runtime) MeteringQuerier() metering.Querier {
-	return runtimeField(r, (hostAPI).MeteringQuerier, nil)
+	return runtimeField(r, hostAPI.MeteringQuerier, nil)
 }
 
 func (r *Runtime) ReadinessReport() controlplane.ReadinessReportReader {
-	return runtimeField(r, (hostAPI).ReadinessReport, nil)
+	return runtimeField(r, hostAPI.ReadinessReport, nil)
 }
 
 // RefreshSnapshots returns an error when no host is bound to this runtime.

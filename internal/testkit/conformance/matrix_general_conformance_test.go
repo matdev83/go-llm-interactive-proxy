@@ -820,7 +820,7 @@ func deployConnectorChain(tb testing.TB, frontend, backendID string, transport C
 	d.Mux = http.NewServeMux()
 	genCtx, genCancel := context.WithCancel(context.Background())
 	d.genCancel = genCancel
-	if err := mountHarnessFrontend(d.Mux, frontend, d.Exec, d.RouteSelector, genCtx, 0); err != nil {
+	if err := mountHarnessFrontend(genCtx, d.Mux, frontend, d.Exec, d.RouteSelector, 0); err != nil {
 		_ = d.Close()
 		tb.Fatalf("harness: mount %q frontend: %v", frontend, err)
 	}

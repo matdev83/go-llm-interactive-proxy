@@ -426,6 +426,7 @@ func (m *memExecuteStream) Recv() (backendplugin.ClientFrame, error) {
 	m.ri++
 	return f, nil
 }
+
 func (m *memExecuteStream) Send(frame backendplugin.ServerFrame) error {
 	m.outbox = append(m.outbox, frame)
 	return nil

@@ -219,7 +219,7 @@ func TestObserver_StreamingPostOutputDisconnectIsStreamError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 
 	ev, err := es.Recv(context.Background())
 	if err != nil {
@@ -262,7 +262,7 @@ func TestObserver_StreamingSlowConsumerBackpressure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 
 	// The committed stream's first Recv returns the peeked event; the next
 	// Recv must wait for the server write, proving the adapter does not read
@@ -310,7 +310,7 @@ func TestObserver_StreamingCancellationClosesBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 
 	// Consume the peeked first event; the next Recv then blocks on the wire.
 	if ev, err := es.Recv(context.Background()); err != nil || ev.Kind != lipapi.EventResponseStarted {
@@ -343,7 +343,8 @@ func TestObserver_StreamingCancellationClosesBody(t *testing.T) {
 
 func TestObserver_StreamingMalformedEventTypeRejected(t *testing.T) {
 	be, _ := newObserverBackend(t, "", func(w http.ResponseWriter, r *http.Request) {
-		writeSSE(w,
+		writeSSE(
+			w,
 			sseEvent("response.created", `{"type":"response.created","sequence_number":0}`),
 			sseEvent("response.bogus", `{"type":"response.bogus","sequence_number":1}`),
 			"data: [DONE]\n\n",
@@ -353,7 +354,7 @@ func TestObserver_StreamingMalformedEventTypeRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 	if ev, err := es.Recv(context.Background()); err != nil || ev.Kind != lipapi.EventResponseStarted {
 		t.Fatalf("first recv = %+v, %v", ev, err)
 	}
@@ -430,7 +431,8 @@ func TestObserver_StreamingMalformedEventCountsOneRequest(t *testing.T) {
 
 func TestObserver_StreamingExtendedEventPreserved(t *testing.T) {
 	be, _ := newObserverBackend(t, "", func(w http.ResponseWriter, r *http.Request) {
-		writeSSE(w,
+		writeSSE(
+			w,
 			sseEvent("response.created", `{"type":"response.created","sequence_number":0}`),
 			sseEvent("acme:telemetry", `{"type":"acme:telemetry","sequence_number":1,"latency_ms":4}`),
 			sseEvent("response.completed", `{"type":"response.completed","sequence_number":2,"response":{"id":"r","status":"completed","model":"m","output":[]}}`),
@@ -450,7 +452,8 @@ func TestObserver_StreamingExtendedEventPreserved(t *testing.T) {
 
 func TestObserver_StreamingToolAndReasoningDeltas(t *testing.T) {
 	be, _ := newObserverBackend(t, "", func(w http.ResponseWriter, r *http.Request) {
-		writeSSE(w,
+		writeSSE(
+			w,
 			sseEvent("response.created", `{"type":"response.created","sequence_number":0}`),
 			sseEvent("response.output_item.added", `{"type":"response.output_item.added","sequence_number":1,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"get_weather"}}`),
 			sseEvent("response.function_call_arguments.delta", `{"type":"response.function_call_arguments.delta","sequence_number":2,"call_id":"call_1","delta":"{\"loc"}`),
@@ -495,7 +498,8 @@ func TestObserver_StreamingToolAndReasoningDeltas(t *testing.T) {
 
 func TestObserver_StreamingProviderErrorSanitized(t *testing.T) {
 	be, _ := newObserverBackend(t, "", func(w http.ResponseWriter, r *http.Request) {
-		writeSSE(w,
+		writeSSE(
+			w,
 			sseEvent("response.created", `{"type":"response.created","sequence_number":0}`),
 			sseEvent("error", `{"type":"error","code":"provider_broken","message":"boom with secret sk-abc"}`),
 			sseEvent("response.failed", `{"type":"response.failed","sequence_number":2,"response":{"id":"r","status":"failed","model":"m","output":[]}}`),
@@ -506,7 +510,7 @@ func TestObserver_StreamingProviderErrorSanitized(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 	var last lipapi.Event
 	for {
 		ev, err := es.Recv(context.Background())

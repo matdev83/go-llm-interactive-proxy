@@ -12,6 +12,7 @@ import (
 // unsynchronized check-then-write and raced on h.pipe (issue #262, 21 DATA RACE
 // reports under the nightly -race gate). Run with -race to catch a regression.
 func TestHandlerSpecConcurrentFirstUse(t *testing.T) {
+	t.Parallel()
 	h := &Handler{DefaultRouteSelector: "stub:claude"}
 	const goroutines = 64
 	results := make([]*frontendpipe.Spec[EncodeOptions], goroutines)
@@ -26,8 +27,8 @@ func TestHandlerSpecConcurrentFirstUse(t *testing.T) {
 	wg.Wait()
 
 	first := h.spec()
-	if first.Config.DefaultRouteSelector != "stub:claude" {
-		t.Fatalf("spec route selector = %q, want stub:claude", first.Config.DefaultRouteSelector)
+	if first.DefaultRouteSelector != "stub:claude" {
+		t.Fatalf("spec route selector = %q, want stub:claude", first.DefaultRouteSelector)
 	}
 	for i, got := range results {
 		if got != first {

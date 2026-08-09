@@ -2,6 +2,7 @@ package openresponses
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 )
 
@@ -225,10 +226,8 @@ func parseResponseResource(data []byte, opts ParseOptions, strict bool) (*Respon
 		}
 	}
 	if strict {
-		for _, f := range []string{res.ID, res.Object, res.Status, res.Model} {
-			if f == "" {
-				return nil, malformedf("required string field must be non-empty")
-			}
+		if slices.Contains([]string{res.ID, res.Object, res.Status, res.Model}, "") {
+			return nil, malformedf("required string field must be non-empty")
 		}
 	}
 	return res, nil
@@ -381,10 +380,8 @@ func ParseCompactResource(data []byte, opts ParseOptions) (*CompactResource, err
 			return nil, err
 		}
 	}
-	for _, f := range []string{res.ID, res.Object, res.Status, res.Model} {
-		if f == "" {
-			return nil, malformedf("required string field must be non-empty")
-		}
+	if slices.Contains([]string{res.ID, res.Object, res.Status, res.Model}, "") {
+		return nil, malformedf("required string field must be non-empty")
 	}
 	return res, nil
 }
