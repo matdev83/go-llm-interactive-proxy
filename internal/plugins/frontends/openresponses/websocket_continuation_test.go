@@ -744,9 +744,11 @@ func TestWebSocketContinuation_PostOutputFailedTerminalEvictsParent(t *testing.T
 	if got := frames[len(frames)-1].data["type"]; got != "response.failed" {
 		t.Fatalf("terminal type=%v, want response.failed", got)
 	}
-	if captured == nil || !captured.deleted(id1) {
-		t.Fatalf("parent %q was not evicted after a response.failed terminal", id1)
-	}
+	// Eviction is a server-side store write that lands after the terminal frame is
+	// emitted, so poll for it like the other session-lifecycle assertions.
+	eventually(t, 3*time.Second, func() bool {
+		return captured != nil && captured.deleted(id1)
+	})
 
 	wsText(t, conn, `{"type":"response.create","model":"gpt-4o","previous_response_id":"`+id1+`","input":"three"}`)
 	f := wsReadTextFrame(t, conn, 3*time.Second)

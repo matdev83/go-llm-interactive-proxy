@@ -15,10 +15,14 @@ import (
 func TestBoundedOrchestration_ModulePhaseLabels(t *testing.T) {
 	t.Parallel()
 	result := backendpluginrunner.Run(context.Background(), backendpluginrunner.Request{
-		Argv:    []string{os.Args[0], "-test.run=TestBoundedOrchestrationChildSuccess"},
-		Dir:     t.TempDir(),
-		Env:     []string{"GO_WANT_HELPER_PROCESS=1"},
-		Timeout: time.Second,
+		Argv: []string{os.Args[0], "-test.run=TestBoundedOrchestrationChildSuccess"},
+		Dir:  t.TempDir(),
+		Env:  []string{"GO_WANT_HELPER_PROCESS=1"},
+		// Generous guard budget: the child is a race-instrumented re-invocation of
+		// this test binary, and merely starting it can exceed a 1s deadline under
+		// -race on a loaded runner. Deadline propagation is asserted separately by
+		// TestBoundedOrchestration_CleansDescendants with an intentional 25ms cap.
+		Timeout: 30 * time.Second,
 		Output:  taskrunner.Capture,
 		Label:   "module:example:build",
 	})
@@ -30,10 +34,12 @@ func TestBoundedOrchestration_ModulePhaseLabels(t *testing.T) {
 func TestBoundedOrchestration_StopsDependentPhase(t *testing.T) {
 	t.Parallel()
 	result := backendpluginrunner.Run(context.Background(), backendpluginrunner.Request{
-		Argv:    []string{os.Args[0], "-test.run=TestBoundedOrchestrationChildFailure"},
-		Dir:     t.TempDir(),
-		Env:     []string{"GO_WANT_HELPER_PROCESS=1"},
-		Timeout: time.Second,
+		Argv: []string{os.Args[0], "-test.run=TestBoundedOrchestrationChildFailure"},
+		Dir:  t.TempDir(),
+		Env:  []string{"GO_WANT_HELPER_PROCESS=1"},
+		// Generous guard budget for the same race-instrumented child-startup reason
+		// as TestBoundedOrchestration_ModulePhaseLabels.
+		Timeout: 30 * time.Second,
 		Output:  taskrunner.Capture,
 		Label:   "module:example:test",
 	})
