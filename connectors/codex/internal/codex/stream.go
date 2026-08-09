@@ -409,7 +409,7 @@ func (m *codexEventMapper) handleFunctionCallArgumentsDelta(data string) error {
 		return fmt.Errorf("%s: malformed stream event: %w", ID, err)
 	}
 	if codexToolDeltaDebugEnabled() {
-		slog.Debug("codex.tool_args_delta", "item_id", ev.ItemID, "call_id", ev.CallID, "delta_bytes", len(ev.Delta))
+		slog.Debug("codex.tool_args_delta", "item_id_present", ev.ItemID != "", "call_id_present", ev.CallID != "", "delta_bytes", len(ev.Delta))
 	}
 	return m.mapper.ToolCallArgsDelta(m.toolCallID(ev.ItemID, ev.CallID), ev.Delta)
 }
@@ -425,7 +425,7 @@ func (m *codexEventMapper) handleFunctionCallArgumentsDone(data string) error {
 		return fmt.Errorf("%s: malformed stream event: %w", ID, err)
 	}
 	if codexToolDebugEnabled() {
-		slog.Debug("codex.tool_args_done", "item_id", ev.ItemID, "call_id", ev.CallID, "name", ev.Name, "arguments_bytes", len(ev.Arguments))
+		slog.Debug("codex.tool_args_done", "item_id_present", ev.ItemID != "", "call_id_present", ev.CallID != "", "name_bytes", len(ev.Name), "arguments_bytes", len(ev.Arguments))
 	}
 	return m.mapper.FinishToolCallArguments(m.toolCallID(ev.ItemID, ev.CallID), ev.Name, ev.Arguments)
 }
