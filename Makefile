@@ -132,7 +132,7 @@ FUZZTIME ?= 500ms
 ifeq ($(OS),Windows_NT)
 FUZZ_WRAPPER := $(GO) test
 else
-FUZZ_WRAPPER := bash scripts/fuzz-run.sh
+FUZZ_WRAPPER := bash "$(CURDIR)/scripts/fuzz-run.sh"
 endif
 # Opt-in reasoning-preservation full HTTP soak (1000×100 default). Not part of
 # make test / test-unit / qa / PR gates. Overrides: LIP_REASONING_E2E_SEEDS,
