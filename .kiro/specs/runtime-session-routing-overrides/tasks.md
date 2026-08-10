@@ -15,9 +15,9 @@
 
 - [ ] 1.2 Define RED route-override state/store semantics and shared contract suite
   - Define focused internal state/reader/store contracts without changing base `b2bua.Store` or public `pkg/lipsdk/continuity.Store`.
-  - Specify first set, replace, identical PUT/no-op, clear, repeated clear/no-op, revision 0 inactive state, not-found, revision overflow, A-leg deletion and value-copy semantics.
+  - Specify first set, replace, identical PUT/no-op, clear, repeated clear/no-op, revision 0 inactive state, not-found, revision overflow, A-leg deletion, `LastSeenAt` refresh and value-copy semantics.
   - Build one store contract suite that can run against memory, SQLite and PostgreSQL adapters.
-  - Add concurrent writer/snapshot scenarios proving complete-state reads and deterministic committed revision order.
+  - Add concurrent writer/snapshot scenarios proving complete-state reads and deterministic committed revision order, plus deterministic delete/recreate-versus-Replace/Clear barriers proving no orphan state or inheritance by a new A-leg.
   - Observable completion: contract types/tests compile and fail because standard continuity stores do not yet implement the capability.
   - _Requirements: 1.1, 2.1, 2.2, 2.3, 2.4, 2.6, 2.7, 2.8, 3.8, 7.1, 7.2, 7.3, 7.6, 7.7, 10.1_
   - _Design rules: D1, D2, D8, D10_
@@ -37,7 +37,7 @@
   - _Validation: go test ./internal/core/routing/... ./internal/core/runtime/..._
 
 - [ ] 1.4 Add RED admin/security and architecture boundary contracts
-  - Define GET/PUT/DELETE handler behavior, strict JSON decoding, body/selector bounds, idempotent methods, typed not-found/invalid/store errors and disabled-by-default mounting.
+  - Define GET/PUT/DELETE handler behavior, `application/json` PUT media-type validation, strict JSON decoding, body/selector bounds, inactive DTO omission of `selector`, stable 400/413/415/404/503 mappings, idempotent methods, typed not-found/invalid/store errors and disabled-by-default mounting.
   - Add protection tests for operator secret and non-loopback protected-surface validation.
   - Add architecture tests proving no override field enters `pkg/lipapi`, no frontend/backend/connector imports routeoverride, and base public continuity Store remains unchanged.
   - Observable completion: handler/mount/boundary tests compile or intentionally fail at missing service/wiring points before production code exists.
@@ -52,6 +52,7 @@
 - [ ] 2.1 Implement the memory-backed route-override capability
   - Add A-leg-owned active/inactive override state to the existing memory continuity lifecycle under its current synchronization discipline.
   - Implement atomic Snapshot/Replace/Clear with normalized selectors, monotonic revision, state-change idempotency, context cancellation and defensive value copies.
+  - Refresh A-leg `LastSeenAt` on every successful Snapshot/Get/Replace/Clear, including idempotent no-ops, without changing override revision/update time unless effective override state changes.
   - Ensure TTL/max-leg eviction, continuity-key replacement and explicit A-leg removal cannot leave override state behind.
   - Make the RED memory store contract suite green without changing the base public continuity interface.
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.6, 2.7, 3.8, 7.1, 7.3, 7.7_
@@ -62,7 +63,7 @@
 
 - [ ] 2.2 Implement durable SQLite/PostgreSQL override state and migration
   - Add one-to-one A-leg-owned persistence for active flag, raw selector, revision and update time with referential cleanup/cascade semantics.
-  - Implement same-A-leg state transitions transactionally for both supported dialects; refuse revision overflow and invalid stored bounds.
+  - Implement same-A-leg state transitions transactionally for both supported dialects; refresh A-leg `LastSeenAt` consistently with existing durable Fetch/mutation semantics while refusing revision overflow and invalid stored bounds.
   - Preserve legacy A-leg rows as inactive revision 0 without backfilling one row per session.
   - Prove reopen/restart persistence and A-leg deletion cleanup through the shared store contract suite.
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.6, 2.7, 7.2, 7.3, 7.6_
@@ -74,6 +75,7 @@
 - [ ] 2.3 Harden cross-implementation persistence concurrency and failure behavior
   - Run the identical state transition suite against memory and SQLite, plus PostgreSQL when the integration DSN is available.
   - Add two-writer races with barriers so the observed higher revision always corresponds to the later committed effective state.
+  - Add deterministic barriers for A-leg deletion or continuity-key recreation racing with both Replace and Clear; prove mutation-before-delete is cleaned up, delete/recreate-before-mutation returns not-found, no orphan override row commits, and the new A-leg never inherits old state.
   - Prove failed/invalid mutations leave previous state byte-for-byte/effectively unchanged.
   - Prove snapshot/read failures are surfaced rather than converted to inactive state.
   - _Requirements: 2.2, 2.3, 3.5, 3.8, 7.2, 7.6, 8.7_
@@ -95,10 +97,10 @@
   - _Validation: go test ./internal/core/routing/... ./internal/core/runtime/..._
 
 - [ ] 3.2 Wire process-owned override persistence and generation-bound validation
-  - Detect/construct the focused override-store capability from process-owned continuity without changing the base continuity Store.
-  - Bind a current-generation selector validator and command service during generation compilation; keep the persistence owner process-scoped across generation retirement.
-  - Fail configuration/assembly coherently if override administration is enabled with a continuity implementation that cannot provide required override storage.
-  - Do not introduce a second mutable global registry or generation-local override copy.
+  - Detect/construct the focused override-store capability from process-owned continuity without changing the base continuity Store; standard memory/Bun continuity must expose and wire the runtime reader regardless of HTTP admin enablement.
+  - Bind a current-generation selector validator and command service during generation compilation; include the admin handler/service in the complete generation-specific HTTP handler so the stable GenerationDispatcher naturally rebinds later admin requests after publish. Keep the persistence owner process-scoped across generation retirement.
+  - Fail configuration/assembly coherently if override administration is enabled with a continuity implementation that cannot provide required override storage; disabling the HTTP surface must not remove a standard runtime reader or suspend persisted-state enforcement.
+  - Do not introduce a second mutable global registry, atomic admin-service swap, service locator, or generation-local override copy.
   - _Requirements: 7.4, 7.5, 7.6, 7.7, 8.1, 10.6_
   - _Design rules: D8, D9, D10_
   - _Boundary: runtimebundle/process-services/generation composition_
@@ -109,7 +111,7 @@
   - Read override state immediately after authoritative A-leg fetch and copy the complete state into request-local preparation metadata.
   - Preserve the client/work call for existing CTP/client-turn evidence; after pre-request mutation, clone an effective routing call and replace only its selector when the snapshot is active.
   - Run route hinting against the effective routing call, then freeze the existing prepared baseline and route plan from it.
-  - When no reader/active override exists, preserve current execution with no observable selector changes.
+  - When a custom continuity implementation exposes no reader capability, or when the wired reader reports an inactive state, preserve current execution with no observable selector changes; standard memory/Bun readers remain wired independently of admin endpoint exposure.
   - Surface configured override-store read failure as request preparation failure rather than silently using client routing.
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 3.1, 3.5, 5.1, 5.2, 5.3, 5.4, 5.5, 10.2_
   - _Design rules: D1, D3, D4, D5_
@@ -144,9 +146,9 @@
 - [ ] 4.2 Implement opt-in GET/PUT/DELETE admin HTTP surface and security posture
   - Add typed routing override admin config with disabled-by-default enablement, bounded path prefix and body size.
   - Mount a focused handler under `internal/stdhttp/admin` using the existing operator-secret wrapper; extend non-loopback protected-surface validation.
-  - Strictly reject malformed/oversized/multi-value/unknown-field PUT bodies and nonconforming method/body combinations.
-  - Return protected state DTOs for GET/PUT/DELETE and stable bounded errors for not-found/invalid/store failures.
-  - Add route-collision/mount tests and prove the handler is not reachable through client frontend protocol paths.
+  - Require PUT media type `application/json` (allowing valid parameters), returning 415 for missing/malformed/unsupported media types before decode; strictly reject malformed/oversized/multi-value/unknown-field bodies and nonconforming method/body combinations.
+  - Return protected state DTOs for GET/PUT/DELETE with `selector` omitted whenever inactive (and `updated_at` omitted only for revision 0), plus stable bounded 400/413/415/404/503 error mappings.
+  - Add route-collision/mount tests, prove the handler is not reachable through client frontend protocol paths, and prove disabling the route registration does not disable runtime enforcement of an already-persisted override.
   - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8, 8.9, 9.1, 9.6_
   - _Design rules: D11_
   - _Boundary: internal/core/config + internal/stdhttp/admin/stdhttp composition_
@@ -190,7 +192,9 @@
 
 - [ ] 5.3 (P) Prove generation reload reinterprets raw overrides without mutating in-flight turns
   - Set an alias-based override, hold an old-generation turn, publish a generation with changed alias/default/backend configuration, and prove the old turn stays pinned.
+  - Issue a PUT after the new generation is published and prove the request is handled by the newly published generation-specific admin handler/service and validated with the new selector validator/config; do not satisfy this with only a turn-after-reload test.
   - Prove a new turn reads the same persisted revision but resolves it with the new generation.
+  - Disable only the admin HTTP surface in a later generation and prove the endpoint is absent while the persisted active override remains enforced by new turns.
   - Remove/break the alias in a candidate generation and prove the affected later turn fails normal route planning rather than falling back to client selector.
   - Verify override state itself is not copied into or lost with generation retirement.
   - _Requirements: 4.3, 4.4, 4.5, 7.4, 7.5_
