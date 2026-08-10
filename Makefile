@@ -75,11 +75,17 @@ test: quality-checks-fast test-unit parity-checks
 # compiling and vetting the untagged graph once more in quality-checks; go test
 # performs the curated vet checks for the selected graph and preserves the
 # authoritative test evidence.
+# Export the skip flags at the make level instead of inlining shell syntax:
+# on Windows make's recipe shell may be cmd or sh (MSYS/Git Bash), and inline
+# `$env:VAR=1` is interpolated to an empty value by a sh shell, silently
+# disabling the fast path and masking failures via an empty `$LASTEXITCODE`.
+quality-checks-fast: export LIP_SKIP_GO_COMPILE_CHECKS=1
+quality-checks-fast: export LIP_SKIP_ARCHTEST=1
 quality-checks-fast:
 ifeq ($(OS),Windows_NT)
-	@powershell -NoProfile -ExecutionPolicy Bypass -Command "$$env:LIP_SKIP_GO_COMPILE_CHECKS='1'; $$env:LIP_SKIP_ARCHTEST='1'; & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/quality-checks.ps1; exit $$LASTEXITCODE"
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/quality-checks.ps1
 else
-	@LIP_SKIP_GO_COMPILE_CHECKS=1 LIP_SKIP_ARCHTEST=1 bash scripts/quality-checks.sh
+	@bash scripts/quality-checks.sh
 endif
 
 test-fast: quality-checks-fast
