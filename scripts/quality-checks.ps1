@@ -133,7 +133,9 @@ $null = Invoke-QualityChild "regex-hotpath" @("powershell", "-NoProfile", "-Exec
 Write-Host ""
 
 Write-Host "[7/7] Architecture guardrails (line budgets, no init in bundle path)..." -ForegroundColor Yellow
-$null = Invoke-QualityChild "archtest" @("go", "test", "./internal/archtest/...")
+# Match the test-unit flags (make GO_TEST_FLAGS) so `make test`/`make qa`
+# reuse this run's result cache instead of executing archtest twice.
+$null = Invoke-QualityChild "archtest" @("go", "test", "-parallel=8", "-timeout=10m", "./internal/archtest/...")
 Write-Host ""
 
 Write-Host "=== All Quality Checks Passed ===" -ForegroundColor Green
