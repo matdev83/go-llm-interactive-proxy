@@ -286,13 +286,15 @@ A route can still fail on a later real turn because its call requires unsupporte
 
 ### D10. Process-owned persistence, generation-owned interpretation
 
-`ProcessServices` derives a `routeoverride.Store` capability from its existing continuity implementation. A generation receives:
+`ProcessServices` derives a `routeoverride.Store` capability from its existing continuity implementation. The standard memory and Bun continuity implementations expose the focused reader/store regardless of whether the HTTP administration surface is enabled, because endpoint exposure and runtime enforcement are separate concerns. A generation receives:
 
 - the shared reader/store;
 - its own selector validator;
-- its admin service instance.
+- its generation-bound admin service instance.
 
-The executor's routing config gains only the narrow reader needed at request preparation. Generation retirement does not close or delete override state; process continuity owns it.
+The executor's routing config gains only the narrow reader needed at request preparation. That reader remains wired for standard continuity even when `routing.override_admin.enabled` is false, so disabling command exposure cannot suspend an already-persisted override. Generation retirement does not close or delete override state; process continuity owns it.
+
+The admin handler is part of the complete generation-specific HTTP handler produced during `CompileGeneration`, not a process-global handler holding a mutable validator pointer. The existing stable `runtimehost.GenerationDispatcher` leases exactly one active generation for each HTTP request and delegates to that generation's handler. Therefore an admin GET/PUT/DELETE request admitted before a generation publish may finish against its leased old generation, while a request admitted after the publish is handled by the newly published generation and its selector validator/config. No extra global service locator or atomic admin-service swap is required. A dedicated PUT-after-reload test must certify this binding.
 
 ### D11. Protected opt-in admin HTTP resource
 
@@ -326,9 +328,9 @@ Response shape:
 }
 ```
 
-Inactive response omits/empties `selector` consistently according to the final DTO convention.
+Inactive responses **omit** `selector`. The DTO uses an optional selector field (`json:"selector,omitempty"` or equivalent) and must never emit a stale raw selector when `active=false`. `updated_at` is omitted only for the never-mutated revision-0 state; an inactive tombstone produced by Clear retains its non-zero `updated_at`.
 
-HTTP administration exposure is opt-in. It controls only the command surface, not enforcement of already-persisted state. Disabling the endpoint never acts as an implicit clear. Configuration is for example:
+HTTP administration exposure is opt-in. It controls only registration of the protected command resource, not wiring of the standard runtime reader and not enforcement of already-persisted state. Disabling the endpoint never acts as an implicit clear or suspend. Configuration is for example:
 
 ```yaml
 routing:
@@ -485,12 +487,15 @@ A bad/stale alias under G2 is a normal route error for the new turn; G1 in-fligh
 
 Semantics:
 
-- `Snapshot` is read-only and returns a complete value copy.
-- unknown A-leg returns typed not-found.
+- `Snapshot` is read-only with respect to override state and returns a complete value copy.
+- `Get` uses the same store read semantics as `Snapshot`.
+- unknown/expired A-leg returns typed not-found.
 - existing A-leg with no prior mutation returns revision 0 inactive.
+- every successful `Snapshot`, `Get`, `Replace`, and `Clear` refreshes the owning A-leg's `LastSeenAt`, matching the existing `FetchALeg`/continuity read-and-mutation liveness policy in both memory and Bun stores. Runtime Snapshot normally follows an authoritative A-leg fetch, so the second refresh is harmless and preserves one store-level contract.
 - `Replace` is atomic and last-committed-wins.
 - `Clear` is atomic and idempotent when already inactive.
-- state mutation updates A-leg liveness only if consistent with current continuity semantics; it must not fabricate a client turn.
+- identical Replace and repeated Clear refresh A-leg liveness but do not increment override `Revision` or change override `UpdatedAt`; `UpdatedAt` is the override state-change commit time, not the A-leg access time.
+- no override operation fabricates a client turn, B-leg, or attempt merely by refreshing liveness.
 
 #### Memory adapter
 
@@ -523,7 +528,7 @@ Exact SQL is dialect/migration-framework dependent. Required properties:
 - no selector index (no query use case; avoids large-index cost);
 - selector byte bound checked before storage and on read defensively.
 
-A-leg existence and mutation must share a transaction/lock boundary so a deleted A-leg cannot gain a latent override row.
+A-leg existence and mutation must share a transaction/lock boundary so a deleted A-leg cannot gain a latent override row. The race outcome is explicit: if Replace/Clear linearizes first, later A-leg deletion removes/cascades its state; if deletion or continuity-key recreation linearizes first, the mutation returns not-found and commits no override row. A newly recreated A-leg has a new A-leg ID and can never inherit the old row. Store contract tests use deterministic barriers to exercise both orders for memory, SQLite, and PostgreSQL where available.
 
 ## Runtime Integration
 
@@ -603,12 +608,14 @@ Body has exactly one field: `selector`.
 Validation order:
 
 1. operator auth wrapper;
-2. content length/body cap;
-3. JSON decode with unknown fields rejected;
-4. exactly one JSON value and EOF;
-5. selector normalization/byte bound;
-6. generation route preflight;
-7. atomic store replace.
+2. method/path dispatch;
+3. content length/body cap;
+4. parse `Content-Type` and require media type `application/json` (parameters such as `charset=utf-8` are allowed); missing, malformed, or unsupported PUT media types return `415 Unsupported Media Type` before JSON decoding;
+5. JSON decode with unknown fields rejected;
+6. exactly one JSON value and EOF;
+7. selector normalization/byte bound;
+8. generation route preflight using the generation that admitted this admin request;
+9. atomic store replace.
 
 If any validation fails, old state is untouched.
 
@@ -654,18 +661,19 @@ A turn stores a value copy. It does not hold a pointer to mutable store state.
 
 | Category | Example | Admin response | Client-turn behavior |
 |---|---|---|---|
-| Invalid admin input | malformed JSON/selector too large | 400 | n/a |
-| Invalid route syntax/current-generation structure | parser/default backend error | 400 or 422 (choose one stable convention) | n/a |
+| Invalid JSON/shape/selector | malformed JSON, unknown field, selector too large, invalid route structure | 400 | n/a |
+| Unsupported PUT media type | missing/malformed/non-`application/json` Content-Type | 415 | n/a |
+| Admin body too large | request exceeds bounded body cap | 413 | n/a |
 | Unknown A-leg | stale/wrong anchor | 404 | n/a |
-| Store unavailable | DB failure | 5xx | fail closed at snapshot if capability expected |
+| Store unavailable | DB failure | 503 | fail closed at snapshot if capability expected |
 | Stored route invalid under later generation | alias/backend removed | n/a | normal route planning error; no client fallback |
-| Revision exhaustion | impossible/defensive boundary | 5xx | previous state remains |
+| Revision exhaustion | impossible/defensive boundary | 500 | previous state remains |
 
 ### Fail-closed rule
 
 If an existing A-leg might have an active override but the configured override store cannot be read, silently using the client route violates administrator authority. Therefore snapshot read failure is a request preparation error.
 
-This does not mean the feature is mandatory for custom stores: when override capability/admin exposure is disabled and no override reader is configured, existing behavior remains unchanged and no read occurs.
+For the standard memory/Bun continuity implementations, the override reader is always wired independently of HTTP admin exposure, so a persisted override cannot become silently inert when the endpoint is disabled. A custom continuity implementation that does not implement the focused `routeoverride.Reader` cannot hold standard route-override state through this feature; with admin exposure disabled its historical no-override behavior remains unchanged, while enabling override administration requires the Store/Reader capability and candidate assembly must fail coherently if it is absent. Any custom implementation that persists route-override state must expose the reader so runtime enforcement cannot be bypassed.
 
 ## Security Considerations
 
