@@ -7,6 +7,7 @@ import (
 )
 
 func TestCIIterationSpeed_ModuleTidyUsesBoundedParallelism(t *testing.T) {
+	t.Parallel()
 	body, err := os.ReadFile(repositoryFile(t, "scripts", "tidy-all-modules.sh"))
 	if err != nil {
 		t.Fatal(err)
@@ -25,6 +26,7 @@ func TestCIIterationSpeed_ModuleTidyUsesBoundedParallelism(t *testing.T) {
 }
 
 func TestCIIterationSpeed_WorkflowConcurrencyAndCaches(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{
 		"ci.yml",
 		"qa.yml",

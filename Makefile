@@ -161,7 +161,7 @@ else
 	@echo "Fuzz smoke (FUZZTIME=$(FUZZTIME)) one target per line"
 	$(FUZZ_WRAPPER) -fuzz=FuzzJSONRoundTrip$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/testkit
 	$(FUZZ_WRAPPER) -fuzz=FuzzParseSnapshot$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/infra/modelcatalog/modelsdev
-	$(FUZZ_WRAPPER) -fuzz=FuzzParseSelector$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/routing
+	$(FUZZ_WRAPPER) -fuzz=^FuzzParseSelector$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/routing
 	$(FUZZ_WRAPPER) -fuzz=FuzzParseSelectorFromBytes$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/routing
 	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeCreateRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/openairesponses
 	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeMessageRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/anthropic

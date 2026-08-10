@@ -245,12 +245,15 @@ func MeasureGenericCompatibleBackendOverlay(root string, exclude map[string]stru
 
 func measureOverlayByPathMarkers(root string, pathMarkers []string, max int, exclude map[string]struct{}) (ConnectorOverlayMeasurement, error) {
 	m := ConnectorOverlayMeasurement{Max: max}
+	// Preserve the root-wide metric semantics, but do not descend into sibling
+	// worktrees. The main checkout may contain hundreds of megabytes of agent
+	// worktrees here.
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		if info.IsDir() {
-			return nil
+		if info.IsDir() && info.Name() == ".worktrees" {
+			return filepath.SkipDir
 		}
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil

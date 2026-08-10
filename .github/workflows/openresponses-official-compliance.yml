@@ -21,9 +21,37 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
           persist-credentials: false
 
+      - name: Validate OpenResponses scope matcher
+        run: bash scripts/openresponses-compliance-scope.sh --self-test
+
+      - name: Detect OpenResponses scope
+        id: scope
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+            echo "run_suite=true" >> "$GITHUB_OUTPUT"
+            echo "Official compliance suite runs for non-PR dispatches."
+            exit 0
+          fi
+
+          run_suite="$(bash scripts/openresponses-compliance-scope.sh "$BASE_SHA" "$HEAD_SHA")"
+          echo "run_suite=$run_suite" >> "$GITHUB_OUTPUT"
+          if [[ "$run_suite" == true ]]; then
+            echo "OpenResponses-related changes detected; running official compliance suite."
+          else
+            echo "No OpenResponses-related changes detected; bypassing expensive suite."
+          fi
+
       - name: Set up Go
+        if: steps.scope.outputs.run_suite == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
@@ -36,6 +64,7 @@ jobs:
             tools/**/go.sum
 
       - name: Set up Node.js
+        if: steps.scope.outputs.run_suite == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: tools/openresponses-compliance/package.json
@@ -44,19 +73,23 @@ jobs:
 
       - name: Verify pinned official manifest
         id: manifest
+        if: steps.scope.outputs.run_suite == 'true'
         continue-on-error: true
         run: go test -v -run '^TestOpenResponsesOfficialVendoredManifest$' ./internal/archtest 2>&1 | tee openresponses-manifest-output.txt
 
       - name: Run OpenResponses static architecture checks
         id: static_archtest
+        if: steps.scope.outputs.run_suite == 'true'
         continue-on-error: true
         run: go test -timeout=8m ./internal/archtest -run 'TestOpenResponses'
 
       - name: Install pinned official suite tooling
+        if: steps.scope.outputs.run_suite == 'true'
         working-directory: tools/openresponses-compliance
         run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Record exact-head evidence
+        if: steps.scope.outputs.run_suite == 'true'
         shell: bash
         env:
           EVENT_SHA: ${{ github.sha }}
@@ -82,6 +115,7 @@ jobs:
 
       - name: Run actual pinned official suite
         id: suite
+        if: steps.scope.outputs.run_suite == 'true'
         continue-on-error: true
         shell: bash
         run: |
@@ -90,7 +124,7 @@ jobs:
           eval "$suite_command" 2>&1 | tee openresponses-official-output.txt
 
       - name: Validate and finalize evidence
-        if: always()
+        if: always() && steps.scope.outputs.run_suite == 'true'
         shell: bash
         env:
           SUITE_OUTCOME: ${{ steps.suite.outcome }}
@@ -105,7 +139,7 @@ jobs:
             printf 'static_archtest_outcome=%s\n' "${STATIC_ARCHTEST_OUTCOME:-unknown}"
             printf 'tested_sha=%s\n' "$actual_sha"
             if [ -f tools/openresponses-compliance/MANIFEST.json ]; then
-            printf 'manifest_sha256='
+              printf 'manifest_sha256='
               sha256sum tools/openresponses-compliance/MANIFEST.json | awk '{print $1}'
             else
               printf 'manifest_sha256=unavailable\n'
@@ -114,13 +148,13 @@ jobs:
             printf 'attestation=diagnostic_only\n'
             printf '\n--- manifest verification output ---\n'
             if [ -f openresponses-manifest-output.txt ]; then
-              while IFS= read -r line; do printf '%s\n' "$line"; done < openresponses-manifest-output.txt
+              cat openresponses-manifest-output.txt
             else
               printf 'manifest verification output unavailable\n'
             fi
             printf '\n--- test output ---\n'
             if [ -f openresponses-official-output.txt ]; then
-              while IFS= read -r line; do printf '%s\n' "$line"; done < openresponses-official-output.txt
+              cat openresponses-official-output.txt
             else
               printf 'official suite output unavailable\n'
             fi
@@ -128,7 +162,7 @@ jobs:
           sha256sum openresponses-official-evidence.txt > openresponses-official-evidence.sha256
 
       - name: Upload immutable compliance evidence
-        if: always()
+        if: always() && steps.scope.outputs.run_suite == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: openresponses-official-evidence-${{ github.run_id }}
@@ -139,7 +173,7 @@ jobs:
           if-no-files-found: error
 
       - name: Independently validate official compliance attestation
-        if: always()
+        if: always() && steps.scope.outputs.run_suite == 'true'
         shell: bash
         env:
           SUITE_OUTCOME: ${{ steps.suite.outcome }}
@@ -153,3 +187,17 @@ jobs:
           test -s openresponses-official-output.txt
           ! grep -Eiq 'SKIPPED|skipped [1-9]|no `node` binary|dependencies are not installed|reported zero cases' openresponses-official-output.txt
           grep -Eq 'official compliance suite: 17/17 passed, 0 failed, 0 skipped' openresponses-official-output.txt
+
+      - name: Fail closed if scope detection failed
+        if: always() && steps.scope.outcome != 'success'
+        shell: bash
+        run: |
+          echo "OpenResponses scope detection failed; refusing to bypass compliance." >&2
+          exit 1
+
+      - name: Report unrelated PR bypass
+        if: steps.scope.outcome == 'success' && steps.scope.outputs.run_suite != 'true'
+        shell: bash
+        run: |
+          echo "OpenResponses official compliance suite bypassed: no relevant files changed."
+          echo "The official-suite job remains successful for branch-protection semantics."
