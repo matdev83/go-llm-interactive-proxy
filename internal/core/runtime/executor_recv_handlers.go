@@ -33,6 +33,11 @@ import (
 func (s *retryRecvStream) handleRecvSuccess(ctx context.Context, ev lipapi.Event) (lipapi.Event, bool, error) {
 	recvAt := s.now()
 	s.accounting.observeBackendEvent(recvAt, ev)
+	// A provider may repeat an already-drained sideband key on a retrying
+	// transport. Consume it for neither the canonical stream nor accounting.
+	if ev.Kind == lipapi.EventUsageDelta && ev.Accounting.DedupeKey != "" && !s.rememberUsageEvidenceOnce(ev) {
+		return lipapi.Event{}, true, nil
+	}
 	s.accounting.observeUsage(ev)
 	pm, _ := s.recvHookMeta()
 	s.emitTrafficBTP(ctx, ev, pm)

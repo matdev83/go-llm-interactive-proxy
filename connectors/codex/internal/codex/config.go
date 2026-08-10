@@ -89,7 +89,8 @@ type Config struct {
 	MidSessionVerbosityBumpFrequency int
 	// NativeContext holds experimental native reasoning continuity and
 	// Responses Compaction V2 configuration. May be nil (compaction disabled).
-	NativeContext *NativeContextConfig
+	NativeContext                            *NativeContextConfig
+	DisableNativeCompactionWithoutAccounting bool
 }
 
 // NormalizeTransport returns the effective transport mode for cfg. An empty

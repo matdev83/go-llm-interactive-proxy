@@ -17,6 +17,15 @@ type Service struct {
 	Starter acp.ProcessStarter
 }
 
+func containsFeature(features []string, want string) bool {
+	for _, feature := range features {
+		if feature == want {
+			return true
+		}
+	}
+	return false
+}
+
 func New() *Service { return &Service{} }
 
 func (s *Service) Describe(context.Context) (backendplugin.PluginDescriptor, error) {
@@ -29,13 +38,14 @@ func (s *Service) Describe(context.Context) (backendplugin.PluginDescriptor, err
 	}
 	transport := backendplugin.TransportCapabilitySummary{Cancellation: true, BidirectionalStream: true}
 	return backendplugin.PluginDescriptor{
-		ProtocolMajor: 1, ProtocolMinor: backendplugin.ProtocolMinorProxyOwnedSessionID,
+		ProtocolMajor: 1, ProtocolMinor: backendplugin.ProtocolMinorAccountingEvidence,
 		PluginID: PluginID, Version: "0.1.0", BuildID: "localdev",
 		Features: []backendplugin.Feature{
 			{Name: backendplugin.FeatureExactReasoningParts, Required: true},
 			{Name: backendplugin.FeatureOrderedItems},
 			{Name: backendplugin.FeatureExactOpenResponsesFields},
 			{Name: backendplugin.FeatureProxyOwnedSessionID},
+			{Name: backendplugin.FeatureAccountingEvidence, Required: true},
 		},
 		Factories: []backendplugin.FactoryDescriptor{{
 			Kind: FactoryKindHTTP, DisplayName: "OpenAI Codex", Description: "OpenAI Codex Responses backend",
@@ -78,6 +88,7 @@ func (s *Service) Configure(ctx context.Context, req backendplugin.ConfigureRequ
 		if err != nil {
 			return nil, err
 		}
+		pc.DisableNativeCompactionWithoutAccounting = !containsFeature(req.Negotiation.EnabledFeatures, backendplugin.FeatureAccountingEvidence)
 		eng, err := codex.New(pc)
 		if err != nil {
 			return nil, err
@@ -126,12 +137,12 @@ func (i *instance) Resolve(context.Context, *string) (backendplugin.ResolvedProf
 	if i.kind == FactoryKindHTTP {
 		caps = backendplugin.CapabilitySummary{
 			Streaming: true, Tools: true, Vision: true, Documents: true,
-			ParallelToolCalls: true, Reasoning: true, ReasoningReplay: true,
+			ParallelToolCalls: true, Reasoning: true, ReasoningReplay: true, Compaction: true,
 		}
 	} else {
 		caps = backendplugin.CapabilitySummary{Streaming: true, Tools: true, Vision: true, Reasoning: true}
 	}
-	return backendplugin.ResolvedProfile{
+	profile := backendplugin.ResolvedProfile{
 		Capabilities:             caps,
 		ReasoningReplaySupported: i.kind == FactoryKindHTTP,
 		TransportCapabilities:    backendplugin.TransportCapabilitySummary{Cancellation: true, BidirectionalStream: true},
@@ -139,7 +150,11 @@ func (i *instance) Resolve(context.Context, *string) (backendplugin.ResolvedProf
 		RoutePrefixes:            []string{i.kind},
 		EvidenceSource:           i.kind,
 		ProfileVersion:           "1",
-	}, nil
+	}
+	if i.kind == FactoryKindHTTP {
+		profile.DialectSupport.CompactionDialects = []backendplugin.DialectRequirementDTO{{Dialect: "codex.responses.compaction.v2", Implementor: "openai-codex"}}
+	}
+	return profile, nil
 }
 
 func (i *instance) Close(context.Context) error {

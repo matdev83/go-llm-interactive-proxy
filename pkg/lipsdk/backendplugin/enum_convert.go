@@ -223,19 +223,21 @@ func clientFrameKindToProto(v ClientFrameKind) (backendpluginv1.ClientFrameKind,
 }
 
 var serverFrameKindFromProtoTable = map[backendpluginv1.ServerFrameKind]ServerFrameKind{
-	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_ACCEPTED:       ServerFrameAccepted,
-	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_EVENT:          ServerFrameEvent,
-	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_DIAGNOSTIC:     ServerFrameDiagnostic,
-	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_CANCEL_OUTCOME: ServerFrameCancelOutcome,
-	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_TERMINAL:       ServerFrameTerminal,
+	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_ACCEPTED:            ServerFrameAccepted,
+	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_EVENT:               ServerFrameEvent,
+	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_DIAGNOSTIC:          ServerFrameDiagnostic,
+	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_CANCEL_OUTCOME:      ServerFrameCancelOutcome,
+	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_TERMINAL:            ServerFrameTerminal,
+	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_ACCOUNTING_EVIDENCE: ServerFrameAccountingEvidence,
 }
 
 var serverFrameKindToProtoTable = map[ServerFrameKind]backendpluginv1.ServerFrameKind{
-	ServerFrameAccepted:      backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_ACCEPTED,
-	ServerFrameEvent:         backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_EVENT,
-	ServerFrameDiagnostic:    backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_DIAGNOSTIC,
-	ServerFrameCancelOutcome: backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_CANCEL_OUTCOME,
-	ServerFrameTerminal:      backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_TERMINAL,
+	ServerFrameAccepted:           backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_ACCEPTED,
+	ServerFrameEvent:              backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_EVENT,
+	ServerFrameDiagnostic:         backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_DIAGNOSTIC,
+	ServerFrameCancelOutcome:      backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_CANCEL_OUTCOME,
+	ServerFrameTerminal:           backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_TERMINAL,
+	ServerFrameAccountingEvidence: backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_ACCOUNTING_EVIDENCE,
 }
 
 func serverFrameKindFromProto(v backendpluginv1.ServerFrameKind) (ServerFrameKind, error) {
@@ -244,6 +246,66 @@ func serverFrameKindFromProto(v backendpluginv1.ServerFrameKind) (ServerFrameKin
 
 func serverFrameKindToProto(v ServerFrameKind) (backendpluginv1.ServerFrameKind, error) {
 	return enumToProto(v, serverFrameKindToProtoTable, backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_UNSPECIFIED)
+}
+
+var accountingSourceFromProtoTable = map[backendpluginv1.AccountingSource]AccountingSource{
+	backendpluginv1.AccountingSource_ACCOUNTING_SOURCE_PROVIDER_REPORTED:  AccountingSourceProviderReported,
+	backendpluginv1.AccountingSource_ACCOUNTING_SOURCE_PROVIDER_COUNT_API: AccountingSourceProviderCountAPI,
+	backendpluginv1.AccountingSource_ACCOUNTING_SOURCE_LOCAL_ESTIMATOR:    AccountingSourceLocalEstimator,
+	backendpluginv1.AccountingSource_ACCOUNTING_SOURCE_LOCAL_TOKENIZER:    AccountingSourceLocalTokenizer,
+}
+
+var accountingSourceToProtoTable = map[AccountingSource]backendpluginv1.AccountingSource{
+	AccountingSourceProviderReported: backendpluginv1.AccountingSource_ACCOUNTING_SOURCE_PROVIDER_REPORTED,
+	AccountingSourceProviderCountAPI: backendpluginv1.AccountingSource_ACCOUNTING_SOURCE_PROVIDER_COUNT_API,
+	AccountingSourceLocalEstimator:   backendpluginv1.AccountingSource_ACCOUNTING_SOURCE_LOCAL_ESTIMATOR,
+	AccountingSourceLocalTokenizer:   backendpluginv1.AccountingSource_ACCOUNTING_SOURCE_LOCAL_TOKENIZER,
+}
+
+func accountingSourceFromProto(v backendpluginv1.AccountingSource) (AccountingSource, error) {
+	return enumFromProto(v, accountingSourceFromProtoTable, AccountingSourceUnknown)
+}
+
+func accountingSourceToProto(v AccountingSource) (backendpluginv1.AccountingSource, error) {
+	return enumToProto(v, accountingSourceToProtoTable, backendpluginv1.AccountingSource_ACCOUNTING_SOURCE_UNSPECIFIED)
+}
+
+var accountingAuthorityFromProtoTable = map[backendpluginv1.AccountingAuthority]AccountingAuthority{
+	backendpluginv1.AccountingAuthority_ACCOUNTING_AUTHORITY_AUTHORITATIVE: AccountingAuthorityAuthoritative,
+	backendpluginv1.AccountingAuthority_ACCOUNTING_AUTHORITY_ESTIMATED:     AccountingAuthorityEstimated,
+	backendpluginv1.AccountingAuthority_ACCOUNTING_AUTHORITY_DELEGATED:     AccountingAuthorityDelegated,
+	backendpluginv1.AccountingAuthority_ACCOUNTING_AUTHORITY_ADVISORY:      AccountingAuthorityAdvisory,
+}
+
+var accountingAuthorityToProtoTable = map[AccountingAuthority]backendpluginv1.AccountingAuthority{
+	AccountingAuthorityAuthoritative: backendpluginv1.AccountingAuthority_ACCOUNTING_AUTHORITY_AUTHORITATIVE,
+	AccountingAuthorityEstimated:     backendpluginv1.AccountingAuthority_ACCOUNTING_AUTHORITY_ESTIMATED,
+	AccountingAuthorityDelegated:     backendpluginv1.AccountingAuthority_ACCOUNTING_AUTHORITY_DELEGATED,
+	AccountingAuthorityAdvisory:      backendpluginv1.AccountingAuthority_ACCOUNTING_AUTHORITY_ADVISORY,
+}
+
+func accountingAuthorityFromProto(v backendpluginv1.AccountingAuthority) (AccountingAuthority, error) {
+	return enumFromProto(v, accountingAuthorityFromProtoTable, AccountingAuthorityUnknown)
+}
+
+func accountingAuthorityToProto(v AccountingAuthority) (backendpluginv1.AccountingAuthority, error) {
+	return enumToProto(v, accountingAuthorityToProtoTable, backendpluginv1.AccountingAuthority_ACCOUNTING_AUTHORITY_UNSPECIFIED)
+}
+
+var accountingPlaneFromProtoTable = map[backendpluginv1.AccountingPlane]AccountingPlane{
+	backendpluginv1.AccountingPlane_ACCOUNTING_PLANE_PROVIDER_BILLABLE: AccountingPlaneProviderBillable,
+}
+
+var accountingPlaneToProtoTable = map[AccountingPlane]backendpluginv1.AccountingPlane{
+	AccountingPlaneProviderBillable: backendpluginv1.AccountingPlane_ACCOUNTING_PLANE_PROVIDER_BILLABLE,
+}
+
+func accountingPlaneFromProto(v backendpluginv1.AccountingPlane) (AccountingPlane, error) {
+	return enumFromProto(v, accountingPlaneFromProtoTable, AccountingPlaneUnknown)
+}
+
+func accountingPlaneToProto(v AccountingPlane) (backendpluginv1.AccountingPlane, error) {
+	return enumToProto(v, accountingPlaneToProtoTable, backendpluginv1.AccountingPlane_ACCOUNTING_PLANE_UNSPECIFIED)
 }
 
 var eventKindFromProtoTable = map[backendpluginv1.EventKind]EventKind{

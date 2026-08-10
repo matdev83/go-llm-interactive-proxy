@@ -108,6 +108,29 @@ enum ServerFrameKind {
   SERVER_FRAME_KIND_DIAGNOSTIC = 3;
   SERVER_FRAME_KIND_CANCEL_OUTCOME = 4;
   SERVER_FRAME_KIND_TERMINAL = 5;
+  // Host-only accounting evidence; never exposed as a canonical event.
+  SERVER_FRAME_KIND_ACCOUNTING_EVIDENCE = 6;
+}
+
+enum AccountingSource {
+  ACCOUNTING_SOURCE_UNSPECIFIED = 0;
+  ACCOUNTING_SOURCE_PROVIDER_REPORTED = 1;
+  ACCOUNTING_SOURCE_PROVIDER_COUNT_API = 2;
+  ACCOUNTING_SOURCE_LOCAL_ESTIMATOR = 3;
+  ACCOUNTING_SOURCE_LOCAL_TOKENIZER = 4;
+}
+
+enum AccountingAuthority {
+  ACCOUNTING_AUTHORITY_UNSPECIFIED = 0;
+  ACCOUNTING_AUTHORITY_AUTHORITATIVE = 1;
+  ACCOUNTING_AUTHORITY_ESTIMATED = 2;
+  ACCOUNTING_AUTHORITY_DELEGATED = 3;
+  ACCOUNTING_AUTHORITY_ADVISORY = 4;
+}
+
+enum AccountingPlane {
+  ACCOUNTING_PLANE_UNSPECIFIED = 0;
+  ACCOUNTING_PLANE_PROVIDER_BILLABLE = 1;
 }
 
 enum EventKind {
@@ -552,6 +575,20 @@ message ExecuteClientFrame {
   int64 cancel_deadline_unix_ms = 6;
 }
 
+message AccountingEvidence {
+  optional int64 input_tokens = 1;
+  optional int64 output_tokens = 2;
+  optional int64 cache_read_tokens = 3;
+  optional int64 cache_write_tokens = 4;
+  optional int64 reasoning_tokens = 5;
+  optional int64 total_tokens = 6;
+  UsagePresence presence = 7;
+  AccountingSource source = 8;
+  AccountingAuthority authority = 9;
+  AccountingPlane plane = 10;
+  string dedupe_key = 11;
+}
+
 message CanonicalEvent {
   EventKind kind = 1;
   optional int32 message_index = 2;
@@ -592,6 +629,7 @@ message ExecuteServerFrame {
   string diagnostic = 4;
   CancelOutcome cancel_outcome = 5;
   Terminal terminal = 6;
+  AccountingEvidence accounting_evidence = 7;
 }
 
 message PluginError {

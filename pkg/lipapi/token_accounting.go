@@ -90,6 +90,9 @@ type UsageAccountingMetadata struct {
 	Source    UsageSource
 	Authority UsageAuthority
 	Tokenizer TokenizerRef
+	// DedupeKey is an internal accounting correlation key. It is never encoded
+	// by frontend adapters and is used only to apply provider evidence once.
+	DedupeKey string
 }
 
 // ScopedUsageDelta carries usage for one accounting plane while preserving Event legacy totals.

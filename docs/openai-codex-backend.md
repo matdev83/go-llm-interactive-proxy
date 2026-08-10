@@ -83,6 +83,16 @@ routing sentinel (the app-server resolves the actual model server-side).
 
 The default transport is HTTPS/SSE. WebSocket support is experimental and only enabled when `experimental_websocket: true` is set. With that opt-in, `transport: auto` tries `wss://chatgpt.com/backend-api/codex/responses` first and falls back to HTTPS/SSE only if WebSocket fails before the first canonical event. After that first event, stream errors are surfaced and not retried. Use `transport: websocket` to fail instead of falling back during debugging. After a pre-output WebSocket failure, auto mode skips WebSocket for `websocket_fallback_cooldown_seconds` to avoid repeated retry latency.
 
+## Native compaction accounting
+
+Native Responses compaction is fail-closed unless the negotiated backend-plugin
+ABI includes protocol minor 5 and the `accounting_evidence_sideband` capability.
+Compaction usage is sent as host-only accounting evidence, not as a synthetic
+canonical usage event, and is consumed by operator/provider accounting only.
+The evidence is bounded and deduplicated by provider-charge key across open,
+EOF/error/cancel, WebSocket first-event, and managed-account retry paths. Older
+hosts safely use full history without making a billable compaction call.
+
 ## Client compatibility (OpenCode / Pi / Droid / Hermes)
 
 OpenCode, Pi, Factory Droid, and Hermes Agent bridge prompts are **not** applied by the backend adapter. Enable the opt-in feature plugin instead:

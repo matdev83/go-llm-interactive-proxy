@@ -48,6 +48,7 @@ func (e *Executor) assembleExecutorStream(ctx context.Context, prep *preparedReq
 	}
 	captureBoundModelViews(ctx, rs)
 	rs.storeInner(out.stream)
+	rs.consumeBackendUsageEvidence(ctx, out.stream)
 	if err := rs.openFinalStreamObservation(ctx); err != nil {
 		if out.stream != nil {
 			_ = out.stream.Close()

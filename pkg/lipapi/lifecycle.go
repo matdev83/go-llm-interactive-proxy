@@ -43,6 +43,13 @@ type ManagedEventStream interface {
 	Cancel(ctx context.Context, cause CancelCause) CancelResult
 }
 
+// UsageEvidenceSource is an internal accounting seam. Evidence is drained by
+// the host and never returned from Recv, so frontends and hooks cannot observe
+// provider-only charges.
+type UsageEvidenceSource interface {
+	DrainUsageEvidence() []Event
+}
+
 // CloseOnlyManagedStream adapts streams with no provider-native cancel API into [ManagedEventStream].
 type CloseOnlyManagedStream struct {
 	Stream EventStream

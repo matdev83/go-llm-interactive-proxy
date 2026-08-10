@@ -655,9 +655,9 @@
 AGENTS.md
 Makefile
 README.md
-api/backendplugin/v1/README.md
 api/backendplugin/v1/backend.pb.go
 api/backendplugin/v1/backend.proto
+api/backendplugin/v1/README.md
 api/backendplugin/v1/backend_grpc.pb.go
 api/backendplugin/v1/compile_test.go
 api/backendplugin/v1/doc.go
@@ -934,8 +934,8 @@ connectors/codex/internal/streampeek/prepend.go
 connectors/codex/internal/streampeek/prepend_test.go
 connectors/codex/internal/testemu/server.go
 connectors/codex/manifest/template.backendplugin.json
-connectors/codex/parity_suite_test.go
 connectors/codex/release.yaml
+connectors/codex/parity_suite_test.go
 connectors/cursorcliacp/cmd/lip-backend-cursorcliacp/main.go
 connectors/cursorcliacp/cmd/lip-backend-cursorcliacp/pipe_stub.go
 connectors/cursorcliacp/cmd/lip-backend-cursorcliacp/pipe_windows.go
@@ -2152,6 +2152,7 @@ internal/core/runtime/executor_recv_handlers.go
 internal/core/runtime/executor_recv_handlers_authority_test.go
 internal/core/runtime/executor_recv_loop.go
 internal/core/runtime/executor_retry_stream.go
+internal/core/runtime/usage_sideband_test.go
 internal/core/runtime/executor_retry_stream_completion_test.go
 internal/core/runtime/executor_route_obs.go
 internal/core/runtime/executor_route_plan.go
@@ -3522,6 +3523,7 @@ internal/plugins/features/reasoningpreservation/anchor.go
 internal/plugins/features/reasoningpreservation/anchor_test.go
 internal/plugins/features/reasoningpreservation/artifact.go
 internal/plugins/features/reasoningpreservation/bundle.go
+internal/plugins/features/reasoningpreservation/companion_policy.go
 internal/plugins/features/reasoningpreservation/bundle_test.go
 internal/plugins/features/reasoningpreservation/catalog.go
 internal/plugins/features/reasoningpreservation/catalog_test.go
@@ -4336,14 +4338,15 @@ connectors/codex/internal/codex/trajectory_test.go
 connectors/codex/internal/codex/usage_aggregation.go
 connectors/codex/internal/codex/usage_aggregation_test.go
 connectors/codex/internal/service/config_test.go
+connectors/codex/internal/service/service_test.go
 docs/backend-plugins/codex-native-context.md
 internal/archtest/continuity_marker_contract_test.go
-internal/plugins/features/reasoningpreservation/codex_companion.go
 internal/plugins/features/reasoningpreservation/companion.go
 internal/plugins/features/reasoningpreservation/companion_test.go
 internal/plugins/features/reasoningpreservation/continuity_marker.go
 internal/plugins/features/reasoningpreservation/phase2_marker_test.go
 internal/plugins/features/reasoningpreservation/phase3_trajectory_test.go
+internal/plugins/features/reasoningpreservation/phase3_support_test.go
 internal/standardplugins/reasoning_preservation_codex_companion_test.go
 internal/testkit/nativecontext/README.md
 internal/testkit/nativecontext/cmd/evaluate/main.go
@@ -4558,6 +4561,7 @@ pkg/lipsdk/backendplugin/abi_exact_openresponses_test.go
 pkg/lipsdk/backendplugin/abi_ordered_items.go
 pkg/lipsdk/backendplugin/abi_ordered_items_test.go
 pkg/lipsdk/backendplugin/accounting.go
+pkg/lipsdk/backendplugin/accounting_evidence.go
 pkg/lipsdk/backendplugin/bounds.go
 pkg/lipsdk/backendplugin/call_bridge.go
 pkg/lipsdk/backendplugin/call_bridge_items.go

@@ -8,7 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestEnsureCodexCompanionRulesPreservesFeatureNodes(t *testing.T) {
+func TestEnsureCompanionRulesPreservesFeatureNodes(t *testing.T) {
 	t.Parallel()
 	input := mustYAML(t, `
 action: observe
@@ -18,8 +18,8 @@ rules:
     backend: operator-backend
     model_keywords: [gpt-5]
     enabled: true
-  - id: disabled-codex
-    backend: codex-disabled
+  - id: disabled-backend
+    backend: backend-disabled
     enabled: false
 on_ambiguous: log_skip
 on_unrepresentable: log_skip
@@ -30,7 +30,7 @@ state:
   max_reasoning_bytes_per_turn: 1024
   max_session_bytes: 4096
 `)
-	got, err := reasoningpreservation.EnsureCodexCompanionRules(input, []string{"codex-new", "codex-disabled"})
+	got, err := reasoningpreservation.EnsureCompanionRules(input, []string{"backend-new", "backend-disabled"}, "companion-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,10 +40,10 @@ state:
 			t.Fatalf("mutated config lost %q:\n%s", want, text)
 		}
 	}
-	if strings.Contains(text, "disabled-codex\n    backend: codex-disabled\n    enabled: true") {
+	if strings.Contains(text, "backend-disabled\n    enabled: true") {
 		t.Fatal("explicit disabled backend-only rule was overridden")
 	}
-	if strings.Count(text, "backend: codex-new") != 1 {
+	if strings.Count(text, "backend: backend-new") != 1 {
 		t.Fatalf("expected one new companion rule:\n%s", text)
 	}
 	if got.Content[0].Content[0].Value != input.Content[0].Content[0].Value {
@@ -54,14 +54,14 @@ state:
 	}
 }
 
-func TestEnsureCodexCompanionRulesRejectsUnknownFeatureKeysBeforeMutation(t *testing.T) {
+func TestEnsureCompanionRulesRejectsUnknownFeatureKeysBeforeMutation(t *testing.T) {
 	t.Parallel()
 	input := mustYAML(t, `
 action: restore
 unknown: true
 `)
 	before := nodeYAML(t, input)
-	if _, err := reasoningpreservation.EnsureCodexCompanionRules(input, []string{"codex-new"}); err == nil {
+	if _, err := reasoningpreservation.EnsureCompanionRules(input, []string{"backend-new"}, "companion-"); err == nil {
 		t.Fatal("unknown feature key was accepted")
 	}
 	if after := nodeYAML(t, input); after != before {
@@ -69,14 +69,14 @@ unknown: true
 	}
 }
 
-func TestNewCodexCompanionConfigIsDeterministicAndCollisionSafe(t *testing.T) {
+func TestNewCompanionConfigIsDeterministicAndCollisionSafe(t *testing.T) {
 	t.Parallel()
-	ids := []string{"codex/a", "codex-a", strings.Repeat("long-id-", 20)}
-	first, err := reasoningpreservation.NewCodexCompanionConfig(ids)
+	ids := []string{"backend/a", "backend-a", strings.Repeat("long-id-", 20)}
+	first, err := reasoningpreservation.NewCompanionConfig(ids, "companion-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := reasoningpreservation.NewCodexCompanionConfig(ids)
+	second, err := reasoningpreservation.NewCompanionConfig(ids, "companion-")
 	if err != nil {
 		t.Fatal(err)
 	}

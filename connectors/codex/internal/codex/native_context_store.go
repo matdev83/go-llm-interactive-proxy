@@ -44,6 +44,7 @@ type NativeUsageEvidence struct {
 	UsagePresence lipapi.UsagePresence
 	Source        lipapi.UsageSource
 	Authority     lipapi.UsageAuthority
+	DedupeKey     string
 }
 
 // NativeCheckpoint is an immutable snapshot once accepted by the store.

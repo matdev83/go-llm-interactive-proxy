@@ -19,6 +19,8 @@ const (
 	// authority field. Hosts that negotiate an older minor must omit it and use
 	// full-history/native-compaction bypass rather than losing the request.
 	ProtocolMinorProxyOwnedSessionID = uint32(4)
+	// ProtocolMinorAccountingEvidence adds host-only provider billing evidence.
+	ProtocolMinorAccountingEvidence = uint32(5)
 	// FeatureExactReasoningParts gates use of the additive v1.1 wire fields.
 	FeatureExactReasoningParts = "exact_reasoning_parts"
 	// FeatureOrderedItems gates ordered item invocation DTO fields.
@@ -28,6 +30,9 @@ const (
 	FeatureExactOpenResponsesFields = "exact_openresponses_fields"
 	// FeatureProxyOwnedSessionID gates the optional typed session authority field.
 	FeatureProxyOwnedSessionID = "proxy_owned_session_id"
+	// FeatureAccountingEvidence gates the non-canonical accounting sideband.
+	FeatureAccountingEvidence          = "accounting_evidence_sideband"
+	DefaultMaxAccountingDedupeKeyBytes = uint64(256)
 
 	// DefaultMaxMessageBytes is the default whole-message size ceiling.
 	DefaultMaxMessageBytes = uint64(4 << 20)

@@ -3,12 +3,12 @@ package codex
 import (
 	"context"
 	"errors"
-	"io"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 )
 
 type coordinatorCompactorFunc func(context.Context, CompactionRequest) (CompactionResult, error)
@@ -275,30 +275,9 @@ func TestNativeContextCoordinator_MissingProviderUsageCreatesEstimatedEvidence(t
 	if checkpoint.CompactionUsage.Source != lipapi.UsageSourceLocalEstimator || checkpoint.CompactionUsage.Authority != lipapi.UsageAuthorityEstimated {
 		t.Fatalf("checkpoint usage authority = %#v", checkpoint.CompactionUsage)
 	}
-	base := &usageAggregateTestStream{events: []lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}}
-	stream := newNativeUsageStream(base, prepared.NativeUsage())
-	var estimatedEvents []lipapi.Event
-	for {
-		event, recvErr := stream.Recv(context.Background())
-		if errors.Is(recvErr, io.EOF) {
-			break
-		}
-		if recvErr != nil {
-			t.Fatal(recvErr)
-		}
-		estimatedEvents = append(estimatedEvents, event)
-	}
-	var estimatedCount int
-	for _, event := range estimatedEvents {
-		if event.Kind == lipapi.EventUsageDelta {
-			estimatedCount++
-			if len(event.UsageScopes) != 1 || event.UsageScopes[0].Accounting.Source != lipapi.UsageSourceLocalEstimator || event.UsageScopes[0].Accounting.Authority != lipapi.UsageAuthorityEstimated {
-				t.Fatalf("estimated usage event was not explicitly classified: %#v", event)
-			}
-		}
-	}
-	if estimatedCount != 1 {
-		t.Fatalf("estimated usage events = %d, want exactly one", estimatedCount)
+	accounting := accountingEvidence(prepared.NativeUsage())
+	if accounting.Source != backendplugin.AccountingSourceLocalEstimator || accounting.Authority != backendplugin.AccountingAuthorityEstimated {
+		t.Fatalf("estimated sideband evidence was not explicitly classified: %#v", accounting)
 	}
 }
 

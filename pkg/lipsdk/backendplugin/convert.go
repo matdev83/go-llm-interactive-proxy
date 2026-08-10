@@ -1147,6 +1147,10 @@ func ServerFrameFromProto(p *backendpluginv1.ExecuteServerFrame) (ServerFrame, e
 	if err != nil {
 		return ServerFrame{}, err
 	}
+	accounting, err := accountingEvidenceFromProto(p.GetAccountingEvidence())
+	if err != nil {
+		return ServerFrame{}, err
+	}
 	frame := ServerFrame{
 		Kind:          kind,
 		Sequence:      p.GetSequence(),
@@ -1154,6 +1158,7 @@ func ServerFrameFromProto(p *backendpluginv1.ExecuteServerFrame) (ServerFrame, e
 		Diagnostic:    p.GetDiagnostic(),
 		CancelOutcome: co,
 		Terminal:      term,
+		Accounting:    accounting,
 	}
 	if err := frame.ValidateShape(); err != nil {
 		return ServerFrame{}, err
@@ -1182,14 +1187,57 @@ func ServerFrameToProto(f ServerFrame) (*backendpluginv1.ExecuteServerFrame, err
 	if err != nil {
 		return nil, err
 	}
+	accounting, err := accountingEvidenceToProto(f.Accounting)
+	if err != nil {
+		return nil, err
+	}
 	return &backendpluginv1.ExecuteServerFrame{
-		Kind:          kind,
-		Sequence:      f.Sequence,
-		Event:         ev,
-		Diagnostic:    f.Diagnostic,
-		CancelOutcome: co,
-		Terminal:      term,
+		Kind:               kind,
+		Sequence:           f.Sequence,
+		Event:              ev,
+		Diagnostic:         f.Diagnostic,
+		CancelOutcome:      co,
+		Terminal:           term,
+		AccountingEvidence: accounting,
 	}, nil
+}
+
+func accountingEvidenceFromProto(p *backendpluginv1.AccountingEvidence) (*AccountingEvidence, error) {
+	if p == nil {
+		return nil, nil
+	}
+	source, err := accountingSourceFromProto(p.GetSource())
+	if err != nil {
+		return nil, err
+	}
+	authority, err := accountingAuthorityFromProto(p.GetAuthority())
+	if err != nil {
+		return nil, err
+	}
+	plane, err := accountingPlaneFromProto(p.GetPlane())
+	if err != nil {
+		return nil, err
+	}
+	return &AccountingEvidence{InputTokens: p.InputTokens, OutputTokens: p.OutputTokens, CacheReadTokens: p.CacheReadTokens, CacheWriteTokens: p.CacheWriteTokens, ReasoningTokens: p.ReasoningTokens, TotalTokens: p.TotalTokens, Presence: UsagePresenceFromProto(p.GetPresence()), Source: source, Authority: authority, Plane: plane, DedupeKey: p.GetDedupeKey()}, nil
+}
+
+func accountingEvidenceToProto(e *AccountingEvidence) (*backendpluginv1.AccountingEvidence, error) {
+	if e == nil {
+		return nil, nil
+	}
+	source, err := accountingSourceToProto(e.Source)
+	if err != nil {
+		return nil, err
+	}
+	authority, err := accountingAuthorityToProto(e.Authority)
+	if err != nil {
+		return nil, err
+	}
+	plane, err := accountingPlaneToProto(e.Plane)
+	if err != nil {
+		return nil, err
+	}
+	return &backendpluginv1.AccountingEvidence{InputTokens: e.InputTokens, OutputTokens: e.OutputTokens, CacheReadTokens: e.CacheReadTokens, CacheWriteTokens: e.CacheWriteTokens, ReasoningTokens: e.ReasoningTokens, TotalTokens: e.TotalTokens, Presence: UsagePresenceToProto(e.Presence), Source: source, Authority: authority, Plane: plane, DedupeKey: e.DedupeKey}, nil
 }
 
 // RuntimePolicyFromProto converts runtime policy.

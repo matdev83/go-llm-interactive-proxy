@@ -33,6 +33,10 @@ type releaseMeta struct {
 	Version             string   `yaml:"version"`
 	BuildID             string   `yaml:"build_id"`
 	Tag                 string   `yaml:"tag"`
+	ProtocolMajor       uint32   `yaml:"protocol_major"`
+	ProtocolMinMinor    uint32   `yaml:"protocol_min_minor"`
+	ProtocolMaxMinor    uint32   `yaml:"protocol_max_minor"`
+	ProtocolFeatures    []string `yaml:"protocol_features"`
 	Profiles            []string `yaml:"profiles"`
 	PublishedRootModule string   `yaml:"published_root_module"`
 	ReplacePolicy       string   `yaml:"replace_policy"`

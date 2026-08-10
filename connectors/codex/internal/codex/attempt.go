@@ -7,11 +7,13 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/routingstub"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/streampeek"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 )
 
 type codexOpenEnv struct {
@@ -125,8 +127,8 @@ func cloneUsageEvidence(src *NativeUsageEvidence) *NativeUsageEvidence {
 	return &dst
 }
 
-func (env *codexOpenEnv) wrapNativeUsage(stream lipapi.ManagedEventStream) lipapi.ManagedEventStream {
-	if env == nil || stream == nil || env.nativeUsage == nil {
+func (env *codexOpenEnv) wrapNativeUsage(stream lipapi.ManagedEventStream, openErr error) lipapi.ManagedEventStream {
+	if env == nil || env.nativeUsage == nil {
 		return stream
 	}
 	usage := cloneUsageEvidence(env.nativeUsage)
@@ -134,7 +136,117 @@ func (env *codexOpenEnv) wrapNativeUsage(stream lipapi.ManagedEventStream) lipap
 	// retry rebuilds env from its immutable baseline and gets its own evidence;
 	// Recv retries and Close cannot emit this evidence a second time.
 	env.nativeUsage = nil
-	return newNativeUsageStream(stream, usage)
+	if usage.DedupeKey == "" {
+		usage.DedupeKey = "codex-compaction:" + env.convID
+	}
+	return newNativeUsageSidebandStream(stream, usage, openErr)
+}
+
+type nativeUsageSidebandStream struct {
+	lipapi.ManagedEventStream
+	mu          sync.Mutex
+	evidence    []backendplugin.AccountingEvidence
+	openErr     error
+	errReturned bool
+}
+
+func (s *nativeUsageSidebandStream) DrainUsageEvidence() []lipapi.Event {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.evidence) == 0 {
+		return nil
+	}
+	usage := s.evidence[0]
+	s.evidence = nil
+	ev := lipapi.Event{Kind: lipapi.EventUsageDelta, UsagePresence: usage.Presence, Accounting: lipapi.UsageAccountingMetadata{Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSource(usage.Source), Authority: lipapi.UsageAuthority(usage.Authority), DedupeKey: usage.DedupeKey}}
+	if usage.InputTokens != nil {
+		ev.InputTokens = int(*usage.InputTokens)
+	}
+	if usage.OutputTokens != nil {
+		ev.OutputTokens = int(*usage.OutputTokens)
+	}
+	if usage.TotalTokens != nil {
+		ev.TotalTokens = int(*usage.TotalTokens)
+	}
+	return []lipapi.Event{ev}
+}
+
+func (s *nativeUsageSidebandStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if s == nil {
+		return lipapi.Event{}, io.EOF
+	}
+	s.mu.Lock()
+	if s.ManagedEventStream == nil && s.openErr != nil && !s.errReturned {
+		s.errReturned = true
+		err := s.openErr
+		s.mu.Unlock()
+		return lipapi.Event{}, err
+	}
+	inner := s.ManagedEventStream
+	s.mu.Unlock()
+	if inner == nil {
+		return lipapi.Event{}, io.EOF
+	}
+	return inner.Recv(ctx)
+}
+
+func (s *nativeUsageSidebandStream) Close() error {
+	if s == nil || s.ManagedEventStream == nil {
+		return nil
+	}
+	return s.ManagedEventStream.Close()
+}
+
+func (s *nativeUsageSidebandStream) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+	if s == nil || s.ManagedEventStream == nil {
+		return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
+	}
+	return s.ManagedEventStream.Cancel(ctx, cause)
+}
+
+func newNativeUsageSidebandStream(inner lipapi.ManagedEventStream, usage *NativeUsageEvidence, openErr error) lipapi.ManagedEventStream {
+	if usage == nil || !usage.UsagePresence.Any() && usage.InputTokens == 0 && usage.OutputTokens == 0 && usage.TotalTokens == 0 {
+		return inner
+	}
+	return &nativeUsageSidebandStream{
+		ManagedEventStream: inner,
+		evidence:           []backendplugin.AccountingEvidence{accountingEvidence(usage)},
+		openErr:            openErr,
+	}
+}
+
+func (s *nativeUsageSidebandStream) DrainAccountingEvidence() []backendplugin.AccountingEvidence {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.evidence) == 0 {
+		return nil
+	}
+	out := append([]backendplugin.AccountingEvidence(nil), s.evidence...)
+	s.evidence = nil
+	return out
+}
+
+func accountingEvidence(usage *NativeUsageEvidence) backendplugin.AccountingEvidence {
+	e := backendplugin.AccountingEvidence{Presence: usage.UsagePresence, Source: backendplugin.AccountingSource(usage.Source), Authority: backendplugin.AccountingAuthority(usage.Authority), Plane: backendplugin.AccountingPlaneProviderBillable, DedupeKey: usage.DedupeKey}
+	if usage.UsagePresence.InputTokens {
+		v := usage.InputTokens
+		e.InputTokens = &v
+	}
+	if usage.UsagePresence.OutputTokens {
+		v := usage.OutputTokens
+		e.OutputTokens = &v
+	}
+	if usage.UsagePresence.TotalTokens {
+		v := usage.TotalTokens
+		e.TotalTokens = &v
+	}
+	return e
 }
 
 // releaseVerbosityTurn undoes a turn reserved during prepare when the open

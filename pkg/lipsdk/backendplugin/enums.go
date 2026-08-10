@@ -119,12 +119,40 @@ const (
 type ServerFrameKind string
 
 const (
-	ServerFrameUnspecified   ServerFrameKind = ""
-	ServerFrameAccepted      ServerFrameKind = "accepted"
-	ServerFrameEvent         ServerFrameKind = "event"
-	ServerFrameDiagnostic    ServerFrameKind = "diagnostic"
-	ServerFrameCancelOutcome ServerFrameKind = "cancel_outcome"
-	ServerFrameTerminal      ServerFrameKind = "terminal"
+	ServerFrameUnspecified        ServerFrameKind = ""
+	ServerFrameAccepted           ServerFrameKind = "accepted"
+	ServerFrameEvent              ServerFrameKind = "event"
+	ServerFrameDiagnostic         ServerFrameKind = "diagnostic"
+	ServerFrameCancelOutcome      ServerFrameKind = "cancel_outcome"
+	ServerFrameTerminal           ServerFrameKind = "terminal"
+	ServerFrameAccountingEvidence ServerFrameKind = "accounting_evidence"
+)
+
+type AccountingSource string
+
+const (
+	AccountingSourceUnknown          AccountingSource = ""
+	AccountingSourceProviderReported AccountingSource = "provider_reported"
+	AccountingSourceProviderCountAPI AccountingSource = "provider_count_api"
+	AccountingSourceLocalEstimator   AccountingSource = "local_estimator"
+	AccountingSourceLocalTokenizer   AccountingSource = "local_tokenizer"
+)
+
+type AccountingAuthority string
+
+const (
+	AccountingAuthorityUnknown       AccountingAuthority = ""
+	AccountingAuthorityAuthoritative AccountingAuthority = "authoritative"
+	AccountingAuthorityEstimated     AccountingAuthority = "estimated"
+	AccountingAuthorityDelegated     AccountingAuthority = "delegated"
+	AccountingAuthorityAdvisory      AccountingAuthority = "advisory"
+)
+
+type AccountingPlane string
+
+const (
+	AccountingPlaneUnknown          AccountingPlane = ""
+	AccountingPlaneProviderBillable AccountingPlane = "provider_billable"
 )
 
 // EventKind identifies a canonical stream event (alias of lipapi.EventKind).
