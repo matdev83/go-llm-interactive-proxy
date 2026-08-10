@@ -189,7 +189,7 @@ The critical concurrency invariant is turn-level snapshot isolation. An admitted
 
 #### Acceptance Criteria
 
-9.1. The protected override-state read operation shall return the A-leg ID, active/inactive state, current revision, update time, and active raw selector when authorized.
+9.1. The protected override-state read operation shall return the A-leg ID, active/inactive state, current revision, update time when the revision is non-zero, and the raw selector only when the override is active and the caller is authorized.
 
 9.2. When a turn is executed, bounded routing diagnostics shall make it possible to determine whether an admin override was active and which override revision was snapshotted without requiring raw prompt content.
 
