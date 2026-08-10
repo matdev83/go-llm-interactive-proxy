@@ -5,9 +5,18 @@ for every local edit.
 
 ## Local fast loop
 
-Use `make test-fast` for quality checks plus tests selected from staged Go files.
-The pre-commit hook also runs staged tests and the staged race scan. Full lint and
-vulnerability analysis are intentionally not run by default.
+Use `make test-fast` for the lightweight guard checks plus the complete root
+module test graph. It intentionally does not select only staged packages: shared
+package changes can break reverse dependents, while Go's native build/test cache
+makes unchanged packages inexpensive on repeat runs. The pre-commit hook uses
+the same complete graph with the `precommit` tag and also runs the staged race
+scan. Full lint and vulnerability analysis are intentionally not run by default.
+
+`make quality-checks` remains the standalone full quality gate, including an
+explicit build, vet, and architecture test. `make test`, `make test-fast`, and
+`make qa` use `quality-checks-fast`, which retains formatting, module integrity,
+and non-Go guardrails while leaving compilation/vet/architecture evidence to
+the immediately following Go test target instead of repeating it.
 
 Use `make precommit-full` when a local commit should reproduce the full lint and
 `govulncheck ./...` portion of the quality gate.
@@ -48,7 +57,8 @@ invalidate it.
 
 OpenResponses coverage keeps the existing thresholds. The timing-sensitive
 frontend package is measured with three serialized uncached runs and the coverage
-profile is aggregated by Go; normal test and QA commands are unchanged.
+profile is aggregated by Go. Normal test and QA semantics are unchanged; only
+local duplicate compilation and guard scheduling are reduced.
 
 ## Scheduled and release validation
 

@@ -97,7 +97,7 @@ func TestWindowsTaskReliability_WindowsRoutes(t *testing.T) {
 			t.Errorf("target %q has no explicit Windows runner/script route", target)
 		}
 	}
-	if !strings.Contains(makefile, "qa: quality-checks qa-tests lint vuln backend-plugin-release-gates-static") {
+	if !strings.Contains(makefile, "qa: quality-checks-fast qa-tests lint vuln backend-plugin-release-gates-static") {
 		t.Fatal("qa must retain its approved Windows-routed prerequisite classification")
 	}
 

@@ -119,41 +119,64 @@ fi
 echo "OK: Module check passed"
 echo ""
 
-echo "[3/7] Checking build..."
-if ! go build "${QUALITY_PACKAGES[@]}"; then
-	echo "ERROR: Build failed"
-	exit 1
-fi
-echo "OK: Build check passed"
-echo ""
-
-echo "[4/7] Running go vet..."
-if ! go vet "${QUALITY_PACKAGES[@]}"; then
-	echo "ERROR: go vet failed"
-	exit 1
-fi
-echo "OK: Vet check passed"
-echo ""
-
 script_dir=$(cd "$(dirname "$0")" && pwd)
-echo "[5/7] Ad-hoc goroutine allowlist (non-test)..."
-if ! bash "$script_dir/check-adhoc-goroutines.sh"; then
-	exit 1
-fi
-echo ""
 
-echo "[6/7] Regex hot-path check (regexp compile in frontends/runtime)..."
-if ! bash "$script_dir/regex-hotpath-check.sh"; then
-	exit 1
-fi
-echo ""
+if [ "${LIP_SKIP_GO_COMPILE_CHECKS:-}" = "1" ]; then
+	echo "Skipping standalone build/vet: the following go test target owns compilation and curated vet checks."
+else
+	echo "[3/7] Checking build..."
+	if ! go build "${QUALITY_PACKAGES[@]}"; then
+		echo "ERROR: Build failed"
+		exit 1
+	fi
+	echo "OK: Build check passed"
+	echo ""
 
-echo "[7/7] Architecture guardrails (line budgets, no init in bundle path)..."
-# Match the test-unit flags (make GO_TEST_FLAGS) so `make test`/`make qa`
-# reuse this run's result cache instead of executing archtest twice.
-if ! go test -parallel=8 -timeout=10m ./internal/archtest/...; then
-	echo "ERROR: internal/archtest failed"
-	exit 1
+	echo "[4/7] Running go vet..."
+	if ! go vet "${QUALITY_PACKAGES[@]}"; then
+		echo "ERROR: go vet failed"
+		exit 1
+	fi
+	echo "OK: Vet check passed"
+	echo ""
+fi
+
+echo "[5-7/7] Running independent guardrails in parallel..."
+guard_tmp=$(mktemp -d "${TMPDIR:-/tmp}/lip-quality.XXXXXX")
+guard_cleanup() { rm -rf "$guard_tmp"; }
+trap guard_cleanup EXIT
+
+declare -A guard_pids=( )
+run_guard() {
+	local name="$1"
+	shift
+	"$@" >"$guard_tmp/${name}.log" 2>&1 &
+	guard_pids["$name"]=$!
+}
+
+run_guard adhoc bash "$script_dir/check-adhoc-goroutines.sh"
+run_guard regex bash "$script_dir/regex-hotpath-check.sh"
+if [ "${LIP_SKIP_ARCHTEST:-}" != "1" ]; then
+	# Match the test-unit flags (make GO_TEST_FLAGS) so the standalone
+	# quality-checks archtest run shares Go's build/test cache with
+	# subsequent `make test`/`make qa` executions (see #291).
+	run_guard archtest go test -parallel=8 -timeout=10m ./internal/archtest/...
+fi
+
+status=0
+for name in "${!guard_pids[@]}"; do
+	if ! wait "${guard_pids[$name]}"; then
+		status=1
+	fi
+done
+
+for name in "${!guard_pids[@]}"; do
+	echo "--- ${name} ---"
+	cat "$guard_tmp/${name}.log"
+done
+if [ "$status" -ne 0 ]; then
+	echo "ERROR: one or more parallel guardrails failed"
+	exit "$status"
 fi
 echo ""
 

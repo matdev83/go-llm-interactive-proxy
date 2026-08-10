@@ -1,5 +1,7 @@
 # test-staged.ps1
-# Run tests for packages touched by staged Go files; otherwise ./...
+# Run the complete root-module test graph through Go's native build/test cache.
+# The full graph is intentional: staged-package filtering can miss reverse
+# dependencies affected by a changed package.
 
 param(
     [switch]$Verbose = $false
@@ -7,58 +9,21 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# When set (e.g. by quality-gate), run one go test with -tags=precommit and always include
-# internal/qa + core/runtime so pre-commit does not run two separate test compilations.
-$precommitMode = $env:LIP_TEST_PRECOMMIT -match '^(?i:1|true|yes|on)$'
+# When set (e.g. by quality-gate), include the precommit-only regression and
+# hygiene tests in the same cached root-graph invocation.
 $preFlags = @()
-if ($precommitMode) {
+if ($env:LIP_TEST_PRECOMMIT -match '^(?i:1|true|yes|on)$') {
     $preFlags = @("-tags=precommit")
 }
 
-$stagedFilesRaw = git diff --cached --name-only --diff-filter=ACMRD 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Error getting staged files. Running all tests..." -ForegroundColor Yellow
-    go test -parallel=8 ./...
-    exit $LASTEXITCODE
-}
-
-$stagedFiles = @($stagedFilesRaw | Where-Object { $_ -and $_.Trim() })
-$goFiles = @($stagedFiles | Where-Object { $_ -match '\.go$' -and $_ -notmatch '_test\.go$' })
-$testFiles = @($stagedFiles | Where-Object { $_ -match '_test\.go$' })
-
-if (-not $goFiles -and -not $testFiles) {
-    Write-Host "No Go files staged. Running all tests..." -ForegroundColor Cyan
-    go test -parallel=8 @preFlags ./...
-    exit $LASTEXITCODE
-}
-
-$packages = New-Object System.Collections.Generic.HashSet[string]
-foreach ($file in ($goFiles + $testFiles)) {
-    $file = $file -replace '\\', '/'
-    $dir = Split-Path -Parent $file
-    if ($dir) {
-        [void]$packages.Add("./$dir/...")
-    }
-}
-
-if ($packages.Count -eq 0) {
-    Write-Host "No packages identified. Running all tests..." -ForegroundColor Cyan
-    go test -parallel=8 @preFlags ./...
-    exit $LASTEXITCODE
-}
-
-if ($precommitMode) {
-    [void]$packages.Add("./internal/qa/...")
-    [void]$packages.Add("./internal/core/runtime/...")
-}
-
-Write-Host "Testing packages:" -ForegroundColor Green
-foreach ($pkg in $packages) {
-    Write-Host "  - $pkg" -ForegroundColor Cyan
+Write-Host "Testing complete root-module package graph (Go build/test cache enabled)" -ForegroundColor Green
+if ($preFlags.Count -gt 0) {
+    Write-Host "Test tags: $($preFlags -join ' ')" -ForegroundColor Cyan
 }
 Write-Host ""
 
-$packageList = @($packages)
-# Omit -count=1 so Go's test result cache can skip unchanged packages on repeat runs (build cache is always on via GOCACHE).
-go test -parallel=8 @preFlags @packageList
+# Deliberately omit -count=1. Go can reuse package builds and successful test
+# results, while ./... catches downstream packages that staged-only selection
+# would miss after a shared-package change.
+go test -parallel=8 @preFlags ./...
 exit $LASTEXITCODE

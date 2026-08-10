@@ -25,6 +25,33 @@ func TestCIIterationSpeed_ModuleTidyUsesBoundedParallelism(t *testing.T) {
 	}
 }
 
+func TestCIIterationSpeed_LocalMakeGraphKeepsFastAndFullQualityContracts(t *testing.T) {
+	t.Parallel()
+	makefile := readRepositoryFile(t, "Makefile")
+	for _, needle := range []string{
+		"quality-checks-fast:",
+		"test: quality-checks-fast test-unit parity-checks",
+		"test-fast: quality-checks-fast",
+		"qa: quality-checks-fast qa-tests",
+	} {
+		if !strings.Contains(makefile, needle) {
+			t.Fatalf("Makefile missing local speed/coverage contract %q", needle)
+		}
+	}
+	if !strings.Contains(readRepositoryFile(t, "scripts", "test-staged.sh"), "go test -parallel=8 \"${pre_flags[@]}\" ./...") {
+		t.Fatal("POSIX test-staged route must run the complete cached root graph")
+	}
+	if !strings.Contains(readRepositoryFile(t, "scripts", "test-staged.ps1"), "go test -parallel=8 @preFlags ./...") {
+		t.Fatal("Windows test-staged route must run the complete cached root graph")
+	}
+	for _, name := range []string{"scripts/quality-checks.sh", "scripts/quality-checks.ps1"} {
+		text := readRepositoryFile(t, strings.Split(name, "/")...)
+		if !strings.Contains(text, "LIP_SKIP_GO_COMPILE_CHECKS") {
+			t.Fatalf("%s must expose the explicit duplicate-build/vet fast-path switch", name)
+		}
+	}
+}
+
 func TestCIIterationSpeed_WorkflowConcurrencyAndCaches(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{

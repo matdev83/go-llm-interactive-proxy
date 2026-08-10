@@ -158,7 +158,7 @@ The rows are the complete names from `Makefile` line 1. `Windows-supported bound
 |---|---|---|
 | `help` | Windows-supported bounded | output only |
 | `test` | Windows-supported bounded | quality, unit, parity prerequisites; no graph aggregate claim |
-| `test-fast` | Windows-supported bounded | staged script route |
+| `test-fast` | Windows-supported bounded | complete root-graph cached test route |
 | `precommit-full` | Windows-supported bounded | full precommit verification pipeline |
 | `test-unit` | Windows-supported bounded | root Go tests with outer phase budget |
 | `test-precommit-extra` | Windows-supported bounded | precommit hygiene/executor matrix |
@@ -186,6 +186,7 @@ The rows are the complete names from `Makefile` line 1. `Windows-supported bound
 | `pgo-profile` | opt-in/BLOCKED prerequisite | developer workload required; not a default gate |
 | `pgo-build` | Windows-supported bounded | local build |
 | `quality-checks` | Windows-supported bounded | PowerShell/runner quality phases |
+| `quality-checks-fast` | Windows-supported bounded | inline Windows route; omits duplicate Go compile/vet/archtest before the following test target |
 | `regex-hotpath-check` | Windows-supported bounded | native script |
 | `arch-report` | Windows-supported bounded | `go run` child is parent/runner bounded |
 | `qa` | Windows-supported bounded | required quality/tagged/lint/vuln/static gates; missing tools fail |

@@ -130,7 +130,7 @@ func TestBoundedOrchestration_StaticAndFullProfiles(t *testing.T) {
 	if !strings.Contains(makefile, "backend-plugin-release-gates: backend-plugin-release-gates-static") {
 		t.Fatal("full release mode must build on the static release gate")
 	}
-	if !strings.Contains(makefile, "qa: quality-checks qa-tests lint vuln backend-plugin-release-gates-static") {
+	if !strings.Contains(makefile, "qa: quality-checks-fast qa-tests lint vuln backend-plugin-release-gates-static") {
 		t.Fatal("make qa must keep static-only release wiring (full profile stays opt-in)")
 	}
 	if strings.Contains(makefile, "backend-plugin-release-gates-static: backend-plugin-release-gates") {

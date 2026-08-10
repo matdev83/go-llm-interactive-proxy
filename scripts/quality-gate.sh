@@ -26,10 +26,12 @@ if grep -Eq '(^|/)(go\.mod|go\.sum)$' <<< "$staged_files"; then
 fi
 
 echo "Running quality checks..."
-bash "$SCRIPT_DIR/quality-checks.sh"
+# The following cached root test owns compilation, curated vet, and the
+# architecture package; avoid repeating those expensive Go phases in the hook.
+LIP_SKIP_GO_COMPILE_CHECKS=1 LIP_SKIP_ARCHTEST=1 bash "$SCRIPT_DIR/quality-checks.sh"
 
 echo ""
-echo "Running test suite (staged packages + precommit matrices in one go test)..."
+echo "Running complete root test suite with precommit tags (Go cache enabled)..."
 env LIP_TEST_PRECOMMIT=1 bash "$SCRIPT_DIR/test-staged.sh"
 
 echo ""
