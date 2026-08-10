@@ -5,6 +5,25 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 export GOWORK=off
+# Local worktrees may not have VCS metadata usable by Go's build stamping.
+# Preserve caller/CI GOFLAGS so release checks retain normal stamping behavior.
+if [[ "${LIP_DISABLE_VCS_STAMPING:-}" == "1" && -z "${GOFLAGS:-}" ]]; then
+  export GOFLAGS=-buildvcs=false
+fi
+
+TOOL_TMP="$(mktemp -d "${TMPDIR:-/tmp}/golip-module-tools.XXXXXX")"
+SYN=""
+TMP=""
+cleanup_all() {
+  [[ -z "$SYN" ]] || rm -rf "$SYN"
+  [[ -z "$TMP" ]] || rm -rf "$TMP"
+  rm -rf "$TOOL_TMP"
+}
+trap cleanup_all EXIT
+
+DISCOVER_MODULES_BIN="$TOOL_TMP/discover_modules"
+go build -o "$DISCOVER_MODULES_BIN" ./tools/backendplugin/discover_modules
+export LIP_DISCOVER_MODULES_BIN="$DISCOVER_MODULES_BIN"
 
 echo "== root go list/build/module graph =="
 go list ./... >/dev/null
@@ -18,45 +37,21 @@ fi
 echo "== root go test ./... =="
 go test ./...
 
-echo "== discover modules =="
-mapfile -t MODS < <(go run ./tools/backendplugin/discover_modules -root .)
-echo "discovered: ${MODS[*]:-}"
-
-for mod in "${MODS[@]:-}"; do
-  [ -n "$mod" ] || continue
-  echo "== module $mod =="
-  (
-    cd "$mod"
-    go list ./...
-    go test ./...
-    if [ -d cmd ]; then
-      for d in cmd/*/; do
-        [ -d "$d" ] || continue
-        go build -o /dev/null "./${d%/}"
-      done
-    fi
-    if go list -f '{{.ImportPath}} {{.Imports}} {{.TestImports}} {{.XTestImports}}' ./... | grep 'go-llm-interactive-proxy/internal/' >/dev/null; then
-      echo "$mod imports root internal/" >&2
-      exit 1
-    fi
-  )
-done
+echo "== discovered module tidy/tests/builds =="
+LIP_MODULE_CHECK_JOBS="${LIP_MODULE_CHECK_JOBS:-4}" bash "$ROOT/scripts/check-all-modules.sh"
 
 echo "== synthetic connector discovery =="
 SYN="$ROOT/connectors/_synthetic_ci_probe"
 mkdir -p "$SYN"
 printf 'module github.com/matdev83/go-llm-interactive-proxy/connectors/_synthetic_ci_probe\n\ngo 1.26.5\n' >"$SYN/go.mod"
-cleanup_syn() { rm -rf "$SYN"; }
-trap cleanup_syn EXIT
-FOUND="$(go run ./tools/backendplugin/discover_modules -root .)"
+FOUND="$("$DISCOVER_MODULES_BIN" -root "$ROOT")"
 echo "$FOUND" | grep -q 'connectors/_synthetic_ci_probe'
-cleanup_syn
-trap - EXIT
+
+rm -rf "$SYN"
+SYN=""
 
 echo "== root build with connectors/ absent (temp copy) =="
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/golip-root-no-connectors.XXXXXX")"
-cleanup_tmp() { rm -rf "$TMP"; }
-trap cleanup_tmp EXIT
 if command -v rsync >/dev/null 2>&1; then
   rsync -a --exclude '.git' --exclude 'connectors' --exclude 'connector-support' \
     --exclude '.golip-package-staging' --exclude '.golip-plugins' \

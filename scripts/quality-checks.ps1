@@ -33,7 +33,7 @@ function Test-UnderNestedGoModule {
 }
 
 function Get-QualityPackages {
-    $stagedGoFiles = @(git diff --cached --name-only --diff-filter=ACMR 2>$null | Where-Object { $_ -match '\.go$' })
+    $stagedGoFiles = @(git diff --cached --name-only --diff-filter=ACMRD 2>$null | Where-Object { $_ -match '\.go$' })
     if (-not $stagedGoFiles -or $stagedGoFiles.Count -eq 0) {
         return @("./...")
     }
