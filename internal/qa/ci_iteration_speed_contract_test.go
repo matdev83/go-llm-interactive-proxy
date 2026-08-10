@@ -83,7 +83,9 @@ func TestCIIterationSpeed_MatrixScopeProbeAndDedicatedCaches(t *testing.T) {
 	}
 
 	// The shared setup-go cache is a frozen first-write-wins partial snapshot;
-	// every workflow that runs heavy Go work must own a dedicated complete cache.
+	// every workflow that runs heavy Go work must own a dedicated complete cache
+	// and must keep the shared setup-go cache disabled (cache: false) so it can
+	// never be re-enabled and silently re-freeze the partial snapshot.
 	for _, pair := range []struct {
 		workflow, key string
 	}{
@@ -98,6 +100,7 @@ func TestCIIterationSpeed_MatrixScopeProbeAndDedicatedCaches(t *testing.T) {
 			"actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
 			"actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
 			pair.key + "${{ runner.os }}",
+			"cache: false",
 		} {
 			if !strings.Contains(text, needle) {
 				t.Errorf("%s missing dedicated cache contract %q", pair.workflow, needle)
