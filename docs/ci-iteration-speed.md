@@ -55,6 +55,25 @@ module sums) wherever a workflow invokes Go. This makes dependency changes
 invalidate the relevant cache without requiring unrelated source changes to
 invalidate it.
 
+The shared `setup-go` cache key is a first-write-wins snapshot: whichever job
+finishes first stores it, and jobs that restore the primary key never re-save.
+In practice this froze a ~91 MB partial snapshot that forced the full module
+graph to re-download and every package's export data to recompile on each PR
+(observed ~5 min in the QA archtest step alone). The heavy PR gates now own
+dedicated caches (`actions/cache` with `go-cache-qa-*` / `go-cache-ci-*` keys,
+seeded from the shared snapshot via `restore-keys`) so the complete module and
+build cache is preserved between runs.
+
+The 3-OS matrix workflows (backend-plugin cross-platform, ACP process-tree,
+cursor-sdk platform smoke) consult `scripts/makefile-scope.sh` before running.
+Because they also trigger on any `Makefile` change, the probe diffs the Makefile
+and answers whether the change touches scope-relevant targets/recipes
+(`acp|cursorcliacp`, `backend-plugin`, `cursor-sdk|cursorsdk`). Unrelated
+Makefile edits (help text, other targets, `.PHONY`-only changes) no longer burn
+the expensive matrices; genuine target/recipe changes, connector paths, and
+non-PR events still run them. The probe fails open on unknown bases so coverage
+is never skipped.
+
 OpenResponses coverage keeps the existing thresholds. The timing-sensitive
 frontend package is measured with three serialized uncached runs and the coverage
 profile is aggregated by Go. Normal test and QA semantics are unchanged; only

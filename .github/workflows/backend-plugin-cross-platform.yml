@@ -41,6 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       select: ${{ steps.select.outputs.select }}
+      relevant: ${{ steps.classify.outputs.relevant }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -59,8 +60,45 @@ jobs:
           else
             echo "select=$(bash scripts/cross-platform-selection.sh "$BASE_SHA" HEAD)" >> "$GITHUB_OUTPUT"
           fi
+      - name: Classify matrix relevance
+        id: classify
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          # Non-PR events and manual dispatches have no base SHA: always run.
+          if [[ "$EVENT_NAME" != "pull_request" || -z "$BASE_SHA" ]]; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          relevant=false
+          while IFS= read -r file; do
+            case "$file" in
+              go.mod|go.sum|*/go.mod|*/go.sum|connectors/**|connector-support/**|tools/backendplugin/**|internal/infra/backendplugins/**|internal/archtest/backend_plugin_cross_platform_ci_test.go|.github/workflows/backend-plugin-cross-platform.yml)
+                relevant=true
+                break
+                ;;
+              Makefile)
+                # Only a Makefile diff touching backend-plugin targets/recipes
+                # justifies the native matrix; other Makefile edits must not burn it.
+                # Fail open: only an explicit exit 1 (no scope-relevant lines) may skip.
+                probe_rc=0
+                bash scripts/makefile-scope.sh --relevant "$BASE_SHA" HEAD backend-plugin || probe_rc=$?
+                if [[ "$probe_rc" != "1" ]]; then
+                  relevant=true
+                  break
+                fi
+                ;;
+            esac
+          done < <(git diff --name-only "$BASE_SHA" HEAD)
+          echo "relevant=$relevant" >> "$GITHUB_OUTPUT"
   cross-platform-qa:
     needs: changes
+    if: always()
+    # Required check convention: always run the job and skip the steps so an
+    # unrelated PR reports success (not skip), never blocking the merge.
     strategy:
       fail-fast: false
       matrix:
@@ -68,12 +106,21 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
+      - name: Fail closed if scope detection failed
+        if: needs.changes.result != 'success'
+        shell: bash
+        run: |
+          echo "Backend-plugin scope detection failed; refusing to bypass native matrix evidence." >&2
+          exit 1
+
       - name: Checkout
+        if: needs.changes.outputs.relevant == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Setup Go
+        if: needs.changes.outputs.relevant == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -84,7 +131,14 @@ jobs:
             connector-support/**/go.sum
 
       - name: Cross-platform QA
+        if: needs.changes.outputs.relevant == 'true'
         env:
           CROSS_PLATFORM_SELECT: ${{ needs.changes.outputs.select }}
           GOFLAGS: -buildvcs=false
         run: make backend-plugin-cross-platform-qa
+
+      - name: Report unrelated matrix bypass
+        if: needs.changes.outputs.relevant != 'true'
+        shell: bash
+        run: |
+          echo "Cross-platform QA bypassed: no connector/backend-plugin-relevant changes detected."

@@ -52,6 +52,57 @@ func TestCIIterationSpeed_LocalMakeGraphKeepsFastAndFullQualityContracts(t *test
 	}
 }
 
+func TestCIIterationSpeed_MatrixScopeProbeAndDedicatedCaches(t *testing.T) {
+	t.Parallel()
+
+	probe := readRepositoryFile(t, "scripts", "makefile-scope.sh")
+	for _, needle := range []string{
+		"--relevant BASE_SHA HEAD_SHA SCOPE",
+		"--self-test",
+		"acp|cursorcliacp",
+		"backend-plugin",
+		"cursor-sdk|cursorsdk",
+		".PHONY mega-line",
+	} {
+		if !strings.Contains(probe, needle) {
+			t.Fatalf("scripts/makefile-scope.sh missing contract %q", needle)
+		}
+	}
+
+	// Expensive 3-OS matrices must consult the probe before running so an
+	// unrelated Makefile edit cannot burn the matrix.
+	for _, name := range []string{
+		"backend-plugin-cross-platform.yml",
+		"acp-process-tree.yml",
+		"cursor-sdk-platform.yml",
+	} {
+		text := readRepositoryFile(t, ".github", "workflows", name)
+		if !strings.Contains(text, "scripts/makefile-scope.sh") {
+			t.Errorf("%s does not consult the Makefile relevance probe", name)
+		}
+	}
+
+	// The QA/CI shared setup-go cache is a frozen first-write-wins partial
+	// snapshot; the heavy PR gates must own a dedicated complete cache.
+	for _, pair := range []struct {
+		workflow, key string
+	}{
+		{"qa.yml", "go-cache-qa-"},
+		{"ci.yml", "go-cache-ci-"},
+	} {
+		text := readRepositoryFile(t, ".github", "workflows", pair.workflow)
+		for _, needle := range []string{
+			"actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+			"actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+			pair.key + "${{ runner.os }}",
+		} {
+			if !strings.Contains(text, needle) {
+				t.Errorf("%s missing dedicated cache contract %q", pair.workflow, needle)
+			}
+		}
+	}
+}
+
 func TestCIIterationSpeed_WorkflowConcurrencyAndCaches(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{

@@ -34,6 +34,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
+          set -euo pipefail
           if [[ "$EVENT_NAME" != "pull_request" ]]; then
             echo "cursorsdk=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -42,9 +43,20 @@ jobs:
           cursorsdk=false
           while IFS= read -r file; do
             case "$file" in
-              connectors/cursorsdk/*|scripts/test-cursor-sdk-platform.*|Makefile|.github/workflows/cursor-sdk-platform.yml)
+              connectors/cursorsdk/*|scripts/test-cursor-sdk-platform.*|.github/workflows/cursor-sdk-platform.yml)
                 cursorsdk=true
                 break
+                ;;
+              Makefile)
+                # Only a Makefile diff touching cursorsdk targets/recipes justifies
+                # the 3-OS platform smoke; other Makefile edits must not burn it.
+                # Fail open: only an explicit exit 1 (no scope-relevant lines) may skip.
+                probe_rc=0
+                bash scripts/makefile-scope.sh --relevant "$BASE_SHA" HEAD cursorsdk || probe_rc=$?
+                if [[ "$probe_rc" != "1" ]]; then
+                  cursorsdk=true
+                  break
+                fi
                 ;;
             esac
           done < <(git diff --name-only "$BASE_SHA" HEAD)

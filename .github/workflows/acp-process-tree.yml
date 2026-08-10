@@ -20,7 +20,58 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect ACP relevance
+    runs-on: ubuntu-latest
+    outputs:
+      relevant: ${{ steps.classify.outputs.relevant }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Classify ACP relevance
+        id: classify
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          # Non-PR events and manual dispatches have no base SHA: always run.
+          if [[ "$EVENT_NAME" != "pull_request" || -z "$BASE_SHA" ]]; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          relevant=false
+          while IFS= read -r file; do
+            case "$file" in
+              connector-support/acp/**|connectors/cursorcliacp/**|internal/archtest/acp_process_tree_ci_test.go|.github/workflows/acp-process-tree.yml)
+                relevant=true
+                break
+                ;;
+              Makefile)
+                # Only a Makefile diff touching ACP-relevant lines justifies the
+                # native matrix; other Makefile edits must not burn it. Fail open:
+                # only an explicit exit 1 (no scope-relevant lines) may skip.
+                probe_rc=0
+                bash scripts/makefile-scope.sh --relevant "$BASE_SHA" HEAD acp || probe_rc=$?
+                if [[ "$probe_rc" != "1" ]]; then
+                  relevant=true
+                  break
+                fi
+                ;;
+            esac
+          done < <(git diff --name-only "$BASE_SHA" HEAD)
+          echo "relevant=$relevant" >> "$GITHUB_OUTPUT"
+
   process-tree:
+    needs: changes
+    if: always()
+    # Required check convention: always run the job and skip the steps so an
+    # unrelated PR reports success (not skip), never blocking the merge.
     strategy:
       fail-fast: false
       matrix:
@@ -28,12 +79,21 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
+      - name: Fail closed if scope detection failed
+        if: needs.changes.result != 'success'
+        shell: bash
+        run: |
+          echo "ACP scope detection failed; refusing to bypass native process-tree evidence." >&2
+          exit 1
+
       - name: Checkout
+        if: needs.changes.outputs.relevant == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Setup Go
+        if: needs.changes.outputs.relevant == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -44,7 +104,7 @@ jobs:
             connectors/cursorcliacp/go.sum
 
       - name: Native process-tree (Unix)
-        if: runner.os != 'Windows'
+        if: needs.changes.outputs.relevant == 'true' && runner.os != 'Windows'
         working-directory: connector-support/acp
         env:
           GOWORK: "off"
@@ -52,7 +112,7 @@ jobs:
         run: go test -count=1 -timeout=10m -run 'KillProcessTree_|ProcessTree_CrossCompile' ./...
 
       - name: Cursor connector (Unix)
-        if: runner.os != 'Windows'
+        if: needs.changes.outputs.relevant == 'true' && runner.os != 'Windows'
         working-directory: connectors/cursorcliacp
         env:
           GOWORK: "off"
@@ -60,7 +120,7 @@ jobs:
         run: go test -count=1 -timeout=10m -run 'TestParity_|TestDescribe_' ./...
 
       - name: Native process-tree (Windows)
-        if: runner.os == 'Windows'
+        if: needs.changes.outputs.relevant == 'true' && runner.os == 'Windows'
         working-directory: connector-support/acp
         env:
           GOWORK: "off"
@@ -68,9 +128,15 @@ jobs:
         run: go test -count=1 -timeout=10m -run "KillProcessTree_|ProcessTree_CrossCompile" ./...
 
       - name: Cursor connector (Windows)
-        if: runner.os == 'Windows'
+        if: needs.changes.outputs.relevant == 'true' && runner.os == 'Windows'
         working-directory: connectors/cursorcliacp
         env:
           GOWORK: "off"
         shell: pwsh
         run: go test -count=1 -timeout=10m -run "TestParity_|TestDescribe_" ./...
+
+      - name: Report unrelated ACP bypass
+        if: needs.changes.outputs.relevant != 'true'
+        shell: bash
+        run: |
+          echo "ACP process-tree matrix bypassed: no ACP-relevant changes detected."
