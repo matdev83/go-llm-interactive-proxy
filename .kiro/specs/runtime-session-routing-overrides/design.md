@@ -597,7 +597,7 @@ The same helper should be used by `buildRoutePlan` so parser/defaulting behavior
 - `404`: A-leg absent.
 - `403`: operator protection failed.
 - `405`: wrong method for handler route.
-- `500/503`: store unavailable according to existing error-mapping convention.
+- `503`: store unavailable.
 
 ### PUT
 
