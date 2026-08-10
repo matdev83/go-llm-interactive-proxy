@@ -291,4 +291,3 @@ func TestParamsForCall_mergesMultipleToolResults(t *testing.T) {
 		t.Fatalf("marshaled params missing tool_use_ids: %s", s)
 	}
 }
-
