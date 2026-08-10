@@ -4,6 +4,7 @@ package qa
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -92,13 +93,35 @@ func TestRootHygiene_NoLooseTextOrLogFiles(t *testing.T) {
 			continue
 		}
 		n := strings.ToLower(entry.Name())
-		if strings.HasSuffix(n, ".txt") || strings.HasSuffix(n, ".log") {
-			bad = append(bad, entry.Name())
+		if !strings.HasSuffix(n, ".txt") && !strings.HasSuffix(n, ".log") {
+			continue
 		}
+		if isGitIgnored(rootDir, entry.Name()) {
+			continue
+		}
+		bad = append(bad, entry.Name())
 	}
 	if len(bad) > 0 {
 		t.Errorf("unexpected .txt/.log files in repo root: %v", bad)
 	}
+}
+
+// isGitIgnored reports whether an untracked repo-root file is matched by git
+// ignore rules. Files covered by .gitignore are local artifacts (agents,
+// builds, logs) that cannot be committed, so they do not violate repo hygiene.
+// A file tracked in the index was deliberately committed and is always
+// reported, as is an untracked file not matched by ignore rules (a plain
+// `git add .` would stage it). When git is unavailable or a check errors,
+// conservatively treat the file as not ignored so violations are still surfaced.
+func isGitIgnored(rootDir, name string) bool {
+	tracked := exec.Command("git", "ls-files", "--error-unmatch", "--", name)
+	tracked.Dir = rootDir
+	if tracked.Run() == nil {
+		return false
+	}
+	ignored := exec.Command("git", "check-ignore", "-q", name)
+	ignored.Dir = rootDir
+	return ignored.Run() == nil
 }
 
 func projectRoot() (string, error) {
