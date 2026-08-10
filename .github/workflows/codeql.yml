@@ -52,7 +52,8 @@ jobs:
   analyze:
     name: Analyze (Go)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    # Required status check: see ci.yml repo-hygiene. Always run the job so
+    # the check reports success (not skip) on docs-only PRs; guard steps.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -61,20 +62,24 @@ jobs:
       packages: read
     steps:
       - name: Check out repository
+        if: needs.changes.outputs.code == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Initialize CodeQL
+        if: needs.changes.outputs.code == 'true'
         uses: github/codeql-action/init@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
         with:
           languages: go
           queries: security-extended
 
       - name: Build
+        if: needs.changes.outputs.code == 'true'
         uses: github/codeql-action/autobuild@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
 
       - name: Analyze
+        if: needs.changes.outputs.code == 'true'
         uses: github/codeql-action/analyze@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
         with:
           category: /language:go

@@ -53,16 +53,19 @@ jobs:
   govulncheck:
     name: Go vulnerability check
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    # Required status check: see ci.yml repo-hygiene. Always run the job so
+    # the check reports success (not skip) on docs-only PRs; guard steps.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Check out repository
+        if: needs.changes.outputs.code == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Set up Go
+        if: needs.changes.outputs.code == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
@@ -70,7 +73,9 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Install govulncheck
+        if: needs.changes.outputs.code == 'true'
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.2.0
 
       - name: Scan dependencies and reachable code
+        if: needs.changes.outputs.code == 'true'
         run: govulncheck ./...
