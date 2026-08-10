@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      test: ${{ steps.filter.outputs.test }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -25,24 +26,23 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Validate CI scope matcher
+        shell: bash
+        run: bash scripts/ci-scope.sh --self-test
+
       - name: Classify changed files
         id: filter
         shell: bash
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          code=false
-          while IFS= read -r file; do
-            case "$file" in
-              *.md|docs/*) ;;
-              *) code=true; break ;;
-            esac
-          done < <(git diff --name-only "$BASE_SHA" HEAD)
-          echo "code=$code" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          bash scripts/ci-scope.sh --outputs "${BASE_SHA:-}" HEAD >> "$GITHUB_OUTPUT"
 
   qa:
     name: qa
     needs: changes
+    if: always()
     # Not currently a required check, but keep the same convention as the
     # required jobs (ci.yml repo-hygiene): always run the job and guard the
     # steps so it reports success (not skip) on docs-only PRs, and would not
@@ -50,14 +50,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
+      - name: Fail closed if scope detection failed
+        if: needs.changes.result != 'success'
+        shell: bash
+        run: |
+          echo "QA scope detection failed; refusing to bypass architecture evidence." >&2
+          exit 1
+
       - name: Checkout
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Setup Go
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
@@ -70,7 +77,7 @@ jobs:
             tools/**/go.sum
 
       - name: Formatting and module integrity
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         shell: bash
         run: |
           test -z "$(gofmt -l cmd internal pkg)"
@@ -78,13 +85,19 @@ jobs:
           git diff --exit-code -- go.mod go.sum
 
       - name: Architecture guardrails
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         run: go test -timeout=8m ./internal/archtest
 
       - name: Vet release command
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         run: go vet ./cmd/lipstd
 
       # CI owns the portable cmd/lipstd test/build matrix. QA retains the
       # distinct architecture and vet evidence instead of recompiling this
       # package a second time on Ubuntu.
+
+      - name: Report unrelated PR bypass
+        if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'
+        shell: bash
+        run: |
+          echo "QA bypassed: no test-relevant changes detected."
