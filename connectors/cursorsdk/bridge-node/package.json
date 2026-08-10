@@ -21,7 +21,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/protocol.test.ts src/server.test.ts src/agents.test.ts src/sdk_runtime.test.ts src/sdkMock.test.ts src/models.test.ts src/liveProbe.test.ts src/liveScenarios.test.ts src/inMemoryLocalAgentStore.test.ts src/package.test.ts",
+    "test": "tsx --test \"src/*.test.ts\"",
     "live-probe": "tsx src/liveProbe.ts",
     "live-scenarios": "tsx src/liveScenarios.ts"
   },

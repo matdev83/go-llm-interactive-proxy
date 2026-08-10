@@ -39,8 +39,8 @@ test("package.json pins exact SDK, engines, bin, and pack files", () => {
     assert.equal(scripts[hook], undefined, `${hook} must not run product behavior`);
   }
   assert.ok(
-    typeof scripts.test === "string" && scripts.test.includes("src/models.test.ts"),
-    "npm test must include src/models.test.ts",
+    typeof scripts.test === "string" && scripts.test.includes("src/*.test.ts"),
+    "npm test must glob src/*.test.ts so new test files are auto-discovered",
   );
 });
 
