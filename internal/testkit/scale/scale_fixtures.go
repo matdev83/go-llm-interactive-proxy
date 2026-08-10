@@ -46,7 +46,7 @@ func CreateDeterministicGitChange(repoRoot, relativePath, before, after string) 
 	if err := os.WriteFile(path, []byte(after), 0o644); err != nil {
 		return "", err
 	}
-	out, err := git("diff", "--no-ext-diff", "--unified=3", "--", relativePath)
+	out, err := git("diff", "HEAD", "--no-ext-diff", "--unified=3", "--", relativePath)
 	if err != nil {
 		return "", fmt.Errorf("git diff: %w: %s", err, out)
 	}
