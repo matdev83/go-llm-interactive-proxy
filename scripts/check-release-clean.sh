@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fail unless every file in the candidate repository revision is approved.
+# Fail unless every file in the candidate repository revision matches an approved pattern in .release-files.
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
@@ -38,43 +38,108 @@ manifest=".release-files"
 case "$mode" in
 	tracked)
 		[[ -f "$manifest" ]] || { echo "error: missing release file manifest: $manifest" >&2; exit 1; }
-		mapfile -t allowed < <(sed '/^[[:space:]]*$/d; /^[[:space:]]*#/d' "$manifest" | LC_ALL=C sort -u)
+		mapfile -t raw_lines < <(sed '/^[[:space:]]*$/d; /^[[:space:]]*#/d' "$manifest")
 		mapfile -t files < <(git ls-files | LC_ALL=C sort -u)
 		;;
 	staged)
 		git cat-file -e ":$manifest" 2>/dev/null || { echo "error: $manifest is missing from the staged index" >&2; exit 1; }
-		mapfile -t allowed < <(git show ":$manifest" | sed '/^[[:space:]]*$/d; /^[[:space:]]*#/d' | LC_ALL=C sort -u)
+		mapfile -t raw_lines < <(git show ":$manifest" | sed '/^[[:space:]]*$/d; /^[[:space:]]*#/d')
 		mapfile -t files < <(git ls-files --cached | LC_ALL=C sort -u)
 		;;
 	ref)
 		git cat-file -e "$ref^{tree}" 2>/dev/null || { echo "error: invalid Git ref: $ref" >&2; exit 1; }
 		git cat-file -e "$ref:$manifest" 2>/dev/null || { echo "error: $manifest is missing from $ref" >&2; exit 1; }
-		mapfile -t allowed < <(git show "$ref:$manifest" | sed '/^[[:space:]]*$/d; /^[[:space:]]*#/d' | LC_ALL=C sort -u)
+		mapfile -t raw_lines < <(git show "$ref:$manifest" | sed '/^[[:space:]]*$/d; /^[[:space:]]*#/d')
 		mapfile -t files < <(git ls-tree -r --name-only "$ref" | LC_ALL=C sort -u)
 		;;
 esac
 
-violations=()
-while IFS= read -r file; do
-	[[ -n "$file" ]] && violations+=("$file")
-done < <(comm -23 <(printf '%s\n' "${files[@]}" | LC_ALL=C sort -u) <(printf '%s\n' "${allowed[@]}" | LC_ALL=C sort -u))
+declare -A exact_rules
+prefix_patterns=()
+glob_patterns=()
+declare -A rule_matched
+declare -A is_exact_rule
 
-missing=()
-while IFS= read -r file; do
-	[[ -n "$file" ]] && missing+=("$file")
-done < <(comm -13 <(printf '%s\n' "${files[@]}" | LC_ALL=C sort -u) <(printf '%s\n' "${allowed[@]}" | LC_ALL=C sort -u))
+for rule in "${raw_lines[@]}"; do
+	rule_matched["$rule"]=0
+	if [[ "$rule" == *"/**" ]]; then
+		prefix_patterns+=("${rule%"/**"}/")
+	elif [[ "$rule" == *"/*" ]]; then
+		prefix_patterns+=("${rule%"/*"}/")
+	elif [[ "$rule" == *"/" ]]; then
+		prefix_patterns+=("$rule")
+	elif [[ "$rule" == *"*"* ]]; then
+		glob_patterns+=("$rule")
+	else
+		exact_rules["$rule"]=1
+		is_exact_rule["$rule"]=1
+	fi
+done
+
+violations=()
+
+for file in "${files[@]}"; do
+	[[ -z "$file" ]] && continue
+
+	if [[ -n "${exact_rules["$file"]:-}" ]]; then
+		rule_matched["$file"]=1
+		continue
+	fi
+
+	matched=0
+	for p in "${prefix_patterns[@]}"; do
+		if [[ "$file" == "$p"* ]]; then
+			matched=1
+			orig_rule="${p%/}/**"
+			if [[ -n "${rule_matched["$orig_rule"]:-}" ]]; then
+				rule_matched["$orig_rule"]=1
+			elif [[ -n "${rule_matched["${p%/}/"]:-}" ]]; then
+				rule_matched["${p%/}/"]=1
+			elif [[ -n "${rule_matched["${p%/}/*"]:-}" ]]; then
+				rule_matched["${p%/}/*"]=1
+			fi
+			break
+		fi
+	done
+	if [[ $matched -eq 1 ]]; then
+		continue
+	fi
+
+	for g in "${glob_patterns[@]}"; do
+		case "$file" in
+			$g)
+				matched=1
+				rule_matched["$g"]=1
+				break
+				;;
+		esac
+	done
+	if [[ $matched -eq 1 ]]; then
+		continue
+	fi
+
+	violations+=("$file")
+done
+
+# Check for stale exact file rules (exact file paths that no longer exist)
+stale_rules=()
+for rule in "${raw_lines[@]}"; do
+	if [[ -n "${is_exact_rule["$rule"]:-}" && "${rule_matched["$rule"]:-0}" -eq 0 ]]; then
+		stale_rules+=("$rule")
+	fi
+done
 
 if ((${#violations[@]} > 0)); then
 	echo "error: files not approved by $manifest:" >&2
 	printf '  - %s\n' "${violations[@]}" >&2
-	echo "Review the files, then explicitly add legitimate release files to $manifest." >&2
+	echo "Review the files, then update patterns or entries in $manifest." >&2
 	exit 1
 fi
 
-if ((${#missing[@]} > 0)); then
-	echo "error: stale entries in $manifest:" >&2
-	printf '  - %s\n' "${missing[@]}" >&2
-	echo "Remove stale entries or stage the corresponding files." >&2
+if ((${#stale_rules[@]} > 0)); then
+	echo "error: stale exact entries in $manifest (file does not exist):" >&2
+	printf '  - %s\n' "${stale_rules[@]}" >&2
+	echo "Remove stale exact entries or restore the corresponding files." >&2
 	exit 1
 fi
 
