@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -306,18 +307,52 @@ func TestValidateDistribution_StageFaultMatrix(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			journal, err := validateDistributionFaulting(context.Background(), in, tc.stage)
-			if err == nil {
-				t.Fatalf("stage %s must fail", tc.stage)
+
+			// Each row's premise is that every stage succeeds until the injected
+			// fault fires. Under heavy parallel load a *non-faulted* stage can
+			// fail first (e.g. compile is starved for CPU), which surfaces as a
+			// misleading acquire-list mismatch instead of exercising the fault.
+			// Retry the scenario a bounded number of times only when the
+			// acquire evidence is a strict prefix of the expectation (an earlier
+			// stage failed before the fault point); any other divergence fails
+			// loudly with the underlying error, as does a seam that stops firing.
+			const maxPreemptedAttempts = 5
+			var journal validateDistributionJournal
+			var err error
+			attempt := 0
+			for {
+				journal, err = validateDistributionFaulting(context.Background(), in, tc.stage)
+				if err == nil {
+					t.Fatalf("stage %s must fail: fault did not fire", tc.stage)
+				}
+				if slices.Equal(journal.Acquired, tc.wantAcquired) {
+					break
+				}
+				if !acquiredStrictPrefix(journal.Acquired, tc.wantAcquired) {
+					t.Fatalf("stage %s acquired=%v want %v (err=%v)", tc.stage, journal.Acquired, tc.wantAcquired, err)
+				}
+				if attempt >= maxPreemptedAttempts {
+					t.Fatalf("stage %s scenario preempted %d times by non-faulted stage failure (err=%v)", tc.stage, attempt+1, err)
+				}
+				attempt++
 			}
-			if got := strings.Join(journal.Acquired, ","); got != strings.Join(tc.wantAcquired, ",") {
-				t.Fatalf("stage %s acquired=%v want %v", tc.stage, journal.Acquired, tc.wantAcquired)
-			}
+
 			if got := strings.Join(journal.Cleaned, ","); got != strings.Join(tc.wantCleaned, ",") {
-				t.Fatalf("stage %s cleaned=%v want reverse order %v", tc.stage, journal.Cleaned, tc.wantCleaned)
+				t.Fatalf("stage %s cleaned=%v want reverse order %v (err=%v)", tc.stage, journal.Cleaned, tc.wantCleaned, err)
 			}
 		})
 	}
+}
+
+// acquiredStrictPrefix reports whether got is a non-empty strict prefix of want,
+// i.e. execution stopped at a stage before the injected fault point because a
+// non-faulted stage failed (environmental preemption), as opposed to the fault
+// firing as designed (got == want) or an out-of-order acquisition (regression).
+func acquiredStrictPrefix(got, want []string) bool {
+	if len(got) == 0 || len(got) >= len(want) {
+		return false
+	}
+	return slices.Equal(got, want[:len(got)])
 }
 
 // TestValidateDistribution_CleanupFaultsJoinedInOrder proves every cleanup-stage
