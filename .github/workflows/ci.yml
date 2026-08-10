@@ -53,17 +53,22 @@ jobs:
   repo-hygiene:
     name: Repo hygiene
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    # This is a required status check. A job-level `if` would skip the whole
+    # job on docs-only PRs, and GitHub does not count a skipped required
+    # check as satisfied, permanently blocking the merge. Always run the job
+    # and skip the work steps instead so the check reports success.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Check out repository
+        if: needs.changes.outputs.code == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Check repository file manifest
+        if: needs.changes.outputs.code == 'true'
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -97,7 +102,8 @@ jobs:
   test:
     name: Test (${{ matrix.os }})
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    # Required status check: see repo-hygiene above. Always run the job so the
+    # matrix variants report success (not skip) on docs-only PRs; guard steps.
     strategy:
       fail-fast: false
       matrix:
@@ -112,11 +118,13 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Check out repository
+        if: needs.changes.outputs.code == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Set up Go
+        if: needs.changes.outputs.code == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
@@ -124,10 +132,12 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Fast unit tests
+        if: needs.changes.outputs.code == 'true'
         # CLI integration and architecture gates run once on Ubuntu in QA. The
         # platform matrix covers portable public packages without invoking
         # host security posture checks on administrative Windows runners.
         run: go test -timeout=8m ${{ matrix.packages }}
 
       - name: Build release binary
+        if: needs.changes.outputs.code == 'true'
         run: go build -trimpath ./cmd/lipstd
