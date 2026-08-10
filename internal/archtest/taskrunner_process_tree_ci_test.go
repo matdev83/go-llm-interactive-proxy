@@ -16,10 +16,9 @@ func TestTaskrunnerProcessTreeWorkflow_RemoteNativeMatrix(t *testing.T) {
 		t.Fatalf("read %s: %v", workflowPath, err)
 	}
 	workflow := string(contents)
-	for _, runner := range []string{"ubuntu-latest", "macos-latest", "windows-latest"} {
-		if !strings.Contains(workflow, runner) {
-			t.Fatalf("workflow must schedule %s", runner)
-		}
+	const processTreeMatrix = "os: [ubuntu-latest, macos-latest, windows-latest]"
+	if !strings.Contains(workflow, processTreeMatrix) {
+		t.Fatalf("workflow must configure process-tree matrix %q", processTreeMatrix)
 	}
 	for _, needle := range []string{
 		"go test -count=1 -timeout=10m -run 'TestProcessTree_' ./tools/taskrunner",

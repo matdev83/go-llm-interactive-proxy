@@ -133,7 +133,12 @@ jobs:
         run: |
           set -u
           actual_sha="$(git rev-parse HEAD 2>/dev/null || printf 'unavailable')"
+          finalized_evidence="$(mktemp)"
+          if [ -f openresponses-official-evidence.txt ]; then
+            cp openresponses-official-evidence.txt "$finalized_evidence"
+          fi
           {
+            printf '\n--- finalized diagnostics ---\n'
             printf 'suite_outcome=%s\n' "${SUITE_OUTCOME:-unknown}"
             printf 'manifest_outcome=%s\n' "${MANIFEST_OUTCOME:-unknown}"
             printf 'static_archtest_outcome=%s\n' "${STATIC_ARCHTEST_OUTCOME:-unknown}"
@@ -158,7 +163,8 @@ jobs:
             else
               printf 'official suite output unavailable\n'
             fi
-          } > openresponses-official-evidence.txt
+          } >> "$finalized_evidence"
+          mv "$finalized_evidence" openresponses-official-evidence.txt
           sha256sum openresponses-official-evidence.txt > openresponses-official-evidence.sha256
 
       - name: Upload immutable compliance evidence

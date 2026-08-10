@@ -40,16 +40,22 @@ func TestOpenResponsesOfficialCompliance_UsesScopeAwareSuccessfulBypass(t *testi
 		"internal/plugins/backends/openairesponses/**",
 		"internal/plugins/protocols/openresponses/**",
 		"internal/plugins/protocols/openairesponsesitem/**",
+		"internal/plugins/protocols/openairesponsestream/**",
 		"internal/refclient/openairesponses/**",
 		"internal/refbackend/openairesponses/**",
+		"internal/testkit/openresponses/**",
 		"internal/testkit/conformance/**",
 		"internal/core/**",
 		"internal/stdhttp/**",
+		"internal/infra/runtimebundle/**",
 		"pkg/lipapi/**",
+		"pkg/lipsdk/**",
 		"tools/openresponses-compliance/**",
+		"scripts/test-openresponses-compliance.*",
 		"Makefile",
 		"go.mod",
 		"go.sum",
+		"connectors/example/go.mod",
 	} {
 		if !strings.Contains(scopeScript, path) {
 			t.Errorf("scope matcher missing relevant path %q", path)
