@@ -99,7 +99,7 @@ self_test() {
   git -C "$tmp" add -A
   git -C "$tmp" -c user.email=qa@example.com -c user.name=QA commit -qm relevant
   head="$(git -C "$tmp" rev-parse HEAD)"
-  result="$(cd "$tmp" && "$script_path" "$base" "$head")"
+  result="$(cd "$tmp" && bash "$script_path" "$base" "$head")"
   if [[ "$result" != true ]]; then
     rm -rf "$tmp"
     echo "scope self-test: NUL-delimited special-character path was not detected" >&2
