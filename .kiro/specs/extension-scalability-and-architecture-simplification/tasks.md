@@ -1,8 +1,26 @@
 # Implementation Plan
 
+## Current Implementation Checkpoint
+
+Fresh assessment of the uncommitted worktree recognizes **3 of 8 tasks in Phases 1–2 as complete**: 1.1, 1.3, and 2.1. All tasks in Phases 3–7 remain unstarted.
+
+Partial work that must not be treated as complete:
+
+- **1.2:** structural scale and diff scanners now exist and the tagged debt target detects the current Cartesian matrix, but the 1,000-profile assertion still proves only family-count arithmetic and the clean footprint test feeds a hand-built diff rather than obtaining a real Git change. It does not yet prove that generated frontend×profile structures and sentinel growth remain absent for profile #1000.
+- **1.4:** ordinary architecture tests pass and the tagged target reports narrowed current route, diagnostics, contribution, ABI, scale, and continuation debts. Structural Go/protobuf ABI tests were added, but contribution/diagnostics authority mutation fixtures remain absent and protocol/provider discovery still relies on a closed identifier list rather than arbitrary identifiers/aliases. The guard set is therefore not yet fully attested.
+- **2.2:** the frontend runner and five mounted frontend certifications execute successfully, but bundled descriptors advertise only streaming/tools. Multimodal, reasoning, structured-output, ordered-item, compaction, and extension scenarios therefore run mostly as negatives instead of certifying each frontend's actual positive semantic surface.
+- **2.3:** the reusable backend runner, mutation tests, and real standard-family harness exist, but the standard-family certification is RED. Current failures show missing tool lifecycle evidence for OpenAI-family adapters and missing explicit usage presence for Anthropic/Alibaba/Gemini/Bedrock/OpenResponses-compatible families.
+- **2.4:** ACP, OpenRouter, and NVIDIA module tests and the root host-adapter packages pass. The public runner still requires callers to supply `StartHost`, while the only real host construction used by representatives imports `internal/infra/backendplugins/adapter`; a genuinely external connector cannot invoke the supported real-host path. The claimed fake external-style end-to-end fixture is also absent.
+
+Current fresh validation evidence:
+
+- Green: Phase 1 characterization packages; ordinary architecture/scale packages (with the root-only enterprise compile gate excluded); canonical-core TCK; frontend TCK plus all frontend packages; root backend-plugin/tool/host-adapter packages; ACP/OpenRouter/NVIDIA module contract tests; `gofmt -d`; `git diff --check`.
+- Expected RED: `go test -tags=architecture_red -run 'TestRED_' ./internal/archtest` reports exactly the current five debt categories.
+- Unexpected RED: `go test ./internal/testkit/contract/... ./pkg/lipsdk/backendplugin/contracttest/...` fails in `internal/testkit/contract/backend` because current standard-family certifications lack required tool/usage event evidence.
+
 ## 1. Freeze Brownfield Behavior and Add RED Architecture Contracts
 
-- [ ] 1.1 Freeze current conformance, contribution, route, diagnostics, ABI, and continuation baselines
+- [x] 1.1 Freeze current conformance, contribution, route, diagnostics, ABI, and continuation baselines
   - Characterize `BundledFrontendIDs`, `BundledBackendIDs`, `AllCells`, current required feature IDs/scenario IDs, standard/essential/compatible backend lists, frontend route claims, compatible/OpenResponses diagnostics, backend-plugin v1.0–v1.3 negotiation, and continuation store/recorder behavior.
   - Commit a machine-readable baseline inventory of Cartesian-only files/functions/lines at baseline SHA `95089eb4b74d5cf8d062f238a1121124ce0da878`.
   - Record current diagnostic JSON shapes before generic projection changes.
@@ -24,7 +42,7 @@
   - _Depends: 1.1_
   - _Validation: go test ./internal/archtest/... ./internal/testkit/..._
 
-- [ ] 1.3 Add RED contract-test-kit interfaces and semantic scenario metadata
+- [x] 1.3 Add RED contract-test-kit interfaces and semantic scenario metadata
   - Define test-only/supported dependency-neutral semantic feature IDs, scenario IDs, subject descriptors, certification DTOs, and narrow frontend/backend harness contracts.
   - Keep executable scenario builders out of production runtime packages.
   - Add compile-time tests proving third-party connector-facing contract types do not import `internal` or concrete backend packages.
@@ -47,7 +65,7 @@
 
 ## 2. Build Frontend, Core, Backend, and Connector TCKs
 
-- [ ] 2.1 Implement the canonical-core contract suite
+- [x] 2.1 Implement the canonical-core contract suite
   - Move/reuse canonical semantic fixtures to test requirement derivation, exact matching, item↔legacy projectors, transport admission, frozen failover requirements, output commitment, and terminal validation without real provider adapters.
   - Add deliberate mutation tests proving each core invariant turns RED.
   - Observable completion: core semantic proof is executable without frontend/backend Cartesian cells.

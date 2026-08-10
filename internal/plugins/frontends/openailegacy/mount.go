@@ -13,15 +13,21 @@ func Mount(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error {
 	if err != nil {
 		return err
 	}
-	mux.Handle("/v1/chat/completions", &Handler{
-		Exec:                 opts.Exec,
-		DefaultRouteSelector: opts.DefaultRoute,
-		RoutePrefixes:        routeselect.NewPrefixSet(opts.RoutePrefixes),
-		MaxRequestBodyBytes:  opts.MaxRequestBodyBytes,
-		DecodeAdmission:      opts.DecodeAdmission,
-		TrafficPorts:         opts.TrafficPorts,
-		PreRequestKeepalive:  opts.PreRequestKeepalive,
-		Config:               cfg,
-	})
+	claims, err := RouteClaims(ID)
+	if err != nil {
+		return err
+	}
+	for _, claim := range claims {
+		mux.Handle(claim.Path, &Handler{
+			Exec:                 opts.Exec,
+			DefaultRouteSelector: opts.DefaultRoute,
+			RoutePrefixes:        routeselect.NewPrefixSet(opts.RoutePrefixes),
+			MaxRequestBodyBytes:  opts.MaxRequestBodyBytes,
+			DecodeAdmission:      opts.DecodeAdmission,
+			TrafficPorts:         opts.TrafficPorts,
+			PreRequestKeepalive:  opts.PreRequestKeepalive,
+			Config:               cfg,
+		})
+	}
 	return nil
 }

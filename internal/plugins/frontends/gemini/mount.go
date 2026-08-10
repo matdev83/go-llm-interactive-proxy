@@ -13,18 +13,17 @@ func Mount(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error {
 	if err != nil {
 		return err
 	}
-	h := &Handler{
-		Exec:                 opts.Exec,
-		DefaultRouteSelector: opts.DefaultRoute,
-		RoutePrefixes:        routeselect.NewPrefixSet(opts.RoutePrefixes),
-		MaxRequestBodyBytes:  opts.MaxRequestBodyBytes,
-		DecodeAdmission:      opts.DecodeAdmission,
-		TrafficPorts:         opts.TrafficPorts,
-		PreRequestKeepalive:  opts.PreRequestKeepalive,
-		Config:               cfg,
+	descriptors, err := RouteDescriptors(ID)
+	if err != nil {
+		return err
 	}
-	// Register API-prefix routes only (avoid catch-all "/" shadowing unrelated paths).
-	mux.Handle("/v1beta/", h)
-	mux.Handle("/v1beta1/", h)
+	h := &Handler{
+		Exec: opts.Exec, DefaultRouteSelector: opts.DefaultRoute,
+		RoutePrefixes: routeselect.NewPrefixSet(opts.RoutePrefixes), MaxRequestBodyBytes: opts.MaxRequestBodyBytes,
+		DecodeAdmission: opts.DecodeAdmission, TrafficPorts: opts.TrafficPorts, PreRequestKeepalive: opts.PreRequestKeepalive, Config: cfg,
+	}
+	for _, descriptor := range descriptors {
+		mux.Handle(descriptor.MountPattern, h)
+	}
 	return nil
 }

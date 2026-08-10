@@ -3,6 +3,7 @@ package adapter
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 
@@ -20,6 +21,8 @@ type GRPCSession struct {
 	InstanceID      string
 	NegotiatedMinor uint32
 	negotiation     backendplugin.Negotiation
+	closeMu         sync.Mutex
+	closed          bool
 }
 
 // Negotiation returns the protocol negotiation outcome bound at dial time.
@@ -50,12 +53,37 @@ func (s *GRPCSession) ListModels(ctx context.Context, maxModels uint32) (backend
 	return backendplugin.ListModelsResponseFromProto(resp)
 }
 
+// Cancel sends a start followed by a cancel frame through the host stream.
+func (s *GRPCSession) Cancel(ctx context.Context, inv backendplugin.Invocation) error {
+	stream := &cancelStream{ctx: ctx, frames: []backendplugin.ClientFrame{
+		{Kind: backendplugin.ClientFrameStart, InstanceID: s.InstanceID, Invocation: &inv},
+		{Kind: backendplugin.ClientFrameCancel, InstanceID: s.InstanceID, CancelReason: backendplugin.CancelReasonClient},
+	}}
+	err := s.Execute(stream)
+	if !stream.cancelSent {
+		return fmt.Errorf("adapter: cancellation frame was not transmitted")
+	}
+	return err
+}
+
 func (s *GRPCSession) Close(ctx context.Context) error {
+	s.closeMu.Lock()
+	if s.closed {
+		s.closeMu.Unlock()
+		return nil
+	}
+	s.closeMu.Unlock()
 	_, err := s.Client.CloseInstance(ctx, &backendpluginv1.CloseInstanceRequest{InstanceId: s.InstanceID})
+	if err != nil {
+		return err
+	}
+	s.closeMu.Lock()
+	s.closed = true
+	s.closeMu.Unlock()
 	if s.Conn != nil {
 		_ = s.Conn.Close()
 	}
-	return err
+	return nil
 }
 
 func (s *GRPCSession) CountTokens(ctx context.Context, req backendplugin.CountTokensRequest) (backendplugin.CountTokensResponse, error) {
@@ -96,7 +124,8 @@ func (s *GRPCSession) Execute(stream backendplugin.ExecuteStream) error {
 	}
 
 	go func() {
-		defer cancel()
+		// Input EOF closes the client half only; canceling here would abort the
+		// server response before terminal frames arrive.
 		defer func() { _ = gs.CloseSend() }()
 		for {
 			fr, err := stream.Recv()
@@ -185,8 +214,32 @@ func mapGRPCSessionError(err error, terminalSeen bool) error {
 	return err
 }
 
+type cancelStream struct {
+	ctx        context.Context
+	frames     []backendplugin.ClientFrame
+	pos        int
+	cancelSent bool
+}
+
+func (s *cancelStream) Context() context.Context { return s.ctx }
+func (s *cancelStream) Recv() (backendplugin.ClientFrame, error) {
+	if s.pos >= len(s.frames) {
+		return backendplugin.ClientFrame{}, io.EOF
+	}
+	frame := s.frames[s.pos]
+	s.pos++
+	if frame.Kind == backendplugin.ClientFrameCancel {
+		s.cancelSent = true
+	}
+	return frame, nil
+}
+func (s *cancelStream) Send(backendplugin.ServerFrame) error { return nil }
+
 var (
-	_ ExecuteSession           = (*GRPCSession)(nil)
+	_ ExecuteSession = (*GRPCSession)(nil)
+	_ interface {
+		Cancel(context.Context, backendplugin.Invocation) error
+	} = (*GRPCSession)(nil)
 	_ OptionalTokenCounter     = (*GRPCSession)(nil)
 	_ OptionalBillingFinalizer = (*GRPCSession)(nil)
 )

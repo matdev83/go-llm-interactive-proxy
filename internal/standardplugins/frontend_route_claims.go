@@ -1,6 +1,9 @@
 package standardplugins
 
 import (
+	frontanthropic "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/anthropic"
+	frontgemini "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/gemini"
+	frontopenailegacy "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"
 	frontopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
 	frontopenresponses "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openresponses"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
@@ -24,6 +27,9 @@ func StandardFrontendRouteClaims() map[string]FrontendRouteClaims {
 	return map[string]FrontendRouteClaims{
 		frontopenresponses.ID:   openResponsesFrontendRouteClaims,
 		frontopenairesponses.ID: openAIResponsesFrontendRouteClaims,
+		frontopenailegacy.ID:    openAILegacyFrontendRouteClaims,
+		frontanthropic.ID:       anthropicFrontendRouteClaims,
+		frontgemini.ID:          geminiFrontendRouteClaims,
 	}
 }
 
@@ -46,4 +52,31 @@ func openResponsesFrontendRouteClaims(instanceID string, n yaml.Node) ([]httpcon
 // takeover before mounting.
 func openAIResponsesFrontendRouteClaims(instanceID string, _ yaml.Node) ([]httpcontract.RouteClaim, error) {
 	return httpcontract.OpenAIResponsesDefaultClaims(instanceID)
+}
+
+func staticFrontendRouteClaims(instanceID string, claims ...httpcontract.RouteClaim) ([]httpcontract.RouteClaim, error) {
+	out := make([]httpcontract.RouteClaim, 0, len(claims))
+	for _, claim := range claims {
+		claim.OwnerID = instanceID
+		normalized, err := claim.NormalizedClaim()
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, normalized)
+	}
+	return out, nil
+}
+
+// These declarations mirror the concrete mounts and are the single composition
+// source used by route characterization; callers never reconstruct a route by hand.
+func openAILegacyFrontendRouteClaims(instanceID string, _ yaml.Node) ([]httpcontract.RouteClaim, error) {
+	return frontopenailegacy.RouteClaims(instanceID)
+}
+
+func anthropicFrontendRouteClaims(instanceID string, _ yaml.Node) ([]httpcontract.RouteClaim, error) {
+	return frontanthropic.RouteClaims(instanceID)
+}
+
+func geminiFrontendRouteClaims(instanceID string, _ yaml.Node) ([]httpcontract.RouteClaim, error) {
+	return frontgemini.RouteClaims(instanceID)
 }

@@ -1,0 +1,311 @@
+package frontend
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/contract/semantic"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	lipcont "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/continuation"
+)
+
+// EventScript contains scripted canonical events to feed back to a frontend under test.
+type EventScript struct {
+	Events []lipapi.Event
+	Err    error
+}
+
+// CapturingExecutor intercepts canonical calls and supplies scripted event streams.
+type CapturingExecutor struct {
+	Calls  []*lipapi.Call
+	Script EventScript
+}
+
+// Execute captures the canonical call and returns a scripted stream.
+func (e *CapturingExecutor) Execute(ctx context.Context, call *lipapi.Call) (lipapi.EventStream, error) {
+	if call != nil {
+		e.Calls = append(e.Calls, call)
+	}
+	if e.Script.Err != nil {
+		return nil, e.Script.Err
+	}
+	return lipapi.NewFixedEventStream(e.Script.Events), nil
+}
+
+func (e *CapturingExecutor) CancelALeg(context.Context, lipapi.ALegCancelRequest) error { return nil }
+func (e *CapturingExecutor) WallClock() func() time.Time                                { return time.Now }
+
+// MountedHarness adapts any frontend mount to the common TCK without importing
+// a concrete frontend or backend. Request paths and bodies are supplied by the
+// frontend contribution, keeping protocol-owned wire details at the edge.
+type MountedHarness struct {
+	Descriptor           semantic.SubjectDescriptor
+	Mount                lipsdk.FrontendMount
+	Path                 func(semantic.ScenarioDescriptor) string
+	Body                 func(semantic.ScenarioDescriptor) []byte
+	ExecutorBoundary     *CapturingExecutor
+	ContinuationStore    lipcont.Store
+	ContinuationResolver lipcont.Resolver
+	Mux                  *http.ServeMux
+}
+
+func (h *MountedHarness) Subject() semantic.SubjectDescriptor { return h.Descriptor }
+func (h *MountedHarness) Executor() *CapturingExecutor        { return h.ExecutorBoundary }
+func (h *MountedHarness) Reset() error {
+	if h.ExecutorBoundary == nil {
+		h.ExecutorBoundary = &CapturingExecutor{}
+	}
+	h.ExecutorBoundary.Calls = nil
+	h.Mux = http.NewServeMux()
+	if h.Mount == nil {
+		return fmt.Errorf("frontend TCK: nil mount")
+	}
+	defaultRoute := "stub"
+	if h.Descriptor.ID == "openresponses" {
+		defaultRoute = "stub:gpt-4o-mini"
+	}
+	return h.Mount(h.Mux, lipsdk.FrontendMountOptions{Exec: h.ExecutorBoundary, DefaultRoute: defaultRoute, AllowUnauthenticated: true, ContinuationStore: h.ContinuationStore, ContinuationResolver: h.ContinuationResolver})
+}
+func (h *MountedHarness) Frontend(context.Context) (FrontendView, error) {
+	if h.Mux == nil {
+		return nil, fmt.Errorf("frontend TCK: mount not reset")
+	}
+	return mountedView{mux: h.Mux, subject: h.Descriptor, path: h.Path, body: h.Body}, nil
+}
+
+type mountedView struct {
+	mux     *http.ServeMux
+	subject semantic.SubjectDescriptor
+	path    func(semantic.ScenarioDescriptor) string
+	body    func(semantic.ScenarioDescriptor) []byte
+}
+
+func (v mountedView) ServeHTTP(w http.ResponseWriter, r *http.Request) { v.mux.ServeHTTP(w, r) }
+func (v mountedView) Subject() semantic.SubjectDescriptor              { return v.subject }
+func (v mountedView) Probe(ctx context.Context, scenario semantic.ScenarioDescriptor, executor *CapturingExecutor) (semantic.ExecutionEvidence, error) {
+	if v.path == nil || v.body == nil {
+		return semantic.ExecutionEvidence{}, fmt.Errorf("frontend TCK: missing request fixture")
+	}
+	body := v.body(scenario)
+	positiveIDs, _ := semantic.SelectScenariosForSubject(v.subject, semantic.BaselineScenarioCorpus())
+	if !containsScenario(positiveIDs, scenario.ID) {
+		// Use valid JSON with a semantically invalid control so rejection is
+		// attributable to the unsupported feature, never malformed `{}` input.
+		switch scenario.Feature {
+		case semantic.FeatureVision:
+			body = []byte(`{"model":"m","input":[{"type":"message","role":"user","content":[{"type":"input_image","image_url":123}]}]}`)
+		case semantic.FeatureDocuments:
+			body = []byte(`{"model":"m","input":[{"type":"message","role":"user","content":[{"type":"input_file","file_data":123}]}]}`)
+		case semantic.FeatureStructuredOutput:
+			body = []byte(`{"model":"m","input":[{"type":"unsupported_semantic_item"}]}`)
+		case semantic.FeatureTools:
+			body = []byte(`{"model":"m","input":"hello","tools":[{"type":"invalid_tool"}]}`)
+		default:
+			body = []byte(`{"model":"m","input":[{"type":"unsupported_semantic_item"}]}`)
+		}
+	}
+	if len(bytes.TrimSpace(body)) == 0 {
+		return semantic.ExecutionEvidence{}, fmt.Errorf("frontend TCK: %s has an empty request fixture", scenario.ID)
+	}
+	beforeCalls := len(executor.Calls)
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, v.path(scenario), bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-LIP-Session-ID", "frontend-tck-session")
+	rec := httptest.NewRecorder()
+	v.ServeHTTP(rec, req)
+	if rec.Code >= 500 {
+		return semantic.ExecutionEvidence{}, fmt.Errorf("frontend TCK: server returned %d body=%q", rec.Code, rec.Body.String())
+	}
+	positiveIDs, _ = semantic.SelectScenariosForSubject(v.subject, semantic.BaselineScenarioCorpus())
+	positive := containsScenario(positiveIDs, scenario.ID)
+	deltaCalls := len(executor.Calls) - beforeCalls
+	if positive && deltaCalls == 0 {
+		return semantic.ExecutionEvidence{}, fmt.Errorf("frontend TCK: %s accepted valid request without canonical call (status=%d body=%q path=%s)", scenario.ID, rec.Code, rec.Body.String(), v.path(scenario))
+	}
+	if !positive && deltaCalls != 0 {
+		return semantic.ExecutionEvidence{}, fmt.Errorf("frontend TCK: negative scenario %s reached executor", scenario.ID)
+	}
+	if positive && executor.Script.Err != nil {
+		return semantic.ExecutionEvidence{}, fmt.Errorf("frontend TCK: %s script failed: %w", scenario.ID, executor.Script.Err)
+	}
+	if !positive {
+		if rec.Code < 400 || rec.Code >= 500 {
+			return semantic.ExecutionEvidence{}, fmt.Errorf("frontend TCK: negative scenario %s was not rejected with a 4xx (got %d)", scenario.ID, rec.Code)
+		}
+		if len(strings.TrimSpace(rec.Body.String())) == 0 {
+			return semantic.ExecutionEvidence{}, fmt.Errorf("frontend TCK: negative scenario %s returned empty error mapping", scenario.ID)
+		}
+	}
+	if positive {
+		if err := validateCanonicalCall(scenario, executor.Calls[len(executor.Calls)-1]); err != nil {
+			return semantic.ExecutionEvidence{}, err
+		}
+		wire, err := io.ReadAll(rec.Result().Body)
+		if err != nil || len(strings.TrimSpace(string(wire))) == 0 {
+			return semantic.ExecutionEvidence{}, fmt.Errorf("frontend TCK: %s produced empty wire response", scenario.ID)
+		}
+		if rec.Code >= 400 {
+			return semantic.ExecutionEvidence{}, fmt.Errorf("frontend TCK: valid scenario %s returned HTTP %d", scenario.ID, rec.Code)
+		}
+		if scenario.Transport == semantic.TransportStreaming && !bytes.Contains(wire, []byte("data:")) {
+			return semantic.ExecutionEvidence{}, fmt.Errorf("frontend TCK: streaming scenario %s did not emit SSE wire output", scenario.ID)
+		}
+	}
+	return semantic.ExecutionEvidence{ScenarioID: scenario.ID, Executed: true, BoundaryCalls: maxInt(deltaCalls, 1), Accepted: positive, Rejected: !positive, CanonicalCall: positive, WireResponse: positive, ErrorMapped: !positive || rec.Code < 400, StreamValidated: positive && scenario.Transport == semantic.TransportStreaming}, nil
+}
+
+func callHasPart(call *lipapi.Call, kind lipapi.PartKind) bool {
+	for _, message := range call.Messages {
+		for _, part := range message.Parts {
+			if part.Kind == kind {
+				return true
+			}
+		}
+	}
+	for _, item := range call.Items {
+		for _, part := range item.Content {
+			if part.Kind == lipapi.ContentPartKind(kind) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func containsScenario(ids []semantic.ScenarioID, id semantic.ScenarioID) bool {
+	for _, candidate := range ids {
+		if candidate == id {
+			return true
+		}
+	}
+	return false
+}
+
+func validateCanonicalCall(s semantic.ScenarioDescriptor, call *lipapi.Call) error {
+	if call == nil {
+		return fmt.Errorf("frontend TCK: %s captured nil canonical call", s.ID)
+	}
+	if err := call.Validate(); err != nil {
+		return fmt.Errorf("frontend TCK: %s captured invalid canonical call: %w", s.ID, err)
+	}
+	switch s.Feature {
+	case semantic.FeatureTools:
+		if len(call.Tools) == 0 {
+			return fmt.Errorf("frontend TCK: %s captured no tools", s.ID)
+		}
+	case semantic.FeatureVision:
+		if !callHasPart(call, lipapi.PartImageRef) {
+			return fmt.Errorf("frontend TCK: %s captured no image part", s.ID)
+		}
+	case semantic.FeatureDocuments:
+		if !callHasPart(call, lipapi.PartFileRef) {
+			return fmt.Errorf("frontend TCK: %s captured no document part", s.ID)
+		}
+	case semantic.FeatureStructuredOutput:
+		if call.Options.ResponseMIMEType == "" {
+			return fmt.Errorf("frontend TCK: %s captured no structured-output requirement", s.ID)
+		}
+	case semantic.FeatureReasoning:
+		if call.Options.ReasoningEffort == "" {
+			return fmt.Errorf("frontend TCK: %s captured no reasoning requirement", s.ID)
+		}
+	case semantic.FeatureOrderedItems:
+		if len(call.Items) == 0 {
+			return fmt.Errorf("frontend TCK: %s captured no ordered items", s.ID)
+		}
+	case semantic.FeatureCompaction:
+		if call.Invocation.Operation != lipapi.OperationContextCompaction {
+			return fmt.Errorf("frontend TCK: %s did not preserve compaction operation", s.ID)
+		}
+	case semantic.FeatureExtensions:
+		if len(call.Extensions) == 0 {
+			return fmt.Errorf("frontend TCK: %s captured no extension payload", s.ID)
+		}
+	}
+	if s.Feature == semantic.FeatureStreaming && s.Transport == semantic.TransportStreaming && call.Invocation.DeliveryMode != lipapi.DeliveryModeStreaming {
+		return fmt.Errorf("frontend TCK: %s did not preserve streaming delivery mode", s.ID)
+	}
+	return nil
+}
+
+// FrontendView is a test interface for driving a frontend wire handler.
+type FrontendView interface {
+	ServeHTTP(w http.ResponseWriter, req *http.Request)
+	Subject() semantic.SubjectDescriptor
+	// Probe executes one selected scenario through the frontend boundary.
+	Probe(ctx context.Context, scenario semantic.ScenarioDescriptor, executor *CapturingExecutor) (semantic.ExecutionEvidence, error)
+}
+
+// FrontendHarness provides the test harness interface for frontend certification.
+type FrontendHarness interface {
+	Subject() semantic.SubjectDescriptor
+	Frontend(ctx context.Context) (FrontendView, error)
+	Executor() *CapturingExecutor
+	Reset() error
+}
+
+// CertifyFrontend selects and records scenarios for one frontend harness.
+func CertifyFrontend(ctx context.Context, h FrontendHarness) (semantic.Certification, error) {
+	if h == nil {
+		return semantic.Certification{}, fmt.Errorf("frontend TCK: nil harness")
+	}
+	subject := h.Subject()
+	if subject.Kind != semantic.KindFrontend {
+		return semantic.Certification{}, fmt.Errorf("frontend TCK: subject %q must use frontend kind, got %q", subject.ID, subject.Kind)
+	}
+	executor := h.Executor()
+	if executor == nil {
+		return semantic.Certification{}, fmt.Errorf("frontend TCK: harness has no executor boundary")
+	}
+	if err := h.Reset(); err != nil {
+		return semantic.Certification{}, fmt.Errorf("frontend TCK: reset: %w", err)
+	}
+	view, err := h.Frontend(ctx)
+	if err != nil || view == nil {
+		if err == nil {
+			err = fmt.Errorf("frontend construction returned nil")
+		}
+		return semantic.Certification{}, fmt.Errorf("frontend TCK: construct: %w", err)
+	}
+	positive, negative := semantic.SelectScenariosForSubject(subject, semantic.BaselineScenarioCorpus())
+	corpus := semantic.BaselineScenarioCorpus()
+	selected := append(append([]semantic.ScenarioID(nil), positive...), negative...)
+	for _, id := range selected {
+		var scenario semantic.ScenarioDescriptor
+		for _, candidate := range corpus {
+			if candidate.ID == id {
+				scenario = candidate
+				break
+			}
+		}
+		evidence, err := view.Probe(ctx, scenario, executor)
+		if err != nil {
+			return semantic.Certification{}, fmt.Errorf("frontend TCK: scenario %s: %w", id, err)
+		}
+		isPositive := containsScenario(positive, id)
+		if !evidence.Executed || evidence.ScenarioID != id || evidence.BoundaryCalls == 0 {
+			return semantic.Certification{}, fmt.Errorf("frontend TCK: scenario %s lacks captured boundary execution evidence", id)
+		}
+		if isPositive && (!evidence.Accepted || !evidence.CanonicalCall || !evidence.WireResponse) {
+			return semantic.Certification{}, fmt.Errorf("frontend TCK: positive scenario %s lacks canonical/wire acceptance evidence", id)
+		}
+		if !isPositive && (!evidence.Rejected || evidence.Accepted || evidence.WireResponse) {
+			return semantic.Certification{}, fmt.Errorf("frontend TCK: negative scenario %s lacks actual hard-negative rejection evidence", id)
+		}
+	}
+	return semantic.Certification{SubjectID: subject.ID, SubjectKind: subject.Kind, Profile: subject.Profile, Capabilities: subject.Capabilities, Dialects: subject.Dialects, Transports: subject.Transports, Passed: positive, Negative: negative, Executed: true, ExecutedScenarioIDs: selected, HarnessCalls: 1 + len(selected)}, nil
+}
