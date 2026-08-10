@@ -5194,3 +5194,10 @@ tools/taskrunner/runner.go
 tools/taskrunner/runner_contract_test.go
 tools/taskrunner/testhelper/main.go
 tools/tools.go
+.kiro/specs/runtime-session-routing-overrides/design-review.md
+.kiro/specs/runtime-session-routing-overrides/design.md
+.kiro/specs/runtime-session-routing-overrides/gap-analysis.md
+.kiro/specs/runtime-session-routing-overrides/requirements.md
+.kiro/specs/runtime-session-routing-overrides/research.md
+.kiro/specs/runtime-session-routing-overrides/spec.json
+.kiro/specs/runtime-session-routing-overrides/tasks.md
