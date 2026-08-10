@@ -247,3 +247,47 @@ func TestUpstreamError_returnsAPIError(t *testing.T) {
 		t.Fatalf("status: %d", apiErr.StatusCode)
 	}
 }
+
+func TestParamsForCall_mergesMultipleToolResults(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{
+		ID: "multi-tool",
+		Messages: []lipapi.Message{
+			{
+				Role:  lipapi.RoleUser,
+				Parts: []lipapi.Part{lipapi.TextPart("run commands")},
+			},
+			{
+				Role: lipapi.RoleAssistant,
+				Parts: []lipapi.Part{
+					{Kind: lipapi.PartJSON, ToolCallID: "call_1", ToolName: "bash", Content: json.RawMessage(`{"command":"git status"}`)},
+					{Kind: lipapi.PartJSON, ToolCallID: "call_2", ToolName: "bash", Content: json.RawMessage(`{"command":"git diff"}`)},
+				},
+			},
+			{
+				Role:  lipapi.RoleTool,
+				Parts: []lipapi.Part{{Kind: lipapi.PartToolResult, ToolCallID: "call_1", Text: "clean"}},
+			},
+			{
+				Role:  lipapi.RoleTool,
+				Parts: []lipapi.Part{{Kind: lipapi.PartToolResult, ToolCallID: "call_2", Text: "diff clean"}},
+			},
+		},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "qwen3.8-max"}}
+	p, err := anthropicmessages.ParamsForCall(&call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Messages) != 3 {
+		t.Fatalf("expected 3 messages after merging consecutive tool results, got %d", len(p.Messages))
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	if !strings.Contains(s, `"tool_use_id":"call_1"`) || !strings.Contains(s, `"tool_use_id":"call_2"`) {
+		t.Fatalf("marshaled params missing tool_use_ids: %s", s)
+	}
+}
