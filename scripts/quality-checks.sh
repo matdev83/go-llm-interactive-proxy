@@ -149,7 +149,9 @@ fi
 echo ""
 
 echo "[7/7] Architecture guardrails (line budgets, no init in bundle path)..."
-if ! go test ./internal/archtest/...; then
+# Match the test-unit flags (make GO_TEST_FLAGS) so `make test`/`make qa`
+# reuse this run's result cache instead of executing archtest twice.
+if ! go test -parallel=8 -timeout=10m ./internal/archtest/...; then
 	echo "ERROR: internal/archtest failed"
 	exit 1
 fi
