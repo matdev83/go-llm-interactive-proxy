@@ -21,11 +21,28 @@ set -u
 
 GO_BIN="${GO:-go}"
 
+# Go interprets -fuzz as a regular expression. Repository fuzz targets are
+# plain function identifiers, so anchor only that narrow form. Preserve
+# caller-supplied regular expressions unchanged because this wrapper forwards
+# general `go test` arguments as well.
+normalized_args=()
+for arg in "$@"; do
+	if [[ "$arg" == -fuzz=* ]]; then
+		pattern="${arg#-fuzz=}"
+		if [[ "$pattern" =~ ^\^?[A-Za-z_][A-Za-z0-9_]*\$?$ ]]; then
+			[[ "$pattern" == ^* ]] || pattern="^${pattern}"
+			[[ "$pattern" == *'$' ]] || pattern="${pattern}$"
+			arg="-fuzz=$pattern"
+		fi
+	fi
+	normalized_args+=("$arg")
+done
+
 out="$(mktemp)"
 trap 'rm -f "$out"' EXIT
 
 # Note: no `set -e`/pipefail here — a nonzero `go test` exit is classified below.
-"$GO_BIN" test "$@" >"$out" 2>&1
+"$GO_BIN" test "${normalized_args[@]}" >"$out" 2>&1
 status=$?
 cat "$out"
 

@@ -82,7 +82,7 @@ function Run-Fuzz {
     $fuzzTime = if ($env:FUZZTIME) { $env:FUZZTIME } else { "500ms" }
     $fuzz = @(
         @("FuzzJSONRoundTrip", "./internal/testkit"), @("FuzzParseSnapshot", "./internal/infra/modelcatalog/modelsdev"),
-        @("FuzzParseSelector", "./internal/core/routing"), @("FuzzParseSelectorFromBytes", "./internal/core/routing"),
+        @("^FuzzParseSelector$", "./internal/core/routing"), @("^FuzzParseSelectorFromBytes$", "./internal/core/routing"),
         @("FuzzDecodeCreateRequest", "./internal/plugins/frontends/openairesponses"), @("FuzzDecodeMessageRequest", "./internal/plugins/frontends/anthropic"),
         @("FuzzDecodeGenerateContentRequest", "./internal/plugins/frontends/gemini"), @("FuzzDecodeChatRequest", "./internal/plugins/frontends/openailegacy"),
         @("FuzzWriteNonStreamJSON_toolArguments", "./internal/plugins/frontends/anthropic"), @("FuzzBuildGenerateContentResponse_toolJSON", "./internal/plugins/frontends/gemini"),
@@ -117,7 +117,10 @@ function Run-Fuzz {
             $cwd = Join-Path $root "connectors/cursorsdk"
             $env = @("GOWORK=off")
         }
-        Invoke-TaskRunner -Label "test-fuzz:$($item[0])" -Cwd $cwd -Timeout "10m" -Env $env -Command @("go", "test", "-fuzz=$($item[0])", "-fuzztime=$fuzzTime", "-run=^$", $package) | Out-Host
+        $fuzzName = $item[0]
+        if (-not $fuzzName.StartsWith("^")) { $fuzzName = "^" + $fuzzName }
+        if (-not $fuzzName.EndsWith("$")) { $fuzzName += "$" }
+        Invoke-TaskRunner -Label "test-fuzz:$($item[0])" -Cwd $cwd -Timeout "10m" -Env $env -Command @("go", "test", "-fuzz=$fuzzName", "-fuzztime=$fuzzTime", "-run=^$", $package) | Out-Host
     }
 }
 

@@ -52,7 +52,7 @@ func TestTestsMustNotRegisterStandardBundleInInit(t *testing.T) {
 		}
 		if info.IsDir() {
 			base := info.Name()
-			if base == "vendor" || base == ".git" || base == "node_modules" {
+			if base == "vendor" || base == ".git" || base == ".worktrees" || base == "node_modules" {
 				return filepath.SkipDir
 			}
 			return nil

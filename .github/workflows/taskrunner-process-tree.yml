@@ -1,0 +1,109 @@
+# Native taskrunner process-tree coverage. Windows Job Object tests are
+# intentionally remote-only because local Windows process scheduling/temp
+# environments are not reliable enough for this contract.
+name: Taskrunner process-tree
+
+on:
+  # Keep the workflow present for every pull request so a required matrix check
+  # reports a successful bypass instead of becoming skipped on unrelated PRs.
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: taskrunner-process-tree-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  scope:
+    name: Detect process-tree scope
+    runs-on: ubuntu-latest
+    outputs:
+      run_suite: ${{ steps.scope.outputs.run_suite }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect relevant changes
+        id: scope
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "run_suite=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          relevant=false
+          while IFS= read -r file; do
+            case "$file" in
+              tools/taskrunner/**|internal/archtest/taskrunner_process_tree_ci_test.go|.github/workflows/taskrunner-process-tree.yml|go.mod|go.sum)
+                relevant=true
+                break
+                ;;
+            esac
+          done < <(git diff --name-only "$BASE_SHA" HEAD)
+          echo "run_suite=$relevant" >> "$GITHUB_OUTPUT"
+          echo "taskrunner process-tree suite required: $relevant"
+
+  process-tree:
+    name: Process-tree (${{ matrix.os }})
+    needs: scope
+    if: always()
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Fail closed if scope detection failed
+        if: needs.scope.result != 'success'
+        shell: bash
+        run: |
+          echo "process-tree scope detection failed; refusing to bypass native coverage" >&2
+          exit 1
+
+      - name: Checkout
+        if: needs.scope.result == 'success' && needs.scope.outputs.run_suite == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        if: needs.scope.result == 'success' && needs.scope.outputs.run_suite == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            connectors/**/go.sum
+            connector-support/**/go.sum
+            testdata/enterprise_module/go.sum
+
+      - name: Process-tree tests (Unix)
+        if: needs.scope.result == 'success' && needs.scope.outputs.run_suite == 'true' && runner.os != 'Windows'
+        shell: bash
+        run: go test -count=1 -timeout=10m -run 'TestProcessTree_' ./tools/taskrunner
+
+      - name: Process-tree tests (Windows)
+        if: needs.scope.result == 'success' && needs.scope.outputs.run_suite == 'true' && runner.os == 'Windows'
+        shell: pwsh
+        env:
+          # Enabled only by this remote native-runner job.
+          LIP_RUN_WINDOWS_PROCESS_TREE_TESTS: "1"
+        run: go test -count=1 -timeout=10m -run 'TestProcessTree_' ./tools/taskrunner
+
+      - name: Report unrelated PR bypass
+        if: needs.scope.result == 'success' && needs.scope.outputs.run_suite != 'true'
+        shell: bash
+        run: |
+          echo "Taskrunner process-tree suite bypassed: no relevant files changed."

@@ -69,11 +69,13 @@ jobs:
         run: |
           set -euo pipefail
           gate='./coverage-gate'
-          go run ./tools/coverage-gate -func artifacts/openresponses-coverage/refclient-openresponses.summary.txt -threshold 90 -name refclient/openresponses
-          go run ./tools/coverage-gate -func artifacts/openresponses-coverage/refbackend-openresponses.summary.txt -threshold 90 -name refbackend/openresponses
-          go run ./tools/coverage-gate -func artifacts/openresponses-coverage/protocols-openresponses.summary.txt -threshold 84.2 -name protocols/openresponses
-          go run ./tools/coverage-gate -func artifacts/openresponses-coverage/frontends-openresponses.summary.txt -threshold 79.7 -name frontends/openresponses
-          go run ./tools/coverage-gate -func artifacts/openresponses-coverage/backends-openresponsescompat.summary.txt -threshold 83.0 -name backends/openresponsescompat
+          trap 'rm -f "$gate" "$gate.exe"' EXIT
+          go build -o "$gate" ./tools/coverage-gate
+          "$gate" -func artifacts/openresponses-coverage/refclient-openresponses.summary.txt -threshold 90 -name refclient/openresponses
+          "$gate" -func artifacts/openresponses-coverage/refbackend-openresponses.summary.txt -threshold 90 -name refbackend/openresponses
+          "$gate" -func artifacts/openresponses-coverage/protocols-openresponses.summary.txt -threshold 84.2 -name protocols/openresponses
+          "$gate" -func artifacts/openresponses-coverage/frontends-openresponses.summary.txt -threshold 79.7 -name frontends/openresponses
+          "$gate" -func artifacts/openresponses-coverage/backends-openresponsescompat.summary.txt -threshold 83.0 -name backends/openresponsescompat
 
       - name: Upload profiles and summaries for exact SHA
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4

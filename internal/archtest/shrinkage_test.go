@@ -2,6 +2,7 @@ package archtest
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -44,6 +45,35 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	}
 	if sum != 19642 {
 		t.Fatalf("baseline total: got %d want 19642", sum)
+	}
+}
+
+func TestShrinkage_GenericOverlayIgnoresSiblingWorktrees(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	production := filepath.Join(root, "internal", "core", "compatible_ownership.go")
+	sibling := filepath.Join(root, ".worktrees", "other", "internal", "core", "compatible_ownership.go")
+	tools := filepath.Join(root, "tools", "compatible_admission.go")
+	vendor := filepath.Join(root, "vendor", "compatible_admission.go")
+	for _, path := range []string{production, sibling, tools, vendor} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("package core\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	overlay, err := MeasureGenericCompatibleBackendOverlay(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"internal/core/compatible_ownership.go", "tools/compatible_admission.go", "vendor/compatible_admission.go"}
+	if len(overlay.Files) != len(want) || overlay.Files[0] != want[0] || overlay.Files[1] != want[1] || overlay.Files[2] != want[2] {
+		t.Fatalf("overlay files = %v, want %v", overlay.Files, want)
+	}
+	if overlay.Lines != 3 {
+		t.Fatalf("overlay lines = %d, want 3", overlay.Lines)
 	}
 }
 
