@@ -8,7 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestEnsureCodexCompanionRulesPreservesFeatureNodes(t *testing.T) {
+func TestEnsureCompanionRulesPreservesFeatureNodes(t *testing.T) {
 	t.Parallel()
 	input := mustYAML(t, `
 action: observe
@@ -18,8 +18,8 @@ rules:
     backend: operator-backend
     model_keywords: [gpt-5]
     enabled: true
-  - id: disabled-codex
-    backend: codex-disabled
+  - id: disabled-backend
+    backend: backend-disabled
     enabled: false
 on_ambiguous: log_skip
 on_unrepresentable: log_skip
@@ -30,7 +30,7 @@ state:
   max_reasoning_bytes_per_turn: 1024
   max_session_bytes: 4096
 `)
-	got, err := reasoningpreservation.EnsureCodexCompanionRules(input, []string{"codex-new", "codex-disabled"})
+	got, err := reasoningpreservation.EnsureCompanionRules(input, []string{"backend-new", "backend-disabled"}, "companion-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,28 +40,31 @@ state:
 			t.Fatalf("mutated config lost %q:\n%s", want, text)
 		}
 	}
-	if strings.Contains(text, "disabled-codex\n    backend: codex-disabled\n    enabled: true") {
-		t.Fatal("explicit disabled backend-only rule was overridden")
-	}
-	if strings.Count(text, "backend: codex-new") != 1 {
+	if strings.Count(text, "backend: backend-new") != 1 {
 		t.Fatalf("expected one new companion rule:\n%s", text)
 	}
 	if got.Content[0].Content[0].Value != input.Content[0].Content[0].Value {
 		t.Fatal("existing mapping was unexpectedly reordered or replaced")
 	}
-	if _, err := reasoningpreservation.DecodeConfig(got); err != nil {
+	decodedGot, err := reasoningpreservation.DecodeConfig(got)
+	if err != nil {
 		t.Fatalf("mutated config no longer validates: %v", err)
+	}
+	for _, rule := range decodedGot.Rules {
+		if rule.Backend == "backend-disabled" && rule.Enabled != nil && *rule.Enabled {
+			t.Fatal("explicit disabled backend-only rule was overridden")
+		}
 	}
 }
 
-func TestEnsureCodexCompanionRulesRejectsUnknownFeatureKeysBeforeMutation(t *testing.T) {
+func TestEnsureCompanionRulesRejectsUnknownFeatureKeysBeforeMutation(t *testing.T) {
 	t.Parallel()
 	input := mustYAML(t, `
 action: restore
 unknown: true
 `)
 	before := nodeYAML(t, input)
-	if _, err := reasoningpreservation.EnsureCodexCompanionRules(input, []string{"codex-new"}); err == nil {
+	if _, err := reasoningpreservation.EnsureCompanionRules(input, []string{"backend-new"}, "companion-"); err == nil {
 		t.Fatal("unknown feature key was accepted")
 	}
 	if after := nodeYAML(t, input); after != before {
@@ -69,14 +72,14 @@ unknown: true
 	}
 }
 
-func TestNewCodexCompanionConfigIsDeterministicAndCollisionSafe(t *testing.T) {
+func TestNewCompanionConfigIsDeterministicAndCollisionSafe(t *testing.T) {
 	t.Parallel()
-	ids := []string{"codex/a", "codex-a", strings.Repeat("long-id-", 20)}
-	first, err := reasoningpreservation.NewCodexCompanionConfig(ids)
+	ids := []string{"backend/a", "backend-a", strings.Repeat("long-id-", 20)}
+	first, err := reasoningpreservation.NewCompanionConfig(ids, "companion-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := reasoningpreservation.NewCodexCompanionConfig(ids)
+	second, err := reasoningpreservation.NewCompanionConfig(ids, "companion-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,6 +96,32 @@ func TestNewCodexCompanionConfigIsDeterministicAndCollisionSafe(t *testing.T) {
 			t.Fatalf("companion ID is not bounded and unique: %+v", decoded.Rules)
 		}
 		seen[rule.ID] = true
+	}
+	firstPrefix, err := reasoningpreservation.NewCompanionConfig([]string{"backend/a"}, "first-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondPrefix, err := reasoningpreservation.NewCompanionConfig([]string{"backend/a"}, "second-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nodeYAML(t, firstPrefix) == nodeYAML(t, secondPrefix) {
+		t.Fatal("different rule prefixes produced identical configs")
+	}
+	longPrefix, err := reasoningpreservation.NewCompanionConfig([]string{"backend/a", "backend-a"}, strings.Repeat("prefix-", 20))
+	if err != nil {
+		t.Fatal(err)
+	}
+	longDecoded, err := reasoningpreservation.DecodeConfig(longPrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	longSeen := make(map[string]bool, len(longDecoded.Rules))
+	for _, rule := range longDecoded.Rules {
+		if len(rule.ID) > 64 || longSeen[rule.ID] {
+			t.Fatalf("oversized prefix produced invalid or duplicate ID: %+v", longDecoded.Rules)
+		}
+		longSeen[rule.ID] = true
 	}
 }
 

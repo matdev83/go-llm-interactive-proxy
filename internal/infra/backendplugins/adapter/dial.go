@@ -48,12 +48,13 @@ func DialConfiguredSession(
 	}
 	client := backendpluginv1.NewBackendPluginClient(gc)
 	neg, err := client.Negotiate(ctx, &backendpluginv1.NegotiateRequest{
-		HostMajor: 1, HostMinor: backendplugin.ProtocolMinorProxyOwnedSessionID,
+		HostMajor: 1, HostMinor: backendplugin.ProtocolMinorAccountingEvidence,
 		HostFeatures: []*backendpluginv1.Feature{
 			{Name: backendplugin.FeatureExactReasoningParts},
 			{Name: backendplugin.FeatureOrderedItems},
 			{Name: backendplugin.FeatureExactOpenResponsesFields},
 			{Name: backendplugin.FeatureProxyOwnedSessionID},
+			{Name: backendplugin.FeatureAccountingEvidence},
 		},
 		DisableTransportRetries: true,
 	})
@@ -66,12 +67,13 @@ func DialConfiguredSession(
 		return nil, backendplugin.ResolvedProfile{}, fmt.Errorf("adapter: negotiate incompatible: %s", neg.GetRejectReason())
 	}
 	hostOffer := backendplugin.ProtocolOffer{
-		Major: 1, Minor: backendplugin.ProtocolMinorProxyOwnedSessionID,
+		Major: 1, Minor: backendplugin.ProtocolMinorAccountingEvidence,
 		Features: []backendplugin.Feature{
 			{Name: backendplugin.FeatureExactReasoningParts},
 			{Name: backendplugin.FeatureOrderedItems},
 			{Name: backendplugin.FeatureExactOpenResponsesFields},
 			{Name: backendplugin.FeatureProxyOwnedSessionID},
+			{Name: backendplugin.FeatureAccountingEvidence},
 		},
 		DisableTransportRetries: true,
 	}

@@ -188,6 +188,9 @@ func openWithFallback(
 		if err == nil {
 			return es, nil
 		}
+		if es != nil {
+			return es, err
+		}
 		// Account-level exhaustion from the managed WS path is not a WebSocket
 		// transport problem: the bad accounts are already marked and excluded, and
 		// HTTPS fallback may still succeed with a usable account. Skip the global WS
@@ -249,6 +252,10 @@ func openManagedAccountLoop(ctx context.Context, cfg *Config, store *accountStor
 			env.commitVerbosityTurn()
 			return es, nil
 		}
+		if es != nil {
+			env.releaseVerbosityTurn()
+			return es, err
+		}
 		if resp != nil {
 			switch resp.StatusCode {
 			case http.StatusUnauthorized, http.StatusForbidden:
@@ -283,7 +290,7 @@ func openManagedWS(ctx context.Context, cfg *Config, store *accountStore, native
 			return nil, nil, err
 		}
 		es, resp, err := openWSPrepared(ctx, env, callCfg, model, call, usageEst, wsSessions, continuation)
-		return env.wrapNativeUsage(es), resp, err
+		return env.wrapNativeUsage(es, err), resp, err
 	}, turns)
 }
 
@@ -307,7 +314,7 @@ func openManaged(ctx context.Context, cfg *Config, store *accountStore, native *
 			return nil, resp, upstreamHTTPError(resp.StatusCode, b)
 		}
 		es, response, err := completeCodexOpenAttempt(attempt, resp, callCfg)
-		return env.wrapNativeUsage(es), response, err
+		return env.wrapNativeUsage(es, err), response, err
 	}, turns)
 }
 
@@ -371,7 +378,7 @@ func openHTTP(ctx context.Context, cfg *Config, rt *backendRuntime, native *Nati
 		}
 	}
 	es, _, err := completeCodexOpenAttempt(attempt, resp, cfg)
-	es = env.wrapNativeUsage(es)
+	es = env.wrapNativeUsage(es, err)
 	if err != nil {
 		env.releaseVerbosityTurn()
 	} else {

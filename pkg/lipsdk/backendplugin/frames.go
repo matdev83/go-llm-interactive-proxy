@@ -8,7 +8,7 @@ import (
 func (f ServerFrame) ValidateShape() error {
 	switch f.Kind {
 	case ServerFrameAccepted:
-		if f.Event != nil || f.CancelOutcome != nil || f.Terminal != nil || f.Diagnostic != "" {
+		if f.Event != nil || f.CancelOutcome != nil || f.Terminal != nil || f.Accounting != nil || f.Diagnostic != "" {
 			return ErrInvalidFrame
 		}
 		return nil
@@ -19,17 +19,17 @@ func (f ServerFrame) ValidateShape() error {
 		if err := ValidateEventKind(f.Event.Kind); err != nil {
 			return err
 		}
-		if f.CancelOutcome != nil || f.Terminal != nil || f.Diagnostic != "" {
+		if f.CancelOutcome != nil || f.Terminal != nil || f.Accounting != nil || f.Diagnostic != "" {
 			return ErrInvalidFrame
 		}
 		return nil
 	case ServerFrameDiagnostic:
-		if f.Event != nil || f.CancelOutcome != nil || f.Terminal != nil {
+		if f.Event != nil || f.CancelOutcome != nil || f.Terminal != nil || f.Accounting != nil {
 			return ErrInvalidFrame
 		}
 		return ValidateSize(uint64(len(f.Diagnostic)), DefaultMaxDiagnosticBytes)
 	case ServerFrameCancelOutcome:
-		if f.CancelOutcome == nil || f.Event != nil || f.Terminal != nil || f.Diagnostic != "" {
+		if f.CancelOutcome == nil || f.Event != nil || f.Terminal != nil || f.Accounting != nil || f.Diagnostic != "" {
 			return ErrInvalidFrame
 		}
 		if f.CancelOutcome.Reason == CancelReasonUnspecified {
@@ -40,10 +40,15 @@ func (f ServerFrame) ValidateShape() error {
 		if f.Terminal == nil || f.Terminal.Status == TerminalUnspecified {
 			return ErrUnknownEnum
 		}
-		if f.Event != nil || f.CancelOutcome != nil || f.Diagnostic != "" {
+		if f.Event != nil || f.CancelOutcome != nil || f.Accounting != nil || f.Diagnostic != "" {
 			return ErrInvalidFrame
 		}
 		return nil
+	case ServerFrameAccountingEvidence:
+		if f.Accounting == nil || f.Event != nil || f.CancelOutcome != nil || f.Terminal != nil || f.Diagnostic != "" {
+			return ErrInvalidFrame
+		}
+		return ValidateAccountingEvidence(*f.Accounting)
 	default:
 		return ErrUnknownFrameKind
 	}
@@ -117,6 +122,8 @@ func ServerFrameConservativeBytes(f ServerFrame) uint64 {
 	switch f.Kind {
 	case ServerFrameEvent:
 		return envelope + eventPayloadBytes(f.Event)
+	case ServerFrameAccountingEvidence:
+		return envelope + accountingEvidenceBytes(f.Accounting)
 	case ServerFrameDiagnostic:
 		return envelope + uint64(len(f.Diagnostic))
 	case ServerFrameCancelOutcome:
@@ -134,6 +141,13 @@ func ServerFrameConservativeBytes(f ServerFrame) uint64 {
 	default:
 		return envelope
 	}
+}
+
+func accountingEvidenceBytes(e *AccountingEvidence) uint64 {
+	if e == nil {
+		return 0
+	}
+	return uint64(len(e.DedupeKey) + 64*6)
 }
 
 // ValidateClientFrameBounds enforces client-frame wire size using protobuf encoding size.

@@ -173,8 +173,51 @@ type retryRecvStream struct {
 	attemptTerm *streamTerminal
 	// eventsMu guards seenEvents / visibleText against Close concurrent with Recv.
 	eventsMu sync.Mutex
+	usageMu  sync.Mutex
 
-	finalStreamObs *extensions.FinalStreamObservationSession
+	finalStreamObs    *extensions.FinalStreamObservationSession
+	internalUsageKeys map[string]struct{}
+}
+
+func (s *retryRecvStream) consumeBackendUsageEvidence(ctx context.Context, inner lipapi.ManagedEventStream) {
+	source, ok := inner.(lipapi.UsageEvidenceSource)
+	if !ok {
+		return
+	}
+	for _, ev := range source.DrainUsageEvidence() {
+		if ev.Kind != lipapi.EventUsageDelta {
+			continue
+		}
+		if !s.rememberUsageEvidenceOnce(ev) {
+			continue
+		}
+		s.rememberInternalUsage(ctx, ev)
+	}
+}
+
+func (s *retryRecvStream) rememberUsageEvidenceOnce(ev lipapi.Event) bool {
+	s.usageMu.Lock()
+	defer s.usageMu.Unlock()
+	if s.internalUsageKeys == nil {
+		s.internalUsageKeys = make(map[string]struct{})
+	}
+	key := ev.Accounting.DedupeKey
+	if key == "" {
+		return false
+	}
+	if _, exists := s.internalUsageKeys[key]; exists {
+		return false
+	}
+	s.internalUsageKeys[key] = struct{}{}
+	return true
+}
+
+func (s *retryRecvStream) rememberInternalUsage(ctx context.Context, ev lipapi.Event) {
+	s.eventsMu.Lock()
+	s.seenEvents = append(s.seenEvents, ev)
+	s.eventsMu.Unlock()
+	s.accounting.observeUsage(ev)
+	s.emitUsage(ctx, ev)
 }
 
 var _ lipapi.EventStream = (*retryRecvStream)(nil)

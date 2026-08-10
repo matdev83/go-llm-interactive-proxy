@@ -11,7 +11,7 @@ func TestCodexContinuityMarkerContractIsPinnedAcrossModules(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
 	paths := []string{
-		filepath.Join(root, "internal", "plugins", "features", "reasoningpreservation", "codex_companion.go"),
+		filepath.Join(root, "internal", "standardplugins", "reasoning_preservation_inject.go"),
 		filepath.Join(root, "connectors", "codex", "internal", "codex", "native_context_marker.go"),
 	}
 	wantKey := `"lip.internal.openai_codex.reasoning_continuity.v1"`

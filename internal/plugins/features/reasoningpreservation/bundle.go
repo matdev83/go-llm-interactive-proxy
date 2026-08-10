@@ -15,9 +15,18 @@ func FeatureBundle(cfg Config) (lipfeature.FeatureBundle, error) {
 	return b, err
 }
 
+func FeatureBundleWithCompanionPolicy(cfg Config, policy CompanionPolicy) (lipfeature.FeatureBundle, error) {
+	_, b, err := FeatureBundleWithPartsAndPolicy(cfg, policy)
+	return b, err
+}
+
 // FeatureBundleWithParts returns the shared store/telemetry participants plus the schema-V1 bundle.
 // Disabled configurations must not call this constructor (D12).
 func FeatureBundleWithParts(cfg Config) (*InstanceParts, lipfeature.FeatureBundle, error) {
+	return FeatureBundleWithPartsAndPolicy(cfg, CompanionPolicy{})
+}
+
+func FeatureBundleWithPartsAndPolicy(cfg Config, policy CompanionPolicy) (*InstanceParts, lipfeature.FeatureBundle, error) {
 	store, err := NewMemoryTurnStore(StoreOptions{
 		TTL:                      cfg.State.TTL,
 		MaxTurnsPerSession:       cfg.State.MaxTurnsPerSession,
@@ -28,7 +37,7 @@ func FeatureBundleWithParts(cfg Config) (*InstanceParts, lipfeature.FeatureBundl
 		return nil, lipfeature.FeatureBundle{}, err
 	}
 	tel := NewTelemetry()
-	xform := NewAttemptTransform(cfg, store, tel)
+	xform := NewAttemptTransformWithCompanionPolicy(cfg, store, policy, tel)
 	obs := NewStreamObserverFactory(cfg, store, tel)
 	b := lipfeature.FeatureBundle{
 		SchemaVersion:           lipfeature.SchemaVersionV1,

@@ -41,7 +41,8 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		if s.isFinished() {
 			return lipapi.Event{}, err
 		}
-		if s.loadInner() != nil {
+		if inner := s.loadInner(); inner != nil {
+			s.consumeBackendUsageEvidence(ctx, inner)
 			ev, _, herr := s.handleRecvError(ctx, ctx, err, idleContextDeadline{}, ttftContextDeadline{})
 			if herr != nil {
 				return ev, herr
@@ -178,6 +179,10 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				return stream.DefaultKeepaliveEvent(), nil
 			}
 		}
+		// Connector sideband frames can arrive after Open returns. Drain immediately
+		// before each receive so pre-first-event evidence is accounted even when the
+		// transport reports its first read error or cancellation.
+		s.consumeBackendUsageEvidence(ctx, inner)
 		recvCtx := ctx
 		var cancelRecv context.CancelFunc = func() {}
 		ttftDeadline := ttftContextDeadline{}
@@ -189,6 +194,9 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			return inner.Recv(recvCtx)
 		})
 		cancelRecv()
+		// Evidence may be published during the receive itself. Drain after the
+		// call so a final event, EOF, or error cannot discard that evidence.
+		s.consumeBackendUsageEvidence(ctx, inner)
 		// Close/cancel may have terminalized while we were blocked. Do not run
 		// NormalFinish (or surface bare context.Canceled) after that owner won.
 		if s.isFinished() {
@@ -350,6 +358,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	}
 	s.tokenAccountingFinalized = false
 	s.accounting = newAttemptAccountingTracker(s.now())
+	s.consumeBackendUsageEvidence(ctx, out.stream)
 	s.resetToolFinal()
 	if s.executor != nil {
 		s.recoverPolicy = streamrecovery.NewPolicy(s.executor.StreamRecovery, s.now())

@@ -15,28 +15,29 @@ import (
 )
 
 type Config struct {
-	BaseURL               string                     `yaml:"base_url"`
-	AccessToken           string                     `yaml:"access_token"`
-	RefreshToken          string                     `yaml:"refresh_token"`
-	AccountID             string                     `yaml:"account_id"`
-	AuthJSONPath          string                     `yaml:"auth_json_path"`
-	Models                []string                   `yaml:"models"`
-	Executable            string                     `yaml:"executable"`
-	Model                 string                     `yaml:"model"`
-	ExtraArgs             []string                   `yaml:"extra_args"`
-	DefaultWorkspace      string                     `yaml:"default_workspace"`
-	ConfigOverrides       []string                   `yaml:"config_overrides"`
-	DefaultVerbosity      string                     `yaml:"default_verbosity"`
-	IdleTimeoutS          float64                    `yaml:"idle_timeout_seconds"`
-	StaleKillDelayS       float64                    `yaml:"stale_kill_delay_seconds"`
-	CatalogEnabled        *bool                      `yaml:"catalog_enabled"`
-	CatalogFallbackPath   string                     `yaml:"catalog_fallback_path"`
-	CatalogCodexBinary    string                     `yaml:"catalog_codex_binary_path"`
-	CatalogTimeout        string                     `yaml:"catalog_timeout"`
-	HTTPTimeout           string                     `yaml:"http_timeout"`
-	Transport             string                     `yaml:"transport"`
-	ExperimentalWebSocket bool                       `yaml:"experimental_websocket"`
-	NativeContext         *codex.NativeContextConfig `yaml:"-"`
+	BaseURL                                  string                     `yaml:"base_url"`
+	AccessToken                              string                     `yaml:"access_token"`
+	RefreshToken                             string                     `yaml:"refresh_token"`
+	AccountID                                string                     `yaml:"account_id"`
+	AuthJSONPath                             string                     `yaml:"auth_json_path"`
+	Models                                   []string                   `yaml:"models"`
+	Executable                               string                     `yaml:"executable"`
+	Model                                    string                     `yaml:"model"`
+	ExtraArgs                                []string                   `yaml:"extra_args"`
+	DefaultWorkspace                         string                     `yaml:"default_workspace"`
+	ConfigOverrides                          []string                   `yaml:"config_overrides"`
+	DefaultVerbosity                         string                     `yaml:"default_verbosity"`
+	IdleTimeoutS                             float64                    `yaml:"idle_timeout_seconds"`
+	StaleKillDelayS                          float64                    `yaml:"stale_kill_delay_seconds"`
+	CatalogEnabled                           *bool                      `yaml:"catalog_enabled"`
+	CatalogFallbackPath                      string                     `yaml:"catalog_fallback_path"`
+	CatalogCodexBinary                       string                     `yaml:"catalog_codex_binary_path"`
+	CatalogTimeout                           string                     `yaml:"catalog_timeout"`
+	HTTPTimeout                              string                     `yaml:"http_timeout"`
+	Transport                                string                     `yaml:"transport"`
+	ExperimentalWebSocket                    bool                       `yaml:"experimental_websocket"`
+	NativeContext                            *codex.NativeContextConfig `yaml:"-"`
+	DisableNativeCompactionWithoutAccounting bool                       `yaml:"-"`
 }
 
 type nativeContextYAML struct {
@@ -147,18 +148,19 @@ func (c Config) toCodexHTTP(cat *catalog.Catalog) (codex.Config, error) {
 		return codex.Config{}, err
 	}
 	return codex.Config{
-		BaseURL:               firstNonEmpty(strings.TrimSpace(c.BaseURL), codex.DefaultBaseURL),
-		AccessToken:           strings.TrimSpace(c.AccessToken),
-		RefreshToken:          strings.TrimSpace(c.RefreshToken),
-		AccountID:             strings.TrimSpace(c.AccountID),
-		AuthJSONPath:          strings.TrimSpace(c.AuthJSONPath),
-		HTTPClient:            hc,
-		Models:                c.Models,
-		ModelCatalog:          cat,
-		DefaultVerbosity:      verbosity,
-		Transport:             strings.TrimSpace(c.Transport),
-		ExperimentalWebSocket: c.ExperimentalWebSocket,
-		NativeContext:         nativeContext,
+		BaseURL:                                  firstNonEmpty(strings.TrimSpace(c.BaseURL), codex.DefaultBaseURL),
+		AccessToken:                              strings.TrimSpace(c.AccessToken),
+		RefreshToken:                             strings.TrimSpace(c.RefreshToken),
+		AccountID:                                strings.TrimSpace(c.AccountID),
+		AuthJSONPath:                             strings.TrimSpace(c.AuthJSONPath),
+		HTTPClient:                               hc,
+		Models:                                   c.Models,
+		ModelCatalog:                             cat,
+		DefaultVerbosity:                         verbosity,
+		Transport:                                strings.TrimSpace(c.Transport),
+		ExperimentalWebSocket:                    c.ExperimentalWebSocket,
+		NativeContext:                            nativeContext,
+		DisableNativeCompactionWithoutAccounting: c.DisableNativeCompactionWithoutAccounting,
 	}, nil
 }
 

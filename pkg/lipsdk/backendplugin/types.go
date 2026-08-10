@@ -317,6 +317,29 @@ type ServerFrame struct {
 	Diagnostic    string
 	CancelOutcome *CancelOutcome
 	Terminal      *Terminal
+	Accounting    *AccountingEvidence
+}
+
+// AccountingEvidence is host-only provider billing evidence and is never a
+// canonical stream event. DedupeKey identifies one provider charge.
+type AccountingEvidence struct {
+	InputTokens      *int64
+	OutputTokens     *int64
+	CacheReadTokens  *int64
+	CacheWriteTokens *int64
+	ReasoningTokens  *int64
+	TotalTokens      *int64
+	Presence         UsagePresence
+	Source           AccountingSource
+	Authority        AccountingAuthority
+	Plane            AccountingPlane
+	DedupeKey        string
+}
+
+// AccountingEvidenceSource is the internal seam used to drain host-only
+// evidence without yielding it from the canonical EventStream.
+type AccountingEvidenceSource interface {
+	DrainAccountingEvidence() []AccountingEvidence
 }
 
 // HealthResponse reports plugin health.

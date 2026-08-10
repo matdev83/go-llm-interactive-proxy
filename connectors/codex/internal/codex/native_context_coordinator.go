@@ -85,7 +85,7 @@ type nativeContextPreflight struct {
 }
 
 func newNativeContextCoordinator(cfg Config, instanceID string) *NativeContextCoordinator {
-	if cfg.NativeContext == nil || !cfg.NativeContext.Compaction.Enabled || !cfg.NativeContext.Enabled {
+	if cfg.NativeContext == nil || !cfg.NativeContext.Compaction.Enabled || !cfg.NativeContext.Enabled || cfg.DisableNativeCompactionWithoutAccounting {
 		return nil
 	}
 	client := cfg.HTTPClient
@@ -97,7 +97,7 @@ func newNativeContextCoordinator(cfg Config, instanceID string) *NativeContextCo
 }
 
 func newNativeContextCoordinatorWithCompactor(cfg Config, instanceID string, compactor nativeCompactionClient) *NativeContextCoordinator {
-	if cfg.NativeContext == nil || !cfg.NativeContext.Compaction.Enabled || !cfg.NativeContext.Enabled {
+	if cfg.NativeContext == nil || !cfg.NativeContext.Compaction.Enabled || !cfg.NativeContext.Enabled || cfg.DisableNativeCompactionWithoutAccounting {
 		return nil
 	}
 	instanceID = strings.TrimSpace(instanceID)

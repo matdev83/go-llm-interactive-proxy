@@ -10,11 +10,12 @@ import (
 )
 
 type AttemptTransform struct {
-	cfg   Config
-	store TurnStore
-	tel   *Telemetry
-	id    string
-	order int
+	cfg       Config
+	store     TurnStore
+	tel       *Telemetry
+	id        string
+	order     int
+	companion CompanionPolicy
 }
 
 func NewAttemptTransform(cfg Config, store TurnStore, tel ...*Telemetry) *AttemptTransform {
@@ -34,6 +35,12 @@ func NewAttemptTransform(cfg Config, store TurnStore, tel ...*Telemetry) *Attemp
 	}
 }
 
+func NewAttemptTransformWithCompanionPolicy(cfg Config, store TurnStore, policy CompanionPolicy, tel ...*Telemetry) *AttemptTransform {
+	t := NewAttemptTransform(cfg, store, tel...)
+	t.companion = policy
+	return t
+}
+
 func (t *AttemptTransform) ID() string { return t.id }
 func (t *AttemptTransform) Order() int { return t.order }
 func (t *AttemptTransform) FailureMode() sdkhooks.FailureMode {
@@ -44,9 +51,9 @@ func (t *AttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Call,
 	if call == nil {
 		return request.AttemptDecision{}, fmt.Errorf("%s: call is required", ID)
 	}
-	// Client input cannot establish native continuity eligibility. Remove the
-	// reserved extension before matching and only add it after all checks pass.
-	deleteClientContinuityMarker(call)
+	if t.companion.BeforeMatch != nil {
+		t.companion.BeforeMatch(call, meta)
+	}
 	if t.store == nil {
 		return request.AttemptDecision{}, fmt.Errorf("%s: store is required", ID)
 	}
@@ -89,8 +96,8 @@ func (t *AttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Call,
 		}
 		return request.AttemptDecision{Kind: request.AttemptExcludeCandidate, ReasonCode: reason}, nil
 	}
-	if continuityOutcomeSafe(res.Outcomes) && supportsCodexContinuity(call, meta.ReplaySupport) {
-		setTrustedContinuityMarker(call)
+	if t.companion.AfterRestore != nil {
+		t.companion.AfterRestore(ctx, call, meta, match, res)
 	}
 	return request.AttemptDecision{Kind: request.AttemptContinue}, nil
 }

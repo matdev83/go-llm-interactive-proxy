@@ -1,6 +1,8 @@
 package reasoningpreservation
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 
@@ -8,18 +10,16 @@ import (
 )
 
 const (
-	companionRulePrefix      = "codex-native-context-"
 	companionRuleMaxIDLength = 64
 )
 
-// NewCodexCompanionConfig returns the standard feature config for direct Codex
-// instances. The composition root supplies only backend instance IDs; all
-// schema-specific defaults and rule construction stay owned by this package.
-func NewCodexCompanionConfig(backendIDs []string) (yaml.Node, error) {
+// NewCompanionConfig returns generic feature config for backend instance IDs.
+// Provider-specific eligibility and trust issuance remain composition policy.
+func NewCompanionConfig(backendIDs []string, rulePrefix string) (yaml.Node, error) {
 	node := mappingNode(
 		mappingEntry{"action", stringNode(ActionRestore)},
 		mappingEntry{"use_builtin_catalog", boolNode(true)},
-		mappingEntry{"rules", sequenceNode(companionRules(backendIDs))},
+		mappingEntry{"rules", sequenceNode(companionRules(backendIDs, rulePrefix))},
 		mappingEntry{"on_ambiguous", stringNode(PolicyLogSkip)},
 		mappingEntry{"on_unrepresentable", stringNode(PolicyReject)},
 		mappingEntry{"on_state_error", stringNode(PolicyReject)},
@@ -36,11 +36,11 @@ func NewCodexCompanionConfig(backendIDs []string) (yaml.Node, error) {
 	return *node, nil
 }
 
-// EnsureCodexCompanionRules appends missing backend-only Codex rules while
+// EnsureCompanionRules appends missing backend-only rules while
 // retaining every existing config node and its ordering. DecodeConfig performs
 // validation before mutation, so malformed or unknown feature config is never
 // silently repaired by composition.
-func EnsureCodexCompanionRules(n yaml.Node, backendIDs []string) (yaml.Node, error) {
+func EnsureCompanionRules(n yaml.Node, backendIDs []string, rulePrefix string) (yaml.Node, error) {
 	decoded, err := DecodeConfig(n)
 	if err != nil {
 		return yaml.Node{}, err
@@ -65,7 +65,7 @@ func EnsureCodexCompanionRules(n yaml.Node, backendIDs []string) (yaml.Node, err
 
 	usedIDs := ruleIDs(rules)
 	for _, backendID := range missing {
-		ruleID := uniqueCompanionRuleID(backendID, usedIDs)
+		ruleID := uniqueCompanionRuleID(backendID, usedIDs, rulePrefix)
 		usedIDs[ruleID] = struct{}{}
 		rules.Content = append(rules.Content, companionRuleNode(ruleID, backendID))
 	}
@@ -93,11 +93,11 @@ func missingCompanionBackends(rules []RuleConfig, backendIDs []string) []string 
 	return missing
 }
 
-func companionRules(backendIDs []string) []*yaml.Node {
+func companionRules(backendIDs []string, rulePrefix string) []*yaml.Node {
 	used := make(map[string]struct{}, len(backendIDs))
 	rules := make([]*yaml.Node, 0, len(backendIDs))
 	for _, backendID := range backendIDs {
-		id := uniqueCompanionRuleID(backendID, used)
+		id := uniqueCompanionRuleID(backendID, used, rulePrefix)
 		used[id] = struct{}{}
 		rules = append(rules, companionRuleNode(id, backendID))
 	}
@@ -114,8 +114,8 @@ func companionRuleNode(id, backendID string) *yaml.Node {
 	)
 }
 
-func uniqueCompanionRuleID(backendID string, used map[string]struct{}) string {
-	base := companionRuleID(backendID)
+func uniqueCompanionRuleID(backendID string, used map[string]struct{}, rulePrefix string) string {
+	base := companionRuleID(backendID, rulePrefix)
 	if _, exists := used[base]; !exists {
 		return base
 	}
@@ -133,7 +133,7 @@ func uniqueCompanionRuleID(backendID string, used map[string]struct{}) string {
 	}
 }
 
-func companionRuleID(backendID string) string {
+func companionRuleID(backendID, rulePrefix string) string {
 	normalized := strings.ToLower(strings.TrimSpace(backendID))
 	var b strings.Builder
 	lastDash := false
@@ -150,9 +150,15 @@ func companionRuleID(backendID string) string {
 	if sanitized == "" {
 		sanitized = "backend"
 	}
-	base := companionRulePrefix + sanitized
+	base := strings.TrimSpace(rulePrefix) + sanitized
 	if len(base) > companionRuleMaxIDLength {
-		base = base[:companionRuleMaxIDLength]
+		hash := sha256.Sum256([]byte(base))
+		suffix := "-" + hex.EncodeToString(hash[:])[:8]
+		keep := companionRuleMaxIDLength - len(suffix)
+		if len(sanitized) > keep {
+			sanitized = sanitized[:keep]
+		}
+		base = sanitized + suffix
 	}
 	return base
 }

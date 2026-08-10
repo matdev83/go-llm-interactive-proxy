@@ -1,11 +1,15 @@
 package standardplugins
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"gopkg.in/yaml.v3"
 )
 
@@ -18,7 +22,12 @@ type ReasoningOutputPreservationInjectOpts struct {
 	StandardDistribution bool
 }
 
-const openAICodexFactory = "openai-codex"
+const (
+	openAICodexFactory       = "openai-codex"
+	codexCompanionRulePrefix = "codex-native-context-"
+	ContinuityMarkerKey      = "lip.internal.openai_codex.reasoning_continuity.v1"
+	ContinuityMarkerValue    = `{"eligible":true,"dialect":"openai.responses.reasoning_item.v1"}`
+)
 
 // EnsureReasoningOutputPreservationInConfig discovers eligible direct Codex
 // instances, then delegates feature-schema mutation to the feature owner.
@@ -47,7 +56,7 @@ func EnsureReasoningOutputPreservationInConfig(cfg *config.Config, opts Reasonin
 	}
 
 	if featureIndex < 0 {
-		node, err := reasoningpreservation.NewCodexCompanionConfig(backends)
+		node, err := reasoningpreservation.NewCompanionConfig(backends, codexCompanionRulePrefix)
 		if err != nil {
 			return err
 		}
@@ -60,11 +69,56 @@ func EnsureReasoningOutputPreservationInConfig(cfg *config.Config, opts Reasonin
 	}
 
 	row := &cfg.Plugins.Features[featureIndex]
-	row.Config, err = reasoningpreservation.EnsureCodexCompanionRules(row.Config, backends)
+	row.Config, err = reasoningpreservation.EnsureCompanionRules(row.Config, backends, codexCompanionRulePrefix)
 	if err != nil {
 		return fmt.Errorf("reasoning-output-preservation config: %w", err)
 	}
 	return nil
+}
+
+func codexCompanionPolicy() reasoningpreservation.CompanionPolicy {
+	return reasoningpreservation.CompanionPolicy{
+		BeforeMatch: func(call *lipapi.Call, _ request.AttemptMeta) {
+			if call != nil && call.Extensions != nil {
+				delete(call.Extensions, ContinuityMarkerKey)
+			}
+		},
+		AfterRestore: func(_ context.Context, call *lipapi.Call, meta request.AttemptMeta, match reasoningpreservation.MatchResult, res reasoningpreservation.RestoreResult) {
+			if call == nil || match.Kind == reasoningpreservation.MatchNone || !safeCodexOutcome(res.Outcomes) || !codexIdentity(meta) {
+				return
+			}
+			if call.Extensions == nil {
+				call.Extensions = make(map[string]json.RawMessage)
+			}
+			call.Extensions[ContinuityMarkerKey] = json.RawMessage(ContinuityMarkerValue)
+		},
+	}
+}
+
+func codexIdentity(meta request.AttemptMeta) bool {
+	if strings.TrimSpace(meta.BackendID) == "" || !strings.Contains(strings.ToLower(meta.BackendID), "codex") {
+		return false
+	}
+	if !strings.Contains(strings.ToLower(meta.Model), "codex") {
+		return false
+	}
+	for _, d := range meta.ReplaySupport.Dialects {
+		if lipapi.NormalizeReasoningDialect(d) == lipapi.ReasoningDialectOpenAIResponsesItemV1 {
+			return true
+		}
+	}
+	return false
+}
+
+func safeCodexOutcome(outcomes []reasoningpreservation.SafeOutcome) bool {
+	for _, o := range outcomes {
+		switch o {
+		case reasoningpreservation.OutcomePreserved, reasoningpreservation.OutcomeRestored, reasoningpreservation.OutcomeMissing, reasoningpreservation.OutcomeUnmatched:
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 type nativeContextWire struct {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,6 +15,8 @@ import (
 )
 
 const defaultMaxStderrBytes = 64 << 10
+
+const maxBufferedUsageEvidence = 1024
 
 // openStream starts one bidirectional execute attempt. It never collects the
 // provider response and never restarts after output commitment.
@@ -117,6 +120,8 @@ type managedStream struct {
 	mu              sync.Mutex
 	recvErr         error
 	stderrBytes     int
+	usageMu         sync.Mutex
+	usageEvidence   []lipapi.Event
 }
 
 type streamStats struct {
@@ -263,6 +268,22 @@ func (s *managedStream) onPluginFrame(frame backendplugin.ServerFrame) error {
 	switch frame.Kind {
 	case backendplugin.ServerFrameAccepted, backendplugin.ServerFrameDiagnostic, backendplugin.ServerFrameCancelOutcome:
 		return nil
+	case backendplugin.ServerFrameAccountingEvidence:
+		if !slices.Contains(s.opt.Negotiation.EnabledFeatures, backendplugin.FeatureAccountingEvidence) {
+			return ProtocolViolation(backendplugin.ErrInvalidFrame)
+		}
+		ev, err := accountingEvidenceToEvent(frame.Accounting)
+		if err != nil {
+			return ProtocolViolation(err)
+		}
+		s.usageMu.Lock()
+		if len(s.usageEvidence) >= maxBufferedUsageEvidence {
+			s.usageMu.Unlock()
+			return ProtocolViolation(backendplugin.ErrOversizedMessage)
+		}
+		s.usageEvidence = append(s.usageEvidence, ev)
+		s.usageMu.Unlock()
+		return nil
 	case backendplugin.ServerFrameEvent:
 		if err := backendplugin.RequireExactOpenResponsesEventABISupport(s.opt.Negotiation, frame.Event); err != nil {
 			return err
@@ -298,6 +319,46 @@ func (s *managedStream) onPluginFrame(frame backendplugin.ServerFrame) error {
 	default:
 		return backendplugin.ErrUnknownFrameKind
 	}
+}
+
+func (s *managedStream) DrainUsageEvidence() []lipapi.Event {
+	if s == nil {
+		return nil
+	}
+	s.usageMu.Lock()
+	defer s.usageMu.Unlock()
+	out := append([]lipapi.Event(nil), s.usageEvidence...)
+	s.usageEvidence = nil
+	return out
+}
+
+func accountingEvidenceToEvent(e *backendplugin.AccountingEvidence) (lipapi.Event, error) {
+	if e == nil {
+		return lipapi.Event{}, backendplugin.ErrInvalidFrame
+	}
+	if err := backendplugin.ValidateAccountingEvidence(*e); err != nil {
+		return lipapi.Event{}, err
+	}
+	ev := lipapi.Event{Kind: lipapi.EventUsageDelta, UsagePresence: e.Presence, Accounting: lipapi.UsageAccountingMetadata{Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSource(e.Source), Authority: lipapi.UsageAuthority(e.Authority), DedupeKey: e.DedupeKey}}
+	if e.InputTokens != nil {
+		ev.InputTokens = int(*e.InputTokens)
+	}
+	if e.OutputTokens != nil {
+		ev.OutputTokens = int(*e.OutputTokens)
+	}
+	if e.CacheReadTokens != nil {
+		ev.CacheReadTokens = int(*e.CacheReadTokens)
+	}
+	if e.CacheWriteTokens != nil {
+		ev.CacheWriteTokens = int(*e.CacheWriteTokens)
+	}
+	if e.ReasoningTokens != nil {
+		ev.ReasoningTokens = int(*e.ReasoningTokens)
+	}
+	if e.TotalTokens != nil {
+		ev.TotalTokens = int(*e.TotalTokens)
+	}
+	return ev, nil
 }
 
 func (s *managedStream) drainStderr(r io.Reader) {

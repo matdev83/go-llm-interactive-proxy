@@ -235,8 +235,8 @@ func TestCodexCompanionStandardComposition_OrdinaryAttemptGetsTrustedMarker(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(call.Extensions[reasoningpreservation.ContinuityMarkerKey]) != string(reasoningpreservation.ContinuityMarkerValue) {
-		t.Fatalf("standard injected rule did not produce trusted marker: %s", json.RawMessage(call.Extensions[reasoningpreservation.ContinuityMarkerKey]))
+	if string(call.Extensions[standardplugins.ContinuityMarkerKey]) != string(standardplugins.ContinuityMarkerValue) {
+		t.Fatalf("standard injected rule did not produce trusted marker: %s", json.RawMessage(call.Extensions[standardplugins.ContinuityMarkerKey]))
 	}
 }
 

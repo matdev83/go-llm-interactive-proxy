@@ -83,6 +83,48 @@ func TestForwardExecute_ForwardsEventsVerbatim(t *testing.T) {
 	}
 }
 
+func TestForwardExecute_ForwardsOpeningAccountingEvidenceBeforeCanonicalEvents(t *testing.T) {
+	t.Parallel()
+
+	input := int64(41)
+	usage := backendplugin.AccountingEvidence{
+		InputTokens: &input,
+		Presence:    lipapi.UsagePresence{InputTokens: true},
+		Source:      backendplugin.AccountingSourceProviderReported,
+		Authority:   backendplugin.AccountingAuthorityAuthoritative,
+		Plane:       backendplugin.AccountingPlaneProviderBillable,
+		DedupeKey:   "compaction:turn-1",
+	}
+	ms := &evidenceManaged{evidence: []backendplugin.AccountingEvidence{usage}, events: []lipapi.Event{{Kind: lipapi.EventResponseFinished}}}
+	stream := newFakeExecuteStream(context.Background(), validStartFrame(t))
+
+	if err := backendplugin.ForwardExecute(stream, func(context.Context, backendplugin.Invocation, lipapi.Call) (lipapi.ManagedEventStream, error) {
+		return ms, nil
+	}); err != nil {
+		t.Fatalf("ForwardExecute: %v", err)
+	}
+	if len(stream.sent) < 4 {
+		t.Fatalf("frames = %d, want accepted, evidence, event, terminal", len(stream.sent))
+	}
+	if stream.sent[1].Kind != backendplugin.ServerFrameAccountingEvidence {
+		t.Fatalf("first post-accepted frame = %q, want accounting evidence", stream.sent[1].Kind)
+	}
+	if stream.sent[1].Accounting == nil || stream.sent[1].Accounting.DedupeKey != usage.DedupeKey {
+		t.Fatalf("evidence frame = %#v", stream.sent[1].Accounting)
+	}
+	if stream.sent[2].Kind != backendplugin.ServerFrameEvent {
+		t.Fatalf("canonical frame after evidence = %q", stream.sent[2].Kind)
+	}
+	if stream.sent[3].Kind != backendplugin.ServerFrameTerminal || stream.sent[3].Terminal == nil || stream.sent[3].Terminal.Status != backendplugin.TerminalSuccess {
+		t.Fatalf("terminal frame = %#v, want successful terminal", stream.sent[3])
+	}
+	for i, frame := range stream.sent[1:] {
+		if frame.Sequence != uint64(i+1) {
+			t.Fatalf("frame %d sequence = %d, want %d", i+1, frame.Sequence, i+1)
+		}
+	}
+}
+
 func TestForwardExecute_CancelsUpstreamWhenStreamContextDone(t *testing.T) {
 	t.Parallel()
 
@@ -289,6 +331,33 @@ type scriptedManaged struct {
 	err    error
 	idx    int
 	closed atomic.Bool
+}
+
+type evidenceManaged struct {
+	evidence []backendplugin.AccountingEvidence
+	events   []lipapi.Event
+	idx      int
+}
+
+func (m *evidenceManaged) Recv(context.Context) (lipapi.Event, error) {
+	if m.idx >= len(m.events) {
+		return lipapi.Event{}, io.EOF
+	}
+	ev := m.events[m.idx]
+	m.idx++
+	return ev, nil
+}
+
+func (m *evidenceManaged) DrainAccountingEvidence() []backendplugin.AccountingEvidence {
+	evidence := append([]backendplugin.AccountingEvidence(nil), m.evidence...)
+	m.evidence = nil
+	return evidence
+}
+
+func (m *evidenceManaged) Close() error { return nil }
+
+func (m *evidenceManaged) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
+	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
 }
 
 func (m *scriptedManaged) Recv(context.Context) (lipapi.Event, error) {

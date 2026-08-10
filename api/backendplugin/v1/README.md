@@ -28,3 +28,10 @@ Confirm generated headers report `protoc-gen-go v1.36.11` and `protoc-gen-go-grp
 only after protocol minor 4 negotiation with the `proxy_owned_session_id`
 feature. Older hosts must reject calls that carry proxy-owned session authority;
 silently dropping the authority would make native-context partitioning unsafe.
+
+`ExecuteServerFrame.accounting_evidence` is a host-only, additive sideband
+introduced at protocol minor 5 and gated by `accounting_evidence_sideband`.
+It carries bounded provider billing evidence with explicit counter presence,
+source, authority, plane, and dedupe key. It is not a canonical event and must
+be consumed by the host exactly once; older peers must disable native compaction
+rather than synthesize a native usage lifecycle.

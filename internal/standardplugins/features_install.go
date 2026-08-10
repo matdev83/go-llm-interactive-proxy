@@ -201,7 +201,11 @@ func featureSecretsGuard(n yaml.Node) (lipfeature.FeatureBundle, error) {
 }
 
 func featureReasoningOutputPreservation(n yaml.Node) (lipfeature.FeatureBundle, error) {
-	return reasoningpreservation.BuildFeatureBundle(n)
+	cfg, err := reasoningpreservation.DecodeConfig(n)
+	if err != nil {
+		return lipfeature.FeatureBundle{}, err
+	}
+	return reasoningpreservation.FeatureBundleWithCompanionPolicy(cfg, codexCompanionPolicy())
 }
 
 func featureToolCallRepair(n yaml.Node) (lipfeature.FeatureBundle, error) {

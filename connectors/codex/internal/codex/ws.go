@@ -79,7 +79,7 @@ func openWS(ctx context.Context, cfg *Config, native *NativeContextCoordinator, 
 		return nil, err
 	}
 	es, _, err := openWSPrepared(ctx, env, cfg, model, call, usageEst, sessions, continuation)
-	es = env.wrapNativeUsage(es)
+	es = env.wrapNativeUsage(es, err)
 	if err != nil {
 		env.releaseVerbosityTurn()
 	} else {

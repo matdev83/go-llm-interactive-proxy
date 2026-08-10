@@ -35,12 +35,22 @@ func ForwardExecute(stream ExecuteStream, open OpenManagedStream) error {
 	if err := sendServerFrame(stream, ServerFrame{Kind: ServerFrameAccepted}); err != nil {
 		return err
 	}
+	seq := uint64(1)
 	call, err := CallFromInvocation(*start.Invocation)
 	if err != nil {
 		return err
 	}
 	ms, err := open(stream.Context(), *start.Invocation, call)
 	if err != nil {
+		// An opening path may have incurred provider-only work before its first
+		// canonical event. Preserve the original open error, but do not discard
+		// accounting evidence already published by the managed stream.
+		if ms != nil {
+			defer func() { _ = ms.Close() }()
+			if evidenceErr := forwardAccountingEvidence(stream, ms, &seq); evidenceErr != nil {
+				return evidenceErr
+			}
+		}
 		return err
 	}
 	if ms == nil {
@@ -49,7 +59,6 @@ func ForwardExecute(stream ExecuteStream, open OpenManagedStream) error {
 	var closeOnce sync.Once
 	closeManaged := func() { closeOnce.Do(func() { _ = ms.Close() }) }
 	defer closeManaged()
-
 	stopWatch := make(chan struct{})
 	defer close(stopWatch)
 	go func() {
@@ -61,22 +70,39 @@ func ForwardExecute(stream ExecuteStream, open OpenManagedStream) error {
 		}
 	}()
 
-	seq := uint64(1)
+	if source, ok := ms.(AccountingEvidenceSource); ok {
+		// Evidence created while opening is sent before the first canonical frame.
+		for _, evidence := range source.DrainAccountingEvidence() {
+			if err := sendServerFrame(stream, ServerFrame{Kind: ServerFrameAccountingEvidence, Sequence: seq, Accounting: &evidence}); err != nil {
+				return err
+			}
+			seq++
+		}
+	}
 	for {
 		if err := stream.Context().Err(); err != nil {
 			return err
 		}
 		ev, err := ms.Recv(stream.Context())
 		if errors.Is(err, io.EOF) {
+			if err := forwardAccountingEvidence(stream, ms, &seq); err != nil {
+				return err
+			}
 			return sendServerFrame(stream, ServerFrame{
 				Kind: ServerFrameTerminal, Sequence: seq,
 				Terminal: &Terminal{Status: TerminalSuccess},
 			})
 		}
 		if err != nil {
+			if evidenceErr := forwardAccountingEvidence(stream, ms, &seq); evidenceErr != nil {
+				return evidenceErr
+			}
 			if stream.Context().Err() != nil {
 				return stream.Context().Err()
 			}
+			return err
+		}
+		if err := forwardAccountingEvidence(stream, ms, &seq); err != nil {
 			return err
 		}
 		if err := sendServerFrame(stream, ServerFrame{
@@ -87,6 +113,20 @@ func ForwardExecute(stream ExecuteStream, open OpenManagedStream) error {
 		}
 		seq++
 	}
+}
+
+func forwardAccountingEvidence(stream ExecuteStream, ms lipapi.ManagedEventStream, seq *uint64) error {
+	source, ok := ms.(AccountingEvidenceSource)
+	if !ok {
+		return nil
+	}
+	for _, evidence := range source.DrainAccountingEvidence() {
+		if err := sendServerFrame(stream, ServerFrame{Kind: ServerFrameAccountingEvidence, Sequence: *seq, Accounting: &evidence}); err != nil {
+			return err
+		}
+		*seq = *seq + 1
+	}
+	return nil
 }
 
 func sendServerFrame(stream ExecuteStream, frame ServerFrame) error {
