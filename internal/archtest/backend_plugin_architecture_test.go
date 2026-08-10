@@ -78,7 +78,7 @@ func TestEssentialBackendBundle_ExactAllowlist(t *testing.T) {
 			t.Fatalf("non-essential kind %q in EssentialBackendBundle", e.ID)
 		}
 	}
-	want := append([]string(nil), standardplugins.EssentialBackendKinds...)
+	want := append([]string(nil), standardplugins.EssentialBackendKinds()...)
 	slices.Sort(got)
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
@@ -101,7 +101,7 @@ func TestEssentialAllowlistFixture_DetectsViolation(t *testing.T) {
 	if !detectEssentialAllowlistViolation(kind) {
 		t.Fatalf("detector failed to reject fixture kind %q", kind)
 	}
-	for _, id := range standardplugins.EssentialBackendKinds {
+	for _, id := range standardplugins.EssentialBackendKinds() {
 		if detectEssentialAllowlistViolation(id) {
 			t.Fatalf("detector falsely rejected essential kind %q", id)
 		}

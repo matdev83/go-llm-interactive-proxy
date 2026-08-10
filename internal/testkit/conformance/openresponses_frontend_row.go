@@ -309,7 +309,7 @@ func artifactExists(moduleRoot, rel string) bool {
 // connector).
 func AssertOpenRouterNVIDIAStayOptional(moduleRoot string) error {
 	for _, id := range []string{BackendOpenRouter, BackendNVIDIA} {
-		if slices.Contains(standardplugins.EssentialBackendKinds, id) {
+		if slices.Contains(standardplugins.EssentialBackendKinds(), id) {
 			return fmt.Errorf("row cell %q was silently promoted to an essential backend kind; optional connectors must stay optional (Task 8.5 owns authoritative list expansion)", id)
 		}
 	}

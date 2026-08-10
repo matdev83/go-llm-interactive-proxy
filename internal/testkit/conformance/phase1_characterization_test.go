@@ -94,7 +94,7 @@ func TestPhase1_Task11_FreezeBaselines(t *testing.T) {
 	}
 
 	// 3. Verify Standard/Essential/Compatible backend lists
-	essential := standardplugins.EssentialBackendKinds
+	essential := standardplugins.EssentialBackendKinds()
 	if len(essential) != 10 {
 		t.Fatalf("expected 10 essential backend kinds, got %d (%v)", len(essential), essential)
 	}
@@ -113,11 +113,11 @@ func TestPhase1_Task11_FreezeBaselines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error getting openai-responses default claims: %v", err)
 	}
-	openaiLegacyClaim, err := stdhttpcontract.RouteClaim{OwnerID: "openai-legacy", Method: "POST", Path: "/v1/chat/completions", Kind: stdhttpcontract.RouteKindOpenAIChatCompletions}.NormalizedClaim()
+	openaiLegacyClaim, err := stdhttpcontract.RouteClaim{OwnerID: "openai-legacy", Method: "POST", Path: "/v1/chat/completions", Kind: "openai_chat_completions"}.NormalizedClaim()
 	if err != nil {
 		t.Fatalf("unexpected error getting openai-legacy claim: %v", err)
 	}
-	anthropicClaim, err := stdhttpcontract.RouteClaim{OwnerID: "anthropic", Method: "POST", Path: "/v1/messages", Kind: stdhttpcontract.RouteKindAnthropicMessages}.NormalizedClaim()
+	anthropicClaim, err := stdhttpcontract.RouteClaim{OwnerID: "anthropic", Method: "POST", Path: "/v1/messages", Kind: "anthropic_messages"}.NormalizedClaim()
 	if err != nil {
 		t.Fatalf("unexpected error getting anthropic claim: %v", err)
 	}
@@ -129,8 +129,8 @@ func TestPhase1_Task11_FreezeBaselines(t *testing.T) {
 		"openai-legacy":    {openaiLegacyClaim},
 		"anthropic":        {anthropicClaim},
 		"gemini": {
-			{OwnerID: "gemini", Method: "POST", Path: "/v1beta/", Kind: stdhttpcontract.RouteKindGeminiGenerate},
-			{OwnerID: "gemini", Method: "POST", Path: "/v1beta1/", Kind: stdhttpcontract.RouteKindGeminiGenerate},
+			{OwnerID: "gemini", Method: "POST", Path: "/v1beta/", Kind: "gemini_generate"},
+			{OwnerID: "gemini", Method: "POST", Path: "/v1beta1/", Kind: "gemini_generate"},
 		},
 	}
 	for owner, claims := range expectedClaims {
@@ -190,7 +190,7 @@ func TestPhase1_Task11_FreezeBaselines(t *testing.T) {
 			return in
 		},
 		"kind": func(in []stdhttpcontract.RouteClaim) []stdhttpcontract.RouteClaim {
-			in[0].Kind = stdhttpcontract.RouteKindAnthropicMessages
+			in[0].Kind = "anthropic_messages"
 			return in
 		},
 		"removal": func(in []stdhttpcontract.RouteClaim) []stdhttpcontract.RouteClaim {
@@ -201,7 +201,7 @@ func TestPhase1_Task11_FreezeBaselines(t *testing.T) {
 			return in
 		},
 		"extra-distinct-claim": func(in []stdhttpcontract.RouteClaim) []stdhttpcontract.RouteClaim {
-			return append(in, stdhttpcontract.RouteClaim{OwnerID: "gemini", Method: "POST", Path: "/v1beta2/models", Kind: stdhttpcontract.RouteKindGeminiGenerate})
+			return append(in, stdhttpcontract.RouteClaim{OwnerID: "gemini", Method: "POST", Path: "/v1beta2/models", Kind: "gemini_generate"})
 		},
 		"duplicate": func(in []stdhttpcontract.RouteClaim) []stdhttpcontract.RouteClaim {
 			in[1] = in[0]

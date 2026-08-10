@@ -24,13 +24,13 @@ type FrontendRouteClaims = httpcontract.FrontendRouteClaims
 // collisions before any ServeMux handler is mounted. Frontends without a
 // provider participate in no route-ownership validation.
 func StandardFrontendRouteClaims() map[string]FrontendRouteClaims {
-	return map[string]FrontendRouteClaims{
-		frontopenresponses.ID:   openResponsesFrontendRouteClaims,
-		frontopenairesponses.ID: openAIResponsesFrontendRouteClaims,
-		frontopenailegacy.ID:    openAILegacyFrontendRouteClaims,
-		frontanthropic.ID:       anthropicFrontendRouteClaims,
-		frontgemini.ID:          geminiFrontendRouteClaims,
+	out := make(map[string]FrontendRouteClaims)
+	for _, c := range standardFrontendContributions() {
+		if c.routes != nil {
+			out[c.id] = c.routes
+		}
 	}
+	return out
 }
 
 // openResponsesFrontendRouteClaims decodes the generic OpenResponses frontend
@@ -51,7 +51,7 @@ func openResponsesFrontendRouteClaims(instanceID string, n yaml.Node) ([]httpcon
 // OpenResponses frontend configured at base_path=/v1 is rejected as a canonical
 // takeover before mounting.
 func openAIResponsesFrontendRouteClaims(instanceID string, _ yaml.Node) ([]httpcontract.RouteClaim, error) {
-	return httpcontract.OpenAIResponsesDefaultClaims(instanceID)
+	return frontopenairesponses.RouteClaims(instanceID)
 }
 
 func staticFrontendRouteClaims(instanceID string, claims ...httpcontract.RouteClaim) ([]httpcontract.RouteClaim, error) {

@@ -319,7 +319,7 @@ func (r RealSharedBoundaryInspector) InspectProfileAgainstCentralLists(profileID
 	footprint := SharedBoundaryFootprint{
 		ProfileID: profileID,
 	}
-	for _, essential := range standardplugins.EssentialBackendKinds {
+	for _, essential := range standardplugins.EssentialBackendKinds() {
 		if essential == profileID {
 			footprint.EssentialListAdditions++
 		}
@@ -630,7 +630,7 @@ func ScanRepository(repoRoot string) (CartesianDebtReport, error) {
 		return report, err
 	}
 	if _, err := os.Stat(filepath.Join(repoRoot, "internal", "standardplugins")); err == nil {
-		report.CentralTableEntriesCount = len(standardplugins.EssentialBackendKinds)
+		report.CentralTableEntriesCount = len(standardplugins.EssentialBackendKinds())
 	}
 	return report, nil
 }

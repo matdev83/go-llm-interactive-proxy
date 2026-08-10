@@ -167,7 +167,7 @@ Current fresh validation evidence:
 
 ## 4. Single-Source Contribution Metadata and Generic Projections
 
-- [ ] 4.1 Add focused frontend/backend contribution facets behind RED derivation tests
+- [x] 4.1 Add focused frontend/backend contribution facets behind RED derivation tests
   - Define registration, route, diagnostic, contract, and compatible-family facets without carrying runtime service bags.
   - Add synthetic contributions proving deterministic derivation, uniqueness, and automatic appearance in declared views.
   - Observable completion: tests specify one-authority behavior before central lists are removed.
@@ -177,7 +177,7 @@ Current fresh validation evidence:
   - _Depends: 1.4, 2.2, 2.3_
   - _Validation: go test ./internal/standardplugins/... ./internal/pluginreg/..._
 
-- [ ] 4.2 Migrate standard/essential/compatible registration to contribution-derived views
+- [x] 4.2 Migrate standard/essential/compatible registration to contribution-derived views
   - Derive `StandardBundle`, essential IDs, compatible family IDs, contract subjects, and provider-profile family bindings from one source.
   - Delete parallel authoritative lists/switches superseded by contribution facets.
   - Preserve current optional-connector rule: optional connector identities are not promoted into essential built-ins.
@@ -188,7 +188,7 @@ Current fresh validation evidence:
   - _Depends: 4.1, 3.2_
   - _Validation: go test ./internal/standardplugins/... ./internal/pluginreg/... ./internal/infra/runtimebundle/..._
 
-- [ ] 4.3 Generalize route-kind ownership and derive route claims from frontend contributions
+- [x] 4.3 Generalize route-kind ownership and derive route claims from frontend contributions
   - Keep normalized owner/method/path conflict validation.
   - Move concrete operation IDs to frontend-owned contributions/protocol packages and replace central closed route-kind additions with bounded opaque IDs.
   - Derive standard route-claim providers from frontend contributions.
@@ -199,7 +199,7 @@ Current fresh validation evidence:
   - _Depends: 4.1_
   - _Validation: go test ./internal/stdhttp/contract/... ./internal/standardplugins/... ./internal/stdhttp/..._
 
-- [ ] 4.4 Replace protocol-specific central diagnostics rows/switches with bounded generic contribution projectors
+- [x] 4.4 Replace protocol-specific central diagnostics rows/switches with bounded generic contribution projectors
   - Characterize existing HTTP JSON first and retain compatibility serialization/versioning where needed.
   - Introduce common instance diagnostics plus bounded sanitized extension fields.
   - Move protocol-specific projection to contribution-owned side-effect-free projectors; remove OpenResponses-compatible/frontend selection switches from central composition.

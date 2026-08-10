@@ -39,7 +39,7 @@ func TestNativeEssentialBackendsRetainBuiltinOrigin(t *testing.T) {
 	if err := InstallEssentialBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
-	for _, kind := range EssentialBackendKinds[:5] {
+	for _, kind := range EssentialBackendKinds()[:5] {
 		source, ok := reg.BackendRegistrationSource(kind)
 		if !ok || source != pluginreg.BackendSourceBuiltin {
 			t.Fatalf("native essential kind %q source=%q ok=%v", kind, source, ok)

@@ -99,11 +99,22 @@ func isStringExpr(expr ast.Expr) bool { id, ok := expr.(*ast.Ident); return ok &
 func isFuncExpr(expr ast.Expr) bool   { _, ok := expr.(*ast.FuncType); return ok }
 
 func isContributionIdentityExpr(name string, typ ast.Expr, value ast.Expr) bool {
-	if !isContributionAuthorityName(name) || !isIdentityType(typ) {
+	if !isContributionAuthorityName(name) {
+		return false
+	}
+	// A compatibility view assigned from the contribution derivation is not a
+	// second authority. Only literal identity collections are parallel lists.
+	if _, ok := value.(*ast.CallExpr); ok {
+		return false
+	}
+	if !isIdentityType(typ) {
 		// Inferred declarations still qualify when their literal has string identity keys.
-		if !isContributionAuthorityName(name) {
-			return false
+		if lit, ok := value.(*ast.CompositeLit); ok {
+			_, array := lit.Type.(*ast.ArrayType)
+			_, object := lit.Type.(*ast.MapType)
+			return array || object
 		}
+		return false
 	}
 	if typ != nil && isIdentityType(typ) {
 		return true
@@ -201,12 +212,12 @@ func DetectCentralProtocolRouteKinds(repoRoot string) (map[string]string, error)
 // contribution-owned projectors are bounded, non-protocol infrastructure.
 func centralDiagnosticOwnerName(name string) bool {
 	lower := strings.ToLower(name)
-	for _, neutral := range []string{"compatible", "plugin", "reload", "health", "inventory", "route", "attempt", "generic", "common", "neutral", "extension", "contribution"} {
+	for _, neutral := range []string{"compatible", "plugin", "reload", "health", "inventory", "route", "attempt", "generic", "common", "neutral", "extension", "contribution", "instance"} {
 		if strings.Contains(lower, neutral) {
 			return false
 		}
 	}
-	return strings.HasSuffix(lower, "row") || strings.HasSuffix(lower, "projector") || strings.Contains(lower, "diagnostic") || strings.Contains(lower, "diag")
+	return strings.HasSuffix(lower, "row") || strings.HasSuffix(lower, "projector")
 }
 
 func DetectCentralProtocolDiagnosticsDebt(repoRoot string) (map[string]string, error) {

@@ -13,6 +13,12 @@ import (
 	lipcont "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/continuation"
 )
 
+const (
+	RouteOperationCreate    httpcontract.RouteKind = "openresponses_create"
+	RouteOperationCompact   httpcontract.RouteKind = "openresponses_compact"
+	RouteOperationWebSocket httpcontract.RouteKind = "openresponses_websocket"
+)
+
 // RouteClaims calculates the normalized route claims for an OpenResponses frontend config.
 func RouteClaims(cfg Config) ([]httpcontract.RouteClaim, error) {
 	return RouteClaimsForOwner(cfg, ID)
@@ -26,23 +32,19 @@ func RouteClaimsForOwner(cfg Config, ownerID string) ([]httpcontract.RouteClaim,
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("openresponses: invalid config: %w", err)
 	}
-	claims, err := httpcontract.OpenResponsesDefaultClaims(ownerID)
+	claims, err := httpcontract.ClaimsForBasePath(ownerID, cfg.BasePath,
+		httpcontract.RouteClaim{Method: http.MethodPost, Path: "/responses", Kind: RouteOperationCreate},
+		httpcontract.RouteClaim{Method: http.MethodPost, Path: "/responses/compact", Kind: RouteOperationCompact},
+		httpcontract.RouteClaim{Method: http.MethodGet, Path: "/responses", Kind: RouteOperationWebSocket},
+	)
 	if err != nil {
 		return nil, err
-	}
-
-	if cfg.BasePath != httpcontract.DefaultOpenResponsesBasePath {
-		remapped, err := httpcontract.RemapBasePath(claims, httpcontract.DefaultOpenResponsesBasePath, cfg.BasePath)
-		if err != nil {
-			return nil, fmt.Errorf("openresponses: failed to remap base_path: %w", err)
-		}
-		claims = remapped
 	}
 
 	if !cfg.WebSocket.IsEnabled() {
 		filtered := make([]httpcontract.RouteClaim, 0, len(claims))
 		for _, c := range claims {
-			if c.Kind != httpcontract.RouteKindOpenResponsesWebSocket {
+			if c.Kind != RouteOperationWebSocket {
 				filtered = append(filtered, c)
 			}
 		}

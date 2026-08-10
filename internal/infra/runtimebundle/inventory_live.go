@@ -85,10 +85,10 @@ func compatibleProjector(cfg *config.Config, live *inventoryLiveSnapshot) diag.C
 
 func inventorySnapshotForOperator(ctx context.Context, cfg *config.Config, reg *pluginreg.Registry, registrations []lipsdk.Registration, live *inventoryLiveSnapshot) (diag.InventorySnapshot, error) {
 	return diag.InventorySnapshotForConfig(ctx, cfg, &diag.InventoryExtras{
-		Reg:                    reg,
-		Registrations:          registrations,
-		CompatibleBackends:     compatibleProjector(cfg, live),
-		OpenResponsesFrontends: standardplugins.ProjectOpenResponsesFrontendRows,
+		Reg:                          reg,
+		Registrations:                registrations,
+		CompatibleBackends:           compatibleProjector(cfg, live),
+		InstanceDiagnosticProjectors: standardplugins.StandardDiagnosticProjectors(),
 	})
 }
 

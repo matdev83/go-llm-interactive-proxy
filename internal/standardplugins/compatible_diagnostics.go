@@ -18,12 +18,11 @@ const compatibleOriginBuiltIn = "built_in_compatible"
 
 // CompatibleBackendKinds returns the stable built-in compatible factory ids.
 func CompatibleBackendKinds() []string {
-	return []string{
-		CustomOpenAILegacyCompatibleID,
-		CustomOpenAIResponsesCompatibleID,
-		CustomAnthropicCompatibleID,
-		CustomOpenResponsesCompatibleID,
+	views, err := DerivedViews()
+	if err != nil {
+		return nil
 	}
+	return append([]string(nil), views.CompatibleIDs...)
 }
 
 // ProjectCompatibleBackendRows builds secret-safe diagnostics rows from config only.

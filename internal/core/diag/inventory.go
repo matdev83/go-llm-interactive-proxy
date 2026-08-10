@@ -12,12 +12,14 @@ import (
 
 // InventorySnapshot is a JSON-serializable view of configured plugins for operators.
 type InventorySnapshot struct {
-	Frontends              []PluginRow                `json:"frontends"`
-	Backends               []PluginRow                `json:"backends"`
-	CompatibleBackends     []CompatibleBackendRow     `json:"compatible_backends,omitempty"`
-	OpenResponsesFrontends []OpenResponsesFrontendRow `json:"openresponses_frontends,omitempty"`
-	Features               []PluginRow                `json:"features"`
-	Extensions             InventoryExtensions        `json:"extensions"`
+	Frontends              []PluginRow            `json:"frontends"`
+	Backends               []PluginRow            `json:"backends"`
+	CompatibleBackends     []CompatibleBackendRow `json:"compatible_backends,omitempty"`
+	InstanceDiagnostics    []InstanceDiagnostic   `json:"openresponses_frontends,omitempty"`
+	OpenResponsesFrontends []InstanceDiagnostic   `json:"-"`
+	Instances              []InstanceDiagnostic   `json:"instances,omitempty"`
+	Features               []PluginRow            `json:"features"`
+	Extensions             InventoryExtensions    `json:"extensions"`
 	// ServerLimits exposes effective decode/admission caps and configured pending-wire
 	// (0 = unlimited) as numbers only; no payloads.
 	ServerLimits InventoryServerLimits `json:"server_limits"`
@@ -43,8 +45,8 @@ type PluginRow struct {
 // CompatibleBackendProjector builds bounded compatible-backend rows for inventory.
 type CompatibleBackendProjector func(cfg *config.Config) []CompatibleBackendRow
 
-// OpenResponsesFrontendProjector builds bounded client-facing OpenResponses frontend rows for inventory.
-type OpenResponsesFrontendProjector func(cfg *config.Config) []OpenResponsesFrontendRow
+// InstanceDiagnosticProjector is an extension-owned, side-effect-free view.
+type InstanceDiagnosticProjector func(cfg *config.Config) []InstanceDiagnostic
 
 func InventorySnapshotForConfig(
 	ctx context.Context,
@@ -72,9 +74,16 @@ func InventorySnapshotForConfig(
 	if extras != nil && extras.CompatibleBackends != nil {
 		snap.CompatibleBackends = extras.CompatibleBackends(cfg)
 	}
-	if extras != nil && extras.OpenResponsesFrontends != nil {
-		snap.OpenResponsesFrontends = extras.OpenResponsesFrontends(cfg)
+	if extras != nil {
+		for _, project := range extras.InstanceDiagnosticProjectors {
+			for _, row := range project(cfg) {
+				if sanitized, err := SanitizeInstanceDiagnostic(row); err == nil {
+					snap.InstanceDiagnostics = append(snap.InstanceDiagnostics, sanitized)
+				}
+			}
+		}
 	}
+	snap.OpenResponsesFrontends = append([]InstanceDiagnostic(nil), snap.InstanceDiagnostics...)
 	return snap, nil
 }
 

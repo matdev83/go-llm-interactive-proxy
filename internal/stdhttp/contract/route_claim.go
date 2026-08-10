@@ -4,21 +4,11 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"unicode"
 )
 
-// RouteKind identifies the protocol surface owning a method/path pair.
+// RouteKind is an opaque extension-owned operation identifier.
 type RouteKind string
-
-const (
-	RouteKindOpenResponsesCreate    RouteKind = "openresponses_create"
-	RouteKindOpenResponsesCompact   RouteKind = "openresponses_compact"
-	RouteKindOpenResponsesWebSocket RouteKind = "openresponses_websocket"
-	RouteKindOpenAIResponsesCreate  RouteKind = "openai_responses_create"
-	RouteKindOpenAIResponsesCancel  RouteKind = "openai_responses_cancel"
-	RouteKindOpenAIChatCompletions  RouteKind = "openai_chat_completions"
-	RouteKindAnthropicMessages      RouteKind = "anthropic_messages"
-	RouteKindGeminiGenerate         RouteKind = "gemini_generate"
-)
 
 // DefaultOpenResponsesBasePath is the non-colliding default mount prefix.
 const DefaultOpenResponsesBasePath = "/openresponses/v1"
@@ -32,6 +22,19 @@ type RouteClaim struct {
 	Method  string
 	Path    string
 	Kind    RouteKind
+}
+
+func (k RouteKind) Validate() error {
+	s := string(k)
+	if s == "" || len(s) > 96 {
+		return fmt.Errorf("route claim: invalid kind")
+	}
+	for _, r := range s {
+		if !(unicode.IsLetter(r) || unicode.IsDigit(r) || strings.ContainsRune("._-", r)) {
+			return fmt.Errorf("route claim: invalid kind %q", s)
+		}
+	}
+	return nil
 }
 
 // NormalizeMethod uppercases and trims an HTTP method.
@@ -93,8 +96,8 @@ func (c RouteClaim) NormalizedClaim() (RouteClaim, error) {
 	if strings.TrimSpace(c.OwnerID) == "" {
 		return RouteClaim{}, fmt.Errorf("route claim: empty owner id")
 	}
-	if c.Kind == "" {
-		return RouteClaim{}, fmt.Errorf("route claim: empty kind")
+	if err := c.Kind.Validate(); err != nil {
+		return RouteClaim{}, err
 	}
 	out := c
 	out.Method = method
@@ -103,40 +106,42 @@ func (c RouteClaim) NormalizedClaim() (RouteClaim, error) {
 	return out, nil
 }
 
-// OpenResponsesDefaultClaims returns the default non-colliding OpenResponses routes.
+// ClaimsForBasePath builds claims for a frontend-owned operation set. The
+// contract validates and normalizes generic ownership data; protocol packages
+// own operation identifiers and route paths.
+func ClaimsForBasePath(ownerID, basePath string, operations ...RouteClaim) ([]RouteClaim, error) {
+	base, err := NormalizePath(basePath)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RouteClaim, 0, len(operations))
+	for _, operation := range operations {
+		operation.OwnerID = ownerID
+		operation.Path = strings.TrimSuffix(base, "/") + "/" + strings.TrimPrefix(operation.Path, "/")
+		normalized, err := operation.NormalizedClaim()
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, normalized)
+	}
+	return out, nil
+}
+
+// OpenResponsesDefaultClaims returns the default non-colliding OpenResponses
+// routes. The operation identifiers remain opaque values owned by the
+// protocol adapter rather than a central route-kind enum.
 func OpenResponsesDefaultClaims(ownerID string) ([]RouteClaim, error) {
-	base, err := NormalizePath(DefaultOpenResponsesBasePath)
-	if err != nil {
-		return nil, err
-	}
-	create, err := RouteClaim{OwnerID: ownerID, Method: http.MethodPost, Path: base + "/responses", Kind: RouteKindOpenResponsesCreate}.NormalizedClaim()
-	if err != nil {
-		return nil, err
-	}
-	compact, err := RouteClaim{OwnerID: ownerID, Method: http.MethodPost, Path: base + "/responses/compact", Kind: RouteKindOpenResponsesCompact}.NormalizedClaim()
-	if err != nil {
-		return nil, err
-	}
-	ws, err := RouteClaim{OwnerID: ownerID, Method: http.MethodGet, Path: base + "/responses", Kind: RouteKindOpenResponsesWebSocket}.NormalizedClaim()
-	if err != nil {
-		return nil, err
-	}
-	return []RouteClaim{create, compact, ws}, nil
+	return ClaimsForBasePath(ownerID, DefaultOpenResponsesBasePath,
+		RouteClaim{Method: http.MethodPost, Path: "/responses", Kind: "openresponses_create"},
+		RouteClaim{Method: http.MethodPost, Path: "/responses/compact", Kind: "openresponses_compact"},
+		RouteClaim{Method: http.MethodGet, Path: "/responses", Kind: "openresponses_websocket"},
+	)
 }
 
 // OpenAIResponsesDefaultClaims returns the existing OpenAI Responses frontend routes at /v1.
 func OpenAIResponsesDefaultClaims(ownerID string) ([]RouteClaim, error) {
-	base, err := NormalizePath(CanonicalLegacyBasePath)
-	if err != nil {
-		return nil, err
-	}
-	create, err := RouteClaim{OwnerID: ownerID, Method: http.MethodPost, Path: base + "/responses", Kind: RouteKindOpenAIResponsesCreate}.NormalizedClaim()
-	if err != nil {
-		return nil, err
-	}
-	cancel, err := RouteClaim{OwnerID: ownerID, Method: http.MethodPost, Path: base + "/responses/{id}/cancel", Kind: RouteKindOpenAIResponsesCancel}.NormalizedClaim()
-	if err != nil {
-		return nil, err
-	}
-	return []RouteClaim{create, cancel}, nil
+	return ClaimsForBasePath(ownerID, CanonicalLegacyBasePath,
+		RouteClaim{Method: http.MethodPost, Path: "/responses", Kind: "openai_responses_create"},
+		RouteClaim{Method: http.MethodPost, Path: "/responses/{id}/cancel", Kind: "openai_responses_cancel"},
+	)
 }

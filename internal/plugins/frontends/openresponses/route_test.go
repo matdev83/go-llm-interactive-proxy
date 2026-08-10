@@ -136,7 +136,7 @@ func TestRoute_WebSocketDisabledClaims(t *testing.T) {
 	}
 
 	for _, c := range claims {
-		if c.Kind == httpcontract.RouteKindOpenResponsesWebSocket {
+		if c.Kind == httpcontract.RouteKind("openresponses_websocket") {
 			t.Errorf("found WebSocket claim when WS was disabled")
 		}
 	}

@@ -64,6 +64,28 @@ func TestStandardBackendBundleIsValueOriented(t *testing.T) {
 	}
 }
 
+func TestStandardViewsMatchRuntimeRegistrationAndRouteProjection(t *testing.T) {
+	bundle := StandardBundle()
+	views, err := DerivedViews()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := len(bundle.Frontends), len(views.Frontends); got != want {
+		t.Fatalf("frontend registrations=%d, contributions=%d", got, want)
+	}
+	for i, registration := range bundle.Frontends {
+		if registration.ID != views.Frontends[i].Registration.ID {
+			t.Fatalf("frontend %d = %q, contribution = %q", i, registration.ID, views.Frontends[i].Registration.ID)
+		}
+	}
+	if got, want := len(StandardFrontendRouteClaims()), len(views.Routes); got != want {
+		t.Fatalf("route providers=%d, route facets=%d", got, want)
+	}
+	if got, want := len(StandardDiagnosticProjectors()), len(views.Diagnostics); got != want {
+		t.Fatalf("diagnostic projectors=%d, diagnostic facets=%d", got, want)
+	}
+}
+
 func TestInstallBundleOnNilRegistry(t *testing.T) {
 	t.Parallel()
 	if err := InstallBundleOn(nil, Bundle{}); err == nil {

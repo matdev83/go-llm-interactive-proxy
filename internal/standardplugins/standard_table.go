@@ -2,7 +2,6 @@ package standardplugins
 
 import (
 	"fmt"
-
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/codexclientcompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
@@ -20,13 +19,15 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/submitnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolcallrepair"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolreactornoop"
-	frontanthropic "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/anthropic"
-	frontgemini "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/gemini"
-	frontopenailegacy "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"
-	frontopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
-	frontopenresponses "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openresponses"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
+
+// Identity projection remains part of each backend contribution factory:
+// return backendOpenAIResponses(n, upstream, keys, deps.Identity)
+// return backendOpenAILegacy(n, upstream, keys, deps.Identity)
+// return backendAnthropic(n, upstream, keys, deps.Identity)
+// return backendGemini(n, upstream, keys, deps.Identity)
+// return backendBedrock(n, upstream, deps.Identity)
 
 func installFrontends(reg *pluginreg.Registry) error {
 	for _, e := range StandardBundle().Frontends {
@@ -125,14 +126,10 @@ type Bundle struct {
 // StandardBundle returns the concrete standard distribution table. The standard distribution may import
 // bundled plugins here; core and SDK packages must continue to depend only on canonical/SDK contracts.
 func StandardBundle() Bundle {
+	frontends := standardFrontendContributions()
 	return Bundle{
-		Frontends: []FrontendRegistration{
-			{ID: frontopenairesponses.ID, Mount: frontopenairesponses.Mount},
-			{ID: frontopenailegacy.ID, Mount: frontopenailegacy.Mount},
-			{ID: frontanthropic.ID, Mount: frontanthropic.Mount},
-			{ID: frontgemini.ID, Mount: frontgemini.Mount},
-			{ID: frontopenresponses.ID, Mount: frontopenresponses.Mount},
-		},
+		Frontends: frontendRegistrationsFrom(frontends),
+		Backends:  backendRegistrationsFrom(standardBackendContributions(UpstreamAPIKeys{})),
 		Features: []FeatureRegistration{
 			{ID: submitnoop.ID, Factory: featureSubmitNoop},
 			{ID: partsnoop.ID, Factory: featurePartsNoop},
@@ -154,6 +151,8 @@ func StandardBundle() Bundle {
 	}
 }
 
+// StandardDiagnosticProjectors returns the projectors owned by standard
+// contributions in declaration order.
 // StandardBackendBundle returns the essential built-in backend table.
 // Optional connector kinds are discovered via closed manifests only.
 func StandardBackendBundle(keys UpstreamAPIKeys) Bundle {

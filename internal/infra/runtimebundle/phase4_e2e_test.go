@@ -48,7 +48,7 @@ func TestMinimal_NoPluginDirBuiltinsOnly(t *testing.T) {
 			t.Fatalf("unexpected discovered entry: %+v", e)
 		}
 	}
-	if !reg.HasBackend(standardplugins.EssentialBackendKinds[0]) {
+	if !reg.HasBackend(standardplugins.EssentialBackendKinds()[0]) {
 		t.Fatal("essential builtin missing")
 	}
 }

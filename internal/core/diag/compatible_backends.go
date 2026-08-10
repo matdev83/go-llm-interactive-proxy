@@ -24,32 +24,3 @@ type CompatibleBackendRow struct {
 	InventoryHealth *CompatibleInventoryHealth `json:"inventory_health,omitempty"`
 	ConfigError     string                     `json:"config_error,omitempty"`
 }
-
-// OpenResponsesFrontendRow is a bounded operator projection for one configured
-// OpenResponses client-facing frontend instance. Values never include secrets
-// or raw opaque config payloads.
-type OpenResponsesFrontendRow struct {
-	Origin      string `json:"origin"`
-	InstanceID  string `json:"instance_id"`
-	FactoryKind string `json:"factory_kind"`
-	Enabled     bool   `json:"enabled"`
-	Profile     string `json:"profile,omitempty"`
-	// BasePath is the configured client-facing route prefix.
-	BasePath string `json:"base_path,omitempty"`
-	// WebSocketEnabled reports whether the WebSocket transport is enabled.
-	WebSocketEnabled bool `json:"websocket_enabled"`
-	// ContinuationStore is the configured persistence mode (e.g. "standard").
-	ContinuationStore string `json:"continuation_store,omitempty"`
-	ContinuationTTL   string `json:"continuation_ttl,omitempty"`
-	// AllowedOrigins is the sanitized WebSocket origin allowlist.
-	AllowedOrigins []string `json:"allowed_origins,omitempty"`
-	// Capabilities is the sanitized client-facing semantic capability surface
-	// of the pinned profile (ordered items, streaming, tools, compaction, and
-	// WebSocket when the transport is enabled).
-	Capabilities []string `json:"capabilities,omitempty"`
-	// RouteClaims is the sanitized normalized method+path ownership snapshot.
-	RouteClaims []string `json:"route_claims,omitempty"`
-	// Conformance is the profile conformance status projection.
-	Conformance string `json:"conformance,omitempty"`
-	ConfigError string `json:"config_error,omitempty"`
-}

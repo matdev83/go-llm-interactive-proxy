@@ -119,7 +119,7 @@ websocket:
 		t.Fatalf("claims=%d, want 2 without websocket", len(claims))
 	}
 	for _, c := range claims {
-		if c.Kind == httpcontract.RouteKindOpenResponsesWebSocket {
+		if c.Kind == httpcontract.RouteKind("openresponses_websocket") {
 			t.Fatalf("ws claim must be omitted when disabled: %+v", c)
 		}
 	}

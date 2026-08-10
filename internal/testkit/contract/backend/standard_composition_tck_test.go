@@ -76,7 +76,7 @@ func TestStandardComposition_CertifiesEveryInProcessFamily(t *testing.T) {
 	if err := standardplugins.InstallStandardBackendsOn(reg, keys); err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range standardplugins.EssentialBackendKinds {
+	for _, id := range standardplugins.EssentialBackendKinds() {
 		id := id
 		t.Run(id, func(t *testing.T) {
 			be, model := buildStandardFamily(t, reg, id, srv.URL, tckClient)

@@ -51,15 +51,11 @@ func sanitizeOwnerID(owner string) string {
 }
 
 func transportForKind(kind RouteKind) string {
-	switch kind {
-	case RouteKindOpenResponsesWebSocket:
+	if strings.HasSuffix(strings.ToLower(string(kind)), "websocket") {
 		return "websocket"
-	case RouteKindOpenResponsesCreate, RouteKindOpenResponsesCompact,
-		RouteKindOpenAIResponsesCreate, RouteKindOpenAIResponsesCancel,
-		RouteKindOpenAIChatCompletions, RouteKindAnthropicMessages,
-		RouteKindGeminiGenerate:
-		return "http"
-	default:
-		return ""
 	}
+	if kind != "" {
+		return "http"
+	}
+	return ""
 }

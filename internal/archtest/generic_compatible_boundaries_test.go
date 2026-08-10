@@ -24,7 +24,7 @@ var genericCompatibleKinds = []string{
 func TestGenericCompatible_remainBuiltIn(t *testing.T) {
 	t.Parallel()
 	present := map[string]bool{}
-	for _, id := range standardplugins.EssentialBackendKinds {
+	for _, id := range standardplugins.EssentialBackendKinds() {
 		present[id] = true
 	}
 	for _, e := range standardplugins.EssentialBackendBundle(standardplugins.UpstreamAPIKeys{}).Backends {

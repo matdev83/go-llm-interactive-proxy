@@ -17,6 +17,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ProviderProfileKind is the declarative row kind used by the profile
+// contribution. Keeping the identity in the composition source avoids a
+// second provider-profile registry.
 const ProviderProfileKind = "provider-profile"
 
 // ExpandProviderProfileRows resolves profile references into the existing

@@ -48,7 +48,7 @@ func TestRouteRegistryDuplicateOwnerAllowed(t *testing.T) {
 		OwnerID: "openresponses",
 		Method:  http.MethodPost,
 		Path:    "/openresponses/v1/responses",
-		Kind:    httpcontract.RouteKindOpenResponsesCreate,
+		Kind:    "openresponses_create",
 	}
 	if err := reg.Register(claim); err != nil {
 		t.Fatal(err)
@@ -75,8 +75,8 @@ func TestRouteRegistry_RegisterAllIsAtomic(t *testing.T) {
 	before := len(reg.Claims())
 
 	conflicting := []httpcontract.RouteClaim{
-		{OwnerID: "or-inst", Method: http.MethodPost, Path: "/v1/responses", Kind: httpcontract.RouteKindOpenResponsesCreate},
-		{OwnerID: "or-inst", Method: http.MethodPost, Path: "/v1/responses/compact", Kind: httpcontract.RouteKindOpenResponsesCompact},
+		{OwnerID: "or-inst", Method: http.MethodPost, Path: "/v1/responses", Kind: "openresponses_create"},
+		{OwnerID: "or-inst", Method: http.MethodPost, Path: "/v1/responses/compact", Kind: "openresponses_compact"},
 	}
 	err = reg.RegisterAll(conflicting)
 	if err == nil {

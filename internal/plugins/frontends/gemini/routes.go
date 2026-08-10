@@ -16,8 +16,8 @@ type RouteDescriptor struct {
 // RouteDescriptors describes the routes Mount registers for one frontend owner.
 func RouteDescriptors(ownerID string) ([]RouteDescriptor, error) {
 	descriptors := []RouteDescriptor{
-		{MountPattern: "/v1beta/", Claim: httpcontract.RouteClaim{OwnerID: ownerID, Method: http.MethodPost, Path: "/v1beta/", Kind: httpcontract.RouteKindGeminiGenerate}},
-		{MountPattern: "/v1beta1/", Claim: httpcontract.RouteClaim{OwnerID: ownerID, Method: http.MethodPost, Path: "/v1beta1/", Kind: httpcontract.RouteKindGeminiGenerate}},
+		{MountPattern: "/v1beta/", Claim: httpcontract.RouteClaim{OwnerID: ownerID, Method: http.MethodPost, Path: "/v1beta/", Kind: "gemini_generate"}},
+		{MountPattern: "/v1beta1/", Claim: httpcontract.RouteClaim{OwnerID: ownerID, Method: http.MethodPost, Path: "/v1beta1/", Kind: "gemini_generate"}},
 	}
 	for i := range descriptors {
 		normalized, err := descriptors[i].Claim.NormalizedClaim()
