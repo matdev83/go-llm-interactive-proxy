@@ -159,6 +159,7 @@ The rows are the complete names from `Makefile` line 1. `Windows-supported bound
 | `help` | Windows-supported bounded | output only |
 | `test` | Windows-supported bounded | quality, unit, parity prerequisites; no graph aggregate claim |
 | `test-fast` | Windows-supported bounded | staged script route |
+| `precommit-full` | Windows-supported bounded | full precommit verification pipeline |
 | `test-unit` | Windows-supported bounded | root Go tests with outer phase budget |
 | `test-precommit-extra` | Windows-supported bounded | precommit hygiene/executor matrix |
 | `test-postgres-migrations` | opt-in/BLOCKED prerequisite | DSN required; external block/fail |

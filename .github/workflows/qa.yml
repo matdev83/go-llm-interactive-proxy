@@ -7,7 +7,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: qa-${{ github.ref }}
+  # Share the branch/PR group with equivalent runs so a new push cancels
+  # the superseded QA run instead of consuming another hosted runner.
+  group: qa-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -60,7 +62,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-          cache-dependency-path: go.sum
+          cache-dependency-path: |
+            go.sum
+            connectors/**/go.sum
+            connector-support/**/go.sum
+            testdata/enterprise_module/go.sum
+            tools/**/go.sum
 
       - name: Formatting and module integrity
         if: needs.changes.outputs.code == 'true'
@@ -78,6 +85,6 @@ jobs:
         if: needs.changes.outputs.code == 'true'
         run: go vet ./cmd/lipstd
 
-      - name: Test release command
-        if: needs.changes.outputs.code == 'true'
-        run: go test -timeout=5m ./cmd/lipstd
+      # CI owns the portable cmd/lipstd test/build matrix. QA retains the
+      # distinct architecture and vet evidence instead of recompiling this
+      # package a second time on Ubuntu.

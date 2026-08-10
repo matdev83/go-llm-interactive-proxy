@@ -1,4 +1,4 @@
-.PHONY: help test test-fast test-unit test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks parity-acp-plugin parity-cursorcliacp-plugin parity-cli-acp-plugins parity-openrouter-plugin parity-hosted-compatible-plugins parity-ollama-plugins parity-opencode-plugins parity-codex-plugins parity-local-compatible-plugins test-local-compatible-plugin-modules release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install backend-plugin-module-checks backend-plugin-absence-checks backend-plugin-security-checks backend-plugin-cross-platform-qa backend-plugin-release-gates-static backend-plugin-release-gates package-minimal package-full package-plugin-smoke docs-check knowledge-check example-config-check backend-plugin-example-check kiro-spec-check isolated-root-qa installed-plugin-smoke test-cursor-sdk-live test-cursor-sdk-live-bridge test-cursor-sdk-platform test-cursor-sdk-comparison-report tmp-clean test-openresponses-compliance test-openresponses-compliance-static
+.PHONY: help test test-fast test-unit precommit-full test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks parity-acp-plugin parity-cursorcliacp-plugin parity-cli-acp-plugins parity-openrouter-plugin parity-hosted-compatible-plugins parity-ollama-plugins parity-opencode-plugins parity-codex-plugins parity-local-compatible-plugins test-local-compatible-plugin-modules release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install backend-plugin-module-checks backend-plugin-absence-checks backend-plugin-security-checks backend-plugin-cross-platform-qa backend-plugin-release-gates-static backend-plugin-release-gates package-minimal package-full package-plugin-smoke docs-check knowledge-check example-config-check backend-plugin-example-check kiro-spec-check isolated-root-qa installed-plugin-smoke test-cursor-sdk-live test-cursor-sdk-live-bridge test-cursor-sdk-platform test-cursor-sdk-comparison-report tmp-clean test-openresponses-compliance test-openresponses-compliance-static
 
 GO ?= go
 GO_TEST_FLAGS ?= -parallel=8 -timeout=10m
@@ -13,6 +13,7 @@ help:
 	@echo "  make regex-hotpath-check - forbid regexp.MustCompile in frontends/runtime (see scripts/)"
 	@echo "  make test            - quality-checks, full unit tests, and conformance parity checks"
 	@echo "  make test-fast       - quality-checks then tests for staged packages (or all)"
+	@echo "  make precommit-full  - run the optional full local lint + vulnerability scan before commit"
 	@echo "  make test-unit       - go test $(GO_TEST_FLAGS) ./... (excludes //go:build precommit tests)"
 	@echo "  make test-postgres-migrations - apply and verify dual-plane PostgreSQL migrations"
 	@echo "  PostgreSQL gates are intentional opt-in: make test-authority-postgres-direct needs only a configured DSN (Make sets LIP_REQUIRE_POSTGRES=1); pooled/aggregate proof also requires LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1"
@@ -74,6 +75,13 @@ ifeq ($(OS),Windows_NT)
 	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-staged.ps1
 else
 	@bash scripts/test-staged.sh
+endif
+
+precommit-full:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -ExecutionPolicy Bypass -Command "& '$(MAKE)' quality-checks; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }; & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tidy-all-modules.ps1 -Check; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }; $$env:LIP_TEST_PRECOMMIT='1'; & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-staged.ps1; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }; & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/race-check.ps1 -Staged; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }; & '$(MAKE)' lint; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }; & '$(MAKE)' vuln; exit $$LASTEXITCODE"
+else
+	@LIP_PRECOMMIT_FULL=1 bash scripts/quality-gate.sh
 endif
 
 test-unit:
@@ -448,7 +456,7 @@ backend-plugin-module-checks:
 ifeq ($(OS),Windows_NT)
 	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backend-plugin-module-checks.ps1
 else
-	@bash scripts/backend-plugin-module-checks.sh
+	@LIP_DISABLE_VCS_STAMPING=1 bash scripts/backend-plugin-module-checks.sh
 endif
 
 PACKAGE_DEST ?= $(CURDIR)/.golip-package-staging
@@ -495,7 +503,7 @@ backend-plugin-cross-platform-qa:
 ifeq ($(OS),Windows_NT)
 	@$(WINDOWS_TASK) backend-plugin-cross-platform-qa
 else
-	$(GO) run ./tools/backendplugin/crossplatform_qa -root . -out .golip-crossplatform-matrix.json -skip-native
+	$(GO) run ./tools/backendplugin/crossplatform_qa -root . -out .golip-crossplatform-matrix.json -skip-native $(if $(strip $(CROSS_PLATFORM_SELECT)),-select "$(CROSS_PLATFORM_SELECT)",)
 	$(GO) test $(GO_TEST_FLAGS) ./internal/infra/backendplugins/... -run 'TestAdversarial_|TestActivate_|TestStream_|TestDigest|TestManifest|TestDiscover|TestShutdown|TestReap|TestPeer|TestChannel|TestExact|TestUpgrade|TestRollback|TestUninstall|TestConfig|TestSecrecy|TestUnauthorized|TestProtected|TestLaunch|TestKill|TestCancel'
 	$(GO) test $(GO_TEST_FLAGS) ./pkg/lipsdk/backendplugin/... -run 'Test'
 	cd connector-support/acp && GOWORK=off $(GO) test $(GO_TEST_FLAGS) -run 'KillProcessTree_|ProcessTree_CrossCompile|Cancel' ./...

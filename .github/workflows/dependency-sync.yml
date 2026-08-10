@@ -1,0 +1,57 @@
+name: Go module synchronization
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "go.mod"
+      - "go.sum"
+      - "connectors/**/go.mod"
+      - "connectors/**/go.sum"
+      - "connector-support/**/go.mod"
+      - "connector-support/**/go.sum"
+      - "testdata/enterprise_module/go.mod"
+      - "testdata/enterprise_module/go.sum"
+      - "scripts/tidy-all-modules.sh"
+      - "scripts/check-all-modules.sh"
+      - "tools/backendplugin/discover_modules/**"
+      - ".github/workflows/dependency-sync.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: module-sync-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  modules:
+    name: All Go modules tidy and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            connectors/**/go.sum
+            connector-support/**/go.sum
+            testdata/enterprise_module/go.sum
+
+      - name: Check every independent module
+        env:
+          LIP_MODULE_CHECK_JOBS: "4"
+        run: bash scripts/check-all-modules.sh
+
+      - name: Verify root synchronization helper
+        run: bash scripts/tidy-all-modules.sh --check
