@@ -97,7 +97,7 @@ The critical concurrency invariant is turn-level snapshot isolation. An admitted
 
 4.5. If a previously valid stored override becomes invalid or unresolvable under a later runtime generation, the affected later turn shall fail through the normal route-validation/planning error path rather than silently falling back to the client selector or an older expanded route.
 
-4.6. The admin write path shall validate selector size and current-generation route acceptability without opening a backend, allocating a B-leg, starting a provider process, or consuming model usage.
+4.6. The admin write path shall validate selector size and route acceptability using the routing semantics of the runtime generation that admits that admin request, without opening a backend, allocating a B-leg, starting a provider process, or consuming model usage; an admin write admitted after a successful generation publish shall therefore use the newly published generation rather than a retired generation validator.
 
 4.7. The maximum stored override selector size shall not exceed the canonical `lipapi.MaxRouteSelectorBytes` bound, and admin request-body limits shall remain bounded independently of client request-body limits.
 
@@ -145,9 +145,9 @@ The critical concurrency invariant is turn-level snapshot isolation. An admitted
 
 #### Acceptance Criteria
 
-7.1. The in-memory continuity implementation shall retain override state under the same A-leg lifecycle/eviction boundary as the A-leg and shall remove it when that A-leg is removed.
+7.1. The in-memory continuity implementation shall retain override state under the same A-leg lifecycle/eviction boundary as the A-leg and shall remove it when that A-leg is removed; successful override Snapshot/Get/Replace/Clear operations shall follow existing A-leg access semantics by refreshing `LastSeenAt`, while override `Revision`/`UpdatedAt` change only when the effective override state changes.
 
-7.2. The SQLite/PostgreSQL continuity implementation shall persist active/inactive override state and revision atomically with A-leg ownership so that a surviving A-leg retains its override state across process restart.
+7.2. The SQLite/PostgreSQL continuity implementation shall persist active/inactive override state and revision atomically with A-leg ownership so that a surviving A-leg retains its override state across process restart; successful override Snapshot/Get/Replace/Clear operations shall refresh A-leg `LastSeenAt` consistently with the existing durable continuity access contract, while idempotent override operations shall not churn override `Revision`/`UpdatedAt`.
 
 7.3. When an A-leg is deleted, replaced because of continuity-key recreation, or otherwise removed by existing continuity lifecycle rules, its override state shall not survive as an orphan that can apply to a different future A-leg.
 
@@ -165,7 +165,7 @@ The critical concurrency invariant is turn-level snapshot isolation. An admitted
 
 #### Acceptance Criteria
 
-8.1. Where routing-override administration is not explicitly enabled, the standard distribution shall expose no mutation endpoint for this feature and shall not implicitly clear or deactivate an already-persisted override.
+8.1. Where routing-override administration is not explicitly enabled, the standard distribution shall expose no mutation endpoint for this feature, shall not implicitly clear or deactivate an already-persisted override, and shall continue to read/enforce already-persisted override state through the standard continuity-backed runtime reader.
 
 8.2. Where routing-override administration is enabled, the standard distribution shall provide protected operations to get current override state, set/replace the selector for an A-leg, and clear the override for an A-leg.
 
@@ -175,7 +175,7 @@ The critical concurrency invariant is turn-level snapshot isolation. An admitted
 
 8.5. The admin surface shall reuse the repository's operator-security posture and shall require the configured operator secret/strong protection whenever the existing non-loopback rules require it.
 
-8.6. The admin request decoder shall enforce method, content type, body-size, selector-size, JSON-shape, and unknown-field bounds before mutation.
+8.6. The admin request decoder shall enforce method, supported JSON content type, body-size, selector-size, JSON-shape, and unknown-field bounds before mutation, rejecting missing/unsupported PUT media types before JSON decoding.
 
 8.7. If a selector mutation is invalid, the admin service shall fail atomically: the previous override state/revision shall remain authoritative and no partial state shall be stored.
 
@@ -221,7 +221,7 @@ The critical concurrency invariant is turn-level snapshot isolation. An admitted
 
 10.7. The non-streaming behavior shall remain collection over the canonical stream; no separate override execution path shall be introduced.
 
-10.8. The test suite shall cover memory and durable-store behavior, admin HTTP protection/validation, generation reload, multiple frontends sharing one A-leg, update/clear races, failover/race B-legs, post-output non-retry, `[first]`, `[thinker]`, affinity, alias changes, invalidation after reload, and restoration of current client routing after clear.
+10.8. The test suite shall cover memory and durable-store behavior, A-leg liveness refresh, delete/recreate-versus-mutation races, admin HTTP protection/validation and fixed wire semantics, generation reload including PUT-after-reload validation, disabled-admin-surface enforcement of persisted state, multiple frontends sharing one A-leg, update/clear races, failover/race B-legs, post-output non-retry, `[first]`, `[thinker]`, affinity, alias changes, invalidation after reload, and restoration of current client routing after clear.
 
 10.9. The implementation shall run focused routing/runtime/store/admin tests plus architecture, unit, race where practical, and repository quality gates appropriate to the touched boundaries before the spec can be marked complete.
 
