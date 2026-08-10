@@ -8,10 +8,10 @@ import (
 
 	backendpluginv1 "github.com/matdev83/go-llm-interactive-proxy/api/backendplugin/v1"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/openrouter/internal/service"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/adapter"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openaichat"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin/contracttest"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin/host"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/test/bufconn"
 )
@@ -29,7 +29,7 @@ func bufconnHost(factory string, config []byte, secrets backendplugin.SecretBund
 			_ = lis.Close()
 			return nil, nil, err
 		}
-		sess, _, err := adapter.DialConfiguredSession(ctx, conn, "contract", factory, config, secrets, backendplugin.RuntimePolicy{DisableTransportRetries: true, MaxPendingEvents: 8})
+		sess, _, err := host.DialConfiguredSession(ctx, conn, "contract", factory, config, secrets, backendplugin.RuntimePolicy{DisableTransportRetries: true, MaxPendingEvents: 8})
 		if err != nil {
 			server.Stop()
 			_ = lis.Close()

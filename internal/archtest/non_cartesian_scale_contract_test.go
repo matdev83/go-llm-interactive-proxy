@@ -29,23 +29,17 @@ func TestNonCartesianScale_ThousandProfilesDoNotMultiplyCartesianPairs(t *testin
 		t.Fatalf("expected 4 compatible backend families in standardplugins, got %d", len(families))
 	}
 
-	// 1,000 profiles map onto the 4 compatible backend families without creating 1,000 backend factories
+	// Generate and scan source directly from these actual fixture dimensions;
+	// callers cannot substitute unrelated handwritten source as evidence.
+	if err := scale.ValidateNonCartesianFixture(scale.FiveFrontendsFixture(), profiles); err != nil {
+		t.Fatalf("non-Cartesian fixture proof failed: %v", err)
+	}
 	mappedFamilies := make(map[string]struct{})
-	for _, p := range profiles {
-		mappedFamilies[p.FamilyID] = struct{}{}
+	for _, profile := range profiles {
+		mappedFamilies[profile.FamilyID] = struct{}{}
 	}
-
-	if len(mappedFamilies) > len(families) {
-		t.Fatalf("expected at most %d backend families for 1,000 profiles, got %d", len(families), len(mappedFamilies))
-	}
-
-	// Assert non-Cartesian invariant: provider profiles must NOT cause O(F x P) pair generation.
-	// 5 frontends x 4 families = 20 family certification pairs vs 5 frontends x 1000 profiles = 5000 pairs.
-	familyPairs := len(frontends) * len(mappedFamilies)
-	cartesianPairs := len(frontends) * len(profiles)
-
-	if familyPairs >= cartesianPairs {
-		t.Fatalf("non-Cartesian scaling failed: family pairs (%d) >= cartesian pairs (%d)", familyPairs, cartesianPairs)
+	if len(mappedFamilies) != len(families) {
+		t.Fatalf("expected all %d families represented, got %d", len(families), len(mappedFamilies))
 	}
 
 	// Verify that baseline Cartesian cells are 45

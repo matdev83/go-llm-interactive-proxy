@@ -15,7 +15,7 @@ import (
 func TestInspectDiff_UsesGitProducedDiff(t *testing.T) {
 	inspector := scale.RealSharedBoundaryInspector{}
 	root := t.TempDir()
-	diff, err := scale.CreateDeterministicGitChange(root, "internal/standardplugins/contrib.go", "package p\nvar X = 1\n", "package p\nvar FrontendProfiles = make([]Pair, len(frontends)*len(profiles))\n")
+	diff, err := scale.CreateDeterministicGitChange(root, "profile-contrib.go", "package p\nvar X = 1\n", "package p\nvar FrontendProfiles = make([]Pair, len(frontends)*len(profiles))\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,9 +27,12 @@ func TestInspectDiff_UsesGitProducedDiff(t *testing.T) {
 		t.Fatal("violating Git-produced diff was not detected")
 	}
 	cleanRoot := t.TempDir()
-	diff, err = scale.CreateDeterministicGitChange(cleanRoot, "provider-profiles/contoso.go", "package p\nvar ProfileID = \"provider-profile-0999\"\n", "package p\nvar ProfileID = \"provider-profile-1000\"\n")
+	diff, err = scale.CreateDeterministicGitChange(cleanRoot, "provider-profiles/contoso.go", "package p\nvar Profiles = []string{\"provider-profile-0999\"}\n", "package p\nvar Profiles = []string{\"provider-profile-0999\", \"provider-profile-1000\"}\n")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !strings.Contains(diff, "+var Profiles = []string{\"provider-profile-0999\", \"provider-profile-1000\"}") || strings.Contains(diff, "-var ProfileID") {
+		t.Fatalf("profile #1000 evidence is not an actual addition: %s", diff)
 	}
 	fp, err = inspector.InspectDiff(cleanRoot, diff)
 	if err != nil {

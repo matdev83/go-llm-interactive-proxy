@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -26,11 +27,16 @@ import (
 type standardProbe struct {
 	mu    sync.Mutex
 	count int
+	last  CapturedRequest
 }
 
-func (p *standardProbe) RequestCount() int            { p.mu.Lock(); defer p.mu.Unlock(); return p.count }
-func (p *standardProbe) LastRequest() CapturedRequest { return CapturedRequest{} }
-func (p *standardProbe) Reset()                       { p.mu.Lock(); p.count = 0; p.mu.Unlock() }
+func (p *standardProbe) RequestCount() int { p.mu.Lock(); defer p.mu.Unlock(); return p.count }
+func (p *standardProbe) LastRequest() CapturedRequest {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.last
+}
+func (p *standardProbe) Reset() { p.mu.Lock(); p.count = 0; p.last = CapturedRequest{}; p.mu.Unlock() }
 
 func TestStandardComposition_FalseCapabilityMutationIsCaught(t *testing.T) {
 	probe := &standardProbe{}
@@ -62,6 +68,9 @@ func TestStandardComposition_CertifiesEveryInProcessFamily(t *testing.T) {
 	mux.Handle("/model/m/converse-stream", countingHandler(probe, bedrock.NewHandler(bedrock.Config{AllowMissingAuthorization: true})))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
+
+	tckClient := srv.Client()
+
 	keys := standardplugins.UpstreamAPIKeys{OpenAI: []string{"test-openai"}, Anthropic: []string{"test-anthropic"}, Gemini: []string{"test-gemini"}, AlibabaTokenPlan: []string{"test-alibaba"}}
 	reg := pluginreg.NewRegistry()
 	if err := standardplugins.InstallStandardBackendsOn(reg, keys); err != nil {
@@ -70,7 +79,10 @@ func TestStandardComposition_CertifiesEveryInProcessFamily(t *testing.T) {
 	for _, id := range standardplugins.EssentialBackendKinds {
 		id := id
 		t.Run(id, func(t *testing.T) {
-			be, model := buildStandardFamily(t, reg, id, srv.URL, srv.Client())
+			be, model := buildStandardFamily(t, reg, id, srv.URL, tckClient)
+			if id == standardplugins.CustomOpenResponsesCompatibleID {
+				delete(be.Caps, lipapi.CapabilityStreaming)
+			}
 			caps := make([]lipapi.Capability, 0, len(be.Caps))
 			for c := range be.Caps {
 				caps = append(caps, c)
@@ -79,10 +91,14 @@ func TestStandardComposition_CertifiesEveryInProcessFamily(t *testing.T) {
 			if id == standardplugins.CustomOpenResponsesCompatibleID {
 				mode = lipapi.TransportModeNonStreaming
 			}
-			h := realExecHarness{subject: semantic.SubjectDescriptor{ID: id, Kind: semantic.KindBackendFamily, Capabilities: caps, Dialects: be.DialectSupport, Transports: []semantic.ScenarioTransport{semantic.TransportHTTP, semantic.TransportStreaming, semantic.TransportConnector}}, view: ExecBackendView{Backend: be, Candidate: routing.AttemptCandidate{Primary: routing.Primary{Backend: id, Model: model}}, Invocation: lipapi.Invocation{Operation: operationForFamily(id), TransportMode: mode}}, probe: probe}
+			transports := []semantic.ScenarioTransport{semantic.TransportHTTP, semantic.TransportStreaming, semantic.TransportConnector}
+			if id == standardplugins.CustomOpenResponsesCompatibleID {
+				transports = []semantic.ScenarioTransport{semantic.TransportHTTP}
+			}
+			h := realExecHarness{subject: semantic.SubjectDescriptor{ID: id, Kind: semantic.KindBackendFamily, Capabilities: caps, Dialects: be.DialectSupport, Transports: transports}, view: ExecBackendView{Backend: be, Candidate: routing.AttemptCandidate{Primary: routing.Primary{Backend: id, Model: model}}, Invocation: lipapi.Invocation{Operation: operationForFamily(id), TransportMode: mode}}, probe: probe}
 			cert, err := CertifyBackend(context.Background(), h)
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("%v; last upstream request=%s", err, string(probe.LastRequest().Body))
 			}
 			if err := cert.ValidateReleaseReady(); err != nil {
 				t.Fatal(err)
@@ -104,8 +120,11 @@ func (h realExecHarness) Reset(context.Context) error                  { h.probe
 
 func countingHandler(probe *standardProbe, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(body))
 		probe.mu.Lock()
 		probe.count++
+		probe.last = CapturedRequest{Method: r.Method, Path: r.URL.Path, Body: append([]byte(nil), body...)}
 		probe.mu.Unlock()
 		next.ServeHTTP(w, r)
 	})
@@ -119,13 +138,21 @@ func openResponsesCompatHandler() http.Handler {
 			_, _ = io.WriteString(w, `{"id":"c","object":"response.compaction","status":"completed","model":"m","output":[{"type":"message","id":"msg","status":"completed","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":0,"output_tokens":1,"total_tokens":1}}`)
 			return
 		}
-		if !strings.Contains(string(body), `"stream":true`) {
+		if !strings.Contains(string(body), "stream") {
 			w.Header().Set("Content-Type", "application/json")
+			if strings.Contains(string(body), "tools") {
+				_, _ = io.WriteString(w, `{"id":"r","object":"response","status":"completed","model":"m","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]},{"type":"function_call","id":"call_1","name":"weather","arguments":"{}"}],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`)
+				return
+			}
 			_, _ = io.WriteString(w, `{"id":"r","object":"response","status":"completed","model":"m","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":0,"output_tokens":1,"total_tokens":1}}`)
 			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, `event: response.created
+		usage := `{"input_tokens":10,"output_tokens":5,"total_tokens":15}`
+		if strings.Contains(string(body), `"max_output_tokens":1`) {
+			usage = `{"input_tokens":0,"output_tokens":0,"total_tokens":0}`
+		}
+		stream := `event: response.created
 data: {"type":"response.created","sequence_number":0,"response":{"id":"r","status":"in_progress","model":"m"}}
 
 event: response.output_item.added
@@ -138,11 +165,9 @@ event: response.output_text.delta
 data: {"type":"response.output_text.delta","item_id":"msg","content_index":0,"delta":"ok"}
 
 event: response.completed
-data: {"type":"response.completed","sequence_number":2,"response":{"id":"r","status":"completed","model":"m","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":0,"output_tokens":1,"total_tokens":1}}}
-
-data: [DONE]
-
-`)
+data: {"type":"response.completed","sequence_number":2,"response":{"id":"r","status":"completed","model":"m","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}],"usage":USAGE}}`
+		stream = strings.Replace(stream, "USAGE", usage, 1)
+		_, _ = io.WriteString(w, stream)
 	})
 }
 

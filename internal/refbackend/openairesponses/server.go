@@ -10,9 +10,9 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"sync/atomic"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/utils"
+	"sync/atomic"
 )
 
 const maxBodyBytes = 10 << 20
@@ -85,6 +85,18 @@ func NewHandler(cfg Config) http.Handler {
 		if utils.TryWriteForcedHTTPError(w, cfg.ForcedHTTPStatus, cfg.ForcedRetryAfter, cfg.ForcedErrorJSON, defaultForcedErrorJSON) {
 			return
 		}
+		if utils.HasJSONNumber(body, "temperature", 0.11) {
+			_ = utils.TryWriteForcedHTTPError(w, http.StatusTooManyRequests, "60", "", defaultForcedErrorJSON)
+			return
+		}
+		if utils.HasJSONNumber(body, "temperature", 0.22) {
+			_ = utils.TryWriteForcedHTTPError(w, http.StatusBadRequest, "", "", defaultForcedErrorJSON)
+			return
+		}
+		if utils.HasJSONNumber(body, "temperature", 0.33) {
+			_ = utils.TryWriteForcedHTTPError(w, http.StatusTooManyRequests, "60", "", defaultForcedErrorJSON)
+			return
+		}
 
 		stream := bytes.Contains(body, jsonBodyMarkerStreamTrue)
 		if cfg.Responder != nil {
@@ -97,10 +109,10 @@ func NewHandler(cfg Config) http.Handler {
 			return
 		}
 		if stream {
-			writeStream(r.Context(), w, cfg)
+			writeStream(r.Context(), w, cfg, body)
 			return
 		}
-		writeJSON(r.Context(), w, cfg)
+		writeJSON(r.Context(), w, cfg, body)
 	})
 }
 
@@ -146,10 +158,13 @@ func writeResponder(ctx context.Context, w http.ResponseWriter, req Request, res
 	}
 }
 
-func writeJSON(ctx context.Context, w http.ResponseWriter, cfg Config) {
+func writeJSON(ctx context.Context, w http.ResponseWriter, cfg Config, requestBody []byte) {
 	body := cfg.NonStreamJSON
 	if body == "" {
-		body = defaultNonStreamJSON
+		body = nonStreamWithUsageJSON
+		if utils.HasJSONKey(requestBody, "tools") {
+			body = nonStreamWithToolCallJSON
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -158,10 +173,35 @@ func writeJSON(ctx context.Context, w http.ResponseWriter, cfg Config) {
 	}
 }
 
-func writeStream(ctx context.Context, w http.ResponseWriter, cfg Config) {
+func writeStream(ctx context.Context, w http.ResponseWriter, cfg Config, requestBody []byte) {
 	body := cfg.StreamSSE
 	if body == "" {
-		body = defaultStreamSSE
+		body = streamWithUsageSSE
+		if utils.HasJSONKey(requestBody, "tools") {
+			body = streamWithToolCallSSE
+		}
+		if utils.HasJSONNumber(requestBody, "temperature", 0.11) {
+			body = `event: error
+data: {"type":"error","code":"rate_limit_exceeded","message":"rate limit exceeded"}
+
+data: [DONE]
+
+`
+		}
+		if utils.HasJSONNumber(requestBody, "temperature", 0.22) {
+			body = `event: error
+data: {"type":"error","code":"invalid_request","message":"bad request"}
+
+data: [DONE]
+
+`
+		}
+		if utils.HasJSONNumber(requestBody, "max_output_tokens", 0) {
+			body = streamWithZeroUsageSSE
+		}
+		if utils.HasJSONNumber(requestBody, "max_output_tokens", 1) {
+			body = streamWithZeroUsageSSE
+		}
 	}
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
@@ -189,6 +229,54 @@ const defaultNonStreamJSON = `{
   ]
 }`
 
+const nonStreamWithUsageJSON = `{
+  "id": "resp_refbackend_1",
+  "object": "response",
+  "created_at": 1715620000,
+  "status": "completed",
+  "model": "gpt-4o-mini",
+  "output": [{"type":"message","id":"msg_out","status":"completed","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],
+  "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+}`
+
+const nonStreamWithZeroUsageJSON = `{
+  "id": "resp_refbackend_1",
+  "object": "response",
+  "created_at": 1715620000,
+  "status": "completed",
+  "model": "gpt-4o-mini",
+  "output": [{"type":"message","id":"msg_out","status":"completed","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],
+  "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+}`
+
+const nonStreamWithToolCallJSON = `{
+  "id": "resp_refbackend_1",
+  "object": "response",
+  "created_at": 1715620000,
+  "status": "completed",
+  "model": "gpt-4o-mini",
+  "output": [{"type":"function_call","id":"call_1","name":"weather","arguments":"{}"}],
+  "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+}`
+
 const defaultStreamSSE = "event: response.completed\n" +
 	"data: {\"type\":\"response.completed\",\"sequence_number\":1,\"response\":{\"id\":\"resp_refbackend_stream\",\"object\":\"response\",\"created_at\":1715620000,\"status\":\"completed\",\"model\":\"gpt-4o-mini\",\"output\":[{\"type\":\"message\",\"id\":\"m1\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"stream-ok\"}]}]}}\n\n" +
+	"data: [DONE]\n\n"
+
+const streamWithUsageSSE = "event: response.completed\n" +
+	"data: {\"type\":\"response.completed\",\"sequence_number\":1,\"response\":{\"id\":\"resp_refbackend_stream\",\"object\":\"response\",\"created_at\":1715620000,\"status\":\"completed\",\"model\":\"gpt-4o-mini\",\"output\":[{\"type\":\"message\",\"id\":\"m1\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"stream-ok\"}]}],\"usage\":{\"input_tokens\":10,\"output_tokens\":5,\"total_tokens\":15}}}\n\n" +
+	"data: [DONE]\n\n"
+
+const streamWithZeroUsageSSE = "event: response.completed\n" +
+	"data: {\"type\":\"response.completed\",\"sequence_number\":1,\"response\":{\"id\":\"resp_refbackend_stream\",\"object\":\"response\",\"created_at\":1715620000,\"status\":\"completed\",\"model\":\"gpt-4o-mini\",\"output\":[{\"type\":\"message\",\"id\":\"m1\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"stream-ok\"}]}],\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"total_tokens\":0}}}\n\n" +
+	"data: [DONE]\n\n"
+
+const streamWithToolCallSSE = "event: response.created\n" +
+	"data: {\"type\":\"response.created\",\"sequence_number\":1,\"response\":{\"id\":\"resp_refbackend_stream\",\"object\":\"response\",\"created_at\":1715620000,\"status\":\"in_progress\",\"model\":\"gpt-4o-mini\"}}\n\n" +
+	"event: response.output_item.added\n" +
+	"data: {\"type\":\"response.output_item.added\",\"sequence_number\":2,\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"call_1\",\"name\":\"weather\",\"arguments\":\"{}\"}}\n\n" +
+	"event: response.output_item.done\n" +
+	"data: {\"type\":\"response.output_item.done\",\"sequence_number\":3,\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"call_1\",\"name\":\"weather\",\"arguments\":\"{}\"}}\n\n" +
+	"event: response.completed\n" +
+	"data: {\"type\":\"response.completed\",\"sequence_number\":4,\"response\":{\"id\":\"resp_refbackend_stream\",\"object\":\"response\",\"created_at\":1715620000,\"status\":\"completed\",\"model\":\"gpt-4o-mini\",\"usage\":{\"input_tokens\":10,\"output_tokens\":5,\"total_tokens\":15}}}\n\n" +
 	"data: [DONE]\n\n"

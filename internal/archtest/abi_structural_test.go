@@ -202,7 +202,10 @@ func ValidateProtoSchema(source string) error {
 		}
 	}
 	for key, field := range parsed.AllFields {
-		if protocolName(key) || protocolName(field.Name) || protocolName(field.Type) {
+		if _, enum := parsed.Enums[field.Path]; enum {
+			continue
+		}
+		if protocolName(key) {
 			if _, allowed := legacyProtoFields[key]; !allowed {
 				return fmt.Errorf("protocol-specific field %q is not in v1.3 allowlist", key)
 			}
@@ -215,6 +218,21 @@ func protocolName(value string) bool {
 	v := strings.ToLower(value)
 	for _, marker := range []string{"openai", "openresponses", "anthropic", "gemini", "bedrock", "codex", "acp", "claude", "vendor", "provider"} {
 		if strings.Contains(v, marker) {
+			return true
+		}
+	}
+	words := identifierWords(value)
+	if len(words) < 2 {
+		return false
+	}
+	// Neutral vocabulary is deliberately open-ended by semantic role, while a
+	// non-neutral qualifier attached to a protocol-shaped message/field is not.
+	if neutralABITerms[words[0]] {
+		return false
+	}
+	for _, word := range words[1:] {
+		switch word {
+		case "invocation", "request", "response", "event", "message", "field", "fields", "schema", "feature", "features", "capability", "capabilities", "dialect", "extension", "extensions", "payload", "carrier", "row", "projector":
 			return true
 		}
 	}

@@ -261,7 +261,9 @@ func usageEvent(resp *genai.GenerateContentResponse) *lipapi.Event {
 	outputTokens := int64(u.CandidatesTokenCount) + int64(u.ThoughtsTokenCount)
 	out := safecast.IntFromInt64Clamp(outputTokens)
 	if in == 0 && out == 0 && u.TotalTokenCount == 0 {
-		return nil
+		ev := lipapi.Event{Kind: lipapi.EventUsageDelta, UsagePresence: lipapi.UsagePresence{InputTokens: true, OutputTokens: true, TotalTokens: true}}
+		ev.RawUsageJSON = rawUsageJSON(u)
+		return &ev
 	}
 	if out == 0 && u.TotalTokenCount > u.PromptTokenCount {
 		diff := int64(u.TotalTokenCount) - int64(u.PromptTokenCount)
@@ -272,6 +274,7 @@ func usageEvent(resp *genai.GenerateContentResponse) *lipapi.Event {
 		}
 	}
 	ev := lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: in, OutputTokens: out}
+	ev.UsagePresence = lipapi.UsagePresence{InputTokens: true, OutputTokens: true, TotalTokens: true}
 	ev.CacheReadTokens = safecast.IntFromInt64Clamp(int64(u.CachedContentTokenCount))
 	ev.ReasoningTokens = safecast.IntFromInt64Clamp(int64(u.ThoughtsTokenCount))
 	ev.TotalTokens = safecast.IntFromInt64Clamp(int64(u.TotalTokenCount))

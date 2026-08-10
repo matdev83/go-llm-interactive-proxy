@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
+	publichost "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin/host"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -151,6 +152,10 @@ func ClassifyExecuteError(err error, committed bool) *ExecuteFailure {
 }
 
 func isProtocolSentinel(err error) bool {
+	var protocolViolation *publichost.ProtocolViolationError
+	if errors.As(err, &protocolViolation) {
+		return true
+	}
 	return errors.Is(err, backendplugin.ErrMultipleTerminals) ||
 		errors.Is(err, backendplugin.ErrEventAfterTerminal) ||
 		errors.Is(err, backendplugin.ErrSequenceGap) ||

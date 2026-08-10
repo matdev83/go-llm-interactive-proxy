@@ -4,7 +4,12 @@ import (
 	"context"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
+	publichost "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin/host"
 )
+
+// GRPCSession is retained as an internal compatibility alias. The supported
+// implementation and lifecycle authority live in the public host package.
+type GRPCSession = publichost.Session
 
 // ExecuteSession is the host-facing configured plugin instance seam.
 type ExecuteSession interface {
@@ -29,3 +34,8 @@ type OptionalTokenCounter interface {
 type OptionalBillingFinalizer interface {
 	FinalizeBilling(ctx context.Context, req backendplugin.FinalizeBillingRequest) (backendplugin.FinalizeBillingResponse, error)
 }
+
+var (
+	_ OptionalTokenCounter     = (*GRPCSession)(nil)
+	_ OptionalBillingFinalizer = (*GRPCSession)(nil)
+)

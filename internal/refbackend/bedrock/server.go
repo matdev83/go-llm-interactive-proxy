@@ -13,6 +13,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream/eventstreamapi"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/utils"
 )
 
 const maxBodyBytes = 10 << 20
@@ -63,7 +64,6 @@ func NewHandler(cfg Config) http.Handler {
 				return
 			}
 		}
-
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 		if err != nil {
 			http.Error(w, "read body", http.StatusBadRequest)
@@ -72,20 +72,31 @@ func NewHandler(cfg Config) http.Handler {
 		if cfg.OnRequestBody != nil {
 			cfg.OnRequestBody(body)
 		}
+		if utils.HasJSONNumber(body, "temperature", 0.11) {
+			http.Error(w, `{"message":"rate limit exceeded"}`, http.StatusTooManyRequests)
+			return
+		}
+		if utils.HasJSONNumber(body, "temperature", 0.22) {
+			http.Error(w, `{"message":"bad request"}`, http.StatusBadRequest)
+			return
+		}
 
 		switch op {
 		case "converse":
-			writeConverse(w, cfg)
+			writeConverse(w, cfg, body)
 		case "converse-stream":
-			writeConverseStream(w, cfg)
+			writeConverseStream(w, cfg, body)
 		}
 	})
 }
 
-func writeConverse(w http.ResponseWriter, cfg Config) {
+func writeConverse(w http.ResponseWriter, cfg Config, requestBody []byte) {
 	body := cfg.ConverseJSON
 	if body == "" {
-		body = defaultConverseJSON
+		body = nonStreamWithUsageJSON
+		if utils.HasJSONKey(requestBody, "toolConfig") {
+			body = nonStreamWithToolCallJSON
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -94,10 +105,16 @@ func writeConverse(w http.ResponseWriter, cfg Config) {
 	}
 }
 
-func writeConverseStream(w http.ResponseWriter, cfg Config) {
+func writeConverseStream(w http.ResponseWriter, cfg Config, requestBody []byte) {
 	body := cfg.StreamEvents
 	if len(body) == 0 {
-		body = defaultConverseStreamEvents()
+		body = streamWithUsageEvents()
+		if utils.HasJSONKey(requestBody, "toolConfig") {
+			body = streamWithToolCallEvents()
+		}
+		if utils.HasJSONNumber(requestBody, "maxTokens", 0) || utils.HasJSONNumber(requestBody, "maxTokens", 1) {
+			body = streamWithZeroUsageEvents()
+		}
 	}
 	w.Header().Set("Content-Type", "application/vnd.amazon.eventstream")
 	w.WriteHeader(http.StatusOK)
@@ -118,10 +135,44 @@ const defaultConverseJSON = `{
   "usage": { "inputTokens": 1, "outputTokens": 1 }
 }`
 
+const nonStreamWithUsageJSON = `{
+  "metrics": { "latencyMs": 1 },
+  "output": {
+    "message": {
+      "role": "assistant",
+      "content": [ { "text": "ok" } ]
+    }
+  },
+  "stopReason": "end_turn",
+  "usage": { "inputTokens": 10, "outputTokens": 5, "totalTokens": 15 }
+}`
+
+const nonStreamWithZeroUsageJSON = `{
+  "metrics": { "latencyMs": 1 },
+  "output": {
+    "message": {
+      "role": "assistant",
+      "content": [ { "text": "ok" } ]
+    }
+  },
+  "stopReason": "end_turn",
+  "usage": { "inputTokens": 0, "outputTokens": 0, "totalTokens": 0 }
+}`
+
+const nonStreamWithToolCallJSON = `{
+  "metrics": { "latencyMs": 1 },
+  "output": {
+    "message": {
+      "role": "assistant",
+      "content": [ { "text": null } ]
+    }
+  },
+  "stopReason": "tool_use",
+  "usage": { "inputTokens": 10, "outputTokens": 5, "totalTokens": 15 }
+}`
+
 func defaultConverseStreamEvents() []byte {
-	var buf bytes.Buffer
-	enc := eventstream.NewEncoder()
-	events := []struct {
+	return converseStreamEventsHelper([]struct {
 		eventType string
 		payload   map[string]any
 	}{
@@ -132,7 +183,67 @@ func defaultConverseStreamEvents() []byte {
 		}},
 		{"contentBlockStop", map[string]any{"contentBlockIndex": 0}},
 		{"messageStop", map[string]any{"stopReason": "end_turn"}},
-	}
+	})
+}
+
+func streamWithUsageEvents() []byte {
+	return converseStreamEventsHelper([]struct {
+		eventType string
+		payload   map[string]any
+	}{
+		{"messageStart", map[string]any{"role": "assistant"}},
+		{"contentBlockDelta", map[string]any{
+			"contentBlockIndex": 0,
+			"delta":             map[string]any{"text": "stream-ok"},
+		}},
+		{"contentBlockStop", map[string]any{"contentBlockIndex": 0}},
+		{"messageStop", map[string]any{"stopReason": "end_turn"}},
+		{"metadata", map[string]any{"usage": map[string]any{"inputTokens": 10, "outputTokens": 5, "totalTokens": 15}}},
+	})
+}
+
+func streamWithZeroUsageEvents() []byte {
+	return converseStreamEventsHelper([]struct {
+		eventType string
+		payload   map[string]any
+	}{
+		{"messageStart", map[string]any{"role": "assistant"}},
+		{"contentBlockDelta", map[string]any{
+			"contentBlockIndex": 0,
+			"delta":             map[string]any{"text": "stream-ok"},
+		}},
+		{"contentBlockStop", map[string]any{"contentBlockIndex": 0}},
+		{"messageStop", map[string]any{"stopReason": "end_turn"}},
+		{"metadata", map[string]any{"usage": map[string]any{"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}}},
+	})
+}
+
+func streamWithToolCallEvents() []byte {
+	return converseStreamEventsHelper([]struct {
+		eventType string
+		payload   map[string]any
+	}{
+		{"messageStart", map[string]any{"role": "assistant"}},
+		{"contentBlockStart", map[string]any{
+			"contentBlockIndex": 0,
+			"start":             map[string]any{"toolUse": map[string]any{"toolUseId": "call_1", "name": "weather"}},
+		}},
+		{"contentBlockDelta", map[string]any{
+			"contentBlockIndex": 0,
+			"delta":             map[string]any{"toolUse": map[string]any{"input": "{}"}},
+		}},
+		{"contentBlockStop", map[string]any{"contentBlockIndex": 0}},
+		{"messageStop", map[string]any{"stopReason": "tool_use"}},
+		{"metadata", map[string]any{"usage": map[string]any{"inputTokens": 10, "outputTokens": 5, "totalTokens": 15}}},
+	})
+}
+
+func converseStreamEventsHelper(events []struct {
+	eventType string
+	payload   map[string]any
+}) []byte {
+	var buf bytes.Buffer
+	enc := eventstream.NewEncoder()
 	for _, ev := range events {
 		payload, err := json.Marshal(ev.payload)
 		if err != nil {

@@ -27,6 +27,14 @@ func CreateDeterministicGitChange(repoRoot, relativePath, before, after string) 
 	git := func(args ...string) ([]byte, error) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = repoRoot
+		// Native repository tests may inherit the parent worktree's GIT_DIR;
+		// isolate the deterministic fixture repository from that environment.
+		for _, env := range os.Environ() {
+			if strings.HasPrefix(env, "GIT_DIR=") || strings.HasPrefix(env, "GIT_WORK_TREE=") {
+				continue
+			}
+			cmd.Env = append(cmd.Env, env)
+		}
 		return cmd.CombinedOutput()
 	}
 	if out, err := git("init", "--quiet"); err != nil {
@@ -37,7 +45,7 @@ func CreateDeterministicGitChange(repoRoot, relativePath, before, after string) 
 			return "", fmt.Errorf("git config: %w: %s", err, out)
 		}
 	}
-	if out, err := git("add", "-A"); err != nil {
+	if out, err := git("add", "-f", "--", relativePath); err != nil {
 		return "", fmt.Errorf("git add baseline: %w: %s", err, out)
 	}
 	if out, err := git("commit", "--quiet", "-m", "baseline"); err != nil {
@@ -98,6 +106,54 @@ func ThousandProviderProfilesFixture() []SyntheticProviderProfileFixture {
 		}
 	}
 	return profiles
+}
+
+// ValidateNonCartesianFixture proves the actual deterministic fixture has
+// independent frontend and profile dimensions. Source is generated from the
+// supplied fixture data, so callers cannot substitute an unrelated snippet as
+// scalability evidence.
+func ValidateNonCartesianFixture(frontends []SyntheticFrontendFixture, profiles []SyntheticProviderProfileFixture) error {
+	if len(frontends) != 5 || len(profiles) != 1000 {
+		return fmt.Errorf("fixture dimensions are %d frontends x %d profiles, want 5 x 1000", len(frontends), len(profiles))
+	}
+	if profiles[999].ID != "provider-profile-1000" {
+		return fmt.Errorf("profile #1000 is not deterministic: %q", profiles[999].ID)
+	}
+	families := make(map[string]bool)
+	var source strings.Builder
+	source.WriteString("package generatedfixture\n\nvar frontendIDs = []string{\n")
+	for _, frontend := range frontends {
+		if frontend.ID == "" {
+			return fmt.Errorf("frontend has incomplete identity: %+v", frontend)
+		}
+		fmt.Fprintf(&source, "%q,\n", frontend.ID)
+	}
+	source.WriteString("}\n\nvar profiles = []struct{ ID, Family, Endpoint string }{\n")
+	for _, profile := range profiles {
+		if profile.ID == "" || profile.FamilyID == "" || profile.Endpoint == "" {
+			return fmt.Errorf("profile has incomplete identity: %+v", profile)
+		}
+		families[profile.FamilyID] = true
+		fmt.Fprintf(&source, "{ID: %q, Family: %q, Endpoint: %q},\n", profile.ID, profile.FamilyID, profile.Endpoint)
+	}
+	source.WriteString("}\n\nvar profileFamilyBindings = map[string]string{\n")
+	for family := range families {
+		fmt.Fprintf(&source, "%q: %q,\n", family, family)
+	}
+	source.WriteString("}\n")
+	if len(families) != 4 {
+		return fmt.Errorf("profiles resolve to %d families, want 4", len(families))
+	}
+	findings, err := scanSource("generated-scale-fixture.go", []byte(source.String()))
+	if err != nil {
+		return fmt.Errorf("scan generated scale fixture: %w", err)
+	}
+	for _, finding := range findings {
+		if finding.Category == DebtFrontendProfilePairs || finding.Category == DebtFrontendBackendPairs || finding.Category == DebtNestedPairMaterializer || finding.Category == DebtPerProfileFactory || finding.Category == DebtPerProfileRegistration || finding.Category == DebtPerProfileGoroutine || finding.Category == DebtCentralListMutation || finding.Category == DebtSentinelGrowth {
+			return fmt.Errorf("generated non-Cartesian fixture contains %s: %s", finding.Category, finding.Detail)
+		}
+	}
+	return nil
 }
 
 // RealSharedBoundaryInspector inspects real repository file paths and symbols

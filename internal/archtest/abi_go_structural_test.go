@@ -254,6 +254,19 @@ func protocolSpecificABISymbol(name string) bool {
 			return true
 		}
 	}
+	// A protocol qualifier is not defined by a finite provider denylist. Treat
+	// an unknown leading vocabulary word before a semantic carrier as a
+	// protocol-owned ABI name (for example ContosoRequest or FabrikamEvent).
+	words := identifierWords(name)
+	if len(words) < 2 || neutralABITerms[words[0]] {
+		return false
+	}
+	for _, word := range words[1:] {
+		switch word {
+		case "invocation", "request", "response", "event", "message", "field", "fields", "schema", "feature", "features", "capability", "capabilities", "dialect", "extension", "extensions", "payload", "carrier":
+			return true
+		}
+	}
 	return false
 }
 

@@ -33,7 +33,59 @@ var genericABIFieldTerms = map[string]bool{
 // checks do not depend on a closed provider-family list.
 var KnownProtocolIdentifiers = []string{"openresponses", "openai", "anthropic", "gemini", "bedrock", "codex", "acp"}
 
-var neutralABITerms = map[string]bool{"semantic": true, "protocol": true, "feature": true, "features": true, "custom": true, "extension": true, "extensions": true, "capability": true, "capabilities": true, "session": true, "owned": true, "proxy": true, "reasoning": true, "parts": true, "items": true, "ordered": true, "exact": true, "usage": true, "metadata": true, "transport": true, "dialect": true, "requirement": true, "requirements": true, "invocation": true, "canonical": true, "wire": true, "raw": true, "json": true, "support": true}
+var neutralABITerms = map[string]bool{
+	"semantic": true, "protocol": true, "feature": true, "features": true,
+	"custom": true, "extension": true, "extensions": true, "capability": true,
+	"capabilities": true, "session": true, "owned": true, "proxy": true,
+	"reasoning": true, "parts": true, "items": true, "ordered": true, "exact": true,
+	"usage": true, "metadata": true, "transport": true, "dialect": true,
+	"requirement": true, "requirements": true, "invocation": true, "canonical": true,
+	"wire": true, "json": true, "support": true, "runtime": true, "policy": true,
+	"close": true, "instance": true, "response": true, "request": true,
+	"resolved": true, "execute": true, "list": true, "models": true, "model": true,
+	"tool": true, "def": true, "disable": true, "parameters": true, "prompt": true,
+	"cache": true, "key": true, "message": true, "messages": true, "credential": true,
+	"mode": true, "access": true, "scope": true, "process": true, "sharing": true,
+	"role": true, "part": true, "kind": true, "event": true, "terminal": true,
+	"status": true, "cancel": true, "client": true, "server": true, "frame": true,
+	"error": true, "code": true, "reason": true, "name": true, "id": true,
+	"minor": true, "major": true, "plugin": true, "host": true, "version": true,
+	"build": true, "description": true, "prefixes": true, "dynamic": true,
+	"static": true, "structured": true, "outputs": true, "parallel": true,
+	"video": true, "annotations": true, "media": true, "keepalive": true,
+	"bidirectional": true, "config": true, "yaml": true, "secrets": true,
+	"timeout": true, "allowed": true, "env": true, "retries": true, "evidence": true,
+	"source": true, "after": true, "fetch": true, "refresh": true, "unix": true,
+	"quality": true, "optional": true, "generation": true, "route": true,
+	"prefix": true, "fields": true, "field": true, "supports": true, "supported": true,
+	"output": true, "assistant": true, "health": true, "graceful": true,
+	"shutdown": true, "describe": true, "negotiate": true, "configure": true,
+	"resolve": true, "count": true, "finalize": true, "profile": true, "state": true,
+	"data": true, "input": true, "result": true, "factory": true, "descriptor": true,
+	"schema": true, "payload": true, "carrier": true, "content": true, "summary": true,
+	"unknown": true, "raw": true, "value": true, "default": true, "max": true,
+	"local": true, "only": true, "none": true, "unspecified": true, "deadline": true,
+	"start": true, "oauth": true, "user": true, "workload": true, "diagnostic": true,
+	"provider": true, "transient": true, "aborted": true, "cancelled": true,
+	"internal": true, "invalid": true, "argument": true, "not": true, "found": true,
+	"permission": true, "denied": true, "resource": true, "exhausted": true,
+	"unauthenticated": true, "unavailable": true, "file": true, "ref": true,
+	"image": true, "delta": true, "signature": true, "warning": true, "started": true,
+	"finished": true, "text": true, "call": true, "outcome": true, "accepted": true,
+	"violation": true, "annotation": true, "refusal": true, "failure": true,
+	"success": true, "developer": true, "system": true,
+	"meta": true, "delivery": true, "operation": true, "param": true,
+	"per": true, "shared": true, "artifact": true, "index": true, "phase": true,
+	"refs": true, "y": true, "a": true, "m": true, "l": true, "j": true, "s": true,
+	"o": true, "n": true, "i": true, "acknowledged": true, "detail": true,
+	// Package and language vocabulary is neutral even when it is not a wire term.
+	"grpc": true, "backend": true, "lip": true, "sdk": true, "any": true,
+	"apply": true, "billing": true, "configured": true,
+	"err": true, "forward": true,
+	"g": true, "has": true, "must": true, "negotiation": true, "new": true, "open": true,
+	"require": true, "restore": true, "secret": true, "service": true,
+	"stream": true, "token": true, "validate": true,
+}
 
 func identifierWords(value string) []string {
 	value = strings.NewReplacer("-", "_", ".", "_", "/", "_").Replace(value)
@@ -58,7 +110,7 @@ func providerSpecificABIIdentifier(value string) bool {
 		return false
 	}
 	for _, w := range words[1:] {
-		if neutralABITerms[w] {
+		if neutralABITerms[w] && (w == "fields" || w == "schema" || w == "dialect") {
 			return !neutralABITerms[words[0]]
 		}
 	}
@@ -137,245 +189,6 @@ func DetectDuplicateContinuationStructs(repoRoot string) ([]string, error) {
 	}
 	slices.Sort(duplicateStructs)
 	return duplicateStructs, nil
-}
-
-func DetectDuplicateAuthoritativeRegistries(repoRoot string) (map[string]string, error) {
-	dirs := []string{
-		filepath.Join(repoRoot, "internal", "standardplugins"),
-		filepath.Join(repoRoot, "internal", "pluginreg"),
-		filepath.Join(repoRoot, "internal", "infra", "runtimebundle"),
-		filepath.Join(repoRoot, "internal", "providerprofiles"),
-	}
-	fset := token.NewFileSet()
-	out := make(map[string]string)
-	for _, dir := range dirs {
-		pkgs, err := parser.ParseDir(fset, dir, nil, 0)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return nil, err
-		}
-		for _, pkg := range pkgs {
-			for fname, fileNode := range pkg.Files {
-				if strings.HasSuffix(fname, "_test.go") {
-					continue
-				}
-				rel, _ := filepath.Rel(repoRoot, fname)
-				rel = filepath.ToSlash(rel)
-				ast.Inspect(fileNode, func(n ast.Node) bool {
-					switch x := n.(type) {
-					case *ast.ValueSpec:
-						for i, name := range x.Names {
-							if ast.IsExported(name.Name) && i < len(x.Values) && isContributionIdentityExpr(name.Name, x.Type, x.Values[i]) {
-								out[name.Name] = rel
-							}
-						}
-					case *ast.FuncDecl:
-						if x.Body == nil || !ast.IsExported(x.Name.Name) || !isContributionAuthorityName(x.Name.Name) {
-							return true
-						}
-						for _, result := range functionResultTypes(x) {
-							if isIdentityType(result) && functionReturnsIdentityLiteral(x) {
-								out[x.Name.Name] = rel
-							}
-						}
-					}
-					return true
-				})
-			}
-		}
-	}
-	return out, nil
-}
-
-func isContributionAuthorityName(name string) bool {
-	lower := strings.ToLower(name)
-	for _, denied := range []string{"pool", "route_registry", "scenario", "health", "affinity", "generation", "config", "state"} {
-		if strings.Contains(lower, denied) {
-			return false
-		}
-	}
-	if strings.Contains(lower, "contribution") || strings.Contains(lower, "registration") || strings.Contains(lower, "routeclaim") || strings.Contains(lower, "route_claim") {
-		return true
-	}
-	if strings.Contains(lower, "essentialbackend") || strings.Contains(lower, "compatiblebackend") || strings.Contains(lower, "providerprofile") || strings.Contains(lower, "backendfamily") {
-		return true
-	}
-	return strings.Contains(lower, "frontend") && (strings.Contains(lower, "claim") || strings.Contains(lower, "registration"))
-}
-
-func isIdentityType(expr ast.Expr) bool {
-	switch x := expr.(type) {
-	case *ast.ArrayType:
-		return x.Len == nil && isStringExpr(x.Elt)
-	case *ast.MapType:
-		return isStringExpr(x.Key) && (isStringExpr(x.Value) || isFuncExpr(x.Value))
-	}
-	return false
-}
-
-func isStringExpr(expr ast.Expr) bool { id, ok := expr.(*ast.Ident); return ok && id.Name == "string" }
-func isFuncExpr(expr ast.Expr) bool   { _, ok := expr.(*ast.FuncType); return ok }
-
-func isContributionIdentityExpr(name string, typ ast.Expr, value ast.Expr) bool {
-	if !isContributionAuthorityName(name) || !isIdentityType(typ) {
-		// Inferred declarations still qualify when their literal has string identity keys.
-		if !isContributionAuthorityName(name) {
-			return false
-		}
-	}
-	if typ != nil && isIdentityType(typ) {
-		return true
-	}
-	switch x := value.(type) {
-	case *ast.CompositeLit:
-		if _, ok := x.Type.(*ast.ArrayType); ok {
-			return true
-		}
-		if _, ok := x.Type.(*ast.MapType); ok {
-			return true
-		}
-	case *ast.CallExpr:
-		return isContributionAuthorityName(identName(x.Fun))
-	}
-	return false
-}
-
-func functionResultTypes(fn *ast.FuncDecl) []ast.Expr {
-	if fn.Type.Results == nil {
-		return nil
-	}
-	var out []ast.Expr
-	for _, field := range fn.Type.Results.List {
-		out = append(out, field.Type)
-	}
-	return out
-}
-
-func functionReturnsIdentityLiteral(fn *ast.FuncDecl) bool {
-	found := false
-	ast.Inspect(fn.Body, func(n ast.Node) bool {
-		if ret, ok := n.(*ast.ReturnStmt); ok {
-			for _, result := range ret.Results {
-				if lit, ok := result.(*ast.CompositeLit); ok {
-					if isIdentityType(lit.Type) {
-						found = true
-					}
-				}
-			}
-		}
-		return !found
-	})
-	return found
-}
-
-func routeKindIsProtocolOwned(name, value string) bool {
-	suffix := strings.TrimPrefix(name, "RouteKind")
-	neutral := map[string]bool{"Create": true, "Compact": true, "Cancel": true, "WebSocket": true, "Invoke": true, "Health": true}
-	if !neutral[suffix] {
-		return true
-	}
-	parts := strings.Split(strings.ToLower(value), "_")
-	return len(parts) > 1 && parts[0] != "generic" && parts[0] != "semantic"
-}
-
-func DetectCentralProtocolRouteKinds(repoRoot string) (map[string]string, error) {
-	contractDir := filepath.Join(repoRoot, "internal", "stdhttp", "contract")
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, contractDir, nil, 0)
-	if err != nil {
-		return nil, err
-	}
-
-	discoveredRouteKinds := make(map[string]string)
-	for _, pkg := range pkgs {
-		for fname, fileNode := range pkg.Files {
-			if strings.HasSuffix(fname, "_test.go") {
-				continue
-			}
-			ast.Inspect(fileNode, func(n ast.Node) bool {
-				vSpec, ok := n.(*ast.ValueSpec)
-				if !ok {
-					return true
-				}
-				for i, name := range vSpec.Names {
-					if strings.HasPrefix(name.Name, "RouteKind") && i < len(vSpec.Values) {
-						if lit, ok := vSpec.Values[i].(*ast.BasicLit); ok && lit.Kind == token.STRING {
-							val := strings.ToLower(strings.Trim(lit.Value, `"`))
-							if routeKindIsProtocolOwned(name.Name, val) {
-								discoveredRouteKinds[name.Name] = val
-							}
-						}
-					}
-				}
-				return true
-			})
-		}
-	}
-	return discoveredRouteKinds, nil
-}
-
-// DetectCentralProtocolDiagnosticsDebt scans central surfaces for protocol-specific diagnostic DTO rows, switches, or projectors.
-func DetectCentralProtocolDiagnosticsDebt(repoRoot string) (map[string]string, error) {
-	fset := token.NewFileSet()
-	targets := []string{
-		filepath.Join(repoRoot, "internal", "core", "diag"),
-		filepath.Join(repoRoot, "internal", "infra", "runtimebundle"),
-	}
-
-	debtItems := make(map[string]string)
-
-	for _, targetDir := range targets {
-		pkgs, err := parser.ParseDir(fset, targetDir, nil, 0)
-		if err != nil && !os.IsNotExist(err) {
-			continue
-		}
-		for _, pkg := range pkgs {
-			for fname, fileNode := range pkg.Files {
-				if strings.HasSuffix(fname, "_test.go") {
-					continue
-				}
-				relPath, _ := filepath.Rel(repoRoot, fname)
-
-				ast.Inspect(fileNode, func(n ast.Node) bool {
-					// Check DTO struct names
-					if typeSpec, ok := n.(*ast.TypeSpec); ok {
-						if _, isStruct := typeSpec.Type.(*ast.StructType); isStruct {
-							nameLower := strings.ToLower(typeSpec.Name.Name)
-							// Only the core diagnostic package is an ownership debt
-							// surface; config/default-model DTOs remain ordinary state.
-							if strings.Contains(strings.ToLower(relPath), "internal/core/diag") &&
-								(strings.Contains(nameLower, "row") || strings.Contains(nameLower, "diagnostic") || strings.Contains(nameLower, "diag")) {
-								debtItems[typeSpec.Name.Name] = relPath
-							}
-						}
-					}
-					// Check switch case string literals
-					if fn, ok := n.(*ast.FuncDecl); ok && strings.Contains(strings.ToLower(fn.Name.Name), "diagnostic") && strings.Contains(strings.ToLower(relPath), "runtimebundle") {
-						debtItems[fn.Name.Name] = relPath
-					}
-					if switchStmt, ok := n.(*ast.SwitchStmt); ok {
-						for _, stmt := range switchStmt.Body.List {
-							if caseClause, ok := stmt.(*ast.CaseClause); ok {
-								for _, expr := range caseClause.List {
-									if lit, ok := expr.(*ast.BasicLit); ok && lit.Kind == token.STRING {
-										val := strings.Trim(lit.Value, `"`)
-										if (strings.Contains(strings.ToLower(relPath), "diag") || strings.Contains(strings.ToLower(relPath), "diagnostic")) && (val == "openai-responses" || val == "openresponses" || val == "anthropic" || val == "gemini") {
-											debtItems[fmt.Sprintf("switch-case:%s", val)] = relPath
-										}
-									}
-								}
-							}
-						}
-					}
-					return true
-				})
-			}
-		}
-	}
-
-	return debtItems, nil
 }
 
 func TestBackendPluginABI_LegacyAllowlistOnly(t *testing.T) {

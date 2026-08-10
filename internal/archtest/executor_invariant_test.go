@@ -163,19 +163,6 @@ func findNewExecutorCall(t *testing.T, fset *token.FileSet, body *ast.BlockStmt)
 	return callPos, recvName
 }
 
-// identName extracts the name from an *ast.Ident or dereferenced *ast.Ident.
-func identName(expr ast.Expr) string {
-	switch e := expr.(type) {
-	case *ast.Ident:
-		return e.Name
-	case *ast.StarExpr:
-		if id, ok := e.X.(*ast.Ident); ok {
-			return id.Name
-		}
-	}
-	return ""
-}
-
 func callName(fun ast.Expr) string {
 	switch x := fun.(type) {
 	case *ast.Ident:

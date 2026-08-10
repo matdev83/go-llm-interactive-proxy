@@ -232,7 +232,22 @@ func validateCanonicalCall(s semantic.ScenarioDescriptor, call *lipapi.Call) err
 			return fmt.Errorf("frontend TCK: %s did not preserve compaction operation", s.ID)
 		}
 	case semantic.FeatureExtensions:
-		if len(call.Extensions) == 0 {
+		hasExt := len(call.Extensions) > 0
+		if !hasExt {
+			for _, item := range call.Items {
+				if item.Kind == lipapi.ItemKindExtension {
+					hasExt = true
+					break
+				}
+				for _, part := range item.Content {
+					if part.Kind == lipapi.ContentPartExtension {
+						hasExt = true
+						break
+					}
+				}
+			}
+		}
+		if !hasExt {
 			return fmt.Errorf("frontend TCK: %s captured no extension payload", s.ID)
 		}
 	}

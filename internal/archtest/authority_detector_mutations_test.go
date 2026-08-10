@@ -14,7 +14,11 @@ var ContosoBackendContribution = []string{"contoso"}
 var PoolRegistry = []string{"pool"}`,
 		"internal/core/diag/central.go": `package diag
 type ContosoDiagnosticRow struct { ID string }
-type NeutralDiagnostic struct { ID string }`,
+type FabrikamProjector func()
+type NeutralDiagnostic struct { ID string }
+type GenericDiagnostic struct { ID string }
+type NeutralDiagnosticProjector func()
+type ContributionOwnedProjector func()`,
 		"internal/infra/runtimebundle/config.go": `package runtimebundle
 var DefaultModel = "contoso"`,
 	}
@@ -41,11 +45,15 @@ var DefaultModel = "contoso"`,
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := debt["ContosoDiagnosticRow"]; !ok {
-		t.Fatalf("arbitrary central diagnostic DTO not found: %+v", debt)
+	for _, name := range []string{"ContosoDiagnosticRow", "FabrikamProjector"} {
+		if _, ok := debt[name]; !ok {
+			t.Fatalf("arbitrary central diagnostic debt %s not found: %+v", name, debt)
+		}
 	}
-	if _, ok := debt["DefaultModel"]; ok {
-		t.Fatalf("config/default model incorrectly treated as diagnostics debt: %+v", debt)
+	for _, name := range []string{"DefaultModel", "NeutralDiagnostic", "GenericDiagnostic", "NeutralDiagnosticProjector", "ContributionOwnedProjector"} {
+		if _, ok := debt[name]; ok {
+			t.Fatalf("false-positive diagnostics debt %s: %+v", name, debt)
+		}
 	}
 }
 
@@ -73,5 +81,27 @@ var HealthState = map[string]string{"x":"y"}`,
 	}
 	if len(regs) != 0 {
 		t.Fatalf("owned projector/state leaked into authority findings: %+v", regs)
+	}
+}
+
+func TestDuplicateAuthoritativeRegistries_PreservesDistinctPaths(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"internal/standardplugins/one.go", "internal/pluginreg/two.go"} {
+		full := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(`package fixture
+var SharedContribution = []string{"x"}`), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	regs, err := DetectDuplicateAuthoritativeRegistries(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := regs["SharedContribution"]
+	if len(paths) != 2 {
+		t.Fatalf("same-named authority paths collapsed: %+v", regs)
 	}
 }

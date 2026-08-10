@@ -12,6 +12,7 @@ import (
 	testkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin/host"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
@@ -58,7 +59,7 @@ func TestBufconn_RealServerExecuteWithInvocation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sess := &adapter.GRPCSession{Client: client, InstanceID: "buf1"}
+	sess := host.NewSessionForTesting(client, conn, "buf1", backendplugin.Negotiation{})
 	profile, err := sess.Resolve(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -161,6 +162,61 @@ func TestDialConfiguredSession_negotiatesOrderedItemsAndExecutes(t *testing.T) {
 	}
 	if fake.LastStartCall == nil || len(fake.LastStartCall.Items) != 1 {
 		t.Fatalf("reconstructed call=%#v", fake.LastStartCall)
+	}
+}
+
+func TestDialConfiguredSession_PreservesOptionalAccountingThroughInternalAlias(t *testing.T) {
+	t.Parallel()
+	fake := &testkit.FakeService{Mode: testkit.ModeValid}
+	lis := bufconn.Listen(1 << 20)
+	gs := grpc.NewServer()
+	backendpluginv1.RegisterBackendPluginServer(gs, backendplugin.NewGRPCServer(backendplugin.ProtocolOffer{
+		Major: 1, Minor: backendplugin.ProtocolMinorProxyOwnedSessionID, DisableTransportRetries: true,
+		Features: []backendplugin.Feature{{Name: backendplugin.FeatureProxyOwnedSessionID}},
+	}, fake))
+	go func() { _ = gs.Serve(lis) }()
+	t.Cleanup(func() { gs.Stop(); _ = lis.Close() })
+
+	conn, err := lis.Dial()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	sess, profile, err := adapter.DialConfiguredSession(context.Background(), conn, "accounting-alias", "fake", nil, backendplugin.SecretBundle{}, backendplugin.RuntimePolicy{DisableTransportRetries: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sess.Close(context.Background()) })
+
+	if _, ok := any(sess).(adapter.OptionalTokenCounter); !ok {
+		t.Fatal("internal GRPCSession alias lost OptionalTokenCounter")
+	}
+	if _, ok := any(sess).(adapter.OptionalBillingFinalizer); !ok {
+		t.Fatal("internal GRPCSession alias lost OptionalBillingFinalizer")
+	}
+	count, err := sess.CountTokens(context.Background(), backendplugin.CountTokensRequest{
+		InstanceID: "accounting-alias", ModelID: "fake-model", Invocation: backendInvocation(),
+	})
+	if err != nil || count.InputTokens == nil {
+		t.Fatalf("count=%+v err=%v", count, err)
+	}
+	final, err := sess.FinalizeBilling(context.Background(), backendplugin.FinalizeBillingRequest{
+		InstanceID: "accounting-alias", ALegID: "a", BLegID: "b", ModelID: "fake-model", IdempotencyKey: "idem",
+	})
+	if err != nil || final.Usage.TotalTokens == nil {
+		t.Fatalf("final=%+v err=%v", final, err)
+	}
+	br := adapter.Build(sess, profile, adapter.Options{InstanceID: "accounting-alias"})
+	if br.Backend.ProviderCounter == nil || br.Backend.FinalizeBilling == nil {
+		t.Fatal("internal adapter did not expose optional accounting seams")
+	}
+}
+
+func backendInvocation() backendplugin.Invocation {
+	text := "hello"
+	return backendplugin.Invocation{
+		RequestID: "request", AttemptID: "attempt", ALegID: "a", BLegID: "b", CanonicalModelID: "fake-model",
+		Messages: []backendplugin.Message{{Role: backendplugin.RoleUser, Parts: []backendplugin.Part{{Kind: backendplugin.PartKindText, Text: &text}}}},
 	}
 }
 

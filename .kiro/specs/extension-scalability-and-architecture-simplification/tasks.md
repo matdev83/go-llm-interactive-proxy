@@ -2,21 +2,21 @@
 
 ## Current Implementation Checkpoint
 
-Fresh assessment of the uncommitted worktree recognizes **3 of 8 tasks in Phases 1–2 as complete**: 1.1, 1.3, and 2.1. All tasks in Phases 3–7 remain unstarted.
+Fresh assessment of the uncommitted worktree recognizes **8 of 8 tasks in Phases 1–2 as complete**: 1.1–1.4 and 2.1–2.4. All tasks in Phases 3–7 remain unstarted.
 
-Partial work that must not be treated as complete:
+Completed Phase 1–2 work:
 
-- **1.2:** structural scale and diff scanners now exist and the tagged debt target detects the current Cartesian matrix, but the 1,000-profile assertion still proves only family-count arithmetic and the clean footprint test feeds a hand-built diff rather than obtaining a real Git change. It does not yet prove that generated frontend×profile structures and sentinel growth remain absent for profile #1000.
-- **1.4:** ordinary architecture tests pass and the tagged target reports narrowed current route, diagnostics, contribution, ABI, scale, and continuation debts. Structural Go/protobuf ABI tests were added, but contribution/diagnostics authority mutation fixtures remain absent and protocol/provider discovery still relies on a closed identifier list rather than arbitrary identifiers/aliases. The guard set is therefore not yet fully attested.
-- **2.2:** the frontend runner and five mounted frontend certifications execute successfully, but bundled descriptors advertise only streaming/tools. Multimodal, reasoning, structured-output, ordered-item, compaction, and extension scenarios therefore run mostly as negatives instead of certifying each frontend's actual positive semantic surface.
-- **2.3:** the reusable backend runner, mutation tests, and real standard-family harness exist, but the standard-family certification is RED. Current failures show missing tool lifecycle evidence for OpenAI-family adapters and missing explicit usage presence for Anthropic/Alibaba/Gemini/Bedrock/OpenResponses-compatible families.
-- **2.4:** ACP, OpenRouter, and NVIDIA module tests and the root host-adapter packages pass. The public runner still requires callers to supply `StartHost`, while the only real host construction used by representatives imports `internal/infra/backendplugins/adapter`; a genuinely external connector cannot invoke the supported real-host path. The claimed fake external-style end-to-end fixture is also absent.
+- **1.2:** complete. The deterministic five-frontend/1,000-profile fixture explicitly proves profile #1000 identity, four-family binding, and scans the representative structure for frontend×profile collections, nested materializers, per-profile factories/registrations/goroutines, central-list edits, and sentinel growth. Clean footprint evidence is obtained from an isolated temporary Git repository and Git-produced diff; isolated positive/negative mutation fixtures cover every structural category.
+- **1.4:** complete. Ordinary architecture tests pass and the tagged target reports only enumerated current debts. Authority-aware AST mutation fixtures preserve distinct same-symbol paths and cover arbitrary contribution/diagnostic row/projector/state false positives; structural Go/protobuf ABI checks reject arbitrary synthetic qualifiers while preserving neutral semantic carriers and exact v1.0-v1.3 declarations/legacy OpenResponses exception, including multiline/comment resilience.
+- **2.2:** complete. Five mounted frontends independently certify their declared semantic surfaces with explicit positive canonical-call and wire-output evidence; OpenResponses lifecycle remains protocol-owned.
+- **2.3:** complete. Every standard in-process family passes the reusable capability-driven suite with tool lifecycle, usage/zero presence, errors/cancellation, hard-negative zero-upstream, and false-capability evidence. The suite uses structured request controls and bounded cancellation probes.
+- **2.4:** complete. `pkg/lipsdk/backendplugin/host` is the single public host implementation; the internal adapter delegates to it, ACP/OpenRouter/NVIDIA use it, and a separate external-style module compiles the public host path. The host retains Resolve/ListModels/Execute/Cancel/Close, negotiation, terminal/error/bounds behavior, CountTokens, and FinalizeBilling; compile-time and real bufconn regressions prove both optional capabilities remain visible through the internal alias and adapter. The shared contract result remains machine-readable.
 
 Current fresh validation evidence:
 
-- Green: Phase 1 characterization packages; ordinary architecture/scale packages (with the root-only enterprise compile gate excluded); canonical-core TCK; frontend TCK plus all frontend packages; root backend-plugin/tool/host-adapter packages; ACP/OpenRouter/NVIDIA module contract tests; `gofmt -d`; `git diff --check`.
+- Green: Phase 1 characterization packages; ordinary architecture/scale packages (with the root-only enterprise compile gate excluded); canonical-core TCK; frontend TCK plus all frontend packages; root backend-plugin/tool/host-adapter packages; ACP/OpenRouter/NVIDIA module contract tests; host optional accounting/lifecycle regressions; `go build ./...`; `gofmt -d`; `git diff --check`.
 - Expected RED: `go test -tags=architecture_red -run 'TestRED_' ./internal/archtest` reports exactly the current five debt categories.
-- Unexpected RED: `go test ./internal/testkit/contract/... ./pkg/lipsdk/backendplugin/contracttest/...` fails in `internal/testkit/contract/backend` because current standard-family certifications lack required tool/usage event evidence.
+- No unexpected RED remains in the Phase 1–2 TCK suites.
 
 ## 1. Freeze Brownfield Behavior and Add RED Architecture Contracts
 
@@ -31,7 +31,7 @@ Current fresh validation evidence:
   - _Depends: none_
   - _Validation: go test ./internal/testkit/conformance/... ./internal/standardplugins/... ./internal/stdhttp/contract/... ./pkg/lipsdk/backendplugin/... ./pkg/lipsdk/continuation/... ./internal/core/continuation/..._
 
-- [ ] 1.2 Add RED non-Cartesian scale and extension-footprint contracts
+- [x] 1.2 Add RED non-Cartesian scale and extension-footprint contracts
   - Build synthetic five-frontend / 1,000-provider-profile fixtures.
   - Assert profile additions do not create frontend×profile pair collections, family factories, central compatible/essential list edits, or sentinel growth.
   - Add a provider-profile-only fixture whose expected shared-boundary footprint is zero.
@@ -53,7 +53,7 @@ Current fresh validation evidence:
   - _Depends: 1.1_
   - _Validation: go test ./internal/testkit/contract/... ./pkg/lipsdk/backendplugin/contracttest/..._
 
-- [ ] 1.4 Add RED contribution/profile/ABI/mirror architecture guards
+- [x] 1.4 Add RED contribution/profile/ABI/mirror architecture guards
   - Add tests that reject duplicate authoritative extension registries, central protocol-specific route kinds, protocol-ID diagnostic switches, new protocol-named backend-plugin features/proto fields beyond the v1.3 compatibility allowlist, provider profiles imported by core, and duplicate continuation authorities.
   - Add explicit allowlist for current legacy v1.3 OpenResponses ABI symbols only.
   - Observable completion: current known gaps fail the new guards while existing legitimate provider dialect IDs remain allowed.
@@ -62,6 +62,13 @@ Current fresh validation evidence:
   - _Boundary: internal/archtest_
   - _Depends: 1.1_
   - _Validation: go test ./internal/archtest/..._
+
+
+### Phase 1–2 completion evidence (tasks 1.1–1.4 and 2.1–2.4)
+- `go test -count=1 ./internal/testkit/scale/...` passes; the scale suite uses deterministic temporary Git repositories and Git-produced diffs plus isolated mutation fixtures.
+- `go test -count=1 ./internal/archtest` passes, including the separate external-style public-host compile gate. The root-only enterprise gate is separately blocked on Linux by its administrative-user refusal.
+- Opt-in RED command: `go test -count=1 -tags=architecture_red -run 'TestRED_' ./internal/archtest` is RED only for current Cartesian 45-cell/AllCells debt, parallel essential/compatible contribution lists, central protocol-specific route kinds, central diagnostic DTO debt, and duplicate continuation MemoryStore/StreamRecorder authorities.
+- Focused suites: `go test -count=1 ./internal/testkit/contract/... ./pkg/lipsdk/backendplugin/...`; `go test -count=1 ./internal/refbackend/... ./internal/plugins/backends/protocols/geminigenerate/...`; and `go test -count=1 ./...` in ACP, OpenRouter, and NVIDIA connector modules.
 
 ## 2. Build Frontend, Core, Backend, and Connector TCKs
 
@@ -75,7 +82,7 @@ Current fresh validation evidence:
   - _Depends: 1.3_
   - _Validation: go test ./internal/testkit/contract/core/... ./pkg/lipapi/... ./internal/core/capabilities/... ./internal/core/runtime/..._
 
-- [ ] 2.2 Implement the frontend TCK runner
+- [x] 2.2 Implement the frontend TCK runner
   - Implement capturing executor, scripted canonical event stream, common request/error/stream contracts, and certification output.
   - Migrate reusable text/tools/multimodal/reasoning/structured-output/error scenarios from matrix code without importing backends.
   - Keep OpenResponses continuation/WebSocket/compaction lifecycle in protocol-owned tests composed alongside the TCK.
@@ -86,7 +93,7 @@ Current fresh validation evidence:
   - _Depends: 1.3, 2.1_
   - _Validation: go test ./internal/testkit/contract/frontend/... ./internal/plugins/frontends/..._
 
-- [ ] 2.3 Implement the backend-family TCK runner with zero-upstream proof
+- [x] 2.3 Implement the backend-family TCK runner with zero-upstream proof
   - Implement capability/dialect-driven positive selection and hard-negative scenarios.
   - Add request/process probe support and canonical event/usage/error/cancel/lifecycle assertions.
   - Provide harness adapters for essential built-ins and compatible-family adapters using current refbackends/httptest providers.
@@ -97,7 +104,7 @@ Current fresh validation evidence:
   - _Depends: 1.3, 2.1_
   - _Validation: go test ./internal/testkit/contract/backend/... ./internal/plugins/backends/..._
 
-- [ ] 2.4 Implement the supported executable-connector contract test entry point
+- [x] 2.4 Implement the supported executable-connector contract test entry point
   - Drive negotiation/configure/execute/cancel/close through the real backend-plugin host adapter.
   - Reuse the same semantic scenario source as 2.3; do not fork a connector-specific feature catalog.
   - Add at least ACP/OpenRouter/NVIDIA/current connector representatives and a fake external-style connector fixture.

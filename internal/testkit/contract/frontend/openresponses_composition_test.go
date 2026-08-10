@@ -27,8 +27,14 @@ func TestOpenResponses_ComposesGenericTCKWithProtocolLifecycleSuites(t *testing.
 		{Kind: lipapi.EventTextDelta, Delta: "ok"}, {Kind: lipapi.EventResponseFinished},
 	}}}
 	h := &MountedHarness{
-		Descriptor: semantic.SubjectDescriptor{ID: "openresponses", Kind: semantic.KindFrontend, Capabilities: []lipapi.Capability{lipapi.CapabilityStreaming, lipapi.CapabilityTools}, Transports: []semantic.ScenarioTransport{semantic.TransportHTTP, semantic.TransportStreaming, semantic.TransportWebSocket}},
-		Mount:      openresponses.Mount,
+		Descriptor: semantic.SubjectDescriptor{
+			ID:           "openresponses",
+			Kind:         semantic.KindFrontend,
+			Capabilities: getFrontendCapabilities("openresponses"),
+			Dialects:     getFrontendDialects("openresponses"),
+			Transports:   []semantic.ScenarioTransport{semantic.TransportHTTP, semantic.TransportStreaming, semantic.TransportWebSocket},
+		},
+		Mount: openresponses.Mount,
 		Path: func(s semantic.ScenarioDescriptor) string {
 			if s.ID == "compaction-lifecycle" {
 				return "/openresponses/v1/responses/compact"
@@ -36,13 +42,7 @@ func TestOpenResponses_ComposesGenericTCKWithProtocolLifecycleSuites(t *testing.
 			return "/openresponses/v1/responses"
 		},
 		Body: func(s semantic.ScenarioDescriptor) []byte {
-			if s.ID == "tools-execution" || s.ID == "tool-call-replay" || s.ID == "tool-result-replay" {
-				return []byte(`{"model":"m","input":"hi","tools":[{"type":"function","name":"weather","parameters":{"type":"object"}}]}`)
-			}
-			if s.ID == "text-streaming" || s.ID == "usage-present" || s.ID == "usage-zero" || s.ID == "recoverable-error" || s.ID == "terminal-error" || s.ID == "cancellation" {
-				return []byte(`{"model":"m","input":"hi","stream":true}`)
-			}
-			return []byte(`{"model":"m","input":"hi"}`)
+			return []byte(frontendScenarioBody("openresponses", string(s.ID)))
 		},
 		ExecutorBoundary:  executor,
 		ContinuationStore: lipcont.NewMemoryStore(),

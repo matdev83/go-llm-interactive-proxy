@@ -37,9 +37,17 @@ func TestBundledFrontends_CertifyIndependentlyWithCapturingExecutor(t *testing.T
 				{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventMessageStarted},
 				{Kind: lipapi.EventTextDelta, Delta: "ok"}, {Kind: lipapi.EventResponseFinished},
 			}}}
+			caps := getFrontendCapabilities(tc.name)
+			dialects := getFrontendDialects(tc.name)
 			h := &MountedHarness{
-				Descriptor: semantic.SubjectDescriptor{ID: tc.name, Kind: semantic.KindFrontend, Capabilities: []lipapi.Capability{lipapi.CapabilityStreaming, lipapi.CapabilityTools}, Transports: []semantic.ScenarioTransport{semantic.TransportHTTP, semantic.TransportStreaming, semantic.TransportWebSocket}},
-				Mount:      tc.mount, Path: func(sc semantic.ScenarioDescriptor) string {
+				Descriptor: semantic.SubjectDescriptor{
+					ID:           tc.name,
+					Kind:         semantic.KindFrontend,
+					Capabilities: caps,
+					Dialects:     dialects,
+					Transports:   []semantic.ScenarioTransport{semantic.TransportHTTP, semantic.TransportStreaming, semantic.TransportWebSocket},
+				},
+				Mount: tc.mount, Path: func(sc semantic.ScenarioDescriptor) string {
 					if tc.name == "gemini" && (sc.Transport == semantic.TransportStreaming || sc.ID == "cancellation") {
 						return "/v1beta/models/m:streamGenerateContent?alt=sse"
 					}
@@ -63,6 +71,71 @@ func TestBundledFrontends_CertifyIndependentlyWithCapturingExecutor(t *testing.T
 			}
 		})
 	}
+}
+
+func getFrontendCapabilities(name string) []lipapi.Capability {
+	switch name {
+	case "openai-responses":
+		return []lipapi.Capability{
+			lipapi.CapabilityStreaming,
+			lipapi.CapabilityTools,
+			lipapi.CapabilityVision,
+			lipapi.CapabilityDocuments,
+		}
+	case "openresponses":
+		return []lipapi.Capability{
+			lipapi.CapabilityStreaming,
+			lipapi.CapabilityTools,
+			lipapi.CapabilityVision,
+			lipapi.CapabilityDocuments,
+			lipapi.CapabilityStructuredOutputs,
+			lipapi.CapabilityReasoning,
+			lipapi.CapabilityOrderedItems,
+			lipapi.CapabilityItemReferences,
+			lipapi.CapabilityCompaction,
+			lipapi.CapabilityOpaqueExtensions,
+			lipapi.CapabilityReasoningReplay,
+		}
+	case "anthropic":
+		return []lipapi.Capability{
+			lipapi.CapabilityStreaming,
+			lipapi.CapabilityTools,
+			lipapi.CapabilityVision,
+			lipapi.CapabilityDocuments,
+		}
+	case "openai-legacy":
+		return []lipapi.Capability{
+			lipapi.CapabilityStreaming,
+			lipapi.CapabilityTools,
+		}
+	case "gemini":
+		return []lipapi.Capability{
+			lipapi.CapabilityStreaming,
+			lipapi.CapabilityTools,
+		}
+	default:
+		return []lipapi.Capability{
+			lipapi.CapabilityStreaming,
+			lipapi.CapabilityTools,
+		}
+	}
+}
+
+func getFrontendDialects(name string) lipapi.DialectSupport {
+	if name == "openresponses" {
+		return lipapi.DialectSupport{
+			ItemDialects: []lipapi.DialectRequirement{
+				{Kind: "item", Dialect: "item_reference"},
+			},
+			ReasoningDialects: []lipapi.DialectRequirement{
+				{Kind: "reasoning", Dialect: "reasoning_replay"},
+			},
+			ExtensionTypes: []lipapi.ExtensionRequirement{
+				{Namespace: "com.example", Type: "custom"},
+			},
+		}
+	}
+	return lipapi.DialectSupport{}
 }
 
 func frontendScenarioBody(frontend, scenario string) string {
@@ -125,8 +198,20 @@ func frontendScenarioBody(frontend, scenario string) string {
 			return `{"model":"m","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"compact"}]}]}`
 		}
 		return `{"model":"m","input":"compact"}`
-	case "ordered-items", "item-reference-dialect":
+	case "ordered-items":
 		return `{"model":"m","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}]}`
+	case "item-reference-dialect":
+		return `{"model":"m","input":[{"type":"item_reference","id":"msg_prev"}]}`
+	case "opaque-extension-type":
+		if frontend == "openresponses" {
+			return `{"model":"m","input":[{"type":"message","role":"user","content":[{"type":"com.example:custom","data":{}}]}]}`
+		}
+		return `{"model":"m","input":"hi"}`
+	case "reasoning-replay-dialect":
+		if frontend == "openresponses" {
+			return `{"model":"m","input":[{"type":"reasoning","id":"reas_1","reasoning":"Thinking step..."}]}`
+		}
+		return `{"model":"m","input":"hi"}`
 	default:
 		return `{"model":"m","input":[{"type":"unknown_semantic_item"}]}`
 	}

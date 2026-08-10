@@ -22,8 +22,19 @@ func TestStructuralABIMutationGuards(t *testing.T) {
 			t.Fatalf("expected structural ABI mutation to fail: %s", source)
 		}
 	}
-	if err := ValidatePublicBackendPluginABIMutation([]PublicABISymbol{{Category: "type", Name: "AnthropicRequest"}}); err == nil {
-		t.Fatal("expected protocol-specific public ABI type mutation to fail")
+	for _, name := range []string{"AnthropicRequest", "ContosoInvocation", "FabrikamInvocation", "ContosoRequest", "FabrikamEvent", "ContosoSnakeField", "ContosoSchema", "ContosoDialect"} {
+		if err := ValidatePublicBackendPluginABIMutation([]PublicABISymbol{{Category: "type", Name: name}}); err == nil {
+			t.Fatalf("expected protocol-specific public ABI type mutation %q to fail", name)
+		}
+	}
+	for _, source := range []string{
+		`message ContosoRequest { string value = 1; }`,
+		`message FabrikamEvent { string contoso_payload = 2; }`,
+		`message FabrikamInvocation { string value = 1; }`,
+	} {
+		if err := ValidateProtoSchema(source + "\n" + stringMustReadBackendProto()); err == nil {
+			t.Fatalf("expected arbitrary protocol proto mutation to fail: %s", source)
+		}
 	}
 }
 
@@ -367,4 +378,9 @@ func TestPublicABISnapshotIndependentMutationMatrix(t *testing.T) {
 			t.Fatalf("allowed OpenResponses boundary %q rejected: %v", symbol.Name, err)
 		}
 	}
+}
+
+func stringMustReadBackendProto() string {
+	b, _ := os.ReadFile("../../api/backendplugin/v1/backend.proto")
+	return string(b)
 }

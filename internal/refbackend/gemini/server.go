@@ -48,44 +48,54 @@ func NewHandler(cfg Config) http.Handler {
 		path := r.URL.Path
 		switch {
 		case strings.Contains(path, "streamGenerateContent"):
-			if !routeAuthAndBody(w, r, cfg) {
+			body, ok := routeAuthAndBody(w, r, cfg)
+			if !ok {
 				return
 			}
-			writeStream(w, cfg)
+			writeStream(w, cfg, body)
 		case strings.Contains(path, ":generateContent"):
-			if !routeAuthAndBody(w, r, cfg) {
+			body, ok := routeAuthAndBody(w, r, cfg)
+			if !ok {
 				return
 			}
-			writeJSON(w, cfg)
+			writeJSON(w, cfg, body)
 		default:
 			http.NotFound(w, r)
 		}
 	})
 }
 
-func routeAuthAndBody(w http.ResponseWriter, r *http.Request, cfg Config) bool {
+func routeAuthAndBody(w http.ResponseWriter, r *http.Request, cfg Config) ([]byte, bool) {
 	if !cfg.AllowMissingAPIKey {
 		if r.Header.Get("x-goog-api-key") == "" {
 			http.Error(w, "missing api key", http.StatusUnauthorized)
-			return false
+			return nil, false
 		}
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	if err != nil {
 		http.Error(w, "read body", http.StatusBadRequest)
-		return false
+		return nil, false
 	}
 	if cfg.OnRequestBody != nil {
 		cfg.OnRequestBody(body)
+	}
+	if utils.HasJSONNumber(body, "temperature", 0.11) {
+		http.Error(w, `{"error":{"code":429,"message":"rate limit exceeded"}}`, http.StatusTooManyRequests)
+		return nil, false
+	}
+	if utils.HasJSONNumber(body, "temperature", 0.22) {
+		http.Error(w, `{"error":{"code":400,"message":"bad request"}}`, http.StatusBadRequest)
+		return nil, false
 	}
 	key := strings.TrimSpace(r.Header.Get("x-goog-api-key"))
 	if cfg.OnAuthorizedCredential != nil {
 		cfg.OnAuthorizedCredential(key)
 	}
 	if utils.TryWriteForcedHTTPError(w, cfg.ForcedHTTPStatus, cfg.ForcedRetryAfter, cfg.ForcedErrorJSON, defaultForcedErrorJSON) {
-		return false
+		return nil, false
 	}
-	return true
+	return body, true
 }
 
 func defaultForcedErrorJSON(status int) string {
@@ -99,20 +109,34 @@ func defaultForcedErrorJSON(status int) string {
 	}
 }
 
-func writeJSON(w http.ResponseWriter, cfg Config) {
+func writeJSON(w http.ResponseWriter, cfg Config, requestBody []byte) {
 	body := cfg.NonStreamJSON
 	if body == "" {
-		body = defaultNonStreamJSON
+		body = nonStreamWithUsageJSON
+		if utils.HasJSONKey(requestBody, "tools") {
+			body = nonStreamWithToolCallJSON
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(body))
 }
 
-func writeStream(w http.ResponseWriter, cfg Config) {
+func writeStream(w http.ResponseWriter, cfg Config, requestBody []byte) {
 	body := cfg.StreamSSE
 	if body == "" {
-		body = defaultStreamSSE
+		body = streamWithUsageSSE
+		if utils.HasJSONKey(requestBody, "tools") {
+			body = streamWithToolCallSSE
+		}
+		if utils.HasJSONNumber(requestBody, "maxOutputTokens", 0) || utils.HasJSONNumber(requestBody, "maxOutputTokens", 1) {
+			body = streamWithZeroUsageSSE
+		}
+		if utils.HasJSONNumber(requestBody, "temperature", 0.11) || utils.HasJSONNumber(requestBody, "temperature", 0.22) {
+			body = `data: {"error":{"code":429,"message":"provider error"}}
+
+`
+		}
 	}
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
@@ -130,4 +154,47 @@ const defaultNonStreamJSON = `{
   ]
 }`
 
+const nonStreamWithUsageJSON = `{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [{"text": "ok"}]
+      }
+    }
+  ],
+  "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5, "totalTokenCount": 15}
+}`
+
+const nonStreamWithZeroUsageJSON = `{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [{"text": "ok"}]
+      }
+    }
+  ],
+  "usageMetadata": {"promptTokenCount": 0, "candidatesTokenCount": 0, "totalTokenCount": 0}
+}`
+
+const nonStreamWithToolCallJSON = `{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [{"functionCall": {"name": "weather", "args": {}, "id": "call_1"}}]
+      },
+      "finishReason": "STOP"
+    }
+  ],
+  "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5, "totalTokenCount": 15}
+}`
+
 const defaultStreamSSE = "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"stream-ok\"}]}}]}\n\n"
+
+const streamWithUsageSSE = "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"stream-ok\"}]}}],\"usageMetadata\":{\"promptTokenCount\":10,\"candidatesTokenCount\":5,\"totalTokenCount\":15}}\n\n"
+
+const streamWithZeroUsageSSE = "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"stream-ok\"}]}}],\"usageMetadata\":{\"promptTokenCount\":0,\"candidatesTokenCount\":0,\"totalTokenCount\":0}}\n\n"
+
+const streamWithToolCallSSE = "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"name\":\"weather\",\"args\":{},\"id\":\"call_1\"}}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":10,\"candidatesTokenCount\":5,\"totalTokenCount\":15}}\n\n"

@@ -81,6 +81,22 @@ func NewHandler(cfg Config) http.Handler {
 		if utils.TryWriteForcedHTTPError(w, cfg.ForcedHTTPStatus, cfg.ForcedRetryAfter, cfg.ForcedErrorJSON, defaultForcedErrorJSON) {
 			return
 		}
+		if utils.HasJSONNumber(body, "temperature", 0.11) {
+			_ = utils.TryWriteForcedHTTPError(w, http.StatusTooManyRequests, "60", "", defaultForcedErrorJSON)
+			return
+		}
+		if utils.HasJSONNumber(body, "temperature", 0.22) {
+			_ = utils.TryWriteForcedHTTPError(w, http.StatusBadRequest, "", "", defaultForcedErrorJSON)
+			return
+		}
+		if utils.HasJSONNumber(body, "temperature", 0.33) {
+			_ = utils.TryWriteForcedHTTPError(w, http.StatusTooManyRequests, "60", "", defaultForcedErrorJSON)
+			return
+		}
+		if utils.HasJSONNumber(body, "temperature", 0.44) {
+			_ = utils.TryWriteForcedHTTPError(w, http.StatusTooManyRequests, "60", "", defaultForcedErrorJSON)
+			return
+		}
 
 		stream := bytes.Contains(body, []byte(`"stream":true`))
 		if cfg.Responder != nil {
@@ -97,7 +113,7 @@ func NewHandler(cfg Config) http.Handler {
 			writeStream(w, cfg, body)
 			return
 		}
-		writeJSON(w, cfg)
+		writeJSON(w, cfg, body)
 	})
 }
 
@@ -139,10 +155,13 @@ func defaultForcedErrorJSON(status int) string {
 	}
 }
 
-func writeJSON(w http.ResponseWriter, cfg Config) {
+func writeJSON(w http.ResponseWriter, cfg Config, requestBody []byte) {
 	body := cfg.NonStreamJSON
 	if body == "" {
-		body = defaultNonStreamJSON
+		body = nonStreamWithUsageJSON
+		if utils.HasJSONKey(requestBody, "tools") {
+			body = nonStreamWithToolCallJSON
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -156,8 +175,37 @@ func writeStream(w http.ResponseWriter, cfg Config, requestBody []byte) {
 		_, _ = w.Write([]byte(cfg.StreamSSE))
 		return
 	}
-	body := defaultStreamSSE
-	if bytes.Contains(requestBody, []byte(`"include_usage":true`)) {
+	body := streamWithUsageSSE
+	if utils.HasJSONKey(requestBody, "tools") {
+		body = streamWithToolCallSSE
+	}
+	if !utils.HasJSONKey(requestBody, "stream_options") && utils.HasJSONKey(requestBody, "tools") {
+		body = streamWithToolCallSSE
+	}
+	if utils.HasJSONNumber(requestBody, "temperature", 0.11) {
+		body = `data: {"id":"err","object":"chat.completion.chunk","choices":[],"finish_reason":null,"error":{"message":"rate limit exceeded"}}
+
+data: [DONE]
+
+`
+	}
+	if utils.HasJSONNumber(requestBody, "temperature", 0.22) {
+		body = `data: {"id":"err","object":"chat.completion.chunk","choices":[],"finish_reason":null,"error":{"message":"bad request"}}
+
+data: [DONE]
+
+`
+	}
+	if utils.HasJSONNumber(requestBody, "max_tokens", 0) || utils.HasJSONNumber(requestBody, "max_tokens", 1) || utils.HasJSONNumber(requestBody, "max_output_tokens", 0) || utils.HasJSONNumber(requestBody, "max_output_tokens", 1) {
+		body = streamWithZeroUsageSSE
+	}
+	if utils.HasJSONNumber(requestBody, "temperature", 0.11) {
+		body = streamWithErrorSSE
+	}
+	if utils.HasJSONNumber(requestBody, "temperature", 0.22) {
+		body = streamWithErrorSSE
+	}
+	if utils.HasJSONBool(requestBody, "include_usage", true) && !utils.HasJSONNumber(requestBody, "max_tokens", 1) && !utils.HasJSONKey(requestBody, "tools") {
 		body = streamWithUsageSSE
 	}
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
@@ -173,8 +221,47 @@ const defaultNonStreamJSON = `{
   "choices": [{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]
 }`
 
+const nonStreamWithUsageJSON = `{
+  "id": "chatcmpl_refbackend_1",
+  "object": "chat.completion",
+  "created": 1715620000,
+  "model": "gpt-4o-mini",
+  "choices": [{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],
+  "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+}`
+
+const nonStreamWithZeroUsageJSON = `{
+  "id": "chatcmpl_refbackend_1",
+  "object": "chat.completion",
+  "created": 1715620000,
+  "model": "gpt-4o-mini",
+  "choices": [{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],
+  "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+}`
+
+const nonStreamWithToolCallJSON = `{
+  "id": "chatcmpl_refbackend_1",
+  "object": "chat.completion",
+  "created": 1715620000,
+  "model": "gpt-4o-mini",
+  "choices": [{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"weather","arguments":"{}"}}]},"finish_reason":"tool_calls"}],
+  "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+}`
+
 const defaultStreamSSE = "data: {\"id\":\"chatcmpl_refbackend_stream\",\"object\":\"chat.completion.chunk\",\"created\":1715620000,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"stream-ok\"},\"finish_reason\":null}]}\n\n" +
 	"data: [DONE]\n\n"
+
+const streamWithZeroUsageSSE = "data: {\"id\":\"chatcmpl_refbackend_stream\",\"object\":\"chat.completion.chunk\",\"created\":1715620000,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"stream-ok\"},\"finish_reason\":null}]}\n\n" +
+	"data: {\"id\":\"chatcmpl_refbackend_stream\",\"object\":\"chat.completion.chunk\",\"created\":1715620000,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+	"data: {\"id\":\"chatcmpl_refbackend_stream\",\"object\":\"chat.completion.chunk\",\"created\":1715620000,\"model\":\"gpt-4o-mini\",\"choices\":[],\"usage\":{\"prompt_tokens\":0,\"completion_tokens\":0,\"total_tokens\":0}}\n\n" +
+	"data: [DONE]\n\n"
+
+const streamWithToolCallSSE = "data: {\"id\":\"chatcmpl_refbackend_stream\",\"object\":\"chat.completion.chunk\",\"created\":1715620000,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"weather\",\"arguments\":\"{}\"}}]},\"finish_reason\":null}]}\n\n" +
+	"data: {\"id\":\"chatcmpl_refbackend_stream\",\"object\":\"chat.completion.chunk\",\"created\":1715620000,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+	"data: {\"id\":\"chatcmpl_refbackend_stream\",\"object\":\"chat.completion.chunk\",\"created\":1715620000,\"model\":\"gpt-4o-mini\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n\n" +
+	"data: [DONE]\n\n"
+
+const streamWithErrorSSE = "data: {\"id\":\"err\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"finish_reason\":null,\"error\":{\"message\":\"provider error\"}}\n\ndata: [DONE]\n\n"
 
 // streamWithUsageSSE is returned when the client sets stream_options.include_usage,
 // matching OpenAI's final usage chunk before [DONE].
