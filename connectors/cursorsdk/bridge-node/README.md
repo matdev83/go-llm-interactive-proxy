@@ -38,6 +38,8 @@ npm run build
 npm pack --dry-run
 ```
 
+`npm test` auto-discovers all `src/*.test.ts` files via Node's test-runner glob, so new test files are picked up without editing `package.json`.
+
 Safe local checks (no credentials, no agent creation):
 
 ```bash
