@@ -71,7 +71,9 @@ Verify the archive checksum against `checksums.txt` before use. Connector plugin
 
 ## Repository file policy
 
-Every tracked file must be listed in [`.release-files`](.release-files). The manifest is enforced locally and in CI (`Repo hygiene`):
+Every tracked file must match an approved path pattern or exact entry in [`.release-files`](.release-files). The manifest uses pattern wildcards (`.kiro/**`, `.agents/**`, `docs/**`, `internal/**`, `pkg/**`) to cover specifications, agent skills, documentation, and package trees without requiring individual file enumeration for spec authors or document creators.
+
+The manifest is enforced locally and in CI (`Repo hygiene`):
 
 ```bash
 bash scripts/check-release-clean.sh          # working tree
@@ -85,7 +87,7 @@ Install versioned Git hooks (manifest check on commit/push):
 bash scripts/setup-hooks.sh
 ```
 
-New legitimate files must be added to `.release-files` in the same commit. CI never auto-updates the manifest.
+New top-level files or new component directories must be covered by patterns or entries in `.release-files` in the same commit. CI never auto-updates the manifest.
 
 `lipstd` accepts `--config` before or after the subcommand; if it appears more than once, the later value wins. See [`docs/dogfood-local.md`](docs/dogfood-local.md) for the full local dogfood flow. Truncated tool-call repair can be exercised with [`config/examples/dogfood-tool-call-repair.yaml`](config/examples/dogfood-tool-call-repair.yaml) (see ADR [`docs/adr/0007-canonical-tool-call-repair.md`](docs/adr/0007-canonical-tool-call-repair.md)).
 
