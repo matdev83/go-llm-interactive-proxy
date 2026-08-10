@@ -247,10 +247,52 @@ func TestNewNormalizesNonSystemRolesToUser(t *testing.T) {
 	if _, err := lipapi.Collect(context.Background(), stream); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(body, `"role":"user"`) != 3 || strings.Contains(body, `"role":"assistant"`) || strings.Contains(body, `"role":"developer"`) {
+	if strings.Count(body, `"role":"user"`) != 1 || strings.Contains(body, `"role":"assistant"`) || strings.Contains(body, `"role":"developer"`) {
 		t.Fatalf("roles not normalized: %s", body)
 	}
 	if !strings.Contains(body, `"system":[{"text":"rules"`) {
 		t.Fatalf("system missing: %s", body)
+	}
+}
+
+func TestNewMergesMultipleToolResults(t *testing.T) {
+	t.Parallel()
+	var body string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+			return
+		}
+		body = string(b)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(streamSSE))
+	}))
+	defer srv.Close()
+
+	zero := 0
+	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: "env-key", HTTPClient: srv.Client(), SDKMaxRetries: &zero})
+	call := lipapi.Call{
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("run commands")}},
+			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{
+				{Kind: lipapi.PartJSON, ToolCallID: "call_1", ToolName: "bash", Content: json.RawMessage(`{"command":"git status"}`)},
+				{Kind: lipapi.PartJSON, ToolCallID: "call_2", ToolName: "bash", Content: json.RawMessage(`{"command":"git diff"}`)},
+			}},
+			{Role: lipapi.RoleTool, Parts: []lipapi.Part{{Kind: lipapi.PartToolResult, ToolCallID: "call_1", Text: "clean"}}},
+			{Role: lipapi.RoleTool, Parts: []lipapi.Part{{Kind: lipapi.PartToolResult, ToolCallID: "call_2", Text: "diff clean"}}},
+		},
+		Tools: []lipapi.ToolDef{{Name: "bash", Description: "Run shell", Parameters: json.RawMessage(`{"type":"object"}`)}},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Backend: backend.ID, Model: "qwen3.7-plus"}}
+	stream, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lipapi.Collect(context.Background(), stream); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, `"tool_use_id":"call_1"`) || !strings.Contains(body, `"tool_use_id":"call_2"`) {
+		t.Fatalf("tool results lost: %s", body)
 	}
 }

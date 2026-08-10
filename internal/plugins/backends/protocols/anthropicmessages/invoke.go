@@ -199,7 +199,30 @@ func buildAnthropicMessagesWithRolePolicy(call *lipapi.Call, normalizeRoles bool
 		}
 		out = append(out, u)
 	}
-	return out, nil
+	return mergeConsecutiveAnthropicMessages(out), nil
+}
+
+func mergeConsecutiveAnthropicMessages(msgs []anthropic.MessageParam) []anthropic.MessageParam {
+	if len(msgs) == 0 {
+		return msgs
+	}
+	merged := make([]anthropic.MessageParam, 0, len(msgs))
+	for _, m := range msgs {
+		if len(merged) == 0 {
+			merged = append(merged, m)
+			continue
+		}
+		prev := &merged[len(merged)-1]
+		if prev.Role == m.Role {
+			combined := make([]anthropic.ContentBlockParamUnion, 0, len(prev.Content)+len(m.Content))
+			combined = append(combined, prev.Content...)
+			combined = append(combined, m.Content...)
+			prev.Content = combined
+		} else {
+			merged = append(merged, m)
+		}
+	}
+	return merged
 }
 
 // messageHasPartKind reports whether any part of m has the given kind.
