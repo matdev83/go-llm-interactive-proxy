@@ -1,0 +1,23 @@
+{
+  "feature_name": "cdr-billing-and-prepaid-admission",
+  "created_at": "2026-08-11T01:03:00+02:00",
+  "updated_at": "2026-08-11T01:03:00+02:00",
+  "language": "en",
+  "phase": "tasks-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": false
+    },
+    "design": {
+      "generated": true,
+      "approved": false
+    },
+    "tasks": {
+      "generated": true,
+      "approved": false
+    }
+  },
+  "ready_for_implementation": false,
+  "project_description": "Replace Go-LIP stream-time billing/accounting with a CDR-first architecture: compute a conservative maximum customer charge after route planning, atomically reserve that amount against prepaid balance/credit before any upstream work, execute the LLM turn without billing logic, seal one immutable Turn CDR with final attempt evidence, then post-process the CDR to rate actual customer charge/operator cost, settle/release the reservation, and drive reporting. Concurrent turns share one balance safely through atomic outstanding pessimistic holds. Delete runtime usage reconciliation, per-event pricing, economic dedupe/accumulators, and raw-fact settlement paths."
+}
