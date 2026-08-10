@@ -114,14 +114,14 @@ make arch-report           # architecture metrics Markdown; exits non-zero if Re
 make test                  # quality-checks + unit tests + parity-checks
 make test-unit             # go test -parallel=8 -timeout=10m ./...
 make test-precommit-extra  # precommit-tagged hygiene + executor matrices
-make test-fast             # quality-checks + staged-package tests, or all when none staged
+make test-fast             # cached guard checks + complete root test graph (safe reverse-dependency coverage)
 make parity-checks         # conformance package with -tags=precommit,integration
 make test-fuzz             # short fuzz smoke over release-gate fuzz targets
 make test-race             # skipped on Windows; strict race runs in nightly CI on Linux
 make bench                 # benchmark smoke for hot packages
 make pgo-profile           # collect default.pgo from core benches (optional; move under cmd/lipstd)
 make pgo-build             # build cmd/lipstd (auto-applies cmd/lipstd/default.pgo when present)
-make qa                    # quality-checks + tagged tests + lint + govulncheck + release-gates-static
+make qa                    # cached fast quality checks + tagged tests + lint + govulncheck + release-gates-static
 make isolated-root-qa      # GOWORK=off QA on a temp root copy without connectors/support/Node/artifacts
 make installed-plugin-smoke # one lipstd binary; install release artifacts; same-binary inspect/doctor/invoke
 make docs-check knowledge-check # backend-plugin docs + steering hybrid consistency

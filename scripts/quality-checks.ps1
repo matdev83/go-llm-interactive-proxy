@@ -114,28 +114,58 @@ if ($shouldVerifyModuleCache) {
 Write-Host "OK: Module check passed" -ForegroundColor Green
 Write-Host ""
 
-Write-Host "[3/7] Checking build..." -ForegroundColor Yellow
-$null = Invoke-QualityChild "build" (@("go", "build") + $qualityPackages)
-Write-Host "OK: Build check passed" -ForegroundColor Green
-Write-Host ""
+if ($env:LIP_SKIP_GO_COMPILE_CHECKS -eq "1") {
+    Write-Host "Skipping standalone build/vet: the following go test target owns compilation and curated vet checks." -ForegroundColor DarkGray
+} else {
+    Write-Host "[3/7] Checking build..." -ForegroundColor Yellow
+    $null = Invoke-QualityChild "build" (@("go", "build") + $qualityPackages)
+    Write-Host "OK: Build check passed" -ForegroundColor Green
+    Write-Host ""
 
-Write-Host "[4/7] Running go vet..." -ForegroundColor Yellow
-$null = Invoke-QualityChild "vet" (@("go", "vet") + $qualityPackages)
-Write-Host "OK: Vet check passed" -ForegroundColor Green
-Write-Host ""
+    Write-Host "[4/7] Running go vet..." -ForegroundColor Yellow
+    $null = Invoke-QualityChild "vet" (@("go", "vet") + $qualityPackages)
+    Write-Host "OK: Vet check passed" -ForegroundColor Green
+    Write-Host ""
+}
 
-Write-Host "[5/7] Ad-hoc goroutine allowlist (non-test)..." -ForegroundColor Yellow
-$null = Invoke-QualityChild "adhoc-goroutines" @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot/check-adhoc-goroutines.ps1")
-Write-Host ""
+Write-Host "[5-7/7] Running independent guardrails in parallel..." -ForegroundColor Yellow
+$guardJobs = @(
+    @{ Label = "adhoc-goroutines"; Command = @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot/check-adhoc-goroutines.ps1") },
+    @{ Label = "regex-hotpath"; Command = @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot/regex-hotpath-check.ps1") }
+)
+if ($env:LIP_SKIP_ARCHTEST -ne "1") {
+    # Match the test-unit flags (make GO_TEST_FLAGS) so the standalone
+    # quality-checks archtest run shares Go's build/test cache with
+    # subsequent `make test`/`make qa` executions (see #291).
+    $guardJobs += @{ Label = "archtest"; Command = @("go", "test", "-parallel=8", "-timeout=10m", "./internal/archtest/...") }
+}
+$runnerBinary = Get-TaskRunnerBinary
+$jobResults = @()
+foreach ($guard in $guardJobs) {
+    $jobResults += Start-Job -ScriptBlock {
+        param($runnerScript, $runnerPath, $repoRoot, $label, $command)
+        $env:LIP_TASKRUNNER_NO_CLEANUP = "1"
+        . $runnerScript
+        $script:TaskRunnerBinary = $runnerPath
+        Invoke-TaskRunner -Label "quality-checks:$label" -Cwd $repoRoot -Timeout "5m" -Command $command | Out-Host
+    } -ArgumentList (Join-Path $PSScriptRoot "taskrunner.ps1"), $runnerBinary, $RepositoryRoot, $guard.Label, $guard.Command
+}
 
-Write-Host "[6/7] Regex hot-path check (regexp compile in frontends/runtime)..." -ForegroundColor Yellow
-$null = Invoke-QualityChild "regex-hotpath" @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot/regex-hotpath-check.ps1")
-Write-Host ""
-
-Write-Host "[7/7] Architecture guardrails (line budgets, no init in bundle path)..." -ForegroundColor Yellow
-# Match the test-unit flags (make GO_TEST_FLAGS) so `make test`/`make qa`
-# reuse this run's result cache instead of executing archtest twice.
-$null = Invoke-QualityChild "archtest" @("go", "test", "-parallel=8", "-timeout=10m", "./internal/archtest/...")
+$guardFailure = $false
+foreach ($job in $jobResults) {
+    Wait-Job $job | Out-Null
+}
+foreach ($job in $jobResults) {
+    $jobOutput = @(Receive-Job $job -ErrorAction SilentlyContinue)
+    $jobOutput | ForEach-Object { Write-Host $_ }
+    if ($job.State -ne "Completed" -or @($job.ChildJobs | Where-Object { $_.State -ne "Completed" }).Count -gt 0) {
+        $guardFailure = $true
+    }
+    Remove-Job $job -Force -ErrorAction SilentlyContinue
+}
+if ($guardFailure) {
+    throw "one or more parallel quality guardrails failed"
+}
 Write-Host ""
 
 Write-Host "=== All Quality Checks Passed ===" -ForegroundColor Green
