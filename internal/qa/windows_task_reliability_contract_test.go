@@ -270,11 +270,14 @@ func TestWindowsTaskReliability_LinuxEvidence(t *testing.T) {
 	for _, command := range []string{
 		"go test -timeout=8m ./internal/archtest",
 		"go vet ./cmd/lipstd",
-		"go test -timeout=5m ./cmd/lipstd",
 	} {
 		if !strings.Contains(qa, command) {
 			t.Errorf("qa job lost PR QA command %q", command)
 		}
+	}
+	ci := workflowJob(t, "ci.yml", "test")
+	if !strings.Contains(ci, "go test -timeout=8m ${{ matrix.packages }}") || !strings.Contains(ci, "go build -trimpath ./cmd/lipstd") {
+		t.Fatal("CI test matrix no longer owns portable cmd/lipstd test/build evidence")
 	}
 
 	nightly := workflowJob(t, "race-fuzz-nightly.yml", "race-fuzz")

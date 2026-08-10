@@ -70,7 +70,7 @@ fi
 
 declare -a PACKAGES
 if [[ "$STAGED" == true ]]; then
-	mapfile -t STAGED_GO_FILES < <(git diff --cached --name-only --diff-filter=ACMR | sed 's#\\#/#g' | grep -E '\.go$' || true)
+	mapfile -t STAGED_GO_FILES < <(git diff --cached --name-only --diff-filter=ACMRD | sed 's#\\#/#g' | grep -E '\.go$' || true)
 	if [[ ${#STAGED_GO_FILES[@]} -eq 0 ]]; then
 		echo "No staged Go files detected; skipping race detector scan."
 		exit 0

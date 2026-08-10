@@ -5,6 +5,11 @@ param(
 $ErrorActionPreference = "Stop"
 . "$PSScriptRoot/taskrunner.ps1"
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$discoverBinary = Join-Path ([System.IO.Path]::GetTempPath()) ("golip-discover-modules-{0}.exe" -f ([guid]::NewGuid().ToString("n")))
+$cleanupDiscover = {
+    if (Test-Path $discoverBinary) { Remove-Item -Force -ErrorAction SilentlyContinue $discoverBinary }
+}
+$cleanupSubscription = Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action $cleanupDiscover
 
 # Robocopy has its own exit-code protocol: 0-7 are success (1 means files were
 # copied) and >=8 is a failure. The generic taskrunner rejects every non-zero
@@ -50,7 +55,10 @@ function Invoke-Go {
     Invoke-TaskRunner -Label $Label -Cwd $Cwd -Timeout $Timeout -Env $Env -Output $Output -Command (@("go") + $Args)
 }
 
-Write-Host "== root go list/build/module graph =="
+try {
+    Invoke-Go "backend-plugin-module-checks:discovery-build" $Root @("build", "-buildvcs=false", "-o", $discoverBinary, "./tools/backendplugin/discover_modules") | Out-Host
+
+    Write-Host "== root go list/build/module graph =="
 Invoke-Go "backend-plugin-module-checks:root:list" $Root @("list", "./...") | Out-Host
 Invoke-Go "backend-plugin-module-checks:root:build" $Root @("build", "-o", "NUL", "./cmd/lipstd") | Out-Host
 $modsAll = @(Invoke-Go "backend-plugin-module-checks:root:module-graph" $Root @("list", "-m", "all") -Output capture)
@@ -62,7 +70,7 @@ Write-Host "== root go test ./... =="
 Invoke-Go "backend-plugin-module-checks:root:test" $Root @("test", "./...") | Out-Host
 
 Write-Host "== discover modules =="
-$discovered = @(Invoke-Go "backend-plugin-module-checks:discovery" $Root @("run", "./tools/backendplugin/discover_modules", "-root", ".") -Output capture | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+$discovered = @(Invoke-TaskRunner -Label "backend-plugin-module-checks:discovery" -Cwd $Root -Timeout "8m" -Env @("GOWORK=off") -Output capture -Command @($discoverBinary, "-root", $Root) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 Write-Host ("discovered: " + ($discovered -join " "))
 
 foreach ($mod in $discovered) {
@@ -88,7 +96,7 @@ $syn = Join-Path $Root "connectors\_synthetic_ci_probe"
 New-Item -ItemType Directory -Force -Path $syn | Out-Null
 Set-Content -Path (Join-Path $syn "go.mod") -Value "module github.com/matdev83/go-llm-interactive-proxy/connectors/_synthetic_ci_probe`n`ngo 1.26.5`n"
 try {
-    $found = @(Invoke-Go "backend-plugin-module-checks:synthetic-discovery" $Root @("run", "./tools/backendplugin/discover_modules", "-root", ".") -Output capture)
+    $found = @(Invoke-TaskRunner -Label "backend-plugin-module-checks:synthetic-discovery" -Cwd $Root -Timeout "8m" -Env @("GOWORK=off") -Output capture -Command @($discoverBinary, "-root", $Root))
     if (-not ($found | Where-Object { $_ -eq "connectors/_synthetic_ci_probe" })) {
         throw "synthetic connector not discovered"
     }
@@ -106,4 +114,9 @@ try {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 }
 
-Write-Host "OK backend-plugin-module-checks"
+    Write-Host "OK backend-plugin-module-checks"
+}
+finally {
+    & $cleanupDiscover
+    if ($cleanupSubscription) { Unregister-Event -SubscriptionId $cleanupSubscription.Id -ErrorAction SilentlyContinue }
+}

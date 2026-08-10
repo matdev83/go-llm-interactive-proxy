@@ -1,7 +1,30 @@
 version: 2
 updates:
+  # Keep root and every independent module in one multi-directory update
+  # stream; Dependabot applies dependency groups per module directory.
+  # The repository's module synchronization check validates the resulting
+  # graph with GOWORK=off.
   - package-ecosystem: gomod
-    directory: /
+    directories:
+      - /
+      - /testdata/enterprise_module
+      - /connector-support/acp
+      - /connector-support/openaicompat
+      - /connectors/acp
+      - /connectors/agycliacp
+      - /connectors/codex
+      - /connectors/cursorcliacp
+      - /connectors/cursorsdk
+      - /connectors/geminicliacp
+      - /connectors/huggingface
+      - /connectors/llamacpp
+      - /connectors/lmstudio
+      - /connectors/localstub
+      - /connectors/nvidia
+      - /connectors/ollama
+      - /connectors/opencode
+      - /connectors/openrouter
+      - /connectors/vllm
     schedule:
       interval: weekly
       day: monday

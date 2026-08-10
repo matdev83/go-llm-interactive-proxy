@@ -5,20 +5,21 @@ param(
 . "$PSScriptRoot/taskrunner.ps1"
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $goTestFlags = @("-parallel=8", "-timeout=10m")
+$localGoEnv = if ($env:LIP_DISABLE_VCS_STAMPING -eq "1" -and -not $env:GOFLAGS) { @("GOFLAGS=-buildvcs=false") } else { @() }
 
 function Run-RootGoTest {
     param([string]$Label, [string[]]$TestArgs, [string[]]$Env = @(), [string]$Timeout = "15m")
-    Invoke-TaskRunner -Label $Label -Cwd $root -Timeout $Timeout -Env $Env -Command (@("go", "test") + $TestArgs) | Out-Host
+    Invoke-TaskRunner -Label $Label -Cwd $root -Timeout $Timeout -Env (@($localGoEnv) + @($Env)) -Command (@("go", "test") + $TestArgs) | Out-Host
 }
 
 function Run-NestedGoTest {
     param([string]$Label, [string]$Directory, [string[]]$TestArgs, [string]$Timeout = "15m")
-    Invoke-TaskRunner -Label $Label -Cwd (Join-Path $root $Directory) -Timeout $Timeout -Env @("GOWORK=off") -Command (@("go", "test") + $TestArgs + @("./...")) | Out-Host
+    Invoke-TaskRunner -Label $Label -Cwd (Join-Path $root $Directory) -Timeout $Timeout -Env (@($localGoEnv) + @("GOWORK=off")) -Command (@("go", "test") + $TestArgs + @("./...")) | Out-Host
 }
 
 function Run-RootGoTestWithMatches {
     param([string]$Label, [string]$Package, [string]$Pattern, [string[]]$TestArgs, [string[]]$Env = @(), [string]$Timeout = "15m")
-    $listResult = Invoke-TaskRunner -Label "${Label}:list" -Cwd $root -Timeout $Timeout -Env $Env -Output capture -Command (@("go", "test", "-tags=integration", "-list", $Pattern, $Package))
+    $listResult = Invoke-TaskRunner -Label "${Label}:list" -Cwd $root -Timeout $Timeout -Env (@($localGoEnv) + @($Env)) -Output capture -Command (@("go", "test", "-tags=integration", "-list", $Pattern, $Package))
     $matches = @($listResult | Where-Object { $_ -match '^Test[A-Za-z0-9_]+$' })
     if ($matches.Count -eq 0) {
         throw "$Label selector $Pattern matched zero tests in $Package"
@@ -143,7 +144,9 @@ switch -Regex ($Target) {
         break
     }
     "^backend-plugin-cross-platform-qa$" {
-        Invoke-TaskRunner -Label $Target -Cwd $root -Timeout "20m" -Command @("go", "run", "./tools/backendplugin/crossplatform_qa", "-root", ".", "-out", ".golip-crossplatform-matrix.json", "-skip-native") | Out-Host
+        $selectArgs = @()
+        if ($env:CROSS_PLATFORM_SELECT) { $selectArgs = @("-select", $env:CROSS_PLATFORM_SELECT) }
+        Invoke-TaskRunner -Label $Target -Cwd $root -Timeout "20m" -Env $localGoEnv -Command (@("go", "run", "./tools/backendplugin/crossplatform_qa", "-root", ".", "-out", ".golip-crossplatform-matrix.json", "-skip-native") + $selectArgs) | Out-Host
         Run-RootGoTest "backend-plugin-cross-platform-qa:backendplugins" (@($goTestFlags) + @("./internal/infra/backendplugins/...", "-run", "TestAdversarial_|TestActivate_|TestStream_|TestDigest|TestManifest|TestDiscover|TestShutdown|TestReap|TestPeer|TestChannel|TestExact|TestUpgrade|TestRollback|TestUninstall|TestConfig|TestSecrecy|TestUnauthorized|TestProtected|TestLaunch|TestKill|TestCancel"))
         Run-RootGoTest "backend-plugin-cross-platform-qa:backendplugin-sdk" (@($goTestFlags) + @("./pkg/lipsdk/backendplugin/...", "-run", "Test"))
         Run-NestedGoTest "backend-plugin-cross-platform-qa:connector-support/acp:test" "connector-support/acp" (@($goTestFlags) + @("-run", "KillProcessTree_|ProcessTree_CrossCompile|Cancel"))

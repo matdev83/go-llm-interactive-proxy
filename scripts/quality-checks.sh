@@ -33,7 +33,7 @@ collect_quality_packages() {
 	local force_full=false
 	declare -A package_set=()
 
-	mapfile -t staged_go_files < <(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null | sed 's#\\#/#g' | grep -E '\.go$' || true)
+	mapfile -t staged_go_files < <(git diff --cached --name-only --diff-filter=ACMRD 2>/dev/null | sed 's#\\#/#g' | grep -E '\.go$' || true)
 
 	if [ ${#staged_go_files[@]} -eq 0 ]; then
 		printf './...\n'

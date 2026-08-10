@@ -15,7 +15,7 @@ if ($precommitMode) {
     $preFlags = @("-tags=precommit")
 }
 
-$stagedFilesRaw = git diff --cached --name-only --diff-filter=ACMR 2>&1
+$stagedFilesRaw = git diff --cached --name-only --diff-filter=ACMRD 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Error getting staged files. Running all tests..." -ForegroundColor Yellow
     go test -parallel=8 ./...

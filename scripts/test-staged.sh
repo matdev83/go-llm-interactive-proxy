@@ -13,7 +13,7 @@ if [[ "${LIP_TEST_PRECOMMIT:-}" =~ ^(1|true|yes|on)$ ]]; then
 	pre_flags=( -tags=precommit )
 fi
 
-if ! STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACMR 2>&1); then
+if ! STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACMRD 2>&1); then
 	echo "Error getting staged files. Running all tests..."
 	go test -parallel=8 "${pre_flags[@]}" ./...
 	exit $?
