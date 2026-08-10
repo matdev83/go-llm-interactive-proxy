@@ -82,13 +82,16 @@ func TestCIIterationSpeed_MatrixScopeProbeAndDedicatedCaches(t *testing.T) {
 		}
 	}
 
-	// The QA/CI shared setup-go cache is a frozen first-write-wins partial
-	// snapshot; the heavy PR gates must own a dedicated complete cache.
+	// The shared setup-go cache is a frozen first-write-wins partial snapshot;
+	// every workflow that runs heavy Go work must own a dedicated complete cache.
 	for _, pair := range []struct {
 		workflow, key string
 	}{
 		{"qa.yml", "go-cache-qa-"},
 		{"ci.yml", "go-cache-ci-"},
+		{"backend-plugin-cross-platform.yml", "go-cache-backend-plugin-"},
+		{"acp-process-tree.yml", "go-cache-acp-"},
+		{"cursor-sdk-platform.yml", "go-cache-cursorsdk-"},
 	} {
 		text := readRepositoryFile(t, ".github", "workflows", pair.workflow)
 		for _, needle := range []string{
