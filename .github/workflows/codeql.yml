@@ -21,12 +21,17 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      go: ${{ steps.filter.outputs.go }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Validate CI scope matcher
+        shell: bash
+        run: bash scripts/ci-scope.sh --self-test
 
       - name: Classify changed files
         id: filter
@@ -35,23 +40,13 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          if [[ "$EVENT_NAME" != "pull_request" ]]; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          code=false
-          while IFS= read -r file; do
-            case "$file" in
-              *.md|docs/*) ;;
-              *) code=true; break ;;
-            esac
-          done < <(git diff --name-only "$BASE_SHA" HEAD)
-          echo "code=$code" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          bash scripts/ci-scope.sh --outputs "${BASE_SHA:-}" HEAD >> "$GITHUB_OUTPUT"
 
   analyze:
     name: Analyze (Go)
     needs: changes
+    if: always()
     # Required status check: see ci.yml repo-hygiene. Always run the job so
     # the check reports success (not skip) on docs-only PRs; guard steps.
     runs-on: ubuntu-latest
@@ -61,25 +56,36 @@ jobs:
       security-events: write # Required to publish CodeQL results.
       packages: read
     steps:
+      - name: Fail closed if scope detection failed
+        if: needs.changes.result != 'success'
+        run: |
+          echo "CodeQL scope detection failed; refusing to bypass Go analysis." >&2
+          exit 1
+
       - name: Check out repository
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.result == 'success' && needs.changes.outputs.go == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Initialize CodeQL
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.result == 'success' && needs.changes.outputs.go == 'true'
         uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
         with:
           languages: go
           queries: security-extended
 
       - name: Build
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.result == 'success' && needs.changes.outputs.go == 'true'
         uses: github/codeql-action/autobuild@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
 
       - name: Analyze
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.result == 'success' && needs.changes.outputs.go == 'true'
         uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
         with:
           category: /language:go
+
+      - name: Report unrelated PR bypass
+        if: needs.changes.result == 'success' && needs.changes.outputs.go != 'true'
+        run: |
+          echo "Go CodeQL bypassed: no Go-relevant changes detected."

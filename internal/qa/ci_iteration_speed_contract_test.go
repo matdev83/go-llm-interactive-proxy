@@ -34,6 +34,7 @@ func TestCIIterationSpeed_WorkflowConcurrencyAndCaches(t *testing.T) {
 		"release.yml",
 		"race-fuzz-nightly.yml",
 		"codeql.yml",
+		"openresponses-coverage.yml",
 	} {
 		text := readRepositoryFile(t, ".github", "workflows", name)
 		if !strings.Contains(text, "github.head_ref || github.ref_name") && name != "release.yml" && name != "race-fuzz-nightly.yml" {

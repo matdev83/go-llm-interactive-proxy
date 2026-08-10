@@ -8,22 +8,67 @@ permissions:
   contents: read
 
 concurrency:
-  group: openresponses-coverage-${{ github.event.pull_request.number || github.ref_name }}
+  group: openresponses-coverage-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect OpenResponses coverage scope
+    runs-on: ubuntu-latest
+    outputs:
+      run_suite: ${{ steps.filter.outputs.run_suite }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate CI scope matcher
+        shell: bash
+        run: bash scripts/ci-scope.sh --self-test
+
+      - name: Classify coverage scope
+        id: filter
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+            echo "run_suite=true" >> "$GITHUB_OUTPUT"
+          else
+            run_suite="$(bash scripts/ci-scope.sh --outputs "${BASE_SHA:-}" HEAD | awk -F= '$1 == "openresponses_coverage" {print $2}')"
+            case "$run_suite" in
+              true|false) echo "run_suite=$run_suite" >> "$GITHUB_OUTPUT" ;;
+              *) echo "invalid OpenResponses coverage scope result: $run_suite" >&2; exit 1 ;;
+            esac
+          fi
+
   coverage:
     name: Measured OpenResponses coverage
+    needs: changes
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Fail closed if scope detection failed
+        if: needs.changes.result != 'success'
+        shell: bash
+        run: |
+          echo "OpenResponses coverage scope detection failed; refusing to bypass measured coverage." >&2
+          exit 1
+
       - name: Check out exact tested SHA
+        if: needs.changes.result == 'success' && needs.changes.outputs.run_suite == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Set up Go
+        if: needs.changes.result == 'success' && needs.changes.outputs.run_suite == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
@@ -36,6 +81,7 @@ jobs:
             tools/**/go.sum
 
       - name: Generate profiles and summaries
+        if: needs.changes.result == 'success' && needs.changes.outputs.run_suite == 'true'
         shell: bash
         env:
           TESTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -65,6 +111,7 @@ jobs:
           done
 
       - name: Enforce measured thresholds
+        if: needs.changes.result == 'success' && needs.changes.outputs.run_suite == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -78,9 +125,16 @@ jobs:
           "$gate" -func artifacts/openresponses-coverage/backends-openresponsescompat.summary.txt -threshold 83.0 -name backends/openresponsescompat
 
       - name: Upload profiles and summaries for exact SHA
+        if: needs.changes.result == 'success' && needs.changes.outputs.run_suite == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4
         with:
           name: openresponses-coverage-${{ github.event.pull_request.head.sha || github.sha }}
           path: artifacts/openresponses-coverage
           if-no-files-found: error
           retention-days: 14
+
+      - name: Report unrelated PR bypass
+        if: needs.changes.result == 'success' && needs.changes.outputs.run_suite != 'true'
+        shell: bash
+        run: |
+          echo "OpenResponses coverage bypassed: no measured-surface changes detected."

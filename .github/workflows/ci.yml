@@ -22,12 +22,17 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      test: ${{ steps.filter.outputs.test }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Validate CI scope matcher
+        shell: bash
+        run: bash scripts/ci-scope.sh --self-test
 
       - name: Classify changed files
         id: filter
@@ -36,23 +41,17 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
+          set -euo pipefail
           if [[ "$EVENT_NAME" != "pull_request" ]]; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-            exit 0
+            bash scripts/ci-scope.sh --outputs "" HEAD >> "$GITHUB_OUTPUT"
+          else
+            bash scripts/ci-scope.sh --outputs "${BASE_SHA:-}" HEAD >> "$GITHUB_OUTPUT"
           fi
-
-          code=false
-          while IFS= read -r file; do
-            case "$file" in
-              *.md|docs/*) ;;
-              *) code=true; break ;;
-            esac
-          done < <(git diff --name-only "$BASE_SHA" HEAD)
-          echo "code=$code" >> "$GITHUB_OUTPUT"
 
   repo-hygiene:
     name: Repo hygiene
     needs: changes
+    if: always()
     # This is a required status check. A job-level `if` would skip the whole
     # job on docs-only PRs, and GitHub does not count a skipped required
     # check as satisfied, permanently blocking the merge. Always run the job
@@ -60,15 +59,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Fail closed if scope detection failed
+        if: needs.changes.result != 'success'
+        shell: bash
+        run: |
+          echo "CI scope detection failed; refusing to bypass required evidence." >&2
+          exit 1
+
       - name: Check out repository
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Check repository file manifest
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true'
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -99,9 +105,16 @@ jobs:
 
           bash scripts/check-release-clean.sh --ref HEAD
 
+      - name: Report unrelated PR bypass
+        if: needs.changes.result == 'success' && needs.changes.outputs.code != 'true'
+        shell: bash
+        run: |
+          echo "Repo hygiene bypassed: documentation-only changes detected."
+
   test:
     name: Test (${{ matrix.os }})
     needs: changes
+    if: always()
     # Required status check: see repo-hygiene above. Always run the job so the
     # matrix variants report success (not skip) on docs-only PRs; guard steps.
     strategy:
@@ -117,14 +130,21 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
+      - name: Fail closed if scope detection failed
+        if: needs.changes.result != 'success'
+        shell: bash
+        run: |
+          echo "CI scope detection failed; refusing to bypass required evidence." >&2
+          exit 1
+
       - name: Check out repository
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Set up Go
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
@@ -136,12 +156,18 @@ jobs:
             testdata/enterprise_module/go.sum
 
       - name: Fast unit tests
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         # CLI integration and architecture gates run once on Ubuntu in QA. The
         # platform matrix covers portable public packages without invoking
         # host security posture checks on administrative Windows runners.
         run: go test -timeout=8m ${{ matrix.packages }}
 
       - name: Build release binary
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         run: go build -trimpath ./cmd/lipstd
+
+      - name: Report unrelated PR bypass
+        if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'
+        shell: bash
+        run: |
+          echo "CI test/build matrix bypassed: no test-relevant changes detected."
