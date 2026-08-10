@@ -1,9 +1,13 @@
 package qa
 
 import (
+	"context"
 	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCIScopeClassifier_Contracts(t *testing.T) {
@@ -73,9 +77,23 @@ func TestCIScopeClassifier_Contracts(t *testing.T) {
 
 func TestCIScopeClassifier_SelfTest(t *testing.T) {
 	t.Parallel()
-	if _, err := os.Stat(repositoryFile(t, "scripts", "ci-scope.sh")); err != nil {
+	script := repositoryFile(t, "scripts", "ci-scope.sh")
+	if _, err := os.Stat(script); err != nil {
 		t.Fatal(err)
 	}
-	// The executable Bash self-test is run by the workflow contract; this test
-	// keeps the repository path contract portable for Windows unit-test runners.
+	if runtime.GOOS == "windows" {
+		// Bash is not guaranteed on Windows; the remote Ubuntu workflow executes
+		// the authoritative shell self-test.
+		return
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", script, "--self-test")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("scope self-test failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(string(output), "OK: CI scope self-test") {
+		t.Fatalf("scope self-test marker missing: %q", output)
+	}
 }

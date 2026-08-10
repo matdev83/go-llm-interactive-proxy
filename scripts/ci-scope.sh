@@ -6,7 +6,17 @@ set -euo pipefail
 
 is_documentation_path() {
   case "$1" in
-    docs/**|README.md|README.*.md|CHANGELOG.md|CHANGELOG.*.md|LICENSE|LICENSE.*)
+    docs/*)
+      case "$1" in
+        *.md|*.txt|*.rst|*.adoc|*.png|*.jpg|*.jpeg|*.gif|*.svg|*.drawio)
+          return 0
+          ;;
+        *)
+          return 1
+          ;;
+      esac
+      ;;
+    README.md|README.*.md|CHANGELOG.md|CHANGELOG.*.md|LICENSE|LICENSE.*)
       return 0
       ;;
     *)
@@ -55,13 +65,6 @@ file_matches() {
       ;;
     openresponses_coverage)
       case "$file" in
-        internal/plugins/protocols/openresponses/**|\
-        internal/refclient/openresponses/**|\
-        internal/refbackend/openresponses/**|\
-        internal/plugins/frontends/openresponses/**|\
-        internal/plugins/backends/openresponsescompat/**|\
-        pkg/lipapi/**|pkg/lipsdk/**|internal/core/**|\
-        internal/stdhttp/**|internal/infra/runtimebundle/**|\
         internal/**|pkg/**|tools/coverage-gate/**|testdata/**|\
         .github/workflows/openresponses-coverage.yml|scripts/ci-scope.sh|Makefile|\
         go.mod|go.sum|*/go.mod|*/go.sum)
@@ -130,10 +133,11 @@ self_test() {
     file_matches test "$relevant" || { echo "test scope missed $relevant" >&2; return 1; }
   done
   for unrelated in docs/README.md README.md CHANGELOG.md; do
+    file_matches code "$unrelated" && { echo "code scope included $unrelated" >&2; return 1; }
     file_matches go "$unrelated" && { echo "go scope included $unrelated" >&2; return 1; }
     file_matches test "$unrelated" && { echo "test scope included $unrelated" >&2; return 1; }
   done
-  for relevant in .kiro/specs/example/requirements.md notes/README.md assets/example.txt; do
+  for relevant in docs/backend-plugins/docs_test.go .kiro/specs/example/requirements.md notes/README.md assets/example.txt; do
     file_matches test "$relevant" || { echo "test scope missed $relevant" >&2; return 1; }
   done
   for relevant in testdata/fixture.json scripts/helper.sh; do
