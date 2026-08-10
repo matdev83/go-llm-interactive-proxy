@@ -97,7 +97,7 @@ endif
 
 precommit-full:
 ifeq ($(OS),Windows_NT)
-	@powershell -NoProfile -ExecutionPolicy Bypass -Command "& '$(MAKE)' quality-checks; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }; & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tidy-all-modules.ps1 -Check; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }; $$env:LIP_TEST_PRECOMMIT='1'; & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-staged.ps1; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }; & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/race-check.ps1 -Staged; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }; & '$(MAKE)' lint; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }; & '$(MAKE)' vuln; exit $$LASTEXITCODE"
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/precommit-full.ps1
 else
 	@LIP_PRECOMMIT_FULL=1 bash scripts/quality-gate.sh
 endif
