@@ -17,7 +17,7 @@ The design was validated as a brownfield routing/continuity/admin change against
 - existing protected admin HTTP patterns;
 - all acceptance criteria in `requirements.md` and gaps in `gap-analysis.md`.
 
-The validation used three rounds. Any unresolved in-flight correctness, selector-semantic duplication, public-contract churn, persistence inconsistency, or admin-security issue returned NO-GO and forced design remediation.
+The validation used four rounds, including an external-review remediation pass. Any unresolved in-flight correctness, selector-semantic duplication, public-contract churn, persistence inconsistency, or admin-security issue returned NO-GO and forced design remediation.
 
 ## Round 1
 
@@ -224,7 +224,41 @@ The design demands RED contracts before production changes and includes determin
 - T1 later opens/retries B-legs with rev N;
 - T2 snapshots rev N+1.
 
-It also covers durable restart, config reload, cross-frontend A-leg continuity, selector forms, post-output non-interference, admin protection and race detector execution.
+It also covers durable restart, config reload (including PUT-after-reload generation binding), disabled-surface enforcement, A-leg liveness, delete/recreate mutation races, fixed admin media/status/DTO semantics, cross-frontend A-leg continuity, selector forms, post-output non-interference, admin protection and race detector execution.
+
+## Round 4: External Review Remediation
+
+### Assessment before remediation
+
+**Decision: NO-GO (temporary)**
+
+A post-publication CodeRabbit review correctly identified several contracts that were directionally intended but still under-specified. The design-readiness decision was therefore treated as conditional until the following items were made explicit.
+
+### Finding 1: Generation-current admin validation needed an admission/binding contract
+
+**Resolution:** The admin handler/service is generation-scoped and is composed into each `GenerationRuntime` HTTP handler. The existing stable `runtimehost.GenerationDispatcher` leases one active generation per HTTP request, so admin requests admitted after publish use the new generation's validator/config without a process-global service swap. A dedicated PUT-after-reload test is required.
+
+### Finding 2: HTTP exposure and runtime enforcement were accidentally conflated
+
+**Resolution:** Standard memory/Bun continuity always wires the focused runtime reader independently of `routing.override_admin.enabled`. The flag controls only protected command-route exposure. A persisted override remains enforced while the endpoint is disabled, and a regression test proves this.
+
+### Finding 3: Admin HTTP wire behavior had unresolved choices
+
+**Resolution:** Inactive responses omit `selector`; revision-0 responses also omit `updated_at`, while cleared tombstones retain update time. PUT requires media type `application/json` (valid parameters allowed); missing/malformed/unsupported media types return 415 before decode. Malformed/invalid selector input uses 400, body overflow 413, unknown A-leg 404, store unavailable 503.
+
+### Finding 4: Override-store liveness effects were vague
+
+**Resolution:** Successful Snapshot/Get/Replace/Clear operations refresh A-leg `LastSeenAt` in both memory and durable standard stores, matching existing continuity read/mutation semantics. Idempotent operations refresh A-leg liveness without changing override revision/update time.
+
+### Finding 5: Delete/recreate races needed deterministic contract coverage
+
+**Resolution:** Store tests now require both linearization orders for deletion or continuity-key recreation racing Replace/Clear. Mutation-before-delete is cleaned up; delete/recreate-before-mutation returns not-found; no orphan state commits and a new A-leg cannot inherit old state.
+
+### Revalidation
+
+**Decision: PASS**
+
+The requirements, design, and task plan now resolve every external-review correctness/security contract above. The implementation approvals and `ready_for_implementation` remain false; this review only restores design readiness.
 
 ## Final Assessment
 
