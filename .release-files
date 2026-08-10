@@ -2,6 +2,7 @@
 # Exact repository file manifest. Every tracked path must appear here.
 .coderabbit.yaml
 .github/workflows/openresponses-coverage.yml
+.github/workflows/dependency-sync.yml
 .github/workflows/openresponses-official-compliance.yml
 .cursor/.gitignore
 .cursor/skills/golang-benchmark/SKILL.md
@@ -930,6 +931,7 @@ connectors/codex/internal/service/execute.go
 connectors/codex/internal/service/inventory.go
 connectors/codex/internal/service/kind.go
 connectors/codex/internal/service/service.go
+connectors/codex/internal/service/service_test.go
 connectors/codex/internal/streampeek/prepend.go
 connectors/codex/internal/streampeek/prepend_test.go
 connectors/codex/internal/testemu/server.go
@@ -1287,6 +1289,8 @@ docs/alloc-profiling.md
 docs/architecture-guardrails.md
 docs/architecture.md
 docs/backend-adapter-boundaries.md
+docs/ci-iteration-speed.md
+docs/backend-plugins/codex-native-context.md
 docs/backend-plugins/authoring.md
 docs/backend-plugins/docs_test.go
 docs/backend-plugins/examples/operator/closed-manifest.backendplugin.json
@@ -1370,6 +1374,7 @@ internal/archtest/controlplane_boundaries_test.go
 internal/archtest/core_auth_boundaries_test.go
 internal/archtest/core_docgo_test.go
 internal/archtest/core_transport_helpers_thin_test.go
+internal/archtest/continuity_marker_contract_test.go
 internal/archtest/cursor_sdk_external_gates_test.go
 internal/archtest/cursorsdk_boundaries_test.go
 internal/archtest/database_abstraction_imports_test.go
@@ -3878,6 +3883,8 @@ internal/qa/regex_hotpath_test.go
 internal/qa/root_hygiene_test.go
 internal/qa/task84_legacy_absent_docs_test.go
 internal/qa/task91_architecture_docs_test.go
+internal/qa/ci_iteration_speed_contract_test.go
+internal/qa/cross_platform_selection_test.go
 internal/qa/windows_task_reliability_contract_test.go
 internal/reasoningreplay/eligible.go
 internal/reasoningreplay/eligible_test.go
@@ -4338,9 +4345,6 @@ connectors/codex/internal/codex/trajectory_test.go
 connectors/codex/internal/codex/usage_aggregation.go
 connectors/codex/internal/codex/usage_aggregation_test.go
 connectors/codex/internal/service/config_test.go
-connectors/codex/internal/service/service_test.go
-docs/backend-plugins/codex-native-context.md
-internal/archtest/continuity_marker_contract_test.go
 internal/plugins/features/reasoningpreservation/companion.go
 internal/plugins/features/reasoningpreservation/companion_test.go
 internal/plugins/features/reasoningpreservation/continuity_marker.go
@@ -4923,6 +4927,10 @@ scripts/backend-plugin-example-check.ps1
 scripts/backend-plugin-example-check.sh
 scripts/backend-plugin-module-checks.ps1
 scripts/backend-plugin-module-checks.sh
+scripts/check-all-modules.sh
+scripts/cross-platform-selection.sh
+scripts/tidy-all-modules.ps1
+scripts/tidy-all-modules.sh
 scripts/check-adhoc-goroutines.ps1
 scripts/check-adhoc-goroutines.sh
 scripts/check-release-clean.sh

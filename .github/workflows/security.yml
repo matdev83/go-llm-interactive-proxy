@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: security-${{ github.ref }}
+  group: security-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -70,7 +70,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-          cache-dependency-path: go.sum
+          cache-dependency-path: |
+            go.sum
+            connectors/**/go.sum
+            connector-support/**/go.sum
+            testdata/enterprise_module/go.sum
+            tools/**/go.sum
 
       - name: Install govulncheck
         if: needs.changes.outputs.code == 'true'

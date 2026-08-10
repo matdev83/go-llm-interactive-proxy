@@ -5,6 +5,8 @@ name: Backend plugin cross-platform
 on:
   pull_request:
     paths:
+      - "go.mod"
+      - "go.sum"
       - "connectors/**"
       - "connector-support/**"
       - "tools/backendplugin/**"
@@ -15,6 +17,8 @@ on:
   push:
     branches: [main]
     paths:
+      - "go.mod"
+      - "go.sum"
       - "connectors/**"
       - "connector-support/**"
       - "tools/backendplugin/**"
@@ -27,8 +31,36 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: backend-plugin-cross-platform-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
+  changes:
+    name: Detect connector scope
+    runs-on: ubuntu-latest
+    outputs:
+      select: ${{ steps.select.outputs.select }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select changed connectors
+        id: select
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+            echo "select=" >> "$GITHUB_OUTPUT"
+          else
+            echo "select=$(bash scripts/cross-platform-selection.sh "$BASE_SHA" HEAD)" >> "$GITHUB_OUTPUT"
+          fi
   cross-platform-qa:
+    needs: changes
     strategy:
       fail-fast: false
       matrix:
@@ -52,4 +84,7 @@ jobs:
             connector-support/**/go.sum
 
       - name: Cross-platform QA
+        env:
+          CROSS_PLATFORM_SELECT: ${{ needs.changes.outputs.select }}
+          GOFLAGS: -buildvcs=false
         run: make backend-plugin-cross-platform-qa

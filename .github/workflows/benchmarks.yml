@@ -24,7 +24,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-          cache-dependency-path: go.sum
+          cache-dependency-path: |
+            go.sum
+            connectors/**/go.sum
+            connector-support/**/go.sum
+            testdata/enterprise_module/go.sum
+            tools/**/go.sum
 
       - name: Run benchmarks
         shell: bash

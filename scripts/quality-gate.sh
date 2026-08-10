@@ -1,17 +1,29 @@
 #!/usr/bin/env bash
-# Pre-commit quality gate: quality checks, staged tests, race (staged), optional linters.
+# Pre-commit quality gate: fast checks by default; full lint/vulnerability scans
+# are opt-in via LIP_PRECOMMIT_FULL=1 or `make precommit-full`.
 
 set -euo pipefail
 
 echo "=== Pre-Commit Quality Gate ==="
 echo ""
 
-if ! git diff --cached --name-only --diff-filter=ACMR | grep -qE '\.go$'; then
-	echo "No staged Go files detected; skipping quality gate checks."
-	exit 0
+staged_files="$(git diff --cached --name-only --diff-filter=ACMRD)"
+if ! grep -qE '\.go$' <<< "$staged_files"; then
+	if grep -qE '(^|/)(go\.mod|go\.sum)$' <<< "$staged_files"; then
+		echo "No staged Go source files detected; checking module metadata."
+	else
+		echo "No staged Go files or module metadata detected; skipping quality gate checks."
+		exit 0
+	fi
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if grep -Eq '(^|/)(go\.mod|go\.sum)$' <<< "$staged_files"; then
+	echo "Checking all independent Go module metadata..."
+	bash "$SCRIPT_DIR/tidy-all-modules.sh" --check
+	echo ""
+fi
 
 echo "Running quality checks..."
 bash "$SCRIPT_DIR/quality-checks.sh"
@@ -24,17 +36,21 @@ echo ""
 echo "Running race detector scan..."
 bash "$SCRIPT_DIR/race-check.sh" --staged
 
-echo ""
-echo "Running linter..."
-if command -v golangci-lint >/dev/null 2>&1; then
-	golangci-lint run
-else
-	echo "Warning: golangci-lint not found, skipping (run: make lint or install golangci-lint)"
-fi
+if [[ "${LIP_PRECOMMIT_FULL:-}" == "1" ]]; then
+	echo ""
+	echo "Running full linter..."
+	if command -v golangci-lint >/dev/null 2>&1; then
+		golangci-lint run
+	else
+		echo "Warning: golangci-lint not found, skipping (run: make lint or install golangci-lint)"
+	fi
 
-echo ""
-echo "Running govulncheck..."
-go tool govulncheck ./...
+	echo ""
+	echo "Running full govulncheck..."
+	go tool govulncheck ./...
+else
+	echo "Skipping full lint and govulncheck (set LIP_PRECOMMIT_FULL=1 or run make qa)."
+fi
 
 echo ""
 echo "=== Quality Gate Passed ==="
