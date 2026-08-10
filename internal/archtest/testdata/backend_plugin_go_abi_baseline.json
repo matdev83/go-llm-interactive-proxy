@@ -16,6 +16,66 @@
   },
   {
     "category": "const",
+    "name": "AccountingAuthorityAdvisory",
+    "detail": "AccountingAuthorityAdvisory backendplugin.AccountingAuthority = \"advisory\""
+  },
+  {
+    "category": "const",
+    "name": "AccountingAuthorityAuthoritative",
+    "detail": "AccountingAuthorityAuthoritative backendplugin.AccountingAuthority = \"authoritative\""
+  },
+  {
+    "category": "const",
+    "name": "AccountingAuthorityDelegated",
+    "detail": "AccountingAuthorityDelegated backendplugin.AccountingAuthority = \"delegated\""
+  },
+  {
+    "category": "const",
+    "name": "AccountingAuthorityEstimated",
+    "detail": "AccountingAuthorityEstimated backendplugin.AccountingAuthority = \"estimated\""
+  },
+  {
+    "category": "const",
+    "name": "AccountingAuthorityUnknown",
+    "detail": "AccountingAuthorityUnknown backendplugin.AccountingAuthority = \"\""
+  },
+  {
+    "category": "const",
+    "name": "AccountingPlaneProviderBillable",
+    "detail": "AccountingPlaneProviderBillable backendplugin.AccountingPlane = \"provider_billable\""
+  },
+  {
+    "category": "const",
+    "name": "AccountingPlaneUnknown",
+    "detail": "AccountingPlaneUnknown backendplugin.AccountingPlane = \"\""
+  },
+  {
+    "category": "const",
+    "name": "AccountingSourceLocalEstimator",
+    "detail": "AccountingSourceLocalEstimator backendplugin.AccountingSource = \"local_estimator\""
+  },
+  {
+    "category": "const",
+    "name": "AccountingSourceLocalTokenizer",
+    "detail": "AccountingSourceLocalTokenizer backendplugin.AccountingSource = \"local_tokenizer\""
+  },
+  {
+    "category": "const",
+    "name": "AccountingSourceProviderCountAPI",
+    "detail": "AccountingSourceProviderCountAPI backendplugin.AccountingSource = \"provider_count_api\""
+  },
+  {
+    "category": "const",
+    "name": "AccountingSourceProviderReported",
+    "detail": "AccountingSourceProviderReported backendplugin.AccountingSource = \"provider_reported\""
+  },
+  {
+    "category": "const",
+    "name": "AccountingSourceUnknown",
+    "detail": "AccountingSourceUnknown backendplugin.AccountingSource = \"\""
+  },
+  {
+    "category": "const",
     "name": "CancelReasonClient",
     "detail": "CancelReasonClient backendplugin.CancelReason = \"client\""
   },
@@ -88,6 +148,11 @@
     "category": "const",
     "name": "CredentialModeWorkload",
     "detail": "CredentialModeWorkload backendplugin.CredentialMode = \"workload\""
+  },
+  {
+    "category": "const",
+    "name": "DefaultMaxAccountingDedupeKeyBytes",
+    "detail": "DefaultMaxAccountingDedupeKeyBytes uint64 = 256"
   },
   {
     "category": "const",
@@ -281,6 +346,11 @@
   },
   {
     "category": "const",
+    "name": "FeatureAccountingEvidence",
+    "detail": "FeatureAccountingEvidence untyped string = \"accounting_evidence_sideband\""
+  },
+  {
+    "category": "const",
     "name": "FeatureExactOpenResponsesFields",
     "detail": "FeatureExactOpenResponsesFields untyped string = \"exact_openresponses_fields\""
   },
@@ -421,6 +491,11 @@
   },
   {
     "category": "const",
+    "name": "ProtocolMinorAccountingEvidence",
+    "detail": "ProtocolMinorAccountingEvidence uint32 = 5"
+  },
+  {
+    "category": "const",
     "name": "ProtocolMinorExactOpenResponsesFields",
     "detail": "ProtocolMinorExactOpenResponsesFields uint32 = 3"
   },
@@ -491,6 +566,11 @@
   },
   {
     "category": "const",
+    "name": "ServerFrameAccountingEvidence",
+    "detail": "ServerFrameAccountingEvidence backendplugin.ServerFrameKind = \"accounting_evidence\""
+  },
+  {
+    "category": "const",
     "name": "ServerFrameCancelOutcome",
     "detail": "ServerFrameCancelOutcome backendplugin.ServerFrameKind = \"cancel_outcome\""
   },
@@ -533,6 +613,50 @@
     "category": "const",
     "name": "TerminalUnspecified",
     "detail": "TerminalUnspecified backendplugin.TerminalStatus = \"\""
+  },
+  {
+    "category": "field",
+    "name": "AccountingEvidence.Authority"
+  },
+  {
+    "category": "field",
+    "name": "AccountingEvidence.CacheReadTokens"
+  },
+  {
+    "category": "field",
+    "name": "AccountingEvidence.CacheWriteTokens"
+  },
+  {
+    "category": "field",
+    "name": "AccountingEvidence.DedupeKey"
+  },
+  {
+    "category": "field",
+    "name": "AccountingEvidence.InputTokens"
+  },
+  {
+    "category": "field",
+    "name": "AccountingEvidence.OutputTokens"
+  },
+  {
+    "category": "field",
+    "name": "AccountingEvidence.Plane"
+  },
+  {
+    "category": "field",
+    "name": "AccountingEvidence.Presence"
+  },
+  {
+    "category": "field",
+    "name": "AccountingEvidence.ReasoningTokens"
+  },
+  {
+    "category": "field",
+    "name": "AccountingEvidence.Source"
+  },
+  {
+    "category": "field",
+    "name": "AccountingEvidence.TotalTokens"
   },
   {
     "category": "field",
@@ -1596,6 +1720,10 @@
   },
   {
     "category": "field",
+    "name": "ServerFrame.Accounting"
+  },
+  {
+    "category": "field",
     "name": "ServerFrame.CancelOutcome"
   },
   {
@@ -2121,6 +2249,11 @@
   },
   {
     "category": "func",
+    "name": "ValidateAccountingEvidence",
+    "detail": "func ValidateAccountingEvidence(e AccountingEvidence) error"
+  },
+  {
+    "category": "func",
     "name": "ValidateClientFrameBounds",
     "detail": "func ValidateClientFrameBounds(f ClientFrame) error"
   },
@@ -2163,6 +2296,10 @@
     "category": "func",
     "name": "ValidateToolChoiceABI",
     "detail": "func ValidateToolChoiceABI(tc lipapi.ToolChoice) error"
+  },
+  {
+    "category": "method",
+    "name": "AccountingEvidenceSource.DrainAccountingEvidence"
   },
   {
     "category": "method",
@@ -2352,6 +2489,11 @@
     "category": "method",
     "name": "grpcExecuteStream.Send",
     "detail": "func (g *grpcExecuteStream) Send(frame ServerFrame) error"
+  },
+  {
+    "category": "struct",
+    "name": "AccountingEvidence",
+    "detail": "AccountingEvidence struct {\n\tInputTokens      *int64\n\tOutputTokens     *int64\n\tCacheReadTokens  *int64\n\tCacheWriteTokens *int64\n\tReasoningTokens  *int64\n\tTotalTokens      *int64\n\tPresence         UsagePresence\n\tSource           AccountingSource\n\tAuthority        AccountingAuthority\n\tPlane            AccountingPlane\n\tDedupeKey        string\n}"
   },
   {
     "category": "struct",
@@ -2571,7 +2713,7 @@
   {
     "category": "struct",
     "name": "ServerFrame",
-    "detail": "ServerFrame struct {\n\tKind          ServerFrameKind\n\tSequence      uint64\n\tEvent         *CanonicalEvent\n\tDiagnostic    string\n\tCancelOutcome *CancelOutcome\n\tTerminal      *Terminal\n}"
+    "detail": "ServerFrame struct {\n\tKind          ServerFrameKind\n\tSequence      uint64\n\tEvent         *CanonicalEvent\n\tDiagnostic    string\n\tCancelOutcome *CancelOutcome\n\tTerminal      *Terminal\n\tAccounting    *AccountingEvidence\n}"
   },
   {
     "category": "struct",
@@ -2607,6 +2749,26 @@
     "category": "type",
     "name": "AccessScope",
     "detail": "AccessScope = lipsdk.BackendAccessScope"
+  },
+  {
+    "category": "type",
+    "name": "AccountingAuthority",
+    "detail": "AccountingAuthority string"
+  },
+  {
+    "category": "type",
+    "name": "AccountingEvidenceSource",
+    "detail": "AccountingEvidenceSource interface {\n\tDrainAccountingEvidence() []AccountingEvidence\n}"
+  },
+  {
+    "category": "type",
+    "name": "AccountingPlane",
+    "detail": "AccountingPlane string"
+  },
+  {
+    "category": "type",
+    "name": "AccountingSource",
+    "detail": "AccountingSource string"
   },
   {
     "category": "type",

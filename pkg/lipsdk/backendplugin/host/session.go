@@ -71,12 +71,13 @@ func DialConfiguredSession(ctx context.Context, conn net.Conn, instanceID, facto
 	cleanup := func() { _ = gc.Close() }
 	client := backendpluginv1.NewBackendPluginClient(gc)
 	offer := backendplugin.ProtocolOffer{
-		Major: 1, Minor: backendplugin.ProtocolMinorProxyOwnedSessionID,
+		Major: 1, Minor: backendplugin.ProtocolMinorAccountingEvidence,
 		Features: []backendplugin.Feature{
 			{Name: backendplugin.FeatureExactReasoningParts},
 			{Name: backendplugin.FeatureOrderedItems},
 			{Name: backendplugin.FeatureExactOpenResponsesFields},
 			{Name: backendplugin.FeatureProxyOwnedSessionID},
+			{Name: backendplugin.FeatureAccountingEvidence},
 		},
 		DisableTransportRetries: true,
 	}
@@ -87,6 +88,7 @@ func DialConfiguredSession(ctx context.Context, conn net.Conn, instanceID, facto
 			{Name: backendplugin.FeatureOrderedItems},
 			{Name: backendplugin.FeatureExactOpenResponsesFields},
 			{Name: backendplugin.FeatureProxyOwnedSessionID},
+			{Name: backendplugin.FeatureAccountingEvidence},
 		},
 		DisableTransportRetries: true,
 	})

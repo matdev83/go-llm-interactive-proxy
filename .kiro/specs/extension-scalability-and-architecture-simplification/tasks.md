@@ -117,7 +117,7 @@ Current fresh validation evidence:
 
 ## 3. Introduce Provider Families and Typed Provider Profiles
 
-- [ ] 3.1 Define the provider-profile v1 schema and RED validation suite
+- [x] 3.1 Define the provider-profile v1 schema and RED validation suite
   - Define typed versioned profile contracts for family, endpoint/path policy, credential references, safe headers, model discovery/namespace, tokenizer/accounting, capability/dialect overrides, and closed family quirks.
   - Add refusals for arbitrary transformations, unsafe auth/header combinations, unknown quirks/versions, capability elevation beyond family support, invalid endpoints, and unbounded data.
   - Observable completion: schema tests define safe declarative boundaries before catalog/runtime implementation.
@@ -127,7 +127,7 @@ Current fresh validation evidence:
   - _Depends: 1.2_
   - _Validation: go test ./internal/providerprofiles/..._
 
-- [ ] 3.2 Implement deterministic embedded provider-profile catalog and family binding
+- [x] 3.2 Implement deterministic embedded provider-profile catalog and family binding
   - Add one source-of-truth profile catalog loaded through `go:embed` or deterministic generated typed values.
   - Bind profiles to existing compatible family adapters without one Go factory registration per provider.
   - Preserve arbitrary custom-compatible user configuration independently from the shipped profile catalog.
@@ -138,7 +138,7 @@ Current fresh validation evidence:
   - _Depends: 3.1_
   - _Validation: go test ./internal/providerprofiles/... ./internal/standardplugins/... ./internal/infra/runtimebundle/..._
 
-- [ ] 3.3 Implement profile certification and 1,000-profile scale proof
+- [x] 3.3 Implement profile certification and 1,000-profile scale proof
   - Certify family binding, endpoint/auth/header/model behavior, effective capability/dialect calculation, and declared quirks without frontend multiplication.
   - Add 1,000-profile synthetic catalog load/validation tests and assert zero provider network/process starts and no per-profile goroutine.
   - Observable completion: profile #1000 costs one profile certification path and does not affect frontend TCK/sentinel counts.
@@ -148,7 +148,7 @@ Current fresh validation evidence:
   - _Depends: 3.2, 2.3_
   - _Validation: go test ./internal/providerprofiles/... ./internal/testkit/contract/backend/..._
 
-- [ ] 3.4 Integrate provider-profile changes with generation compile/reload and diagnostics source data
+- [x] 3.4 Integrate provider-profile changes with generation compile/reload and diagnostics source data
   - Reuse existing immutable candidate/generation compilation and startup security validation.
   - Prove profile catalog changes rebuild affected family instances without a second mutable registry.
   - Keep profile values secret-safe and provider processes dormant during validation.
@@ -158,6 +158,12 @@ Current fresh validation evidence:
   - _Boundary: runtimebundle/configreload composition only_
   - _Depends: 3.2_
   - _Validation: go test ./internal/infra/runtimebundle/... ./internal/core/configreload/... ./internal/standardplugins/..._
+
+### Phase 3 completion evidence (tasks 3.1-3.4)
+- `internal/providerprofiles` now owns the typed v1 contract, closed JSON/YAML decoding, bounds, endpoint/auth/header/model/accounting/dialect/quirk validation, deterministic catalog ordering, immutable family compilation, embedded catalog, and negative mutation tests.
+- `internal/standardplugins` exposes one profile compiler/family binding path and secret-safe diagnostics; existing opaque custom-compatible rows remain on their original configuration path. Startup effective validation validates the embedded catalog without adapter activation.
+- The profile package scale test validates 1,000 profiles and profile `provider-1000` through one family compilation path; the package has no I/O, process, or goroutine activation surface.
+- Focused green evidence: `go test ./internal/providerprofiles/... ./internal/standardplugins/... ./internal/core/configreload/... ./internal/testkit/contract/backend/...`; runtime generation characterization: `go test ./internal/infra/runtimebundle -run 'TestBuildHost|TestEffectiveLoadContract|TestCompileGeneration'`; `go build ./...`; `git diff --check`.
 
 ## 4. Single-Source Contribution Metadata and Generic Projections
 

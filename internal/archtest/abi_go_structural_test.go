@@ -242,6 +242,7 @@ var exactProtocolVersionSymbols = map[string]string{
 	"ProtocolMinorOrderedItems":             "ProtocolMinorOrderedItems uint32 = 2",
 	"ProtocolMinorExactOpenResponsesFields": "ProtocolMinorExactOpenResponsesFields uint32 = 3",
 	"ProtocolMinorProxyOwnedSessionID":      "ProtocolMinorProxyOwnedSessionID uint32 = 4",
+	"ProtocolMinorAccountingEvidence":       "ProtocolMinorAccountingEvidence uint32 = 5",
 }
 
 func protocolSpecificABISymbol(name string) bool {

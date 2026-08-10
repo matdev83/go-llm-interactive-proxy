@@ -320,8 +320,8 @@ func startPublicFake(t *testing.T, service backendplugin.Service) (net.Conn, fun
 	lis := bufconn.Listen(1 << 20)
 	grpcServer := grpc.NewServer()
 	backendpluginv1.RegisterBackendPluginServer(grpcServer, backendplugin.NewGRPCServer(backendplugin.ProtocolOffer{
-		Major: 1, Minor: backendplugin.ProtocolMinorProxyOwnedSessionID, DisableTransportRetries: true,
-		Features: []backendplugin.Feature{{Name: backendplugin.FeatureOrderedItems}},
+		Major: 1, Minor: backendplugin.ProtocolMinorAccountingEvidence, DisableTransportRetries: true,
+		Features: []backendplugin.Feature{{Name: backendplugin.FeatureOrderedItems}, {Name: backendplugin.FeatureAccountingEvidence, Required: true}},
 	}, service))
 	go func() { _ = grpcServer.Serve(lis) }()
 	conn, err := lis.Dial()

@@ -83,6 +83,9 @@ func extraBootstrapValidate(cfg *config.Config) error {
 	if err := routing.ValidateModelAliasesConfig(cfg); err != nil {
 		return err
 	}
+	if _, err := standardplugins.PrepareProviderProfiles(cfg); err != nil {
+		return fmt.Errorf("runtimebundle: provider profiles: %w", err)
+	}
 	if err := standardplugins.ValidateCompatibleManifestOwnership(cfg.Plugins.Backends, nil); err != nil {
 		return fmt.Errorf("runtimebundle: %w", err)
 	}

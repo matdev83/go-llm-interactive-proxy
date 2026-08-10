@@ -20,13 +20,16 @@ var LegacyABIAllowlist = []string{
 	backendplugin.FeatureOrderedItems,
 	backendplugin.FeatureExactOpenResponsesFields,
 	backendplugin.FeatureProxyOwnedSessionID,
+	backendplugin.FeatureAccountingEvidence,
 }
 
 var genericABIFieldTerms = map[string]bool{
 	"custom": true, "extension": true, "extensions": true, "semantic": true,
 	"capability": true, "capabilities": true, "session": true, "owned": true,
 	"proxy": true, "reasoning": true, "parts": true, "items": true, "ordered": true,
-	"exact": true,
+	"exact":      true,
+	"accounting": true,
+	"evidence":   true,
 }
 
 // KnownProtocolIdentifiers is retained for characterization callers. Structural

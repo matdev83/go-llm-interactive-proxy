@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 )
@@ -42,9 +43,15 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	if cfg == nil || opts == nil || opts.PluginRegistry == nil {
 		return nil, fmt.Errorf("runtimebundle: ProcessServices missing config or PluginRegistry")
 	}
+	rawCandidate := cfg
+	prepared, err := standardplugins.PrepareProviderProfiles(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("runtimebundle: provider profiles: %w", err)
+	}
+	cfg = prepared
 
-	if in.Candidate != nil && ps.cfg != nil && cfg != ps.cfg {
-		if _, err := configreload.Classify(ps.cfg, cfg); err != nil {
+	if in.Candidate != nil && ps.cfg != nil && rawCandidate != ps.cfg {
+		if _, err := configreload.Classify(ps.cfg, rawCandidate); err != nil {
 			return nil, err
 		}
 	}
