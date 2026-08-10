@@ -41,16 +41,21 @@ jobs:
   qa:
     name: qa
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    # Not currently a required check, but keep the same convention as the
+    # required jobs (ci.yml repo-hygiene): always run the job and guard the
+    # steps so it reports success (not skip) on docs-only PRs, and would not
+    # block merges if ever added to branch protection.
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
       - name: Checkout
+        if: needs.changes.outputs.code == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Setup Go
+        if: needs.changes.outputs.code == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
@@ -58,6 +63,7 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Formatting and module integrity
+        if: needs.changes.outputs.code == 'true'
         shell: bash
         run: |
           test -z "$(gofmt -l cmd internal pkg)"
@@ -65,10 +71,13 @@ jobs:
           git diff --exit-code -- go.mod go.sum
 
       - name: Architecture guardrails
+        if: needs.changes.outputs.code == 'true'
         run: go test -timeout=8m ./internal/archtest
 
       - name: Vet release command
+        if: needs.changes.outputs.code == 'true'
         run: go vet ./cmd/lipstd
 
       - name: Test release command
+        if: needs.changes.outputs.code == 'true'
         run: go test -timeout=5m ./cmd/lipstd
