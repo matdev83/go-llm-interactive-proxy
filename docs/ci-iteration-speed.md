@@ -59,10 +59,12 @@ The shared `setup-go` cache key is a first-write-wins snapshot: whichever job
 finishes first stores it, and jobs that restore the primary key never re-save.
 In practice this froze a ~91 MB partial snapshot that forced the full module
 graph to re-download and every package's export data to recompile on each PR
-(observed ~5 min in the QA archtest step alone). The heavy PR gates now own
-dedicated caches (`actions/cache` with `go-cache-qa-*` / `go-cache-ci-*` keys,
-seeded from the shared snapshot via `restore-keys`) so the complete module and
-build cache is preserved between runs.
+(observed ~5 min in the QA archtest step alone). Every workflow that runs heavy
+Go work now owns a dedicated cache (`actions/cache` with `go-cache-qa-*`,
+`go-cache-ci-*`, `go-cache-backend-plugin-*`, `go-cache-acp-*`, and
+`go-cache-cursorsdk-*` keys, seeded from the shared snapshot via
+`restore-keys`) so the complete module and build cache is preserved between
+runs per OS and per workflow.
 
 The 3-OS matrix workflows (backend-plugin cross-platform, ACP process-tree,
 cursor-sdk platform smoke) consult `scripts/makefile-scope.sh` before running.

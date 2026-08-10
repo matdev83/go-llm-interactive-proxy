@@ -124,11 +124,30 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            connectors/**/go.sum
-            connector-support/**/go.sum
+          # Shared setup-go cache is a frozen first-write-wins partial snapshot;
+          # this matrix restores a dedicated full cache below instead.
+          cache: false
+
+      - name: Resolve Go cache paths
+        id: go-cache-paths
+        if: needs.changes.outputs.relevant == 'true'
+        shell: bash
+        run: |
+          echo "go-cache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          echo "go-mod-cache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore dedicated backend-plugin Go cache
+        id: go-cache
+        if: needs.changes.outputs.relevant == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache-paths.outputs.go-cache }}
+            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
+          key: go-cache-backend-plugin-${{ runner.os }}-${{ hashFiles('go.sum', 'connectors/**/go.sum', 'connector-support/**/go.sum') }}
+          restore-keys: |
+            go-cache-backend-plugin-${{ runner.os }}-
+            setup-go-
 
       - name: Cross-platform QA
         if: needs.changes.outputs.relevant == 'true'
@@ -136,6 +155,15 @@ jobs:
           CROSS_PLATFORM_SELECT: ${{ needs.changes.outputs.select }}
           GOFLAGS: -buildvcs=false
         run: make backend-plugin-cross-platform-qa
+
+      - name: Save dedicated backend-plugin Go cache
+        if: always() && needs.changes.result == 'success' && needs.changes.outputs.relevant == 'true' && steps.go-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache-paths.outputs.go-cache }}
+            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
+          key: go-cache-backend-plugin-${{ runner.os }}-${{ hashFiles('go.sum', 'connectors/**/go.sum', 'connector-support/**/go.sum') }}
 
       - name: Report unrelated matrix bypass
         if: needs.changes.outputs.relevant != 'true'

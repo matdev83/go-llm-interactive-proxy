@@ -82,16 +82,40 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            connectors/**/go.sum
-            connector-support/**/go.sum
-            testdata/enterprise_module/go.sum
-            tools/**/go.sum
+          # Shared setup-go cache is a frozen first-write-wins partial snapshot;
+          # this matrix restores a dedicated full cache below instead.
+          cache: false
+
+      - name: Resolve Go cache paths
+        id: go-cache-paths
+        shell: bash
+        run: |
+          echo "go-cache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          echo "go-mod-cache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore dedicated cursorsdk Go cache
+        id: go-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache-paths.outputs.go-cache }}
+            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
+          key: go-cache-cursorsdk-${{ runner.os }}-${{ hashFiles('go.sum', 'connectors/**/go.sum', 'connector-support/**/go.sum', 'testdata/enterprise_module/go.sum', 'tools/**/go.sum') }}
+          restore-keys: |
+            go-cache-cursorsdk-${{ runner.os }}-
+            setup-go-
 
       - name: Platform smoke (fake bridge)
         run: make test-cursor-sdk-platform
+
+      - name: Save dedicated cursorsdk Go cache
+        if: always() && steps.go-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache-paths.outputs.go-cache }}
+            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
+          key: go-cache-cursorsdk-${{ runner.os }}-${{ hashFiles('go.sum', 'connectors/**/go.sum', 'connector-support/**/go.sum', 'testdata/enterprise_module/go.sum', 'tools/**/go.sum') }}
 
   bridge-node-tests:
     name: bridge-node-tests
