@@ -148,12 +148,35 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            connectors/**/go.sum
-            connector-support/**/go.sum
-            testdata/enterprise_module/go.sum
+          # The shared setup-go cache is a first-write-wins partial snapshot;
+          # this matrix job restores a dedicated full Go cache below instead.
+          cache: false
+
+      # The shared setup-go cache restores a frozen partial snapshot (observed
+      # ~91 MB) that forces re-downloading modules and recompiling export data
+      # on every PR. A dedicated per-OS cache preserves the full build cache for
+      # the portable package matrix; restore-keys fall back to the shared
+      # snapshot for a partial warm start on the first run.
+      - name: Resolve Go cache paths
+        id: go-cache-paths
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        shell: bash
+        run: |
+          echo "go-cache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          echo "go-mod-cache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore dedicated CI Go cache
+        id: go-cache
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache-paths.outputs.go-cache }}
+            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
+          key: go-cache-ci-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-cache-ci-${{ runner.os }}-
+            setup-go-
 
       - name: Fast unit tests
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
@@ -165,6 +188,17 @@ jobs:
       - name: Build release binary
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         run: go build -trimpath ./cmd/lipstd
+
+      # Preserve the full per-OS cache for the next run; runs even on failure so
+      # partial progress is cached, skipped when the primary key already restored.
+      - name: Save dedicated CI Go cache
+        if: always() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && steps.go-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache-paths.outputs.go-cache }}
+            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
+          key: go-cache-ci-${{ runner.os }}-${{ hashFiles('go.sum') }}
 
       - name: Report unrelated PR bypass
         if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'

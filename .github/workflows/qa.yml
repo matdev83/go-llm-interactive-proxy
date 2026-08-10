@@ -68,13 +68,29 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            connectors/**/go.sum
-            connector-support/**/go.sum
-            testdata/enterprise_module/go.sum
-            tools/**/go.sum
+          # The shared setup-go cache is a first-write-wins partial snapshot saved
+          # by whichever job finishes first; this job restores a dedicated full
+          # Go cache below instead, so the heavy archtest never cold-loads.
+          cache: false
+
+      # The QA job runs the full-repo archtest package load, which needs the
+      # complete module graph and build cache. A dedicated per-job cache avoids
+      # the frozen partial snapshot under the shared setup-go key (observed as a
+      # ~91 MB restore that forces re-downloading every module and recompiling
+      # all export data, ~5 min per PR). restore-keys fall back to the shared
+      # setup-go snapshot so the first run still gets a partial warm start.
+      - name: Restore dedicated QA Go cache
+        id: go-cache
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-cache-qa-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-cache-qa-${{ runner.os }}-
+            setup-go-
 
       - name: Formatting and module integrity
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
@@ -95,6 +111,18 @@ jobs:
       # CI owns the portable cmd/lipstd test/build matrix. QA retains the
       # distinct architecture and vet evidence instead of recompiling this
       # package a second time on Ubuntu.
+
+      # Save after the heavy archtest so the full module graph + build cache is
+      # preserved for the next PR. Runs even on failure so partial progress is
+      # cached; skipped when the primary key already restored a complete cache.
+      - name: Save dedicated QA Go cache
+        if: always() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && steps.go-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-cache-qa-${{ runner.os }}-${{ hashFiles('go.sum') }}
 
       - name: Report unrelated PR bypass
         if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'
