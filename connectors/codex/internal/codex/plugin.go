@@ -188,6 +188,9 @@ func openWithFallback(
 		if err == nil {
 			return es, nil
 		}
+		if es != nil {
+			return es, err
+		}
 		// Account-level exhaustion from the managed WS path is not a WebSocket
 		// transport problem: the bad accounts are already marked and excluded, and
 		// HTTPS fallback may still succeed with a usable account. Skip the global WS

@@ -74,6 +74,22 @@ func TestNativeUsageSidebandStream_preservesOpenError(t *testing.T) {
 	}
 }
 
+func TestNativeUsageSidebandStream_rejectsNilAndCanceledContext(t *testing.T) {
+	stream := newNativeUsageSidebandStream(nil, &NativeUsageEvidence{
+		InputTokens: 13, UsagePresence: lipapi.UsagePresence{InputTokens: true},
+		Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative,
+	}, io.EOF)
+	sideband := stream.(*nativeUsageSidebandStream)
+	if _, err := sideband.Recv(nil); !errors.Is(err, lipapi.ErrNilContext) {
+		t.Fatalf("nil context error = %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := sideband.Recv(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled context error = %v", err)
+	}
+}
+
 func TestNativeContextTelemetry_snapshotIsFixedAndPrivate(t *testing.T) {
 	telemetry := newNativeContextTelemetry()
 	telemetry.recordContext(101, 41, 1001, 501)

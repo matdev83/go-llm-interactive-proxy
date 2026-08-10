@@ -1,6 +1,8 @@
 package reasoningpreservation
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 
@@ -150,7 +152,13 @@ func companionRuleID(backendID, rulePrefix string) string {
 	}
 	base := strings.TrimSpace(rulePrefix) + sanitized
 	if len(base) > companionRuleMaxIDLength {
-		base = base[:companionRuleMaxIDLength]
+		hash := sha256.Sum256([]byte(base))
+		suffix := "-" + hex.EncodeToString(hash[:])[:8]
+		keep := companionRuleMaxIDLength - len(suffix)
+		if len(sanitized) > keep {
+			sanitized = sanitized[:keep]
+		}
+		base = sanitized + suffix
 	}
 	return base
 }

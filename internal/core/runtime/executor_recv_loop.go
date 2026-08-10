@@ -350,7 +350,6 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	}
 	s.finishFinalStreamObservation(ctx, response.OutcomeReplaced)
 	s.storeInner(out.stream)
-	s.consumeBackendUsageEvidence(ctx, out.stream)
 	s.bleg = out.bleg
 	s.cand = out.cand
 	s.clearClientAccumulators()
@@ -359,6 +358,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	}
 	s.tokenAccountingFinalized = false
 	s.accounting = newAttemptAccountingTracker(s.now())
+	s.consumeBackendUsageEvidence(ctx, out.stream)
 	s.resetToolFinal()
 	if s.executor != nil {
 		s.recoverPolicy = streamrecovery.NewPolicy(s.executor.StreamRecovery, s.now())

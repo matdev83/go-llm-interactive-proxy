@@ -103,7 +103,7 @@ func TestForwardExecute_ForwardsOpeningAccountingEvidenceBeforeCanonicalEvents(t
 	}); err != nil {
 		t.Fatalf("ForwardExecute: %v", err)
 	}
-	if len(stream.sent) < 3 {
+	if len(stream.sent) < 4 {
 		t.Fatalf("frames = %d, want accepted, evidence, event, terminal", len(stream.sent))
 	}
 	if stream.sent[1].Kind != backendplugin.ServerFrameAccountingEvidence {
@@ -114,6 +114,9 @@ func TestForwardExecute_ForwardsOpeningAccountingEvidenceBeforeCanonicalEvents(t
 	}
 	if stream.sent[2].Kind != backendplugin.ServerFrameEvent {
 		t.Fatalf("canonical frame after evidence = %q", stream.sent[2].Kind)
+	}
+	if stream.sent[3].Kind != backendplugin.ServerFrameTerminal || stream.sent[3].Terminal == nil || stream.sent[3].Terminal.Status != backendplugin.TerminalSuccess {
+		t.Fatalf("terminal frame = %#v, want successful terminal", stream.sent[3])
 	}
 	for i, frame := range stream.sent[1:] {
 		if frame.Sequence != uint64(i+1) {

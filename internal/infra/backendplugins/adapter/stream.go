@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,6 +15,8 @@ import (
 )
 
 const defaultMaxStderrBytes = 64 << 10
+
+const maxBufferedUsageEvidence = 1024
 
 // openStream starts one bidirectional execute attempt. It never collects the
 // provider response and never restarts after output commitment.
@@ -266,11 +269,18 @@ func (s *managedStream) onPluginFrame(frame backendplugin.ServerFrame) error {
 	case backendplugin.ServerFrameAccepted, backendplugin.ServerFrameDiagnostic, backendplugin.ServerFrameCancelOutcome:
 		return nil
 	case backendplugin.ServerFrameAccountingEvidence:
+		if !slices.Contains(s.opt.Negotiation.EnabledFeatures, backendplugin.FeatureAccountingEvidence) {
+			return ProtocolViolation(backendplugin.ErrInvalidFrame)
+		}
 		ev, err := accountingEvidenceToEvent(frame.Accounting)
 		if err != nil {
 			return ProtocolViolation(err)
 		}
 		s.usageMu.Lock()
+		if len(s.usageEvidence) >= maxBufferedUsageEvidence {
+			s.usageMu.Unlock()
+			return ProtocolViolation(backendplugin.ErrOversizedMessage)
+		}
 		s.usageEvidence = append(s.usageEvidence, ev)
 		s.usageMu.Unlock()
 		return nil

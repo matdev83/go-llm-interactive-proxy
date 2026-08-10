@@ -40,17 +40,20 @@ state:
 			t.Fatalf("mutated config lost %q:\n%s", want, text)
 		}
 	}
-	if strings.Contains(text, "backend-disabled\n    enabled: true") {
-		t.Fatal("explicit disabled backend-only rule was overridden")
-	}
 	if strings.Count(text, "backend: backend-new") != 1 {
 		t.Fatalf("expected one new companion rule:\n%s", text)
 	}
 	if got.Content[0].Content[0].Value != input.Content[0].Content[0].Value {
 		t.Fatal("existing mapping was unexpectedly reordered or replaced")
 	}
-	if _, err := reasoningpreservation.DecodeConfig(got); err != nil {
+	decodedGot, err := reasoningpreservation.DecodeConfig(got)
+	if err != nil {
 		t.Fatalf("mutated config no longer validates: %v", err)
+	}
+	for _, rule := range decodedGot.Rules {
+		if rule.Backend == "backend-disabled" && rule.Enabled != nil && *rule.Enabled {
+			t.Fatal("explicit disabled backend-only rule was overridden")
+		}
 	}
 }
 
@@ -93,6 +96,32 @@ func TestNewCompanionConfigIsDeterministicAndCollisionSafe(t *testing.T) {
 			t.Fatalf("companion ID is not bounded and unique: %+v", decoded.Rules)
 		}
 		seen[rule.ID] = true
+	}
+	firstPrefix, err := reasoningpreservation.NewCompanionConfig([]string{"backend/a"}, "first-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondPrefix, err := reasoningpreservation.NewCompanionConfig([]string{"backend/a"}, "second-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nodeYAML(t, firstPrefix) == nodeYAML(t, secondPrefix) {
+		t.Fatal("different rule prefixes produced identical configs")
+	}
+	longPrefix, err := reasoningpreservation.NewCompanionConfig([]string{"backend/a", "backend-a"}, strings.Repeat("prefix-", 20))
+	if err != nil {
+		t.Fatal(err)
+	}
+	longDecoded, err := reasoningpreservation.DecodeConfig(longPrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	longSeen := make(map[string]bool, len(longDecoded.Rules))
+	for _, rule := range longDecoded.Rules {
+		if len(rule.ID) > 64 || longSeen[rule.ID] {
+			t.Fatalf("oversized prefix produced invalid or duplicate ID: %+v", longDecoded.Rules)
+		}
+		longSeen[rule.ID] = true
 	}
 }
 

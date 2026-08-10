@@ -11,7 +11,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -204,17 +203,13 @@ func (s *retryRecvStream) rememberUsageEvidenceOnce(ev lipapi.Event) bool {
 	}
 	key := ev.Accounting.DedupeKey
 	if key == "" {
-		key = usageEvidenceKey(ev)
+		return false
 	}
 	if _, exists := s.internalUsageKeys[key]; exists {
 		return false
 	}
 	s.internalUsageKeys[key] = struct{}{}
 	return true
-}
-
-func usageEvidenceKey(ev lipapi.Event) string {
-	return fmt.Sprintf("%d/%d/%d/%d/%d/%d/%s/%s/%s", ev.InputTokens, ev.OutputTokens, ev.CacheReadTokens, ev.CacheWriteTokens, ev.ReasoningTokens, ev.TotalTokens, ev.Accounting.Source, ev.Accounting.Authority, ev.Accounting.Plane)
 }
 
 func (s *retryRecvStream) rememberInternalUsage(ctx context.Context, ev lipapi.Event) {

@@ -84,7 +84,7 @@ func codexCompanionPolicy() reasoningpreservation.CompanionPolicy {
 			}
 		},
 		AfterRestore: func(_ context.Context, call *lipapi.Call, meta request.AttemptMeta, match reasoningpreservation.MatchResult, res reasoningpreservation.RestoreResult) {
-			if call == nil || match.Kind == reasoningpreservation.MatchNone || !safeCodexOutcome(res.Outcomes) || !codexIdentity(meta, call) {
+			if call == nil || match.Kind == reasoningpreservation.MatchNone || !safeCodexOutcome(res.Outcomes) || !codexIdentity(meta) {
 				return
 			}
 			if call.Extensions == nil {
@@ -95,7 +95,7 @@ func codexCompanionPolicy() reasoningpreservation.CompanionPolicy {
 	}
 }
 
-func codexIdentity(meta request.AttemptMeta, call *lipapi.Call) bool {
+func codexIdentity(meta request.AttemptMeta) bool {
 	if strings.TrimSpace(meta.BackendID) == "" || !strings.Contains(strings.ToLower(meta.BackendID), "codex") {
 		return false
 	}

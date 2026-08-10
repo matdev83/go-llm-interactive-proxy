@@ -46,6 +46,7 @@ func ForwardExecute(stream ExecuteStream, open OpenManagedStream) error {
 		// canonical event. Preserve the original open error, but do not discard
 		// accounting evidence already published by the managed stream.
 		if ms != nil {
+			defer func() { _ = ms.Close() }()
 			if evidenceErr := forwardAccountingEvidence(stream, ms, &seq); evidenceErr != nil {
 				return evidenceErr
 			}

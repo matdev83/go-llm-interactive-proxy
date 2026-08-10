@@ -178,6 +178,12 @@ func (s *nativeUsageSidebandStream) Recv(ctx context.Context) (lipapi.Event, err
 	if s == nil {
 		return lipapi.Event{}, io.EOF
 	}
+	if ctx == nil {
+		return lipapi.Event{}, lipapi.ErrNilContext
+	}
+	if err := ctx.Err(); err != nil {
+		return lipapi.Event{}, err
+	}
 	s.mu.Lock()
 	if s.ManagedEventStream == nil && s.openErr != nil && !s.errReturned {
 		s.errReturned = true
