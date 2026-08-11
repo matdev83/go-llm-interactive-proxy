@@ -1,0 +1,23 @@
+{
+  "feature_name": "usage-record-ledger-billing",
+  "created_at": "2026-08-11T01:03:00+02:00",
+  "updated_at": "2026-08-11T09:40:00+02:00",
+  "language": "en",
+  "phase": "tasks-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": false
+    },
+    "design": {
+      "generated": true,
+      "approved": false
+    },
+    "tasks": {
+      "generated": true,
+      "approved": false
+    }
+  },
+  "ready_for_implementation": false,
+  "project_description": "Replace Go-LIP stream-time financial accounting with domain-neutral Turn/Leg Usage Records and a durable Bun-backed double-entry billing journal. Before upstream work, calculate a pessimistic maximum customer charge and atomically record an authorization hold against prepaid funds or a postpaid credit line. Execute with no financial mutation, then persist one immutable A-leg Turn Usage Record containing every billable B-leg and its provider/model evidence. Post-turn processing calculates customer revenue and per-B-leg operator cost, posts balanced financial and authorization journal entries, records point-in-time balance/reserved/available snapshots, closes the hold, and updates rebuildable materialized account state. Journal replay must reconstruct account state and support reconciliation/recovery."
+}
