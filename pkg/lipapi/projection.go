@@ -143,6 +143,9 @@ func ProjectItemsToLegacyView(call Call, target LegacyProjectionTarget) (LegacyP
 	if err := call.Validate(); err != nil {
 		return LegacyProjectionResult{}, err
 	}
+	if len(call.SemanticExtensions) > 0 {
+		return LegacyProjectionResult{}, projectionErr(ProjectionReasonOpaqueExtension, "SemanticExtensions", "semantic residual has no legacy projection authority")
+	}
 	var instructions, messages []Message
 	for i, item := range call.Items {
 		field := fmt.Sprintf("Items[%d]", i)
@@ -207,6 +210,9 @@ func ProjectItemsToLegacyView(call Call, target LegacyProjectionTarget) (LegacyP
 func ProjectLegacyToOrderedItems(call Call, target OrderedItemProjectionTarget) ([]Item, ProtocolRequirements, error) {
 	if call.HasItemAuthority() {
 		return nil, ProtocolRequirements{}, projectionErr(ProjectionReasonConflictingAuthority, "Items", "legacy authority required")
+	}
+	if len(call.SemanticExtensions) > 0 {
+		return nil, ProtocolRequirements{}, projectionErr(ProjectionReasonOpaqueExtension, "SemanticExtensions", "semantic residual has no ordered-item projection authority")
 	}
 	if len(call.Messages) == 0 && len(call.Instructions) == 0 {
 		return nil, ProtocolRequirements{}, &ValidationError{Field: "Messages", Message: "at least one message is required"}

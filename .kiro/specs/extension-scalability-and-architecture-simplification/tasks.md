@@ -212,7 +212,7 @@ Current fresh validation evidence:
 
 ## 5. Harden Canonical and Backend-Plugin Extension Boundaries
 
-- [ ] 5.1 Audit protocol-named canonical fields with characterization tests before any migration
+- [x] 5.1 Audit protocol-named canonical fields with characterization tests before any migration
   - Trace all readers/writers of `PromptCacheKey`, reasoning Summary/Content/EncryptedContent presence, compaction encrypted content, and related OpenResponses/Codex carriers.
   - Classify each as core/shared semantic or adapter-only fidelity using Requirement 9 promotion rules.
   - Add characterization round-trips and projection/admission tests for every migration candidate.
@@ -223,10 +223,10 @@ Current fresh validation evidence:
   - _Depends: 2.1_
   - _Validation: go test ./pkg/lipapi/... ./internal/plugins/backends/openresponsescompat/... ./internal/plugins/frontends/openresponses/... ./connectors/codex/..._
 
-- [ ] 5.2 Migrate only proven adapter-only canonical fidelity to bounded negotiated carriers
+- [x] 5.2 Migrate only proven adapter-only canonical fidelity to bounded negotiated carriers
   - Reuse existing extension carriers where sufficient; add at most one generic presence-bearing semantic residual carrier if evidence proves a gap.
   - Keep shared/core-consumed reasoning/compaction semantics first-class.
-  - Preserve source compatibility through aliases/transitional fields where practical and forbid raw request/response tunneling.
+  - Preserve source compatibility through aliases/transitional fields where practical and forbid raw request/response tunneling. The audit evidence records why `Call.Extensions`, item/content carriers, and existing backend-plugin fields cannot preserve call-level presence/identity safely.
   - Observable completion: canonical first-class surface is smaller or no larger for adapter-only fidelity, with all characterization tests green.
   - _Requirements: 9.2–9.9, 1.9_
   - _Design rules: D9–D10, D17_
@@ -234,7 +234,7 @@ Current fresh validation evidence:
   - _Depends: 5.1_
   - _Validation: go test ./pkg/lipapi/... ./internal/core/... ./internal/plugins/frontends/... ./internal/plugins/backends/..._
 
-- [ ] 5.3 Add semantic backend-plugin carrier/negotiation support without breaking v1.3
+- [x] 5.3 Add semantic backend-plugin carrier/negotiation support without breaking v1.3
   - First add RED v1.0–v1.3 compatibility and unknown-carrier tests.
   - If required by 5.2, add one protocol-neutral semantic extension feature/carrier with strict bounds and exact requirement matching.
   - Preserve `exact_openresponses_fields` as legacy compatibility vocabulary; bridge without dual authority or silent loss.
@@ -245,7 +245,7 @@ Current fresh validation evidence:
   - _Depends: 5.2, 2.4_
   - _Validation: go test ./pkg/lipsdk/backendplugin/... ./internal/infra/backendplugins/adapter/... ./tools/backendplugin/..._
 
-- [ ] 5.4 Enforce future canonical/ABI promotion policy in architecture/docs
+- [x] 5.4 Enforce future canonical/ABI promotion policy in architecture/docs
   - Add architecture tests for new protocol-named backend-plugin feature/proto additions outside the legacy allowlist.
   - Document the canonical promotion checklist and semantic-ABI rule with positive/negative examples.
   - Observable completion: a synthetic protocol-named ABI feature fails architecture tests while a semantic carrier extension passes.

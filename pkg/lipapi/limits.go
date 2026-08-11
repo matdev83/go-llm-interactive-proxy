@@ -67,6 +67,8 @@ const (
 	MaxExtensionImplementorBytes       = 256
 	MaxExtensionDirectionBytes         = 64
 	MaxExtensionDataBytes              = 4 * 1024 * 1024
+	MaxSemanticExtensions              = 64
+	MaxSemanticExtensionDataBytes      = MaxExtensionDataBytes
 	MaxContentPartsPerItem             = 2_048
 	MaxJSONDepth                       = 64
 
@@ -169,6 +171,20 @@ func (c Call) validateEnvelopeSizes() error {
 	}
 	if len(c.Extensions) > MaxExtensionKeys {
 		return &ValidationError{Field: "Extensions", Message: fmt.Sprintf("at most %d extension entries", MaxExtensionKeys)}
+	}
+	if len(c.SemanticExtensions) > MaxSemanticExtensions {
+		return &ValidationError{Field: "SemanticExtensions", Message: fmt.Sprintf("at most %d semantic extensions", MaxSemanticExtensions)}
+	}
+	seenSemanticExtensions := make(map[string]struct{}, len(c.SemanticExtensions))
+	for i, ext := range c.SemanticExtensions {
+		if err := ext.validate(fmt.Sprintf("SemanticExtensions[%d]", i)); err != nil {
+			return err
+		}
+		key := ext.Namespace + "\x00" + ext.Type + "\x00" + ext.Implementor + "\x00" + ext.Direction
+		if _, exists := seenSemanticExtensions[key]; exists {
+			return &ValidationError{Field: fmt.Sprintf("SemanticExtensions[%d]", i), Message: "duplicate semantic extension identity"}
+		}
+		seenSemanticExtensions[key] = struct{}{}
 	}
 	for k, v := range c.Extensions {
 		if err := validateStringField(fmt.Sprintf("Extensions[%q]", k), k, MaxExtensionKeyBytes); err != nil {

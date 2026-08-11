@@ -371,6 +371,11 @@
   },
   {
     "category": "const",
+    "name": "FeatureSemanticExtensions",
+    "detail": "FeatureSemanticExtensions untyped string = \"semantic_extensions_v1\""
+  },
+  {
+    "category": "const",
     "name": "MetaDeliveryMode",
     "detail": "MetaDeliveryMode untyped string = \"lip.delivery_mode\""
   },
@@ -516,6 +521,11 @@
   },
   {
     "category": "const",
+    "name": "ProtocolMinorSemanticExtensions",
+    "detail": "ProtocolMinorSemanticExtensions uint32 = 6"
+  },
+  {
+    "category": "const",
     "name": "RawJSONAbsent",
     "detail": "RawJSONAbsent backendplugin.RawJSONState = 0"
   },
@@ -558,6 +568,16 @@
     "category": "const",
     "name": "RoleUser",
     "detail": "RoleUser backendplugin.Role = \"user\""
+  },
+  {
+    "category": "const",
+    "name": "SemanticExtensionNull",
+    "detail": "SemanticExtensionNull backendplugin.SemanticExtensionPresence = \"null\""
+  },
+  {
+    "category": "const",
+    "name": "SemanticExtensionValue",
+    "detail": "SemanticExtensionValue backendplugin.SemanticExtensionPresence = \"value\""
   },
   {
     "category": "const",
@@ -1133,6 +1153,10 @@
   {
     "category": "field",
     "name": "Invocation.SafeMetadata"
+  },
+  {
+    "category": "field",
+    "name": "Invocation.SemanticExtensions"
   },
   {
     "category": "field",
@@ -1720,6 +1744,30 @@
   },
   {
     "category": "field",
+    "name": "SemanticExtension.Data"
+  },
+  {
+    "category": "field",
+    "name": "SemanticExtension.Direction"
+  },
+  {
+    "category": "field",
+    "name": "SemanticExtension.Implementor"
+  },
+  {
+    "category": "field",
+    "name": "SemanticExtension.Namespace"
+  },
+  {
+    "category": "field",
+    "name": "SemanticExtension.Presence"
+  },
+  {
+    "category": "field",
+    "name": "SemanticExtension.Type"
+  },
+  {
+    "category": "field",
     "name": "ServerFrame.Accounting"
   },
   {
@@ -2109,6 +2157,11 @@
   },
   {
     "category": "func",
+    "name": "ProxyOwnedSemanticExtensionsSupported",
+    "detail": "func ProxyOwnedSemanticExtensionsSupported(neg Negotiation) bool"
+  },
+  {
+    "category": "func",
     "name": "ProxyOwnedSessionIDSupported",
     "detail": "func ProxyOwnedSessionIDSupported(neg Negotiation) bool"
   },
@@ -2151,6 +2204,11 @@
     "category": "func",
     "name": "RequireOrderedItemABISupport",
     "detail": "func RequireOrderedItemABISupport(neg Negotiation, call lipapi.Call) error"
+  },
+  {
+    "category": "func",
+    "name": "RequireSemanticExtensionsABISupport",
+    "detail": "func RequireSemanticExtensionsABISupport(neg Negotiation, call lipapi.Call) error"
   },
   {
     "category": "func",
@@ -2593,7 +2651,7 @@
   {
     "category": "struct",
     "name": "Invocation",
-    "detail": "Invocation struct {\n\tRequestID        string\n\tAttemptID        string\n\tALegID           string\n\tBLegID           string\n\tCanonicalModelID string\n\tNativeModelID    string\n\tInstructions     []Message\n\tMessages         []Message\n\tTools            []ToolDef\n\tToolChoice       *string\n\tOptions          GenerationOptions\n\tSafeMetadata     map[string]string\n\n\tProxyOwnedSessionID string\n\n\tPromptCacheKey string\n\n\tOperation            string\n\tDeliveryMode         string\n\tTransportMode        string\n\tItemAuthority        bool\n\tItems                []InvocationItem\n\tProtocolRequirements ProtocolRequirementsDTO\n}"
+    "detail": "Invocation struct {\n\tRequestID        string\n\tAttemptID        string\n\tALegID           string\n\tBLegID           string\n\tCanonicalModelID string\n\tNativeModelID    string\n\tInstructions     []Message\n\tMessages         []Message\n\tTools            []ToolDef\n\tToolChoice       *string\n\tOptions          GenerationOptions\n\tSafeMetadata     map[string]string\n\n\tProxyOwnedSessionID string\n\n\tPromptCacheKey     string\n\tSemanticExtensions []SemanticExtension\n\n\tOperation            string\n\tDeliveryMode         string\n\tTransportMode        string\n\tItemAuthority        bool\n\tItems                []InvocationItem\n\tProtocolRequirements ProtocolRequirementsDTO\n}"
   },
   {
     "category": "struct",
@@ -2709,6 +2767,11 @@
     "category": "struct",
     "name": "SecretBundle",
     "detail": "SecretBundle struct {\n\tValues map[string][]byte\n}"
+  },
+  {
+    "category": "struct",
+    "name": "SemanticExtension",
+    "detail": "SemanticExtension struct {\n\tNamespace   string\n\tType        string\n\tImplementor string\n\tDirection   string\n\tPresence    SemanticExtensionPresence\n\tData        RawJSON\n}"
   },
   {
     "category": "struct",
@@ -2834,6 +2897,11 @@
     "category": "type",
     "name": "Role",
     "detail": "Role = lipapi.Role"
+  },
+  {
+    "category": "type",
+    "name": "SemanticExtensionPresence",
+    "detail": "SemanticExtensionPresence string"
   },
   {
     "category": "type",

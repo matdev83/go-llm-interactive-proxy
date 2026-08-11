@@ -412,6 +412,23 @@ message Invocation {
   // proxy_owned_session_id is injected by the proxy host from validated
   // secure-session state. It is not client-provided metadata.
   string proxy_owned_session_id = 20;
+  repeated SemanticExtensionWire semantic_extensions = 21;
+}
+
+// SemanticExtensionWire carries one bounded residual canonical semantic. It is
+// not a complete request/response tunnel; identity participates in admission.
+message SemanticExtensionWire {
+  string namespace = 1;
+  string type = 2;
+  string implementor = 3;
+  string direction = 4;
+  enum Presence {
+    PRESENCE_UNSPECIFIED = 0;
+    PRESENCE_NULL = 1;
+    PRESENCE_VALUE = 2;
+  }
+  Presence presence = 5;
+  bytes json = 6;
 }
 
 message ProtocolRequirementsWire {

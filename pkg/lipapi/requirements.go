@@ -326,6 +326,12 @@ func DeriveProtocolRequirements(c Call) ProtocolRequirements {
 			Type:      key,
 		})
 	}
+	for _, ext := range c.SemanticExtensions {
+		req.Capabilities = append(req.Capabilities, CapabilityOpaqueExtensions)
+		req.ExtensionTypes = append(req.ExtensionTypes, ExtensionRequirement{
+			Namespace: ext.Namespace, Type: ext.Type, Implementor: ext.Implementor,
+		})
+	}
 	return NormalizeProtocolRequirements(req)
 }
 

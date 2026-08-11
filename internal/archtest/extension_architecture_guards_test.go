@@ -21,6 +21,7 @@ var LegacyABIAllowlist = []string{
 	backendplugin.FeatureExactOpenResponsesFields,
 	backendplugin.FeatureProxyOwnedSessionID,
 	backendplugin.FeatureAccountingEvidence,
+	backendplugin.FeatureSemanticExtensions,
 }
 
 var genericABIFieldTerms = map[string]bool{

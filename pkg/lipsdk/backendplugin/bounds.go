@@ -31,7 +31,10 @@ const (
 	// FeatureProxyOwnedSessionID gates the optional typed session authority field.
 	FeatureProxyOwnedSessionID = "proxy_owned_session_id"
 	// FeatureAccountingEvidence gates the non-canonical accounting sideband.
-	FeatureAccountingEvidence          = "accounting_evidence_sideband"
+	FeatureAccountingEvidence = "accounting_evidence_sideband"
+	// FeatureSemanticExtensions gates the bounded protocol-neutral residual carrier.
+	FeatureSemanticExtensions          = "semantic_extensions_v1"
+	ProtocolMinorSemanticExtensions    = uint32(6)
 	DefaultMaxAccountingDedupeKeyBytes = uint64(256)
 
 	// DefaultMaxMessageBytes is the default whole-message size ceiling.

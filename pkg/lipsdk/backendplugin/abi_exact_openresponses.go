@@ -14,10 +14,30 @@ import (
 // EncryptedContent) when negotiation did not reach minor 3 with the feature
 // enabled. Plain calls without those semantics remain backward-compatible.
 func RequireExactOpenResponsesABISupport(neg Negotiation, call lipapi.Call) error {
-	if !callRequiresExactOpenResponses(call) {
+	if !callRequiresExactOpenResponses(call) || promptCacheAliasUsesSemanticCarrier(neg, call) {
 		return nil
 	}
 	return requireExactOpenResponsesNegotiation(neg)
+}
+
+func promptCacheAliasUsesSemanticCarrier(neg Negotiation, call lipapi.Call) bool {
+	return strings.TrimSpace(call.PromptCacheKey) != "" && len(call.SemanticExtensions) == 0 && ProxyOwnedSemanticExtensionsSupported(neg)
+}
+
+// RequireSemanticExtensionsABISupport rejects a required residual carrier when
+// the negotiated ABI cannot carry its exact identity/presence/data.
+func RequireSemanticExtensionsABISupport(neg Negotiation, call lipapi.Call) error {
+	if len(call.SemanticExtensions) == 0 {
+		return nil
+	}
+	if ProxyOwnedSemanticExtensionsSupported(neg) {
+		return nil
+	}
+	return fmt.Errorf("%w: semantic carrier requires minor %d and feature %q", ErrExactOpenResponsesUnsupported, ProtocolMinorSemanticExtensions, FeatureSemanticExtensions)
+}
+
+func ProxyOwnedSemanticExtensionsSupported(neg Negotiation) bool {
+	return neg.Compatible && neg.NegotiatedMinor >= ProtocolMinorSemanticExtensions && slices.Contains(neg.EnabledFeatures, FeatureSemanticExtensions)
 }
 
 // RequireExactOpenResponsesEventABISupport rejects canonical events that carry
@@ -54,7 +74,9 @@ func ProxyOwnedSessionIDSupported(neg Negotiation) bool {
 }
 
 func callRequiresExactOpenResponses(call lipapi.Call) bool {
-	if strings.TrimSpace(call.PromptCacheKey) != "" {
+	// PromptCacheKey is bridged to semantic_extensions_v1 when that explicit
+	// carrier is present; otherwise retain the v1.3 compatibility gate.
+	if strings.TrimSpace(call.PromptCacheKey) != "" && len(call.SemanticExtensions) == 0 {
 		return true
 	}
 	for i := range call.Instructions {
