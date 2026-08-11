@@ -371,3 +371,5 @@ The target intentionally leaves non-money request/token/rate-limit policy outsid
 ## External Review Result
 
 CodeRabbit's ten actionable findings were all valid and improved the design. They are now explicitly represented in requirements/design/tasks: durable TUR/LUR financial identity, requested-amount admission invariant, correction linkage, AccountSequence, exact snapshot identity, separate processing state, semantic replay fingerprints, complete trusted store commands, `unreconciled_cost`, and `reconcile_required` block/re-enable behavior.
+
+The final external-review disposition is **addressed in spec artifacts, pending reviewer re-evaluation of the updated diff**. Review threads are not treated as manually resolved merely because the underlying prose changed.
