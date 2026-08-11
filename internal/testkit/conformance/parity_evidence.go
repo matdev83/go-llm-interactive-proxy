@@ -17,7 +17,7 @@ var ParitySuiteGoFiles = []string{
 	"parity_anthropic_test.go",
 	"parity_gemini_test.go",
 	"parity_bedrock_test.go",
-	"parity_acp_test.go",
+	"connector_host_test.go",
 }
 
 // ParityProtocolEvidence maps every bundled frontend/backend protocol id to at least one
@@ -31,13 +31,10 @@ var ParityProtocolEvidence = map[string][]string{
 	"anthropic":        {"parity_anthropic_test.go"},
 	"gemini":           {"parity_gemini_test.go"},
 	"bedrock":          {"parity_bedrock_test.go"},
-	"acp":              {"parity_acp_test.go"},
-	"openresponses": {
-		"openresponses_frontend_row_conformance_test.go",
-		"openresponses_backend_column_conformance_test.go",
-	},
-	"openrouter": {"openresponses_provider_mode.go"},
-	"nvidia":     {"openresponses_provider_mode.go"},
+	"acp":              {"connector_host_test.go"},
+	"openresponses":    {"sentinel_test.go"},
+	"openrouter":       {"sentinel_test.go"},
+	"nvidia":           {"sentinel_test.go"},
 }
 
 // AllBundledProtocolIDs returns the sorted union of bundled frontend and backend protocol ids.

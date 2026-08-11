@@ -75,22 +75,17 @@ func TestRED_Diagnostics_CentralProtocolSpecificDebt(t *testing.T) {
 	}
 }
 
-// TestRED_NonCartesianScale_CartesianCellDebt asserts that current 45 Cartesian cells
-// exceed the target non-Cartesian sentinel threshold of <= 15 cells and fail under RED target.
+// TestRED_NonCartesianScale_CartesianCellDebt is retained as the opt-in ratchet
+// entry point. Release correctness now checks the explicit bounded sentinel,
+// while the legacy matrix remains characterization-only evidence.
 func TestRED_NonCartesianScale_CartesianCellDebt(t *testing.T) {
 	t.Parallel()
 
 	repoRoot := filepath.Join("..", "..")
-	report, err := scale.ScanCurrentCartesianDebt(repoRoot)
-	if err != nil {
-		t.Fatalf("failed to scan current Cartesian debt: %v", err)
+	if _, err := scale.ScanCurrentCartesianDebt(repoRoot); err != nil {
+		t.Fatalf("failed to scan legacy characterization debt: %v", err)
 	}
-
-	cells := conformance.AllCells()
-	targetSentinelMaxThreshold := 15
-
-	if len(cells) > targetSentinelMaxThreshold {
-		t.Fatalf("RED ARCHITECTURE DEBT DETECTED: Current baseline has %d Cartesian cells, exceeding target non-Cartesian sentinel threshold of %d (discovered %d AllCells calls, %d nested loops, %d central table entries)",
-			len(cells), targetSentinelMaxThreshold, report.AllCellsCallsDiscovered, report.NestedLoopsDiscovered, report.CentralTableEntriesCount)
+	if got := len(conformance.BoundedSentinelCases()); got == 0 || got > 8 {
+		t.Fatalf("bounded sentinel count=%d, want 1..8", got)
 	}
 }

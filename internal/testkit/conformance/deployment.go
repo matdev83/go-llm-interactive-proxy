@@ -15,12 +15,15 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openresponsescompat"
 	frontanthropic "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/anthropic"
 	frontgemini "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/gemini"
 	frontopenailegacy "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"
 	frontopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
 	frontopenresponses "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openresponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/providerprofiles"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	testkitopenresponses "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/openresponses"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -44,15 +47,16 @@ const (
 // (DeployConnectorColumnFor / connector_host.go) without promoting the
 // connectors to essential status.
 const (
-	BackendOpenAIResponses = "openai-responses"
-	BackendOpenAILegacy    = "openai-legacy"
-	BackendAnthropic       = "anthropic"
-	BackendGemini          = "gemini"
-	BackendBedrock         = "bedrock"
-	BackendACP             = "acp"
-	BackendOpenRouter      = "openrouter"
-	BackendNVIDIA          = "nvidia"
-	BackendOpenResponses   = "openresponses"
+	BackendOpenAIResponses  = "openai-responses"
+	BackendOpenAILegacy     = "openai-legacy"
+	BackendAnthropic        = "anthropic"
+	BackendGemini           = "gemini"
+	BackendBedrock          = "bedrock"
+	BackendACP              = "acp"
+	BackendOpenRouter       = "openrouter"
+	BackendNVIDIA           = "nvidia"
+	BackendOpenResponses    = "openresponses"
+	BackendCompatibleOpenAI = standardplugins.CustomOpenAIResponsesCompatibleID
 )
 
 // HarnessFrontendIDs returns the deterministic authoritative harness frontend
@@ -99,6 +103,8 @@ const (
 type Candidate struct {
 	// Backend is an authoritative backend ID.
 	Backend string
+	// ProfileID selects a validated profile when Backend is a compatible family.
+	ProfileID string
 	// OriginFail selects a deterministic failure mode for the candidate origin.
 	OriginFail OriginFailMode
 	// ProviderOrigin injects an external reference-provider origin base URL.
@@ -129,6 +135,8 @@ type DeploymentSpec struct {
 	// the primary backend (existing reference families, Phase 8 refbackend).
 	// Empty deploys a harness contract-fake origin.
 	ProviderOrigin string
+	// ProfileID selects a validated provider profile for a compatible family.
+	ProfileID string
 	// ProviderClient is the HTTP client used by the real backend to reach the
 	// origin; empty uses the origin loopback client.
 	ProviderClient *http.Client
@@ -167,7 +175,7 @@ func (s DeploymentSpec) Validate() error {
 	if !containsString(HarnessFrontendIDs(), s.Frontend) {
 		return fmt.Errorf("harness: unknown frontend %q", s.Frontend)
 	}
-	if !containsString(HarnessBackendIDs(), s.Backend) {
+	if !containsString(HarnessBackendIDs(), s.Backend) && s.Backend != BackendCompatibleOpenAI {
 		return fmt.Errorf("harness: unknown backend %q", s.Backend)
 	}
 	switch s.Backend {
@@ -230,7 +238,7 @@ func Deploy(tb testing.TB, spec DeploymentSpec) *Deployment {
 
 	primaryOrigin := newHarnessOrigin(tb, spec.Backend, spec.OriginFail, spec.Clock, spec.ArtifactLimit, spec.ProviderOrigin, spec.ProviderClient, spec.OriginHandler)
 	d.origins[spec.Backend] = primaryOrigin
-	d.backends[spec.Backend] = harnessBackendFor(tb, spec.Backend, primaryOrigin.URL(), primaryOrigin.Client())
+	d.backends[spec.Backend] = harnessBackendForProfile(tb, spec.Backend, primaryOrigin.URL(), primaryOrigin.Client(), spec.ProfileID)
 
 	var route strings.Builder
 	route.WriteString(RouteSelector(spec.Backend, model))
@@ -431,7 +439,7 @@ func withHarnessSession(next *http.ServeMux) *http.ServeMux {
 // the spec does not pin one.
 func harnessDefaultModel(backendID string) string {
 	switch backendID {
-	case BackendOpenResponses:
+	case BackendOpenResponses, BackendCompatibleOpenAI:
 		return "gpt-4o-mini"
 	default:
 		return DefaultModel(backendID)
@@ -449,7 +457,35 @@ func candidateBackendKey(primary string, i int) string {
 // backend ID against an origin base URL. OpenResponses uses the generic
 // compatible factory; the essential families reuse [BackendFor].
 func harnessBackendFor(tb testing.TB, backendID, originURL string, httpClient *http.Client) execbackend.Backend {
+	return harnessBackendForProfile(tb, backendID, originURL, httpClient, "")
+}
+
+func harnessBackendForProfile(tb testing.TB, backendID, originURL string, httpClient *http.Client, profileID string) execbackend.Backend {
 	tb.Helper()
+	if backendID == BackendCompatibleOpenAI {
+		profile, err := providerprofiles.EmbeddedProfile(profileID)
+		if err != nil {
+			tb.Fatalf("harness: profile %q: %v", profileID, err)
+		}
+		if _, err := providerprofiles.CompileProfile(profile); err != nil {
+			tb.Fatalf("harness: compile profile %q: %v", profileID, err)
+		}
+		// Compile the actual catalog profile, then override only its endpoint for
+		// the local observing provider. The backend is built through the standard
+		// family compiler, not through a profile-shaped metadata-only fixture.
+		profile.Endpoint.BaseURL = originURL + "/v1"
+		profile.Auth.EnvVar = "PROFILE_SENTINEL_KEY"
+		tb.Setenv("PROFILE_SENTINEL_KEY", "sk-profile-sentinel")
+		compiled, err := providerprofiles.CompileProfile(profile)
+		if err != nil {
+			tb.Fatalf("harness: compile profile %q: %v", profileID, err)
+		}
+		backend, err := standardplugins.BuildProviderProfileBackend(compiled, "profile-sentinel", httpClient, pluginreg.BackendFactoryDeps{})
+		if err != nil {
+			tb.Fatalf("harness: build compatible profile family: %v", err)
+		}
+		return backend
+	}
 	if backendID == BackendOpenResponses {
 		raw := "backend_prefix: harness-or\nbase_url: " + originURL + "\n"
 		var n yaml.Node

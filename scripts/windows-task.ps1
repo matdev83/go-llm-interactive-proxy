@@ -133,8 +133,18 @@ switch -Regex ($Target) {
     }
     "^test-fuzz$" { Run-Fuzz; break }
     "^parity-checks$" {
+        Run-RootGoTest "parity-checks:contract" (@($goTestFlags) + @("./internal/testkit/contract/..."))
+        Run-RootGoTest "parity-checks:profiles" (@($goTestFlags) + @("./internal/providerprofiles/..."))
+        Run-RootGoTest "parity-checks:connector-contract" (@($goTestFlags) + @("./pkg/lipsdk/backendplugin/contracttest/..."))
         Run-RootGoTest "parity-checks:conformance" (@($goTestFlags) + @("-tags=precommit,integration", "./internal/testkit/conformance/..."))
-        Run-RootGoTest "parity-checks:compatible" (@($goTestFlags) + @("./internal/testkit/compatibleparity/...", "-run", "CompatibleParity")); break
+        Run-RootGoTest "parity-checks:compatible" (@($goTestFlags) + @("./internal/testkit/compatibleparity/...", "-run", "CompatibleParity"))
+        Run-NestedGoTest "parity-checks:connector-support/acp" "connector-support/acp" (@($goTestFlags) + @("-run", "KillProcessTree_|ProcessTree_CrossCompile|PID|Pool|Cancel|Open_|MapSession|Scripted"))
+        Run-NestedGoTest "parity-checks:connectors/acp" "connectors/acp" (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_"))
+        Run-NestedGoTest "parity-checks:connector-support/openaicompat" "connector-support/openaicompat" $goTestFlags
+        Run-NestedGoTest "parity-checks:connectors/openrouter" "connectors/openrouter" (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestBilling_"))
+        Run-NestedGoTest "parity-checks:connectors/nvidia" "connectors/nvidia" (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestInventory_"))
+        Run-NestedGoTest "parity-checks:connectors/huggingface" "connectors/huggingface" (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestInventory_"))
+        Run-RootGoTest "parity-checks:sentinel" (@($goTestFlags) + @("-tags=integration", "./internal/testkit/conformance", "-run", "^TestBoundedSentinel")); break
     }
     "^parity-|^test-local-compatible-plugin-modules$" {
         Run-Parity

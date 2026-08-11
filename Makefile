@@ -29,7 +29,7 @@ help:
 	@echo "  make test-cursor-sdk-live-bridge - opt-in Go→Node live bridge lifecycle (-tags=cursorsdk_live_bridge; CURSOR_SDK_LIVE=1 + key)"
 	@echo "  make test-cursor-sdk-platform - current-OS bridge platform smoke (fake bridge; no API key)"
 	@echo "  make test-cursor-sdk-comparison-report - ACP vs SDK matrix report (synthetic/blocked offline; no credentials)"
-	@echo "  make parity-checks   - conformance package tests only (-tags=precommit,integration; FE×BE matrix + parity suites; see docs/conformance-matrix-evidence.md)"
+	@echo "  make parity-checks   - TCK certifications, protocol-owned parity suites, and bounded integration evidence"
 	@echo "  make release-gates   - conformance package + all critical fuzz targets (race is separate: test-race / CI; see docs/release-gates.md)"
 	@echo "  make bench           - benchmarks (testkit, stream, core runtime/routing/diag/toolcallrepair, frontend encoders)"
 	@echo "  make pgo-profile     - collect default.pgo from core benches (move under cmd/lipstd before build)"
@@ -275,12 +275,44 @@ else
 	@bash scripts/test-cursor-sdk-comparison-report.sh
 endif
 
-parity-checks:
 ifeq ($(OS),Windows_NT)
+parity-checks:
 	@$(WINDOWS_TASK) parity-checks
 else
-	$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./internal/testkit/conformance/...
+parity-checks: parity-tcks parity-protocol-suites parity-connectors parity-sentinel
+endif
+
+parity-tcks:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) parity-tcks
+else
+	$(GO) test $(GO_TEST_FLAGS) ./internal/testkit/contract/...
+	$(GO) test $(GO_TEST_FLAGS) ./internal/providerprofiles/...
+	$(GO) test $(GO_TEST_FLAGS) ./pkg/lipsdk/backendplugin/contracttest/...
 	$(GO) test $(GO_TEST_FLAGS) ./internal/testkit/compatibleparity/... -run 'CompatibleParity'
+endif
+
+parity-protocol-suites:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) parity-protocol-suites
+else
+	$(GO) test $(GO_TEST_FLAGS) '-tags=precommit,integration' ./internal/testkit/conformance/...
+endif
+
+parity-connectors:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) parity-connectors
+else
+	@$(MAKE) parity-acp-plugin
+	@$(MAKE) parity-openrouter-plugin
+	@$(MAKE) parity-hosted-compatible-plugins
+endif
+
+parity-sentinel:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) parity-sentinel
+else
+	$(GO) test $(GO_TEST_FLAGS) '-tags=integration' ./internal/testkit/conformance -run '^TestBoundedSentinel'
 endif
 
 # Phase 6 ACP external connector parity (testemu/scripted ACP; not live Cursor/Gemini/Agy CLIs).
@@ -383,8 +415,7 @@ else
 	@bash scripts/backend-plugin-absence-checks.sh
 endif
 
-release-gates:
-	$(GO) test $(GO_TEST_FLAGS) -tags=integration ./internal/testkit/conformance/...
+release-gates: parity-checks quality-checks
 	@$(MAKE) test-fuzz
 
 bench:

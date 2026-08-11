@@ -257,7 +257,7 @@ Current fresh validation evidence:
 
 ## 6. Converge Continuation Ownership and Cut Over Conformance
 
-- [ ] 6.1 Collapse continuation store/recorder mirrors to one authority
+- [x] 6.1 Collapse continuation store/recorder mirrors to one authority
   - Run parity characterization against SDK/core copies first.
   - Retain `pkg/lipsdk/continuation` as default protocol-neutral contract/utility authority, retain durable infra adapters, and reduce core to orchestration/delegation.
   - Delete duplicate mutable state machines and add mirror regression guards.
@@ -268,7 +268,7 @@ Current fresh validation evidence:
   - _Depends: 1.4_
   - _Validation: go test ./pkg/lipsdk/continuation/... ./internal/core/continuation/... ./internal/infra/continuation/..._
 
-- [ ] 6.2 Build the bounded real-stack sentinel and prove provider-count independence
+- [x] 6.2 Build the bounded real-stack sentinel and prove provider-count independence
   - Select representative built-in, compatible-family, connector-host, stateful frontend, and negative admission paths with explicit `Protects` rationale.
   - Add bound tests and verify 1,000 additional profiles in existing families do not change sentinel count.
   - Observable completion: sentinel catches deliberately broken composition wiring but is independent of provider population.
@@ -278,7 +278,7 @@ Current fresh validation evidence:
   - _Depends: 2.2–2.4, 3.3, 4.2_
   - _Validation: go test -tags=precommit,integration ./internal/testkit/contract/... ./internal/integration/..._
 
-- [ ] 6.3 Dual-run legacy matrix and TCK model with feature traceability/mutation proof
+- [x] 6.3 Dual-run legacy matrix and TCK model with feature traceability/mutation proof
   - Map every current release-critical matrix feature to frontend/core/backend/profile/protocol/sentinel ownership.
   - Run both systems at the same implementation head.
   - Inject representative decode, projector, false-capability, connector-field-loss, and composition faults and prove the new owner suite catches each.
@@ -289,7 +289,7 @@ Current fresh validation evidence:
   - _Depends: 2.1–2.4, 6.2_
   - _Validation: make parity-checks && go test ./internal/testkit/contract/..._
 
-- [ ] 6.4 Retire Cartesian completeness and delete obsolete evidence scaffolding
+- [x] 6.4 Retire Cartesian completeness and delete obsolete evidence scaffolding
   - Switch parity/release correctness to TCK certifications + protocol-owned suites + bounded sentinel.
   - Remove authoritative `AllCells` completeness, OpenResponses row/column/general-cell feature evidence used only by Cartesian proof, and pairwise metadata.
   - Preserve independent emulators/compliance and reusable scenarios.

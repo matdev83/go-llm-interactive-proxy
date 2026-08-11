@@ -42,10 +42,9 @@ func TestNonCartesianScale_ThousandProfilesDoNotMultiplyCartesianPairs(t *testin
 		t.Fatalf("expected all %d families represented, got %d", len(families), len(mappedFamilies))
 	}
 
-	// Verify that baseline Cartesian cells are 45
-	baselineCells := conformance.AllCells()
-	if len(baselineCells) != 45 {
-		t.Fatalf("expected baseline cell count 45, got %d", len(baselineCells))
+	// Release evidence is bounded sentinels, not the historical product.
+	if got := len(conformance.BoundedSentinelCases()); got == 0 || got > 15 {
+		t.Fatalf("sentinel count=%d outside bounded release policy", got)
 	}
 }
 

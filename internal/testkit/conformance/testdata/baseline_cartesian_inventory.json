@@ -20,6 +20,12 @@
   ],
   "matrix_cell_count": 45,
   "required_feature_count": 17,
+  "required_feature_ids": [
+    "json_text", "sse_text", "instructions_roles", "history", "tools",
+    "multimodal", "assistant_media", "usage_errors", "reasoning_replay",
+    "assistant_phase", "item_references", "continuation", "compaction",
+    "extensions", "cancellation", "failover", "no_retry_visible_output"
+  ],
   "essential_backend_kinds": [
     "openai-responses",
     "openai-legacy",

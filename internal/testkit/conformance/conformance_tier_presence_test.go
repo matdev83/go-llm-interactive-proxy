@@ -10,14 +10,10 @@ import (
 
 // integrationTierExtraFiles are integration-tagged conformance sources beyond ParitySuiteGoFiles.
 var integrationTierExtraFiles = []string{
-	"matrix_test.go",
-	"conformance_text_test.go",
-	"conformance_tools_test.go",
-	"conformance_multimodal_test.go",
-	"backend_credentials_test.go",
 	"conformance_stream_authenticated_test.go",
 	"migration_test.go",
 	"release_gates_test.go",
+	"sentinel_test.go",
 }
 
 func TestConformance_integrationTier_sourceFilesPresent(t *testing.T) {
