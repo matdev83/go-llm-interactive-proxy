@@ -2,237 +2,124 @@
 
 ## Scope and Method
 
-This analysis reviews the revised `usage-record-ledger-billing` requirements against repository `main` at `269b9e8df0e9ed476d962c2327e1794f4b74bb83` and against the initial draft spec in `.kiro/specs/cdr-billing-and-prepaid-admission/`.
-
-Reviewed areas:
-
-- runtime settlement/admission paths;
-- B2BUA lineage (`ALegID` / `BLegID`);
-- backend accounting evidence and `FinalizeBilling`;
-- `internal/core/accounting`, `tokenaccounting`, `metering`, `controlplane`, and `usageauthority`;
-- `internal/infra/usageauthority/authoritystore`;
-- existing Bun database abstraction (`internal/infra/db`);
-- existing Bun-backed/durable store patterns and migrations;
-- terminal-work recovery paths;
-- the previous usage-accounting convergence spec and initial CDR-first draft.
+This analysis compares the target usage-record/double-entry billing architecture with current Go-LIP financial paths on `main`. It covers runtime stream accounting, token accounting, metering/control-plane reporting, `usageauthority`, B2BUA lineage, backend/connector billing evidence, terminal ownership, and existing Bun SQLite/PostgreSQL infrastructure.
 
 Classifications:
 
-- **Preserve** — reusable mechanism already fits target.
-- **Partial** — useful mechanism exists but ownership/semantics must change.
-- **Missing** — required capability does not exist.
-- **Duplicate** — overlapping authorities need deletion.
-- **Constraint** — migration must preserve existing behavior.
-- **Retire** — target explicitly removes the path.
-
-Effort:
-
-- **S** focused package/test work.
-- **M** multi-package migration on existing seams.
-- **L** durable schema/authority cutover across several packages.
+- **Missing** — target capability does not exist.
+- **Partial** — reusable machinery exists but ownership/semantics are incomplete.
+- **Duplicate** — multiple authorities implement the same economic interpretation.
+- **Constraint** — current compatibility or runtime invariant must be preserved.
+- **Delete** — migration-era machinery should disappear after cutover.
 
 ## Assets Worth Preserving
 
-### B2BUA lineage — Preserve
+1. **B2BUA lineage:** existing A-leg/B-leg identities and attempt outcomes already express the correct billing topology.
+2. **Adapter evidence:** backend adapters/connectors already normalize provider usage/cost and expose sideband/final billing evidence.
+3. **Checked money/rating helpers:** pure arithmetic and rating concepts are reusable outside stream execution.
+4. **Atomic authority-store mechanics:** current reserve/settle stores demonstrate same-account atomic reservation patterns, though the generalized monetary lifecycle is too broad for the target.
+5. **Bun DB infrastructure:** `internal/infra/db` already supports Bun over SQLite/PostgreSQL and should be reused.
+6. **Terminal ownership:** the existing terminal/terminal-work boundary is the correct place to seal durable turn evidence.
+7. **Architecture tests:** current forbidden-import/symbol/budget patterns can ratchet the final boundary after deletion.
 
-`pkg/lipapi/lineage.go` already records `ALegID`, `BLegID`, attempt sequence, backend, effective model, timestamps, and attempt outcome.
+## Core Brownfield Problem
 
-Disposition:
+Today usage observations can participate in multiple interpretations while a request is live: stream usage reconstruction, runtime aggregation, pricing enrichment, authority settlement, metering facts, token ledgers, and control-plane projection. These paths have different identity, presence, dedupe, correction, and aggregation semantics.
 
-- retain canonical lineage;
-- do not add financial fields to `lipapi`;
-- correlate internal Turn/Leg Usage Records with these IDs.
+The target removes this entire class of fragility by making execution financially passive after admission. The authoritative path becomes:
 
-### Side-effect-free route planning — Preserve
-
-Routing produces eligible attempt groups before upstream execution.
-
-Disposition:
-
-- calculate pessimistic customer bound after this plan exists;
-- do not make provider calls during estimation.
-
-### Backend final billing evidence — Preserve/Partial
-
-Backend plugin contracts already contain sideband accounting evidence and `FinalizeBilling`.
-
-Disposition:
-
-- converge to one final B-leg evidence result at termination;
-- stop reconstructing financial truth from generic runtime stream-event arrays.
-
-### Checked monetary arithmetic — Preserve
-
-Current accounting/economics packages already contain exact integer money/rating helpers.
-
-Disposition:
-
-- reuse checked arithmetic and price snapshot concepts;
-- remove stream-time cost mutation ownership.
-
-### Atomic reservation techniques — Preserve/Partial
-
-`authoritystore` already tracks `Consumed`, `Reserved`, deterministic reservation keys, and capacity checks inside atomic store mutation.
-
-Disposition:
-
-- reuse transactional ideas;
-- simplify monetary semantics to Billing Account + Authorization Hold + Journal;
-- do not preserve generalized monetary settlement through raw facts/exposure/lifecycle descriptors solely for compatibility.
-
-### Bun database abstraction — Preserve
-
-`internal/infra/db.NewBunDB` already supports SQLite and PostgreSQL dialects. Bun-backed stores/migrations and PostgreSQL harnesses already exist elsewhere.
-
-Disposition:
-
-- use existing infrastructure directly;
-- no new ORM/DB abstraction.
-
-### Terminal/terminal-work ownership — Preserve
-
-Runtime already has a terminal boundary and durable terminal-work concepts.
-
-Disposition:
-
-- seal/persist Turn Usage Record there;
-- do not create a second terminal authority.
+```text
+route plan
+ -> pessimistic max customer charge
+ -> atomic authorization hold
+ -> execute with no financial mutation
+ -> immutable TUR/LUR evidence
+ -> exact-snapshot deterministic rating
+ -> double-entry journal settlement
+ -> journal-backed account/report/reconciliation
+```
 
 ## Gap Register
 
-| ID | Severity | Class | Effort | Finding | Required disposition |
-|---|---:|---|---:|---|---|
-| G-01 | P0 | Missing | L | No durable double-entry financial journal owns customer monetary truth. | Add journal transactions/entries with debit=credit invariant. |
-| G-02 | P0 | Missing | M | No explicit prepaid vs postpaid billing-account model with individual credit limits. | Add account mode, signed balance, credit floor, and spendable formula. |
-| G-03 | P0 | Missing | M | Materialized balance cannot be rebuilt from a classical immutable journal. | Make journal replay reconstruct balance/reserved/available. |
-| G-04 | P0 | Missing | M | Authorization holds are operational state but not represented as balanced accounting evidence. | Add separate balanced authorization journal book. |
-| G-05 | P0 | Missing | M | Customer-affecting operations lack durable before/after balance/reserved/available snapshots. | Persist point-in-time snapshots inside the same DB transaction. |
-| G-06 | P0 | Partial | M | Existing B2BUA lineage exists, but financial models do not make every billable B-leg first-class. | Add Turn Usage Record with per-B-leg Leg Usage Records and operator cost. |
-| G-07 | P0 | Partial | M | Different B-leg models/rates can exist but current runtime accounting tends to merge usage. | Bind provider/model/rate evidence per B-leg and rate separately post-turn. |
-| G-08 | P0 | Duplicate | L | Financial interpretation is split among runtime, tokenaccounting, metering, usageauthority, and controlplane. | Converge financial authority on usage record -> calculator -> journal. |
-| G-09 | P0 | Retire | M | `StreamUsage.Reconstruct`/raw usage merges can influence settlement. | Remove from financial settlement path. |
-| G-10 | P0 | Retire | M | Runtime per-event cost enrichment mutates stream usage for economics. | Remove financial ownership from execution path. |
-| G-11 | P0 | Duplicate | M | Runtime economic dedupe and final adapter evidence both attempt to prevent double counting. | Use B-leg/usage-record/journal source identity; remove runtime economic dedupe. |
-| G-12 | P0 | Partial | L | Current reservations are atomic but not backed by a reconstructible double-entry journal. | Post hold/release authorization transactions atomically with materialized reserved state. |
-| G-13 | P0 | Missing | M | No trial-balance invariant exists for billing data. | Add per-transaction and range debit=credit validation. |
-| G-14 | P0 | Missing | M | Posted monetary corrections are not specified as reversal/replacement. | Make journal entries immutable and corrections additive. |
-| G-15 | P0 | Missing | L | No admin operation rebuilds account state from durable financial history. | Add reconciliation/rebuild service and store contract tests. |
-| G-16 | P0 | Missing | M | No authoritative provider-cost journal exists per B-leg. | Post inference COGS/provider payable entries per billable B-leg. |
-| G-17 | P0 | Missing | M | Customer revenue cannot be naturally itemized across multiple chargeable B-legs/models. | Allow multi-entry balanced customer charge transaction. |
-| G-18 | P0 | Partial | M | Existing money authority mixes financial and non-financial quota concepts. | Move prepaid/postpaid financial authority into billing bounded context; retain unrelated quota rules separately. |
-| G-19 | P0 | Constraint | L | Strict concurrency must work across processes and both durable DB dialects. | Store-level lock/CAS and SQLite/PostgreSQL contract tests. |
-| G-20 | P0 | Missing | M | Credit-limit changes have no target audit model. | Add append-only account-policy events; do not fake financial entries. |
-| G-21 | P1 | Partial | S/M | Existing control-plane reporting separates perspectives but may derive from raw metering/usage. | Move authoritative financial reports to journal + processed usage records. |
-| G-22 | P1 | Retire | M | Legacy token ledger may still receive direct runtime writes. | Inventory consumers; project one-way or delete. |
-| G-23 | P1 | Constraint | M | Client-visible usage must remain compatible during billing rewrite. | Keep wire projection independent of financial authority. |
-| G-24 | P1 | Constraint | S | Provider SDK types must stay outside core billing. | Normalize final evidence at adapter boundary. |
-| G-25 | P1 | Missing | M | First draft uses telecom term CDR. | Rename target model to Turn/Leg Usage Record. |
-| G-26 | P1 | Missing | M | Funding/payment accounting is needed to create/reduce customer balances but payment gateway is out of scope. | Add narrow trusted posting commands only. |
-| G-27 | P1 | Missing | M | Reconciliation needs first-failure diagnostics. | Validate stored pre/post snapshots during replay. |
-| G-28 | P1 | Constraint | M | Materialized account state is required for low-latency authorization. | Keep it transactionally updated but explicitly rebuildable. |
-| G-29 | P1 | Constraint | S | Credit limit is not a financial transaction. | Audit policy changes separately; no fake debit/credit. |
-| G-30 | P1 | Missing | M | Initial draft lacks an explicit safe state after invariant/reconciliation failure. | Add blocked/reconcile-required state and fail closed. |
+| ID | Severity | Class | Current finding | Required disposition |
+|---|---:|---|---|---|
+| G-01 | P0 | Duplicate/Delete | Runtime reconstructs/merges usage for multiple consumers and settlement. | Billing shall consume sealed TUR/LUR evidence, not stream arrays. |
+| G-02 | P0 | Duplicate/Delete | Runtime enriches usage events with cost/rating. | Move rating entirely to post-turn calculation. |
+| G-03 | P0 | Duplicate/Delete | Economic dedupe and remembered customer/operator totals live in retry stream state. | Delete after durable TUR/LUR identity is authoritative. |
+| G-04 | P0 | Partial | Adapter evidence exists but may surface repeated cumulative samples. | Adapter/finalizer must expose one final B-leg evidence result. |
+| G-05 | P0 | Partial | Existing `usageauthority` mixes money with generalized token/request lifecycle facts/exposure. | Narrow money billing to account authorization + post-turn settlement; preserve non-money rules separately. |
+| G-06 | P0 | Missing | No domain-neutral immutable A-leg usage record containing every B-leg. | Add TUR/LUR contracts. |
+| G-07 | P0 | Missing | No explicit prepaid/postpaid signed-balance model with individual postpaid credit floor. | Add account mode, balance convention, floor and spendable formula. |
+| G-08 | P0 | Partial | Existing reservation arithmetic exists, but target customer maximum-charge semantics are not the single admission contract. | Add deterministic pessimistic max-charge estimator + atomic hold. |
+| G-09 | P0 | Missing | No classical reconstructible double-entry customer/provider financial journal is authoritative. | Add one balanced immutable journal engine. |
+| G-10 | P0 | Missing | Holds are not modeled as an independently balanced authorization book distinct from revenue. | Add authorization book using same journal engine. |
+| G-11 | P0 | Missing | Materialized account state is not explicitly rebuildable from financial history. | Journal replay + account-policy history must reconstruct balance/reserved/spendable. |
+| G-12 | P0 | Missing | No point-in-time before/after account snapshot is required for every customer-affecting operation. | Persist diagnostic snapshots in the same DB transaction. |
+| G-13 | P0 | Missing | Provider costs are not defined as one posting source per B-leg/model/rate. | Post COGS/payable per provider-billable LUR. |
+| G-14 | P0 | Constraint | One A-leg can create sequential/parallel B-legs with different providers/models. | Customer settlement remains A-leg/TUR scoped; operator cost remains B-leg/LUR scoped. |
+| G-15 | P0 | Missing | No deterministic post-turn processing state/retry model is dedicated to sealed records. | Add small durable processing table; no event platform. |
+| G-16 | P0 | Constraint | Strict credit safety must hold across concurrent sessions/processes. | Store-atomic pessimistic holds; no session scan/concurrency=1 heuristic. |
+| G-17 | P1 | Partial | Metering/token ledgers provide audit data but have incompatible billing semantics. | Keep only as one-way telemetry/read projections or delete unused paths. |
+| G-18 | P0 | Missing | Financial reporting can bypass the exact charging result. | Reports read journal + processed TUR/LURs. |
+| G-19 | P0 | Constraint | Client-visible usage events remain protocol behavior. | Preserve wire usage separately from financial truth. |
+| G-20 | P0 | Constraint | No retry/failover after client output must remain unchanged. | Billing cannot trigger retry/failover. |
+| G-21 | P0 | Missing | Existing trusted top-up/payment/adjustment operations do not share one explicit narrow double-entry command contract. | Add closed trusted financial operations; no arbitrary posting API. |
+| G-22 | P0 | Delete | Direct runtime token/economic ledger writes preserve a second financial path. | Retire after journal cutover. |
+| G-23 | P0 | Missing | No trial-balance/rebuild certification exists for customer balances. | Add journal balance, replay and materialized-state reconciliation. |
+| G-24 | P0 | Missing | Strict billing could be tempted to use memory fallback during DB failure. | Require durable Bun backing; fail closed. |
+| G-25 | P1 | Partial | Current architecture docs still describe tokenaccounting/metering as core financial ownership. | Update package/architecture docs after cutover. |
 
-## Requirements Review Round 1 — Initial CDR Draft
+## External Review Gaps (CodeRabbit)
 
-The initial draft correctly separated execution from post-turn billing and selected atomic pessimistic holds for concurrency.
+CodeRabbit posted ten actionable comments after the initial double-entry design. They exposed real integrity gaps and reopened requirements/design validation.
 
-**Decision: GO for execution simplification, NO-GO for financial-system completeness.**
+| ID | Severity | Finding | Remediation now required |
+|---|---:|---|---|
+| G-31 | P0 | TUR/LUR financial replay identity was ambiguous. | TUR = account+stable turn/A-leg; LUR/provider cost adds `BLegID`; persist semantic fingerprints. |
+| G-32 | P0 | Authorization checked only non-negative spendable rather than whether the requested hold fits. | Require `SpendableBefore >= MaxCustomerCharge` and prove post-hold spendable >= 0. |
+| G-33 | P0 | Correction replacement lacked explicit link to corrected transaction. | `ReversalOf` + `CorrectsTransactionID` + `CorrectionGroupID` with referential checks. |
+| G-34 | P0 | Replay ordering relied on `RecordedAt`. | Allocate durable monotonic account sequence atomically and replay by it. |
+| G-35 | P0 | Final rating could accept a different pricing/rate snapshot identity. | Exact TUR/authorization/customer snapshot and LUR/operator-rate identity checks before rating. |
+| G-36 | P0 | Immutable TUR payload was conflated with mutable worker status. | Separate `usage_record_processing` mutable table. |
+| G-37 | P0 | Idempotency source-key uniqueness did not prove semantic equality. | Versioned canonical semantic fingerprint + compare-before-no-op. |
+| G-38 | P1 | Store contract omitted payment/adjustment/explicit release operations required by the design. | Add narrow trusted commands with reason/idempotency semantics. |
+| G-39 | P0 | Unrateable provider-billable B-leg could silently disappear from COGS. | Explicit `unreconciled_cost`; no zero/omission/processed state. |
+| G-40 | P0 | `reconcile_required` blocking/re-enable behavior was design prose rather than acceptance behavior. | Testable account-state transition, fail-closed authorization, explicit verified clear path. |
 
-Missing:
+## Requirements Review
 
-- double-entry journal;
-- rebuildable account state;
-- prepaid/postpaid exact semantics;
-- before/after balance snapshots;
-- first-class B2BUA per-leg accounting.
+### Round 1 — CDR-style simplification
 
-## Requirements Review Round 2 — Double-Entry Additions
+**NO-GO:** post-turn billing was directionally correct but did not provide classical double-entry financial history or reconstructible account state.
 
-The first revised requirements added a classical financial ledger but initially treated authorization holds ambiguously.
+Remediation: introduce TUR/LUR terminology, financial + authorization journal books, prepaid/postpaid account floors, Bun-backed journal and recovery.
 
-**Decision: NO-GO.**
+### Round 2 — Financial semantics
 
-### R2-A: A hold cannot be posted as revenue
+**NO-GO:** authorization holds risked being conflated with revenue and prepaid/postpaid sign convention was implicit.
 
-A pessimistic authorization is contingent exposure, not an earned charge.
+Remediation: separate authorization book; define `Balance = credits - debits`, prepaid floor 0, postpaid floor `-CreditLimit`, and `Spendable = Balance - Floor - Reserved`.
 
-Remediation:
+### Round 3 — B2BUA attribution
 
-- add a separate `authorization` journal book using the same transaction/entry schema;
-- financial book remains posted revenue/cost/funding;
-- both books independently balance;
-- materialized `Reserved` is reconstructible from authorization exposure entries.
+**NO-GO:** logical turn settlement and provider cost had different granularities.
 
-### R2-B: "Two ledgers" was too literal
+Remediation: TUR/A-leg customer settlement, LUR/B-leg provider COGS, per-leg model/provider/rate references, session as read aggregation only.
 
-Classical double-entry is better represented as one journal transaction with two or more account entries rather than two independent databases/ledgers that must stay synchronized.
+### Round 4 — Recovery
 
-Remediation:
+**NO-GO:** materialized state and snapshots could become unrecoverable parallel truths.
 
-- one durable journal schema;
-- each transaction has >=1 debit and >=1 credit;
-- debits == credits;
-- multi-entry transaction allowed.
+Remediation: journal replay is authoritative reconstruction; snapshots are validation evidence; exclusive rebuild repairs only materialized state.
 
-### R2-C: Postpaid sign convention was unclear
+### Round 5 — CodeRabbit integrity review
 
-Remediation:
+**NO-GO until G-31–G-40 were incorporated.**
 
-```text
-Balance = customer credits - customer debits
-prepaid floor = 0
-postpaid floor = -CreditLimit
-Spendable = Balance - floor - Reserved
-```
-
-This exactly produces the requested examples.
-
-## Requirements Review Round 3 — B2BUA and Recovery
-
-The revised requirements were checked against current lineage and DB architecture.
-
-**Decision: NO-GO before two clarifications.**
-
-### R3-A: Customer and operator posting scopes differ
-
-One A-leg can have multiple B-legs using different models/rates.
-
-Remediation:
-
-- Turn Usage Record per A-leg;
-- Leg Usage Record per B-leg;
-- customer charge normally applied once per A-leg according to charging policy;
-- operator cost posted per provider-billable B-leg;
-- customer revenue entries can retain B-leg attribution for multi-leg policy.
-
-### R3-B: Rebuild must not depend on snapshots
-
-Point-in-time snapshots improve debugging but are redundant.
-
-Remediation:
-
-- journal entries + durable account master/policy reconstruct monetary state;
-- snapshots are validation/debug evidence;
-- reconciliation compares snapshots and materialized row to journal replay;
-- rebuild never edits journal.
+Post-remediation requirements now make durable identity/fingerprints, exact authorization amount, correction links, monotonic replay sequence, snapshot identity binding, immutable-vs-processing separation, trusted store commands, unreconciled provider cost, and reconcile-required behavior explicit.
 
 ## Requirements Quality Gate
 
 **Decision: PASS**
 
-The final requirements now define:
-
-- simple live path;
-- domain-neutral usage-record terminology;
-- prepaid/postpaid semantics;
-- pessimistic concurrent holds;
-- double-entry financial and authorization books;
-- Bun durability;
-- B2BUA per-leg attribution;
-- atomic settlement;
-- replay/rebuild;
-- transparency snapshots;
-- deletion of stream-time financial authority.
-
-No implementation is authorized until normal Kiro approvals are set.
+The requirements now describe a small runtime seam and a rigorous durable financial boundary. The financial journal adds necessary accounting integrity without reintroducing live-stream instrumentation or generic enterprise-accounting infrastructure.
