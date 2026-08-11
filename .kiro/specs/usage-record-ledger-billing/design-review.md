@@ -2,277 +2,196 @@
 
 ## Review Method
 
-The revised design was validated as a brownfield architecture change against:
+The billing design was revalidated as a brownfield architecture replacement against repository `main`, Kiro/Go architecture rules, current B2BUA lineage, backend final billing evidence, runtime terminal ownership, usage-authority reservations, Bun database infrastructure, and the revised requirements/design.
 
-- root `AGENTS.md` and `.kiro/AGENTS.md`;
-- project structure/testing steering;
-- repository `main` at `269b9e8df0e9ed476d962c2327e1794f4b74bb83`;
-- B2BUA lineage in `pkg/lipapi/lineage.go`;
-- current runtime accounting/authority lifecycle;
-- backend accounting evidence and connector `FinalizeBilling`;
-- `usageauthority` reserve/settle stores;
-- existing Bun DB abstraction and Bun-backed durable stores;
-- current metering/token-accounting/control-plane paths;
-- every acceptance criterion in revised `requirements.md`;
-- every gap in `gap-analysis.md`.
+A NO-GO is required for any unresolved financial-integrity, concurrency, recovery, B2BUA-attribution, replay, or runtime-boundary ambiguity.
 
-Any unresolved accounting-integrity, B2BUA-attribution, concurrency, database, recovery, or runtime-boundary issue returned NO-GO.
+## Prior Architecture Review
 
-## Round 1 — Financial Journal Completeness
+Earlier rounds established the following durable direction:
 
-**Decision: NO-GO**
+1. execution remains billing-blind after one pre-upstream authorization;
+2. actual billing operates on completed Turn/Leg Usage Records;
+3. every concurrent hard-credit turn owns a pessimistic atomic hold;
+4. customer revenue and provider cost are distinct;
+5. classical double-entry journal history is reconstructible truth;
+6. materialized balances are rebuildable projections;
+7. Bun SQLite/PostgreSQL infrastructure is reused;
+8. one A-leg may contain multiple financially relevant B-legs.
 
-### Issue 1: Initial CDR-first design had no classical double-entry truth
+Those decisions remain valid.
 
-The first draft made a mutable balance/reservation store authoritative.
+## External Review Round — CodeRabbit
 
-Risk:
+CodeRabbit posted ten actionable comments. All ten were treated as substantive rather than stylistic and the design was reopened to NO-GO until resolved.
 
-- one-sided mutation can be difficult to detect;
-- account state cannot be independently rebuilt from financial history;
-- corrections may overwrite history.
+### 1. TUR/LUR replay identity was underspecified
 
-Resolution:
+**Finding:** request/attempt labels alone could collide or permit ambiguous provider-cost replay.
 
-- add durable `journal_transactions` + `journal_entries`;
-- require >=1 debit and >=1 credit;
-- require exact debit=credit;
-- posted entries immutable;
-- corrections reverse/repost;
-- account state becomes a materialized projection.
-
-### Issue 2: Authorization hold semantics were financially ambiguous
-
-A pessimistic hold is not earned revenue.
-
-Resolution:
-
-- use the same journal engine with a separate `authorization` book;
-- hold: debit customer reserved exposure, credit authorization contra;
-- close/release with opposite entries;
-- financial book remains revenue/cost/funding;
-- both books balance independently.
-
-### Issue 3: "Two ledgers" could create duplicated sources of truth
-
-Literal debit and credit databases would introduce coordination risk.
-
-Resolution:
-
-- one journal;
-- each financial operation is one balanced transaction with two or more entries;
-- multi-entry allocations are allowed.
-
-## Round 2 — Account and Credit Semantics
-
-**Decision: NO-GO**
-
-### Issue 1: Prepaid/postpaid balance sign was not explicit
-
-Resolution:
+**Resolution:**
 
 ```text
-Balance = credits - debits on customer financial account
-CreditFloor = 0 prepaid, -CreditLimit postpaid
-Spendable = Balance - CreditFloor - Reserved
+TURKey = BillingAccountID + stable Turn/ALeg identity
+LURKey = TURKey + BLegID
+CustomerSettlementSourceKey = customer-settlement:v1 + TURKey
+ProviderCostSourceKey = provider-cost:v1 + LURKey
 ```
 
-This gives:
+A closed cost-source discriminator is allowed only when one B-leg can legitimately produce multiple independent costs. TUR/LUR rows persist versioned semantic fingerprints. Same key + same fingerprint is idempotent; same key + different fingerprint is an integrity error.
 
-- prepaid +250 -> usage down to 0, never negative;
-- postpaid 0 with limit 100 -> usage down to -100, never below.
+**Decision:** PASS.
 
-### Issue 2: Credit-limit mutation was being pulled toward financial posting
+### 2. Affordability invariant omitted the requested hold amount
 
-A limit change moves no money.
+**Finding:** `Spendable >= 0` before authorization does not prove the new reservation fits.
 
-Resolution:
-
-- keep credit limit in durable account policy/master data;
-- append account-policy audit events;
-- do not invent debit/credit postings for policy changes;
-- reject or explicitly block unsafe limit reductions.
-
-### Issue 3: Holds and materialized account state needed cross-process proof
-
-Resolution:
-
-- Bun transaction with row lock/version CAS;
-- hold journal + `reserved_nano` update in the same transaction;
-- strict mode requires durable SQLite/PostgreSQL backing;
-- concurrency tests use real store semantics.
-
-## Round 3 — B2BUA Accounting
-
-**Decision: NO-GO**
-
-### Issue 1: Logical turn and provider cost have different accounting granularity
-
-One A-leg can create multiple B-legs, each with different provider/model/rate and real operator cost.
-
-Resolution:
-
-- rename evidence aggregate to `TurnUsageRecord`;
-- one `LegUsageRecord` per B-leg;
-- customer settlement boundary = A-leg/turn;
-- operator cost boundary = B-leg;
-- customer charging policy explicitly selects leg/logical components;
-- journal entries retain A-leg/B-leg/model/rate references.
-
-### Issue 2: Failed/losing legs must remain financially visible
-
-Resolution:
-
-- all provider-billable B-legs can produce COGS/payable postings;
-- surfaced status does not erase operator cost;
-- customer revenue remains policy-controlled.
-
-### Issue 3: Session should not become financial transaction scope
-
-Resolution:
-
-- multiple A-legs in one user session are aggregated only in read models;
-- no session-wide mutable financial accumulator.
-
-## Round 4 — Recovery and Auditability
-
-**Decision: NO-GO**
-
-### Issue 1: Before/after snapshots risked becoming a second truth
-
-Resolution:
-
-- journal entries remain authoritative;
-- snapshots are redundant diagnostic evidence;
-- reconciliation validates snapshots against replay;
-- rebuild ignores snapshot values as source input except for integrity checking.
-
-### Issue 2: Materialized balance needed a deterministic rebuild contract
-
-Resolution:
+**Resolution:** admission now requires:
 
 ```text
-Balance = customer credits - customer debits
-Reserved = reserved-exposure debits - credits
-Available = Balance - CreditFloor - Reserved
+SpendableBefore >= MaxCustomerCharge
+SpendableAfter = SpendableBefore - MaxCustomerCharge >= 0
 ```
 
-Add:
+**Decision:** PASS.
 
-- account reconciliation;
-- first-mismatch diagnostics;
-- exclusive rebuild of materialized state;
-- no mutation of posted journal.
+### 3. Replacement correction linkage was incomplete
 
-### Issue 3: Crash boundary between charge, hold release, and account row
+**Finding:** `ReversalOf` alone identifies the reversal but not the replacement transaction's target.
 
-Resolution:
+**Resolution:** corrections now carry `ReversalOf`, `CorrectsTransactionID`, and shared `CorrectionGroupID`. References must target existing eligible transactions in the same account/book/currency and may not self-reference.
 
-One Bun transaction atomically owns:
+**Decision:** PASS.
 
-- customer financial posting;
-- authorization hold closure;
-- materialized account mutation;
-- point-in-time snapshots;
-- customer settlement marker.
+### 4. Journal replay relied on wall-clock timestamps
 
-Any failure rolls back the whole customer mutation.
+**Finding:** timestamps are not a total durable order under concurrency or clock skew.
 
-## Final SOLID Review
+**Resolution:** every account-correlated journal transaction receives atomically allocated monotonic `AccountSequence`; multi-transaction settlement receives a contiguous deterministic range. `(account_id, account_sequence)` is unique. `RecordedAt` is audit metadata only.
 
-### Single Responsibility — PASS
+**Decision:** PASS.
 
-- runtime executes;
-- adapters finalize B-leg evidence;
-- calculator rates immutable usage records;
-- billing application orchestrates authorization/settlement;
-- Bun store owns transaction mechanics;
-- journal owns financial history;
-- reporting reads journal/processed records.
+### 5. Rating snapshot identities were not validated before calculation
 
-### Open/Closed — PASS
+**Finding:** supplying an arbitrary snapshot with numerically identical rates could make replay non-reproducible.
 
-- new model/provider rates are data/snapshot inputs;
-- B2BUA supports N B-legs without runtime accounting branches;
-- customer charging policy extends in billing, not stream handlers.
+**Resolution:** customer pricing/policy references must match both TUR and authorization. Every fallback-rated LUR must resolve its exact sealed operator-rate reference. Identity mismatch fails before rating/posting.
 
-### Liskov Substitution — PASS
+**Decision:** PASS.
 
-SQLite/PostgreSQL store implementations must satisfy the same atomicity, idempotency, balance, and reconstruction contract.
+### 6. Immutable TUR payload was conflated with mutable processing state
 
-### Interface Segregation — PASS
+**Finding:** worker status/claims could violate the sealed-record immutability promise.
 
-No generic financial service locator. Store/query interfaces may be split by actual consumers.
+**Resolution:** TUR/LUR rows are immutable evidence. Claim, lease, retry, safe-error, status, and result-reference fields live in separate `usage_record_processing` state keyed by TUR durable key/fingerprint.
 
-### Dependency Inversion — PASS
+**Decision:** PASS.
 
-Core billing depends on narrow value/store/snapshot contracts; Bun/provider SDK details stay at driven edges.
+### 7. Unique idempotency keys did not prove semantic equality
 
-## Hexagonal Review
+**Finding:** same source key with a changed monetary payload could incorrectly become a no-op.
 
-**Decision: PASS**
+**Resolution:** journal transactions and usage records persist versioned canonical semantic fingerprints. Idempotent replay is accepted only after atomic fingerprint comparison; same key with different semantics is an integrity error.
 
-- financial domain does not import DB/provider SDKs;
-- Bun adapter does not leak handles into core;
-- runtime calls only authorization + terminal usage-record handoff;
-- reporting is read-side;
-- no provider-specific financial branching enters core.
+**Decision:** PASS.
+
+### 8. Store contract omitted trusted financial operations
+
+**Finding:** funding existed conceptually, but payment, adjustment, and explicit hold-release commands were missing from the narrow store contract.
+
+**Resolution:** the store contract now explicitly includes `PostFunding`, `PostPayment`, `PostAdjustment`, and `ReleaseAuthorization` plus reversal/reconciliation operations. Release requires closed reason code and deterministic idempotency identity. There is still no generic arbitrary-posting API.
+
+**Decision:** PASS.
+
+### 9. Unrateable provider cost had no safe terminal state
+
+**Finding:** a provider-billable B-leg without authoritative cost or sufficient fallback inputs could silently disappear from COGS.
+
+**Resolution:** it enters explicit `unreconciled_cost`. The system must not synthesize zero cost, omit the leg, or mark the TUR fully processed. The authorization remains conservatively held until repair/reconciliation policy resolves processing.
+
+**Decision:** PASS.
+
+### 10. `reconcile_required` was design prose rather than acceptance behavior
+
+**Finding:** account blocking/re-enable semantics were not testable requirements.
+
+**Resolution:** requirements now mandate atomic transition to `reconcile_required` on reconstruction/integrity failure, fail-closed hard-credit authorization while blocked, and explicit audited successful reconciliation/rebuild as the only re-enable path.
+
+**Decision:** PASS.
 
 ## Accounting Integrity Review
 
 **Decision: PASS**
 
-Required invariants are explicit:
+The final design explicitly proves these invariants:
 
-1. each journal transaction contains debit and credit entries;
-2. per transaction debits equal credits;
-3. posted entries immutable;
+1. each journal transaction has debit and credit postings;
+2. transaction debits equal credits exactly;
+3. posted journal and sealed TUR/LUR evidence are immutable;
 4. financial and authorization books balance independently;
-5. prepaid balance cannot go below 0;
-6. postpaid balance cannot go below `-CreditLimit`;
-7. accepted holds cannot make spendable negative;
-8. replay is idempotent;
-9. journal replay reconstructs materialized monetary state;
-10. corrections are additive reversal/replacement.
+5. prepaid balance cannot cross zero;
+6. postpaid balance cannot cross `-CreditLimit`;
+7. a new hold requires `SpendableBefore >= MaxCustomerCharge`;
+8. same durable key is idempotent only for the same semantic fingerprint;
+9. replay uses durable `AccountSequence`, not time;
+10. correction reversal/replacement links are explicit and referentially valid;
+11. final rating uses the exact pricing/policy/rate identities bound at authorization/evidence finalization;
+12. provider-billable unrateable legs cannot silently become zero/omitted COGS;
+13. journal replay reconstructs materialized monetary state;
+14. integrity/reconciliation failures block hard-credit admission until verified repair.
 
 ## B2BUA Review
 
 **Decision: PASS**
 
-- TUR explicitly carries A-leg;
-- LUR explicitly carries B-leg;
-- multiple/parallel/failover legs supported;
-- per-leg provider/model/rate cost supported;
-- customer and operator accounting separated;
-- session aggregation is not a write boundary.
+- TUR/customer settlement boundary is one A-leg.
+- LUR/provider-cost boundary is one B-leg.
+- sequential failover, swallowed failures, winners, and parallel B-legs remain visible.
+- each B-leg may use a different provider/model/rate.
+- failed/losing B-legs can generate operator COGS independently of customer policy.
+- session totals are read-side aggregation, not a write transaction boundary.
 
-## Database Review
-
-**Decision: PASS**
-
-- existing `internal/infra/db` Bun abstraction reused;
-- Bun/SQL remains infrastructure-only;
-- durable strict billing supports SQLite/PostgreSQL contract semantics;
-- migrations use repository conventions;
-- no memory fallback for strict mode.
-
-## Recovery Review
+## Runtime/Hexagonal Review
 
 **Decision: PASS**
 
-A verified journal history plus durable account policy/master data can reconstruct:
+- runtime has only pre-upstream authorization and terminal TUR handoff;
+- no stream-time journal/rating/settlement ownership;
+- provider SDKs remain adapter-edge only;
+- core billing uses narrow value/store/snapshot contracts;
+- Bun transaction mechanics stay in infrastructure;
+- reporting is read-side.
 
-- signed balance;
-- reserved exposure;
-- available/spendable capacity.
+No DI container, service locator, generic event bus, CQRS/workflow platform, or billing DSL is introduced.
 
-Point-in-time snapshots make diagnosis faster but do not replace replay.
-
-## Simplicity / Overengineering Review
+## Database/Recovery Review
 
 **Decision: PASS**
 
-New essential concepts are bounded:
+Strict durable billing reuses `internal/infra/db` and Bun-backed SQLite/PostgreSQL adapters. Durable data separates immutable usage evidence from mutable processing state. Journal transactions carry account sequence and semantic fingerprint. Reconciliation can rebuild signed balance/reserved/spendable from verified journal + account-policy history without rewriting posted journal entries.
+
+## Testing Review
+
+**Decision: PASS**
+
+Required high-value proofs include:
+
+- pure max-charge and TUR/LUR calculation tables;
+- exact snapshot identity mismatch tests;
+- same-key/same-fingerprint vs same-key/different-fingerprint replay tests;
+- real-store concurrent authorization tests;
+- correction-link validation;
+- AccountSequence uniqueness/order under concurrency;
+- `unreconciled_cost` failure tests;
+- journal trial-balance/property tests;
+- corrupted replay/snapshot/materialized-state tests proving `reconcile_required`, authorization block, and verified re-enable;
+- architecture tests forbidding stream-time financial ownership.
+
+## Simplicity Review
+
+**Decision: PASS**
+
+The financial model is rigorous but bounded. Production concepts remain:
 
 1. Billing Account
 2. Authorization Hold
@@ -281,59 +200,14 @@ New essential concepts are bounded:
 5. Billing Result
 6. Journal Transaction
 7. Journal Entry
+8. Usage Record Processing State
 
-Explicitly rejected:
-
-- separate debit and credit databases;
-- generic ERP/chart-of-account framework;
-- Kafka/CQRS/event sourcing;
-- workflow engine;
-- stream-time token debiting;
-- arbitrary billing DSL;
-- DI container;
-- session-scanning concurrency controller.
-
-The added complexity is financial integrity, not execution orchestration.
-
-## Requirements Traceability Review
-
-Every final acceptance criterion is assigned to at least one TDD task in `tasks.md`.
-
-Implementation sequencing keeps:
-
-- characterization before ownership change;
-- schema/journal tests before production posting;
-- authorization contract tests before cutover;
-- shadow usage-record calculation before authoritative settlement;
-- rebuild certification before old financial path deletion.
+There is one journal engine, one durable store boundary, and one post-turn calculation path. Added complexity protects financial integrity rather than execution orchestration.
 
 ## Final Assessment
 
 **Decision: GO FOR DESIGN READINESS**
 
-The revised design is materially stronger than the initial CDR draft while preserving the central simplification: no financial instrumentation during LLM streaming.
+All ten CodeRabbit actionable findings are incorporated into requirements/design. The review improved identity, replay determinism, correction semantics, snapshot binding, failure states, and store completeness without moving financial logic back into LLM streaming.
 
-The target is now:
-
-```text
-route
- -> pessimistic authorization
- -> execute
- -> Turn/Leg Usage Record
- -> deterministic rating
- -> double-entry journal settlement
- -> reconstructible account state
-```
-
-Implementation remains gated by Kiro approvals.
-
-## Implementation Gate
-
-Before implementation maintainers must:
-
-1. approve requirements;
-2. approve design;
-3. approve tasks;
-4. set `ready_for_implementation` to `true` in `spec.json`.
-
-Implementation begins with RED characterization/store/journal contract tests.
+Implementation remains gated by Kiro approvals and must start RED-first with characterization/store-contract tests.
