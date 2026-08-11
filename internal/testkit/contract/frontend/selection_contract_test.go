@@ -15,6 +15,7 @@ func (h selectionFrontendHarness) Subject() semantic.SubjectDescriptor { return 
 func (selectionFrontendHarness) Frontend(context.Context) (FrontendView, error) {
 	return selectionFrontendView{}, nil
 }
+
 func (selectionFrontendHarness) Executor() *CapturingExecutor {
 	return &CapturingExecutor{Script: EventScript{Events: []lipapi.Event{{}}}}
 }
@@ -26,6 +27,7 @@ func (selectionFrontendView) ServeHTTP(http.ResponseWriter, *http.Request) {}
 func (selectionFrontendView) Subject() semantic.SubjectDescriptor {
 	return semantic.SubjectDescriptor{ID: "fe", Kind: semantic.KindFrontend}
 }
+
 func (selectionFrontendView) Probe(_ context.Context, scenario semantic.ScenarioDescriptor, executor *CapturingExecutor) (semantic.ExecutionEvidence, error) {
 	if _, err := executor.Execute(context.Background(), &lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser}}}); err != nil {
 		return semantic.ExecutionEvidence{}, err
@@ -54,6 +56,7 @@ func (noEvidenceFrontendView) ServeHTTP(http.ResponseWriter, *http.Request) {}
 func (noEvidenceFrontendView) Subject() semantic.SubjectDescriptor {
 	return semantic.SubjectDescriptor{ID: "fe", Kind: semantic.KindFrontend}
 }
+
 func (noEvidenceFrontendView) Probe(context.Context, semantic.ScenarioDescriptor, *CapturingExecutor) (semantic.ExecutionEvidence, error) {
 	return semantic.ExecutionEvidence{}, nil
 }

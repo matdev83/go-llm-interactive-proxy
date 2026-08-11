@@ -241,7 +241,8 @@ func streamWithToolCallEvents() []byte {
 func converseStreamEventsHelper(events []struct {
 	eventType string
 	payload   map[string]any
-}) []byte {
+},
+) []byte {
 	var buf bytes.Buffer
 	enc := eventstream.NewEncoder()
 	for _, ev := range events {

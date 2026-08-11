@@ -23,14 +23,21 @@ type selectionBackendView struct{}
 func (selectionBackendView) Open(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
 	return lipapi.NewFixedEventStream(nil), nil
 }
+
 func (selectionBackendView) EffectiveCapabilities(context.Context, *lipapi.Call) BackendFacts {
 	return BackendFacts{}
 }
+
 func (selectionBackendView) Reject(context.Context, *lipapi.Call, semantic.ScenarioDescriptor) (semantic.ExecutionEvidence, error) {
 	return semantic.ExecutionEvidence{Executed: true, Rejected: true, BoundaryCalls: 1}, nil
 }
+
 func (selectionBackendView) Probe(_ context.Context, scenario semantic.ScenarioDescriptor, probe UpstreamProbe) (semantic.ExecutionEvidence, error) {
-	probe.(*selectionProbe).count++
+	p, ok := probe.(*selectionProbe)
+	if !ok {
+		return semantic.ExecutionEvidence{}, context.Canceled
+	}
+	p.count++
 	return semantic.ExecutionEvidence{ScenarioID: scenario.ID, Executed: true, BoundaryCalls: 1, UpstreamCalls: 1, Opened: true, EffectiveCapabilities: true, StreamValidated: true, UsagePresent: true, LifecycleClosed: true}, nil
 }
 
@@ -58,12 +65,15 @@ type noEvidenceBackendView struct{}
 func (noEvidenceBackendView) Open(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
 	return lipapi.NewFixedEventStream(nil), nil
 }
+
 func (noEvidenceBackendView) EffectiveCapabilities(context.Context, *lipapi.Call) BackendFacts {
 	return BackendFacts{}
 }
+
 func (noEvidenceBackendView) Reject(context.Context, *lipapi.Call, semantic.ScenarioDescriptor) (semantic.ExecutionEvidence, error) {
 	return semantic.ExecutionEvidence{}, nil
 }
+
 func (noEvidenceBackendView) Probe(context.Context, semantic.ScenarioDescriptor, UpstreamProbe) (semantic.ExecutionEvidence, error) {
 	return semantic.ExecutionEvidence{}, nil
 }

@@ -11,20 +11,27 @@ import (
 
 // Semantic scenario metadata is defined in the public SDK contract package so
 // connector authors and in-process TCKs consume one corpus.
-type SemanticFeature = sdkcontract.SemanticFeature
-type ScenarioID = sdkcontract.ScenarioID
-type ScenarioTransport = sdkcontract.ScenarioTransport
-type ScenarioDescriptor = sdkcontract.ScenarioDescriptor
+type (
+	SemanticFeature    = sdkcontract.SemanticFeature
+	ScenarioID         = sdkcontract.ScenarioID
+	ScenarioTransport  = sdkcontract.ScenarioTransport
+	ScenarioDescriptor = sdkcontract.ScenarioDescriptor
+)
 
 const (
 	FeatureText             = sdkcontract.FeatureText
 	FeatureStreaming        = sdkcontract.FeatureStreaming
 	FeatureTools            = sdkcontract.FeatureTools
+	FeatureParallelTools    = sdkcontract.FeatureParallelTools
 	FeatureVision           = sdkcontract.FeatureVision
+	FeatureVideo            = sdkcontract.FeatureVideo
+	FeatureAnnotations      = sdkcontract.FeatureAnnotations
 	FeatureDocuments        = sdkcontract.FeatureDocuments
 	FeatureStructuredOutput = sdkcontract.FeatureStructuredOutput
 	FeatureReasoning        = sdkcontract.FeatureReasoning
 	FeatureReasoningReplay  = sdkcontract.FeatureReasoningReplay
+	FeatureAssistantPhase   = sdkcontract.FeatureAssistantPhase
+	FeatureAssistantMedia   = sdkcontract.FeatureAssistantMedia
 	FeatureOrderedItems     = sdkcontract.FeatureOrderedItems
 	FeatureItemReferences   = sdkcontract.FeatureItemReferences
 	FeatureCompaction       = sdkcontract.FeatureCompaction
@@ -85,6 +92,7 @@ type ExecutionEvidence struct {
 	StreamValidated       bool       `json:"stream_validated"`
 	UsagePresent          bool       `json:"usage_present"`
 	LifecycleClosed       bool       `json:"lifecycle_closed"`
+	Cancelled             bool       `json:"cancelled"`
 }
 
 // Certification contains machine-readable TCK certification evidence.
@@ -221,7 +229,7 @@ func (c Certification) ValidateReleaseReady() error {
 // MarshalJSON returns serialized JSON certification evidence.
 func (c Certification) MarshalJSON() ([]byte, error) {
 	type Alias Certification
-	return json.Marshal((Alias)(c))
+	return json.Marshal(Alias(c))
 }
 
 // BaselineScenarioCorpus returns the shared SDK scenario metadata.

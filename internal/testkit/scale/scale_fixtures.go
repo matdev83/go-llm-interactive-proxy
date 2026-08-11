@@ -97,7 +97,7 @@ func ThousandProviderProfilesFixture() []SyntheticProviderProfileFixture {
 		"openresponses-compatible",
 	}
 	profiles := make([]SyntheticProviderProfileFixture, 1000)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		family := families[i%len(families)]
 		profiles[i] = SyntheticProviderProfileFixture{
 			ID:       fmt.Sprintf("provider-profile-%04d", i+1),
@@ -241,7 +241,7 @@ func (r RealSharedBoundaryInspector) InspectDiff(repoRoot, diff string) (SharedB
 			hunks = append(hunks, *current)
 		}
 	}
-	for _, line := range strings.Split(strings.ReplaceAll(diff, "\r\n", "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.ReplaceAll(diff, "\r\n", "\n"), "\n") {
 		switch {
 		case strings.HasPrefix(line, "+++ "):
 			flush()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,8 +13,15 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	coreruntime "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 func TestCompatibleDiagnostics_inventoryAndRoutesExposeLiveHealth(t *testing.T) {
@@ -294,6 +302,25 @@ func TestOpenResponsesFrontendDiagnostics_routesAndInventoryExposeSanitizedRow(t
 	if strings.Contains(string(raw), "sk-") {
 		t.Fatalf("inventory json leaked secret-like value: %s", raw)
 	}
+	var shape struct {
+		InstanceDiagnostics []struct {
+			FactoryKind string `json:"factory_kind"`
+		} `json:"instance_diagnostics"`
+		OpenResponsesFrontends []struct {
+			FactoryKind string `json:"factory_kind"`
+		} `json:"openresponses_frontends"`
+	}
+	if err := json.Unmarshal(raw, &shape); err != nil {
+		t.Fatal(err)
+	}
+	if len(shape.InstanceDiagnostics) == 0 {
+		t.Fatal("generic instance_diagnostics field must contain catalog/profile diagnostics")
+	}
+	for _, row := range shape.OpenResponsesFrontends {
+		if row.FactoryKind != "openresponses" {
+			t.Fatalf("legacy openresponses_frontends leaked non-OpenResponses row: %+v", shape.OpenResponsesFrontends)
+		}
+	}
 }
 
 func TestOpenResponsesFrontendDiagnostics_unknownFieldFailsStructuralValidation(t *testing.T) {
@@ -308,5 +335,119 @@ func TestOpenResponsesFrontendDiagnostics_unknownFieldFailsStructuralValidation(
 	}
 	if !strings.Contains(err.Error(), "or-diag") || !strings.Contains(err.Error(), "sniffing") {
 		t.Fatalf("structural error must name instance + unknown field: %v", err)
+	}
+}
+
+func TestProviderProfile_ReloadPublishesExpandedFamilyRow(t *testing.T) {
+	base, err := os.ReadFile(filepath.Join("..", "..", "..", "config", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := func(enabled bool) string {
+		return fmt.Sprintf(`    - id: profile-reload
+      kind: provider-profile
+      enabled: %v
+      config:
+        profile: example-openai-responses
+`, enabled)
+	}
+	initial := strings.Replace(string(base), "  backends:\n", "  backends:\n"+row(false), 1)
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte(initial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	host, err := runtimebundle.BuildHost(context.Background(), runtimebundle.BuildHostInput{
+		ConfigPath: cfgPath, Mandatory: lipsdk.StandardDistributionRequirements(), LogWriter: io.Discard, HandlerComposer: stdhttp.ComposeStandardHTTP,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = host.Close(context.Background()) })
+
+	next := strings.Replace(string(base), "  backends:\n", "  backends:\n"+row(true), 1)
+	tmp := cfgPath + ".tmp"
+	if err := os.WriteFile(tmp, []byte(next), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The fixed source uses the repository's atomic sibling-temp rename contract;
+	// on supported platforms this replaces the destination without exposing a
+	// partially written YAML document to the reload reader.
+	if err := replaceTestFile(tmp, cfgPath); err != nil {
+		t.Fatal(err)
+	}
+	result := host.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI, SafeActor: "profile-reload-test"})
+	if result.Category != sdkreload.ResultPublished {
+		t.Fatalf("reload category=%q reason=%q", result.Category, result.ReasonCategory)
+	}
+	active := runtimebundle.HostManager(host).Active()
+	provider, ok := active.RequestPlane().(runtimehost.ExecutorProvider)
+	if !ok || provider == nil {
+		t.Fatal("active generation missing executor provider")
+	}
+	executor, ok := provider.ExecutorView().(*coreruntime.Executor)
+	if !ok || executor == nil {
+		t.Fatal("active generation missing core executor")
+	}
+	if _, ok := executor.Backends["profile-reload"]; !ok {
+		t.Fatalf("reloaded generation missing expanded provider-profile backend: %v", executor.Backends)
+	}
+}
+
+func TestProviderProfile_CompileAndDiagnosticsEndToEnd(t *testing.T) {
+	t.Setenv("MOCK_PROFILE_KEY", "mock-key-value")
+	base, err := os.ReadFile(filepath.Join("..", "..", "..", "config", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := `    - id: profile-end-to-end
+      kind: provider-profile
+      enabled: true
+      config:
+        profile: example-openai-responses
+`
+	text := strings.Replace(string(base), "  backends:\n", "  backends:\n"+row, 1)
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	reqs := lipsdk.StandardDistributionRequirements()
+
+	if err := runtimebundle.ValidateStructural(ctx, runtimebundle.ValidateStructuralInput{ConfigPath: cfgPath, Mandatory: reqs}); err != nil {
+		t.Fatalf("structural validation failed for provider profile config: %v", err)
+	}
+
+	rawCfg, err := config.LoadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preparedCfg, err := standardplugins.PrepareProviderProfiles(rawCfg)
+	if err != nil {
+		t.Fatalf("prepare provider profiles failed: %v", err)
+	}
+
+	reg := pluginreg.NewRegistry()
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := runtimebundle.InventorySnapshotForOperator(ctx, preparedCfg, reg, config.RegistrationsFromConfig(preparedCfg))
+	if err != nil {
+		t.Fatalf("operator snapshot failed: %v", err)
+	}
+	if len(snap.CompatibleBackends) == 0 {
+		t.Fatal("expected expanded provider profile in compatible_backends snapshot")
+	}
+
+	foundProfile := false
+	for _, b := range snap.CompatibleBackends {
+		if b.InstanceID == "profile-end-to-end" || b.Profile == "example-openai-responses" {
+			foundProfile = true
+			break
+		}
+	}
+	if !foundProfile {
+		t.Fatalf("provider profile instance not found in snapshot: %+v", snap.CompatibleBackends)
 	}
 }

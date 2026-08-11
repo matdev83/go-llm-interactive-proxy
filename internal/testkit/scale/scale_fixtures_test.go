@@ -117,10 +117,14 @@ var SentinelCount = len(frontends)`, scale.DebtSentinelGrowth},
 				path = "internal/standardplugins/lists.go"
 			}
 			diff := "--- /dev/null\n+++ b/" + path + "\n@@ -0,0 +1,20 @@\n"
-			for _, line := range strings.Split(strings.TrimSuffix(tc.source, "\n"), "\n") {
-				diff += "+" + line + "\n"
+			var diffBuilder strings.Builder
+			diffBuilder.WriteString(diff)
+			for line := range strings.SplitSeq(strings.TrimSuffix(tc.source, "\n"), "\n") {
+				diffBuilder.WriteByte('+')
+				diffBuilder.WriteString(line)
+				diffBuilder.WriteByte('\n')
 			}
-			footprint, err := inspector.InspectDiff(t.TempDir(), diff)
+			footprint, err := inspector.InspectDiff(t.TempDir(), diffBuilder.String())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -169,10 +173,10 @@ var SentinelCount = len(frontends)`, []string{scale.DebtSentinelGrowth}},
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			path := filepath.Join(root, filepath.FromSlash(tc.path))
-			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(path, []byte(tc.source), 0644); err != nil {
+			if err := os.WriteFile(path, []byte(tc.source), 0o644); err != nil {
 				t.Fatal(err)
 			}
 			report, err := scale.ScanRepository(root)
@@ -198,7 +202,7 @@ var SentinelCount = len(frontends)`, []string{scale.DebtSentinelGrowth}},
 func TestScanRepository_CleanRepositoryHasNoStructuralDebt(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "clean.go"), []byte("package clean\nfunc Stable() {}\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "clean.go"), []byte("package clean\nfunc Stable() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	report, err := scale.ScanRepository(root)
@@ -228,10 +232,10 @@ var SentinelCount = len(frontends)`,
 	}
 	for path, source := range files {
 		full := filepath.Join(root, filepath.FromSlash(path))
-		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(full, []byte(source), 0644); err != nil {
+		if err := os.WriteFile(full, []byte(source), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}

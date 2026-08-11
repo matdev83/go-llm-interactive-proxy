@@ -14,6 +14,17 @@ import (
 // BuildCompatible constructs a built-in Anthropic-compatible backend from strict
 // compatible-mode YAML for one configured runtime instance.
 func BuildCompatible(instanceID, factoryKind string, n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+	return buildCompatible(instanceID, factoryKind, n, upstream, "")
+}
+
+// BuildCompatibleWithModelsPath constructs an Anthropic-compatible backend with
+// an explicit model-list path. The path is a bounded family quirk seam; an
+// empty path retains the family default (/v1/models).
+func BuildCompatibleWithModelsPath(instanceID, factoryKind string, n yaml.Node, upstream *http.Client, modelsPath string) (execbackend.Backend, error) {
+	return buildCompatible(instanceID, factoryKind, n, upstream, modelsPath)
+}
+
+func buildCompatible(instanceID, factoryKind string, n yaml.Node, upstream *http.Client, modelsPath string) (execbackend.Backend, error) {
 	cfg, err := config.DecodeCompatibleModeConfig(instanceID, factoryKind, n)
 	if err != nil {
 		return execbackend.Backend{}, err
@@ -29,6 +40,12 @@ func BuildCompatible(instanceID, factoryKind string, n yaml.Node, upstream *http
 	modelsEndpoint, err := compatibleutil.AnthropicModelsEndpoint(ep)
 	if err != nil {
 		return execbackend.Backend{}, err
+	}
+	if modelsPath != "" {
+		modelsEndpoint, err = compatibleutil.AnthropicModelsEndpointPath(ep, modelsPath)
+		if err != nil {
+			return execbackend.Backend{}, err
+		}
 	}
 	ek := compatibleutil.ResolveEnvAPIKeys(cfg.APIKeyEnvVarRoot)
 	primaryKey := compatibleutil.FirstAPIKey(ek)

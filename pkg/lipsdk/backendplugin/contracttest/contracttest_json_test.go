@@ -9,6 +9,7 @@ import (
 )
 
 func TestCertificationResultJSONRoundTripAndValidation(t *testing.T) {
+	t.Parallel()
 	results := make([]ScenarioResult, 0, len(contract.BaselineScenarioCorpus()))
 	for _, scenario := range contract.BaselineScenarioCorpus() {
 		results = append(results, ScenarioResult{ID: string(scenario.ID), Executed: true, Rejected: true})

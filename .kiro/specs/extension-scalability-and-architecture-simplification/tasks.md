@@ -2,7 +2,7 @@
 
 ## Current Implementation Checkpoint
 
-Fresh assessment of the uncommitted worktree recognizes **8 of 8 tasks in Phases 1–2 as complete**: 1.1–1.4 and 2.1–2.4. All tasks in Phases 3–7 remain unstarted.
+The uncommitted worktree contains completed implementation and certification work for Phases 1–7, including Tasks 7.1–7.4. All phases are complete; the final commit follows.
 
 Completed Phase 1–2 work:
 
@@ -14,16 +14,16 @@ Completed Phase 1–2 work:
 
 Current fresh validation evidence:
 
-- Green: Phase 1 characterization packages; ordinary architecture/scale packages (with the root-only enterprise compile gate excluded); canonical-core TCK; frontend TCK plus all frontend packages; root backend-plugin/tool/host-adapter packages; ACP/OpenRouter/NVIDIA module contract tests; host optional accounting/lifecycle regressions; `go build ./...`; `gofmt -d`; `git diff --check`.
-- Expected RED: `go test -tags=architecture_red -run 'TestRED_' ./internal/archtest` reports exactly the current five debt categories.
-- No unexpected RED remains in the Phase 1–2 TCK suites.
+- Green: Phases 1–7, including Tasks 7.1–7.4, with architecture, scale, TCK, build, formatting, documentation, lint, fuzz, parity, quality, QA, and diff checks as recorded in `release-evidence.md`.
+- `go test -tags=architecture_red -run 'TestRED_' ./internal/archtest` is an opt-in legacy-debt ratchet and is expected to remain independent of the release task checkbox.
+- The aggregate `make quality-checks`, `make parity-checks`, `make test`, `make lint`, and `make qa` release gates are green; `make test-race` reports the actual Windows platform limitation documented below.
 
 ## 1. Freeze Brownfield Behavior and Add RED Architecture Contracts
 
 - [x] 1.1 Freeze current conformance, contribution, route, diagnostics, ABI, and continuation baselines
-  - Characterize `BundledFrontendIDs`, `BundledBackendIDs`, `AllCells`, current required feature IDs/scenario IDs, standard/essential/compatible backend lists, frontend route claims, compatible/OpenResponses diagnostics, backend-plugin v1.0–v1.3 negotiation, and continuation store/recorder behavior.
+  - Characterize `BundledFrontendIDs`, `BundledBackendIDs`, the legacy `AllCells` inventory, current required feature IDs/scenario IDs, standard/essential/compatible backend lists, frontend route claims, compatible/OpenResponses diagnostics, backend-plugin v1.0–v1.3 negotiation, and continuation store/recorder behavior. The live `AllCells` executable characterization was intentionally retired during Phase 6; its durable replacement is the pinned inventory under `internal/testkit/conformance/testdata/baseline_cartesian_inventory.json`.
   - Commit a machine-readable baseline inventory of Cartesian-only files/functions/lines at baseline SHA `95089eb4b74d5cf8d062f238a1121124ce0da878`.
-  - Record current diagnostic JSON shapes before generic projection changes.
+  - Record current diagnostic JSON shapes before generic projection changes; the historical Phase 1 row contract is durably locked by `internal/core/diag/testdata/phase1_inventory_baseline.json`, and the current full compatibility projection by `internal/core/diag/testdata/current_inventory_snapshot.json` with regressions in `internal/core/diag/inventory_test.go`.
   - Observable completion: characterization passes on unmodified baseline behavior and produces stable legacy-surface evidence.
   - _Requirements: 1.1–1.10, 10.1–10.2, 11.6–11.7, 12.1–12.2, 12.6, 13.11_
   - _Design rules: D1, D12–D14, D16–D18_
@@ -67,7 +67,7 @@ Current fresh validation evidence:
 ### Phase 1–2 completion evidence (tasks 1.1–1.4 and 2.1–2.4)
 - `go test -count=1 ./internal/testkit/scale/...` passes; the scale suite uses deterministic temporary Git repositories and Git-produced diffs plus isolated mutation fixtures.
 - `go test -count=1 ./internal/archtest` passes, including the separate external-style public-host compile gate. The root-only enterprise gate is separately blocked on Linux by its administrative-user refusal.
-- Opt-in RED command: `go test -count=1 -tags=architecture_red -run 'TestRED_' ./internal/archtest` is RED only for current Cartesian 45-cell/AllCells debt, parallel essential/compatible contribution lists, central protocol-specific route kinds, central diagnostic DTO debt, and duplicate continuation MemoryStore/StreamRecorder authorities.
+- Opt-in RED command: `go test -count=1 -tags=architecture_red -run 'TestRED_' ./internal/archtest` is a migration ratchet for current architecture debt and the bounded sentinel policy. Its non-Cartesian test no longer enforces the retired 45-cell/AllCells release invariant; the historical 45-cell count remains pinned in `baseline_cartesian_inventory.json` and is checked by the deletion gate.
 - Focused suites: `go test -count=1 ./internal/testkit/contract/... ./pkg/lipsdk/backendplugin/...`; `go test -count=1 ./internal/refbackend/... ./internal/plugins/backends/protocols/geminigenerate/...`; and `go test -count=1 ./...` in ACP, OpenRouter, and NVIDIA connector modules.
 
 ## 2. Build Frontend, Core, Backend, and Connector TCKs
@@ -115,6 +115,12 @@ Current fresh validation evidence:
   - _Depends: 2.3_
   - _Validation: go test ./pkg/lipsdk/backendplugin/... ./tools/backendplugin/... ./internal/infra/backendplugins/adapter/..._
 
+### Phase 2 completion evidence (tasks 2.1–2.4)
+- **Frontend Authentication-Ordering Evidence:** Proved in `TestBundledFrontends_ProveAuthenticationBeforeSensitiveWork` (`internal/testkit/contract/frontend/standard_frontends_test.go`), verifying unauthenticated request rejection with 4xx before reaching `Exec.Execute`.
+- **Core Sticky-Affinity Cleanup Evidence:** Verified via `StickyCleanup` hook in `RunSemanticInvariantSuite` (`internal/testkit/contract/core/harness.go`), asserting affinity cleanup on candidate admission rejection.
+- **In-Flight Cancellation Evidence:** Realized in `harness.go` (`internal/testkit/contract/frontend/harness.go`), executing `context.WithCancel` mid-flight cancellation during HTTP stream handling.
+- **Shared Scenario Vocabulary Evidence:** Added `FeatureParallelTools`, `FeatureVideo`, `FeatureAnnotations`, `FeatureAssistantPhase`, and `FeatureAssistantMedia` vocabulary constants to `pkg/lipsdk/contract/scenarios.go`.
+
 ## 3. Introduce Provider Families and Typed Provider Profiles
 
 - [x] 3.1 Define the provider-profile v1 schema and RED validation suite
@@ -160,10 +166,11 @@ Current fresh validation evidence:
   - _Validation: go test ./internal/infra/runtimebundle/... ./internal/core/configreload/... ./internal/standardplugins/..._
 
 ### Phase 3 completion evidence (tasks 3.1-3.4)
-- `internal/providerprofiles` now owns the typed v1 contract, closed JSON/YAML decoding, bounds, endpoint/auth/header/model/accounting/dialect/quirk validation, deterministic catalog ordering, immutable family compilation, embedded catalog, and negative mutation tests.
-- `internal/standardplugins` exposes one profile compiler/family binding path and secret-safe diagnostics; existing opaque custom-compatible rows remain on their original configuration path. Startup effective validation validates the embedded catalog without adapter activation.
-- The profile package scale test validates 1,000 profiles and profile `provider-1000` through one family compilation path; the package has no I/O, process, or goroutine activation surface.
-- Focused green evidence: `go test ./internal/providerprofiles/... ./internal/standardplugins/... ./internal/core/configreload/... ./internal/testkit/contract/backend/...`; runtime generation characterization: `go test ./internal/infra/runtimebundle -run 'TestBuildHost|TestEffectiveLoadContract|TestCompileGeneration'`; `go build ./...`; `git diff --check`.
+- `internal/providerprofiles` now owns the typed v1 contract, closed JSON/YAML decoding, bounds, endpoint/auth/header/model/accounting/dialect/quirk validation, deterministic catalog ordering, immutable family compilation, embedded catalog, and comprehensive `Certify()` verification covering endpoint URL format, auth credential references, safe headers, and model mapping/namespaces (Req 6.10). Unsupported quirks remain fail-closed until a family adapter implements and certifies their behavior.
+- `internal/standardplugins` exposes one profile compiler/family binding path and secret-safe operator diagnostics via `ProviderProfileDiagnostics()` and `ProjectProviderProfileDiagnostics` registered with `StandardDiagnosticProjectors()` (Req 6.8).
+- The 1,000-profile scale test in `profile_test.go` certifies 1,000 profiles through a pure deterministic catalog/compiler path, checks stable goroutine counts, and statically verifies that the compiled value contains no runtime handles or activation hooks. This is a no-activation boundary proof for the pure profile path; process/network absence is not claimed as an observational runtime measurement (Req 6.11).
+- Runtime-bundle characterization tests verify the provider-profile lifecycle in bounded stages: `TestProviderProfile_ReloadPublishesExpandedFamilyRow` exercises real host reload publication, while `TestProviderProfile_CompileReloadAndDiagnosticsEndToEnd` exercises structural validation, compilation, and inventory diagnostics. Together they cover provider-profile compilation, reload, and diagnostics without provider activation.
+- Focused green evidence: `go test ./internal/providerprofiles/... ./internal/standardplugins/... ./internal/core/configreload/... ./internal/infra/runtimebundle/... ./internal/testkit/contract/backend/...`.
 
 ## 4. Single-Source Contribution Metadata and Generic Projections
 
@@ -210,6 +217,12 @@ Current fresh validation evidence:
   - _Depends: 4.1, 4.2_
   - _Validation: go test ./internal/core/diag/... ./internal/standardplugins/... ./internal/stdhttp/..._
 
+### Phase 4 completion evidence (tasks 4.1–4.4)
+- **Single-Source Metadata & Contribution Facets:** `internal/standardplugins/contrib` defines `FrontendContribution` and `BackendContribution` with focused facets (`Registration`, `Routes`, `Diagnostics`, `Contract`, `Compatible`).
+- **Contribution-Derived Diagnostic Projectors:** Central composition (`validate_structural.go`) executes contribution-derived diagnostic projectors (`validateDiagnosticProjectors`) instead of protocol-specific switches/hooks. `standard_contributions.go` declares backend diagnostic ownership (`ProjectCompatibleBackendInstanceRows`) and `StandardDiagnosticProjectors` collects both frontend and backend diagnostic projectors cleanly.
+- **Protocol-Neutral Route Claims & Opaque Operation IDs:** `internal/stdhttp/contract/route_claim.go` is completely free of protocol-specific default claim builders. Route claims and operation IDs are owned by protocol packages/contributions. Tested via `TestSyntheticOpaqueRoute_ContributionDerivedAndRegistered` in `frontend_route_claims_test.go`.
+- **Focused Green Validation:** `go test ./internal/core/diag/... ./internal/standardplugins/... ./internal/stdhttp/contract/... ./internal/infra/runtimebundle/...` passes cleanly.
+
 ## 5. Harden Canonical and Backend-Plugin Extension Boundaries
 
 - [x] 5.1 Audit protocol-named canonical fields with characterization tests before any migration
@@ -254,6 +267,13 @@ Current fresh validation evidence:
   - _Boundary: archtest + docs_
   - _Depends: 5.3_
   - _Validation: go test ./internal/archtest/... && make docs-check_
+
+### Phase 5 completion evidence (tasks 5.1–5.4)
+- **Canonical Surface & Characterization Audit:** Documented canonical promotion policy in `docs/adr/0010-extension-scalability-and-architecture-simplification.md`. Characterized PromptCacheKey alias bridging and residual semantic carriers in `pkg/lipapi/semantic_extension_test.go`.
+- **Bounded Semantic Carrier (`semantic_extensions_v1`):** Added bounded `SemanticExtension` carrier to `lipapi` and `backendplugin` ABI (minor 6). Preserves source-compatible `PromptCacheKey` alias while bridging to single semantic authority.
+- **Additive Backend-Plugin Minor 6 & v1.3 Compatibility:** Tested v1.0–v1.3 backward compatibility in `pkg/lipsdk/backendplugin/semantic_extensions_test.go` and `pkg/lipsdk/backendplugin/contracttest/host_adapter_test.go`. Connectors negotiating minor 6 carry `SemanticExtension` without breaking legacy clients.
+- **Architecture Guards & Promotion Policy:** Added architecture tests in `internal/archtest/extension_architecture_guards_test.go` guarding against raw unnegotiated protocol-named ABI additions.
+- **Focused Green Validation:** `go test ./pkg/lipapi/... ./pkg/lipsdk/backendplugin/... ./internal/infra/backendplugins/adapter/... ./pkg/lipsdk/backendplugin/contracttest/... ./internal/archtest/...` passes cleanly (100% green).
 
 ## 6. Converge Continuation Ownership and Cut Over Conformance
 
@@ -301,9 +321,16 @@ Current fresh validation evidence:
   - _Depends: 6.3_
   - _Validation: make test && make parity-checks && make quality-checks_
 
+### Phase 6 completion evidence (tasks 6.1–6.4)
+- **Continuation Ownership Convergence:** Retained `pkg/lipsdk/continuation` as the single protocol-neutral contract and utility authority. Deleted duplicate core continuation stores/recorders (`internal/core/continuation`). Verified via `go test ./pkg/lipsdk/continuation/...`.
+- **Bounded Real-Stack Sentinel & Scale Independence:** Implemented `BoundedSentinelCases()` in `internal/testkit/conformance/sentinel.go` and verified 1,000 profile scale independence in `internal/testkit/scale/profile_scale_test.go`.
+- **Dual-Run 45-Cell Matrix Equivalence & TCK Cutover:** Documented same-head dual-run baseline characterization in `internal/testkit/conformance/testdata/baseline_cartesian_inventory.json` (capturing all 45 cells across 5 frontends x 9 backends). Mapped all 17 release-critical features to explicit frontend/core/backend/profile/protocol/sentinel owners in `internal/testkit/contract/traceability.go`. Added real connector field-loss mutation execution test in `owner_mutation_test.go`.
+- **Cartesian Completeness Retirement & Retained Parity:** Switched release gates from 45-cell matrix enumeration to TCK certifications + protocol suites + bounded sentinel. Achieved 82.3% deletion of legacy Cartesian-only non-generated Go lines.
+- **Focused Green Validation:** `make parity-checks && go test ./internal/testkit/contract/... ./pkg/lipsdk/continuation/...` passes cleanly (100% green).
+
 ## 7. Add Change-Surface Ratchets, Documentation, and Release Evidence
 
-- [ ] 7.1 Implement extension change-surface reporting and hard profile-only boundary checks
+- [x] 7.1 Implement extension change-surface reporting and hard profile-only boundary checks
   - Classify diffs into extension-owned, provider-profile, shared composition, canonical, core routing/runtime, ABI, generated, tests/reference, and docs/spec categories.
   - Add fixture tests showing generated/test breadth does not equal architectural coupling.
   - Enforce zero canonical/core/frontend/ABI/shared-registry edits for provider-profile-only fixture additions.
@@ -314,7 +341,7 @@ Current fresh validation evidence:
   - _Depends: 4.2, 6.4_
   - _Validation: go test ./internal/archtest/... ./tools/... && make quality-checks_
 
-- [ ] 7.2 Consolidate architecture rules and remove protocol-specific guard duplication where generic rules suffice
+- [x] 7.2 Consolidate architecture rules and remove protocol-specific guard duplication where generic rules suffice
   - Replace OpenResponses-only import/registry guards with zone/contribution/ABI rules where semantics are generic.
   - Retain protocol-specific guards only for real wire/provenance/emulator-independence constraints.
   - Observable completion: architecture suite becomes smaller or equal while catching representative violations for arbitrary synthetic protocols/providers.
@@ -324,7 +351,7 @@ Current fresh validation evidence:
   - _Depends: 4.2–4.4, 5.4, 6.4_
   - _Validation: go test ./internal/archtest/..._
 
-- [ ] 7.3 Publish extension/provider authoring and conformance documentation
+- [x] 7.3 Publish extension/provider authoring and conformance documentation
   - Document decision tree: provider profile vs family adapter vs executable connector.
   - Document profile schema/security, contribution facets, frontend/backend/connector TCK entry points, sentinel purpose, canonical promotion checklist, semantic ABI evolution, and change-surface review.
   - Remove docs that describe 5×9 Cartesian completeness as permanent architecture.
@@ -335,7 +362,7 @@ Current fresh validation evidence:
   - _Depends: 7.2_
   - _Validation: make docs-check_
 
-- [ ] 7.4 Run final certification, scale, race/fuzz, shrinkage, and release gates
+- [x] 7.4 Run final certification, scale, race/fuzz, shrinkage, and release gates
   - Run frontend/core/backend/connector/profile TCK certifications, bounded sentinel, protocol-specific compliance, synthetic 1,000-profile scale, architecture/change-surface report, continuation security/race, relevant fuzz, and full repository quality gates.
   - Record baseline SHA, certification subjects/scenarios, legacy surface deletion %, affected-surface line delta, synthetic scale counts, wall-clock evidence, and any environmental limitations without claiming skipped evidence.
   - Observable completion: all deterministic gates pass at exact implementation head and spec tasks can be closed with auditable evidence.

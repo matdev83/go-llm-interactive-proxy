@@ -35,6 +35,7 @@ type SemanticInvariantHooks struct {
 	Admit         func(lipapi.CandidateAdmissionInput) lipapi.CandidateAdmissionResult
 	Validate      func([]lipapi.Event) error
 	OutputPolicy  func(committed, retry bool) error
+	StickyCleanup func(affinityID string, admitted bool) bool
 }
 
 func DefaultSemanticInvariantHooks() SemanticInvariantHooks {
@@ -52,6 +53,9 @@ func DefaultSemanticInvariantHooks() SemanticInvariantHooks {
 				return errors.New("output committed: retry/failover is forbidden")
 			}
 			return nil
+		},
+		StickyCleanup: func(affinityID string, admitted bool) bool {
+			return !admitted
 		},
 	}
 }
@@ -99,6 +103,9 @@ func RunSemanticInvariantSuite(h SemanticInvariantHooks) error {
 	badTransport := h.Admit(lipapi.CandidateAdmissionInput{Call: call, Invocation: call.Invocation, BackendCaps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools, lipapi.CapabilityOrderedItems), TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{Operation: call.Invocation.Operation, Modes: []lipapi.TransportMode{lipapi.TransportModeNonStreaming}})})
 	if badTransport.Kind != lipapi.NegotiationReject {
 		return errors.New("core TCK: transport admission accepted undeclared streaming mode")
+	}
+	if h.StickyCleanup != nil && !h.StickyCleanup("session-affinity-id", false) {
+		return errors.New("core TCK: sticky affinity state was retained when candidate admission was rejected")
 	}
 
 	frozen := h.Derive(call)
@@ -166,8 +173,15 @@ func CertifyCore(ctx context.Context, h CoreHarness) (semantic.Certification, er
 				if err != nil {
 					return semantic.Certification{}, fmt.Errorf("core TCK: scenario %s: %w", id, err)
 				}
+				isPositive := slices.Contains(positive, id)
 				if !evidence.Executed || evidence.ScenarioID != id || evidence.BoundaryCalls == 0 || !evidence.Derived || !evidence.ExactMatch {
 					return semantic.Certification{}, fmt.Errorf("core TCK: scenario %s lacks derive/exact-match evidence", id)
+				}
+				if isPositive && !evidence.Accepted {
+					return semantic.Certification{}, fmt.Errorf("core TCK: positive scenario %s lacks acceptance evidence", id)
+				}
+				if !isPositive && (!evidence.Rejected || evidence.Accepted) {
+					return semantic.Certification{}, fmt.Errorf("core TCK: negative scenario %s lacks rejection evidence", id)
 				}
 				break
 			}

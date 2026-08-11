@@ -10,9 +10,6 @@ import (
 // RouteKind is an opaque extension-owned operation identifier.
 type RouteKind string
 
-// DefaultOpenResponsesBasePath is the non-colliding default mount prefix.
-const DefaultOpenResponsesBasePath = "/openresponses/v1"
-
 // CanonicalLegacyBasePath is the shared /v1 prefix used by existing frontends.
 const CanonicalLegacyBasePath = "/v1"
 
@@ -30,7 +27,7 @@ func (k RouteKind) Validate() error {
 		return fmt.Errorf("route claim: invalid kind")
 	}
 	for _, r := range s {
-		if !(unicode.IsLetter(r) || unicode.IsDigit(r) || strings.ContainsRune("._-", r)) {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && !strings.ContainsRune("._-", r) {
 			return fmt.Errorf("route claim: invalid kind %q", s)
 		}
 	}
@@ -125,23 +122,4 @@ func ClaimsForBasePath(ownerID, basePath string, operations ...RouteClaim) ([]Ro
 		out = append(out, normalized)
 	}
 	return out, nil
-}
-
-// OpenResponsesDefaultClaims returns the default non-colliding OpenResponses
-// routes. The operation identifiers remain opaque values owned by the
-// protocol adapter rather than a central route-kind enum.
-func OpenResponsesDefaultClaims(ownerID string) ([]RouteClaim, error) {
-	return ClaimsForBasePath(ownerID, DefaultOpenResponsesBasePath,
-		RouteClaim{Method: http.MethodPost, Path: "/responses", Kind: "openresponses_create"},
-		RouteClaim{Method: http.MethodPost, Path: "/responses/compact", Kind: "openresponses_compact"},
-		RouteClaim{Method: http.MethodGet, Path: "/responses", Kind: "openresponses_websocket"},
-	)
-}
-
-// OpenAIResponsesDefaultClaims returns the existing OpenAI Responses frontend routes at /v1.
-func OpenAIResponsesDefaultClaims(ownerID string) ([]RouteClaim, error) {
-	return ClaimsForBasePath(ownerID, CanonicalLegacyBasePath,
-		RouteClaim{Method: http.MethodPost, Path: "/responses", Kind: "openai_responses_create"},
-		RouteClaim{Method: http.MethodPost, Path: "/responses/{id}/cancel", Kind: "openai_responses_cancel"},
-	)
 }

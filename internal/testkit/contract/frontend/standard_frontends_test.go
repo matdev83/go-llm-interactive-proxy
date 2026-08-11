@@ -1,8 +1,15 @@
 package frontend
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/gemini"
@@ -13,29 +20,33 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipcont "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/continuation"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
 func TestBundledFrontends_CertifyIndependentlyWithCapturingExecutor(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name  string
-		mount funcFrontendMount
-		path  string
-		body  string
+		name         string
+		mount        funcFrontendMount
+		path         string
+		body         string
+		negativeBody func(semantic.ScenarioDescriptor) []byte
 	}{
-		{"openai-responses", openairesponses.Mount, "/v1/responses", `{"model":"m","input":"hi"}`},
-		{"openresponses", openresponses.Mount, "/openresponses/v1/responses", `{"model":"m","input":"hi"}`},
-		{"openai-legacy", openailegacy.Mount, "/v1/chat/completions", `{"model":"m","messages":[{"role":"user","content":"hi"}]}`},
-		{"anthropic", anthropic.Mount, "/v1/messages", `{"model":"m","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`},
-		{"gemini", gemini.Mount, "/v1beta/models/m:generateContent", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`},
+		{"openai-responses", openairesponses.Mount, "/v1/responses", `{"model":"m","input":"hi"}`, openAIResponsesNegativeBody},
+		{"openresponses", openresponses.Mount, "/openresponses/v1/responses", `{"model":"m","input":"hi"}`, openResponsesNegativeBody},
+		{"openai-legacy", openailegacy.Mount, "/v1/chat/completions", `{"model":"m","messages":[{"role":"user","content":"hi"}]}`, openAILegacyNegativeBody},
+		{"anthropic", anthropic.Mount, "/v1/messages", `{"model":"m","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`, anthropicNegativeBody},
+		{"gemini", gemini.Mount, "/v1beta/models/m:generateContent", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`, geminiNegativeBody},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			executor := &CapturingExecutor{Script: EventScript{Events: []lipapi.Event{
-				{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventMessageStarted},
-				{Kind: lipapi.EventTextDelta, Delta: "ok"}, {Kind: lipapi.EventResponseFinished},
+				{Kind: lipapi.EventResponseStarted},
+				{Kind: lipapi.EventMessageStarted},
+				{Kind: lipapi.EventTextDelta, Delta: "ok"},
+				{Kind: lipapi.EventResponseFinished},
 			}}}
 			caps := getFrontendCapabilities(tc.name)
 			dialects := getFrontendDialects(tc.name)
@@ -57,7 +68,11 @@ func TestBundledFrontends_CertifyIndependentlyWithCapturingExecutor(t *testing.T
 					return tc.path
 				}, Body: func(sc semantic.ScenarioDescriptor) []byte {
 					return []byte(frontendScenarioBody(tc.name, string(sc.ID)))
-				}, ExecutorBoundary: executor, ContinuationStore: lipcont.NewMemoryStore(),
+				},
+				NegativeBody:     tc.negativeBody,
+				Decorate:         withFrontendCancellation,
+				ExecutorBoundary: executor, ContinuationStore: lipcont.NewMemoryStore(),
+				AuthProvider: allowFrontendTCKAuth{},
 			}
 			cert, err := CertifyFrontend(context.Background(), h)
 			if err != nil {
@@ -71,6 +86,60 @@ func TestBundledFrontends_CertifyIndependentlyWithCapturingExecutor(t *testing.T
 			}
 		})
 	}
+}
+
+func TestBundledFrontends_ProveAuthenticationBeforeSensitiveWork(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		mount funcFrontendMount
+		path  string
+		body  string
+	}{
+		{"openai-responses", openairesponses.Mount, "/v1/responses", `{"model":"m","input":"hi"}`},
+		{"openresponses", openresponses.Mount, "/openresponses/v1/responses", `{"model":"m","input":"hi"}`},
+		{"openai-legacy", openailegacy.Mount, "/v1/chat/completions", `{"model":"m","messages":[{"role":"user","content":"hi"}]}`},
+		{"anthropic", anthropic.Mount, "/v1/messages", `{"model":"m","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`},
+		{"gemini", gemini.Mount, "/v1beta/models/m:generateContent", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			executor := &CapturingExecutor{}
+			h := &MountedHarness{
+				Descriptor:       semantic.SubjectDescriptor{ID: tc.name, Kind: semantic.KindFrontend},
+				Mount:            tc.mount,
+				Path:             func(semantic.ScenarioDescriptor) string { return tc.path },
+				Body:             func(semantic.ScenarioDescriptor) []byte { return []byte(tc.body) },
+				ExecutorBoundary: executor,
+				AuthProvider:     denyFrontendTCKAuth{},
+			}
+			if err := h.Reset(); err != nil {
+				t.Fatalf("mount failed: %v", err)
+			}
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, tc.path, strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			h.Handler.ServeHTTP(rec, req)
+			if len(executor.Calls) != 0 {
+				t.Fatalf("%s executor reached despite denied request (calls=%d)", tc.name, len(executor.Calls))
+			}
+			if rec.Code < 400 || rec.Code >= 500 {
+				t.Fatalf("%s denied request was not rejected with 4xx, got %d", tc.name, rec.Code)
+			}
+		})
+	}
+}
+
+type allowFrontendTCKAuth struct{}
+
+func (allowFrontendTCKAuth) Authenticate(context.Context, http.ResponseWriter, *http.Request) (httpauth.AuthenticationResult, error) {
+	return httpauth.AuthenticationResult{Type: httpauth.TypePrincipal, Principal: execview.PrincipalView{ID: "frontend-tck"}}, nil
+}
+
+type denyFrontendTCKAuth struct{}
+
+func (denyFrontendTCKAuth) Authenticate(context.Context, http.ResponseWriter, *http.Request) (httpauth.AuthenticationResult, error) {
+	return httpauth.AuthenticationResult{Type: httpauth.TypeReject, HTTPStatus: http.StatusUnauthorized, Body: []byte("authentication required")}, nil
 }
 
 func getFrontendCapabilities(name string) []lipapi.Capability {
@@ -214,6 +283,110 @@ func frontendScenarioBody(frontend, scenario string) string {
 		return `{"model":"m","input":"hi"}`
 	default:
 		return `{"model":"m","input":[{"type":"unknown_semantic_item"}]}`
+	}
+}
+
+func openAIResponsesNegativeBody(semantic.ScenarioDescriptor) []byte {
+	return []byte(`{"model":"m","input":[{"type":"unsupported_semantic_item"}]}`)
+}
+
+func openResponsesNegativeBody(semantic.ScenarioDescriptor) []byte {
+	return []byte(`{"model":"m","input":[{"type":"unsupported_semantic_item"}]}`)
+}
+
+func openAILegacyNegativeBody(semantic.ScenarioDescriptor) []byte {
+	return []byte(`{"model":"m","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"invalid_tool"}]}`)
+}
+
+func anthropicNegativeBody(semantic.ScenarioDescriptor) []byte {
+	return []byte(`{"model":"m","max_tokens":16,"messages":[{"role":"user","content":[{"type":"invalid_semantic_part"}]}]}`)
+}
+
+func geminiNegativeBody(semantic.ScenarioDescriptor) []byte {
+	return []byte(`{"contents":[{"role":"user","parts":[{"type":"invalid_semantic_part"}]}]}`)
+}
+
+func withFrontendCancellation(view FrontendView) FrontendView {
+	mounted, ok := view.(mountedView)
+	if !ok {
+		return view
+	}
+	return cancellationView{mountedView: mounted}
+}
+
+type cancellationView struct {
+	mountedView
+}
+
+func (v cancellationView) Probe(ctx context.Context, scenario semantic.ScenarioDescriptor, executor *CapturingExecutor) (semantic.ExecutionEvidence, error) {
+	if !scenario.IsCancellation() {
+		return v.mountedView.Probe(ctx, scenario, executor)
+	}
+	body := v.body(scenario)
+	return frontendCancellationProbe(ctx, v, v.path, executor, body, len(executor.Calls))
+}
+
+func frontendCancellationProbe(ctx context.Context, handler http.Handler, path func(semantic.ScenarioDescriptor) string, executor *CapturingExecutor, body []byte, beforeCalls int) (semantic.ExecutionEvidence, error) {
+	type blockingState struct {
+		recv   chan struct{}
+		seen   chan struct{}
+		closed chan struct{}
+	}
+	state := blockingState{recv: make(chan struct{}), seen: make(chan struct{}), closed: make(chan struct{})}
+	var recvOnce, seenOnce, closeOnce sync.Once
+	executor.Script.Stream = func(streamCtx context.Context) lipapi.EventStream {
+		return &blockingEventStream{ctx: streamCtx, recv: func() { recvOnce.Do(func() { close(state.recv) }) }, seen: func() { seenOnce.Do(func() { close(state.seen) }) }, closed: func() { closeOnce.Do(func() { close(state.closed) }) }}
+	}
+	defer func() { executor.Script.Stream = nil }()
+
+	reqCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	done := make(chan struct{})
+	req := httptest.NewRequestWithContext(reqCtx, http.MethodPost, path(semantic.ScenarioDescriptor{ID: "cancellation"}), bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-LIP-Session-ID", "frontend-tck-session")
+	rec := httptest.NewRecorder()
+	go func() { handler.ServeHTTP(rec, req); close(done) }()
+	if err := waitSignal(state.recv, "cancellation never reached the stream"); err != nil {
+		return semantic.ExecutionEvidence{}, err
+	}
+	cancel()
+	if err := waitSignal(state.seen, "stream did not observe cancellation"); err != nil {
+		return semantic.ExecutionEvidence{}, err
+	}
+	if err := waitSignal(state.closed, "frontend did not close canceled stream"); err != nil {
+		return semantic.ExecutionEvidence{}, err
+	}
+	if err := waitSignal(done, "cancellation request stalled"); err != nil {
+		return semantic.ExecutionEvidence{}, err
+	}
+	if len(executor.Calls)-beforeCalls != 1 {
+		return semantic.ExecutionEvidence{}, fmt.Errorf("cancellation boundary calls=%d, want 1", len(executor.Calls)-beforeCalls)
+	}
+	return semantic.ExecutionEvidence{ScenarioID: "cancellation", Executed: true, BoundaryCalls: 1, Accepted: true, CanonicalCall: true, ErrorMapped: true, Cancelled: true}, nil
+}
+
+type blockingEventStream struct {
+	ctx    context.Context
+	recv   func()
+	seen   func()
+	closed func()
+}
+
+func (s *blockingEventStream) Recv(context.Context) (lipapi.Event, error) {
+	s.recv()
+	<-s.ctx.Done()
+	s.seen()
+	return lipapi.Event{}, s.ctx.Err()
+}
+func (s *blockingEventStream) Close() error { s.closed(); return nil }
+
+func waitSignal(ch <-chan struct{}, message string) error {
+	select {
+	case <-ch:
+		return nil
+	case <-time.After(2 * time.Second):
+		return fmt.Errorf("frontend TCK: %s", message)
 	}
 }
 

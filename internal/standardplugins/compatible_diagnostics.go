@@ -159,3 +159,15 @@ func CollectBuiltinCompatibleKinds(reg *pluginreg.Registry) []string {
 	}
 	return out
 }
+
+// ProjectCompatibleBackendInstanceRows projects compatible backend rows as common instance diagnostics.
+func ProjectCompatibleBackendInstanceRows(cfg *config.Config) []diag.InstanceDiagnostic {
+	return CompatibleBackendInstanceRows(ProjectCompatibleBackendRows(cfg))
+}
+
+// CompatibleBackendInstanceRows converts already-projected rows without
+// decoding configuration again. Composition roots should use this when they
+// expose both compatible_backends and instance_diagnostics.
+func CompatibleBackendInstanceRows(rows []diag.CompatibleBackendRow) []diag.InstanceDiagnostic {
+	return diag.CompatibleBackendInstanceDiagnostics(rows)
+}

@@ -284,3 +284,70 @@ func runDialConfiguredOrderedItemRejection(t *testing.T, offer backendplugin.Pro
 		t.Fatalf("ExecuteCount=%d want zero upstream visibility", fake.ExecuteCount.Load())
 	}
 }
+
+func TestBufconn_FullAdapterBridgeExecuteStream_TerminalFramePumpShutdown(t *testing.T) {
+	t.Parallel()
+	fake := &testkit.FakeService{Mode: testkit.ModeValid}
+	lis := bufconn.Listen(1 << 20)
+	offer := backendplugin.ProtocolOffer{
+		Major: 1, Minor: backendplugin.ProtocolMinorAccountingEvidence, DisableTransportRetries: true,
+		Features: []backendplugin.Feature{
+			{Name: backendplugin.FeatureOrderedItems},
+			{Name: backendplugin.FeatureAccountingEvidence},
+		},
+	}
+	gs := grpc.NewServer()
+	backendpluginv1.RegisterBackendPluginServer(gs, backendplugin.NewGRPCServer(offer, fake))
+	go func() { _ = gs.Serve(lis) }()
+	t.Cleanup(func() { gs.Stop(); _ = lis.Close() })
+
+	conn, err := lis.Dial()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	sess, profile, err := adapter.DialConfiguredSession(
+		context.Background(), conn, "bufconn-full", "fake", []byte("kind: fake\n"),
+		backendplugin.SecretBundle{}, backendplugin.RuntimePolicy{DisableTransportRetries: true, MaxPendingEvents: 8},
+	)
+	if err != nil {
+		t.Fatalf("DialConfiguredSession: %v", err)
+	}
+	t.Cleanup(func() { _ = sess.Close(context.Background()) })
+
+	br := adapter.Build(sess, profile, adapter.Options{
+		InstanceID:  "bufconn-full",
+		Negotiation: sess.Negotiation(),
+	})
+	call := lipapi.Call{
+		ID:         "req-full",
+		Session:    lipapi.SessionRef{ALegID: "aleg-full"},
+		Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenResponsesCreate},
+		Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
+	}
+	stream, err := br.Backend.Open(context.Background(), call, testCand())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = stream.Close() })
+
+	var events []lipapi.Event
+	for {
+		ev, recvErr := stream.Recv(context.Background())
+		if errors.Is(recvErr, io.EOF) {
+			break
+		}
+		if recvErr != nil {
+			t.Fatalf("Recv error: %v", recvErr)
+		}
+		events = append(events, ev)
+	}
+
+	if len(events) == 0 {
+		t.Fatal("expected events delivered before terminal frame shutdown")
+	}
+	if fake.ExecuteCount.Load() != 1 {
+		t.Fatalf("ExecuteCount=%d, want 1", fake.ExecuteCount.Load())
+	}
+}

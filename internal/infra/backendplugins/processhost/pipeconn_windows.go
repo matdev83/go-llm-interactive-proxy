@@ -32,19 +32,27 @@ func newPipeConn(h windows.Handle, name string) *pipeConn {
 }
 
 func (c *pipeConn) asyncIO(prepare func(ov *windows.Overlapped) (uint32, error)) (int, error) {
+	// Keep closeMu held until the overlapped operation has been submitted. If
+	// Close wins between wg.Add and ReadFile/WriteFile, CancelIoEx could run
+	// before Windows has registered the operation and Close would then wait
+	// forever on an I/O that was never cancelled.
+	c.closeMu.Lock()
 	if c.closed.Load() {
+		c.closeMu.Unlock()
 		return 0, net.ErrClosed
 	}
+	c.wg.Add(1)
+	defer c.wg.Done()
+
 	hEvent, err := windows.CreateEvent(nil, 1, 0, nil)
 	if err != nil {
+		c.closeMu.Unlock()
 		return 0, err
 	}
 	defer func() { _ = windows.CloseHandle(hEvent) }()
 	ov := windows.Overlapped{HEvent: hEvent}
-	c.wg.Add(1)
-	defer c.wg.Done()
-
 	n, err := prepare(&ov)
+	c.closeMu.Unlock()
 	if err == nil {
 		if n == 0 {
 			return 0, io.EOF
@@ -97,12 +105,20 @@ func (c *pipeConn) Write(b []byte) (int, error) {
 
 func (c *pipeConn) Close() error {
 	c.closeMu.Lock()
-	defer c.closeMu.Unlock()
-	if !c.closed.CompareAndSwap(false, true) {
+	if c.closed.Swap(true) {
+		c.closeMu.Unlock()
 		return nil
 	}
 	_ = windows.CancelIoEx(c.handle, nil)
+	c.closeMu.Unlock()
+
 	c.wg.Wait()
+
+	c.closeMu.Lock()
+	defer c.closeMu.Unlock()
+	if c.handle == 0 {
+		return nil
+	}
 	err := windows.CloseHandle(c.handle)
 	c.handle = 0
 	return err

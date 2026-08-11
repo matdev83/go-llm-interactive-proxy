@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"testing"
 	"time"
 
@@ -266,23 +267,16 @@ func (m *memoryStream) Recv() (backendplugin.ClientFrame, error) {
 	m.pos++
 	return f, nil
 }
+
 func (m *memoryStream) Send(f backendplugin.ServerFrame) error {
 	m.outbox = append(m.outbox, f)
 	return nil
 }
-func stringPtr(s string) *string { return &s }
 
 func scenarioApplicable(s contract.ScenarioDescriptor, p backendplugin.ResolvedProfile) bool {
 	caps := capabilityList(p.Capabilities)
 	for _, required := range s.Requires.Capabilities {
-		found := false
-		for _, have := range caps {
-			if have == lipapi.Capability(required) {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.Contains(caps, lipapi.Capability(required)) {
 			return false
 		}
 	}

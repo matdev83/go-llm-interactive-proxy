@@ -6,6 +6,7 @@ import (
 )
 
 func TestConnectorFamilyCoverageManifestIsBounded(t *testing.T) {
+	t.Parallel()
 	if len(CurrentConnectorFamilyCoverage) == 0 {
 		t.Fatal("connector coverage manifest is empty")
 	}

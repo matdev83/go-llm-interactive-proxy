@@ -7,6 +7,8 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -20,6 +22,7 @@ func DetectDuplicateAuthoritativeRegistries(repoRoot string) (map[string][]strin
 	fset := token.NewFileSet()
 	out := make(map[string][]string)
 	for _, dir := range dirs {
+		//nolint:staticcheck // Source mutation scanner intentionally needs ParseDir's file map.
 		pkgs, err := parser.ParseDir(fset, dir, nil, 0)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -61,10 +64,8 @@ func DetectDuplicateAuthoritativeRegistries(repoRoot string) (map[string][]strin
 }
 
 func appendUniquePath(paths []string, path string) []string {
-	for _, existing := range paths {
-		if existing == path {
-			return paths
-		}
+	if slices.Contains(paths, path) {
+		return paths
 	}
 	return append(paths, path)
 }
@@ -161,19 +162,10 @@ func functionReturnsIdentityLiteral(fn *ast.FuncDecl) bool {
 	return found
 }
 
-func routeKindIsProtocolOwned(name, value string) bool {
-	suffix := strings.TrimPrefix(name, "RouteKind")
-	neutral := map[string]bool{"Create": true, "Compact": true, "Cancel": true, "WebSocket": true, "Invoke": true, "Health": true}
-	if !neutral[suffix] {
-		return true
-	}
-	parts := strings.Split(strings.ToLower(value), "_")
-	return len(parts) > 1 && parts[0] != "generic" && parts[0] != "semantic"
-}
-
 func DetectCentralProtocolRouteKinds(repoRoot string) (map[string]string, error) {
 	contractDir := filepath.Join(repoRoot, "internal", "stdhttp", "contract")
 	fset := token.NewFileSet()
+	//nolint:staticcheck // Source mutation scanner intentionally needs ParseDir's file map.
 	pkgs, err := parser.ParseDir(fset, contractDir, nil, 0)
 	if err != nil {
 		return nil, err
@@ -191,13 +183,13 @@ func DetectCentralProtocolRouteKinds(repoRoot string) (map[string]string, error)
 					return true
 				}
 				for i, name := range vSpec.Names {
-					if strings.HasPrefix(name.Name, "RouteKind") && i < len(vSpec.Values) {
-						if lit, ok := vSpec.Values[i].(*ast.BasicLit); ok && lit.Kind == token.STRING {
-							val := strings.ToLower(strings.Trim(lit.Value, `"`))
-							if routeKindIsProtocolOwned(name.Name, val) {
-								discoveredRouteKinds[name.Name] = val
-							}
-						}
+					if i >= len(vSpec.Values) {
+						continue
+					}
+					if val, ok := centralRouteKindValue(name.Name, vSpec.Values[i]); ok {
+						// RouteKind is an opaque extension-owned identifier. Central
+						// route contracts must not own concrete operation IDs.
+						discoveredRouteKinds[name.Name] = val
 					}
 				}
 				return true
@@ -205,6 +197,21 @@ func DetectCentralProtocolRouteKinds(repoRoot string) (map[string]string, error)
 		}
 	}
 	return discoveredRouteKinds, nil
+}
+
+func centralRouteKindValue(name string, expr ast.Expr) (string, bool) {
+	if !strings.HasPrefix(name, "RouteKind") {
+		return "", false
+	}
+	lit, ok := expr.(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	value, err := strconv.Unquote(lit.Value)
+	if err != nil {
+		return "", false
+	}
+	return strings.ToLower(strings.TrimSpace(value)), true
 }
 
 // DetectCentralProtocolDiagnosticsDebt scans central surfaces for protocol-specific
@@ -228,6 +235,7 @@ func DetectCentralProtocolDiagnosticsDebt(repoRoot string) (map[string]string, e
 	}
 	debtItems := make(map[string]string)
 	for _, targetDir := range targets {
+		//nolint:staticcheck // Source mutation scanner intentionally needs ParseDir's file map.
 		pkgs, err := parser.ParseDir(fset, targetDir, nil, 0)
 		if err != nil && !os.IsNotExist(err) {
 			continue

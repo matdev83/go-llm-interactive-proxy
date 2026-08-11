@@ -25,7 +25,7 @@ func DialConfiguredSession(
 	}
 	sess, profile, err := publichost.DialConfiguredSession(ctx, conn, instanceID, factoryKind, configYAML, secrets, policy)
 	if err != nil {
-		return nil, backendplugin.ResolvedProfile{}, fmt.Errorf("adapter: resolve: %w", err)
+		return nil, backendplugin.ResolvedProfile{}, fmt.Errorf("adapter: dial configured session: %w", err)
 	}
 	return sess, profile, nil
 }

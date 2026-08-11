@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/archtest/tools/changesurface"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/conformance"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/scale"
@@ -43,7 +44,7 @@ func TestNonCartesianScale_ThousandProfilesDoNotMultiplyCartesianPairs(t *testin
 	}
 
 	// Release evidence is bounded sentinels, not the historical product.
-	if got := len(conformance.BoundedSentinelCases()); got == 0 || got > 15 {
+	if got := len(conformance.BoundedSentinelCases()); got == 0 || got > 8 {
 		t.Fatalf("sentinel count=%d outside bounded release policy", got)
 	}
 }
@@ -57,11 +58,11 @@ func TestNonCartesianScale_ZeroSharedBoundaryFootprint(t *testing.T) {
 
 	// Use a concrete temporary fixture repository and a real unified diff.
 	fixture := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(fixture, "internal", "providerprofiles", "catalog"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(fixture, "internal", "providerprofiles", "catalog"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	profilePath := filepath.Join(fixture, "internal", "providerprofiles", "catalog", "custom_provider.json")
-	if err := os.WriteFile(profilePath, []byte(`{"id":"provider-profile-clean"}`), 0644); err != nil {
+	if err := os.WriteFile(profilePath, []byte(`{"id":"provider-profile-clean"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	diff := "+++ b/internal/providerprofiles/catalog/custom_provider.json\n"
@@ -127,5 +128,33 @@ func TestNonCartesianScale_DetectorRejectsSharedBoundaryViolation(t *testing.T) 
 	essentialFootprint := inspector.InspectProfileAgainstCentralLists("openai-responses") // "openai-responses" is in EssentialBackendKinds!
 	if err := essentialFootprint.ValidateZeroSharedFootprint(); err == nil {
 		t.Fatalf("expected detector to reject profile added to EssentialBackendKinds")
+	}
+}
+
+func TestNonCartesianScale_ChangeSurfaceProfileOnlyRatchet(t *testing.T) {
+	t.Parallel()
+	clean := []string{
+		"provider-profiles/catalog/acme.yaml",
+		"internal/providerprofiles/profile_test.go",
+		"testdata/generated/acme.json",
+		"internal/testkit/reference_fixture.go",
+	}
+	if err := changesurface.ValidateProfileOnlyPaths(clean); err != nil {
+		t.Fatalf("profile-only fixture rejected: %v", err)
+	}
+	for _, forbidden := range []string{
+		"pkg/lipapi/call.go",
+		"internal/core/routing/router.go",
+		"internal/plugins/frontends/contoso/mount.go",
+		"api/backendplugin/v1/backend.proto",
+		"internal/standardplugins/table.go",
+		"internal/core/routing/router_test.go",
+		"pkg/lipapi/call_test.go",
+		"internal/plugins/frontends/contoso/mount_test.go",
+	} {
+		paths := append(append([]string(nil), clean...), forbidden)
+		if err := changesurface.ValidateProfileOnlyPaths(paths); err == nil {
+			t.Fatalf("profile-only fixture accepted forbidden shared path %q", forbidden)
+		}
 	}
 }

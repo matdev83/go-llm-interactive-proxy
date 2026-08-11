@@ -16,8 +16,8 @@ type RoutesSnapshot struct {
 	EffectiveDefaultRoute  string                      `json:"effective_default_route"`
 	Backends               []RouteBackend              `json:"backends"`
 	CompatibleBackends     []diag.CompatibleBackendRow `json:"compatible_backends,omitempty"`
-	InstanceDiagnostics    []diag.InstanceDiagnostic   `json:"openresponses_frontends,omitempty"`
-	OpenResponsesFrontends []diag.InstanceDiagnostic   `json:"-"`
+	InstanceDiagnostics    []diag.InstanceDiagnostic   `json:"instance_diagnostics,omitempty"`
+	OpenResponsesFrontends []diag.InstanceDiagnostic   `json:"openresponses_frontends,omitempty"`
 	ModelAliases           []RouteAlias                `json:"model_aliases"`
 	// CredentialPosture is derived from enabled backend factory ids only: all_local_stub when every
 	// enabled backend uses factory kind local-stub; live_provider when any enabled backend is not
@@ -41,6 +41,10 @@ type RouteAlias struct {
 // RoutesSnapshotFrom builds a deterministic route read model from config and the standard registry
 // wire model (same default-route resolution as serving).
 func RoutesSnapshotFrom(cfg *config.Config, reg *pluginreg.Registry) (RoutesSnapshot, error) {
+	return routesSnapshotFromCompatible(cfg, reg, standardplugins.ProjectCompatibleBackendRows(cfg))
+}
+
+func routesSnapshotFromCompatible(cfg *config.Config, reg *pluginreg.Registry, compatible []diag.CompatibleBackendRow) (RoutesSnapshot, error) {
 	if cfg == nil {
 		return RoutesSnapshot{}, fmt.Errorf("runtimebundle: nil config")
 	}
@@ -71,11 +75,10 @@ func RoutesSnapshotFrom(cfg *config.Config, reg *pluginreg.Registry) (RoutesSnap
 			Replacement: a.Replacement,
 		})
 	}
-	out.CompatibleBackends = standardplugins.ProjectCompatibleBackendRows(cfg)
-	for _, project := range standardplugins.StandardDiagnosticProjectors() {
-		out.InstanceDiagnostics = append(out.InstanceDiagnostics, project(cfg)...)
-	}
-	out.OpenResponsesFrontends = append([]diag.InstanceDiagnostic(nil), out.InstanceDiagnostics...)
+	out.CompatibleBackends = compatible
+	projection := diag.ProjectInventoryDiagnostics(cfg, out.CompatibleBackends, standardplugins.StandardDiagnosticProjectors())
+	out.InstanceDiagnostics = projection.InstanceDiagnostics
+	out.OpenResponsesFrontends = projection.OpenResponsesFrontends
 	return out, nil
 }
 

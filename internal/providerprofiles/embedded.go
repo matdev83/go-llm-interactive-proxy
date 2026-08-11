@@ -4,18 +4,29 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"sync"
 )
 
 //go:embed catalog.json
 var embeddedCatalog []byte
 
+var (
+	embeddedCatalogOnce sync.Once
+	embeddedCatalogRes  *Catalog
+	embeddedCatalogErr  error
+)
+
 // EmbeddedCatalog loads the checked-in catalog without network or process work.
 func EmbeddedCatalog() (*Catalog, error) {
-	var profiles []Profile
-	if err := json.Unmarshal(embeddedCatalog, &profiles); err != nil {
-		return nil, fmt.Errorf("provider profiles: decode embedded catalog: %w", err)
-	}
-	return NewCatalog(profiles)
+	embeddedCatalogOnce.Do(func() {
+		var profiles []Profile
+		if err := json.Unmarshal(embeddedCatalog, &profiles); err != nil {
+			embeddedCatalogErr = fmt.Errorf("provider profiles: decode embedded catalog: %w", err)
+			return
+		}
+		embeddedCatalogRes, embeddedCatalogErr = NewCatalog(profiles)
+	})
+	return embeddedCatalogRes, embeddedCatalogErr
 }
 
 func EmbeddedProfile(id string) (Profile, error) {

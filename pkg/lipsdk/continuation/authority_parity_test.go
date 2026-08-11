@@ -11,6 +11,7 @@ import (
 // TestAuthorityParity exercises the SDK authority's complete mutable-state and
 // recorder lifecycle surface. Core now delegates to this implementation.
 func TestAuthorityParity(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	scope := Scope{TenantID: "tenant", PrincipalID: "principal", SessionID: "session"}
 	store := NewMemoryStoreWithLimits(StorageLimits{MaxRecords: 4, MaxRecordBytes: 4096, MaxBytes: 1 << 20, MaxChainDepth: 4})

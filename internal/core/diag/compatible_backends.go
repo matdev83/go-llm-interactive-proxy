@@ -1,5 +1,42 @@
 package diag
 
+// CompatibleBackendInstanceDiagnostics converts already-projected compatible
+// rows into the generic instance-diagnostic shape without decoding config.
+func CompatibleBackendInstanceDiagnostics(rows []CompatibleBackendRow) []InstanceDiagnostic {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]InstanceDiagnostic, 0, len(rows))
+	for _, r := range rows {
+		entry := InstanceDiagnostic{
+			ID:             r.InstanceID,
+			InstanceID:     r.InstanceID,
+			FactoryKind:    r.FactoryKind,
+			Origin:         r.Origin,
+			Enabled:        r.Enabled,
+			Profile:        r.Profile,
+			Capabilities:   r.Capabilities,
+			InventoryState: r.InventoryState,
+			Conformance:    r.Conformance,
+			ConfigError:    r.ConfigError,
+		}
+		if r.Prefix != "" {
+			entry.Details = append(entry.Details, SafeField{Key: "prefix", Value: r.Prefix})
+		}
+		if r.EndpointIdentity != "" {
+			entry.Details = append(entry.Details, SafeField{Key: "endpoint_identity", Value: r.EndpointIdentity})
+		}
+		if r.TokenizerID != "" {
+			entry.Details = append(entry.Details, SafeField{Key: "tokenizer_id", Value: r.TokenizerID})
+		}
+		if r.ConcurrencyPolicy != "" {
+			entry.Details = append(entry.Details, SafeField{Key: "concurrency_policy", Value: r.ConcurrencyPolicy})
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
 // CompatibleBackendRow is a bounded operator projection for one configured
 // built-in compatible backend instance. Values never include credential secrets
 // or raw opaque config payloads.

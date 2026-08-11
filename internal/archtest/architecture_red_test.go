@@ -43,9 +43,9 @@ func TestRED_ContributionRegistries_ParallelAuthoritativeViews(t *testing.T) {
 	}
 }
 
-// TestRED_RouteKinds_CentralProtocolSpecificKinds asserts that central protocol-specific route kinds
-// in internal/stdhttp/contract fail under RED target until generalized in Phase 4.
-func TestRED_RouteKinds_CentralProtocolSpecificKinds(t *testing.T) {
+// TestRED_RouteKinds_CentralDeclarations asserts that central route operation
+// declarations fail under RED; concrete IDs belong to contributions.
+func TestRED_RouteKinds_CentralOperationDeclarations(t *testing.T) {
 	t.Parallel()
 
 	repoRoot := filepath.Join("..", "..")
@@ -55,13 +55,13 @@ func TestRED_RouteKinds_CentralProtocolSpecificKinds(t *testing.T) {
 	}
 
 	if len(routeKinds) > 0 {
-		t.Fatalf("RED ARCHITECTURE DEBT DETECTED: Discovered central protocol-specific route kinds in internal/stdhttp/contract: %+v", routeKinds)
+		t.Fatalf("RED ARCHITECTURE DEBT DETECTED: Discovered central route operation declarations in internal/stdhttp/contract: %+v", routeKinds)
 	}
 }
 
 // TestRED_Diagnostics_CentralProtocolSpecificDebt asserts that central protocol-specific
 // diagnostic DTO rows, switches, and projectors fail under RED target until generalized in Phase 4.
-func TestRED_Diagnostics_CentralProtocolSpecificDebt(t *testing.T) {
+func TestRED_Diagnostics_CentralOwnedRowsOrSwitches(t *testing.T) {
 	t.Parallel()
 
 	repoRoot := filepath.Join("..", "..")

@@ -49,3 +49,4 @@
 - `go test ./internal/archtest/...` — Architecture guardrail tests.
 - `make parity-checks` — Conformance suite (`-tags=precommit,integration`).
 - `make qa` — Quality checks + full tagged test pass + golangci-lint + govulncheck.
+- Extension scalability evidence: `go test ./internal/archtest/...`, `go test ./internal/providerprofiles/...`, `go test ./internal/testkit/contract/...`, `go test ./pkg/lipsdk/backendplugin/contracttest`, and the bounded sentinel through `make parity-checks`. Use `go run ./internal/archtest/tools/changesurface/cmd -json` for the deterministic Git path report; provider-profile-only changes must also pass `make profile-only-check PROFILE_ONLY_BASE=HEAD` (CI runs the same ratchet when profile paths change).

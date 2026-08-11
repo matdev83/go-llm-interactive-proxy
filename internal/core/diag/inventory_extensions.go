@@ -28,10 +28,41 @@ type FeatureRegistry interface {
 	BuildFeatureBundle(factoryKey string, n yaml.Node) (lipfeature.FeatureBundle, error)
 }
 
+// InventoryProjection contains one shared diagnostic projection pass.
+// InventoryProjection is the complete, sanitized diagnostic read model shared
+// by inventory and route inspection. Callers must not rebuild its filtered
+// views independently.
+type InventoryProjection struct {
+	CompatibleBackends     []CompatibleBackendRow
+	InstanceDiagnostics    []InstanceDiagnostic
+	OpenResponsesFrontends []InstanceDiagnostic
+}
+
+// ProjectInventoryDiagnostics assembles and sanitizes the complete diagnostic
+// read model used by inventory and route inspection. This is the only place
+// that combines compatible-backend rows with contribution-owned projectors.
+func ProjectInventoryDiagnostics(cfg *config.Config, compatible []CompatibleBackendRow, projectors []InstanceDiagnosticProjector) InventoryProjection {
+	raw := CompatibleBackendInstanceDiagnostics(compatible)
+	for _, project := range projectors {
+		if project != nil {
+			raw = append(raw, project(cfg)...)
+		}
+	}
+	projected := ProjectSanitizedInstanceDiagnostics(raw)
+	return InventoryProjection{
+		CompatibleBackends:     compatible,
+		InstanceDiagnostics:    projected.Instances,
+		OpenResponsesFrontends: projected.OpenResponsesRows,
+	}
+}
+
 type InventoryExtras struct {
-	Reg                          FeatureRegistry
-	Registrations                []lipsdk.Registration
-	CompatibleBackends           CompatibleBackendProjector
+	Reg                FeatureRegistry
+	Registrations      []lipsdk.Registration
+	CompatibleBackends CompatibleBackendProjector
+	// Precomputed is supplied by a composition root when related operator views
+	// already share one projection pass. A non-nil value is authoritative.
+	Precomputed                  *InventoryProjection
 	InstanceDiagnosticProjectors []InstanceDiagnosticProjector
 	SecretGuardCatalogEntryCount int
 	SecretGuardSourceCategories  []string

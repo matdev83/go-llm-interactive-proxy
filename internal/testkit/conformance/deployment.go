@@ -457,6 +457,7 @@ func candidateBackendKey(primary string, i int) string {
 // backend ID against an origin base URL. OpenResponses uses the generic
 // compatible factory; the essential families reuse [BackendFor].
 func harnessBackendFor(tb testing.TB, backendID, originURL string, httpClient *http.Client) execbackend.Backend {
+	tb.Helper()
 	return harnessBackendForProfile(tb, backendID, originURL, httpClient, "")
 }
 

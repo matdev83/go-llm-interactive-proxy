@@ -20,11 +20,14 @@ type selectionDerivation struct{}
 func (selectionDerivation) DeriveRequirements(*lipapi.Call) (lipapi.ProtocolRequirements, error) {
 	return lipapi.ProtocolRequirements{}, nil
 }
+
 func (selectionDerivation) MatchRequirements(lipapi.ProtocolRequirements, []lipapi.Capability) bool {
 	return true
 }
+
 func (selectionDerivation) Probe(_ context.Context, scenario semantic.ScenarioDescriptor) (semantic.ExecutionEvidence, error) {
-	return semantic.ExecutionEvidence{ScenarioID: scenario.ID, Executed: true, BoundaryCalls: 1, Derived: true, ExactMatch: true}, nil
+	positive := scenario.ID == "text-baseline"
+	return semantic.ExecutionEvidence{ScenarioID: scenario.ID, Executed: true, BoundaryCalls: 1, Derived: true, ExactMatch: true, Accepted: positive, Rejected: !positive}, nil
 }
 
 func TestCertifyCoreRejectsMissingProofEvidence(t *testing.T) {
@@ -45,9 +48,11 @@ type noEvidenceCoreView struct{}
 func (noEvidenceCoreView) DeriveRequirements(*lipapi.Call) (lipapi.ProtocolRequirements, error) {
 	return lipapi.ProtocolRequirements{}, nil
 }
+
 func (noEvidenceCoreView) MatchRequirements(lipapi.ProtocolRequirements, []lipapi.Capability) bool {
 	return true
 }
+
 func (noEvidenceCoreView) Probe(context.Context, semantic.ScenarioDescriptor) (semantic.ExecutionEvidence, error) {
 	return semantic.ExecutionEvidence{}, nil
 }

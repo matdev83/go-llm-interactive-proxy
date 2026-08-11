@@ -569,15 +569,22 @@ func phase43AppendIntentUniqueRace(t *testing.T, a phase43Adapter) {
 }
 
 func retryAppendIntentBusy(fn func() error) error {
-	var err error
-	for attempt := range 16 {
-		err = fn()
+	const budget = 10 * time.Second
+	deadline := time.Now().Add(budget)
+	backoff := 10 * time.Millisecond
+	for {
+		err := fn()
 		if err == nil || !isSQLiteBusy(err) {
 			return err
 		}
-		time.Sleep(time.Duration(attempt+1) * 5 * time.Millisecond)
+		if time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(backoff)
+		if backoff < 250*time.Millisecond {
+			backoff *= 2
+		}
 	}
-	return err
 }
 
 func isSQLiteBusy(err error) bool {

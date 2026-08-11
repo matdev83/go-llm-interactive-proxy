@@ -33,6 +33,7 @@ type Session struct {
 	instanceID string
 
 	negotiation backendplugin.Negotiation
+	lifecycleMu sync.Mutex
 	closeMu     sync.Mutex
 	closed      bool
 }
@@ -160,20 +161,52 @@ func (s *Session) ListModels(ctx context.Context, maxModels uint32) (backendplug
 
 // Execute forwards the public DTO stream through the gRPC host session.
 func (s *Session) Execute(stream backendplugin.ExecuteStream) error {
+	// Serialize lifecycle operations so Close cannot tear down the transport
+	// underneath an active execute RPC. The optional stream closer still handles
+	// input-pump cleanup when Execute itself is ending.
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+
+	s.closeMu.Lock()
+	closed := s.closed
+	s.closeMu.Unlock()
+	if closed {
+		return fmt.Errorf("host: session is closed")
+	}
+
 	ctx, cancel := context.WithCancel(stream.Context())
 	defer cancel()
+
+	var (
+		streamCloseOnce sync.Once
+		closer          backendplugin.OptionalExecuteStreamCloser
+	)
+	if c, ok := stream.(backendplugin.OptionalExecuteStreamCloser); ok {
+		closer = c
+	}
+	closeStream := func() {
+		streamCloseOnce.Do(func() {
+			if closer != nil {
+				_ = closer.Close()
+			}
+		})
+	}
+	defer closeStream()
+
 	gs, err := s.client.Execute(ctx)
 	if err != nil {
 		return mapSessionError(err, false)
 	}
 	errCh := make(chan error, 1)
-	var once sync.Once
+	var reportOnce sync.Once
 	report := func(e error) {
 		if e != nil && !errors.Is(e, io.EOF) && ctx.Err() == nil {
-			once.Do(func() { errCh <- e })
+			reportOnce.Do(func() { errCh <- e })
 		}
 	}
+	pumpDone := make(chan struct{})
 	go func() {
+		defer close(pumpDone)
 		defer func() { _ = gs.CloseSend() }()
 		for {
 			frame, recvErr := stream.Recv()
@@ -196,11 +229,31 @@ func (s *Session) Execute(stream backendplugin.ExecuteStream) error {
 			}
 		}
 	}()
+	var closeOnce sync.Once
+	closePump := func() {
+		closeOnce.Do(func() {
+			cancel()
+			closeStream()
+			// Legacy ExecuteStream implementations must observe their own
+			// Context, but the host cannot cancel that caller-owned context.
+			// Only wait when the optional closer gives us a reliable unblock
+			// seam; otherwise return without turning a non-cooperative stream
+			// into a host deadlock.
+			if closer != nil {
+				<-pumpDone
+			}
+		})
+	}
+	defer closePump()
+
 	terminal := false
 	for {
 		msg, recvErr := gs.Recv()
 		if recvErr != nil {
-			cancel()
+			closePump()
+			if ctxErr := stream.Context().Err(); ctxErr != nil {
+				return ctxErr
+			}
 			if peer := firstSessionError(errCh); peer != nil {
 				return mapSessionError(peer, terminal)
 			}
@@ -208,14 +261,18 @@ func (s *Session) Execute(stream backendplugin.ExecuteStream) error {
 		}
 		frame, convErr := backendplugin.ServerFrameFromProto(msg)
 		if convErr != nil {
-			cancel()
+			closePump()
 			return &ProtocolViolationError{Err: convErr}
+		}
+		if terminal {
+			closePump()
+			return &ProtocolViolationError{Err: fmt.Errorf("session: unexpected server frame after terminal")}
 		}
 		if frame.Kind == backendplugin.ServerFrameTerminal {
 			terminal = true
 		}
 		if sendErr := stream.Send(frame); sendErr != nil {
-			cancel()
+			closePump()
 			return sendErr
 		}
 	}
@@ -231,18 +288,18 @@ func (s *Session) Cancel(ctx context.Context, invocation backendplugin.Invocatio
 }
 
 func (s *Session) Close(ctx context.Context) error {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+
 	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
 	if s.closed {
-		s.closeMu.Unlock()
 		return nil
 	}
-	s.closeMu.Unlock()
 	if _, err := s.client.CloseInstance(ctx, &backendpluginv1.CloseInstanceRequest{InstanceId: s.instanceID}); err != nil {
 		return err
 	}
-	s.closeMu.Lock()
 	s.closed = true
-	s.closeMu.Unlock()
 	if s.conn != nil {
 		_ = s.conn.Close()
 	}
@@ -290,6 +347,9 @@ func mapSessionError(err error, terminal bool) error {
 	if st, ok := status.FromError(err); ok {
 		if st.Code() == codes.Canceled {
 			return context.Canceled
+		}
+		if st.Code() == codes.DeadlineExceeded && !terminal {
+			return context.DeadlineExceeded
 		}
 		if terminal && (st.Code() == codes.Unavailable || st.Code() == codes.DeadlineExceeded || st.Code() == codes.Unknown || st.Code() == codes.Internal || st.Code() == codes.Aborted) {
 			return nil

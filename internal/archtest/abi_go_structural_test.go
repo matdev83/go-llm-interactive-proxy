@@ -30,6 +30,7 @@ type PublicABISymbol struct {
 func ScanPublicBackendPluginABI(repoRoot string) ([]PublicABISymbol, error) {
 	dir := repoRoot + "/pkg/lipsdk/backendplugin"
 	fset := token.NewFileSet()
+	//nolint:staticcheck // Structural ABI scanner intentionally needs ParseDir's file map.
 	pkgs, err := parser.ParseDir(fset, dir, nil, 0)
 	if err != nil {
 		return nil, err

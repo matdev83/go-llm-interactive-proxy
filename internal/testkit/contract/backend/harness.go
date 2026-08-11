@@ -67,6 +67,7 @@ func (v ExecBackendView) EffectiveCapabilities(ctx context.Context, call *lipapi
 	}
 	return BackendFacts{Capabilities: capabilitySlice(execbackend.EffectiveCaps(ctx, v.Backend, *call, v.Candidate)), Dialects: execbackend.EffectiveDialectSupport(ctx, v.Backend, *call, v.Candidate)}
 }
+
 func (v ExecBackendView) Probe(ctx context.Context, scenario semantic.ScenarioDescriptor, probe UpstreamProbe) (semantic.ExecutionEvidence, error) {
 	if scenario.ID == "recoverable-error" || scenario.ID == "terminal-error" || scenario.ID == "cancellation" {
 		var cancel context.CancelFunc
@@ -85,7 +86,7 @@ func (v ExecBackendView) Probe(ctx context.Context, scenario semantic.ScenarioDe
 	if stream == nil {
 		return semantic.ExecutionEvidence{}, errors.New("backend TCK: real Open returned nil stream")
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	var events []lipapi.Event
 	for {
 		ev, recvErr := stream.Recv(ctx)
@@ -109,6 +110,7 @@ func (v ExecBackendView) Probe(ctx context.Context, scenario semantic.ScenarioDe
 	calls := probe.RequestCount() - before
 	return semantic.ExecutionEvidence{ScenarioID: scenario.ID, Executed: true, BoundaryCalls: 1, UpstreamCalls: calls, Opened: true, EffectiveCapabilities: true, Accepted: true, StreamValidated: true, UsagePresent: hasUsage(events), LifecycleClosed: true}, nil
 }
+
 func (v ExecBackendView) Reject(ctx context.Context, call *lipapi.Call, scenario semantic.ScenarioDescriptor) (semantic.ExecutionEvidence, error) {
 	if call == nil {
 		return semantic.ExecutionEvidence{}, errors.New("backend TCK: nil hard-negative call")
@@ -139,6 +141,7 @@ func capabilitySlice(caps lipapi.BackendCaps) []lipapi.Capability {
 	}
 	return out
 }
+
 func validateScenarioEvents(s semantic.ScenarioDescriptor, events []lipapi.Event) error {
 	seen := make(map[lipapi.EventKind]bool, len(events))
 	for _, event := range events {
@@ -175,6 +178,7 @@ func hasUsage(events []lipapi.Event) bool {
 	}
 	return false
 }
+
 func backendScenarioCall(s semantic.ScenarioDescriptor, inv lipapi.Invocation) lipapi.Call {
 	call := lipapi.Call{ID: string(s.ID), Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "hello"}}}}, Tools: toolsForScenario(s), Invocation: inv}
 	switch s.Feature {
@@ -199,24 +203,27 @@ func backendScenarioCall(s semantic.ScenarioDescriptor, inv lipapi.Invocation) l
 		call.Options.MaxOutputTokens = &zero
 	}
 	if s.ID == "recoverable-error" {
-		call.Options.Temperature = floatPtr(0.11)
+		call.Options.Temperature = new(float64)
+		*call.Options.Temperature = 0.11
 	}
 	if s.ID == "terminal-error" {
-		call.Options.Temperature = floatPtr(0.22)
+		call.Options.Temperature = new(float64)
+		*call.Options.Temperature = 0.22
 	}
 	if s.ID == "cancellation" {
-		call.Options.Temperature = floatPtr(0.33)
+		call.Options.Temperature = new(float64)
+		*call.Options.Temperature = 0.33
 	}
 	if s.ID == "lifecycle-close" || s.ID == "close-idempotent" {
-		call.Options.Temperature = floatPtr(0.44)
+		call.Options.Temperature = new(float64)
+		*call.Options.Temperature = 0.44
 	}
 	if s.Transport == semantic.TransportStreaming {
 		call.Invocation.TransportMode = lipapi.TransportModeStreaming
 	}
 	return call
 }
-func intPtr(v int) *int           { return &v }
-func floatPtr(v float64) *float64 { return &v }
+
 func toolsForScenario(s semantic.ScenarioDescriptor) []lipapi.ToolDef {
 	if s.Feature == semantic.FeatureTools {
 		return []lipapi.ToolDef{{Name: "weather", Parameters: []byte(`{"type":"object"}`)}}

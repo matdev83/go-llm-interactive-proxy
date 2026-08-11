@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+//nolint:paralleltest // mutates source fixtures in a shared test repository.
 func TestContributionAndDiagnosticsAuthorityMutationFixtures(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
@@ -24,10 +25,10 @@ var DefaultModel = "contoso"`,
 	}
 	for name, source := range files {
 		full := filepath.Join(root, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(full, []byte(source), 0644); err != nil {
+		if err := os.WriteFile(full, []byte(source), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -57,6 +58,7 @@ var DefaultModel = "contoso"`,
 	}
 }
 
+//nolint:paralleltest // mutates source fixtures in a shared test repository.
 func TestAuthorityDetectors_IgnoreOwnedProjectorsAndState(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
@@ -68,10 +70,10 @@ var HealthState = map[string]string{"x":"y"}`,
 	}
 	for name, source := range files {
 		full := filepath.Join(root, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(full, []byte(source), 0644); err != nil {
+		if err := os.WriteFile(full, []byte(source), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -84,15 +86,16 @@ var HealthState = map[string]string{"x":"y"}`,
 	}
 }
 
+//nolint:paralleltest // mutates source fixtures in a shared test repository.
 func TestDuplicateAuthoritativeRegistries_PreservesDistinctPaths(t *testing.T) {
 	root := t.TempDir()
 	for _, name := range []string{"internal/standardplugins/one.go", "internal/pluginreg/two.go"} {
 		full := filepath.Join(root, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(full, []byte(`package fixture
-var SharedContribution = []string{"x"}`), 0644); err != nil {
+var SharedContribution = []string{"x"}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}

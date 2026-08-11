@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/gorilla/websocket"
+	frontopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
 	frontopenresponses "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openresponses"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/conformance"
@@ -548,7 +549,7 @@ func TestSecurity_AmplificationChainDepthRejected(t *testing.T) {
 func TestSecurity_RouteCollisionRejectedBeforeServing(t *testing.T) {
 	t.Parallel()
 	reg := httpcontract.NewRouteRegistry()
-	openaiClaims, err := httpcontract.OpenAIResponsesDefaultClaims("openai-responses")
+	openaiClaims, err := frontopenairesponses.RouteClaims("openai-responses")
 	if err != nil {
 		t.Fatal(err)
 	}

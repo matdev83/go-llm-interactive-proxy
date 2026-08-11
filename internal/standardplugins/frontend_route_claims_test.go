@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/contrib"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"gopkg.in/yaml.v3"
 )
@@ -122,5 +123,63 @@ websocket:
 		if c.Kind == httpcontract.RouteKind("openresponses_websocket") {
 			t.Fatalf("ws claim must be omitted when disabled: %+v", c)
 		}
+	}
+}
+
+// TestSyntheticOpaqueRoute_ContributionDerivedAndRegistered proves a synthetic
+// new frontend protocol with an opaque operation identifier can be derived from
+// a frontend contribution, registered into RouteRegistry, and matched cleanly
+// without any central route-kind enum or switch modifications.
+func TestSyntheticOpaqueRoute_ContributionDerivedAndRegistered(t *testing.T) {
+	t.Parallel()
+	const (
+		syntheticOwner = "contoso-synthetic-frontend"
+		opaqueOpID     = "contoso.synthetic_custom_action_v1"
+		syntheticPath  = "/contoso/v1/action"
+	)
+	feContrib := contrib.FrontendContribution{
+		Registration: contrib.FrontendRegistrationFacet{ID: syntheticOwner},
+		Routes: &contrib.RouteFacet{
+			Declared: true,
+			Claims: []contrib.RouteClaimFacet{
+				{
+					Method:      http.MethodPost,
+					Path:        syntheticPath,
+					OperationID: opaqueOpID,
+				},
+			},
+		},
+		Contract: contrib.ContractFacet{Subject: contrib.ContractSubject{ID: syntheticOwner, Kind: "frontend"}},
+	}
+
+	views, err := contrib.Derive(contrib.ContributionSet{Frontends: []contrib.FrontendContribution{feContrib}})
+	if err != nil {
+		t.Fatalf("contrib.Derive failed for synthetic frontend: %v", err)
+	}
+	if len(views.RouteClaims) != 1 {
+		t.Fatalf("views.RouteClaims count = %d, want 1", len(views.RouteClaims))
+	}
+	claimFacet := views.RouteClaims[0]
+	if claimFacet.OperationID != opaqueOpID {
+		t.Fatalf("OperationID = %q, want %q", claimFacet.OperationID, opaqueOpID)
+	}
+
+	reg := httpcontract.NewRouteRegistry()
+	claim := httpcontract.RouteClaim{
+		OwnerID: syntheticOwner,
+		Method:  claimFacet.Method,
+		Path:    claimFacet.Path,
+		Kind:    httpcontract.RouteKind(claimFacet.OperationID),
+	}
+	if err := reg.Register(claim); err != nil {
+		t.Fatalf("httpcontract.RouteRegistry failed to register synthetic opaque claim: %v", err)
+	}
+
+	registeredClaim, ok := reg.OwnerOf(http.MethodPost, syntheticPath)
+	if !ok || registeredClaim.OwnerID != syntheticOwner {
+		t.Fatalf("reg.OwnerOf(%s, %s) = %v, %v; want owner %q, true", http.MethodPost, syntheticPath, registeredClaim, ok, syntheticOwner)
+	}
+	if registeredClaim.Kind != httpcontract.RouteKind(opaqueOpID) {
+		t.Fatalf("registeredClaim.Kind = %q, want %q", registeredClaim.Kind, opaqueOpID)
 	}
 }

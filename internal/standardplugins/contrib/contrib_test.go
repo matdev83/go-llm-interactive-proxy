@@ -5,10 +5,11 @@ import (
 )
 
 func TestDerive_UsesFocusedFacetsAndSyntheticViews(t *testing.T) {
+	t.Parallel()
 	frontend := FrontendContribution{
 		Registration: FrontendRegistrationFacet{ID: "synthetic-frontend"},
 		Routes:       &RouteFacet{Declared: true, Claims: []RouteClaimFacet{{Method: "post", Path: "/synthetic/invoke", OperationID: "contoso.invoke"}}},
-		Diagnostics:  &DiagnosticFacet{Declared: true},
+		Diagnostics:  &DiagnosticFacet{ID: "synthetic-frontend:diagnostics", Declared: true},
 		Contract:     ContractFacet{Subject: ContractSubject{ID: "synthetic-frontend", Kind: "frontend"}},
 	}
 	backend := BackendContribution{
@@ -39,6 +40,7 @@ func TestDerive_UsesFocusedFacetsAndSyntheticViews(t *testing.T) {
 }
 
 func TestDerive_RejectsDuplicateContractAndRouteClaims(t *testing.T) {
+	t.Parallel()
 	_, err := Derive(ContributionSet{Frontends: []FrontendContribution{
 		{Registration: FrontendRegistrationFacet{ID: "one"}, Contract: ContractFacet{Subject: ContractSubject{ID: "same", Kind: "frontend"}}},
 		{Registration: FrontendRegistrationFacet{ID: "two"}, Contract: ContractFacet{Subject: ContractSubject{ID: "same", Kind: "frontend"}}},
@@ -55,7 +57,19 @@ func TestDerive_RejectsDuplicateContractAndRouteClaims(t *testing.T) {
 	}
 }
 
+func TestDerive_RejectsDuplicateDiagnosticIDs(t *testing.T) {
+	t.Parallel()
+	_, err := Derive(ContributionSet{Diagnostics: []DiagnosticFacet{
+		{ID: "catalog", Declared: true},
+		{ID: "catalog", Declared: true},
+	}})
+	if err == nil {
+		t.Fatal("expected duplicate diagnostic id error")
+	}
+}
+
 func TestDerive_RejectsDuplicateIDsAndFamilies(t *testing.T) {
+	t.Parallel()
 	_, err := Derive(ContributionSet{
 		Frontends: []FrontendContribution{
 			{Registration: FrontendRegistrationFacet{ID: "duplicate"}},
@@ -76,6 +90,7 @@ func TestDerive_RejectsDuplicateIDsAndFamilies(t *testing.T) {
 }
 
 func TestDerive_PreservesDeclarationOrderAndExcludesOptionalBackends(t *testing.T) {
+	t.Parallel()
 	views, err := Derive(ContributionSet{
 		Frontends: []FrontendContribution{
 			{Registration: FrontendRegistrationFacet{ID: "z-frontend"}},
@@ -94,5 +109,32 @@ func TestDerive_PreservesDeclarationOrderAndExcludesOptionalBackends(t *testing.
 	}
 	if len(views.EssentialIDs) != 1 || views.EssentialIDs[0] != "builtin" {
 		t.Fatalf("essential ids = %v", views.EssentialIDs)
+	}
+}
+
+func TestDerive_DefaultsEmptyDiagnosticIDToOwner(t *testing.T) {
+	t.Parallel()
+	views, err := Derive(ContributionSet{
+		Frontends: []FrontendContribution{
+			{
+				Registration: FrontendRegistrationFacet{ID: "fe-custom"},
+				Diagnostics:  &DiagnosticFacet{Declared: true},
+			},
+		},
+		Backends: []BackendContribution{
+			{
+				Registration: BackendRegistrationFacet{ID: "be-custom"},
+				Diagnostics:  &DiagnosticFacet{Declared: true},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Derive failed: %v", err)
+	}
+	if len(views.Diagnostics) != 2 {
+		t.Fatalf("diagnostics count = %d, want 2", len(views.Diagnostics))
+	}
+	if views.Diagnostics[0].ID != "fe-custom:diagnostics" || views.Diagnostics[1].ID != "be-custom:diagnostics" {
+		t.Fatalf("diagnostic IDs = %v, %v", views.Diagnostics[0].ID, views.Diagnostics[1].ID)
 	}
 }

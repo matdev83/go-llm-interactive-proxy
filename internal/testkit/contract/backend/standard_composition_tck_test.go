@@ -36,6 +36,7 @@ func (p *standardProbe) LastRequest() CapturedRequest {
 	defer p.mu.Unlock()
 	return p.last
 }
+
 func (p *standardProbe) Reset() { p.mu.Lock(); p.count = 0; p.last = CapturedRequest{}; p.mu.Unlock() }
 
 func TestStandardComposition_FalseCapabilityMutationIsCaught(t *testing.T) {
@@ -77,7 +78,6 @@ func TestStandardComposition_CertifiesEveryInProcessFamily(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range standardplugins.EssentialBackendKinds() {
-		id := id
 		t.Run(id, func(t *testing.T) {
 			be, model := buildStandardFamily(t, reg, id, srv.URL, tckClient)
 			if id == standardplugins.CustomOpenResponsesCompatibleID {
@@ -172,6 +172,7 @@ data: {"type":"response.completed","sequence_number":2,"response":{"id":"r","sta
 }
 
 func buildStandardFamily(t *testing.T, reg *pluginreg.Registry, id, baseURL string, client *http.Client) (execbackend.Backend, string) {
+	t.Helper()
 	raw := ""
 	model := "m"
 	switch id {
@@ -203,6 +204,7 @@ func buildStandardFamily(t *testing.T, reg *pluginreg.Registry, id, baseURL stri
 	}
 	return result.Backend, model
 }
+
 func operationForFamily(id string) lipapi.Operation {
 	switch id {
 	case "openai-responses", standardplugins.CustomOpenAIResponsesCompatibleID:

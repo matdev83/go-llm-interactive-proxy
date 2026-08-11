@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
@@ -175,13 +176,45 @@ func listTempDirsWithPrefix(prefix string) []string {
 // the before snapshot (i.e. the operation leaked a temp dir).
 func assertNoNewDirs(t *testing.T, before []string, prefix string) {
 	t.Helper()
-	after := listTempDirsWithPrefix(prefix)
 	beforeSet := make(map[string]struct{}, len(before))
 	for _, b := range before {
 		beforeSet[b] = struct{}{}
 	}
-	for _, d := range after {
-		if _, ok := beforeSet[d]; !ok {
+	var leaked []string
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		after := listTempDirsWithPrefix(prefix)
+		leaked = nil
+		for _, d := range after {
+			if _, ok := beforeSet[d]; !ok {
+				if _, err := os.Stat(d); err == nil {
+					leaked = append(leaked, d)
+				}
+			}
+		}
+		if len(leaked) == 0 {
+			time.Sleep(20 * time.Millisecond)
+			afterCheck := listTempDirsWithPrefix(prefix)
+			clean := true
+			for _, d := range afterCheck {
+				if _, ok := beforeSet[d]; !ok {
+					if _, err := os.Stat(d); err == nil {
+						clean = false
+						break
+					}
+				}
+			}
+			if clean {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	for _, d := range leaked {
+		if _, err := os.Stat(d); err == nil {
 			t.Errorf("leaked temp dir %q (prefix %q)", d, prefix)
 		}
 	}

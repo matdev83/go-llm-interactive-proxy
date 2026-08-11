@@ -1,7 +1,9 @@
 package standardplugins
 
 import (
+	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -45,22 +47,52 @@ type standardBackendContribution struct {
 	family           string
 	profileIDs       []string
 	contract         contrib.ContractSubject
+	diagnostics      diag.InstanceDiagnosticProjector
+}
+
+type standardDiagnosticContribution struct {
+	id        string
+	projector diag.InstanceDiagnosticProjector
+}
+
+func standardDiagnosticContributions() []standardDiagnosticContribution {
+	return []standardDiagnosticContribution{
+		{id: "provider-profile-catalog", projector: ProjectProviderProfileDiagnostics},
+	}
 }
 
 func StandardContributions() contrib.ContributionSet {
 	set := contrib.ContributionSet{}
+	for _, c := range standardDiagnosticContributions() {
+		set.Diagnostics = append(set.Diagnostics, contrib.DiagnosticFacet{ID: c.id, Declared: c.projector != nil})
+	}
 	for _, c := range standardFrontendContributions() {
 		f := contrib.FrontendContribution{Registration: contrib.FrontendRegistrationFacet{ID: c.id}, Contract: contrib.ContractFacet{Subject: c.contract}}
 		if c.routes != nil {
-			f.Routes = &contrib.RouteFacet{Declared: true}
+			claims, err := c.routes(c.id, yaml.Node{})
+			if err != nil {
+				panic(fmt.Errorf("standard frontend contribution %q route claims: %w", c.id, err))
+			}
+			var claimFacets []contrib.RouteClaimFacet
+			for _, cl := range claims {
+				claimFacets = append(claimFacets, contrib.RouteClaimFacet{
+					Method:      cl.Method,
+					Path:        cl.Path,
+					OperationID: string(cl.Kind),
+				})
+			}
+			f.Routes = &contrib.RouteFacet{Declared: true, Claims: claimFacets}
 		}
 		if c.diagnostics != nil {
-			f.Diagnostics = &contrib.DiagnosticFacet{Declared: true}
+			f.Diagnostics = &contrib.DiagnosticFacet{ID: c.id + ":diagnostics", Declared: true}
 		}
 		set.Frontends = append(set.Frontends, f)
 	}
 	for _, c := range standardBackendContributions(UpstreamAPIKeys{}) {
 		b := contrib.BackendContribution{Registration: contrib.BackendRegistrationFacet{ID: c.id, Source: c.metadataSource, EssentialOrder: c.essentialOrder, CompatibleOrder: c.compatibleOrder}, Contract: contrib.ContractFacet{Subject: c.contract}}
+		if c.diagnostics != nil {
+			b.Diagnostics = &contrib.DiagnosticFacet{ID: c.id + ":diagnostics", Declared: true}
+		}
 		if c.family != "" {
 			b.Compatible = &contrib.CompatibleFamilyFacet{FamilyID: c.family, ProfileIDs: append([]string(nil), c.profileIDs...)}
 		}
@@ -98,7 +130,7 @@ func standardBackendContributions(keys UpstreamAPIKeys) []standardBackendContrib
 	}
 	profiles, err := providerprofiles.EmbeddedCatalog()
 	if err != nil {
-		return contributions
+		panic(err)
 	}
 	for _, profile := range profiles.Profiles() {
 		for i := range contributions {
@@ -117,6 +149,7 @@ func backendFactory(keys UpstreamAPIKeys, f hostedBackendFactory) pluginreg.Back
 		return f(n, upstream, keys, deps.Identity)
 	}
 }
+
 func staticProfile() pluginreg.BackendSecurityProfile {
 	return pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}
 }
@@ -128,6 +161,7 @@ func frontendRegistrationsFrom(in []standardFrontendContribution) []FrontendRegi
 	}
 	return out
 }
+
 func backendRegistrationsFrom(in []standardBackendContribution) []BackendRegistration {
 	out := make([]BackendRegistration, 0, len(in))
 	for _, c := range in {
@@ -136,12 +170,32 @@ func backendRegistrationsFrom(in []standardBackendContribution) []BackendRegistr
 	return out
 }
 
+var (
+	standardDiagnosticProjectorsOnce   sync.Once
+	standardDiagnosticProjectorsCached []diag.InstanceDiagnosticProjector
+)
+
 func StandardDiagnosticProjectors() []diag.InstanceDiagnosticProjector {
-	var out []diag.InstanceDiagnosticProjector
-	for _, c := range standardFrontendContributions() {
-		if c.diagnostics != nil {
-			out = append(out, c.diagnostics)
+	standardDiagnosticProjectorsOnce.Do(func() {
+		var out []diag.InstanceDiagnosticProjector
+		for _, c := range standardFrontendContributions() {
+			if c.diagnostics != nil {
+				out = append(out, c.diagnostics)
+			}
 		}
-	}
-	return out
+		for _, c := range standardBackendContributions(UpstreamAPIKeys{}) {
+			if c.diagnostics != nil {
+				out = append(out, c.diagnostics)
+			}
+		}
+		for _, c := range standardDiagnosticContributions() {
+			if c.projector != nil {
+				out = append(out, c.projector)
+			}
+		}
+		standardDiagnosticProjectorsCached = out
+	})
+	// Return a defensive slice copy: callers may reorder or append without
+	// mutating the process-wide immutable projector set.
+	return append([]diag.InstanceDiagnosticProjector(nil), standardDiagnosticProjectorsCached...)
 }

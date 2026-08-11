@@ -90,6 +90,7 @@ func TestProtoSchemaBaselineMutationMatrix(t *testing.T) {
 	}
 	for _, mutation := range mutations {
 		t.Run(mutation.name, func(t *testing.T) {
+			t.Parallel()
 			if got := mutation.mutate(baseline); got == baseline {
 				t.Fatal("mutation did not change the complete baseline")
 			}
@@ -374,9 +375,12 @@ func TestPublicABISnapshotIndependentMutationMatrix(t *testing.T) {
 		{Category: "var", Name: "ErrExactOpenResponsesUnsupported", Detail: "ErrExactOpenResponsesUnsupported"},
 	}
 	for _, symbol := range allowed {
-		if err := ValidatePublicBackendPluginABIMutation([]PublicABISymbol{symbol}); err != nil {
-			t.Fatalf("allowed OpenResponses boundary %q rejected: %v", symbol.Name, err)
-		}
+		t.Run(symbol.Name, func(t *testing.T) {
+			t.Parallel()
+			if err := ValidatePublicBackendPluginABIMutation([]PublicABISymbol{symbol}); err != nil {
+				t.Fatalf("allowed OpenResponses boundary %q rejected: %v", symbol.Name, err)
+			}
+		})
 	}
 }
 

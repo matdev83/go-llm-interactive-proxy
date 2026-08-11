@@ -2,6 +2,7 @@ package providerprofiles
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -25,6 +26,7 @@ func validProfile() Profile {
 }
 
 func TestValidateProfile_rejectsSecurityAndSchemaMutations(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		mutate func(*Profile)
@@ -45,6 +47,7 @@ func TestValidateProfile_rejectsSecurityAndSchemaMutations(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			p := validProfile()
 			tc.mutate(&p)
 			if err := Validate(p); err == nil {
@@ -55,6 +58,7 @@ func TestValidateProfile_rejectsSecurityAndSchemaMutations(t *testing.T) {
 }
 
 func TestDecodeJSON_isClosedAndUsesSnakeCaseTags(t *testing.T) {
+	t.Parallel()
 	p := validProfile()
 	data := []byte(`{"api_version":"lip.provider-profile/v1","id":"json-profile","family":"openai-responses-compatible","endpoint":{"base_url":"https://example.invalid/v1","path_policy":"family_default"},"auth":{"mode":"none"},"models":{"discovery":"family_default","namespace":{"mode":"preserve"}},"tokenizer":{"id":"cl100k_base","source":"local_tokenizer"}}`)
 	decoded, err := DecodeJSON(data)
@@ -70,6 +74,7 @@ func TestDecodeJSON_isClosedAndUsesSnakeCaseTags(t *testing.T) {
 }
 
 func TestValidateProfile_rejectsDuplicateAndInconsistentNestedValues(t *testing.T) {
+	t.Parallel()
 	cases := []func(*Profile){
 		func(p *Profile) {
 			p.Models.Static = []Model{{CanonicalID: "m", NativeID: "n"}, {CanonicalID: "m", NativeID: "n2"}}
@@ -84,6 +89,7 @@ func TestValidateProfile_rejectsDuplicateAndInconsistentNestedValues(t *testing.
 	}
 	for i, mutate := range cases {
 		t.Run(fmt.Sprintf("case-%d", i), func(t *testing.T) {
+			t.Parallel()
 			p := validProfile()
 			mutate(&p)
 			if err := Validate(p); err == nil {
@@ -94,6 +100,7 @@ func TestValidateProfile_rejectsDuplicateAndInconsistentNestedValues(t *testing.
 }
 
 func TestValidateProfile_effectiveCapabilitiesCannotExceedFamily(t *testing.T) {
+	t.Parallel()
 	p := validProfile()
 	p.Capabilities.Disable = []lipapi.Capability{lipapi.CapabilityTools}
 	p.Capabilities.Enable = []lipapi.Capability{lipapi.CapabilityStreaming}
@@ -107,6 +114,7 @@ func TestValidateProfile_effectiveCapabilitiesCannotExceedFamily(t *testing.T) {
 }
 
 func TestCatalog_isDeterministicAndRejectsDuplicates(t *testing.T) {
+	t.Parallel()
 	a := validProfile()
 	b := a
 	b.ID = "beta"
@@ -125,6 +133,7 @@ func TestCatalog_isDeterministicAndRejectsDuplicates(t *testing.T) {
 }
 
 func TestCompile_rejectsUnknownFamilyQuirkVersionAndBounds(t *testing.T) {
+	t.Parallel()
 	p := validProfile()
 	p.APIVersion = ""
 	if _, err := Compile(p); err == nil {
@@ -133,6 +142,7 @@ func TestCompile_rejectsUnknownFamilyQuirkVersionAndBounds(t *testing.T) {
 }
 
 func TestDecodeYAML_rejectsUnknownFields(t *testing.T) {
+	t.Parallel()
 	p := validProfile()
 	data := []byte("api_version: " + p.APIVersion + "\nid: x\nfamily: openai-responses-compatible\nendpoint:\n  base_url: https://example.invalid\n  path_policy: family_default\nauth:\n  mode: none\nmodels:\n  discovery: family_default\n  namespace:\n    mode: preserve\nunknown: true\n")
 	if _, err := DecodeYAML(data); err == nil {
@@ -141,6 +151,7 @@ func TestDecodeYAML_rejectsUnknownFields(t *testing.T) {
 }
 
 func TestEmbeddedCatalog_hasNoSecretsAndNoActivation(t *testing.T) {
+	t.Parallel()
 	catalog, err := EmbeddedCatalog()
 	if err != nil {
 		t.Fatal(err)
@@ -153,6 +164,7 @@ func TestEmbeddedCatalog_hasNoSecretsAndNoActivation(t *testing.T) {
 }
 
 func TestValidateProfile_diagnosticsRelevantValuesStayBounded(t *testing.T) {
+	t.Parallel()
 	p := validProfile()
 	p.Models.Path = strings.Repeat("p", MaxStringBytes+1)
 	if err := Validate(p); err == nil {
@@ -166,6 +178,14 @@ func TestValidateProfile_diagnosticsRelevantValuesStayBounded(t *testing.T) {
 }
 
 func TestSyntheticCatalog_1000ProfilesIsBoundedAndIndependent(t *testing.T) {
+	t.Parallel()
+	// Catalog compilation is deliberately a pure data path. The compiled value
+	// contains only profile/configuration data and family names; runtime adapter
+	// hooks, HTTP clients, process handles, and goroutines are introduced only
+	// later by generation composition.
+	runtime.GC()
+	startGoroutines := runtime.NumGoroutine()
+
 	profiles := make([]Profile, 1000)
 	for i := range profiles {
 		p := validProfile()
@@ -185,9 +205,31 @@ func TestSyntheticCatalog_1000ProfilesIsBoundedAndIndependent(t *testing.T) {
 	if len(compiled) != 1000 || compiled[999].Profile.ID != "provider-1000" {
 		t.Fatalf("unexpected scale result: %d", len(compiled))
 	}
+
+	for _, c := range compiled {
+		cert, err := Certify(c.Profile)
+		if err != nil {
+			t.Fatalf("profile %s certification failed: %v", c.Profile.ID, err)
+		}
+		if err := cert.Validate(); err != nil {
+			t.Fatalf("profile %s certification invalid: %v", c.Profile.ID, err)
+		}
+	}
+
+	runtime.GC()
+	endGoroutines := runtime.NumGoroutine()
+	if endGoroutines > startGoroutines+2 {
+		t.Fatalf("1,000 profiles spawned goroutines: start=%d end=%d", startGoroutines, endGoroutines)
+	}
+	for _, c := range compiled {
+		if c.Binding.FactoryKind == "" || c.Profile.ID == "" {
+			t.Fatalf("profile %q lost pure binding data", c.Profile.ID)
+		}
+	}
 }
 
 func TestCertifyProfile_reportsFamilyBindingAndEffectiveSurface(t *testing.T) {
+	t.Parallel()
 	certification, err := Certify(validProfile())
 	if err != nil {
 		t.Fatal(err)
@@ -198,4 +240,38 @@ func TestCertifyProfile_reportsFamilyBindingAndEffectiveSurface(t *testing.T) {
 	if certification.FactoryKind != "custom-openai-responses-compatible" {
 		t.Fatalf("factory kind=%q", certification.FactoryKind)
 	}
+}
+
+func TestValidateProfile_reservedQuirksRequireExecutableSemantics(t *testing.T) {
+	t.Parallel()
+	t.Run("Anthropic model path requires quirk", func(t *testing.T) {
+		t.Parallel()
+		p := validProfile()
+		p.Family = FamilyAnthropic
+		p.Auth = Auth{Mode: AuthAPIKeyEnv, EnvVar: "ANTHROPIC_API_KEY"}
+		p.Models.Path = "/provider/models"
+		if err := Validate(p); err == nil {
+			t.Fatal("model discovery path accepted without its quirk")
+		}
+	})
+
+	t.Run("Anthropic quirk requires model path", func(t *testing.T) {
+		t.Parallel()
+		p := validProfile()
+		p.Family = FamilyAnthropic
+		p.Auth = Auth{Mode: AuthAPIKeyEnv, EnvVar: "ANTHROPIC_API_KEY"}
+		p.Quirks = []QuirkID{QuirkAnthropicV1Models}
+		if err := Validate(p); err == nil {
+			t.Fatal("Anthropic model quirk accepted without a path")
+		}
+	})
+
+	t.Run("OpenAI responses path remains unsupported", func(t *testing.T) {
+		t.Parallel()
+		p := validProfile()
+		p.Quirks = []QuirkID{QuirkOpenAIResponsesPath}
+		if err := Validate(p); err == nil {
+			t.Fatal("unsupported quirk accepted")
+		}
+	})
 }

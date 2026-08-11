@@ -2,6 +2,7 @@ package standardplugins
 
 import (
 	"fmt"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/codexclientcompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"

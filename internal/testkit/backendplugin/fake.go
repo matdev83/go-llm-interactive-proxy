@@ -54,22 +54,30 @@ type FakeService struct {
 	ExecuteCount        atomic.Int64
 	LastStartInvocation *backendplugin.Invocation
 	LastStartCall       *lipapi.Call
+	ProtocolMinor       uint32
+	ExtraFeatures       []backendplugin.Feature
 }
 
 // Describe returns a minimal advertised-capability descriptor.
 func (f *FakeService) Describe(ctx context.Context) (backendplugin.PluginDescriptor, error) {
 	_ = ctx
+	minor := f.ProtocolMinor
+	if minor == 0 {
+		minor = backendplugin.ProtocolMinorExactOpenResponsesFields
+	}
+	features := []backendplugin.Feature{
+		{Name: backendplugin.FeatureOrderedItems, Required: false},
+		{Name: backendplugin.FeatureExactOpenResponsesFields, Required: false},
+		{Name: "count_tokens", Required: false},
+		{Name: "finalize_billing", Required: false},
+	}
+	features = append(features, f.ExtraFeatures...)
 	return backendplugin.PluginDescriptor{
 		ProtocolMajor: 1,
-		ProtocolMinor: backendplugin.ProtocolMinorExactOpenResponsesFields,
+		ProtocolMinor: minor,
 		PluginID:      "io.golip.fake",
 		Version:       "0.0.1",
-		Features: []backendplugin.Feature{
-			{Name: backendplugin.FeatureOrderedItems, Required: false},
-			{Name: backendplugin.FeatureExactOpenResponsesFields, Required: false},
-			{Name: "count_tokens", Required: false},
-			{Name: "finalize_billing", Required: false},
-		},
+		Features:      features,
 		Factories: []backendplugin.FactoryDescriptor{{
 			Kind:                     "fake",
 			CredentialMode:           backendplugin.CredentialModeNone,

@@ -24,6 +24,7 @@ func (h *boundaryHarness) Backend(context.Context) (BackendView, error) {
 	}
 	return h.view, nil
 }
+
 func (h *boundaryHarness) Upstream() UpstreamProbe {
 	if h.nilUpstream {
 		return nil
@@ -75,13 +76,16 @@ func (v *boundaryView) Open(context.Context, *lipapi.Call) (lipapi.EventStream, 
 	}
 	return lipapi.NewFixedEventStream(nil), nil
 }
+
 func (v *boundaryView) EffectiveCapabilities(context.Context, *lipapi.Call) BackendFacts {
 	v.capCalls++
 	return v.cap
 }
+
 func (v *boundaryView) Reject(_ context.Context, _ *lipapi.Call, scenario semantic.ScenarioDescriptor) (semantic.ExecutionEvidence, error) {
 	return semantic.ExecutionEvidence{ScenarioID: scenario.ID, Executed: true, Rejected: true, BoundaryCalls: 1}, nil
 }
+
 func (v *boundaryView) Probe(_ context.Context, scenario semantic.ScenarioDescriptor, _ UpstreamProbe) (semantic.ExecutionEvidence, error) {
 	if v.probeErr != nil {
 		return semantic.ExecutionEvidence{}, v.probeErr

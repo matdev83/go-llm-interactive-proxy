@@ -77,6 +77,8 @@ const (
 	AccountingLocalEstimator   AccountingSource = "local_estimator"
 )
 
+// QuirkID identifies bounded family-owned behavior implemented by the
+// corresponding adapter. Unsupported identifiers fail closed during validation.
 type QuirkID string
 
 const (
@@ -151,9 +153,11 @@ type Compiled struct {
 	Dialects     lipapi.DialectSupport
 }
 
-var safeName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]{0,127}$`)
-var safeHeaderName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,63}$`)
-var safeEnv = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
+var (
+	safeName       = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]{0,127}$`)
+	safeHeaderName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,63}$`)
+	safeEnv        = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
+)
 
 func Validate(p Profile) error {
 	if p.APIVersion != APIVersionV1 {
@@ -251,6 +255,12 @@ func Validate(p Profile) error {
 			return fmt.Errorf("profile %q: unknown quirk %q", p.ID, q)
 		}
 	}
+	if p.Models.Path != "" && !slices.Contains(p.Quirks, QuirkAnthropicV1Models) {
+		return fmt.Errorf("profile %q: model discovery path requires %q", p.ID, QuirkAnthropicV1Models)
+	}
+	if slices.Contains(p.Quirks, QuirkAnthropicV1Models) && p.Models.Path == "" {
+		return fmt.Errorf("profile %q: quirk %q requires models.path", p.ID, QuirkAnthropicV1Models)
+	}
 	if p.Transform != "" {
 		return fmt.Errorf("profile %q: arbitrary transforms are not supported", p.ID)
 	}
@@ -314,9 +324,11 @@ func validateEndpoint(e Endpoint) error {
 	}
 	return nil
 }
+
 func isLoopbackHost(host string) bool {
 	return strings.EqualFold(host, "localhost") || (net.ParseIP(host) != nil && net.ParseIP(host).IsLoopback())
 }
+
 func validateAuth(a Auth) error {
 	if len(a.EnvVar) > MaxStringBytes || len(a.Secret) > MaxStringBytes {
 		return fmt.Errorf("auth field exceeds bound")
@@ -338,6 +350,7 @@ func validateAuth(a Auth) error {
 	}
 	return nil
 }
+
 func validateModels(m ModelDiscovery) error {
 	if len(m.Static) > MaxModels {
 		return fmt.Errorf("model inventory exceeds bound")
@@ -376,11 +389,27 @@ func validateModels(m ModelDiscovery) error {
 	if len(m.Path) > MaxStringBytes {
 		return fmt.Errorf("model discovery path exceeds bound")
 	}
+	if m.Path != "" {
+		if !strings.HasPrefix(m.Path, "/") || strings.ContainsAny(m.Path, "?#\r\n\x00") || strings.Contains(m.Path, "//") {
+			return fmt.Errorf("invalid model discovery path")
+		}
+		decodedPath, err := url.PathUnescape(m.Path)
+		if err != nil || strings.ContainsAny(decodedPath, "\r\n\x00") {
+			return fmt.Errorf("invalid model discovery path")
+		}
+		for segment := range strings.SplitSeq(decodedPath, "/") {
+			if segment == "." || segment == ".." {
+				return fmt.Errorf("model discovery path traversal")
+			}
+		}
+	}
 	return nil
 }
+
 func safeModelID(id string) bool {
 	return strings.TrimSpace(id) == id && !strings.ContainsAny(id, "\r\n\x00?#") && strings.Trim(id, "/") != "" && !strings.Contains(id, "//") && !strings.Contains(id, "..")
 }
+
 func validateTokenizer(t TokenizerAccounting) error {
 	if len(t.TokenizerID) > MaxStringBytes {
 		return fmt.Errorf("tokenizer id exceeds bound")
@@ -392,6 +421,7 @@ func validateTokenizer(t TokenizerAccounting) error {
 	}
 	return nil
 }
+
 func validateDialects(d DialectOverrides) error {
 	if len(d.Item)+len(d.Reasoning)+len(d.Compaction)+len(d.Extensions) > MaxDialects {
 		return fmt.Errorf("dialect declarations exceed bound")
@@ -455,18 +485,19 @@ func validateDialectFamily(f Family, d DialectOverrides) error {
 	}
 	return nil
 }
+
 func quirkAllowed(f Family, q QuirkID) bool {
-	// The schema keeps the vocabulary closed, but no current family adapter
-	// exposes either quirk as an executable option. Rejecting them avoids a
-	// validated field being silently dropped by composition.
-	return false
+	// Keep this allowlist synchronized with executable family-adapter behavior.
+	// A profile must never validate a quirk that composition silently drops.
+	return f == FamilyAnthropic && q == QuirkAnthropicV1Models
 }
 
 func allowedHeader(name string) bool {
-	if name == "authorization" || name == "cookie" || name == "set-cookie" || name == "x-api-key" || name == "api-key" || strings.Contains(name, "secret") || strings.Contains(name, "token") {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	if lower == "authorization" || lower == "cookie" || lower == "set-cookie" || lower == "x-api-key" || lower == "api-key" || strings.Contains(lower, "secret") || strings.Contains(lower, "token") {
 		return false
 	}
-	return strings.HasPrefix(name, "x-provider-") || name == "anthropic-version" || name == "anthropic-beta" || name == "openai-beta" || name == "user-agent"
+	return strings.HasPrefix(lower, "x-provider-") || lower == "anthropic-version" || lower == "anthropic-beta" || lower == "openai-beta" || lower == "user-agent"
 }
 
 type Catalog struct{ profiles []Profile }
@@ -501,6 +532,7 @@ func NewCatalog(profiles []Profile) (*Catalog, error) {
 	}
 	return &Catalog{profiles: out}, nil
 }
+
 func (c *Catalog) Profiles() []Profile {
 	if c == nil {
 		return nil

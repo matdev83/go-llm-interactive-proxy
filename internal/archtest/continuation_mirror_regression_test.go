@@ -8,6 +8,7 @@ import (
 	"testing"
 )
 
+//nolint:paralleltest // reads repository-owned source fixtures and checks global authority.
 func TestContinuationMirrorRegressionRejectsConcreteCoreAuthority(t *testing.T) {
 	root := repoRoot(t)
 	path := filepath.Join(root, "internal", "core", "continuation", "authority.go")
@@ -27,6 +28,7 @@ func TestContinuationMirrorRegressionRejectsConcreteCoreAuthority(t *testing.T) 
 	})
 }
 
+//nolint:paralleltest // reads repository-owned source fixtures and checks global authority.
 func TestContinuationMirrorRegressionKeepsSDKAuthorityAndCoreAlias(t *testing.T) {
 	root := repoRoot(t)
 	for _, path := range []string{

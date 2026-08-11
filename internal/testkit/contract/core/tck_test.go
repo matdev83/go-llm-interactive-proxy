@@ -19,9 +19,11 @@ func (runtimeCoreView) DeriveRequirements(call *lipapi.Call) (lipapi.ProtocolReq
 	}
 	return lipapi.DeriveProtocolRequirements(*call), nil
 }
+
 func (runtimeCoreView) MatchRequirements(req lipapi.ProtocolRequirements, caps []lipapi.Capability) bool {
 	return lipapi.MatchRequirements(req, lipapi.ProtocolRequirements{Capabilities: caps}, lipapi.ReasoningReplaySupport{}).Kind != lipapi.NegotiationReject
 }
+
 func (runtimeCoreView) Probe(ctx context.Context, scenario semantic.ScenarioDescriptor) (semantic.ExecutionEvidence, error) {
 	if err := ctx.Err(); err != nil {
 		return semantic.ExecutionEvidence{}, err
@@ -34,7 +36,8 @@ func (runtimeCoreView) Probe(ctx context.Context, scenario semantic.ScenarioDesc
 	if !(runtimeCoreView{}).MatchRequirements(req, req.Capabilities) {
 		return semantic.ExecutionEvidence{}, errors.New("match rejected")
 	}
-	return semantic.ExecutionEvidence{ScenarioID: scenario.ID, Executed: true, BoundaryCalls: 1, Derived: true, ExactMatch: true}, nil
+	positive := scenario.ID == "text-baseline"
+	return semantic.ExecutionEvidence{ScenarioID: scenario.ID, Executed: true, BoundaryCalls: 1, Derived: true, ExactMatch: true, Accepted: positive, Rejected: !positive}, nil
 }
 
 type runtimeCoreHarness struct{}
@@ -42,6 +45,7 @@ type runtimeCoreHarness struct{}
 func (runtimeCoreHarness) Subject() semantic.SubjectDescriptor {
 	return semantic.SubjectDescriptor{ID: "canonical-core", Kind: semantic.KindCanonicalCore, Transports: []semantic.ScenarioTransport{semantic.TransportHTTP, semantic.TransportStreaming}}
 }
+
 func (runtimeCoreHarness) Derivation(context.Context) (RequirementDerivationView, error) {
 	return runtimeCoreView{}, nil
 }

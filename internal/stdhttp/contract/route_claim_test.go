@@ -58,6 +58,23 @@ func TestRouteRegistryDuplicateOwnerAllowed(t *testing.T) {
 	}
 }
 
+func samplePrimaryClaims(ownerID string) ([]httpcontract.RouteClaim, error) {
+	return httpcontract.ClaimsForBasePath(ownerID, httpcontract.CanonicalLegacyBasePath,
+		httpcontract.RouteClaim{Method: http.MethodPost, Path: "/responses", Kind: "primary_create"},
+		httpcontract.RouteClaim{Method: http.MethodPost, Path: "/responses/{id}/cancel", Kind: "primary_cancel"},
+	)
+}
+
+const sampleSecondaryBasePath = "/openresponses/v1"
+
+func sampleSecondaryClaims(ownerID string) ([]httpcontract.RouteClaim, error) {
+	return httpcontract.ClaimsForBasePath(ownerID, sampleSecondaryBasePath,
+		httpcontract.RouteClaim{Method: http.MethodPost, Path: "/responses", Kind: "secondary_create"},
+		httpcontract.RouteClaim{Method: http.MethodPost, Path: "/responses/compact", Kind: "secondary_compact"},
+		httpcontract.RouteClaim{Method: http.MethodGet, Path: "/responses", Kind: "secondary_websocket"},
+	)
+}
+
 // TestRouteRegistry_RegisterAllIsAtomic proves a multi-claim registration that
 // fails partway leaves the registry unchanged (atomic candidate failure): the
 // conflict error names both owners and no earlier claim from the failed set is
@@ -65,18 +82,18 @@ func TestRouteRegistryDuplicateOwnerAllowed(t *testing.T) {
 func TestRouteRegistry_RegisterAllIsAtomic(t *testing.T) {
 	t.Parallel()
 	reg := httpcontract.NewRouteRegistry()
-	openai, err := httpcontract.OpenAIResponsesDefaultClaims("openai-responses")
+	primary, err := samplePrimaryClaims("primary-owner")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.RegisterAll(openai); err != nil {
+	if err := reg.RegisterAll(primary); err != nil {
 		t.Fatal(err)
 	}
 	before := len(reg.Claims())
 
 	conflicting := []httpcontract.RouteClaim{
-		{OwnerID: "or-inst", Method: http.MethodPost, Path: "/v1/responses", Kind: "openresponses_create"},
-		{OwnerID: "or-inst", Method: http.MethodPost, Path: "/v1/responses/compact", Kind: "openresponses_compact"},
+		{OwnerID: "secondary-inst", Method: http.MethodPost, Path: "/v1/responses", Kind: "secondary_create"},
+		{OwnerID: "secondary-inst", Method: http.MethodPost, Path: "/v1/responses/compact", Kind: "secondary_compact"},
 	}
 	err = reg.RegisterAll(conflicting)
 	if err == nil {
@@ -86,7 +103,7 @@ func TestRouteRegistry_RegisterAllIsAtomic(t *testing.T) {
 	if !errors.As(err, &detail) {
 		t.Fatalf("want RouteConflictDetail, got %T: %v", err, err)
 	}
-	if detail.ExistingOwner != "openai-responses" || detail.NewOwner != "or-inst" {
+	if detail.ExistingOwner != "primary-owner" || detail.NewOwner != "secondary-inst" {
 		t.Fatalf("owners=%q vs %q", detail.ExistingOwner, detail.NewOwner)
 	}
 	if len(reg.Claims()) != before {
@@ -100,18 +117,18 @@ func TestRouteRegistry_RegisterAllIsAtomic(t *testing.T) {
 func TestRouteRegistryDuplicateOwnersConflict(t *testing.T) {
 	t.Parallel()
 	reg := httpcontract.NewRouteRegistry()
-	openai, err := httpcontract.OpenAIResponsesDefaultClaims("openai-responses")
+	primary, err := samplePrimaryClaims("primary-owner")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.RegisterAll(openai); err != nil {
+	if err := reg.RegisterAll(primary); err != nil {
 		t.Fatal(err)
 	}
-	orClaims, err := httpcontract.OpenResponsesDefaultClaims("openresponses")
+	secondaryClaims, err := sampleSecondaryClaims("secondary-owner")
 	if err != nil {
 		t.Fatal(err)
 	}
-	remapped, err := httpcontract.RemapBasePath(orClaims, httpcontract.DefaultOpenResponsesBasePath, httpcontract.CanonicalLegacyBasePath)
+	remapped, err := httpcontract.RemapBasePath(secondaryClaims, sampleSecondaryBasePath, httpcontract.CanonicalLegacyBasePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +140,7 @@ func TestRouteRegistryDuplicateOwnersConflict(t *testing.T) {
 	if !errors.As(err, &detail) {
 		t.Fatalf("want RouteConflictDetail, got %T: %v", err, err)
 	}
-	if detail.ExistingOwner != "openai-responses" || detail.NewOwner != "openresponses" {
+	if detail.ExistingOwner != "primary-owner" || detail.NewOwner != "secondary-owner" {
 		t.Fatalf("owners=%q vs %q", detail.ExistingOwner, detail.NewOwner)
 	}
 	if !strings.Contains(err.Error(), "POST") || !strings.Contains(err.Error(), "/v1/responses") {
@@ -134,18 +151,18 @@ func TestRouteRegistryDuplicateOwnersConflict(t *testing.T) {
 func TestOpenResponsesDefaultClaimsNonCollidingWithOpenAI(t *testing.T) {
 	t.Parallel()
 	reg := httpcontract.NewRouteRegistry()
-	openai, err := httpcontract.OpenAIResponsesDefaultClaims("openai-responses")
+	primary, err := samplePrimaryClaims("primary-owner")
 	if err != nil {
 		t.Fatal(err)
 	}
-	orClaims, err := httpcontract.OpenResponsesDefaultClaims("openresponses")
+	secondaryClaims, err := sampleSecondaryClaims("secondary-owner")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.RegisterAll(openai); err != nil {
+	if err := reg.RegisterAll(primary); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.RegisterAll(orClaims); err != nil {
+	if err := reg.RegisterAll(secondaryClaims); err != nil {
 		t.Fatalf("default paths should not collide: %v", err)
 	}
 }
@@ -153,18 +170,18 @@ func TestOpenResponsesDefaultClaimsNonCollidingWithOpenAI(t *testing.T) {
 func TestValidateCanonicalPathTakeover(t *testing.T) {
 	t.Parallel()
 	reg := httpcontract.NewRouteRegistry()
-	openai, err := httpcontract.OpenAIResponsesDefaultClaims("openai-responses")
+	primary, err := samplePrimaryClaims("primary-owner")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.RegisterAll(openai); err != nil {
+	if err := reg.RegisterAll(primary); err != nil {
 		t.Fatal(err)
 	}
-	orClaims, err := httpcontract.OpenResponsesDefaultClaims("openresponses")
+	secondaryClaims, err := sampleSecondaryClaims("secondary-owner")
 	if err != nil {
 		t.Fatal(err)
 	}
-	remapped, err := httpcontract.RemapBasePath(orClaims, httpcontract.DefaultOpenResponsesBasePath, httpcontract.CanonicalLegacyBasePath)
+	remapped, err := httpcontract.RemapBasePath(secondaryClaims, sampleSecondaryBasePath, httpcontract.CanonicalLegacyBasePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +193,7 @@ func TestValidateCanonicalPathTakeover(t *testing.T) {
 func TestRouteDiagnosticsSanitized(t *testing.T) {
 	t.Parallel()
 	reg := httpcontract.NewRouteRegistry()
-	claims, err := httpcontract.OpenResponsesDefaultClaims("openresponses\nsecret")
+	claims, err := sampleSecondaryClaims("secondary-owner\nsecret")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,5 +211,41 @@ func TestRouteDiagnosticsSanitized(t *testing.T) {
 		if d.Transport == "" {
 			t.Fatalf("missing transport for %+v", d)
 		}
+	}
+}
+
+func TestSyntheticOpaqueRouteClaim_MountingDetectionAndCollisionRejection(t *testing.T) {
+	t.Parallel()
+	reg := httpcontract.NewRouteRegistry()
+	syntheticClaim := httpcontract.RouteClaim{
+		OwnerID: "ext-custom-synth",
+		Method:  http.MethodPost,
+		Path:    "/custom/v1/opaque",
+		Kind:    httpcontract.RouteKind("custom_synthetic_op"),
+	}
+	if err := reg.Register(syntheticClaim); err != nil {
+		t.Fatalf("register synthetic claim: %v", err)
+	}
+	ownerClaim, ok := reg.OwnerOf(http.MethodPost, "/custom/v1/opaque")
+	if !ok || ownerClaim.OwnerID != "ext-custom-synth" {
+		t.Fatalf("expected owner ext-custom-synth, got %q (ok=%v)", ownerClaim.OwnerID, ok)
+	}
+
+	conflictingClaim := httpcontract.RouteClaim{
+		OwnerID: "ext-custom-rival",
+		Method:  http.MethodPost,
+		Path:    "/custom/v1/opaque",
+		Kind:    httpcontract.RouteKind("custom_synthetic_op"),
+	}
+	err := reg.Register(conflictingClaim)
+	if err == nil {
+		t.Fatal("expected collision rejection for conflicting synthetic claim")
+	}
+	var conflict httpcontract.RouteConflictDetail
+	if !errors.As(err, &conflict) {
+		t.Fatalf("expected RouteConflictDetail, got %T: %v", err, err)
+	}
+	if conflict.ExistingOwner != "ext-custom-synth" || conflict.NewOwner != "ext-custom-rival" {
+		t.Fatalf("unexpected conflict details: %+v", conflict)
 	}
 }

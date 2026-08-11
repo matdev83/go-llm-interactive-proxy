@@ -10,8 +10,10 @@ import (
 	"testing"
 )
 
-const enterpriseModuleRelPath = "testdata/enterprise_module"
-const externalConnectorModuleRelPath = "testdata/external_connector"
+const (
+	enterpriseModuleRelPath        = "testdata/enterprise_module"
+	externalConnectorModuleRelPath = "testdata/external_connector"
+)
 
 // TestEnterpriseModulePublicOnlyCompileGate proves a sibling module can build
 // and run against public packages only (requirements 12.6, 12.9, 17.7).

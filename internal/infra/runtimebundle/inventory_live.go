@@ -83,24 +83,37 @@ func compatibleProjector(cfg *config.Config, live *inventoryLiveSnapshot) diag.C
 	}
 }
 
+func inventoryProjectionForOperator(cfg *config.Config, live *inventoryLiveSnapshot) *diag.InventoryProjection {
+	return inventoryProjectionForOperatorWithProjector(cfg, compatibleProjector(cfg, live))
+}
+
+func inventoryProjectionForOperatorWithProjector(cfg *config.Config, projector diag.CompatibleBackendProjector) *diag.InventoryProjection {
+	compatible := projector(cfg)
+	projection := diag.ProjectInventoryDiagnostics(cfg, compatible, standardplugins.StandardDiagnosticProjectors())
+	return &projection
+}
+
 func inventorySnapshotForOperator(ctx context.Context, cfg *config.Config, reg *pluginreg.Registry, registrations []lipsdk.Registration, live *inventoryLiveSnapshot) (diag.InventorySnapshot, error) {
+	return inventorySnapshotForOperatorWithProjector(ctx, cfg, reg, registrations, compatibleProjector(cfg, live))
+}
+
+func inventorySnapshotForOperatorWithProjector(ctx context.Context, cfg *config.Config, reg *pluginreg.Registry, registrations []lipsdk.Registration, projector diag.CompatibleBackendProjector) (diag.InventorySnapshot, error) {
+	return inventorySnapshotForOperatorWithProjection(ctx, cfg, reg, registrations, inventoryProjectionForOperatorWithProjector(cfg, projector))
+}
+
+func inventorySnapshotForOperatorWithProjection(ctx context.Context, cfg *config.Config, reg *pluginreg.Registry, registrations []lipsdk.Registration, projection *diag.InventoryProjection) (diag.InventorySnapshot, error) {
 	return diag.InventorySnapshotForConfig(ctx, cfg, &diag.InventoryExtras{
-		Reg:                          reg,
-		Registrations:                registrations,
-		CompatibleBackends:           compatibleProjector(cfg, live),
-		InstanceDiagnosticProjectors: standardplugins.StandardDiagnosticProjectors(),
+		Reg:           reg,
+		Registrations: registrations,
+		Precomputed:   projection,
 	})
 }
 
 func routesSnapshotFrom(cfg *config.Config, reg *pluginreg.Registry, live *inventoryLiveSnapshot) (RoutesSnapshot, error) {
-	snap, err := RoutesSnapshotFrom(cfg, reg)
-	if err != nil {
-		return RoutesSnapshot{}, err
-	}
 	if live != nil && live.runtime != nil {
-		snap.CompatibleBackends = standardplugins.ProjectCompatibleBackendRowsLive(cfg, live.compatibleInputs())
+		return routesSnapshotFromCompatible(cfg, reg, standardplugins.ProjectCompatibleBackendRowsLive(cfg, live.compatibleInputs()))
 	}
-	return snap, nil
+	return routesSnapshotFromCompatible(cfg, reg, standardplugins.ProjectCompatibleBackendRows(cfg))
 }
 
 func tryLoadInventoryLiveSnapshot(ctx context.Context, cfg *config.Config, reg *pluginreg.Registry) (*inventoryLiveSnapshot, error) {

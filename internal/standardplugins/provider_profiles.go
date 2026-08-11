@@ -5,6 +5,7 @@ import (
 	"net/url"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/providerprofiles"
 )
 
@@ -61,6 +62,57 @@ func ProviderProfileDiagnostics() ([]ProviderProfileDiagnostic, error) {
 		out = append(out, ProviderProfileDiagnostic{ID: profile.ID, Family: string(profile.Family), Endpoint: endpointIdentity(profile.Endpoint.BaseURL), Auth: profile.Auth.Mode != providerprofiles.AuthNone, Tokenizer: profile.Tokenizer.TokenizerID})
 	}
 	return out, nil
+}
+
+func ProjectProviderProfileDiagnostics(cfg *config.Config) []diag.InstanceDiagnostic {
+	if cfg == nil {
+		return nil
+	}
+	hasProfileBackend := false
+	for _, b := range cfg.Plugins.Backends {
+		if b.FactoryID() == "provider-profile" {
+			hasProfileBackend = true
+			break
+		}
+	}
+	if !hasProfileBackend {
+		return nil
+	}
+	diagnostics, err := ProviderProfileDiagnostics()
+	if err != nil {
+		return []diag.InstanceDiagnostic{{
+			ID:          "embedded_provider_profile_catalog",
+			InstanceID:  "embedded_provider_profile_catalog",
+			FactoryKind: "provider-profile",
+			Origin:      "embedded_provider_profile_catalog",
+			Enabled:     false,
+			ConfigError: err.Error(),
+		}}
+	}
+	if len(diagnostics) == 0 {
+		return nil
+	}
+	out := make([]diag.InstanceDiagnostic, 0, len(diagnostics))
+	for _, d := range diagnostics {
+		out = append(out, diag.InstanceDiagnostic{
+			ID:          d.ID,
+			InstanceID:  d.ID,
+			FactoryKind: d.Family,
+			Family:      d.Family,
+			Origin:      "embedded_provider_profile_catalog",
+			// A catalog row is available in the binary, not a configured runtime
+			// instance. Configured/expanded rows are projected separately by the
+			// compatible-family projector.
+			Enabled: false,
+			Profile: d.ID,
+			Details: []diag.SafeField{
+				{Key: "endpoint_identity", Value: d.Endpoint},
+				{Key: "auth_configured", Value: fmt.Sprintf("%v", d.Auth)},
+				{Key: "tokenizer_id", Value: d.Tokenizer},
+			},
+		})
+	}
+	return out
 }
 
 func endpointIdentity(raw string) string {

@@ -8,7 +8,9 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -76,45 +78,50 @@ func validateStructural(ctx context.Context, in ValidateStructuralInput, ops str
 	if err := validateCandidateManifestOwnership(cfg, reg); err != nil {
 		return err
 	}
-	if err := validateCompatibleBackendProjection(cfg); err != nil {
-		return err
-	}
-	if err := validateOpenResponsesFrontendProjection(cfg); err != nil {
-		return err
-	}
-	if _, err := RoutesSnapshotFrom(cfg, reg); err != nil {
+	if err := validateRoutesStructure(cfg); err != nil {
 		return fmt.Errorf("runtimebundle: structural routes: %w", err)
 	}
-	if _, err := inventorySnapshotForOperator(ctx, cfg, reg, regs, nil); err != nil {
+	projection := inventoryProjectionForOperator(cfg, nil)
+	if _, err := inventorySnapshotForOperatorWithProjection(ctx, cfg, reg, regs, projection); err != nil {
 		return fmt.Errorf("runtimebundle: structural inventory: %w", err)
 	}
-	return nil
-}
-
-func validateCompatibleBackendProjection(cfg *config.Config) error {
-	for _, row := range standardplugins.ProjectCompatibleBackendRows(cfg) {
-		if strings.TrimSpace(row.ConfigError) == "" {
-			continue
-		}
-		inst := strings.TrimSpace(row.InstanceID)
-		if inst == "" {
-			inst = "<unknown>"
-		}
-		return fmt.Errorf("runtimebundle: compatible backend %q: %s", inst, row.ConfigError)
+	if err := validateProjectedDiagnostics(projection.InstanceDiagnostics); err != nil {
+		return err
 	}
 	return nil
 }
 
-func validateOpenResponsesFrontendProjection(cfg *config.Config) error {
-	for _, row := range standardplugins.ProjectOpenResponsesFrontendRows(cfg) {
+func validateProjectedDiagnostics(rows []diag.InstanceDiagnostic) error {
+	for _, row := range rows {
 		if strings.TrimSpace(row.ConfigError) == "" {
 			continue
 		}
 		inst := strings.TrimSpace(row.InstanceID)
 		if inst == "" {
+			inst = strings.TrimSpace(row.ID)
+		}
+		if inst == "" {
 			inst = "<unknown>"
 		}
-		return fmt.Errorf("runtimebundle: openresponses frontend %q: %s", inst, row.ConfigError)
+		kind := strings.TrimSpace(row.FactoryKind)
+		if kind != "" && inst != kind && inst != "<unknown>" {
+			return fmt.Errorf("runtimebundle: extension %q (%s): %s", inst, kind, row.ConfigError)
+		}
+		return fmt.Errorf("runtimebundle: extension %q: %s", inst, row.ConfigError)
+	}
+	return nil
+}
+
+func validateRoutesStructure(cfg *config.Config) error {
+	if cfg == nil {
+		return fmt.Errorf("nil config")
+	}
+	raw := config.EffectiveDefaultRouteSelector(cfg, standardplugins.DefaultWireModel)
+	if _, err := routing.NewAliasResolver(routing.ModelAliasRulesFromConfig(cfg)); err != nil {
+		return fmt.Errorf("model_aliases: %w", err)
+	}
+	if strings.TrimSpace(raw) == "" {
+		return fmt.Errorf("empty effective default route")
 	}
 	return nil
 }

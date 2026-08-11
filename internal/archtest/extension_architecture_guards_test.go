@@ -33,10 +33,6 @@ var genericABIFieldTerms = map[string]bool{
 	"evidence":   true,
 }
 
-// KnownProtocolIdentifiers is retained for characterization callers. Structural
-// checks do not depend on a closed provider-family list.
-var KnownProtocolIdentifiers = []string{"openresponses", "openai", "anthropic", "gemini", "bedrock", "codex", "acp"}
-
 var neutralABITerms = map[string]bool{
 	"semantic": true, "protocol": true, "feature": true, "features": true,
 	"custom": true, "extension": true, "extensions": true, "capability": true,
@@ -80,13 +76,12 @@ var neutralABITerms = map[string]bool{
 	"success": true, "developer": true, "system": true,
 	"meta": true, "delivery": true, "operation": true, "param": true,
 	"per": true, "shared": true, "artifact": true, "index": true, "phase": true,
-	"refs": true, "y": true, "a": true, "m": true, "l": true, "j": true, "s": true,
-	"o": true, "n": true, "i": true, "acknowledged": true, "detail": true,
+	"refs": true, "acknowledged": true, "detail": true,
 	// Package and language vocabulary is neutral even when it is not a wire term.
 	"grpc": true, "backend": true, "lip": true, "sdk": true, "any": true,
 	"apply": true, "billing": true, "configured": true,
 	"err": true, "forward": true,
-	"g": true, "has": true, "must": true, "negotiation": true, "new": true, "open": true,
+	"has": true, "must": true, "negotiation": true, "new": true, "open": true,
 	"require": true, "restore": true, "secret": true, "service": true,
 	"stream": true, "token": true, "validate": true,
 }
@@ -108,6 +103,7 @@ func identifierWords(value string) []string {
 	}
 	return words
 }
+
 func providerSpecificABIIdentifier(value string) bool {
 	words := identifierWords(value)
 	if len(words) < 2 {
@@ -145,17 +141,20 @@ func DetectDuplicateContinuationStructs(repoRoot string) ([]string, error) {
 	fset := token.NewFileSet()
 
 	sdkDir := filepath.Join(repoRoot, "pkg", "lipsdk", "continuation")
+	//nolint:staticcheck // Structural scanner intentionally needs ParseDir's file map.
 	sdkPkgs, err := parser.ParseDir(fset, sdkDir, nil, 0)
 	if err != nil {
 		return nil, err
 	}
 
 	coreDir := filepath.Join(repoRoot, "internal", "core", "continuation")
+	//nolint:staticcheck // Structural scanner intentionally needs ParseDir's file map.
 	corePkgs, err := parser.ParseDir(fset, coreDir, nil, 0)
 	if err != nil {
 		return nil, err
 	}
 
+	//nolint:staticcheck // ParseDir is deliberately paired with ast.Package to inspect source files.
 	findStructs := func(pkgs map[string]*ast.Package) map[string]string {
 		structs := make(map[string]string)
 		for _, pkg := range pkgs {
@@ -207,6 +206,7 @@ func TestBackendPluginABI_LegacyAllowlistOnly(t *testing.T) {
 
 	pkgDir := filepath.Join("..", "..", "pkg", "lipsdk", "backendplugin")
 	fset := token.NewFileSet()
+	//nolint:staticcheck // Structural scanner intentionally needs ParseDir's file map.
 	pkgs, err := parser.ParseDir(fset, pkgDir, nil, 0)
 	if err != nil {
 		t.Fatalf("failed to parse pkg/lipsdk/backendplugin: %v", err)
@@ -328,42 +328,59 @@ func TestArchGuard_DetectorMutations(t *testing.T) {
 		t.Fatalf("expected bad proto line to fail ValidateProtoLine")
 	}
 
-	// 2. Synthetic AST route kind mutation
-	cleanRouteSrc := `package contract
-const RouteKindCreate = "create"`
-	badRouteSrc := `package contract
-const RouteKindBedrock = "bedrock_invoke"`
-
-	fset := token.NewFileSet()
-	fClean, _ := parser.ParseFile(fset, "clean_route.go", cleanRouteSrc, 0)
-	fBad, _ := parser.ParseFile(fset, "bad_route.go", badRouteSrc, 0)
-
-	checkRouteAST := func(f *ast.File) bool {
-		found := false
-		ast.Inspect(f, func(n ast.Node) bool {
-			if vSpec, ok := n.(*ast.ValueSpec); ok {
-				for i, name := range vSpec.Names {
-					if strings.HasPrefix(name.Name, "RouteKind") && i < len(vSpec.Values) {
-						if lit, ok := vSpec.Values[i].(*ast.BasicLit); ok {
-							val := strings.ToLower(strings.Trim(lit.Value, `"`))
-							for _, proto := range KnownProtocolIdentifiers {
-								if strings.Contains(val, proto) {
-									found = true
-								}
-							}
-						}
-					}
-				}
-			}
-			return true
-		})
-		return found
+	// 2. Synthetic AST route declaration mutations. Exercise the actual
+	// repository detector rather than a duplicated test-only visitor.
+	contractDir := filepath.Join(t.TempDir(), "internal", "stdhttp", "contract")
+	if err := os.MkdirAll(contractDir, 0o755); err != nil {
+		t.Fatalf("create synthetic contract directory: %v", err)
+	}
+	writeRoute := func(source string) map[string]string {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(contractDir, "route.go"), []byte("package contract\n"+source), 0o644); err != nil {
+			t.Fatalf("write synthetic route source: %v", err)
+		}
+		got, err := DetectCentralProtocolRouteKinds(filepath.Dir(filepath.Dir(filepath.Dir(contractDir))))
+		if err != nil {
+			t.Fatalf("scan synthetic route source: %v", err)
+		}
+		return got
 	}
 
-	if checkRouteAST(fClean) {
-		t.Fatalf("expected clean route AST to find no protocol route kinds")
+	if got := writeRoute(`const RouteOperationCreate = "create"`); len(got) != 0 {
+		t.Fatalf("clean route declaration was detected: %v", got)
 	}
-	if !checkRouteAST(fBad) {
-		t.Fatalf("expected bad route AST to discover protocol route kind")
+	if got := writeRoute(`const RouteKindBedrock = "bedrock_invoke"`); got["RouteKindBedrock"] != "bedrock_invoke" {
+		t.Fatalf("bad route declaration was not decoded by detector: %v", got)
+	}
+	if got := writeRoute(`const RouteOperationBedrock = "bedrock_invoke"`); len(got) != 0 {
+		t.Fatalf("identifier mutation still detected: %v", got)
+	}
+	if got := writeRoute(`const RouteKindBedrock = 42`); len(got) != 0 {
+		t.Fatalf("non-string literal mutation was detected: %v", got)
+	}
+	if got := writeRoute(`const RouteKindBedrock = "openresponses\u005fcreate"`); got["RouteKindBedrock"] != "openresponses_create" {
+		t.Fatalf("escaped route literal was not decoded: %v", got)
+	}
+	// The detector's invariant is ownership, not a value allowlist: even an
+	// empty string remains a central RouteKind declaration and must be reported.
+	if got := writeRoute(`const RouteKindBedrock = ""`); func() bool {
+		value, ok := got["RouteKindBedrock"]
+		return !ok || value != ""
+	}() {
+		t.Fatalf("empty central RouteKind declaration was not reported: %v", got)
+	}
+}
+
+// TestCentralProtocolRouteKindsInRepo asserts that no central RouteKind* declarations
+// exist in internal/stdhttp/contract in default CI (without requiring -tags=architecture_red).
+func TestCentralProtocolRouteKindsInRepo(t *testing.T) {
+	t.Parallel()
+	repoRoot := filepath.Join("..", "..")
+	routeKinds, err := DetectCentralProtocolRouteKinds(repoRoot)
+	if err != nil {
+		t.Fatalf("failed to detect central route kinds: %v", err)
+	}
+	if len(routeKinds) > 0 {
+		t.Fatalf("Central RouteKind declarations found in internal/stdhttp/contract: %+v", routeKinds)
 	}
 }

@@ -2478,6 +2478,10 @@
   },
   {
     "category": "method",
+    "name": "OptionalExecuteStreamCloser.Close"
+  },
+  {
+    "category": "method",
     "name": "PluginDescriptor.Validate",
     "detail": "func (d PluginDescriptor) Validate() error"
   },
@@ -2877,6 +2881,11 @@
     "category": "type",
     "name": "OpenManagedStream",
     "detail": "OpenManagedStream func(ctx context.Context, inv Invocation, call lipapi.Call) (lipapi.ManagedEventStream, error)"
+  },
+  {
+    "category": "type",
+    "name": "OptionalExecuteStreamCloser",
+    "detail": "OptionalExecuteStreamCloser interface {\n\tClose() error\n}"
   },
   {
     "category": "type",

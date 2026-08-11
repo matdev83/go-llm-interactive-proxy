@@ -105,8 +105,32 @@ func CompileProviderProfile(profile providerprofiles.Profile) (providerprofiles.
 	return providerprofiles.CompileProfile(profile)
 }
 
+type profileFamilyBuilder func(profile providerprofiles.CompiledProfile, instanceID string, node yaml.Node, upstream *http.Client) (execbackend.Backend, error)
+
+var profileFamilyBuilders = map[providerprofiles.Family]profileFamilyBuilder{
+	providerprofiles.FamilyOpenAIChat: func(profile providerprofiles.CompiledProfile, instanceID string, node yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		be, err := openaicompat.BuildCompatibleWithHeaders(instanceID, profile.Binding.FactoryKind, node, upstream, openaicompat.FlavorChat, openaicompat.CompatibleTransportCaps(openaicompat.FlavorChat), profileHeaders(profile.Profile.Headers))
+		return applyProfileCapabilities(be, err, profile)
+	},
+	providerprofiles.FamilyOpenAIResponses: func(profile providerprofiles.CompiledProfile, instanceID string, node yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		be, err := openaicompat.BuildCompatibleWithHeaders(instanceID, profile.Binding.FactoryKind, node, upstream, openaicompat.FlavorResponses, openaicompat.CompatibleTransportCaps(openaicompat.FlavorResponses), profileHeaders(profile.Profile.Headers))
+		return applyProfileCapabilities(be, err, profile)
+	},
+	providerprofiles.FamilyAnthropic: func(profile providerprofiles.CompiledProfile, instanceID string, node yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		modelsPath := ""
+		if slices.Contains(profile.Profile.Quirks, providerprofiles.QuirkAnthropicV1Models) {
+			modelsPath = profile.Profile.Models.Path
+		}
+		be, err := anthropic.BuildCompatibleWithModelsPath(instanceID, profile.Binding.FactoryKind, node, upstream, modelsPath)
+		return applyProfileCapabilities(be, err, profile)
+	},
+	providerprofiles.FamilyOpenResponses: func(profile providerprofiles.CompiledProfile, instanceID string, _ yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		return buildOpenResponsesProfile(profile.Profile, instanceID, upstream)
+	},
+}
+
 // BuildProviderProfileBackend applies one compiled profile through the existing
-// family adapter. This is one compiler path, not a per-provider registration.
+// family adapter strategy.
 func BuildProviderProfileBackend(
 	profile providerprofiles.CompiledProfile,
 	instanceID string,
@@ -123,21 +147,11 @@ func BuildProviderProfileBackend(
 	if err != nil {
 		return execbackend.Backend{}, err
 	}
-	switch profile.Binding.Family {
-	case providerprofiles.FamilyOpenAIChat:
-		be, err := openaicompat.BuildCompatibleWithHeaders(instanceID, profile.Binding.FactoryKind, node, upstream, openaicompat.FlavorChat, openaicompat.CompatibleTransportCaps(openaicompat.FlavorChat), profileHeaders(profile.Profile.Headers))
-		return applyProfileCapabilities(be, err, profile)
-	case providerprofiles.FamilyOpenAIResponses:
-		be, err := openaicompat.BuildCompatibleWithHeaders(instanceID, profile.Binding.FactoryKind, node, upstream, openaicompat.FlavorResponses, openaicompat.CompatibleTransportCaps(openaicompat.FlavorResponses), profileHeaders(profile.Profile.Headers))
-		return applyProfileCapabilities(be, err, profile)
-	case providerprofiles.FamilyAnthropic:
-		be, err := anthropic.BuildCompatible(instanceID, profile.Binding.FactoryKind, node, upstream)
-		return applyProfileCapabilities(be, err, profile)
-	case providerprofiles.FamilyOpenResponses:
-		return buildOpenResponsesProfile(profile.Profile, instanceID, upstream)
-	default:
+	builder, ok := profileFamilyBuilders[profile.Binding.Family]
+	if !ok {
 		return execbackend.Backend{}, fmt.Errorf("provider profile %q: family %q has no compatible compiler", profile.Profile.ID, profile.Binding.Family)
 	}
+	return builder(profile, instanceID, node, upstream)
 }
 
 func applyProfileCapabilities(be execbackend.Backend, err error, profile providerprofiles.CompiledProfile) (execbackend.Backend, error) {
@@ -156,7 +170,7 @@ func buildOpenResponsesProfile(profile providerprofiles.Profile, instanceID stri
 }
 
 func openResponsesProfileConfigNode(profile providerprofiles.Profile) (yaml.Node, error) {
-	compiled, err := providerprofiles.Compile(profile)
+	compiled, err := providerprofiles.CompileProfile(profile)
 	if err != nil {
 		return yaml.Node{}, err
 	}
@@ -172,13 +186,7 @@ func openResponsesProfileConfigNode(profile providerprofiles.Profile) (yaml.Node
 		"api_key_env_var_root": profile.Auth.EnvVar,
 		"capabilities":         caps,
 	}
-	if len(profile.Models.Static) > 0 {
-		models := map[string]any{"source": "inline"}
-		items := make([]map[string]string, 0, len(profile.Models.Static))
-		for _, model := range profile.Models.Static {
-			items = append(items, map[string]string{"canonical_id": model.CanonicalID, "native_id": model.NativeID, "display_name": model.DisplayName})
-		}
-		models["items"] = items
+	if models := staticModelsConfigMap(profile.Models.Static); models != nil {
 		value["models"] = models
 	}
 	if len(profile.Dialects.Item)+len(profile.Dialects.Reasoning)+len(profile.Dialects.Compaction)+len(profile.Dialects.Extensions) > 0 {
@@ -197,13 +205,9 @@ func openResponsesProfileConfigNode(profile providerprofiles.Profile) (yaml.Node
 		}
 		value["dialects"] = dialects
 	}
-	data, err := yaml.Marshal(value)
-	if err != nil {
-		return yaml.Node{}, fmt.Errorf("provider profile %q: encode OpenResponses config: %w", profile.ID, err)
-	}
 	var node yaml.Node
-	if err := yaml.Unmarshal(data, &node); err != nil {
-		return yaml.Node{}, fmt.Errorf("provider profile %q: decode OpenResponses config: %w", profile.ID, err)
+	if err := node.Encode(value); err != nil {
+		return yaml.Node{}, fmt.Errorf("provider profile %q: encode OpenResponses config: %w", profile.ID, err)
 	}
 	return node, nil
 }
@@ -226,22 +230,30 @@ func ProfileConfigNode(profile providerprofiles.Profile) (yaml.Node, error) {
 		"api_key_env_var_root": profile.Auth.EnvVar,
 		"tokenizer":            profile.Tokenizer.TokenizerID,
 	}
-	if len(profile.Models.Static) > 0 {
-		models := map[string]any{"source": "inline"}
-		items := make([]map[string]string, 0, len(profile.Models.Static))
-		for _, model := range profile.Models.Static {
-			items = append(items, map[string]string{"canonical_id": model.CanonicalID, "native_id": model.NativeID, "display_name": model.DisplayName})
-		}
-		models["items"] = items
+	if models := staticModelsConfigMap(profile.Models.Static); models != nil {
 		value["models"] = models
 	}
-	data, err := yaml.Marshal(value)
-	if err != nil {
+	var node yaml.Node
+	if err := node.Encode(value); err != nil {
 		return yaml.Node{}, fmt.Errorf("provider profile %q: encode config: %w", profile.ID, err)
 	}
-	var node yaml.Node
-	if err := yaml.Unmarshal(data, &node); err != nil {
-		return yaml.Node{}, fmt.Errorf("provider profile %q: decode config: %w", profile.ID, err)
-	}
 	return node, nil
+}
+
+func staticModelsConfigMap(static []providerprofiles.Model) map[string]any {
+	if len(static) == 0 {
+		return nil
+	}
+	items := make([]map[string]string, 0, len(static))
+	for _, model := range static {
+		items = append(items, map[string]string{
+			"canonical_id": model.CanonicalID,
+			"native_id":    model.NativeID,
+			"display_name": model.DisplayName,
+		})
+	}
+	return map[string]any{
+		"source": "inline",
+		"items":  items,
+	}
 }

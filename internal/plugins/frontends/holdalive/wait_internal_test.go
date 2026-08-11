@@ -24,7 +24,11 @@ func (w *recordingWriter) WriteHeader(statusCode int) {
 func TestWait_contextCancelWithCtxIgnoringFnReturnsAfterDrainGrace(t *testing.T) {
 	orig := cancelDrainGrace
 	cancelDrainGrace = 20 * time.Millisecond
-	t.Cleanup(func() { cancelDrainGrace = orig })
+	stopCh := make(chan struct{})
+	t.Cleanup(func() {
+		close(stopCh)
+		cancelDrainGrace = orig
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	fnStarted := make(chan struct{})
@@ -33,7 +37,8 @@ func TestWait_contextCancelWithCtxIgnoringFnReturnsAfterDrainGrace(t *testing.T)
 		_, err := Wait(ctx, &recordingWriter{}, Config{Enabled: true, Interval: time.Hour},
 			func(context.Context) (string, error) {
 				close(fnStarted)
-				select {} // ignores ctx forever
+				<-stopCh // ignores ctx during test run, terminates on test cleanup
+				return "", nil
 			})
 		returned <- err
 	}()

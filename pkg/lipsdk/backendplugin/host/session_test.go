@@ -7,6 +7,7 @@ import (
 	"net"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	backendpluginv1 "github.com/matdev83/go-llm-interactive-proxy/api/backendplugin/v1"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
@@ -22,7 +23,112 @@ var (
 	_ backendplugin.BillingFinalizer = (*host.Session)(nil)
 )
 
+func TestSession_ExecuteClosesOptionalBlockingInputStream(t *testing.T) {
+	t.Parallel()
+	plugin := &publicFake{terminalOnStart: true}
+	conn, cleanup := startPublicFake(t, plugin)
+	defer cleanup()
+	sess, _, err := host.DialConfiguredSession(context.Background(), conn, "blocking", "fake", nil, backendplugin.SecretBundle{}, backendplugin.RuntimePolicy{DisableTransportRetries: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := &blockingPublicStream{ctx: context.Background(), first: backendplugin.ClientFrame{Kind: backendplugin.ClientFrameStart, InstanceID: "blocking", Invocation: validInvocation()}, released: make(chan struct{})}
+	if err := sess.Execute(stream); err != nil {
+		t.Fatal(err)
+	}
+	if !stream.closed.Load() {
+		t.Fatal("Execute did not close optional blocking input stream")
+	}
+}
+
+func TestSession_Execute_NonCloserBlockingStream_UnblocksOnContextCancel(t *testing.T) {
+	t.Parallel()
+	plugin := &publicFake{terminalOnStart: true}
+	conn, cleanup := startPublicFake(t, plugin)
+	defer cleanup()
+	sess, _, err := host.DialConfiguredSession(context.Background(), conn, "non-closer", "fake", nil, backendplugin.SecretBundle{}, backendplugin.RuntimePolicy{DisableTransportRetries: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	stream := &nonCloserBlockingStream{
+		ctx:   ctx,
+		first: backendplugin.ClientFrame{Kind: backendplugin.ClientFrameStart, InstanceID: "non-closer", Invocation: validInvocation()},
+	}
+
+	execDone := make(chan error, 1)
+	go func() {
+		execDone <- sess.Execute(stream)
+	}()
+
+	cancel()
+
+	select {
+	case err := <-execDone:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("Execute error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Execute deadlocked on blocking stream without Close() when Context was cancelled")
+	}
+}
+
+func TestSession_ExecuteRejectsClosedSession(t *testing.T) {
+	t.Parallel()
+	plugin := &publicFake{}
+	conn, cleanup := startPublicFake(t, plugin)
+	defer cleanup()
+	sess, _, err := host.DialConfiguredSession(context.Background(), conn, "closed", "fake", nil, backendplugin.SecretBundle{}, backendplugin.RuntimePolicy{DisableTransportRetries: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	stream := &publicStream{ctx: context.Background(), frames: []backendplugin.ClientFrame{{Kind: backendplugin.ClientFrameStart, InstanceID: "closed", Invocation: validInvocation()}}}
+	if err := sess.Execute(stream); err == nil || !stringsContains(err.Error(), "session is closed") {
+		t.Fatalf("Execute error=%v, want closed-session error", err)
+	}
+}
+
+func TestSession_CloseWaitsForActiveExecute(t *testing.T) {
+	t.Parallel()
+	plugin := &publicFake{executeStarted: make(chan struct{}), executeRelease: make(chan struct{}), terminalOnStart: true}
+	conn, cleanup := startPublicFake(t, plugin)
+	defer cleanup()
+	sess, _, err := host.DialConfiguredSession(context.Background(), conn, "lifecycle", "fake", nil, backendplugin.SecretBundle{}, backendplugin.RuntimePolicy{DisableTransportRetries: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream := &publicStream{ctx: context.Background(), frames: []backendplugin.ClientFrame{{Kind: backendplugin.ClientFrameStart, InstanceID: "lifecycle", Invocation: validInvocation()}}}
+	executeDone := make(chan error, 1)
+	go func() { executeDone <- sess.Execute(stream) }()
+	select {
+	case <-plugin.executeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("execute did not reach the configured blocking point")
+	}
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- sess.Close(context.Background()) }()
+	select {
+	case err := <-closeDone:
+		t.Fatalf("Close returned while Execute was active: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(plugin.executeRelease)
+
+	if err := <-executeDone; err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+	if err := <-closeDone; err != nil {
+		t.Fatalf("Close error: %v", err)
+	}
+}
+
 func TestSession_PublicHostPathCoversLifecycle(t *testing.T) {
+	t.Parallel()
 	plugin := &publicFake{}
 	conn, cleanup := startPublicFake(t, plugin)
 	defer cleanup()
@@ -68,11 +174,12 @@ func TestSession_PublicHostPathCoversLifecycle(t *testing.T) {
 func validInvocation() *backendplugin.Invocation {
 	return &backendplugin.Invocation{
 		RequestID: "request", AttemptID: "attempt", ALegID: "a-leg", BLegID: "b-leg", CanonicalModelID: "model",
-		Messages: []backendplugin.Message{{Role: backendplugin.RoleUser, Parts: []backendplugin.Part{{Kind: backendplugin.PartKindText, Text: stringPtr("hello")}}}},
+		Messages: []backendplugin.Message{{Role: backendplugin.RoleUser, Parts: []backendplugin.Part{{Kind: backendplugin.PartKindText, Text: new("hello")}}}},
 	}
 }
 
 func TestSession_PublicHostPathCleansUpWhenInitialResolveFails(t *testing.T) {
+	t.Parallel()
 	plugin := &publicFake{resolveErr: errors.New("resolve failed")}
 	conn, cleanup := startPublicFake(t, plugin)
 	defer cleanup()
@@ -87,12 +194,14 @@ func TestSession_PublicHostPathCleansUpWhenInitialResolveFails(t *testing.T) {
 }
 
 func TestSession_PublicHostPathRejectsNilConnection(t *testing.T) {
+	t.Parallel()
 	if _, _, err := host.DialConfiguredSession(context.Background(), nil, "public", "fake", nil, backendplugin.SecretBundle{}, backendplugin.RuntimePolicy{}); err == nil {
 		t.Fatal("expected nil connection error")
 	}
 }
 
 func TestSession_ForwardsOptionalAccountingOperations(t *testing.T) {
+	t.Parallel()
 	plugin := &publicFake{}
 	conn, cleanup := startPublicFake(t, plugin)
 	defer cleanup()
@@ -136,6 +245,7 @@ func TestSession_ForwardsOptionalAccountingOperations(t *testing.T) {
 }
 
 func TestSession_ForwardsOptionalAccountingErrors(t *testing.T) {
+	t.Parallel()
 	countErr := errors.New("count failed")
 	finalErr := errors.New("finalize failed")
 	plugin := &publicFake{countErr: countErr, finalizeErr: finalErr}
@@ -154,6 +264,7 @@ func TestSession_ForwardsOptionalAccountingErrors(t *testing.T) {
 }
 
 func TestSession_DialCleanupClosesTransportOnConfigureAndCloseErrors(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		configure error
@@ -166,6 +277,7 @@ func TestSession_DialCleanupClosesTransportOnConfigureAndCloseErrors(t *testing.
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			plugin := &publicFake{configureErr: tc.configure, resolveErr: tc.resolve, closeErr: tc.close}
 			conn, cleanup := startPublicFake(t, plugin)
 			tracked := &trackingConn{Conn: conn}
@@ -183,6 +295,7 @@ func TestSession_DialCleanupClosesTransportOnConfigureAndCloseErrors(t *testing.
 }
 
 func TestSession_CloseErrorRemainsRetryable(t *testing.T) {
+	t.Parallel()
 	plugin := &publicFake{closeErr: errors.New("close failed")}
 	conn, cleanup := startPublicFake(t, plugin)
 	defer cleanup()
@@ -201,16 +314,110 @@ func TestSession_CloseErrorRemainsRetryable(t *testing.T) {
 	}
 }
 
+func TestSession_ExecuteContextCancellationAndRPCErrors(t *testing.T) {
+	t.Parallel()
+	plugin := &publicFake{}
+	conn, cleanup := startPublicFake(t, plugin)
+	defer cleanup()
+
+	sess, _, err := host.DialConfiguredSession(context.Background(), conn, "cancel-test", "fake", nil, backendplugin.SecretBundle{}, backendplugin.RuntimePolicy{DisableTransportRetries: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sess.Close(context.Background()) })
+
+	t.Run("ContextCanceled", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithCancel(context.Background())
+		stream := &blockingPublicStream{
+			ctx:      ctx,
+			first:    backendplugin.ClientFrame{Kind: backendplugin.ClientFrameStart, InstanceID: "cancel-test", Invocation: validInvocation()},
+			released: make(chan struct{}),
+		}
+		cancel()
+		err := sess.Execute(stream)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Execute error = %v, want context.Canceled", err)
+		}
+	})
+
+	t.Run("ContextDeadlineExceeded", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+		defer cancel()
+		time.Sleep(2 * time.Millisecond)
+		stream := &blockingPublicStream{
+			ctx:      ctx,
+			first:    backendplugin.ClientFrame{Kind: backendplugin.ClientFrameStart, InstanceID: "cancel-test", Invocation: validInvocation()},
+			released: make(chan struct{}),
+		}
+		err := sess.Execute(stream)
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("Execute error = %v, want context.DeadlineExceeded", err)
+		}
+	})
+}
+
+func TestSession_PostTerminalFrameReturnsProtocolViolationError(t *testing.T) {
+	t.Parallel()
+	plugin := &postTerminalFake{}
+	conn, cleanup := startPublicFake(t, plugin)
+	defer cleanup()
+	sess, _, err := host.DialConfiguredSession(context.Background(), conn, "post-terminal", "fake", nil, backendplugin.SecretBundle{}, backendplugin.RuntimePolicy{DisableTransportRetries: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sess.Close(context.Background()) })
+
+	stream := &publicStream{ctx: context.Background(), frames: []backendplugin.ClientFrame{
+		{Kind: backendplugin.ClientFrameStart, InstanceID: "post-terminal", Invocation: validInvocation()},
+	}}
+	err = sess.Execute(stream)
+	var violation *host.ProtocolViolationError
+	if !errors.As(err, &violation) {
+		t.Fatalf("Execute error = %v, want ProtocolViolationError", err)
+	}
+}
+
+type postTerminalFake struct {
+	publicFake
+}
+
+func (f *postTerminalFake) Configure(ctx context.Context, req backendplugin.ConfigureRequest) (backendplugin.ConfiguredInstance, error) {
+	return (*postTerminalInstance)(f), nil
+}
+
+type postTerminalInstance postTerminalFake
+
+func (f *postTerminalInstance) Resolve(ctx context.Context, modelID *string) (backendplugin.ResolvedProfile, error) {
+	return backendplugin.ResolvedProfile{EvidenceSource: "post-terminal-fake", Capabilities: backendplugin.CapabilitySummary{Streaming: true}}, nil
+}
+
+func (*postTerminalInstance) ListModels(context.Context, uint32) (backendplugin.ListModelsResponse, error) {
+	return backendplugin.ListModelsResponse{}, nil
+}
+
+func (f *postTerminalInstance) Execute(stream backendplugin.ExecuteStream) error {
+	_, _ = stream.Recv()
+	_ = stream.Send(backendplugin.ServerFrame{Kind: backendplugin.ServerFrameTerminal, Terminal: &backendplugin.Terminal{Status: backendplugin.TerminalSuccess}})
+	// Send a second frame after terminal to violate protocol
+	return stream.Send(backendplugin.ServerFrame{Kind: backendplugin.ServerFrameEvent, Event: &backendplugin.CanonicalEvent{Kind: backendplugin.EventTextDelta, Delta: new("illegal")}})
+}
+func (f *postTerminalInstance) Close(context.Context) error { return nil }
+
 type publicFake struct {
-	configureErr error
-	resolveErr   error
-	closeErr     error
-	countErr     error
-	finalizeErr  error
-	lastCount    backendplugin.CountTokensRequest
-	lastFinalize backendplugin.FinalizeBillingRequest
-	closeCount   atomic.Int64
-	cancelCount  atomic.Int64
+	configureErr    error
+	resolveErr      error
+	closeErr        error
+	countErr        error
+	finalizeErr     error
+	lastCount       backendplugin.CountTokensRequest
+	lastFinalize    backendplugin.FinalizeBillingRequest
+	closeCount      atomic.Int64
+	cancelCount     atomic.Int64
+	terminalOnStart bool
+	executeStarted  chan struct{}
+	executeRelease  chan struct{}
 }
 
 func (f *publicFake) Describe(context.Context) (backendplugin.PluginDescriptor, error) {
@@ -237,14 +444,25 @@ func (f *publicInstance) Resolve(context.Context, *string) (backendplugin.Resolv
 	}
 	return backendplugin.ResolvedProfile{EvidenceSource: "public-fake", Capabilities: backendplugin.CapabilitySummary{Streaming: true}}, nil
 }
+
 func (*publicInstance) ListModels(context.Context, uint32) (backendplugin.ListModelsResponse, error) {
 	return backendplugin.ListModelsResponse{}, nil
 }
+
 func (f *publicInstance) Execute(stream backendplugin.ExecuteStream) error {
 	for {
 		frame, err := stream.Recv()
 		if err != nil {
 			return err
+		}
+		if frame.Kind == backendplugin.ClientFrameStart {
+			if f.executeStarted != nil {
+				close(f.executeStarted)
+				<-f.executeRelease
+			}
+			if f.terminalOnStart {
+				return stream.Send(backendplugin.ServerFrame{Kind: backendplugin.ServerFrameTerminal, Terminal: &backendplugin.Terminal{Status: backendplugin.TerminalSuccess}})
+			}
 		}
 		if frame.Kind == backendplugin.ClientFrameCancel {
 			f.cancelCount.Add(1)
@@ -254,13 +472,14 @@ func (f *publicInstance) Execute(stream backendplugin.ExecuteStream) error {
 			return stream.Send(backendplugin.ServerFrame{Kind: backendplugin.ServerFrameTerminal, Terminal: &backendplugin.Terminal{Status: backendplugin.TerminalCancelled}})
 		}
 		if frame.Kind == backendplugin.ClientFrameCloseInput {
-			if err := stream.Send(backendplugin.ServerFrame{Kind: backendplugin.ServerFrameEvent, Event: &backendplugin.CanonicalEvent{Kind: backendplugin.EventTextDelta, Delta: stringPtr("ok")}}); err != nil {
+			if err := stream.Send(backendplugin.ServerFrame{Kind: backendplugin.ServerFrameEvent, Event: &backendplugin.CanonicalEvent{Kind: backendplugin.EventTextDelta, Delta: new("ok")}}); err != nil {
 				return err
 			}
 			return stream.Send(backendplugin.ServerFrame{Kind: backendplugin.ServerFrameTerminal, Terminal: &backendplugin.Terminal{Status: backendplugin.TerminalSuccess}})
 		}
 	}
 }
+
 func (f *publicInstance) Close(context.Context) error {
 	f.closeCount.Add(1)
 	return f.closeErr
@@ -284,6 +503,48 @@ func (f *publicInstance) FinalizeBilling(_ context.Context, req backendplugin.Fi
 	return backendplugin.FinalizeBillingResponse{Usage: backendplugin.UsageEvidence{TotalTokens: &value, Presence: backendplugin.UsagePresence{TotalTokens: true}}, EvidenceQuality: "public-fake"}, nil
 }
 
+type blockingPublicStream struct {
+	ctx      context.Context
+	first    backendplugin.ClientFrame
+	closed   atomic.Bool
+	released chan struct{}
+}
+
+func (s *blockingPublicStream) Context() context.Context { return s.ctx }
+func (s *blockingPublicStream) Recv() (backendplugin.ClientFrame, error) {
+	if s.first.Kind == backendplugin.ClientFrameStart {
+		frame := s.first
+		s.first = backendplugin.ClientFrame{}
+		return frame, nil
+	}
+	<-s.released
+	return backendplugin.ClientFrame{}, io.EOF
+}
+func (s *blockingPublicStream) Send(backendplugin.ServerFrame) error { return nil }
+func (s *blockingPublicStream) Close() error {
+	if s.closed.CompareAndSwap(false, true) {
+		close(s.released)
+	}
+	return nil
+}
+
+type nonCloserBlockingStream struct {
+	ctx   context.Context
+	first backendplugin.ClientFrame
+}
+
+func (s *nonCloserBlockingStream) Context() context.Context { return s.ctx }
+func (s *nonCloserBlockingStream) Recv() (backendplugin.ClientFrame, error) {
+	if s.first.Kind == backendplugin.ClientFrameStart {
+		frame := s.first
+		s.first = backendplugin.ClientFrame{}
+		return frame, nil
+	}
+	<-s.ctx.Done()
+	return backendplugin.ClientFrame{}, s.ctx.Err()
+}
+func (s *nonCloserBlockingStream) Send(backendplugin.ServerFrame) error { return nil }
+
 type publicStream struct {
 	ctx    context.Context
 	frames []backendplugin.ClientFrame
@@ -300,6 +561,7 @@ func (s *publicStream) Recv() (backendplugin.ClientFrame, error) {
 	s.pos++
 	return frame, nil
 }
+
 func (s *publicStream) Send(frame backendplugin.ServerFrame) error {
 	s.out = append(s.out, frame)
 	return nil
@@ -331,10 +593,10 @@ func startPublicFake(t *testing.T, service backendplugin.Service) (net.Conn, fun
 	return conn, func() { _ = conn.Close(); grpcServer.Stop(); _ = lis.Close() }
 }
 
-func stringPtr(value string) *string { return &value }
 func stringsContains(value, want string) bool {
 	return len(value) >= len(want) && contains(value, want)
 }
+
 func contains(value, want string) bool {
 	for i := 0; i+len(want) <= len(value); i++ {
 		if value[i:i+len(want)] == want {

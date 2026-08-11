@@ -11,7 +11,7 @@ import (
 )
 
 // Tasks 14.1–14.3 (stage checklist): guardrails tying the checklist to concrete test artifacts.
-// Cross-API enumeration is enforced by TestMatrixIsCompleteCartesianProduct (matrix_test.go).
+// Cross-API enumeration is enforced by contract TCKs (internal/testkit/contract).
 
 func TestStageChecklist14_frontendIntegrationTestsPresent(t *testing.T) {
 	t.Parallel()

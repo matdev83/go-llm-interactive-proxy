@@ -7,9 +7,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/utils"
-	"sync/atomic"
 )
 
 const maxBodyBytes = 10 << 20

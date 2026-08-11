@@ -23,8 +23,10 @@ import (
 // mounted composition is executable through the generic TCK boundary.
 func TestOpenResponses_ComposesGenericTCKWithProtocolLifecycleSuites(t *testing.T) {
 	executor := &CapturingExecutor{Script: EventScript{Events: []lipapi.Event{
-		{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventMessageStarted},
-		{Kind: lipapi.EventTextDelta, Delta: "ok"}, {Kind: lipapi.EventResponseFinished},
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventTextDelta, Delta: "ok"},
+		{Kind: lipapi.EventResponseFinished},
 	}}}
 	h := &MountedHarness{
 		Descriptor: semantic.SubjectDescriptor{
@@ -44,6 +46,8 @@ func TestOpenResponses_ComposesGenericTCKWithProtocolLifecycleSuites(t *testing.
 		Body: func(s semantic.ScenarioDescriptor) []byte {
 			return []byte(frontendScenarioBody("openresponses", string(s.ID)))
 		},
+		NegativeBody:      openResponsesNegativeBody,
+		Decorate:          withFrontendCancellation,
 		ExecutorBoundary:  executor,
 		ContinuationStore: lipcont.NewMemoryStore(),
 	}
@@ -58,6 +62,7 @@ func TestOpenResponses_ComposesGenericTCKWithProtocolLifecycleSuites(t *testing.
 	// Invoke continuation through the mounted HTTP handler, including a real
 	// stored parent and follow-up request; this is not a filename-only claim.
 	srv := httptest.NewServer(h.Mux)
+	beforeContinuationCalls := len(executor.Calls)
 	defer srv.Close()
 	post := func(body string) (map[string]any, int) {
 		req, err := http.NewRequest(http.MethodPost, srv.URL+"/openresponses/v1/responses", bytes.NewBufferString(body))
@@ -70,7 +75,7 @@ func TestOpenResponses_ComposesGenericTCKWithProtocolLifecycleSuites(t *testing.
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		var out map[string]any
 		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 			t.Fatal(err)
@@ -89,15 +94,19 @@ func TestOpenResponses_ComposesGenericTCKWithProtocolLifecycleSuites(t *testing.
 	if status != http.StatusOK {
 		t.Fatalf("mounted continuation follow-up status=%d body=%v", status, second)
 	}
+	if got := len(executor.Calls) - beforeContinuationCalls; got != 2 {
+		t.Fatalf("mounted continuation turns reached executor=%d, want 2", got)
+	}
 
 	// Invoke the actual WebSocket lifecycle on the same mounted mux and consume
 	// until a protocol terminal event, proving upgrade/turn/executor/close.
+	beforeWebSocketCalls := len(executor.Calls)
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/openresponses/v1/responses"
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	t.Cleanup(func() { _ = conn.Close() })
 	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	if err := conn.WriteJSON(map[string]any{"type": "response.create", "model": "m", "input": "websocket"}); err != nil {
 		t.Fatal(err)
@@ -115,9 +124,7 @@ func TestOpenResponses_ComposesGenericTCKWithProtocolLifecycleSuites(t *testing.
 			t.Fatalf("mounted websocket failed: %s", msg)
 		}
 	}
-	for _, suite := range []string{"continuation_lifecycle_test.go", "websocket_continuation_test.go", "compact_test.go"} {
-		t.Run(suite, func(t *testing.T) {
-			t.Log("protocol-owned lifecycle suite is exercised by the mounted HTTP/WS composition above")
-		})
+	if got := len(executor.Calls) - beforeWebSocketCalls; got != 1 {
+		t.Fatalf("mounted websocket turn reached executor=%d, want 1", got)
 	}
 }

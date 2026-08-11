@@ -105,7 +105,7 @@ func applySemanticExtensions(inv *Invocation, call lipapi.Call) error {
 	if len(call.SemanticExtensions) == 0 && legacy != "" {
 		inv.SemanticExtensions = append(inv.SemanticExtensions, SemanticExtension{
 			Namespace: "lip", Type: "prompt_cache_key", Implementor: "proxy", Direction: "request",
-			Presence: SemanticExtensionValue, Data: RawJSONFromBytes([]byte(fmt.Sprintf("%q", legacy))),
+			Presence: SemanticExtensionValue, Data: RawJSONFromBytes(fmt.Appendf(nil, "%q", legacy)),
 		})
 	}
 	return nil

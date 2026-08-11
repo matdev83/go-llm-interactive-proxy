@@ -49,17 +49,23 @@ type RouteFacet struct {
 }
 
 // DiagnosticFacet declares that the contribution owns an operator projector.
-// The projector itself stays at the runtime edge and is not a service bag.
-type DiagnosticFacet struct{ Declared bool }
+// ID identifies the metadata owner; the executable projector stays at the
+// runtime edge and is not a service bag.
+type DiagnosticFacet struct {
+	ID       string
+	Declared bool
+}
 type ContractSubject struct {
 	ID   string
 	Kind string
 }
-type ContractFacet struct{ Subject ContractSubject }
-type CompatibleFamilyFacet struct {
-	FamilyID   string
-	ProfileIDs []string
-}
+type (
+	ContractFacet         struct{ Subject ContractSubject }
+	CompatibleFamilyFacet struct {
+		FamilyID   string
+		ProfileIDs []string
+	}
+)
 
 type FrontendContribution struct {
 	Registration FrontendRegistrationFacet
@@ -78,6 +84,10 @@ type BackendContribution struct {
 type ContributionSet struct {
 	Frontends []FrontendContribution
 	Backends  []BackendContribution
+	// Diagnostics contains catalog/composition-owned projectors that do not
+	// correspond to a single frontend or backend registration. Keeping this
+	// facet in the derived source-of-truth prevents hidden projector lists.
+	Diagnostics []DiagnosticFacet
 }
 
 type Views struct {
@@ -99,6 +109,7 @@ func Derive(in ContributionSet) (Views, error) {
 	seenBackends := map[string]struct{}{}
 	seenContracts := map[string]struct{}{}
 	seenRoutes := map[string]struct{}{}
+	seenDiagnostics := map[string]struct{}{}
 	for _, f := range in.Frontends {
 		if err := addScopedID(seenFrontends, "frontend", f.Registration.ID); err != nil {
 			return Views{}, err
@@ -120,7 +131,9 @@ func Derive(in ContributionSet) (Views, error) {
 			}
 		}
 		if f.Diagnostics != nil && f.Diagnostics.Declared {
-			views.Diagnostics = append(views.Diagnostics, *f.Diagnostics)
+			if err := appendDiagnosticFacet(&views, seenDiagnostics, *f.Diagnostics, "frontend", f.Registration.ID); err != nil {
+				return Views{}, err
+			}
 		}
 		if f.Contract.Subject.ID != "" {
 			contractKey := f.Contract.Subject.Kind + "\x00" + f.Contract.Subject.ID
@@ -129,6 +142,14 @@ func Derive(in ContributionSet) (Views, error) {
 			}
 			seenContracts[contractKey] = struct{}{}
 			views.ContractSubjects = append(views.ContractSubjects, f.Contract.Subject)
+		}
+	}
+	for _, d := range in.Diagnostics {
+		if !d.Declared {
+			continue
+		}
+		if err := appendDiagnosticFacet(&views, seenDiagnostics, d, "composition", ""); err != nil {
+			return Views{}, err
 		}
 	}
 	for _, b := range in.Backends {
@@ -144,7 +165,9 @@ func Derive(in ContributionSet) (Views, error) {
 			views.EssentialIDs = append(views.EssentialIDs, b.Registration.ID)
 		}
 		if b.Diagnostics != nil && b.Diagnostics.Declared {
-			views.Diagnostics = append(views.Diagnostics, *b.Diagnostics)
+			if err := appendDiagnosticFacet(&views, seenDiagnostics, *b.Diagnostics, "backend", b.Registration.ID); err != nil {
+				return Views{}, err
+			}
 		}
 		if b.Contract.Subject.ID != "" {
 			contractKey := b.Contract.Subject.Kind + "\x00" + b.Contract.Subject.ID
@@ -193,6 +216,23 @@ func Derive(in ContributionSet) (Views, error) {
 	return views, nil
 }
 
+func appendDiagnosticFacet(views *Views, seen map[string]struct{}, facet DiagnosticFacet, scope, owner string) error {
+	id := strings.TrimSpace(facet.ID)
+	if id == "" && owner != "" {
+		id = owner + ":diagnostics"
+	}
+	if id == "" {
+		return fmt.Errorf("diagnostic contribution: empty id")
+	}
+	if _, exists := seen[id]; exists {
+		return fmt.Errorf("duplicate diagnostic contribution id %q", id)
+	}
+	seen[id] = struct{}{}
+	facet.ID = id
+	views.Diagnostics = append(views.Diagnostics, facet)
+	return nil
+}
+
 func normalizeRouteClaim(in RouteClaimFacet) (RouteClaimFacet, error) {
 	method := strings.ToUpper(strings.TrimSpace(in.Method))
 	path := strings.TrimSpace(in.Path)
@@ -217,6 +257,7 @@ func compatibleRank(backends []BackendContribution, id string) int {
 	}
 	return 0
 }
+
 func essentialRank(backends []BackendContribution, id string) int {
 	for _, b := range backends {
 		if b.Registration.ID == id {

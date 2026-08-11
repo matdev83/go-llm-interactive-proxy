@@ -61,6 +61,7 @@ func TestSemanticExtension_RejectsOversizeAndInvalidPresence(t *testing.T) {
 		"oversize":         {Namespace: "lip", Type: "x", Presence: lipapi.SemanticExtensionValue, Data: json.RawMessage(strings.Repeat("x", lipapi.MaxSemanticExtensionDataBytes+1))},
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			call := lipapi.CloneCall(base)
 			call.SemanticExtensions = []lipapi.SemanticExtension{ext}
 			if err := call.Validate(); err == nil {
@@ -78,6 +79,7 @@ func TestSemanticExtension_RejectsUnboundedIdentityDuplicateAndEnvelope(t *testi
 		"envelope":         {Namespace: "lip", Type: "x", Implementor: "proxy", Direction: "request", Presence: lipapi.SemanticExtensionValue, Data: json.RawMessage(`{"request":{"messages":[]}}`)},
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			call := lipapi.CloneCall(base)
 			call.SemanticExtensions = []lipapi.SemanticExtension{ext}
 			if err := call.Validate(); err == nil {

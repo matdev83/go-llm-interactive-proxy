@@ -8,12 +8,17 @@ import (
 )
 
 type Certification struct {
-	ProfileID    string
-	Family       Family
-	FactoryKind  string
-	Capabilities []lipapi.Capability
-	Dialects     lipapi.DialectSupport
-	Quirks       []QuirkID
+	ProfileID      string
+	Family         Family
+	FactoryKind    string
+	EndpointURL    string
+	AuthMode       AuthMode
+	Headers        []SafeHeader
+	ModelNamespace Namespace
+	StaticModels   []Model
+	Capabilities   []lipapi.Capability
+	Dialects       lipapi.DialectSupport
+	Quirks         []QuirkID
 }
 
 func Certify(p Profile) (Certification, error) {
@@ -26,11 +31,24 @@ func Certify(p Profile) (Certification, error) {
 		caps = append(caps, cap)
 	}
 	slices.Sort(caps)
-	return Certification{ProfileID: p.ID, Family: p.Family, FactoryKind: compiled.Binding.FactoryKind, Capabilities: caps, Dialects: compiled.Dialects, Quirks: slices.Clone(p.Quirks)}, nil
+
+	return Certification{
+		ProfileID:      p.ID,
+		Family:         p.Family,
+		FactoryKind:    compiled.Binding.FactoryKind,
+		EndpointURL:    p.Endpoint.BaseURL,
+		AuthMode:       p.Auth.Mode,
+		Headers:        slices.Clone(p.Headers),
+		ModelNamespace: p.Models.Namespace,
+		StaticModels:   slices.Clone(p.Models.Static),
+		Capabilities:   caps,
+		Dialects:       compiled.Dialects,
+		Quirks:         slices.Clone(p.Quirks),
+	}, nil
 }
 
 func (c Certification) Validate() error {
-	if c.ProfileID == "" || c.FactoryKind == "" || c.Family == "" {
+	if c.ProfileID == "" || c.FactoryKind == "" || c.Family == "" || c.EndpointURL == "" || c.AuthMode == "" {
 		return fmt.Errorf("incomplete profile certification")
 	}
 	return nil

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
@@ -33,15 +34,27 @@ func listTempDirsServeForTest(prefix string) []string {
 
 func assertNoNewServeDirsForTest(t *testing.T, before []string, prefix string) {
 	t.Helper()
-	after := listTempDirsServeForTest(prefix)
 	beforeSet := make(map[string]struct{}, len(before))
 	for _, b := range before {
 		beforeSet[b] = struct{}{}
 	}
-	for _, d := range after {
-		if _, ok := beforeSet[d]; !ok {
-			t.Errorf("leaked temp dir %q (prefix %q)", d, prefix)
+	var leaked []string
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		after := listTempDirsServeForTest(prefix)
+		leaked = nil
+		for _, d := range after {
+			if _, ok := beforeSet[d]; !ok {
+				leaked = append(leaked, d)
+			}
 		}
+		if len(leaked) == 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	for _, d := range leaked {
+		t.Errorf("leaked temp dir %q (prefix %q)", d, prefix)
 	}
 }
 

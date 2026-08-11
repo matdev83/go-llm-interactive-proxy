@@ -9,6 +9,7 @@ import (
 )
 
 func TestRouteDescriptorsPreserveNestedGeminiMountPatterns(t *testing.T) {
+	t.Parallel()
 	descriptors, err := RouteDescriptors(ID)
 	if err != nil {
 		t.Fatal(err)

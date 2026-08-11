@@ -65,6 +65,7 @@ func TestStandardBackendBundleIsValueOriented(t *testing.T) {
 }
 
 func TestStandardViewsMatchRuntimeRegistrationAndRouteProjection(t *testing.T) {
+	t.Parallel()
 	bundle := StandardBundle()
 	views, err := DerivedViews()
 	if err != nil {
@@ -81,8 +82,25 @@ func TestStandardViewsMatchRuntimeRegistrationAndRouteProjection(t *testing.T) {
 	if got, want := len(StandardFrontendRouteClaims()), len(views.Routes); got != want {
 		t.Fatalf("route providers=%d, route facets=%d", got, want)
 	}
+	if len(views.RouteClaims) == 0 {
+		t.Fatal("derived views route claims must be populated from frontend contributions")
+	}
+	totalClaims := 0
+	for id, provider := range StandardFrontendRouteClaims() {
+		claims, err := provider(id, yaml.Node{})
+		if err != nil {
+			t.Fatalf("provider %s failed: %v", id, err)
+		}
+		totalClaims += len(claims)
+	}
+	if got, want := len(views.RouteClaims), totalClaims; got != want {
+		t.Fatalf("derived route claims=%d, expected total=%d", got, want)
+	}
 	if got, want := len(StandardDiagnosticProjectors()), len(views.Diagnostics); got != want {
 		t.Fatalf("diagnostic projectors=%d, diagnostic facets=%d", got, want)
+	}
+	if got := len(StandardDiagnosticProjectors()); got != 2 {
+		t.Fatalf("diagnostic projectors=%d, want one frontend and one profile-catalog projector", got)
 	}
 }
 

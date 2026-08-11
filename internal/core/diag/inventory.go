@@ -15,9 +15,8 @@ type InventorySnapshot struct {
 	Frontends              []PluginRow            `json:"frontends"`
 	Backends               []PluginRow            `json:"backends"`
 	CompatibleBackends     []CompatibleBackendRow `json:"compatible_backends,omitempty"`
-	InstanceDiagnostics    []InstanceDiagnostic   `json:"openresponses_frontends,omitempty"`
-	OpenResponsesFrontends []InstanceDiagnostic   `json:"-"`
-	Instances              []InstanceDiagnostic   `json:"instances,omitempty"`
+	InstanceDiagnostics    []InstanceDiagnostic   `json:"instance_diagnostics,omitempty"`
+	OpenResponsesFrontends []InstanceDiagnostic   `json:"openresponses_frontends,omitempty"`
 	Features               []PluginRow            `json:"features"`
 	Extensions             InventoryExtensions    `json:"extensions"`
 	// ServerLimits exposes effective decode/admission caps and configured pending-wire
@@ -71,19 +70,25 @@ func InventorySnapshotForConfig(
 			MaxPendingWireEvents:   cfg.Server.EffectiveMaxPendingWireEvents(),
 		},
 	}
-	if extras != nil && extras.CompatibleBackends != nil {
-		snap.CompatibleBackends = extras.CompatibleBackends(cfg)
+	if extras != nil && extras.Precomputed != nil {
+		snap.CompatibleBackends = extras.Precomputed.CompatibleBackends
+		snap.InstanceDiagnostics = extras.Precomputed.InstanceDiagnostics
+		snap.OpenResponsesFrontends = extras.Precomputed.OpenResponsesFrontends
+		return snap, nil
 	}
+
+	var compatible []CompatibleBackendRow
+	var projectors []InstanceDiagnosticProjector
 	if extras != nil {
-		for _, project := range extras.InstanceDiagnosticProjectors {
-			for _, row := range project(cfg) {
-				if sanitized, err := SanitizeInstanceDiagnostic(row); err == nil {
-					snap.InstanceDiagnostics = append(snap.InstanceDiagnostics, sanitized)
-				}
-			}
+		if extras.CompatibleBackends != nil {
+			compatible = extras.CompatibleBackends(cfg)
 		}
+		projectors = extras.InstanceDiagnosticProjectors
 	}
-	snap.OpenResponsesFrontends = append([]InstanceDiagnostic(nil), snap.InstanceDiagnostics...)
+	projection := ProjectInventoryDiagnostics(cfg, compatible, projectors)
+	snap.CompatibleBackends = projection.CompatibleBackends
+	snap.InstanceDiagnostics = projection.InstanceDiagnostics
+	snap.OpenResponsesFrontends = projection.OpenResponsesFrontends
 	return snap, nil
 }
 

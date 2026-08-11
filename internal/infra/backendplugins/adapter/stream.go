@@ -71,9 +71,10 @@ func openStream(
 	s.stats.ProviderAttempts.Add(1)
 
 	execStream := &bridgeExecuteStream{
-		ctx:  execCtx,
-		recv: hostFrames,
-		send: s.onPluginFrame,
+		ctx:     execCtx,
+		closeCh: make(chan struct{}),
+		recv:    hostFrames,
+		send:    s.onPluginFrame,
 	}
 
 	s.wg.Go(func() {
@@ -213,7 +214,8 @@ func (s *managedStream) Close() error {
 	}
 	select {
 	case s.hostFrames <- backendplugin.ClientFrame{Kind: backendplugin.ClientFrameCloseInput}:
-	default:
+	case <-s.done:
+	case <-s.ctx.Done():
 	}
 	s.cancel()
 	s.wg.Wait()
@@ -397,17 +399,33 @@ func (s *managedStream) OutputCommitted() bool { return s.outputCommitted.Load()
 func (s *managedStream) Attempts() int64       { return s.stats.ProviderAttempts.Load() }
 
 type bridgeExecuteStream struct {
-	ctx  context.Context
-	recv <-chan backendplugin.ClientFrame
-	send func(backendplugin.ServerFrame) error
+	ctx       context.Context
+	closeCh   chan struct{}
+	closeOnce sync.Once
+	recv      <-chan backendplugin.ClientFrame
+	send      func(backendplugin.ServerFrame) error
 }
 
+var (
+	_ backendplugin.ExecuteStream               = (*bridgeExecuteStream)(nil)
+	_ backendplugin.OptionalExecuteStreamCloser = (*bridgeExecuteStream)(nil)
+)
+
 func (b *bridgeExecuteStream) Context() context.Context { return b.ctx }
+
+// Close unblocks a host Execute pump when the gRPC server finishes before the
+// adapter's client-frame channel has been closed.
+func (b *bridgeExecuteStream) Close() error {
+	b.closeOnce.Do(func() { close(b.closeCh) })
+	return nil
+}
 
 func (b *bridgeExecuteStream) Recv() (backendplugin.ClientFrame, error) {
 	select {
 	case <-b.ctx.Done():
 		return backendplugin.ClientFrame{}, b.ctx.Err()
+	case <-b.closeCh:
+		return backendplugin.ClientFrame{}, io.EOF
 	case fr, ok := <-b.recv:
 		if !ok {
 			return backendplugin.ClientFrame{}, io.EOF

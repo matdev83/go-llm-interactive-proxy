@@ -357,6 +357,14 @@ func TestWindowsTaskReliability_CallSiteAudit(t *testing.T) {
 	if !strings.Contains(readRepositoryFile(t, "scripts", "windows-task.ps1"), "-fuzztime=$fuzzTime") {
 		t.Fatal("windows fuzz route no longer uses a local FUZZTIME value")
 	}
+	for _, fuzzName := range []string{"FuzzParseSelector", "FuzzParseSelectorFromBytes", "FuzzSemanticExtensionValidation"} {
+		if !strings.Contains(readRepositoryFile(t, "Makefile"), "-fuzz=^"+fuzzName+"$$") {
+			t.Fatalf("Makefile fuzz target %s must use an exact fuzz-function selector", fuzzName)
+		}
+	}
+	if !strings.Contains(readRepositoryFile(t, "scripts", "windows-task.ps1"), `-fuzz=^$($item[0])$`) {
+		t.Fatal("Windows fuzz route must use an exact fuzz-function selector")
+	}
 
 	prod := []string{
 		"release_gates/main.go",

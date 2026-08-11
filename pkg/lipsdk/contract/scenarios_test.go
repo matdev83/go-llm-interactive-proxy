@@ -6,6 +6,7 @@ import (
 )
 
 func TestBaselineScenarioCorpusJSONRoundTrip(t *testing.T) {
+	t.Parallel()
 	corpus := BaselineScenarioCorpus()
 	encoded, err := json.Marshal(corpus)
 	if err != nil {
@@ -26,6 +27,7 @@ func TestBaselineScenarioCorpusJSONRoundTrip(t *testing.T) {
 }
 
 func TestBaselineScenarioCorpusSchema(t *testing.T) {
+	t.Parallel()
 	for _, scenario := range BaselineScenarioCorpus() {
 		if scenario.ID == "" || scenario.Feature == "" || scenario.Transport == "" {
 			t.Fatalf("incomplete scenario: %#v", scenario)

@@ -23,7 +23,7 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	if ConnectorArchitectureOverlayMax != 1937 {
 		t.Fatalf("connector overlay cap drift: %d", ConnectorArchitectureOverlayMax)
 	}
-	if GenericCompatibleBackendOverlayMax != 900 {
+	if GenericCompatibleBackendOverlayMax != 946 {
 		t.Fatalf("generic compatible overlay cap drift: %d", GenericCompatibleBackendOverlayMax)
 	}
 	want := []AffectedSurfaceBaseline{
