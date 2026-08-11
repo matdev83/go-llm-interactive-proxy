@@ -1,436 +1,373 @@
 # Research Notes
 
-## Purpose
+## Objective
 
-This research supports the revised `usage-record-ledger-billing` architecture. It replaces the initial telecom-flavored CDR draft with a domain-neutral Usage Record model and adds a durable double-entry journal, prepaid/postpaid account semantics, journal-based rebuild, point-in-time balance snapshots, and explicit B2BUA A-leg/B-leg accounting.
+Identify the smallest architecture that gives Go-LIP financially rigorous prepaid/postpaid billing without putting accounting back into LLM stream execution.
 
-Repository baseline reviewed: `main` at `269b9e8df0e9ed476d962c2327e1794f4b74bb83`.
+The resulting model deliberately separates three things that were previously entangled:
 
-## Executive Findings
+1. **execution evidence** — what happened on each A-leg/B-leg;
+2. **credit authorization** — whether the next A-leg may start;
+3. **financial accounting** — what the completed usage means in customer revenue and provider cost.
 
-1. The simple post-turn architecture remains correct: financial settlement does not need stream-time instrumentation.
-2. The first draft was too weak as a financial system because it made a materialized balance/reservation store authoritative without a classical reconstructible journal.
-3. Go-LIP already has the database primitives needed for a durable ledger; introducing another DB stack would be wasteful.
-4. The correct double-entry model is one journal transaction with two or more entries, not two independent ledgers.
-5. Authorization holds should be auditable but should not recognize revenue; a separate authorization book solves this cleanly.
-6. Prepaid and postpaid can share one signed-balance convention: customer credits minus customer debits.
-7. B2BUA lineage already gives the right correlation vocabulary: A-leg for customer turn scope, B-leg for provider attempt/cost scope.
-8. The journal can reconstruct balance and held exposure; the account row can therefore be treated as a materialized operational projection.
-9. `CDR` is unnecessary terminology. `TurnUsageRecord` / `LegUsageRecord` better describes the domain.
+The target is therefore not a telecom CDR subsystem copied literally. Telecom CDR processing is a useful analogy for post-completion rating, but Go-LIP terminology and identities should reflect its B2BUA/LLM domain.
 
-## External Accounting Patterns
+## Current Repository Assets
 
-### Double-entry transactions
+### B2BUA lineage already expresses the correct economic topology
 
-Modern Treasury's ledger documentation describes a ledger transaction as two or more entries with debit/credit direction and requires equal total debits and credits. That maps directly to the proposed `journal_transactions` + `journal_entries` model.
+`pkg/lipapi` lineage already distinguishes `ALegID`, `BLegID`, attempt sequence, backend, effective model, timestamps, and attempt outcome. One user-facing A-leg can have multiple B-legs through failover or parallel routing.
 
-References:
+Implication:
 
-- https://docs.moderntreasury.com/ledgers/docs/guide-to-debits-and-credits
-- https://docs.moderntreasury.com/ledgers/docs/ledger-transactions-overview
-- https://docs.moderntreasury.com/ledgers/docs/guide-to-ledger-objects
+- one **Turn Usage Record (TUR)** should correspond to the A-leg/customer settlement boundary;
+- one **Leg Usage Record (LUR)** should correspond to each B-leg/provider-cost boundary;
+- session is an aggregation dimension, not a financial mutation boundary.
 
-Design consequence:
+### Provider evidence already belongs at adapters/connectors
+
+Backend adapters and executable connectors already have accounting-evidence/finalization concepts. Providers may emit repeated/cumulative usage while streaming, but the adapter can resolve this into one final normalized B-leg evidence object at termination.
+
+This is preferable to letting runtime reconstruct provider economics from canonical stream events.
+
+### Existing reservation machinery proves the required concurrency pattern
+
+Current usage-authority stores already demonstrate the important atomic idea: account capacity can track both consumed and reserved exposure, and reserve operations can be performed transactionally.
+
+The new architecture should keep the atomic-reservation property while removing generalized stream/fact/exposure settlement semantics from money billing.
+
+### Bun DB infrastructure is already present
+
+`internal/infra/db` provides Bun wrapping for SQLite/PostgreSQL plus PostgreSQL open/pool helpers. Several durable stores already use repository migration/test patterns.
+
+There is no reason to introduce another ORM, ledger database product, or persistence abstraction for billing.
+
+## Chosen Terminology
+
+Use domain-neutral names:
+
+- **Turn Usage Record (TUR):** immutable evidence for one completed A-leg/logical turn.
+- **Leg Usage Record (LUR):** immutable evidence for one B-leg/provider attempt within the TUR.
+- **Authorization Hold:** pessimistic exposure reserved before upstream work.
+- **Billing Result:** deterministic post-turn customer/operator economic result.
+- **Journal Transaction / Journal Entry:** immutable balanced financial/authorization postings.
+
+The term **CDR** may appear only when explaining the historical telecom inspiration.
+
+## Runtime Simplification
+
+The live path should have exactly two billing touch points:
 
 ```text
-journal transaction
-  -> debit entry(ies)
-  -> credit entry(ies)
+before upstream:
+route plan -> MaxCustomerCharge -> atomic authorization
 
-require Σ debit == Σ credit
+after terminal:
+seal TUR/LUR evidence -> durable handoff
 ```
 
-A transaction may have more than two entries. This matters when one customer charge should be allocated to several B-leg/model revenue components while changing the customer balance once.
+Everything else is post-turn. Runtime does not need to:
 
-### Immutable corrections
+- enrich usage events with prices;
+- maintain customer/operator monetary totals;
+- deduplicate economic stream samples;
+- reconstruct usage for settlement;
+- post journals;
+- settle balances;
+- interpret correction/replacement semantics.
 
-Modern Treasury documents immutable posted/archived ledger transactions; corrections are naturally modeled as new transactions rather than destructive changes.
+This is the central simplification and must remain true even as the durable financial layer becomes rigorous.
 
-Reference:
+## Pessimistic Authorization and Concurrent Credit Safety
 
-- https://docs.moderntreasury.com/ledgers/docs/transaction-status-and-balances
+### Account convention
 
-Design consequence:
-
-- never edit posted journal entries;
-- reverse an incorrect transaction;
-- post a corrected replacement;
-- retain linkage.
-
-### Available balance and pending/held exposure
-
-Modern Treasury distinguishes posted, pending, and available balances and supports balance/version locking to prevent double-spend races.
-
-References:
-
-- https://docs.moderntreasury.com/ledgers/docs/ledger-accounts-overview
-- https://docs.moderntreasury.com/ledgers/docs/lock-on-account-balance-or-version
-- https://docs.moderntreasury.com/ledgers/docs/ledgers-guarantees
-
-Design consequence:
-
-Go-LIP can keep the operational concept of an authorization hold while protecting it with database locking/version semantics. We do not need to copy Modern Treasury's exact API/status model; the important properties are atomicity, balanced journal evidence, and safe available-balance computation.
-
-### Immutable credit ledgers
-
-Stripe documents usage-based billing credits as backed by an immutable append-only ledger, and Stripe's revenue-recognition system uses a double-entry ledger for debits/credits.
-
-References:
-
-- https://docs.stripe.com/billing/subscriptions/usage-based/billing-credits
-- https://stripe.com/blog/introducing-credits-for-usage-based-billing
-- https://docs.stripe.com/revenue-recognition/methodology
-
-Design consequence:
-
-Customer credit changes should have durable transaction-level evidence rather than relying only on a mutable balance column.
-
-### Balance-change reconciliation
-
-Adyen's balance-platform accounting reports track balance-changing financial activities and are intended to support balance calculation/reconciliation.
-
-References:
-
-- https://docs.adyen.com/platforms/quickstart-guide/reporting/
-- https://docs.adyen.com/marketplaces/reports-and-fees/balance-platform-accounting-report
-
-Design consequence:
-
-The ability to recompute balances from transaction history is an expected property of serious monetary systems and should be an explicit Go-LIP test/operational capability.
-
-## Repository Assets
-
-### Existing Bun abstraction
-
-`internal/infra/db/bun.go` already exposes `NewBunDB(*sql.DB, Dialect)` for:
-
-- SQLite (`sqlitedialect`);
-- PostgreSQL (`pgdialect`).
-
-`internal/infra/db/open.go` already owns PostgreSQL opening, pool application, Bun wrapping, and secret-safe failures.
-
-Therefore the billing design should consume the existing DB infrastructure rather than create a billing-specific connection abstraction.
-
-### Existing migration/store patterns
-
-The repository already contains Bun-backed/durable patterns in:
-
-- `internal/core/continuity/bunstore/`;
-- `internal/core/securesession/adapters/bunstore/`;
-- `internal/infra/metering/journalstore/`;
-- `internal/infra/terminalwork/workstore/`;
-- `internal/infra/dbmigrate/`;
-- PostgreSQL test harness under `internal/testkit/`.
-
-The archived `bun-database-abstraction` spec explicitly states that Bun/SQL handles belong inside concrete store adapters and should not cross core ports. The billing store should follow the same rule.
-
-### Existing B2BUA lineage
-
-`pkg/lipapi/lineage.go` contains:
-
-```go
-type AttemptRecord struct {
-    BLegID         string
-    ALegID         string
-    Seq            int
-    BackendID      string
-    EffectiveModel string
-    StartedAt      time.Time
-    FinishedAt     time.Time
-    Outcome        AttemptOutcome
-    Reason         string
-}
-```
-
-This is almost exactly the lineage needed by billing. Financial data must not be added to `lipapi.AttemptRecord`; instead the internal `LegUsageRecord` can correlate with these IDs.
-
-### Existing reserve semantics
-
-`internal/infra/usageauthority/authoritystore/store_reserve.go` already demonstrates:
-
-- atomic clone/apply store mutation;
-- `remaining = limit - consumed - reserved`;
-- deterministic reservation identity;
-- idempotent replay by source key;
-- capacity denial before mutation.
-
-These concepts are reusable, but the financial target should be simplified around billing accounts/holds/journal rather than preserve generalized rule descriptors and streaming settlement inputs.
-
-### Existing settlement semantics
-
-`authoritystore/store_settle.go` demonstrates atomic reserve-to-consumed conversion and idempotent source-key handling. The financial design can reuse checked transactional ideas while replacing the semantic input with a deterministic post-turn Billing Result.
-
-## Why the Initial CDR Draft Was Still Incomplete
-
-### Gap A: materialized balance was too authoritative
-
-The initial draft treated `balance + reserved` storage as the main monetary truth. That is adequate for simple quota enforcement but weak for a serious billing system.
-
-Required correction:
-
-- durable journal transactions/entries;
-- immutable financial history;
-- account row becomes materialized state;
-- journal replay can rebuild state.
-
-### Gap B: no classical debit/credit invariant
-
-Without a balanced transaction invariant, a single bug can write one side of a financial operation without a mathematically obvious inconsistency.
-
-Required correction:
+Use one signed customer balance convention:
 
 ```text
-for every journal transaction:
-    sum(debits) == sum(credits)
+Balance = customer financial credits - customer financial debits
+CreditFloor = 0                      for prepaid
+CreditFloor = -CreditLimit           for postpaid
+Spendable = Balance - CreditFloor - Reserved
 ```
 
-### Gap C: reservations were not represented in a ledger
-
-A hold changes available credit and is financially important for debugging concurrent prepaid/postpaid behavior.
-
-However, recognizing it as revenue would be wrong.
-
-Required correction:
-
-- balanced authorization book;
-- reserved-exposure debit;
-- authorization-contra credit;
-- reverse when hold closes;
-- financial balance unchanged.
-
-### Gap D: prepaid/postpaid semantics were underspecified
-
-The initial draft loosely referred to "prepaid balance or credit".
-
-Required correction:
+Prepaid example:
 
 ```text
-prepaid:
-    floor = 0
-
-postpaid:
-    floor = -CreditLimit
-
-Spendable = Balance - floor - Reserved
+funded 250 -> Balance +250
+usage 40   -> Balance +210
+floor       -> 0
 ```
 
-This exactly supports the requested examples.
-
-### Gap E: B2BUA cost attribution needed to be first-class
-
-A single user A-leg may cause:
-
-- failed provider B-leg;
-- retry B-leg on another backend/model;
-- parallel B-legs;
-- winning surfaced B-leg.
-
-All can create operator cost even when the customer is charged once.
-
-Required correction:
-
-- TUR = A-leg scope;
-- LUR = B-leg scope;
-- operator cost per B-leg;
-- customer policy separately decides which legs/components are revenue;
-- journal entries retain A-leg/B-leg/model/rate references.
-
-### Gap F: transparency snapshots were missing
-
-Journal replay is correct but can be cumbersome during incident debugging.
-
-Required correction:
-
-Every user-affecting operation records:
-
-- balance before/after;
-- reserved before/after;
-- available before/after;
-- mode, floor/limit, currency;
-- state version before/after.
-
-These snapshots are redundant evidence, not a second source of truth.
-
-## Terminology Review
-
-### Rejected: CDR
-
-Pros:
-
-- immediately evokes post-event rating;
-- familiar from telecom.
-
-Cons:
-
-- telecom-specific;
-- "call" is not the Go-LIP business object;
-- risks cargo-culting PBX vocabulary into LLM code.
-
-### Considered: Billing Record
-
-Problem: implies already-rated/financial output, while this record is evidence input to rating.
-
-### Considered: Usage Detail Record
-
-Reasonable, but "detail" adds little and the acronym UDR is not meaningful inside the project.
-
-### Selected: Turn Usage Record / Leg Usage Record
-
-Why:
-
-- describes exactly what is stored;
-- maps A-leg turn and B-leg attempts;
-- does not imply financial posting;
-- intuitive in code and docs;
-- supports future non-telecom consumers.
-
-## Accounting Model
-
-### Signed customer balance
-
-Use:
+Postpaid example:
 
 ```text
-Balance = credits - debits on customer's financial ledger account
+credit limit 100
+start Balance 0
+usage 40 -> Balance -40
+floor    -> -100
 ```
 
-This produces both desired user-facing models.
+### Correct admission invariant
 
-#### Prepaid
-
-Top-up 250:
+A non-negative current spendable value is not enough. The requested authorization must fit:
 
 ```text
-Dr Cash/Clearing             250
-Cr Customer Prepaid Account  250
-
-signed balance = +250
+require SpendableBefore >= MaxCustomerCharge
+SpendableAfter = SpendableBefore - MaxCustomerCharge
+require SpendableAfter >= 0
 ```
 
-Usage charge 40:
+Every concurrently admitted A-leg holds its own pessimistic maximum. The store atomically serializes/version-checks same-account authorization, so aggregate concurrent exposure cannot exceed prepaid funds or the postpaid line across multiple Go-LIP processes.
+
+This is simpler and stronger than dynamically changing a user to concurrency=1 at low balance.
+
+## Why Double-Entry, and What It Means Here
+
+Classical double-entry does **not** require two independently synchronized databases. The safer implementation is one journal transaction containing two or more postings that must balance exactly:
 
 ```text
-Dr Customer Prepaid Account   40
-Cr Usage Revenue              40
-
-signed balance = +210
+sum(debits) == sum(credits)
 ```
 
-#### Postpaid
+Two books use the same engine:
 
-Usage charge 40:
+### Financial book
+
+Customer usage:
 
 ```text
-Dr Customer A/R               40
-Cr Usage Revenue              40
-
-signed balance = -40
+Dr Customer Financial Account
+Cr Usage Revenue
 ```
 
-Payment 40:
+Funding/payment:
 
 ```text
-Dr Cash/Clearing              40
-Cr Customer A/R               40
-
-signed balance = 0
+Dr Cash / Payment Clearing
+Cr Customer Financial Account
 ```
 
-The posting direction can therefore be uniform even though the account classifications differ.
-
-### Provider cost
-
-For each billable B-leg:
+Provider-billable B-leg:
 
 ```text
 Dr Inference COGS
-Cr Provider Payable/Clearing
+Cr Provider Payable / Clearing
 ```
 
-This is separate from customer revenue and enables direct gross-margin reconciliation.
+### Authorization book
 
-## Authorization Book
-
-Recommended posting for hold 50:
+Hold:
 
 ```text
-Dr Customer Reserved Exposure 50
-Cr Authorization Contra       50
+Dr Customer Reserved Exposure
+Cr Authorization Contra
 ```
 
-Closure:
+Release/close reverses the authorization postings.
+
+This keeps pending exposure auditable without recognizing revenue before usage occurs.
+
+## Materialized State vs Journal Truth
+
+Fast authorization needs a materialized account row containing at least balance, reserved exposure, version, and safety status. That row is not unrecoverable monetary truth.
+
+Verified journal replay plus durable account policy must reconstruct:
 
 ```text
-Dr Authorization Contra       50
-Cr Customer Reserved Exposure 50
+Balance = financial customer credits - debits
+Reserved = authorization reserved-exposure debits - credits
+Spendable = Balance - CreditFloor - Reserved
 ```
 
-Advantages:
+Point-in-time before/after balance/reserved/spendable snapshots are intentionally redundant. They improve incident diagnosis and identify the first inconsistent operation, but rebuild does not trust them as financial source input.
 
-- every hold/release is balanced;
-- active reserved exposure can be replayed;
-- no fake revenue;
-- financial and authorization trial balances are separately testable.
+## Durable Financial Identity
 
-## Recovery Model
+### Why request/attempt labels are insufficient
 
-Authoritative/reconstructible state:
+A financial idempotency key must encode the business operation, not merely whichever runtime label happened to be available.
+
+Chosen durable keys:
 
 ```text
-Balance =
-    customer financial credits - customer financial debits
-
-Reserved =
-    reserved exposure debits - reserved exposure credits
-
-Available =
-    Balance - CreditFloor - Reserved
+TURKey = BillingAccountID + stable Turn/ALeg identity
+LURKey = TURKey + BLegID
+CustomerSettlementSourceKey = customer-settlement:v1 + TURKey
+ProviderCostSourceKey = provider-cost:v1 + LURKey
 ```
 
-Materialized account state exists for performance/atomic admission only.
+If one B-leg legitimately creates multiple independent provider charges, a closed typed cost-source discriminator can extend the provider source key.
 
-Required recovery tooling:
+### Semantic fingerprint
 
-1. replay one account;
-2. validate every journal transaction;
-3. validate stored pre/post snapshots;
-4. compare replay result to materialized account row;
-5. optionally rebuild materialized row under exclusive lock;
-6. never modify posted journal entries.
-
-## Simplicity Check
-
-The revised design remains intentionally small. It adds financial rigor through a few durable concepts:
-
-- Billing Account;
-- Authorization Hold;
-- Turn Usage Record;
-- Leg Usage Record;
-- Journal Transaction;
-- Journal Entry;
-- Billing Result.
-
-It does **not** add:
-
-- Kafka;
-- generic event sourcing;
-- generic ledger scripting;
-- arbitrary chart-of-account configuration;
-- a DI container;
-- a workflow engine;
-- stream-time financial callbacks.
-
-The complexity increase is in durable accounting correctness, not runtime orchestration.
-
-## Research Conclusion
-
-The new target should be understood as:
+Uniqueness of a key alone cannot distinguish a legitimate retry from a changed payload. TUR/LUR records and journal transactions therefore persist a versioned canonical semantic fingerprint over fixed immutable business fields.
 
 ```text
-execution produces usage records
-billing rates usage records
-accounting posts balanced journal transactions
-journal reconstructs monetary state
+same key + same fingerprint      -> idempotent replay
+same key + different fingerprint -> integrity failure
 ```
 
-This is simpler than the current runtime instrumentation while materially stronger than the initial CDR draft as a financial system.
+The fingerprint excludes mutable processing state, insertion timestamps, leases, and DB metadata.
+
+## Deterministic Replay Ordering
+
+Wall-clock timestamps are audit metadata, not a safe total order. Equal timestamps, clock skew, or DB query ordering can make first-mismatch diagnostics nondeterministic.
+
+Every account-correlated journal transaction therefore receives an atomically allocated monotonic `AccountSequence`. Reconciliation/rebuild orders by that sequence. `(account_id, account_sequence)` is unique.
+
+A settlement that produces several account-correlated transactions obtains a deterministic contiguous sequence range under the same account transaction.
+
+## Corrections
+
+Posted entries are immutable. Corrections use explicit reversal/replacement linkage:
+
+```text
+original T1
+reversal T2: ReversalOf = T1
+replacement T3: CorrectsTransactionID = T1
+T2/T3: CorrectionGroupID = same correction group
+```
+
+References must exist, be in the valid account/book/currency scope, not self-reference, and form an auditable chain if corrected again later.
+
+## Exact Economic Snapshot Binding
+
+Authorization and final rating must use the same economic version identities, not merely numerically similar rates.
+
+Before calculation:
+
+- customer pricing snapshot ref must equal the ref bound in both TUR and authorization;
+- customer charging-policy ref must equal TUR and authorization;
+- each LUR that needs fallback operator rating must resolve the exact operator-rate ref sealed in that LUR.
+
+A different snapshot identity is rejected even when its prices happen to be numerically equal. This prevents mutable-current-price drift and makes replay reproducible.
+
+## B2BUA Economics
+
+Customer and operator accounting have different granularities:
+
+```text
+A-leg/TUR:
+  customer settlement / revenue
+
+B-leg/LUR:
+  provider cost / COGS
+```
+
+Example:
+
+```text
+A-leg A1
+  B1 Model X / Provider P -> failed, provider cost 0.02
+  B2 Model Y / Provider Q -> succeeded, provider cost 0.07
+```
+
+Both B1 and B2 may create COGS. Customer policy may still charge only the surfaced logical result. Therefore operator cost cannot be inferred from customer revenue and failed legs must not disappear.
+
+## Unrateable Provider Cost
+
+For every provider-billable LUR:
+
+1. use authoritative provider cost when present, including explicit zero;
+2. otherwise rate sufficient final resource quantities using the exact bound operator-rate snapshot;
+3. otherwise mark processing `unreconciled_cost`.
+
+The system must not silently omit COGS, synthesize zero, or mark the TUR fully processed when a required provider cost cannot be reconciled.
+
+## Immutable Evidence vs Processing Workflow
+
+TUR/LUR rows are sealed evidence. Worker state must be separate:
+
+```text
+usage_record_processing
+  pending
+  processing
+  retryable
+  processed
+  unreconciled_cost
+  terminal_error
+```
+
+This preserves evidence immutability while allowing leases/retries/status transitions.
+
+A generic workflow/event engine is unnecessary; a bounded durable processing table and in-process worker/terminal-work mechanism are sufficient.
+
+## Safety State: reconcile_required
+
+A financial system should not continue hard credit admission after it has evidence that account state cannot be trusted.
+
+Journal-balance failure, conflicting replay fingerprint, invalid correction linkage, impossible snapshots, sequence/reconstruction failure, or materialized-state mismatch transitions the affected account to:
+
+```text
+reconcile_required
+```
+
+While blocked:
+
+- new hard prepaid/postpaid authorizations fail closed before upstream work;
+- read/reconciliation/repair remains available;
+- the system does not guess a balance.
+
+Only an explicit audited successful reconciliation/rebuild can restore `ready`.
+
+## Trusted Monetary Operations
+
+The billing store needs explicit business operations beyond usage settlement:
+
+- funding/top-up;
+- postpaid payment;
+- controlled adjustment;
+- authorization release;
+- correction reversal/replacement.
+
+These are narrow trusted commands with typed reasons, idempotency identity, fingerprints, balanced postings, and before/after snapshots. There should be no generic arbitrary-posting API exposed to runtime or plugins.
+
+## Rejected Alternatives
+
+### Stream-time accounting
+
+Rejected because evidence arrival timing does not require financial interpretation timing. It couples finance to retry/stream/cancellation and creates multiple mutable truth paths.
+
+### Low-balance concurrency=1 as primary safety mechanism
+
+Rejected because atomic holds already solve the exact shared-balance race without an extra concurrency state machine.
+
+### Two separately synchronized debit/credit ledgers
+
+Rejected because one balanced transaction with multiple postings is simpler and atomic.
+
+### Treating holds as financial revenue
+
+Rejected because authorization exposure is not earned money. Keep it in a separate authorization book.
+
+### Generic event sourcing / Kafka / CQRS / workflow framework
+
+Rejected as unnecessary for a bounded post-turn billing worker and durable journal.
+
+### Session-wide billing accumulator
+
+Rejected because session is not the transaction boundary. One session may contain many A-legs, each with many B-legs.
+
+### Generic chart-of-accounts/ERP framework
+
+Rejected. Implement the small closed set of ledger accounts/commands needed by Go-LIP and extend only when a concrete feature requires it.
+
+## Migration Consequences
+
+The safe migration sequence is:
+
+1. characterize current financial/wire/B2BUA behavior;
+2. shadow immutable TUR/LUR evidence;
+3. implement Bun journal/account store and contract tests;
+4. add pessimistic authorization and concurrency proofs;
+5. shadow exact-snapshot post-turn rating;
+6. cut customer settlement/provider COGS to journal path;
+7. cut reports and certify rebuild/reconciliation;
+8. delete stream-time financial accounting and add architecture ratchets.
+
+The target intentionally leaves non-money request/token/rate-limit policy outside the billing rewrite unless separately migrated.
+
+## External Review Result
+
+CodeRabbit's ten actionable findings were all valid and improved the design. They are now explicitly represented in requirements/design/tasks: durable TUR/LUR financial identity, requested-amount admission invariant, correction linkage, AccountSequence, exact snapshot identity, separate processing state, semantic replay fingerprints, complete trusted store commands, `unreconciled_cost`, and `reconcile_required` block/re-enable behavior.
