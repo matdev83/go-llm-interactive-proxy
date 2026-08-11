@@ -105,8 +105,10 @@ func EncodeRequest(call lipapi.Call) ([]byte, error) {
 			return nil, fmt.Errorf("%w: marshal text: %v", ErrEncodeFailed, err)
 		}
 	}
-	if call.PromptCacheKey != "" {
-		v := call.PromptCacheKey
+	if value, err := call.PromptCacheKeyValue(); err != nil {
+		return nil, fmt.Errorf("%w: prompt cache key: %v", ErrEncodeFailed, err)
+	} else if value != "" {
+		v := value
 		param.PromptCacheKey = &v
 	}
 

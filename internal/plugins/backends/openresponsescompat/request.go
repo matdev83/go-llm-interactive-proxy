@@ -323,8 +323,10 @@ func buildCreateRequestBody(id string, spec BackendSpec, call lipapi.Call, cand 
 		Reasoning:         reasoning,
 		Stream:            stream,
 	}
-	if strings.TrimSpace(call.PromptCacheKey) != "" {
-		v := strings.TrimSpace(call.PromptCacheKey)
+	if value, err := call.PromptCacheKeyValue(); err != nil {
+		return nil, fmt.Errorf("%s: %w: prompt cache key: %v", id, ErrUnrepresentable, err)
+	} else if value != "" {
+		v := value
 		req.PromptCacheKey = &v
 	}
 	if len(call.Tools) > 0 {
