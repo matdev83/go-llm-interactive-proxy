@@ -194,7 +194,6 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		accountingRT.UsageAuthorityCleanupTimeout = cleanupTimeout
 	}
 	attachConcurrencyToAccounting(&accountingRT, in.Concurrency)
-	accountingRT.BillingAdmission = prod.BillingAdmission
 	if err := attachCompatibleAdmission(&prod, cfg); err != nil {
 		return nil, err
 	}
@@ -276,7 +275,11 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 			Rand:                 routing.NewSeededRng(seed),
 			Now:                  in.NowFn,
 			MaxPendingWireEvents: cfg.Server.EffectiveMaxPendingWireEvents(),
-			StreamRecovery:       streamRecovery, BillingShadowObserver: billingShadowObserverFor(log),
+			StreamRecovery:       streamRecovery,
+		},
+		Billing: runtime.BillingRuntime{
+			BillingAdmission:       prod.BillingAdmission,
+			BillingLegObserver:     billingLegObserverFor(log),
 			BillingTerminalHandoff: prod.BillingTerminalHandoff,
 			BillingHoldReleaser:    holdReleaser,
 			BillingIdentity:        prod.BillingIdentity,

@@ -42,10 +42,6 @@ type BillingAdmissionCleanup interface {
 	ReleaseUnused(context.Context, BillingAdmissionInput) error
 }
 
-// BillingAuthorizer is a compatibility alias for callers that prefer the
-// authorizer terminology used by the billing domain.
-type BillingAuthorizer = BillingAdmission
-
 func (e *Executor) authorizeBillingOnce(ctx context.Context, prep *preparedRequest, plan *routePlanState) error {
 	if e == nil {
 		return nil
@@ -61,10 +57,7 @@ func (e *Executor) authorizeBillingOnce(ctx context.Context, prep *preparedReque
 	if prep == nil || plan == nil {
 		return fmt.Errorf("%w: missing prepared route plan", ErrBillingAdmissionDenied)
 	}
-	hold, err := e.BillingAdmission.Authorize(ctx, BillingAdmissionInput{
-		Call: lipapi.CloneCall(prep.baseline), TraceID: prep.traceID, ALegID: prep.aLeg.ALegID,
-		Route: plan.sel, RequestSize: plan.requestSize,
-	})
+	hold, err := e.BillingAdmission.Authorize(ctx, e.billingAdmissionInput(prep, plan))
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrBillingAdmissionDenied, err)
 	}
@@ -80,6 +73,8 @@ func (e *Executor) stampBillingIdentity(ctx context.Context, prep *preparedReque
 	authID := strings.TrimSpace(hold.ID)
 	customerPricing := hold.PricingRef
 	chargePolicy := hold.ChargePolicyRef
+	// Identity resolvers run only here, once, after successful Authorize.
+	// Terminal handoff and abort cleanup read the stamp and never re-resolve.
 	if accountID == "" && e.BillingIdentity.AccountID != nil {
 		accountID = strings.TrimSpace(e.BillingIdentity.AccountID(ctx, prep.baseline))
 	}
@@ -92,13 +87,13 @@ func (e *Executor) stampBillingIdentity(ctx context.Context, prep *preparedReque
 	if chargePolicy == (billing.VersionRef{}) && e.BillingIdentity.ChargePolicyRef != nil {
 		chargePolicy = e.BillingIdentity.ChargePolicyRef(ctx, prep.baseline)
 	}
-	prep.billingCustomerPricing = customerPricing
-	prep.billingChargePolicy = chargePolicy
 	if accountID == "" || authID == "" {
 		return
 	}
 	prep.billingAccountID = accountID
 	prep.billingAuthorizationID = authID
+	prep.billingCustomerPricing = customerPricing
+	prep.billingChargePolicy = chargePolicy
 	prep.billingIdentityStamped = true
 }
 
@@ -141,34 +136,17 @@ func (e *Executor) releaseOrHandoffAfterAdmissionAbort(ctx context.Context, prep
 	}
 }
 
-func (e *Executor) scheduleAbortBillingHandoff(ctx context.Context, prep *preparedRequest, aLegID string) {
-	if e.BillingTerminalHandoff == nil || prep == nil {
+func (e *Executor) scheduleAbortBillingHandoff(_ context.Context, prep *preparedRequest, aLegID string) {
+	if e.BillingTerminalHandoff == nil || prep == nil || !prep.billingIdentityStamped {
 		return
 	}
-	accountID, authID := "", ""
-	customerPricing, chargePolicy := billing.VersionRef{}, billing.VersionRef{}
-	if prep.billingIdentityStamped {
-		accountID = strings.TrimSpace(prep.billingAccountID)
-		authID = strings.TrimSpace(prep.billingAuthorizationID)
-		customerPricing = prep.billingCustomerPricing
-		chargePolicy = prep.billingChargePolicy
-	} else {
-		if e.BillingIdentity.AccountID != nil {
-			accountID = strings.TrimSpace(e.BillingIdentity.AccountID(ctx, prep.baseline))
-		}
-		if e.BillingIdentity.AuthorizationID != nil {
-			authID = strings.TrimSpace(e.BillingIdentity.AuthorizationID(ctx, prep.baseline, aLegID))
-		}
-		if e.BillingIdentity.CustomerPricingRef != nil {
-			customerPricing = e.BillingIdentity.CustomerPricingRef(ctx, prep.baseline)
-		}
-		if e.BillingIdentity.ChargePolicyRef != nil {
-			chargePolicy = e.BillingIdentity.ChargePolicyRef(ctx, prep.baseline)
-		}
-	}
+	accountID := strings.TrimSpace(prep.billingAccountID)
+	authID := strings.TrimSpace(prep.billingAuthorizationID)
 	if accountID == "" || authID == "" {
 		return
 	}
+	customerPricing := prep.billingCustomerPricing
+	chargePolicy := prep.billingChargePolicy
 	job := billingHandoffRetryJob{
 		command:         sdkterminal.CommandPartialError,
 		accountID:       accountID,

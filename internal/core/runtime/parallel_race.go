@@ -77,7 +77,7 @@ func (e *Executor) releaseLosers(ctx context.Context, aScope *leglifecycle.ALeg,
 			usage = emptyOperatorUsageShell()
 		}
 		committed := leg.authority.outputCommitted != nil && leg.authority.outputCommitted.Load()
-		e.recordParallelBillingShadow(ctx, leg, usage, sdkterminal.CommandParallelLoser, committed)
+		e.recordParallelBillingLeg(ctx, leg, usage, sdkterminal.CommandParallelLoser, committed)
 		_ = terminalizeAttemptEphemeral(ctx, sdkterminal.CommandParallelLoser, committed, func(cctx context.Context) error {
 			leg.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindLosing, usage)
 			// Backend-egress for parallel losers when an ingress freeze exists (req 2.3 / 5.3).
@@ -414,7 +414,7 @@ func (e *Executor) tryOpenParallelGroup(
 					usage = emptyOperatorUsageShell()
 				}
 				committed := legs[i].authority.outputCommitted != nil && legs[i].authority.outputCommitted.Load()
-				e.recordParallelBillingShadow(cleanupCtx, &legs[i], usage, sdkterminal.CommandParallelLoser, committed)
+				e.recordParallelBillingLeg(cleanupCtx, &legs[i], usage, sdkterminal.CommandParallelLoser, committed)
 				_ = terminalizeAttemptEphemeral(cleanupCtx, sdkterminal.CommandParallelLoser, committed, func(cctx context.Context) error {
 					legs[i].authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindLosing, usage)
 					return nil

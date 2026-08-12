@@ -282,7 +282,7 @@ func (s *retryRecvStream) runStreamTerminal(
 		} else {
 			err = runEffects(cctx, out)
 		}
-		s.observeBillingShadow(cctx, cmd)
+		s.recordBillingLeg(cctx, cmd)
 		s.handoffBillingTurn(cctx, cmd)
 		return err
 	})
@@ -305,7 +305,7 @@ func (s *retryRecvStream) runAttemptTerminal(
 		if effects != nil {
 			err = effects(cctx)
 		}
-		s.observeBillingShadow(cctx, cmd)
+		s.recordBillingLeg(cctx, cmd)
 		return err
 	})
 }

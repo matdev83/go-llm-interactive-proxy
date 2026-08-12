@@ -90,7 +90,9 @@ func TestPhase7_DeterministicShadowRatingAcceptanceGate(t *testing.T) {
 			t.Parallel()
 			// Provider-cost legs that require rate fallback are characterized through
 			// the real legacy EstimateCost path, not RateTurn's fallback helper.
-			comparison, err := CompareShadowRating(tc.input, tc.expected)
+			comparison, err := CompareShadowRatingAgainst(tc.input, func(RatingInput) (ShadowExpectation, error) {
+				return tc.expected, nil
+			})
 			if err != nil {
 				t.Fatal(err)
 			}

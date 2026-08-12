@@ -172,12 +172,10 @@ type retryRecvStream struct {
 	// eventsMu guards seenEvents / visibleText against Close concurrent with Recv.
 	eventsMu sync.Mutex
 	usageMu  sync.Mutex
-	// billingShadowSeen / Inflight guard one terminal B-leg evidence handoff per
-	// sequential attempt. Inflight is held across FinalizeBilling so concurrent
-	// observes cannot double-seal the same B-leg with weaker evidence.
-	billingShadowMu       sync.Mutex
-	billingShadowSeen     map[string]struct{}
-	billingShadowInflight map[string]struct{}
+	// billingLegRecorded guards one LUR per B-leg on this stream. Request and
+	// attempt terminal hooks may both run; mergeBillingEvidence also dedupes.
+	billingLegMu          sync.Mutex
+	billingLegRecorded    map[string]struct{}
 	billingHandoffMu      sync.Mutex
 	billingHandoffSuccess bool
 	// billingAccountID / billingAuthorizationID are copied from preparedRequest

@@ -55,10 +55,21 @@ type CoreRuntime struct {
 	Now                  func() time.Time
 	MaxPendingWireEvents int
 	StreamRecovery       streamrecovery.Config
-	// BillingShadowObserver receives one recorded LUR at terminal ownership.
+}
+
+// BillingRuntime is the only executor grouping for monetary admission, TUR
+// handoff, unused-hold release, and observational LUR listeners. Token quota
+// and usage-authority stay on AccountingRuntime.
+type BillingRuntime struct {
+	// BillingAdmission runs after side-effect-free route planning and before
+	// provider/connector work. It may compute a max customer charge and
+	// atomically create a durable authorization hold. Streaming and post-turn
+	// handlers never call it.
+	BillingAdmission BillingAdmission
+	// BillingLegObserver receives one recorded LUR at terminal ownership.
 	// It is observational only and never participates in authorization,
 	// settlement, retry, cancellation, or client-visible output.
-	BillingShadowObserver BillingShadowObserver
+	BillingLegObserver BillingLegObserver
 	// BillingTerminalHandoff appends one sealed TUR after request terminal
 	// ownership. It is never called during stream processing and its failure
 	// cannot change selected output.
@@ -68,7 +79,8 @@ type CoreRuntime struct {
 	// for admission; runtime never duck-types this port.
 	BillingHoldReleaser billing.HoldReleaser
 	// BillingIdentity is the single composition identity bundle for admission
-	// and terminal TUR seal. Resolvers must not drift between those seams.
+	// stamping. Terminal TUR seal reads the stamped values and does not
+	// re-resolve these functions.
 	BillingIdentity BillingIdentity
 	// BillingAuthoritative is the composition cutover flag. When true, Bun TUR
 	// handoff, post-turn settlement, and journal-backed reports are the sole
@@ -134,11 +146,6 @@ type AccountingRuntime struct {
 	// SnapshotGeneration is the atomic policy/rating generation publisher (Phase 9.3).
 	// Admit binds Current() usage/concurrency/rating refs when present.
 	SnapshotGeneration *snapshotgen.Publisher
-	// BillingAdmission is the single monetary admission seam: it runs after
-	// side-effect-free route planning and before provider/connector work. It may
-	// compute MaxCustomerCharge and atomically create a durable authorization hold,
-	// but it is never called from streaming or post-turn handlers.
-	BillingAdmission BillingAdmission
 	// TerminalWork accepts durable settle/release intents on post-output failures
 	// (Phase 4.5; requirements 7.7, 8.3; design D9).
 	TerminalWork *terminalworkapp.IntentService
@@ -186,6 +193,7 @@ type InterleavedRuntime struct {
 // composition root and in tests. Use [NewExecutor] to obtain a runnable executor.
 type ExecutorConfig struct {
 	Core          CoreRuntime
+	Billing       BillingRuntime
 	Routing       RoutingRuntime
 	Security      SecurityRuntime
 	Accounting    AccountingRuntime
@@ -198,6 +206,7 @@ type ExecutorConfig struct {
 func NewExecutor(cfg ExecutorConfig) *Executor {
 	return &Executor{
 		CoreRuntime:          cfg.Core,
+		BillingRuntime:       cfg.Billing,
 		RoutingRuntime:       cfg.Routing,
 		SecurityRuntime:      cfg.Security,
 		AccountingRuntime:    cfg.Accounting,

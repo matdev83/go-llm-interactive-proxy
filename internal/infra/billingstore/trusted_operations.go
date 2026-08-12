@@ -21,7 +21,7 @@ func (s *DurableStore) PostFunding(ctx context.Context, input billing.FundingInp
 	if err := input.Validate(); err != nil {
 		return billing.Posting{}, err
 	}
-	fp, err := inputFingerprintFunding(input, "funding")
+	fp, err := input.Fingerprint()
 	if err != nil {
 		return billing.Posting{}, err
 	}
@@ -58,10 +58,6 @@ func (s *DurableStore) PostAdjustment(ctx context.Context, input billing.Adjustm
 	return s.postFinancialCommand(ctx, "adjustment", input.AccountID, input.SourceKey, fp, input.Amount, delta, func() (billing.JournalTransaction, error) {
 		return billing.AdjustmentJournalIntent(input)
 	})
-}
-
-func inputFingerprintFunding(input billing.FundingInput, kind string) (string, error) {
-	return input.Fingerprint()
 }
 
 func (s *DurableStore) postFinancialCommand(ctx context.Context, kind, accountID, sourceKey, fingerprint string, amount billing.Money, balanceDelta int64, intent func() (billing.JournalTransaction, error)) (billing.Posting, error) {

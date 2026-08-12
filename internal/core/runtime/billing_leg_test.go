@@ -16,11 +16,11 @@ import (
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
-func TestBillingShadowHandoffIsTerminalOnlyAndIdempotent(t *testing.T) {
+func TestBillingLegHandoffIsTerminalOnlyAndIdempotent(t *testing.T) {
 	var mu sync.Mutex
 	var records []billing.LegUsageRecord
-	executor := &Executor{CoreRuntime: CoreRuntime{
-		BillingShadowObserver: BillingShadowObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+	executor := &Executor{BillingRuntime: BillingRuntime{
+		BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
 			mu.Lock()
 			records = append(records, record)
 			mu.Unlock()
@@ -79,9 +79,9 @@ func TestBillingShadowHandoffIsTerminalOnlyAndIdempotent(t *testing.T) {
 	}
 }
 
-func TestBillingShadowObserverPanicCannotChangeTerminalResult(t *testing.T) {
-	executor := &Executor{CoreRuntime: CoreRuntime{
-		BillingShadowObserver: BillingShadowObserverFunc(func(context.Context, billing.LegUsageRecord) {
+func TestBillingLegObserverPanicCannotChangeTerminalResult(t *testing.T) {
+	executor := &Executor{BillingRuntime: BillingRuntime{
+		BillingLegObserver: BillingLegObserverFunc(func(context.Context, billing.LegUsageRecord) {
 			panic("observer must be isolated")
 		}),
 	}}
@@ -97,10 +97,10 @@ func TestBillingShadowObserverPanicCannotChangeTerminalResult(t *testing.T) {
 	}
 }
 
-func TestBillingShadowHandoffCoversSequentialReplacementBLegs(t *testing.T) {
+func TestBillingLegHandoffCoversSequentialReplacementBLegs(t *testing.T) {
 	var records []billing.LegUsageRecord
-	executor := &Executor{CoreRuntime: CoreRuntime{
-		BillingShadowObserver: BillingShadowObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+	executor := &Executor{BillingRuntime: BillingRuntime{
+		BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
 			records = append(records, record)
 		}),
 	}}
@@ -132,35 +132,39 @@ func TestBillingShadowHandoffCoversSequentialReplacementBLegs(t *testing.T) {
 	}
 }
 
-func TestBillingShadowUsesFinalizeBillingWhenSupported(t *testing.T) {
+func TestBillingLegUsesFinalizeBillingWhenSupported(t *testing.T) {
 	var finalizeCalls int
 	var records []billing.LegUsageRecord
-	executor := &Executor{CoreRuntime: CoreRuntime{
-		Backends: map[string]execbackend.Backend{
-			"backend-b": {
-				FinalizeBilling: func(_ context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
-					finalizeCalls++
-					if in.ALegID != "a-1" || in.BLegID != "b-2" {
-						t.Fatalf("finalize lineage = %+v", in)
-					}
-					return lipapi.Event{
-						Kind:          lipapi.EventUsageDelta,
-						InputTokens:   99,
-						OutputTokens:  7,
-						UsagePresence: lipapi.UsagePresence{InputTokens: true, OutputTokens: true},
-						Accounting: lipapi.UsageAccountingMetadata{
-							Source:    lipapi.UsageSourceProviderReported,
-							Authority: lipapi.UsageAuthorityAuthoritative,
-							DedupeKey: "finalize-key",
-						},
-					}, nil
+	executor := &Executor{
+		CoreRuntime: CoreRuntime{
+			Backends: map[string]execbackend.Backend{
+				"backend-b": {
+					FinalizeBilling: func(_ context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
+						finalizeCalls++
+						if in.ALegID != "a-1" || in.BLegID != "b-2" {
+							t.Fatalf("finalize lineage = %+v", in)
+						}
+						return lipapi.Event{
+							Kind:          lipapi.EventUsageDelta,
+							InputTokens:   99,
+							OutputTokens:  7,
+							UsagePresence: lipapi.UsagePresence{InputTokens: true, OutputTokens: true},
+							Accounting: lipapi.UsageAccountingMetadata{
+								Source:    lipapi.UsageSourceProviderReported,
+								Authority: lipapi.UsageAuthorityAuthoritative,
+								DedupeKey: "finalize-key",
+							},
+						}, nil
+					},
 				},
 			},
 		},
-		BillingShadowObserver: BillingShadowObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
-			records = append(records, record)
-		}),
-	}}
+		BillingRuntime: BillingRuntime{
+			BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+				records = append(records, record)
+			}),
+		},
+	}
 	stream := &retryRecvStream{
 		executor: executor,
 		aLegID:   "a-1",
@@ -190,30 +194,34 @@ func TestBillingShadowUsesFinalizeBillingWhenSupported(t *testing.T) {
 	}
 }
 
-func TestBillingShadowPreservesStreamAuthoritativeZeroCostAcrossFinalize(t *testing.T) {
+func TestBillingLegPreservesStreamAuthoritativeZeroCostAcrossFinalize(t *testing.T) {
 	var records []billing.LegUsageRecord
-	executor := &Executor{CoreRuntime: CoreRuntime{
-		Backends: map[string]execbackend.Backend{
-			"backend-b": {
-				FinalizeBilling: func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error) {
-					// FinalizeBilling ABI carries tokens/provenance only — no cost fields.
-					return lipapi.Event{
-						Kind:          lipapi.EventUsageDelta,
-						InputTokens:   99,
-						OutputTokens:  7,
-						UsagePresence: lipapi.UsagePresence{InputTokens: true, OutputTokens: true},
-						Accounting: lipapi.UsageAccountingMetadata{
-							Source:    lipapi.UsageSourceProviderReported,
-							DedupeKey: "finalize-key",
-						},
-					}, nil
+	executor := &Executor{
+		CoreRuntime: CoreRuntime{
+			Backends: map[string]execbackend.Backend{
+				"backend-b": {
+					FinalizeBilling: func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error) {
+						// FinalizeBilling ABI carries tokens/provenance only — no cost fields.
+						return lipapi.Event{
+							Kind:          lipapi.EventUsageDelta,
+							InputTokens:   99,
+							OutputTokens:  7,
+							UsagePresence: lipapi.UsagePresence{InputTokens: true, OutputTokens: true},
+							Accounting: lipapi.UsageAccountingMetadata{
+								Source:    lipapi.UsageSourceProviderReported,
+								DedupeKey: "finalize-key",
+							},
+						}, nil
+					},
 				},
 			},
 		},
-		BillingShadowObserver: BillingShadowObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
-			records = append(records, record)
-		}),
-	}}
+		BillingRuntime: BillingRuntime{
+			BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+				records = append(records, record)
+			}),
+		},
+	}
 	stream := &retryRecvStream{
 		executor: executor,
 		aLegID:   "a-1",
@@ -254,20 +262,24 @@ func TestBillingShadowPreservesStreamAuthoritativeZeroCostAcrossFinalize(t *test
 	}
 }
 
-func TestBillingShadowFallsBackWhenFinalizeBillingFails(t *testing.T) {
+func TestBillingLegFallsBackWhenFinalizeBillingFails(t *testing.T) {
 	var records []billing.LegUsageRecord
-	executor := &Executor{CoreRuntime: CoreRuntime{
-		Backends: map[string]execbackend.Backend{
-			"backend-b": {
-				FinalizeBilling: func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error) {
-					return lipapi.Event{}, errors.New("finalize unavailable")
+	executor := &Executor{
+		CoreRuntime: CoreRuntime{
+			Backends: map[string]execbackend.Backend{
+				"backend-b": {
+					FinalizeBilling: func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error) {
+						return lipapi.Event{}, errors.New("finalize unavailable")
+					},
 				},
 			},
 		},
-		BillingShadowObserver: BillingShadowObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
-			records = append(records, record)
-		}),
-	}}
+		BillingRuntime: BillingRuntime{
+			BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+				records = append(records, record)
+			}),
+		},
+	}
 	stream := &retryRecvStream{
 		executor: executor,
 		aLegID:   "a-1",
@@ -287,10 +299,10 @@ func TestBillingShadowFallsBackWhenFinalizeBillingFails(t *testing.T) {
 	}
 }
 
-func TestBillingShadowUsesDistinctProviderParamWhenPresent(t *testing.T) {
+func TestBillingLegUsesDistinctProviderParamWhenPresent(t *testing.T) {
 	var got billing.LegUsageRecord
-	executor := &Executor{CoreRuntime: CoreRuntime{
-		BillingShadowObserver: BillingShadowObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+	executor := &Executor{BillingRuntime: BillingRuntime{
+		BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
 			got = record
 		}),
 	}}
@@ -312,10 +324,10 @@ func TestBillingShadowUsesDistinctProviderParamWhenPresent(t *testing.T) {
 	}
 }
 
-func TestBillingShadowEmptyBLegIDUsesColonFreeSyntheticID(t *testing.T) {
+func TestBillingLegEmptyBLegIDUsesColonFreeSyntheticID(t *testing.T) {
 	var got billing.LegUsageRecord
-	executor := &Executor{CoreRuntime: CoreRuntime{
-		BillingShadowObserver: BillingShadowObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+	executor := &Executor{BillingRuntime: BillingRuntime{
+		BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
 			got = record
 		}),
 	}}
@@ -349,10 +361,10 @@ func TestBillingShadowEmptyBLegIDUsesColonFreeSyntheticID(t *testing.T) {
 	}
 }
 
-func TestBillingShadowFallbackUsesLastUsageDeltaNotCumulativeSum(t *testing.T) {
+func TestBillingLegFallbackUsesLastUsageDeltaNotCumulativeSum(t *testing.T) {
 	var records []billing.LegUsageRecord
-	executor := &Executor{CoreRuntime: CoreRuntime{
-		BillingShadowObserver: BillingShadowObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+	executor := &Executor{BillingRuntime: BillingRuntime{
+		BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
 			records = append(records, record)
 		}),
 	}}
@@ -392,21 +404,25 @@ func TestBillingShadowFallbackUsesLastUsageDeltaNotCumulativeSum(t *testing.T) {
 
 func TestFinalizeBillingOncePerBLegForQuotaAndLUR(t *testing.T) {
 	var calls int
-	executor := &Executor{CoreRuntime: CoreRuntime{
-		Backends: map[string]execbackend.Backend{
-			"backend-b": {
-				FinalizeBilling: func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error) {
-					calls++
-					return lipapi.Event{
-						Kind:          lipapi.EventUsageDelta,
-						InputTokens:   5,
-						UsagePresence: lipapi.UsagePresence{InputTokens: true},
-					}, nil
+	executor := &Executor{
+		CoreRuntime: CoreRuntime{
+			Backends: map[string]execbackend.Backend{
+				"backend-b": {
+					FinalizeBilling: func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error) {
+						calls++
+						return lipapi.Event{
+							Kind:          lipapi.EventUsageDelta,
+							InputTokens:   5,
+							UsagePresence: lipapi.UsagePresence{InputTokens: true},
+						}, nil
+					},
 				},
 			},
 		},
-		BillingShadowObserver: BillingShadowObserverFunc(func(context.Context, billing.LegUsageRecord) {}),
-	}}
+		BillingRuntime: BillingRuntime{
+			BillingLegObserver: BillingLegObserverFunc(func(context.Context, billing.LegUsageRecord) {}),
+		},
+	}
 	stream := &retryRecvStream{
 		executor: executor,
 		aLegID:   "a-1",
@@ -416,7 +432,7 @@ func TestFinalizeBillingOncePerBLegForQuotaAndLUR(t *testing.T) {
 	if !stream.finalizeBillingAfterCancel(context.Background(), "client canceled") {
 		t.Fatal("quota finalize should succeed")
 	}
-	stream.observeBillingShadow(context.Background(), sdkterminal.CommandCancel)
+	stream.recordBillingLeg(context.Background(), sdkterminal.CommandCancel)
 	if calls != 1 {
 		t.Fatalf("FinalizeBilling calls = %d, want 1 shared snapshot for quota and LUR", calls)
 	}
