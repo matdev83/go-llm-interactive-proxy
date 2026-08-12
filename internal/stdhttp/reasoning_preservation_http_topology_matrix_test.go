@@ -20,7 +20,7 @@ import (
 // (Chat/Chat, Responses/Responses, Chat/Responses, Responses/Chat) with stream and
 // FE-nonstream modes, exact oracle, asymmetric positives, and cross-dialect negatives.
 func TestReasoningPreservationHTTP_TopologyMatrix(t *testing.T) {
-	t.Run("A_chat_fe_chat_be", func(t *testing.T) {
+	t.Run("chat frontend with chat backend", func(t *testing.T) {
 		t.Parallel()
 		for _, stream := range []bool{false, true} {
 			name := "nonstream"
@@ -34,7 +34,7 @@ func TestReasoningPreservationHTTP_TopologyMatrix(t *testing.T) {
 		}
 	})
 
-	t.Run("B_responses_fe_responses_be", func(t *testing.T) {
+	t.Run("responses frontend with responses backend", func(t *testing.T) {
 		t.Parallel()
 		for _, stream := range []bool{false, true} {
 			name := "nonstream"
@@ -52,7 +52,7 @@ func TestReasoningPreservationHTTP_TopologyMatrix(t *testing.T) {
 		})
 	})
 
-	t.Run("C_chat_fe_responses_be", func(t *testing.T) {
+	t.Run("chat frontend with responses backend", func(t *testing.T) {
 		t.Parallel()
 		for _, stream := range []bool{false, true} {
 			name := "nonstream"
@@ -66,7 +66,7 @@ func TestReasoningPreservationHTTP_TopologyMatrix(t *testing.T) {
 		}
 	})
 
-	t.Run("D_responses_fe_chat_be", func(t *testing.T) {
+	t.Run("responses frontend with chat backend", func(t *testing.T) {
 		t.Parallel()
 		t.Run("positive_chat_dialect_stream", func(t *testing.T) {
 			t.Parallel()
@@ -1074,11 +1074,11 @@ func createResponsesTurn(ctx context.Context, cli *refclientresp.Client, hist *r
 	return res, err
 }
 
-type oracleErr string
+type oracleError string
 
-func (e oracleErr) Error() string { return "topology oracle: structural mismatch: " + string(e) }
+func (e oracleError) Error() string { return "topology oracle: structural mismatch: " + string(e) }
 
-func errOracle(code string) error { return oracleErr(code) }
+func errOracle(code string) error { return oracleError(code) }
 
 func assertNoChatReasoningContentInResponsesBodies(t *testing.T, ch <-chan []byte, n int) {
 	t.Helper()

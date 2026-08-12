@@ -60,20 +60,20 @@ func TestValidate_rejectsMemoryWithNegativeMaxLegs(t *testing.T) {
 
 func TestValidate_allowsMemoryZeroAndPositiveMaxLegs(t *testing.T) {
 	t.Parallel()
-	for _, max := range []int{0, 42} {
-		t.Run(fmt.Sprintf("max_legs_%d", max), func(t *testing.T) {
+	for _, limit := range []int{0, 42} {
+		t.Run(fmt.Sprintf("max_legs_%d", limit), func(t *testing.T) {
 			t.Parallel()
 			cfg := &config.Config{
 				Continuity: config.ContinuityConfig{
 					InMemory: true,
-					MaxLegs:  max,
+					MaxLegs:  limit,
 				},
 				Plugins: config.PluginsConfig{
 					Backends: []config.PluginConfig{{ID: "b1", Enabled: true}},
 				},
 			}
 			if err := config.Validate(cfg); err != nil {
-				t.Fatalf("max_legs=%d: %v", max, err)
+				t.Fatalf("max_legs=%d: %v", limit, err)
 			}
 		})
 	}

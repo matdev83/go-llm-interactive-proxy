@@ -16,7 +16,7 @@ func openRegular(path string) (*os.File, error) {
 	f := os.NewFile(uintptr(fd), path)
 	if f == nil {
 		_ = unix.Close(fd)
-		return nil, errString("open failed")
+		return nil, stringError("open failed")
 	}
 	var st unix.Stat_t
 	if err := unix.Fstat(fd, &st); err != nil {
@@ -25,7 +25,7 @@ func openRegular(path string) (*os.File, error) {
 	}
 	if st.Mode&unix.S_IFMT != unix.S_IFREG {
 		_ = f.Close()
-		return nil, errString("not regular file")
+		return nil, stringError("not regular file")
 	}
 	return f, nil
 }

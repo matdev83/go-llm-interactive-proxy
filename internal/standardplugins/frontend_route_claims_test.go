@@ -88,9 +88,9 @@ websocket:
 	if err == nil {
 		t.Fatal("expected canonical takeover conflict")
 	}
-	var detail httpcontract.RouteConflictDetail
+	var detail httpcontract.RouteConflictError
 	if !errors.As(err, &detail) {
-		t.Fatalf("want RouteConflictDetail, got %T: %v", err, err)
+		t.Fatalf("want RouteConflictError, got %T: %v", err, err)
 	}
 	if detail.ExistingOwner != "openai-responses" || detail.NewOwner != "or-inst" {
 		t.Fatalf("owners=%q vs %q", detail.ExistingOwner, detail.NewOwner)

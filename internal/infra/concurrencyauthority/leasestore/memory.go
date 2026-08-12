@@ -49,15 +49,15 @@ func NewMemory(cfg MemoryConfig) *MemoryStore {
 	if def <= 0 {
 		def = 100
 	}
-	max := cfg.MaxPageSize
-	if max <= 0 {
-		max = 500
+	maxPageSize := cfg.MaxPageSize
+	if maxPageSize <= 0 {
+		maxPageSize = 500
 	}
 	return &MemoryStore{
 		cfg:             cfg,
 		state:           state,
 		defaultPageSize: def,
-		maxPageSize:     max,
+		maxPageSize:     maxPageSize,
 	}
 }
 

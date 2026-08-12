@@ -1,10 +1,18 @@
 package processhost
 
 // Reason is a bounded stable process-host outcome code (no paths/secrets).
+//
+// These constants are outcome codes, not sentinel errors: ReasonOK is a success
+// code, so the Err prefix convention for error sentinels does not apply. The
+// names follow the enum convention (type name prefix + value). Error() is
+// implemented so reasons can be wrapped and matched with errors.Is.
+//
+//nolint:errname // outcome codes (incl. success), not error sentinels
 type Reason string
 
 func (r Reason) Error() string { return string(r) }
 
+//nolint:errname // outcome codes (incl. success), not error sentinels
 const (
 	ReasonOK                    Reason = "ok"
 	ReasonUnsupportedBinding    Reason = "unsupported_binding"

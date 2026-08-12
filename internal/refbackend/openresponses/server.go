@@ -532,7 +532,7 @@ func checkExpected(exp ExpectedRequest, r *http.Request, req *CreateRequest, raw
 		fails = append(fails, fmt.Sprintf("input item count %d below min %d", len(items), exp.MinInputItems))
 	}
 	if exp.MaxInputItems > 0 && len(items) > exp.MaxInputItems {
-		fails = append(fails, fmt.Sprintf("input item count %d above max %d", len(items), exp.MaxInputItems))
+		fails = append(fails, fmt.Sprintf("input item count %d above maxBytes %d", len(items), exp.MaxInputItems))
 	}
 	if exp.RequireTools > 0 && len(req.Tools) < exp.RequireTools {
 		fails = append(fails, fmt.Sprintf("tools %d below required %d", len(req.Tools), exp.RequireTools))
@@ -553,7 +553,7 @@ func checkCompactExpected(exp ExpectedRequest, r *http.Request, req *CompactRequ
 		fails = append(fails, fmt.Sprintf("input item count %d below min %d", len(items), exp.MinInputItems))
 	}
 	if exp.MaxInputItems > 0 && len(items) > exp.MaxInputItems {
-		fails = append(fails, fmt.Sprintf("input item count %d above max %d", len(items), exp.MaxInputItems))
+		fails = append(fails, fmt.Sprintf("input item count %d above maxBytes %d", len(items), exp.MaxInputItems))
 	}
 	fails = append(fails, extensionChecks(exp, items)...)
 	return fails
@@ -610,16 +610,16 @@ func extensionChecks(exp ExpectedRequest, items []Item) []string {
 	return fails
 }
 
-func readBounded(r io.Reader, max int64) ([]byte, error) {
-	if max <= 0 {
-		max = DefaultMaxBodyBytes
+func readBounded(r io.Reader, maxBytes int64) ([]byte, error) {
+	if maxBytes <= 0 {
+		maxBytes = DefaultMaxBodyBytes
 	}
-	body, err := io.ReadAll(io.LimitReader(r, max+1))
+	body, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(body)) > max {
-		return nil, fmt.Errorf("refbackend/openresponses: request body exceeds %d bytes", max)
+	if int64(len(body)) > maxBytes {
+		return nil, fmt.Errorf("refbackend/openresponses: request body exceeds %d bytes", maxBytes)
 	}
 	return body, nil
 }

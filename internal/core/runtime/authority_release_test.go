@@ -375,7 +375,7 @@ func TestRetryRecvStreamSwallowedFailureReleasesAuthorityOnReplacement(t *testin
 		authority: testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}),
 	}
 
-	recvErr := &lipapi.UpstreamFailure{
+	recvErr := &lipapi.UpstreamFailureError{
 		Phase:       lipapi.PhasePreOutput,
 		Recoverable: true,
 		Reason:      "recv dropped",

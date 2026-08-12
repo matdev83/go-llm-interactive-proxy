@@ -30,8 +30,9 @@ func TestPreviewAndApplyAttemptClamps_NilCoordinatorUsesUsageAuthority(t *testin
 
 	svc := &previewUAService{}
 	ex := &Executor{AccountingRuntime: AccountingRuntime{UsageAuthority: svc}}
-	max := 100
-	call := lipapi.Call{ID: "req-ua", Options: lipapi.GenerationOptions{MaxOutputTokens: &max}}
+	// AttemptCoordinator intentionally nil.
+	limit := 100
+	call := lipapi.Call{ID: "req-ua", Options: lipapi.GenerationOptions{MaxOutputTokens: &limit}}
 	_, ran, err := ex.previewAndApplyAttemptClamps(context.Background(), &call, authorityCandidate(), "a-1", "b-ua")
 	if err != nil {
 		t.Fatalf("previewAndApplyAttemptClamps: %v", err)

@@ -398,9 +398,9 @@ func MatchRequirements(required, supported ProtocolRequirements, replay Reasonin
 	required = NormalizeProtocolRequirements(required)
 	supportedCaps := NewBackendCaps(supported.Capabilities...)
 	missingCaps := []Capability{}
-	for _, cap := range required.Capabilities {
-		if _, ok := supportedCaps[cap]; !ok {
-			missingCaps = append(missingCaps, cap)
+	for _, capability := range required.Capabilities {
+		if _, ok := supportedCaps[capability]; !ok {
+			missingCaps = append(missingCaps, capability)
 		}
 	}
 	missingReasoning := findMissingDialects(required.ReasoningDialects, supported.ReasoningDialects, replay)

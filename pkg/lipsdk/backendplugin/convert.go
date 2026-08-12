@@ -241,11 +241,11 @@ func capabilityToProto(c CapabilitySummary) *backendpluginv1.CapabilitySummary {
 	}
 }
 
-func dialectSupportFromProto(p *backendpluginv1.DialectSupportWire) DialectSupportDTO {
+func dialectSupportFromProto(p *backendpluginv1.DialectSupportWire) DialectSupport {
 	if p == nil {
-		return DialectSupportDTO{}
+		return DialectSupport{}
 	}
-	out := DialectSupportDTO{}
+	out := DialectSupport{}
 	for _, d := range p.GetItemDialects() {
 		out.ItemDialects = append(out.ItemDialects, dialectRequirementFromProto(d))
 	}
@@ -261,7 +261,7 @@ func dialectSupportFromProto(p *backendpluginv1.DialectSupportWire) DialectSuppo
 	return out
 }
 
-func dialectSupportToProto(d DialectSupportDTO) *backendpluginv1.DialectSupportWire {
+func dialectSupportToProto(d DialectSupport) *backendpluginv1.DialectSupportWire {
 	out := &backendpluginv1.DialectSupportWire{}
 	for _, d := range d.ItemDialects {
 		out.ItemDialects = append(out.ItemDialects, dialectRequirementToProto(d))

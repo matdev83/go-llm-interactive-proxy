@@ -240,7 +240,7 @@ func startHeldAttempt(t *testing.T, coord *authoritycoord.AttemptCoordinator, ba
 	}
 }
 
-func assertPeakWithin(t *testing.T, reg authority.AttemptRegistration, backendID string, max, extra int) error {
+func assertPeakWithin(t *testing.T, reg authority.AttemptRegistration, backendID string, limit, extra int) error {
 	t.Helper()
 	coord := &authoritycoord.AttemptCoordinator{Slots: []authoritycoord.AttemptSlot{{
 		ID: compatibleadmission.ProviderID, Provider: reg.Provider,
@@ -249,7 +249,7 @@ func assertPeakWithin(t *testing.T, reg authority.AttemptRegistration, backendID
 	block := make(chan struct{})
 	var peak atomic.Int32
 	var wg sync.WaitGroup
-	for i := 0; i < max+extra; i++ {
+	for i := 0; i < limit+extra; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -269,14 +269,14 @@ func assertPeakWithin(t *testing.T, reg authority.AttemptRegistration, backendID
 	time.Sleep(40 * time.Millisecond)
 	close(block)
 	wg.Wait()
-	if int(peak.Load()) > max {
+	if int(peak.Load()) > limit {
 		return errors.New("peak exceeded max")
 	}
 	return nil
 }
 
 func mapCompatibleDenied(err error) error {
-	var denied *authoritycoord.ErrDenied
+	var denied *authoritycoord.DeniedError
 	if errors.As(err, &denied) && denied != nil && denied.ProviderID == compatibleadmission.ProviderID {
 		return lipapi.NewPolicyDeniedError("compatible_backend_attempt", "", "concurrency_limit", "concurrency_limit", "compatible backend concurrent request limit reached", nil)
 	}

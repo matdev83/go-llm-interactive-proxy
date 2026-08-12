@@ -54,9 +54,9 @@ func domainRules(limits Limits) ([]domain.Rule, error) {
 		return nil, nil
 	}
 	ids := make([]string, 0, len(limits))
-	for id, max := range limits {
+	for id, limit := range limits {
 		id = strings.TrimSpace(id)
-		if id == "" || max <= 0 {
+		if id == "" || limit <= 0 {
 			continue
 		}
 		ids = append(ids, id)
@@ -64,8 +64,8 @@ func domainRules(limits Limits) ([]domain.Rule, error) {
 	sort.Strings(ids)
 	out := make([]domain.Rule, 0, len(ids))
 	for _, id := range ids {
-		max := limits[id]
-		if max <= 0 {
+		limit := limits[id]
+		if limit <= 0 {
 			return nil, fmt.Errorf("compatible admission: backend %q max_concurrent_requests must be positive", id)
 		}
 		out = append(out, domain.Rule{
@@ -73,7 +73,7 @@ func domainRules(limits Limits) ([]domain.Rule, error) {
 			Namespace:       namespace,
 			Version:         "v1",
 			Mode:            domain.RuleModeStrict,
-			Limit:           max,
+			Limit:           limit,
 			LeaseTTL:        defaultLeaseTTL,
 			RenewBefore:     defaultRenewBefore,
 			FailureBehavior: domain.FailureBehaviorFailClosed,
@@ -124,9 +124,9 @@ func (r *Runtime) limitFor(backendID string) (int, bool) {
 	if r == nil || len(r.limits) == 0 {
 		return 0, false
 	}
-	max, ok := r.limits[strings.TrimSpace(backendID)]
-	if !ok || max <= 0 {
+	limit, ok := r.limits[strings.TrimSpace(backendID)]
+	if !ok || limit <= 0 {
 		return 0, false
 	}
-	return max, true
+	return limit, true
 }

@@ -52,7 +52,7 @@ func TestCompatibleAdmission_PermitOverloadMapsToConcurrencyLimit(t *testing.T) 
 	if !authoritycoord.IsDenied(err) {
 		t.Fatalf("err=%v want policy denied", err)
 	}
-	var denied *authoritycoord.ErrDenied
+	var denied *authoritycoord.DeniedError
 	if !errors.As(err, &denied) || denied.ProviderID != compatibleadmission.ProviderID {
 		t.Fatalf("err=%T", err)
 	}
@@ -71,7 +71,7 @@ func TestCompatibleAdmission_PermitOverloadMapsToConcurrencyLimit(t *testing.T) 
 }
 
 func mapAttemptAuthorityCoordinatorErrorForTest(err error) error {
-	var denied *authoritycoord.ErrDenied
+	var denied *authoritycoord.DeniedError
 	if errors.As(err, &denied) && denied != nil && denied.ProviderID == compatibleadmission.ProviderID {
 		return lipapi.NewPolicyDeniedError(
 			"compatible_backend_attempt", "", "concurrency_limit", "concurrency_limit",

@@ -25,7 +25,7 @@ func TestRetryRecvStream_tryReplacement_blockedAfterMandatoryRecorderFailure(t *
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	var uf *lipapi.UpstreamFailure
+	var uf *lipapi.UpstreamFailureError
 	if !errors.As(err, &uf) || uf.Phase != lipapi.PhasePostOutput || uf.Recoverable {
 		t.Fatalf("unexpected error: %v", err)
 	}

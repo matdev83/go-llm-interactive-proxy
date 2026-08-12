@@ -240,7 +240,7 @@ func newStreamAccountingExecutor(t *testing.T, opts streamAccountingOptions) *ru
 		if opts.FailFirstPreOutputWithUsage && opens == 1 {
 			return &errAfterEventsStream{events: []lipapi.Event{
 				{Kind: lipapi.EventUsageDelta, InputTokens: 7, OutputTokens: 0, TotalTokens: 7, Accounting: lipapi.UsageAccountingMetadata{Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative}},
-			}, err: &lipapi.UpstreamFailure{Phase: lipapi.PhasePreOutput, Recoverable: true, Reason: "pre-output accounting failure"}}, nil
+			}, err: &lipapi.UpstreamFailureError{Phase: lipapi.PhasePreOutput, Recoverable: true, Reason: "pre-output accounting failure"}}, nil
 		}
 		if opts.FailAfterOutputWithUsage && opens == 1 {
 			return lipapi.NewFixedEventStream([]lipapi.Event{

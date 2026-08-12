@@ -85,7 +85,7 @@ func MountBundledFrontends(in MountBundledFrontendsInput) error {
 // validateFrontendRouteClaims registers each enabled frontend's owner-aware
 // route claims into one generation-scoped RouteRegistry and validates
 // canonical path takeover before any ServeMux handler is mounted. A conflict
-// returns a [httpcontract.RouteConflictDetail] naming both owners; no handler
+// returns a [httpcontract.RouteConflictError] naming both owners; no handler
 // is registered, so the candidate fails atomically. Frontends without a
 // claims provider in [httpcontract.HTTPFrontendInput.FrontendRouteClaims]
 // participate in no ownership validation.
@@ -120,13 +120,13 @@ func validateFrontendRouteClaims(fe HTTPFrontendInput) error {
 
 // wrapRouteConflict preserves both the sentinel ErrRouteConflict (so existing
 // composition callers can errors.Is it) and the owner-aware
-// RouteConflictDetail (so both owners are named) for a canonical route-claims
+// RouteConflictError (so both owners are named) for a canonical route-claims
 // collision detected before mounting.
 func wrapRouteConflict(err error) error {
 	if err == nil {
 		return nil
 	}
-	var detail httpcontract.RouteConflictDetail
+	var detail httpcontract.RouteConflictError
 	if errors.As(err, &detail) {
 		return fmt.Errorf("%w: %w", ErrRouteConflict, detail)
 	}

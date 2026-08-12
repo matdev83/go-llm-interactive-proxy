@@ -229,13 +229,13 @@ func (s *Store) NextTranscriptSeq(ctx context.Context, id domain.SessionID) (int
 	if !ok {
 		return 0, domain.ErrSessionNotFound
 	}
-	var max int64
+	var maxSeq int64
 	for _, t := range row.transcript {
-		if t.Seq > max {
-			max = t.Seq
+		if t.Seq > maxSeq {
+			maxSeq = t.Seq
 		}
 	}
-	return max + 1, nil
+	return maxSeq + 1, nil
 }
 
 func (s *Store) AddUsage(ctx context.Context, delta domain.UsageDelta) error {

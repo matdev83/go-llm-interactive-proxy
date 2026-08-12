@@ -522,13 +522,13 @@ func packageDirForOverlay(t *testing.T, pattern string) string {
 	runtimebundleDirOnce.Do(func() {
 		pkgs, err := packages.Load(&packages.Config{Mode: packages.NeedFiles | packages.NeedName, Tests: false}, runtimebundlePkgPath)
 		if err != nil || len(pkgs) != 1 || len(pkgs[0].GoFiles) == 0 {
-			runtimebundleDirErr = fmt.Errorf("resolve runtimebundle dir: err=%v pkgs=%v", err, pkgs)
+			errRuntimebundleDir = fmt.Errorf("resolve runtimebundle dir: err=%v pkgs=%v", err, pkgs)
 			return
 		}
 		runtimebundleDir = filepath.Dir(pkgs[0].GoFiles[0])
 	})
-	if runtimebundleDirErr != nil {
-		t.Fatal(runtimebundleDirErr)
+	if errRuntimebundleDir != nil {
+		t.Fatal(errRuntimebundleDir)
 	}
 	return runtimebundleDir
 }
@@ -536,7 +536,7 @@ func packageDirForOverlay(t *testing.T, pattern string) string {
 var (
 	runtimebundleDirOnce sync.Once
 	runtimebundleDir     string
-	runtimebundleDirErr  error
+	errRuntimebundleDir  error
 )
 
 func resolveProtectedOwners(t *testing.T, pkg *packages.Package) protectedOwners {

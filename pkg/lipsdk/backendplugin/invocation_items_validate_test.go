@@ -64,7 +64,7 @@ func TestInvocationItemsValidate_rejectsUnknownCapability(t *testing.T) {
 			Kind: "message", ID: "m1", Status: "completed", Role: backendplugin.RoleUser,
 			Content: []backendplugin.InvocationContentPart{{Kind: backendplugin.PartKindText, Text: strPtr("hi")}},
 		}},
-		ProtocolRequirements: backendplugin.ProtocolRequirementsDTO{
+		ProtocolRequirements: backendplugin.ProtocolRequirements{
 			Capabilities: []string{"not_a_real_capability"},
 		},
 	}

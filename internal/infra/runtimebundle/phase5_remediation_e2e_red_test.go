@@ -15,12 +15,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
 
-func phase5ConcCfg(max int, version string) *config.Config {
+func phase5ConcCfg(maxConcurrent int, version string) *config.Config {
 	cfg := baseAuthorityConfig(false, "fail_closed")
 	cfg.Accounting.Concurrency.Enabled = true
 	cfg.Accounting.Concurrency.SnapshotVersion = version
 	cfg.Accounting.Concurrency.Rules = []config.ConcurrencyAuthorityRuleConfig{{
-		ID: "max-active", MaxActiveRequests: max,
+		ID: "max-active", MaxActiveRequests: maxConcurrent,
 		Match: config.AccountingAuthorityDimensionsConfig{
 			Principal: config.AccountingAuthorityDimensionMatcherConfig{Value: scope.Known("alice")},
 		},

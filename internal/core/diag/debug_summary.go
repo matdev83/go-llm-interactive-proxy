@@ -44,10 +44,10 @@ func StableCounts(counts map[string]int) []string {
 	return out
 }
 
-// AppendLimited appends a trimmed non-empty value until max entries are present.
-func AppendLimited(values []string, value string, max int) []string {
+// AppendLimited appends a trimmed non-empty value until maxLen entries are present.
+func AppendLimited(values []string, value string, maxLen int) []string {
 	value = strings.TrimSpace(value)
-	if value == "" || len(values) >= max {
+	if value == "" || len(values) >= maxLen {
 		return values
 	}
 	return append(values, value)

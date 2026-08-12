@@ -50,12 +50,12 @@ func NewMemoryStore(cfg MemoryConfig) (*MemoryStore, error) {
 	if def <= 0 {
 		def = 100
 	}
-	max := cfg.MaxPageSize
-	if max <= 0 {
-		max = 500
+	maxPageSize := cfg.MaxPageSize
+	if maxPageSize <= 0 {
+		maxPageSize = 500
 	}
-	if max < def {
-		return nil, fmt.Errorf("metering/journalstore: max page size %d < default %d", max, def)
+	if maxPageSize < def {
+		return nil, fmt.Errorf("metering/journalstore: max page size %d < default %d", maxPageSize, def)
 	}
 	now := cfg.Now
 	if now == nil {
@@ -64,7 +64,7 @@ func NewMemoryStore(cfg MemoryConfig) (*MemoryStore, error) {
 	return &MemoryStore{
 		cfg:             cfg,
 		defaultPageSize: def,
-		maxPageSize:     max,
+		maxPageSize:     maxPageSize,
 		now:             now,
 		bySource:        make(map[string]int),
 	}, nil

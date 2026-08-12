@@ -43,7 +43,7 @@ type trackedInstance struct {
 	inst          ConfiguredInstance
 	negotiation   Negotiation
 	leases        int
-	closing       bool
+	isClosing     bool
 	closeInFlight bool
 }
 
@@ -185,18 +185,18 @@ func (s *GRPCServer) CloseInstance(ctx context.Context, req *backendpluginv1.Clo
 			return nil, status.Error(codes.NotFound, fmt.Sprintf("%v: instance %q", ErrInvalidInvocation, id))
 		}
 		if ctx.Err() != nil {
-			if tr.closing && !tr.closeInFlight && tr.leases > 0 {
-				tr.closing = false
+			if tr.isClosing && !tr.closeInFlight && tr.leases > 0 {
+				tr.isClosing = false
 			}
 			s.mu.Unlock()
 			return nil, status.Error(codes.Canceled, ctx.Err().Error())
 		}
 		if tr.closeInFlight || tr.leases > 0 {
-			tr.closing = true
+			tr.isClosing = true
 			s.leaseCond.Wait()
 			continue
 		}
-		tr.closing = true
+		tr.isClosing = true
 		tr.closeInFlight = true
 		inst := tr.inst
 		s.mu.Unlock()
@@ -206,7 +206,7 @@ func (s *GRPCServer) CloseInstance(ctx context.Context, req *backendpluginv1.Clo
 		if cur, ok := s.instances[id]; ok && cur == tr {
 			cur.closeInFlight = false
 			if err != nil {
-				cur.closing = true
+				cur.isClosing = true
 				s.leaseCond.Broadcast()
 				s.mu.Unlock()
 				return nil, err
@@ -355,7 +355,7 @@ func (s *GRPCServer) acquire(id string) (ConfiguredInstance, func(), Negotiation
 	if !ok {
 		return nil, nil, Negotiation{}, status.Error(codes.InvalidArgument, fmt.Sprintf("%v: instance %q", ErrInvalidInvocation, id))
 	}
-	if tr.closing {
+	if tr.isClosing {
 		return nil, nil, Negotiation{}, status.Error(codes.FailedPrecondition, ErrInstanceBusy.Error())
 	}
 	tr.leases++

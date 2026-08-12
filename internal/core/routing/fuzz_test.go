@@ -7,11 +7,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 )
 
-func capFuzzBytes(b []byte, max int) []byte {
-	if max <= 0 || len(b) <= max {
+func capFuzzBytes(b []byte, maxBytes int) []byte {
+	if maxBytes <= 0 || len(b) <= maxBytes {
 		return b
 	}
-	return b[:max]
+	return b[:maxBytes]
 }
 
 func FuzzParseSelector(f *testing.F) {

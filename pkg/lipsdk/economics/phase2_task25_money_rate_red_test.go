@@ -160,9 +160,9 @@ func TestPhase25_AggregateMoney_MixedCurrencyAndOverflow(t *testing.T) {
 	if _, err := economics.AggregateMoney(usd, eur); err == nil {
 		t.Fatal("mixed-currency AggregateMoney must fail (req 4.9)")
 	}
-	max := economics.Money{NanoUnits: math.MaxInt64, Currency: "USD", Present: true}
+	maxMoney := economics.Money{NanoUnits: math.MaxInt64, Currency: "USD", Present: true}
 	one := economics.Money{NanoUnits: 1, Currency: "USD", Present: true}
-	if _, err := economics.AggregateMoney(max, one); err == nil {
+	if _, err := economics.AggregateMoney(maxMoney, one); err == nil {
 		t.Fatal("overflow AggregateMoney must fail (req 4.6)")
 	}
 	sum, err := economics.AggregateMoney(usd, economics.Money{NanoUnits: 3, Currency: "USD", Present: true})

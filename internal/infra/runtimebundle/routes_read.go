@@ -83,18 +83,18 @@ func routesSnapshotFromCompatible(cfg *config.Config, reg *pluginreg.Registry, c
 }
 
 func credentialPostureFromBackends(cfg *config.Config) string {
-	any := false
+	hasEnabled := false
 	for _, b := range cfg.Plugins.Backends {
 		if !b.Enabled {
 			continue
 		}
-		any = true
+		hasEnabled = true
 		k := strings.ToLower(strings.TrimSpace(b.FactoryID()))
 		if k != "local-stub" {
 			return "live_provider"
 		}
 	}
-	if !any {
+	if !hasEnabled {
 		return "no_enabled_backends"
 	}
 	return "all_local_stub"

@@ -54,14 +54,14 @@ func LogError(ctx context.Context, log *slog.Logger, msg string, o AttrOpts, err
 	log.LogAttrs(ctx, slog.LevelError, msg, attrs...)
 }
 
-// TruncErrDetail returns err.Error() truncated to max runes for log attributes (never for client-visible text).
-func TruncErrDetail(err error, max int) string {
-	if err == nil || max <= 0 {
+// TruncErrDetail returns err.Error() truncated to maxLen runes for log attributes (never for client-visible text).
+func TruncErrDetail(err error, maxLen int) string {
+	if err == nil || maxLen <= 0 {
 		return ""
 	}
 	r := []rune(err.Error())
-	if len(r) <= max {
+	if len(r) <= maxLen {
 		return string(r)
 	}
-	return string(r[:max])
+	return string(r[:maxLen])
 }

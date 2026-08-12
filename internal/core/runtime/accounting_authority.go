@@ -567,7 +567,7 @@ func attemptAuthorityRuleID(state attemptAuthorityState) string {
 }
 
 func mapAttemptAuthorityCoordinatorError(err error) error {
-	var denied *authoritycoord.ErrDenied
+	var denied *authoritycoord.DeniedError
 	if !errors.As(err, &denied) || denied == nil {
 		return nil
 	}

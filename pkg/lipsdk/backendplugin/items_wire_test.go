@@ -94,7 +94,7 @@ func TestInvocationToProto_roundTripsOrderedItems(t *testing.T) {
 				ToolResult: &backendplugin.InvocationToolResult{CallID: "c1", Name: "fn", Output: &out},
 			},
 		},
-		ProtocolRequirements: backendplugin.ProtocolRequirementsDTO{
+		ProtocolRequirements: backendplugin.ProtocolRequirements{
 			Capabilities: []string{string(lipapi.CapabilityOrderedItems)},
 		},
 	}

@@ -364,16 +364,16 @@ func accountingEvidenceToEvent(e *backendplugin.AccountingEvidence) (lipapi.Even
 }
 
 func (s *managedStream) drainStderr(r io.Reader) {
-	max := s.opt.MaxStderrBytes
-	if max <= 0 {
-		max = defaultMaxStderrBytes
+	maxBytes := s.opt.MaxStderrBytes
+	if maxBytes <= 0 {
+		maxBytes = defaultMaxStderrBytes
 	}
 	buf := make([]byte, 4096)
 	for {
 		n, err := r.Read(buf)
 		if n > 0 {
 			s.mu.Lock()
-			remain := max - s.stderrBytes
+			remain := maxBytes - s.stderrBytes
 			if remain > 0 {
 				if n > remain {
 					n = remain
@@ -386,7 +386,7 @@ func (s *managedStream) drainStderr(r io.Reader) {
 			return
 		}
 		s.mu.Lock()
-		full := s.stderrBytes >= max
+		full := s.stderrBytes >= maxBytes
 		s.mu.Unlock()
 		if full {
 			_, _ = io.Copy(io.Discard, r)

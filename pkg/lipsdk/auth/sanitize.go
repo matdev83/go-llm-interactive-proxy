@@ -77,23 +77,23 @@ func containsCredentialLikePatterns(s string) bool {
 	return false
 }
 
-func truncateUTF8Runes(s string, max int) string {
-	if max <= 0 {
+func truncateUTF8Runes(s string, maxLen int) string {
+	if maxLen <= 0 {
 		return s
 	}
-	const runeCap = 100_000 // avoid max*4 overflow and pathological prealloc
-	if max > runeCap {
-		max = runeCap
+	const runeCap = 100_000 // avoid maxLen*4 overflow and pathological prealloc
+	if maxLen > runeCap {
+		maxLen = runeCap
 	}
 	n := utf8.RuneCountInString(s)
-	if n <= max {
+	if n <= maxLen {
 		return s
 	}
 	var b strings.Builder
-	b.Grow(max*4 + utf8.UTFMax)
+	b.Grow(maxLen*4 + utf8.UTFMax)
 	i := 0
 	for _, r := range s {
-		if i >= max-1 { // room for ellipsis
+		if i >= maxLen-1 { // room for ellipsis
 			break
 		}
 		b.WriteRune(r)

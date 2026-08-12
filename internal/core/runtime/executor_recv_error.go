@@ -207,7 +207,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 	if s.isCommitted() || !lipapi.IsRecoverablePreOutput(err) {
 		surfErr := err
 		if s.isCommitted() && lipapi.IsRecoverablePreOutput(err) {
-			surfErr = &lipapi.UpstreamFailure{
+			surfErr = &lipapi.UpstreamFailureError{
 				Phase:        lipapi.PhasePostOutput,
 				Recoverable:  false,
 				Reason:       attemptReasonDetail(err),

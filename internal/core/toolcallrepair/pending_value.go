@@ -38,7 +38,7 @@ func deterministicRootPendingValue(compiled *CompiledSchema, property string) ([
 	}
 	encoded, err := json.Marshal(value)
 	if err != nil {
-		return nil, "", false, &repairErr{reason: toolcall.ReasonUnrepairable}
+		return nil, "", false, &repairError{reason: toolcall.ReasonUnrepairable}
 	}
 	return encoded, reason, true, nil
 }

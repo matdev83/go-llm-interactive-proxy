@@ -676,9 +676,9 @@ func terminalError(ev Event) error {
 }
 
 // reasoningAggregateWouldExceed reports whether adding add bytes to text+exact
-// reasoning aggregates would exceed max. max<=0 means unlimited. Overflow-safe.
-func reasoningAggregateWouldExceed(textLen, exactLen, add, max int) bool {
-	if max <= 0 {
+// reasoning aggregates would exceed maxLen. maxLen<=0 means unlimited. Overflow-safe.
+func reasoningAggregateWouldExceed(textLen, exactLen, add, maxLen int) bool {
+	if maxLen <= 0 {
 		return false
 	}
 	if textLen < 0 || exactLen < 0 || add < 0 {
@@ -688,7 +688,7 @@ func reasoningAggregateWouldExceed(textLen, exactLen, add, max int) bool {
 	if used < textLen {
 		return true
 	}
-	if add > max-used {
+	if add > maxLen-used {
 		return true
 	}
 	return false

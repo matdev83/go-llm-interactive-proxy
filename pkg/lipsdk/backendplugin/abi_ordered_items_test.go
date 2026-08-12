@@ -55,7 +55,7 @@ func TestInvocationToProto_roundTripsSpecializedItems(t *testing.T) {
 			{Kind: "compaction", ID: "cmp-1", Status: "completed", Compaction: &backendplugin.InvocationCompactionItem{Dialect: dialect, Opaque: backendplugin.RawJSONFromBytes(json.RawMessage(`{"ok":true}`))}},
 			{Kind: "extension", ID: "ext-1", Status: "completed", Extension: &backendplugin.InvocationExtensionItem{Namespace: "ns", Type: "beta", Opaque: backendplugin.RawJSONFromBytes(extData)}},
 		},
-		ProtocolRequirements: backendplugin.ProtocolRequirementsDTO{
+		ProtocolRequirements: backendplugin.ProtocolRequirements{
 			Capabilities: []string{string(lipapi.CapabilityOrderedItems)},
 		},
 	}

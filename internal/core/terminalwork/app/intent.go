@@ -67,11 +67,11 @@ var ErrIntentReplayConflict = errors.New("terminalwork: intent replay conflict")
 
 // ExecutablePendingBinder registers WorkID-keyed executable-generation pending
 // ownership without importing snapshotgen into terminalwork (task 3.6).
-// Bind returns a clear handle only when this call created the hold (ok=true).
-// When AddPendingWork is idempotent no-op (ok=false), no clear handle is
-// returned so a loser candidate cannot clear the winner's WorkID.
+// Bind returns a release handle only when this call created the hold (ok=true).
+// When AddPendingWork is idempotent no-op (ok=false), no release handle is
+// returned so a loser candidate cannot release the winner's WorkID.
 type ExecutablePendingBinder interface {
-	Bind(workID string, versions terminalwork.BoundVersions) (clear func(), ok bool)
+	Bind(workID string, versions terminalwork.BoundVersions) (release func(), ok bool)
 }
 
 // IntentServiceConfig configures IntentService clocks and optional runtime

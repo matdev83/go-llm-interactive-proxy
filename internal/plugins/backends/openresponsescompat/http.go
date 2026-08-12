@@ -77,11 +77,11 @@ func isApplicationJSON(contentType string) bool {
 	return strings.EqualFold(mt, "application/json")
 }
 
-// readHTTPBodyLimited reads at most max bytes and always closes the body. An
+// readHTTPBodyLimited reads at most maxBytes bytes and always closes the body. An
 // oversized body is drained (bounded) and rejected so the connection stays
 // reusable without unbounded allocation or an unbounded read from a
 // misbehaving upstream that streams forever.
-func readHTTPBodyLimited(r io.ReadCloser, max int) (b []byte, err error) {
+func readHTTPBodyLimited(r io.ReadCloser, maxBytes int) (b []byte, err error) {
 	defer func() {
 		if cerr := r.Close(); cerr != nil {
 			closeErr := fmt.Errorf("openresponsescompat: close response body: %w", cerr)
@@ -92,16 +92,16 @@ func readHTTPBodyLimited(r io.ReadCloser, max int) (b []byte, err error) {
 			}
 		}
 	}()
-	lr := io.LimitReader(r, int64(max)+1)
+	lr := io.LimitReader(r, int64(maxBytes)+1)
 	b, err = io.ReadAll(lr)
 	if err != nil {
 		return nil, err
 	}
-	if len(b) > max {
-		// Best-effort drain capped at max bytes; the deferred Close aborts any
+	if len(b) > maxBytes {
+		// Best-effort drain capped at maxBytes bytes; the deferred Close aborts any
 		// remaining body instead of blocking on an endless upstream stream.
-		_, _ = io.CopyN(io.Discard, r, int64(max))
-		return nil, fmt.Errorf("response body exceeds %d bytes", max)
+		_, _ = io.CopyN(io.Discard, r, int64(maxBytes))
+		return nil, fmt.Errorf("response body exceeds %d bytes", maxBytes)
 	}
 	return b, nil
 }

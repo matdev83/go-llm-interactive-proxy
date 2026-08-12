@@ -97,21 +97,21 @@ func nextSSERecord(br *bufio.Reader, maxBytes int) (sseRecord, error) {
 }
 
 // readSSELineBounded reads one logical line (terminated by LF, CRLF, or CR)
-// bounded to max bytes. It never returns more than max bytes per line. The
+// bounded to maxBytes bytes. It never returns more than maxBytes bytes per line. The
 // returned slice excludes the trailing line terminator, which does not count
 // toward the bound. err is io.EOF only when the underlying reader ends without
 // a final terminator.
-func readSSELineBounded(br *bufio.Reader, max int) ([]byte, error) {
+func readSSELineBounded(br *bufio.Reader, maxBytes int) ([]byte, error) {
 	var out []byte
 	for {
 		frag, err := br.ReadSlice('\n')
 		if len(frag) > 0 {
 			out = append(out, frag...)
 			// The length bound applies to the logical line content; the framing
-			// newline/CR is stripped before the check so a line of exactly max
+			// newline/CR is stripped before the check so a line of exactly maxBytes
 			// bytes is accepted (no off-by-one).
-			if len(bytes.TrimRight(out, "\r\n")) > max {
-				return nil, fmt.Errorf("%s: %w: SSE field line exceeds %d bytes", ID, ErrMalformedResponse, max)
+			if len(bytes.TrimRight(out, "\r\n")) > maxBytes {
+				return nil, fmt.Errorf("%s: %w: SSE field line exceeds %d bytes", ID, ErrMalformedResponse, maxBytes)
 			}
 		}
 		if errors.Is(err, bufio.ErrBufferFull) {

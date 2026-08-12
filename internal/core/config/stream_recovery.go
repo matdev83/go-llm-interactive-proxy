@@ -58,28 +58,28 @@ func StreamRecoveryOverridesFromEnv() (StreamRecoveryOverrides, error) {
 	if raw, ok := os.LookupEnv("LIP_AUTO_RESUME"); ok && strings.TrimSpace(raw) != "" {
 		v, err := strconv.ParseBool(strings.TrimSpace(raw))
 		if err != nil {
-			return out, fmt.Errorf("LIP_AUTO_RESUME: %w", err)
+			return out, fmt.Errorf("lip auto resume: %w", err)
 		}
 		out.EnvEnabled = &v
 	}
 	if raw := strings.TrimSpace(os.Getenv("LIP_AUTO_RESUME_IDLE_TIMEOUT")); raw != "" {
 		d, err := time.ParseDuration(raw)
 		if err != nil || d <= 0 {
-			return out, fmt.Errorf("LIP_AUTO_RESUME_IDLE_TIMEOUT: invalid positive duration %q", raw)
+			return out, fmt.Errorf("lip auto resume idle timeout: invalid positive duration %q", raw)
 		}
 		out.EnvIdleTimeout = d
 	}
 	if raw := strings.TrimSpace(os.Getenv("LIP_AUTO_RESUME_GRACE_PERIOD")); raw != "" {
 		d, err := time.ParseDuration(raw)
 		if err != nil || d <= 0 {
-			return out, fmt.Errorf("LIP_AUTO_RESUME_GRACE_PERIOD: invalid positive duration %q", raw)
+			return out, fmt.Errorf("lip auto resume grace period: invalid positive duration %q", raw)
 		}
 		out.EnvGracePeriod = d
 	}
 	if raw := strings.TrimSpace(os.Getenv("LIP_AUTO_RESUME_POST_OUTPUT_POLICY")); raw != "" {
 		pol, err := parseStreamRecoveryPostOutputPolicy(raw)
 		if err != nil {
-			return out, fmt.Errorf("LIP_AUTO_RESUME_POST_OUTPUT_POLICY: %w", err)
+			return out, fmt.Errorf("lip auto resume post output policy: %w", err)
 		}
 		out.EnvPostOutputPolicy = pol
 	}

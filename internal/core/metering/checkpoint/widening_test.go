@@ -41,14 +41,14 @@ func TestBillableWidened_DetectsAddedMessage(t *testing.T) {
 
 func TestBillableWidened_AllowsMaxOutputNarrowing(t *testing.T) {
 	t.Parallel()
-	max := 100
+	limit := 100
 	base := lipapi.Call{
 		ID: "r",
 		Messages: []lipapi.Message{{
 			Role:  lipapi.RoleUser,
 			Parts: []lipapi.Part{lipapi.TextPart("a")},
 		}},
-		Options: lipapi.GenerationOptions{MaxOutputTokens: &max},
+		Options: lipapi.GenerationOptions{MaxOutputTokens: &limit},
 	}
 	narrowed := lipapi.CloneCall(base)
 	lower := 40

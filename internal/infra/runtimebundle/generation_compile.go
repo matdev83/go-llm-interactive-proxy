@@ -43,13 +43,13 @@ func maxActiveFromConfig(cfg *config.Config) int {
 	if cfg == nil || !cfg.Accounting.Concurrency.Enabled {
 		return 0
 	}
-	max := 0
+	maxActive := 0
 	for _, rule := range cfg.Accounting.Concurrency.Rules {
-		if rule.MaxActiveRequests > max {
-			max = rule.MaxActiveRequests
+		if rule.MaxActiveRequests > maxActive {
+			maxActive = rule.MaxActiveRequests
 		}
 	}
-	return max
+	return maxActive
 }
 
 // PublishExecutableFromProduction compiles and publishes when contribution is non-empty.

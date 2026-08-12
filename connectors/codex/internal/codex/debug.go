@@ -28,9 +28,9 @@ func stableCallID(call *lipapi.Call) string {
 	return strings.TrimSpace(call.Session.ALegID)
 }
 
-func appendLimited(items []string, value string, max int) []string {
+func appendLimited(items []string, value string, maxLen int) []string {
 	value = strings.TrimSpace(value)
-	if value == "" || max <= 0 {
+	if value == "" || maxLen <= 0 {
 		return items
 	}
 	for _, existing := range items {
@@ -38,7 +38,7 @@ func appendLimited(items []string, value string, max int) []string {
 			return items
 		}
 	}
-	if len(items) >= max {
+	if len(items) >= maxLen {
 		return items
 	}
 	return append(items, value)

@@ -533,9 +533,9 @@ func decodeWSCreateEnvelope(data []byte, opts wsTurnDecodeOptions) (decoded *dec
 		}
 	}()
 
-	max := opts.MaxMessageBytes
-	if max <= 0 {
-		max = proto.MaxRequestBytes
+	maxBytes := opts.MaxMessageBytes
+	if maxBytes <= 0 {
+		maxBytes = proto.MaxRequestBytes
 	}
 
 	fields, err := parseWSTurnObject(data)
@@ -554,7 +554,7 @@ func decodeWSCreateEnvelope(data []byte, opts wsTurnDecodeOptions) (decoded *dec
 			previousResponseID = strings.TrimSpace(previous)
 		}
 	}
-	if int64(len(data)) > max {
+	if int64(len(data)) > maxBytes {
 		return nil, &wsTurnError{
 			status:  http.StatusRequestEntityTooLarge,
 			code:    "limit_exceeded",

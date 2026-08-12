@@ -198,13 +198,13 @@ func looksSecret(s string) bool {
 	return skTokenRe.MatchString(s) || bearerRe.MatchString(s)
 }
 
-func truncateRunes(s string, max int) string {
-	if max <= 0 {
+func truncateRunes(s string, maxLen int) string {
+	if maxLen <= 0 {
 		return ""
 	}
 	r := []rune(s)
-	if len(r) <= max {
+	if len(r) <= maxLen {
 		return scrubSecretSubstrings(s)
 	}
-	return scrubSecretSubstrings(string(r[:max]))
+	return scrubSecretSubstrings(string(r[:maxLen]))
 }

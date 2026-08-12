@@ -46,8 +46,8 @@ func invocationWireToProto(inv Invocation, out *backendpluginv1.Invocation) erro
 	return nil
 }
 
-func protocolRequirementsFromProto(p *backendpluginv1.ProtocolRequirementsWire) ProtocolRequirementsDTO {
-	out := ProtocolRequirementsDTO{Capabilities: append([]string(nil), p.GetCapabilities()...)}
+func protocolRequirementsFromProto(p *backendpluginv1.ProtocolRequirementsWire) ProtocolRequirements {
+	out := ProtocolRequirements{Capabilities: append([]string(nil), p.GetCapabilities()...)}
 	for _, d := range p.GetItemDialects() {
 		out.ItemDialects = append(out.ItemDialects, dialectRequirementFromProto(d))
 	}
@@ -63,7 +63,7 @@ func protocolRequirementsFromProto(p *backendpluginv1.ProtocolRequirementsWire) 
 	return out
 }
 
-func protocolRequirementsToProto(dto ProtocolRequirementsDTO) *backendpluginv1.ProtocolRequirementsWire {
+func protocolRequirementsToProto(dto ProtocolRequirements) *backendpluginv1.ProtocolRequirementsWire {
 	out := &backendpluginv1.ProtocolRequirementsWire{Capabilities: append([]string(nil), dto.Capabilities...)}
 	for _, d := range dto.ItemDialects {
 		out.ItemDialects = append(out.ItemDialects, dialectRequirementToProto(d))

@@ -151,8 +151,8 @@ func TestToolCallAssembler_popDrainReleasesBacking(t *testing.T) {
 
 func TestToolCallAssembler_argsOverflowSafeWhenNearCap(t *testing.T) {
 	t.Parallel()
-	const cap = 16
-	a := newToolCallAssembler([]toolcall.Finalizer{mutFin{}}, cap, []lipapi.ToolDef{{Name: "t"}})
+	const maxCap = 16
+	a := newToolCallAssembler([]toolcall.Finalizer{mutFin{}}, maxCap, []lipapi.ToolDef{{Name: "t"}})
 	if a == nil {
 		t.Fatal("assembler")
 	}
@@ -161,7 +161,7 @@ func TestToolCallAssembler_argsOverflowSafeWhenNearCap(t *testing.T) {
 	held, err := a.ingest(context.Background(), lipapi.Event{
 		Kind:       lipapi.EventToolCallArgsDelta,
 		ToolCallID: "c1",
-		Delta:      strings.Repeat("a", cap+1),
+		Delta:      strings.Repeat("a", maxCap+1),
 	}, meta)
 	if err != nil {
 		t.Fatalf("delta: %v", err)

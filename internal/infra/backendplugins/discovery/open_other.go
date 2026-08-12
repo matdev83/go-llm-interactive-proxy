@@ -5,5 +5,5 @@ package discovery
 import "os"
 
 func openRegular(string) (*os.File, error) {
-	return nil, errString("unsupported platform")
+	return nil, stringError("unsupported platform")
 }

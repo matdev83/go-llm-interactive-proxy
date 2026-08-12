@@ -355,7 +355,7 @@ func TestExecutor_VisibleInterleavedNoRetryAfterThinkerOutput(t *testing.T) {
 	for {
 		ev, err := stream.Recv(ctx)
 		if err != nil {
-			var uf *lipapi.UpstreamFailure
+			var uf *lipapi.UpstreamFailureError
 			if sawReasoning && errors.As(err, &uf) && uf.Phase == lipapi.PhasePostOutput && !uf.Recoverable {
 				break
 			}

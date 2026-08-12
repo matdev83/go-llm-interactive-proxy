@@ -99,7 +99,7 @@ func (s *textThenRecoverableErrStream) Recv(context.Context) (lipapi.Event, erro
 		s.phase++
 		return lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "visible"}, nil
 	default:
-		return lipapi.Event{}, &lipapi.UpstreamFailure{
+		return lipapi.Event{}, &lipapi.UpstreamFailureError{
 			Phase: lipapi.PhasePreOutput, Recoverable: true, Reason: "late recoverable after output",
 		}
 	}
@@ -138,7 +138,7 @@ func TestDualPlaneMatrix_SequentialFailoverIncurredSettlesViaOpen(t *testing.T) 
 	openFn := func(_ context.Context, _ lipapi.Call, c routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 		n := opens.Add(1)
 		if n == 1 {
-			return nil, &lipapi.UpstreamFailure{Phase: lipapi.PhasePreOutput, Recoverable: true, Reason: "first arm fail", CandidateKey: c.Key}
+			return nil, &lipapi.UpstreamFailureError{Phase: lipapi.PhasePreOutput, Recoverable: true, Reason: "first arm fail", CandidateKey: c.Key}
 		}
 		return lipapi.NewFixedEventStream([]lipapi.Event{
 			{Kind: lipapi.EventResponseStarted},

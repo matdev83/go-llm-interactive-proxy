@@ -46,7 +46,7 @@ func TestNewLogger_recordsErrorField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	log.Error("boom", "error", errSample{})
+	log.Error("boom", "error", sampleError{})
 	line := strings.TrimSpace(buf.String())
 	if !strings.Contains(line, `"msg":"boom"`) && !strings.Contains(line, `"msg": "boom"`) {
 		t.Fatalf("expected msg in line: %s", line)
@@ -56,9 +56,9 @@ func TestNewLogger_recordsErrorField(t *testing.T) {
 	}
 }
 
-type errSample struct{}
+type sampleError struct{}
 
-func (errSample) Error() string { return "sample" }
+func (sampleError) Error() string { return "sample" }
 
 func TestNewLogger_withOTELTraceAttrs(t *testing.T) {
 	t.Parallel()

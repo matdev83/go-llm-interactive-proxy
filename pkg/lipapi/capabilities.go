@@ -70,11 +70,11 @@ func (r NegotiationResult) Err() error {
 // RequiredCapabilities derives required capabilities from call shape.
 func RequiredCapabilities(c Call) []Capability {
 	out := []Capability{}
-	add := func(cap Capability) {
-		if slices.Contains(out, cap) {
+	add := func(capability Capability) {
+		if slices.Contains(out, capability) {
 			return
 		}
-		out = append(out, cap)
+		out = append(out, capability)
 	}
 
 	scanMessageParts := func(msgs []Message) {
@@ -200,8 +200,8 @@ func ApplyNegotiatedDowngrades(c *Call, down NegotiationResult) {
 	if c == nil || down.Kind != NegotiationDowngrade {
 		return
 	}
-	for _, cap := range down.Downgraded {
-		switch cap {
+	for _, capability := range down.Downgraded {
+		switch capability {
 		case CapabilityReasoning:
 			c.Options.ReasoningEffort = ""
 		case CapabilityParallelToolCalls:
