@@ -117,31 +117,19 @@ func validateAccountingPreflight(a *AccountingConfig) error {
 }
 
 func validateAccountingLedger(a *AccountingConfig) error {
+	// Leftover accounting.ledger.* YAML is accepted for compatibility. Composition
+	// never opens this store, so sqlite/postgres paths are not required and defaults
+	// are not written as if the ledger were live.
 	store := strings.ToLower(strings.TrimSpace(a.Ledger.Store))
-	if store == "" {
-		store = "memory"
-		a.Ledger.Store = store
-	}
-	switch store {
-	case "memory", "sqlite", "postgres":
-	default:
-		return fmt.Errorf("accounting.ledger.store: want memory, sqlite, or postgres, got %q", a.Ledger.Store)
-	}
-	if store == "sqlite" && strings.TrimSpace(a.Ledger.SQLitePath) == "" {
-		return fmt.Errorf("accounting.ledger.sqlite_path: required when store is \"sqlite\"")
-	}
-	if store == "postgres" && strings.TrimSpace(a.Ledger.PostgresDSN) == "" {
-		return fmt.Errorf("accounting.ledger.postgres_dsn: required when store is \"postgres\"")
-	}
-	if store != "postgres" && strings.TrimSpace(a.Ledger.PostgresDSN) != "" {
-		return fmt.Errorf("accounting.ledger.postgres_dsn: may only be set when store is \"postgres\" (got %q)", store)
+	if store != "" {
+		switch store {
+		case "memory", "sqlite", "postgres":
+		default:
+			return fmt.Errorf("accounting.ledger.store: want memory, sqlite, or postgres, got %q", a.Ledger.Store)
+		}
 	}
 	policy := strings.ToLower(strings.TrimSpace(a.Ledger.WritePolicy))
-	if policy == "" {
-		policy = "required"
-		a.Ledger.WritePolicy = policy
-	}
-	if policy != "required" && policy != "best_effort" {
+	if policy != "" && policy != "required" && policy != "best_effort" {
 		return fmt.Errorf("accounting.ledger.write_policy: want required or best_effort, got %q", a.Ledger.WritePolicy)
 	}
 	return nil

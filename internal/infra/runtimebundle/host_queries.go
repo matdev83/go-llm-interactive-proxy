@@ -66,8 +66,8 @@ func (h *Host) Capabilities() controlplane.HostCapabilities {
 	caps := controlplane.HostCapabilities{
 		ProductionMetering: ex != nil && ex.MeteringRecorder != nil, TrafficObservers: len(prod.TrafficObservers) > 0,
 		UsageObservers: len(prod.UsageObservers) > 0, ProductionEvidenceSink: prod.EvidenceSink != nil,
-		ProductionRater: ex != nil && ex.EconomicsRater != nil, ProductionMeteringQuerier: h.MeteringQuerier() != nil,
-		ExecutableState: controlplane.CapabilityDisabled,
+		ProductionMeteringQuerier: h.MeteringQuerier() != nil,
+		ExecutableState:           controlplane.CapabilityDisabled,
 	}
 	if cur := h.currentSnapshot(); cur != nil {
 		caps.SnapshotGenerationID, caps.SnapshotUsageVersion = cur.ID, cur.Usage.Version

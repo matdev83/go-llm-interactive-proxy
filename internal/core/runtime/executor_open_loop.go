@@ -43,6 +43,7 @@ func (e *Executor) openInitialAttempt(ctx context.Context, prep *preparedRequest
 			isContextLimitExhaustion: &plan.contextLimitExhaustion,
 			transformExcludes:        &plan.transformExcludes,
 			interleaved:              plan.interleaved,
+			billingUpstreamOpened:    &prep.billingUpstreamOpened,
 		})
 		if err != nil {
 			return attemptOpenResult{}, fmt.Errorf("executor: plan or open attempt: %w", err)

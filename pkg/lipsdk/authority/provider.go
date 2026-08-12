@@ -52,7 +52,6 @@ type RequestSettlement struct {
 	RequestID      string                        `json:"request_id"`
 	Handles        []string                      `json:"handles,omitempty"`
 	Facts          []metering.Fact               `json:"facts,omitempty"`
-	Rated          []economics.RatingResult      `json:"rated,omitempty"`
 	BoundVersions  []economics.PolicySnapshotRef `json:"bound_versions,omitempty"`
 	IdempotencyKey string                        `json:"idempotency_key,omitempty"`
 }
@@ -114,7 +113,6 @@ type AttemptSettlement struct {
 	BLegID         string                        `json:"b_leg_id"`
 	Handles        []string                      `json:"handles,omitempty"`
 	Facts          []metering.Fact               `json:"facts,omitempty"`
-	Rated          []economics.RatingResult      `json:"rated,omitempty"`
 	Outcome        metering.AttemptOutcome       `json:"outcome,omitempty"`
 	Surfaced       metering.SurfacedState        `json:"surfaced,omitempty"`
 	BoundVersions  []economics.PolicySnapshotRef `json:"bound_versions,omitempty"`

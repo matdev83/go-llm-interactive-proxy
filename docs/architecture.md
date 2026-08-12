@@ -88,7 +88,7 @@ This distribution has exactly four converged ownership surfaces:
 
 **True unpublished validation:** `runtimebundle.ValidateDistribution` (CLI `lipstd check-config`) compiles through the same generation compiler in dry-run mode and **always rolls back** — it never publishes or retains a generation (no fake check-config publication).
 
-Public `pkg/lipruntime.Runtime` is a thin facade over that one host. Supported public methods: `Build`, `ExecutorView`, `Ready`, `Capabilities`, `MeteringQuerier`, `ReadinessReport`, `RefreshSnapshots`, `Reload`, `ReloadStatus`, `ReloadControl`, `Close`. Public `lipruntime.Options` is registration-only (`RequestRegistrations`, `AttemptRegistrations`, `ConcurrencyRegistration`, `RaterRegistrations`); see [`legacy-options-migration.md`](legacy-options-migration.md). Deleted dual-bootstrap / attachment / legacy-options paths are not part of the current architecture.
+Public `pkg/lipruntime.Runtime` is a thin facade over that one host. Supported public methods: `Build`, `ExecutorView`, `Ready`, `Capabilities`, `MeteringQuerier`, `ReadinessReport`, `RefreshSnapshots`, `Reload`, `ReloadStatus`, `ReloadControl`, `Close`. Public `lipruntime.Options` is registration-only (`RequestRegistrations`, `AttemptRegistrations`, `ConcurrencyRegistration`). Monetary rating is owned by post-turn billing, not runtime composition. Deleted dual-bootstrap / attachment / legacy-options paths are not part of the current architecture.
 
 ## Composition and startup
 

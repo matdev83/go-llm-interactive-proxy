@@ -8,8 +8,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 func TestBuild_RequestRegistration_NoIndexGeneratedIDs(t *testing.T) {
@@ -199,37 +197,6 @@ func TestBuild_CanonicalRegistrationBoundary_NoLegacyFields(t *testing.T) {
 	_, built := mustProcessAndCandidate(t, cfg, opts)
 	if built.Executor().RequestCoordinator == nil || len(built.Executor().RequestCoordinator.Slots) == 0 {
 		t.Fatal("canonical request registration must wire coordinator slots")
-	}
-}
-
-func TestBuild_CustomerOnlyRater_NotEconomicsRater(t *testing.T) {
-	t.Parallel()
-	cfg := baseAuthorityConfig(false, "fail_closed")
-	opts := baseAuthorityOptions(t, nil)
-	opts.Production = runtimebundle.ProductionOptions{
-		RaterRegistrations: []economics.RaterRegistration{{
-			ID: "cust-only", Perspective: metering.PerspectiveCustomer, Rater: prodRater{},
-		}},
-	}
-	_, built := mustProcessAndCandidate(t, cfg, opts)
-	if built.Executor().EconomicsRater != nil {
-		t.Fatal("customer-only rater must not fill EconomicsRater")
-	}
-	report, err := runtimebundle.CandidateReadinessReport(built).Report(context.Background())
-	if err != nil {
-		t.Fatalf("Report: %v", err)
-	}
-	for _, c := range report.Components {
-		switch c.Component {
-		case controlplane.ReadinessComponentCustomerRater:
-			if c.State != controlplane.CapabilityReady || len(c.ProviderIDs) != 1 || c.ProviderIDs[0] != "cust-only" {
-				t.Fatalf("customer rater component=%+v", c)
-			}
-		case controlplane.ReadinessComponentOperatorRater:
-			if c.State == controlplane.CapabilityReady {
-				t.Fatal("operator rater must stay disabled for customer-only")
-			}
-		}
 	}
 }
 

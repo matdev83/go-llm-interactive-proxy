@@ -8,7 +8,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 // GenerationContribution is one provider-neutral input to an executable generation
@@ -22,8 +21,6 @@ type GenerationContribution struct {
 	RequestRegistrations    []authority.RequestRegistration
 	AttemptRegistrations    []authority.AttemptRegistration
 	ConcurrencyRegistration *authority.ConcurrencyRegistration
-	CustomerRaters          []economics.RaterRegistration
-	OperatorRaters          []economics.RaterRegistration
 
 	// MaxActiveRequests is the compiled concurrency enforcement limit for this
 	// contribution when a concurrency registration is present (requirement 9.7).
@@ -79,24 +76,8 @@ func (c GenerationContribution) Validate() error {
 			return fmt.Errorf("runtimegen: max_active_requests required with concurrency registration")
 		}
 	}
-	for i, reg := range c.CustomerRaters {
-		if err := reg.Validate(); err != nil {
-			return fmt.Errorf("runtimegen: customer rater[%d]: %w", i, err)
-		}
-		if reg.Perspective != metering.PerspectiveCustomer {
-			return fmt.Errorf("runtimegen: customer rater[%d]: perspective must be customer", i)
-		}
-	}
-	for i, reg := range c.OperatorRaters {
-		if err := reg.Validate(); err != nil {
-			return fmt.Errorf("runtimegen: operator rater[%d]: %w", i, err)
-		}
-		if reg.Perspective != metering.PerspectiveOperator {
-			return fmt.Errorf("runtimegen: operator rater[%d]: perspective must be operator", i)
-		}
-	}
 	if c.ConcurrencyRegistration == nil && len(c.RequestRegistrations) == 0 &&
-		len(c.AttemptRegistrations) == 0 && len(c.CustomerRaters) == 0 && len(c.OperatorRaters) == 0 {
+		len(c.AttemptRegistrations) == 0 {
 		return fmt.Errorf("runtimegen: contribution has no executable registrations")
 	}
 	return nil

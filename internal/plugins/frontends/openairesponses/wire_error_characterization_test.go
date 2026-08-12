@@ -5,11 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/execerr"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
@@ -27,6 +30,7 @@ func (e *charErrExecutor) WallClock() func() time.Time                          
 func TestWireErrorCharacterization_executeErrors(t *testing.T) {
 	t.Parallel()
 	body := policyBody(t)
+	quotaCode := "insufficient_quota"
 	cases := []struct {
 		name       string
 		err        error
@@ -62,6 +66,21 @@ func TestWireErrorCharacterization_executeErrors(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 			wantType:   "invalid_request_error",
 			wantMsg:    "missing capability",
+		},
+		{
+			name:       "billing_denied_insufficient_credit",
+			err:        fmt.Errorf("%w: %w", runtime.ErrBillingAdmissionDenied, billing.ErrInsufficientSpendable),
+			wantStatus: http.StatusTooManyRequests,
+			wantType:   "insufficient_quota",
+			wantCode:   &quotaCode,
+			wantMsg:    execerr.InsufficientCreditWireMessage,
+		},
+		{
+			name:       "billing_unavailable",
+			err:        fmt.Errorf("%w: %w", runtime.ErrBillingAdmissionDenied, billing.ErrAuthorizationUnavailable),
+			wantStatus: http.StatusServiceUnavailable,
+			wantType:   "api_error",
+			wantMsg:    execerr.BillingUnavailableWireMessage,
 		},
 		{
 			name:       "internal_error",

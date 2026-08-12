@@ -40,6 +40,41 @@ var ForbiddenImports = []ForbiddenImportRule{
 		Reason:        "public facade uses pkg/lipsdk/configreload",
 	},
 	{
+		SourcePattern: "internal/core/runtime",
+		TargetPattern: "/internal/core/tokenaccounting/ledger",
+		Reason:        "runtime must not write the legacy token ledger; sealed TUR/LUR owns financial evidence",
+	},
+	{
+		SourcePattern: "internal/core/runtime",
+		TargetPattern: "/internal/infra/billingstore",
+		Reason:        "runtime must not import journal settlement; post-turn billing owns monetary truth",
+	},
+	{
+		SourcePattern: "internal/core/billing",
+		TargetPattern: "github.com/openai/openai-go",
+		Reason:        "billing must not import provider SDKs",
+	},
+	{
+		SourcePattern: "internal/core/billing",
+		TargetPattern: "github.com/anthropics/anthropic-sdk-go",
+		Reason:        "billing must not import provider SDKs",
+	},
+	{
+		SourcePattern: "internal/core/billing",
+		TargetPattern: "google.golang.org/genai",
+		Reason:        "billing must not import provider SDKs",
+	},
+	{
+		SourcePattern: "internal/core/billing",
+		TargetPattern: "github.com/aws/aws-sdk-go-v2",
+		Reason:        "billing must not import provider SDKs",
+	},
+	{
+		SourcePattern: "internal/core/billing",
+		TargetPattern: "/pkg/lipapi",
+		Reason:        "billing evidence stays provider-neutral and lipapi-free",
+	},
+	{
 		SourcePattern: "internal/core",
 		TargetPattern: "/internal/infra/runtimebundle",
 		Reason:        "core must not import composition runtimebundle",

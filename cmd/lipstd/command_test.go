@@ -64,10 +64,10 @@ func TestRunMigrateCommandUnknownComponents(t *testing.T) {
 	var stderr bytes.Buffer
 	code := RunCommand(t.Context(), CommandOptions{
 		Name:       CommandMigrate,
-		Components: "billing",
+		Components: "not-a-component",
 		ErrorOut:   &stderr,
 	})
-	if code != 2 || !strings.Contains(stderr.String(), "billing") {
+	if code != 2 || !strings.Contains(stderr.String(), "not-a-component") {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 }

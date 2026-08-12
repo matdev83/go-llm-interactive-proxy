@@ -279,6 +279,67 @@ func TestResourceLedger_AddCloseAfterRollbackRunsImmediatelyOnce(t *testing.T) {
 	}
 }
 
+func TestResourceLedger_PublishStartsOnlyOnPublish(t *testing.T) {
+	t.Parallel()
+	ledger := runtimebundle.NewResourceLedger()
+	var published, stopped atomic.Int32
+	ledger.AddAction(
+		"worker", runtimebundle.PhasePublish,
+		func(context.Context) error {
+			published.Add(1)
+			return nil
+		},
+		func(context.Context) error {
+			stopped.Add(1)
+			return nil
+		},
+	)
+	if err := ledger.Prepare(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.Activate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if published.Load() != 0 {
+		t.Fatalf("PhasePublish ran during activate: starts=%d", published.Load())
+	}
+	if err := ledger.Publish(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if published.Load() != 1 {
+		t.Fatalf("published starts=%d", published.Load())
+	}
+	if err := ledger.Rollback(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if stopped.Load() != 1 {
+		t.Fatalf("rollback stops=%d", stopped.Load())
+	}
+}
+
+func TestResourceLedger_RollbackSkipsUnpublishedStarts(t *testing.T) {
+	t.Parallel()
+	ledger := runtimebundle.NewResourceLedger()
+	var stopped atomic.Int32
+	ledger.AddAction(
+		"worker", runtimebundle.PhasePublish,
+		func(context.Context) error { return nil },
+		func(context.Context) error {
+			stopped.Add(1)
+			return nil
+		},
+	)
+	if err := ledger.Activate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.Rollback(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if stopped.Load() != 0 {
+		t.Fatalf("unpublished PhasePublish stop ran: stopped=%d", stopped.Load())
+	}
+}
+
 func TestResourceLedger_AddCloseNilIsNoop(t *testing.T) {
 	t.Parallel()
 	ledger := runtimebundle.NewResourceLedger()

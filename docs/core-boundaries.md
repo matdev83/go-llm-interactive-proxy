@@ -47,7 +47,8 @@ This document classifies every top-level `internal/core/*` package so contributo
 | `modelcatalog` | canonical contract | Core model catalog and vendor resolver contracts. | medium |
 | `modelregistry` | canonical contract | Model registry runtime and cache for backend model inventory. | medium |
 | `accounting` | canonical contract | Usage accounting price catalog and cost estimation. | low |
-| `tokenaccounting` | support | Token counting, preflight, ledger, and observability sub-packages. | medium |
+| `billing` | canonical contract | Provider-neutral immutable TUR/LUR evidence and replay identities; no runtime, provider, or database ownership. | low |
+| `tokenaccounting` | support | Token counting, preflight, and protocol/quota usage projection only; not a financial balance or journal input. | medium |
 | `controlplane` | state seam | Control-plane validation, status, query, retention, event ledger. | medium |
 | `interleavedstate` | support | Interleaved-thinking state tracking for multi-turn reasoning. | low |
 | `interleavedthinking` | support | Interleaved-thinking shape configuration and memo store. | low |

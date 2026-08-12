@@ -49,7 +49,6 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 			RequestRegistrations:      norm.RequestRegistrations,
 			AttemptRegistrations:      norm.AttemptRegistrations,
 			ConcurrencyRegistration:   norm.ConcurrencyRegistration,
-			RaterRegistrations:        norm.RaterRegistrations,
 			UsageSnapshotSource:       opts.UsageSnapshotSource,
 			ConcurrencySnapshotSource: opts.ConcurrencySnapshotSource,
 			RatingSnapshotSource:      opts.RatingSnapshotSource,

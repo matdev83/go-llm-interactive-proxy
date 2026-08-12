@@ -30,10 +30,6 @@ type ReadinessReportSources struct {
 	AttemptCoordinatorEnabled bool
 	RequestCoordinatorIDs     []string
 	AttemptCoordinatorIDs     []string
-	CustomerRaterAttached     bool
-	OperatorRaterAttached     bool
-	CustomerRaterIDs          []string
-	OperatorRaterIDs          []string
 	SecretGuardQuarantine     func(context.Context) (cp.ReadinessComponentStatus, error)
 	TerminalRecovery          func(context.Context) (cp.ReadinessComponentStatus, error)
 	StoreBackings             ReadinessStoreBackings
@@ -146,8 +142,6 @@ func (s *ReadinessReportService) Report(ctx context.Context) (cp.ReadinessReport
 		components = append(components, disabledComponent(cp.ReadinessComponentRatingSnapshot, now))
 	}
 	components = append(components, executableGenerationComponent(execStatus, now))
-	components = append(components, enabledComponent(cp.ReadinessComponentCustomerRater, src.CustomerRaterAttached, src.CustomerRaterIDs, now))
-	components = append(components, enabledComponent(cp.ReadinessComponentOperatorRater, src.OperatorRaterAttached, src.OperatorRaterIDs, now))
 	if src.SecretGuardQuarantine != nil {
 		if row, err := src.SecretGuardQuarantine(ctx); err == nil {
 			row.LastUpdatedAt = now

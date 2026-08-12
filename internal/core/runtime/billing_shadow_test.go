@@ -1,0 +1,423 @@
+package runtime
+
+import (
+	"context"
+	"errors"
+	"net/url"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
+)
+
+func TestBillingShadowHandoffIsTerminalOnlyAndIdempotent(t *testing.T) {
+	var mu sync.Mutex
+	var records []billing.LegUsageRecord
+	executor := &Executor{CoreRuntime: CoreRuntime{
+		BillingShadowObserver: BillingShadowObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+			mu.Lock()
+			records = append(records, record)
+			mu.Unlock()
+		}),
+	}}
+	stream := &retryRecvStream{
+		executor: executor,
+		aLegID:   "a-1",
+		bleg:     b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2},
+		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}},
+		lastAuthorityUsage: lipapi.Event{
+			Kind:          lipapi.EventUsageDelta,
+			InputTokens:   12,
+			OutputTokens:  0,
+			CostNanoUnits: 0,
+			Currency:      "USD",
+			CostPresent:   true,
+			UsagePresence: lipapi.UsagePresence{InputTokens: true, OutputTokens: true},
+			Accounting: lipapi.UsageAccountingMetadata{
+				Source:    lipapi.UsageSourceProviderReported,
+				Authority: lipapi.UsageAuthorityAuthoritative,
+				DedupeKey: "provider-charge-2",
+			},
+		},
+	}
+
+	first := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil)
+	if first.Err != nil {
+		t.Fatalf("first terminalization: %v", first.Err)
+	}
+	second := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil)
+	if second.Err != nil {
+		t.Fatalf("repeated terminalization: %v", second.Err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(records) != 1 {
+		t.Fatalf("shadow records = %d, want exactly one", len(records))
+	}
+	got := records[0]
+	if got.ALegID != "a-1" || got.BLegID != "b-2" || got.Seq != 2 {
+		t.Fatalf("lineage = %+v", got)
+	}
+	if got.BackendID != "backend-b" || got.ProviderID != "backend-b" || got.ModelID != "model-b" {
+		t.Fatalf("provider attribution = %+v", got)
+	}
+	if got.Outcome != billing.LegOutcomeWinner || got.Surfaced != billing.SurfacedYes {
+		t.Fatalf("terminal state = %q/%q", got.Outcome, got.Surfaced)
+	}
+	if !got.Evidence.Cost.Present || got.Evidence.Cost.NanoUnits != 0 {
+		t.Fatalf("explicit zero provider cost was lost: %+v", got.Evidence)
+	}
+	if !got.Evidence.InputTokens.Present || got.Evidence.InputTokens.Value != 12 || !got.Evidence.OutputTokens.Present || got.Evidence.OutputTokens.Value != 0 {
+		t.Fatalf("usage presence/value = %+v", got.Evidence)
+	}
+}
+
+func TestBillingShadowObserverPanicCannotChangeTerminalResult(t *testing.T) {
+	executor := &Executor{CoreRuntime: CoreRuntime{
+		BillingShadowObserver: BillingShadowObserverFunc(func(context.Context, billing.LegUsageRecord) {
+			panic("observer must be isolated")
+		}),
+	}}
+	stream := &retryRecvStream{
+		executor: executor,
+		aLegID:   "a-1",
+		bleg:     b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
+		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}},
+	}
+	result := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil)
+	if result.Err != nil {
+		t.Fatalf("observer panic changed terminal result: %v", result.Err)
+	}
+}
+
+func TestBillingShadowHandoffCoversSequentialReplacementBLegs(t *testing.T) {
+	var records []billing.LegUsageRecord
+	executor := &Executor{CoreRuntime: CoreRuntime{
+		BillingShadowObserver: BillingShadowObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+			records = append(records, record)
+		}),
+	}}
+	stream := &retryRecvStream{
+		executor: executor,
+		aLegID:   "a-1",
+		bleg:     b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
+		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}},
+		lastAuthorityUsage: lipapi.Event{
+			Kind: lipapi.EventUsageDelta, InputTokens: 9,
+			UsagePresence: lipapi.UsagePresence{InputTokens: true},
+		},
+	}
+	if result := stream.runAttemptTerminal(context.Background(), sdkterminal.CommandSwallowedAttempt, nil); result.Err != nil {
+		t.Fatalf("first attempt terminalization: %v", result.Err)
+	}
+	stream.bleg = b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2}
+	stream.cand = routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}}
+	stream.lastAuthorityUsage = lipapi.Event{}
+	stream.resetAttemptTerminal()
+	if result := stream.runAttemptTerminal(context.Background(), sdkterminal.CommandSwallowedAttempt, nil); result.Err != nil {
+		t.Fatalf("replacement attempt terminalization: %v", result.Err)
+	}
+	if len(records) != 2 || records[0].BLegID != "b-1" || records[1].BLegID != "b-2" {
+		t.Fatalf("shadow replacement records = %+v", records)
+	}
+	if records[1].Evidence.InputTokens.Present {
+		t.Fatal("replacement LUR inherited prior B-leg evidence")
+	}
+}
+
+func TestBillingShadowUsesFinalizeBillingWhenSupported(t *testing.T) {
+	var finalizeCalls int
+	var records []billing.LegUsageRecord
+	executor := &Executor{CoreRuntime: CoreRuntime{
+		Backends: map[string]execbackend.Backend{
+			"backend-b": {
+				FinalizeBilling: func(_ context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
+					finalizeCalls++
+					if in.ALegID != "a-1" || in.BLegID != "b-2" {
+						t.Fatalf("finalize lineage = %+v", in)
+					}
+					return lipapi.Event{
+						Kind:          lipapi.EventUsageDelta,
+						InputTokens:   99,
+						OutputTokens:  7,
+						UsagePresence: lipapi.UsagePresence{InputTokens: true, OutputTokens: true},
+						Accounting: lipapi.UsageAccountingMetadata{
+							Source:    lipapi.UsageSourceProviderReported,
+							Authority: lipapi.UsageAuthorityAuthoritative,
+							DedupeKey: "finalize-key",
+						},
+					}, nil
+				},
+			},
+		},
+		BillingShadowObserver: BillingShadowObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+			records = append(records, record)
+		}),
+	}}
+	stream := &retryRecvStream{
+		executor: executor,
+		aLegID:   "a-1",
+		bleg:     b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2},
+		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}},
+		lastAuthorityUsage: lipapi.Event{
+			Kind:          lipapi.EventUsageDelta,
+			InputTokens:   12,
+			UsagePresence: lipapi.UsagePresence{InputTokens: true},
+		},
+	}
+	if result := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
+		t.Fatalf("terminalization: %v", result.Err)
+	}
+	if finalizeCalls != 1 {
+		t.Fatalf("FinalizeBilling calls = %d, want 1", finalizeCalls)
+	}
+	if len(records) != 1 {
+		t.Fatalf("shadow records = %d", len(records))
+	}
+	got := records[0].Evidence
+	if !got.InputTokens.Present || got.InputTokens.Value != 99 || !got.OutputTokens.Present || got.OutputTokens.Value != 7 {
+		t.Fatalf("shadow evidence ignored FinalizeBilling: %+v", got)
+	}
+	if got.DedupeKey != "finalize-key" {
+		t.Fatalf("dedupe key = %q", got.DedupeKey)
+	}
+}
+
+func TestBillingShadowPreservesStreamAuthoritativeZeroCostAcrossFinalize(t *testing.T) {
+	var records []billing.LegUsageRecord
+	executor := &Executor{CoreRuntime: CoreRuntime{
+		Backends: map[string]execbackend.Backend{
+			"backend-b": {
+				FinalizeBilling: func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error) {
+					// FinalizeBilling ABI carries tokens/provenance only — no cost fields.
+					return lipapi.Event{
+						Kind:          lipapi.EventUsageDelta,
+						InputTokens:   99,
+						OutputTokens:  7,
+						UsagePresence: lipapi.UsagePresence{InputTokens: true, OutputTokens: true},
+						Accounting: lipapi.UsageAccountingMetadata{
+							Source:    lipapi.UsageSourceProviderReported,
+							DedupeKey: "finalize-key",
+						},
+					}, nil
+				},
+			},
+		},
+		BillingShadowObserver: BillingShadowObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+			records = append(records, record)
+		}),
+	}}
+	stream := &retryRecvStream{
+		executor: executor,
+		aLegID:   "a-1",
+		bleg:     b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2},
+		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}},
+		lastAuthorityUsage: lipapi.Event{
+			Kind:          lipapi.EventUsageDelta,
+			InputTokens:   12,
+			CostNanoUnits: 0,
+			Currency:      "USD",
+			CostPresent:   true,
+			UsagePresence: lipapi.UsagePresence{InputTokens: true},
+			Accounting: lipapi.UsageAccountingMetadata{
+				Source:    lipapi.UsageSourceProviderReported,
+				Authority: lipapi.UsageAuthorityAuthoritative,
+				DedupeKey: "stream-cost",
+			},
+		},
+	}
+	if result := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
+		t.Fatalf("terminalization: %v", result.Err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("shadow records = %d", len(records))
+	}
+	got := records[0].Evidence
+	if !got.InputTokens.Present || got.InputTokens.Value != 99 || !got.OutputTokens.Present || got.OutputTokens.Value != 7 {
+		t.Fatalf("finalize tokens lost: %+v", got)
+	}
+	if !got.Cost.Present || got.Cost.NanoUnits != 0 || got.Cost.Currency != "USD" {
+		t.Fatalf("stream authoritative zero cost was dropped by FinalizeBilling merge: %+v", got)
+	}
+	if got.Authority != billing.EvidenceAuthorityAuthoritative {
+		t.Fatalf("stream authority was dropped with cost: %+v", got)
+	}
+	if got.DedupeKey != "finalize-key" {
+		t.Fatalf("finalize provenance lost: %+v", got)
+	}
+}
+
+func TestBillingShadowFallsBackWhenFinalizeBillingFails(t *testing.T) {
+	var records []billing.LegUsageRecord
+	executor := &Executor{CoreRuntime: CoreRuntime{
+		Backends: map[string]execbackend.Backend{
+			"backend-b": {
+				FinalizeBilling: func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error) {
+					return lipapi.Event{}, errors.New("finalize unavailable")
+				},
+			},
+		},
+		BillingShadowObserver: BillingShadowObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+			records = append(records, record)
+		}),
+	}}
+	stream := &retryRecvStream{
+		executor: executor,
+		aLegID:   "a-1",
+		bleg:     b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2},
+		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}},
+		lastAuthorityUsage: lipapi.Event{
+			Kind:          lipapi.EventUsageDelta,
+			InputTokens:   12,
+			UsagePresence: lipapi.UsagePresence{InputTokens: true},
+		},
+	}
+	if result := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
+		t.Fatalf("finalize failure changed terminal result: %v", result.Err)
+	}
+	if len(records) != 1 || !records[0].Evidence.InputTokens.Present || records[0].Evidence.InputTokens.Value != 12 {
+		t.Fatalf("expected stream fallback evidence, got %+v", records)
+	}
+}
+
+func TestBillingShadowUsesDistinctProviderParamWhenPresent(t *testing.T) {
+	var got billing.LegUsageRecord
+	executor := &Executor{CoreRuntime: CoreRuntime{
+		BillingShadowObserver: BillingShadowObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+			got = record
+		}),
+	}}
+	params := make(url.Values)
+	params.Set("provider", "openai")
+	stream := &retryRecvStream{
+		executor: executor,
+		aLegID:   "a-1",
+		bleg:     b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
+		cand: routing.AttemptCandidate{Primary: routing.Primary{
+			Backend: "backend-azure", Model: "model-x", Params: params,
+		}},
+	}
+	if result := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
+		t.Fatal(result.Err)
+	}
+	if got.BackendID != "backend-azure" || got.ProviderID != "openai" {
+		t.Fatalf("attribution BackendID=%q ProviderID=%q", got.BackendID, got.ProviderID)
+	}
+}
+
+func TestBillingShadowEmptyBLegIDUsesColonFreeSyntheticID(t *testing.T) {
+	var got billing.LegUsageRecord
+	executor := &Executor{CoreRuntime: CoreRuntime{
+		BillingShadowObserver: BillingShadowObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+			got = record
+		}),
+	}}
+	stream := &retryRecvStream{
+		executor: executor,
+		aLegID:   "a-1",
+		bleg:     b2bua.BLegRecord{BLegID: "", ALegID: "a-1", Seq: 3},
+		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}},
+	}
+	if result := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
+		t.Fatal(result.Err)
+	}
+	if got.BLegID != "seq_3" {
+		t.Fatalf("synthetic BLegID = %q, want seq_3 (colon-free for LURKey)", got.BLegID)
+	}
+	// Durable key must be sealable under the Phase 1.3 colon contract.
+	leg := billing.LegUsageRecord{
+		ALegID: "a-1", BLegID: got.BLegID, Seq: 3,
+		BackendID: "backend-a", ProviderID: "backend-a", ModelID: "model-a",
+		Outcome: billing.LegOutcomeWinner, Surfaced: billing.SurfacedYes,
+		StartedAt: time.Unix(1, 0).UTC(), FinishedAt: time.Unix(2, 0).UTC(),
+	}
+	record := billing.TurnUsageRecord{
+		SchemaVersion: billing.CurrentRecordSchemaVersion,
+		AccountID:     "acct", TurnID: "a-1", ALegID: "a-1", AuthorizationID: "auth",
+		StartedAt: time.Unix(1, 0).UTC(), FinishedAt: time.Unix(2, 0).UTC(),
+		Outcome: billing.TurnOutcomeCompleted, Legs: []billing.LegUsageRecord{leg},
+	}
+	if _, err := record.Seal(); err != nil {
+		t.Fatalf("synthetic BLegID must seal: %v", err)
+	}
+}
+
+func TestBillingShadowFallbackUsesLastUsageDeltaNotCumulativeSum(t *testing.T) {
+	var records []billing.LegUsageRecord
+	executor := &Executor{CoreRuntime: CoreRuntime{
+		BillingShadowObserver: BillingShadowObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+			records = append(records, record)
+		}),
+	}}
+	stream := &retryRecvStream{
+		executor: executor,
+		aLegID:   "a-1",
+		bleg:     b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
+		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}},
+		seenEvents: []lipapi.Event{
+			{
+				Kind:          lipapi.EventUsageDelta,
+				InputTokens:   10,
+				OutputTokens:  0,
+				TotalTokens:   10,
+				UsagePresence: lipapi.UsagePresence{InputTokens: true, OutputTokens: true, TotalTokens: true},
+			},
+			{
+				Kind:          lipapi.EventUsageDelta,
+				InputTokens:   20,
+				OutputTokens:  0,
+				TotalTokens:   20,
+				UsagePresence: lipapi.UsagePresence{InputTokens: true, OutputTokens: true, TotalTokens: true},
+			},
+		},
+	}
+	if result := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
+		t.Fatalf("terminalization: %v", result.Err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("shadow records = %d, want 1", len(records))
+	}
+	got := records[0].Evidence
+	if !got.InputTokens.Present || got.InputTokens.Value != 20 || got.TotalTokens.Value != 20 {
+		t.Fatalf("LUR fallback must use last cumulative delta 20, not sum 30: %+v", got)
+	}
+}
+
+func TestFinalizeBillingOncePerBLegForQuotaAndLUR(t *testing.T) {
+	var calls int
+	executor := &Executor{CoreRuntime: CoreRuntime{
+		Backends: map[string]execbackend.Backend{
+			"backend-b": {
+				FinalizeBilling: func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error) {
+					calls++
+					return lipapi.Event{
+						Kind:          lipapi.EventUsageDelta,
+						InputTokens:   5,
+						UsagePresence: lipapi.UsagePresence{InputTokens: true},
+					}, nil
+				},
+			},
+		},
+		BillingShadowObserver: BillingShadowObserverFunc(func(context.Context, billing.LegUsageRecord) {}),
+	}}
+	stream := &retryRecvStream{
+		executor: executor,
+		aLegID:   "a-1",
+		bleg:     b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2},
+		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}},
+	}
+	if !stream.finalizeBillingAfterCancel(context.Background(), "client canceled") {
+		t.Fatal("quota finalize should succeed")
+	}
+	stream.observeBillingShadow(context.Background(), sdkterminal.CommandCancel)
+	if calls != 1 {
+		t.Fatalf("FinalizeBilling calls = %d, want 1 shared snapshot for quota and LUR", calls)
+	}
+}

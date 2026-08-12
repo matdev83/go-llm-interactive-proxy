@@ -8,8 +8,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
-	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
@@ -169,22 +167,6 @@ func (e *Executor) applyPreviewClamps(ctx context.Context, call *lipapi.Call, c 
 				continue
 			}
 			call.Options.MaxOutputTokens = &maxOut
-		case authority.ClampMaxSpend:
-			if !clamp.Money.Present {
-				return fmt.Errorf("executor: preview max_spend clamp missing money (rule %q)", clamp.RuleID)
-			}
-			adm := &authorityapp.AdmissionClamp{
-				RuleID: clamp.RuleID,
-				EffectiveMax: domain.Amount{
-					Unit:     domain.AmountUnitMoneyNano,
-					Value:    clamp.Money.NanoUnits,
-					Currency: strings.TrimSpace(clamp.Money.Currency),
-				},
-				FailureBehavior: domain.FailureBehaviorFailClosed,
-			}
-			if err := e.applyAuthorityClamp(ctx, call, c, adm, inputTokens); err != nil {
-				return fmt.Errorf("executor: preview max_spend quote: %w", err)
-			}
 		default:
 			return fmt.Errorf("executor: preview unknown clamp kind %q", clamp.Kind)
 		}
@@ -228,10 +210,6 @@ func clampsExactEqual(a, b authority.Clamp) bool {
 	switch a.Kind {
 	case authority.ClampMaxOutputTokens:
 		return a.Value == b.Value
-	case authority.ClampMaxSpend:
-		return a.Money.Present == b.Money.Present &&
-			a.Money.NanoUnits == b.Money.NanoUnits &&
-			strings.EqualFold(strings.TrimSpace(a.Money.Currency), strings.TrimSpace(b.Money.Currency))
 	default:
 		return false
 	}
@@ -257,24 +235,6 @@ func maxOutputEqual(a, b lipapi.Call) bool {
 	}
 }
 
-func admissionClampAsAuthority(clamp *authorityapp.AdmissionClamp) (authority.Clamp, bool) {
-	if clamp == nil {
-		return authority.Clamp{}, false
-	}
-	if clamp.EffectiveMax.Unit != domain.AmountUnitMoneyNano {
-		return authority.Clamp{}, false
-	}
-	return authority.Clamp{
-		Kind:   authority.ClampMaxSpend,
-		RuleID: clamp.RuleID,
-		Money: economics.Money{
-			NanoUnits: clamp.EffectiveMax.Value,
-			Currency:  strings.TrimSpace(clamp.EffectiveMax.Currency),
-			Present:   true,
-		},
-	}, true
-}
-
 // enforcePostAdmitClamps rejects exposure-changing admit clamps that were not
 // exactly previewed. Matching clamps do not mutate the frozen call again.
 func (e *Executor) enforcePostAdmitClamps(
@@ -289,11 +249,6 @@ func (e *Executor) enforcePostAdmitClamps(
 ) error {
 	var admitClamps []authority.Clamp
 	admitClamps = append(admitClamps, state.admitClamps...)
-	if mapped, ok := admissionClampAsAuthority(state.admissionResult.Clamp); ok {
-		if !clampExactInSet(admitClamps, mapped) {
-			admitClamps = append(admitClamps, mapped)
-		}
-	}
 	if len(admitClamps) == 0 {
 		return nil
 	}
@@ -311,14 +266,6 @@ func (e *Executor) enforcePostAdmitClamps(
 		case authority.ClampMaxOutputTokens:
 			maxOut := int(clamp.Value)
 			probe.Options.MaxOutputTokens = &maxOut
-		case authority.ClampMaxSpend:
-			adm, ok := clampToAdmissionClamp(clamp)
-			if !ok {
-				return fmt.Errorf("executor: legacy admit clamp unsupported")
-			}
-			if err := e.applyAuthorityClamp(ctx, &probe, c, adm, inputTokens); err != nil {
-				return fmt.Errorf("executor: legacy clamp probe: %w", err)
-			}
 		default:
 			return fmt.Errorf("executor: unknown admit clamp kind %q", clamp.Kind)
 		}
@@ -328,19 +275,4 @@ func (e *Executor) enforcePostAdmitClamps(
 	}
 	_ = call
 	return nil
-}
-
-func clampToAdmissionClamp(clamp authority.Clamp) (*authorityapp.AdmissionClamp, bool) {
-	if clamp.Kind != authority.ClampMaxSpend || !clamp.Money.Present {
-		return nil, false
-	}
-	return &authorityapp.AdmissionClamp{
-		RuleID: clamp.RuleID,
-		EffectiveMax: domain.Amount{
-			Unit:     domain.AmountUnitMoneyNano,
-			Value:    clamp.Money.NanoUnits,
-			Currency: clamp.Money.Currency,
-		},
-		FailureBehavior: domain.FailureBehaviorFailClosed,
-	}, true
 }

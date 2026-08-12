@@ -420,6 +420,7 @@ else
 endif
 
 release-gates: parity-checks quality-checks
+	$(GO) test $(GO_TEST_FLAGS) ./internal/core/billing -run '^TestPhase7_DeterministicShadowRatingAcceptanceGate$$'
 	@$(MAKE) test-fuzz
 
 bench:

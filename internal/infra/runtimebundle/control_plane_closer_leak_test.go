@@ -2,6 +2,7 @@ package runtimebundle
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"strings"
@@ -127,13 +128,9 @@ func TestBuild_ControlPlaneCloserDisposedOnStreamRecoveryFailure(t *testing.T) {
 	}
 }
 
-// TestBuild_ControlPlaneCloserDisposedOnPricingFailure covers the latest compile
-// failure point: accounting.NewPriceCatalog runs after the token-accounting
-// closer is registered, so closers holds the control-plane store plus model,
-// continuity, secure-session, and token-accounting handles. Locks the disposal
-// invariant for the pricing error path before the Phase 2 build-unit extraction
-// moves it into buildExecutorRuntime.
-func TestBuild_ControlPlaneCloserDisposedOnPricingFailure(t *testing.T) { //nolint:paralleltest // self-contained: documented Not parallel
+// TestBuild_ControlPlaneCloserDisposedOnCompileFailure locks disposal when
+// candidate compile fails after the control-plane store closer is registered.
+func TestBuild_ControlPlaneCloserDisposedOnCompileFailure(t *testing.T) { //nolint:paralleltest // self-contained: documented Not parallel
 	store := &closeObservableStore{fakeRetentionStore: &fakeRetentionStore{}}
 	cfg := &config.Config{
 		Routing:    config.RoutingConfig{MaxAttempts: 3},
@@ -145,8 +142,8 @@ func TestBuild_ControlPlaneCloserDisposedOnPricingFailure(t *testing.T) { //noli
 			RecordingPolicy: "best_effort",
 		},
 		Accounting: config.AccountingConfig{
-			Pricing: config.AccountingPricingConfig{
-				Models: []config.AccountingModelPriceConfig{{Model: "x"}}, // empty Backend -> NewPriceCatalog fails
+			Billing: config.AccountingBillingConfig{
+				Authoritative: true, // requires injected BillingStore; compile fails closed
 			},
 		},
 	}
@@ -157,12 +154,12 @@ func TestBuild_ControlPlaneCloserDisposedOnPricingFailure(t *testing.T) { //noli
 		},
 	})
 	if err == nil {
-		t.Fatal("expected failure on accounting pricing with empty model backend")
+		t.Fatal("expected failure on authoritative billing without injected store")
 	}
-	if !strings.Contains(err.Error(), "runtimebundle: accounting pricing") {
-		t.Fatalf("expected pricing error, got %v", err)
+	if !errors.Is(err, ErrAuthoritativeBillingRequired) && !strings.Contains(err.Error(), "authoritative billing") {
+		t.Fatalf("expected authoritative billing error, got %v", err)
 	}
 	if !store.closed.Load() {
-		t.Fatal("control-plane store closer must be disposed when candidate compile fails at accounting pricing (latest step)")
+		t.Fatal("control-plane store closer must be disposed when candidate compile fails after control-plane registration")
 	}
 }

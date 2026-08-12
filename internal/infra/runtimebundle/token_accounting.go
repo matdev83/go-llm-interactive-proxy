@@ -2,72 +2,46 @@ package runtimebundle
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
-	accountingledger "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/ledger"
 	accountingobs "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability"
 	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
 	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tokenaccounting/ledgerstore"
 	tiktokenlocal "github.com/matdev83/go-llm-interactive-proxy/internal/infra/tokenizers/tiktoken"
-	"github.com/uptrace/bun"
-	_ "modernc.org/sqlite" // register sqlite driver for configured token-accounting ledgers
 )
 
 type tokenAccountingRuntime struct {
 	Counter       *accountingapp.Service
 	Preflight     *accountingpreflight.Checker
 	StreamUsage   *accountingstream.Reconstructor
-	Ledger        accountingledger.Recorder
 	Observability *accountingobs.Stats
 	Admin         *accountingapp.Service
 }
 
 type processAccountingStores struct {
-	Ledger        accountingledger.Recorder
+	// Observability is optional token-accounting telemetry. The legacy financial
+	// token ledger is intentionally not composed after Phase 8 cutover.
 	Observability *accountingobs.Stats
 }
 
 const defaultAccountingCountTimeout = 750 * time.Millisecond
 
-func buildProcessAccountingStores(parent context.Context, cfg *config.Config, now func() time.Time) (*processAccountingStores, []func() error, error) {
+func buildProcessAccountingStores(_ context.Context, cfg *config.Config, _ func() time.Time) (*processAccountingStores, []func() error, error) {
 	if cfg == nil || !cfg.Accounting.Enabled {
 		return nil, nil, nil
 	}
-	if parent == nil {
-		parent = context.Background()
-	}
-	if now == nil {
-		now = time.Now
-	}
+	// accounting.ledger.* remains accepted for backward-compatible YAML, but
+	// durable/memory financial token ledgers are no longer opened or written.
 	out := &processAccountingStores{}
-	var closers []func() error
-	switch strings.ToLower(strings.TrimSpace(cfg.Accounting.Ledger.Store)) {
-	case "", "memory":
-		out.Ledger = accountingledger.NewMemoryLedger(accountingledger.Options{Now: now})
-	case "sqlite", "postgres":
-		ledger, closeFn, err := openDurableAccountingLedger(parent, cfg)
-		if err != nil {
-			return nil, nil, err
-		}
-		out.Ledger = ledger
-		closers = append(closers, closeFn)
-	default:
-		return nil, nil, fmt.Errorf("runtimebundle: accounting.ledger.store %q is invalid", cfg.Accounting.Ledger.Store)
-	}
 	if cfg.Accounting.Observability.Enabled {
 		out.Observability = accountingobs.NewStats()
 	}
-	return out, closers, nil
+	return out, nil, nil
 }
 
 func bindTokenAccountingRuntime(stores *processAccountingStores, cfg *config.Config, backends map[string]execbackend.Backend) (*tokenAccountingRuntime, error) {
@@ -92,7 +66,7 @@ func bindTokenAccountingRuntime(stores *processAccountingStores, cfg *config.Con
 	}
 	counter := accountingapp.NewService(accountingapp.ServiceConfig{Mode: accountingMode(cfg.Accounting.Mode)}, provider, local)
 	out := &tokenAccountingRuntime{
-		Counter: counter, Ledger: stores.Ledger, Observability: stores.Observability,
+		Counter: counter, Observability: stores.Observability,
 	}
 	out.Preflight = accountingpreflight.NewChecker(counter, accountingpreflight.Config{
 		Enabled: true, Mode: preflightMode(cfg.Accounting.Preflight.Mode),
@@ -219,58 +193,6 @@ func (c *backendProviderCounter) CountOutput(ctx context.Context, input accounti
 		return counter.CountOutput(ctx, input)
 	}
 	return accountingapp.CountResult{}, accountingapp.ErrProviderUnsupported
-}
-
-func openDurableAccountingLedger(parent context.Context, cfg *config.Config) (accountingledger.Recorder, func() error, error) {
-	store := strings.ToLower(strings.TrimSpace(cfg.Accounting.Ledger.Store))
-	var bunDB *bun.DB
-	var err error
-	switch store {
-	case "sqlite":
-		path := strings.TrimSpace(cfg.Accounting.Ledger.SQLitePath)
-		dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
-		var sqlDB *sql.DB
-		sqlDB, err = sql.Open("sqlite", dsn)
-		if err == nil {
-			err = sqlDB.PingContext(parent)
-		}
-		if err != nil {
-			if sqlDB != nil {
-				_ = sqlDB.Close()
-			}
-			return nil, nil, fmt.Errorf("runtimebundle: accounting ledger sqlite open: %w", err)
-		}
-		bunDB, err = db.NewBunDB(sqlDB, db.DialectSQLite)
-		if err != nil {
-			_ = sqlDB.Close()
-			return nil, nil, fmt.Errorf("runtimebundle: accounting ledger sqlite bun: %w", err)
-		}
-	case "postgres":
-		poolCfg, err := config.ParseDatabasePoolSettings(cfg.Database)
-		if err != nil {
-			return nil, nil, fmt.Errorf("runtimebundle: accounting ledger postgres pool: %w", err)
-		}
-		child, cancel := context.WithTimeout(parent, db.DefaultPostgresOpenMigrateTimeout)
-		defer cancel()
-		bunDB, err = db.OpenPostgresBun(child, cfg.Accounting.Ledger.PostgresDSN, db.PoolSettings{
-			MaxOpenConns: poolCfg.MaxOpenConns, MaxIdleConns: poolCfg.MaxIdleConns,
-			ConnMaxLifetime: poolCfg.ConnMaxLifetime, ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
-		})
-		if err != nil {
-			return nil, nil, fmt.Errorf("runtimebundle: accounting ledger postgres open: %w", err)
-		}
-	default:
-		return nil, nil, fmt.Errorf("runtimebundle: accounting ledger store %q is invalid", cfg.Accounting.Ledger.Store)
-	}
-	storeImpl, err := ledgerstore.NewContext(parent, bunDB)
-	if err != nil {
-		wrapped := fmt.Errorf("runtimebundle: accounting ledger schema: %w", err)
-		if cerr := bunDB.Close(); cerr != nil {
-			return nil, nil, errors.Join(wrapped, fmt.Errorf("runtimebundle: accounting ledger close after schema error: %w", cerr))
-		}
-		return nil, nil, wrapped
-	}
-	return storeImpl, storeImpl.Close, nil
 }
 
 func accountingMode(raw string) accountingapp.Mode {

@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sync/atomic"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -32,8 +34,22 @@ type preparedRequest struct {
 	secureTurnOK   bool
 	routePrefs     []string
 	streamReturned bool
-	execSpan       trace.Span
-	metering       *checkpoint.RequestHolder
+	// billingUpstreamOpened is set when any backend Open returns a stream for
+	// this A-leg. Admission-abort cleanup must not release the hold as
+	// execution_not_started after upstream contact, even before billing evidence
+	// is recorded. atomic because parallel race legs may Open concurrently.
+	billingUpstreamOpened atomic.Bool
+	// billingAccountID / billingAuthorizationID are captured after successful
+	// admission so terminal TUR seal does not re-resolve request-scoped identity
+	// on a bare Recv context. billingIdentityStamped is true only when both IDs
+	// were non-empty at stamp time.
+	billingAccountID       string
+	billingAuthorizationID string
+	billingCustomerPricing billing.VersionRef
+	billingChargePolicy    billing.VersionRef
+	billingIdentityStamped bool
+	execSpan               trace.Span
+	metering               *checkpoint.RequestHolder
 }
 
 // prepareRequest executes phases 1-9 of the former inline [Executor.Execute]:

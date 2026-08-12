@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -46,6 +46,7 @@ type executorRuntime struct {
 // [buildExecutorRuntime].
 type executorBuildInput struct {
 	Bctx               buildContext
+	Ledger             *ResourceLedger
 	NowFn              func() time.Time
 	Ext                *extensionRuntime
 	Model              *modelRuntime
@@ -109,9 +110,60 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	var prod ProductionOptions
 	if in.Bctx.Opts != nil {
 		prod = in.Bctx.Opts.Production
+		if cfg.Accounting.Billing.Authoritative {
+			prod.BillingAuthoritative = true
+		}
+		if path := strings.TrimSpace(cfg.Accounting.Billing.ReportsPath); path != "" && strings.TrimSpace(prod.BillingReportsPath) == "" {
+			prod.BillingReportsPath = path
+		}
+		if prod.BillingAdmissionRequired && prod.BillingAdmission == nil {
+			return nil, ErrBillingAdmissionRequired
+		}
+		if prod.BillingAuthoritative {
+			if prod.BillingStore == nil || prod.BillingAdmission == nil || prod.BillingIdentity.AccountID == nil || prod.BillingIdentity.AuthorizationID == nil || prod.BillingRatingResolver == nil || in.Ledger == nil {
+				return nil, ErrAuthoritativeBillingRequired
+			}
+			// The authoritative store is the single composition authority for
+			// terminal evidence and reports. Do not permit separately injected
+			// handoff/report implementations to drift from settlement truth.
+			handoff, ok := prod.BillingStore.(billing.UsageRecordAppender)
+			if !ok {
+				return nil, ErrAuthoritativeBillingRequired
+			}
+			prod.BillingTerminalHandoff = handoff
+			prod.BillingReports = prod.BillingStore
+			postTurnStore, ok := prod.BillingStore.(billing.PostTurnStore)
+			if !ok {
+				return nil, ErrAuthoritativeBillingRequired
+			}
+			worker, err := billing.NewPostTurnWorker(postTurnStore, prod.BillingRatingResolver, billing.PostTurnWorkerConfig{
+				BatchSize: prod.BillingPostTurnBatchSize,
+				Interval:  prod.BillingPostTurnInterval,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("runtimebundle: authoritative billing worker: %w", err)
+			}
+			// PhaseActivate runs during CompileCandidate, before handler
+			// composition and host publication. Start only after Publish.
+			in.Ledger.AddAction(
+				"billing-post-turn-worker", PhasePublish,
+				func(context.Context) error { return worker.Start(context.Background()) },
+				worker.Stop,
+			)
+			in.Ledger.AddClose("billing-post-turn-worker", PhaseQuiesce, func() error {
+				return worker.Stop(context.Background())
+			})
+		} else if prod.BillingTerminalHandoff != nil && (prod.BillingIdentity.AccountID == nil || prod.BillingIdentity.AuthorizationID == nil) {
+			return nil, ErrBillingTerminalIdentityRequired
+		}
 		if prod.MeteringRecorder != nil {
 			meteringRT = &meteringRuntime{Recorder: prod.MeteringRecorder, StoreBacking: "injected"}
 		}
+		// Persist cutover wiring so candidate HTTP composition sees the same
+		// authoritative reports path/store the executor was built with.
+		in.Bctx.Opts.Production = prod
+	} else if cfg.Accounting.Billing.Authoritative {
+		return nil, ErrAuthoritativeBillingRequired
 	}
 
 	// Compute interleaved-thinking config before construction.
@@ -121,13 +173,10 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	}
 
 	// Compute accounting runtime fields.
-	accountingRT := runtime.AccountingRuntime{
-		LedgerWriteRequired: cfg.Accounting.Ledger.WritePolicy == "required",
-	}
+	accountingRT := runtime.AccountingRuntime{}
 	if tokenAccounting != nil {
 		accountingRT.Preflight = tokenAccounting.Preflight
 		accountingRT.StreamUsage = tokenAccounting.StreamUsage
-		accountingRT.Ledger = tokenAccounting.Ledger
 		accountingRT.TokenAccountingObservability = tokenAccounting.Observability
 		// Request metering admission needs the same configured counter regardless
 		// of whether the optional public/admin count endpoint is mounted.
@@ -135,13 +184,6 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	}
 	if meteringRT != nil {
 		accountingRT.MeteringRecorder = meteringRT.Recorder
-	}
-	rater, err := selectEconomicsRater(prod)
-	if err != nil {
-		return nil, err
-	}
-	if rater != nil {
-		accountingRT.EconomicsRater = rater
 	}
 	if in.UsageAuthority != nil {
 		accountingRT.UsageAuthority = in.UsageAuthority
@@ -152,6 +194,7 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		accountingRT.UsageAuthorityCleanupTimeout = cleanupTimeout
 	}
 	attachConcurrencyToAccounting(&accountingRT, in.Concurrency)
+	accountingRT.BillingAdmission = prod.BillingAdmission
 	if err := attachCompatibleAdmission(&prod, cfg); err != nil {
 		return nil, err
 	}
@@ -164,14 +207,6 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	if in.TerminalWork != nil {
 		accountingRT.TerminalWork = in.TerminalWork.Intents
 	}
-	if len(cfg.Accounting.Pricing.Models) > 0 {
-		catalog, err := accounting.NewPriceCatalog(config.AccountingPriceCatalogConfig(cfg.Accounting.Pricing))
-		if err != nil {
-			return nil, fmt.Errorf("runtimebundle: accounting pricing: %w", err)
-		}
-		accountingRT.AccountingPriceCatalog = catalog
-	}
-
 	// Compute security runtime from secure-session + auth.
 	securityRT := securityRuntimeFromSecureSession(in.Persistence.SecureSession)
 	securityRT.AuthEvents = in.Security.AuthEvents
@@ -225,6 +260,13 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	}
 	routingRT, catalogRuntime := attachModelCatalog(routingRT, in.Model.StartedCatalog, cfg)
 
+	var holdReleaser billing.HoldReleaser
+	if prod.BillingStore != nil {
+		if releaser, ok := prod.BillingStore.(billing.HoldReleaser); ok {
+			holdReleaser = releaser
+		}
+	}
+
 	// Construct executor with all fields set — no post-construction mutation.
 	exec := runtime.NewExecutor(runtime.ExecutorConfig{
 		Core: runtime.CoreRuntime{
@@ -234,7 +276,11 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 			Rand:                 routing.NewSeededRng(seed),
 			Now:                  in.NowFn,
 			MaxPendingWireEvents: cfg.Server.EffectiveMaxPendingWireEvents(),
-			StreamRecovery:       streamRecovery,
+			StreamRecovery:       streamRecovery, BillingShadowObserver: billingShadowObserverFor(log),
+			BillingTerminalHandoff: prod.BillingTerminalHandoff,
+			BillingHoldReleaser:    holdReleaser,
+			BillingIdentity:        prod.BillingIdentity,
+			BillingAuthoritative:   prod.BillingAuthoritative,
 		},
 		Routing:       routingRT,
 		Security:      securityRT,
@@ -247,6 +293,14 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		},
 		Interleaved: interleaved,
 	})
+	if in.Ledger != nil && prod.BillingTerminalHandoff != nil {
+		// Join detached TUR handoff retries before PhaseClose tears down the store.
+		// Registered after the post-turn worker so reverse Quiesce waits handoffs first.
+		in.Ledger.AddClose("billing-handoff-retries", PhaseQuiesce, func() error {
+			exec.WaitBillingHandoffRetriesForClose()
+			return nil
+		})
+	}
 
 	secureSessionStore := in.Persistence.SecureSession.appStore
 	if opts.Diagnostics.SecureSessionStore != nil {

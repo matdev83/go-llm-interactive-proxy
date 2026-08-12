@@ -38,6 +38,7 @@ func TestGenerationRuntime_ExactCapabilitySatisfaction(t *testing.T) {
 	var (
 		_ runtimehost.PublishedRequestPlane     = rt
 		_ runtimehost.ExecutorProvider          = rt
+		_ runtimehost.PublishedWorkStarter      = rt
 		_ runtimehost.ModelViewBinder           = rt
 		_ runtimehost.BackendFactoryKindCounter = rt
 		_ runtimehost.QuiesceCloser             = rt

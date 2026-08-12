@@ -30,8 +30,9 @@ $allowed = @(
     "internal/infra/runtimehost/shutdown.go"
     "internal/infra/runtimehost/manager.go"
     "internal/core/stream/keepalive.go"
-    "internal/core/runtime/parallel_race.go"
+	"internal/core/runtime/parallel_race.go"
     "internal/core/runtime/lease_heartbeat.go"
+    "internal/core/runtime/billing_handoff_retry.go"
     "internal/core/extensions/decision_timeout.go"
     "internal/plugins/frontends/holdalive/wait.go"
     "internal/infra/runtimebundle/modelcatalog_refresh_loop.go"
@@ -45,6 +46,7 @@ $allowed = @(
     "connectors/codex/cmd/fake-codex-cli/main.go"
     "internal/core/terminalwork/app/processor.go"
     "internal/core/terminalwork/app/ambiguous_append_reconciler.go"
+    "internal/core/billing/post_turn_worker.go"
     "cmd/lipstd/reload_signal_adapter_unix.go"
     # Backend plugin host: bidi Execute pumps, gRPC session bridge, process waiters.
     # pkg/lipsdk/backendplugin/host/session.go: bidi Execute stream pump moved from

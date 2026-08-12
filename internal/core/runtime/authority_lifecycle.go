@@ -328,7 +328,8 @@ func (l *authorityLifecycle) settlementInput(kind authorityapp.SettlementKind, u
 		OutputCommitted:      l.outputCommitted != nil && l.outputCommitted.Load(),
 		ClientCanceled:       clientCanceled,
 		FinalUsagePresent:    usageEventPresent(usageEv),
-		FinalCostPresent:     costEventPresent(usageEv),
+		// Stream cost presence is not financial authority after Phase 8.
+		FinalCostPresent: false,
 		// Pin settle to the admission-time snapshot (requirement 11.4).
 		BoundVersion:       state.admissionResult.BoundVersion,
 		BoundRatingVersion: state.admissionResult.BoundRatingVersion,
@@ -548,16 +549,18 @@ func attemptSettlementEvidence(
 		authorityLevel = metering.AuthorityAuthoritative
 	}
 	fact := metering.Fact{
-		FactID:         "attempt-settle:" + strings.TrimSpace(state.attemptID),
-		StreamID:       "be-egress:" + strings.TrimSpace(state.bLegID),
-		Sequence:       1,
-		Kind:           metering.FactKindCumulative,
-		Perspective:    metering.PerspectiveOperator,
-		Boundary:       metering.BoundaryBackendEgress,
-		Lifecycle:      metering.LifecycleBackendAttempt,
-		Correlation:    metering.Correlation{RequestID: state.requestID, AttemptID: state.attemptID, BLegID: state.bLegID},
-		Quantities:     qs,
-		Money:          moneyFromUsageEvent(usageEv),
+		FactID:      "attempt-settle:" + strings.TrimSpace(state.attemptID),
+		StreamID:    "be-egress:" + strings.TrimSpace(state.bLegID),
+		Sequence:    1,
+		Kind:        metering.FactKindCumulative,
+		Perspective: metering.PerspectiveOperator,
+		Boundary:    metering.BoundaryBackendEgress,
+		Lifecycle:   metering.LifecycleBackendAttempt,
+		Correlation: metering.Correlation{RequestID: state.requestID, AttemptID: state.attemptID, BLegID: state.bLegID},
+		Quantities:  qs,
+		// Money/Rated are intentionally omitted: stream CostNanoUnits are not
+		// usage-authority financial input. Post-turn TUR rating owns money;
+		// metering egress may still carry MoneyObservation for telemetry.
 		Source:         metering.SourceObserved,
 		Authority:      authorityLevel,
 		Presence:       presence,
@@ -569,24 +572,11 @@ func attemptSettlementEvidence(
 	if err := fact.Validate(); err == nil {
 		facts = []metering.Fact{fact}
 	}
-	var rated []economics.RatingResult
-	if usageEv.CostPresent {
-		rated = []economics.RatingResult{{
-			Money: economics.Money{
-				NanoUnits: usageEv.CostNanoUnits,
-				Currency:  strings.TrimSpace(usageEv.Currency),
-				Present:   true,
-			},
-			Source:      strings.TrimSpace(usageEv.CostSource),
-			Perspective: metering.PerspectiveOperator,
-		}}
-	}
 	return authority.AttemptSettlement{
 		RequestID:     state.requestID,
 		AttemptID:     state.attemptID,
 		BLegID:        state.bLegID,
 		Facts:         facts,
-		Rated:         rated,
 		Outcome:       outcome,
 		Surfaced:      surfaced,
 		BoundVersions: append([]economics.PolicySnapshotRef(nil), state.boundVersions...),
@@ -855,7 +845,7 @@ func (l *authorityLifecycle) reconcileAuthoritativeLocked(ctx context.Context, u
 	reservations := l.reservationStates()
 	input := l.settlementInput(authorityapp.SettlementKindFinal, usageEv, false, reservations)
 	input.FinalUsagePresent = usageEventPresent(usageEv)
-	input.FinalCostPresent = costEventPresent(usageEv)
+	input.FinalCostPresent = false
 	filtered := input.Reservations[:0]
 	for i := range input.Reservations {
 		reservation := input.Reservations[i]
@@ -950,15 +940,10 @@ func (l *authorityLifecycle) ApplyUnreservedUsage(ctx context.Context, kind auth
 		// A final/cancellation path can legitimately have no usage event (for
 		// example, reconstruction was unavailable). Keep unreserved windows
 		// observable with the preflight estimate rather than silently dropping
-		// token/request or estimated-spend accounting.
+		// token/request accounting. Monetary spend stays empty: BillingAdmission
+		// / TUR settlement own money.
 		usage = l.control.state.admissionInput.PreflightUsage
-		finalCost = l.control.state.admissionInput.Spend
-	} else if !costEventPresent(usageEv) {
-		// A token-bearing provider event can be authoritative for usage while
-		// carrying no provider cost. Advisory money windows still need the
-		// configured estimate; otherwise they consume zero and bypass spend
-		// accounting until a later cost event arrives.
-		finalCost = l.control.state.admissionInput.Spend
+		finalCost = domain.Amount{}
 	}
 	cmd := authorityapp.ApplyUsageCommand{
 		Correlation:          l.control.state.admissionInput.Correlation,
@@ -969,7 +954,7 @@ func (l *authorityLifecycle) ApplyUnreservedUsage(ctx context.Context, kind auth
 		RequestCount:         domain.Amount{Unit: domain.AmountUnitRequests, Value: 1},
 		FinalCost:            finalCost,
 		UsagePresent:         usagePresent,
-		CostPresent:          costEventPresent(usageEv),
+		CostPresent:          false,
 		Authority:            measurementAuthority.Usage,
 		MeasurementAuthority: measurementAuthority,
 		Kind:                 kind,

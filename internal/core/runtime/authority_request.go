@@ -143,18 +143,8 @@ func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLe
 			Lifecycle:   lifecycle,
 		},
 	}
-	var feFactIDs []string
-	var feFactRefs []metering.FactRef
 	if holder != nil && holder.FrontendIngress != nil {
 		in.Exposure.Quantities = append([]metering.Quantity(nil), holder.FrontendIngress.Public.Quantities...)
-		if id := strings.TrimSpace(holder.FrontendIngressFactID()); id != "" {
-			feFactIDs = []string{id}
-			feFactRefs = []metering.FactRef{{
-				StreamID: holder.FrontendIngress.Public.StreamID,
-				FactID:   id,
-			}}
-			in.Exposure.FactRefs = append([]metering.FactRef(nil), feFactRefs...)
-		}
 	}
 	var boundGen *snapshotgen.ExecutableGeneration
 	if e.SnapshotGeneration != nil {
@@ -162,15 +152,6 @@ func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLe
 			exec.Retain()
 			boundGen = exec
 		}
-	}
-	if money, rated, rateErr := e.rateCustomerRequestExposureWithGen(ctx, boundGen, in.Exposure.Quantities, e.now(), feFactIDs, feFactRefs); rateErr != nil {
-		if boundGen != nil {
-			boundGen.Release()
-		}
-		return ctx, fmt.Errorf("executor: request authority rating: %w", rateErr)
-	} else if money.Present {
-		in.Exposure.Money = money
-		in.RatingVersions = []economics.RatingSnapshotRef{ratingSnapshotRef(rated)}
 	}
 	coord := e.RequestCoordinator
 	if boundGen != nil && boundGen.RequestCoord != nil {
@@ -282,7 +263,7 @@ func leaseTargetsFromDecision(ld authority.LeaseDecision) []leaseRenewTarget {
 	return nil
 }
 
-func (e *Executor) settleRequestAuthority(ctx context.Context, facts []metering.Fact, rated ...economics.RatingResult) error {
+func (e *Executor) settleRequestAuthority(ctx context.Context, facts []metering.Fact) error {
 	if e == nil {
 		return nil
 	}
@@ -298,7 +279,6 @@ func (e *Executor) settleRequestAuthority(ctx context.Context, facts []metering.
 		RequestID:     st.RequestID,
 		Handles:       st.Decision.Stack.Handles(),
 		Facts:         facts,
-		Rated:         append([]economics.RatingResult(nil), rated...),
 		BoundVersions: st.Decision.BoundVersions,
 	})
 	if err != nil {
@@ -554,9 +534,7 @@ func boundVersionsForProvider(st *requestAuthorityState, providerID string) term
 	}
 	if st.ExecutableGen != nil {
 		ver.GenerationID = strconv.FormatInt(st.ExecutableGen.ID, 10)
-		if rid := strings.TrimSpace(st.ExecutableGen.RatingObjectID); rid != "" {
-			ver.RatingID = rid
-		} else if v := strings.TrimSpace(st.ExecutableGen.Version); v != "" {
+		if v := strings.TrimSpace(st.ExecutableGen.Version); v != "" {
 			ver.RatingID = v
 		}
 		return ver

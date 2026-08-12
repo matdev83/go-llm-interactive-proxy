@@ -52,48 +52,6 @@ func (e *enterpriseEvidence) RecordAccountingAuthority(context.Context, controlp
 	return nil
 }
 
-type enterpriseRater struct {
-	calls      int
-	quoteCalls int
-}
-
-func (r *enterpriseRater) Rate(_ context.Context, req economics.RatingRequest) (economics.RatingResult, error) {
-	r.calls++
-	res := economics.RatingResult{
-		Money:       economics.Money{NanoUnits: 1, Currency: "USD", Present: true},
-		Source:      "enterprise-fixture",
-		Perspective: req.Perspective,
-		RaterID:     "enterprise-fake",
-		Version:     economics.VersionRef{ID: "enterprise-fixture", Version: "v1"},
-	}
-	if err := res.ValidateFor(req); err != nil {
-		return economics.RatingResult{}, err
-	}
-	return res, nil
-}
-
-func (r *enterpriseRater) QuoteOutputLimit(_ context.Context, req economics.OutputLimitRequest) (economics.OutputLimitResult, error) {
-	r.quoteCalls++
-	if !req.MaxMoney.Present {
-		return economics.OutputLimitResult{
-			Status:      economics.OutputLimitUnsupported,
-			Reason:      "max_money absent",
-			Perspective: req.Perspective,
-			RaterID:     "enterprise-fake",
-		}, nil
-	}
-	// Deterministic fixture bound: leave a positive enforceable output limit when
-	// any monetary cap is present. Closed modules replace this with real inversion.
-	return economics.OutputLimitResult{
-		Status:          economics.OutputLimitOK,
-		MaxOutputTokens: 1024,
-		Source:          "enterprise-fixture",
-		Perspective:     req.Perspective,
-		RaterID:         "enterprise-fake",
-		Version:         economics.VersionRef{ID: "enterprise-fixture", Version: "v1"},
-	}, nil
-}
-
 type enterpriseRequestProvider struct{}
 
 func (enterpriseRequestProvider) AdmitRequest(_ context.Context, in authority.RequestAdmission) (authority.Decision, error) {
@@ -262,19 +220,14 @@ func run(ctx context.Context) error {
 	if cleanupCfg != nil {
 		defer cleanupCfg()
 	}
-	rater := &enterpriseRater{}
 	evidence := &enterpriseEvidence{}
 	querier := enterpriseQuerier{}
-	// Canonical registrations only (public API): external modules use
-	// RequestRegistrations + RaterRegistrations.
+	// Canonical authority registrations are public API for external modules.
 	rt, err := lipruntime.Build(ctx, lipruntime.Options{
 		ConfigPath:       cfgPath,
 		MeteringRecorder: enterpriseMeter{},
 		MeteringQuerier:  querier,
 		EvidenceSink:     evidence,
-		RaterRegistrations: []economics.RaterRegistration{{
-			ID: "enterprise-fake", Perspective: metering.PerspectiveOperator, Rater: rater,
-		}},
 		RequestRegistrations: []authority.RequestRegistration{{
 			Descriptor: authority.ProviderDescriptor{
 				ID:   "enterprise-request",
@@ -325,7 +278,7 @@ func run(ctx context.Context) error {
 	if rt.ExecutableGenerationID() == 0 || rt.ExecutableEvidenceObjectID() == "" {
 		return fmt.Errorf("expected executable generation evidence object id")
 	}
-	if !rt.HasProductionEvidenceSink() || !rt.HasProductionRater() || !rt.HasProductionMeteringQuerier() {
+	if !rt.HasProductionEvidenceSink() || !rt.HasProductionMeteringQuerier() {
 		return fmt.Errorf("production evidence/rater/query mounts not wired")
 	}
 	if !rt.HasProductionMetering() {
@@ -393,22 +346,6 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("TokensFromMoneyPer1M: %w", err)
 	}
 	_ = economics.NanoRate{NanoUnits: 0, Present: true}
-	if _, err := rater.Rate(ctx, economics.RatingRequest{Perspective: metering.PerspectiveOperator}); err != nil {
-		return fmt.Errorf("fake rater: %w", err)
-	}
-	if rater.calls < 1 {
-		return fmt.Errorf("expected fake rater invocation")
-	}
-	var quoter economics.OutputLimitQuoter = rater
-	if _, err := quoter.QuoteOutputLimit(ctx, economics.OutputLimitRequest{
-		Perspective: metering.PerspectiveOperator,
-		MaxMoney:    economics.Money{NanoUnits: 1, Currency: "USD", Present: true},
-	}); err != nil {
-		return fmt.Errorf("fake output-limit quoter: %w", err)
-	}
-	if rater.quoteCalls < 1 {
-		return fmt.Errorf("expected fake QuoteOutputLimit invocation")
-	}
 	// Public-only EconomicControlReady evaluation (OSS technical posture, not billing).
 	now := time.Now().UTC()
 	report := controlplane.ReadinessReport{

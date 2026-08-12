@@ -13,7 +13,6 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
@@ -144,15 +143,12 @@ func buildReadinessReportService(in readinessReportBuildInput) *corecp.Readiness
 			}
 		}
 	}
-	src.OperatorRaterIDs = raterIDsByPerspective(in.Production, metering.PerspectiveOperator)
-	src.CustomerRaterIDs = raterIDsByPerspective(in.Production, metering.PerspectiveCustomer)
 	if in.Executor != nil {
 		exec := in.Executor
 		src.RequestCoordinatorEnabled = exec.RequestCoordinator != nil && len(exec.RequestCoordinator.Slots) > 0
 		src.AttemptCoordinatorEnabled = exec.AttemptCoordinator != nil && len(exec.AttemptCoordinator.Slots) > 0
 		src.RequestCoordinatorIDs = requestRegistrationIDs(in.Production, &exec.AccountingRuntime)
 		src.AttemptCoordinatorIDs = attemptRegistrationIDs(in.Production, &exec.AccountingRuntime)
-		src.OperatorRaterAttached = len(src.OperatorRaterIDs) > 0
 		if exec.SecureSession != nil && exec.RuntimeSnapshot != nil && len(exec.RuntimeSnapshot.SecretGuardPlane().Guards) > 0 {
 			backing := "injected"
 			if in.Cfg != nil {
@@ -183,7 +179,6 @@ func buildReadinessReportService(in readinessReportBuildInput) *corecp.Readiness
 			}
 		}
 	}
-	src.CustomerRaterAttached = len(src.CustomerRaterIDs) > 0
 	if in.TerminalWork != nil {
 		tw := in.TerminalWork
 		src.TerminalRecovery = tw.readinessComponent

@@ -6,7 +6,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/runtimegen"
 )
 
@@ -30,9 +29,6 @@ func TestPhase55_MetadataPublishIsCompatibilityNotEnforcement(t *testing.T) {
 		SourceID: "static-config",
 		Version:  "exec-v1",
 		State:    economics.SnapshotReady,
-		OperatorRaters: []economics.RaterRegistration{{
-			ID: "eval-obj-1", Perspective: metering.PerspectiveOperator, Rater: stubRater{id: "eval-obj-1"},
-		}},
 		RequestRegistrations: []authority.RequestRegistration{{
 			Descriptor: stubRequestProvider{id: "req-a"}.Describe(),
 			Priority:   authority.RequestPriorityQuotaBudgetRate,
@@ -47,8 +43,8 @@ func TestPhase55_MetadataPublishIsCompatibilityNotEnforcement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if published.EvidenceObjectID() != "eval-obj-1" {
-		t.Fatalf("evidence=%q want evaluator object", published.EvidenceObjectID())
+	if published.EvidenceObjectID() != "req-a" {
+		t.Fatalf("evidence=%q want request authority object", published.EvidenceObjectID())
 	}
 	if published.EvidenceObjectID() == meta.Usage.Version {
 		t.Fatal("evidence must not be metadata-only usage version label")

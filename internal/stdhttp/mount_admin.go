@@ -8,6 +8,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	billingadmin "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/billing"
 	cpadmin "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/controlplane"
 	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
 )
@@ -25,6 +26,42 @@ type mountAccountingAdminInput struct {
 // mountAccountingAdmin mounts the token-accounting admin endpoint when accounting.admin.enabled
 // is true and a path is configured. The handler is wrapped with the diagnostics shared-secret
 // protection. Never returns an error: when disabled or misconfigured it simply mounts nothing.
+// billingReportsMount carries the authoritative read-side billing port.
+type billingReportsMount struct {
+	LogCtx     context.Context
+	Mux        *http.ServeMux
+	Cfg        *config.Config
+	Log        *slog.Logger
+	Operations HTTPOperationsInput
+}
+
+// mountBillingReports exposes only journal/TUR-backed, bounded billing reads.
+// It is mounted separately from token telemetry and is protected by the existing
+// diagnostics secret. No raw stream, metering, database, or provider payload is
+// returned by this surface.
+func mountBillingReports(in billingReportsMount) {
+	if in.Mux == nil || in.Cfg == nil || in.Operations.BillingReports == nil {
+		return
+	}
+	if strings.TrimSpace(in.Cfg.Diagnostics.SharedSecret) == "" {
+		if in.Log != nil {
+			in.Log.WarnContext(in.LogCtx, "billing report query disabled: diagnostics shared_secret is empty")
+		}
+		return
+	}
+	path := strings.TrimSuffix(strings.TrimSpace(in.Operations.BillingReportsPath), "/")
+	if path == "" {
+		path = "/admin/billing"
+	}
+	handler := billingadmin.NewHandler(billingadmin.Options{Queries: in.Operations.BillingReports})
+	protected := diag.WrapDiagnosticsProtect(in.Cfg.Diagnostics.SharedSecret, http.StripPrefix(path, handler))
+	in.Mux.Handle(path, protected)
+	in.Mux.Handle(path+"/", protected)
+	if in.Log != nil {
+		in.Log.InfoContext(in.LogCtx, "authoritative billing reports mounted", "path", path)
+	}
+}
+
 func mountAccountingAdmin(in mountAccountingAdminInput) {
 	mux, cfg, log, ops, core := in.Mux, in.Cfg, in.Log, in.Operations, in.Core
 	logCtx := in.LogCtx

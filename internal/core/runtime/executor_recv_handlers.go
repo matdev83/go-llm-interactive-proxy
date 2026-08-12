@@ -41,7 +41,6 @@ func (s *retryRecvStream) handleRecvSuccess(ctx context.Context, ev lipapi.Event
 	s.accounting.observeUsage(ev)
 	pm, _ := s.recvHookMeta()
 	s.emitTrafficBTP(ctx, ev, pm)
-	ev = s.enrichUsageCost(ctx, ev)
 	s.emitUsage(ctx, ev)
 
 	if s.toolFinal != nil && s.toolFinal.enabled() {

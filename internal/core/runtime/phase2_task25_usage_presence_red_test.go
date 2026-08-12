@@ -22,7 +22,7 @@ func TestPhase25_UsageEventRatingQuantities_UsesUsagePresence(t *testing.T) {
 				ReasoningTokens: true, TotalTokens: true,
 			},
 		}
-		qs := usageEventRatingQuantities(ev)
+		qs := usageEventQuantities(ev)
 		wantOrder := []string{
 			metering.ComponentInputToken,
 			metering.ComponentOutputToken,
@@ -54,7 +54,7 @@ func TestPhase25_UsageEventRatingQuantities_UsesUsagePresence(t *testing.T) {
 			TotalTokens:      169,
 			UsagePresence:    lipapi.UsagePresence{InputTokens: true},
 		}
-		qs := usageEventRatingQuantities(ev)
+		qs := usageEventQuantities(ev)
 		if len(qs) != 1 || qs[0].Component != metering.ComponentInputToken || qs[0].Value != 100 {
 			t.Fatalf("only marked input must appear: %+v", qs)
 		}
@@ -86,7 +86,7 @@ func TestPhase25_UsageEventRatingQuantities_UsesUsagePresence(t *testing.T) {
 				CacheReadTokens: true, OutputTokens: true, InputTokens: true,
 			},
 		}
-		qs := usageEventRatingQuantities(ev)
+		qs := usageEventQuantities(ev)
 		want := []struct {
 			component string
 			value     int64

@@ -93,7 +93,7 @@ func TestAdmitAttemptRecordsEvidence(t *testing.T) {
 	}
 }
 
-func TestMapAdmissionDecision_SpendClampIncludesMoney(t *testing.T) {
+func TestMapAdmissionDecision_SpendClampRetiredFromAuthorityAdapter(t *testing.T) {
 	t.Parallel()
 	d := mapAdmissionDecision(authorityapp.AdmissionResult{
 		Allowed: true,
@@ -106,18 +106,8 @@ func TestMapAdmissionDecision_SpendClampIncludesMoney(t *testing.T) {
 			},
 		},
 	}, "attempt-ua", authority.StageAttemptAdmit)
-	if len(d.Clamps) != 1 {
-		t.Fatalf("clamps=%+v want 1", d.Clamps)
-	}
-	c := d.Clamps[0]
-	if c.Kind != authority.ClampMaxSpend {
-		t.Fatalf("kind=%s want max_spend", c.Kind)
-	}
-	if !c.Money.Present || c.Money.NanoUnits != 700 || c.Money.Currency != "usd" {
-		t.Fatalf("money=%+v want Present NanoUnits=700 Currency=usd", c.Money)
-	}
-	if c.RuleID != "tenant.spend_cap" {
-		t.Fatalf("rule_id=%q", c.RuleID)
+	if len(d.Clamps) != 0 {
+		t.Fatalf("clamps=%+v want none (BillingAdmission owns monetary clamps)", d.Clamps)
 	}
 }
 

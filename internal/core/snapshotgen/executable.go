@@ -30,18 +30,13 @@ type ExecutableGeneration struct {
 	RequestRegistrations    []authority.RequestRegistration
 	AttemptRegistrations    []authority.AttemptRegistration
 	ConcurrencyRegistration *authority.ConcurrencyRegistration
-	CustomerRaters          []economics.RaterRegistration
-	OperatorRaters          []economics.RaterRegistration
 
 	// RequestCoord/AttemptCoord are the concrete immutable evaluators for this
 	// generation. New admissions must use these when present (D10).
-	RequestCoord  *authoritycoord.RequestCoordinator
-	AttemptCoord  *authoritycoord.AttemptCoordinator
-	CustomerRater economics.Rater
-	OperatorRater economics.Rater
+	RequestCoord *authoritycoord.RequestCoordinator
+	AttemptCoord *authoritycoord.AttemptCoordinator
 
 	MaxActiveRequests int
-	RatingObjectID    string
 
 	liveRefs    atomic.Int64
 	pendingMu   sync.Mutex
@@ -58,9 +53,9 @@ func (g *ExecutableGeneration) ValidateComplete() error {
 		return fmt.Errorf("snapshotgen: generation version required")
 	}
 	if g.State == economics.SnapshotReady {
-		if g.RequestCoord == nil && g.AttemptCoord == nil && g.CustomerRater == nil && g.OperatorRater == nil &&
+		if g.RequestCoord == nil && g.AttemptCoord == nil &&
 			g.ConcurrencyRegistration == nil && len(g.RequestRegistrations) == 0 &&
-			len(g.AttemptRegistrations) == 0 && len(g.CustomerRaters) == 0 && len(g.OperatorRaters) == 0 {
+			len(g.AttemptRegistrations) == 0 {
 			return fmt.Errorf("snapshotgen: metadata-only generation rejected (D10)")
 		}
 		if g.MaxActiveRequests > 0 && (g.RequestCoord == nil || g.RequestCoord.Concurrency == nil) {
@@ -69,9 +64,7 @@ func (g *ExecutableGeneration) ValidateComplete() error {
 		if g.ConcurrencyRegistration != nil && g.MaxActiveRequests <= 0 {
 			return fmt.Errorf("snapshotgen: ready concurrency generation requires max_active_requests")
 		}
-		if len(g.OperatorRaters)+len(g.CustomerRaters) > 0 && strings.TrimSpace(g.RatingObjectID) == "" {
-			return fmt.Errorf("snapshotgen: ready rating generation requires rating object id")
-		}
+
 	}
 	return nil
 }
@@ -88,9 +81,6 @@ func (g *ExecutableGeneration) EnforcementMaxActive() int {
 func (g *ExecutableGeneration) EvidenceObjectID() string {
 	if g == nil {
 		return ""
-	}
-	if id := strings.TrimSpace(g.RatingObjectID); id != "" {
-		return id
 	}
 	if g.ConcurrencyRegistration != nil {
 		return strings.TrimSpace(g.ConcurrencyRegistration.Descriptor.ID)
@@ -295,7 +285,7 @@ func CompileExecutable(contrib runtimegen.GenerationContribution) (*ExecutableGe
 	if state == "" {
 		state = economics.SnapshotReady
 	}
-	reqCoord, attCoord, customerRater, operatorRater, err := buildCoordinators(contrib)
+	reqCoord, attCoord, err := buildCoordinators(contrib)
 	if err != nil {
 		return nil, err
 	}
@@ -307,21 +297,12 @@ func CompileExecutable(contrib runtimegen.GenerationContribution) (*ExecutableGe
 		RequestRegistrations:    append([]authority.RequestRegistration(nil), contrib.RequestRegistrations...),
 		AttemptRegistrations:    append([]authority.AttemptRegistration(nil), contrib.AttemptRegistrations...),
 		ConcurrencyRegistration: contrib.ConcurrencyRegistration,
-		CustomerRaters:          append([]economics.RaterRegistration(nil), contrib.CustomerRaters...),
-		OperatorRaters:          append([]economics.RaterRegistration(nil), contrib.OperatorRaters...),
 		RequestCoord:            reqCoord,
 		AttemptCoord:            attCoord,
-		CustomerRater:           customerRater,
-		OperatorRater:           operatorRater,
 		MaxActiveRequests:       contrib.MaxActiveRequests,
 	}
 	if gen.PublishedAt.IsZero() {
 		gen.PublishedAt = time.Now().UTC()
-	}
-	if len(contrib.OperatorRaters) > 0 {
-		gen.RatingObjectID = strings.TrimSpace(contrib.OperatorRaters[0].ID)
-	} else if len(contrib.CustomerRaters) > 0 {
-		gen.RatingObjectID = strings.TrimSpace(contrib.CustomerRaters[0].ID)
 	}
 	if err := gen.ValidateComplete(); err != nil {
 		return nil, err

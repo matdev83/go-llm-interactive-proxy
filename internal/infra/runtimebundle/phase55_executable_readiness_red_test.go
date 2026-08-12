@@ -10,7 +10,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 type phase55FailingUsageSource struct{}
@@ -28,9 +27,6 @@ func TestPhase55_ReadinessSeparatesExecutableSourceAndTerminal(t *testing.T) {
 		Priority:   authority.RequestPriorityQuotaBudgetRate,
 		Provider:   phase53Req{id: "quota"},
 	}}
-	opts.Production.RaterRegistrations = []economics.RaterRegistration{{
-		ID: "op-rater", Perspective: metering.PerspectiveOperator, Rater: phase53Rater{id: "op-rater"},
-	}}
 	opts.Production.UsageSnapshotSource = phase55FailingUsageSource{}
 	_, built := mustProcessAndCandidate(t, cfg, opts)
 	if runtimebundle.CandidateReadinessReport(built) == nil {
@@ -40,7 +36,7 @@ func TestPhase55_ReadinessSeparatesExecutableSourceAndTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.ExecutableGeneration.EvidenceObjectID != "op-rater" {
+	if report.ExecutableGeneration.EvidenceObjectID != "quota" {
 		t.Fatalf("executable evidence=%q", report.ExecutableGeneration.EvidenceObjectID)
 	}
 	if report.ExecutableGeneration.State != cp.CapabilityReady {
@@ -57,7 +53,7 @@ func TestPhase55_ReadinessSeparatesExecutableSourceAndTerminal(t *testing.T) {
 		byID[cp.ReadinessComponentUsageSnapshot].State != cp.CapabilityDegraded {
 		t.Fatalf("usage source fetch state=%q", byID[cp.ReadinessComponentUsageSnapshot].State)
 	}
-	if byID[cp.ReadinessComponentExecutableGeneration].EvidenceObjectID == "op-rater" &&
+	if byID[cp.ReadinessComponentExecutableGeneration].EvidenceObjectID == "quota" &&
 		byID[cp.ReadinessComponentUsageSnapshot].State == cp.CapabilityReady {
 		t.Fatal("source fetch must not report ready when injectable usage source failed")
 	}
@@ -72,14 +68,11 @@ func TestPhase55_RefreshKeepsPriorExecutableOnSourceFailure(t *testing.T) {
 		Priority:   authority.RequestPriorityQuotaBudgetRate,
 		Provider:   phase53Req{id: "quota"},
 	}}
-	opts.Production.RaterRegistrations = []economics.RaterRegistration{{
-		ID: "op-rater", Perspective: metering.PerspectiveOperator, Rater: phase53Rater{id: "op-rater"},
-	}}
 	src := &mutablePhase55UsageSource{ver: "u1"}
 	opts.Production.UsageSnapshotSource = src
 	_, built := mustProcessAndCandidate(t, cfg, opts)
 	before := runtimebundle.CandidateSnapshotGeneration(built).CurrentExecutable()
-	if before == nil || before.EvidenceObjectID() != "op-rater" {
+	if before == nil || before.EvidenceObjectID() != "quota" {
 		t.Fatalf("before=%v", before)
 	}
 	src.fail = true
@@ -88,7 +81,7 @@ func TestPhase55_RefreshKeepsPriorExecutableOnSourceFailure(t *testing.T) {
 	}
 	_ = runtimebundle.CandidateSnapshotController(built).Refresh(context.Background())
 	after := runtimebundle.CandidateSnapshotGeneration(built).CurrentExecutable()
-	if after == nil || after.ID != before.ID || after.EvidenceObjectID() != "op-rater" {
+	if after == nil || after.ID != before.ID || after.EvidenceObjectID() != "quota" {
 		t.Fatalf("prior executable must remain; before=%v after=%v", before, after)
 	}
 	cur := runtimebundle.CandidateSnapshotGeneration(built).Current()

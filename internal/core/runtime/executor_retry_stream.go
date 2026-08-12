@@ -18,9 +18,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -38,9 +38,7 @@ import (
 	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
@@ -174,6 +172,21 @@ type retryRecvStream struct {
 	// eventsMu guards seenEvents / visibleText against Close concurrent with Recv.
 	eventsMu sync.Mutex
 	usageMu  sync.Mutex
+	// billingShadowSeen / Inflight guard one terminal B-leg evidence handoff per
+	// sequential attempt. Inflight is held across FinalizeBilling so concurrent
+	// observes cannot double-seal the same B-leg with weaker evidence.
+	billingShadowMu       sync.Mutex
+	billingShadowSeen     map[string]struct{}
+	billingShadowInflight map[string]struct{}
+	billingHandoffMu      sync.Mutex
+	billingHandoffSuccess bool
+	// billingAccountID / billingAuthorizationID are copied from preparedRequest
+	// after admission so Recv-phase TUR handoff does not re-resolve identity.
+	billingAccountID       string
+	billingAuthorizationID string
+	billingCustomerPricing billing.VersionRef
+	billingChargePolicy    billing.VersionRef
+	billingIdentityStamped bool
 
 	finalStreamObs    *extensions.FinalStreamObservationSession
 	internalUsageKeys map[string]struct{}
@@ -701,66 +714,6 @@ func (s *retryRecvStream) applyToolPolicies(ctx context.Context, te lipapi.ToolE
 		},
 	})
 	return err
-}
-
-// enrichUsageCost is the per-event cost transform called inline in the recv hot
-// path. It fills in cost, currency, and price-catalog-derived cost source on
-// usage deltas that the backend did not annotate itself, so downstream usage
-// observers and authority settlement see consistent per-event evidence.
-// When EconomicsRater is attached, it is the exclusive pricing authority and
-// catalog EstimateCost must not silently substitute (requirements 6.3, 6.4, 12.1).
-func (s *retryRecvStream) enrichUsageCost(ctx context.Context, ev lipapi.Event) lipapi.Event {
-	if s == nil || s.executor == nil || ev.Kind != lipapi.EventUsageDelta || ev.CostPresent {
-		return ev
-	}
-	if s.executor.EconomicsRater != nil {
-		// Rating must outlive request cancellation (previously Background); detach
-		// cancel from the recv parent but keep its request-scoped values.
-		rated, err := s.executor.rateMonetaryExposure(context.WithoutCancel(ctx), economics.RatingRequest{
-			Perspective: metering.PerspectiveOperator,
-			BackendID:   strings.TrimSpace(s.cand.Primary.Backend),
-			Model:       strings.TrimSpace(s.cand.Primary.Model),
-			Quantities:  usageEventRatingQuantities(ev),
-			At:          s.executor.now(),
-		})
-		if err != nil {
-			if strings.TrimSpace(ev.CostSource) == "" {
-				ev.CostSource = accounting.CostSourceUnavailable
-			}
-			return ev
-		}
-		ev.CostNanoUnits = rated.Money.NanoUnits
-		ev.Currency = rated.Money.Currency
-		ev.CostSource = accounting.CostSourceEstimated
-		if src := strings.TrimSpace(rated.Source); src != "" {
-			ev.CostSource = src
-		}
-		ev.CostPresent = true
-		return ev
-	}
-	model := strings.TrimSpace(s.cand.Primary.Model)
-	res := accounting.EstimateCost(accounting.CostInput{
-		Backend: strings.TrimSpace(s.cand.Primary.Backend),
-		Model:   model,
-		Usage: accounting.TokenUsage{
-			InputTokens:      int64(ev.InputTokens),
-			OutputTokens:     int64(ev.OutputTokens),
-			CacheReadTokens:  int64(ev.CacheReadTokens),
-			CacheWriteTokens: int64(ev.CacheWriteTokens),
-			ReasoningTokens:  int64(ev.ReasoningTokens),
-		},
-	}, s.executor.AccountingPriceCatalog)
-	if res.Source == accounting.CostSourceUnavailable {
-		if strings.TrimSpace(ev.CostSource) == "" {
-			ev.CostSource = accounting.CostSourceUnavailable
-		}
-		return ev
-	}
-	ev.CostNanoUnits = res.NanoUnits
-	ev.Currency = res.Currency
-	ev.CostSource = res.Source
-	ev.CostPresent = true
-	return ev
 }
 
 // withDecisionEvidence attaches the policy decision evidence seam and stream

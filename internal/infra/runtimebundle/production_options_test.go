@@ -60,18 +60,12 @@ func TestBuild_ProductionOptionsOutsideTesting(t *testing.T) {
 			Provider: prodAllowRequest{},
 		}},
 		UsageSnapshotSource: prodRuleSource{ver: "prod-snap-v1"},
-		RaterRegistrations: []economics.RaterRegistration{{
-			ID: "prod-operator-rater", Perspective: metering.PerspectiveOperator, Rater: prodRater{},
-		}},
-		EvidenceSink:    prodEvidence{},
-		MeteringQuerier: prodQuerier{},
+		EvidenceSink:        prodEvidence{},
+		MeteringQuerier:     prodQuerier{},
 	}
 	_, built := mustProcessAndCandidate(t, cfg, opts)
 	if built.Executor() == nil || built.Executor().MeteringRecorder == nil {
 		t.Fatal("production metering must attach on executor")
-	}
-	if built.Executor().EconomicsRater == nil {
-		t.Fatal("production rater must attach on executor")
 	}
 	if runtimebundle.CandidateMeteringQuerier(built) == nil {
 		t.Fatal("production metering querier must mount on Built")
@@ -84,17 +78,6 @@ func TestBuild_ProductionOptionsOutsideTesting(t *testing.T) {
 		t.Fatalf("generation usage=%+v", cur)
 	}
 	_ = time.Now()
-}
-
-type prodRater struct{}
-
-func (prodRater) Rate(context.Context, economics.RatingRequest) (economics.RatingResult, error) {
-	return economics.RatingResult{
-		Money:       economics.Money{Present: true, NanoUnits: 1, Currency: "USD"},
-		Perspective: metering.PerspectiveOperator,
-		RaterID:     "prod-rater",
-		Version:     economics.VersionRef{ID: "prod-rater", Version: "v1"},
-	}, nil
 }
 
 type prodEvidence struct{}

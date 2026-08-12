@@ -18,9 +18,11 @@ func MapAnthropicExecuteError(out execerr.Outcome) (status int, message, errType
 		errType = execerr.OpenAIWireErrorType(out.Status)
 	case execerr.KindClientReject:
 		errType = "invalid_request_error"
+	case execerr.KindBillingDenied:
+		errType = "invalid_request_error"
 	case execerr.KindPolicyDenied:
 		errType = "permission_error"
-	case execerr.KindPolicyFailure, execerr.KindPolicyMalformed:
+	case execerr.KindPolicyFailure, execerr.KindPolicyMalformed, execerr.KindBillingUnavailable:
 		errType = "api_error"
 	default:
 		errType = "api_error"
@@ -44,8 +46,10 @@ func MapGeminiWireStatus(out execerr.Outcome) string {
 	switch out.Kind {
 	case execerr.KindPolicyDenied:
 		return "PERMISSION_DENIED"
-	case execerr.KindPolicyFailure:
+	case execerr.KindPolicyFailure, execerr.KindBillingUnavailable:
 		return "UNAVAILABLE"
+	case execerr.KindBillingDenied:
+		return "RESOURCE_EXHAUSTED"
 	case execerr.KindPolicyMalformed, execerr.KindInternalError:
 		return "INTERNAL"
 	case execerr.KindClientReject:
@@ -72,6 +76,8 @@ func geminiStatusFromHTTP(status int) string {
 		return "UNAUTHENTICATED"
 	case status == http.StatusForbidden:
 		return "PERMISSION_DENIED"
+	case status == http.StatusTooManyRequests:
+		return "RESOURCE_EXHAUSTED"
 	case status == http.StatusServiceUnavailable:
 		return "UNAVAILABLE"
 	case status >= 500:

@@ -4,16 +4,13 @@ import (
 	"context"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	authoritydomain "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
 
 func TestExecutorAuthorityDisabledAllowsOpenWithoutAdmission(t *testing.T) {
@@ -29,45 +26,6 @@ func TestExecutorAuthorityDisabledAllowsOpenWithoutAdmission(t *testing.T) {
 	}
 	if backend.openCalls.Load() != 1 {
 		t.Fatalf("backend open calls = %d, want 1", backend.openCalls.Load())
-	}
-}
-
-func TestExecutorAuthorityClampFailureReleasesBeforeBackendAttempt(t *testing.T) {
-	t.Parallel()
-
-	auth := &recordingAuthorityService{
-		admitResult: authorityapp.AdmissionResult{
-			Allowed:        true,
-			Reserved:       true,
-			ReservationID:  "reservation-clamp",
-			ReservedAmount: authorityInputAmount(12),
-			Clamp: &authorityapp.AdmissionClamp{
-				EffectiveMax:    authoritydomain.Amount{Unit: authoritydomain.AmountUnitMoneyNano, Value: 100, Currency: "usd"},
-				FailureBehavior: authoritydomain.FailureBehaviorFailClosed,
-			},
-		},
-		status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
-	}
-	ex, backend, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
-	budget := &attemptBudget{max: 1}
-
-	_, err := ex.openPlannedCandidate(context.Background(), authorityOpenParams(t, aLegID, budget), authorityCandidate(), nil, "", false)
-	if err == nil {
-		t.Fatal("expected clamp conversion failure")
-	}
-	if !lipapi.IsPolicyDenied(err) {
-		t.Fatalf("expected policy denial from fail-closed clamp, got %v", err)
-	}
-	if backend.openCalls.Load() != 0 {
-		t.Fatalf("backend open calls = %d, want 0", backend.openCalls.Load())
-	}
-	// V-15: spend clamps are applied during side-effect-free preview before
-	// AdmitAttempt reserves, so fail-closed clamp conversion leaves no hold.
-	if auth.releaseCalls.Load() != 0 {
-		t.Fatalf("release calls = %d, want 0 (preview clamp failure creates no reservation)", auth.releaseCalls.Load())
-	}
-	if budget.usedNow() != 0 {
-		t.Fatalf("budget used = %d, want 0", budget.usedNow())
 	}
 }
 
@@ -179,195 +137,6 @@ func TestExecutorAuthorityAdmitPopulatesRequestCount(t *testing.T) {
 	}
 }
 
-func TestExecutorAuthorityAdmissionDenialStopsBudgetAndBackend(t *testing.T) {
-	t.Parallel()
-
-	t.Run("request-rate", func(t *testing.T) {
-		t.Parallel()
-		auth := newRecordedAuthorityService(t, authoritydomain.Rule{
-			ID:   "tenant.rate",
-			Kind: authoritydomain.RuleKindRate,
-			Mode: authoritydomain.RuleModeStrict,
-			Unit: authoritydomain.AmountUnitInputTokens,
-			Limit: authoritydomain.Amount{
-				Unit:  authoritydomain.AmountUnitInputTokens,
-				Value: 10,
-			},
-			Match: authoritydomain.DimensionsMatcher{
-				Backend: authoritydomain.DimensionMatcher{Value: scope.Known("backend-1")},
-				Model:   authoritydomain.DimensionMatcher{Value: scope.Known("model-1")},
-			},
-		})
-		ex, store, backend, aLegID := newAuthorityRuntimeTestExecutorWithStore(t, auth)
-		ex.Preflight = accountingpreflight.NewChecker(authorityAdmissionCountFunc(func(context.Context, accountingapp.CountCallInput) (accountingapp.CountResult, error) {
-			return accountingapp.CountResult{InputTokens: 11, OutputTokens: 11, TotalTokens: 22}, nil
-		}), accountingpreflight.Config{Enabled: true, Mode: accountingpreflight.ModeAdvisory})
-
-		budget := &attemptBudget{max: 0}
-		_, err := ex.openPlannedCandidate(context.Background(), authorityOpenParams(t, aLegID, budget), authorityCandidate(), nil, "", false)
-		if err == nil {
-			t.Fatal("expected authority denial error")
-		}
-		if !lipapi.IsPolicyDenied(err) {
-			t.Fatalf("expected policy denied error, got %v", err)
-		}
-		if backend.openCalls.Load() != 0 {
-			t.Fatalf("backend open calls = %d, want 0", backend.openCalls.Load())
-		}
-		if budget.usedNow() != 0 {
-			t.Fatalf("budget used = %d, want 0", budget.usedNow())
-		}
-		if auth.admitCalls.Load() != 1 {
-			t.Fatalf("admit calls = %d, want 1", auth.admitCalls.Load())
-		}
-		if got := auth.lastAdmit(); !got.EstimateOnly {
-			t.Fatal("denial precheck must be estimate-only")
-		}
-		leg, err := store.FetchALeg(context.Background(), aLegID)
-		if err != nil {
-			t.Fatalf("fetch a-leg: %v", err)
-		}
-		if leg.WeightedFirstConsumed {
-			t.Fatal("weighted first consumed must remain untouched on denial")
-		}
-		next, err := store.NextBLeg(context.Background(), aLegID)
-		if err != nil {
-			t.Fatalf("next b-leg after denial: %v", err)
-		}
-		if next.Seq != 1 {
-			t.Fatalf("next b-leg seq = %d, want 1", next.Seq)
-		}
-	})
-
-	t.Run("output-tokens", func(t *testing.T) {
-		t.Parallel()
-		auth := newRecordedAuthorityService(t, authoritydomain.Rule{
-			ID:   "tenant.output-quota",
-			Kind: authoritydomain.RuleKindQuota,
-			Mode: authoritydomain.RuleModeStrict,
-			Unit: authoritydomain.AmountUnitOutputTokens,
-			Limit: authoritydomain.Amount{
-				Unit:  authoritydomain.AmountUnitOutputTokens,
-				Value: 10,
-			},
-			Match: authoritydomain.DimensionsMatcher{
-				Backend: authoritydomain.DimensionMatcher{Value: scope.Known("backend-1")},
-				Model:   authoritydomain.DimensionMatcher{Value: scope.Known("model-1")},
-			},
-		})
-		ex, store, backend, aLegID := newAuthorityRuntimeTestExecutorWithStore(t, auth)
-		ex.Preflight = accountingpreflight.NewChecker(authorityAdmissionCountFunc(func(context.Context, accountingapp.CountCallInput) (accountingapp.CountResult, error) {
-			return accountingapp.CountResult{InputTokens: 3, OutputTokens: 11, TotalTokens: 14}, nil
-		}), accountingpreflight.Config{Enabled: true, Mode: accountingpreflight.ModeAdvisory})
-
-		budget := &attemptBudget{max: 0}
-		_, err := ex.openPlannedCandidate(context.Background(), authorityOpenParams(t, aLegID, budget), authorityCandidate(), nil, "", false)
-		if err == nil {
-			t.Fatal("expected authority denial error")
-		}
-		if !lipapi.IsPolicyDenied(err) {
-			t.Fatalf("expected policy denied error, got %v", err)
-		}
-		if backend.openCalls.Load() != 0 {
-			t.Fatalf("backend open calls = %d, want 0", backend.openCalls.Load())
-		}
-		if auth.admitCalls.Load() != 1 {
-			t.Fatalf("admit calls = %d, want 1", auth.admitCalls.Load())
-		}
-		got := auth.lastAdmit()
-		if got.PreflightUsage.OutputTokens != 11 {
-			t.Fatalf("preflight output tokens = %d, want 11", got.PreflightUsage.OutputTokens)
-		}
-		leg, err := store.FetchALeg(context.Background(), aLegID)
-		if err != nil {
-			t.Fatalf("fetch a-leg: %v", err)
-		}
-		if leg.WeightedFirstConsumed {
-			t.Fatal("weighted first consumed must remain untouched on denial")
-		}
-	})
-
-	t.Run("budget", func(t *testing.T) {
-		t.Parallel()
-		auth := newRecordedAuthorityService(t, authoritydomain.Rule{
-			ID:   "tenant.budget",
-			Kind: authoritydomain.RuleKindBudget,
-			Mode: authoritydomain.RuleModeStrict,
-			Unit: authoritydomain.AmountUnitMoneyNano,
-			Limit: authoritydomain.Amount{
-				Unit:     authoritydomain.AmountUnitMoneyNano,
-				Value:    1_000,
-				Currency: "USD",
-			},
-			Currency: "USD",
-			Match: authoritydomain.DimensionsMatcher{
-				Backend: authoritydomain.DimensionMatcher{Value: scope.Known("backend-1")},
-				Model:   authoritydomain.DimensionMatcher{Value: scope.Known("model-1")},
-			},
-		})
-		catalog, err := accounting.NewPriceCatalog(accounting.PriceCatalogConfig{
-			Currency: "USD",
-			Models: []accounting.ModelPriceConfig{{
-				Backend:     "backend-1",
-				Model:       "model-1",
-				InputPer1M:  "1",
-				OutputPer1M: "1",
-			}},
-		})
-		if err != nil {
-			t.Fatalf("new price catalog: %v", err)
-		}
-		ex, store, backend, aLegID := newAuthorityRuntimeTestExecutorWithStore(t, auth)
-		ex.AccountingPriceCatalog = catalog
-		ex.Preflight = accountingpreflight.NewChecker(authorityAdmissionCountFunc(func(context.Context, accountingapp.CountCallInput) (accountingapp.CountResult, error) {
-			return accountingapp.CountResult{InputTokens: 11, OutputTokens: 11, TotalTokens: 22}, nil
-		}), accountingpreflight.Config{Enabled: true, Mode: accountingpreflight.ModeAdvisory})
-
-		budget := &attemptBudget{max: 0}
-		_, err = ex.openPlannedCandidate(context.Background(), authorityOpenParams(t, aLegID, budget), authorityCandidate(), nil, "", false)
-		if err == nil {
-			t.Fatal("expected authority denial error")
-		}
-		if !lipapi.IsPolicyDenied(err) {
-			t.Fatalf("expected policy denied error, got %v", err)
-		}
-		if backend.openCalls.Load() != 0 {
-			t.Fatalf("backend open calls = %d, want 0", backend.openCalls.Load())
-		}
-		if budget.usedNow() != 0 {
-			t.Fatalf("budget used = %d, want 0", budget.usedNow())
-		}
-		if auth.admitCalls.Load() != 1 {
-			t.Fatalf("admit calls = %d, want 1", auth.admitCalls.Load())
-		}
-		leg, err := store.FetchALeg(context.Background(), aLegID)
-		if err != nil {
-			t.Fatalf("fetch a-leg: %v", err)
-		}
-		if leg.WeightedFirstConsumed {
-			t.Fatal("weighted first consumed must remain untouched on denial")
-		}
-		next, err := store.NextBLeg(context.Background(), aLegID)
-		if err != nil {
-			t.Fatalf("next b-leg after denial: %v", err)
-		}
-		if next.Seq != 1 {
-			t.Fatalf("next b-leg seq = %d, want 1", next.Seq)
-		}
-	})
-}
-
-// TestExecutorAuthorityRealAdmitFailureReleasesBudget pins the fix for the leak
-// where the estimate-only authority precheck passes, budget.tryAcquire and
-// NextBLeg run, and then the real (non-estimate) admitAttemptAuthority fails
-// (e.g. a strict store returning ErrReservationConflict when the live window is
-// full). The routing attempt slot acquired between the two admits must be
-// released so a backend that never opens does not permanently consume a budget
-// slot.
-//
-// The b2bua Store exposes no B-leg sequence rollback API, so the seq allocated by
-// NextBLeg before the real admit is NOT restored; this test asserts that honestly
-// (the next B-leg seq is 2, not 1) to document the limitation in code.
 func TestExecutorAuthorityRealAdmitFailureReleasesBudget(t *testing.T) {
 	t.Parallel()
 

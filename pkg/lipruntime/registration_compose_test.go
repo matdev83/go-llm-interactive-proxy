@@ -7,8 +7,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 func assertBuiltRuntimeReady(t *testing.T, rt *lipruntime.Runtime) {
@@ -76,24 +74,6 @@ func TestBuild_RejectsDuplicateRequestRegistrationIDs(t *testing.T) {
 	if !strings.Contains(err.Error(), "duplicate") {
 		t.Fatalf("err=%v", err)
 	}
-}
-
-func TestBuild_RaterRegistration_ReadinessIdentity(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	rt, err := lipruntime.Build(ctx, lipruntime.Options{
-		ConfigPath: repoConfigPath(t),
-		RaterRegistrations: []economics.RaterRegistration{{
-			ID:          "enterprise-operator-rater",
-			Perspective: metering.PerspectiveOperator,
-			Rater:       &recordingRater{},
-		}},
-	})
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	t.Cleanup(func() { _ = rt.Close(ctx) })
-	assertBuiltRuntimeReady(t, rt)
 }
 
 func TestBuild_AttemptRegistration_PreservesID(t *testing.T) {
@@ -173,41 +153,6 @@ func TestBuild_RejectsSettleOnlyRequestRegistration(t *testing.T) {
 	if !strings.Contains(err.Error(), "admit") {
 		t.Fatalf("err=%v want admit posture error", err)
 	}
-}
-
-func TestBuild_CustomerOnlyRater_DoesNotAttachOperatorEconomicsRater(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	rt, err := lipruntime.Build(ctx, lipruntime.Options{
-		ConfigPath: repoConfigPath(t),
-		RaterRegistrations: []economics.RaterRegistration{{
-			ID:          "enterprise-customer-rater",
-			Perspective: metering.PerspectiveCustomer,
-			Rater:       &recordingRater{},
-		}},
-	})
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	t.Cleanup(func() { _ = rt.Close(ctx) })
-	assertBuiltRuntimeReady(t, rt)
-}
-
-func TestBuild_MixedRaterRegistrations_SelectsOperator(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	rt, err := lipruntime.Build(ctx, lipruntime.Options{
-		ConfigPath: repoConfigPath(t),
-		RaterRegistrations: []economics.RaterRegistration{
-			{ID: "customer-first", Perspective: metering.PerspectiveCustomer, Rater: &recordingRater{}},
-			{ID: "operator-second", Perspective: metering.PerspectiveOperator, Rater: &recordingRater{}},
-		},
-	})
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	t.Cleanup(func() { _ = rt.Close(ctx) })
-	assertBuiltRuntimeReady(t, rt)
 }
 
 type allowAttemptProvider struct{}

@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -29,8 +29,18 @@ func TestExternalFacade_NamedCapabilityMethods(t *testing.T) {
 		MeteringRecorder: namedMethodMeter{},
 		MeteringQuerier:  facadeQuerier{},
 		EvidenceSink:     evidence,
-		RaterRegistrations: []economics.RaterRegistration{{
-			ID: "named-method-rater", Perspective: metering.PerspectiveOperator, Rater: namedMethodRater{},
+		RequestRegistrations: []authority.RequestRegistration{{
+			Descriptor: authority.ProviderDescriptor{
+				ID:   "enterprise-req",
+				Kind: authority.ProviderKindAuthority,
+				Postures: []authority.StagePosture{{
+					Stage:           authority.StageRequestAdmit,
+					Strength:        authority.StrengthRequired,
+					FailureBehavior: authority.FailureFailClosed,
+				}},
+			},
+			Priority: authority.RequestPriorityQuotaBudgetRate,
+			Provider: allowRequestProvider{},
 		}},
 	})
 	if err != nil {
@@ -50,9 +60,6 @@ func TestExternalFacade_NamedCapabilityMethods(t *testing.T) {
 	}
 	if !rt.HasProductionEvidenceSink() || !caps.ProductionEvidenceSink {
 		t.Fatal("HasProductionEvidenceSink must match Capabilities")
-	}
-	if !rt.HasProductionRater() || !caps.ProductionRater {
-		t.Fatal("HasProductionRater must match Capabilities")
 	}
 	if !rt.HasProductionMeteringQuerier() || !caps.ProductionMeteringQuerier || rt.MeteringQuerier() == nil {
 		t.Fatal("HasProductionMeteringQuerier / MeteringQuerier must be wired")
@@ -91,7 +98,7 @@ func TestExternalFacade_NilRuntimeNamedMethods(t *testing.T) {
 	t.Parallel()
 	var rt *lipruntime.Runtime
 	if rt.HasProductionMetering() || rt.HasTrafficObservers() || rt.HasUsageObservers() ||
-		rt.HasProductionEvidenceSink() || rt.HasProductionRater() || rt.HasProductionMeteringQuerier() {
+		rt.HasProductionEvidenceSink() || rt.HasProductionMeteringQuerier() {
 		t.Fatal("nil Runtime Has* methods must be false")
 	}
 	if rt.MeteringQuerier() != nil || rt.ReadinessReport() != nil {
@@ -124,20 +131,4 @@ func (*namedMethodEvidence) RecordPolicyDecision(context.Context, policydecision
 
 func (*namedMethodEvidence) RecordAccountingAuthority(context.Context, controlplane.Event) error {
 	return nil
-}
-
-type namedMethodRater struct{}
-
-func (namedMethodRater) Rate(_ context.Context, req economics.RatingRequest) (economics.RatingResult, error) {
-	res := economics.RatingResult{
-		Money:       economics.Money{NanoUnits: 1, Currency: "USD", Present: true},
-		Source:      "named-method",
-		Perspective: req.Perspective,
-		RaterID:     "named-method-rater",
-		Version:     economics.VersionRef{ID: "named-method", Version: "v1"},
-	}
-	if err := res.ValidateFor(req); err != nil {
-		return economics.RatingResult{}, err
-	}
-	return res, nil
 }

@@ -137,8 +137,8 @@ func TestAuthorityLifecycle_ExternalSettleReceivesFactsOutcomeSurfaced(t *testin
 	if len(got.Facts[0].Quantities) == 0 {
 		t.Fatal("expected quantity evidence on settle Facts")
 	}
-	if len(got.Rated) == 0 || !got.Rated[0].Money.Present || got.Rated[0].Money.NanoUnits != 42 {
-		t.Fatalf("rated=%+v want cost evidence", got.Rated)
+	if got.Facts[0].Money != nil {
+		t.Fatalf("stream cost must not attach Money on authority settle facts: %+v", got.Facts[0].Money)
 	}
 	if external.releaseCalls.Load() != 0 {
 		t.Fatalf("release after successful settle: %d", external.releaseCalls.Load())

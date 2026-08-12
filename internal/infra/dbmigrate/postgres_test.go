@@ -19,12 +19,12 @@ func TestParseComponents(t *testing.T) {
 	}{
 		{
 			name: "empty defaults to all",
-			want: []string{ComponentUsageAuthority, ComponentConcurrency, ComponentMetering},
+			want: []string{ComponentUsageAuthority, ComponentConcurrency, ComponentMetering, ComponentBilling},
 		},
 		{
 			name: "whitespace defaults to all",
 			raw:  "  \t  ",
-			want: []string{ComponentUsageAuthority, ComponentConcurrency, ComponentMetering},
+			want: []string{ComponentUsageAuthority, ComponentConcurrency, ComponentMetering, ComponentBilling},
 		},
 		{
 			name: "selected preserves order",
@@ -43,13 +43,13 @@ func TestParseComponents(t *testing.T) {
 		},
 		{
 			name:    "unknown",
-			raw:     "billing",
-			wantErr: `unknown component "billing"`,
+			raw:     "not-a-component",
+			wantErr: `unknown component "not-a-component"`,
 		},
 		{
 			name:    "unknown among valid",
-			raw:     "metering,billing",
-			wantErr: `unknown component "billing"`,
+			raw:     "metering,not-a-component",
+			wantErr: `unknown component "not-a-component"`,
 		},
 	}
 	for _, tt := range tests {

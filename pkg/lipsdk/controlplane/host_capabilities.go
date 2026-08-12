@@ -4,7 +4,7 @@ package controlplane
 // derived from a live host (not cached facade booleans).
 type HostCapabilities struct {
 	ProductionMetering, TrafficObservers, UsageObservers bool
-	ProductionEvidenceSink, ProductionRater              bool
+	ProductionEvidenceSink                               bool
 	ProductionMeteringQuerier                            bool
 	SnapshotGenerationID, ExecutableGenerationID         int64
 	SnapshotUsageVersion, ExecutableVersion              string

@@ -41,6 +41,24 @@ func (f RuleFinding) String() string {
 
 // ForbiddenDeclarations is the permanent deleted-symbol inventory.
 var ForbiddenDeclarations = []ForbiddenDeclRule{
+	// Phase 8 deleted stream-time financial runtime surface
+	{Package: "pkg/lipsdk/economics", Kind: SymbolType, Name: "RatingRequest", Reason: "stream-time rater contract deleted; billing owns monetary rating"},
+	{Package: "pkg/lipsdk/economics", Kind: SymbolType, Name: "RatingResult", Reason: "stream-time rater contract deleted; billing owns monetary rating"},
+	{Package: "pkg/lipsdk/economics", Kind: SymbolType, Name: "Rater", Reason: "stream-time rater contract deleted; billing owns monetary rating"},
+	{Package: "pkg/lipsdk/economics", Kind: SymbolType, Name: "RaterRegistration", Reason: "stream-time rater registration deleted"},
+	{Package: "pkg/lipsdk/economics", Kind: SymbolType, Name: "OutputLimitStatus", Reason: "legacy monetary output-limit quote contract deleted"},
+	{Package: "pkg/lipsdk/economics", Kind: SymbolType, Name: "OutputLimitRequest", Reason: "legacy monetary output-limit quote contract deleted"},
+	{Package: "pkg/lipsdk/economics", Kind: SymbolType, Name: "OutputLimitResult", Reason: "legacy monetary output-limit quote contract deleted"},
+	{Package: "pkg/lipsdk/economics", Kind: SymbolType, Name: "OutputLimitQuoter", Reason: "legacy monetary output-limit quote contract deleted"},
+	{Package: "internal/core/runtime", Kind: SymbolMethod, Name: "enrichUsageCost", Reason: "stream-time monetary price enrichment deleted"},
+	{Package: "internal/core/runtime", Kind: SymbolMethod, Name: "recordTokenAccountingLedger", Reason: "direct runtime token-ledger write deleted"},
+	{Package: "internal/core/runtime", Kind: SymbolMethod, Name: "recordPartialTokenAccountingLedger", Reason: "direct runtime token-ledger write deleted"},
+	{Package: "internal/core/runtime", Kind: SymbolMethod, Name: "recordCancellationBillingMarker", Reason: "estimated stream-time billing marker deleted"},
+	{Package: "internal/core/runtime", Kind: SymbolMethod, Name: "rateMonetaryExposure", Reason: "runtime economics money rating deleted; billing owns monetary rating"},
+	{Package: "internal/core/runtime", Kind: SymbolFunc, Name: "rateMonetaryExposure", Reason: "runtime economics money rating deleted; billing owns monetary rating"},
+	{Package: "internal/core/runtime", Kind: SymbolFunc, Name: "rateMonetaryExposureWith", Reason: "runtime economics money rating deleted; billing owns monetary rating"},
+	{Package: "internal/infra/runtimebundle", Kind: SymbolFunc, Name: "openDurableAccountingLedger", Reason: "legacy financial token ledger composition deleted"},
+	{Package: "internal/infra/runtimebundle", Kind: SymbolFunc, Name: "selectEconomicsRater", Reason: "EconomicsRater wiring deleted; BillingAdmission owns monetary admission"},
 	// Compatibility Built / Build surface
 	{Package: "internal/infra/runtimebundle", Kind: SymbolType, Name: "Built", Reason: "compatibility Built aggregate deleted"},
 	{Package: "internal/infra/runtimebundle", Kind: SymbolFunc, Name: "Build", Reason: "compatibility runtimebundle.Build deleted"},
@@ -112,6 +130,8 @@ var AbsentFiles = []string{
 	"cmd/lipstd/tracing_shutdown.go",
 	"internal/infra/runtimebundle/built.go",
 	"internal/infra/runtimebundle/build.go",
+	"internal/infra/tokenaccounting/ledgerstore/store.go",
+	"internal/infra/tokenaccounting/ledgerstore/20260514000000_token_accounting_ledger_baseline.go",
 }
 
 // ScanForbiddenDeclarations reports package-scope declarations matching ForbiddenDeclarations.

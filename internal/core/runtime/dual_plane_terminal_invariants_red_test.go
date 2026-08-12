@@ -24,7 +24,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
@@ -157,74 +156,6 @@ func TestDualPlaneTerminalInvariants_ProviderCostMustNotEnterFrontendFacts(t *te
 	}
 	if fact.Money != nil {
 		t.Fatalf("customer FE egress must not carry provider money; got %+v", fact.Money)
-	}
-}
-
-func TestDualPlaneTerminalInvariants_AttemptMoneyRatedFromFinalBackendIngressNotStalePreflight(t *testing.T) {
-	t.Parallel()
-
-	rater := &injectedRater{nano: 1, currency: "USD"}
-	attProv := &recordingAttemptProvider{id: "rate-att"}
-	ex := &Executor{}
-	ex.EconomicsRater = rater
-	ex.Now = func() time.Time { return time.Unix(100, 0).UTC() }
-	ex.AttemptCoordinator = &authoritycoord.AttemptCoordinator{
-		Slots: []authoritycoord.AttemptSlot{{
-			ID: "rate-att", Class: authoritycoord.AttemptPriorityHardSpend, Provider: attProv, Strength: authority.StrengthRequired,
-		}},
-	}
-
-	holder := &checkpoint.RequestHolder{}
-	const beAttempt = "b-leg-final"
-	_, err := holder.StoreBackendIngress(checkpoint.BackendIngressInput{
-		Call: lipapi.Call{
-			ID: "req-rate-final",
-			Messages: []lipapi.Message{{
-				Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("compressed")},
-			}},
-		},
-		AttemptID: beAttempt, BLegID: beAttempt, ALegID: "a-1",
-		BackendID: "backend-1", Model: "model-1",
-		CheckpointID: "be", StreamID: "be-stream",
-		Now: time.Unix(2, 0).UTC(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	holder.MergeBackendIngressQuantities(beAttempt, []metering.Quantity{
-		{Component: metering.ComponentInputToken, Unit: metering.UnitToken, Value: 500, Present: true},
-		{Component: metering.ComponentOutputToken, Unit: metering.UnitToken, Value: 64, Present: true},
-	})
-	be := holder.BackendIngressFor(beAttempt)
-	finalIn, ok := checkpoint.QuantityComponentValue(be.Public.Quantities, metering.ComponentInputToken)
-	if !ok || finalIn != 500 {
-		t.Fatalf("precondition: BE input=%d ok=%v", finalIn, ok)
-	}
-
-	staleDecision := accountingpreflight.Decision{
-		Count: accountingapp.CountResult{InputTokens: 10, OutputTokens: 64, TotalTokens: 74, TotalTokensPresent: true},
-	}
-	ctx := withMeteringHolder(context.Background(), holder)
-	_, err = ex.admitAttemptAuthority(
-		ctx, "trace-rate-final", "a-1",
-		b2bua.BLegRecord{BLegID: beAttempt, Seq: 1},
-		lipapi.Call{ID: "req-rate-final"},
-		routing.AttemptCandidate{Key: "backend-1:model-1", Primary: routing.Primary{Backend: "backend-1", Model: "model-1"}},
-		staleDecision, false,
-	)
-	if err != nil {
-		t.Fatalf("admit: %v", err)
-	}
-	if rater.calls.Load() < 1 {
-		t.Fatal("operator rater must be invoked")
-	}
-	req, _ := rater.last.Load().(economics.RatingRequest)
-	ratedIn, ok := checkpoint.QuantityComponentValue(req.Quantities, metering.ComponentInputToken)
-	if !ok {
-		t.Fatal("rating request must include input_token")
-	}
-	if ratedIn != finalIn {
-		t.Fatalf("operator rating input_token=%d want final backend-ingress %d (stale preflight was %d)", ratedIn, finalIn, staleDecision.Count.InputTokens)
 	}
 }
 

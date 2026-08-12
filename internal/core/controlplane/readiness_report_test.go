@@ -36,7 +36,6 @@ func TestReadinessReportServiceReportsIndependentComponents(t *testing.T) {
 		},
 		RequestCoordinatorEnabled: true,
 		AttemptCoordinatorEnabled: true,
-		OperatorRaterAttached:     true,
 		StoreBackings: corecp.ReadinessStoreBackings{
 			ControlPlane: "memory",
 			Metering:     "memory",

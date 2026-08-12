@@ -197,9 +197,6 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		return fail(err)
 	}
 	ps.accountingStores = accountingStores
-	if accountingStores != nil {
-		ps.AccountingLedger = accountingStores.Ledger
-	}
 
 	meteringRT, meteringClosers, err := buildMeteringRuntime(parent, in.Cfg, nowFn, postgresPools, ps.dualPlaneMigrator)
 	if err := regStep(meteringClosers, err); err != nil {

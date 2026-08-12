@@ -299,9 +299,6 @@ func TestSharedMutable_MeteringAccountingStoresSharedAcrossCandidates(t *testing
 	}
 	t.Cleanup(func() { _ = ps.Close() })
 
-	if ps.AccountingLedger == nil {
-		t.Fatal("expected process accounting ledger")
-	}
 	if ps.MeteringRecorder == nil {
 		t.Fatal("expected process metering recorder")
 	}

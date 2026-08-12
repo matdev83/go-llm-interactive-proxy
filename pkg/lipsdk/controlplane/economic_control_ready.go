@@ -26,8 +26,6 @@ func EvaluateEconomicControlReady(report ReadinessReport) (bool, string) {
 		ReadinessComponentAttemptCoordinator,
 		ReadinessComponentConcurrencyAuthority,
 		ReadinessComponentUsageAuthority,
-		ReadinessComponentCustomerRater,
-		ReadinessComponentOperatorRater,
 		ReadinessComponentMeteringJournal,
 		ReadinessComponentTerminalRecovery,
 	}

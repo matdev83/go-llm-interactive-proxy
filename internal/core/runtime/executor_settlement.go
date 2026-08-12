@@ -2,39 +2,32 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
-	accountingledger "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/ledger"
-	accountingobs "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability"
 	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 )
 
-// persistCancellationBilling records the final usage/cost evidence for a canceled
-// attempt and settles the matching usage authority reservation. When a backend
-// EventUsageDelta was already observed mid-stream (accounting.usageObserved), the
-// observed usage is settled directly as a Cancellation — no estimated billing marker
-// is needed. Otherwise it first attempts the backend's FinalizeBilling hook (when
-// present) to recover authoritative usage; on failure it records an estimated
-// billing marker so accounting still has evidence. When the reservation is already
-// settled AND authoritative usage is available (usageObserved or finalizeBilling
-// succeeded), it calls ReconcileAuthoritative to adjust the prior estimated
-// settlement instead of the no-op settleCancellationAuthority (requirement 7.6,
-// 8.4-8.6). If not already settled, the existing settleCancellationAuthority path
-// runs. Every settlement path uses a non-canceled context so post-output
-// accounting completes after client cancellation (requirement 11.7).
+// persistCancellationBilling settles non-money usage-authority reservations for a
+// canceled attempt. Monetary cancellation work belongs exclusively to post-turn
+// TUR/LUR processing after terminal handoff. When a backend EventUsageDelta was
+// already observed mid-stream (accounting.usageObserved), the observed usage is
+// settled directly as a Cancellation. Otherwise it first attempts the backend's
+// FinalizeBilling hook (when present) to recover final provider evidence for
+// quota/protocol coordination. No estimated stream-time billing marker is emitted.
+// When the reservation is already settled AND authoritative usage is available
+// (usageObserved or finalizeBilling succeeded), it calls ReconcileAuthoritative
+// instead of the no-op settleCancellationAuthority (requirement 7.6, 8.4-8.6).
+// Every settlement path uses a non-canceled context so post-output accounting
+// completes after client cancellation (requirement 11.7).
 func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason string) {
 	if s == nil {
 		return
@@ -59,7 +52,9 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 		}
 		return
 	}
-	s.recordCancellationBillingMarker(ctx, reason)
+	// No estimated stream-time billing marker is emitted. The terminal handoff
+	// carries the final evidence to post-turn billing; quota coordination settles
+	// independently below.
 	s.settleCancellationAuthority(ctx)
 	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, s.operatorUsageForFinalize())
 	if s.isCommitted() {
@@ -100,37 +95,11 @@ func (s *retryRecvStream) settleCancellationAuthority(ctx context.Context) {
 	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeCanceled, metering.SurfacedNo, usageEv)
 }
 
-func (s *retryRecvStream) recordCancellationBillingMarker(ctx context.Context, reason string) {
-	if s == nil || s.accounting.usageObserved {
-		return
-	}
-	raw, _ := json.Marshal(map[string]any{
-		"billing_basis": "estimated_after_a_leg_cancellation",
-		"reason":        strings.TrimSpace(reason),
-	})
-	ev := lipapi.Event{
-		Kind:         lipapi.EventUsageDelta,
-		CostSource:   accounting.CostSourceEstimated,
-		RawUsageJSON: string(raw),
-	}
-	persistCtx := context.WithoutCancel(ctx)
-	if err := s.beforeEmitClientFacing(persistCtx, ev); err != nil && s.executor != nil && s.executor.Log != nil {
-		s.executor.Log.DebugContext(persistCtx, "secure_session cancellation billing marker", "error", err)
-	}
-	s.emitUsage(persistCtx, ev)
-}
-
 func (s *retryRecvStream) finalizeBillingAfterCancel(ctx context.Context, reason string) bool {
-	if s == nil || s.executor == nil || s.executor.Backends == nil {
+	if s == nil || s.executor == nil {
 		return false
 	}
-	be, ok := s.executor.Backends[strings.TrimSpace(s.cand.Primary.Backend)]
-	if !ok || be.FinalizeBilling == nil {
-		return false
-	}
-	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-	defer cancel()
-	ev, err := be.FinalizeBilling(persistCtx, execbackend.BillingFinalizationInput{
+	ev, ok := s.executor.billingTurns().finalizeOnce(ctx, execbackend.BillingFinalizationInput{
 		TraceID: strings.TrimSpace(s.traceID),
 		ALegID:  strings.TrimSpace(s.aLegID),
 		BLegID:  strings.TrimSpace(s.bleg.BLegID),
@@ -138,15 +107,11 @@ func (s *retryRecvStream) finalizeBillingAfterCancel(ctx context.Context, reason
 		Model:   strings.TrimSpace(s.cand.Primary.Model),
 		Reason:  strings.TrimSpace(reason),
 	})
-	if err != nil {
-		if s.executor.Log != nil {
-			s.executor.Log.DebugContext(persistCtx, "billing finalizer after cancellation", "error", err)
-		}
+	if !ok {
 		return false
 	}
-	if ev.Kind != lipapi.EventUsageDelta {
-		return false
-	}
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingFinalizeTimeout)
+	defer cancel()
 	s.accounting.observeUsage(ev)
 	s.rememberClientEvent(ev)
 	if recErr := s.beforeEmitClientFacing(persistCtx, ev); recErr != nil && s.executor.Log != nil {
@@ -222,7 +187,6 @@ func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish li
 		s.authority.Settle(ctx, authorityapp.SettlementKindFinal, lipapi.Event{}, false)
 		return lipapi.Event{}, false, nil
 	}
-	started := s.now()
 	events := append(s.seenEventsCopy(), finish)
 	result, err := s.executor.StreamUsage.Reconstruct(ctx, accountingstream.Input{
 		Backend:    strings.TrimSpace(s.cand.Primary.Backend),
@@ -241,18 +205,17 @@ func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish li
 	}
 	authorityEv := authorityUsageEvent(result.Events)
 	clientUsageEv := mergeUsageEventsForClient(result.Events, tokenAccountingHasProviderUsage(s.seenEventsCopy()))
+	// Strip any residual monetary fields: protocol usage is a read-side projection
+	// only. Customer/operator money is owned exclusively by sealed TUR/LUR rating.
+	clientUsageEv.CostNanoUnits = 0
+	clientUsageEv.Currency = ""
+	clientUsageEv.CostSource = ""
+	clientUsageEv.CostPresent = false
 	s.lastAuthorityUsage = authorityEv
 	s.lastCustomerUsage = customerPlaneUsageEvent(clientUsageEv)
-	duration := s.now().Sub(started)
-	if duration <= 0 {
-		duration = time.Nanosecond
-	}
-	if err := s.recordTokenAccountingLedger(ctx, result.Events, "", "", duration); err != nil {
-		if s.executor.LedgerWriteRequired {
-			s.authority.Settle(ctx, authorityapp.SettlementKindFinal, authorityEv, false)
-			return lipapi.Event{}, false, err
-		}
-	}
+	// The legacy token ledger is intentionally not written here. Client-visible
+	// usage remains a protocol/read-side projection; monetary settlement is owned
+	// by the sealed TUR/LUR post-turn processor.
 	s.authority.Settle(ctx, authorityapp.SettlementKindFinal, authorityEv, false)
 	return clientUsageEv, true, nil
 }
@@ -293,8 +256,8 @@ func (s *retryRecvStream) finalizeResponseFinishedAuthority(ctx context.Context,
 		}
 		s.authority.ApplyUnreservedUsage(cctx, authorityapp.SettlementKindFinal, authorityEv)
 		s.emitBackendEgressMeteringFact(cctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, authorityEv)
-		// Customer settlement derives quantities from released accumulator evidence via
-		// StreamUsage; authorityEv must not import provider counters into the customer plane.
+		// Request settlement receives only non-money authority/egress evidence.
+		// Monetary rating and journal settlement remain exclusive to TUR/LUR post-turn.
 		return s.settleRequestAuthorityWithFrontendEgress(cctx, authorityEv)
 	})
 	if !r.Won {
@@ -308,11 +271,11 @@ func (s *retryRecvStream) finalizeResponseFinishedAuthority(ctx context.Context,
 }
 
 // settleRequestAuthorityWithFrontendEgress emits the frontend-egress fact for the
-// delivered/committed customer usage and passes that fact into request settlement (4.2).
-// When EconomicsRater is attached, customer FE-egress quantities are rated and
-// forwarded on RequestSettlement.Rated (requirements 6.1, 4.2).
-// Durable-pending and durable-intent-rejected errors are returned so stream
-// terminal effects fail truthfully (Phase 4.5 / D9).
+// delivered/committed customer usage and passes that fact into request settlement
+// for non-money quota/lease coordination (4.2). Monetary rating is exclusively a
+// post-turn TUR/LUR concern and is never attached here. Durable-pending and
+// durable-intent-rejected errors are returned so stream terminal effects fail
+// truthfully (Phase 4.5 / D9).
 func (s *retryRecvStream) settleRequestAuthorityWithFrontendEgress(ctx context.Context, usageEv lipapi.Event) error {
 	if s == nil {
 		return nil
@@ -335,26 +298,12 @@ func (s *retryRecvStream) settleRequestAuthorityWithFrontendEgress(ctx context.C
 		s.customer.unmarkSettled()
 		return fmt.Errorf("%w: frontend egress fact not persisted", terminalworkapp.ErrDurableIntentRejected)
 	}
-	var rated []economics.RatingResult
-	if s.executor != nil && s.executor.EconomicsRater != nil {
-		qs := usageEventRatingQuantities(customerEv)
-		if len(facts) > 0 && len(facts[0].Quantities) > 0 {
-			qs = facts[0].Quantities
-		}
-		if res, err := s.executor.rateMonetaryExposure(ctx, economics.RatingRequest{
-			Perspective: metering.PerspectiveCustomer,
-			Quantities:  qs,
-			At:          s.executor.now(),
-		}); err == nil {
-			rated = []economics.RatingResult{res}
-		}
-		// Rating failure after committed output must not erase the fact or block
-		// settle; settle still runs with facts (15.5).
-	}
 	if s.executor == nil {
 		return nil
 	}
-	err := s.executor.settleRequestAuthority(ctx, facts, rated...)
+	// Monetary rating is exclusively a post-turn TUR/LUR concern. Runtime
+	// settlement receives only the non-money authority/egress evidence.
+	err := s.executor.settleRequestAuthority(ctx, facts)
 	if s.executor.RequestCoordinator != nil {
 		if st := requestAuthorityFrom(ctx); st != nil && !st.Settled {
 			// Provider settlement failed: keep customer once-only open for retry.
@@ -632,122 +581,19 @@ func tokenAccountingHasProviderUsage(events []lipapi.Event) bool {
 	return false
 }
 
-func (s *retryRecvStream) recordTokenAccountingLedger(ctx context.Context, events []lipapi.Event, unavailableReason, failureReason string, duration time.Duration) error {
-	if s == nil || s.executor == nil || s.executor.Ledger == nil {
-		return nil
-	}
-	for _, ev := range events {
-		if ev.Kind != lipapi.EventUsageDelta {
-			continue
-		}
-		scopes := ev.UsageScopes
-		if len(scopes) == 0 {
-			scopes = []lipapi.ScopedUsageDelta{{
-				InputTokens:      ev.InputTokens,
-				OutputTokens:     ev.OutputTokens,
-				CacheReadTokens:  ev.CacheReadTokens,
-				CacheWriteTokens: ev.CacheWriteTokens,
-				ReasoningTokens:  ev.ReasoningTokens,
-				TotalTokens:      ev.TotalTokens,
-				UsagePresence:    ev.UsagePresence,
-				Accounting:       ev.Accounting,
-			}}
-		}
-		for _, scope := range scopes {
-			if scope.Accounting.Plane == lipapi.UsagePlaneUnknown {
-				continue
-			}
-			record := accountingledger.Record{
-				RequestID:         strings.TrimSpace(s.baseline.ID),
-				AttemptID:         strings.TrimSpace(s.bleg.BLegID),
-				Backend:           strings.TrimSpace(s.cand.Primary.Backend),
-				Model:             strings.TrimSpace(s.cand.Primary.Model),
-				Plane:             scope.Accounting.Plane,
-				InputTokens:       scope.InputTokens,
-				OutputTokens:      scope.OutputTokens,
-				CacheReadTokens:   scope.CacheReadTokens,
-				CacheWriteTokens:  scope.CacheWriteTokens,
-				ReasoningTokens:   scope.ReasoningTokens,
-				TotalTokens:       scope.TotalTokens,
-				Metadata:          scope.Accounting,
-				CreatedAt:         s.now(),
-				UnavailableReason: unavailableReason,
-				FailureReason:     failureReason,
-			}
-			if record.RequestID == "" {
-				record.RequestID = strings.TrimSpace(s.traceID)
-			}
-			if err := s.executor.Ledger.Record(ctx, record); err != nil {
-				if s.executor.Log != nil {
-					s.executor.Log.DebugContext(ctx, "token accounting ledger record", "error", err)
-				}
-				s.recordTokenAccountingObservation(ctx, record, err, duration)
-				return err
-			}
-			s.recordTokenAccountingObservation(ctx, record, nil, duration)
-		}
-	}
-	return nil
-}
-
 func (s *retryRecvStream) recordPartialTokenAccounting(ctx context.Context, reason string, err error) {
-	s.recordPartialTokenAccountingLedger(ctx, reason, err)
+	if s == nil {
+		return
+	}
+	// Keep non-money attempt/request coordination only. Do not write the legacy
+	// token ledger or settle monetary exposure from stream usage.
 	usageEv := s.operatorUsageForFinalize()
 	s.authority.Settle(ctx, authorityapp.SettlementKindPartial, usageEv, false)
 	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindPartial, usageEv)
 	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeFailed, metering.SurfacedYes, usageEv)
 	if s.isCommitted() {
-		s.emitFrontendEgressMeteringFact(ctx, s.usageEvidenceOrEmpty())
+		_ = s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
 	}
-}
-
-func (s *retryRecvStream) recordPartialTokenAccountingLedger(ctx context.Context, reason string, err error) {
-	if s == nil || s.executor == nil || s.executor.Ledger == nil {
-		return
-	}
-	events := s.usageEventsSnapshot()
-	if len(events) == 0 {
-		return
-	}
-	duration := s.now().Sub(s.accounting.requestStartedAt)
-	if duration <= 0 {
-		duration = time.Nanosecond
-	}
-	_ = s.recordTokenAccountingLedger(ctx, events, reason, reason, duration)
-}
-
-func (s *retryRecvStream) recordTokenAccountingObservation(ctx context.Context, record accountingledger.Record, err error, duration time.Duration) {
-	if s == nil || s.executor == nil || s.executor.TokenAccountingObservability == nil {
-		return
-	}
-	obs, err := accountingobs.NewObservation(accountingobs.Input{
-		Labels: accountingobs.Labels{
-			Backend:   record.Backend,
-			Model:     record.Model,
-			Plane:     accountingobs.Plane(record.Plane),
-			Source:    accountingobs.Source(record.Metadata.Source),
-			Authority: accountingobs.Authority(record.Metadata.Authority),
-		},
-		Status:            observationStatus(record, err),
-		UnavailableReason: record.UnavailableReason,
-		Err:               err,
-		Duration:          duration,
-		OccurredAt:        record.CreatedAt,
-	})
-	if err != nil {
-		if s.executor.Log != nil {
-			s.executor.Log.DebugContext(ctx, "token accounting observation", "error", err)
-		}
-		return
-	}
-	s.executor.TokenAccountingObservability.Record(obs)
-}
-
-func observationStatus(record accountingledger.Record, err error) accountingobs.Status {
-	if err != nil || record.FailureReason != "" {
-		return accountingobs.StatusUnavailable
-	}
-	return accountingobs.StatusSuccess
 }
 
 func tokenAccountingUsageEvents(events []lipapi.Event) []lipapi.Event {
