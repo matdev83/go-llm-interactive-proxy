@@ -62,8 +62,9 @@ type LineBudget struct {
 // with PackageTreeBudgets for overlapping entries).
 var LineBudgets = []LineBudget{
 	// Phase 8 removes stream-time financial mutation points and adds the
-	// handoff/architecture ratchets; keep the measured-plus-25 ratchet at 72,396.
-	{Dir: "internal/core", Max: 72396},
+	// handoff/architecture ratchets. After merging the Go naming alignment,
+	// keep the measured-plus-25 ratchet at 72,444.
+	{Dir: "internal/core", Max: 72444},
 	{Dir: "internal/pluginreg", Max: 1079},
 	{Dir: "internal/stdhttp", Max: 5160},
 	{Dir: "internal/infra/runtimebundle", Max: 11088},
