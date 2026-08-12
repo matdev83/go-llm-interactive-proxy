@@ -9,7 +9,6 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/runtimegen"
 )
 
@@ -39,12 +38,6 @@ func (s genBindConc) QueryLeases(context.Context, authority.LeaseQuery) (authori
 	return authority.LeasePage{}, nil
 }
 
-type genBindRater struct{ id string }
-
-func (s genBindRater) Rate(context.Context, economics.RatingRequest) (economics.RatingResult, error) {
-	return economics.RatingResult{RaterID: s.id}, nil
-}
-
 func TestApplyGenerationBoundVersion_PrefersPublishedGeneration(t *testing.T) {
 	t.Parallel()
 	pub := snapshotgen.NewPublisher()
@@ -55,9 +48,6 @@ func TestApplyGenerationBoundVersion_PrefersPublishedGeneration(t *testing.T) {
 			Provider:   genBindConc{id: "conc"},
 		},
 		MaxActiveRequests: 1,
-		OperatorRaters: []economics.RaterRegistration{{
-			ID: "op-r", Perspective: metering.PerspectiveOperator, Rater: genBindRater{id: "op-r"},
-		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -134,7 +124,7 @@ func TestApplyGenerationBoundVersion_MetadataOnlyPublishMetadataFallback(t *test
 	if res.BoundVersion.Version != "meta-v3" {
 		t.Fatalf("bound=%+v, want meta-v3 from PublishMetadata Current()", res.BoundVersion)
 	}
-	if res.BoundRatingVersion.Version != "rate-v3" {
-		t.Fatalf("bound rating=%+v, want rate-v3", res.BoundRatingVersion)
+	if res.BoundRatingVersion.Version != "" {
+		t.Fatalf("bound rating=%+v, want empty after monetary rater retirement", res.BoundRatingVersion)
 	}
 }

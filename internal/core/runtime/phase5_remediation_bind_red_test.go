@@ -8,7 +8,6 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/runtimegen"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
@@ -59,12 +58,6 @@ func (s phase5RemedConc) QueryLeases(context.Context, authority.LeaseQuery) (aut
 	return authority.LeasePage{}, nil
 }
 
-type phase5RemedRater struct{ id string }
-
-func (s phase5RemedRater) Rate(context.Context, economics.RatingRequest) (economics.RatingResult, error) {
-	return economics.RatingResult{RaterID: s.id}, nil
-}
-
 func TestPhase5Remediation_BindBeforeAdmitUsesBoundGeneration(t *testing.T) {
 	t.Parallel()
 	pub := snapshotgen.NewPublisher()
@@ -79,9 +72,6 @@ func TestPhase5Remediation_BindBeforeAdmitUsesBoundGeneration(t *testing.T) {
 			Descriptor: phase5RemedReq{id: "quota-v1"}.Describe(),
 			Priority:   authority.RequestPriorityQuotaBudgetRate,
 			Provider:   phase5RemedReq{id: "quota-v1"},
-		}},
-		OperatorRaters: []economics.RaterRegistration{{
-			ID: "rater-v1", Perspective: metering.PerspectiveOperator, Rater: phase5RemedRater{id: "rater-v1"},
 		}},
 	})
 	if err != nil {
@@ -120,9 +110,6 @@ func TestPhase5Remediation_BindBeforeAdmitUsesBoundGeneration(t *testing.T) {
 			Priority:   authority.RequestPriorityQuotaBudgetRate,
 			Provider:   phase5RemedReq{id: "quota-v2"},
 		}},
-		OperatorRaters: []economics.RaterRegistration{{
-			ID: "rater-v2", Perspective: metering.PerspectiveOperator, Rater: phase5RemedRater{id: "rater-v2"},
-		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -141,7 +128,7 @@ func TestPhase5Remediation_BindBeforeAdmitUsesBoundGeneration(t *testing.T) {
 	if res.BoundVersion.ID != boundEvidence || res.BoundVersion.Version != "bind-g1" {
 		t.Fatalf("settlement evidence must name bound generation objects: %+v", res.BoundVersion)
 	}
-	if res.BoundVersion.ID == pub.CurrentExecutable().EvidenceObjectID() {
+	if res.BoundVersion.Version == pub.CurrentExecutable().Version {
 		t.Fatal("mid-flight refresh must not rewrite bound settlement evidence")
 	}
 	coord := ex.requestCoordinatorFor(st)

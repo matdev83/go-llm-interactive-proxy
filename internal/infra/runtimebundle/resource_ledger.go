@@ -18,6 +18,7 @@ const (
 	PhaseActivate                       // rollback after commit-safe activate work
 	PhaseQuiesce                        // stop admission-independent workers after retirement
 	PhaseClose                          // release clients/backends/transports after drain
+	PhasePublish                        // start admission-independent workers after host publication
 )
 
 type ledgerLifeState uint8
@@ -32,15 +33,15 @@ const (
 // ResourceLedger tracks candidate/generation-owned resources for reverse-order
 // rollback, quiesce, and close. Sole generation-resource phase owner; never owns ProcessServices.
 type ResourceLedger struct {
-	mu                                                         sync.Mutex
-	cond                                                       *sync.Cond
-	entries                                                    []*ledgerEntry
-	state                                                      ledgerLifeState
-	preparing, activating, quiescing, rollingBack, closing     bool
-	prepareDone, activateDone, quiesceDone                     bool
-	prepareErr, activateErr, quiesceErr, rollbackErr, closeErr error
-	sealed                                                     bool // late acquisitions cleaned immediately outside mu
-	prepared                                                   atomic.Bool
+	mu                                                                     sync.Mutex
+	cond                                                                   *sync.Cond
+	entries                                                                []*ledgerEntry
+	state                                                                  ledgerLifeState
+	preparing, activating, publishing, quiescing, rollingBack, closing     bool
+	prepareDone, activateDone, publishDone, quiesceDone                    bool
+	prepareErr, activateErr, publishErr, quiesceErr, rollbackErr, closeErr error
+	sealed                                                                 bool // late acquisitions cleaned immediately outside mu
+	prepared                                                               atomic.Bool
 }
 
 type ledgerEntry struct {
@@ -170,7 +171,7 @@ func (l *ResourceLedger) copyEntries() []*ledgerEntry {
 
 func (l *ResourceLedger) waitPhaseLocked(waitQuiescing, waitClosing bool) {
 	for {
-		busy := l.preparing || l.activating || l.rollingBack
+		busy := l.preparing || l.activating || l.publishing || l.rollingBack
 		if waitQuiescing {
 			busy = busy || l.quiescing
 		}
@@ -251,6 +252,12 @@ func (l *ResourceLedger) Prepare(ctx context.Context) error {
 // Activate runs PhaseActivate start hooks; commit-safe and bounded (req).
 func (l *ResourceLedger) Activate(ctx context.Context) error {
 	return l.execStartPhase(ctx, PhaseActivate, &l.activateDone, &l.activateErr, &l.activating, false)
+}
+
+// Publish runs PhasePublish start hooks after the generation is the active
+// published request plane. CompileCandidate/CompileGeneration must not call it.
+func (l *ResourceLedger) Publish(ctx context.Context) error {
+	return l.execStartPhase(ctx, PhasePublish, &l.publishDone, &l.publishErr, &l.publishing, false)
 }
 
 func (l *ResourceLedger) startBlockedLocked() (bool, error) {

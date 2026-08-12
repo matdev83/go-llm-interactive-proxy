@@ -50,7 +50,9 @@ Core owns orchestration and policy. Core imports `pkg/lipapi` and `pkg/lipsdk`; 
 - **Canonical Support & State**: `capabilities/`, `jsonpresence/`, `jsonshape/` (preflight guards), `toolcallrepair/`, `diag/`, `config/`, `configreload/`, `interleavedthinking/` (reasoning memo store/shape), `interleavedstate/`, `snapshotgen/`
 - **Streaming**: `stream/` (canonical stream, event pumps), `streamrecovery/`
 - **Hooks & Extensions**: `hooks/` (stage evaluation), `extensions/` (stage-four extension platform)
-- **Core State & Accounting**: `auxreq/`, `state/`, `traffic/`, `workspace/`, `modelcatalog/`, `modelregistry/`, `accounting/`, `tokenaccounting/`
+- **Core State & Accounting**: `auxreq/`, `state/`, `traffic/`, `workspace/`, `modelcatalog/`, `modelregistry/`, `accounting/`, `billing/`, `tokenaccounting/`
+  - `billing/` owns authorization, immutable TUR/LUR evidence, deterministic post-turn rating, journal settlement, and billing reports. Runtime may authorize before execution and hand off sealed evidence at the terminal owner, but must not enrich prices or write the legacy token ledger.
+  - `tokenaccounting/` remains a protocol/quota usage projection and admin counting surface only; it is not a financial balance or journal input.
 
 ### 2a. Composition & Standard Distribution Assembly
 

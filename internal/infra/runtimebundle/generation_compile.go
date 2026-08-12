@@ -9,7 +9,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/runtimegen"
 )
 
@@ -36,14 +35,6 @@ func CompileGenerationContribution(cfg *config.Config, prod ProductionOptions, n
 		AttemptRegistrations:    append([]authority.AttemptRegistration(nil), prod.AttemptRegistrations...),
 		ConcurrencyRegistration: prod.ConcurrencyRegistration,
 		MaxActiveRequests:       maxActiveFromConfig(cfg),
-	}
-	for _, reg := range prod.RaterRegistrations {
-		switch reg.Perspective {
-		case metering.PerspectiveCustomer:
-			contrib.CustomerRaters = append(contrib.CustomerRaters, reg)
-		case metering.PerspectiveOperator:
-			contrib.OperatorRaters = append(contrib.OperatorRaters, reg)
-		}
 	}
 	return contrib
 }

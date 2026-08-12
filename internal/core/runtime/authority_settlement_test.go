@@ -526,54 +526,6 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 			t.Fatal("expected authoritySettled=true after final settle")
 		}
 	})
-
-	t.Run("ledger-failure-required-settles-authority", func(t *testing.T) {
-		t.Parallel()
-		auth := &recordingAuthorityService{
-			admitResult: authorityapp.AdmissionResult{
-				Allowed:        true,
-				Reserved:       true,
-				ReservationID:  "reservation-ledger-fail",
-				ReservedAmount: authorityInputAmount(7),
-				PolicyRecord:   policydecision.Record{ReasonCode: "reserved"},
-			},
-			status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
-		}
-		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
-		ex.StreamUsage = accountingstream.New(&stubStreamCounter{
-			call:   accountingapp.CountResult{InputTokens: 7, TotalTokens: 7},
-			output: accountingapp.CountResult{OutputTokens: 3, TotalTokens: 10},
-		}, accountingstream.Config{})
-		ex.Ledger = failingLedger{err: errors.New("ledger down")}
-		ex.LedgerWriteRequired = true
-
-		rs := &retryRecvStream{
-			executor: ex,
-			baseline: lipapi.Call{ID: "request-ledger-fail", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-			bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-			cand:     authorityCandidate(),
-			authority: testAuthorityLifecycle(ex, attemptAuthorityState{
-				admissionInput:  testAuthorityAdmissionInput(7),
-				admissionResult: auth.admitResult,
-			}, authorityCandidate()),
-			seenEvents: []lipapi.Event{
-				{Kind: lipapi.EventUsageDelta, InputTokens: 7, OutputTokens: 3, TotalTokens: 10, Accounting: lipapi.UsageAccountingMetadata{Plane: lipapi.UsagePlaneProviderBillable}},
-			},
-		}
-		_, ok, err := rs.finalizeTokenAccounting(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
-		if err == nil {
-			t.Fatal("expected ledger error")
-		}
-		if ok {
-			t.Fatal("expected ok=false")
-		}
-		if auth.settleCalls.Load() != 1 {
-			t.Fatalf("settle calls = %d, want 1", auth.settleCalls.Load())
-		}
-		if got := auth.lastSettle(); got.Kind != authorityapp.SettlementKindFinal {
-			t.Fatalf("settle kind = %q, want final", got.Kind)
-		}
-	})
 }
 
 func TestExecutorAuthoritySettlementUsesAdmissionUnit(t *testing.T) {
@@ -629,18 +581,18 @@ func TestExecutorAuthoritySettlementUsesAdmissionUnit(t *testing.T) {
 			wantVal: 8,
 		},
 		{
-			name:    "money-nano-with-currency",
+			name:    "money-nano-ignores-stream-cost",
 			unit:    authoritydomain.AmountUnitMoneyNano,
 			value:   100,
 			usage:   lipapi.Event{CostNanoUnits: 150, Currency: "USD", CostPresent: true},
-			wantVal: 150,
+			wantVal: 100,
 		},
 		{
-			name:    "money-nano-fallback-currency",
+			name:    "money-nano-uses-reserved-estimate-currency",
 			unit:    authoritydomain.AmountUnitMoneyNano,
 			value:   100,
 			usage:   lipapi.Event{CostNanoUnits: 150, Currency: "", CostPresent: true},
-			wantVal: 150,
+			wantVal: 100,
 		},
 		{
 			name:    "total-tokens",
@@ -713,10 +665,8 @@ func TestExecutorAuthoritySettlementUsesAdmissionUnit(t *testing.T) {
 				t.Fatalf("final usage value = %d, want %d", got.FinalUsage.Value, tc.wantVal)
 			}
 			if tc.unit == authoritydomain.AmountUnitMoneyNano {
-				wantCurrency := tc.usage.Currency
-				if wantCurrency == "" {
-					wantCurrency = "EUR"
-				}
+				// Stream currency is ignored; reserved/request estimate owns money units.
+				wantCurrency := "EUR"
 				if got.FinalUsage.Currency != wantCurrency {
 					t.Fatalf("final usage currency = %q, want %q", got.FinalUsage.Currency, wantCurrency)
 				}
@@ -979,14 +929,12 @@ func TestAuthorityFinalSettlementZeroVsMissingUsage(t *testing.T) {
 		}
 	})
 
-	t.Run("present-but-zero-cost-settles-at-zero", func(t *testing.T) {
+	t.Run("money-stream-cost-settles-at-reserved-estimate", func(t *testing.T) {
 		t.Parallel()
 		auth, lifecycle := setup(t, authoritydomain.AmountUnitMoneyNano, "USD")
 
-		// A genuine provider-reported usage delta carrying a zero cost amount: a
-		// legitimate zero-cost completion (e.g. a fully cached response). The
-		// merged finalization path still carries token-bearing scopes, so this
-		// must not fall back to the preflight estimate.
+		// Stream CostPresent/CostNanoUnits are not monetary authority after Phase 8.
+		// Residual money-unit reservations settle at the reserved estimate.
 		usage := lipapi.Event{
 			Kind:          lipapi.EventUsageDelta,
 			InputTokens:   4,
@@ -1017,8 +965,8 @@ func TestAuthorityFinalSettlementZeroVsMissingUsage(t *testing.T) {
 		if got.FinalUsage.Unit != authoritydomain.AmountUnitMoneyNano {
 			t.Fatalf("final usage unit = %q, want money_nano", got.FinalUsage.Unit)
 		}
-		if got.FinalUsage.Value != 0 {
-			t.Fatalf("final cost value = %d, want 0 (legitimate zero cost must not be reconciled at the reserved estimate %d)",
+		if got.FinalUsage.Value != reservedValue {
+			t.Fatalf("final money value = %d, want reserved estimate %d (stream cost is not authority)",
 				got.FinalUsage.Value, reservedValue)
 		}
 		if got.FinalUsage.Currency != "USD" {
@@ -1149,8 +1097,8 @@ func TestMergeUsageEventsForClientPreservesMoneyCost(t *testing.T) {
 	if got.Unit != authoritydomain.AmountUnitMoneyNano {
 		t.Fatalf("final amount unit = %q, want money_nano", got.Unit)
 	}
-	if got.Value != 150 {
-		t.Fatalf("final amount value = %d, want 150", got.Value)
+	if got.Value != 999 {
+		t.Fatalf("final amount value = %d, want reserved estimate 999 (stream cost is not authority)", got.Value)
 	}
 	if got.Currency != "USD" {
 		t.Fatalf("final amount currency = %q, want USD", got.Currency)

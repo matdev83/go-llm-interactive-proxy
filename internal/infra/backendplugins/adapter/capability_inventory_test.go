@@ -145,8 +145,8 @@ func TestFinalizeBilling_IdempotentKeyForwarded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sess.keys["idem-1"] != 2 {
-		t.Fatalf("idempotency key not forwarded: %+v", sess.keys)
+	if sess.keys["finalize-billing:v1:idem-1:a:b"] != 2 {
+		t.Fatalf("compound idempotency key not forwarded: %+v", sess.keys)
 	}
 }
 

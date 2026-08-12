@@ -21,9 +21,11 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 		sel:    sel,
 		budget: &attemptBudget{max: 3},
 	}
-	prep := &preparedRequest{
-		traceID:  "assemble-test",
-		baseline: lipapi.Call{Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+	newPrep := func() *preparedRequest {
+		return &preparedRequest{
+			traceID:  "assemble-test",
+			baseline: lipapi.Call{Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+		}
 	}
 	stream := lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}})
 	thinkerCand := routing.AttemptCandidate{
@@ -41,9 +43,9 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 
 	t.Run("plain", func(t *testing.T) {
 		t.Parallel()
-		localPrep := *prep
+		localPrep := newPrep()
 		ex := TestExecutor()
-		got, err := ex.assembleExecutorStream(context.Background(), &localPrep, plan, out)
+		got, err := ex.assembleExecutorStream(context.Background(), localPrep, plan, out)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -57,13 +59,13 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 
 	t.Run("hidden interleaved", func(t *testing.T) {
 		t.Parallel()
-		localPrep := *prep
+		localPrep := newPrep()
 		ex := TestExecutor()
 		ex.MemoStore = interleavedthinking.NewMemoStore(1024)
 		ex.InterleavedConfig = interleavedthinking.ShapeConfig{StreamToClient: "hidden"}
 		hiddenOut := out
 		hiddenOut.cand = thinkerCand
-		got, err := ex.assembleExecutorStream(context.Background(), &localPrep, plan, hiddenOut)
+		got, err := ex.assembleExecutorStream(context.Background(), localPrep, plan, hiddenOut)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -74,13 +76,13 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 
 	t.Run("visible interleaved", func(t *testing.T) {
 		t.Parallel()
-		localPrep := *prep
+		localPrep := newPrep()
 		ex := TestExecutor()
 		ex.MemoStore = interleavedthinking.NewMemoStore(1024)
 		ex.InterleavedConfig = interleavedthinking.ShapeConfig{StreamToClient: "visible"}
 		visibleOut := out
 		visibleOut.cand = thinkerCand
-		got, err := ex.assembleExecutorStream(context.Background(), &localPrep, plan, visibleOut)
+		got, err := ex.assembleExecutorStream(context.Background(), localPrep, plan, visibleOut)
 		if err != nil {
 			t.Fatal(err)
 		}

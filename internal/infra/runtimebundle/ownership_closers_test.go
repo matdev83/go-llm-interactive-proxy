@@ -121,12 +121,6 @@ var closerAcquisitionOwnership = []ownershipEntry{
 		Source: "terminal_work.go → buildTerminalWorkRuntime",
 		Notes:  "Process ambiguous-append reconciler Shutdown closer (before processor on reverse dispose).",
 	},
-	{
-		Symbol: "token_accounting.go:buildProcessAccountingStores:acq#0:append(closers, closeFn)#0",
-		Class:  ownershipProcess,
-		Source: "token_accounting.go → buildProcessAccountingStores",
-		Notes:  "Process accounting ledger closers.",
-	},
 }
 
 func TestOwnershipCloserAcquisitionCoversAppendSites(t *testing.T) {

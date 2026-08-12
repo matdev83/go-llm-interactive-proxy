@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
@@ -48,6 +49,8 @@ type candidateModelGroup struct {
 	registryRuntime *modelregistry.Runtime
 }
 type candidateOperationsGroup struct {
+	billingReports       billing.ReportingStore
+	billingReportsPath   string
 	tokenAccountingAdmin *accountingapp.Service
 	readinessReport      *controlplane.ReadinessReportService
 	secretGuardInventory *diag.InventoryExtras
@@ -164,6 +167,13 @@ func (c *CandidateHTTPCompile) ModelRegistry() *modelregistry.Registry {
 func (c *CandidateHTTPCompile) PluginRegistry() *pluginreg.Registry {
 	if a := c.a(); a != nil {
 		return a.process.pluginRegistry
+	}
+	return nil
+}
+
+func (c *CandidateHTTPCompile) BillingReports() billing.ReportingStore {
+	if a := c.a(); a != nil {
+		return a.operations.billingReports
 	}
 	return nil
 }

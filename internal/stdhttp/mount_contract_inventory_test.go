@@ -47,6 +47,11 @@ var mountContractInventory = []mountInventoryRow{
 		Lifecycle: "none", BehaviorTests: []string{"TestTokenAccountingAdminMountedWithDiagnosticsSecret"},
 	},
 	{
+		Helper: "mountBillingReports", File: "mount_admin.go", Input: "billingReportsMount",
+		BuiltFields: []string{"BillingReports", "BillingReportsPath"}, DesiredGroups: []string{"Operations"},
+		Lifecycle: "none", BehaviorTests: []string{"TestBillingReportsMountedAndProtected"},
+	},
+	{
 		Helper: "mountControlPlaneQuery", File: "mount_admin.go", Input: "controlPlaneQueryMount",
 		BuiltFields: []string{"ControlPlaneQueries", "ReadinessReport"}, DesiredGroups: []string{"Operations"},
 		Lifecycle: "none", BehaviorTests: []string{"TestControlPlaneQuery_MountedWhenEnabledAndProtected"},
@@ -114,6 +119,7 @@ var expectedProductionMountHelpers = map[string]bool{
 	"mountModelInventoryDiagnostics": true,
 	"mountSecureSessionDiagnostics":  true,
 	"mountAccountingAdmin":           true,
+	"mountBillingReports":            true,
 	"mountControlPlaneQuery":         true,
 	"mountAccountingAuthorityQuery":  true,
 	"MountBundledFrontends":          true,

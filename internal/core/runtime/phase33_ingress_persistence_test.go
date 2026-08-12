@@ -19,26 +19,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metering/journalstore"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
-
-type phase33Rater struct {
-	last atomic.Value // economics.RatingRequest
-}
-
-func (r *phase33Rater) Rate(_ context.Context, req economics.RatingRequest) (economics.RatingResult, error) {
-	r.last.Store(req)
-	return economics.RatingResult{
-		Money:       economics.Money{Currency: "USD", NanoUnits: 1, Present: true},
-		Perspective: req.Perspective,
-		Source:      "phase33-test",
-		Authority:   "estimated",
-		Version:     economics.VersionRef{ID: "phase33", Version: "v1"},
-		RaterID:     "phase33-test",
-	}, nil
-}
 
 type phase33RequestProvider struct {
 	id    string
@@ -56,63 +39,6 @@ func (p *phase33RequestProvider) SettleRequest(context.Context, authority.Reques
 
 func (p *phase33RequestProvider) ReleaseRequest(context.Context, authority.RequestRelease) error {
 	return nil
-}
-
-func TestPhase33_PersistFrontendIngress_BeforeRequestAuthority(t *testing.T) {
-	t.Parallel()
-	rec := &recordingMeter{}
-	rater := &phase33Rater{}
-	prov := &phase33RequestProvider{id: "quota"}
-	ex := &Executor{AccountingRuntime: AccountingRuntime{MeteringRecorder: rec, EconomicsRater: rater}}
-	ex.Now = func() time.Time { return time.Unix(40, 0).UTC() }
-	ex.RequestCoordinator = &authoritycoord.RequestCoordinator{
-		Slots: []authoritycoord.RequestSlot{{
-			ID: "quota", Class: authoritycoord.PriorityQuotaBudgetRate, Provider: prov, Strength: authority.StrengthRequired,
-		}},
-	}
-	trusted := scope.PrincipalScopeView{PrincipalID: scope.Known("trusted-prin")}
-	ctx, holder, err := captureFrontendIngressBeforeSubmit(context.Background(), lipapi.Call{
-		ID: "req-fe-33",
-		Messages: []lipapi.Message{{
-			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")},
-		}},
-	}, trusted, time.Unix(1, 0).UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(holder.FrontendIngress.Public.StreamID, "customer-request:") {
-		t.Fatalf("StreamID=%q want customer-request: prefix", holder.FrontendIngress.Public.StreamID)
-	}
-	_, err = ex.admitRequestAuthorityOnce(ctx, "req-fe-33", "a-1", "trace-fe-33", scope.PrincipalScopeView{
-		PrincipalID: scope.Known("untrusted-spoof"),
-	})
-	if err != nil {
-		t.Fatalf("admit: %v", err)
-	}
-	if len(rec.facts) != 1 {
-		t.Fatalf("want 1 FE ingress fact before/at admit, got %d", len(rec.facts))
-	}
-	f := rec.facts[0]
-	if f.Boundary != metering.BoundaryFrontendIngress || f.Perspective != metering.PerspectiveCustomer {
-		t.Fatalf("fact boundary/perspective=%s/%s", f.Boundary, f.Perspective)
-	}
-	if f.StreamID != "customer-request:req-fe-33" {
-		t.Fatalf("StreamID=%q", f.StreamID)
-	}
-	if holder.FrontendIngressFactID() == "" || holder.FrontendIngressFactID() != f.FactID {
-		t.Fatalf("bound FE FactID=%q fact=%q", holder.FrontendIngressFactID(), f.FactID)
-	}
-	req, _ := rater.last.Load().(economics.RatingRequest)
-	if len(req.FactIDs) != 1 || req.FactIDs[0] != f.FactID {
-		t.Fatalf("customer rating FactIDs=%v want %q", req.FactIDs, f.FactID)
-	}
-	if len(req.FactRefs) != 1 || req.FactRefs[0].FactID != f.FactID || req.FactRefs[0].StreamID != f.StreamID {
-		t.Fatalf("customer rating FactRefs=%v", req.FactRefs)
-	}
-	gotScope, _ := prov.scope.Load().(scope.PrincipalScopeView)
-	if gotScope.PrincipalID.String() != "trusted-prin" {
-		t.Fatalf("authority scope=%q want trusted-prin (not untrusted spoof)", gotScope.PrincipalID.String())
-	}
 }
 
 func TestPhase33_FrontendIngress_AppendFailureFailClosed(t *testing.T) {
@@ -325,8 +251,7 @@ func TestPhase33_BuiltInAttemptAuthority_FactRefsAndTrustedScope(t *testing.T) {
 		admitResult: authorityapp.AdmissionResult{Allowed: true, Reserved: true, ReservationID: "res-ua-33"},
 	}
 	rec := &recordingMeter{}
-	rater := &phase33Rater{}
-	ex := &Executor{AccountingRuntime: AccountingRuntime{MeteringRecorder: rec, EconomicsRater: rater, UsageAuthority: ua}}
+	ex := &Executor{AccountingRuntime: AccountingRuntime{MeteringRecorder: rec, UsageAuthority: ua}}
 	ex.Now = func() time.Time { return time.Unix(60, 0).UTC() }
 	trusted := scope.PrincipalScopeView{PrincipalID: scope.Known("trusted-be-prin")}
 	ctx, holder, err := captureFrontendIngressBeforeSubmit(context.Background(), lipapi.Call{ID: "req-ua-33"}, trusted, time.Unix(1, 0).UTC())
@@ -493,10 +418,8 @@ func TestPhase33_BackendIngress_AppendFailureFailClosedBeforeAuthority(t *testin
 	ua := &recordingAuthorityService{
 		admitResult: authorityapp.AdmissionResult{Allowed: true, Reserved: true, ReservationID: "res-be-fail"},
 	}
-	rater := &phase33Rater{}
 	ex, backend, aLegID := newAuthorityRuntimeTestExecutor(t, ua)
 	ex.MeteringRecorder = &failingMeteringRecorder{err: errors.New("journal unavailable")}
-	ex.EconomicsRater = rater
 	ex.Now = func() time.Time { return time.Unix(80, 0).UTC() }
 	holder := &checkpoint.RequestHolder{}
 	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 5})

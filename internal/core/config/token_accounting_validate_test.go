@@ -45,22 +45,6 @@ func TestValidateTokenAccountingRejectsInvalidConfig(t *testing.T) {
 			wantErr: "accounting.mode",
 		},
 		{
-			name: "missing sqlite path",
-			mutate: func(cfg *config.Config) {
-				cfg.Accounting.Ledger.Store = "sqlite"
-				cfg.Accounting.Ledger.SQLitePath = ""
-			},
-			wantErr: "accounting.ledger.sqlite_path",
-		},
-		{
-			name: "missing postgres dsn",
-			mutate: func(cfg *config.Config) {
-				cfg.Accounting.Ledger.Store = "postgres"
-				cfg.Accounting.Ledger.PostgresDSN = ""
-			},
-			wantErr: "accounting.ledger.postgres_dsn",
-		},
-		{
 			name: "invalid count timeout",
 			mutate: func(cfg *config.Config) {
 				cfg.Accounting.CountTimeout = "soon"
@@ -88,6 +72,60 @@ func TestValidateTokenAccountingRejectsInvalidConfig(t *testing.T) {
 				t.Fatalf("Validate() error = %q, want substring %q", err.Error(), tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestValidateTokenAccountingAcceptsRetiredLedgerWithoutPaths(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name   string
+		mutate func(*config.Config)
+	}{
+		{
+			name: "sqlite without path",
+			mutate: func(cfg *config.Config) {
+				cfg.Accounting.Ledger.Store = "sqlite"
+				cfg.Accounting.Ledger.SQLitePath = ""
+			},
+		},
+		{
+			name: "postgres without dsn",
+			mutate: func(cfg *config.Config) {
+				cfg.Accounting.Ledger.Store = "postgres"
+				cfg.Accounting.Ledger.PostgresDSN = ""
+			},
+		},
+		{
+			name: "sqlite leftover postgres dsn",
+			mutate: func(cfg *config.Config) {
+				cfg.Accounting.Ledger.Store = "sqlite"
+				cfg.Accounting.Ledger.SQLitePath = ""
+				cfg.Accounting.Ledger.PostgresDSN = "postgres://unused"
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := validTokenAccountingConfig()
+			tt.mutate(cfg)
+			if err := config.Validate(cfg); err != nil {
+				t.Fatalf("retired accounting.ledger leftover must load, got %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateTokenAccountingDoesNotDefaultWriteRetiredLedger(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{}
+	if err := config.Validate(cfg); err != nil {
+		t.Fatalf("Validate empty config: %v", err)
+	}
+	if cfg.Accounting.Ledger.Store != "" {
+		t.Fatalf("Validate must not default-write accounting.ledger.store, got %q", cfg.Accounting.Ledger.Store)
+	}
+	if cfg.Accounting.Ledger.WritePolicy != "" {
+		t.Fatalf("Validate must not default-write accounting.ledger.write_policy, got %q", cfg.Accounting.Ledger.WritePolicy)
 	}
 }
 

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/execerr"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
@@ -129,6 +131,64 @@ func TestClassifyExecute_contextLimitExceeded_wrapped(t *testing.T) {
 	}
 	if out.Message != execerr.ContextLimitExceededWireMessage {
 		t.Fatalf("message: %q", out.Message)
+	}
+}
+
+func TestClassifyExecute_billingAdmission(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name       string
+		err        error
+		wantKind   execerr.Kind
+		wantStatus int
+		wantMsg    string
+	}{
+		{
+			name:       "insufficient_spendable_execute_wrap",
+			err:        fmt.Errorf("%w: %w", runtime.ErrBillingAdmissionDenied, billing.ErrInsufficientSpendable),
+			wantKind:   execerr.KindBillingDenied,
+			wantStatus: http.StatusTooManyRequests,
+			wantMsg:    execerr.InsufficientCreditWireMessage,
+		},
+		{
+			name:       "account_not_ready_execute_wrap",
+			err:        fmt.Errorf("%w: %w", runtime.ErrBillingAdmissionDenied, billing.ErrAccountNotReady),
+			wantKind:   execerr.KindBillingDenied,
+			wantStatus: http.StatusTooManyRequests,
+			wantMsg:    execerr.InsufficientCreditWireMessage,
+		},
+		{
+			name:       "authorization_unavailable_execute_wrap",
+			err:        fmt.Errorf("%w: %w", runtime.ErrBillingAdmissionDenied, billing.ErrAuthorizationUnavailable),
+			wantKind:   execerr.KindBillingUnavailable,
+			wantStatus: http.StatusServiceUnavailable,
+			wantMsg:    execerr.BillingUnavailableWireMessage,
+		},
+		{
+			name:       "admission_denied_without_billing_sentinel_stays_internal",
+			err:        fmt.Errorf("%w: missing prepared route plan", runtime.ErrBillingAdmissionDenied),
+			wantKind:   execerr.KindInternalError,
+			wantStatus: http.StatusInternalServerError,
+			wantMsg:    execerr.InternalWireMessage,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			out := execerr.ClassifyExecute(tc.err)
+			if out.Kind != tc.wantKind {
+				t.Fatalf("kind: got %v want %v", out.Kind, tc.wantKind)
+			}
+			if out.Status != tc.wantStatus {
+				t.Fatalf("status: got %d want %d", out.Status, tc.wantStatus)
+			}
+			if out.Message != tc.wantMsg {
+				t.Fatalf("message: got %q want %q", out.Message, tc.wantMsg)
+			}
+			if out.Err == nil || !errors.Is(out.Err, tc.err) {
+				t.Fatalf("Err must preserve original error, got %v", out.Err)
+			}
+		})
 	}
 }
 

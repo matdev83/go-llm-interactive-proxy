@@ -157,11 +157,11 @@ func TestApplyAdvisoryMoneyUsesEstimateWhenProviderCostIsAbsent(t *testing.T) {
 	lifecycle := newAuthorityLifecycle(svc, nil, attemptAuthorityState{admissionInput: input, admissionResult: admitted}, authorityCandidate())
 	event := lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 5, TotalTokens: 5, Accounting: lipapi.UsageAccountingMetadata{Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative}}
 	if !lifecycle.ApplyAdvisoryUsage(context.Background(), event) {
-		t.Fatal("ApplyAdvisoryUsage = false, want estimate applied to money window")
+		t.Fatal("ApplyAdvisoryUsage = false, want token advisory path to run")
 	}
 	row := advisoryApplyLimitRow(t, store, rule.ID, string(authoritydomain.AmountUnitMoneyNano))
-	if row.Consumed != 250 {
-		t.Fatalf("money advisory Consumed = %d, want estimated spend 250", row.Consumed)
+	if row.Consumed != 0 {
+		t.Fatalf("money advisory Consumed = %d, want 0 (stream/estimate spend is not monetary authority after Phase 8)", row.Consumed)
 	}
 }
 

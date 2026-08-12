@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/authoritycoord"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	compatibleadmission "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/compatible"
@@ -65,30 +64,18 @@ func (e *Executor) admitAttemptAuthority(
 		return attemptAuthorityState{}, nil
 	}
 	quantities := attemptRatingQuantities(decision)
-	factIDs := []string(nil)
 	factRefs := []metering.FactRef(nil)
 	if !estimateOnly {
 		quantities = finalOperatorAttemptQuantities(ctx, bleg.BLegID, decision)
 		if holder := meteringHolderFrom(ctx); holder != nil {
 			if id := strings.TrimSpace(holder.BackendIngressFactID(bleg.BLegID)); id != "" {
-				factIDs = []string{id}
 				streamID := "operator-attempt:" + strings.TrimSpace(bleg.BLegID)
-				if be := holder.BackendIngressFor(bleg.BLegID); be != nil {
+				if be := holder.BackendIngressFor(bleg.BLegID); be != nil && strings.TrimSpace(be.Public.StreamID) != "" {
 					streamID = be.Public.StreamID
 				}
 				factRefs = []metering.FactRef{{StreamID: streamID, FactID: id}}
 			}
 		}
-	}
-	spend, rated, rateErr := e.rateOperatorAttemptSpend(ctx, c, decision, quantities, factIDs, factRefs)
-	if rateErr != nil {
-		if errors.Is(rateErr, context.Canceled) {
-			return attemptAuthorityState{}, rateErr
-		}
-		return attemptAuthorityState{}, attemptAuthorityAdmissionError(
-			authorityapp.AdmissionResult{Outcome: domain.DecisionOutcomeUnavailable},
-			rateErr,
-		)
 	}
 	admitScope := trustedFrontendIngressScope(ctx, scopeFromCtx(ctx))
 	admissionInput := authorityapp.AdmissionInput{
@@ -98,19 +85,19 @@ func (e *Executor) admitAttemptAuthority(
 		Request:        attemptAuthorityRequestAmount(decision),
 		RequestCount:   domain.Amount{Unit: domain.AmountUnitRequests, Value: 1},
 		PreflightUsage: attemptAuthorityPreflightUsage(decision),
-		Spend:          spend,
+		// Monetary spend is owned by BillingAdmission/TUR settlement; this
+		// legacy authority path carries only non-money quota quantities.
+		Spend:          domain.Amount{},
 		Authority:      domain.AuthorityLevelEstimated,
 		ReservationKey: attemptAuthorityReservationKey(call.ID, traceID, aLegID, bleg, c),
 		EstimateOnly:   estimateOnly,
 	}
-	if rated.Money.Present || len(quantities) > 0 || len(factRefs) > 0 {
+	if len(quantities) > 0 || len(factRefs) > 0 {
 		admissionInput.Exposure = economics.ExposureBasis{
 			Perspective: metering.PerspectiveOperator,
 			Boundary:    metering.BoundaryBackendIngress,
 			Lifecycle:   metering.LifecycleBackendAttempt,
 			Quantities:  quantities,
-			Money:       rated.Money,
-			Output:      conservativeOutputAssumption(decision, quantities),
 			FactRefs:    append([]metering.FactRef(nil), factRefs...),
 		}
 	}
@@ -144,7 +131,6 @@ func (e *Executor) admitAttemptAuthority(
 		boundGen = st.ExecutableGen
 	}
 	e.applyGenerationBoundVersionFrom(boundGen, &result)
-	bindAdmissionRatingVersion(&result, rated)
 	state := attemptAuthorityState{
 		admissionInput:  admissionInput,
 		admissionResult: result,
@@ -166,13 +152,11 @@ func (e *Executor) admitAttemptViaCoordinator(
 	decision accountingpreflight.Decision,
 ) (attemptAuthorityState, error) {
 	quantities := finalOperatorAttemptQuantities(ctx, bleg.BLegID, decision)
-	factIDs := []string(nil)
 	factRefs := []metering.FactRef(nil)
 	if holder := meteringHolderFrom(ctx); holder != nil {
 		if id := strings.TrimSpace(holder.BackendIngressFactID(bleg.BLegID)); id != "" {
-			factIDs = []string{id}
 			streamID := "operator-attempt:" + strings.TrimSpace(bleg.BLegID)
-			if be := holder.BackendIngressFor(bleg.BLegID); be != nil {
+			if be := holder.BackendIngressFor(bleg.BLegID); be != nil && strings.TrimSpace(be.Public.StreamID) != "" {
 				streamID = be.Public.StreamID
 			}
 			factRefs = []metering.FactRef{{StreamID: streamID, FactID: id}}
@@ -181,16 +165,6 @@ func (e *Executor) admitAttemptViaCoordinator(
 	boundGen := (*snapshotgen.ExecutableGeneration)(nil)
 	if st := requestAuthorityFrom(ctx); st != nil {
 		boundGen = st.ExecutableGen
-	}
-	spend, rated, rateErr := e.rateOperatorAttemptSpendWithGen(ctx, boundGen, c, decision, quantities, factIDs, factRefs)
-	if rateErr != nil {
-		if errors.Is(rateErr, context.Canceled) {
-			return attemptAuthorityState{}, rateErr
-		}
-		return attemptAuthorityState{}, attemptAuthorityAdmissionError(
-			authorityapp.AdmissionResult{Outcome: domain.DecisionOutcomeUnavailable},
-			rateErr,
-		)
 	}
 	admitScope := trustedFrontendIngressScope(ctx, scopeFromCtx(ctx))
 	in := authority.AttemptAdmission{
@@ -209,13 +183,8 @@ func (e *Executor) admitAttemptViaCoordinator(
 			Boundary:    metering.BoundaryBackendIngress,
 			Lifecycle:   metering.LifecycleBackendAttempt,
 			Quantities:  quantities,
-			Money:       rated.Money,
-			Output:      conservativeOutputAssumption(decision, quantities),
 			FactRefs:    append([]metering.FactRef(nil), factRefs...),
 		},
-	}
-	if rated.Money.Present {
-		in.RatingVersions = []economics.RatingSnapshotRef{ratingSnapshotRef(rated)}
 	}
 	attemptCoord := e.AttemptCoordinator
 	if boundGen != nil && boundGen.AttemptCoord != nil {
@@ -271,7 +240,6 @@ func (e *Executor) admitAttemptViaCoordinator(
 		res.BoundVersion = d.BoundVersions[0]
 	}
 	e.applyGenerationBoundVersionFrom(boundGen, &res)
-	bindAdmissionRatingVersion(&res, rated)
 	admissionInput := authorityapp.AdmissionInput{
 		Correlation:    attemptAuthorityCorrelation(traceID, call.ID, aLegID, call, bleg, c),
 		Scope:          scopeFromCtx(ctx),
@@ -279,7 +247,9 @@ func (e *Executor) admitAttemptViaCoordinator(
 		Request:        attemptAuthorityRequestAmount(decision),
 		RequestCount:   domain.Amount{Unit: domain.AmountUnitRequests, Value: 0},
 		PreflightUsage: attemptAuthorityPreflightUsage(decision),
-		Spend:          spend,
+		// Monetary spend is owned by BillingAdmission/TUR settlement; this
+		// legacy authority path carries only non-money quota quantities.
+		Spend:          domain.Amount{},
 		Authority:      domain.AuthorityLevelEstimated,
 		ReservationKey: attemptAuthorityReservationKey(call.ID, traceID, aLegID, bleg, c),
 		Exposure:       in.Exposure,
@@ -391,185 +361,6 @@ func attemptAuthorityPreflightUsage(decision accountingpreflight.Decision) domai
 	}
 }
 
-func attemptAuthoritySpendAmount(catalog accounting.PriceCatalog, c routing.AttemptCandidate, decision accountingpreflight.Decision) domain.Amount {
-	outputTokens := max(int64(decision.Count.OutputTokens), 0)
-	if outputTokens == 0 && decision.AdjustedMaxOutputTokens != nil && *decision.AdjustedMaxOutputTokens > 0 {
-		outputTokens = int64(*decision.AdjustedMaxOutputTokens)
-	}
-	usage := accounting.TokenUsage{
-		InputTokens:  int64(decision.Count.InputTokens),
-		OutputTokens: outputTokens,
-	}
-	cost := accounting.EstimateCost(accounting.CostInput{
-		Backend: strings.TrimSpace(c.Primary.Backend),
-		Model:   strings.TrimSpace(c.Primary.Model),
-		Usage:   usage,
-	}, catalog)
-	if cost.Unavailable {
-		return domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 0, Currency: "unknown"}
-	}
-	return domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: cost.NanoUnits, Currency: cost.Currency}
-}
-
-// authorityClampMaxOutputTokens converts a clamp EffectiveMax (money nano) into
-// the maximum output token count the backend should receive. The optional input
-// token count is charged first, using the same catalog as admission spend
-// estimation; only the remaining money may be allocated to output tokens. A
-// missing price is unavailable, while input cost above the cap is deterministic
-// exhaustion and must never be converted to fail-open behavior.
-type authorityClampOutcome uint8
-
-const (
-	authorityClampApplied authorityClampOutcome = iota
-	authorityClampPricingUnavailable
-	authorityClampCapacityExhausted
-)
-
-func authorityClampMaxOutputTokens(catalog accounting.PriceCatalog, c routing.AttemptCandidate, effectiveMaxNano int64, inputTokens ...int64) (int64, authorityClampOutcome) {
-	if effectiveMaxNano < 0 {
-		effectiveMaxNano = 0
-	}
-	input := int64(0)
-	if len(inputTokens) > 0 && inputTokens[0] > 0 {
-		input = inputTokens[0]
-	}
-	fixed := accounting.EstimateCost(accounting.CostInput{
-		Backend: strings.TrimSpace(c.Primary.Backend),
-		Model:   strings.TrimSpace(c.Primary.Model),
-		Usage:   accounting.TokenUsage{InputTokens: input},
-	}, catalog)
-	if fixed.Unavailable {
-		return 0, authorityClampPricingUnavailable
-	}
-	if fixed.NanoUnits > effectiveMaxNano {
-		return 0, authorityClampCapacityExhausted
-	}
-	remainingNano := effectiveMaxNano - fixed.NanoUnits
-	if remainingNano == 0 {
-		// No remaining spend for any output tokens: treat as deterministic
-		// exhaustion. A zero MaxOutputTokens clamp is omitted by several
-		// backends and would otherwise open with the provider default allowance.
-		return 0, authorityClampCapacityExhausted
-	}
-	sample := accounting.EstimateCost(accounting.CostInput{
-		Backend: strings.TrimSpace(c.Primary.Backend),
-		Model:   strings.TrimSpace(c.Primary.Model),
-		Usage:   accounting.TokenUsage{OutputTokens: 1_000_000},
-	}, catalog)
-	if sample.Unavailable || sample.NanoUnits <= 0 {
-		return 0, authorityClampPricingUnavailable
-	}
-	tokens, err := economics.TokensFromMoneyPer1M(remainingNano, sample.NanoUnits, economics.RoundingTowardZero)
-	if err != nil {
-		return 0, authorityClampPricingUnavailable
-	}
-	maxInt := int64(^uint(0) >> 1)
-	if tokens > maxInt {
-		tokens = maxInt
-	}
-	return tokens, authorityClampApplied
-}
-
-// applyAuthorityClamp mutates the call's requested max output so the backend
-// receives the clamped exposure (requirement 6.5). When the price is
-// unavailable, the rule's cost-unavailable behavior applies: fail-open
-// proceeds without clamping (the clamp intent was already recorded in
-// evidence), fail-closed denies before protected work (requirement 5.5).
-//
-// When EconomicsRater is injected, money→token conversion uses the public
-// OutputLimitQuoter contract exclusively — AccountingPriceCatalog must not
-// silently substitute (requirements 6.1–6.5, 12.1).
-func (e *Executor) applyAuthorityClamp(ctx context.Context, call *lipapi.Call, c routing.AttemptCandidate, clamp *authorityapp.AdmissionClamp, inputTokens ...int64) error {
-	if clamp == nil {
-		return nil
-	}
-	var maxOutput int64
-	var outcome authorityClampOutcome
-	if e != nil && e.EconomicsRater != nil {
-		maxOutput, outcome = e.authorityClampViaEconomics(ctx, c, clamp, inputTokens...)
-	} else {
-		catalog := accounting.PriceCatalog{}
-		if e != nil {
-			catalog = e.AccountingPriceCatalog
-		}
-		maxOutput, outcome = authorityClampMaxOutputTokens(catalog, c, clamp.EffectiveMax.Value, inputTokens...)
-	}
-	switch outcome {
-	case authorityClampCapacityExhausted:
-		return lipapi.NewPolicyDeniedError("usage_authority_admission", "", "budget_exceeded", "accounting_authority", "spend cap exhausted by fixed input cost", nil)
-	case authorityClampPricingUnavailable:
-		if clamp.FailureBehavior == domain.FailureBehaviorFailOpen {
-			return nil
-		}
-		return lipapi.NewPolicyDeniedError("usage_authority_admission", "", "unavailable", "accounting_authority", "spend cap clamp unavailable: price missing", nil)
-	}
-	if maxOutput < 0 {
-		maxOutput = 0
-	}
-	if call.Options.MaxOutputTokens != nil && *call.Options.MaxOutputTokens >= 0 && int64(*call.Options.MaxOutputTokens) < maxOutput {
-		maxOutput = int64(*call.Options.MaxOutputTokens)
-	}
-	adjusted := int(maxOutput)
-	call.Options.MaxOutputTokens = &adjusted
-	return nil
-}
-
-func (e *Executor) authorityClampViaEconomics(ctx context.Context, c routing.AttemptCandidate, clamp *authorityapp.AdmissionClamp, inputTokens ...int64) (int64, authorityClampOutcome) {
-	if e == nil || e.EconomicsRater == nil || clamp == nil {
-		return 0, authorityClampPricingUnavailable
-	}
-	quoter, ok := e.EconomicsRater.(economics.OutputLimitQuoter)
-	if !ok {
-		return 0, authorityClampPricingUnavailable
-	}
-	input := int64(0)
-	if len(inputTokens) > 0 && inputTokens[0] > 0 {
-		input = inputTokens[0]
-	}
-	at := e.now()
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	res, err := quoter.QuoteOutputLimit(ctx, economics.OutputLimitRequest{
-		Perspective: metering.PerspectiveOperator,
-		BackendID:   strings.TrimSpace(c.Primary.Backend),
-		Model:       strings.TrimSpace(c.Primary.Model),
-		FixedQuantities: []metering.Quantity{{
-			Component: metering.ComponentInputToken,
-			Unit:      metering.UnitToken,
-			Value:     input,
-			Present:   true,
-		}},
-		MaxMoney: economics.Money{
-			NanoUnits: clamp.EffectiveMax.Value,
-			Currency:  strings.TrimSpace(clamp.EffectiveMax.Currency),
-			Present:   true,
-		},
-		At: at,
-	})
-	if err != nil {
-		return 0, authorityClampPricingUnavailable
-	}
-	switch res.Status {
-	case economics.OutputLimitOK:
-		if res.MaxOutputTokens < 0 {
-			return 0, authorityClampPricingUnavailable
-		}
-		if res.MaxOutputTokens == 0 {
-			// Zero remaining output budget must deny; several backends omit a
-			// zero MaxOutputTokens and would otherwise open with defaults.
-			return 0, authorityClampCapacityExhausted
-		}
-		return res.MaxOutputTokens, authorityClampApplied
-	case economics.OutputLimitCapacityExhausted:
-		return 0, authorityClampCapacityExhausted
-	case economics.OutputLimitUnsupported, economics.OutputLimitOverflow:
-		return 0, authorityClampPricingUnavailable
-	default:
-		return 0, authorityClampPricingUnavailable
-	}
-}
-
 // backendCanEnforceAuthorityClamp reports whether the selected backend can
 // represent a MaxOutputTokens authority clamp on the wire.
 func backendCanEnforceAuthorityClamp(be execbackend.Backend, call *lipapi.Call) bool {
@@ -592,11 +383,14 @@ func attemptAuthorityUsageAmount(ev lipapi.Event, estimate domain.Amount) domain
 	case domain.AmountUnitReasoningTokens:
 		amount = domain.Amount{Unit: domain.AmountUnitReasoningTokens, Value: int64(ev.ReasoningTokens)}
 	case domain.AmountUnitMoneyNano:
-		currency := strings.TrimSpace(ev.Currency)
-		if currency == "" {
-			currency = strings.TrimSpace(estimate.Currency)
+		// Stream CostNanoUnits are not monetary authority after the usage-record
+		// cutover. Settle any residual money-unit reservation at the reserved
+		// estimate so usageauthority cannot become a second balance reducer.
+		return domain.Amount{
+			Unit:     domain.AmountUnitMoneyNano,
+			Value:    estimate.Value,
+			Currency: strings.TrimSpace(estimate.Currency),
 		}
-		amount = domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: ev.CostNanoUnits, Currency: currency}
 	case domain.AmountUnitTotalTokens:
 		value := int64(ev.TotalTokens)
 		if value == 0 && !attemptAuthorityEventHasUsageForUnit(ev, domain.AmountUnitTotalTokens) {
@@ -743,11 +537,11 @@ func attemptAuthorityEventHasAnyUsage(ev lipapi.Event) bool {
 }
 
 func attemptAuthorityCostAmount(ev lipapi.Event, fallbackCurrency string) domain.Amount {
-	currency := strings.TrimSpace(ev.Currency)
-	if currency == "" {
-		currency = strings.TrimSpace(fallbackCurrency)
-	}
-	return domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: ev.CostNanoUnits, Currency: currency}
+	// FinalCost from stream events is retired: billing journal settlement owns
+	// customer/operator money. Keep the signature for SettleInput compatibility.
+	_ = ev
+	_ = fallbackCurrency
+	return domain.Amount{}
 }
 
 func attemptAuthorityReservationKey(requestID, traceID, aLegID string, bleg b2bua.BLegRecord, c routing.AttemptCandidate) domain.ReservationKey {
@@ -829,14 +623,6 @@ func (e *Executor) applyGenerationBoundVersionFrom(bound *snapshotgen.Executable
 				PolicyID: obj,
 			}
 		}
-		if rid := strings.TrimSpace(exec.RatingObjectID); rid != "" {
-			res.BoundRatingVersion = economics.RatingSnapshotRef{
-				VersionRef: economics.VersionRef{
-					ID: rid, Version: exec.Version, EffectiveAt: exec.PublishedAt,
-				},
-				RaterID: rid,
-			}
-		}
 		return
 	}
 	if e.SnapshotGeneration == nil {
@@ -852,13 +638,6 @@ func (e *Executor) applyGenerationBoundVersionFrom(bound *snapshotgen.Executable
 			policyID = string(economics.PolicyKindUsageAuthority)
 		}
 		res.BoundVersion = gen.Usage.PolicyRef(policyID)
-	}
-	if strings.TrimSpace(gen.Rating.Version) != "" {
-		raterID := strings.TrimSpace(gen.Rating.ID)
-		if raterID == "" {
-			raterID = "rating"
-		}
-		res.BoundRatingVersion = gen.Rating.RatingRef(raterID)
 	}
 }
 

@@ -96,6 +96,13 @@ func (j *validateJournalBundle) ReadinessReport() controlplane.ReadinessReportRe
 	return j.inner.ReadinessReport()
 }
 
+func (j *validateJournalBundle) StartPublished(ctx context.Context) error {
+	if j == nil || j.inner == nil {
+		return nil
+	}
+	return j.inner.StartPublished(ctx)
+}
+
 func (j *validateJournalBundle) Quiesce(ctx context.Context) error {
 	if j == nil || j.inner == nil {
 		return nil

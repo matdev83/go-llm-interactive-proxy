@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
@@ -78,6 +79,9 @@ type attemptOpenParams struct {
 	// deferMemoInjectionCommit leaves executor memo-store updates pending in the open result.
 	// Parallel races use this so only the winning leg consumes memo budget.
 	deferMemoInjectionCommit bool
+	// billingUpstreamOpened, when non-nil, is set true as soon as a backend Open
+	// returns a stream for this A-leg. Used by admission-abort hold cleanup.
+	billingUpstreamOpened *atomic.Bool
 }
 
 type attemptOpenResult struct {
@@ -604,6 +608,9 @@ func (e *Executor) openPlannedCandidate(
 		if errors.As(err, &pe) {
 			err = mapBackendPanic(pe, false, c.Key)
 		}
+	}
+	if err == nil && stream != nil && p.billingUpstreamOpened != nil {
+		p.billingUpstreamOpened.Store(true)
 	}
 	if e != nil && e.Metrics != nil {
 		e.Metrics.OnBackendOpenDuration(c.Primary.Backend, openDur)

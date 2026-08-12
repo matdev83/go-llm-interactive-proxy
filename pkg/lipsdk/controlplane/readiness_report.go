@@ -63,8 +63,6 @@ const (
 	ReadinessComponentConcurrencySnapshot   ReadinessComponentID = "concurrency_snapshot"
 	ReadinessComponentRatingSnapshot        ReadinessComponentID = "rating_snapshot"
 	ReadinessComponentExecutableGeneration  ReadinessComponentID = "executable_generation"
-	ReadinessComponentCustomerRater         ReadinessComponentID = "customer_rater"
-	ReadinessComponentOperatorRater         ReadinessComponentID = "operator_rater"
 	ReadinessComponentSecretGuardQuarantine ReadinessComponentID = "secret_guard_quarantine"
 	ReadinessComponentTerminalRecovery      ReadinessComponentID = "terminal_recovery"
 )

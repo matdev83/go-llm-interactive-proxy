@@ -18,7 +18,7 @@ type CriticalFileBudget struct {
 // CriticalFileBudgets is the single source of truth for hotspot ceilings
 // (guardrails tests + make arch-report). Values are measured ratchets + 25 lines headroom.
 var CriticalFileBudgets = []CriticalFileBudget{
-	{Path: "internal/core/runtime/executor.go", Max: 150},
+	{Path: "internal/core/runtime/executor.go", Max: 249},
 	{Path: "internal/infra/runtimebundle/options.go", Max: 253},
 	{Path: "internal/standardplugins/standard_table.go", Max: 211},
 	{Path: "internal/pluginreg/reg.go", Max: 372},
@@ -46,8 +46,8 @@ type PackageTreeBudget struct {
 
 // PackageTreeBudgets locks measured convergence tree ceilings (+25 lines headroom).
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 10973},
-	{Tree: "internal/stdhttp", Max: 4815},
+	{Tree: "internal/infra/runtimebundle", Max: 11088},
+	{Tree: "internal/stdhttp", Max: 5160},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 562},
 }
@@ -61,10 +61,12 @@ type LineBudget struct {
 // LineBudgets covers core/pluginreg plus the convergence trees (kept in sync
 // with PackageTreeBudgets for overlapping entries).
 var LineBudgets = []LineBudget{
-	{Dir: "internal/core", Max: 68844},
+	// Phase 8 removes stream-time financial mutation points and adds the
+	// handoff/architecture ratchets; keep the measured-plus-25 ratchet at 72,396.
+	{Dir: "internal/core", Max: 72396},
 	{Dir: "internal/pluginreg", Max: 1079},
-	{Dir: "internal/stdhttp", Max: 4815},
-	{Dir: "internal/infra/runtimebundle", Max: 10973},
+	{Dir: "internal/stdhttp", Max: 5160},
+	{Dir: "internal/infra/runtimebundle", Max: 11088},
 	{Dir: "cmd/lipstd", Max: 979},
 	{Dir: "pkg/lipruntime", Max: 562},
 }

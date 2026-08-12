@@ -16,7 +16,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	secureapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
-	accountingledger "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/ledger"
 	accountingobs "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability"
 	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -26,8 +25,7 @@ import (
 func TestExecutorStreamAccountingRecordsProviderAndClientVisibleUsage(t *testing.T) {
 	t.Parallel()
 
-	ledger := accountingledger.NewMemoryLedger(accountingledger.Options{Now: fixedAccountingNow})
-	ex := newStreamAccountingExecutor(t, streamAccountingOptions{Ledger: ledger})
+	ex := newStreamAccountingExecutor(t, streamAccountingOptions{})
 	stream, err := ex.Execute(context.Background(), accountingCall("acct-basic", "openai:gpt-test"))
 	if err != nil {
 		t.Fatal(err)
@@ -50,13 +48,11 @@ func TestExecutorStreamAccountingRecordsProviderAndClientVisibleUsage(t *testing
 	if usageEventIndex(events, lipapi.UsagePlaneClientVisible) > eventKindIndex(events, lipapi.EventResponseFinished) {
 		t.Fatalf("client_visible usage emitted after response_finished: %+v", events)
 	}
-
-	records, err := ledger.ListByRequest(context.Background(), "acct-basic")
-	if err != nil {
-		t.Fatal(err)
+	for _, ev := range usage {
+		if ev.CostPresent || ev.CostNanoUnits != 0 || ev.CostSource != "" {
+			t.Fatalf("protocol usage must not carry stream monetary fields after Phase 8: %+v", ev)
+		}
 	}
-	assertLedgerPlane(t, records, lipapi.UsagePlaneProviderBillable, 3, 11)
-	assertLedgerPlane(t, records, lipapi.UsagePlaneClientVisible, 2, 5)
 }
 
 func TestExecutorStreamAccountingRecordsSynthesizedUsageBeforeClientEmission(t *testing.T) {
@@ -64,7 +60,6 @@ func TestExecutorStreamAccountingRecordsSynthesizedUsageBeforeClientEmission(t *
 
 	recorder := &capturingSecureRecorder{}
 	ex := newStreamAccountingExecutor(t, streamAccountingOptions{
-		Ledger:                accountingledger.NewMemoryLedger(accountingledger.Options{Now: fixedAccountingNow}),
 		SecureSessionRecorder: recorder,
 	})
 	stream, err := ex.Execute(context.Background(), accountingCall("acct-secure-usage", "openai:gpt-test"))
@@ -88,14 +83,13 @@ func TestExecutorStreamAccountingRecordsSynthesizedUsageBeforeClientEmission(t *
 func TestExecutorStreamAccountingCountsTransformedClientVisibleOutputSeparately(t *testing.T) {
 	t.Parallel()
 
-	ledger := accountingledger.NewMemoryLedger(accountingledger.Options{Now: fixedAccountingNow})
 	hook := responseHookFunc(func(_ context.Context, ev *lipapi.Event, _ sdkhooks.PartMeta) error {
 		if ev.Kind == lipapi.EventTextDelta {
 			ev.Delta = "redacted"
 		}
 		return nil
 	})
-	ex := newStreamAccountingExecutor(t, streamAccountingOptions{Ledger: ledger, ResponseHooks: []sdkhooks.ResponsePartHook{hook}})
+	ex := newStreamAccountingExecutor(t, streamAccountingOptions{ResponseHooks: []sdkhooks.ResponsePartHook{hook}})
 	stream, err := ex.Execute(context.Background(), accountingCall("acct-transform", "openai:gpt-test"))
 	if err != nil {
 		t.Fatal(err)
@@ -105,54 +99,24 @@ func TestExecutorStreamAccountingCountsTransformedClientVisibleOutputSeparately(
 	if !containsTextDelta(events, "redacted") || containsTextDelta(events, "hello") {
 		t.Fatalf("events did not expose transformed text only: %+v", events)
 	}
-	records, err := ledger.ListByRequest(context.Background(), "acct-transform")
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertLedgerPlane(t, records, lipapi.UsagePlaneProviderBillable, 3, 11)
-	assertLedgerPlane(t, records, lipapi.UsagePlaneClientVisible, 2, len("redacted"))
 }
 
-func TestExecutorStreamAccountingRequiredLedgerWriteFailClosesAtCompletion(t *testing.T) {
+func TestExecutorStreamAccountingStripsProviderReportedStreamCostFromProtocolUsage(t *testing.T) {
 	t.Parallel()
 
-	ex := newStreamAccountingExecutor(t, streamAccountingOptions{Ledger: failingLedger{err: errors.New("ledger down")}, LedgerWriteRequired: true})
-	stream, err := ex.Execute(context.Background(), accountingCall("acct-ledger-required", "openai:gpt-test"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = stream.Close() }()
-
-	for {
-		ev, err := stream.Recv(context.Background())
-		if err != nil {
-			if !strings.Contains(err.Error(), "ledger down") {
-				t.Fatalf("Recv error = %v, want ledger failure", err)
-			}
-			return
-		}
-		if ev.Kind == lipapi.EventResponseFinished {
-			t.Fatal("required ledger failure emitted response_finished")
-		}
-	}
-}
-
-func TestExecutorStreamAccountingBestEffortLedgerWriteEmitsFinishedAndObservesFailure(t *testing.T) {
-	t.Parallel()
-
-	obs := accountingobs.NewStats()
-	ex := newStreamAccountingExecutor(t, streamAccountingOptions{Ledger: failingLedger{err: errors.New("ledger down")}, Observability: obs})
-	stream, err := ex.Execute(context.Background(), accountingCall("acct-ledger-best-effort", "openai:gpt-test"))
+	ex := newStreamAccountingExecutor(t, streamAccountingOptions{EmitProviderCost: true})
+	stream, err := ex.Execute(context.Background(), accountingCall("acct-strip-cost", "openai:gpt-test"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	events := drainEvents(t, stream)
 	if eventKindIndex(events, lipapi.EventResponseFinished) == len(events) {
-		t.Fatalf("response_finished missing after best-effort ledger failure: %+v", events)
+		t.Fatalf("response_finished missing: %+v", events)
 	}
-	snap := obs.Snapshot()
-	if snap.UnavailableReasons[accountingobs.ReasonError] == 0 {
-		t.Fatalf("unavailable reasons = %+v, want ledger error observation", snap.UnavailableReasons)
+	for _, ev := range usageEventsOf(events) {
+		if ev.Accounting.Plane == lipapi.UsagePlaneClientVisible && (ev.CostPresent || ev.CostNanoUnits != 0) {
+			t.Fatalf("client-visible usage retained stream cost after Phase 8: %+v", ev)
+		}
 	}
 }
 
@@ -160,7 +124,7 @@ func TestExecutorStreamAccountingOutputCountTimeoutStillEmitsProviderUsageAndFin
 	t.Parallel()
 
 	counter := timeoutStreamCounter{inner: blockingStreamCounter{}, timeout: 10 * time.Millisecond}
-	ex := newStreamAccountingExecutor(t, streamAccountingOptions{Ledger: accountingledger.NewMemoryLedger(accountingledger.Options{Now: fixedAccountingNow}), Counter: counter})
+	ex := newStreamAccountingExecutor(t, streamAccountingOptions{Counter: counter})
 	stream, err := ex.Execute(context.Background(), accountingCall("acct-output-timeout", "openai:gpt-test"))
 	if err != nil {
 		t.Fatal(err)
@@ -184,34 +148,21 @@ func TestExecutorStreamAccountingOutputCountTimeoutStillEmitsProviderUsageAndFin
 func TestExecutorStreamAccountingRecordsPreOutputFailedAttemptUsageSeparately(t *testing.T) {
 	t.Parallel()
 
-	ledger := accountingledger.NewMemoryLedger(accountingledger.Options{Now: fixedAccountingNow})
-	ex := newStreamAccountingExecutor(t, streamAccountingOptions{Ledger: ledger, FailFirstPreOutputWithUsage: true})
+	ex := newStreamAccountingExecutor(t, streamAccountingOptions{FailFirstPreOutputWithUsage: true})
 	stream, err := ex.Execute(context.Background(), accountingCall("acct-pre-output-fail", "openai:gpt-test|other:gpt-test-2"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = drainEvents(t, stream)
-	records, err := ledger.ListByRequest(context.Background(), "acct-pre-output-fail")
-	if err != nil {
-		t.Fatal(err)
-	}
-	provider := recordsForPlane(records, lipapi.UsagePlaneProviderBillable)
-	if len(provider) < 2 {
-		t.Fatalf("provider records = %+v, want failed attempt and final attempt", provider)
-	}
-	if provider[0].AttemptID == provider[1].AttemptID {
-		t.Fatalf("provider records share attempt id: %+v", provider)
-	}
-	if provider[0].FailureReason == "" {
-		t.Fatalf("failed attempt record missing failure classification: %+v", provider[0])
+	events := drainEvents(t, stream)
+	if eventKindIndex(events, lipapi.EventResponseFinished) == len(events) {
+		t.Fatalf("response_finished missing after pre-output failover: %+v", events)
 	}
 }
 
-func TestExecutorStreamAccountingPostOutputFailureRecordsPartialUnavailableWithoutRetry(t *testing.T) {
+func TestExecutorStreamAccountingPostOutputFailureDoesNotRetry(t *testing.T) {
 	t.Parallel()
 
-	ledger := accountingledger.NewMemoryLedger(accountingledger.Options{Now: fixedAccountingNow})
-	ex := newStreamAccountingExecutor(t, streamAccountingOptions{Ledger: ledger, FailAfterOutputWithUsage: true})
+	ex := newStreamAccountingExecutor(t, streamAccountingOptions{FailAfterOutputWithUsage: true})
 	stream, err := ex.Execute(context.Background(), accountingCall("acct-post-output-fail", "openai:gpt-test|other:gpt-test-2"))
 	if err != nil {
 		t.Fatal(err)
@@ -220,22 +171,12 @@ func TestExecutorStreamAccountingPostOutputFailureRecordsPartialUnavailableWitho
 	for {
 		_, err := stream.Recv(context.Background())
 		if errors.Is(err, io.EOF) {
-			break
+			return
 		}
 		if err != nil {
-			break
+			// Post-output failure ends the stream without transparent retry.
+			return
 		}
-	}
-	records, err := ledger.ListByRequest(context.Background(), "acct-post-output-fail")
-	if err != nil {
-		t.Fatal(err)
-	}
-	provider := recordsForPlane(records, lipapi.UsagePlaneProviderBillable)
-	if len(provider) != 1 {
-		t.Fatalf("provider records = %+v, want exactly one post-output partial attempt", provider)
-	}
-	if provider[0].UnavailableReason == "" || provider[0].FailureReason == "" {
-		t.Fatalf("post-output record missing partial/unavailable classification: %+v", provider[0])
 	}
 }
 
@@ -245,44 +186,26 @@ func TestExecutorTokenAccountingObservationsIncludeStatusesLatencyFallbackAndNoC
 	sink := &capturingObservationSink{}
 	obs := accountingobs.NewStats()
 	obs.SetSink(sink)
-	ex := newStreamAccountingExecutor(t, streamAccountingOptions{Ledger: accountingledger.NewMemoryLedger(accountingledger.Options{Now: fixedAccountingNow}), Observability: obs})
+	ex := newStreamAccountingExecutor(t, streamAccountingOptions{Observability: obs})
 	stream, err := ex.Execute(context.Background(), accountingCall("acct-observe", "openai:gpt-test"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = drainEvents(t, stream)
 	observations := sink.observations()
-	if len(observations) == 0 {
-		t.Fatal("no observations recorded")
-	}
-	foundSuccess := false
-	for _, obs := range observations {
-		attrs := obs.Attributes()
-		for key, value := range attrs {
-			if strings.Contains(value, "hello") || strings.Contains(key, "content") {
-				t.Fatalf("observation leaked content: attrs=%+v", attrs)
-			}
-		}
-		if obs.Status == accountingobs.StatusSuccess && obs.Duration > 0 {
-			foundSuccess = true
-		}
-	}
-	if !foundSuccess {
-		t.Fatalf("observations = %+v, want success with non-zero latency", observations)
+	if len(observations) != 0 {
+		t.Fatalf("legacy financial observations recorded after Phase 8 cutover: %+v", observations)
 	}
 }
 
-func fixedAccountingNow() time.Time { return time.Date(2026, 5, 14, 12, 0, 0, 0, time.UTC) }
-
 type streamAccountingOptions struct {
-	Ledger                      accountingledger.Recorder
-	LedgerWriteRequired         bool
 	ResponseHooks               []sdkhooks.ResponsePartHook
 	Counter                     accountingstream.Counter
 	Observability               *accountingobs.Stats
 	SecureSessionRecorder       secureapp.GateRecording
 	FailFirstPreOutputWithUsage bool
 	FailAfterOutputWithUsage    bool
+	EmitProviderCost            bool
 }
 
 func newStreamAccountingExecutor(t *testing.T, opts streamAccountingOptions) *runtime.Executor {
@@ -300,6 +223,16 @@ func newStreamAccountingExecutor(t *testing.T, opts streamAccountingOptions) *ru
 	obs := opts.Observability
 	if obs == nil {
 		obs = accountingobs.NewStats()
+	}
+	providerUsage := lipapi.Event{
+		Kind: lipapi.EventUsageDelta, InputTokens: 3, OutputTokens: 11, TotalTokens: 14,
+		Accounting: lipapi.UsageAccountingMetadata{Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative},
+	}
+	if opts.EmitProviderCost {
+		providerUsage.CostPresent = true
+		providerUsage.CostNanoUnits = 99
+		providerUsage.Currency = "USD"
+		providerUsage.CostSource = string(lipapi.UsageSourceProviderReported)
 	}
 	var opens int
 	open := func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
@@ -319,7 +252,7 @@ func newStreamAccountingExecutor(t *testing.T, opts streamAccountingOptions) *ru
 		return lipapi.NewFixedEventStream([]lipapi.Event{
 			{Kind: lipapi.EventResponseStarted},
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
-			{Kind: lipapi.EventUsageDelta, InputTokens: 3, OutputTokens: 11, TotalTokens: 14, Accounting: lipapi.UsageAccountingMetadata{Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative}},
+			providerUsage,
 			{Kind: lipapi.EventResponseFinished, FinishReason: "stop"},
 		}), nil
 	}
@@ -328,9 +261,7 @@ func newStreamAccountingExecutor(t *testing.T, opts streamAccountingOptions) *ru
 	ex.Bus = hooks.New(hooks.Config{ResponsePartHooks: opts.ResponseHooks})
 	ex.Rand = routing.NewSeededRng(1)
 	ex.StreamUsage = accountingstream.New(counter, accountingstream.Config{})
-	ex.Ledger = opts.Ledger
 	ex.TokenAccountingObservability = obs
-	ex.LedgerWriteRequired = opts.LedgerWriteRequired
 	ex.SecureSessionRecordingMandatory = false
 	ex.SecureSessionRecorder = opts.SecureSessionRecorder
 	ex.Backends = map[string]execbackend.Backend{
@@ -345,10 +276,6 @@ func newStreamAccountingExecutor(t *testing.T, opts streamAccountingOptions) *ru
 	}
 	return ex
 }
-
-type failingLedger struct{ err error }
-
-func (l failingLedger) Record(context.Context, accountingledger.Record) error { return l.err }
 
 type errAfterEventsStream struct {
 	events []lipapi.Event
@@ -443,16 +370,6 @@ func (r *capturingSecureRecorder) eventKindCount(kind string) int {
 	return count
 }
 
-func recordsForPlane(records []accountingledger.Record, plane lipapi.UsagePlane) []accountingledger.Record {
-	out := []accountingledger.Record{}
-	for _, record := range records {
-		if record.Plane == plane {
-			out = append(out, record)
-		}
-	}
-	return out
-}
-
 type streamCountFunc func(context.Context, accountingapp.CountOutputInput) (accountingapp.CountResult, error)
 
 func (f streamCountFunc) CountCall(context.Context, accountingapp.CountCallInput) (accountingapp.CountResult, error) {
@@ -534,19 +451,6 @@ func eventKindIndex(events []lipapi.Event, kind lipapi.EventKind) int {
 		}
 	}
 	return len(events)
-}
-
-func assertLedgerPlane(t *testing.T, records []accountingledger.Record, plane lipapi.UsagePlane, input, output int) {
-	t.Helper()
-	for _, record := range records {
-		if record.Plane == plane {
-			if record.InputTokens != input || record.OutputTokens != output {
-				t.Fatalf("ledger %s = input %d output %d, want input %d output %d", plane, record.InputTokens, record.OutputTokens, input, output)
-			}
-			return
-		}
-	}
-	t.Fatalf("missing ledger record for plane %s: %+v", plane, records)
 }
 
 func containsTextDelta(events []lipapi.Event, text string) bool {

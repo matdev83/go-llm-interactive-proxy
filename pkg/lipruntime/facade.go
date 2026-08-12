@@ -39,7 +39,6 @@ func (r *Runtime) HasProductionMetering() bool     { return r.Capabilities().Pro
 func (r *Runtime) HasTrafficObservers() bool       { return r.Capabilities().TrafficObservers }
 func (r *Runtime) HasUsageObservers() bool         { return r.Capabilities().UsageObservers }
 func (r *Runtime) HasProductionEvidenceSink() bool { return r.Capabilities().ProductionEvidenceSink }
-func (r *Runtime) HasProductionRater() bool        { return r.Capabilities().ProductionRater }
 func (r *Runtime) HasProductionMeteringQuerier() bool {
 	return r.Capabilities().ProductionMeteringQuerier
 }

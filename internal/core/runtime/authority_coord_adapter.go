@@ -270,17 +270,8 @@ func mapAdmissionDecision(res authorityapp.AdmissionResult, providerID string, s
 			d.CompensationHandle = r.ReservationID
 		}
 	}
-	if res.Clamp != nil && res.Clamp.EffectiveMax.Unit == domain.AmountUnitMoneyNano {
-		d.Clamps = append(d.Clamps, authority.Clamp{
-			Kind:   authority.ClampMaxSpend,
-			RuleID: res.Clamp.RuleID,
-			Money: economics.Money{
-				NanoUnits: res.Clamp.EffectiveMax.Value,
-				Currency:  strings.TrimSpace(res.Clamp.EffectiveMax.Currency),
-				Present:   true,
-			},
-		})
-	}
+	// Monetary admission clamps are retired from the runtime authority adapter;
+	// BillingAdmission owns the customer max-charge authorization boundary.
 	return d
 }
 

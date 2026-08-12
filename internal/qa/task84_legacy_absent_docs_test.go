@@ -58,13 +58,11 @@ func TestDocs_Options_CanonicalRegistrationLanguage(t *testing.T) {
 			"RequestRegistrations",
 			"AttemptRegistrations",
 			"ConcurrencyRegistration",
-			"RaterRegistrations",
 		},
 		"docs/enterprise-extension-boundaries.md": {
 			"RequestRegistrations",
 			"AttemptRegistrations",
 			"ConcurrencyRegistration",
-			"RaterRegistrations",
 			"pkg/lipruntime",
 		},
 		"docs/extension-platform-authoring.md": {
@@ -94,7 +92,6 @@ func TestExternal_EnterpriseModuleCanonicalRegistrations(t *testing.T) {
 	src := readDoc(t, root, "testdata", "enterprise_module", "main.go")
 	for _, needle := range []string{
 		"RequestRegistrations",
-		"RaterRegistrations",
 	} {
 		if !strings.Contains(src, needle) {
 			t.Fatalf("enterprise_module must use canonical %s", needle)
@@ -112,7 +109,7 @@ func TestExternal_EnterpriseModuleCanonicalRegistrations(t *testing.T) {
 			t.Fatalf("enterprise_module must not mention deleted legacy API %q", forbidden)
 		}
 	}
-	// Bare Options.Rater field usage (not RaterRegistrations / reg.Rater).
+	// Bare Options.Rater field usage.
 	if regexp.MustCompile(`(?m)^\s*Rater\s*:`).MatchString(src) {
 		t.Fatal("enterprise_module must not use deleted Options.Rater field")
 	}

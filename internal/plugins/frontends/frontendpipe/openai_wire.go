@@ -47,6 +47,10 @@ func (OpenAIWire) WriteExecuteError(w http.ResponseWriter, out execerr.Outcome) 
 	switch out.Kind {
 	case execerr.KindSessionDenial, execerr.KindPolicyDenied, execerr.KindPolicyFailure, execerr.KindPolicyMalformed:
 		return openaiwire.WriteErrorJSON(w, out.Status, out.Message, execerr.OpenAIWireErrorType(out.Status), "")
+	case execerr.KindBillingDenied:
+		return openaiwire.WriteErrorJSON(w, out.Status, out.Message, "insufficient_quota", "insufficient_quota")
+	case execerr.KindBillingUnavailable:
+		return openaiwire.WriteErrorJSON(w, out.Status, out.Message, "api_error", "")
 	case execerr.KindClientReject:
 		code := "unsupported_parameter"
 		if out.Status == http.StatusRequestEntityTooLarge {
@@ -65,6 +69,11 @@ func MapOpenAIExecuteError(out execerr.Outcome) (status int, message, errType, c
 	switch out.Kind {
 	case execerr.KindSessionDenial, execerr.KindPolicyDenied, execerr.KindPolicyFailure, execerr.KindPolicyMalformed:
 		errType = execerr.OpenAIWireErrorType(out.Status)
+	case execerr.KindBillingDenied:
+		errType = "insufficient_quota"
+		code = "insufficient_quota"
+	case execerr.KindBillingUnavailable:
+		errType = "api_error"
 	case execerr.KindClientReject:
 		errType = "invalid_request_error"
 		code = "unsupported_parameter"

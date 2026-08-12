@@ -148,6 +148,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	}
 	execRun, err := buildExecutorRuntime(executorBuildInput{
 		Bctx:               bctx,
+		Ledger:             ledger,
 		NowFn:              nowFn,
 		Ext:                ext,
 		Model:              model,
@@ -209,6 +210,8 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 			registryRuntime: model.RegistryRuntime,
 		},
 		operations: candidateOperationsGroup{
+			billingReports:       opts.Production.BillingReports,
+			billingReportsPath:   opts.Production.BillingReportsPath,
 			tokenAccountingAdmin: execRun.TokenAccountingAdmin,
 			readinessReport:      execRun.ReadinessReport,
 			secretGuardInventory: sg.Inventory,

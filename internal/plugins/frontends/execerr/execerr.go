@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
@@ -37,6 +38,15 @@ const PolicyMalformedWireMessage = "policy decision was malformed"
 // whose normalized reason is empty (control-only or whitespace input).
 const ClientRejectWireMessage = "request rejected"
 
+// InsufficientCreditWireMessage is the stable client-safe wire message for
+// spendable/account billing denials (HTTP 429). Credit and journal types stay
+// out of lipapi; classification uses billing sentinels only.
+const InsufficientCreditWireMessage = "insufficient credit"
+
+// BillingUnavailableWireMessage is the stable client-safe wire message when the
+// authorization store cannot complete admission (HTTP 503).
+const BillingUnavailableWireMessage = "billing unavailable"
+
 type Kind int
 
 const (
@@ -53,6 +63,10 @@ const (
 	// KindPolicyMalformed is a malformed policy decision: unknown stage, outcome, effect, or illegal
 	// outcome/effect pair (requirements 1.5, 6.6).
 	KindPolicyMalformed
+	// KindBillingDenied is a pre-Open spendable or account-not-ready denial.
+	KindBillingDenied
+	// KindBillingUnavailable is an authorization-store failure during admission.
+	KindBillingUnavailable
 )
 
 type Outcome struct {
@@ -149,6 +163,22 @@ func ClassifyExecute(err error) Outcome {
 			Kind:    KindClientReject,
 			Status:  http.StatusRequestEntityTooLarge,
 			Message: ContextLimitExceededWireMessage,
+			Err:     err,
+		}
+	}
+	if errors.Is(err, billing.ErrInsufficientSpendable) || errors.Is(err, billing.ErrAccountNotReady) {
+		return Outcome{
+			Kind:    KindBillingDenied,
+			Status:  http.StatusTooManyRequests,
+			Message: InsufficientCreditWireMessage,
+			Err:     err,
+		}
+	}
+	if errors.Is(err, billing.ErrAuthorizationUnavailable) {
+		return Outcome{
+			Kind:    KindBillingUnavailable,
+			Status:  http.StatusServiceUnavailable,
+			Message: BillingUnavailableWireMessage,
 			Err:     err,
 		}
 	}

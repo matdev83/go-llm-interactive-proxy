@@ -66,6 +66,22 @@ type AccountingConfig struct {
 	Pricing             AccountingPricingConfig    `yaml:"pricing"`
 	Authority           AccountingAuthorityConfig  `yaml:"authority"`
 	Concurrency         ConcurrencyAuthorityConfig `yaml:"concurrency"`
+	// Billing controls the TUR/journal monetary cutover. When Authoritative is
+	// true, composition must inject a BillingStore plus admission/identity/rating
+	// resolvers. Stream handlers never enrich money or write the legacy token
+	// ledger regardless of this flag.
+	Billing AccountingBillingConfig `yaml:"billing"`
+}
+
+// AccountingBillingConfig enables journal-backed monetary settlement and reports.
+type AccountingBillingConfig struct {
+	// Authoritative mounts the Bun BillingStore as the sole monetary settlement
+	// authority (post-turn worker + journal/TUR reports). Protocol usage
+	// projection remains non-authoritative for money.
+	Authoritative bool `yaml:"authoritative"`
+	// ReportsPath mounts the protected billing report surface when authoritative
+	// billing is enabled. Empty selects /admin/billing.
+	ReportsPath string `yaml:"reports_path"`
 }
 
 type AccountingTokenizerConfig struct {
@@ -86,6 +102,9 @@ type AccountingPreflightConfig struct {
 }
 
 type AccountingLedgerConfig struct {
+	// Store/SQLitePath/PostgresDSN/WritePolicy remain accepted for
+	// backward-compatible YAML. Phase 8 no longer opens or writes this ledger;
+	// Bun billingstore is the monetary journal.
 	Store       string `yaml:"store"`
 	SQLitePath  string `yaml:"sqlite_path"`
 	PostgresDSN string `yaml:"postgres_dsn"`

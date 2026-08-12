@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingstore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/concurrencyauthority/leasestore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metering/journalstore"
@@ -33,6 +34,7 @@ const (
 	ComponentUsageAuthority = "usage-authority"
 	ComponentConcurrency    = "concurrency"
 	ComponentMetering       = "metering"
+	ComponentBilling        = "billing"
 )
 
 type postgresComponentDefinition struct {
@@ -45,6 +47,7 @@ var postgresComponentCatalog = []postgresComponentDefinition{
 	{name: ComponentUsageAuthority, migrate: authoritystore.Migrate, verify: authoritystore.VerifySchema},
 	{name: ComponentConcurrency, migrate: leasestore.Migrate, verify: leasestore.VerifySchema},
 	{name: ComponentMetering, migrate: journalstore.Migrate, verify: journalstore.VerifySchema},
+	{name: ComponentBilling, migrate: billingstore.Migrate, verify: billingstore.VerifySchema},
 }
 
 // lookupPostgresComponent resolves migrate/verify funcs. Tests may override.

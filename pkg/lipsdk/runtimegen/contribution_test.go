@@ -6,7 +6,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/runtimegen"
 )
 
@@ -31,12 +30,6 @@ func (s stubReq) SettleRequest(context.Context, authority.RequestSettlement) (au
 }
 func (s stubReq) ReleaseRequest(context.Context, authority.RequestRelease) error { return nil }
 
-type stubRater struct{}
-
-func (stubRater) Rate(context.Context, economics.RatingRequest) (economics.RatingResult, error) {
-	return economics.RatingResult{}, nil
-}
-
 func TestGenerationContribution_RejectsEmptyAndMetadataOnly(t *testing.T) {
 	t.Parallel()
 	if err := (runtimegen.GenerationContribution{SourceID: "s", Version: "1"}).Validate(); err == nil {
@@ -54,9 +47,6 @@ func TestGenerationContribution_AcceptsDescriptorBoundRegistrations(t *testing.T
 			Descriptor: stubReq{id: "quota"}.Describe(),
 			Priority:   authority.RequestPriorityQuotaBudgetRate,
 			Provider:   stubReq{id: "quota"},
-		}},
-		OperatorRaters: []economics.RaterRegistration{{
-			ID: "op", Perspective: metering.PerspectiveOperator, Rater: stubRater{},
 		}},
 	}
 	if err := c.Validate(); err != nil {

@@ -100,9 +100,6 @@ func TestBuildWiresTokenAccountingContracts(t *testing.T) {
 	if built.Executor().StreamUsage == nil {
 		t.Fatal("Executor.StreamUsage is nil")
 	}
-	if built.Executor().Ledger == nil {
-		t.Fatal("Executor.Ledger is nil")
-	}
 	if built.Executor().TokenAccountingObservability == nil {
 		t.Fatal("Executor.TokenAccountingObservability is nil")
 	}
@@ -354,7 +351,7 @@ func TestBuildProviderRequiredFailsWithoutProviderCounter(t *testing.T) {
 	}
 }
 
-func TestBuildWiresSQLiteTokenAccountingLedger(t *testing.T) {
+func TestBuildIgnoresRetiredTokenAccountingLedger(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
 	if err := reg.RegisterBackend("stub", func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
@@ -394,11 +391,8 @@ func TestBuildWiresSQLiteTokenAccountingLedger(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: reg})
-	if built.Executor().Ledger == nil {
-		t.Fatal("Executor.Ledger is nil")
-	}
-	if built.Ledger().Len() < 1 {
-		t.Fatal("expected ledger closer to be registered")
+	if built.Executor() == nil || built.Executor().StreamUsage == nil {
+		t.Fatal("expected protocol/quota token accounting to remain wired")
 	}
 	if err := built.Close(); err != nil {
 		t.Fatalf("close: %v", err)

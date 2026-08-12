@@ -47,9 +47,6 @@ func TestPhase5Remediation_BuildFiveToTwoAndBoundEvidence(t *testing.T) {
 		},
 		Provider: phase53Conc{id: "conc"},
 	}
-	opts.Production.RaterRegistrations = []economics.RaterRegistration{{
-		ID: "op-r1", Perspective: metering.PerspectiveOperator, Rater: phase53Rater{id: "op-r1"},
-	}}
 	_, built := mustProcessAndCandidate(t, cfg, opts)
 	g1 := runtimebundle.CandidateSnapshotGeneration(built).CurrentExecutable()
 	if g1 == nil || g1.RequestCoord == nil || g1.EnforcementMaxActive() != 5 {
@@ -66,16 +63,13 @@ func TestPhase5Remediation_BuildFiveToTwoAndBoundEvidence(t *testing.T) {
 
 	cfgTwo := phase5ConcCfg(2, "conc-two")
 	prodTwo := opts.Production
-	prodTwo.RaterRegistrations = []economics.RaterRegistration{{
-		ID: "op-r2", Perspective: metering.PerspectiveOperator, Rater: phase53Rater{id: "op-r2"},
-	}}
 	g1.Retain()
 	g2, err := runtimebundle.PublishExecutableFromProduction(runtimebundle.CandidateSnapshotGeneration(built), cfgTwo, prodTwo, time.Unix(20, 0).UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g2.EnforcementMaxActive() != 2 || g2.EvidenceObjectID() != "op-r2" {
-		t.Fatalf("refresh must change admit limit and rating evidence: %+v", g2)
+	if g2.EnforcementMaxActive() != 2 {
+		t.Fatalf("refresh must change admit limit: %+v", g2)
 	}
 	cur := runtimebundle.CandidateSnapshotGeneration(built).CurrentExecutable()
 	for i := range 2 {
@@ -86,15 +80,14 @@ func TestPhase5Remediation_BuildFiveToTwoAndBoundEvidence(t *testing.T) {
 	if _, err := cur.RequestCoord.Admit(context.Background(), phase5E2EAdmit("e2e-new-overflow")); err == nil {
 		t.Fatal("two-slot generation must deny third new admit")
 	}
-	if g1.EnforcementMaxActive() != 5 || g1.EvidenceObjectID() != "op-r1" {
-		t.Fatalf("in-flight generation mutated: max=%d evidence=%q", g1.EnforcementMaxActive(), g1.EvidenceObjectID())
+	if g1.EnforcementMaxActive() != 5 {
+		t.Fatalf("in-flight generation mutated: max=%d", g1.EnforcementMaxActive())
 	}
 
 	bad := phase5ConcCfg(2, "conc-bad")
 	badProd := prodTwo
 	badProd.RequestRegistrations = nil
 	badProd.ConcurrencyRegistration = nil
-	badProd.RaterRegistrations = nil
 	prior := runtimebundle.CandidateSnapshotGeneration(built).CurrentExecutable()
 	got, pubErr := runtimebundle.PublishExecutableFromProduction(runtimebundle.CandidateSnapshotGeneration(built), bad, badProd, time.Unix(30, 0).UTC())
 	if pubErr == nil {
@@ -123,9 +116,6 @@ func TestPhase5Remediation_PendingClearAndCanRemoveProvider(t *testing.T) {
 		Descriptor: phase53Req{id: "quota-old"}.Describe(),
 		Priority:   authority.RequestPriorityQuotaBudgetRate,
 		Provider:   phase53Req{id: "quota-old"},
-	}}
-	opts.Production.RaterRegistrations = []economics.RaterRegistration{{
-		ID: "op-r1", Perspective: metering.PerspectiveOperator, Rater: phase53Rater{id: "op-r1"},
 	}}
 	_, built := mustProcessAndCandidate(t, cfg, opts)
 	if runtimebundle.CandidateTerminalWorkProcessor(built) == nil {

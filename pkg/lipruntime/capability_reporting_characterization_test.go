@@ -48,9 +48,6 @@ func TestCapabilityReporting_DogfoodFacadeHostSnapshot(t *testing.T) {
 	if rt.HasProductionMetering() {
 		t.Fatal("HasProductionMetering must be false without MeteringRecorder")
 	}
-	if rt.HasProductionRater() {
-		t.Fatal("HasProductionRater must be false without RaterRegistrations")
-	}
 	if rt.HasTrafficObservers() || rt.HasUsageObservers() || rt.HasProductionEvidenceSink() {
 		t.Fatal("observer attachment flags must be false without production injections")
 	}

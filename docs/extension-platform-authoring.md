@@ -91,10 +91,10 @@ Every SDK handler receives a `context.Context` from the core and must treat it a
 
 ## Public runtime composition options
 
-Closed modules that call `pkg/lipruntime.Build` attach authority and raters
+Closed modules that call `pkg/lipruntime.Build` attach non-money authority
 through canonical registrations on `lipruntime.Options`:
-`RequestRegistrations`, `AttemptRegistrations`, `ConcurrencyRegistration`, and
-`RaterRegistrations`. Enterprise attachment seams:
+`RequestRegistrations`, `AttemptRegistrations`, and `ConcurrencyRegistration`.
+Post-turn monetary rating is owned by the billing subsystem. Enterprise attachment seams:
 [enterprise-extension-boundaries.md](enterprise-extension-boundaries.md).
 
 ## Automated guardrails

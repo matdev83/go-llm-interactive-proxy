@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -125,19 +126,12 @@ func Build(session ExecuteSession, profile backendplugin.ResolvedProfile, opt Op
 				defer cancel()
 				resp, err := fin.FinalizeBilling(cctx, backendplugin.FinalizeBillingRequest{
 					InstanceID: opt.InstanceID, ALegID: in.ALegID, BLegID: in.BLegID,
-					ModelID: in.Model, Reason: in.Reason, IdempotencyKey: in.TraceID,
+					ModelID: in.Model, Reason: in.Reason, IdempotencyKey: finalizationIdempotencyKey(in),
 				})
 				if err != nil {
 					return lipapi.Event{}, err
 				}
-				ev := lipapi.Event{Kind: lipapi.EventUsageDelta}
-				if resp.Usage.Presence.InputTokens && resp.Usage.InputTokens != nil {
-					ev.InputTokens = int(*resp.Usage.InputTokens)
-				}
-				if resp.Usage.Presence.OutputTokens && resp.Usage.OutputTokens != nil {
-					ev.OutputTokens = int(*resp.Usage.OutputTokens)
-				}
-				return ev, nil
+				return finalizeBillingResponseToEvent(resp, finalizationIdempotencyKey(in))
 			}
 		}
 	}
@@ -152,6 +146,10 @@ func Build(session ExecuteSession, profile backendplugin.ResolvedProfile, opt Op
 	return processhost.NewBuildResult(be, func() error {
 		return session.Close(context.Background())
 	})
+}
+
+func finalizationIdempotencyKey(in execbackend.BillingFinalizationInput) string {
+	return "finalize-billing:v1:" + strings.TrimSpace(in.TraceID) + ":" + strings.TrimSpace(in.ALegID) + ":" + strings.TrimSpace(in.BLegID)
 }
 
 func transportCapsFromProfile(profile backendplugin.ResolvedProfile, op lipapi.Operation) lipapi.BackendTransportCaps {

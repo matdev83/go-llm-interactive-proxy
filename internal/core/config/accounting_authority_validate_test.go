@@ -395,3 +395,72 @@ func TestValidateAccountingAuthorityAcceptsCredentialMatcher(t *testing.T) {
 		t.Fatalf("rule with credential matcher should validate, got: %v", err)
 	}
 }
+
+func TestValidateAccountingAuthorityRejectsMonetaryRules(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name string
+		rule config.AccountingAuthorityRuleConfig
+	}{
+		{
+			name: "budget kind",
+			rule: config.AccountingAuthorityRuleConfig{
+				ID:       "tenant.budget",
+				Kind:     "budget",
+				Mode:     "advisory",
+				Unit:     "money_nano",
+				Limit:    100,
+				Currency: "usd",
+				Basis:    "legacy_provider_preferred_attempt",
+			},
+		},
+		{
+			name: "spend_cap kind",
+			rule: config.AccountingAuthorityRuleConfig{
+				ID:       "tenant.spend_cap",
+				Kind:     "spend_cap",
+				Mode:     "advisory",
+				Unit:     "money_nano",
+				Limit:    100,
+				Currency: "usd",
+				Basis:    "legacy_provider_preferred_attempt",
+			},
+		},
+		{
+			name: "quota with money_nano unit",
+			rule: config.AccountingAuthorityRuleConfig{
+				ID:    "tenant.money_quota",
+				Kind:  "quota",
+				Mode:  "advisory",
+				Unit:  "money_nano",
+				Limit: 100,
+				Basis: "legacy_provider_preferred_attempt",
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{
+				Accounting: config.AccountingConfig{
+					Authority: config.AccountingAuthorityConfig{
+						Enabled:        true,
+						Mode:           "advisory",
+						Store:          "memory",
+						StartupPosture: "fail_open",
+						Rules:          []config.AccountingAuthorityRuleConfig{tt.rule},
+					},
+				},
+			}
+			err := config.Validate(cfg)
+			if err == nil {
+				t.Fatal("expected monetary authority rule to fail validation")
+			}
+			if !strings.Contains(err.Error(), "accounting.authority.rules[0]") {
+				t.Fatalf("error should name the rule index, got %v", err)
+			}
+			if !strings.Contains(err.Error(), "retired") && !strings.Contains(err.Error(), "money_nano") && !strings.Contains(err.Error(), "budget") {
+				t.Fatalf("error should reject retired monetary authority rules, got %v", err)
+			}
+		})
+	}
+}

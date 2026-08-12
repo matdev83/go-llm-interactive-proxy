@@ -2,7 +2,7 @@
 
 This document defines where enterprise features may attach to the OSS core and which integration points are forbidden. It prevents enterprise code from becoming a parallel fork of core.
 
-Enterprise binaries attach to the same converged runtime as OSS `lipstd`: **one process runtime / `ProcessServices`**, **one generation runtime**, **one private-field host** from `runtimebundle.BuildHost` (shutdown via `Host.Close`; Manager-owned generation retirement), and **one reload contract** in `pkg/lipsdk/configreload`. Candidate assembly is not a public API. Do not invent a second host, bootstrap path, or legacy options adapter. Registration-only Options migration: [`legacy-options-migration.md`](legacy-options-migration.md).
+Enterprise binaries attach to the same converged runtime as OSS `lipstd`: **one process runtime / `ProcessServices`**, **one generation runtime**, **one private-field host** from `runtimebundle.BuildHost` (shutdown via `Host.Close`; Manager-owned generation retirement), and **one reload contract** in `pkg/lipsdk/configreload`. Candidate assembly is not a public API. Do not invent a second host, bootstrap path, or legacy options adapter. Registration-only Options use the non-money authority seams documented below; post-turn monetary settlement is owned by the billing subsystem.
 
 ## Allowed integration points
 
@@ -11,7 +11,7 @@ Enterprise features attach through these stable, documented seams:
 | Seam | Package | How enterprise attaches |
 | --- | --- | --- |
 | Plugin SDK facades | `pkg/lipsdk/*` | Register feature plugins (`FeatureBundle`), backend adapters, or frontend mounts through `pkg/lipsdk` contracts. Enterprise binaries compose via public `pkg/lipruntime.Build` with `lipruntime.Options`. |
-| Composition-root options | `pkg/lipruntime.Options` / `runtimebundle.ProductionOptions` | Use canonical registration fields on public `lipruntime.Options`: `RequestRegistrations`, `AttemptRegistrations`, `ConcurrencyRegistration`, and `RaterRegistrations` (plus observers/metering). Internal distributions use registration-only `runtimebundle.ProductionOptions` via `BuildHostInput.Production` into `runtimebundle.BuildHost`. Grouped `BuildOptions` sub-structs remain for focused internal composition helpers, not as a `BuildHost` parameter. |
+| Composition-root options | `pkg/lipruntime.Options` / `runtimebundle.ProductionOptions` | Use canonical non-money authority registration fields on public `lipruntime.Options`: `RequestRegistrations`, `AttemptRegistrations`, and `ConcurrencyRegistration` (plus observers/metering). Internal distributions use registration-only `runtimebundle.ProductionOptions` via `BuildHostInput.Production` into `runtimebundle.BuildHost`. Grouped `BuildOptions` sub-structs remain for focused internal composition helpers, not as a `BuildHost` parameter. |
 | Control-plane ports | `internal/core/controlplane` | Implement control-plane `Store`, `QueryService`, `RetentionController`, or `Recorder` interfaces for enterprise persistence, audit, or search. |
 | Hook bus | `internal/core/hooks` | Register enterprise submit/part/tool hooks through the standard hook bus. Prefer `FeatureBundle` over raw hooks for new code. |
 | Secure-session authority | `internal/core/securesession/app` | Inject enterprise `Manager`, `Store`, or `GateRecording` implementations for custom session authority. |
@@ -22,7 +22,7 @@ Enterprise code MUST NOT:
 
 - **Edit `runtime.Executor` directly** — add fields, modify `Execute`, or import `internal/core/runtime` to change orchestration behavior. New orchestration concerns belong behind hooks, extensions, or composition-root options.
 - **Import deep runtime internals** — `internal/core/runtime`, `internal/core/stream`, `internal/core/leglifecycle`, or `internal/core/lineage` are not extension seams; they are use-case orchestration owned by the OSS core.
-- **Fork the composition root** — enterprise binaries should call public `pkg/lipruntime.Build` with `lipruntime.Options` (observers, metering, canonical `RequestRegistrations` / `AttemptRegistrations` / `ConcurrencyRegistration` / `RaterRegistrations`), not reimplement assembly. Internal distributions that already import `runtimebundle` compose via `runtimebundle.BuildHost` with registration-only `BuildHostInput` / `ProductionOptions` — not `BuildOptions`, which is a separate composition bag and is not accepted by `BuildHost`.
+- **Fork the composition root** — enterprise binaries should call public `pkg/lipruntime.Build` with `lipruntime.Options` (observers, metering, canonical `RequestRegistrations` / `AttemptRegistrations` / `ConcurrencyRegistration`), not reimplement assembly. Internal distributions that already import `runtimebundle` compose via `runtimebundle.BuildHost` with registration-only `BuildHostInput` / `ProductionOptions` — not `BuildOptions`, which is a separate composition bag and is not accepted by `BuildHost`.
 - **Bypass architecture guardrails** — the hexagonal baseline, line budgets, and import-boundary tests apply to enterprise code equally. Enterprise packages must not import `internal/core` packages beyond the allowed seams above.
 - **Introduce global state or hidden registration** — no `init()` registration, package-level registries, `sync.Once` singletons, or reflection-based plugin loading.
 
@@ -31,7 +31,7 @@ Enterprise code MUST NOT:
 | Enterprise feature | Attach via |
 | --- | --- |
 | Audit/search | Control-plane `Store` + `QueryService` interfaces; traffic observers via `lipruntime.Options.TrafficObservers` (or `BuildHostInput.Production.TrafficObservers`). |
-| Billing | Token-accounting ledger adapter; `lipruntime.Options.UsageObservers` / `PolicyObservers`. |
+| Billing | Inject Bun journal + admission via `runtimebundle.ProductionOptions` (`BillingStore`, `BillingAdmission`, identity and rating resolvers) into `runtimebundle.BuildHost`. Domain policy lives in `internal/core/billing`. Public `lipruntime.Options` stays non-money; do not attach a token-accounting ledger as a second monetary path. |
 | SSO / user provisioning | Internal composition helpers using `runtimebundle.BuildOptions.Auth` (`RemoteDecider`, `OSIdentity`, `AuthEventSink`) — not currently a `lipruntime.Options` field and not a `BuildHost` parameter. |
 | Custom routing policy | Internal `BuildOptions.Extensions` / `BuildOptions.Policy` helpers where those fields are wired; prefer FeatureBundle hooks for new code. |
 | Custom backends | Backend plugin via `pkg/lipsdk` factory; register on a custom `*pluginreg.Registry` before public/internal Build. |

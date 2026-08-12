@@ -37,6 +37,12 @@ linters:
       - path: ^(cmd/lipstd|internal/(core/(config|runtime)|infra/(db|dbmigrate|metering/journalstore|metrics|runtimebundle)|testkit)|pkg/lipsdk/metering)/.*_test\.go$
         linters:
           - paralleltest
+      # Billing-store tests deliberately exercise shared SQLite locking, replay,
+      # rollback, and fault campaigns; outer-test parallelism would change those
+      # contention semantics rather than improve coverage.
+      - path: ^internal/infra/billingstore/.*_test\.go$
+        linters:
+          - paralleltest
       # Cursor SDK bridge/process/pool lifecycle tests share fakebridge and process state.
       - path: ^connectors/cursorsdk/internal/product/.*_test\.go$
         linters:

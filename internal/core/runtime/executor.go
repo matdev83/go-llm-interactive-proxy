@@ -42,6 +42,8 @@ type Executor struct {
 	rngOnce         sync.Once
 	lockedRand      routing.Rng
 	secureSessionMu sync.Mutex
+	billingOnce     sync.Once
+	billingColl     *billingTurnCollector
 	// quarantinePersistenceFault is intentional process-wide fail-closed state after a
 	// secret-guard quarantine write (or SessionID invariant) failure. While latched,
 	// AssertActive-before-open denies further backend dispatch on this executor until
@@ -117,9 +119,18 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 	if err != nil {
 		return nil, err
 	}
-	out, err := e.openInitialAttempt(prepCtx, prep, plan)
-	if err != nil {
+	if err := e.authorizeBillingOnce(prepCtx, prep, plan); err != nil {
 		return nil, err
 	}
-	return e.assembleExecutorStream(prepCtx, prep, plan, out)
+	out, err := e.openInitialAttempt(prepCtx, prep, plan)
+	if err != nil {
+		e.releaseOrHandoffAfterAdmissionAbort(prepCtx, prep, plan)
+		return nil, err
+	}
+	stream, err := e.assembleExecutorStream(prepCtx, prep, plan, out)
+	if err != nil {
+		e.releaseOrHandoffAfterAdmissionAbort(prepCtx, prep, plan)
+		return nil, err
+	}
+	return stream, nil
 }

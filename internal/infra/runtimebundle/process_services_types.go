@@ -15,7 +15,6 @@ import (
 	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
-	accountingledger "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/ledger"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/processhost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
@@ -50,7 +49,6 @@ type ProcessServices struct {
 	AffinityStore         affinity.Store
 	CandidateHealth       policy.CandidateHealth
 	ExtensionState        lipstate.Store
-	AccountingLedger      accountingledger.Recorder
 	MeteringRecorder      metering.Recorder
 	UsageAuthority        *authorityapp.Service
 	Concurrency           *concurrencyapp.Service

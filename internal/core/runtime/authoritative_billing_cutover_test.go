@@ -1,0 +1,204 @@
+package runtime
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
+	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
+	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
+	authoritydomain "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
+)
+
+func TestAuthoritativeBillingSuccessFinishSettlesAttemptAuthority(t *testing.T) {
+	t.Parallel()
+
+	auth := &recordingAuthorityService{
+		admitResult: authorityapp.AdmissionResult{
+			Allowed:        true,
+			Reserved:       true,
+			ReservationID:  "authoritative-success-reservation",
+			ReservedAmount: authorityInputAmount(7),
+			PolicyRecord:   policydecision.Record{ReasonCode: "reserved"},
+		},
+		status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
+	}
+	executor, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
+	executor.BillingAuthoritative = true
+	stream := &retryRecvStream{
+		executor:   executor,
+		bus:        hooks.New(hooks.Config{}),
+		baseline:   lipapi.Call{ID: "request-authoritative-success", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+		bleg:       b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
+		cand:       authorityCandidate(),
+		aLegID:     aLegID,
+		traceID:    "trace-authoritative-success",
+		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+	}
+	stream.authority = testAuthorityLifecycle(executor, attemptAuthorityState{
+		admissionInput:  testAuthorityAdmissionInput(7),
+		admissionResult: auth.admitResult,
+	}, authorityCandidate())
+	stream.ensureTerminals()
+
+	_, ok, err := stream.finalizeResponseFinishedAuthority(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("expected no synthesized usage when StreamUsage is unset")
+	}
+	if got := auth.settleCalls.Load(); got != 1 {
+		t.Fatalf("attempt authority settle calls = %d, want 1 on authoritative success finish", got)
+	}
+	if !stream.authority.Settled() {
+		t.Fatal("authoritative success finish left attempt authority unsettled")
+	}
+	if got := auth.lastSettle(); got.Kind != authorityapp.SettlementKindFinal {
+		t.Fatalf("settle kind = %q, want final", got.Kind)
+	}
+}
+
+func TestAuthoritativeBillingPreservesProtocolUsageProjection(t *testing.T) {
+	t.Parallel()
+
+	auth := &recordingAuthorityService{
+		admitResult: authorityapp.AdmissionResult{
+			Allowed:        true,
+			Reserved:       true,
+			ReservationID:  "authoritative-protocol-usage",
+			ReservedAmount: authorityInputAmount(7),
+			PolicyRecord:   policydecision.Record{ReasonCode: "reserved"},
+		},
+		status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
+	}
+	executor, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
+	executor.BillingAuthoritative = true
+	executor.StreamUsage = accountingstream.New(&stubStreamCounter{
+		call:   accountingapp.CountResult{InputTokens: 7, TotalTokens: 7},
+		output: accountingapp.CountResult{OutputTokens: 3, TotalTokens: 10},
+	}, accountingstream.Config{})
+	stream := &retryRecvStream{
+		executor:   executor,
+		bus:        hooks.New(hooks.Config{}),
+		baseline:   lipapi.Call{ID: "request-authoritative-protocol", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+		bleg:       b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
+		cand:       authorityCandidate(),
+		aLegID:     aLegID,
+		traceID:    "trace-authoritative-protocol",
+		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+	}
+	stream.authority = testAuthorityLifecycle(executor, attemptAuthorityState{
+		admissionInput:  testAuthorityAdmissionInput(7),
+		admissionResult: auth.admitResult,
+	}, authorityCandidate())
+	stream.ensureTerminals()
+
+	usage, ok, err := stream.finalizeResponseFinishedAuthority(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || usage.Kind == "" || usage.TotalTokens == 0 {
+		t.Fatalf("protocol usage projection missing under authoritative cutover: ok=%t usage=%+v", ok, usage)
+	}
+	if usage.CostPresent || usage.CostNanoUnits != 0 || usage.CostSource != "" {
+		t.Fatalf("stream-time monetary enrichment leaked into protocol usage: %+v", usage)
+	}
+	if got := auth.settleCalls.Load(); got != 1 {
+		t.Fatalf("attempt authority settle calls = %d, want 1", got)
+	}
+	if !stream.authority.Settled() {
+		t.Fatal("authoritative protocol-usage finish left attempt authority unsettled")
+	}
+}
+
+func TestAuthoritativeBillingKeepsNonMoneyAuthorityCoordination(t *testing.T) {
+	t.Parallel()
+
+	auth := &recordingAuthorityService{
+		admitResult: authorityapp.AdmissionResult{
+			Reserved:       true,
+			ReservationID:  "authoritative-cutover-reservation",
+			ReservedAmount: authorityInputAmount(7),
+		},
+		status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
+	}
+	executor, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
+	executor.BillingAuthoritative = true
+	stream := &retryRecvStream{
+		executor: executor,
+		aLegID:   aLegID,
+		cand:     authorityCandidate(),
+	}
+	stream.authority = testAuthorityLifecycle(executor, attemptAuthorityState{
+		admissionInput:  testAuthorityAdmissionInput(7),
+		admissionResult: auth.admitResult,
+	}, authorityCandidate())
+
+	stream.recordPartialTokenAccounting(context.Background(), "authoritative-cutover", nil)
+	if got := auth.settleCalls.Load(); got != 1 {
+		t.Fatalf("non-money authority settle calls = %d, want 1", got)
+	}
+	if !stream.authority.Settled() {
+		t.Fatal("non-money authority lifecycle was not finalized")
+	}
+}
+
+func TestAuthoritativeBillingRequiresBillingAdmission(t *testing.T) {
+	t.Parallel()
+
+	store, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ex := TestExecutor()
+	ex.BillingAuthoritative = true
+	ex.BillingAdmission = nil
+	ex.Store = store
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				t.Fatal("backend must not open when authoritative admission is missing")
+				return nil, nil
+			},
+		},
+	}
+	_, err = ex.Execute(context.Background(), &lipapi.Call{
+		ID:    "authoritative-missing-admission",
+		Route: lipapi.RouteIntent{Selector: "openai:gpt-test"},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	})
+	if !errors.Is(err, ErrBillingAdmissionDenied) {
+		t.Fatalf("error = %v, want ErrBillingAdmissionDenied", err)
+	}
+}
+
+func TestAttemptAuthorityUsageAmountIgnoresStreamCostForMoney(t *testing.T) {
+	t.Parallel()
+
+	got := attemptAuthorityUsageAmount(
+		lipapi.Event{Kind: lipapi.EventUsageDelta, CostPresent: true, CostNanoUnits: 999, Currency: "USD"},
+		authoritydomain.Amount{Unit: authoritydomain.AmountUnitMoneyNano, Value: 40, Currency: "USD"},
+	)
+	if got.Value != 40 || got.Currency != "USD" {
+		t.Fatalf("money settle = %+v, want reserved estimate 40 USD (not stream cost 999)", got)
+	}
+	if cost := attemptAuthorityCostAmount(lipapi.Event{CostPresent: true, CostNanoUnits: 999, Currency: "USD"}, "USD"); cost.Value != 0 {
+		t.Fatalf("FinalCost = %+v, want empty after Phase 8", cost)
+	}
+}

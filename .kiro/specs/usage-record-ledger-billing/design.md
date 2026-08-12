@@ -105,6 +105,10 @@ internal/core/runtime/
 
 Existing `internal/infra/db` remains the DB open/dialect/pool abstraction. No second ORM/database framework is introduced.
 
+Authoritative billing is composition-injected. `runtimebundle.ProductionOptions` must supply `BillingStore`, `BillingAdmission`, account/authorization identity resolvers, and a rating snapshot resolver. YAML `accounting.billing.authoritative: true` fails closed without that injection. Public `pkg/lipruntime.Options` stays non-money (quota/concurrency registrations only). `lipstd` does not invent billing account identities or auto-open the Bun journal.
+
+`accounting.pricing` / `internal/core/accounting.EstimateCost` remain snapshot and shadow-characterization helpers. They are not stream-time price enrichment. Leftover `accounting.ledger.*` YAML is accepted and never opened.
+
 ## Core Data Model
 
 ### Money
@@ -196,6 +200,11 @@ ReservedAfter = Reserved + MaxCustomerCharge
 SpendableAfter = SpendableBefore - MaxCustomerCharge
 require SpendableAfter >= 0
 ```
+
+A zero-exposure authorization (`MaxCustomerCharge = 0`) remains an audited
+identity/snapshot hold but does not create authorization-book entries: journal
+posting amounts are strictly positive, and no reserved or financial balance
+mutation occurs. Non-zero holds use the authorization-book postings below.
 
 Checking only `Spendable >= 0` before inserting the hold is insufficient; the requested amount is part of the invariant.
 
@@ -304,6 +313,8 @@ sequenceDiagram
 ```
 
 The adapter owns cumulative/delta quirks. Billing sees one final LUR evidence object. Existing connector `AccountingEvidence`/`FinalizeBilling` is reused where practical.
+
+The connector `FinalizeBilling` ABI currently carries token/provenance fields only. When that response has no `CostPresent`, terminal TUR sealing may copy stream-observed `CostPresent` (including authoritative zero) onto the LUR so presence is not silently dropped. That merge is evidence assembly at the existing terminal owner, not stream-time settlement or price enrichment.
 
 Provider-billable LUR rules:
 
@@ -480,6 +491,8 @@ Before any rating:
 
 This makes authorization and final rating reproducible against immutable economic versions.
 
+Customer charging is OpenRouter-style cost recovery: turn outcome never grants a free ride. When the downstream provider accepted work (input and/or completion quantity evidence present, or authoritative provider cost), customer rating bills those observed dimensions under the bound charge policy—including `canceled`/`failed` turns and connectivity drops where output never surfaced. Rejected / never-started legs with no acceptance evidence remain zero. Interrupted turns skip missing optional dimensions instead of failing solely because the stream ended early. Provider COGS remain a separate output.
+
 ## Durable Store Contract
 
 ```go
@@ -585,6 +598,8 @@ sequenceDiagram
 ### Processing Failure
 
 A transient processing/rating/store failure leaves the authorization held. Runtime result is already terminal and is never changed.
+
+Stale-hold cleanup is not TTL reclaim on `expires_at`. Automatic expiry cannot prove non-execution (Req 15.6). Unused exposure is released only by unused-hold release after no B-leg evidence, atomic settlement hold close, or explicit `ReleaseAuthorization` with `ReleaseStaleSafe` (A-leg inactive + maximum execution lifetime + safety grace) or operator release.
 
 ### `unreconciled_cost`
 

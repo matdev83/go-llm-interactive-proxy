@@ -8,7 +8,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/runtimegen"
 )
 
@@ -70,12 +69,6 @@ func (s stubConcurrencyProvider) QueryLeases(context.Context, authority.LeaseQue
 	return authority.LeasePage{}, nil
 }
 
-type stubRater struct{ id string }
-
-func (s stubRater) Rate(context.Context, economics.RatingRequest) (economics.RatingResult, error) {
-	return economics.RatingResult{RaterID: s.id}, nil
-}
-
 func concReg(id string, prov authority.ConcurrencyProvider) *authority.ConcurrencyRegistration {
 	return &authority.ConcurrencyRegistration{
 		Descriptor: authority.ProviderDescriptor{
@@ -122,9 +115,6 @@ func TestPhase51_FiveToTwoRefreshPreservesInFlight(t *testing.T) {
 		State:                   economics.SnapshotReady,
 		ConcurrencyRegistration: concReg("conc", stubConcurrencyProvider{id: "conc"}),
 		MaxActiveRequests:       5,
-		OperatorRaters: []economics.RaterRegistration{{
-			ID: "op-r1", Perspective: metering.PerspectiveOperator, Rater: stubRater{id: "op-r1"},
-		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -145,9 +135,6 @@ func TestPhase51_FiveToTwoRefreshPreservesInFlight(t *testing.T) {
 		State:                   economics.SnapshotReady,
 		ConcurrencyRegistration: concReg("conc", stubConcurrencyProvider{id: "conc"}),
 		MaxActiveRequests:       2,
-		OperatorRaters: []economics.RaterRegistration{{
-			ID: "op-r2", Perspective: metering.PerspectiveOperator, Rater: stubRater{id: "op-r2"},
-		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -162,8 +149,8 @@ func TestPhase51_FiveToTwoRefreshPreservesInFlight(t *testing.T) {
 	if held.EnforcementMaxActive() != 5 {
 		t.Fatalf("in-flight generation mutated: max=%d", held.EnforcementMaxActive())
 	}
-	if pub2.EvidenceObjectID() == pub1.EvidenceObjectID() {
-		t.Fatal("rating/object evidence must change with generation")
+	if pub2.Version == pub1.Version {
+		t.Fatal("generation evidence must change with generation")
 	}
 }
 
@@ -200,9 +187,6 @@ func TestPhase51_SettlementEvidenceNamesEvaluatorObject(t *testing.T) {
 	g, err := snapshotgen.CompileExecutable(runtimegen.GenerationContribution{
 		SourceID: "static", Version: "g1", EffectiveAt: time.Unix(1, 0).UTC(),
 		State: economics.SnapshotReady,
-		OperatorRaters: []economics.RaterRegistration{{
-			ID: "rater-obj-9", Perspective: metering.PerspectiveOperator, Rater: stubRater{id: "rater-obj-9"},
-		}},
 		RequestRegistrations: []authority.RequestRegistration{{
 			Descriptor: stubRequestProvider{id: "quota"}.Describe(),
 			Priority:   authority.RequestPriorityQuotaBudgetRate,
@@ -212,8 +196,8 @@ func TestPhase51_SettlementEvidenceNamesEvaluatorObject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g.EvidenceObjectID() != "rater-obj-9" {
-		t.Fatalf("evidence=%q want rater object id", g.EvidenceObjectID())
+	if g.EvidenceObjectID() != "quota" {
+		t.Fatalf("evidence=%q want request authority object id", g.EvidenceObjectID())
 	}
 	if g.Rating.Version != "" && g.EvidenceObjectID() == g.Rating.Version {
 		t.Fatal("evidence must not be metadata-only rating catalog version")

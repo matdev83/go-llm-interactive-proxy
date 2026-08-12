@@ -43,6 +43,10 @@ func prepareStandardHandler(
 		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log,
 		Operations: in.Operations, Core: in.Core,
 	})
+	mountBillingReports(billingReportsMount{
+		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log,
+		Operations: in.Operations,
+	})
 
 	if err := mountSecureSessionDiagnostics(mountSecureSessionDiagnosticsInput{
 		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log, Security: in.Security,

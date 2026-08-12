@@ -491,8 +491,8 @@ func TestAuthorityLifecycleMultiReservationSettleAndReleaseEachReservation(t *te
 		if reservations[1].EstimatedUsage != secondaryAmount {
 			t.Fatalf("secondary settle estimated usage = %#v, want %#v", reservations[1].EstimatedUsage, secondaryAmount)
 		}
-		if reservations[1].FinalUsage.Unit != authoritydomain.AmountUnitMoneyNano || reservations[1].FinalUsage.Value != 40 {
-			t.Fatalf("secondary settle final usage = %#v, want 40 money_nano", reservations[1].FinalUsage)
+		if reservations[1].FinalUsage.Unit != authoritydomain.AmountUnitMoneyNano || reservations[1].FinalUsage.Value != 125 {
+			t.Fatalf("secondary settle final usage = %#v, want reserved 125 money_nano (stream cost is not authority)", reservations[1].FinalUsage)
 		}
 		if reservations[1].FinalUsage.Currency != "USD" {
 			t.Fatalf("secondary settle final usage currency = %q, want USD", reservations[1].FinalUsage.Currency)

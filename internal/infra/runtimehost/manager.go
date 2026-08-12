@@ -260,6 +260,8 @@ func (m *Manager) Publish(candidate *Generation) error {
 			if prior != nil {
 				go m.scheduleRetire(prior)
 			}
+			// After the active swap so compile/compose failures cannot start work.
+			startPublishedWork(candidate)
 			return nil
 		}
 	}
@@ -270,6 +272,17 @@ func (m *Manager) Publish(candidate *Generation) error {
 		return errors.Join(reject, cleanupErr)
 	}
 	return reject
+}
+
+func startPublishedWork(candidate *Generation) {
+	if candidate == nil {
+		return
+	}
+	starter, ok := candidate.RequestPlane().(PublishedWorkStarter)
+	if !ok || starter == nil {
+		return
+	}
+	_ = starter.StartPublished(context.Background())
 }
 
 // SweepClosed drops closed generations from the retained budget set.

@@ -2,8 +2,11 @@ package lipruntime_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -70,16 +73,12 @@ func TestBuild_PublicOnlyOptions(t *testing.T) {
 	meter := &recordingMeter{}
 	now := time.Unix(200, 0).UTC()
 	sink := &recordingEvidence{}
-	rater := &recordingRater{}
 	querier := &recordingQuerier{}
 	rt, err := lipruntime.Build(ctx, lipruntime.Options{
 		ConfigPath:       repoConfigPath(t),
 		MeteringRecorder: meter,
 		MeteringQuerier:  querier,
 		EvidenceSink:     sink,
-		RaterRegistrations: []economics.RaterRegistration{{
-			ID: "enterprise-operator-rater", Perspective: metering.PerspectiveOperator, Rater: rater,
-		}},
 		RequestRegistrations: []authority.RequestRegistration{{
 			Descriptor: authority.ProviderDescriptor{
 				ID:   "enterprise-req",
@@ -120,9 +119,6 @@ func TestBuild_PublicOnlyOptions(t *testing.T) {
 	if !caps.ProductionEvidenceSink {
 		t.Fatal("production evidence sink must be accepted and retained")
 	}
-	if !caps.ProductionRater {
-		t.Fatal("production rater must be forwarded onto the accounting runtime")
-	}
 	if !caps.ProductionMeteringQuerier || rt.MeteringQuerier() == nil {
 		t.Fatal("production metering querier must be mounted")
 	}
@@ -144,17 +140,6 @@ func (recordingEvidence) RecordAccountingAuthority(context.Context, controlplane
 	return nil
 }
 
-type recordingRater struct{}
-
-func (recordingRater) Rate(_ context.Context, req economics.RatingRequest) (economics.RatingResult, error) {
-	return economics.RatingResult{
-		Money:       economics.Money{Present: true, NanoUnits: 1, Currency: "USD"},
-		Perspective: req.Perspective,
-		RaterID:     "recording",
-		Version:     economics.VersionRef{ID: "recording", Version: "v1"},
-	}, nil
-}
-
 type recordingQuerier struct{}
 
 func (recordingQuerier) List(context.Context, metering.Query) (metering.Page, error) {
@@ -166,5 +151,34 @@ func TestBuild_RejectsEmptyConfigPath(t *testing.T) {
 	_, err := lipruntime.Build(context.Background(), lipruntime.Options{})
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestOptions_DoesNotExposeBillingStore(t *testing.T) {
+	t.Parallel()
+	typ := reflect.TypeFor[lipruntime.Options]()
+	if _, ok := typ.FieldByName("BillingStore"); ok {
+		t.Fatal("public Options must not invent a BillingStore field")
+	}
+}
+
+func TestBuild_AuthoritativeBillingYAMLFailsClosedWithoutInjection(t *testing.T) {
+	t.Parallel()
+	raw, err := os.ReadFile(repoConfigPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	patched := append(append([]byte{}, raw...), []byte("\naccounting:\n  billing:\n    authoritative: true\n")...)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, patched, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = lipruntime.Build(context.Background(), lipruntime.Options{ConfigPath: path})
+	if err == nil {
+		t.Fatal("expected fail-closed authoritative billing without injected store")
+	}
+	if !strings.Contains(err.Error(), "authoritative billing") {
+		t.Fatalf("error = %v, want authoritative billing fail-closed", err)
 	}
 }

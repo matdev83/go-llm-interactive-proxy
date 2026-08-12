@@ -7,8 +7,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/authoritycoord"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 // attachAuthorityCoordinators merges descriptor-bound production registrations
@@ -165,38 +163,6 @@ func mapAttemptPriority(p authority.AttemptPriority) (authoritycoord.AttemptPrio
 	default:
 		return 0, fmt.Errorf("unknown attempt priority %q", p)
 	}
-}
-
-func selectEconomicsRater(prod ProductionOptions) (economics.Rater, error) {
-	if len(prod.RaterRegistrations) == 0 {
-		return nil, nil
-	}
-	seen := map[string]struct{}{}
-	var operator economics.Rater
-	for i, reg := range prod.RaterRegistrations {
-		if err := reg.Validate(); err != nil {
-			return nil, fmt.Errorf("runtimebundle: rater_registrations[%d]: %w", i, err)
-		}
-		id := strings.TrimSpace(reg.ID)
-		if _, dup := seen[id]; dup {
-			return nil, fmt.Errorf("runtimebundle: duplicate rater registration id %q", id)
-		}
-		seen[id] = struct{}{}
-		if reg.Perspective == metering.PerspectiveOperator && operator == nil {
-			operator = reg.Rater
-		}
-	}
-	return operator, nil
-}
-
-func raterIDsByPerspective(prod ProductionOptions, perspective metering.EconomicPerspective) []string {
-	var out []string
-	for _, reg := range prod.RaterRegistrations {
-		if reg.Perspective == perspective {
-			out = append(out, strings.TrimSpace(reg.ID))
-		}
-	}
-	return out
 }
 
 func slotIDs(regs []string, fallback func() []string) []string {

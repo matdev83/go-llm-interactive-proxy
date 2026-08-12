@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -171,6 +172,12 @@ func composeStandardHTTPIsolated(ctx context.Context, compose HandlerComposer, c
 }
 
 func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, frozen *config.Config, regs []lipsdk.Registration, route string) httpcontract.StandardHTTPInput {
+	var billingReports billing.ReportingStore
+	var billingReportsPath string
+	if cand != nil {
+		billingReports = cand.operations.billingReports
+		billingReportsPath = cand.operations.billingReportsPath
+	}
 	var maxBody int64
 	var preKA lipsdk.FrontendKeepaliveConfig
 	if frozen != nil {
@@ -191,6 +198,8 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 			ConcurrencyAuthority: cpadmin.AdaptConcurrencyAuthorityQueries(cand.process.concurrencyAuthority),
 		},
 		Operations: httpcontract.HTTPOperationsInput{
+			BillingReports:       billingReports,
+			BillingReportsPath:   billingReportsPath,
 			Metrics:              cand.process.metrics,
 			Store:                cand.process.store,
 			SecretGuardInventory: cand.operations.secretGuardInventory,

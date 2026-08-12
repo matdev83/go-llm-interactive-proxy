@@ -419,6 +419,9 @@ func validateAccountingAuthority(cfg *Config) error {
 	}
 	for i := range auth.Rules {
 		rule := &auth.Rules[i]
+		if retiredMonetaryAuthorityRule(*rule) {
+			return fmt.Errorf("accounting.authority.rules[%d]: monetary budget/spend_cap/money_nano rules are retired; use billing admission", i)
+		}
 		domainRule, err := rule.DomainRule(auth.Mode)
 		if err != nil {
 			return err
@@ -441,4 +444,10 @@ func validateAccountingAuthority(cfg *Config) error {
 		return fmt.Errorf("accounting.authority: %w", err)
 	}
 	return nil
+}
+
+func retiredMonetaryAuthorityRule(rule AccountingAuthorityRuleConfig) bool {
+	kind := strings.ToLower(strings.TrimSpace(rule.Kind))
+	unit := strings.ToLower(strings.TrimSpace(rule.Unit))
+	return kind == "budget" || kind == "spend_cap" || unit == "money_nano"
 }

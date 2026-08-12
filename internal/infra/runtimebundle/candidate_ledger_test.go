@@ -159,6 +159,13 @@ func TestCandidateRuntime_ManagerAutoRetireQuiesceClose(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for automatic post-publish retirement")
 	}
+	// The close callback signals its own completion before Generation.Close
+	// publishes GenClosed. Wait for the lifecycle transition rather than
+	// racing the callback's final state update.
+	deadline := time.Now().Add(2 * time.Second)
+	for g.Lifecycle() != runtimehost.GenClosed && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
 	if quiesced.Load() != 1 || closed.Load() != 1 {
 		t.Fatalf("quiesced=%d closed=%d", quiesced.Load(), closed.Load())
 	}

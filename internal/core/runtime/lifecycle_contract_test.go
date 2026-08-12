@@ -69,63 +69,6 @@ func TestExecutor_AlegCancellationCancelsManagedBLegBeforeClose(t *testing.T) {
 	}
 }
 
-func TestExecutor_AlegCancellationRecordsEstimatedBillingMarker(t *testing.T) {
-	t.Parallel()
-	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	rec := &billingMarkerRecorder{}
-	ex := runtime.TestExecutor()
-	ex.Store = st
-	ex.Bus = hooks.New(hooks.Config{})
-	ex.Rand = routing.NewSeededRng(1)
-	ex.SecureSessionRecorder = rec
-	ex.Backends = map[string]execbackend.Backend{
-		"managed": {
-			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-				return &managedBlockingStream{ready: make(chan struct{})}, nil
-			},
-		},
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	call := &lipapi.Call{
-		Session: lipapi.SessionRef{ContinuityKey: "managed-billing-cancel"},
-		Route:   lipapi.RouteIntent{Selector: "managed:m"},
-		Messages: []lipapi.Message{{
-			Role:  lipapi.RoleUser,
-			Parts: []lipapi.Part{lipapi.TextPart("hi")},
-		}},
-	}
-	stream, err := ex.Execute(ctx, call)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cancel()
-	_, err = stream.Recv(ctx)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("Recv err = %v want context.Canceled", err)
-	}
-
-	got, ok := rec.usage()
-	if !ok {
-		t.Fatal("expected cancellation billing marker")
-	}
-	if got.EventKind != string(lipapi.EventUsageDelta) || !got.IsUsageEvent {
-		t.Fatalf("unexpected marker shape: %+v", got)
-	}
-	if got.CostSource != "estimated" || !got.BillingUnavailable {
-		t.Fatalf("expected estimated unavailable billing marker, got %+v", got)
-	}
-	if got.BLegID == "" || got.RawUsageJSON == "" {
-		t.Fatalf("expected b-leg id and raw usage basis, got %+v", got)
-	}
-	if rec.usageCount() != 1 {
-		t.Fatalf("usage events = %d want 1", rec.usageCount())
-	}
-}
-
 func TestExecutor_AlegCancellationPersistsAuthoritativeFinalBilling(t *testing.T) {
 	t.Parallel()
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})

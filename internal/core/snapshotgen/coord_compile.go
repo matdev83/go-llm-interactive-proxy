@@ -6,19 +6,17 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/authoritycoord"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/runtimegen"
 )
 
-func buildCoordinators(contrib runtimegen.GenerationContribution) (*authoritycoord.RequestCoordinator, *authoritycoord.AttemptCoordinator, economics.Rater, economics.Rater, error) {
+func buildCoordinators(contrib runtimegen.GenerationContribution) (*authoritycoord.RequestCoordinator, *authoritycoord.AttemptCoordinator, error) {
 	var req *authoritycoord.RequestCoordinator
 	var att *authoritycoord.AttemptCoordinator
 	var conc authority.ConcurrencyProvider
 	var concDesc *authority.ProviderDescriptor
 	if contrib.ConcurrencyRegistration != nil {
 		if err := contrib.ConcurrencyRegistration.Validate(); err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("snapshotgen: concurrency registration: %w", err)
+			return nil, nil, fmt.Errorf("snapshotgen: concurrency registration: %w", err)
 		}
 		conc = contrib.ConcurrencyRegistration.Provider
 		desc := contrib.ConcurrencyRegistration.Descriptor
@@ -43,15 +41,15 @@ func buildCoordinators(contrib runtimegen.GenerationContribution) (*authoritycoo
 	}
 	for i, reg := range contrib.RequestRegistrations {
 		if err := reg.Validate(); err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("snapshotgen: request registration[%d]: %w", i, err)
+			return nil, nil, fmt.Errorf("snapshotgen: request registration[%d]: %w", i, err)
 		}
 		class, err := mapRequestPriority(reg.Priority)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, err
 		}
 		posture, err := authority.RequireAdmitPosture(reg.Descriptor, authority.StageRequestAdmit)
 		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("snapshotgen: request registration[%d]: %w", i, err)
+			return nil, nil, fmt.Errorf("snapshotgen: request registration[%d]: %w", i, err)
 		}
 		if req == nil {
 			req = &authoritycoord.RequestCoordinator{}
@@ -65,15 +63,15 @@ func buildCoordinators(contrib runtimegen.GenerationContribution) (*authoritycoo
 	}
 	for i, reg := range contrib.AttemptRegistrations {
 		if err := reg.Validate(); err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("snapshotgen: attempt registration[%d]: %w", i, err)
+			return nil, nil, fmt.Errorf("snapshotgen: attempt registration[%d]: %w", i, err)
 		}
 		class, err := mapAttemptPriority(reg.Priority)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, err
 		}
 		posture, err := authority.RequireAdmitPosture(reg.Descriptor, authority.StageAttemptAdmit)
 		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("snapshotgen: attempt registration[%d]: %w", i, err)
+			return nil, nil, fmt.Errorf("snapshotgen: attempt registration[%d]: %w", i, err)
 		}
 		if att == nil {
 			att = &authoritycoord.AttemptCoordinator{}
@@ -85,18 +83,7 @@ func buildCoordinators(contrib runtimegen.GenerationContribution) (*authoritycoo
 			Descriptor: &desc, Stage: authority.StageAttemptAdmit,
 		})
 	}
-	var customer, operator economics.Rater
-	for _, reg := range contrib.CustomerRaters {
-		if reg.Perspective == metering.PerspectiveCustomer && reg.Rater != nil && customer == nil {
-			customer = reg.Rater
-		}
-	}
-	for _, reg := range contrib.OperatorRaters {
-		if reg.Perspective == metering.PerspectiveOperator && reg.Rater != nil && operator == nil {
-			operator = reg.Rater
-		}
-	}
-	return req, att, customer, operator, nil
+	return req, att, nil
 }
 
 func mapRequestPriority(p authority.RequestPriority) (authoritycoord.PriorityClass, error) {

@@ -12,8 +12,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 func TestPhase55_FacadeBuildsWithEnterpriseRegistrations(t *testing.T) {
@@ -32,9 +30,6 @@ func TestPhase55_FacadeBuildsWithEnterpriseRegistrations(t *testing.T) {
 			},
 			Priority: authority.RequestPriorityQuotaBudgetRate,
 			Provider: facadePhase55Req{},
-		}},
-		RaterRegistrations: []economics.RaterRegistration{{
-			ID: "facade-rater", Perspective: metering.PerspectiveOperator, Rater: facadePhase55Rater{},
 		}},
 	})
 	if err != nil {
@@ -57,25 +52,15 @@ func TestPhase55_FacadeBuildsWithEnterpriseRegistrations(t *testing.T) {
 	if state != cp.CapabilityReady && string(state) != "ready" {
 		t.Fatalf("state=%q", state)
 	}
-	if rt.ExecutableEvidenceObjectID() != "facade-rater" {
-		t.Fatalf("evidence=%q want facade-rater", rt.ExecutableEvidenceObjectID())
-	}
 	if rt.SnapshotGenerationID() == 0 {
 		t.Fatal("compatibility metadata SnapshotGenerationID must remain")
-	}
-	if !rt.HasProductionRater() {
-		t.Fatal("HasProductionRater required for injected operator rater")
 	}
 	report := rt.ReadinessReport()
 	if report == nil {
 		t.Fatal("ReadinessReport required")
 	}
-	got, err := report.Report(ctx)
-	if err != nil {
+	if _, err := report.Report(ctx); err != nil {
 		t.Fatalf("Report: %v", err)
-	}
-	if got.ExecutableGeneration.EvidenceObjectID != "facade-rater" {
-		t.Fatalf("report evidence=%q", got.ExecutableGeneration.EvidenceObjectID)
 	}
 }
 
@@ -144,9 +129,3 @@ func (facadePhase55Req) SettleRequest(context.Context, authority.RequestSettleme
 }
 
 func (facadePhase55Req) ReleaseRequest(context.Context, authority.RequestRelease) error { return nil }
-
-type facadePhase55Rater struct{}
-
-func (facadePhase55Rater) Rate(context.Context, economics.RatingRequest) (economics.RatingResult, error) {
-	return economics.RatingResult{RaterID: "facade-rater"}, nil
-}

@@ -104,6 +104,22 @@ func TestValidate_zeroMaxOpenOKWithoutPostgres(t *testing.T) {
 	}
 }
 
+func TestValidate_zeroMaxOpenOKWithRetiredLedgerPostgres(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Server: config.ServerConfig{Address: "127.0.0.1:0"},
+		Plugins: config.PluginsConfig{
+			Backends: []config.PluginConfig{{ID: "stub", Enabled: true}},
+		},
+		Accounting: config.AccountingConfig{
+			Ledger: config.AccountingLedgerConfig{Store: "postgres"},
+		},
+	}
+	if err := config.Validate(cfg); err != nil {
+		t.Fatalf("retired accounting.ledger postgres leftover must not require database.max_open_conns, got %v", err)
+	}
+}
+
 func TestDatabaseConfigModes(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

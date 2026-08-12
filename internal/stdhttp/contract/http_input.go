@@ -8,6 +8,7 @@ package contract
 import (
 	"context"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
@@ -47,6 +48,8 @@ type HTTPSecurityInput struct {
 }
 
 type HTTPOperationsInput struct {
+	BillingReports       billing.ReportingStore
+	BillingReportsPath   string
 	Metrics              *metrics.Bundle
 	Store                diag.AttemptLoader
 	SecretGuardInventory *diag.InventoryExtras

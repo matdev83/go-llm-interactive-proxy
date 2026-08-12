@@ -18,7 +18,8 @@ type DatabasePoolSettings struct {
 }
 
 // usesManagedPostgres reports whether any composition-root path would open a
-// managed PostgreSQL handle for the given config.
+// managed PostgreSQL handle for the given config. Retired accounting.ledger.*
+// YAML is ignored: that store is never opened.
 func usesManagedPostgres(cfg *Config) bool {
 	if cfg == nil {
 		return false
@@ -28,7 +29,6 @@ func usesManagedPostgres(cfg *Config) bool {
 		(cfg.ControlPlane.Enabled && storeIsPostgres(cfg.ControlPlane.Store)) ||
 		(cfg.Accounting.Authority.Enabled && storeIsPostgres(cfg.Accounting.Authority.Store)) ||
 		(cfg.Accounting.Concurrency.Enabled && storeIsPostgres(cfg.Accounting.Concurrency.Store)) ||
-		storeIsPostgres(cfg.Accounting.Ledger.Store) ||
 		(cfg.Metering.Enabled && storeIsPostgres(cfg.Metering.Journal.Store))
 }
 

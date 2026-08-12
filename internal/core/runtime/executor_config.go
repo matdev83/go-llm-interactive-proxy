@@ -5,11 +5,11 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/authoritycoord"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -24,7 +24,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
-	accountingledger "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/ledger"
 	accountingobs "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability"
 	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
 	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
@@ -33,10 +32,19 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 )
+
+// BillingIdentity is the composition-root identity bundle shared by billing
+// admission and terminal TUR seal so those seams cannot drift.
+type BillingIdentity struct {
+	AccountID          func(context.Context, lipapi.Call) string
+	AuthorizationID    func(context.Context, lipapi.Call, string) string
+	CustomerPricingRef func(context.Context, lipapi.Call) billing.VersionRef
+	ChargePolicyRef    func(context.Context, lipapi.Call) billing.VersionRef
+	OperatorRateRef    func(context.Context, string, string) billing.VersionRef
+}
 
 // CoreRuntime carries continuity store, backends, lifecycle coordination, and clocks.
 type CoreRuntime struct {
@@ -47,6 +55,27 @@ type CoreRuntime struct {
 	Now                  func() time.Time
 	MaxPendingWireEvents int
 	StreamRecovery       streamrecovery.Config
+	// BillingShadowObserver receives one recorded LUR at terminal ownership.
+	// It is observational only and never participates in authorization,
+	// settlement, retry, cancellation, or client-visible output.
+	BillingShadowObserver BillingShadowObserver
+	// BillingTerminalHandoff appends one sealed TUR after request terminal
+	// ownership. It is never called during stream processing and its failure
+	// cannot change selected output.
+	BillingTerminalHandoff billing.UsageRecordAppender
+	// BillingHoldReleaser releases unused authorization holds when TUR handoff
+	// exhausts without evidence. Composition wires the same durable store used
+	// for admission; runtime never duck-types this port.
+	BillingHoldReleaser billing.HoldReleaser
+	// BillingIdentity is the single composition identity bundle for admission
+	// and terminal TUR seal. Resolvers must not drift between those seams.
+	BillingIdentity BillingIdentity
+	// BillingAuthoritative is the composition cutover flag. When true, Bun TUR
+	// handoff, post-turn settlement, and journal-backed reports are the sole
+	// monetary authority. Stream handlers never enrich prices or write the
+	// legacy token ledger regardless of this flag; non-money quota/rate-limit
+	// coordination remains on the existing authority ports.
+	BillingAuthoritative bool
 }
 
 // RoutingRuntime carries selector parsing, planning, negotiation, and affinity policy.
@@ -81,11 +110,8 @@ type SecurityRuntime struct {
 
 // AccountingRuntime carries token-accounting admission, usage reconstruction, and ledger hooks.
 type AccountingRuntime struct {
-	AccountingPriceCatalog       accounting.PriceCatalog
 	Preflight                    *accountingpreflight.Checker
 	StreamUsage                  *accountingstream.Reconstructor
-	Ledger                       accountingledger.Recorder
-	LedgerWriteRequired          bool
 	TokenAccountingObservability *accountingobs.Stats
 	AdminCountService            *accountingapp.Service
 	UsageAuthority               UsageAuthorityService
@@ -101,11 +127,6 @@ type AccountingRuntime struct {
 	// MeteringRecorder is the optional Phase 3 metering journal port. Nil means
 	// checkpoints are retained in-request only (no durable append until Phase 5).
 	MeteringRecorder metering.Recorder
-	// EconomicsRater is the optional enterprise rating provider (Phase 10).
-	// When non-nil it is the exclusive pricing authority for admit spend, usage
-	// enrichment, and (via economics.OutputLimitQuoter) admission clamp conversion.
-	// Nil keeps those paths on AccountingPriceCatalog; there is no silent mix.
-	EconomicsRater economics.Rater
 	// RequestCoordinator admits customer/logical-request authority once per request (Phase 6).
 	RequestCoordinator *authoritycoord.RequestCoordinator
 	// AttemptCoordinator admits operator/attempt authority per B-leg (Phase 6).
@@ -113,6 +134,11 @@ type AccountingRuntime struct {
 	// SnapshotGeneration is the atomic policy/rating generation publisher (Phase 9.3).
 	// Admit binds Current() usage/concurrency/rating refs when present.
 	SnapshotGeneration *snapshotgen.Publisher
+	// BillingAdmission is the single monetary admission seam: it runs after
+	// side-effect-free route planning and before provider/connector work. It may
+	// compute MaxCustomerCharge and atomically create a durable authorization hold,
+	// but it is never called from streaming or post-turn handlers.
+	BillingAdmission BillingAdmission
 	// TerminalWork accepts durable settle/release intents on post-output failures
 	// (Phase 4.5; requirements 7.7, 8.3; design D9).
 	TerminalWork *terminalworkapp.IntentService

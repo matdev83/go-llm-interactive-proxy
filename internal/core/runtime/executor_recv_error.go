@@ -260,7 +260,6 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 	// ledger/unreserved evidence, then resets. Request stays open; tryReplacement
 	// owns the reservation release via a fresh attempt terminal.
 	s.runAttemptTerminal(ctx, sdkterminal.CommandSwallowedAttempt, func(cctx context.Context) error {
-		s.recordPartialTokenAccountingLedger(cctx, "recoverable pre-output (recv)", err)
 		// A swallowed pre-output attempt must release its strict reservation for
 		// failover, but any advisory/unreserved rules still need the observed usage
 		// fact. Apply only the unreserved projection here; do not settle the

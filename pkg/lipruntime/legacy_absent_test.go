@@ -13,8 +13,6 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 // Deleted public Options fields (Task 8.4). Must not reappear.
@@ -54,7 +52,6 @@ func TestOptions_LegacyAbsent_PublicStructCanonicalOnly(t *testing.T) {
 		"RequestRegistrations",
 		"AttemptRegistrations",
 		"ConcurrencyRegistration",
-		"RaterRegistrations",
 	} {
 		if _, ok := typ.FieldByName(name); !ok {
 			t.Fatalf("Options missing canonical registration field %q", name)
@@ -130,9 +127,6 @@ func TestRegistration_CanonicalNormalizeWithoutLegacyFields(t *testing.T) {
 			Descriptor: leaseDesc("canonical-lease"),
 			Provider:   allowConc{},
 		},
-		RaterRegistrations: []economics.RaterRegistration{{
-			ID: "canonical-rater", Perspective: metering.PerspectiveOperator, Rater: stubRater{},
-		}},
 	}
 	norm, err := normalizeCanonicalOptions(in)
 	if err != nil {
@@ -146,9 +140,6 @@ func TestRegistration_CanonicalNormalizeWithoutLegacyFields(t *testing.T) {
 	}
 	if norm.ConcurrencyRegistration == nil || norm.ConcurrencyRegistration.Descriptor.ID != "canonical-lease" {
 		t.Fatalf("concurrency=%+v", norm.ConcurrencyRegistration)
-	}
-	if len(norm.RaterRegistrations) != 1 || norm.RaterRegistrations[0].ID != "canonical-rater" {
-		t.Fatalf("rater=%+v", norm.RaterRegistrations)
 	}
 }
 
@@ -244,10 +235,4 @@ func (allowConc) RenewLease(context.Context, authority.LeaseRenew) (authority.Le
 func (allowConc) ReleaseLease(context.Context, authority.LeaseRelease) error { return nil }
 func (allowConc) QueryLeases(context.Context, authority.LeaseQuery) (authority.LeasePage, error) {
 	return authority.LeasePage{}, nil
-}
-
-type stubRater struct{}
-
-func (stubRater) Rate(context.Context, economics.RatingRequest) (economics.RatingResult, error) {
-	return economics.RatingResult{}, nil
 }

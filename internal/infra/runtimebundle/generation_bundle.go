@@ -21,6 +21,7 @@ import (
 type GenerationRuntime interface {
 	runtimehost.PublishedRequestPlane
 	runtimehost.ExecutorProvider
+	runtimehost.PublishedWorkStarter
 	runtimehost.ModelViewBinder
 	runtimehost.BackendFactoryKindCounter
 	TerminalProviders() terminalworkapp.TerminalProviderView
@@ -63,6 +64,7 @@ var (
 	_ runtimehost.OwnedCloser               = (*GenerationBundle)(nil)
 	_ runtimehost.QuiesceCloser             = (*GenerationBundle)(nil)
 	_ runtimehost.PublishedRequestPlane     = (*GenerationBundle)(nil)
+	_ runtimehost.PublishedWorkStarter      = (*GenerationBundle)(nil)
 	_ runtimehost.ModelViewBinder           = (*GenerationBundle)(nil)
 	_ runtimehost.ExecutorProvider          = (*GenerationBundle)(nil)
 	_ runtimehost.BackendFactoryKindCounter = (*GenerationBundle)(nil)
@@ -190,6 +192,13 @@ func (b *GenerationBundle) ResourceCount() int {
 		return 0
 	}
 	return b.ledger.Len()
+}
+
+func (b *GenerationBundle) StartPublished(ctx context.Context) error {
+	if b == nil || b.ledger == nil {
+		return nil
+	}
+	return b.ledger.Publish(ctx)
 }
 
 func (b *GenerationBundle) Quiesce(ctx context.Context) error {

@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 )
 
 // normalizedProduction is the defensively copied descriptor-bound registration set.
@@ -13,7 +12,6 @@ type normalizedProduction struct {
 	RequestRegistrations    []authority.RequestRegistration
 	AttemptRegistrations    []authority.AttemptRegistration
 	ConcurrencyRegistration *authority.ConcurrencyRegistration
-	RaterRegistrations      []economics.RaterRegistration
 }
 
 // normalizeCanonicalOptions accepts descriptor-bound registrations only.
@@ -22,7 +20,6 @@ func normalizeCanonicalOptions(opts Options) (normalizedProduction, error) {
 		RequestRegistrations:    append([]authority.RequestRegistration(nil), opts.RequestRegistrations...),
 		AttemptRegistrations:    append([]authority.AttemptRegistration(nil), opts.AttemptRegistrations...),
 		ConcurrencyRegistration: opts.ConcurrencyRegistration,
-		RaterRegistrations:      append([]economics.RaterRegistration(nil), opts.RaterRegistrations...),
 	}
 	if err := validateRegistrationSets(out); err != nil {
 		return normalizedProduction{}, err
@@ -57,17 +54,6 @@ func validateRegistrationSets(n normalizedProduction) error {
 		if err := n.ConcurrencyRegistration.Validate(); err != nil {
 			return fmt.Errorf("lipruntime: concurrency_registration: %w", err)
 		}
-	}
-	seenRater := make(map[string]struct{}, len(n.RaterRegistrations))
-	for i, reg := range n.RaterRegistrations {
-		if err := reg.Validate(); err != nil {
-			return fmt.Errorf("lipruntime: rater_registrations[%d]: %w", i, err)
-		}
-		id := strings.TrimSpace(reg.ID)
-		if _, dup := seenRater[id]; dup {
-			return fmt.Errorf("lipruntime: duplicate rater registration id %q", id)
-		}
-		seenRater[id] = struct{}{}
 	}
 	return rejectOverlappingRegistrationStages(n)
 }

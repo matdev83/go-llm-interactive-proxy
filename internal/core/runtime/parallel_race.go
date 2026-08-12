@@ -38,11 +38,14 @@ func (e *Executor) logParallelRacePanic(ctx context.Context, pe *safety.PanicErr
 }
 
 type parallelLeg struct {
-	cand          routing.AttemptCandidate
-	bleg          b2bua.BLegRecord
-	stream        lipapi.ManagedEventStream
-	authority     authorityLifecycle
-	delay         time.Duration
+	cand      routing.AttemptCandidate
+	bleg      b2bua.BLegRecord
+	stream    lipapi.ManagedEventStream
+	authority authorityLifecycle
+	delay     time.Duration
+	// startedAt is when the leg successfully opened a backend stream. Zero means
+	// the open time is unknown (do not fabricate identical start/finish).
+	startedAt     time.Time
 	recvErr       error
 	observedUsage atomic.Value // lipapi.Event; set by leg workers, read on loser cleanup
 	interleaved   interleavedstate.State
@@ -74,6 +77,7 @@ func (e *Executor) releaseLosers(ctx context.Context, aScope *leglifecycle.ALeg,
 			usage = emptyOperatorUsageShell()
 		}
 		committed := leg.authority.outputCommitted != nil && leg.authority.outputCommitted.Load()
+		e.recordParallelBillingShadow(ctx, leg, usage, sdkterminal.CommandParallelLoser, committed)
 		_ = terminalizeAttemptEphemeral(ctx, sdkterminal.CommandParallelLoser, committed, func(cctx context.Context) error {
 			leg.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindLosing, usage)
 			// Backend-egress for parallel losers when an ingress freeze exists (req 2.3 / 5.3).
@@ -290,6 +294,7 @@ func (e *Executor) tryOpenParallelGroup(
 			legs[idx].authority = e.newAttemptAuthorityLifecycle(out.authority, out.cand)
 			legs[idx].interleaved = out.interleaved
 			legs[idx].memoUpdate = out.memoUpdate
+			legs[idx].startedAt = e.now()
 			if winnerIdx >= 0 {
 				mu.Unlock()
 				return
@@ -409,6 +414,7 @@ func (e *Executor) tryOpenParallelGroup(
 					usage = emptyOperatorUsageShell()
 				}
 				committed := legs[i].authority.outputCommitted != nil && legs[i].authority.outputCommitted.Load()
+				e.recordParallelBillingShadow(cleanupCtx, &legs[i], usage, sdkterminal.CommandParallelLoser, committed)
 				_ = terminalizeAttemptEphemeral(cleanupCtx, sdkterminal.CommandParallelLoser, committed, func(cctx context.Context) error {
 					legs[i].authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindLosing, usage)
 					return nil
@@ -521,6 +527,7 @@ func (e *Executor) tryOpenParallelGroup(
 	if len(losers) > 0 {
 		done := make(chan error, 1)
 		losersDone = done
+		completeEvidence := e.beginBillingEvidenceBarrier(p.aLegID)
 		go func() {
 			var cleanupErr error
 			defer func() {
@@ -529,6 +536,7 @@ func (e *Executor) tryOpenParallelGroup(
 					e.logParallelRacePanic(ctx, pe, "executor: isolated panic in parallel race loser cleanup", diag.AttrOpts{CallID: p.traceID})
 					cleanupErr = errors.Join(cleanupErr, fmt.Errorf("parallel race loser cleanup panic"))
 				}
+				completeEvidence()
 				done <- cleanupErr
 				close(done)
 			}()

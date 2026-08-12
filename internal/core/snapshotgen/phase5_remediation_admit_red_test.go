@@ -36,9 +36,6 @@ func TestPhase5Remediation_FiveToTwoAdmitUsesLiveCoordinators(t *testing.T) {
 		State:                   economics.SnapshotReady,
 		ConcurrencyRegistration: concReg("conc", stubConcurrencyProvider{id: "conc"}),
 		MaxActiveRequests:       5,
-		OperatorRaters: []economics.RaterRegistration{{
-			ID: "op-r1", Perspective: metering.PerspectiveOperator, Rater: stubRater{id: "op-r1"},
-		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -73,9 +70,6 @@ func TestPhase5Remediation_FiveToTwoAdmitUsesLiveCoordinators(t *testing.T) {
 		State:                   economics.SnapshotReady,
 		ConcurrencyRegistration: concReg("conc", stubConcurrencyProvider{id: "conc"}),
 		MaxActiveRequests:       2,
-		OperatorRaters: []economics.RaterRegistration{{
-			ID: "op-r2", Perspective: metering.PerspectiveOperator, Rater: stubRater{id: "op-r2"},
-		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -98,8 +92,8 @@ func TestPhase5Remediation_FiveToTwoAdmitUsesLiveCoordinators(t *testing.T) {
 	if held.EnforcementMaxActive() != 5 {
 		t.Fatalf("in-flight generation mutated: max=%d", held.EnforcementMaxActive())
 	}
-	if held.EvidenceObjectID() == cur.EvidenceObjectID() {
-		t.Fatal("rating evidence must change with generation")
+	if held.Version == cur.Version {
+		t.Fatal("generation evidence must change with generation")
 	}
 	for _, d := range leases {
 		_ = held.RequestCoord.Release(context.Background(), d.Stack)

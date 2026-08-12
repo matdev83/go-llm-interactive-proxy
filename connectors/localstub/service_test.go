@@ -88,6 +88,43 @@ func TestService_ConfigParityAndStream(t *testing.T) {
 	}
 }
 
+func TestService_FinalizeBillingProvidesConnectorLevelShadowEvidence(t *testing.T) {
+	t.Parallel()
+	svc := service.New()
+	inst, err := svc.Configure(context.Background(), backendplugin.ConfigureRequest{
+		InstanceID:  "shadow-local",
+		FactoryKind: service.FactoryKind,
+		ConfigYAML:  []byte("input_tokens: 11\noutput_tokens: 5\n"),
+		Negotiation: backendplugin.Negotiation{Compatible: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalizer, ok := inst.(backendplugin.BillingFinalizer)
+	if !ok {
+		t.Fatal("localstub must expose BillingFinalizer")
+	}
+	response, err := finalizer.FinalizeBilling(context.Background(), backendplugin.FinalizeBillingRequest{
+		InstanceID: "shadow-local", ALegID: "a-1", BLegID: "b-1", ModelID: "stub-default",
+		Reason: "shadow_observe", IdempotencyKey: "shadow-local:a-1:b-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.EvidenceQuality != "local-stub" {
+		t.Fatalf("evidence quality = %q", response.EvidenceQuality)
+	}
+	if response.Usage.InputTokens == nil || *response.Usage.InputTokens != 11 ||
+		response.Usage.OutputTokens == nil || *response.Usage.OutputTokens != 5 ||
+		response.Usage.TotalTokens == nil || *response.Usage.TotalTokens != 16 {
+		t.Fatalf("finalize usage = %+v", response.Usage)
+	}
+	wantPresence := backendplugin.UsagePresence{InputTokens: true, OutputTokens: true, TotalTokens: true}
+	if response.Usage.Presence != wantPresence {
+		t.Fatalf("finalize presence = %+v, want %+v", response.Usage.Presence, wantPresence)
+	}
+}
+
 func TestConfig_RejectsNegativeTokens(t *testing.T) {
 	t.Parallel()
 	_, err := service.ParseConfigYAML([]byte("input_tokens: -1\n"))

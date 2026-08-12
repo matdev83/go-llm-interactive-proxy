@@ -13,9 +13,8 @@ import (
 
 // Options configures public production composition (requirement 12.3, 12.4).
 //
-// Provider/rater injection uses descriptor-bound registrations only:
-// RequestRegistrations, AttemptRegistrations, ConcurrencyRegistration, and
-// RaterRegistrations.
+// Provider injection uses descriptor-bound registrations only:
+// RequestRegistrations, AttemptRegistrations, and ConcurrencyRegistration.
 type Options struct {
 	// ConfigPath is the YAML runtime config path (required).
 	ConfigPath string
@@ -28,11 +27,8 @@ type Options struct {
 	// RequestRegistrations bind descriptor, priority, and request authority.
 	RequestRegistrations []authority.RequestRegistration
 	// AttemptRegistrations bind descriptor, priority, and attempt authority.
-	AttemptRegistrations []authority.AttemptRegistration
-	// ConcurrencyRegistration binds descriptor and concurrency authority.
+	AttemptRegistrations    []authority.AttemptRegistration // ConcurrencyRegistration binds descriptor and concurrency authority.
 	ConcurrencyRegistration *authority.ConcurrencyRegistration
-	// RaterRegistrations bind rater identity, perspective, and rater instance.
-	RaterRegistrations []economics.RaterRegistration
 
 	// UsageSnapshotSource supplies the usage-authority source-fetch metadata
 	// view for publication and RefreshSnapshots. It is not enforcement evidence;

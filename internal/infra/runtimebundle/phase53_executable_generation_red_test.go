@@ -9,8 +9,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/runtimegen"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
@@ -36,12 +34,6 @@ func (s phase53Req) SettleRequest(context.Context, authority.RequestSettlement) 
 }
 func (s phase53Req) ReleaseRequest(context.Context, authority.RequestRelease) error { return nil }
 
-type phase53Rater struct{ id string }
-
-func (s phase53Rater) Rate(context.Context, economics.RatingRequest) (economics.RatingResult, error) {
-	return economics.RatingResult{RaterID: s.id}, nil
-}
-
 func TestPhase53_CompileStaticContributionAndPublishExecutable(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{}
@@ -59,9 +51,6 @@ func TestPhase53_CompileStaticContributionAndPublishExecutable(t *testing.T) {
 			Priority:   authority.RequestPriorityQuotaBudgetRate,
 			Provider:   phase53Req{id: "quota"},
 		}},
-		RaterRegistrations: []economics.RaterRegistration{{
-			ID: "op-rater", Perspective: metering.PerspectiveOperator, Rater: phase53Rater{id: "op-rater"},
-		}},
 	}
 	contrib := runtimebundle.CompileGenerationContribution(cfg, prod, time.Unix(10, 0).UTC())
 	if err := contrib.Validate(); err != nil {
@@ -75,7 +64,7 @@ func TestPhase53_CompileStaticContributionAndPublishExecutable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gen.EnforcementMaxActive() != 2 || gen.EvidenceObjectID() != "op-rater" {
+	if gen.EnforcementMaxActive() != 2 || gen.EvidenceObjectID() != "quota" {
 		t.Fatalf("gen=%+v", gen)
 	}
 	_ = runtimegen.StaticSource{Value: contrib}
@@ -90,15 +79,12 @@ func TestPhase53_BuildPublishesExecutableWhenRegistrationsPresent(t *testing.T) 
 		Priority:   authority.RequestPriorityQuotaBudgetRate,
 		Provider:   phase53Req{id: "quota"},
 	}}
-	opts.Production.RaterRegistrations = []economics.RaterRegistration{{
-		ID: "op-rater", Perspective: metering.PerspectiveOperator, Rater: phase53Rater{id: "op-rater"},
-	}}
 	_, built := mustProcessAndCandidate(t, cfg, opts)
 	exec := runtimebundle.CandidateSnapshotGeneration(built).CurrentExecutable()
 	if exec == nil {
 		t.Fatal("expected executable generation after CompileCandidate")
 	}
-	if exec.EvidenceObjectID() != "op-rater" {
+	if exec.EvidenceObjectID() != "quota" {
 		t.Fatalf("evidence=%q", exec.EvidenceObjectID())
 	}
 }

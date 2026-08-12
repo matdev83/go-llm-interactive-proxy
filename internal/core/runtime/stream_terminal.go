@@ -268,19 +268,23 @@ func (s *retryRecvStream) runStreamTerminal(
 	if !cmd.AllowsScope(sdk.ScopeRequest) {
 		return att.Terminalize(ctx, cmd, snapFn, runEffects)
 	}
-
 	return req.Terminalize(ctx, cmd, snapFn, func(cctx context.Context, out coreterm.Outcome) error {
-		if !cmd.AllowsScope(sdk.ScopeAttempt) {
-			return runEffects(cctx, out)
+		var err error
+		if cmd.AllowsScope(sdk.ScopeAttempt) {
+			ar := att.Terminalize(cctx, cmd, func() coreterm.AccumulatorSnapshot {
+				return out.Snapshot.Clone()
+			}, runEffects)
+			if ar.Won {
+				err = ar.Err
+			} else {
+				err = runEffects(cctx, out)
+			}
+		} else {
+			err = runEffects(cctx, out)
 		}
-		ar := att.Terminalize(cctx, cmd, func() coreterm.AccumulatorSnapshot {
-			return out.Snapshot.Clone()
-		}, runEffects)
-		if ar.Won {
-			return ar.Err
-		}
-		// Nested attempt already terminalized (e.g. swallowed) — still run request-plane effects.
-		return runEffects(cctx, out)
+		s.observeBillingShadow(cctx, cmd)
+		s.handoffBillingTurn(cctx, cmd)
+		return err
 	})
 }
 
@@ -297,10 +301,12 @@ func (s *retryRecvStream) runAttemptTerminal(
 	return att.Terminalize(ctx, cmd, func() coreterm.AccumulatorSnapshot {
 		return s.accumulatorSnapshot()
 	}, func(cctx context.Context, _ coreterm.Outcome) error {
-		if effects == nil {
-			return nil
+		var err error
+		if effects != nil {
+			err = effects(cctx)
 		}
-		return effects(cctx)
+		s.observeBillingShadow(cctx, cmd)
+		return err
 	})
 }
 
