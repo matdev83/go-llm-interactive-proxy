@@ -153,15 +153,15 @@ func (e *Executor) scheduleAbortBillingHandoff(_ context.Context, prep *prepared
 	}
 	customerPricing := prep.billingCustomerPricing
 	chargePolicy := prep.billingChargePolicy
-	job := billingHandoffRetryJob{
-		command:         sdkterminal.CommandPartialError,
-		accountID:       accountID,
-		authorizationID: authID,
-		aLegID:          aLegID,
-		sessionID:       strings.TrimSpace(prep.baseline.Session.AuthoritativeSessionID),
-		customerPricing: customerPricing,
-		chargePolicy:    chargePolicy,
-		upstreamOpened:  true,
+	job := billing.HandoffRetryJob{
+		AccountID:       accountID,
+		AuthorizationID: authID,
+		ALegID:          aLegID,
+		SessionID:       strings.TrimSpace(prep.baseline.Session.AuthoritativeSessionID),
+		Outcome:         turnOutcomeFromCommand(sdkterminal.CommandPartialError),
+		CustomerPricing: customerPricing,
+		ChargePolicy:    chargePolicy,
+		UpstreamOpened:  true,
 	}
 	e.billingTurns().scheduleRetry(job)
 }

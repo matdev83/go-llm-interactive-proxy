@@ -26,11 +26,8 @@ type billingTurnCollector struct {
 	barrierByALeg  map[string]<-chan struct{}
 	sealedByALeg   map[string]struct{}
 
-	retryMu     sync.Mutex
-	retryByALeg map[string]struct{}
-	retryWG     sync.WaitGroup
-	stopOnce    sync.Once
-	stopCh      chan struct{}
+	outbox billing.HandoffOutbox
+	retry  *billing.HandoffRetryWorker
 
 	finalizeMu    sync.Mutex
 	finalizeByKey map[string]*finalizeCacheEntry
@@ -41,7 +38,28 @@ func (e *Executor) billingTurns() *billingTurnCollector {
 		return nil
 	}
 	e.billingOnce.Do(func() {
-		e.billingColl = &billingTurnCollector{exec: e}
+		outbox := e.HandoffOutbox
+		if outbox == nil {
+			outbox = billing.NewMemoryHandoffOutbox()
+		}
+		coll := &billingTurnCollector{exec: e, outbox: outbox}
+		wrapped := billing.UsageRecordAppenderFunc(func(ctx context.Context, record billing.TurnUsageRecord) error {
+			if e.BillingTerminalHandoff == nil {
+				return fmt.Errorf("runtime: billing handoff unavailable")
+			}
+			err := e.BillingTerminalHandoff.AppendUsageRecord(ctx, record)
+			if err == nil {
+				coll.markSealed(record.ALegID)
+				coll.evictFinalizeCache(record.ALegID, record.Legs)
+				_ = coll.claim(record.ALegID)
+			}
+			return err
+		})
+		worker, err := billing.NewHandoffRetryWorker(outbox, wrapped, e.BillingHoldReleaser, billing.HandoffRetryConfig{})
+		if err == nil {
+			coll.retry = worker
+		}
+		e.billingColl = coll
 	})
 	return e.billingColl
 }
@@ -61,7 +79,11 @@ func (c *billingTurnCollector) record(ctx context.Context, record billing.LegUsa
 			c.evidenceByALeg = make(map[string][]billing.LegUsageRecord)
 		}
 		c.evidenceByALeg[aLegID] = mergeBillingEvidence(c.evidenceByALeg[aLegID], []billing.LegUsageRecord{record})
+		legs := append([]billing.LegUsageRecord(nil), c.evidenceByALeg[aLegID]...)
 		c.mu.Unlock()
+		if c.outbox != nil {
+			_ = c.outbox.MergeLegs(ctx, aLegID, legs)
+		}
 	}
 	if c.exec.BillingLegObserver != nil {
 		_ = safety.Call(safety.BoundaryStream, "billing_leg_observer", func() error {
@@ -131,6 +153,9 @@ func (c *billingTurnCollector) beginBarrier(aLegID string) (complete func()) {
 	}
 	c.barrierByALeg[aLegID] = ch
 	c.mu.Unlock()
+	if c.outbox != nil {
+		_ = c.outbox.MarkBarrierPending(context.Background(), aLegID)
+	}
 	var once sync.Once
 	return func() {
 		once.Do(func() {
@@ -140,6 +165,9 @@ func (c *billingTurnCollector) beginBarrier(aLegID string) (complete func()) {
 			}
 			c.mu.Unlock()
 			close(ch)
+			if c.outbox != nil {
+				_ = c.outbox.MarkBarrierComplete(context.Background(), aLegID)
+			}
 		})
 	}
 }
@@ -178,36 +206,6 @@ func (c *billingTurnCollector) markSealed(aLegID string) {
 	c.sealedByALeg[aLegID] = struct{}{}
 }
 
-func (c *billingTurnCollector) forgetSealed(aLegID string) {
-	if c == nil {
-		return
-	}
-	aLegID = strings.TrimSpace(aLegID)
-	if aLegID == "" {
-		return
-	}
-	c.mu.Lock()
-	delete(c.sealedByALeg, aLegID)
-	c.mu.Unlock()
-}
-
-func (c *billingTurnCollector) retryInFlight(aLegID string) bool {
-	if c == nil {
-		return false
-	}
-	c.retryMu.Lock()
-	defer c.retryMu.Unlock()
-	_, ok := c.retryByALeg[strings.TrimSpace(aLegID)]
-	return ok
-}
-
-func (c *billingTurnCollector) forgetSealedIfNoRetry(aLegID string) {
-	if c.retryInFlight(aLegID) {
-		return
-	}
-	c.forgetSealed(aLegID)
-}
-
 func (c *billingTurnCollector) sealed(aLegID string) bool {
 	if c == nil {
 		return false
@@ -219,17 +217,18 @@ func (c *billingTurnCollector) sealed(aLegID string) bool {
 }
 
 // sealTurn persists one TUR from the request terminal owner. It returns true
-// only after durable accept. Barrier timeout and persist failure schedule retry.
-func (c *billingTurnCollector) sealTurn(ctx context.Context, job billingHandoffRetryJob) bool {
-	if c == nil || c.exec == nil || c.exec.BillingTerminalHandoff == nil || !isBillingTurnTerminalCommand(job.command) {
+// only after durable accept. Barrier timeout and persist failure enqueue the
+// billing outbox worker; they never retain a live stream.
+func (c *billingTurnCollector) sealTurn(ctx context.Context, job billing.HandoffRetryJob) bool {
+	if c == nil || c.exec == nil || c.exec.BillingTerminalHandoff == nil {
 		return false
 	}
-	if c.sealed(job.aLegID) {
+	if c.sealed(job.ALegID) {
 		return true
 	}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingHandoffTimeout)
 	defer cancel()
-	if !c.waitBarrier(persistCtx, job.aLegID) {
+	if !c.waitBarrier(persistCtx, job.ALegID) {
 		if c.exec.Log != nil {
 			c.exec.Log.DebugContext(persistCtx, "billing TUR handoff deferred: parallel evidence barrier incomplete")
 		}
@@ -252,16 +251,18 @@ func (c *billingTurnCollector) sealTurn(ctx context.Context, job billingHandoffR
 		c.scheduleRetry(job)
 		return false
 	}
-	c.markSealed(job.aLegID)
-	c.forgetSealedIfNoRetry(job.aLegID)
+	c.markSealed(job.ALegID)
+	if c.outbox != nil {
+		_ = c.outbox.Complete(writeCtx, job.ALegID)
+	}
 	return true
 }
 
-func (c *billingTurnCollector) persist(ctx context.Context, job billingHandoffRetryJob) error {
+func (c *billingTurnCollector) persist(ctx context.Context, job billing.HandoffRetryJob) error {
 	if c == nil || c.exec == nil || c.exec.BillingTerminalHandoff == nil {
 		return fmt.Errorf("runtime: billing handoff unavailable")
 	}
-	legs := sealableBillingLegs(c.peek(job.aLegID))
+	legs := sealableBillingLegs(c.peek(job.ALegID))
 	sort.SliceStable(legs, func(i, j int) bool { return legs[i].Seq < legs[j].Seq })
 	if len(legs) == 0 {
 		return errBillingHandoffNoEvidence
@@ -275,18 +276,22 @@ func (c *billingTurnCollector) persist(ctx context.Context, job billingHandoffRe
 			finished = leg.FinishedAt
 		}
 	}
+	outcome := job.Outcome
+	if outcome == "" {
+		outcome = billing.TurnOutcomeUnknown
+	}
 	record := billing.TurnUsageRecord{
 		SchemaVersion:      billing.CurrentRecordSchemaVersion,
-		AccountID:          job.accountID,
-		TurnID:             job.aLegID,
-		ALegID:             job.aLegID,
-		AuthorizationID:    job.authorizationID,
-		SessionID:          strings.TrimSpace(job.sessionID),
+		AccountID:          job.AccountID,
+		TurnID:             job.ALegID,
+		ALegID:             job.ALegID,
+		AuthorizationID:    job.AuthorizationID,
+		SessionID:          strings.TrimSpace(job.SessionID),
 		StartedAt:          started,
 		FinishedAt:         finished,
-		Outcome:            turnOutcomeFromCommand(job.command),
-		CustomerPricingRef: job.customerPricing,
-		ChargePolicyRef:    job.chargePolicy,
+		Outcome:            outcome,
+		CustomerPricingRef: job.CustomerPricing,
+		ChargePolicyRef:    job.ChargePolicy,
 		Legs:               legs,
 	}
 	sealed, err := record.Seal()
@@ -299,8 +304,8 @@ func (c *billingTurnCollector) persist(ctx context.Context, job billingHandoffRe
 	if err != nil {
 		return err
 	}
-	c.evictFinalizeCache(job.aLegID, legs)
-	_ = c.claim(job.aLegID)
+	c.evictFinalizeCache(job.ALegID, legs)
+	_ = c.claim(job.ALegID)
 	return nil
 }
 
@@ -341,32 +346,6 @@ func billingEvidenceDedupeKey(leg billing.LegUsageRecord) string {
 		return id
 	}
 	return strings.TrimSpace(leg.ALegID) + "#" + strconv.Itoa(leg.Seq)
-}
-
-func (c *billingTurnCollector) releaseHoldAfterExhausted(job billingHandoffRetryJob) {
-	if c == nil || c.exec == nil || strings.TrimSpace(job.accountID) == "" || strings.TrimSpace(job.authorizationID) == "" {
-		return
-	}
-	if len(c.peek(job.aLegID)) > 0 {
-		return
-	}
-	releaser := c.exec.BillingHoldReleaser
-	if releaser == nil {
-		return
-	}
-	turKey, err := billing.TURKey(job.accountID, job.aLegID)
-	if err != nil {
-		return
-	}
-	releaseCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	if _, releaseErr := releaser.ReleaseAuthorization(releaseCtx, billing.ReleaseAuthorizationInput{
-		AccountID: job.accountID, AuthorizationID: job.authorizationID, TURKey: turKey,
-		FullClose: true, Reason: billing.ReleaseExecutionNotStarted,
-		SourceKey: "handoff_exhausted:" + job.authorizationID,
-	}); releaseErr != nil && c.exec.Log != nil {
-		c.exec.Log.Debug("billing unused-hold release after handoff exhaustion failed", "a_leg_id", job.aLegID, "error", releaseErr)
-	}
 }
 
 type finalizeCacheEntry struct {

@@ -53,11 +53,23 @@ func stampStreamIdentity(s *retryRecvStream) {
 	s.billingIdentityStamped = true
 }
 
-func TestBillingCollectorEvictsFinalizeCacheAfterTURSeal(t *testing.T) {
-	prev := billingHandoffRetryMaxAttempts
-	billingHandoffRetryMaxAttempts = 2
-	t.Cleanup(func() { billingHandoffRetryMaxAttempts = prev })
+func configureHandoffRetry(e *Executor, cfg billing.HandoffRetryConfig) {
+	if e == nil {
+		return
+	}
+	e.billingTurns().retry.ReplaceConfig(cfg)
+}
 
+func drainHandoffRetry(e *Executor, job billing.HandoffRetryJob) {
+	if e == nil {
+		return
+	}
+	coll := e.billingTurns()
+	_ = coll.outbox.Enqueue(context.Background(), job)
+	_ = coll.retry.ProcessUntilIdle(context.Background())
+}
+
+func TestBillingCollectorEvictsFinalizeCacheAfterTURSeal(t *testing.T) {
 	var released atomic.Int32
 	probe := billingHoldReleaseProbe{release: func(context.Context, billing.ReleaseAuthorizationInput) (billing.Posting, error) {
 		released.Add(1)
@@ -103,15 +115,15 @@ func TestBillingCollectorEvictsFinalizeCacheAfterTURSeal(t *testing.T) {
 	if cached {
 		t.Fatal("finalize cache must evict the sealed B-leg")
 	}
-	if coll.sealed("a-1") {
-		t.Fatal("sealed A-leg marker must be evicted after TUR sealing")
+	if !coll.sealed("a-1") {
+		t.Fatal("successful TUR seal must mark the A-leg sealed")
 	}
-	late := coll.sealTurn(context.Background(), billingHandoffRetryJob{
-		accountID: "acct", authorizationID: "auth:a-1", aLegID: "a-1",
-		command: sdkterminal.CommandNormalFinish, upstreamOpened: true,
+	late := coll.sealTurn(context.Background(), billing.HandoffRetryJob{
+		AccountID: "acct", AuthorizationID: "auth:a-1", ALegID: "a-1",
+		Outcome: billing.TurnOutcomeCompleted, UpstreamOpened: true,
 	})
-	if late {
-		t.Fatal("late seal without retained evidence must not report a new persist")
+	if !late {
+		t.Fatal("late seal of an already-sealed A-leg must be idempotent")
 	}
 	executor.WaitBillingHandoffRetries()
 	if released.Load() != 0 {
@@ -259,16 +271,13 @@ func TestBillingTerminalHandoffIncludesSharedParallelLoserEvidence(t *testing.T)
 }
 
 func TestBillingTerminalHandoffFailureDoesNotChangeTerminalResult(t *testing.T) {
-	prevEvidence := billingHandoffEvidenceRetryMaxAttempts
-	billingHandoffEvidenceRetryMaxAttempts = 3
-	t.Cleanup(func() { billingHandoffEvidenceRetryMaxAttempts = prevEvidence })
-
 	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(context.Context, billing.TurnUsageRecord) error {
 			return errors.New("durable unavailable")
 		}),
 		BillingIdentity: testBillingIdentity(),
 	}}
+	configureHandoffRetry(executor, billing.HandoffRetryConfig{EvidenceMaxAttempts: 3, RetryDelay: time.Millisecond})
 	t.Cleanup(executor.WaitBillingHandoffRetries)
 	stream := &retryRecvStream{executor: executor, aLegID: "a-1", baseline: lipapi.Call{}, bleg: b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1}, cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}}}
 	stampStreamIdentity(stream)
@@ -557,6 +566,7 @@ func TestBillingTerminalHandoffEmptyEvidenceDoesNotMarkSuccess(t *testing.T) {
 		}),
 		BillingIdentity: testBillingIdentity(),
 	}}
+	t.Cleanup(executor.WaitBillingHandoffRetries)
 	stream := &retryRecvStream{executor: executor, aLegID: "a-1", baseline: lipapi.Call{}}
 	stampStreamIdentity(stream)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
@@ -601,10 +611,7 @@ func TestBillingTerminalHandoffPersistFailureRestoresEvidenceForRetry(t *testing
 		mu.Lock()
 		n := calls
 		mu.Unlock()
-		stream.billingHandoffMu.Lock()
-		ok := stream.billingHandoffSuccess
-		stream.billingHandoffMu.Unlock()
-		if n >= 2 && ok {
+		if n >= 2 && executor.billingTurns().sealed("a-1") {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -612,7 +619,7 @@ func TestBillingTerminalHandoffPersistFailureRestoresEvidenceForRetry(t *testing
 	mu.Lock()
 	n := calls
 	mu.Unlock()
-	t.Fatalf("persist failure must restore evidence and retry asynchronously, calls=%d success=%v", n, stream.billingHandoffSuccess)
+	t.Fatalf("persist failure must retry asynchronously without holding the stream, calls=%d sealed=%v", n, executor.billingTurns().sealed("a-1"))
 }
 
 func TestBillingTerminalHandoffIgnoresCanceledRequestContext(t *testing.T) {
@@ -687,17 +694,14 @@ func TestBillingTerminalHandoffRefusesPartialSealOnBarrierTimeout(t *testing.T) 
 			legs = len(calls[0].Legs)
 		}
 		mu.Unlock()
-		stream.billingHandoffMu.Lock()
-		ok := stream.billingHandoffSuccess
-		stream.billingHandoffMu.Unlock()
-		if n == 1 && legs == 2 && ok {
+		if n == 1 && legs == 2 && executor.billingTurns().sealed("a-1") {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	t.Fatalf("async retry must seal complete evidence after barrier, calls=%+v success=%v", calls, stream.billingHandoffSuccess)
+	t.Fatalf("async retry must seal complete evidence after barrier, calls=%+v sealed=%v", calls, executor.billingTurns().sealed("a-1"))
 }
 
 func TestBillingEvidenceClaimRestoreIsAtomic(t *testing.T) {
@@ -726,9 +730,9 @@ func TestBillingEvidencePersistFailureKeepsSharedLegs(t *testing.T) {
 	executor.addBillingEvidence(context.Background(), billing.LegUsageRecord{ALegID: "a-1", BLegID: "b-loser", Seq: 1})
 	executor.addBillingEvidence(context.Background(), billing.LegUsageRecord{ALegID: "a-1", BLegID: "b-winner", Seq: 2})
 	stream := &retryRecvStream{executor: executor, aLegID: "a-1", baseline: lipapi.Call{}}
-	err := stream.executor.billingTurns().persist(context.Background(), billingHandoffRetryJob{
-		accountID: "acct", authorizationID: "auth:a-1", aLegID: "a-1",
-		command: sdkterminal.CommandNormalFinish,
+	err := stream.executor.billingTurns().persist(context.Background(), billing.HandoffRetryJob{
+		AccountID: "acct", AuthorizationID: "auth:a-1", ALegID: "a-1",
+		Outcome: billing.TurnOutcomeCompleted,
 	})
 	if err == nil {
 		t.Fatal("expected persist failure")
@@ -740,10 +744,6 @@ func TestBillingEvidencePersistFailureKeepsSharedLegs(t *testing.T) {
 }
 
 func TestBillingHandoffRetryDoesNotAbandonNoEvidenceImmediately(t *testing.T) {
-	prev := billingHandoffRetryMaxAttempts
-	billingHandoffRetryMaxAttempts = 3
-	t.Cleanup(func() { billingHandoffRetryMaxAttempts = prev })
-
 	var released atomic.Int32
 	store := billingHoldReleaseProbe{release: func(context.Context, billing.ReleaseAuthorizationInput) (billing.Posting, error) {
 		released.Add(1)
@@ -753,9 +753,10 @@ func TestBillingHandoffRetryDoesNotAbandonNoEvidenceImmediately(t *testing.T) {
 		BillingTerminalHandoff: store,
 		BillingHoldReleaser:    store,
 	}}
-	job := billingHandoffRetryJob{accountID: "acct", authorizationID: "auth:a-empty", aLegID: "a-empty", command: sdkterminal.CommandCancel}
+	configureHandoffRetry(executor, billing.HandoffRetryConfig{NoEvidenceMaxAttempts: 3, RetryDelay: 100 * time.Millisecond})
+	job := billing.HandoffRetryJob{AccountID: "acct", AuthorizationID: "auth:a-empty", ALegID: "a-empty", Outcome: billing.TurnOutcomeCanceled}
 	start := time.Now()
-	executor.billingTurns().runRetry(job)
+	drainHandoffRetry(executor, job)
 	if time.Since(start) < 100*time.Millisecond {
 		t.Fatalf("no-evidence must retry with backoff instead of returning immediately")
 	}
@@ -766,22 +767,19 @@ func TestBillingHandoffRetryDoesNotAbandonNoEvidenceImmediately(t *testing.T) {
 
 func TestBillingHandoffProductionRetryBudgets(t *testing.T) {
 	t.Parallel()
-	if billingHandoffRetryMaxAttempts != 10 {
-		t.Fatalf("no-evidence retry budget = %d, want 10", billingHandoffRetryMaxAttempts)
+	if billing.DefaultHandoffNoEvidenceMaxAttempts != 10 {
+		t.Fatalf("no-evidence retry budget = %d, want 10", billing.DefaultHandoffNoEvidenceMaxAttempts)
 	}
-	if billingHandoffEvidenceRetryMaxAttempts != 0 {
-		t.Fatalf("evidence retry budget = %d, want 0 (unlimited while process is up)", billingHandoffEvidenceRetryMaxAttempts)
+	var zero billing.HandoffRetryConfig
+	if zero.EvidenceMaxAttempts != 0 {
+		t.Fatalf("evidence retry budget = %d, want 0 (unlimited while process is up)", zero.EvidenceMaxAttempts)
 	}
-	if billingHandoffCloseWait != 10*time.Second {
-		t.Fatalf("close wait = %s, want 10s", billingHandoffCloseWait)
+	if billing.DefaultHandoffCloseWait != 10*time.Second {
+		t.Fatalf("close wait = %s, want 10s", billing.DefaultHandoffCloseWait)
 	}
 }
 
 func TestBillingHandoffNoEvidenceRetryReleasesExecutionNotStarted(t *testing.T) {
-	prev := billingHandoffRetryMaxAttempts
-	billingHandoffRetryMaxAttempts = 3
-	t.Cleanup(func() { billingHandoffRetryMaxAttempts = prev })
-
 	var reason billing.ReleaseReason
 	store := billingHoldReleaseProbe{release: func(_ context.Context, in billing.ReleaseAuthorizationInput) (billing.Posting, error) {
 		reason = in.Reason
@@ -791,9 +789,10 @@ func TestBillingHandoffNoEvidenceRetryReleasesExecutionNotStarted(t *testing.T) 
 		BillingTerminalHandoff: store,
 		BillingHoldReleaser:    store,
 	}}
-	executor.billingTurns().runRetry(billingHandoffRetryJob{
-		accountID: "acct", authorizationID: "auth:a-empty", aLegID: "a-empty",
-		command: sdkterminal.CommandCancel, upstreamOpened: false,
+	configureHandoffRetry(executor, billing.HandoffRetryConfig{NoEvidenceMaxAttempts: 3, RetryDelay: time.Millisecond})
+	drainHandoffRetry(executor, billing.HandoffRetryJob{
+		AccountID: "acct", AuthorizationID: "auth:a-empty", ALegID: "a-empty",
+		Outcome: billing.TurnOutcomeCanceled, UpstreamOpened: false,
 	})
 	if reason != billing.ReleaseExecutionNotStarted {
 		t.Fatalf("release reason = %q, want %q", reason, billing.ReleaseExecutionNotStarted)
@@ -801,9 +800,6 @@ func TestBillingHandoffNoEvidenceRetryReleasesExecutionNotStarted(t *testing.T) 
 }
 
 func TestBillingHandoffEvidenceRetriesStayUnlimitedUntilStop(t *testing.T) {
-	if billingHandoffEvidenceRetryMaxAttempts != 0 {
-		t.Fatalf("production evidence retries must be unlimited, got %d", billingHandoffEvidenceRetryMaxAttempts)
-	}
 	var appends atomic.Int32
 	var released atomic.Int32
 	store := billingHoldReleaseProbe{
@@ -819,19 +815,25 @@ func TestBillingHandoffEvidenceRetriesStayUnlimitedUntilStop(t *testing.T) {
 		BillingHoldReleaser:    store,
 		BillingIdentity:        testBillingIdentity(),
 	}}
+	configureHandoffRetry(executor, billing.HandoffRetryConfig{RetryDelay: 20 * time.Millisecond})
 	executor.addBillingEvidence(context.Background(), billing.LegUsageRecord{
 		ALegID: "a-ev", BLegID: "b-1", Seq: 1, BackendID: "backend", ProviderID: "provider", ModelID: "model",
 		StartedAt: time.Unix(1, 0).UTC(), FinishedAt: time.Unix(2, 0).UTC(),
 		Outcome: billing.LegOutcomeWinner, Surfaced: billing.SurfacedYes,
 	})
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		executor.billingTurns().runRetry(billingHandoffRetryJob{
-			accountID: "acct", authorizationID: "auth:a-ev", aLegID: "a-ev",
-			command: sdkterminal.CommandNormalFinish, upstreamOpened: true,
-		})
-	}()
+	coll := executor.billingTurns()
+	_ = coll.outbox.Enqueue(context.Background(), billing.HandoffRetryJob{
+		AccountID: "acct", AuthorizationID: "auth:a-ev", ALegID: "a-ev",
+		Outcome: billing.TurnOutcomeCompleted, UpstreamOpened: true,
+		Legs: []billing.LegUsageRecord{{
+			ALegID: "a-ev", BLegID: "b-1", Seq: 1, BackendID: "backend", ProviderID: "provider", ModelID: "model",
+			StartedAt: time.Unix(1, 0).UTC(), FinishedAt: time.Unix(2, 0).UTC(),
+			Outcome: billing.LegOutcomeWinner, Surfaced: billing.SurfacedYes,
+		}},
+	})
+	if err := coll.retry.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	deadline := time.Now().Add(3 * time.Second)
 	for appends.Load() < 4 && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
@@ -840,31 +842,23 @@ func TestBillingHandoffEvidenceRetriesStayUnlimitedUntilStop(t *testing.T) {
 		t.Fatalf("evidence retries stopped too early, appends=%d", appends.Load())
 	}
 	executor.stopBillingHandoffRetries()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("stopRetries must unblock evidence retry loop")
-	}
 	if released.Load() != 0 {
 		t.Fatalf("evidence retries must retain the hold, released=%d", released.Load())
 	}
 }
 
 func TestBillingHandoffSealTurnDoesNotReleaseAfterUpstreamOpenWithoutEvidence(t *testing.T) {
-	prev := billingHandoffRetryMaxAttempts
-	billingHandoffRetryMaxAttempts = 3
-	t.Cleanup(func() { billingHandoffRetryMaxAttempts = prev })
-
 	var released atomic.Int32
 	store := billingHoldReleaseProbe{release: func(context.Context, billing.ReleaseAuthorizationInput) (billing.Posting, error) {
 		released.Add(1)
 		return billing.Posting{}, nil
 	}}
 	executor := &Executor{BillingRuntime: BillingRuntime{BillingTerminalHandoff: store, BillingHoldReleaser: store}}
+	configureHandoffRetry(executor, billing.HandoffRetryConfig{NoEvidenceMaxAttempts: 3, RetryDelay: time.Millisecond})
 	t.Cleanup(executor.WaitBillingHandoffRetries)
-	ok := executor.billingTurns().sealTurn(context.Background(), billingHandoffRetryJob{
-		accountID: "acct", authorizationID: "auth:a-open", aLegID: "a-open",
-		command: sdkterminal.CommandPartialError, upstreamOpened: true,
+	ok := executor.billingTurns().sealTurn(context.Background(), billing.HandoffRetryJob{
+		AccountID: "acct", AuthorizationID: "auth:a-open", ALegID: "a-open",
+		Outcome: billing.TurnOutcomeFailed, UpstreamOpened: true,
 	})
 	if ok {
 		t.Fatal("seal without evidence must not succeed")
@@ -879,19 +873,16 @@ func TestBillingHandoffSealTurnDoesNotReleaseAfterUpstreamOpenWithoutEvidence(t 
 }
 
 func TestBillingHandoffRetryRetainsHoldAfterUpstreamOpenWithoutEvidence(t *testing.T) {
-	prev := billingHandoffRetryMaxAttempts
-	billingHandoffRetryMaxAttempts = 3
-	t.Cleanup(func() { billingHandoffRetryMaxAttempts = prev })
-
 	var released atomic.Int32
 	store := billingHoldReleaseProbe{release: func(context.Context, billing.ReleaseAuthorizationInput) (billing.Posting, error) {
 		released.Add(1)
 		return billing.Posting{}, nil
 	}}
 	executor := &Executor{BillingRuntime: BillingRuntime{BillingTerminalHandoff: store, BillingHoldReleaser: store}}
-	executor.billingTurns().runRetry(billingHandoffRetryJob{
-		accountID: "acct", authorizationID: "auth:a-open", aLegID: "a-open",
-		command: sdkterminal.CommandCancel, upstreamOpened: true,
+	configureHandoffRetry(executor, billing.HandoffRetryConfig{NoEvidenceMaxAttempts: 3, RetryDelay: time.Millisecond})
+	drainHandoffRetry(executor, billing.HandoffRetryJob{
+		AccountID: "acct", AuthorizationID: "auth:a-open", ALegID: "a-open",
+		Outcome: billing.TurnOutcomeCanceled, UpstreamOpened: true,
 	})
 	if released.Load() != 0 {
 		t.Fatalf("upstream Open without LUR must retain the hold, released=%d", released.Load())
@@ -978,19 +969,15 @@ func TestParallelBillingLegPreservesLegStartTime(t *testing.T) {
 }
 
 func TestWaitBillingHandoffRetriesForCloseDoesNotBlockForever(t *testing.T) {
-	prevWait := billingHandoffCloseWait
-	billingHandoffCloseWait = 80 * time.Millisecond
-	t.Cleanup(func() { billingHandoffCloseWait = prevWait })
-
 	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(context.Context, billing.TurnUsageRecord) error {
 			return errors.New("durable unavailable")
 		}),
 		BillingIdentity: testBillingIdentity(),
 	}}
+	configureHandoffRetry(executor, billing.HandoffRetryConfig{RetryDelay: 20 * time.Millisecond})
 	t.Cleanup(func() {
 		executor.stopBillingHandoffRetries()
-		executor.WaitBillingHandoffRetries()
 	})
 	leg := &parallelLeg{
 		bleg:      b2bua.BLegRecord{ALegID: "a-1", BLegID: "b-loser", Seq: 1},
@@ -1123,9 +1110,9 @@ func TestPersistBillingTurnOmitsZeroTimestampLegs(t *testing.T) {
 		Outcome:  billing.LegOutcomeLoser,
 		Evidence: billing.FinalBillingEvidence{InputTokens: billing.Quantity{Value: 9, Present: true}},
 	})
-	err := executor.billingTurns().persist(context.Background(), billingHandoffRetryJob{
-		accountID: "acct", authorizationID: "auth", aLegID: "a-1",
-		command: sdkterminal.CommandNormalFinish,
+	err := executor.billingTurns().persist(context.Background(), billing.HandoffRetryJob{
+		AccountID: "acct", AuthorizationID: "auth", ALegID: "a-1",
+		Outcome: billing.TurnOutcomeCompleted,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1147,9 +1134,9 @@ func TestPersistBillingTurnRejectsOnlyZeroTimestampLegs(t *testing.T) {
 		ALegID: "a-1", BLegID: "b-never", Seq: 1, BackendID: "backend", ProviderID: "provider", ModelID: "model",
 		Outcome: billing.LegOutcomeLoser,
 	})
-	err := executor.billingTurns().persist(context.Background(), billingHandoffRetryJob{
-		accountID: "acct", authorizationID: "auth", aLegID: "a-1",
-		command: sdkterminal.CommandCancel,
+	err := executor.billingTurns().persist(context.Background(), billing.HandoffRetryJob{
+		AccountID: "acct", AuthorizationID: "auth", ALegID: "a-1",
+		Outcome: billing.TurnOutcomeCanceled,
 	})
 	if !errors.Is(err, errBillingHandoffNoEvidence) {
 		t.Fatalf("error = %v, want no B-leg evidence", err)
