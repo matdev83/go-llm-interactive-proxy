@@ -1,7 +1,7 @@
 package backendplugin
 
-// ProtocolRequirementsDTO carries exact semantic/dialect/extension requirements on the plugin ABI.
-type ProtocolRequirementsDTO struct {
+// ProtocolRequirements carries exact semantic/dialect/extension requirements on the plugin ABI.
+type ProtocolRequirements struct {
 	Capabilities       []string
 	ItemDialects       []DialectRequirementDTO
 	ReasoningDialects  []DialectRequirementDTO

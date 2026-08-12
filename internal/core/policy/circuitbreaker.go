@@ -129,11 +129,11 @@ func (cb *CircuitBreaker) UnhealthyCandidateKeys() map[string]struct{} {
 }
 
 func (cb *CircuitBreaker) ensureRoomForNewKeyLocked(key string) {
-	max := cb.maxKeys
-	if max <= 0 {
-		max = defaultMaxTrackedCircuitKeys
+	limit := cb.maxKeys
+	if limit <= 0 {
+		limit = defaultMaxTrackedCircuitKeys
 	}
-	for cb.keys[key] == nil && len(cb.keys) >= max {
+	for cb.keys[key] == nil && len(cb.keys) >= limit {
 		if !cb.evictOneIdleLocked() {
 			cb.evictLowestPressureLocked()
 		}

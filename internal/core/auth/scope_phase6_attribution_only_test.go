@@ -16,7 +16,7 @@ import (
 func TestPhase6_attributionRichnessDoesNotChangeAllowOutcome(t *testing.T) {
 	t.Parallel()
 	rich := trustedScope()
-	min := scope.PrincipalScopeView{
+	minScope := scope.PrincipalScopeView{
 		SubjectKind: scope.SubjectHuman,
 		PrincipalID: scope.Known("user-1"),
 	}
@@ -24,7 +24,7 @@ func TestPhase6_attributionRichnessDoesNotChangeAllowOutcome(t *testing.T) {
 		Decision: sdkauth.Decision{Outcome: sdkauth.OutcomeAllow, Scope: &rich},
 	})
 	minRes, minErr := BuildScope(ScopeBuildInput{
-		Decision: sdkauth.Decision{Outcome: sdkauth.OutcomeAllow, Scope: &min},
+		Decision: sdkauth.Decision{Outcome: sdkauth.OutcomeAllow, Scope: &minScope},
 	})
 	if richErr != nil || minErr != nil {
 		t.Fatalf("attribution richness changed allow outcome: richErr=%v minErr=%v", richErr, minErr)

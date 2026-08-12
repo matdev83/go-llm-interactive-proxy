@@ -114,11 +114,11 @@ func LegacyProjectionTargetFromCaps(caps BackendCaps, replay ReasoningReplaySupp
 	}
 }
 
-func capsHas(caps BackendCaps, cap Capability) bool {
+func capsHas(caps BackendCaps, targetCap Capability) bool {
 	if caps == nil {
 		return false
 	}
-	_, ok := caps[cap]
+	_, ok := caps[targetCap]
 	return ok
 }
 

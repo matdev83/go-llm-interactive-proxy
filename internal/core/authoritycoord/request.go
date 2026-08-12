@@ -72,7 +72,7 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 			out.CompensateFailures = claimed.ReverseCompensate(ctx, timeout)
 			out.Kind = authority.DecisionDeny
 			out.DeniedBy = "concurrency"
-			return out, &ErrUnavailable{ProviderID: "concurrency", Err: err}
+			return out, &UnavailableError{ProviderID: "concurrency", Err: err}
 		}
 		out.Lease = ld
 		out.Readiness = authorityattribution.AggregateReadiness(out.Readiness, ld.Readiness)
@@ -83,7 +83,7 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 		case authority.LeaseDeny:
 			out.Kind = authority.DecisionDeny
 			out.DeniedBy = "concurrency"
-			return out, &ErrDenied{ProviderID: "concurrency"}
+			return out, &DeniedError{ProviderID: "concurrency"}
 		case authority.LeaseAllow, authority.LeaseAdvisory, "":
 			pushLeaseDecisionHolds(&out.Stack, c.Concurrency, in.RequestID, ld)
 		}

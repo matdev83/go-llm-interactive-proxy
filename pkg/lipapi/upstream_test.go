@@ -36,7 +36,7 @@ func TestIsRecoverablePreOutput_sentinelWrapped(t *testing.T) {
 
 func TestIsRecoverablePreOutput_upstreamFailure(t *testing.T) {
 	t.Parallel()
-	err := &lipapi.UpstreamFailure{
+	err := &lipapi.UpstreamFailureError{
 		Phase:       lipapi.PhasePreOutput,
 		Recoverable: true,
 		Reason:      "rate limit",
@@ -51,7 +51,7 @@ func TestIsRecoverablePreOutput_upstreamFailure(t *testing.T) {
 
 func TestIsRecoverablePreOutput_postOutputNotRecoverableForRetry(t *testing.T) {
 	t.Parallel()
-	err := &lipapi.UpstreamFailure{
+	err := &lipapi.UpstreamFailureError{
 		Phase:       lipapi.PhasePostOutput,
 		Recoverable: true,
 	}

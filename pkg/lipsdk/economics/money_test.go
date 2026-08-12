@@ -40,9 +40,9 @@ func TestMoney_AddSubChecked(t *testing.T) {
 	if _, err := a.Add(economics.Money{NanoUnits: 1, Currency: "USD", Present: false}); err == nil {
 		t.Fatal("absent operand must error")
 	}
-	max := economics.Money{NanoUnits: math.MaxInt64, Currency: "USD", Present: true}
+	maxMoney := economics.Money{NanoUnits: math.MaxInt64, Currency: "USD", Present: true}
 	one := economics.Money{NanoUnits: 1, Currency: "USD", Present: true}
-	if _, err := max.Add(one); err == nil {
+	if _, err := maxMoney.Add(one); err == nil {
 		t.Fatal("overflow must error")
 	}
 }

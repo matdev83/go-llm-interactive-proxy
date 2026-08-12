@@ -27,8 +27,8 @@ func Certify(p Profile) (Certification, error) {
 		return Certification{}, err
 	}
 	caps := make([]lipapi.Capability, 0, len(compiled.Capabilities))
-	for cap := range compiled.Capabilities {
-		caps = append(caps, cap)
+	for capability := range compiled.Capabilities {
+		caps = append(caps, capability)
 	}
 	slices.Sort(caps)
 

@@ -149,7 +149,7 @@ func TestInvocation_ValidateRejectsUnspecifiedContentKindSafetyNet(t *testing.T)
 			Kind: "message", ID: "m1", Status: "completed", Role: backendplugin.RoleUser,
 			Content: []backendplugin.InvocationContentPart{{Kind: backendplugin.PartKind("extension")}},
 		}},
-		ProtocolRequirements: backendplugin.ProtocolRequirementsDTO{
+		ProtocolRequirements: backendplugin.ProtocolRequirements{
 			Capabilities: []string{string(lipapi.CapabilityOrderedItems), string(lipapi.CapabilityOpaqueExtensions)},
 		},
 	}

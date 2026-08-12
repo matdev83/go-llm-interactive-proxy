@@ -239,13 +239,13 @@ func TestManifestValidatorNegativeCases(t *testing.T) {
 		t.Fatalf("failed to read valid manifest: %v", err)
 	}
 
-	t.Run("MalformedJSON", func(t *testing.T) {
+	t.Run("malformed json", func(t *testing.T) {
 		if err := ValidateManifest([]byte("{invalid json"), "testdata"); err == nil {
 			t.Error("expected error for malformed JSON, got nil")
 		}
 	})
 
-	t.Run("TamperedSchemaDigest", func(t *testing.T) {
+	t.Run("tampered schema digest", func(t *testing.T) {
 		var m Manifest
 		_ = json.Unmarshal(validData, &m)
 		m.Profile.SchemaDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
@@ -255,7 +255,7 @@ func TestManifestValidatorNegativeCases(t *testing.T) {
 		}
 	})
 
-	t.Run("DuplicateArtifactRole", func(t *testing.T) {
+	t.Run("duplicate artifact role", func(t *testing.T) {
 		var m Manifest
 		_ = json.Unmarshal(validData, &m)
 		m.Artifacts = append(m.Artifacts, m.Artifacts[0])
@@ -265,7 +265,7 @@ func TestManifestValidatorNegativeCases(t *testing.T) {
 		}
 	})
 
-	t.Run("NonexistentFile", func(t *testing.T) {
+	t.Run("nonexistent file", func(t *testing.T) {
 		var m Manifest
 		_ = json.Unmarshal(validData, &m)
 		m.Artifacts = append(m.Artifacts, ManifestArtifact{
@@ -280,7 +280,7 @@ func TestManifestValidatorNegativeCases(t *testing.T) {
 		}
 	})
 
-	t.Run("TamperedArtifactContent", func(t *testing.T) {
+	t.Run("tampered artifact content", func(t *testing.T) {
 		// Test validation against a temp directory where one artifact has modified content
 		tempDir := t.TempDir()
 		var m Manifest
@@ -302,7 +302,7 @@ func TestManifestValidatorNegativeCases(t *testing.T) {
 		}
 	})
 
-	t.Run("UnlistedExtraFile", func(t *testing.T) {
+	t.Run("unlisted extra file", func(t *testing.T) {
 		tempDir := t.TempDir()
 		var m Manifest
 		_ = json.Unmarshal(validData, &m)

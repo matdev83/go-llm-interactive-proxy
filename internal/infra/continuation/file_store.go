@@ -41,13 +41,13 @@ type fileState struct {
 // requests mode 0600; Windows ACL inheritance is a deployment responsibility,
 // so this adapter does not claim native-reference confidentiality.
 type FileStore struct {
-	mu     sync.Mutex
-	path   string
-	lock   string
-	state  fileState
-	limits lipcont.StorageLimits
-	now    func() time.Time
-	closed bool
+	mu       sync.Mutex
+	path     string
+	lock     string
+	state    fileState
+	limits   lipcont.StorageLimits
+	now      func() time.Time
+	isClosed bool
 }
 
 // fileStoreLockAcquireTimeout bounds the startup lock wait. The per-operation
@@ -113,10 +113,10 @@ func NewFileStore(path string, limits lipcont.StorageLimits) (*FileStore, error)
 func (s *FileStore) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed {
+	if s.isClosed {
 		return nil
 	}
-	s.closed = true
+	s.isClosed = true
 	s.state = fileState{}
 	// Keep the lock inode in place. Removing it while another FileStore instance
 	// still holds an open descriptor could allow a split-brain lock after restart.
@@ -144,7 +144,7 @@ func (s *FileStore) Reserve(ctx context.Context, scope lipcont.Scope, policy lip
 	defer func() { _ = lock.close() }()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed {
+	if s.isClosed {
 		return "", lipcont.ErrStoreClosed
 	}
 	if err := s.reloadLocked(); err != nil {
@@ -200,7 +200,7 @@ func (s *FileStore) PutTerminal(ctx context.Context, record lipcont.Continuation
 	defer func() { _ = lock.close() }()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed {
+	if s.isClosed {
 		return lipcont.ErrStoreClosed
 	}
 	if err := s.reloadLocked(); err != nil {
@@ -263,7 +263,7 @@ func (s *FileStore) Get(ctx context.Context, scope lipcont.Scope, id lipcont.Res
 	defer func() { _ = lock.close() }()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed {
+	if s.isClosed {
 		return lipcont.ContinuationRecord{}, lipcont.ErrStoreClosed
 	}
 	if err := s.reloadLocked(); err != nil {
@@ -295,7 +295,7 @@ func (s *FileStore) Delete(ctx context.Context, scope lipcont.Scope, id lipcont.
 	defer func() { _ = lock.close() }()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed {
+	if s.isClosed {
 		return lipcont.ErrStoreClosed
 	}
 	if err := s.reloadLocked(); err != nil {

@@ -13,7 +13,7 @@ var embeddedCatalog []byte
 var (
 	embeddedCatalogOnce sync.Once
 	embeddedCatalogRes  *Catalog
-	embeddedCatalogErr  error
+	errEmbeddedCatalog  error
 )
 
 // EmbeddedCatalog loads the checked-in catalog without network or process work.
@@ -21,12 +21,12 @@ func EmbeddedCatalog() (*Catalog, error) {
 	embeddedCatalogOnce.Do(func() {
 		var profiles []Profile
 		if err := json.Unmarshal(embeddedCatalog, &profiles); err != nil {
-			embeddedCatalogErr = fmt.Errorf("provider profiles: decode embedded catalog: %w", err)
+			errEmbeddedCatalog = fmt.Errorf("provider profiles: decode embedded catalog: %w", err)
 			return
 		}
-		embeddedCatalogRes, embeddedCatalogErr = NewCatalog(profiles)
+		embeddedCatalogRes, errEmbeddedCatalog = NewCatalog(profiles)
 	})
-	return embeddedCatalogRes, embeddedCatalogErr
+	return embeddedCatalogRes, errEmbeddedCatalog
 }
 
 func EmbeddedProfile(id string) (Profile, error) {

@@ -145,7 +145,7 @@ func (f *fakeInstance) Resolve(ctx context.Context, modelID *string) (backendplu
 			Streaming: true, Tools: true, Vision: true, Reasoning: true,
 			OrderedItems: true, ItemReferences: true, Compaction: true, OpaqueExtensions: true,
 		},
-		DialectSupport: backendplugin.DialectSupportDTO{
+		DialectSupport: backendplugin.DialectSupport{
 			ItemDialects: []backendplugin.DialectRequirementDTO{
 				{Kind: "item", Dialect: "item_reference"},
 			},

@@ -4,9 +4,9 @@ import "testing"
 
 func TestBoundUTF8NonPositiveMaxSafe(t *testing.T) {
 	t.Parallel()
-	for _, max := range []int{-1, 0} {
-		if got := boundUTF8("hello", max); got != "" {
-			t.Fatalf("boundUTF8(%q, %d) = %q, want empty", "hello", max, got)
+	for _, limit := range []int{-1, 0} {
+		if got := boundUTF8("hello", limit); got != "" {
+			t.Fatalf("boundUTF8(%q, %d) = %q, want empty", "hello", limit, got)
 		}
 	}
 	if got := boundUTF8("", -1); got != "" {

@@ -19,7 +19,7 @@ type StreamRecorder struct {
 	record     ContinuationRecord
 	events     []lipapi.Event
 	eventBytes int64
-	closed     bool
+	isClosed   bool
 	stored     bool
 	overflow   bool
 	storeErr   error
@@ -47,13 +47,13 @@ func (r *StreamRecorder) Observe(ctx context.Context, event lipapi.Event) {
 		return
 	}
 	r.mu.Lock()
-	if r.closed || r.stored || r.overflow {
+	if r.isClosed || r.stored || r.overflow {
 		r.mu.Unlock()
 		return
 	}
 	size := recorderEventSize(event)
 	overflow := size < 0 || r.eventBytes > math.MaxInt64-size
-	if max := r.record.Policy.Limits.MaxRecordBytes; !overflow && max > 0 && r.eventBytes+size > max {
+	if maxBytes := r.record.Policy.Limits.MaxRecordBytes; !overflow && maxBytes > 0 && r.eventBytes+size > maxBytes {
 		overflow = true
 	}
 	if overflow {
@@ -206,7 +206,7 @@ func (r *StreamRecorder) Close() error {
 		return nil
 	}
 	r.mu.Lock()
-	r.closed = true
+	r.isClosed = true
 	stored := r.stored
 	release := r.cleanup
 	if !stored {
@@ -343,9 +343,9 @@ func cloneEvent(in lipapi.Event) lipapi.Event {
 	out := in
 	out.Opaque = append([]byte(nil), in.Opaque...)
 	if in.Reasoning != nil {
-		copy := *in.Reasoning
-		copy.Opaque = append([]byte(nil), in.Reasoning.Opaque...)
-		out.Reasoning = &copy
+		copied := *in.Reasoning
+		copied.Opaque = append([]byte(nil), in.Reasoning.Opaque...)
+		out.Reasoning = &copied
 	}
 	out.UsageScopes = append([]lipapi.ScopedUsageDelta(nil), in.UsageScopes...)
 	return out

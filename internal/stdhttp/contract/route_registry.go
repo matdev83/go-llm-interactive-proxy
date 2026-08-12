@@ -10,8 +10,8 @@ import (
 // ErrRouteConflict indicates two enabled owners claim the same normalized route.
 var ErrRouteConflict = errors.New("route registry: conflict")
 
-// RouteConflictDetail names both owners for deterministic composition failure.
-type RouteConflictDetail struct {
+// RouteConflictError names both owners for deterministic composition failure.
+type RouteConflictError struct {
 	Method        string
 	Path          string
 	ExistingOwner string
@@ -20,7 +20,7 @@ type RouteConflictDetail struct {
 	NewKind       RouteKind
 }
 
-func (d RouteConflictDetail) Error() string {
+func (d RouteConflictError) Error() string {
 	return fmt.Sprintf("%s: %s %s owned by %q (%s) conflicts with %q (%s)",
 		ErrRouteConflict, d.Method, d.Path, d.ExistingOwner, d.ExistingKind, d.NewOwner, d.NewKind)
 }
@@ -45,7 +45,7 @@ func (r *RouteRegistry) Register(claim RouteClaim) error {
 	key := routeKey(norm.Method, norm.Path)
 	existing, occupied := r.index[key]
 	if occupied && (existing.OwnerID != norm.OwnerID || existing.Kind != norm.Kind) {
-		return RouteConflictDetail{
+		return RouteConflictError{
 			Method:        norm.Method,
 			Path:          norm.Path,
 			ExistingOwner: existing.OwnerID,
@@ -105,7 +105,7 @@ func (r *RouteRegistry) ValidateCanonicalPathTakeover(basePath string, proposed 
 		}
 		key := routeKey(norm.Method, norm.Path)
 		if existing, ok := r.index[key]; ok && existing.OwnerID != norm.OwnerID {
-			return RouteConflictDetail{
+			return RouteConflictError{
 				Method:        norm.Method,
 				Path:          norm.Path,
 				ExistingOwner: existing.OwnerID,

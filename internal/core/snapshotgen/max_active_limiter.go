@@ -13,7 +13,7 @@ import (
 
 // maxActiveLimiter enforces MaxActiveRequests for one executable generation.
 type maxActiveLimiter struct {
-	max   int
+	limit int
 	inner authority.ConcurrencyProvider
 	desc  authority.ProviderDescriptor
 
@@ -28,8 +28,8 @@ type leaseSlot struct {
 	expiresAt  time.Time
 }
 
-func newMaxActiveLimiter(max int, inner authority.ConcurrencyProvider, desc authority.ProviderDescriptor) *maxActiveLimiter {
-	if max <= 0 {
+func newMaxActiveLimiter(limit int, inner authority.ConcurrencyProvider, desc authority.ProviderDescriptor) *maxActiveLimiter {
+	if limit <= 0 {
 		return nil
 	}
 	if desc.ID == "" {
@@ -42,7 +42,7 @@ func newMaxActiveLimiter(max int, inner authority.ConcurrencyProvider, desc auth
 		}}
 	}
 	return &maxActiveLimiter{
-		max:    max,
+		limit:  limit,
 		inner:  inner,
 		desc:   desc,
 		active: make(map[string]leaseSlot),
@@ -71,13 +71,13 @@ func (l *maxActiveLimiter) AdmitLease(ctx context.Context, in authority.LeaseAdm
 			LeaseID:         slot.leaseID,
 			Generation:      slot.generation,
 			ExpiresAt:       slot.expiresAt,
-			RemainingSlots:  l.max - len(l.active),
+			RemainingSlots:  l.limit - len(l.active),
 			RenewBefore:     ttl / 3,
 			TTL:             ttl,
 			FailureBehavior: authority.FailureFailClosed,
 		}, nil
 	}
-	if len(l.active) >= l.max {
+	if len(l.active) >= l.limit {
 		return authority.LeaseDecision{
 			Kind:           authority.LeaseDeny,
 			RemainingSlots: 0,
@@ -111,7 +111,7 @@ func (l *maxActiveLimiter) AdmitLease(ctx context.Context, in authority.LeaseAdm
 			ld.FailureBehavior = authority.FailureFailClosed
 		}
 		l.active[reqID] = leaseSlot{leaseID: ld.LeaseID, generation: ld.Generation, expiresAt: ld.ExpiresAt}
-		ld.RemainingSlots = l.max - len(l.active)
+		ld.RemainingSlots = l.limit - len(l.active)
 		return ld, nil
 	}
 	leaseID := fmt.Sprintf("gen-lease-%d", l.seq.Add(1))
@@ -122,7 +122,7 @@ func (l *maxActiveLimiter) AdmitLease(ctx context.Context, in authority.LeaseAdm
 		LeaseID:         leaseID,
 		Generation:      1,
 		ExpiresAt:       exp,
-		RemainingSlots:  l.max - len(l.active),
+		RemainingSlots:  l.limit - len(l.active),
 		RenewBefore:     ttl / 3,
 		TTL:             ttl,
 		FailureBehavior: authority.FailureFailClosed,
@@ -158,7 +158,7 @@ func (l *maxActiveLimiter) RenewLease(ctx context.Context, in authority.LeaseRen
 			LeaseID:         slot.leaseID,
 			Generation:      slot.generation,
 			ExpiresAt:       slot.expiresAt,
-			RemainingSlots:  l.max - len(l.active),
+			RemainingSlots:  l.limit - len(l.active),
 			RenewBefore:     ttl / 3,
 			TTL:             ttl,
 			FailureBehavior: authority.FailureFailClosed,

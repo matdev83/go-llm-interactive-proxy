@@ -147,10 +147,10 @@ func TestSSEParser_SingleLineExactMaxBytesAccepted(t *testing.T) {
 	// A single data line whose full content ("data: " + value) is exactly
 	// maxBytes must be accepted: the trailing newline and the first-line data
 	// separator must not push the payload over the bound (no off-by-one).
-	const max = 32
-	payload := strings.Repeat("x", max-len("data: "))
+	const maxBuf = 32
+	payload := strings.Repeat("x", maxBuf-len("data: "))
 	br := bufio.NewReader(strings.NewReader("data: " + payload + "\n\n"))
-	rec, err := nextSSERecord(br, max)
+	rec, err := nextSSERecord(br, maxBuf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,9 +162,9 @@ func TestSSEParser_SingleLineExactMaxBytesAccepted(t *testing.T) {
 func TestSSEParser_SingleLineOverMaxBytesRejected(t *testing.T) {
 	t.Parallel()
 	// One byte over the exact single-line bound must be rejected.
-	const max = 32
-	br := bufio.NewReader(strings.NewReader("data: " + strings.Repeat("x", max-len("data: ")+1) + "\n\n"))
-	if _, err := nextSSERecord(br, max); err == nil {
+	const maxBuf = 32
+	br := bufio.NewReader(strings.NewReader("data: " + strings.Repeat("x", maxBuf-len("data: ")+1) + "\n\n"))
+	if _, err := nextSSERecord(br, maxBuf); err == nil {
 		t.Fatal("expected line bound rejection for maxBytes+1")
 	}
 }

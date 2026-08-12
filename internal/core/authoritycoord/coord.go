@@ -19,7 +19,8 @@ const defaultCleanupTimeout = 2 * time.Second
 type PriorityClass int
 
 const (
-	PriorityConcurrency PriorityClass = iota
+	PriorityUnknown PriorityClass = iota
+	PriorityConcurrency
 	PriorityCreditWallet
 	PriorityQuotaBudgetRate
 	PriorityAdvisory
@@ -143,26 +144,26 @@ type CompositeDecision struct {
 	BoundVersions []economics.PolicySnapshotRef
 }
 
-// ErrDenied is returned when a required provider denies admission.
-type ErrDenied struct {
+// DeniedError is returned when a required provider denies admission.
+type DeniedError struct {
 	ProviderID string
 	Decision   authority.Decision
 }
 
-func (e *ErrDenied) Error() string {
+func (e *DeniedError) Error() string {
 	if e == nil {
 		return "authoritycoord: denied"
 	}
 	return fmt.Sprintf("authoritycoord: denied by %q", e.ProviderID)
 }
 
-// ErrUnavailable is returned when required infrastructure fails closed.
-type ErrUnavailable struct {
+// UnavailableError is returned when required infrastructure fails closed.
+type UnavailableError struct {
 	ProviderID string
 	Err        error
 }
 
-func (e *ErrUnavailable) Error() string {
+func (e *UnavailableError) Error() string {
 	if e == nil {
 		return "authoritycoord: unavailable"
 	}
@@ -172,7 +173,7 @@ func (e *ErrUnavailable) Error() string {
 	return fmt.Sprintf("authoritycoord: provider %q unavailable", e.ProviderID)
 }
 
-func (e *ErrUnavailable) Unwrap() error {
+func (e *UnavailableError) Unwrap() error {
 	if e == nil {
 		return nil
 	}
@@ -180,6 +181,6 @@ func (e *ErrUnavailable) Unwrap() error {
 }
 
 func IsDenied(err error) bool {
-	var d *ErrDenied
+	var d *DeniedError
 	return errors.As(err, &d)
 }

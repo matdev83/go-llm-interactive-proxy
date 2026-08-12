@@ -81,7 +81,7 @@ type nativeContextPreflight struct {
 	history  NativeHistory
 	profile  CompactionModelProfile
 	estimate CompactionEstimate
-	ready    bool
+	isReady  bool
 }
 
 func newNativeContextCoordinator(cfg Config, instanceID string) *NativeContextCoordinator {
@@ -218,7 +218,7 @@ func (c *NativeContextCoordinator) Prepare(ctx context.Context, in NativeContext
 	if err != nil {
 		return NativeContextPrepared{}, err
 	}
-	preflight := nativeContextPreflight{history: history, profile: profile, estimate: estimate, ready: true}
+	preflight := nativeContextPreflight{history: history, profile: profile, estimate: estimate, isReady: true}
 	// A trusted marker proves the feature transform ran, but the typed session
 	// authority is still the required partition key. Never let a client hint
 	// become checkpoint authority.
@@ -420,7 +420,7 @@ func nativeHistoryBytes(history NativeHistory) int64 {
 }
 
 func (c *NativeContextCoordinator) fallback(ctx context.Context, in NativeContextPrepareInput, cause error, preflight nativeContextPreflight) (NativeContextPrepared, error) {
-	if !preflight.ready {
+	if !preflight.isReady {
 		var historyErr error
 		preflight.history, historyErr = buildNativeHistory(&in.Call)
 		if historyErr != nil {
@@ -443,7 +443,7 @@ func (c *NativeContextCoordinator) fallback(ctx context.Context, in NativeContex
 		if estimateErr != nil {
 			return NativeContextPrepared{}, estimateErr
 		}
-		preflight.ready = true
+		preflight.isReady = true
 	}
 	if preflight.estimate.Tokens >= preflight.profile.HardLimit {
 		return NativeContextPrepared{}, fmt.Errorf("%w: %s", ErrNativeContextHardLimit, safeNativeOutcome(cause))

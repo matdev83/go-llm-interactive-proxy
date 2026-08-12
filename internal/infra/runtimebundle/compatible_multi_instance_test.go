@@ -172,9 +172,9 @@ func buildMultiInstanceBackend(t *testing.T, reg *pluginreg.Registry, factory st
 	return res.Backend
 }
 
-func assertIndependentConcurrency(t *testing.T, family compatibleparity.Family, backendID string, max int) error {
+func assertIndependentConcurrency(t *testing.T, family compatibleparity.Family, backendID string, limit int) error {
 	t.Helper()
-	reg, _, err := compatibleadmission.AttemptRegistration(compatibleadmission.Limits{backendID: max}, leasestore.NewMemory(leasestore.MemoryConfig{StoreID: "compatible-admission-test"}))
+	reg, _, err := compatibleadmission.AttemptRegistration(compatibleadmission.Limits{backendID: limit}, leasestore.NewMemory(leasestore.MemoryConfig{StoreID: "compatible-admission-test"}))
 	if err != nil {
 		return err
 	}
@@ -185,7 +185,7 @@ func assertIndependentConcurrency(t *testing.T, family compatibleparity.Family, 
 	block := make(chan struct{})
 	var peak atomic.Int32
 	var wg sync.WaitGroup
-	for i := 0; i < max+3; i++ {
+	for i := 0; i < limit+3; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -206,8 +206,8 @@ func assertIndependentConcurrency(t *testing.T, family compatibleparity.Family, 
 	time.Sleep(40 * time.Millisecond)
 	close(block)
 	wg.Wait()
-	if peak.Load() > int32(max) {
-		return fmt.Errorf("peak in-flight=%d exceeds max=%d", peak.Load(), max)
+	if peak.Load() > int32(limit) {
+		return fmt.Errorf("peak in-flight=%d exceeds limit=%d", peak.Load(), limit)
 	}
 	return nil
 }

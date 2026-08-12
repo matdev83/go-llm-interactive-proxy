@@ -33,26 +33,26 @@ type Capture struct {
 	counts sync.Map // map[string]*atomic.Int64
 
 	mu           sync.Mutex
-	max          int
+	maxBytes     int
 	obs          []Observation
 	overflow     int
 	redactKeys   map[string]bool
 	redactBodies bool
 }
 
-// NewCapture constructs a bounded capture. max <= 0 uses the default bound.
+// NewCapture constructs a bounded capture. maxBytes <= 0 uses the default bound.
 // redactHeaders lists header names (case-insensitive) that must be redacted;
 // redactBodies controls whether bodies are replaced by a redaction marker.
-func NewCapture(max int, redactHeaders []string, redactBodies bool) *Capture {
-	if max <= 0 {
-		max = defaultCaptureMax
+func NewCapture(maxBytes int, redactHeaders []string, redactBodies bool) *Capture {
+	if maxBytes <= 0 {
+		maxBytes = defaultCaptureMax
 	}
 	keys := make(map[string]bool)
 	for _, h := range redactHeaders {
 		keys[strings.ToLower(strings.TrimSpace(h))] = true
 	}
 	return &Capture{
-		max:          max,
+		maxBytes:     maxBytes,
 		redactKeys:   keys,
 		redactBodies: redactBodies,
 	}
@@ -117,7 +117,7 @@ func (c *Capture) add(obs Observation) {
 func (c *Capture) store(obs Observation) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.obs) >= c.max {
+	if len(c.obs) >= c.maxBytes {
 		c.overflow++
 		return
 	}

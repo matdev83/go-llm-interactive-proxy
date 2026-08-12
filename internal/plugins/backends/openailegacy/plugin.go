@@ -96,7 +96,7 @@ func New(cfg Config) execbackend.Backend {
 					}
 					return nil, fmt.Errorf("%s: %w", ID, aerr)
 				}
-				cli := openaicred.NewOpenAIClient(cfg.BaseURL, cred.Secret, cfg.HTTPClient, cfg.SDKMaxRetries)
+				cli := openaicred.NewClient(cfg.BaseURL, cred.Secret, cfg.HTTPClient, cfg.SDKMaxRetries)
 				if call.Invocation.TransportMode == lipapi.TransportModeNonStreaming {
 					comp, nerr := cli.Chat.Completions.New(ctx, p)
 					if nerr != nil {

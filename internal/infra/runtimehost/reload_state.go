@@ -47,13 +47,13 @@ type ReloadState struct {
 }
 
 func newReloadState(in reloadStateInitial) *ReloadState {
-	cap := in.HistoryCapacity
-	if cap <= 0 {
-		cap = configreload.DefaultStatusHistoryCap
+	capacity := in.HistoryCapacity
+	if capacity <= 0 {
+		capacity = configreload.DefaultStatusHistoryCap
 	}
 	s := &ReloadState{
 		activeEff: in.ActiveEffective, activeSource: cloneActiveSource(in.ActiveSource),
-		sourcePosture: "ok", modelGen: in.ModelGeneration, historyCap: cap,
+		sourcePosture: "ok", modelGen: in.ModelGeneration, historyCap: capacity,
 	}
 	if in.InitialResult.Category != "" {
 		s.last = in.InitialResult.Clone()

@@ -30,9 +30,9 @@ func TestMapBackendPanic_postOutputNeverRecoverable(t *testing.T) {
 	if lipapi.IsRecoverablePreOutput(err) {
 		t.Fatal("committed output panic must not be recoverable pre-output")
 	}
-	var uf *lipapi.UpstreamFailure
+	var uf *lipapi.UpstreamFailureError
 	if !errors.As(err, &uf) {
-		t.Fatalf("want UpstreamFailure, got %T", err)
+		t.Fatalf("want UpstreamFailureError, got %T", err)
 	}
 	if uf.Phase != lipapi.PhasePostOutput || uf.Recoverable {
 		t.Fatalf("upstream: phase=%s recoverable=%v", uf.Phase, uf.Recoverable)
@@ -61,7 +61,7 @@ func TestMapStreamPanic_postOutputNotRecoverable(t *testing.T) {
 	if lipapi.IsRecoverablePreOutput(err) {
 		t.Fatal("committed stream panic must not be recoverable pre-output")
 	}
-	var uf *lipapi.UpstreamFailure
+	var uf *lipapi.UpstreamFailureError
 	if !errors.As(err, &uf) || uf.Phase != lipapi.PhasePostOutput {
 		t.Fatalf("got %v", err)
 	}

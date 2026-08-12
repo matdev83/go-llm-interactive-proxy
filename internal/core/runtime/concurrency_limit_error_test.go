@@ -13,7 +13,7 @@ import (
 
 func TestMapRequestAuthorityError_ConcurrencyLimitIsClientSafe(t *testing.T) {
 	t.Parallel()
-	err := mapRequestAuthorityError(&authoritycoord.ErrDenied{ProviderID: "concurrency"})
+	err := mapRequestAuthorityError(&authoritycoord.DeniedError{ProviderID: "concurrency"})
 	if !lipapi.IsPolicyDenied(err) {
 		t.Fatalf("want policy denied, got %T %v", err, err)
 	}

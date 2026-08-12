@@ -27,7 +27,7 @@ type codexOpenEnv struct {
 	endpoint          string
 	downgrade         downgradePolicy
 	turns             *sessionTurnCounter
-	turnReserved      bool
+	isTurnReserved    bool
 	markerEligible    bool
 	nativeOriginal    Payload
 	nativeOriginalFP  []string
@@ -76,7 +76,7 @@ func prepareCodexOpenEnv(ctx context.Context, cfg *Config, call lipapi.Call, can
 		endpoint:          responsesEndpoint(cfg.BaseURL),
 		downgrade:         policy,
 		turns:             turns,
-		turnReserved:      reserved,
+		isTurnReserved:    reserved,
 		markerEligible:    markerEligible,
 		nativeOriginal:    nativeOriginal,
 		nativeOriginalFP:  append([]string(nil), inputFingerprints...),
@@ -144,10 +144,10 @@ func (env *codexOpenEnv) wrapNativeUsage(stream lipapi.ManagedEventStream, openE
 
 type nativeUsageSidebandStream struct {
 	lipapi.ManagedEventStream
-	mu          sync.Mutex
-	evidence    []backendplugin.AccountingEvidence
-	openErr     error
-	errReturned bool
+	mu             sync.Mutex
+	evidence       []backendplugin.AccountingEvidence
+	openErr        error
+	hasErrReturned bool
 }
 
 func (s *nativeUsageSidebandStream) DrainUsageEvidence() []lipapi.Event {
@@ -185,8 +185,8 @@ func (s *nativeUsageSidebandStream) Recv(ctx context.Context) (lipapi.Event, err
 		return lipapi.Event{}, err
 	}
 	s.mu.Lock()
-	if s.ManagedEventStream == nil && s.openErr != nil && !s.errReturned {
-		s.errReturned = true
+	if s.ManagedEventStream == nil && s.openErr != nil && !s.hasErrReturned {
+		s.hasErrReturned = true
 		err := s.openErr
 		s.mu.Unlock()
 		return lipapi.Event{}, err
@@ -258,21 +258,21 @@ func accountingEvidence(usage *NativeUsageEvidence) backendplugin.AccountingEvid
 // releaseVerbosityTurn undoes a turn reserved during prepare when the open
 // ultimately fails. Successful opens must call commitVerbosityTurn instead.
 func (env *codexOpenEnv) releaseVerbosityTurn() {
-	if env == nil || !env.turnReserved || env.turns == nil {
+	if env == nil || !env.isTurnReserved || env.turns == nil {
 		return
 	}
 	env.turns.releaseTurn(env.turnKey, env.turnNo)
-	env.turnReserved = false
+	env.isTurnReserved = false
 }
 
 // commitVerbosityTurn marks a reserved turn as successfully completed so
 // in-flight TTL/eviction protection can clear while keeping the turn consumed.
 func (env *codexOpenEnv) commitVerbosityTurn() {
-	if env == nil || !env.turnReserved || env.turns == nil {
+	if env == nil || !env.isTurnReserved || env.turns == nil {
 		return
 	}
 	env.turns.commitTurn(env.turnKey, env.turnNo)
-	env.turnReserved = false
+	env.isTurnReserved = false
 }
 
 func (env *codexOpenEnv) marshalWithModel(model string) ([]byte, error) {
@@ -342,12 +342,12 @@ const upstreamErrorBodyMax = 256
 // truncateErrorMessage bounds upstream/OAuth response text embedded in errors
 // so provider error bodies cannot dump multi-KiB of (possibly echoed) content
 // into logs.
-func truncateErrorMessage(s string, max int) string {
+func truncateErrorMessage(s string, maxLen int) string {
 	s = strings.TrimSpace(s)
-	if len(s) <= max {
+	if len(s) <= maxLen {
 		return s
 	}
-	return s[:max] + fmt.Sprintf("…(truncated %d bytes)", len(s)-max)
+	return s[:maxLen] + fmt.Sprintf("…(truncated %d bytes)", len(s)-maxLen)
 }
 
 func upstreamHTTPError(status int, body []byte) error {

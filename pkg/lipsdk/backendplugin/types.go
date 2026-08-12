@@ -32,8 +32,8 @@ type CapabilitySummary struct {
 	AssistantMediaRefs bool
 }
 
-// DialectSupportDTO carries exact dialect/extension support advertised by a plugin profile.
-type DialectSupportDTO struct {
+// DialectSupport carries exact dialect/extension support advertised by a plugin profile.
+type DialectSupport struct {
 	ItemDialects       []DialectRequirementDTO
 	ReasoningDialects  []DialectRequirementDTO
 	CompactionDialects []DialectRequirementDTO
@@ -116,7 +116,7 @@ type ConfigureRequest struct {
 type ResolvedProfile struct {
 	Capabilities             CapabilitySummary
 	TransportCapabilities    TransportCapabilitySummary
-	DialectSupport           DialectSupportDTO
+	DialectSupport           DialectSupport
 	ReasoningReplaySupported bool
 	RoutePrefixes            []string
 	EnforceMaxOutput         bool
@@ -177,7 +177,7 @@ type Invocation struct {
 	TransportMode        string
 	ItemAuthority        bool
 	Items                []InvocationItem
-	ProtocolRequirements ProtocolRequirementsDTO
+	ProtocolRequirements ProtocolRequirements
 }
 
 // SemanticExtension is the SDK form of lipapi.SemanticExtension.

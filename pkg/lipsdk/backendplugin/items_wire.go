@@ -39,8 +39,8 @@ func HasItemAuthorityWire(inv Invocation) bool {
 	return inv.ItemAuthority && len(inv.Items) > 0
 }
 
-func mapRequirementsToDTO(req lipapi.ProtocolRequirements) ProtocolRequirementsDTO {
-	out := ProtocolRequirementsDTO{
+func mapRequirementsToDTO(req lipapi.ProtocolRequirements) ProtocolRequirements {
+	out := ProtocolRequirements{
 		Capabilities: make([]string, 0, len(req.Capabilities)),
 	}
 	for _, c := range req.Capabilities {

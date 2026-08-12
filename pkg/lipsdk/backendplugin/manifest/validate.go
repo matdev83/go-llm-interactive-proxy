@@ -118,11 +118,11 @@ func (m Manifest) Validate() error {
 	return fmt.Errorf("%w: %s", ErrUnsupportedExtension, ext.Name)
 }
 
-func boundString(field, v string, max int) error {
+func boundString(field, v string, maxBytes int) error {
 	if !utf8.ValidString(v) {
 		return fmt.Errorf("%w: %s utf8", ErrInvalidManifest, field)
 	}
-	if len(v) > max {
+	if len(v) > maxBytes {
 		return fmt.Errorf("%w: %s", ErrBoundsExceeded, field)
 	}
 	return nil

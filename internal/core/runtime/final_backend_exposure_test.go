@@ -359,8 +359,8 @@ func TestFinalBackendExposure_ExactClampMatchNoPostAdmitMutate(t *testing.T) {
 		admitClamps: []authority.Clamp{{Kind: authority.ClampMaxOutputTokens, Value: 20}},
 	}
 	frozen := lipapi.Call{ID: "r"}
-	max := 20
-	frozen.Options.MaxOutputTokens = &max
+	limit := 20
+	frozen.Options.MaxOutputTokens = &limit
 	live := lipapi.CloneCall(frozen)
 	ex := &Executor{}
 	if err := ex.enforcePostAdmitClamps(context.Background(), &live, frozen, previewed, true, state,

@@ -13,11 +13,11 @@ import (
 
 const maxRepairDepth = 64
 
-type repairErr struct {
+type repairError struct {
 	reason string
 }
 
-func (e *repairErr) Error() string {
+func (e *repairError) Error() string {
 	if e == nil {
 		return "toolcallrepair: repair error"
 	}
@@ -43,7 +43,7 @@ func checkRepairCtx(ctx context.Context) error {
 		return nil
 	}
 	if err := ctx.Err(); err != nil {
-		return &repairErr{reason: toolcall.ReasonCanceled}
+		return &repairError{reason: toolcall.ReasonCanceled}
 	}
 	return nil
 }
@@ -53,20 +53,20 @@ func repairArgsJSON(ctx context.Context, args []byte, schema json.RawMessage, ma
 		ctx = context.Background()
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, "", &repairErr{reason: toolcall.ReasonCanceled}
+		return nil, "", &repairError{reason: toolcall.ReasonCanceled}
 	}
 	if err := preflightArgsJSON(ctx, args, maxArgsBytes); err != nil {
-		return nil, "", &repairErr{reason: mapEngineArgsShapeReason(err)}
+		return nil, "", &repairError{reason: mapEngineArgsShapeReason(err)}
 	}
 	if err := preflightSchemaJSON(ctx, schema, schemaLimits); err != nil {
 		if reason := mapEngineArgsShapeReason(err); reason == toolcall.ReasonCanceled {
-			return nil, "", &repairErr{reason: reason}
+			return nil, "", &repairError{reason: reason}
 		}
-		return nil, "", &repairErr{reason: toolcall.ReasonSchemaInvalid}
+		return nil, "", &repairError{reason: toolcall.ReasonSchemaInvalid}
 	}
 	schemaDoc, err := parseOrderedJSON(schema)
 	if err != nil {
-		return nil, "", &repairErr{reason: toolcall.ReasonSchemaInvalid}
+		return nil, "", &repairError{reason: toolcall.ReasonSchemaInvalid}
 	}
 	return repairPreflightedArgsJSONDocument(ctx, args, schemaDoc, maxArgsBytes)
 }
@@ -77,7 +77,7 @@ func repairArgsJSON(ctx context.Context, args []byte, schema json.RawMessage, ma
 func repairPreflightedArgsJSON(ctx context.Context, args []byte, schema json.RawMessage) (out []byte, reason string, err error) {
 	schemaDoc, err := parseOrderedJSON(schema)
 	if err != nil {
-		return nil, "", &repairErr{reason: toolcall.ReasonSchemaInvalid}
+		return nil, "", &repairError{reason: toolcall.ReasonSchemaInvalid}
 	}
 	return repairPreflightedArgsJSONDocument(ctx, args, schemaDoc, DefaultMaxArgsBytes)
 }
@@ -87,17 +87,17 @@ func repairPreflightedArgsJSONDocument(ctx context.Context, args []byte, schemaD
 		ctx = context.Background()
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, "", &repairErr{reason: toolcall.ReasonCanceled}
+		return nil, "", &repairError{reason: toolcall.ReasonCanceled}
 	}
 	if err := preflightArgsJSON(ctx, args, maxArgsBytes); err != nil {
-		return nil, "", &repairErr{reason: mapEngineArgsShapeReason(err)}
+		return nil, "", &repairError{reason: mapEngineArgsShapeReason(err)}
 	}
 	root, err := parseOrderedJSON(args)
 	if err != nil {
-		return nil, "", &repairErr{reason: toolcall.ReasonUnrepairable}
+		return nil, "", &repairError{reason: toolcall.ReasonUnrepairable}
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, "", &repairErr{reason: toolcall.ReasonCanceled}
+		return nil, "", &repairError{reason: toolcall.ReasonCanceled}
 	}
 	st := &repairState{rootSchema: schemaDoc}
 	repaired, err := repairValue(ctx, root, schemaDoc, 0, st)
@@ -109,7 +109,7 @@ func repairPreflightedArgsJSONDocument(ctx context.Context, args []byte, schemaD
 	}
 	encoded, err := json.Marshal(repaired)
 	if err != nil {
-		return nil, "", &repairErr{reason: toolcall.ReasonUnrepairable}
+		return nil, "", &repairError{reason: toolcall.ReasonUnrepairable}
 	}
 	return encoded, st.reason, nil
 }
@@ -119,11 +119,11 @@ func repairValue(ctx context.Context, v any, schema any, depth int, st *repairSt
 		return nil, err
 	}
 	if depth > maxRepairDepth {
-		return nil, &repairErr{reason: toolcall.ReasonUnrepairable}
+		return nil, &repairError{reason: toolcall.ReasonUnrepairable}
 	}
 	st.ops++
 	if st.ops > 4096 {
-		return nil, &repairErr{reason: toolcall.ReasonUnrepairable}
+		return nil, &repairError{reason: toolcall.ReasonUnrepairable}
 	}
 	sch, err := effectiveSchemaObject(schema, st.rootSchema, depth)
 	if err != nil {
@@ -187,7 +187,7 @@ func repairObject(ctx context.Context, obj orderedObject, sch map[string]any, de
 		if !known {
 			if n := NormalizeASCIIName(key); n != "" {
 				if count := normCounts[n]; count > 1 {
-					return nil, &repairErr{reason: toolcall.ReasonAmbiguousProperty}
+					return nil, &repairError{reason: toolcall.ReasonAmbiguousProperty}
 				}
 				if match, ok := uniqueNorm[n]; ok {
 					canon = match
@@ -226,7 +226,7 @@ func repairObject(ctx context.Context, obj orderedObject, sch map[string]any, de
 			default:
 				same, err := schemasJSONEqual(matched)
 				if err != nil || !same {
-					return nil, &repairErr{reason: toolcall.ReasonUnrepairable}
+					return nil, &repairError{reason: toolcall.ReasonUnrepairable}
 				}
 				repaired, err := repairValue(ctx, val, matched[0], depth+1, st)
 				if err != nil {
@@ -248,7 +248,7 @@ func repairObject(ctx context.Context, obj orderedObject, sch map[string]any, de
 		if _, exists := out.values[canon]; !exists {
 			out.keys = append(out.keys, canon)
 		} else if canon != key {
-			return nil, &repairErr{reason: toolcall.ReasonUnrepairable}
+			return nil, &repairError{reason: toolcall.ReasonUnrepairable}
 		}
 		out.values[canon] = repaired
 		seen[canon] = struct{}{}
@@ -289,7 +289,7 @@ func matchPatternSchemas(key string, patternProps any) ([]any, error) {
 	for _, pat := range sorted {
 		re, err := regexp.Compile(pat)
 		if err != nil {
-			return nil, &repairErr{reason: toolcall.ReasonUnrepairable}
+			return nil, &repairError{reason: toolcall.ReasonUnrepairable}
 		}
 		if re.MatchString(key) {
 			matched = append(matched, values[pat])
@@ -350,19 +350,19 @@ func propertyInsertOrder(sch map[string]any, props map[string]any) []string {
 
 func deterministicFill(propSchema map[string]any, root any, depth int) (any, string, bool, error) {
 	if depth > maxRepairDepth {
-		return nil, "", false, &repairErr{reason: toolcall.ReasonUnrepairable}
+		return nil, "", false, &repairError{reason: toolcall.ReasonUnrepairable}
 	}
 	if ref, ok := propSchema["$ref"].(string); ok {
 		if hasRefSiblings(propSchema) {
-			return nil, "", false, &repairErr{reason: toolcall.ReasonUnrepairable}
+			return nil, "", false, &repairError{reason: toolcall.ReasonUnrepairable}
 		}
 		resolved, err := resolveLocalRef(root, ref)
 		if err != nil {
-			return nil, "", false, &repairErr{reason: toolcall.ReasonUnrepairable}
+			return nil, "", false, &repairError{reason: toolcall.ReasonUnrepairable}
 		}
 		resolvedMap, ok := asSchemaMap(resolved)
 		if !ok {
-			return nil, "", false, &repairErr{reason: toolcall.ReasonUnrepairable}
+			return nil, "", false, &repairError{reason: toolcall.ReasonUnrepairable}
 		}
 		return deterministicFill(resolvedMap, root, depth+1)
 	}
@@ -385,7 +385,7 @@ func deterministicFill(propSchema map[string]any, root any, depth int) (any, str
 	}
 	val, err := materializeFillValue(raw)
 	if err != nil {
-		return nil, "", false, &repairErr{reason: toolcall.ReasonUnrepairable}
+		return nil, "", false, &repairError{reason: toolcall.ReasonUnrepairable}
 	}
 	return val, reason, true, nil
 }
@@ -442,29 +442,29 @@ func effectiveSchemaObject(schema any, root any, depth int) (map[string]any, err
 		return nil, nil
 	}
 	if depth > maxRepairDepth {
-		return nil, &repairErr{reason: toolcall.ReasonUnrepairable}
+		return nil, &repairError{reason: toolcall.ReasonUnrepairable}
 	}
 	if ref, ok := sch["$ref"].(string); ok {
 		if hasRefSiblings(sch) {
-			return nil, &repairErr{reason: toolcall.ReasonUnrepairable}
+			return nil, &repairError{reason: toolcall.ReasonUnrepairable}
 		}
 		resolved, err := resolveLocalRef(root, ref)
 		if err != nil {
-			return nil, &repairErr{reason: toolcall.ReasonUnrepairable}
+			return nil, &repairError{reason: toolcall.ReasonUnrepairable}
 		}
 		return effectiveSchemaObject(resolved, root, depth+1)
 	}
 	for _, key := range []string{"oneOf", "anyOf"} {
 		if branch, ok := sch[key].([]any); ok {
 			if len(branch) != 1 {
-				return nil, &repairErr{reason: toolcall.ReasonUnrepairable}
+				return nil, &repairError{reason: toolcall.ReasonUnrepairable}
 			}
 			return effectiveSchemaObject(branch[0], root, depth+1)
 		}
 	}
 	if allOf, ok := sch["allOf"].([]any); ok {
 		if len(allOf) != 1 {
-			return nil, &repairErr{reason: toolcall.ReasonUnrepairable}
+			return nil, &repairError{reason: toolcall.ReasonUnrepairable}
 		}
 		return effectiveSchemaObject(allOf[0], root, depth+1)
 	}
@@ -555,7 +555,7 @@ func checkScalarCoercion(v any, sch map[string]any) error {
 		return nil
 	}
 	if coercionWouldBeRequired(v, types) {
-		return &repairErr{reason: toolcall.ReasonScalarCoercionDisabled}
+		return &repairError{reason: toolcall.ReasonScalarCoercionDisabled}
 	}
 	return nil
 }

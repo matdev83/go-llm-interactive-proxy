@@ -99,9 +99,9 @@ func TestRouteRegistry_RegisterAllIsAtomic(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected conflict")
 	}
-	var detail httpcontract.RouteConflictDetail
+	var detail httpcontract.RouteConflictError
 	if !errors.As(err, &detail) {
-		t.Fatalf("want RouteConflictDetail, got %T: %v", err, err)
+		t.Fatalf("want RouteConflictError, got %T: %v", err, err)
 	}
 	if detail.ExistingOwner != "primary-owner" || detail.NewOwner != "secondary-inst" {
 		t.Fatalf("owners=%q vs %q", detail.ExistingOwner, detail.NewOwner)
@@ -136,9 +136,9 @@ func TestRouteRegistryDuplicateOwnersConflict(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected conflict")
 	}
-	var detail httpcontract.RouteConflictDetail
+	var detail httpcontract.RouteConflictError
 	if !errors.As(err, &detail) {
-		t.Fatalf("want RouteConflictDetail, got %T: %v", err, err)
+		t.Fatalf("want RouteConflictError, got %T: %v", err, err)
 	}
 	if detail.ExistingOwner != "primary-owner" || detail.NewOwner != "secondary-owner" {
 		t.Fatalf("owners=%q vs %q", detail.ExistingOwner, detail.NewOwner)
@@ -241,9 +241,9 @@ func TestSyntheticOpaqueRouteClaim_MountingDetectionAndCollisionRejection(t *tes
 	if err == nil {
 		t.Fatal("expected collision rejection for conflicting synthetic claim")
 	}
-	var conflict httpcontract.RouteConflictDetail
+	var conflict httpcontract.RouteConflictError
 	if !errors.As(err, &conflict) {
-		t.Fatalf("expected RouteConflictDetail, got %T: %v", err, err)
+		t.Fatalf("expected RouteConflictError, got %T: %v", err, err)
 	}
 	if conflict.ExistingOwner != "ext-custom-synth" || conflict.NewOwner != "ext-custom-rival" {
 		t.Fatalf("unexpected conflict details: %+v", conflict)

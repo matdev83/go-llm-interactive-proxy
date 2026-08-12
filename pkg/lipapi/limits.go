@@ -73,7 +73,7 @@ const (
 	MaxJSONDepth                       = 64
 
 	// MaxAllowedToolRefs bounds the OpenResponses allowed_tools subset size to
-	// the pinned wire schema max (128 refs).
+	// the pinned wire schema maxLen (128 refs).
 	MaxAllowedToolRefs = 128
 )
 
@@ -111,18 +111,18 @@ func validateJSONDepth(data []byte, maxDepth int) error {
 	return nil
 }
 
-func validateStringField(name, s string, max int) error {
-	if max <= 0 {
+func validateStringField(name, s string, maxLen int) error {
+	if maxLen <= 0 {
 		return nil
 	}
-	if len(s) > max {
-		return &ValidationError{Field: name, Message: fmt.Sprintf("exceeds %d bytes", max)}
+	if len(s) > maxLen {
+		return &ValidationError{Field: name, Message: fmt.Sprintf("exceeds %d bytes", maxLen)}
 	}
 	return nil
 }
 
-func validateExactStringField(name, s string, max int) error {
-	if err := validateStringField(name, s, max); err != nil {
+func validateExactStringField(name, s string, maxLen int) error {
+	if err := validateStringField(name, s, maxLen); err != nil {
 		return err
 	}
 	if s != "" && s != strings.TrimSpace(s) {

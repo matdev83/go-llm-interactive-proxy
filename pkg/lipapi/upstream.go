@@ -17,15 +17,15 @@ const (
 	PhasePostOutput OutputPhase = "post_output"
 )
 
-// UpstreamFailure is a structured upstream error for orchestration (executor, diagnostics).
-type UpstreamFailure struct {
+// UpstreamFailureError is a structured upstream error for orchestration (executor, diagnostics).
+type UpstreamFailureError struct {
 	Phase        OutputPhase
 	Recoverable  bool
 	Reason       string
 	CandidateKey string
 }
 
-func (e *UpstreamFailure) Error() string {
+func (e *UpstreamFailureError) Error() string {
 	if e.Reason != "" {
 		return e.Reason
 	}
@@ -36,7 +36,7 @@ func (e *UpstreamFailure) Error() string {
 }
 
 // Unwrap returns ErrRecoverablePreOutput when a pre-output failure is recoverable.
-func (e *UpstreamFailure) Unwrap() error {
+func (e *UpstreamFailureError) Unwrap() error {
 	if e == nil {
 		return nil
 	}
@@ -46,15 +46,15 @@ func (e *UpstreamFailure) Unwrap() error {
 	return nil
 }
 
-type recoverablePreOutputWrapper struct {
+type recoverablePreOutputError struct {
 	cause error
 }
 
-func (e *recoverablePreOutputWrapper) Error() string {
+func (e *recoverablePreOutputError) Error() string {
 	return fmt.Sprintf("%v: %v", ErrRecoverablePreOutput, e.cause)
 }
 
-func (e *recoverablePreOutputWrapper) Unwrap() []error {
+func (e *recoverablePreOutputError) Unwrap() []error {
 	return []error{ErrRecoverablePreOutput, e.cause}
 }
 
@@ -62,7 +62,7 @@ func RecoverablePreOutputError(err error) error {
 	if err == nil {
 		return nil
 	}
-	return &recoverablePreOutputWrapper{cause: err}
+	return &recoverablePreOutputError{cause: err}
 }
 
 // IsRecoverablePreOutput reports whether err should allow another backend attempt
@@ -74,6 +74,6 @@ func IsRecoverablePreOutput(err error) bool {
 	if errors.Is(err, ErrRecoverablePreOutput) {
 		return true
 	}
-	var uf *UpstreamFailure
+	var uf *UpstreamFailureError
 	return errors.As(err, &uf) && uf.Recoverable && uf.Phase == PhasePreOutput
 }

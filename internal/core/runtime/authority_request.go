@@ -582,7 +582,7 @@ func boundVersionsForProvider(st *requestAuthorityState, providerID string) term
 // errors. Concurrency denials use the stable concurrency_limit category and must
 // not include internal lease IDs (requirements 10.11, 14.3).
 func mapRequestAuthorityError(err error) error {
-	var denied *authoritycoord.ErrDenied
+	var denied *authoritycoord.DeniedError
 	if errors.As(err, &denied) && denied != nil && denied.ProviderID == "concurrency" {
 		return lipapi.NewPolicyDeniedError(
 			"request_authority",
@@ -593,7 +593,7 @@ func mapRequestAuthorityError(err error) error {
 			nil,
 		)
 	}
-	var unavail *authoritycoord.ErrUnavailable
+	var unavail *authoritycoord.UnavailableError
 	if errors.As(err, &unavail) && unavail != nil && unavail.ProviderID == "concurrency" {
 		return lipapi.NewPolicyFailureError(
 			"request_authority",

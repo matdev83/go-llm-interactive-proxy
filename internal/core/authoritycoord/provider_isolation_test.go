@@ -32,9 +32,9 @@ func TestRequestCoordinator_IsolatesProviderPanicFailClosed(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unavailable error from provider panic")
 	}
-	var unavail *authoritycoord.ErrUnavailable
+	var unavail *authoritycoord.UnavailableError
 	if !errors.As(err, &unavail) {
-		t.Fatalf("want ErrUnavailable, got %T %v", err, err)
+		t.Fatalf("want UnavailableError, got %T %v", err, err)
 	}
 	if unavail.ProviderID != "enterprise" {
 		t.Fatalf("provider id=%q", unavail.ProviderID)
@@ -65,9 +65,9 @@ func TestRequestCoordinator_IsolatesMalformedDecisionKind(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unavailable error from malformed decision")
 	}
-	var unavail *authoritycoord.ErrUnavailable
+	var unavail *authoritycoord.UnavailableError
 	if !errors.As(err, &unavail) {
-		t.Fatalf("want ErrUnavailable, got %T %v", err, err)
+		t.Fatalf("want UnavailableError, got %T %v", err, err)
 	}
 	if unavail.ProviderID != "malformed" {
 		t.Fatalf("provider id=%q", unavail.ProviderID)
@@ -96,9 +96,9 @@ func TestRequestCoordinator_MalformedDecisionReleasesOwnHold(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unavailable error from malformed decision")
 	}
-	var unavail *authoritycoord.ErrUnavailable
+	var unavail *authoritycoord.UnavailableError
 	if !errors.As(err, &unavail) {
-		t.Fatalf("want ErrUnavailable, got %T %v", err, err)
+		t.Fatalf("want UnavailableError, got %T %v", err, err)
 	}
 	if d.Kind != authority.DecisionDeny {
 		t.Fatalf("kind=%s want deny", d.Kind)
@@ -181,9 +181,9 @@ func TestRequestCoordinator_IsolatesConcurrencyPanic(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unavailable error from concurrency panic")
 	}
-	var unavail *authoritycoord.ErrUnavailable
+	var unavail *authoritycoord.UnavailableError
 	if !errors.As(err, &unavail) {
-		t.Fatalf("want ErrUnavailable, got %T %v", err, err)
+		t.Fatalf("want UnavailableError, got %T %v", err, err)
 	}
 	if unavail.ProviderID != "concurrency" {
 		t.Fatalf("provider id=%q", unavail.ProviderID)
@@ -205,9 +205,9 @@ func TestRequestCoordinator_IsolatesMalformedLeaseDecisionKind(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unavailable error from malformed lease decision")
 	}
-	var unavail *authoritycoord.ErrUnavailable
+	var unavail *authoritycoord.UnavailableError
 	if !errors.As(err, &unavail) {
-		t.Fatalf("want ErrUnavailable, got %T %v", err, err)
+		t.Fatalf("want UnavailableError, got %T %v", err, err)
 	}
 	if unavail.ProviderID != "concurrency" {
 		t.Fatalf("provider id=%q", unavail.ProviderID)
@@ -252,9 +252,9 @@ func TestAttemptCoordinator_IsolatesProviderPanic(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unavailable error from attempt provider panic")
 	}
-	var unavail *authoritycoord.ErrUnavailable
+	var unavail *authoritycoord.UnavailableError
 	if !errors.As(err, &unavail) {
-		t.Fatalf("want ErrUnavailable, got %T %v", err, err)
+		t.Fatalf("want UnavailableError, got %T %v", err, err)
 	}
 }
 
@@ -280,9 +280,9 @@ func TestAttemptCoordinator_MalformedDecisionReleasesOwnHold(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unavailable error from malformed attempt decision")
 	}
-	var unavail *authoritycoord.ErrUnavailable
+	var unavail *authoritycoord.UnavailableError
 	if !errors.As(err, &unavail) {
-		t.Fatalf("want ErrUnavailable, got %T %v", err, err)
+		t.Fatalf("want UnavailableError, got %T %v", err, err)
 	}
 	if d.Kind != authority.DecisionDeny {
 		t.Fatalf("kind=%s want deny", d.Kind)
@@ -318,9 +318,9 @@ func TestRequestCoordinator_IsolatesSettleRequestPanicFailClosed(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unavailable error from SettleRequest panic")
 	}
-	var unavail *authoritycoord.ErrUnavailable
+	var unavail *authoritycoord.UnavailableError
 	if !errors.As(err, &unavail) {
-		t.Fatalf("want ErrUnavailable, got %T %v", err, err)
+		t.Fatalf("want UnavailableError, got %T %v", err, err)
 	}
 	if unavail.ProviderID != "enterprise" {
 		t.Fatalf("provider id=%q", unavail.ProviderID)
@@ -432,9 +432,9 @@ func TestAttemptCoordinator_IsolatesSettleAttemptPanicFailClosed(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unavailable error from SettleAttempt panic")
 	}
-	var unavail *authoritycoord.ErrUnavailable
+	var unavail *authoritycoord.UnavailableError
 	if !errors.As(err, &unavail) {
-		t.Fatalf("want ErrUnavailable, got %T %v", err, err)
+		t.Fatalf("want UnavailableError, got %T %v", err, err)
 	}
 	if unavail.ProviderID != "enterprise-attempt" {
 		t.Fatalf("provider id=%q", unavail.ProviderID)

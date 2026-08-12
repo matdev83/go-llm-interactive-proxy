@@ -27,8 +27,8 @@ func (m *metaCaptureReactor) HandleToolEvent(ctx context.Context, te lipapi.Tool
 
 func TestApplyToolReactors_enrichesMetaFromExecctxViews(t *testing.T) {
 	t.Parallel()
-	cap := &metaCaptureReactor{}
-	bus := hooks.New(hooks.Config{ToolReactors: []sdkhooks.ToolReactor{cap}})
+	capture := &metaCaptureReactor{}
+	bus := hooks.New(hooks.Config{ToolReactors: []sdkhooks.ToolReactor{capture}})
 	ctx := execctx.WithViews(context.Background(), execctx.Views{
 		Session:   session.SessionView{ClientSessionHint: "s1"},
 		Workspace: lipworkspace.WorkspaceView{ProjectRoot: "/root"},
@@ -36,13 +36,13 @@ func TestApplyToolReactors_enrichesMetaFromExecctxViews(t *testing.T) {
 	te := lipapi.ToolEvent{Kind: lipapi.ToolEventStarted}
 	base := sdkhooks.ToolMeta{TraceID: "t", ALegID: "a", BLegID: "b", AttemptSeq: 1}
 	_ = bus.ApplyToolReactors(ctx, te, base)
-	if cap.got.Session.ClientSessionHint != "s1" {
-		t.Fatalf("session %+v", cap.got.Session)
+	if capture.got.Session.ClientSessionHint != "s1" {
+		t.Fatalf("session %+v", capture.got.Session)
 	}
-	if cap.got.Workspace.ProjectRoot != "/root" {
-		t.Fatalf("workspace %+v", cap.got.Workspace)
+	if capture.got.Workspace.ProjectRoot != "/root" {
+		t.Fatalf("workspace %+v", capture.got.Workspace)
 	}
-	if cap.got.TraceID != "t" {
-		t.Fatalf("trace %q", cap.got.TraceID)
+	if capture.got.TraceID != "t" {
+		t.Fatalf("trace %q", capture.got.TraceID)
 	}
 }

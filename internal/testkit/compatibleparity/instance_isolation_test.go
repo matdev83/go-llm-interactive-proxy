@@ -258,12 +258,12 @@ func sameTokenizerAttachment(a, b execbackend.Backend) bool {
 	return a.TokenizerID == b.TokenizerID
 }
 
-func concurrencyGap(t *testing.T, instanceID string, max int, label string) string {
+func concurrencyGap(t *testing.T, instanceID string, limit int, label string) string {
 	t.Helper()
-	if max <= 0 {
+	if limit <= 0 {
 		return fmt.Sprintf("%s: fixture max_concurrent_requests must be positive", label)
 	}
-	reg, _, err := compatibleadmission.AttemptRegistration(compatibleadmission.Limits{instanceID: max}, leasestore.NewMemory(leasestore.MemoryConfig{StoreID: "compatible-admission-test"}))
+	reg, _, err := compatibleadmission.AttemptRegistration(compatibleadmission.Limits{instanceID: limit}, leasestore.NewMemory(leasestore.MemoryConfig{StoreID: "compatible-admission-test"}))
 	if err != nil {
 		return fmt.Sprintf("%s: admission registration: %v", label, err)
 	}
@@ -275,7 +275,7 @@ func concurrencyGap(t *testing.T, instanceID string, max int, label string) stri
 	var peak atomic.Int32
 	var denied atomic.Int32
 	var wg sync.WaitGroup
-	for i := 0; i < max+3; i++ {
+	for i := 0; i < limit+3; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -299,11 +299,11 @@ func concurrencyGap(t *testing.T, instanceID string, max int, label string) stri
 	time.Sleep(40 * time.Millisecond)
 	close(block)
 	wg.Wait()
-	if peak.Load() > int32(max) {
-		return fmt.Sprintf("RED: instance %s max_concurrent_requests=%d not enforced (peak in-flight=%d, denied=%d)", label, max, peak.Load(), denied.Load())
+	if peak.Load() > int32(limit) {
+		return fmt.Sprintf("RED: instance %s max_concurrent_requests=%d not enforced (peak in-flight=%d, denied=%d)", label, limit, peak.Load(), denied.Load())
 	}
 	if denied.Load() == 0 {
-		return fmt.Sprintf("RED: instance %s max_concurrent_requests=%d produced no overload denials", label, max)
+		return fmt.Sprintf("RED: instance %s max_concurrent_requests=%d produced no overload denials", label, limit)
 	}
 	return ""
 }

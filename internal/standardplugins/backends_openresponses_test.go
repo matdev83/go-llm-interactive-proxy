@@ -341,10 +341,10 @@ func TestOpenResponsesCompatible_DiagnosticsInvalidConfigCarriesError(t *testing
 	}
 }
 
-func compatCapsHas(caps lipapi.BackendCaps, cap lipapi.Capability) bool {
+func compatCapsHas(caps lipapi.BackendCaps, targetCap lipapi.Capability) bool {
 	if caps == nil {
 		return false
 	}
-	_, ok := caps[cap]
+	_, ok := caps[targetCap]
 	return ok
 }

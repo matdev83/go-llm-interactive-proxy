@@ -26,14 +26,14 @@ const (
 	ExecuteFailureProtocolViolation
 )
 
-// ExecuteFailure is the classified Execute boundary error.
-type ExecuteFailure struct {
+// ExecuteFailureError is the classified Execute boundary error.
+type ExecuteFailureError struct {
 	Kind            ExecuteFailureKind
 	Err             error
 	OutputCommitted bool
 }
 
-func (e *ExecuteFailure) Error() string {
+func (e *ExecuteFailureError) Error() string {
 	if e == nil {
 		return "execute failure"
 	}
@@ -43,7 +43,7 @@ func (e *ExecuteFailure) Error() string {
 	return "execute failure"
 }
 
-func (e *ExecuteFailure) Unwrap() error {
+func (e *ExecuteFailureError) Unwrap() error {
 	if e == nil {
 		return nil
 	}
@@ -51,7 +51,7 @@ func (e *ExecuteFailure) Unwrap() error {
 }
 
 // InvalidatesGeneration reports whether the failure requires generation invalidation.
-func (e *ExecuteFailure) InvalidatesGeneration() bool {
+func (e *ExecuteFailureError) InvalidatesGeneration() bool {
 	if e == nil {
 		return false
 	}
@@ -59,7 +59,7 @@ func (e *ExecuteFailure) InvalidatesGeneration() bool {
 }
 
 // ToClassifiedError maps the failure to a sanitized ClassifiedError for core.
-func (e *ExecuteFailure) ToClassifiedError() *ClassifiedError {
+func (e *ExecuteFailureError) ToClassifiedError() *ClassifiedError {
 	if e == nil {
 		return nil
 	}
@@ -89,21 +89,21 @@ func (e *ExecuteFailure) ToClassifiedError() *ClassifiedError {
 }
 
 // TransportDeath wraps err as transport/process death.
-func TransportDeath(err error) *ExecuteFailure {
-	return &ExecuteFailure{Kind: ExecuteFailureTransportDeath, Err: err}
+func TransportDeath(err error) *ExecuteFailureError {
+	return &ExecuteFailureError{Kind: ExecuteFailureTransportDeath, Err: err}
 }
 
 // ProtocolViolation wraps err as an ABI protocol violation.
-func ProtocolViolation(err error) *ExecuteFailure {
-	return &ExecuteFailure{Kind: ExecuteFailureProtocolViolation, Err: err}
+func ProtocolViolation(err error) *ExecuteFailureError {
+	return &ExecuteFailureError{Kind: ExecuteFailureProtocolViolation, Err: err}
 }
 
 // ClassifyExecuteError classifies an ExecuteSession error at the openStream boundary.
-func ClassifyExecuteError(err error, committed bool) *ExecuteFailure {
+func ClassifyExecuteError(err error, committed bool) *ExecuteFailureError {
 	if err == nil {
 		return nil
 	}
-	var ef *ExecuteFailure
+	var ef *ExecuteFailureError
 	if errors.As(err, &ef) {
 		out := *ef
 		out.OutputCommitted = committed
@@ -113,42 +113,42 @@ func ClassifyExecuteError(err error, committed bool) *ExecuteFailure {
 		return &out
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return &ExecuteFailure{Kind: ExecuteFailureCanceled, Err: err, OutputCommitted: committed}
+		return &ExecuteFailureError{Kind: ExecuteFailureCanceled, Err: err, OutputCommitted: committed}
 	}
 	if isProtocolSentinel(err) {
-		return &ExecuteFailure{Kind: ExecuteFailureProtocolViolation, Err: err, OutputCommitted: committed}
+		return &ExecuteFailureError{Kind: ExecuteFailureProtocolViolation, Err: err, OutputCommitted: committed}
 	}
 	var ce *ClassifiedError
 	if errors.As(err, &ce) {
 		switch ce.Code {
 		case "frame_too_large", "protocol":
-			return &ExecuteFailure{Kind: ExecuteFailureProtocolViolation, Err: err, OutputCommitted: committed}
+			return &ExecuteFailureError{Kind: ExecuteFailureProtocolViolation, Err: err, OutputCommitted: committed}
 		case "provider":
-			return &ExecuteFailure{Kind: ExecuteFailureProvider, Err: err, OutputCommitted: committed}
+			return &ExecuteFailureError{Kind: ExecuteFailureProvider, Err: err, OutputCommitted: committed}
 		case "canceled":
-			return &ExecuteFailure{Kind: ExecuteFailureCanceled, Err: err, OutputCommitted: committed}
+			return &ExecuteFailureError{Kind: ExecuteFailureCanceled, Err: err, OutputCommitted: committed}
 		}
 	}
 	var me backendplugin.ModeError
 	if errors.As(err, &me) {
-		return &ExecuteFailure{Kind: ExecuteFailureTransportDeath, Err: err, OutputCommitted: committed}
+		return &ExecuteFailureError{Kind: ExecuteFailureTransportDeath, Err: err, OutputCommitted: committed}
 	}
 	if st, ok := status.FromError(err); ok {
 		switch st.Code() {
 		case codes.Canceled:
-			return &ExecuteFailure{Kind: ExecuteFailureCanceled, Err: err, OutputCommitted: committed}
+			return &ExecuteFailureError{Kind: ExecuteFailureCanceled, Err: err, OutputCommitted: committed}
 		case codes.Unavailable, codes.DeadlineExceeded:
-			return &ExecuteFailure{Kind: ExecuteFailureTransportDeath, Err: err, OutputCommitted: committed}
+			return &ExecuteFailureError{Kind: ExecuteFailureTransportDeath, Err: err, OutputCommitted: committed}
 		case codes.Unknown, codes.Internal, codes.Aborted:
 			if errors.Is(err, io.EOF) || strings.Contains(st.Message(), "EOF") || strings.Contains(st.Message(), "transport is closing") {
-				return &ExecuteFailure{Kind: ExecuteFailureTransportDeath, Err: err, OutputCommitted: committed}
+				return &ExecuteFailureError{Kind: ExecuteFailureTransportDeath, Err: err, OutputCommitted: committed}
 			}
 		}
 	}
 	if errors.Is(err, io.EOF) {
-		return &ExecuteFailure{Kind: ExecuteFailureTransportDeath, Err: err, OutputCommitted: committed}
+		return &ExecuteFailureError{Kind: ExecuteFailureTransportDeath, Err: err, OutputCommitted: committed}
 	}
-	return &ExecuteFailure{Kind: ExecuteFailureTransportDeath, Err: err, OutputCommitted: committed}
+	return &ExecuteFailureError{Kind: ExecuteFailureTransportDeath, Err: err, OutputCommitted: committed}
 }
 
 func isProtocolSentinel(err error) bool {

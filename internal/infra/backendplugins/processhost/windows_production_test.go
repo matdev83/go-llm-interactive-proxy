@@ -469,7 +469,7 @@ var (
 	fixtureDir     string
 	fakePluginOnce sync.Once
 	fakePluginPath string
-	fakePluginErr  error
+	errFakePlugin  error
 )
 
 // TestMain owns the package-level fixture directory so the fake connector
@@ -493,20 +493,20 @@ func buildFakePlugin(t *testing.T) string {
 	fakePluginOnce.Do(func() {
 		root, err := repoRoot()
 		if err != nil {
-			fakePluginErr = err
+			errFakePlugin = err
 			return
 		}
 		bin := filepath.Join(fixtureDir, "lip-backendplugin-fake.exe")
 		cmd := exec.Command("go", "build", "-o", bin, "./internal/testkit/backendplugin/cmd/lip-backendplugin-fake")
 		cmd.Dir = root
 		if out, err := cmd.CombinedOutput(); err != nil {
-			fakePluginErr = fmt.Errorf("build fake: %v\n%s", err, out)
+			errFakePlugin = fmt.Errorf("build fake: %v\n%s", err, out)
 			return
 		}
 		fakePluginPath = bin
 	})
-	if fakePluginErr != nil {
-		t.Fatal(fakePluginErr)
+	if errFakePlugin != nil {
+		t.Fatal(errFakePlugin)
 	}
 	return fakePluginPath
 }

@@ -99,7 +99,7 @@ func (b *ttftBudget) scopedContext(parent context.Context, now time.Time, candid
 }
 
 func ttftFailure(scope ttftTimeoutScope, candidateKey string) error {
-	return &lipapi.UpstreamFailure{
+	return &lipapi.UpstreamFailureError{
 		Phase:        lipapi.PhasePreOutput,
 		Recoverable:  scope == ttftTimeoutLeaf,
 		Reason:       ttftAttemptReason(scope),

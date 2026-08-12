@@ -108,12 +108,12 @@ func nativeHistoryFuzzCall(raw string, mutation uint8, callID, toolName string) 
 	}
 }
 
-func boundedFuzzString(value, fallback string, max int) string {
+func boundedFuzzString(value, fallback string, maxLen int) string {
 	if value == "" {
 		return fallback
 	}
-	if len(value) > max {
-		return value[:max]
+	if len(value) > maxLen {
+		return value[:maxLen]
 	}
 	return value
 }

@@ -64,9 +64,9 @@ func TestBackend_EnforcesMaxOutputTokensOnWire(t *testing.T) {
 	if !be.EnforcesMaxOutputTokens {
 		t.Fatal("generic OR backend must set EnforcesMaxOutputTokens=true")
 	}
-	max := 128
+	maxTokens := 128
 	call := itemAuthorityCreateCall()
-	call.Options.MaxOutputTokens = &max
+	call.Options.MaxOutputTokens = &maxTokens
 	if !be.CanEnforceAuthorityMaxOutputTokens(&call) {
 		t.Fatal("CanEnforceAuthorityMaxOutputTokens must be true for a clamped call")
 	}
@@ -325,10 +325,10 @@ func openErrOf(t *testing.T, be execbackend.Backend) error {
 	return err
 }
 
-func capsHas(caps lipapi.BackendCaps, cap lipapi.Capability) bool {
+func capsHas(caps lipapi.BackendCaps, targetCap lipapi.Capability) bool {
 	if caps == nil {
 		return false
 	}
-	_, ok := caps[cap]
+	_, ok := caps[targetCap]
 	return ok
 }

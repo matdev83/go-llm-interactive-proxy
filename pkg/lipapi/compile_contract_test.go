@@ -22,6 +22,6 @@ func TestCanonicalTypesAreConstructible(t *testing.T) {
 	ev := lipapi.Event{Kind: lipapi.EventResponseStarted}
 	_ = ev
 
-	cap := lipapi.CapabilitySet{Provides: []lipapi.Capability{lipapi.CapabilityStreaming}}
-	_ = cap
+	caps := lipapi.CapabilitySet{Provides: []lipapi.Capability{lipapi.CapabilityStreaming}}
+	_ = caps
 }

@@ -202,8 +202,8 @@ func TestResolveInterleavedInstructions_RejectsOversizedFile(t *testing.T) {
 	t.Parallel()
 	configDir := t.TempDir()
 	path := filepath.Join(configDir, "big.txt")
-	max := config.DefaultInterleavedMaxInstructionsBytes
-	if err := os.WriteFile(path, []byte(strings.Repeat("x", max+1)), 0o644); err != nil {
+	maxBytes := config.DefaultInterleavedMaxInstructionsBytes
+	if err := os.WriteFile(path, []byte(strings.Repeat("x", maxBytes+1)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{

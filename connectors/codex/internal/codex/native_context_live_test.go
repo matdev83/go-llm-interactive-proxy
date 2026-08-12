@@ -390,9 +390,9 @@ func collectNativeContextLiveEvents(engine *Engine, call lipapi.Call, model stri
 func firstLiveReasoning(events []lipapi.Event) *lipapi.ReasoningPart {
 	for _, event := range events {
 		if event.Kind == lipapi.EventReasoningPart && event.Reasoning != nil && len(event.Reasoning.Opaque) > 0 {
-			copy := *event.Reasoning
-			copy.Opaque = append([]byte(nil), event.Reasoning.Opaque...)
-			return &copy
+			copied := *event.Reasoning
+			copied.Opaque = append([]byte(nil), event.Reasoning.Opaque...)
+			return &copied
 		}
 	}
 	return nil

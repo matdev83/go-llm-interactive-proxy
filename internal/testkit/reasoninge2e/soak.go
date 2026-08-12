@@ -104,7 +104,7 @@ func ParseSoakConfig(getenv func(string) string) (SoakConfig, error) {
 	return cfg, nil
 }
 
-func parsePositiveBound(raw string, def, max int, name string) (int, error) {
+func parsePositiveBound(raw string, def, maxBound int, name string) (int, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return def, nil
@@ -116,8 +116,8 @@ func parsePositiveBound(raw string, def, max int, name string) (int, error) {
 	if v <= 0 {
 		return 0, fmt.Errorf("reasoninge2e soak: %s must be > 0", name)
 	}
-	if v > max {
-		return 0, fmt.Errorf("reasoninge2e soak: %s=%d exceeds max %d", name, v, max)
+	if v > maxBound {
+		return 0, fmt.Errorf("reasoninge2e soak: %s=%d exceeds max %d", name, v, maxBound)
 	}
 	return v, nil
 }

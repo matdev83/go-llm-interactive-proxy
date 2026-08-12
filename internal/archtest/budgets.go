@@ -244,8 +244,8 @@ func MeasureGenericCompatibleBackendOverlay(root string, exclude map[string]stru
 	return GenericCompatibleOverlayMeasurement(base), nil
 }
 
-func measureOverlayByPathMarkers(root string, pathMarkers []string, max int, exclude map[string]struct{}) (ConnectorOverlayMeasurement, error) {
-	m := ConnectorOverlayMeasurement{Max: max}
+func measureOverlayByPathMarkers(root string, pathMarkers []string, maxBytes int, exclude map[string]struct{}) (ConnectorOverlayMeasurement, error) {
+	m := ConnectorOverlayMeasurement{Max: maxBytes}
 	// Preserve the root-wide metric semantics, but do not descend into sibling
 	// worktrees. The main checkout may contain hundreds of megabytes of agent
 	// worktrees here.
@@ -295,8 +295,8 @@ func measureOverlayByPathMarkers(root string, pathMarkers []string, max int, exc
 	return m, nil
 }
 
-func measureOverlayByMarkers(root string, markers []string, max int, exclude map[string]struct{}) (ConnectorOverlayMeasurement, error) {
-	m := ConnectorOverlayMeasurement{Max: max}
+func measureOverlayByMarkers(root string, markers []string, maxBytes int, exclude map[string]struct{}) (ConnectorOverlayMeasurement, error) {
+	m := ConnectorOverlayMeasurement{Max: maxBytes}
 	for _, s := range RuntimeConvergenceAffectedSurfaces {
 		dir := filepath.Join(root, filepath.FromSlash(s.Tree))
 		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {

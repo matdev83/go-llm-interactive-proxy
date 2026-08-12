@@ -9,7 +9,8 @@ import (
 type GenLifecycle uint32
 
 const (
-	GenPreparing GenLifecycle = iota
+	GenUnspecified GenLifecycle = iota
+	GenPreparing
 	GenPrepared
 	GenActive
 	GenRetiring

@@ -212,9 +212,9 @@ func formatABIDeclaration(fset *token.FileSet, node ast.Node) string {
 	case *ast.Field:
 		expr = n
 	case *ast.FuncDecl:
-		copy := *n
-		copy.Body = nil
-		expr = &copy
+		copied := *n
+		copied.Body = nil
+		expr = &copied
 	case *ast.ValueSpec:
 		// Const initializer expressions are ABI-significant. Var initializers
 		// are cleared by the scanner before reaching this formatter.

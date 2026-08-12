@@ -154,8 +154,8 @@ func TestBoundView_nilRuntimeSafe(t *testing.T) {
 	}
 }
 
-var errNoCache = errString("no cache")
+var errNoCache = stringError("no cache")
 
-type errString string
+type stringError string
 
-func (e errString) Error() string { return string(e) }
+func (e stringError) Error() string { return string(e) }

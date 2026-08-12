@@ -144,12 +144,12 @@ func TestPhase6_missingOptionalScopeDoesNotChangeRoutingOrAttempts(t *testing.T)
 		CostCenterID:   scope.Known("c-r"),
 		OrganizationID: scope.Known("o-r"),
 	}
-	min := scope.PrincipalScopeView{
+	minScope := scope.PrincipalScopeView{
 		SubjectKind: scope.SubjectHuman,
 		PrincipalID: scope.Known("user-r"),
 	}
 	_, richOpens := run(t, rich)
-	minID, minOpens := run(t, min)
+	minID, minOpens := run(t, minScope)
 	if richOpens != minOpens {
 		t.Fatalf("optional scope changed attempt count: rich=%d min=%d", richOpens, minOpens)
 	}

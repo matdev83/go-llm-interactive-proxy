@@ -206,18 +206,18 @@ func atomicReplaceFile(b *testing.B, path, body string) {
 }
 
 // waitRetainedBelow sweeps closed generations and waits until retained count is
-// at or below max so successful-reload iterations never hit the hard retention
+// at or below limit so successful-reload iterations never hit the hard retention
 // budget. Timing must stay stopped around this helper.
-func waitRetainedBelow(b *testing.B, mgr *runtimehost.Manager, max int, timeout time.Duration) {
+func waitRetainedBelow(b *testing.B, mgr *runtimehost.Manager, limit int, timeout time.Duration) {
 	b.Helper()
 	deadline := time.Now().Add(timeout)
 	for {
 		mgr.SweepClosed()
-		if mgr.RetainedCount() <= max {
+		if mgr.RetainedCount() <= limit {
 			return
 		}
 		if time.Now().After(deadline) {
-			b.Fatalf("retained=%d still above %d after %s", mgr.RetainedCount(), max, timeout)
+			b.Fatalf("retained=%d still above %d after %s", mgr.RetainedCount(), limit, timeout)
 		}
 		time.Sleep(time.Millisecond)
 	}

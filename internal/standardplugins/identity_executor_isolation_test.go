@@ -206,9 +206,9 @@ func TestIdentityExecutor_ID147_parallelRaceIsolatesUserAgent(t *testing.T) {
 	releaseBoth := func() { releaseOnce.Do(func() { close(release) }) }
 	t.Cleanup(releaseBoth)
 
-	handler := func(cap *capturedHeaders) http.Handler {
+	handler := func(captured *capturedHeaders) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			cap.observe(r)
+			captured.observe(r)
 			arrived <- struct{}{}
 			select {
 			case <-release:
@@ -317,10 +317,10 @@ func TestIdentityExecutor_ID147_parallelRaceIsolatesUserAgent(t *testing.T) {
 func TestIdentityExecutor_ID147_credentialRetryPreservesBackendIdentity(t *testing.T) {
 	t.Parallel()
 
-	var cap capturedHeaders
+	var captured capturedHeaders
 	var n atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cap.observe(r)
+		captured.observe(r)
 		if n.Add(1) == 1 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
@@ -351,7 +351,7 @@ api_keys:
 	if err != nil {
 		t.Fatal(err)
 	}
-	uas, keys, _, _ := cap.snapshot()
+	uas, keys, _, _ := captured.snapshot()
 	if len(uas) < 2 {
 		t.Fatalf("want >=2 credential attempts, got %d uas=%v", len(uas), uas)
 	}
