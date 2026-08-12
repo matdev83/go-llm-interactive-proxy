@@ -53,7 +53,7 @@ func TestSecureAttemptOutcome_mapsOutcomes(t *testing.T) {
 			name: "surfaced_upstream",
 			p: recordAttemptParams{
 				BLeg: bleg, Outcome: lipapi.AttemptSurfacedFailure, Reason: "boom",
-				DetailErr: &lipapi.UpstreamFailure{Phase: lipapi.PhasePreOutput, Recoverable: false, CandidateKey: "ck"},
+				DetailErr: &lipapi.UpstreamFailureError{Phase: lipapi.PhasePreOutput, Recoverable: false, CandidateKey: "ck"},
 			},
 			assert: func(t *testing.T, o domain.AttemptOutcome) {
 				t.Helper()

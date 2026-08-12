@@ -211,21 +211,21 @@ func ensurePathUnderBase(absBase, absPath, label string) error {
 }
 
 func readInterleavedInstructionsFile(path string) ([]byte, error) {
-	max := DefaultInterleavedMaxInstructionsBytes
+	maxBytes := DefaultInterleavedMaxInstructionsBytes
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	if st, err := f.Stat(); err == nil && st.Size() > int64(max) {
-		return nil, fmt.Errorf("file exceeds %d bytes", max)
+	if st, err := f.Stat(); err == nil && st.Size() > int64(maxBytes) {
+		return nil, fmt.Errorf("file exceeds %d bytes", maxBytes)
 	}
-	b, err := io.ReadAll(io.LimitReader(f, int64(max)+1))
+	b, err := io.ReadAll(io.LimitReader(f, int64(maxBytes)+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(b) > max {
-		return nil, fmt.Errorf("file exceeds %d bytes", max)
+	if len(b) > maxBytes {
+		return nil, fmt.Errorf("file exceeds %d bytes", maxBytes)
 	}
 	return b, nil
 }

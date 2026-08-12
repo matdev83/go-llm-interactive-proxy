@@ -15,7 +15,7 @@ func mapBackendPanic(pe *safety.PanicError, committed bool, candidateKey string)
 	}
 	reason := diag.TruncErrDetail(pe, attemptReasonMaxRunes)
 	if committed {
-		return &lipapi.UpstreamFailure{
+		return &lipapi.UpstreamFailureError{
 			Phase:        lipapi.PhasePostOutput,
 			Recoverable:  false,
 			Reason:       reason,

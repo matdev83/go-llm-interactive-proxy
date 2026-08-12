@@ -43,8 +43,8 @@ func TestOmittedRoute_openaiResponses_usesEffectiveDefaultRoute(t *testing.T) {
 	if route != unifiedPolicyRoute {
 		t.Fatalf("effective route %q", route)
 	}
-	var cap sync.Map
-	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
+	var captured sync.Map
+	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &captured)
 	mux := http.NewServeMux()
 	if err := MountBundledFrontends(MountBundledFrontendsInput{
 		Mux: mux,
@@ -66,7 +66,7 @@ func TestOmittedRoute_openaiResponses_usesEffectiveDefaultRoute(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 	}
-	v, ok := cap.Load("last")
+	v, ok := captured.Load("last")
 	if !ok {
 		t.Fatal("expected captured call")
 	}
@@ -79,8 +79,8 @@ func TestOmittedRoute_openaiResponses_usesEffectiveDefaultRoute(t *testing.T) {
 func TestBodyRoute_openaiResponses_usesMountedRoutePrefixes(t *testing.T) {
 	t.Parallel()
 	reg := testRegistryWithStdBundle(t)
-	var cap sync.Map
-	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
+	var captured sync.Map
+	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &captured)
 	mux := http.NewServeMux()
 	if err := MountBundledFrontends(MountBundledFrontendsInput{
 		Mux: mux,
@@ -103,7 +103,7 @@ func TestBodyRoute_openaiResponses_usesMountedRoutePrefixes(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 	}
-	v, ok := cap.Load("last")
+	v, ok := captured.Load("last")
 	if !ok {
 		t.Fatal("expected captured call")
 	}
@@ -118,8 +118,8 @@ func TestOmittedRoute_openaiLegacy_usesEffectiveDefaultRoute(t *testing.T) {
 	reg := testRegistryWithStdBundle(t)
 	cfg := policyConfig()
 	route := config.EffectiveDefaultRouteSelector(cfg, standardplugins.DefaultWireModel)
-	var cap sync.Map
-	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
+	var captured sync.Map
+	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &captured)
 	mux := http.NewServeMux()
 	if err := MountBundledFrontends(MountBundledFrontendsInput{
 		Mux: mux,
@@ -141,7 +141,7 @@ func TestOmittedRoute_openaiLegacy_usesEffectiveDefaultRoute(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 	}
-	v, ok := cap.Load("last")
+	v, ok := captured.Load("last")
 	if !ok {
 		t.Fatal("expected captured call")
 	}
@@ -156,8 +156,8 @@ func TestOmittedRoute_anthropic_usesEffectiveDefaultRoute(t *testing.T) {
 	reg := testRegistryWithStdBundle(t)
 	cfg := policyConfig()
 	route := config.EffectiveDefaultRouteSelector(cfg, standardplugins.DefaultWireModel)
-	var cap sync.Map
-	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
+	var captured sync.Map
+	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &captured)
 	mux := http.NewServeMux()
 	if err := MountBundledFrontends(MountBundledFrontendsInput{
 		Mux: mux,
@@ -179,7 +179,7 @@ func TestOmittedRoute_anthropic_usesEffectiveDefaultRoute(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 	}
-	v, ok := cap.Load("last")
+	v, ok := captured.Load("last")
 	if !ok {
 		t.Fatal("expected captured call")
 	}

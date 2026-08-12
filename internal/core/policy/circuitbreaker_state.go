@@ -93,11 +93,11 @@ func (s *CircuitBreakerState) unhealthyKeys(now time.Time, threshold int) map[st
 }
 
 func (s *CircuitBreakerState) ensureRoomForNewKeyLocked(key string) {
-	max := s.maxKeys
-	if max <= 0 {
-		max = defaultMaxTrackedCircuitKeys
+	limit := s.maxKeys
+	if limit <= 0 {
+		limit = defaultMaxTrackedCircuitKeys
 	}
-	for s.keys[key] == nil && len(s.keys) >= max {
+	for s.keys[key] == nil && len(s.keys) >= limit {
 		if !s.evictOneIdleLocked() {
 			s.evictLowestPressureLocked()
 		}

@@ -83,17 +83,17 @@ func TestMemoryStore_defaultMaxLegs_evictsOldestWhenTTLDisabled(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	const cap = 5
-	s.maxLegs = cap
+	const capacity = 5
+	s.maxLegs = capacity
 
-	for i := range cap + 2 {
+	for i := range capacity + 2 {
 		tick = t0.Add(time.Duration(i) * time.Millisecond)
 		if _, err := s.CreateALeg(ctx, fmt.Sprintf("u-%d", i)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if got := len(s.legs); got != cap {
-		t.Fatalf("want %d legs after overflow create, got %d", cap, got)
+	if got := len(s.legs); got != capacity {
+		t.Fatalf("want %d legs after overflow create, got %d", capacity, got)
 	}
 }
 

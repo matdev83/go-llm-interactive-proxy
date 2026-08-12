@@ -78,12 +78,12 @@ func ValidateMetadata(meta map[string]string) error {
 	return nil
 }
 
-func validateMetadataCarrier(key, value string, max int) error {
+func validateMetadataCarrier(key, value string, maxBytes int) error {
 	value = strings.TrimSpace(value)
-	if value == "" || len(value) <= max {
+	if value == "" || len(value) <= maxBytes {
 		return nil
 	}
-	return fmt.Errorf("metadata %s exceeds %d bytes", key, max)
+	return fmt.Errorf("metadata %s exceeds %d bytes", key, maxBytes)
 }
 
 // WithoutSensitiveToken replaces exact rawToken substrings in s for log-safe strings.

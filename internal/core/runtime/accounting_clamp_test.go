@@ -46,8 +46,8 @@ func TestAuthorityClampChargesInputBeforeOutput(t *testing.T) {
 
 func TestAuthorityClampNeverWidensClientCap(t *testing.T) {
 	t.Parallel()
-	max := 10
-	call := lipapi.Call{Options: lipapi.GenerationOptions{MaxOutputTokens: &max}}
+	limit := 10
+	call := lipapi.Call{Options: lipapi.GenerationOptions{MaxOutputTokens: &limit}}
 	executor := &Executor{AccountingRuntime: AccountingRuntime{AccountingPriceCatalog: clampTestCatalog(t)}}
 	err := executor.applyAuthorityClamp(context.Background(), &call, clampTestCandidate(), &authorityapp.AdmissionClamp{
 		EffectiveMax:    authoritydomain.Amount{Unit: authoritydomain.AmountUnitMoneyNano, Value: 6_000_000_000, Currency: "USD"},
@@ -56,8 +56,8 @@ func TestAuthorityClampNeverWidensClientCap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("applyAuthorityClamp: %v", err)
 	}
-	if call.Options.MaxOutputTokens == nil || *call.Options.MaxOutputTokens != max {
-		t.Fatalf("max output = %v, want preserved client cap %d", call.Options.MaxOutputTokens, max)
+	if call.Options.MaxOutputTokens == nil || *call.Options.MaxOutputTokens != limit {
+		t.Fatalf("max output = %v, want preserved client cap %d", call.Options.MaxOutputTokens, limit)
 	}
 }
 
@@ -102,7 +102,7 @@ func TestAuthorityClampTokenInversionOverflowPricingUnavailable(t *testing.T) {
 	}
 	got, outcome := authorityClampMaxOutputTokens(catalog, clampTestCandidate(), 1<<62, 0)
 	if outcome != authorityClampPricingUnavailable {
-		t.Fatalf("outcome=%v max=%d, want pricing unavailable on inversion overflow", outcome, got)
+		t.Fatalf("outcome=%v limit=%d, want pricing unavailable on inversion overflow", outcome, got)
 	}
 	if got != 0 {
 		t.Fatalf("overflow must not widen clamp tokens, got %d", got)
@@ -115,7 +115,7 @@ func TestAuthorityClampRejectsExactInputCostExhaustion(t *testing.T) {
 	// budget is zero and must deny rather than clamp to MaxOutputTokens=0.
 	got, outcome := authorityClampMaxOutputTokens(clampTestCatalog(t), clampTestCandidate(), 2_000_000_000, 1_000_000)
 	if outcome != authorityClampCapacityExhausted {
-		t.Fatalf("outcome = %v max=%d, want capacity exhausted", outcome, got)
+		t.Fatalf("outcome = %v limit=%d, want capacity exhausted", outcome, got)
 	}
 	call := lipapi.Call{}
 	executor := &Executor{AccountingRuntime: AccountingRuntime{AccountingPriceCatalog: clampTestCatalog(t)}}
@@ -130,8 +130,8 @@ func TestAuthorityClampRejectsExactInputCostExhaustion(t *testing.T) {
 
 func TestBackendCanEnforceAuthorityClamp(t *testing.T) {
 	t.Parallel()
-	max := 100
-	call := lipapi.Call{Options: lipapi.GenerationOptions{MaxOutputTokens: &max}}
+	limit := 100
+	call := lipapi.Call{Options: lipapi.GenerationOptions{MaxOutputTokens: &limit}}
 	enforcing := execbackend.Backend{
 		EnforcesMaxOutputTokens:              true,
 		IgnoresAuthorityMaxOutputTokensClamp: execbackend.IgnoresClampViaCodexUnsupportedGenParams,

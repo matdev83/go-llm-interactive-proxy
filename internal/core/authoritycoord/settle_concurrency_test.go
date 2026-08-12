@@ -152,8 +152,8 @@ func TestPhase2_RejectsHandleOnlyReservationAmount(t *testing.T) {
 	if err == nil {
 		t.Fatal("handle-only reservation must fail req 4.3")
 	}
-	var unavail *authoritycoord.ErrUnavailable
+	var unavail *authoritycoord.UnavailableError
 	if !errors.As(err, &unavail) {
-		t.Fatalf("want ErrUnavailable, got %T %v", err, err)
+		t.Fatalf("want UnavailableError, got %T %v", err, err)
 	}
 }

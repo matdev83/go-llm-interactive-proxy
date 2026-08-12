@@ -186,7 +186,7 @@ func openOnce(ctx context.Context, spec BackendSpec, req InvokeRequest, call lip
 	if spec.ClientOptions != nil {
 		clientOptions = spec.ClientOptions(call, cand)
 	}
-	cli := openaicred.NewOpenAIClientWithOptions(spec.BaseURL, apiSecret, spec.HTTPClient, spec.SDKMaxRetries, clientOptions)
+	cli := openaicred.NewClientWithOptions(spec.BaseURL, apiSecret, spec.HTTPClient, spec.SDKMaxRetries, clientOptions)
 
 	var es lipapi.ManagedEventStream
 	var openErr error

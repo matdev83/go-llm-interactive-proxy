@@ -32,16 +32,16 @@ func openRegular(path string) (*os.File, error) {
 	}
 	if info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
 		_ = windows.CloseHandle(h)
-		return nil, errString("symlink_rejected")
+		return nil, stringError("symlink_rejected")
 	}
 	if info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0 {
 		_ = windows.CloseHandle(h)
-		return nil, errString("not regular file")
+		return nil, stringError("not regular file")
 	}
 	f := os.NewFile(uintptr(h), path)
 	if f == nil {
 		_ = windows.CloseHandle(h)
-		return nil, errString("open failed")
+		return nil, stringError("open failed")
 	}
 	return f, nil
 }

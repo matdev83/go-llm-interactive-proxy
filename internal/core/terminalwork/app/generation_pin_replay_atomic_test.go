@@ -434,9 +434,9 @@ func TestGenerationPin_AtomicAdoption_BinderFalseNoClear(t *testing.T) {
 		t.Fatal("seed pending")
 	}
 	binder := executableBinder{gen: execGen}
-	clear, ok := binder.Bind(workID, terminalwork.BoundVersions{GenerationID: "11", ProviderID: "quota"})
-	if ok || clear != nil {
-		t.Fatalf("duplicate AddPendingWork must not return clear; ok=%v clear=%v", ok, clear != nil)
+	release, ok := binder.Bind(workID, terminalwork.BoundVersions{GenerationID: "11", ProviderID: "quota"})
+	if ok || release != nil {
+		t.Fatalf("duplicate AddPendingWork must not return release; ok=%v release=%v", ok, release != nil)
 	}
 	// Winner clear still works.
 	pins.Hold(workID, &countingPin{}, func() { execGen.ClearPendingWork(workID) })

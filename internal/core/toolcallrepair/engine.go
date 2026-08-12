@@ -146,7 +146,7 @@ func (e *Engine) RepairContext(ctx context.Context, in Input) (Outcome, error) {
 				}
 				value, reason, ok, err := deterministicRootPendingValue(compiled, analysis.propertyName)
 				if err != nil {
-					var re *repairErr
+					var re *repairError
 					if errors.As(err, &re) && re.reason != "" {
 						return fail(re.reason), nil
 					}
@@ -198,7 +198,7 @@ func (e *Engine) RepairContext(ctx context.Context, in Input) (Outcome, error) {
 	}
 	repaired, schemaReason, err := repairPreflightedArgsJSONDocument(ctx, args, compiled.orderedDocument, maxBytes)
 	if err != nil {
-		var re *repairErr
+		var re *repairError
 		if errors.As(err, &re) && re.reason != "" {
 			return fail(re.reason), nil
 		}

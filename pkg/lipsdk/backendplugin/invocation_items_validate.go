@@ -64,7 +64,7 @@ func validateInvocationWire(inv Invocation) error {
 				seenIDs[id] = struct{}{}
 			}
 		}
-		if err := validateProtocolRequirementsDTO(inv.ProtocolRequirements); err != nil {
+		if err := validateProtocolRequirements(inv.ProtocolRequirements); err != nil {
 			return err
 		}
 	}
@@ -188,7 +188,7 @@ func partFromInvocationDTO(p Part, field string) (lipapi.Part, error) {
 	}
 }
 
-func validateProtocolRequirementsDTO(req ProtocolRequirementsDTO) error {
+func validateProtocolRequirements(req ProtocolRequirements) error {
 	if len(req.Capabilities) > defaultMaxInvocationItems {
 		return ErrOversizedMessage
 	}

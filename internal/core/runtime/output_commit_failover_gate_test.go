@@ -112,9 +112,9 @@ func assertPostOutputNonRecoverable(t *testing.T, err error) {
 	if lipapi.IsRecoverablePreOutput(err) {
 		t.Fatalf("post-commit error must not remain recoverable pre-output: %v", err)
 	}
-	var uf *lipapi.UpstreamFailure
+	var uf *lipapi.UpstreamFailureError
 	if !errors.As(err, &uf) {
-		t.Fatalf("want UpstreamFailure classification, got %T %v", err, err)
+		t.Fatalf("want UpstreamFailureError classification, got %T %v", err, err)
 	}
 	if uf.Phase != lipapi.PhasePostOutput || uf.Recoverable {
 		t.Fatalf("want PhasePostOutput non-recoverable, got phase=%q recoverable=%v", uf.Phase, uf.Recoverable)

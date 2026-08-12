@@ -391,7 +391,7 @@ func TestContinuation_Recorder(t *testing.T) {
 
 func TestContinuation_StorageFailure(t *testing.T) {
 	// Subtest 1: Post-output store failure ignored
-	t.Run("PostOutputFailureIgnored", func(t *testing.T) {
+	t.Run("post output failure ignored", func(t *testing.T) {
 		memStore := continuation.NewMemoryStore()
 		tStore := newTrackingTestStore(memStore)
 		tStore.putErr = errors.New("post-output put terminal failure")
@@ -410,7 +410,7 @@ func TestContinuation_StorageFailure(t *testing.T) {
 	})
 
 	// Subtest 2: Pre-output executor failure cleans up reservation exactly once
-	t.Run("PreOutputExecutorFailureCleanupOnce", func(t *testing.T) {
+	t.Run("pre output executor failure cleanup once", func(t *testing.T) {
 		memStore := continuation.NewMemoryStore()
 		tStore := newTrackingTestStore(memStore)
 		failingExec := &failingContinuationExecutor{err: errors.New("backend failed")}

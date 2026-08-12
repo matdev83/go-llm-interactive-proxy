@@ -86,8 +86,8 @@ func CapabilitySummaryFromLipapi(caps lipapi.BackendCaps) CapabilitySummary {
 }
 
 // DialectSupportFromLipapi maps canonical dialect support into plugin DTO form.
-func DialectSupportFromLipapi(s lipapi.DialectSupport) DialectSupportDTO {
-	out := DialectSupportDTO{}
+func DialectSupportFromLipapi(s lipapi.DialectSupport) DialectSupport {
+	out := DialectSupport{}
 	for _, d := range s.ItemDialects {
 		out.ItemDialects = append(out.ItemDialects, DialectRequirementDTO{Kind: d.Kind, Dialect: d.Dialect, Implementor: d.Implementor})
 	}
@@ -104,7 +104,7 @@ func DialectSupportFromLipapi(s lipapi.DialectSupport) DialectSupportDTO {
 }
 
 // DialectSupportToLipapi maps plugin dialect support into canonical form.
-func DialectSupportToLipapi(d DialectSupportDTO) lipapi.DialectSupport {
+func DialectSupportToLipapi(d DialectSupport) lipapi.DialectSupport {
 	out := lipapi.DialectSupport{}
 	for _, d := range d.ItemDialects {
 		out.ItemDialects = append(out.ItemDialects, lipapi.DialectRequirement{Kind: d.Kind, Dialect: d.Dialect, Implementor: d.Implementor})
@@ -121,10 +121,10 @@ func DialectSupportToLipapi(d DialectSupportDTO) lipapi.DialectSupport {
 	return lipapi.NormalizeDialectSupport(out)
 }
 
-func capsHas(caps lipapi.BackendCaps, cap lipapi.Capability) bool {
+func capsHas(caps lipapi.BackendCaps, targetCap lipapi.Capability) bool {
 	if caps == nil {
 		return false
 	}
-	_, ok := caps[cap]
+	_, ok := caps[targetCap]
 	return ok
 }

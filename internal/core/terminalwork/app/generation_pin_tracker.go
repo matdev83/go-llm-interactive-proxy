@@ -58,9 +58,9 @@ type AdoptionToken struct {
 // and must not re-enter the tracker or block on external I/O. Production
 // binders are in-memory / snapshotgen only (task 3.6).
 //
-// created=true means this call established a hold and clear must release it.
-// created=false means an idempotent no-op; clear must be nil / ignored.
-type OwnershipBinder func() (clear func(), created bool)
+// created=true means this call established a hold and release must release it.
+// created=false means an idempotent no-op; release must be nil / ignored.
+type OwnershipBinder func() (release func(), created bool)
 
 // BeginAdoption reserves workID for adoption under the tracker mutex. The
 // returned token must End on every path. Nil tracker / empty workID yield a

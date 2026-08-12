@@ -73,11 +73,11 @@ func NewContextWithOptions(ctx context.Context, db *bun.DB, opts Options) (*Stor
 		return nil, opErr("new", err)
 	}
 	if opts.SQLQueryCacheTTL > 0 {
-		cap := uint64(opts.SQLQueryCacheMaxEntries)
-		if cap == 0 {
-			cap = 4096
+		maxEntries := uint64(opts.SQLQueryCacheMaxEntries)
+		if maxEntries == 0 {
+			maxEntries = 4096
 		}
-		s.meta = newSessionMetaCache(opts.SQLQueryCacheTTL, cap)
+		s.meta = newSessionMetaCache(opts.SQLQueryCacheTTL, maxEntries)
 	}
 	return s, nil
 }
@@ -430,15 +430,15 @@ func (s *Store) NextTranscriptSeq(ctx context.Context, id domain.SessionID) (int
 	if !ok {
 		return 0, domain.ErrSessionNotFound
 	}
-	var max int64
-	err = s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM lip_secure_transcript WHERE session_id = ?`, string(id)).Scan(&max)
+	var maxSeq int64
+	err = s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM lip_secure_transcript WHERE session_id = ?`, string(id)).Scan(&maxSeq)
 	if err != nil {
 		return 0, opErr("next transcript seq", err)
 	}
-	if max == math.MaxInt64 {
+	if maxSeq == math.MaxInt64 {
 		return 0, opErr("next transcript seq", fmt.Errorf("transcript seq overflow"))
 	}
-	return max + 1, nil
+	return maxSeq + 1, nil
 }
 
 func (s *Store) AppendTranscript(ctx context.Context, item domain.TranscriptItem) error {
@@ -621,15 +621,15 @@ func (s *Store) NextAuditSeq(ctx context.Context, id domain.SessionID) (int64, e
 	if !ok {
 		return 0, domain.ErrSessionNotFound
 	}
-	var max int64
-	err = s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM lip_secure_audit WHERE session_id = ?`, string(id)).Scan(&max)
+	var maxSeq int64
+	err = s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM lip_secure_audit WHERE session_id = ?`, string(id)).Scan(&maxSeq)
 	if err != nil {
 		return 0, opErr("next audit seq", err)
 	}
-	if max == math.MaxInt64 {
+	if maxSeq == math.MaxInt64 {
 		return 0, opErr("next audit seq", fmt.Errorf("audit seq overflow"))
 	}
-	return max + 1, nil
+	return maxSeq + 1, nil
 }
 
 func (s *Store) AppendAudit(ctx context.Context, item domain.AuditItem) error {

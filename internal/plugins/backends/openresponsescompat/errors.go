@@ -101,11 +101,11 @@ func sanitizeErrorMessage(_ string) string {
 	return "upstream reported an error"
 }
 
-func truncateRuneSafe(s string, max int) string {
-	if len(s) <= max {
+func truncateRuneSafe(s string, maxLen int) string {
+	if len(s) <= maxLen {
 		return s
 	}
-	cut := max
+	cut := maxLen
 	for cut > 0 && s[cut]&0xC0 == 0x80 {
 		cut--
 	}

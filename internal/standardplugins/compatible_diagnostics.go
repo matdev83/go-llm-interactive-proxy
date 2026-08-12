@@ -77,11 +77,11 @@ func ProjectCompatibleBackendRows(cfg *config.Config) []diag.CompatibleBackendRo
 	return out
 }
 
-func compatibleConcurrencyPolicy(max int) string {
-	if max <= 0 {
+func compatibleConcurrencyPolicy(maxConcurrent int) string {
+	if maxConcurrent <= 0 {
 		return "default"
 	}
-	return "limit:" + strconv.Itoa(max)
+	return "limit:" + strconv.Itoa(maxConcurrent)
 }
 
 func compatibleInventoryState(models config.CompatibleModeModelsConfig) string {

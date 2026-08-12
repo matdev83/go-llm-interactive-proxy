@@ -571,9 +571,9 @@ func TestSecurity_RouteCollisionRejectedBeforeServing(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected canonical route takeover to be rejected")
 	}
-	var detail httpcontract.RouteConflictDetail
+	var detail httpcontract.RouteConflictError
 	if !errors.As(err, &detail) {
-		t.Fatalf("expected RouteConflictDetail, got %T: %v", err, err)
+		t.Fatalf("expected RouteConflictError, got %T: %v", err, err)
 	}
 	if detail.ExistingOwner == "" || detail.NewOwner == "" {
 		t.Fatalf("conflict detail must name both owners: %+v", detail)

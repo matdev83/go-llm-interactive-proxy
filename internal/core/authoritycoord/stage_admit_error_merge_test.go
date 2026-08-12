@@ -44,7 +44,7 @@ func TestRequestCoordinator_StageAdmitErrorPreservesConcurrencyPrefix(t *testing
 	}
 	d, err := coord.Admit(context.Background(), validRequestAdmission())
 	if !authoritycoord.IsDenied(err) {
-		t.Fatalf("want ErrDenied, got err=%v d=%+v", err, d)
+		t.Fatalf("want DeniedError, got err=%v d=%+v", err, d)
 	}
 	if d.Lease.LeaseID != "lease-prefix" {
 		t.Fatalf("Lease=%+v want concurrency prefix preserved on stage-admit error", d.Lease)
@@ -92,9 +92,9 @@ func TestRequestCoordinator_StageAdmitUnavailablePreservesConcurrencyPrefix(t *t
 		CleanupTimeout: time.Second,
 	}
 	d, err := coord.Admit(context.Background(), validRequestAdmission())
-	var unavail *authoritycoord.ErrUnavailable
+	var unavail *authoritycoord.UnavailableError
 	if !errors.As(err, &unavail) || unavail.ProviderID != "quota" {
-		t.Fatalf("want ErrUnavailable from quota, got %v", err)
+		t.Fatalf("want UnavailableError from quota, got %v", err)
 	}
 	if d.Lease.LeaseID != "lease-prefix" {
 		t.Fatalf("Lease=%+v want concurrency prefix preserved on stage-admit error", d.Lease)

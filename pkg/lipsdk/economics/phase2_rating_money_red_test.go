@@ -46,9 +46,9 @@ func TestPhase2_Money_MixedCurrencyAggregationRejected(t *testing.T) {
 
 func TestPhase2_Money_OverflowSpendRejected(t *testing.T) {
 	t.Parallel()
-	max := economics.Money{NanoUnits: math.MaxInt64, Currency: "USD", Present: true}
+	maxMoney := economics.Money{NanoUnits: math.MaxInt64, Currency: "USD", Present: true}
 	one := economics.Money{NanoUnits: 1, Currency: "USD", Present: true}
-	if _, err := max.Add(one); err == nil {
+	if _, err := maxMoney.Add(one); err == nil {
 		t.Fatal("overflow Add must fail (req 4.6)")
 	}
 	if _, err := economics.MulTokensByRatePer1M(math.MaxInt64, math.MaxInt64); err == nil {

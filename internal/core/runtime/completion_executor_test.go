@@ -419,7 +419,7 @@ func TestExecute_completionGatePanic_postCommittedNotRecoverable(t *testing.T) {
 	if lipapi.IsRecoverablePreOutput(err) {
 		t.Fatal("post-commit completion gate panic must not be recoverable pre-output")
 	}
-	var uf *lipapi.UpstreamFailure
+	var uf *lipapi.UpstreamFailureError
 	if !errors.As(err, &uf) || uf.Phase != lipapi.PhasePostOutput {
 		t.Fatalf("want post-output upstream failure, got %v", err)
 	}

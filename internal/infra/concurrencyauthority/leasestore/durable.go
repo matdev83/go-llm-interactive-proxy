@@ -163,19 +163,19 @@ func openStore(ctx context.Context, db *bun.DB, cfg DurableConfig, nonOwning boo
 	if def <= 0 {
 		def = 100
 	}
-	max := cfg.MaxPageSize
-	if max <= 0 {
-		max = 500
+	maxPageSize := cfg.MaxPageSize
+	if maxPageSize <= 0 {
+		maxPageSize = 500
 	}
-	if max < def {
-		return nil, fmt.Errorf("leasestore: max page size %d < default %d", max, def)
+	if maxPageSize < def {
+		return nil, fmt.Errorf("leasestore: max page size %d < default %d", maxPageSize, def)
 	}
 	return &DurableStore{
 		cfg:             cfg,
 		db:              db,
 		dialect:         db.Dialect().Name(),
 		defaultPageSize: def,
-		maxPageSize:     max,
+		maxPageSize:     maxPageSize,
 		nonOwning:       nonOwning,
 	}, nil
 }

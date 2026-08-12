@@ -116,7 +116,7 @@ func runStageAdmit[AdmitIn any, P any](
 			out.Kind = authority.DecisionDeny
 			out.DeniedBy = id
 			out.Stack = *stack
-			return out, &ErrUnavailable{ProviderID: id, Err: err}
+			return out, &UnavailableError{ProviderID: id, Err: err}
 		}
 
 		reg, stage := cfg.registration(slot)
@@ -154,10 +154,10 @@ func runStageAdmit[AdmitIn any, P any](
 			out.DeniedBy = id
 			if errors.Is(vErr, errNonAllowWithHolds) && d.Kind == authority.DecisionDeny {
 				out.Stack = *stack
-				return out, &ErrDenied{ProviderID: id, Decision: d}
+				return out, &DeniedError{ProviderID: id, Decision: d}
 			}
 			out.Stack = *stack
-			return out, &ErrUnavailable{ProviderID: id, Err: vErr}
+			return out, &UnavailableError{ProviderID: id, Err: vErr}
 		}
 
 		out.ProviderDecisions = append(out.ProviderDecisions, d)
@@ -197,7 +197,7 @@ func runStageAdmit[AdmitIn any, P any](
 			out.Kind = authority.DecisionDeny
 			out.DeniedBy = id
 			out.Stack = *stack
-			return out, &ErrDenied{ProviderID: id, Decision: d}
+			return out, &DeniedError{ProviderID: id, Decision: d}
 		case authority.DecisionAllow, authority.DecisionAdvisory, "":
 			cfg.pushHolds(stack, id, slot.provider, in, d)
 			if d.Kind == authority.DecisionAdvisory {
@@ -261,7 +261,7 @@ func runStageSettle[SettleIn any, P any](
 					}
 				}
 				if first == nil {
-					first = &ErrUnavailable{ProviderID: id, Err: err}
+					first = &UnavailableError{ProviderID: id, Err: err}
 				}
 			}
 			continue
@@ -284,7 +284,7 @@ func runStageSettle[SettleIn any, P any](
 				}
 			}
 			if first == nil {
-				first = &ErrUnavailable{ProviderID: id, Err: err}
+				first = &UnavailableError{ProviderID: id, Err: err}
 			}
 		}
 	}

@@ -912,19 +912,19 @@
   },
   {
     "category": "field",
-    "name": "DialectSupportDTO.CompactionDialects"
+    "name": "DialectSupport.CompactionDialects"
   },
   {
     "category": "field",
-    "name": "DialectSupportDTO.ExtensionTypes"
+    "name": "DialectSupport.ExtensionTypes"
   },
   {
     "category": "field",
-    "name": "DialectSupportDTO.ItemDialects"
+    "name": "DialectSupport.ItemDialects"
   },
   {
     "category": "field",
-    "name": "DialectSupportDTO.ReasoningDialects"
+    "name": "DialectSupport.ReasoningDialects"
   },
   {
     "category": "field",
@@ -1632,23 +1632,23 @@
   },
   {
     "category": "field",
-    "name": "ProtocolRequirementsDTO.Capabilities"
+    "name": "ProtocolRequirements.Capabilities"
   },
   {
     "category": "field",
-    "name": "ProtocolRequirementsDTO.CompactionDialects"
+    "name": "ProtocolRequirements.CompactionDialects"
   },
   {
     "category": "field",
-    "name": "ProtocolRequirementsDTO.ExtensionTypes"
+    "name": "ProtocolRequirements.ExtensionTypes"
   },
   {
     "category": "field",
-    "name": "ProtocolRequirementsDTO.ItemDialects"
+    "name": "ProtocolRequirements.ItemDialects"
   },
   {
     "category": "field",
-    "name": "ProtocolRequirementsDTO.ReasoningDialects"
+    "name": "ProtocolRequirements.ReasoningDialects"
   },
   {
     "category": "field",
@@ -1983,12 +1983,12 @@
   {
     "category": "func",
     "name": "DialectSupportFromLipapi",
-    "detail": "func DialectSupportFromLipapi(s lipapi.DialectSupport) DialectSupportDTO"
+    "detail": "func DialectSupportFromLipapi(s lipapi.DialectSupport) DialectSupport"
   },
   {
     "category": "func",
     "name": "DialectSupportToLipapi",
-    "detail": "func DialectSupportToLipapi(d DialectSupportDTO) lipapi.DialectSupport"
+    "detail": "func DialectSupportToLipapi(d DialectSupport) lipapi.DialectSupport"
   },
   {
     "category": "func",
@@ -2599,8 +2599,8 @@
   },
   {
     "category": "struct",
-    "name": "DialectSupportDTO",
-    "detail": "DialectSupportDTO struct {\n\tItemDialects       []DialectRequirementDTO\n\tReasoningDialects  []DialectRequirementDTO\n\tCompactionDialects []DialectRequirementDTO\n\tExtensionTypes     []ExtensionRequirementDTO\n}"
+    "name": "DialectSupport",
+    "detail": "DialectSupport struct {\n\tItemDialects       []DialectRequirementDTO\n\tReasoningDialects  []DialectRequirementDTO\n\tCompactionDialects []DialectRequirementDTO\n\tExtensionTypes     []ExtensionRequirementDTO\n}"
   },
   {
     "category": "struct",
@@ -2655,7 +2655,7 @@
   {
     "category": "struct",
     "name": "Invocation",
-    "detail": "Invocation struct {\n\tRequestID        string\n\tAttemptID        string\n\tALegID           string\n\tBLegID           string\n\tCanonicalModelID string\n\tNativeModelID    string\n\tInstructions     []Message\n\tMessages         []Message\n\tTools            []ToolDef\n\tToolChoice       *string\n\tOptions          GenerationOptions\n\tSafeMetadata     map[string]string\n\n\tProxyOwnedSessionID string\n\n\tPromptCacheKey     string\n\tSemanticExtensions []SemanticExtension\n\n\tOperation            string\n\tDeliveryMode         string\n\tTransportMode        string\n\tItemAuthority        bool\n\tItems                []InvocationItem\n\tProtocolRequirements ProtocolRequirementsDTO\n}"
+    "detail": "Invocation struct {\n\tRequestID        string\n\tAttemptID        string\n\tALegID           string\n\tBLegID           string\n\tCanonicalModelID string\n\tNativeModelID    string\n\tInstructions     []Message\n\tMessages         []Message\n\tTools            []ToolDef\n\tToolChoice       *string\n\tOptions          GenerationOptions\n\tSafeMetadata     map[string]string\n\n\tProxyOwnedSessionID string\n\n\tPromptCacheKey     string\n\tSemanticExtensions []SemanticExtension\n\n\tOperation            string\n\tDeliveryMode         string\n\tTransportMode        string\n\tItemAuthority        bool\n\tItems                []InvocationItem\n\tProtocolRequirements ProtocolRequirements\n}"
   },
   {
     "category": "struct",
@@ -2749,8 +2749,8 @@
   },
   {
     "category": "struct",
-    "name": "ProtocolRequirementsDTO",
-    "detail": "ProtocolRequirementsDTO struct {\n\tCapabilities       []string\n\tItemDialects       []DialectRequirementDTO\n\tReasoningDialects  []DialectRequirementDTO\n\tCompactionDialects []DialectRequirementDTO\n\tExtensionTypes     []ExtensionRequirementDTO\n}"
+    "name": "ProtocolRequirements",
+    "detail": "ProtocolRequirements struct {\n\tCapabilities       []string\n\tItemDialects       []DialectRequirementDTO\n\tReasoningDialects  []DialectRequirementDTO\n\tCompactionDialects []DialectRequirementDTO\n\tExtensionTypes     []ExtensionRequirementDTO\n}"
   },
   {
     "category": "struct",
@@ -2760,7 +2760,7 @@
   {
     "category": "struct",
     "name": "ResolvedProfile",
-    "detail": "ResolvedProfile struct {\n\tCapabilities             CapabilitySummary\n\tTransportCapabilities    TransportCapabilitySummary\n\tDialectSupport           DialectSupportDTO\n\tReasoningReplaySupported bool\n\tRoutePrefixes            []string\n\tEnforceMaxOutput         bool\n\tMaxOutputTokens          *uint32\n\tSupportsCountTokens      bool\n\tSupportsFinalizeBilling  bool\n\tSupportsDynamicInventory bool\n\tEvidenceSource           string\n\tProfileVersion           string\n}"
+    "detail": "ResolvedProfile struct {\n\tCapabilities             CapabilitySummary\n\tTransportCapabilities    TransportCapabilitySummary\n\tDialectSupport           DialectSupport\n\tReasoningReplaySupported bool\n\tRoutePrefixes            []string\n\tEnforceMaxOutput         bool\n\tMaxOutputTokens          *uint32\n\tSupportsCountTokens      bool\n\tSupportsFinalizeBilling  bool\n\tSupportsDynamicInventory bool\n\tEvidenceSource           string\n\tProfileVersion           string\n}"
   },
   {
     "category": "struct",
@@ -2785,7 +2785,7 @@
   {
     "category": "struct",
     "name": "StreamValidator",
-    "detail": "StreamValidator struct {\n\taccepted   bool\n\tnextSeq    uint64\n\tterminated bool\n}"
+    "detail": "StreamValidator struct {\n\tisAccepted bool\n\tnextSeq    uint64\n\tterminated bool\n}"
   },
   {
     "category": "struct",

@@ -32,14 +32,14 @@ func TestStatusClass_buckets(t *testing.T) {
 
 func TestHTTPDurationBuckets_coverLLMTail(t *testing.T) {
 	t.Parallel()
-	var max float64
+	var maxBucket float64
 	for _, b := range httpInboundDurationBuckets {
-		if b > max {
-			max = b
+		if b > maxBucket {
+			maxBucket = b
 		}
 	}
-	if max < 60 {
-		t.Fatalf("largest histogram bucket %g must be >= 60s for LLM tail latency observability", max)
+	if maxBucket < 60 {
+		t.Fatalf("largest histogram bucket %g must be >= 60s for LLM tail latency observability", maxBucket)
 	}
 }
 

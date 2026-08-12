@@ -30,12 +30,12 @@ func (c *captureTrafficObs) OnObservation(_ context.Context, ev traffic.Observat
 func TestHandler_LegCTP_traceMatchesStableCallID(t *testing.T) {
 	t.Parallel()
 	body := readGolden(t, "create_text_nonstream.json")
-	cap := &captureTrafficObs{}
+	capture := &captureTrafficObs{}
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", nil)
 	h := &front.Handler{
 		Exec:                 ex,
 		DefaultRouteSelector: "stub:gpt-4o-mini",
-		TrafficPorts:         traffic.PortBundle{Obs: cap},
+		TrafficPorts:         traffic.PortBundle{Obs: capture},
 	}
 	decoded, err := front.DecodeCreateRequest(body, front.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
 	if err != nil {
@@ -51,9 +51,9 @@ func TestHandler_LegCTP_traceMatchesStableCallID(t *testing.T) {
 		t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
 	}
 
-	cap.mu.Lock()
-	got := cap.last
-	cap.mu.Unlock()
+	capture.mu.Lock()
+	got := capture.last
+	capture.mu.Unlock()
 	if got.TraceID != wantTrace {
 		t.Fatalf("CTP TraceID: got %q want %q", got.TraceID, wantTrace)
 	}

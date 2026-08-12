@@ -54,19 +54,19 @@ func NewQueryService(store QuerySource, status *Status, cfg QueryServiceConfig) 
 	if def <= 0 {
 		def = 100
 	}
-	max := cfg.MaxPageSize
-	if max <= 0 {
-		max = 500
+	maxPageSize := cfg.MaxPageSize
+	if maxPageSize <= 0 {
+		maxPageSize = 500
 	}
-	if def > max {
-		def = max
+	if def > maxPageSize {
+		def = maxPageSize
 	}
 	return &QueryService{
 		store:     store,
 		status:    status,
 		enabled:   cfg.Enabled,
 		defPage:   def,
-		maxPage:   max,
+		maxPage:   maxPageSize,
 		maxWindow: cfg.MaxTimeWindow,
 	}
 }
@@ -206,7 +206,7 @@ func (s *QueryService) resolveLimit(limit int) int {
 
 // validateTimeWindow rejects time ranges wider than the configured maximum
 // (requirement 2.6, 7.4). A zero MaxTimeWindow means no bound.
-func validateTimeWindow(tr cp.TimeRange, max time.Duration) error {
+func validateTimeWindow(tr cp.TimeRange, maxWindow time.Duration) error {
 	if tr.From.IsZero() || tr.To.IsZero() {
 		return nil
 	}
@@ -214,8 +214,8 @@ func validateTimeWindow(tr cp.TimeRange, max time.Duration) error {
 	if span < 0 {
 		return fmt.Errorf("%w: time range is inverted", ErrInvalidQuery)
 	}
-	if max > 0 && span > max {
-		return fmt.Errorf("%w: time window %v exceeds max %v", ErrTooBroad, span, max)
+	if maxWindow > 0 && span > maxWindow {
+		return fmt.Errorf("%w: time window %v exceeds max %v", ErrTooBroad, span, maxWindow)
 	}
 	return nil
 }

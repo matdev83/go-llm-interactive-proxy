@@ -61,26 +61,26 @@ func NormalizeRecord(record Record) Record {
 	return out
 }
 
-func trimSpaceBound(s string, max int) string {
+func trimSpaceBound(s string, maxLen int) string {
 	t := strings.TrimSpace(s)
-	return boundUTF8(t, max)
+	return boundUTF8(t, maxLen)
 }
 
-func boundUTF8(s string, max int) string {
-	if max <= 0 {
+func boundUTF8(s string, maxLen int) string {
+	if maxLen <= 0 {
 		return ""
 	}
-	if len(s) <= max {
+	if len(s) <= maxLen {
 		return s
 	}
-	cut := max
+	cut := maxLen
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}
 	return s[:cut]
 }
 
-func normalizeSafeToken(s string, max int) string {
+func normalizeSafeToken(s string, maxLen int) string {
 	t := strings.ToLower(strings.TrimSpace(s))
 	if t == "" {
 		return unspecifiedReasonCode
@@ -96,7 +96,7 @@ func normalizeSafeToken(s string, max int) string {
 	if out == "" {
 		return unspecifiedReasonCode
 	}
-	return boundUTF8(out, max)
+	return boundUTF8(out, maxLen)
 }
 
 func isSafeTokenRune(r rune) bool {

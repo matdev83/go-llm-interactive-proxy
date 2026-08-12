@@ -34,20 +34,20 @@ type Config struct {
 	SpawnProbe              SpawnProbe
 }
 
-func openBounded(f *os.File, max int64) ([]byte, error) {
-	limited := io.LimitReader(f, max+1)
+func openBounded(f *os.File, maxBytes int64) ([]byte, error) {
+	limited := io.LimitReader(f, maxBytes+1)
 	raw, err := io.ReadAll(limited)
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(raw)) > max {
+	if int64(len(raw)) > maxBytes {
 		return nil, errTooLarge
 	}
 	return raw, nil
 }
 
-var errTooLarge = errString("manifest too large")
+var errTooLarge = stringError("manifest too large")
 
-type errString string
+type stringError string
 
-func (e errString) Error() string { return string(e) }
+func (e stringError) Error() string { return string(e) }

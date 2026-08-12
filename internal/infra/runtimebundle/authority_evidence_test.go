@@ -101,11 +101,11 @@ func TestUsageAuthority_EvidenceProjectedThroughRealBundle(t *testing.T) {
 	}
 	defer func() { _ = cpStore.Close() }()
 
-	cap := &capturePolicyObserver{}
+	captured := &capturePolicyObserver{}
 	cfg := authorityAndControlPlaneConfig(t, 10, true)
 	opts := baseAuthorityOptions(t, nil)
 	opts.Testing.ControlPlaneStoreOverride = cpStore
-	opts.Policy.PolicyObservers = []policydecision.Observer{cap}
+	opts.Policy.PolicyObservers = []policydecision.Observer{captured}
 
 	_, built := mustProcessAndCandidate(t, cfg, opts)
 	if runtimebundle.CandidateUsageAuthority(built) == nil {
@@ -132,7 +132,7 @@ func TestUsageAuthority_EvidenceProjectedThroughRealBundle(t *testing.T) {
 		t.Fatalf("allow event outcome = %q, want %q", allowEvs[0].AccountingAuthority().Outcome, cp.AccountingOutcomeAllow)
 	}
 
-	recs := cap.snapshot()
+	recs := captured.snapshot()
 	if len(recs) != 1 {
 		t.Fatalf("policy observer records after allow = %d, want 1", len(recs))
 	}
@@ -167,7 +167,7 @@ func TestUsageAuthority_EvidenceProjectedThroughRealBundle(t *testing.T) {
 	if got := settleEvs[1].AccountingAuthority().SettlementState; got != cp.AccountingSettlementSettled {
 		t.Fatalf("settlement event state = %q, want %q", got, cp.AccountingSettlementSettled)
 	}
-	if recs2 := cap.snapshot(); len(recs2) != 2 {
+	if recs2 := captured.snapshot(); len(recs2) != 2 {
 		t.Fatalf("policy observer records after settle = %d, want 2", len(recs2))
 	}
 }
@@ -186,11 +186,11 @@ func TestUsageAuthority_DenialEvidenceProjectedThroughRealBundle(t *testing.T) {
 	}
 	defer func() { _ = cpStore.Close() }()
 
-	cap := &capturePolicyObserver{}
+	captured := &capturePolicyObserver{}
 	cfg := authorityAndControlPlaneConfig(t, 0, true)
 	opts := baseAuthorityOptions(t, nil)
 	opts.Testing.ControlPlaneStoreOverride = cpStore
-	opts.Policy.PolicyObservers = []policydecision.Observer{cap}
+	opts.Policy.PolicyObservers = []policydecision.Observer{captured}
 
 	_, built := mustProcessAndCandidate(t, cfg, opts)
 
@@ -212,7 +212,7 @@ func TestUsageAuthority_DenialEvidenceProjectedThroughRealBundle(t *testing.T) {
 	if denyEvs[0].AccountingAuthority().Outcome != cp.AccountingOutcomeDeny {
 		t.Fatalf("deny event outcome = %q, want %q", denyEvs[0].AccountingAuthority().Outcome, cp.AccountingOutcomeDeny)
 	}
-	if recs := cap.snapshot(); len(recs) != 1 {
+	if recs := captured.snapshot(); len(recs) != 1 {
 		t.Fatalf("policy observer records after deny = %d, want 1", len(recs))
 	}
 }
@@ -226,10 +226,10 @@ func TestUsageAuthority_EvidenceFansToObserversWhenControlPlaneDisabled(t *testi
 	t.Parallel()
 	ctx := context.Background()
 
-	cap := &capturePolicyObserver{}
+	captured := &capturePolicyObserver{}
 	cfg := authorityAndControlPlaneConfig(t, 10, false)
 	opts := baseAuthorityOptions(t, nil)
-	opts.Policy.PolicyObservers = []policydecision.Observer{cap}
+	opts.Policy.PolicyObservers = []policydecision.Observer{captured}
 
 	_, built := mustProcessAndCandidate(t, cfg, opts)
 	if runtimebundle.CandidateUsageAuthority(built) == nil {
@@ -243,7 +243,7 @@ func TestUsageAuthority_EvidenceFansToObserversWhenControlPlaneDisabled(t *testi
 	if !admitRes.Allowed {
 		t.Fatalf("expected allow against Limit=10 with control-plane disabled, got %#v", admitRes)
 	}
-	if recs := cap.snapshot(); len(recs) != 1 {
+	if recs := captured.snapshot(); len(recs) != 1 {
 		t.Fatalf("operator policy observer records = %d, want 1 (full chain must reach operators even without control-plane)", len(recs))
 	}
 }

@@ -474,14 +474,14 @@ func decodeCapabilities(scope string, n yaml.Node) ([]lipapi.Capability, error) 
 			return nil, fmt.Errorf("%s: capabilities[%d] must be a string", scope, i)
 		}
 		name := strings.TrimSpace(item.Value)
-		cap, ok := capabilityNames[name]
+		capability, ok := capabilityNames[name]
 		if !ok {
 			return nil, fmt.Errorf("%s: unknown capability %q", scope, name)
 		}
-		if _, unsupported := unsupportedCapabilities[cap]; unsupported {
+		if _, unsupported := unsupportedCapabilities[capability]; unsupported {
 			return nil, fmt.Errorf("%s: capability %q is not representable on the pinned OpenResponses profile and cannot be claimed", scope, name)
 		}
-		out = append(out, cap)
+		out = append(out, capability)
 	}
 	if len(out) == 0 {
 		return nil, fmt.Errorf("%s: capabilities must not be empty", scope)
@@ -747,12 +747,12 @@ func decodeResponseLimits(scope string, n yaml.Node) (ResponseLimits, error) {
 	return out, nil
 }
 
-func validateLimit(scope, name string, v, max int) error {
+func validateLimit(scope, name string, v, limit int) error {
 	if v <= 0 {
 		return fmt.Errorf("%s: %s must be positive", scope, name)
 	}
-	if v > max {
-		return fmt.Errorf("%s: %s must be at most %d", scope, name, max)
+	if v > limit {
+		return fmt.Errorf("%s: %s must be at most %d", scope, name, limit)
 	}
 	return nil
 }

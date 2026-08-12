@@ -150,9 +150,9 @@ func TestRouteClaims_ProductionCompositionRejectsCanonicalTakeover(t *testing.T)
 	if !errors.Is(err, ErrRouteConflict) {
 		t.Fatalf("want ErrRouteConflict, got %v", err)
 	}
-	var detail httpcontract.RouteConflictDetail
+	var detail httpcontract.RouteConflictError
 	if !errors.As(err, &detail) {
-		t.Fatalf("want RouteConflictDetail (both owners), got %T: %v", err, err)
+		t.Fatalf("want RouteConflictError (both owners), got %T: %v", err, err)
 	}
 	if detail.ExistingOwner != "openai-responses" || detail.NewOwner != "openresponses" {
 		t.Fatalf("conflict must name both owners: existing=%q new=%q", detail.ExistingOwner, detail.NewOwner)

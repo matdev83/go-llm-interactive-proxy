@@ -293,7 +293,7 @@ func TestExecutor_requestSizeConstraints_preservedDuringRecvReplacement(t *testi
 			Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				opened = append(opened, cand.Key)
 				if len(opened) == 1 {
-					return &errorEventStream{err: &lipapi.UpstreamFailure{
+					return &errorEventStream{err: &lipapi.UpstreamFailureError{
 						Phase:        lipapi.PhasePreOutput,
 						Recoverable:  true,
 						Reason:       "recv replacement trigger",

@@ -21,7 +21,7 @@ func TestOpenChat_nonStreamingUsesNonStreamEndpoint(t *testing.T) {
 	t.Parallel()
 	rec := newInvokeRecorder()
 	srv := newInvokeServer(t, rec)
-	cli := openaicred.NewOpenAIClient(srv.URL, "sk-test", srv.Client(), new(int))
+	cli := openaicred.NewClient(srv.URL, "sk-test", srv.Client(), new(int))
 
 	call := invokeTestCall()
 	call.Invocation.TransportMode = lipapi.TransportModeNonStreaming
@@ -51,7 +51,7 @@ func TestOpenChat_emptyTransportModeDefaultsToStreaming(t *testing.T) {
 	t.Parallel()
 	rec := newInvokeRecorder()
 	srv := newInvokeServer(t, rec)
-	cli := openaicred.NewOpenAIClient(srv.URL, "sk-test", srv.Client(), new(int))
+	cli := openaicred.NewClient(srv.URL, "sk-test", srv.Client(), new(int))
 
 	es, err := OpenChat(context.Background(), cli, InvokeRequest{
 		ProviderID: "test",
@@ -76,7 +76,7 @@ func TestOpenResponses_nonStreamingReturnsTextAndUsage(t *testing.T) {
 	t.Parallel()
 	rec := newInvokeRecorder()
 	srv := newInvokeServer(t, rec)
-	cli := openaicred.NewOpenAIClient(srv.URL, "sk-test", srv.Client(), new(int))
+	cli := openaicred.NewClient(srv.URL, "sk-test", srv.Client(), new(int))
 
 	call := invokeTestCall()
 	call.Invocation.TransportMode = lipapi.TransportModeNonStreaming
@@ -101,7 +101,7 @@ func TestOpenResponses_emptyTransportModeDefaultsToStreaming(t *testing.T) {
 	t.Parallel()
 	rec := newInvokeRecorder()
 	srv := newInvokeServer(t, rec)
-	cli := openaicred.NewOpenAIClient(srv.URL, "sk-test", srv.Client(), new(int))
+	cli := openaicred.NewClient(srv.URL, "sk-test", srv.Client(), new(int))
 
 	es, err := OpenResponses(context.Background(), cli, InvokeRequest{
 		ProviderID: "test",
@@ -126,7 +126,7 @@ func TestOpenChat_forwardsSDKOptions(t *testing.T) {
 	t.Parallel()
 	rec := newInvokeRecorder()
 	srv := newInvokeServer(t, rec)
-	cli := openaicred.NewOpenAIClient(srv.URL, "sk-test", srv.Client(), new(int))
+	cli := openaicred.NewClient(srv.URL, "sk-test", srv.Client(), new(int))
 
 	call := invokeTestCall()
 	call.Invocation.TransportMode = lipapi.TransportModeNonStreaming
@@ -155,7 +155,7 @@ func TestOpenChat_forwardsSDKOptions(t *testing.T) {
 
 func TestOpenChat_paramsErrorPropagates(t *testing.T) {
 	t.Parallel()
-	_, err := OpenChat(context.Background(), openaicred.NewOpenAIClient("http://127.0.0.1", "sk-test", nil, new(int)), InvokeRequest{
+	_, err := OpenChat(context.Background(), openaicred.NewClient("http://127.0.0.1", "sk-test", nil, new(int)), InvokeRequest{
 		ProviderID: "test",
 		Call:       invokeTestCall(),
 	})

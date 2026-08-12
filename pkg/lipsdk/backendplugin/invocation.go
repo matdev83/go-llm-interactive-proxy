@@ -23,8 +23,8 @@ func (inv Invocation) Validate() error {
 	if len(inv.Messages) == 0 && (!inv.ItemAuthority || len(inv.Items) <= 0) {
 		return ErrInvalidInvocation
 	}
-	max := DefaultMaxRawJSONBytes
-	if err := inv.Options.ResponseSchemaJSON.Validate(max); err != nil {
+	maxBytes := DefaultMaxRawJSONBytes
+	if err := inv.Options.ResponseSchemaJSON.Validate(maxBytes); err != nil {
 		return err
 	}
 	for i, t := range inv.Tools {
@@ -34,7 +34,7 @@ func (inv Invocation) Validate() error {
 		if t.Name != strings.TrimSpace(t.Name) {
 			return fmt.Errorf("%w: Tools[%d].Name must not contain leading or trailing whitespace", ErrInvalidInvocation, i)
 		}
-		if err := t.ParametersJSON.Validate(max); err != nil {
+		if err := t.ParametersJSON.Validate(maxBytes); err != nil {
 			return err
 		}
 	}
@@ -46,7 +46,7 @@ func (inv Invocation) Validate() error {
 			if p.Kind == PartKindUnspecified {
 				return ErrUnknownEnum
 			}
-			if err := p.ToolArgsJSON.Validate(max); err != nil {
+			if err := p.ToolArgsJSON.Validate(maxBytes); err != nil {
 				return err
 			}
 		}

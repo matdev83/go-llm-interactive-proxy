@@ -175,8 +175,8 @@ func openResponsesProfileConfigNode(profile providerprofiles.Profile) (yaml.Node
 		return yaml.Node{}, err
 	}
 	caps := make([]string, 0, len(compiled.Capabilities))
-	for cap := range compiled.Capabilities {
-		caps = append(caps, string(cap))
+	for capability := range compiled.Capabilities {
+		caps = append(caps, string(capability))
 	}
 	slices.Sort(caps)
 	value := map[string]any{

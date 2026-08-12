@@ -41,7 +41,7 @@ func TestInvocationValidate_rejectsOutOfRangeTemperature(t *testing.T) {
 func TestInvocationValidate_rejectsWrongDialectSliceKind(t *testing.T) {
 	t.Parallel()
 	inv := validItemInvocation(t)
-	inv.ProtocolRequirements = backendplugin.ProtocolRequirementsDTO{
+	inv.ProtocolRequirements = backendplugin.ProtocolRequirements{
 		ItemDialects: []backendplugin.DialectRequirementDTO{{Kind: "reasoning", Dialect: "x"}},
 	}
 	if err := inv.Validate(); err == nil {
@@ -54,7 +54,7 @@ func TestInvocationValidate_rejectsWrongDialectSliceKind(t *testing.T) {
 func TestInvocationValidate_rejectsDuplicateExtensionRequirement(t *testing.T) {
 	t.Parallel()
 	inv := validItemInvocation(t)
-	inv.ProtocolRequirements = backendplugin.ProtocolRequirementsDTO{
+	inv.ProtocolRequirements = backendplugin.ProtocolRequirements{
 		ExtensionTypes: []backendplugin.ExtensionRequirementDTO{
 			{Namespace: "ns", Type: "alpha"},
 			{Namespace: "ns", Type: "alpha"},

@@ -52,7 +52,7 @@ func TestLimits_Validations(t *testing.T) {
 		MaxContinuationRefCount:     2,
 	}
 
-	t.Run("ValidateRequestBytes", func(t *testing.T) {
+	t.Run("validate request bytes", func(t *testing.T) {
 		t.Parallel()
 		if err := ValidateRequestBytes(make([]byte, 50), lim); err != nil {
 			t.Errorf("unexpected error for valid request bytes: %v", err)
@@ -73,7 +73,7 @@ func TestLimits_Validations(t *testing.T) {
 		}
 	})
 
-	t.Run("ValidateResourceBytes", func(t *testing.T) {
+	t.Run("validate resource bytes", func(t *testing.T) {
 		t.Parallel()
 		if err := ValidateResourceBytes(make([]byte, 150), lim); err != nil {
 			t.Errorf("unexpected error: %v", err)
@@ -87,7 +87,7 @@ func TestLimits_Validations(t *testing.T) {
 		}
 	})
 
-	t.Run("ValidateEventCount", func(t *testing.T) {
+	t.Run("validate event count", func(t *testing.T) {
 		t.Parallel()
 		if err := ValidateEventCount(5, lim); err != nil {
 			t.Errorf("unexpected error: %v", err)
@@ -101,7 +101,7 @@ func TestLimits_Validations(t *testing.T) {
 		}
 	})
 
-	t.Run("ValidateItemCount", func(t *testing.T) {
+	t.Run("validate item count", func(t *testing.T) {
 		if err := ValidateItemCount(3, lim); err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -114,7 +114,7 @@ func TestLimits_Validations(t *testing.T) {
 		}
 	})
 
-	t.Run("ValidateItemDepth", func(t *testing.T) {
+	t.Run("validate item depth", func(t *testing.T) {
 		if err := ValidateItemDepth(2, lim); err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -127,7 +127,7 @@ func TestLimits_Validations(t *testing.T) {
 		}
 	})
 
-	t.Run("ValidateSchemaSize", func(t *testing.T) {
+	t.Run("validate schema size", func(t *testing.T) {
 		if err := ValidateSchemaSize(30, lim); err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -140,7 +140,7 @@ func TestLimits_Validations(t *testing.T) {
 		}
 	})
 
-	t.Run("ValidateOpaquePayloadSize", func(t *testing.T) {
+	t.Run("validate opaque payload size", func(t *testing.T) {
 		if err := ValidateOpaquePayloadSize(30, lim); err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -153,7 +153,7 @@ func TestLimits_Validations(t *testing.T) {
 		}
 	})
 
-	t.Run("ValidateContinuationRef", func(t *testing.T) {
+	t.Run("validate continuation ref", func(t *testing.T) {
 		if err := ValidateContinuationRef("resp_12345", lim); err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -167,7 +167,7 @@ func TestLimits_Validations(t *testing.T) {
 		}
 	})
 
-	t.Run("ValidateContinuationRefCount", func(t *testing.T) {
+	t.Run("validate continuation ref count", func(t *testing.T) {
 		if err := ValidateContinuationRefCount(2, lim); err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}

@@ -72,20 +72,20 @@ func passwordFromDSN(dsn string) string {
 	return ""
 }
 
-// redactedOpenErr surfaces only redacted text in Error() while preserving the chain for
+// redactedOpenError surfaces only redacted text in Error() while preserving the chain for
 // errors.Is / errors.As. Using fmt.Errorf("... %w", err) would append err.Error() again and
 // could re-expose DSN secrets if a driver echoes them.
-type redactedOpenErr struct {
+type redactedOpenError struct {
 	op      string
 	visible string
 	err     error
 }
 
-func (e *redactedOpenErr) Error() string {
+func (e *redactedOpenError) Error() string {
 	return fmt.Sprintf("db: %s: %s", e.op, e.visible)
 }
 
-func (e *redactedOpenErr) Unwrap() error {
+func (e *redactedOpenError) Unwrap() error {
 	return e.err
 }
 
@@ -96,5 +96,5 @@ func redactOpenError(dsn, op string, err error) error {
 		return nil
 	}
 	visible := redactErrorString(err.Error(), dsn)
-	return &redactedOpenErr{op: op, visible: visible, err: err}
+	return &redactedOpenError{op: op, visible: visible, err: err}
 }

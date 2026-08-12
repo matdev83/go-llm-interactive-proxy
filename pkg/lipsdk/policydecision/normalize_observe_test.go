@@ -100,11 +100,11 @@ func TestIsNoopObserverDetectsDisabledObservers(t *testing.T) {
 	if !policydecision.IsNoopObserver(policydecision.NewChainObserver(nil, nil)) {
 		t.Fatalf("empty chain must be treated as no-op")
 	}
-	cap := &captureObserver{}
-	if policydecision.IsNoopObserver(cap) {
+	capture := &captureObserver{}
+	if policydecision.IsNoopObserver(capture) {
 		t.Fatalf("real observer must not be treated as no-op")
 	}
-	if policydecision.IsNoopObserver(policydecision.NewChainObserver(cap)) {
+	if policydecision.IsNoopObserver(policydecision.NewChainObserver(capture)) {
 		t.Fatalf("chain with real child must not be treated as no-op")
 	}
 }

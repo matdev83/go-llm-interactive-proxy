@@ -111,18 +111,18 @@ func (b *boundedReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// readBounded reads at most max bytes and fails when the source exceeds the cap.
-func readBounded(r io.Reader, max int64) ([]byte, error) {
-	if max <= 0 {
-		max = DefaultParseOptions().MaxBodyBytes
+// readBounded reads at most maxBytes bytes and fails when the source exceeds the cap.
+func readBounded(r io.Reader, maxBytes int64) ([]byte, error) {
+	if maxBytes <= 0 {
+		maxBytes = DefaultParseOptions().MaxBodyBytes
 	}
-	br := &boundedReader{r: r, rem: max + 1}
+	br := &boundedReader{r: r, rem: maxBytes + 1}
 	data, err := io.ReadAll(br)
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(data)) > max {
-		return nil, limitf("body exceeds %d bytes", max)
+	if int64(len(data)) > maxBytes {
+		return nil, limitf("body exceeds %d bytes", maxBytes)
 	}
 	return data, nil
 }

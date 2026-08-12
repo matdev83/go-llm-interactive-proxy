@@ -4,7 +4,7 @@ import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 
 // StreamValidator enforces accepted-before-sequence, monotonic sequences, and one terminal.
 type StreamValidator struct {
-	accepted   bool
+	isAccepted bool
 	nextSeq    uint64
 	terminated bool
 }
@@ -25,17 +25,17 @@ func (v *StreamValidator) Push(frame ServerFrame) error {
 	}
 	switch frame.Kind {
 	case ServerFrameAccepted:
-		if v.accepted {
+		if v.isAccepted {
 			return ErrInvalidFrame
 		}
 		if frame.Sequence != 0 {
 			return ErrSequenceGap
 		}
-		v.accepted = true
+		v.isAccepted = true
 		v.nextSeq = 1
 		return nil
 	case ServerFrameEvent, ServerFrameDiagnostic, ServerFrameCancelOutcome, ServerFrameTerminal, ServerFrameAccountingEvidence:
-		if !v.accepted {
+		if !v.isAccepted {
 			return ErrAcceptedRequired
 		}
 		if frame.Sequence != v.nextSeq {

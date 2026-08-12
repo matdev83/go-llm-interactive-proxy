@@ -18,20 +18,20 @@ const (
 	MaxBase64Data     = lipapi.MaxRefStringBytes
 )
 
-func Count(field string, got, max int) error {
-	if got > max {
-		return fmt.Errorf("%s has %d entries; maximum is %d", field, got, max)
+func Count(field string, got, limit int) error {
+	if got > limit {
+		return fmt.Errorf("%s has %d entries; maximum is %d", field, got, limit)
 	}
 	return nil
 }
 
-func Bytes(field string, got, max int) error {
-	if got > max {
-		return fmt.Errorf("%s has %d bytes; maximum is %d", field, got, max)
+func Bytes(field string, got, limit int) error {
+	if got > limit {
+		return fmt.Errorf("%s has %d bytes; maximum is %d", field, got, limit)
 	}
 	return nil
 }
 
-func StringBytes(field, value string, max int) error {
-	return Bytes(field, len(value), max)
+func StringBytes(field, value string, limit int) error {
+	return Bytes(field, len(value), limit)
 }

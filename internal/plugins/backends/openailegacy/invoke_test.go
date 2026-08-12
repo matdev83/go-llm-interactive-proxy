@@ -169,7 +169,7 @@ func TestParamsForCall_generationOptions(t *testing.T) {
 	t.Parallel()
 	temp := 0.7
 	top := 0.9
-	max := 128
+	maxTokens := 128
 	parallel := false
 	call := lipapi.Call{
 		ID: "t4",
@@ -180,7 +180,7 @@ func TestParamsForCall_generationOptions(t *testing.T) {
 		Options: lipapi.GenerationOptions{
 			Temperature:       &temp,
 			TopP:              &top,
-			MaxOutputTokens:   &max,
+			MaxOutputTokens:   &maxTokens,
 			ParallelToolCalls: &parallel,
 		},
 	}

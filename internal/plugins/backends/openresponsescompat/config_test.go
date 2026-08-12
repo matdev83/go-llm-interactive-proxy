@@ -36,8 +36,8 @@ func decodeConfigErr(t *testing.T, instanceID, raw string) error {
 	return err
 }
 
-func configHasCapability(caps []lipapi.Capability, cap lipapi.Capability) bool {
-	return slices.Contains(caps, cap)
+func configHasCapability(caps []lipapi.Capability, targetCap lipapi.Capability) bool {
+	return slices.Contains(caps, targetCap)
 }
 
 func TestConfig_Defaults(t *testing.T) {

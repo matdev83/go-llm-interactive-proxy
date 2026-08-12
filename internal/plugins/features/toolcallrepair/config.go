@@ -227,12 +227,12 @@ func normalizeSchemaConfig(in SchemaConfig) SchemaConfig {
 	return in
 }
 
-func validateSchemaLimit(name string, v, cap int) error {
+func validateSchemaLimit(name string, v, limit int) error {
 	if v < 1 {
 		return fmt.Errorf("%s: %s must be positive", ID, name)
 	}
-	if v > cap {
-		return fmt.Errorf("%s: %s must be in [1,%d]", ID, name, cap)
+	if v > limit {
+		return fmt.Errorf("%s: %s must be in [1,%d]", ID, name, limit)
 	}
 	return nil
 }

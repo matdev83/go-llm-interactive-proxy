@@ -71,9 +71,9 @@ func TestRequestCoordinator_AdmitLease_RejectsExpiredRelativeToInjectedNow(t *te
 	if err == nil {
 		t.Fatal("expired lease relative to injected Now must fail (req 10.2)")
 	}
-	var unavail *authoritycoord.ErrUnavailable
+	var unavail *authoritycoord.UnavailableError
 	if !errors.As(err, &unavail) {
-		t.Fatalf("want ErrUnavailable, got %T %v", err, err)
+		t.Fatalf("want UnavailableError, got %T %v", err, err)
 	}
 }
 

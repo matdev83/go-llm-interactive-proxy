@@ -12,9 +12,9 @@ import (
 func TestCompatibleParity_fixtureMatrixCoversFamiliesAndScenarios(t *testing.T) {
 	t.Parallel()
 	fxs := compatibleparity.ParityFixtures()
-	min := len(compatibleparity.AllFamilies()) * len(compatibleparity.AllScenarios())
-	if len(fxs) < min {
-		t.Fatalf("fixture count = %d want at least %d", len(fxs), min)
+	minCount := len(compatibleparity.AllFamilies()) * len(compatibleparity.AllScenarios())
+	if len(fxs) < minCount {
+		t.Fatalf("fixture count = %d want at least %d", len(fxs), minCount)
 	}
 	seen := map[string]bool{}
 	for _, fx := range fxs {

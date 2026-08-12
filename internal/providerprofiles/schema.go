@@ -172,7 +172,7 @@ func Validate(p Profile) error {
 	if p.Models.Policy == DiscoveryStatic && len(p.Models.Static) == 0 {
 		return fmt.Errorf("profile %q: static discovery requires models", p.ID)
 	}
-	max, ok := familyCapabilities(p.Family)
+	famCaps, ok := familyCapabilities(p.Family)
 	if !ok {
 		return fmt.Errorf("profile %q: unknown family %q", p.ID, p.Family)
 	}
@@ -214,7 +214,7 @@ func Validate(p Profile) error {
 	}
 	seenCapabilities := map[lipapi.Capability]bool{}
 	for _, c := range p.Capabilities.Enable {
-		if _, ok := max[c]; !ok {
+		if _, ok := famCaps[c]; !ok {
 			return fmt.Errorf("profile %q: capability elevation %q", p.ID, c)
 		}
 		if seenCapabilities[c] {
@@ -223,7 +223,7 @@ func Validate(p Profile) error {
 		seenCapabilities[c] = true
 	}
 	for _, c := range p.Capabilities.Disable {
-		if _, ok := max[c]; !ok {
+		if _, ok := famCaps[c]; !ok {
 			return fmt.Errorf("profile %q: unknown capability %q", p.ID, c)
 		}
 		if seenCapabilities[c] {
@@ -277,9 +277,9 @@ func Compile(p Profile) (Compiled, error) {
 	if err := Validate(p); err != nil {
 		return Compiled{}, err
 	}
-	max, _ := familyCapabilities(p.Family)
+	famCaps, _ := familyCapabilities(p.Family)
 	capabilities := lipapi.NewBackendCaps()
-	for c := range max {
+	for c := range famCaps {
 		capabilities[c] = struct{}{}
 	}
 	for _, c := range p.Capabilities.Disable {
@@ -288,7 +288,7 @@ func Compile(p Profile) (Compiled, error) {
 	for _, c := range p.Capabilities.Enable {
 		capabilities[c] = struct{}{}
 	}
-	return Compiled{Profile: p, FamilyMax: max, Capabilities: capabilities, Dialects: lipapi.NormalizeDialectSupport(lipapi.DialectSupport{ItemDialects: p.Dialects.Item, ReasoningDialects: p.Dialects.Reasoning, CompactionDialects: p.Dialects.Compaction, ExtensionTypes: p.Dialects.Extensions})}, nil
+	return Compiled{Profile: p, FamilyMax: famCaps, Capabilities: capabilities, Dialects: lipapi.NormalizeDialectSupport(lipapi.DialectSupport{ItemDialects: p.Dialects.Item, ReasoningDialects: p.Dialects.Reasoning, CompactionDialects: p.Dialects.Compaction, ExtensionTypes: p.Dialects.Extensions})}, nil
 }
 
 func familyCapabilities(f Family) (lipapi.BackendCaps, bool) {

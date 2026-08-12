@@ -325,14 +325,14 @@ func TestReloadFacade_ConcurrentReloadStatusSafe(t *testing.T) {
 			defer calls.Done()
 			res := ctrl.Reload(context.Background(), lipruntime.ReloadTrigger{Kind: lipruntime.TriggerAPI})
 			if res.Category != lipruntime.ResultNoop {
-				errCh <- errString("reload category " + string(res.Category))
+				errCh <- stringError("reload category " + string(res.Category))
 			}
 		}()
 		go func() {
 			defer calls.Done()
 			st := ctrl.Status()
 			if st.ActiveGeneration != 1 {
-				errCh <- errString("status generation")
+				errCh <- stringError("status generation")
 			}
 			_ = st.LastSuccess.Category
 		}()
@@ -359,6 +359,6 @@ func TestRuntime_ReloadStatusUnavailableWithoutCoordinator(t *testing.T) {
 	}
 }
 
-type errString string
+type stringError string
 
-func (e errString) Error() string { return string(e) }
+func (e stringError) Error() string { return string(e) }

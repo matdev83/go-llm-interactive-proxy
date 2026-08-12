@@ -266,7 +266,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	if s.isCommitted() && s.secureRecvRecordingHardStop && s.executor != nil && s.executor.SecureSessionRecordingMandatory {
 		// Output committed: compete for gate-replacement rejection evidence (D13) without effects.
 		_ = s.runStreamTerminal(ctx, sdkterminal.CommandGateReplacement, nil)
-		return false, &lipapi.UpstreamFailure{
+		return false, &lipapi.UpstreamFailureError{
 			Phase:        lipapi.PhasePostOutput,
 			Recoverable:  false,
 			Reason:       "secure session mandatory recorder failure after committed output",

@@ -2,20 +2,20 @@ package testkit
 
 import "strings"
 
-// CapBytes returns a subslice of at most max bytes (or b unchanged if max <= 0).
-func CapBytes(b []byte, max int) []byte {
-	if max <= 0 || len(b) <= max {
+// CapBytes returns a subslice of at most maxLen bytes (or b unchanged if maxLen <= 0).
+func CapBytes(b []byte, maxLen int) []byte {
+	if maxLen <= 0 || len(b) <= maxLen {
 		return b
 	}
-	return b[:max]
+	return b[:maxLen]
 }
 
-// CapString returns s truncated to max runes-worth is not what we want — byte cap for wire fuzzing.
-func CapString(s string, max int) string {
-	if max <= 0 || len(s) <= max {
+// CapString returns s truncated to maxLen runes-worth is not what we want — byte cap for wire fuzzing.
+func CapString(s string, maxLen int) string {
+	if maxLen <= 0 || len(s) <= maxLen {
 		return s
 	}
-	return s[:max]
+	return s[:maxLen]
 }
 
 // DefaultFuzzRouteSelector is used when a fuzz-packed selector decodes to empty.
