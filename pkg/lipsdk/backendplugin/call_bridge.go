@@ -1,6 +1,7 @@
 package backendplugin
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -44,6 +45,20 @@ func CallFromInvocation(inv Invocation) (lipapi.Call, error) {
 			AuthoritativeSessionID: strings.TrimSpace(inv.ProxyOwnedSessionID),
 		},
 	}
+	for _, ext := range inv.SemanticExtensions {
+		mapped := lipapi.SemanticExtension{Namespace: ext.Namespace, Type: ext.Type, Implementor: ext.Implementor, Direction: ext.Direction}
+		switch ext.Presence {
+		case SemanticExtensionNull:
+			mapped.Presence = lipapi.SemanticExtensionNull
+		case SemanticExtensionValue:
+			mapped.Presence = lipapi.SemanticExtensionValue
+			mapped.Data = append([]byte(nil), ext.Data.Bytes()...)
+		}
+		call.SemanticExtensions = append(call.SemanticExtensions, mapped)
+	}
+	if err := reconcilePromptCacheKey(&call); err != nil {
+		return lipapi.Call{}, err
+	}
 	RestoreCallWireMetadata(&call, inv.SafeMetadata)
 	if err := applyInvocationWireToCall(&call, inv); err != nil {
 		return lipapi.Call{}, err
@@ -52,6 +67,30 @@ func CallFromInvocation(inv Invocation) (lipapi.Call, error) {
 		return lipapi.Call{}, err
 	}
 	return call, nil
+}
+
+func reconcilePromptCacheKey(call *lipapi.Call) error {
+	var carrier string
+	for _, ext := range call.SemanticExtensions {
+		if ext.Namespace != "lip" || ext.Type != "prompt_cache_key" || ext.Implementor != "proxy" || ext.Direction != "request" {
+			continue
+		}
+		if ext.Presence != lipapi.SemanticExtensionValue {
+			return fmt.Errorf("prompt_cache_key semantic carrier must have a value")
+		}
+		if err := json.Unmarshal(ext.Data, &carrier); err != nil {
+			return fmt.Errorf("prompt_cache_key semantic carrier: %w", err)
+		}
+		carrier = strings.TrimSpace(carrier)
+	}
+	legacy := strings.TrimSpace(call.PromptCacheKey)
+	if legacy != "" && carrier != "" && legacy != carrier {
+		return fmt.Errorf("prompt_cache_key legacy alias conflicts with semantic carrier")
+	}
+	if carrier != "" {
+		call.PromptCacheKey = carrier
+	}
+	return nil
 }
 
 // CanonicalEventFromLipapi maps a canonical stream event into the plugin wire DTO.

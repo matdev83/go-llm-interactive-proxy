@@ -22,6 +22,13 @@ func CloneCall(c Call) Call {
 			out.Extensions[k] = append(json.RawMessage(nil), v...)
 		}
 	}
+	if len(c.SemanticExtensions) > 0 {
+		out.SemanticExtensions = make([]SemanticExtension, len(c.SemanticExtensions))
+		for i, ext := range c.SemanticExtensions {
+			out.SemanticExtensions[i] = ext
+			out.SemanticExtensions[i].Data = append(json.RawMessage(nil), ext.Data...)
+		}
+	}
 	if c.Session.Metadata != nil {
 		out.Session.Metadata = make(map[string]string, len(c.Session.Metadata))
 		maps.Copy(out.Session.Metadata, c.Session.Metadata)

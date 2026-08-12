@@ -37,8 +37,9 @@ func TestInventorySnapshotForOperator_matchesConfigSnapshotWithExtras(t *testing
 		t.Fatal(err)
 	}
 	want, err := diag.InventorySnapshotForConfig(ctx, cfg, &diag.InventoryExtras{
-		Reg:           reg,
-		Registrations: extras,
+		Reg:                          reg,
+		Registrations:                extras,
+		InstanceDiagnosticProjectors: standardplugins.StandardDiagnosticProjectors(),
 	})
 	if err != nil {
 		t.Fatal(err)

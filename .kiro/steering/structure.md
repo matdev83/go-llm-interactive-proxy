@@ -91,6 +91,8 @@ Wire frontends translate protocol payloads <-> canonical contracts:
 - `internal/reasoningreplay/` — Reasoning prefix matcher (`compatible-auto.v2`).
 - `internal/qa/` & `internal/archtest/` — Repository hygiene & architecture guardrail gates.
 
+The architecture gates also include the deterministic change-surface reporter at `internal/archtest/tools/changesurface`; it classifies Git paths and keeps profile-only shared-boundary footprint at zero.
+
 ---
 
 ## Quick Intent-to-Package Map

@@ -46,7 +46,7 @@ type PackageTreeBudget struct {
 
 // PackageTreeBudgets locks measured convergence tree ceilings (+25 lines headroom).
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 10888},
+	{Tree: "internal/infra/runtimebundle", Max: 10973},
 	{Tree: "internal/stdhttp", Max: 4815},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 562},
@@ -64,7 +64,7 @@ var LineBudgets = []LineBudget{
 	{Dir: "internal/core", Max: 68844},
 	{Dir: "internal/pluginreg", Max: 1079},
 	{Dir: "internal/stdhttp", Max: 4815},
-	{Dir: "internal/infra/runtimebundle", Max: 10888},
+	{Dir: "internal/infra/runtimebundle", Max: 10973},
 	{Dir: "cmd/lipstd", Max: 979},
 	{Dir: "pkg/lipruntime", Max: 562},
 }
@@ -153,7 +153,8 @@ const ConnectorArchitectureOverlayMax = 1937
 
 // GenericCompatibleBackendOverlayMax is the measured generic-compatible-backend-modes
 // overlay ratchet (production files selected by path, excluding connector overlay).
-const GenericCompatibleBackendOverlayMax = 900
+// Keep 25 lines of ratchet headroom over the measured 921-line overlay.
+const GenericCompatibleBackendOverlayMax = 946
 
 // AffectedSurfaceBaseline locks one Req 11.5 surface baseline.
 type AffectedSurfaceBaseline struct {

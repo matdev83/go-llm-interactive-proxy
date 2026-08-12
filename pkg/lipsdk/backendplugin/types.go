@@ -165,10 +165,11 @@ type Invocation struct {
 	// It is not client metadata and must not be populated from SafeMetadata.
 	ProxyOwnedSessionID string
 
-	// PromptCacheKey is the proxy-carried prompt-caching hint forwarded verbatim.
-	// It is an additive v1.3 field gated by FeatureExactOpenResponsesFields;
-	// calls that require it fail closed against older negotiated minors.
-	PromptCacheKey string
+	// PromptCacheKey is a source-compatible legacy alias. SemanticExtensions is
+	// the sole authority for new carrier-aware paths; bridges reject conflicting
+	// values rather than choosing between two representations.
+	PromptCacheKey     string
+	SemanticExtensions []SemanticExtension
 
 	// Ordered-item ABI fields (protocol minor >= ProtocolMinorOrderedItems).
 	Operation            string
@@ -178,6 +179,23 @@ type Invocation struct {
 	Items                []InvocationItem
 	ProtocolRequirements ProtocolRequirementsDTO
 }
+
+// SemanticExtension is the SDK form of lipapi.SemanticExtension.
+type SemanticExtension struct {
+	Namespace   string
+	Type        string
+	Implementor string
+	Direction   string
+	Presence    SemanticExtensionPresence
+	Data        RawJSON
+}
+
+type SemanticExtensionPresence string
+
+const (
+	SemanticExtensionNull  SemanticExtensionPresence = "null"
+	SemanticExtensionValue SemanticExtensionPresence = "value"
+)
 
 // Message is an ordered role + parts unit.
 type Message struct {

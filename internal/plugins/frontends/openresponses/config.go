@@ -14,7 +14,7 @@ import (
 const (
 	ID                           = "openresponses"
 	DefaultProfile               = "2026-04-24"
-	DefaultBasePath              = httpcontract.DefaultOpenResponsesBasePath
+	DefaultBasePath              = "/openresponses/v1"
 	DefaultPersistentStore       = "standard"
 	DefaultTTL                   = "24h"
 	DefaultMaxChainDepth         = 64

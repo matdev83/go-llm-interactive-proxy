@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/adapter"
 	testkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin/host"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
@@ -57,7 +58,7 @@ func TestInvalidation_BufconnTransportDeath(t *testing.T) {
 	}
 
 	var invalidated atomic.Int64
-	sess := &adapter.GRPCSession{Client: client, InstanceID: "death"}
+	sess := host.NewSessionForTesting(client, conn, "death", backendplugin.Negotiation{})
 	profile, err := sess.Resolve(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -145,7 +146,7 @@ func TestInvalidation_MalformedFrameViaBufconn(t *testing.T) {
 	client := backendpluginv1.NewBackendPluginClient(conn)
 
 	var invalidated atomic.Int64
-	sess := &adapter.GRPCSession{Client: client, InstanceID: "mal"}
+	sess := host.NewSessionForTesting(client, conn, "mal", backendplugin.Negotiation{})
 	br := adapter.Build(sess, backendplugin.ResolvedProfile{
 		Capabilities: backendplugin.CapabilitySummary{Streaming: true},
 	}, adapter.Options{

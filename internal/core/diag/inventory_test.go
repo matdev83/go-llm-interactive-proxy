@@ -6,6 +6,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -20,6 +23,85 @@ import (
 )
 
 var _ diag.FeatureRegistry = (*pluginreg.Registry)(nil)
+
+func TestInventorySnapshot_matchesCurrentCompatibilityGolden(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Plugins: config.PluginsConfig{
+			Frontends: []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
+			Backends:  []config.PluginConfig{{ID: "anthropic", Enabled: false}},
+			Features:  []config.PluginConfig{{ID: "submit-noop", Enabled: true}},
+		},
+	}
+	snapshot, err := diag.InventorySnapshotForConfig(context.Background(), cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := json.MarshalIndent(snapshot, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = append(got, '\n')
+	root := diagRepoRoot(t)
+	want, err := os.ReadFile(filepath.Join(root, "internal", "core", "diag", "testdata", "current_inventory_snapshot.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("current diagnostic JSON changed; update the golden only with an intentional diagnostic contract change\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestInventorySnapshot_preservesPhase1DiagnosticBaseline(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Plugins: config.PluginsConfig{
+			Frontends: []config.PluginConfig{{ID: "fe-1", Kind: "openai-responses", Enabled: true}},
+			Backends:  []config.PluginConfig{{ID: "be-1", Kind: "openai-responses", Enabled: true}},
+		},
+	}
+	snapshot, err := diag.InventorySnapshotForConfig(context.Background(), cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := diagRepoRoot(t)
+	data, err := os.ReadFile(filepath.Join(root, "internal", "core", "diag", "testdata", "phase1_inventory_baseline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want struct {
+		Frontends []diag.PluginRow `json:"frontends"`
+		Backends  []diag.PluginRow `json:"backends"`
+	}
+	if err := json.Unmarshal(data, &want); err != nil {
+		t.Fatal(err)
+	}
+	if len(want.Frontends) == 0 || len(want.Backends) == 0 {
+		t.Fatal("Phase 1 diagnostic baseline must contain frontend and backend rows")
+	}
+	if len(snapshot.Frontends) != len(want.Frontends) || len(snapshot.Backends) != len(want.Backends) {
+		t.Fatalf("Phase 1 diagnostic row counts changed: got %d/%d want %d/%d", len(snapshot.Frontends), len(snapshot.Backends), len(want.Frontends), len(want.Backends))
+	}
+	for i, row := range want.Frontends {
+		if snapshot.Frontends[i] != row {
+			t.Fatalf("Phase 1 frontend diagnostic row %d changed: got %+v want %+v", i, snapshot.Frontends[i], row)
+		}
+	}
+	for i, row := range want.Backends {
+		if snapshot.Backends[i] != row {
+			t.Fatalf("Phase 1 backend diagnostic row %d changed: got %+v want %+v", i, snapshot.Backends[i], row)
+		}
+	}
+}
+
+func diagRepoRoot(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
+}
 
 func TestInventoryHandler_returnsPluginRows(t *testing.T) {
 	t.Parallel()

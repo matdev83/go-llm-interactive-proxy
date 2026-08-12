@@ -33,6 +33,14 @@ var knownInvocationRoles = map[Role]struct{}{
 }
 
 func validateInvocationWire(inv Invocation) error {
+	if err := validateInvocationSemanticAuthority(inv); err != nil {
+		return err
+	}
+	for i, ext := range inv.SemanticExtensions {
+		if err := validateSemanticExtension(ext); err != nil {
+			return fmt.Errorf("semantic extension %d: %w", i, err)
+		}
+	}
 	if err := validateToolChoiceWire(inv.ToolChoice); err != nil {
 		return err
 	}

@@ -1,5 +1,42 @@
 package diag
 
+// CompatibleBackendInstanceDiagnostics converts already-projected compatible
+// rows into the generic instance-diagnostic shape without decoding config.
+func CompatibleBackendInstanceDiagnostics(rows []CompatibleBackendRow) []InstanceDiagnostic {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]InstanceDiagnostic, 0, len(rows))
+	for _, r := range rows {
+		entry := InstanceDiagnostic{
+			ID:             r.InstanceID,
+			InstanceID:     r.InstanceID,
+			FactoryKind:    r.FactoryKind,
+			Origin:         r.Origin,
+			Enabled:        r.Enabled,
+			Profile:        r.Profile,
+			Capabilities:   r.Capabilities,
+			InventoryState: r.InventoryState,
+			Conformance:    r.Conformance,
+			ConfigError:    r.ConfigError,
+		}
+		if r.Prefix != "" {
+			entry.Details = append(entry.Details, SafeField{Key: "prefix", Value: r.Prefix})
+		}
+		if r.EndpointIdentity != "" {
+			entry.Details = append(entry.Details, SafeField{Key: "endpoint_identity", Value: r.EndpointIdentity})
+		}
+		if r.TokenizerID != "" {
+			entry.Details = append(entry.Details, SafeField{Key: "tokenizer_id", Value: r.TokenizerID})
+		}
+		if r.ConcurrencyPolicy != "" {
+			entry.Details = append(entry.Details, SafeField{Key: "concurrency_policy", Value: r.ConcurrencyPolicy})
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
 // CompatibleBackendRow is a bounded operator projection for one configured
 // built-in compatible backend instance. Values never include credential secrets
 // or raw opaque config payloads.
@@ -23,33 +60,4 @@ type CompatibleBackendRow struct {
 	InventoryState  string                     `json:"inventory_state,omitempty"`
 	InventoryHealth *CompatibleInventoryHealth `json:"inventory_health,omitempty"`
 	ConfigError     string                     `json:"config_error,omitempty"`
-}
-
-// OpenResponsesFrontendRow is a bounded operator projection for one configured
-// OpenResponses client-facing frontend instance. Values never include secrets
-// or raw opaque config payloads.
-type OpenResponsesFrontendRow struct {
-	Origin      string `json:"origin"`
-	InstanceID  string `json:"instance_id"`
-	FactoryKind string `json:"factory_kind"`
-	Enabled     bool   `json:"enabled"`
-	Profile     string `json:"profile,omitempty"`
-	// BasePath is the configured client-facing route prefix.
-	BasePath string `json:"base_path,omitempty"`
-	// WebSocketEnabled reports whether the WebSocket transport is enabled.
-	WebSocketEnabled bool `json:"websocket_enabled"`
-	// ContinuationStore is the configured persistence mode (e.g. "standard").
-	ContinuationStore string `json:"continuation_store,omitempty"`
-	ContinuationTTL   string `json:"continuation_ttl,omitempty"`
-	// AllowedOrigins is the sanitized WebSocket origin allowlist.
-	AllowedOrigins []string `json:"allowed_origins,omitempty"`
-	// Capabilities is the sanitized client-facing semantic capability surface
-	// of the pinned profile (ordered items, streaming, tools, compaction, and
-	// WebSocket when the transport is enabled).
-	Capabilities []string `json:"capabilities,omitempty"`
-	// RouteClaims is the sanitized normalized method+path ownership snapshot.
-	RouteClaims []string `json:"route_claims,omitempty"`
-	// Conformance is the profile conformance status projection.
-	Conformance string `json:"conformance,omitempty"`
-	ConfigError string `json:"config_error,omitempty"`
 }

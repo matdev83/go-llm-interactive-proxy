@@ -54,5 +54,9 @@ func sanitizeString(s string) string {
 	s = strings.ReplaceAll(s, "\r", "")
 	s = strings.ReplaceAll(s, "\n", "")
 	s = strings.ReplaceAll(s, "\t", "")
-	return strings.TrimSpace(s)
+	s = strings.TrimSpace(s)
+	if len(s) > 256 {
+		s = s[:256]
+	}
+	return s
 }

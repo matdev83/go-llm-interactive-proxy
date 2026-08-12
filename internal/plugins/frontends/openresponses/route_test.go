@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openresponses"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -18,7 +19,7 @@ func TestRoute_DefaultClaimsCoexistWithOpenAI(t *testing.T) {
 	reg := httpcontract.NewRouteRegistry()
 
 	// Register existing openai-responses routes
-	openaiClaims, err := httpcontract.OpenAIResponsesDefaultClaims("openai-responses")
+	openaiClaims, err := openairesponses.RouteClaims("openai-responses")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +56,7 @@ func TestRoute_CanonicalPathTakeoverConflict(t *testing.T) {
 	t.Parallel()
 
 	reg := httpcontract.NewRouteRegistry()
-	openaiClaims, err := httpcontract.OpenAIResponsesDefaultClaims("openai-responses")
+	openaiClaims, err := openairesponses.RouteClaims("openai-responses")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,14 +79,13 @@ func TestRoute_CanonicalPathTakeoverConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = reg.ValidateCanonicalPathTakeover("/v1", claims)
+	err = reg.ValidateCanonicalPathTakeover(httpcontract.CanonicalLegacyBasePath, claims)
 	if err == nil {
-		t.Fatal("expected takeover conflict error for /v1, got nil")
+		t.Fatal("expected canonical path takeover conflict")
 	}
-
-	var detail httpcontract.RouteConflictDetail
-	if !errors.As(err, &detail) {
-		t.Fatalf("expected RouteConflictDetail error, got %T: %v", err, err)
+	var conflict httpcontract.RouteConflictDetail
+	if !errors.As(err, &conflict) {
+		t.Fatalf("expected RouteConflictDetail error, got %T (%v)", err, err)
 	}
 }
 
@@ -136,7 +136,7 @@ func TestRoute_WebSocketDisabledClaims(t *testing.T) {
 	}
 
 	for _, c := range claims {
-		if c.Kind == httpcontract.RouteKindOpenResponsesWebSocket {
+		if c.Kind == httpcontract.RouteKind("openresponses_websocket") {
 			t.Errorf("found WebSocket claim when WS was disabled")
 		}
 	}
@@ -146,7 +146,7 @@ func TestRoute_RegisterClaimsIsAtomic(t *testing.T) {
 	t.Parallel()
 
 	reg := httpcontract.NewRouteRegistry()
-	openaiClaims, err := httpcontract.OpenAIResponsesDefaultClaims("openai-responses")
+	openaiClaims, err := openairesponses.RouteClaims("openai-responses")
 	if err != nil {
 		t.Fatal(err)
 	}

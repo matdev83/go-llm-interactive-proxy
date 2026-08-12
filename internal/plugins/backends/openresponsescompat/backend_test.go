@@ -9,6 +9,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"gopkg.in/yaml.v3"
@@ -228,6 +229,23 @@ func TestFactory_NoAuthBuilds(t *testing.T) {
 	be := mustBuild(t, "or-inst", minimalYAML)
 	if be.Open == nil {
 		t.Fatal("expected Open seam for no-auth instance")
+	}
+}
+
+func TestFactory_LifecycleAndInvalidBackendAreObservable(t *testing.T) {
+	t.Parallel()
+
+	var n yaml.Node
+	if err := yaml.Unmarshal([]byte(minimalYAML), &n); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LifecycleOpenResponsesCompatible("or-inst", n, nil, pluginreg.BackendFactoryDeps{}); err != nil {
+		t.Fatalf("lifecycle build failed: %v", err)
+	}
+
+	be := NewBackend(BackendSpec{})
+	if _, err := be.Open(context.Background(), openResponsesCall(lipapi.OperationOpenResponsesCreate), routing.AttemptCandidate{}); err == nil {
+		t.Fatal("invalid backend must reject Open")
 	}
 }
 

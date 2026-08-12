@@ -47,7 +47,10 @@ $allowed = @(
     "internal/core/terminalwork/app/ambiguous_append_reconciler.go"
     "cmd/lipstd/reload_signal_adapter_unix.go"
     # Backend plugin host: bidi Execute pumps, gRPC session bridge, process waiters.
-    "internal/infra/backendplugins/adapter/grpc_session.go"
+    # pkg/lipsdk/backendplugin/host/session.go: bidi Execute stream pump moved from
+    # the internal adapter's grpc_session.go when the public host package became
+    # the single host implementation (spec extension-scalability task 2.4).
+    "pkg/lipsdk/backendplugin/host/session.go"
     "internal/infra/backendplugins/adapter/stream.go"
     "internal/infra/backendplugins/processhost/launch_linux.go"
     "internal/infra/backendplugins/processhost/launch_windows.go"
@@ -68,6 +71,8 @@ $allowed = @(
     # internal/testkit/conformance/connector_host.go: test harness stderr drain for
     # the launched connector processes (conformance matrix harness; test-only package).
     "internal/testkit/conformance/connector_host.go"
+    # internal/testkit/contract/frontend/harness.go: in-flight request cancellation TCK runner (test-only package).
+    "internal/testkit/contract/frontend/harness.go"
 )
 
 $raw = @(rg --files-with-matches --glob "!*_test.go" "^\s+go\s" internal pkg cmd connector-support connectors 2>$null)

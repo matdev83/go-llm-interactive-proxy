@@ -35,3 +35,11 @@ It carries bounded provider billing evidence with explicit counter presence,
 source, authority, plane, and dedupe key. It is not a canonical event and must
 be consumed by the host exactly once; older peers must disable native compaction
 rather than synthesize a native usage lifecycle.
+
+`Invocation.semantic_extensions` is an additive minor-6 carrier gated by
+`semantic_extensions_v1`. It is optional and hosts must not advertise or emit it
+for a peer that cannot negotiate minor 6. The carrier preserves one bounded
+presence-bearing residual with closed identity syntax and direction; it is not a
+request/response envelope tunnel. `Invocation.prompt_cache_key` remains the
+legacy minor-3 compatibility field, but bridge code emits only one authority and
+rejects conflicting alias/carrier values.

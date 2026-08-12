@@ -11,6 +11,7 @@ import (
 
 //nolint:paralleltest // Each subtest mutates the same temporary git checkout and must remain serial.
 func TestCrossPlatformSelection(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("selector uses the repository's POSIX bash runtime")
 	}
@@ -56,6 +57,7 @@ func TestCrossPlatformSelection(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			runGit("checkout", "-q", base)
 			writeSelectionFixture(t, root, tc.path)
 			runGit("add", ".")

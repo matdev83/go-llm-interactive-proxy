@@ -82,11 +82,11 @@ function Run-Fuzz {
     $fuzzTime = if ($env:FUZZTIME) { $env:FUZZTIME } else { "500ms" }
     $fuzz = @(
         @("FuzzJSONRoundTrip", "./internal/testkit"), @("FuzzParseSnapshot", "./internal/infra/modelcatalog/modelsdev"),
-        @("^FuzzParseSelector$", "./internal/core/routing"), @("^FuzzParseSelectorFromBytes$", "./internal/core/routing"),
+        @("FuzzParseSelector", "./internal/core/routing"), @("FuzzParseSelectorFromBytes", "./internal/core/routing"),
         @("FuzzDecodeCreateRequest", "./internal/plugins/frontends/openairesponses"), @("FuzzDecodeMessageRequest", "./internal/plugins/frontends/anthropic"),
         @("FuzzDecodeGenerateContentRequest", "./internal/plugins/frontends/gemini"), @("FuzzDecodeChatRequest", "./internal/plugins/frontends/openailegacy"),
         @("FuzzWriteNonStreamJSON_toolArguments", "./internal/plugins/frontends/anthropic"), @("FuzzBuildGenerateContentResponse_toolJSON", "./internal/plugins/frontends/gemini"),
-        @("FuzzCallValidateJSON", "./pkg/lipapi"), @("FuzzMergeRouteQueryGenerationOptions", "./pkg/lipapi"), @("FuzzCollectWithLimitsProgram", "./pkg/lipapi"),
+        @("FuzzCallValidateJSON", "./pkg/lipapi"), @("FuzzSemanticExtensionValidation", "./pkg/lipapi"), @("FuzzMergeRouteQueryGenerationOptions", "./pkg/lipapi"), @("FuzzCollectWithLimitsProgram", "./pkg/lipapi"),
         @("FuzzStableCallIdentity", "./internal/core/diag"), @("FuzzParamsForCall", "./internal/plugins/backends/openairesponses"),
         @("FuzzHandleResponseStreamUnion", "./internal/plugins/backends/openairesponses"), @("FuzzBuildToolsParametersJSON", "./internal/plugins/backends/openairesponses"),
         @("FuzzHandleMessageStreamEventUnion", "./internal/plugins/backends/protocols/anthropicmessages"), @("FuzzToolInputSchemaParametersJSON", "./internal/plugins/backends/protocols/anthropicmessages"),
@@ -117,10 +117,7 @@ function Run-Fuzz {
             $cwd = Join-Path $root "connectors/cursorsdk"
             $env = @("GOWORK=off")
         }
-        $fuzzName = $item[0]
-        if (-not $fuzzName.StartsWith("^")) { $fuzzName = "^" + $fuzzName }
-        if (-not $fuzzName.EndsWith("$")) { $fuzzName += "$" }
-        Invoke-TaskRunner -Label "test-fuzz:$($item[0])" -Cwd $cwd -Timeout "10m" -Env $env -Command @("go", "test", "-fuzz=$fuzzName", "-fuzztime=$fuzzTime", "-run=^$", $package) | Out-Host
+        Invoke-TaskRunner -Label "test-fuzz:$($item[0])" -Cwd $cwd -Timeout "10m" -Env (@($localGoEnv) + @($env)) -Command @("go", "test", "-fuzz=^$($item[0])$", "-fuzztime=$fuzzTime", "-run=^$", $package) | Out-Host
     }
 }
 
@@ -133,8 +130,18 @@ switch -Regex ($Target) {
     }
     "^test-fuzz$" { Run-Fuzz; break }
     "^parity-checks$" {
+        Run-RootGoTest "parity-checks:contract" (@($goTestFlags) + @("./internal/testkit/contract/..."))
+        Run-RootGoTest "parity-checks:profiles" (@($goTestFlags) + @("./internal/providerprofiles/..."))
+        Run-RootGoTest "parity-checks:connector-contract" (@($goTestFlags) + @("./pkg/lipsdk/backendplugin/contracttest/..."))
         Run-RootGoTest "parity-checks:conformance" (@($goTestFlags) + @("-tags=precommit,integration", "./internal/testkit/conformance/..."))
-        Run-RootGoTest "parity-checks:compatible" (@($goTestFlags) + @("./internal/testkit/compatibleparity/...", "-run", "CompatibleParity")); break
+        Run-RootGoTest "parity-checks:compatible" (@($goTestFlags) + @("./internal/testkit/compatibleparity/...", "-run", "CompatibleParity"))
+        Run-NestedGoTest "parity-checks:connector-support/acp" "connector-support/acp" (@($goTestFlags) + @("-run", "KillProcessTree_|ProcessTree_CrossCompile|PID|Pool|Cancel|Open_|MapSession|Scripted"))
+        Run-NestedGoTest "parity-checks:connectors/acp" "connectors/acp" (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_"))
+        Run-NestedGoTest "parity-checks:connector-support/openaicompat" "connector-support/openaicompat" $goTestFlags
+        Run-NestedGoTest "parity-checks:connectors/openrouter" "connectors/openrouter" (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestBilling_"))
+        Run-NestedGoTest "parity-checks:connectors/nvidia" "connectors/nvidia" (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestInventory_"))
+        Run-NestedGoTest "parity-checks:connectors/huggingface" "connectors/huggingface" (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestInventory_"))
+        Run-RootGoTest "parity-checks:sentinel" (@($goTestFlags) + @("-tags=integration", "./internal/testkit/conformance", "-run", "^TestBoundedSentinel")); break
     }
     "^parity-|^test-local-compatible-plugin-modules$" {
         Run-Parity

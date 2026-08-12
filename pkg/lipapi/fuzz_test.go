@@ -25,6 +25,39 @@ func FuzzCallValidateJSON(f *testing.F) {
 	})
 }
 
+func FuzzSemanticExtensionValidation(f *testing.F) {
+	f.Add([]byte(`{"kind":"hint"}`))
+	f.Add([]byte(`{"request":{"messages":[]}}`))
+
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		raw = testkit.CapBytes(raw, lipapi.MaxSemanticExtensionDataBytes)
+		call := lipapi.Call{
+			Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "fuzz"}}}},
+			SemanticExtensions: []lipapi.SemanticExtension{{
+				Namespace: "lip", Type: "fuzz_hint", Implementor: "fuzzer", Direction: "request",
+				Presence: lipapi.SemanticExtensionValue, Data: raw,
+			}},
+		}
+		err := call.Validate()
+		if err == nil {
+			if !json.Valid(raw) {
+				t.Fatalf("call.Validate() accepted invalid JSON data: %q", string(raw))
+			}
+			if len(raw) == 0 || len(raw) > lipapi.MaxSemanticExtensionDataBytes {
+				t.Fatalf("call.Validate() accepted raw data length %d outside valid 1..%d byte range", len(raw), lipapi.MaxSemanticExtensionDataBytes)
+			}
+			var parsed any
+			if unmarshalErr := json.Unmarshal(raw, &parsed); unmarshalErr != nil {
+				t.Fatalf("call.Validate() accepted raw data that fails json.Unmarshal: %v", unmarshalErr)
+			}
+		} else {
+			if len(raw) == 0 || !json.Valid(raw) {
+				return // expected validation failure
+			}
+		}
+	})
+}
+
 func FuzzMergeRouteQueryGenerationOptions(f *testing.F) {
 	f.Add("temperature=0.5&max_output_tokens=3")
 	f.Add("parallel_tool_calls=1")

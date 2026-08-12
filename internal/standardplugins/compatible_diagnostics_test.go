@@ -68,6 +68,21 @@ api_key: `+secret), &forbidden); err != nil {
 	}
 }
 
+func TestProjectCompatibleBackendInstanceRows_doesNotDuplicateAcrossCompatibleFactories(t *testing.T) {
+	t.Parallel()
+	cfg := compatibleDiagnosticsConfig(t, `backend_prefix: provider123
+base_url: https://api.provider123.example/v1
+api_key_env_var_root: PROVIDER123_API_KEY
+`)
+	rows := ProjectCompatibleBackendInstanceRows(cfg)
+	if len(rows) != 1 {
+		t.Fatalf("projected instance diagnostics=%d, want 1", len(rows))
+	}
+	if rows[0].InstanceID != "provider123" {
+		t.Fatalf("projected instance=%q", rows[0].InstanceID)
+	}
+}
+
 func TestProjectCompatibleBackendRows_noAuthRemoteInventory(t *testing.T) {
 	t.Parallel()
 	cfg := compatibleDiagnosticsConfigAnthropic(t, `backend_prefix: local-compat

@@ -258,7 +258,7 @@ func (p *originProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func originFamilyHandler(tb testing.TB, backendID string, clock testkitopenresponses.VirtualClock) http.Handler {
 	tb.Helper()
 	switch backendID {
-	case BackendOpenResponses:
+	case BackendOpenResponses, BackendCompatibleOpenAI:
 		return openResponsesFakeHandler{clock: clock}
 	case BackendACP:
 		return refacp.NewHandler(refacp.Config{})

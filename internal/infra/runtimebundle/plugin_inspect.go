@@ -173,7 +173,7 @@ func collectBuiltinKinds(reg *pluginreg.Registry) []string {
 			return ids
 		}
 	}
-	return append([]string(nil), standardplugins.EssentialBackendKinds...)
+	return append([]string(nil), standardplugins.EssentialBackendKinds()...)
 }
 
 func configuredBackends(cfg *config.Config) []diagnostics.ConfiguredBackend {
@@ -237,7 +237,7 @@ func isExternalDiscoveryKind(kind string, bd config.BackendDiscoveryConfig, reg 
 	if reg != nil {
 		return !slices.Contains(reg.BuiltinBackendFactoryIDs(), kind)
 	}
-	return !slices.Contains(standardplugins.EssentialBackendKinds, kind)
+	return !slices.Contains(standardplugins.EssentialBackendKinds(), kind)
 }
 
 // resolveConfiguredArtifact returns a verified doctor artifact together with

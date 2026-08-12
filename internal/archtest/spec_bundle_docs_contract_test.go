@@ -48,3 +48,35 @@ func TestReleaseGates_linksSpecBundleIndex(t *testing.T) {
 		t.Fatal("docs/release-gates.md should link spec-bundle-index.md for traceability")
 	}
 }
+
+func TestExtensionAuthoringDoc_DescribesCurrentArchitecture(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	path := filepath.Join(root, "docs", "extension-authoring.md")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+	for _, needle := range []string{
+		"Provider profile", "Family adapter", "Executable connector", "pkg/lipsdk/backendplugin/contracttest",
+		"1,000", "profile-only", "canonical", "semantic", "sentinel", "fail-closed",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("extension authoring documentation missing %q", needle)
+		}
+	}
+}
+
+func TestConformanceEvidenceDoc_DoesNotPresentCartesianReleaseArchitecture(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	b, err := os.ReadFile(filepath.Join(root, "docs", "conformance-matrix-evidence.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+	if !strings.Contains(text, "<!-- architecture-contract: non-cartesian-release-evidence -->") {
+		t.Fatal("conformance evidence is missing the stable non-Cartesian architecture contract marker")
+	}
+}

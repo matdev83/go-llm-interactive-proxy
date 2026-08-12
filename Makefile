@@ -1,4 +1,4 @@
-.PHONY: help test test-fast quality-checks-fast test-unit precommit-full test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks parity-acp-plugin parity-cursorcliacp-plugin parity-cli-acp-plugins parity-openrouter-plugin parity-hosted-compatible-plugins parity-ollama-plugins parity-opencode-plugins parity-codex-plugins parity-local-compatible-plugins test-local-compatible-plugin-modules release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install backend-plugin-module-checks backend-plugin-absence-checks backend-plugin-security-checks backend-plugin-cross-platform-qa backend-plugin-release-gates-static backend-plugin-release-gates package-minimal package-full package-plugin-smoke docs-check knowledge-check example-config-check backend-plugin-example-check kiro-spec-check isolated-root-qa installed-plugin-smoke test-cursor-sdk-live test-cursor-sdk-live-bridge test-cursor-sdk-platform test-cursor-sdk-comparison-report tmp-clean test-openresponses-compliance test-openresponses-compliance-static
+.PHONY: help test test-fast test-unit profile-only-check precommit-full test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks parity-acp-plugin parity-cursorcliacp-plugin parity-cli-acp-plugins parity-openrouter-plugin parity-hosted-compatible-plugins parity-ollama-plugins parity-opencode-plugins parity-codex-plugins parity-local-compatible-plugins test-local-compatible-plugin-modules release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install backend-plugin-module-checks backend-plugin-absence-checks backend-plugin-security-checks backend-plugin-cross-platform-qa backend-plugin-release-gates-static backend-plugin-release-gates package-minimal package-full package-plugin-smoke docs-check knowledge-check example-config-check backend-plugin-example-check kiro-spec-check isolated-root-qa installed-plugin-smoke test-cursor-sdk-live test-cursor-sdk-live-bridge test-cursor-sdk-platform test-cursor-sdk-comparison-report tmp-clean test-openresponses-compliance test-openresponses-compliance-static
 
 GO ?= go
 GO_TEST_FLAGS ?= -parallel=8 -timeout=10m
@@ -9,11 +9,11 @@ endif
 
 help:
 	@echo "Targets:"
-	@echo "  make quality-checks  - full gofmt, tidy, build, vet, guard scripts, archtest checks"
-	@echo "  make quality-checks-fast - checks used before test/qa; skips duplicate build/vet because go test performs them"
+	@echo "  make quality-checks  - gofmt, go mod tidy (no drift), go build, go vet, guard scripts, archtest; mod verify in CI or with LIP_VERIFY_MODULE_CACHE=1"
+	@echo "  make profile-only-check [PROFILE_ONLY_BASE=<git-rev>] - fail-closed provider-profile change-surface ratchet"
 	@echo "  make regex-hotpath-check - forbid regexp.MustCompile in frontends/runtime (see scripts/)"
-	@echo "  make test            - cached guard checks, full unit tests, and conformance parity checks"
-	@echo "  make test-fast       - cached guard checks plus the complete root test graph"
+	@echo "  make test            - quality-checks, full unit tests, and conformance parity checks"
+	@echo "  make test-fast       - quality-checks then tests for staged packages (or all)"
 	@echo "  make precommit-full  - run the optional full local lint + vulnerability scan before commit"
 	@echo "  make test-unit       - go test $(GO_TEST_FLAGS) ./... (excludes //go:build precommit tests)"
 	@echo "  make test-postgres-migrations - apply and verify dual-plane PostgreSQL migrations"
@@ -26,21 +26,21 @@ help:
 	@echo "  make test-fuzz       - short fuzz smoke (FUZZTIME=500ms locally; nightly CI uses 6s per target in .github/workflows/race-fuzz-nightly.yml)"
 	@echo "  make test-reasoning-e2e-soak - opt-in reasoning preservation full-HTTP soak (sets LIP_REASONING_E2E_SOAK=1; not a PR/default gate; see docs/reasoning-output-preservation.md)"
 	@echo "  make test-cursor-sdk-live     - opt-in live Cursor SDK Node scenarios (CURSOR_SDK_LIVE=1 + CURSOR_API_KEY)"
-	@echo "  make test-cursor-sdk-live-bridge - opt-in Go→Node live bridge lifecycle (-tags=cursorsdk_live_bridge; CURSOR_SDK_LIVE=1 + key)"
+	@echo "  make test-cursor-sdk-live-bridge - opt-in GoÔćĺNode live bridge lifecycle (-tags=cursorsdk_live_bridge; CURSOR_SDK_LIVE=1 + key)"
 	@echo "  make test-cursor-sdk-platform - current-OS bridge platform smoke (fake bridge; no API key)"
 	@echo "  make test-cursor-sdk-comparison-report - ACP vs SDK matrix report (synthetic/blocked offline; no credentials)"
-	@echo "  make parity-checks   - conformance package tests only (-tags=precommit,integration; FE×BE matrix + parity suites; see docs/conformance-matrix-evidence.md)"
+	@echo "  make parity-checks   - TCK certifications, protocol-owned parity suites, and bounded integration evidence"
 	@echo "  make release-gates   - conformance package + all critical fuzz targets (race is separate: test-race / CI; see docs/release-gates.md)"
 	@echo "  make bench           - benchmarks (testkit, stream, core runtime/routing/diag/toolcallrepair, frontend encoders)"
 	@echo "  make pgo-profile     - collect default.pgo from core benches (move under cmd/lipstd before build)"
 	@echo "  make pgo-build       - build cmd/lipstd (uses cmd/lipstd/default.pgo when present)"
-	@echo "  make qa              - cached guard checks + one full tagged test pass (-tags=precommit,integration) + lint + vuln + release-gates-static + OpenResponses compliance static gate"
+	@echo "  make qa              - quality-checks + one full test pass (-tags=precommit,integration) + lint + vuln + release-gates-static + OpenResponses compliance static gate"
 	@echo "  make lint            - golangci-lint if installed, else staticcheck"
 	@echo "  make hooks-install   - git config core.hooksPath .githooks (pre-commit: secrets + quality gate)"
 	@echo "  make kiro-spec-check SPEC=<name> - validate a Kiro spec development gate"
 	@echo "  make isolated-root-qa - GOWORK=off QA on a temp root copy without connectors/support/Node/artifacts"
 	@echo "  make installed-plugin-smoke - one lipstd binary; install release artifacts; same-binary inspect/doctor/invoke"
-	@echo "  make docs-check      - backend-plugin authoring/operator/example documentation tests"
+	@echo "  make docs-check      - backend-plugin and extension-authoring documentation tests"
 	@echo "  make knowledge-check - steering/ADR hybrid consistency"
 	@echo "  make example-config-check - operator/example YAML + config/examples bootstrap inspect"
 	@echo "  make backend-plugin-security-checks - executable-plugin threat-model adversarial + bounded fuzz"
@@ -49,6 +49,17 @@ help:
 	@echo "  make backend-plugin-release-gates - full connector/support module matrix + root release suites"
 	@echo "  make run             - go run ./cmd/lipstd"
 	@echo "  make tmp-clean       - dry-run scan of stale project-owned TEMP residue (Windows; TMP_CLEAN_APPLY=1 or scripts/tmp-clean.ps1 -Apply to delete)"
+
+# Validate a provider-profile-only change surface against a Git base. This is
+# explicit rather than part of every quality run because the normal branch may
+# intentionally contain core/ABI/composition work alongside profile work.
+PROFILE_ONLY_BASE ?=
+profile-only-check:
+ifeq ($(strip $(PROFILE_ONLY_BASE)),)
+	$(GO) run ./internal/archtest/tools/changesurface/cmd -profile-only -json
+else
+	$(GO) run ./internal/archtest/tools/changesurface/cmd -base "$(PROFILE_ONLY_BASE)" -profile-only -json
+endif
 
 quality-checks:
 ifeq ($(OS),Windows_NT)
@@ -69,16 +80,6 @@ else
 	@bash scripts/regex-hotpath-check.sh
 endif
 
-test: quality-checks-fast test-unit parity-checks
-
-# The test and QA targets immediately compile/test the same root graph. Avoid
-# compiling and vetting the untagged graph once more in quality-checks; go test
-# performs the curated vet checks for the selected graph and preserves the
-# authoritative test evidence.
-# Export the skip flags at the make level instead of inlining shell syntax:
-# on Windows make's recipe shell may be cmd or sh (MSYS/Git Bash), and inline
-# `$env:VAR=1` is interpolated to an empty value by a sh shell, silently
-# disabling the fast path and masking failures via an empty `$LASTEXITCODE`.
 quality-checks-fast: export LIP_SKIP_GO_COMPILE_CHECKS=1
 quality-checks-fast: export LIP_SKIP_ARCHTEST=1
 quality-checks-fast:
@@ -87,6 +88,8 @@ ifeq ($(OS),Windows_NT)
 else
 	@bash scripts/quality-checks.sh
 endif
+
+test: quality-checks-fast test-unit parity-checks
 
 test-fast: quality-checks-fast
 ifeq ($(OS),Windows_NT)
@@ -160,7 +163,7 @@ FUZZ_WRAPPER := $(GO) test
 else
 FUZZ_WRAPPER := bash "$(CURDIR)/scripts/fuzz-run.sh"
 endif
-# Opt-in reasoning-preservation full HTTP soak (1000×100 default). Not part of
+# Opt-in reasoning-preservation full HTTP soak (1000├Ś100 default). Not part of
 # make test / test-unit / qa / PR gates. Overrides: LIP_REASONING_E2E_SEEDS,
 # LIP_REASONING_E2E_TURNS, LIP_REASONING_E2E_WORKERS. Single-seed replay:
 # LIP_REASONING_E2E_MODE + LIP_REASONING_E2E_SEED.
@@ -177,74 +180,75 @@ ifeq ($(OS),Windows_NT)
 	@$(WINDOWS_TASK) test-fuzz
 else
 	@echo "Fuzz smoke (FUZZTIME=$(FUZZTIME)) one target per line"
-	$(FUZZ_WRAPPER) -fuzz=FuzzJSONRoundTrip$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/testkit
-	$(FUZZ_WRAPPER) -fuzz=FuzzParseSnapshot$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/infra/modelcatalog/modelsdev
+	$(FUZZ_WRAPPER) -fuzz=^FuzzJSONRoundTrip$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/testkit
+	$(FUZZ_WRAPPER) -fuzz=^FuzzParseSnapshot$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/infra/modelcatalog/modelsdev
 	$(FUZZ_WRAPPER) -fuzz=^FuzzParseSelector$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/routing
-	$(FUZZ_WRAPPER) -fuzz=FuzzParseSelectorFromBytes$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/routing
-	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeCreateRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/openairesponses
-	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeMessageRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/anthropic
-	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeGenerateContentRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/gemini
-	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeChatRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/openailegacy
-	$(FUZZ_WRAPPER) -fuzz=FuzzWriteNonStreamJSON_toolArguments$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/anthropic
-	$(FUZZ_WRAPPER) -fuzz=FuzzBuildGenerateContentResponse_toolJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/gemini
-	$(FUZZ_WRAPPER) -fuzz=FuzzCallValidateJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipapi
-	$(FUZZ_WRAPPER) -fuzz=FuzzMergeRouteQueryGenerationOptions$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipapi
-	$(FUZZ_WRAPPER) -fuzz=FuzzCollectWithLimitsProgram$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipapi
-	$(FUZZ_WRAPPER) -fuzz=FuzzStableCallIdentity$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/diag
-	$(FUZZ_WRAPPER) -fuzz=FuzzParamsForCall$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openairesponses
-	$(FUZZ_WRAPPER) -fuzz=FuzzHandleResponseStreamUnion$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openairesponses
-	$(FUZZ_WRAPPER) -fuzz=FuzzBuildToolsParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openairesponses
-	$(FUZZ_WRAPPER) -fuzz=FuzzHandleMessageStreamEventUnion$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/anthropicmessages
-	$(FUZZ_WRAPPER) -fuzz=FuzzToolInputSchemaParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/anthropicmessages
-	$(FUZZ_WRAPPER) -fuzz=FuzzHandleChatCompletionChunk$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openailegacy
-	$(FUZZ_WRAPPER) -fuzz=FuzzBuildChatToolsParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openailegacy
-	$(FUZZ_WRAPPER) -fuzz=FuzzHandleGenerateContentResponse$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/geminigenerate
-	$(FUZZ_WRAPPER) -fuzz=FuzzBuildToolsParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/geminigenerate
-	$(FUZZ_WRAPPER) -fuzz=FuzzMessageToContentToolResultJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/geminigenerate
-	$(FUZZ_WRAPPER) -fuzz=FuzzAssistantPartsToContentBlocksJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/bedrock
-	cd connector-support/acp && GOWORK=off $(FUZZ_WRAPPER) -fuzz=FuzzParseNDJSONLine$$ -fuzztime=$(FUZZTIME) -run=^$$ .
-	cd connector-support/acp && GOWORK=off $(FUZZ_WRAPPER) -fuzz=FuzzMapSessionUpdateToEvents$$ -fuzztime=$(FUZZTIME) -run=^$$ .
-	cd connector-support/acp && GOWORK=off $(FUZZ_WRAPPER) -fuzz=FuzzMergeHandshakeProfileExtensions$$ -fuzztime=$(FUZZTIME) -run=^$$ .
-	cd connectors/cursorsdk && GOWORK=off $(FUZZ_WRAPPER) -fuzz=FuzzDecodeLine$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/product/protocol
-	cd connectors/cursorsdk && GOWORK=off $(FUZZ_WRAPPER) -fuzz=FuzzMapBridgeEvent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/product
-	$(FUZZ_WRAPPER) -fuzz=FuzzHookMutationValidators$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/hooks
-	$(FUZZ_WRAPPER) -fuzz=FuzzManifest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/infra/backendplugins/manifest
-	$(FUZZ_WRAPPER) -fuzz=FuzzServerFrame$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/backendplugin
-	$(FUZZ_WRAPPER) -fuzz=FuzzAcceptClientUserAgent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
-	$(FUZZ_WRAPPER) -fuzz=FuzzAcceptClientAppURL$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
-	$(FUZZ_WRAPPER) -fuzz=FuzzAcceptClientAppTitle$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
-	$(FUZZ_WRAPPER) -fuzz=FuzzValidateIdentityYAML$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
-	$(FUZZ_WRAPPER) -fuzz=FuzzCaptureClientUserAgent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/identitywire
+	$(FUZZ_WRAPPER) -fuzz=^FuzzParseSelectorFromBytes$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/routing
+	$(FUZZ_WRAPPER) -fuzz=^FuzzDecodeCreateRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/openairesponses
+	$(FUZZ_WRAPPER) -fuzz=^FuzzDecodeMessageRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/anthropic
+	$(FUZZ_WRAPPER) -fuzz=^FuzzDecodeGenerateContentRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/gemini
+	$(FUZZ_WRAPPER) -fuzz=^FuzzDecodeChatRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/openailegacy
+	$(FUZZ_WRAPPER) -fuzz=^FuzzWriteNonStreamJSON_toolArguments$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/anthropic
+	$(FUZZ_WRAPPER) -fuzz=^FuzzBuildGenerateContentResponse_toolJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/gemini
+	$(FUZZ_WRAPPER) -fuzz=^FuzzCallValidateJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipapi
+	$(FUZZ_WRAPPER) -fuzz=^FuzzSemanticExtensionValidation$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipapi
+	$(FUZZ_WRAPPER) -fuzz=^FuzzMergeRouteQueryGenerationOptions$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipapi
+	$(FUZZ_WRAPPER) -fuzz=^FuzzCollectWithLimitsProgram$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipapi
+	$(FUZZ_WRAPPER) -fuzz=^FuzzStableCallIdentity$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/diag
+	$(FUZZ_WRAPPER) -fuzz=^FuzzParamsForCall$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openairesponses
+	$(FUZZ_WRAPPER) -fuzz=^FuzzHandleResponseStreamUnion$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openairesponses
+	$(FUZZ_WRAPPER) -fuzz=^FuzzBuildToolsParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openairesponses
+	$(FUZZ_WRAPPER) -fuzz=^FuzzHandleMessageStreamEventUnion$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/anthropicmessages
+	$(FUZZ_WRAPPER) -fuzz=^FuzzToolInputSchemaParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/anthropicmessages
+	$(FUZZ_WRAPPER) -fuzz=^FuzzHandleChatCompletionChunk$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openailegacy
+	$(FUZZ_WRAPPER) -fuzz=^FuzzBuildChatToolsParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openailegacy
+	$(FUZZ_WRAPPER) -fuzz=^FuzzHandleGenerateContentResponse$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/geminigenerate
+	$(FUZZ_WRAPPER) -fuzz=^FuzzBuildToolsParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/geminigenerate
+	$(FUZZ_WRAPPER) -fuzz=^FuzzMessageToContentToolResultJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/geminigenerate
+	$(FUZZ_WRAPPER) -fuzz=^FuzzAssistantPartsToContentBlocksJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/bedrock
+	cd connector-support/acp && GOWORK=off $(FUZZ_WRAPPER) -fuzz=^FuzzParseNDJSONLine$$ -fuzztime=$(FUZZTIME) -run=^$$ .
+	cd connector-support/acp && GOWORK=off $(FUZZ_WRAPPER) -fuzz=^FuzzMapSessionUpdateToEvents$$ -fuzztime=$(FUZZTIME) -run=^$$ .
+	cd connector-support/acp && GOWORK=off $(FUZZ_WRAPPER) -fuzz=^FuzzMergeHandshakeProfileExtensions$$ -fuzztime=$(FUZZTIME) -run=^$$ .
+	cd connectors/cursorsdk && GOWORK=off $(FUZZ_WRAPPER) -fuzz=^FuzzDecodeLine$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/product/protocol
+	cd connectors/cursorsdk && GOWORK=off $(FUZZ_WRAPPER) -fuzz=^FuzzMapBridgeEvent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/product
+	$(FUZZ_WRAPPER) -fuzz=^FuzzHookMutationValidators$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/hooks
+	$(FUZZ_WRAPPER) -fuzz=^FuzzManifest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/infra/backendplugins/manifest
+	$(FUZZ_WRAPPER) -fuzz=^FuzzServerFrame$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/backendplugin
+	$(FUZZ_WRAPPER) -fuzz=^FuzzAcceptClientUserAgent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
+	$(FUZZ_WRAPPER) -fuzz=^FuzzAcceptClientAppURL$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
+	$(FUZZ_WRAPPER) -fuzz=^FuzzAcceptClientAppTitle$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
+	$(FUZZ_WRAPPER) -fuzz=^FuzzValidateIdentityYAML$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
+	$(FUZZ_WRAPPER) -fuzz=^FuzzCaptureClientUserAgent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/identitywire
 
 	# OpenResponses codec/state-machine/emulator fuzz smoke (spec Phase 8)
-	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
-	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeItem$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
-	$(FUZZ_WRAPPER) -fuzz=FuzzSSEParser$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
-	$(FUZZ_WRAPPER) -fuzz=FuzzStateMachine$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
-	$(FUZZ_WRAPPER) -fuzz=FuzzResourceBuilder$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
-	$(FUZZ_WRAPPER) -fuzz=FuzzParseResponseResource$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refclient/openresponses
-	$(FUZZ_WRAPPER) -fuzz=FuzzParseCompactResource$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refclient/openresponses
-	$(FUZZ_WRAPPER) -fuzz=FuzzParseEvent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refclient/openresponses
-	$(FUZZ_WRAPPER) -fuzz=FuzzParseSSE$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refclient/openresponses
-	$(FUZZ_WRAPPER) -fuzz=FuzzParseCreateRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refbackend/openresponses
-	$(FUZZ_WRAPPER) -fuzz=FuzzParseCompactRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refbackend/openresponses
-	$(FUZZ_WRAPPER) -fuzz=FuzzBuildStream$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refbackend/openresponses
-	$(FUZZ_WRAPPER) -fuzz=FuzzParseWSTurn$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refbackend/openresponses
-	$(FUZZ_WRAPPER) -fuzz=FuzzWebSocketDecodeTurn$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/openresponses
+	$(FUZZ_WRAPPER) -fuzz=^FuzzDecodeRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
+	$(FUZZ_WRAPPER) -fuzz=^FuzzDecodeItem$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
+	$(FUZZ_WRAPPER) -fuzz=^FuzzSSEParser$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
+	$(FUZZ_WRAPPER) -fuzz=^FuzzStateMachine$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
+	$(FUZZ_WRAPPER) -fuzz=^FuzzResourceBuilder$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
+	$(FUZZ_WRAPPER) -fuzz=^FuzzParseResponseResource$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refclient/openresponses
+	$(FUZZ_WRAPPER) -fuzz=^FuzzParseCompactResource$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refclient/openresponses
+	$(FUZZ_WRAPPER) -fuzz=^FuzzParseEvent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refclient/openresponses
+	$(FUZZ_WRAPPER) -fuzz=^FuzzParseSSE$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refclient/openresponses
+	$(FUZZ_WRAPPER) -fuzz=^FuzzParseCreateRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refbackend/openresponses
+	$(FUZZ_WRAPPER) -fuzz=^FuzzParseCompactRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refbackend/openresponses
+	$(FUZZ_WRAPPER) -fuzz=^FuzzBuildStream$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refbackend/openresponses
+	$(FUZZ_WRAPPER) -fuzz=^FuzzParseWSTurn$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refbackend/openresponses
+	$(FUZZ_WRAPPER) -fuzz=^FuzzWebSocketDecodeTurn$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/openresponses
 
-	$(FUZZ_WRAPPER) -fuzz=FuzzCompleteJSONSuffix$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
-	$(FUZZ_WRAPPER) -fuzz=FuzzSchemaPreScanCompile$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
-	$(FUZZ_WRAPPER) -fuzz=FuzzEngineRepair$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
-	$(FUZZ_WRAPPER) -fuzz=FuzzComputeAnchor$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/features/reasoningpreservation
-	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeConfig$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/features/reasoningpreservation
+	$(FUZZ_WRAPPER) -fuzz=^FuzzCompleteJSONSuffix$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
+	$(FUZZ_WRAPPER) -fuzz=^FuzzSchemaPreScanCompile$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
+	$(FUZZ_WRAPPER) -fuzz=^FuzzEngineRepair$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
+	$(FUZZ_WRAPPER) -fuzz=^FuzzComputeAnchor$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/features/reasoningpreservation
+	$(FUZZ_WRAPPER) -fuzz=^FuzzDecodeConfig$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/features/reasoningpreservation
 	# Dual-plane Phase 7.2 state-machine / renew / work / owner / money / fact fuzz
-	$(FUZZ_WRAPPER) -fuzz=FuzzLeaseSet_OccupiesCapacity$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/concurrencyauthority/domain
-	$(FUZZ_WRAPPER) -fuzz=FuzzIsAmbiguousRenewError$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/concurrencyauthority/app
-	$(FUZZ_WRAPPER) -fuzz=FuzzWorkItem_TransitionSequence$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/terminalwork
-	$(FUZZ_WRAPPER) -fuzz=FuzzOwner_CommandSequences$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/terminal
-	$(FUZZ_WRAPPER) -fuzz=FuzzParseDecimalToNano$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/economics
-	$(FUZZ_WRAPPER) -fuzz=FuzzPhase32_SourceEventKey_DelimiterSafety$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/metering
-	$(FUZZ_WRAPPER) -fuzz=FuzzPhase32_MoneyPresentCurrency$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/metering
+	$(FUZZ_WRAPPER) -fuzz=^FuzzLeaseSet_OccupiesCapacity$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/concurrencyauthority/domain
+	$(FUZZ_WRAPPER) -fuzz=^FuzzIsAmbiguousRenewError$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/concurrencyauthority/app
+	$(FUZZ_WRAPPER) -fuzz=^FuzzWorkItem_TransitionSequence$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/terminalwork
+	$(FUZZ_WRAPPER) -fuzz=^FuzzOwner_CommandSequences$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/terminal
+	$(FUZZ_WRAPPER) -fuzz=^FuzzParseDecimalToNano$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/economics
+	$(FUZZ_WRAPPER) -fuzz=^FuzzPhase32_SourceEventKey_DelimiterSafety$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/metering
+	$(FUZZ_WRAPPER) -fuzz=^FuzzPhase32_MoneyPresentCurrency$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/metering
 endif
 
 test-cursor-sdk-live:
@@ -275,12 +279,44 @@ else
 	@bash scripts/test-cursor-sdk-comparison-report.sh
 endif
 
-parity-checks:
 ifeq ($(OS),Windows_NT)
+parity-checks:
 	@$(WINDOWS_TASK) parity-checks
 else
-	$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./internal/testkit/conformance/...
+parity-checks: parity-tcks parity-protocol-suites parity-connectors parity-sentinel
+endif
+
+parity-tcks:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) parity-tcks
+else
+	$(GO) test $(GO_TEST_FLAGS) ./internal/testkit/contract/...
+	$(GO) test $(GO_TEST_FLAGS) ./internal/providerprofiles/...
+	$(GO) test $(GO_TEST_FLAGS) ./pkg/lipsdk/backendplugin/contracttest/...
 	$(GO) test $(GO_TEST_FLAGS) ./internal/testkit/compatibleparity/... -run 'CompatibleParity'
+endif
+
+parity-protocol-suites:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) parity-protocol-suites
+else
+	$(GO) test $(GO_TEST_FLAGS) '-tags=precommit,integration' ./internal/testkit/conformance/...
+endif
+
+parity-connectors:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) parity-connectors
+else
+	@$(MAKE) parity-acp-plugin
+	@$(MAKE) parity-openrouter-plugin
+	@$(MAKE) parity-hosted-compatible-plugins
+endif
+
+parity-sentinel:
+ifeq ($(OS),Windows_NT)
+	@$(WINDOWS_TASK) parity-sentinel
+else
+	$(GO) test $(GO_TEST_FLAGS) '-tags=integration' ./internal/testkit/conformance -run '^TestBoundedSentinel'
 endif
 
 # Phase 6 ACP external connector parity (testemu/scripted ACP; not live Cursor/Gemini/Agy CLIs).
@@ -383,8 +419,7 @@ else
 	@bash scripts/backend-plugin-absence-checks.sh
 endif
 
-release-gates:
-	$(GO) test $(GO_TEST_FLAGS) -tags=integration ./internal/testkit/conformance/...
+release-gates: parity-checks quality-checks
 	@$(MAKE) test-fuzz
 
 bench:
@@ -498,6 +533,7 @@ package-plugin-smoke: package-minimal package-full
 
 docs-check:
 	$(GO) test $(GO_TEST_FLAGS) ./docs/backend-plugins/ -run 'TestDocs|TestExample|TestOperator|TestExampleConfig|TestThreat'
+	$(GO) test $(GO_TEST_FLAGS) ./internal/archtest/ -run '^TestExtensionAuthoringDoc_'
 
 # Phase 9.3: executable-plugin threat model adversarial suite + bounded fuzz.
 # Pair with `make test-fuzz` and `make test-race` (Windows race is skip-only).
@@ -510,8 +546,8 @@ else
 	$(GO) test $(GO_TEST_FLAGS) ./internal/infra/diagredact/...
 	$(GO) test $(GO_TEST_FLAGS) ./internal/infra/runtimebundle/ -run 'TestBuild_localOnly|TestBuild_unknownBackendCredential|TestBuild_oauthUser|TestBuild_unsupportedBackend|TestBuild_staticBackend|TestBuild_noneBackend|TestBuild_strictAuthoritative'
 	$(GO) test $(GO_TEST_FLAGS) ./docs/backend-plugins/ -run 'TestThreat|TestOperator_|TestDocs_'
-	$(FUZZ_WRAPPER) -fuzz=FuzzManifest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/infra/backendplugins/manifest
-	$(FUZZ_WRAPPER) -fuzz=FuzzServerFrame$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/backendplugin
+	$(FUZZ_WRAPPER) -fuzz=^FuzzManifest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/infra/backendplugins/manifest
+	$(FUZZ_WRAPPER) -fuzz=^FuzzServerFrame$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/backendplugin
 endif
 
 # Phase 9.4: structural connector/support discovery, claimed GOOS/GOARCH compile matrix,

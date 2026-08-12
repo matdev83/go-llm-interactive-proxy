@@ -98,6 +98,7 @@ func Negotiate(host, plugin ProtocolOffer) (Negotiation, error) {
 		}
 	}
 
+	minor := min(host.Minor, plugin.Minor)
 	enabled := make([]string, 0)
 	for name, hf := range hostByName {
 		pf, ok := pluginByName[name]
@@ -110,15 +111,52 @@ func Negotiate(host, plugin ProtocolOffer) (Negotiation, error) {
 			}
 			continue
 		}
+		if minimum, ok := featureMinimumMinor(name); ok && minor < minimum {
+			if hf.Required || pf.Required {
+				reason := fmt.Sprintf("%v: feature %s requires minor %d", ErrIncompatibleMinor, name, minimum)
+				base.Compatible = false
+				base.RejectReason = reason
+				return base, ErrIncompatibleMinor
+			}
+			continue
+		}
 		enabled = append(enabled, pf.Name)
 	}
 	slices.Sort(enabled)
 
-	minor := min(host.Minor, plugin.Minor)
 	base.Compatible = true
 	base.NegotiatedMinor = minor
+	if err := validateFeatureMinorRequirements(hostByName, pluginByName, minor); err != nil {
+		base.Compatible = false
+		base.RejectReason = err.Error()
+		return base, err
+	}
 	base.EnabledFeatures = enabled
 	return base, nil
+}
+
+func featureMinimumMinor(name string) (uint32, bool) {
+	if name == FeatureSemanticExtensions {
+		return ProtocolMinorSemanticExtensions, true
+	}
+	return 0, false
+}
+
+func validateFeatureMinorRequirements(host, plugin map[string]Feature, minor uint32) error {
+	if minor >= ProtocolMinorSemanticExtensions {
+		return nil
+	}
+	for name, feature := range host {
+		if name == FeatureSemanticExtensions && feature.Required {
+			return fmt.Errorf("%w: %s requires minor %d", ErrIncompatibleMinor, name, ProtocolMinorSemanticExtensions)
+		}
+	}
+	for name, feature := range plugin {
+		if name == FeatureSemanticExtensions && feature.Required {
+			return fmt.Errorf("%w: %s requires minor %d", ErrIncompatibleMinor, name, ProtocolMinorSemanticExtensions)
+		}
+	}
+	return nil
 }
 
 func indexFeatures(features []Feature) (map[string]Feature, error) {

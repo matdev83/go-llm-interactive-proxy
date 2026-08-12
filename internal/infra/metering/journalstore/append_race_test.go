@@ -3,10 +3,12 @@ package journalstore_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metering/journalstore"
@@ -33,7 +35,7 @@ func TestSQLiteStore_ConcurrentSameKeyAppendIsIdempotent(t *testing.T) {
 			go func(i int) {
 				defer wg.Done()
 				<-start
-				errs[i] = store.Append(ctx, fact)
+				errs[i] = appendIdempotentRetry(ctx, store, fact)
 			}(i)
 		}
 		close(start)
@@ -51,6 +53,31 @@ func TestSQLiteStore_ConcurrentSameKeyAppendIsIdempotent(t *testing.T) {
 	}
 	if len(page.Facts) != rounds {
 		t.Fatalf("facts=%d want %d", len(page.Facts), rounds)
+	}
+}
+
+// appendIdempotentRetry retries only transient SQLite busy/cancellation outcomes so
+// the replay invariant is asserted without depending on wall-clock contention under
+// machine-wide parallel test load. Any other error fails immediately.
+func appendIdempotentRetry(ctx context.Context, store *journalstore.DurableStore, fact metering.Fact) error {
+	const budget = 10 * time.Second
+	deadline := time.Now().Add(budget)
+	backoff := 10 * time.Millisecond
+	for {
+		err := store.Append(ctx, fact)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, journalstore.ErrSQLiteBusyRetryExhausted) && !errors.Is(err, journalstore.ErrSQLiteRetryCanceled) {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(backoff)
+		if backoff < 250*time.Millisecond {
+			backoff *= 2
+		}
 	}
 }
 

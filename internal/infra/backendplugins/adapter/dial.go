@@ -4,13 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"slices"
-	"sync"
 
-	backendpluginv1 "github.com/matdev83/go-llm-interactive-proxy/api/backendplugin/v1"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	publichost "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin/host"
 )
 
 // DialConfiguredSession negotiates and configures a GRPCSession over an already
@@ -27,99 +23,9 @@ func DialConfiguredSession(
 	if conn == nil {
 		return nil, backendplugin.ResolvedProfile{}, fmt.Errorf("adapter: nil conn")
 	}
-	policy.DisableTransportRetries = true
-	var once sync.Once
-	dialer := func(context.Context, string) (net.Conn, error) {
-		var out net.Conn
-		err := net.ErrClosed
-		once.Do(func() { out = conn; err = nil })
-		if out == nil {
-			return nil, err
-		}
-		return out, nil
-	}
-	gc, err := grpc.NewClient(
-		"passthrough:///backendplugin",
-		grpc.WithContextDialer(dialer),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	sess, profile, err := publichost.DialConfiguredSession(ctx, conn, instanceID, factoryKind, configYAML, secrets, policy)
 	if err != nil {
-		return nil, backendplugin.ResolvedProfile{}, fmt.Errorf("adapter: grpc dial: %w", err)
-	}
-	client := backendpluginv1.NewBackendPluginClient(gc)
-	neg, err := client.Negotiate(ctx, &backendpluginv1.NegotiateRequest{
-		HostMajor: 1, HostMinor: backendplugin.ProtocolMinorAccountingEvidence,
-		HostFeatures: []*backendpluginv1.Feature{
-			{Name: backendplugin.FeatureExactReasoningParts},
-			{Name: backendplugin.FeatureOrderedItems},
-			{Name: backendplugin.FeatureExactOpenResponsesFields},
-			{Name: backendplugin.FeatureProxyOwnedSessionID},
-			{Name: backendplugin.FeatureAccountingEvidence},
-		},
-		DisableTransportRetries: true,
-	})
-	if err != nil {
-		_ = gc.Close()
-		return nil, backendplugin.ResolvedProfile{}, fmt.Errorf("adapter: negotiate: %w", err)
-	}
-	if !neg.GetCompatible() {
-		_ = gc.Close()
-		return nil, backendplugin.ResolvedProfile{}, fmt.Errorf("adapter: negotiate incompatible: %s", neg.GetRejectReason())
-	}
-	hostOffer := backendplugin.ProtocolOffer{
-		Major: 1, Minor: backendplugin.ProtocolMinorAccountingEvidence,
-		Features: []backendplugin.Feature{
-			{Name: backendplugin.FeatureExactReasoningParts},
-			{Name: backendplugin.FeatureOrderedItems},
-			{Name: backendplugin.FeatureExactOpenResponsesFields},
-			{Name: backendplugin.FeatureProxyOwnedSessionID},
-			{Name: backendplugin.FeatureAccountingEvidence},
-		},
-		DisableTransportRetries: true,
-	}
-	negotiated, err := backendplugin.NegotiationFromNegotiateResponse(neg)
-	if err != nil {
-		_ = gc.Close()
-		return nil, backendplugin.ResolvedProfile{}, fmt.Errorf("adapter: negotiate response: %w", err)
-	}
-	if err := backendplugin.ValidateNegotiationResult(hostOffer, negotiated); err != nil {
-		_ = gc.Close()
-		return nil, backendplugin.ResolvedProfile{}, fmt.Errorf("adapter: negotiate response validation: %w", err)
-	}
-	cfgReq := backendplugin.ConfigureRequestToProto(backendplugin.ConfigureRequest{
-		InstanceID:       instanceID,
-		FactoryKind:      factoryKind,
-		ConfigYAML:       configYAML,
-		Secrets:          secrets,
-		RuntimePolicy:    policy,
-		NegotiationToken: neg.GetNegotiationToken(),
-	})
-	_, err = client.Configure(ctx, cfgReq)
-	if err != nil {
-		_ = gc.Close()
-		return nil, backendplugin.ResolvedProfile{}, fmt.Errorf("adapter: configure: %w", err)
-	}
-	enabled := append([]string(nil), negotiated.EnabledFeatures...)
-	slices.Sort(enabled)
-	sess := &GRPCSession{
-		Client:          client,
-		Conn:            gc,
-		InstanceID:      instanceID,
-		NegotiatedMinor: negotiated.NegotiatedMinor,
-		negotiation: backendplugin.Negotiation{
-			Compatible:      negotiated.Compatible,
-			NegotiatedMinor: negotiated.NegotiatedMinor,
-			EnabledFeatures: enabled,
-			PluginMajor:     negotiated.PluginMajor,
-			PluginMinor:     negotiated.PluginMinor,
-			PluginFeatures:  negotiated.PluginFeatures,
-			TransportPolicy: negotiated.TransportPolicy,
-		},
-	}
-	profile, err := sess.Resolve(ctx, nil)
-	if err != nil {
-		_ = sess.Close(ctx)
-		return nil, backendplugin.ResolvedProfile{}, fmt.Errorf("adapter: resolve: %w", err)
+		return nil, backendplugin.ResolvedProfile{}, fmt.Errorf("adapter: dial configured session: %w", err)
 	}
 	return sess, profile, nil
 }

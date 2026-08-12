@@ -18,12 +18,11 @@ const compatibleOriginBuiltIn = "built_in_compatible"
 
 // CompatibleBackendKinds returns the stable built-in compatible factory ids.
 func CompatibleBackendKinds() []string {
-	return []string{
-		CustomOpenAILegacyCompatibleID,
-		CustomOpenAIResponsesCompatibleID,
-		CustomAnthropicCompatibleID,
-		CustomOpenResponsesCompatibleID,
+	views, err := DerivedViews()
+	if err != nil {
+		return nil
 	}
+	return append([]string(nil), views.CompatibleIDs...)
 }
 
 // ProjectCompatibleBackendRows builds secret-safe diagnostics rows from config only.
@@ -159,4 +158,16 @@ func CollectBuiltinCompatibleKinds(reg *pluginreg.Registry) []string {
 		return append([]string(nil), CompatibleBackendKinds()...)
 	}
 	return out
+}
+
+// ProjectCompatibleBackendInstanceRows projects compatible backend rows as common instance diagnostics.
+func ProjectCompatibleBackendInstanceRows(cfg *config.Config) []diag.InstanceDiagnostic {
+	return CompatibleBackendInstanceRows(ProjectCompatibleBackendRows(cfg))
+}
+
+// CompatibleBackendInstanceRows converts already-projected rows without
+// decoding configuration again. Composition roots should use this when they
+// expose both compatible_backends and instance_diagnostics.
+func CompatibleBackendInstanceRows(rows []diag.CompatibleBackendRow) []diag.InstanceDiagnostic {
+	return diag.CompatibleBackendInstanceDiagnostics(rows)
 }

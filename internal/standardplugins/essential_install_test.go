@@ -15,13 +15,13 @@ func TestInstallEssentialBackendsOn_ExactEssentialKindsOnly(t *testing.T) {
 	if err := standardplugins.InstallEssentialBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range standardplugins.EssentialBackendKinds {
+	for _, id := range standardplugins.EssentialBackendKinds() {
 		if !reg.HasBackend(id) {
 			t.Fatalf("essential kind %q missing from InstallEssentialBackendsOn registry", id)
 		}
 	}
 	ids := reg.BackendFactoryIDs()
-	want := append([]string(nil), standardplugins.EssentialBackendKinds...)
+	want := append([]string(nil), standardplugins.EssentialBackendKinds()...)
 	slices.Sort(ids)
 	slices.Sort(want)
 	if !slices.Equal(ids, want) {
@@ -44,13 +44,13 @@ func TestEssentialOnly_StandardInstallMatchesEssential(t *testing.T) {
 	if err := standardplugins.InstallStandardBundleOn(reg, keys); err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range standardplugins.EssentialBackendKinds {
+	for _, id := range standardplugins.EssentialBackendKinds() {
 		if !reg.HasBackend(id) {
 			t.Fatalf("InstallStandardBundleOn missing essential kind %q", id)
 		}
 	}
 	ids := reg.BackendFactoryIDs()
-	want := append([]string(nil), standardplugins.EssentialBackendKinds...)
+	want := append([]string(nil), standardplugins.EssentialBackendKinds()...)
 	slices.Sort(ids)
 	slices.Sort(want)
 	if !slices.Equal(ids, want) {

@@ -71,7 +71,6 @@ func NewHandler(cfg Config) http.Handler {
 		if utils.TryWriteForcedHTTPError(w, cfg.ForcedHTTPStatus, cfg.ForcedRetryAfter, cfg.ForcedErrorJSON, defaultForcedErrorJSON) {
 			return
 		}
-
 		stream := streamFlag(body)
 		if cfg.Responder != nil {
 			cloned := append([]byte(nil), body...)
@@ -84,10 +83,10 @@ func NewHandler(cfg Config) http.Handler {
 			return
 		}
 		if stream {
-			writeStream(w, cfg)
+			writeStream(w, cfg, body)
 			return
 		}
-		writeJSON(w, cfg)
+		writeJSON(w, cfg, body)
 	})
 }
 
@@ -102,20 +101,35 @@ func defaultForcedErrorJSON(status int) string {
 	}
 }
 
-func writeJSON(w http.ResponseWriter, cfg Config) {
+func writeJSON(w http.ResponseWriter, cfg Config, requestBody []byte) {
 	body := cfg.NonStreamJSON
 	if body == "" {
-		body = defaultNonStreamJSON
+		body = nonStreamWithUsageJSON
+		if utils.HasJSONKey(requestBody, "tools") {
+			body = nonStreamWithToolCallJSON
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(body))
 }
 
-func writeStream(w http.ResponseWriter, cfg Config) {
+func writeStream(w http.ResponseWriter, cfg Config, requestBody []byte) {
 	body := cfg.StreamSSE
 	if body == "" {
-		body = defaultStreamSSE
+		body = streamWithUsageSSE
+		if utils.HasJSONKey(requestBody, "tools") {
+			body = streamWithToolCallSSE
+		}
+		if utils.HasJSONNumber(requestBody, "temperature", 0.11) {
+			body = "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"rate limit exceeded\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+		}
+		if utils.HasJSONNumber(requestBody, "temperature", 0.22) {
+			body = "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"bad request\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+		}
+		if utils.HasJSONNumber(requestBody, "max_tokens", 0) || utils.HasJSONNumber(requestBody, "max_tokens", 1) {
+			body = streamWithZeroUsageSSE
+		}
 	}
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
@@ -133,8 +147,77 @@ const defaultNonStreamJSON = `{
   "usage": {"input_tokens": 1, "output_tokens": 1}
 }`
 
+const nonStreamWithUsageJSON = `{
+  "id": "msg_refbackend_1",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-3-5-haiku-20241022",
+  "content": [{"type":"text","text":"ok"}],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {"input_tokens": 10, "output_tokens": 5}
+}`
+
+const nonStreamWithZeroUsageJSON = `{
+  "id": "msg_refbackend_1",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-3-5-haiku-20241022",
+  "content": [{"type":"text","text":"ok"}],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {"input_tokens": 0, "output_tokens": 0}
+}`
+
+const nonStreamWithToolCallJSON = `{
+  "id": "msg_refbackend_1",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-3-5-haiku-20241022",
+  "content": [{"type":"tool_use","id":"call_1","name":"weather","input":{}}],
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "usage": {"input_tokens": 10, "output_tokens": 5}
+}`
+
 const defaultStreamSSE = "event: message_start\ndata: " +
 	`{"type":"message_start","message":{"id":"msg_refbackend_stream","type":"message","role":"assistant","model":"claude-3-5-haiku-20241022","content":[],"stop_reason":"","stop_sequence":"","usage":{"input_tokens":0,"output_tokens":0}}}` +
+	"\n\n" +
+	"event: message_stop\ndata: " +
+	`{"type":"message_stop"}` +
+	"\n\n"
+
+const streamWithUsageSSE = "event: message_start\ndata: " +
+	`{"type":"message_start","message":{"id":"msg_refbackend_stream","type":"message","role":"assistant","model":"claude-3-5-haiku-20241022","content":[],"stop_reason":"","stop_sequence":"","usage":{"input_tokens":10,"output_tokens":0}}}` +
+	"\n\n" +
+	"event: message_delta\ndata: " +
+	`{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":5}}` +
+	"\n\n" +
+	"event: message_stop\ndata: " +
+	`{"type":"message_stop"}` +
+	"\n\n"
+
+const streamWithZeroUsageSSE = "event: message_start\ndata: " +
+	`{"type":"message_start","message":{"id":"msg_refbackend_stream","type":"message","role":"assistant","model":"claude-3-5-haiku-20241022","content":[],"stop_reason":"","stop_sequence":"","usage":{"input_tokens":0,"output_tokens":0}}}` +
+	"\n\n" +
+	"event: message_delta\ndata: " +
+	`{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":0}}` +
+	"\n\n" +
+	"event: message_stop\ndata: " +
+	`{"type":"message_stop"}` +
+	"\n\n"
+
+const streamWithToolCallSSE = "event: message_start\ndata: " +
+	`{"type":"message_start","message":{"id":"msg_refbackend_stream","type":"message","role":"assistant","model":"claude-3-5-haiku-20241022","content":[],"stop_reason":"","stop_sequence":"","usage":{"input_tokens":10,"output_tokens":0}}}` +
+	"\n\n" +
+	"event: content_block_start\ndata: " +
+	`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"call_1","name":"weather","input":{}}}` +
+	"\n\n" +
+	"event: content_block_stop\ndata: " +
+	`{"type":"content_block_stop","index":0}` +
+	"\n\n" +
+	"event: message_delta\ndata: " +
+	`{"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"output_tokens":5}}` +
 	"\n\n" +
 	"event: message_stop\ndata: " +
 	`{"type":"message_stop"}` +

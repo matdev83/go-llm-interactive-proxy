@@ -574,6 +574,13 @@ func InvocationFromProto(p *backendpluginv1.Invocation) (Invocation, error) {
 		ProxyOwnedSessionID: strings.TrimSpace(p.GetProxyOwnedSessionId()),
 		PromptCacheKey:      strings.TrimSpace(p.GetPromptCacheKey()),
 	}
+	for _, ext := range p.GetSemanticExtensions() {
+		mapped, err := semanticExtensionFromProto(ext)
+		if err != nil {
+			return Invocation{}, err
+		}
+		inv.SemanticExtensions = append(inv.SemanticExtensions, mapped)
+	}
 	for _, m := range p.GetInstructions() {
 		msg, err := messageFromProto(m)
 		if err != nil {
@@ -625,6 +632,16 @@ func InvocationToProto(inv Invocation) (*backendpluginv1.Invocation, error) {
 		SafeMetadata:        inv.SafeMetadata,
 		ProxyOwnedSessionId: strings.TrimSpace(inv.ProxyOwnedSessionID),
 		PromptCacheKey:      strings.TrimSpace(inv.PromptCacheKey),
+	}
+	if len(inv.SemanticExtensions) > 0 {
+		out.PromptCacheKey = ""
+	}
+	for _, ext := range inv.SemanticExtensions {
+		mapped, err := semanticExtensionToProto(ext)
+		if err != nil {
+			return nil, err
+		}
+		out.SemanticExtensions = append(out.SemanticExtensions, mapped)
 	}
 	for _, m := range inv.Instructions {
 		pm, err := messageToProto(m)

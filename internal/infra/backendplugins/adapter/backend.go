@@ -42,6 +42,11 @@ func Build(session ExecuteSession, profile backendplugin.ResolvedProfile, opt Op
 	if opt.CancelTimeout <= 0 {
 		opt.CancelTimeout = 2 * time.Second
 	}
+	if isZeroNegotiation(opt.Negotiation) {
+		if negger, ok := session.(NegotiatedSession); ok {
+			opt.Negotiation = negger.Negotiation()
+		}
+	}
 	opt.DisableGRPCRetry = true
 
 	prefixes := append([]string(nil), opt.RoutePrefixes...)
@@ -242,4 +247,8 @@ func (t *tokenCounterBridge) count(ctx context.Context, model string) (accountin
 	}
 	out := accountingapp.CountResult{InputTokens: int(*resp.InputTokens)}
 	return out, nil
+}
+
+func isZeroNegotiation(n backendplugin.Negotiation) bool {
+	return !n.Compatible && n.NegotiatedMinor == 0 && n.PluginMajor == 0 && n.PluginMinor == 0 && len(n.EnabledFeatures) == 0 && n.RejectReason == "" && n.NegotiationToken == ""
 }

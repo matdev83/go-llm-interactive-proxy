@@ -1,0 +1,11 @@
+[
+  {
+    "api_version": "lip.provider-profile/v1",
+    "id": "example-openai-responses",
+    "family": "openai-responses-compatible",
+    "endpoint": {"base_url": "https://api.example.invalid/v1", "path_policy": "family_default"},
+    "auth": {"mode": "bearer_env", "env_var": "EXAMPLE_API_KEY"},
+    "models": {"discovery": "family_default", "namespace": {"mode": "preserve"}},
+    "tokenizer": {"id": "cl100k_base", "source": "local_tokenizer"}
+  }
+]

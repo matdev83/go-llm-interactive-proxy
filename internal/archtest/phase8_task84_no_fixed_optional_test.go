@@ -104,7 +104,7 @@ func TestNoFixedOptional_StandardBackendBundleIsEssentialOnly(t *testing.T) {
 	t.Parallel()
 	keys := standardplugins.UpstreamAPIKeys{}
 	got := idsOf(standardplugins.StandardBackendBundle(keys))
-	want := append([]string(nil), standardplugins.EssentialBackendKinds...)
+	want := append([]string(nil), standardplugins.EssentialBackendKinds()...)
 	slices.Sort(got)
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
@@ -124,7 +124,7 @@ func TestEssentialOnly_AllowlistExact(t *testing.T) {
 		t.Fatal(err)
 	}
 	ids := reg.BackendFactoryIDs()
-	want := append([]string(nil), standardplugins.EssentialBackendKinds...)
+	want := append([]string(nil), standardplugins.EssentialBackendKinds()...)
 	slices.Sort(ids)
 	slices.Sort(want)
 	if !slices.Equal(ids, want) {
@@ -180,7 +180,7 @@ func TestDynamic_OptionalConnectorManifestsDoNotRequireRootGoEdit(t *testing.T) 
 		t.Fatal(err)
 	}
 	essential := map[string]struct{}{}
-	for _, k := range standardplugins.EssentialBackendKinds {
+	for _, k := range standardplugins.EssentialBackendKinds() {
 		essential[k] = struct{}{}
 	}
 	bundleIDs := map[string]struct{}{}

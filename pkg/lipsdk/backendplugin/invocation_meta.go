@@ -39,6 +39,9 @@ func ApplyCallWireMetadataWithNegotiation(inv *Invocation, call lipapi.Call, rou
 	if err := RequireExactOpenResponsesABISupport(neg, call); err != nil {
 		return err
 	}
+	if err := RequireSemanticExtensionsABISupport(neg, call); err != nil {
+		return err
+	}
 	if call.HasItemAuthority() {
 		if err := checkOrderedItemContentABIRepresentable(call.Items); err != nil {
 			return err
@@ -53,8 +56,57 @@ func ApplyCallWireMetadataWithNegotiation(inv *Invocation, call lipapi.Call, rou
 	}
 	applyLegacyCallWireMetadata(inv, call, routeParams)
 	ApplyOrderedItemWire(inv, call)
+	if ProxyOwnedSemanticExtensionsSupported(neg) {
+		if err := applySemanticExtensions(inv, call); err != nil {
+			return err
+		}
+		if len(inv.SemanticExtensions) > 0 {
+			inv.PromptCacheKey = ""
+		}
+	}
 	if ProxyOwnedSessionIDSupported(neg) {
 		inv.ProxyOwnedSessionID = strings.TrimSpace(call.Session.AuthoritativeSessionID)
+	}
+	return nil
+}
+
+func applySemanticExtensions(inv *Invocation, call lipapi.Call) error {
+	var promptCacheKey string
+	for _, ext := range call.SemanticExtensions {
+		mapped := SemanticExtension{Namespace: ext.Namespace, Type: ext.Type, Implementor: ext.Implementor, Direction: ext.Direction}
+		switch ext.Presence {
+		case lipapi.SemanticExtensionNull:
+			mapped.Presence = SemanticExtensionNull
+		case lipapi.SemanticExtensionValue:
+			mapped.Presence = SemanticExtensionValue
+			mapped.Data = RawJSONFromBytes(ext.Data)
+		default:
+			return ErrInvalidInvocation
+		}
+		if err := validateSemanticExtension(mapped); err != nil {
+			return err
+		}
+		if ext.Namespace == "lip" && ext.Type == "prompt_cache_key" && ext.Implementor == "proxy" && ext.Direction == "request" {
+			if ext.Presence != lipapi.SemanticExtensionValue {
+				return fmt.Errorf("prompt_cache_key semantic carrier must have a value")
+			}
+			var value string
+			if err := json.Unmarshal(ext.Data, &value); err != nil {
+				return fmt.Errorf("prompt_cache_key semantic carrier: %w", err)
+			}
+			promptCacheKey = strings.TrimSpace(value)
+		}
+		inv.SemanticExtensions = append(inv.SemanticExtensions, mapped)
+	}
+	legacy := strings.TrimSpace(call.PromptCacheKey)
+	if legacy != "" && promptCacheKey != "" && legacy != promptCacheKey {
+		return fmt.Errorf("prompt_cache_key legacy alias conflicts with semantic carrier")
+	}
+	if len(call.SemanticExtensions) == 0 && legacy != "" {
+		inv.SemanticExtensions = append(inv.SemanticExtensions, SemanticExtension{
+			Namespace: "lip", Type: "prompt_cache_key", Implementor: "proxy", Direction: "request",
+			Presence: SemanticExtensionValue, Data: RawJSONFromBytes(fmt.Appendf(nil, "%q", legacy)),
+		})
 	}
 	return nil
 }

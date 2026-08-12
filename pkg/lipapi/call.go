@@ -74,11 +74,15 @@ type Call struct {
 	// trajectory control); the OpenResponses backend forwards it on compact
 	// requests so a schema-permitted client hint is never silently dropped.
 	PromptCacheKey string
-	Tools          []ToolDef
-	ToolChoice     ToolChoice
-	Options        GenerationOptions
-	Extensions     map[string]json.RawMessage
-	Invocation     Invocation `json:"-"`
+	// SemanticExtensions carries bounded residual semantics whose identity and
+	// presence participate in admission. PromptCacheKey is a source-compatible
+	// alias; when both forms are present they must agree.
+	SemanticExtensions []SemanticExtension
+	Tools              []ToolDef
+	ToolChoice         ToolChoice
+	Options            GenerationOptions
+	Extensions         map[string]json.RawMessage
+	Invocation         Invocation `json:"-"`
 
 	// MaxPendingWireEvents caps backend adapter-internal pending event queues per stream (0 = unlimited).
 	// Not client API; the core executor sets this from server config when non-zero.
@@ -236,6 +240,9 @@ func (c Call) Validate() error {
 		return err
 	}
 	if err := c.Options.validate(); err != nil {
+		return err
+	}
+	if _, err := c.PromptCacheKeyValue(); err != nil {
 		return err
 	}
 	return nil

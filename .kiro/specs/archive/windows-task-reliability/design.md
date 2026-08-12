@@ -184,6 +184,7 @@ The rows are the complete names from `Makefile` line 1. `Windows-supported bound
 | `release-gates` | Linux-authoritative | full conformance/fuzz release evidence; Windows may run bounded supported pieces |
 | `bench` | Windows-supported bounded | benchmark smoke; not release evidence |
 | `pgo-profile` | opt-in/BLOCKED prerequisite | developer workload required; not a default gate |
+| `profile-only-check` | opt-in/BLOCKED prerequisite | developer workload required; not a default gate |
 | `pgo-build` | Windows-supported bounded | local build |
 | `quality-checks` | Windows-supported bounded | PowerShell/runner quality phases |
 | `quality-checks-fast` | Windows-supported bounded | inline Windows route; omits duplicate Go compile/vet/archtest before the following test target |

@@ -10,7 +10,10 @@ import (
 	"testing"
 )
 
-const enterpriseModuleRelPath = "testdata/enterprise_module"
+const (
+	enterpriseModuleRelPath        = "testdata/enterprise_module"
+	externalConnectorModuleRelPath = "testdata/external_connector"
+)
 
 // TestEnterpriseModulePublicOnlyCompileGate proves a sibling module can build
 // and run against public packages only (requirements 12.6, 12.9, 17.7).
@@ -29,6 +32,26 @@ func TestEnterpriseModulePublicOnlyCompileGate(t *testing.T) {
 		t.Fatalf("enterprise module go run: %v\n%s", err, out)
 	}
 	if !strings.Contains(string(out), "enterprise_module: ok") {
+		t.Fatalf("output=%q", out)
+	}
+}
+
+// TestExternalConnectorModulePublicHostCompileGate proves an external-style
+// connector can compile the supported host path without importing internal
+// packages or concrete adapters.
+func TestExternalConnectorModulePublicHostCompileGate(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	dir := filepath.Join(root, externalConnectorModuleRelPath)
+	assertNoInternalImportsInDir(t, dir)
+	cmd := exec.Command("go", "run", ".")
+	cmd.Dir = dir
+	cmd.Env = enterpriseModuleTestEnv()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("external connector module go run: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "external_connector: ok") {
 		t.Fatalf("output=%q", out)
 	}
 }

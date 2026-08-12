@@ -80,14 +80,24 @@ var ForbiddenImports = []ForbiddenImportRule{
 		Reason:        "core must not import protocol wire codecs",
 	},
 	{
+		SourcePattern: "internal/plugins/frontends",
+		TargetPattern: "/internal/refclient",
+		Reason:        "production frontend adapters must not import reference clients",
+	},
+	{
+		SourcePattern: "internal/plugins/backends",
+		TargetPattern: "/internal/refbackend",
+		Reason:        "production backend adapters must not import reference backends",
+	},
+	{
 		SourcePattern: "internal/plugins/protocols/openresponses",
 		TargetPattern: "/internal/refclient",
-		Reason:        "production protocol wire code must not import reference clients",
+		Reason:        "production wire codec must remain independent of reference clients",
 	},
 	{
 		SourcePattern: "internal/plugins/protocols/openresponses",
 		TargetPattern: "/internal/refbackend",
-		Reason:        "production protocol wire code must not import reference backends",
+		Reason:        "production wire codec must remain independent of reference backends",
 	},
 	{
 		SourcePattern: "internal/plugins/protocols/openresponses",

@@ -14,17 +14,18 @@ const compatibleOriginClientFacing = "client_facing"
 // ProjectOpenResponsesFrontendRows builds secret-safe diagnostics rows from config only.
 // No provider requests, plugin activation, or credential resolution occur. Unknown or
 // invalid frontend config rows surface a bounded ConfigError with instance identity.
-func ProjectOpenResponsesFrontendRows(cfg *config.Config) []diag.OpenResponsesFrontendRow {
+func ProjectOpenResponsesFrontendRows(cfg *config.Config) []diag.InstanceDiagnostic {
 	if cfg == nil {
 		return nil
 	}
-	out := make([]diag.OpenResponsesFrontendRow, 0)
+	out := make([]diag.InstanceDiagnostic, 0)
 	for _, row := range cfg.Plugins.Frontends {
 		if strings.TrimSpace(row.FactoryID()) != openresponses.ID {
 			continue
 		}
-		entry := diag.OpenResponsesFrontendRow{
+		entry := diag.InstanceDiagnostic{
 			Origin:      compatibleOriginClientFacing,
+			ID:          row.InstanceID(),
 			InstanceID:  row.InstanceID(),
 			FactoryKind: openresponses.ID,
 			Enabled:     row.Enabled,
@@ -49,6 +50,7 @@ func ProjectOpenResponsesFrontendRows(cfg *config.Config) []diag.OpenResponsesFr
 		entry.Capabilities = openResponsesFrontendCapabilities(decoded)
 		entry.Conformance = "profile:" + entry.Profile
 		entry.RouteClaims = openResponsesRouteClaims(decoded)
+		entry.Details = []diag.SafeField{{Key: "protocol", Value: "openresponses"}}
 		out = append(out, entry)
 	}
 	return out

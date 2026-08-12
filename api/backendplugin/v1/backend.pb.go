@@ -869,6 +869,55 @@ func (TerminalStatus) EnumDescriptor() ([]byte, []int) {
 	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{13}
 }
 
+type SemanticExtensionWire_Presence int32
+
+const (
+	SemanticExtensionWire_PRESENCE_UNSPECIFIED SemanticExtensionWire_Presence = 0
+	SemanticExtensionWire_PRESENCE_NULL        SemanticExtensionWire_Presence = 1
+	SemanticExtensionWire_PRESENCE_VALUE       SemanticExtensionWire_Presence = 2
+)
+
+// Enum value maps for SemanticExtensionWire_Presence.
+var (
+	SemanticExtensionWire_Presence_name = map[int32]string{
+		0: "PRESENCE_UNSPECIFIED",
+		1: "PRESENCE_NULL",
+		2: "PRESENCE_VALUE",
+	}
+	SemanticExtensionWire_Presence_value = map[string]int32{
+		"PRESENCE_UNSPECIFIED": 0,
+		"PRESENCE_NULL":        1,
+		"PRESENCE_VALUE":       2,
+	}
+)
+
+func (x SemanticExtensionWire_Presence) Enum() *SemanticExtensionWire_Presence {
+	p := new(SemanticExtensionWire_Presence)
+	*p = x
+	return p
+}
+
+func (x SemanticExtensionWire_Presence) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SemanticExtensionWire_Presence) Descriptor() protoreflect.EnumDescriptor {
+	return file_backendplugin_v1_backend_proto_enumTypes[14].Descriptor()
+}
+
+func (SemanticExtensionWire_Presence) Type() protoreflect.EnumType {
+	return &file_backendplugin_v1_backend_proto_enumTypes[14]
+}
+
+func (x SemanticExtensionWire_Presence) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SemanticExtensionWire_Presence.Descriptor instead.
+func (SemanticExtensionWire_Presence) EnumDescriptor() ([]byte, []int) {
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{30, 0}
+}
+
 type Feature struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -3074,7 +3123,8 @@ type Invocation struct {
 	PromptCacheKey string `protobuf:"bytes,19,opt,name=prompt_cache_key,json=promptCacheKey,proto3" json:"prompt_cache_key,omitempty"`
 	// proxy_owned_session_id is injected by the proxy host from validated
 	// secure-session state. It is not client-provided metadata.
-	ProxyOwnedSessionId string `protobuf:"bytes,20,opt,name=proxy_owned_session_id,json=proxyOwnedSessionId,proto3" json:"proxy_owned_session_id,omitempty"`
+	ProxyOwnedSessionId string                   `protobuf:"bytes,20,opt,name=proxy_owned_session_id,json=proxyOwnedSessionId,proto3" json:"proxy_owned_session_id,omitempty"`
+	SemanticExtensions  []*SemanticExtensionWire `protobuf:"bytes,21,rep,name=semantic_extensions,json=semanticExtensions,proto3" json:"semantic_extensions,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -3249,6 +3299,99 @@ func (x *Invocation) GetProxyOwnedSessionId() string {
 	return ""
 }
 
+func (x *Invocation) GetSemanticExtensions() []*SemanticExtensionWire {
+	if x != nil {
+		return x.SemanticExtensions
+	}
+	return nil
+}
+
+// SemanticExtensionWire carries one bounded residual canonical semantic. It is
+// not a complete request/response tunnel; identity participates in admission.
+type SemanticExtensionWire struct {
+	state         protoimpl.MessageState         `protogen:"open.v1"`
+	Namespace     string                         `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Type          string                         `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
+	Implementor   string                         `protobuf:"bytes,3,opt,name=implementor,proto3" json:"implementor,omitempty"`
+	Direction     string                         `protobuf:"bytes,4,opt,name=direction,proto3" json:"direction,omitempty"`
+	Presence      SemanticExtensionWire_Presence `protobuf:"varint,5,opt,name=presence,proto3,enum=golip.backendplugin.v1.SemanticExtensionWire_Presence" json:"presence,omitempty"`
+	Json          []byte                         `protobuf:"bytes,6,opt,name=json,proto3" json:"json,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SemanticExtensionWire) Reset() {
+	*x = SemanticExtensionWire{}
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SemanticExtensionWire) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SemanticExtensionWire) ProtoMessage() {}
+
+func (x *SemanticExtensionWire) ProtoReflect() protoreflect.Message {
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SemanticExtensionWire.ProtoReflect.Descriptor instead.
+func (*SemanticExtensionWire) Descriptor() ([]byte, []int) {
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *SemanticExtensionWire) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *SemanticExtensionWire) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *SemanticExtensionWire) GetImplementor() string {
+	if x != nil {
+		return x.Implementor
+	}
+	return ""
+}
+
+func (x *SemanticExtensionWire) GetDirection() string {
+	if x != nil {
+		return x.Direction
+	}
+	return ""
+}
+
+func (x *SemanticExtensionWire) GetPresence() SemanticExtensionWire_Presence {
+	if x != nil {
+		return x.Presence
+	}
+	return SemanticExtensionWire_PRESENCE_UNSPECIFIED
+}
+
+func (x *SemanticExtensionWire) GetJson() []byte {
+	if x != nil {
+		return x.Json
+	}
+	return nil
+}
+
 type ProtocolRequirementsWire struct {
 	state              protoimpl.MessageState      `protogen:"open.v1"`
 	Capabilities       []string                    `protobuf:"bytes,1,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
@@ -3262,7 +3405,7 @@ type ProtocolRequirementsWire struct {
 
 func (x *ProtocolRequirementsWire) Reset() {
 	*x = ProtocolRequirementsWire{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[30]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3274,7 +3417,7 @@ func (x *ProtocolRequirementsWire) String() string {
 func (*ProtocolRequirementsWire) ProtoMessage() {}
 
 func (x *ProtocolRequirementsWire) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[30]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3287,7 +3430,7 @@ func (x *ProtocolRequirementsWire) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProtocolRequirementsWire.ProtoReflect.Descriptor instead.
 func (*ProtocolRequirementsWire) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{30}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ProtocolRequirementsWire) GetCapabilities() []string {
@@ -3336,7 +3479,7 @@ type DialectRequirementWire struct {
 
 func (x *DialectRequirementWire) Reset() {
 	*x = DialectRequirementWire{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[31]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3348,7 +3491,7 @@ func (x *DialectRequirementWire) String() string {
 func (*DialectRequirementWire) ProtoMessage() {}
 
 func (x *DialectRequirementWire) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[31]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3361,7 +3504,7 @@ func (x *DialectRequirementWire) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DialectRequirementWire.ProtoReflect.Descriptor instead.
 func (*DialectRequirementWire) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{31}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *DialectRequirementWire) GetKind() string {
@@ -3396,7 +3539,7 @@ type ExtensionRequirementWire struct {
 
 func (x *ExtensionRequirementWire) Reset() {
 	*x = ExtensionRequirementWire{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[32]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3408,7 +3551,7 @@ func (x *ExtensionRequirementWire) String() string {
 func (*ExtensionRequirementWire) ProtoMessage() {}
 
 func (x *ExtensionRequirementWire) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[32]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3421,7 +3564,7 @@ func (x *ExtensionRequirementWire) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExtensionRequirementWire.ProtoReflect.Descriptor instead.
 func (*ExtensionRequirementWire) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{32}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *ExtensionRequirementWire) GetNamespace() string {
@@ -3465,7 +3608,7 @@ type InvocationItem struct {
 
 func (x *InvocationItem) Reset() {
 	*x = InvocationItem{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[33]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3477,7 +3620,7 @@ func (x *InvocationItem) String() string {
 func (*InvocationItem) ProtoMessage() {}
 
 func (x *InvocationItem) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[33]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3490,7 +3633,7 @@ func (x *InvocationItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InvocationItem.ProtoReflect.Descriptor instead.
 func (*InvocationItem) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{33}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *InvocationItem) GetKind() string {
@@ -3586,7 +3729,7 @@ type InvocationItemReference struct {
 
 func (x *InvocationItemReference) Reset() {
 	*x = InvocationItemReference{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[34]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3598,7 +3741,7 @@ func (x *InvocationItemReference) String() string {
 func (*InvocationItemReference) ProtoMessage() {}
 
 func (x *InvocationItemReference) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[34]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3611,7 +3754,7 @@ func (x *InvocationItemReference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InvocationItemReference.ProtoReflect.Descriptor instead.
 func (*InvocationItemReference) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{34}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *InvocationItemReference) GetId() string {
@@ -3638,7 +3781,7 @@ type InvocationReasoningItem struct {
 
 func (x *InvocationReasoningItem) Reset() {
 	*x = InvocationReasoningItem{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[35]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3650,7 +3793,7 @@ func (x *InvocationReasoningItem) String() string {
 func (*InvocationReasoningItem) ProtoMessage() {}
 
 func (x *InvocationReasoningItem) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[35]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3663,7 +3806,7 @@ func (x *InvocationReasoningItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InvocationReasoningItem.ProtoReflect.Descriptor instead.
 func (*InvocationReasoningItem) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{35}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *InvocationReasoningItem) GetDialect() string {
@@ -3729,7 +3872,7 @@ type InvocationCompactionItem struct {
 
 func (x *InvocationCompactionItem) Reset() {
 	*x = InvocationCompactionItem{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[36]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3741,7 +3884,7 @@ func (x *InvocationCompactionItem) String() string {
 func (*InvocationCompactionItem) ProtoMessage() {}
 
 func (x *InvocationCompactionItem) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[36]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3754,7 +3897,7 @@ func (x *InvocationCompactionItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InvocationCompactionItem.ProtoReflect.Descriptor instead.
 func (*InvocationCompactionItem) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{36}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *InvocationCompactionItem) GetDialect() string {
@@ -3805,7 +3948,7 @@ type InvocationExtensionItem struct {
 
 func (x *InvocationExtensionItem) Reset() {
 	*x = InvocationExtensionItem{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[37]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3817,7 +3960,7 @@ func (x *InvocationExtensionItem) String() string {
 func (*InvocationExtensionItem) ProtoMessage() {}
 
 func (x *InvocationExtensionItem) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[37]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3830,7 +3973,7 @@ func (x *InvocationExtensionItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InvocationExtensionItem.ProtoReflect.Descriptor instead.
 func (*InvocationExtensionItem) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{37}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *InvocationExtensionItem) GetNamespace() string {
@@ -3906,7 +4049,7 @@ type InvocationContentPart struct {
 
 func (x *InvocationContentPart) Reset() {
 	*x = InvocationContentPart{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[38]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3918,7 +4061,7 @@ func (x *InvocationContentPart) String() string {
 func (*InvocationContentPart) ProtoMessage() {}
 
 func (x *InvocationContentPart) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[38]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3931,7 +4074,7 @@ func (x *InvocationContentPart) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InvocationContentPart.ProtoReflect.Descriptor instead.
 func (*InvocationContentPart) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{38}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *InvocationContentPart) GetKind() PartKind {
@@ -4127,7 +4270,7 @@ type InvocationToolCall struct {
 
 func (x *InvocationToolCall) Reset() {
 	*x = InvocationToolCall{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[39]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4139,7 +4282,7 @@ func (x *InvocationToolCall) String() string {
 func (*InvocationToolCall) ProtoMessage() {}
 
 func (x *InvocationToolCall) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[39]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4152,7 +4295,7 @@ func (x *InvocationToolCall) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InvocationToolCall.ProtoReflect.Descriptor instead.
 func (*InvocationToolCall) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{39}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *InvocationToolCall) GetCallId() string {
@@ -4188,7 +4331,7 @@ type InvocationToolResult struct {
 
 func (x *InvocationToolResult) Reset() {
 	*x = InvocationToolResult{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[40]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4200,7 +4343,7 @@ func (x *InvocationToolResult) String() string {
 func (*InvocationToolResult) ProtoMessage() {}
 
 func (x *InvocationToolResult) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[40]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4213,7 +4356,7 @@ func (x *InvocationToolResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InvocationToolResult.ProtoReflect.Descriptor instead.
 func (*InvocationToolResult) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{40}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *InvocationToolResult) GetCallId() string {
@@ -4254,7 +4397,7 @@ type Message struct {
 
 func (x *Message) Reset() {
 	*x = Message{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[41]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4266,7 +4409,7 @@ func (x *Message) String() string {
 func (*Message) ProtoMessage() {}
 
 func (x *Message) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[41]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4279,7 +4422,7 @@ func (x *Message) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Message.ProtoReflect.Descriptor instead.
 func (*Message) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{41}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *Message) GetRole() Role {
@@ -4319,7 +4462,7 @@ type Part struct {
 
 func (x *Part) Reset() {
 	*x = Part{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[42]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4331,7 +4474,7 @@ func (x *Part) String() string {
 func (*Part) ProtoMessage() {}
 
 func (x *Part) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[42]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4344,7 +4487,7 @@ func (x *Part) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Part.ProtoReflect.Descriptor instead.
 func (*Part) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{42}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *Part) GetKind() PartKind {
@@ -4449,7 +4592,7 @@ type ToolDef struct {
 
 func (x *ToolDef) Reset() {
 	*x = ToolDef{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[43]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4461,7 +4604,7 @@ func (x *ToolDef) String() string {
 func (*ToolDef) ProtoMessage() {}
 
 func (x *ToolDef) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[43]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4474,7 +4617,7 @@ func (x *ToolDef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolDef.ProtoReflect.Descriptor instead.
 func (*ToolDef) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{43}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *ToolDef) GetName() string {
@@ -4512,7 +4655,7 @@ type GenerationOptions struct {
 
 func (x *GenerationOptions) Reset() {
 	*x = GenerationOptions{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[44]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4524,7 +4667,7 @@ func (x *GenerationOptions) String() string {
 func (*GenerationOptions) ProtoMessage() {}
 
 func (x *GenerationOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[44]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4537,7 +4680,7 @@ func (x *GenerationOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerationOptions.ProtoReflect.Descriptor instead.
 func (*GenerationOptions) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{44}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *GenerationOptions) GetMaxOutputTokens() uint32 {
@@ -4596,7 +4739,7 @@ type ExecuteClientFrame struct {
 
 func (x *ExecuteClientFrame) Reset() {
 	*x = ExecuteClientFrame{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[45]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4608,7 +4751,7 @@ func (x *ExecuteClientFrame) String() string {
 func (*ExecuteClientFrame) ProtoMessage() {}
 
 func (x *ExecuteClientFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[45]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4621,7 +4764,7 @@ func (x *ExecuteClientFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteClientFrame.ProtoReflect.Descriptor instead.
 func (*ExecuteClientFrame) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{45}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *ExecuteClientFrame) GetKind() ClientFrameKind {
@@ -4685,7 +4828,7 @@ type AccountingEvidence struct {
 
 func (x *AccountingEvidence) Reset() {
 	*x = AccountingEvidence{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[46]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4697,7 +4840,7 @@ func (x *AccountingEvidence) String() string {
 func (*AccountingEvidence) ProtoMessage() {}
 
 func (x *AccountingEvidence) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[46]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4710,7 +4853,7 @@ func (x *AccountingEvidence) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccountingEvidence.ProtoReflect.Descriptor instead.
 func (*AccountingEvidence) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{46}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *AccountingEvidence) GetInputTokens() int64 {
@@ -4817,7 +4960,7 @@ type CanonicalEvent struct {
 
 func (x *CanonicalEvent) Reset() {
 	*x = CanonicalEvent{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[47]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4829,7 +4972,7 @@ func (x *CanonicalEvent) String() string {
 func (*CanonicalEvent) ProtoMessage() {}
 
 func (x *CanonicalEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[47]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4842,7 +4985,7 @@ func (x *CanonicalEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CanonicalEvent.ProtoReflect.Descriptor instead.
 func (*CanonicalEvent) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{47}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *CanonicalEvent) GetKind() EventKind {
@@ -4974,7 +5117,7 @@ type Terminal struct {
 
 func (x *Terminal) Reset() {
 	*x = Terminal{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[48]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4986,7 +5129,7 @@ func (x *Terminal) String() string {
 func (*Terminal) ProtoMessage() {}
 
 func (x *Terminal) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[48]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4999,7 +5142,7 @@ func (x *Terminal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Terminal.ProtoReflect.Descriptor instead.
 func (*Terminal) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{48}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *Terminal) GetStatus() TerminalStatus {
@@ -5027,7 +5170,7 @@ type CancelOutcome struct {
 
 func (x *CancelOutcome) Reset() {
 	*x = CancelOutcome{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[49]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5039,7 +5182,7 @@ func (x *CancelOutcome) String() string {
 func (*CancelOutcome) ProtoMessage() {}
 
 func (x *CancelOutcome) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[49]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5052,7 +5195,7 @@ func (x *CancelOutcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelOutcome.ProtoReflect.Descriptor instead.
 func (*CancelOutcome) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{49}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *CancelOutcome) GetAcknowledged() bool {
@@ -5091,7 +5234,7 @@ type ExecuteServerFrame struct {
 
 func (x *ExecuteServerFrame) Reset() {
 	*x = ExecuteServerFrame{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[50]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5103,7 +5246,7 @@ func (x *ExecuteServerFrame) String() string {
 func (*ExecuteServerFrame) ProtoMessage() {}
 
 func (x *ExecuteServerFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[50]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5116,7 +5259,7 @@ func (x *ExecuteServerFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteServerFrame.ProtoReflect.Descriptor instead.
 func (*ExecuteServerFrame) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{50}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *ExecuteServerFrame) GetKind() ServerFrameKind {
@@ -5180,7 +5323,7 @@ type PluginError struct {
 
 func (x *PluginError) Reset() {
 	*x = PluginError{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[51]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5192,7 +5335,7 @@ func (x *PluginError) String() string {
 func (*PluginError) ProtoMessage() {}
 
 func (x *PluginError) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[51]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5205,7 +5348,7 @@ func (x *PluginError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PluginError.ProtoReflect.Descriptor instead.
 func (*PluginError) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{51}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *PluginError) GetCode() ErrorCode {
@@ -5244,7 +5387,7 @@ type HealthRequest struct {
 
 func (x *HealthRequest) Reset() {
 	*x = HealthRequest{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[52]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5256,7 +5399,7 @@ func (x *HealthRequest) String() string {
 func (*HealthRequest) ProtoMessage() {}
 
 func (x *HealthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[52]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5269,7 +5412,7 @@ func (x *HealthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthRequest.ProtoReflect.Descriptor instead.
 func (*HealthRequest) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{52}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{53}
 }
 
 type HealthResponse struct {
@@ -5282,7 +5425,7 @@ type HealthResponse struct {
 
 func (x *HealthResponse) Reset() {
 	*x = HealthResponse{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[53]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5294,7 +5437,7 @@ func (x *HealthResponse) String() string {
 func (*HealthResponse) ProtoMessage() {}
 
 func (x *HealthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[53]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5307,7 +5450,7 @@ func (x *HealthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthResponse.ProtoReflect.Descriptor instead.
 func (*HealthResponse) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{53}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *HealthResponse) GetServing() bool {
@@ -5333,7 +5476,7 @@ type GracefulShutdownRequest struct {
 
 func (x *GracefulShutdownRequest) Reset() {
 	*x = GracefulShutdownRequest{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[54]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5345,7 +5488,7 @@ func (x *GracefulShutdownRequest) String() string {
 func (*GracefulShutdownRequest) ProtoMessage() {}
 
 func (x *GracefulShutdownRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[54]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5358,7 +5501,7 @@ func (x *GracefulShutdownRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GracefulShutdownRequest.ProtoReflect.Descriptor instead.
 func (*GracefulShutdownRequest) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{54}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *GracefulShutdownRequest) GetDrainTimeoutMs() int64 {
@@ -5377,7 +5520,7 @@ type GracefulShutdownResponse struct {
 
 func (x *GracefulShutdownResponse) Reset() {
 	*x = GracefulShutdownResponse{}
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[55]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5389,7 +5532,7 @@ func (x *GracefulShutdownResponse) String() string {
 func (*GracefulShutdownResponse) ProtoMessage() {}
 
 func (x *GracefulShutdownResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backendplugin_v1_backend_proto_msgTypes[55]
+	mi := &file_backendplugin_v1_backend_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5402,7 +5545,7 @@ func (x *GracefulShutdownResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GracefulShutdownResponse.ProtoReflect.Descriptor instead.
 func (*GracefulShutdownResponse) Descriptor() ([]byte, []int) {
-	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{55}
+	return file_backendplugin_v1_backend_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *GracefulShutdownResponse) GetAccepted() bool {
@@ -5625,7 +5768,7 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\fRawJSONValue\x12\x19\n" +
 	"\ais_null\x18\x01 \x01(\bH\x00R\x06isNull\x12\x14\n" +
 	"\x04json\x18\x02 \x01(\fH\x00R\x04jsonB\a\n" +
-	"\x05state\"\xb9\b\n" +
+	"\x05state\"\x99\t\n" +
 	"\n" +
 	"Invocation\x12\x1d\n" +
 	"\n" +
@@ -5651,11 +5794,23 @@ const file_backendplugin_v1_backend_proto_rawDesc = "" +
 	"\x05items\x18\x11 \x03(\v2&.golip.backendplugin.v1.InvocationItemR\x05items\x12e\n" +
 	"\x15protocol_requirements\x18\x12 \x01(\v20.golip.backendplugin.v1.ProtocolRequirementsWireR\x14protocolRequirements\x12(\n" +
 	"\x10prompt_cache_key\x18\x13 \x01(\tR\x0epromptCacheKey\x123\n" +
-	"\x16proxy_owned_session_id\x18\x14 \x01(\tR\x13proxyOwnedSessionId\x1a?\n" +
+	"\x16proxy_owned_session_id\x18\x14 \x01(\tR\x13proxyOwnedSessionId\x12^\n" +
+	"\x13semantic_extensions\x18\x15 \x03(\v2-.golip.backendplugin.v1.SemanticExtensionWireR\x12semanticExtensions\x1a?\n" +
 	"\x11SafeMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x0e\n" +
-	"\f_tool_choice\"\xae\x03\n" +
+	"\f_tool_choice\"\xbe\x02\n" +
+	"\x15SemanticExtensionWire\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
+	"\x04type\x18\x02 \x01(\tR\x04type\x12 \n" +
+	"\vimplementor\x18\x03 \x01(\tR\vimplementor\x12\x1c\n" +
+	"\tdirection\x18\x04 \x01(\tR\tdirection\x12R\n" +
+	"\bpresence\x18\x05 \x01(\x0e26.golip.backendplugin.v1.SemanticExtensionWire.PresenceR\bpresence\x12\x12\n" +
+	"\x04json\x18\x06 \x01(\fR\x04json\"K\n" +
+	"\bPresence\x12\x18\n" +
+	"\x14PRESENCE_UNSPECIFIED\x10\x00\x12\x11\n" +
+	"\rPRESENCE_NULL\x10\x01\x12\x12\n" +
+	"\x0ePRESENCE_VALUE\x10\x02\"\xae\x03\n" +
 	"\x18ProtocolRequirementsWire\x12\"\n" +
 	"\fcapabilities\x18\x01 \x03(\tR\fcapabilities\x12S\n" +
 	"\ritem_dialects\x18\x02 \x03(\v2..golip.backendplugin.v1.DialectRequirementWireR\fitemDialects\x12]\n" +
@@ -6060,204 +6215,208 @@ func file_backendplugin_v1_backend_proto_rawDescGZIP() []byte {
 	return file_backendplugin_v1_backend_proto_rawDescData
 }
 
-var file_backendplugin_v1_backend_proto_enumTypes = make([]protoimpl.EnumInfo, 14)
-var file_backendplugin_v1_backend_proto_msgTypes = make([]protoimpl.MessageInfo, 58)
+var file_backendplugin_v1_backend_proto_enumTypes = make([]protoimpl.EnumInfo, 15)
+var file_backendplugin_v1_backend_proto_msgTypes = make([]protoimpl.MessageInfo, 59)
 var file_backendplugin_v1_backend_proto_goTypes = []any{
-	(CredentialMode)(0),                // 0: golip.backendplugin.v1.CredentialMode
-	(AccessScope)(0),                   // 1: golip.backendplugin.v1.AccessScope
-	(ProcessSharing)(0),                // 2: golip.backendplugin.v1.ProcessSharing
-	(Role)(0),                          // 3: golip.backendplugin.v1.Role
-	(PartKind)(0),                      // 4: golip.backendplugin.v1.PartKind
-	(ErrorCode)(0),                     // 5: golip.backendplugin.v1.ErrorCode
-	(CancelReason)(0),                  // 6: golip.backendplugin.v1.CancelReason
-	(ClientFrameKind)(0),               // 7: golip.backendplugin.v1.ClientFrameKind
-	(ServerFrameKind)(0),               // 8: golip.backendplugin.v1.ServerFrameKind
-	(AccountingSource)(0),              // 9: golip.backendplugin.v1.AccountingSource
-	(AccountingAuthority)(0),           // 10: golip.backendplugin.v1.AccountingAuthority
-	(AccountingPlane)(0),               // 11: golip.backendplugin.v1.AccountingPlane
-	(EventKind)(0),                     // 12: golip.backendplugin.v1.EventKind
-	(TerminalStatus)(0),                // 13: golip.backendplugin.v1.TerminalStatus
-	(*Feature)(nil),                    // 14: golip.backendplugin.v1.Feature
-	(*NegotiateRequest)(nil),           // 15: golip.backendplugin.v1.NegotiateRequest
-	(*NegotiateResponse)(nil),          // 16: golip.backendplugin.v1.NegotiateResponse
-	(*DescribeRequest)(nil),            // 17: golip.backendplugin.v1.DescribeRequest
-	(*DescribeResponse)(nil),           // 18: golip.backendplugin.v1.DescribeResponse
-	(*PluginDescriptor)(nil),           // 19: golip.backendplugin.v1.PluginDescriptor
-	(*FactoryDescriptor)(nil),          // 20: golip.backendplugin.v1.FactoryDescriptor
-	(*CapabilitySummary)(nil),          // 21: golip.backendplugin.v1.CapabilitySummary
-	(*DialectSupportWire)(nil),         // 22: golip.backendplugin.v1.DialectSupportWire
-	(*TransportCapabilitySummary)(nil), // 23: golip.backendplugin.v1.TransportCapabilitySummary
-	(*SecretBundle)(nil),               // 24: golip.backendplugin.v1.SecretBundle
-	(*RuntimePolicy)(nil),              // 25: golip.backendplugin.v1.RuntimePolicy
-	(*ConfigureRequest)(nil),           // 26: golip.backendplugin.v1.ConfigureRequest
-	(*ConfigureResponse)(nil),          // 27: golip.backendplugin.v1.ConfigureResponse
-	(*CloseInstanceRequest)(nil),       // 28: golip.backendplugin.v1.CloseInstanceRequest
-	(*CloseInstanceResponse)(nil),      // 29: golip.backendplugin.v1.CloseInstanceResponse
-	(*ResolveProfileRequest)(nil),      // 30: golip.backendplugin.v1.ResolveProfileRequest
-	(*ResolveProfileResponse)(nil),     // 31: golip.backendplugin.v1.ResolveProfileResponse
-	(*ResolvedProfile)(nil),            // 32: golip.backendplugin.v1.ResolvedProfile
-	(*ListModelsRequest)(nil),          // 33: golip.backendplugin.v1.ListModelsRequest
-	(*ListModelsResponse)(nil),         // 34: golip.backendplugin.v1.ListModelsResponse
-	(*ModelDescriptor)(nil),            // 35: golip.backendplugin.v1.ModelDescriptor
-	(*CountTokensRequest)(nil),         // 36: golip.backendplugin.v1.CountTokensRequest
-	(*CountTokensResponse)(nil),        // 37: golip.backendplugin.v1.CountTokensResponse
-	(*FinalizeBillingRequest)(nil),     // 38: golip.backendplugin.v1.FinalizeBillingRequest
-	(*FinalizeBillingResponse)(nil),    // 39: golip.backendplugin.v1.FinalizeBillingResponse
-	(*UsagePresence)(nil),              // 40: golip.backendplugin.v1.UsagePresence
-	(*UsageEvidence)(nil),              // 41: golip.backendplugin.v1.UsageEvidence
-	(*RawJSONValue)(nil),               // 42: golip.backendplugin.v1.RawJSONValue
-	(*Invocation)(nil),                 // 43: golip.backendplugin.v1.Invocation
-	(*ProtocolRequirementsWire)(nil),   // 44: golip.backendplugin.v1.ProtocolRequirementsWire
-	(*DialectRequirementWire)(nil),     // 45: golip.backendplugin.v1.DialectRequirementWire
-	(*ExtensionRequirementWire)(nil),   // 46: golip.backendplugin.v1.ExtensionRequirementWire
-	(*InvocationItem)(nil),             // 47: golip.backendplugin.v1.InvocationItem
-	(*InvocationItemReference)(nil),    // 48: golip.backendplugin.v1.InvocationItemReference
-	(*InvocationReasoningItem)(nil),    // 49: golip.backendplugin.v1.InvocationReasoningItem
-	(*InvocationCompactionItem)(nil),   // 50: golip.backendplugin.v1.InvocationCompactionItem
-	(*InvocationExtensionItem)(nil),    // 51: golip.backendplugin.v1.InvocationExtensionItem
-	(*InvocationContentPart)(nil),      // 52: golip.backendplugin.v1.InvocationContentPart
-	(*InvocationToolCall)(nil),         // 53: golip.backendplugin.v1.InvocationToolCall
-	(*InvocationToolResult)(nil),       // 54: golip.backendplugin.v1.InvocationToolResult
-	(*Message)(nil),                    // 55: golip.backendplugin.v1.Message
-	(*Part)(nil),                       // 56: golip.backendplugin.v1.Part
-	(*ToolDef)(nil),                    // 57: golip.backendplugin.v1.ToolDef
-	(*GenerationOptions)(nil),          // 58: golip.backendplugin.v1.GenerationOptions
-	(*ExecuteClientFrame)(nil),         // 59: golip.backendplugin.v1.ExecuteClientFrame
-	(*AccountingEvidence)(nil),         // 60: golip.backendplugin.v1.AccountingEvidence
-	(*CanonicalEvent)(nil),             // 61: golip.backendplugin.v1.CanonicalEvent
-	(*Terminal)(nil),                   // 62: golip.backendplugin.v1.Terminal
-	(*CancelOutcome)(nil),              // 63: golip.backendplugin.v1.CancelOutcome
-	(*ExecuteServerFrame)(nil),         // 64: golip.backendplugin.v1.ExecuteServerFrame
-	(*PluginError)(nil),                // 65: golip.backendplugin.v1.PluginError
-	(*HealthRequest)(nil),              // 66: golip.backendplugin.v1.HealthRequest
-	(*HealthResponse)(nil),             // 67: golip.backendplugin.v1.HealthResponse
-	(*GracefulShutdownRequest)(nil),    // 68: golip.backendplugin.v1.GracefulShutdownRequest
-	(*GracefulShutdownResponse)(nil),   // 69: golip.backendplugin.v1.GracefulShutdownResponse
-	nil,                                // 70: golip.backendplugin.v1.SecretBundle.ValuesEntry
-	nil,                                // 71: golip.backendplugin.v1.Invocation.SafeMetadataEntry
+	(CredentialMode)(0),                 // 0: golip.backendplugin.v1.CredentialMode
+	(AccessScope)(0),                    // 1: golip.backendplugin.v1.AccessScope
+	(ProcessSharing)(0),                 // 2: golip.backendplugin.v1.ProcessSharing
+	(Role)(0),                           // 3: golip.backendplugin.v1.Role
+	(PartKind)(0),                       // 4: golip.backendplugin.v1.PartKind
+	(ErrorCode)(0),                      // 5: golip.backendplugin.v1.ErrorCode
+	(CancelReason)(0),                   // 6: golip.backendplugin.v1.CancelReason
+	(ClientFrameKind)(0),                // 7: golip.backendplugin.v1.ClientFrameKind
+	(ServerFrameKind)(0),                // 8: golip.backendplugin.v1.ServerFrameKind
+	(AccountingSource)(0),               // 9: golip.backendplugin.v1.AccountingSource
+	(AccountingAuthority)(0),            // 10: golip.backendplugin.v1.AccountingAuthority
+	(AccountingPlane)(0),                // 11: golip.backendplugin.v1.AccountingPlane
+	(EventKind)(0),                      // 12: golip.backendplugin.v1.EventKind
+	(TerminalStatus)(0),                 // 13: golip.backendplugin.v1.TerminalStatus
+	(SemanticExtensionWire_Presence)(0), // 14: golip.backendplugin.v1.SemanticExtensionWire.Presence
+	(*Feature)(nil),                     // 15: golip.backendplugin.v1.Feature
+	(*NegotiateRequest)(nil),            // 16: golip.backendplugin.v1.NegotiateRequest
+	(*NegotiateResponse)(nil),           // 17: golip.backendplugin.v1.NegotiateResponse
+	(*DescribeRequest)(nil),             // 18: golip.backendplugin.v1.DescribeRequest
+	(*DescribeResponse)(nil),            // 19: golip.backendplugin.v1.DescribeResponse
+	(*PluginDescriptor)(nil),            // 20: golip.backendplugin.v1.PluginDescriptor
+	(*FactoryDescriptor)(nil),           // 21: golip.backendplugin.v1.FactoryDescriptor
+	(*CapabilitySummary)(nil),           // 22: golip.backendplugin.v1.CapabilitySummary
+	(*DialectSupportWire)(nil),          // 23: golip.backendplugin.v1.DialectSupportWire
+	(*TransportCapabilitySummary)(nil),  // 24: golip.backendplugin.v1.TransportCapabilitySummary
+	(*SecretBundle)(nil),                // 25: golip.backendplugin.v1.SecretBundle
+	(*RuntimePolicy)(nil),               // 26: golip.backendplugin.v1.RuntimePolicy
+	(*ConfigureRequest)(nil),            // 27: golip.backendplugin.v1.ConfigureRequest
+	(*ConfigureResponse)(nil),           // 28: golip.backendplugin.v1.ConfigureResponse
+	(*CloseInstanceRequest)(nil),        // 29: golip.backendplugin.v1.CloseInstanceRequest
+	(*CloseInstanceResponse)(nil),       // 30: golip.backendplugin.v1.CloseInstanceResponse
+	(*ResolveProfileRequest)(nil),       // 31: golip.backendplugin.v1.ResolveProfileRequest
+	(*ResolveProfileResponse)(nil),      // 32: golip.backendplugin.v1.ResolveProfileResponse
+	(*ResolvedProfile)(nil),             // 33: golip.backendplugin.v1.ResolvedProfile
+	(*ListModelsRequest)(nil),           // 34: golip.backendplugin.v1.ListModelsRequest
+	(*ListModelsResponse)(nil),          // 35: golip.backendplugin.v1.ListModelsResponse
+	(*ModelDescriptor)(nil),             // 36: golip.backendplugin.v1.ModelDescriptor
+	(*CountTokensRequest)(nil),          // 37: golip.backendplugin.v1.CountTokensRequest
+	(*CountTokensResponse)(nil),         // 38: golip.backendplugin.v1.CountTokensResponse
+	(*FinalizeBillingRequest)(nil),      // 39: golip.backendplugin.v1.FinalizeBillingRequest
+	(*FinalizeBillingResponse)(nil),     // 40: golip.backendplugin.v1.FinalizeBillingResponse
+	(*UsagePresence)(nil),               // 41: golip.backendplugin.v1.UsagePresence
+	(*UsageEvidence)(nil),               // 42: golip.backendplugin.v1.UsageEvidence
+	(*RawJSONValue)(nil),                // 43: golip.backendplugin.v1.RawJSONValue
+	(*Invocation)(nil),                  // 44: golip.backendplugin.v1.Invocation
+	(*SemanticExtensionWire)(nil),       // 45: golip.backendplugin.v1.SemanticExtensionWire
+	(*ProtocolRequirementsWire)(nil),    // 46: golip.backendplugin.v1.ProtocolRequirementsWire
+	(*DialectRequirementWire)(nil),      // 47: golip.backendplugin.v1.DialectRequirementWire
+	(*ExtensionRequirementWire)(nil),    // 48: golip.backendplugin.v1.ExtensionRequirementWire
+	(*InvocationItem)(nil),              // 49: golip.backendplugin.v1.InvocationItem
+	(*InvocationItemReference)(nil),     // 50: golip.backendplugin.v1.InvocationItemReference
+	(*InvocationReasoningItem)(nil),     // 51: golip.backendplugin.v1.InvocationReasoningItem
+	(*InvocationCompactionItem)(nil),    // 52: golip.backendplugin.v1.InvocationCompactionItem
+	(*InvocationExtensionItem)(nil),     // 53: golip.backendplugin.v1.InvocationExtensionItem
+	(*InvocationContentPart)(nil),       // 54: golip.backendplugin.v1.InvocationContentPart
+	(*InvocationToolCall)(nil),          // 55: golip.backendplugin.v1.InvocationToolCall
+	(*InvocationToolResult)(nil),        // 56: golip.backendplugin.v1.InvocationToolResult
+	(*Message)(nil),                     // 57: golip.backendplugin.v1.Message
+	(*Part)(nil),                        // 58: golip.backendplugin.v1.Part
+	(*ToolDef)(nil),                     // 59: golip.backendplugin.v1.ToolDef
+	(*GenerationOptions)(nil),           // 60: golip.backendplugin.v1.GenerationOptions
+	(*ExecuteClientFrame)(nil),          // 61: golip.backendplugin.v1.ExecuteClientFrame
+	(*AccountingEvidence)(nil),          // 62: golip.backendplugin.v1.AccountingEvidence
+	(*CanonicalEvent)(nil),              // 63: golip.backendplugin.v1.CanonicalEvent
+	(*Terminal)(nil),                    // 64: golip.backendplugin.v1.Terminal
+	(*CancelOutcome)(nil),               // 65: golip.backendplugin.v1.CancelOutcome
+	(*ExecuteServerFrame)(nil),          // 66: golip.backendplugin.v1.ExecuteServerFrame
+	(*PluginError)(nil),                 // 67: golip.backendplugin.v1.PluginError
+	(*HealthRequest)(nil),               // 68: golip.backendplugin.v1.HealthRequest
+	(*HealthResponse)(nil),              // 69: golip.backendplugin.v1.HealthResponse
+	(*GracefulShutdownRequest)(nil),     // 70: golip.backendplugin.v1.GracefulShutdownRequest
+	(*GracefulShutdownResponse)(nil),    // 71: golip.backendplugin.v1.GracefulShutdownResponse
+	nil,                                 // 72: golip.backendplugin.v1.SecretBundle.ValuesEntry
+	nil,                                 // 73: golip.backendplugin.v1.Invocation.SafeMetadataEntry
 }
 var file_backendplugin_v1_backend_proto_depIdxs = []int32{
-	14,  // 0: golip.backendplugin.v1.NegotiateRequest.host_features:type_name -> golip.backendplugin.v1.Feature
-	14,  // 1: golip.backendplugin.v1.NegotiateResponse.plugin_features:type_name -> golip.backendplugin.v1.Feature
-	19,  // 2: golip.backendplugin.v1.DescribeResponse.descriptor:type_name -> golip.backendplugin.v1.PluginDescriptor
-	14,  // 3: golip.backendplugin.v1.PluginDescriptor.features:type_name -> golip.backendplugin.v1.Feature
-	20,  // 4: golip.backendplugin.v1.PluginDescriptor.factories:type_name -> golip.backendplugin.v1.FactoryDescriptor
+	15,  // 0: golip.backendplugin.v1.NegotiateRequest.host_features:type_name -> golip.backendplugin.v1.Feature
+	15,  // 1: golip.backendplugin.v1.NegotiateResponse.plugin_features:type_name -> golip.backendplugin.v1.Feature
+	20,  // 2: golip.backendplugin.v1.DescribeResponse.descriptor:type_name -> golip.backendplugin.v1.PluginDescriptor
+	15,  // 3: golip.backendplugin.v1.PluginDescriptor.features:type_name -> golip.backendplugin.v1.Feature
+	21,  // 4: golip.backendplugin.v1.PluginDescriptor.factories:type_name -> golip.backendplugin.v1.FactoryDescriptor
 	0,   // 5: golip.backendplugin.v1.FactoryDescriptor.credential_mode:type_name -> golip.backendplugin.v1.CredentialMode
 	1,   // 6: golip.backendplugin.v1.FactoryDescriptor.access_scope:type_name -> golip.backendplugin.v1.AccessScope
 	2,   // 7: golip.backendplugin.v1.FactoryDescriptor.process_sharing:type_name -> golip.backendplugin.v1.ProcessSharing
-	21,  // 8: golip.backendplugin.v1.FactoryDescriptor.static_capabilities:type_name -> golip.backendplugin.v1.CapabilitySummary
-	23,  // 9: golip.backendplugin.v1.FactoryDescriptor.transport_capabilities:type_name -> golip.backendplugin.v1.TransportCapabilitySummary
-	45,  // 10: golip.backendplugin.v1.DialectSupportWire.item_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
-	45,  // 11: golip.backendplugin.v1.DialectSupportWire.reasoning_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
-	45,  // 12: golip.backendplugin.v1.DialectSupportWire.compaction_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
-	46,  // 13: golip.backendplugin.v1.DialectSupportWire.extension_types:type_name -> golip.backendplugin.v1.ExtensionRequirementWire
-	70,  // 14: golip.backendplugin.v1.SecretBundle.values:type_name -> golip.backendplugin.v1.SecretBundle.ValuesEntry
-	24,  // 15: golip.backendplugin.v1.ConfigureRequest.secrets:type_name -> golip.backendplugin.v1.SecretBundle
-	25,  // 16: golip.backendplugin.v1.ConfigureRequest.runtime_policy:type_name -> golip.backendplugin.v1.RuntimePolicy
-	32,  // 17: golip.backendplugin.v1.ResolveProfileResponse.profile:type_name -> golip.backendplugin.v1.ResolvedProfile
-	21,  // 18: golip.backendplugin.v1.ResolvedProfile.capabilities:type_name -> golip.backendplugin.v1.CapabilitySummary
-	23,  // 19: golip.backendplugin.v1.ResolvedProfile.transport_capabilities:type_name -> golip.backendplugin.v1.TransportCapabilitySummary
-	22,  // 20: golip.backendplugin.v1.ResolvedProfile.dialect_support:type_name -> golip.backendplugin.v1.DialectSupportWire
-	35,  // 21: golip.backendplugin.v1.ListModelsResponse.models:type_name -> golip.backendplugin.v1.ModelDescriptor
-	21,  // 22: golip.backendplugin.v1.ModelDescriptor.capabilities:type_name -> golip.backendplugin.v1.CapabilitySummary
-	43,  // 23: golip.backendplugin.v1.CountTokensRequest.invocation:type_name -> golip.backendplugin.v1.Invocation
-	40,  // 24: golip.backendplugin.v1.CountTokensResponse.presence:type_name -> golip.backendplugin.v1.UsagePresence
-	41,  // 25: golip.backendplugin.v1.FinalizeBillingResponse.usage:type_name -> golip.backendplugin.v1.UsageEvidence
-	40,  // 26: golip.backendplugin.v1.UsageEvidence.presence:type_name -> golip.backendplugin.v1.UsagePresence
-	42,  // 27: golip.backendplugin.v1.UsageEvidence.raw_usage_json:type_name -> golip.backendplugin.v1.RawJSONValue
-	55,  // 28: golip.backendplugin.v1.Invocation.instructions:type_name -> golip.backendplugin.v1.Message
-	55,  // 29: golip.backendplugin.v1.Invocation.messages:type_name -> golip.backendplugin.v1.Message
-	57,  // 30: golip.backendplugin.v1.Invocation.tools:type_name -> golip.backendplugin.v1.ToolDef
-	58,  // 31: golip.backendplugin.v1.Invocation.options:type_name -> golip.backendplugin.v1.GenerationOptions
-	71,  // 32: golip.backendplugin.v1.Invocation.safe_metadata:type_name -> golip.backendplugin.v1.Invocation.SafeMetadataEntry
-	47,  // 33: golip.backendplugin.v1.Invocation.items:type_name -> golip.backendplugin.v1.InvocationItem
-	44,  // 34: golip.backendplugin.v1.Invocation.protocol_requirements:type_name -> golip.backendplugin.v1.ProtocolRequirementsWire
-	45,  // 35: golip.backendplugin.v1.ProtocolRequirementsWire.item_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
-	45,  // 36: golip.backendplugin.v1.ProtocolRequirementsWire.reasoning_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
-	45,  // 37: golip.backendplugin.v1.ProtocolRequirementsWire.compaction_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
-	46,  // 38: golip.backendplugin.v1.ProtocolRequirementsWire.extension_types:type_name -> golip.backendplugin.v1.ExtensionRequirementWire
-	3,   // 39: golip.backendplugin.v1.InvocationItem.role:type_name -> golip.backendplugin.v1.Role
-	52,  // 40: golip.backendplugin.v1.InvocationItem.content:type_name -> golip.backendplugin.v1.InvocationContentPart
-	53,  // 41: golip.backendplugin.v1.InvocationItem.tool_call:type_name -> golip.backendplugin.v1.InvocationToolCall
-	54,  // 42: golip.backendplugin.v1.InvocationItem.tool_result:type_name -> golip.backendplugin.v1.InvocationToolResult
-	48,  // 43: golip.backendplugin.v1.InvocationItem.item_reference:type_name -> golip.backendplugin.v1.InvocationItemReference
-	49,  // 44: golip.backendplugin.v1.InvocationItem.reasoning:type_name -> golip.backendplugin.v1.InvocationReasoningItem
-	50,  // 45: golip.backendplugin.v1.InvocationItem.compaction:type_name -> golip.backendplugin.v1.InvocationCompactionItem
-	51,  // 46: golip.backendplugin.v1.InvocationItem.extension:type_name -> golip.backendplugin.v1.InvocationExtensionItem
-	42,  // 47: golip.backendplugin.v1.InvocationReasoningItem.opaque:type_name -> golip.backendplugin.v1.RawJSONValue
-	42,  // 48: golip.backendplugin.v1.InvocationReasoningItem.summary:type_name -> golip.backendplugin.v1.RawJSONValue
-	42,  // 49: golip.backendplugin.v1.InvocationReasoningItem.content:type_name -> golip.backendplugin.v1.RawJSONValue
-	42,  // 50: golip.backendplugin.v1.InvocationReasoningItem.encrypted_content:type_name -> golip.backendplugin.v1.RawJSONValue
-	42,  // 51: golip.backendplugin.v1.InvocationCompactionItem.opaque:type_name -> golip.backendplugin.v1.RawJSONValue
-	42,  // 52: golip.backendplugin.v1.InvocationExtensionItem.opaque:type_name -> golip.backendplugin.v1.RawJSONValue
-	4,   // 53: golip.backendplugin.v1.InvocationContentPart.kind:type_name -> golip.backendplugin.v1.PartKind
-	42,  // 54: golip.backendplugin.v1.InvocationContentPart.reasoning_opaque:type_name -> golip.backendplugin.v1.RawJSONValue
-	42,  // 55: golip.backendplugin.v1.InvocationContentPart.annotation_data:type_name -> golip.backendplugin.v1.RawJSONValue
-	42,  // 56: golip.backendplugin.v1.InvocationContentPart.extension_data:type_name -> golip.backendplugin.v1.RawJSONValue
-	42,  // 57: golip.backendplugin.v1.InvocationContentPart.reasoning_summary:type_name -> golip.backendplugin.v1.RawJSONValue
-	42,  // 58: golip.backendplugin.v1.InvocationContentPart.reasoning_content:type_name -> golip.backendplugin.v1.RawJSONValue
-	42,  // 59: golip.backendplugin.v1.InvocationContentPart.reasoning_encrypted_content:type_name -> golip.backendplugin.v1.RawJSONValue
-	42,  // 60: golip.backendplugin.v1.InvocationToolCall.arguments:type_name -> golip.backendplugin.v1.RawJSONValue
-	52,  // 61: golip.backendplugin.v1.InvocationToolResult.structured_parts:type_name -> golip.backendplugin.v1.InvocationContentPart
-	3,   // 62: golip.backendplugin.v1.Message.role:type_name -> golip.backendplugin.v1.Role
-	56,  // 63: golip.backendplugin.v1.Message.parts:type_name -> golip.backendplugin.v1.Part
-	4,   // 64: golip.backendplugin.v1.Part.kind:type_name -> golip.backendplugin.v1.PartKind
-	42,  // 65: golip.backendplugin.v1.Part.tool_args_json:type_name -> golip.backendplugin.v1.RawJSONValue
-	42,  // 66: golip.backendplugin.v1.Part.reasoning_opaque:type_name -> golip.backendplugin.v1.RawJSONValue
-	42,  // 67: golip.backendplugin.v1.Part.reasoning_summary:type_name -> golip.backendplugin.v1.RawJSONValue
-	42,  // 68: golip.backendplugin.v1.Part.reasoning_content:type_name -> golip.backendplugin.v1.RawJSONValue
-	42,  // 69: golip.backendplugin.v1.Part.reasoning_encrypted_content:type_name -> golip.backendplugin.v1.RawJSONValue
-	42,  // 70: golip.backendplugin.v1.ToolDef.parameters_json:type_name -> golip.backendplugin.v1.RawJSONValue
-	42,  // 71: golip.backendplugin.v1.GenerationOptions.response_schema_json:type_name -> golip.backendplugin.v1.RawJSONValue
-	7,   // 72: golip.backendplugin.v1.ExecuteClientFrame.kind:type_name -> golip.backendplugin.v1.ClientFrameKind
-	43,  // 73: golip.backendplugin.v1.ExecuteClientFrame.invocation:type_name -> golip.backendplugin.v1.Invocation
-	6,   // 74: golip.backendplugin.v1.ExecuteClientFrame.cancel_reason:type_name -> golip.backendplugin.v1.CancelReason
-	40,  // 75: golip.backendplugin.v1.AccountingEvidence.presence:type_name -> golip.backendplugin.v1.UsagePresence
-	9,   // 76: golip.backendplugin.v1.AccountingEvidence.source:type_name -> golip.backendplugin.v1.AccountingSource
-	10,  // 77: golip.backendplugin.v1.AccountingEvidence.authority:type_name -> golip.backendplugin.v1.AccountingAuthority
-	11,  // 78: golip.backendplugin.v1.AccountingEvidence.plane:type_name -> golip.backendplugin.v1.AccountingPlane
-	12,  // 79: golip.backendplugin.v1.CanonicalEvent.kind:type_name -> golip.backendplugin.v1.EventKind
-	41,  // 80: golip.backendplugin.v1.CanonicalEvent.usage:type_name -> golip.backendplugin.v1.UsageEvidence
-	65,  // 81: golip.backendplugin.v1.CanonicalEvent.error:type_name -> golip.backendplugin.v1.PluginError
-	42,  // 82: golip.backendplugin.v1.CanonicalEvent.reasoning_summary:type_name -> golip.backendplugin.v1.RawJSONValue
-	42,  // 83: golip.backendplugin.v1.CanonicalEvent.reasoning_content:type_name -> golip.backendplugin.v1.RawJSONValue
-	42,  // 84: golip.backendplugin.v1.CanonicalEvent.reasoning_encrypted_content:type_name -> golip.backendplugin.v1.RawJSONValue
-	13,  // 85: golip.backendplugin.v1.Terminal.status:type_name -> golip.backendplugin.v1.TerminalStatus
-	65,  // 86: golip.backendplugin.v1.Terminal.error:type_name -> golip.backendplugin.v1.PluginError
-	6,   // 87: golip.backendplugin.v1.CancelOutcome.reason:type_name -> golip.backendplugin.v1.CancelReason
-	8,   // 88: golip.backendplugin.v1.ExecuteServerFrame.kind:type_name -> golip.backendplugin.v1.ServerFrameKind
-	61,  // 89: golip.backendplugin.v1.ExecuteServerFrame.event:type_name -> golip.backendplugin.v1.CanonicalEvent
-	63,  // 90: golip.backendplugin.v1.ExecuteServerFrame.cancel_outcome:type_name -> golip.backendplugin.v1.CancelOutcome
-	62,  // 91: golip.backendplugin.v1.ExecuteServerFrame.terminal:type_name -> golip.backendplugin.v1.Terminal
-	60,  // 92: golip.backendplugin.v1.ExecuteServerFrame.accounting_evidence:type_name -> golip.backendplugin.v1.AccountingEvidence
-	5,   // 93: golip.backendplugin.v1.PluginError.code:type_name -> golip.backendplugin.v1.ErrorCode
-	15,  // 94: golip.backendplugin.v1.BackendPlugin.Negotiate:input_type -> golip.backendplugin.v1.NegotiateRequest
-	17,  // 95: golip.backendplugin.v1.BackendPlugin.Describe:input_type -> golip.backendplugin.v1.DescribeRequest
-	26,  // 96: golip.backendplugin.v1.BackendPlugin.Configure:input_type -> golip.backendplugin.v1.ConfigureRequest
-	28,  // 97: golip.backendplugin.v1.BackendPlugin.CloseInstance:input_type -> golip.backendplugin.v1.CloseInstanceRequest
-	30,  // 98: golip.backendplugin.v1.BackendPlugin.ResolveProfile:input_type -> golip.backendplugin.v1.ResolveProfileRequest
-	33,  // 99: golip.backendplugin.v1.BackendPlugin.ListModels:input_type -> golip.backendplugin.v1.ListModelsRequest
-	36,  // 100: golip.backendplugin.v1.BackendPlugin.CountTokens:input_type -> golip.backendplugin.v1.CountTokensRequest
-	38,  // 101: golip.backendplugin.v1.BackendPlugin.FinalizeBilling:input_type -> golip.backendplugin.v1.FinalizeBillingRequest
-	59,  // 102: golip.backendplugin.v1.BackendPlugin.Execute:input_type -> golip.backendplugin.v1.ExecuteClientFrame
-	66,  // 103: golip.backendplugin.v1.BackendPlugin.Health:input_type -> golip.backendplugin.v1.HealthRequest
-	68,  // 104: golip.backendplugin.v1.BackendPlugin.GracefulShutdown:input_type -> golip.backendplugin.v1.GracefulShutdownRequest
-	16,  // 105: golip.backendplugin.v1.BackendPlugin.Negotiate:output_type -> golip.backendplugin.v1.NegotiateResponse
-	18,  // 106: golip.backendplugin.v1.BackendPlugin.Describe:output_type -> golip.backendplugin.v1.DescribeResponse
-	27,  // 107: golip.backendplugin.v1.BackendPlugin.Configure:output_type -> golip.backendplugin.v1.ConfigureResponse
-	29,  // 108: golip.backendplugin.v1.BackendPlugin.CloseInstance:output_type -> golip.backendplugin.v1.CloseInstanceResponse
-	31,  // 109: golip.backendplugin.v1.BackendPlugin.ResolveProfile:output_type -> golip.backendplugin.v1.ResolveProfileResponse
-	34,  // 110: golip.backendplugin.v1.BackendPlugin.ListModels:output_type -> golip.backendplugin.v1.ListModelsResponse
-	37,  // 111: golip.backendplugin.v1.BackendPlugin.CountTokens:output_type -> golip.backendplugin.v1.CountTokensResponse
-	39,  // 112: golip.backendplugin.v1.BackendPlugin.FinalizeBilling:output_type -> golip.backendplugin.v1.FinalizeBillingResponse
-	64,  // 113: golip.backendplugin.v1.BackendPlugin.Execute:output_type -> golip.backendplugin.v1.ExecuteServerFrame
-	67,  // 114: golip.backendplugin.v1.BackendPlugin.Health:output_type -> golip.backendplugin.v1.HealthResponse
-	69,  // 115: golip.backendplugin.v1.BackendPlugin.GracefulShutdown:output_type -> golip.backendplugin.v1.GracefulShutdownResponse
-	105, // [105:116] is the sub-list for method output_type
-	94,  // [94:105] is the sub-list for method input_type
-	94,  // [94:94] is the sub-list for extension type_name
-	94,  // [94:94] is the sub-list for extension extendee
-	0,   // [0:94] is the sub-list for field type_name
+	22,  // 8: golip.backendplugin.v1.FactoryDescriptor.static_capabilities:type_name -> golip.backendplugin.v1.CapabilitySummary
+	24,  // 9: golip.backendplugin.v1.FactoryDescriptor.transport_capabilities:type_name -> golip.backendplugin.v1.TransportCapabilitySummary
+	47,  // 10: golip.backendplugin.v1.DialectSupportWire.item_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
+	47,  // 11: golip.backendplugin.v1.DialectSupportWire.reasoning_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
+	47,  // 12: golip.backendplugin.v1.DialectSupportWire.compaction_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
+	48,  // 13: golip.backendplugin.v1.DialectSupportWire.extension_types:type_name -> golip.backendplugin.v1.ExtensionRequirementWire
+	72,  // 14: golip.backendplugin.v1.SecretBundle.values:type_name -> golip.backendplugin.v1.SecretBundle.ValuesEntry
+	25,  // 15: golip.backendplugin.v1.ConfigureRequest.secrets:type_name -> golip.backendplugin.v1.SecretBundle
+	26,  // 16: golip.backendplugin.v1.ConfigureRequest.runtime_policy:type_name -> golip.backendplugin.v1.RuntimePolicy
+	33,  // 17: golip.backendplugin.v1.ResolveProfileResponse.profile:type_name -> golip.backendplugin.v1.ResolvedProfile
+	22,  // 18: golip.backendplugin.v1.ResolvedProfile.capabilities:type_name -> golip.backendplugin.v1.CapabilitySummary
+	24,  // 19: golip.backendplugin.v1.ResolvedProfile.transport_capabilities:type_name -> golip.backendplugin.v1.TransportCapabilitySummary
+	23,  // 20: golip.backendplugin.v1.ResolvedProfile.dialect_support:type_name -> golip.backendplugin.v1.DialectSupportWire
+	36,  // 21: golip.backendplugin.v1.ListModelsResponse.models:type_name -> golip.backendplugin.v1.ModelDescriptor
+	22,  // 22: golip.backendplugin.v1.ModelDescriptor.capabilities:type_name -> golip.backendplugin.v1.CapabilitySummary
+	44,  // 23: golip.backendplugin.v1.CountTokensRequest.invocation:type_name -> golip.backendplugin.v1.Invocation
+	41,  // 24: golip.backendplugin.v1.CountTokensResponse.presence:type_name -> golip.backendplugin.v1.UsagePresence
+	42,  // 25: golip.backendplugin.v1.FinalizeBillingResponse.usage:type_name -> golip.backendplugin.v1.UsageEvidence
+	41,  // 26: golip.backendplugin.v1.UsageEvidence.presence:type_name -> golip.backendplugin.v1.UsagePresence
+	43,  // 27: golip.backendplugin.v1.UsageEvidence.raw_usage_json:type_name -> golip.backendplugin.v1.RawJSONValue
+	57,  // 28: golip.backendplugin.v1.Invocation.instructions:type_name -> golip.backendplugin.v1.Message
+	57,  // 29: golip.backendplugin.v1.Invocation.messages:type_name -> golip.backendplugin.v1.Message
+	59,  // 30: golip.backendplugin.v1.Invocation.tools:type_name -> golip.backendplugin.v1.ToolDef
+	60,  // 31: golip.backendplugin.v1.Invocation.options:type_name -> golip.backendplugin.v1.GenerationOptions
+	73,  // 32: golip.backendplugin.v1.Invocation.safe_metadata:type_name -> golip.backendplugin.v1.Invocation.SafeMetadataEntry
+	49,  // 33: golip.backendplugin.v1.Invocation.items:type_name -> golip.backendplugin.v1.InvocationItem
+	46,  // 34: golip.backendplugin.v1.Invocation.protocol_requirements:type_name -> golip.backendplugin.v1.ProtocolRequirementsWire
+	45,  // 35: golip.backendplugin.v1.Invocation.semantic_extensions:type_name -> golip.backendplugin.v1.SemanticExtensionWire
+	14,  // 36: golip.backendplugin.v1.SemanticExtensionWire.presence:type_name -> golip.backendplugin.v1.SemanticExtensionWire.Presence
+	47,  // 37: golip.backendplugin.v1.ProtocolRequirementsWire.item_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
+	47,  // 38: golip.backendplugin.v1.ProtocolRequirementsWire.reasoning_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
+	47,  // 39: golip.backendplugin.v1.ProtocolRequirementsWire.compaction_dialects:type_name -> golip.backendplugin.v1.DialectRequirementWire
+	48,  // 40: golip.backendplugin.v1.ProtocolRequirementsWire.extension_types:type_name -> golip.backendplugin.v1.ExtensionRequirementWire
+	3,   // 41: golip.backendplugin.v1.InvocationItem.role:type_name -> golip.backendplugin.v1.Role
+	54,  // 42: golip.backendplugin.v1.InvocationItem.content:type_name -> golip.backendplugin.v1.InvocationContentPart
+	55,  // 43: golip.backendplugin.v1.InvocationItem.tool_call:type_name -> golip.backendplugin.v1.InvocationToolCall
+	56,  // 44: golip.backendplugin.v1.InvocationItem.tool_result:type_name -> golip.backendplugin.v1.InvocationToolResult
+	50,  // 45: golip.backendplugin.v1.InvocationItem.item_reference:type_name -> golip.backendplugin.v1.InvocationItemReference
+	51,  // 46: golip.backendplugin.v1.InvocationItem.reasoning:type_name -> golip.backendplugin.v1.InvocationReasoningItem
+	52,  // 47: golip.backendplugin.v1.InvocationItem.compaction:type_name -> golip.backendplugin.v1.InvocationCompactionItem
+	53,  // 48: golip.backendplugin.v1.InvocationItem.extension:type_name -> golip.backendplugin.v1.InvocationExtensionItem
+	43,  // 49: golip.backendplugin.v1.InvocationReasoningItem.opaque:type_name -> golip.backendplugin.v1.RawJSONValue
+	43,  // 50: golip.backendplugin.v1.InvocationReasoningItem.summary:type_name -> golip.backendplugin.v1.RawJSONValue
+	43,  // 51: golip.backendplugin.v1.InvocationReasoningItem.content:type_name -> golip.backendplugin.v1.RawJSONValue
+	43,  // 52: golip.backendplugin.v1.InvocationReasoningItem.encrypted_content:type_name -> golip.backendplugin.v1.RawJSONValue
+	43,  // 53: golip.backendplugin.v1.InvocationCompactionItem.opaque:type_name -> golip.backendplugin.v1.RawJSONValue
+	43,  // 54: golip.backendplugin.v1.InvocationExtensionItem.opaque:type_name -> golip.backendplugin.v1.RawJSONValue
+	4,   // 55: golip.backendplugin.v1.InvocationContentPart.kind:type_name -> golip.backendplugin.v1.PartKind
+	43,  // 56: golip.backendplugin.v1.InvocationContentPart.reasoning_opaque:type_name -> golip.backendplugin.v1.RawJSONValue
+	43,  // 57: golip.backendplugin.v1.InvocationContentPart.annotation_data:type_name -> golip.backendplugin.v1.RawJSONValue
+	43,  // 58: golip.backendplugin.v1.InvocationContentPart.extension_data:type_name -> golip.backendplugin.v1.RawJSONValue
+	43,  // 59: golip.backendplugin.v1.InvocationContentPart.reasoning_summary:type_name -> golip.backendplugin.v1.RawJSONValue
+	43,  // 60: golip.backendplugin.v1.InvocationContentPart.reasoning_content:type_name -> golip.backendplugin.v1.RawJSONValue
+	43,  // 61: golip.backendplugin.v1.InvocationContentPart.reasoning_encrypted_content:type_name -> golip.backendplugin.v1.RawJSONValue
+	43,  // 62: golip.backendplugin.v1.InvocationToolCall.arguments:type_name -> golip.backendplugin.v1.RawJSONValue
+	54,  // 63: golip.backendplugin.v1.InvocationToolResult.structured_parts:type_name -> golip.backendplugin.v1.InvocationContentPart
+	3,   // 64: golip.backendplugin.v1.Message.role:type_name -> golip.backendplugin.v1.Role
+	58,  // 65: golip.backendplugin.v1.Message.parts:type_name -> golip.backendplugin.v1.Part
+	4,   // 66: golip.backendplugin.v1.Part.kind:type_name -> golip.backendplugin.v1.PartKind
+	43,  // 67: golip.backendplugin.v1.Part.tool_args_json:type_name -> golip.backendplugin.v1.RawJSONValue
+	43,  // 68: golip.backendplugin.v1.Part.reasoning_opaque:type_name -> golip.backendplugin.v1.RawJSONValue
+	43,  // 69: golip.backendplugin.v1.Part.reasoning_summary:type_name -> golip.backendplugin.v1.RawJSONValue
+	43,  // 70: golip.backendplugin.v1.Part.reasoning_content:type_name -> golip.backendplugin.v1.RawJSONValue
+	43,  // 71: golip.backendplugin.v1.Part.reasoning_encrypted_content:type_name -> golip.backendplugin.v1.RawJSONValue
+	43,  // 72: golip.backendplugin.v1.ToolDef.parameters_json:type_name -> golip.backendplugin.v1.RawJSONValue
+	43,  // 73: golip.backendplugin.v1.GenerationOptions.response_schema_json:type_name -> golip.backendplugin.v1.RawJSONValue
+	7,   // 74: golip.backendplugin.v1.ExecuteClientFrame.kind:type_name -> golip.backendplugin.v1.ClientFrameKind
+	44,  // 75: golip.backendplugin.v1.ExecuteClientFrame.invocation:type_name -> golip.backendplugin.v1.Invocation
+	6,   // 76: golip.backendplugin.v1.ExecuteClientFrame.cancel_reason:type_name -> golip.backendplugin.v1.CancelReason
+	41,  // 77: golip.backendplugin.v1.AccountingEvidence.presence:type_name -> golip.backendplugin.v1.UsagePresence
+	9,   // 78: golip.backendplugin.v1.AccountingEvidence.source:type_name -> golip.backendplugin.v1.AccountingSource
+	10,  // 79: golip.backendplugin.v1.AccountingEvidence.authority:type_name -> golip.backendplugin.v1.AccountingAuthority
+	11,  // 80: golip.backendplugin.v1.AccountingEvidence.plane:type_name -> golip.backendplugin.v1.AccountingPlane
+	12,  // 81: golip.backendplugin.v1.CanonicalEvent.kind:type_name -> golip.backendplugin.v1.EventKind
+	42,  // 82: golip.backendplugin.v1.CanonicalEvent.usage:type_name -> golip.backendplugin.v1.UsageEvidence
+	67,  // 83: golip.backendplugin.v1.CanonicalEvent.error:type_name -> golip.backendplugin.v1.PluginError
+	43,  // 84: golip.backendplugin.v1.CanonicalEvent.reasoning_summary:type_name -> golip.backendplugin.v1.RawJSONValue
+	43,  // 85: golip.backendplugin.v1.CanonicalEvent.reasoning_content:type_name -> golip.backendplugin.v1.RawJSONValue
+	43,  // 86: golip.backendplugin.v1.CanonicalEvent.reasoning_encrypted_content:type_name -> golip.backendplugin.v1.RawJSONValue
+	13,  // 87: golip.backendplugin.v1.Terminal.status:type_name -> golip.backendplugin.v1.TerminalStatus
+	67,  // 88: golip.backendplugin.v1.Terminal.error:type_name -> golip.backendplugin.v1.PluginError
+	6,   // 89: golip.backendplugin.v1.CancelOutcome.reason:type_name -> golip.backendplugin.v1.CancelReason
+	8,   // 90: golip.backendplugin.v1.ExecuteServerFrame.kind:type_name -> golip.backendplugin.v1.ServerFrameKind
+	63,  // 91: golip.backendplugin.v1.ExecuteServerFrame.event:type_name -> golip.backendplugin.v1.CanonicalEvent
+	65,  // 92: golip.backendplugin.v1.ExecuteServerFrame.cancel_outcome:type_name -> golip.backendplugin.v1.CancelOutcome
+	64,  // 93: golip.backendplugin.v1.ExecuteServerFrame.terminal:type_name -> golip.backendplugin.v1.Terminal
+	62,  // 94: golip.backendplugin.v1.ExecuteServerFrame.accounting_evidence:type_name -> golip.backendplugin.v1.AccountingEvidence
+	5,   // 95: golip.backendplugin.v1.PluginError.code:type_name -> golip.backendplugin.v1.ErrorCode
+	16,  // 96: golip.backendplugin.v1.BackendPlugin.Negotiate:input_type -> golip.backendplugin.v1.NegotiateRequest
+	18,  // 97: golip.backendplugin.v1.BackendPlugin.Describe:input_type -> golip.backendplugin.v1.DescribeRequest
+	27,  // 98: golip.backendplugin.v1.BackendPlugin.Configure:input_type -> golip.backendplugin.v1.ConfigureRequest
+	29,  // 99: golip.backendplugin.v1.BackendPlugin.CloseInstance:input_type -> golip.backendplugin.v1.CloseInstanceRequest
+	31,  // 100: golip.backendplugin.v1.BackendPlugin.ResolveProfile:input_type -> golip.backendplugin.v1.ResolveProfileRequest
+	34,  // 101: golip.backendplugin.v1.BackendPlugin.ListModels:input_type -> golip.backendplugin.v1.ListModelsRequest
+	37,  // 102: golip.backendplugin.v1.BackendPlugin.CountTokens:input_type -> golip.backendplugin.v1.CountTokensRequest
+	39,  // 103: golip.backendplugin.v1.BackendPlugin.FinalizeBilling:input_type -> golip.backendplugin.v1.FinalizeBillingRequest
+	61,  // 104: golip.backendplugin.v1.BackendPlugin.Execute:input_type -> golip.backendplugin.v1.ExecuteClientFrame
+	68,  // 105: golip.backendplugin.v1.BackendPlugin.Health:input_type -> golip.backendplugin.v1.HealthRequest
+	70,  // 106: golip.backendplugin.v1.BackendPlugin.GracefulShutdown:input_type -> golip.backendplugin.v1.GracefulShutdownRequest
+	17,  // 107: golip.backendplugin.v1.BackendPlugin.Negotiate:output_type -> golip.backendplugin.v1.NegotiateResponse
+	19,  // 108: golip.backendplugin.v1.BackendPlugin.Describe:output_type -> golip.backendplugin.v1.DescribeResponse
+	28,  // 109: golip.backendplugin.v1.BackendPlugin.Configure:output_type -> golip.backendplugin.v1.ConfigureResponse
+	30,  // 110: golip.backendplugin.v1.BackendPlugin.CloseInstance:output_type -> golip.backendplugin.v1.CloseInstanceResponse
+	32,  // 111: golip.backendplugin.v1.BackendPlugin.ResolveProfile:output_type -> golip.backendplugin.v1.ResolveProfileResponse
+	35,  // 112: golip.backendplugin.v1.BackendPlugin.ListModels:output_type -> golip.backendplugin.v1.ListModelsResponse
+	38,  // 113: golip.backendplugin.v1.BackendPlugin.CountTokens:output_type -> golip.backendplugin.v1.CountTokensResponse
+	40,  // 114: golip.backendplugin.v1.BackendPlugin.FinalizeBilling:output_type -> golip.backendplugin.v1.FinalizeBillingResponse
+	66,  // 115: golip.backendplugin.v1.BackendPlugin.Execute:output_type -> golip.backendplugin.v1.ExecuteServerFrame
+	69,  // 116: golip.backendplugin.v1.BackendPlugin.Health:output_type -> golip.backendplugin.v1.HealthResponse
+	71,  // 117: golip.backendplugin.v1.BackendPlugin.GracefulShutdown:output_type -> golip.backendplugin.v1.GracefulShutdownResponse
+	107, // [107:118] is the sub-list for method output_type
+	96,  // [96:107] is the sub-list for method input_type
+	96,  // [96:96] is the sub-list for extension type_name
+	96,  // [96:96] is the sub-list for extension extendee
+	0,   // [0:96] is the sub-list for field type_name
 }
 
 func init() { file_backendplugin_v1_backend_proto_init() }
@@ -6275,22 +6434,22 @@ func file_backendplugin_v1_backend_proto_init() {
 		(*RawJSONValue_Json)(nil),
 	}
 	file_backendplugin_v1_backend_proto_msgTypes[29].OneofWrappers = []any{}
-	file_backendplugin_v1_backend_proto_msgTypes[35].OneofWrappers = []any{}
 	file_backendplugin_v1_backend_proto_msgTypes[36].OneofWrappers = []any{}
 	file_backendplugin_v1_backend_proto_msgTypes[37].OneofWrappers = []any{}
 	file_backendplugin_v1_backend_proto_msgTypes[38].OneofWrappers = []any{}
-	file_backendplugin_v1_backend_proto_msgTypes[40].OneofWrappers = []any{}
-	file_backendplugin_v1_backend_proto_msgTypes[42].OneofWrappers = []any{}
-	file_backendplugin_v1_backend_proto_msgTypes[44].OneofWrappers = []any{}
-	file_backendplugin_v1_backend_proto_msgTypes[46].OneofWrappers = []any{}
+	file_backendplugin_v1_backend_proto_msgTypes[39].OneofWrappers = []any{}
+	file_backendplugin_v1_backend_proto_msgTypes[41].OneofWrappers = []any{}
+	file_backendplugin_v1_backend_proto_msgTypes[43].OneofWrappers = []any{}
+	file_backendplugin_v1_backend_proto_msgTypes[45].OneofWrappers = []any{}
 	file_backendplugin_v1_backend_proto_msgTypes[47].OneofWrappers = []any{}
+	file_backendplugin_v1_backend_proto_msgTypes[48].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_backendplugin_v1_backend_proto_rawDesc), len(file_backendplugin_v1_backend_proto_rawDesc)),
-			NumEnums:      14,
-			NumMessages:   58,
+			NumEnums:      15,
+			NumMessages:   59,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
