@@ -62,19 +62,13 @@ func (s *DurableStore) ClaimPending(ctx context.Context, limit int) ([]billing.T
 	if limit <= 0 {
 		return nil, fmt.Errorf("billingstore: claim limit must be positive")
 	}
-	for attempt := range 30 {
-		records, err := s.claimPendingAttempt(ctx, limit)
-		if err == nil {
-			return records, nil
-		}
-		if !isSQLiteBusy(err) && !isUniqueViolation(err) {
-			return nil, err
-		}
-		if waitErr := waitContention(ctx, time.Duration(attempt+1)*3*time.Millisecond); waitErr != nil {
-			return nil, waitErr
-		}
-	}
-	return nil, fmt.Errorf("%w: processing claim retry budget exhausted", billing.ErrAuthorizationUnavailable)
+	return withAccountTx(ctx, accountTxRetry{
+		Attempts:  30,
+		Delay:     3 * time.Millisecond,
+		Exhausted: fmt.Errorf("%w: processing claim retry budget exhausted", billing.ErrAuthorizationUnavailable),
+	}, func() ([]billing.TurnUsageRecord, error) {
+		return s.claimPendingAttempt(ctx, limit)
+	})
 }
 
 func (s *DurableStore) claimPendingAttempt(ctx context.Context, limit int) ([]billing.TurnUsageRecord, error) {

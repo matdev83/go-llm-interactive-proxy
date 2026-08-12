@@ -31,19 +31,13 @@ func (s *DurableStore) ApplyBillingResult(ctx context.Context, input billing.App
 	if err != nil {
 		return billing.Settlement{}, err
 	}
-	for attempt := range 40 {
-		out, callErr := s.applyBillingAttempt(ctx, sealed, input.Authorization, input.Result, resultFingerprint)
-		if callErr == nil {
-			return out, nil
-		}
-		if !isSQLiteBusy(callErr) && !isUniqueViolation(callErr) {
-			return billing.Settlement{}, callErr
-		}
-		if waitErr := waitContention(ctx, time.Duration(attempt+1)*3*time.Millisecond); waitErr != nil {
-			return billing.Settlement{}, waitErr
-		}
-	}
-	return billing.Settlement{}, fmt.Errorf("%w: settlement retry budget exhausted", billing.ErrAuthorizationUnavailable)
+	return withAccountTx(ctx, accountTxRetry{
+		Attempts:  40,
+		Delay:     3 * time.Millisecond,
+		Exhausted: fmt.Errorf("%w: settlement retry budget exhausted", billing.ErrAuthorizationUnavailable),
+	}, func() (billing.Settlement, error) {
+		return s.applyBillingAttempt(ctx, sealed, input.Authorization, input.Result, resultFingerprint)
+	})
 }
 
 func (s *DurableStore) applyBillingAttempt(ctx context.Context, record billing.TurnUsageRecord, authorization billing.Authorization, result billing.BillingResult, resultFingerprint string) (billing.Settlement, error) {

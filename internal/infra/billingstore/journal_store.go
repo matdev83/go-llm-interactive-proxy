@@ -81,20 +81,9 @@ func (s *DurableStore) GetAccount(ctx context.Context, accountID string) (billin
 // creating mutable pending processing metadata. Same key/fingerprint is a
 // no-op; a conflicting replay is rejected without mutation.
 func (s *DurableStore) AppendUsageRecord(ctx context.Context, record billing.TurnUsageRecord) error {
-	var lastErr error
-	for attempt := range 20 {
-		lastErr = s.appendUsageRecordAttempt(ctx, record)
-		if lastErr == nil {
-			return nil
-		}
-		if !isSQLiteBusy(lastErr) && !isUniqueViolation(lastErr) {
-			return lastErr
-		}
-		if waitErr := waitContention(ctx, time.Duration(attempt+1)*5*time.Millisecond); waitErr != nil {
-			return waitErr
-		}
-	}
-	return lastErr
+	return withAccountTxErr(ctx, accountTxRetry{Attempts: 20, Delay: 5 * time.Millisecond}, func() error {
+		return s.appendUsageRecordAttempt(ctx, record)
+	})
 }
 
 func (s *DurableStore) appendUsageRecordAttempt(ctx context.Context, record billing.TurnUsageRecord) error {
@@ -207,21 +196,9 @@ func (s *DurableStore) postJournalTransaction(ctx context.Context, input billing
 	if err := input.Validate(); err != nil {
 		return billing.JournalTransaction{}, err
 	}
-	var lastErr error
-	for attempt := range 20 {
-		posted, err := s.postJournalAttempt(ctx, input)
-		if err == nil {
-			return posted, nil
-		}
-		lastErr = err
-		if (!isSQLiteBusy(err) && !isUniqueViolation(err)) || attempt == 19 {
-			return billing.JournalTransaction{}, err
-		}
-		if waitErr := waitContention(ctx, time.Duration(attempt+1)*5*time.Millisecond); waitErr != nil {
-			return billing.JournalTransaction{}, waitErr
-		}
-	}
-	return billing.JournalTransaction{}, lastErr
+	return withAccountTx(ctx, accountTxRetry{Attempts: 20, Delay: 5 * time.Millisecond}, func() (billing.JournalTransaction, error) {
+		return s.postJournalAttempt(ctx, input)
+	})
 }
 
 func (s *DurableStore) postJournalAttempt(ctx context.Context, input billing.JournalTransaction) (billing.JournalTransaction, error) {
