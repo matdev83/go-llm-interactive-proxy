@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/utils"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/jsonprobe"
 )
 
 const maxBodyBytes = 10 << 20
@@ -68,7 +68,7 @@ func NewHandler(cfg Config) http.Handler {
 		if cfg.OnAuthorizedCredential != nil {
 			cfg.OnAuthorizedCredential(key)
 		}
-		if utils.TryWriteForcedHTTPError(w, cfg.ForcedHTTPStatus, cfg.ForcedRetryAfter, cfg.ForcedErrorJSON, defaultForcedErrorJSON) {
+		if jsonprobe.TryWriteForcedHTTPError(w, cfg.ForcedHTTPStatus, cfg.ForcedRetryAfter, cfg.ForcedErrorJSON, defaultForcedErrorJSON) {
 			return
 		}
 		stream := streamFlag(body)
@@ -105,7 +105,7 @@ func writeJSON(w http.ResponseWriter, cfg Config, requestBody []byte) {
 	body := cfg.NonStreamJSON
 	if body == "" {
 		body = nonStreamWithUsageJSON
-		if utils.HasJSONKey(requestBody, "tools") {
+		if jsonprobe.HasJSONKey(requestBody, "tools") {
 			body = nonStreamWithToolCallJSON
 		}
 	}
@@ -118,16 +118,16 @@ func writeStream(w http.ResponseWriter, cfg Config, requestBody []byte) {
 	body := cfg.StreamSSE
 	if body == "" {
 		body = streamWithUsageSSE
-		if utils.HasJSONKey(requestBody, "tools") {
+		if jsonprobe.HasJSONKey(requestBody, "tools") {
 			body = streamWithToolCallSSE
 		}
-		if utils.HasJSONNumber(requestBody, "temperature", 0.11) {
+		if jsonprobe.HasJSONNumber(requestBody, "temperature", 0.11) {
 			body = "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"rate limit exceeded\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
 		}
-		if utils.HasJSONNumber(requestBody, "temperature", 0.22) {
+		if jsonprobe.HasJSONNumber(requestBody, "temperature", 0.22) {
 			body = "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"bad request\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
 		}
-		if utils.HasJSONNumber(requestBody, "max_tokens", 0) || utils.HasJSONNumber(requestBody, "max_tokens", 1) {
+		if jsonprobe.HasJSONNumber(requestBody, "max_tokens", 0) || jsonprobe.HasJSONNumber(requestBody, "max_tokens", 1) {
 			body = streamWithZeroUsageSSE
 		}
 	}

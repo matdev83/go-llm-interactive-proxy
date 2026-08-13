@@ -28,9 +28,9 @@ func TestNew_NilBunDB(t *testing.T) {
 	}
 }
 
-func TestNewContext_NilContext(t *testing.T) {
+func TestNewWithContext_NilContext(t *testing.T) {
 	t.Parallel()
-	_, err := NewContext(nil, nil) //nolint:staticcheck // contract: nil ctx must be rejected
+	_, err := NewWithContext(nil, nil) //nolint:staticcheck // contract: nil ctx must be rejected
 	if err == nil {
 		t.Fatal("expected error for nil context")
 	}

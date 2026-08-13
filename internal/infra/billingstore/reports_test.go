@@ -41,7 +41,7 @@ func TestSQLitePhase7OperatorCostPagesProviderCogsOnly(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		result := billing.BillingResult{
+		result := billing.Result{
 			TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 8, Currency: "USD"},
 			OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 2, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}},
 		}
@@ -93,7 +93,7 @@ func TestSQLiteOperatorCostMultiLegPagesKeepRangeTotals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := billing.BillingResult{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 8, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{
+	result := billing.Result{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 8, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{
 		{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 2, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true},
 		{LURKey: sealed.Legs[1].Key, Amount: billing.Money{Nano: 3, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true},
 	}}
@@ -139,7 +139,7 @@ func TestSQLiteOperatorCostIncludesAuthoritativeZeroLeg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := billing.BillingResult{
+	result := billing.Result{
 		TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 8, Currency: "USD"},
 		OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 0, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}},
 	}
@@ -208,7 +208,7 @@ func TestSQLitePhase7ShadowRatingMatchesJournalOutcomes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := billing.BillingResult{
+	result := billing.Result{
 		TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 8, Currency: "USD"},
 		OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 2, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}},
 	}
@@ -250,7 +250,7 @@ func TestSQLiteReportsNetReversalAndReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := billing.BillingResult{
+	result := billing.Result{
 		TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 8, Currency: "USD"},
 		OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 2, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}},
 	}
@@ -355,7 +355,7 @@ func runPhase7Reports(t *testing.T, store *DurableStore, accountID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := billing.BillingResult{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 8, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 2, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}}}
+	result := billing.Result{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 8, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 2, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}}}
 	if _, err := store.ApplyBillingResult(ctx, billing.ApplyBillingInput{Record: sealed, Authorization: auth, Result: result}); err != nil {
 		t.Fatal(err)
 	}
@@ -477,7 +477,7 @@ func settleSessionTurn(t *testing.T, store *DurableStore, accountID, turnID, aLe
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := billing.BillingResult{
+	result := billing.Result{
 		TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: charge, Currency: "USD"},
 		OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: cost, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}},
 	}

@@ -46,12 +46,12 @@ func argsShapeLimits(maxArgsBytes int) jsonshape.Limits {
 
 func preflightSchemaJSON(ctx context.Context, schema []byte, limits SchemaLimits) error {
 	limits = limits.normalized()
-	_, err := jsonshape.PreflightContext(ctx, schema, schemaShapeLimits(limits))
+	_, err := jsonshape.PreflightWithContext(ctx, schema, schemaShapeLimits(limits))
 	return mapSchemaJSONShapeErr(err, limits)
 }
 
 func preflightArgsJSON(ctx context.Context, args []byte, maxArgsBytes int) error {
-	_, err := jsonshape.PreflightContext(ctx, args, argsShapeLimits(maxArgsBytes))
+	_, err := jsonshape.PreflightWithContext(ctx, args, argsShapeLimits(maxArgsBytes))
 	return mapArgsJSONShapeErr(err)
 }
 

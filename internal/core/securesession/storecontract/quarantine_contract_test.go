@@ -40,7 +40,7 @@ func TestStoreContract_Quarantine_SQLite(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		s, err := bunstore.NewContext(ctx, bunDB)
+		s, err := bunstore.NewWithContext(ctx, bunDB)
 		if err != nil {
 			_ = bunDB.Close()
 			t.Fatal(err)
@@ -70,7 +70,7 @@ func TestStoreContract_Quarantine_BunSQLite(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), db.DefaultPostgresOpenMigrateTimeout)
 		defer cancel()
-		s, err := bunstore.NewContext(ctx, bunDB)
+		s, err := bunstore.NewWithContext(ctx, bunDB)
 		if err != nil {
 			_ = sqlDB.Close()
 			t.Fatal(err)

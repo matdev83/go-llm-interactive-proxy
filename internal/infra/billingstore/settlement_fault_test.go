@@ -59,7 +59,7 @@ func runSettlementCrashAtStage(t *testing.T, store *DurableStore, accountID, sta
 		}
 		return nil
 	}
-	result := billing.BillingResult{
+	result := billing.Result{
 		TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 12, Currency: "USD"},
 		OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 7, Currency: "USD"}, AmountPresent: true, Reconciled: true}},
 	}

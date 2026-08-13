@@ -26,12 +26,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretsguard"
+	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	dto "github.com/prometheus/client_model/go"
 	"gopkg.in/yaml.v3"
@@ -48,7 +48,7 @@ type realSecretGuardHarness struct {
 	trafficCalls atomic.Int32
 	auditCalls   atomic.Int32
 	auditMu      sync.Mutex
-	auditEvents  []secretguard.DecisionEvent
+	auditEvents  []sdk.DecisionEvent
 	ownerID      string
 }
 
@@ -97,7 +97,7 @@ func TestExecutor_realSecretGuardScanLimitBlockAndRedactQuarantine(t *testing.T)
 			if h.auditCalls.Load() != 1 {
 				t.Fatalf("audit calls=%d want 1", h.auditCalls.Load())
 			}
-			assertAuditEvent(t, h.singleAuditEvent(), expectedAction, secretguard.OutcomeBlock, secretguard.QuarantineResultCommitted, false)
+			assertAuditEvent(t, h.singleAuditEvent(), expectedAction, sdk.OutcomeBlock, sdk.QuarantineResultCommitted, false)
 			if !strings.Contains(execErr.Error(), "start a new session") {
 				t.Fatalf("client-safe denial missing session guidance: %v", execErr)
 			}
@@ -137,7 +137,7 @@ func TestExecutor_realSecretGuardLogScanLimitContinues(t *testing.T) {
 	if h.auditCalls.Load() != 1 {
 		t.Fatalf("audit calls=%d want 1", h.auditCalls.Load())
 	}
-	assertAuditEvent(t, h.singleAuditEvent(), "log", secretguard.OutcomeLog, secretguard.QuarantineResultNA, false)
+	assertAuditEvent(t, h.singleAuditEvent(), "log", sdk.OutcomeLog, sdk.QuarantineResultNA, false)
 	if !reflect.DeepEqual(h.call.Messages, h.before.Messages) {
 		t.Fatal("log scan-limit must not mutate the message payload")
 	}
@@ -210,7 +210,7 @@ func newRealSecretGuardHarness(t *testing.T, action, ownerID string) *realSecret
 				SecretGuardEnvironment: secretGuardEnv{
 					"OPENAI_API_KEY": secret,
 				},
-				SecretDecisionObserver: secretguard.ObserverFunc(func(_ context.Context, ev secretguard.DecisionEvent) error {
+				SecretDecisionObserver: sdk.ObserverFunc(func(_ context.Context, ev sdk.DecisionEvent) error {
 					h.auditCalls.Add(1)
 					h.auditMu.Lock()
 					h.auditEvents = append(h.auditEvents, ev)
@@ -295,11 +295,11 @@ func newRealSecretGuardHarness(t *testing.T, action, ownerID string) *realSecret
 	return h
 }
 
-func (h *realSecretGuardHarness) singleAuditEvent() secretguard.DecisionEvent {
+func (h *realSecretGuardHarness) singleAuditEvent() sdk.DecisionEvent {
 	h.auditMu.Lock()
 	defer h.auditMu.Unlock()
 	if len(h.auditEvents) != 1 {
-		return secretguard.DecisionEvent{}
+		return sdk.DecisionEvent{}
 	}
 	return h.auditEvents[0]
 }
@@ -342,7 +342,7 @@ func assertRealSecretGuardMetrics(t *testing.T, metricsBundle *metrics.Bundle, a
 	}, 1)
 }
 
-func assertAuditEvent(t *testing.T, ev secretguard.DecisionEvent, action string, outcome secretguard.Outcome, quarantineResult string, backendDispatched bool) {
+func assertAuditEvent(t *testing.T, ev sdk.DecisionEvent, action string, outcome sdk.Outcome, quarantineResult string, backendDispatched bool) {
 	t.Helper()
 	if ev.Action != action {
 		t.Fatalf("Action=%q want %q", ev.Action, action)

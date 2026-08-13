@@ -30,9 +30,9 @@ func TestSettlementSourceKeysAreBoundToDurableEvidence(t *testing.T) {
 	}
 }
 
-func TestBillingResultFingerprintIncludesEveryLURCost(t *testing.T) {
+func TestResultFingerprintIncludesEveryLURCost(t *testing.T) {
 	t.Parallel()
-	result := BillingResult{
+	result := Result{
 		TURKey:         "acct:turn",
 		CustomerCharge: Money{Nano: 10, Currency: "USD"},
 		OperatorCosts: []OperatorCostResult{
@@ -61,7 +61,7 @@ func TestApplyBillingInputRejectsUnreconciledOrMissingLURCost(t *testing.T) {
 		t.Fatal(err)
 	}
 	auth := Authorization{ID: "auth-1", AccountID: "acct", TURKey: sealed.Key, Amount: Money{Nano: 20, Currency: "USD"}}
-	for _, result := range []BillingResult{
+	for _, result := range []Result{
 		{TURKey: sealed.Key, CustomerCharge: Money{Currency: "USD"}, UnreconciledCost: true},
 		{TURKey: sealed.Key, CustomerCharge: Money{Currency: "USD"}, OperatorCosts: []OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: Money{Currency: "USD"}, Reconciled: false}}},
 	} {
@@ -81,7 +81,7 @@ func TestApplyBillingInputRejectsChargeExceedingAuthorization(t *testing.T) {
 	reconciled := OperatorCostResult{LURKey: sealed.Legs[0].Key, Amount: Money{Nano: 1, Currency: "USD"}, AmountPresent: true, Reconciled: true}
 	valid := ApplyBillingInput{
 		Record: sealed, Authorization: auth,
-		Result: BillingResult{TURKey: sealed.Key, CustomerCharge: Money{Nano: 12, Currency: "USD"}, OperatorCosts: []OperatorCostResult{reconciled}},
+		Result: Result{TURKey: sealed.Key, CustomerCharge: Money{Nano: 12, Currency: "USD"}, OperatorCosts: []OperatorCostResult{reconciled}},
 	}
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("valid settlement: %v", err)

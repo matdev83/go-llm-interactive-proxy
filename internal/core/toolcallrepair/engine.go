@@ -62,10 +62,10 @@ func NewEngineWithCache(cache *SchemaCache) *Engine {
 }
 
 func (e *Engine) Repair(in Input) (Outcome, error) {
-	return e.RepairContext(context.Background(), in)
+	return e.RepairWithContext(context.Background(), in)
 }
 
-func (e *Engine) RepairContext(ctx context.Context, in Input) (Outcome, error) {
+func (e *Engine) RepairWithContext(ctx context.Context, in Input) (Outcome, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -137,7 +137,7 @@ func (e *Engine) RepairContext(ctx context.Context, in Input) (Outcome, error) {
 				if isEmptySchema(tool.Parameters) {
 					return fail(toolcall.ReasonUnrepairable), nil
 				}
-				compiled, err = cache.GetOrCompileContext(ctx, tool.Parameters)
+				compiled, err = cache.GetOrCompileWithContext(ctx, tool.Parameters)
 				if err != nil {
 					if reason := mapEngineArgsShapeReason(err); reason == toolcall.ReasonCanceled {
 						return fail(reason), nil
@@ -175,7 +175,7 @@ func (e *Engine) RepairContext(ctx context.Context, in Input) (Outcome, error) {
 		return syntaxOnlyOutcome(toolName, origArgs, args, nameChanged, syntaxChanged), nil
 	}
 	if compiled == nil {
-		compiled, err = cache.GetOrCompileContext(ctx, tool.Parameters)
+		compiled, err = cache.GetOrCompileWithContext(ctx, tool.Parameters)
 		if err != nil {
 			if reason := mapEngineArgsShapeReason(err); reason == toolcall.ReasonCanceled {
 				return fail(reason), nil

@@ -17,8 +17,9 @@ import (
 type StageSettleObservability int
 
 const (
+	StageSettleUnspecified StageSettleObservability = iota
 	// StageSettleRecordAllFailures retains every provider settle failure (req 15.5).
-	StageSettleRecordAllFailures StageSettleObservability = iota
+	StageSettleRecordAllFailures
 )
 
 type stageProviderSlot[P any] struct {
@@ -59,10 +60,10 @@ func validateStageSlots[P any](slots []stageProviderSlot[P], isNil func(P) bool)
 		}
 		id := strings.TrimSpace(slot.id)
 		if id == "" {
-			return fmt.Errorf("authoritycoord: empty provider ID rejected")
+			return fmt.Errorf("authoritycoord: empty provider id rejected")
 		}
 		if _, ok := seen[id]; ok {
-			return fmt.Errorf("authoritycoord: duplicate provider ID %q", id)
+			return fmt.Errorf("authoritycoord: duplicate provider id %q", id)
 		}
 		seen[id] = struct{}{}
 	}
