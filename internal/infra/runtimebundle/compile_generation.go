@@ -193,10 +193,16 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 	}
 	var maxBody int64
 	var preKA lipsdk.FrontendKeepaliveConfig
+	var httpHeaders lipsdk.HTTPHeaders
+	var streamKA time.Duration
 	if frozen != nil {
 		maxBody = frozen.Server.EffectiveMaxRequestBodyBytes()
 		ka := frozen.Server.EffectivePreRequestKeepalive()
 		preKA = lipsdk.FrontendKeepaliveConfig{Enabled: ka.Enabled, Interval: ka.Interval}
+		httpHeaders = frozen.HTTPHeaders.Effective()
+		if eff, err := config.EffectiveStreamRecoveryAutoResume(frozen, config.StreamRecoveryOverrides{}); err == nil {
+			streamKA = eff.KeepaliveInterval
+		}
 	}
 	var plugins []config.PluginConfig
 	if frozen != nil {
@@ -227,15 +233,18 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 			ModelRegistryRuntime: cand.models.registryRuntime,
 		},
 		Frontends: httpcontract.HTTPFrontendInput{
-			Executor:             cand.execution.executor,
-			Registry:             cand.process.pluginRegistry,
-			DefaultRouteSelector: route,
-			RoutePrefixes:        httpcontract.CloneStrings(cand.execution.routePrefixes),
-			Plugins:              httpcontract.ClonePluginConfigs(plugins),
-			MaxRequestBodyBytes:  maxBody,
-			DecodeAdmission:      cand.execution.decodeAdmission,
-			TrafficPorts:         httpcontract.TrafficPortsFromSnapshot(cand.security.runtimeSnapshot),
-			PreRequestKeepalive:  preKA, GenerationContext: genCtx,
+			Executor:                  cand.execution.executor,
+			Registry:                  cand.process.pluginRegistry,
+			DefaultRouteSelector:      route,
+			RoutePrefixes:             httpcontract.CloneStrings(cand.execution.routePrefixes),
+			Plugins:                   httpcontract.ClonePluginConfigs(plugins),
+			MaxRequestBodyBytes:       maxBody,
+			DecodeAdmission:           cand.execution.decodeAdmission,
+			TrafficPorts:              httpcontract.TrafficPortsFromSnapshot(cand.security.runtimeSnapshot),
+			PreRequestKeepalive:       preKA,
+			HTTPHeaders:               httpHeaders,
+			StreamKeepaliveInterval:   streamKA,
+			GenerationContext:         genCtx,
 			ContinuationWiringFactory: standardplugins.StandardContinuationWiringFactory(frozen),
 			FrontendRouteClaims:       standardplugins.StandardFrontendRouteClaims(),
 		},

@@ -9,6 +9,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const DefaultHTTPTimeout = 60 * time.Second
+
 type Config struct {
 	BaseURL     string `yaml:"base_url"`
 	APIKey      string `yaml:"api_key"`
@@ -48,7 +50,7 @@ func ParseConfigYAML(kind string, raw []byte) (Config, error) {
 }
 
 func (c Config) HTTPClient() (*http.Client, error) {
-	d := 60 * time.Second
+	d := DefaultHTTPTimeout
 	if strings.TrimSpace(c.HTTPTimeout) != "" {
 		parsed, err := time.ParseDuration(c.HTTPTimeout)
 		if err != nil {

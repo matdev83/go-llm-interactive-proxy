@@ -157,6 +157,7 @@ func composeHTTPAuthProviders(cfg *config.Config, log *slog.Logger, opts *BuildO
 		RequiredLevel: sap.RequiredLevel,
 	}
 	prov := stdhttpauth.NewPolicyProvider(&pa, authEvents, pol, opts.Auth.AuthErrorRenderer)
+	prov.HTTPHeaders = cfg.HTTPHeaders.Effective()
 	if byFe := mergeAuthErrorRenderersByFrontend(opts.PluginRegistry, opts); len(byFe) > 0 {
 		prov.RendererByFrontend = byFe
 	}

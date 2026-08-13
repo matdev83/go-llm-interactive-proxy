@@ -14,6 +14,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const DefaultHTTPTimeout = 60 * time.Second
+
 type Config struct {
 	BaseURL                                  string                     `yaml:"base_url"`
 	AccessToken                              string                     `yaml:"access_token"`
@@ -118,7 +120,7 @@ func (c Config) catalogLoadOptions() catalog.LoadOptions {
 }
 
 func (c Config) httpClient() (*http.Client, error) {
-	d := 60 * time.Second
+	d := DefaultHTTPTimeout
 	if c.HTTPTimeout != "" {
 		parsed, err := time.ParseDuration(c.HTTPTimeout)
 		if err != nil {

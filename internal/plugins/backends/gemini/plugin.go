@@ -29,6 +29,8 @@ type Config struct {
 	HTTPClient *http.Client
 }
 
+const DefaultBaseURL = "https://generativelanguage.googleapis.com"
+
 // New returns a runtime backend that invokes Gemini generateContent streaming via google.golang.org/genai.
 func New(cfg Config) execbackend.Backend {
 	return geminigenerate.NewBackend(geminigenerate.Config{

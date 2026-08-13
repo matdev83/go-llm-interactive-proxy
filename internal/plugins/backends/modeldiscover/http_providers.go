@@ -12,6 +12,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )
 
+const (
+	defaultAnthropicAPIVersion = "2023-06-01"
+	defaultGeminiBaseURL       = "https://generativelanguage.googleapis.com"
+)
+
 type OpenAICompatibleModelsProvider struct {
 	BaseURL           string
 	ModelsEndpoint    string
@@ -73,7 +78,7 @@ type AnthropicModelsProvider struct {
 func (p AnthropicModelsProvider) LoadModels(ctx context.Context) (modelinventory.Snapshot, error) {
 	key, err := firstSecret(p.APIKey, p.APIKeys)
 	headers := map[string]string{
-		"anthropic-version": "2023-06-01",
+		"anthropic-version": defaultAnthropicAPIVersion,
 	}
 	if err != nil {
 		if !p.CompatibleModeAuth {
@@ -128,7 +133,7 @@ func (p GeminiModelsProvider) LoadModels(ctx context.Context) (modelinventory.Sn
 	}
 	base := strings.TrimRight(strings.TrimSpace(p.BaseURL), "/")
 	if base == "" {
-		base = "https://generativelanguage.googleapis.com"
+		base = defaultGeminiBaseURL
 	}
 	endpoint := base + "/v1beta/models"
 	var payload struct {

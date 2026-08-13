@@ -27,6 +27,7 @@ type ComposeBillingInput struct {
 	Strict              bool
 	ConservativeCeiling *billing.Money
 	ReportsPath         string
+	HoldTTL             time.Duration
 	PostTurnBatchSize   int
 	PostTurnInterval    time.Duration
 }
@@ -84,6 +85,7 @@ func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 		ModelMaxOutput:      in.ModelMaxOutput,
 		Strict:              in.Strict,
 		ConservativeCeiling: copyMoney(in.ConservativeCeiling),
+		HoldTTL:             in.HoldTTL,
 	})
 	if err != nil {
 		return ProductionOptions{}, fmt.Errorf("%w: admission: %w", ErrComposeBillingIncomplete, err)
@@ -99,6 +101,7 @@ func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 		BillingReports:           in.Store,
 		BillingAuthoritative:     true,
 		BillingReportsPath:       in.ReportsPath,
+		BillingHoldTTL:           in.HoldTTL,
 		BillingIdentity:          identity,
 		BillingRatingResolver:    resolver,
 		BillingPostTurnBatchSize: in.PostTurnBatchSize,

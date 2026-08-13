@@ -62,6 +62,9 @@ func Validate(cfg *Config) error {
 	if err := validateServer(cfg); err != nil {
 		return err
 	}
+	if err := validateHTTPHeaders(cfg); err != nil {
+		return err
+	}
 	if err := validateAccessAuth(cfg); err != nil {
 		return err
 	}
@@ -236,6 +239,7 @@ func validateServer(cfg *Config) error {
 		{"read_timeout", s.ReadTimeout},
 		{"write_timeout", s.WriteTimeout},
 		{"idle_timeout", s.IdleTimeout},
+		{"shutdown_timeout", s.ShutdownTimeout},
 		{"pre_request_keepalive.interval", s.PreRequestKeepalive.Interval},
 	} {
 		if err := parsePositiveDurationOptional("server."+chk.name, chk.val); err != nil {

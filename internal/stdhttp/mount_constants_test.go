@@ -6,6 +6,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
 // These tests guard against drift between the local stdhttp constants and
@@ -28,5 +29,25 @@ func TestSessionHeaders_matchCanonical(t *testing.T) {
 	if stdhttp.ExportHeaderResumeToken() != sessionwire.HeaderResumeToken {
 		t.Fatalf("stdhttp resume token header = %q, want sessionwire.HeaderResumeToken = %q",
 			stdhttp.ExportHeaderResumeToken(), sessionwire.HeaderResumeToken)
+	}
+}
+
+func TestDefaultHTTPHeaders_matchSessionCarriers(t *testing.T) {
+	t.Parallel()
+	h := lipsdk.DefaultHTTPHeaders()
+	if h.SessionID[0] != sessionwire.HeaderAuthoritativeSessionID {
+		t.Fatalf("session id default %q", h.SessionID[0])
+	}
+	if h.ResumeToken[0] != sessionwire.HeaderResumeToken {
+		t.Fatalf("resume token default %q", h.ResumeToken[0])
+	}
+	if h.ALegID[0] != sessionwire.HeaderALegID {
+		t.Fatalf("a-leg id default %q", h.ALegID[0])
+	}
+	if h.SessionHint[0] != sessionwire.HeaderSessionHint {
+		t.Fatalf("session hint default %q", h.SessionHint[0])
+	}
+	if h.Route[0] != gemini.HeaderRouteSelector {
+		t.Fatalf("route default %q, want gemini/routeselect %q", h.Route[0], gemini.HeaderRouteSelector)
 	}
 }

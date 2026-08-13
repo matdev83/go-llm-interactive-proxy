@@ -53,10 +53,13 @@ type RouteTraceBuffer struct {
 	count int
 }
 
+// DefaultRouteTraceCapacity is the ring size used when diagnostics.route_trace_path is mounted.
+const DefaultRouteTraceCapacity = 64
+
 // NewRouteTraceBuffer creates a ring buffer with capacity n (minimum 1).
 func NewRouteTraceBuffer(n int) *RouteTraceBuffer {
 	if n < 1 {
-		n = 32
+		n = DefaultRouteTraceCapacity
 	}
 	return &RouteTraceBuffer{cap: n, buf: make([]RouteTraceEntry, n)}
 }

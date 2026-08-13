@@ -25,7 +25,10 @@ type ProductionOptions struct {
 	BillingReports       billing.ReportingStore
 	BillingAuthoritative bool
 	BillingReportsPath   string
-	BillingIdentity      runtimecore.BillingIdentity
+	// BillingHoldTTL is the admission hold lifetime from ComposeBilling.
+	// Zero lets BuildHost apply accounting.billing.hold_ttl (default 15m).
+	BillingHoldTTL  time.Duration
+	BillingIdentity runtimecore.BillingIdentity
 	// BillingRatingResolver resolves the immutable snapshots required by the
 	// post-turn worker. It is mandatory when authoritative billing is enabled.
 	BillingRatingResolver    billing.RatingResolver

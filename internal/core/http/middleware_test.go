@@ -48,6 +48,19 @@ func TestRequestIDMiddleware_generatesWhenMissing(t *testing.T) {
 	}
 }
 
+func TestTraceMiddleware_propagatesAliasHeader(t *testing.T) {
+	t.Parallel()
+	inner := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		if got := diag.TraceID(r.Context()); got != "from-alias" {
+			t.Fatalf("got %q", got)
+		}
+	})
+	h := corehttp.TraceMiddlewareHeaders([]string{corehttp.HeaderTraceID, "X-Request-ID"}, inner)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Request-ID", "from-alias")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+}
+
 func TestRequestIDMiddleware_preservesExisting(t *testing.T) {
 	t.Parallel()
 

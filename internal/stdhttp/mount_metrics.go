@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 )
 
@@ -40,7 +39,7 @@ func mountMetrics(in mountMetricsInput) (*metrics.HTTPMetrics, error) {
 		mp = "/metrics"
 	}
 	om := cfg.Observability.Metrics.ExemplarsEnabled
-	mux.Handle(mp, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, metrics.MetricsHandler(promReg, om)))
+	mux.Handle(mp, wrapDiagnostics(cfg, metrics.MetricsHandler(promReg, om)))
 	log.InfoContext(in.LogCtx, "prometheus metrics mounted", "path", mp, "open_metrics", om)
 	return httpProm, nil
 }

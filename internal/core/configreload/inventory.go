@@ -36,7 +36,7 @@ type FieldClass struct {
 func RequiredTopLevelPaths() []string {
 	return []string{
 		"server", "access", "auth", "logging", "diagnostics", "observability",
-		"http_client", "database", "routing", "continuity", "secure_session",
+		"http_client", "http_headers", "database", "routing", "continuity", "secure_session",
 		"stream_recovery", "hooks", "accounting", "interleaved", "plugins",
 		"model_aliases", "model_catalog", "model_inventory",
 		"control_plane", "metering", "identity",
@@ -95,6 +95,7 @@ var inventoryTable = []FieldClass{
 	{Path: "diagnostics", Disposition: DispositionStartupOnly, SecretBearing: true, Notes: "paths + shared_secret process-owned"},
 	{Path: "observability", Disposition: DispositionStartupOnly, Notes: "metrics/tracing topology startup-only"},
 	{Path: "http_client", Disposition: DispositionReloadable, Notes: "generation-owned HTTP tuning"},
+	{Path: "http_headers", Disposition: DispositionReloadable, Notes: "inbound header aliases for auth/route/session/trace"},
 	{Path: "database", Disposition: DispositionStartupOnly, Notes: "pool topology startup-only"},
 	{Path: "routing", Disposition: DispositionMixed, Notes: "affinity store startup-only; selectors/health reloadable"},
 	{Path: "continuity", Disposition: DispositionStartupOnly, SecretBearing: true, Notes: "store type/path/DSN process-owned"},

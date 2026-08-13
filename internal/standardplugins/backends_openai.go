@@ -25,7 +25,7 @@ func backendOpenAIResponses(n yaml.Node, upstream *http.Client, keys UpstreamAPI
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return execbackend.Backend{}, fmt.Errorf("openairesponses backend config: %w", err)
 	}
-	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://api.openai.com/v1")
+	base := cmp.Or(strings.TrimSpace(y.BaseURL), openairesponses.DefaultBaseURL)
 	ek, primaryKey := firstAPIKey(y.APIKey, y.APIKeys, y.Credentials, keys.OpenAI)
 	verbosity, err := lipapi.ParseVerbosityLevel(y.DefaultVerbosity)
 	if err != nil {
@@ -52,7 +52,7 @@ func backendOpenAILegacy(n yaml.Node, upstream *http.Client, keys UpstreamAPIKey
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return execbackend.Backend{}, fmt.Errorf("openailegacy backend config: %w", err)
 	}
-	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://api.openai.com/v1")
+	base := cmp.Or(strings.TrimSpace(y.BaseURL), openailegacy.DefaultBaseURL)
 	ek, primaryKey := firstAPIKey(y.APIKey, y.APIKeys, y.Credentials, keys.OpenAI)
 	verbosity, err := lipapi.ParseVerbosityLevel(y.DefaultVerbosity)
 	if err != nil {
