@@ -80,16 +80,16 @@ func NormalizeLimits(limits Limits) Limits {
 
 // Preflight validates JSON size and shape using streaming decoder tokens.
 func Preflight(data []byte, limits Limits) (Result, error) {
-	return PreflightContext(context.Background(), data, limits)
+	return PreflightWithContext(context.Background(), data, limits)
 }
 
-// PreflightContext is Preflight with request-cancellation checks at token boundaries.
-func PreflightContext(ctx context.Context, data []byte, limits Limits) (Result, error) {
-	result, err := jsonshape.PreflightContext(ctx, data, limits)
+// PreflightWithContext is Preflight with request-cancellation checks at token boundaries.
+func PreflightWithContext(ctx context.Context, data []byte, limits Limits) (Result, error) {
+	result, err := jsonshape.PreflightWithContext(ctx, data, limits)
 	return result, mapError(err)
 }
 
-// ReadAndPreflight reads a bounded request body and then applies PreflightContext.
+// ReadAndPreflight reads a bounded request body and then applies PreflightWithContext.
 func ReadAndPreflight(w http.ResponseWriter, r *http.Request, limits Limits) ([]byte, Result, error) {
 	limits = NormalizeLimits(limits)
 	data, err := reqbody.ReadAll(w, r, limits.MaxBytes)
@@ -99,7 +99,7 @@ func ReadAndPreflight(w http.ResponseWriter, r *http.Request, limits Limits) ([]
 		}
 		return data, Result{Bytes: len(data)}, err
 	}
-	result, err := PreflightContext(r.Context(), data, limits)
+	result, err := PreflightWithContext(r.Context(), data, limits)
 	return data, result, err
 }
 

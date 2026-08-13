@@ -7,7 +7,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatibleutil"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatmode"
 	"gopkg.in/yaml.v3"
 )
 
@@ -32,23 +32,23 @@ func buildCompatible(instanceID, factoryKind string, n yaml.Node, upstream *http
 	if err := pluginreg.ValidatePrefixSyntax(cfg.BackendPrefix); err != nil {
 		return execbackend.Backend{}, err
 	}
-	ep, err := compatibleutil.ParseEndpoint(cfg)
+	ep, err := compatmode.ParseEndpoint(cfg)
 	if err != nil {
 		return execbackend.Backend{}, err
 	}
 	base := ep.BaseURL()
-	modelsEndpoint, err := compatibleutil.AnthropicModelsEndpoint(ep)
+	modelsEndpoint, err := compatmode.AnthropicModelsEndpoint(ep)
 	if err != nil {
 		return execbackend.Backend{}, err
 	}
 	if modelsPath != "" {
-		modelsEndpoint, err = compatibleutil.AnthropicModelsEndpointPath(ep, modelsPath)
+		modelsEndpoint, err = compatmode.AnthropicModelsEndpointPath(ep, modelsPath)
 		if err != nil {
 			return execbackend.Backend{}, err
 		}
 	}
-	ek := compatibleutil.ResolveEnvAPIKeys(cfg.APIKeyEnvVarRoot)
-	primaryKey := compatibleutil.FirstAPIKey(ek)
+	ek := compatmode.ResolveEnvAPIKeys(cfg.APIKeyEnvVarRoot)
+	primaryKey := compatmode.FirstAPIKey(ek)
 	client := upstream
 	if client == nil {
 		client = httpclient.Standard()
@@ -62,11 +62,11 @@ func buildCompatible(instanceID, factoryKind string, n yaml.Node, upstream *http
 		CompatibleModeAuth: true,
 		ModelsEndpoint:     modelsEndpoint,
 	})
-	be, err = compatibleutil.ApplyStaticModelInventory(be, cfg.Models)
+	be, err = compatmode.ApplyStaticModelInventory(be, cfg.Models)
 	if err != nil {
 		return execbackend.Backend{}, err
 	}
-	return compatibleutil.ApplyRuntimePolicy(be, cfg)
+	return compatmode.ApplyRuntimePolicy(be, cfg)
 }
 
 // LifecycleAnthropicCompatible is the standardplugins lifecycle entrypoint.

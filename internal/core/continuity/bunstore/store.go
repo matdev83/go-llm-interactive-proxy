@@ -36,13 +36,13 @@ var (
 )
 
 // New returns a Store backed by db after applying schema. Closing the store closes the underlying sql.DB.
-// ctx bounds migrate DDL; use [NewContext] for explicit cancellation/timeouts.
+// ctx bounds migrate DDL; use [NewWithContext] for explicit cancellation/timeouts.
 func New(db *bun.DB) (*Store, error) {
-	return NewContext(context.Background(), db)
+	return NewWithContext(context.Background(), db)
 }
 
-// NewContext returns a Store backed by db after applying schema, honoring ctx for migrate DDL.
-func NewContext(ctx context.Context, db *bun.DB) (*Store, error) {
+// NewWithContext returns a Store backed by db after applying schema, honoring ctx for migrate DDL.
+func NewWithContext(ctx context.Context, db *bun.DB) (*Store, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("bunstore: nil context")
 	}

@@ -371,7 +371,7 @@ func runInspectCommand(ctx context.Context, opts CommandOptions) int {
 		return 1
 	}
 	defer func() { _ = prep.Close() }()
-	rep, inspectErr := runtimebundle.InspectBackendPluginsCtx(ctx, prep.Config, prep.Registry)
+	rep, inspectErr := runtimebundle.InspectBackendPluginsWithContext(ctx, prep.Config, prep.Registry)
 	enc := json.NewEncoder(opts.Output)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(rep); err != nil {

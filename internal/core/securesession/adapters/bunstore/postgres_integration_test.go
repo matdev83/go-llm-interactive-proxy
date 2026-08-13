@@ -30,7 +30,7 @@ func TestPostgres_migrateTwice_idempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = bunDB.Close() })
-	s, err := NewContext(ctx, bunDB)
+	s, err := NewWithContext(ctx, bunDB)
 	if err != nil {
 		t.Fatal(err)
 	}

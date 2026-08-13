@@ -50,7 +50,7 @@ func TestLegacySQLiteFixture_ReadCompat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := bunstore.NewContext(ctx, bunDB)
+	s, err := bunstore.NewWithContext(ctx, bunDB)
 	if err != nil {
 		_ = bunDB.Close()
 		t.Fatal(err)

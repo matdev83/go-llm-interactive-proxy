@@ -8,7 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatibleutil"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/modeldiscover"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/openai/openai-go/v3/option"
@@ -45,17 +45,17 @@ func BuildCompatibleWithHeaders(
 	if err := pluginreg.ValidatePrefixSyntax(cfg.BackendPrefix); err != nil {
 		return execbackend.Backend{}, err
 	}
-	ep, err := compatibleutil.ParseEndpoint(cfg)
+	ep, err := compatmode.ParseEndpoint(cfg)
 	if err != nil {
 		return execbackend.Backend{}, err
 	}
 	base := ep.BaseURL()
-	modelsEndpoint, err := compatibleutil.OpenAIModelsEndpoint(ep)
+	modelsEndpoint, err := compatmode.OpenAIModelsEndpoint(ep)
 	if err != nil {
 		return execbackend.Backend{}, err
 	}
-	ek := compatibleutil.ResolveEnvAPIKeys(cfg.APIKeyEnvVarRoot)
-	apiKey := compatibleutil.FirstAPIKey(ek)
+	ek := compatmode.ResolveEnvAPIKeys(cfg.APIKeyEnvVarRoot)
+	apiKey := compatmode.FirstAPIKey(ek)
 	client := upstream
 	if client == nil {
 		client = httpclient.Standard()
@@ -82,11 +82,11 @@ func BuildCompatibleWithHeaders(
 		RequestOptions:     staticHeaderOptions(headers),
 	})
 	be.TransportCaps = transportCaps
-	be, err = compatibleutil.ApplyStaticModelInventory(be, cfg.Models)
+	be, err = compatmode.ApplyStaticModelInventory(be, cfg.Models)
 	if err != nil {
 		return execbackend.Backend{}, err
 	}
-	return compatibleutil.ApplyRuntimePolicy(be, cfg)
+	return compatmode.ApplyRuntimePolicy(be, cfg)
 }
 
 func staticHeaderOptions(headers map[string]string) func(lipapi.Call) []option.RequestOption {

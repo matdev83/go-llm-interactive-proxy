@@ -78,7 +78,7 @@ func (f *Finalizer) Finalize(ctx context.Context, call toolcall.CompletedCall, t
 	if f == nil || f.eng == nil {
 		return toolcall.Result{Action: toolcall.ActionPass, ReasonCode: toolcall.ReasonValidPassThrough}, nil
 	}
-	out, err := f.eng.RepairContext(ctx, Input{
+	out, err := f.eng.RepairWithContext(ctx, Input{
 		ToolCallID:   call.ToolCallID,
 		ToolName:     call.ToolName,
 		ArgsJSON:     call.ArgsJSON,

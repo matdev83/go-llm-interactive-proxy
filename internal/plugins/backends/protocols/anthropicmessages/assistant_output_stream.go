@@ -6,7 +6,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/protocols/mediautil"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/protocols/mediaurl"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -80,7 +80,7 @@ func anthropicImageSourceRef(src json.RawMessage) (ref, mime string) {
 		if ref == "" {
 			return "", ""
 		}
-		return ref, mediautil.SniffImageMIME(ref)
+		return ref, mediaurl.SniffImageMIME(ref)
 	case "base64":
 		if u.Data == "" {
 			return "", ""
