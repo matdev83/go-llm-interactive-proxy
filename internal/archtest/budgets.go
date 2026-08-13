@@ -63,7 +63,7 @@ type LineBudget struct {
 var LineBudgets = []LineBudget{
 	// Routing-override admin, billing host composition, and tool-call
 	// classification. Keep the measured-plus-25 ratchet.
-	{Dir: "internal/core", Max: 74990},
+	{Dir: "internal/core", Max: 75019},
 	{Dir: "internal/pluginreg", Max: 1079},
 	{Dir: "internal/stdhttp", Max: 5705},
 	{Dir: "internal/infra/runtimebundle", Max: 11235},
