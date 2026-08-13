@@ -13,7 +13,7 @@ TDD throughout (RED → GREEN → REFACTOR). Do not modify stream handlers, TUR 
   - _Boundary: AccountProvisioner_
   - _Validation: `go test -run TestDurableStore_AccountProvisionerPort ./internal/infra/billingstore`_
 
-- [ ] 1.2 (P) Expose a read of the durable authorization hold for one turn
+- [x] 1.2 (P) Expose a read of the durable authorization hold for one turn
   - Add a narrow hold-lookup port that returns the existing hold for an account and turn key without creating, extending, or releasing it.
   - Implement it on the durable store using the existing hold row; missing hold fails closed.
   - Observable: after Authorize, lookup returns the same id, amount, and snapshot refs; a missing turn key does not invent a hold.
