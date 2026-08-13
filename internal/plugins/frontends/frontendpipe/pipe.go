@@ -34,6 +34,42 @@ type Decoded struct {
 	Stream bool
 	// RouteSelector is the resolved routing selector used for decode/logging.
 	RouteSelector string
+	// Extra holds per-request protocol state (continuation, response IDs).
+	Extra any
+}
+
+// StatusError is a protocol-mapped HTTP error returned from AfterDecode or WrapStream.
+type StatusError struct {
+	Status  int
+	Type    string
+	Code    string
+	Message string
+	Err     error
+}
+
+func (e *StatusError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Message != "" {
+		return e.Message
+	}
+	if e.Err != nil {
+		return e.Err.Error()
+	}
+	return "request failed"
+}
+
+func (e *StatusError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+// HookErrorWriter optionally writes AfterDecode/WrapStream errors with protocol envelopes.
+type HookErrorWriter interface {
+	WriteHookError(w http.ResponseWriter, err error) error
 }
 
 // DecodeContext supplies request inputs for protocol decode.
@@ -43,6 +79,7 @@ type DecodeContext struct {
 	RouteSelector    string
 	Headers          http.Header
 	Path             PathMatch
+	URLPath          string
 	AnthropicVersion string
 }
 
@@ -82,7 +119,11 @@ type Spec[Opts any] struct {
 	// ResolveRouteSelector runs after body read; pm is zero when MatchPath did not apply.
 	ResolveRouteSelector func(r *http.Request, body []byte, pm PathMatch) string
 	Decode               func(DecodeContext) (*Decoded, error)
-	BuildEncodeOpts      func(call *lipapi.Call, stream bool) Opts
+	AfterDecode          func(ctx context.Context, decoded *Decoded) error
+	WrapStream           func(ctx context.Context, decoded *Decoded, inner lipapi.EventStream) (lipapi.EventStream, error)
+	OnExecuteError       func(ctx context.Context, decoded *Decoded, err error)
+	ClassifyExecute      func(err error) execerr.Outcome
+	BuildEncodeOpts      func(decoded *Decoded) Opts
 	WriteStream          func(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts Opts) error
 	WriteNonStream       func(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts Opts) error
 	// RouteFromBodyModel defaults route selector from JSON model field when header absent.
@@ -101,6 +142,21 @@ func (c Config) logWriteJSONErr(ctx context.Context, msg string, werr error) {
 		return
 	}
 	diag.LogError(ctx, c.Log, msg, diag.AttrOpts{}, werr)
+}
+
+func writeHookError[Opts any](spec *Spec[Opts], ctx context.Context, w http.ResponseWriter, err error) {
+	if hw, ok := spec.Wire.(HookErrorWriter); ok {
+		spec.logWriteJSONErr(ctx, "write error json failed", hw.WriteHookError(w, err))
+		return
+	}
+	spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteInvalidRequest(w))
+}
+
+func classifyExecute[Opts any](spec *Spec[Opts], err error) execerr.Outcome {
+	if spec.ClassifyExecute != nil {
+		return spec.ClassifyExecute(err)
+	}
+	return execerr.ClassifyExecute(err)
 }
 
 func (c Config) execute(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, stream bool) (lipapi.EventStream, error) {
@@ -183,6 +239,7 @@ func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Reques
 			RouteSelector:    sel,
 			Headers:          r.Header,
 			Path:             pm,
+			URLPath:          r.URL.Path,
 			AnthropicVersion: strings.TrimSpace(r.Header.Get("anthropic-version")),
 		}
 		var derr error
@@ -204,6 +261,13 @@ func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Reques
 		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteInvalidRequest(w))
 		return
 	}
+	if spec.AfterDecode != nil {
+		if err := spec.AfterDecode(ctx, decoded); err != nil {
+			writeHookError(spec, ctx, w, err)
+			return
+		}
+		call = decoded.Call
+	}
 
 	traceID := diag.StableCallID(call)
 	ctx = diag.EnsureCallDiag(ctx, traceID, strings.TrimSpace(call.Session.ALegID))
@@ -215,25 +279,40 @@ func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Reques
 	stream := decoded.Stream
 	if pm.Model != "" {
 		stream = pm.Stream
+		decoded.Stream = stream
 	}
 
 	streamdebug.LogCall(ctx, spec.Log, spec.FrontendID, call, stream, len(body), decoded.RouteSelector)
 	executeStart := time.Now()
 	es, err := spec.execute(ctx, w, call, stream)
 	if err != nil {
-		out := execerr.ClassifyExecute(err)
+		if spec.OnExecuteError != nil {
+			spec.OnExecuteError(ctx, decoded, err)
+		}
+		out := classifyExecute(spec, err)
 		if out.Kind == execerr.KindInternalError && spec.Log != nil && out.Err != nil {
 			diag.LogError(ctx, spec.Log, "execute failed", diag.AttrOpts{CallID: call.ID}, out.Err)
 		}
 		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteExecuteError(w, out))
 		return
 	}
+	if spec.WrapStream != nil {
+		es, err = spec.WrapStream(ctx, decoded, es)
+		if err != nil {
+			if spec.OnExecuteError != nil {
+				spec.OnExecuteError(ctx, decoded, err)
+			}
+			out := classifyExecute(spec, err)
+			spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteExecuteError(w, out))
+			return
+		}
+	}
 	streamdebug.LogExecuteOpened(ctx, spec.Log, spec.FrontendID, call, executeStart)
 
 	ctx = diag.EnsureCallDiag(ctx, traceID, call.Session.ALegID)
 	es = streamdebug.Wrap(ctx, spec.Log, spec.FrontendID, call, es, executeStart)
 
-	opts := spec.BuildEncodeOpts(call, stream)
+	opts := spec.BuildEncodeOpts(decoded)
 	if stream {
 		if err := spec.WriteStream(ctx, w, call, es, opts); err != nil {
 			diag.LogError(ctx, spec.Log, "stream encode failed", diag.AttrOpts{CallID: call.ID}, err)

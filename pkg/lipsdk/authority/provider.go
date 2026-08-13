@@ -108,15 +108,24 @@ func (a AttemptAdmission) Validate() error {
 
 // AttemptSettlement settles operator/attempt reservations for one B-leg.
 type AttemptSettlement struct {
-	RequestID      string                        `json:"request_id"`
-	AttemptID      string                        `json:"attempt_id"`
-	BLegID         string                        `json:"b_leg_id"`
-	Handles        []string                      `json:"handles,omitempty"`
-	Facts          []metering.Fact               `json:"facts,omitempty"`
-	Outcome        metering.AttemptOutcome       `json:"outcome,omitempty"`
-	Surfaced       metering.SurfacedState        `json:"surfaced,omitempty"`
-	BoundVersions  []economics.PolicySnapshotRef `json:"bound_versions,omitempty"`
-	IdempotencyKey string                        `json:"idempotency_key,omitempty"`
+	RequestID        string                        `json:"request_id"`
+	AttemptID        string                        `json:"attempt_id"`
+	BLegID           string                        `json:"b_leg_id"`
+	Handles          []string                      `json:"handles,omitempty"`
+	Reservations     []Reservation                 `json:"reservations,omitempty"`
+	Facts            []metering.Fact               `json:"facts,omitempty"`
+	Outcome          metering.AttemptOutcome       `json:"outcome,omitempty"`
+	Surfaced         metering.SurfacedState        `json:"surfaced,omitempty"`
+	Kind             string                        `json:"kind,omitempty"`
+	ALegID           string                        `json:"a_leg_id,omitempty"`
+	BackendID        string                        `json:"backend_id,omitempty"`
+	Model            string                        `json:"model,omitempty"`
+	Scope            scope.PrincipalScopeView      `json:"scope,omitempty"`
+	BackendAttempted bool                          `json:"backend_attempted,omitempty"`
+	OutputCommitted  bool                          `json:"output_committed,omitempty"`
+	ClientCanceled   bool                          `json:"client_canceled,omitempty"`
+	BoundVersions    []economics.PolicySnapshotRef `json:"bound_versions,omitempty"`
+	IdempotencyKey   string                        `json:"idempotency_key,omitempty"`
 }
 
 // AttemptRelease compensates or releases prior attempt reservations.

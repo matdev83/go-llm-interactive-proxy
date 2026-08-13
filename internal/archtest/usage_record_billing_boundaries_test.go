@@ -91,10 +91,25 @@ func TestRuntimeStreamHandlersStayOffJournalRatingSettlement(t *testing.T) {
 	}
 
 	// Authority settle must not rebuild Rated money from stream CostPresent.
-	lifecyclePath := filepath.Join(dir, "authority_lifecycle.go")
-	lifecycleSrc, err := os.ReadFile(lifecyclePath)
+	lifecycleDir := filepath.Join(dir)
+	lifecyclePaths, err := filepath.Glob(filepath.Join(lifecycleDir, "authority_lifecycle*.go"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	var lifecycleSrc []byte
+	for _, lifecyclePath := range lifecyclePaths {
+		if strings.HasSuffix(lifecyclePath, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(lifecyclePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lifecycleSrc = append(lifecycleSrc, src...)
+		lifecycleSrc = append(lifecycleSrc, '\n')
+	}
+	if len(lifecycleSrc) == 0 {
+		t.Fatal("authority_lifecycle sources not found")
 	}
 	body := string(lifecycleSrc)
 	for _, term := range []string{

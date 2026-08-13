@@ -70,6 +70,7 @@ func (c *AttemptCoordinator) Settle(parent context.Context, stack CompensationSt
 		withHandles: func(in authority.AttemptSettlement, handles []string) authority.AttemptSettlement {
 			out := in
 			out.Handles = append([]string(nil), handles...)
+			out.Reservations = filterAttemptReservations(in.Reservations, handles)
 			return out
 		},
 		resolvePosture: resolveStagePosture[authority.AttemptProvider],
@@ -102,6 +103,26 @@ func attemptStageSlots(slots []AttemptSlot) []stageProviderSlot[authority.Attemp
 
 func attemptStageSlotsUnsorted(slots []AttemptSlot) []stageProviderSlot[authority.AttemptProvider] {
 	return attemptStageSlots(slots)
+}
+
+func filterAttemptReservations(reservations []authority.Reservation, handles []string) []authority.Reservation {
+	if len(reservations) == 0 || len(handles) == 0 {
+		return nil
+	}
+	allow := make(map[string]struct{}, len(handles))
+	for _, h := range handles {
+		h = strings.TrimSpace(h)
+		if h != "" {
+			allow[h] = struct{}{}
+		}
+	}
+	out := make([]authority.Reservation, 0, len(handles))
+	for _, r := range reservations {
+		if _, ok := allow[strings.TrimSpace(r.Handle)]; ok {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func pushAttemptHoldsFromAdmit(stack *CompensationStack, id string, prov authority.AttemptProvider, in authority.AttemptAdmission, d authority.Decision) {

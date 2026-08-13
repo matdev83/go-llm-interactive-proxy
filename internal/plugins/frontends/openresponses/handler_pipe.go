@@ -1,0 +1,315 @@
+package openresponses
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/routeselect"
+	proto "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/protocols/openresponses"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	sdkauth "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
+	lipcont "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/continuation"
+)
+
+type authDecisionCtxKey struct{}
+
+func contextWithAuthDecision(ctx context.Context, d sdkauth.Decision) context.Context {
+	return context.WithValue(ctx, authDecisionCtxKey{}, d)
+}
+
+func authDecisionFromContext(ctx context.Context) sdkauth.Decision {
+	d, _ := ctx.Value(authDecisionCtxKey{}).(sdkauth.Decision)
+	return d
+}
+
+// createEncodeState is per-request OpenResponses create state carried through Extra.
+type createEncodeState struct {
+	decoded    *DecodedCreate
+	responseID string
+	store      lipcont.Store
+	scope      lipcont.Scope
+	isReserved bool
+	owner      continuationReservationOwner
+	observer   lipcont.StreamObserver
+}
+
+type executorViewAdapter struct {
+	ExecutorView
+}
+
+func (a executorViewAdapter) CancelALeg(context.Context, lipapi.ALegCancelRequest) error { return nil }
+
+func (a executorViewAdapter) WallClock() func() time.Time { return nil }
+
+func adaptExecutor(ex ExecutorView) lipsdk.ExecutorView {
+	if ex == nil {
+		return nil
+	}
+	if v, ok := ex.(lipsdk.ExecutorView); ok {
+		return v
+	}
+	return executorViewAdapter{ExecutorView: ex}
+}
+
+func (h *Handler) spec() *frontendpipe.Spec[createEncodeState] {
+	h.pipeOnce.Do(func() {
+		h.buildPipe()
+	})
+	return &h.pipe
+}
+
+func (h *Handler) buildPipe() {
+	h.pipe = frontendpipe.Spec[createEncodeState]{
+		Config: frontendpipe.Config{
+			Exec:                 adaptExecutor(h.cfg.Executor),
+			DefaultRouteSelector: h.cfg.DefaultRouteSelector,
+			RoutePrefixes:        routeselect.NewPrefixSet(h.cfg.RoutePrefixes),
+			MaxRequestBodyBytes:  h.cfg.MaxRequestBodyBytes,
+			TrafficPorts:         h.cfg.TrafficPorts,
+			DecodeAdmission:      h.cfg.DecodeAdmission,
+			PreRequestKeepalive:  h.cfg.PreRequestKeepalive,
+			FrontendID:           ID,
+		},
+		Wire: WireErrors{},
+		MatchPath: func(path string) (frontendpipe.PathMatch, bool) {
+			trimmed := strings.TrimRight(path, "/")
+			if strings.HasSuffix(trimmed, "/responses/compact") {
+				return frontendpipe.PathMatch{}, false
+			}
+			if strings.HasSuffix(trimmed, "/responses") || trimmed == "/responses" {
+				return frontendpipe.PathMatch{}, true
+			}
+			return frontendpipe.PathMatch{}, false
+		},
+		Decode: func(dctx frontendpipe.DecodeContext) (*frontendpipe.Decoded, error) {
+			maxBytes := h.cfg.MaxRequestBodyBytes
+			if maxBytes <= 0 {
+				maxBytes = proto.MaxRequestBytes
+			}
+			decoded, err := AuthenticateAndDecodeCreate(dctx.Ctx, dctx.Body, DecodeCreateOptions{
+				DefaultRouteSelector: h.cfg.DefaultRouteSelector,
+				RoutePrefixes:        h.cfg.RoutePrefixes,
+				RouteSelector:        strings.TrimSpace(dctx.Headers.Get("X-LIP-Route")),
+				Headers:              dctx.Headers,
+				Method:               http.MethodPost,
+				Path:                 dctx.URLPath,
+				MaxBodyBytes:         maxBytes,
+				Limits:               h.cfg.ProtocolLimits,
+			})
+			if err != nil {
+				return nil, err
+			}
+			decoded.AuthDecision = authDecisionFromContext(dctx.Ctx)
+			return &frontendpipe.Decoded{
+				Call:          decoded.Call,
+				Stream:        decoded.Stream,
+				RouteSelector: decoded.RouteSelector,
+				Extra:         decoded,
+			}, nil
+		},
+		AfterDecode: func(ctx context.Context, decoded *frontendpipe.Decoded) error {
+			create, _ := decoded.Extra.(*DecodedCreate)
+			if create == nil {
+				return &frontendpipe.StatusError{Status: http.StatusBadRequest, Type: "invalid_request_error", Code: "bad_request", Message: "Invalid request"}
+			}
+			state, err := h.prepareCreateState(ctx, create)
+			if err != nil {
+				return err
+			}
+			decoded.Call = create.Call
+			decoded.Stream = create.Stream
+			decoded.Extra = state
+			return nil
+		},
+		WrapStream: func(_ context.Context, decoded *frontendpipe.Decoded, inner lipapi.EventStream) (lipapi.EventStream, error) {
+			state, _ := decoded.Extra.(*createEncodeState)
+			if state == nil {
+				return inner, nil
+			}
+			if inner == nil {
+				if owner, ok := state.observer.(continuationReservationOwner); ok && owner.OwnsContinuationReservation() {
+					safeReleaseContinuationReservation(owner)
+				}
+				safeCloseObserverFrontend(state.observer)
+				if state.isReserved && state.store != nil {
+					cleanupContinuationReservation(state.store, state.scope, state.responseID)
+					state.isReserved = false
+				}
+				return nil, nil
+			}
+			stream := newAllowedToolsStream(decoded.Call, inner)
+			if state.observer != nil {
+				stream = &observedEventStream{EventStream: stream, observer: state.observer}
+				if candidate, ok := state.observer.(continuationReservationOwner); ok && candidate.OwnsContinuationReservation() {
+					state.owner = candidate
+					state.isReserved = false
+				}
+			}
+			return stream, nil
+		},
+		OnExecuteError: func(_ context.Context, decoded *frontendpipe.Decoded, _ error) {
+			state, _ := decoded.Extra.(*createEncodeState)
+			if state == nil || !state.isReserved || state.store == nil {
+				return
+			}
+			cleanupContinuationReservation(state.store, state.scope, state.responseID)
+			state.isReserved = false
+		},
+		BuildEncodeOpts: func(decoded *frontendpipe.Decoded) createEncodeState {
+			if state, ok := decoded.Extra.(*createEncodeState); ok && state != nil {
+				return *state
+			}
+			return createEncodeState{}
+		},
+		WriteStream: func(ctx context.Context, w http.ResponseWriter, _ *lipapi.Call, es lipapi.EventStream, opts createEncodeState) error {
+			h.serveStreaming(ctx, w, es, opts.decoded, opts.responseID, opts.store, opts.scope, opts.isReserved, opts.owner)
+			return nil
+		},
+		WriteNonStream: func(ctx context.Context, w http.ResponseWriter, _ *lipapi.Call, es lipapi.EventStream, opts createEncodeState) error {
+			if opts.decoded == nil || opts.decoded.Call == nil {
+				writeWireError(w, http.StatusBadGateway, "server_error", "backend_error", "Backend execution failed")
+				return nil
+			}
+			if es == nil {
+				if opts.isReserved && opts.store != nil {
+					cleanupContinuationReservation(opts.store, opts.scope, opts.responseID)
+				}
+				writeWireError(w, http.StatusBadGateway, "server_error", "backend_error", "Backend execution failed")
+				return nil
+			}
+			clock := h.cfg.ResponseClock
+			if clock == nil {
+				clock = systemResponseClock{}
+			}
+			resource, collectErr := collectNonStreaming(ctx, es, nonStreamingEnvelope(opts.decoded, opts.responseID, clock.Now()), opts.decoded.Call.Options, h.cfg.ProtocolLimits)
+			if collectErr != nil {
+				if opts.isReserved && opts.store != nil {
+					cleanupContinuationReservation(opts.store, opts.scope, opts.responseID)
+				}
+				if ctx.Err() != nil {
+					return nil
+				}
+				status, typ, code, message := classifyExecutionError(collectErr)
+				writeWireError(w, status, typ, code, message)
+				return nil
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(resource)
+			return nil
+		},
+	}
+}
+
+func (h *Handler) prepareCreateState(ctx context.Context, decoded *DecodedCreate) (*createEncodeState, error) {
+	var (
+		store       = h.getStore()
+		parent      lipcont.ContinuationRecord
+		responseID  string
+		isReserved  bool
+		recordInput = decoded.Call.Items
+		scope       = continuationScope(decoded)
+	)
+	if decoded.PreviousResponseID != "" {
+		resolver := h.cfg.ContinuationResolver
+		if resolver == nil && store != nil {
+			resolver = NewStoreContinuationResolver(store, lipcont.Bounds{
+				MaxChainDepth:        h.cfg.Config.Continuation.MaxChainDepth,
+				MaxMaterializedBytes: h.cfg.Config.Continuation.MaxMaterializedBytes,
+			})
+		}
+		if resolver == nil {
+			return nil, &frontendpipe.StatusError{
+				Status: http.StatusBadRequest, Type: "invalid_request_error",
+				Code: "previous_response_not_found", Message: "Previous response was not found",
+			}
+		}
+		materialized, parentRecord, err := resolver.ResolveParent(ctx, scope, decoded.PreviousResponseID, *decoded.Call)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			if errors.Is(err, lipcont.ErrStorageFailure) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, &frontendpipe.StatusError{
+					Status: http.StatusInternalServerError, Type: "server_error",
+					Code: "storage_error", Message: "Continuation storage is unavailable",
+				}
+			}
+			return nil, &frontendpipe.StatusError{
+				Status: http.StatusBadRequest, Type: "invalid_request_error",
+				Code: "previous_response_not_found", Message: "Previous response was not found",
+			}
+		}
+		parent = parentRecord
+		if parent.ID != "" {
+			decoded.PreviousResponseID = parent.ID.String()
+		}
+		decoded.Call = &materialized
+		if decoded.Model == "" {
+			decoded.Model = parent.Lineage.Model
+		}
+		if decoded.Call.Route.Selector == "" {
+			decoded.Call.Route.Selector = parent.Lineage.RouteSelector
+			if decoded.Call.Route.Selector == "" {
+				decoded.Call.Route.Selector = parent.Lineage.Model
+			}
+		}
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if decoded.Store && store != nil {
+		policy := h.storagePolicy()
+		reserved, err := store.Reserve(ctx, scope, policy)
+		if err != nil {
+			return nil, &frontendpipe.StatusError{
+				Status: http.StatusInternalServerError, Type: "server_error",
+				Code: "storage_error", Message: "Failed to prepare response storage",
+			}
+		}
+		responseID = reserved.String()
+		isReserved = true
+	}
+	if responseID == "" {
+		ids := h.cfg.ResponseIDSource
+		if ids == nil {
+			ids = systemResponseIDSource{}
+		}
+		responseID = ids.NewResponseID()
+	}
+
+	var observer lipcont.StreamObserver
+	if decoded.Store && store != nil {
+		lineage := lipcont.Lineage{ProfileID: DefaultProfile, Model: decoded.Model, RouteSelector: decoded.Call.Route.Selector}
+		previous := lipcont.ResponseID(decoded.PreviousResponseID)
+		depth := parent.ChainDepth + 1
+		recorderFactory := h.cfg.RecorderFactory
+		if recorderFactory == nil {
+			recorderFactory = defaultContinuationRecorderFactory()
+		}
+		observer = recorderFactory.NewRecorder(store, lipcont.ContinuationRecord{
+			ID:           lipcont.ResponseID(responseID),
+			Scope:        scope,
+			PreviousID:   previous,
+			ProfileID:    DefaultProfile,
+			Lineage:      lineage,
+			InputItems:   lipcont.CloneItems(recordInput),
+			Requirements: lipapi.DeriveProtocolRequirements(*decoded.Call),
+			Policy:       h.storagePolicy(),
+			ChainDepth:   depth,
+		})
+	}
+	return &createEncodeState{
+		decoded:    decoded,
+		responseID: responseID,
+		store:      store,
+		scope:      scope,
+		isReserved: isReserved,
+		observer:   observer,
+	}, nil
+}

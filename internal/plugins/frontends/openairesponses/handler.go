@@ -97,7 +97,8 @@ func (h *Handler) buildPipe() {
 			}
 			return &frontendpipe.Decoded{Call: decoded.Call, Stream: decoded.Stream, RouteSelector: dctx.RouteSelector}, nil
 		},
-		BuildEncodeOpts: func(call *lipapi.Call, _ bool) EncodeOptions {
+		BuildEncodeOpts: func(decoded *frontendpipe.Decoded) EncodeOptions {
+			call := decoded.Call
 			opts := EncodeOptions{
 				ResponseID:               responseIDForCall(call),
 				CreatedAt:                diag.StableUnix(call),

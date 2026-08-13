@@ -8,9 +8,14 @@ import (
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
-// assembleExecutorStream builds the retry-capable recv stream and applies
-// interleaved-thinking wrappers when the opened candidate requires them.
 func (e *Executor) assembleExecutorStream(ctx context.Context, prep *preparedRequest, plan *routePlanState, out attemptOpenResult) (lipapi.EventStream, error) {
+	return streamAssembler{e}.assemble(ctx, prep, plan, out)
+}
+
+// assemble builds the retry-capable recv stream and applies
+// interleaved-thinking wrappers when the opened candidate requires them.
+func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, plan *routePlanState, out attemptOpenResult) (lipapi.EventStream, error) {
+	e := a.Executor
 	fs, maxArgs := e.resolveToolCallFinalizers()
 	rs := &retryRecvStream{
 		executor:               e,

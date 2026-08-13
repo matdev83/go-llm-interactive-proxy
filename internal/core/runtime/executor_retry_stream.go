@@ -45,7 +45,9 @@ import (
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
 
-// retryRecvStream wraps a backend stream and performs recv-phase failover within attempt budget.
+// retryRecvStream is the recv-phase and terminal turn owner: it wraps a backend
+// stream, performs recv-phase failover within attempt budget, and settles or
+// releases attempt authority at terminal.
 //
 // Concurrency: one goroutine calls Recv until completion (lipapi.EventStream). Close may run
 // concurrently with Recv blocked on the active inner stream; Close forwards to that inner stream
