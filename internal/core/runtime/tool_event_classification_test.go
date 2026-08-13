@@ -157,6 +157,18 @@ func (r rewriteStartedName) HandleToolEvent(_ context.Context, te lipapi.ToolEve
 	return sdkhooks.ToolRewrite, next, nil
 }
 
+// swallowFinished drops ToolEventFinished so cleanup must run on the swallow path.
+type swallowFinished struct{}
+
+func (swallowFinished) ID() string { return "swallow-fin" }
+func (swallowFinished) Order() int { return 1 }
+func (swallowFinished) HandleToolEvent(_ context.Context, te lipapi.ToolEvent, _ sdkhooks.ToolMeta) (sdkhooks.ToolDecision, lipapi.ToolEvent, error) {
+	if te.Kind != lipapi.ToolEventFinished {
+		return sdkhooks.ToolPass, lipapi.ToolEvent{}, nil
+	}
+	return sdkhooks.ToolSwallow, lipapi.ToolEvent{}, nil
+}
+
 // replaceStartedIDNameless replaces a start event with a different ID and no name.
 type replaceStartedIDNameless struct{ to string }
 
@@ -314,6 +326,31 @@ func TestDispatchClientFacingEvent_namedFinishCleanupPreventsStaleReuse(t *testi
 
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "read"})
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: "c1", ToolName: "read"})
+	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "c1", Delta: `{}`})
+
+	if len(rec.seen) != 3 {
+		t.Fatalf("reactor saw %d events, want 3", len(rec.seen))
+	}
+	classificationAt(t, rec.seen[0], lipapi.ToolCategoryFileRead, false)
+	classificationAt(t, rec.seen[1], lipapi.ToolCategoryFileRead, false)
+	classificationAt(t, rec.seen[2], lipapi.ToolCategoryUnknown, true)
+}
+
+func TestDispatchClientFacingEvent_swallowedFinishCleanupPreventsStaleReuse(t *testing.T) {
+	t.Parallel()
+	rec := &recordingToolReactor{}
+	s := &retryRecvStream{bus: hooks.New(hooks.Config{
+		ToolReactors: []sdkhooks.ToolReactor{rec, swallowFinished{}},
+	})}
+
+	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "read"})
+	_, swallowed, err := s.dispatchClientFacingEvent(context.Background(), lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: "c1"})
+	if err != nil {
+		t.Fatalf("finish: %v", err)
+	}
+	if !swallowed {
+		t.Fatal("expected finished event to be swallowed")
+	}
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "c1", Delta: `{}`})
 
 	if len(rec.seen) != 3 {

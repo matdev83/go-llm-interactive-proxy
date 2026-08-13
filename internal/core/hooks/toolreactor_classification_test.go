@@ -18,12 +18,11 @@ func TestApplyToolReactors_renameReclassifiesForNextReactor(t *testing.T) {
 			return sdk.ToolRewrite, lipapi.ToolEvent{Kind: lipapi.ToolEventStarted, ToolCallID: "c1", ToolName: "bash"}, nil
 		},
 	}
+	var observed lipapi.ToolEvent
 	observer := &stubTool{
 		id: "observe", order: 2,
 		fn: func(_ context.Context, cur lipapi.ToolEvent, _ sdk.ToolMeta) (sdk.ToolDecision, lipapi.ToolEvent, error) {
-			if cur.Category != lipapi.ToolCategoryOSCommand || !cur.MayMutateLocalFS {
-				t.Fatalf("renamed event = (%q,%v), want (os_command,true)", cur.Category, cur.MayMutateLocalFS)
-			}
+			observed = cur
 			return sdk.ToolPass, lipapi.ToolEvent{}, nil
 		},
 	}
@@ -32,8 +31,30 @@ func TestApplyToolReactors_renameReclassifiesForNextReactor(t *testing.T) {
 	if !out.Emit || out.Err != nil {
 		t.Fatalf("emit=%v err=%v", out.Emit, out.Err)
 	}
+	if observed.Category != lipapi.ToolCategoryOSCommand || !observed.MayMutateLocalFS {
+		t.Fatalf("renamed event seen by next reactor = (%q,%v), want (os_command,true)", observed.Category, observed.MayMutateLocalFS)
+	}
 	if out.Event.Category != lipapi.ToolCategoryOSCommand || !out.Event.MayMutateLocalFS {
 		t.Fatalf("out = (%q,%v), want (os_command,true)", out.Event.Category, out.Event.MayMutateLocalFS)
+	}
+}
+
+func TestApplyToolReactors_sameIDNamelessRewriteOfUnclassifiedCurIsUnknown(t *testing.T) {
+	t.Parallel()
+	te := lipapi.ToolEvent{Kind: lipapi.ToolEventArgsDelta, ToolCallID: "c1"}
+	rewriter := &stubTool{
+		id: "rw", order: 1,
+		fn: func(context.Context, lipapi.ToolEvent, sdk.ToolMeta) (sdk.ToolDecision, lipapi.ToolEvent, error) {
+			return sdk.ToolRewrite, lipapi.ToolEvent{Kind: lipapi.ToolEventArgsDelta, ToolCallID: "c1", ArgsDelta: "y"}, nil
+		},
+	}
+	b := corehooks.New(corehooks.Config{ToolReactors: []sdk.ToolReactor{rewriter}})
+	out := b.ApplyToolReactors(context.Background(), te, sdk.ToolMeta{})
+	if !out.Emit || out.Err != nil {
+		t.Fatalf("emit=%v err=%v", out.Emit, out.Err)
+	}
+	if out.Event.Category != lipapi.ToolCategoryUnknown || !out.Event.MayMutateLocalFS {
+		t.Fatalf("out = (%q,%v), want (unknown,true) for unclassified same-ID cur", out.Event.Category, out.Event.MayMutateLocalFS)
 	}
 }
 

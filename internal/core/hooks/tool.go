@@ -95,9 +95,10 @@ func (b *Bus) ApplyToolReactors(ctx context.Context, te lipapi.ToolEvent, meta s
 // reconcileDerivedToolMetadata keeps Category and MayMutateLocalFS authoritative
 // from the effective tool name after a reactor rewrite/replace. A non-empty name is
 // reclassified; a same-ID name-less mutation preserves the current classification
-// (so existing reactors that build fresh same-ID argument-delta events do not need
-// to copy unchanged metadata); a changed-ID name-less replacement falls back to the
-// conservative unknown/true. Reactor-authored category/bool values never override
+// when cur is already classified (so existing reactors that build fresh same-ID
+// argument-delta events do not need to copy unchanged metadata); an unclassified
+// cur or a changed-ID name-less replacement falls back to the conservative
+// unknown/true. Reactor-authored category/bool values never override
 // classification derived from a non-empty effective name.
 func reconcileDerivedToolMetadata(next *lipapi.ToolEvent, cur lipapi.ToolEvent) {
 	if next == nil {
@@ -109,7 +110,7 @@ func reconcileDerivedToolMetadata(next *lipapi.ToolEvent, cur lipapi.ToolEvent) 
 		next.Category, next.MayMutateLocalFS = lipapi.ClassifyToolName(next.ToolName)
 		return
 	}
-	if next.ToolCallID == cur.ToolCallID {
+	if next.ToolCallID == cur.ToolCallID && cur.Category != "" {
 		next.Category = cur.Category
 		next.MayMutateLocalFS = cur.MayMutateLocalFS
 		return
