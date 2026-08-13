@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -41,5 +42,28 @@ http_headers:
 	}
 	if got.Route[0] != lipsdk.HeaderRoute || got.Route[1] != "X-Custom-Route" {
 		t.Fatalf("route=%v", got.Route)
+	}
+}
+
+func TestValidate_acceptsHTTPHeaderAlias(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Plugins:     config.PluginsConfig{Backends: []config.PluginConfig{{ID: "b1", Enabled: true}}},
+		HTTPHeaders: config.HTTPHeadersConfig{Route: []string{"X-Custom-Route"}},
+	}
+	if err := config.Validate(cfg); err != nil {
+		t.Fatalf("valid alias: %v", err)
+	}
+}
+
+func TestValidate_rejectsInvalidHTTPHeaderAlias(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Plugins:     config.PluginsConfig{Backends: []config.PluginConfig{{ID: "b1", Enabled: true}}},
+		HTTPHeaders: config.HTTPHeadersConfig{Route: []string{"X LIP"}},
+	}
+	err := config.Validate(cfg)
+	if err == nil || !strings.Contains(err.Error(), "http_headers.route") {
+		t.Fatalf("want http_headers.route validation error, got %v", err)
 	}
 }
