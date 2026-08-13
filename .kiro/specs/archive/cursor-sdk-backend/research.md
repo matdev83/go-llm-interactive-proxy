@@ -308,7 +308,7 @@ The final design is suitable for task generation. It preserves Go-LIP's canonica
 
 ## Phase 8.3 Revalidation (2026-07-20T10:34:00+02:00)
 
-Reviewed against active `.kiro/specs/backend-connector-plugin-architecture/` after OpenCode/Codex externalization.
+Reviewed against active `.kiro/specs/archive/backend-connector-plugin-architecture/` after OpenCode/Codex externalization.
 
 | Finding | Disposition |
 | --- | --- |

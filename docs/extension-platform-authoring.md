@@ -1,6 +1,6 @@
 # Extension platform authoring guide
 
-This guide is for **operators and feature-plugin authors** wiring behavior on the stage-four extension platform. It complements the normative spec ([`.kiro/specs/go-core-stage-four-feature-extension-platform/design.md`](../.kiro/specs/go-core-stage-four-feature-extension-platform/design.md)), [ADR 0006](adr/0006-stage-four-extension-seam-map-and-migration.md), and [architecture guardrails](architecture-guardrails.md).
+This guide is for **operators and feature-plugin authors** wiring behavior on the stage-four extension platform. It complements the normative spec ([`.kiro/specs/archive/go-core-stage-four-feature-extension-platform/design.md`](../.kiro/specs/archive/go-core-stage-four-feature-extension-platform/design.md)), [ADR 0006](adr/0006-stage-four-extension-seam-map-and-migration.md), and [architecture guardrails](architecture-guardrails.md).
 
 ## Extension pipeline and legal stages
 

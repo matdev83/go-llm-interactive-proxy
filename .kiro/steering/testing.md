@@ -20,13 +20,15 @@
 
 ## High-Value Test Targets
 
-- **Canonical Translation**: `pkg/lipapi` request/event decoding/encoding, dialect preservation.
+- **Canonical Translation**: `pkg/lipapi` request/event decoding/encoding, dialect preservation, name-based tool classification (`ClassifyToolName` / `ToolEvent` correlation).
+- **Contract TCKs**: Frontend, backend-family, and canonical-core kits under [`internal/testkit/contract`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/testkit/contract). Cartesian FE×BE completeness is retired; a bounded sentinel plus pinned historical inventory replace `AllCells()`.
 - **OpenResponses API**: HTTP POST/SSE and WebSocket turn/continuation pipelines, allowed-tool filters ([`internal/plugins/frontends/openresponses`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/plugins/frontends/openresponses)).
 - **Authority & Stage Coordination**: Execution stage budgets, settle failures, provider isolation ([`internal/core/authoritycoord`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/authoritycoord)).
 - **Control Plane Projections**: Ledger projections, metering bridges, readiness reports ([`internal/core/controlplane`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/controlplane)).
+- **Usage-Record Billing**: Authorize/hold, TUR/LUR seal, post-turn rating/journal, catalog miss fail-closed, `ComposeBilling` injection ([`internal/core/billing`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/billing), `internal/infra/billingstore`). Dual-dialect Bun parity where the environment has Postgres.
 - **Interleaved Reasoning**: Reasoning memo stores, shape sanitization, Codex native compaction ([`internal/core/interleavedthinking`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/interleavedthinking), `codexclientcompat`).
-- **Durable Stores**: Dual-dialect Bun SQLite/PostgreSQL stores ([`internal/core/continuity/bunstore`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/continuity/bunstore), `securesession/adapters`).
-- **Routing & Resilience**: Selector parsing, model aliases, weighted groups, parallel races, TTFT budgets, pre-output failover swallowing.
+- **Durable Stores**: Dual-dialect Bun SQLite/PostgreSQL stores ([`internal/core/continuity/bunstore`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/continuity/bunstore), `securesession/adapters`), including A-leg route-override rows.
+- **Routing & Resilience**: Selector parsing, model aliases, weighted groups, parallel races, TTFT budgets, `[first]`/`[thinker]`, pre-output failover swallowing, runtime A-leg routing overrides (in-flight isolation, generation reload).
 - **Secure Sessions**: Authority validation, BeginTurn, resume denial, diagnostics redaction.
 
 ---

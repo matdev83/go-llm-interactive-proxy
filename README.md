@@ -81,11 +81,13 @@ bash scripts/check-release-clean.sh --staged   # staged index (pre-commit)
 bash scripts/check-release-clean.sh --ref HEAD # specific revision
 ```
 
-Install versioned Git hooks (manifest check on commit/push):
+Install versioned Git hooks (manifest check on commit/push, plus the 100-file change-size gate):
 
 ```bash
 bash scripts/setup-hooks.sh
 ```
+
+Commits and PRs may not change more than 100 files. Override with `LIP_ALLOW_LARGE_CHANGE=1`, `git config lip.allowLargeChange true`, or the `allow-large-change` PR label. `scripts/check-change-size.sh` (or `scripts/check-change-size.ps1`) is the same checker the hooks and CI run.
 
 New top-level files or new component directories must be covered by patterns or entries in `.release-files` in the same commit. CI never auto-updates the manifest.
 

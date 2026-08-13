@@ -584,7 +584,7 @@ No schema migration. `ComponentBilling` already exists. Rollout is opt-in inject
 
 ## Supporting References
 
-- Gap and synthesis: `.kiro/specs/billing-host-composition/research.md`
-- Parent engine: `.kiro/specs/usage-record-ledger-billing/design.md` (frozen)
+- Gap and synthesis: `.kiro/specs/archive/billing-host-composition/research.md`
+- Parent engine: `.kiro/specs/archive/usage-record-ledger-billing/design.md` (frozen)
 - Certification fence: `docs/usage-record-billing-phase8-certification.md`
 - Enterprise attach: `docs/enterprise-extension-boundaries.md`

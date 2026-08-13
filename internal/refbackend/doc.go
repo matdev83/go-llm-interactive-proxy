@@ -7,5 +7,5 @@
 // Subpackages include openairesponses, openaichat, anthropicmessages, gemini, bedrock, and acp.
 // Each implements the server-side wire shapes that official vendor clients expect,
 // so integration tests can validate backend connectors without live providers.
-// Normative contracts are documented in .kiro/specs/go-core-reimplementation-v1/research.md.
+// Normative contracts are documented in .kiro/specs/archive/go-core-reimplementation-v1/research.md.
 package refbackend

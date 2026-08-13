@@ -17,7 +17,7 @@ Spec directory: `go-core-stage-four-feature-extension-platform`
   - Update or add ADR/design-note material describing how stage four preserves the hook bus while moving to the richer extension model.
   - _Requirements: **R14**, **R15**, **R16**, **Q1**, **Q5**, **Q6**, **Q7**_
   - _Design: **§14**, **§15**, **§15B**, **§18**, **§19**_
-  - _Boundary: `docs`, `.kiro/specs/go-core-stage-four-feature-extension-platform`_
+  - _Boundary: `docs`, `.kiro/specs/archive/go-core-stage-four-feature-extension-platform`_
   - _Depends: (none)_
   - _Validation: doc review plus any touched doc checks_
 
@@ -292,7 +292,7 @@ Spec directory: `go-core-stage-four-feature-extension-platform`
   - Document stage ordering, service-facade usage, privileged observer rules, hook-to-bundle migration, and how to choose the right seam.
   - _Requirements: **R14**, **R15**, **Q5**, **Q6**, **Q7**_
   - _Design: **§14**, **§15**, **§15B**, **§18**, **§19**_
-  - _Boundary: `docs`, `.kiro/specs/go-core-stage-four-feature-extension-platform`_
+  - _Boundary: `docs`, `.kiro/specs/archive/go-core-stage-four-feature-extension-platform`_
   - _Depends: **11**_
   - _Validation: doc review plus any touched doc checks_
 

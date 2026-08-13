@@ -20,6 +20,6 @@
   },
   "ready_for_implementation": false,
   "parent_roadmap": ".dev/llm_api_parity_plan.md",
-  "normative_research": ".kiro/specs/go-core-reimplementation-v1/research.md",
+  "normative_research": ".kiro/specs/archive/go-core-reimplementation-v1/research.md",
   "completed": true
 }

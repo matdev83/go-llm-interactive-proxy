@@ -33,7 +33,7 @@ Keep public `lipruntime.Options` non-money. Add internal composition (and option
 
 ## Existing Spec Touchpoints
 - **Extends**: composition notes in `usage-record-ledger-billing` (does not reopen its checked tasks)
-- **Adjacent**: usage-accounting-architecture-convergence (non-money quota stays there)
+- **Adjacent**: archived `usage-accounting-architecture-convergence` (never implemented; non-money quota/rate-limit leftover needs a new spec)
 
 ## Constraints
 - Fail closed when `accounting.billing.authoritative: true` without complete injection

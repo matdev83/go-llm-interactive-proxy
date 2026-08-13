@@ -31,7 +31,7 @@ reviewed SHA (literal one-off historical shell history is not required).
 FEATURE_WORKTREE=/home/ubuntu/src/github.com/matdev83/go-llm-interactive-proxy-runtime-architecture-convergence-and-shrinkage
 BASELINE_WORKTREE=/tmp/lip-baseline-efe4624
 REVIEWED_SHA=efe4624909cea318c7211d5cb3734059d3210802
-OUT_DIR="$FEATURE_WORKTREE/.kiro/specs/runtime-architecture-convergence-and-shrinkage/baseline"
+OUT_DIR="$FEATURE_WORKTREE/.kiro/specs/archive/runtime-architecture-convergence-and-shrinkage/baseline"
 HELPER="$OUT_DIR/capture_baseline.py"
 
 cd "$FEATURE_WORKTREE"
@@ -82,9 +82,9 @@ Future comparison (once `benchstat` is available without adding a runtime module
 
 ```bash
 FEATURE_WORKTREE=/home/ubuntu/src/github.com/matdev83/go-llm-interactive-proxy-runtime-architecture-convergence-and-shrinkage
-OUT_DIR="$FEATURE_WORKTREE/.kiro/specs/runtime-architecture-convergence-and-shrinkage/baseline"
+OUT_DIR="$FEATURE_WORKTREE/.kiro/specs/archive/runtime-architecture-convergence-and-shrinkage/baseline"
 # Set AFTER_RUN to the Phase 9 raw `go test -bench=...` output file when that evidence exists:
-AFTER_RUN="$FEATURE_WORKTREE/.kiro/specs/runtime-architecture-convergence-and-shrinkage/baseline/bench-phase9.txt"
+AFTER_RUN="$FEATURE_WORKTREE/.kiro/specs/archive/runtime-architecture-convergence-and-shrinkage/baseline/bench-phase9.txt"
 
 # tool install is optional/local; do not add to go.mod for this feature
 go install golang.org/x/perf/cmd/benchstat@latest

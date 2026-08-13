@@ -6,7 +6,7 @@ The durable source of truth is split by purpose:
 
 - `AGENTS.md` - agent and repository guardrails.
 - `.kiro/steering/*.md` - enduring product, API, routing, structure, tech, and testing memory.
-- `.kiro/specs/` - active and archived spec artifacts for feature work.
+- `.kiro/specs/{feature}/` - active spec artifacts. Finished and superseded specs live under `.kiro/specs/archive/`.
 - `README.md` - current runnable distribution, configuration, security, and QA overview.
 - `docs/dogfood-local.md` - canonical **no-key** stub workflow (`lipstd check-config`, `routes`, `inventory`, `serve`) aligned with `config/examples/*.yaml`.
 - `docs/runtime-config-reload.md` - explicit SIGHUP/management-API runtime config reload (no watcher; atomic source replace; generation publication).
@@ -41,8 +41,9 @@ Recoverable upstream failures may trigger failover only before the first downstr
 
 `internal/core` owns orchestration rather than provider semantics:
 
-- routing selector parsing, weighted failover, route hints, candidate health, and max-attempt policy;
+- routing selector parsing, weighted failover, route hints, candidate health, max-attempt policy, and A-leg runtime routing overrides;
 - B2BUA A-leg/B-leg continuity, attempt lineage, and pre-output recovery;
+- billing authorize-before-upstream and terminal TUR/LUR handoff (no stream-time money);
 - secure-session authority, resume policy, and session-start audit emission;
 - capability negotiation, model catalog eligibility, and explicit mismatch failures;
 - hook and extension stage execution order, failure policy, timeout boundaries where implemented, and panic isolation;
@@ -54,8 +55,8 @@ These concerns are shared runtime semantics. Provider request shapes, SDK client
 
 Official protocol adapters:
 
-- frontends (`internal/plugins/frontends/`): OpenAI Responses, legacy OpenAI-compatible chat/completions, Anthropic Messages, Gemini generateContent;
-- **essential** backends (`internal/plugins/backends/` + `EssentialBackendBundle`): OpenAI Responses, legacy OpenAI-compatible, Anthropic, Gemini, Bedrock Converse, plus built-in custom-compatible kinds;
+- frontends (`internal/plugins/frontends/`): OpenResponses 2026-04-24, OpenAI Responses, legacy OpenAI-compatible chat/completions, Anthropic Messages, Gemini generateContent;
+- **essential** backends (`internal/plugins/backends/` + `EssentialBackendBundle`): OpenAI Responses, legacy OpenAI-compatible, Anthropic, Gemini, Bedrock Converse, Alibaba Token Plan International, plus built-in custom-compatible kinds;
 - **optional** backends (`connectors/`): executable gRPC plugins (OpenRouter, NVIDIA, Hugging Face, Ollama/local runtimes, OpenCode, Codex, ACP-family CLIs, `local-stub`, …) registered via closed manifests — not fixed essential tables;
 - features: noop and reference plugins that prove SDK hooks, extension seams, traffic observation, workspace, and completion gates.
 

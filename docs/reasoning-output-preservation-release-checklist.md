@@ -1,6 +1,6 @@
 # Reasoning Output Preservation — Release Checklist
 
-Issue [#157](https://github.com/matdev83/go-llm-interactive-proxy/issues/157). Parent spec: [`.kiro/specs/archive/reasoning-output-preservation/`](../.kiro/specs/archive/reasoning-output-preservation/). Follow-up full HTTP E2E spec: [`.kiro/specs/archive/reasoning-preservation-e2e-validation/`](../.kiro/specs/archive/reasoning-preservation-e2e-validation/). OpenAI Responses exact path: [`.kiro/specs/openai-responses-reasoning-preservation/`](../.kiro/specs/openai-responses-reasoning-preservation/). Operator guide: [reasoning-output-preservation.md](reasoning-output-preservation.md).
+Issue [#157](https://github.com/matdev83/go-llm-interactive-proxy/issues/157). Parent spec: [`.kiro/specs/archive/reasoning-output-preservation/`](../.kiro/specs/archive/reasoning-output-preservation/). Follow-up full HTTP E2E spec: [`.kiro/specs/archive/reasoning-preservation-e2e-validation/`](../.kiro/specs/archive/reasoning-preservation-e2e-validation/). OpenAI Responses exact path: [`.kiro/specs/archive/openai-responses-reasoning-preservation/`](../.kiro/specs/archive/openai-responses-reasoning-preservation/). Operator guide: [reasoning-output-preservation.md](reasoning-output-preservation.md).
 
 ## PR split (when review size warrants)
 

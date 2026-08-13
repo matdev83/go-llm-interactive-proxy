@@ -4,7 +4,7 @@
 //
 // Each subpackage wraps the vendor’s published Go client so requests and response
 // parsing follow the same shapes as real applications. Normative HTTP/API contracts are
-// documented in .kiro/specs/go-core-reimplementation-v1/research.md under “Official API
+// documented in .kiro/specs/archive/go-core-reimplementation-v1/research.md under “Official API
 // specification references”; task-level coverage is recorded in
 // refclient-spec-matrix.md in the same spec directory.
 //

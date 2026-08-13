@@ -10,7 +10,7 @@
 
 ## Gap Analysis (brownfield)
 
-Analyzed against `.kiro/specs/billing-host-composition/requirements.md` (Requirements 1–8, including catalog-at-admission 3.6).
+Analyzed against `.kiro/specs/archive/billing-host-composition/requirements.md` (Requirements 1–8, including catalog-at-admission 3.6).
 
 ### Current State
 
@@ -178,7 +178,7 @@ Phasing: catalog+resolver → identity helper → provisioner port+store wiring 
 - Composer pulled into `lipstd` later — keep composer off `cmd/lipstd`; architecture test that serve path still passes zero Production billing.
 
 ## References
-- Parent spec: `.kiro/specs/usage-record-ledger-billing/` (frozen; do not reopen task checkboxes)
+- Parent spec: `.kiro/specs/archive/usage-record-ledger-billing/` (frozen; do not reopen task checkboxes)
 - `docs/usage-record-billing-phase8-certification.md` — fail-closed composition gate
 - `docs/enterprise-extension-boundaries.md` — billing attaches via `ProductionOptions`
 - `internal/infra/runtimebundle/build_executor.go` — authoritative injection checks

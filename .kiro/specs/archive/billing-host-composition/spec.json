@@ -1,9 +1,9 @@
 {
   "feature_name": "billing-host-composition",
   "created_at": "2026-08-13T12:06:00+02:00",
-  "updated_at": "2026-08-13T12:50:00+02:00",
+  "updated_at": "2026-08-13T19:30:00+02:00",
   "language": "en",
-  "phase": "implementation",
+  "phase": "completed",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -18,6 +18,7 @@
       "approved": true
     }
   },
-  "ready_for_implementation": true,
+  "ready_for_implementation": false,
+  "completed": true,
   "project_description": "Operators and internal hosts have a merged usage-record billing engine but cannot turn it on from stock composition. Today lipstd and public lipruntime.Options do not invent billing accounts or open the Bun journal; RatingResolver exists only as test fakes; holds store snapshot refs without a catalog; account create and funding are store methods with read-only admin reports. This spec adds the host-composition path: identity mapping from authenticated principal/session, journal open plus admission adapter wiring through existing BuildHost ProductionOptions, an immutable versioned pricing/policy/operator-rate catalog with a stock RatingResolver, and trusted account provisioning (create/fund/credit-policy), without reopening stream, routing, TUR sealing, or public lipruntime.Options money fields unless explicitly required."
 }

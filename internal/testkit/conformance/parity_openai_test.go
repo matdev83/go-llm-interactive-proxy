@@ -9,7 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-// OpenAI family parity anchors (see .kiro/specs/llm-api-parity/design.md rows OAR-*, OAC-*).
+// OpenAI family parity anchors (see .kiro/specs/archive/llm-api-parity/design.md rows OAR-*, OAC-*).
 func TestParity_OpenAI_canonicalAssistantMediaCollects(t *testing.T) {
 	t.Parallel()
 	es := lipapi.NewFixedEventStream([]lipapi.Event{

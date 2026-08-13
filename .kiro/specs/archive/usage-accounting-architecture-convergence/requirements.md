@@ -1,5 +1,7 @@
 # Requirements Document
 
+**Status:** superseded and archived. Do not implement this document. Stream-time money accounting was delivered by `usage-record-ledger-billing`. Residual non-money quota/rate-limit work needs a new spec. See `closeout-evidence.md`.
+
 ## Introduction
 
 Go-LIP's usage/economic subsystem has accumulated several generations of correct ideas at the same time: provider usage parsing and explicit presence in `lipapi`, token counting/reconciliation, static cost estimation, fixed-window usage authority, dual-plane metering facts, generic rating/authority SDK ports, control-plane usage projections, a token ledger, and terminal-work recovery. The newer dual-plane architecture is materially stronger, but the older event/reconciliation/reporting paths remain live and runtime still coordinates much of the economic policy directly.

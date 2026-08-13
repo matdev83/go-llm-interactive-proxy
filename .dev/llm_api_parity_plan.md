@@ -28,7 +28,7 @@ Every slice follows strict TDD:
 
 ## Normative Specs And Codebase Alignment
 
-The source of truth for protocol behavior is the vendor documentation already referenced in `.kiro/specs/go-core-reimplementation-v1/research.md`. The parity work must align the following code areas against those exact specs.
+The source of truth for protocol behavior is the vendor documentation already referenced in `.kiro/specs/archive/go-core-reimplementation-v1/research.md`. The parity work must align the following code areas against those exact specs.
 
 ### OpenAI Responses API
 
@@ -158,16 +158,16 @@ The source of truth for protocol behavior is the vendor documentation already re
   - `internal/refclient/*`
   - `internal/refbackend/*`
   - `internal/testkit/conformance/*`
-  - `.kiro/specs/go-core-reimplementation-v1/refclient-spec-matrix.md`
-  - `.kiro/specs/go-core-reimplementation-v1/refbackend-spec-matrix.md`
-  - `.kiro/specs/go-core-reimplementation-v1/research.md`
-  - `.kiro/specs/go-core-reimplementation-v1/VALIDATION_REVIEW.md`
+  - `.kiro/specs/archive/go-core-reimplementation-v1/refclient-spec-matrix.md`
+  - `.kiro/specs/archive/go-core-reimplementation-v1/refbackend-spec-matrix.md`
+  - `.kiro/specs/archive/go-core-reimplementation-v1/research.md`
+  - `.kiro/specs/archive/go-core-reimplementation-v1/VALIDATION_REVIEW.md`
 
 ## Deliverables
 
 ### 1. Parity Spec Package
 
-- A dedicated parity spec under `.kiro/specs/` that defines:
+- A dedicated parity spec (now `.kiro/specs/archive/llm-api-parity/`) that defines:
   - protocol-by-protocol feature matrices
   - exact in-scope vs out-of-scope boundaries
   - traceability from spec rows to tests and code areas
@@ -223,7 +223,7 @@ The source of truth for protocol behavior is the vendor documentation already re
 
 ### Phase 1. Establish Parity Contracts Before Code Changes
 
-- Add a parity spec and roadmap artifact set under `.kiro/specs/`.
+- Add a parity spec and roadmap artifact set under `.kiro/specs/` (landed as `.kiro/specs/archive/llm-api-parity/`).
 - For each protocol, create a normative parity matrix derived only from official docs and official SDK-observable wire behavior.
 - Replace the current "subset vs spec" narrative with explicit status per feature row.
 

@@ -15,5 +15,5 @@
 //
 // Streaming assistant multimodal references: EventAssistantImageRef and EventAssistantFileRef
 // carry URL- or id-style refs (see Event fields) and aggregate into Collected.AssistantMedia.
-// Parity matrices: .kiro/specs/llm-api-parity/design.md.
+// Parity matrices: .kiro/specs/archive/llm-api-parity/design.md.
 package lipapi

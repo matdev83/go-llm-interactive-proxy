@@ -5,9 +5,10 @@
 Core (`internal/core/`) strictly owns:
 - Selector parsing (`internal/core/routing`), model alias expansion, candidate resolution, health/exclusion filtering.
 - Attempt sequencing, parallel-race coordination, TTFT budget enforcement (`{ttft_timeout=N}`, `[handicap=N]`).
+- A-leg routing-override state (`internal/core/routeoverride`) and turn-level snapshot application; plugins never own override persistence or selector authority.
 - B2BUA pre-output recovery policy & lineage tracking (`internal/core/b2bua`).
 - Stage evaluation & attempt coordination ([`internal/core/authoritycoord`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/authoritycoord)).
-- Control plane ledger projections ([`internal/core/controlplane`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/controlplane)).
+- Control plane projections ([`internal/core/controlplane`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/controlplane)).
 - Interleaved reasoning memo stores & sanitization ([`internal/core/interleavedthinking`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/interleavedthinking)).
 
 Plugins supply policy inputs via SDK contracts; plugins **never** own orchestration logic.
@@ -17,12 +18,32 @@ Plugins supply policy inputs via SDK contracts; plugins **never** own orchestrat
 ## Selector Syntax & Capabilities
 
 - **Ordered Failover (`|`)**: Tries candidates left-to-right on pre-output recoverable errors (`model-a | model-b`).
+- **Weighted Groups**: Comma-separated weighted branches; the planner picks one eligible arm (session-sticky / retry-aware). Exact grammar stays in the parser.
 - **Parallel Races (`!`)**: Races multiple backends concurrently (`model-a ! model-b`).
 - **Leg Handicap (`[handicap=N]`)**: Delays start of a parallel leg by N milliseconds (`model-a ! model-b[handicap=200]`).
 - **TTFT Budgets (`{ttft_timeout=N}` / `[ttft_timeout=N]`)**: Time-to-first-token budget; satisfied **only** by client-visible canonical output (not keepalive/usage events).
 - **First-Request Steering (`[first]`)**: Routes the initial request of a session differently from subsequent turns.
+- **Thinker Arm (`[thinker]`)**: Marks an interleaved-thinking branch. Disabled unless `interleaved.enabled`. Cannot combine with `[first]` on the same branch. Override substitution must reuse existing A-leg thinker/memo state, not a second planner.
 - **Model Aliases**: Regexp rewrite rules applied before selector parsing. Invalid rules fail startup validation.
 - **Syntax Invariants**: Parallel `!` groups CANNOT mix with `^`, weights, or `[first]` in the same arm.
+
+---
+
+## Runtime A-Leg Routing Overrides
+
+Opt-in under `routing.override_admin` (`enabled` defaults false). When set, a protected GET/PUT/DELETE surface under literal `path_prefix` (default `/admin/routing-overrides`) replaces the effective client selector for **later** turns on that A-leg. ServeMux `{id}` wildcards are rejected; the A-leg id is a path suffix under the prefix.
+
+- Latest-wins revisioned state; snapshot once per admitted turn before route planning.
+- Never mutate in-flight turns or B-legs. Clear restores current client routing for subsequent turns.
+- Full existing selector language (aliases, failover, weights, races, TTFT, affinity, `[first]`, `[thinker]`).
+- Persist with continuity (memory and Bun SQLite/PostgreSQL). Generation reload reinterprets the raw selector; it does not rewrite in-flight snapshots.
+- Disabling the HTTP surface does not clear persisted overrides. Non-loopback exposure requires the diagnostics shared secret.
+
+---
+
+## Billing Seams (Not Stream Orchestration)
+
+Runtime has exactly two financial touch points: pessimistic authorize after side-effect-free route planning and before upstream work, then sealed TUR/LUR handoff at the existing terminal owner. Stream handlers must not rate, journal, or accumulate money. Failover, races, and no-retry-after-output stay execution concerns.
 
 ---
 
@@ -39,8 +60,8 @@ Plugins supply policy inputs via SDK contracts; plugins **never** own orchestrat
 ## Authority Coordination & Control Plane
 
 - **[`internal/core/authoritycoord`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/authoritycoord)**: `stage_evaluator.go` enforces execution stage budgets and records attempt-stage settle failures.
-- **Concurrency & Usage Authorities**: `concurrencyauthority` & `usageauthority` enforce turn limits and token quotas per principal/tenant.
-- **Control Plane Ledger**: `controlplane` projects execution facts to ledger stores (`usage_projector.go`), provides metering bridges, and builds readiness reports (`readiness_report.go`).
+- **Concurrency & Usage Authorities**: `concurrencyauthority` & `usageauthority` enforce turn limits and token/request quotas per principal/tenant. Production `accounting.authority` YAML must not encode monetary `budget` / `spend_cap` / `money_nano`; money admission is billing authorization.
+- **Control Plane Projections**: `controlplane` projects execution facts to ledger stores (`usage_projector.go`), provides metering bridges, and builds readiness reports (`readiness_report.go`). Those rows are not customer-balance truth.
 
 ---
 

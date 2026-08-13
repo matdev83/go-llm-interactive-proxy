@@ -40,6 +40,15 @@
 
 ---
 
+## Billing Persistence & Injection
+
+- **Domain vs store**: `internal/core/billing` owns TUR/LUR, holds, rating, and journal commands. `internal/infra/billingstore` owns Bun SQLite/PostgreSQL mechanics. `internal/infra/billingcompose` owns the in-memory versioned snapshot catalog and identity mapping. `internal/infra/billingadmission` adapts authorize onto runtime admission.
+- **Injection only**: Hosts open the journal themselves and call `runtimebundle.ComposeBilling`, then pass `ProductionOptions` into `BuildHost`. YAML `accounting.billing.authoritative: true` is a fail-closed gate, not a DSN factory. Stock `lipstd` does not call `ComposeBilling`. Public `pkg/lipruntime.Options` stays non-money.
+- **Catalog vs journal**: Snapshot **bodies** live in the process-local catalog (ID+Version). Holds and sealed usage records store refs only. A missing referenced version fails closed at rating.
+- **Leftover YAML**: `accounting.ledger.*` may parse but must not open. Production `accounting.authority` rejects monetary `budget` / `spend_cap` / `money_nano`.
+
+---
+
 ## Database & PgBouncer Standards
 
 - **Dual Roles**: Admin/migration connection (`LIP_TEST_POSTGRES_ADMIN_DSN`) vs runtime DML connection (`LIP_TEST_POSTGRES_DSN`).
