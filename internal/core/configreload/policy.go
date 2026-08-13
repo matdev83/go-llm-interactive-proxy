@@ -296,6 +296,13 @@ func classifyRouting(active, candidate *config.Config, reload, restart noteFn) {
 	}
 	diffStr(reload, "routing.affinity.missing_identity", a.Affinity.MissingIdentity, c.Affinity.MissingIdentity)
 	diffStr(reload, "routing.transport.fallback_policy", a.Transport.FallbackPolicy, c.Transport.FallbackPolicy)
+	if a.OverrideAdmin.Enabled != c.OverrideAdmin.Enabled {
+		reload("routing.override_admin.enabled")
+	}
+	diffStr(reload, "routing.override_admin.path_prefix", a.OverrideAdmin.PathPrefix, c.OverrideAdmin.PathPrefix)
+	if a.OverrideAdmin.MaxBodyBytes != c.OverrideAdmin.MaxBodyBytes {
+		reload("routing.override_admin.max_body_bytes")
+	}
 }
 
 func classifySecureSession(active, candidate *config.Config, reload, restart noteFn) {

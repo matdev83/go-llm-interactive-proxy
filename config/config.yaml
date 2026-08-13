@@ -204,6 +204,14 @@ routing:
   #   "{affinity=session}[weight=1]openai-a:gpt-4o-mini^[weight=1]openai-b:gpt-4o-mini"
   # Aliases are also accepted: {session_sticky} and {client_sticky}.
   default_route: "openai-responses:gpt-4o-mini"
+  # Opt-in A-leg routing-override admin HTTP (disabled by default). Persistence and
+  # runtime enforcement follow continuity even when this surface is off. path_prefix
+  # must not overlap other diagnostics or admin mounts (for example /debug/pprof)
+  # and must be a literal path (ServeMux wildcards such as {id} are rejected).
+  # override_admin:
+  #   enabled: false
+  #   path_prefix: /admin/routing-overrides
+  #   max_body_bytes: 69632
 
 # Optional regexp rewrites of the full route selector string (incoming X-LIP-Route or default_route).
 # First matching rule wins; the replacement template must parse as a valid selector (see routing.Parse). After a

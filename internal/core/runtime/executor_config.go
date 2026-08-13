@@ -18,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
@@ -108,6 +109,10 @@ type RoutingRuntime struct {
 	AffinityStore           affinity.Store
 	AffinityMissingIdentity affinity.MissingIdentityPolicy
 	TransportFallbackPolicy lipapi.TransportFallbackPolicy
+	// RouteOverrideReader is the process-owned per-turn snapshot port. Standard
+	// memory/Bun continuity always wires it, including when override admin HTTP
+	// is disabled. Nil means custom continuity without the capability.
+	RouteOverrideReader routeoverride.Reader
 }
 
 // SecurityRuntime carries secure-session gates, auth events, and session audit policy.

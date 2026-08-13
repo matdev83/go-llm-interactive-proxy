@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 )
 
@@ -11,6 +12,7 @@ import (
 // session runtime produced by [buildPersistenceRuntime].
 type persistenceRuntime struct {
 	Store         b2bua.Store
+	OverrideStore routeoverride.Store
 	SecureSession *secureSessionRuntime
 }
 
@@ -29,6 +31,7 @@ func buildPersistenceRuntime(bctx buildContext, cp *controlPlaneRuntime, bundle 
 	if storeCloser != nil {
 		closers = append(closers, storeCloser)
 	}
+	overrideStore, _ := routeoverride.AsStore(store)
 	store = cp.wrapB2BUA(store)
 
 	ssRun, err := buildSecureSessionRuntime(secureSessionBuildInput{
@@ -47,5 +50,5 @@ func buildPersistenceRuntime(bctx buildContext, cp *controlPlaneRuntime, bundle 
 	if ssRun.closer != nil {
 		closers = append(closers, ssRun.closer)
 	}
-	return &persistenceRuntime{Store: store, SecureSession: ssRun}, closers, nil
+	return &persistenceRuntime{Store: store, OverrideStore: overrideStore, SecureSession: ssRun}, closers, nil
 }

@@ -12,6 +12,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
@@ -23,6 +26,18 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
+
+func GenerationExecutorOf(g GenerationRuntime) *runtime.Executor {
+	b, ok := g.(*GenerationBundle)
+	if !ok || b == nil {
+		return nil
+	}
+	return b.execution.executor
+}
+
+func GenerationSelectorValidatorForTest(aliases *routing.AliasResolver, defaultBackend string, knownBackends map[string]struct{}) routeoverride.SelectorValidator {
+	return generationSelectorValidator{aliases: aliases, defaultBackend: defaultBackend, knownBackends: knownBackends}
+}
 
 func NewGenerationBundleForTest(models *modelregistry.Runtime, catalog *modelcatalog.CatalogRuntime) *GenerationBundle {
 	return &GenerationBundle{

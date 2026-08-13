@@ -11,8 +11,9 @@ import (
 )
 
 // prepareStandardHandler mounts metrics, diagnostics, admin, secure-session diagnostics,
-// model-catalog diagnostics, control-plane query, and bundled frontends, then stacks the outer
-// HTTP middleware. Mount order is load-bearing and preserved exactly.
+// model-catalog diagnostics, control-plane query, routing-override admin, and bundled
+// frontends, then stacks the outer HTTP middleware. Mount order is load-bearing and
+// preserved exactly.
 //
 // The focused composer accepts only [StandardHTTPInput]: it owns neither app start/shutdown nor
 // resource closers. Callers ([ComposeStandardHTTP]) project focused groups and own lifecycle
@@ -65,6 +66,9 @@ func prepareStandardHandler(
 		Security: in.Security, Core: in.Core,
 	})
 	mountControlPlaneQuery(controlPlaneQueryMount{
+		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log, Operations: in.Operations,
+	})
+	mountRouteOverrideAdmin(routeOverrideAdminMount{
 		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log, Operations: in.Operations,
 	})
 

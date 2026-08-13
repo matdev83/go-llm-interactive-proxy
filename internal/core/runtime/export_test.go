@@ -47,6 +47,45 @@ func (e *Executor) ResolveAffinityKeyForTest(mode routing.AffinityMode, views ex
 	return e.resolveAffinityKey(&routing.Selector{Affinity: mode}, views, viewsOK)
 }
 
+// RouteAuthoritySnapshotBarrier is the test-only gate after A-leg resolution
+// and before route-plan construction. Production requests never install one.
+type RouteAuthoritySnapshotBarrier = routeAuthoritySnapshotBarrier
+
+func NewRouteAuthoritySnapshotBarrier() *RouteAuthoritySnapshotBarrier {
+	return newRouteAuthoritySnapshotBarrier()
+}
+
+func WithRouteAuthoritySnapshotBarrier(ctx context.Context, b *RouteAuthoritySnapshotBarrier) context.Context {
+	return withRouteAuthoritySnapshotBarrier(ctx, b)
+}
+
+func (b *RouteAuthoritySnapshotBarrier) WaitUntilArrived(ctx context.Context) error {
+	return b.waitUntilArrived(ctx)
+}
+
+func (b *RouteAuthoritySnapshotBarrier) Release() {
+	b.releaseWaiters()
+}
+
+func (b *RouteAuthoritySnapshotBarrier) ALegID() string {
+	return b.resolvedALegID()
+}
+
+// BuildRoutePlanPrimaryBackendForTest compiles the selector through buildRoutePlan
+// and returns the primary backend id so tests can prove it shares CompileSelector.
+func (e *Executor) BuildRoutePlanPrimaryBackendForTest(ctx context.Context, selector string) (string, error) {
+	plan, err := e.buildRoutePlan(ctx, &preparedRequest{
+		baseline: lipapi.Call{Route: lipapi.RouteIntent{Selector: selector}},
+	})
+	if err != nil {
+		return "", err
+	}
+	if plan == nil || plan.sel == nil || len(plan.sel.Alternatives) == 0 || plan.sel.Alternatives[0].Primary == nil {
+		return "", nil
+	}
+	return plan.sel.Alternatives[0].Primary.Backend, nil
+}
+
 func prepareExecutorSecureSessionForTests(e *Executor) {
 	if e == nil || e.SecureSession != nil {
 		return

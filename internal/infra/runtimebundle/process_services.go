@@ -182,9 +182,13 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	ps.persistence = persist
 	if persist != nil {
 		ps.Continuity = persist.Store
+		ps.RouteOverrideStore = persist.OverrideStore
 		if persist.SecureSession != nil {
 			ps.SecureSessions = persist.SecureSession.appStore
 		}
+	}
+	if in.Cfg.Routing.OverrideAdmin.Enabled && ps.RouteOverrideStore == nil {
+		return fail(fmt.Errorf("runtimebundle: routing.override_admin.enabled requires a continuity store that implements routeoverride.Store"))
 	}
 
 	nowFn := in.Opts.Testing.Clock

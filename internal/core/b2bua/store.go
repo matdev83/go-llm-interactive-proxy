@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -106,6 +107,7 @@ type MemoryStore struct {
 var (
 	_ Store                 = (*MemoryStore)(nil)
 	_ InterleavedStateStore = (*MemoryStore)(nil)
+	_ routeoverride.Store   = (*MemoryStore)(nil)
 )
 
 type legState struct {
@@ -114,6 +116,7 @@ type legState struct {
 	seqToBLeg    map[int]string
 	attemptBySeq map[int]lipapi.AttemptRecord
 	interleaved  interleavedstate.State
+	override     routeoverride.State
 }
 
 // NewMemoryStore returns an empty store. opts may be zero-valued defaults.

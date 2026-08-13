@@ -38,6 +38,10 @@ type RouteTraceEntry struct {
 	ModelView *RouteTraceModelView `json:"model_view,omitempty"`
 	// Catalog is set for plan_candidate when model-catalog hooks produced facts for the attempt.
 	Catalog *RouteTraceCatalog `json:"catalog,omitempty"`
+	// SelectorSource is client or admin_override. Raw route expressions must not appear here.
+	SelectorSource string `json:"selector_source,omitempty"`
+	// OverrideRevision is the snapshotted admin revision when SelectorSource is admin_override.
+	OverrideRevision int64 `json:"override_revision,omitempty"`
 }
 
 // RouteTraceBuffer keeps a bounded FIFO of recent route-plan entries (debug only).

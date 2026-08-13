@@ -55,7 +55,7 @@ func TestPrepareSubmitAndALeg_capturesFrontendIngressBeforeSubmit(t *testing.T) 
 			Parts: []lipapi.Part{lipapi.TextPart("before-submit")},
 		}},
 	}
-	_, baseline, _, outCtx, err := ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
+	_, baseline, _, _, outCtx, err := ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
 	if err != nil {
 		t.Fatal(err)
 	}

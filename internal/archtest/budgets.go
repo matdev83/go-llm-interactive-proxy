@@ -47,7 +47,7 @@ type PackageTreeBudget struct {
 // PackageTreeBudgets locks measured convergence tree ceilings (+25 lines headroom).
 var PackageTreeBudgets = []PackageTreeBudget{
 	{Tree: "internal/infra/runtimebundle", Max: 11088},
-	{Tree: "internal/stdhttp", Max: 5160},
+	{Tree: "internal/stdhttp", Max: 5455},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 562},
 }
@@ -61,11 +61,11 @@ type LineBudget struct {
 // LineBudgets covers core/pluginreg plus the convergence trees (kept in sync
 // with PackageTreeBudgets for overlapping entries).
 var LineBudgets = []LineBudget{
-	// Handoff retry moved from a stream-owned goroutine onto an explicit
-	// billing outbox worker. Keep the measured-plus-25 ratchet.
-	{Dir: "internal/core", Max: 72688},
+	// Routing-override admin plus merged billing outbox worker. Keep the
+	// measured-plus-25 ratchet.
+	{Dir: "internal/core", Max: 74504},
 	{Dir: "internal/pluginreg", Max: 1079},
-	{Dir: "internal/stdhttp", Max: 5160},
+	{Dir: "internal/stdhttp", Max: 5455},
 	{Dir: "internal/infra/runtimebundle", Max: 11088},
 	{Dir: "cmd/lipstd", Max: 979},
 	{Dir: "pkg/lipruntime", Max: 562},

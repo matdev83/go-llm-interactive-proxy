@@ -26,6 +26,7 @@ func registerContinuityBaselineMigration() {
 			return nil
 		})
 		registerInterleavedStateMigration()
+		registerRouteOverrideMigration()
 	})
 }
 

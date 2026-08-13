@@ -69,7 +69,7 @@ func TestExecutor_prepareSubmitAndALeg_preservesTraceOnSubmitError(t *testing.T)
 		},
 	}
 	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "u1"})
-	traceID, _, _, outCtx, err := ex.prepareSubmitAndALeg(ctx, bus, call)
+	traceID, _, _, _, outCtx, err := ex.prepareSubmitAndALeg(ctx, bus, call)
 	if err == nil {
 		t.Fatal("expected submit error")
 	}
@@ -121,7 +121,7 @@ func TestExecutor_prepareSubmitAndALeg_sessionOpenHintsNotTrustedAsAuthority(t *
 		}},
 	}
 	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "u2"})
-	traceID, _, aLeg, outCtx, err := ex.prepareSubmitAndALeg(ctx, bus, call)
+	traceID, _, aLeg, _, outCtx, err := ex.prepareSubmitAndALeg(ctx, bus, call)
 	if err != nil {
 		t.Fatal(err)
 	}

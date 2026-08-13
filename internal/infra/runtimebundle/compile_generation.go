@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -120,7 +121,17 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	}
 	failWithGenCtx := func(err error) (GenerationRuntime, error) { genCancel(); return failBeforeTransfer(err) }
 
+	nowFn := time.Now
+	if ps.opts != nil && ps.opts.Testing.Clock != nil {
+		nowFn = ps.opts.Testing.Clock
+	}
+	adminHandler, err := bindGenerationRouteOverride(ps, frozen, cand.execution.executor, nowFn)
+	if err != nil {
+		return failWithGenCtx(err)
+	}
+
 	httpInput := buildStandardHTTPInput(genCtx, cand, frozen, regs, route)
+	httpInput.Operations.RouteOverrideAdmin = adminHandler
 	if err := injectCandidateFault(in.FaultInject, "composer-clone"); err != nil {
 		return failWithGenCtx(fmt.Errorf("runtimebundle: composer config clone: %w", err))
 	}
