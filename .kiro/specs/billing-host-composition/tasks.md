@@ -23,7 +23,7 @@ TDD throughout (RED → GREEN → REFACTOR). Do not modify stream handlers, TUR 
 
 ## 2. Catalog, identity, and stock rating join
 
-- [ ] 2.1 Publish immutable pricing, policy, and operator-rate snapshots
+- [x] 2.1 Publish immutable pricing, policy, and operator-rate snapshots
   - Catalog put of a new version succeeds; put of the same version with a different body is rejected; identical replay is allowed.
   - Defaults and optional per-route / per-model bindings must already exist in the catalog.
   - Lookup by stored version refs returns exact bodies or fails closed with no substitute version.
@@ -149,3 +149,7 @@ TDD throughout (RED → GREEN → REFACTOR). Do not modify stream handlers, TUR 
   - _Requirements: 2.5, 1.3, 3.5_
   - _Boundary: Fence tests/docs_
   - _Validation: file exists and is linked from `docs/enterprise-extension-boundaries.md`_
+
+## Implementation Notes
+- SnapshotCatalog route overrides store distinct versioned bodies, but RateTurn/MaxCharge require one customer catalog identity: emit ModelPricing/RoutePricing amounts under the TUR/default CustomerPricingRef, with a card for every billed backend/model when any override applies.
+
