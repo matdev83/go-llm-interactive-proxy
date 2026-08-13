@@ -33,7 +33,7 @@ TDD throughout (RED → GREEN → REFACTOR). Do not modify stream handlers, TUR 
   - _Boundary: SnapshotCatalog_
   - _Validation: `go test ./internal/infra/billingcompose`_
 
-- [ ] 2.2 (P) Map billing identity from authenticated principal and authoritative session
+- [x] 2.2 (P) Map billing identity from authenticated principal and authoritative session
   - Stock mapping uses the authenticated principal id as the billing account id.
   - Authorization identity uses proxy-owned session id plus A-leg id; client session hints are ignored.
   - Missing principal or authoritative session yields empty identity so admission denies; mapping never creates an account.
