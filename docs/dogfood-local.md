@@ -7,7 +7,7 @@ Executable guarantees:
 - Every `*.yaml` in `config/examples/` is exercised by [`runtimebundle.InspectRoutes`](../internal/infra/runtimebundle/inspect.go) in [`internal/infra/runtimebundle/example_configs_test.go`](../internal/infra/runtimebundle/example_configs_test.go) (`TestConfigExamples_passInspectRoutes`).
 - Cross-frontend smoke against the standard HTTP stack lives in [`internal/stdhttp/dogfood_smoke_test.go`](../internal/stdhttp/dogfood_smoke_test.go).
 
-For proof-plugin seams and Python-era migration anchors, see [`docs/feature-migration-map.md`](feature-migration-map.md). For stage IDs and SDK surfaces, see [`docs/extension-points.md`](extension-points.md). For explicit runtime config reload (SIGHUP / management API, atomic rename, `check-config` dry-run), see [`docs/runtime-config-reload.md`](runtime-config-reload.md).
+For stage IDs and SDK surfaces, see [`docs/extension-points.md`](extension-points.md). For explicit runtime config reload (SIGHUP / management API, atomic rename, `check-config` dry-run), see [`docs/runtime-config-reload.md`](runtime-config-reload.md).
 
 ## Primary example
 

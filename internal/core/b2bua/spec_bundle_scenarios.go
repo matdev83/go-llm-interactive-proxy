@@ -9,7 +9,7 @@ type ContinuityScenarioSpec struct {
 }
 
 // SpecBundleContinuityScenarios lists memory-store and continuity invariants. Keep aligned
-// with docs/spec-bundle-continuity-scenarios.md and .kiro/steering/routing-and-orchestration.md.
+// with .kiro/steering/routing-and-orchestration.md and the referenced tests.
 func SpecBundleContinuityScenarios() []ContinuityScenarioSpec {
 	return []ContinuityScenarioSpec{
 		{

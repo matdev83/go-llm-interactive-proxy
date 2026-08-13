@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Optional mutation smoke: requires gremlins on PATH.
-# Not part of default CI; see docs/mutation-testing.md
+# Not part of default CI.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"

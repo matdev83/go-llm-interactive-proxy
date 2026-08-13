@@ -2,7 +2,7 @@
 
 Internal hosts enable usage-record billing by **injecting** an already-opened journal and a catalog into the existing host builder. YAML does not open the billing journal, invent accounts, or publish TUR rating snapshots.
 
-This is the operator/maintainer recipe. Engine ownership, stream-money deletion, and certification fences stay in [usage-record-billing-phase8-certification.md](usage-record-billing-phase8-certification.md). Enterprise attach seams stay in [enterprise-extension-boundaries.md](enterprise-extension-boundaries.md).
+This is the operator/maintainer recipe. Enterprise attach seams stay in [enterprise-extension-boundaries.md](enterprise-extension-boundaries.md).
 
 ## Composition path
 
@@ -133,6 +133,5 @@ The surface mounts only when `diagnostics.shared_secret` is non-empty **and** re
 
 ## Related
 
-- [usage-record-billing-phase8-certification.md](usage-record-billing-phase8-certification.md) — engine cutover, residual dual-path inventory
 - [enterprise-extension-boundaries.md](enterprise-extension-boundaries.md) — allowed ProductionOptions seam
 - [legacy-options-migration.md](legacy-options-migration.md) — public Options stay non-money

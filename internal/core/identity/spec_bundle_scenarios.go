@@ -12,7 +12,7 @@ type IdentityScenarioSpec struct {
 }
 
 // SpecBundleIdentityScenarios lists A-leg/B-leg identity invariants.
-// Keep aligned with docs/spec-bundle-identity-scenarios.md.
+// Keep aligned with the referenced tests and docs/proxy-identity.md.
 func SpecBundleIdentityScenarios() []IdentityScenarioSpec {
 	return []IdentityScenarioSpec{
 		{

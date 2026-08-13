@@ -1,6 +1,6 @@
 # Architecture current state
 
-This document is the operator-facing architecture snapshot for the Go LLM Interactive Proxy. It replaces the early bootstrap note: runtime behavior is implemented and the standard distribution is runnable.
+Operator-facing map of the Go LLM Interactive Proxy: streaming-first control plane, standard `lipstd` distribution, hybrid backends.
 
 The durable source of truth is split by purpose:
 
@@ -121,6 +121,10 @@ Traffic observation and capture are privileged extension paths. Redaction must h
 
 ## Architecture boundaries
 
+<!-- architecture-contract: non-cartesian-release-evidence -->
+
+Release evidence is additive (frontend TCK, canonical-core TCK, backend-family TCK, provider-profile certification, connector TCK, protocol compliance, and a bounded real-stack sentinel). It is not a cartesian frontend-by-backend product.
+
 Permanent rules:
 
 - Core packages do not import concrete plugins.
@@ -130,11 +134,6 @@ Permanent rules:
 - Capability mismatches fail explicitly.
 - Advanced request, response, tool, capture, memory, verifier, and safety features use SDK seams before core logic changes.
 
-Architecture tests under `internal/archtest` and related package tests enforce many of these boundaries. Run `make arch-report` for a deterministic snapshot of package sizes, import fan-out, and hexagonal baseline classifications. See also:
-
-- [`docs/core-boundaries.md`](core-boundaries.md) — core admission checklist
-- [`docs/enterprise-extension-boundaries.md`](enterprise-extension-boundaries.md) — enterprise integration seams
-- [`docs/feature-bridge-retirement-checklist.md`](feature-bridge-retirement-checklist.md) — native `FeatureBundle` migration status
-- [`docs/architecture-guardrails.md`](architecture-guardrails.md) — automated guardrails and PR checklist
+Architecture tests under `internal/archtest` and related package tests enforce many of these boundaries. Run `make arch-report` for a deterministic snapshot of package sizes, import fan-out, and hexagonal baseline classifications. Enterprise attach seams: [`docs/enterprise-extension-boundaries.md`](enterprise-extension-boundaries.md).
 
 **Single-module layout:** the repository intentionally ships one `go.mod`. Boundary tests enforce SDK isolation and dependency direction; a module split is deferred until concrete distribution pain appears.
