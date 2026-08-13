@@ -57,8 +57,8 @@ func TestBuild_productionClockAndRNG(t *testing.T) {
 	if ex.RouteObserver == nil {
 		t.Fatal("expected RouteObserver wired")
 	}
-	if ex.BillingShadowObserver == nil {
-		t.Fatal("expected BillingShadowObserver wired")
+	if ex.BillingLegObserver == nil {
+		t.Fatal("expected BillingLegObserver wired")
 	}
 	if b.RuntimeSnapshot() == nil {
 		t.Fatal("expected RuntimeSnapshot on Built")

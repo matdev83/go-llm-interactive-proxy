@@ -94,6 +94,16 @@ type HoldReleaser interface {
 	ReleaseAuthorization(context.Context, ReleaseAuthorizationInput) (Posting, error)
 }
 
+// HoldReleaserFunc adapts a function to HoldReleaser.
+type HoldReleaserFunc func(context.Context, ReleaseAuthorizationInput) (Posting, error)
+
+func (f HoldReleaserFunc) ReleaseAuthorization(ctx context.Context, in ReleaseAuthorizationInput) (Posting, error) {
+	if f == nil {
+		return Posting{}, nil
+	}
+	return f(ctx, in)
+}
+
 // AuthorizationHoldKey is stable for one account and logical A-leg/TUR. Retry
 // labels and wall-clock timestamps are intentionally excluded.
 func AuthorizationHoldKey(accountID, turKey string) (string, error) {

@@ -16,10 +16,6 @@ var (
 	ErrUnreconciledCost                 = errors.New("billing: provider cost is unreconciled")
 )
 
-// CustomerPricingSnapshot is the immutable customer pricing value used by both
-// conservative admission and post-turn rating.
-type CustomerPricingSnapshot = PricingSnapshot
-
 // OperatorRateSnapshot is the exact immutable fallback rate bound to a LUR.
 // Operator rates are intentionally separate from customer pricing: provider
 // cost and customer revenue are different economic perspectives.
@@ -72,7 +68,7 @@ func (s OperatorRateSet) Resolve(ref VersionRef) (OperatorRateSnapshot, bool) {
 type RatingInput struct {
 	Record          TurnUsageRecord
 	Authorization   Authorization
-	CustomerPricing CustomerPricingSnapshot
+	CustomerPricing PricingSnapshot
 	// ModelPricing supplies per-backend/model customer cards that share
 	// CustomerPricing.Ref. Empty means every billed leg uses CustomerPricing.
 	ModelPricing   []ModelCustomerPricing
@@ -109,13 +105,6 @@ type BillingResult struct {
 	UnreconciledCost    bool
 	UnreconciledLURKeys []string
 }
-
-// RatingResult and OperatorCost are compatibility aliases for callers that use
-// the shorter names in the design document.
-type (
-	RatingResult = BillingResult
-	OperatorCost = OperatorCostResult
-)
 
 // ProcessingMarker is the narrow mutable-state seam used when a rating result
 // cannot safely proceed to settlement. Implementations must update processing
@@ -155,9 +144,6 @@ func RateTurn(in RatingInput) (BillingResult, error) {
 	result.UnreconciledCost = len(result.UnreconciledLURKeys) > 0
 	return result, nil
 }
-
-// CalculateBilling is the descriptive alias used by post-turn callers.
-func CalculateBilling(in RatingInput) (BillingResult, error) { return RateTurn(in) }
 
 func sealForRating(record TurnUsageRecord) (TurnUsageRecord, error) {
 	if strings.TrimSpace(record.Key) == "" {

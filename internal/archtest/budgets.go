@@ -61,8 +61,9 @@ type LineBudget struct {
 // LineBudgets covers core/pluginreg plus the convergence trees (kept in sync
 // with PackageTreeBudgets for overlapping entries).
 var LineBudgets = []LineBudget{
-	// Runtime-session routing-override admin mux mount and selector preflight.
-	{Dir: "internal/core", Max: 74246},
+	// Routing-override admin plus merged billing outbox worker. Keep the
+	// measured-plus-25 ratchet.
+	{Dir: "internal/core", Max: 74504},
 	{Dir: "internal/pluginreg", Max: 1079},
 	{Dir: "internal/stdhttp", Max: 5455},
 	{Dir: "internal/infra/runtimebundle", Max: 11088},

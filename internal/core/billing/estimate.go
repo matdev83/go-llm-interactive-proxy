@@ -102,9 +102,6 @@ type MaxCostBound struct {
 	Basis           []BoundComponent
 }
 
-// MaxCustomerCharge is the public terminology alias for MaxCostBound.
-type MaxCustomerCharge = MaxCostBound
-
 func (p ChargePolicy) Validate() error {
 	if strings.TrimSpace(p.Ref.ID) == "" || strings.TrimSpace(p.Ref.Version) == "" {
 		return fmt.Errorf("%w: policy snapshot reference is required", ErrEstimateInvalid)

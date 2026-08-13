@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -12,22 +13,74 @@ import (
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
-// BillingShadowObserver receives one recorded LUR. Panics from observers are
+// BillingLegObserver receives one recorded LUR. Panics from observers are
 // isolated by the runtime and never alter stream behavior.
-type BillingShadowObserver interface {
-	ObserveBillingShadow(context.Context, billing.LegUsageRecord)
+type BillingLegObserver interface {
+	ObserveBillingLeg(context.Context, billing.LegUsageRecord)
 }
 
-// BillingShadowObserverFunc adapts a function to BillingShadowObserver.
-type BillingShadowObserverFunc func(context.Context, billing.LegUsageRecord)
+// BillingLegObserverFunc adapts a function to BillingLegObserver.
+type BillingLegObserverFunc func(context.Context, billing.LegUsageRecord)
 
-func (f BillingShadowObserverFunc) ObserveBillingShadow(ctx context.Context, record billing.LegUsageRecord) {
+func (f BillingLegObserverFunc) ObserveBillingLeg(ctx context.Context, record billing.LegUsageRecord) {
 	if f != nil {
 		f(ctx, record)
 	}
 }
 
-func (s *retryRecvStream) observeBillingShadow(ctx context.Context, command sdkterminal.Command) {
+type billingLegDraft struct {
+	aLegID          string
+	bLegID          string
+	seq             int
+	primary         routing.Primary
+	startedAt       time.Time
+	finishedAt      time.Time
+	command         sdkterminal.Command
+	surfaced        billing.SurfacedState
+	finalize        lipapi.Event
+	stream          lipapi.Event
+	operatorRateRef billing.VersionRef
+}
+
+func billingLegRecord(draft billingLegDraft) billing.LegUsageRecord {
+	backend := strings.TrimSpace(draft.primary.Backend)
+	if backend == "" {
+		backend = "unknown"
+	}
+	model := strings.TrimSpace(draft.primary.Model)
+	if model == "" {
+		model = "unknown"
+	}
+	bLegID := strings.TrimSpace(draft.bLegID)
+	if bLegID == "" {
+		bLegID = billingSyntheticBLegID(draft.seq)
+	}
+	return billing.LegUsageRecord{
+		ALegID:          strings.TrimSpace(draft.aLegID),
+		BLegID:          bLegID,
+		Seq:             draft.seq,
+		BackendID:       backend,
+		ProviderID:      billingProviderID(draft.primary),
+		ModelID:         model,
+		OperatorRateRef: draft.operatorRateRef,
+		StartedAt:       draft.startedAt,
+		FinishedAt:      draft.finishedAt,
+		Outcome:         legOutcomeFromCommand(draft.command),
+		Surfaced:        draft.surfaced,
+		Evidence:        mergeStreamCostOntoLUR(finalBillingEvidenceFromEvent(draft.finalize), finalBillingEvidenceFromEvent(draft.stream)),
+	}
+}
+
+func (e *Executor) operatorRateRef(ctx context.Context, primary routing.Primary) billing.VersionRef {
+	if e == nil || e.BillingIdentity.OperatorRateRef == nil {
+		return billing.VersionRef{}
+	}
+	backend := strings.TrimSpace(primary.Backend)
+	model := strings.TrimSpace(primary.Model)
+	return e.BillingIdentity.OperatorRateRef(ctx, backend, model)
+}
+
+func (s *retryRecvStream) recordBillingLeg(ctx context.Context, command sdkterminal.Command) {
 	if s == nil || s.executor == nil || !s.executor.billingTurns().enabled() {
 		return
 	}
@@ -35,29 +88,16 @@ func (s *retryRecvStream) observeBillingShadow(ctx context.Context, command sdkt
 	if blegID == "" {
 		blegID = billingSyntheticBLegID(s.bleg.Seq)
 	}
-	s.billingShadowMu.Lock()
-	if s.billingShadowSeen == nil {
-		s.billingShadowSeen = make(map[string]struct{})
+	s.billingLegMu.Lock()
+	if s.billingLegRecorded == nil {
+		s.billingLegRecorded = make(map[string]struct{})
 	}
-	if s.billingShadowInflight == nil {
-		s.billingShadowInflight = make(map[string]struct{})
-	}
-	if _, seen := s.billingShadowSeen[blegID]; seen {
-		s.billingShadowMu.Unlock()
+	if _, seen := s.billingLegRecorded[blegID]; seen {
+		s.billingLegMu.Unlock()
 		return
 	}
-	if _, inflight := s.billingShadowInflight[blegID]; inflight {
-		s.billingShadowMu.Unlock()
-		return
-	}
-	s.billingShadowInflight[blegID] = struct{}{}
-	s.billingShadowMu.Unlock()
-
-	defer func() {
-		s.billingShadowMu.Lock()
-		delete(s.billingShadowInflight, blegID)
-		s.billingShadowMu.Unlock()
-	}()
+	s.billingLegRecorded[blegID] = struct{}{}
+	s.billingLegMu.Unlock()
 
 	now := s.now()
 	started := s.accounting.requestStartedAt
@@ -68,51 +108,26 @@ func (s *retryRecvStream) observeBillingShadow(ctx context.Context, command sdkt
 	if command == sdkterminal.CommandNormalFinish || s.isCommitted() {
 		surfaced = billing.SurfacedYes
 	}
-	backend := strings.TrimSpace(s.cand.Primary.Backend)
-	if backend == "" {
-		backend = "unknown"
-	}
-	model := strings.TrimSpace(s.cand.Primary.Model)
-	if model == "" {
-		model = "unknown"
-	}
-	var operatorRateRef billing.VersionRef
-	if s.executor.BillingIdentity.OperatorRateRef != nil {
-		operatorRateRef = s.executor.BillingIdentity.OperatorRateRef(ctx, backend, model)
-	}
 	streamEv := s.billingEvidenceFallback()
-	finalizeEv := s.shadowBillingEvidence(ctx, "shadow_observe")
-	record := billing.LegUsageRecord{
-		ALegID:          strings.TrimSpace(s.aLegID),
-		BLegID:          blegID,
-		Seq:             s.bleg.Seq,
-		BackendID:       backend,
-		ProviderID:      billingProviderID(s.cand.Primary),
-		ModelID:         model,
-		OperatorRateRef: operatorRateRef,
-		StartedAt:       started,
-		FinishedAt:      now,
-		Outcome:         legOutcomeFromCommand(command),
-		Surfaced:        surfaced,
-		Evidence:        mergeStreamCostOntoLUR(finalBillingEvidenceFromEvent(finalizeEv), finalBillingEvidenceFromEvent(streamEv)),
-	}
-
-	s.billingShadowMu.Lock()
-	if _, seen := s.billingShadowSeen[blegID]; seen {
-		s.billingShadowMu.Unlock()
-		return
-	}
-	s.billingShadowSeen[blegID] = struct{}{}
-	s.billingShadowMu.Unlock()
-	s.executor.billingTurns().record(ctx, record)
+	s.executor.billingTurns().record(ctx, billingLegRecord(billingLegDraft{
+		aLegID:          s.aLegID,
+		bLegID:          s.bleg.BLegID,
+		seq:             s.bleg.Seq,
+		primary:         s.cand.Primary,
+		startedAt:       started,
+		finishedAt:      now,
+		command:         command,
+		surfaced:        surfaced,
+		finalize:        s.finalizeBillingEvidence(ctx, "record_leg"),
+		stream:          streamEv,
+		operatorRateRef: s.executor.operatorRateRef(ctx, s.cand.Primary),
+	}))
 }
 
-// shadowBillingEvidence returns authoritative finalize evidence when the backend
+// finalizeBillingEvidence returns authoritative finalize evidence when the backend
 // supports FinalizeBilling. Unlike finalizeBillingAfterCancel, this path is
 // observational only: it never emits client usage or mutates stream accounting.
-// Cost/CostPresent are not copied here; mergeStreamCostOntoLUR applies them on
-// the LUR after tokens and provenance are taken from FinalizeBilling.
-func (s *retryRecvStream) shadowBillingEvidence(ctx context.Context, reason string) lipapi.Event {
+func (s *retryRecvStream) finalizeBillingEvidence(ctx context.Context, reason string) lipapi.Event {
 	fallback := s.billingEvidenceFallback()
 	if s == nil || s.executor == nil {
 		return fallback
@@ -145,7 +160,6 @@ func (s *retryRecvStream) billingEvidenceFallback() lipapi.Event {
 	return lastUsageDeltaOrShell(s.seenEventsCopy())
 }
 
-// lastUsageDeltaOrShell returns the last EventUsageDelta, else an empty shell.
 func lastUsageDeltaOrShell(events []lipapi.Event) lipapi.Event {
 	for i := len(events) - 1; i >= 0; i-- {
 		if events[i].Kind == lipapi.EventUsageDelta {
@@ -223,75 +237,34 @@ func (s *retryRecvStream) handoffBillingTurn(ctx context.Context, command sdkter
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingHandoffTimeout)
 	defer cancel()
 
-	accountID, authID, customerPricing, chargePolicy := s.billingHandoffIdentity(persistCtx)
-	if accountID == "" {
+	if !s.billingIdentityStamped {
 		if s.executor.Log != nil {
-			s.executor.Log.DebugContext(persistCtx, "billing TUR handoff skipped: account identity unavailable")
+			s.executor.Log.DebugContext(persistCtx, "billing TUR handoff skipped: identity not stamped at admission")
 		}
 		return
 	}
-	aLegID := strings.TrimSpace(s.aLegID)
-	if authID == "" {
+	accountID := strings.TrimSpace(s.billingAccountID)
+	authID := strings.TrimSpace(s.billingAuthorizationID)
+	if accountID == "" || authID == "" {
 		if s.executor.Log != nil {
-			s.executor.Log.DebugContext(persistCtx, "billing TUR handoff skipped: authorization identity unavailable")
+			s.executor.Log.DebugContext(persistCtx, "billing TUR handoff skipped: stamped identity incomplete")
 		}
 		return
 	}
 
-	job := billingHandoffRetryJob{
-		stream:          s,
-		command:         command,
-		accountID:       accountID,
-		authorizationID: authID,
-		aLegID:          aLegID,
-		sessionID:       strings.TrimSpace(s.baseline.Session.AuthoritativeSessionID),
-		customerPricing: customerPricing,
-		chargePolicy:    chargePolicy,
-		upstreamOpened:  true,
+	job := billing.HandoffRetryJob{
+		AccountID:       accountID,
+		AuthorizationID: authID,
+		ALegID:          strings.TrimSpace(s.aLegID),
+		SessionID:       strings.TrimSpace(s.baseline.Session.AuthoritativeSessionID),
+		Outcome:         turnOutcomeFromCommand(command),
+		CustomerPricing: s.billingCustomerPricing,
+		ChargePolicy:    s.billingChargePolicy,
+		UpstreamOpened:  true,
 	}
 	if s.executor.billingTurns().sealTurn(ctx, job) {
 		s.billingHandoffSuccess = true
 	}
-}
-
-func (s *retryRecvStream) billingHandoffIdentity(ctx context.Context) (accountID, authID string, customerPricing, chargePolicy billing.VersionRef) {
-	if s.billingIdentityStamped {
-		return strings.TrimSpace(s.billingAccountID), strings.TrimSpace(s.billingAuthorizationID), s.billingCustomerPricing, s.billingChargePolicy
-	}
-	if s.executor.BillingIdentity.AccountID != nil {
-		accountID = strings.TrimSpace(s.executor.BillingIdentity.AccountID(ctx, s.baseline))
-	}
-	if accountID == "" {
-		if views, ok := s.viewsFor(ctx); ok {
-			accountID = strings.TrimSpace(views.Scope.PrincipalID.String())
-		}
-	}
-	authID = strings.TrimSpace(s.aLegID)
-	if s.executor.BillingIdentity.AuthorizationID != nil {
-		authID = strings.TrimSpace(s.executor.BillingIdentity.AuthorizationID(ctx, s.baseline, s.aLegID))
-	}
-	return accountID, authID, s.resolveCustomerPricingRef(ctx), s.resolveChargePolicyRef(ctx)
-}
-
-func (s *retryRecvStream) resolveCustomerPricingRef(ctx context.Context) billing.VersionRef {
-	if s == nil || s.executor == nil || s.executor.BillingIdentity.CustomerPricingRef == nil {
-		return billing.VersionRef{}
-	}
-	return s.executor.BillingIdentity.CustomerPricingRef(ctx, s.baseline)
-}
-
-func (s *retryRecvStream) resolveChargePolicyRef(ctx context.Context) billing.VersionRef {
-	if s == nil || s.executor == nil || s.executor.BillingIdentity.ChargePolicyRef == nil {
-		return billing.VersionRef{}
-	}
-	return s.executor.BillingIdentity.ChargePolicyRef(ctx, s.baseline)
-}
-
-func (s *retryRecvStream) persistBillingTurnLocked(ctx context.Context, job billingHandoffRetryJob) error {
-	if s == nil || s.executor == nil {
-		return fmt.Errorf("runtime: billing handoff unavailable")
-	}
-	return s.executor.billingTurns().persist(ctx, job)
 }
 
 var errBillingHandoffNoEvidence = fmt.Errorf("runtime: billing handoff has no B-leg evidence")
@@ -326,8 +299,8 @@ func finalBillingEvidenceFromEvent(ev lipapi.Event) billing.FinalBillingEvidence
 	}
 }
 
-func (e *Executor) recordParallelBillingShadow(ctx context.Context, leg *parallelLeg, usage lipapi.Event, command sdkterminal.Command, committed bool) {
-	if e == nil || leg == nil || (e.BillingTerminalHandoff == nil && e.BillingShadowObserver == nil) {
+func (e *Executor) recordParallelBillingLeg(ctx context.Context, leg *parallelLeg, usage lipapi.Event, command sdkterminal.Command, committed bool) {
+	if e == nil || leg == nil || (e.BillingTerminalHandoff == nil && e.BillingLegObserver == nil) {
 		return
 	}
 	if leg.startedAt.IsZero() {
@@ -336,43 +309,32 @@ func (e *Executor) recordParallelBillingShadow(ctx context.Context, leg *paralle
 		// would invent a billed interval.
 		return
 	}
-	now := e.now()
 	surfaced := billing.SurfacedNo
 	if committed {
 		surfaced = billing.SurfacedYes
-	}
-	backend := strings.TrimSpace(leg.cand.Primary.Backend)
-	if backend == "" {
-		backend = "unknown"
-	}
-	model := strings.TrimSpace(leg.cand.Primary.Model)
-	if model == "" {
-		model = "unknown"
-	}
-	var operatorRateRef billing.VersionRef
-	if e.BillingIdentity.OperatorRateRef != nil {
-		operatorRateRef = e.BillingIdentity.OperatorRateRef(ctx, backend, model)
 	}
 	fallback := lastUsageDeltaOrShell([]lipapi.Event{usage})
 	finalizeEv, ok := e.billingTurns().finalizeOnce(ctx, execbackend.BillingFinalizationInput{
 		ALegID:  strings.TrimSpace(leg.bleg.ALegID),
 		BLegID:  strings.TrimSpace(leg.bleg.BLegID),
-		Backend: backend,
-		Model:   model,
-		Reason:  "parallel_loser_shadow",
+		Backend: strings.TrimSpace(leg.cand.Primary.Backend),
+		Model:   strings.TrimSpace(leg.cand.Primary.Model),
+		Reason:  "parallel_loser",
 	})
 	if !ok {
 		finalizeEv = fallback
 	}
-	blegID := strings.TrimSpace(leg.bleg.BLegID)
-	if blegID == "" {
-		blegID = billingSyntheticBLegID(leg.bleg.Seq)
-	}
-	e.addBillingEvidence(ctx, billing.LegUsageRecord{
-		ALegID: strings.TrimSpace(leg.bleg.ALegID), BLegID: blegID, Seq: leg.bleg.Seq,
-		BackendID: backend, ProviderID: billingProviderID(leg.cand.Primary), ModelID: model, OperatorRateRef: operatorRateRef,
-		StartedAt: leg.startedAt, FinishedAt: now,
-		Outcome: legOutcomeFromCommand(command), Surfaced: surfaced,
-		Evidence: mergeStreamCostOntoLUR(finalBillingEvidenceFromEvent(finalizeEv), finalBillingEvidenceFromEvent(fallback)),
-	})
+	e.billingTurns().record(ctx, billingLegRecord(billingLegDraft{
+		aLegID:          leg.bleg.ALegID,
+		bLegID:          leg.bleg.BLegID,
+		seq:             leg.bleg.Seq,
+		primary:         leg.cand.Primary,
+		startedAt:       leg.startedAt,
+		finishedAt:      e.now(),
+		command:         command,
+		surfaced:        surfaced,
+		finalize:        finalizeEv,
+		stream:          fallback,
+		operatorRateRef: e.operatorRateRef(ctx, leg.cand.Primary),
+	}))
 }

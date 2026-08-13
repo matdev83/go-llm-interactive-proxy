@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -23,38 +24,84 @@ func testBillingIdentity() BillingIdentity {
 	}
 }
 
-func TestBillingCollectorEvictsFinalizeCacheAfterTURSeal(t *testing.T) {
-	prev := billingHandoffRetryMaxAttempts
-	billingHandoffRetryMaxAttempts = 2
-	t.Cleanup(func() { billingHandoffRetryMaxAttempts = prev })
+// stampStreamIdentity copies BillingIdentity onto a test stream once. Production
+// stamps at Authorize; these tests skip Execute and must not re-resolve at handoff.
+func stampStreamIdentity(s *retryRecvStream) {
+	if s == nil || s.executor == nil {
+		return
+	}
+	id := s.executor.BillingIdentity
+	accountID := strings.TrimSpace(s.billingAccountID)
+	authID := strings.TrimSpace(s.billingAuthorizationID)
+	if accountID == "" && id.AccountID != nil {
+		accountID = strings.TrimSpace(id.AccountID(context.Background(), s.baseline))
+	}
+	if authID == "" && id.AuthorizationID != nil {
+		authID = strings.TrimSpace(id.AuthorizationID(context.Background(), s.baseline, s.aLegID))
+	}
+	if accountID == "" || authID == "" {
+		return
+	}
+	if s.billingCustomerPricing == (billing.VersionRef{}) && id.CustomerPricingRef != nil {
+		s.billingCustomerPricing = id.CustomerPricingRef(context.Background(), s.baseline)
+	}
+	if s.billingChargePolicy == (billing.VersionRef{}) && id.ChargePolicyRef != nil {
+		s.billingChargePolicy = id.ChargePolicyRef(context.Background(), s.baseline)
+	}
+	s.billingAccountID = accountID
+	s.billingAuthorizationID = authID
+	s.billingIdentityStamped = true
+}
 
+func configureHandoffRetry(e *Executor, cfg billing.HandoffRetryConfig) {
+	if e == nil {
+		return
+	}
+	e.billingTurns().retry.ReplaceConfig(cfg)
+}
+
+func drainHandoffRetry(e *Executor, job billing.HandoffRetryJob) {
+	if e == nil {
+		return
+	}
+	coll := e.billingTurns()
+	_ = coll.outbox.Enqueue(context.Background(), job)
+	_ = coll.retry.ProcessUntilIdle(context.Background())
+}
+
+func TestBillingCollectorEvictsFinalizeCacheAfterTURSeal(t *testing.T) {
 	var released atomic.Int32
 	probe := billingHoldReleaseProbe{release: func(context.Context, billing.ReleaseAuthorizationInput) (billing.Posting, error) {
 		released.Add(1)
 		return billing.Posting{}, nil
 	}}
-	executor := &Executor{CoreRuntime: CoreRuntime{
-		BillingTerminalHandoff: probe,
-		BillingHoldReleaser:    probe,
-		BillingIdentity:        testBillingIdentity(),
-		Backends: map[string]execbackend.Backend{
-			"backend": {
-				FinalizeBilling: func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error) {
-					return lipapi.Event{
-						Kind:          lipapi.EventUsageDelta,
-						InputTokens:   1,
-						UsagePresence: lipapi.UsagePresence{InputTokens: true},
-					}, nil
+	executor := &Executor{
+		CoreRuntime: CoreRuntime{
+			Backends: map[string]execbackend.Backend{
+				"backend": {
+					FinalizeBilling: func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error) {
+						return lipapi.Event{
+							Kind:          lipapi.EventUsageDelta,
+							InputTokens:   1,
+							UsagePresence: lipapi.UsagePresence{InputTokens: true},
+						}, nil
+					},
 				},
 			},
 		},
-	}}
+		BillingRuntime: BillingRuntime{
+			BillingTerminalHandoff: probe,
+			BillingHoldReleaser:    probe,
+			BillingIdentity:        testBillingIdentity(),
+		},
+	}
 	t.Cleanup(executor.WaitBillingHandoffRetries)
 	stream := &retryRecvStream{
 		executor: executor, aLegID: "a-1", baseline: lipapi.Call{},
 		bleg: b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
 		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
 	}
+	stampStreamIdentity(stream)
 	stream.lastAuthorityUsage = lipapi.Event{
 		Kind: lipapi.EventUsageDelta, InputTokens: 1,
 		UsagePresence: lipapi.UsagePresence{InputTokens: true},
@@ -68,15 +115,15 @@ func TestBillingCollectorEvictsFinalizeCacheAfterTURSeal(t *testing.T) {
 	if cached {
 		t.Fatal("finalize cache must evict the sealed B-leg")
 	}
-	if coll.sealed("a-1") {
-		t.Fatal("sealed A-leg marker must be evicted after TUR sealing")
+	if !coll.sealed("a-1") {
+		t.Fatal("successful TUR seal must mark the A-leg sealed")
 	}
-	late := coll.sealTurn(context.Background(), billingHandoffRetryJob{
-		accountID: "acct", authorizationID: "auth:a-1", aLegID: "a-1",
-		command: sdkterminal.CommandNormalFinish, upstreamOpened: true,
+	late := coll.sealTurn(context.Background(), billing.HandoffRetryJob{
+		AccountID: "acct", AuthorizationID: "auth:a-1", ALegID: "a-1",
+		Outcome: billing.TurnOutcomeCompleted, UpstreamOpened: true,
 	})
-	if late {
-		t.Fatal("late seal without retained evidence must not report a new persist")
+	if !late {
+		t.Fatal("late seal of an already-sealed A-leg must be idempotent")
 	}
 	executor.WaitBillingHandoffRetries()
 	if released.Load() != 0 {
@@ -96,7 +143,7 @@ func TestPhase4_BillingTerminalHandoffCoversAllTerminalCommands(t *testing.T) {
 	}
 	for _, command := range commands {
 		called := 0
-		executor := &Executor{CoreRuntime: CoreRuntime{
+		executor := &Executor{BillingRuntime: BillingRuntime{
 			BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(_ context.Context, record billing.TurnUsageRecord) error {
 				called++
 				if len(record.Legs) != 1 || record.Legs[0].BLegID != "b-1" {
@@ -111,6 +158,7 @@ func TestPhase4_BillingTerminalHandoffCoversAllTerminalCommands(t *testing.T) {
 			bleg: b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
 			cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
 		}
+		stampStreamIdentity(stream)
 		stream.lastAuthorityUsage = lipapi.Event{
 			Kind: lipapi.EventUsageDelta, InputTokens: 1,
 			UsagePresence: lipapi.UsagePresence{InputTokens: true},
@@ -124,7 +172,7 @@ func TestPhase4_BillingTerminalHandoffCoversAllTerminalCommands(t *testing.T) {
 
 func TestBillingTerminalHandoffSealsAuthoritativeSessionIDNotClientHint(t *testing.T) {
 	var got billing.TurnUsageRecord
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(_ context.Context, record billing.TurnUsageRecord) error {
 			got = record
 			return nil
@@ -137,7 +185,8 @@ func TestBillingTerminalHandoffSealsAuthoritativeSessionIDNotClientHint(t *testi
 		bleg:     b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
 		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
 	}
-	stream.observeBillingShadow(context.Background(), sdkterminal.CommandNormalFinish)
+	stampStreamIdentity(stream)
+	stream.recordBillingLeg(context.Background(), sdkterminal.CommandNormalFinish)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
 	if got.SessionID != "proxy-sess" {
 		t.Fatalf("SessionID = %q, want proxy-sess (authoritative)", got.SessionID)
@@ -146,7 +195,7 @@ func TestBillingTerminalHandoffSealsAuthoritativeSessionIDNotClientHint(t *testi
 
 func TestBillingTerminalHandoffIgnoresClientSessionHintWhenAuthoritativeEmpty(t *testing.T) {
 	var got billing.TurnUsageRecord
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(_ context.Context, record billing.TurnUsageRecord) error {
 			got = record
 			return nil
@@ -159,7 +208,8 @@ func TestBillingTerminalHandoffIgnoresClientSessionHintWhenAuthoritativeEmpty(t 
 		bleg:     b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
 		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
 	}
-	stream.observeBillingShadow(context.Background(), sdkterminal.CommandNormalFinish)
+	stampStreamIdentity(stream)
+	stream.recordBillingLeg(context.Background(), sdkterminal.CommandNormalFinish)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
 	if got.SessionID != "" {
 		t.Fatalf("SessionID = %q, want empty when only client hint is present", got.SessionID)
@@ -168,7 +218,7 @@ func TestBillingTerminalHandoffIgnoresClientSessionHintWhenAuthoritativeEmpty(t 
 
 func TestBillingTerminalHandoffAggregatesAllBLegsOnce(t *testing.T) {
 	var calls []billing.TurnUsageRecord
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(_ context.Context, record billing.TurnUsageRecord) error {
 			calls = append(calls, record)
 			return nil
@@ -176,6 +226,7 @@ func TestBillingTerminalHandoffAggregatesAllBLegsOnce(t *testing.T) {
 		BillingIdentity: testBillingIdentity(),
 	}}
 	stream := &retryRecvStream{executor: executor, aLegID: "a-1", baseline: lipapi.Call{}, bleg: b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1}, cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}}}
+	stampStreamIdentity(stream)
 	if got := stream.runAttemptTerminal(context.Background(), sdkterminal.CommandSwallowedAttempt, nil); got.Err != nil {
 		t.Fatal(got.Err)
 	}
@@ -203,15 +254,16 @@ func TestBillingTerminalHandoffAggregatesAllBLegsOnce(t *testing.T) {
 
 func TestBillingTerminalHandoffIncludesSharedParallelLoserEvidence(t *testing.T) {
 	var calls []billing.TurnUsageRecord
-	executor := &Executor{CoreRuntime: CoreRuntime{BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(_ context.Context, record billing.TurnUsageRecord) error {
+	executor := &Executor{BillingRuntime: BillingRuntime{BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(_ context.Context, record billing.TurnUsageRecord) error {
 		calls = append(calls, record)
 		return nil
 	}), BillingIdentity: testBillingIdentity()}}
 	leg1 := &parallelLeg{bleg: b2bua.BLegRecord{ALegID: "a-1", BLegID: "b-2", Seq: 2}, cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "b", Model: "m"}}, startedAt: time.Unix(1, 0).UTC()}
 	leg2 := &parallelLeg{bleg: b2bua.BLegRecord{ALegID: "a-1", BLegID: "b-1", Seq: 1}, cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "a", Model: "m"}}, startedAt: time.Unix(1, 0).UTC()}
-	executor.recordParallelBillingShadow(context.Background(), leg1, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
-	executor.recordParallelBillingShadow(context.Background(), leg2, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
+	executor.recordParallelBillingLeg(context.Background(), leg1, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
+	executor.recordParallelBillingLeg(context.Background(), leg2, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
 	stream := &retryRecvStream{executor: executor, aLegID: "a-1", baseline: lipapi.Call{}}
+	stampStreamIdentity(stream)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
 	if len(calls) != 1 || len(calls[0].Legs) != 2 || calls[0].Legs[0].Seq != 1 || calls[0].Legs[1].Seq != 2 {
 		t.Fatalf("parallel handoff = %+v", calls)
@@ -219,18 +271,16 @@ func TestBillingTerminalHandoffIncludesSharedParallelLoserEvidence(t *testing.T)
 }
 
 func TestBillingTerminalHandoffFailureDoesNotChangeTerminalResult(t *testing.T) {
-	prevEvidence := billingHandoffEvidenceRetryMaxAttempts
-	billingHandoffEvidenceRetryMaxAttempts = 3
-	t.Cleanup(func() { billingHandoffEvidenceRetryMaxAttempts = prevEvidence })
-
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(context.Context, billing.TurnUsageRecord) error {
 			return errors.New("durable unavailable")
 		}),
 		BillingIdentity: testBillingIdentity(),
 	}}
+	configureHandoffRetry(executor, billing.HandoffRetryConfig{EvidenceMaxAttempts: 3, RetryDelay: time.Millisecond})
 	t.Cleanup(executor.WaitBillingHandoffRetries)
 	stream := &retryRecvStream{executor: executor, aLegID: "a-1", baseline: lipapi.Call{}, bleg: b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1}, cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}}}
+	stampStreamIdentity(stream)
 	result := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil)
 	if result.Err != nil {
 		t.Fatalf("handoff failure changed terminal result: %v", result.Err)
@@ -240,7 +290,7 @@ func TestBillingTerminalHandoffFailureDoesNotChangeTerminalResult(t *testing.T) 
 func TestBillingTerminalHandoffMissingAccountPreservesParallelLoserEvidence(t *testing.T) {
 	var calls []billing.TurnUsageRecord
 	accountID := ""
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(_ context.Context, record billing.TurnUsageRecord) error {
 			calls = append(calls, record)
 			return nil
@@ -255,7 +305,7 @@ func TestBillingTerminalHandoffMissingAccountPreservesParallelLoserEvidence(t *t
 		cand:      routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}},
 		startedAt: time.Unix(100, 0).UTC(),
 	}
-	executor.recordParallelBillingShadow(context.Background(), leg, lipapi.Event{
+	executor.recordParallelBillingLeg(context.Background(), leg, lipapi.Event{
 		Kind: lipapi.EventUsageDelta, InputTokens: 3, UsagePresence: lipapi.UsagePresence{InputTokens: true},
 	}, sdkterminal.CommandParallelLoser, false)
 
@@ -265,6 +315,7 @@ func TestBillingTerminalHandoffMissingAccountPreservesParallelLoserEvidence(t *t
 		t.Fatalf("handoff must skip without account identity, got %+v", calls)
 	}
 	accountID = "acct"
+	stampStreamIdentity(stream)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
 	if len(calls) != 1 || len(calls[0].Legs) != 1 || calls[0].Legs[0].BLegID != "b-loser" {
 		t.Fatalf("retry handoff after identity resolution = %+v", calls)
@@ -274,7 +325,7 @@ func TestBillingTerminalHandoffMissingAccountPreservesParallelLoserEvidence(t *t
 func TestBillingTerminalHandoffUsesStampedIdentityWhenResolversEmpty(t *testing.T) {
 	t.Parallel()
 	var got billing.TurnUsageRecord
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(_ context.Context, record billing.TurnUsageRecord) error {
 			got = record
 			return nil
@@ -291,7 +342,7 @@ func TestBillingTerminalHandoffUsesStampedIdentityWhenResolversEmpty(t *testing.
 		cand:      routing.AttemptCandidate{Primary: routing.Primary{Backend: "b", Model: "m"}},
 		startedAt: time.Unix(1, 0).UTC(),
 	}
-	executor.recordParallelBillingShadow(context.Background(), leg, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
+	executor.recordParallelBillingLeg(context.Background(), leg, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
 	stream := &retryRecvStream{
 		executor:               executor,
 		aLegID:                 "a-1",
@@ -315,7 +366,7 @@ func TestBillingAbortHandoffUsesStampedIdentityWhenResolversEmpty(t *testing.T) 
 	t.Parallel()
 	var got billing.TurnUsageRecord
 	var calls int
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(_ context.Context, record billing.TurnUsageRecord) error {
 			calls++
 			got = record
@@ -332,7 +383,7 @@ func TestBillingAbortHandoffUsesStampedIdentityWhenResolversEmpty(t *testing.T) 
 		cand:      routing.AttemptCandidate{Primary: routing.Primary{Backend: "b", Model: "m"}},
 		startedAt: time.Unix(1, 0).UTC(),
 	}
-	executor.recordParallelBillingShadow(context.Background(), leg, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
+	executor.recordParallelBillingLeg(context.Background(), leg, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
 	prep := &preparedRequest{
 		baseline:               lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "proxy-sess"}},
 		aLeg:                   b2bua.ALegRecord{ALegID: "a-1"},
@@ -373,7 +424,7 @@ func (a billingAdmitHold) Authorize(context.Context, BillingAdmissionInput) (bil
 
 func TestAuthorizeBillingOnceStampsIdentityFromAdmissionContext(t *testing.T) {
 	t.Parallel()
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingIdentity: BillingIdentity{
 			AccountID:       func(context.Context, lipapi.Call) string { return "acct" },
 			AuthorizationID: func(_ context.Context, _ lipapi.Call, aLeg string) string { return "auth-" + aLeg },
@@ -405,7 +456,7 @@ func TestAuthorizeBillingOnceStampsEconomicRefsFromHold(t *testing.T) {
 		PricingRef:      billing.VersionRef{ID: "hold-prices", Version: "v9"},
 		ChargePolicyRef: billing.VersionRef{ID: "hold-policy", Version: "v3"},
 	}
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingIdentity: BillingIdentity{
 			AccountID:       func(context.Context, lipapi.Call) string { return "identity-acct" },
 			AuthorizationID: func(context.Context, lipapi.Call, string) string { return "identity-auth" },
@@ -430,10 +481,34 @@ func TestAuthorizeBillingOnceStampsEconomicRefsFromHold(t *testing.T) {
 	}
 }
 
+func TestAuthorizeBillingOnceStampsIdentityWithoutAdmissionWhenHandoffConfigured(t *testing.T) {
+	t.Parallel()
+	executor := &Executor{BillingRuntime: BillingRuntime{
+		BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(context.Context, billing.TurnUsageRecord) error { return nil }),
+		BillingIdentity:        testBillingIdentity(),
+	}}
+	prep := &preparedRequest{baseline: lipapi.Call{ID: "call-1"}, aLeg: b2bua.ALegRecord{ALegID: "a-1"}}
+	if err := executor.authorizeBillingOnce(context.Background(), prep, &routePlanState{}); err != nil {
+		t.Fatalf("authorizeBillingOnce: %v", err)
+	}
+	if !prep.billingIdentityStamped || prep.billingAccountID != "acct" || prep.billingAuthorizationID != "auth:a-1" {
+		t.Fatalf("handoff without admission must stamp from identity resolvers, stamped=%v account=%q auth=%q", prep.billingIdentityStamped, prep.billingAccountID, prep.billingAuthorizationID)
+	}
+
+	plain := &Executor{BillingRuntime: BillingRuntime{BillingIdentity: testBillingIdentity()}}
+	unstamped := &preparedRequest{baseline: lipapi.Call{ID: "call-2"}, aLeg: b2bua.ALegRecord{ALegID: "a-2"}}
+	if err := plain.authorizeBillingOnce(context.Background(), unstamped, &routePlanState{}); err != nil {
+		t.Fatalf("authorizeBillingOnce without handoff: %v", err)
+	}
+	if unstamped.billingIdentityStamped {
+		t.Fatal("must not stamp when neither admission nor terminal handoff is configured")
+	}
+}
+
 func TestBillingTerminalHandoffMissingAuthorizationPreservesEvidence(t *testing.T) {
 	var calls []billing.TurnUsageRecord
 	authID := ""
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(_ context.Context, record billing.TurnUsageRecord) error {
 			calls = append(calls, record)
 			return nil
@@ -444,13 +519,14 @@ func TestBillingTerminalHandoffMissingAuthorizationPreservesEvidence(t *testing.
 		},
 	}}
 	leg := &parallelLeg{bleg: b2bua.BLegRecord{ALegID: "a-1", BLegID: "b-1", Seq: 1}, cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "b", Model: "m"}}, startedAt: time.Unix(1, 0).UTC()}
-	executor.recordParallelBillingShadow(context.Background(), leg, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
+	executor.recordParallelBillingLeg(context.Background(), leg, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
 	stream := &retryRecvStream{executor: executor, aLegID: "a-1", baseline: lipapi.Call{}}
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
 	if len(calls) != 0 {
 		t.Fatalf("handoff must skip without authorization identity, got %+v", calls)
 	}
 	authID = "auth:a-1"
+	stampStreamIdentity(stream)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
 	if len(calls) != 1 || calls[0].AuthorizationID != "auth:a-1" {
 		t.Fatalf("retry handoff after auth identity = %+v", calls)
@@ -459,7 +535,7 @@ func TestBillingTerminalHandoffMissingAuthorizationPreservesEvidence(t *testing.
 
 func TestBillingTerminalHandoffWaitsForParallelEvidenceBarrier(t *testing.T) {
 	var calls []billing.TurnUsageRecord
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(_ context.Context, record billing.TurnUsageRecord) error {
 			calls = append(calls, record)
 			return nil
@@ -470,10 +546,11 @@ func TestBillingTerminalHandoffWaitsForParallelEvidenceBarrier(t *testing.T) {
 	go func() {
 		time.Sleep(40 * time.Millisecond)
 		leg := &parallelLeg{bleg: b2bua.BLegRecord{ALegID: "a-1", BLegID: "b-loser", Seq: 1}, cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "b", Model: "m"}}, startedAt: time.Unix(1, 0).UTC()}
-		executor.recordParallelBillingShadow(context.Background(), leg, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
+		executor.recordParallelBillingLeg(context.Background(), leg, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
 		complete()
 	}()
 	stream := &retryRecvStream{executor: executor, aLegID: "a-1", baseline: lipapi.Call{}}
+	stampStreamIdentity(stream)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
 	if len(calls) != 1 || len(calls[0].Legs) != 1 || calls[0].Legs[0].BLegID != "b-loser" {
 		t.Fatalf("handoff must wait for barrier evidence, got %+v", calls)
@@ -482,20 +559,22 @@ func TestBillingTerminalHandoffWaitsForParallelEvidenceBarrier(t *testing.T) {
 
 func TestBillingTerminalHandoffEmptyEvidenceDoesNotMarkSuccess(t *testing.T) {
 	var calls int
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(context.Context, billing.TurnUsageRecord) error {
 			calls++
 			return nil
 		}),
 		BillingIdentity: testBillingIdentity(),
 	}}
+	t.Cleanup(executor.WaitBillingHandoffRetries)
 	stream := &retryRecvStream{executor: executor, aLegID: "a-1", baseline: lipapi.Call{}}
+	stampStreamIdentity(stream)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
 	if calls != 0 || stream.billingHandoffSuccess {
 		t.Fatalf("empty evidence must not succeed handoff, calls=%d success=%v", calls, stream.billingHandoffSuccess)
 	}
 	leg := &parallelLeg{bleg: b2bua.BLegRecord{ALegID: "a-1", BLegID: "b-1", Seq: 1}, cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "b", Model: "m"}}, startedAt: time.Unix(1, 0).UTC()}
-	executor.recordParallelBillingShadow(context.Background(), leg, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
+	executor.recordParallelBillingLeg(context.Background(), leg, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
 	if calls != 1 || !stream.billingHandoffSuccess {
 		t.Fatalf("retry after evidence arrives = calls=%d success=%v", calls, stream.billingHandoffSuccess)
@@ -505,7 +584,7 @@ func TestBillingTerminalHandoffEmptyEvidenceDoesNotMarkSuccess(t *testing.T) {
 func TestBillingTerminalHandoffPersistFailureRestoresEvidenceForRetry(t *testing.T) {
 	var mu sync.Mutex
 	var calls int
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(context.Context, billing.TurnUsageRecord) error {
 			mu.Lock()
 			defer mu.Unlock()
@@ -523,18 +602,16 @@ func TestBillingTerminalHandoffPersistFailureRestoresEvidenceForRetry(t *testing
 		cand:      routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}},
 		startedAt: time.Unix(50, 0).UTC(),
 	}
-	executor.recordParallelBillingShadow(context.Background(), leg, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
+	executor.recordParallelBillingLeg(context.Background(), leg, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
 	stream := &retryRecvStream{executor: executor, aLegID: "a-1", baseline: lipapi.Call{}}
+	stampStreamIdentity(stream)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		mu.Lock()
 		n := calls
 		mu.Unlock()
-		stream.billingHandoffMu.Lock()
-		ok := stream.billingHandoffSuccess
-		stream.billingHandoffMu.Unlock()
-		if n >= 2 && ok {
+		if n >= 2 && executor.billingTurns().sealed("a-1") {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -542,12 +619,12 @@ func TestBillingTerminalHandoffPersistFailureRestoresEvidenceForRetry(t *testing
 	mu.Lock()
 	n := calls
 	mu.Unlock()
-	t.Fatalf("persist failure must restore evidence and retry asynchronously, calls=%d success=%v", n, stream.billingHandoffSuccess)
+	t.Fatalf("persist failure must retry asynchronously without holding the stream, calls=%d sealed=%v", n, executor.billingTurns().sealed("a-1"))
 }
 
 func TestBillingTerminalHandoffIgnoresCanceledRequestContext(t *testing.T) {
 	var calls int
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(ctx context.Context, record billing.TurnUsageRecord) error {
 			if err := ctx.Err(); err != nil {
 				t.Fatalf("persist must use detached context, got %v", err)
@@ -562,10 +639,11 @@ func TestBillingTerminalHandoffIgnoresCanceledRequestContext(t *testing.T) {
 	}}
 	t.Cleanup(executor.WaitBillingHandoffRetries)
 	leg := &parallelLeg{bleg: b2bua.BLegRecord{ALegID: "a-1", BLegID: "b-1", Seq: 1}, cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "b", Model: "m"}}, startedAt: time.Unix(1, 0).UTC()}
-	executor.recordParallelBillingShadow(context.Background(), leg, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
+	executor.recordParallelBillingLeg(context.Background(), leg, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
 	stream := &retryRecvStream{executor: executor, aLegID: "a-1", baseline: lipapi.Call{}}
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
+	stampStreamIdentity(stream)
 	stream.handoffBillingTurn(canceled, sdkterminal.CommandNormalFinish)
 	if calls != 1 || !stream.billingHandoffSuccess {
 		t.Fatalf("canceled request ctx must not strand handoff, calls=%d success=%v", calls, stream.billingHandoffSuccess)
@@ -579,7 +657,7 @@ func TestBillingTerminalHandoffRefusesPartialSealOnBarrierTimeout(t *testing.T) 
 
 	var mu sync.Mutex
 	var calls []billing.TurnUsageRecord
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(_ context.Context, record billing.TurnUsageRecord) error {
 			mu.Lock()
 			defer mu.Unlock()
@@ -591,8 +669,9 @@ func TestBillingTerminalHandoffRefusesPartialSealOnBarrierTimeout(t *testing.T) 
 	t.Cleanup(executor.WaitBillingHandoffRetries)
 	complete := executor.beginBillingEvidenceBarrier("a-1")
 	winner := &parallelLeg{bleg: b2bua.BLegRecord{ALegID: "a-1", BLegID: "b-winner", Seq: 1}, cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "w", Model: "m"}}, startedAt: time.Unix(1, 0).UTC()}
-	executor.recordParallelBillingShadow(context.Background(), winner, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, true)
+	executor.recordParallelBillingLeg(context.Background(), winner, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, true)
 	stream := &retryRecvStream{executor: executor, aLegID: "a-1", baseline: lipapi.Call{}}
+	stampStreamIdentity(stream)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
 	mu.Lock()
 	immediate := len(calls)
@@ -604,7 +683,7 @@ func TestBillingTerminalHandoffRefusesPartialSealOnBarrierTimeout(t *testing.T) 
 	// retry is not stuck in the test's short incomplete-wait loop.
 	billingHandoffTimeout = old
 	loser := &parallelLeg{bleg: b2bua.BLegRecord{ALegID: "a-1", BLegID: "b-loser", Seq: 2}, cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "l", Model: "m"}}, startedAt: time.Unix(2, 0).UTC()}
-	executor.recordParallelBillingShadow(context.Background(), loser, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
+	executor.recordParallelBillingLeg(context.Background(), loser, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
 	complete()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -615,21 +694,18 @@ func TestBillingTerminalHandoffRefusesPartialSealOnBarrierTimeout(t *testing.T) 
 			legs = len(calls[0].Legs)
 		}
 		mu.Unlock()
-		stream.billingHandoffMu.Lock()
-		ok := stream.billingHandoffSuccess
-		stream.billingHandoffMu.Unlock()
-		if n == 1 && legs == 2 && ok {
+		if n == 1 && legs == 2 && executor.billingTurns().sealed("a-1") {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	t.Fatalf("async retry must seal complete evidence after barrier, calls=%+v success=%v", calls, stream.billingHandoffSuccess)
+	t.Fatalf("async retry must seal complete evidence after barrier, calls=%+v sealed=%v", calls, executor.billingTurns().sealed("a-1"))
 }
 
 func TestBillingEvidenceClaimRestoreIsAtomic(t *testing.T) {
-	executor := &Executor{CoreRuntime: CoreRuntime{BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(context.Context, billing.TurnUsageRecord) error { return nil })}}
+	executor := &Executor{BillingRuntime: BillingRuntime{BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(context.Context, billing.TurnUsageRecord) error { return nil })}}
 	leg := billing.LegUsageRecord{ALegID: "a-1", BLegID: "b-1", Seq: 1}
 	executor.addBillingEvidence(context.Background(), leg)
 	claimed := executor.claimBillingEvidence("a-1")
@@ -645,7 +721,7 @@ func TestBillingEvidenceClaimRestoreIsAtomic(t *testing.T) {
 }
 
 func TestBillingEvidencePersistFailureKeepsSharedLegs(t *testing.T) {
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(context.Context, billing.TurnUsageRecord) error {
 			return errors.New("durable unavailable")
 		}),
@@ -654,9 +730,9 @@ func TestBillingEvidencePersistFailureKeepsSharedLegs(t *testing.T) {
 	executor.addBillingEvidence(context.Background(), billing.LegUsageRecord{ALegID: "a-1", BLegID: "b-loser", Seq: 1})
 	executor.addBillingEvidence(context.Background(), billing.LegUsageRecord{ALegID: "a-1", BLegID: "b-winner", Seq: 2})
 	stream := &retryRecvStream{executor: executor, aLegID: "a-1", baseline: lipapi.Call{}}
-	err := stream.persistBillingTurnLocked(context.Background(), billingHandoffRetryJob{
-		accountID: "acct", authorizationID: "auth:a-1", aLegID: "a-1",
-		command: sdkterminal.CommandNormalFinish,
+	err := stream.executor.billingTurns().persist(context.Background(), billing.HandoffRetryJob{
+		AccountID: "acct", AuthorizationID: "auth:a-1", ALegID: "a-1",
+		Outcome: billing.TurnOutcomeCompleted,
 	})
 	if err == nil {
 		t.Fatal("expected persist failure")
@@ -668,22 +744,19 @@ func TestBillingEvidencePersistFailureKeepsSharedLegs(t *testing.T) {
 }
 
 func TestBillingHandoffRetryDoesNotAbandonNoEvidenceImmediately(t *testing.T) {
-	prev := billingHandoffRetryMaxAttempts
-	billingHandoffRetryMaxAttempts = 3
-	t.Cleanup(func() { billingHandoffRetryMaxAttempts = prev })
-
 	var released atomic.Int32
 	store := billingHoldReleaseProbe{release: func(context.Context, billing.ReleaseAuthorizationInput) (billing.Posting, error) {
 		released.Add(1)
 		return billing.Posting{}, nil
 	}}
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: store,
 		BillingHoldReleaser:    store,
 	}}
-	job := billingHandoffRetryJob{accountID: "acct", authorizationID: "auth:a-empty", aLegID: "a-empty", command: sdkterminal.CommandCancel}
+	configureHandoffRetry(executor, billing.HandoffRetryConfig{NoEvidenceMaxAttempts: 3, RetryDelay: 100 * time.Millisecond})
+	job := billing.HandoffRetryJob{AccountID: "acct", AuthorizationID: "auth:a-empty", ALegID: "a-empty", Outcome: billing.TurnOutcomeCanceled}
 	start := time.Now()
-	executor.runBillingHandoffRetry(job)
+	drainHandoffRetry(executor, job)
 	if time.Since(start) < 100*time.Millisecond {
 		t.Fatalf("no-evidence must retry with backoff instead of returning immediately")
 	}
@@ -694,34 +767,32 @@ func TestBillingHandoffRetryDoesNotAbandonNoEvidenceImmediately(t *testing.T) {
 
 func TestBillingHandoffProductionRetryBudgets(t *testing.T) {
 	t.Parallel()
-	if billingHandoffRetryMaxAttempts != 10 {
-		t.Fatalf("no-evidence retry budget = %d, want 10", billingHandoffRetryMaxAttempts)
+	if billing.DefaultHandoffNoEvidenceMaxAttempts != 10 {
+		t.Fatalf("no-evidence retry budget = %d, want 10", billing.DefaultHandoffNoEvidenceMaxAttempts)
 	}
-	if billingHandoffEvidenceRetryMaxAttempts != 0 {
-		t.Fatalf("evidence retry budget = %d, want 0 (unlimited while process is up)", billingHandoffEvidenceRetryMaxAttempts)
+	var zero billing.HandoffRetryConfig
+	if zero.EvidenceMaxAttempts != 0 {
+		t.Fatalf("evidence retry budget = %d, want 0 (unlimited while process is up)", zero.EvidenceMaxAttempts)
 	}
-	if billingHandoffCloseWait != 10*time.Second {
-		t.Fatalf("close wait = %s, want 10s", billingHandoffCloseWait)
+	if billing.DefaultHandoffCloseWait != 10*time.Second {
+		t.Fatalf("close wait = %s, want 10s", billing.DefaultHandoffCloseWait)
 	}
 }
 
 func TestBillingHandoffNoEvidenceRetryReleasesExecutionNotStarted(t *testing.T) {
-	prev := billingHandoffRetryMaxAttempts
-	billingHandoffRetryMaxAttempts = 3
-	t.Cleanup(func() { billingHandoffRetryMaxAttempts = prev })
-
 	var reason billing.ReleaseReason
 	store := billingHoldReleaseProbe{release: func(_ context.Context, in billing.ReleaseAuthorizationInput) (billing.Posting, error) {
 		reason = in.Reason
 		return billing.Posting{}, nil
 	}}
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: store,
 		BillingHoldReleaser:    store,
 	}}
-	executor.runBillingHandoffRetry(billingHandoffRetryJob{
-		accountID: "acct", authorizationID: "auth:a-empty", aLegID: "a-empty",
-		command: sdkterminal.CommandCancel, upstreamOpened: false,
+	configureHandoffRetry(executor, billing.HandoffRetryConfig{NoEvidenceMaxAttempts: 3, RetryDelay: time.Millisecond})
+	drainHandoffRetry(executor, billing.HandoffRetryJob{
+		AccountID: "acct", AuthorizationID: "auth:a-empty", ALegID: "a-empty",
+		Outcome: billing.TurnOutcomeCanceled, UpstreamOpened: false,
 	})
 	if reason != billing.ReleaseExecutionNotStarted {
 		t.Fatalf("release reason = %q, want %q", reason, billing.ReleaseExecutionNotStarted)
@@ -729,9 +800,6 @@ func TestBillingHandoffNoEvidenceRetryReleasesExecutionNotStarted(t *testing.T) 
 }
 
 func TestBillingHandoffEvidenceRetriesStayUnlimitedUntilStop(t *testing.T) {
-	if billingHandoffEvidenceRetryMaxAttempts != 0 {
-		t.Fatalf("production evidence retries must be unlimited, got %d", billingHandoffEvidenceRetryMaxAttempts)
-	}
 	var appends atomic.Int32
 	var released atomic.Int32
 	store := billingHoldReleaseProbe{
@@ -742,24 +810,30 @@ func TestBillingHandoffEvidenceRetriesStayUnlimitedUntilStop(t *testing.T) {
 			return billing.Posting{}, nil
 		},
 	}
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: store,
 		BillingHoldReleaser:    store,
 		BillingIdentity:        testBillingIdentity(),
 	}}
+	configureHandoffRetry(executor, billing.HandoffRetryConfig{RetryDelay: 20 * time.Millisecond})
 	executor.addBillingEvidence(context.Background(), billing.LegUsageRecord{
 		ALegID: "a-ev", BLegID: "b-1", Seq: 1, BackendID: "backend", ProviderID: "provider", ModelID: "model",
 		StartedAt: time.Unix(1, 0).UTC(), FinishedAt: time.Unix(2, 0).UTC(),
 		Outcome: billing.LegOutcomeWinner, Surfaced: billing.SurfacedYes,
 	})
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		executor.runBillingHandoffRetry(billingHandoffRetryJob{
-			accountID: "acct", authorizationID: "auth:a-ev", aLegID: "a-ev",
-			command: sdkterminal.CommandNormalFinish, upstreamOpened: true,
-		})
-	}()
+	coll := executor.billingTurns()
+	_ = coll.outbox.Enqueue(context.Background(), billing.HandoffRetryJob{
+		AccountID: "acct", AuthorizationID: "auth:a-ev", ALegID: "a-ev",
+		Outcome: billing.TurnOutcomeCompleted, UpstreamOpened: true,
+		Legs: []billing.LegUsageRecord{{
+			ALegID: "a-ev", BLegID: "b-1", Seq: 1, BackendID: "backend", ProviderID: "provider", ModelID: "model",
+			StartedAt: time.Unix(1, 0).UTC(), FinishedAt: time.Unix(2, 0).UTC(),
+			Outcome: billing.LegOutcomeWinner, Surfaced: billing.SurfacedYes,
+		}},
+	})
+	if err := coll.retry.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	deadline := time.Now().Add(3 * time.Second)
 	for appends.Load() < 4 && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
@@ -768,31 +842,23 @@ func TestBillingHandoffEvidenceRetriesStayUnlimitedUntilStop(t *testing.T) {
 		t.Fatalf("evidence retries stopped too early, appends=%d", appends.Load())
 	}
 	executor.stopBillingHandoffRetries()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("stopRetries must unblock evidence retry loop")
-	}
 	if released.Load() != 0 {
 		t.Fatalf("evidence retries must retain the hold, released=%d", released.Load())
 	}
 }
 
 func TestBillingHandoffSealTurnDoesNotReleaseAfterUpstreamOpenWithoutEvidence(t *testing.T) {
-	prev := billingHandoffRetryMaxAttempts
-	billingHandoffRetryMaxAttempts = 3
-	t.Cleanup(func() { billingHandoffRetryMaxAttempts = prev })
-
 	var released atomic.Int32
 	store := billingHoldReleaseProbe{release: func(context.Context, billing.ReleaseAuthorizationInput) (billing.Posting, error) {
 		released.Add(1)
 		return billing.Posting{}, nil
 	}}
-	executor := &Executor{CoreRuntime: CoreRuntime{BillingTerminalHandoff: store, BillingHoldReleaser: store}}
+	executor := &Executor{BillingRuntime: BillingRuntime{BillingTerminalHandoff: store, BillingHoldReleaser: store}}
+	configureHandoffRetry(executor, billing.HandoffRetryConfig{NoEvidenceMaxAttempts: 3, RetryDelay: time.Millisecond})
 	t.Cleanup(executor.WaitBillingHandoffRetries)
-	ok := executor.billingTurns().sealTurn(context.Background(), billingHandoffRetryJob{
-		accountID: "acct", authorizationID: "auth:a-open", aLegID: "a-open",
-		command: sdkterminal.CommandPartialError, upstreamOpened: true,
+	ok := executor.billingTurns().sealTurn(context.Background(), billing.HandoffRetryJob{
+		AccountID: "acct", AuthorizationID: "auth:a-open", ALegID: "a-open",
+		Outcome: billing.TurnOutcomeFailed, UpstreamOpened: true,
 	})
 	if ok {
 		t.Fatal("seal without evidence must not succeed")
@@ -807,19 +873,16 @@ func TestBillingHandoffSealTurnDoesNotReleaseAfterUpstreamOpenWithoutEvidence(t 
 }
 
 func TestBillingHandoffRetryRetainsHoldAfterUpstreamOpenWithoutEvidence(t *testing.T) {
-	prev := billingHandoffRetryMaxAttempts
-	billingHandoffRetryMaxAttempts = 3
-	t.Cleanup(func() { billingHandoffRetryMaxAttempts = prev })
-
 	var released atomic.Int32
 	store := billingHoldReleaseProbe{release: func(context.Context, billing.ReleaseAuthorizationInput) (billing.Posting, error) {
 		released.Add(1)
 		return billing.Posting{}, nil
 	}}
-	executor := &Executor{CoreRuntime: CoreRuntime{BillingTerminalHandoff: store, BillingHoldReleaser: store}}
-	executor.runBillingHandoffRetry(billingHandoffRetryJob{
-		accountID: "acct", authorizationID: "auth:a-open", aLegID: "a-open",
-		command: sdkterminal.CommandCancel, upstreamOpened: true,
+	executor := &Executor{BillingRuntime: BillingRuntime{BillingTerminalHandoff: store, BillingHoldReleaser: store}}
+	configureHandoffRetry(executor, billing.HandoffRetryConfig{NoEvidenceMaxAttempts: 3, RetryDelay: time.Millisecond})
+	drainHandoffRetry(executor, billing.HandoffRetryJob{
+		AccountID: "acct", AuthorizationID: "auth:a-open", ALegID: "a-open",
+		Outcome: billing.TurnOutcomeCanceled, UpstreamOpened: true,
 	})
 	if released.Load() != 0 {
 		t.Fatalf("upstream Open without LUR must retain the hold, released=%d", released.Load())
@@ -874,22 +937,26 @@ func TestBeginBillingEvidenceBarrierDoesNotOverwrite(t *testing.T) {
 	}
 }
 
-func TestParallelBillingShadowPreservesLegStartTime(t *testing.T) {
+func TestParallelBillingLegPreservesLegStartTime(t *testing.T) {
 	started := time.Unix(42, 0).UTC()
 	finished := time.Unix(99, 0).UTC()
 	var got billing.LegUsageRecord
-	executor := &Executor{CoreRuntime: CoreRuntime{
-		Now: func() time.Time { return finished },
-		BillingShadowObserver: BillingShadowObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
-			got = record
-		}),
-	}}
+	executor := &Executor{
+		CoreRuntime: CoreRuntime{
+			Now: func() time.Time { return finished },
+		},
+		BillingRuntime: BillingRuntime{
+			BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+				got = record
+			}),
+		},
+	}
 	leg := &parallelLeg{
 		bleg:      b2bua.BLegRecord{ALegID: "a-1", BLegID: "b-2", Seq: 2},
 		cand:      routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-x", Model: "model-x"}},
 		startedAt: started,
 	}
-	executor.recordParallelBillingShadow(context.Background(), leg, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
+	executor.recordParallelBillingLeg(context.Background(), leg, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
 	if !got.StartedAt.Equal(started) {
 		t.Fatalf("StartedAt = %v, want %v", got.StartedAt, started)
 	}
@@ -902,27 +969,24 @@ func TestParallelBillingShadowPreservesLegStartTime(t *testing.T) {
 }
 
 func TestWaitBillingHandoffRetriesForCloseDoesNotBlockForever(t *testing.T) {
-	prevWait := billingHandoffCloseWait
-	billingHandoffCloseWait = 80 * time.Millisecond
-	t.Cleanup(func() { billingHandoffCloseWait = prevWait })
-
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(context.Context, billing.TurnUsageRecord) error {
 			return errors.New("durable unavailable")
 		}),
 		BillingIdentity: testBillingIdentity(),
 	}}
+	configureHandoffRetry(executor, billing.HandoffRetryConfig{RetryDelay: 20 * time.Millisecond})
 	t.Cleanup(func() {
 		executor.stopBillingHandoffRetries()
-		executor.WaitBillingHandoffRetries()
 	})
 	leg := &parallelLeg{
 		bleg:      b2bua.BLegRecord{ALegID: "a-1", BLegID: "b-loser", Seq: 1},
 		cand:      routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}},
 		startedAt: time.Unix(50, 0).UTC(),
 	}
-	executor.recordParallelBillingShadow(context.Background(), leg, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
+	executor.recordParallelBillingLeg(context.Background(), leg, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
 	stream := &retryRecvStream{executor: executor, aLegID: "a-1", baseline: lipapi.Call{}}
+	stampStreamIdentity(stream)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
 
 	started := time.Now()
@@ -933,10 +997,10 @@ func TestWaitBillingHandoffRetriesForCloseDoesNotBlockForever(t *testing.T) {
 	}
 }
 
-func TestParallelBillingShadowEmptyBLegIDUsesColonFreeSyntheticID(t *testing.T) {
+func TestParallelBillingLegEmptyBLegIDUsesColonFreeSyntheticID(t *testing.T) {
 	var got billing.LegUsageRecord
-	executor := &Executor{CoreRuntime: CoreRuntime{
-		BillingShadowObserver: BillingShadowObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+	executor := &Executor{BillingRuntime: BillingRuntime{
+		BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
 			got = record
 		}),
 	}}
@@ -945,30 +1009,34 @@ func TestParallelBillingShadowEmptyBLegIDUsesColonFreeSyntheticID(t *testing.T) 
 		cand:      routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-x", Model: "model-x"}},
 		startedAt: time.Unix(1, 0).UTC(),
 	}
-	executor.recordParallelBillingShadow(context.Background(), leg, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
+	executor.recordParallelBillingLeg(context.Background(), leg, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
 	if got.BLegID != "seq_4" {
 		t.Fatalf("synthetic BLegID = %q, want seq_4", got.BLegID)
 	}
 }
 
-func TestParallelBillingShadowPreservesStreamAuthoritativeZeroCostAcrossFinalize(t *testing.T) {
+func TestParallelBillingLegPreservesStreamAuthoritativeZeroCostAcrossFinalize(t *testing.T) {
 	var got billing.LegUsageRecord
-	executor := &Executor{CoreRuntime: CoreRuntime{
-		Backends: map[string]execbackend.Backend{
-			"backend-x": {
-				FinalizeBilling: func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error) {
-					return lipapi.Event{
-						Kind:          lipapi.EventUsageDelta,
-						InputTokens:   5,
-						UsagePresence: lipapi.UsagePresence{InputTokens: true},
-					}, nil
+	executor := &Executor{
+		CoreRuntime: CoreRuntime{
+			Backends: map[string]execbackend.Backend{
+				"backend-x": {
+					FinalizeBilling: func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error) {
+						return lipapi.Event{
+							Kind:          lipapi.EventUsageDelta,
+							InputTokens:   5,
+							UsagePresence: lipapi.UsagePresence{InputTokens: true},
+						}, nil
+					},
 				},
 			},
 		},
-		BillingShadowObserver: BillingShadowObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
-			got = record
-		}),
-	}}
+		BillingRuntime: BillingRuntime{
+			BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+				got = record
+			}),
+		},
+	}
 	leg := &parallelLeg{
 		bleg:      b2bua.BLegRecord{ALegID: "a-1", BLegID: "b-loser", Seq: 1},
 		cand:      routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-x", Model: "model-x"}},
@@ -983,7 +1051,7 @@ func TestParallelBillingShadowPreservesStreamAuthoritativeZeroCostAcrossFinalize
 			Authority: lipapi.UsageAuthorityAuthoritative,
 		},
 	}
-	executor.recordParallelBillingShadow(context.Background(), leg, streamCost, sdkterminal.CommandParallelLoser, false)
+	executor.recordParallelBillingLeg(context.Background(), leg, streamCost, sdkterminal.CommandParallelLoser, false)
 	if !got.Evidence.Cost.Present || got.Evidence.Cost.NanoUnits != 0 || got.Evidence.Cost.Currency != "USD" {
 		t.Fatalf("parallel finalize dropped stream authoritative zero cost: %+v", got.Evidence)
 	}
@@ -995,10 +1063,10 @@ func TestParallelBillingShadowPreservesStreamAuthoritativeZeroCostAcrossFinalize
 	}
 }
 
-func TestRecordParallelBillingShadowOmitsNeverOpenedLegs(t *testing.T) {
+func TestRecordParallelBillingLegOmitsNeverOpenedLegs(t *testing.T) {
 	var records []billing.LegUsageRecord
-	executor := &Executor{CoreRuntime: CoreRuntime{
-		BillingShadowObserver: BillingShadowObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+	executor := &Executor{BillingRuntime: BillingRuntime{
+		BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
 			records = append(records, record)
 		}),
 	}}
@@ -1011,8 +1079,8 @@ func TestRecordParallelBillingShadowOmitsNeverOpenedLegs(t *testing.T) {
 		cand:      routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}},
 		startedAt: time.Unix(10, 0).UTC(),
 	}
-	executor.recordParallelBillingShadow(context.Background(), neverOpened, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
-	executor.recordParallelBillingShadow(context.Background(), opened, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
+	executor.recordParallelBillingLeg(context.Background(), neverOpened, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
+	executor.recordParallelBillingLeg(context.Background(), opened, lipapi.Event{Kind: lipapi.EventUsageDelta}, sdkterminal.CommandParallelLoser, false)
 	if len(records) != 1 || records[0].BLegID != "b-opened" {
 		t.Fatalf("never-opened loser must be omitted, got %+v", records)
 	}
@@ -1023,7 +1091,7 @@ func TestRecordParallelBillingShadowOmitsNeverOpenedLegs(t *testing.T) {
 
 func TestPersistBillingTurnOmitsZeroTimestampLegs(t *testing.T) {
 	var got billing.TurnUsageRecord
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(_ context.Context, record billing.TurnUsageRecord) error {
 			got = record
 			return nil
@@ -1042,9 +1110,9 @@ func TestPersistBillingTurnOmitsZeroTimestampLegs(t *testing.T) {
 		Outcome:  billing.LegOutcomeLoser,
 		Evidence: billing.FinalBillingEvidence{InputTokens: billing.Quantity{Value: 9, Present: true}},
 	})
-	err := executor.billingTurns().persist(context.Background(), billingHandoffRetryJob{
-		accountID: "acct", authorizationID: "auth", aLegID: "a-1",
-		command: sdkterminal.CommandNormalFinish,
+	err := executor.billingTurns().persist(context.Background(), billing.HandoffRetryJob{
+		AccountID: "acct", AuthorizationID: "auth", ALegID: "a-1",
+		Outcome: billing.TurnOutcomeCompleted,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1056,7 +1124,7 @@ func TestPersistBillingTurnOmitsZeroTimestampLegs(t *testing.T) {
 
 func TestPersistBillingTurnRejectsOnlyZeroTimestampLegs(t *testing.T) {
 	var calls int
-	executor := &Executor{CoreRuntime: CoreRuntime{
+	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(context.Context, billing.TurnUsageRecord) error {
 			calls++
 			return nil
@@ -1066,9 +1134,9 @@ func TestPersistBillingTurnRejectsOnlyZeroTimestampLegs(t *testing.T) {
 		ALegID: "a-1", BLegID: "b-never", Seq: 1, BackendID: "backend", ProviderID: "provider", ModelID: "model",
 		Outcome: billing.LegOutcomeLoser,
 	})
-	err := executor.billingTurns().persist(context.Background(), billingHandoffRetryJob{
-		accountID: "acct", authorizationID: "auth", aLegID: "a-1",
-		command: sdkterminal.CommandCancel,
+	err := executor.billingTurns().persist(context.Background(), billing.HandoffRetryJob{
+		AccountID: "acct", AuthorizationID: "auth", ALegID: "a-1",
+		Outcome: billing.TurnOutcomeCanceled,
 	})
 	if !errors.Is(err, errBillingHandoffNoEvidence) {
 		t.Fatalf("error = %v, want no B-leg evidence", err)

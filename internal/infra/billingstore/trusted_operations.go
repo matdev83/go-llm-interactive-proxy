@@ -21,7 +21,7 @@ func (s *DurableStore) PostFunding(ctx context.Context, input billing.FundingInp
 	if err := input.Validate(); err != nil {
 		return billing.Posting{}, err
 	}
-	fp, err := inputFingerprintFunding(input, "funding")
+	fp, err := input.Fingerprint()
 	if err != nil {
 		return billing.Posting{}, err
 	}
@@ -60,28 +60,18 @@ func (s *DurableStore) PostAdjustment(ctx context.Context, input billing.Adjustm
 	})
 }
 
-func inputFingerprintFunding(input billing.FundingInput, kind string) (string, error) {
-	return input.Fingerprint()
-}
-
 func (s *DurableStore) postFinancialCommand(ctx context.Context, kind, accountID, sourceKey, fingerprint string, amount billing.Money, balanceDelta int64, intent func() (billing.JournalTransaction, error)) (billing.Posting, error) {
 	if s == nil || s.db == nil {
 		return billing.Posting{}, fmt.Errorf("billingstore: nil store")
 	}
 	operationKey := billing.ScopedOperationKey(kind, strings.TrimSpace(accountID), strings.TrimSpace(sourceKey))
-	for attempt := range 30 {
-		out, err := s.postFinancialAttempt(ctx, kind, operationKey, strings.TrimSpace(accountID), strings.TrimSpace(sourceKey), fingerprint, amount, balanceDelta, intent)
-		if err == nil {
-			return out, nil
-		}
-		if !isSQLiteBusy(err) && !isUniqueViolation(err) {
-			return billing.Posting{}, err
-		}
-		if waitErr := waitContention(ctx, time.Duration(attempt+1)*3*time.Millisecond); waitErr != nil {
-			return billing.Posting{}, waitErr
-		}
-	}
-	return billing.Posting{}, fmt.Errorf("%w: retry budget exhausted", billing.ErrAuthorizationUnavailable)
+	return withAccountTx(ctx, accountTxRetry{
+		Attempts:  30,
+		Delay:     3 * time.Millisecond,
+		Exhausted: fmt.Errorf("%w: retry budget exhausted", billing.ErrAuthorizationUnavailable),
+	}, func() (billing.Posting, error) {
+		return s.postFinancialAttempt(ctx, kind, operationKey, strings.TrimSpace(accountID), strings.TrimSpace(sourceKey), fingerprint, amount, balanceDelta, intent)
+	})
 }
 
 func (s *DurableStore) postFinancialAttempt(ctx context.Context, kind, operationKey, accountID, sourceKey, fingerprint string, amount billing.Money, balanceDelta int64, intent func() (billing.JournalTransaction, error)) (billing.Posting, error) {
@@ -184,19 +174,13 @@ func (s *DurableStore) ChangeCreditPolicy(ctx context.Context, input billing.Cre
 	if err != nil {
 		return billing.PolicyChange{}, err
 	}
-	for attempt := range 30 {
-		out, callErr := s.changeCreditPolicyAttempt(ctx, input, fp)
-		if callErr == nil {
-			return out, nil
-		}
-		if !isSQLiteBusy(callErr) && !isUniqueViolation(callErr) {
-			return billing.PolicyChange{}, callErr
-		}
-		if waitErr := waitContention(ctx, time.Duration(attempt+1)*3*time.Millisecond); waitErr != nil {
-			return billing.PolicyChange{}, waitErr
-		}
-	}
-	return billing.PolicyChange{}, fmt.Errorf("%w: credit policy retry budget exhausted", billing.ErrAuthorizationUnavailable)
+	return withAccountTx(ctx, accountTxRetry{
+		Attempts:  30,
+		Delay:     3 * time.Millisecond,
+		Exhausted: fmt.Errorf("%w: credit policy retry budget exhausted", billing.ErrAuthorizationUnavailable),
+	}, func() (billing.PolicyChange, error) {
+		return s.changeCreditPolicyAttempt(ctx, input, fp)
+	})
 }
 
 func (s *DurableStore) changeCreditPolicyAttempt(ctx context.Context, input billing.CreditPolicyInput, fp string) (billing.PolicyChange, error) {
@@ -280,19 +264,13 @@ func (s *DurableStore) ReleaseAuthorization(ctx context.Context, input billing.R
 	if s == nil || s.db == nil {
 		return billing.Posting{}, fmt.Errorf("billingstore: nil store")
 	}
-	for attempt := range 30 {
-		out, callErr := s.releaseAuthorizationAttempt(ctx, input)
-		if callErr == nil {
-			return out, nil
-		}
-		if !isSQLiteBusy(callErr) && !isUniqueViolation(callErr) {
-			return billing.Posting{}, callErr
-		}
-		if waitErr := waitContention(ctx, time.Duration(attempt+1)*3*time.Millisecond); waitErr != nil {
-			return billing.Posting{}, waitErr
-		}
-	}
-	return billing.Posting{}, fmt.Errorf("%w: authorization release retry budget exhausted", billing.ErrAuthorizationUnavailable)
+	return withAccountTx(ctx, accountTxRetry{
+		Attempts:  30,
+		Delay:     3 * time.Millisecond,
+		Exhausted: fmt.Errorf("%w: authorization release retry budget exhausted", billing.ErrAuthorizationUnavailable),
+	}, func() (billing.Posting, error) {
+		return s.releaseAuthorizationAttempt(ctx, input)
+	})
 }
 
 func (s *DurableStore) releaseAuthorizationAttempt(ctx context.Context, input billing.ReleaseAuthorizationInput) (billing.Posting, error) {

@@ -31,6 +31,7 @@ var secureSessionTestPrepare = func(*Executor) {}
 type Executor struct {
 	_ noCopy //nolint:unused
 	CoreRuntime
+	BillingRuntime
 	RoutingRuntime
 	SecurityRuntime
 	AccountingRuntime
