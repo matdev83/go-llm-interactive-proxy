@@ -16,6 +16,9 @@ func (c *AttemptCoordinator) PreviewClamps(ctx context.Context, in authority.Att
 		return nil, err
 	}
 	slots := attemptStageSlots(c.Slots)
+	if err := validateAttemptPriorityClasses(c.Slots); err != nil {
+		return nil, err
+	}
 	if err := validateStageSlots(slots, func(p authority.AttemptProvider) bool { return p == nil }); err != nil {
 		return nil, err
 	}
