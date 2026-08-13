@@ -44,6 +44,10 @@ func TestComposeBilling(t *testing.T) {
 		if httpIn.Operations.BillingReports == nil {
 			t.Fatal("composed reports were not mounted from the injected store")
 		}
+		got, ok := httpIn.Operations.BillingProvisioner.(*completeJournal)
+		if !ok || got != store {
+			t.Fatalf("BillingProvisioner = %T, want injected completeJournal", httpIn.Operations.BillingProvisioner)
+		}
 
 		assertCatalogBackedAdmission(t, prod, store, pricing, policy)
 		if err := bundle.Quiesce(context.Background()); err != nil {

@@ -25,8 +25,12 @@ func TestSQLiteCreateAccountMapsUniqueConflict(t *testing.T) {
 	if err := store.CreateAccount(ctx, account); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.CreateAccount(ctx, account); !errors.Is(err, ErrIdentityConflict) {
+	err := store.CreateAccount(ctx, account)
+	if !errors.Is(err, ErrIdentityConflict) {
 		t.Fatalf("duplicate create = %v, want identity conflict", err)
+	}
+	if !errors.Is(err, billing.ErrAccountConflict) {
+		t.Fatalf("duplicate create = %v, want billing.ErrAccountConflict", err)
 	}
 }
 

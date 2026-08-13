@@ -51,6 +51,7 @@ type candidateModelGroup struct {
 type candidateOperationsGroup struct {
 	billingReports       billing.ReportingStore
 	billingReportsPath   string
+	billingProvisioner   billing.AccountProvisioner
 	tokenAccountingAdmin *accountingapp.Service
 	readinessReport      *controlplane.ReadinessReportService
 	secretGuardInventory *diag.InventoryExtras

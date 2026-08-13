@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -190,6 +191,11 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		twReady = ps.terminalWorkRT.checkReady
 	}
 
+	var billingProvisioner billing.AccountProvisioner
+	if p, ok := opts.Production.BillingStore.(billing.AccountProvisioner); ok {
+		billingProvisioner = p
+	}
+
 	return &candidateAssembly{
 		execution: candidateExecutionGroup{
 			executor:              execRun.Exec,
@@ -212,6 +218,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		operations: candidateOperationsGroup{
 			billingReports:       opts.Production.BillingReports,
 			billingReportsPath:   opts.Production.BillingReportsPath,
+			billingProvisioner:   billingProvisioner,
 			tokenAccountingAdmin: execRun.TokenAccountingAdmin,
 			readinessReport:      execRun.ReadinessReport,
 			secretGuardInventory: sg.Inventory,
