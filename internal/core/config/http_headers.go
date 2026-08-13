@@ -42,8 +42,11 @@ func (c HTTPHeadersConfig) Effective() lipsdk.HTTPHeaders {
 }
 
 func mergeHeaderNames(defaults, extra []string) []string {
-	seen := make(map[string]struct{}, len(defaults)+len(extra))
-	out := make([]string, 0, len(defaults)+len(extra))
+	if len(extra) > maxHTTPHeaderAliases {
+		extra = extra[:maxHTTPHeaderAliases]
+	}
+	seen := make(map[string]struct{})
+	var out []string
 	add := func(list []string) {
 		for _, raw := range list {
 			name := strings.TrimSpace(raw)
