@@ -55,7 +55,7 @@ TDD throughout (RED → GREEN → REFACTOR). Do not modify stream handlers, TUR 
 
 ## 3. Trusted admin provisioning commands
 
-- [ ] 3.1 (P) Accept trusted create, funding, and credit-policy commands on the admin billing surface
+- [x] 3.1 (P) Accept trusted create, funding, and credit-policy commands on the admin billing surface
   - POST create-account, funding, and credit-policy on the existing protected billing mux; GET reports stay unchanged.
   - Map JSON to existing domain commands; prepaid opens with zero balance and zero credit limit; funding is a separate command.
   - Invalid input is 400, identity conflict 409, missing account 404; no payment, invoice, VAT, or FX fields.

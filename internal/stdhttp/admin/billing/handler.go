@@ -15,15 +15,17 @@ import (
 // domain values; database handles and provider payloads never cross this edge.
 type Queries = corebilling.ReportingStore
 
-// Options configures the bounded billing report handler.
+// Options configures the bounded billing report and trusted-command handler.
 type Options struct {
 	Queries         Queries
+	Commands        corebilling.AccountProvisioner
 	DefaultPageSize int
 	MaxPageSize     int
 }
 
-// NewHandler returns a read-only JSON report surface. The caller owns
-// authentication/diagnostics protection and path mounting.
+// NewHandler returns the JSON report surface plus trusted create, funding,
+// and credit-policy commands. The caller owns authentication/diagnostics
+// protection and path mounting.
 func NewHandler(opts Options) http.Handler {
 	defaultSize := opts.DefaultPageSize
 	if defaultSize <= 0 {
@@ -40,31 +42,14 @@ func NewHandler(opts Options) http.Handler {
 			return
 		}
 		if r.Method != http.MethodGet {
-			methodNotAllowed(w)
+			methodNotAllowed(w, http.MethodGet)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
-	mux.HandleFunc("/account", func(w http.ResponseWriter, r *http.Request) {
-		if !checkGET(w, r) {
-			return
-		}
-		if opts.Queries == nil {
-			disabled(w)
-			return
-		}
-		page, ok := parsePage(w, r, defaultSize, maxSize)
-		if !ok {
-			return
-		}
-		accountID := strings.TrimSpace(r.URL.Query().Get("account_id"))
-		if accountID == "" {
-			invalid(w)
-			return
-		}
-		result, err := opts.Queries.AccountReport(r.Context(), accountID, page)
-		writeResult(w, result, err)
-	})
+	mux.HandleFunc("/account", accountHandler(opts, defaultSize, maxSize))
+	mux.HandleFunc("/funding", fundingHandler(opts))
+	mux.HandleFunc("/credit-policy", creditPolicyHandler(opts))
 	mux.HandleFunc("/turn", func(w http.ResponseWriter, r *http.Request) {
 		if !checkGET(w, r) {
 			return
@@ -90,6 +75,37 @@ func NewHandler(opts Options) http.Handler {
 	mux.HandleFunc("/reconcile-required", reconcileRequiredHandler(opts, defaultSize, maxSize))
 	mux.HandleFunc("/session", sessionHandler(opts, defaultSize, maxSize))
 	return mux
+}
+
+func accountHandler(opts Options, defaultSize, maxSize int) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			handleAccountReport(w, r, opts, defaultSize, maxSize)
+		case http.MethodPost:
+			handleCreateAccount(w, r, opts)
+		default:
+			methodNotAllowed(w, http.MethodGet, http.MethodPost)
+		}
+	}
+}
+
+func handleAccountReport(w http.ResponseWriter, r *http.Request, opts Options, defaultSize, maxSize int) {
+	if opts.Queries == nil {
+		disabled(w)
+		return
+	}
+	page, ok := parsePage(w, r, defaultSize, maxSize)
+	if !ok {
+		return
+	}
+	accountID := strings.TrimSpace(r.URL.Query().Get("account_id"))
+	if accountID == "" {
+		invalid(w)
+		return
+	}
+	result, err := opts.Queries.AccountReport(r.Context(), accountID, page)
+	writeResult(w, result, err)
 }
 
 func operatorCostHandler(opts Options, defaultSize, maxSize int) http.HandlerFunc {
@@ -278,14 +294,14 @@ func parsePage(w http.ResponseWriter, r *http.Request, defaultSize, maxSize int)
 
 func checkGET(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != http.MethodGet {
-		methodNotAllowed(w)
+		methodNotAllowed(w, http.MethodGet)
 		return false
 	}
 	return true
 }
 
-func methodNotAllowed(w http.ResponseWriter) {
-	w.Header().Set("Allow", http.MethodGet)
+func methodNotAllowed(w http.ResponseWriter, allow ...string) {
+	w.Header().Set("Allow", strings.Join(allow, ", "))
 	writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"})
 }
 
