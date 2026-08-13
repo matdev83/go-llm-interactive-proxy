@@ -40,6 +40,8 @@ const (
 	billingHostLoopOperatorNano = int64(125) // 50 input + 75 output
 )
 
+var billingHostLoopMissingOperatorRef = billing.VersionRef{ID: "missing-operator", Version: "v9"}
+
 var billingHostLoopSeq atomic.Uint64
 
 func TestBillingHostLoop(t *testing.T) {
@@ -158,6 +160,125 @@ func TestBillingHostLoop(t *testing.T) {
 	}
 	assertVersionRefIdentity(t, "explanation hold pricing", explanation.Authorization.PricingRef, pricing.Ref)
 	assertVersionRefIdentity(t, "explanation hold policy", explanation.Authorization.ChargePolicyRef, policy.Ref)
+}
+
+func TestBillingHostLoop_MissingCatalogRefs(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	store := openBillingHostLoopStore(t)
+	catalog, pricing, policy, _ := seedBillingHostLoopCatalog(t)
+	// Do not bind the published operator-rate body. Stamp a VersionRef that was
+	// never Put so SnapshotsFor fails closed after admission still succeeds.
+
+	identity := billingcompose.PrincipalSessionIdentity(billingcompose.SnapshotRefFuncs{
+		CustomerPricingRef: catalog.CustomerPricingRef,
+		ChargePolicyRef:    catalog.ChargePolicyRef,
+		OperatorRateRef: func(context.Context, string, string) billing.VersionRef {
+			return billingHostLoopMissingOperatorRef
+		},
+	})
+
+	ceiling := billing.Money{Nano: billingHostLoopHoldNano, Currency: "USD"}
+	prod, err := runtimebundle.ComposeBilling(runtimebundle.ComposeBillingInput{
+		Store:    store,
+		Catalog:  catalog,
+		Identity: &identity,
+		Currency: "USD",
+		ModelMaxOutput: func(context.Context, string, string) (int64, bool, error) {
+			return 128000, true, nil
+		},
+		Strict:              true,
+		ConservativeCeiling: &ceiling,
+		PostTurnBatchSize:   1,
+		PostTurnInterval:    10 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("ComposeBilling: %v", err)
+	}
+
+	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
+		ConfigPath:      writeBillingHostLoopConfig(t),
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
+		Production:      prod,
+	})
+	if err != nil {
+		t.Fatalf("BuildHost: %v", err)
+	}
+	hostServeCleanup(t, host)
+
+	accountID := fmt.Sprintf("hostloop%d", billingHostLoopSeq.Add(1))
+	provisionBillingHostLoopAccount(t, store, accountID)
+
+	executor := hostActiveExecutor(t, host)
+	injectBillingHostLoopUsageBackend(t, executor)
+
+	execCtx := scope.WithScope(ctx, scope.PrincipalScopeView{
+		PrincipalID: scope.Known(accountID),
+	})
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: billingHostLoopBackendID + ":" + billingHostLoopModelID},
+		Session: lipapi.SessionRef{
+			ClientSessionID: "client-hint-must-ignore",
+		},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	stream, err := executor.Execute(execCtx, call)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	assertNoStreamPrices(t, drainBillingHostLoopStream(t, ctx, stream))
+
+	executor.WaitBillingHandoffRetries()
+	processing := waitBillingHostLoopFailClosed(t, store, accountID)
+	if processing.Status == billing.ProcessingProcessed {
+		t.Fatalf("missing catalog refs must not settle as processed: %+v", processing)
+	}
+	if processing.Status == billing.ProcessingRetryable && processing.SafeErrorCode != "rating_input_unavailable" {
+		t.Fatalf("retryable SafeErrorCode = %q, want rating_input_unavailable: %+v", processing.SafeErrorCode, processing)
+	}
+
+	record, err := store.GetUsageRecord(ctx, processing.TURKey)
+	if err != nil {
+		t.Fatalf("GetUsageRecord: %v", err)
+	}
+	if len(record.Legs) != 1 {
+		t.Fatalf("TUR legs = %+v, want 1", record.Legs)
+	}
+	assertVersionRefIdentity(t, "leg OperatorRateRef", record.Legs[0].OperatorRateRef, billingHostLoopMissingOperatorRef)
+	assertVersionRefIdentity(t, "TUR CustomerPricingRef", record.CustomerPricingRef, pricing.Ref)
+	assertVersionRefIdentity(t, "TUR ChargePolicyRef", record.ChargePolicyRef, policy.Ref)
+
+	report, err := store.AccountReport(ctx, accountID, billing.PageRequest{Limit: 100})
+	if err != nil {
+		t.Fatalf("AccountReport: %v", err)
+	}
+	if report.Account.BalanceNano != billingHostLoopOpeningNano {
+		t.Fatalf("account balance=%d, want opening %d (no invented customer charge)",
+			report.Account.BalanceNano, billingHostLoopOpeningNano)
+	}
+	for _, journal := range report.Transactions {
+		if journal.OperationKind == "customer_settlement" {
+			t.Fatalf("customer_settlement posted despite missing catalog refs: %+v", journal)
+		}
+	}
+
+	explanation, err := store.TurnExplanation(ctx, record.Key)
+	if err != nil {
+		t.Fatalf("TurnExplanation: %v", err)
+	}
+	if explanation.Result.Processed || explanation.Result.Status == billing.ProcessingProcessed {
+		t.Fatalf("turn explanation must not show processed catalog-rated settlement: %+v", explanation.Result)
+	}
+	if explanation.Result.CustomerCharge.Nano == billingHostLoopCustomerNano {
+		t.Fatalf("turn explanation fabricated catalog-rated customer charge %d: %+v",
+			billingHostLoopCustomerNano, explanation.Result)
+	}
 }
 
 func openBillingHostLoopStore(t *testing.T) *billingstore.DurableStore {
@@ -368,6 +489,36 @@ func waitBillingHostLoopProcessed(t *testing.T, store *billingstore.DurableStore
 				Page:      billing.PageRequest{Limit: 10},
 			})
 			t.Fatalf("timed out waiting for processed TUR: items=%+v query_err=%v", all.Items, qerr)
+		}
+		<-ticker.C
+	}
+}
+
+func waitBillingHostLoopFailClosed(t *testing.T, store *billingstore.DurableStore, accountID string) billing.UsageRecordProcessing {
+	t.Helper()
+	ctx := context.Background()
+	deadline := time.Now().Add(10 * time.Second)
+	ticker := time.NewTicker(2 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		page, err := store.QueryProcessing(ctx, billing.ReportFilter{
+			AccountID: accountID,
+			Page:      billing.PageRequest{Limit: 10},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range page.Items {
+			if item.Status == billing.ProcessingProcessed {
+				t.Fatalf("missing catalog refs marked processed: %+v", item)
+			}
+			switch item.Status {
+			case billing.ProcessingRetryable, billing.ProcessingUnreconciledCost, billing.ProcessingTerminalError:
+				return item
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for fail-closed processing: items=%+v", page.Items)
 		}
 		<-ticker.C
 	}

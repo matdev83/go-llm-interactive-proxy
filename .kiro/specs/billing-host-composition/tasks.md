@@ -110,7 +110,7 @@ TDD throughout (RED → GREEN → REFACTOR). Do not modify stream handlers, TUR 
   - _Boundary: Host loop test_
   - _Validation: `go test -run TestBillingHostLoop ./internal/infra/runtimebundle`_
 
-- [ ] 5.2 Fail closed when stamped snapshot refs are missing from the catalog
+- [x] 5.2 Fail closed when stamped snapshot refs are missing from the catalog
   - Same injected host stamps refs the catalog does not contain; processing must not invent rates or mark the turn fully processed as a successful settlement.
   - Observable: test asserts retryable or unreconciled/terminal processing without a fabricated customer charge.
   - _Depends: 5.1_
