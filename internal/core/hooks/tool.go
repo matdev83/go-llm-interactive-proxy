@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
@@ -78,6 +79,7 @@ func (b *Bus) ApplyToolReactors(ctx context.Context, te lipapi.ToolEvent, meta s
 				}
 			}
 			emit(r.ID(), dec, nil, nil)
+			reconcileDerivedToolMetadata(&next, cur)
 			cur = next
 		case sdk.ToolSwallow:
 			emit(r.ID(), dec, nil, nil)
@@ -88,6 +90,32 @@ func (b *Bus) ApplyToolReactors(ctx context.Context, te lipapi.ToolEvent, meta s
 		}
 	}
 	return ToolApplyResult{Emit: true, Event: cur}
+}
+
+// reconcileDerivedToolMetadata keeps Category and MayMutateLocalFS authoritative
+// from the effective tool name after a reactor rewrite/replace. A non-empty name is
+// reclassified; a same-ID name-less mutation preserves the current classification
+// (so existing reactors that build fresh same-ID argument-delta events do not need
+// to copy unchanged metadata); a changed-ID name-less replacement falls back to the
+// conservative unknown/true. Reactor-authored category/bool values never override
+// classification derived from a non-empty effective name.
+func reconcileDerivedToolMetadata(next *lipapi.ToolEvent, cur lipapi.ToolEvent) {
+	if next == nil {
+		return
+	}
+	// Trim first (Requirement 1.1): whitespace-only is an omitted name, not a
+	// present name that would classify as unknown.
+	if strings.TrimSpace(next.ToolName) != "" {
+		next.Category, next.MayMutateLocalFS = lipapi.ClassifyToolName(next.ToolName)
+		return
+	}
+	if next.ToolCallID == cur.ToolCallID {
+		next.Category = cur.Category
+		next.MayMutateLocalFS = cur.MayMutateLocalFS
+		return
+	}
+	next.Category = lipapi.ToolCategoryUnknown
+	next.MayMutateLocalFS = true
 }
 
 type toolReactorResult struct {

@@ -161,6 +161,12 @@ type retryRecvStream struct {
 
 	// toolFinal is the per-B-leg completed-tool-call assembler (nil when inactive).
 	toolFinal *toolCallAssembler
+	// toolClass correlates per-ToolCallID derived classification within this stream.
+	// Like toolFinal, it is owned by the single Recv goroutine and needs no lock:
+	// Close may run concurrently only while Recv is blocked on the active inner
+	// stream (see the retryRecvStream concurrency contract), never during event
+	// processing, so no read/modify of the map overlaps a concurrent clear.
+	toolClass toolEventClassificationState
 
 	// requestTerm / attemptTerm are CAS terminal owners for this stream lifecycle
 	// (phase 4.2). Lazy-initialized via ensureTerminals for test-constructed streams.
@@ -580,16 +586,20 @@ func (s *retryRecvStream) emitTraffic(ctx context.Context, leg sdktraffic.Leg, e
 	)
 }
 
-// resetToolFinal clears assembler state at attempt-lifecycle transitions that
-// are not (or may not be) paired with markFinished: B-leg replacement,
-// finalizer reject/error before finish, Close (may already be finished), and
-// EOF/error entry (some branches defer finish to recoverDrain).
-// Terminal finishes clear via markFinished.
+// resetToolFinal clears assembler and tool-classification state at
+// attempt-lifecycle transitions that are not (or may not be) paired with
+// markFinished: B-leg replacement, finalizer reject/error before finish,
+// Close (may already be finished), and EOF/error entry (some branches defer
+// finish to recoverDrain). Terminal finishes clear via markFinished.
+// toolClass shares the same single-Recv ownership contract as toolFinal.
 func (s *retryRecvStream) resetToolFinal() {
-	if s == nil || s.toolFinal == nil {
+	if s == nil {
 		return
 	}
-	s.toolFinal.clear()
+	if s.toolFinal != nil {
+		s.toolFinal.clear()
+	}
+	s.toolClass.clear()
 }
 
 func (s *retryRecvStream) popToolFinalDrain() (lipapi.Event, bool) {

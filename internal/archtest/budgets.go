@@ -61,9 +61,9 @@ type LineBudget struct {
 // LineBudgets covers core/pluginreg plus the convergence trees (kept in sync
 // with PackageTreeBudgets for overlapping entries).
 var LineBudgets = []LineBudget{
-	// Routing-override admin plus merged billing outbox worker. Keep the
-	// measured-plus-25 ratchet.
-	{Dir: "internal/core", Max: 74504},
+	// Routing-override admin, billing outbox worker, and tool-call classification
+	// metadata/lifecycle helper. Keep the measured-plus-25 ratchet.
+	{Dir: "internal/core", Max: 74657},
 	{Dir: "internal/pluginreg", Max: 1079},
 	{Dir: "internal/stdhttp", Max: 5455},
 	{Dir: "internal/infra/runtimebundle", Max: 11088},
