@@ -1,6 +1,6 @@
 # Extension platform authoring guide
 
-This guide is for **operators and feature-plugin authors** wiring behavior on the stage-four extension platform. It complements the normative spec ([`.kiro/specs/go-core-stage-four-feature-extension-platform/design.md`](../.kiro/specs/go-core-stage-four-feature-extension-platform/design.md)), [ADR 0006](adr/0006-stage-four-extension-seam-map-and-migration.md), and [architecture guardrails](architecture-guardrails.md).
+This guide is for **operators and feature-plugin authors** wiring behavior on the stage-four extension platform. It complements the normative spec ([`.kiro/specs/go-core-stage-four-feature-extension-platform/design.md`](../.kiro/specs/go-core-stage-four-feature-extension-platform/design.md)), [ADR 0006](adr/0006-stage-four-extension-seam-map-and-migration.md), and [architecture.md](architecture.md).
 
 ## Extension pipeline and legal stages
 
@@ -99,4 +99,4 @@ Post-turn monetary rating is owned by the billing subsystem. Enterprise attachme
 
 ## Automated guardrails
 
-Architecture tests in [`internal/archtest`](../internal/archtest) and import boundaries in [`internal/core/runtime/boundaries_test.go`](../internal/core/runtime/boundaries_test.go) enforce package rules. See [architecture-guardrails.md](architecture-guardrails.md) for the checklist and how to update budgets when you intentionally grow a layer.
+Architecture tests in [`internal/archtest`](../internal/archtest) and import boundaries in [`internal/core/runtime/boundaries_test.go`](../internal/core/runtime/boundaries_test.go) enforce package rules. See [ADR 0005](adr/0005-architecture-guardrails-and-complexity-budgets.md) for complexity budgets.

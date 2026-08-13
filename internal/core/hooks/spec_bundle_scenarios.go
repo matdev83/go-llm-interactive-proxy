@@ -9,7 +9,7 @@ type HookScenarioSpec struct {
 }
 
 // SpecBundleHookScenarios lists submit, request/response part, and tool-reactor
-// invariants. Keep aligned with docs/spec-bundle-hook-scenarios.md.
+// invariants. Keep aligned with the referenced tests.
 func SpecBundleHookScenarios() []HookScenarioSpec {
 	return []HookScenarioSpec{
 		{

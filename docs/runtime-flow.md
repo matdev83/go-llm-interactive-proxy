@@ -1,6 +1,6 @@
 # Runtime flow
 
-This document expands the request lifecycle in `docs/architecture.md` for agents and maintainers working on runtime, frontend, backend, and feature-plugin code.
+This document expands the request lifecycle in `docs/architecture.md`.
 
 ## Startup flow
 

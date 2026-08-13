@@ -24,7 +24,6 @@ skills-lock.json
 .jules/**
 .cursor/**
 .vscode/**
-.dev/**
 
 # Kiro SDD specifications, steering, and history
 .kiro/**

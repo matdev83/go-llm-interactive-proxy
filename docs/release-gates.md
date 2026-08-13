@@ -6,7 +6,7 @@ Normative criteria for merge-to-main and local pre-push checks. Commands assume 
 
 | Gate | Criterion | Command |
 |------|-----------|---------|
-| Conformance | 100% of matrix tests in `internal/testkit/conformance` pass | `make parity-checks` (same as `go test -parallel=8 -tags=integration ./internal/testkit/conformance/...`; see [conformance-matrix-evidence.md](conformance-matrix-evidence.md)) |
+| Conformance | 100% of matrix tests in `internal/testkit/conformance` pass | `make parity-checks` (same as `go test -parallel=8 -tags=integration ./internal/testkit/conformance/...`) |
 | Race (Req. 14.6) | Full suite under race on Linux | `bash scripts/race-check.sh --strict` (local Linux / nightly CI); on Windows `make test-race` is a no-op (race disabled locally). Not part of PR `qa.yml`. |
 | Critical fuzz (Req. 15.4 + design) | Bounded smoke for each listed `Fuzz*` below | `make test-fuzz` or `make release-gates` locally; nightly CI via `.github/workflows/race-fuzz-nightly.yml`. Not part of PR `qa.yml`. |
 | Migration fixtures (Req. 15.13) | Exactly **3** golden JSON files under `testdata/migration/` with fixed names | Enforced by `TestMigrationGoldenFixtureInventory` in conformance; see [testdata/migration/README.md](../testdata/migration/README.md) |
@@ -16,9 +16,7 @@ Normative criteria for merge-to-main and local pre-push checks. Commands assume 
 Normative matrices and row IDs: [.kiro/specs/llm-api-parity/design.md](../.kiro/specs/llm-api-parity/design.md). A protocol may be marked **parity-ready** only when every matrix row for that protocol is `implemented` or explicitly `out_of_scope`, with automated evidence at the layers named in the spec.
 
 - **Fast conformance slice:** `make parity-checks` runs `go test -parallel=8 -tags=integration ./internal/testkit/conformance/...` (includes `parity_*_test.go` anchors, `TestParitySuiteSourceFilesPresent`, and `TestParityMatrixCompleteness` when compiled with the integration tag).
-- **Golden / parity evidence map:** [conformance-golden-coverage.md](conformance-golden-coverage.md) (migration JSON, parity file ownership, matrix context; kept in sync by `TestConformanceGoldenCoverageDocPresent`).
-- **Matrix iteration ↔ test traceability:** [conformance-matrix-evidence.md](conformance-matrix-evidence.md) (which harness exercises each FE×BE row; integration-tagged sources vs default `make test`).
-- **Specification bundle hub:** [spec-bundle-index.md](spec-bundle-index.md) — orchestration, continuity, routing, and hook-bus scenario registries (`SB-*` IDs) with precommit doc/source checks.
+- **OpenResponses protocol-owned gate:** `make test-openresponses-compliance` (`make qa` runs the static wiring check).
 - **Full release gate** remains `make release-gates` (conformance + Tier-1 fuzz).
 
 **Parity-ready checklist (before claiming a protocol row is green):**

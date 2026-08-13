@@ -172,15 +172,13 @@ Rules:
 - Do **not** collect prompts, tool content, raw workspace paths, keys, or SDK agent/run IDs in artifacts.
 - Live suites are separate from default `make test` / CI unit lanes (`cursorsdk_live_bridge` tag is required for the Go harness entrypoint).
 
-## ACP vs SDK comparison report
-
-Repeatable dogfood matrix methodology: [`docs/cursor-sdk-comparison-report.md`](cursor-sdk-comparison-report.md).
+## ACP vs SDK comparison
 
 ```bash
 make test-cursor-sdk-comparison-report   # tests + synthetic/blocked Markdown on stdout; no credentials
 ```
 
-Offline runs label cells `synthetic` or `blocked` and keep `replacement_status: retain_both_connectors`. Measured comparative dogfood stays blocked until opted-in credentials/platform lanes supply a safe aggregate input. This does **not** change defaults or deprecate `cursorcliacp`.
+Offline runs label cells `synthetic` or `blocked` and keep `replacement_status: retain_both_connectors`. This does **not** change defaults or deprecate `cursorcliacp`.
 
 ## Minimal enable sketch
 

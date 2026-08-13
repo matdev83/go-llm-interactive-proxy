@@ -3,7 +3,7 @@ package conformance
 import "slices"
 
 // ExpectedMigrationGoldenJSON lists migration parity JSON under testdata/migration/
-// (Req. 15.13). Keep in sync with docs/release-gates.md and docs/conformance-golden-coverage.md.
+// (Req. 15.13). Keep in sync with docs/release-gates.md.
 var ExpectedMigrationGoldenJSON = []string{
 	"python_lip_anthropic_messages_nonstream.json",
 	"python_lip_openai_responses_http_nonstream.json",
@@ -11,7 +11,7 @@ var ExpectedMigrationGoldenJSON = []string{
 }
 
 // ParitySuiteGoFiles lists parity suite sources (.kiro/specs/llm-api-parity/tasks.md Phase 5).
-// Keep in sync with docs/conformance-golden-coverage.md.
+// Keep in sync with testdata/migration/README.md and docs/release-gates.md.
 var ParitySuiteGoFiles = []string{
 	"parity_openai_test.go",
 	"parity_anthropic_test.go",
