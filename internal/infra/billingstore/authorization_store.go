@@ -24,19 +24,14 @@ func (s *DurableStore) Authorize(ctx context.Context, input billing.AuthorizeInp
 	if err != nil {
 		return billing.Authorization{}, err
 	}
-	for attempt := range 40 {
-		out, callErr := s.authorizeAttempt(ctx, input, sealed)
-		if callErr == nil {
-			return out, nil
-		}
-		if !isSQLiteBusy(callErr) && !isUniqueViolation(callErr) {
-			return billing.Authorization{}, classifyAuthorizationStoreError(callErr)
-		}
-		if waitErr := waitContention(ctx, time.Duration(attempt+1)*3*time.Millisecond); waitErr != nil {
-			return billing.Authorization{}, waitErr
-		}
-	}
-	return billing.Authorization{}, fmt.Errorf("%w: lock/replay retry budget exhausted", billing.ErrAuthorizationUnavailable)
+	return withAccountTx(ctx, accountTxRetry{
+		Attempts:  40,
+		Delay:     3 * time.Millisecond,
+		Classify:  classifyAuthorizationStoreError,
+		Exhausted: fmt.Errorf("%w: lock/replay retry budget exhausted", billing.ErrAuthorizationUnavailable),
+	}, func() (billing.Authorization, error) {
+		return s.authorizeAttempt(ctx, input, sealed)
+	})
 }
 
 func (s *DurableStore) authorizeAttempt(ctx context.Context, input billing.AuthorizeInput, sealed billing.Authorization) (billing.Authorization, error) {
