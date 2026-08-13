@@ -140,7 +140,7 @@ TDD throughout (RED → GREEN → REFACTOR). Do not modify stream handlers, TUR 
 
 ## 6. Document the injection path
 
-- [ ] 6. Document how an internal host injects billing without YAML auto-open
+- [x] 6. Document how an internal host injects billing without YAML auto-open
   - Describe compose inputs, catalog publish, principal/session identity, admin provisioning, and fail-closed YAML flag.
   - State that leftover pricing YAML is not TUR rating truth and that `lipstd` does not invent accounts.
   - Point enterprise attach docs at the composer without adding public Options money fields.
