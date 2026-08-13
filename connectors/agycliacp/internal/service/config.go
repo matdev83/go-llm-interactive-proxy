@@ -49,6 +49,9 @@ func (c Config) toProduct() product.Config {
 		AGYBinary:           strings.TrimSpace(c.AGYBinary),
 		TimeoutSeconds:      c.TimeoutSeconds,
 	}
+	if pc.TimeoutSeconds <= 0 {
+		pc.TimeoutSeconds = product.DefaultTimeoutSeconds
+	}
 	if c.WrapperAutoDownload != nil {
 		pc.WrapperAutoDownload = *c.WrapperAutoDownload
 	}
