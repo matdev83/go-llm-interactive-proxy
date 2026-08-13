@@ -2,6 +2,7 @@ package authoritycoord_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/authoritycoord"
@@ -117,6 +118,26 @@ func TestPreviewClamps_IsolatesPanic(t *testing.T) {
 	_, err := coord.PreviewClamps(context.Background(), previewAdmission())
 	if err == nil {
 		t.Fatal("expected panic isolation error")
+	}
+}
+
+func TestPreviewClamps_RejectsUnknownPriorityClass(t *testing.T) {
+	t.Parallel()
+	p := &previewOnlyProvider{value: 10}
+	coord := &authoritycoord.AttemptCoordinator{
+		Slots: []authoritycoord.AttemptSlot{{
+			ID: "p", Class: authoritycoord.AttemptPriorityUnknown, Provider: p, Strength: authority.StrengthRequired,
+		}},
+	}
+	_, err := coord.PreviewClamps(context.Background(), previewAdmission())
+	if err == nil {
+		t.Fatal("unknown attempt priority class must be rejected")
+	}
+	if !strings.Contains(err.Error(), "unknown attempt priority class") {
+		t.Fatalf("got %v", err)
+	}
+	if p.calls != 0 {
+		t.Fatalf("preview calls=%d want 0", p.calls)
 	}
 }
 
