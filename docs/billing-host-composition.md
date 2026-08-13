@@ -17,11 +17,21 @@ There is no second host builder, no DI container, and no YAML journal DSN factor
 
 ```go
 catalog := billingcompose.NewSnapshotCatalog()
-_ = catalog.PutPricing(pricing)
-_ = catalog.PutPolicy(policy)
-_ = catalog.PutOperatorRate(operator)
-_ = catalog.SetDefaults(pricing.Ref, policy.Ref)
-_ = catalog.SetOperatorRateBinding(backend, model, operator.Ref)
+if err := catalog.PutPricing(pricing); err != nil {
+    return err
+}
+if err := catalog.PutPolicy(policy); err != nil {
+    return err
+}
+if err := catalog.PutOperatorRate(operator); err != nil {
+    return err
+}
+if err := catalog.SetDefaults(pricing.Ref, policy.Ref); err != nil {
+    return err
+}
+if err := catalog.SetOperatorRateBinding(backend, model, operator.Ref); err != nil {
+    return err
+}
 
 prod, err := runtimebundle.ComposeBilling(runtimebundle.ComposeBillingInput{
     Store:    store, // already opened DurableStore
@@ -62,7 +72,7 @@ One store is the authority for append, settlement, processing, hold release, rep
 
 ## Catalog publish
 
-Snapshot **bodies** live in the in-memory catalog. Holds and sealed usage records store `VersionRef` (ID + Version) only. The catalog is process-local: republish it at every start from host configuration. A price or policy change is a new version identity, not an in-place mutation of a published version.
+Snapshot **bodies** live in the in-memory catalog. Holds and sealed usage records store `VersionRef` (ID + Version) only. The catalog is process-local: republish it at every start from host configuration, including **every version still referenced by non-terminal holds and TURs** — a missing referenced version fails closed at rating and blocks settlement until republished. A price or policy change is a new version identity, not an in-place mutation of a published version.
 
 Publish, then bind:
 
@@ -71,6 +81,8 @@ Publish, then bind:
 3. Optional `SetRoutePricing(backend, model, ref)` and `SetOperatorRateBinding(backend, model, ref)` — refs must already be published. Unbound operator rates resolve to an empty `VersionRef`.
 
 Admission (`RoutePricing` / `Policy`) and post-turn rating (`SnapshotsFor`) use this same catalog. Missing, withdrawn, or mismatched refs fail closed; the resolver does not invent or substitute another version.
+
+Route and operator bindings are re-resolved at settlement, not persisted on the TUR. Do not rebind `SetRoutePricing` / `SetOperatorRateBinding` while authoritative billing is serving: a mid-flight rebind would settle a turn at a price different from the one admitted with. Publish a new version and rebind only before serving or at a quiesced restart.
 
 Leftover YAML `accounting.pricing` is **not** TUR rating truth. It is dual-plane / shadow characterization metadata. Do not treat it as the snapshot catalog.
 

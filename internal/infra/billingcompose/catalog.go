@@ -155,6 +155,17 @@ func (c *SnapshotCatalog) SetDefaults(CustomerPricing, ChargePolicy billing.Vers
 	return nil
 }
 
+// HasDefaults reports whether admission defaults (customer pricing and charge
+// policy) are bound. It is the canonical completeness probe for ComposeBilling.
+func (c *SnapshotCatalog) HasDefaults() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.hasDefaults
+}
+
 // SetRoutePricing binds a backend/model pair to an already published pricing
 // snapshot. Admission RoutePricing uses this override in preference to defaults.
 func (c *SnapshotCatalog) SetRoutePricing(backend, model string, ref billing.VersionRef) error {

@@ -266,7 +266,7 @@ func TestBillingCommandsPostCreditPolicy(t *testing.T) {
 		t.Fatalf("policy calls=%d", len(provisioner.policies))
 	}
 	got := provisioner.policies[0]
-	if got.AccountID != "acct-policy" || got.Mode != corebilling.AccountPostpaid || got.CreditLimit != 100 || got.SourceKey != "policy-1" {
+	if got.AccountID != "acct-policy" || got.Mode != corebilling.AccountPostpaid || got.CreditLimit != 100 || got.SourceKey != "policy-1" || got.Reason != "enable credit" {
 		t.Fatalf("policy input=%+v", got)
 	}
 }

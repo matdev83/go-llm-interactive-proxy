@@ -192,8 +192,10 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	}
 
 	var billingProvisioner billing.AccountProvisioner
-	if p, ok := opts.Production.BillingStore.(billing.AccountProvisioner); ok {
-		billingProvisioner = p
+	if opts.Production.BillingAuthoritative {
+		if p, ok := opts.Production.BillingStore.(billing.AccountProvisioner); ok {
+			billingProvisioner = p
+		}
 	}
 
 	return &candidateAssembly{

@@ -3,7 +3,9 @@ package billingcompose_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -503,6 +505,72 @@ func TestSnapshotCatalog_RoutePricingFailsClosedWithoutDefault(t *testing.T) {
 	}
 	if _, err := c.Policy(context.Background(), lipapi.Call{}); err == nil {
 		t.Fatal("expected policy error when defaults are unset")
+	}
+}
+
+func TestSnapshotCatalog_ConcurrentReadsDuringPublish(t *testing.T) {
+	c, pricing, policy, rates := seedCatalog(t)
+
+	const (
+		readers    = 8
+		writers    = 4
+		iterations = 200
+	)
+
+	record := catalogRecord(pricing.Ref, policy.Ref, catalogLeg("backend", "model", rates.Ref))
+
+	var wg sync.WaitGroup
+	errs := make(chan error, readers+writers)
+
+	for i := 0; i < readers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				if _, err := c.RoutePricing(context.Background(), "backend", "model"); err != nil {
+					errs <- err
+					return
+				}
+				if !c.HasDefaults() {
+					errs <- errors.New("defaults lost during concurrent read")
+					return
+				}
+				if _, _, _, _, err := c.SnapshotsFor(record); err != nil {
+					errs <- err
+					return
+				}
+			}
+		}()
+	}
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				p := catalogPricing()
+				p.Ref = billing.VersionRef{ID: fmt.Sprintf("pricing-%d", n), Version: fmt.Sprintf("v%d", j)}
+				if err := c.PutPricing(p); err != nil {
+					errs <- err
+					return
+				}
+				r := catalogOperatorRate()
+				r.Ref = billing.VersionRef{ID: fmt.Sprintf("rate-%d", n), Version: fmt.Sprintf("v%d", j)}
+				if err := c.PutOperatorRate(r); err != nil {
+					errs <- err
+					return
+				}
+				if err := c.SetRoutePricing("backend", fmt.Sprintf("model-%d", n), p.Ref); err != nil {
+					errs <- err
+					return
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent catalog access: %v", err)
 	}
 }
 

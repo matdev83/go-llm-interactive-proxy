@@ -389,6 +389,7 @@ func (c *SnapshotCatalog) OperatorRateRef(context.Context, backend, model string
 - Integration: bind `RoutePricing` / `Policy` into `billingadmission.Config`. Bind `JoinRatingResolver` to `ProductionOptions.BillingRatingResolver`.
 - Validation: put-immutability tests; missing-ref tests; admit ref equals TUR ref in host loop.
 - Risks: duplicating snapshot copies with mutated Present flags — compare by value including Present bits.
+- Route/operator bindings are re-resolved at settlement, not persisted on the TUR. A host must not rebind a route (`SetRoutePricing` / `SetOperatorRateBinding`) while authoritative billing is serving (admission → settlement); a price change is a new version identity plus a binding update only before serving or at a quiesced restart.
 
 #### AuthorizationLookup
 
@@ -481,7 +482,7 @@ type ComposeBillingInput struct {
 func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error)
 ```
 
-- Store must also implement `UsageRecordAppender`, `PostTurnStore`, `HoldReleaser`, `AccountProvisioner`, and `AuthorizationLookup` or ComposeBilling fails closed.
+- Store must also implement `UsageRecordAppender`, `HoldReleaser`, `AccountProvisioner`, `AuthorizationLookup`, and `AuthorizationStore` (admission hold table) or ComposeBilling fails closed. `PostTurnStore` is already embedded in `AuthoritativeBilling`, so the Store field type guarantees it.
 - Catalog defaults and currency are required.
 - `ModelMaxOutput` is required so admission cannot estimate an unbounded hold.
 - Sets `BillingAuthoritative`, `BillingStore`, `BillingAdmission` from `billingadmission.NewAdapter`, `BillingIdentity`, `BillingRatingResolver` from `billingcompose.NewRatingResolver`, `BillingReports`/`Path` from the same store.
@@ -535,6 +536,8 @@ No new journal aggregates. Catalog is an in-process immutable map of existing do
 ### Logical Data Model
 
 No new tables. Catalog is not persisted by this spec; hosts reconstruct it at process start from their own configuration. Holds and TURs continue to persist `VersionRef` only.
+
+Because the catalog is process-local and holds/TURs persist only `VersionRef`, a host must retain and republish every version still referenced by non-terminal persisted holds and TURs on every restart, or provide a supported recovery path. Republishing a different version set makes those holds/TURs fail closed at rating (missing refs), which is correct but blocks settlement until the referenced version is republished.
 
 ### Data Contracts and Integration
 

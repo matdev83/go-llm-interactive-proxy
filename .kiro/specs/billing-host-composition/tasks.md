@@ -79,7 +79,7 @@ TDD throughout (RED → GREEN → REFACTOR). Do not modify stream handlers, TUR 
 
 - [x] 4.1 (P) Compose a complete Production injection from an opened journal and catalog
   - Helper fills store, admission (catalog-backed pricing and policy), identity, rating resolver, reports, and authoritative enablement without opening a database.
-  - Incomplete input (missing store capabilities, catalog defaults, currency, or model max-output bound) fails closed.
+  - Incomplete input (missing store capabilities — usage-record append, post-turn, hold release, provisioning, authorization lookup, and authorization store — catalog defaults, currency, or model max-output bound) fails closed.
   - Nil identity uses the stock principal/session mapping; a custom mapping that returns empty identity still fails closed at admission.
   - Single store is handoff, reports, hold release, provisioner, and hold lookup. No second host builder and no DI container. `lipstd` does not call this helper.
   - Observable: compose tests produce a Production value that BuildHost accepts; incomplete compose returns an error before BuildHost.

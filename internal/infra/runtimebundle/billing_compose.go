@@ -1,7 +1,6 @@
 package runtimebundle
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -11,7 +10,6 @@ import (
 	runtimecore "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingadmission"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingcompose"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 // ErrComposeBillingIncomplete is returned when ComposeBilling is missing a
@@ -48,7 +46,7 @@ func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 	if in.ModelMaxOutput == nil {
 		return ProductionOptions{}, fmt.Errorf("%w: model max-output bound is required", ErrComposeBillingIncomplete)
 	}
-	if in.Catalog.CustomerPricingRef(context.Background(), lipapi.Call{}) == (billing.VersionRef{}) {
+	if !in.Catalog.HasDefaults() {
 		return ProductionOptions{}, fmt.Errorf("%w: catalog defaults are required", ErrComposeBillingIncomplete)
 	}
 
@@ -85,7 +83,7 @@ func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 		Pricing:             in.Catalog.RoutePricing,
 		ModelMaxOutput:      in.ModelMaxOutput,
 		Strict:              in.Strict,
-		ConservativeCeiling: in.ConservativeCeiling,
+		ConservativeCeiling: copyMoney(in.ConservativeCeiling),
 	})
 	if err != nil {
 		return ProductionOptions{}, fmt.Errorf("%w: admission: %w", ErrComposeBillingIncomplete, err)
@@ -118,4 +116,14 @@ func stockOrOverrideIdentity(in ComposeBillingInput) runtimecore.BillingIdentity
 		ChargePolicyRef:    in.Catalog.ChargePolicyRef,
 		OperatorRateRef:    in.Catalog.OperatorRateRef,
 	})
+}
+
+// copyMoney defensively copies a caller-owned Money pointer so the adapter never
+// observes later caller mutation. Nil stays nil.
+func copyMoney(m *billing.Money) *billing.Money {
+	if m == nil {
+		return nil
+	}
+	copied := *m
+	return &copied
 }

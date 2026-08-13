@@ -348,35 +348,71 @@ func composeCatalogOperatorRate() billing.OperatorRateSnapshot {
 	}
 }
 
-type journalReports struct {
-	billing.AuthoritativeBilling
+// journalReports implements the read-side ReportingStore explicitly so report
+// calls through the composed journal cannot hit a nil embedded interface.
+type journalReports struct{}
+
+func (journalReports) AccountReport(context.Context, string, billing.PageRequest) (billing.AccountReport, error) {
+	return billing.AccountReport{}, nil
 }
 
-func (journalReports) ApplyBillingResult(context.Context, billing.ApplyBillingInput) (billing.Settlement, error) {
+func (journalReports) TurnExplanation(context.Context, string) (billing.TurnExplanation, error) {
+	return billing.TurnExplanation{}, nil
+}
+
+func (journalReports) OperatorCostReport(context.Context, billing.ReportFilter) (billing.OperatorCostReport, error) {
+	return billing.OperatorCostReport{}, nil
+}
+
+func (journalReports) TrialBalanceReport(context.Context, billing.ReportFilter) (billing.TrialBalanceReport, error) {
+	return billing.TrialBalanceReport{}, nil
+}
+
+func (journalReports) SessionReport(context.Context, string, string, billing.PageRequest) (billing.SessionReport, error) {
+	return billing.SessionReport{}, nil
+}
+
+func (journalReports) QueryProcessing(context.Context, billing.ReportFilter) (billing.ProcessingPage, error) {
+	return billing.ProcessingPage{}, nil
+}
+
+func (journalReports) QueryOpenHolds(context.Context, string, billing.PageRequest) (billing.HoldPage, error) {
+	return billing.HoldPage{}, nil
+}
+
+func (journalReports) QueryReconcileRequired(context.Context, billing.PageRequest) (billing.AccountStatePage, error) {
+	return billing.AccountStatePage{}, nil
+}
+
+// journalPostTurn implements the durable post-turn boundary (settlement plus
+// processing metadata) as safe no-ops.
+type journalPostTurn struct{}
+
+func (journalPostTurn) ApplyBillingResult(context.Context, billing.ApplyBillingInput) (billing.Settlement, error) {
 	return billing.Settlement{}, nil
 }
 
-func (journalReports) ClaimPending(context.Context, int) ([]billing.TurnUsageRecord, error) {
+func (journalPostTurn) ClaimPending(context.Context, int) ([]billing.TurnUsageRecord, error) {
 	return nil, nil
 }
 
-func (journalReports) MarkProcessingRetryable(context.Context, string, string, string) error {
+func (journalPostTurn) MarkProcessingRetryable(context.Context, string, string, string) error {
 	return nil
 }
 
-func (journalReports) MarkProcessingTerminal(context.Context, string, string, string) error {
+func (journalPostTurn) MarkProcessingTerminal(context.Context, string, string, string) error {
 	return nil
 }
 
-func (journalReports) MarkProcessingUnreconciledCost(context.Context, string, string, string) error {
+func (journalPostTurn) MarkProcessingUnreconciledCost(context.Context, string, string, string) error {
 	return nil
 }
 
-func (journalReports) MarkProcessingProcessed(context.Context, string, string, string) error {
+func (journalPostTurn) MarkProcessingProcessed(context.Context, string, string, string) error {
 	return nil
 }
 
-func (journalReports) MarkProcessingInvariantFailure(context.Context, billing.TurnUsageRecord, string) error {
+func (journalPostTurn) MarkProcessingInvariantFailure(context.Context, billing.TurnUsageRecord, string) error {
 	return nil
 }
 
@@ -436,6 +472,7 @@ func (s *journalAuthorize) Authorize(_ context.Context, in billing.AuthorizeInpu
 
 type completeJournal struct {
 	journalReports
+	journalPostTurn
 	journalHandoff
 	journalRelease
 	journalProvision
@@ -445,6 +482,7 @@ type completeJournal struct {
 
 type journalWithoutAppender struct {
 	journalReports
+	journalPostTurn
 	journalRelease
 	journalProvision
 	journalLookup
@@ -453,6 +491,7 @@ type journalWithoutAppender struct {
 
 type journalWithoutReleaser struct {
 	journalReports
+	journalPostTurn
 	journalHandoff
 	journalProvision
 	journalLookup
@@ -461,6 +500,7 @@ type journalWithoutReleaser struct {
 
 type journalWithoutProvisioner struct {
 	journalReports
+	journalPostTurn
 	journalHandoff
 	journalRelease
 	journalLookup
@@ -469,6 +509,7 @@ type journalWithoutProvisioner struct {
 
 type journalWithoutLookup struct {
 	journalReports
+	journalPostTurn
 	journalHandoff
 	journalRelease
 	journalProvision
@@ -477,6 +518,7 @@ type journalWithoutLookup struct {
 
 type journalWithoutAuthorize struct {
 	journalReports
+	journalPostTurn
 	journalHandoff
 	journalRelease
 	journalProvision
