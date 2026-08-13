@@ -372,14 +372,12 @@ func TestNativeCheckpointStore_ConcurrentReserveAndCloseCommit(t *testing.T) {
 	const workers = 32
 	results := make(chan Reservation, workers)
 	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range workers {
+		wg.Go(func() {
 			if reservation, ok := store.Reserve(key); ok {
 				results <- reservation
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(results)

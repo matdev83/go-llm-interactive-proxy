@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -33,10 +33,8 @@ func appendLimited(items []string, value string, maxLen int) []string {
 	if value == "" || maxLen <= 0 {
 		return items
 	}
-	for _, existing := range items {
-		if existing == value {
-			return items
-		}
+	if slices.Contains(items, value) {
+		return items
 	}
 	if len(items) >= maxLen {
 		return items
@@ -52,7 +50,7 @@ func stableCounts(counts map[string]int) []string {
 	for k := range counts {
 		keys = append(keys, k)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 	out := make([]string, 0, len(keys))
 	for _, k := range keys {
 		out = append(out, k)

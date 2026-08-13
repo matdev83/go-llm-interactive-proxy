@@ -10,13 +10,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 )
 
-func maxInt64(a, b int64) int64 {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 func reserveAmount(cmd app.ReserveCommand) domain.Amount {
 	if cmd.Request.Value != 0 && (cmd.Request.Unit != domain.AmountUnitMoneyNano || cmd.Request.Currency != "") {
 		return cmd.Request

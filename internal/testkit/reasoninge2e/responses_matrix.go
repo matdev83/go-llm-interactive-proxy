@@ -2,7 +2,7 @@ package reasoninge2e
 
 import (
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 )
 
 // ResponsesPresenceVariant is a deterministic exact-item presence case for seeded smokes.
@@ -40,11 +40,11 @@ func ResponsesSmokeCases(seedBase uint64, n int) []ResponsesMatrixCase {
 		ResponsesPresenceWithContent,
 	}
 	out := make([]ResponsesMatrixCase, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		seed := seedBase + uint64(i)*0x9E3779B97F4A7C15
-		rng := rand.New(rand.NewSource(int64(seed)))
-		v := variants[rng.Intn(len(variants))]
-		stream := rng.Intn(2) == 0
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // deterministic test plan, not crypto
+		v := variants[rng.IntN(len(variants))]
+		stream := rng.IntN(2) == 0
 		out = append(out, ResponsesMatrixCase{
 			Seed:     seed,
 			Variant:  v,

@@ -163,11 +163,11 @@ func TestCompactionClient_UsesDedicatedEndpointAndJSONResponse(t *testing.T) {
 func TestParseCompactionJSONRequiresExactlyOneCompactionSummary(t *testing.T) {
 	base := `{"id":"r","object":"response.compaction","output":[{"type":"message","id":"msg-retained","role":"user","status":"completed","content":[{"type":"input_text","text":"retained"}]},%s],"usage":{"input_tokens":1}}`
 	item := `{"type":"compaction_summary","id":"cmp","encrypted_content":"opaque"}`
-	result, err := parseCompactionJSON([]byte(fmt.Sprintf(base, item)))
+	result, err := parseCompactionJSON(fmt.Appendf(nil, base, item))
 	if err != nil || len(result.Output) != 2 || inputItemType(result.Output[1]) != "compaction_summary" {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
-	if _, err := parseCompactionJSON([]byte(fmt.Sprintf(base, item+","+item))); !errors.Is(err, errCompactionProtocol) {
+	if _, err := parseCompactionJSON(fmt.Appendf(nil, base, item+","+item)); !errors.Is(err, errCompactionProtocol) {
 		t.Fatalf("duplicate error = %v", err)
 	}
 }
@@ -239,7 +239,7 @@ func TestParseCompactionJSONRetainedMessageValidation(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := parseCompactionJSON([]byte(fmt.Sprintf(base, tc.msg)))
+			_, err := parseCompactionJSON(fmt.Appendf(nil, base, tc.msg))
 			if (err == nil) != tc.want {
 				t.Fatalf("err=%v wantAccepted=%v", err, tc.want)
 			}

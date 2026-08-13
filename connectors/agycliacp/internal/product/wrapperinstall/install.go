@@ -228,7 +228,7 @@ func download(ctx context.Context, client *http.Client, url string) ([]byte, err
 }
 
 func checksumFor(data, name string) (string, error) {
-	for _, line := range strings.Split(data, "\n") {
+	for line := range strings.SplitSeq(data, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 2 && strings.TrimPrefix(fields[1], "*") == name {
 			if _, err := hex.DecodeString(fields[0]); err == nil && len(fields[0]) == 64 {

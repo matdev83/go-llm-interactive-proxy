@@ -307,7 +307,6 @@ func RunAll(t *testing.T, env ContractEnv) {
 		now := time.Unix(1_700_000_500, 0).UTC()
 		for i := range 2 {
 			wg.Add(1)
-			i := i
 			env.Spawn(func() {
 				defer wg.Done()
 				<-start

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"regexp"
 	"runtime"
@@ -344,9 +345,7 @@ func withDefaultWorkspace(call *lipapi.Call, workspace string) *lipapi.Call {
 		cp.Extensions = map[string]json.RawMessage{}
 	} else {
 		ext := make(map[string]json.RawMessage, len(cp.Extensions)+1)
-		for k, v := range cp.Extensions {
-			ext[k] = v
-		}
+		maps.Copy(ext, cp.Extensions)
 		cp.Extensions = ext
 	}
 	if _, ok := cp.Extensions["acp.cwd"]; ok {

@@ -13,8 +13,7 @@ func BenchmarkMapper_ReasoningOutputItemDone(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		m, _ := newTestMapper()
 		if err := m.ReasoningOutputItemDone(0, item); err != nil {
 			b.Fatal(err)

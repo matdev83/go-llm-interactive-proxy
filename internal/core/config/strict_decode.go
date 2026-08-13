@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -64,7 +65,7 @@ func StrictDecode(raw []byte) (*Config, LoadCategory, error) {
 	var extra yaml.Node
 	err := dec.Decode(&extra)
 	switch {
-	case err == io.EOF:
+	case errors.Is(err, io.EOF):
 		return &cfg, CategoryOK, nil
 	case err != nil:
 		return nil, CategoryTrailingContent, &LoadError{Category: CategoryTrailingContent}

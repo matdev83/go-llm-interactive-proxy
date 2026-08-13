@@ -20,11 +20,11 @@ func main() {
 	childPIDFile := strings.TrimSpace(os.Getenv("FAKE_CODEX_CHILD_PID_FILE"))
 	hang := strings.TrimSpace(os.Getenv("FAKE_CODEX_HANG")) == "1"
 	for _, a := range os.Args[1:] {
-		if strings.HasPrefix(a, "--fake-pid-file=") {
-			pidFile = strings.TrimPrefix(a, "--fake-pid-file=")
+		if after, ok := strings.CutPrefix(a, "--fake-pid-file="); ok {
+			pidFile = after
 		}
-		if strings.HasPrefix(a, "--fake-child-pid-file=") {
-			childPIDFile = strings.TrimPrefix(a, "--fake-child-pid-file=")
+		if after, ok := strings.CutPrefix(a, "--fake-child-pid-file="); ok {
+			childPIDFile = after
 		}
 		if a == "--fake-hang" {
 			hang = true

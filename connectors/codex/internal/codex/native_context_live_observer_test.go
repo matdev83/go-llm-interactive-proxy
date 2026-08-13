@@ -274,10 +274,7 @@ func (b *nativeLiveResponseBody) Read(p []byte) (int, error) {
 	if n > 0 {
 		b.mu.Lock()
 		if len(b.captured) < nativeLiveResponseCaptureLimit {
-			remaining := nativeLiveResponseCaptureLimit - len(b.captured)
-			if n < remaining {
-				remaining = n
-			}
+			remaining := min(n, nativeLiveResponseCaptureLimit-len(b.captured))
 			b.captured = append(b.captured, p[:remaining]...)
 		}
 		b.mu.Unlock()

@@ -522,11 +522,9 @@ func TestSnapshotCatalog_ConcurrentReadsDuringPublish(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, readers+writers)
 
-	for i := 0; i < readers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < iterations; j++ {
+	for range readers {
+		wg.Go(func() {
+			for range iterations {
 				if _, err := c.RoutePricing(context.Background(), "backend", "model"); err != nil {
 					errs <- err
 					return
@@ -540,13 +538,13 @@ func TestSnapshotCatalog_ConcurrentReadsDuringPublish(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
-	for i := 0; i < writers; i++ {
+	for i := range writers {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			for j := 0; j < iterations; j++ {
+			for j := range iterations {
 				p := catalogPricing()
 				p.Ref = billing.VersionRef{ID: fmt.Sprintf("pricing-%d", n), Version: fmt.Sprintf("v%d", j)}
 				if err := c.PutPricing(p); err != nil {

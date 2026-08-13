@@ -77,7 +77,7 @@ func applyModelFamilyLimits(p *CompactionModelProfile, isSpark, isGPT5 bool, kno
 		p.HardLimit, p.UsableContextCeiling, p.SafetyHeadroom = sparkHardLimit, sparkUsableCeiling, sparkHeadroom
 		if knownHardLimit > 0 && knownHardLimit < p.HardLimit {
 			p.HardLimit = knownHardLimit
-			p.UsableContextCeiling = maxInt64Local(1, p.HardLimit-p.SafetyHeadroom)
+			p.UsableContextCeiling = max(int64(1), p.HardLimit-p.SafetyHeadroom)
 		}
 	case isGPT5 && knownHardLimit <= 0:
 		p.UsableContextCeiling, p.SafetyHeadroom = gpt5UsableCeiling, gpt5Headroom
@@ -152,13 +152,6 @@ func fallbackTriggerForProfile(spark, gpt5 bool, usable int64) int64 {
 		trigger = usable - 1
 	}
 	return trigger
-}
-
-func maxInt64Local(a, b int64) int64 {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 func profilesCompatibleForReplay(want, have CompactionModelProfile) bool {
@@ -319,10 +312,7 @@ func PlanCompaction(in CompactionPlanInput) CompactionPlan {
 	if tailEstimate.Tokens+in.Profile.SafetyHeadroom > in.Profile.HardLimit {
 		return hardFailurePlan("live_tail_too_large", split, full.Tokens, effectiveHistory, sourcePrefixEnd)
 	}
-	retained := in.Config.Compaction.RetainedMessageTokens
-	if retained < 0 {
-		retained = 0
-	}
+	retained := max(in.Config.Compaction.RetainedMessageTokens, 0)
 	if retained > prefixEstimate.Tokens {
 		retained = prefixEstimate.Tokens
 	}
@@ -498,14 +488,7 @@ func sourcePrefixEndForSplit(effective, original NativeHistory, checkpoint *Chec
 	if split <= replacementLen {
 		return checkpointSourceEnd
 	}
-	return minInt(len(original.Items), checkpointSourceEnd+split-replacementLen)
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
+	return min(len(original.Items), checkpointSourceEnd+split-replacementLen)
 }
 
 func bypassPlan(reason string, tokens int64, history NativeHistory, sourcePrefixEnd int) CompactionPlan {

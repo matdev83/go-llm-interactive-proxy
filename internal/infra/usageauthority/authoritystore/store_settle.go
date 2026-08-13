@@ -117,9 +117,9 @@ func (c *storeCore) settleOne(cmd app.SettleCommand, log MutationLog) (app.Settl
 	adjustment := released - overage
 
 	row.Consumed += actual.Value
-	row.Reserved = maxInt64(0, row.Reserved-reservedAmount.Value)
+	row.Reserved = max(0, row.Reserved-reservedAmount.Value)
 	row.Adjustment += adjustment
-	row.Remaining = maxInt64(0, row.Limit-row.Consumed-row.Reserved)
+	row.Remaining = max(0, row.Limit-row.Consumed-row.Reserved)
 	c.limits[key] = row
 	log.CaptureLimitUpdate(key, row)
 
@@ -178,7 +178,7 @@ func (c *storeCore) authoritativeResettle(cmd app.SettleCommand, rec *reservatio
 	if delta != 0 && row != nil {
 		row.Consumed += delta
 		row.Adjustment += adjustment
-		row.Remaining = maxInt64(0, row.Limit-row.Consumed-row.Reserved)
+		row.Remaining = max(0, row.Limit-row.Consumed-row.Reserved)
 		c.limits[key] = row
 		log.CaptureLimitUpdate(key, row)
 	}
