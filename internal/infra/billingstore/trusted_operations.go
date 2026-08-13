@@ -25,9 +25,10 @@ func (s *DurableStore) PostFunding(ctx context.Context, input billing.FundingInp
 	if err != nil {
 		return billing.Posting{}, err
 	}
-	return s.postFinancialCommand(ctx, "funding", input.AccountID, input.SourceKey, fp, input.Amount, 1, func() (billing.JournalTransaction, error) {
+	posting, err := s.postFinancialCommand(ctx, "funding", input.AccountID, input.SourceKey, fp, input.Amount, 1, func() (billing.JournalTransaction, error) {
 		return billing.FundingJournalIntent(input)
 	})
+	return posting, wrapAccountProvisionerError(err)
 }
 
 func (s *DurableStore) PostPayment(ctx context.Context, input billing.PaymentInput) (billing.Posting, error) {
@@ -174,13 +175,14 @@ func (s *DurableStore) ChangeCreditPolicy(ctx context.Context, input billing.Cre
 	if err != nil {
 		return billing.PolicyChange{}, err
 	}
-	return withAccountTx(ctx, accountTxRetry{
+	change, err := withAccountTx(ctx, accountTxRetry{
 		Attempts:  30,
 		Delay:     3 * time.Millisecond,
 		Exhausted: fmt.Errorf("%w: credit policy retry budget exhausted", billing.ErrAuthorizationUnavailable),
 	}, func() (billing.PolicyChange, error) {
 		return s.changeCreditPolicyAttempt(ctx, input, fp)
 	})
+	return change, wrapAccountProvisionerError(err)
 }
 
 func (s *DurableStore) changeCreditPolicyAttempt(ctx context.Context, input billing.CreditPolicyInput, fp string) (billing.PolicyChange, error) {

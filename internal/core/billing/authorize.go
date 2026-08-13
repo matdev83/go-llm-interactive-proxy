@@ -14,6 +14,7 @@ var (
 	ErrAuthorizationInvalid     = errors.New("billing: invalid authorization")
 	ErrAuthorizationConflict    = errors.New("billing: authorization replay conflict")
 	ErrAuthorizationUnavailable = errors.New("billing: authorization store unavailable")
+	ErrAuthorizationNotFound    = errors.New("billing: authorization hold not found")
 	ErrAuthorizationClosed      = errors.New("billing: authorization hold is closed")
 	ErrAuthorizationExpired     = errors.New("billing: authorization hold expired")
 	ErrLegacyAuthorization      = errors.New("billing: legacy authorization requires repair")

@@ -157,8 +157,18 @@ func TestBuild_RejectsEmptyConfigPath(t *testing.T) {
 func TestOptions_DoesNotExposeBillingStore(t *testing.T) {
 	t.Parallel()
 	typ := reflect.TypeFor[lipruntime.Options]()
-	if _, ok := typ.FieldByName("BillingStore"); ok {
-		t.Fatal("public Options must not invent a BillingStore field")
+	for _, name := range []string{
+		"BillingStore",
+		"BillingJournal",
+		"BillingCatalog",
+		"BillingAccount",
+		"BillingRatingResolver",
+		"AccountProvisioner",
+		"ComposeBilling",
+	} {
+		if _, ok := typ.FieldByName(name); ok {
+			t.Fatalf("public Options must not invent a %s field", name)
+		}
 	}
 }
 

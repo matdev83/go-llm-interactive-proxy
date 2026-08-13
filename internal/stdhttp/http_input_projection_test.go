@@ -53,6 +53,7 @@ func TestStandardHTTPInput_mapsInventoryFieldsOnce(t *testing.T) {
 	cpQueries := &controlplane.QueryService{}
 	readiness := &controlplane.ReadinessReportService{}
 	tokenAdmin := &accountingapp.Service{}
+	billingProvisioner := &billingProvisionerStub{}
 	usage := &authorityapp.Service{}
 	concurrency := &concurrencyapp.Service{}
 	catalog := &modelcatalog.CatalogRuntime{}
@@ -86,6 +87,7 @@ func TestStandardHTTPInput_mapsInventoryFieldsOnce(t *testing.T) {
 			ControlPlaneQueries:  cpadmin.AdaptControlPlaneQueries(cpQueries),
 			ReadinessReport:      cpadmin.AdaptReadinessReport(readiness),
 			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(tokenAdmin),
+			BillingProvisioner:   billingProvisioner,
 			Registrations:        httpcontract.CloneRegistrations(regs),
 		},
 		Models: HTTPModelInput{CatalogRuntime: catalog, ModelRegistryRuntime: modelRT},
@@ -123,6 +125,9 @@ func TestStandardHTTPInput_mapsInventoryFieldsOnce(t *testing.T) {
 	}
 	if ops.TokenAccountingAdmin == nil {
 		t.Fatal("Operations.TokenAccountingAdmin must be adapted from accounting service")
+	}
+	if ops.BillingProvisioner != billingProvisioner {
+		t.Fatal("Operations.BillingProvisioner not projected")
 	}
 	if len(ops.Registrations) != 1 || ops.Registrations[0].ID != "feat-a" {
 		t.Fatalf("Operations.Registrations=%v", ops.Registrations)

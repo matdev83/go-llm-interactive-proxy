@@ -35,9 +35,10 @@ type billingReportsMount struct {
 	Operations HTTPOperationsInput
 }
 
-// mountBillingReports exposes only journal/TUR-backed, bounded billing reads.
-// It is mounted separately from token telemetry and is protected by the existing
-// diagnostics secret. No raw stream, metering, database, or provider payload is
+// mountBillingReports exposes journal/TUR-backed billing reads and trusted
+// provisioning commands. It is mounted separately from token telemetry and is
+// protected by the existing diagnostics secret. An empty secret mounts nothing,
+// including POSTs. No raw stream, metering, database, or provider payload is
 // returned by this surface.
 func mountBillingReports(in billingReportsMount) {
 	if in.Mux == nil || in.Cfg == nil || in.Operations.BillingReports == nil {
@@ -53,7 +54,10 @@ func mountBillingReports(in billingReportsMount) {
 	if path == "" {
 		path = "/admin/billing"
 	}
-	handler := billingadmin.NewHandler(billingadmin.Options{Queries: in.Operations.BillingReports})
+	handler := billingadmin.NewHandler(billingadmin.Options{
+		Queries:  in.Operations.BillingReports,
+		Commands: in.Operations.BillingProvisioner,
+	})
 	protected := diag.WrapDiagnosticsProtect(in.Cfg.Diagnostics.SharedSecret, http.StripPrefix(path, handler))
 	in.Mux.Handle(path, protected)
 	in.Mux.Handle(path+"/", protected)

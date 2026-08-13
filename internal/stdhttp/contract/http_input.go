@@ -51,6 +51,7 @@ type HTTPSecurityInput struct {
 type HTTPOperationsInput struct {
 	BillingReports       billing.ReportingStore
 	BillingReportsPath   string
+	BillingProvisioner   billing.AccountProvisioner
 	Metrics              *metrics.Bundle
 	Store                diag.AttemptLoader
 	SecretGuardInventory *diag.InventoryExtras

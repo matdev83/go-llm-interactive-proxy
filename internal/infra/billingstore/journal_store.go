@@ -28,6 +28,8 @@ var (
 var (
 	_ billing.UsageRecordAppender = (*DurableStore)(nil)
 	_ billing.HoldReleaser        = (*DurableStore)(nil)
+	_ billing.AccountProvisioner  = (*DurableStore)(nil)
+	_ billing.AuthorizationLookup = (*DurableStore)(nil)
 )
 
 // CreateAccount creates the initial materialized account row. Subsequent
@@ -54,7 +56,7 @@ INSERT INTO billing_accounts(account_id, currency, mode, credit_limit_nano, bala
 VALUES (?,?,?,?,?,?,?,?,?,?,?)
 `, account.ID, account.Currency, string(account.Mode), account.CreditLimit, account.BalanceNano, account.BalanceNano, account.ReservedNano, account.Version, string(account.State), now, now).Exec(ctx); err != nil {
 		if isUniqueViolation(err) {
-			return fmt.Errorf("%w: account %s already exists", ErrIdentityConflict, account.ID)
+			return wrapAccountProvisionerError(fmt.Errorf("%w: account %s already exists", ErrIdentityConflict, account.ID))
 		}
 		return err
 	}
@@ -63,6 +65,20 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?)
 		return err
 	}
 	return tx.Commit()
+}
+
+func wrapAccountProvisionerError(err error) error {
+	if err == nil {
+		return nil
+	}
+	switch {
+	case errors.Is(err, ErrIdentityConflict), errors.Is(err, ErrOperationConflict):
+		return fmt.Errorf("%w: %w", billing.ErrAccountConflict, err)
+	case errors.Is(err, ErrAccountNotFound):
+		return fmt.Errorf("%w: %w", billing.ErrAccountNotFound, err)
+	default:
+		return err
+	}
 }
 
 func (s *DurableStore) GetAccount(ctx context.Context, accountID string) (billing.Account, error) {
