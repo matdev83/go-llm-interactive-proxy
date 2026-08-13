@@ -46,7 +46,7 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/core/runtime/authority_lifecycle_release.go", Max: 355},
 	{Path: "internal/plugins/protocols/openresponses/state_machine.go", Max: 708},
 	{Path: "internal/plugins/protocols/openresponses/state_machine_event_handlers.go", Max: 515},
-	{Path: "internal/plugins/frontends/frontendpipe/pipe.go", Max: 352},
+	{Path: "internal/plugins/frontends/frontendpipe/pipe.go", Max: 383},
 }
 
 // PackageTreeBudget caps recursive non-test .go lines for a package tree.
@@ -74,7 +74,7 @@ type LineBudget struct {
 var LineBudgets = []LineBudget{
 	// Routing-override admin, billing host composition, and tool-call
 	// classification. Keep the measured-plus-25 ratchet.
-	{Dir: "internal/core", Max: 74980},
+	{Dir: "internal/core", Max: 75006},
 	{Dir: "internal/pluginreg", Max: 1079},
 	{Dir: "internal/stdhttp", Max: 5676},
 	{Dir: "internal/infra/runtimebundle", Max: 11203},

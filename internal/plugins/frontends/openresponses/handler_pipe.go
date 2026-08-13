@@ -42,7 +42,9 @@ type executorViewAdapter struct {
 	ExecutorView
 }
 
-func (a executorViewAdapter) CancelALeg(context.Context, lipapi.ALegCancelRequest) error { return nil }
+func (a executorViewAdapter) CancelALeg(context.Context, lipapi.ALegCancelRequest) error {
+	return errors.New("openresponses: HTTP create adapter does not cancel A-legs")
+}
 
 func (a executorViewAdapter) WallClock() func() time.Time { return nil }
 

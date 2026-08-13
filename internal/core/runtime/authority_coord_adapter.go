@@ -188,7 +188,7 @@ func (a *usageAuthorityProviderAdapter) SettleAttempt(ctx context.Context, in au
 	}
 	result, err := a.svc.Settle(ctx, authorityapp.DeriveSettleScalars(settleIn))
 	if result.Applied {
-		return authority.OwnedFinalSettlement(in.Handles), err
+		return authority.OwnedFinalSettlement(in.Handles), nil
 	}
 	if err != nil {
 		return authority.Settlement{}, err

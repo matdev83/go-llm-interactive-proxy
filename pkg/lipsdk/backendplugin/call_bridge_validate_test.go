@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 )
 
@@ -66,5 +67,37 @@ func TestInvocationValidate_MatchesCallFromInvocationSuccess(t *testing.T) {
 	}
 	if call.PromptCacheKey != "cache-1" {
 		t.Fatalf("prompt cache dropped: %q", call.PromptCacheKey)
+	}
+}
+
+func TestCallFromInvocation_ItemAuthorityClearsLegacyMessages(t *testing.T) {
+	t.Parallel()
+	inv := backendplugin.Invocation{
+		RequestID: "req", AttemptID: "att", ALegID: "a", BLegID: "b", CanonicalModelID: "m",
+		Messages: []backendplugin.Message{{
+			Role:  backendplugin.RoleUser,
+			Parts: []backendplugin.Part{{Kind: backendplugin.PartKindText, Text: strPtr("legacy")}},
+		}},
+		ItemAuthority: true,
+		Items: []backendplugin.InvocationItem{{
+			Kind:   string(lipapi.ItemKindMessage),
+			ID:     "m1",
+			Status: string(lipapi.ItemStatusCompleted),
+			Role:   lipapi.RoleUser,
+			Content: []backendplugin.InvocationContentPart{{
+				Kind: backendplugin.PartKindText,
+				Text: strPtr("hello"),
+			}},
+		}},
+	}
+	call, err := backendplugin.CallFromInvocation(inv)
+	if err != nil {
+		t.Fatalf("CallFromInvocation: %v", err)
+	}
+	if len(call.Messages) != 0 {
+		t.Fatalf("legacy messages leaked onto item-authority call: %#v", call.Messages)
+	}
+	if len(call.Items) != 1 || call.Items[0].Content[0].Text != "hello" {
+		t.Fatalf("items=%#v", call.Items)
 	}
 }

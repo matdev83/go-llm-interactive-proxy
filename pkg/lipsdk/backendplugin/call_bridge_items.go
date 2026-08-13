@@ -29,6 +29,8 @@ func applyInvocationWireToCall(call *lipapi.Call, inv Invocation) error {
 		return err
 	}
 	call.Items = items
+	call.Messages = nil
+	call.Instructions = nil
 	return nil
 }
 

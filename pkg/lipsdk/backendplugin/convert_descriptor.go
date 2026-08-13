@@ -275,5 +275,3 @@ func CancelOutcomeToProto(c *CancelOutcome) (*backendpluginv1.CancelOutcome, err
 	}
 	return &backendpluginv1.CancelOutcome{Acknowledged: c.Acknowledged, Detail: c.Detail, Reason: reason}, nil
 }
-
-// TerminalFromProto converts terminals.

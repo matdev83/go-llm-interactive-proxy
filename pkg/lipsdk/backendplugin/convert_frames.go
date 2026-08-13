@@ -4,6 +4,7 @@ import (
 	backendpluginv1 "github.com/matdev83/go-llm-interactive-proxy/api/backendplugin/v1"
 )
 
+// TerminalFromProto converts terminals.
 func TerminalFromProto(p *backendpluginv1.Terminal) (*Terminal, error) {
 	if p == nil {
 		return nil, nil

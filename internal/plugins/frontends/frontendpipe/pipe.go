@@ -3,6 +3,7 @@ package frontendpipe
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -65,6 +66,14 @@ func (e *StatusError) Unwrap() error {
 		return nil
 	}
 	return e.Err
+}
+
+// HTTPStatus returns a wire-safe status, never 0.
+func (e *StatusError) HTTPStatus() int {
+	if e == nil || e.Status < 100 || e.Status > 599 {
+		return http.StatusBadRequest
+	}
+	return e.Status
 }
 
 // HookErrorWriter optionally writes AfterDecode/WrapStream errors with protocol envelopes.
@@ -144,12 +153,31 @@ func (c Config) logWriteJSONErr(ctx context.Context, msg string, werr error) {
 	diag.LogError(ctx, c.Log, msg, diag.AttrOpts{}, werr)
 }
 
-func writeHookError[Opts any](spec *Spec[Opts], ctx context.Context, w http.ResponseWriter, err error) {
+func writeHookError[Opts any](ctx context.Context, spec *Spec[Opts], w http.ResponseWriter, err error) {
+	if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WritePreflightCanceled(w))
+		return
+	}
 	if hw, ok := spec.Wire.(HookErrorWriter); ok {
 		spec.logWriteJSONErr(ctx, "write error json failed", hw.WriteHookError(w, err))
 		return
 	}
 	spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteInvalidRequest(w))
+}
+
+func rejectInvalidCall[Opts any](ctx context.Context, spec *Spec[Opts], w http.ResponseWriter, call *lipapi.Call) bool {
+	if call == nil {
+		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteInvalidRequest(w))
+		return true
+	}
+	if err := call.Validate(); err != nil {
+		if spec.Log != nil {
+			diag.LogError(ctx, spec.Log, "validate call failed", diag.AttrOpts{CallID: call.ID}, err, slog.String("detail", diag.TruncErrDetail(err, 512)))
+		}
+		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteInvalidRequest(w))
+		return true
+	}
+	return false
 }
 
 func classifyExecute[Opts any](spec *Spec[Opts], err error) execerr.Outcome {
@@ -254,19 +282,18 @@ func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Reques
 		return
 	}
 	call := decoded.Call
-	if err := call.Validate(); err != nil {
-		if spec.Log != nil {
-			diag.LogError(ctx, spec.Log, "validate call failed", diag.AttrOpts{CallID: call.ID}, err, slog.String("detail", diag.TruncErrDetail(err, 512)))
-		}
-		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteInvalidRequest(w))
+	if rejectInvalidCall(ctx, spec, w, call) {
 		return
 	}
 	if spec.AfterDecode != nil {
 		if err := spec.AfterDecode(ctx, decoded); err != nil {
-			writeHookError(spec, ctx, w, err)
+			writeHookError(ctx, spec, w, err)
 			return
 		}
 		call = decoded.Call
+		if rejectInvalidCall(ctx, spec, w, call) {
+			return
+		}
 	}
 
 	traceID := diag.StableCallID(call)
@@ -297,8 +324,12 @@ func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if spec.WrapStream != nil {
+		inner := es
 		es, err = spec.WrapStream(ctx, decoded, es)
 		if err != nil {
+			if inner != nil {
+				_ = inner.Close()
+			}
 			if spec.OnExecuteError != nil {
 				spec.OnExecuteError(ctx, decoded, err)
 			}

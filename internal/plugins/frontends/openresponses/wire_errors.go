@@ -65,7 +65,7 @@ func (WireErrors) WriteExecuteError(w http.ResponseWriter, out execerr.Outcome) 
 func (WireErrors) WriteHookError(w http.ResponseWriter, err error) error {
 	var se *frontendpipe.StatusError
 	if errors.As(err, &se) {
-		writeWireError(w, se.Status, se.Type, se.Code, se.Message)
+		writeWireError(w, se.HTTPStatus(), se.Type, se.Code, se.Message)
 		return nil
 	}
 	writeWireError(w, http.StatusBadRequest, "invalid_request_error", "bad_request", "Invalid request")

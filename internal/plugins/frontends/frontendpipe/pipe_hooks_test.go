@@ -31,34 +31,43 @@ func (w *hookWire) write(rw http.ResponseWriter, status int, msg string) error {
 func (w *hookWire) WriteBodyTooLarge(rw http.ResponseWriter) error {
 	return w.write(rw, http.StatusRequestEntityTooLarge, "too large")
 }
+
 func (w *hookWire) WriteReadBodyFailed(rw http.ResponseWriter) error {
 	return w.write(rw, http.StatusBadRequest, "read failed")
 }
+
 func (w *hookWire) WriteExecutorNotConfigured(rw http.ResponseWriter) error {
 	return w.write(rw, http.StatusInternalServerError, "no executor")
 }
+
 func (w *hookWire) WritePreflightCanceled(rw http.ResponseWriter) error {
 	return w.write(rw, http.StatusServiceUnavailable, "canceled")
 }
+
 func (w *hookWire) WriteInvalidJSON(rw http.ResponseWriter) error {
 	return w.write(rw, http.StatusBadRequest, "invalid json")
 }
+
 func (w *hookWire) WriteAdmissionReject(rw http.ResponseWriter, d decodeqos.Decision) error {
 	return w.write(rw, d.Status, d.Message)
 }
+
 func (w *hookWire) WriteInvalidRequest(rw http.ResponseWriter) error {
 	return w.write(rw, http.StatusBadRequest, "invalid request")
 }
+
 func (w *hookWire) WriteExecuteError(rw http.ResponseWriter, out execerr.Outcome) error {
 	return w.write(rw, out.Status, out.Message)
 }
+
 func (w *hookWire) WriteEncodeFailed(rw http.ResponseWriter) error {
 	return w.write(rw, http.StatusInternalServerError, "encode failed")
 }
+
 func (w *hookWire) WriteHookError(rw http.ResponseWriter, err error) error {
 	var se *frontendpipe.StatusError
 	if errors.As(err, &se) {
-		return w.write(rw, se.Status, se.Message)
+		return w.write(rw, se.HTTPStatus(), se.Message)
 	}
 	return w.write(rw, http.StatusBadRequest, err.Error())
 }
@@ -66,12 +75,16 @@ func (w *hookWire) WriteHookError(rw http.ResponseWriter, err error) error {
 type hookExec struct {
 	err    error
 	called bool
+	stream lipapi.EventStream
 }
 
 func (e *hookExec) Execute(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
 	e.called = true
 	if e.err != nil {
 		return nil, e.err
+	}
+	if e.stream != nil {
+		return e.stream, nil
 	}
 	return lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
@@ -216,5 +229,141 @@ func TestServeHTTP_OnExecuteErrorRunsOnFailure(t *testing.T) {
 	}
 	if rec.Code == http.StatusOK {
 		t.Fatal("expected execute error status")
+	}
+}
+
+func TestServeHTTP_AfterDecodeRevalidatesReplacedCall(t *testing.T) {
+	t.Parallel()
+	exec := &hookExec{}
+	wire := &hookWire{}
+	spec := testSpec(exec, wire)
+	spec.AfterDecode = func(_ context.Context, decoded *frontendpipe.Decoded) error {
+		decoded.Call = &lipapi.Call{}
+		return nil
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/x", strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+	frontendpipe.ServeHTTP(&spec, rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if exec.called {
+		t.Fatal("executor ran after AfterDecode replaced Call with an invalid value")
+	}
+}
+
+func TestServeHTTP_AfterDecodeCanceledUsesPreflightWriter(t *testing.T) {
+	t.Parallel()
+	exec := &hookExec{}
+	wire := &hookWire{}
+	spec := testSpec(exec, wire)
+	spec.AfterDecode = func(context.Context, *frontendpipe.Decoded) error {
+		return context.Canceled
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/x", strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+	frontendpipe.ServeHTTP(&spec, rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if wire.last != "canceled" {
+		t.Fatalf("wire last=%q", wire.last)
+	}
+	if exec.called {
+		t.Fatal("executor ran after canceled AfterDecode")
+	}
+}
+
+func TestServeHTTP_StatusErrorZeroStatusUsesBadRequest(t *testing.T) {
+	t.Parallel()
+	exec := &hookExec{}
+	wire := &hookWire{}
+	spec := testSpec(exec, wire)
+	spec.AfterDecode = func(context.Context, *frontendpipe.Decoded) error {
+		return &frontendpipe.StatusError{Message: "missing status"}
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/x", strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+	frontendpipe.ServeHTTP(&spec, rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if exec.called {
+		t.Fatal("executor ran after zero-status AfterDecode error")
+	}
+}
+
+type closeCountStream struct {
+	lipapi.EventStream
+	closes int
+}
+
+func (s *closeCountStream) Close() error {
+	s.closes++
+	if s.EventStream != nil {
+		return s.EventStream.Close()
+	}
+	return nil
+}
+
+func TestServeHTTP_WrapStreamErrorClosesInnerStream(t *testing.T) {
+	t.Parallel()
+	inner := &closeCountStream{
+		EventStream: lipapi.NewFixedEventStream([]lipapi.Event{
+			{Kind: lipapi.EventResponseStarted},
+			{Kind: lipapi.EventResponseFinished},
+		}),
+	}
+	exec := &hookExec{stream: inner}
+	wire := &hookWire{}
+	spec := testSpec(exec, wire)
+	spec.WrapStream = func(context.Context, *frontendpipe.Decoded, lipapi.EventStream) (lipapi.EventStream, error) {
+		return nil, errors.New("wrap failed")
+	}
+	wrote := false
+	spec.WriteNonStream = func(context.Context, http.ResponseWriter, *lipapi.Call, lipapi.EventStream, struct{}) error {
+		wrote = true
+		return nil
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/x", strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+	frontendpipe.ServeHTTP(&spec, rec, req)
+
+	if rec.Code == http.StatusOK {
+		t.Fatal("expected wrap error status")
+	}
+	if inner.closes != 1 {
+		t.Fatalf("inner Close calls=%d want 1", inner.closes)
+	}
+	if wrote {
+		t.Fatal("WriteNonStream ran after WrapStream error")
+	}
+}
+
+func TestServeHTTP_ClassifyExecuteOverride(t *testing.T) {
+	t.Parallel()
+	exec := &hookExec{err: errors.New("boom")}
+	wire := &hookWire{}
+	spec := testSpec(exec, wire)
+	spec.ClassifyExecute = func(error) execerr.Outcome {
+		return execerr.Outcome{Status: http.StatusConflict, Message: "classified"}
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/x", strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+	frontendpipe.ServeHTTP(&spec, rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if wire.last != "classified" {
+		t.Fatalf("wire last=%q", wire.last)
 	}
 }
