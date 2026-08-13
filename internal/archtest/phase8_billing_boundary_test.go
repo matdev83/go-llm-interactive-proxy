@@ -35,11 +35,11 @@ func TestPhase8KeepsTerminalFinalizeBillingCostMerge(t *testing.T) {
 	root := repoRoot(t)
 	// Req 3.4: stream CostPresent (including authoritative zero) is copied onto
 	// the LUR. Behavior is locked by runtime tests
-	// TestBillingShadowPreservesStreamAuthoritativeZeroCostAcrossFinalize and
-	// TestParallelBillingShadowPreservesStreamAuthoritativeZeroCostAcrossFinalize.
+	// TestBillingLegPreservesStreamAuthoritativeZeroCostAcrossFinalize and
+	// TestParallelBillingLegPreservesStreamAuthoritativeZeroCostAcrossFinalize.
 	// This gate forbids splicing money onto lipapi.Event in the observe path.
 	for _, rel := range []string{
-		"internal/core/runtime/billing_shadow.go",
+		"internal/core/runtime/billing_leg.go",
 	} {
 		src, err := os.ReadFile(filepath.Join(root, rel))
 		if err != nil {

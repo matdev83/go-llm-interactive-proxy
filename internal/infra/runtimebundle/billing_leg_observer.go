@@ -8,19 +8,19 @@ import (
 	runtimecore "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 )
 
-type billingShadowObserver struct {
+type billingLegObserver struct {
 	log *slog.Logger
 }
 
-func billingShadowObserverFor(log *slog.Logger) runtimecore.BillingShadowObserver {
+func billingLegObserverFor(log *slog.Logger) runtimecore.BillingLegObserver {
 	if log == nil {
 		return nil
 	}
-	return billingShadowObserver{log: log}
+	return billingLegObserver{log: log}
 }
 
-func (o billingShadowObserver) ObserveBillingShadow(ctx context.Context, record billing.LegUsageRecord) {
-	o.log.LogAttrs(ctx, slog.LevelDebug, "lip.billing_shadow_b_leg",
+func (o billingLegObserver) ObserveBillingLeg(ctx context.Context, record billing.LegUsageRecord) {
+	o.log.LogAttrs(ctx, slog.LevelDebug, "lip.billing_b_leg",
 		slog.String("a_leg_id", record.ALegID),
 		slog.String("b_leg_id", record.BLegID),
 		slog.Int("attempt_seq", record.Seq),

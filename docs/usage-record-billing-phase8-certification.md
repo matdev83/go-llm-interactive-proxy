@@ -60,7 +60,7 @@ route plan
 | Close does not hang on wedged TUR handoff | `TestWaitBillingHandoffRetriesForCloseDoesNotBlockForever` |
 | SQLite + PostgreSQL dialects | `internal/infra/billingstore/*_test.go`, `postgres_integration_test.go`, `postgres_authorization_concurrency_test.go`, `internal/infra/dbmigrate` ComponentBilling |
 | Trial balance / reconcile_required / rebuild | `internal/infra/billingstore/reports*_test.go`, `reconcile*_test.go`, `settlement*_test.go` |
-| B2BUA / parallel / cancel handoff | `billing_handoff_test.go`, `billing_shadow_test.go` |
+| B2BUA / parallel / cancel handoff | `billing_handoff_test.go`, `billing_leg_test.go` |
 | Package ownership docs | `.kiro/steering/structure.md`, `docs/core-boundaries.md`, `README.md` (Usage-record billing cutover) |
 
 ## Explicit non-goals retained

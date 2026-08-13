@@ -63,12 +63,3 @@ func CompareShadowRatingAgainst(input RatingInput, baseline ShadowBaseline) (Sha
 	}
 	return comparison, nil
 }
-
-// CompareShadowRating preserves the small value-based characterization helper
-// for callers that already have a captured expected result. New migration tests
-// should prefer CompareShadowRatingAgainst so the baseline is executable.
-func CompareShadowRating(input RatingInput, expected ShadowExpectation) (ShadowComparison, error) {
-	return CompareShadowRatingAgainst(input, func(RatingInput) (ShadowExpectation, error) {
-		return expected, nil
-	})
-}

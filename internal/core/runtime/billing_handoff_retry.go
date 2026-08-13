@@ -259,13 +259,6 @@ func (c *billingTurnCollector) syncStreamSuccess(job billingHandoffRetryJob) {
 
 var errBillingHandoffBarrierIncomplete = errors.New("runtime: billing evidence barrier incomplete")
 
-func (e *Executor) scheduleBillingHandoffRetry(job billingHandoffRetryJob) {
-	if e == nil {
-		return
-	}
-	e.billingTurns().scheduleRetry(job)
-}
-
 func (e *Executor) WaitBillingHandoffRetries() {
 	if e == nil {
 		return
@@ -285,11 +278,4 @@ func (e *Executor) stopBillingHandoffRetries() {
 		return
 	}
 	e.billingTurns().stopRetries()
-}
-
-func (e *Executor) runBillingHandoffRetry(job billingHandoffRetryJob) {
-	if e == nil {
-		return
-	}
-	e.billingTurns().runRetry(job)
 }

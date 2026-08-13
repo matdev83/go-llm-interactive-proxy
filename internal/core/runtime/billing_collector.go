@@ -47,7 +47,7 @@ func (e *Executor) billingTurns() *billingTurnCollector {
 }
 
 func (c *billingTurnCollector) enabled() bool {
-	return c != nil && c.exec != nil && (c.exec.BillingTerminalHandoff != nil || c.exec.BillingShadowObserver != nil)
+	return c != nil && c.exec != nil && (c.exec.BillingTerminalHandoff != nil || c.exec.BillingLegObserver != nil)
 }
 
 func (c *billingTurnCollector) record(ctx context.Context, record billing.LegUsageRecord) {
@@ -63,9 +63,9 @@ func (c *billingTurnCollector) record(ctx context.Context, record billing.LegUsa
 		c.evidenceByALeg[aLegID] = mergeBillingEvidence(c.evidenceByALeg[aLegID], []billing.LegUsageRecord{record})
 		c.mu.Unlock()
 	}
-	if c.exec.BillingShadowObserver != nil {
-		_ = safety.Call(safety.BoundaryStream, "billing_shadow_observer", func() error {
-			c.exec.BillingShadowObserver.ObserveBillingShadow(ctx, record)
+	if c.exec.BillingLegObserver != nil {
+		_ = safety.Call(safety.BoundaryStream, "billing_leg_observer", func() error {
+			c.exec.BillingLegObserver.ObserveBillingLeg(ctx, record)
 			return nil
 		})
 	}
@@ -447,4 +447,54 @@ func (c *billingTurnCollector) evictFinalizeCache(aLegID string, legs []billing.
 			ALegID: aLegID, BLegID: leg.BLegID, Backend: leg.BackendID, Model: leg.ModelID,
 		}))
 	}
+}
+
+// billingHandoffTimeout bounds detached TUR handoff work (barrier wait + persist).
+// It must exceed parallel loser cleanup (cancelLosersTimeout) plus per-leg
+// FinalizeBilling budgets so client cancellation cannot strand sealed money.
+var billingHandoffTimeout = 2 * time.Minute
+
+// billingFinalizeTimeout is the per-leg FinalizeBilling observation budget.
+const billingFinalizeTimeout = 2 * time.Second
+
+func (e *Executor) addBillingEvidence(ctx context.Context, record billing.LegUsageRecord) {
+	if e == nil {
+		return
+	}
+	e.billingTurns().record(ctx, record)
+}
+
+func (e *Executor) claimBillingEvidence(aLegID string) []billing.LegUsageRecord {
+	if e == nil {
+		return nil
+	}
+	return e.billingTurns().claim(aLegID)
+}
+
+func (e *Executor) restoreBillingEvidence(aLegID string, legs []billing.LegUsageRecord) {
+	if e == nil {
+		return
+	}
+	e.billingTurns().restore(aLegID, legs)
+}
+
+func (e *Executor) peekBillingEvidence(aLegID string) []billing.LegUsageRecord {
+	if e == nil {
+		return nil
+	}
+	return e.billingTurns().peek(aLegID)
+}
+
+func (e *Executor) beginBillingEvidenceBarrier(aLegID string) (complete func()) {
+	if e == nil {
+		return func() {}
+	}
+	return e.billingTurns().beginBarrier(aLegID)
+}
+
+func (e *Executor) waitBillingEvidenceBarrier(ctx context.Context, aLegID string) bool {
+	if e == nil {
+		return true
+	}
+	return e.billingTurns().waitBarrier(ctx, aLegID)
 }
