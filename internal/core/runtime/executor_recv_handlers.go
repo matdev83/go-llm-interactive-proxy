@@ -69,9 +69,19 @@ func (s *retryRecvStream) handleRecvSuccess(ctx context.Context, ev lipapi.Event
 func (s *retryRecvStream) dispatchClientFacingEvent(ctx context.Context, ev lipapi.Event) (lipapi.Event, bool, error) {
 	pm, tm := s.recvHookMeta()
 
+	var sourceID string
+	var sourceFinished bool
+	isToolEvent := false
 	if te, ok := lipapi.ToolEventFromEvent(ev); ok {
+		isToolEvent = true
+		sourceID = te.ToolCallID
+		sourceFinished = te.Kind == lipapi.ToolEventFinished
+		s.toolClass.enrich(&te)
 		nextEv, swallowed, err := s.handleToolEventPath(ctx, te, ev, tm)
 		if err != nil || swallowed {
+			if swallowed && sourceFinished {
+				s.toolClass.forget(sourceID)
+			}
 			return lipapi.Event{}, swallowed, err
 		}
 		ev = nextEv
@@ -83,6 +93,13 @@ func (s *retryRecvStream) dispatchClientFacingEvent(ctx context.Context, ev lipa
 		return lipapi.Event{}, false, herr
 	}
 	ev = evp
+
+	if isToolEvent {
+		s.toolClass.observeFinalName(sourceID, ev)
+		if sourceFinished {
+			s.toolClass.forget(sourceID)
+		}
+	}
 
 	if gates := s.completionGatesFromContext(ctx); len(gates) > 0 {
 		return s.handleGatedPath(ctx, gates, ev, pm)
@@ -99,11 +116,12 @@ func (s *retryRecvStream) dispatchClientFacingEvent(ctx context.Context, ev lipa
 	return out, false, err
 }
 
-// handleToolEventPath runs tool policies, tool reactors, and merges a
-// replacement event back into the recv event when the reactor produces one.
-// It returns the (possibly merged) event to continue dispatch with, a
-// swallowed bool when the reactor asked to drop the event, or a non-nil
-// error from policy or reactor execution.
+// handleToolEventPath runs tool policies, tool reactors, remembers the
+// effective (post-reactor) classification under the source ToolCallID, and
+// merges a replacement event back into the recv event when the reactor
+// produced one. It returns the (possibly merged) event to continue dispatch
+// with, a swallowed bool when the reactor asked to drop the event, or a
+// non-nil error from policy or reactor execution.
 func (s *retryRecvStream) handleToolEventPath(ctx context.Context, te lipapi.ToolEvent, ev lipapi.Event, tm sdk.ToolMeta) (lipapi.Event, bool, error) {
 	if err := s.applyToolPolicies(ctx, te, tm); err != nil {
 		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
@@ -125,6 +143,7 @@ func (s *retryRecvStream) handleToolEventPath(ctx context.Context, te lipapi.Too
 	if !res.Emit {
 		return lipapi.Event{}, true, nil
 	}
+	s.toolClass.rememberEffective(te.ToolCallID, res.Event)
 	if res.Event.Kind != "" {
 		ev = lipapi.MergeToolEventInto(ev, res.Event)
 	}
