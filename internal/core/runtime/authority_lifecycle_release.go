@@ -155,6 +155,9 @@ func (l *authorityLifecycle) ReconcileAuthoritative(ctx context.Context, usageEv
 }
 
 func (l *authorityLifecycle) reconcileAuthoritativeLocked(ctx context.Context, usageEv lipapi.Event) bool {
+	if l.svc == nil {
+		return false
+	}
 	prior := l.control.authority
 	cleanupCtx, cancel := cleanupContext(ctx, l.control.state.cleanupTimeout)
 	defer cancel()
