@@ -22,8 +22,8 @@ The workflow follows the active repository process and the five-artifact pattern
 - `.kiro/steering/{product,structure,tech,api-standards,routing-and-orchestration,testing}.md`
 - `.kiro/rules/{ears-format,gap-analysis,design-principles,design-review}.md`
 - `.kiro/settings/templates/specs/{init.json,requirements.md,design.md,tasks.md}`
-- `.kiro/specs/backend-connector-plugin-architecture/*`
-- `.kiro/specs/generic-compatible-backend-modes/*`
+- `.kiro/specs/archive/backend-connector-plugin-architecture/*`
+- `.kiro/specs/archive/generic-compatible-backend-modes/*`
 - archived dual-plane executable-generation and runtime-hardening specifications
 - `docs/runtime-flow.md`, model/routing/extension documentation, and current composition code
 

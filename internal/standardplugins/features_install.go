@@ -14,7 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reftraffictranscript"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refverifier"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refworkspaceguard"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretsguard"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/submitnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolcallrepair"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolreactornoop"
@@ -192,12 +192,12 @@ func featureCodexClientCompat(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	}, nil
 }
 
-func featureSecretsGuard(n yaml.Node) (lipfeature.FeatureBundle, error) {
-	cfg, err := secretsguard.DecodeConfig(n)
+func featureSecretGuard(n yaml.Node) (lipfeature.FeatureBundle, error) {
+	cfg, err := secretguard.DecodeConfig(n)
 	if err != nil {
 		return lipfeature.FeatureBundle{}, err
 	}
-	return secretsguard.FeatureBundle(cfg), nil
+	return secretguard.FeatureBundle(cfg), nil
 }
 
 func featureReasoningOutputPreservation(n yaml.Node) (lipfeature.FeatureBundle, error) {

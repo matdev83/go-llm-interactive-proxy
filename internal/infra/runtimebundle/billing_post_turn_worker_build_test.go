@@ -274,6 +274,59 @@ func TestBuildConfigAuthoritativeBillingEnablesCutoverWhenStoreInjected(t *testi
 	if httpIn.Operations.BillingReports == nil {
 		t.Fatal("authoritative reports were not mounted from BillingStore")
 	}
+	if httpIn.Operations.BillingProvisioner != nil {
+		t.Fatal("store without AccountProvisioner must leave BillingProvisioner nil")
+	}
+	if err := bundle.Quiesce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	_ = bundle.Close()
+}
+
+type provisionerAuthoritativeStore struct {
+	authoritativeWorkerStore
+}
+
+func (s *provisionerAuthoritativeStore) CreateAccount(context.Context, billing.Account) error {
+	return nil
+}
+
+func (s *provisionerAuthoritativeStore) PostFunding(context.Context, billing.FundingInput) (billing.Posting, error) {
+	return billing.Posting{}, nil
+}
+
+func (s *provisionerAuthoritativeStore) ChangeCreditPolicy(context.Context, billing.CreditPolicyInput) (billing.PolicyChange, error) {
+	return billing.PolicyChange{}, nil
+}
+
+func TestBuildConfigAuthoritativeBillingCopiesProvisionerWhenStoreImplementsIt(t *testing.T) {
+	store := &provisionerAuthoritativeStore{}
+	cfg := &config.Config{
+		Routing:    config.RoutingConfig{MaxAttempts: 1},
+		Continuity: config.ContinuityConfig{InMemory: true},
+		Plugins:    config.PluginsConfig{Backends: []config.PluginConfig{{ID: "openai-responses", Enabled: false}}},
+		Accounting: config.AccountingConfig{Billing: config.AccountingBillingConfig{Authoritative: true, ReportsPath: "/admin/billing-cutover"}},
+	}
+	_, bundle := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
+		PluginRegistry: pluginreg.NewRegistry(),
+		Production: runtimebundle.ProductionOptions{
+			BillingStore:     store,
+			BillingAdmission: authoritativeWorkerAdmission{},
+			BillingIdentity: coreRuntime.BillingIdentity{
+				AccountID:       func(context.Context, lipapi.Call) string { return "account" },
+				AuthorizationID: func(context.Context, lipapi.Call, string) string { return "authorization" },
+			},
+			BillingRatingResolver: authoritativeWorkerResolver{},
+		},
+	})
+	httpIn := bundle.StandardHTTPInput(cfg, nil, "")
+	if httpIn.Operations.BillingReports == nil {
+		t.Fatal("authoritative reports were not mounted from BillingStore")
+	}
+	got, ok := httpIn.Operations.BillingProvisioner.(*provisionerAuthoritativeStore)
+	if !ok || got != store {
+		t.Fatalf("BillingProvisioner = %T (%v), want injected store %T", httpIn.Operations.BillingProvisioner, httpIn.Operations.BillingProvisioner, store)
+	}
 	if err := bundle.Quiesce(context.Background()); err != nil {
 		t.Fatal(err)
 	}

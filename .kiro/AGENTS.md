@@ -2,7 +2,7 @@
 
 ## Opt-In Scope
 
-Applies ONLY when explicitly triggered via `/kiro:*`, explicit paths under `.kiro/specs/`, or spec requests. Otherwise follow root [`AGENTS.md`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/AGENTS.md).
+Applies ONLY when explicitly triggered via `/kiro:*`, explicit paths under `.kiro/specs/`, or spec requests. Otherwise follow root [`AGENTS.md`](../AGENTS.md).
 
 ---
 
@@ -10,7 +10,7 @@ Applies ONLY when explicitly triggered via `/kiro:*`, explicit paths under `.kir
 
 - **Spec First, Code Second**: No code edits before approved `requirements.md` and `design.md`.
 - **TDD Mandatory**: Write failing test first, implement second.
-- **Core Policy vs Edge Adapters**: Core owns orchestration & routing. Provider SDKs stay strictly in edge plugins.
+- **Core Policy vs Edge Adapters**: Core owns orchestration, routing (including A-leg overrides), failover, B2BUA, and the two billing seams (authorize, then TUR/LUR handoff). Provider SDKs stay strictly in edge plugins.
 - **Streaming First**: Non-streaming is collection over canonical streams (`pkg/lipapi`).
 - **No Retry Post-Output**: Never retry or failover after the first downstream content event.
 
@@ -21,8 +21,8 @@ Applies ONLY when explicitly triggered via `/kiro:*`, explicit paths under `.kir
 ```text
 .kiro/
 ├── specs/
-│   ├── {feature-name}/  (spec.json, requirements.md, design.md, tasks.md, research.md)
-│   └── archive/
+│   ├── {feature-name}/  (active: spec.json, requirements.md, design.md, tasks.md, research.md)
+│   └── archive/         (completed and superseded specs)
 ├── steering/            (product.md, api-standards.md, routing-and-orchestration.md, structure.md, tech.md, testing.md)
 └── AGENTS.md
 ```
@@ -50,7 +50,8 @@ Applies ONLY when explicitly triggered via `/kiro:*`, explicit paths under `.kir
 ## Revalidation Triggers
 
 Re-run design validation and integration tests when changing:
-- Canonical request/event contracts (`pkg/lipapi`).
-- Selector syntax or routing semantics (`internal/core/routing`).
+- Canonical request/event contracts (`pkg/lipapi`), including tool classification.
+- Selector syntax, routing semantics, or A-leg routing overrides (`internal/core/routing`, `internal/core/routeoverride`).
 - B2BUA continuity or authority coordination rules (`internal/core/authoritycoord`).
 - Plugin registration contracts (`pkg/lipsdk`, `internal/standardplugins`).
+- Billing TUR/LUR, journal, admission, or host injection (`internal/core/billing`, `runtimebundle.ComposeBilling`).

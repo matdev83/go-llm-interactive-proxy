@@ -603,7 +603,7 @@ No persistent storage schema is added.
 
 ## Supporting References
 
-- `.kiro/specs/go-stage-five-dogfood-alpha-extension-proof/research.md` — gap analysis and discovery findings.
+- `.kiro/specs/archive/go-stage-five-dogfood-alpha-extension-proof/research.md` — gap analysis and discovery findings.
 - `.kiro/steering/product.md` — product identity, canonical middle, and extension boundaries.
 - `.kiro/steering/tech.md` — stack, provider SDK policy, and startup-security defaults.
 - `.kiro/steering/structure.md` — package ownership and test-only reference support boundaries.

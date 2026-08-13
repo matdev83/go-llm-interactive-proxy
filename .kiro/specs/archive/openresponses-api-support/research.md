@@ -27,9 +27,9 @@ Generated: 2026-07-27T14:23:07+02:00
 - `.kiro/rules/design-principles.md`
 - `.kiro/rules/design-review.md`
 - `.kiro/rules/tasks-generation.md`
-- `.kiro/specs/backend-connector-plugin-architecture/*`
-- `.kiro/specs/generic-compatible-backend-modes/*`
-- `.kiro/specs/openai-responses-reasoning-preservation/*`
+- `.kiro/specs/archive/backend-connector-plugin-architecture/*`
+- `.kiro/specs/archive/generic-compatible-backend-modes/*`
+- `.kiro/specs/archive/openai-responses-reasoning-preservation/*`
 - `.kiro/specs/archive/llm-api-parity/*`
 - archived reference-client/reference-backend matrices and API-porting specifications
 

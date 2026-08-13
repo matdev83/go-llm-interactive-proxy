@@ -11,9 +11,10 @@ Five-zone modular design: stable public contracts at the edge, a policy-owning i
                                 │
 ┌──────────────────┐  ┌─────────▼───────────┐  ┌──────────────────┐
 │ Frontends (FEs)  ├──►    internal/core    ◄──┤  Backends (BEs)  │
-│ (openresponses,  │  │  (routing, b2bua,   │  │ (hosted, acp,    │
-│  responses, chat,│  │   authoritycoord,   │  │  connectors)     │
-│  anthropic, gmi) │  │   securesession)    │  │                  │
+│ (openresponses,  │  │  (routing, b2bua,   │  │ (hosted,         │
+│  responses, chat,│  │   authoritycoord,   │  │  compatible,     │
+│  anthropic, gmi) │  │   billing,          │  │  connectors)     │
+│                  │  │   securesession)    │  │                  │
 └──────────────────┘  └─────────▲───────────┘  └──────────────────┘
                                 │
                     ┌───────────┴─────────────┐
@@ -27,7 +28,7 @@ Five-zone modular design: stable public contracts at the edge, a policy-owning i
 
 ### 1. Public Contracts (Stable Surface)
 
-- `pkg/lipapi/` — Protocol-neutral canonical request, item, part, tool, event, capability, limit, and error types. Zero provider SDK or HTTP dependencies.
+- `pkg/lipapi/` — Protocol-neutral canonical request, item, part, tool, event, capability, limit, and error types, including name-derived tool classification. Zero provider SDK or HTTP dependencies.
 - `pkg/lipsdk/` — Plugin registration contracts, frontend/backend/hook interfaces, SDK facades (`auth`, `session`, `workspace`, `request`, `routehint`, `toolcatalog`, `toolpolicy`, `completion`, `auxiliary`, `state`, `traffic`, `usage`, `modelinventory`, `securesession`, `continuation`).
   - `pkg/lipsdk/secretguard/` — Ingress secret-guard contracts (`Guard`, `Matcher`, `DecisionEvent`).
   - `pkg/lipsdk/configreload/` — Secret-safe runtime reload contract (`Trigger`, `Result`, `Status`, `HistoryEntry`).
@@ -38,7 +39,7 @@ Five-zone modular design: stable public contracts at the edge, a policy-owning i
 Core owns orchestration and policy. Core imports `pkg/lipapi` and `pkg/lipsdk`; core **never** imports concrete plugins or provider SDKs.
 
 - **Execution & Lifecycle**: `runtime/` (executor), `execbackend/`, `execctx/`, `leglifecycle/`, `lineage/`, `terminal/`, `terminalwork/`, `continuation/`
-- **Routing & Policy**: `routing/` (selector parser, failover, parallel race, TTFT budgets), `affinity/`, `policy/`, `modelview/`
+- **Routing & Policy**: `routing/` (selector parser, failover, weighted groups, parallel race, TTFT, `[first]`/`[thinker]`), `routeoverride/` (A-leg latest-wins override values and ports), `affinity/`, `policy/`, `modelview/`
 - **Authority Coordination & Control Plane**:
   - `authoritycoord/` — Stage evaluator (`stage_evaluator.go`), attempt coordination, attempt-stage settle failure recording.
   - `concurrencyauthority/` & `usageauthority/` — Principal turn and usage quota tracking.
@@ -46,21 +47,23 @@ Core owns orchestration and policy. Core imports `pkg/lipapi` and `pkg/lipsdk`; 
   - `controlplane/` — Ledgerstore projections (`usage_projector.go`), metering bridges, readiness reports (`readiness_report.go`), query bounds, privacy guardrails.
   - `metering/` — Usage/cost metering models.
 - **Continuity & Sessions**: `b2bua/` (attempt lineage/store), `continuity/` (`bunstore`), `securesession/` (`adapters/`, `storecontract/`, `domain/`, `app/`)
-- **Auth, Security & Identity**: `accessmode/`, `auth/`, `admin/`, `http/`, `safety/`, `proxycredentials/`, `identity/`, `secretsguard/` (ingress secrets catalog/matcher)
+- **Auth, Security & Identity**: `accessmode/`, `auth/`, `admin/`, `http/`, `safety/`, `proxycredentials/`, `identity/`, `secretguard/` (ingress secrets catalog/matcher)
 - **Canonical Support & State**: `capabilities/`, `jsonpresence/`, `jsonshape/` (preflight guards), `toolcallrepair/`, `diag/`, `config/`, `configreload/`, `interleavedthinking/` (reasoning memo store/shape), `interleavedstate/`, `snapshotgen/`
 - **Streaming**: `stream/` (canonical stream, event pumps), `streamrecovery/`
 - **Hooks & Extensions**: `hooks/` (stage evaluation), `extensions/` (stage-four extension platform)
 - **Core State & Accounting**: `auxreq/`, `state/`, `traffic/`, `workspace/`, `modelcatalog/`, `modelregistry/`, `accounting/`, `billing/`, `tokenaccounting/`
   - `billing/` owns authorization, immutable TUR/LUR evidence, deterministic post-turn rating, journal settlement, and billing reports. Runtime may authorize before execution and hand off sealed evidence at the terminal owner, but must not enrich prices or write the legacy token ledger.
   - `tokenaccounting/` remains a protocol/quota usage projection and admin counting surface only; it is not a financial balance or journal input.
+  - Durable money persistence is `internal/infra/billingstore` (Bun). Host injection is `internal/infra/billingcompose` (snapshot catalog + identity) plus `runtimebundle.ComposeBilling`. Admission adapter is `internal/infra/billingadmission`. Public `pkg/lipruntime.Options` stays non-money.
 
 ### 2a. Composition & Standard Distribution Assembly
 
 - `internal/pluginreg/` — Standard distribution plugin registry & validation.
 - `internal/standardplugins/` — Built-in bundle tables (`standard_table.go`), `InstallStandardBundleOn`, `ResolveUpstreamAPIKeysFromEnv`.
 - `internal/featurebundle/` — Feature merge engine (`MergeFeatureSurface`).
-- `internal/infra/runtimebundle/` — Process `Host` builder (`runtimebundle.BuildHost`), immutable generation management (`GenerationRuntime`), shutdown coordinator; the host lifecycle ends through `Host.Close`.
-- `internal/stdhttp/` — Standard HTTP surface, route mounting, auth attachment, diagnostics, access logs.
+- `internal/infra/runtimebundle/` — Process `Host` builder (`runtimebundle.BuildHost`), immutable generation management (`GenerationRuntime`), shutdown coordinator; the host lifecycle ends through `Host.Close`. Authoritative billing is injected through `ComposeBilling` → `BuildHostInput.Production`; `cmd/lipstd` does not open a billing journal.
+- `internal/stdhttp/` — Standard HTTP surface, route mounting, auth attachment, diagnostics, access logs. Optional billing reports and routing-override admin mounts are composition-gated.
+- `internal/providerprofiles/` — Declarative compatible-provider catalog (`lip.provider-profile/v1`); composition compiles profiles onto protocol-family adapters. Do not grow a new in-process backend package per compatible vendor.
 
 ### 3. Official Frontend Plugins (`internal/plugins/frontends/`)
 
@@ -71,7 +74,7 @@ Wire frontends translate protocol payloads <-> canonical contracts:
 ### 4. Official Backend Plugins & Connectors (Hybrid Architecture — ADR 0008)
 
 - **Essential Hosted Backends** (`internal/plugins/backends/` — statically linked): `alibabatokenplanintl/`, `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`, `bedrock/`
-- **Custom-Compatible Helpers**: `openresponsescompat/`, `openaicompat/`, `compatibleutil/`, `transporterr/`, `checkcfg/`, `credpool/`, `httpidentity/`, `modeldiscover/`, `openaicaps/`, `openaicred/`, `openaifamily/`, `openaiusage/`, `protocols/`, `streampeek/`
+- **Custom-Compatible Helpers**: `openresponsescompat/`, `openaicompat/`, `compatmode/`, `transporterr/`, `checkcfg/`, `credpool/`, `httpidentity/`, `modeldiscover/`, `openaicaps/`, `openaicred/`, `openaifamily/`, `openaiusage/`, `protocols/`, `streampeek/`
 - **Protocol Protocols**: `internal/plugins/protocols/openairesponsesitem` (exact OpenAI Responses reasoning-item Opaque schema).
 - **Optional Backend Connectors** (`connectors/` — independent modules, gRPC ABI over IPC): `acp`, `agycliacp`, `codex`, `cursorcliacp`, `cursorsdk`, `geminicliacp`, `huggingface`, `llamacpp`, `lmstudio`, `localstub`, `nvidia`, `ollama`, `opencode`, `openrouter`, `vllm`.
 - **Connector Support**: `connector-support/` (`acp/`, `openaicompat/`).
@@ -80,16 +83,16 @@ Wire frontends translate protocol payloads <-> canonical contracts:
 
 - `reasoningpreservation/` — Default-on reasoning output capture/restore (`EventReasoningPart` + Chat/Anthropic/Codex dialects).
 - `codexclientcompat/` — OpenAI Codex native compaction reasoning output preservation.
-- `secretsguard/` — Ingress credential scanner & enforcement Guard.
+- `secretguard/` — Ingress credential scanner & enforcement Guard.
 - `toolcallrepair/` — Malformed tool-call YAML auto-repair.
 - Proof/Ref Features: `refsubmit/`, `refparts/`, `reftool/`, `reftoolpolicy/`, `refautoappend/`, `refworkspaceguard/`, `reftraffictranscript/`, `refverifier/`, `prerequestpolicy/`, `submitnoop/`, `partsnoop/`, `toolreactornoop/`.
 
 ### 6. Support & Test Surfaces
 
-- `internal/infra/` — HTTP client tuning, structured logging, Prometheus metrics, OTLP tracing, DB connectors, secret audit.
+- `internal/infra/` — HTTP client tuning, structured logging, Prometheus metrics, OTLP tracing, DB connectors, secret audit, billing store/compose/admission adapters.
 - `internal/refbackend/` — Test-only backend emulators (HTTP).
 - `internal/refclient/` — Test-only official SDK reference clients.
-- `internal/testkit/` — Stubs, fakes, fixtures, reasoning E2E plans (`reasoninge2e/`).
+- `internal/testkit/` — Stubs, fakes, fixtures, reasoning E2E plans (`reasoninge2e/`), contract TCKs (`contract/` for canonical-core, frontend, and backend-family certification). Cartesian FE×BE completeness is not a release invariant.
 - `internal/reasoningreplay/` — Reasoning prefix matcher (`compatible-auto.v2`).
 - `internal/qa/` & `internal/archtest/` — Repository hygiene & architecture guardrail gates.
 
@@ -106,14 +109,19 @@ The architecture gates also include the deterministic change-surface reporter at
 | Add essential hosted backend | `internal/plugins/backends/<provider>/`, register in `internal/standardplugins/` |
 | Add optional backend connector | `connectors/<name>/` (independent module with gRPC ABI) |
 | Change stage evaluation / attempt logic | `internal/core/authoritycoord/` |
-| Change control plane ledger / metering | `internal/core/controlplane/` |
+| Change control plane projections / metering | `internal/core/controlplane/` |
 | Change dual SQLite/Postgres persistence | `internal/core/continuity/bunstore/`, `internal/core/securesession/adapters/` |
 | Modify canonical request/event structs | `pkg/lipapi/` |
 | Modify plugin SDK or extension facades | `pkg/lipsdk/` |
 | Change routing rules / selector syntax | `internal/core/routing/` |
+| Add A-leg runtime routing overrides | `internal/core/routeoverride/`, persist via `b2bua` / `continuity/bunstore`, HTTP in `internal/stdhttp/` |
 | Change stream semantics or keepalives | `internal/core/stream/`, `internal/core/streamrecovery/` |
 | Modify reasoning preservation | `internal/plugins/features/reasoningpreservation/`, `internal/core/interleavedthinking/` |
 | Update standard HTTP server / auth | `internal/stdhttp/`, `internal/infra/runtimebundle/` |
+| Change TUR/LUR / journal / holds | `internal/core/billing/`, persist via `internal/infra/billingstore/` |
+| Enable billing in an internal host | `runtimebundle.ComposeBilling`, catalog in `internal/infra/billingcompose/`; see `docs/billing-host-composition.md` |
+| Add a compatible inference profile | `internal/providerprofiles/` (data), bind through `internal/standardplugins/` |
+| Classify coding-agent tool names | `pkg/lipapi` (`ClassifyToolName`); runtime correlates name-less fragments by `ToolCallID` |
 
 ---
 
@@ -140,6 +148,9 @@ The architecture gates also include the deterministic change-surface reporter at
 - Security startup checks belong in config/runtimebundle/stdhttp composition boundaries, not inside protocol codecs.
 - Backend local-only access-scope enforcement belongs in standard registration/runtimebundle policy, not inside protocol codecs.
 - Concrete dependency construction belongs in composition roots or adapter constructors, not in core workflow methods.
+- Public `pkg/lipruntime.Options` must not grow money fields (journal, catalog, rating). Billing attaches through internal `ProductionOptions` / `ComposeBilling`.
+- Do not reintroduce Cartesian frontend×backend completeness gates; certify via contract TCKs plus a bounded sentinel.
+- Do not put financial mutation, rating, or journal I/O on the stream receive path.
 
 ## Naming and import conventions
 

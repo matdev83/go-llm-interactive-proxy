@@ -185,9 +185,11 @@ func composeStandardHTTPIsolated(ctx context.Context, compose HandlerComposer, c
 func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, frozen *config.Config, regs []lipsdk.Registration, route string) httpcontract.StandardHTTPInput {
 	var billingReports billing.ReportingStore
 	var billingReportsPath string
+	var billingProvisioner billing.AccountProvisioner
 	if cand != nil {
 		billingReports = cand.operations.billingReports
 		billingReportsPath = cand.operations.billingReportsPath
+		billingProvisioner = cand.operations.billingProvisioner
 	}
 	var maxBody int64
 	var preKA lipsdk.FrontendKeepaliveConfig
@@ -211,6 +213,7 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 		Operations: httpcontract.HTTPOperationsInput{
 			BillingReports:       billingReports,
 			BillingReportsPath:   billingReportsPath,
+			BillingProvisioner:   billingProvisioner,
 			Metrics:              cand.process.metrics,
 			Store:                cand.process.store,
 			SecretGuardInventory: cand.operations.secretGuardInventory,

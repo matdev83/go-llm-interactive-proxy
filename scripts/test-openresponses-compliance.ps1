@@ -98,7 +98,7 @@ if ($static) {
     if (-not (Select-String -LiteralPath $makefile -Pattern '^qa:.*test-openresponses-compliance-static' -Quiet)) {
         throw "openresponses-compliance-static: Makefile qa does not wire the compliance gate"
     }
-    if (-not (Select-String -LiteralPath (Join-Path $root "docs\conformance-matrix-evidence.md") -Pattern 'test-openresponses-compliance' -Quiet)) {
+    if (-not (Select-String -LiteralPath (Join-Path $root "docs\release-gates.md") -Pattern 'test-openresponses-compliance' -Quiet)) {
         throw "openresponses-compliance-static: docs do not reference the compliance gate"
     }
     # Fast Task 8.5 evidence validators (default build; the tagged matrix loops are

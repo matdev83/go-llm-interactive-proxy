@@ -67,11 +67,26 @@ jobs:
           exit 1
 
       - name: Check out repository
-        if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true'
+        if: needs.changes.result == 'success'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Set up Go
+        if: needs.changes.result == 'success' && github.event_name == 'pull_request'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Check change size
+        if: needs.changes.result == 'success' && github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          LIP_ALLOW_LARGE_CHANGE: ${{ contains(github.event.pull_request.labels.*.name, 'allow-large-change') && '1' || '' }}
+        run: go run ./tools/changesize --base "$BASE_SHA" --head HEAD
 
       - name: Check repository file manifest
         if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true'
@@ -109,7 +124,7 @@ jobs:
         if: needs.changes.result == 'success' && needs.changes.outputs.code != 'true'
         shell: bash
         run: |
-          echo "Repo hygiene bypassed: documentation-only changes detected."
+          echo "Repo hygiene manifest check bypassed: documentation-only changes detected."
 
   test:
     name: Test (${{ matrix.os }})

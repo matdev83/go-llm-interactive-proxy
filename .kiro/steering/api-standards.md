@@ -15,8 +15,8 @@
 ## Supported Surface Matrix
 
 - **Frontends**: OpenAI Responses API & OpenResponses 2026-04-24 (HTTP POST/SSE + WebSocket turns/continuation), legacy OpenAI Chat/Models, Anthropic Messages API, Gemini `generateContent`.
-- **Hosted Backends**: OpenAI Responses, legacy OpenAI Chat, Anthropic Messages, Gemini `generateContent`, Bedrock Converse, ACP prompt-turn, OpenRouter, NVIDIA, Hugging Face, OpenAI Codex, OpenCode Go/Zen, Alibaba Token Plan International (`alibabatokenplanintl`).
-- **Local Runtimes & Connectors**: Ollama (`ollama`/`ollama-cloud`), llama.cpp, LM Studio, vLLM, `localstub`, custom OpenAI/Anthropic-compatible rows, executable gRPC connectors under `connectors/` (`acp`, `agycliacp`, `cursorcliacp`, `cursorsdk`, `geminicliacp`).
+- **Essential hosted backends**: OpenAI Responses, legacy OpenAI Chat, Anthropic Messages, Gemini `generateContent`, Bedrock Converse, Alibaba Token Plan International (`alibabatokenplanintl`), plus built-in custom-compatible families.
+- **Optional connectors**: ACP prompt-turn family, OpenRouter, NVIDIA, Hugging Face, OpenAI Codex, OpenCode Go/Zen, Ollama (`ollama`/`ollama-cloud`), llama.cpp, LM Studio, vLLM, `localstub`, and other executable gRPC plugins under `connectors/`.
 
 Source of truth: [`internal/standardplugins/standard_table.go`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/standardplugins/standard_table.go) and [`pkg/lipsdk/standard_bundle.go`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/pkg/lipsdk/standard_bundle.go).
 
@@ -32,6 +32,7 @@ Source of truth: [`internal/standardplugins/standard_table.go`](file:///C:/Users
   - OpenAI Codex native compaction: Opaque reasoning continuations retained across compaction turns ([`codexclientcompat`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/plugins/features/codexclientcompat)).
   - Alibaba Token Plan: Dialect-aware streaming reasoning deltas forwarded without dropping markers.
   - Never silently convert dialects across providers.
+- **Tool classification**: Canonical `ToolEvent` carries a coarse `ToolCategory` and conservative `MayMutateLocalFS` derived from the tool **name** (`ClassifyToolName`). Match is trim + case-fold + exact alias; no argument, schema, provider, or harness inspection. Unknown/empty names are `unknown` with `MayMutateLocalFS=true`. Name-less fragments inherit by `ToolCallID` for the request; rewrites recompute from the effective name. Classification is derived metadata for policy/reactors, never allow/deny authority.
 
 ---
 
@@ -47,7 +48,7 @@ Source of truth: [`internal/standardplugins/standard_table.go`](file:///C:/Users
 
 - Driven adapters translate canonical requests -> upstream provider calls, and upstream responses -> canonical events.
 - Keep provider SDK types strictly inside adapter packages (`internal/plugins/backends/` or `connectors/`).
-- Reuse compatible-protocol helpers ([`internal/plugins/backends/openaicompat`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/plugins/backends/openaicompat), `openresponsescompat`, `compatibleutil`, `transporterr`) without making them canonical shortcuts.
+- Reuse compatible-protocol helpers ([`internal/plugins/backends/openaicompat`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/plugins/backends/openaicompat), `openresponsescompat`, `compatmode`, `transporterr`) without making them canonical shortcuts.
 - Backend factories declare credential and access-scope posture metadata for startup trust validation.
 
 ---

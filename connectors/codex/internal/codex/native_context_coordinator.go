@@ -246,10 +246,7 @@ func (c *NativeContextCoordinator) Prepare(ctx context.Context, in NativeContext
 		Context: ctx, History: history, Profile: profile, Config: *c.config.NativeContext, FullEstimate: &preflight.estimate,
 		MarkerEligible: in.MarkerEligible, Checkpoint: checkpoint,
 	})
-	afterTokens := plan.EffectiveTokens - plan.ExpectedSavings
-	if afterTokens < 0 {
-		afterTokens = 0
-	}
+	afterTokens := max(plan.EffectiveTokens-plan.ExpectedSavings, 0)
 	c.telemetry.recordContext(plan.EffectiveTokens, afterTokens, nativeHistoryBytes(history), nativeHistoryBytes(plan.EffectiveHistory))
 	if checkpoint != nil && plan.Kind == DecisionCreate {
 		c.telemetry.recordCheckpoint(checkpointTelemetryMismatch)

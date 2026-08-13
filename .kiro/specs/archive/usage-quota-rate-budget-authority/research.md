@@ -4,8 +4,8 @@ Generated: 2026-07-04T22:45:53.2564528+02:00
 
 ## Status
 
-- Requirements source: `.kiro/specs/usage-quota-rate-budget-authority/requirements.md`
-- Metadata source: `.kiro/specs/usage-quota-rate-budget-authority/spec.json`
+- Requirements source: `.kiro/specs/archive/usage-quota-rate-budget-authority/requirements.md`
+- Metadata source: `.kiro/specs/archive/usage-quota-rate-budget-authority/spec.json`
 - Requirements approval state: generated but not approved (`approvals.requirements.approved=false`). This analysis can inform requirement revisions before design approval.
 - Analysis scope: brownfield implementation gap only; no implementation decisions are final here.
 
@@ -260,8 +260,8 @@ Generated: 2026-07-08T23:55:00+02:00
 
 ## Status
 
-- Requirements source: `.kiro/specs/usage-quota-rate-budget-authority/requirements.md`
-- Metadata source: `.kiro/specs/usage-quota-rate-budget-authority/spec.json`
+- Requirements source: `.kiro/specs/archive/usage-quota-rate-budget-authority/requirements.md`
+- Metadata source: `.kiro/specs/archive/usage-quota-rate-budget-authority/spec.json`
 - Requirements approval state: generated but not approved (`approvals.requirements.approved=false`). This analysis proceeds because gap validation can inform final requirement approval and design.
 - Analysis scope: brownfield implementation gap against the current Go codebase after principal/scope, admission-policy decision, and control-plane event-ledger foundations landed.
 

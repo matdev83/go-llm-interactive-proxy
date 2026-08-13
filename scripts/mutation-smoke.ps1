@@ -1,5 +1,5 @@
 # Optional mutation smoke (Windows). Requires gremlins on PATH.
-# See docs/mutation-testing.md
+# Optional mutation smoke (Windows). Requires gremlins on PATH.
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root

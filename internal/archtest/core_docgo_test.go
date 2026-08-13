@@ -45,7 +45,7 @@ func TestCorePackagesHaveDocGo(t *testing.T) {
 			t.Parallel()
 			docPath := filepath.Join(dir, "doc.go")
 			if _, err := os.Stat(docPath); err != nil {
-				t.Fatalf("internal/core/%s has non-test .go files but no doc.go; see docs/core-boundaries.md", e.Name())
+				t.Fatalf("internal/core/%s has non-test .go files but no doc.go", e.Name())
 			}
 		})
 	}

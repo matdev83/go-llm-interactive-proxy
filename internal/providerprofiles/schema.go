@@ -5,6 +5,7 @@ package providerprofiles
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -556,7 +557,7 @@ func DecodeJSON(data []byte) (Profile, error) {
 		return Profile{}, fmt.Errorf("provider profile: %w", err)
 	}
 	var extra any
-	if err := d.Decode(&extra); err != io.EOF {
+	if err := d.Decode(&extra); !errors.Is(err, io.EOF) {
 		if err == nil {
 			return Profile{}, fmt.Errorf("provider profile: trailing JSON value")
 		}
@@ -580,7 +581,7 @@ func DecodeYAML(data []byte) (Profile, error) {
 		return Profile{}, fmt.Errorf("provider profile: %w", err)
 	}
 	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		if err == nil {
 			return Profile{}, fmt.Errorf("provider profile: trailing YAML document")
 		}

@@ -240,12 +240,12 @@ func TestPreflightErrorsArePayloadFree(t *testing.T) {
 	}
 }
 
-func TestPreflightContextCanceled(t *testing.T) {
+func TestPreflightWithContextCanceled(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := jsonshape.PreflightContext(ctx, []byte(`{"a":1}`), jsonshape.Limits{})
+	_, err := jsonshape.PreflightWithContext(ctx, []byte(`{"a":1}`), jsonshape.Limits{})
 	if got := jsonshape.Classify(err); got != jsonshape.KindCanceled {
 		t.Fatalf("Classify(error) = %q, want %q (err=%v)", got, jsonshape.KindCanceled, err)
 	}
@@ -257,12 +257,12 @@ func TestPreflightContextCanceled(t *testing.T) {
 	}
 }
 
-func TestPreflightContextDeadlineExceeded(t *testing.T) {
+func TestPreflightWithContextDeadlineExceeded(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Hour))
 	defer cancel()
-	_, err := jsonshape.PreflightContext(ctx, []byte(`{"a":1}`), jsonshape.Limits{})
+	_, err := jsonshape.PreflightWithContext(ctx, []byte(`{"a":1}`), jsonshape.Limits{})
 	if got := jsonshape.Classify(err); got != jsonshape.KindCanceled {
 		t.Fatalf("Classify(error) = %q, want %q (err=%v)", got, jsonshape.KindCanceled, err)
 	}
@@ -274,13 +274,13 @@ func TestPreflightContextDeadlineExceeded(t *testing.T) {
 	}
 }
 
-func TestPreflightContextLargeTokenDeadlineSupplemental(t *testing.T) {
+func TestPreflightWithContextLargeTokenDeadlineSupplemental(t *testing.T) {
 	t.Parallel()
 
 	// Deterministic: cancel after a fixed number of Err() polls during a wide scan.
 	body := `[` + strings.TrimRight(strings.Repeat(`1,`, 10_000), ",") + `]`
 	ctx := &cancelAfterN{Context: context.Background(), after: 3}
-	_, err := jsonshape.PreflightContext(ctx, []byte(body), jsonshape.Limits{MaxArrayElems: 100_000, MaxTokens: 1_000_000})
+	_, err := jsonshape.PreflightWithContext(ctx, []byte(body), jsonshape.Limits{MaxArrayElems: 100_000, MaxTokens: 1_000_000})
 	if got := jsonshape.Classify(err); got != jsonshape.KindCanceled {
 		t.Fatalf("Classify(error) = %q, want %q (err=%v)", got, jsonshape.KindCanceled, err)
 	}

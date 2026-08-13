@@ -7,11 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/uptrace/bun"
 )
+
+const authorizationHoldLookupSQL = `SELECT hold_key, authorization_id, account_id, tur_key, currency, amount_nano, status, source_key, fingerprint, pricing_ref, charge_policy_ref, mode, balance_before_nano, balance_after_nano, reserved_before_nano, reserved_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, version_before, version_after, closed_reason, expires_at, created_at, closed_at FROM authorization_holds`
 
 // Authorize atomically locks the account, validates spendable capacity, creates
 // one deterministic hold, posts its balanced authorization-book transaction,
@@ -48,13 +51,7 @@ func (s *DurableStore) authorizeAttempt(ctx context.Context, input billing.Autho
 	if err := lockAccount(ctx, tx, s.db.Dialect().Name(), sealed.AccountID); err != nil {
 		return billing.Authorization{}, err
 	}
-	var existing authorizationHoldRow
-	const holdColumns = `SELECT hold_key, authorization_id, account_id, tur_key, currency, amount_nano, status, source_key, fingerprint, pricing_ref, charge_policy_ref, mode, balance_before_nano, balance_after_nano, reserved_before_nano, reserved_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, version_before, version_after, closed_reason, expires_at, created_at, closed_at FROM authorization_holds`
-	err = tx.NewRaw(holdColumns+` WHERE hold_key = ?`, holdKey).Scan(ctx, &existing)
-	if errors.Is(err, sql.ErrNoRows) {
-		// Keep upgrades from the pre-length-prefixed key format replay-safe.
-		err = tx.NewRaw(holdColumns+` WHERE account_id = ? AND tur_key = ?`, sealed.AccountID, sealed.TURKey).Scan(ctx, &existing)
-	}
+	existing, err := scanAuthorizationHold(ctx, tx, sealed.AccountID, sealed.TURKey)
 	if err == nil {
 		out, decodeErr := authorizationFromRow(existing)
 		if decodeErr != nil {
@@ -191,6 +188,45 @@ func (s *DurableStore) authorizeAttempt(ctx context.Context, input billing.Autho
 	return sealed, nil
 }
 
+// GetAuthorization returns the existing durable hold for one account and TUR
+// key. It does not create, extend, or release a hold. A missing row fails
+// closed; lookup never invents an authorization from TUR refs alone.
+func (s *DurableStore) GetAuthorization(ctx context.Context, accountID, turKey string) (billing.Authorization, error) {
+	if s == nil || s.db == nil {
+		return billing.Authorization{}, fmt.Errorf("%w: nil store", billing.ErrAuthorizationUnavailable)
+	}
+	row, err := scanAuthorizationHold(ctx, s.db, accountID, turKey)
+	if err != nil {
+		if errors.Is(err, billing.ErrAuthorizationInvalid) {
+			return billing.Authorization{}, err
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			return billing.Authorization{}, fmt.Errorf("%w: %w", billing.ErrAuthorizationNotFound, ErrAuthorizationHoldNotFound)
+		}
+		return billing.Authorization{}, fmt.Errorf("%w: lookup authorization hold: %w", billing.ErrAuthorizationUnavailable, err)
+	}
+	return authorizationFromRow(row)
+}
+
+func scanAuthorizationHold(ctx context.Context, q bun.IDB, accountID, turKey string) (authorizationHoldRow, error) {
+	holdKey, err := billing.AuthorizationHoldKey(accountID, turKey)
+	if err != nil {
+		return authorizationHoldRow{}, err
+	}
+	accountID = strings.TrimSpace(accountID)
+	turKey = strings.TrimSpace(turKey)
+	var row authorizationHoldRow
+	err = q.NewRaw(authorizationHoldLookupSQL+` WHERE hold_key = ?`, holdKey).Scan(ctx, &row)
+	if errors.Is(err, sql.ErrNoRows) {
+		// Keep upgrades from the pre-length-prefixed key format replay-safe.
+		err = q.NewRaw(authorizationHoldLookupSQL+` WHERE account_id = ? AND tur_key = ?`, accountID, turKey).Scan(ctx, &row)
+	}
+	if err != nil {
+		return authorizationHoldRow{}, err
+	}
+	return row, nil
+}
+
 func getAccountTx(ctx context.Context, q bun.IDB, accountID string) (billing.Account, error) {
 	var row accountRow
 	if err := q.NewRaw(`SELECT account_id, currency, mode, credit_limit_nano, balance_nano, opening_balance_nano, reserved_nano, version, state FROM billing_accounts WHERE account_id = ?`, accountID).Scan(ctx, &row); errors.Is(err, sql.ErrNoRows) {
@@ -221,6 +257,7 @@ func isAuthorizationDomainError(err error) bool {
 		errors.Is(err, billing.ErrAuthorizationClosed) ||
 		errors.Is(err, billing.ErrAuthorizationConflict) ||
 		errors.Is(err, billing.ErrAuthorizationUnavailable) ||
+		errors.Is(err, billing.ErrAuthorizationNotFound) ||
 		errors.Is(err, billing.ErrMoneyCurrencyMismatch) ||
 		errors.Is(err, billing.ErrLegacyAuthorization) ||
 		errors.Is(err, context.Canceled) ||

@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/utils"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/jsonprobe"
 )
 
 const maxBodyBytes = 10 << 20
@@ -145,7 +145,7 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request, cfg Config) {
 	if err != nil {
 		return
 	}
-	if utils.TryWriteForcedHTTPError(w, cfg.ForcedHTTPStatus, cfg.ForcedRetryAfter, cfg.ForcedErrorJSON, defaultForcedErrorJSON) {
+	if jsonprobe.TryWriteForcedHTTPError(w, cfg.ForcedHTTPStatus, cfg.ForcedRetryAfter, cfg.ForcedErrorJSON, defaultForcedErrorJSON) {
 		return
 	}
 	stream := bytes.Contains(body, []byte(`"stream":true`))
@@ -165,7 +165,7 @@ func handleResponses(w http.ResponseWriter, r *http.Request, cfg Config, unsuppo
 	if err != nil {
 		return
 	}
-	if utils.TryWriteForcedHTTPError(w, cfg.ForcedHTTPStatus, cfg.ForcedRetryAfter, cfg.ForcedErrorJSON, defaultForcedErrorJSON) {
+	if jsonprobe.TryWriteForcedHTTPError(w, cfg.ForcedHTTPStatus, cfg.ForcedRetryAfter, cfg.ForcedErrorJSON, defaultForcedErrorJSON) {
 		return
 	}
 	stream := bytes.Contains(body, []byte(`"stream":true`))

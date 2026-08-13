@@ -43,10 +43,10 @@ func (c *SchemaCache) Limits() SchemaLimits {
 }
 
 func (c *SchemaCache) GetOrCompile(schema json.RawMessage) (*CompiledSchema, error) {
-	return c.GetOrCompileContext(context.Background(), schema)
+	return c.GetOrCompileWithContext(context.Background(), schema)
 }
 
-func (c *SchemaCache) GetOrCompileContext(ctx context.Context, schema json.RawMessage) (cs *CompiledSchema, err error) {
+func (c *SchemaCache) GetOrCompileWithContext(ctx context.Context, schema json.RawMessage) (cs *CompiledSchema, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			cs = nil

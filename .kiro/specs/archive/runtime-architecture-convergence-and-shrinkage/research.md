@@ -43,8 +43,8 @@ This `research.md` records both mandatory brownfield reviews:
 
 - `specs/go_llm_proxy_arch_review/{architecture-review,resolution-plan,findings-register,executive-summary}.md`
 - `.kiro/specs/archive/versioned-runtime-reloadable-proxy-configuration/*`
-- `.kiro/specs/backend-connector-plugin-architecture/*`
-- `.kiro/specs/generic-compatible-backend-modes/*`
+- `.kiro/specs/archive/backend-connector-plugin-architecture/*`
+- `.kiro/specs/archive/generic-compatible-backend-modes/*`
 - `.kiro/specs/archive/cursor-sdk-backend/*`
 - archived runtime hardening, extension platform, executable generation, and dual-plane specifications
 

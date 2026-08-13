@@ -1,0 +1,15 @@
+{
+  "feature_name": "usage-record-ledger-billing",
+  "created_at": "2026-08-11T01:03:00+02:00",
+  "updated_at": "2026-08-13T19:30:00+02:00",
+  "language": "en",
+  "phase": "completed",
+  "approvals": {
+    "requirements": { "generated": true, "approved": true },
+    "design": { "generated": true, "approved": true },
+    "tasks": { "generated": true, "approved": true }
+  },
+  "ready_for_implementation": false,
+  "completed": true,
+  "project_description": "Replace Go-LIP stream-time financial accounting with domain-neutral Turn/Leg Usage Records and a durable Bun-backed double-entry billing journal. Before upstream work, calculate a pessimistic maximum customer charge and atomically record an authorization hold against prepaid funds or a postpaid credit line. Execute with no financial mutation, then persist immutable A-leg/B-leg usage records with explicit durable identities and semantic replay fingerprints. Post-turn processing validates exact bound pricing/policy/rate snapshots, calculates customer revenue and per-B-leg operator cost, posts balanced account-sequenced financial and authorization journal entries with explicit correction linkage, records point-in-time account snapshots, closes the hold, and updates rebuildable materialized state. Journal replay by durable account sequence must reconstruct account state; unrateable provider costs remain explicit and integrity/reconciliation failures fail closed through an audited reconcile-required state. The design incorporates all ten CodeRabbit data-integrity review findings and remains implementation-gated."
+}

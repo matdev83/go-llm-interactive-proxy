@@ -17,7 +17,8 @@ import (
 type interleavedPhase int
 
 const (
-	interleavedPhaseThinker interleavedPhase = iota
+	interleavedPhaseUnknown interleavedPhase = iota
+	interleavedPhaseThinker
 	interleavedPhaseExecutor
 )
 
@@ -45,8 +46,9 @@ type interleavedContinuationStream struct {
 }
 
 var (
-	_ lipapi.EventStream        = (*interleavedContinuationStream)(nil)
-	_ lipapi.ManagedEventStream = (*interleavedContinuationStream)(nil)
+	_                          lipapi.EventStream        = (*interleavedContinuationStream)(nil)
+	_                          lipapi.ManagedEventStream = (*interleavedContinuationStream)(nil)
+	errUnknownInterleavedPhase                           = errors.New("runtime: unknown interleaved phase")
 )
 
 type hiddenInterleavedStream = interleavedContinuationStream
@@ -87,8 +89,10 @@ func (s *interleavedContinuationStream) Recv(ctx context.Context) (lipapi.Event,
 	switch phase {
 	case interleavedPhaseThinker:
 		return s.recvThinker(ctx)
-	default:
+	case interleavedPhaseExecutor:
 		return s.recvExecutor(ctx)
+	default:
+		return lipapi.Event{}, errUnknownInterleavedPhase
 	}
 }
 

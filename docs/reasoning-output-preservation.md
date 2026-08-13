@@ -162,7 +162,6 @@ Hard capability: `reasoning_replay`. Every restored dialect must be explicitly s
 - Custom/nonstandard composition roots that do not call `EnsureReasoningOutputPreservationInConfig` are unchanged (no injection).
 - Installed/enabled still leaves unmatched models inactive for that request — no store I/O, event buffering, restore, or feature telemetry; eligibility remains catalog/rule gated.
 - Go v1 state is process-local only; do not expect cross-process or cross-replica continuity.
-- See [feature-migration-map.md](feature-migration-map.md) and [reasoning-output-preservation-release-checklist.md](reasoning-output-preservation-release-checklist.md).
 
 ## Full HTTP E2E validation
 
@@ -198,7 +197,7 @@ LIP_REASONING_E2E_SOAK=1 LIP_REASONING_E2E_MODE=combined LIP_REASONING_E2E_SEED=
 
 Soak env: `LIP_REASONING_E2E_SOAK=1` (required), `LIP_REASONING_E2E_SEEDS` (default 1000), `LIP_REASONING_E2E_TURNS` (default 100), `LIP_REASONING_E2E_WORKERS` (default 4, max 32), replay pair `LIP_REASONING_E2E_MODE` + `LIP_REASONING_E2E_SEED`. Nightly/manual workflow: `.github/workflows/reasoning-e2e-soak-nightly.yml` (not attached to PR `qa.yml` or `race-fuzz-nightly.yml`).
 
-**OpenAI Chat** remains the deep randomized matrix surface. **OpenAI Responses** exact preservation is covered by the default-tag FE×BE topology matrix, seeded presence smoke, refbackend/refclient harness, and package-level exact ingest/encode/restore tests. Spec: [`.kiro/specs/openai-responses-reasoning-preservation/`](../.kiro/specs/openai-responses-reasoning-preservation/). Release-grade claim still requires external gates listed in the [release checklist](reasoning-output-preservation-release-checklist.md) (Linux race, fuzz 30s, wide soak).
+**OpenAI Chat** remains the deep randomized matrix surface. **OpenAI Responses** exact preservation is covered by the default-tag FE×BE topology matrix, seeded presence smoke, refbackend/refclient harness, and package-level exact ingest/encode/restore tests. Spec: [`.kiro/specs/archive/openai-responses-reasoning-preservation/`](../.kiro/specs/archive/openai-responses-reasoning-preservation/). Release-grade claim still requires external gates listed in [release-gates.md](release-gates.md) (Linux race, fuzz, soak).
 
 ## Release evidence pointers
 
@@ -208,4 +207,4 @@ Soak env: `LIP_REASONING_E2E_SOAK=1` (required), `LIP_REASONING_E2E_SEEDS` (defa
 - Adapter/parity: dialect encode + `internal/plugins/frontends/parity` VisibleThinker reasoning tests.
 - Fuzz: `FuzzComputeAnchor`, `FuzzDecodeConfig`, `FuzzCanonizeReasoningItemOpaque`, FE decode / BE stream / exact observer targets (short local smoke; 30s release run separately).
 - Architecture: official features must not import `internal/core`; FE must not import BE (`internal/archtest`).
-- Follow-up exact Responses productionization: [`.kiro/specs/openai-responses-reasoning-preservation/`](../.kiro/specs/openai-responses-reasoning-preservation/).
+- Follow-up exact Responses productionization: [`.kiro/specs/archive/openai-responses-reasoning-preservation/`](../.kiro/specs/archive/openai-responses-reasoning-preservation/).

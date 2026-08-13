@@ -10,7 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatibleutil"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatmode"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )
@@ -147,7 +147,7 @@ func openCreate(ctx context.Context, id string, spec BackendSpec, call lipapi.Ca
 		if err != nil {
 			return nil, err
 		}
-		apiKey := compatibleutil.FirstAPIKey(compatibleutil.ResolveEnvAPIKeys(spec.APIKeyEnvVarRoot))
+		apiKey := compatmode.FirstAPIKey(compatmode.ResolveEnvAPIKeys(spec.APIKeyEnvVarRoot))
 		respBody, err := doNonStreaming(ctx, spec.HTTPClient, endpointURL, body, apiKey, spec.ResponseLimits.MaxEventBytes)
 		if err != nil {
 			return nil, classifyCreateOpenError(fmt.Errorf("%s: %w", id, err))

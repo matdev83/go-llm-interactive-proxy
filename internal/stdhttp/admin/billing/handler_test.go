@@ -1,6 +1,7 @@
 package billing
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -8,8 +9,6 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
-
-	"context"
 
 	corebilling "github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 )
@@ -36,30 +35,37 @@ func (s *recordingQueries) AccountReport(_ context.Context, accountID string, pa
 	s.lastAccountID, s.lastPage = accountID, page
 	return s.account, s.err
 }
+
 func (s *recordingQueries) TurnExplanation(_ context.Context, turKey string) (corebilling.TurnExplanation, error) {
 	s.lastTURKey = turKey
 	return s.turn, s.err
 }
+
 func (s *recordingQueries) OperatorCostReport(_ context.Context, filter corebilling.ReportFilter) (corebilling.OperatorCostReport, error) {
 	s.lastFilter = filter
 	return s.operator, s.err
 }
+
 func (s *recordingQueries) TrialBalanceReport(_ context.Context, filter corebilling.ReportFilter) (corebilling.TrialBalanceReport, error) {
 	s.lastFilter = filter
 	return s.trial, s.err
 }
+
 func (s *recordingQueries) SessionReport(_ context.Context, accountID, sessionID string, page corebilling.PageRequest) (corebilling.SessionReport, error) {
 	s.lastAccountID, s.lastSession, s.lastPage = accountID, sessionID, page
 	return s.session, s.err
 }
+
 func (s *recordingQueries) QueryProcessing(_ context.Context, filter corebilling.ReportFilter) (corebilling.ProcessingPage, error) {
 	s.lastFilter = filter
 	return s.processing, s.err
 }
+
 func (s *recordingQueries) QueryOpenHolds(_ context.Context, accountID string, page corebilling.PageRequest) (corebilling.HoldPage, error) {
 	s.lastAccountID, s.lastPage = accountID, page
 	return s.holds, s.err
 }
+
 func (s *recordingQueries) QueryReconcileRequired(_ context.Context, page corebilling.PageRequest) (corebilling.AccountStatePage, error) {
 	s.lastPage = page
 	return s.reconcile, s.err
@@ -80,7 +86,7 @@ func TestBillingHandlerMethodNotAllowed(t *testing.T) {
 	t.Parallel()
 	h := NewHandler(Options{Queries: &recordingQueries{}})
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/account?account_id=acct", nil))
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/turn?tur_key=acct:turn", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status=%d want 405", rec.Code)
 	}

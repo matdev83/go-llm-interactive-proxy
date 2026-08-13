@@ -206,7 +206,7 @@ func (v mountedView) Probe(ctx context.Context, scenario semantic.ScenarioDescri
 		}
 	}
 	return semantic.ExecutionEvidence{
-		ScenarioID: scenario.ID, Executed: true, BoundaryCalls: maxInt(deltaCalls, 1),
+		ScenarioID: scenario.ID, Executed: true, BoundaryCalls: max(deltaCalls, 1),
 		Accepted: positive, Rejected: !positive, CanonicalCall: positive,
 		WireResponse: positive, ErrorMapped: !positive || rec.Code < 400,
 		StreamValidated: positive && scenario.Transport == semantic.TransportStreaming,
@@ -229,13 +229,6 @@ func callHasPart(call *lipapi.Call, kind lipapi.PartKind) bool {
 		}
 	}
 	return false
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 func containsScenario(ids []semantic.ScenarioID, id semantic.ScenarioID) bool {

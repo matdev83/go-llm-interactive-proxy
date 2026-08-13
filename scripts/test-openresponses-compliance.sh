@@ -71,7 +71,7 @@ if [[ "$STATIC" == "1" ]]; then
     echo "openresponses-compliance-static: Makefile qa does not wire the compliance gate" >&2
     exit 1
   fi
-  if ! grep -q 'test-openresponses-compliance' "$ROOT/docs/conformance-matrix-evidence.md"; then
+  if ! grep -q 'test-openresponses-compliance' "$ROOT/docs/release-gates.md"; then
     echo "openresponses-compliance-static: docs do not reference the compliance gate" >&2
     exit 1
   fi

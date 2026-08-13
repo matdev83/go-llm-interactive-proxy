@@ -70,7 +70,8 @@ type ResponseMetadata struct {
 type TurnOutcomeKind int
 
 const (
-	TurnOutcomeSuccess TurnOutcomeKind = iota
+	TurnOutcomeUnknown TurnOutcomeKind = iota
+	TurnOutcomeSuccess
 	TurnOutcomePreOutputDenied
 	TurnOutcomeSurfacedFailure
 	TurnOutcomePostOutputRecorderFailure

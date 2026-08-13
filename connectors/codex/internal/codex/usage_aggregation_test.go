@@ -129,12 +129,10 @@ func TestNativeContextTelemetry_concurrentSnapshots(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 8 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			telemetry.recordReasoning(reasoningTelemetryRequested)
 			_ = telemetry.snapshot().ReasoningRequested
-		}()
+		})
 	}
 	wg.Wait()
 	if got := telemetry.snapshot().ReasoningRequested; got != 8 {

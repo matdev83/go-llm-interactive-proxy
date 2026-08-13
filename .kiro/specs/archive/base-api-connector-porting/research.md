@@ -76,7 +76,7 @@
   - `internal/refbackend/anthropicmessages/`
   - `internal/refbackend/gemini/`
   - `internal/testkit/conformance/`
-  - `.kiro/specs/base-api-connector-porting/gap-analysis.md`
+  - `.kiro/specs/archive/base-api-connector-porting/gap-analysis.md`
 - **Findings**:
   - Refbackend packages already exist for all four in-scope backend families.
   - Existing conformance tests cover text, multimodal, tools, parity, migration, and release-gate paths.

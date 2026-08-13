@@ -17,7 +17,7 @@ type harnessAlias struct {
 }
 
 // harnessAliasMatrix is the single data source for the cross-harness tool-name
-// survey (`.kiro/specs/tool-call-classification/research.md`): Codex, Pi, Cline,
+// survey (`.kiro/specs/archive/tool-call-classification/research.md`): Codex, Pi, Cline,
 // OpenCode, Hermes, OpenClaw, Kilo Code, and Claude Code. Case-folding covers
 // casing dialects (Claude Code's PascalCase `Read`/`Bash` fold to the same exact
 // aliases as snake_case `read`/`bash`), so no per-harness production branch exists.

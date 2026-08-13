@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatibleutil"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatmode"
 	proto "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/protocols/openresponses"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -55,7 +55,7 @@ func openCompact(ctx context.Context, id string, spec BackendSpec, call lipapi.C
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", id, err)
 	}
-	apiKey := compatibleutil.FirstAPIKey(compatibleutil.ResolveEnvAPIKeys(spec.APIKeyEnvVarRoot))
+	apiKey := compatmode.FirstAPIKey(compatmode.ResolveEnvAPIKeys(spec.APIKeyEnvVarRoot))
 	maxResourceBytes := spec.ResponseLimits.MaxResourceBytes
 	if maxResourceBytes <= 0 {
 		maxResourceBytes = DefaultMaxResponseResourceBytes

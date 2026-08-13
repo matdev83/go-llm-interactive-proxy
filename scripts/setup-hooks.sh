@@ -6,6 +6,6 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
 git config core.hooksPath scripts/hooks
-chmod +x scripts/check-release-clean.sh scripts/hooks/pre-commit scripts/hooks/pre-push
+chmod +x scripts/check-release-clean.sh scripts/check-change-size.sh scripts/hooks/pre-commit scripts/hooks/pre-push
 
 echo "Installed pre-commit and pre-push hooks via core.hooksPath=scripts/hooks"

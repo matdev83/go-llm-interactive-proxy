@@ -30,6 +30,8 @@
 Keep `main` branch clean. It should be only a PR merge receiver, never a merge donor. 
 Each time you start work on some fixes or implementation of new features create a new local worktree based on `main` with adequately named fix/spec/feat branch and work there, NOT ON MAIN.
 
+A single PR must not exceed **100 changed files**. Split large refactors so they stay reviewable and mergeable. Pre-commit rejects a commit that stages more than 100 paths; the recommended pre-push hook and PR CI apply the same limit to the branch vs its merge base. Default `go test ./internal/qa` also fails when the worktree has more than 100 dirty `*.go` files (no override). Admin override for hooks/CI only: `LIP_ALLOW_LARGE_CHANGE=1` for one command, `git config lip.allowLargeChange true` locally, or the `allow-large-change` PR label in CI. Do not use `--no-verify` to skip this check; that also skips secret scanning.
+
 ## Skill Loading
 
 - Architecture/package boundary/feature design: `golang-hexagonal-architecture`, `golang-design-patterns`.
@@ -42,7 +44,7 @@ Each time you start work on some fixes or implementation of new features create 
 
 ## Architecture Guardrails
 
-- Core owns orchestration, routing, failover, and B2BUA continuity.
+- Core owns orchestration, routing (including A-leg routing overrides), failover, and B2BUA continuity.
 - Provider semantics stay in adapters/plugins.
 - Core must not import provider SDKs or concrete plugins.
 - No pairwise protocol translators; use protocol <-> canonical adapters only.
@@ -52,18 +54,26 @@ Each time you start work on some fixes or implementation of new features create 
 - Request/response mutation belongs behind hooks/extensions, not core branching.
 - Use explicit construction/registration; no DI containers, reflection registries, globals, or Go native `plugin` in v1.
 - Hybrid backends ([ADR 0008](docs/adr/0008-hybrid-backend-connector-plugins.md)): essential builtins are static; optional backends are executable gRPC connectors under `connectors/` (manifest-driven discovery). Do not add optional connectors to essential/`standard_table` fixed tables. Core keeps orchestration/B2BUA.
+- Compatible-provider growth is data-driven (`internal/providerprofiles`) plus contract TCKs, not a Cartesian frontend×backend product or a new in-process backend per vendor.
+- Runtime billing has two seams only: pessimistic authorize after route planning, then sealed TUR/LUR handoff at the terminal owner. No stream-time rating, journal I/O, or token-ledger money writes.
+- Public `pkg/lipruntime.Options` stays non-money. Internal hosts inject billing through `runtimebundle.ComposeBilling` into `BuildHost` `ProductionOptions`. Stock `lipstd` does not invent billing accounts.
 
 ## Package Zones
 
-- `pkg/lipapi/`: canonical request/event/capability/error contracts.
+- `pkg/lipapi/`: canonical request/event/capability/error contracts, including name-based tool classification.
 - `pkg/lipsdk/`: plugin SDK, facades, registration contracts (including `backendplugin` ABI).
+- `pkg/lipruntime/`: public host/reload facade. `Options` stays non-money.
 - `internal/core/`: runtime orchestration, routing, continuity, streams, hooks/extensions, config, diagnostics.
-- `internal/plugins/frontends/`: OpenAI Responses, OpenAI legacy, Anthropic, Gemini frontends.
+- `internal/core/routeoverride/`: A-leg latest-wins routing-override state and ports.
+- `internal/core/billing/`: TUR/LUR, holds, post-turn rating, journal commands (no SQL, no provider SDKs).
+- `internal/plugins/frontends/`: OpenResponses, OpenAI Responses, OpenAI legacy, Anthropic, Gemini frontends.
 - `internal/plugins/backends/`: essential hosted/custom-compatible adapters and shared helpers only; essential kinds in `internal/standardplugins` (`EssentialBackendBundle` / tables). Optional connectors are not root-module packages.
 - `connectors/`, `connector-support/`: independent modules for optional executable backend plugins and shared connector support.
 - `internal/plugins/features/`: official feature and reference plugins.
 - `internal/pluginreg/`, `internal/standardplugins/`, `internal/infra/runtimebundle/`, `internal/stdhttp/`: standard distribution composition and discovery registration.
-- `internal/refbackend/`, `internal/refclient/`, `internal/testkit/`: test-only emulators, reference clients, stubs, fixtures.
+- `internal/infra/billingstore/`, `internal/infra/billingcompose/`, `internal/infra/billingadmission/`: Bun journal, snapshot catalog, admission adapter.
+- `internal/providerprofiles/`: declarative compatible-provider catalog compiled onto protocol-family adapters.
+- `internal/refbackend/`, `internal/refclient/`, `internal/testkit/`: test-only emulators, reference clients, stubs, fixtures, contract TCKs (`internal/testkit/contract`).
 - `internal/archtest/`, `internal/qa/`: architecture and hygiene gates.
 
 ## Kiro Specs
@@ -73,6 +83,7 @@ Each time you start work on some fixes or implementation of new features create 
 - Direct-code small bug fixes, docs, narrow tests, and trivial maintenance.
 - Spec flow: `spec-init` -> `requirements` -> `design` -> `tasks` -> `impl`.
 - If an active spec is clearly in scope, do not code before approved `requirements.md` and `design.md` in `spec.json`.
+- Active work lives in `.kiro/specs/{feature}/`. Completed and superseded specs move to `.kiro/specs/archive/` (`phase: completed` or `superseded`, `completed: true`, `ready_for_implementation: false`). Do not leave finished specs in the active tree.
 - Kiro guide: `.kiro/AGENTS.md`.
 
 ## Verification

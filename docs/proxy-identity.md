@@ -203,5 +203,3 @@ These shapes are intentional and locked by tests:
 - Backend overrides nest OpenRouter fields under `config.identity.openrouter.*`. Flat `identity.app_url` / `identity.app_title` are rejected.
 - A-leg `Server` is enforced by a thin commit-time `ResponseWriter` wrapper in `internal/stdhttp` that preserves `http.Flusher` and `Unwrap` for streaming / `ResponseController`.
 - Passthrough User-Agent: call path with missing/invalid client UA **omits** the header; background/inventory (no call-path marker) uses **product** identity.
-
-Scenario registry: [spec-bundle-identity-scenarios.md](spec-bundle-identity-scenarios.md).

@@ -1,4 +1,4 @@
-# Non-blocking security-oriented scan. Does not gate merges; see docs/safety-linting.md.
+# Non-blocking security-oriented scan. Does not gate merges.
 name: Optional gosec
 
 on:

@@ -46,8 +46,8 @@ type PackageTreeBudget struct {
 
 // PackageTreeBudgets locks measured convergence tree ceilings (+25 lines headroom).
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 11088},
-	{Tree: "internal/stdhttp", Max: 5455},
+	{Tree: "internal/infra/runtimebundle", Max: 11203},
+	{Tree: "internal/stdhttp", Max: 5676},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 562},
 }
@@ -61,12 +61,12 @@ type LineBudget struct {
 // LineBudgets covers core/pluginreg plus the convergence trees (kept in sync
 // with PackageTreeBudgets for overlapping entries).
 var LineBudgets = []LineBudget{
-	// Routing-override admin, billing outbox worker, and tool-call classification
-	// metadata/lifecycle helper. Keep the measured-plus-25 ratchet.
-	{Dir: "internal/core", Max: 74657},
+	// Routing-override admin, billing host composition, and tool-call
+	// classification. Keep the measured-plus-25 ratchet.
+	{Dir: "internal/core", Max: 74697},
 	{Dir: "internal/pluginreg", Max: 1079},
-	{Dir: "internal/stdhttp", Max: 5455},
-	{Dir: "internal/infra/runtimebundle", Max: 11088},
+	{Dir: "internal/stdhttp", Max: 5676},
+	{Dir: "internal/infra/runtimebundle", Max: 11203},
 	{Dir: "cmd/lipstd", Max: 979},
 	{Dir: "pkg/lipruntime", Max: 562},
 }
@@ -158,6 +158,11 @@ const ConnectorArchitectureOverlayMax = 1937
 // Keep 25 lines of ratchet headroom over the measured 921-line overlay.
 const GenericCompatibleBackendOverlayMax = 946
 
+// BillingHostCompositionOverlayMax is the measured billing-host-composition overlay
+// ratchet (production files selected by path, excluding connector and generic-compatible
+// overlays). Keep 25 lines of ratchet headroom over the measured 310-line overlay.
+const BillingHostCompositionOverlayMax = 335
+
 // AffectedSurfaceBaseline locks one Req 11.5 surface baseline.
 type AffectedSurfaceBaseline struct {
 	Tree          string
@@ -200,6 +205,13 @@ var genericCompatibleBackendOverlayPathMarkers = []string{
 	"/compatible_admission_limits.go",
 }
 
+// billingHostCompositionOverlayPathMarkers selects the new production files the
+// billing-host-composition feature adds to the convergence surfaces.
+var billingHostCompositionOverlayPathMarkers = []string{
+	"/billing_compose.go",
+	"/admin/billing/commands.go",
+}
+
 // ConnectorOverlayMeasurement is the ADR 0008 connector-architecture allowance.
 type ConnectorOverlayMeasurement struct {
 	Files []string
@@ -216,18 +228,27 @@ type GenericCompatibleOverlayMeasurement struct {
 	Pass  bool
 }
 
+// BillingHostCompositionOverlayMeasurement is the billing-host-composition allowance.
+type BillingHostCompositionOverlayMeasurement struct {
+	Files []string
+	Lines int
+	Max   int
+	Pass  bool
+}
+
 // ShrinkageMeasurement is the Requirement 11.5 aggregate plus architecture overlays.
 type ShrinkageMeasurement struct {
-	BaselineSHA              string
-	Surfaces                 []AffectedSurfaceMeasurement
-	BaselineTotal            int
-	CurrentTotal             int
-	Delta                    int // raw current-baseline (includes overlay lines)
-	Overlay                  ConnectorOverlayMeasurement
-	GenericCompatibleOverlay GenericCompatibleOverlayMeasurement
-	ConvergenceDelta         int // Delta - overlay lines (legacy Req 11.5 component)
-	RequiredMax              int
-	Pass                     bool
+	BaselineSHA                   string
+	Surfaces                      []AffectedSurfaceMeasurement
+	BaselineTotal                 int
+	CurrentTotal                  int
+	Delta                         int // raw current-baseline (includes overlay lines)
+	Overlay                       ConnectorOverlayMeasurement
+	GenericCompatibleOverlay      GenericCompatibleOverlayMeasurement
+	BillingHostCompositionOverlay BillingHostCompositionOverlayMeasurement
+	ConvergenceDelta              int // Delta - overlay lines (legacy Req 11.5 component)
+	RequiredMax                   int
+	Pass                          bool
 }
 
 // MeasureConnectorArchitectureOverlay counts non-test lines in affected-surface
@@ -244,6 +265,17 @@ func MeasureGenericCompatibleBackendOverlay(root string, exclude map[string]stru
 		return GenericCompatibleOverlayMeasurement{}, err
 	}
 	return GenericCompatibleOverlayMeasurement(base), nil
+}
+
+// MeasureBillingHostCompositionOverlay counts non-test lines for the
+// billing-host-composition feature, excluding connector and generic-compatible
+// overlay files.
+func MeasureBillingHostCompositionOverlay(root string, exclude map[string]struct{}) (BillingHostCompositionOverlayMeasurement, error) {
+	base, err := measureOverlayByPathMarkers(root, billingHostCompositionOverlayPathMarkers, BillingHostCompositionOverlayMax, exclude)
+	if err != nil {
+		return BillingHostCompositionOverlayMeasurement{}, err
+	}
+	return BillingHostCompositionOverlayMeasurement(base), nil
 }
 
 func measureOverlayByPathMarkers(root string, pathMarkers []string, maxBytes int, exclude map[string]struct{}) (ConnectorOverlayMeasurement, error) {
@@ -391,8 +423,16 @@ func MeasureRuntimeConvergenceShrinkage(root string) (ShrinkageMeasurement, erro
 		return ShrinkageMeasurement{}, err
 	}
 	m.GenericCompatibleOverlay = genericOverlay
-	m.ConvergenceDelta = m.Delta - m.Overlay.Lines - m.GenericCompatibleOverlay.Lines
-	m.Pass = m.ConvergenceDelta <= m.RequiredMax && m.Overlay.Pass && m.GenericCompatibleOverlay.Pass
+	for _, f := range genericOverlay.Files {
+		exclude[f] = struct{}{}
+	}
+	billingOverlay, err := MeasureBillingHostCompositionOverlay(root, exclude)
+	if err != nil {
+		return ShrinkageMeasurement{}, err
+	}
+	m.BillingHostCompositionOverlay = billingOverlay
+	m.ConvergenceDelta = m.Delta - m.Overlay.Lines - m.GenericCompatibleOverlay.Lines - m.BillingHostCompositionOverlay.Lines
+	m.Pass = m.ConvergenceDelta <= m.RequiredMax && m.Overlay.Pass && m.GenericCompatibleOverlay.Pass && m.BillingHostCompositionOverlay.Pass
 	return m, nil
 }
 
@@ -420,8 +460,9 @@ func FormatRuntimeConvergenceShrinkage(root string) (string, ShrinkageMeasuremen
 	fmt.Fprintf(&b, "Raw delta (includes connector overlay): `%+d`\n\n", m.Delta)
 	fmt.Fprintf(&b, "Connector overlay lines: `%d` (cap `%d`; files: `%s`)\n\n", m.Overlay.Lines, m.Overlay.Max, strings.Join(m.Overlay.Files, "`, `"))
 	fmt.Fprintf(&b, "Generic compatible overlay lines: `%d` (cap `%d`; files: `%s`)\n\n", m.GenericCompatibleOverlay.Lines, m.GenericCompatibleOverlay.Max, strings.Join(m.GenericCompatibleOverlay.Files, "`, `"))
+	fmt.Fprintf(&b, "Billing host composition overlay lines: `%d` (cap `%d`; files: `%s`)\n\n", m.BillingHostCompositionOverlay.Lines, m.BillingHostCompositionOverlay.Max, strings.Join(m.BillingHostCompositionOverlay.Files, "`, `"))
 	fmt.Fprintf(&b, "Convergence delta (raw − overlays): `%+d`\n\n", m.ConvergenceDelta)
-	fmt.Fprintf(&b, "Required: convergence delta ≤ %+d (remove ≥ %d lines after overlays); connector overlay ≤ %d; generic compatible overlay ≤ %d.\n\n", m.RequiredMax, RuntimeConvergenceMinNetLineReduction, ConnectorArchitectureOverlayMax, GenericCompatibleBackendOverlayMax)
+	fmt.Fprintf(&b, "Required: convergence delta ≤ %+d (remove ≥ %d lines after overlays); connector overlay ≤ %d; generic compatible overlay ≤ %d; billing host composition overlay ≤ %d.\n\n", m.RequiredMax, RuntimeConvergenceMinNetLineReduction, ConnectorArchitectureOverlayMax, GenericCompatibleBackendOverlayMax, BillingHostCompositionOverlayMax)
 	if m.Pass {
 		fmt.Fprintln(&b, "Verdict: **PASS**")
 	} else {
@@ -434,6 +475,9 @@ func FormatRuntimeConvergenceShrinkage(root string) (string, ShrinkageMeasuremen
 		}
 		if !m.GenericCompatibleOverlay.Pass {
 			reasons = append(reasons, fmt.Sprintf("generic compatible overlay measured %d exceeds cap %d", m.GenericCompatibleOverlay.Lines, m.GenericCompatibleOverlay.Max))
+		}
+		if !m.BillingHostCompositionOverlay.Pass {
+			reasons = append(reasons, fmt.Sprintf("billing host composition overlay measured %d exceeds cap %d", m.BillingHostCompositionOverlay.Lines, m.BillingHostCompositionOverlay.Max))
 		}
 		fmt.Fprintf(&b, "Verdict: **FAIL** (%s).\n", strings.Join(reasons, "; "))
 	}

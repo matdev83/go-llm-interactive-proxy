@@ -122,7 +122,7 @@ go test ./internal/stdhttp ./internal/core/config ./internal/core/b2bua ./intern
 ### Suggested agent prompt
 
 ```text
-Close the remaining continuity/store truthfulness gap from .kiro/specs/go-core-reimplementation-stage-two/v1_code_review_status_audit.md.
+Close the remaining continuity/store truthfulness gap from .kiro/specs/archive/go-core-reimplementation-stage-two/v1_code_review_status_audit.md.
 
 Scope:
 - own internal/stdhttp/wire.go, internal/core/config/*, internal/core/b2bua/*, and any new store-factory wiring
@@ -192,7 +192,7 @@ go test ./cmd/lipstd ./internal/pluginreg ./internal/plugins/features/...
 ### Suggested agent prompt
 
 ```text
-Close the remaining feature-plugin honesty gap from .kiro/specs/go-core-reimplementation-stage-two/v1_code_review_status_audit.md.
+Close the remaining feature-plugin honesty gap from .kiro/specs/archive/go-core-reimplementation-stage-two/v1_code_review_status_audit.md.
 
 Scope:
 - own internal/pluginreg/features_install.go, internal/pluginreg/reg.go, and bundled feature plugin code
@@ -260,7 +260,7 @@ go test ./internal/core/runtime ./internal/plugins/backends/anthropic ./internal
 ### Suggested agent prompt
 
 ```text
-Close the remaining candidate-aware capability rollout gap from .kiro/specs/go-core-reimplementation-stage-two/v1_code_review_status_audit.md.
+Close the remaining candidate-aware capability rollout gap from .kiro/specs/archive/go-core-reimplementation-stage-two/v1_code_review_status_audit.md.
 
 Scope:
 - own capability descriptors in backend plugin packages plus any focused runtime tests
@@ -323,7 +323,7 @@ go test ./internal/plugins/frontends/openairesponses ./internal/plugins/frontend
 ### Suggested agent prompt
 
 ```text
-Address the protocol-helper duplication called out in .kiro/specs/go-core-reimplementation-stage-two/v1_code_review_status_audit.md.
+Address the protocol-helper duplication called out in .kiro/specs/archive/go-core-reimplementation-stage-two/v1_code_review_status_audit.md.
 
 Scope:
 - own only the OpenAI frontend adapter helper layer unless you find a clearly better narrow boundary
@@ -363,7 +363,7 @@ Out of scope:
 ### Primary files
 
 - [internal/plugins/frontends/openailegacy/doc.go](/C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy/doc.go)
-- [.kiro/specs/go-core-reimplementation-stage-two/v1_code_review_status_audit.md](/C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/.kiro/specs/go-core-reimplementation-stage-two/v1_code_review_status_audit.md)
+- [.kiro/specs/archive/go-core-reimplementation-stage-two/v1_code_review_status_audit.md](/C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/.kiro/specs/archive/go-core-reimplementation-stage-two/v1_code_review_status_audit.md)
 - [internal/pluginreg/frontends_install.go](/C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/pluginreg/frontends_install.go)
 - [internal/stdhttp/mount.go](/C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/stdhttp/mount.go)
 
@@ -382,7 +382,7 @@ go test ./cmd/lipstd ./internal/stdhttp ./internal/plugins/frontends/openailegac
 ### Suggested agent prompt
 
 ```text
-Perform the documentation and residual-cleanup pass described in .kiro/specs/go-core-reimplementation-stage-two/v1_code_review_status_audit.md.
+Perform the documentation and residual-cleanup pass described in .kiro/specs/archive/go-core-reimplementation-stage-two/v1_code_review_status_audit.md.
 
 Scope:
 - own stale docs first

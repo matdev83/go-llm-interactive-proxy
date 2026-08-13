@@ -687,7 +687,7 @@ flowchart TD
 
 ## Supporting References
 
-- `.kiro/specs/secure-session-management/research.md` - gap analysis and design discovery notes.
+- `.kiro/specs/archive/secure-session-management/research.md` - gap analysis and design discovery notes.
 - `.kiro/steering/api-standards.md` - protocol legality and canonical contract guidance.
 - `.kiro/steering/routing-and-orchestration.md` - B2BUA and no-retry-after-output invariants.
 - `.kiro/steering/testing.md` - test topology and race/streaming expectations.

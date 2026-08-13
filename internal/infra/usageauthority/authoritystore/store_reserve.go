@@ -143,13 +143,13 @@ func (c *storeCore) reserveOne(cmd app.ReserveCommand, log MutationLog) (app.Res
 			c.appendDecision(log, mutationSnapshot(cmd.Correlation, cmd.Scope, cmd.Dimensions), row, cmd.ReservationKey.String(), "", controlplane.AccountingOutcomeDeny, capacityReason(cmd.RuleType), controlplane.AccountingAuthoritySourceAuthoritative, controlplane.AccountingSettlementUnavailable, amount, 0, 0, 0)
 			return app.ReserveResult{}, &app.ReservationCapacityError{
 				Requested: amount,
-				Remaining: domain.Amount{Unit: amount.Unit, Value: maxInt64(0, remaining), Currency: amount.Currency},
+				Remaining: domain.Amount{Unit: amount.Unit, Value: max(0, remaining), Currency: amount.Currency},
 			}
 		}
 	}
 
 	row.Reserved += amount.Value
-	row.Remaining = maxInt64(0, row.Limit-row.Consumed-row.Reserved)
+	row.Remaining = max(0, row.Limit-row.Consumed-row.Reserved)
 	c.limits[key] = row
 	log.CaptureLimitUpdate(key, row)
 

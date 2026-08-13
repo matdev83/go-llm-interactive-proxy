@@ -48,7 +48,6 @@ func TestPhase91_AuthoritativeSourcesForbidStaticOnlyOptionalTable(t *testing.T)
 		".kiro/steering/structure.md",
 		".kiro/steering/tech.md",
 		".kiro/steering/testing.md",
-		"docs/backend-adapter-boundaries.md",
 		"docs/architecture.md",
 		"README.md",
 	}

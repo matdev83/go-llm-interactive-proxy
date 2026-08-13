@@ -43,7 +43,7 @@ func TestPostgres_restart_BLEgAttemptsResolve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s1, err := NewContext(ctx, bunDB1)
+	s1, err := NewWithContext(ctx, bunDB1)
 	if err != nil {
 		_ = bunDB1.Close()
 		t.Fatal(err)
@@ -77,7 +77,7 @@ func TestPostgres_restart_BLEgAttemptsResolve(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = bunDB2.Close() })
-	s2, err := NewContext(ctx, bunDB2)
+	s2, err := NewWithContext(ctx, bunDB2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestPostgres_migrateTwice_idempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = bunDB.Close() })
-	s, err := NewContext(ctx, bunDB)
+	s, err := NewWithContext(ctx, bunDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestPostgres_NextBLeg_concurrent_uniqueSeqs(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = bunDB.Close() })
-	s, err := NewContext(ctx, bunDB)
+	s, err := NewWithContext(ctx, bunDB)
 	if err != nil {
 		t.Fatal(err)
 	}

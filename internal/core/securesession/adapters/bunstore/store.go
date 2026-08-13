@@ -50,18 +50,18 @@ var (
 )
 
 // New returns a Store backed by db after applying schema. Closing the store closes the underlying sql.DB.
-// ctx for migrate is [context.Background]; prefer [NewContext] from composition roots.
+// ctx for migrate is [context.Background]; prefer [NewWithContext] from composition roots.
 func New(db *bun.DB) (*Store, error) {
-	return NewContext(context.Background(), db)
+	return NewWithContext(context.Background(), db)
 }
 
-// NewContext returns a Store backed by db after applying schema, honoring ctx for migrate DDL.
-func NewContext(ctx context.Context, db *bun.DB) (*Store, error) {
-	return NewContextWithOptions(ctx, db, Options{})
+// NewWithContext returns a Store backed by db after applying schema, honoring ctx for migrate DDL.
+func NewWithContext(ctx context.Context, db *bun.DB) (*Store, error) {
+	return NewWithContextOptions(ctx, db, Options{})
 }
 
-// NewContextWithOptions returns a Store like [NewContext] with optional tuning.
-func NewContextWithOptions(ctx context.Context, db *bun.DB, opts Options) (*Store, error) {
+// NewWithContextOptions returns a Store like [NewWithContext] with optional tuning.
+func NewWithContextOptions(ctx context.Context, db *bun.DB, opts Options) (*Store, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("securesession/bunstore: nil context")
 	}

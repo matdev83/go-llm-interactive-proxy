@@ -257,7 +257,7 @@ func TestParity_AppServerCancelAndStaleReap(t *testing.T) {
 		RequestID: "r", AttemptID: "a", ALegID: "a", BLegID: "b",
 		CanonicalModelID: service.FactoryKindAppServer + "/auto",
 		Messages: []backendplugin.Message{{
-			Role: backendplugin.RoleUser, Parts: []backendplugin.Part{{Kind: backendplugin.PartKindText, Text: strPtr("hi")}},
+			Role: backendplugin.RoleUser, Parts: []backendplugin.Part{{Kind: backendplugin.PartKindText, Text: new("hi")}},
 		}},
 		Options: backendplugin.GenerationOptions{ResponseSchemaJSON: backendplugin.RawJSONAbsentValue()},
 	}
@@ -472,7 +472,8 @@ func runAgentSimulator(t *testing.T, proc *fakeProcess, opts simulatorOptions) {
 	writeTerminalResponse(proc, id, "turn-fake-001")
 }
 
-func strPtr(s string) *string { return &s }
+//go:fix inline
+func strPtr(s string) *string { return new(s) }
 
 func readRequest(proc *fakeProcess) (method string, id json.RawMessage, params json.RawMessage, err error) {
 	raw, err := proc.readStdinLine()

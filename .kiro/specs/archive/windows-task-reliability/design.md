@@ -196,6 +196,7 @@ The rows are the complete names from `Makefile` line 1. `Windows-supported bound
 | `vuln` | opt-in/BLOCKED prerequisite | `govulncheck` required; missing tool fails |
 | `run` | opt-in/BLOCKED prerequisite | interactive server; explicit lifecycle, not bounded verification |
 | `hooks-install` | Windows-supported bounded | native hook install |
+| `check-change-size` | Windows-supported bounded | native staged file-count gate |
 | `backend-plugin-module-checks` | Windows-supported bounded | complete dynamic module contract |
 | `backend-plugin-absence-checks` | Windows-supported bounded | native script |
 | `backend-plugin-security-checks` | Linux-authoritative | Windows bounded local check; Linux scheduled security/fuzz evidence authoritative |

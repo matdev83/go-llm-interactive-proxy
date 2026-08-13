@@ -91,9 +91,9 @@ func (c *storeCore) releaseOne(cmd app.ReleaseCommand, log MutationLog) (app.Rel
 	}
 	released := amount.Value
 	released = min(released, rec.ReservedAmount.Value)
-	row.Reserved = maxInt64(0, row.Reserved-released)
+	row.Reserved = max(0, row.Reserved-released)
 	row.Adjustment += released
-	row.Remaining = maxInt64(0, row.Limit-row.Consumed-row.Reserved)
+	row.Remaining = max(0, row.Limit-row.Consumed-row.Reserved)
 	c.limits[key] = row
 	log.CaptureLimitUpdate(key, row)
 

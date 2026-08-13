@@ -31,7 +31,7 @@ Enterprise code MUST NOT:
 | Enterprise feature | Attach via |
 | --- | --- |
 | Audit/search | Control-plane `Store` + `QueryService` interfaces; traffic observers via `lipruntime.Options.TrafficObservers` (or `BuildHostInput.Production.TrafficObservers`). |
-| Billing | Inject Bun journal + admission via `runtimebundle.ProductionOptions` (`BillingStore`, `BillingAdmission`, identity and rating resolvers) into `runtimebundle.BuildHost`. Domain policy lives in `internal/core/billing`. Public `lipruntime.Options` stays non-money; do not attach a token-accounting ledger as a second monetary path. |
+| Billing | Inject via `runtimebundle.ComposeBilling` into `runtimebundle.BuildHost` `ProductionOptions` (`BillingStore`, `BillingAdmission`, identity and rating resolvers). Do not add money fields to public `lipruntime.Options`. Recipe: [`docs/billing-host-composition.md`](billing-host-composition.md). Domain policy lives in `internal/core/billing`. Do not attach a token-accounting ledger as a second monetary path. |
 | SSO / user provisioning | Internal composition helpers using `runtimebundle.BuildOptions.Auth` (`RemoteDecider`, `OSIdentity`, `AuthEventSink`) — not currently a `lipruntime.Options` field and not a `BuildHost` parameter. |
 | Custom routing policy | Internal `BuildOptions.Extensions` / `BuildOptions.Policy` helpers where those fields are wired; prefer FeatureBundle hooks for new code. |
 | Custom backends | Backend plugin via `pkg/lipsdk` factory; register on a custom `*pluginreg.Registry` before public/internal Build. |

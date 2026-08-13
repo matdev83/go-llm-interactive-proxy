@@ -13,7 +13,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream/eventstreamapi"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/utils"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/jsonprobe"
 )
 
 const maxBodyBytes = 10 << 20
@@ -72,11 +72,11 @@ func NewHandler(cfg Config) http.Handler {
 		if cfg.OnRequestBody != nil {
 			cfg.OnRequestBody(body)
 		}
-		if utils.HasJSONNumber(body, "temperature", 0.11) {
+		if jsonprobe.HasJSONNumber(body, "temperature", 0.11) {
 			http.Error(w, `{"message":"rate limit exceeded"}`, http.StatusTooManyRequests)
 			return
 		}
-		if utils.HasJSONNumber(body, "temperature", 0.22) {
+		if jsonprobe.HasJSONNumber(body, "temperature", 0.22) {
 			http.Error(w, `{"message":"bad request"}`, http.StatusBadRequest)
 			return
 		}
@@ -94,7 +94,7 @@ func writeConverse(w http.ResponseWriter, cfg Config, requestBody []byte) {
 	body := cfg.ConverseJSON
 	if body == "" {
 		body = nonStreamWithUsageJSON
-		if utils.HasJSONKey(requestBody, "toolConfig") {
+		if jsonprobe.HasJSONKey(requestBody, "toolConfig") {
 			body = nonStreamWithToolCallJSON
 		}
 	}
@@ -109,10 +109,10 @@ func writeConverseStream(w http.ResponseWriter, cfg Config, requestBody []byte) 
 	body := cfg.StreamEvents
 	if len(body) == 0 {
 		body = streamWithUsageEvents()
-		if utils.HasJSONKey(requestBody, "toolConfig") {
+		if jsonprobe.HasJSONKey(requestBody, "toolConfig") {
 			body = streamWithToolCallEvents()
 		}
-		if utils.HasJSONNumber(requestBody, "maxTokens", 0) || utils.HasJSONNumber(requestBody, "maxTokens", 1) {
+		if jsonprobe.HasJSONNumber(requestBody, "maxTokens", 0) || jsonprobe.HasJSONNumber(requestBody, "maxTokens", 1) {
 			body = streamWithZeroUsageEvents()
 		}
 	}

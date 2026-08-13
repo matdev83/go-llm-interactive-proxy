@@ -2,6 +2,7 @@ package authoritycoord
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -11,7 +12,8 @@ import (
 type AttemptPriorityClass int
 
 const (
-	AttemptPriorityHardSpend AttemptPriorityClass = iota
+	AttemptPriorityUnknown AttemptPriorityClass = iota
+	AttemptPriorityHardSpend
 	AttemptPriorityQuotaRate
 	AttemptPriorityAdvisory
 )
@@ -40,6 +42,9 @@ func (c *AttemptCoordinator) Admit(ctx context.Context, in authority.AttemptAdmi
 		return CompositeDecision{Kind: authority.DecisionAllow, Readiness: authority.ReadinessDisabled}, nil
 	}
 	slots := attemptStageSlots(c.Slots)
+	if err := validateAttemptPriorityClasses(c.Slots); err != nil {
+		return CompositeDecision{}, err
+	}
 	if err := validateStageSlots(slots, func(p authority.AttemptProvider) bool { return p == nil }); err != nil {
 		return CompositeDecision{}, err
 	}
@@ -55,6 +60,9 @@ func (c *AttemptCoordinator) Settle(parent context.Context, stack CompensationSt
 		return nil
 	}
 	slots := attemptStageSlotsUnsorted(c.Slots)
+	if err := validateAttemptPriorityClasses(c.Slots); err != nil {
+		return err
+	}
 	if err := validateStageSlots(slots, func(p authority.AttemptProvider) bool { return p == nil }); err != nil {
 		return err
 	}
@@ -82,6 +90,15 @@ func (c *AttemptCoordinator) Release(ctx context.Context, stack CompensationStac
 		timeout = c.CleanupTimeout
 	}
 	return stack.ReverseCompensate(ctx, timeout)
+}
+
+func validateAttemptPriorityClasses(slots []AttemptSlot) error {
+	for _, slot := range slots {
+		if slot.Provider != nil && slot.Class == AttemptPriorityUnknown {
+			return fmt.Errorf("authoritycoord: unknown attempt priority class")
+		}
+	}
+	return nil
 }
 
 func attemptStageSlot(slot AttemptSlot) stageProviderSlot[authority.AttemptProvider] {

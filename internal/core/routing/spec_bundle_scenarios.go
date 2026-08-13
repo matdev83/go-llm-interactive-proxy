@@ -9,7 +9,7 @@ type RoutingScenarioSpec struct {
 }
 
 // SpecBundleRoutingScenarios lists selector, alias, and planner invariants. Keep aligned
-// with docs/spec-bundle-routing-scenarios.md and .kiro/steering/routing-and-orchestration.md.
+// with .kiro/steering/routing-and-orchestration.md and the referenced tests.
 func SpecBundleRoutingScenarios() []RoutingScenarioSpec {
 	return []RoutingScenarioSpec{
 		{

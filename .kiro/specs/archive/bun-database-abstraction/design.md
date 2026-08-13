@@ -466,6 +466,6 @@ Physical table names and columns follow existing SQLite store schemas where poss
 
 ## Supporting References
 
-- `.kiro/specs/bun-database-abstraction/research.md` — gap analysis, options, and discovery findings.
+- `.kiro/specs/archive/bun-database-abstraction/research.md` — gap analysis, options, and discovery findings.
 - `.dev/database_abstraction_implementation_plan.md` — prior implementation plan used as background, not as an approved contract.
 - Bun documentation via Context7 — confirms `bun.NewDB`, `pgdialect`, `sqlitedialect`, `pgdriver`, `RunInTx`, and `On("CONFLICT ...")` support.

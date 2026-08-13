@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "description": "Machine-checked migration register: direct internal/core imports per package (go list -test=false). Edit intentionally when wiring boundaries move; see .kiro/specs/introduce-hexagonal-architecture/design.md. schema_version 3: exception entries require retirement_trigger; extract and exception entries require a backlog{owner,next_extraction,retirement_target,blocking_dependencies,status}; see retired_exceptions for completed allowance removals.",
+  "description": "Machine-checked migration register: direct internal/core imports per package (go list -test=false). Edit intentionally when wiring boundaries move; see .kiro/specs/archive/introduce-hexagonal-architecture/design.md. schema_version 3: exception entries require retirement_trigger; extract and exception entries require a backlog{owner,next_extraction,retirement_target,blocking_dependencies,status}; see retired_exceptions for completed allowance removals.",
   "retired_exceptions": [
     "internal/pluginreg used to import internal/core/runtime for backend construction types; retired after the executor-outbound adapter surface moved to internal/core/execbackend (introduce-hexagonal-architecture task 3).",
     "internal/stdhttp no longer imports internal/core/b2bua or internal/core/hooks after the stdhttp/server.go concern split and removal of the stdhttp.BuildExecutor wrapper (arch review Phase 0/1); both were used only by the deleted wire.go.",
@@ -99,7 +99,7 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/routing",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime",
-        "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretsguard",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/b2bualineage",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/bunstore",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/lipapidenial",

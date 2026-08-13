@@ -52,7 +52,7 @@ The workflow and artifact shape follow repository conventions observed in comple
 - `.kiro/steering/{product,structure,tech,api-standards,routing-and-orchestration,testing}.md`
 - `.kiro/rules/{ears-format,gap-analysis,design-principles,design-review}.md`
 - `.kiro/settings/templates/specs/{init.json,requirements.md,design.md,tasks.md}`
-- completed `.kiro/specs/backend-connector-plugin-architecture/*`
+- completed `.kiro/specs/archive/backend-connector-plugin-architecture/*`
 - active and archived connector specifications
 - architecture, adapter-boundary, plugin-system, and operator documentation
 

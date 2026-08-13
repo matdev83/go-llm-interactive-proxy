@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/utils"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/jsonprobe"
 )
 
 const maxBodyBytes = 10 << 20
@@ -78,23 +78,23 @@ func NewHandler(cfg Config) http.Handler {
 		if cfg.OnAuthorizedCredential != nil {
 			cfg.OnAuthorizedCredential(secret)
 		}
-		if utils.TryWriteForcedHTTPError(w, cfg.ForcedHTTPStatus, cfg.ForcedRetryAfter, cfg.ForcedErrorJSON, defaultForcedErrorJSON) {
+		if jsonprobe.TryWriteForcedHTTPError(w, cfg.ForcedHTTPStatus, cfg.ForcedRetryAfter, cfg.ForcedErrorJSON, defaultForcedErrorJSON) {
 			return
 		}
-		if utils.HasJSONNumber(body, "temperature", 0.11) {
-			_ = utils.TryWriteForcedHTTPError(w, http.StatusTooManyRequests, "60", "", defaultForcedErrorJSON)
+		if jsonprobe.HasJSONNumber(body, "temperature", 0.11) {
+			_ = jsonprobe.TryWriteForcedHTTPError(w, http.StatusTooManyRequests, "60", "", defaultForcedErrorJSON)
 			return
 		}
-		if utils.HasJSONNumber(body, "temperature", 0.22) {
-			_ = utils.TryWriteForcedHTTPError(w, http.StatusBadRequest, "", "", defaultForcedErrorJSON)
+		if jsonprobe.HasJSONNumber(body, "temperature", 0.22) {
+			_ = jsonprobe.TryWriteForcedHTTPError(w, http.StatusBadRequest, "", "", defaultForcedErrorJSON)
 			return
 		}
-		if utils.HasJSONNumber(body, "temperature", 0.33) {
-			_ = utils.TryWriteForcedHTTPError(w, http.StatusTooManyRequests, "60", "", defaultForcedErrorJSON)
+		if jsonprobe.HasJSONNumber(body, "temperature", 0.33) {
+			_ = jsonprobe.TryWriteForcedHTTPError(w, http.StatusTooManyRequests, "60", "", defaultForcedErrorJSON)
 			return
 		}
-		if utils.HasJSONNumber(body, "temperature", 0.44) {
-			_ = utils.TryWriteForcedHTTPError(w, http.StatusTooManyRequests, "60", "", defaultForcedErrorJSON)
+		if jsonprobe.HasJSONNumber(body, "temperature", 0.44) {
+			_ = jsonprobe.TryWriteForcedHTTPError(w, http.StatusTooManyRequests, "60", "", defaultForcedErrorJSON)
 			return
 		}
 
@@ -159,7 +159,7 @@ func writeJSON(w http.ResponseWriter, cfg Config, requestBody []byte) {
 	body := cfg.NonStreamJSON
 	if body == "" {
 		body = nonStreamWithUsageJSON
-		if utils.HasJSONKey(requestBody, "tools") {
+		if jsonprobe.HasJSONKey(requestBody, "tools") {
 			body = nonStreamWithToolCallJSON
 		}
 	}
@@ -176,36 +176,36 @@ func writeStream(w http.ResponseWriter, cfg Config, requestBody []byte) {
 		return
 	}
 	body := streamWithUsageSSE
-	if utils.HasJSONKey(requestBody, "tools") {
+	if jsonprobe.HasJSONKey(requestBody, "tools") {
 		body = streamWithToolCallSSE
 	}
-	if !utils.HasJSONKey(requestBody, "stream_options") && utils.HasJSONKey(requestBody, "tools") {
+	if !jsonprobe.HasJSONKey(requestBody, "stream_options") && jsonprobe.HasJSONKey(requestBody, "tools") {
 		body = streamWithToolCallSSE
 	}
-	if utils.HasJSONNumber(requestBody, "temperature", 0.11) {
+	if jsonprobe.HasJSONNumber(requestBody, "temperature", 0.11) {
 		body = `data: {"id":"err","object":"chat.completion.chunk","choices":[],"finish_reason":null,"error":{"message":"rate limit exceeded"}}
 
 data: [DONE]
 
 `
 	}
-	if utils.HasJSONNumber(requestBody, "temperature", 0.22) {
+	if jsonprobe.HasJSONNumber(requestBody, "temperature", 0.22) {
 		body = `data: {"id":"err","object":"chat.completion.chunk","choices":[],"finish_reason":null,"error":{"message":"bad request"}}
 
 data: [DONE]
 
 `
 	}
-	if utils.HasJSONNumber(requestBody, "max_tokens", 0) || utils.HasJSONNumber(requestBody, "max_tokens", 1) || utils.HasJSONNumber(requestBody, "max_output_tokens", 0) || utils.HasJSONNumber(requestBody, "max_output_tokens", 1) {
+	if jsonprobe.HasJSONNumber(requestBody, "max_tokens", 0) || jsonprobe.HasJSONNumber(requestBody, "max_tokens", 1) || jsonprobe.HasJSONNumber(requestBody, "max_output_tokens", 0) || jsonprobe.HasJSONNumber(requestBody, "max_output_tokens", 1) {
 		body = streamWithZeroUsageSSE
 	}
-	if utils.HasJSONNumber(requestBody, "temperature", 0.11) {
+	if jsonprobe.HasJSONNumber(requestBody, "temperature", 0.11) {
 		body = streamWithErrorSSE
 	}
-	if utils.HasJSONNumber(requestBody, "temperature", 0.22) {
+	if jsonprobe.HasJSONNumber(requestBody, "temperature", 0.22) {
 		body = streamWithErrorSSE
 	}
-	if utils.HasJSONBool(requestBody, "include_usage", true) && !utils.HasJSONNumber(requestBody, "max_tokens", 1) && !utils.HasJSONKey(requestBody, "tools") {
+	if jsonprobe.HasJSONBool(requestBody, "include_usage", true) && !jsonprobe.HasJSONNumber(requestBody, "max_tokens", 1) && !jsonprobe.HasJSONKey(requestBody, "tools") {
 		body = streamWithUsageSSE
 	}
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
