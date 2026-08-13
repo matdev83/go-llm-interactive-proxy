@@ -6,7 +6,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatibleutil"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatmode"
 	"gopkg.in/yaml.v3"
 )
 
@@ -62,14 +62,14 @@ func TestParseCompatibleEndpoint_openAIJoinsModels(t *testing.T) {
 		BackendPrefix: "p",
 		BaseURL:       "https://gateway.example.com/provider/v1/",
 	}
-	d, err := compatibleutil.ParseEndpoint(cfg)
+	d, err := compatmode.ParseEndpoint(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := d.BaseURL(); got != "https://gateway.example.com/provider/v1" {
 		t.Fatalf("BaseURL = %q", got)
 	}
-	models, err := compatibleutil.OpenAIModelsEndpoint(d)
+	models, err := compatmode.OpenAIModelsEndpoint(d)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,11 +84,11 @@ func TestParseCompatibleEndpoint_anthropicJoinsModels(t *testing.T) {
 		BackendPrefix: "p",
 		BaseURL:       "https://api.example.com",
 	}
-	d, err := compatibleutil.ParseEndpoint(cfg)
+	d, err := compatmode.ParseEndpoint(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	models, err := compatibleutil.AnthropicModelsEndpoint(d)
+	models, err := compatmode.AnthropicModelsEndpoint(d)
 	if err != nil {
 		t.Fatal(err)
 	}

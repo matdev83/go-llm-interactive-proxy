@@ -47,7 +47,7 @@ func runApplyBillingResultAtomic(t *testing.T, store *DurableStore, accountID st
 	if err := store.AppendUsageRecord(ctx, sealed); err != nil {
 		t.Fatal(err)
 	}
-	result := billing.BillingResult{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 12, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 7, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}}}
+	result := billing.Result{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 12, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 7, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}}}
 	settlement, err := store.ApplyBillingResult(ctx, billing.ApplyBillingInput{Record: sealed, Authorization: auth, Result: result})
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +117,7 @@ func runApplyBillingResultOverageReject(t *testing.T, store *DurableStore, accou
 	if err := store.AppendUsageRecord(ctx, sealed); err != nil {
 		t.Fatal(err)
 	}
-	result := billing.BillingResult{
+	result := billing.Result{
 		TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 41, Currency: "USD"},
 		OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 7, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}},
 	}
@@ -167,7 +167,7 @@ func runApplyBillingResultReplay(t *testing.T, store *DurableStore, accountID st
 	if err := store.AppendUsageRecord(ctx, sealed); err != nil {
 		t.Fatal(err)
 	}
-	input := billing.ApplyBillingInput{Record: sealed, Authorization: auth, Result: billing.BillingResult{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 5, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 0, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}}}}
+	input := billing.ApplyBillingInput{Record: sealed, Authorization: auth, Result: billing.Result{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 5, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 0, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}}}}
 	first, err := store.ApplyBillingResult(ctx, input)
 	if err != nil {
 		t.Fatal(err)
@@ -238,7 +238,7 @@ func runApplyBillingResultRejectsReconcileRequired(t *testing.T, store *DurableS
 	if err := store.MarkAccountReconcileRequired(ctx, accountID); err != nil {
 		t.Fatal(err)
 	}
-	result := billing.BillingResult{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 5, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 1, Currency: "USD"}, AmountPresent: true, Reconciled: true}}}
+	result := billing.Result{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 5, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 1, Currency: "USD"}, AmountPresent: true, Reconciled: true}}}
 	if _, err := store.ApplyBillingResult(ctx, billing.ApplyBillingInput{Record: sealed, Authorization: auth, Result: result}); !errors.Is(err, billing.ErrAccountNotReady) {
 		t.Fatalf("settlement on reconcile_required = %v", err)
 	}

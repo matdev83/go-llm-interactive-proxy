@@ -12,11 +12,11 @@ import (
 
 // Preflight validates JSON size and shape using encoding/json.Decoder.Token.
 func Preflight(data []byte, limits Limits) (Result, error) {
-	return PreflightContext(context.Background(), data, limits)
+	return PreflightWithContext(context.Background(), data, limits)
 }
 
-// PreflightContext is Preflight with cancellation checks at token boundaries.
-func PreflightContext(ctx context.Context, data []byte, limits Limits) (Result, error) {
+// PreflightWithContext is Preflight with cancellation checks at token boundaries.
+func PreflightWithContext(ctx context.Context, data []byte, limits Limits) (Result, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}

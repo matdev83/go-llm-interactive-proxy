@@ -42,7 +42,7 @@ func runConcurrentSettlementIdempotent(t *testing.T, store *DurableStore, accoun
 	if err := store.AppendUsageRecord(ctx, sealed); err != nil {
 		t.Fatal(err)
 	}
-	input := billing.ApplyBillingInput{Record: sealed, Authorization: auth, Result: billing.BillingResult{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 11, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 3, Currency: "USD"}, AmountPresent: true, Reconciled: true}}}}
+	input := billing.ApplyBillingInput{Record: sealed, Authorization: auth, Result: billing.Result{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 11, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 3, Currency: "USD"}, AmountPresent: true, Reconciled: true}}}}
 	var wg sync.WaitGroup
 	errs := make(chan error, 2)
 	for range 2 {
@@ -103,7 +103,7 @@ func runSettlementFailsClosedWhenProcessedWithoutSnapshot(t *testing.T, store *D
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := billing.ApplyBillingInput{Record: sealed, Authorization: auth, Result: billing.BillingResult{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 11, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 3, Currency: "USD"}, AmountPresent: true, Reconciled: true}}}}
+	input := billing.ApplyBillingInput{Record: sealed, Authorization: auth, Result: billing.Result{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 11, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 3, Currency: "USD"}, AmountPresent: true, Reconciled: true}}}}
 	if _, err := store.ApplyBillingResult(ctx, input); !errors.Is(err, billing.ErrSettlementConflict) {
 		t.Fatalf("settlement without snapshot = %v, want conflict", err)
 	}
@@ -145,7 +145,7 @@ func runStaleClaimerCannotSettleAfterLeaseReclaim(t *testing.T, ownerA, ownerB *
 	if _, err := ownerB.ClaimPending(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
-	input := billing.ApplyBillingInput{Record: sealed, Authorization: auth, Result: billing.BillingResult{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 11, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 3, Currency: "USD"}, AmountPresent: true, Reconciled: true}}}}
+	input := billing.ApplyBillingInput{Record: sealed, Authorization: auth, Result: billing.Result{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 11, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 3, Currency: "USD"}, AmountPresent: true, Reconciled: true}}}}
 	if _, err := ownerA.ApplyBillingResult(ctx, input); !errors.Is(err, billing.ErrSettlementConflict) {
 		t.Fatalf("stale settlement = %v, want conflict", err)
 	}

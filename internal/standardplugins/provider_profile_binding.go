@@ -10,7 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatibleutil"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openresponsescompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/providerprofiles"
@@ -158,7 +158,7 @@ func applyProfileCapabilities(be execbackend.Backend, err error, profile provide
 	if err != nil {
 		return execbackend.Backend{}, err
 	}
-	return compatibleutil.ApplyCapabilityCeiling(be, profile.Capabilities), nil
+	return compatmode.ApplyCapabilityCeiling(be, profile.Capabilities), nil
 }
 
 func buildOpenResponsesProfile(profile providerprofiles.Profile, instanceID string, upstream *http.Client) (execbackend.Backend, error) {

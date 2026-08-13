@@ -39,7 +39,7 @@ func runReconcileAccountRebuildsSettlement(t *testing.T, store *DurableStore, ac
 	if err := store.AppendUsageRecord(ctx, sealed); err != nil {
 		t.Fatal(err)
 	}
-	result := billing.BillingResult{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 12, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 7, Currency: "USD"}, AmountPresent: true, Reconciled: true}}}
+	result := billing.Result{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 12, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 7, Currency: "USD"}, AmountPresent: true, Reconciled: true}}}
 	if _, err := store.ApplyBillingResult(ctx, billing.ApplyBillingInput{Record: sealed, Authorization: auth, Result: result}); err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +246,7 @@ func TestSQLiteZeroEffectSettlementReconcilesAlongsideOtherJournals(t *testing.T
 		if err := store.AppendUsageRecord(ctx, sealed); err != nil {
 			t.Fatal(err)
 		}
-		result := billing.BillingResult{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 8, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 3, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}}}
+		result := billing.Result{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 8, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 3, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}}}
 		if _, err := store.ApplyBillingResult(ctx, billing.ApplyBillingInput{Record: sealed, Authorization: auth, Result: result}); err != nil {
 			t.Fatal(err)
 		}
@@ -276,7 +276,7 @@ func TestSQLitePostedJournalWithZeroSequenceSnapshotIsIntegrityFailure(t *testin
 	if err := store.AppendUsageRecord(ctx, sealed); err != nil {
 		t.Fatal(err)
 	}
-	result := billing.BillingResult{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 8, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 3, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}}}
+	result := billing.Result{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 8, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 3, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}}}
 	if _, err := store.ApplyBillingResult(ctx, billing.ApplyBillingInput{Record: sealed, Authorization: auth, Result: result}); err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func settleZeroEffectTurn(t *testing.T, store *DurableStore, accountID, turnID, 
 	if err := store.AppendUsageRecord(ctx, sealed); err != nil {
 		t.Fatal(err)
 	}
-	result := billing.BillingResult{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 0, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 0, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}}}
+	result := billing.Result{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 0, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 0, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true}}}
 	if _, err := store.ApplyBillingResult(ctx, billing.ApplyBillingInput{Record: sealed, Authorization: auth, Result: result}); err != nil {
 		t.Fatal(err)
 	}
@@ -481,7 +481,7 @@ func runReplayStoreFixture(t *testing.T, store *DurableStore, accountID string, 
 			if err := store.AppendUsageRecord(ctx, sealed); err != nil {
 				t.Fatalf("op %d append TUR: %v", i, err)
 			}
-			result := billing.BillingResult{
+			result := billing.Result{
 				TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: op.nano, Currency: "USD"},
 				OperatorCosts: []billing.OperatorCostResult{{
 					LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 1, Currency: "USD"},

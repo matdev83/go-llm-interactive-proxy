@@ -96,9 +96,9 @@ type OperatorCostResult struct {
 	UnreconciledReason string
 }
 
-// BillingResult keeps customer revenue separate from per-B-leg operator cost.
+// Result is the rated customer charge and per-B-leg operator costs for one turn.
 // UnreconciledLURKeys are explicit processing blockers, never omitted costs.
-type BillingResult struct {
+type Result struct {
 	TURKey              string
 	CustomerCharge      Money
 	OperatorCosts       []OperatorCostResult
@@ -116,28 +116,28 @@ type ProcessingMarker interface {
 // RateTurn deterministically rates one sealed TUR. It accepts an unsealed value
 // as a convenience for pure callers and seals a detached copy before use; a
 // supplied sealed record is always validated against its stored key/fingerprint.
-func RateTurn(in RatingInput) (BillingResult, error) {
+func RateTurn(in RatingInput) (Result, error) {
 	record, err := sealForRating(in.Record)
 	if err != nil {
-		return BillingResult{}, err
+		return Result{}, err
 	}
 	if err := validateRatingSnapshots(record, in); err != nil {
-		return BillingResult{}, err
+		return Result{}, err
 	}
 	customer, err := calculateCustomerCharge(record, in)
 	if err != nil {
-		return BillingResult{}, err
+		return Result{}, err
 	}
 	if customer.Currency != in.Authorization.Amount.Currency {
-		return BillingResult{}, ErrRatingCurrencyMismatch
+		return Result{}, ErrRatingCurrencyMismatch
 	}
 	if customer.Nano > in.Authorization.Amount.Nano {
-		return BillingResult{}, fmt.Errorf("%w: actual=%d authorized=%d", ErrActualChargeExceedsAuthorization, customer.Nano, in.Authorization.Amount.Nano)
+		return Result{}, fmt.Errorf("%w: actual=%d authorized=%d", ErrActualChargeExceedsAuthorization, customer.Nano, in.Authorization.Amount.Nano)
 	}
-	result := BillingResult{TURKey: record.Key, CustomerCharge: customer}
+	result := Result{TURKey: record.Key, CustomerCharge: customer}
 	for _, leg := range record.Legs {
 		if authoritativeProviderCost(leg.Evidence) && leg.Evidence.Cost.Currency != in.CustomerPricing.Currency {
-			return BillingResult{}, ErrRatingCurrencyMismatch
+			return Result{}, ErrRatingCurrencyMismatch
 		}
 	}
 	result.OperatorCosts = calculateOperatorCosts(record, in.OperatorRates, in.CustomerPricing.Currency, &result.UnreconciledLURKeys)
@@ -428,7 +428,7 @@ func fallbackOperatorCost(leg LegUsageRecord, rate OperatorRateSnapshot, found b
 
 // MarkUnreconciledCost moves only mutable processing metadata to the explicit
 // unreconciled state. It refuses to mark a fully reconciled result this way.
-func MarkUnreconciledCost(ctx context.Context, marker ProcessingMarker, record TurnUsageRecord, result BillingResult) error {
+func MarkUnreconciledCost(ctx context.Context, marker ProcessingMarker, record TurnUsageRecord, result Result) error {
 	if marker == nil || !result.UnreconciledCost {
 		return fmt.Errorf("%w: unreconciled result and processing marker are required", ErrUnreconciledCost)
 	}
@@ -445,14 +445,14 @@ func MarkUnreconciledCost(ctx context.Context, marker ProcessingMarker, record T
 // RateTurnAndMarkProcessing is the post-turn boundary for the Phase 5
 // unreconciled-cost path. It rates first, then changes only mutable processing
 // metadata when operator cost cannot be proven. Settlement remains Phase 6.
-func RateTurnAndMarkProcessing(ctx context.Context, marker ProcessingMarker, in RatingInput) (BillingResult, error) {
+func RateTurnAndMarkProcessing(ctx context.Context, marker ProcessingMarker, in RatingInput) (Result, error) {
 	result, err := RateTurn(in)
 	if err != nil {
-		return BillingResult{}, err
+		return Result{}, err
 	}
 	if result.UnreconciledCost {
 		if err := MarkUnreconciledCost(ctx, marker, in.Record, result); err != nil {
-			return BillingResult{}, err
+			return Result{}, err
 		}
 	}
 	return result, nil

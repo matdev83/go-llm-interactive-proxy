@@ -151,7 +151,7 @@ func buildSecureSessionRuntime(in secureSessionBuildInput) (*secureSessionRuntim
 		if ttl, maxE, ok := config.EffectiveSecureSessionSQLQueryCache(*ss); ok {
 			bunOpts.SQLQueryCacheTTL, bunOpts.SQLQueryCacheMaxEntries = ttl, int(maxE)
 		}
-		st, err := bunstore.NewContextWithOptions(child, bunDB, bunOpts)
+		st, err := bunstore.NewWithContextOptions(child, bunDB, bunOpts)
 		if err != nil {
 			return nil, ssCloseErr(func() error { return bunDB.Close() },
 				fmt.Errorf("runtimebundle: secure_session: prepare sqlite schema: %w", err), "sqlite bun db")
@@ -183,7 +183,7 @@ func buildSecureSessionRuntime(in secureSessionBuildInput) (*secureSessionRuntim
 		}, cfg.Database, in.PostgresPools, in.DualPlaneMigrator, postgresStoreLifecycle[*bunstore.Store]{
 			// Migrate/Verify nil: bunstore owns schema preparation on the handle.
 			Open: func(ctx context.Context, handle *bun.DB) (*bunstore.Store, error) {
-				s, err := bunstore.NewContextWithOptions(ctx, handle, bunOpts)
+				s, err := bunstore.NewWithContextOptions(ctx, handle, bunOpts)
 				if err != nil {
 					return nil, fmt.Errorf("runtimebundle: secure_session: prepare postgres schema: %w", err)
 				}

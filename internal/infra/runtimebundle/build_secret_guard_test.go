@@ -10,11 +10,11 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
-	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretsguard"
+	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"gopkg.in/yaml.v3"
 )
 
@@ -55,18 +55,18 @@ type stubSecretGuard struct {
 	ord int
 }
 
-func (g stubSecretGuard) ID() string                         { return g.id }
-func (g stubSecretGuard) Order() int                         { return g.ord }
-func (stubSecretGuard) FailureMode() secretguard.FailureMode { return secretguard.FailClosed }
-func (stubSecretGuard) Evaluate(context.Context, *lipapi.Call, secretguard.Meta, secretguard.Services) (secretguard.Decision, error) {
-	return secretguard.Decision{Outcome: secretguard.OutcomePass}, nil
+func (g stubSecretGuard) ID() string                 { return g.id }
+func (g stubSecretGuard) Order() int                 { return g.ord }
+func (stubSecretGuard) FailureMode() sdk.FailureMode { return sdk.FailClosed }
+func (stubSecretGuard) Evaluate(context.Context, *lipapi.Call, sdk.Meta, sdk.Services) (sdk.Decision, error) {
+	return sdk.Decision{Outcome: sdk.OutcomePass}, nil
 }
 
 func TestBuildSecretGuardRuntime_doesNotMutateBuildOptions(t *testing.T) {
 	t.Parallel()
 	env := &panicSGEnv{}
 	opts := &BuildOptions{Extensions: ExtensionsOptions{
-		SecretGuards:           []secretguard.Guard{stubSecretGuard{id: "b", ord: 1}, stubSecretGuard{id: "a", ord: 1}},
+		SecretGuards:           []sdk.Guard{stubSecretGuard{id: "b", ord: 1}, stubSecretGuard{id: "a", ord: 1}},
 		SecretGuardEnvironment: env,
 	}}
 	before := opts.Extensions
@@ -90,7 +90,7 @@ func TestBuildSecretGuardRuntime_injectedGuardsSkipEnvironmentButWireAudit(t *te
 	t.Parallel()
 	env := &panicSGEnv{}
 	opts := &BuildOptions{Extensions: ExtensionsOptions{
-		SecretGuards:           []secretguard.Guard{stubSecretGuard{id: "injected-without-feature"}},
+		SecretGuards:           []sdk.Guard{stubSecretGuard{id: "injected-without-feature"}},
 		SecretGuardEnvironment: env,
 	}}
 
@@ -114,7 +114,7 @@ func TestBuildSecretGuardRuntime_configuredGuardLoadsCatalogAndFreezesPlane(t *t
 	env := &mapSGEnv{vals: map[string]string{
 		"OPENAI_API_KEY": testkit.SyntheticOpenAIAPIKey,
 	}}
-	guards := []secretguard.Guard{
+	guards := []sdk.Guard{
 		stubSecretGuard{id: "z", ord: 2},
 		stubSecretGuard{id: "a", ord: 1},
 		stubSecretGuard{id: "b", ord: 1},
@@ -253,7 +253,7 @@ func TestBuildSecretGuardRuntime_rejectsMultipleEnabledBeforeEnv(t *testing.T) {
 
 type typedNilDecisionObserver struct{}
 
-func (*typedNilDecisionObserver) OnSecretDecision(context.Context, secretguard.DecisionEvent) error {
+func (*typedNilDecisionObserver) OnSecretDecision(context.Context, sdk.DecisionEvent) error {
 	return nil
 }
 
@@ -263,7 +263,7 @@ func TestBuildSecretGuardRuntime_typedNilObserverFallsBackToSlog(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	var typedNil *typedNilDecisionObserver
 	opts := &BuildOptions{Extensions: ExtensionsOptions{
-		SecretGuards:           []secretguard.Guard{stubSecretGuard{id: "guard", ord: 1}},
+		SecretGuards:           []sdk.Guard{stubSecretGuard{id: "guard", ord: 1}},
 		SecretDecisionObserver: typedNil,
 	}}
 
@@ -271,10 +271,10 @@ func TestBuildSecretGuardRuntime_typedNilObserverFallsBackToSlog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res == nil || secretguard.IsNilObserver(res.Plane.DecisionObserver) {
+	if res == nil || sdk.IsNilObserver(res.Plane.DecisionObserver) {
 		t.Fatal("typed-nil observer must be replaced with a usable runtime observer")
 	}
-	if err := res.Plane.DecisionObserver.OnSecretDecision(t.Context(), secretguard.DecisionEvent{EventID: "evt-typed-nil"}); err != nil {
+	if err := res.Plane.DecisionObserver.OnSecretDecision(t.Context(), sdk.DecisionEvent{EventID: "evt-typed-nil"}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(buf.String(), "lip.secret_guard.decision") {

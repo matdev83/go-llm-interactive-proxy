@@ -36,7 +36,7 @@ func ProviderCostSourceKey(lurKey string) (string, error) {
 type ApplyBillingInput struct {
 	Record        TurnUsageRecord
 	Authorization Authorization
-	Result        BillingResult
+	Result        Result
 }
 
 // Settlement is the durable outcome of one atomic account settlement. A zero
@@ -56,9 +56,6 @@ type SettlementStore interface {
 	ApplyBillingResult(context.Context, ApplyBillingInput) (Settlement, error)
 }
 
-// SemanticFingerprint hashes every financially meaningful result field. It is
-// separate from a journal fingerprint because one BillingResult spans several
-// durable transactions.
 func (c OperatorCostResult) SemanticFingerprint() (string, error) {
 	if strings.TrimSpace(c.LURKey) == "" || c.Amount.Nano < 0 || strings.TrimSpace(c.Amount.Currency) == "" {
 		return "", fmt.Errorf("%w: operator cost identity and amount are required", ErrSettlementInvalid)
@@ -80,7 +77,10 @@ func (c OperatorCostResult) SemanticFingerprint() (string, error) {
 	return fmt.Sprintf("operator-cost:v1:%x", digest[:]), nil
 }
 
-func (r BillingResult) SemanticFingerprint() (string, error) {
+// SemanticFingerprint hashes every financially meaningful result field. It is
+// separate from a journal fingerprint because one Result spans several
+// durable transactions.
+func (r Result) SemanticFingerprint() (string, error) {
 	if strings.TrimSpace(r.TURKey) == "" || r.CustomerCharge.Nano < 0 || strings.TrimSpace(r.CustomerCharge.Currency) == "" {
 		return "", fmt.Errorf("%w: result identity and customer amount are required", ErrSettlementInvalid)
 	}

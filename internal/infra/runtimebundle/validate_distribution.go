@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretsguard"
+	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/processhost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/logging"

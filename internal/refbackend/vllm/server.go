@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/utils"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/jsonprobe"
 )
 
 const maxBodyBytes = 10 << 20
@@ -98,7 +98,7 @@ func handlePost(w http.ResponseWriter, r *http.Request, cfg Config, path string)
 		cfg.OnAuthorizedCredential(secret)
 	}
 
-	if utils.TryWriteForcedHTTPError(w, cfg.ForcedHTTPStatus, cfg.ForcedRetryAfter, cfg.ForcedErrorJSON, defaultForcedErrorJSON) {
+	if jsonprobe.TryWriteForcedHTTPError(w, cfg.ForcedHTTPStatus, cfg.ForcedRetryAfter, cfg.ForcedErrorJSON, defaultForcedErrorJSON) {
 		return
 	}
 

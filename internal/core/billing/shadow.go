@@ -20,7 +20,7 @@ type ShadowBaseline func(RatingInput) (ShadowExpectation, error)
 // ShadowComparison records whether the replacement TUR/rating path agrees with
 // the characterized financial outcome.
 type ShadowComparison struct {
-	Result      BillingResult
+	Result      Result
 	Expected    ShadowExpectation
 	Matches     bool
 	Differences []string

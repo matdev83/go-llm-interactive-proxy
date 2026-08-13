@@ -24,9 +24,9 @@ func TestNew_NilBunDB(t *testing.T) {
 	}
 }
 
-func TestNewContext_NilContext(t *testing.T) {
+func TestNewWithContext_NilContext(t *testing.T) {
 	t.Parallel()
-	_, err := NewContext(nil, nil) //nolint:staticcheck // contract: nil ctx must be rejected
+	_, err := NewWithContext(nil, nil) //nolint:staticcheck // contract: nil ctx must be rejected
 	if err == nil {
 		t.Fatal("expected error for nil context")
 	}
@@ -324,7 +324,7 @@ func newTestStoreWithOpts(t *testing.T, opts Options) (*Store, func()) {
 		_ = sqlDB.Close()
 		t.Fatal(err)
 	}
-	st, err := NewContextWithOptions(context.Background(), bunDB, opts)
+	st, err := NewWithContextOptions(context.Background(), bunDB, opts)
 	if err != nil {
 		_ = sqlDB.Close()
 		t.Fatal(err)
