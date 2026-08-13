@@ -18,48 +18,36 @@ import (
 
 // persistCancellationBilling settles non-money usage-authority reservations for a
 // canceled attempt. Monetary cancellation work belongs exclusively to post-turn
-// TUR/LUR processing after terminal handoff. When a backend EventUsageDelta was
-// already observed mid-stream (accounting.usageObserved), the observed usage is
-// settled directly as a Cancellation. Otherwise it first attempts the backend's
-// FinalizeBilling hook (when present) to recover final provider evidence for
-// quota/protocol coordination. No estimated stream-time billing marker is emitted.
-// When the reservation is already settled AND authoritative usage is available
-// (usageObserved or finalizeBilling succeeded), it calls ReconcileAuthoritative
-// instead of the no-op settleCancellationAuthority (requirement 7.6, 8.4-8.6).
-// Every settlement path uses a non-canceled context so post-output accounting
-// completes after client cancellation (requirement 11.7).
+// TUR/LUR processing after terminal handoff.
+//
+// Evidence recovery is first: a mid-stream EventUsageDelta is enough, otherwise
+// FinalizeBilling may recover provider evidence (shared with LUR via finalizeOnce).
+// Authoritative evidence reconciles an already-settled reservation (requirement
+// 7.6, 8.4-8.6); without it the path only settles Cancellation and never
+// re-opens a prior Partial/Final. One tail then applies advisory usage and
+// request settle/release. Settlement uses a non-canceled context so post-output
+// accounting completes after client cancellation (requirement 11.7).
 func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason string) {
 	if s == nil {
 		return
 	}
-	if s.accounting.usageObserved {
+	if s.accounting.usageObserved || s.finalizeBillingAfterCancel(ctx, reason) {
 		s.reconcileOrSettleCancellationAuthority(ctx)
-		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, s.operatorUsageForFinalize())
-		if s.isCommitted() {
-			_ = s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
-		} else if s.executor != nil {
-			_ = s.executor.releaseRequestAuthority(ctx)
-		}
-		return
+	} else {
+		s.settleCancellationAuthority(ctx)
 	}
-	if s.finalizeBillingAfterCancel(ctx, reason) {
-		s.reconcileOrSettleCancellationAuthority(ctx)
-		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, s.operatorUsageForFinalize())
-		if s.isCommitted() {
-			_ = s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
-		} else if s.executor != nil {
-			_ = s.executor.releaseRequestAuthority(ctx)
-		}
-		return
-	}
-	// No estimated stream-time billing marker is emitted. The terminal handoff
-	// carries the final evidence to post-turn billing; quota coordination settles
-	// independently below.
-	s.settleCancellationAuthority(ctx)
+	s.finishCancellationAuthority(ctx)
+}
+
+// finishCancellationAuthority is the single cancellation tail: advisory usage
+// apply, then request-authority settle or unused-hold release.
+func (s *retryRecvStream) finishCancellationAuthority(ctx context.Context) {
 	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, s.operatorUsageForFinalize())
 	if s.isCommitted() {
 		_ = s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
-	} else if s.executor != nil {
+		return
+	}
+	if s.executor != nil {
 		_ = s.executor.releaseRequestAuthority(ctx)
 	}
 }
