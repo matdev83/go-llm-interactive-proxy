@@ -77,7 +77,7 @@ TDD throughout (RED → GREEN → REFACTOR). Do not modify stream handlers, TUR 
 
 ## 4. Injection composer
 
-- [ ] 4.1 (P) Compose a complete Production injection from an opened journal and catalog
+- [x] 4.1 (P) Compose a complete Production injection from an opened journal and catalog
   - Helper fills store, admission (catalog-backed pricing and policy), identity, rating resolver, reports, and authoritative enablement without opening a database.
   - Incomplete input (missing store capabilities, catalog defaults, currency, or model max-output bound) fails closed.
   - Nil identity uses the stock principal/session mapping; a custom mapping that returns empty identity still fails closed at admission.
@@ -152,5 +152,6 @@ TDD throughout (RED → GREEN → REFACTOR). Do not modify stream handlers, TUR 
 
 ## Implementation Notes
 - SnapshotCatalog route overrides store distinct versioned bodies, but RateTurn/MaxCharge require one customer catalog identity: emit ModelPricing/RoutePricing amounts under the TUR/default CustomerPricingRef, with a card for every billed backend/model when any override applies.
-- DurableStore still returns store-only identity/not-found errors; wrap them as billing.ErrAccountConflict / billing.ErrAccountNotFound when wiring the real store to admin HTTP (task 3.2 or 4.2).
+- DurableStore still returns store-only identity/not-found errors; wrap them as billing.ErrAccountConflict / billing.ErrAccountNotFound when wiring the real store to admin HTTP (task 4.2).
+- ComposeBilling also type-asserts AuthorizationStore (needed by billingadmission.NewAdapter) in addition to the five store capabilities listed in the design contract.
 
