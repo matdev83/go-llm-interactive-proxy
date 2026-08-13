@@ -285,7 +285,7 @@ func (c *storeCore) reconcileLimitRows(rows map[string]*controlplane.AccountingL
 			persisted := rows[key]
 			if persisted == nil {
 				cp := template
-				cp.Remaining = maxInt64(0, cp.Limit-cp.Consumed-cp.Reserved)
+				cp.Remaining = max(0, cp.Limit-cp.Consumed-cp.Reserved)
 				rows[key] = &cp
 				continue
 			}
@@ -293,7 +293,7 @@ func (c *storeCore) reconcileLimitRows(rows map[string]*controlplane.AccountingL
 			merged.Consumed = persisted.Consumed
 			merged.Reserved = persisted.Reserved
 			merged.Adjustment = persisted.Adjustment
-			merged.Remaining = maxInt64(0, merged.Limit-merged.Consumed-merged.Reserved)
+			merged.Remaining = max(0, merged.Limit-merged.Consumed-merged.Reserved)
 			rows[key] = &merged
 		}
 	}

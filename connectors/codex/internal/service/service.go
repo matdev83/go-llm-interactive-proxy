@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connector-support/acp"
@@ -18,12 +19,7 @@ type Service struct {
 }
 
 func containsFeature(features []string, want string) bool {
-	for _, feature := range features {
-		if feature == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(features, want)
 }
 
 func New() *Service { return &Service{} }

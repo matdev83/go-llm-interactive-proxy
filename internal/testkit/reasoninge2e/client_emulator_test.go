@@ -1,7 +1,6 @@
 package reasoninge2e_test
 
 import (
-	"reflect"
 	"strings"
 	"testing"
 
@@ -277,5 +276,4 @@ func TestClientEmulator_defensiveCopies(t *testing.T) {
 	if fresh["content"] != "v" {
 		t.Fatal("submitted assistant message must not share mutable maps with materialize result")
 	}
-	_ = reflect.TypeOf(msgs)
 }

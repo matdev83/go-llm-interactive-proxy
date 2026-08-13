@@ -50,7 +50,6 @@ func TestReasoningPreservationHTTP_RandomMatrix(t *testing.T) {
 	const turnsPerSeed = 20
 	var totalHTTP atomic.Int64
 	for _, c := range cases {
-		c := c
 		name := fmt.Sprintf("%s/seed_%d", c.Mode, c.Seed)
 		ok := t.Run(name, func(t *testing.T) {
 			n, err := executeReasoningMatrixSeed(c.Mode, c.Seed, turnsPerSeed, 3*time.Minute, matrixFail)

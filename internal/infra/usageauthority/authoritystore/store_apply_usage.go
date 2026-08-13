@@ -81,8 +81,8 @@ func (c *storeCore) applyUsageInPlace(cmd app.ApplyUsageCommand, log MutationLog
 
 		if hasPrevious && previous.LimitRowKey != "" && previous.LimitRowKey != key {
 			if previousRow := c.limits[previous.LimitRowKey]; previousRow != nil {
-				previousRow.Consumed = maxInt64(0, previousRow.Consumed-previous.Amount.Value)
-				previousRow.Remaining = maxInt64(0, previousRow.Limit-previousRow.Consumed-previousRow.Reserved)
+				previousRow.Consumed = max(0, previousRow.Consumed-previous.Amount.Value)
+				previousRow.Remaining = max(0, previousRow.Limit-previousRow.Consumed-previousRow.Reserved)
 				log.CaptureLimitUpdate(previous.LimitRowKey, previousRow)
 			}
 		}
@@ -90,8 +90,8 @@ func (c *storeCore) applyUsageInPlace(cmd app.ApplyUsageCommand, log MutationLog
 		if hasPrevious && previous.LimitRowKey == key {
 			delta -= previous.Amount.Value
 		}
-		row.Consumed = maxInt64(0, row.Consumed+delta)
-		row.Remaining = maxInt64(0, row.Limit-row.Consumed-row.Reserved)
+		row.Consumed = max(0, row.Consumed+delta)
+		row.Remaining = max(0, row.Limit-row.Consumed-row.Reserved)
 		c.limits[key] = row
 		log.CaptureLimitUpdate(key, row)
 		applied = append(applied, ruleID)

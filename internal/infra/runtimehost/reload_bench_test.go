@@ -64,14 +64,13 @@ func BenchmarkGenerationDispatcher_AcquireLease(b *testing.B) {
 
 // BenchmarkManager_Publish measures atomic publication independent of quiesce/drain (req 15.4, 15.9).
 func BenchmarkManager_Publish(b *testing.B) {
-	m := runtimehost.NewManager(b.N+8, nil)
+	m := runtimehost.NewManager(1<<20, nil)
 	boot := m.PrepareRequestPlane("boot", &benchPlane{})
 	if err := m.Publish(boot); err != nil {
 		b.Fatal(err)
 	}
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		g := m.PrepareRequestPlane(fmt.Sprintf("g-%d", i), &benchPlane{})
 		if err := m.Publish(g); err != nil {
 			b.Fatal(err)

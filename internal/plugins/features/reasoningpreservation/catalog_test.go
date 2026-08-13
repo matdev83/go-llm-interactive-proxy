@@ -129,7 +129,7 @@ func TestBuiltinCatalogEntries_noMisleadingEmptyModelKeywords(t *testing.T) {
 	if len(entries) == 0 {
 		t.Fatal("expected catalog entries")
 	}
-	rt := reflect.TypeOf(entries[0])
+	rt := reflect.TypeFor[reasoningpreservation.BuiltinCatalogEntry]()
 	if _, ok := rt.FieldByName("ModelKeywords"); ok {
 		t.Fatal("BuiltinCatalogEntry must not expose empty ModelKeywords; automatic families are not a keyword list")
 	}

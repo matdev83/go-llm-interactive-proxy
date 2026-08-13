@@ -178,7 +178,7 @@ func runDeterministicExecutableCacheSchedule(t *testing.T) {
 	const freshLookups = 8
 	results := make(chan string, freshLookups)
 	wg.Add(freshLookups)
-	for i := 0; i < freshLookups; i++ {
+	for range freshLookups {
 		go func() {
 			defer wg.Done()
 			path, _ := cache.LookPath("scheduled")
@@ -187,7 +187,7 @@ func runDeterministicExecutableCacheSchedule(t *testing.T) {
 	}
 	waitForResolverCallContext(t, ctx, started, 2)
 
-	for i := 0; i < freshLookups; i++ {
+	for range freshLookups {
 		select {
 		case got := <-results:
 			if got != "fresh" {

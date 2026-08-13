@@ -77,10 +77,6 @@ jobs:
             testdata/enterprise_module/go.sum
             tools/**/go.sum
 
-      - name: Install govulncheck
-        if: needs.changes.outputs.code == 'true'
-        run: go install golang.org/x/vuln/cmd/govulncheck@v1.2.0
-
       - name: Scan dependencies and reachable code
         if: needs.changes.outputs.code == 'true'
-        run: govulncheck ./...
+        run: go tool govulncheck ./...

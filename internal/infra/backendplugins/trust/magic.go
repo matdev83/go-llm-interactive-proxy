@@ -2,6 +2,7 @@ package trust
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,7 +14,7 @@ func validateNativeMagic(f *os.File, goos string) error {
 	}
 	hdr := make([]byte, 4)
 	n, err := io.ReadFull(f, hdr)
-	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
 		return err
 	}
 	if n < 2 {

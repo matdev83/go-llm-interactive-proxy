@@ -323,7 +323,7 @@ func TestToolSummarySink_TruncatesLargeArguments(t *testing.T) {
 	}
 
 	var argumentsLine string
-	for _, line := range strings.Split(evs[0].Delta, "\n") {
+	for line := range strings.SplitSeq(evs[0].Delta, "\n") {
 		if strings.HasPrefix(line, "Arguments: ") {
 			argumentsLine = line
 			break

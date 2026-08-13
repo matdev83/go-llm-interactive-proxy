@@ -1,6 +1,7 @@
 package service
 
 import (
+	"maps"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connector-support/openaicompat"
@@ -36,9 +37,7 @@ func mutateNVIDIA(body map[string]any, call lipapi.Call, _ string, _ openaicompa
 		delete(body, "max_completion_tokens")
 	}
 	for _, prefix := range []string{extraBodyPrefixNVIDIA, extraBodyPrefixOpenAI} {
-		for field, v := range openaicompat.CollectPrefixedExtraBody(call.Extensions, prefix) {
-			body[field] = v
-		}
+		maps.Copy(body, openaicompat.CollectPrefixedExtraBody(call.Extensions, prefix))
 	}
 	return nil
 }

@@ -163,7 +163,7 @@ func (c *storeCore) configuredLimitRow(ruleID string, dims domain.Dimensions, at
 		candidate.Consumed = 0
 		candidate.Reserved = 0
 		candidate.Adjustment = 0
-		candidate.Remaining = maxInt64(0, candidate.Limit)
+		candidate.Remaining = max(0, candidate.Limit)
 		return candidate, limitRowKey(candidate), true
 	}
 	return controlplane.AccountingLimitStatusRow{}, "", false
