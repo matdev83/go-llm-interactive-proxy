@@ -129,7 +129,7 @@ TDD throughout (RED → GREEN → REFACTOR). Do not modify stream handlers, TUR 
   - _Boundary: Fence tests/docs_
   - _Validation: `go test -run TestOptions_DoesNotExposeBillingStore ./pkg/lipruntime` ; `go test -run TestBuildConfigAuthoritativeBillingRequiresInjectedStore ./internal/infra/runtimebundle` ; `go test -run TestBuildHost_DoesNotInjectBillingWithoutProduction ./cmd/lipstd`_
 
-- [ ] 5.4 Deny admission when identity is missing or the mapped account does not exist
+- [x] 5.4 Deny admission when identity is missing or the mapped account does not exist
   - On an injected host, a custom mapping that returns empty identity denies admission and does not start upstream.
   - A stock mapping to a principal with no billing account denies admission and creates zero accounts.
   - Observable: two host-loop cases show deny-before-upstream and unchanged account count.

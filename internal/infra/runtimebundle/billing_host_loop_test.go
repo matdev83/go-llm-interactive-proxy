@@ -281,6 +281,105 @@ func TestBillingHostLoop_MissingCatalogRefs(t *testing.T) {
 	}
 }
 
+func TestBillingHostLoop_AdmissionDeny(t *testing.T) {
+	t.Run("custom mapping returns empty identity", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+
+		store := openBillingHostLoopStore(t)
+		catalog, _, _, operator := seedBillingHostLoopCatalog(t)
+		if err := catalog.SetOperatorRateBinding(billingHostLoopBackendID, billingHostLoopModelID, operator.Ref); err != nil {
+			t.Fatalf("SetOperatorRateBinding: %v", err)
+		}
+
+		identity := billingcompose.PrincipalSessionIdentity(billingcompose.SnapshotRefFuncs{
+			CustomerPricingRef: catalog.CustomerPricingRef,
+			ChargePolicyRef:    catalog.ChargePolicyRef,
+			OperatorRateRef:    catalog.OperatorRateRef,
+		})
+		identity.AccountID = func(context.Context, lipapi.Call) string { return "" }
+		identity.AuthorizationID = func(context.Context, lipapi.Call, string) string { return "" }
+
+		executor, opens := startBillingHostLoopHost(
+			t,
+			ctx,
+			store,
+			catalog,
+			&identity,
+		)
+
+		accountID := fmt.Sprintf("hostloop%d", billingHostLoopSeq.Add(1))
+		provisionBillingHostLoopAccount(t, store, accountID)
+		if !billingHostLoopAccountExists(t, store, accountID) {
+			t.Fatal("provisioned account missing before Execute")
+		}
+
+		stream, err := executeBillingHostLoopCall(ctx, executor, accountID)
+		assertBillingHostLoopAdmissionDenied(
+			t,
+			stream,
+			err,
+			opens,
+			billing.ErrAuthorizationInvalid,
+		)
+		if !billingHostLoopAccountExists(t, store, accountID) {
+			t.Fatal("empty identity mapping must not delete the provisioned account")
+		}
+		if billingHostLoopAccountExists(t, store, "") {
+			t.Fatal("empty identity mapping must not CreateAccount as a request side effect")
+		}
+	})
+
+	t.Run("stock mapping principal has no billing account", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+
+		store := openBillingHostLoopStore(t)
+		catalog, _, _, operator := seedBillingHostLoopCatalog(t)
+		if err := catalog.SetOperatorRateBinding(billingHostLoopBackendID, billingHostLoopModelID, operator.Ref); err != nil {
+			t.Fatalf("SetOperatorRateBinding: %v", err)
+		}
+
+		executor, opens := startBillingHostLoopHost(
+			t,
+			ctx,
+			store,
+			catalog,
+			nil,
+		)
+
+		principalID := fmt.Sprintf("missing-hostloop%d", billingHostLoopSeq.Add(1))
+		if billingHostLoopAccountExists(t, store, principalID) {
+			t.Fatal("test setup must not CreateAccount for this principal")
+		}
+
+		stream, err := executeBillingHostLoopCall(ctx, executor, principalID)
+		assertBillingHostLoopAdmissionDenied(
+			t,
+			stream,
+			err,
+			opens,
+			billingstore.ErrAccountNotFound,
+			billing.ErrAccountNotFound,
+			billing.ErrAccountNotReady,
+			billing.ErrInsufficientSpendable,
+		)
+		if billingHostLoopAccountExists(t, store, principalID) {
+			t.Fatal("missing-account deny must not CreateAccount on the request path")
+		}
+		page, qerr := store.QueryProcessing(context.Background(), billing.ReportFilter{
+			AccountID: principalID,
+			Page:      billing.PageRequest{Limit: 10},
+		})
+		if qerr != nil {
+			t.Fatalf("QueryProcessing: %v", qerr)
+		}
+		if len(page.Items) != 0 {
+			t.Fatalf("request path created processing rows: %+v", page.Items)
+		}
+	})
+}
+
 func openBillingHostLoopStore(t *testing.T) *billingstore.DurableStore {
 	t.Helper()
 	dsn := fmt.Sprintf("file:billing-host-loop-%d?mode=memory&cache=shared&_pragma=foreign_keys(ON)", billingHostLoopSeq.Add(1))
@@ -388,11 +487,13 @@ func hostActiveExecutor(t *testing.T, host *runtimebundle.Host) *coreruntime.Exe
 	return ex
 }
 
-func injectBillingHostLoopUsageBackend(t *testing.T, executor *coreruntime.Executor) {
+func injectBillingHostLoopUsageBackend(t *testing.T, executor *coreruntime.Executor) *atomic.Int32 {
 	t.Helper()
+	var opens atomic.Int32
 	be := execbackend.Backend{
 		Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 		Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			opens.Add(1)
 			return lipapi.NewFixedEventStream(billingHostLoopUsageEvents()), nil
 		},
 	}
@@ -411,6 +512,111 @@ func injectBillingHostLoopUsageBackend(t *testing.T, executor *coreruntime.Execu
 	default:
 		t.Fatalf("CapsResolver type %T cannot accept injected backend caps", executor.CapsResolver)
 	}
+	return &opens
+}
+
+func startBillingHostLoopHost(
+	t *testing.T,
+	ctx context.Context,
+	store *billingstore.DurableStore,
+	catalog *billingcompose.SnapshotCatalog,
+	identity *coreruntime.BillingIdentity,
+) (*coreruntime.Executor, *atomic.Int32) {
+	t.Helper()
+	ceiling := billing.Money{Nano: billingHostLoopHoldNano, Currency: "USD"}
+	prod, err := runtimebundle.ComposeBilling(runtimebundle.ComposeBillingInput{
+		Store:    store,
+		Catalog:  catalog,
+		Identity: identity,
+		Currency: "USD",
+		ModelMaxOutput: func(context.Context, string, string) (int64, bool, error) {
+			return 128000, true, nil
+		},
+		Strict:              true,
+		ConservativeCeiling: &ceiling,
+		PostTurnBatchSize:   1,
+		PostTurnInterval:    10 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("ComposeBilling: %v", err)
+	}
+	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
+		ConfigPath:      writeBillingHostLoopConfig(t),
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
+		Production:      prod,
+	})
+	if err != nil {
+		t.Fatalf("BuildHost: %v", err)
+	}
+	hostServeCleanup(t, host)
+	executor := hostActiveExecutor(t, host)
+	opens := injectBillingHostLoopUsageBackend(t, executor)
+	return executor, opens
+}
+
+func executeBillingHostLoopCall(ctx context.Context, executor *coreruntime.Executor, principalID string) (lipapi.EventStream, error) {
+	execCtx := scope.WithScope(ctx, scope.PrincipalScopeView{
+		PrincipalID: scope.Known(principalID),
+	})
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: billingHostLoopBackendID + ":" + billingHostLoopModelID},
+		Session: lipapi.SessionRef{
+			ClientSessionID: "client-hint-must-ignore",
+		},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	return executor.Execute(execCtx, call)
+}
+
+func assertBillingHostLoopAdmissionDenied(
+	t *testing.T,
+	stream lipapi.EventStream,
+	err error,
+	opens *atomic.Int32,
+	sentinels ...error,
+) {
+	t.Helper()
+	if stream != nil {
+		_ = stream.Close()
+		t.Fatal("Execute returned a stream; admission must deny before upstream")
+	}
+	if err == nil {
+		t.Fatal("Execute succeeded; want admission deny")
+	}
+	if !errors.Is(err, coreruntime.ErrBillingAdmissionDenied) {
+		t.Fatalf("Execute = %v, want %v", err, coreruntime.ErrBillingAdmissionDenied)
+	}
+	matched := false
+	for _, sentinel := range sentinels {
+		if errors.Is(err, sentinel) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		t.Fatalf("Execute = %v, want wrapping one of %v", err, sentinels)
+	}
+	if n := opens.Load(); n != 0 {
+		t.Fatalf("backend Open = %d, want 0", n)
+	}
+}
+
+func billingHostLoopAccountExists(t *testing.T, store *billingstore.DurableStore, accountID string) bool {
+	t.Helper()
+	_, err := store.GetAccount(context.Background(), accountID)
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, billingstore.ErrAccountNotFound) {
+		return false
+	}
+	t.Fatalf("GetAccount(%q): %v", accountID, err)
+	return false
 }
 
 func billingHostLoopUsageEvents() []lipapi.Event {
