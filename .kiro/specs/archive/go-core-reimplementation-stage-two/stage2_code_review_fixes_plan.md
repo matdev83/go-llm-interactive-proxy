@@ -19,7 +19,7 @@ Execution Order
 - 7. Replace init()-driven registration with explicit bundle construction.
 - 8. Only then resume feature expansion.
 Phase 0: Architecture Guardrails
-- Freeze new product features until F1/F2/F3 are closed; this matches the review’s highest-risk items in .kiro/specs/go-core-reimplementation-stage-two/stage2_code_review.md:89.
+- Freeze new product features until F1/F2/F3 are closed; this matches the review’s highest-risk items in .kiro/specs/archive/go-core-reimplementation-stage-two/stage2_code_review.md:89.
 - Define a short “stage-three hardening contract” before code changes: core owns orchestration only, plugins own provider semantics, composition roots own resources, and stable IDs must represent runtime instances.
 - Treat any change that adds provider-specific logic to internal/core/* as out of bounds.
 - Keep file-size pressure visible; if a file exceeds ~350-400 LOC, split by responsibility before adding more logic.

@@ -1,4 +1,4 @@
-.PHONY: help test test-fast test-unit profile-only-check precommit-full test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks parity-acp-plugin parity-cursorcliacp-plugin parity-cli-acp-plugins parity-openrouter-plugin parity-hosted-compatible-plugins parity-ollama-plugins parity-opencode-plugins parity-codex-plugins parity-local-compatible-plugins test-local-compatible-plugin-modules release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install backend-plugin-module-checks backend-plugin-absence-checks backend-plugin-security-checks backend-plugin-cross-platform-qa backend-plugin-release-gates-static backend-plugin-release-gates package-minimal package-full package-plugin-smoke docs-check knowledge-check example-config-check backend-plugin-example-check kiro-spec-check isolated-root-qa installed-plugin-smoke test-cursor-sdk-live test-cursor-sdk-live-bridge test-cursor-sdk-platform test-cursor-sdk-comparison-report tmp-clean test-openresponses-compliance test-openresponses-compliance-static
+.PHONY: help test test-fast test-unit profile-only-check precommit-full test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks parity-acp-plugin parity-cursorcliacp-plugin parity-cli-acp-plugins parity-openrouter-plugin parity-hosted-compatible-plugins parity-ollama-plugins parity-opencode-plugins parity-codex-plugins parity-local-compatible-plugins test-local-compatible-plugin-modules release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install check-change-size backend-plugin-module-checks backend-plugin-absence-checks backend-plugin-security-checks backend-plugin-cross-platform-qa backend-plugin-release-gates-static backend-plugin-release-gates package-minimal package-full package-plugin-smoke docs-check knowledge-check example-config-check backend-plugin-example-check kiro-spec-check isolated-root-qa installed-plugin-smoke test-cursor-sdk-live test-cursor-sdk-live-bridge test-cursor-sdk-platform test-cursor-sdk-comparison-report tmp-clean test-openresponses-compliance test-openresponses-compliance-static
 
 GO ?= go
 GO_TEST_FLAGS ?= -parallel=8 -timeout=10m
@@ -36,7 +36,8 @@ help:
 	@echo "  make pgo-build       - build cmd/lipstd (uses cmd/lipstd/default.pgo when present)"
 	@echo "  make qa              - quality-checks + one full test pass (-tags=precommit,integration) + lint + vuln + release-gates-static + OpenResponses compliance static gate"
 	@echo "  make lint            - golangci-lint if installed, else staticcheck"
-	@echo "  make hooks-install   - git config core.hooksPath .githooks (pre-commit: secrets + quality gate)"
+	@echo "  make hooks-install   - git config core.hooksPath .githooks (pre-commit: change-size + secrets + quality gate)"
+	@echo "  make check-change-size - reject staged changes over 100 files (LIP_ALLOW_LARGE_CHANGE=1 to override)"
 	@echo "  make kiro-spec-check SPEC=<name> - validate a Kiro spec development gate"
 	@echo "  make isolated-root-qa - GOWORK=off QA on a temp root copy without connectors/support/Node/artifacts"
 	@echo "  make installed-plugin-smoke - one lipstd binary; install release artifacts; same-binary inspect/doctor/invoke"
@@ -502,6 +503,13 @@ ifeq ($(OS),Windows_NT)
 	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-hooks.ps1
 else
 	@bash scripts/install-hooks.sh
+endif
+
+check-change-size:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-change-size.ps1 --staged
+else
+	@bash scripts/check-change-size.sh --staged
 endif
 
 

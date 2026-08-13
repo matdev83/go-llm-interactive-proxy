@@ -18,7 +18,7 @@ explicitly authorizes product code.
 
 ## Source alignment
 
-Must stay consistent with `.kiro/specs/backend-connector-plugin-architecture/`
+Must stay consistent with `.kiro/specs/archive/backend-connector-plugin-architecture/`
 (especially Requirements 1.6, 3.4, 4.3–4.4, 4.8, 7.2–7.4, 8.8, 10.1, 11.8, 12.10)
 and current Go behavior in `pkg/lipsdk/backendplugin`,
 `internal/infra/backendplugins/*`, and existing `connectors/*` release topology.

@@ -2,7 +2,7 @@
 
 ## Status Note
 
-- Requirements are generated but not yet approved in `.kiro/specs/secure-session-management/spec.json:6`.
+- Requirements are generated but not yet approved in `.kiro/specs/archive/secure-session-management/spec.json:6`.
 - This analysis is still useful for design because the project is a brownfield codebase with existing continuity, auth, and diagnostics behavior.
 
 ## Current State Investigation

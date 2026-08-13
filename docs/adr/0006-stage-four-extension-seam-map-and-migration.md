@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (stage four — extension platform). Authoritative product detail lives in [`.kiro/specs/go-core-stage-four-feature-extension-platform/`](../../.kiro/specs/go-core-stage-four-feature-extension-platform/).
+Proposed (stage four — extension platform). Authoritative product detail lives in [`.kiro/specs/archive/go-core-stage-four-feature-extension-platform/`](../../.kiro/specs/archive/go-core-stage-four-feature-extension-platform/).
 
 ## Context
 
@@ -100,4 +100,4 @@ Stage four is **exit-complete** only when **reference proof plugins** demonstrat
 
 - [Architecture guardrails](../architecture-guardrails.md) — automated budgets and composition-root rules.
 - [ADR 0001](0001-registry-driven-composition.md), [ADR 0005](0005-architecture-guardrails-and-complexity-budgets.md) — composition and budgets.
-- Spec: [requirements](../../.kiro/specs/go-core-stage-four-feature-extension-platform/requirements.md), [design](../../.kiro/specs/go-core-stage-four-feature-extension-platform/design.md).
+- Spec: [requirements](../../.kiro/specs/archive/go-core-stage-four-feature-extension-platform/requirements.md), [design](../../.kiro/specs/archive/go-core-stage-four-feature-extension-platform/design.md).

@@ -18,7 +18,7 @@ import (
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 )
 
-// v1_review_matrix_test encodes regression cases from .kiro/specs/go-core-reimplementation-stage-two/v1_code_review.md
+// v1_review_matrix_test encodes regression cases from .kiro/specs/archive/go-core-reimplementation-stage-two/v1_code_review.md
 // (orchestration matrix: baseline vs attempts, hook metadata, max_attempts, B-leg switches).
 
 func TestV1Matrix_submitHook_receivesTraceID(t *testing.T) {

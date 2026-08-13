@@ -13,7 +13,7 @@ Normative criteria for merge-to-main and local pre-push checks. Commands assume 
 
 ## API parity (LLM surfaces)
 
-Normative matrices and row IDs: [.kiro/specs/llm-api-parity/design.md](../.kiro/specs/llm-api-parity/design.md). A protocol may be marked **parity-ready** only when every matrix row for that protocol is `implemented` or explicitly `out_of_scope`, with automated evidence at the layers named in the spec.
+Normative matrices and row IDs: [.kiro/specs/archive/llm-api-parity/design.md](../.kiro/specs/archive/llm-api-parity/design.md). A protocol may be marked **parity-ready** only when every matrix row for that protocol is `implemented` or explicitly `out_of_scope`, with automated evidence at the layers named in the spec.
 
 - **Fast conformance slice:** `make parity-checks` runs `go test -parallel=8 -tags=integration ./internal/testkit/conformance/...` (includes `parity_*_test.go` anchors, `TestParitySuiteSourceFilesPresent`, and `TestParityMatrixCompleteness` when compiled with the integration tag).
 - **Golden / parity evidence map:** [conformance-golden-coverage.md](conformance-golden-coverage.md) (migration JSON, parity file ownership, matrix context; kept in sync by `TestConformanceGoldenCoverageDocPresent`).
@@ -24,7 +24,7 @@ Normative matrices and row IDs: [.kiro/specs/llm-api-parity/design.md](../.kiro/
 **Parity-ready checklist (before claiming a protocol row is green):**
 
 1. `design.md` row status is `implemented` or explicitly `out_of_scope` / `wire_only` with a reason.
-2. [refclient-spec-matrix.md](../.kiro/specs/go-core-reimplementation-v1/refclient-spec-matrix.md) and [refbackend-spec-matrix.md](../.kiro/specs/go-core-reimplementation-v1/refbackend-spec-matrix.md) cite the same tests or deferrals as `design.md` (no contradictions).
+2. [refclient-spec-matrix.md](../.kiro/specs/archive/go-core-reimplementation-v1/refclient-spec-matrix.md) and [refbackend-spec-matrix.md](../.kiro/specs/archive/go-core-reimplementation-v1/refbackend-spec-matrix.md) cite the same tests or deferrals as `design.md` (no contradictions).
 3. `make parity-checks` passes locally; CI runs the same packages with integration conformance sources enabled via `go test -parallel=8 -tags=precommit,integration ./...` (see `.github/workflows/qa.yml`).
 
 ## Fuzz tiers

@@ -6,6 +6,7 @@ checker="$repo_root/scripts/check-release-clean.sh"
 remote_name="${1:?missing remote name}"
 zero="0000000000000000000000000000000000000000"
 commits=()
+updates=()
 
 add_commit() {
 	local candidate="$1"
@@ -18,6 +19,7 @@ add_commit() {
 
 while read -r _local_ref local_sha _remote_ref remote_sha; do
 	[[ "$local_sha" == "$zero" ]] && continue
+	updates+=("$local_sha $remote_sha")
 
 	if [[ "$remote_sha" == "$zero" ]]; then
 		commit_list="$(git rev-list --reverse "$local_sha" --not "--remotes=$remote_name")"
@@ -31,4 +33,22 @@ done
 
 for commit in "${commits[@]}"; do
 	"$checker" --ref "$commit"
+done
+
+for update in "${updates[@]}"; do
+	# shellcheck disable=SC2086
+	set -- $update
+	local_sha="$1"
+	remote_sha="$2"
+	base="$remote_sha"
+	if [[ "$remote_sha" == "$zero" ]]; then
+		if git rev-parse --verify --quiet origin/main >/dev/null; then
+			base="$(git merge-base origin/main "$local_sha")"
+		elif git rev-parse --verify --quiet main >/dev/null; then
+			base="$(git merge-base main "$local_sha")"
+		else
+			base="$(git hash-object -t tree /dev/null)"
+		fi
+	fi
+	"$repo_root/scripts/check-change-size.sh" --base "$base" --head "$local_sha"
 done

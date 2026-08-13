@@ -253,3 +253,4 @@ Phase 8 keeps these post-cutover decisions:
 - Stale-hold cleanup is `ReleaseStaleSafe` / unused-hold release, not TTL reclaim.
 - Detached TUR handoff retries stay unlimited while the process is up; Host close bounds the wait so quiesce cannot hang forever.
 - Runtime's driving adapter is a collector that records LURs and seals one TUR; it is not stream-time settlement.
+- The earlier unapproved `usage-accounting-architecture-convergence` spec is archived as superseded for stream-time money accounting. Non-money quota/rate-limit leftover still needs a separate spec if pursued.

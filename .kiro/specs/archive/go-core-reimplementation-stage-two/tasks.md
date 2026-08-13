@@ -25,7 +25,7 @@ Spec directory: `go-core-reimplementation-stage-two`
 
 - [x] **2.** Author architecture decision records for registry-driven composition, immutable baseline/attempt derivation, SQLite-first durable store, and candidate-aware capabilities
   - _Requirements: **13.1**, **13.2**, **1.1**, **3.1**, **6.3**, **7.1**_
-  - _Boundary: `docs`, `.kiro/specs/go-core-reimplementation-stage-two`_
+  - _Boundary: `docs`, `.kiro/specs/archive/go-core-reimplementation-stage-two`_
   - _Depends: **1**_
 
 - [x] **2.1** (P) Document branch or feature-flag policy for large refactors (maintainer workflow only)

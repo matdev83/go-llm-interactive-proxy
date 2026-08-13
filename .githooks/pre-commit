@@ -3,5 +3,6 @@ set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
+bash "$REPO_ROOT/scripts/check-change-size.sh" --staged
 bash "$REPO_ROOT/scripts/check-staged-secrets.sh"
 bash "$REPO_ROOT/scripts/quality-gate.sh"

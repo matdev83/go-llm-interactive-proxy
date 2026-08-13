@@ -1,5 +1,10 @@
 # Implementation Plan
 
+## Spec status
+
+**Superseded and archived** under `.kiro/specs/archive/usage-accounting-architecture-convergence/`.
+Stream-time money accounting was delivered by `usage-record-ledger-billing`; host injection by `billing-host-composition`. Remaining non-money quota/rate-limit work needs a new spec. Do not execute these tasks. See `closeout-evidence.md`.
+
 > Execution is TDD-first. Each phase begins with RED characterization/contract tests, then production migration, then deletion/ratchets. Do not keep old/new production accounting authorities mutating in parallel beyond the minimal cutover step.
 
 ## Phase 0 — Baseline and Economic Invariant Freeze

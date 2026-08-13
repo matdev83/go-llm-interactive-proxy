@@ -1,4 +1,4 @@
-# Installs this repo's Git hooks path (pre-commit: staged secrets + quality gate on Go changes).
+# Installs this repo's Git hooks path (pre-commit: change-size + staged secrets + quality gate on Go changes).
 # Mirrors scripts/install-hooks.sh for Windows (PowerShell), consistent with other Makefile Windows targets.
 $ErrorActionPreference = "Stop"
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path

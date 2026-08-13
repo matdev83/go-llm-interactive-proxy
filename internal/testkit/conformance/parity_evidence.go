@@ -10,7 +10,7 @@ var ExpectedMigrationGoldenJSON = []string{
 	"python_lip_openai_responses_http_streaming.json",
 }
 
-// ParitySuiteGoFiles lists parity suite sources (.kiro/specs/llm-api-parity/tasks.md Phase 5).
+// ParitySuiteGoFiles lists parity suite sources (.kiro/specs/archive/llm-api-parity/tasks.md Phase 5).
 // Keep in sync with docs/conformance-golden-coverage.md.
 var ParitySuiteGoFiles = []string{
 	"parity_openai_test.go",
