@@ -232,3 +232,12 @@ func TestPersistCapturedMemo_RollbackOnPersistFailure(t *testing.T) {
 		t.Fatal("orphan memo must be deleted when interleaved state persist fails")
 	}
 }
+
+func TestInterleavedContinuationStream_UnknownPhaseRecvError(t *testing.T) {
+	t.Parallel()
+	s := &interleavedContinuationStream{}
+	_, err := s.Recv(context.Background())
+	if !errors.Is(err, errUnknownInterleavedPhase) {
+		t.Fatalf("got %v", err)
+	}
+}
