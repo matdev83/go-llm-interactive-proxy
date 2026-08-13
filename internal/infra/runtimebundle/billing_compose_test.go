@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	coreRuntime "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingadmission"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingcompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
@@ -184,6 +185,59 @@ func TestComposeBilling(t *testing.T) {
 	})
 }
 
+func TestBuildAppliesYAMLBillingHoldTTLWhenComposeOmitsIt(t *testing.T) {
+	t.Parallel()
+	in, _, _, _ := validComposeInput(t)
+	prod, err := runtimebundle.ComposeBilling(in)
+	if err != nil {
+		t.Fatalf("ComposeBilling: %v", err)
+	}
+	adapter, ok := prod.BillingAdmission.(*billingadmission.Adapter)
+	if !ok {
+		t.Fatalf("BillingAdmission = %T, want *billingadmission.Adapter", prod.BillingAdmission)
+	}
+	cfg := composeBillingHostConfig()
+	cfg.Accounting.Billing.HoldTTL = "30m"
+	_, bundle := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
+		PluginRegistry: pluginreg.NewRegistry(),
+		Production:     prod,
+	})
+	if adapter.HoldTTL() != 30*time.Minute {
+		t.Fatalf("HoldTTL after YAML overlay = %s, want 30m", adapter.HoldTTL())
+	}
+	if err := bundle.Quiesce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	_ = bundle.Close()
+}
+
+func TestBuildKeepsComposeBillingHoldTTLOverYAML(t *testing.T) {
+	t.Parallel()
+	in, _, _, _ := validComposeInput(t)
+	in.HoldTTL = 45 * time.Minute
+	prod, err := runtimebundle.ComposeBilling(in)
+	if err != nil {
+		t.Fatalf("ComposeBilling: %v", err)
+	}
+	adapter, ok := prod.BillingAdmission.(*billingadmission.Adapter)
+	if !ok {
+		t.Fatalf("BillingAdmission = %T, want *billingadmission.Adapter", prod.BillingAdmission)
+	}
+	cfg := composeBillingHostConfig()
+	cfg.Accounting.Billing.HoldTTL = "30m"
+	_, bundle := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
+		PluginRegistry: pluginreg.NewRegistry(),
+		Production:     prod,
+	})
+	if adapter.HoldTTL() != 45*time.Minute {
+		t.Fatalf("explicit ComposeBilling HoldTTL lost, got %s", adapter.HoldTTL())
+	}
+	if err := bundle.Quiesce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	_ = bundle.Close()
+}
+
 func assertCompleteProduction(t *testing.T, prod runtimebundle.ProductionOptions, store *completeJournal, in runtimebundle.ComposeBillingInput) {
 	t.Helper()
 	if !prod.BillingAuthoritative {
@@ -209,6 +263,9 @@ func assertCompleteProduction(t *testing.T, prod runtimebundle.ProductionOptions
 	}
 	if prod.BillingReportsPath != in.ReportsPath {
 		t.Fatalf("BillingReportsPath = %q, want %q", prod.BillingReportsPath, in.ReportsPath)
+	}
+	if prod.BillingHoldTTL != in.HoldTTL {
+		t.Fatalf("BillingHoldTTL = %s, want %s", prod.BillingHoldTTL, in.HoldTTL)
 	}
 	if prod.BillingPostTurnBatchSize != in.PostTurnBatchSize {
 		t.Fatalf("BillingPostTurnBatchSize = %d, want %d", prod.BillingPostTurnBatchSize, in.PostTurnBatchSize)

@@ -7,8 +7,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-// defaultMaxTrackedCircuitKeys bounds per-process candidate-key memory when operators do not set MaxTrackedKeys.
-const defaultMaxTrackedCircuitKeys = 10000
+const (
+	DefaultFailureThreshold      = 5
+	DefaultOpenDuration          = 30 * time.Second
+	defaultMaxTrackedCircuitKeys = 10000
+)
 
 type CircuitBreakerOptions struct {
 	FailureThreshold int
@@ -38,11 +41,11 @@ type cbState struct {
 func NewCircuitBreaker(opts CircuitBreakerOptions) *CircuitBreaker {
 	th := opts.FailureThreshold
 	if th < 1 {
-		th = 5
+		th = DefaultFailureThreshold
 	}
 	d := opts.OpenDuration
 	if d <= 0 {
-		d = 30 * time.Second
+		d = DefaultOpenDuration
 	}
 	now := opts.Now
 	if now == nil {

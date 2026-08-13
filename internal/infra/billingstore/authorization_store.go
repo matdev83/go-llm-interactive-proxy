@@ -95,7 +95,7 @@ func (s *DurableStore) authorizeAttempt(ctx context.Context, input billing.Autho
 	now := time.Now().UTC()
 	expiresAt := sealed.ExpiresAt
 	if expiresAt.IsZero() {
-		expiresAt = now.Add(15 * time.Minute)
+		expiresAt = now.Add(billing.DefaultHoldTTL)
 	}
 	if !expiresAt.After(now) {
 		return billing.Authorization{}, fmt.Errorf("%w: expires_at must be in the future", billing.ErrAuthorizationExpired)

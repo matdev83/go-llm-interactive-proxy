@@ -68,14 +68,16 @@ func (h *Handler) spec() *frontendpipe.Spec[createEncodeState] {
 func (h *Handler) buildPipe() {
 	h.pipe = frontendpipe.Spec[createEncodeState]{
 		Config: frontendpipe.Config{
-			Exec:                 adaptExecutor(h.cfg.Executor),
-			DefaultRouteSelector: h.cfg.DefaultRouteSelector,
-			RoutePrefixes:        routeselect.NewPrefixSet(h.cfg.RoutePrefixes),
-			MaxRequestBodyBytes:  h.cfg.MaxRequestBodyBytes,
-			TrafficPorts:         h.cfg.TrafficPorts,
-			DecodeAdmission:      h.cfg.DecodeAdmission,
-			PreRequestKeepalive:  h.cfg.PreRequestKeepalive,
-			FrontendID:           ID,
+			Exec:                    adaptExecutor(h.cfg.Executor),
+			DefaultRouteSelector:    h.cfg.DefaultRouteSelector,
+			RoutePrefixes:           routeselect.NewPrefixSet(h.cfg.RoutePrefixes),
+			MaxRequestBodyBytes:     h.cfg.MaxRequestBodyBytes,
+			TrafficPorts:            h.cfg.TrafficPorts,
+			DecodeAdmission:         h.cfg.DecodeAdmission,
+			PreRequestKeepalive:     h.cfg.PreRequestKeepalive,
+			FrontendID:              ID,
+			HTTPHeaders:             h.cfg.HTTPHeaders,
+			StreamKeepaliveInterval: h.cfg.StreamKeepaliveInterval,
 		},
 		Wire: WireErrors{},
 		MatchPath: func(path string) (frontendpipe.PathMatch, bool) {
@@ -96,12 +98,13 @@ func (h *Handler) buildPipe() {
 			decoded, err := AuthenticateAndDecodeCreate(dctx.Ctx, dctx.Body, DecodeCreateOptions{
 				DefaultRouteSelector: h.cfg.DefaultRouteSelector,
 				RoutePrefixes:        h.cfg.RoutePrefixes,
-				RouteSelector:        strings.TrimSpace(dctx.Headers.Get("X-LIP-Route")),
+				RouteSelector:        h.cfg.HTTPHeaders.RouteSelector(dctx.Headers),
 				Headers:              dctx.Headers,
 				Method:               http.MethodPost,
 				Path:                 dctx.URLPath,
 				MaxBodyBytes:         maxBytes,
 				Limits:               h.cfg.ProtocolLimits,
+				HTTPHeaders:          h.cfg.HTTPHeaders,
 			})
 			if err != nil {
 				return nil, err

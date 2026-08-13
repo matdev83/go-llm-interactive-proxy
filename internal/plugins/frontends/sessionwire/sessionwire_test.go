@@ -32,6 +32,20 @@ func TestApplyAuthoritativeHeaders_nilSafe(t *testing.T) {
 	sessionwire.ApplyAuthoritativeHeaders(&ref, nil)
 }
 
+func TestApplyAuthoritativeHeadersNamed_aliasAfterDefault(t *testing.T) {
+	t.Parallel()
+	h := http.Header{}
+	h.Set("X-Custom-Session", "alias-sid")
+	var ref lipapi.SessionRef
+	sessionwire.ApplyAuthoritativeHeadersNamed(&ref, h,
+		[]string{sessionwire.HeaderAuthoritativeSessionID, "X-Custom-Session"},
+		[]string{sessionwire.HeaderResumeToken},
+	)
+	if ref.AuthoritativeSessionID != "alias-sid" {
+		t.Fatalf("got %q", ref.AuthoritativeSessionID)
+	}
+}
+
 func TestWriteResponseCarriers_includesALegID(t *testing.T) {
 	t.Parallel()
 	rr := httptest.NewRecorder()

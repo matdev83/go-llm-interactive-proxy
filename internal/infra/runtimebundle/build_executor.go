@@ -26,6 +26,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingadmission"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -116,6 +117,12 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		}
 		if path := strings.TrimSpace(cfg.Accounting.Billing.ReportsPath); path != "" && strings.TrimSpace(prod.BillingReportsPath) == "" {
 			prod.BillingReportsPath = path
+		}
+		if prod.BillingHoldTTL <= 0 {
+			prod.BillingHoldTTL = cfg.Accounting.Billing.EffectiveHoldTTL()
+			if a, ok := prod.BillingAdmission.(*billingadmission.Adapter); ok {
+				a.SetHoldTTL(prod.BillingHoldTTL)
+			}
 		}
 		if prod.BillingAdmissionRequired && prod.BillingAdmission == nil {
 			return nil, ErrBillingAdmissionRequired

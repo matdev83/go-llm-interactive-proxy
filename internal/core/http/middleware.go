@@ -4,17 +4,27 @@ import (
 	"net/http"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-// TraceMiddleware injects a trace ID into the request context when the
-// X-Trace-ID header is present, enabling downstream handlers to propagate
-// diagnostics context.
+// HeaderTraceID is the default inbound/outbound trace header.
+const HeaderTraceID = lipsdk.HeaderTraceID
+
+// TraceMiddleware injects a trace ID into the request context when a configured
+// inbound trace header is present.
 func TraceMiddleware(next http.Handler) http.Handler {
+	return TraceMiddlewareHeaders(nil, next)
+}
+
+// TraceMiddlewareHeaders is [TraceMiddleware] with explicit inbound header names.
+// Empty names use [HeaderTraceID].
+func TraceMiddlewareHeaders(names []string, next http.Handler) http.Handler {
+	if len(names) == 0 {
+		names = []string{HeaderTraceID}
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		traceID := r.Header.Get("X-Trace-ID")
-		if traceID != "" {
-			ctx := diag.WithTraceID(r.Context(), traceID)
-			r = r.WithContext(ctx)
+		if traceID := lipsdk.FirstHeader(r.Header, names); traceID != "" {
+			r = r.WithContext(diag.WithTraceID(r.Context(), traceID))
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -24,18 +34,28 @@ func TraceMiddleware(next http.Handler) http.Handler {
 // already present in the request context. gen must be non-nil (typically
 // [diag.NewTraceIDGenerator] from the composition root).
 func RequestIDMiddleware(gen *diag.TraceIDGenerator, next http.Handler) http.Handler {
+	return RequestIDMiddlewareHeaders(gen, nil, next)
+}
+
+// RequestIDMiddlewareHeaders is [RequestIDMiddleware] and echoes the trace ID
+// on each configured outbound header name (defaults to [HeaderTraceID]).
+func RequestIDMiddlewareHeaders(gen *diag.TraceIDGenerator, names []string, next http.Handler) http.Handler {
 	if gen == nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, "trace id generator not configured", http.StatusInternalServerError)
 		})
 	}
+	if len(names) == 0 {
+		names = []string{HeaderTraceID}
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if diag.TraceID(r.Context()) == "" {
-			ctx := diag.WithTraceID(r.Context(), gen.Next())
-			r = r.WithContext(ctx)
+			r = r.WithContext(diag.WithTraceID(r.Context(), gen.Next()))
 		}
 		if tid := diag.TraceID(r.Context()); tid != "" {
-			w.Header().Set("X-Trace-ID", tid)
+			for _, name := range names {
+				w.Header().Set(name, tid)
+			}
 		}
 		next.ServeHTTP(w, r)
 	})

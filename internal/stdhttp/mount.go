@@ -70,8 +70,11 @@ func MountBundledFrontends(in MountBundledFrontendsInput) error {
 					DefaultRoute:        fe.DefaultRouteSelector,
 					RoutePrefixes:       fe.RoutePrefixes,
 					MaxRequestBodyBytes: fe.MaxRequestBodyBytes, DecodeAdmission: fe.DecodeAdmission,
-					TrafficPorts:        fe.TrafficPorts,
-					PreRequestKeepalive: fe.PreRequestKeepalive, GenerationContext: fe.GenerationContext, ContinuationWiringFactory: fe.ContinuationWiringFactory,
+					TrafficPorts:            fe.TrafficPorts,
+					PreRequestKeepalive:     fe.PreRequestKeepalive,
+					HTTPHeaders:             fe.HTTPHeaders,
+					StreamKeepaliveInterval: fe.StreamKeepaliveInterval,
+					GenerationContext:       fe.GenerationContext, ContinuationWiringFactory: fe.ContinuationWiringFactory,
 					FrontendInstanceID: p.InstanceID(),
 				},
 			); err != nil {

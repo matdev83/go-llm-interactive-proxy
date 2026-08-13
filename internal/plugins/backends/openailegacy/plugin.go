@@ -38,7 +38,10 @@ type Config struct {
 	DefaultVerbosity lipapi.VerbosityLevel
 }
 
-const openAIRateLimitFallback = 60 * time.Second
+const (
+	DefaultBaseURL          = "https://api.openai.com/v1"
+	openAIRateLimitFallback = credpool.DefaultRateLimitFallback
+)
 
 // New returns a runtime backend that invokes the OpenAI Chat Completions API using openai-go.
 func New(cfg Config) execbackend.Backend {

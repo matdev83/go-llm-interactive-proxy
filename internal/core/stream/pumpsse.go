@@ -13,7 +13,7 @@ import (
 // PumpSSE wraps es with recovery keepalive, pumps canonical events through handle until
 // it returns done or an error, and closes es on exit (joining close errors).
 func PumpSSE(ctx context.Context, w http.ResponseWriter, es lipapi.EventStream, eofWithoutDone error, handle func(lipapi.Event) (done bool, err error)) (err error) {
-	ka, err := WrapRecoveryKeepalive(es)
+	ka, err := WrapRecoveryKeepaliveInterval(es, KeepaliveIntervalFromContext(ctx))
 	if err != nil {
 		return err
 	}

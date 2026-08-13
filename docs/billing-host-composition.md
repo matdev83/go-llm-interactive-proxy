@@ -38,6 +38,7 @@ prod, err := runtimebundle.ComposeBilling(runtimebundle.ComposeBillingInput{
     Catalog:  catalog,
     Identity: nil, // PrincipalSessionIdentity
     Currency: "USD",
+    HoldTTL:  cfg.Accounting.Billing.EffectiveHoldTTL(), // or omit and let YAML overlay
     ModelMaxOutput: func(ctx context.Context, backend, model string) (int64, bool, error) {
         return 128000, true, nil
     },
@@ -66,6 +67,7 @@ host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
 | `Identity` | no | `nil` selects `billingcompose.PrincipalSessionIdentity`. A custom mapping that returns empty identity still fails closed at admission. |
 | `Strict`, `ConservativeCeiling` | no | Passed through to `billingadmission.NewAdapter`. |
 | `ReportsPath` | no | Admin mount path. Empty falls back to YAML `accounting.billing.reports_path`, then `/admin/billing`. |
+| `HoldTTL` | no | Authorization hold lifetime. Zero lets `BuildHost` apply YAML `accounting.billing.hold_ttl` (default 15m) onto the stock admission adapter. An explicit duration wins over YAML. Custom `BillingAdmission` implementations are not overlaid. |
 | `PostTurnBatchSize`, `PostTurnInterval` | no | Post-turn worker tuning used by `BuildHost`. |
 
 One store is the authority for append, settlement, processing, hold release, reports, and trusted provisioning. Do not inject a second journal as handoff or reports.
@@ -116,7 +118,7 @@ The surface mounts only when `diagnostics.shared_secret` is non-empty **and** re
 
 ## Fail-closed YAML flag
 
-`accounting.billing.authoritative: true` is a composition **gate**, not a store factory. YAML billing config is only `authoritative` and `reports_path` — there is no journal DSN for `ComposeBilling` to consume.
+`accounting.billing.authoritative: true` is a composition **gate**, not a store factory. YAML billing config is `authoritative`, `reports_path`, and `hold_ttl` — there is no journal DSN for `ComposeBilling` to consume.
 
 | Situation | Result |
 | --- | --- |

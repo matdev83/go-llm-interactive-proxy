@@ -3,7 +3,6 @@ package anthropic
 import (
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
@@ -37,7 +36,11 @@ type Config struct {
 	ModelsEndpoint string
 }
 
-const anthropicRateLimitFallback = 60 * time.Second
+const (
+	DefaultBaseURL             = "https://api.anthropic.com"
+	anthropicRateLimitFallback = credpool.DefaultRateLimitFallback
+	APIVersion                 = "2023-06-01"
+)
 
 // New returns a runtime backend that invokes the Anthropic Messages API using anthropic-sdk-go.
 func New(cfg Config) execbackend.Backend {

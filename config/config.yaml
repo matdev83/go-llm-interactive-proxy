@@ -8,6 +8,7 @@ server:
   # read_timeout: 30s
   # write_timeout: 120s
   # idle_timeout: 120s
+  # shutdown_timeout: 15s  # HTTP drain + host close on process shutdown
   # Decode admission (shared across all mounted frontends). Zero selects finite defaults during Validate
   # (not unlimited). Body is fully resident after ReadAll; admission weights Decode only (not body read):
   # max_concurrent_decodes: 32
@@ -20,6 +21,20 @@ server:
   # pre_request_keepalive:
   #   enabled: false
   #   interval: 15s
+
+# --- Inbound HTTP header aliases (A-leg only) ---
+# Extra accept names are checked after the defaults. First non-empty value wins, so
+# X-LIP-Route still wins when both a default and an alias are present.
+# Authorization remains Bearer-only; x-api-key / x-goog-api-key / api-key use the raw value.
+# http_headers:
+#   api_key: []              # defaults: Authorization, x-api-key, x-goog-api-key, api-key
+#   route: []                # default: X-LIP-Route
+#   session_id: []           # default: X-LIP-Session-Id
+#   resume_token: []         # default: X-LIP-Resume-Token
+#   a_leg_id: []             # default: X-LIP-A-Leg-Id
+#   session_hint: []         # default: X-LIP-Session-Hint
+#   trace: []                # default: X-Trace-ID
+#   diagnostics_secret: []   # default: X-LIP-Diagnostics-Secret
 
 # --- Access and authentication (see internal/core/config/access_auth_model.go) ---
 # Omitted access.mode defaults to single_user. Omitted server.address defaults to explicit loopback (127.0.0.1:8080).
@@ -291,6 +306,15 @@ continuity:
 #     max_body_bytes: 1048576
 #   observability:
 #     enabled: true
+#   billing:
+#     authoritative: false          # requires injected journal store; see docs
+#     reports_path: /admin/billing
+#     hold_ttl: 15m                 # authorization hold lifetime when ExpiresAt is omitted
+
+# Stream recovery (SSE comment keepalives while waiting on upstream; auto-resume is off by default):
+# stream_recovery:
+#   auto_resume:
+#     keepalive_interval: 12s
 
 # Secure sessions (proxy-owned session id + resume proofs) are always on; omit secure_session to use defaults
 # (memory store, loopback-friendly). Memory store session evidence is non-durable (lost on restart) unless you use

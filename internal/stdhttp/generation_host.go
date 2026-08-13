@@ -38,7 +38,8 @@ type GenerationHostInput struct {
 	Management interface {
 		Shutdown(context.Context) error
 	}
-	// ShutdownTimeout bounds the HTTP drain and the host close. Zero uses 15s.
+	// ShutdownTimeout bounds the HTTP drain and the host close. Zero uses
+	// [config.ServerConfig.EffectiveShutdownTimeout] (15s when omitted).
 	ShutdownTimeout time.Duration
 }
 
@@ -67,8 +68,11 @@ func RunWithGenerationHost(ctx context.Context, in GenerationHostInput) error {
 		return errors.New("stdhttp: nil generation serve host")
 	}
 	timeout := in.ShutdownTimeout
+	if timeout <= 0 && in.Config != nil {
+		timeout = in.Config.Server.EffectiveShutdownTimeout()
+	}
 	if timeout <= 0 {
-		timeout = 15 * time.Second
+		timeout = config.DefaultShutdownTimeout
 	}
 	handler, err := validateGenerationHostInput(in)
 	if err != nil {

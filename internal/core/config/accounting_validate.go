@@ -53,6 +53,9 @@ func validateAccounting(cfg *Config) error {
 	if err := validateAccountingConcurrency(cfg); err != nil {
 		return err
 	}
+	if err := validateAccountingBilling(a); err != nil {
+		return err
+	}
 	if len(a.Pricing.Models) > 0 {
 		_, err := accounting.NewPriceCatalog(AccountingPriceCatalogConfig(a.Pricing))
 		if err != nil {
@@ -170,4 +173,14 @@ func AccountingPriceCatalogConfig(cfg AccountingPricingConfig) accounting.PriceC
 		Currency: cfg.Currency,
 		Models:   models,
 	}
+}
+
+func validateAccountingBilling(a *AccountingConfig) error {
+	if a == nil {
+		return nil
+	}
+	if err := parsePositiveDurationOptional("accounting.billing.hold_ttl", a.Billing.HoldTTL); err != nil {
+		return err
+	}
+	return nil
 }

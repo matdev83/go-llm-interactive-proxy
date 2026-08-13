@@ -27,7 +27,7 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/infra/runtimehost/generation.go", Max: 341},
 	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 284},
 	{Path: "internal/infra/runtimebundle/handler_composer.go", Max: 50},
-	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 317},
+	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 350},
 	{Path: "internal/stdhttp/request_plane.go", Max: 90},
 	{Path: "internal/infra/runtimebundle/process_services.go", Max: 290},
 	{Path: "pkg/lipruntime/build.go", Max: 121},
@@ -57,8 +57,8 @@ type PackageTreeBudget struct {
 
 // PackageTreeBudgets locks measured convergence tree ceilings (+25 lines headroom).
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 11203},
-	{Tree: "internal/stdhttp", Max: 5676},
+	{Tree: "internal/infra/runtimebundle", Max: 11235},
+	{Tree: "internal/stdhttp", Max: 5705},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 562},
 }
@@ -74,10 +74,10 @@ type LineBudget struct {
 var LineBudgets = []LineBudget{
 	// Routing-override admin, billing host composition, and tool-call
 	// classification. Keep the measured-plus-25 ratchet.
-	{Dir: "internal/core", Max: 75006},
+	{Dir: "internal/core", Max: 75303},
 	{Dir: "internal/pluginreg", Max: 1079},
-	{Dir: "internal/stdhttp", Max: 5676},
-	{Dir: "internal/infra/runtimebundle", Max: 11203},
+	{Dir: "internal/stdhttp", Max: 5705},
+	{Dir: "internal/infra/runtimebundle", Max: 11235},
 	{Dir: "cmd/lipstd", Max: 979},
 	{Dir: "pkg/lipruntime", Max: 562},
 }

@@ -17,8 +17,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-const countTokensAnthropicVersion = "2023-06-01"
-
 type countTokensRequest struct {
 	Model    any `json:"model"`
 	Messages any `json:"messages"`
@@ -104,7 +102,7 @@ func (c *TokenCounter) CountCall(ctx context.Context, input app.CountCallInput) 
 	}
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("accept", "application/json")
-	req.Header.Set("anthropic-version", countTokensAnthropicVersion)
+	req.Header.Set("anthropic-version", APIVersion)
 	req.Header.Set("x-api-key", c.apiKey)
 
 	resp, err := c.httpClient.Do(req)

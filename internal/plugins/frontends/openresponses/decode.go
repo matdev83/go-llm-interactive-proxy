@@ -15,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	proto "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/protocols/openresponses"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	sdkauth "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
 )
 
@@ -32,6 +33,7 @@ type DecodeCompactOptions struct {
 	Method               string
 	Path                 string
 	RemoteAddr           string
+	HTTPHeaders          lipsdk.HTTPHeaders
 }
 
 // DecodedCompact holds the outcome of authenticated compact request decoding.
@@ -55,6 +57,7 @@ type DecodeCreateOptions struct {
 	Method               string
 	Path                 string
 	RemoteAddr           string
+	HTTPHeaders          lipsdk.HTTPHeaders
 }
 
 // DecodedCreate holds the outcome of authenticated create request decoding.
@@ -86,7 +89,7 @@ func AuthenticateAndDecodeCreate(ctx context.Context, body []byte, opts DecodeCr
 			Method:              opts.Method,
 			Path:                opts.Path,
 			ClientAddr:          opts.RemoteAddr,
-			AuthorizationBearer: extractBearerToken(opts.Headers),
+			AuthorizationBearer: opts.HTTPHeaders.APIKeyFrom(opts.Headers),
 		}
 		var err error
 		decision, err = opts.Auth.Authenticate(ctx, meta)
@@ -456,14 +459,7 @@ func resolveRouteSelector(model, explicit string, prefixes []string, defaultRout
 }
 
 func extractBearerToken(h http.Header) string {
-	if h == nil {
-		return ""
-	}
-	authHdr := strings.TrimSpace(h.Get("Authorization"))
-	if strings.HasPrefix(strings.ToLower(authHdr), "bearer ") {
-		return strings.TrimSpace(authHdr[7:])
-	}
-	return ""
+	return lipsdk.HTTPHeaders{}.APIKeyFrom(h)
 }
 
 // AuthenticateAndDecodeCompact performs authentication checks FIRST, then decodes the request body
@@ -477,7 +473,7 @@ func AuthenticateAndDecodeCompact(ctx context.Context, body []byte, opts DecodeC
 			Method:              opts.Method,
 			Path:                opts.Path,
 			ClientAddr:          opts.RemoteAddr,
-			AuthorizationBearer: extractBearerToken(opts.Headers),
+			AuthorizationBearer: opts.HTTPHeaders.APIKeyFrom(opts.Headers),
 		}
 		var err error
 		decision, err = opts.Auth.Authenticate(ctx, meta)

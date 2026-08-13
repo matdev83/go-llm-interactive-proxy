@@ -320,6 +320,16 @@ func TestInboundMetaFromRequest_authorizationBearer_bearerSchemeOnly(t *testing.
 	}
 }
 
+func TestInboundMetaFromRequest_xAPIKey(t *testing.T) {
+	t.Parallel()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.Header.Set("x-api-key", "ant-key")
+	m := inboundMetaFromRequest(r, "anthropic")
+	if m.AuthorizationBearer != "ant-key" {
+		t.Fatalf("AuthorizationBearer: got %q", m.AuthorizationBearer)
+	}
+}
+
 func TestPolicyProvider_authenticatorError_returns500(t *testing.T) {
 	t.Parallel()
 	stub := &stubCoreAuthenticator{err: fmt.Errorf("db connection refused")}

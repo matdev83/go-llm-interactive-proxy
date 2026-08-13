@@ -27,7 +27,7 @@ type Config struct {
 	ModelInventory modelinventory.Provider
 }
 
-const defaultRateLimitFallback = 60 * time.Second
+const defaultRateLimitFallback = credpool.DefaultRateLimitFallback
 
 func NewBackend(cfg Config) execbackend.Backend {
 	id := strings.TrimSpace(cfg.BackendID)

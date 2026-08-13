@@ -115,6 +115,68 @@ func TestReloadabilityClassify_ReloadableChange_OK(t *testing.T) {
 	}
 }
 
+func TestReloadabilityClassify_HTTPHeaders_Reloadable(t *testing.T) {
+	t.Parallel()
+	active := baseConfig()
+	candidate := baseConfig()
+	candidate.HTTPHeaders.Route = []string{"X-Custom-Route"}
+
+	changes, err := configreload.Classify(active, candidate)
+	if err != nil {
+		t.Fatalf("header alias change must be reloadable: %v", err)
+	}
+	if !containsChange(changes, "http_headers.route", configreload.ChangeReloadable) {
+		t.Fatalf("want http_headers.route reloadable, got %#v", changes)
+	}
+}
+
+func TestReloadabilityClassify_KeepaliveInterval_Reloadable(t *testing.T) {
+	t.Parallel()
+	active := baseConfig()
+	candidate := baseConfig()
+	candidate.StreamRecovery.AutoResume.KeepaliveInterval = "5s"
+
+	changes, err := configreload.Classify(active, candidate)
+	if err != nil {
+		t.Fatalf("keepalive interval change must be reloadable: %v", err)
+	}
+	if !containsChange(changes, "stream_recovery.auto_resume.keepalive_interval", configreload.ChangeReloadable) {
+		t.Fatalf("want keepalive_interval reloadable, got %#v", changes)
+	}
+}
+
+func TestReloadabilityClassify_ShutdownTimeout_RestartRequired(t *testing.T) {
+	t.Parallel()
+	active := baseConfig()
+	candidate := baseConfig()
+	candidate.Server.ShutdownTimeout = "30s"
+
+	_, err := configreload.Classify(active, candidate)
+	var rr *configreload.RestartRequiredError
+	if !errors.As(err, &rr) {
+		t.Fatalf("shutdown_timeout change must be restart_required, got %v", err)
+	}
+	if !containsPath(rr.RestartRequiredFields, "server.shutdown_timeout") {
+		t.Fatalf("want server.shutdown_timeout, got %v", rr.RestartRequiredFields)
+	}
+}
+
+func TestReloadabilityClassify_BillingHoldTTL_RestartRequired(t *testing.T) {
+	t.Parallel()
+	active := baseConfig()
+	candidate := baseConfig()
+	candidate.Accounting.Billing.HoldTTL = "30m"
+
+	_, err := configreload.Classify(active, candidate)
+	var rr *configreload.RestartRequiredError
+	if !errors.As(err, &rr) {
+		t.Fatalf("hold_ttl change must be restart_required, got %v", err)
+	}
+	if !containsPath(rr.RestartRequiredFields, "accounting.billing.hold_ttl") {
+		t.Fatalf("want accounting.billing.hold_ttl, got %v", rr.RestartRequiredFields)
+	}
+}
+
 func TestReloadabilityClassify_ConditionalTopologyChange_RestartRequired(t *testing.T) {
 	t.Parallel()
 	active := baseConfig()

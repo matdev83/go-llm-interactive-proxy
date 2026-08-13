@@ -156,11 +156,11 @@ func NewCircuitBreakerPolicy(state *CircuitBreakerState, opts CircuitBreakerOpti
 	}
 	th := opts.FailureThreshold
 	if th < 1 {
-		th = 5
+		th = DefaultFailureThreshold
 	}
 	d := opts.OpenDuration
 	if d <= 0 {
-		d = 30 * time.Second
+		d = DefaultOpenDuration
 	}
 	now := opts.Now
 	if now == nil {
