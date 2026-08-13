@@ -21,6 +21,11 @@ const ID = "agycliacp"
 // vendorPrefix is the model prefix for AGY models.
 const vendorPrefix = "agy"
 
+// DefaultTimeoutSeconds is the per-turn ceiling forwarded to the wrapper.
+// agy's own --print-timeout default is 5 minutes; keep this aligned with
+// go-agy-acp-wrapper and Python LIP so long tool waits (test suites) survive.
+const DefaultTimeoutSeconds = 4 * 60 * 60
+
 // Config configures the AGY CLI ACP backend. The shared acp.ConnectorConfig
 // embeds the local-agent fields common to every ACP CLI connector; AGY-specific
 // fields (wrapper, binary, permissions, timeout, mcp) stay directly on Config.
@@ -37,7 +42,8 @@ type Config struct {
 	AGYBinary string
 	// SkipPermissions controls the --skip-permissions vs --no-skip-permissions flag.
 	SkipPermissions bool
-	// TimeoutSeconds is the optional --timeout-seconds flag value.
+	// TimeoutSeconds is forwarded to go-agy-acp-wrapper as --timeout-seconds
+	// (and from there to agy --print-timeout). Zero/omitted uses DefaultTimeoutSeconds.
 	TimeoutSeconds int
 	// MCPServers is the JSON array for session/new mcpServers.
 	MCPServers json.RawMessage
@@ -76,9 +82,7 @@ func (s *agySpec) BuildCommand(model string, workspace string) ([]string, string
 		cmd = append(cmd, "--agy-binary", s.cfg.AGYBinary)
 	}
 	cmd = append(cmd, "--model", model)
-	if s.cfg.TimeoutSeconds > 0 {
-		cmd = append(cmd, "--timeout-seconds", strconv.Itoa(s.cfg.TimeoutSeconds))
-	}
+	cmd = append(cmd, "--timeout-seconds", strconv.Itoa(normalizeTimeoutSeconds(s.cfg.TimeoutSeconds)))
 	if s.cfg.SkipPermissions {
 		cmd = append(cmd, "--skip-permissions")
 	} else {
@@ -175,6 +179,7 @@ func New(cfg Config) (*Engine, error) {
 	if cfg.Model == "" {
 		cfg.Model = defaultCanonicalModel
 	}
+	cfg.TimeoutSeconds = normalizeTimeoutSeconds(cfg.TimeoutSeconds)
 	if cfg.AGYBinary == "" {
 		cfg.AGYBinary = strings.TrimSpace(os.Getenv("AGY_BINARY"))
 	}
@@ -213,6 +218,7 @@ func NewWithStarter(cfg Config, starter acp.ProcessStarter) *Engine {
 	if cfg.Model == "" {
 		cfg.Model = defaultCanonicalModel
 	}
+	cfg.TimeoutSeconds = normalizeTimeoutSeconds(cfg.TimeoutSeconds)
 	if cfg.AGYBinary == "" {
 		cfg.AGYBinary = strings.TrimSpace(os.Getenv("AGY_BINARY"))
 	}
@@ -304,4 +310,11 @@ func defaultBackendCaps() lipapi.BackendCaps {
 		lipapi.CapabilityVision,
 		lipapi.CapabilityReasoning,
 	)
+}
+
+func normalizeTimeoutSeconds(n int) int {
+	if n <= 0 {
+		return DefaultTimeoutSeconds
+	}
+	return n
 }
