@@ -156,4 +156,5 @@ TDD throughout (RED → GREEN → REFACTOR). Do not modify stream handlers, TUR 
 - ComposeBilling also type-asserts AuthorizationStore (needed by billingadmission.NewAdapter) in addition to the five store capabilities listed in the design contract.
 - Host-loop helpers live in `billing_host_loop_test.go` (sqlite store, catalog seed, BuildHost YAML, usage stub, wait-processed). 5.2/5.4 should reuse them. ClientSessionID poison is asserted on `call.Session` after BeginTurn, not on TUR AuthorizationID.
 - Fence observation for cmd/lipstd: `Host.HasProductionBillingStore() bool` only (no live journal or Executor getter).
+- Arch line budgets ratcheted to measured+25 after ComposeBilling, admin POSTs, and AccountProvisioner ports (combined with routing-override admin and tool-call classification on main): runtimebundle 11203, stdhttp 5676, core 74697.
 

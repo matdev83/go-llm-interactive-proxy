@@ -46,8 +46,8 @@ type PackageTreeBudget struct {
 
 // PackageTreeBudgets locks measured convergence tree ceilings (+25 lines headroom).
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 11088},
-	{Tree: "internal/stdhttp", Max: 5455},
+	{Tree: "internal/infra/runtimebundle", Max: 11203},
+	{Tree: "internal/stdhttp", Max: 5676},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 562},
 }
@@ -61,12 +61,12 @@ type LineBudget struct {
 // LineBudgets covers core/pluginreg plus the convergence trees (kept in sync
 // with PackageTreeBudgets for overlapping entries).
 var LineBudgets = []LineBudget{
-	// Routing-override admin, billing outbox worker, and tool-call classification
-	// metadata/lifecycle helper. Keep the measured-plus-25 ratchet.
-	{Dir: "internal/core", Max: 74657},
+	// Routing-override admin, billing host composition, and tool-call
+	// classification. Keep the measured-plus-25 ratchet.
+	{Dir: "internal/core", Max: 74697},
 	{Dir: "internal/pluginreg", Max: 1079},
-	{Dir: "internal/stdhttp", Max: 5455},
-	{Dir: "internal/infra/runtimebundle", Max: 11088},
+	{Dir: "internal/stdhttp", Max: 5676},
+	{Dir: "internal/infra/runtimebundle", Max: 11203},
 	{Dir: "cmd/lipstd", Max: 979},
 	{Dir: "pkg/lipruntime", Max: 562},
 }
