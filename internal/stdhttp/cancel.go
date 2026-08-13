@@ -8,14 +8,15 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
 // Session-identity header names used by the A-leg cancel endpoint.
 // Sync tests in mount_constants_test.go verify alignment with the
 // canonical values in the sessionwire package.
 const (
-	headerAuthoritativeSessionID = "X-LIP-Session-Id"
-	headerResumeToken            = "X-LIP-Resume-Token"
+	headerAuthoritativeSessionID = lipsdk.HeaderSessionID
+	headerResumeToken            = lipsdk.HeaderResumeToken
 )
 
 const aLegCancelPrefix = "/lip/v1/a-legs/"
@@ -34,8 +35,8 @@ func mountALegCancel(mux *http.ServeMux, frontends HTTPFrontendInput) {
 		}
 		err := exec.CancelALeg(r.Context(), lipapi.ALegCancelRequest{
 			ALegID:      id,
-			SessionID:   r.Header.Get(headerAuthoritativeSessionID),
-			ResumeToken: r.Header.Get(headerResumeToken),
+			SessionID:   frontends.HTTPHeaders.SessionIDValue(r.Header),
+			ResumeToken: frontends.HTTPHeaders.ResumeTokenValue(r.Header),
 			FrontendID:  "lip",
 			Reason:      "proxy_cancel",
 		})

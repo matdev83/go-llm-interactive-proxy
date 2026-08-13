@@ -10,6 +10,7 @@ import (
 )
 
 const FactoryKind = "acp"
+const DefaultHTTPTimeout = 60 * time.Second
 
 type Config struct {
 	BaseURL string `yaml:"base_url"`
@@ -33,7 +34,7 @@ func ParseConfigYAML(raw []byte) (Config, error) {
 }
 
 func (c Config) HTTPClient() (*http.Client, error) {
-	to := 60 * time.Second
+	to := DefaultHTTPTimeout
 	if s := strings.TrimSpace(c.HTTPTimeout); s != "" {
 		d, err := time.ParseDuration(s)
 		if err != nil {

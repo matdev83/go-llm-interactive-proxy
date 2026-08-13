@@ -12,6 +12,7 @@ import (
 
 	coreauth "github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
@@ -36,6 +37,7 @@ type PolicyProvider struct {
 	Renderer           httpauth.AuthErrorRenderer
 	RendererByFrontend map[string]httpauth.AuthErrorRenderer
 	FrontendID         func(*http.Request) string
+	HTTPHeaders        lipsdk.HTTPHeaders
 }
 
 // authSuccessContextAttacher captures an immutable credential matcher while the
@@ -77,7 +79,7 @@ func (p *PolicyProvider) Authenticate(ctx context.Context, w http.ResponseWriter
 		return httpauth.AuthenticationResult{}, fmt.Errorf("stdhttp/auth: nil policy provider or authenticator")
 	}
 	frontendID := p.frontendID(r)
-	meta := inboundMetaFromRequest(r, frontendID)
+	meta := p.inboundMeta(r, frontendID)
 	now := time.Now().UTC()
 
 	d, err := p.Auth.Authenticate(ctx, meta)
@@ -195,7 +197,7 @@ func (p *PolicyProvider) captureAuthSuccessMatcher(r *http.Request, res httpauth
 	if p == nil || r == nil || res.Type != httpauth.TypePrincipal {
 		return nil
 	}
-	m := newExactCredentialMatcher(authorizationBearerFromHeader(r.Header.Get("Authorization")), res.IngressAttribution.KeyID)
+	m := newExactCredentialMatcher(p.headers().APIKeyFrom(r.Header), res.IngressAttribution.KeyID)
 	if m == nil {
 		return nil // collapse typed-nil *exactCredentialMatcher to a true nil interface
 	}
@@ -253,6 +255,17 @@ func defaultTerminalHTTPStatus(d *auth.Decision) int {
 }
 
 func inboundMetaFromRequest(r *http.Request, frontendID string) auth.InboundCallMeta {
+	return (&PolicyProvider{}).inboundMeta(r, frontendID)
+}
+
+func (p *PolicyProvider) headers() lipsdk.HTTPHeaders {
+	if p == nil {
+		return lipsdk.DefaultHTTPHeaders()
+	}
+	return p.HTTPHeaders.OrDefault()
+}
+
+func (p *PolicyProvider) inboundMeta(r *http.Request, frontendID string) auth.InboundCallMeta {
 	if r == nil {
 		return auth.InboundCallMeta{Frontend: frontendID}
 	}
@@ -260,31 +273,16 @@ func inboundMetaFromRequest(r *http.Request, frontendID string) auth.InboundCall
 	if r.URL != nil {
 		path = r.URL.Path
 	}
+	hdrs := p.headers()
 	return auth.InboundCallMeta{
 		TraceID: diag.TraceID(r.Context()), Frontend: frontendID, Method: r.Method, Path: path,
-		ClientAddr: r.RemoteAddr, AuthorizationBearer: authorizationBearerFromHeader(r.Header.Get("Authorization")),
-		SessionHint: strings.TrimSpace(r.Header.Get("X-LIP-Session-Hint")),
+		ClientAddr: r.RemoteAddr, AuthorizationBearer: hdrs.APIKeyFrom(r.Header),
+		SessionHint: hdrs.SessionHintValue(r.Header),
 	}
 }
 
 func authorizationBearerFromHeader(raw string) string {
-	scheme, cred := splitAuthorizationScheme(raw)
-	if scheme != "bearer" {
-		return ""
-	}
-	return cred
-}
-
-func splitAuthorizationScheme(v string) (scheme, token string) {
-	v = strings.TrimSpace(v)
-	if v == "" {
-		return "", ""
-	}
-	sp := strings.IndexByte(v, ' ')
-	if sp <= 0 {
-		return "", v
-	}
-	return strings.ToLower(v[:sp]), strings.TrimSpace(v[sp+1:])
+	return lipsdk.BearerCredential(raw)
 }
 
 func authDecisionEvent(now time.Time, traceID string, pol PolicySnapshot, meta auth.InboundCallMeta, d auth.Decision, evidenceScope *scope.PrincipalScopeView) auth.AuthDecisionEvent {

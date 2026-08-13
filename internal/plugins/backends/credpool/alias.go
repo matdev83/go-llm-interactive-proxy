@@ -11,9 +11,10 @@ type (
 )
 
 const (
-	StateUsable      = pkg.StateUsable
-	StateCooldown    = pkg.StateCooldown
-	StateAuthInvalid = pkg.StateAuthInvalid
+	StateUsable              = pkg.StateUsable
+	StateCooldown            = pkg.StateCooldown
+	StateAuthInvalid         = pkg.StateAuthInvalid
+	DefaultRateLimitFallback = pkg.DefaultRateLimitFallback
 )
 
 var (

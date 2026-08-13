@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	ssessiondiag "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/diag"
 )
 
@@ -51,7 +50,7 @@ func mountSecureSessionDiagnostics(in mountSecureSessionDiagnosticsInput) error 
 	if err != nil {
 		return fmt.Errorf("stdhttp: secure-session diagnostics handler: %w", err)
 	}
-	dh := diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, ssh)
+	dh := wrapDiagnostics(cfg, ssh)
 	mux.Handle("GET "+base+"/", dh)
 	mux.Handle("GET "+base, dh)
 	log.InfoContext(logCtx, "secure-session diagnostics mounted", "path", base)

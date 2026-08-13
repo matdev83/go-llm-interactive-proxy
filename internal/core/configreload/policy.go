@@ -69,6 +69,7 @@ func Classify(active, candidate *config.Config) ([]SafeChange, error) {
 	classifyDatabase(active, candidate, restart)
 	classifyContinuity(active, candidate, restart)
 	classifyHTTPClient(active, candidate, reload)
+	classifyHTTPHeaders(active, candidate, reload)
 	classifyStreamRecovery(active, candidate, reload)
 	classifyHooks(active, candidate, reload)
 	classifyInterleaved(active, candidate, reload)
@@ -199,6 +200,18 @@ func classifyHTTPClient(active, candidate *config.Config, reload noteFn) {
 	diffStr(reload, "http_client.client_timeout", a.ClientTimeout, c.ClientTimeout)
 }
 
+func classifyHTTPHeaders(active, candidate *config.Config, reload noteFn) {
+	a, c := active.HTTPHeaders, candidate.HTTPHeaders
+	diffStrSlice(reload, "http_headers.api_key", a.APIKey, c.APIKey)
+	diffStrSlice(reload, "http_headers.route", a.Route, c.Route)
+	diffStrSlice(reload, "http_headers.session_id", a.SessionID, c.SessionID)
+	diffStrSlice(reload, "http_headers.resume_token", a.ResumeToken, c.ResumeToken)
+	diffStrSlice(reload, "http_headers.a_leg_id", a.ALegID, c.ALegID)
+	diffStrSlice(reload, "http_headers.session_hint", a.SessionHint, c.SessionHint)
+	diffStrSlice(reload, "http_headers.trace", a.Trace, c.Trace)
+	diffStrSlice(reload, "http_headers.diagnostics_secret", a.DiagnosticsSecret, c.DiagnosticsSecret)
+}
+
 func classifyStreamRecovery(active, candidate *config.Config, reload noteFn) {
 	a, c := active.StreamRecovery.AutoResume, candidate.StreamRecovery.AutoResume
 	if !ptrBoolEqual(a.Enabled, c.Enabled) {
@@ -210,6 +223,7 @@ func classifyStreamRecovery(active, candidate *config.Config, reload noteFn) {
 	if !ptrBoolEqual(a.EmitWarning, c.EmitWarning) {
 		reload("stream_recovery.auto_resume.emit_warning")
 	}
+	diffStr(reload, "stream_recovery.auto_resume.keepalive_interval", a.KeepaliveInterval, c.KeepaliveInterval)
 }
 
 func classifyHooks(active, candidate *config.Config, reload noteFn) {
@@ -252,6 +266,7 @@ func classifyServer(active, candidate *config.Config, reload, restart noteFn) {
 	diffStr(restart, "server.read_timeout", a.ReadTimeout, c.ReadTimeout)
 	diffStr(restart, "server.write_timeout", a.WriteTimeout, c.WriteTimeout)
 	diffStr(restart, "server.idle_timeout", a.IdleTimeout, c.IdleTimeout)
+	diffStr(restart, "server.shutdown_timeout", a.ShutdownTimeout, c.ShutdownTimeout)
 	if a.MaxConcurrentDecodes != c.MaxConcurrentDecodes {
 		restart("server.max_concurrent_decodes")
 	}
@@ -368,6 +383,10 @@ func classifyAccounting(active, candidate *config.Config, reload, restart noteFn
 	if !equalAccountingPricing(a.Pricing, c.Pricing) {
 		reload("accounting.pricing")
 	}
+	if a.Billing.Authoritative != c.Billing.Authoritative || a.Billing.ReportsPath != c.Billing.ReportsPath {
+		restart("accounting.billing")
+	}
+	diffStr(restart, "accounting.billing.hold_ttl", a.Billing.HoldTTL, c.Billing.HoldTTL)
 }
 
 func classifyControlPlane(active, candidate *config.Config, reload, restart noteFn) {
@@ -447,6 +466,12 @@ func classifyModelInventory(active, candidate *config.Config, reload, restart no
 
 func diffStr(note noteFn, path, left, right string) {
 	if left != right {
+		note(path)
+	}
+}
+
+func diffStrSlice(note noteFn, path string, left, right []string) {
+	if !slices.Equal(left, right) {
 		note(path)
 	}
 }

@@ -26,6 +26,9 @@ func TestStreamRecoveryEffectiveAutoResumeDefaultsDisabled(t *testing.T) {
 	if eff.PostOutputPolicy != config.StreamRecoveryPostOutputFinishWithWarning {
 		t.Fatalf("PostOutputPolicy: got %q", eff.PostOutputPolicy)
 	}
+	if eff.KeepaliveInterval != 12*time.Second {
+		t.Fatalf("KeepaliveInterval: got %s", eff.KeepaliveInterval)
+	}
 }
 
 func TestStreamRecoveryEffectiveAutoResumePrecedenceCLIEnvConfig(t *testing.T) {
@@ -105,5 +108,21 @@ func TestStreamRecoveryInvalidDurationFailsValidation(t *testing.T) {
 	}
 	if _, err := config.EffectiveStreamRecoveryAutoResume(cfg, config.StreamRecoveryOverrides{}); err == nil {
 		t.Fatal("expected invalid duration error")
+	}
+}
+
+func TestStreamRecoveryKeepaliveIntervalFromYAML(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		StreamRecovery: config.StreamRecoveryConfig{
+			AutoResume: config.AutoResumeConfig{KeepaliveInterval: "5s"},
+		},
+	}
+	eff, err := config.EffectiveStreamRecoveryAutoResume(cfg, config.StreamRecoveryOverrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eff.KeepaliveInterval != 5*time.Second {
+		t.Fatalf("KeepaliveInterval: got %s, want 5s", eff.KeepaliveInterval)
 	}
 }

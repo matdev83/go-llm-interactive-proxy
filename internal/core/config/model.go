@@ -17,6 +17,7 @@ import (
 // in this package (see effective_default_route.go).
 type Config struct {
 	Server         ServerConfig         `yaml:"server"`
+	HTTPHeaders    HTTPHeadersConfig    `yaml:"http_headers"`
 	Access         AccessConfig         `yaml:"access"`
 	Auth           AuthConfig           `yaml:"auth"`
 	Logging        LoggingConfig        `yaml:"logging"`
@@ -82,6 +83,17 @@ type AccountingBillingConfig struct {
 	// ReportsPath mounts the protected billing report surface when authoritative
 	// billing is enabled. Empty selects /admin/billing.
 	ReportsPath string `yaml:"reports_path"`
+	// HoldTTL is how long an authorization hold remains spendable before expiry.
+	// Empty selects 15m.
+	HoldTTL string `yaml:"hold_ttl"`
+}
+
+// DefaultHoldTTL is the authorization hold lifetime when accounting.billing.hold_ttl is omitted.
+const DefaultHoldTTL = 15 * time.Minute
+
+// EffectiveHoldTTL returns HoldTTL or [DefaultHoldTTL].
+func (c AccountingBillingConfig) EffectiveHoldTTL() time.Duration {
+	return parseServerDurationOrDefault(c.HoldTTL, DefaultHoldTTL)
 }
 
 type AccountingTokenizerConfig struct {
@@ -310,6 +322,9 @@ type ServerConfig struct {
 	WriteTimeout string `yaml:"write_timeout"`
 	// IdleTimeout is [http.Server.IdleTimeout]. Empty defaults to 120s.
 	IdleTimeout string `yaml:"idle_timeout"`
+	// ShutdownTimeout bounds HTTP drain and host close on process shutdown.
+	// Empty defaults to 15s.
+	ShutdownTimeout string `yaml:"shutdown_timeout"`
 	// MaxConcurrentDecodes caps concurrent frontend protocol decode/materialization work.
 	// Zero selects the documented default (32) during validation. Body ReadAll and JSON
 	// preflight run before admission.
@@ -340,6 +355,7 @@ const (
 	defaultServerWriteTimeout      = 120 * time.Second
 	defaultServerIdleTimeout       = 120 * time.Second
 	defaultPreRequestKAInterval    = 15 * time.Second
+	DefaultShutdownTimeout         = 15 * time.Second
 
 	defaultMaxRequestBodyBytes    int64 = 8 << 20
 	DefaultMaxConcurrentDecodes         = 32
@@ -376,6 +392,11 @@ func (s ServerConfig) EffectiveWriteTimeout() time.Duration {
 // EffectiveIdleTimeout returns IdleTimeout or the default (120s).
 func (s ServerConfig) EffectiveIdleTimeout() time.Duration {
 	return parseServerDurationOrDefault(s.IdleTimeout, defaultServerIdleTimeout)
+}
+
+// EffectiveShutdownTimeout returns ShutdownTimeout or the default (15s).
+func (s ServerConfig) EffectiveShutdownTimeout() time.Duration {
+	return parseServerDurationOrDefault(s.ShutdownTimeout, DefaultShutdownTimeout)
 }
 
 // EffectiveMaxRequestBodyBytes returns MaxRequestBodyBytes when positive, otherwise zero
@@ -443,6 +464,8 @@ type DiagnosticsConfig struct {
 	// route trace, and pprof routes (not on health). Use a long random value in production.
 	SharedSecret string `yaml:"shared_secret"`
 }
+
+const DefaultMaxAttempts = 3
 
 type RoutingConfig struct {
 	MaxAttempts int `yaml:"max_attempts"`

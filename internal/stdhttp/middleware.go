@@ -42,7 +42,13 @@ func stackHTTPHandler(in stackHTTPInput) http.Handler {
 	h := stdauth.Middleware(log, sec.HTTPAuthProviders, inner)
 	h = RecoveryMiddleware(log, h)
 	h = accessLogMiddleware(cfg, log, h)
-	h = corehttp.TraceMiddleware(corehttp.RequestIDMiddleware(traceGen, h))
+	traceNames := []string{corehttp.HeaderTraceID}
+	if cfg != nil {
+		if names := cfg.HTTPHeaders.Effective().Trace; len(names) > 0 {
+			traceNames = names
+		}
+	}
+	h = corehttp.TraceMiddlewareHeaders(traceNames, corehttp.RequestIDMiddlewareHeaders(traceGen, traceNames, h))
 	if httpProm != nil {
 		h = httpProm.Middleware(h)
 	}

@@ -35,7 +35,7 @@ func buildSharedMutableRuntime(cfg *config.Config, nowFn func() time.Time) *shar
 	}
 	healthState := policy.NewCircuitBreakerState(policy.CircuitBreakerStateOptions{})
 	return &sharedMutableRuntime{
-		ALegLifecycle:  leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 2 * time.Second}),
+		ALegLifecycle:  leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: leglifecycle.DefaultCancelTimeout}),
 		ExtensionState: corestate.NewMem(nowFn), affinity: newAffinityRegistry(), healthState: healthState,
 		underlyingHealth: routinghealth.CandidateHealthPolicyFromState(cfg, healthState, nowFn),
 	}

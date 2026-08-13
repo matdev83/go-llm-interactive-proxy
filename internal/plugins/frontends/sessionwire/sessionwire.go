@@ -8,13 +8,15 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
 // LIP-controlled HTTP carriers for secure-session resume (proxy-issued values round-tripped by clients).
 const (
-	HeaderAuthoritativeSessionID = "X-LIP-Session-Id"
-	HeaderResumeToken            = "X-LIP-Resume-Token"
-	HeaderALegID                 = "X-LIP-A-Leg-Id"
+	HeaderAuthoritativeSessionID = lipsdk.HeaderSessionID
+	HeaderResumeToken            = lipsdk.HeaderResumeToken
+	HeaderALegID                 = lipsdk.HeaderALegID
+	HeaderSessionHint            = lipsdk.HeaderSessionHint
 	// Metadata keys for JSON request bodies (OpenAI-style metadata maps).
 	MetaKeyAuthoritativeSessionID = "lip_session_id"
 	MetaKeyResumeToken            = "lip_resume_token"
@@ -38,15 +40,31 @@ func HTTPStatusForSessionDenial(code lipapi.SessionDenialCode) int {
 // ApplyAuthoritativeHeaders merges LIP session headers into ref when present (trimmed).
 // Caller supplies ref; zero fields are left unchanged when a header is absent.
 func ApplyAuthoritativeHeaders(ref *lipapi.SessionRef, h http.Header) {
+	ApplyAuthoritativeHeadersNamed(ref, h, nil, nil)
+}
+
+// ApplyAuthoritativeHeadersNamed merges session-id and resume-token from the given
+// header names. Empty name lists use [HeaderAuthoritativeSessionID] and [HeaderResumeToken].
+func ApplyAuthoritativeHeadersNamed(ref *lipapi.SessionRef, h http.Header, sessionID, resumeToken []string) {
 	if ref == nil || h == nil {
 		return
 	}
-	if v := strings.TrimSpace(h.Get(HeaderAuthoritativeSessionID)); v != "" {
+	if len(sessionID) == 0 {
+		sessionID = []string{HeaderAuthoritativeSessionID}
+	}
+	if len(resumeToken) == 0 {
+		resumeToken = []string{HeaderResumeToken}
+	}
+	if v := firstHeader(h, sessionID); v != "" {
 		ref.AuthoritativeSessionID = v
 	}
-	if v := strings.TrimSpace(h.Get(HeaderResumeToken)); v != "" {
+	if v := firstHeader(h, resumeToken); v != "" {
 		ref.ResumeToken = v
 	}
+}
+
+func firstHeader(h http.Header, names []string) string {
+	return lipsdk.FirstHeader(h, names)
 }
 
 // ApplyMetadata merges string metadata entries into ref when keys are present (trimmed).

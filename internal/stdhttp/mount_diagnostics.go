@@ -45,17 +45,17 @@ func mountDiagnostics(in mountDiagnosticsInput) error {
 		if err != nil {
 			return fmt.Errorf("stdhttp: attempts handler: %w", err)
 		}
-		mux.Handle(ap, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, ah))
+		mux.Handle(ap, wrapDiagnostics(cfg, ah))
 	}
 	if ip := strings.TrimSpace(cfg.Diagnostics.InventoryPath); ip != "" {
 		ih, err := diag.InventoryHandler(cfg, mergeInventoryExtrasForDiagnostics(in.Reg, ops.Registrations, ops.SecretGuardInventory))
 		if err != nil {
 			return fmt.Errorf("stdhttp: inventory handler: %w", err)
 		}
-		mux.Handle(ip, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, ih))
+		mux.Handle(ip, wrapDiagnostics(cfg, ih))
 	}
 	if rt := strings.TrimSpace(cfg.Diagnostics.RouteTracePath); rt != "" {
-		traceBuf := diag.NewRouteTraceBuffer(64)
+		traceBuf := diag.NewRouteTraceBuffer(diag.DefaultRouteTraceCapacity)
 		if in.Core.Executor != nil {
 			in.Core.Executor.RouteTrace = traceBuf
 		}
@@ -63,12 +63,12 @@ func mountDiagnostics(in mountDiagnosticsInput) error {
 		if err != nil {
 			return fmt.Errorf("stdhttp: route trace handler: %w", err)
 		}
-		mux.Handle(rt, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, rh))
+		mux.Handle(rt, wrapDiagnostics(cfg, rh))
 	}
 	if pp := strings.TrimSpace(cfg.Diagnostics.PprofPath); pp != "" {
 		if h := diag.PprofHandler(pp); h != nil {
 			prefix := strings.TrimSuffix(pp, "/") + "/"
-			mux.Handle(prefix, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, h))
+			mux.Handle(prefix, wrapDiagnostics(cfg, h))
 			log.InfoContext(logCtx, "diagnostics pprof mounted", "path", prefix)
 		}
 	}
@@ -117,7 +117,7 @@ func mountModelCatalogDiagnostics(ctx context.Context, in diagnosticsMount) {
 		UpdateInterval:         updateInterval,
 		SourceURL:              cfg.ModelCatalog.SourceURL,
 	})
-	mux.Handle(path, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, h))
+	mux.Handle(path, wrapDiagnostics(cfg, h))
 	if log != nil {
 		log.InfoContext(ctx, "model catalog diagnostics mounted", "path", path)
 	}
@@ -132,7 +132,7 @@ func mountModelInventoryDiagnostics(ctx context.Context, in diagnosticsMount) {
 	if path == "" {
 		return
 	}
-	mux.Handle(path, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, NewModelRegistryStatusHandler(models.ModelRegistryRuntime)))
+	mux.Handle(path, wrapDiagnostics(cfg, NewModelRegistryStatusHandler(models.ModelRegistryRuntime)))
 	if log != nil {
 		log.InfoContext(ctx, "model inventory diagnostics mounted", "path", path)
 	}

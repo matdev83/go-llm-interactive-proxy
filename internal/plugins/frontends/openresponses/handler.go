@@ -11,7 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	proto "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/protocols/openresponses"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -46,6 +48,8 @@ type HandlerConfig struct {
 	TrafficPorts            traffic.PortBundle
 	PreRequestKeepalive     lipsdk.FrontendKeepaliveConfig
 	Config                  Config
+	HTTPHeaders             lipsdk.HTTPHeaders
+	StreamKeepaliveInterval time.Duration
 	ResponseIDSource        ResponseIDSource
 	CompactResourceIDSource CompactResourceIDSource
 	ResponseClock           ResponseClock
@@ -78,6 +82,10 @@ func (h *Handler) getStore() lipcont.Store {
 // ServeHTTP handles HTTP requests for OpenResponses endpoints.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	if h.cfg.StreamKeepaliveInterval > 0 {
+		ctx = stream.ContextWithKeepaliveInterval(ctx, h.cfg.StreamKeepaliveInterval)
+		r = r.WithContext(ctx)
+	}
 
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -181,13 +189,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	opts := DecodeCreateOptions{
 		DefaultRouteSelector: h.cfg.DefaultRouteSelector,
 		RoutePrefixes:        h.cfg.RoutePrefixes,
-		RouteSelector:        strings.TrimSpace(r.Header.Get("X-LIP-Route")),
+		RouteSelector:        h.cfg.HTTPHeaders.RouteSelector(r.Header),
 		Headers:              r.Header,
 		Method:               r.Method,
 		Path:                 r.URL.Path,
 		RemoteAddr:           r.RemoteAddr,
 		MaxBodyBytes:         maxBytes,
 		Limits:               h.cfg.ProtocolLimits,
+		HTTPHeaders:          h.cfg.HTTPHeaders,
 		// Authentication was completed above, before reading the body. Avoid a
 		// second policy evaluation while retaining the direct decode seam's auth.
 	}
@@ -196,6 +205,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	err = decodeqos.Guard(releaseDecodeOnce, func() error {
 		var decodeErr error
 		decoded, decodeErr = AuthenticateAndDecodeCreate(ctx, body, opts)
+		if decodeErr == nil && decoded != nil && decoded.Call != nil {
+			hdrs := h.cfg.HTTPHeaders.OrDefault()
+			sessionwire.ApplyAuthoritativeHeadersNamed(&decoded.Call.Session, r.Header, hdrs.SessionID, hdrs.ResumeToken)
+		}
 		return decodeErr
 	})
 	releaseDecode = nil
@@ -501,7 +514,7 @@ func (opts DecodeCreateOptions) authMeta(r *http.Request) sdkauth.InboundCallMet
 		Method:              r.Method,
 		Path:                r.URL.Path,
 		ClientAddr:          r.RemoteAddr,
-		AuthorizationBearer: extractBearerToken(r.Header),
+		AuthorizationBearer: opts.HTTPHeaders.APIKeyFrom(r.Header),
 	}
 }
 
@@ -511,7 +524,7 @@ func (opts DecodeCompactOptions) authMeta(r *http.Request) sdkauth.InboundCallMe
 		Method:              r.Method,
 		Path:                r.URL.Path,
 		ClientAddr:          r.RemoteAddr,
-		AuthorizationBearer: extractBearerToken(r.Header),
+		AuthorizationBearer: opts.HTTPHeaders.APIKeyFrom(r.Header),
 	}
 }
 
@@ -586,19 +599,24 @@ func (h *Handler) handleCompact(w http.ResponseWriter, r *http.Request) {
 	opts := DecodeCompactOptions{
 		DefaultRouteSelector: h.cfg.DefaultRouteSelector,
 		RoutePrefixes:        h.cfg.RoutePrefixes,
-		RouteSelector:        strings.TrimSpace(r.Header.Get("X-LIP-Route")),
+		RouteSelector:        h.cfg.HTTPHeaders.RouteSelector(r.Header),
 		Headers:              r.Header,
 		Method:               r.Method,
 		Path:                 r.URL.Path,
 		RemoteAddr:           r.RemoteAddr,
 		MaxBodyBytes:         maxBytes,
 		Limits:               h.cfg.ProtocolLimits,
+		HTTPHeaders:          h.cfg.HTTPHeaders,
 	}
 
 	var decoded *DecodedCompact
 	err = decodeqos.Guard(releaseDecodeOnce, func() error {
 		var decodeErr error
 		decoded, decodeErr = DecodeCompactRequest(ctx, body, opts)
+		if decodeErr == nil && decoded != nil && decoded.Call != nil {
+			hdrs := h.cfg.HTTPHeaders.OrDefault()
+			sessionwire.ApplyAuthoritativeHeadersNamed(&decoded.Call.Session, r.Header, hdrs.SessionID, hdrs.ResumeToken)
+		}
 		return decodeErr
 	})
 	releaseDecode = nil

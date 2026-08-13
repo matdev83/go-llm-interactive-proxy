@@ -46,3 +46,17 @@ func TestWrapDiagnosticsProtect_acceptsMatchingHeader(t *testing.T) {
 		t.Fatalf("code=%d called=%v", rec.Code, called)
 	}
 }
+
+func TestWrapDiagnosticsProtectHeaders_acceptsAlias(t *testing.T) {
+	t.Parallel()
+	called := false
+	h := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true })
+	wrapped := diag.WrapDiagnosticsProtectHeaders("supersecret12", []string{diag.HeaderDiagnosticsSecret, "X-Debug-Secret"}, h)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Debug-Secret", "supersecret12")
+	rec := httptest.NewRecorder()
+	wrapped.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !called {
+		t.Fatalf("code=%d called=%v", rec.Code, called)
+	}
+}

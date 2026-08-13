@@ -18,7 +18,7 @@ func backendAnthropic(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys, 
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return execbackend.Backend{}, fmt.Errorf("anthropic backend config: %w", err)
 	}
-	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://api.anthropic.com")
+	base := cmp.Or(strings.TrimSpace(y.BaseURL), anthropic.DefaultBaseURL)
 	ek, primaryKey := firstAPIKey(y.APIKey, y.APIKeys, y.Credentials, keys.Anthropic)
 	httpClient, err := resolveIdentityHTTP(upstream, idCfg, n, "anthropic backend config")
 	if err != nil {

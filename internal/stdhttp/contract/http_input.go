@@ -8,6 +8,7 @@ package contract
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -77,6 +78,10 @@ type HTTPFrontendInput struct {
 	DecodeAdmission      lipsdk.DecodeAdmission
 	TrafficPorts         traffic.PortBundle
 	PreRequestKeepalive  lipsdk.FrontendKeepaliveConfig
+	// HTTPHeaders is the resolved inbound header-name set for this generation.
+	HTTPHeaders lipsdk.HTTPHeaders
+	// StreamKeepaliveInterval is the recovery SSE keepalive interval.
+	StreamKeepaliveInterval time.Duration
 	// GenerationContext is the runtime-owned generation lifecycle context. It
 	// cancels when the generation begins shutdown (quiesce/drain) and is passed
 	// to every mounted frontend through [lipsdk.FrontendMountOptions] so

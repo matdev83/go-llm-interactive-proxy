@@ -61,6 +61,9 @@ type CoordinatorConfig struct {
 	CancelTimeout time.Duration
 }
 
+// DefaultCancelTimeout bounds B-leg Cancel when CoordinatorConfig.CancelTimeout is unset.
+const DefaultCancelTimeout = 2 * time.Second
+
 type Coordinator struct {
 	mu    sync.Mutex
 	cfg   CoordinatorConfig

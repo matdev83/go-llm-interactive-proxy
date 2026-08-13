@@ -2,6 +2,13 @@ package config
 
 import "strings"
 
+// DefaultFallbackWireModel is the compile-time model token used when synthesizing a
+// default route selector and no WireModelForBackend mapping is available.
+const DefaultFallbackWireModel = "gpt-4o-mini"
+
+// DefaultFallbackRouteSelector is used only when wireModel is nil (tests / degenerate bootstrap).
+const DefaultFallbackRouteSelector = "openai-responses:" + DefaultFallbackWireModel
+
 // WireModelForBackend resolves the default model token for a backend factory id (plugin kind)
 // when synthesizing a fallback route selector. Supplied at composition time (typically
 // standardplugins.DefaultWireModel) so policy stays independent of HTTP mounting.
@@ -29,7 +36,7 @@ func EffectiveDefaultRouteSelector(cfg *Config, wireModel WireModelForBackend) s
 			if instance == "" {
 				continue
 			}
-			model := "gpt-4o-mini"
+			model := DefaultFallbackWireModel
 			if wireModel != nil {
 				model = strings.TrimSpace(wireModel(p.FactoryID()))
 				if model == "" {
@@ -42,9 +49,9 @@ func EffectiveDefaultRouteSelector(cfg *Config, wireModel WireModelForBackend) s
 	if wireModel != nil {
 		m := strings.TrimSpace(wireModel("openai-responses"))
 		if m == "" {
-			m = "gpt-4o-mini"
+			m = DefaultFallbackWireModel
 		}
 		return "openai-responses:" + m
 	}
-	return "openai-responses:gpt-4o-mini"
+	return DefaultFallbackRouteSelector
 }

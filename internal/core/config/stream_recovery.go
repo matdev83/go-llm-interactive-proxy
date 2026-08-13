@@ -15,11 +15,12 @@ type StreamRecoveryConfig struct {
 }
 
 type AutoResumeConfig struct {
-	Enabled          *bool  `yaml:"enabled"`
-	IdleTimeout      string `yaml:"idle_timeout"`
-	GracePeriod      string `yaml:"grace_period"`
-	PostOutputPolicy string `yaml:"post_output_policy"`
-	EmitWarning      *bool  `yaml:"emit_warning"`
+	Enabled           *bool  `yaml:"enabled"`
+	IdleTimeout       string `yaml:"idle_timeout"`
+	GracePeriod       string `yaml:"grace_period"`
+	PostOutputPolicy  string `yaml:"post_output_policy"`
+	EmitWarning       *bool  `yaml:"emit_warning"`
+	KeepaliveInterval string `yaml:"keepalive_interval"`
 }
 
 const (
@@ -28,16 +29,18 @@ const (
 )
 
 const (
-	defaultStreamRecoveryIdleTimeout = 45 * time.Second
-	defaultStreamRecoveryGracePeriod = 3 * time.Second
+	defaultStreamRecoveryIdleTimeout       = 45 * time.Second
+	defaultStreamRecoveryGracePeriod       = 3 * time.Second
+	defaultStreamRecoveryKeepaliveInterval = 12 * time.Second
 )
 
 type EffectiveAutoResumeConfig struct {
-	Enabled          bool
-	IdleTimeout      time.Duration
-	GracePeriod      time.Duration
-	PostOutputPolicy StreamRecoveryPostOutputPolicy
-	EmitWarning      bool
+	Enabled           bool
+	IdleTimeout       time.Duration
+	GracePeriod       time.Duration
+	PostOutputPolicy  StreamRecoveryPostOutputPolicy
+	EmitWarning       bool
+	KeepaliveInterval time.Duration
 }
 
 type StreamRecoveryOverrides struct {
@@ -88,10 +91,11 @@ func StreamRecoveryOverridesFromEnv() (StreamRecoveryOverrides, error) {
 
 func EffectiveStreamRecoveryAutoResume(cfg *Config, overrides StreamRecoveryOverrides) (EffectiveAutoResumeConfig, error) {
 	eff := EffectiveAutoResumeConfig{
-		IdleTimeout:      defaultStreamRecoveryIdleTimeout,
-		GracePeriod:      defaultStreamRecoveryGracePeriod,
-		PostOutputPolicy: StreamRecoveryPostOutputFinishWithWarning,
-		EmitWarning:      true,
+		IdleTimeout:       defaultStreamRecoveryIdleTimeout,
+		GracePeriod:       defaultStreamRecoveryGracePeriod,
+		PostOutputPolicy:  StreamRecoveryPostOutputFinishWithWarning,
+		EmitWarning:       true,
+		KeepaliveInterval: defaultStreamRecoveryKeepaliveInterval,
 	}
 	if cfg != nil {
 		ar := cfg.StreamRecovery.AutoResume
@@ -121,6 +125,13 @@ func EffectiveStreamRecoveryAutoResume(cfg *Config, overrides StreamRecoveryOver
 		}
 		if ar.EmitWarning != nil {
 			eff.EmitWarning = *ar.EmitWarning
+		}
+		if strings.TrimSpace(ar.KeepaliveInterval) != "" {
+			d, err := parsePositiveDuration("stream_recovery.auto_resume.keepalive_interval", ar.KeepaliveInterval)
+			if err != nil {
+				return eff, err
+			}
+			eff.KeepaliveInterval = d
 		}
 	}
 	if overrides.EnvEnabled != nil {

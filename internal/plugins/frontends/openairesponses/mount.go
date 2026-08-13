@@ -14,14 +14,16 @@ func Mount(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error {
 		return err
 	}
 	mux.Handle("/v1/responses", &Handler{
-		Exec:                 opts.Exec,
-		DefaultRouteSelector: opts.DefaultRoute,
-		RoutePrefixes:        routeselect.NewPrefixSet(opts.RoutePrefixes),
-		MaxRequestBodyBytes:  opts.MaxRequestBodyBytes,
-		DecodeAdmission:      opts.DecodeAdmission,
-		TrafficPorts:         opts.TrafficPorts,
-		PreRequestKeepalive:  opts.PreRequestKeepalive,
-		Config:               cfg,
+		Exec:                    opts.Exec,
+		DefaultRouteSelector:    opts.DefaultRoute,
+		RoutePrefixes:           routeselect.NewPrefixSet(opts.RoutePrefixes),
+		MaxRequestBodyBytes:     opts.MaxRequestBodyBytes,
+		DecodeAdmission:         opts.DecodeAdmission,
+		TrafficPorts:            opts.TrafficPorts,
+		PreRequestKeepalive:     opts.PreRequestKeepalive,
+		HTTPHeaders:             opts.HTTPHeaders,
+		StreamKeepaliveInterval: opts.StreamKeepaliveInterval,
+		Config:                  cfg,
 	})
 	return nil
 }

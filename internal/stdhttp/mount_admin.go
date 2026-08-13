@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	billingadmin "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/billing"
 	cpadmin "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/controlplane"
 	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
@@ -58,7 +57,7 @@ func mountBillingReports(in billingReportsMount) {
 		Queries:  in.Operations.BillingReports,
 		Commands: in.Operations.BillingProvisioner,
 	})
-	protected := diag.WrapDiagnosticsProtect(in.Cfg.Diagnostics.SharedSecret, http.StripPrefix(path, handler))
+	protected := wrapDiagnostics(in.Cfg, http.StripPrefix(path, handler))
 	in.Mux.Handle(path, protected)
 	in.Mux.Handle(path+"/", protected)
 	if in.Log != nil {
@@ -85,7 +84,7 @@ func mountAccountingAdmin(in mountAccountingAdminInput) {
 		MaxBodyBytes: cfg.Accounting.Admin.MaxBodyBytes,
 		Service:      service,
 	})
-	mux.Handle(path, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, h))
+	mux.Handle(path, wrapDiagnostics(cfg, h))
 	log.InfoContext(logCtx, "token accounting admin mounted", "path", path)
 }
 
@@ -144,7 +143,7 @@ func mountControlPlaneQuery(in controlPlaneQueryMount) {
 		Queries:         ops.ControlPlaneQueries,
 		ReadinessReport: ops.ReadinessReport,
 	})
-	protected := diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, http.StripPrefix(base, handler))
+	protected := wrapDiagnostics(cfg, http.StripPrefix(base, handler))
 	mux.Handle(base, protected)
 	mux.Handle(base+"/", protected)
 	if log != nil {
@@ -220,7 +219,7 @@ func mountAccountingAuthorityQuery(in accountingAuthorityQueryMount) {
 			accHandler.ServeHTTP(w, r)
 		})
 	}
-	protected := diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, http.StripPrefix(base, handler))
+	protected := wrapDiagnostics(cfg, http.StripPrefix(base, handler))
 	mux.Handle(base, protected)
 	mux.Handle(base+"/", protected)
 	if log != nil {
@@ -250,7 +249,7 @@ func mountRouteOverrideAdmin(in routeOverrideAdminMount) {
 	if prefix == "" {
 		return
 	}
-	protected := diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, http.StripPrefix(prefix, ops.RouteOverrideAdmin))
+	protected := wrapDiagnostics(cfg, http.StripPrefix(prefix, ops.RouteOverrideAdmin))
 	mux.Handle(prefix, protected)
 	mux.Handle(prefix+"/", protected)
 	if log != nil {

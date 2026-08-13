@@ -43,3 +43,6 @@ func CooldownFromRetryAfterOrFallback(value string, now time.Time, fallback time
 	}
 	return now.Add(fallback)
 }
+
+// DefaultRateLimitFallback is used when Retry-After is missing or unparseable.
+const DefaultRateLimitFallback = 60 * time.Second

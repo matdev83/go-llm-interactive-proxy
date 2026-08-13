@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
@@ -36,7 +35,7 @@ func (e *Executor) lifecycleCoordinator() *leglifecycle.Coordinator {
 	e.lifecycleMu.Lock()
 	defer e.lifecycleMu.Unlock()
 	if e.ALegLifecycle == nil {
-		e.ALegLifecycle = leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 2 * time.Second})
+		e.ALegLifecycle = leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: leglifecycle.DefaultCancelTimeout})
 	}
 	return e.ALegLifecycle
 }

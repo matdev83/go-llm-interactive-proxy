@@ -4,7 +4,6 @@ package alibabatokenplanintl
 import (
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
@@ -46,7 +45,7 @@ func New(cfg Config) execbackend.Backend {
 		Credentials:        cfg.Credentials,
 		HTTPClient:         cfg.HTTPClient,
 		SDKMaxRetries:      cfg.SDKMaxRetries,
-		RateLimitFallback:  60 * time.Second,
+		RateLimitFallback:  credpool.DefaultRateLimitFallback,
 		NormalizeRoles:     true,
 		NormalizeModel:     normalizeModel,
 		ThinkingFromEffort: true,

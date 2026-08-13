@@ -179,20 +179,22 @@ func Mount(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error {
 		_ = context.AfterFunc(opts.GenerationContext, func() { _ = activeClose() })
 	}
 	handler := NewHandler(HandlerConfig{
-		Executor:              opts.Exec,
-		DefaultRouteSelector:  opts.DefaultRoute,
-		RoutePrefixes:         opts.RoutePrefixes,
-		MaxRequestBodyBytes:   opts.MaxRequestBodyBytes,
-		ProtocolLimits:        proto.DefaultLimits(),
-		DecodeAdmission:       opts.DecodeAdmission,
-		Authorizer:            opts.Authorizer,
-		RequireAuthentication: !opts.AllowUnauthenticated,
-		AllowUnauthenticated:  opts.AllowUnauthenticated,
-		TrafficPorts:          opts.TrafficPorts,
-		PreRequestKeepalive:   opts.PreRequestKeepalive,
-		ContinuationStore:     store,
-		ContinuationResolver:  resolver,
-		Config:                cfg,
+		Executor:                opts.Exec,
+		DefaultRouteSelector:    opts.DefaultRoute,
+		RoutePrefixes:           opts.RoutePrefixes,
+		MaxRequestBodyBytes:     opts.MaxRequestBodyBytes,
+		ProtocolLimits:          proto.DefaultLimits(),
+		DecodeAdmission:         opts.DecodeAdmission,
+		Authorizer:              opts.Authorizer,
+		RequireAuthentication:   !opts.AllowUnauthenticated,
+		AllowUnauthenticated:    opts.AllowUnauthenticated,
+		TrafficPorts:            opts.TrafficPorts,
+		PreRequestKeepalive:     opts.PreRequestKeepalive,
+		ContinuationStore:       store,
+		ContinuationResolver:    resolver,
+		Config:                  cfg,
+		HTTPHeaders:             opts.HTTPHeaders,
+		StreamKeepaliveInterval: opts.StreamKeepaliveInterval,
 	})
 
 	if mux != nil {

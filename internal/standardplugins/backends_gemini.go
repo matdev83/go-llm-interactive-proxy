@@ -18,7 +18,7 @@ func backendGemini(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys, idC
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return execbackend.Backend{}, fmt.Errorf("gemini backend config: %w", err)
 	}
-	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://generativelanguage.googleapis.com")
+	base := cmp.Or(strings.TrimSpace(y.BaseURL), gemini.DefaultBaseURL)
 	ek, primaryKey := firstAPIKey(y.APIKey, y.APIKeys, y.Credentials, keys.Gemini)
 	httpClient, err := resolveIdentityHTTP(upstream, idCfg, n, "gemini backend config")
 	if err != nil {

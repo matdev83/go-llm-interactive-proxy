@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
@@ -34,12 +35,14 @@ type Handler struct {
 	// RoutePrefixes are backend route-selector prefixes accepted from body model.
 	RoutePrefixes routeselect.PrefixSet
 	// MaxRequestBodyBytes caps the request body; zero uses reqbody.DefaultMaxBytes.
-	MaxRequestBodyBytes int64
-	Log                 *slog.Logger
-	TrafficPorts        traffic.PortBundle
-	DecodeAdmission     lipsdk.DecodeAdmission
-	PreRequestKeepalive lipsdk.FrontendKeepaliveConfig
-	Config              Config
+	MaxRequestBodyBytes     int64
+	Log                     *slog.Logger
+	TrafficPorts            traffic.PortBundle
+	DecodeAdmission         lipsdk.DecodeAdmission
+	PreRequestKeepalive     lipsdk.FrontendKeepaliveConfig
+	Config                  Config
+	HTTPHeaders             lipsdk.HTTPHeaders
+	StreamKeepaliveInterval time.Duration
 
 	// pipeOnce serializes the first spec() build; handlers serve concurrent requests.
 	pipeOnce sync.Once
@@ -65,15 +68,17 @@ func (h *Handler) spec() *frontendpipe.Spec[EncodeOptions] {
 func (h *Handler) buildPipe() {
 	h.pipe = frontendpipe.Spec[EncodeOptions]{
 		Config: frontendpipe.Config{
-			Exec:                 h.Exec,
-			DefaultRouteSelector: h.DefaultRouteSelector,
-			RoutePrefixes:        h.RoutePrefixes,
-			MaxRequestBodyBytes:  h.MaxRequestBodyBytes,
-			Log:                  h.Log,
-			TrafficPorts:         h.TrafficPorts,
-			DecodeAdmission:      h.DecodeAdmission,
-			PreRequestKeepalive:  h.PreRequestKeepalive,
-			FrontendID:           ID,
+			Exec:                    h.Exec,
+			DefaultRouteSelector:    h.DefaultRouteSelector,
+			RoutePrefixes:           h.RoutePrefixes,
+			MaxRequestBodyBytes:     h.MaxRequestBodyBytes,
+			Log:                     h.Log,
+			TrafficPorts:            h.TrafficPorts,
+			DecodeAdmission:         h.DecodeAdmission,
+			PreRequestKeepalive:     h.PreRequestKeepalive,
+			FrontendID:              ID,
+			HTTPHeaders:             h.HTTPHeaders,
+			StreamKeepaliveInterval: h.StreamKeepaliveInterval,
 		},
 		Wire:               frontendpipe.OpenAIWire{},
 		RouteFromBodyModel: true,

@@ -62,9 +62,25 @@ func NewAdapter(cfg Config) (*Adapter, error) {
 		cfg.Now = func() time.Time { return time.Now().UTC() }
 	}
 	if cfg.HoldTTL <= 0 {
-		cfg.HoldTTL = 15 * time.Minute
+		cfg.HoldTTL = billing.DefaultHoldTTL
 	}
 	return &Adapter{cfg: cfg}, nil
+}
+
+// SetHoldTTL replaces the authorization hold lifetime. Zero or negative is ignored.
+func (a *Adapter) SetHoldTTL(d time.Duration) {
+	if a == nil || d <= 0 {
+		return
+	}
+	a.cfg.HoldTTL = d
+}
+
+// HoldTTL returns the configured authorization hold lifetime.
+func (a *Adapter) HoldTTL() time.Duration {
+	if a == nil {
+		return 0
+	}
+	return a.cfg.HoldTTL
 }
 
 var (

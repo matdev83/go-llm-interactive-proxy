@@ -98,6 +98,7 @@ func ApplyStreamRecoveryOverrides(cfg *Config, overrides StreamRecoveryOverrides
 	cfg.StreamRecovery.AutoResume.GracePeriod = eff.GracePeriod.String()
 	cfg.StreamRecovery.AutoResume.PostOutputPolicy = string(eff.PostOutputPolicy)
 	cfg.StreamRecovery.AutoResume.EmitWarning = &emit
+	cfg.StreamRecovery.AutoResume.KeepaliveInterval = eff.KeepaliveInterval.String()
 	return nil
 }
 
@@ -117,7 +118,7 @@ func applyLoadDefaults(cfg *Config) {
 		cfg.Diagnostics.AttemptsPath = "/admin/attempts"
 	}
 	if cfg.Routing.MaxAttempts == 0 {
-		cfg.Routing.MaxAttempts = 3
+		cfg.Routing.MaxAttempts = DefaultMaxAttempts
 	}
 	if cfg.Continuity.InMemory && strings.TrimSpace(cfg.Continuity.Store) == "" {
 		cfg.Continuity.Store = "memory"

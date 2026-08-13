@@ -9,12 +9,14 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/execerr"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/holdalive"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/jsonguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/reqbody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/routeselect"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/streamdebug"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -61,15 +63,17 @@ type WireErrors interface {
 
 // Config holds shared handler dependencies for the create pipeline.
 type Config struct {
-	Exec                 lipsdk.ExecutorView
-	DefaultRouteSelector string
-	RoutePrefixes        routeselect.PrefixSet
-	MaxRequestBodyBytes  int64
-	Log                  *slog.Logger
-	TrafficPorts         traffic.PortBundle
-	DecodeAdmission      lipsdk.DecodeAdmission
-	PreRequestKeepalive  lipsdk.FrontendKeepaliveConfig
-	FrontendID           string
+	Exec                    lipsdk.ExecutorView
+	DefaultRouteSelector    string
+	RoutePrefixes           routeselect.PrefixSet
+	MaxRequestBodyBytes     int64
+	Log                     *slog.Logger
+	TrafficPorts            traffic.PortBundle
+	DecodeAdmission         lipsdk.DecodeAdmission
+	PreRequestKeepalive     lipsdk.FrontendKeepaliveConfig
+	FrontendID              string
+	HTTPHeaders             lipsdk.HTTPHeaders
+	StreamKeepaliveInterval time.Duration
 }
 
 // Spec parameterizes one frontend's create path.
@@ -118,6 +122,10 @@ func (c Config) execute(ctx context.Context, w http.ResponseWriter, call *lipapi
 // ServeHTTP runs the shared decode → execute → encode pipeline.
 func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	if spec.StreamKeepaliveInterval > 0 {
+		ctx = stream.ContextWithKeepaliveInterval(ctx, spec.StreamKeepaliveInterval)
+		r = r.WithContext(ctx)
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -150,7 +158,7 @@ func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	sel := strings.TrimSpace(r.Header.Get(routeselect.HeaderRouteSelector))
+	sel := spec.HTTPHeaders.RouteSelector(r.Header)
 	if spec.ResolveRouteSelector != nil {
 		if v := strings.TrimSpace(spec.ResolveRouteSelector(r, body, pm)); v != "" {
 			sel = v
@@ -195,6 +203,10 @@ func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Reques
 		streamdebug.LogDecodeFailure(ctx, log, spec.FrontendID, body, err)
 		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteInvalidJSON(w))
 		return
+	}
+	if decoded != nil && decoded.Call != nil {
+		hdrs := spec.HTTPHeaders.OrDefault()
+		sessionwire.ApplyAuthoritativeHeadersNamed(&decoded.Call.Session, r.Header, hdrs.SessionID, hdrs.ResumeToken)
 	}
 	call := decoded.Call
 	if err := call.Validate(); err != nil {

@@ -111,6 +111,12 @@ type FrontendMountOptions struct {
 	// FrontendInstanceID is the immutable configured instance identity passed to
 	// ContinuationWiringFactory. Empty falls back to the factory ID.
 	FrontendInstanceID string
+	// HTTPHeaders is the resolved inbound header-name set (defaults plus aliases).
+	// Zero value uses [DefaultHTTPHeaders].
+	HTTPHeaders HTTPHeaders
+	// StreamKeepaliveInterval is the recovery SSE keepalive interval. Zero uses
+	// the stream package default (12s).
+	StreamKeepaliveInterval time.Duration
 }
 
 type FrontendKeepaliveConfig struct {
