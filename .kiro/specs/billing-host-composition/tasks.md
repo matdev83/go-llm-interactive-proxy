@@ -65,7 +65,7 @@ TDD throughout (RED → GREEN → REFACTOR). Do not modify stream handlers, TUR 
   - _Boundary: Admin billing commands_
   - _Validation: `go test ./internal/stdhttp/admin/billing`_
 
-- [ ] 3.2 Protect provisioning with the existing diagnostics secret and mount gate
+- [x] 3.2 Protect provisioning with the existing diagnostics secret and mount gate
   - Pass the provisioner through HTTP operations into the billing mount; empty diagnostics secret still mounts nothing, including POSTs.
   - Missing diagnostics protection rejects provisioning; client frontend routes stay free of these commands.
   - Update the mount-contract inventory for the new operations field.
@@ -152,4 +152,5 @@ TDD throughout (RED → GREEN → REFACTOR). Do not modify stream handlers, TUR 
 
 ## Implementation Notes
 - SnapshotCatalog route overrides store distinct versioned bodies, but RateTurn/MaxCharge require one customer catalog identity: emit ModelPricing/RoutePricing amounts under the TUR/default CustomerPricingRef, with a card for every billed backend/model when any override applies.
+- DurableStore still returns store-only identity/not-found errors; wrap them as billing.ErrAccountConflict / billing.ErrAccountNotFound when wiring the real store to admin HTTP (task 3.2 or 4.2).
 
