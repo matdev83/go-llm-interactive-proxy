@@ -99,7 +99,7 @@ TDD throughout (RED → GREEN → REFACTOR). Do not modify stream handlers, TUR 
 
 ## 5. Injected money-loop proof and fences
 
-- [ ] 5.1 (P) Prove an injected host can authorize, execute, seal, rate, and journal
+- [x] 5.1 (P) Prove an injected host can authorize, execute, seal, rate, and journal
   - Open a durable sqlite journal, publish catalog versions, compose injection, BuildHost with Production, provision a funded prepaid account through the trusted command port (not admin HTTP), attach authenticated principal and authoritative session, execute one billable turn against a stub backend.
   - Stamped admission snapshot refs must be the same catalog versions the post-turn rating lookup uses.
   - After the post-turn worker processes, journal-backed account/turn reports show customer and operator results, not stream reinterpretation.
@@ -154,4 +154,5 @@ TDD throughout (RED → GREEN → REFACTOR). Do not modify stream handlers, TUR 
 - SnapshotCatalog route overrides store distinct versioned bodies, but RateTurn/MaxCharge require one customer catalog identity: emit ModelPricing/RoutePricing amounts under the TUR/default CustomerPricingRef, with a card for every billed backend/model when any override applies.
 - DurableStore AccountProvisioner methods (CreateAccount, PostFunding, ChangeCreditPolicy) wrap store sentinels with billing.ErrAccountConflict / billing.ErrAccountNotFound via `%w` chaining so both remain detectable; GetAccount and non-provisioner ops still return store-only sentinels.
 - ComposeBilling also type-asserts AuthorizationStore (needed by billingadmission.NewAdapter) in addition to the five store capabilities listed in the design contract.
+- Host-loop helpers live in `billing_host_loop_test.go` (sqlite store, catalog seed, BuildHost YAML, usage stub, wait-processed). 5.2/5.4 should reuse them. ClientSessionID poison is asserted on `call.Session` after BeginTurn, not on TUR AuthorizationID.
 
