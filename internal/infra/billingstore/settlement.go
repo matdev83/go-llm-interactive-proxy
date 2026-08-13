@@ -40,7 +40,7 @@ func (s *DurableStore) ApplyBillingResult(ctx context.Context, input billing.App
 	})
 }
 
-func (s *DurableStore) applyBillingAttempt(ctx context.Context, record billing.TurnUsageRecord, authorization billing.Authorization, result billing.BillingResult, resultFingerprint string) (billing.Settlement, error) {
+func (s *DurableStore) applyBillingAttempt(ctx context.Context, record billing.TurnUsageRecord, authorization billing.Authorization, result billing.Result, resultFingerprint string) (billing.Settlement, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return billing.Settlement{}, fmt.Errorf("billingstore: begin settlement: %w", err)
@@ -370,7 +370,7 @@ func loadSettlementHold(ctx context.Context, tx bun.Tx, accountID, authorization
 	return hold, err
 }
 
-func (s *DurableStore) loadSettlementReplay(ctx context.Context, tx bun.Tx, record billing.TurnUsageRecord, result billing.BillingResult) (billing.Settlement, error) {
+func (s *DurableStore) loadSettlementReplay(ctx context.Context, tx bun.Tx, record billing.TurnUsageRecord, result billing.Result) (billing.Settlement, error) {
 	customerSource, _ := billing.CustomerSettlementSourceKey(record.Key)
 	customerSnapshot, found, err := loadOperationSnapshot(ctx, tx, record.AccountID, "customer_settlement", record.Key)
 	if err != nil || !found {

@@ -10,7 +10,7 @@ import (
 )
 
 // TestFrontendServeHTTPPreflightBeforeDecode locks shared create-pipeline call order by
-// source position (not CFG dominance): reqbody.ReadAll -> jsonguard.PreflightContext ->
+// source position (not CFG dominance): reqbody.ReadAll -> jsonguard.PreflightWithContext ->
 // decodeqos.TryAdmit -> (optional FromModelOrDefault) -> decode (via spec.Decode inside
 // decodeqos.Guard). Frontends delegate ServeHTTP to frontendpipe.ServeHTTP.
 func TestFrontendServeHTTPPreflightBeforeDecode(t *testing.T) {
@@ -46,7 +46,7 @@ func TestFrontendServeHTTPPreflightBeforeDecode(t *testing.T) {
 			if readAllPos == 0 {
 				readAllPos = call.Pos()
 			}
-		case pkg == "jsonguard" && cname == "PreflightContext":
+		case pkg == "jsonguard" && cname == "PreflightWithContext":
 			if preflightPos == 0 {
 				preflightPos = call.Pos()
 			}
@@ -66,11 +66,11 @@ func TestFrontendServeHTTPPreflightBeforeDecode(t *testing.T) {
 		return true
 	})
 	if readAllPos == 0 || preflightPos == 0 || tryAdmitPos == 0 || decodeGuardPos == 0 {
-		t.Fatalf("frontendpipe ServeHTTP: missing ReadAll(%v) PreflightContext(%v) TryAdmit(%v) decodeqos.Guard(%v)",
+		t.Fatalf("frontendpipe ServeHTTP: missing ReadAll(%v) PreflightWithContext(%v) TryAdmit(%v) decodeqos.Guard(%v)",
 			readAllPos != 0, preflightPos != 0, tryAdmitPos != 0, decodeGuardPos != 0)
 	}
 	if readAllPos >= preflightPos || preflightPos >= tryAdmitPos || tryAdmitPos >= decodeGuardPos {
-		t.Fatalf("frontendpipe ServeHTTP: want ReadAll < PreflightContext < TryAdmit < decodeqos.Guard; positions %d %d %d %d",
+		t.Fatalf("frontendpipe ServeHTTP: want ReadAll < PreflightWithContext < TryAdmit < decodeqos.Guard; positions %d %d %d %d",
 			readAllPos, preflightPos, tryAdmitPos, decodeGuardPos)
 	}
 	if routeExtractPos != 0 && routeExtractPos <= tryAdmitPos {
