@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/protocols/mediautil"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/protocols/mediaurl"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/openai/openai-go/v3/responses"
 )
@@ -355,7 +355,7 @@ func EmitOutputMediaFromResponse(m *Mapper, resp responses.Response) error {
 			}
 			switch probe.Type {
 			case "input_image":
-				url := mediautil.ExtractImageURL(probe.ImageURL)
+				url := mediaurl.ExtractImageURL(probe.ImageURL)
 				if url == "" {
 					continue
 				}
@@ -365,7 +365,7 @@ func EmitOutputMediaFromResponse(m *Mapper, resp responses.Response) error {
 				if err := m.EnsureMessageStarted(); err != nil {
 					return err
 				}
-				if err := m.pending.Push(lipapi.Event{Kind: lipapi.EventAssistantImageRef, AssistantRef: url, AssistantMIME: mediautil.SniffImageMIME(url)}); err != nil {
+				if err := m.pending.Push(lipapi.Event{Kind: lipapi.EventAssistantImageRef, AssistantRef: url, AssistantMIME: mediaurl.SniffImageMIME(url)}); err != nil {
 					return err
 				}
 			case "input_file":

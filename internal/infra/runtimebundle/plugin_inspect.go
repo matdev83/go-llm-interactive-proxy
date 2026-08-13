@@ -30,11 +30,11 @@ type PluginDoctorReport = diagnostics.DoctorReport
 // InspectBackendPlugins runs non-executing discovery/catalog inspect for cfg.
 // It uses the same ResolvePluginCatalog path as standard serve bootstrap.
 func InspectBackendPlugins(cfg *config.Config, reg *pluginreg.Registry) (PluginInspectReport, error) {
-	return InspectBackendPluginsCtx(context.Background(), cfg, reg)
+	return InspectBackendPluginsWithContext(context.Background(), cfg, reg)
 }
 
-// InspectBackendPluginsCtx is like InspectBackendPlugins but accepts a context for live inventory projection.
-func InspectBackendPluginsCtx(ctx context.Context, cfg *config.Config, reg *pluginreg.Registry) (PluginInspectReport, error) {
+// InspectBackendPluginsWithContext is like InspectBackendPlugins but accepts a context for live inventory projection.
+func InspectBackendPluginsWithContext(ctx context.Context, cfg *config.Config, reg *pluginreg.Registry) (PluginInspectReport, error) {
 	if cfg == nil {
 		return PluginInspectReport{}, fmt.Errorf("runtimebundle: InspectBackendPlugins: nil config")
 	}

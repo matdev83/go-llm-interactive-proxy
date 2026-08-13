@@ -617,6 +617,7 @@ func TestManager_FinishTurn_auditOutcomes(t *testing.T) {
 		{app.TurnOutcomePreOutputDenied, "pre_output_denied"},
 		{app.TurnOutcomeSurfacedFailure, "surfaced_failure"},
 		{app.TurnOutcomePostOutputRecorderFailure, "post_output_recorder_failure"},
+		{app.TurnOutcomeUnknown, "unknown"},
 	}
 	for _, tc := range kinds {
 		t.Run(tc.want, func(t *testing.T) {
@@ -637,6 +638,15 @@ func TestManager_FinishTurn_auditOutcomes(t *testing.T) {
 	}
 	if len(gotResults) < len(kinds) {
 		t.Fatalf("audit outcomes: %#v", gotResults)
+	}
+	found := map[string]bool{}
+	for _, r := range gotResults {
+		found[r] = true
+	}
+	for _, tc := range kinds {
+		if !found[tc.want] {
+			t.Fatalf("missing audit result %q in %#v", tc.want, gotResults)
+		}
 	}
 }
 

@@ -47,7 +47,7 @@ Core owns orchestration and policy. Core imports `pkg/lipapi` and `pkg/lipsdk`; 
   - `controlplane/` — Ledgerstore projections (`usage_projector.go`), metering bridges, readiness reports (`readiness_report.go`), query bounds, privacy guardrails.
   - `metering/` — Usage/cost metering models.
 - **Continuity & Sessions**: `b2bua/` (attempt lineage/store), `continuity/` (`bunstore`), `securesession/` (`adapters/`, `storecontract/`, `domain/`, `app/`)
-- **Auth, Security & Identity**: `accessmode/`, `auth/`, `admin/`, `http/`, `safety/`, `proxycredentials/`, `identity/`, `secretsguard/` (ingress secrets catalog/matcher)
+- **Auth, Security & Identity**: `accessmode/`, `auth/`, `admin/`, `http/`, `safety/`, `proxycredentials/`, `identity/`, `secretguard/` (ingress secrets catalog/matcher)
 - **Canonical Support & State**: `capabilities/`, `jsonpresence/`, `jsonshape/` (preflight guards), `toolcallrepair/`, `diag/`, `config/`, `configreload/`, `interleavedthinking/` (reasoning memo store/shape), `interleavedstate/`, `snapshotgen/`
 - **Streaming**: `stream/` (canonical stream, event pumps), `streamrecovery/`
 - **Hooks & Extensions**: `hooks/` (stage evaluation), `extensions/` (stage-four extension platform)
@@ -74,7 +74,7 @@ Wire frontends translate protocol payloads <-> canonical contracts:
 ### 4. Official Backend Plugins & Connectors (Hybrid Architecture — ADR 0008)
 
 - **Essential Hosted Backends** (`internal/plugins/backends/` — statically linked): `alibabatokenplanintl/`, `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`, `bedrock/`
-- **Custom-Compatible Helpers**: `openresponsescompat/`, `openaicompat/`, `compatibleutil/`, `transporterr/`, `checkcfg/`, `credpool/`, `httpidentity/`, `modeldiscover/`, `openaicaps/`, `openaicred/`, `openaifamily/`, `openaiusage/`, `protocols/`, `streampeek/`
+- **Custom-Compatible Helpers**: `openresponsescompat/`, `openaicompat/`, `compatmode/`, `transporterr/`, `checkcfg/`, `credpool/`, `httpidentity/`, `modeldiscover/`, `openaicaps/`, `openaicred/`, `openaifamily/`, `openaiusage/`, `protocols/`, `streampeek/`
 - **Protocol Protocols**: `internal/plugins/protocols/openairesponsesitem` (exact OpenAI Responses reasoning-item Opaque schema).
 - **Optional Backend Connectors** (`connectors/` — independent modules, gRPC ABI over IPC): `acp`, `agycliacp`, `codex`, `cursorcliacp`, `cursorsdk`, `geminicliacp`, `huggingface`, `llamacpp`, `lmstudio`, `localstub`, `nvidia`, `ollama`, `opencode`, `openrouter`, `vllm`.
 - **Connector Support**: `connector-support/` (`acp/`, `openaicompat/`).
@@ -83,7 +83,7 @@ Wire frontends translate protocol payloads <-> canonical contracts:
 
 - `reasoningpreservation/` — Default-on reasoning output capture/restore (`EventReasoningPart` + Chat/Anthropic/Codex dialects).
 - `codexclientcompat/` — OpenAI Codex native compaction reasoning output preservation.
-- `secretsguard/` — Ingress credential scanner & enforcement Guard.
+- `secretguard/` — Ingress credential scanner & enforcement Guard.
 - `toolcallrepair/` — Malformed tool-call YAML auto-repair.
 - Proof/Ref Features: `refsubmit/`, `refparts/`, `reftool/`, `reftoolpolicy/`, `refautoappend/`, `refworkspaceguard/`, `reftraffictranscript/`, `refverifier/`, `prerequestpolicy/`, `submitnoop/`, `partsnoop/`, `toolreactornoop/`.
 

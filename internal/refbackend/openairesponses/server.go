@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/utils"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/jsonprobe"
 )
 
 const maxBodyBytes = 10 << 20
@@ -82,19 +82,19 @@ func NewHandler(cfg Config) http.Handler {
 		if cfg.OnAuthorizedCredential != nil {
 			cfg.OnAuthorizedCredential(secret)
 		}
-		if utils.TryWriteForcedHTTPError(w, cfg.ForcedHTTPStatus, cfg.ForcedRetryAfter, cfg.ForcedErrorJSON, defaultForcedErrorJSON) {
+		if jsonprobe.TryWriteForcedHTTPError(w, cfg.ForcedHTTPStatus, cfg.ForcedRetryAfter, cfg.ForcedErrorJSON, defaultForcedErrorJSON) {
 			return
 		}
-		if utils.HasJSONNumber(body, "temperature", 0.11) {
-			_ = utils.TryWriteForcedHTTPError(w, http.StatusTooManyRequests, "60", "", defaultForcedErrorJSON)
+		if jsonprobe.HasJSONNumber(body, "temperature", 0.11) {
+			_ = jsonprobe.TryWriteForcedHTTPError(w, http.StatusTooManyRequests, "60", "", defaultForcedErrorJSON)
 			return
 		}
-		if utils.HasJSONNumber(body, "temperature", 0.22) {
-			_ = utils.TryWriteForcedHTTPError(w, http.StatusBadRequest, "", "", defaultForcedErrorJSON)
+		if jsonprobe.HasJSONNumber(body, "temperature", 0.22) {
+			_ = jsonprobe.TryWriteForcedHTTPError(w, http.StatusBadRequest, "", "", defaultForcedErrorJSON)
 			return
 		}
-		if utils.HasJSONNumber(body, "temperature", 0.33) {
-			_ = utils.TryWriteForcedHTTPError(w, http.StatusTooManyRequests, "60", "", defaultForcedErrorJSON)
+		if jsonprobe.HasJSONNumber(body, "temperature", 0.33) {
+			_ = jsonprobe.TryWriteForcedHTTPError(w, http.StatusTooManyRequests, "60", "", defaultForcedErrorJSON)
 			return
 		}
 
@@ -162,7 +162,7 @@ func writeJSON(ctx context.Context, w http.ResponseWriter, cfg Config, requestBo
 	body := cfg.NonStreamJSON
 	if body == "" {
 		body = nonStreamWithUsageJSON
-		if utils.HasJSONKey(requestBody, "tools") {
+		if jsonprobe.HasJSONKey(requestBody, "tools") {
 			body = nonStreamWithToolCallJSON
 		}
 	}
@@ -177,10 +177,10 @@ func writeStream(ctx context.Context, w http.ResponseWriter, cfg Config, request
 	body := cfg.StreamSSE
 	if body == "" {
 		body = streamWithUsageSSE
-		if utils.HasJSONKey(requestBody, "tools") {
+		if jsonprobe.HasJSONKey(requestBody, "tools") {
 			body = streamWithToolCallSSE
 		}
-		if utils.HasJSONNumber(requestBody, "temperature", 0.11) {
+		if jsonprobe.HasJSONNumber(requestBody, "temperature", 0.11) {
 			body = `event: error
 data: {"type":"error","code":"rate_limit_exceeded","message":"rate limit exceeded"}
 
@@ -188,7 +188,7 @@ data: [DONE]
 
 `
 		}
-		if utils.HasJSONNumber(requestBody, "temperature", 0.22) {
+		if jsonprobe.HasJSONNumber(requestBody, "temperature", 0.22) {
 			body = `event: error
 data: {"type":"error","code":"invalid_request","message":"bad request"}
 
@@ -196,10 +196,10 @@ data: [DONE]
 
 `
 		}
-		if utils.HasJSONNumber(requestBody, "max_output_tokens", 0) {
+		if jsonprobe.HasJSONNumber(requestBody, "max_output_tokens", 0) {
 			body = streamWithZeroUsageSSE
 		}
-		if utils.HasJSONNumber(requestBody, "max_output_tokens", 1) {
+		if jsonprobe.HasJSONNumber(requestBody, "max_output_tokens", 1) {
 			body = streamWithZeroUsageSSE
 		}
 	}

@@ -48,7 +48,7 @@ Source of truth: [`internal/standardplugins/standard_table.go`](file:///C:/Users
 
 - Driven adapters translate canonical requests -> upstream provider calls, and upstream responses -> canonical events.
 - Keep provider SDK types strictly inside adapter packages (`internal/plugins/backends/` or `connectors/`).
-- Reuse compatible-protocol helpers ([`internal/plugins/backends/openaicompat`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/plugins/backends/openaicompat), `openresponsescompat`, `compatibleutil`, `transporterr`) without making them canonical shortcuts.
+- Reuse compatible-protocol helpers ([`internal/plugins/backends/openaicompat`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/plugins/backends/openaicompat), `openresponsescompat`, `compatmode`, `transporterr`) without making them canonical shortcuts.
 - Backend factories declare credential and access-scope posture metadata for startup trust validation.
 
 ---

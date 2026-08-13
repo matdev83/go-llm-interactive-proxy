@@ -172,7 +172,7 @@ func TestCompile_CanceledContext(t *testing.T) {
 	cache := toolcallrepair.NewSchemaCache(toolcallrepair.DefaultSchemaLimits())
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := cache.GetOrCompileContext(ctx, json.RawMessage(`{"type":"object"}`))
+	_, err := cache.GetOrCompileWithContext(ctx, json.RawMessage(`{"type":"object"}`))
 	assertSchemaKind(t, err, toolcallrepair.SchemaKindInvalid)
 	var se *toolcallrepair.SchemaError
 	if !errors.As(err, &se) || se.ReasonCode != toolcallrepair.ReasonCanceled {

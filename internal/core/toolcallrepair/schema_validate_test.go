@@ -95,7 +95,7 @@ func TestValidate_CanceledContext(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	err = cs.ValidateContext(ctx, []byte(`{"x":"ok"}`))
+	err = cs.ValidateWithContext(ctx, []byte(`{"x":"ok"}`))
 	var se *toolcallrepair.SchemaError
 	if !errors.As(err, &se) || se.ReasonCode != toolcallrepair.ReasonCanceled {
 		t.Fatalf("want canceled, got %v", err)
