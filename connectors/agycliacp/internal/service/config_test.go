@@ -1,6 +1,10 @@
 package service
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/connectors/agycliacp/internal/product"
+)
 
 func TestConfigWrapperAutoDownloadDefaultsOnAndCanBeDisabled(t *testing.T) {
 	cfg, err := ParseConfigYAML(nil)
@@ -15,11 +19,35 @@ func TestConfigWrapperAutoDownloadDefaultsOnAndCanBeDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	product := cfg.toProduct()
-	if product.WrapperAutoDownload {
+	productCfg := cfg.toProduct()
+	if productCfg.WrapperAutoDownload {
 		t.Fatal("wrapper auto-download opt-out was ignored")
 	}
-	if product.WrapperCacheDir != "/tmp/wrappers" {
-		t.Fatalf("cache dir = %q", product.WrapperCacheDir)
+	if productCfg.WrapperCacheDir != "/tmp/wrappers" {
+		t.Fatalf("cache dir = %q", productCfg.WrapperCacheDir)
+	}
+}
+
+func TestConfigDefaultTimeoutIsFourHours(t *testing.T) {
+	cfg, err := ParseConfigYAML(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := cfg.toProduct().TimeoutSeconds
+	if got != product.DefaultTimeoutSeconds {
+		t.Fatalf("timeout seconds = %d, want %d", got, product.DefaultTimeoutSeconds)
+	}
+	if product.DefaultTimeoutSeconds != 4*60*60 {
+		t.Fatalf("expected four-hour default, got %d", product.DefaultTimeoutSeconds)
+	}
+}
+
+func TestConfigExplicitTimeoutIsPreserved(t *testing.T) {
+	cfg, err := ParseConfigYAML([]byte("timeout_seconds: 30\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.toProduct().TimeoutSeconds; got != 30 {
+		t.Fatalf("timeout seconds = %d, want 30", got)
 	}
 }
