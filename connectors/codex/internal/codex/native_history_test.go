@@ -369,7 +369,7 @@ func TestNativeTrajectoryBoundariesKeepLiveCallOutOfCompactablePrefix(t *testing
 func TestNativeHistoryBuilder_EnforcesAggregateHistoryBytes(t *testing.T) {
 	const itemText = 8192
 	messages := make([]lipapi.Message, 0, maxNativeHistoryItems)
-	for i := 0; i < maxNativeHistoryItems; i++ {
+	for range maxNativeHistoryItems {
 		messages = append(messages, lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: strings.Repeat("x", itemText)}}})
 	}
 	_, err := buildNativeHistory(&lipapi.Call{Messages: messages})

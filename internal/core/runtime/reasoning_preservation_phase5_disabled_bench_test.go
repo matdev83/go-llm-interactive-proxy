@@ -43,14 +43,13 @@ func BenchmarkPhase5_disabledRuntimeNoFeatureParticipants(b *testing.B) {
 		}),
 	}
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		call := p5ObserveCall()
-		stream, err := ex.Execute(context.Background(), call)
+		stream, err := ex.Execute(b.Context(), call)
 		if err != nil {
 			b.Fatalf("execute: %v", err)
 		}
-		if _, err := lipapi.Collect(context.Background(), stream); err != nil {
+		if _, err := lipapi.Collect(b.Context(), stream); err != nil {
 			b.Fatalf("collect: %v", err)
 		}
 		p5AssertNoReasoningParticipants(b, ex.RuntimeSnapshot)

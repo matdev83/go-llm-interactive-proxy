@@ -2,7 +2,7 @@ package reasoninge2e
 
 import (
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 )
 
 // BuildPlan precomputes a deterministic transcript plan from an explicit seed and policy.
@@ -10,7 +10,7 @@ func BuildPlan(cfg PlanConfig) (Plan, error) {
 	if err := validatePolicy(cfg); err != nil {
 		return Plan{}, err
 	}
-	rng := rand.New(rand.NewSource(int64(cfg.Seed))) //nolint:gosec // deterministic test plan, not crypto
+	rng := rand.New(rand.NewPCG(cfg.Seed, 0)) //nolint:gosec // deterministic test plan, not crypto
 	out := make([]PlannedTurn, 0, len(cfg.Turns))
 	for i, spec := range cfg.Turns {
 		id := fmt.Sprintf("turn-%d-%d", cfg.Seed, i)
@@ -82,7 +82,7 @@ func materialize(
 	case DropAllReasoning:
 		return ModeDropped, nil, nil
 	case SeededPerTurnRetention:
-		if rng.Intn(2) == 0 {
+		if rng.IntN(2) == 0 {
 			return ModeDropped, nil, nil
 		}
 		return ModePreserved, cloneBlocks(observed), nil

@@ -1,7 +1,6 @@
 package openairesponses
 
 import (
-	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
@@ -25,11 +24,10 @@ func BenchmarkWriteStreamSSE_exactReasoningPart(b *testing.B) {
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
 	}
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		es := lipapi.NewFixedEventStream(events)
 		rec := httptest.NewRecorder()
-		if err := WriteStreamSSE(context.Background(), rec, call, es, EncodeOptions{ResponseID: "r", CreatedAt: 1}); err != nil {
+		if err := WriteStreamSSE(b.Context(), rec, call, es, EncodeOptions{ResponseID: "r", CreatedAt: 1}); err != nil {
 			b.Fatal(err)
 		}
 	}

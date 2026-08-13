@@ -80,7 +80,6 @@ func AdaptOverlapSafeLifecycles(ledger *ResourceLedger, lifes []lipplugin.Lifecy
 		if life == nil {
 			continue
 		}
-		life := life
 		name := fmt.Sprintf("feature-lifecycle-%d", i)
 		ledger.AddAction(
 			name, PhasePrepare,

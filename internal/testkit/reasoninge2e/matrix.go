@@ -2,7 +2,7 @@ package reasoninge2e
 
 import (
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"slices"
 	"strings"
 )
@@ -183,27 +183,27 @@ func GenerateTranscriptPlan(mode MatrixMode, seed uint64, turnCount int) (Transc
 // ClientRetainSequence returns the independent client preserve bits for seed (true=preserve).
 // Exported for independence proofs; callers must not treat this as payload-bearing.
 func ClientRetainSequence(seed uint64, n int) []bool {
-	rng := rand.New(rand.NewSource(int64(seed) ^ matrixClientSalt)) //nolint:gosec // deterministic test plan
+	rng := rand.New(rand.NewPCG(uint64(int64(seed)^matrixClientSalt), 0)) //nolint:gosec // deterministic test plan
 	out := make([]bool, n)
 	for i := range n {
-		out[i] = rng.Intn(2) == 1
+		out[i] = rng.IntN(2) == 1
 	}
 	return out
 }
 
 func drawBackendKinds(mode MatrixMode, seed uint64, n int) []backendKind {
-	rng := rand.New(rand.NewSource(int64(seed) ^ matrixBackendSalt)) //nolint:gosec // deterministic test plan
+	rng := rand.New(rand.NewPCG(uint64(int64(seed)^matrixBackendSalt), 0)) //nolint:gosec // deterministic test plan
 	out := make([]backendKind, n)
 	for i := range n {
 		switch mode {
 		case MatrixModeAlwaysReasonRandomClient:
-			if rng.Intn(2) == 0 {
+			if rng.IntN(2) == 0 {
 				out[i] = backendTool
 			} else {
 				out[i] = backendReason
 			}
 		default:
-			out[i] = backendKind(rng.Intn(3))
+			out[i] = backendKind(rng.IntN(3))
 		}
 	}
 	return out

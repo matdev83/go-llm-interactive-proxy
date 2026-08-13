@@ -71,14 +71,14 @@ func (s *Server) LatestRequest() CapturedRequest {
 
 func jsonType(raw string) string {
 	const key = `"type":"`
-	i := strings.Index(raw, key)
-	if i < 0 {
+	_, after, ok := strings.Cut(raw, key)
+	if !ok {
 		return "message"
 	}
-	rest := raw[i+len(key):]
-	j := strings.IndexByte(rest, '"')
-	if j < 0 {
+	rest := after
+	before, _, ok := strings.Cut(rest, "\"")
+	if !ok {
 		return "message"
 	}
-	return rest[:j]
+	return before
 }

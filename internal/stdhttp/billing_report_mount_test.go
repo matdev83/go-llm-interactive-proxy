@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -221,10 +222,8 @@ func TestBillingReportsMountContractIncludesProvisioner(t *testing.T) {
 		if row.Helper != "mountBillingReports" {
 			continue
 		}
-		for _, field := range row.BuiltFields {
-			if field == "BillingProvisioner" {
-				return
-			}
+		if slices.Contains(row.BuiltFields, "BillingProvisioner") {
+			return
 		}
 		t.Fatalf("mountBillingReports BuiltFields=%v missing BillingProvisioner", row.BuiltFields)
 	}

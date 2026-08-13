@@ -151,7 +151,7 @@ func isNilExecutor(e ExecutorView) bool {
 	}
 	rv := reflect.ValueOf(e)
 	switch rv.Kind() {
-	case reflect.Ptr, reflect.Interface, reflect.Slice, reflect.Map, reflect.Chan, reflect.Func:
+	case reflect.Pointer, reflect.Interface, reflect.Slice, reflect.Map, reflect.Chan, reflect.Func:
 		return rv.IsNil()
 	}
 	return false

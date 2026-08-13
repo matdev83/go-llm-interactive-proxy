@@ -162,10 +162,7 @@ func (t *nativeContextTelemetry) recordLatency(start time.Time) {
 	if t.now != nil {
 		now = t.now()
 	}
-	latency := now.Sub(start).Milliseconds()
-	if latency < 0 {
-		latency = 0
-	}
+	latency := max(now.Sub(start).Milliseconds(), 0)
 	t.mu.Lock()
 	t.CompactionLatencyMillis = latency
 	t.mu.Unlock()

@@ -149,7 +149,7 @@ func TestOwnership_SingularOwnerShape(t *testing.T) {
 
 func assertNoCandidateOwnerField(t *testing.T, bundle *runtimebundle.GenerationBundle) {
 	t.Helper()
-	elem := reflect.TypeOf(bundle).Elem()
+	elem := reflect.TypeFor[runtimebundle.GenerationBundle]()
 	for f := range elem.Fields() {
 		if f.Name == "owner" || stringsHasCandidateRuntime(f.Type.String()) {
 			t.Fatalf("compiled runtime still exposes owner/candidate field %q (%s)", f.Name, f.Type.String())

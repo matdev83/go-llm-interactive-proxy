@@ -36,8 +36,7 @@ func TestPrincipalScopeView_NoForbiddenSecretFields(t *testing.T) {
 		"Token", "Secret", "Bearer", "APIKey", "OAuth",
 		"Header", "Password", "Raw",
 	}
-	var v scope.PrincipalScopeView
-	rt := reflect.TypeOf(v)
+	rt := reflect.TypeFor[scope.PrincipalScopeView]()
 	for f := range rt.Fields() {
 		for _, bad := range forbidden {
 			if strings.Contains(f.Name, bad) {

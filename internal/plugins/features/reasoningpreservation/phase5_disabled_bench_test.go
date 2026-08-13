@@ -45,7 +45,7 @@ func TestPhase5_noProductionProbeGlobals(t *testing.T) {
 
 func BenchmarkPhase5_disabledInventoryNoStoreOrTelemetry(b *testing.B) {
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		inv := reasoningpreservation.BuildSafeInventory(reasoningpreservation.Config{}, nil)
 		if inv.Enabled || len(inv.AggregateCounters) != 0 {
 			b.Fatal("disabled inventory must stay empty")
@@ -71,7 +71,7 @@ state:
   max_session_bytes: 32768
 `)
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		parts, _, err := reasoningpreservation.FeatureBundleWithParts(cfg)
 		if err != nil {
 			b.Fatal(err)

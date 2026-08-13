@@ -179,7 +179,7 @@ func TestIsolation_SourceOmitsRootInternal(t *testing.T) {
 			return err
 		}
 		const forbidden = "github.com/matdev83/go-llm-interactive-proxy/internal/"
-		for _, line := range strings.Split(string(b), "\n") {
+		for line := range strings.SplitSeq(string(b), "\n") {
 			trim := strings.TrimSpace(line)
 			if strings.HasPrefix(trim, "\"") && strings.Contains(trim, forbidden) {
 				t.Errorf("%s imports root internal/: %s", path, trim)

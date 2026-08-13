@@ -2,6 +2,7 @@ package compatibleparity
 
 import (
 	"context"
+	"errors"
 	"io"
 	"testing"
 	"time"
@@ -21,7 +22,7 @@ func drainEventsWithContext(ctx context.Context, es lipapi.ManagedEventStream) (
 	var out []lipapi.Event
 	for {
 		ev, err := es.Recv(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return out, nil
 		}
 		if err != nil {
