@@ -26,11 +26,11 @@ func resolveConfigPath(raw string) (string, error) {
 // Reload candidates use the filesystem-driven configsource adapter; this compatibility entrypoint
 // deliberately keeps core/config independent from driving adapters.
 func LoadFile(path string) (*Config, error) {
-	return LoadFileContext(context.Background(), path)
+	return LoadFileWithContext(context.Background(), path)
 }
 
-// LoadFileContext is the context-aware form of [LoadFile].
-func LoadFileContext(ctx context.Context, rawPath string) (*Config, error) {
+// LoadFileWithContext is the context-aware form of [LoadFile].
+func LoadFileWithContext(ctx context.Context, rawPath string) (*Config, error) {
 	path, err := resolveConfigPath(rawPath)
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)

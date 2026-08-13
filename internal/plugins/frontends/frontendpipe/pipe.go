@@ -156,7 +156,7 @@ func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Reques
 			sel = v
 		}
 	}
-	if _, err := jsonguard.PreflightContext(ctx, body, limits); err != nil {
+	if _, err := jsonguard.PreflightWithContext(ctx, body, limits); err != nil {
 		if jsonguard.Classify(err) == jsonguard.KindCanceled {
 			spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WritePreflightCanceled(w))
 			return
