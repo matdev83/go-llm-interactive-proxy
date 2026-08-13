@@ -47,7 +47,7 @@ type PackageTreeBudget struct {
 // PackageTreeBudgets locks measured convergence tree ceilings (+25 lines headroom).
 var PackageTreeBudgets = []PackageTreeBudget{
 	{Tree: "internal/infra/runtimebundle", Max: 11088},
-	{Tree: "internal/stdhttp", Max: 5160},
+	{Tree: "internal/stdhttp", Max: 5455},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 562},
 }
@@ -61,12 +61,10 @@ type LineBudget struct {
 // LineBudgets covers core/pluginreg plus the convergence trees (kept in sync
 // with PackageTreeBudgets for overlapping entries).
 var LineBudgets = []LineBudget{
-	// Phase 8 removes stream-time financial mutation points and adds the
-	// handoff/architecture ratchets. After merging the Go naming alignment,
-	// keep the measured-plus-25 ratchet at 72,444.
-	{Dir: "internal/core", Max: 72444},
+	// Runtime-session routing-override admin mux mount and selector preflight.
+	{Dir: "internal/core", Max: 74246},
 	{Dir: "internal/pluginreg", Max: 1079},
-	{Dir: "internal/stdhttp", Max: 5160},
+	{Dir: "internal/stdhttp", Max: 5455},
 	{Dir: "internal/infra/runtimebundle", Max: 11088},
 	{Dir: "cmd/lipstd", Max: 979},
 	{Dir: "pkg/lipruntime", Max: 562},

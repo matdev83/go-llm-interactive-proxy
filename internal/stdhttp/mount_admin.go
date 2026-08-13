@@ -223,3 +223,33 @@ func mountAccountingAuthorityQuery(in accountingAuthorityQueryMount) {
 		log.InfoContext(logCtx, "accounting authority query mounted", "path", base)
 	}
 }
+
+type routeOverrideAdminMount struct {
+	LogCtx     context.Context
+	Mux        *http.ServeMux
+	Cfg        *config.Config
+	Log        *slog.Logger
+	Operations HTTPOperationsInput
+}
+
+// mountRouteOverrideAdmin mounts the generation-bound routing-override admin
+// handler on the standard mux so it shares the request-plane access-auth stack.
+func mountRouteOverrideAdmin(in routeOverrideAdminMount) {
+	mux, cfg, log, ops := in.Mux, in.Cfg, in.Log, in.Operations
+	if mux == nil || cfg == nil || ops.RouteOverrideAdmin == nil {
+		return
+	}
+	if !cfg.Routing.OverrideAdmin.Enabled {
+		return
+	}
+	prefix := strings.TrimSuffix(config.RoutingOverrideAdminPathPrefix(cfg), "/")
+	if prefix == "" {
+		return
+	}
+	protected := diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, http.StripPrefix(prefix, ops.RouteOverrideAdmin))
+	mux.Handle(prefix, protected)
+	mux.Handle(prefix+"/", protected)
+	if log != nil {
+		log.InfoContext(in.LogCtx, "routing override admin mounted", "path", prefix)
+	}
+}

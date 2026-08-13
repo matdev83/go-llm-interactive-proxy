@@ -62,6 +62,11 @@ var mountContractInventory = []mountInventoryRow{
 		Lifecycle: "none", BehaviorTests: []string{"TestAccountingAuthorityQueryMountedAndProtected"},
 	},
 	{
+		Helper: "mountRouteOverrideAdmin", File: "mount_admin.go", Input: "routeOverrideAdminMount",
+		BuiltFields: []string{"RouteOverrideAdmin"}, DesiredGroups: []string{"Operations"},
+		Lifecycle: "none", BehaviorTests: []string{"TestComposeStandardHTTP_routingOverrideAdminRequiresAccessAuth", "TestComposeStandardHTTP_routingOverrideAdminNotOnFrontendPaths"},
+	},
+	{
 		Helper: "MountBundledFrontends", File: "mount.go", Input: "MountBundledFrontendsInput",
 		BuiltFields: nil, DesiredGroups: []string{"Frontends"},
 		Lifecycle: "none", BehaviorTests: []string{"TestMountBundledFrontends_geminiDoesNotRegisterRoot"},
@@ -122,6 +127,7 @@ var expectedProductionMountHelpers = map[string]bool{
 	"mountBillingReports":            true,
 	"mountControlPlaneQuery":         true,
 	"mountAccountingAuthorityQuery":  true,
+	"mountRouteOverrideAdmin":        true,
 	"MountBundledFrontends":          true,
 	"mountALegCancel":                true,
 	"stackHTTPHandler":               true,

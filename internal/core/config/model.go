@@ -451,6 +451,17 @@ type RoutingConfig struct {
 	Health       RoutingHealthConfig    `yaml:"health"`
 	Affinity     RoutingAffinityConfig  `yaml:"affinity"`
 	Transport    RoutingTransportConfig `yaml:"transport"`
+	// OverrideAdmin is the opt-in protected HTTP surface for A-leg routing overrides.
+	// Disabled by default. Disabling the endpoint does not clear persisted override state.
+	OverrideAdmin RoutingOverrideAdminConfig `yaml:"override_admin"`
+}
+
+// RoutingOverrideAdminConfig controls the protected GET/PUT/DELETE routing-override
+// admin resource. Enablement is false by default.
+type RoutingOverrideAdminConfig struct {
+	Enabled      bool   `yaml:"enabled"`
+	PathPrefix   string `yaml:"path_prefix"`
+	MaxBodyBytes int64  `yaml:"max_body_bytes"`
 }
 
 type RoutingAffinityConfig struct {

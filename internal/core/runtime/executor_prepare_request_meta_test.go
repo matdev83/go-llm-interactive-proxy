@@ -97,7 +97,7 @@ func TestExecutor_prepareSubmitAndALeg_preRequestRunsBeforeRouteHint(t *testing.
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
 	}
-	_, baseline, _, _, err := ex.prepareSubmitAndALeg(ctx, bus, call)
+	_, baseline, _, _, _, err := ex.prepareSubmitAndALeg(ctx, bus, call)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestExecutor_prepareSubmitAndALeg_requestMetaSession_propagatesIsNewForNewT
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
 	}
-	_, _, _, _, err = ex.prepareSubmitAndALeg(ctx, bus, call)
+	_, _, _, _, _, err = ex.prepareSubmitAndALeg(ctx, bus, call)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestExecutor_prepareSubmitAndALeg_requestMetaSession_resumeTurnIsNotNew(t *
 			Parts: []lipapi.Part{lipapi.TextPart("first")},
 		}},
 	}
-	_, _, _, _, err = ex.prepareSubmitAndALeg(ctx, bus, call1)
+	_, _, _, _, _, err = ex.prepareSubmitAndALeg(ctx, bus, call1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestExecutor_prepareSubmitAndALeg_requestMetaSession_resumeTurnIsNotNew(t *
 			Parts: []lipapi.Part{lipapi.TextPart("second")},
 		}},
 	}
-	_, _, _, _, err = ex.prepareSubmitAndALeg(ctx, bus, call2)
+	_, _, _, _, _, err = ex.prepareSubmitAndALeg(ctx, bus, call2)
 	if err != nil {
 		t.Fatal(err)
 	}

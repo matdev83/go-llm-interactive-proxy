@@ -2,7 +2,7 @@
 
 ## 1. Freeze Brownfield Behavior and Add RED Contracts
 
-- [ ] 1.1 Characterize current per-turn route-plan lifetime and no-override behavior
+- [x] 1.1 Characterize current per-turn route-plan lifetime and no-override behavior
   - Add focused tests proving the current client selector becomes one request-local route plan reused by failover/retry/interleaved B-legs.
   - Characterize client traffic/session recording versus the effective baseline so later admin substitution cannot silently change what is attributed to the client.
   - Add deterministic test barriers around the point after authoritative A-leg resolution and before route-plan construction; do not use sleeps for concurrency ordering.
@@ -13,7 +13,7 @@
   - _Depends: none_
   - _Validation: go test ./internal/core/runtime/... ./internal/core/routing/..._
 
-- [ ] 1.2 Define RED route-override state/store semantics and shared contract suite
+- [x] 1.2 Define RED route-override state/store semantics and shared contract suite
   - Define focused internal state/reader/store contracts without changing base `b2bua.Store` or public `pkg/lipsdk/continuity.Store`.
   - Specify first set, replace, identical PUT/no-op, clear, repeated clear/no-op, revision 0 inactive state, not-found, revision overflow, A-leg deletion, `LastSeenAt` refresh and value-copy semantics.
   - Build one store contract suite that can run against memory, SQLite and PostgreSQL adapters.
@@ -25,7 +25,7 @@
   - _Depends: 1.1_
   - _Validation: go test ./internal/core/routeoverride/... ./internal/core/b2bua/... ./internal/core/continuity/bunstore/..._
 
-- [ ] 1.3 Define RED generation selector-preflight and side-effect contracts
+- [x] 1.3 Define RED generation selector-preflight and side-effect contracts
   - Specify a narrow selector validator that reuses alias/parse/default-backend behavior from normal route planning.
   - Test direct/model-only/alias/failover/weighted/race/TTFT/affinity/`[first]`/`[thinker]` accepted forms and malformed/unresolved forms.
   - Add probes proving validation allocates no B-leg, opens no backend/connector, consumes no model usage, and mutates no weighted-first/interleaved/affinity state.
@@ -36,7 +36,7 @@
   - _Depends: 1.1_
   - _Validation: go test ./internal/core/routing/... ./internal/core/runtime/..._
 
-- [ ] 1.4 Add RED admin/security and architecture boundary contracts
+- [x] 1.4 Add RED admin/security and architecture boundary contracts
   - Define GET/PUT/DELETE handler behavior, `application/json` PUT media-type validation, strict JSON decoding, body/selector bounds, inactive DTO omission of `selector`, stable 400/413/415/404/503 mappings, idempotent methods, typed not-found/invalid/store errors and disabled-by-default mounting.
   - Add protection tests for operator secret and non-loopback protected-surface validation.
   - Add architecture tests proving no override field enters `pkg/lipapi`, no frontend/backend/connector imports routeoverride, and base public continuity Store remains unchanged.
@@ -49,7 +49,7 @@
 
 ## 2. Implement Revisioned A-Leg Persistence
 
-- [ ] 2.1 Implement the memory-backed route-override capability
+- [x] 2.1 Implement the memory-backed route-override capability
   - Add A-leg-owned active/inactive override state to the existing memory continuity lifecycle under its current synchronization discipline.
   - Implement atomic Snapshot/Replace/Clear with normalized selectors, monotonic revision, state-change idempotency, context cancellation and defensive value copies.
   - Refresh A-leg `LastSeenAt` on every successful Snapshot/Get/Replace/Clear, including idempotent no-ops, without changing override revision/update time unless effective override state changes.
@@ -61,7 +61,7 @@
   - _Depends: 1.2_
   - _Validation: go test ./internal/core/routeoverride/... ./internal/core/b2bua/..._
 
-- [ ] 2.2 Implement durable SQLite/PostgreSQL override state and migration
+- [x] 2.2 Implement durable SQLite/PostgreSQL override state and migration
   - Add one-to-one A-leg-owned persistence for active flag, raw selector, revision and update time with referential cleanup/cascade semantics.
   - Implement same-A-leg state transitions transactionally for both supported dialects; refresh A-leg `LastSeenAt` consistently with existing durable Fetch/mutation semantics while refusing revision overflow and invalid stored bounds.
   - Preserve legacy A-leg rows as inactive revision 0 without backfilling one row per session.
@@ -72,7 +72,7 @@
   - _Depends: 2.1_
   - _Validation: go test ./internal/core/continuity/bunstore/..._
 
-- [ ] 2.3 Harden cross-implementation persistence concurrency and failure behavior
+- [x] 2.3 Harden cross-implementation persistence concurrency and failure behavior
   - Run the identical state transition suite against memory and SQLite, plus PostgreSQL when the integration DSN is available.
   - Add two-writer races with barriers so the observed higher revision always corresponds to the later committed effective state.
   - Add deterministic barriers for A-leg deletion or continuity-key recreation racing with both Replace and Clear; prove mutation-before-delete is cleaned up, delete/recreate-before-mutation returns not-found, no orphan override row commits, and the new A-leg never inherits old state.
@@ -86,7 +86,7 @@
 
 ## 3. Integrate Immutable Override Snapshots Into Runtime Routing
 
-- [ ] 3.1 Implement the shared pure selector compile/preflight path
+- [x] 3.1 Implement the shared pure selector compile/preflight path
   - Extract the minimum pure alias/parse/model-only-default/unresolved-selector logic so admin validation and `buildRoutePlan` call the same behavior.
   - Preserve native-model binding, affinity, request-size, dynamic state and request-dependent capability/catalog work in their existing real-turn positions.
   - Make RED equivalence and no-side-effect tests from 1.3 green.
@@ -96,7 +96,7 @@
   - _Depends: 1.3_
   - _Validation: go test ./internal/core/routing/... ./internal/core/runtime/..._
 
-- [ ] 3.2 Wire process-owned override persistence and generation-bound validation
+- [x] 3.2 Wire process-owned override persistence and generation-bound validation
   - Detect/construct the focused override-store capability from process-owned continuity without changing the base continuity Store; standard memory/Bun continuity must expose and wire the runtime reader regardless of HTTP admin enablement.
   - Bind a current-generation selector validator and command service during generation compilation; include the admin handler/service in the complete generation-specific HTTP handler so the stable GenerationDispatcher naturally rebinds later admin requests after publish. Keep the persistence owner process-scoped across generation retirement.
   - Fail configuration/assembly coherently if override administration is enabled with a continuity implementation that cannot provide required override storage; disabling the HTTP surface must not remove a standard runtime reader or suspend persisted-state enforcement.
@@ -107,7 +107,7 @@
   - _Depends: 2.1, 2.2, 3.1_
   - _Validation: go test ./internal/infra/runtimebundle/... ./internal/infra/runtimehost/..._
 
-- [ ] 3.3 Snapshot once per turn and build a separate effective routing baseline
+- [x] 3.3 Snapshot once per turn and build a separate effective routing baseline
   - Read override state immediately after authoritative A-leg fetch and copy the complete state into request-local preparation metadata.
   - Preserve the client/work call for existing CTP/client-turn evidence; after pre-request mutation, clone an effective routing call and replace only its selector when the snapshot is active.
   - Run route hinting against the effective routing call, then freeze the existing prepared baseline and route plan from it.
@@ -119,7 +119,7 @@
   - _Depends: 3.2_
   - _Validation: go test ./internal/core/runtime/..._
 
-- [ ] 3.4 Prove in-flight B-leg non-interference across replace and clear
+- [x] 3.4 Prove in-flight B-leg non-interference across replace and clear
   - Hold Turn N after snapshot, commit a different override revision, then allow Turn N to open/failover/race and assert every B-leg uses the old baseline/revision.
   - Repeat with clear: current turn remains overridden while the next turn uses its current client selector.
   - Include the case where mutation commits after snapshot but before the first B-leg opens.
@@ -132,7 +132,7 @@
 
 ## 4. Implement Protected Admin Commands and Explainability
 
-- [ ] 4.1 Implement generation-bound Get/Replace/Clear command service
+- [x] 4.1 Implement generation-bound Get/Replace/Clear command service
   - Normalize/validate A-leg and selector input, enforce selector bounds, invoke pure generation preflight, and only then mutate persistence.
   - Return resulting active/inactive revision state for every successful command including idempotent no-ops.
   - Map unknown A-leg, invalid selector, store failure and revision exhaustion to stable typed errors without changing prior state.
@@ -143,7 +143,7 @@
   - _Depends: 2.3, 3.1, 3.2_
   - _Validation: go test ./internal/core/routeoverride/..._
 
-- [ ] 4.2 Implement opt-in GET/PUT/DELETE admin HTTP surface and security posture
+- [x] 4.2 Implement opt-in GET/PUT/DELETE admin HTTP surface and security posture
   - Add typed routing override admin config with disabled-by-default enablement, bounded path prefix and body size.
   - Mount a focused handler under `internal/stdhttp/admin` using the existing operator-secret wrapper; extend non-loopback protected-surface validation.
   - Require PUT media type `application/json` (allowing valid parameters), returning 415 for missing/malformed/unsupported media types before decode; strictly reject malformed/oversized/multi-value/unknown-field bodies and nonconforming method/body combinations.
@@ -155,7 +155,7 @@
   - _Depends: 4.1_
   - _Validation: go test ./internal/stdhttp/admin/... ./internal/stdhttp/... ./internal/core/config/..._
 
-- [ ] 4.3 Add bounded selector-source/revision diagnostics and mutation audit metadata
+- [x] 4.3 Add bounded selector-source/revision diagnostics and mutation audit metadata
   - Record whether each routed turn used client or admin selector source and the snapshotted revision without exposing raw route expressions in ordinary logs/metrics.
   - Keep `AttemptRecord.EffectiveModel` as the actual B-leg outcome authority and avoid duplicating backend/model lineage in override state.
   - Emit mutation action/outcome/revision plus selector digest/byte length and bounded/hashed A-leg identity according to existing logging conventions.
@@ -168,7 +168,7 @@
 
 ## 5. Validate Advanced Routing, Reload, and Session Continuity
 
-- [ ] 5.1 (P) Prove direct/alias/failover/weighted/race/TTFT/affinity equivalence
+- [x] 5.1 (P) Prove direct/alias/failover/weighted/race/TTFT/affinity equivalence
   - For each selector class, compare an admin-active turn with the same selector supplied directly by the client on an equivalent A-leg state.
   - Verify route aliases, model-only defaulting, candidate order/race structure, TTFT parameters and affinity semantics are owned by the existing planner.
   - Replace the override between turns and prove only the newer revision is used by later turns.
@@ -179,7 +179,7 @@
   - _Depends: 3.4, 4.1_
   - _Validation: go test ./internal/core/routing/... ./internal/core/runtime/..._
 
-- [ ] 5.2 (P) Prove `[first]` and `[thinker]` preserve existing A-leg state
+- [x] 5.2 (P) Prove `[first]` and `[thinker]` preserve existing A-leg state
   - Test override activation before/after `WeightedFirstConsumed` and prove set/replace/clear does not reset it.
   - Test thinker override with no memo, existing memo, visible/hidden paths and replacement/clear transitions without deleting interleaved state.
   - Assert all thinker/executor B-legs within a turn remain on the turn's snapshotted selector revision even when admin state changes mid-cycle.
@@ -190,7 +190,7 @@
   - _Depends: 3.4, 4.1_
   - _Validation: go test ./internal/core/routing/... ./internal/core/interleavedthinking/... ./internal/core/runtime/..._
 
-- [ ] 5.3 (P) Prove generation reload reinterprets raw overrides without mutating in-flight turns
+- [x] 5.3 (P) Prove generation reload reinterprets raw overrides without mutating in-flight turns
   - Set an alias-based override, hold an old-generation turn, publish a generation with changed alias/default/backend configuration, and prove the old turn stays pinned.
   - Issue a PUT after the new generation is published and prove the request is handled by the newly published generation-specific admin handler/service and validated with the new selector validator/config; do not satisfy this with only a turn-after-reload test.
   - Prove a new turn reads the same persisted revision but resolves it with the new generation.
@@ -203,7 +203,7 @@
   - _Depends: 3.2, 3.3, 4.1_
   - _Validation: go test ./internal/infra/runtimebundle/... ./internal/core/configreload/... ./internal/core/runtime/..._
 
-- [ ] 5.4 (P) Prove cross-frontend resume and durable restart semantics
+- [x] 5.4 (P) Prove cross-frontend resume and durable restart semantics
   - Resume the same authoritative A-leg through at least two bundled frontend/transport paths and assert the active override revision follows the A-leg rather than the connection/protocol.
   - Reopen supported durable continuity and prove the surviving A-leg retains active or cleared revision state; prove memory continuity makes no restart durability claim.
   - Exercise A-leg deletion/continuity-key replacement and prove old override state cannot attach to the new A-leg.
@@ -216,7 +216,7 @@
 
 ## 6. Final Concurrency, Architecture, and Quality Gates
 
-- [ ] 6.1 Run targeted race/stress tests and fix any snapshot/mutation synchronization defects
+- [x] 6.1 Run targeted race/stress tests and fix any snapshot/mutation synchronization defects
   - Exercise concurrent Snapshot/Get/Replace/Clear against the memory store and runtime request admission under `-race` where supported.
   - Stress failover/race/thinker continuations while admin mutations commit; assert no data races, deadlocks, goroutine leaks, torn revisions or in-flight route changes.
   - Keep synchronization simple; remove redundant locks/caches discovered during stress testing rather than adding compensating state.
@@ -226,7 +226,7 @@
   - _Depends: 5.1, 5.2, 5.3, 5.4_
   - _Validation: go test -race ./internal/core/routeoverride/... ./internal/core/b2bua/... ./internal/core/runtime/... where supported_
 
-- [ ] 6.2 Run architecture, unit, parity, quality and wide QA gates; simplify before completion
+- [x] 6.2 Run architecture, unit, parity, quality and wide QA gates; simplify before completion
   - Run focused package tests first, then `make test-unit`, `make quality-checks`, and architecture checks.
   - Run `make parity-checks` to confirm no frontend/backend compatibility regression from composition changes.
   - Run `make test-race` where supported and `make qa` for final wide verification.
@@ -237,3 +237,12 @@
   - _Boundary: repository-wide verification/refactor only_
   - _Depends: 6.1_
   - _Validation: make test-unit && make quality-checks && make parity-checks && make qa_
+
+## Implementation Notes
+
+- Standard memory/Bun continuity always wires `routeoverride.Reader`; `routing.override_admin.enabled` only mounts HTTP.
+- Parallel-race tests must hold both Opens before either can win (`tryOpenParallelGroup` can skip a loser after `winnerIdx`).
+- Windows: `make test-race` / `go test -race` cannot initialize (cgo); Linux CI remains the race surface.
+- Postgres override contracts are `//go:build integration` and `SkipUnlessPostgres` (`LIP_REQUIRE_POSTGRES=1`).
+- Full `make lint`/`make qa` can still fail on HEAD-identical billing test lint (gofumpt/paralleltest/context-as-argument); `golangci-lint run --new-from-rev=HEAD` is clean for this feature.
+

@@ -11,6 +11,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect"
@@ -31,6 +32,7 @@ type Store struct {
 var (
 	_ b2bua.Store                 = (*Store)(nil)
 	_ b2bua.InterleavedStateStore = (*Store)(nil)
+	_ routeoverride.Store         = (*Store)(nil)
 )
 
 // New returns a Store backed by db after applying schema. Closing the store closes the underlying sql.DB.

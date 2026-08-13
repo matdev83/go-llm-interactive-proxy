@@ -71,6 +71,9 @@ func protectedDiagnosticsSurfaces(cfg *Config) []string {
 	if cfg.Accounting.Admin.Enabled && strings.TrimSpace(cfg.Accounting.Admin.Path) != "" {
 		out = append(out, "token_accounting_admin")
 	}
+	if cfg.Routing.OverrideAdmin.Enabled {
+		out = append(out, "routing_override_admin")
+	}
 	if AuthorityQueryEffectivelyExposed(cfg) {
 		out = append(out, "accounting_authority_query")
 	}

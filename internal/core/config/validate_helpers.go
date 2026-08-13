@@ -93,6 +93,22 @@ var protectedMountPaths = []protectedMountPath{
 		path:    func(cfg *Config) string { return cfg.ControlPlane.Query.PathPrefix },
 		field:   "control_plane.query.path_prefix",
 	},
+	{
+		enabled: func(cfg *Config) bool { return cfg.Routing.OverrideAdmin.Enabled },
+		path:    func(cfg *Config) string { return RoutingOverrideAdminPathPrefix(cfg) },
+		field:   "routing.override_admin.path_prefix",
+	},
+	{
+		enabled: func(cfg *Config) bool { return cfg.Accounting.Billing.Authoritative },
+		path: func(cfg *Config) string {
+			p := strings.TrimSpace(cfg.Accounting.Billing.ReportsPath)
+			if p == "" {
+				return "/admin/billing"
+			}
+			return p
+		},
+		field: "accounting.billing.reports_path",
+	},
 }
 
 func validateProtectedMountPath(cfg *Config, mount protectedMountPath, norm func(string) string, add func(string) error) error {

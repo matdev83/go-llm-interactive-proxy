@@ -2,8 +2,8 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
@@ -38,17 +38,13 @@ type routePlanState struct {
 // initializes attempt budgets, session routing state, affinity identity, and
 // interleaved preload for the initial open loop.
 func (e *Executor) buildRoutePlan(ctx context.Context, prep *preparedRequest) (*routePlanState, error) {
-	selStr := strings.TrimSpace(prep.baseline.Route.Selector)
-	if e.SelectorAliases != nil {
-		selStr = e.SelectorAliases.Resolve(selStr)
-	}
-	sel, err := routing.Parse(selStr)
+	e.noteSelectorAuthority(ctx, prep.traceID, prep.routeAuth)
+	sel, err := routing.CompileSelector(prep.baseline.Route.Selector, e.SelectorAliases, e.DefaultBackend)
 	if err != nil {
+		if errors.Is(err, lipapi.ErrUnresolvedModelOnlySelector) {
+			return nil, fmt.Errorf("executor: %w", err)
+		}
 		return nil, fmt.Errorf("executor: parse route selector: %w", err)
-	}
-	routing.ApplyModelOnlyBackends(sel, e.DefaultBackend)
-	if routing.SelectorHasEmptyBackend(sel) {
-		return nil, fmt.Errorf("executor: %w", lipapi.ErrUnresolvedModelOnlySelector)
 	}
 	// Bind-time registry view: set NativeModel on every leaf without rewriting
 	// Primary.Model so catalog/affinity/traces keep logical identity (req 9.4, 9.10).

@@ -18,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
@@ -247,6 +248,10 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		affStore, candHealth = in.SharedMutable.candidateRoutingViews(in.BackendIdentities, cfg, in.NowFn)
 		aLeg = in.SharedMutable.ALegLifecycle
 	}
+	var overrideReader routeoverride.Reader
+	if in.Persistence != nil && in.Persistence.OverrideStore != nil {
+		overrideReader = in.Persistence.OverrideStore
+	}
 	routingRT := runtime.RoutingRuntime{
 		MaxAttempts:             cfg.Routing.MaxAttempts,
 		DefaultBackend:          defBE,
@@ -257,6 +262,7 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		AffinityStore:           affStore,
 		AffinityMissingIdentity: affinity.MissingIdentityPolicy(strings.TrimSpace(cfg.Routing.Affinity.MissingIdentity)),
 		TransportFallbackPolicy: config.EffectiveTransportFallbackPolicy(cfg),
+		RouteOverrideReader:     overrideReader,
 	}
 	routingRT, catalogRuntime := attachModelCatalog(routingRT, in.Model.StartedCatalog, cfg)
 

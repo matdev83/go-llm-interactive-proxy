@@ -127,7 +127,7 @@ func TestExecutor_prepareSubmitAndALeg_secure_newSession_replacesForgedALeg(t *t
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
 	}
-	_, baseline, aLeg, outCtx, err := ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
+	_, baseline, aLeg, _, outCtx, err := ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestExecutor_prepareSubmitAndALeg_secure_requireWorkspaceID_denies(t *testi
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
 	}
-	_, _, _, _, err = ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
+	_, _, _, _, _, err = ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -233,7 +233,7 @@ func TestExecutor_prepareSubmitAndALeg_secure_workspaceFailClosed_skipsSubmitHoo
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
 	}
-	_, _, _, _, err = ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
+	_, _, _, _, _, err = ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -273,7 +273,7 @@ func TestExecutor_prepareSubmitAndALeg_secure_invalidResumeIsDenial(t *testing.T
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
 	}
-	_, _, _, _, err = ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
+	_, _, _, _, _, err = ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -445,7 +445,7 @@ func TestExecutor_prepareSubmitAndALeg_syntheticLocalPrincipalWhenEnabled(t *tes
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
 	}
-	_, _, _, outCtx, err := ex.prepareSubmitAndALeg(context.Background(), ex.Bus, call)
+	_, _, _, _, outCtx, err := ex.prepareSubmitAndALeg(context.Background(), ex.Bus, call)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -489,7 +489,7 @@ func TestExecutor_prepareSubmitAndALeg_missingPrincipalWithoutSynthetic(t *testi
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
 	}
-	_, _, _, _, err = ex.prepareSubmitAndALeg(context.Background(), ex.Bus, call)
+	_, _, _, _, _, err = ex.prepareSubmitAndALeg(context.Background(), ex.Bus, call)
 	if err == nil {
 		t.Fatal("expected error")
 	}

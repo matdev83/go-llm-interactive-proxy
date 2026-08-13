@@ -61,7 +61,7 @@ func TestSharedCheckpointAcrossFrontendOperations(t *testing.T) {
 					Parts: []lipapi.Part{lipapi.TextPart("cross-fe")},
 				}},
 			}
-			_, _, _, outCtx, err := ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
+			_, _, _, _, outCtx, err := ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
 			if err != nil {
 				t.Fatal(err)
 			}

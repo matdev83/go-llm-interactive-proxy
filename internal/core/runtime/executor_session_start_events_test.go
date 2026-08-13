@@ -76,7 +76,7 @@ func TestExecutor_prepareSubmitAndALeg_sessionStart_newSecureSession_emitsOnce(t
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
 	}
-	traceID, _, aLeg, _, err := ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
+	traceID, _, aLeg, _, _, err := ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestExecutor_prepareSubmitAndALeg_sessionStart_proxySessionIDNotRawClientHi
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
 	}
-	_, _, _, _, err = ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
+	_, _, _, _, _, err = ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestExecutor_prepareSubmitAndALeg_sessionStart_resumeDoesNotDuplicate(t *te
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
 	}
-	_, _, _, _, err = ex.prepareSubmitAndALeg(ctx, ex.Bus, call1)
+	_, _, _, _, _, err = ex.prepareSubmitAndALeg(ctx, ex.Bus, call1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestExecutor_prepareSubmitAndALeg_sessionStart_resumeDoesNotDuplicate(t *te
 			Parts: []lipapi.Part{lipapi.TextPart("again")},
 		}},
 	}
-	_, _, _, _, err = ex.prepareSubmitAndALeg(ctx, ex.Bus, call2)
+	_, _, _, _, _, err = ex.prepareSubmitAndALeg(ctx, ex.Bus, call2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestExecutor_prepareSubmitAndALeg_sessionStart_resumeTokenNotLeakedIntoEven
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
 	}
-	_, _, _, _, err = ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
+	_, _, _, _, _, err = ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
 	if err == nil {
 		t.Fatal("expected invalid resume to fail prepare")
 	}
@@ -265,7 +265,7 @@ func TestExecutor_prepareSubmitAndALeg_sessionStart_resumeTokenNotLeakedIntoEven
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
 	}
-	_, _, _, _, err = ex.prepareSubmitAndALeg(ctx, ex.Bus, call2)
+	_, _, _, _, _, err = ex.prepareSubmitAndALeg(ctx, ex.Bus, call2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,7 +319,7 @@ func TestExecutor_prepareSubmitAndALeg_sessionStart_syntheticPrincipal_emitsPart
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
 	}
-	_, _, _, _, err = ex.prepareSubmitAndALeg(context.Background(), ex.Bus, call)
+	_, _, _, _, _, err = ex.prepareSubmitAndALeg(context.Background(), ex.Bus, call)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +367,7 @@ func TestExecutor_prepareSubmitAndALeg_sessionStart_failClosed_propagates(t *tes
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
 	}
-	_, _, _, _, err = ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
+	_, _, _, _, _, err = ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
 	if err == nil {
 		t.Fatal("expected fail-closed session-start delivery to fail prepare")
 	}

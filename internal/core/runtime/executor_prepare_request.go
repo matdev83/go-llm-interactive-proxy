@@ -50,6 +50,7 @@ type preparedRequest struct {
 	billingIdentityStamped bool
 	execSpan               trace.Span
 	metering               *checkpoint.RequestHolder
+	routeAuth              routeAuthoritySnapshot
 }
 
 // prepareRequest executes phases 1-9 of the former inline [Executor.Execute]:
@@ -94,7 +95,7 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 	prepCtx, execSpan := otel.Tracer(otelScopeExecutor).Start(ctx, "lip.executor.execute")
 	prep.execSpan = execSpan
 
-	prep.traceID, prep.baseline, prep.aLeg, prepCtx, err = e.prepareSubmitAndALeg(prepCtx, bus, call)
+	prep.traceID, prep.baseline, prep.aLeg, prep.routeAuth, prepCtx, err = e.prepareSubmitAndALeg(prepCtx, bus, call)
 	if err != nil {
 		// Route through finalize so the lip.executor.execute span records the
 		// prepare-submit failure (RecordError + SetStatus) before ending, matching

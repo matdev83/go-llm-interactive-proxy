@@ -33,6 +33,8 @@ func TestPostgresSettlementCrashBeforeCommit(t *testing.T) {
 }
 
 func TestPostgresSettlementCrashAfterEachMutation(t *testing.T) {
+	// Parent skip-before-subtest: runSettlementCrashAfterEachMutation starts t.Run before the store factory can skip.
+	_ = testkit.SkipUnlessPostgres(t)
 	runSettlementCrashAfterEachMutation(t, func() *DurableStore { return newPostgresParityStore(t) }, uniqueAccountID("fault"))
 }
 

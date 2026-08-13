@@ -50,6 +50,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 	traceID string,
 	baseline lipapi.Call,
 	aLeg b2bua.ALegRecord,
+	routeAuth routeAuthoritySnapshot,
 	outCtx context.Context,
 	err error,
 ) {
@@ -135,7 +136,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 						"error", werr,
 					)
 				}
-				return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, fmt.Errorf("executor: secure session: %w", mapped)
+				return "", lipapi.Call{}, b2bua.ALegRecord{}, routeAuthoritySnapshot{}, outCtx, fmt.Errorf("executor: secure session: %w", mapped)
 			}
 			outcome = "fail_open"
 			if e.Log != nil {
@@ -192,7 +193,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 				"client_session_id", HashOpaqueIDForLog(work.Session.ClientSessionID),
 			)
 		}
-		return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, fmt.Errorf("executor: secure session: %w", mapped)
+		return "", lipapi.Call{}, b2bua.ALegRecord{}, routeAuthoritySnapshot{}, outCtx, fmt.Errorf("executor: secure session: %w", mapped)
 	}
 	if e != nil && e.SecureSessionMetrics != nil {
 		if br.IsNew {
@@ -211,11 +212,23 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		return "",
 			lipapi.Call{},
 			b2bua.ALegRecord{},
+			routeAuthoritySnapshot{},
 			outCtx,
 			fmt.Errorf("executor: fetch a-leg after secure session: %w", err)
 	}
 	work.Session.ContinuityKey = strings.TrimSpace(aLeg.ContinuityKey)
 	work.Session.ALegID = aLeg.ALegID
+
+	routeAuth, err = e.snapshotRouteOverride(outCtx, aLeg.ALegID)
+	if err != nil {
+		return "", lipapi.Call{}, b2bua.ALegRecord{}, routeAuthoritySnapshot{}, outCtx, err
+	}
+
+	// Deterministic test cut after the override snapshot and before
+	// submit/request stages and route-plan construction (design D3 snapshot point).
+	if err := waitRouteAuthoritySnapshotBarrier(outCtx, aLeg.ALegID); err != nil {
+		return "", lipapi.Call{}, b2bua.ALegRecord{}, routeAuthoritySnapshot{}, outCtx, fmt.Errorf("executor: route authority snapshot barrier: %w", err)
+	}
 
 	preSession.ALegID = aLeg.ALegID
 	preSession.AuthoritativeSessionID = string(br.Record.SessionID)
@@ -256,25 +269,25 @@ func (e *Executor) prepareSubmitAndALegSecure(
 			SessionID: br.Record.SessionID,
 			TurnID:    br.TurnID,
 		}); err != nil {
-			return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
+			return "", lipapi.Call{}, b2bua.ALegRecord{}, routeAuthoritySnapshot{}, outCtx, err
 		}
 	}
 
 	var meteringHolder *checkpoint.RequestHolder
 	outCtx, meteringHolder, err = captureFrontendIngressBeforeSubmit(outCtx, work, reqScope, e.now())
 	if err != nil {
-		return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
+		return "", lipapi.Call{}, b2bua.ALegRecord{}, routeAuthoritySnapshot{}, outCtx, err
 	}
 	_ = meteringHolder
 	outCtx, err = e.admitRequestAuthorityOnce(outCtx, work.ID, aLeg.ALegID, traceID, reqScope)
 	if err != nil {
-		return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
+		return "", lipapi.Call{}, b2bua.ALegRecord{}, routeAuthoritySnapshot{}, outCtx, err
 	}
 	// Release request-stage holds if prepare fails after a successful admit
 	// (settlement only runs once output is committed).
-	failAfterRequestAdmit := func(err error) (string, lipapi.Call, b2bua.ALegRecord, context.Context, error) {
+	failAfterRequestAdmit := func(err error) (string, lipapi.Call, b2bua.ALegRecord, routeAuthoritySnapshot, context.Context, error) {
 		_ = e.releaseRequestAuthority(outCtx)
-		return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
+		return "", lipapi.Call{}, b2bua.ALegRecord{}, routeAuthoritySnapshot{}, outCtx, err
 	}
 
 	submitMeta := &sdk.SubmitMeta{TraceID: traceID, Annotations: map[string]string{}}
@@ -406,9 +419,16 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		); err != nil {
 			return failAfterRequestAdmit(err)
 		}
+	}
+
+	effective := lipapi.CloneCall(work)
+	if routeAuth.active() {
+		effective.Route.Selector = routeAuth.State.Selector
+	}
+	if snap != nil {
 		hintIn := routehint.Input{
 			TraceID:   traceID,
-			Call:      &work,
+			Call:      &effective,
 			Principal: principal,
 			Session:   preSession,
 			Workspace: wsView,
@@ -417,7 +437,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 			outCtx,
 			e.Log,
 			snap.RouteHintProviders(),
-			&work,
+			&effective,
 			hintIn,
 		)
 		if err != nil {
@@ -426,7 +446,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		outCtx = execctx.WithRouteCandidatePreferences(outCtx, prefs)
 	}
 
-	baseline = lipapi.CloneCall(work)
+	baseline = lipapi.CloneCall(effective)
 	call.Session = work.Session
 	if br.IsNew && len(br.Response.ResumeToken) > 0 {
 		// Client-visible bearer for resume; never included on baseline (backend attempts).
@@ -487,7 +507,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 	); err != nil {
 		return failAfterRequestAdmit(err)
 	}
-	return traceID, baseline, aLeg, outCtx, nil
+	return traceID, baseline, aLeg, routeAuth, outCtx, nil
 }
 
 func secureSessionWireFromLipAPI(s lipapi.SessionRef) app.SessionWire {

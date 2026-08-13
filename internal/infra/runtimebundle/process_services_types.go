@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
 	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
@@ -43,6 +44,7 @@ type ProcessServices struct {
 	Metrics               *metrics.Bundle
 	DatabasePools         *db.PoolRegistry
 	Continuity            b2bua.Store
+	RouteOverrideStore    routeoverride.Store
 	SecureSessions        ssessionapp.Store
 	DecodeAdmission       lipsdk.DecodeAdmission
 	ALegLifecycle         *leglifecycle.Coordinator

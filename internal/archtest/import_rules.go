@@ -249,6 +249,26 @@ var ForbiddenImports = []ForbiddenImportRule{
 		TargetPattern: "/connector-support/",
 		Reason:        "generic OpenResponses backend must not import provider connector support",
 	},
+	{
+		SourcePattern: "internal/plugins/frontends",
+		TargetPattern: "/internal/core/routeoverride",
+		Reason:        "frontend plugins must not import route-override state",
+	},
+	{
+		SourcePattern: "internal/plugins/backends",
+		TargetPattern: "/internal/core/routeoverride",
+		Reason:        "backend plugins must not import route-override state",
+	},
+	{
+		SourcePattern: "pkg/lipapi",
+		TargetPattern: "/internal/core/routeoverride",
+		Reason:        "canonical contracts must not import route-override state",
+	},
+	{
+		SourcePattern: "pkg/lipsdk",
+		TargetPattern: "/internal/core/routeoverride",
+		Reason:        "public SDK must not import route-override state",
+	},
 }
 
 // fileScopedImportRule restricts specific production files.

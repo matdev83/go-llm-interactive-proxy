@@ -60,3 +60,31 @@ func (e *Executor) noteRouteDecision(ctx context.Context, traceID, decision, det
 		e.RouteObserver.ObserveRouteDecision(ctx, traceID, decision, detail)
 	}
 }
+
+func (e *Executor) noteSelectorAuthority(ctx context.Context, traceID string, snap routeAuthoritySnapshot) {
+	if e == nil {
+		return
+	}
+	source := snap.Source
+	if source == "" {
+		source = routeSelectorSourceClient
+	}
+	var rev int64
+	if snap.active() {
+		rev = snap.State.Revision
+		source = routeSelectorSourceAdmin
+	}
+	if e.RouteTrace != nil {
+		e.RouteTrace.Append(diag.RouteTraceEntry{
+			TraceID:          traceID,
+			Decision:         "selector_authority",
+			Detail:           source,
+			SelectorSource:   source,
+			OverrideRevision: rev,
+			ModelView:        boundRouteTraceModelView(ctx),
+		})
+	}
+	if e.RouteObserver != nil {
+		e.RouteObserver.ObserveRouteDecision(ctx, traceID, "selector_authority", source)
+	}
+}

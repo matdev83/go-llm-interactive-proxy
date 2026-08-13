@@ -7,6 +7,7 @@ package contract
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -56,6 +57,7 @@ type HTTPOperationsInput struct {
 	ControlPlaneQueries  lipcp.Queries
 	ReadinessReport      lipcp.ReadinessReportReader
 	TokenAccountingAdmin adminaccounting.Service
+	RouteOverrideAdmin   http.Handler
 	Registrations        []lipsdk.Registration
 }
 

@@ -92,6 +92,9 @@ func Validate(cfg *Config) error {
 	if err := validateRoutingAffinity(cfg); err != nil {
 		return err
 	}
+	if err := validateRoutingOverrideAdmin(cfg); err != nil {
+		return err
+	}
 	if err := identity.Validate(&cfg.Identity); err != nil {
 		return err
 	}
@@ -409,8 +412,9 @@ func validateDiagnosticsPaths(cfg *Config) error {
 			return err
 		}
 	}
-	// accounting.admin.path, authority query, and control_plane query are protected
-	// operator mounts and must satisfy the same dot-segment and overlap rules.
+	// accounting.admin.path, authority query, control_plane query, routing
+	// override admin, and billing reports are protected operator mounts and
+	// must satisfy the same dot-segment and overlap rules.
 	for _, mount := range protectedMountPaths {
 		if err := validateProtectedMountPath(cfg, mount, norm, add); err != nil {
 			return err
