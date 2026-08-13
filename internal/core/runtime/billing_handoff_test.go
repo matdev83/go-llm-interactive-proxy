@@ -472,6 +472,30 @@ func TestAuthorizeBillingOnceStampsEconomicRefsFromHold(t *testing.T) {
 	}
 }
 
+func TestAuthorizeBillingOnceStampsIdentityWithoutAdmissionWhenHandoffConfigured(t *testing.T) {
+	t.Parallel()
+	executor := &Executor{BillingRuntime: BillingRuntime{
+		BillingTerminalHandoff: billing.UsageRecordAppenderFunc(func(context.Context, billing.TurnUsageRecord) error { return nil }),
+		BillingIdentity:        testBillingIdentity(),
+	}}
+	prep := &preparedRequest{baseline: lipapi.Call{ID: "call-1"}, aLeg: b2bua.ALegRecord{ALegID: "a-1"}}
+	if err := executor.authorizeBillingOnce(context.Background(), prep, &routePlanState{}); err != nil {
+		t.Fatalf("authorizeBillingOnce: %v", err)
+	}
+	if !prep.billingIdentityStamped || prep.billingAccountID != "acct" || prep.billingAuthorizationID != "auth:a-1" {
+		t.Fatalf("handoff without admission must stamp from identity resolvers, stamped=%v account=%q auth=%q", prep.billingIdentityStamped, prep.billingAccountID, prep.billingAuthorizationID)
+	}
+
+	plain := &Executor{BillingRuntime: BillingRuntime{BillingIdentity: testBillingIdentity()}}
+	unstamped := &preparedRequest{baseline: lipapi.Call{ID: "call-2"}, aLeg: b2bua.ALegRecord{ALegID: "a-2"}}
+	if err := plain.authorizeBillingOnce(context.Background(), unstamped, &routePlanState{}); err != nil {
+		t.Fatalf("authorizeBillingOnce without handoff: %v", err)
+	}
+	if unstamped.billingIdentityStamped {
+		t.Fatal("must not stamp when neither admission nor terminal handoff is configured")
+	}
+}
+
 func TestBillingTerminalHandoffMissingAuthorizationPreservesEvidence(t *testing.T) {
 	var calls []billing.TurnUsageRecord
 	authID := ""

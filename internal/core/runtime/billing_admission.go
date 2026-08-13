@@ -52,6 +52,12 @@ func (e *Executor) authorizeBillingOnce(ctx context.Context, prep *preparedReque
 		return fmt.Errorf("%w: authoritative billing requires BillingAdmission", ErrBillingAdmissionDenied)
 	}
 	if e.BillingAdmission == nil {
+		// Non-authoritative composition may wire TUR handoff and identity
+		// resolvers without an admission adapter. Stamp from resolvers so
+		// terminal seal is not skipped; do not invent a hold.
+		if e.BillingTerminalHandoff != nil && prep != nil {
+			e.stampBillingIdentity(ctx, prep, billing.Authorization{})
+		}
 		return nil
 	}
 	if prep == nil || plan == nil {
