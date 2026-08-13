@@ -43,7 +43,7 @@ TDD throughout (RED → GREEN → REFACTOR). Do not modify stream handlers, TUR 
   - _Boundary: PrincipalSessionIdentity_
   - _Validation: `go test -run TestPrincipalSessionIdentity ./internal/infra/billingcompose`_
 
-- [ ] 2.3 Join hold lookup with catalog bodies as the stock rating resolver
+- [x] 2.3 Join hold lookup with catalog bodies as the stock rating resolver
   - Stock rating lookup loads the durable hold, then catalog bodies for the sealed usage record’s version refs.
   - Missing hold or missing snapshot fails closed and does not invent rates or a synthetic hold amount.
   - Do not change the post-turn worker.
