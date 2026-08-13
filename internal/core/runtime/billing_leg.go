@@ -252,16 +252,15 @@ func (s *retryRecvStream) handoffBillingTurn(ctx context.Context, command sdkter
 		return
 	}
 
-	job := billingHandoffRetryJob{
-		stream:          s,
-		command:         command,
-		accountID:       accountID,
-		authorizationID: authID,
-		aLegID:          strings.TrimSpace(s.aLegID),
-		sessionID:       strings.TrimSpace(s.baseline.Session.AuthoritativeSessionID),
-		customerPricing: s.billingCustomerPricing,
-		chargePolicy:    s.billingChargePolicy,
-		upstreamOpened:  true,
+	job := billing.HandoffRetryJob{
+		AccountID:       accountID,
+		AuthorizationID: authID,
+		ALegID:          strings.TrimSpace(s.aLegID),
+		SessionID:       strings.TrimSpace(s.baseline.Session.AuthoritativeSessionID),
+		Outcome:         turnOutcomeFromCommand(command),
+		CustomerPricing: s.billingCustomerPricing,
+		ChargePolicy:    s.billingChargePolicy,
+		UpstreamOpened:  true,
 	}
 	if s.executor.billingTurns().sealTurn(ctx, job) {
 		s.billingHandoffSuccess = true

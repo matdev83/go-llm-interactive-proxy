@@ -78,6 +78,10 @@ type BillingRuntime struct {
 	// exhausts without evidence. Composition wires the same durable store used
 	// for admission; runtime never duck-types this port.
 	BillingHoldReleaser billing.HoldReleaser
+	// HandoffOutbox owns detached TUR seal retry. Nil uses a process-local
+	// memory outbox so tests and non-authoritative wiring still retry without
+	// holding a live stream.
+	HandoffOutbox billing.HandoffOutbox
 	// BillingIdentity is the single composition identity bundle for admission
 	// stamping. Terminal TUR seal reads the stamped values and does not
 	// re-resolve these functions.
