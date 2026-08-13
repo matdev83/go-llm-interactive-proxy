@@ -28,6 +28,7 @@ var (
 var (
 	_ billing.UsageRecordAppender = (*DurableStore)(nil)
 	_ billing.HoldReleaser        = (*DurableStore)(nil)
+	_ billing.AccountProvisioner  = (*DurableStore)(nil)
 )
 
 // CreateAccount creates the initial materialized account row. Subsequent
