@@ -130,6 +130,12 @@ func (h *Host) productionOptions() ProductionOptions {
 	return h.process.opts.Production
 }
 
+// HasProductionBillingStore reports whether composition injected a Production
+// billing journal. It does not return the journal itself.
+func (h *Host) HasProductionBillingStore() bool {
+	return h.productionOptions().BillingStore != nil
+}
+
 func (h *Host) activeExecutor() *runtime.Executor {
 	if h == nil || h.manager == nil {
 		return nil

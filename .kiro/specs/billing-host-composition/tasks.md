@@ -118,7 +118,7 @@ TDD throughout (RED → GREEN → REFACTOR). Do not modify stream handlers, TUR 
   - _Boundary: Host loop test_
   - _Validation: `go test -run TestBillingHostLoop_MissingCatalogRefs ./internal/infra/runtimebundle`_
 
-- [ ] 5.3 (P) Keep stock binary and public library injection-only
+- [x] 5.3 (P) Keep stock binary and public library injection-only
   - Public library options still have no billing journal, account, catalog, or rating-lookup fields.
   - YAML `accounting.billing.authoritative` without injection still fails closed; leftover `accounting.ledger.*` and `accounting.pricing` YAML is not a billing factory and does not open a journal.
   - Standard distribution still does not inject Production billing or invent accounts when the flag is unset or when it is set without injection.
@@ -155,4 +155,5 @@ TDD throughout (RED → GREEN → REFACTOR). Do not modify stream handlers, TUR 
 - DurableStore AccountProvisioner methods (CreateAccount, PostFunding, ChangeCreditPolicy) wrap store sentinels with billing.ErrAccountConflict / billing.ErrAccountNotFound via `%w` chaining so both remain detectable; GetAccount and non-provisioner ops still return store-only sentinels.
 - ComposeBilling also type-asserts AuthorizationStore (needed by billingadmission.NewAdapter) in addition to the five store capabilities listed in the design contract.
 - Host-loop helpers live in `billing_host_loop_test.go` (sqlite store, catalog seed, BuildHost YAML, usage stub, wait-processed). 5.2/5.4 should reuse them. ClientSessionID poison is asserted on `call.Session` after BeginTurn, not on TUR AuthorizationID.
+- Fence observation for cmd/lipstd: `Host.HasProductionBillingStore() bool` only (no live journal or Executor getter).
 
