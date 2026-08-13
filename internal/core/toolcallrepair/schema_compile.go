@@ -53,10 +53,10 @@ func compileSchema(ctx context.Context, schema json.RawMessage, limits SchemaLim
 }
 
 func (s *CompiledSchema) Validate(argsJSON []byte) error {
-	return s.ValidateContext(context.Background(), argsJSON)
+	return s.ValidateWithContext(context.Background(), argsJSON)
 }
 
-func (s *CompiledSchema) ValidateContext(ctx context.Context, argsJSON []byte) error {
+func (s *CompiledSchema) ValidateWithContext(ctx context.Context, argsJSON []byte) error {
 	return s.validateWithMaxArgs(ctx, argsJSON, DefaultMaxArgsBytes)
 }
 

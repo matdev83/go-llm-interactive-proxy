@@ -281,7 +281,10 @@ func TestGenerationPin_TransferPin_RejectsInvalidKind(t *testing.T) {
 	if !ok {
 		t.Fatal("acquire")
 	}
-	if _, ok := lease.TransferPin(0); ok { // PinHTTP / unknown zero
+	if runtimehost.PinHTTP == 0 {
+		t.Fatal("PinHTTP must not be the zero value")
+	}
+	if _, ok := lease.TransferPin(0); ok { // PinUnknown zero
 		t.Fatal("zero kind must fail")
 	}
 	if _, ok := lease.TransferPin(runtimehost.PinKind(99)); ok {

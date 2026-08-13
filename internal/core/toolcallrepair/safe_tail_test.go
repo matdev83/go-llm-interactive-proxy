@@ -186,7 +186,7 @@ func TestEngine_PendingRootValueRefusesInferenceAndSpeculation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			original := []byte(tc.args)
-			out, err := toolcallrepair.NewEngine().RepairContext(context.Background(), toolcallrepair.Input{
+			out, err := toolcallrepair.NewEngine().RepairWithContext(context.Background(), toolcallrepair.Input{
 				ToolName: "run",
 				ArgsJSON: original,
 				Catalog:  []lipapi.ToolDef{{Name: "run", Parameters: json.RawMessage(tc.schema)}},
@@ -226,7 +226,7 @@ func TestEngine_TailCancellationIsStable(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	out, err := toolcallrepair.NewEngine().RepairContext(ctx, toolcallrepair.Input{
+	out, err := toolcallrepair.NewEngine().RepairWithContext(ctx, toolcallrepair.Input{
 		ToolName: "run",
 		ArgsJSON: []byte(`{"a":1,`),
 		Catalog:  []lipapi.ToolDef{{Name: "run"}},

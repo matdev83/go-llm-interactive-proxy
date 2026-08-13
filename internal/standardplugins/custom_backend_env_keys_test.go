@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatibleutil"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatmode"
 	"gopkg.in/yaml.v3"
 )
 
@@ -62,7 +62,7 @@ func TestCompatibleCredential_resolveEnvRootOnly(t *testing.T) {
 	clearCustomEnvRoot(t, root)
 	t.Setenv(root, "env-one")
 	t.Setenv(root+"_2", "env-two")
-	got := compatibleutil.ResolveEnvAPIKeys(root)
+	got := compatmode.ResolveEnvAPIKeys(root)
 	want := []string{"env-one", "env-two"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("resolveCompatibleEnvAPIKeys(%q) = %#v, want %#v", root, got, want)
@@ -71,7 +71,7 @@ func TestCompatibleCredential_resolveEnvRootOnly(t *testing.T) {
 
 func TestCompatibleCredential_emptyRootIsNoAuth(t *testing.T) {
 	t.Parallel()
-	got := compatibleutil.ResolveEnvAPIKeys("")
+	got := compatmode.ResolveEnvAPIKeys("")
 	if len(got) != 0 {
 		t.Fatalf("empty root want nil/empty, got %#v", got)
 	}

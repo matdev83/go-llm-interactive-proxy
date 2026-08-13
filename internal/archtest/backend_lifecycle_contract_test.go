@@ -30,12 +30,12 @@ func TestOfficialBackendsHaveLifecycleContractTests(t *testing.T) {
 	}
 	skipDirs := map[string]struct{}{
 		"credpool": {}, "openaicaps": {}, "openaicred": {}, "streampeek": {}, "checkcfg": {},
-		"modeldiscover":  {},
-		"openaicompat":   {},
-		"openaiusage":    {},
-		"opencodetest":   {},
-		"protocols":      {},
-		"compatibleutil": {},
+		"modeldiscover": {},
+		"openaicompat":  {},
+		"openaiusage":   {},
+		"opencodetest":  {},
+		"protocols":     {},
+		"compatmode":    {},
 		// Shared final-wire User-Agent decorator for approved connectors (not a B-leg itself).
 		"httpidentity": {},
 		// Shared transport-error classification helper (not a B-leg itself).

@@ -6,13 +6,13 @@ import (
 )
 
 func ValidateArgsAgainstSchema(argsJSON []byte, schema json.RawMessage) error {
-	return ValidateArgsAgainstSchemaContext(context.Background(), argsJSON, schema)
+	return ValidateArgsAgainstSchemaWithContext(context.Background(), argsJSON, schema)
 }
 
-func ValidateArgsAgainstSchemaContext(ctx context.Context, argsJSON []byte, schema json.RawMessage) error {
-	compiled, err := packageSchemaCache().GetOrCompileContext(ctx, schema)
+func ValidateArgsAgainstSchemaWithContext(ctx context.Context, argsJSON []byte, schema json.RawMessage) error {
+	compiled, err := packageSchemaCache().GetOrCompileWithContext(ctx, schema)
 	if err != nil {
 		return err
 	}
-	return compiled.ValidateContext(ctx, argsJSON)
+	return compiled.ValidateWithContext(ctx, argsJSON)
 }

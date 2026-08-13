@@ -9,11 +9,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretsguard"
+	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretaudit"
-	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretsguard"
+	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
 
 type secretGuardRuntime struct {
@@ -48,14 +48,14 @@ func buildSecretGuardRuntime(cfg *config.Config, log *slog.Logger, opts *BuildOp
 	}
 	// Snapshot owns MaterializeSorted; composition only freezes a defensive clone.
 	guards := slices.Clone(opts.Extensions.SecretGuards)
-	accessPolicy := secretguard.AuditFailClosed
+	accessPolicy := sdk.AuditFailClosed
 	if runtimeCfg.Enabled {
-		accessPolicy = secretguard.AuditFailurePolicy(runtimeCfg.AuditFailurePolicy)
+		accessPolicy = sdk.AuditFailurePolicy(runtimeCfg.AuditFailurePolicy)
 	}
 	observer := opts.Extensions.SecretDecisionObserver
 	if featureEnabled || len(guards) > 0 {
-		if !secretguard.IsNilObserver(observer) {
-			observer = secretguard.ChainObservers(accessPolicy, observer)
+		if !sdk.IsNilObserver(observer) {
+			observer = sdk.ChainObservers(accessPolicy, observer)
 		} else {
 			if log == nil {
 				return nil, fmt.Errorf("runtimebundle: secrets-guard audit requires a non-nil logger")
@@ -64,7 +64,7 @@ func buildSecretGuardRuntime(cfg *config.Config, log *slog.Logger, opts *BuildOp
 			if err != nil {
 				return nil, fmt.Errorf("runtimebundle: secret guard audit: %w", err)
 			}
-			observer = secretguard.ChainObservers(accessPolicy, slogObs)
+			observer = sdk.ChainObservers(accessPolicy, slogObs)
 		}
 	}
 	var inventory *diag.InventoryExtras
