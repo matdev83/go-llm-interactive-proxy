@@ -10,7 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretsguard"
+	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
@@ -23,7 +23,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
@@ -167,12 +167,12 @@ type ExtensionsOptions struct {
 	UsageObservers                   []usage.Observer
 	RawCaptureSinks                  []traffic.RawCaptureSink
 	TrafficRedactors                 []traffic.Redactor
-	SecretGuards                     []secretguard.Guard
+	SecretGuards                     []sdk.Guard
 	// SecretGuardInputs carries supported composition seams for the guard
 	// matcher/source configuration.
 	SecretGuardInputs      SecretGuardInputs
 	SecretGuardEnvironment coresg.Environment
-	SecretDecisionObserver secretguard.Observer
+	SecretDecisionObserver sdk.Observer
 }
 
 // PolicyOptions carries policy-decision observer and budget configuration.

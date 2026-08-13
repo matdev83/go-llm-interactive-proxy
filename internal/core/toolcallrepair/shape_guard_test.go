@@ -141,7 +141,7 @@ func TestEngineRepairHonorsCacheLimitsAndLargeMaxArgs(t *testing.T) {
 		t.Parallel()
 		payload := []byte(`{"x":"` + strings.Repeat("b", 70<<10) + `"}`)
 		eng := toolcallrepair.NewEngine()
-		out, err := eng.RepairContext(context.Background(), toolcallrepair.Input{
+		out, err := eng.RepairWithContext(context.Background(), toolcallrepair.Input{
 			ToolName:     "run",
 			ArgsJSON:     payload,
 			Catalog:      []lipapi.ToolDef{{Name: "run", Parameters: nil}},
@@ -162,7 +162,7 @@ func TestEngineRepairHonorsCacheLimitsAndLargeMaxArgs(t *testing.T) {
 		cache := toolcallrepair.NewSchemaCache(limits)
 		eng := toolcallrepair.NewEngineWithCache(cache)
 		schema := nestedObjectJSON(35)
-		out, err := eng.RepairContext(context.Background(), toolcallrepair.Input{
+		out, err := eng.RepairWithContext(context.Background(), toolcallrepair.Input{
 			ToolName: "run",
 			ArgsJSON: []byte(`{}`),
 			Catalog:  []lipapi.ToolDef{{Name: "run", Parameters: schema}},
@@ -267,12 +267,12 @@ func TestSchemaPreflightCanceled(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := toolcallrepair.NewSchemaCache(toolcallrepair.DefaultSchemaLimits()).GetOrCompileContext(ctx, json.RawMessage(`{"type":"object"}`))
+	_, err := toolcallrepair.NewSchemaCache(toolcallrepair.DefaultSchemaLimits()).GetOrCompileWithContext(ctx, json.RawMessage(`{"type":"object"}`))
 	assertSchemaReason(t, err, toolcallrepair.ReasonCanceled)
 	assertNoSecret(t, err.Error(), "object")
 }
 
-func TestValidateContextShapeAndCancel(t *testing.T) {
+func TestValidateWithContextShapeAndCancel(t *testing.T) {
 	t.Parallel()
 	schema := json.RawMessage(`{"type":"object","properties":{"n":{"type":"integer"}},"additionalProperties":false}`)
 	cs, err := toolcallrepair.NewSchemaCache(toolcallrepair.DefaultSchemaLimits()).GetOrCompile(schema)
@@ -282,25 +282,25 @@ func TestValidateContextShapeAndCancel(t *testing.T) {
 
 	depthOver := jsonshape.ToolArgumentsLimits().MaxDepth + 1
 	deep := []byte(strings.Repeat(`[`, depthOver) + `1` + strings.Repeat(`]`, depthOver))
-	err = cs.ValidateContext(context.Background(), deep)
+	err = cs.ValidateWithContext(context.Background(), deep)
 	assertSchemaReason(t, err, toolcallrepair.ReasonNestingTooDeep)
 	assertNoSecret(t, err.Error(), "1")
 
 	dup := []byte(`{"n":1,"n":2}`)
-	err = cs.ValidateContext(context.Background(), dup)
+	err = cs.ValidateWithContext(context.Background(), dup)
 	assertSchemaReason(t, err, toolcallrepair.ReasonMalformedJSON)
 
 	num := []byte(`{"n":` + strings.Repeat("9", 80) + `}`)
-	err = cs.ValidateContext(context.Background(), num)
+	err = cs.ValidateWithContext(context.Background(), num)
 	assertSchemaReason(t, err, toolcallrepair.ReasonArgsTooLargeShape)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	err = cs.ValidateContext(ctx, []byte(`{"n":1}`))
+	err = cs.ValidateWithContext(ctx, []byte(`{"n":1}`))
 	assertSchemaReason(t, err, toolcallrepair.ReasonCanceled)
 }
 
-func TestEngineRepairContextShapeGuards(t *testing.T) {
+func TestEngineRepairWithContextShapeGuards(t *testing.T) {
 	t.Parallel()
 	catalog := []lipapi.ToolDef{{
 		Name:       "run",
@@ -311,7 +311,7 @@ func TestEngineRepairContextShapeGuards(t *testing.T) {
 	depthLimit := jsonshape.ToolArgumentsLimits().MaxDepth
 	emptyCatalog := []lipapi.ToolDef{{Name: "run", Parameters: nil}}
 	at := []byte(strings.Repeat(`[`, depthLimit) + `1` + strings.Repeat(`]`, depthLimit))
-	out, err := eng.RepairContext(context.Background(), toolcallrepair.Input{
+	out, err := eng.RepairWithContext(context.Background(), toolcallrepair.Input{
 		ToolName: "run", ArgsJSON: at, Catalog: emptyCatalog, MaxArgsBytes: 64 << 10,
 	})
 	if err != nil {
@@ -325,7 +325,7 @@ func TestEngineRepairContextShapeGuards(t *testing.T) {
 	}
 
 	over := []byte(strings.Repeat(`[`, depthLimit+1) + `1` + strings.Repeat(`]`, depthLimit+1))
-	out, err = eng.RepairContext(context.Background(), toolcallrepair.Input{
+	out, err = eng.RepairWithContext(context.Background(), toolcallrepair.Input{
 		ToolName: "run", ArgsJSON: over, Catalog: emptyCatalog, MaxArgsBytes: 64 << 10,
 	})
 	if err != nil {
@@ -351,7 +351,7 @@ func TestEngineRepairContextShapeGuards(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			out, err := eng.RepairContext(context.Background(), toolcallrepair.Input{
+			out, err := eng.RepairWithContext(context.Background(), toolcallrepair.Input{
 				ToolName: "run", ArgsJSON: tc.args, Catalog: catalog, MaxArgsBytes: 64 << 10,
 			})
 			if err != nil {
@@ -367,11 +367,11 @@ func TestEngineRepairContextShapeGuards(t *testing.T) {
 	}
 }
 
-func TestEngineRepairContextCanceled(t *testing.T) {
+func TestEngineRepairWithContextCanceled(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	out, err := toolcallrepair.NewEngine().RepairContext(ctx, toolcallrepair.Input{
+	out, err := toolcallrepair.NewEngine().RepairWithContext(ctx, toolcallrepair.Input{
 		ToolName: "run",
 		ArgsJSON: []byte(`{"n":1}`),
 		Catalog:  []lipapi.ToolDef{{Name: "run", Parameters: json.RawMessage(`{"type":"object"}`)}},
@@ -389,7 +389,7 @@ func TestEngineEmptySchemaStillShapeChecks(t *testing.T) {
 	eng := toolcallrepair.NewEngine()
 	depthOver := jsonshape.ToolArgumentsLimits().MaxDepth + 1
 	over := []byte(strings.Repeat(`[`, depthOver) + `0` + strings.Repeat(`]`, depthOver))
-	out, err := eng.RepairContext(context.Background(), toolcallrepair.Input{
+	out, err := eng.RepairWithContext(context.Background(), toolcallrepair.Input{
 		ToolName: "run",
 		ArgsJSON: over,
 		Catalog:  []lipapi.ToolDef{{Name: "run", Parameters: nil}},
@@ -427,7 +427,7 @@ func TestEngineCompletedSyntaxCandidateIsPreflighted(t *testing.T) {
 	t.Parallel()
 	prefix := strings.Repeat(`[`, jsonshape.ToolArgumentsLimits().MaxDepth+1)
 	eng := toolcallrepair.NewEngine()
-	out, err := eng.RepairContext(context.Background(), toolcallrepair.Input{
+	out, err := eng.RepairWithContext(context.Background(), toolcallrepair.Input{
 		ToolName: "run",
 		ArgsJSON: []byte(prefix),
 		Catalog:  []lipapi.ToolDef{{Name: "run", Parameters: json.RawMessage(`null`)}},

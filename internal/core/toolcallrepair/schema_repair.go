@@ -38,7 +38,7 @@ func (st *repairState) note(reason string) {
 	}
 }
 
-func checkRepairCtx(ctx context.Context) error {
+func checkRepairWithContext(ctx context.Context) error {
 	if ctx == nil {
 		return nil
 	}
@@ -115,7 +115,7 @@ func repairPreflightedArgsJSONDocument(ctx context.Context, args []byte, schemaD
 }
 
 func repairValue(ctx context.Context, v any, schema any, depth int, st *repairState) (any, error) {
-	if err := checkRepairCtx(ctx); err != nil {
+	if err := checkRepairWithContext(ctx); err != nil {
 		return nil, err
 	}
 	if depth > maxRepairDepth {
@@ -178,7 +178,7 @@ func repairObject(ctx context.Context, obj orderedObject, sch map[string]any, de
 	seen := make(map[string]struct{}, len(obj.keys))
 
 	for _, key := range obj.keys {
-		if err := checkRepairCtx(ctx); err != nil {
+		if err := checkRepairWithContext(ctx); err != nil {
 			return nil, err
 		}
 		val := obj.values[key]
@@ -421,7 +421,7 @@ func repairArray(ctx context.Context, arr []any, sch map[string]any, depth int, 
 	}
 	out := make([]any, len(arr))
 	for i, el := range arr {
-		if err := checkRepairCtx(ctx); err != nil {
+		if err := checkRepairWithContext(ctx); err != nil {
 			return nil, err
 		}
 		repaired, err := repairValue(ctx, el, items, depth+1, st)

@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatibleutil"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/streampeek"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/transporterr"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -32,7 +32,7 @@ func openCreateStreaming(ctx context.Context, id string, spec BackendSpec, call 
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", id, err)
 	}
-	apiKey := compatibleutil.FirstAPIKey(compatibleutil.ResolveEnvAPIKeys(spec.APIKeyEnvVarRoot))
+	apiKey := compatmode.FirstAPIKey(compatmode.ResolveEnvAPIKeys(spec.APIKeyEnvVarRoot))
 	resp, err := doStreaming(ctx, spec.HTTPClient, endpointURL, body, apiKey)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", id, err)

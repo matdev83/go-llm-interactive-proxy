@@ -34,7 +34,7 @@ func runSettlementB2BUALURCosts(t *testing.T, store *DurableStore, accountID str
 	if err := store.AppendUsageRecord(ctx, sealed); err != nil {
 		t.Fatal(err)
 	}
-	result := billing.BillingResult{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 8, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{
+	result := billing.Result{TURKey: sealed.Key, CustomerCharge: billing.Money{Nano: 8, Currency: "USD"}, OperatorCosts: []billing.OperatorCostResult{
 		{LURKey: sealed.Legs[0].Key, Amount: billing.Money{Nano: 2, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true},
 		{LURKey: sealed.Legs[1].Key, Amount: billing.Money{Nano: 5, Currency: "USD"}, AmountPresent: true, Reconciled: true, Authoritative: true},
 	}}

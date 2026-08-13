@@ -258,8 +258,8 @@ Disabled feature still binds a noop `MatcherResolver` (zero env reads, zero cata
 | `internal/stdhttp/auth` | Peer IP + opaque credential matcher attachment in middleware request context |
 | `internal/core/securesession` | Quarantine status/domain, durable `Store.Quarantine`, `Manager.AssertActive`, `ErrSessionQuarantined` |
 | `internal/core/runtime` | Ingress ordering after `BeginTurn`, before FE ingress capture |
-| `internal/core/secretsguard` | Catalog, Aho–Corasick matcher, known public prefixes, source policy |
-| `internal/plugins/features/secretsguard` | Call scanner + `block`/`redact`/`log` Guard (registered in `standardplugins`) |
+| `internal/core/secretguard` | Catalog, Aho–Corasick matcher, known public prefixes, source policy |
+| `internal/plugins/features/secretguard` | Call scanner + `block`/`redact`/`log` Guard (registered in `standardplugins`) |
 | `internal/infra/runtimebundle` | Secret-guard runtime composition, audit wiring, and inventory projection |
 | `internal/infra/secretaudit` | Secret-decision structured log observer |
 | `internal/infra/metrics` | Bounded Prometheus counters (`action`/`outcome`/`source_category`) |

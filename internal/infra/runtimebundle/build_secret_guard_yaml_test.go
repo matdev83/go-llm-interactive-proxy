@@ -7,11 +7,11 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/secretsguard"
-	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretsguard"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard"
+	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"gopkg.in/yaml.v3"
 )
 
@@ -58,7 +58,7 @@ redaction:
 	if runtimeCfg.PreserveKnownPrefixes {
 		t.Fatal("preserve_known_prefixes want false from YAML")
 	}
-	if runtimeCfg.AuditFailurePolicy != string(secretguard.AuditBestEffort) {
+	if runtimeCfg.AuditFailurePolicy != string(sdk.AuditBestEffort) {
 		t.Fatalf("audit policy: %q", runtimeCfg.AuditFailurePolicy)
 	}
 	if runtimeCfg.Action != "redact" {
@@ -106,7 +106,7 @@ func TestBuildSecretGuardRuntime_multiUserZeroEnvEvenWithMalformedSingleUser(t *
 	opts := &BuildOptions{Extensions: ExtensionsOptions{
 		SecretGuardEnvironment: env,
 		SecretGuardInputs: SecretGuardInputs{
-			SingleUser: secretsguard.SingleUserOptions{
+			SingleUser: secretguard.SingleUserOptions{
 				IncludePopularEnv: true,
 				IncludeEnv:        []string{"OPENAI_API_KEY"},
 				MinSecretBytes:    8,
@@ -200,8 +200,8 @@ func TestComposeSecretGuardSingleUser_matcherOverrideWinsOverYAML(t *testing.T) 
 		MinSecretBytes:        8,
 	}
 	inputs := SecretGuardInputs{
-		SingleUser: secretsguard.SingleUserOptions{
-			Matcher:           secretsguard.MatcherOptions{PreserveKnownPrefixes: false, MaskByte: 'X'},
+		SingleUser: secretguard.SingleUserOptions{
+			Matcher:           secretguard.MatcherOptions{PreserveKnownPrefixes: false, MaskByte: 'X'},
 			MatcherConfigured: true,
 		},
 	}

@@ -25,7 +25,8 @@ const (
 type PinKind uint8
 
 const (
-	PinHTTP PinKind = iota
+	PinUnknown PinKind = iota
+	PinHTTP
 	PinSSE
 	PinAsync
 	PinProvider

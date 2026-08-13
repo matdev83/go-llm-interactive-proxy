@@ -39,7 +39,7 @@ func openContinuityStore(ctx context.Context, cfg *config.Config, pools *db.Pool
 		if err != nil {
 			return nil, nil, fmt.Errorf("continuity: open sqlite store: %w", err)
 		}
-		s, err := bunstore.NewContext(ctx, bunDB)
+		s, err := bunstore.NewWithContext(ctx, bunDB)
 		if err != nil {
 			schemaErr := fmt.Errorf("continuity: prepare sqlite schema: %w", err)
 			if cerr := bunDB.Close(); cerr != nil {
@@ -69,9 +69,9 @@ func openContinuityStore(ctx context.Context, cfg *config.Config, pools *db.Pool
 		child, cancel := context.WithTimeout(ctx, db.DefaultPostgresOpenMigrateTimeout)
 		defer cancel()
 		store, closeFn, err := openPostgresStore(child, dsn, pool, cfg.Database, pools, migrator, postgresStoreLifecycle[b2bua.Store]{
-			// Migrate/Verify nil: bunstore.NewContext owns schema preparation.
+			// Migrate/Verify nil: bunstore.NewWithContext owns schema preparation.
 			Open: func(ctx context.Context, handle *bun.DB) (b2bua.Store, error) {
-				s, err := bunstore.NewContext(ctx, handle)
+				s, err := bunstore.NewWithContext(ctx, handle)
 				if err != nil {
 					return nil, fmt.Errorf("continuity: prepare postgres schema: %w", err)
 				}

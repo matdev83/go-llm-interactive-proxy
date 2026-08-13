@@ -2,6 +2,7 @@ package authoritycoord_test
 
 import (
 	"context"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -198,5 +199,21 @@ func TestAttemptCoordinator_SettleRoutesHandlesToOwningProvider(t *testing.T) {
 	}
 	if len(externalHandles) != 1 || externalHandles[0] != "enterprise-attempt-h" {
 		t.Fatalf("external handles=%v want [enterprise-attempt-h]", externalHandles)
+	}
+}
+
+func TestAttemptCoordinator_RejectsUnknownPriorityClass(t *testing.T) {
+	t.Parallel()
+	coord := &authoritycoord.AttemptCoordinator{
+		Slots: []authoritycoord.AttemptSlot{
+			{ID: "spend", Class: authoritycoord.AttemptPriorityUnknown, Provider: &fakeAttemptProvider{id: "spend"}},
+		},
+	}
+	_, err := coord.Admit(context.Background(), validAttemptAdmission("b-unknown"))
+	if err == nil {
+		t.Fatal("unknown attempt priority class must be rejected")
+	}
+	if !strings.Contains(err.Error(), "unknown attempt priority class") {
+		t.Fatalf("got %v", err)
 	}
 }

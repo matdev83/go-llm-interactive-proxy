@@ -86,7 +86,7 @@ func newIsolatedPostgresSecureSessionStore(t *testing.T, dsn string, pool db.Poo
 		pgBuildMu.Unlock()
 		t.Fatalf("set search_path on test store: %v", err)
 	}
-	s, err := bunstore.NewContext(ctx, bunDB)
+	s, err := bunstore.NewWithContext(ctx, bunDB)
 	if err != nil {
 		_ = bunDB.Close()
 		pgBuildMu.Unlock()

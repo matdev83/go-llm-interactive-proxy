@@ -34,7 +34,7 @@ func TestStoreContract_BunSQLite(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), db.DefaultPostgresOpenMigrateTimeout)
 		defer cancel()
-		s, err := bunstore.NewContext(ctx, bunDB)
+		s, err := bunstore.NewWithContext(ctx, bunDB)
 		if err != nil {
 			_ = sqlDB.Close()
 			t.Fatal(err)

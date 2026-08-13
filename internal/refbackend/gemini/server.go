@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/utils"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/jsonprobe"
 )
 
 const maxBodyBytes = 10 << 20
@@ -80,11 +80,11 @@ func routeAuthAndBody(w http.ResponseWriter, r *http.Request, cfg Config) ([]byt
 	if cfg.OnRequestBody != nil {
 		cfg.OnRequestBody(body)
 	}
-	if utils.HasJSONNumber(body, "temperature", 0.11) {
+	if jsonprobe.HasJSONNumber(body, "temperature", 0.11) {
 		http.Error(w, `{"error":{"code":429,"message":"rate limit exceeded"}}`, http.StatusTooManyRequests)
 		return nil, false
 	}
-	if utils.HasJSONNumber(body, "temperature", 0.22) {
+	if jsonprobe.HasJSONNumber(body, "temperature", 0.22) {
 		http.Error(w, `{"error":{"code":400,"message":"bad request"}}`, http.StatusBadRequest)
 		return nil, false
 	}
@@ -92,7 +92,7 @@ func routeAuthAndBody(w http.ResponseWriter, r *http.Request, cfg Config) ([]byt
 	if cfg.OnAuthorizedCredential != nil {
 		cfg.OnAuthorizedCredential(key)
 	}
-	if utils.TryWriteForcedHTTPError(w, cfg.ForcedHTTPStatus, cfg.ForcedRetryAfter, cfg.ForcedErrorJSON, defaultForcedErrorJSON) {
+	if jsonprobe.TryWriteForcedHTTPError(w, cfg.ForcedHTTPStatus, cfg.ForcedRetryAfter, cfg.ForcedErrorJSON, defaultForcedErrorJSON) {
 		return nil, false
 	}
 	return body, true
@@ -113,7 +113,7 @@ func writeJSON(w http.ResponseWriter, cfg Config, requestBody []byte) {
 	body := cfg.NonStreamJSON
 	if body == "" {
 		body = nonStreamWithUsageJSON
-		if utils.HasJSONKey(requestBody, "tools") {
+		if jsonprobe.HasJSONKey(requestBody, "tools") {
 			body = nonStreamWithToolCallJSON
 		}
 	}
@@ -126,13 +126,13 @@ func writeStream(w http.ResponseWriter, cfg Config, requestBody []byte) {
 	body := cfg.StreamSSE
 	if body == "" {
 		body = streamWithUsageSSE
-		if utils.HasJSONKey(requestBody, "tools") {
+		if jsonprobe.HasJSONKey(requestBody, "tools") {
 			body = streamWithToolCallSSE
 		}
-		if utils.HasJSONNumber(requestBody, "maxOutputTokens", 0) || utils.HasJSONNumber(requestBody, "maxOutputTokens", 1) {
+		if jsonprobe.HasJSONNumber(requestBody, "maxOutputTokens", 0) || jsonprobe.HasJSONNumber(requestBody, "maxOutputTokens", 1) {
 			body = streamWithZeroUsageSSE
 		}
-		if utils.HasJSONNumber(requestBody, "temperature", 0.11) || utils.HasJSONNumber(requestBody, "temperature", 0.22) {
+		if jsonprobe.HasJSONNumber(requestBody, "temperature", 0.11) || jsonprobe.HasJSONNumber(requestBody, "temperature", 0.22) {
 			body = `data: {"error":{"code":429,"message":"provider error"}}
 
 `

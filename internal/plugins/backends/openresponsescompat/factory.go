@@ -6,7 +6,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatibleutil"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatmode"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"gopkg.in/yaml.v3"
 )
@@ -26,15 +26,15 @@ func Build(instanceID string, n yaml.Node, upstream *http.Client) (execbackend.B
 	if _, err := validateBaseURL(cfg.BaseURL); err != nil {
 		return execbackend.Backend{}, err
 	}
-	keys := compatibleutil.ResolveEnvAPIKeys(cfg.APIKeyEnvVarRoot)
-	apiKey := compatibleutil.FirstAPIKey(keys)
+	keys := compatmode.ResolveEnvAPIKeys(cfg.APIKeyEnvVarRoot)
+	apiKey := compatmode.FirstAPIKey(keys)
 	client := upstream
 	if client == nil {
 		client = httpclient.Standard()
 	}
 
 	var base execbackend.Backend
-	base, err = compatibleutil.ApplyStaticModelInventory(base, cfg.Models)
+	base, err = compatmode.ApplyStaticModelInventory(base, cfg.Models)
 	if err != nil {
 		return execbackend.Backend{}, err
 	}

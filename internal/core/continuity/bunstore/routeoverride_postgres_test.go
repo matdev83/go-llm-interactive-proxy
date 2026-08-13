@@ -38,7 +38,7 @@ func TestPostgresStoreImplementsRouteOverrideStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	migrated, err := NewContext(ctx, migrateDB)
+	migrated, err := NewWithContext(ctx, migrateDB)
 	if err != nil {
 		_ = migrateDB.Close()
 		t.Fatal(err)
@@ -91,7 +91,7 @@ func TestRouteOverride_postgresSecondStoreSeesCommittedRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	migrated, err := NewContext(ctx, migrateDB)
+	migrated, err := NewWithContext(ctx, migrateDB)
 	if err != nil {
 		_ = migrateDB.Close()
 		t.Fatal(err)
