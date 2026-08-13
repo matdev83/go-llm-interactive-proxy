@@ -21,7 +21,11 @@ var (
 	ErrSnapshotNotFound = errors.New("billingcompose: snapshot not found")
 	// ErrPolicyPricingMismatch is returned when SetDefaults binds a charge
 	// policy whose PricingRef identity does not equal the customer pricing ref.
-	ErrPolicyPricingMismatch  = errors.New("billingcompose: charge policy pricing ref does not match customer pricing")
+	ErrPolicyPricingMismatch = errors.New("billingcompose: charge policy pricing ref does not match customer pricing")
+	// ErrBindingImmutable is returned when a route or operator binding is
+	// rebound to a different version after being set. Bindings are immutable so
+	// settlement always resolves the same version admitted with.
+	ErrBindingImmutable       = errors.New("billingcompose: route binding is immutable")
 	errNilSnapshotCatalog     = errors.New("billingcompose: nil snapshot catalog")
 	errBackendModelRequired   = errors.New("billingcompose: backend and model are required")
 	errCatalogDefaultsMissing = errors.New("billingcompose: catalog defaults are not set")
@@ -168,6 +172,8 @@ func (c *SnapshotCatalog) HasDefaults() bool {
 
 // SetRoutePricing binds a backend/model pair to an already published pricing
 // snapshot. Admission RoutePricing uses this override in preference to defaults.
+// The binding is immutable: rebinding an existing route to a different version
+// fails so settlement always matches the version admitted with.
 func (c *SnapshotCatalog) SetRoutePricing(backend, model string, ref billing.VersionRef) error {
 	if c == nil {
 		return errNilSnapshotCatalog
@@ -182,12 +188,19 @@ func (c *SnapshotCatalog) SetRoutePricing(backend, model string, ref billing.Ver
 	if _, ok := c.pricing[key]; !ok {
 		return ErrSnapshotNotFound
 	}
+	if existing, bound := c.routePricing[rk]; bound {
+		if existing == key {
+			return nil
+		}
+		return ErrBindingImmutable
+	}
 	c.routePricing[rk] = key
 	return nil
 }
 
 // SetOperatorRateBinding binds a backend/model pair to an already published
-// operator-rate snapshot. Unbound pairs resolve to an empty VersionRef.
+// operator-rate snapshot. Unbound pairs resolve to an empty VersionRef. The
+// binding is immutable: rebinding to a different version fails.
 func (c *SnapshotCatalog) SetOperatorRateBinding(backend, model string, ref billing.VersionRef) error {
 	if c == nil {
 		return errNilSnapshotCatalog
@@ -201,6 +214,12 @@ func (c *SnapshotCatalog) SetOperatorRateBinding(backend, model string, ref bill
 	defer c.mu.Unlock()
 	if _, ok := c.operatorRates[key]; !ok {
 		return ErrSnapshotNotFound
+	}
+	if existing, bound := c.operatorBindings[rk]; bound {
+		if existing == key {
+			return nil
+		}
+		return ErrBindingImmutable
 	}
 	c.operatorBindings[rk] = key
 	return nil

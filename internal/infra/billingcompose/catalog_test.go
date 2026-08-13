@@ -559,7 +559,7 @@ func TestSnapshotCatalog_ConcurrentReadsDuringPublish(t *testing.T) {
 					errs <- err
 					return
 				}
-				if err := c.SetRoutePricing("backend", fmt.Sprintf("model-%d", n), p.Ref); err != nil {
+				if err := c.SetRoutePricing("backend", fmt.Sprintf("model-%d-%d", n, j), p.Ref); err != nil {
 					errs <- err
 					return
 				}
@@ -571,6 +571,44 @@ func TestSnapshotCatalog_ConcurrentReadsDuringPublish(t *testing.T) {
 	close(errs)
 	for err := range errs {
 		t.Fatalf("concurrent catalog access: %v", err)
+	}
+}
+
+func TestSnapshotCatalog_BindingsAreImmutable(t *testing.T) {
+	t.Parallel()
+	c, pricing, _, rates := seedCatalog(t)
+
+	if err := c.SetRoutePricing("backend", "model", pricing.Ref); err != nil {
+		t.Fatalf("initial route binding: %v", err)
+	}
+	if err := c.SetOperatorRateBinding("backend", "model", rates.Ref); err != nil {
+		t.Fatalf("initial operator binding: %v", err)
+	}
+
+	// Identical replay of the same binding is allowed.
+	if err := c.SetRoutePricing("backend", "model", pricing.Ref); err != nil {
+		t.Fatalf("identical route replay: %v", err)
+	}
+	if err := c.SetOperatorRateBinding("backend", "model", rates.Ref); err != nil {
+		t.Fatalf("identical operator replay: %v", err)
+	}
+
+	other := catalogPricing()
+	other.Ref = billing.VersionRef{ID: "pricing", Version: "v8"}
+	if err := c.PutPricing(other); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetRoutePricing("backend", "model", other.Ref); !errors.Is(err, billingcompose.ErrBindingImmutable) {
+		t.Fatalf("route rebind = %v, want ErrBindingImmutable", err)
+	}
+
+	otherRate := catalogOperatorRate()
+	otherRate.Ref = billing.VersionRef{ID: "operator-rates", Version: "v2"}
+	if err := c.PutOperatorRate(otherRate); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetOperatorRateBinding("backend", "model", otherRate.Ref); !errors.Is(err, billingcompose.ErrBindingImmutable) {
+		t.Fatalf("operator rebind = %v, want ErrBindingImmutable", err)
 	}
 }
 

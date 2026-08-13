@@ -389,7 +389,7 @@ func (c *SnapshotCatalog) OperatorRateRef(context.Context, backend, model string
 - Integration: bind `RoutePricing` / `Policy` into `billingadmission.Config`. Bind `JoinRatingResolver` to `ProductionOptions.BillingRatingResolver`.
 - Validation: put-immutability tests; missing-ref tests; admit ref equals TUR ref in host loop.
 - Risks: duplicating snapshot copies with mutated Present flags — compare by value including Present bits.
-- Route/operator bindings are re-resolved at settlement, not persisted on the TUR. A host must not rebind a route (`SetRoutePricing` / `SetOperatorRateBinding`) while authoritative billing is serving (admission → settlement); a price change is a new version identity plus a binding update only before serving or at a quiesced restart.
+- Route/operator bindings are immutable: `SetRoutePricing` / `SetOperatorRateBinding` reject rebinding an existing route to a different version (identical replay is allowed). Settlement re-resolves the current binding, and immutability guarantees it matches the version admitted with; a price change is a new version identity published into a fresh catalog at restart.
 
 #### AuthorizationLookup
 

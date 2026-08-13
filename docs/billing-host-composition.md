@@ -78,11 +78,11 @@ Publish, then bind:
 
 1. `PutPricing` / `PutPolicy` / `PutOperatorRate` — identity is ID+Version. Identical replay of the same body is allowed; a different body for the same identity is rejected.
 2. `SetDefaults(customerPricing, chargePolicy)` — both refs must already be published; the policy `PricingRef` must equal the customer pricing identity.
-3. Optional `SetRoutePricing(backend, model, ref)` and `SetOperatorRateBinding(backend, model, ref)` — refs must already be published. Unbound operator rates resolve to an empty `VersionRef`.
+3. Optional `SetRoutePricing(backend, model, ref)` and `SetOperatorRateBinding(backend, model, ref)` — refs must already be published; bindings are immutable (rebinding to a different version is rejected). Unbound operator rates resolve to an empty `VersionRef`.
 
 Admission (`RoutePricing` / `Policy`) and post-turn rating (`SnapshotsFor`) use this same catalog. Missing, withdrawn, or mismatched refs fail closed; the resolver does not invent or substitute another version.
 
-Route and operator bindings are re-resolved at settlement, not persisted on the TUR. Do not rebind `SetRoutePricing` / `SetOperatorRateBinding` while authoritative billing is serving: a mid-flight rebind would settle a turn at a price different from the one admitted with. Publish a new version and rebind only before serving or at a quiesced restart.
+Route and operator bindings are immutable: `SetRoutePricing` / `SetOperatorRateBinding` reject rebinding a route to a different version (identical replay is allowed). Settlement re-resolves the current binding, and immutability guarantees it matches the version admitted with. Publish a new version identity and rebuild the catalog at restart to change a price.
 
 Leftover YAML `accounting.pricing` is **not** TUR rating truth. It is dual-plane / shadow characterization metadata. Do not treat it as the snapshot catalog.
 
