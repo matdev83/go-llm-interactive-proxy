@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -226,5 +227,33 @@ func TestPreviewAttempt_RealServiceSkipsEvidenceSink(t *testing.T) {
 	}
 	if len(evidence.policy) == 0 && len(evidence.accounting) == 0 {
 		t.Fatal("AdmitAttempt control path must record durable evidence (proves SkipEvidence is what suppressed preview)")
+	}
+}
+
+type appliedEvidenceErrService struct {
+	previewAdmitRecorder
+}
+
+func (s *appliedEvidenceErrService) Settle(context.Context, authorityapp.SettleInput) (authorityapp.SettleResult, error) {
+	return authorityapp.SettleResult{Applied: true, ReservationID: "h1"}, errors.New("evidence write failed")
+}
+
+func TestSettleAttemptAppliedWithEvidenceErrorIsSuccess(t *testing.T) {
+	t.Parallel()
+
+	adapter := newUsageAuthorityProviderAdapter(&appliedEvidenceErrService{})
+	got, err := adapter.SettleAttempt(context.Background(), authority.AttemptSettlement{
+		RequestID: "req-1",
+		AttemptID: "att-1",
+		Handles:   []string{"h1"},
+	})
+	if err != nil {
+		t.Fatalf("applied settlement must not fail the coordinator stage: %v", err)
+	}
+	if got.Kind != authority.SettlementFinal {
+		t.Fatalf("kind=%v want %v", got.Kind, authority.SettlementFinal)
+	}
+	if got.Handle != "h1" {
+		t.Fatalf("handle=%q want h1", got.Handle)
 	}
 }

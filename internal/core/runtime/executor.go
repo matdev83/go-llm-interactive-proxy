@@ -106,6 +106,12 @@ func (e *Executor) policyEvidenceEmitter(snap *extensions.RequestRuntimeSnapshot
 // ctx must be non-nil (same contract as [lipapi.EventStream.Recv]); nil returns [lipapi.ErrNilContext].
 const otelScopeExecutor = "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 
+// attemptOpenOwner owns pre-output candidate admission and backend stream open.
+type attemptOpenOwner struct{ *Executor }
+
+// streamAssembler owns retry-recv stream construction after a successful open.
+type streamAssembler struct{ *Executor }
+
 func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.EventStream, err error) {
 	prep, prepCtx, cleanup, perr := e.prepareRequest(ctx, call)
 	if perr != nil {
@@ -123,12 +129,12 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 	if err := e.authorizeBillingOnce(prepCtx, prep, plan); err != nil {
 		return nil, err
 	}
-	out, err := e.openInitialAttempt(prepCtx, prep, plan)
+	out, err := attemptOpenOwner{e}.openInitial(prepCtx, prep, plan)
 	if err != nil {
 		e.releaseOrHandoffAfterAdmissionAbort(prepCtx, prep, plan)
 		return nil, err
 	}
-	stream, err := e.assembleExecutorStream(prepCtx, prep, plan, out)
+	stream, err := streamAssembler{e}.assemble(prepCtx, prep, plan, out)
 	if err != nil {
 		e.releaseOrHandoffAfterAdmissionAbort(prepCtx, prep, plan)
 		return nil, err

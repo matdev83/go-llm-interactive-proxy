@@ -11,10 +11,15 @@ import (
 
 // CallFromInvocation maps a public plugin Invocation into a canonical lipapi.Call
 // for connector-local protocol engines (ACP support, OpenAI-compat mappers, etc.).
+// Validate uses this same mapper so ABI gates cannot accept a shape production rejects.
 func CallFromInvocation(inv Invocation) (lipapi.Call, error) {
-	if err := inv.Validate(); err != nil {
+	if err := inv.validateDTO(); err != nil {
 		return lipapi.Call{}, err
 	}
+	return mapInvocationToCall(inv)
+}
+
+func mapInvocationToCall(inv Invocation) (lipapi.Call, error) {
 	instructions, err := messagesToLipapi(inv.Instructions)
 	if err != nil {
 		return lipapi.Call{}, err

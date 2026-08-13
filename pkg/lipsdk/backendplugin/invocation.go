@@ -9,7 +9,13 @@ import (
 )
 
 // Validate reports whether the invocation is well-formed and within bounds.
+// It uses the same mapper as [CallFromInvocation].
 func (inv Invocation) Validate() error {
+	_, err := CallFromInvocation(inv)
+	return err
+}
+
+func (inv Invocation) validateDTO() error {
 	if strings.TrimSpace(inv.RequestID) == "" ||
 		strings.TrimSpace(inv.AttemptID) == "" ||
 		strings.TrimSpace(inv.ALegID) == "" ||

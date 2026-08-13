@@ -86,6 +86,50 @@ func TestAdmitAttemptAuthority_InvokesExternalProvidersWhenUsageAuthorityNil(t *
 	}
 }
 
+func TestAuthorityLifecycle_CoordinatorReconcileWithoutUsageAuthorityDoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	builtin := &recordingAttemptProvider{id: "usage-authority-attempt"}
+	external := &recordingAttemptProvider{id: "enterprise-attempt"}
+	ex := &Executor{}
+	ex.AttemptCoordinator = &authoritycoord.AttemptCoordinator{
+		Slots: []authoritycoord.AttemptSlot{
+			{ID: "usage-authority-attempt", Class: authoritycoord.AttemptPriorityHardSpend, Provider: builtin, Strength: authority.StrengthRequired},
+			{ID: "enterprise-attempt", Class: authoritycoord.AttemptPriorityQuotaRate, Provider: external, Strength: authority.StrengthRequired},
+		},
+	}
+
+	state, err := ex.admitAttemptAuthority(
+		context.Background(),
+		"trace-reconcile",
+		"a-1",
+		b2bua.BLegRecord{BLegID: "b-reconcile", Seq: 1},
+		lipapi.Call{ID: "req-reconcile"},
+		authorityCandidate(),
+		accountingpreflight.Decision{},
+		false,
+	)
+	if err != nil {
+		t.Fatalf("admitAttemptAuthority: %v", err)
+	}
+	lifecycle := ex.newAttemptAuthorityLifecycle(state, authorityCandidate())
+	if applied := lifecycle.Settle(context.Background(), authorityapp.SettlementKindFinal, lipapi.Event{}, false); !applied {
+		t.Fatal("expected coordinator settle to apply")
+	}
+
+	usage := lipapi.Event{
+		Kind:          lipapi.EventUsageDelta,
+		CostNanoUnits: 55,
+		Currency:      "USD",
+		CostPresent:   true,
+		CostSource:    string(lipapi.UsageSourceProviderReported),
+	}
+	applied := lifecycle.Settle(context.Background(), authorityapp.SettlementKindFinal, usage, false)
+	if applied {
+		t.Fatal("expected authoritative reconcile without UsageAuthority to be a no-op")
+	}
+}
+
 // Issue (2): mixed built-in + external reservations settle/release through owning providers
 // via AttemptCoordinator rather than flattened raw handles into UsageAuthority only.
 func TestAuthorityLifecycle_CoordinatorSettleAndReleaseViaOwningProviders(t *testing.T) {

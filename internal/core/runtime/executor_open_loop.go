@@ -9,9 +9,14 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 )
 
-// openInitialAttempt runs the pre-output attempt-open loop until a backend
-// stream is opened and its B-leg is registered with the A-leg scope.
 func (e *Executor) openInitialAttempt(ctx context.Context, prep *preparedRequest, plan *routePlanState) (attemptOpenResult, error) {
+	return attemptOpenOwner{e}.openInitial(ctx, prep, plan)
+}
+
+// openInitial runs the pre-output attempt-open loop until a backend
+// stream is opened and its B-leg is registered with the A-leg scope.
+func (o attemptOpenOwner) openInitial(ctx context.Context, prep *preparedRequest, plan *routePlanState) (attemptOpenResult, error) {
+	e := o.Executor
 	for {
 		if err := ctx.Err(); err != nil {
 			return attemptOpenResult{}, err

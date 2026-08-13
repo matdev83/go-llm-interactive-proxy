@@ -1,6 +1,6 @@
 module github.com/matdev83/go-llm-interactive-proxy/connector-support/openaicompat
 
-go 1.26.5
+go 1.26.6
 
 require github.com/matdev83/go-llm-interactive-proxy v0.0.0
 

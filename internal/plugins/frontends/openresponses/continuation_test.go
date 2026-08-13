@@ -93,10 +93,22 @@ func seedParentRecord(t *testing.T, store lipcont.Store, sc lipcont.Scope, statu
 		ID:    id,
 		Scope: sc,
 		InputItems: []lipapi.Item{
-			{ID: "item-in-1", Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "parent-input"}}},
+			{
+				ID:      "item-in-1",
+				Kind:    lipapi.ItemKindMessage,
+				Role:    lipapi.RoleUser,
+				Status:  lipapi.ItemStatusCompleted,
+				Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "parent-input"}},
+			},
 		},
 		OutputItems: []lipapi.Item{
-			{ID: "item-out-1", Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "parent-output"}}},
+			{
+				ID:      "item-out-1",
+				Kind:    lipapi.ItemKindMessage,
+				Role:    lipapi.RoleAssistant,
+				Status:  lipapi.ItemStatusCompleted,
+				Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "parent-output"}},
+			},
 		},
 		Lineage: lipcont.Lineage{
 			ProfileID:     "openresponses",

@@ -11,7 +11,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openaiwire"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/routeselect"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
@@ -76,7 +75,8 @@ func (h *Handler) buildPipe() {
 			}
 			return &frontendpipe.Decoded{Call: decoded.Call, Stream: decoded.Stream, RouteSelector: dctx.RouteSelector}, nil
 		},
-		BuildEncodeOpts: func(call *lipapi.Call, _ bool) EncodeOptions {
+		BuildEncodeOpts: func(decoded *frontendpipe.Decoded) EncodeOptions {
+			call := decoded.Call
 			opts := EncodeOptions{
 				CompletionID:             "chatcmpl_" + diag.StableCallToken(call),
 				CreatedAt:                diag.StableUnix(call),

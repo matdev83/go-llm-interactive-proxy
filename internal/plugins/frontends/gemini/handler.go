@@ -8,7 +8,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/routeselect"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
@@ -84,7 +83,7 @@ func (h *Handler) buildPipe() {
 			}
 			return &frontendpipe.Decoded{Call: decoded.Call, Stream: dctx.Path.Stream, RouteSelector: dctx.RouteSelector}, nil
 		},
-		BuildEncodeOpts: func(_ *lipapi.Call, _ bool) EncodeOptions {
+		BuildEncodeOpts: func(_ *frontendpipe.Decoded) EncodeOptions {
 			return EncodeOptions{ExposeLipUsageExtensions: h.Config.ExposeLipUsageExtensions}
 		},
 		WriteStream:    WriteStreamSSE,

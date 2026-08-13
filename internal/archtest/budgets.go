@@ -36,6 +36,17 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "cmd/lipstd/command.go", Max: 458},
 	{Path: "pkg/lipruntime/reload.go", Max: 114},
 	{Path: "pkg/lipruntime/reload_aliases.go", Max: 60},
+	// Previously unbudgeted 1k+ hotspots, split by concern; ratchet measured+25.
+	{Path: "pkg/lipsdk/backendplugin/convert.go", Max: 422},
+	{Path: "pkg/lipsdk/backendplugin/convert_frames.go", Max: 517},
+	{Path: "internal/core/securesession/adapters/bunstore/store.go", Max: 341},
+	{Path: "internal/core/securesession/adapters/bunstore/store_evidence.go", Max: 307},
+	{Path: "internal/core/runtime/authority_lifecycle.go", Max: 336},
+	{Path: "internal/core/runtime/authority_lifecycle_settle.go", Max: 439},
+	{Path: "internal/core/runtime/authority_lifecycle_release.go", Max: 355},
+	{Path: "internal/plugins/protocols/openresponses/state_machine.go", Max: 708},
+	{Path: "internal/plugins/protocols/openresponses/state_machine_event_handlers.go", Max: 515},
+	{Path: "internal/plugins/frontends/frontendpipe/pipe.go", Max: 383},
 }
 
 // PackageTreeBudget caps recursive non-test .go lines for a package tree.
@@ -63,7 +74,7 @@ type LineBudget struct {
 var LineBudgets = []LineBudget{
 	// Routing-override admin, billing host composition, and tool-call
 	// classification. Keep the measured-plus-25 ratchet.
-	{Dir: "internal/core", Max: 75019},
+	{Dir: "internal/core", Max: 75303},
 	{Dir: "internal/pluginreg", Max: 1079},
 	{Dir: "internal/stdhttp", Max: 5705},
 	{Dir: "internal/infra/runtimebundle", Max: 11235},
