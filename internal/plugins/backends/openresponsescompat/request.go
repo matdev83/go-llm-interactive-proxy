@@ -11,29 +11,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-// createRequest is the allowlisted create payload built by the generic
-// OpenResponses backend. It mirrors the pinned profile request shape but
-// intentionally exposes only the fields this backend forwards: proxy IDs,
-// sessions, native refs, and arbitrary call extensions are never forwarded.
-// Stream is set to true only for SSE transport attempts.
-type createRequest struct {
-	Model             string           `json:"model"`
-	Input             []proto.WireItem `json:"input"`
-	Tools             []proto.WireTool `json:"tools,omitempty"`
-	ToolChoice        json.RawMessage  `json:"tool_choice,omitempty"`
-	ParallelToolCalls *bool            `json:"parallel_tool_calls,omitempty"`
-	Temperature       *float64         `json:"temperature,omitempty"`
-	TopP              *float64         `json:"top_p,omitempty"`
-	MaxOutputTokens   *int             `json:"max_output_tokens,omitempty"`
-	Text              json.RawMessage  `json:"text,omitempty"`
-	Reasoning         json.RawMessage  `json:"reasoning,omitempty"`
-	Stream            bool             `json:"stream,omitempty"`
-	// PromptCacheKey is the pinned profile cache hint. It is carried on the
-	// canonical call only for compaction (create admission rejects it), so it
-	// reaches the compact endpoint without being silently dropped.
-	PromptCacheKey *string `json:"prompt_cache_key,omitempty"`
-}
-
 // resolveModel returns the wire model for the request from the route candidate.
 func resolveModel(cand routing.AttemptCandidate) string {
 	return strings.TrimSpace(cand.Primary.Model)
@@ -169,99 +146,6 @@ func wireToolArguments(raw []byte) (json.RawMessage, error) {
 	return b, nil
 }
 
-func toolChoiceWire(tc lipapi.ToolChoice) (json.RawMessage, error) {
-	if len(tc.AllowedTools) > 0 {
-		refs := make([]proto.WireToolChoiceAllowedToolRef, 0, len(tc.AllowedTools))
-		for _, name := range tc.AllowedTools {
-			refs = append(refs, proto.WireToolChoiceAllowedToolRef{Type: "function", Name: name})
-		}
-		mode := "auto"
-		switch tc.Mode {
-		case lipapi.ToolChoiceNone:
-			mode = "none"
-		case lipapi.ToolChoiceAny:
-			mode = "required"
-		}
-		b, err := json.Marshal(proto.WireToolChoiceAllowedTools{
-			Type:  "allowed_tools",
-			Tools: refs,
-			Mode:  mode,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("%w: marshal tool_choice: %v", ErrUnrepresentable, err)
-		}
-		return b, nil
-	}
-	switch tc.Mode {
-	case lipapi.ToolChoiceAuto:
-		return json.RawMessage(`"auto"`), nil
-	case lipapi.ToolChoiceNone:
-		return json.RawMessage(`"none"`), nil
-	case lipapi.ToolChoiceAny:
-		return json.RawMessage(`"required"`), nil
-	case lipapi.ToolChoiceRequired:
-		if tc.Name != "" {
-			b, err := json.Marshal(proto.WireToolChoiceFunction{
-				Type: "function",
-				Name: tc.Name,
-			})
-			if err != nil {
-				return nil, fmt.Errorf("%w: marshal tool_choice: %v", ErrUnrepresentable, err)
-			}
-			return b, nil
-		}
-		return json.RawMessage(`"required"`), nil
-	default:
-		return nil, nil
-	}
-}
-
-// requestControls maps pinned generation controls to the wire request and
-// rejects every nonzero option the pinned profile cannot represent exactly. No
-// request control may be silently dropped.
-func requestControls(o lipapi.GenerationOptions) (reasoning, text json.RawMessage, err error) {
-	if o.Verbosity != "" {
-		return nil, nil, fmt.Errorf("%w: verbosity is not representable on the pinned OpenResponses profile", ErrUnrepresentable)
-	}
-	if effort := strings.TrimSpace(o.ReasoningEffort); effort != "" {
-		b, err := json.Marshal(struct {
-			Effort string `json:"effort"`
-		}{Effort: effort})
-		if err != nil {
-			return nil, nil, fmt.Errorf("%w: marshal reasoning: %v", ErrUnrepresentable, err)
-		}
-		reasoning = b
-	}
-	if mime := strings.ToLower(strings.TrimSpace(o.ResponseMIMEType)); mime != "" {
-		format, err := textFormatForMIME(mime)
-		if err != nil {
-			return nil, nil, err
-		}
-		b, err := json.Marshal(struct {
-			Format map[string]any `json:"format"`
-		}{Format: format})
-		if err != nil {
-			return nil, nil, fmt.Errorf("%w: marshal text: %v", ErrUnrepresentable, err)
-		}
-		text = b
-	}
-	return reasoning, text, nil
-}
-
-// textFormatForMIME maps a supported canonical response MIME type to the exact
-// pinned-profile text.format shape. MIME types the pinned schema cannot
-// express with exact semantics are rejected.
-func textFormatForMIME(mime string) (map[string]any, error) {
-	switch mime {
-	case "application/json":
-		return map[string]any{"type": "json_object"}, nil
-	case "text/plain":
-		return map[string]any{"type": "text"}, nil
-	default:
-		return nil, fmt.Errorf("%w: response MIME type %q cannot be represented by the pinned OpenResponses text.format", ErrUnrepresentable, mime)
-	}
-}
-
 // buildCreateRequest maps an item-authoritative canonical call to a
 // schema-valid non-streaming create request body. It never forwards proxy IDs,
 // sessions, native refs, or arbitrary call extension fields.
@@ -277,23 +161,39 @@ func buildCreateRequestBody(id string, spec BackendSpec, call lipapi.Call, cand 
 	if model == "" {
 		return nil, fmt.Errorf("%s: %w: model is required", id, ErrUnrepresentable)
 	}
+	if len(call.Tools) == 0 {
+		call.ToolChoice = lipapi.ToolChoice{}
+	}
 	if err := checkRepresentable(id, call, spec.RequestLimits); err != nil {
 		return nil, err
 	}
 
-	wireItems := make([]proto.WireItem, 0, len(call.Items))
-	for i, item := range call.Items {
+	hasToolCalls := false
+	for _, item := range call.Items {
 		if item.Kind == lipapi.ItemKindToolCall {
-			args, err := wireToolArguments(item.ToolCall.Arguments)
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", id, err)
-			}
-			cp := item
-			tc := *item.ToolCall
-			tc.Arguments = args
-			cp.ToolCall = &tc
-			item = cp
+			hasToolCalls = true
+			break
 		}
+	}
+	if hasToolCalls {
+		newItems := make([]lipapi.Item, len(call.Items))
+		copy(newItems, call.Items)
+		for i, item := range newItems {
+			if item.Kind == lipapi.ItemKindToolCall {
+				args, err := wireToolArguments(item.ToolCall.Arguments)
+				if err != nil {
+					return nil, fmt.Errorf("%s: %w", id, err)
+				}
+				tc := *item.ToolCall
+				tc.Arguments = args
+				item.ToolCall = &tc
+				newItems[i] = item
+			}
+		}
+		call.Items = newItems
+	}
+
+	for i, item := range call.Items {
 		w, err := proto.EncodeItem(item)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w: item %d: %v", id, ErrUnrepresentable, i, err)
@@ -305,63 +205,19 @@ func buildCreateRequestBody(id string, spec BackendSpec, call lipapi.Call, cand 
 		if len(encoded) > spec.RequestLimits.MaxItemBytes {
 			return nil, fmt.Errorf("%s: %w", id, limitError(fmt.Sprintf("request_items[%d]", i), len(encoded), spec.RequestLimits.MaxItemBytes))
 		}
-		wireItems = append(wireItems, w)
 	}
 
-	reasoning, text, err := requestControls(call.Options)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", id, err)
-	}
-	req := createRequest{
+	body, err := proto.EncodeOutboundRequest(call, proto.OutboundEncodeOptions{
 		Model:             model,
-		Input:             wireItems,
-		Temperature:       call.Options.Temperature,
-		TopP:              call.Options.TopP,
-		MaxOutputTokens:   call.Options.MaxOutputTokens,
-		ParallelToolCalls: call.Options.ParallelToolCalls,
-		Text:              text,
-		Reasoning:         reasoning,
 		Stream:            stream,
-	}
-	if value, err := call.PromptCacheKeyValue(); err != nil {
-		return nil, fmt.Errorf("%s: %w: prompt cache key: %v", id, ErrUnrepresentable, err)
-	} else if value != "" {
-		v := value
-		req.PromptCacheKey = &v
-	}
-	if len(call.Tools) > 0 {
-		tools := make([]proto.WireTool, 0, len(call.Tools))
-		for _, t := range call.Tools {
-			tools = append(tools, proto.WireTool{
-				Type:        "function",
-				Name:        t.Name,
-				Description: t.Description,
-				Parameters:  cloneBytes(t.Parameters),
-			})
-		}
-		req.Tools = tools
-		if tc, err := toolChoiceWire(call.ToolChoice); err != nil {
-			return nil, fmt.Errorf("%s: %w: %v", id, ErrUnrepresentable, err)
-		} else if tc != nil {
-			req.ToolChoice = tc
-		}
+		IncludeExtensions: false,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w: %v", id, ErrUnrepresentable, err)
 	}
 
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w: marshal request: %v", id, ErrUnrepresentable, err)
-	}
 	if len(body) > proto.MaxRequestBytes {
 		return nil, fmt.Errorf("%s: %w", id, limitError("request_size", len(body), proto.MaxRequestBytes))
 	}
 	return body, nil
-}
-
-func cloneBytes(in []byte) []byte {
-	if in == nil {
-		return nil
-	}
-	out := make([]byte, len(in))
-	copy(out, in)
-	return out
 }

@@ -9,8 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-// EncodeRequest converts a canonical lipapi.Call into WireResponseParam and marshals it to JSON bytes.
-func EncodeRequest(call lipapi.Call) ([]byte, error) {
+func encodeRequestParam(call lipapi.Call, includeReasoning bool) (map[string]json.RawMessage, error) {
 	var wireItems []WireItem
 	for i, item := range call.Items {
 		wItem, err := EncodeItem(item)
@@ -25,59 +24,23 @@ func EncodeRequest(call lipapi.Call) ([]byte, error) {
 		return nil, fmt.Errorf("%w: failed to marshal input items: %v", ErrEncodeFailed, err)
 	}
 
-	var wireTools []WireTool
-	for _, t := range call.Tools {
-		wireTools = append(wireTools, WireTool{
-			Type:        "function",
-			Name:        t.Name,
-			Description: t.Description,
-			Parameters:  cloneBytes(t.Parameters),
-		})
+	wireTools := encodeTools(call.Tools)
+
+	toolChoiceBytes, err := encodeToolChoice(call.ToolChoice)
+	if err != nil {
+		return nil, err
 	}
 
-	var toolChoiceBytes json.RawMessage
-	if len(call.ToolChoice.AllowedTools) > 0 {
-		refs := make([]WireToolChoiceAllowedToolRef, 0, len(call.ToolChoice.AllowedTools))
-		for _, name := range call.ToolChoice.AllowedTools {
-			refs = append(refs, WireToolChoiceAllowedToolRef{Type: "function", Name: name})
-		}
-		mode := "auto"
-		switch call.ToolChoice.Mode {
-		case lipapi.ToolChoiceNone:
-			mode = "none"
-		case lipapi.ToolChoiceAny:
-			mode = "required"
-		}
-		tcBytes, err := json.Marshal(WireToolChoiceAllowedTools{
-			Type:  "allowed_tools",
-			Tools: refs,
-			Mode:  mode,
-		})
+	textBytes, err := encodeTextFormat(call.Options.ResponseMIMEType)
+	if err != nil {
+		return nil, err
+	}
+
+	var reasoningBytes json.RawMessage
+	if includeReasoning {
+		reasoningBytes, err = encodeReasoningEffort(call.Options.ReasoningEffort)
 		if err != nil {
-			return nil, fmt.Errorf("%w: failed to marshal tool_choice: %v", ErrEncodeFailed, err)
-		}
-		toolChoiceBytes = tcBytes
-	} else if call.ToolChoice.Mode != "" {
-		switch call.ToolChoice.Mode {
-		case lipapi.ToolChoiceAuto:
-			toolChoiceBytes = json.RawMessage(`"auto"`)
-		case lipapi.ToolChoiceNone:
-			toolChoiceBytes = json.RawMessage(`"none"`)
-		case lipapi.ToolChoiceAny:
-			toolChoiceBytes = json.RawMessage(`"required"`)
-		case lipapi.ToolChoiceRequired:
-			if call.ToolChoice.Name != "" {
-				tcBytes, err := json.Marshal(WireToolChoiceFunction{
-					Type: "function",
-					Name: call.ToolChoice.Name,
-				})
-				if err != nil {
-					return nil, fmt.Errorf("%w: failed to marshal tool_choice: %v", ErrEncodeFailed, err)
-				}
-				toolChoiceBytes = tcBytes
-			} else {
-				toolChoiceBytes = json.RawMessage(`"required"`)
-			}
+			return nil, err
 		}
 	}
 
@@ -89,22 +52,10 @@ func EncodeRequest(call lipapi.Call) ([]byte, error) {
 		TopP:              call.Options.TopP,
 		MaxOutputTokens:   call.Options.MaxOutputTokens,
 		ParallelToolCalls: call.Options.ParallelToolCalls,
+		Text:              textBytes,
+		Reasoning:         reasoningBytes,
 	}
-	if mime := strings.ToLower(strings.TrimSpace(call.Options.ResponseMIMEType)); mime != "" {
-		var typ string
-		switch mime {
-		case "text/plain":
-			typ = "text"
-		case "application/json":
-			typ = "json_object"
-		default:
-			return nil, fmt.Errorf("%w: response MIME type %q is not representable", ErrEncodeFailed, mime)
-		}
-		param.Text, err = json.Marshal(map[string]any{"format": map[string]string{"type": typ}})
-		if err != nil {
-			return nil, fmt.Errorf("%w: marshal text: %v", ErrEncodeFailed, err)
-		}
-	}
+
 	if value, err := call.PromptCacheKeyValue(); err != nil {
 		return nil, fmt.Errorf("%w: prompt cache key: %v", ErrEncodeFailed, err)
 	} else if value != "" {
@@ -121,6 +72,15 @@ func EncodeRequest(call lipapi.Call) ([]byte, error) {
 		// Unreachable: paramBytes was produced by json.Marshal(param) above.
 		return nil, fmt.Errorf("%w: %v", ErrEncodeFailed, err)
 	}
+	return rawMap, nil
+}
+
+// EncodeRequest converts a canonical lipapi.Call into WireResponseParam and marshals it to JSON bytes.
+func EncodeRequest(call lipapi.Call) ([]byte, error) {
+	rawMap, err := encodeRequestParam(call, false)
+	if err != nil {
+		return nil, err
+	}
 
 	// Merge top-level extensions
 	for k, v := range call.Extensions {
@@ -131,6 +91,102 @@ func EncodeRequest(call lipapi.Call) ([]byte, error) {
 	}
 
 	return json.Marshal(rawMap)
+}
+
+func encodeTools(tools []lipapi.ToolDef) []WireTool {
+	var wireTools []WireTool
+	for _, t := range tools {
+		wireTools = append(wireTools, WireTool{
+			Type:        "function",
+			Name:        t.Name,
+			Description: t.Description,
+			Parameters:  cloneBytes(t.Parameters),
+		})
+	}
+	return wireTools
+}
+
+func encodeToolChoice(tc lipapi.ToolChoice) (json.RawMessage, error) {
+	if len(tc.AllowedTools) > 0 {
+		refs := make([]WireToolChoiceAllowedToolRef, 0, len(tc.AllowedTools))
+		for _, name := range tc.AllowedTools {
+			refs = append(refs, WireToolChoiceAllowedToolRef{Type: "function", Name: name})
+		}
+		mode := "auto"
+		switch tc.Mode {
+		case lipapi.ToolChoiceNone:
+			mode = "none"
+		case lipapi.ToolChoiceAny:
+			mode = "required"
+		}
+		tcBytes, err := json.Marshal(WireToolChoiceAllowedTools{
+			Type:  "allowed_tools",
+			Tools: refs,
+			Mode:  mode,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("%w: failed to marshal tool_choice: %v", ErrEncodeFailed, err)
+		}
+		return tcBytes, nil
+	} else if tc.Mode != "" {
+		switch tc.Mode {
+		case lipapi.ToolChoiceAuto:
+			return json.RawMessage(`"auto"`), nil
+		case lipapi.ToolChoiceNone:
+			return json.RawMessage(`"none"`), nil
+		case lipapi.ToolChoiceAny:
+			return json.RawMessage(`"required"`), nil
+		case lipapi.ToolChoiceRequired:
+			if tc.Name != "" {
+				tcBytes, err := json.Marshal(WireToolChoiceFunction{
+					Type: "function",
+					Name: tc.Name,
+				})
+				if err != nil {
+					return nil, fmt.Errorf("%w: failed to marshal tool_choice: %v", ErrEncodeFailed, err)
+				}
+				return tcBytes, nil
+			} else {
+				return json.RawMessage(`"required"`), nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+func encodeTextFormat(mime string) (json.RawMessage, error) {
+	mime = strings.ToLower(strings.TrimSpace(mime))
+	if mime == "" {
+		return nil, nil
+	}
+	var typ string
+	switch mime {
+	case "text/plain":
+		typ = "text"
+	case "application/json":
+		typ = "json_object"
+	default:
+		return nil, fmt.Errorf("%w: response MIME type %q is not representable", ErrEncodeFailed, mime)
+	}
+	textBytes, err := json.Marshal(map[string]any{"format": map[string]string{"type": typ}})
+	if err != nil {
+		return nil, fmt.Errorf("%w: marshal text: %v", ErrEncodeFailed, err)
+	}
+	return textBytes, nil
+}
+
+func encodeReasoningEffort(effort string) (json.RawMessage, error) {
+	effort = strings.TrimSpace(effort)
+	if effort == "" {
+		return nil, nil
+	}
+	b, err := json.Marshal(struct {
+		Effort string `json:"effort"`
+	}{Effort: effort})
+	if err != nil {
+		return nil, fmt.Errorf("%w: marshal reasoning: %v", ErrEncodeFailed, err)
+	}
+	return b, nil
 }
 
 // EncodeItem converts a canonical lipapi.Item into WireItem.
@@ -423,4 +479,52 @@ func encodeContentPart(cp lipapi.ContentPart, role lipapi.Role) WireContentPart 
 		Type: partType,
 		Text: cp.Text,
 	}
+}
+
+// OutboundEncodeOptions holds options for encoding an outbound request.
+type OutboundEncodeOptions struct {
+	Model             string
+	Stream            bool
+	IncludeExtensions bool
+}
+
+// EncodeOutboundRequest encodes a canonical lipapi.Call into an outbound request JSON payload.
+func EncodeOutboundRequest(call lipapi.Call, opts OutboundEncodeOptions) ([]byte, error) {
+	if call.Options.Verbosity != "" {
+		return nil, fmt.Errorf("%w: verbosity is not representable on the pinned OpenResponses profile", ErrEncodeFailed)
+	}
+
+	rawMap, err := encodeRequestParam(call, true)
+	if err != nil {
+		return nil, err
+	}
+
+	// Model key
+	modelBytes, err := json.Marshal(opts.Model)
+	if err != nil {
+		return nil, fmt.Errorf("%w: marshal model: %v", ErrEncodeFailed, err)
+	}
+	rawMap["model"] = modelBytes
+
+	// Stream key
+	if opts.Stream {
+		rawMap["stream"] = json.RawMessage("true")
+	} else {
+		delete(rawMap, "stream")
+	}
+
+	// Merge top-level extensions
+	if opts.IncludeExtensions {
+		for k, v := range call.Extensions {
+			if !json.Valid(v) {
+				return nil, fmt.Errorf("%w: invalid extension %q", ErrEncodeFailed, k)
+			}
+			if k == "model" || k == "stream" {
+				return nil, fmt.Errorf("%w: extension key %q collides with standard parameter", ErrEncodeFailed, k)
+			}
+			rawMap[k] = cloneBytes(v)
+		}
+	}
+
+	return json.Marshal(rawMap)
 }
