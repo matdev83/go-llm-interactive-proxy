@@ -121,3 +121,180 @@ func TestEncodeOutboundRequest_IncludeExtensions_False(t *testing.T) {
 		t.Errorf("expected bad_ext to be ignored when IncludeExtensions=false")
 	}
 }
+
+func TestEncodeOutboundRequest_StreamTrue(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{
+		Items: []lipapi.Item{
+			{
+				Kind: lipapi.ItemKindMessage,
+				Role: lipapi.RoleUser,
+				Content: []lipapi.ContentPart{
+					{Kind: lipapi.ContentPartText, Text: "hello"},
+				},
+			},
+		},
+	}
+	body, err := EncodeOutboundRequest(call, OutboundEncodeOptions{
+		Model:  "gpt-4o",
+		Stream: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if stream, ok := got["stream"]; !ok || stream != true {
+		t.Errorf("expected stream to be true, got %v", stream)
+	}
+}
+
+func TestEncodeOutboundRequest_ReasoningEffort(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{
+		Items: []lipapi.Item{
+			{
+				Kind: lipapi.ItemKindMessage,
+				Role: lipapi.RoleUser,
+				Content: []lipapi.ContentPart{
+					{Kind: lipapi.ContentPartText, Text: "hello"},
+				},
+			},
+		},
+		Options: lipapi.GenerationOptions{
+			ReasoningEffort: "low",
+		},
+	}
+	body, err := EncodeOutboundRequest(call, OutboundEncodeOptions{
+		Model: "gpt-4o",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	reasoning, ok := got["reasoning"]
+	if !ok {
+		t.Fatalf("expected reasoning to be present")
+	}
+	reasoningMap, ok := reasoning.(map[string]any)
+	if !ok {
+		t.Fatalf("expected reasoning to be a map, got %T", reasoning)
+	}
+	if effort, ok := reasoningMap["effort"]; !ok || effort != "low" {
+		t.Errorf("expected effort to be 'low', got %v", effort)
+	}
+}
+
+func TestEncodeOutboundRequest_VerbosityRejection(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{
+		Items: []lipapi.Item{
+			{
+				Kind: lipapi.ItemKindMessage,
+				Role: lipapi.RoleUser,
+				Content: []lipapi.ContentPart{
+					{Kind: lipapi.ContentPartText, Text: "hello"},
+				},
+			},
+		},
+		Options: lipapi.GenerationOptions{
+			Verbosity: "verbose",
+		},
+	}
+	_, err := EncodeOutboundRequest(call, OutboundEncodeOptions{
+		Model: "gpt-4o",
+	})
+	if err == nil {
+		t.Fatal("expected error when verbosity is set, got nil")
+	}
+}
+
+func TestEncodeOutboundRequest_InvalidMIME(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{
+		Items: []lipapi.Item{
+			{
+				Kind: lipapi.ItemKindMessage,
+				Role: lipapi.RoleUser,
+				Content: []lipapi.ContentPart{
+					{Kind: lipapi.ContentPartText, Text: "hello"},
+				},
+			},
+		},
+		Options: lipapi.GenerationOptions{
+			ResponseMIMEType: "application/xml",
+		},
+	}
+	_, err := EncodeOutboundRequest(call, OutboundEncodeOptions{
+		Model: "gpt-4o",
+	})
+	if err == nil {
+		t.Fatal("expected error when ResponseMIMEType is application/xml, got nil")
+	}
+}
+
+func TestEncodeOutboundRequest_PromptCacheKeyConflict(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{
+		Items: []lipapi.Item{
+			{
+				Kind: lipapi.ItemKindMessage,
+				Role: lipapi.RoleUser,
+				Content: []lipapi.ContentPart{
+					{Kind: lipapi.ContentPartText, Text: "hello"},
+				},
+			},
+		},
+		PromptCacheKey: "legacy-key",
+		SemanticExtensions: []lipapi.SemanticExtension{
+			{
+				Namespace:   "lip",
+				Type:        "prompt_cache_key",
+				Implementor: "proxy",
+				Direction:   "request",
+				Presence:    lipapi.SemanticExtensionValue,
+				Data:        json.RawMessage(`"semantic-key"`),
+			},
+		},
+	}
+	_, err := EncodeOutboundRequest(call, OutboundEncodeOptions{
+		Model: "gpt-4o",
+	})
+	if err == nil {
+		t.Fatal("expected error due to prompt cache key conflict, got nil")
+	}
+}
+
+func TestEncodeOutboundRequest_PromptCacheKeyValid(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{
+		Items: []lipapi.Item{
+			{
+				Kind: lipapi.ItemKindMessage,
+				Role: lipapi.RoleUser,
+				Content: []lipapi.ContentPart{
+					{Kind: lipapi.ContentPartText, Text: "hello"},
+				},
+			},
+		},
+		PromptCacheKey: "valid-key",
+	}
+	body, err := EncodeOutboundRequest(call, OutboundEncodeOptions{
+		Model: "gpt-4o",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if key, ok := got["prompt_cache_key"]; !ok || key != "valid-key" {
+		t.Errorf("expected prompt_cache_key to be 'valid-key', got %v", key)
+	}
+}
