@@ -49,10 +49,48 @@ func (r *storeContinuationResolver) ResolveParent(ctx context.Context, scope lip
 		Bounds:   r.bounds,
 	}, baseCall)
 	if err != nil {
-		if errors.Is(err, lipcont.ErrStorageFailure) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if isContinuationPassThroughError(err) {
 			return lipapi.Call{}, lipcont.ContinuationRecord{}, err
 		}
 		return lipapi.Call{}, lipcont.ContinuationRecord{}, lipcont.ErrPreviousResponseNotFound
 	}
 	return materializedCall, rec, nil
+}
+
+func isContinuationPassThroughError(err error) bool {
+	return errors.Is(err, lipcont.ErrStorageFailure) ||
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, lipcont.ErrChainDepthExceeded) ||
+		errors.Is(err, lipcont.ErrStorageLimitExceeded) ||
+		errors.Is(err, lipcont.ErrMaterializedSizeExceeded) ||
+		errors.Is(err, lipcont.ErrMaterializedItemsExceeded)
+}
+
+func continuationResolverFor(resolver ContinuationResolver, store lipcont.Store, bounds lipcont.Bounds) ContinuationResolver {
+	if resolver != nil {
+		return resolver
+	}
+	if store != nil {
+		return NewStoreContinuationResolver(store, bounds)
+	}
+	return nil
+}
+
+func applyParentLineage(model *string, call *lipapi.Call, previousID *string, parent lipcont.ContinuationRecord) {
+	if parent.ID != "" && previousID != nil {
+		*previousID = parent.ID.String()
+	}
+	if model != nil && *model == "" {
+		*model = parent.Lineage.Model
+	}
+	if call == nil {
+		return
+	}
+	if call.Route.Selector == "" {
+		call.Route.Selector = parent.Lineage.RouteSelector
+		if call.Route.Selector == "" {
+			call.Route.Selector = parent.Lineage.Model
+		}
+	}
 }

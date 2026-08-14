@@ -121,8 +121,6 @@ func (h *Handler) serveStreaming(ctx context.Context, w http.ResponseWriter, str
 		for _, event := range events {
 			if err := sse.WriteEvent(event); err != nil {
 				if !committed() {
-					// No event bytes reached the wire. Drop the SSE headers so
-					// the JSON error response is not polluted by them.
 					w.Header().Del("Content-Type")
 					w.Header().Del("Cache-Control")
 					w.Header().Del("Connection")
@@ -134,117 +132,79 @@ func (h *Handler) serveStreaming(ctx context.Context, w http.ResponseWriter, str
 		return nil
 	}
 
-	for range maxStreamingEvents {
-		ev, err := stream.Recv(ctx)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				if !committed() {
-					if isReserved && store != nil {
-						cleanupContinuationReservation(store, scope, responseID)
-						isReserved = false
-					}
-					writeWireError(w, http.StatusBadGateway, "server_error", "backend_error", "Backend execution failed")
-				} else {
-					_ = emitStreamFailure(sse, sm, flush)
-				}
-				return
-			}
-			if ctx.Err() != nil {
-				if committed() && owner != nil {
-					finalizeCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-					finalizeErr := safeFinalizeIncomplete(finalizeCtx, owner)
-					cancel()
-					if finalizeErr == nil {
-						terminalSuccess = true
-					} else {
-						// A finalizer may panic before consuming cleanup. Use the
-						// explicit capability to decide whether a fallback release
-						// is safe; never release after delete-then-error paths.
-						if !safeCleanupConsumed(owner) {
-							safeReleaseContinuationReservation(owner)
-						}
-						cleanupConsumed = true
-					}
-				}
-				return
-			}
-
-			if committed() {
-				_ = emitStreamFailure(sse, sm, flush)
-			}
-			if !committed() {
-				if isReserved && store != nil {
-					cleanupContinuationReservation(store, scope, responseID)
-					isReserved = false
-				}
-				status, typ, code, message := classifyExecutionError(err)
-				writeWireError(w, status, typ, code, message)
-			}
-			return
-		}
-		if err := lipapi.ValidateEventEnvelope(&ev); err != nil {
-			if committed() {
-				_ = emitStreamFailure(sse, sm, flush)
-			} else {
-				if isReserved && store != nil {
-					cleanupContinuationReservation(store, scope, responseID)
-					isReserved = false
-				}
-				writeWireError(w, http.StatusBadGateway, "server_error", "backend_error", "Backend execution failed")
-			}
-			return
-		}
-		// Preserve canonical provider semantics. Only fill absent fields when
-		// the backend supplied an incomplete EventError.
-		if ev.Kind == lipapi.EventError {
-			if ev.ErrorCode == "" {
-				ev.ErrorCode = "backend_error"
-			}
-			ev.ErrorMessage = safeCanonicalErrorMessage(ev.ErrorMessage)
-		}
-		events, processErr := sm.ProcessCanonicalEvent(ev)
-		if processErr != nil {
-			if committed() {
-				_ = emitStreamFailure(sse, sm, flush)
-			} else {
-				if isReserved && store != nil {
-					cleanupContinuationReservation(store, scope, responseID)
-					isReserved = false
-				}
-				writeWireError(w, http.StatusBadGateway, "server_error", "backend_error", "Backend execution failed")
-			}
-			return
-		}
-		if err := writeEvents(events); err != nil {
-			if !committed() {
-				if isReserved && store != nil {
-					cleanupContinuationReservation(store, scope, responseID)
-					isReserved = false
-				}
-				writeWireError(w, http.StatusBadGateway, "server_error", "backend_error", "Backend execution failed")
-			}
-			return
-		}
-		if sm.State() == proto.StateTerminal {
-			terminalSuccess = ev.Kind == lipapi.EventResponseFinished
-			if err := sse.WriteDONE(); err == nil {
-				flush()
-			}
-			return
-		}
-	}
-	if committed() {
-		_ = emitStreamFailure(sse, sm, flush)
-	} else {
-		// The loop can exhaust without a committed event when a backend streams
-		// only no-output records (e.g. pure usage deltas) forever. Never return
-		// silently: the client must receive a terminal error or DONE.
+	failUncommitted := func() {
 		if isReserved && store != nil {
 			cleanupContinuationReservation(store, scope, responseID)
 			isReserved = false
 		}
 		writeWireError(w, http.StatusBadGateway, "server_error", "backend_error", "Backend execution failed")
 	}
+
+	last, err := driveStateMachine(ctx, stream, sm, driveOptions{
+		limits:         streamingDriveLimits(),
+		stopOnTerminal: true,
+		sanitizeError:  true,
+	}, func(_ lipapi.Event, events []proto.StreamEvent) error {
+		if writeErr := writeEvents(events); writeErr != nil {
+			if committed() {
+				return errDriveCommittedWrite
+			}
+			return writeErr
+		}
+		return nil
+	})
+	if err == nil {
+		terminalSuccess = last.Kind == lipapi.EventResponseFinished
+		if writeErr := sse.WriteDONE(); writeErr == nil {
+			flush()
+		}
+		return
+	}
+	if errors.Is(err, errDriveCommittedWrite) {
+		return
+	}
+	if errors.Is(err, io.EOF) {
+		if !committed() {
+			failUncommitted()
+		} else {
+			_ = emitStreamFailure(sse, sm, flush)
+		}
+		return
+	}
+	if ctx.Err() != nil {
+		if committed() && owner != nil {
+			finalizeCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+			finalizeErr := safeFinalizeIncomplete(finalizeCtx, owner)
+			cancel()
+			if finalizeErr == nil {
+				terminalSuccess = true
+			} else {
+				if !safeCleanupConsumed(owner) {
+					safeReleaseContinuationReservation(owner)
+				}
+				cleanupConsumed = true
+			}
+		}
+		return
+	}
+	if committed() {
+		_ = emitStreamFailure(sse, sm, flush)
+		return
+	}
+	if errors.Is(err, errDriveInvalidEnvelope) || errors.Is(err, errDriveTooManyEvents) {
+		failUncommitted()
+		return
+	}
+	status, typ, code, message := classifyExecutionError(err)
+	if status == http.StatusBadGateway && (typ == "server_error") {
+		failUncommitted()
+		return
+	}
+	if isReserved && store != nil {
+		cleanupContinuationReservation(store, scope, responseID)
+		isReserved = false
+	}
+	writeWireError(w, status, typ, code, message)
 }
 
 func classifyCanonicalEventError(ev lipapi.Event) (int, string, string, string) {

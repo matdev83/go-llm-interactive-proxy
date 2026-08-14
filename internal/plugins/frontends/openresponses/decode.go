@@ -78,27 +78,20 @@ type Authorizer interface {
 	Authenticate(ctx context.Context, meta sdkauth.InboundCallMeta) (sdkauth.Decision, error)
 }
 
+type createDecodeKind int
+
+const (
+	createDecodeHTTP createDecodeKind = iota + 1
+	createDecodeWebSocket
+)
+
 // AuthenticateAndDecodeCreate performs authentication checks FIRST, then decodes the request body
 // into an item-authoritative canonical [lipapi.Call] with protocol requirements and invocation metadata.
 func AuthenticateAndDecodeCreate(ctx context.Context, body []byte, opts DecodeCreateOptions) (*DecodedCreate, error) {
 	// 1. Auth check BEFORE body or continuation/store work (Requirement 2.10, 10.8)
-	var decision sdkauth.Decision
-	if opts.Auth != nil {
-		meta := sdkauth.InboundCallMeta{
-			Frontend:            ID,
-			Method:              opts.Method,
-			Path:                opts.Path,
-			ClientAddr:          opts.RemoteAddr,
-			AuthorizationBearer: opts.HTTPHeaders.APIKeyFrom(opts.Headers),
-		}
-		var err error
-		decision, err = opts.Auth.Authenticate(ctx, meta)
-		if err != nil {
-			return nil, fmt.Errorf("%w: auth failed", ErrUnauthorized)
-		}
-		if decision.Outcome != sdkauth.OutcomeAllow {
-			return nil, fmt.Errorf("%w: %s", ErrUnauthorized, decision.ReasonCode)
-		}
+	decision, err := authenticateDecode(ctx, opts.Auth, opts.Method, opts.Path, opts.RemoteAddr, opts.Headers, opts.HTTPHeaders)
+	if err != nil {
+		return nil, err
 	}
 
 	if len(body) == 0 {
@@ -115,23 +108,50 @@ func AuthenticateAndDecodeCreate(ctx context.Context, body []byte, opts DecodeCr
 		return nil, err
 	}
 
-	// 2. Decode wire request using Task 2 protocol codec
+	decoded, err := decodeCreateBody(decodeBody, opts, createDecodeHTTP, stream)
+	if err != nil {
+		return nil, err
+	}
+	decoded.AuthDecision = decision
+	return decoded, nil
+}
+
+func authenticateDecode(ctx context.Context, auth Authorizer, method, path, remoteAddr string, headers http.Header, httpHeaders lipsdk.HTTPHeaders) (sdkauth.Decision, error) {
+	if auth == nil {
+		return sdkauth.Decision{}, nil
+	}
+	decision, err := auth.Authenticate(ctx, sdkauth.InboundCallMeta{
+		Frontend:            ID,
+		Method:              method,
+		Path:                path,
+		ClientAddr:          remoteAddr,
+		AuthorizationBearer: httpHeaders.APIKeyFrom(headers),
+	})
+	if err != nil {
+		return sdkauth.Decision{}, fmt.Errorf("%w: auth failed", ErrUnauthorized)
+	}
+	if decision.Outcome != sdkauth.OutcomeAllow {
+		return sdkauth.Decision{}, fmt.Errorf("%w: %s", ErrUnauthorized, decision.ReasonCode)
+	}
+	return decision, nil
+}
+
+// decodeCreateBody maps a create payload (stream control already stripped for HTTP,
+// envelope type already stripped for WebSocket) onto the shared canonical create call.
+func decodeCreateBody(body []byte, opts DecodeCreateOptions, kind createDecodeKind, stream bool) (*DecodedCreate, error) {
 	limits := opts.Limits
 	if limits == (proto.Limits{}) {
 		limits = proto.DefaultLimits()
 	}
-	wireParam, canonicalCall, err := proto.DecodeRequest(decodeBody, limits)
+	wireParam, canonicalCall, err := proto.DecodeRequest(body, limits)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", proto.ErrDecodeFailed, err)
 	}
 
-	// Create admission: official non-null controls the canonical call cannot
-	// represent must fail here rather than reach execution while ignored.
 	if err := rejectUnsupportedControls(wireParam, createUnsupportedControls); err != nil {
 		return nil, err
 	}
 
-	// 3. Resolve route selector / model conditional rules
 	modelStr := ""
 	if wireParam.Model != nil {
 		modelStr = strings.TrimSpace(*wireParam.Model)
@@ -144,11 +164,7 @@ func AuthenticateAndDecodeCreate(ctx context.Context, body []byte, opts DecodeCr
 		return nil, fmt.Errorf("%w: model is required when previous_response_id is absent", proto.ErrDecodeFailed)
 	}
 	clientModel := modelStr
-	// A route header is an authoritative transport hint, but it remains subject
-	// to the configured prefix allowlist. Inline body selectors use the normal
-	// fallback-to-default behavior.
-	var routeErr error
-	modelStr, routeErr = resolveRouteSelector(modelStr, opts.RouteSelector, opts.RoutePrefixes, opts.DefaultRouteSelector)
+	modelStr, routeErr := resolveRouteSelector(modelStr, opts.RouteSelector, opts.RoutePrefixes, opts.DefaultRouteSelector)
 	if routeErr != nil {
 		return nil, fmt.Errorf("%w: %w", proto.ErrDecodeFailed, routeErr)
 	}
@@ -163,11 +179,11 @@ func AuthenticateAndDecodeCreate(ctx context.Context, body []byte, opts DecodeCr
 		explicitStore = wireParam.Store
 	}
 
-	// 4. Construct complete item-authoritative canonical Call
 	canonicalCall.Route = lipapi.RouteIntent{Selector: modelStr}
-
-	// Set Invocation metadata
 	deliveryMode := lipapi.DeliveryModeFromClientStream(stream)
+	if kind == createDecodeWebSocket {
+		deliveryMode = lipapi.DeliveryModeStreaming
+	}
 	canonicalCall.Invocation = lipapi.Invocation{
 		Operation:     lipapi.OperationOpenResponsesCreate,
 		DeliveryMode:  deliveryMode,
@@ -187,20 +203,15 @@ func AuthenticateAndDecodeCreate(ctx context.Context, body []byte, opts DecodeCr
 		return nil, fmt.Errorf("%w: canonical request: %w", proto.ErrDecodeFailed, err)
 	}
 
-	// Requirements are admission metadata, not a duplicate field on Call. The core
-	// derives the same set again when it builds the failover requirement baseline.
-	requirements := lipapi.DeriveProtocolRequirements(canonicalCall)
-
 	return &DecodedCreate{
 		Call:               &canonicalCall,
-		Requirements:       requirements,
-		Stream:             stream,
+		Requirements:       lipapi.DeriveProtocolRequirements(canonicalCall),
+		Stream:             stream || kind == createDecodeWebSocket,
 		RouteSelector:      modelStr,
 		Model:              clientModel,
 		PreviousResponseID: prevID,
 		Store:              store,
 		ExplicitStore:      explicitStore,
-		AuthDecision:       decision,
 	}, nil
 }
 
@@ -458,6 +469,18 @@ func resolveRouteSelector(model, explicit string, prefixes []string, defaultRout
 	return routeselect.NewPrefixSet(prefixes).InlineOrDefault(model, defaultRoute), nil
 }
 
+func isCompactPath(path string) bool {
+	return strings.HasSuffix(strings.TrimRight(path, "/"), "/responses/compact")
+}
+
+func isCreatePath(path string) bool {
+	trimmed := strings.TrimRight(path, "/")
+	if isCompactPath(trimmed) {
+		return false
+	}
+	return strings.HasSuffix(trimmed, "/responses") || trimmed == "/responses"
+}
+
 func extractBearerToken(h http.Header) string {
 	return lipsdk.HTTPHeaders{}.APIKeyFrom(h)
 }
@@ -465,24 +488,9 @@ func extractBearerToken(h http.Header) string {
 // AuthenticateAndDecodeCompact performs authentication checks FIRST, then decodes the request body
 // into an item-authoritative canonical [lipapi.Call] with context.compaction operation and protocol requirements.
 func AuthenticateAndDecodeCompact(ctx context.Context, body []byte, opts DecodeCompactOptions) (*DecodedCompact, error) {
-	// 1. Auth check BEFORE body or continuation/store work (Requirement 2.10, 10.8)
-	var decision sdkauth.Decision
-	if opts.Auth != nil {
-		meta := sdkauth.InboundCallMeta{
-			Frontend:            ID,
-			Method:              opts.Method,
-			Path:                opts.Path,
-			ClientAddr:          opts.RemoteAddr,
-			AuthorizationBearer: opts.HTTPHeaders.APIKeyFrom(opts.Headers),
-		}
-		var err error
-		decision, err = opts.Auth.Authenticate(ctx, meta)
-		if err != nil {
-			return nil, fmt.Errorf("%w: auth failed", ErrUnauthorized)
-		}
-		if decision.Outcome != sdkauth.OutcomeAllow {
-			return nil, fmt.Errorf("%w: %s", ErrUnauthorized, decision.ReasonCode)
-		}
+	decision, err := authenticateDecode(ctx, opts.Auth, opts.Method, opts.Path, opts.RemoteAddr, opts.Headers, opts.HTTPHeaders)
+	if err != nil {
+		return nil, err
 	}
 
 	if len(body) == 0 {

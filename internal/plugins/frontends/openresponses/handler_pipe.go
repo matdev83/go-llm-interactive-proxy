@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
@@ -30,6 +29,7 @@ func authDecisionFromContext(ctx context.Context) sdkauth.Decision {
 // createEncodeState is per-request OpenResponses create state carried through Extra.
 type createEncodeState struct {
 	decoded    *DecodedCreate
+	compact    *DecodedCompact
 	responseID string
 	store      lipcont.Store
 	scope      lipcont.Scope
@@ -81,11 +81,7 @@ func (h *Handler) buildPipe() {
 		},
 		Wire: WireErrors{},
 		MatchPath: func(path string) (frontendpipe.PathMatch, bool) {
-			trimmed := strings.TrimRight(path, "/")
-			if strings.HasSuffix(trimmed, "/responses/compact") {
-				return frontendpipe.PathMatch{}, false
-			}
-			if strings.HasSuffix(trimmed, "/responses") || trimmed == "/responses" {
+			if isCompactPath(path) || isCreatePath(path) {
 				return frontendpipe.PathMatch{}, true
 			}
 			return frontendpipe.PathMatch{}, false
@@ -94,6 +90,29 @@ func (h *Handler) buildPipe() {
 			maxBytes := h.cfg.MaxRequestBodyBytes
 			if maxBytes <= 0 {
 				maxBytes = proto.MaxRequestBytes
+			}
+			if isCompactPath(dctx.URLPath) {
+				decoded, err := DecodeCompactRequest(dctx.Ctx, dctx.Body, DecodeCompactOptions{
+					DefaultRouteSelector: h.cfg.DefaultRouteSelector,
+					RoutePrefixes:        h.cfg.RoutePrefixes,
+					RouteSelector:        h.cfg.HTTPHeaders.RouteSelector(dctx.Headers),
+					Headers:              dctx.Headers,
+					Method:               http.MethodPost,
+					Path:                 dctx.URLPath,
+					MaxBodyBytes:         maxBytes,
+					Limits:               h.cfg.ProtocolLimits,
+					HTTPHeaders:          h.cfg.HTTPHeaders,
+				})
+				if err != nil {
+					return nil, err
+				}
+				decoded.AuthDecision = authDecisionFromContext(dctx.Ctx)
+				return &frontendpipe.Decoded{
+					Call:          decoded.Call,
+					Stream:        false,
+					RouteSelector: decoded.RouteSelector,
+					Extra:         decoded,
+				}, nil
 			}
 			decoded, err := AuthenticateAndDecodeCreate(dctx.Ctx, dctx.Body, DecodeCreateOptions{
 				DefaultRouteSelector: h.cfg.DefaultRouteSelector,
@@ -118,6 +137,16 @@ func (h *Handler) buildPipe() {
 			}, nil
 		},
 		AfterDecode: func(ctx context.Context, decoded *frontendpipe.Decoded) error {
+			if decoded.Call != nil && decoded.Call.Invocation.Operation == lipapi.OperationContextCompaction {
+				compact, _ := decoded.Extra.(*DecodedCompact)
+				if compact == nil {
+					return &frontendpipe.StatusError{Status: http.StatusBadRequest, Type: "invalid_request_error", Code: "bad_request", Message: "Invalid request"}
+				}
+				decoded.Call = compact.Call
+				decoded.Stream = false
+				decoded.Extra = &createEncodeState{compact: compact}
+				return nil
+			}
 			create, _ := decoded.Extra.(*DecodedCreate)
 			if create == nil {
 				return &frontendpipe.StatusError{Status: http.StatusBadRequest, Type: "invalid_request_error", Code: "bad_request", Message: "Invalid request"}
@@ -176,6 +205,9 @@ func (h *Handler) buildPipe() {
 			return nil
 		},
 		WriteNonStream: func(ctx context.Context, w http.ResponseWriter, _ *lipapi.Call, es lipapi.EventStream, opts createEncodeState) error {
+			if opts.compact != nil {
+				return h.writeCompact(ctx, w, es, opts.compact)
+			}
 			if opts.decoded == nil || opts.decoded.Call == nil {
 				writeWireError(w, http.StatusBadGateway, "server_error", "backend_error", "Backend execution failed")
 				return nil
@@ -221,13 +253,10 @@ func (h *Handler) prepareCreateState(ctx context.Context, decoded *DecodedCreate
 		scope       = continuationScope(decoded)
 	)
 	if decoded.PreviousResponseID != "" {
-		resolver := h.cfg.ContinuationResolver
-		if resolver == nil && store != nil {
-			resolver = NewStoreContinuationResolver(store, lipcont.Bounds{
-				MaxChainDepth:        h.cfg.Config.Continuation.MaxChainDepth,
-				MaxMaterializedBytes: h.cfg.Config.Continuation.MaxMaterializedBytes,
-			})
-		}
+		resolver := continuationResolverFor(h.cfg.ContinuationResolver, store, lipcont.Bounds{
+			MaxChainDepth:        h.cfg.Config.Continuation.MaxChainDepth,
+			MaxMaterializedBytes: h.cfg.Config.Continuation.MaxMaterializedBytes,
+		})
 		if resolver == nil {
 			return nil, &frontendpipe.StatusError{
 				Status: http.StatusBadRequest, Type: "invalid_request_error",
@@ -251,19 +280,8 @@ func (h *Handler) prepareCreateState(ctx context.Context, decoded *DecodedCreate
 			}
 		}
 		parent = parentRecord
-		if parent.ID != "" {
-			decoded.PreviousResponseID = parent.ID.String()
-		}
 		decoded.Call = &materialized
-		if decoded.Model == "" {
-			decoded.Model = parent.Lineage.Model
-		}
-		if decoded.Call.Route.Selector == "" {
-			decoded.Call.Route.Selector = parent.Lineage.RouteSelector
-			if decoded.Call.Route.Selector == "" {
-				decoded.Call.Route.Selector = parent.Lineage.Model
-			}
-		}
+		applyParentLineage(&decoded.Model, decoded.Call, &decoded.PreviousResponseID, parent)
 	}
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
