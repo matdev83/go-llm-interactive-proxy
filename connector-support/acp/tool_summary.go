@@ -25,6 +25,7 @@ type toolAccum struct {
 	inputSet    bool // prevents double-counting if rawInput appears in updates
 	outputSet   bool // prevents double-counting if rawOutput appears in updates
 	summarySent bool
+	startSent   bool
 }
 
 // toolSummarySink coalesces ACP tool_call and tool_call_update payloads and emits
@@ -113,6 +114,7 @@ func (s *toolSummarySink) HandleToolUpdate(_ context.Context, kind string, updat
 			return nil, nil
 		}
 		accum.summarySent = true
+		accum.startSent = true
 		accum.endedAt = s.now()
 		summary := formatToolCompletionSummaryWithInput(accum.name, accum.input, accum.inputSet, accum.inputBytes, accum.outputBytes, accum.startedAt, accum.endedAt)
 		// Keep the entry in the map (with summarySent=true) so duplicate
@@ -121,7 +123,11 @@ func (s *toolSummarySink) HandleToolUpdate(_ context.Context, kind string, updat
 		return []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: summary}}, nil
 	}
 
-	return nil, nil
+	if accum.startSent || accum.summarySent {
+		return nil, nil
+	}
+	accum.startSent = true
+	return []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: formatToolStartedSummary(accum.name, accum.input, accum.inputSet, accum.inputBytes, accum.startedAt)}}, nil
 }
 
 // FlushIncomplete emits summaries for any tools that haven't received a completion
@@ -306,6 +312,20 @@ const (
 	maxToolArgumentChars         = 1024
 	toolArgumentTruncationMarker = "… [truncated]"
 )
+
+func formatToolStartedSummary(name string, input any, inputSet bool, inputBytes int, started time.Time) string {
+	lines := []string{"---", "```text", fmt.Sprintf("Tool: %s", name), "Status: started"}
+	if inputSet {
+		lines = append(lines, "Arguments: "+formatToolArguments(input))
+	}
+	lines = append(
+		lines,
+		fmt.Sprintf("Input size: %d bytes", inputBytes),
+		fmt.Sprintf("Started: %s", started.UTC().Format(time.RFC3339Nano)),
+		"```",
+	)
+	return strings.Join(lines, "\n") + "\n"
+}
 
 func formatToolCompletionSummaryWithInput(name string, input any, inputSet bool, inputBytes, outputBytes int, started, ended time.Time) string {
 	elapsed := ended.Sub(started).Seconds()
