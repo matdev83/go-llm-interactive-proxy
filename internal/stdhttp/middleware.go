@@ -27,16 +27,18 @@ type stackHTTPInput struct {
 }
 
 // stackHTTPHandler assembles the same middleware stack as [ComposeStandardHTTP] (outer→inner:
-// DownstreamServerMiddleware, final outer recovery, optional OpenTelemetry HTTP, optional
-// Prometheus, trace + request ID, access log, inner recovery, transport auth, route mux).
+// security headers, DownstreamServerMiddleware, final outer recovery, optional OpenTelemetry HTTP,
+// optional Prometheus, trace + request ID, access log, inner recovery, transport auth, route mux).
 // Innermost is the shared [http.ServeMux] from mounting.
 //
 // Panic containment: [RecoveryMiddleware] remains between access logging and transport auth so
 // access logs and HTTP metrics still observe inner handler panics as 5xx. [outerRecoveryMiddleware]
 // wraps the full composed stack as a last resort for panics in outer layers (access log, metrics,
-// tracing, or future outer wrappers). [DownstreamServerMiddleware] is outermost and uses a thin
-// commit-time ResponseWriter wrapper so Server policy wins on WriteHeader/Write/Flush (including
-// HTTP 102 hold-alive) while preserving Flusher and ResponseController Unwrap.
+// tracing, or future outer wrappers). [DownstreamServerMiddleware] uses a thin commit-time
+// ResponseWriter wrapper so Server policy wins on WriteHeader/Write/Flush (including HTTP 102
+// hold-alive) while preserving Flusher and ResponseController Unwrap. [corehttp.SecurityHeadersMiddleware]
+// is outermost so every response — including panic-generated 500s written by [outerRecoveryMiddleware]
+// before it delegates — carries the security headers.
 func stackHTTPHandler(in stackHTTPInput) http.Handler {
 	cfg, log, sec, traceGen, inner, httpProm := in.Cfg, in.Log, in.Security, in.TraceGen, in.Inner, in.HTTPProm
 	h := stdauth.Middleware(log, sec.HTTPAuthProviders, inner)
@@ -48,7 +50,6 @@ func stackHTTPHandler(in stackHTTPInput) http.Handler {
 			traceNames = names
 		}
 	}
-	h = corehttp.SecurityHeadersMiddleware(h)
 	h = corehttp.TraceMiddlewareHeaders(traceNames, corehttp.RequestIDMiddlewareHeaders(traceGen, traceNames, h))
 	if httpProm != nil {
 		h = httpProm.Middleware(h)
@@ -60,5 +61,6 @@ func stackHTTPHandler(in stackHTTPInput) http.Handler {
 		h = in.testOuterWrap(h)
 	}
 	h = outerRecoveryMiddleware(log, h)
-	return DownstreamServerMiddleware(cfg, h)
+	h = DownstreamServerMiddleware(cfg, h)
+	return corehttp.SecurityHeadersMiddleware(h)
 }
