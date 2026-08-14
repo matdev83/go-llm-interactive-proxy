@@ -4,17 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"mime"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	proto "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/protocols/openresponses"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -84,22 +80,13 @@ func (h *Handler) getStore() lipcont.Store {
 
 // ServeHTTP handles HTTP requests for OpenResponses endpoints.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if h.cfg.StreamKeepaliveInterval > 0 {
-		ctx := stream.ContextWithKeepaliveInterval(r.Context(), h.cfg.StreamKeepaliveInterval)
-		r = r.WithContext(ctx)
-	}
-
+	// Method first so non-POST requests stay 405 even without application/json.
+	// Auth and JSON Content-Type stay on the handler: frontendpipe does not
+	// enforce application/json. Keepalive and body admission live in the pipe.
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	defer func() { _ = r.Body.Close() }()
-	if strings.HasSuffix(strings.TrimRight(r.URL.Path, "/"), "/responses/compact") {
-		h.handleCompact(w, r)
-		return
-	}
-
-	// Auth check BEFORE reading body or continuation work (Requirement 2.10, 10.8)
 	dec, ok := h.authorizeCreate(w, r)
 	if !ok {
 		return
@@ -263,152 +250,15 @@ func (opts DecodeCreateOptions) authMeta(r *http.Request) sdkauth.InboundCallMet
 	}
 }
 
-func (opts DecodeCompactOptions) authMeta(r *http.Request) sdkauth.InboundCallMeta {
-	return sdkauth.InboundCallMeta{
-		Frontend:            ID,
-		Method:              r.Method,
-		Path:                r.URL.Path,
-		ClientAddr:          r.RemoteAddr,
-		AuthorizationBearer: opts.HTTPHeaders.APIKeyFrom(r.Header),
+func (h *Handler) writeCompact(ctx context.Context, w http.ResponseWriter, es lipapi.EventStream, decoded *DecodedCompact) error {
+	if decoded == nil || decoded.Call == nil {
+		writeWireError(w, http.StatusBadGateway, "server_error", "backend_error", "Backend execution failed")
+		return nil
 	}
-}
-
-func (h *Handler) handleCompact(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	// 1. Auth check BEFORE reading body or work (Requirement 2.10, 10.8)
-	var authDecision sdkauth.Decision
-	if h.cfg.Authorizer != nil {
-		opts := DecodeCompactOptions{
-			Auth:       h.cfg.Authorizer,
-			Headers:    r.Header,
-			Method:     r.Method,
-			Path:       r.URL.Path,
-			RemoteAddr: r.RemoteAddr,
-		}
-		dec, err := opts.Auth.Authenticate(ctx, opts.authMeta(r))
-		if err != nil || dec.Outcome != sdkauth.OutcomeAllow {
-			writeWireError(w, http.StatusUnauthorized, "authentication_error", "unauthorized", "Authentication required")
-			return
-		}
-		authDecision = dec
-	} else if h.cfg.RequireAuthentication {
-		if _, ok := httpauth.PrincipalFromContext(ctx); !ok {
-			writeWireError(w, http.StatusUnauthorized, "authentication_error", "unauthorized", "Authentication required")
-			return
-		}
+	if es == nil {
+		writeWireError(w, http.StatusBadGateway, "server_error", "backend_error", "Backend execution failed")
+		return nil
 	}
-
-	mediaType, _, err := mime.ParseMediaType(strings.TrimSpace(r.Header.Get("Content-Type")))
-	if err != nil || !strings.EqualFold(mediaType, "application/json") {
-		writeWireError(w, http.StatusUnsupportedMediaType, "invalid_request_error", "unsupported_media_type", "Request Content-Type must be application/json")
-		return
-	}
-
-	// 2. Reserve decode capacity before reading the body. Content-Length is
-	// only an upper bound; unknown-length requests reserve the hard cap.
-	maxBytes := h.cfg.MaxRequestBodyBytes
-	if maxBytes <= 0 {
-		maxBytes = proto.MaxRequestBytes
-	}
-	// Reserve the hard cap rather than trusting Content-Length: clients can
-	// under-report it while the bounded reader still accepts maxBytes bytes.
-	releaseDecode, admitted, admissionErr := decodeqos.TryAdmit(ctx, h.cfg.DecodeAdmission, maxBytes)
-	if decision := decodeqos.Decide(admitted, admissionErr); decision.Status != 0 {
-		if decision.RetryAfter {
-			w.Header().Set("Retry-After", decodeqos.RetryAfterSeconds)
-		}
-		writeWireError(w, decision.Status, "server_error", "decode_admission_rejected", decision.Message)
-		return
-	}
-	releaseDecodeOnce := sync.OnceFunc(func() {
-		if releaseDecode != nil {
-			releaseDecode()
-		}
-	})
-	defer releaseDecodeOnce()
-
-	bodyReader := io.LimitReader(r.Body, maxBytes+1)
-	body, err := io.ReadAll(bodyReader)
-	if err != nil {
-		writeWireError(w, http.StatusBadRequest, "invalid_request_error", "bad_request", "Failed to read request body")
-		return
-	}
-
-	if int64(len(body)) > maxBytes {
-		writeWireError(w, http.StatusRequestEntityTooLarge, "invalid_request_error", "body_too_large", "Request body exceeds max limit")
-		return
-	}
-
-	// 3. Decode compact request payload
-	opts := DecodeCompactOptions{
-		DefaultRouteSelector: h.cfg.DefaultRouteSelector,
-		RoutePrefixes:        h.cfg.RoutePrefixes,
-		RouteSelector:        h.cfg.HTTPHeaders.RouteSelector(r.Header),
-		Headers:              r.Header,
-		Method:               r.Method,
-		Path:                 r.URL.Path,
-		RemoteAddr:           r.RemoteAddr,
-		MaxBodyBytes:         maxBytes,
-		Limits:               h.cfg.ProtocolLimits,
-		HTTPHeaders:          h.cfg.HTTPHeaders,
-	}
-
-	var decoded *DecodedCompact
-	err = decodeqos.Guard(releaseDecodeOnce, func() error {
-		var decodeErr error
-		decoded, decodeErr = DecodeCompactRequest(ctx, body, opts)
-		if decodeErr == nil && decoded != nil && decoded.Call != nil {
-			hdrs := h.cfg.HTTPHeaders.OrDefault()
-			sessionwire.ApplyAuthoritativeHeadersNamed(&decoded.Call.Session, r.Header, hdrs.SessionID, hdrs.ResumeToken)
-		}
-		return decodeErr
-	})
-	releaseDecode = nil
-	if err != nil {
-		status := http.StatusBadRequest
-		errType := "invalid_request_error"
-		errCode := "bad_request"
-		if errors.Is(err, ErrUnauthorized) || strings.Contains(err.Error(), "unauthorized") {
-			status = http.StatusUnauthorized
-			errType = "authentication_error"
-			errCode = "unauthorized"
-		}
-		message := "Invalid request"
-		if status == http.StatusUnauthorized {
-			message = "Authentication required"
-		} else if strings.Contains(err.Error(), "model is required") {
-			message = "model is required for compact request"
-		}
-		writeWireError(w, status, errType, errCode, message)
-		return
-	}
-	decoded.AuthDecision = authDecision
-
-	// 4. Execute compaction through the same canonical stream port as create.
-	// The executor owns candidate admission and failover; this frontend only
-	// collects the resulting stream into the compact resource.
-	operation, err := CompactOperationFromDecoded(decoded)
-	if err != nil {
-		writeWireError(w, http.StatusBadRequest, "invalid_request_error", "bad_request", "Invalid compact operation")
-		return
-	}
-	if h.cfg.Executor == nil {
-		writeWireError(w, http.StatusNotImplemented, "invalid_request_error", "operation_not_implemented", "OpenResponses compact is not enabled")
-		return
-	}
-	stream, err := h.cfg.Executor.Execute(ctx, operation.Call)
-	if err != nil {
-		if ctx.Err() != nil {
-			return
-		}
-		status, typ, code, message := classifyExecutionError(err)
-		writeWireError(w, status, typ, code, message)
-		return
-	}
-	// Enforce the allowed_tools hard constraint before compact output too.
-	stream = newAllowedToolsStream(operation.Call, stream)
-
 	clock := h.cfg.ResponseClock
 	if clock == nil {
 		clock = systemResponseClock{}
@@ -417,17 +267,17 @@ func (h *Handler) handleCompact(w http.ResponseWriter, r *http.Request) {
 	if ids == nil {
 		ids = systemCompactResourceIDSource{}
 	}
-	resource, collectErr := collectCompact(ctx, stream, compactEnvelope(decoded, ids.NewCompactResourceID(), clock.Now()), operation.Call.Options, h.cfg.ProtocolLimits)
+	resource, collectErr := collectCompact(ctx, es, compactEnvelope(decoded, ids.NewCompactResourceID(), clock.Now()), decoded.Call.Options, h.cfg.ProtocolLimits)
 	if collectErr != nil {
 		if ctx.Err() != nil {
-			return
+			return nil
 		}
 		status, typ, code, message := classifyExecutionError(collectErr)
 		writeWireError(w, status, typ, code, message)
-		return
+		return nil
 	}
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(resource)
+	return nil
 }

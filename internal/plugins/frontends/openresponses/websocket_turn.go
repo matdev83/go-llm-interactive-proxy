@@ -221,23 +221,8 @@ func (r *SessionRunner) executeTurn(ctx context.Context, s *WSSession, decoded *
 		if localStore == nil {
 			return r.failClassified(s, localStore, scope, parentID, previousNotFoundTurnError())
 		}
-		rec, err := lipcont.Lookup(turnCtx, localStore, scope, parentID)
-		if err != nil {
-			if turnCtx.Err() != nil {
-				return turnCtx.Err()
-			}
-			if errors.Is(err, lipcont.ErrStorageFailure) {
-				return r.failClassified(s, localStore, scope, parentID, storageUnavailableTurnError())
-			}
-			return r.failClassified(s, localStore, scope, parentID, previousNotFoundTurnError())
-		}
-		materialized, _, err := lipcont.MaterializeCall(turnCtx, lipcont.MaterializeInput{
-			Store:    localStore,
-			Scope:    scope,
-			StartID:  parentID,
-			NewInput: decoded.call.Items,
-			Bounds:   r.materializeBounds(),
-		}, *decoded.call)
+		resolver := continuationResolverFor(nil, localStore, r.materializeBounds())
+		materialized, rec, err := resolver.ResolveParent(turnCtx, scope, decoded.previousResponseID, *decoded.call)
 		if err != nil {
 			if turnCtx.Err() != nil {
 				return turnCtx.Err()
@@ -255,15 +240,7 @@ func (r *SessionRunner) executeTurn(ctx context.Context, s *WSSession, decoded *
 		}
 		execCall = materialized
 		parentRec = rec
-		if decoded.model == "" {
-			decoded.model = rec.Lineage.Model
-		}
-		if execCall.Route.Selector == "" {
-			execCall.Route.Selector = rec.Lineage.RouteSelector
-			if execCall.Route.Selector == "" {
-				execCall.Route.Selector = rec.Lineage.Model
-			}
-		}
+		applyParentLineage(&decoded.model, &execCall, nil, rec)
 	}
 
 	responseID := ""
@@ -307,59 +284,43 @@ func (r *SessionRunner) executeTurn(ctx context.Context, s *WSSession, decoded *
 	}
 
 	committed := false
-	for range maxStreamingEvents {
-		ev, err := stream.Recv(turnCtx)
-		if err != nil {
-			if turnCtx.Err() != nil {
-				return turnCtx.Err()
-			}
-			if errors.Is(err, io.EOF) {
-				if committed {
-					return r.failTerminal(s, localStore, scope, parentID, sm)
-				}
-				return r.failClassified(s, localStore, scope, parentID, backendErrorTurn())
-			}
-			if committed {
-				return r.failTerminal(s, localStore, scope, parentID, sm)
-			}
-			return r.failClassified(s, localStore, scope, parentID, backendErrorTurn())
+	_, err = driveStateMachine(turnCtx, stream, sm, driveOptions{
+		limits:         streamingDriveLimits(),
+		stopOnTerminal: true,
+		sanitizeError:  true,
+	}, func(_ lipapi.Event, events []proto.StreamEvent) error {
+		if writeErr := r.writeStreamEvents(s, events); writeErr != nil {
+			return fmt.Errorf("%w: %w", errDriveSessionWrite, writeErr)
 		}
-		if err := lipapi.ValidateEventEnvelope(&ev); err != nil {
-			if committed {
-				return r.failTerminal(s, localStore, scope, parentID, sm)
-			}
-			return r.failClassified(s, localStore, scope, parentID, backendErrorTurn())
-		}
-		if ev.Kind == lipapi.EventError {
-			// Preserve the semantic code while applying the same safe-message
-			// policy as HTTP/SSE to post-output terminal events.
-			if ev.ErrorCode == "" {
-				ev.ErrorCode = "backend_error"
-			}
-			ev.ErrorMessage = safeCanonicalErrorMessage(ev.ErrorMessage)
-		}
-		events, processErr := sm.ProcessCanonicalEvent(ev)
-		if processErr != nil {
-			if committed {
-				return r.failTerminal(s, localStore, scope, parentID, sm)
-			}
-			return r.failClassified(s, localStore, scope, parentID, wsTurnErrorFromProtoErr(processErr))
-		}
-		if err := r.writeStreamEvents(s, events); err != nil {
-			return err
-		}
+		// Commitment follows a successful SM step, including zero wire events
+		// (response.started may not emit frames). Empty-event gating would
+		// misclassify post-start stream faults as pre-output classified errors.
 		committed = true
-		if sm.State() == proto.StateTerminal {
-			// A failed terminal is a classified application failure and evicts a
-			// referenced local parent exactly like a pre-output classified error.
-			if sm.Status() == "failed" {
-				evictWSContinuationParent(localStore, scope, parentID)
-			}
-			return nil
+		return nil
+	})
+	if err == nil {
+		if sm.Status() == "failed" {
+			evictWSContinuationParent(localStore, scope, parentID)
 		}
+		return nil
+	}
+	if errors.Is(err, errDriveSessionWrite) {
+		return err
+	}
+	if turnCtx.Err() != nil {
+		return turnCtx.Err()
 	}
 	if committed {
 		return r.failTerminal(s, localStore, scope, parentID, sm)
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, errDriveInvalidEnvelope) || errors.Is(err, errDriveTooManyEvents) {
+		return r.failClassified(s, localStore, scope, parentID, backendErrorTurn())
+	}
+	var seq *proto.SequenceError
+	if errors.As(err, &seq) || errors.Is(err, proto.ErrSequenceViolation) ||
+		errors.Is(err, proto.ErrDuplicateTerminal) || errors.Is(err, proto.ErrOutputAfterTerminal) ||
+		errors.Is(err, proto.ErrMismatchedID) || errors.Is(err, proto.ErrInvalidLifecycleState) {
+		return r.failClassified(s, localStore, scope, parentID, wsTurnErrorFromProtoErr(err))
 	}
 	return r.failClassified(s, localStore, scope, parentID, backendErrorTurn())
 }
@@ -623,72 +584,20 @@ func decodeWSCreateEnvelope(data []byte, opts wsTurnDecodeOptions) (decoded *dec
 		}
 	}
 
-	limits := opts.Limits
-	if limits == (proto.Limits{}) {
-		limits = proto.DefaultLimits()
-	}
-	wireParam, canonicalCall, err := proto.DecodeRequest(body, limits)
+	decodedCreate, err := decodeCreateBody(body, DecodeCreateOptions{
+		DefaultRouteSelector: opts.DefaultRouteSelector,
+		RoutePrefixes:        opts.RoutePrefixes,
+		Limits:               opts.Limits,
+	}, createDecodeWebSocket, true)
 	if err != nil {
 		return nil, wsTurnErrorFromProtoErr(err)
 	}
-
-	// Create admission: official non-null controls the canonical call cannot
-	// represent must fail this turn rather than reach execution while ignored.
-	if err := rejectUnsupportedControls(wireParam, createUnsupportedControls); err != nil {
-		return nil, wsTurnErrorFromProtoErr(err)
-	}
-
-	modelStr := ""
-	if wireParam.Model != nil {
-		modelStr = strings.TrimSpace(*wireParam.Model)
-	}
-	prevID := ""
-	if wireParam.PreviousResponseID != nil {
-		prevID = strings.TrimSpace(*wireParam.PreviousResponseID)
-	}
-	previousResponseID = prevID
-	if modelStr == "" && prevID == "" {
-		return nil, &wsTurnError{
-			status:  http.StatusBadRequest,
-			code:    "invalid_request",
-			message: "model is required when previous_response_id is absent",
-			param:   "model",
-		}
-	}
-	clientModel := modelStr
-	resolvedModel, routeErr := resolveRouteSelector(modelStr, "", opts.RoutePrefixes, opts.DefaultRouteSelector)
-	if routeErr != nil {
-		return nil, &wsTurnError{
-			status:  http.StatusBadRequest,
-			code:    "invalid_request",
-			message: routeErr.Error(),
-			param:   "model",
-		}
-	}
-	modelStr = resolvedModel
-	if modelStr == "" && prevID == "" {
-		return nil, &wsTurnError{
-			status:  http.StatusBadRequest,
-			code:    "invalid_request",
-			message: "model could not be resolved",
-			param:   "model",
-		}
-	}
-
-	canonicalCall.Route = lipapi.RouteIntent{Selector: modelStr}
-	canonicalCall.Invocation = lipapi.Invocation{
-		Operation:     lipapi.OperationOpenResponsesCreate,
-		DeliveryMode:  lipapi.DeliveryModeStreaming,
-		TransportMode: lipapi.TransportModeStreaming,
-	}
-	if _, err := decodeMetadata(wireParam.Metadata); err != nil {
-		return nil, wsTurnErrorFromProtoErr(fmt.Errorf("%w: metadata: %w", proto.ErrDecodeFailed, err))
-	}
-	if err := canonicalCall.Validate(); err != nil {
-		return nil, wsTurnErrorFromProtoErr(fmt.Errorf("%w: canonical request: %w", proto.ErrDecodeFailed, err))
-	}
-
-	return &decodedWSTurn{call: &canonicalCall, model: clientModel, previousResponseID: prevID}, nil
+	previousResponseID = decodedCreate.PreviousResponseID
+	return &decodedWSTurn{
+		call:               decodedCreate.Call,
+		model:              decodedCreate.Model,
+		previousResponseID: decodedCreate.PreviousResponseID,
+	}, nil
 }
 
 // parseWSTurnObject strict-parses a single JSON object and rejects duplicate
