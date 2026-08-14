@@ -52,7 +52,7 @@ func TestEncodeOutboundRequest_RegressionAndOptions(t *testing.T) {
 	*call.Options.ParallelToolCalls = true
 
 	expectedStreamTrue := map[string]any{
-		"model": "my-model",
+		"model":  "my-model",
 		"stream": true,
 		"input": []any{
 			map[string]any{
