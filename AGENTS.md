@@ -40,6 +40,7 @@ A single PR must not exceed **100 changed files**. Split large refactors so they
 - Streaming/concurrency/cancellation: `golang-concurrency`, `golang-context`.
 - Error/security/observability/database/CLI/performance/lint/deps/docs/troubleshooting: load the matching `golang-*` skill.
 - Simplification/refactor-only: `go-simplify`.
+- PR submission, sequential merge delivery, CI babysitting, merged-main verification, or worktree cleanup: `lip-pr-delivery`.
 - Repo steering overrides generic skill defaults.
 
 ## Architecture Guardrails
