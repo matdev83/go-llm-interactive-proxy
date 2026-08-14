@@ -135,6 +135,49 @@ func TestStackHTTPHandler_testOuterWrap_panicBeforeCommit_outerOperationInLog(t 
 	}
 }
 
+func TestStackHTTPHandler_testOuterWrap_panicBeforeCommit_carriesSecurityHeaders(t *testing.T) {
+	t.Parallel()
+	cfg := &coreconfig.Config{
+		Logging:       coreconfig.LoggingConfig{AccessLog: false},
+		Observability: coreconfig.ObservabilityConfig{Tracing: coreconfig.TracingConfig{Enabled: false}},
+	}
+	h := stackHTTPHandler(stackHTTPInput{
+		Cfg:      cfg,
+		Log:      testkit.DiscardLogger(),
+		Security: HTTPSecurityInput{},
+		TraceGen: diag.NewTraceIDGenerator(),
+		Inner:    http.NewServeMux(),
+		HTTPProm: nil,
+		testOuterWrap: func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				panic("synthetic outer before next")
+			})
+		},
+	})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	res, err := http.Get(srv.URL + "/any")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("status=%d want 500", res.StatusCode)
+	}
+	for name, want := range map[string]string{
+		"Content-Security-Policy":   "default-src 'self'; script-src 'self'",
+		"X-Frame-Options":           "DENY",
+		"X-Content-Type-Options":    "nosniff",
+		"Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+		"Referrer-Policy":           "strict-origin-when-cross-origin",
+		"Permissions-Policy":        "geolocation=(), microphone=(), camera=()",
+	} {
+		if got := res.Header.Get(name); got != want {
+			t.Errorf("outer-panic 500 header %s = %q, want %q", name, got, want)
+		}
+	}
+}
+
 func TestStackHTTPHandler_testOuterWrap_panicAfterInnerCommit_noSecondBodyOrStatusChange(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
