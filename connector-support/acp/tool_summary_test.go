@@ -26,8 +26,14 @@ func TestToolSummarySink_CompletionSummary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleToolUpdate start: %v", err)
 	}
-	if len(evs) != 0 {
-		t.Fatalf("expected no events on start, got %d", len(evs))
+	if len(evs) != 1 {
+		t.Fatalf("expected start event, got %d", len(evs))
+	}
+	if !strings.Contains(evs[0].Delta, "Status: started") {
+		t.Fatalf("start summary missing Status: started: %s", evs[0].Delta)
+	}
+	if strings.Contains(evs[0].Delta, "Ended:") {
+		t.Fatalf("start summary should not include Ended: %s", evs[0].Delta)
 	}
 
 	// Simulate a tool_call_update with output and completed status.
@@ -78,12 +84,15 @@ func TestToolSummarySink_MultipleTools(t *testing.T) {
 
 	// Start two tools.
 	for _, id := range []string{"tc-a", "tc-b"} {
-		_, err := sink.HandleToolUpdate(context.Background(), acpToolCall, map[string]any{
+		evs, err := sink.HandleToolUpdate(context.Background(), acpToolCall, map[string]any{
 			"toolCallId": id,
 			"toolCall":   map[string]any{"title": "Tool " + id},
 		})
 		if err != nil {
 			t.Fatalf("start %s: %v", id, err)
+		}
+		if len(evs) != 1 {
+			t.Fatalf("expected start event for %s, got %d", id, len(evs))
 		}
 	}
 
