@@ -128,6 +128,12 @@ func authenticateDecode(ctx context.Context, auth Authorizer, method, path, remo
 		AuthorizationBearer: httpHeaders.APIKeyFrom(headers),
 	})
 	if err != nil {
+		switch {
+		case errors.Is(err, context.Canceled):
+			return sdkauth.Decision{}, context.Canceled
+		case errors.Is(err, context.DeadlineExceeded):
+			return sdkauth.Decision{}, context.DeadlineExceeded
+		}
 		return sdkauth.Decision{}, fmt.Errorf("%w: auth failed", ErrUnauthorized)
 	}
 	if decision.Outcome != sdkauth.OutcomeAllow {

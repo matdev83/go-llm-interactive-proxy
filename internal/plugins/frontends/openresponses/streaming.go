@@ -196,8 +196,12 @@ func (h *Handler) serveStreaming(ctx context.Context, w http.ResponseWriter, str
 		return
 	}
 	status, typ, code, message := classifyExecutionError(err)
-	if status == http.StatusBadGateway && (typ == "server_error") {
-		failUncommitted()
+	if status == http.StatusBadGateway && typ == "server_error" {
+		if isReserved && store != nil {
+			cleanupContinuationReservation(store, scope, responseID)
+			isReserved = false
+		}
+		writeWireError(w, status, typ, code, message)
 		return
 	}
 	if isReserved && store != nil {

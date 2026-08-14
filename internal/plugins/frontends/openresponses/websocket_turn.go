@@ -292,6 +292,9 @@ func (r *SessionRunner) executeTurn(ctx context.Context, s *WSSession, decoded *
 		if writeErr := r.writeStreamEvents(s, events); writeErr != nil {
 			return fmt.Errorf("%w: %w", errDriveSessionWrite, writeErr)
 		}
+		// Commitment follows a successful SM step, including zero wire events
+		// (response.started may not emit frames). Empty-event gating would
+		// misclassify post-start stream faults as pre-output classified errors.
 		committed = true
 		return nil
 	})

@@ -80,8 +80,13 @@ func (h *Handler) getStore() lipcont.Store {
 
 // ServeHTTP handles HTTP requests for OpenResponses endpoints.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Method first so non-POST requests stay 405 even without application/json.
 	// Auth and JSON Content-Type stay on the handler: frontendpipe does not
-	// enforce application/json. Method, keepalive, and body admission live in the pipe.
+	// enforce application/json. Keepalive and body admission live in the pipe.
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	dec, ok := h.authorizeCreate(w, r)
 	if !ok {
 		return

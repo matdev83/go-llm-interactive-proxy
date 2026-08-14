@@ -3,6 +3,7 @@ package openresponses
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 
 	proto "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/protocols/openresponses"
@@ -92,6 +93,15 @@ func driveStateMachine(
 		ev, err := stream.Recv(ctx)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
+				// Prefer cancellation/deadline over EOF so callers keep cleanup
+				// semantics instead of treating a canceled close as a stream fault.
+				if cerr := ctx.Err(); cerr != nil {
+					return last, cerr
+				}
+				// EOF decision table (errorEventIsFailure, stopOnTerminal):
+				// - terminalSeen && !stopOnTerminal → success (compact allows EOF after terminal)
+				// - !terminalSeen && (errorEventIsFailure || !stopOnTerminal) → errDriveNoTerminal
+				// - otherwise → raw io.EOF (streaming callers handle committed vs uncommitted)
 				if terminalSeen && !opts.stopOnTerminal {
 					return last, nil
 				}
@@ -131,7 +141,7 @@ func driveStateMachine(
 		events, processErr := sm.ProcessCanonicalEvent(ev)
 		if processErr != nil {
 			if opts.errorEventIsFailure {
-				return last, errDriveSequenceInvalid
+				return last, fmt.Errorf("%w: %w", errDriveSequenceInvalid, processErr)
 			}
 			return last, processErr
 		}
