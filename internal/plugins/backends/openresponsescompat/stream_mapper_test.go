@@ -480,6 +480,66 @@ func TestStreamMapper_MalformedRejected(t *testing.T) {
 				rec("", `{"type":"response.created","sequence_number":0}`),
 			},
 		},
+		{
+			name: "content_part_added_before_start",
+			records: []sseRecord{
+				rec("response.content_part.added", `{"type":"response.content_part.added","sequence_number":0}`),
+			},
+		},
+		{
+			name: "text_done_without_content_part",
+			records: []sseRecord{
+				created(`{"type":"response.created","sequence_number":0}`),
+				rec("response.output_item.added", `{"type":"response.output_item.added","sequence_number":1,"item":{"id":"m","type":"message","role":"assistant"}}`),
+				rec("response.output_text.done", `{"type":"response.output_text.done","sequence_number":2,"delta":"x"}`),
+			},
+		},
+		{
+			name: "content_part_done_without_content_part",
+			records: []sseRecord{
+				created(`{"type":"response.created","sequence_number":0}`),
+				rec("response.output_item.added", `{"type":"response.output_item.added","sequence_number":1,"item":{"id":"m","type":"message","role":"assistant"}}`),
+				rec("response.content_part.done", `{"type":"response.content_part.done","sequence_number":2}`),
+			},
+		},
+		{
+			name: "reasoning_delta_without_item",
+			records: []sseRecord{
+				created(`{"type":"response.created","sequence_number":0}`),
+				rec("response.reasoning_text.delta", `{"type":"response.reasoning_text.delta","sequence_number":1,"delta":"x"}`),
+			},
+		},
+		{
+			name: "reasoning_done_without_item",
+			records: []sseRecord{
+				created(`{"type":"response.created","sequence_number":0}`),
+				rec("response.reasoning_text.done", `{"type":"response.reasoning_text.done","sequence_number":1}`),
+			},
+		},
+		{
+			name: "output_item_done_without_open_item",
+			records: []sseRecord{
+				created(`{"type":"response.created","sequence_number":0}`),
+				rec("response.output_item.done", `{"type":"response.output_item.done","sequence_number":1}`),
+			},
+		},
+		{
+			name: "output_item_added_while_open",
+			records: []sseRecord{
+				created(`{"type":"response.created","sequence_number":0}`),
+				rec("response.output_item.added", `{"type":"response.output_item.added","sequence_number":1,"item":{"id":"m1","type":"message","role":"assistant"}}`),
+				rec("response.output_item.added", `{"type":"response.output_item.added","sequence_number":2,"item":{"id":"m2","type":"message","role":"assistant"}}`),
+			},
+		},
+		{
+			name: "content_part_added_while_open",
+			records: []sseRecord{
+				created(`{"type":"response.created","sequence_number":0}`),
+				rec("response.output_item.added", `{"type":"response.output_item.added","sequence_number":1,"item":{"id":"m","type":"message","role":"assistant"}}`),
+				rec("response.content_part.added", `{"type":"response.content_part.added","sequence_number":2,"part":{"type":"output_text","text":""}}`),
+				rec("response.content_part.added", `{"type":"response.content_part.added","sequence_number":3,"part":{"type":"output_text","text":""}}`),
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

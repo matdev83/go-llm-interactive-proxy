@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	proto "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/protocols/openresponses"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -52,16 +51,13 @@ func decodeRemoteStreamEvent(id string, rec sseRecord) (*remoteStreamEvent, erro
 
 // streamMapper maps remote OpenResponses SSE events incrementally onto the
 // canonical event stream. It enforces the pinned profile's item/content/part
-// lifecycle and sequence rules, and feeds every produced canonical event
-// through the production canonical state machine so lifecycle violations are
-// rejected exactly once with production semantics. Unknown unprefixed output
-// is rejected; valid vendor-prefixed output is preserved as bounded private
-// evidence and never disturbs the canonical stream.
+// lifecycle and sequence rules, and ensures every produced canonical event
+// satisfies the canonical envelope bounds before it reaches the stream. Unknown
+// unprefixed output is rejected; valid vendor-prefixed output is preserved as
+// bounded private evidence and never disturbs the canonical stream.
 type streamMapper struct {
 	id     string
 	limits ResponseLimits
-
-	sm *proto.StateMachine
 
 	started  bool
 	terminal bool
@@ -87,17 +83,9 @@ type streamMapper struct {
 }
 
 func newStreamMapper(id string, limits ResponseLimits) *streamMapper {
-	protocolLimits := proto.DefaultLimits()
-	if limits.MaxItems > 0 {
-		protocolLimits.MaxItemCount = limits.MaxItems
-	}
 	return &streamMapper{
 		id:     id,
 		limits: limits,
-		sm: proto.NewStateMachine(proto.EnvelopeMetadata{
-			ResponseID: "resp_remote_stream",
-			CreatedAt:  time.Unix(0, 0).UTC(),
-		}, lipapi.GenerationOptions{}, protocolLimits),
 	}
 }
 
@@ -192,14 +180,11 @@ func (m *streamMapper) mapEvent(ev *remoteStreamEvent) ([]lipapi.Event, error) {
 	}
 }
 
-// emit validates one produced canonical event through the production state
-// machine and the canonical envelope bounds before it reaches the stream.
+// emit validates one produced canonical event against the canonical envelope
+// bounds before it reaches the stream.
 func (m *streamMapper) emit(ev *lipapi.Event) error {
 	if err := lipapi.ValidateEventEnvelope(ev); err != nil {
 		return m.malformed("canonical event envelope: %v", err)
-	}
-	if _, err := m.sm.ProcessCanonicalEvent(*ev); err != nil {
-		return m.malformed("canonical lifecycle: %v", err)
 	}
 	return nil
 }
