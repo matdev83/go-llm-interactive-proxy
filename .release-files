@@ -30,6 +30,9 @@ skills-lock.json
 
 # Agent skills, rules, and workspace configurations
 .agents/**
+.codex/**
+.opencode/**
+.pi/**
 
 # Project documentation and specifications
 docs/**
