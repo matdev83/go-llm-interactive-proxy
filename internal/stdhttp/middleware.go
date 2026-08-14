@@ -48,6 +48,7 @@ func stackHTTPHandler(in stackHTTPInput) http.Handler {
 			traceNames = names
 		}
 	}
+	h = corehttp.SecurityHeadersMiddleware(h)
 	h = corehttp.TraceMiddlewareHeaders(traceNames, corehttp.RequestIDMiddlewareHeaders(traceGen, traceNames, h))
 	if httpProm != nil {
 		h = httpProm.Middleware(h)

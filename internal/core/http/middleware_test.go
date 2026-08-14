@@ -77,3 +77,36 @@ func TestRequestIDMiddleware_preservesExisting(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 }
+
+func TestSecurityHeadersMiddleware_addsHeaders(t *testing.T) {
+	t.Parallel()
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	h := corehttp.SecurityHeadersMiddleware(inner)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	if got := res.Header.Get("Content-Security-Policy"); got != "default-src 'self'; script-src 'self'" {
+		t.Errorf("CSP = %q, want default-src 'self'; script-src 'self'", got)
+	}
+	if got := res.Header.Get("X-Frame-Options"); got != "DENY" {
+		t.Errorf("X-Frame-Options = %q, want DENY", got)
+	}
+	if got := res.Header.Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
+	}
+	if got := res.Header.Get("Strict-Transport-Security"); got != "max-age=31536000; includeSubDomains" {
+		t.Errorf("Strict-Transport-Security = %q, want max-age=31536000; includeSubDomains", got)
+	}
+	if got := res.Header.Get("Referrer-Policy"); got != "strict-origin-when-cross-origin" {
+		t.Errorf("Referrer-Policy = %q, want strict-origin-when-cross-origin", got)
+	}
+	if got := res.Header.Get("Permissions-Policy"); got != "geolocation=(), microphone=(), camera=()" {
+		t.Errorf("Permissions-Policy = %q, want geolocation=(), microphone=(), camera=()", got)
+	}
+}
