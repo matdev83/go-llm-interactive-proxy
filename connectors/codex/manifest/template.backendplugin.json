@@ -19,13 +19,15 @@
       "kind": "openai-codex",
       "credential_mode": "static",
       "access_scope": "local_only",
-      "process_sharing": "per_instance"
+      "process_sharing": "per_instance",
+      "execution_class": "inference"
     },
     {
       "kind": "openai-codex-app-server",
       "credential_mode": "none",
       "access_scope": "local_only",
-      "process_sharing": "per_instance"
+      "process_sharing": "per_instance",
+      "execution_class": "agent_runtime"
     }
   ]
 }

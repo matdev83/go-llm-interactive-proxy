@@ -36,6 +36,10 @@ type BackendAccessScope = lipsdk.BackendAccessScope
 
 type BackendSecurityProfile = lipsdk.BackendSecurityProfile
 
+type BackendExecutionClass = lipsdk.BackendExecutionClass
+
+type BackendExecutionProfile = lipsdk.BackendExecutionProfile
+
 // Credential posture re-exports for call sites that register through [Registry].
 const (
 	CredentialStatic    = lipsdk.CredentialStatic
@@ -46,6 +50,10 @@ const (
 
 	BackendAccessAny       = lipsdk.BackendAccessAny
 	BackendAccessLocalOnly = lipsdk.BackendAccessLocalOnly
+
+	BackendExecutionUnknown      = lipsdk.BackendExecutionUnknown
+	BackendExecutionInference    = lipsdk.BackendExecutionInference
+	BackendExecutionAgentRuntime = lipsdk.BackendExecutionAgentRuntime
 )
 
 // FeatureFactory builds a versioned feature bundle from opaque plugin YAML.
@@ -68,31 +76,33 @@ const (
 // allocates internal maps (same observable behavior as [NewRegistry]). Use [NewRegistry] and
 // [InstallStandardBundleOn] to assemble isolated bundles for each composition root.
 type Registry struct {
-	mu                 sync.RWMutex
-	backends           map[string]BackendFactory
-	lifecycleBackends  map[string]LifecycleBackendFactory
-	backendProfiles    map[string]BackendSecurityProfile
-	backendSources     map[string]BackendRegistrationSource
-	reloadPolicies     map[string]BackendReloadPolicy
-	discovered         map[string]struct{}
-	discoveryFrozen    bool
-	frontends          map[string]FrontendMount
-	features           map[string]FeatureFactory
-	authErrorRenderers map[string]lipsdk.AuthErrorRenderer
+	mu                       sync.RWMutex
+	backends                 map[string]BackendFactory
+	lifecycleBackends        map[string]LifecycleBackendFactory
+	backendProfiles          map[string]BackendSecurityProfile
+	backendExecutionProfiles map[string]BackendExecutionProfile
+	backendSources           map[string]BackendRegistrationSource
+	reloadPolicies           map[string]BackendReloadPolicy
+	discovered               map[string]struct{}
+	discoveryFrozen          bool
+	frontends                map[string]FrontendMount
+	features                 map[string]FeatureFactory
+	authErrorRenderers       map[string]lipsdk.AuthErrorRenderer
 }
 
 // NewRegistry returns an empty registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		backends:           map[string]BackendFactory{},
-		lifecycleBackends:  map[string]LifecycleBackendFactory{},
-		backendProfiles:    map[string]BackendSecurityProfile{},
-		backendSources:     map[string]BackendRegistrationSource{},
-		reloadPolicies:     map[string]BackendReloadPolicy{},
-		discovered:         map[string]struct{}{},
-		frontends:          map[string]FrontendMount{},
-		features:           map[string]FeatureFactory{},
-		authErrorRenderers: map[string]lipsdk.AuthErrorRenderer{},
+		backends:                 map[string]BackendFactory{},
+		lifecycleBackends:        map[string]LifecycleBackendFactory{},
+		backendProfiles:          map[string]BackendSecurityProfile{},
+		backendExecutionProfiles: map[string]BackendExecutionProfile{},
+		backendSources:           map[string]BackendRegistrationSource{},
+		reloadPolicies:           map[string]BackendReloadPolicy{},
+		discovered:               map[string]struct{}{},
+		frontends:                map[string]FrontendMount{},
+		features:                 map[string]FeatureFactory{},
+		authErrorRenderers:       map[string]lipsdk.AuthErrorRenderer{},
 	}
 }
 
@@ -105,6 +115,9 @@ func (r *Registry) ensureMaps() {
 	}
 	if r.backendProfiles == nil {
 		r.backendProfiles = map[string]BackendSecurityProfile{}
+	}
+	if r.backendExecutionProfiles == nil {
+		r.backendExecutionProfiles = map[string]BackendExecutionProfile{}
 	}
 	if r.backendSources == nil {
 		r.backendSources = map[string]BackendRegistrationSource{}
@@ -129,16 +142,32 @@ func (r *Registry) ensureMaps() {
 // RegisterBackend records a backend factory on r.
 // Duplicate ids return an error: the standard bundle must register each id exactly once.
 func (r *Registry) RegisterBackend(id string, fn BackendFactory) error {
-	return r.RegisterBackendWithProfile(id, fn, BackendSecurityProfile{CredentialMode: CredentialUnknown})
+	return r.RegisterBackendWithProfiles(id, fn, BackendSecurityProfile{CredentialMode: CredentialUnknown}, BackendExecutionProfile{})
 }
 
 // RegisterBackendWithProfile records a builtin backend factory with credential posture metadata.
 func (r *Registry) RegisterBackendWithProfile(id string, fn BackendFactory, profile BackendSecurityProfile) error {
-	return r.RegisterBackendWithSource(id, fn, profile, BackendSourceBuiltin)
+	return r.RegisterBackendWithProfilesAndSource(id, fn, profile, BackendExecutionProfile{}, BackendSourceBuiltin)
+}
+
+// RegisterBackendWithProfiles records a builtin backend factory with credential and execution posture metadata.
+func (r *Registry) RegisterBackendWithProfiles(id string, fn BackendFactory, secProfile BackendSecurityProfile, execProfile BackendExecutionProfile) error {
+	return r.RegisterBackendWithProfilesAndSource(id, fn, secProfile, execProfile, BackendSourceBuiltin)
 }
 
 // RegisterBackendWithSource records a backend factory with bounded composition provenance.
 func (r *Registry) RegisterBackendWithSource(id string, fn BackendFactory, profile BackendSecurityProfile, source BackendRegistrationSource) error {
+	return r.RegisterBackendWithProfilesAndSource(id, fn, profile, BackendExecutionProfile{}, source)
+}
+
+// RegisterBackendWithProfilesAndSource records a backend factory with security and execution metadata and provenance.
+func (r *Registry) RegisterBackendWithProfilesAndSource(
+	id string,
+	fn BackendFactory,
+	profile BackendSecurityProfile,
+	execProfile BackendExecutionProfile,
+	source BackendRegistrationSource,
+) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.ensureMaps()
@@ -153,11 +182,10 @@ func (r *Registry) RegisterBackendWithSource(id string, fn BackendFactory, profi
 		profile.CredentialMode = CredentialUnknown
 	}
 	if profile.AccessScope == "" {
-		// Default to BackendAccessAny for compatibility. This default is safe for
-		// cloud/upstream HTTP backends but unsafe for process-spawning or local-user-context
-		// backends, which MUST declare BackendAccessLocalOnly explicitly instead of relying
-		// on this default; see pkg/lipsdk.BackendAccessAny.
 		profile.AccessScope = BackendAccessAny
+	}
+	if err := execProfile.Validate(); err != nil {
+		return fmt.Errorf("pluginreg: RegisterBackend: %w", err)
 	}
 	if source == "" {
 		source = BackendSourceBuiltin
@@ -167,6 +195,7 @@ func (r *Registry) RegisterBackendWithSource(id string, fn BackendFactory, profi
 	}
 	r.backends[id] = fn
 	r.backendProfiles[id] = profile
+	r.backendExecutionProfiles[id] = execProfile
 	r.backendSources[id] = source
 	if source == BackendSourceDiscovered {
 		r.discovered[id] = struct{}{}
@@ -265,6 +294,32 @@ func (r *Registry) BackendSecurityProfile(factoryID string) (BackendSecurityProf
 	defer r.mu.RUnlock()
 	profile, ok := r.backendProfiles[factoryID]
 	return profile, ok
+}
+
+// BackendExecutionProfile returns execution metadata for a registered backend factory.
+func (r *Registry) BackendExecutionProfile(factoryID string) (BackendExecutionProfile, bool) {
+	if r == nil {
+		return BackendExecutionProfile{}, false
+	}
+	factoryID = strings.TrimSpace(factoryID)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	profile, ok := r.backendExecutionProfiles[factoryID]
+	return profile, ok
+}
+
+// BackendExecutionProfiles returns a defensive copy of all registered backend execution profiles.
+func (r *Registry) BackendExecutionProfiles() map[string]BackendExecutionProfile {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make(map[string]BackendExecutionProfile, len(r.backendExecutionProfiles))
+	for k, v := range r.backendExecutionProfiles {
+		out[k] = v
+	}
+	return out
 }
 
 // HasBackend reports whether factoryID is registered on r without exposing the factory.

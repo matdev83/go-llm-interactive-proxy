@@ -8,11 +8,36 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/execerr"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 )
+
+func TestClassifyExecute_UnsafeExecutionComposition(t *testing.T) {
+	t.Parallel()
+	err := &routing.UnsafeExecutionCompositionError{
+		Composition: "failover",
+		BackendID:   "acp",
+		Class:       lipsdk.BackendExecutionAgentRuntime,
+	}
+	wrapped := fmt.Errorf("executor: %w", err)
+	out := execerr.ClassifyExecute(wrapped)
+	if out.Kind != execerr.KindClientReject {
+		t.Fatalf("kind: want KindClientReject, got %v", out.Kind)
+	}
+	if out.Status != http.StatusBadRequest {
+		t.Fatalf("status: want 400, got %d", out.Status)
+	}
+	if !strings.Contains(out.Message, "unsafe backend execution composition") {
+		t.Fatalf("message: want unsafe backend execution composition, got %q", out.Message)
+	}
+	if !errors.Is(out.Err, routing.ErrUnsafeExecutionComposition) {
+		t.Fatal("expected Err to unwrap to ErrUnsafeExecutionComposition")
+	}
+}
 
 func TestClassifyExecute_reject(t *testing.T) {
 	t.Parallel()

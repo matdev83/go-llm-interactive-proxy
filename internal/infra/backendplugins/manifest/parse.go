@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 	sdkmanifest "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin/manifest"
 )
@@ -102,6 +103,7 @@ type wireExport struct {
 	CredentialMode string `json:"credential_mode"`
 	AccessScope    string `json:"access_scope"`
 	ProcessSharing string `json:"process_sharing"`
+	ExecutionClass string `json:"execution_class,omitempty"`
 	Experimental   bool   `json:"experimental"`
 	Deprecated     bool   `json:"deprecated"`
 }
@@ -136,6 +138,7 @@ func (w wireManifest) toManifest() sdkmanifest.Manifest {
 			CredentialMode: backendplugin.CredentialMode(strings.TrimSpace(e.CredentialMode)),
 			AccessScope:    backendplugin.AccessScope(strings.TrimSpace(e.AccessScope)),
 			ProcessSharing: backendplugin.ProcessSharing(strings.TrimSpace(e.ProcessSharing)),
+			ExecutionClass: lipsdk.BackendExecutionClass(strings.TrimSpace(e.ExecutionClass)),
 			Experimental:   e.Experimental,
 			Deprecated:     e.Deprecated,
 		})

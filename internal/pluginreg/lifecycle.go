@@ -23,26 +23,42 @@ type LifecycleBackendFactory func(instanceID string, n yaml.Node, upstreamHTTP *
 
 // RegisterLifecycleBackend records a lifecycle-aware builtin backend factory.
 func (r *Registry) RegisterLifecycleBackend(id string, fn LifecycleBackendFactory) error {
-	return r.RegisterLifecycleBackendWithProfile(id, fn, BackendSecurityProfile{CredentialMode: CredentialUnknown})
+	return r.RegisterLifecycleBackendWithProfiles(id, fn, BackendSecurityProfile{CredentialMode: CredentialUnknown}, BackendExecutionProfile{})
 }
 
 // RegisterLifecycleBackendWithProfile records a lifecycle-aware builtin factory with security profile.
 func (r *Registry) RegisterLifecycleBackendWithProfile(id string, fn LifecycleBackendFactory, profile BackendSecurityProfile) error {
-	return r.registerLifecycleBackendWithSource(id, fn, profile, BackendSourceBuiltin)
+	return r.registerLifecycleBackendWithSource(id, fn, profile, BackendExecutionProfile{}, BackendSourceBuiltin)
+}
+
+// RegisterLifecycleBackendWithProfiles records a lifecycle-aware builtin factory with security and execution profiles.
+func (r *Registry) RegisterLifecycleBackendWithProfiles(id string, fn LifecycleBackendFactory, profile BackendSecurityProfile, execProfile BackendExecutionProfile) error {
+	return r.registerLifecycleBackendWithSource(id, fn, profile, execProfile, BackendSourceBuiltin)
 }
 
 // RegisterLifecycleBackendWithSource records a lifecycle-aware builtin factory with provenance.
 func (r *Registry) RegisterLifecycleBackendWithSource(id string, fn LifecycleBackendFactory, profile BackendSecurityProfile, source BackendRegistrationSource) error {
-	return r.registerLifecycleBackendWithSource(id, fn, profile, source)
+	return r.registerLifecycleBackendWithSource(id, fn, profile, BackendExecutionProfile{}, source)
+}
+
+// RegisterLifecycleBackendWithProfilesAndSource records a lifecycle-aware factory with security, execution profile, and provenance.
+func (r *Registry) RegisterLifecycleBackendWithProfilesAndSource(id string, fn LifecycleBackendFactory, profile BackendSecurityProfile, execProfile BackendExecutionProfile, source BackendRegistrationSource) error {
+	return r.registerLifecycleBackendWithSource(id, fn, profile, execProfile, source)
 }
 
 // RegisterDiscoveredLifecycleBackendWithProfile records a lifecycle-aware factory
 // installed from a trusted discovered artifact. Inspect treats these as non-builtins.
 func (r *Registry) RegisterDiscoveredLifecycleBackendWithProfile(id string, fn LifecycleBackendFactory, profile BackendSecurityProfile) error {
-	return r.registerLifecycleBackendWithSource(id, fn, profile, BackendSourceDiscovered)
+	return r.registerLifecycleBackendWithSource(id, fn, profile, BackendExecutionProfile{}, BackendSourceDiscovered)
 }
 
-func (r *Registry) registerLifecycleBackendWithSource(id string, fn LifecycleBackendFactory, profile BackendSecurityProfile, source BackendRegistrationSource) error {
+// RegisterDiscoveredLifecycleBackendWithProfiles records a lifecycle-aware factory with security and execution profiles
+// installed from a trusted discovered artifact.
+func (r *Registry) RegisterDiscoveredLifecycleBackendWithProfiles(id string, fn LifecycleBackendFactory, profile BackendSecurityProfile, execProfile BackendExecutionProfile) error {
+	return r.registerLifecycleBackendWithSource(id, fn, profile, execProfile, BackendSourceDiscovered)
+}
+
+func (r *Registry) registerLifecycleBackendWithSource(id string, fn LifecycleBackendFactory, profile BackendSecurityProfile, execProfile BackendExecutionProfile, source BackendRegistrationSource) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.ensureMaps()
@@ -62,6 +78,9 @@ func (r *Registry) registerLifecycleBackendWithSource(id string, fn LifecycleBac
 	if profile.AccessScope == "" {
 		profile.AccessScope = BackendAccessAny
 	}
+	if err := execProfile.Validate(); err != nil {
+		return fmt.Errorf("pluginreg: RegisterLifecycleBackend: %w", err)
+	}
 	if source == "" {
 		source = BackendSourceBuiltin
 	}
@@ -72,6 +91,7 @@ func (r *Registry) registerLifecycleBackendWithSource(id string, fn LifecycleBac
 		return execbackend.Backend{}, fmt.Errorf("pluginreg: backend %q requires BuildBackendWithLifecycle (instance id required)", id)
 	}
 	r.backendProfiles[id] = profile
+	r.backendExecutionProfiles[id] = execProfile
 	r.backendSources[id] = source
 	if source == BackendSourceDiscovered {
 		r.discovered[id] = struct{}{}

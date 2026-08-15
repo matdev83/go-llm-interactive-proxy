@@ -17,6 +17,8 @@ type generationSelectorValidator struct {
 	aliases        *routing.AliasResolver
 	defaultBackend string
 	knownBackends  map[string]struct{}
+	execResolver   routing.BackendExecutionResolver
+	policy         config.ExecutionCompositionPolicy
 }
 
 func (v generationSelectorValidator) ValidateSelector(_ context.Context, raw string) error {
@@ -24,7 +26,10 @@ func (v generationSelectorValidator) ValidateSelector(_ context.Context, raw str
 	if err != nil {
 		return err
 	}
-	return routing.RejectUnknownBackends(sel, v.knownBackends)
+	if err := routing.RejectUnknownBackends(sel, v.knownBackends); err != nil {
+		return err
+	}
+	return routing.ValidateExecutionComposition(sel, v.execResolver, v.policy)
 }
 
 func knownBackendsOf(exec *runtime.Executor) map[string]struct{} {
@@ -49,6 +54,8 @@ func bindGenerationRouteOverride(ps *ProcessServices, cfg *config.Config, exec *
 		aliases:        exec.SelectorAliases,
 		defaultBackend: exec.DefaultBackend,
 		knownBackends:  knownBackendsOf(exec),
+		execResolver:   exec.BackendExecutionResolver,
+		policy:         exec.ExecutionCompositionPolicy,
 	}, nowFn)
 	if err != nil {
 		return nil, err

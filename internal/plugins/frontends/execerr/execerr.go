@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
@@ -130,6 +131,14 @@ func ClassifyExecute(err error) Outcome {
 			Message: clientSafePolicyMessage(err, PolicyMalformedWireMessage),
 			Err:     err,
 		}
+	}
+	if errors.Is(err, routing.ErrUnsafeExecutionComposition) {
+		msg := "unsafe routing execution composition"
+		var u *routing.UnsafeExecutionCompositionError
+		if errors.As(err, &u) && u != nil {
+			msg = u.Error()
+		}
+		return Outcome{Kind: KindClientReject, Status: http.StatusBadRequest, Message: msg, Err: err}
 	}
 	if lipapi.IsReject(err) {
 		msg := ClientRejectWireMessage

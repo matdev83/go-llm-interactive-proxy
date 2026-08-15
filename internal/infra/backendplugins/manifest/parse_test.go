@@ -134,3 +134,87 @@ func TestParseStrict_Oversized(t *testing.T) {
 		t.Fatal("expected bounds")
 	}
 }
+
+func TestParseStrict_ExecutionClass(t *testing.T) {
+	t.Parallel()
+	// Omitted execution_class parses as empty/unknown
+	m1, err := inframanifest.ParseStrictBytes([]byte(validJSON()))
+	if err != nil {
+		t.Fatalf("omitted execution_class: %v", err)
+	}
+	if m1.Exports[0].ExecutionClass != "" {
+		t.Fatalf("omitted execution_class: want empty, got %q", m1.Exports[0].ExecutionClass)
+	}
+
+	// Explicit inference
+	rawInf := strings.Replace(validJSON(), `"process_sharing":"per_instance"`, `"process_sharing":"per_instance","execution_class":"inference"`, 1)
+	m2, err := inframanifest.ParseStrictBytes([]byte(rawInf))
+	if err != nil {
+		t.Fatalf("inference execution_class: %v", err)
+	}
+	if m2.Exports[0].ExecutionClass != "inference" {
+		t.Fatalf("inference execution_class: want inference, got %q", m2.Exports[0].ExecutionClass)
+	}
+
+	// Explicit agent_runtime
+	rawAgent := strings.Replace(validJSON(), `"process_sharing":"per_instance"`, `"process_sharing":"per_instance","execution_class":"agent_runtime"`, 1)
+	m3, err := inframanifest.ParseStrictBytes([]byte(rawAgent))
+	if err != nil {
+		t.Fatalf("agent_runtime execution_class: %v", err)
+	}
+	if m3.Exports[0].ExecutionClass != "agent_runtime" {
+		t.Fatalf("agent_runtime execution_class: want agent_runtime, got %q", m3.Exports[0].ExecutionClass)
+	}
+
+	// Invalid execution_class fails validation
+	rawBad := strings.Replace(validJSON(), `"process_sharing":"per_instance"`, `"process_sharing":"per_instance","execution_class":"heavy"`, 1)
+	_, err = inframanifest.ParseStrictBytes([]byte(rawBad))
+	if err == nil {
+		t.Fatal("invalid execution_class should fail validation, got nil")
+	}
+}
+
+func TestParseStrict_CodexDualExportFixture(t *testing.T) {
+	t.Parallel()
+	raw := `{
+  "schema":"golip.backendplugin.manifest/v1",
+  "plugin_id":"io.golip.backend.codex",
+  "version":"0.1.0",
+  "build_id":"b1",
+  "executable":"bin/lip-backend-codex",
+  "sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "protocol_major":1,
+  "protocol_min_minor":0,
+  "protocol_max_minor":5,
+  "platforms":[{"os":"linux","arch":"amd64"}],
+  "exports":[
+    {
+      "kind":"openai-codex",
+      "credential_mode":"static",
+      "access_scope":"local_only",
+      "process_sharing":"per_instance",
+      "execution_class":"inference"
+    },
+    {
+      "kind":"openai-codex-app-server",
+      "credential_mode":"none",
+      "access_scope":"local_only",
+      "process_sharing":"per_instance",
+      "execution_class":"agent_runtime"
+    }
+  ]
+}`
+	m, err := inframanifest.ParseStrictBytes([]byte(raw))
+	if err != nil {
+		t.Fatalf("Codex dual export parse failed: %v", err)
+	}
+	if len(m.Exports) != 2 {
+		t.Fatalf("expected 2 exports, got %d", len(m.Exports))
+	}
+	if m.Exports[0].Kind != "openai-codex" || m.Exports[0].ExecutionClass != "inference" {
+		t.Fatalf("export 0 mismatch: %+v", m.Exports[0])
+	}
+	if m.Exports[1].Kind != "openai-codex-app-server" || m.Exports[1].ExecutionClass != "agent_runtime" {
+		t.Fatalf("export 1 mismatch: %+v", m.Exports[1])
+	}
+}

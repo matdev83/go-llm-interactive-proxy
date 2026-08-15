@@ -63,6 +63,7 @@ $allowed = @(
     # OpenResponses WS transport: per-session read pump + pinger owned and joined
     # by WSSession.Run before it returns (spec openresponses Task 6.1).
     "internal/plugins/frontends/openresponses/websocket_upgrade.go"
+    "internal/plugins/frontends/openresponses/websocket_session.go"
     # OpenResponses WS turn runner: one peer-close watcher per in-flight turn,
     # owned and joined by executeTurn's deferred stop (spec openresponses
     # Task 6.2). The watcher exits on peer close or derived-context cancel.

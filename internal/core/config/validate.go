@@ -95,6 +95,9 @@ func Validate(cfg *Config) error {
 	if err := validateRoutingAffinity(cfg); err != nil {
 		return err
 	}
+	if err := validateRoutingExecutionComposition(cfg); err != nil {
+		return err
+	}
 	if err := validateRoutingOverrideAdmin(cfg); err != nil {
 		return err
 	}
@@ -770,4 +773,21 @@ func validateModelInventory(cfg *Config) error {
 		return fmt.Errorf("model_inventory.fetch_timeout: must be a positive duration")
 	}
 	return nil
+}
+
+func validateRoutingExecutionComposition(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+	raw := strings.TrimSpace(string(cfg.Routing.ExecutionCompositionPolicy))
+	if raw == "" {
+		return nil
+	}
+	switch ExecutionCompositionPolicy(raw) {
+	case ExecutionCompositionSafe, ExecutionCompositionUnrestricted:
+		return nil
+	default:
+		return fmt.Errorf("invalid routing.execution_composition_policy %q: must be %q or %q",
+			cfg.Routing.ExecutionCompositionPolicy, ExecutionCompositionSafe, ExecutionCompositionUnrestricted)
+	}
 }

@@ -23,4 +23,7 @@ func TestPublicAuthAndBackendSecuritySurface(t *testing.T) {
 	_ = AuthErrorRenderInput{Decision: auth.Decision{Outcome: auth.OutcomeDeny}}
 	_ = BackendSecurityProfile{CredentialMode: CredentialStatic}
 	_ = BackendSecurityProfile{CredentialMode: CredentialNone}
+	_ = BackendExecutionProfile{Class: BackendExecutionInference}
+	_ = BackendExecutionProfile{Class: BackendExecutionAgentRuntime}
+	_ = ErrInvalidBackendExecutionClass
 }

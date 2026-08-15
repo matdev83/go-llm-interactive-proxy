@@ -53,7 +53,8 @@ func StageLocalStub(tb testing.TB) (pluginRoot string) {
     "kind":"local-stub",
     "credential_mode":"none",
     "access_scope":"any",
-    "process_sharing":"per_instance"
+    "process_sharing":"per_instance",
+    "execution_class":"inference"
   }]
 }`, rel, digest, runtime.GOOS, runtime.GOARCH)
 	if err := os.WriteFile(filepath.Join(root, "plugin.backendplugin.json"), []byte(body), 0o600); err != nil {
