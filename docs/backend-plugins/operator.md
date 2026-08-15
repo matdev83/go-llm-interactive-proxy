@@ -158,10 +158,28 @@ plugins:
 
 **Uninstall / cleanup:** delete the plugin install directory; remove or disable its `plugins.backends` rows. Locked source artifacts and private staging must not remain after tested shutdown/upgrade (packaging smoke covers staged cleanup). Unrelated plugins keep working.
 
+## Routing Execution Composition Policy
+
+By default, Go-LIP applies a **safe** routing execution composition policy (`routing.execution_composition_policy: safe`). Under this policy:
+- Backends classified as `agent_runtime` (such as ACP agent connectors, Cursor SDK agents, or OpenAI Codex App-Server) and backends with `unknown` execution class **cannot** be mixed into composite routing selectors (failover `|`, parallel/race `!`, weighted `^`, or thinker hybrid chains) with other backends.
+- Direct routing to any backend (e.g. `acp:claude-3-7-sonnet`) is always permitted.
+- Pure inference composition (e.g. `openai:gpt-4o|anthropic:claude-3-5-sonnet`) is fully permitted.
+
+To explicitly permit mixed agent runtime and inference composition at operator risk, set:
+
+```yaml
+routing:
+  execution_composition_policy: unrestricted
+```
+
+> [!WARNING]
+> In `unrestricted` mode, failover or parallel execution against agent runtimes may trigger duplicate side-effects (e.g. tool execution, file edits, git commands) across multiple backends or retries.
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Action |
 |---|---|---|
+| Unsafe execution composition error | Mixed `agent_runtime` / `unknown` backend in composite route selector | Use direct routing for agent runtimes, or set `routing.execution_composition_policy: unrestricted` if intended |
 | Kind missing in inspect | Artifact not under trusted `paths`, or discovery `enabled: false` | Install manifest+bin; fix `paths`; re-run inspect |
 | Unknown field / invalid manifest | Closed schema violation | Fix manifest; unknown keys are rejected |
 | Digest mismatch | File rewritten after package | Re-package; do not hand-edit binaries |

@@ -474,9 +474,33 @@ type RoutingConfig struct {
 	Health       RoutingHealthConfig    `yaml:"health"`
 	Affinity     RoutingAffinityConfig  `yaml:"affinity"`
 	Transport    RoutingTransportConfig `yaml:"transport"`
+	// ExecutionCompositionPolicy controls whether multi-leaf routing compositions (weighted, parallel, thinker, failover)
+	// can include whole-agent/orchestration runtimes. Defaults to "safe".
+	ExecutionCompositionPolicy ExecutionCompositionPolicy `yaml:"execution_composition_policy"`
 	// OverrideAdmin is the opt-in protected HTTP surface for A-leg routing overrides.
 	// Disabled by default. Disabling the endpoint does not clear persisted override state.
 	OverrideAdmin RoutingOverrideAdminConfig `yaml:"override_admin"`
+}
+
+// ExecutionCompositionPolicy controls whether composite routing expressions can include agent runtimes.
+type ExecutionCompositionPolicy string
+
+const (
+	// ExecutionCompositionSafe restricts selector composition to pure inference backends; agent runtimes are allowed only as direct routes.
+	ExecutionCompositionSafe ExecutionCompositionPolicy = "safe"
+	// ExecutionCompositionUnrestricted allows arbitrary composition of agent runtimes and inference backends.
+	ExecutionCompositionUnrestricted ExecutionCompositionPolicy = "unrestricted"
+)
+
+// EffectiveExecutionCompositionPolicy returns the normalized policy, defaulting empty to safe.
+func (c RoutingConfig) EffectiveExecutionCompositionPolicy() ExecutionCompositionPolicy {
+	normalized := ExecutionCompositionPolicy(strings.TrimSpace(string(c.ExecutionCompositionPolicy)))
+	switch normalized {
+	case ExecutionCompositionUnrestricted:
+		return ExecutionCompositionUnrestricted
+	default:
+		return ExecutionCompositionSafe
+	}
 }
 
 // RoutingOverrideAdminConfig controls the protected GET/PUT/DELETE routing-override

@@ -2,6 +2,7 @@ package runtimebundle_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -12,11 +13,13 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
 func routeOverrideBaseConfig() *config.Config {
@@ -244,6 +247,50 @@ func TestGenerationSelectorValidator_usesCompileSelector(t *testing.T) {
 	}
 	if err := known.ValidateSelector(context.Background(), "typo-backend:model"); err == nil {
 		t.Fatal("unknown backend must fail generation preflight")
+	}
+
+	execResolver := routing.BackendExecutionResolverFunc(func(id string) (lipsdk.BackendExecutionClass, bool) {
+		switch id {
+		case "openai":
+			return lipsdk.BackendExecutionInference, true
+		case "acp":
+			return lipsdk.BackendExecutionAgentRuntime, true
+		default:
+			return lipsdk.BackendExecutionUnknown, false
+		}
+	})
+
+	knownWithACP := map[string]struct{}{"openai": {}, "acp": {}}
+	safeValidator := runtimebundle.GenerationSelectorValidatorWithExecutionForTest(
+		ex.SelectorAliases,
+		ex.DefaultBackend,
+		knownWithACP,
+		execResolver,
+		config.ExecutionCompositionSafe,
+	)
+
+	// Direct ACP allowed
+	if err := safeValidator.ValidateSelector(context.Background(), "acp:claude-3-7-sonnet"); err != nil {
+		t.Fatalf("direct ACP selector should be allowed, got: %v", err)
+	}
+
+	// Mixed failover rejected
+	if err := safeValidator.ValidateSelector(context.Background(), "openai:gpt-4|acp:claude-3-7-sonnet"); err == nil {
+		t.Fatal("mixed ACP failover selector must be rejected under safe policy")
+	} else if !errors.Is(err, routing.ErrUnsafeExecutionComposition) {
+		t.Fatalf("expected ErrUnsafeExecutionComposition, got: %v", err)
+	}
+
+	// Unrestricted allowed
+	unrestrictedValidator := runtimebundle.GenerationSelectorValidatorWithExecutionForTest(
+		ex.SelectorAliases,
+		ex.DefaultBackend,
+		knownWithACP,
+		execResolver,
+		config.ExecutionCompositionUnrestricted,
+	)
+	if err := unrestrictedValidator.ValidateSelector(context.Background(), "openai:gpt-4|acp:claude-3-7-sonnet"); err != nil {
+		t.Fatalf("mixed ACP failover selector must be allowed under unrestricted policy, got: %v", err)
 	}
 }
 

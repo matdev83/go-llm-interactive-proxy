@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -109,10 +110,10 @@ type RoutingRuntime struct {
 	AffinityStore           affinity.Store
 	AffinityMissingIdentity affinity.MissingIdentityPolicy
 	TransportFallbackPolicy lipapi.TransportFallbackPolicy
-	// RouteOverrideReader is the process-owned per-turn snapshot port. Standard
-	// memory/Bun continuity always wires it, including when override admin HTTP
-	// is disabled. Nil means custom continuity without the capability.
-	RouteOverrideReader routeoverride.Reader
+	RouteOverrideReader     routeoverride.Reader
+
+	ExecutionCompositionPolicy config.ExecutionCompositionPolicy
+	BackendExecutionResolver   routing.BackendExecutionResolver
 }
 
 // SecurityRuntime carries secure-session gates, auth events, and session audit policy.
@@ -213,6 +214,19 @@ type ExecutorConfig struct {
 
 // NewExecutor constructs an [Executor] from grouped runtime configuration.
 func NewExecutor(cfg ExecutorConfig) *Executor {
+	if cfg.Routing.ExecutionCompositionPolicy == "" {
+		cfg.Routing.ExecutionCompositionPolicy = config.ExecutionCompositionSafe
+	}
+	if cfg.Routing.BackendExecutionResolver == nil && len(cfg.Core.Backends) > 0 {
+		m := make(map[string]lipsdk.BackendExecutionClass, len(cfg.Core.Backends))
+		for k := range cfg.Core.Backends {
+			m[k] = lipsdk.BackendExecutionUnknown
+		}
+		cfg.Routing.BackendExecutionResolver = routing.BackendExecutionResolverFunc(func(id string) (lipsdk.BackendExecutionClass, bool) {
+			c, ok := m[id]
+			return c, ok
+		})
+	}
 	return &Executor{
 		CoreRuntime:          cfg.Core,
 		BillingRuntime:       cfg.Billing,

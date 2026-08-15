@@ -19,13 +19,15 @@
       "kind": "ollama",
       "credential_mode": "none",
       "access_scope": "any",
-      "process_sharing": "per_instance"
+      "process_sharing": "per_instance",
+      "execution_class": "inference"
     },
     {
       "kind": "ollama-cloud",
       "credential_mode": "none",
       "access_scope": "any",
-      "process_sharing": "per_instance"
+      "process_sharing": "per_instance",
+      "execution_class": "inference"
     }
   ]
 }

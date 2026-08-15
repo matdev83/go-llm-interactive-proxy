@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 )
 
@@ -93,6 +94,9 @@ func (m Manifest) Validate() error {
 		}
 		if err := e.ProcessSharing.Validate(); err != nil {
 			return fmt.Errorf("%w: process_sharing", ErrInvalidManifest)
+		}
+		if err := (lipsdk.BackendExecutionProfile{Class: e.ExecutionClass}).Validate(); err != nil {
+			return fmt.Errorf("%w: execution_class", ErrInvalidManifest)
 		}
 		if err := boundString("display_name", e.DisplayName, MaxStringBytes); err != nil {
 			return err

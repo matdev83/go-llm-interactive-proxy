@@ -54,6 +54,34 @@ func TestBackendSecurityProfileExportedFields(t *testing.T) {
 	}
 }
 
+func TestBackendExecutionClassWireStrings(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		class lipsdk.BackendExecutionClass
+		want  string
+	}{
+		{lipsdk.BackendExecutionUnknown, ""},
+		{lipsdk.BackendExecutionInference, "inference"},
+		{lipsdk.BackendExecutionAgentRuntime, "agent_runtime"},
+	}
+	for _, tc := range cases {
+		if string(tc.class) != tc.want {
+			t.Fatalf("BackendExecutionClass %s: got %q want %q", tc.want, string(tc.class), tc.want)
+		}
+	}
+}
+
+func TestBackendExecutionProfileExportedFields(t *testing.T) {
+	t.Parallel()
+	p := lipsdk.BackendExecutionProfile{Class: lipsdk.BackendExecutionInference}
+	if p.Class != lipsdk.BackendExecutionInference {
+		t.Fatal(p)
+	}
+	if p.EffectiveClass() != lipsdk.BackendExecutionInference {
+		t.Fatal(p)
+	}
+}
+
 func TestFeatureBundleSchemaVersionConstant(t *testing.T) {
 	t.Parallel()
 	if feature.SchemaVersionV1 != 1 {

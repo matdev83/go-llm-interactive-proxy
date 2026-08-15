@@ -27,8 +27,10 @@ import (
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingadmission"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
 // executorRuntime holds the assembled executor and the values [Build] needs from
@@ -82,8 +84,10 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: %w", err)
 	}
+	execResolver := buildBackendExecutionResolver(cfg, opts.PluginRegistry)
+	execPolicy := cfg.Routing.EffectiveExecutionCompositionPolicy()
 	if bctx.ExplicitCandidate {
-		if err := validateRouteSelectorsAgainstBackends(cfg, effectiveRoute, cfg.ModelAliases, cfg.Plugins.Backends); err != nil {
+		if err := validateRouteSelectorsAgainstBackends(cfg, effectiveRoute, cfg.ModelAliases, cfg.Plugins.Backends, execResolver, execPolicy); err != nil {
 			return nil, err
 		}
 	}
@@ -259,16 +263,18 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		overrideReader = in.Persistence.OverrideStore
 	}
 	routingRT := runtime.RoutingRuntime{
-		MaxAttempts:             cfg.Routing.MaxAttempts,
-		DefaultBackend:          defBE,
-		SelectorAliases:         aliasResolver,
-		CapsResolver:            capMap,
-		CandidateHealth:         candHealth,
-		RouteObserver:           routeObserverFor(log),
-		AffinityStore:           affStore,
-		AffinityMissingIdentity: affinity.MissingIdentityPolicy(strings.TrimSpace(cfg.Routing.Affinity.MissingIdentity)),
-		TransportFallbackPolicy: config.EffectiveTransportFallbackPolicy(cfg),
-		RouteOverrideReader:     overrideReader,
+		MaxAttempts:                cfg.Routing.MaxAttempts,
+		DefaultBackend:             defBE,
+		SelectorAliases:            aliasResolver,
+		CapsResolver:               capMap,
+		CandidateHealth:            candHealth,
+		RouteObserver:              routeObserverFor(log),
+		AffinityStore:              affStore,
+		AffinityMissingIdentity:    affinity.MissingIdentityPolicy(strings.TrimSpace(cfg.Routing.Affinity.MissingIdentity)),
+		TransportFallbackPolicy:    config.EffectiveTransportFallbackPolicy(cfg),
+		RouteOverrideReader:        overrideReader,
+		ExecutionCompositionPolicy: execPolicy,
+		BackendExecutionResolver:   execResolver,
 	}
 	routingRT, catalogRuntime := attachModelCatalog(routingRT, in.Model.StartedCatalog, cfg)
 
@@ -365,8 +371,16 @@ func streamRecoveryConfigFromConfig(cfg *config.Config) (streamrecovery.Config, 
 }
 
 // validateRouteSelectorsAgainstBackends fails compile when explicit default_route or alias
-// replacements reference backends absent from the candidate backend row set (req 9.2).
-func validateRouteSelectorsAgainstBackends(cfg *config.Config, effectiveRoute string, aliases []config.ModelAliasConfig, backendRows []config.PluginConfig) error {
+// replacements reference backends absent from the candidate backend row set (req 9.2) or
+// violate execution composition safety under the active policy.
+func validateRouteSelectorsAgainstBackends(
+	cfg *config.Config,
+	effectiveRoute string,
+	aliases []config.ModelAliasConfig,
+	backendRows []config.PluginConfig,
+	execResolver routing.BackendExecutionResolver,
+	policy config.ExecutionCompositionPolicy,
+) error {
 	configured := make(map[string]struct{}, len(backendRows))
 	for _, p := range backendRows {
 		if id := p.InstanceID(); id != "" {
@@ -376,6 +390,11 @@ func validateRouteSelectorsAgainstBackends(cfg *config.Config, effectiveRoute st
 	if strings.TrimSpace(cfg.Routing.DefaultRoute) != "" {
 		if err := validateSelectorTextAgainstBackends("routing default_route", effectiveRoute, configured); err != nil {
 			return err
+		}
+		if sel, err := routing.Parse(effectiveRoute); err == nil {
+			if err := routing.ValidateExecutionComposition(sel, execResolver, policy); err != nil {
+				return fmt.Errorf("runtimebundle: routing default_route: %w", err)
+			}
 		}
 	}
 	for i, a := range aliases {
@@ -387,8 +406,43 @@ func validateRouteSelectorsAgainstBackends(cfg *config.Config, effectiveRoute st
 		if err := validateSelectorTextAgainstBackends(label, repl, configured); err != nil {
 			return err
 		}
+		if sel, err := routing.Parse(repl); err == nil {
+			if err := routing.ValidateExecutionComposition(sel, execResolver, policy); err != nil {
+				return fmt.Errorf("runtimebundle: %s: %w", label, err)
+			}
+		}
 	}
 	return nil
+}
+
+func buildBackendExecutionResolver(cfg *config.Config, reg *pluginreg.Registry) routing.BackendExecutionResolver {
+	if cfg == nil {
+		return routing.BackendExecutionResolverFunc(func(string) (lipsdk.BackendExecutionClass, bool) {
+			return lipsdk.BackendExecutionUnknown, false
+		})
+	}
+	classes := make(map[string]lipsdk.BackendExecutionClass, len(cfg.Plugins.Backends))
+	for _, p := range cfg.Plugins.Backends {
+		if !p.Enabled {
+			continue
+		}
+		iid := p.InstanceID()
+		if iid == "" {
+			continue
+		}
+		fid := p.FactoryID()
+		var cls lipsdk.BackendExecutionClass = lipsdk.BackendExecutionUnknown
+		if reg != nil {
+			if prof, ok := reg.BackendExecutionProfile(fid); ok {
+				cls = prof.EffectiveClass()
+			}
+		}
+		classes[iid] = cls
+	}
+	return routing.BackendExecutionResolverFunc(func(id string) (lipsdk.BackendExecutionClass, bool) {
+		c, ok := classes[id]
+		return c, ok
+	})
 }
 
 func validateSelectorTextAgainstBackends(label, text string, configured map[string]struct{}) error {

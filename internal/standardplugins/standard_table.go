@@ -101,6 +101,7 @@ type BackendRegistration struct {
 	Factory          pluginreg.BackendFactory
 	LifecycleFactory pluginreg.LifecycleBackendFactory
 	Profile          pluginreg.BackendSecurityProfile
+	ExecProfile      pluginreg.BackendExecutionProfile
 	Source           pluginreg.BackendRegistrationSource
 }
 
@@ -172,12 +173,12 @@ func InstallBundleOn(reg *pluginreg.Registry, b Bundle) error {
 			if source == "" {
 				source = pluginreg.BackendSourceBuiltin
 			}
-			if err := reg.RegisterLifecycleBackendWithSource(e.ID, e.LifecycleFactory, e.Profile, source); err != nil {
+			if err := reg.RegisterLifecycleBackendWithProfilesAndSource(e.ID, e.LifecycleFactory, e.Profile, e.ExecProfile, source); err != nil {
 				return fmt.Errorf("pluginreg: InstallBundleOn: register lifecycle backend %q: %w", e.ID, err)
 			}
 			continue
 		}
-		if err := reg.RegisterBackendWithSource(e.ID, e.Factory, e.Profile, e.Source); err != nil {
+		if err := reg.RegisterBackendWithProfilesAndSource(e.ID, e.Factory, e.Profile, e.ExecProfile, e.Source); err != nil {
 			return fmt.Errorf("pluginreg: InstallBundleOn: register backend %q: %w", e.ID, err)
 		}
 	}

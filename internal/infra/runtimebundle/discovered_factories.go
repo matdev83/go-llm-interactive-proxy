@@ -15,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/processhost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 	sdkmanifest "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin/manifest"
 	"gopkg.in/yaml.v3"
@@ -25,11 +26,12 @@ type ExecuteSession = adapter.ExecuteSession
 
 // ValidatedExport is one catalog-approved factory export ready for generic registration.
 type ValidatedExport struct {
-	Kind     string
-	Profile  pluginreg.BackendSecurityProfile
-	Artifact *trust.VerifiedArtifact
-	Model    processhost.ProcessModel
-	Sharing  processhost.SharingOptions
+	Kind        string
+	Profile     pluginreg.BackendSecurityProfile
+	ExecProfile lipsdk.BackendExecutionProfile
+	Artifact    *trust.VerifiedArtifact
+	Model       processhost.ProcessModel
+	Sharing     processhost.SharingOptions
 }
 
 // DialSessionRequest is the peer-authenticated configure input for a discovered factory.
@@ -131,7 +133,7 @@ func InstallDiscoveredExports(
 		fn := func(instanceID string, n yaml.Node, _ *http.Client, _ pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
 			return buildDiscoveredBackend(host, export, factoryKind, instanceID, n, dial, policy, activationSeq)
 		}
-		if err := reg.RegisterDiscoveredLifecycleBackendWithProfile(kind, fn, export.Profile); err != nil {
+		if err := reg.RegisterDiscoveredLifecycleBackendWithProfiles(kind, fn, export.Profile, export.ExecProfile); err != nil {
 			return err
 		}
 		// Shared-process exclusive kinds cannot overlap candidate/active handles.
@@ -290,11 +292,12 @@ func CollectInstallableExports(
 			return nil, fmt.Errorf("runtimebundle: CollectInstallableExports: kind %q: %w", e.ExportKind, err)
 		}
 		out = append(out, ValidatedExport{
-			Kind:     e.ExportKind,
-			Profile:  profile,
-			Artifact: tr.Artifact,
-			Model:    model,
-			Sharing:  sharing,
+			Kind:        e.ExportKind,
+			Profile:     profile,
+			ExecProfile: lipsdk.BackendExecutionProfile{Class: exp.ExecutionClass},
+			Artifact:    tr.Artifact,
+			Model:       model,
+			Sharing:     sharing,
 		})
 	}
 	return out, nil

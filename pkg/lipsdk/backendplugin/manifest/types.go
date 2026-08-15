@@ -1,6 +1,9 @@
 package manifest
 
-import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
+import (
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
+)
 
 // SchemaV1 is the only closed manifest schema identifier accepted in Phase 2.
 const SchemaV1 = "golip.backendplugin.manifest/v1"
@@ -35,6 +38,7 @@ type Export struct {
 	CredentialMode backendplugin.CredentialMode
 	AccessScope    backendplugin.AccessScope
 	ProcessSharing backendplugin.ProcessSharing
+	ExecutionClass lipsdk.BackendExecutionClass
 	Experimental   bool
 	Deprecated     bool
 }
