@@ -4,10 +4,12 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
 // ExecutorOption mutates an [runtime.ExecutorConfig] before construction.
@@ -55,6 +57,27 @@ func WithSelectorAliases(ar *routing.AliasResolver) ExecutorOption {
 	}
 }
 
+// WithExecutionClasses sets explicit backend execution classes for test backends.
+func WithExecutionClasses(classes map[string]lipsdk.BackendExecutionClass) ExecutorOption {
+	return func(cfg *runtime.ExecutorConfig) {
+		copied := make(map[string]lipsdk.BackendExecutionClass, len(classes))
+		for k, v := range classes {
+			copied[k] = v
+		}
+		cfg.Routing.BackendExecutionResolver = routing.BackendExecutionResolverFunc(func(id string) (lipsdk.BackendExecutionClass, bool) {
+			c, ok := copied[id]
+			return c, ok
+		})
+	}
+}
+
+// WithExecutionPolicy sets routing execution composition policy in tests.
+func WithExecutionPolicy(policy config.ExecutionCompositionPolicy) ExecutorOption {
+	return func(cfg *runtime.ExecutorConfig) {
+		cfg.Routing.ExecutionCompositionPolicy = policy
+	}
+}
+
 // NewTestExecutor constructs an executor from grouped options. Additional promoted
 // fields can be set on the returned value when an option does not exist yet.
 func NewTestExecutor(tb testing.TB, opts ...ExecutorOption) *runtime.Executor {
@@ -64,6 +87,16 @@ func NewTestExecutor(tb testing.TB, opts ...ExecutorOption) *runtime.Executor {
 		if opt != nil {
 			opt(&cfg)
 		}
+	}
+	if cfg.Routing.BackendExecutionResolver == nil && len(cfg.Core.Backends) > 0 {
+		m := make(map[string]lipsdk.BackendExecutionClass, len(cfg.Core.Backends))
+		for k := range cfg.Core.Backends {
+			m[k] = lipsdk.BackendExecutionInference
+		}
+		cfg.Routing.BackendExecutionResolver = routing.BackendExecutionResolverFunc(func(id string) (lipsdk.BackendExecutionClass, bool) {
+			c, ok := m[id]
+			return c, ok
+		})
 	}
 	return runtime.NewExecutor(cfg)
 }

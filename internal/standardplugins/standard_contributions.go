@@ -40,6 +40,7 @@ type standardBackendContribution struct {
 	factory          pluginreg.BackendFactory
 	lifecycleFactory pluginreg.LifecycleBackendFactory
 	profile          pluginreg.BackendSecurityProfile
+	execProfile      pluginreg.BackendExecutionProfile
 	source           pluginreg.BackendRegistrationSource
 	metadataSource   contrib.RegistrationSource
 	essentialOrder   int
@@ -113,20 +114,24 @@ func standardFrontendContributions() []standardFrontendContribution {
 	}
 }
 
+func inferenceProfile() pluginreg.BackendExecutionProfile {
+	return pluginreg.BackendExecutionProfile{Class: pluginreg.BackendExecutionInference}
+}
+
 func standardBackendContributions(keys UpstreamAPIKeys) []standardBackendContribution {
 	contributions := []standardBackendContribution{
-		{id: openairesponses.ID, factory: backendFactory(keys, backendOpenAIResponses), metadataSource: contrib.SourceBuiltin, source: pluginreg.BackendSourceBuiltin, profile: staticProfile(), essentialOrder: 1, contract: contrib.ContractSubject{ID: openairesponses.ID, Kind: "backend"}},
-		{id: openailegacy.ID, factory: backendFactory(keys, backendOpenAILegacy), metadataSource: contrib.SourceBuiltin, source: pluginreg.BackendSourceBuiltin, profile: staticProfile(), essentialOrder: 2, contract: contrib.ContractSubject{ID: openailegacy.ID, Kind: "backend"}},
-		{id: anthropic.ID, factory: backendFactory(keys, backendAnthropic), metadataSource: contrib.SourceBuiltin, source: pluginreg.BackendSourceBuiltin, profile: staticProfile(), essentialOrder: 3, contract: contrib.ContractSubject{ID: anthropic.ID, Kind: "backend"}},
-		{id: alibabatokenplanintl.ID, factory: backendFactory(keys, backendAlibabaTokenPlanIntl), metadataSource: contrib.SourceBuiltin, source: pluginreg.BackendSourceBuiltin, profile: staticProfile(), essentialOrder: 4, contract: contrib.ContractSubject{ID: alibabatokenplanintl.ID, Kind: "backend"}},
-		{id: gemini.ID, factory: backendFactory(keys, backendGemini), metadataSource: contrib.SourceBuiltin, source: pluginreg.BackendSourceBuiltin, profile: staticProfile(), essentialOrder: 5, contract: contrib.ContractSubject{ID: gemini.ID, Kind: "backend"}},
+		{id: openairesponses.ID, factory: backendFactory(keys, backendOpenAIResponses), metadataSource: contrib.SourceBuiltin, source: pluginreg.BackendSourceBuiltin, profile: staticProfile(), execProfile: inferenceProfile(), essentialOrder: 1, contract: contrib.ContractSubject{ID: openairesponses.ID, Kind: "backend"}},
+		{id: openailegacy.ID, factory: backendFactory(keys, backendOpenAILegacy), metadataSource: contrib.SourceBuiltin, source: pluginreg.BackendSourceBuiltin, profile: staticProfile(), execProfile: inferenceProfile(), essentialOrder: 2, contract: contrib.ContractSubject{ID: openailegacy.ID, Kind: "backend"}},
+		{id: anthropic.ID, factory: backendFactory(keys, backendAnthropic), metadataSource: contrib.SourceBuiltin, source: pluginreg.BackendSourceBuiltin, profile: staticProfile(), execProfile: inferenceProfile(), essentialOrder: 3, contract: contrib.ContractSubject{ID: anthropic.ID, Kind: "backend"}},
+		{id: alibabatokenplanintl.ID, factory: backendFactory(keys, backendAlibabaTokenPlanIntl), metadataSource: contrib.SourceBuiltin, source: pluginreg.BackendSourceBuiltin, profile: staticProfile(), execProfile: inferenceProfile(), essentialOrder: 4, contract: contrib.ContractSubject{ID: alibabatokenplanintl.ID, Kind: "backend"}},
+		{id: gemini.ID, factory: backendFactory(keys, backendGemini), metadataSource: contrib.SourceBuiltin, source: pluginreg.BackendSourceBuiltin, profile: staticProfile(), execProfile: inferenceProfile(), essentialOrder: 5, contract: contrib.ContractSubject{ID: gemini.ID, Kind: "backend"}},
 		{id: bedrock.ID, factory: func(n yaml.Node, _ *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendBedrock(n, nil, deps.Identity)
-		}, metadataSource: contrib.SourceBuiltin, source: pluginreg.BackendSourceBuiltin, profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialWorkload}, essentialOrder: 6, contract: contrib.ContractSubject{ID: bedrock.ID, Kind: "backend"}},
-		{id: CustomOpenAIResponsesCompatibleID, lifecycleFactory: openaicompat.LifecycleOpenAIResponsesCompatible, metadataSource: contrib.SourceBuiltinCompatible, source: pluginreg.BackendSourceBuiltinCompatible, profile: staticProfile(), family: string(providerprofiles.FamilyOpenAIResponses), essentialOrder: 7, compatibleOrder: 2, contract: contrib.ContractSubject{ID: CustomOpenAIResponsesCompatibleID, Kind: "backend"}},
-		{id: CustomOpenAILegacyCompatibleID, lifecycleFactory: openaicompat.LifecycleOpenAILegacyCompatible, metadataSource: contrib.SourceBuiltinCompatible, source: pluginreg.BackendSourceBuiltinCompatible, profile: staticProfile(), family: string(providerprofiles.FamilyOpenAIChat), essentialOrder: 8, compatibleOrder: 1, contract: contrib.ContractSubject{ID: CustomOpenAILegacyCompatibleID, Kind: "backend"}},
-		{id: CustomAnthropicCompatibleID, lifecycleFactory: anthropic.LifecycleAnthropicCompatible, metadataSource: contrib.SourceBuiltinCompatible, source: pluginreg.BackendSourceBuiltinCompatible, profile: staticProfile(), family: string(providerprofiles.FamilyAnthropic), essentialOrder: 9, compatibleOrder: 3, contract: contrib.ContractSubject{ID: CustomAnthropicCompatibleID, Kind: "backend"}},
-		{id: CustomOpenResponsesCompatibleID, lifecycleFactory: openresponsescompat.LifecycleOpenResponsesCompatible, metadataSource: contrib.SourceBuiltinCompatible, source: pluginreg.BackendSourceBuiltinCompatible, profile: staticProfile(), family: string(providerprofiles.FamilyOpenResponses), essentialOrder: 10, compatibleOrder: 4, contract: contrib.ContractSubject{ID: CustomOpenResponsesCompatibleID, Kind: "backend"}},
+		}, metadataSource: contrib.SourceBuiltin, source: pluginreg.BackendSourceBuiltin, profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialWorkload}, execProfile: inferenceProfile(), essentialOrder: 6, contract: contrib.ContractSubject{ID: bedrock.ID, Kind: "backend"}},
+		{id: CustomOpenAIResponsesCompatibleID, lifecycleFactory: openaicompat.LifecycleOpenAIResponsesCompatible, metadataSource: contrib.SourceBuiltinCompatible, source: pluginreg.BackendSourceBuiltinCompatible, profile: staticProfile(), execProfile: inferenceProfile(), family: string(providerprofiles.FamilyOpenAIResponses), essentialOrder: 7, compatibleOrder: 2, contract: contrib.ContractSubject{ID: CustomOpenAIResponsesCompatibleID, Kind: "backend"}},
+		{id: CustomOpenAILegacyCompatibleID, lifecycleFactory: openaicompat.LifecycleOpenAILegacyCompatible, metadataSource: contrib.SourceBuiltinCompatible, source: pluginreg.BackendSourceBuiltinCompatible, profile: staticProfile(), execProfile: inferenceProfile(), family: string(providerprofiles.FamilyOpenAIChat), essentialOrder: 8, compatibleOrder: 1, contract: contrib.ContractSubject{ID: CustomOpenAILegacyCompatibleID, Kind: "backend"}},
+		{id: CustomAnthropicCompatibleID, lifecycleFactory: anthropic.LifecycleAnthropicCompatible, metadataSource: contrib.SourceBuiltinCompatible, source: pluginreg.BackendSourceBuiltinCompatible, profile: staticProfile(), execProfile: inferenceProfile(), family: string(providerprofiles.FamilyAnthropic), essentialOrder: 9, compatibleOrder: 3, contract: contrib.ContractSubject{ID: CustomAnthropicCompatibleID, Kind: "backend"}},
+		{id: CustomOpenResponsesCompatibleID, lifecycleFactory: openresponsescompat.LifecycleOpenResponsesCompatible, metadataSource: contrib.SourceBuiltinCompatible, source: pluginreg.BackendSourceBuiltinCompatible, profile: staticProfile(), execProfile: inferenceProfile(), family: string(providerprofiles.FamilyOpenResponses), essentialOrder: 10, compatibleOrder: 4, contract: contrib.ContractSubject{ID: CustomOpenResponsesCompatibleID, Kind: "backend"}},
 	}
 	profiles, err := providerprofiles.EmbeddedCatalog()
 	if err != nil {
@@ -165,7 +170,7 @@ func frontendRegistrationsFrom(in []standardFrontendContribution) []FrontendRegi
 func backendRegistrationsFrom(in []standardBackendContribution) []BackendRegistration {
 	out := make([]BackendRegistration, 0, len(in))
 	for _, c := range in {
-		out = append(out, BackendRegistration{ID: c.id, Factory: c.factory, LifecycleFactory: c.lifecycleFactory, Profile: c.profile, Source: c.source})
+		out = append(out, BackendRegistration{ID: c.id, Factory: c.factory, LifecycleFactory: c.lifecycleFactory, Profile: c.profile, ExecProfile: c.execProfile, Source: c.source})
 	}
 	return out
 }

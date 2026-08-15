@@ -1,0 +1,76 @@
+package archtest
+
+import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+)
+
+// TestExecutionCompositionBoundaries verifies that core routing and runtime
+// do not import concrete plugins or connector packages.
+func TestExecutionCompositionBoundaries(t *testing.T) {
+	t.Parallel()
+	assertDepsExcludeForbidden(t, []string{"./internal/core/routing", "./internal/core/runtime"}, []forbiddenDep{
+		{Substr: "/internal/plugins/backends", ErrMsg: "core routing/runtime must not depend on concrete backend plugins"},
+		{Substr: "/connectors", ErrMsg: "core routing/runtime must not depend on connectors"},
+		{Substr: "/internal/pluginreg", ErrMsg: "core routing/runtime must not depend on pluginreg directly"},
+	})
+}
+
+// TestStandardPluginsClassifyAllBuiltins verifies that all standard plugin
+// backend registrations include an explicit, non-empty execution class.
+func TestStandardPluginsClassifyAllBuiltins(t *testing.T) {
+	t.Parallel()
+	reg := pluginreg.NewRegistry()
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
+		t.Fatalf("InstallStandardBundleOn: %v", err)
+	}
+	for _, id := range reg.BackendFactoryIDs() {
+		prof, ok := reg.BackendExecutionProfile(id)
+		if !ok {
+			t.Errorf("backend factory %q missing execution profile in standard bundle", id)
+			continue
+		}
+		if prof.Class != lipsdk.BackendExecutionInference && prof.Class != lipsdk.BackendExecutionAgentRuntime {
+			t.Errorf("backend factory %q has invalid/unspecified execution class %q", id, prof.Class)
+		}
+	}
+}
+
+// TestLipAPIHasNoExecutionClass ensures BackendExecutionClass stays in pkg/lipsdk
+// and does not leak into canonical pkg/lipapi.
+func TestLipAPIHasNoExecutionClass(t *testing.T) {
+	t.Parallel()
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, filepath.Join("..", "..", "pkg", "lipapi"), nil, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("ParseDir(pkg/lipapi): %v", err)
+	}
+	for _, pkg := range pkgs {
+		for filename, file := range pkg.Files {
+			if strings.HasSuffix(filename, "_test.go") {
+				continue
+			}
+			for _, decl := range file.Decls {
+				gen, ok := decl.(*ast.GenDecl)
+				if !ok {
+					continue
+				}
+				for _, spec := range gen.Specs {
+					if ts, ok := spec.(*ast.TypeSpec); ok {
+						if strings.Contains(ts.Name.Name, "ExecutionClass") || strings.Contains(ts.Name.Name, "ExecutionProfile") {
+							t.Errorf("pkg/lipapi must not declare execution class types: found %s in %s", ts.Name.Name, filename)
+						}
+					}
+				}
+			}
+		}
+	}
+}

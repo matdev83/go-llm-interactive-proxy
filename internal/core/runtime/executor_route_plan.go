@@ -46,6 +46,9 @@ func (e *Executor) buildRoutePlan(ctx context.Context, prep *preparedRequest) (*
 		}
 		return nil, fmt.Errorf("executor: parse route selector: %w", err)
 	}
+	if err := routing.ValidateExecutionComposition(sel, e.BackendExecutionResolver, e.ExecutionCompositionPolicy); err != nil {
+		return nil, fmt.Errorf("executor: %w", err)
+	}
 	// Bind-time registry view: set NativeModel on every leaf without rewriting
 	// Primary.Model so catalog/affinity/traces keep logical identity (req 9.4, 9.10).
 	// Wrong-backend canonical leaves fail closed with a typed error.

@@ -4,9 +4,17 @@ This guide covers closed executable backend plugins for Go-LIP. The reference mo
 
 ## Closed manifest
 
-Ship a `*.backendplugin.json` next to the install root (discovery does not recurse). Required fields: `schema`, `plugin_id`, `version`, `build_id`, `executable` (relative, no `..`), `sha256`, protocol range, `platforms`, and `exports[]` with `kind`, `credential_mode`, `access_scope`, `process_sharing`.
+Ship a `*.backendplugin.json` next to the install root (discovery does not recurse). Required fields: `schema`, `plugin_id`, `version`, `build_id`, `executable` (relative, no `..`), `sha256`, protocol range, `platforms`, and `exports[]` with `kind`, `credential_mode`, `access_scope`, `process_sharing`, and `execution_class` (`"inference"` or `"agent_runtime"`).
 
 Template: `connectors/localstub/manifest/template.backendplugin.json`. Packaging fills digest/`build_id` from [`release.yaml`](../../connectors/localstub/release.yaml).
+
+## Execution class and routing safety
+
+Each export must declare its `execution_class` honestly based on runtime execution semantics:
+- `"inference"`: Direct stateless or turn-scoped inference backends that are safe to compose in failover, weighted, parallel/race, and thinker hybrid routing chains.
+- `"agent_runtime"`: Autonomous agent runtimes, orchestrated sub-processes, or interactive agent protocols (e.g. ACP connectors, Cursor SDK agents, OpenAI Codex App-Server). Under the default `safe` execution composition policy, agent runtimes cannot be composed in failover, parallel, or weighted chains with other backends, preventing uncontrolled duplicate side-effects and race conditions. Direct routing (e.g. `acp:claude-3-7-sonnet`) is always supported.
+
+Note that process isolation, local execution, or tool capabilities do not classify an export as `agent_runtime` — only whole-agent autonomous loop orchestration semantics do. Legacy manifests omitting `execution_class` normalize to effective `unknown`, which allows direct routing but disallows multi-backend composition under `safe` policy.
 
 ## SDK server helper
 

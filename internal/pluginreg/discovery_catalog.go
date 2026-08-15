@@ -30,6 +30,17 @@ func (r *Registry) RegisterDiscoveredBackend(
 	profile BackendSecurityProfile,
 	policy BackendReloadPolicy,
 ) error {
+	return r.RegisterDiscoveredBackendWithProfiles(id, fn, profile, BackendExecutionProfile{}, policy)
+}
+
+// RegisterDiscoveredBackendWithProfiles records a discovered backend factory with security and execution metadata.
+func (r *Registry) RegisterDiscoveredBackendWithProfiles(
+	id string,
+	fn BackendFactory,
+	profile BackendSecurityProfile,
+	execProfile BackendExecutionProfile,
+	policy BackendReloadPolicy,
+) error {
 	if r == nil {
 		return fmt.Errorf("pluginreg: nil registry")
 	}
@@ -55,8 +66,12 @@ func (r *Registry) RegisterDiscoveredBackend(
 	if profile.AccessScope == "" {
 		profile.AccessScope = BackendAccessAny
 	}
+	if err := execProfile.Validate(); err != nil {
+		return fmt.Errorf("pluginreg: RegisterDiscoveredBackend: %w", err)
+	}
 	r.backends[id] = fn
 	r.backendProfiles[id] = profile
+	r.backendExecutionProfiles[id] = execProfile
 	r.backendSources[id] = BackendSourceDiscovered
 	r.reloadPolicies[id] = policy
 	r.discovered[id] = struct{}{}

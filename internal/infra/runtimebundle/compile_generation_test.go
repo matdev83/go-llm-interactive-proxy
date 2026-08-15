@@ -14,13 +14,16 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/localstub"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/localstubreg"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"gopkg.in/yaml.v3"
 )
@@ -483,3 +486,106 @@ type overlapLife struct {
 func (o *overlapLife) Start(context.Context) error     { o.starts.Add(1); return nil }
 func (o *overlapLife) Stop(context.Context) error      { o.stops.Add(1); return nil }
 func (o *overlapLife) SafeUnderCandidateOverlap() bool { return true }
+
+func TestCompileGeneration_ExecutionCompositionSafety(t *testing.T) {
+	t.Parallel()
+
+	reg := pluginreg.NewRegistry()
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := localstubreg.RegisterInProcess(reg); err != nil {
+		t.Fatal(err)
+	}
+	// Register an agent_runtime factory for testing
+	reg.RegisterBackendWithProfiles("stub-agent", func(raw yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
+		be, err := localstub.NewFromYAML(raw)
+		if err != nil {
+			return execbackend.Backend{}, err
+		}
+		be.BackendPrefixes = []string{"stub-agent"}
+		return be, nil
+	}, pluginreg.BackendSecurityProfile{
+		CredentialMode: pluginreg.CredentialNone,
+		AccessScope:    pluginreg.BackendAccessAny,
+	}, pluginreg.BackendExecutionProfile{Class: lipsdk.BackendExecutionAgentRuntime})
+
+	ps, err := runtimebundle.NewProcessServices(context.Background(), runtimebundle.ProcessServicesInput{
+		Cfg:  processBaseConfig(),
+		Log:  testkit.DiscardLogger(),
+		Opts: &runtimebundle.BuildOptions{PluginRegistry: reg},
+		Tracing: runtimebundle.ProcessTracing{
+			Shutdown: func(context.Context) error { return nil },
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ps.Close() })
+
+	makeCandidate := func(defaultRoute string, policy config.ExecutionCompositionPolicy, aliases ...config.ModelAliasConfig) *config.Config {
+		cfg := stubCandidateConfig(t, "stub-inf", "text", defaultRoute, []config.PluginConfig{{ID: "openai-responses", Enabled: true}})
+		cfg.Routing.ExecutionCompositionPolicy = policy
+		cfg.ModelAliases = aliases
+		cfg.Plugins.Backends = append(cfg.Plugins.Backends, config.PluginConfig{
+			Kind:    "stub-agent",
+			ID:      "stub-agent-inst",
+			Enabled: true,
+			Config: genYAMLNode(t, `
+text: "agent-text"
+input_tokens: 1
+output_tokens: 1
+`),
+		})
+		if err := config.Validate(cfg); err != nil {
+			t.Fatalf("validate cfg: %v", err)
+		}
+		return cfg
+	}
+
+	t.Run("safe_policy_mixed_default_route_fails_compile", func(t *testing.T) {
+		cand := makeCandidate("stub-inf:m1|stub-agent-inst:m2", config.ExecutionCompositionSafe)
+		_, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
+			Process:   ps,
+			Candidate: cand,
+			Compose:   stdhttp.ComposeStandardHTTP,
+		})
+		if err == nil {
+			t.Fatal("expected compile to fail for mixed default_route under safe policy")
+		}
+		if !strings.Contains(err.Error(), "unsafe backend execution composition") {
+			t.Fatalf("expected unsafe backend execution composition in error, got: %v", err)
+		}
+	})
+
+	t.Run("safe_policy_mixed_alias_replacement_fails_compile", func(t *testing.T) {
+		cand := makeCandidate("stub-inf:m1", config.ExecutionCompositionSafe, config.ModelAliasConfig{
+			Pattern:     "my-alias",
+			Replacement: "stub-inf:m1|stub-agent-inst:m2",
+		})
+		_, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
+			Process:   ps,
+			Candidate: cand,
+			Compose:   stdhttp.ComposeStandardHTTP,
+		})
+		if err == nil {
+			t.Fatal("expected compile to fail for mixed model alias replacement under safe policy")
+		}
+		if !strings.Contains(err.Error(), "unsafe backend execution composition") {
+			t.Fatalf("expected unsafe backend execution composition in error, got: %v", err)
+		}
+	})
+
+	t.Run("unrestricted_policy_mixed_default_route_succeeds_compile", func(t *testing.T) {
+		cand := makeCandidate("stub-inf:m1|stub-agent-inst:m2", config.ExecutionCompositionUnrestricted)
+		bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
+			Process:   ps,
+			Candidate: cand,
+			Compose:   stdhttp.ComposeStandardHTTP,
+		})
+		if err != nil {
+			t.Fatalf("expected compile to succeed for unrestricted policy, got: %v", err)
+		}
+		_ = bundle.Close()
+	})
+}

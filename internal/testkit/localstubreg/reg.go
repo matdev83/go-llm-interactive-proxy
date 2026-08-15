@@ -6,6 +6,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/localstub"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"gopkg.in/yaml.v3"
 )
 
@@ -19,10 +20,12 @@ func RegisterInProcess(reg *pluginreg.Registry) error {
 	if reg.HasBackend(localstub.ID) {
 		return nil
 	}
-	return reg.RegisterBackendWithProfile(localstub.ID, func(n yaml.Node, _ *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
+	return reg.RegisterBackendWithProfiles(localstub.ID, func(n yaml.Node, _ *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return localstub.NewFromYAML(n)
 	}, pluginreg.BackendSecurityProfile{
 		CredentialMode: pluginreg.CredentialNone,
 		AccessScope:    pluginreg.BackendAccessAny,
+	}, pluginreg.BackendExecutionProfile{
+		Class: lipsdk.BackendExecutionInference,
 	})
 }
