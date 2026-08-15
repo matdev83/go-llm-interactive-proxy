@@ -6,3 +6,6 @@
 
 **Learning:** `fmt.Sprintf` is heavy due to reflection and causes significantly more allocations and latency when concatenating simple strings and integers. In hot paths like metering (`LegacySourceEventKeyPhase31`), limits bounding, and environment variable iteration in the proxy codebase, using direct string concatenation (`+`) with `strconv.Itoa` or `strconv.FormatInt` provides a 3-4x performance improvement by avoiding this overhead.
 **Action:** Always prefer direct string concatenation combined with `strconv` package functions over `fmt.Sprintf` for performance-critical hot paths when only simple strings and numbers are being joined.
+## 2025-02-14 - Replace fmt.Sprintf with strconv.Itoa in OpenResponses StateMachine
+**Learning:** Using `fmt.Sprintf` for simple string concatenation with integer suffixes inside hot paths (such as the event normalizer loops in `state_machine.go`) incurs measurable performance overhead due to reflection and allocations.
+**Action:** Replace `fmt.Sprintf("prefix_%d", val)` with `"prefix_" + strconv.Itoa(val)` in Go when optimizing tight loops or data processing pipelines.
