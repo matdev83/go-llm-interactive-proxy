@@ -55,7 +55,7 @@ The model-registry refresh path has the meaningful risk shape: long-lived gorout
 
 Generation cleanup has phase state and retry behavior. Process shutdown is host-owned and idempotent through `ProcessServices`/host teardown.
 
-**Correction applied:** 2.7 and 5.1 prohibit merging the two shutdown state machines. The new process owner is only a construction-time ownership stack.
+**Correction applied:** 2.7 and 5.1 prohibit merging the two shutdown state machines. The new process ownership primitive is only a construction-time append facade over the existing `ProcessServices` closer set; it owns no second release stack and needs no success-time handoff.
 
 ### 7. The ROI must be observable in code shape
 
@@ -87,7 +87,7 @@ Keep current manual registration/closer-return patterns.
 
 ### Option C — Private scoped ownership hardening
 
-Add a tiny process ownership stack/acquisition seam, migrate only the closer-propagating ProcessServices builders, add one narrow structured loop helper over `ResourceLedger`, and add architecture gates.
+Add a tiny append-only facade over the existing `ProcessServices` closer set plus an owned-only acquisition seam, migrate only the closer-propagating builders, add one narrow cancellation-safe structured loop helper over `ResourceLedger`, and add architecture gates.
 
 - **Pros:** stronger invariant, local change, deletes plumbing, no runtime-model change.
 - **Cons:** moderate constructor/test churn; requires disciplined scope.
@@ -98,8 +98,8 @@ Add a tiny process ownership stack/acquisition seam, migrate only the closer-pro
 ## Design-Phase Recommendations
 
 1. Keep all new production types package-private under runtime composition.
-2. Make the process owner a closer stack, not a dependency container.
-3. Preserve `ProcessServices.Close` and `ResourceLedger` as the actual shutdown owners.
-4. Ensure the structured-loop helper establishes ownership before application work can start.
+2. Make the process owner an append-only facade over `ProcessServices.closers`, not a second closer stack or dependency container.
+3. Preserve constructor rollback, `ProcessServices.Close`, and `ResourceLedger` as the actual shutdown owners.
+4. Ensure the structured-loop helper uses a cancellation-aware start gate and preserves the model-registry `PhaseQuiesce` refresh-before-`PhaseClose` catalog split.
 5. Do not alter backend lifecycle contracts.
 6. Treat net simplification as a quality gate; revert individual migrations that become more complex.

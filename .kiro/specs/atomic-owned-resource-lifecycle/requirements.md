@@ -38,19 +38,19 @@ The existing Go-LIP lifetime model remains authoritative: `ProcessServices` owns
 
 ### Acceptance Criteria
 
-2.1. When a targeted process-lifetime acquisition succeeds, the composition layer shall associate the acquired value and its release action in the same ownership operation before returning the value to later construction steps.
+2.1. When a targeted owned process-lifetime acquisition succeeds, the composition layer shall require a non-nil release action and shall register that release in the existing `ProcessServices` close set in the same ownership operation before returning the value to later construction steps.
 
-2.2. If a targeted acquisition fails before producing an owned resource, the process owner shall not register a release action for that failed acquisition.
+2.2. If a targeted acquisition fails before producing an owned resource, no release action shall be registered; value-only or explicitly non-owning construction shall bypass the owned-acquisition helper rather than representing ownership with a nil release.
 
-2.3. If a later construction step fails after one or more successful targeted acquisitions, the process owner shall release all previously owned resources in reverse acquisition order.
+2.3. If a later construction step fails after one or more successful targeted acquisitions, the existing process rollback path shall release all registered resources in reverse acquisition order.
 
-2.4. If one or more release actions fail during constructor rollback or process shutdown, the owner shall preserve the existing aggregate-error behavior and shall still attempt the remaining releases in reverse order.
+2.4. If one or more release actions fail during constructor rollback or process shutdown, the existing aggregate-error behavior shall be preserved and the remaining releases shall still be attempted in reverse order.
 
 2.5. The process ownership primitive shall remain private to runtime composition and shall expose no dependency lookup, resource retrieval, lazy service creation, or cross-package lifecycle API.
 
-2.6. The process owner shall not add runtime concurrency, background work, reflection, code generation, or a new external dependency.
+2.6. The process ownership primitive shall not add runtime concurrency, background work, reflection, code generation, or a new external dependency.
 
-2.7. Existing process shutdown idempotency shall remain owned by the existing `ProcessServices` / host shutdown contract; the new acquisition primitive shall not create a competing shutdown state machine.
+2.7. The process ownership primitive shall be an append-only facade over the existing `ProcessServices` closer set, not a second release store or shutdown state machine; constructor rollback and normal `ProcessServices.Close` shall consume that same authoritative release set so migrated resources have exactly one cleanup path.
 
 ## Requirement 3: Eliminate High-Value Closer Propagation
 
@@ -80,11 +80,11 @@ The existing Go-LIP lifetime model remains authoritative: `ProcessServices` owns
 
 4.1. Where runtime composition currently starts a generation-owned background loop whose complete shutdown contract is cancellation plus join, the implementation shall use one private helper that couples loop startup with registration of its cancel-and-join release action.
 
-4.2. The helper shall ensure the loop cannot perform application work before its shutdown ownership has been established with the existing `ResourceLedger`.
+4.2. The helper shall ensure the loop cannot perform application work before its shutdown ownership has been established with the existing `ResourceLedger`; its blocked start gate shall observe cancellation and re-check cancellation before entering application work.
 
-4.3. When the owning generation quiesces or rolls back according to the existing registered phase, the helper shall cancel the loop and wait for it to exit before the resource phase is considered complete.
+4.3. The helper shall preserve the caller-selected existing cleanup phase. For the model-registry refresh migration, cancel-and-join shall remain `PhaseQuiesce`, catalog close shall remain `PhaseClose`, and refresh termination shall complete before catalog close.
 
-4.4. If ownership registration observes an already-closing or already-quiesced ledger state, the helper shall not leak a newly started loop or allow it to outlive the ledger.
+4.4. If `ResourceLedger` registration performs synchronous immediate cleanup because the ledger is sealed, closing, or already quiesced, cancellation shall unblock the gated loop and join shall complete without leak or deadlock.
 
 4.5. The helper shall not become a general worker pool, scheduler, async task framework, error bus, or replacement for ordinary request-scoped goroutines.
 
@@ -116,9 +116,9 @@ The existing Go-LIP lifetime model remains authoritative: `ProcessServices` owns
 
 ### Acceptance Criteria
 
-6.1. Before implementation, RED tests shall pin process ownership registration timing, reverse-order rollback, aggregate cleanup errors, and constructor partial-failure behavior.
+6.1. Before implementation, RED tests shall pin owned-acquisition non-nil release enforcement, registration into the authoritative `ProcessServices` closer set, reverse-order rollback, aggregate cleanup errors, constructor partial-failure behavior, and exactly-once normal shutdown.
 
-6.2. Before migrating a generation-owned loop, RED tests shall pin cancellation, join-before-close, rollback, already-closing ownership, and leak-free behavior.
+6.2. Before migrating a generation-owned loop, RED tests shall pin cancellation-aware start gating, synchronous immediate cleanup, join-before-close, rollback, `PhaseQuiesce` refresh-before-`PhaseClose` catalog ordering, already-closing ownership, and leak-free behavior.
 
 6.3. Targeted race/leak tests shall prove that the structured loop helper does not leak goroutines or race with generation retirement.
 

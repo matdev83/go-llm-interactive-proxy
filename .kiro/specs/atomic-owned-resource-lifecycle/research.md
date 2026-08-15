@@ -57,8 +57,8 @@
   - Constructor-local `register`, `regStep`, and builder-returned closer slices mean ownership sometimes crosses a builder boundary before the caller registers it.
   - The pattern is safe today but relies on maintenance discipline when new fallible steps are added.
 - **Implications**:
-  - Introduce one private process ownership object whose only job is accepting release actions and rolling them back in reverse order.
-  - Selected builders should register releases themselves and return only their runtime value/error.
+  - Introduce one private append-only ownership facade that writes directly into the existing `ProcessServices.closers` set; do not create a second release stack or success-time handoff.
+  - Selected builders should register non-nil releases themselves and return only their runtime value/error; value-only construction bypasses the owned helper.
 
 ### Generation-owned background loops
 
@@ -96,21 +96,22 @@
 | Full Cordis runtime | Generic context, reactive dependencies, component fibers/effects | maximal composability | duplicates current runtime; high complexity; weak ROI | Reject |
 | Third-party DI/lifecycle framework | Introduce fx/dig/do-style lifecycle/container | ready-made lifecycle features | conflicts with explicit construction/no-container steering; new dependency | Reject |
 | No change | Keep closer propagation/manual worker lifetime | no churn | caller-mediated ownership remains easy to regress | Reject |
-| Private ownership hardening | Small process closer owner + targeted acquire seam + narrow ledger-backed loop helper | stronger invariants, local change, deletes plumbing | moderate migration/test churn | **Select** |
+| Private ownership hardening | Append-only facade over the existing process closer set + owned-only acquire seam + narrow ledger-backed loop helper | stronger invariants, local change, deletes plumbing | moderate migration/test churn | **Select** |
 
 ## Design Decisions
 
-### Decision: Process ownership is a stack, not a container
+### Decision: Process ownership is an append-only facade, not a second stack or container
 
-- **Context**: ProcessServices already owns dependencies; only cleanup transfer needs improvement.
+- **Context**: `ProcessServices` already has the authoritative closer slice, reverse rollback, and idempotent `Close`; only cleanup registration locality needs improvement.
 - **Alternatives Considered**:
   1. Generic service context with keyed lookup.
   2. DI container with lifecycle.
-  3. Private append-only release stack.
-- **Selected Approach**: private release owner under runtime composition, with no lookup or provisioning API.
-- **Rationale**: directly solves forgotten/delayed cleanup registration while preserving explicit Go construction.
+  3. Separate private release stack plus success-time handoff.
+  4. Private append-only facade over the existing `ProcessServices` closer set.
+- **Selected Approach**: bind a private construction-only owner to the existing closer append operation. `Own` writes directly to `ps.closers`; rollback and normal shutdown continue to consume that same set.
+- **Rationale**: directly solves forgotten/delayed cleanup registration without introducing transfer state, a second release collection, or a competing shutdown path.
 - **Trade-offs**: does not automate dependency ordering; ordering remains explicit construction order, which is desirable here.
-- **Follow-up**: architecture test the absence of lookup/service-locator methods.
+- **Follow-up**: architecture-test the absence of lookup/service-locator methods and regression-test exactly-once use of the shared close set.
 
 ### Decision: Move closer ownership inward, not the whole builder graph outward
 
@@ -130,10 +131,10 @@
 ### Decision: Structured loop helper uses ResourceLedger, not a new worker runtime
 
 - **Context**: generation-owned refresh loops are resources with cancel+join inverses.
-- **Selected Approach**: one private helper establishes ledger-owned cancel/join cleanup before allowing loop work to run.
-- **Rationale**: prevents an unowned live goroutine without changing generation lifecycle.
+- **Selected Approach**: one private helper starts a cancellation-aware gated goroutine, registers a close-only cancel/join action with the caller-selected ledger phase, then opens the gate.
+- **Rationale**: prevents an unowned live goroutine without changing generation lifecycle and remains safe when `ResourceLedger.AddClose` performs synchronous immediate cleanup.
 - **Trade-offs**: applies only to exact cancel+join loops; other async patterns remain explicit.
-- **Follow-up**: race and goleak tests for quiesce/rollback/late-close paths.
+- **Follow-up**: race and goleak tests for quiesce/rollback/late-close paths, plus model-registry `PhaseQuiesce` refresh-before-`PhaseClose` catalog ordering.
 
 ### Decision: Backend lifecycle remains unchanged
 
@@ -147,8 +148,8 @@
 
 - **Abstraction creep** — keep new types package-private; architecture tests reject service lookup/provision APIs.
 - **Close-order regression** — baseline and migration tests assert exact reverse ordering for partial construction and shutdown.
-- **Double cleanup** — migrate one ownership path at a time and delete caller registration once the builder owns it.
-- **Worker leak/deadlock** — helper uses explicit cancellation + join and is covered by race/goleak tests, including already-closing ownership.
+- **Double cleanup** — write owned releases directly into the existing `ProcessServices` close set and delete caller registration; no separate owner stack or success-time handoff exists.
+- **Worker leak/deadlock** — the start gate observes cancellation, cleanup uses close-only ledger registration, and race/goleak tests cover synchronous immediate cleanup plus already-closing ownership.
 - **Hidden behavior change from error wrapping** — preserve existing aggregate/error semantics; do not add user-visible error categories.
 - **Refactor grows instead of shrinks** — final simplification gate reverts migrations that add more lifecycle concepts than they delete.
 

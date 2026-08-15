@@ -5,10 +5,10 @@ Implementation is TDD-first. The plan deliberately limits work to the two valida
 ## 1. Freeze Ownership Behavior With RED Tests
 
 - [ ] 1.1 Define RED process-owner contract tests
-  - Pin successful acquire-plus-release registration before the acquired value can be used by the next construction step.
-  - Pin reverse-order rollback after a later injected constructor failure.
-  - Pin aggregate cleanup errors while all remaining releases are still attempted.
-  - Pin normal `ProcessServices` shutdown idempotency and no double release after successful construction.
+  - Pin successful owned acquisition requires a non-nil release and appends it to the authoritative `ProcessServices` closer set before the value can be used by the next construction step.
+  - Pin value-only/non-owning construction bypasses the owned helper and an owned-success path cannot silently return a nil release.
+  - Pin reverse-order rollback and aggregate cleanup errors through the existing process failure path after a later injected constructor failure.
+  - Pin normal `ProcessServices` shutdown consumes the same release set exactly once with no owner handoff or parallel legacy registration.
   - _Requirements: 2.1-2.7, 6.1_
   - _Boundary: runtime composition process lifetime only_
   - _Depends: none_
@@ -25,10 +25,10 @@ Implementation is TDD-first. The plan deliberately limits work to the two valida
   - _Validation: focused constructor failure/ownership lifecycle tests_
 
 - [ ] 1.3 (P) Define RED generation-loop lifetime tests
-  - Prove a newly created composition-owned loop performs no application work before lifecycle ownership is established.
-  - Prove rollback and quiesce both cancel and join the loop before lifecycle completion.
-  - Prove already-closing/already-quiesced ownership cannot leak or deadlock a new loop.
-  - Run leak/race-focused cases with repeated concurrent retirement.
+  - Prove a newly created composition-owned loop performs no application work before lifecycle ownership is established and the start gate exits on cancellation.
+  - Prove synchronous immediate `AddClose` cleanup on sealed/quiesced ownership cancels and joins the still-gated loop without deadlock.
+  - Prove rollback and quiesce both cancel and join the loop, with model-registry refresh at `PhaseQuiesce` completing before catalog `PhaseClose`.
+  - Run leak/race-focused cases with repeated concurrent retirement and preserve rollback refresh-before-catalog ordering.
   - _Requirements: 4.1-4.7, 6.2-6.3_
   - _Boundary: generation composition lifecycle only_
   - _Depends: none_
@@ -37,9 +37,9 @@ Implementation is TDD-first. The plan deliberately limits work to the two valida
 ## 2. Add the Minimal Private Ownership Primitives
 
 - [ ] 2.1 Implement the private process resource owner and acquire helper
-  - Add an append-only process release owner that unwinds through the existing reverse-disposal/error semantics.
-  - Add one acquire-plus-release helper that registers ownership before returning a successful value.
-  - Keep `ProcessServices.Close` / host shutdown as the only process shutdown coordinator.
+  - Add a construction-only process owner that appends directly into the existing `ProcessServices` closer set; do not add a separate release collection or `ReleaseAll` path.
+  - Add an owned-only acquire-plus-release helper that requires a non-nil release before returning a successful value; keep value-only construction outside that helper.
+  - Keep constructor rollback and `ProcessServices.Close` as the only consumers of the authoritative process closer set, preserving existing shutdown idempotency.
   - Expose no lookup, provisioning, lazy service, reflection, global registry, or public API.
   - _Requirements: 1.1-1.6, 2.1-2.7_
   - _Boundary: runtimebundle private composition infrastructure_
@@ -47,9 +47,9 @@ Implementation is TDD-first. The plan deliberately limits work to the two valida
   - _Design: Process Resource Owner; Process Acquisition Helper_
 
 - [ ] 2.2 (P) Implement the narrow ledger-backed cancel+join loop helper
-  - Create the loop in a blocked state, establish its existing `ResourceLedger` cancel+join ownership, then release application work.
-  - Preserve the caller-selected existing cleanup phase and ledger error semantics.
-  - Handle immediate cleanup/closing ownership without starting unowned work.
+  - Create the loop behind a cancellation-aware start gate, register a close-only cancel+join action with `ResourceLedger.AddClose`, then release application work only if cancellation has not won.
+  - Preserve the caller-selected cleanup phase and ledger error semantics; for model-registry refresh use `PhaseQuiesce` while catalog close remains `PhaseClose`.
+  - Handle synchronous immediate cleanup/closing ownership by canceling and joining the still-gated loop without leak or deadlock.
   - Add no scheduler, worker pool, restart policy, supervision tree, or generic async error channel.
   - _Requirements: 1.2-1.6, 4.1-4.6, 5.1_
   - _Boundary: runtimebundle generation-owned background loops_
@@ -70,8 +70,8 @@ Implementation is TDD-first. The plan deliberately limits work to the two valida
 
 - [ ] 3.2 Migrate the model-registry refresh loop to structured generation ownership
   - Replace the manual derived-context/cancel/wait-group lifecycle with the private loop helper.
-  - Preserve refresh cadence, model-registry behavior, generation phase, and shutdown ordering exactly.
-  - Prove candidate rollback and superseded-generation quiesce both terminate the refresh loop.
+  - Preserve refresh cadence and model-registry behavior; keep refresh cancel+join at `PhaseQuiesce` and catalog close at `PhaseClose`.
+  - Prove candidate rollback and superseded-generation quiesce terminate the refresh loop before catalog cleanup, including the existing reverse registration order on rollback.
   - Do not migrate unrelated goroutines unless characterization proves the identical cancel+join lifetime shape.
   - _Requirements: 4.1-4.7, 5.1, 5.4-5.5, 6.2-6.3_
   - _Boundary: generation-owned model-registry refresh lifecycle_

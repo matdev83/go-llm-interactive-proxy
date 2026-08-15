@@ -65,8 +65,8 @@ graph TB
 - **Domain/feature boundary**: all new production code stays in `internal/infra/runtimebundle`; domain/core packages are untouched.
 - **Existing patterns preserved**: explicit construction, process/generation lifetime split, immutable generation publication, reverse cleanup, manager-owned retirement.
 - **New component rationale**:
-  - `processResourceOwner`: construction-time release stack for process-owned resources.
-  - `acquireProcess`: helper that obtains `value + release`, registers release, then exposes the value.
+  - `processResourceOwner`: construction-time append-only facade over the existing `ProcessServices` closer set.
+  - `acquireOwnedProcess`: owned-only helper that obtains `value + non-nil release`, appends the release to the authoritative process closer set, then exposes the value.
   - generation loop helper: couples existing cancel+join loop lifetime to `ResourceLedger`.
 - **Steering compliance**: no container, no global registry, no reflection, no magic registration, no new external dependency.
 
@@ -105,7 +105,7 @@ graph TB
 ```mermaid
 sequenceDiagram
     participant B as Process Builder
-    participant A as Acquire Process
+    participant A as Acquire Owned Process
     participant R as Resource Factory
     participant O as Process Owner
 
@@ -116,9 +116,9 @@ sequenceDiagram
     A-->>B: value
 ```
 
-**Invariant:** after `acquireProcess` returns a successful value, its release action is already owned. No later fallible composition step can exist between acquisition and ownership transfer.
+**Invariant:** after `acquireOwnedProcess` returns a successful value, its non-nil release is already appended to the same `ps.closers` set used by existing rollback and normal shutdown. No later fallible composition step can exist between acquisition and ownership registration.
 
-If construction fails later, `ProcessServices` startup rollback closes the process owner in reverse acquisition order. Normal host shutdown continues to call the existing `ProcessServices.Close` path; the helper does not own process shutdown policy.
+If construction fails later, the existing `ProcessServices` startup failure path reverse-disposes `ps.closers`. On successful construction, the same set remains for `ProcessServices.Close`, which consumes it under the existing idempotent close guard. There is no owner-close or handoff phase.
 
 ### Builder-Local Ownership
 
@@ -130,7 +130,7 @@ flowchart TD
     AcquireB --> OwnB[Register B release]
     OwnB --> Build[Return runtime value]
     AcquireB -->|failure| Error[Return error]
-    Error --> Rollback[Outer process owner reverse rollback]
+    Error --> Rollback[Existing ProcessServices reverse rollback]
 ```
 
 Selected builders receive the private process owner and stop returning caller-visible closer slices.
@@ -160,7 +160,7 @@ The blocked-start step prevents application work from running before ownership r
 | Requirement | Summary | Design elements |
 |---|---|---|
 | 1.1-1.6 | preserve converged runtime and reject over-generalization | boundaries, non-goals, private helpers |
-| 2.1-2.7 | atomic process ownership | `processResourceOwner`, `acquireProcess`, existing `ProcessServices.Close` |
+| 2.1-2.7 | atomic process ownership | `processResourceOwner`, `acquireOwnedProcess`, existing `ProcessServices` closer set/`Close` |
 | 3.1-3.7 | eliminate closer propagation only where valuable | selected builder migration |
 | 4.1-4.7 | structured generation loop lifetime | ledger-backed loop helper |
 | 5.1-5.6 | preserve ledger/backend/runtime semantics | explicit unchanged surfaces |
@@ -170,7 +170,7 @@ The blocked-start step prevents application work from running before ownership r
 
 | Component | Layer | Intent | Requirements | Key dependencies | Contracts |
 |---|---|---|---|---|---|
-| Process Resource Owner | composition root | hold process releases in acquisition order and unwind in reverse | 2, 3, 6 | existing `disposeClosers` semantics | State |
+| Process Resource Owner | composition root | append owned releases directly into the authoritative `ProcessServices` closer set | 2, 3, 6 | `ProcessServices.closers`, existing `disposeClosers` semantics | State |
 | Process Acquisition Helper | composition root | couple successful value acquisition with ownership transfer | 2, 3 | Process Resource Owner | Service |
 | Generation Loop Helper | composition root | own cancel+join lifetime through `ResourceLedger` | 4, 6 | `ResourceLedger`, context, join primitive | Service |
 | Migrated Process Builders | composition root | register releases locally instead of returning closer lists | 3 | Process Resource Owner | Service |
@@ -181,16 +181,17 @@ The blocked-start step prevents application work from running before ownership r
 
 | Field | Detail |
 |---|---|
-| Intent | Construction-time owner for process-scoped release actions |
+| Intent | Construction-time append-only facade over the existing `ProcessServices` release set |
 | Requirements | 2.1-2.7, 3.1-3.7, 6.1, 6.4-6.7 |
 
 **Responsibilities & Constraints**
 
-- Package-private.
-- Append-only during process construction; no lookup/read API.
-- Preserve reverse release ordering and aggregate-error behavior.
+- Package-private and construction-only.
+- Append-only; no lookup/read API and no independently owned release slice.
+- Bind directly to the same closer set already consumed by constructor rollback and `ProcessServices.Close`.
+- Preserve current reverse release ordering, aggregate-error behavior, and `ProcessServices.Close` idempotency.
 - Be handed only to process-lifetime builders selected by this spec.
-- Do not introduce a second process shutdown coordinator; `ProcessServices.Close` remains authoritative.
+- Never require a success-time handoff: `Own` writes into the authoritative process closer set immediately, so migrated resources cannot exist in both a new owner stack and the legacy close path.
 
 **Conceptual contract**
 
@@ -198,14 +199,13 @@ The blocked-start step prevents application work from running before ownership r
 type processRelease func() error
 
 type processResourceOwner struct {
-    releases []processRelease
+    register func(processRelease)
 }
 
-func (o *processResourceOwner) Own(release processRelease)
-func (o *processResourceOwner) ReleaseAll() error
+func (o *processResourceOwner) Own(release processRelease) error
 ```
 
-Exact names may follow package conventions. The important contract is one-way ownership transfer only.
+`NewProcessServices` binds `register` to its existing closer append operation. Constructor failure continues to call the existing rollback path over `ps.closers`; successful construction leaves the same `ps.closers` set for `ProcessServices.Close`, which consumes it once under the existing shutdown guard. There is no `ReleaseAll` method, no separate release store, and no ownership-transfer state.
 
 ### Composition Root: Process Acquisition Helper
 
@@ -217,7 +217,7 @@ Exact names may follow package conventions. The important contract is one-way ow
 **Conceptual contract**
 
 ```go
-func acquireProcess[T any](
+func acquireOwnedProcess[T any](
     ctx context.Context,
     owner *processResourceOwner,
     acquire func(context.Context) (T, processRelease, error),
@@ -226,9 +226,10 @@ func acquireProcess[T any](
 
 **Postconditions**
 
-- On success, the returned value's release is already registered.
+- On success, the returned value's non-nil release is already registered in the authoritative `ProcessServices` closer set.
 - On acquisition error, no release is registered by this helper.
-- A nil/absent release is valid only for explicitly non-owning/value-only construction; owned-resource call sites must not silently omit cleanup.
+- A successful `(value, nil, nil)` result is an internal ownership-contract failure and the value must not escape through this helper.
+- Value-only, disabled, or explicitly non-owning construction bypasses `acquireOwnedProcess`; nil cleanup is not used as an ownership sentinel.
 - The helper does not resolve dependencies or construct arbitrary services by key.
 
 If generic syntax is less readable at actual call sites, an equivalent non-generic private helper may be used. The invariant matters more than API cleverness.
@@ -249,12 +250,14 @@ Adjacent single-closer construction, including the control-plane runtime, is not
 **Migration rule**
 
 Before:
+
 ```text
 builder -> value + closers + error
 caller -> register closers
 ```
 
 After:
+
 ```text
 builder(owner) -> value + error
 builder registers each acquired release before later fallible work
@@ -273,26 +276,25 @@ Do not force plugin staging/artifact teardown or pool claim/prune through this s
 
 - Private to generation composition.
 - Uses existing `ResourceLedger`; no parallel lifecycle state.
-- Starts a goroutine in a blocked state, registers its cancel+join cleanup, then releases the start gate.
-- If registration causes immediate cleanup because the ledger is already closing/quiesced, the blocked goroutine observes cancellation and exits without doing work.
-- Cleanup waits for termination.
+- Creates a derived cancellable context and a gated goroutine. The gate wait selects between `ctx.Done()` and the start signal, then checks `ctx.Err()` again before entering application work.
+- Registers cleanup with `ResourceLedger.AddClose(name, phase, cancelAndJoin)` before opening the start gate. The helper does not use an `AddAction` start hook.
+- `cancelAndJoin` cancels the derived context and waits for termination. Because `ResourceLedger.AddClose` may invoke close-only cleanup synchronously for late/sealed/quiesced registration, cancellation must always wake the gated goroutine; immediate cleanup must return without waiting for an unopened gate.
+- The caller supplies the existing cleanup phase; the helper does not infer or normalize phases.
 - No task queue, retry, restart, supervision tree, or error propagation framework.
 
 **Initial migration**
 
-The model-registry refresh loop is the mandatory first consumer. Any second consumer must have the same derived-context + cancel + join lifetime and dedicated characterization tests.
+The model-registry refresh loop is the mandatory first consumer. Its cancel-and-join entry remains `PhaseQuiesce`; the existing catalog close entries remain `PhaseClose`. Normal retirement therefore joins refresh work during quiesce before catalog close, and candidate rollback preserves the existing reverse registration order where refresh cleanup precedes catalog cleanup. Any second consumer must have the same derived-context + cancel + join lifetime and dedicated characterization tests.
 
 ## State and Ownership Model
 
 No persistent data model changes.
 
 ```text
-Host
-└── ProcessServices
-    └── processResourceOwner
-        ├── process resource release A
-        ├── process resource release B
-        └── ...
+NewProcessServices
+├── ProcessServices.closers  (authoritative process release set)
+└── processResourceOwner     (construction-only append facade)
+    └── Own(release) ───────> ProcessServices.closers
 
 Generation
 └── ResourceLedger
@@ -306,6 +308,7 @@ Process releases are not generation entries. Generation releases are not process
 
 - Preserve existing constructor error values and wrapping where practical.
 - Cleanup errors continue to be aggregated while later cleanup actions still run.
+- Constructor rollback and normal shutdown use the same `ProcessServices` closer set; there is no second owner rollback or success-time transfer to coordinate.
 - The process acquisition helper does not invent new public error categories.
 - Generation loop cleanup follows existing `ResourceLedger` error handling.
 - A worker loop's internal runtime errors are not generalized by this helper; existing loop-specific handling remains unchanged.
@@ -314,14 +317,15 @@ Process releases are not generation entries. Generation releases are not process
 
 ### RED contract tests
 
-1. Successful acquisition registers release before the caller can execute the next step.
-2. Later constructor failure unwinds all earlier acquisitions in reverse order.
-3. Cleanup failure does not skip subsequent cleanup.
-4. Normal shutdown remains idempotent and does not double-close migrated resources.
-5. Selected builders no longer require caller-visible closer aggregation.
-6. Generation loop cannot perform work before ownership registration.
-7. Quiesce/rollback cancels and joins the loop.
-8. Already-closing/quiesced ownership does not leak or deadlock.
+1. Successful owned acquisition requires a non-nil release and registers it into the authoritative `ProcessServices` closer set before the caller can execute the next step.
+2. Value-only/non-owning construction bypasses the owned helper; a nil release on an owned-success path is rejected before the value escapes.
+3. Later constructor failure unwinds all earlier acquisitions in reverse order through the existing rollback path.
+4. Cleanup failure does not skip subsequent cleanup.
+5. Normal shutdown consumes the same release set exactly once and does not double-close migrated resources through a parallel path.
+6. Selected builders no longer require caller-visible closer aggregation.
+7. Generation loop cannot perform work before ownership registration.
+8. Synchronous immediate cleanup cancels a blocked start gate and joins without leak or deadlock.
+9. Model-registry refresh cleanup remains `PhaseQuiesce` and completes before catalog `PhaseClose` cleanup; rollback preserves refresh-before-catalog ordering.
 
 ### Characterization before migration
 
@@ -346,11 +350,11 @@ The helpers execute during process/generation construction and teardown, not per
 
 ## Migration Plan
 
-1. Characterize current process close/rollback order and refresh-loop lifetime with RED tests.
-2. Add the private process owner/acquisition helper without migrating call sites.
-3. Migrate one process builder family and remove its caller closer plumbing; validate.
+1. Characterize current process close/rollback order, authoritative closer-set use, and refresh-loop phase ordering with RED tests.
+2. Add the private process owner as an append-only facade over `ps.closers` plus the owned-only acquisition helper; do not add a second release stack.
+3. Migrate one process builder family and remove its caller closer plumbing; validate exactly-once rollback/shutdown.
 4. Continue only through the selected process builder list while each migration stays simpler.
-5. Add the generation loop helper and migrate model-registry refresh.
+5. Add the cancellation-safe generation loop helper and migrate model-registry refresh without changing `PhaseQuiesce`/`PhaseClose` ordering.
 6. Add architecture ratchets and run race/leak/quality gates.
 7. Final simplification review: delete superseded plumbing; revert any migration whose code is less traceable than before.
 

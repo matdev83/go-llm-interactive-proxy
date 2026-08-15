@@ -2,32 +2,32 @@
 
 ## Verdict
 
-**GO after scope hardening.** The design fits the current Go-LIP runtime and turns a Cordis-inspired idea into a small composition-root safety refactor rather than a new runtime paradigm. Three risks identified during validation were corrected in the final design: abstraction duplication, worker-helper overreach, and accidental cleanup-semantic merging.
+**GO after scope and lifecycle-contract hardening.** The design fits the current Go-LIP runtime and turns a Cordis-inspired idea into a small composition-root safety refactor rather than a new runtime paradigm. Initial validation removed abstraction duplication, worker-helper overreach, and cleanup-semantic merging; subsequent review tightened the authoritative process closer-set contract, owned-vs-value-only acquisition, synchronous immediate cleanup, and model-registry phase ordering. This GO is a design-validation verdict, not approval to begin implementation.
 
 ## Critical Issues Found and Applied Corrections
 
 ### 1. Parallel lifecycle abstraction risk — RESOLVED
 
-**Concern:** A generic `Owner`/effect framework could overlap `ResourceLedger` and `ProcessServices`, recreating the runtime duplication the project recently removed.  
-**Impact:** Two cleanup authorities would make shutdown/reload reasoning harder and undermine the one-process/one-generation ownership model.  
-**Correction:** The final design makes the process owner a private construction-time release stack only; generation resources continue to use `ResourceLedger` unchanged.  
-**Traceability:** 1.1-1.6, 2.5-2.7, 5.1-5.4.  
+**Concern:** A generic `Owner`/effect framework could overlap `ResourceLedger` and `ProcessServices`, recreating the runtime duplication the project recently removed.
+**Impact:** Two cleanup authorities would make shutdown/reload reasoning harder and undermine the one-process/one-generation ownership model.
+**Correction:** The final design makes the process owner a private construction-time append facade over the existing `ProcessServices` closer set; generation resources continue to use `ResourceLedger` unchanged.
+**Traceability:** 1.1-1.6, 2.5-2.7, 5.1-5.4.
 **Evidence:** Design sections “Architecture Pattern & Boundary Map” and “Process Resource Owner”.
 
 ### 2. Generic worker framework risk — RESOLVED
 
-**Concern:** Turning goroutine ownership into a general worker/scheduler API would add lifecycle concepts unrelated to the demonstrated gap.  
-**Impact:** Higher cognitive load, unclear error/supervision semantics, and pressure to migrate unrelated goroutines.  
-**Correction:** The helper is limited to existing generation-owned loops whose entire shutdown contract is cancel + join; model-registry refresh is the mandatory initial consumer.  
-**Traceability:** 4.1-4.7, 6.2-6.3, 6.7.  
+**Concern:** Turning goroutine ownership into a general worker/scheduler API would add lifecycle concepts unrelated to the demonstrated gap.
+**Impact:** Higher cognitive load, unclear error/supervision semantics, and pressure to migrate unrelated goroutines.
+**Correction:** The helper is limited to existing generation-owned loops whose entire shutdown contract is cancel + join; model-registry refresh is the mandatory initial consumer.
+**Traceability:** 4.1-4.7, 6.2-6.3, 6.7.
 **Evidence:** Design section “Generation Loop Helper”.
 
 ### 3. Process/generation cleanup semantic collapse — RESOLVED
 
-**Concern:** Sharing one generalized owner between process and generation resources could erase intentional differences: generation phases/retries versus host-owned process idempotency.  
-**Impact:** Close-order regressions or a second shutdown state machine.  
-**Correction:** Separate lifetime-specific mechanisms remain: private process release stack for construction ownership; existing `ResourceLedger` for generation phases. No cross-lifetime registration API is introduced.  
-**Traceability:** 2.7, 3.6, 5.1-5.4.  
+**Concern:** Sharing one generalized owner between process and generation resources could erase intentional differences: generation phases/retries versus host-owned process idempotency.
+**Impact:** Close-order regressions or a second shutdown state machine.
+**Correction:** Separate lifetime-specific mechanisms remain: the existing `ProcessServices` closer set for process ownership, accessed through a private construction-only append facade; existing `ResourceLedger` for generation phases. No cross-lifetime registration API is introduced.
+**Traceability:** 2.7, 3.6, 5.1-5.4.
 **Evidence:** Design sections “State and Ownership Model” and “Error Handling”.
 
 ## Validation Checklist
@@ -50,19 +50,19 @@ No request/stream execution code or retry decision path is changed. No-retry-aft
 
 ### Lifecycle singularity — PASS
 
-Generation resource phases remain exclusively `ResourceLedger`. Process shutdown remains exclusively host/`ProcessServices` owned.
+Generation resource phases remain exclusively `ResourceLedger`. Process shutdown remains exclusively host/`ProcessServices` owned. The private process owner is only an append facade over `ps.closers`; it has no independent release set, rollback method, success-time handoff, or close state.
 
 ### Type/interface scope — PASS
 
-The ownership types are package-private, one-way release registration only. The design explicitly rejects `Get`, `Resolve`, `Provide`, keyed lookup, reflection, and container behavior.
+The ownership types are package-private, one-way release registration only. The owned acquisition helper requires a non-nil release; value-only/non-owning construction bypasses it. The design explicitly rejects `Get`, `Resolve`, `Provide`, keyed lookup, reflection, and container behavior.
 
 ### Concurrency — PASS with mandatory tests
 
-The generation loop helper establishes ownership before releasing a start gate, then uses cancel + join on quiesce/rollback. Race/goleak coverage is mandatory.
+The generation loop helper uses a cancellation-aware start gate, registers close-only cancel+join before opening the gate, and remains safe when `ResourceLedger.AddClose` executes cleanup synchronously for sealed/quiesced state. Model-registry refresh remains `PhaseQuiesce`, catalog cleanup remains `PhaseClose`, and refresh must terminate first. Race/goleak coverage is mandatory.
 
 ### Error behavior — PASS
 
-Existing aggregate cleanup and shutdown semantics are preserved. No public error category or wire mapping changes.
+Existing aggregate cleanup and shutdown semantics are preserved. Constructor rollback and normal shutdown consume the same authoritative process closer set, preventing double cleanup through a parallel owner path. No public error category or wire mapping changes.
 
 ### Maintainability / simplification — PASS
 
@@ -86,4 +86,4 @@ The selected process builders stop returning closer lists to `NewProcessServices
 
 ## Final Assessment
 
-**GO.** The final design is implementation-ready as a focused brownfield refactor. The implementation must remain inside the frozen scope: private ownership primitives, selected ProcessServices closer-propagation removal, model-registry refresh loop ownership, and architecture/test ratchets. Any proposal for reactive dependencies, public lifecycle APIs, a generalized effect/container runtime, or `ResourceLedger` redesign requires a new spec.
+**GO for design validation.** The design is sufficiently specified for approval and subsequent implementation as a focused brownfield refactor. It is **not yet authorized for implementation**: `spec.json` intentionally remains `phase: tasks-generated`, with requirements/design/tasks approvals false and `ready_for_implementation: false`. Implementation must not begin until the repository's Kiro approval state is updated according to the normal workflow. Once approved, implementation must remain inside the frozen scope: private ownership primitives, selected `ProcessServices` closer-propagation removal, model-registry refresh loop ownership, and architecture/test ratchets. Any proposal for reactive dependencies, public lifecycle APIs, a generalized effect/container runtime, or `ResourceLedger` redesign requires a new spec.
