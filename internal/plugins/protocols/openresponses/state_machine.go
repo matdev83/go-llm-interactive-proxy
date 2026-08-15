@@ -2,8 +2,8 @@ package openresponses
 
 import (
 	"encoding/json"
-	"fmt"
 	"maps"
+	"strconv"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -394,7 +394,7 @@ func (sm *StateMachine) appendResponseCreated(events *[]StreamEvent) error {
 
 func (sm *StateMachine) startMessageItem(events *[]StreamEvent) error {
 	msgItem := lipapi.Item{
-		ID:     fmt.Sprintf("msg_%d", len(sm.trajectory)),
+		ID:     "msg_" + strconv.Itoa(len(sm.trajectory)),
 		Kind:   lipapi.ItemKindMessage,
 		Role:   lipapi.RoleAssistant,
 		Status: lipapi.ItemStatusInProgress,

@@ -1,7 +1,7 @@
 package openresponses
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -90,7 +90,7 @@ func (sm *StateMachine) handleReasoning(ev lipapi.Event, events *[]StreamEvent) 
 		}
 
 		rsItem := lipapi.Item{
-			ID:     fmt.Sprintf("rs_%d", len(sm.trajectory)),
+			ID:     "rs_" + strconv.Itoa(len(sm.trajectory)),
 			Kind:   lipapi.ItemKindReasoning,
 			Status: lipapi.ItemStatusInProgress,
 			Reasoning: &lipapi.ReasoningItem{
@@ -217,11 +217,11 @@ func (sm *StateMachine) handleToolCallStarted(ev lipapi.Event, events *[]StreamE
 
 	callID := ev.ToolCallID
 	if callID == "" {
-		callID = fmt.Sprintf("call_%d", len(sm.trajectory))
+		callID = "call_" + strconv.Itoa(len(sm.trajectory))
 	}
 
 	tcItem := lipapi.Item{
-		ID:     fmt.Sprintf("fc_%d", len(sm.trajectory)),
+		ID:     "fc_" + strconv.Itoa(len(sm.trajectory)),
 		Kind:   lipapi.ItemKindToolCall,
 		Status: lipapi.ItemStatusInProgress,
 		ToolCall: &lipapi.ToolCallItem{
