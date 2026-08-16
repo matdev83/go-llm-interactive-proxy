@@ -1,0 +1,23 @@
+{
+  "feature_name": "prompt-cache-keepwarm-orchestration",
+  "created_at": "2026-08-16T20:20:00+02:00",
+  "updated_at": "2026-08-16T20:45:00+02:00",
+  "language": "en",
+  "phase": "tasks-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": false
+    },
+    "design": {
+      "generated": true,
+      "approved": false
+    },
+    "tasks": {
+      "generated": true,
+      "approved": false
+    }
+  },
+  "ready_for_implementation": false,
+  "project_description": "Build issue #342 keep-warm orchestration on top of prompt-cache-residency-contract: generation-owned scheduling, revisioned A-leg idle epochs triggered by committed OS-command tool calls, lifecycle-aware timing from backend observations, foreground-first race cancellation, bounded refresh/duration/target/concurrency budgets, authenticated per-session disable controls, provider-billable maintenance accounting, bounded observability, and evidence-gated provider rollout. The orchestrator is enabled by default but never silently enables or changes a provider's foreground cache enrollment/retention policy."
+}
