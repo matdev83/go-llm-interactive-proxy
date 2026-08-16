@@ -1,0 +1,23 @@
+{
+  "feature_name": "backend-connector-resource-reconciliation",
+  "created_at": "2026-08-17T00:42:00+02:00",
+  "updated_at": "2026-08-17T00:42:00+02:00",
+  "language": "en",
+  "phase": "initialized",
+  "approvals": {
+    "requirements": {
+      "generated": false,
+      "approved": false
+    },
+    "design": {
+      "generated": false,
+      "approved": false
+    },
+    "tasks": {
+      "generated": false,
+      "approved": false
+    }
+  },
+  "ready_for_implementation": false,
+  "project_description": "Reduce cross-generation churn for expensive executable backend connectors by reusing unchanged configured per-instance connector resources through semantic identity and process-scoped reference-counted generation leases. Preserve immutable GenerationRuntime publication, ResourceLedger rollback/retirement, processhost supervision, the executable backend-plugin ABI, startup-fixed discovery, routing/streaming/accounting semantics, and last-good reload. Scope the first implementation to eligible discovered per_instance connectors only; add no DI container, service locator, reactive component graph, live plugin watcher, generic resource framework, or request-hot-path lookup. Require deterministic high-cardinality evidence before and after implementation so the optimization remains justified by connector-scale behavior rather than Cordis-inspired abstraction for its own sake."
+}
