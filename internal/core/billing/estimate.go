@@ -15,9 +15,6 @@ var (
 	ErrEstimateSnapshot  = errors.New("billing: max-charge snapshot mismatch")
 )
 
-// ChargePolicyScope controls which route legs may contribute to the customer
-// hold. Failover alternatives are normally one logical surfaced turn; a
-// parallel/pass-through policy may explicitly charge every supplied leg.
 type ChargePolicyScope string
 
 const (
@@ -25,8 +22,6 @@ const (
 	ChargeAllPotentialLegs ChargePolicyScope = "all_potential_legs"
 )
 
-// ChargePolicy is an immutable customer charging-policy snapshot. It contains
-// no provider or wire types and is reused by post-turn rating in later phases.
 type ChargePolicy struct {
 	Ref                    VersionRef
 	PricingRef             VersionRef
@@ -36,10 +31,6 @@ type ChargePolicy struct {
 	IncludeFixedCharges    bool
 	IncludeResourceCharges bool
 }
-
-// PricingSnapshot is the customer-facing immutable price snapshot. Rates are
-// non-negative nano-units per one million tokens. A zero rate is valid and is
-// distinct from an unavailable rate through the corresponding Present flag.
 type PricingSnapshot struct {
 	Ref                  VersionRef
 	Currency             string
@@ -50,18 +41,10 @@ type PricingSnapshot struct {
 	FixedCharges         []ChargeComponent
 	ResourceCharges      []ChargeComponent
 }
-
-// ChargeComponent is a fixed/resource amount already normalized by the
-// side-effect-free preflight path. The estimator only adds it; it never calls a
-// provider to discover a price or quantity.
 type ChargeComponent struct {
 	Name   string
 	Amount Money
 }
-
-// ChargeRoute is one planned route/model alternative. ModelMaxOutputTokens is
-// required for a finite bound; ClientMaxOutputTokens, when present and valid,
-// narrows that bound when it is lower than the model maximum.
 type ChargeRoute struct {
 	ID                          string
 	Pricing                     PricingSnapshot
@@ -71,30 +54,21 @@ type ChargeRoute struct {
 	FixedCharges                []ChargeComponent
 	ResourceCharges             []ChargeComponent
 }
-
-// MaxChargeInput contains deterministic preflight quantities and all candidate
-// route pricing needed to calculate one conservative customer hold.
 type MaxChargeInput struct {
-	Currency           string
-	InputTokens        int64
-	InputTokensPresent bool
-	Policy             ChargePolicy
-	Routes             []ChargeRoute
-	// ConservativeCeiling is an optional explicit finite safety ceiling for
-	// unknown input/output/rate exposure. It is only used when Strict is true.
+	Currency            string
+	InputTokens         int64
+	InputTokensPresent  bool
+	Policy              ChargePolicy
+	Routes              []ChargeRoute
 	ConservativeCeiling *Money
 	Strict              bool
 }
-
-// BoundComponent explains the immutable components included in a maximum.
 type BoundComponent struct {
 	RouteID string
 	Kind    string
 	Name    string
 	Amount  Money
 }
-
-// MaxCostBound is the exact, snapshot-bound pessimistic customer exposure.
 type MaxCostBound struct {
 	Amount          Money
 	PricingRef      VersionRef
@@ -134,9 +108,6 @@ func (p PricingSnapshot) Validate(currency string) error {
 	return nil
 }
 
-// EstimateMaxCustomerCharge performs no I/O, provider work, or account
-// mutation. Unknown/unbounded exposure fails closed in strict mode unless the
-// caller supplied a finite conservative ceiling.
 func EstimateMaxCustomerCharge(in MaxChargeInput) (MaxCostBound, error) {
 	if err := in.Policy.Validate(); err != nil {
 		return MaxCostBound{}, err
@@ -178,7 +149,6 @@ func EstimateMaxCustomerCharge(in MaxChargeInput) (MaxCostBound, error) {
 	if pricingRef != in.Policy.PricingRef {
 		return MaxCostBound{}, ErrEstimateSnapshot
 	}
-
 	bounds := make([]MaxCostBound, 0, len(in.Routes))
 	for _, route := range in.Routes {
 		bound, err := estimateRoute(in, route, currency)
@@ -187,7 +157,6 @@ func EstimateMaxCustomerCharge(in MaxChargeInput) (MaxCostBound, error) {
 		}
 		bounds = append(bounds, bound)
 	}
-
 	selected := bounds[0]
 	if in.Policy.Scope == ChargeAllPotentialLegs {
 		var total int64
@@ -259,9 +228,6 @@ func estimateRoute(in MaxChargeInput, route ChargeRoute, currency string) (MaxCo
 		}
 	}
 	if in.Policy.IncludeFixedCharges {
-		// PricingSnapshot charges are the rating authority; route-level charges are
-		// additional conservative preflight components. Include both so admission
-		// never under-reserves relative to post-turn rating.
 		for _, component := range route.Pricing.FixedCharges {
 			value, err := componentAmount(component, currency)
 			if err != nil {
@@ -331,8 +297,6 @@ func ceilingOrError(in MaxChargeInput, err error) (MaxCostBound, error) {
 	return MaxCostBound{}, err
 }
 
-// tokensAtRate is the admission/hold arithmetic: floor(tokens*rate/1e6), then
-// +1 nano when a fractional nano remains so holds never under-cover exact rating.
 func tokensAtRate(tokens, rate int64) (int64, error) {
 	amount, err := tokensTimesRatePerMillion(tokens, rate)
 	if err != nil {
@@ -349,8 +313,6 @@ func tokensAtRate(tokens, rate int64) (int64, error) {
 	return amount, nil
 }
 
-// exactTokensAtRate is post-turn rating arithmetic: floor(tokens*rate/1e6).
-// It must not invent nanos; admission uses tokensAtRate for a conservative ceiling.
 func exactTokensAtRate(tokens, rate int64) (int64, error) {
 	return tokensTimesRatePerMillion(tokens, rate)
 }
@@ -368,8 +330,6 @@ func tokensTimesRatePerMillion(tokens, rate int64) (int64, error) {
 		return 0, ErrEstimateOverflow
 	}
 	total := q * uint64(rate)
-	// Decompose the remainder product so r*rate cannot overflow uint64:
-	// r*(rateQ*1e6+rateR)/1e6 = r*rateQ + r*rateR/1e6.
 	rateQ, rateR := uint64(rate)/1_000_000, uint64(rate)%1_000_000
 	part := r * rateQ
 	rem := r * rateR

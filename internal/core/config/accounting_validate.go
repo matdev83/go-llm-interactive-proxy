@@ -179,8 +179,5 @@ func validateAccountingBilling(a *AccountingConfig) error {
 	if a == nil {
 		return nil
 	}
-	if err := parsePositiveDurationOptional("accounting.billing.hold_ttl", a.Billing.HoldTTL); err != nil {
-		return err
-	}
 	return nil
 }

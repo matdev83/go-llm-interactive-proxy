@@ -26,7 +26,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingadmission"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -44,6 +43,9 @@ type executorRuntime struct {
 	CatalogRuntime       *modelcatalog.CatalogRuntime
 	TokenAccountingAdmin *accountingapp.Service
 	ReadinessReport      *corecp.ReadinessReportService
+	// Production is the candidate-local effective production wiring. It is
+	// returned instead of mutating shared BuildOptions during concurrent builds.
+	Production ProductionOptions
 }
 
 // executorBuildInput groups the upstream unit results consumed by
@@ -122,58 +124,78 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		if path := strings.TrimSpace(cfg.Accounting.Billing.ReportsPath); path != "" && strings.TrimSpace(prod.BillingReportsPath) == "" {
 			prod.BillingReportsPath = path
 		}
-		if prod.BillingHoldTTL <= 0 {
-			prod.BillingHoldTTL = cfg.Accounting.Billing.EffectiveHoldTTL()
-			if a, ok := prod.BillingAdmission.(*billingadmission.Adapter); ok {
-				a.SetHoldTTL(prod.BillingHoldTTL)
-			}
-		}
-		if prod.BillingAdmissionRequired && prod.BillingAdmission == nil {
-			return nil, ErrBillingAdmissionRequired
-		}
 		if prod.BillingAuthoritative {
-			if prod.BillingStore == nil || prod.BillingAdmission == nil || prod.BillingIdentity.AccountID == nil || prod.BillingIdentity.AuthorizationID == nil || prod.BillingRatingResolver == nil || in.Ledger == nil {
-				return nil, ErrAuthoritativeBillingRequired
+			if err := requireAuthoritativeBillingPorts(prod, in.Ledger); err != nil {
+				return nil, err
 			}
 			// The authoritative store is the single composition authority for
-			// terminal evidence and reports. Do not permit separately injected
-			// handoff/report implementations to drift from settlement truth.
-			handoff, ok := prod.BillingStore.(billing.UsageRecordAppender)
+			// terminal usage and reports. Do not permit separately injected
+			// appenders to drift from settlement truth.
+			callLegAppender, ok := prod.BillingStore.(billing.CallLegUsageAppender)
 			if !ok {
 				return nil, ErrAuthoritativeBillingRequired
 			}
-			prod.BillingTerminalHandoff = handoff
-			prod.BillingReports = prod.BillingStore
-			postTurnStore, ok := prod.BillingStore.(billing.PostTurnStore)
+			callAppender, ok := prod.BillingStore.(billing.CallUsageAppender)
 			if !ok {
 				return nil, ErrAuthoritativeBillingRequired
 			}
-			worker, err := billing.NewPostTurnWorker(postTurnStore, prod.BillingRatingResolver, billing.PostTurnWorkerConfig{
-				BatchSize: prod.BillingPostTurnBatchSize,
-				Interval:  prod.BillingPostTurnInterval,
-			})
+			appendOutbox, outboxOK := prod.BillingStore.(billing.UsageAppendOutbox)
+			if !outboxOK {
+				return nil, fmt.Errorf("%w: UsageAppendOutbox", ErrAuthoritativeBillingRequired)
+			}
+			retryCallAppender, err := billing.NewRetryingCallUsageAppender(callAppender, appendOutbox)
 			if err != nil {
-				return nil, fmt.Errorf("runtimebundle: authoritative billing worker: %w", err)
+				return nil, fmt.Errorf("runtimebundle: call usage append retry: %w", err)
 			}
-			// PhaseActivate runs during CompileCandidate, before handler
-			// composition and host publication. Start only after Publish.
-			in.Ledger.AddAction(
-				"billing-post-turn-worker", PhasePublish,
-				func(context.Context) error { return worker.Start(context.Background()) },
-				worker.Stop,
-			)
-			in.Ledger.AddClose("billing-post-turn-worker", PhaseQuiesce, func() error {
-				return worker.Stop(context.Background())
-			})
-		} else if prod.BillingTerminalHandoff != nil && (prod.BillingIdentity.AccountID == nil || prod.BillingIdentity.AuthorizationID == nil) {
-			return nil, ErrBillingTerminalIdentityRequired
+			retryLegAppender, err := billing.NewRetryingCallLegUsageAppender(callLegAppender, appendOutbox)
+			if err != nil {
+				return nil, fmt.Errorf("runtimebundle: call-leg usage append retry: %w", err)
+			}
+			prod.BillingCallLegAppender = retryLegAppender
+			prod.BillingCallUsageAppender = retryCallAppender
+			prod.BillingReports = prod.BillingStore
+			appendWorker, err := billing.NewUsageAppendWorker(appendOutbox, callAppender, callLegAppender, prod.BillingPostTurnBatchSize)
+			if err != nil {
+				return nil, fmt.Errorf("runtimebundle: usage append worker: %w", err)
+			}
+			in.Ledger.AddAction("billing-usage-append-worker", PhasePublish, func(context.Context) error { return appendWorker.Start(context.Background()) }, appendWorker.Stop)
+			in.Ledger.AddClose("billing-usage-append-worker", PhaseQuiesce, func() error { return appendWorker.Stop(context.Background()) })
+			if prod.BillingExposureAdmission != nil {
+				callUsage, usageOK := prod.BillingStore.(billing.CallUsageStore)
+				callSettlement, settlementOK := prod.BillingStore.(billing.CallSettlementStore)
+				callResolver := prod.BillingCallRatingResolver
+				if !usageOK || !settlementOK || callResolver == nil {
+					return nil, ErrAuthoritativeBillingRequired
+				}
+				callWorker, err := billing.NewCallPostUsageWorker(callUsage, callSettlement, callResolver, prod.BillingPostTurnBatchSize)
+				if err != nil {
+					return nil, fmt.Errorf("runtimebundle: complete-call billing worker: %w", err)
+				}
+				in.Ledger.AddAction("billing-complete-call-worker", PhasePublish, func(context.Context) error { return callWorker.Start(context.Background()) }, callWorker.Stop)
+				in.Ledger.AddClose("billing-complete-call-worker", PhaseQuiesce, func() error { return callWorker.Stop(context.Background()) })
+
+				providerWork, providerWorkOK := prod.BillingStore.(billing.ProviderCostWorkReader)
+				providerStore, providerStoreOK := prod.BillingStore.(billing.ProviderCostStore)
+				if !providerWorkOK {
+					return nil, fmt.Errorf("%w: ProviderCostWorkReader", ErrAuthoritativeBillingRequired)
+				}
+				if !providerStoreOK {
+					return nil, fmt.Errorf("%w: ProviderCostStore", ErrAuthoritativeBillingRequired)
+				}
+				if prod.BillingProviderCostResolver == nil {
+					return nil, fmt.Errorf("%w: BillingProviderCostResolver", ErrAuthoritativeBillingRequired)
+				}
+				providerWorker, err := billing.NewCallProviderCostWorker(providerWork, providerStore, prod.BillingProviderCostResolver, prod.BillingPostTurnBatchSize)
+				if err != nil {
+					return nil, fmt.Errorf("runtimebundle: provider-cost worker: %w", err)
+				}
+				in.Ledger.AddAction("billing-provider-cost-worker", PhasePublish, func(context.Context) error { return providerWorker.Start(context.Background()) }, providerWorker.Stop)
+				in.Ledger.AddClose("billing-provider-cost-worker", PhaseQuiesce, func() error { return providerWorker.Stop(context.Background()) })
+			}
 		}
 		if prod.MeteringRecorder != nil {
 			meteringRT = &meteringRuntime{Recorder: prod.MeteringRecorder, StoreBacking: "injected"}
 		}
-		// Persist cutover wiring so candidate HTTP composition sees the same
-		// authoritative reports path/store the executor was built with.
-		in.Bctx.Opts.Production = prod
 	} else if cfg.Accounting.Billing.Authoritative {
 		return nil, ErrAuthoritativeBillingRequired
 	}
@@ -278,13 +300,6 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	}
 	routingRT, catalogRuntime := attachModelCatalog(routingRT, in.Model.StartedCatalog, cfg)
 
-	var holdReleaser billing.HoldReleaser
-	if prod.BillingStore != nil {
-		if releaser, ok := prod.BillingStore.(billing.HoldReleaser); ok {
-			holdReleaser = releaser
-		}
-	}
-
 	// Construct executor with all fields set — no post-construction mutation.
 	exec := runtime.NewExecutor(runtime.ExecutorConfig{
 		Core: runtime.CoreRuntime{
@@ -297,13 +312,15 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 			StreamRecovery:       streamRecovery,
 		},
 		Billing: runtime.BillingRuntime{
-			BillingAdmission:       prod.BillingAdmission,
-			BillingLegObserver:     billingLegObserverFor(log),
-			BillingTerminalHandoff: prod.BillingTerminalHandoff,
-			BillingHoldReleaser:    holdReleaser,
-			BillingIdentity:        prod.BillingIdentity,
-			BillingAuthoritative:   prod.BillingAuthoritative,
+			BillingCreditGate:        prod.BillingCreditGate,
+			BillingExposureAdmission: prod.BillingExposureAdmission,
+			BillingLegObserver:       billingLegObserverFor(log),
+			CallLegUsageAppender:     prod.BillingCallLegAppender,
+			CallUsageAppender:        prod.BillingCallUsageAppender,
+			BillingIdentity:          prod.BillingIdentity,
+			BillingAuthoritative:     prod.BillingAuthoritative,
 		},
+
 		Routing:       routingRT,
 		Security:      securityRT,
 		Accounting:    accountingRT,
@@ -315,14 +332,6 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		},
 		Interleaved: interleaved,
 	})
-	if in.Ledger != nil && prod.BillingTerminalHandoff != nil {
-		// Join detached TUR handoff retries before PhaseClose tears down the store.
-		// Registered after the post-turn worker so reverse Quiesce waits handoffs first.
-		in.Ledger.AddClose("billing-handoff-retries", PhaseQuiesce, func() error {
-			exec.WaitBillingHandoffRetriesForClose()
-			return nil
-		})
-	}
 
 	secureSessionStore := in.Persistence.SecureSession.appStore
 	if opts.Diagnostics.SecureSessionStore != nil {
@@ -354,7 +363,24 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		CatalogRuntime:       catalogRuntime,
 		TokenAccountingAdmin: tokenAccountingAdminSvc,
 		ReadinessReport:      readiness,
+		Production:           prod,
 	}, nil
+}
+
+func requireAuthoritativeBillingPorts(prod ProductionOptions, ledger *ResourceLedger) error {
+	switch {
+	case prod.BillingStore == nil:
+		return fmt.Errorf("%w: BillingStore", ErrAuthoritativeBillingRequired)
+	case prod.BillingExposureAdmission == nil:
+		return fmt.Errorf("%w: BillingExposureAdmission", ErrAuthoritativeBillingRequired)
+	case prod.BillingCreditGate == nil:
+		return fmt.Errorf("%w: BillingCreditGate", ErrAuthoritativeBillingRequired)
+	case prod.BillingIdentity.AccountID == nil:
+		return fmt.Errorf("%w: BillingIdentity.AccountID", ErrAuthoritativeBillingRequired)
+	case ledger == nil:
+		return fmt.Errorf("%w: ResourceLedger", ErrAuthoritativeBillingRequired)
+	}
+	return nil
 }
 
 func streamRecoveryConfigFromConfig(cfg *config.Config) (streamrecovery.Config, error) {

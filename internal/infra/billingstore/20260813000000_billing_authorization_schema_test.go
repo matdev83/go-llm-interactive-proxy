@@ -47,7 +47,7 @@ func TestAuthorizationSchemaMigrationUpgradesLegacySQLiteTable(t *testing.T) {
 	if err := authorizationSchemaUp(ctx, bunDB); err != nil {
 		t.Fatalf("idempotent forward migration: %v", err)
 	}
-	for _, column := range sqliteAuthorizationColumns() {
+	for _, column := range sqliteLegacyAuthorizationColumns() {
 		var count int
 		if err := bunDB.NewRaw(`SELECT COUNT(1) FROM pragma_table_info('authorization_holds') WHERE name = ?`, column.name).Scan(ctx, &count); err != nil {
 			t.Fatalf("column %s lookup: %v", column.name, err)

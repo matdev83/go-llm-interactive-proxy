@@ -43,7 +43,7 @@ Opt-in under `routing.override_admin` (`enabled` defaults false). When set, a pr
 
 ## Billing Seams (Not Stream Orchestration)
 
-Runtime has exactly two financial touch points: pessimistic authorize after side-effect-free route planning and before upstream work, then sealed TUR/LUR handoff at the existing terminal owner. Stream handlers must not rate, journal, or accumulate money. Failover, races, and no-retry-after-output stay execution concerns.
+Runtime has exactly two billing touch points: a cheap settled-credit screen before route expansion, then side-effect-free route/quote followed by atomic operational-exposure admission. After admission, terminal ownership appends immutable per-B-leg usage plus one BillingCallID-scoped call closure. Stream handlers must not rate, journal, mutate balance/exposure, or accumulate financial evidence. Failover, races, and no-retry-after-output stay execution concerns.
 
 ---
 

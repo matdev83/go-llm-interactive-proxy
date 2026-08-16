@@ -2,7 +2,6 @@ package billingstore
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
@@ -10,10 +9,6 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// postJournalInTx appends a sealed journal transaction inside a caller-owned
-// account transaction. The caller owns account locking and materialized-state
-// mutation; this helper only handles semantic replay, sequence allocation, and
-// immutable journal rows.
 func (s *DurableStore) postJournalInTx(ctx context.Context, tx bun.Tx, input billing.JournalTransaction) (billing.JournalTransaction, bool, error) {
 	if err := prepareCorrection(ctx, tx, &input); err != nil {
 		return billing.JournalTransaction{}, false, err
@@ -53,15 +48,4 @@ func (s *DurableStore) postJournalInTx(ctx context.Context, tx bun.Tx, input bil
 		}
 	}
 	return sealed, false, nil
-}
-
-func loadJournalForReplay(ctx context.Context, tx bun.Tx, accountID string, book billing.JournalBook, sourceKey string) (billing.JournalTransaction, error) {
-	journal, found, err := lookupJournalBySource(ctx, tx, accountID, book, sourceKey)
-	if err != nil {
-		return billing.JournalTransaction{}, err
-	}
-	if !found {
-		return billing.JournalTransaction{}, sql.ErrNoRows
-	}
-	return journal, nil
 }

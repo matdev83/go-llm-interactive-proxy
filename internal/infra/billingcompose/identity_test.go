@@ -2,7 +2,6 @@ package billingcompose_test
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
@@ -31,9 +30,7 @@ func TestPrincipalSessionIdentity(t *testing.T) {
 		name        string
 		ctx         context.Context
 		call        lipapi.Call
-		aLegID      string
 		wantAccount string
-		wantAuth    string
 	}{
 		{
 			name: "maps principal to account without creating an account",
@@ -44,9 +41,7 @@ func TestPrincipalSessionIdentity(t *testing.T) {
 				AuthoritativeSessionID: "sess-auth",
 				ClientSessionID:        "client-hint-must-ignore",
 			}},
-			aLegID:      "a-leg-1",
 			wantAccount: "acct-42",
-			wantAuth:    "sess-auth:a-leg-1",
 		},
 		{
 			name: "missing principal yields empty account",
@@ -54,9 +49,7 @@ func TestPrincipalSessionIdentity(t *testing.T) {
 			call: lipapi.Call{Session: lipapi.SessionRef{
 				AuthoritativeSessionID: "sess-auth",
 			}},
-			aLegID:      "a-leg-1",
 			wantAccount: "",
-			wantAuth:    "sess-auth:a-leg-1",
 		},
 		{
 			name: "unknown principal yields empty account",
@@ -66,9 +59,7 @@ func TestPrincipalSessionIdentity(t *testing.T) {
 			call: lipapi.Call{Session: lipapi.SessionRef{
 				AuthoritativeSessionID: "sess-auth",
 			}},
-			aLegID:      "a-leg-1",
 			wantAccount: "",
-			wantAuth:    "sess-auth:a-leg-1",
 		},
 		{
 			name: "blank principal yields empty account",
@@ -78,9 +69,7 @@ func TestPrincipalSessionIdentity(t *testing.T) {
 			call: lipapi.Call{Session: lipapi.SessionRef{
 				AuthoritativeSessionID: "sess-auth",
 			}},
-			aLegID:      "a-leg-1",
 			wantAccount: "",
-			wantAuth:    "sess-auth:a-leg-1",
 		},
 		{
 			name: "whitespace-only principal yields empty account",
@@ -90,9 +79,7 @@ func TestPrincipalSessionIdentity(t *testing.T) {
 			call: lipapi.Call{Session: lipapi.SessionRef{
 				AuthoritativeSessionID: "sess-auth",
 			}},
-			aLegID:      "a-leg-1",
 			wantAccount: "",
-			wantAuth:    "sess-auth:a-leg-1",
 		},
 		{
 			name: "trims principal id",
@@ -102,9 +89,7 @@ func TestPrincipalSessionIdentity(t *testing.T) {
 			call: lipapi.Call{Session: lipapi.SessionRef{
 				AuthoritativeSessionID: "sess-auth",
 			}},
-			aLegID:      "a-leg-1",
 			wantAccount: "acct-42",
-			wantAuth:    "sess-auth:a-leg-1",
 		},
 		{
 			name: "client-hint-only session yields empty authorization",
@@ -114,9 +99,7 @@ func TestPrincipalSessionIdentity(t *testing.T) {
 			call: lipapi.Call{Session: lipapi.SessionRef{
 				ClientSessionID: "only-client-hint",
 			}},
-			aLegID:      "a-leg-1",
 			wantAccount: "acct-42",
-			wantAuth:    "",
 		},
 		{
 			name: "missing authoritative session yields empty authorization",
@@ -124,9 +107,7 @@ func TestPrincipalSessionIdentity(t *testing.T) {
 				PrincipalID: scope.Known("acct-42"),
 			}),
 			call:        lipapi.Call{},
-			aLegID:      "a-leg-1",
 			wantAccount: "acct-42",
-			wantAuth:    "",
 		},
 		{
 			name: "empty A-leg yields empty authorization",
@@ -137,9 +118,7 @@ func TestPrincipalSessionIdentity(t *testing.T) {
 				AuthoritativeSessionID: "sess-auth",
 				ALegID:                 "hint-aleg",
 			}},
-			aLegID:      "",
 			wantAccount: "acct-42",
-			wantAuth:    "",
 		},
 		{
 			name: "whitespace A-leg yields empty authorization",
@@ -149,9 +128,7 @@ func TestPrincipalSessionIdentity(t *testing.T) {
 			call: lipapi.Call{Session: lipapi.SessionRef{
 				AuthoritativeSessionID: "sess-auth",
 			}},
-			aLegID:      "   ",
 			wantAccount: "acct-42",
-			wantAuth:    "",
 		},
 		{
 			name: "trims authoritative session and A-leg",
@@ -162,9 +139,7 @@ func TestPrincipalSessionIdentity(t *testing.T) {
 				AuthoritativeSessionID: "  sess-auth  ",
 				ClientSessionID:        "client-hint",
 			}},
-			aLegID:      "  a-leg-1  ",
 			wantAccount: "acct-42",
-			wantAuth:    "sess-auth:a-leg-1",
 		},
 	}
 
@@ -176,13 +151,6 @@ func TestPrincipalSessionIdentity(t *testing.T) {
 			gotAccount := id.AccountID(tt.ctx, tt.call)
 			if gotAccount != tt.wantAccount {
 				t.Errorf("AccountID = %q, want %q", gotAccount, tt.wantAccount)
-			}
-			gotAuth := id.AuthorizationID(tt.ctx, tt.call, tt.aLegID)
-			if gotAuth != tt.wantAuth {
-				t.Errorf("AuthorizationID = %q, want %q", gotAuth, tt.wantAuth)
-			}
-			if strings.Contains(gotAuth, "client") || strings.Contains(gotAuth, "hint") {
-				t.Errorf("AuthorizationID %q used a client session hint", gotAuth)
 			}
 			assertStubSnapshotRefs(t, id, stubRefs)
 		})
@@ -222,8 +190,8 @@ func TestPrincipalSessionIdentity(t *testing.T) {
 
 func assertIdentityResolvers(t *testing.T, id runtime.BillingIdentity) {
 	t.Helper()
-	if id.AccountID == nil || id.AuthorizationID == nil {
-		t.Fatal("AccountID and AuthorizationID resolvers are required")
+	if id.AccountID == nil {
+		t.Fatal("AccountID resolver is required")
 	}
 }
 

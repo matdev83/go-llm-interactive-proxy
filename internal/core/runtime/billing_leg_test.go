@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
@@ -343,21 +343,8 @@ func TestBillingLegEmptyBLegIDUsesColonFreeSyntheticID(t *testing.T) {
 	if got.BLegID != "seq_3" {
 		t.Fatalf("synthetic BLegID = %q, want seq_3 (colon-free for LURKey)", got.BLegID)
 	}
-	// Durable key must be sealable under the Phase 1.3 colon contract.
-	leg := billing.LegUsageRecord{
-		ALegID: "a-1", BLegID: got.BLegID, Seq: 3,
-		BackendID: "backend-a", ProviderID: "backend-a", ModelID: "model-a",
-		Outcome: billing.LegOutcomeWinner, Surfaced: billing.SurfacedYes,
-		StartedAt: time.Unix(1, 0).UTC(), FinishedAt: time.Unix(2, 0).UTC(),
-	}
-	record := billing.TurnUsageRecord{
-		SchemaVersion: billing.CurrentRecordSchemaVersion,
-		AccountID:     "acct", TurnID: "a-1", ALegID: "a-1", AuthorizationID: "auth",
-		StartedAt: time.Unix(1, 0).UTC(), FinishedAt: time.Unix(2, 0).UTC(),
-		Outcome: billing.TurnOutcomeCompleted, Legs: []billing.LegUsageRecord{leg},
-	}
-	if _, err := record.Seal(); err != nil {
-		t.Fatalf("synthetic BLegID must seal: %v", err)
+	if strings.Contains(got.BLegID, ":") {
+		t.Fatalf("synthetic BLegID contains reserved delimiter: %q", got.BLegID)
 	}
 }
 

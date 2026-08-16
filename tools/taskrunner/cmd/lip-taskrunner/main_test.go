@@ -3,11 +3,29 @@ package main
 import (
 	"bytes"
 	"errors"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/tools/taskrunner"
 )
+
+func buildCLIHelper(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "taskrunner-testhelper")
+	if runtime.GOOS == "windows" {
+		path += ".exe"
+	}
+	// Prebuild outside any child timeout. Full-suite load makes `go run` compile
+	// time exceed a 100ms deadline budget and flip this CLI contract to exit 1/3.
+	cmd := exec.Command("go", "build", "-o", path, "../../testhelper")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build test helper: %v\n%s", err, output)
+	}
+	return path
+}
 
 func TestResultExitCodeMapping(t *testing.T) {
 	t.Parallel()
@@ -41,11 +59,12 @@ func TestResultExitCodeMapping(t *testing.T) {
 
 func TestRunDeadlineExceededExitCode(t *testing.T) {
 	t.Parallel()
+	helper := buildCLIHelper(t)
 	var stdout, stderr bytes.Buffer
 	code := run([]string{
 		"--timeout", "100ms",
 		"--output", "capture",
-		"--", "go", "run", "../../testhelper", "-mode=sleep",
+		"--", helper, "-mode=sleep",
 	}, &stdout, &stderr)
 	if code != 2 {
 		t.Fatalf("deadline exceeded exit code = %d, want 2 (approved CLI contract); stderr=%q", code, stderr.String())
@@ -66,13 +85,14 @@ func TestParseRequestTimeoutErrorDetail(t *testing.T) {
 
 func TestRunCaptureWritesFailureDiagnosticsOnce(t *testing.T) {
 	t.Parallel()
+	helper := buildCLIHelper(t)
 	const marker = "unique-taskrunner-failure-marker"
 	var stdout, stderr bytes.Buffer
 
 	code := run([]string{
 		"--timeout", "5s",
 		"--output", "capture",
-		"--", "go", "run", "../../testhelper", "-mode=fail-output", "-marker", marker, "-exit", "23",
+		"--", helper, "-mode=fail-output", "-marker", marker, "-exit", "23",
 	}, &stdout, &stderr)
 	if code == 0 {
 		t.Fatal("capture failure unexpectedly succeeded")
@@ -87,12 +107,13 @@ func TestRunCaptureWritesFailureDiagnosticsOnce(t *testing.T) {
 
 func TestRunCaptureWritesSuccessfulStdoutOnce(t *testing.T) {
 	t.Parallel()
+	helper := buildCLIHelper(t)
 	var stdout, stderr bytes.Buffer
 
 	code := run([]string{
 		"--timeout", "5s",
 		"--output", "capture",
-		"--", "go", "run", "../../testhelper", "-mode=success",
+		"--", helper, "-mode=success",
 	}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("capture succeeded with exit code %d: %q", code, stderr.String())

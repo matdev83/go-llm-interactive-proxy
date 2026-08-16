@@ -3,6 +3,7 @@ package billingstore
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -15,8 +16,8 @@ func TestSQLiteBillingSchemaCreatesRequiredTablesAndIndexes(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	for _, table := range []string{
-		"billing_accounts", "billing_account_policy_events", "authorization_holds",
-		"turn_usage_records", "leg_usage_records", "usage_record_processing",
+		"billing_accounts", "billing_account_policy_events",
+		"turn_usage_records", "leg_usage_records", "usage_leg_records", "usage_call_records", "provider_cost_work", "usage_append_outbox", "usage_record_processing", "call_exposures",
 		"journal_transactions", "journal_entries", "bun_billing_migrations",
 	} {
 		var got string
@@ -27,13 +28,27 @@ func TestSQLiteBillingSchemaCreatesRequiredTablesAndIndexes(t *testing.T) {
 			t.Fatalf("table = %q, want %q", got, table)
 		}
 	}
+	var holdTable string
+	if err := store.db.NewRaw(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, "authorization_holds").Scan(ctx, &holdTable); err == nil {
+		t.Fatalf("authorization_holds should be dropped after migrations, found %q", holdTable)
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("authorization_holds absence lookup: %v", err)
+	}
 	for _, index := range []string{
-		"idx_billing_holds_account_status",
 		"idx_billing_processing_status",
 		"idx_billing_journal_account_sequence",
 		"idx_billing_journal_source",
 		journalReversalUniqueIndex,
 		sessionAccountIndex,
+		usageLegCallBLegIndex,
+		usageCallCallIDIndex,
+		usageCallAccountSessionIndex,
+		usageCallClaimStatusIndex,
+		usageCallClaimPendingIndex,
+		providerCostWorkStatusIndex,
+		providerCostWorkPendingIndex,
+		usageAppendOutboxPendingIndex,
+		exposureAccountStatusIndex,
 	} {
 		var got string
 		if err := store.db.NewRaw(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`, index).Scan(ctx, &got); err != nil {
@@ -71,16 +86,6 @@ func newSQLiteTestStore(t *testing.T) *DurableStore {
 	store, err := NewDurableStore(context.Background(), bunDB, Config{StoreID: "test"})
 	if err != nil {
 		_ = bunDB.Close()
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	return store
-}
-
-func newSQLiteSiblingStore(t *testing.T, primary *DurableStore, storeID string) *DurableStore {
-	t.Helper()
-	store, err := OpenStore(context.Background(), primary.db, Config{StoreID: storeID})
-	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })

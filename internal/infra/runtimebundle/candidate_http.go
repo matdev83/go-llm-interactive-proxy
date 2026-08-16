@@ -49,16 +49,17 @@ type candidateModelGroup struct {
 	registryRuntime *modelregistry.Runtime
 }
 type candidateOperationsGroup struct {
-	billingReports       billing.ReportingStore
-	billingReportsPath   string
-	billingProvisioner   billing.AccountProvisioner
-	tokenAccountingAdmin *accountingapp.Service
-	readinessReport      *controlplane.ReadinessReportService
-	secretGuardInventory *diag.InventoryExtras
-	terminalProcessor    *terminalworkapp.Processor
-	terminalRegistry     *terminalworkapp.Registry
-	terminalQueries      *terminalworkapp.QueryService
-	terminalMetrics      *terminalworkapp.MetricsObserver
+	billingReports          billing.ReportingStore
+	billingReportsPath      string
+	billingProvisioner      billing.AccountProvisioner
+	billingExposureRecovery billing.ExposureRecovery
+	tokenAccountingAdmin    *accountingapp.Service
+	readinessReport         *controlplane.ReadinessReportService
+	secretGuardInventory    *diag.InventoryExtras
+	terminalProcessor       *terminalworkapp.Processor
+	terminalRegistry        *terminalworkapp.Registry
+	terminalQueries         *terminalworkapp.QueryService
+	terminalMetrics         *terminalworkapp.MetricsObserver
 }
 type candidateProcessRefs struct {
 	store                 b2bua.Store

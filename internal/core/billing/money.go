@@ -13,9 +13,6 @@ var (
 	ErrMoneyInvalid          = errors.New("billing: invalid money")
 )
 
-// Money is the authoritative fixed-point monetary value. Nano is signed and
-// Currency is an immutable ISO-like currency identifier; floating point is
-// deliberately not part of the billing domain.
 type Money struct {
 	Nano     int64
 	Currency string
@@ -70,9 +67,7 @@ func (m Money) Neg() (Money, error) {
 	}
 	return Money{Nano: -m.Nano, Currency: m.Currency}, nil
 }
-
 func (m Money) IsNonNegative() bool { return m.Nano >= 0 }
-
 func (m Money) sameCurrency(other Money) error {
 	if err := m.Validate(); err != nil {
 		return err

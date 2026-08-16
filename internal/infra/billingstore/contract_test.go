@@ -17,10 +17,11 @@ func TestSQLiteBillingStoreContract(t *testing.T) {
 	runBillingStoreContract(t, store, "contract-sqlite")
 }
 
-// runBillingStoreContract is the dialect-shared Phase 2 foundation suite.
+// runBillingStoreContract is the dialect-shared foundation suite.
 // SQLite unit tests and PostgreSQL integration tests must exercise the same
-// invariants: balanced posting, replay, correction, snapshots, locking/versioning,
-// concurrent AccountSequence allocation, and crash rollback.
+// invariants: balanced posting, replay, correction, exposure admission,
+// independent usage append, call settlement, locking/versioning, concurrent
+// AccountSequence allocation, and crash rollback.
 func runBillingStoreContract(t *testing.T, store *DurableStore, accountID string) {
 	t.Helper()
 	ctx := context.Background()
@@ -110,71 +111,10 @@ func runBillingStoreContract(t *testing.T, store *DurableStore, accountID string
 		t.Fatalf("replacement = %#v, want group %q", replacement, reversal.CorrectionGroupID)
 	}
 
-	tur := billing.TurnUsageRecord{
-		SchemaVersion:   billing.CurrentRecordSchemaVersion,
-		AccountID:       accountID,
-		TurnID:          accountID + "-turn-1",
-		ALegID:          accountID + "-a-1",
-		AuthorizationID: accountID + "-auth-1",
-		StartedAt:       time.Unix(10, 0).UTC(),
-		FinishedAt:      time.Unix(11, 0).UTC(),
-		Outcome:         billing.TurnOutcomeCompleted,
-		Legs: []billing.LegUsageRecord{{
-			ALegID: accountID + "-a-1", BLegID: accountID + "-b-1", Seq: 1,
-			BackendID: "backend", ProviderID: "provider", ModelID: "model",
-			StartedAt: time.Unix(10, 0).UTC(), FinishedAt: time.Unix(11, 0).UTC(),
-			Outcome: billing.LegOutcomeWinner, Surfaced: billing.SurfacedYes,
-		}},
-	}
-	if err := store.AppendUsageRecord(ctx, tur); err != nil {
-		t.Fatalf("AppendUsageRecord: %v", err)
-	}
-	if err := store.AppendUsageRecord(ctx, tur); err != nil {
-		t.Fatalf("same TUR replay: %v", err)
-	}
-	tur.Legs[0].ModelID = "different-model"
-	if err := store.AppendUsageRecord(ctx, tur); !errors.Is(err, billing.ErrReplayConflict) {
-		t.Fatalf("conflicting TUR replay = %v, want ErrReplayConflict", err)
-	}
-
-	// Snapshot + account locking/versioning via atomic authorization.
-	beforeAuth, err := store.GetAccount(ctx, accountID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	beforeSpendable, err := beforeAuth.SpendableNano()
-	if err != nil {
-		t.Fatal(err)
-	}
-	authorization, authErr := store.Authorize(ctx, authorizationInput(accountID, "authorization-turn", accountID+"-authorization", 10))
-	if authErr != nil {
-		t.Fatalf("Authorize: %v", authErr)
-	}
-	if authorization.Before.SpendableNano != beforeSpendable {
-		t.Fatalf("authorization Before.SpendableNano = %d, want %d", authorization.Before.SpendableNano, beforeSpendable)
-	}
-	if authorization.Before.BalanceNano != beforeAuth.BalanceNano || authorization.Before.ReservedNano != beforeAuth.ReservedNano || authorization.Before.Version != beforeAuth.Version {
-		t.Fatalf("authorization Before snapshot = %+v, want account %+v", authorization.Before, beforeAuth)
-	}
-	if authorization.After.SpendableNano != beforeSpendable-10 {
-		t.Fatalf("authorization spendable after = %d, want %d", authorization.After.SpendableNano, beforeSpendable-10)
-	}
-	if authorization.After.ReservedNano != beforeAuth.ReservedNano+10 {
-		t.Fatalf("authorization reserved after = %d, want %d", authorization.After.ReservedNano, beforeAuth.ReservedNano+10)
-	}
-	if authorization.After.Version != beforeAuth.Version+1 {
-		t.Fatalf("authorization version after = %d, want %d", authorization.After.Version, beforeAuth.Version+1)
-	}
-	if _, err := store.Authorize(ctx, authorizationInput(accountID, "authorization-turn", accountID+"-authorization", 10)); err != nil {
-		t.Fatalf("same authorization replay: %v", err)
-	}
-	account, err := store.GetAccount(ctx, accountID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if account.Version != authorization.After.Version || account.ReservedNano != authorization.After.ReservedNano {
-		t.Fatalf("account after authorization = %+v, want version/reserved from snapshot %+v", account, authorization.After)
-	}
+	// Exposure / independent usage / call settlement are the authoritative path.
+	runBillingStoreExposureAdmissionContract(t, store, accountID+"-exposure")
+	runBillingStoreIndependentUsageContract(t, store, accountID+"-usage")
+	runBillingStoreCallSettlementContract(t, store, accountID+"-settle")
 
 	runBillingStoreConcurrentSequenceContract(t, store, accountID+"-seq")
 	runBillingStoreCrashRollbackContract(t, store, accountID+"-rollback")
@@ -274,5 +214,216 @@ INSERT INTO journal_transactions(
 	}
 	if sourceCount != 0 {
 		t.Fatalf("rolled-back source_key still present (%d rows)", sourceCount)
+	}
+}
+
+func runBillingStoreExposureAdmissionContract(t *testing.T, store *DurableStore, accountID string) {
+	t.Helper()
+	ctx := context.Background()
+	account := billing.Account{ID: accountID, Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}
+	if err := store.CreateAccount(ctx, account); err != nil {
+		t.Fatal(err)
+	}
+	input := billing.AdmitExposureInput{
+		AccountID: accountID, CallID: "bc_" + accountID + "_1", Max: billing.Money{Nano: 60, Currency: "USD"},
+		PricingRef: billing.VersionRef{ID: "pricing", Version: "v1"}, ChargePolicyRef: billing.VersionRef{ID: "policy", Version: "v1"},
+	}
+	got, err := store.AdmitExposure(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.IsOpen() || got.Max.Nano != 60 {
+		t.Fatalf("exposure = %+v", got)
+	}
+	unchanged, err := store.GetAccount(ctx, accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.BalanceNano != 100 || unchanged.ReservedNano != 0 || unchanged.Version != 1 {
+		t.Fatalf("admit mutated money: %+v", unchanged)
+	}
+	if _, err := store.AdmitExposure(ctx, input); err != nil {
+		t.Fatalf("identical exposure replay: %v", err)
+	}
+	conflict := input
+	conflict.Max.Nano = 61
+	if _, err := store.AdmitExposure(ctx, conflict); !errors.Is(err, billing.ErrExposureConflict) {
+		t.Fatalf("conflicting exposure replay = %v, want ErrExposureConflict", err)
+	}
+
+	const count = 2
+	errs := make(chan error, count)
+	var wg sync.WaitGroup
+	for i := 0; i < count; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := store.AdmitExposure(context.Background(), billing.AdmitExposureInput{
+				AccountID: accountID, CallID: "bc_" + accountID + "_c" + itoa(i), Max: billing.Money{Nano: 60, Currency: "USD"},
+				PricingRef: billing.VersionRef{ID: "pricing", Version: "v1"}, ChargePolicyRef: billing.VersionRef{ID: "policy", Version: "v1"},
+			})
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	admitted := 0
+	for err := range errs {
+		switch {
+		case err == nil:
+			admitted++
+		case errors.Is(err, billing.ErrExposureInsufficient):
+		default:
+			t.Fatalf("concurrent exposure admit = %v", err)
+		}
+	}
+	if admitted != 0 {
+		// First admit already used 60 of 100; concurrent 60+60 can admit at most one more (40 left => zero).
+		t.Fatalf("concurrent admits after prior 60 = %d, want 0", admitted)
+	}
+}
+
+func runBillingStoreIndependentUsageContract(t *testing.T, store *DurableStore, accountID string) {
+	t.Helper()
+	ctx := context.Background()
+	if err := store.CreateAccount(ctx, billing.Account{ID: accountID, Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 50, State: billing.AccountReady, Version: 1}); err != nil {
+		t.Fatal(err)
+	}
+	callID, err := billing.NewBillingCallID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := billing.CallUsageRecord{
+		SchemaVersion: billing.CurrentRecordSchemaVersion, CallID: callID, AccountID: accountID, ALegID: "a-1", SessionID: "s-1",
+		StartedAt: time.Unix(10, 0).UTC(), FinishedAt: time.Unix(11, 0).UTC(), Outcome: billing.TurnOutcomeCompleted,
+		CustomerPricingRef: billing.VersionRef{ID: "prices", Version: "v1"}, ChargePolicyRef: billing.VersionRef{ID: "policy", Version: "v2"},
+		ExpectedBLegIDs: []string{"b-1"},
+	}
+	if err := store.AppendCallUsage(ctx, call); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendCallUsage(ctx, call); err != nil {
+		t.Fatalf("call usage replay: %v", err)
+	}
+	conflict := call
+	conflict.Outcome = billing.TurnOutcomeFailed
+	if err := store.AppendCallUsage(ctx, conflict); !errors.Is(err, billing.ErrReplayConflict) {
+		t.Fatalf("call usage conflict = %v, want ErrReplayConflict", err)
+	}
+	leg := billing.CallLegUsageRecord{
+		CallID: callID, ALegID: "a-1", BLegID: "b-1",
+		BackendID: "backend", ProviderID: "provider", ModelID: "model",
+		StartedAt: time.Unix(10, 0).UTC(), FinishedAt: time.Unix(11, 0).UTC(),
+		Outcome: billing.LegOutcomeWinner, Surfaced: billing.SurfacedYes,
+	}
+	if err := store.AppendCallLegUsage(ctx, leg); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendCallLegUsage(ctx, leg); err != nil {
+		t.Fatalf("leg usage replay: %v", err)
+	}
+	before, err := store.GetAccount(ctx, accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journals, err := store.JournalTransactions(ctx, accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.BalanceNano != 50 || len(journals) != 0 {
+		t.Fatalf("usage append mutated money: account=%+v journals=%d", before, len(journals))
+	}
+}
+
+func runBillingStoreCallSettlementContract(t *testing.T, store *DurableStore, accountID string) {
+	t.Helper()
+	ctx := context.Background()
+	if err := store.CreateAccount(ctx, billing.Account{ID: accountID, Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}); err != nil {
+		t.Fatal(err)
+	}
+	callID, err := billing.NewBillingCallID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := billing.CallUsageRecord{
+		SchemaVersion: billing.CurrentRecordSchemaVersion, CallID: callID, AccountID: accountID, ALegID: "a-settle",
+		StartedAt: time.Unix(100, 0).UTC(), FinishedAt: time.Unix(101, 0).UTC(), Outcome: billing.TurnOutcomeCompleted,
+		CustomerPricingRef: billing.VersionRef{ID: "prices", Version: "v1"}, ChargePolicyRef: billing.VersionRef{ID: "policy", Version: "v2"},
+		ExpectedBLegIDs: []string{"b-1"},
+	}
+	if err := store.AppendCallUsage(ctx, call); err != nil {
+		t.Fatal(err)
+	}
+	exposure, err := store.AdmitExposure(ctx, billing.AdmitExposureInput{
+		AccountID: accountID, CallID: callID.String(), Max: billing.Money{Nano: 60, Currency: "USD"},
+		PricingRef: call.CustomerPricingRef, ChargePolicyRef: call.ChargePolicyRef,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := billing.CallRatingResult{CallID: callID, CustomerCharge: billing.Money{Nano: 25, Currency: "USD"}, Fingerprint: accountID + "-fp"}
+	if _, err := store.ApplyCallBillingResult(ctx, billing.ApplyCallBillingInput{Call: call, Exposure: exposure, Result: result}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetAccount(ctx, accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.BalanceNano != 75 {
+		t.Fatalf("balance after settlement = %d, want 75", got.BalanceNano)
+	}
+	var status string
+	if err := store.db.NewRaw(`SELECT status FROM call_exposures WHERE call_id = ?`, callID.String()).Scan(ctx, &status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "closed" {
+		t.Fatalf("exposure status = %q, want closed", status)
+	}
+	replay, err := store.ApplyCallBillingResult(ctx, billing.ApplyCallBillingInput{Call: call, Exposure: exposure, Result: result})
+	if err != nil {
+		t.Fatalf("settlement replay: %v", err)
+	}
+	if !replay.Replayed {
+		t.Fatalf("settlement replay = %+v, want Replayed", replay)
+	}
+
+	overID, err := billing.NewBillingCallID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	overCall := call
+	overCall.CallID = overID
+	overCall.ALegID = "a-over"
+	if err := store.AppendCallUsage(ctx, overCall); err != nil {
+		t.Fatal(err)
+	}
+	overExposure, err := store.AdmitExposure(ctx, billing.AdmitExposureInput{
+		AccountID: accountID, CallID: overID.String(), Max: billing.Money{Nano: 10, Currency: "USD"},
+		PricingRef: overCall.CustomerPricingRef, ChargePolicyRef: overCall.ChargePolicyRef,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.ApplyCallBillingResult(ctx, billing.ApplyCallBillingInput{
+		Call: overCall, Exposure: overExposure,
+		Result: billing.CallRatingResult{CallID: overID, CustomerCharge: billing.Money{Nano: 11, Currency: "USD"}, Fingerprint: accountID + "-over"},
+	})
+	if !errors.Is(err, billing.ErrSettlementReconcileRequired) {
+		t.Fatalf("actual>max = %v, want ErrSettlementReconcileRequired", err)
+	}
+	overAccount, err := store.GetAccount(ctx, accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overAccount.State != billing.AccountReconcileRequired {
+		t.Fatalf("state = %s, want reconcile_required", overAccount.State)
+	}
+	var overStatus string
+	if err := store.db.NewRaw(`SELECT status FROM call_exposures WHERE call_id = ?`, overID.String()).Scan(ctx, &overStatus); err != nil {
+		t.Fatal(err)
+	}
+	if overStatus != "open" {
+		t.Fatalf("over-max exposure status = %q, want open", overStatus)
 	}
 }

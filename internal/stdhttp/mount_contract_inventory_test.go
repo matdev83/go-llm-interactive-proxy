@@ -48,7 +48,7 @@ var mountContractInventory = []mountInventoryRow{
 	},
 	{
 		Helper: "mountBillingReports", File: "mount_admin.go", Input: "billingReportsMount",
-		BuiltFields: []string{"BillingReports", "BillingReportsPath", "BillingProvisioner"}, DesiredGroups: []string{"Operations"},
+		BuiltFields: []string{"BillingReports", "BillingReportsPath", "BillingProvisioner", "BillingExposureRecovery"}, DesiredGroups: []string{"Operations"},
 		Lifecycle: "none", BehaviorTests: []string{"TestBillingReportsMountedAndProtected"},
 	},
 	{

@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-// sqlPlaceholders returns n comma-separated "?" tokens for parameterized IN lists.
 func sqlPlaceholders(n int) string {
 	if n <= 0 {
 		return ""
@@ -35,8 +34,6 @@ func sqlInArgs(values []string) ([]any, error) {
 	return args, nil
 }
 
-// waitContention parks briefly between SQLite-busy / unique-race retries without
-// allocating a fresh timer per loop via time.After.
 func waitContention(ctx context.Context, d time.Duration) error {
 	if d <= 0 {
 		return ctx.Err()

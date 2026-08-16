@@ -186,10 +186,12 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 	var billingReports billing.ReportingStore
 	var billingReportsPath string
 	var billingProvisioner billing.AccountProvisioner
+	var billingExposureRecovery billing.ExposureRecovery
 	if cand != nil {
 		billingReports = cand.operations.billingReports
 		billingReportsPath = cand.operations.billingReportsPath
 		billingProvisioner = cand.operations.billingProvisioner
+		billingExposureRecovery = cand.operations.billingExposureRecovery
 	}
 	var maxBody int64
 	var preKA lipsdk.FrontendKeepaliveConfig
@@ -217,16 +219,17 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 			ConcurrencyAuthority: cpadmin.AdaptConcurrencyAuthorityQueries(cand.process.concurrencyAuthority),
 		},
 		Operations: httpcontract.HTTPOperationsInput{
-			BillingReports:       billingReports,
-			BillingReportsPath:   billingReportsPath,
-			BillingProvisioner:   billingProvisioner,
-			Metrics:              cand.process.metrics,
-			Store:                cand.process.store,
-			SecretGuardInventory: cand.operations.secretGuardInventory,
-			ControlPlaneQueries:  cpadmin.AdaptControlPlaneQueries(cand.process.controlPlaneQueries),
-			ReadinessReport:      cpadmin.AdaptReadinessReport(cand.operations.readinessReport),
-			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(cand.operations.tokenAccountingAdmin),
-			Registrations:        httpcontract.CloneRegistrations(regs),
+			BillingReports:          billingReports,
+			BillingReportsPath:      billingReportsPath,
+			BillingProvisioner:      billingProvisioner,
+			BillingExposureRecovery: billingExposureRecovery,
+			Metrics:                 cand.process.metrics,
+			Store:                   cand.process.store,
+			SecretGuardInventory:    cand.operations.secretGuardInventory,
+			ControlPlaneQueries:     cpadmin.AdaptControlPlaneQueries(cand.process.controlPlaneQueries),
+			ReadinessReport:         cpadmin.AdaptReadinessReport(cand.operations.readinessReport),
+			TokenAccountingAdmin:    adminaccounting.AdaptCountCallService(cand.operations.tokenAccountingAdmin),
+			Registrations:           httpcontract.CloneRegistrations(regs),
 		},
 		Models: httpcontract.HTTPModelInput{
 			CatalogRuntime:       cand.models.catalog,

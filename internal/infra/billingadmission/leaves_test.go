@@ -39,10 +39,19 @@ func TestCollectPlannedLeavesCoversFailoverWeightedAndParallel(t *testing.T) {
 			},
 		},
 		{
-			name:     "duplicate leaves are unique",
+			name:     "failover duplicate leaves retained",
 			selector: "backend:model|backend:model",
 			want: []plannedLeaf{
 				{Key: "backend:model", Backend: "backend", Model: "model"},
+				{Key: "backend:model", Backend: "backend", Model: "model"},
+			},
+		},
+		{
+			name:     "parallel duplicate leaves retained",
+			selector: "a:m1!a:m1",
+			want: []plannedLeaf{
+				{Key: "a:m1", Backend: "a", Model: "m1"},
+				{Key: "a:m1", Backend: "a", Model: "m1"},
 			},
 		},
 	}

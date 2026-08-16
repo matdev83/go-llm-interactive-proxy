@@ -8,8 +8,7 @@ import (
 // admissionOnlyBilling implements AuthoritativeBilling by embedding its
 // constituent ports and must compile without AccountProvisioner methods.
 type admissionOnlyBilling struct {
-	SettlementStore
-	ProcessingStore
+	CallSettlementStore
 	ReportingStore
 }
 

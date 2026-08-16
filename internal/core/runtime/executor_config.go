@@ -39,10 +39,9 @@ import (
 )
 
 // BillingIdentity is the composition-root identity bundle shared by billing
-// admission and terminal TUR seal so those seams cannot drift.
+// exposure admission and terminal call-closure stamping so those seams cannot drift.
 type BillingIdentity struct {
 	AccountID          func(context.Context, lipapi.Call) string
-	AuthorizationID    func(context.Context, lipapi.Call, string) string
 	CustomerPricingRef func(context.Context, lipapi.Call) billing.VersionRef
 	ChargePolicyRef    func(context.Context, lipapi.Call) billing.VersionRef
 	OperatorRateRef    func(context.Context, string, string) billing.VersionRef
@@ -59,40 +58,32 @@ type CoreRuntime struct {
 	StreamRecovery       streamrecovery.Config
 }
 
-// BillingRuntime is the only executor grouping for monetary admission, TUR
-// handoff, unused-hold release, and observational LUR listeners. Token quota
-// and usage-authority stay on AccountingRuntime.
+// BillingRuntime carries the runtime seams for two-stage exposure admission and
+// durable terminal usage. Token quota and usage-authority stay on AccountingRuntime.
 type BillingRuntime struct {
-	// BillingAdmission runs after side-effect-free route planning and before
-	// provider/connector work. It may compute a max customer charge and
-	// atomically create a durable authorization hold. Streaming and post-turn
-	// handlers never call it.
-	BillingAdmission BillingAdmission
+	// BillingCreditGate is the cheap settled-credit screen. Authoritative
+	// billing requires it; when wired, runtime invokes it after identity
+	// preparation and before route expansion.
+	BillingCreditGate BillingCreditGate
+	// BillingExposureAdmission is the authoritative operational-exposure seam.
+	// When set, it replaces hold admission for this executor generation.
+	BillingExposureAdmission BillingExposureAdmission
 	// BillingLegObserver receives one recorded LUR at terminal ownership.
 	// It is observational only and never participates in authorization,
 	// settlement, retry, cancellation, or client-visible output.
 	BillingLegObserver BillingLegObserver
-	// BillingTerminalHandoff appends one sealed TUR after request terminal
-	// ownership. It is never called during stream processing and its failure
-	// cannot change selected output.
-	BillingTerminalHandoff billing.UsageRecordAppender
-	// BillingHoldReleaser releases unused authorization holds when TUR handoff
-	// exhausts without evidence. Composition wires the same durable store used
-	// for admission; runtime never duck-types this port.
-	BillingHoldReleaser billing.HoldReleaser
-	// HandoffOutbox owns detached TUR seal retry. Nil uses a process-local
-	// memory outbox so tests and non-authoritative wiring still retry without
-	// holding a live stream.
-	HandoffOutbox billing.HandoffOutbox
-	// BillingIdentity is the single composition identity bundle for admission
-	// stamping. Terminal TUR seal reads the stamped values and does not
-	// re-resolve these functions.
+	// CallLegUsageAppender appends independent terminal B-leg evidence. Append
+	// failures are detached diagnostics and never affect provider retry/output.
+	CallLegUsageAppender billing.CallLegUsageAppender
+	// CallUsageAppender appends one sealed call-closure record after the
+	// request terminal owner guarantees no further B-leg can be allocated.
+	// Nil is a no-op for non-billing tests.
+	CallUsageAppender billing.CallUsageAppender
+	// BillingIdentity is the composition identity bundle for exposure admission
+	// and terminal call-closure stamping. It contains no hold/authorization identity.
 	BillingIdentity BillingIdentity
-	// BillingAuthoritative is the composition cutover flag. When true, Bun TUR
-	// handoff, post-turn settlement, and journal-backed reports are the sole
-	// monetary authority. Stream handlers never enrich prices or write the
-	// legacy token ledger regardless of this flag; non-money quota/rate-limit
-	// coordination remains on the existing authority ports.
+	// BillingAuthoritative is the composition cutover flag. When true, durable
+	// exposure admission and post-usage processors are the monetary authority.
 	BillingAuthoritative bool
 }
 

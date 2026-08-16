@@ -429,6 +429,7 @@ func TestBillingCommandsRejectUntrustedMethods(t *testing.T) {
 		{method: http.MethodPut, path: "/funding", allow: http.MethodPost},
 		{method: http.MethodGet, path: "/credit-policy", allow: http.MethodPost},
 		{method: http.MethodPatch, path: "/credit-policy", allow: http.MethodPost},
+		{method: http.MethodGet, path: "/exposure-repair", allow: http.MethodPost},
 	}
 	for _, tt := range tests {
 		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
@@ -444,6 +445,91 @@ func TestBillingCommandsRejectUntrustedMethods(t *testing.T) {
 			assertJSONError(t, rec, "method_not_allowed")
 		})
 	}
+}
+
+type recordingRecovery struct {
+	completeCalls   []string
+	incompleteCalls []string
+	sourceKeys      []string
+	err             error
+	settlement      corebilling.CallSettlement
+}
+
+func (r *recordingRecovery) RepairExposureNoCharge(_ context.Context, callID corebilling.BillingCallID, sourceKey string) (corebilling.CallSettlement, error) {
+	r.completeCalls = append(r.completeCalls, callID.String())
+	r.sourceKeys = append(r.sourceKeys, sourceKey)
+	if r.err != nil {
+		return corebilling.CallSettlement{}, r.err
+	}
+	return r.settlement, nil
+}
+
+func (r *recordingRecovery) RepairIncompleteCallNoCharge(_ context.Context, callID corebilling.BillingCallID, sourceKey string) (corebilling.CallSettlement, error) {
+	r.incompleteCalls = append(r.incompleteCalls, callID.String())
+	r.sourceKeys = append(r.sourceKeys, sourceKey)
+	if r.err != nil {
+		return corebilling.CallSettlement{}, r.err
+	}
+	return r.settlement, nil
+}
+
+var _ corebilling.ExposureRecovery = (*recordingRecovery)(nil)
+
+func TestBillingExposureRepairCompleteAndIncomplete(t *testing.T) {
+	t.Parallel()
+	callID, err := corebilling.NewBillingCallID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovery := &recordingRecovery{settlement: corebilling.CallSettlement{CallID: callID}}
+	h := NewHandler(Options{Recovery: recovery})
+
+	complete := postJSON(h, "/exposure-repair", `{"call_id":"`+callID.String()+`","source_key":"op-1","mode":"complete"}`)
+	if complete.Code != http.StatusOK {
+		t.Fatalf("complete status=%d body=%s", complete.Code, complete.Body.String())
+	}
+	incomplete := postJSON(h, "/exposure-repair", `{"call_id":"`+callID.String()+`","source_key":"op-2","mode":"incomplete"}`)
+	if incomplete.Code != http.StatusOK {
+		t.Fatalf("incomplete status=%d body=%s", incomplete.Code, incomplete.Body.String())
+	}
+	if len(recovery.completeCalls) != 1 || recovery.completeCalls[0] != callID.String() {
+		t.Fatalf("complete calls=%v", recovery.completeCalls)
+	}
+	if len(recovery.incompleteCalls) != 1 || recovery.incompleteCalls[0] != callID.String() {
+		t.Fatalf("incomplete calls=%v", recovery.incompleteCalls)
+	}
+}
+
+func TestBillingExposureRepairMapsErrors(t *testing.T) {
+	t.Parallel()
+	callID, err := corebilling.NewBillingCallID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Run("nil recovery", func(t *testing.T) {
+		t.Parallel()
+		rec := postJSON(NewHandler(Options{}), "/exposure-repair", `{"call_id":"`+callID.String()+`","source_key":"op","mode":"complete"}`)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("status=%d want 503 body=%s", rec.Code, rec.Body.String())
+		}
+		assertJSONError(t, rec, "recovery_unavailable")
+	})
+	t.Run("invalid mode", func(t *testing.T) {
+		t.Parallel()
+		rec := postJSON(NewHandler(Options{Recovery: &recordingRecovery{}}), "/exposure-repair", `{"call_id":"`+callID.String()+`","source_key":"op","mode":"force"}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status=%d want 400 body=%s", rec.Code, rec.Body.String())
+		}
+		assertJSONError(t, rec, "invalid_command")
+	})
+	t.Run("incomplete evidence", func(t *testing.T) {
+		t.Parallel()
+		rec := postJSON(NewHandler(Options{Recovery: &recordingRecovery{err: corebilling.ErrCallIncomplete}}), "/exposure-repair", `{"call_id":"`+callID.String()+`","source_key":"op","mode":"incomplete"}`)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("status=%d want 404 body=%s", rec.Code, rec.Body.String())
+		}
+		assertJSONError(t, rec, "not_found")
+	})
 }
 
 func postJSON(h http.Handler, path, body string) *httptest.ResponseRecorder {

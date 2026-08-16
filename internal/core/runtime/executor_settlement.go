@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
@@ -229,7 +230,7 @@ func (s *retryRecvStream) finalizeResponseFinishedAuthority(ctx context.Context,
 	var usageEv lipapi.Event
 	var ok bool
 	var err error
-	r := s.runStreamTerminal(ctx, sdkterminal.CommandNormalFinish, func(cctx context.Context) error {
+	effects := func(cctx context.Context) error {
 		if s.tokenAccountingFinalized {
 			return nil
 		}
@@ -244,10 +245,17 @@ func (s *retryRecvStream) finalizeResponseFinishedAuthority(ctx context.Context,
 		}
 		s.authority.ApplyUnreservedUsage(cctx, authorityapp.SettlementKindFinal, authorityEv)
 		s.emitBackendEgressMeteringFact(cctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, authorityEv)
-		// Request settlement receives only non-money authority/egress evidence.
-		// Monetary rating and journal settlement remain exclusive to TUR/LUR post-turn.
+		if s.isInterleavedThinker {
+			return nil
+		}
 		return s.settleRequestAuthorityWithFrontendEgress(cctx, authorityEv)
-	})
+	}
+	var r terminal.Result
+	if s.isInterleavedThinker {
+		r = s.runAttemptTerminal(ctx, sdkterminal.CommandNormalFinish, effects)
+	} else {
+		r = s.runStreamTerminal(ctx, sdkterminal.CommandNormalFinish, effects)
+	}
 	if !r.Won {
 		// Another exit path already terminalized; surface cancel/error consistently.
 		return lipapi.Event{}, false, terminalLossError(r)

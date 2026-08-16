@@ -2,14 +2,11 @@ package runtime
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
@@ -150,41 +147,6 @@ func TestAuthoritativeBillingKeepsNonMoneyAuthorityCoordination(t *testing.T) {
 	}
 	if !stream.authority.Settled() {
 		t.Fatal("non-money authority lifecycle was not finalized")
-	}
-}
-
-func TestAuthoritativeBillingRequiresBillingAdmission(t *testing.T) {
-	t.Parallel()
-
-	store, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ex := TestExecutor()
-	ex.BillingAuthoritative = true
-	ex.BillingAdmission = nil
-	ex.Store = store
-	ex.Bus = hooks.New(hooks.Config{})
-	ex.Rand = routing.NewSeededRng(1)
-	ex.Backends = map[string]execbackend.Backend{
-		"openai": {
-			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-				t.Fatal("backend must not open when authoritative admission is missing")
-				return nil, nil
-			},
-		},
-	}
-	_, err = ex.Execute(context.Background(), &lipapi.Call{
-		ID:    "authoritative-missing-admission",
-		Route: lipapi.RouteIntent{Selector: "openai:gpt-test"},
-		Messages: []lipapi.Message{{
-			Role:  lipapi.RoleUser,
-			Parts: []lipapi.Part{lipapi.TextPart("hi")},
-		}},
-	})
-	if !errors.Is(err, ErrBillingAdmissionDenied) {
-		t.Fatalf("error = %v, want ErrBillingAdmissionDenied", err)
 	}
 }
 

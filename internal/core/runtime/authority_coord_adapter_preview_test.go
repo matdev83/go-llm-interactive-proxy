@@ -108,7 +108,7 @@ func TestMapAdmissionDecision_SpendClampRetiredFromAuthorityAdapter(t *testing.T
 		},
 	}, "attempt-ua", authority.StageAttemptAdmit)
 	if len(d.Clamps) != 0 {
-		t.Fatalf("clamps=%+v want none (BillingAdmission owns monetary clamps)", d.Clamps)
+		t.Fatalf("clamps=%+v want none (exposure admission owns monetary clamps)", d.Clamps)
 	}
 }
 

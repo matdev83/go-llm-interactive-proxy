@@ -309,7 +309,6 @@ continuity:
 #   billing:
 #     authoritative: false          # requires injected journal store; see docs
 #     reports_path: /admin/billing
-#     hold_ttl: 15m                 # authorization hold lifetime when ExpiresAt is omitted
 
 # Stream recovery (SSE comment keepalives while waiting on upstream; auto-resume is off by default):
 # stream_recovery:

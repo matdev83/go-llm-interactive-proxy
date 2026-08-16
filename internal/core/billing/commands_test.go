@@ -3,7 +3,6 @@ package billing
 import (
 	"errors"
 	"testing"
-	"time"
 )
 
 func TestTrustedCommandsRejectArbitraryOrNonPositiveOperations(t *testing.T) {
@@ -16,9 +15,6 @@ func TestTrustedCommandsRejectArbitraryOrNonPositiveOperations(t *testing.T) {
 	}
 	if _, err := FundingJournalIntent(FundingInput{}); !errors.Is(err, ErrTrustedCommandInvalid) {
 		t.Fatalf("empty funding intent = %v, want invalid", err)
-	}
-	if err := (ReleaseAuthorizationInput{AccountID: "a", AuthorizationID: "auth", TURKey: "tur", Reason: ReleaseOperator}).Validate(); !errors.Is(err, ErrTrustedCommandInvalid) {
-		t.Fatalf("zero operator release = %v, want invalid", err)
 	}
 }
 
@@ -95,48 +91,6 @@ func TestCreditPolicyRejectsPrepaidLimitAndRequiresReason(t *testing.T) {
 	}
 	if err := (CreditPolicyInput{AccountID: "a", Mode: AccountPostpaid, Currency: "USD", CreditLimit: 1, SourceKey: "s"}).Validate(); !errors.Is(err, ErrTrustedCommandInvalid) {
 		t.Fatalf("missing reason = %v, want invalid", err)
-	}
-}
-
-func TestSafeReleaseRequiresInactiveLifetimeAndGrace(t *testing.T) {
-	t.Parallel()
-	created := time.Unix(100, 0).UTC()
-	inactive := created.Add(2 * time.Minute)
-	eligibility := SafeReleaseEligibility{AuthorizationCreated: created, AlegInactiveAt: inactive, MaximumExecutionLife: 5 * time.Minute, SafetyGrace: time.Minute, Now: created.Add(7 * time.Minute)}
-	if err := eligibility.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	eligibility.Now = created.Add(5 * time.Minute)
-	if !errors.Is(eligibility.Validate(), ErrReleaseNotEligible) {
-		t.Fatalf("early release = %v", eligibility.Validate())
-	}
-	if err := (ReleaseAuthorizationInput{AccountID: "a", AuthorizationID: "auth", TURKey: "tur", Amount: Money{Nano: 1, Currency: "USD"}, Reason: ReleaseStaleSafe}).Validate(); !errors.Is(err, ErrReleaseNotEligible) {
-		t.Fatalf("missing stale proof = %v", err)
-	}
-}
-
-func TestProcessingStatusValidationAndConflictIdentity(t *testing.T) {
-	t.Parallel()
-	state := UsageRecordProcessing{TURKey: "tur", TURFingerprint: "fp", Status: ProcessingProcessing, LeaseOwner: "worker", RetryCount: 1}
-	if err := state.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	state.Status = "unknown"
-	if !errors.Is(state.Validate(), ErrProcessingInvalid) {
-		t.Fatalf("unknown processing state = %v", state.Validate())
-	}
-	if ErrProcessingConflict == nil {
-		t.Fatal("conflict sentinel must exist")
-	}
-	for _, status := range []ProcessingStatus{ProcessingPending, ProcessingProcessing, ProcessingRetryable, ProcessingUnreconciledCost} {
-		if !status.BlocksHoldRelease() {
-			t.Fatalf("%s should block non-settlement hold release", status)
-		}
-	}
-	for _, status := range []ProcessingStatus{ProcessingProcessed, ProcessingTerminalError} {
-		if status.BlocksHoldRelease() {
-			t.Fatalf("%s should allow hold release after terminal processing", status)
-		}
 	}
 }
 

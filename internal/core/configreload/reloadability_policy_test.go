@@ -161,22 +161,6 @@ func TestReloadabilityClassify_ShutdownTimeout_RestartRequired(t *testing.T) {
 	}
 }
 
-func TestReloadabilityClassify_BillingHoldTTL_RestartRequired(t *testing.T) {
-	t.Parallel()
-	active := baseConfig()
-	candidate := baseConfig()
-	candidate.Accounting.Billing.HoldTTL = "30m"
-
-	_, err := configreload.Classify(active, candidate)
-	var rr *configreload.RestartRequiredError
-	if !errors.As(err, &rr) {
-		t.Fatalf("hold_ttl change must be restart_required, got %v", err)
-	}
-	if !containsPath(rr.RestartRequiredFields, "accounting.billing.hold_ttl") {
-		t.Fatalf("want accounting.billing.hold_ttl, got %v", rr.RestartRequiredFields)
-	}
-}
-
 func TestReloadabilityClassify_ConditionalTopologyChange_RestartRequired(t *testing.T) {
 	t.Parallel()
 	active := baseConfig()

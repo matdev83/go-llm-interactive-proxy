@@ -26,15 +26,11 @@ const (
 	AccountReconcileRequired AccountState = "reconcile_required"
 )
 
-// Account is the materialized admission state reconstructed from the journal.
-// BalanceNano is signed customer-account credits minus debits. ReservedNano is
-// authorization exposure and never part of posted financial balance.
 type Account struct {
-	ID          string
-	Currency    string
-	Mode        AccountMode
-	CreditLimit int64
-
+	ID           string
+	Currency     string
+	Mode         AccountMode
+	CreditLimit  int64
 	BalanceNano  int64
 	ReservedNano int64
 	Version      uint64
@@ -54,6 +50,9 @@ func (a Account) Validate() error {
 	if a.ReservedNano < 0 {
 		return fmt.Errorf("%w: reserved amount cannot be negative", ErrAccountInvalid)
 	}
+	if a.State == AccountReady && a.ReservedNano != 0 {
+		return fmt.Errorf("%w: ready accounts must have zero reserved_nano", ErrAccountInvalid)
+	}
 	if a.State != AccountReady && a.State != AccountReconcileRequired {
 		return fmt.Errorf("%w: unsupported state %q", ErrAccountInvalid, a.State)
 	}
@@ -67,17 +66,12 @@ func (a Account) CreditFloorNano() int64 {
 	return 0
 }
 
-// SpendableNano applies Balance - CreditFloor - Reserved using checked math.
 func (a Account) SpendableNano() (int64, error) {
 	if err := a.Validate(); err != nil {
 		return 0, err
 	}
 	floor := a.CreditFloorNano()
-	available, err := checkedSub(a.BalanceNano, floor)
-	if err != nil {
-		return 0, err
-	}
-	return checkedSub(available, a.ReservedNano)
+	return checkedSub(a.BalanceNano, floor)
 }
 
 func (a Account) Spendable() (Money, error) {
@@ -86,56 +80,6 @@ func (a Account) Spendable() (Money, error) {
 		return Money{}, err
 	}
 	return Money{Nano: nano, Currency: a.Currency}, nil
-}
-
-// Authorize returns a detached account with an additional hold. It never
-// mutates the receiver and rejects reconcile-required accounts before money is
-// reserved.
-func (a Account) Authorize(amount Money) (Account, error) {
-	if err := a.Validate(); err != nil {
-		return Account{}, err
-	}
-	if a.State != AccountReady {
-		return Account{}, ErrAccountNotReady
-	}
-	if err := amount.Validate(); err != nil {
-		return Account{}, err
-	}
-	if amount.Currency != a.Currency {
-		return Account{}, ErrMoneyCurrencyMismatch
-	}
-	if amount.Nano < 0 {
-		return Account{}, fmt.Errorf("%w: authorization amount must be non-negative", ErrAccountInvalid)
-	}
-	spendable, err := a.SpendableNano()
-	if err != nil {
-		return Account{}, err
-	}
-	if spendable < amount.Nano {
-		return Account{}, ErrInsufficientSpendable
-	}
-	reserved, err := checkedAdd(a.ReservedNano, amount.Nano)
-	if err != nil {
-		return Account{}, err
-	}
-	out := a
-	out.ReservedNano = reserved
-	return out, nil
-}
-
-func (a Account) Release(amount Money) (Account, error) {
-	if err := a.Validate(); err != nil {
-		return Account{}, err
-	}
-	if amount.Currency != a.Currency {
-		return Account{}, ErrMoneyCurrencyMismatch
-	}
-	if amount.Nano < 0 || amount.Nano > a.ReservedNano {
-		return Account{}, fmt.Errorf("%w: release amount exceeds reserved exposure", ErrAccountInvalid)
-	}
-	out := a
-	out.ReservedNano -= amount.Nano
-	return out, nil
 }
 
 func (a Account) ApplyBalanceDelta(delta Money) (Account, error) {

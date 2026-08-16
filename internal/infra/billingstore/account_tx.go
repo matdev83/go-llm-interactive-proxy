@@ -6,9 +6,6 @@ import (
 	"time"
 )
 
-// accountTxRetry is the shared SQLite-busy / unique-race budget for one
-// account-scoped store transaction. Callers keep their existing attempt
-// counts and backoff; ReconcileAccount's stale-snapshot loop is not this path.
 type accountTxRetry struct {
 	Attempts  int
 	Delay     time.Duration

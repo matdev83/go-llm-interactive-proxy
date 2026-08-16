@@ -13,18 +13,9 @@ import (
 )
 
 var (
-	// ErrSnapshotImmutable is returned when Put receives a known version with a
-	// different body. Identical replay of the published body is allowed.
-	ErrSnapshotImmutable = errors.New("billingcompose: published snapshot is immutable")
-	// ErrSnapshotNotFound is returned when a lookup or binding names a version
-	// that is not in the catalog.
-	ErrSnapshotNotFound = errors.New("billingcompose: snapshot not found")
-	// ErrPolicyPricingMismatch is returned when SetDefaults binds a charge
-	// policy whose PricingRef identity does not equal the customer pricing ref.
-	ErrPolicyPricingMismatch = errors.New("billingcompose: charge policy pricing ref does not match customer pricing")
-	// ErrBindingImmutable is returned when a route or operator binding is
-	// rebound to a different version after being set. Bindings are immutable so
-	// settlement always resolves the same version admitted with.
+	ErrSnapshotImmutable      = errors.New("billingcompose: published snapshot is immutable")
+	ErrSnapshotNotFound       = errors.New("billingcompose: snapshot not found")
+	ErrPolicyPricingMismatch  = errors.New("billingcompose: charge policy pricing ref does not match customer pricing")
 	ErrBindingImmutable       = errors.New("billingcompose: route binding is immutable")
 	errNilSnapshotCatalog     = errors.New("billingcompose: nil snapshot catalog")
 	errBackendModelRequired   = errors.New("billingcompose: backend and model are required")
@@ -35,15 +26,10 @@ type versionKey struct {
 	id      string
 	version string
 }
-
 type routeKey struct {
 	backend string
 	model   string
 }
-
-// SnapshotCatalog is an in-memory immutable catalog of pricing, charge-policy,
-// and operator-rate snapshot bodies. Put keys by VersionRef ID+Version;
-// EffectiveAt and FetchedAt do not create a second identity.
 type SnapshotCatalog struct {
 	mu               sync.RWMutex
 	pricing          map[versionKey]billing.PricingSnapshot
@@ -56,7 +42,6 @@ type SnapshotCatalog struct {
 	operatorBindings map[routeKey]versionKey
 }
 
-// NewSnapshotCatalog returns an empty in-memory snapshot catalog.
 func NewSnapshotCatalog() *SnapshotCatalog {
 	return &SnapshotCatalog{
 		pricing:          make(map[versionKey]billing.PricingSnapshot),
@@ -67,8 +52,6 @@ func NewSnapshotCatalog() *SnapshotCatalog {
 	}
 }
 
-// PutPricing publishes a customer pricing snapshot. A second put of the same
-// ID+Version with a different body is rejected; identical replay succeeds.
 func (c *SnapshotCatalog) PutPricing(snapshot billing.PricingSnapshot) error {
 	if c == nil {
 		return errNilSnapshotCatalog
@@ -90,7 +73,6 @@ func (c *SnapshotCatalog) PutPricing(snapshot billing.PricingSnapshot) error {
 	return nil
 }
 
-// PutPolicy publishes a charge-policy snapshot. Identity is ID+Version.
 func (c *SnapshotCatalog) PutPolicy(snapshot billing.ChargePolicy) error {
 	if c == nil {
 		return errNilSnapshotCatalog
@@ -111,7 +93,6 @@ func (c *SnapshotCatalog) PutPolicy(snapshot billing.ChargePolicy) error {
 	return nil
 }
 
-// PutOperatorRate publishes an operator-rate snapshot. Identity is ID+Version.
 func (c *SnapshotCatalog) PutOperatorRate(snapshot billing.OperatorRateSnapshot) error {
 	if c == nil {
 		return errNilSnapshotCatalog
@@ -132,9 +113,6 @@ func (c *SnapshotCatalog) PutOperatorRate(snapshot billing.OperatorRateSnapshot)
 	return nil
 }
 
-// SetDefaults binds admission default customer pricing and charge policy. Both
-// refs must already be published, and the policy PricingRef must equal the
-// customer pricing identity.
 func (c *SnapshotCatalog) SetDefaults(CustomerPricing, ChargePolicy billing.VersionRef) error {
 	if c == nil {
 		return errNilSnapshotCatalog
@@ -159,8 +137,6 @@ func (c *SnapshotCatalog) SetDefaults(CustomerPricing, ChargePolicy billing.Vers
 	return nil
 }
 
-// HasDefaults reports whether admission defaults (customer pricing and charge
-// policy) are bound. It is the canonical completeness probe for ComposeBilling.
 func (c *SnapshotCatalog) HasDefaults() bool {
 	if c == nil {
 		return false
@@ -170,10 +146,6 @@ func (c *SnapshotCatalog) HasDefaults() bool {
 	return c.hasDefaults
 }
 
-// SetRoutePricing binds a backend/model pair to an already published pricing
-// snapshot. Admission RoutePricing uses this override in preference to defaults.
-// The binding is immutable: rebinding an existing route to a different version
-// fails so settlement always matches the version admitted with.
 func (c *SnapshotCatalog) SetRoutePricing(backend, model string, ref billing.VersionRef) error {
 	if c == nil {
 		return errNilSnapshotCatalog
@@ -198,9 +170,6 @@ func (c *SnapshotCatalog) SetRoutePricing(backend, model string, ref billing.Ver
 	return nil
 }
 
-// SetOperatorRateBinding binds a backend/model pair to an already published
-// operator-rate snapshot. Unbound pairs resolve to an empty VersionRef. The
-// binding is immutable: rebinding to a different version fails.
 func (c *SnapshotCatalog) SetOperatorRateBinding(backend, model string, ref billing.VersionRef) error {
 	if c == nil {
 		return errNilSnapshotCatalog
@@ -225,23 +194,12 @@ func (c *SnapshotCatalog) SetOperatorRateBinding(backend, model string, ref bill
 	return nil
 }
 
-// SnapshotsFor returns exact catalog bodies for the version refs stored on the
-// TUR and its LURs. Missing refs fail closed with no substitute version. It
-// never loads or returns an Authorization hold.
-//
-// When any TUR leg matches a published route override, ModelPricing is a
-// complete per-unique-(BackendID, ModelID) card set. Bound routes carry
-// override rate amounts; unbound routes carry the TUR CustomerPricing body.
-// Every card's Pricing.Ref equals the TUR CustomerPricing identity, not the
-// override document's version identity. Empty ModelPricing means no override
-// applied and every billed leg uses CustomerPricing.
 func (c *SnapshotCatalog) SnapshotsFor(record billing.TurnUsageRecord) (pricing billing.PricingSnapshot, policy billing.ChargePolicy, rates []billing.OperatorRateSnapshot, modelPricing []billing.ModelCustomerPricing, err error) {
 	if c == nil {
 		return billing.PricingSnapshot{}, billing.ChargePolicy{}, nil, nil, errNilSnapshotCatalog
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-
 	pricing, ok := c.pricing[keyOf(record.CustomerPricingRef)]
 	if !ok {
 		return billing.PricingSnapshot{}, billing.ChargePolicy{}, nil, nil, lookupMiss("customer pricing")
@@ -250,7 +208,6 @@ func (c *SnapshotCatalog) SnapshotsFor(record billing.TurnUsageRecord) (pricing 
 	if !ok {
 		return billing.PricingSnapshot{}, billing.ChargePolicy{}, nil, nil, lookupMiss("charge policy")
 	}
-
 	seenRates := make(map[versionKey]struct{})
 	for _, leg := range record.Legs {
 		if emptyRef(leg.OperatorRateRef) {
@@ -267,19 +224,13 @@ func (c *SnapshotCatalog) SnapshotsFor(record billing.TurnUsageRecord) (pricing 
 		seenRates[rk] = struct{}{}
 		rates = append(rates, rate)
 	}
-
 	modelPricing, err = c.modelPricingForRecord(record, pricing)
 	if err != nil {
 		return billing.PricingSnapshot{}, billing.ChargePolicy{}, nil, nil, err
 	}
-
 	return clonePricing(pricing), policy, rates, modelPricing, nil
 }
 
-// RoutePricing returns per-route customer pricing when bound, otherwise the
-// catalog default. Bound routes keep override rate amounts but use the catalog
-// default customer-pricing identity so admission MaxCharge can accept the
-// route (route.Pricing.Ref == Policy.PricingRef). Missing defaults fail closed.
 func (c *SnapshotCatalog) RoutePricing(ctx context.Context, backend, model string) (billing.PricingSnapshot, error) {
 	if err := catalogCtxErr(ctx, c); err != nil {
 		return billing.PricingSnapshot{}, err
@@ -303,7 +254,6 @@ func (c *SnapshotCatalog) RoutePricing(ctx context.Context, backend, model strin
 	return clonePricing(identity), nil
 }
 
-// Policy returns the catalog default charge-policy snapshot.
 func (c *SnapshotCatalog) Policy(ctx context.Context, _ lipapi.Call) (billing.ChargePolicy, error) {
 	if err := catalogCtxErr(ctx, c); err != nil {
 		return billing.ChargePolicy{}, err
@@ -320,8 +270,6 @@ func (c *SnapshotCatalog) Policy(ctx context.Context, _ lipapi.Call) (billing.Ch
 	return policy, nil
 }
 
-// CustomerPricingRef returns the default customer pricing identity, or zero
-// when defaults are unset.
 func (c *SnapshotCatalog) CustomerPricingRef(_ context.Context, _ lipapi.Call) billing.VersionRef {
 	if c == nil {
 		return billing.VersionRef{}
@@ -337,8 +285,6 @@ func (c *SnapshotCatalog) CustomerPricingRef(_ context.Context, _ lipapi.Call) b
 	return billing.VersionRef{}
 }
 
-// ChargePolicyRef returns the default charge-policy identity, or zero when
-// defaults are unset.
 func (c *SnapshotCatalog) ChargePolicyRef(_ context.Context, _ lipapi.Call) billing.VersionRef {
 	if c == nil {
 		return billing.VersionRef{}
@@ -354,8 +300,19 @@ func (c *SnapshotCatalog) ChargePolicyRef(_ context.Context, _ lipapi.Call) bill
 	return billing.VersionRef{}
 }
 
-// OperatorRateRef returns the bound operator-rate identity for backend/model,
-// or a zero VersionRef when unbound.
+func (c *SnapshotCatalog) OperatorRate(ref billing.VersionRef) (billing.OperatorRateSnapshot, error) {
+	if c == nil {
+		return billing.OperatorRateSnapshot{}, errNilSnapshotCatalog
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	rate, ok := c.operatorRates[keyOf(ref)]
+	if !ok {
+		return billing.OperatorRateSnapshot{}, lookupMiss("operator rate")
+	}
+	return rate, nil
+}
+
 func (c *SnapshotCatalog) OperatorRateRef(_ context.Context, backend, model string) billing.VersionRef {
 	if c == nil {
 		return billing.VersionRef{}
@@ -383,7 +340,6 @@ func (c *SnapshotCatalog) modelPricingForRecord(record billing.TurnUsageRecord, 
 	if !anyOverride {
 		return nil, nil
 	}
-
 	var cards []billing.ModelCustomerPricing
 	seenRoutes := make(map[routeKey]struct{})
 	for _, leg := range record.Legs {

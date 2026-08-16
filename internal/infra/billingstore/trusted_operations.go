@@ -69,7 +69,7 @@ func (s *DurableStore) postFinancialCommand(ctx context.Context, kind, accountID
 	return withAccountTx(ctx, accountTxRetry{
 		Attempts:  30,
 		Delay:     3 * time.Millisecond,
-		Exhausted: fmt.Errorf("%w: retry budget exhausted", billing.ErrAuthorizationUnavailable),
+		Exhausted: fmt.Errorf("%w: retry budget exhausted", billing.ErrBillingStoreUnavailable),
 	}, func() (billing.Posting, error) {
 		return s.postFinancialAttempt(ctx, kind, operationKey, strings.TrimSpace(accountID), strings.TrimSpace(sourceKey), fingerprint, amount, balanceDelta, intent)
 	})
@@ -118,13 +118,6 @@ func (s *DurableStore) postFinancialAttempt(ctx context.Context, kind, operation
 	if err != nil {
 		return billing.Posting{}, err
 	}
-	// Debits must not leave spendable negative while authorization holds remain.
-	// Floor-only checks ignore reserved exposure and can strand later settlement.
-	if spendable, spendErr := after.SpendableNano(); spendErr != nil {
-		return billing.Posting{}, spendErr
-	} else if spendable < 0 {
-		return billing.Posting{}, billing.ErrInsufficientSpendable
-	}
 	if account.Version >= math.MaxInt64 {
 		return billing.Posting{}, fmt.Errorf("%w: account version overflow", billing.ErrTrustedCommandInvalid)
 	}
@@ -156,7 +149,7 @@ func (s *DurableStore) postFinancialAttempt(ctx context.Context, kind, operation
 		return billing.Posting{}, fmt.Errorf("billingstore: update %s account: %w", kind, err)
 	}
 	if err := requireRowsAffected(accountResult, 1, kind+" account version"); err != nil {
-		return billing.Posting{}, fmt.Errorf("%w: %v", billing.ErrAuthorizationUnavailable, err)
+		return billing.Posting{}, fmt.Errorf("%w: %v", billing.ErrBillingStoreUnavailable, err)
 	}
 	if err := insertOperationSnapshot(ctx, tx, operationSnapshotInput{OperationKey: operationKey, AccountID: accountID, OperationKind: kind, SourceKey: sourceKey, Fingerprint: fingerprint, Before: before, After: afterSnapshot, SequenceStart: posted.AccountSequence, SequenceEnd: posted.AccountSequence}); err != nil {
 		return billing.Posting{}, err
@@ -178,7 +171,7 @@ func (s *DurableStore) ChangeCreditPolicy(ctx context.Context, input billing.Cre
 	change, err := withAccountTx(ctx, accountTxRetry{
 		Attempts:  30,
 		Delay:     3 * time.Millisecond,
-		Exhausted: fmt.Errorf("%w: credit policy retry budget exhausted", billing.ErrAuthorizationUnavailable),
+		Exhausted: fmt.Errorf("%w: credit policy retry budget exhausted", billing.ErrBillingStoreUnavailable),
 	}, func() (billing.PolicyChange, error) {
 		return s.changeCreditPolicyAttempt(ctx, input, fp)
 	})
@@ -248,7 +241,7 @@ func (s *DurableStore) changeCreditPolicyAttempt(ctx context.Context, input bill
 		return billing.PolicyChange{}, fmt.Errorf("billingstore: update policy: %w", err)
 	}
 	if err := requireRowsAffected(policyResult, 1, "policy account version"); err != nil {
-		return billing.PolicyChange{}, fmt.Errorf("%w: %v", billing.ErrAuthorizationUnavailable, err)
+		return billing.PolicyChange{}, fmt.Errorf("%w: %v", billing.ErrBillingStoreUnavailable, err)
 	}
 	if err := insertOperationSnapshot(ctx, tx, operationSnapshotInput{OperationKey: operationKey, AccountID: input.AccountID, OperationKind: kind, SourceKey: source, Fingerprint: fp, Before: before, After: after}); err != nil {
 		return billing.PolicyChange{}, err
@@ -257,178 +250,6 @@ func (s *DurableStore) changeCreditPolicyAttempt(ctx context.Context, input bill
 		return billing.PolicyChange{}, fmt.Errorf("billingstore: commit policy: %w", err)
 	}
 	return billing.PolicyChange{OperationKey: operationKey, Before: before, After: after}, nil
-}
-
-func (s *DurableStore) ReleaseAuthorization(ctx context.Context, input billing.ReleaseAuthorizationInput) (billing.Posting, error) {
-	if err := input.Validate(); err != nil {
-		return billing.Posting{}, err
-	}
-	if s == nil || s.db == nil {
-		return billing.Posting{}, fmt.Errorf("billingstore: nil store")
-	}
-	return withAccountTx(ctx, accountTxRetry{
-		Attempts:  30,
-		Delay:     3 * time.Millisecond,
-		Exhausted: fmt.Errorf("%w: authorization release retry budget exhausted", billing.ErrAuthorizationUnavailable),
-	}, func() (billing.Posting, error) {
-		return s.releaseAuthorizationAttempt(ctx, input)
-	})
-}
-
-func (s *DurableStore) releaseAuthorizationAttempt(ctx context.Context, input billing.ReleaseAuthorizationInput) (billing.Posting, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return billing.Posting{}, err
-	}
-	defer func() { _ = tx.Rollback() }()
-	if err := lockAccount(ctx, tx, s.db.Dialect().Name(), input.AccountID); err != nil {
-		return billing.Posting{}, err
-	}
-	var hold authorizationHoldRow
-	err = tx.NewRaw(`SELECT hold_key, authorization_id, account_id, tur_key, currency, amount_nano, status, source_key, fingerprint, pricing_ref, charge_policy_ref, mode, balance_before_nano, balance_after_nano, reserved_before_nano, reserved_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, version_before, version_after, closed_reason, released_amount_nano, closed_source_key, closed_fingerprint, closed_amount_nano, expires_at, created_at, closed_at FROM authorization_holds WHERE account_id = ? AND authorization_id = ? AND tur_key = ?`, input.AccountID, input.AuthorizationID, input.TURKey).Scan(ctx, &hold)
-	if errors.Is(err, sql.ErrNoRows) {
-		return billing.Posting{}, ErrAuthorizationHoldNotFound
-	}
-	if err != nil {
-		return billing.Posting{}, err
-	}
-	remaining := hold.AmountNano - hold.ReleasedAmount
-	if remaining < 0 {
-		return billing.Posting{}, fmt.Errorf("%w: hold released amount invalid", billing.ErrAuthorizationInvalid)
-	}
-	amount := input.Amount.Nano
-	if hold.Status == "closed" && hold.ClosedAmount > 0 {
-		amount = hold.ClosedAmount
-	} else if input.FullClose || (amount == 0 && input.Reason == billing.ReleaseZeroCharge) {
-		amount = remaining
-	}
-	if amount < 0 || (hold.Status != "closed" && amount > remaining) {
-		return billing.Posting{}, fmt.Errorf("%w: release exceeds open exposure", billing.ErrAuthorizationInvalid)
-	}
-	if input.Amount.Nano > 0 && input.Amount.Currency != hold.Currency {
-		return billing.Posting{}, billing.ErrMoneyCurrencyMismatch
-	}
-	if input.Reason == billing.ReleaseStaleSafe {
-		if err := (billing.SafeReleaseEligibility{AlegInactiveAt: input.AlegInactiveAt, AuthorizationCreated: hold.CreatedAt, Now: input.Now, MaximumExecutionLife: input.MaximumExecutionLife, SafetyGrace: input.SafetyGrace}).Validate(); err != nil {
-			return billing.Posting{}, err
-		}
-	}
-	source := strings.TrimSpace(input.SourceKey)
-	if source == "" {
-		source = input.AuthorizationID + ":" + string(input.Reason)
-	}
-	closedSource := billing.ScopedOperationKey("authorization-release", input.AccountID, source)
-	fpInput := input
-	fpInput.SourceKey = source
-	fp, err := fpInput.Fingerprint(amount)
-	if err != nil {
-		return billing.Posting{}, err
-	}
-	if existing, found, err := loadOperationSnapshot(ctx, tx, input.AccountID, "authorization_release", source); err != nil {
-		return billing.Posting{}, err
-	} else if found {
-		if existing.Fingerprint != fp {
-			return billing.Posting{}, ErrOperationConflict
-		}
-		if existing.SequenceStart == 0 && existing.SequenceEnd == 0 {
-			// Zero-amount releases persist a snapshot without a journal row.
-			return postingFromSnapshot(existing, billing.JournalTransaction{}, true), nil
-		}
-		journal, err := requireJournalBySource(ctx, tx, input.AccountID, billing.JournalBookAuthorization, closedSource)
-		if err != nil {
-			return billing.Posting{}, err
-		}
-		return postingFromSnapshot(existing, journal, true), nil
-	}
-	if hold.Status == "closed" || remaining == 0 {
-		if hold.ClosedSourceKey != closedSource || hold.ClosedFingerprint != fp {
-			return billing.Posting{}, ErrOperationConflict
-		}
-		if hold.ClosedAmount == 0 {
-			return billing.Posting{OperationKey: closedSource, Replayed: true}, nil
-		}
-		journal, err := requireJournalBySource(ctx, tx, input.AccountID, billing.JournalBookAuthorization, closedSource)
-		if err != nil {
-			return billing.Posting{}, err
-		}
-		return billing.Posting{OperationKey: closedSource, Transaction: journal, Replayed: true}, nil
-	}
-	var processingStatus string
-	procErr := tx.NewRaw(`SELECT status FROM usage_record_processing WHERE tur_key = ?`, hold.TURKey).Scan(ctx, &processingStatus)
-	if procErr == nil {
-		if billing.ProcessingStatus(processingStatus).BlocksHoldRelease() {
-			return billing.Posting{}, billing.ErrHoldReleaseBlocked
-		}
-	} else if !errors.Is(procErr, sql.ErrNoRows) {
-		return billing.Posting{}, procErr
-	}
-	account, err := getAccountTx(ctx, tx, input.AccountID)
-	if err != nil {
-		return billing.Posting{}, err
-	}
-	before, err := snapshotForAccount(account)
-	if err != nil {
-		return billing.Posting{}, err
-	}
-	after, err := account.Release(billing.Money{Nano: amount, Currency: hold.Currency})
-	if err != nil {
-		return billing.Posting{}, err
-	}
-	if account.Version >= math.MaxInt64 {
-		return billing.Posting{}, fmt.Errorf("%w: account version overflow", billing.ErrTrustedCommandInvalid)
-	}
-	after.Version = account.Version + 1
-	afterSnapshot, err := snapshotForAccount(after)
-	if err != nil {
-		return billing.Posting{}, err
-	}
-	var posted billing.JournalTransaction
-	var existing bool
-	if amount > 0 {
-		posted = billing.JournalTransaction{ID: closedSource, Book: billing.JournalBookAuthorization, Currency: hold.Currency, SourceKey: closedSource, AccountID: input.AccountID, TurnID: input.TURKey, ALegID: input.TURKey, OperationKind: "authorization_release", BalanceBefore: before.BalanceNano, BalanceAfter: afterSnapshot.BalanceNano, ReservedBefore: before.ReservedNano, ReservedAfter: afterSnapshot.ReservedNano, SpendableBefore: before.SpendableNano, SpendableAfter: afterSnapshot.SpendableNano, CreditFloor: before.CreditFloorNano, CreditLimit: before.CreditLimitNano, Mode: string(before.Mode), SnapshotVersionBefore: before.Version, SnapshotVersionAfter: afterSnapshot.Version, Entries: []billing.JournalEntry{{LedgerAccount: "authorization_contra", Side: billing.JournalDebit, Amount: billing.Money{Nano: amount, Currency: hold.Currency}}, {LedgerAccount: "customer_reserved_exposure", Side: billing.JournalCredit, Amount: billing.Money{Nano: amount, Currency: hold.Currency}}}}
-		posted, existing, err = s.postJournalInTx(ctx, tx, posted)
-		if err != nil {
-			return billing.Posting{}, err
-		}
-		if existing {
-			return billing.Posting{}, ErrOperationConflict
-		}
-	}
-	newReleased := hold.ReleasedAmount + amount
-	if amount == remaining {
-		closedAt := time.Now().UTC().Format(time.RFC3339Nano)
-		holdResult, err := tx.NewRaw(`UPDATE authorization_holds SET status = 'closed', released_amount_nano = ?, closed_reason = ?, closed_source_key = ?, closed_fingerprint = ?, closed_amount_nano = ?, closed_at = ? WHERE hold_key = ? AND status = 'open'`, newReleased, string(input.Reason), closedSource, fp, amount, closedAt, hold.HoldKey).Exec(ctx)
-		if err != nil {
-			return billing.Posting{}, err
-		}
-		if err := requireRowsAffected(holdResult, 1, "close authorization hold"); err != nil {
-			return billing.Posting{}, fmt.Errorf("%w: %v", billing.ErrAuthorizationUnavailable, err)
-		}
-	} else {
-		// Partial release must not stamp closed_* identity fields while the hold
-		// remains open; those fields are reserved for the final close replay key.
-		holdResult, err := tx.NewRaw(`UPDATE authorization_holds SET released_amount_nano = ? WHERE hold_key = ? AND status = 'open' AND released_amount_nano = ?`, newReleased, hold.HoldKey, hold.ReleasedAmount).Exec(ctx)
-		if err != nil {
-			return billing.Posting{}, err
-		}
-		if err := requireRowsAffected(holdResult, 1, "partial authorization release"); err != nil {
-			return billing.Posting{}, fmt.Errorf("%w: %v", billing.ErrAuthorizationUnavailable, err)
-		}
-	}
-	accountResult, err := tx.NewRaw(`UPDATE billing_accounts SET reserved_nano = ?, version = ?, updated_at = ? WHERE account_id = ? AND version = ?`, afterSnapshot.ReservedNano, afterSnapshot.Version, time.Now().UTC(), input.AccountID, account.Version).Exec(ctx)
-	if err != nil {
-		return billing.Posting{}, err
-	}
-	if err := requireRowsAffected(accountResult, 1, "release account version"); err != nil {
-		return billing.Posting{}, fmt.Errorf("%w: %v", billing.ErrAuthorizationUnavailable, err)
-	}
-	if err := insertOperationSnapshot(ctx, tx, operationSnapshotInput{OperationKey: closedSource, AccountID: input.AccountID, OperationKind: "authorization_release", SourceKey: source, Fingerprint: fp, Before: before, After: afterSnapshot, SequenceStart: posted.AccountSequence, SequenceEnd: posted.AccountSequence}); err != nil {
-		return billing.Posting{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return billing.Posting{}, err
-	}
-	return billing.Posting{OperationKey: closedSource, Transaction: posted, Before: before, After: afterSnapshot}, nil
 }
 
 type operationSnapshotInput struct {

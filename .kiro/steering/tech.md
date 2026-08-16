@@ -42,9 +42,10 @@
 
 ## Billing Persistence & Injection
 
-- **Domain vs store**: `internal/core/billing` owns TUR/LUR, holds, rating, and journal commands. `internal/infra/billingstore` owns Bun SQLite/PostgreSQL mechanics. `internal/infra/billingcompose` owns the in-memory versioned snapshot catalog and identity mapping. `internal/infra/billingadmission` adapts authorize onto runtime admission.
-- **Injection only**: Hosts open the journal themselves and call `runtimebundle.ComposeBilling`, then pass `ProductionOptions` into `BuildHost`. YAML `accounting.billing.authoritative: true` is a fail-closed gate, not a DSN factory. Stock `lipstd` does not call `ComposeBilling`. Public `pkg/lipruntime.Options` stays non-money.
-- **Catalog vs journal**: Snapshot **bodies** live in the process-local catalog (ID+Version). Holds and sealed usage records store refs only. A missing referenced version fails closed at rating.
+- **Domain vs store**: `internal/core/billing` owns BillingCallID, quote/rating policy, immutable usage/exposure contracts, and financial journal commands. `internal/infra/billingstore` owns Bun SQLite/PostgreSQL mechanics. `internal/infra/billingcompose` owns the in-memory versioned snapshot catalog and identity mapping. `internal/infra/billingadmission` adapts cheap-screen plus operational-exposure admission.
+- **Injection only**: Hosts open the durable store themselves and call `runtimebundle.ComposeBilling`, then pass `ProductionOptions` into `BuildHost`. YAML `accounting.billing.authoritative: true` is a fail-closed gate, not a DSN factory. Stock `lipstd` does not call `ComposeBilling`. Public `pkg/lipruntime.Options` stays non-money.
+- **Catalog vs journal**: Snapshot **bodies** live in the process-local catalog (ID+Version). Exposure/call/usage records store immutable refs only. A missing referenced version fails closed at rating.
+- **Billing separation**: Operational exposure is not settled money. Admission does not post a journal or mutate balance; customer settlement closes exposure after terminal usage, while provider COGS is an independent per-B-leg operation.
 - **Leftover YAML**: `accounting.ledger.*` may parse but must not open. Production `accounting.authority` rejects monetary `budget` / `spend_cap` / `money_nano`.
 
 ---

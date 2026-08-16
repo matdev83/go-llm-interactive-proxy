@@ -20,7 +20,8 @@ func billingLegObserverFor(log *slog.Logger) runtimecore.BillingLegObserver {
 }
 
 func (o billingLegObserver) ObserveBillingLeg(ctx context.Context, record billing.LegUsageRecord) {
-	o.log.LogAttrs(ctx, slog.LevelDebug, "lip.billing_b_leg",
+	o.log.LogAttrs(
+		ctx, slog.LevelDebug, "lip.billing_b_leg",
 		slog.String("a_leg_id", record.ALegID),
 		slog.String("b_leg_id", record.BLegID),
 		slog.Int("attempt_seq", record.Seq),

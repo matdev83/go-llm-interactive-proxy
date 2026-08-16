@@ -1,24 +1,19 @@
 package billing
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
 )
 
 var (
-	ErrRatingInvalid                    = errors.New("billing: invalid rating input")
-	ErrRatingSnapshotMismatch           = errors.New("billing: rating snapshot identity mismatch")
-	ErrRatingCurrencyMismatch           = errors.New("billing: rating currency mismatch")
-	ErrRatingEvidenceMissing            = errors.New("billing: required rating evidence is missing")
-	ErrActualChargeExceedsAuthorization = errors.New("billing: actual customer charge exceeds authorization")
-	ErrUnreconciledCost                 = errors.New("billing: provider cost is unreconciled")
+	ErrRatingInvalid          = errors.New("billing: invalid rating input")
+	ErrRatingSnapshotMismatch = errors.New("billing: rating snapshot identity mismatch")
+	ErrRatingCurrencyMismatch = errors.New("billing: rating currency mismatch")
+	ErrRatingEvidenceMissing  = errors.New("billing: required rating evidence is missing")
+	ErrUnreconciledCost       = errors.New("billing: provider cost is unreconciled")
 )
 
-// OperatorRateSnapshot is the exact immutable fallback rate bound to a LUR.
-// Operator rates are intentionally separate from customer pricing: provider
-// cost and customer revenue are different economic perspectives.
 type OperatorRateSnapshot struct {
 	Ref                      VersionRef
 	Currency                 string
@@ -49,9 +44,6 @@ func (r OperatorRateSnapshot) Validate() error {
 	return nil
 }
 
-// OperatorRateSet is a small immutable-at-call-boundary collection of exact
-// operator snapshots. Lookup compares the complete VersionRef, not numeric rate
-// values, so equal numbers from another economic version cannot be substituted.
 type OperatorRateSet []OperatorRateSnapshot
 
 func (s OperatorRateSet) Resolve(ref VersionRef) (OperatorRateSnapshot, bool) {
@@ -63,30 +55,18 @@ func (s OperatorRateSet) Resolve(ref VersionRef) (OperatorRateSnapshot, bool) {
 	return OperatorRateSnapshot{}, false
 }
 
-// RatingInput contains only sealed values and immutable snapshots. It has no
-// runtime, provider, database, or wire dependencies.
 type RatingInput struct {
 	Record          TurnUsageRecord
-	Authorization   Authorization
 	CustomerPricing PricingSnapshot
-	// ModelPricing supplies per-backend/model customer cards that share
-	// CustomerPricing.Ref. Empty means every billed leg uses CustomerPricing.
-	ModelPricing   []ModelCustomerPricing
-	CustomerPolicy ChargePolicy
-	OperatorRates  OperatorRateSet
+	ModelPricing    []ModelCustomerPricing
+	CustomerPolicy  ChargePolicy
+	OperatorRates   OperatorRateSet
 }
-
-// ModelCustomerPricing is the immutable customer rate card for one billed
-// backend:model. Catalog identity stays on CustomerPricing.Ref / TUR / hold.
 type ModelCustomerPricing struct {
 	BackendID string
 	ModelID   string
 	Pricing   PricingSnapshot
 }
-
-// OperatorCostResult preserves every LUR's cost outcome. An unreconciled result
-// is visible but deliberately has Reconciled=false and must not be posted as a
-// zero-cost COGS entry by later settlement.
 type OperatorCostResult struct {
 	LURKey             string
 	Amount             Money
@@ -96,104 +76,7 @@ type OperatorCostResult struct {
 	UnreconciledReason string
 }
 
-// Result is the rated customer charge and per-B-leg operator costs for one turn.
-// UnreconciledLURKeys are explicit processing blockers, never omitted costs.
-type Result struct {
-	TURKey              string
-	CustomerCharge      Money
-	OperatorCosts       []OperatorCostResult
-	UnreconciledCost    bool
-	UnreconciledLURKeys []string
-}
-
-// ProcessingMarker is the narrow mutable-state seam used when a rating result
-// cannot safely proceed to settlement. Implementations must update processing
-// metadata only; sealed TUR/LUR evidence is never rewritten.
-type ProcessingMarker interface {
-	MarkProcessingUnreconciledCost(context.Context, string, string, string) error
-}
-
-// RateTurn deterministically rates one sealed TUR. It accepts an unsealed value
-// as a convenience for pure callers and seals a detached copy before use; a
-// supplied sealed record is always validated against its stored key/fingerprint.
-func RateTurn(in RatingInput) (Result, error) {
-	record, err := sealForRating(in.Record)
-	if err != nil {
-		return Result{}, err
-	}
-	if err := validateRatingSnapshots(record, in); err != nil {
-		return Result{}, err
-	}
-	customer, err := calculateCustomerCharge(record, in)
-	if err != nil {
-		return Result{}, err
-	}
-	if customer.Currency != in.Authorization.Amount.Currency {
-		return Result{}, ErrRatingCurrencyMismatch
-	}
-	if customer.Nano > in.Authorization.Amount.Nano {
-		return Result{}, fmt.Errorf("%w: actual=%d authorized=%d", ErrActualChargeExceedsAuthorization, customer.Nano, in.Authorization.Amount.Nano)
-	}
-	result := Result{TURKey: record.Key, CustomerCharge: customer}
-	for _, leg := range record.Legs {
-		if authoritativeProviderCost(leg.Evidence) && leg.Evidence.Cost.Currency != in.CustomerPricing.Currency {
-			return Result{}, ErrRatingCurrencyMismatch
-		}
-	}
-	result.OperatorCosts = calculateOperatorCosts(record, in.OperatorRates, in.CustomerPricing.Currency, &result.UnreconciledLURKeys)
-	result.UnreconciledCost = len(result.UnreconciledLURKeys) > 0
-	return result, nil
-}
-
-func sealForRating(record TurnUsageRecord) (TurnUsageRecord, error) {
-	if strings.TrimSpace(record.Key) == "" {
-		return record.Seal()
-	}
-	if err := CheckReplay(record, record); err != nil {
-		return TurnUsageRecord{}, err
-	}
-	return record, nil
-}
-
-func validateRatingSnapshots(record TurnUsageRecord, in RatingInput) error {
-	if in.Authorization.ID == "" || in.Authorization.ID != record.AuthorizationID || in.Authorization.AccountID == "" || in.Authorization.AccountID != record.AccountID || in.Authorization.TURKey != record.Key {
-		return fmt.Errorf("%w: authorization is not bound to TUR", ErrRatingSnapshotMismatch)
-	}
-	if err := in.CustomerPolicy.Validate(); err != nil {
-		return fmt.Errorf("%w: customer policy: %v", ErrRatingSnapshotMismatch, err)
-	}
-	if in.CustomerPricing.Ref != record.CustomerPricingRef || in.CustomerPricing.Ref != in.Authorization.PricingRef {
-		return fmt.Errorf("%w: customer pricing reference differs from TUR/authorization", ErrRatingSnapshotMismatch)
-	}
-	if in.CustomerPolicy.Ref != record.ChargePolicyRef || in.CustomerPolicy.Ref != in.Authorization.ChargePolicyRef || in.CustomerPolicy.PricingRef != in.CustomerPricing.Ref {
-		return fmt.Errorf("%w: customer policy reference differs from TUR/authorization/pricing", ErrRatingSnapshotMismatch)
-	}
-	if err := in.CustomerPricing.Validate(in.Authorization.Amount.Currency); err != nil {
-		return fmt.Errorf("%w: customer pricing: %v", ErrRatingSnapshotMismatch, err)
-	}
-	if in.CustomerPricing.Currency != in.Authorization.Amount.Currency {
-		return ErrRatingCurrencyMismatch
-	}
-	for _, card := range in.ModelPricing {
-		if strings.TrimSpace(card.BackendID) == "" || strings.TrimSpace(card.ModelID) == "" {
-			return fmt.Errorf("%w: model pricing identity is required", ErrRatingInvalid)
-		}
-		if card.Pricing.Ref != in.CustomerPricing.Ref {
-			return fmt.Errorf("%w: model pricing %s/%s reference differs from customer catalog", ErrRatingSnapshotMismatch, card.BackendID, card.ModelID)
-		}
-		if err := card.Pricing.Validate(in.Authorization.Amount.Currency); err != nil {
-			return fmt.Errorf("%w: model pricing %s/%s: %v", ErrRatingSnapshotMismatch, card.BackendID, card.ModelID, err)
-		}
-	}
-	if in.Authorization.Amount.Nano < 0 {
-		return fmt.Errorf("%w: authorization amount cannot be negative", ErrRatingInvalid)
-	}
-	return nil
-}
-
 func calculateCustomerCharge(record TurnUsageRecord, in RatingInput) (Money, error) {
-	// OpenRouter-style cost recovery: turn outcome never grants a free ride.
-	// Customer charge follows observed provider-accepted usage under policy.
 	selected := selectCustomerLegs(record.Legs, in.CustomerPolicy.Scope, record.Outcome)
 	var total int64
 	for _, leg := range selected {
@@ -201,9 +84,6 @@ func calculateCustomerCharge(record TurnUsageRecord, in RatingInput) (Money, err
 		if err != nil {
 			return Money{}, err
 		}
-		// Surfaced legs on a completed TUR still fail closed on missing required
-		// quantities. Failed/unsurfaced accepted siblings skip missing optional
-		// dimensions (Req 12.13 at leg granularity) instead of failing the A-leg.
 		strictEvidence := record.Outcome == TurnOutcomeCompleted && leg.Surfaced == SurfacedYes
 		amount, err := chargeLeg(leg, pricing, in.CustomerPolicy, strictEvidence)
 		if err != nil {
@@ -232,13 +112,9 @@ func (in RatingInput) customerPricingForLeg(leg LegUsageRecord) (PricingSnapshot
 func selectCustomerLegs(legs []LegUsageRecord, scope ChargePolicyScope, outcome TurnOutcome) []LegUsageRecord {
 	accepted := acceptedCustomerLegs(legs)
 	if scope == ChargeAllPotentialLegs {
-		// Pass-through charges every provider-accepted leg. Never-started /
-		// rejected siblings stay $0 rather than failing the winning TUR.
 		return accepted
 	}
 	if outcome != TurnOutcomeCompleted {
-		// ChargeSurfacedTurn admission holds max(routes). Interrupt settlement is
-		// one logical turn: surfaced accepted legs if any, else the latest Seq.
 		return oneLogicalAcceptedTurn(accepted)
 	}
 	selected := make([]LegUsageRecord, 0, len(legs))
@@ -282,9 +158,6 @@ func oneLogicalAcceptedTurn(accepted []LegUsageRecord) []LegUsageRecord {
 	return []LegUsageRecord{best}
 }
 
-// providerAcceptedEvidence is true when the downstream provider accepted work for
-// this leg. Absent all quantities and authoritative cost means rejection / never
-// started — those legs stay $0 for the customer.
 func providerAcceptedEvidence(e FinalBillingEvidence) bool {
 	if authoritativeProviderCost(e) {
 		return true
@@ -308,7 +181,6 @@ func chargeLeg(leg LegUsageRecord, pricing PricingSnapshot, policy ChargePolicy,
 			if strictEvidence {
 				return fmt.Errorf("%w: %s tokens for LUR %q", ErrRatingEvidenceMissing, dim, leg.BLegID)
 			}
-			// Interrupted turns skip missing quantities, not missing bound rates.
 			return nil
 		}
 		if !ratePresent {
@@ -351,35 +223,6 @@ func chargeLeg(leg LegUsageRecord, pricing PricingSnapshot, policy ChargePolicy,
 	return total, nil
 }
 
-func calculateOperatorCosts(record TurnUsageRecord, rates OperatorRateSet, currency string, unresolved *[]string) []OperatorCostResult {
-	out := make([]OperatorCostResult, 0, len(record.Legs))
-	for _, leg := range record.Legs {
-		if authoritativeProviderCost(leg.Evidence) {
-			out = append(out, OperatorCostResult{LURKey: leg.Key, Amount: Money{Nano: leg.Evidence.Cost.NanoUnits, Currency: currency}, AmountPresent: true, Reconciled: true, Authoritative: true})
-			continue
-		}
-		if !providerAcceptedEvidence(leg.Evidence) {
-			// Rejected / never-started legs have no billable work. Recording
-			// reconciled $0 is not a silent COGS cover-up; unreconciled_cost
-			// would strand the whole TUR including any winning B-leg.
-			out = append(out, OperatorCostResult{LURKey: leg.Key, Amount: Money{Currency: currency}, AmountPresent: true, Reconciled: true})
-			continue
-		}
-		rate, found := rates.Resolve(leg.OperatorRateRef)
-		amount, reason, ok := fallbackOperatorCost(leg, rate, found, currency)
-		if !ok {
-			out = append(out, OperatorCostResult{LURKey: leg.Key, Amount: Money{Currency: currency}, UnreconciledReason: reason})
-			*unresolved = append(*unresolved, leg.Key)
-			continue
-		}
-		out = append(out, OperatorCostResult{LURKey: leg.Key, Amount: Money{Nano: amount, Currency: currency}, AmountPresent: true, Reconciled: true})
-	}
-	return out
-}
-
-// authoritativeProviderCost is the only sealed monetary signal that may become
-// posted COGS without operator-rate fallback. Cost.Present alone is insufficient:
-// estimated/unknown presence must not silently substitute for authoritative cost.
 func authoritativeProviderCost(e FinalBillingEvidence) bool {
 	return e.Cost.Present && e.Authority == EvidenceAuthorityAuthoritative
 }
@@ -404,7 +247,6 @@ func fallbackOperatorCost(leg LegUsageRecord, rate OperatorRateSnapshot, found b
 	matched := false
 	for _, d := range dimensions {
 		if !d.quantity.Present {
-			// Rate cards commonly publish optional dimensions; absent quantity is zero.
 			continue
 		}
 		if !d.present {
@@ -424,36 +266,4 @@ func fallbackOperatorCost(leg LegUsageRecord, rate OperatorRateSnapshot, found b
 		return 0, "operator_rate_or_quantity_incomplete", false
 	}
 	return total, "", true
-}
-
-// MarkUnreconciledCost moves only mutable processing metadata to the explicit
-// unreconciled state. It refuses to mark a fully reconciled result this way.
-func MarkUnreconciledCost(ctx context.Context, marker ProcessingMarker, record TurnUsageRecord, result Result) error {
-	if marker == nil || !result.UnreconciledCost {
-		return fmt.Errorf("%w: unreconciled result and processing marker are required", ErrUnreconciledCost)
-	}
-	sealed, err := sealForRating(record)
-	if err != nil {
-		return err
-	}
-	if result.TURKey != sealed.Key {
-		return fmt.Errorf("%w: result TUR does not match processing record", ErrRatingInvalid)
-	}
-	return marker.MarkProcessingUnreconciledCost(ctx, sealed.Key, sealed.Fingerprint, "cost_unresolved")
-}
-
-// RateTurnAndMarkProcessing is the post-turn boundary for the Phase 5
-// unreconciled-cost path. It rates first, then changes only mutable processing
-// metadata when operator cost cannot be proven. Settlement remains Phase 6.
-func RateTurnAndMarkProcessing(ctx context.Context, marker ProcessingMarker, in RatingInput) (Result, error) {
-	result, err := RateTurn(in)
-	if err != nil {
-		return Result{}, err
-	}
-	if result.UnreconciledCost {
-		if err := MarkUnreconciledCost(ctx, marker, in.Record, result); err != nil {
-			return Result{}, err
-		}
-	}
-	return result, nil
 }

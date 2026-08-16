@@ -17,31 +17,34 @@ import (
 // ProductionOptions carries enterprise/production injection seams (reqs 12.1, 12.3, 12.4).
 // Canonical host construction accepts descriptor-bound registrations only.
 type ProductionOptions struct {
-	// BillingTerminalHandoff is the optional durable post-terminal TUR appender.
-	BillingTerminalHandoff billing.UsageRecordAppender
+	// BillingCallLegAppender is the authoritative independent B-leg spool.
+	BillingCallLegAppender billing.CallLegUsageAppender
+	// BillingCallUsageAppender is the authoritative durable call-closure spool.
+	// Authoritative composition never substitutes an in-memory outbox for this
+	// boundary. Simultaneous loss of every configured durable replica before an
+	// append succeeds is outside the at-least-once guarantee.
+	BillingCallUsageAppender billing.CallUsageAppender
 	// BillingStore is the authoritative durable billing boundary used by runtime
 	// and read-side report composition. It is intentionally a domain port.
 	BillingStore         billing.AuthoritativeBilling
 	BillingReports       billing.ReportingStore
 	BillingAuthoritative bool
 	BillingReportsPath   string
-	// BillingHoldTTL is the admission hold lifetime from ComposeBilling.
-	// Zero lets BuildHost apply accounting.billing.hold_ttl (default 15m).
-	BillingHoldTTL  time.Duration
-	BillingIdentity runtimecore.BillingIdentity
-	// BillingRatingResolver resolves the immutable snapshots required by the
-	// post-turn worker. It is mandatory when authoritative billing is enabled.
-	BillingRatingResolver    billing.RatingResolver
-	BillingPostTurnBatchSize int
-	BillingPostTurnInterval  time.Duration
+	BillingIdentity      runtimecore.BillingIdentity
+	// BillingCallRatingResolver resolves immutable call/exposure snapshots for
+	// post-usage customer settlement and never consults authorization holds.
+	BillingCallRatingResolver   billing.CallRatingResolver
+	BillingProviderCostResolver billing.ProviderCostResolver
+	BillingPostTurnBatchSize    int
+	BillingPostTurnInterval     time.Duration
 
-	// BillingAdmission is the production composition injection for the durable
-	// billing adapter (see internal/infra/billingadmission.NewAdapter). It is
-	// attached to the runtime's sole pre-provider authorization seam. Nil is
-	// allowed only when BillingAdmissionRequired is false, preserving
-	// deployments that have not enabled billing.
-	BillingAdmission          runtimecore.BillingAdmission
-	BillingAdmissionRequired  bool
+	// BillingCreditGate is the required pre-route settled-credit screen for
+	// authoritative billing. It is intentionally separate from detailed post-route
+	// exposure admission.
+	BillingCreditGate runtimecore.BillingCreditGate
+	// BillingExposureAdmission is the authoritative post-route operational
+	// exposure seam, normally constructed by ComposeBilling from BillingStore.
+	BillingExposureAdmission  runtimecore.BillingExposureAdmission
 	MeteringRecorder          metering.Recorder
 	RequestRegistrations      []authority.RequestRegistration
 	AttemptRegistrations      []authority.AttemptRegistration

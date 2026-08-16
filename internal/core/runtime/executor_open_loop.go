@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
@@ -48,7 +49,7 @@ func (o attemptOpenOwner) openInitial(ctx context.Context, prep *preparedRequest
 			isContextLimitExhaustion: &plan.contextLimitExhaustion,
 			transformExcludes:        &plan.transformExcludes,
 			interleaved:              plan.interleaved,
-			billingUpstreamOpened:    &prep.billingUpstreamOpened,
+			billingCallID:            prep.billingCallID,
 		})
 		if err != nil {
 			return attemptOpenResult{}, fmt.Errorf("executor: plan or open attempt: %w", err)
@@ -71,6 +72,9 @@ func (o attemptOpenOwner) openInitial(ctx context.Context, prep *preparedRequest
 				// mirroring the swallowed-authority release sites in executor_recv_loop.
 				l := e.newAttemptAuthorityLifecycle(out.authority, out.cand)
 				l.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
+				// Open succeeded and NextBLeg was noted, but no terminal recorder owns
+				// the stream. Emit Failed usage before Execute's abort closure freezes.
+				e.appendPostOpenTerminalLeg(ctx, prep.billingCallID, prep.aLeg.ALegID, out.bleg, out.cand.Primary, time.Time{}, time.Time{})
 				return attemptOpenResult{}, err
 			}
 		}

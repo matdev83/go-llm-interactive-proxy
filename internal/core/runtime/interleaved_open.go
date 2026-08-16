@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
@@ -221,6 +222,7 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 		interleaved:         state,
 		suppressThinker:     true,
 		suppressVisibleMemo: true,
+		billingCallID:       from.billingCallID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("executor: interleaved continuation plan/open: %w", err)
@@ -243,39 +245,48 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 			if out.stream != nil && !errors.Is(err, leglifecycle.ErrALegCanceled) {
 				_ = out.stream.Close()
 			}
+			e.appendPostOpenTerminalLeg(ctx, from.billingCallID, from.aLegID, out.bleg, out.cand.Primary, time.Time{}, time.Time{})
 			return nil, err
 		}
 	}
 	rs := &retryRecvStream{
-		executor:            e,
-		bus:                 from.bus,
-		baseline:            from.baseline,
-		budget:              from.budget,
-		ttft:                from.ttft,
-		aLegID:              from.aLegID,
-		traceID:             from.traceID,
-		sel:                 from.sel,
-		requestSize:         from.requestSize,
-		session:             from.session,
-		excluded:            from.excluded,
-		rng:                 from.rng,
-		affinityKey:         from.affinityKey,
-		affinitySet:         from.affinitySet,
-		recvViews:           from.recvViews,
-		recvViewsOK:         from.recvViewsOK,
-		routePrefs:          from.routePrefs,
-		secureTurn:          from.secureTurn,
-		secureTurnOK:        from.secureTurnOK,
-		aScope:              from.aScope,
-		interleaved:         out.interleaved,
-		holdALegEnd:         true,
-		suppressThinker:     true,
-		suppressVisibleMemo: true,
-		accounting:          newAttemptAccountingTracker(e.now()),
-		recoverPolicy:       streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
-		authority:           e.newAttemptAuthorityLifecycle(out.authority, out.cand),
-		bleg:                out.bleg,
-		cand:                out.cand,
+		executor:               e,
+		bus:                    from.bus,
+		baseline:               from.baseline,
+		budget:                 from.budget,
+		ttft:                   from.ttft,
+		aLegID:                 from.aLegID,
+		traceID:                from.traceID,
+		sel:                    from.sel,
+		requestSize:            from.requestSize,
+		session:                from.session,
+		excluded:               from.excluded,
+		rng:                    from.rng,
+		affinityKey:            from.affinityKey,
+		affinitySet:            from.affinitySet,
+		recvViews:              from.recvViews,
+		recvViewsOK:            from.recvViewsOK,
+		routePrefs:             from.routePrefs,
+		secureTurn:             from.secureTurn,
+		secureTurnOK:           from.secureTurnOK,
+		aScope:                 from.aScope,
+		interleaved:            out.interleaved,
+		holdALegEnd:            true,
+		suppressThinker:        true,
+		suppressVisibleMemo:    true,
+		accounting:             newAttemptAccountingTracker(e.now()),
+		recoverPolicy:          streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
+		authority:              e.newAttemptAuthorityLifecycle(out.authority, out.cand),
+		bleg:                   out.bleg,
+		cand:                   out.cand,
+		billingCallID:          from.billingCallID,
+		billingAccountID:       from.billingAccountID,
+		billingCustomerPricing: from.billingCustomerPricing,
+		billingChargePolicy:    from.billingChargePolicy,
+		billingIdentityStamped: from.billingIdentityStamped,
+		customer:               newCustomerEvidenceAccumulator(),
+		metering:               from.metering,
+		requestAuth:            from.requestAuth,
 	}
 	copyBoundModelViews(rs, from)
 	rs.storeInner(out.stream)

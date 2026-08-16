@@ -15,8 +15,6 @@ import (
 
 type billingReportQueriesStub struct {
 	account billing.AccountReport
-	turn    billing.TurnExplanation
-	session billing.SessionReport
 	err     error
 }
 
@@ -24,8 +22,8 @@ func (s billingReportQueriesStub) AccountReport(context.Context, string, billing
 	return s.account, s.err
 }
 
-func (s billingReportQueriesStub) TurnExplanation(context.Context, string) (billing.TurnExplanation, error) {
-	return s.turn, s.err
+func (billingReportQueriesStub) CallExplanation(context.Context, string) (billing.CallExplanation, error) {
+	return billing.CallExplanation{}, nil
 }
 
 func (billingReportQueriesStub) OperatorCostReport(context.Context, billing.ReportFilter) (billing.OperatorCostReport, error) {
@@ -36,20 +34,12 @@ func (billingReportQueriesStub) TrialBalanceReport(context.Context, billing.Repo
 	return billing.TrialBalanceReport{AccountID: "acct", PageBalanced: true, Balanced: true}, nil
 }
 
-func (billingReportQueriesStub) QueryProcessing(context.Context, billing.ReportFilter) (billing.ProcessingPage, error) {
-	return billing.ProcessingPage{}, nil
-}
-
-func (billingReportQueriesStub) QueryOpenHolds(context.Context, string, billing.PageRequest) (billing.HoldPage, error) {
-	return billing.HoldPage{}, nil
+func (billingReportQueriesStub) QueryOpenExposures(context.Context, string, billing.PageRequest) (billing.ExposurePage, error) {
+	return billing.ExposurePage{}, nil
 }
 
 func (billingReportQueriesStub) QueryReconcileRequired(context.Context, billing.PageRequest) (billing.AccountStatePage, error) {
 	return billing.AccountStatePage{}, nil
-}
-
-func (s billingReportQueriesStub) SessionReport(context.Context, string, string, billing.PageRequest) (billing.SessionReport, error) {
-	return s.session, s.err
 }
 
 type billingProvisionerStub struct {
@@ -222,10 +212,13 @@ func TestBillingReportsMountContractIncludesProvisioner(t *testing.T) {
 		if row.Helper != "mountBillingReports" {
 			continue
 		}
-		if slices.Contains(row.BuiltFields, "BillingProvisioner") {
-			return
+		if !slices.Contains(row.BuiltFields, "BillingProvisioner") {
+			t.Fatalf("mountBillingReports BuiltFields=%v missing BillingProvisioner", row.BuiltFields)
 		}
-		t.Fatalf("mountBillingReports BuiltFields=%v missing BillingProvisioner", row.BuiltFields)
+		if !slices.Contains(row.BuiltFields, "BillingExposureRecovery") {
+			t.Fatalf("mountBillingReports BuiltFields=%v missing BillingExposureRecovery", row.BuiltFields)
+		}
+		return
 	}
 	t.Fatal("mountBillingReports inventory row missing")
 }
@@ -274,7 +267,6 @@ func TestBillingReportsRejectInvalidStatusAndTime(t *testing.T) {
 		},
 	})
 	for _, path := range []string{
-		"/admin/billing/processing?status=not-a-status",
 		"/admin/billing/operator-cost?account_id=acct&from=yesterday",
 	} {
 		rec := httptest.NewRecorder()
@@ -284,47 +276,5 @@ func TestBillingReportsRejectInvalidStatusAndTime(t *testing.T) {
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("%s status=%d want 400", path, rec.Code)
 		}
-	}
-}
-
-func TestBillingSessionReportRequiresAccountAndSession(t *testing.T) {
-	t.Parallel()
-	mux := http.NewServeMux()
-	cfg := &config.Config{Diagnostics: config.DiagnosticsConfig{SharedSecret: "billing-secret"}}
-	mountBillingReports(billingReportsMount{
-		Mux: mux, Cfg: cfg, Operations: HTTPOperationsInput{
-			BillingReports: billingReportQueriesStub{
-				session: billing.SessionReport{AccountID: "acct", SessionID: "sess", CustomerRevenue: billing.Money{Nano: 13, Currency: "USD"}},
-			},
-			BillingReportsPath: "/admin/billing",
-		},
-	})
-	for _, path := range []string{
-		"/admin/billing/session?account_id=acct",
-		"/admin/billing/session?session_id=sess",
-		"/admin/billing/session",
-	} {
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, path, nil)
-		req.Header.Set("X-LIP-Diagnostics-Secret", "billing-secret")
-		mux.ServeHTTP(rec, req)
-		if rec.Code != http.StatusBadRequest {
-			t.Fatalf("%s status=%d want 400", path, rec.Code)
-		}
-	}
-
-	ok := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/admin/billing/session?account_id=acct&session_id=sess", nil)
-	req.Header.Set("X-LIP-Diagnostics-Secret", "billing-secret")
-	mux.ServeHTTP(ok, req)
-	if ok.Code != http.StatusOK {
-		t.Fatalf("valid session report status=%d body=%q", ok.Code, ok.Body.String())
-	}
-	var payload billing.SessionReport
-	if err := json.Unmarshal(ok.Body.Bytes(), &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.SessionID != "sess" || payload.CustomerRevenue.Nano != 13 {
-		t.Fatalf("session payload = %+v", payload)
 	}
 }

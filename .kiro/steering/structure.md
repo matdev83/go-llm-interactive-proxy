@@ -52,7 +52,7 @@ Core owns orchestration and policy. Core imports `pkg/lipapi` and `pkg/lipsdk`; 
 - **Streaming**: `stream/` (canonical stream, event pumps), `streamrecovery/`
 - **Hooks & Extensions**: `hooks/` (stage evaluation), `extensions/` (stage-four extension platform)
 - **Core State & Accounting**: `auxreq/`, `state/`, `traffic/`, `workspace/`, `modelcatalog/`, `modelregistry/`, `accounting/`, `billing/`, `tokenaccounting/`
-  - `billing/` owns authorization, immutable TUR/LUR evidence, deterministic post-turn rating, journal settlement, and billing reports. Runtime may authorize before execution and hand off sealed evidence at the terminal owner, but must not enrich prices or write the legacy token ledger.
+  - `billing/` owns BillingCallID, quote/exposure policy, immutable per-call/per-leg usage contracts, post-usage rating, journal settlement, and billing reports. Runtime performs cheap credit screening and atomic operational exposure admission, then appends terminal usage; it must not enrich prices or write the legacy token ledger.
   - `tokenaccounting/` remains a protocol/quota usage projection and admin counting surface only; it is not a financial balance or journal input.
   - Durable money persistence is `internal/infra/billingstore` (Bun). Host injection is `internal/infra/billingcompose` (snapshot catalog + identity) plus `runtimebundle.ComposeBilling`. Admission adapter is `internal/infra/billingadmission`. Public `pkg/lipruntime.Options` stays non-money.
 
@@ -118,7 +118,7 @@ The architecture gates also include the deterministic change-surface reporter at
 | Change stream semantics or keepalives | `internal/core/stream/`, `internal/core/streamrecovery/` |
 | Modify reasoning preservation | `internal/plugins/features/reasoningpreservation/`, `internal/core/interleavedthinking/` |
 | Update standard HTTP server / auth | `internal/stdhttp/`, `internal/infra/runtimebundle/` |
-| Change TUR/LUR / journal / holds | `internal/core/billing/`, persist via `internal/infra/billingstore/` |
+| Change exposure / usage / journal / post-usage settlement | `internal/core/billing/`, persist via `internal/infra/billingstore/` |
 | Enable billing in an internal host | `runtimebundle.ComposeBilling`, catalog in `internal/infra/billingcompose/`; see `docs/billing-host-composition.md` |
 | Add a compatible inference profile | `internal/providerprofiles/` (data), bind through `internal/standardplugins/` |
 | Classify coding-agent tool names | `pkg/lipapi` (`ClassifyToolName`); runtime correlates name-less fragments by `ToolCallID` |
