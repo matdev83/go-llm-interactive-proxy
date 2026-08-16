@@ -8,9 +8,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 )
 
-// readIntegrityReport is deliberately read-only. Unlike ReconcileAccount it
-// never changes account safety state; reports expose the proof result and an
-// operator can invoke explicit reconciliation separately.
 func (s *DurableStore) readIntegrityReport(ctx context.Context, accountID string) (billing.ReconciliationReport, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {

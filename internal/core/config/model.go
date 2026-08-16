@@ -83,17 +83,6 @@ type AccountingBillingConfig struct {
 	// ReportsPath mounts the protected billing report surface when authoritative
 	// billing is enabled. Empty selects /admin/billing.
 	ReportsPath string `yaml:"reports_path"`
-	// HoldTTL is how long an authorization hold remains spendable before expiry.
-	// Empty selects 15m.
-	HoldTTL string `yaml:"hold_ttl"`
-}
-
-// DefaultHoldTTL is the authorization hold lifetime when accounting.billing.hold_ttl is omitted.
-const DefaultHoldTTL = 15 * time.Minute
-
-// EffectiveHoldTTL returns HoldTTL or [DefaultHoldTTL].
-func (c AccountingBillingConfig) EffectiveHoldTTL() time.Duration {
-	return parseServerDurationOrDefault(c.HoldTTL, DefaultHoldTTL)
 }
 
 type AccountingTokenizerConfig struct {

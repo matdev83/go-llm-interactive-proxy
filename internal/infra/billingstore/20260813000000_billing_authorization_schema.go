@@ -9,12 +9,12 @@ import (
 	"github.com/uptrace/bun/dialect"
 )
 
-// AuthorizationSchemaMigrationName identifies the forward migration that adds
+// LegacyAuthorizationSchemaMigrationName identifies the forward migration that adds
 // authorization identity and account-snapshot evidence to existing billing
 // installations. The filename is part of Bun's migration identity convention.
-const AuthorizationSchemaMigrationName = "20260813000000"
+const LegacyAuthorizationSchemaMigrationName = "20260813000000"
 
-func registerAuthorizationSchemaMigration() {
+func registerLegacyAuthorizationSchemaMigration() {
 	migrations.MustRegister(authorizationSchemaUp, func(context.Context, *bun.DB) error { return nil })
 }
 
@@ -24,14 +24,14 @@ func authorizationSchemaUp(ctx context.Context, db *bun.DB) error {
 	}
 	switch db.Dialect().Name() {
 	case dialect.PG:
-		for _, statement := range postgresAuthorizationSchemaStatements() {
+		for _, statement := range postgresLegacyAuthorizationSchemaStatements() {
 			if _, err := db.ExecContext(ctx, statement); err != nil {
 				return fmt.Errorf("billing authorization schema postgres: %w", err)
 			}
 		}
 		return nil
 	case dialect.SQLite:
-		for _, column := range sqliteAuthorizationColumns() {
+		for _, column := range sqliteLegacyAuthorizationColumns() {
 			if err := sqliteAddBillingColumnIfMissing(ctx, db, column.name, column.definition); err != nil {
 				return err
 			}
@@ -47,7 +47,7 @@ type billingColumn struct {
 	definition string
 }
 
-func sqliteAuthorizationColumns() []billingColumn {
+func sqliteLegacyAuthorizationColumns() []billingColumn {
 	return []billingColumn{
 		{name: "authorization_id", definition: `ALTER TABLE authorization_holds ADD COLUMN authorization_id TEXT NOT NULL DEFAULT ''`},
 		{name: "pricing_ref", definition: `ALTER TABLE authorization_holds ADD COLUMN pricing_ref TEXT NOT NULL DEFAULT ''`},
@@ -86,7 +86,7 @@ func sqliteAddBillingColumnIfMissing(ctx context.Context, db *bun.DB, column, al
 	return nil
 }
 
-func postgresAuthorizationSchemaStatements() []string {
+func postgresLegacyAuthorizationSchemaStatements() []string {
 	return []string{
 		`ALTER TABLE authorization_holds ADD COLUMN IF NOT EXISTS authorization_id TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE authorization_holds ADD COLUMN IF NOT EXISTS pricing_ref TEXT NOT NULL DEFAULT ''`,

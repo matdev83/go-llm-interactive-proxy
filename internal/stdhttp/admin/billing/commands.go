@@ -10,26 +10,13 @@ import (
 	corebilling "github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 )
 
-type createAccountRequest struct {
+type commandRequest struct {
 	AccountID       string `json:"account_id"`
+	CallID          string `json:"call_id"`
 	Currency        string `json:"currency"`
 	Mode            string `json:"mode"`
 	CreditLimitNano *int64 `json:"credit_limit_nano"`
-}
-
-type fundingRequest struct {
-	AccountID  string `json:"account_id"`
-	AmountNano int64  `json:"amount_nano"`
-	Currency   string `json:"currency"`
-	SourceKey  string `json:"source_key"`
-	Reason     string `json:"reason"`
-}
-
-type creditPolicyRequest struct {
-	AccountID       string `json:"account_id"`
-	Mode            string `json:"mode"`
-	Currency        string `json:"currency"`
-	CreditLimitNano *int64 `json:"credit_limit_nano"`
+	AmountNano      int64  `json:"amount_nano"`
 	SourceKey       string `json:"source_key"`
 	Reason          string `json:"reason"`
 }
@@ -39,7 +26,7 @@ func fundingHandler(opts Options) http.HandlerFunc {
 		if !requirePOST(w, r) || !requireCommands(w, opts) {
 			return
 		}
-		var req fundingRequest
+		var req commandRequest
 		if !decodeCommandJSON(w, r, &req) {
 			return
 		}
@@ -67,11 +54,11 @@ func creditPolicyHandler(opts Options) http.HandlerFunc {
 		if !requirePOST(w, r) || !requireCommands(w, opts) {
 			return
 		}
-		var req creditPolicyRequest
+		var req commandRequest
 		if !decodeCommandJSON(w, r, &req) {
 			return
 		}
-		limit, err := requireCreditLimit(req.CreditLimitNano)
+		limit, err := creditLimit(req.CreditLimitNano, true)
 		if err != nil {
 			writeCommandError(w, err)
 			return
@@ -97,16 +84,54 @@ func creditPolicyHandler(opts Options) http.HandlerFunc {
 	}
 }
 
+func exposureRepairHandler(opts Options) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requirePOST(w, r) || !requireRecovery(w, opts) {
+			return
+		}
+		var req commandRequest
+		if !decodeCommandJSON(w, r, &req) {
+			return
+		}
+		callID, err := corebilling.ParseBillingCallID(strings.TrimSpace(req.CallID))
+		if err != nil {
+			writeCommandError(w, fmt.Errorf("%w: %w", corebilling.ErrTrustedCommandInvalid, err))
+			return
+		}
+		sourceKey := strings.TrimSpace(req.SourceKey)
+		if sourceKey == "" {
+			writeCommandError(w, fmt.Errorf("%w: source_key is required", corebilling.ErrTrustedCommandInvalid))
+			return
+		}
+		mode := strings.TrimSpace(req.Mode)
+		var settled corebilling.CallSettlement
+		switch mode {
+		case "complete":
+			settled, err = opts.Recovery.RepairExposureNoCharge(r.Context(), callID, sourceKey)
+		case "incomplete":
+			settled, err = opts.Recovery.RepairIncompleteCallNoCharge(r.Context(), callID, sourceKey)
+		default:
+			writeCommandError(w, fmt.Errorf("%w: mode must be complete or incomplete", corebilling.ErrTrustedCommandInvalid))
+			return
+		}
+		if err != nil {
+			writeCommandError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, settled)
+	}
+}
+
 func handleCreateAccount(w http.ResponseWriter, r *http.Request, opts Options) {
 	if !requireCommands(w, opts) {
 		return
 	}
-	var req createAccountRequest
+	var req commandRequest
 	if !decodeCommandJSON(w, r, &req) {
 		return
 	}
 	mode := corebilling.AccountMode(strings.TrimSpace(req.Mode))
-	limit, err := creditLimitForCreate(mode, req.CreditLimitNano)
+	limit, err := creditLimit(req.CreditLimitNano, mode == corebilling.AccountPostpaid)
 	if err != nil {
 		writeCommandError(w, err)
 		return
@@ -130,21 +155,14 @@ func handleCreateAccount(w http.ResponseWriter, r *http.Request, opts Options) {
 	writeJSON(w, http.StatusCreated, map[string]string{"account_id": account.ID})
 }
 
-func creditLimitForCreate(mode corebilling.AccountMode, limit *int64) (int64, error) {
-	if mode == corebilling.AccountPostpaid && limit == nil {
-		return 0, fmt.Errorf("%w: postpaid credit limit is required", corebilling.ErrTrustedCommandInvalid)
+func creditLimit(limit *int64, required bool) (int64, error) {
+	if limit != nil {
+		return *limit, nil
 	}
-	if limit == nil {
-		return 0, nil
-	}
-	return *limit, nil
-}
-
-func requireCreditLimit(limit *int64) (int64, error) {
-	if limit == nil {
+	if required {
 		return 0, fmt.Errorf("%w: credit limit is required", corebilling.ErrTrustedCommandInvalid)
 	}
-	return *limit, nil
+	return 0, nil
 }
 
 func requirePOST(w http.ResponseWriter, r *http.Request) bool {
@@ -156,11 +174,18 @@ func requirePOST(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func requireCommands(w http.ResponseWriter, opts Options) bool {
-	if opts.Commands == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "provisioner_unavailable"})
-		return false
+	return requireService(w, opts.Commands != nil, "provisioner_unavailable")
+}
+
+func requireRecovery(w http.ResponseWriter, opts Options) bool {
+	return requireService(w, opts.Recovery != nil, "recovery_unavailable")
+}
+
+func requireService(w http.ResponseWriter, available bool, code string) bool {
+	if !available {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": code})
 	}
-	return true
+	return available
 }
 
 func decodeCommandJSON(w http.ResponseWriter, r *http.Request, dest any) bool {
@@ -172,18 +197,17 @@ func decodeCommandJSON(w http.ResponseWriter, r *http.Request, dest any) bool {
 }
 
 func writeCommandError(w http.ResponseWriter, err error) {
+	status, code := http.StatusInternalServerError, "billing_command_unavailable"
 	switch {
-	case errors.Is(err, corebilling.ErrTrustedCommandInvalid),
-		errors.Is(err, corebilling.ErrAccountInvalid),
-		errors.Is(err, corebilling.ErrMoneyInvalid),
-		errors.Is(err, corebilling.ErrMoneyCurrencyMismatch),
-		errors.Is(err, corebilling.ErrUnsafeCreditLimitReduction):
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_command"})
-	case errors.Is(err, corebilling.ErrAccountNotFound):
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
-	case errors.Is(err, corebilling.ErrAccountConflict):
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "conflict"})
-	default:
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "billing_command_unavailable"})
+	case errors.Is(err, corebilling.ErrTrustedCommandInvalid), errors.Is(err, corebilling.ErrAccountInvalid),
+		errors.Is(err, corebilling.ErrMoneyInvalid), errors.Is(err, corebilling.ErrMoneyCurrencyMismatch),
+		errors.Is(err, corebilling.ErrUnsafeCreditLimitReduction), errors.Is(err, corebilling.ErrSettlementInvalid),
+		errors.Is(err, corebilling.ErrBillingCallIDInvalid):
+		status, code = http.StatusBadRequest, "invalid_command"
+	case errors.Is(err, corebilling.ErrAccountNotFound), errors.Is(err, corebilling.ErrExposureNotFound), errors.Is(err, corebilling.ErrCallIncomplete):
+		status, code = http.StatusNotFound, "not_found"
+	case errors.Is(err, corebilling.ErrAccountConflict), errors.Is(err, corebilling.ErrSettlementConflict), errors.Is(err, corebilling.ErrExposureConflict):
+		status, code = http.StatusConflict, "conflict"
 	}
+	writeJSON(w, status, map[string]string{"error": code})
 }

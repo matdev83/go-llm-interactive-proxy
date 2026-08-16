@@ -184,7 +184,7 @@ func TestClassifyExecute_billingAdmission(t *testing.T) {
 		},
 		{
 			name:       "authorization_unavailable_execute_wrap",
-			err:        fmt.Errorf("%w: %w", runtime.ErrBillingAdmissionDenied, billing.ErrAuthorizationUnavailable),
+			err:        fmt.Errorf("%w: %w", runtime.ErrBillingAdmissionDenied, billing.ErrBillingStoreUnavailable),
 			wantKind:   execerr.KindBillingUnavailable,
 			wantStatus: http.StatusServiceUnavailable,
 			wantMsg:    execerr.BillingUnavailableWireMessage,

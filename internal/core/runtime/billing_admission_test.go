@@ -15,30 +15,86 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-type billingAdmissionFunc func(context.Context, runtime.BillingAdmissionInput) (billing.Authorization, error)
+type creditGateFunc func(context.Context, string) error
 
-func (f billingAdmissionFunc) Authorize(ctx context.Context, in runtime.BillingAdmissionInput) (billing.Authorization, error) {
-	return f(ctx, in)
-}
+func (f creditGateFunc) Check(ctx context.Context, accountID string) error { return f(ctx, accountID) }
 
-func TestExecutorBillingAdmissionDeniesBeforeAnyBackendOpen(t *testing.T) {
+func TestExecutorCheapCreditScreenDeniesBeforeRoutePlanning(t *testing.T) {
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var calls, opens atomic.Int32
-	var sawPlan atomic.Bool
 	ex := runtime.TestExecutor()
 	ex.Store = st
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Rand = routing.NewSeededRng(1)
-	ex.BillingAdmission = billingAdmissionFunc(func(_ context.Context, in runtime.BillingAdmissionInput) (billing.Authorization, error) {
+	var calls atomic.Int32
+	ex.BillingIdentity.AccountID = func(context.Context, lipapi.Call) string { return "acct-screen" }
+	ex.BillingCreditGate = creditGateFunc(func(_ context.Context, accountID string) error {
 		calls.Add(1)
-		if in.Route == nil || in.Route.Alternatives == nil || in.ALegID == "" || in.TraceID == "" {
-			t.Errorf("billing input missing planned request identity: %+v", in)
+		if accountID != "acct-screen" {
+			t.Fatalf("account id = %q", accountID)
 		}
-		sawPlan.Store(true)
-		return billing.Authorization{}, errors.New("insufficient credit")
+		return billing.ErrCreditScreenDenied
+	})
+	_, err = ex.Execute(context.Background(), &lipapi.Call{
+		Route:    lipapi.RouteIntent{Selector: "backend:model"},
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
+	})
+	if !errors.Is(err, runtime.ErrBillingCreditScreenDenied) {
+		t.Fatalf("error = %v, want ErrBillingCreditScreenDenied", err)
+	}
+	if errors.Is(err, runtime.ErrBillingCreditScreenUnavailable) {
+		t.Fatalf("denied credit must not also classify as unavailable: %v", err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("credit-screen calls = %d, want 1", calls.Load())
+	}
+}
+
+func TestExecutorCheapCreditUnavailableDoesNotClassifyAsDenied(t *testing.T) {
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.BillingIdentity.AccountID = func(context.Context, lipapi.Call) string { return "acct-screen" }
+	ex.BillingCreditGate = creditGateFunc(func(context.Context, string) error {
+		return billing.ErrCreditScreenUnavailable
+	})
+	_, err = ex.Execute(context.Background(), &lipapi.Call{
+		Route:    lipapi.RouteIntent{Selector: "backend:model"},
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
+	})
+	if !errors.Is(err, runtime.ErrBillingAdmissionDenied) {
+		t.Fatalf("error = %v, want ErrBillingAdmissionDenied", err)
+	}
+	if !errors.Is(err, runtime.ErrBillingCreditScreenUnavailable) {
+		t.Fatalf("error = %v, want ErrBillingCreditScreenUnavailable", err)
+	}
+	if errors.Is(err, runtime.ErrBillingCreditScreenDenied) {
+		t.Fatalf("store outage must not classify as credit denied: %v", err)
+	}
+}
+
+func TestExecutorAuthoritativeWithoutCreditGateDeniesBeforeProviderOpen(t *testing.T) {
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var opens atomic.Int32
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.BillingAuthoritative = true
+	ex.BillingIdentity.AccountID = func(context.Context, lipapi.Call) string { return "acct-authoritative" }
+	ex.BillingExposureAdmission = exposureAdmissionFunc(func(context.Context, runtime.BillingExposureAdmissionInput) (billing.CallExposure, error) {
+		t.Fatal("exposure admission must not run when cheap credit gate is missing")
+		return billing.CallExposure{}, nil
 	})
 	ex.Backends = map[string]execbackend.Backend{
 		"backend": {
@@ -49,51 +105,73 @@ func TestExecutorBillingAdmissionDeniesBeforeAnyBackendOpen(t *testing.T) {
 			},
 		},
 	}
-	call := &lipapi.Call{Route: lipapi.RouteIntent{Selector: "backend:model"}, Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}}}
-	_, err = ex.Execute(context.Background(), call)
-	if !errors.Is(err, runtime.ErrBillingAdmissionDenied) {
-		t.Fatalf("error = %v, want ErrBillingAdmissionDenied", err)
-	}
-	if calls.Load() != 1 || opens.Load() != 0 || !sawPlan.Load() {
-		t.Fatalf("billing calls=%d backend opens=%d saw plan=%v", calls.Load(), opens.Load(), sawPlan.Load())
+	_, err = ex.Execute(context.Background(), &lipapi.Call{
+		Route:    lipapi.RouteIntent{Selector: "backend:model"},
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
+	})
+	if !errors.Is(err, runtime.ErrBillingAdmissionDenied) || opens.Load() != 0 {
+		t.Fatalf("error=%v provider_opens=%d", err, opens.Load())
 	}
 }
 
-func TestExecutorBillingAdmissionAllowsNormalStream(t *testing.T) {
+func TestExecutorAuthoritativeExposureIsRequiredBeforeProviderOpen(t *testing.T) {
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var calls, opens atomic.Int32
+	var opens atomic.Int32
 	ex := runtime.TestExecutor()
 	ex.Store = st
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Rand = routing.NewSeededRng(1)
-	ex.BillingAdmission = billingAdmissionFunc(func(_ context.Context, in runtime.BillingAdmissionInput) (billing.Authorization, error) {
-		calls.Add(1)
-		if in.Call.Route.Selector != "backend:model" {
-			t.Errorf("route selector = %q", in.Call.Route.Selector)
-		}
-		return billing.Authorization{}, nil
-	})
+	ex.BillingAuthoritative = true
+	ex.BillingIdentity.AccountID = func(context.Context, lipapi.Call) string { return "acct-authoritative" }
 	ex.Backends = map[string]execbackend.Backend{
 		"backend": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-			Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				opens.Add(1)
-				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventMessageStarted}, {Kind: lipapi.EventResponseFinished}}), nil
+				return nil, errors.New("must not open")
 			},
 		},
 	}
-	call := &lipapi.Call{Route: lipapi.RouteIntent{Selector: "backend:model"}, Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}}}
-	stream, err := ex.Execute(context.Background(), call)
+	_, err = ex.Execute(context.Background(), &lipapi.Call{
+		Route:    lipapi.RouteIntent{Selector: "backend:model"},
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
+	})
+	if !errors.Is(err, runtime.ErrBillingAdmissionDenied) || opens.Load() != 0 {
+		t.Fatalf("error=%v provider_opens=%d", err, opens.Load())
+	}
+}
+
+func TestExecutorExposureAdmissionDenialDoesNotOpenProvider(t *testing.T) {
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lipapi.Collect(context.Background(), stream); err != nil {
-		t.Fatal(err)
-	}
-	if calls.Load() != 1 || opens.Load() != 1 {
-		t.Fatalf("billing calls=%d backend opens=%d", calls.Load(), opens.Load())
+	var opens atomic.Int32
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.BillingAuthoritative = true
+	ex.BillingIdentity.AccountID = func(context.Context, lipapi.Call) string { return "acct-exposure" }
+	ex.BillingCreditGate = creditGateFunc(func(context.Context, string) error { return nil })
+	ex.BillingExposureAdmission = exposureAdmissionFunc(func(context.Context, runtime.BillingExposureAdmissionInput) (billing.CallExposure, error) {
+		return billing.CallExposure{}, errors.New("insufficient exposure")
+	})
+	ex.Backends = map[string]execbackend.Backend{"backend": {
+		Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+		Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			opens.Add(1)
+			return nil, nil
+		},
+	}}
+	_, err = ex.Execute(context.Background(), &lipapi.Call{
+		Route:    lipapi.RouteIntent{Selector: "backend:model"},
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
+	})
+	if !errors.Is(err, runtime.ErrBillingAdmissionDenied) || opens.Load() != 0 {
+		t.Fatalf("error=%v provider_opens=%d", err, opens.Load())
 	}
 }

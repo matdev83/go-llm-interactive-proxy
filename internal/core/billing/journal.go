@@ -14,18 +14,13 @@ var (
 	ErrJournalFingerprint = errors.New("billing: journal fingerprint mismatch")
 )
 
-// JournalFingerprintPrefix versions the semantic fingerprint schema so replay
-// comparisons stay explicit when the hashed field set changes.
-// v2 excludes point-in-time account snapshot diagnostics (Balance/Reserved/
-// Spendable/Credit/Mode/Version); those remain row evidence but are not
-// financial meaning. Operation snapshots own replay integrity for that layer.
 const JournalFingerprintPrefix = "journal-fp:v2:"
 
 type JournalBook string
 
 const (
-	JournalBookFinancial     JournalBook = "financial"
-	JournalBookAuthorization JournalBook = "authorization"
+	JournalBookFinancial           JournalBook = "financial"
+	JournalBookLegacyAuthorization JournalBook = "authorization"
 )
 
 type JournalSide string
@@ -35,17 +30,11 @@ const (
 	JournalCredit JournalSide = "credit"
 )
 
-// JournalEntry is a positive amount on one ledger account. A transaction's
-// currency and book are authoritative for all entries.
 type JournalEntry struct {
 	LedgerAccount string
 	Side          JournalSide
 	Amount        Money
 }
-
-// JournalTransaction is an append-only balanced transaction. Entries are
-// copied at validation boundaries so callers cannot alter a posted value by
-// retaining the input slice.
 type JournalTransaction struct {
 	ID                    string
 	Book                  JournalBook
@@ -79,7 +68,7 @@ func (j JournalTransaction) Validate() error {
 	if strings.TrimSpace(j.ID) == "" || strings.TrimSpace(j.SourceKey) == "" {
 		return fmt.Errorf("%w: id and source key are required", ErrJournalInvalid)
 	}
-	if j.Book != JournalBookFinancial && j.Book != JournalBookAuthorization {
+	if j.Book != JournalBookFinancial && j.Book != JournalBookLegacyAuthorization {
 		return fmt.Errorf("%w: unsupported book %q", ErrJournalInvalid, j.Book)
 	}
 	if strings.TrimSpace(j.Currency) == "" {
@@ -118,10 +107,6 @@ func (j JournalTransaction) Validate() error {
 	return nil
 }
 
-// CanonicalFingerprint hashes the immutable financial meaning of a transaction.
-// Database identity, allocated sequence, audit timestamp, stored fingerprint,
-// and point-in-time account snapshot diagnostics are excluded so replay compares
-// posting intent rather than insertion metadata or redundant before/after rows.
 func (j JournalTransaction) CanonicalFingerprint() (string, error) {
 	if err := j.Validate(); err != nil {
 		return "", err

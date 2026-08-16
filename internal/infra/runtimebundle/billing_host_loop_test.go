@@ -88,6 +88,9 @@ func TestBillingHostLoop(t *testing.T) {
 	provisionBillingHostLoopAccount(t, store, accountID)
 
 	executor := hostActiveExecutor(t, host)
+	if executor.BillingExposureAdmission == nil {
+		t.Fatal("exposure generation must expose operational admission")
+	}
 	injectBillingHostLoopUsageBackend(t, executor)
 
 	execCtx := scope.WithScope(ctx, scope.PrincipalScopeView{
@@ -115,51 +118,161 @@ func TestBillingHostLoop(t *testing.T) {
 		t.Fatal("AuthoritativeSessionID must not be the client session hint")
 	}
 
-	executor.WaitBillingHandoffRetries()
-	processed := waitBillingHostLoopProcessed(t, store, accountID)
-	record, err := store.GetUsageRecord(ctx, processed.TURKey)
-	if err != nil {
-		t.Fatalf("GetUsageRecord: %v", err)
+	callRecord, exposure, complete := waitBillingHostLoopCall(t, store, accountID)
+	assertVersionRefIdentity(t, "call CustomerPricingRef", callRecord.CustomerPricingRef, pricing.Ref)
+	assertVersionRefIdentity(t, "call ChargePolicyRef", callRecord.ChargePolicyRef, policy.Ref)
+	if exposure.IsOpen() {
+		t.Fatalf("customer settlement left exposure open: %+v", exposure)
 	}
-	hold, err := store.GetAuthorization(ctx, accountID, record.Key)
-	if err != nil {
-		t.Fatalf("GetAuthorization: %v", err)
+	if len(complete.Legs) != 1 {
+		t.Fatalf("call legs = %+v, want 1", complete.Legs)
 	}
-	assertVersionRefIdentity(t, "hold CustomerPricingRef", hold.PricingRef, pricing.Ref)
-	assertVersionRefIdentity(t, "hold ChargePolicyRef", hold.ChargePolicyRef, policy.Ref)
-	assertVersionRefIdentity(t, "TUR CustomerPricingRef", record.CustomerPricingRef, pricing.Ref)
-	assertVersionRefIdentity(t, "TUR ChargePolicyRef", record.ChargePolicyRef, policy.Ref)
-	if len(record.Legs) != 1 {
-		t.Fatalf("TUR legs = %+v, want 1", record.Legs)
+	assertVersionRefIdentity(t, "leg OperatorRateRef", complete.Legs[0].OperatorRateRef, operator.Ref)
+	if !complete.Legs[0].Evidence.InputTokens.Present || !complete.Legs[0].Evidence.OutputTokens.Present {
+		t.Fatalf("durable leg missing input+output: %+v", complete.Legs[0].Evidence)
 	}
-	assertVersionRefIdentity(t, "leg OperatorRateRef", record.Legs[0].OperatorRateRef, operator.Ref)
-	if !record.Legs[0].Evidence.InputTokens.Present || !record.Legs[0].Evidence.OutputTokens.Present {
-		t.Fatalf("sealed evidence missing input+output: %+v", record.Legs[0].Evidence)
-	}
-	if record.Legs[0].Evidence.Cost.Present {
-		t.Fatalf("stream price leaked onto LUR: %+v", record.Legs[0].Evidence)
+	if complete.Legs[0].Evidence.Cost.Present {
+		t.Fatalf("stream price leaked onto independent LUR: %+v", complete.Legs[0].Evidence)
 	}
 
-	report, err := store.AccountReport(ctx, accountID, billing.PageRequest{Limit: 100})
-	if err != nil {
-		t.Fatalf("AccountReport: %v", err)
-	}
+	report := waitBillingHostLoopProviderCost(t, store, accountID)
 	wantBalance := billingHostLoopOpeningNano - billingHostLoopCustomerNano
 	if report.Account.BalanceNano != wantBalance || report.SpendableNano != wantBalance || report.Account.ReservedNano != 0 {
 		t.Fatalf("account report balance=%d spendable=%d reserved=%d, want balance=spendable=%d reserved=0",
 			report.Account.BalanceNano, report.SpendableNano, report.Account.ReservedNano, wantBalance)
 	}
-	explanation, err := store.TurnExplanation(ctx, record.Key)
+	var sawCustomerSettlement, sawProviderCost bool
+	for _, transaction := range report.Transactions {
+		switch transaction.OperationKind {
+		case "customer_call_settlement":
+			sawCustomerSettlement = true
+			if transaction.Entries[0].Amount.Nano != billingHostLoopCustomerNano {
+				t.Fatalf("customer settlement amount = %+v, want %d", transaction.Entries, billingHostLoopCustomerNano)
+			}
+		case "provider_call_cogs":
+			sawProviderCost = true
+			if transaction.Entries[0].Amount.Nano != billingHostLoopOperatorNano {
+				t.Fatalf("provider COGS amount = %+v, want %d", transaction.Entries, billingHostLoopOperatorNano)
+			}
+		}
+	}
+	if !sawCustomerSettlement || !sawProviderCost {
+		t.Fatalf("account report missing independent customer/provider operations: %+v", report.Transactions)
+	}
+	operatorReport, err := store.OperatorCostReport(ctx, billing.ReportFilter{AccountID: accountID, Page: billing.PageRequest{Limit: 100}})
 	if err != nil {
-		t.Fatalf("TurnExplanation: %v", err)
+		t.Fatalf("OperatorCostReport: %v", err)
 	}
-	if explanation.Result.CustomerCharge.Nano != billingHostLoopCustomerNano ||
-		explanation.Result.ProviderCost.Nano != billingHostLoopOperatorNano {
-		t.Fatalf("turn explanation result = %+v, want customer=%d operator=%d (journal, not stream events)",
-			explanation.Result, billingHostLoopCustomerNano, billingHostLoopOperatorNano)
+	if operatorReport.ProviderCost.Nano != billingHostLoopOperatorNano || len(operatorReport.Rows) != 1 || operatorReport.Rows[0].Amount.Nano != billingHostLoopOperatorNano {
+		t.Fatalf("operator report = %+v, want one independent B-leg cost=%d", operatorReport, billingHostLoopOperatorNano)
 	}
-	assertVersionRefIdentity(t, "explanation hold pricing", explanation.Authorization.PricingRef, pricing.Ref)
-	assertVersionRefIdentity(t, "explanation hold policy", explanation.Authorization.ChargePolicyRef, policy.Ref)
+}
+
+func TestBillingHostLoop_FailoverOpenFailureClaimsAndSettles(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	store := openBillingHostLoopStore(t)
+	catalog, pricing, policy, operator := seedBillingHostLoopCatalog(t)
+	for _, backendID := range []string{"bad", "good"} {
+		if err := catalog.SetOperatorRateBinding(backendID, billingHostLoopModelID, operator.Ref); err != nil {
+			t.Fatalf("SetOperatorRateBinding(%s): %v", backendID, err)
+		}
+	}
+
+	ceiling := billing.Money{Nano: billingHostLoopHoldNano, Currency: "USD"}
+	prod, err := runtimebundle.ComposeBilling(runtimebundle.ComposeBillingInput{
+		Store:    store,
+		Catalog:  catalog,
+		Identity: nil,
+		Currency: "USD",
+		ModelMaxOutput: func(context.Context, string, string) (int64, bool, error) {
+			return 128000, true, nil
+		},
+		Strict:              true,
+		ConservativeCeiling: &ceiling,
+		PostTurnBatchSize:   1,
+		PostTurnInterval:    10 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("ComposeBilling: %v", err)
+	}
+
+	host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
+		ConfigPath:      writeBillingHostLoopConfig(t),
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
+		Production:      prod,
+	})
+	if err != nil {
+		t.Fatalf("BuildHost: %v", err)
+	}
+	hostServeCleanup(t, host)
+
+	accountID := fmt.Sprintf("hostloop-failover%d", billingHostLoopSeq.Add(1))
+	provisionBillingHostLoopAccount(t, store, accountID)
+	executor := hostActiveExecutor(t, host)
+	opens := injectBillingHostLoopFailoverBackends(t, executor)
+
+	execCtx := scope.WithScope(ctx, scope.PrincipalScopeView{PrincipalID: scope.Known(accountID)})
+	call := &lipapi.Call{
+		Route:    lipapi.RouteIntent{Selector: "bad:" + billingHostLoopModelID + "|good:" + billingHostLoopModelID},
+		Session:  lipapi.SessionRef{ClientSessionID: "client-failover-hint"},
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
+	}
+	stream, err := executor.Execute(execCtx, call)
+	if err != nil {
+		t.Fatalf("Execute failover call: %v", err)
+	}
+	assertNoStreamPrices(t, drainBillingHostLoopStream(t, ctx, stream))
+	if got := opens.Load(); got != 2 {
+		t.Fatalf("backend opens = %d, want failed bad open plus successful good open", got)
+	}
+
+	callRecord, exposure, complete := waitBillingHostLoopCall(t, store, accountID)
+	assertVersionRefIdentity(t, "call CustomerPricingRef", callRecord.CustomerPricingRef, pricing.Ref)
+	assertVersionRefIdentity(t, "call ChargePolicyRef", callRecord.ChargePolicyRef, policy.Ref)
+	if exposure.IsOpen() {
+		t.Fatalf("failover settlement left exposure open: %+v", exposure)
+	}
+	if len(complete.Legs) != 2 {
+		t.Fatalf("complete call legs = %+v, want never-started failure plus winner", complete.Legs)
+	}
+	var sawNeverStarted, sawWinner bool
+	for _, leg := range complete.Legs {
+		assertVersionRefIdentity(t, "leg OperatorRateRef", leg.OperatorRateRef, operator.Ref)
+		switch leg.Outcome {
+		case billing.LegOutcomeNeverStarted:
+			sawNeverStarted = true
+		case billing.LegOutcomeWinner:
+			sawWinner = true
+			if leg.BackendID != "good" {
+				t.Fatalf("winner backend = %q, want good", leg.BackendID)
+			}
+		}
+	}
+	if !sawNeverStarted || !sawWinner {
+		t.Fatalf("joined legs missing never-started/winner outcomes: %+v", complete.Legs)
+	}
+
+	report := waitBillingHostLoopProviderCost(t, store, accountID)
+	wantBalance := billingHostLoopOpeningNano - billingHostLoopCustomerNano
+	if report.Account.BalanceNano != wantBalance || report.Account.ReservedNano != 0 {
+		t.Fatalf("settled account balance=%d reserved=%d, want balance=%d reserved=0", report.Account.BalanceNano, report.Account.ReservedNano, wantBalance)
+	}
+	var customerSettlements int
+	for _, transaction := range report.Transactions {
+		if transaction.OperationKind == "customer_call_settlement" {
+			customerSettlements++
+			if transaction.Entries[0].Amount.Nano != billingHostLoopCustomerNano {
+				t.Fatalf("customer settlement entries = %+v, want %d", transaction.Entries, billingHostLoopCustomerNano)
+			}
+		}
+	}
+	if customerSettlements != 1 {
+		t.Fatalf("customer settlement transactions = %d, want exactly one", customerSettlements)
+	}
 }
 
 func TestBillingHostLoop_MissingCatalogRefs(t *testing.T) {
@@ -213,6 +326,9 @@ func TestBillingHostLoop_MissingCatalogRefs(t *testing.T) {
 	provisionBillingHostLoopAccount(t, store, accountID)
 
 	executor := hostActiveExecutor(t, host)
+	if executor.BillingExposureAdmission == nil {
+		t.Fatal("exposure generation must expose operational admission")
+	}
 	injectBillingHostLoopUsageBackend(t, executor)
 
 	execCtx := scope.WithScope(ctx, scope.PrincipalScopeView{
@@ -234,25 +350,28 @@ func TestBillingHostLoop_MissingCatalogRefs(t *testing.T) {
 	}
 	assertNoStreamPrices(t, drainBillingHostLoopStream(t, ctx, stream))
 
-	executor.WaitBillingHandoffRetries()
-	processing := waitBillingHostLoopFailClosed(t, store, accountID)
-	if processing.Status == billing.ProcessingProcessed {
-		t.Fatalf("missing catalog refs must not settle as processed: %+v", processing)
+	records := waitBillingHostLoopCallRecords(t, store, accountID)
+	if len(records) != 1 {
+		t.Fatalf("call records = %+v, want one incomplete call", records)
 	}
-	if processing.Status == billing.ProcessingRetryable && processing.SafeErrorCode != "rating_input_unavailable" {
-		t.Fatalf("retryable SafeErrorCode = %q, want rating_input_unavailable: %+v", processing.SafeErrorCode, processing)
-	}
-
-	record, err := store.GetUsageRecord(ctx, processing.TURKey)
+	record := records[0]
+	assertVersionRefIdentity(t, "call CustomerPricingRef", record.CustomerPricingRef, pricing.Ref)
+	assertVersionRefIdentity(t, "call ChargePolicyRef", record.ChargePolicyRef, policy.Ref)
+	exposure, err := store.GetCallExposure(ctx, record.CallID)
 	if err != nil {
-		t.Fatalf("GetUsageRecord: %v", err)
+		t.Fatalf("GetCallExposure: %v", err)
 	}
-	if len(record.Legs) != 1 {
-		t.Fatalf("TUR legs = %+v, want 1", record.Legs)
+	if !exposure.IsOpen() {
+		t.Fatalf("unrateable call must retain open exposure: %+v", exposure)
 	}
-	assertVersionRefIdentity(t, "leg OperatorRateRef", record.Legs[0].OperatorRateRef, billingHostLoopMissingOperatorRef)
-	assertVersionRefIdentity(t, "TUR CustomerPricingRef", record.CustomerPricingRef, pricing.Ref)
-	assertVersionRefIdentity(t, "TUR ChargePolicyRef", record.ChargePolicyRef, policy.Ref)
+	complete, err := store.ClaimCompleteCall(ctx, record.CallID)
+	if err != nil {
+		t.Fatalf("ClaimCompleteCall: %v", err)
+	}
+	if len(complete.Legs) != 1 {
+		t.Fatalf("call legs = %+v, want 1", complete.Legs)
+	}
+	assertVersionRefIdentity(t, "leg OperatorRateRef", complete.Legs[0].OperatorRateRef, billingHostLoopMissingOperatorRef)
 
 	report, err := store.AccountReport(ctx, accountID, billing.PageRequest{Limit: 100})
 	if err != nil {
@@ -268,16 +387,10 @@ func TestBillingHostLoop_MissingCatalogRefs(t *testing.T) {
 		}
 	}
 
-	explanation, err := store.TurnExplanation(ctx, record.Key)
-	if err != nil {
-		t.Fatalf("TurnExplanation: %v", err)
-	}
-	if explanation.Result.Processed || explanation.Result.Status == billing.ProcessingProcessed {
-		t.Fatalf("turn explanation must not show processed catalog-rated settlement: %+v", explanation.Result)
-	}
-	if explanation.Result.CustomerCharge.Nano == billingHostLoopCustomerNano {
-		t.Fatalf("turn explanation fabricated catalog-rated customer charge %d: %+v",
-			billingHostLoopCustomerNano, explanation.Result)
+	for _, journal := range report.Transactions {
+		if journal.OperationKind == "customer_call_settlement" {
+			t.Fatalf("customer settlement posted despite missing catalog refs: %+v", journal)
+		}
 	}
 }
 
@@ -298,7 +411,6 @@ func TestBillingHostLoop_AdmissionDeny(t *testing.T) {
 			OperatorRateRef:    catalog.OperatorRateRef,
 		})
 		identity.AccountID = func(context.Context, lipapi.Call) string { return "" }
-		identity.AuthorizationID = func(context.Context, lipapi.Call, string) string { return "" }
 
 		executor, opens := startBillingHostLoopHost(
 			t,
@@ -320,7 +432,8 @@ func TestBillingHostLoop_AdmissionDeny(t *testing.T) {
 			stream,
 			err,
 			opens,
-			billing.ErrAuthorizationInvalid,
+			billing.ErrCreditScreenInvalid,
+			coreruntime.ErrBillingCreditScreenDenied,
 		)
 		if !billingHostLoopAccountExists(t, store, accountID) {
 			t.Fatal("empty identity mapping must not delete the provisioned account")
@@ -366,16 +479,6 @@ func TestBillingHostLoop_AdmissionDeny(t *testing.T) {
 		)
 		if billingHostLoopAccountExists(t, store, principalID) {
 			t.Fatal("missing-account deny must not CreateAccount on the request path")
-		}
-		page, qerr := store.QueryProcessing(context.Background(), billing.ReportFilter{
-			AccountID: principalID,
-			Page:      billing.PageRequest{Limit: 10},
-		})
-		if qerr != nil {
-			t.Fatalf("QueryProcessing: %v", qerr)
-		}
-		if len(page.Items) != 0 {
-			t.Fatalf("request path created processing rows: %+v", page.Items)
 		}
 	})
 }
@@ -511,6 +614,48 @@ func injectBillingHostLoopUsageBackend(t *testing.T, executor *coreruntime.Execu
 		executor.CapsResolver = capabilities.MapResolver{billingHostLoopBackendID: capFn}
 	default:
 		t.Fatalf("CapsResolver type %T cannot accept injected backend caps", executor.CapsResolver)
+	}
+	return &opens
+}
+
+func injectBillingHostLoopFailoverBackends(t *testing.T, executor *coreruntime.Executor) *atomic.Int32 {
+	t.Helper()
+	var opens atomic.Int32
+	bad := execbackend.Backend{
+		Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+		Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			opens.Add(1)
+			return nil, lipapi.RecoverablePreOutputError(errors.New("bad backend unavailable before output"))
+		},
+	}
+	good := execbackend.Backend{
+		Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+		Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			opens.Add(1)
+			return lipapi.NewFixedEventStream(billingHostLoopUsageEvents()), nil
+		},
+	}
+	if executor.Backends == nil {
+		executor.Backends = map[string]execbackend.Backend{}
+	}
+	executor.Backends["bad"] = bad
+	executor.Backends["good"] = good
+	capMap := capabilities.MapResolver{}
+	for backendID, backend := range map[string]execbackend.Backend{"bad": bad, "good": good} {
+		be := backend
+		capMap[backendID] = func(ctx context.Context, cand routing.AttemptCandidate, call lipapi.Call) lipapi.BackendCaps {
+			return execbackend.EffectiveCaps(ctx, be, call, cand)
+		}
+	}
+	switch existing := executor.CapsResolver.(type) {
+	case capabilities.MapResolver:
+		for backendID, resolver := range capMap {
+			existing[backendID] = resolver
+		}
+	case nil:
+		executor.CapsResolver = capMap
+	default:
+		t.Fatalf("CapsResolver type %T cannot accept failover backend caps", executor.CapsResolver)
 	}
 	return &opens
 }
@@ -671,60 +816,76 @@ func assertNoStreamPrices(t *testing.T, events []lipapi.Event) {
 	}
 }
 
-func waitBillingHostLoopProcessed(t *testing.T, store *billingstore.DurableStore, accountID string) billing.UsageRecordProcessing {
+func waitBillingHostLoopCall(t *testing.T, store *billingstore.DurableStore, accountID string) (billing.CallUsageRecord, billing.CallExposure, billing.CompleteCall) {
 	t.Helper()
 	ctx := context.Background()
 	deadline := time.Now().Add(10 * time.Second)
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		page, err := store.QueryProcessing(ctx, billing.ReportFilter{
-			AccountID: accountID,
-			Status:    billing.ProcessingProcessed,
-			Page:      billing.PageRequest{Limit: 10},
-		})
+		records, err := store.ListCallUsage(ctx, accountID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(page.Items) == 1 {
-			return page.Items[0]
+		if len(records) == 1 {
+			exposure, exposureErr := store.GetCallExposure(ctx, records[0].CallID)
+			if exposureErr != nil {
+				t.Fatal(exposureErr)
+			}
+			if !exposure.IsOpen() {
+				complete, completeErr := store.ClaimCompleteCall(ctx, records[0].CallID)
+				if completeErr != nil {
+					t.Fatal(completeErr)
+				}
+				return records[0], exposure, complete
+			}
 		}
 		if time.Now().After(deadline) {
-			all, qerr := store.QueryProcessing(ctx, billing.ReportFilter{
-				AccountID: accountID,
-				Page:      billing.PageRequest{Limit: 10},
-			})
-			t.Fatalf("timed out waiting for processed TUR: items=%+v query_err=%v", all.Items, qerr)
+			t.Fatalf("timed out waiting for settled call: records=%+v", records)
 		}
 		<-ticker.C
 	}
 }
 
-func waitBillingHostLoopFailClosed(t *testing.T, store *billingstore.DurableStore, accountID string) billing.UsageRecordProcessing {
+func waitBillingHostLoopProviderCost(t *testing.T, store *billingstore.DurableStore, accountID string) billing.AccountReport {
 	t.Helper()
 	ctx := context.Background()
 	deadline := time.Now().Add(10 * time.Second)
-	ticker := time.NewTicker(2 * time.Millisecond)
+	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		page, err := store.QueryProcessing(ctx, billing.ReportFilter{
-			AccountID: accountID,
-			Page:      billing.PageRequest{Limit: 10},
-		})
+		report, err := store.AccountReport(ctx, accountID, billing.PageRequest{Limit: 100})
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, item := range page.Items {
-			if item.Status == billing.ProcessingProcessed {
-				t.Fatalf("missing catalog refs marked processed: %+v", item)
-			}
-			switch item.Status {
-			case billing.ProcessingRetryable, billing.ProcessingUnreconciledCost, billing.ProcessingTerminalError:
-				return item
+		for _, transaction := range report.Transactions {
+			if transaction.OperationKind == "provider_call_cogs" {
+				return report
 			}
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for fail-closed processing: items=%+v", page.Items)
+			t.Fatalf("timed out waiting for provider COGS: %+v", report.Transactions)
+		}
+		<-ticker.C
+	}
+}
+
+func waitBillingHostLoopCallRecords(t *testing.T, store *billingstore.DurableStore, accountID string) []billing.CallUsageRecord {
+	t.Helper()
+	ctx := context.Background()
+	deadline := time.Now().Add(10 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		records, err := store.ListCallUsage(ctx, accountID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(records) == 1 {
+			return records
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for call closure: records=%+v", records)
 		}
 		<-ticker.C
 	}
@@ -744,7 +905,7 @@ func writeBillingHostLoopConfig(t *testing.T) string {
 access:
   mode: single_user
 routing:
-  max_attempts: 1
+  max_attempts: 3
   default_route: "backend:model"
 continuity:
   in_memory: true
@@ -787,6 +948,14 @@ plugins:
       enabled: false
       config: {}
     - id: backend
+      kind: openai-responses
+      enabled: false
+      config: {}
+    - id: bad
+      kind: openai-responses
+      enabled: false
+      config: {}
+    - id: good
       kind: openai-responses
       enabled: false
       config: {}

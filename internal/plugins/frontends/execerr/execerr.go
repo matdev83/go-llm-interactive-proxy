@@ -183,7 +183,7 @@ func ClassifyExecute(err error) Outcome {
 			Err:     err,
 		}
 	}
-	if errors.Is(err, billing.ErrAuthorizationUnavailable) {
+	if errors.Is(err, billing.ErrBillingStoreUnavailable) {
 		return Outcome{
 			Kind:    KindBillingUnavailable,
 			Status:  http.StatusServiceUnavailable,

@@ -48,8 +48,8 @@ func TestBuildHost_LeftoverLedgerPricingDoesNotOpenBillingJournal(t *testing.T) 
 	if ex.BillingAuthoritative {
 		t.Fatal("leftover ledger+pricing YAML must leave BillingAuthoritative false")
 	}
-	if ex.BillingAdmission != nil || ex.BillingTerminalHandoff != nil || ex.BillingHoldReleaser != nil {
-		t.Fatal("leftover ledger+pricing YAML must not wire billing journal ports")
+	if ex.BillingExposureAdmission != nil || ex.CallUsageAppender != nil || ex.CallLegUsageAppender != nil {
+		t.Fatal("leftover ledger+pricing YAML must not wire authoritative exposure ports")
 	}
 	if _, err := os.Stat(ledgerPath); !os.IsNotExist(err) {
 		t.Fatalf("leftover accounting.ledger YAML opened sqlite at %s: %v", ledgerPath, err)

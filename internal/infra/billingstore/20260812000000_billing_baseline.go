@@ -20,11 +20,21 @@ var (
 func registerMigrations() {
 	registerMigrationsOnce.Do(func() {
 		migrations.MustRegister(baselineUp, func(context.Context, *bun.DB) error { return nil })
-		registerAuthorizationSchemaMigration()
+		registerLegacyAuthorizationSchemaMigration()
 		registerPhase4Migration()
 		registerPhase6Migration()
 		registerPhase7Migration()
 		registerSessionIDMigration()
+		registerUsageLegRecordsMigration()
+		registerUsageCallRecordsMigration()
+		registerProviderCostWorkMigration()
+		registerProviderCostWorkRetryMigration()
+		registerExposureMigration()
+		registerHoldRetirementMigration()
+		registerUsageAppendOutboxMigration()
+		registerAuthorizationHoldsDropMigration()
+		registerReservedNanoZeroMigration()
+		registerCompleteCallClaimLeaseMigration()
 	})
 }
 

@@ -56,7 +56,7 @@ A single PR must not exceed **100 changed files**. Split large refactors so they
 - Use explicit construction/registration; no DI containers, reflection registries, globals, or Go native `plugin` in v1.
 - Hybrid backends ([ADR 0008](docs/adr/0008-hybrid-backend-connector-plugins.md)): essential builtins are static; optional backends are executable gRPC connectors under `connectors/` (manifest-driven discovery). Do not add optional connectors to essential/`standard_table` fixed tables. Core keeps orchestration/B2BUA.
 - Compatible-provider growth is data-driven (`internal/providerprofiles`) plus contract TCKs, not a Cartesian frontend×backend product or a new in-process backend per vendor.
-- Runtime billing has two seams only: pessimistic authorize after route planning, then sealed TUR/LUR handoff at the terminal owner. No stream-time rating, journal I/O, or token-ledger money writes.
+- Runtime billing has two seams only: cheap credit screen before route expansion, then atomic operational exposure admission after quote; terminal ownership appends BillingCallID-scoped usage. No stream-time rating, journal I/O, or token-ledger money writes.
 - Public `pkg/lipruntime.Options` stays non-money. Internal hosts inject billing through `runtimebundle.ComposeBilling` into `BuildHost` `ProductionOptions`. Stock `lipstd` does not invent billing accounts.
 
 ## Package Zones
@@ -66,7 +66,7 @@ A single PR must not exceed **100 changed files**. Split large refactors so they
 - `pkg/lipruntime/`: public host/reload facade. `Options` stays non-money.
 - `internal/core/`: runtime orchestration, routing, continuity, streams, hooks/extensions, config, diagnostics.
 - `internal/core/routeoverride/`: A-leg latest-wins routing-override state and ports.
-- `internal/core/billing/`: TUR/LUR, holds, post-turn rating, journal commands (no SQL, no provider SDKs).
+- `internal/core/billing/`: BillingCallID, quote/exposure policy, immutable usage contracts, post-usage rating, journal commands (no SQL, no provider SDKs).
 - `internal/plugins/frontends/`: OpenResponses, OpenAI Responses, OpenAI legacy, Anthropic, Gemini frontends.
 - `internal/plugins/backends/`: essential hosted/custom-compatible adapters and shared helpers only; essential kinds in `internal/standardplugins` (`EssentialBackendBundle` / tables). Optional connectors are not root-module packages.
 - `connectors/`, `connector-support/`: independent modules for optional executable backend plugins and shared connector support.

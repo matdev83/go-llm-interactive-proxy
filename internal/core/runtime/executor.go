@@ -2,8 +2,10 @@ package runtime
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -122,6 +124,9 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 		cleanup()
 	}()
 
+	if err := e.checkCheapCredit(prepCtx, prep); err != nil {
+		return nil, err
+	}
 	plan, err := e.buildRoutePlan(prepCtx, prep)
 	if err != nil {
 		return nil, err
@@ -131,12 +136,18 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 	}
 	out, err := attemptOpenOwner{e}.openInitial(prepCtx, prep, plan)
 	if err != nil {
-		e.releaseOrHandoffAfterAdmissionAbort(prepCtx, prep, plan)
+		e.appendExposureAbortAfterAdmission(prepCtx, prep, plan)
 		return nil, err
 	}
 	stream, err := streamAssembler{e}.assemble(prepCtx, prep, plan, out)
 	if err != nil {
-		e.releaseOrHandoffAfterAdmissionAbort(prepCtx, prep, plan)
+		// Open succeeded and NextBLeg was noted, but assemble never handed the
+		// stream to a terminal recorder. Emit the Failed leg before freezing
+		// ExpectedBLegIDs on the abort closure so the post-usage join can complete.
+		if out.opened && strings.TrimSpace(out.bleg.BLegID) != "" {
+			e.appendPostOpenTerminalLeg(prepCtx, prep.billingCallID, prep.aLeg.ALegID, out.bleg, out.cand.Primary, time.Time{}, time.Time{})
+		}
+		e.appendExposureAbortAfterAdmission(prepCtx, prep, plan)
 		return nil, err
 	}
 	return stream, nil

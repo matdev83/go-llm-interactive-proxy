@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
@@ -319,6 +320,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		suppressThinker:          s.suppressThinker,
 		suppressVisibleMemo:      s.suppressVisibleMemo,
 		lastParallelFailure:      &s.lastParallelFailure,
+		billingCallID:            s.billingCallID,
 	})
 	if err != nil {
 		return false, err
@@ -345,6 +347,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 				l.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
 				return nil
 			})
+			s.executor.appendPostOpenTerminalLeg(ctx, s.billingCallID, s.aLegID, out.bleg, out.cand.Primary, time.Time{}, time.Time{})
 			return false, err
 		}
 	}

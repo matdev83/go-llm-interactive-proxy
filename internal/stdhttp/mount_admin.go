@@ -56,6 +56,7 @@ func mountBillingReports(in billingReportsMount) {
 	handler := billingadmin.NewHandler(billingadmin.Options{
 		Queries:  in.Operations.BillingReports,
 		Commands: in.Operations.BillingProvisioner,
+		Recovery: in.Operations.BillingExposureRecovery,
 	})
 	protected := wrapDiagnostics(in.Cfg, http.StripPrefix(path, handler))
 	in.Mux.Handle(path, protected)

@@ -38,40 +38,6 @@ func TestIsUniqueViolationClassifiesDialectCodesNotConstraintText(t *testing.T) 
 	}
 }
 
-func TestSQLiteMissingEntitySentinelsAreDistinct(t *testing.T) {
-	store := newSQLiteTestStore(t)
-	ctx := context.Background()
-	if _, err := store.GetUsageRecord(ctx, "missing:tur"); !errors.Is(err, ErrUsageRecordNotFound) {
-		t.Fatalf("GetUsageRecord = %v, want ErrUsageRecordNotFound", err)
-	}
-	if errors.Is(ErrUsageRecordNotFound, ErrAccountNotFound) {
-		t.Fatal("usage not-found must not equal ErrAccountNotFound")
-	}
-	if _, err := store.GetProcessing(ctx, "missing:tur"); !errors.Is(err, ErrProcessingNotFound) {
-		t.Fatalf("GetProcessing = %v, want ErrProcessingNotFound", err)
-	}
-	if err := store.MarkProcessingProcessed(ctx, "missing:tur", "fp", "ref"); !errors.Is(err, ErrProcessingNotFound) {
-		t.Fatalf("MarkProcessingProcessed missing = %v, want ErrProcessingNotFound", err)
-	}
-	if _, err := store.ReleaseAuthorization(ctx, billing.ReleaseAuthorizationInput{
-		AccountID: "missing-account", AuthorizationID: "auth", TURKey: "missing:tur", FullClose: true, Reason: billing.ReleaseOperator, SourceKey: "rel-1",
-	}); !errors.Is(err, ErrAccountNotFound) {
-		t.Fatalf("release missing account = %v, want ErrAccountNotFound", err)
-	}
-	if err := store.CreateAccount(ctx, billing.Account{ID: "hold-missing", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 50, State: billing.AccountReady, Version: 1}); err != nil {
-		t.Fatal(err)
-	}
-	_, err := store.ReleaseAuthorization(ctx, billing.ReleaseAuthorizationInput{
-		AccountID: "hold-missing", AuthorizationID: "auth", TURKey: "hold-missing:tur", FullClose: true, Reason: billing.ReleaseOperator, SourceKey: "rel-2",
-	})
-	if !errors.Is(err, ErrAuthorizationHoldNotFound) {
-		t.Fatalf("release missing hold = %v, want ErrAuthorizationHoldNotFound", err)
-	}
-	if errors.Is(err, ErrAccountNotFound) {
-		t.Fatal("missing hold must not be ErrAccountNotFound")
-	}
-}
-
 func TestSQLiteReadIntegrityReportMissingOpeningReturnsIssue(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()

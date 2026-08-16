@@ -30,8 +30,8 @@ func TestBillingCoreStaysProviderAndPersistenceFree(t *testing.T) {
 	})
 }
 
-// TestRuntimeStreamHandlersStayOffJournalRatingSettlement locks Req 1.8 / 17.10
-// and design Fail-if "runtime stream handlers call rating/journal/settlement".
+// TestRuntimeStreamHandlersStayOffJournalRatingSettlement locks 7.1 / 17.8
+// (already active) and design Fail-if "runtime stream handlers call rating/journal/settlement".
 func TestRuntimeStreamHandlersStayOffJournalRatingSettlement(t *testing.T) {
 	t.Parallel()
 
@@ -58,6 +58,8 @@ func TestRuntimeStreamHandlersStayOffJournalRatingSettlement(t *testing.T) {
 		"EconomicsRater",
 		"ApplyBillingResult",
 		"PostJournalTransaction",
+		"CustomerSettlementSourceKey",
+		"ProviderCostSourceKey",
 		"enrichUsageCost",
 		"recordTokenAccountingLedger",
 		"recordPartialTokenAccountingLedger",
@@ -144,7 +146,7 @@ func TestBillingSettlementRejectsRawUsageAndMeteringInputs(t *testing.T) {
 	paths := []string{
 		filepath.Join(root, "internal", "core", "billing", "settlement.go"),
 		filepath.Join(root, "internal", "core", "billing", "rating.go"),
-		filepath.Join(root, "internal", "core", "billing", "post_turn_worker.go"),
+		filepath.Join(root, "internal", "core", "billing", "call_post_usage_worker.go"),
 	}
 	forbidden := []string{
 		"lipapi.Event",
@@ -173,7 +175,7 @@ func TestPostTurnWorkerDoesNotMutateSealedTURPayload(t *testing.T) {
 	t.Parallel()
 
 	root := repoRoot(t)
-	path := filepath.Join(root, "internal", "core", "billing", "post_turn_worker.go")
+	path := filepath.Join(root, "internal", "core", "billing", "call_post_usage_worker.go")
 	src, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

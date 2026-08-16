@@ -8,9 +8,6 @@ import (
 	sqlite3 "modernc.org/sqlite/lib"
 )
 
-// isUniqueViolation reports whether err is a unique/primary-key conflict across
-// the supported dialects. CHECK/FK failures must not match — financial retry
-// loops treat unique races as replay candidates, not integrity errors.
 func isUniqueViolation(err error) bool {
 	if err == nil {
 		return false

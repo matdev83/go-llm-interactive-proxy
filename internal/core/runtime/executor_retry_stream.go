@@ -164,10 +164,8 @@ type retryRecvStream struct {
 	// toolFinal is the per-B-leg completed-tool-call assembler (nil when inactive).
 	toolFinal *toolCallAssembler
 	// toolClass correlates per-ToolCallID derived classification within this stream.
-	// Like toolFinal, it is owned by the single Recv goroutine and needs no lock:
-	// Close may run concurrently only while Recv is blocked on the active inner
-	// stream (see the retryRecvStream concurrency contract), never during event
-	// processing, so no read/modify of the map overlaps a concurrent clear.
+	// Event processing is single-Recv-owned; its state has a small internal mutex
+	// because Close/terminal cleanup may clear it concurrently while Recv blocks.
 	toolClass toolEventClassificationState
 
 	// requestTerm / attemptTerm are CAS terminal owners for this stream lifecycle
@@ -182,17 +180,18 @@ type retryRecvStream struct {
 	usageMu  sync.Mutex
 	// billingLegRecorded guards one LUR per B-leg on this stream. Request and
 	// attempt terminal hooks may both run; mergeBillingEvidence also dedupes.
-	billingLegMu          sync.Mutex
-	billingLegRecorded    map[string]struct{}
-	billingHandoffMu      sync.Mutex
-	billingHandoffSuccess bool
-	// billingAccountID / billingAuthorizationID are copied from preparedRequest
-	// after admission so Recv-phase TUR handoff does not re-resolve identity.
+	billingLegMu              sync.Mutex
+	billingLegRecorded        map[string]struct{}
+	billingCallClosureMu      sync.Mutex
+	billingCallClosureSuccess bool
+	// Billing identity is copied from the admitted exposure so terminal usage
+	// append does not re-resolve pricing or policy.
 	billingAccountID       string
-	billingAuthorizationID string
 	billingCustomerPricing billing.VersionRef
 	billingChargePolicy    billing.VersionRef
 	billingIdentityStamped bool
+	billingCallID          billing.BillingCallID
+	isInterleavedThinker   bool
 
 	finalStreamObs    *extensions.FinalStreamObservationSession
 	internalUsageKeys map[string]struct{}
@@ -593,7 +592,8 @@ func (s *retryRecvStream) emitTraffic(ctx context.Context, leg sdktraffic.Leg, e
 // markFinished: B-leg replacement, finalizer reject/error before finish,
 // Close (may already be finished), and EOF/error entry (some branches defer
 // finish to recoverDrain). Terminal finishes clear via markFinished.
-// toolClass shares the same single-Recv ownership contract as toolFinal.
+// toolClass shares the same single-Recv event-processing contract as toolFinal;
+// its internal mutex covers concurrent terminal cleanup.
 func (s *retryRecvStream) resetToolFinal() {
 	if s == nil {
 		return

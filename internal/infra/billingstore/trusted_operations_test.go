@@ -5,7 +5,6 @@ import (
 	"errors"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 )
@@ -108,7 +107,7 @@ func TestSQLiteCreditPolicyRejectsUnsafeReductionAndReplaysByFingerprint(t *test
 	}
 }
 
-func TestSQLiteCreditPolicyRejectsReductionThatMakesSpendableNegative(t *testing.T) {
+func TestSQLiteCreditPolicyIgnoresLegacyReservedForSpendable(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	if err := store.CreateAccount(ctx, billing.Account{
@@ -117,87 +116,43 @@ func TestSQLiteCreditPolicyRejectsReductionThatMakesSpendableNegative(t *testing
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Authorize(ctx, authorizationInput("policy-reserved", "turn", "auth-open", 60)); err != nil {
+	if _, err := store.db.NewRaw(`UPDATE billing_accounts SET reserved_nano = 60, state = 'reconcile_required' WHERE account_id = ?`, "policy-reserved").Exec(ctx); err != nil {
 		t.Fatal(err)
 	}
-	before, err := store.GetAccount(ctx, "policy-reserved")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// New floor -40 still satisfies Balance (10 >= -40) but Spendable = 10 - (-40) - 60 < 0.
-	_, err = store.ChangeCreditPolicy(ctx, billing.CreditPolicyInput{
+	// Floor-only affordability: CreditLimit 40 => floor -40; Balance 10 is still above floor.
+	// Legacy reserved must not block the policy change; ready accounts reject nonzero reserved.
+	_, err := store.ChangeCreditPolicy(ctx, billing.CreditPolicyInput{
 		AccountID: "policy-reserved", Mode: billing.AccountPostpaid, Currency: "USD",
-		CreditLimit: 40, SourceKey: "reduce-reserved", Reason: "unsafe",
+		CreditLimit: 40, SourceKey: "reduce-reserved", Reason: "safe-floor",
 	})
-	if !errors.Is(err, billing.ErrUnsafeCreditLimitReduction) {
-		t.Fatalf("unsafe reserved policy = %v, want ErrUnsafeCreditLimitReduction", err)
-	}
-	after, err := store.GetAccount(ctx, "policy-reserved")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after.CreditLimit != before.CreditLimit || after.Version != before.Version || after.ReservedNano != before.ReservedNano || after.BalanceNano != before.BalanceNano {
-		t.Fatalf("account mutated after unsafe reduction: before=%+v after=%+v", before, after)
+	if !errors.Is(err, billing.ErrAccountNotReady) {
+		t.Fatalf("policy on reconcile_required = %v, want ErrAccountNotReady", err)
 	}
 }
 
-func TestSQLiteAuthorizationReleaseClosesHoldWithOppositeEntries(t *testing.T) {
-	runAuthorizationReleaseClosesHold(t, newSQLiteTestStore(t), "release-account")
-}
-
-func TestSQLiteStaleReleaseRequiresSafetyProof(t *testing.T) {
+func TestSQLiteTrustedDebitRejectsReadyAccountWithLegacyReserved(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
-	if err := store.CreateAccount(ctx, billing.Account{ID: "stale-release", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}); err != nil {
+	if err := store.CreateAccount(ctx, billing.Account{ID: "reserved-debit", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Authorize(ctx, authorizationInput("stale-release", "turn", "auth-stale", 10)); err != nil {
+	if _, err := store.db.NewRaw(`UPDATE billing_accounts SET reserved_nano = 100 WHERE account_id = ?`, "reserved-debit").Exec(ctx); err != nil {
 		t.Fatal(err)
 	}
-	_, err := store.ReleaseAuthorization(ctx, billing.ReleaseAuthorizationInput{AccountID: "stale-release", AuthorizationID: "auth-stale", TURKey: "stale-release:turn", FullClose: true, Reason: billing.ReleaseStaleSafe, SourceKey: "stale-1", AlegInactiveAt: time.Unix(1, 0).UTC(), Now: time.Now().UTC(), MaximumExecutionLife: time.Hour, SafetyGrace: time.Hour})
-	if !errors.Is(err, billing.ErrReleaseNotEligible) {
-		t.Fatalf("unsafe stale release = %v", err)
+	_, err := store.PostAdjustment(ctx, billing.AdjustmentInput{
+		AccountID: "reserved-debit", Amount: billing.Money{Nano: 100, Currency: "USD"},
+		Direction: billing.AdjustmentDebit, SourceKey: "steal-reserved", Reason: "bad",
+	})
+	if !errors.Is(err, billing.ErrAccountInvalid) {
+		t.Fatalf("debit with ready+reserved = %v, want ErrAccountInvalid", err)
 	}
-}
-
-func TestSQLiteZeroAmountReleaseWithoutFullCloseIsRejected(t *testing.T) {
-	store := newSQLiteTestStore(t)
-	ctx := context.Background()
-	if err := store.CreateAccount(ctx, billing.Account{ID: "zero-release", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}); err != nil {
+	var balance, reserved int64
+	var version uint64
+	if err := store.db.NewRaw(`SELECT balance_nano, reserved_nano, version FROM billing_accounts WHERE account_id = ?`, "reserved-debit").Scan(ctx, &balance, &reserved, &version); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Authorize(ctx, authorizationInput("zero-release", "turn", "auth-zero", 10)); err != nil {
-		t.Fatal(err)
-	}
-	_, err := store.ReleaseAuthorization(ctx, billing.ReleaseAuthorizationInput{AccountID: "zero-release", AuthorizationID: "auth-zero", TURKey: "zero-release:turn", Reason: billing.ReleaseOperator, SourceKey: "zero-1"})
-	if !errors.Is(err, billing.ErrTrustedCommandInvalid) {
-		t.Fatalf("zero release = %v, want invalid", err)
-	}
-}
-
-func TestSQLitePartialReleaseDoesNotStampClosedIdentity(t *testing.T) {
-	store := newSQLiteTestStore(t)
-	ctx := context.Background()
-	if err := store.CreateAccount(ctx, billing.Account{ID: "partial-release", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.Authorize(ctx, authorizationInput("partial-release", "turn", "auth-partial", 40)); err != nil {
-		t.Fatal(err)
-	}
-	partial, err := store.ReleaseAuthorization(ctx, billing.ReleaseAuthorizationInput{AccountID: "partial-release", AuthorizationID: "auth-partial", TURKey: "partial-release:turn", Amount: billing.Money{Nano: 10, Currency: "USD"}, Reason: billing.ReleaseOperator, SourceKey: "partial-1"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if partial.After.ReservedNano != 30 {
-		t.Fatalf("partial reserved = %+v", partial)
-	}
-	var status, closedSource, closedFingerprint string
-	var closedAmount, released int64
-	if err := store.db.NewRaw(`SELECT status, released_amount_nano, closed_source_key, closed_fingerprint, closed_amount_nano FROM authorization_holds WHERE authorization_id = ?`, "auth-partial").Scan(ctx, &status, &released, &closedSource, &closedFingerprint, &closedAmount); err != nil {
-		t.Fatal(err)
-	}
-	if status != "open" || released != 10 || closedSource != "" || closedFingerprint != "" || closedAmount != 0 {
-		t.Fatalf("partial closed fields stamped: status=%s released=%d source=%q fp=%q amount=%d", status, released, closedSource, closedFingerprint, closedAmount)
+	if balance != 100 || reserved != 100 || version != 1 {
+		t.Fatalf("account mutated by rejected debit: balance=%d reserved=%d version=%d", balance, reserved, version)
 	}
 }
 
@@ -270,42 +225,15 @@ func TestSQLiteConcurrentCreditPolicyChangesAreSerialized(t *testing.T) {
 	}
 }
 
-func TestSQLiteTrustedDebitCannotIgnoreReservedExposure(t *testing.T) {
-	store := newSQLiteTestStore(t)
-	ctx := context.Background()
-	if err := store.CreateAccount(ctx, billing.Account{ID: "reserved-debit", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.Authorize(ctx, authorizationInput("reserved-debit", "turn", "auth-reserved", 100)); err != nil {
-		t.Fatal(err)
-	}
-	_, err := store.PostAdjustment(ctx, billing.AdjustmentInput{
-		AccountID: "reserved-debit", Amount: billing.Money{Nano: 100, Currency: "USD"},
-		Direction: billing.AdjustmentDebit, SourceKey: "steal-reserved", Reason: "bad",
-	})
-	if !errors.Is(err, billing.ErrInsufficientSpendable) {
-		t.Fatalf("debit through reserved = %v, want ErrInsufficientSpendable", err)
-	}
-	account, err := store.GetAccount(ctx, "reserved-debit")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if account.BalanceNano != 100 || account.ReservedNano != 100 || account.Version != 2 {
-		t.Fatalf("account mutated by rejected debit = %+v", account)
-	}
-}
-
 func TestSQLiteTrustedOpsRejectReconcileRequired(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
-	if err := store.CreateAccount(ctx, billing.Account{ID: "trusted-blocked", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 50, State: billing.AccountReconcileRequired, Version: 1}); err != nil {
+	if err := store.CreateAccount(ctx, billing.Account{ID: "blocked-ops", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 50, State: billing.AccountReconcileRequired, Version: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.PostFunding(ctx, billing.FundingInput{AccountID: "trusted-blocked", Amount: billing.Money{Nano: 1, Currency: "USD"}, SourceKey: "fund", Reason: "x"}); !errors.Is(err, billing.ErrAccountNotReady) {
-		t.Fatalf("funding while reconcile_required = %v", err)
-	}
-	if _, err := store.ChangeCreditPolicy(ctx, billing.CreditPolicyInput{AccountID: "trusted-blocked", Mode: billing.AccountPrepaid, Currency: "USD", CreditLimit: 0, SourceKey: "pol", Reason: "x"}); !errors.Is(err, billing.ErrAccountNotReady) {
-		t.Fatalf("policy while reconcile_required = %v", err)
+	_, err := store.PostFunding(ctx, billing.FundingInput{AccountID: "blocked-ops", Amount: billing.Money{Nano: 1, Currency: "USD"}, SourceKey: "bank", Reason: "topup"})
+	if !errors.Is(err, billing.ErrAccountNotReady) {
+		t.Fatalf("funding blocked account = %v, want ErrAccountNotReady", err)
 	}
 }
 
@@ -352,39 +280,5 @@ func runTrustedFundingPaymentAdjustment(t *testing.T, store *DurableStore, accou
 		if err := journal.Validate(); err != nil {
 			t.Fatalf("journal invalid: %v", err)
 		}
-	}
-}
-
-func runAuthorizationReleaseClosesHold(t *testing.T, store *DurableStore, accountID string) {
-	t.Helper()
-	ctx := context.Background()
-	if err := store.CreateAccount(ctx, billing.Account{ID: accountID, Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.Authorize(ctx, authorizationInput(accountID, "turn", "auth-release", 40)); err != nil {
-		t.Fatal(err)
-	}
-	turKey := accountID + ":turn"
-	release, err := store.ReleaseAuthorization(ctx, billing.ReleaseAuthorizationInput{AccountID: accountID, AuthorizationID: "auth-release", TURKey: turKey, FullClose: true, Reason: billing.ReleaseExecutionNotStarted, SourceKey: "release-1"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if release.Transaction.Book != billing.JournalBookAuthorization || release.Transaction.Entries[0].Side != billing.JournalDebit || release.After.ReservedNano != 0 {
-		t.Fatalf("release = %+v", release)
-	}
-	replay, err := store.ReleaseAuthorization(ctx, billing.ReleaseAuthorizationInput{AccountID: accountID, AuthorizationID: "auth-release", TURKey: turKey, FullClose: true, Reason: billing.ReleaseExecutionNotStarted, SourceKey: "release-1"})
-	if err != nil || !replay.Replayed {
-		t.Fatalf("release replay = %+v, %v", replay, err)
-	}
-	if _, err := store.ReleaseAuthorization(ctx, billing.ReleaseAuthorizationInput{AccountID: accountID, AuthorizationID: "auth-release", TURKey: turKey, Amount: billing.Money{Nano: 39, Currency: "USD"}, Reason: billing.ReleaseExecutionNotStarted, SourceKey: "release-1"}); !errors.Is(err, ErrOperationConflict) {
-		t.Fatalf("release conflict = %v", err)
-	}
-	account, err := store.GetAccount(ctx, accountID)
-	if err != nil || account.ReservedNano != 0 || account.BalanceNano != 100 {
-		t.Fatalf("released account = %+v, %v", account, err)
-	}
-	journals, err := store.JournalTransactions(ctx, accountID)
-	if err != nil || len(journals) != 2 {
-		t.Fatalf("release journal count = %d, %v", len(journals), err)
 	}
 }

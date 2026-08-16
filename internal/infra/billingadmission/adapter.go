@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -12,45 +11,32 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-// RoutePricing resolves the exact customer pricing snapshot for one planned
-// backend:model leaf. Missing rates must fail closed through the estimator.
-type RoutePricing func(ctx context.Context, backend, model string) (billing.PricingSnapshot, error)
+type (
+	RoutePricing   func(ctx context.Context, backend, model string) (billing.PricingSnapshot, error)
+	ModelMaxOutput func(ctx context.Context, backend, model string) (max int64, present bool, err error)
+	Config         struct {
+		ExposureStore       billing.ExposureAdmissionStore
+		Identity            coreruntime.BillingIdentity
+		Currency            string
+		Policy              func(context.Context, lipapi.Call) (billing.ChargePolicy, error)
+		Pricing             RoutePricing
+		ModelMaxOutput      ModelMaxOutput
+		ClientMaxOutput     func(context.Context, lipapi.Call) *int64
+		Strict              bool
+		ConservativeCeiling *billing.Money
+	}
+)
 
-// ModelMaxOutput resolves the finite model output bound for one planned leaf.
-type ModelMaxOutput func(ctx context.Context, backend, model string) (max int64, present bool, err error)
-
-// Config wires identity and economic snapshot resolvers for one admission call.
-type Config struct {
-	Store               billing.AuthorizationStore
-	Releaser            billing.HoldReleaser
-	Identity            coreruntime.BillingIdentity
-	Currency            string
-	Policy              func(context.Context, lipapi.Call) (billing.ChargePolicy, error)
-	Pricing             RoutePricing
-	ModelMaxOutput      ModelMaxOutput
-	ClientMaxOutput     func(context.Context, lipapi.Call) *int64
-	Strict              bool
-	ConservativeCeiling *billing.Money
-	HoldTTL             time.Duration
-	Now                 func() time.Time
-}
-
-// Adapter is the production BillingAdmission implementation for composition.
 type Adapter struct {
 	cfg Config
 }
 
-// NewAdapter constructs a runtime BillingAdmission adapter. Store, Releaser,
-// Identity account/authorization resolvers, Policy, and Pricing are required.
 func NewAdapter(cfg Config) (*Adapter, error) {
-	if cfg.Store == nil {
-		return nil, fmt.Errorf("billingadmission: authorization store is required")
+	if cfg.ExposureStore == nil {
+		return nil, fmt.Errorf("billingadmission: exposure store is required")
 	}
-	if cfg.Releaser == nil {
-		return nil, fmt.Errorf("billingadmission: hold releaser is required")
-	}
-	if cfg.Identity.AccountID == nil || cfg.Identity.AuthorizationID == nil {
-		return nil, fmt.Errorf("billingadmission: account and authorization identity resolvers are required")
+	if cfg.Identity.AccountID == nil {
+		return nil, fmt.Errorf("billingadmission: account identity resolver is required")
 	}
 	if cfg.Policy == nil || cfg.Pricing == nil {
 		return nil, fmt.Errorf("billingadmission: policy and pricing resolvers are required")
@@ -58,62 +44,32 @@ func NewAdapter(cfg Config) (*Adapter, error) {
 	if strings.TrimSpace(cfg.Currency) == "" {
 		return nil, fmt.Errorf("billingadmission: currency is required")
 	}
-	if cfg.Now == nil {
-		cfg.Now = func() time.Time { return time.Now().UTC() }
-	}
-	if cfg.HoldTTL <= 0 {
-		cfg.HoldTTL = billing.DefaultHoldTTL
-	}
 	return &Adapter{cfg: cfg}, nil
 }
 
-// SetHoldTTL replaces the authorization hold lifetime. Zero or negative is ignored.
-func (a *Adapter) SetHoldTTL(d time.Duration) {
-	if a == nil || d <= 0 {
-		return
-	}
-	a.cfg.HoldTTL = d
-}
+var _ coreruntime.BillingExposureAdmission = (*Adapter)(nil)
 
-// HoldTTL returns the configured authorization hold lifetime.
-func (a *Adapter) HoldTTL() time.Duration {
+func (a *Adapter) Quote(ctx context.Context, in coreruntime.BillingAdmissionInput) (billing.MaxCostBound, error) {
 	if a == nil {
-		return 0
+		return billing.MaxCostBound{}, fmt.Errorf("%w: nil admission adapter", billing.ErrEstimateInvalid)
 	}
-	return a.cfg.HoldTTL
-}
-
-var (
-	_ coreruntime.BillingAdmission        = (*Adapter)(nil)
-	_ coreruntime.BillingAdmissionCleanup = (*Adapter)(nil)
-)
-
-// Authorize estimates MaxCustomerCharge from the planned route and atomically
-// creates the durable authorization hold before any provider/connector work.
-func (a *Adapter) Authorize(ctx context.Context, in coreruntime.BillingAdmissionInput) (billing.Authorization, error) {
-	if a == nil {
-		return billing.Authorization{}, fmt.Errorf("%w: nil admission adapter", billing.ErrAuthorizationUnavailable)
-	}
-	accountID := strings.TrimSpace(a.cfg.Identity.AccountID(ctx, in.Call))
-	aLegID := strings.TrimSpace(in.ALegID)
-	authID := strings.TrimSpace(a.cfg.Identity.AuthorizationID(ctx, in.Call, aLegID))
-	if accountID == "" || authID == "" || aLegID == "" {
-		return billing.Authorization{}, fmt.Errorf("%w: account, authorization, and A-leg identities are required", billing.ErrAuthorizationInvalid)
-	}
-	turKey, err := billing.TURKey(accountID, aLegID)
+	estimate, err := a.maxChargeInput(ctx, in)
 	if err != nil {
-		return billing.Authorization{}, fmt.Errorf("%w: %v", billing.ErrAuthorizationInvalid, err)
+		return billing.MaxCostBound{}, err
 	}
+	return billing.EstimateMaxCustomerCharge(estimate)
+}
 
+func (a *Adapter) maxChargeInput(ctx context.Context, in coreruntime.BillingAdmissionInput) (billing.MaxChargeInput, error) {
 	policy, err := a.cfg.Policy(ctx, in.Call)
 	if err != nil {
-		return billing.Authorization{}, err
+		return billing.MaxChargeInput{}, err
 	}
 	routes, err := a.chargeRoutes(ctx, in)
 	if err != nil {
-		return billing.Authorization{}, err
+		return billing.MaxChargeInput{}, err
 	}
-	estimate := billing.MaxChargeInput{
+	return billing.MaxChargeInput{
 		Currency:            a.cfg.Currency,
 		InputTokens:         in.RequestSize.Tokens,
 		InputTokensPresent:  in.RequestSize.Available,
@@ -121,40 +77,29 @@ func (a *Adapter) Authorize(ctx context.Context, in coreruntime.BillingAdmission
 		Routes:              routes,
 		Strict:              a.cfg.Strict,
 		ConservativeCeiling: a.cfg.ConservativeCeiling,
-	}
-	service := billing.AdmissionService{Store: a.cfg.Store}
-	auth, _, err := service.Authorize(ctx, billing.AdmissionRequest{
-		AccountID: accountID, TURKey: turKey, AuthorizationID: authID,
-		Estimate: estimate, ExpiresAt: a.cfg.Now().Add(a.cfg.HoldTTL),
-	})
-	return auth, err
+	}, nil
 }
 
-// ReleaseUnused implements coreruntime.BillingAdmissionCleanup for Execute
-// aborts that never reach a stream terminal handoff.
-func (a *Adapter) ReleaseUnused(ctx context.Context, in coreruntime.BillingAdmissionInput) error {
-	if a == nil {
-		return fmt.Errorf("%w: nil admission adapter", billing.ErrAuthorizationUnavailable)
+func (a *Adapter) Admit(ctx context.Context, in coreruntime.BillingExposureAdmissionInput) (billing.CallExposure, error) {
+	if a == nil || a.cfg.ExposureStore == nil {
+		return billing.CallExposure{}, fmt.Errorf("%w: exposure store is required", billing.ErrExposureInvalid)
 	}
-	if a.cfg.Releaser == nil {
-		return fmt.Errorf("%w: hold releaser is required", billing.ErrAuthorizationUnavailable)
+	callID := strings.TrimSpace(in.CallID)
+	if callID == "" {
+		return billing.CallExposure{}, fmt.Errorf("%w: BillingCallID is required", billing.ErrExposureInvalid)
+	}
+	bound, err := a.Quote(ctx, in.BillingAdmissionInput)
+	if err != nil {
+		return billing.CallExposure{}, err
 	}
 	accountID := strings.TrimSpace(a.cfg.Identity.AccountID(ctx, in.Call))
-	aLegID := strings.TrimSpace(in.ALegID)
-	authID := strings.TrimSpace(a.cfg.Identity.AuthorizationID(ctx, in.Call, aLegID))
-	turKey, err := billing.TURKey(accountID, aLegID)
-	if err != nil {
-		return fmt.Errorf("%w: %v", billing.ErrAuthorizationInvalid, err)
+	if accountID == "" {
+		return billing.CallExposure{}, fmt.Errorf("%w: account identity is required", billing.ErrExposureInvalid)
 	}
-	if accountID == "" || authID == "" || aLegID == "" {
-		return fmt.Errorf("%w: account, authorization, and A-leg identities are required", billing.ErrAuthorizationInvalid)
-	}
-	_, err = a.cfg.Releaser.ReleaseAuthorization(ctx, billing.ReleaseAuthorizationInput{
-		AccountID: accountID, AuthorizationID: authID, TURKey: turKey,
-		FullClose: true, Reason: billing.ReleaseExecutionNotStarted,
-		SourceKey: "execution_not_started:" + authID,
+	return a.cfg.ExposureStore.AdmitExposure(ctx, billing.AdmitExposureInput{
+		AccountID: accountID, CallID: callID, Max: bound.Amount,
+		PricingRef: bound.PricingRef, ChargePolicyRef: bound.ChargePolicyRef,
 	})
-	return err
 }
 
 func (a *Adapter) chargeRoutes(ctx context.Context, in coreruntime.BillingAdmissionInput) ([]billing.ChargeRoute, error) {
@@ -204,15 +149,9 @@ func collectPlannedLeaves(sel *routing.Selector) []plannedLeaf {
 	if sel == nil {
 		return nil
 	}
-	seen := make(map[string]struct{})
 	var out []plannedLeaf
 	add := func(p routing.Primary) {
-		key := p.String()
-		if _, ok := seen[key]; ok {
-			return
-		}
-		seen[key] = struct{}{}
-		out = append(out, plannedLeaf{Key: key, Backend: p.Backend, Model: p.Model})
+		out = append(out, plannedLeaf{Key: p.String(), Backend: p.Backend, Model: p.Model})
 	}
 	for _, alt := range sel.Alternatives {
 		switch {

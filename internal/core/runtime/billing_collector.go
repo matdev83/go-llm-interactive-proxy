@@ -2,10 +2,7 @@ package runtime
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"sort"
-	"strconv"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -16,21 +13,14 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-// billingTurnCollector owns A-leg evidence, the parallel barrier, TUR persist,
-// and detached handoff retry. Runtime streams only RecordLeg / SealTurn.
 type billingTurnCollector struct {
-	exec *Executor
-
-	mu             sync.Mutex
-	evidenceByALeg map[string][]billing.LegUsageRecord
-	barrierByALeg  map[string]<-chan struct{}
-	sealedByALeg   map[string]struct{}
-
-	outbox billing.HandoffOutbox
-	retry  *billing.HandoffRetryWorker
-
-	finalizeMu    sync.Mutex
-	finalizeByKey map[string]*finalizeCacheEntry
+	exec            *Executor
+	mu              sync.Mutex
+	allocatedByCall map[string]map[string]struct{}
+	frozenByCall    map[string][]string
+	legTimesByCall  map[string][]billing.LegUsageRecord
+	finalizeMu      sync.Mutex
+	finalizeByKey   map[string]*finalizeCacheEntry
 }
 
 func (e *Executor) billingTurns() *billingTurnCollector {
@@ -38,314 +28,108 @@ func (e *Executor) billingTurns() *billingTurnCollector {
 		return nil
 	}
 	e.billingOnce.Do(func() {
-		outbox := e.HandoffOutbox
-		if outbox == nil {
-			outbox = billing.NewMemoryHandoffOutbox()
-		}
-		coll := &billingTurnCollector{exec: e, outbox: outbox}
-		wrapped := billing.UsageRecordAppenderFunc(func(ctx context.Context, record billing.TurnUsageRecord) error {
-			if e.BillingTerminalHandoff == nil {
-				return fmt.Errorf("runtime: billing handoff unavailable")
-			}
-			err := e.BillingTerminalHandoff.AppendUsageRecord(ctx, record)
-			if err == nil {
-				coll.markSealed(record.ALegID)
-				coll.evictFinalizeCache(record.ALegID, record.Legs)
-				_ = coll.claim(record.ALegID)
-			}
-			return err
-		})
-		worker, err := billing.NewHandoffRetryWorker(outbox, wrapped, e.BillingHoldReleaser, billing.HandoffRetryConfig{})
-		if err == nil {
-			coll.retry = worker
-		}
-		e.billingColl = coll
+		e.billingColl = &billingTurnCollector{exec: e}
 	})
 	return e.billingColl
 }
 
 func (c *billingTurnCollector) enabled() bool {
-	return c != nil && c.exec != nil && (c.exec.BillingTerminalHandoff != nil || c.exec.BillingLegObserver != nil)
+	return c != nil && c.exec != nil && (c.exec.BillingLegObserver != nil || c.exec.CallLegUsageAppender != nil || c.exec.CallUsageAppender != nil)
 }
 
-func (c *billingTurnCollector) record(ctx context.Context, record billing.LegUsageRecord) {
-	if c == nil || c.exec == nil {
+func (c *billingTurnCollector) observe(ctx context.Context, record billing.LegUsageRecord) {
+	if c == nil || c.exec == nil || c.exec.BillingLegObserver == nil {
 		return
 	}
-	aLegID := strings.TrimSpace(record.ALegID)
-	if c.exec.BillingTerminalHandoff != nil && aLegID != "" {
-		c.mu.Lock()
-		if c.evidenceByALeg == nil {
-			c.evidenceByALeg = make(map[string][]billing.LegUsageRecord)
-		}
-		c.evidenceByALeg[aLegID] = mergeBillingEvidence(c.evidenceByALeg[aLegID], []billing.LegUsageRecord{record})
-		legs := append([]billing.LegUsageRecord(nil), c.evidenceByALeg[aLegID]...)
-		c.mu.Unlock()
-		if c.outbox != nil {
-			_ = c.outbox.MergeLegs(ctx, aLegID, legs)
-		}
-	}
-	if c.exec.BillingLegObserver != nil {
-		_ = safety.Call(safety.BoundaryStream, "billing_leg_observer", func() error {
-			c.exec.BillingLegObserver.ObserveBillingLeg(ctx, record)
-			return nil
-		})
-	}
-}
-
-func (c *billingTurnCollector) claim(aLegID string) []billing.LegUsageRecord {
-	if c == nil {
+	_ = safety.Call(safety.BoundaryStream, "billing_leg_observer", func() error {
+		c.exec.BillingLegObserver.ObserveBillingLeg(ctx, record)
 		return nil
-	}
-	aLegID = strings.TrimSpace(aLegID)
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	legs := c.evidenceByALeg[aLegID]
-	if len(legs) == 0 {
-		return nil
-	}
-	out := append([]billing.LegUsageRecord(nil), legs...)
-	delete(c.evidenceByALeg, aLegID)
-	return out
-}
-
-func (c *billingTurnCollector) restore(aLegID string, legs []billing.LegUsageRecord) {
-	if c == nil || len(legs) == 0 {
-		return
-	}
-	aLegID = strings.TrimSpace(aLegID)
-	if aLegID == "" {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.evidenceByALeg == nil {
-		c.evidenceByALeg = make(map[string][]billing.LegUsageRecord)
-	}
-	c.evidenceByALeg[aLegID] = mergeBillingEvidence(c.evidenceByALeg[aLegID], legs)
-}
-
-func (c *billingTurnCollector) peek(aLegID string) []billing.LegUsageRecord {
-	if c == nil {
-		return nil
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return append([]billing.LegUsageRecord(nil), c.evidenceByALeg[strings.TrimSpace(aLegID)]...)
-}
-
-func (c *billingTurnCollector) beginBarrier(aLegID string) (complete func()) {
-	if c == nil {
-		return func() {}
-	}
-	aLegID = strings.TrimSpace(aLegID)
-	if aLegID == "" {
-		return func() {}
-	}
-	ch := make(chan struct{})
-	c.mu.Lock()
-	if c.barrierByALeg == nil {
-		c.barrierByALeg = make(map[string]<-chan struct{})
-	}
-	if _, exists := c.barrierByALeg[aLegID]; exists {
-		c.mu.Unlock()
-		return func() {}
-	}
-	c.barrierByALeg[aLegID] = ch
-	c.mu.Unlock()
-	if c.outbox != nil {
-		_ = c.outbox.MarkBarrierPending(context.Background(), aLegID)
-	}
-	var once sync.Once
-	return func() {
-		once.Do(func() {
-			c.mu.Lock()
-			if c.barrierByALeg[aLegID] == ch {
-				delete(c.barrierByALeg, aLegID)
-			}
-			c.mu.Unlock()
-			close(ch)
-			if c.outbox != nil {
-				_ = c.outbox.MarkBarrierComplete(context.Background(), aLegID)
-			}
-		})
-	}
-}
-
-func (c *billingTurnCollector) waitBarrier(ctx context.Context, aLegID string) bool {
-	if c == nil {
-		return true
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	c.mu.Lock()
-	ch := c.barrierByALeg[strings.TrimSpace(aLegID)]
-	c.mu.Unlock()
-	if ch == nil {
-		return true
-	}
-	select {
-	case <-ch:
-		return true
-	case <-ctx.Done():
-		return false
-	}
-}
-
-func (c *billingTurnCollector) markSealed(aLegID string) {
-	if c == nil {
-		return
-	}
-	aLegID = strings.TrimSpace(aLegID)
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.sealedByALeg == nil {
-		c.sealedByALeg = make(map[string]struct{})
-	}
-	c.sealedByALeg[aLegID] = struct{}{}
-}
-
-func (c *billingTurnCollector) sealed(aLegID string) bool {
-	if c == nil {
-		return false
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	_, ok := c.sealedByALeg[strings.TrimSpace(aLegID)]
-	return ok
-}
-
-// sealTurn persists one TUR from the request terminal owner. It returns true
-// only after durable accept. Barrier timeout and persist failure enqueue the
-// billing outbox worker; they never retain a live stream.
-func (c *billingTurnCollector) sealTurn(ctx context.Context, job billing.HandoffRetryJob) bool {
-	if c == nil || c.exec == nil || c.exec.BillingTerminalHandoff == nil {
-		return false
-	}
-	if c.sealed(job.ALegID) {
-		return true
-	}
-	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingHandoffTimeout)
-	defer cancel()
-	if !c.waitBarrier(persistCtx, job.ALegID) {
-		if c.exec.Log != nil {
-			c.exec.Log.DebugContext(persistCtx, "billing TUR handoff deferred: parallel evidence barrier incomplete")
-		}
-		c.scheduleRetry(job)
-		return false
-	}
-	writeCtx, writeCancel := context.WithTimeout(context.WithoutCancel(ctx), billingHandoffTimeout)
-	defer writeCancel()
-	if err := c.persist(writeCtx, job); err != nil {
-		if errors.Is(err, errBillingHandoffNoEvidence) {
-			if c.exec.Log != nil {
-				c.exec.Log.DebugContext(writeCtx, "billing TUR handoff deferred: no B-leg evidence")
-			}
-			c.scheduleRetry(job)
-			return false
-		}
-		if c.exec.Log != nil {
-			c.exec.Log.DebugContext(writeCtx, "billing TUR handoff failed", "error", err)
-		}
-		c.scheduleRetry(job)
-		return false
-	}
-	c.markSealed(job.ALegID)
-	if c.outbox != nil {
-		_ = c.outbox.Complete(writeCtx, job.ALegID)
-	}
-	return true
-}
-
-func (c *billingTurnCollector) persist(ctx context.Context, job billing.HandoffRetryJob) error {
-	if c == nil || c.exec == nil || c.exec.BillingTerminalHandoff == nil {
-		return fmt.Errorf("runtime: billing handoff unavailable")
-	}
-	legs := sealableBillingLegs(c.peek(job.ALegID))
-	sort.SliceStable(legs, func(i, j int) bool { return legs[i].Seq < legs[j].Seq })
-	if len(legs) == 0 {
-		return errBillingHandoffNoEvidence
-	}
-	started, finished := legs[0].StartedAt, legs[0].FinishedAt
-	for _, leg := range legs[1:] {
-		if !leg.StartedAt.IsZero() && (started.IsZero() || leg.StartedAt.Before(started)) {
-			started = leg.StartedAt
-		}
-		if leg.FinishedAt.After(finished) {
-			finished = leg.FinishedAt
-		}
-	}
-	outcome := job.Outcome
-	if outcome == "" {
-		outcome = billing.TurnOutcomeUnknown
-	}
-	record := billing.TurnUsageRecord{
-		SchemaVersion:      billing.CurrentRecordSchemaVersion,
-		AccountID:          job.AccountID,
-		TurnID:             job.ALegID,
-		ALegID:             job.ALegID,
-		AuthorizationID:    job.AuthorizationID,
-		SessionID:          strings.TrimSpace(job.SessionID),
-		StartedAt:          started,
-		FinishedAt:         finished,
-		Outcome:            outcome,
-		CustomerPricingRef: job.CustomerPricing,
-		ChargePolicyRef:    job.ChargePolicy,
-		Legs:               legs,
-	}
-	sealed, err := record.Seal()
-	if err != nil {
-		return err
-	}
-	err = safety.Call(safety.BoundaryStream, "billing_turn_handoff", func() error {
-		return c.exec.BillingTerminalHandoff.AppendUsageRecord(ctx, sealed)
 	})
-	if err != nil {
-		return err
-	}
-	c.evictFinalizeCache(job.ALegID, legs)
-	_ = c.claim(job.ALegID)
-	return nil
 }
 
-func sealableBillingLegs(legs []billing.LegUsageRecord) []billing.LegUsageRecord {
-	out := make([]billing.LegUsageRecord, 0, len(legs))
-	for _, leg := range legs {
-		if leg.StartedAt.IsZero() || leg.FinishedAt.IsZero() || leg.FinishedAt.Before(leg.StartedAt) {
-			continue
-		}
-		out = append(out, leg)
+func (c *billingTurnCollector) noteAllocatedBLeg(callID billing.BillingCallID, bLegID string) {
+	if c == nil {
+		return
 	}
-	return out
+	if err := callID.Validate(); err != nil {
+		return
+	}
+	bLegID = strings.TrimSpace(bLegID)
+	if bLegID == "" {
+		return
+	}
+	key := callID.String()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, frozen := c.frozenByCall[key]; frozen {
+		return
+	}
+	if c.allocatedByCall == nil {
+		c.allocatedByCall = make(map[string]map[string]struct{})
+	}
+	set := c.allocatedByCall[key]
+	if set == nil {
+		set = make(map[string]struct{})
+		c.allocatedByCall[key] = set
+	}
+	set[bLegID] = struct{}{}
 }
 
-func mergeBillingEvidence(dst, src []billing.LegUsageRecord) []billing.LegUsageRecord {
-	if len(src) == 0 {
-		return dst
+func (c *billingTurnCollector) noteLegTimes(callID billing.BillingCallID, started, finished time.Time) {
+	if c == nil {
+		return
 	}
-	index := make(map[string]int, len(dst)+len(src))
-	for i, leg := range dst {
-		key := billingEvidenceDedupeKey(leg)
-		index[key] = i
+	if err := callID.Validate(); err != nil || started.IsZero() || finished.IsZero() {
+		return
 	}
-	for _, leg := range src {
-		key := billingEvidenceDedupeKey(leg)
-		if i, ok := index[key]; ok {
-			dst[i] = leg
-			continue
-		}
-		index[key] = len(dst)
-		dst = append(dst, leg)
+	key := callID.String()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, frozen := c.frozenByCall[key]; frozen {
+		return
 	}
-	return dst
+	if c.legTimesByCall == nil {
+		c.legTimesByCall = make(map[string][]billing.LegUsageRecord)
+	}
+	c.legTimesByCall[key] = append(c.legTimesByCall[key], billing.LegUsageRecord{StartedAt: started, FinishedAt: finished})
 }
 
-func billingEvidenceDedupeKey(leg billing.LegUsageRecord) string {
-	if id := strings.TrimSpace(leg.BLegID); id != "" {
-		return id
+func (c *billingTurnCollector) closureLegTimes(callID billing.BillingCallID) []billing.LegUsageRecord {
+	if c == nil {
+		return nil
 	}
-	return strings.TrimSpace(leg.ALegID) + "#" + strconv.Itoa(leg.Seq)
+	if err := callID.Validate(); err != nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]billing.LegUsageRecord(nil), c.legTimesByCall[callID.String()]...)
+}
+
+func (c *billingTurnCollector) freezeAllocatedBLegs(callID billing.BillingCallID) []string {
+	if c == nil {
+		return nil
+	}
+	if err := callID.Validate(); err != nil {
+		return nil
+	}
+	key := callID.String()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if frozen, ok := c.frozenByCall[key]; ok {
+		return append([]string(nil), frozen...)
+	}
+	set := c.allocatedByCall[key]
+	ids := make([]string, 0, len(set))
+	for id := range set {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	if c.frozenByCall == nil {
+		c.frozenByCall = make(map[string][]string)
+	}
+	c.frozenByCall[key] = append([]string(nil), ids...)
+	return ids
 }
 
 type finalizeCacheEntry struct {
@@ -361,9 +145,6 @@ func finalizeCacheKey(in execbackend.BillingFinalizationInput) string {
 	return strings.TrimSpace(in.ALegID) + "|" + strings.TrimSpace(in.Backend) + "|" + strings.TrimSpace(in.Model)
 }
 
-// finalizeOnce returns one FinalizeBilling snapshot per B-leg. Quota settlement
-// and LUR recording share this result; a failed or missing hook is cached as
-// a miss so the backend is not retried for the same leg.
 func (c *billingTurnCollector) finalizeOnce(ctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, bool) {
 	if c == nil || c.exec == nil {
 		return lipapi.Event{}, false
@@ -376,22 +157,21 @@ func (c *billingTurnCollector) finalizeOnce(ctx context.Context, in execbackend.
 	if c.finalizeByKey == nil {
 		c.finalizeByKey = make(map[string]*finalizeCacheEntry)
 	}
-	if e, ok := c.finalizeByKey[key]; ok {
+	if entry, ok := c.finalizeByKey[key]; ok {
 		c.finalizeMu.Unlock()
-		<-e.done
-		return e.ev, e.ok
+		<-entry.done
+		return entry.ev, entry.ok
 	}
-	e := &finalizeCacheEntry{done: make(chan struct{})}
-	c.finalizeByKey[key] = e
+	entry := &finalizeCacheEntry{done: make(chan struct{})}
+	c.finalizeByKey[key] = entry
 	c.finalizeMu.Unlock()
-
-	e.ev, e.ok = c.callFinalizeBilling(ctx, in)
-	close(e.done)
-	return e.ev, e.ok
+	entry.ev, entry.ok = c.callFinalizeBilling(ctx, in)
+	close(entry.done)
+	return entry.ev, entry.ok
 }
 
 func (c *billingTurnCollector) callFinalizeBilling(ctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, bool) {
-	if c.exec.Backends == nil {
+	if c == nil || c.exec == nil || c.exec.Backends == nil {
 		return lipapi.Event{}, false
 	}
 	backendID := strings.TrimSpace(in.Backend)
@@ -428,52 +208,6 @@ func (c *billingTurnCollector) evictFinalizeCache(aLegID string, legs []billing.
 	}
 }
 
-// billingHandoffTimeout bounds detached TUR handoff work (barrier wait + persist).
-// It must exceed parallel loser cleanup (cancelLosersTimeout) plus per-leg
-// FinalizeBilling budgets so client cancellation cannot strand sealed money.
-var billingHandoffTimeout = 2 * time.Minute
-
-// billingFinalizeTimeout is the per-leg FinalizeBilling observation budget.
 const billingFinalizeTimeout = 2 * time.Second
 
-func (e *Executor) addBillingEvidence(ctx context.Context, record billing.LegUsageRecord) {
-	if e == nil {
-		return
-	}
-	e.billingTurns().record(ctx, record)
-}
-
-func (e *Executor) claimBillingEvidence(aLegID string) []billing.LegUsageRecord {
-	if e == nil {
-		return nil
-	}
-	return e.billingTurns().claim(aLegID)
-}
-
-func (e *Executor) restoreBillingEvidence(aLegID string, legs []billing.LegUsageRecord) {
-	if e == nil {
-		return
-	}
-	e.billingTurns().restore(aLegID, legs)
-}
-
-func (e *Executor) peekBillingEvidence(aLegID string) []billing.LegUsageRecord {
-	if e == nil {
-		return nil
-	}
-	return e.billingTurns().peek(aLegID)
-}
-
-func (e *Executor) beginBillingEvidenceBarrier(aLegID string) (complete func()) {
-	if e == nil {
-		return func() {}
-	}
-	return e.billingTurns().beginBarrier(aLegID)
-}
-
-func (e *Executor) waitBillingEvidenceBarrier(ctx context.Context, aLegID string) bool {
-	if e == nil {
-		return true
-	}
-	return e.billingTurns().waitBarrier(ctx, aLegID)
-}
+var billingHandoffTimeout = 2 * time.Minute

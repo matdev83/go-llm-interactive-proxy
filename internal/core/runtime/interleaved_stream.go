@@ -7,11 +7,13 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
 type interleavedPhase int
@@ -40,9 +42,12 @@ type interleavedContinuationStream struct {
 	responseStarted  bool
 	pending          []lipapi.Event
 
-	mu            sync.Mutex
-	finished      bool
-	memoPersisted bool
+	mu                 sync.Mutex
+	finished           bool
+	memoPersisted      bool
+	transitionInFlight bool
+	cancelPending      bool
+	closePending       bool
 }
 
 var (
@@ -120,6 +125,13 @@ func (s *interleavedContinuationStream) recvThinker(ctx context.Context) (lipapi
 		ev, err := s.thinker.Recv(ctx)
 		if err != nil {
 			if errors.Is(err, io.EOF) && s.thinker.isFinished() {
+				// Only response_finished completion sets tokenAccountingFinalized.
+				// Truncated EOF / cancel / error terminals must not open an executor
+				// continuation (that would race a second request/call closure).
+				if !s.thinker.tokenAccountingFinalized {
+					s.finishWithCleanup(ctx)
+					return lipapi.Event{}, io.EOF
+				}
 				if s.surfaceVisible {
 					for _, visible := range s.recorder.FlushVisibleSanitizer() {
 						s.enqueueVisibleReasoning(visible)
@@ -136,6 +148,14 @@ func (s *interleavedContinuationStream) recvThinker(ctx context.Context) (lipapi
 			}
 			s.finishWithCleanup(ctx)
 			return lipapi.Event{}, err
+		}
+		if ev.Kind == lipapi.EventError {
+			if _, persistErr := s.captureAndPersistThinkerMemo(ctx, true); persistErr != nil {
+				s.finishWithCleanup(ctx)
+				return lipapi.Event{}, persistErr
+			}
+			s.finishWithCleanup(ctx)
+			return ev, nil
 		}
 		for _, visible := range s.recorder.Observe(ev) {
 			if !s.surfaceVisible {
@@ -224,6 +244,16 @@ func (s *interleavedContinuationStream) captureAndPersistThinkerMemo(ctx context
 }
 
 func (s *interleavedContinuationStream) beginExecutorContinuation(ctx context.Context) (lipapi.Event, error) {
+	s.mu.Lock()
+	s.transitionInFlight = true
+	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+		s.transitionInFlight = false
+		s.mu.Unlock()
+	}()
+
 	state, err := s.captureAndPersistThinkerMemo(ctx, false)
 	if err != nil {
 		s.finishWithCleanup(ctx)
@@ -235,7 +265,7 @@ func (s *interleavedContinuationStream) beginExecutorContinuation(ctx context.Co
 		return lipapi.Event{}, err
 	}
 	if abortErr := s.handoffAborted(ctx); abortErr != nil {
-		s.abortExecutorHandoff(ctx, execStream)
+		s.abortExecutorHandoff(ctx, execStream, abortErr)
 		return lipapi.Event{}, abortErr
 	}
 	s.closeThinkerInner(ctx)
@@ -246,9 +276,29 @@ func (s *interleavedContinuationStream) beginExecutorContinuation(ctx context.Co
 		}
 	}
 	s.mu.Lock()
+	if s.cancelPending || s.closePending || s.finished {
+		var abortErr error
+		switch {
+		case s.cancelPending:
+			abortErr = context.Canceled
+		case s.closePending:
+			abortErr = errors.New("client closed")
+		default:
+			abortErr = io.EOF
+		}
+		// Clear transitionInFlight before unlock so concurrent Cancel/Close take the
+		// post-assignment path if abort races with a late observer; abort owns finished.
+		s.transitionInFlight = false
+		s.mu.Unlock()
+		s.abortExecutorHandoff(ctx, execStream, abortErr)
+		return lipapi.Event{}, abortErr
+	}
 	s.executor = execStream
 	s.phase = interleavedPhaseExecutor
 	s.state = state
+	// Clear atomically with executor/phase assignment before first executor Recv so
+	// Cancel/Close during that Recv cancel the opened continuation (not pending-only).
+	s.transitionInFlight = false
 	s.mu.Unlock()
 	return s.recvExecutor(ctx)
 }
@@ -256,7 +306,17 @@ func (s *interleavedContinuationStream) beginExecutorContinuation(ctx context.Co
 func (s *interleavedContinuationStream) handoffAborted(ctx context.Context) error {
 	s.mu.Lock()
 	finished := s.finished
+	cancelPending := s.cancelPending
+	closePending := s.closePending
 	s.mu.Unlock()
+	// Pending cancel/close from transition Cancel/Close must win over a generic
+	// finished bit so abortExecutorHandoff picks CommandCancel vs CommandClose.
+	if cancelPending {
+		return context.Canceled
+	}
+	if closePending {
+		return errors.New("client closed")
+	}
 	if finished {
 		return io.EOF
 	}
@@ -320,12 +380,49 @@ func (s *interleavedContinuationStream) closeActiveInner(ctx context.Context) {
 	}
 }
 
+func (s *interleavedContinuationStream) finalizeThinkerAuthority(ctx context.Context, kind authorityapp.ReleaseKind) {
+	if s == nil || s.thinker == nil || s.thinker.authority.Settled() {
+		return
+	}
+	s.thinker.authority.finalizeIncurredOrRelease(ctx, kind, s.thinker.operatorUsageForFinalize())
+}
+
 func (s *interleavedContinuationStream) finishWithCleanup(ctx context.Context) {
 	s.closeActiveInner(ctx)
+	if s.thinker != nil {
+		s.mu.Lock()
+		thinkerPhase := s.phase == interleavedPhaseThinker
+		closePending := s.closePending
+		cancelPending := s.cancelPending
+		s.mu.Unlock()
+		if thinkerPhase {
+			cmd := sdkterminal.CommandPartialError
+			if closePending {
+				cmd = sdkterminal.CommandClose
+			} else if cancelPending {
+				cmd = sdkterminal.CommandCancel
+			} else if s.thinker.aScope != nil {
+				if err := s.thinker.aScope.Err(); err != nil {
+					if errors.Is(err, context.DeadlineExceeded) {
+						cmd = sdkterminal.CommandTimeout
+					} else {
+						cmd = sdkterminal.CommandCancel
+					}
+				}
+			}
+			_ = s.thinker.runStreamTerminal(ctx, cmd, func(cctx context.Context) error {
+				s.finalizeThinkerAuthority(cctx, authorityapp.ReleaseKindLosing)
+				return nil
+			})
+			// If another owner already won the request terminal (e.g. truncated
+			// CommandEOF), effects above are skipped — still release/settle once.
+			s.finalizeThinkerAuthority(ctx, authorityapp.ReleaseKindLosing)
+		}
+	}
 	s.markFinished()
 }
 
-func (s *interleavedContinuationStream) abortExecutorHandoff(ctx context.Context, exec *retryRecvStream) {
+func (s *interleavedContinuationStream) abortExecutorHandoff(ctx context.Context, exec *retryRecvStream, abortErr error) {
 	cleanupCtx, cleanupCancel := detachedCleanupContext(ctx, cancelLosersTimeout)
 	defer cleanupCancel()
 	if exec != nil {
@@ -343,9 +440,37 @@ func (s *interleavedContinuationStream) abortExecutorHandoff(ctx context.Context
 		// admissions release. Mirrors sibling L1/L8 sites with ReleaseKindSwallowed
 		// posture since the aborted attempt produced no client-facing output.
 		exec.authority.finalizeIncurredOrRelease(cleanupCtx, authorityapp.ReleaseKindSwallowed, exec.operatorUsageForFinalize())
+
+		// Record the continuation B-leg terminal row:
+		started := exec.accounting.requestStartedAt
+		if started.IsZero() {
+			started = exec.now()
+		}
+		exec.executor.appendIndependentTerminalLeg(cleanupCtx, exec.billingCallID, exec.aLegID, exec.bleg, exec.cand.Primary, started, exec.now(), billing.LegOutcomeCanceled)
+
 		exec.markFinished()
 	}
 	s.closeThinkerInner(ctx)
+
+	s.mu.Lock()
+	closePending := s.closePending
+	s.mu.Unlock()
+
+	// Terminalize the logical request owner:
+	cmd := sdkterminal.CommandCancel
+	if closePending {
+		cmd = sdkterminal.CommandClose
+	} else if errors.Is(abortErr, context.DeadlineExceeded) || (s.thinker != nil && s.thinker.aScope != nil && errors.Is(s.thinker.aScope.Err(), context.DeadlineExceeded)) {
+		cmd = sdkterminal.CommandTimeout
+	}
+	if s.thinker != nil {
+		_ = s.thinker.runStreamTerminal(cleanupCtx, cmd, func(cctx context.Context) error {
+			s.finalizeThinkerAuthority(cctx, authorityapp.ReleaseKindLosing)
+			return nil
+		})
+		s.finalizeThinkerAuthority(cleanupCtx, authorityapp.ReleaseKindLosing)
+	}
+
 	s.markFinished()
 }
 
@@ -389,26 +514,56 @@ func (s *interleavedContinuationStream) markFinished() {
 	}
 }
 
-func (s *interleavedContinuationStream) activeRecv() *retryRecvStream {
+func (s *interleavedContinuationStream) activeRecvLocked() *retryRecvStream {
 	if s == nil {
 		return nil
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.phase == interleavedPhaseExecutor && s.executor != nil {
 		return s.executor
 	}
 	return s.thinker
 }
 
+func (s *interleavedContinuationStream) activeRecv() *retryRecvStream {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.activeRecvLocked()
+}
+
 func (s *interleavedContinuationStream) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
 	if s == nil {
 		return lipapi.CancelResult{}
 	}
-	active := s.activeRecv()
+	s.mu.Lock()
+	if s.finished {
+		s.mu.Unlock()
+		return lipapi.CancelResult{}
+	}
+	if s.transitionInFlight {
+		// Pending flags are owned by abort/cleanup (do not set finished here).
+		s.cancelPending = true
+		thinker := s.thinker
+		executor := s.executor
+		s.mu.Unlock()
+		// Cancel an already-opened continuation when assigned; otherwise cancel the
+		// shared A-leg scope so handoffAborted/open sees cancellation.
+		if executor != nil && executor.aScope != nil {
+			_ = executor.aScope.Cancel(ctx, cause)
+		} else if thinker != nil && thinker.aScope != nil {
+			_ = thinker.aScope.Cancel(ctx, cause)
+		}
+		return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
+	}
+	active := s.activeRecvLocked()
+	thinkerPhase := s.phase == interleavedPhaseThinker
+	s.mu.Unlock()
 	if active == nil {
 		return lipapi.CancelResult{}
 	}
+
 	var res lipapi.CancelResult
 	if !active.isFinished() {
 		if active.aScope != nil {
@@ -418,11 +573,16 @@ func (s *interleavedContinuationStream) Cancel(ctx context.Context, cause lipapi
 			res = inner.Cancel(ctx, cause)
 		}
 	}
-	s.mu.Lock()
-	thinkerPhase := s.phase == interleavedPhaseThinker
-	s.mu.Unlock()
+
 	if thinkerPhase {
 		s.persistInterruptedThinkerMemo(ctx)
+		if s.thinker != nil {
+			_ = s.thinker.runStreamTerminal(ctx, sdkterminal.CommandCancel, func(cctx context.Context) error {
+				s.finalizeThinkerAuthority(cctx, authorityapp.ReleaseKindLosing)
+				return nil
+			})
+			s.finalizeThinkerAuthority(ctx, authorityapp.ReleaseKindLosing)
+		}
 	}
 	s.markFinished()
 	return res
@@ -432,24 +592,58 @@ func (s *interleavedContinuationStream) Close() error {
 	if s == nil {
 		return nil
 	}
-	active := s.activeRecv()
+	s.mu.Lock()
+	if s.finished {
+		s.mu.Unlock()
+		return nil
+	}
+	if s.transitionInFlight {
+		// Pending flags are owned by abort/cleanup (do not set finished here).
+		s.closePending = true
+		thinker := s.thinker
+		executor := s.executor
+		s.mu.Unlock()
+		parent := context.Background()
+		if thinker != nil {
+			if cached := thinker.cachedExecContext(); cached != nil {
+				parent = context.WithoutCancel(cached)
+			}
+		}
+		if executor != nil && executor.aScope != nil {
+			_ = executor.aScope.Cancel(parent, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
+		} else if thinker != nil && thinker.aScope != nil {
+			_ = thinker.aScope.Cancel(parent, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
+		}
+		return nil
+	}
+	active := s.activeRecvLocked()
+	thinkerPhase := s.phase == interleavedPhaseThinker
+	s.mu.Unlock()
+
 	var err error
 	if active != nil {
 		err = active.Close()
 	}
-	s.mu.Lock()
-	thinkerPhase := s.phase == interleavedPhaseThinker
-	s.mu.Unlock()
+
 	if thinkerPhase {
 		// Close has no caller context; reuse the thinker's last Recv parent when one
 		// exists so memo persistence keeps request-scoped values. The interrupted path
 		// detaches cancellation via detachedCleanupContext, so persistence still
 		// outlives request cancellation. Background only when no parent exists.
-		parent := s.thinker.cachedExecContext()
-		if parent == nil {
-			parent = context.Background()
+		parent := context.Background()
+		if s.thinker != nil {
+			if cached := s.thinker.cachedExecContext(); cached != nil {
+				parent = cached
+			}
 		}
 		s.persistInterruptedThinkerMemo(parent)
+		if s.thinker != nil {
+			_ = s.thinker.runStreamTerminal(parent, sdkterminal.CommandClose, func(cctx context.Context) error {
+				s.finalizeThinkerAuthority(cctx, authorityapp.ReleaseKindLosing)
+				return nil
+			})
+			s.finalizeThinkerAuthority(parent, authorityapp.ReleaseKindLosing)
+		}
 	}
 	s.markFinished()
 	return err

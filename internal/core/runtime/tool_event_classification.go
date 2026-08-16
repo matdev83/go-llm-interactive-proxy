@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -13,10 +14,12 @@ type toolEventClassification struct {
 }
 
 // toolEventClassificationState correlates a tool call's derived classification by its
-// source ToolCallID within one retryRecvStream. It is owned by the single goroutine
-// that drives Recv (retryRecvStream is not multi-Recv-safe), so it needs no mutex,
-// goroutine, TTL, or persistence. The map is allocated lazily on first use.
+// source ToolCallID within one retryRecvStream. Event processing is owned by the
+// single goroutine that drives Recv (retryRecvStream is not multi-Recv-safe), while
+// terminal cleanup may run concurrently from Close; the mutex protects that cleanup
+// boundary. The map is allocated lazily on first use.
 type toolEventClassificationState struct {
+	mu       sync.Mutex
 	byCallID map[string]toolEventClassification
 }
 
@@ -64,6 +67,8 @@ func (st *toolEventClassificationState) remember(id string, cat lipapi.ToolCateg
 	if st == nil || id == "" {
 		return
 	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
 	if st.byCallID == nil {
 		st.byCallID = make(map[string]toolEventClassification)
 	}
@@ -74,6 +79,8 @@ func (st *toolEventClassificationState) lookup(id string) (toolEventClassificati
 	if st == nil || id == "" {
 		return toolEventClassification{}, false
 	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
 	cls, ok := st.byCallID[id]
 	return cls, ok
 }
@@ -81,16 +88,21 @@ func (st *toolEventClassificationState) lookup(id string) (toolEventClassificati
 // forget removes one source ID's remembered classification (e.g. after a finished
 // lifecycle completes processing) so a later reuse of that ID cannot inherit stale state.
 func (st *toolEventClassificationState) forget(id string) {
-	if st == nil || st.byCallID == nil {
+	if st == nil || id == "" {
 		return
 	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
 	delete(st.byCallID, id)
 }
 
 // clear discards all remembered classification state (e.g. when the owning stream
 // resets, is replaced, or terminates).
 func (st *toolEventClassificationState) clear() {
-	if st != nil {
-		st.byCallID = nil
+	if st == nil {
+		return
 	}
+	st.mu.Lock()
+	st.byCallID = nil
+	st.mu.Unlock()
 }

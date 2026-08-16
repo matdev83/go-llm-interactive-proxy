@@ -85,8 +85,9 @@ func (e *Executor) admitAttemptAuthority(
 		Request:        attemptAuthorityRequestAmount(decision),
 		RequestCount:   domain.Amount{Unit: domain.AmountUnitRequests, Value: 1},
 		PreflightUsage: attemptAuthorityPreflightUsage(decision),
-		// Monetary spend is owned by BillingAdmission/TUR settlement; this
-		// legacy authority path carries only non-money quota quantities.
+		// Monetary spend is owned by cheap credit screen + exposure admission and
+		// post-usage settlement; this legacy authority path carries only non-money
+		// quota quantities.
 		Spend:          domain.Amount{},
 		Authority:      domain.AuthorityLevelEstimated,
 		ReservationKey: attemptAuthorityReservationKey(call.ID, traceID, aLegID, bleg, c),
@@ -247,8 +248,9 @@ func (e *Executor) admitAttemptViaCoordinator(
 		Request:        attemptAuthorityRequestAmount(decision),
 		RequestCount:   domain.Amount{Unit: domain.AmountUnitRequests, Value: 0},
 		PreflightUsage: attemptAuthorityPreflightUsage(decision),
-		// Monetary spend is owned by BillingAdmission/TUR settlement; this
-		// legacy authority path carries only non-money quota quantities.
+		// Monetary spend is owned by cheap credit screen + exposure admission and
+		// post-usage settlement; this legacy authority path carries only non-money
+		// quota quantities.
 		Spend:          domain.Amount{},
 		Authority:      domain.AuthorityLevelEstimated,
 		ReservationKey: attemptAuthorityReservationKey(call.ID, traceID, aLegID, bleg, c),

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
@@ -38,6 +39,7 @@ func (e *Executor) logParallelRacePanic(ctx context.Context, pe *safety.PanicErr
 }
 
 type parallelLeg struct {
+	callID    billing.BillingCallID
 	cand      routing.AttemptCandidate
 	bleg      b2bua.BLegRecord
 	stream    lipapi.ManagedEventStream
@@ -172,7 +174,7 @@ func (e *Executor) tryOpenParallelGroup(
 	}
 
 	for i, entry := range entries {
-		legs[i] = parallelLeg{cand: entry.cand, delay: entry.startDelay}
+		legs[i] = parallelLeg{callID: p.billingCallID, cand: entry.cand, delay: entry.startDelay}
 	}
 
 	for idx, entry := range entries {
@@ -276,6 +278,10 @@ func (e *Executor) tryOpenParallelGroup(
 						}
 						return nil
 					})
+					// RegisterBLeg failed after Open, so this B-leg never enters legs[idx]
+					// and releaseLosers will not record it. Emit Failed terminal usage now
+					// so a later call-closure freeze remains joinable.
+					e.appendPostOpenTerminalLeg(ctx, p.billingCallID, p.aLegID, out.bleg, entry.cand.Primary, time.Time{}, time.Time{})
 					return
 				}
 			}
@@ -527,7 +533,6 @@ func (e *Executor) tryOpenParallelGroup(
 	if len(losers) > 0 {
 		done := make(chan error, 1)
 		losersDone = done
-		completeEvidence := e.beginBillingEvidenceBarrier(p.aLegID)
 		go func() {
 			var cleanupErr error
 			defer func() {
@@ -536,7 +541,6 @@ func (e *Executor) tryOpenParallelGroup(
 					e.logParallelRacePanic(ctx, pe, "executor: isolated panic in parallel race loser cleanup", diag.AttrOpts{CallID: p.traceID})
 					cleanupErr = errors.Join(cleanupErr, fmt.Errorf("parallel race loser cleanup panic"))
 				}
-				completeEvidence()
 				done <- cleanupErr
 				close(done)
 			}()

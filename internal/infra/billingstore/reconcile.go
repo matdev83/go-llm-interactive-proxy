@@ -14,13 +14,10 @@ import (
 
 var ErrReconciliationFailed = errors.New("billingstore: reconciliation failed")
 
-// AccountStatus exposes the materialized safety state without exposing Bun.
 func (s *DurableStore) AccountStatus(ctx context.Context, accountID string) (billing.Account, error) {
 	return s.GetAccount(ctx, accountID)
 }
 
-// MarkAccountReconcileRequired is an explicit audited safety operation. It does
-// not rewrite journal history or materialized balances.
 func (s *DurableStore) MarkAccountReconcileRequired(ctx context.Context, accountID string) error {
 	if s == nil || s.db == nil {
 		return fmt.Errorf("billingstore: nil store")
@@ -39,14 +36,6 @@ func (s *DurableStore) MarkAccountReconcileRequired(ctx context.Context, account
 	return tx.Commit()
 }
 
-// ReconcileAccount replays immutable history in AccountSequence order. Any
-// failed proof commits reconcile_required; only a later successful invocation
-// can repair materialized state and return the account to ready.
-//
-// Heavy proof work runs without holding the account write lock. A short locked
-// compare-and-write applies the result only when account version/state still
-// match the proof snapshot, so concurrent authorize/settle paths are not stalled
-// for the full history replay.
 func (s *DurableStore) ReconcileAccount(ctx context.Context, accountID string) (billing.ReconciliationReport, error) {
 	if s == nil || s.db == nil {
 		return billing.ReconciliationReport{}, fmt.Errorf("billingstore: nil store")
@@ -66,7 +55,7 @@ func (s *DurableStore) ReconcileAccount(ctx context.Context, accountID string) (
 			return billing.ReconciliationReport{}, waitErr
 		}
 	}
-	return billing.ReconciliationReport{}, fmt.Errorf("%w: %v", billing.ErrAuthorizationUnavailable, lastErr)
+	return billing.ReconciliationReport{}, fmt.Errorf("%w: %v", billing.ErrBillingStoreUnavailable, lastErr)
 }
 
 type reconcileSnapshot struct {
@@ -91,14 +80,12 @@ func (s *DurableStore) reconcileAccountAttempt(ctx context.Context, accountID st
 	if err != nil {
 		return billing.ReconciliationReport{}, false, err
 	}
-
 	var report billing.ReconciliationReport
 	if !snap.OpeningPresent {
 		report = billing.ReconciliationReport{AccountID: accountID}
 		report.AddIssue("opening_evidence_missing", 0, accountID)
 		return s.commitReconcileOutcome(ctx, accountID, snap, report, false)
 	}
-
 	replayAccount := snap.Account
 	replayAccount.Currency = snap.ExpectedCurrency
 	replayAccount.Mode = billing.AccountMode(snap.ExpectedMode)
@@ -123,8 +110,7 @@ func (s *DurableStore) loadReconcileSnapshot(ctx context.Context, accountID stri
 		return reconcileSnapshot{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
-
-	account, err := getAccountTx(ctx, tx, accountID)
+	account, err := getAccountForReconcileTx(ctx, tx, accountID)
 	if err != nil {
 		return reconcileSnapshot{}, err
 	}
@@ -186,7 +172,7 @@ func (s *DurableStore) commitReconcileOutcome(ctx context.Context, accountID str
 	if err := lockAccount(ctx, tx, s.db.Dialect().Name(), accountID); err != nil {
 		return report, false, err
 	}
-	account, err := getAccountTx(ctx, tx, accountID)
+	account, err := getAccountForReconcileTx(ctx, tx, accountID)
 	if err != nil {
 		return report, false, err
 	}
@@ -236,7 +222,7 @@ func (s *DurableStore) commitReconcileOutcome(ctx context.Context, accountID str
 			return report, false, err
 		}
 	}
-	accountResult, err := tx.NewRaw(`UPDATE billing_accounts SET currency = ?, mode = ?, credit_limit_nano = ?, balance_nano = ?, reserved_nano = ?, version = ?, state = 'ready', updated_at = ? WHERE account_id = ? AND version = ?`, snap.ExpectedCurrency, snap.ExpectedMode, snap.ExpectedLimit, report.Rebuilt.BalanceNano, report.Rebuilt.ReservedNano, report.Rebuilt.Version, nowUTC(), accountID, account.Version).Exec(ctx)
+	accountResult, err := tx.NewRaw(`UPDATE billing_accounts SET currency = ?, mode = ?, credit_limit_nano = ?, balance_nano = ?, reserved_nano = 0, version = ?, state = 'ready', updated_at = ? WHERE account_id = ? AND version = ?`, snap.ExpectedCurrency, snap.ExpectedMode, snap.ExpectedLimit, report.Rebuilt.BalanceNano, report.Rebuilt.Version, nowUTC(), accountID, account.Version).Exec(ctx)
 	if err != nil {
 		return report, false, err
 	}
@@ -276,10 +262,6 @@ func loadAllJournals(ctx context.Context, q bun.IDB, accountID string) ([]billin
 	return loadJournals(ctx, q, rows)
 }
 
-func loadAllJournalsTx(ctx context.Context, tx bun.Tx, accountID string) ([]billing.JournalTransaction, error) {
-	return loadAllJournals(ctx, tx, accountID)
-}
-
 func validateSettlementSnapshots(ctx context.Context, tx bun.Tx, accountID string, journals []billing.JournalTransaction, allowMaterializedDrift bool, report *billing.ReconciliationReport) {
 	var rows []operationSnapshotRow
 	if err := tx.NewRaw(`SELECT operation_key, account_id, operation_kind, source_key, fingerprint, integrity_fingerprint, currency, mode, balance_before_nano, balance_after_nano, reserved_before_nano, reserved_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, version_before, version_after, account_sequence_start, account_sequence_end, created_at FROM billing_operation_snapshots WHERE account_id = ? ORDER BY account_sequence_end, operation_key`, accountID).Scan(ctx, &rows); err != nil {
@@ -310,10 +292,6 @@ func validateSettlementSnapshotsRows(accountID string, rows []operationSnapshotR
 		if row.SequenceEnd == 0 {
 			switch row.OperationKind {
 			case "customer_settlement", "provider_cogs", "authorization_release", "authorization":
-				// Zero-amount settlement legs persist snapshots without journal
-				// rows (Req 8.1). That is valid even when the account has other
-				// journals. A posted journal for this source with no sequence is
-				// the integrity failure.
 				if _, posted := bySource[row.OperationKey]; posted {
 					report.AddIssue("snapshot_sequence_missing", 0, row.OperationKey)
 				}
@@ -347,5 +325,4 @@ func validateSettlementSnapshotsRows(accountID string, rows []operationSnapshotR
 		}
 	}
 }
-
 func nowUTC() time.Time { return time.Now().UTC() }

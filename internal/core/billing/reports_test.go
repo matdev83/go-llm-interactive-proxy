@@ -198,7 +198,7 @@ func TestPageRequestAndReportFilterNormalize(t *testing.T) {
 
 	from := time.Unix(100, 0).UTC()
 	to := time.Unix(200, 0).UTC()
-	ok, err := (ReportFilter{AccountID: " acct ", Currency: " USD ", Book: JournalBookFinancial, Status: ProcessingPending, From: from, To: to}).Normalize()
+	ok, err := (ReportFilter{AccountID: " acct ", Currency: " USD ", Book: JournalBookFinancial, From: from, To: to}).Normalize()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,6 @@ func TestPageRequestAndReportFilterNormalize(t *testing.T) {
 		filter ReportFilter
 	}{
 		{name: "unsupported book", filter: ReportFilter{Book: "tax"}},
-		{name: "unsupported status", filter: ReportFilter{Status: "not-a-status"}},
 		{name: "end precedes start", filter: ReportFilter{From: to, To: from}},
 		{name: "invalid page limit", filter: ReportFilter{Page: PageRequest{Limit: 1001}}},
 	} {

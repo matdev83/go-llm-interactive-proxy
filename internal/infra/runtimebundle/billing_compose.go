@@ -12,28 +12,22 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingcompose"
 )
 
-// ErrComposeBillingIncomplete is returned when ComposeBilling is missing a
-// required store capability, catalog default, currency, or model max-output.
 var ErrComposeBillingIncomplete = errors.New("runtimebundle: billing composition is incomplete")
 
-// ComposeBillingInput is the host-supplied assembly for one authoritative
-// billing injection. ComposeBilling does not open a database.
 type ComposeBillingInput struct {
-	Store               billing.AuthoritativeBilling
-	Catalog             *billingcompose.SnapshotCatalog
-	Identity            *runtimecore.BillingIdentity // nil => PrincipalSessionIdentity
-	Currency            string
-	ModelMaxOutput      billingadmission.ModelMaxOutput // required
-	Strict              bool
-	ConservativeCeiling *billing.Money
-	ReportsPath         string
-	HoldTTL             time.Duration
-	PostTurnBatchSize   int
-	PostTurnInterval    time.Duration
+	Store                   billing.AuthoritativeBilling
+	Catalog                 *billingcompose.SnapshotCatalog
+	Identity                *runtimecore.BillingIdentity // nil => PrincipalSessionIdentity
+	Currency                string
+	ModelMaxOutput          billingadmission.ModelMaxOutput // required
+	Strict                  bool
+	ConservativeCeiling     *billing.Money
+	ReportsPath             string
+	PostTurnBatchSize       int
+	PostTurnInterval        time.Duration
+	MinPreRouteHeadroomNano int64
 }
 
-// ComposeBilling validates completeness and fills ProductionOptions from an
-// already-opened journal plus catalog. It does not start the post-turn worker.
 func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 	if in.Store == nil {
 		return ProductionOptions{}, fmt.Errorf("%w: store is required", ErrComposeBillingIncomplete)
@@ -50,34 +44,27 @@ func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 	if !in.Catalog.HasDefaults() {
 		return ProductionOptions{}, fmt.Errorf("%w: catalog defaults are required", ErrComposeBillingIncomplete)
 	}
-
-	appender, ok := in.Store.(billing.UsageRecordAppender)
+	callLegAppender, ok := in.Store.(billing.CallLegUsageAppender)
 	if !ok {
-		return ProductionOptions{}, fmt.Errorf("%w: store must implement usage-record append", ErrComposeBillingIncomplete)
+		return ProductionOptions{}, fmt.Errorf("%w: store must implement durable call-leg usage append", ErrComposeBillingIncomplete)
 	}
-	if _, ok := in.Store.(billing.PostTurnStore); !ok {
-		return ProductionOptions{}, fmt.Errorf("%w: store must implement post-turn processing", ErrComposeBillingIncomplete)
-	}
-	releaser, ok := in.Store.(billing.HoldReleaser)
+	exposureStore, ok := in.Store.(billing.ExposureAdmissionStore)
 	if !ok {
-		return ProductionOptions{}, fmt.Errorf("%w: store must implement hold release", ErrComposeBillingIncomplete)
+		return ProductionOptions{}, fmt.Errorf("%w: store must implement atomic exposure admission", ErrComposeBillingIncomplete)
 	}
-	if _, ok := in.Store.(billing.AccountProvisioner); !ok {
-		return ProductionOptions{}, fmt.Errorf("%w: store must implement account provisioning", ErrComposeBillingIncomplete)
-	}
-	lookup, ok := in.Store.(billing.AuthorizationLookup)
+	callAppender, ok := in.Store.(billing.CallUsageAppender)
 	if !ok {
-		return ProductionOptions{}, fmt.Errorf("%w: store must implement authorization lookup", ErrComposeBillingIncomplete)
+		return ProductionOptions{}, fmt.Errorf("%w: store must implement durable call usage append", ErrComposeBillingIncomplete)
 	}
-	authStore, ok := in.Store.(billing.AuthorizationStore)
+	if _, ok := in.Store.(billing.UsageAppendOutbox); !ok {
+		return ProductionOptions{}, fmt.Errorf("%w: store must implement durable usage append outbox", ErrComposeBillingIncomplete)
+	}
+	creditStore, ok := in.Store.(billing.CreditScreenStore)
 	if !ok {
-		return ProductionOptions{}, fmt.Errorf("%w: store must implement authorization", ErrComposeBillingIncomplete)
+		return ProductionOptions{}, fmt.Errorf("%w: store must implement cheap credit account read", ErrComposeBillingIncomplete)
 	}
-
 	identity := stockOrOverrideIdentity(in)
 	adapter, err := billingadmission.NewAdapter(billingadmission.Config{
-		Store:               authStore,
-		Releaser:            releaser,
 		Identity:            identity,
 		Currency:            in.Currency,
 		Policy:              in.Catalog.Policy,
@@ -85,28 +72,33 @@ func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 		ModelMaxOutput:      in.ModelMaxOutput,
 		Strict:              in.Strict,
 		ConservativeCeiling: copyMoney(in.ConservativeCeiling),
-		HoldTTL:             in.HoldTTL,
+		ExposureStore:       exposureStore,
 	})
 	if err != nil {
 		return ProductionOptions{}, fmt.Errorf("%w: admission: %w", ErrComposeBillingIncomplete, err)
 	}
-	resolver, err := billingcompose.NewRatingResolver(in.Catalog, lookup)
+	callResolver, err := billingcompose.NewCallRatingResolver(in.Catalog)
 	if err != nil {
-		return ProductionOptions{}, fmt.Errorf("%w: rating resolver: %w", ErrComposeBillingIncomplete, err)
+		return ProductionOptions{}, fmt.Errorf("%w: call rating resolver: %w", ErrComposeBillingIncomplete, err)
 	}
-
+	providerCostResolver, err := billingcompose.NewProviderCostResolver(in.Catalog, in.Currency)
+	if err != nil {
+		return ProductionOptions{}, fmt.Errorf("%w: provider-cost resolver: %w", ErrComposeBillingIncomplete, err)
+	}
 	return ProductionOptions{
-		BillingTerminalHandoff:   appender,
-		BillingStore:             in.Store,
-		BillingReports:           in.Store,
-		BillingAuthoritative:     true,
-		BillingReportsPath:       in.ReportsPath,
-		BillingHoldTTL:           in.HoldTTL,
-		BillingIdentity:          identity,
-		BillingRatingResolver:    resolver,
-		BillingPostTurnBatchSize: in.PostTurnBatchSize,
-		BillingPostTurnInterval:  in.PostTurnInterval,
-		BillingAdmission:         adapter,
+		BillingCallLegAppender:      callLegAppender,
+		BillingCallUsageAppender:    callAppender,
+		BillingCreditGate:           billing.CheapCreditScreen{Store: creditStore, Currency: in.Currency, MinPreRouteHeadroomNano: in.MinPreRouteHeadroomNano},
+		BillingExposureAdmission:    adapter,
+		BillingStore:                in.Store,
+		BillingReports:              in.Store,
+		BillingAuthoritative:        true,
+		BillingReportsPath:          in.ReportsPath,
+		BillingIdentity:             identity,
+		BillingCallRatingResolver:   callResolver,
+		BillingProviderCostResolver: providerCostResolver,
+		BillingPostTurnBatchSize:    in.PostTurnBatchSize,
+		BillingPostTurnInterval:     in.PostTurnInterval,
 	}, nil
 }
 
@@ -121,8 +113,6 @@ func stockOrOverrideIdentity(in ComposeBillingInput) runtimecore.BillingIdentity
 	})
 }
 
-// copyMoney defensively copies a caller-owned Money pointer so the adapter never
-// observes later caller mutation. Nil stays nil.
 func copyMoney(m *billing.Money) *billing.Money {
 	if m == nil {
 		return nil

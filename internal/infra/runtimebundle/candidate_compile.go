@@ -192,9 +192,13 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	}
 
 	var billingProvisioner billing.AccountProvisioner
-	if opts.Production.BillingAuthoritative {
-		if p, ok := opts.Production.BillingStore.(billing.AccountProvisioner); ok {
+	var billingExposureRecovery billing.ExposureRecovery
+	if execRun.Production.BillingAuthoritative {
+		if p, ok := execRun.Production.BillingStore.(billing.AccountProvisioner); ok {
 			billingProvisioner = p
+		}
+		if r, ok := execRun.Production.BillingStore.(billing.ExposureRecovery); ok {
+			billingExposureRecovery = r
 		}
 	}
 
@@ -218,16 +222,17 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 			registryRuntime: model.RegistryRuntime,
 		},
 		operations: candidateOperationsGroup{
-			billingReports:       opts.Production.BillingReports,
-			billingReportsPath:   opts.Production.BillingReportsPath,
-			billingProvisioner:   billingProvisioner,
-			tokenAccountingAdmin: execRun.TokenAccountingAdmin,
-			readinessReport:      execRun.ReadinessReport,
-			secretGuardInventory: sg.Inventory,
-			terminalProcessor:    ps.TerminalWorkProcessor,
-			terminalRegistry:     ps.TerminalWorkRegistry,
-			terminalQueries:      ps.TerminalWorkQueries,
-			terminalMetrics:      ps.TerminalWorkMetrics,
+			billingReports:          execRun.Production.BillingReports,
+			billingReportsPath:      execRun.Production.BillingReportsPath,
+			billingProvisioner:      billingProvisioner,
+			billingExposureRecovery: billingExposureRecovery,
+			tokenAccountingAdmin:    execRun.TokenAccountingAdmin,
+			readinessReport:         execRun.ReadinessReport,
+			secretGuardInventory:    sg.Inventory,
+			terminalProcessor:       ps.TerminalWorkProcessor,
+			terminalRegistry:        ps.TerminalWorkRegistry,
+			terminalQueries:         ps.TerminalWorkQueries,
+			terminalMetrics:         ps.TerminalWorkMetrics,
 		},
 		process: candidateProcessRefs{
 			store:                 ps.Continuity,

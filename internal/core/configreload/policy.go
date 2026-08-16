@@ -386,7 +386,6 @@ func classifyAccounting(active, candidate *config.Config, reload, restart noteFn
 	if a.Billing.Authoritative != c.Billing.Authoritative || a.Billing.ReportsPath != c.Billing.ReportsPath {
 		restart("accounting.billing")
 	}
-	diffStr(restart, "accounting.billing.hold_ttl", a.Billing.HoldTTL, c.Billing.HoldTTL)
 }
 
 func classifyControlPlane(active, candidate *config.Config, reload, restart noteFn) {

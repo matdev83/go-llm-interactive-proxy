@@ -14,21 +14,18 @@ import (
 )
 
 type recordingQueries struct {
-	account    corebilling.AccountReport
-	turn       corebilling.TurnExplanation
-	operator   corebilling.OperatorCostReport
-	trial      corebilling.TrialBalanceReport
-	processing corebilling.ProcessingPage
-	holds      corebilling.HoldPage
-	reconcile  corebilling.AccountStatePage
-	session    corebilling.SessionReport
-	err        error
+	account   corebilling.AccountReport
+	call      corebilling.CallExplanation
+	operator  corebilling.OperatorCostReport
+	trial     corebilling.TrialBalanceReport
+	exposures corebilling.ExposurePage
+	reconcile corebilling.AccountStatePage
+	err       error
 
 	lastAccountID string
-	lastTURKey    string
+	lastCallID    string
 	lastPage      corebilling.PageRequest
 	lastFilter    corebilling.ReportFilter
-	lastSession   string
 }
 
 func (s *recordingQueries) AccountReport(_ context.Context, accountID string, page corebilling.PageRequest) (corebilling.AccountReport, error) {
@@ -36,9 +33,9 @@ func (s *recordingQueries) AccountReport(_ context.Context, accountID string, pa
 	return s.account, s.err
 }
 
-func (s *recordingQueries) TurnExplanation(_ context.Context, turKey string) (corebilling.TurnExplanation, error) {
-	s.lastTURKey = turKey
-	return s.turn, s.err
+func (s *recordingQueries) CallExplanation(_ context.Context, callID string) (corebilling.CallExplanation, error) {
+	s.lastCallID = callID
+	return s.call, s.err
 }
 
 func (s *recordingQueries) OperatorCostReport(_ context.Context, filter corebilling.ReportFilter) (corebilling.OperatorCostReport, error) {
@@ -51,19 +48,9 @@ func (s *recordingQueries) TrialBalanceReport(_ context.Context, filter corebill
 	return s.trial, s.err
 }
 
-func (s *recordingQueries) SessionReport(_ context.Context, accountID, sessionID string, page corebilling.PageRequest) (corebilling.SessionReport, error) {
-	s.lastAccountID, s.lastSession, s.lastPage = accountID, sessionID, page
-	return s.session, s.err
-}
-
-func (s *recordingQueries) QueryProcessing(_ context.Context, filter corebilling.ReportFilter) (corebilling.ProcessingPage, error) {
-	s.lastFilter = filter
-	return s.processing, s.err
-}
-
-func (s *recordingQueries) QueryOpenHolds(_ context.Context, accountID string, page corebilling.PageRequest) (corebilling.HoldPage, error) {
+func (s *recordingQueries) QueryOpenExposures(_ context.Context, accountID string, page corebilling.PageRequest) (corebilling.ExposurePage, error) {
 	s.lastAccountID, s.lastPage = accountID, page
-	return s.holds, s.err
+	return s.exposures, s.err
 }
 
 func (s *recordingQueries) QueryReconcileRequired(_ context.Context, page corebilling.PageRequest) (corebilling.AccountStatePage, error) {
@@ -86,7 +73,7 @@ func TestBillingHandlerMethodNotAllowed(t *testing.T) {
 	t.Parallel()
 	h := NewHandler(Options{Queries: &recordingQueries{}})
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/turn?tur_key=acct:turn", nil))
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/call?call_id=bc_1", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status=%d want 405", rec.Code)
 	}
@@ -134,7 +121,7 @@ func TestBillingHandlerMapsDomainAndUnknownErrors(t *testing.T) {
 			t.Parallel()
 			h := NewHandler(Options{Queries: &recordingQueries{err: tt.err}})
 			rec := httptest.NewRecorder()
-			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/turn?tur_key=acct:turn", nil))
+			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/call?call_id=bc_1", nil))
 			if rec.Code != tt.status {
 				t.Fatalf("status=%d want %d body=%s", rec.Code, tt.status, rec.Body.String())
 			}
@@ -148,17 +135,15 @@ func TestBillingHandlerForwardsQueryContracts(t *testing.T) {
 	from := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2020, 1, 2, 0, 0, 0, 0, time.UTC)
 	q := &recordingQueries{
-		operator:   corebilling.OperatorCostReport{CustomerRevenue: corebilling.Money{Nano: 9, Currency: "USD"}},
-		trial:      corebilling.TrialBalanceReport{AccountID: "acct", Balanced: true},
-		processing: corebilling.ProcessingPage{NextCursor: "p1"},
-		holds:      corebilling.HoldPage{Items: []corebilling.HoldReport{{ID: "h1"}}},
-		reconcile:  corebilling.AccountStatePage{Items: []corebilling.Account{{ID: "acct"}}},
+		operator:  corebilling.OperatorCostReport{CustomerRevenue: corebilling.Money{Nano: 9, Currency: "USD"}},
+		trial:     corebilling.TrialBalanceReport{AccountID: "acct", Balanced: true},
+		reconcile: corebilling.AccountStatePage{Items: []corebilling.Account{{ID: "acct"}}},
 	}
 	h := NewHandler(Options{Queries: q, DefaultPageSize: 25, MaxPageSize: 500})
 
 	t.Run("operator-cost", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/operator-cost?account_id=acct&limit=10&after_sequence=5&after_key=k1&book=financial&status=pending&from=2020-01-01T00:00:00Z&to=2020-01-02T00:00:00Z&currency=USD", nil)
+		req := httptest.NewRequest(http.MethodGet, "/operator-cost?account_id=acct&limit=10&after_sequence=5&after_key=k1&book=financial&from=2020-01-01T00:00:00Z&to=2020-01-02T00:00:00Z&currency=USD", nil)
 		h.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
@@ -170,7 +155,7 @@ func TestBillingHandlerForwardsQueryContracts(t *testing.T) {
 		if payload.CustomerRevenue.Nano != 9 {
 			t.Fatalf("payload = %+v", payload)
 		}
-		if q.lastFilter.AccountID != "acct" || q.lastFilter.Currency != "USD" || q.lastFilter.Book != corebilling.JournalBookFinancial || q.lastFilter.Status != corebilling.ProcessingPending {
+		if q.lastFilter.AccountID != "acct" || q.lastFilter.Currency != "USD" || q.lastFilter.Book != corebilling.JournalBookFinancial {
 			t.Fatalf("filter = %+v", q.lastFilter)
 		}
 		if q.lastFilter.Page.Limit != 10 || q.lastFilter.Page.AfterSequence != 5 || q.lastFilter.Page.AfterKey != "k1" {
@@ -194,33 +179,6 @@ func TestBillingHandlerForwardsQueryContracts(t *testing.T) {
 			t.Fatalf("payload = %+v", payload)
 		}
 	})
-	t.Run("processing", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/processing?status=pending&limit=3", nil))
-		if rec.Code != http.StatusOK {
-			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-		}
-		if q.lastFilter.Status != corebilling.ProcessingPending || q.lastFilter.Page.Limit != 3 {
-			t.Fatalf("filter = %+v", q.lastFilter)
-		}
-	})
-	t.Run("holds", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/holds?account_id=acct&limit=2&after_sequence=9", nil))
-		if rec.Code != http.StatusOK {
-			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-		}
-		if q.lastAccountID != "acct" || q.lastPage.Limit != 2 || q.lastPage.AfterSequence != 9 {
-			t.Fatalf("holds page = id=%q %+v", q.lastAccountID, q.lastPage)
-		}
-		var payload corebilling.HoldPage
-		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
-			t.Fatal(err)
-		}
-		if len(payload.Items) != 1 || payload.Items[0].ID != "h1" {
-			t.Fatalf("payload = %+v", payload)
-		}
-	})
 	t.Run("reconcile-required", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/reconcile-required?limit=4", nil))
@@ -235,6 +193,50 @@ func TestBillingHandlerForwardsQueryContracts(t *testing.T) {
 			t.Fatal(err)
 		}
 		if len(payload.Items) != 1 || payload.Items[0].ID != "acct" {
+			t.Fatalf("payload = %+v", payload)
+		}
+	})
+}
+
+func TestBillingHandlerExposesCallPathDiagnostics(t *testing.T) {
+	t.Parallel()
+	q := &recordingQueries{
+		exposures: corebilling.ExposurePage{Items: []corebilling.ExposureReport{{CallID: "bc_1", AccountID: "acct"}}},
+		call:      corebilling.CallExplanation{CallID: "bc_1", Result: corebilling.TurnResultSummary{Processed: true}},
+	}
+	h := NewHandler(Options{Queries: q, DefaultPageSize: 25, MaxPageSize: 500})
+
+	t.Run("exposures", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/exposures?account_id=acct&limit=7&after_key=k0", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		if q.lastAccountID != "acct" || q.lastPage.Limit != 7 || q.lastPage.AfterKey != "k0" {
+			t.Fatalf("forwarded page = account=%q page=%+v", q.lastAccountID, q.lastPage)
+		}
+		var payload corebilling.ExposurePage
+		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+			t.Fatal(err)
+		}
+		if len(payload.Items) != 1 || payload.Items[0].CallID != "bc_1" {
+			t.Fatalf("payload = %+v", payload)
+		}
+	})
+	t.Run("call", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/call?call_id=bc_1", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		if q.lastCallID != "bc_1" {
+			t.Fatalf("call id = %q", q.lastCallID)
+		}
+		var payload corebilling.CallExplanation
+		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.CallID != "bc_1" || !payload.Result.Processed {
 			t.Fatalf("payload = %+v", payload)
 		}
 	})

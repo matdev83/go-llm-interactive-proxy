@@ -5,163 +5,182 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
-var ErrBillingAdmissionDenied = errors.New("executor: billing admission denied")
+var (
+	ErrBillingAdmissionDenied         = errors.New("executor: billing admission denied")
+	ErrBillingCreditScreenDenied      = errors.New("executor: cheap credit screen denied")
+	ErrBillingCreditScreenUnavailable = errors.New("executor: cheap credit screen unavailable")
+)
 
-// BillingAdmissionInput is the side-effect-free route-plan view passed to the
-// billing adapter. It contains canonical request values and no provider SDK or
-// database objects. The adapter may estimate and reserve, but must not perform
-// upstream provider/process work.
-type BillingAdmissionInput struct {
-	Call        lipapi.Call
-	TraceID     string
-	ALegID      string
-	Route       *routing.Selector
-	RequestSize routing.RequestSizeEstimate
+type BillingCreditGate interface {
+	Check(context.Context, string) error
+}
+type BillingRoutePlanInput struct {
+	Call          lipapi.Call
+	TraceID       string
+	ALegID        string
+	BillingCallID string
+	Route         *routing.Selector
+	RequestSize   routing.RequestSizeEstimate
+}
+type (
+	BillingAdmissionInput    = BillingRoutePlanInput
+	BillingExposureAdmission interface {
+		Admit(context.Context, BillingExposureAdmissionInput) (billing.CallExposure, error)
+	}
+)
+
+type BillingExposureAdmissionInput struct {
+	BillingAdmissionInput
+	CallID string
 }
 
-// BillingAdmission is the only runtime financial admission capability. Runtime
-// invokes it once after route planning and before the first provider/connector
-// operation. Post-turn settlement is deliberately not part of this port.
-type BillingAdmission interface {
-	Authorize(context.Context, BillingAdmissionInput) (billing.Authorization, error)
-}
-
-// BillingAdmissionCleanup releases an unused authorization hold when Execute
-// fails before any request-terminal owner can seal a TUR. Adapters that create
-// durable holds should implement this; nil / missing cleanup is a no-op for
-// admission stubs used in non-authoritative tests.
-type BillingAdmissionCleanup interface {
-	ReleaseUnused(context.Context, BillingAdmissionInput) error
-}
-
-func (e *Executor) authorizeBillingOnce(ctx context.Context, prep *preparedRequest, plan *routePlanState) error {
+func (e *Executor) checkCheapCredit(ctx context.Context, prep *preparedRequest) error {
 	if e == nil {
 		return nil
 	}
-	// BillingAuthoritative is a real runtime gate: cutover requires the
-	// BillingAdmission port so Bun holds remain the sole monetary admission path.
-	if e.BillingAuthoritative && e.BillingAdmission == nil {
-		return fmt.Errorf("%w: authoritative billing requires BillingAdmission", ErrBillingAdmissionDenied)
+	if e.BillingCreditGate == nil {
+		if e.BillingAuthoritative {
+			return fmt.Errorf("%w: authoritative billing requires cheap credit screen", ErrBillingAdmissionDenied)
+		}
+		return nil
 	}
-	if e.BillingAdmission == nil {
-		// Non-authoritative composition may wire TUR handoff and identity
-		// resolvers without an admission adapter. Stamp from resolvers so
-		// terminal seal is not skipped; do not invent a hold.
-		if e.BillingTerminalHandoff != nil && prep != nil {
-			e.stampBillingIdentity(ctx, prep, billing.Authorization{})
+	if prep == nil || e.BillingIdentity.AccountID == nil {
+		return fmt.Errorf("%w: %w: account identity resolver is required", ErrBillingAdmissionDenied, ErrBillingCreditScreenDenied)
+	}
+	accountID := strings.TrimSpace(e.BillingIdentity.AccountID(ctx, prep.baseline))
+	if accountID == "" {
+		return fmt.Errorf("%w: %w: account identity is empty", ErrBillingAdmissionDenied, ErrBillingCreditScreenDenied)
+	}
+	if err := e.BillingCreditGate.Check(ctx, accountID); err != nil {
+		class := ErrBillingCreditScreenUnavailable
+		if errors.Is(err, billing.ErrCreditScreenDenied) {
+			class = ErrBillingCreditScreenDenied
+		}
+		return fmt.Errorf("%w: %w: %w", ErrBillingAdmissionDenied, class, err)
+	}
+	return nil
+}
+
+func (e *Executor) authorizeBillingOnce(ctx context.Context, prep *preparedRequest, plan *routePlanState) error {
+	if e == nil || e.BillingExposureAdmission == nil {
+		if e != nil && e.BillingAuthoritative {
+			return fmt.Errorf("%w: authoritative billing requires operational exposure admission", ErrBillingAdmissionDenied)
 		}
 		return nil
 	}
 	if prep == nil || plan == nil {
 		return fmt.Errorf("%w: missing prepared route plan", ErrBillingAdmissionDenied)
 	}
-	hold, err := e.BillingAdmission.Authorize(ctx, e.billingAdmissionInput(prep, plan))
+	if err := prep.billingCallID.Validate(); err != nil {
+		return fmt.Errorf("%w: billing call identity: %v", ErrBillingAdmissionDenied, err)
+	}
+	exposure, err := e.BillingExposureAdmission.Admit(ctx, BillingExposureAdmissionInput{
+		BillingAdmissionInput: e.billingRoutePlanInput(ctx, prep, plan), CallID: prep.billingCallID.String(),
+	})
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrBillingAdmissionDenied, err)
 	}
-	e.stampBillingIdentity(ctx, prep, hold)
+	e.stampExposureIdentity(ctx, prep, exposure)
 	return nil
 }
 
-func (e *Executor) stampBillingIdentity(ctx context.Context, prep *preparedRequest, hold billing.Authorization) {
+func (e *Executor) stampExposureIdentity(ctx context.Context, prep *preparedRequest, exposure billing.CallExposure) {
 	if e == nil || prep == nil {
 		return
 	}
-	accountID := strings.TrimSpace(hold.AccountID)
-	authID := strings.TrimSpace(hold.ID)
-	customerPricing := hold.PricingRef
-	chargePolicy := hold.ChargePolicyRef
-	// Identity resolvers run only here, once, after successful Authorize.
-	// Terminal handoff and abort cleanup read the stamp and never re-resolve.
+	accountID := strings.TrimSpace(exposure.AccountID)
 	if accountID == "" && e.BillingIdentity.AccountID != nil {
 		accountID = strings.TrimSpace(e.BillingIdentity.AccountID(ctx, prep.baseline))
 	}
-	if authID == "" && e.BillingIdentity.AuthorizationID != nil {
-		authID = strings.TrimSpace(e.BillingIdentity.AuthorizationID(ctx, prep.baseline, prep.aLeg.ALegID))
+	pricing := exposure.PricingRef
+	policy := exposure.ChargePolicyRef
+	if pricing == (billing.VersionRef{}) && e.BillingIdentity.CustomerPricingRef != nil {
+		pricing = e.BillingIdentity.CustomerPricingRef(ctx, prep.baseline)
 	}
-	if customerPricing == (billing.VersionRef{}) && e.BillingIdentity.CustomerPricingRef != nil {
-		customerPricing = e.BillingIdentity.CustomerPricingRef(ctx, prep.baseline)
+	if policy == (billing.VersionRef{}) && e.BillingIdentity.ChargePolicyRef != nil {
+		policy = e.BillingIdentity.ChargePolicyRef(ctx, prep.baseline)
 	}
-	if chargePolicy == (billing.VersionRef{}) && e.BillingIdentity.ChargePolicyRef != nil {
-		chargePolicy = e.BillingIdentity.ChargePolicyRef(ctx, prep.baseline)
-	}
-	if accountID == "" || authID == "" {
+	if accountID == "" {
 		return
 	}
 	prep.billingAccountID = accountID
-	prep.billingAuthorizationID = authID
-	prep.billingCustomerPricing = customerPricing
-	prep.billingChargePolicy = chargePolicy
+	prep.billingCustomerPricing = pricing
+	prep.billingChargePolicy = policy
 	prep.billingIdentityStamped = true
 }
 
-func (e *Executor) billingAdmissionInput(prep *preparedRequest, plan *routePlanState) BillingAdmissionInput {
+func (e *Executor) billingRoutePlanInput(ctx context.Context, prep *preparedRequest, plan *routePlanState) BillingRoutePlanInput {
 	if prep == nil || plan == nil {
-		return BillingAdmissionInput{}
+		return BillingRoutePlanInput{}
 	}
-	return BillingAdmissionInput{
-		Call: lipapi.CloneCall(prep.baseline), TraceID: prep.traceID, ALegID: prep.aLeg.ALegID,
-		Route: plan.sel, RequestSize: plan.requestSize,
-	}
-}
-
-// releaseOrHandoffAfterAdmissionAbort cleans up after authorize succeeded but
-// Execute failed before a request-terminal owner can seal a TUR. Shared evidence
-// or a successful backend Open means provider work may have occurred — force a
-// detached TUR handoff (or retain the hold when handoff is unwired). Otherwise
-// release the unused hold so short-lived pre-open failures cannot park spendable
-// balance.
-func (e *Executor) releaseOrHandoffAfterAdmissionAbort(ctx context.Context, prep *preparedRequest, plan *routePlanState) {
-	if e == nil || prep == nil {
-		return
-	}
-	aLegID := strings.TrimSpace(prep.aLeg.ALegID)
-	if aLegID == "" {
-		return
-	}
-	if len(e.peekBillingEvidence(aLegID)) > 0 || prep.billingUpstreamOpened.Load() {
-		e.scheduleAbortBillingHandoff(ctx, prep, aLegID)
-		return
-	}
-	cleanup, ok := e.BillingAdmission.(BillingAdmissionCleanup)
-	if !ok || cleanup == nil {
-		return
-	}
-	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-	defer cancel()
-	if err := cleanup.ReleaseUnused(releaseCtx, e.billingAdmissionInput(prep, plan)); err != nil && e.Log != nil {
-		e.Log.Debug("billing unused-hold release after pre-open abort failed", "a_leg_id", aLegID, "error", err)
+	return BillingRoutePlanInput{
+		Call: lipapi.CloneCall(prep.baseline), TraceID: prep.traceID, ALegID: prep.aLeg.ALegID, BillingCallID: prep.billingCallID.String(),
+		Route: plan.sel, RequestSize: e.billingRequestSize(ctx, prep, plan),
 	}
 }
 
-func (e *Executor) scheduleAbortBillingHandoff(_ context.Context, prep *preparedRequest, aLegID string) {
-	if e.BillingTerminalHandoff == nil || prep == nil || !prep.billingIdentityStamped {
+func (e *Executor) billingRequestSize(ctx context.Context, prep *preparedRequest, plan *routePlanState) routing.RequestSizeEstimate {
+	if plan != nil && plan.requestSize.Available {
+		return plan.requestSize
+	}
+	if e == nil || prep == nil || e.RequestTokenEstimator == nil {
+		return routing.RequestSizeEstimate{}
+	}
+	est := e.RequestTokenEstimator.EstimateRequestTokens(ctx, prep.baseline)
+	return routing.RequestSizeEstimate{Available: est.Available, Tokens: est.Input, Basis: est.Basis}
+}
+
+func (e *Executor) appendExposureAbortAfterAdmission(ctx context.Context, prep *preparedRequest, _ *routePlanState) {
+	if e == nil || prep == nil || e.BillingExposureAdmission == nil {
+		return
+	}
+	e.appendExposureAbortClosure(ctx, prep, strings.TrimSpace(prep.aLeg.ALegID))
+}
+
+func (e *Executor) appendExposureAbortClosure(ctx context.Context, prep *preparedRequest, aLegID string) {
+	if e == nil || prep == nil || e.CallUsageAppender == nil || !prep.billingIdentityStamped {
+		return
+	}
+	if err := prep.billingCallID.Validate(); err != nil {
 		return
 	}
 	accountID := strings.TrimSpace(prep.billingAccountID)
-	authID := strings.TrimSpace(prep.billingAuthorizationID)
-	if accountID == "" || authID == "" {
+	if accountID == "" {
 		return
 	}
-	customerPricing := prep.billingCustomerPricing
-	chargePolicy := prep.billingChargePolicy
-	job := billing.HandoffRetryJob{
-		AccountID:       accountID,
-		AuthorizationID: authID,
-		ALegID:          aLegID,
-		SessionID:       strings.TrimSpace(prep.baseline.Session.AuthoritativeSessionID),
-		Outcome:         turnOutcomeFromCommand(sdkterminal.CommandPartialError),
-		CustomerPricing: customerPricing,
-		ChargePolicy:    chargePolicy,
-		UpstreamOpened:  true,
+	now := e.now()
+	record := billing.CallUsageRecord{
+		SchemaVersion:      billing.CurrentRecordSchemaVersion,
+		CallID:             prep.billingCallID,
+		AccountID:          accountID,
+		ALegID:             aLegID,
+		SessionID:          strings.TrimSpace(prep.baseline.Session.AuthoritativeSessionID),
+		StartedAt:          now,
+		FinishedAt:         now,
+		Outcome:            billing.TurnOutcomeFailed,
+		CustomerPricingRef: prep.billingCustomerPricing,
+		ChargePolicyRef:    prep.billingChargePolicy,
+		ExpectedBLegIDs:    e.billingTurns().freezeAllocatedBLegs(prep.billingCallID),
 	}
-	e.billingTurns().scheduleRetry(job)
+	sealed, err := record.Seal()
+	if err != nil {
+		if e.Log != nil {
+			e.Log.DebugContext(ctx, "billing exposure abort closure seal failed", "error", err)
+		}
+		return
+	}
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingHandoffTimeout)
+	defer cancel()
+	if err := safety.Call(safety.BoundaryStream, "billing_exposure_abort_closure", func() error {
+		return e.CallUsageAppender.AppendCallUsage(persistCtx, sealed)
+	}); err != nil {
+		e.logBillingUsageAppendFailure(persistCtx, "billing_call_closure_append_critical", "billing exposure abort closure append failed", err)
+	}
 }

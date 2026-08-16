@@ -6,15 +6,11 @@ import (
 	"sort"
 )
 
-// ReconciliationIssue is bounded, safe diagnostic data suitable for durable
-// operator metadata and reports. It never contains prompts or provider payloads.
 type ReconciliationIssue struct {
 	Code     string
 	Sequence uint64
 	Detail   string
 }
-
-// ReconciliationReport describes replayed state and the first proven mismatch.
 type ReconciliationReport struct {
 	AccountID             string
 	OK                    bool
@@ -23,10 +19,17 @@ type ReconciliationReport struct {
 	FirstMismatchSequence uint64
 	Issues                []ReconciliationIssue
 }
+type BillingReconciliationReport struct {
+	Financial ReconciliationReport
+	Exposure  ExposureReconciliationReport
+	OK        bool
+}
+type LegacyHoldReconciliationReport struct {
+	OpenHolds       int
+	BlockedAccounts int
+	Ready           bool
+}
 
-// ReplayAccount deterministically reconstructs customer balance and open
-// authorization exposure from immutable journal history. The caller supplies
-// the durable opening balance because account creation predates journal history.
 func ReplayAccount(account Account, openingBalance int64, journals []JournalTransaction) ReconciliationReport {
 	report := ReconciliationReport{AccountID: account.ID}
 	current, currentErr := snapshotForReplay(account)
@@ -39,7 +42,6 @@ func ReplayAccount(account Account, openingBalance int64, journals []JournalTran
 		report.addIssue("account_invalid", 0, err.Error())
 		return report
 	}
-
 	ordered := append([]JournalTransaction(nil), journals...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		return ordered[i].AccountSequence < ordered[j].AccountSequence
@@ -51,9 +53,7 @@ func ReplayAccount(account Account, openingBalance int64, journals []JournalTran
 		}
 		byID[journal.ID] = journal
 	}
-
 	balance := openingBalance
-	reserved := int64(0)
 	reversedTargets := make(map[string]struct{}, len(ordered))
 	for index, journal := range ordered {
 		expectedSequence := uint64(index + 1)
@@ -79,7 +79,6 @@ func ReplayAccount(account Account, openingBalance int64, journals []JournalTran
 			report.addIssue("journal_fingerprint_mismatch", journal.AccountSequence, journal.ID)
 			fingerprintOK = false
 		}
-		// Corrupted or out-of-scope journals must not poison rebuilt balances.
 		if scopeOK && fingerprintOK {
 			for _, entry := range journal.Entries {
 				var delta int64
@@ -95,17 +94,7 @@ func ReplayAccount(account Account, openingBalance int64, journals []JournalTran
 					if err != nil {
 						report.addIssue("balance_overflow", journal.AccountSequence, err.Error())
 					}
-				case journal.Book == JournalBookAuthorization && entry.LedgerAccount == "customer_reserved_exposure":
-					if entry.Side == JournalDebit {
-						delta = entry.Amount.Nano
-					} else {
-						delta = -entry.Amount.Nano
-					}
-					var err error
-					reserved, err = signedAdd(reserved, delta)
-					if err != nil {
-						report.addIssue("reserved_overflow", journal.AccountSequence, err.Error())
-					}
+				case journal.Book == JournalBookLegacyAuthorization:
 				}
 			}
 		}
@@ -131,7 +120,6 @@ func ReplayAccount(account Account, openingBalance int64, journals []JournalTran
 					report.addIssue("correction_group_invalid", journal.AccountSequence, targetID)
 				}
 			}
-			// Req 7.4: replacement requires a prior (or same-tx) reversal of its target.
 			if journal.CorrectsTransactionID != "" && journal.ReversalOf == "" {
 				if _, ok := reversedTargets[journal.CorrectsTransactionID]; !ok {
 					report.addIssue("replacement_without_reversal", journal.AccountSequence, journal.CorrectsTransactionID)
@@ -139,17 +127,12 @@ func ReplayAccount(account Account, openingBalance int64, journals []JournalTran
 			}
 		}
 	}
-	if reserved < 0 {
-		report.addIssue("reserved_negative", 0, fmt.Sprintf("reserved=%d", reserved))
-	}
 	floor := account.CreditFloorNano()
 	spendable, err := signedAdd(balance, -floor)
 	if err != nil {
 		report.addIssue("spendable_overflow", 0, err.Error())
-	} else if spendable, err = signedAdd(spendable, -reserved); err != nil {
-		report.addIssue("spendable_overflow", 0, err.Error())
 	} else {
-		report.Rebuilt = AccountSnapshot{BalanceNano: balance, ReservedNano: reserved, SpendableNano: spendable, CreditFloorNano: floor, CreditLimitNano: account.CreditLimit, Mode: account.Mode, Currency: account.Currency, Version: account.Version}
+		report.Rebuilt = AccountSnapshot{BalanceNano: balance, ReservedNano: 0, SpendableNano: spendable, CreditFloorNano: floor, CreditLimitNano: account.CreditLimit, Mode: account.Mode, Currency: account.Currency, Version: account.Version}
 	}
 	if balance < floor {
 		report.addIssue("balance_below_floor", 0, fmt.Sprintf("balance=%d floor=%d", balance, floor))
@@ -170,8 +153,6 @@ func (r *ReconciliationReport) addIssue(code string, sequence uint64, detail str
 	r.AddIssue(code, sequence, detail)
 }
 
-// AddIssue lets durable adapters append bounded integrity diagnostics discovered
-// while checking materialized snapshots alongside pure journal replay issues.
 func (r *ReconciliationReport) AddIssue(code string, sequence uint64, detail string) {
 	r.Issues = append(r.Issues, ReconciliationIssue{Code: code, Sequence: sequence, Detail: detail})
 	r.OK = false

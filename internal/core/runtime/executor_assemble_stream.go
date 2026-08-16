@@ -43,10 +43,10 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 		metering:               prep.metering,
 		requestAuth:            requestAuthorityFrom(ctx),
 		billingAccountID:       prep.billingAccountID,
-		billingAuthorizationID: prep.billingAuthorizationID,
 		billingCustomerPricing: prep.billingCustomerPricing,
 		billingChargePolicy:    prep.billingChargePolicy,
 		billingIdentityStamped: prep.billingIdentityStamped,
+		billingCallID:          prep.billingCallID,
 		customer:               newCustomerEvidenceAccumulator(),
 		accounting:             newAttemptAccountingTracker(e.now()),
 		recoverPolicy:          streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
@@ -67,12 +67,14 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 	}
 	if e.shouldWrapHiddenInterleavedThinker(out.cand) {
 		rs.holdALegEnd = true
+		rs.isInterleavedThinker = true
 		rec := e.newThinkerRecorder(out.cand, prep.baseline)
 		prep.streamReturned = true
 		return newHiddenInterleavedStream(rs, rec, out.interleaved), nil
 	}
 	if e.shouldWrapVisibleInterleavedThinker(out.cand) {
 		rs.holdALegEnd = true
+		rs.isInterleavedThinker = true
 		rec := e.newThinkerRecorder(out.cand, prep.baseline)
 		prep.streamReturned = true
 		return newVisibleInterleavedStream(rs, rec, out.interleaved), nil

@@ -4,52 +4,67 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 )
 
-var errNilAuthorizationLookup = errors.New("billingcompose: nil authorization lookup")
-
-// JoinRatingResolver is the stock billing.RatingResolver: it loads the durable
-// hold, then catalog bodies for the sealed TUR's version refs. Missing hold or
-// missing snapshot fails closed; it never invents rates or a synthetic hold amount.
 type JoinRatingResolver struct {
 	catalog *SnapshotCatalog
-	holds   billing.AuthorizationLookup
 }
 
-var _ billing.RatingResolver = (*JoinRatingResolver)(nil)
+var (
+	_ billing.CallRatingResolver   = (*JoinRatingResolver)(nil)
+	_ billing.ProviderCostResolver = (*ProviderCostJoinResolver)(nil)
+)
 
-// NewRatingResolver constructs the stock rating join. Catalog and hold lookup
-// are both required.
-func NewRatingResolver(catalog *SnapshotCatalog, holds billing.AuthorizationLookup) (billing.RatingResolver, error) {
+func NewCallRatingResolver(catalog *SnapshotCatalog) (billing.CallRatingResolver, error) {
 	if catalog == nil {
 		return nil, errNilSnapshotCatalog
 	}
-	if holds == nil {
-		return nil, errNilAuthorizationLookup
-	}
-	return &JoinRatingResolver{catalog: catalog, holds: holds}, nil
+	return &JoinRatingResolver{catalog: catalog}, nil
 }
 
-// ResolveRating loads the durable hold for the TUR, then exact catalog snapshot
-// bodies. ModelPricing is passed through as SnapshotsFor returns it (override
-// cards share the TUR CustomerPricingRef, not the override document identity).
-func (r *JoinRatingResolver) ResolveRating(ctx context.Context, record billing.TurnUsageRecord) (billing.RatingInput, error) {
-	auth, err := r.holds.GetAuthorization(ctx, record.AccountID, record.Key)
-	if err != nil {
-		return billing.RatingInput{}, fmt.Errorf("billingcompose: authorization lookup: %w", err)
+func (r *JoinRatingResolver) ResolveCallRating(_ context.Context, complete billing.CompleteCall, exposure billing.CallExposure) (billing.CallRatingResult, error) {
+	call := complete.Closure
+	legs := make([]billing.LegUsageRecord, 0, len(complete.Legs))
+	for i, leg := range complete.Legs {
+		legs = append(legs, billing.LegUsageRecord{ALegID: leg.ALegID, BLegID: leg.BLegID, Seq: i + 1, BackendID: leg.BackendID, ProviderID: leg.ProviderID, ModelID: leg.ModelID, StartedAt: leg.StartedAt, FinishedAt: leg.FinishedAt, Outcome: billing.LegOutcome(leg.Outcome), Surfaced: leg.Surfaced, Evidence: leg.Evidence, OperatorRateRef: leg.OperatorRateRef})
 	}
-	pricing, policy, rates, modelPricing, err := r.catalog.SnapshotsFor(record)
+	catalogRecord := billing.TurnUsageRecord{AccountID: call.AccountID, TurnID: call.CallID.String(), ALegID: call.ALegID, CustomerPricingRef: call.CustomerPricingRef, ChargePolicyRef: call.ChargePolicyRef, Legs: legs}
+	pricing, policy, rates, _, err := r.catalog.SnapshotsFor(catalogRecord)
 	if err != nil {
-		return billing.RatingInput{}, fmt.Errorf("billingcompose: snapshot catalog: %w", err)
+		return billing.CallRatingResult{}, fmt.Errorf("billingcompose: call snapshot catalog: %w", err)
 	}
-	return billing.RatingInput{
-		Record:          record,
-		Authorization:   auth,
-		CustomerPricing: pricing,
-		CustomerPolicy:  policy,
-		OperatorRates:   rates,
-		ModelPricing:    modelPricing,
-	}, nil
+	return billing.RateCall(billing.CallRatingInput{Call: call, Legs: complete.Legs, MaxCustomerCharge: exposure.Max, CustomerPricing: pricing, CustomerPolicy: policy, OperatorRates: rates})
+}
+
+type ProviderCostJoinResolver struct {
+	catalog  *SnapshotCatalog
+	currency string
+}
+
+func NewProviderCostResolver(catalog *SnapshotCatalog, currency string) (billing.ProviderCostResolver, error) {
+	if catalog == nil {
+		return nil, errNilSnapshotCatalog
+	}
+	if strings.TrimSpace(currency) == "" {
+		return nil, fmt.Errorf("billingcompose: provider currency is required")
+	}
+	return &ProviderCostJoinResolver{catalog: catalog, currency: strings.TrimSpace(currency)}, nil
+}
+
+func (r *ProviderCostJoinResolver) ResolveProviderCost(_ context.Context, leg billing.CallLegUsageRecord) (billing.OperatorCostResult, error) {
+	if r == nil || r.catalog == nil {
+		return billing.OperatorCostResult{}, fmt.Errorf("billingcompose: provider-cost catalog is unavailable")
+	}
+	got, err := billing.RateProviderCost(leg, nil, r.currency)
+	if err == nil || !errors.Is(err, billing.ErrUnreconciledCost) {
+		return got, err
+	}
+	rate, rateErr := r.catalog.OperatorRate(leg.OperatorRateRef)
+	if rateErr != nil {
+		return got, err
+	}
+	return billing.RateProviderCost(leg, billing.OperatorRateSet{rate}, r.currency)
 }

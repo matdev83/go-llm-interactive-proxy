@@ -81,7 +81,7 @@ func TestWireErrorCharacterization_executeErrors(t *testing.T) {
 		},
 		{
 			name:       "billing_unavailable",
-			err:        fmt.Errorf("%w: %w", runtime.ErrBillingAdmissionDenied, billing.ErrAuthorizationUnavailable),
+			err:        fmt.Errorf("%w: %w", runtime.ErrBillingAdmissionDenied, billing.ErrBillingStoreUnavailable),
 			wantStatus: http.StatusServiceUnavailable,
 			wantType:   "api_error",
 			wantMsg:    execerr.BillingUnavailableWireMessage,

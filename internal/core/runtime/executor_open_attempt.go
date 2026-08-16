@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -79,9 +79,9 @@ type attemptOpenParams struct {
 	// deferMemoInjectionCommit leaves executor memo-store updates pending in the open result.
 	// Parallel races use this so only the winning leg consumes memo budget.
 	deferMemoInjectionCommit bool
-	// billingUpstreamOpened, when non-nil, is set true as soon as a backend Open
-	// returns a stream for this A-leg. Used by admission-abort hold cleanup.
-	billingUpstreamOpened *atomic.Bool
+	// billingCallID is the incoming invocation identity. NextBLeg notes allocated
+	// B-leg IDs against it so call-closure expected sets freeze at request terminal.
+	billingCallID billing.BillingCallID
 }
 
 type attemptOpenResult struct {
@@ -485,6 +485,9 @@ func (e *Executor) openPlannedCandidate(
 	}
 	releaseKind := authorityapp.ReleaseKindLosing
 	opened := false
+	openInvoked := false
+	var openedStream lipapi.ManagedEventStream
+	var openStartedAt time.Time
 	cleanupAuthority := e.newAttemptAuthorityLifecycle(authState, c)
 	// Admission happens before the backend open. Keep the cleanup evidence
 	// accurate until the actual Open call begins; the constructor's default is
@@ -501,8 +504,21 @@ func (e *Executor) openPlannedCandidate(
 				cleanupAuthority.finalizeIncurredOrRelease(cctx, releaseKind, emptyOperatorUsageShell())
 				return nil
 			})
+			outcome := billing.LegOutcomeNeverStarted
+			started, finished := e.now(), e.now()
+			if openInvoked && openedStream != nil {
+				outcome = billing.LegOutcomeFailed
+				started = openStartedAt
+			}
+			if ctx.Err() != nil {
+				outcome = billing.LegOutcomeCanceled
+			}
+			e.appendIndependentTerminalLeg(ctx, p.billingCallID, p.aLegID, bleg, c.Primary, started, finished, outcome)
 		}
 	}()
+	if e.CallUsageAppender != nil {
+		e.billingTurns().noteAllocatedBLeg(p.billingCallID, bleg.BLegID)
+	}
 	if err := e.enforcePostAdmitClamps(ctx, &openCall, authorizedFreeze, previewedClamps, previewRan, authState, c, int64(admitDecision.Count.InputTokens)); err != nil {
 		releaseKind = authorityapp.ReleaseKindAdmissionFailure
 		p.budget.release()
@@ -599,18 +615,18 @@ func (e *Executor) openPlannedCandidate(
 	cleanupAuthority.backendAttempted.Store(true)
 	// Mark call-path identity for approved B-leg httpidentity transports (passthrough).
 	openCtx = identity.WithClientUserAgent(openCtx, wireCall.Invocation.ClientUserAgent)
+	openInvoked = true
+	openStartedAt = openStart
 	stream, err := safety.CallValue(safety.BoundaryBackend, "backend_open", func() (lipapi.ManagedEventStream, error) {
 		return be.Open(openCtx, wireCall, routing.BackendFacingCandidate(c))
 	})
+	openedStream = stream
 	openDur := time.Since(openStart).Seconds()
 	if err != nil {
 		var pe *safety.PanicError
 		if errors.As(err, &pe) {
 			err = mapBackendPanic(pe, false, c.Key)
 		}
-	}
-	if err == nil && stream != nil && p.billingUpstreamOpened != nil {
-		p.billingUpstreamOpened.Store(true)
 	}
 	if e != nil && e.Metrics != nil {
 		e.Metrics.OnBackendOpenDuration(c.Primary.Backend, openDur)

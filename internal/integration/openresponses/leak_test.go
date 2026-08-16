@@ -34,9 +34,11 @@ func TestHarness_CloseReleasesPorts(t *testing.T) {
 }
 
 // TestHarness_NoGoroutineLeak proves repeated deploy/round-trip/close cycles do
-// not accumulate goroutines beyond a settled baseline.
+// not accumulate goroutines beyond a settled baseline. It deliberately does not
+// call t.Parallel: it performs a global goroutine census, and sibling parallel
+// tests that keep harness deployments alive would perturb both the baseline and
+// the after sample.
 func TestHarness_NoGoroutineLeak(t *testing.T) {
-	t.Parallel()
 	baseline := settleGoroutines(t)
 
 	for i := range 3 {
@@ -63,18 +65,24 @@ func TestHarness_NoGoroutineLeak(t *testing.T) {
 	}
 }
 
+// settleGoroutines samples the goroutine count over a grace window and returns
+// the minimum observed. Transient goroutines (asynchronous connection teardown,
+// scheduler spikes) only inflate individual samples, so the minimum approximates
+// the quiet count; a real leak stays present in every sample.
 func settleGoroutines(tb testing.TB) int {
 	tb.Helper()
 	deadline := time.Now().Add(3 * time.Second)
-	var n int
+	best := runtime.NumGoroutine()
 	for {
-		n = runtime.NumGoroutine()
+		if n := runtime.NumGoroutine(); n < best {
+			best = n
+		}
 		if time.Now().After(deadline) {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	return n
+	return best
 }
 
 func assertRefused(tb testing.TB, addr, label string) {

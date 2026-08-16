@@ -6,17 +6,17 @@ import (
 	"testing"
 )
 
-func TestReplayAccountRebuildsFinancialAndAuthorizationBooksBySequence(t *testing.T) {
+func TestReplayAccountRebuildsFinancialBookAndZerosReserved(t *testing.T) {
 	t.Parallel()
 	account := Account{ID: "acct", Currency: "USD", Mode: AccountPrepaid, State: AccountReady, Version: 4}
 	journals := []JournalTransaction{
-		reconcileJournal("auth", JournalBookAuthorization, 1, "customer_reserved_exposure", JournalDebit, 20, "authorization_contra", JournalCredit, 20),
+		reconcileJournal("auth", JournalBookLegacyAuthorization, 1, "customer_reserved_exposure", JournalDebit, 20, "authorization_contra", JournalCredit, 20),
 		reconcileJournal("charge", JournalBookFinancial, 2, "customer_financial_account", JournalDebit, 7, "usage_revenue", JournalCredit, 7),
-		reconcileJournal("release", JournalBookAuthorization, 3, "authorization_contra", JournalDebit, 13, "customer_reserved_exposure", JournalCredit, 13),
+		reconcileJournal("release", JournalBookLegacyAuthorization, 3, "authorization_contra", JournalDebit, 13, "customer_reserved_exposure", JournalCredit, 13),
 	}
 	report := ReplayAccount(account, 100, journals)
-	if !report.OK || report.Rebuilt.BalanceNano != 93 || report.Rebuilt.ReservedNano != 7 || report.Rebuilt.SpendableNano != 86 {
-		t.Fatalf("replay report = %+v", report)
+	if !report.OK || report.Rebuilt.BalanceNano != 93 || report.Rebuilt.ReservedNano != 0 || report.Rebuilt.SpendableNano != 93 {
+		t.Fatalf("replay report = %+v, want balance 93 reserved 0 spendable 93", report)
 	}
 }
 
@@ -176,14 +176,13 @@ func runReplayFixture(t *testing.T, fixture replayFixture) {
 				t.Fatalf("op %d authorize while hold %d is open", i, openHold)
 			}
 			appendJournal(JournalTransaction{
-				ID: "auth-" + strconv.Itoa(i), Book: JournalBookAuthorization, Currency: "USD", SourceKey: "auth-" + strconv.Itoa(i), AccountID: "acct",
+				ID: "auth-" + strconv.Itoa(i), Book: JournalBookLegacyAuthorization, Currency: "USD", SourceKey: "auth-" + strconv.Itoa(i), AccountID: "acct",
 				Entries: []JournalEntry{
 					{LedgerAccount: "customer_reserved_exposure", Side: JournalDebit, Amount: Money{Nano: op.nano, Currency: "USD"}},
 					{LedgerAccount: "authorization_contra", Side: JournalCredit, Amount: Money{Nano: op.nano, Currency: "USD"}},
 				},
 			})
 			openHold = op.nano
-			account.ReservedNano += op.nano
 		case replaySettle:
 			if openHold < op.nano {
 				t.Fatalf("op %d settle %d exceeds hold %d", i, op.nano, openHold)
@@ -197,26 +196,24 @@ func runReplayFixture(t *testing.T, fixture replayFixture) {
 			})
 			account.BalanceNano -= op.nano
 			appendJournal(JournalTransaction{
-				ID: "release-" + strconv.Itoa(i), Book: JournalBookAuthorization, Currency: "USD", SourceKey: "release-" + strconv.Itoa(i), AccountID: "acct",
+				ID: "release-" + strconv.Itoa(i), Book: JournalBookLegacyAuthorization, Currency: "USD", SourceKey: "release-" + strconv.Itoa(i), AccountID: "acct",
 				Entries: []JournalEntry{
 					{LedgerAccount: "authorization_contra", Side: JournalDebit, Amount: Money{Nano: openHold, Currency: "USD"}},
 					{LedgerAccount: "customer_reserved_exposure", Side: JournalCredit, Amount: Money{Nano: openHold, Currency: "USD"}},
 				},
 			})
-			account.ReservedNano -= openHold
 			openHold = 0
 		case replayRelease:
 			if openHold == 0 {
 				t.Fatalf("op %d release with no hold", i)
 			}
 			appendJournal(JournalTransaction{
-				ID: "release-" + strconv.Itoa(i), Book: JournalBookAuthorization, Currency: "USD", SourceKey: "release-" + strconv.Itoa(i), AccountID: "acct",
+				ID: "release-" + strconv.Itoa(i), Book: JournalBookLegacyAuthorization, Currency: "USD", SourceKey: "release-" + strconv.Itoa(i), AccountID: "acct",
 				Entries: []JournalEntry{
 					{LedgerAccount: "authorization_contra", Side: JournalDebit, Amount: Money{Nano: openHold, Currency: "USD"}},
 					{LedgerAccount: "customer_reserved_exposure", Side: JournalCredit, Amount: Money{Nano: openHold, Currency: "USD"}},
 				},
 			})
-			account.ReservedNano -= openHold
 			openHold = 0
 		case replayReverseReplace:
 			if lastFinancial.ID == "" {
@@ -268,8 +265,8 @@ func runReplayFixture(t *testing.T, fixture replayFixture) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if report.Rebuilt.BalanceNano != account.BalanceNano || report.Rebuilt.ReservedNano != account.ReservedNano || report.Rebuilt.SpendableNano != spendable {
-			t.Fatalf("after op %d rebuilt=%+v account balance=%d reserved=%d spendable=%d", i, report.Rebuilt, account.BalanceNano, account.ReservedNano, spendable)
+		if report.Rebuilt.BalanceNano != account.BalanceNano || report.Rebuilt.ReservedNano != 0 || report.Rebuilt.SpendableNano != spendable {
+			t.Fatalf("after op %d rebuilt=%+v account balance=%d spendable=%d (reserved must rebuild as 0)", i, report.Rebuilt, account.BalanceNano, spendable)
 		}
 		if account.BalanceNano < floor {
 			t.Fatalf("after op %d balance %d below floor %d", i, account.BalanceNano, floor)

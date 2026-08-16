@@ -19,6 +19,7 @@ type Queries = corebilling.ReportingStore
 type Options struct {
 	Queries         Queries
 	Commands        corebilling.AccountProvisioner
+	Recovery        corebilling.ExposureRecovery
 	DefaultPageSize int
 	MaxPageSize     int
 }
@@ -50,30 +51,14 @@ func NewHandler(opts Options) http.Handler {
 	mux.HandleFunc("/account", accountHandler(opts, defaultSize, maxSize))
 	mux.HandleFunc("/funding", fundingHandler(opts))
 	mux.HandleFunc("/credit-policy", creditPolicyHandler(opts))
-	mux.HandleFunc("/turn", func(w http.ResponseWriter, r *http.Request) {
-		if !checkGET(w, r) {
-			return
-		}
-		if opts.Queries == nil {
-			disabled(w)
-			return
-		}
-		turKey := strings.TrimSpace(r.URL.Query().Get("tur_key"))
-		if turKey == "" {
-			invalid(w)
-			return
-		}
-		result, err := opts.Queries.TurnExplanation(r.Context(), turKey)
-		writeResult(w, result, err)
-	})
+	mux.HandleFunc("/exposure-repair", exposureRepairHandler(opts))
 	// Keep each domain call explicit; no reflection-based report router crosses
 	// the protected HTTP boundary.
 	mux.HandleFunc("/operator-cost", operatorCostHandler(opts, defaultSize, maxSize))
 	mux.HandleFunc("/trial-balance", trialBalanceHandler(opts, defaultSize, maxSize))
-	mux.HandleFunc("/processing", processingHandler(opts, defaultSize, maxSize))
-	mux.HandleFunc("/holds", holdsHandler(opts, defaultSize, maxSize))
+	mux.HandleFunc("/exposures", exposuresHandler(opts, defaultSize, maxSize))
+	mux.HandleFunc("/call", callHandler(opts))
 	mux.HandleFunc("/reconcile-required", reconcileRequiredHandler(opts, defaultSize, maxSize))
-	mux.HandleFunc("/session", sessionHandler(opts, defaultSize, maxSize))
 	return mux
 }
 
@@ -144,25 +129,7 @@ func trialBalanceHandler(opts Options, defaultSize, maxSize int) http.HandlerFun
 	}
 }
 
-func processingHandler(opts Options, defaultSize, maxSize int) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !checkGET(w, r) {
-			return
-		}
-		if opts.Queries == nil {
-			disabled(w)
-			return
-		}
-		filter, ok := parseFilter(w, r, defaultSize, maxSize)
-		if !ok {
-			return
-		}
-		result, err := opts.Queries.QueryProcessing(r.Context(), filter)
-		writeResult(w, result, err)
-	}
-}
-
-func holdsHandler(opts Options, defaultSize, maxSize int) http.HandlerFunc {
+func exposuresHandler(opts Options, defaultSize, maxSize int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !checkGET(w, r) {
 			return
@@ -175,7 +142,26 @@ func holdsHandler(opts Options, defaultSize, maxSize int) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		result, err := opts.Queries.QueryOpenHolds(r.Context(), strings.TrimSpace(r.URL.Query().Get("account_id")), page)
+		result, err := opts.Queries.QueryOpenExposures(r.Context(), strings.TrimSpace(r.URL.Query().Get("account_id")), page)
+		writeResult(w, result, err)
+	}
+}
+
+func callHandler(opts Options) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !checkGET(w, r) {
+			return
+		}
+		if opts.Queries == nil {
+			disabled(w)
+			return
+		}
+		callID := strings.TrimSpace(r.URL.Query().Get("call_id"))
+		if callID == "" {
+			invalid(w)
+			return
+		}
+		result, err := opts.Queries.CallExplanation(r.Context(), callID)
 		writeResult(w, result, err)
 	}
 }
@@ -198,30 +184,6 @@ func reconcileRequiredHandler(opts Options, defaultSize, maxSize int) http.Handl
 	}
 }
 
-func sessionHandler(opts Options, defaultSize, maxSize int) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !checkGET(w, r) {
-			return
-		}
-		if opts.Queries == nil {
-			disabled(w)
-			return
-		}
-		accountID := strings.TrimSpace(r.URL.Query().Get("account_id"))
-		sessionID := strings.TrimSpace(r.URL.Query().Get("session_id"))
-		page, ok := parsePage(w, r, defaultSize, maxSize)
-		if !ok {
-			return
-		}
-		if accountID == "" || sessionID == "" {
-			invalid(w)
-			return
-		}
-		result, err := opts.Queries.SessionReport(r.Context(), accountID, sessionID, page)
-		writeResult(w, result, err)
-	}
-}
-
 func parseFilter(w http.ResponseWriter, r *http.Request, defaultSize, maxSize int) (corebilling.ReportFilter, bool) {
 	page, ok := parsePage(w, r, defaultSize, maxSize)
 	if !ok {
@@ -235,17 +197,10 @@ func parseFilter(w http.ResponseWriter, r *http.Request, defaultSize, maxSize in
 	if !ok {
 		return corebilling.ReportFilter{}, false
 	}
-	statusRaw := strings.TrimSpace(r.URL.Query().Get("status"))
-	status := corebilling.ProcessingStatus(statusRaw)
-	if statusRaw != "" && !status.Valid() {
-		invalid(w)
-		return corebilling.ReportFilter{}, false
-	}
 	return corebilling.ReportFilter{
 		AccountID: strings.TrimSpace(r.URL.Query().Get("account_id")),
 		Currency:  strings.TrimSpace(r.URL.Query().Get("currency")),
 		Book:      corebilling.JournalBook(strings.TrimSpace(r.URL.Query().Get("book"))),
-		Status:    status,
 		AfterKey:  strings.TrimSpace(r.URL.Query().Get("after_key")),
 		From:      from,
 		To:        to,

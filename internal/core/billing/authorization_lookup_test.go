@@ -2,10 +2,13 @@ package billing
 
 import "testing"
 
-func TestAuthoritativeBillingDoesNotIncludeAuthorizationLookup(t *testing.T) {
+func TestAuthoritativeBillingDoesNotRequireHoldLifecycle(t *testing.T) {
 	t.Parallel()
 	var store AuthoritativeBilling = (*admissionOnlyBilling)(nil)
-	if _, ok := store.(AuthorizationLookup); ok {
-		t.Fatal("AuthoritativeBilling must not require AuthorizationLookup")
+	type authorizePort interface {
+		Authorize(any) (any, error)
+	}
+	if _, ok := any(store).(authorizePort); ok {
+		t.Fatal("AuthoritativeBilling must not require Authorize")
 	}
 }

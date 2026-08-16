@@ -268,7 +268,7 @@ func (s *retryRecvStream) runStreamTerminal(
 	if !cmd.AllowsScope(sdk.ScopeRequest) {
 		return att.Terminalize(ctx, cmd, snapFn, runEffects)
 	}
-	return req.Terminalize(ctx, cmd, snapFn, func(cctx context.Context, out coreterm.Outcome) error {
+	r := req.Terminalize(ctx, cmd, snapFn, func(cctx context.Context, out coreterm.Outcome) error {
 		var err error
 		if cmd.AllowsScope(sdk.ScopeAttempt) {
 			ar := att.Terminalize(cctx, cmd, func() coreterm.AccumulatorSnapshot {
@@ -286,6 +286,13 @@ func (s *retryRecvStream) runStreamTerminal(
 		s.handoffBillingTurn(cctx, cmd)
 		return err
 	})
+	// Committed GateReplacement cannot take ownership (D13) but still freezes
+	// call-closure: no further B-leg can be allocated, and TUR/retry stay off.
+	if !r.Won && cmd == sdk.CommandGateReplacement && errors.Is(r.Err, sdk.ErrOutputCommitted) {
+		s.recordBillingLeg(ctx, cmd)
+		s.handoffBillingTurn(ctx, cmd)
+	}
+	return r
 }
 
 // runAttemptTerminal claims only the attempt owner (swallowed/parallel/open seams).

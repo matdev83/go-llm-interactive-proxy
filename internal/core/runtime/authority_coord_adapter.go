@@ -420,7 +420,7 @@ func mapAdmissionDecision(res authorityapp.AdmissionResult, providerID string, s
 		}
 	}
 	// Monetary admission clamps are retired from the runtime authority adapter;
-	// BillingAdmission owns the customer max-charge authorization boundary.
+	// Cheap credit screen + exposure admission own the customer max-charge boundary.
 	return d
 }
 

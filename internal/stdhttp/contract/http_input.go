@@ -50,17 +50,18 @@ type HTTPSecurityInput struct {
 }
 
 type HTTPOperationsInput struct {
-	BillingReports       billing.ReportingStore
-	BillingReportsPath   string
-	BillingProvisioner   billing.AccountProvisioner
-	Metrics              *metrics.Bundle
-	Store                diag.AttemptLoader
-	SecretGuardInventory *diag.InventoryExtras
-	ControlPlaneQueries  lipcp.Queries
-	ReadinessReport      lipcp.ReadinessReportReader
-	TokenAccountingAdmin adminaccounting.Service
-	RouteOverrideAdmin   http.Handler
-	Registrations        []lipsdk.Registration
+	BillingReports          billing.ReportingStore
+	BillingReportsPath      string
+	BillingProvisioner      billing.AccountProvisioner
+	BillingExposureRecovery billing.ExposureRecovery
+	Metrics                 *metrics.Bundle
+	Store                   diag.AttemptLoader
+	SecretGuardInventory    *diag.InventoryExtras
+	ControlPlaneQueries     lipcp.Queries
+	ReadinessReport         lipcp.ReadinessReportReader
+	TokenAccountingAdmin    adminaccounting.Service
+	RouteOverrideAdmin      http.Handler
+	Registrations           []lipsdk.Registration
 }
 
 type HTTPModelInput struct {

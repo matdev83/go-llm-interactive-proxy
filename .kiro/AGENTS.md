@@ -10,7 +10,7 @@ Applies ONLY when explicitly triggered via `/kiro:*`, explicit paths under `.kir
 
 - **Spec First, Code Second**: No code edits before approved `requirements.md` and `design.md`.
 - **TDD Mandatory**: Write failing test first, implement second.
-- **Core Policy vs Edge Adapters**: Core owns orchestration, routing (including A-leg overrides), failover, B2BUA, and the two billing seams (authorize, then TUR/LUR handoff). Provider SDKs stay strictly in edge plugins.
+- **Core Policy vs Edge Adapters**: Core owns orchestration, routing (including A-leg overrides), failover, B2BUA, and the two billing seams (cheap credit screen, then atomic operational exposure admission plus terminal usage). Provider SDKs stay strictly in edge plugins.
 - **Streaming First**: Non-streaming is collection over canonical streams (`pkg/lipapi`).
 - **No Retry Post-Output**: Never retry or failover after the first downstream content event.
 
@@ -54,4 +54,4 @@ Re-run design validation and integration tests when changing:
 - Selector syntax, routing semantics, or A-leg routing overrides (`internal/core/routing`, `internal/core/routeoverride`).
 - B2BUA continuity or authority coordination rules (`internal/core/authoritycoord`).
 - Plugin registration contracts (`pkg/lipsdk`, `internal/standardplugins`).
-- Billing TUR/LUR, journal, admission, or host injection (`internal/core/billing`, `runtimebundle.ComposeBilling`).
+- Billing exposure/usage, journal, admission, or host injection (`internal/core/billing`, `runtimebundle.ComposeBilling`).

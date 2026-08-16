@@ -2,10 +2,12 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -13,13 +15,9 @@ import (
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
-// BillingLegObserver receives one recorded LUR. Panics from observers are
-// isolated by the runtime and never alter stream behavior.
 type BillingLegObserver interface {
 	ObserveBillingLeg(context.Context, billing.LegUsageRecord)
 }
-
-// BillingLegObserverFunc adapts a function to BillingLegObserver.
 type BillingLegObserverFunc func(context.Context, billing.LegUsageRecord)
 
 func (f BillingLegObserverFunc) ObserveBillingLeg(ctx context.Context, record billing.LegUsageRecord) {
@@ -98,18 +96,19 @@ func (s *retryRecvStream) recordBillingLeg(ctx context.Context, command sdktermi
 	}
 	s.billingLegRecorded[blegID] = struct{}{}
 	s.billingLegMu.Unlock()
-
+	s.executor.billingTurns().noteAllocatedBLeg(s.billingCallID, blegID)
 	now := s.now()
 	started := s.accounting.requestStartedAt
 	if started.IsZero() {
 		started = now
 	}
+	s.executor.billingTurns().noteLegTimes(s.billingCallID, started, now)
 	surfaced := billing.SurfacedNo
 	if command == sdkterminal.CommandNormalFinish || s.isCommitted() {
 		surfaced = billing.SurfacedYes
 	}
 	streamEv := s.billingEvidenceFallback()
-	s.executor.billingTurns().record(ctx, billingLegRecord(billingLegDraft{
+	legRecord := billingLegRecord(billingLegDraft{
 		aLegID:          s.aLegID,
 		bLegID:          s.bleg.BLegID,
 		seq:             s.bleg.Seq,
@@ -121,12 +120,11 @@ func (s *retryRecvStream) recordBillingLeg(ctx context.Context, command sdktermi
 		finalize:        s.finalizeBillingEvidence(ctx, "record_leg"),
 		stream:          streamEv,
 		operatorRateRef: s.executor.operatorRateRef(ctx, s.cand.Primary),
-	}))
+	})
+	s.executor.billingTurns().observe(ctx, legRecord)
+	s.executor.appendIndependentCallLeg(ctx, s.billingCallID, legRecord)
 }
 
-// finalizeBillingEvidence returns authoritative finalize evidence when the backend
-// supports FinalizeBilling. Unlike finalizeBillingAfterCancel, this path is
-// observational only: it never emits client usage or mutates stream accounting.
 func (s *retryRecvStream) finalizeBillingEvidence(ctx context.Context, reason string) lipapi.Event {
 	fallback := s.billingEvidenceFallback()
 	if s == nil || s.executor == nil {
@@ -146,10 +144,6 @@ func (s *retryRecvStream) finalizeBillingEvidence(ctx context.Context, reason st
 	return ev
 }
 
-// billingEvidenceFallback prefers reconstructed authority usage, then the last
-// EventUsageDelta in seen events. Cumulative providers emit running totals;
-// summing them would double-count LUR quantities. This path is billing-only and
-// must not change mergeUsageEventsForClient (client protocol aggregation).
 func (s *retryRecvStream) billingEvidenceFallback() lipapi.Event {
 	if s == nil {
 		return emptyOperatorUsageShell()
@@ -169,10 +163,6 @@ func lastUsageDeltaOrShell(events []lipapi.Event) lipapi.Event {
 	return emptyOperatorUsageShell()
 }
 
-// mergeStreamCostOntoLUR keeps finalize token/provenance while copying any
-// stream-observed monetary cost (including authoritative zero) onto the LUR
-// when FinalizeBilling has no money fields (Req 3.4). Stream Authority is
-// copied with Cost so present-zero remains authoritative for rating (Req 3.6).
 func mergeStreamCostOntoLUR(finalize, stream billing.FinalBillingEvidence) billing.FinalBillingEvidence {
 	if finalize.Cost.Present {
 		return finalize
@@ -196,6 +186,10 @@ func isBillingTurnTerminalCommand(command sdkterminal.Command) bool {
 	default:
 		return false
 	}
+}
+
+func isCallClosureTerminalCommand(command sdkterminal.Command) bool {
+	return command.AllowsScope(sdkterminal.ScopeRequest)
 }
 
 func legOutcomeFromCommand(command sdkterminal.Command) billing.LegOutcome {
@@ -225,49 +219,13 @@ func turnOutcomeFromCommand(command sdkterminal.Command) billing.TurnOutcome {
 }
 
 func (s *retryRecvStream) handoffBillingTurn(ctx context.Context, command sdkterminal.Command) {
-	if s == nil || s.executor == nil || s.executor.BillingTerminalHandoff == nil || !isBillingTurnTerminalCommand(command) {
+	if s == nil || s.executor == nil || !isCallClosureTerminalCommand(command) {
 		return
 	}
-	s.billingHandoffMu.Lock()
-	defer s.billingHandoffMu.Unlock()
-	if s.billingHandoffSuccess {
-		return
-	}
-
-	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingHandoffTimeout)
-	defer cancel()
-
-	if !s.billingIdentityStamped {
-		if s.executor.Log != nil {
-			s.executor.Log.DebugContext(persistCtx, "billing TUR handoff skipped: identity not stamped at admission")
-		}
-		return
-	}
-	accountID := strings.TrimSpace(s.billingAccountID)
-	authID := strings.TrimSpace(s.billingAuthorizationID)
-	if accountID == "" || authID == "" {
-		if s.executor.Log != nil {
-			s.executor.Log.DebugContext(persistCtx, "billing TUR handoff skipped: stamped identity incomplete")
-		}
-		return
-	}
-
-	job := billing.HandoffRetryJob{
-		AccountID:       accountID,
-		AuthorizationID: authID,
-		ALegID:          strings.TrimSpace(s.aLegID),
-		SessionID:       strings.TrimSpace(s.baseline.Session.AuthoritativeSessionID),
-		Outcome:         turnOutcomeFromCommand(command),
-		CustomerPricing: s.billingCustomerPricing,
-		ChargePolicy:    s.billingChargePolicy,
-		UpstreamOpened:  true,
-	}
-	if s.executor.billingTurns().sealTurn(ctx, job) {
-		s.billingHandoffSuccess = true
-	}
+	s.billingCallClosureMu.Lock()
+	defer s.billingCallClosureMu.Unlock()
+	s.appendCallClosureLocked(ctx, command)
 }
-
-var errBillingHandoffNoEvidence = fmt.Errorf("runtime: billing handoff has no B-leg evidence")
 
 func billingSyntheticBLegID(seq int) string {
 	return fmt.Sprintf("seq_%d", seq)
@@ -299,14 +257,91 @@ func finalBillingEvidenceFromEvent(ev lipapi.Event) billing.FinalBillingEvidence
 	}
 }
 
+func (e *Executor) appendIndependentCallLeg(ctx context.Context, callID billing.BillingCallID, leg billing.LegUsageRecord) {
+	if e == nil || e.CallLegUsageAppender == nil {
+		return
+	}
+	independent := billing.CallLegUsageRecord{CallID: callID, ALegID: leg.ALegID, BLegID: leg.BLegID, BackendID: leg.BackendID, ProviderID: leg.ProviderID, ModelID: leg.ModelID, StartedAt: leg.StartedAt, FinishedAt: leg.FinishedAt, Outcome: leg.Outcome, Surfaced: leg.Surfaced, Evidence: leg.Evidence, OperatorRateRef: leg.OperatorRateRef}
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingHandoffTimeout)
+	defer cancel()
+	if err := e.CallLegUsageAppender.AppendCallLegUsage(persistCtx, independent); err != nil {
+		e.logBillingUsageAppendFailure(persistCtx, "billing_call_leg_append_critical", "billing call-leg append failed", err)
+	}
+}
+
+func (e *Executor) logBillingUsageAppendFailure(ctx context.Context, criticalMsg, warnMsg string, err error) {
+	if e == nil || e.Log == nil || err == nil {
+		return
+	}
+	if errors.Is(err, billing.ErrReplayConflict) {
+		e.Log.DebugContext(ctx, warnMsg, "error", err)
+		return
+	}
+	if errors.Is(err, billing.ErrUsageAppendOutboxEnqueue) {
+		e.Log.ErrorContext(ctx, criticalMsg, "error", err)
+		return
+	}
+	e.Log.WarnContext(ctx, warnMsg, "error", err)
+}
+
+func (e *Executor) appendIndependentTerminalLeg(ctx context.Context, callID billing.BillingCallID, aLegID string, bleg b2bua.BLegRecord, primary routing.Primary, started, finished time.Time, outcome billing.LegOutcome) {
+	if e == nil || e.CallLegUsageAppender == nil {
+		return
+	}
+	if started.IsZero() {
+		started = finished
+	}
+	if finished.IsZero() {
+		finished = started
+	}
+	backend := strings.TrimSpace(primary.Backend)
+	if backend == "" {
+		backend = "unknown"
+	}
+	model := strings.TrimSpace(primary.Model)
+	if model == "" {
+		model = "unknown"
+	}
+	leg := billing.LegUsageRecord{
+		ALegID: strings.TrimSpace(aLegID), BLegID: strings.TrimSpace(bleg.BLegID), Seq: bleg.Seq,
+		BackendID: backend, ProviderID: billingProviderID(primary), ModelID: model,
+		StartedAt: started, FinishedAt: finished, Outcome: outcome, Surfaced: billing.SurfacedNo,
+		Evidence:        billing.FinalBillingEvidence{Source: billing.EvidenceSourceUnavailable, Authority: billing.EvidenceAuthorityUnavailable},
+		OperatorRateRef: e.operatorRateRef(ctx, primary),
+	}
+	if err := callID.Validate(); err == nil {
+		e.billingTurns().noteLegTimes(callID, started, finished)
+	}
+	e.billingTurns().observe(ctx, leg)
+	e.appendIndependentCallLeg(ctx, callID, leg)
+}
+
+func (e *Executor) appendPostOpenTerminalLeg(ctx context.Context, callID billing.BillingCallID, aLegID string, bleg b2bua.BLegRecord, primary routing.Primary, started, finished time.Time) {
+	if e == nil || strings.TrimSpace(bleg.BLegID) == "" {
+		return
+	}
+	if err := callID.Validate(); err != nil {
+		return
+	}
+	if started.IsZero() {
+		started = e.now()
+	}
+	if finished.IsZero() {
+		finished = e.now()
+	}
+	outcome := billing.LegOutcomeFailed
+	if ctx.Err() != nil {
+		outcome = billing.LegOutcomeCanceled
+	}
+	e.appendIndependentTerminalLeg(ctx, callID, aLegID, bleg, primary, started, finished, outcome)
+}
+
 func (e *Executor) recordParallelBillingLeg(ctx context.Context, leg *parallelLeg, usage lipapi.Event, command sdkterminal.Command, committed bool) {
-	if e == nil || leg == nil || (e.BillingTerminalHandoff == nil && e.BillingLegObserver == nil) {
+	if e == nil || leg == nil || (e.BillingLegObserver == nil && e.CallLegUsageAppender == nil) {
 		return
 	}
 	if leg.startedAt.IsZero() {
-		// Never-opened legs have no provider work and must not enter TUR/LUR
-		// evidence: Seal rejects zero timestamps, and fabricating start=finish
-		// would invent a billed interval.
+		e.appendIndependentTerminalLeg(ctx, leg.callID, leg.bleg.ALegID, leg.bleg, leg.cand.Primary, e.now(), e.now(), billing.LegOutcomeNeverStarted)
 		return
 	}
 	surfaced := billing.SurfacedNo
@@ -324,7 +359,10 @@ func (e *Executor) recordParallelBillingLeg(ctx context.Context, leg *parallelLe
 	if !ok {
 		finalizeEv = fallback
 	}
-	e.billingTurns().record(ctx, billingLegRecord(billingLegDraft{
+	if err := leg.callID.Validate(); err == nil {
+		e.billingTurns().noteLegTimes(leg.callID, leg.startedAt, e.now())
+	}
+	legRecord := billingLegRecord(billingLegDraft{
 		aLegID:          leg.bleg.ALegID,
 		bLegID:          leg.bleg.BLegID,
 		seq:             leg.bleg.Seq,
@@ -336,5 +374,9 @@ func (e *Executor) recordParallelBillingLeg(ctx context.Context, leg *parallelLe
 		finalize:        finalizeEv,
 		stream:          fallback,
 		operatorRateRef: e.operatorRateRef(ctx, leg.cand.Primary),
-	}))
+	})
+	e.billingTurns().observe(ctx, legRecord)
+	if err := leg.callID.Validate(); err == nil {
+		e.appendIndependentCallLeg(ctx, leg.callID, legRecord)
+	}
 }

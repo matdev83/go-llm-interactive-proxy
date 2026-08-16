@@ -681,17 +681,17 @@ func catalogLeg(backend, model string, rate billing.VersionRef) billing.LegUsage
 
 func catalogRecord(pricing, policy billing.VersionRef, legs ...billing.LegUsageRecord) billing.TurnUsageRecord {
 	return billing.TurnUsageRecord{
-		SchemaVersion:      billing.CurrentRecordSchemaVersion,
-		AccountID:          "acct-1",
-		TurnID:             "turn-1",
-		ALegID:             "a-1",
-		AuthorizationID:    "auth-1",
-		StartedAt:          time.Unix(100, 0).UTC(),
-		FinishedAt:         time.Unix(101, 0).UTC(),
-		Outcome:            billing.TurnOutcomeCompleted,
-		CustomerPricingRef: pricing,
-		ChargePolicyRef:    policy,
-		Legs:               legs,
+		SchemaVersion:         billing.CurrentRecordSchemaVersion,
+		AccountID:             "acct-1",
+		TurnID:                "turn-1",
+		ALegID:                "a-1",
+		LegacyAuthorizationID: "auth-1",
+		StartedAt:             time.Unix(100, 0).UTC(),
+		FinishedAt:            time.Unix(101, 0).UTC(),
+		Outcome:               billing.TurnOutcomeCompleted,
+		CustomerPricingRef:    pricing,
+		ChargePolicyRef:       policy,
+		Legs:                  legs,
 	}
 }
 
