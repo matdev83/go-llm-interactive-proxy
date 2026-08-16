@@ -134,21 +134,27 @@ func CanonicalEventFromLipapi(ev lipapi.Event) *CanonicalEvent {
 		n := ev.ToolName
 		out.ToolName = &n
 	}
-	if ev.InputTokens != 0 || ev.OutputTokens != 0 {
-		in := int64(ev.InputTokens)
-		ot := int64(ev.OutputTokens)
-		total := in + ot
-		out.Usage = &UsageEvidence{
-			InputTokens:  &in,
-			OutputTokens: &ot,
-			TotalTokens:  &total,
-			Presence: UsagePresence{
-				InputTokens:  ev.InputTokens != 0,
-				OutputTokens: ev.OutputTokens != 0,
-				TotalTokens:  true,
-			},
-			RawUsageJSON: RawJSONAbsentValue(),
+	if hasUsage(ev) {
+		usage := &UsageEvidence{RawUsageJSON: RawJSONAbsentValue()}
+		setUsageField(ev.InputTokens, ev.UsagePresence.InputTokens, &usage.InputTokens, &usage.Presence.InputTokens)
+		setUsageField(ev.OutputTokens, ev.UsagePresence.OutputTokens, &usage.OutputTokens, &usage.Presence.OutputTokens)
+		setUsageField(ev.CacheReadTokens, ev.UsagePresence.CacheReadTokens, &usage.CacheReadTokens, &usage.Presence.CacheReadTokens)
+		setUsageField(ev.CacheWriteTokens, ev.UsagePresence.CacheWriteTokens, &usage.CacheWriteTokens, &usage.Presence.CacheWriteTokens)
+		setUsageField(ev.ReasoningTokens, ev.UsagePresence.ReasoningTokens, &usage.ReasoningTokens, &usage.Presence.ReasoningTokens)
+		if ev.TotalTokens != 0 || ev.UsagePresence.TotalTokens {
+			setUsageField(ev.TotalTokens, ev.UsagePresence.TotalTokens, &usage.TotalTokens, &usage.Presence.TotalTokens)
+		} else if usage.InputTokens != nil || usage.OutputTokens != nil {
+			var tot int64
+			if usage.InputTokens != nil {
+				tot += *usage.InputTokens
+			}
+			if usage.OutputTokens != nil {
+				tot += *usage.OutputTokens
+			}
+			usage.TotalTokens = &tot
+			usage.Presence.TotalTokens = true
 		}
+		out.Usage = usage
 	}
 	if ev.WarningMessage != "" {
 		w := ev.WarningMessage
@@ -170,6 +176,21 @@ func CanonicalEventFromLipapi(ev lipapi.Event) *CanonicalEvent {
 		}
 	}
 	return out
+}
+
+func hasUsage(ev lipapi.Event) bool {
+	return ev.InputTokens != 0 || ev.OutputTokens != 0 || ev.CacheReadTokens != 0 ||
+		ev.CacheWriteTokens != 0 || ev.ReasoningTokens != 0 || ev.TotalTokens != 0 ||
+		ev.UsagePresence.Any()
+}
+
+func setUsageField(value int, present bool, dst **int64, flag *bool) {
+	if value == 0 && !present {
+		return
+	}
+	v := int64(value)
+	*dst = &v
+	*flag = true
 }
 
 func messagesToLipapi(in []Message) ([]lipapi.Message, error) {
