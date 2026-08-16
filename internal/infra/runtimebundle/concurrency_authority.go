@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log/slog"
 	"path/filepath"
 	"strings"
 	"time"
@@ -28,7 +27,7 @@ type concurrencyAuthorityRuntime struct {
 	AuxiliaryLeasePolicy string
 }
 
-func buildConcurrencyAuthorityRuntime(owner *processResourceOwner, parent context.Context, cfg *config.Config, log *slog.Logger, testing TestingOptions, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (*concurrencyAuthorityRuntime, error) {
+func buildConcurrencyAuthorityRuntime(owner *processResourceOwner, parent context.Context, cfg *config.Config, testing TestingOptions, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (*concurrencyAuthorityRuntime, error) {
 	if cfg == nil || !cfg.Accounting.Concurrency.Enabled {
 		return nil, nil
 	}
@@ -47,7 +46,7 @@ func buildConcurrencyAuthorityRuntime(owner *processResourceOwner, parent contex
 	if err != nil {
 		return nil, err
 	}
-	store, err := buildConcurrencyLeaseStore(owner, parent, cfg, log, testing, registry, migrator)
+	store, err := buildConcurrencyLeaseStore(owner, parent, cfg, testing, registry, migrator)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +61,7 @@ func buildConcurrencyAuthorityRuntime(owner *processResourceOwner, parent contex
 	}, nil
 }
 
-func buildConcurrencyLeaseStore(owner *processResourceOwner, parent context.Context, cfg *config.Config, log *slog.Logger, testing TestingOptions, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (concurrencyapp.LeaseStore, error) {
+func buildConcurrencyLeaseStore(owner *processResourceOwner, parent context.Context, cfg *config.Config, testing TestingOptions, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (concurrencyapp.LeaseStore, error) {
 	if override := testing.ConcurrencyLeaseStoreOverride; override != nil {
 		return override, nil
 	}
@@ -97,7 +96,6 @@ func buildConcurrencyLeaseStore(owner *processResourceOwner, parent context.Cont
 			return nil, fmt.Errorf("runtimebundle: concurrency lease durable sqlite: %w", err)
 		}
 		owner.Own(store.Close)
-		_ = log
 		return store, nil
 	case "postgres":
 		poolCfg, err := config.ParseDatabasePoolSettings(cfg.Database)

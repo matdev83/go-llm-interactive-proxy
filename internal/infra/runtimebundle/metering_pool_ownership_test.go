@@ -36,7 +36,8 @@ func TestOpenDurableMeteringJournalSchemaFailureKeepsRegistryPoolOpen(t *testing
 		},
 	}
 
-	_, _, _, _, err := openDurableMeteringJournal(t.Context(), cfg, time.Now, registry, nil)
+	owner, _ := newTestProcessOwner()
+	_, _, _, err := openDurableMeteringJournal(owner, t.Context(), cfg, time.Now, registry, nil)
 	if err == nil {
 		t.Fatal("expected missing-schema error")
 	}

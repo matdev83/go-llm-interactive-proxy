@@ -1,7 +1,6 @@
 package archtest
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -67,37 +66,21 @@ var pathMarkerOverlaySpecs = []pathMarkerOverlaySpec{
 
 // measurePathMarkerOverlays measures every path-marker overlay in table order.
 // priorFiles (the connector overlay's files) seed the exclusion set so a file is
-// never counted by two overlays.
+// never counted by two overlays. A single root walk evaluates all table specs.
 func measurePathMarkerOverlays(root string, priorFiles []string) ([]OverlayMeasurement, error) {
 	exclude := make(map[string]struct{}, len(priorFiles))
 	for _, f := range priorFiles {
 		exclude[f] = struct{}{}
 	}
-	out := make([]OverlayMeasurement, 0, len(pathMarkerOverlaySpecs))
-	for _, spec := range pathMarkerOverlaySpecs {
-		base, err := measureOverlayByPathMarkers(root, spec.markers, spec.max, exclude)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", spec.name, err)
-		}
-		out = append(out, OverlayMeasurement{
-			Name:  spec.name,
-			Files: base.Files,
-			Lines: base.Lines,
-			Max:   base.Max,
-			Pass:  base.Pass,
-		})
-		for _, f := range base.Files {
-			exclude[f] = struct{}{}
+	measurements := make([]OverlayMeasurement, len(pathMarkerOverlaySpecs))
+	for i, spec := range pathMarkerOverlaySpecs {
+		measurements[i] = OverlayMeasurement{
+			Name: spec.name,
+			Max:  spec.max,
 		}
 	}
-	return out, nil
-}
 
-func measureOverlayByPathMarkers(root string, pathMarkers []string, maxBytes int, exclude map[string]struct{}) (OverlayMeasurement, error) {
-	m := OverlayMeasurement{Max: maxBytes}
-	// Preserve the root-wide metric semantics, but do not descend into sibling
-	// worktrees. The main checkout may contain hundreds of megabytes of agent
-	// worktrees here.
+	// Preserve root-wide metric semantics, but do not descend into sibling worktrees.
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -116,28 +99,34 @@ func measureOverlayByPathMarkers(root string, pathMarkers []string, maxBytes int
 		if _, skip := exclude[rel]; skip {
 			return nil
 		}
-		hit := false
-		for _, marker := range pathMarkers {
-			if strings.Contains(rel, marker) {
-				hit = true
+		// Match in table order; first matching overlay claims the file.
+		for i, spec := range pathMarkerOverlaySpecs {
+			hit := false
+			for _, marker := range spec.markers {
+				if strings.Contains(rel, marker) {
+					hit = true
+					break
+				}
+			}
+			if hit {
+				n, err := countTreeFileLines(path)
+				if err != nil {
+					return err
+				}
+				measurements[i].Files = append(measurements[i].Files, rel)
+				measurements[i].Lines += n
+				exclude[rel] = struct{}{}
 				break
 			}
 		}
-		if !hit {
-			return nil
-		}
-		n, err := countTreeFileLines(path)
-		if err != nil {
-			return err
-		}
-		m.Files = append(m.Files, rel)
-		m.Lines += n
 		return nil
 	})
 	if err != nil {
-		return OverlayMeasurement{}, err
+		return nil, err
 	}
-	sort.Strings(m.Files)
-	m.Pass = m.Lines <= m.Max
-	return m, nil
+	for i := range measurements {
+		sort.Strings(measurements[i].Files)
+		measurements[i].Pass = measurements[i].Lines <= measurements[i].Max
+	}
+	return measurements, nil
 }

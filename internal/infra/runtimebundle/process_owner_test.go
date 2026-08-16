@@ -29,6 +29,28 @@ func TestProcessResourceOwner_OwnIgnoresNilRelease(t *testing.T) {
 	}
 }
 
+func TestProcessResourceOwner_NilOwnerNoop(t *testing.T) {
+	t.Parallel()
+	var owner *processResourceOwner
+	// Calling Own on a nil owner must safely no-op without panicking.
+	owner.Own(func() error { return nil })
+}
+
+func TestAcquireOwnedProcess_NilOwnerRejectsBeforeAcquire(t *testing.T) {
+	t.Parallel()
+	var acquired atomic.Bool
+	_, err := acquireOwnedProcess(context.Background(), nil, func(context.Context) (string, func() error, error) {
+		acquired.Store(true)
+		return "leaked", func() error { return nil }, nil
+	})
+	if err == nil {
+		t.Fatal("acquireOwnedProcess with nil owner must return error")
+	}
+	if acquired.Load() {
+		t.Fatal("acquire must not be invoked when owner is nil")
+	}
+}
+
 func TestProcessResourceOwner_OwnAppendsToAuthoritativeCloserSet(t *testing.T) {
 	t.Parallel()
 	owner, ps := newTestProcessOwner()

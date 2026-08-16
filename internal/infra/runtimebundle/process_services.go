@@ -147,7 +147,7 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		ps.UsageAuthority = usageAuthority.Service
 	}
 
-	concurrencyRT, err := buildConcurrencyAuthorityRuntime(owner, parent, in.Cfg, in.Log, in.Opts.Testing, postgresPools, ps.dualPlaneMigrator)
+	concurrencyRT, err := buildConcurrencyAuthorityRuntime(owner, parent, in.Cfg, in.Opts.Testing, postgresPools, ps.dualPlaneMigrator)
 	if err != nil {
 		return fail(err)
 	}

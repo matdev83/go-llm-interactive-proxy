@@ -88,6 +88,7 @@ func TestMigratedBuildersDropCloserSlices(t *testing.T) {
 		"buildPersistenceRuntime":           "build_persistence.go",
 		"buildProcessAccountingStores":      "token_accounting.go",
 		"buildMeteringRuntime":              "metering.go",
+		"openDurableMeteringJournal":        "metering.go",
 		"buildTerminalWorkWithSetReconcile": "lease_set_reconcile.go",
 		"buildTerminalWorkFromProduction":   "terminal_work.go",
 		"buildTerminalWorkRuntime":          "terminal_work.go",

@@ -14,7 +14,7 @@ type processResourceOwner struct {
 // Own appends a process release into the authoritative closer set. A nil release
 // is ignored, since registering one would panic the closer set at shutdown.
 func (o *processResourceOwner) Own(release func() error) {
-	if release == nil {
+	if o == nil || release == nil {
 		return
 	}
 	o.register(release)
@@ -24,6 +24,9 @@ func (o *processResourceOwner) Own(release func() error) {
 // release before the value escapes (req 2.1, 2.2).
 func acquireOwnedProcess[T any](ctx context.Context, owner *processResourceOwner, acquire func(context.Context) (T, func() error, error)) (T, error) {
 	var zero T
+	if owner == nil {
+		return zero, fmt.Errorf("runtimebundle: nil process owner")
+	}
 	value, release, err := acquire(ctx)
 	if err != nil {
 		return zero, err
