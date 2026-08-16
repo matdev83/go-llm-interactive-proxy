@@ -11,6 +11,7 @@ import (
 // Requirement 11.5-11.9 shrinkage evidence and machine-checkable gate.
 // ADR 0008 connector-architecture overlay is measured and ratcheted separately
 // from the legacy convergence delta (main-spec historical ≥800-line target).
+// Path-marker feature overlays are driven by a single table.
 
 func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	t.Parallel()
@@ -31,6 +32,9 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	}
 	if AtomicOwnedResourceLifecycleOverlayMax != 92 {
 		t.Fatalf("atomic owned resource lifecycle overlay cap drift: %d", AtomicOwnedResourceLifecycleOverlayMax)
+	}
+	if len(pathMarkerOverlaySpecs) != 3 {
+		t.Fatalf("path-marker overlay table drift: got %d specs, want 3", len(pathMarkerOverlaySpecs))
 	}
 	want := []AffectedSurfaceBaseline{
 		{Tree: "internal/infra/runtimebundle", BaselineLines: 9898},
@@ -70,10 +74,7 @@ func TestShrinkage_GenericOverlayIgnoresSiblingWorktrees(t *testing.T) {
 		}
 	}
 
-	overlay, err := MeasureGenericCompatibleBackendOverlay(root, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	overlay := pathOverlayByName(t, root, "Generic compatible")
 	want := []string{"internal/core/compatible_ownership.go", "tools/compatible_admission.go", "vendor/compatible_admission.go"}
 	if len(overlay.Files) != len(want) || overlay.Files[0] != want[0] || overlay.Files[1] != want[1] || overlay.Files[2] != want[2] {
 		t.Fatalf("overlay files = %v, want %v", overlay.Files, want)
@@ -97,10 +98,7 @@ func TestShrinkage_AtomicOverlaySelectsPrimitives(t *testing.T) {
 		}
 	}
 
-	overlay, err := MeasureAtomicOwnedResourceLifecycleOverlay(root, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	overlay := pathOverlayByName(t, root, "Atomic owned resource lifecycle")
 	want := []string{"internal/infra/runtimebundle/process_owner.go"}
 	if len(overlay.Files) != len(want) || overlay.Files[0] != want[0] {
 		t.Fatalf("overlay files = %v, want %v", overlay.Files, want)
@@ -108,6 +106,25 @@ func TestShrinkage_AtomicOverlaySelectsPrimitives(t *testing.T) {
 	if overlay.Lines != 1 {
 		t.Fatalf("overlay lines = %d, want 1", overlay.Lines)
 	}
+}
+
+func pathOverlayByName(t *testing.T, root, name string) OverlayMeasurement {
+	t.Helper()
+	overlays, err := measurePathMarkerOverlays(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range overlays {
+		if o.Name == name {
+			return o
+		}
+	}
+	names := make([]string, 0, len(overlays))
+	for _, o := range overlays {
+		names = append(names, o.Name)
+	}
+	t.Fatalf("path overlay %q not found (have %v)", name, names)
+	return OverlayMeasurement{}
 }
 
 func TestShrinkage_ConnectorOverlayExactMeasured(t *testing.T) {
@@ -172,12 +189,19 @@ func TestShrinkage_MeasureDeterministicTotals(t *testing.T) {
 	if m.Delta != m.CurrentTotal-m.BaselineTotal {
 		t.Fatalf("aggregate delta inconsistency: %d", m.Delta)
 	}
-	if m.ConvergenceDelta != m.Delta-m.Overlay.Lines-m.GenericCompatibleOverlay.Lines-m.BillingHostCompositionOverlay.Lines-m.AtomicOwnedResourceLifecycle.Lines {
-		t.Fatalf("convergence delta inconsistency: got %d want %d-%d-%d-%d-%d", m.ConvergenceDelta, m.Delta, m.Overlay.Lines, m.GenericCompatibleOverlay.Lines, m.BillingHostCompositionOverlay.Lines, m.AtomicOwnedResourceLifecycle.Lines)
+	overlayLines := m.Connector.Lines
+	for _, o := range m.PathOverlays {
+		overlayLines += o.Lines
 	}
-	wantPass := m.ConvergenceDelta <= m.RequiredMax && m.Overlay.Pass && m.GenericCompatibleOverlay.Pass && m.BillingHostCompositionOverlay.Pass && m.AtomicOwnedResourceLifecycle.Pass
+	if m.ConvergenceDelta != m.Delta-overlayLines {
+		t.Fatalf("convergence delta inconsistency: got %d want %d-%d", m.ConvergenceDelta, m.Delta, overlayLines)
+	}
+	wantPass := m.ConvergenceDelta <= m.RequiredMax && m.Connector.Pass
+	for _, o := range m.PathOverlays {
+		wantPass = wantPass && o.Pass
+	}
 	if m.Pass != wantPass {
-		t.Fatalf("pass flag inconsistency: pass=%v convergence=%+d overlay=%d", m.Pass, m.ConvergenceDelta, m.Overlay.Lines)
+		t.Fatalf("pass flag inconsistency: pass=%v convergence=%+d", m.Pass, m.ConvergenceDelta)
 	}
 }
 
@@ -223,8 +247,8 @@ func TestShrinkage_NetReductionMeetsRequirement115(t *testing.T) {
 		for _, s := range m.Surfaces {
 			fmt.Fprintf(&b, "  %s: %d -> %d (%+d)\n", s.Tree, s.BaselineLines, s.CurrentLines, s.Delta)
 		}
-		t.Fatalf("Req 11.5 FAIL: raw delta %+d; overlay %d/%d; convergence delta %+d (need ≤ %+d)\n%sbaseline_total=%d current_total=%d overlay_files=%v",
-			m.Delta, m.Overlay.Lines, m.Overlay.Max, m.ConvergenceDelta, m.RequiredMax,
-			b.String(), m.BaselineTotal, m.CurrentTotal, m.Overlay.Files)
+		t.Fatalf("Req 11.5 FAIL: raw delta %+d; connector overlay %d/%d; convergence delta %+d (need ≤ %+d)\n%sbaseline_total=%d current_total=%d connector_files=%v",
+			m.Delta, m.Connector.Lines, m.Connector.Max, m.ConvergenceDelta, m.RequiredMax,
+			b.String(), m.BaselineTotal, m.CurrentTotal, m.Connector.Files)
 	}
 }

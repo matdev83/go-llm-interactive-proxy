@@ -11,9 +11,10 @@ type processResourceOwner struct {
 	register func(func() error)
 }
 
-// Own appends a process release into the authoritative closer set.
+// Own appends a process release into the authoritative closer set. A nil release
+// is ignored, since registering one would panic the closer set at shutdown.
 func (o *processResourceOwner) Own(release func() error) {
-	if o == nil || o.register == nil || release == nil {
+	if release == nil {
 		return
 	}
 	o.register(release)

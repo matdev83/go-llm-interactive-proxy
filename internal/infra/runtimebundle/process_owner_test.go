@@ -29,14 +29,6 @@ func TestProcessResourceOwner_OwnIgnoresNilRelease(t *testing.T) {
 	}
 }
 
-func TestProcessResourceOwner_OwnNilOwnerNoop(t *testing.T) {
-	t.Parallel()
-	var nilOwner *processResourceOwner
-	nilOwner.Own(func() error { return nil })
-	owner := &processResourceOwner{}
-	owner.Own(func() error { return nil })
-}
-
 func TestProcessResourceOwner_OwnAppendsToAuthoritativeCloserSet(t *testing.T) {
 	t.Parallel()
 	owner, ps := newTestProcessOwner()

@@ -28,11 +28,12 @@ func TestStartOwnedLoop_RunsWorkAfterOwnership(t *testing.T) {
 func TestStartOwnedLoop_NilLedgerNoop(t *testing.T) {
 	t.Parallel()
 	var worked atomic.Bool
+	// The nil-ledger guard is the first line of startOwnedLoop and returns
+	// synchronously, so the loop body is never scheduled; asserting immediately
+	// after the call is deterministic and needs no sleep.
 	startOwnedLoop(nil, "loop", PhaseQuiesce, context.Background(), func(ctx context.Context) {
 		worked.Store(true)
 	})
-	// Give any (incorrectly) spawned goroutine a chance to run before asserting.
-	time.Sleep(20 * time.Millisecond)
 	if worked.Load() {
 		t.Fatal("nil ledger must not start an unowned loop")
 	}

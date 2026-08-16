@@ -1,6 +1,7 @@
 package archtest
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,8 +20,8 @@ const BillingHostCompositionOverlayMax = 335
 
 // AtomicOwnedResourceLifecycleOverlayMax is the measured atomic-owned-resource-lifecycle
 // overlay ratchet (the new private process-ownership and generation-loop primitive
-// files, excluded from the legacy Req 11.5 convergence delta). Keep 25 lines of
-// ratchet headroom over the measured 67-line overlay.
+// files, excluded from the legacy Req 11.5 convergence delta). Keep 16 lines of
+// ratchet headroom over the measured 76-line overlay.
 const AtomicOwnedResourceLifecycleOverlayMax = 92
 
 var genericCompatibleBackendOverlayPathMarkers = []string{
@@ -47,48 +48,53 @@ var atomicOwnedResourceLifecycleOverlayPathMarkers = []string{
 	"/generation_loop.go",
 }
 
-// AtomicOwnedResourceLifecycleOverlayMeasurement is the atomic-owned-resource-lifecycle allowance.
-type AtomicOwnedResourceLifecycleOverlayMeasurement struct {
-	Files []string
-	Lines int
-	Max   int
-	Pass  bool
+// pathMarkerOverlaySpec is one path-marker overlay allowance: a feature's new
+// production files are selected by path and ratcheted separately from the legacy
+// Req 11.5 convergence delta.
+type pathMarkerOverlaySpec struct {
+	name    string
+	max     int
+	markers []string
 }
 
-// MeasureGenericCompatibleBackendOverlay counts non-test lines for the
-// generic-compatible-backend-modes feature, excluding connector overlay files.
-func MeasureGenericCompatibleBackendOverlay(root string, exclude map[string]struct{}) (GenericCompatibleOverlayMeasurement, error) {
-	base, err := measureOverlayByPathMarkers(root, genericCompatibleBackendOverlayPathMarkers, GenericCompatibleBackendOverlayMax, exclude)
-	if err != nil {
-		return GenericCompatibleOverlayMeasurement{}, err
+// pathMarkerOverlaySpecs is the single table of path-marker overlays. Adding a
+// feature here requires no changes to the measurement, formatting, or pass logic.
+var pathMarkerOverlaySpecs = []pathMarkerOverlaySpec{
+	{name: "Generic compatible", max: GenericCompatibleBackendOverlayMax, markers: genericCompatibleBackendOverlayPathMarkers},
+	{name: "Billing host composition", max: BillingHostCompositionOverlayMax, markers: billingHostCompositionOverlayPathMarkers},
+	{name: "Atomic owned resource lifecycle", max: AtomicOwnedResourceLifecycleOverlayMax, markers: atomicOwnedResourceLifecycleOverlayPathMarkers},
+}
+
+// measurePathMarkerOverlays measures every path-marker overlay in table order.
+// priorFiles (the connector overlay's files) seed the exclusion set so a file is
+// never counted by two overlays.
+func measurePathMarkerOverlays(root string, priorFiles []string) ([]OverlayMeasurement, error) {
+	exclude := make(map[string]struct{}, len(priorFiles))
+	for _, f := range priorFiles {
+		exclude[f] = struct{}{}
 	}
-	return GenericCompatibleOverlayMeasurement(base), nil
-}
-
-// MeasureBillingHostCompositionOverlay counts non-test lines for the
-// billing-host-composition feature, excluding connector and generic-compatible
-// overlay files.
-func MeasureBillingHostCompositionOverlay(root string, exclude map[string]struct{}) (BillingHostCompositionOverlayMeasurement, error) {
-	base, err := measureOverlayByPathMarkers(root, billingHostCompositionOverlayPathMarkers, BillingHostCompositionOverlayMax, exclude)
-	if err != nil {
-		return BillingHostCompositionOverlayMeasurement{}, err
+	out := make([]OverlayMeasurement, 0, len(pathMarkerOverlaySpecs))
+	for _, spec := range pathMarkerOverlaySpecs {
+		base, err := measureOverlayByPathMarkers(root, spec.markers, spec.max, exclude)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", spec.name, err)
+		}
+		out = append(out, OverlayMeasurement{
+			Name:  spec.name,
+			Files: base.Files,
+			Lines: base.Lines,
+			Max:   base.Max,
+			Pass:  base.Pass,
+		})
+		for _, f := range base.Files {
+			exclude[f] = struct{}{}
+		}
 	}
-	return BillingHostCompositionOverlayMeasurement(base), nil
+	return out, nil
 }
 
-// MeasureAtomicOwnedResourceLifecycleOverlay counts non-test lines for the
-// atomic-owned-resource-lifecycle feature, excluding connector, generic-compatible,
-// and billing-host-composition overlay files.
-func MeasureAtomicOwnedResourceLifecycleOverlay(root string, exclude map[string]struct{}) (AtomicOwnedResourceLifecycleOverlayMeasurement, error) {
-	base, err := measureOverlayByPathMarkers(root, atomicOwnedResourceLifecycleOverlayPathMarkers, AtomicOwnedResourceLifecycleOverlayMax, exclude)
-	if err != nil {
-		return AtomicOwnedResourceLifecycleOverlayMeasurement{}, err
-	}
-	return AtomicOwnedResourceLifecycleOverlayMeasurement(base), nil
-}
-
-func measureOverlayByPathMarkers(root string, pathMarkers []string, maxBytes int, exclude map[string]struct{}) (ConnectorOverlayMeasurement, error) {
-	m := ConnectorOverlayMeasurement{Max: maxBytes}
+func measureOverlayByPathMarkers(root string, pathMarkers []string, maxBytes int, exclude map[string]struct{}) (OverlayMeasurement, error) {
+	m := OverlayMeasurement{Max: maxBytes}
 	// Preserve the root-wide metric semantics, but do not descend into sibling
 	// worktrees. The main checkout may contain hundreds of megabytes of agent
 	// worktrees here.
@@ -107,10 +113,8 @@ func measureOverlayByPathMarkers(root string, pathMarkers []string, maxBytes int
 			rel = path
 		}
 		rel = filepath.ToSlash(rel)
-		if exclude != nil {
-			if _, skip := exclude[rel]; skip {
-				return nil
-			}
+		if _, skip := exclude[rel]; skip {
+			return nil
 		}
 		hit := false
 		for _, marker := range pathMarkers {
@@ -131,7 +135,7 @@ func measureOverlayByPathMarkers(root string, pathMarkers []string, maxBytes int
 		return nil
 	})
 	if err != nil {
-		return ConnectorOverlayMeasurement{}, err
+		return OverlayMeasurement{}, err
 	}
 	sort.Strings(m.Files)
 	m.Pass = m.Lines <= m.Max

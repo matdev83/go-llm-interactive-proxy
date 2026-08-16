@@ -22,6 +22,10 @@ func startOwnedLoop(ledger *ResourceLedger, name string, phase ClosePhase, paren
 			return
 		case <-started:
 		}
+		// Re-check after the gate opens: cancel() may have won the select race,
+		// so the loop must not enter application work once cancellation is
+		// pending. Without this, a sealed or quiescing ledger could let one
+		// iteration of work slip through after cancel().
 		if ctx.Err() != nil {
 			return
 		}

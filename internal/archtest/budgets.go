@@ -197,24 +197,11 @@ type AffectedSurfaceMeasurement struct {
 	Delta         int
 }
 
-// ConnectorOverlayMeasurement is the ADR 0008 connector-architecture allowance.
-type ConnectorOverlayMeasurement struct {
-	Files []string
-	Lines int
-	Max   int
-	Pass  bool
-}
-
-// GenericCompatibleOverlayMeasurement is the generic-compatible-backend-modes allowance.
-type GenericCompatibleOverlayMeasurement struct {
-	Files []string
-	Lines int
-	Max   int
-	Pass  bool
-}
-
-// BillingHostCompositionOverlayMeasurement is the billing-host-composition allowance.
-type BillingHostCompositionOverlayMeasurement struct {
+// OverlayMeasurement is one architecture-overlay allowance: the files a feature
+// added to the convergence surfaces, their measured non-test lines, the ratchet
+// cap, and whether the cap holds.
+type OverlayMeasurement struct {
+	Name  string
 	Files []string
 	Lines int
 	Max   int
@@ -223,28 +210,31 @@ type BillingHostCompositionOverlayMeasurement struct {
 
 // ShrinkageMeasurement is the Requirement 11.5 aggregate plus architecture overlays.
 type ShrinkageMeasurement struct {
-	BaselineSHA                   string
-	Surfaces                      []AffectedSurfaceMeasurement
-	BaselineTotal                 int
-	CurrentTotal                  int
-	Delta                         int // raw current-baseline (includes overlay lines)
-	Overlay                       ConnectorOverlayMeasurement
-	GenericCompatibleOverlay      GenericCompatibleOverlayMeasurement
-	BillingHostCompositionOverlay BillingHostCompositionOverlayMeasurement
-	AtomicOwnedResourceLifecycle  AtomicOwnedResourceLifecycleOverlayMeasurement
-	ConvergenceDelta              int // Delta - overlay lines (legacy Req 11.5 component)
-	RequiredMax                   int
-	Pass                          bool
+	BaselineSHA      string
+	Surfaces         []AffectedSurfaceMeasurement
+	BaselineTotal    int
+	CurrentTotal     int
+	Delta            int // raw current-baseline (includes overlay lines)
+	Connector        OverlayMeasurement
+	PathOverlays     []OverlayMeasurement
+	ConvergenceDelta int // Delta - overlay lines (legacy Req 11.5 component)
+	RequiredMax      int
+	Pass             bool
 }
 
 // MeasureConnectorArchitectureOverlay counts non-test lines in affected-surface
 // production files that import connector discovery/trust/catalog/ABI packages.
-func MeasureConnectorArchitectureOverlay(root string) (ConnectorOverlayMeasurement, error) {
-	return measureOverlayByMarkers(root, connectorArchitectureOverlayImportMarkers, ConnectorArchitectureOverlayMax, nil)
+func MeasureConnectorArchitectureOverlay(root string) (OverlayMeasurement, error) {
+	m, err := measureOverlayByMarkers(root, connectorArchitectureOverlayImportMarkers, ConnectorArchitectureOverlayMax, nil)
+	if err != nil {
+		return OverlayMeasurement{}, err
+	}
+	m.Name = "Connector"
+	return m, nil
 }
 
-func measureOverlayByMarkers(root string, markers []string, maxBytes int, exclude map[string]struct{}) (ConnectorOverlayMeasurement, error) {
-	m := ConnectorOverlayMeasurement{Max: maxBytes}
+func measureOverlayByMarkers(root string, markers []string, maxBytes int, exclude map[string]struct{}) (OverlayMeasurement, error) {
+	m := OverlayMeasurement{Max: maxBytes}
 	for _, s := range RuntimeConvergenceAffectedSurfaces {
 		dir := filepath.Join(root, filepath.FromSlash(s.Tree))
 		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
@@ -291,7 +281,7 @@ func measureOverlayByMarkers(root string, markers []string, maxBytes int, exclud
 			return nil
 		})
 		if err != nil {
-			return ConnectorOverlayMeasurement{}, fmt.Errorf("%s: %w", s.Tree, err)
+			return OverlayMeasurement{}, fmt.Errorf("%s: %w", s.Tree, err)
 		}
 	}
 	sort.Strings(m.Files)
@@ -300,7 +290,7 @@ func measureOverlayByMarkers(root string, markers []string, maxBytes int, exclud
 }
 
 // MeasureRuntimeConvergenceShrinkage compares current lines to the locked baseline
-// and separates the ADR 0008 connector-architecture overlay from legacy convergence.
+// and separates the architecture overlays from the legacy convergence component.
 func MeasureRuntimeConvergenceShrinkage(root string) (ShrinkageMeasurement, error) {
 	m := ShrinkageMeasurement{
 		BaselineSHA: RuntimeConvergenceShrinkageBaselineSHA,
@@ -323,36 +313,34 @@ func MeasureRuntimeConvergenceShrinkage(root string) (ShrinkageMeasurement, erro
 		m.CurrentTotal += n
 		m.Delta += delta
 	}
-	overlay, err := MeasureConnectorArchitectureOverlay(root)
+	connector, err := MeasureConnectorArchitectureOverlay(root)
 	if err != nil {
 		return ShrinkageMeasurement{}, err
 	}
-	m.Overlay = overlay
-	exclude := make(map[string]struct{}, len(overlay.Files))
-	for _, f := range overlay.Files {
-		exclude[f] = struct{}{}
-	}
-	genericOverlay, err := MeasureGenericCompatibleBackendOverlay(root, exclude)
+	m.Connector = connector
+	pathOverlays, err := measurePathMarkerOverlays(root, connector.Files)
 	if err != nil {
 		return ShrinkageMeasurement{}, err
 	}
-	m.GenericCompatibleOverlay = genericOverlay
-	for _, f := range genericOverlay.Files {
-		exclude[f] = struct{}{}
+	m.PathOverlays = pathOverlays
+	overlayLines := m.Connector.Lines
+	m.Pass = m.Connector.Pass
+	for _, o := range m.PathOverlays {
+		overlayLines += o.Lines
+		m.Pass = m.Pass && o.Pass
 	}
-	billingOverlay, err := MeasureBillingHostCompositionOverlay(root, exclude)
-	if err != nil {
-		return ShrinkageMeasurement{}, err
-	}
-	m.BillingHostCompositionOverlay = billingOverlay
-	atomicOverlay, err := MeasureAtomicOwnedResourceLifecycleOverlay(root, exclude)
-	if err != nil {
-		return ShrinkageMeasurement{}, err
-	}
-	m.AtomicOwnedResourceLifecycle = atomicOverlay
-	m.ConvergenceDelta = m.Delta - m.Overlay.Lines - m.GenericCompatibleOverlay.Lines - m.BillingHostCompositionOverlay.Lines - m.AtomicOwnedResourceLifecycle.Lines
-	m.Pass = m.ConvergenceDelta <= m.RequiredMax && m.Overlay.Pass && m.GenericCompatibleOverlay.Pass && m.BillingHostCompositionOverlay.Pass && m.AtomicOwnedResourceLifecycle.Pass
+	m.ConvergenceDelta = m.Delta - overlayLines
+	m.Pass = m.Pass && m.ConvergenceDelta <= m.RequiredMax
 	return m, nil
+}
+
+// overlays returns the connector overlay followed by the path-marker overlays in
+// table order, for uniform report formatting.
+func (m ShrinkageMeasurement) overlays() []OverlayMeasurement {
+	out := make([]OverlayMeasurement, 0, 1+len(m.PathOverlays))
+	out = append(out, m.Connector)
+	out = append(out, m.PathOverlays...)
+	return out
 }
 
 // FormatRuntimeConvergenceShrinkage renders the machine-checkable Markdown section.
@@ -367,7 +355,7 @@ func FormatRuntimeConvergenceShrinkage(root string) (string, ShrinkageMeasuremen
 	fmt.Fprintf(&b, "Baseline SHA: `%s`\n\n", m.BaselineSHA)
 	fmt.Fprintln(&b, "Method: recursive `CountNonTestGoLines` (non-test `.go` physical lines, including build-tag alternates). Moving unchanged logic between packages is not shrinkage (Req 11.6).")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "ADR 0008 connector-architecture overlay: approved public host/discovery additions are measured structurally (import markers for discovery/catalog/trust/diagnostics/backendplugin ABI) and excluded from the legacy Req 11.5 convergence delta. Both components are ratcheted separately.")
+	fmt.Fprintln(&b, "ADR 0008 connector-architecture overlay: approved public host/discovery additions are measured structurally (import markers for discovery/catalog/trust/diagnostics/backendplugin ABI). Additional feature overlays select new production files by path. Each overlay and the legacy convergence component are ratcheted separately.")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "| Surface | Baseline | Current | Delta |")
 	fmt.Fprintln(&b, "| --- | ---: | ---: | ---: |")
@@ -376,13 +364,17 @@ func FormatRuntimeConvergenceShrinkage(root string) (string, ShrinkageMeasuremen
 	}
 	fmt.Fprintf(&b, "| **TOTAL** | **%d** | **%d** | **%+d** |\n", m.BaselineTotal, m.CurrentTotal, m.Delta)
 	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "Raw delta (includes connector overlay): `%+d`\n\n", m.Delta)
-	fmt.Fprintf(&b, "Connector overlay lines: `%d` (cap `%d`; files: `%s`)\n\n", m.Overlay.Lines, m.Overlay.Max, strings.Join(m.Overlay.Files, "`, `"))
-	fmt.Fprintf(&b, "Generic compatible overlay lines: `%d` (cap `%d`; files: `%s`)\n\n", m.GenericCompatibleOverlay.Lines, m.GenericCompatibleOverlay.Max, strings.Join(m.GenericCompatibleOverlay.Files, "`, `"))
-	fmt.Fprintf(&b, "Billing host composition overlay lines: `%d` (cap `%d`; files: `%s`)\n\n", m.BillingHostCompositionOverlay.Lines, m.BillingHostCompositionOverlay.Max, strings.Join(m.BillingHostCompositionOverlay.Files, "`, `"))
-	fmt.Fprintf(&b, "Atomic owned resource lifecycle overlay lines: `%d` (cap `%d`; files: `%s`)\n\n", m.AtomicOwnedResourceLifecycle.Lines, m.AtomicOwnedResourceLifecycle.Max, strings.Join(m.AtomicOwnedResourceLifecycle.Files, "`, `"))
+	fmt.Fprintf(&b, "Raw delta (includes overlays): `%+d`\n\n", m.Delta)
+	for _, o := range m.overlays() {
+		fmt.Fprintf(&b, "%s overlay lines: `%d` (cap `%d`; files: `%s`)\n\n", o.Name, o.Lines, o.Max, strings.Join(o.Files, "`, `"))
+	}
 	fmt.Fprintf(&b, "Convergence delta (raw − overlays): `%+d`\n\n", m.ConvergenceDelta)
-	fmt.Fprintf(&b, "Required: convergence delta ≤ %+d (remove ≥ %d lines after overlays); connector overlay ≤ %d; generic compatible overlay ≤ %d; billing host composition overlay ≤ %d; atomic owned resource lifecycle overlay ≤ %d.\n\n", m.RequiredMax, RuntimeConvergenceMinNetLineReduction, ConnectorArchitectureOverlayMax, GenericCompatibleBackendOverlayMax, BillingHostCompositionOverlayMax, AtomicOwnedResourceLifecycleOverlayMax)
+	fmt.Fprintf(&b, "Required: convergence delta ≤ %+d (remove ≥ %d lines after overlays)", m.RequiredMax, RuntimeConvergenceMinNetLineReduction)
+	for _, o := range m.overlays() {
+		fmt.Fprintf(&b, "; %s overlay ≤ %d", strings.ToLower(o.Name), o.Max)
+	}
+	fmt.Fprintln(&b, ".")
+	fmt.Fprintln(&b)
 	if m.Pass {
 		fmt.Fprintln(&b, "Verdict: **PASS**")
 	} else {
@@ -390,17 +382,10 @@ func FormatRuntimeConvergenceShrinkage(root string) (string, ShrinkageMeasuremen
 		if m.ConvergenceDelta > m.RequiredMax {
 			reasons = append(reasons, fmt.Sprintf("convergence short by %d lines to reach ≤ %+d", m.ConvergenceDelta-m.RequiredMax, m.RequiredMax))
 		}
-		if !m.Overlay.Pass {
-			reasons = append(reasons, fmt.Sprintf("connector overlay measured %d exceeds cap %d", m.Overlay.Lines, m.Overlay.Max))
-		}
-		if !m.GenericCompatibleOverlay.Pass {
-			reasons = append(reasons, fmt.Sprintf("generic compatible overlay measured %d exceeds cap %d", m.GenericCompatibleOverlay.Lines, m.GenericCompatibleOverlay.Max))
-		}
-		if !m.BillingHostCompositionOverlay.Pass {
-			reasons = append(reasons, fmt.Sprintf("billing host composition overlay measured %d exceeds cap %d", m.BillingHostCompositionOverlay.Lines, m.BillingHostCompositionOverlay.Max))
-		}
-		if !m.AtomicOwnedResourceLifecycle.Pass {
-			reasons = append(reasons, fmt.Sprintf("atomic owned resource lifecycle overlay measured %d exceeds cap %d", m.AtomicOwnedResourceLifecycle.Lines, m.AtomicOwnedResourceLifecycle.Max))
+		for _, o := range m.overlays() {
+			if !o.Pass {
+				reasons = append(reasons, fmt.Sprintf("%s overlay measured %d exceeds cap %d", strings.ToLower(o.Name), o.Lines, o.Max))
+			}
 		}
 		fmt.Fprintf(&b, "Verdict: **FAIL** (%s).\n", strings.Join(reasons, "; "))
 	}
