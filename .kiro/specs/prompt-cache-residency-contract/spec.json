@@ -3,21 +3,21 @@
   "created_at": "2026-08-16T19:55:00+02:00",
   "updated_at": "2026-08-16T19:55:00+02:00",
   "language": "en",
-  "phase": "initialized",
+  "phase": "tasks-generated",
   "approvals": {
     "requirements": {
-      "generated": false,
+      "generated": true,
       "approved": false
     },
     "design": {
-      "generated": false,
+      "generated": true,
       "approved": false
     },
     "tasks": {
-      "generated": false,
+      "generated": true,
       "approved": false
     }
   },
   "ready_for_implementation": false,
-  "project_description": "Define the cross-backend prompt-cache residency contract required by issue #342: provider-owned effective cache identity and lifecycle observations, bounded opaque renewal handles, model-aware backend capability discovery, explicit maintenance-control seams, host-only evidence/accounting boundaries, ABI negotiation, and conformance rules. Core remains provider-neutral and does not schedule active keep-warm work in this foundation spec."
+  "project_description": "Define the cross-backend prompt-cache residency contract required by issue #342: provider-owned effective cache identity and lifecycle observations, bounded opaque renewal handles, model-aware backend capability discovery, explicit maintenance-control seams, host-only observation/provider-billable accounting boundaries, additive executable-connector ABI negotiation, and reusable conformance rules. Core remains provider-neutral and this foundation intentionally contains no scheduler or autonomous keep-warm policy."
 }
