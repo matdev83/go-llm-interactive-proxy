@@ -101,23 +101,19 @@ type terminalWorkBuildInput struct {
 	SnapshotPub   *snapshotgen.Publisher
 }
 
-func buildTerminalWorkFromProduction(prod ProductionOptions, clock func() time.Time, bundle *metrics.Bundle, snapshotPub *snapshotgen.Publisher) (
-	*terminalWorkRuntime,
-	[]func() error,
-	error,
-) {
+func buildTerminalWorkFromProduction(owner *processResourceOwner, prod ProductionOptions, clock func() time.Time, bundle *metrics.Bundle, snapshotPub *snapshotgen.Publisher) (*terminalWorkRuntime, error) {
 	if prod.TerminalWorkStore == nil {
-		return nil, nil, nil
+		return nil, nil
 	}
 	providers, err := composeTerminalWorkProviders(prod)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	var prom *metrics.TerminalWorkProm
 	if bundle != nil {
 		prom = bundle.TerminalWork
 	}
-	return buildTerminalWorkRuntime(terminalWorkBuildInput{
+	return buildTerminalWorkRuntime(owner, terminalWorkBuildInput{
 		Store:         prod.TerminalWorkStore,
 		Providers:     providers,
 		OwnerID:       prod.TerminalWorkOwnerID,
@@ -203,19 +199,19 @@ func requestRegistrationEffectVersion(reg authority.RequestRegistration) string 
 	return "1"
 }
 
-func buildTerminalWorkRuntime(in terminalWorkBuildInput) (*terminalWorkRuntime, []func() error, error) {
+func buildTerminalWorkRuntime(owner *processResourceOwner, in terminalWorkBuildInput) (*terminalWorkRuntime, error) {
 	if in.Store == nil {
-		return nil, nil, nil
+		return nil, nil
 	}
 	reg := terminalworkapp.NewRegistry()
 	for _, p := range in.Providers {
 		if err := reg.Register(p); err != nil {
-			return nil, nil, fmt.Errorf("runtimebundle: terminal work provider: %w", err)
+			return nil, fmt.Errorf("runtimebundle: terminal work provider: %w", err)
 		}
 	}
-	owner := strings.TrimSpace(in.OwnerID)
-	if owner == "" {
-		owner = "runtimebundle"
+	ownerID := strings.TrimSpace(in.OwnerID)
+	if ownerID == "" {
+		ownerID = "runtimebundle"
 	}
 	claimTTL := in.ClaimTTL
 	if claimTTL <= 0 {
@@ -240,7 +236,7 @@ func buildTerminalWorkRuntime(in terminalWorkBuildInput) (*terminalWorkRuntime, 
 	pins := terminalworkapp.NewGenerationPinTracker()
 	genResolver := &generationPresentResolver{}
 	cfg := terminalworkapp.Config{
-		OwnerID: owner, ClaimTTL: claimTTL, ClaimLimit: in.ClaimLimit,
+		OwnerID: ownerID, ClaimTTL: claimTTL, ClaimLimit: in.ClaimLimit,
 		GlobalMax: in.GlobalMax, PerProviderMax: in.PerProvMax, TickInterval: tickInterval,
 		RenewInterval: renewInterval, Clock: clockFunc{now: clock},
 		GenerationPins: pins, GenerationResolver: genResolver,
@@ -261,7 +257,7 @@ func buildTerminalWorkRuntime(in terminalWorkBuildInput) (*terminalWorkRuntime, 
 	}
 	proc, err := terminalworkapp.NewProcessor(in.Store, reg, cfg)
 	if err != nil {
-		return nil, nil, fmt.Errorf("runtimebundle: terminal work processor: %w", err)
+		return nil, fmt.Errorf("runtimebundle: terminal work processor: %w", err)
 	}
 	var reconciler *terminalworkapp.AmbiguousAppendReconciler
 	if as, ok := any(in.Store).(terminalworkapp.AmbiguousAppendStore); ok {
@@ -269,7 +265,7 @@ func buildTerminalWorkRuntime(in terminalWorkBuildInput) (*terminalWorkRuntime, 
 			Clock: clock, Pins: pins, ExecutablePending: execPending,
 		})
 		if err != nil {
-			return nil, nil, fmt.Errorf("runtimebundle: ambiguous append reconciler: %w", err)
+			return nil, fmt.Errorf("runtimebundle: ambiguous append reconciler: %w", err)
 		}
 	}
 	backing := strings.TrimSpace(in.StoreBacking)
@@ -293,7 +289,7 @@ func buildTerminalWorkRuntime(in terminalWorkBuildInput) (*terminalWorkRuntime, 
 	reconcilerStarted := false
 	if reconciler != nil {
 		if err := reconciler.Start(); err != nil {
-			return nil, nil, fmt.Errorf("runtimebundle: ambiguous append reconciler start: %w", err)
+			return nil, fmt.Errorf("runtimebundle: ambiguous append reconciler start: %w", err)
 		}
 		reconcilerStarted = true
 	}
@@ -303,21 +299,21 @@ func buildTerminalWorkRuntime(in terminalWorkBuildInput) (*terminalWorkRuntime, 
 			_ = reconciler.Shutdown(ctx)
 			cancel()
 		}
-		return nil, nil, fmt.Errorf("runtimebundle: terminal work start: %w", err)
+		return nil, fmt.Errorf("runtimebundle: terminal work start: %w", err)
 	}
-	closers := []func() error{func() error {
+	owner.Own(func() error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		return proc.Shutdown(ctx)
-	}}
+	})
 	if reconciler != nil {
-		closers = append(closers, func() error {
+		owner.Own(func() error {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			return reconciler.Shutdown(ctx)
 		})
 	}
-	return rt, closers, nil
+	return rt, nil
 }
 
 func applyTerminalWorkProm(prom *metrics.TerminalWorkProm, snap terminalworkapp.MetricsSnapshot) {

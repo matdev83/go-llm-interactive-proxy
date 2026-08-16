@@ -28,28 +28,28 @@ type concurrencyAuthorityRuntime struct {
 	AuxiliaryLeasePolicy string
 }
 
-func buildConcurrencyAuthorityRuntime(parent context.Context, cfg *config.Config, log *slog.Logger, testing TestingOptions, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (*concurrencyAuthorityRuntime, []func() error, error) {
+func buildConcurrencyAuthorityRuntime(owner *processResourceOwner, parent context.Context, cfg *config.Config, log *slog.Logger, testing TestingOptions, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (*concurrencyAuthorityRuntime, error) {
 	if cfg == nil || !cfg.Accounting.Concurrency.Enabled {
-		return nil, nil, nil
+		return nil, nil
 	}
 	if parent == nil {
 		parent = context.Background()
 	}
 	src, err := configsource.New(cfg.Accounting.Concurrency)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	leaseTTL, err := cfg.Accounting.Concurrency.LeaseTTLDuration()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	renewBefore, err := cfg.Accounting.Concurrency.RenewBeforeDuration()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	store, closers, err := buildConcurrencyLeaseStore(parent, cfg, log, testing, registry, migrator)
+	store, err := buildConcurrencyLeaseStore(owner, parent, cfg, log, testing, registry, migrator)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	clock := concurrencyClockFromTesting(testing)
 	svc := concurrencyapp.NewService(src, store, clock)
@@ -59,12 +59,12 @@ func buildConcurrencyAuthorityRuntime(parent context.Context, cfg *config.Config
 		LeaseTTL:             leaseTTL,
 		RenewBefore:          renewBefore,
 		AuxiliaryLeasePolicy: strings.TrimSpace(cfg.Accounting.Concurrency.AuxiliaryLeasePolicy),
-	}, closers, nil
+	}, nil
 }
 
-func buildConcurrencyLeaseStore(parent context.Context, cfg *config.Config, log *slog.Logger, testing TestingOptions, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (concurrencyapp.LeaseStore, []func() error, error) {
+func buildConcurrencyLeaseStore(owner *processResourceOwner, parent context.Context, cfg *config.Config, log *slog.Logger, testing TestingOptions, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (concurrencyapp.LeaseStore, error) {
 	if override := testing.ConcurrencyLeaseStoreOverride; override != nil {
-		return override, nil, nil
+		return override, nil
 	}
 	cCfg := cfg.Accounting.Concurrency
 	storeID := strings.TrimSpace(cCfg.StoreID)
@@ -73,35 +73,36 @@ func buildConcurrencyLeaseStore(parent context.Context, cfg *config.Config, log 
 	}
 	switch strings.ToLower(strings.TrimSpace(cCfg.Store)) {
 	case "", "memory":
-		return leasestore.NewMemory(leasestore.MemoryConfig{StoreID: storeID}), nil, nil
+		return leasestore.NewMemory(leasestore.MemoryConfig{StoreID: storeID}), nil
 	case "sqlite":
 		path := strings.TrimSpace(cCfg.SQLitePath)
 		dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_txlock=immediate"
 		sqlDB, err := sql.Open("sqlite", dsn)
 		if err != nil {
-			return nil, nil, fmt.Errorf("runtimebundle: concurrency lease sqlite open: %w", err)
+			return nil, fmt.Errorf("runtimebundle: concurrency lease sqlite open: %w", err)
 		}
 		sqlDB.SetMaxOpenConns(1)
 		if err := sqlDB.PingContext(parent); err != nil {
 			_ = sqlDB.Close()
-			return nil, nil, fmt.Errorf("runtimebundle: concurrency lease sqlite ping: %w", err)
+			return nil, fmt.Errorf("runtimebundle: concurrency lease sqlite ping: %w", err)
 		}
 		bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
 		if err != nil {
 			_ = sqlDB.Close()
-			return nil, nil, fmt.Errorf("runtimebundle: concurrency lease sqlite bun: %w", err)
+			return nil, fmt.Errorf("runtimebundle: concurrency lease sqlite bun: %w", err)
 		}
 		store, err := leasestore.NewDurable(parent, bunDB, leasestore.DurableConfig{StoreID: storeID})
 		if err != nil {
 			_ = bunDB.Close()
-			return nil, nil, fmt.Errorf("runtimebundle: concurrency lease durable sqlite: %w", err)
+			return nil, fmt.Errorf("runtimebundle: concurrency lease durable sqlite: %w", err)
 		}
+		owner.Own(store.Close)
 		_ = log
-		return store, []func() error{store.Close}, nil
+		return store, nil
 	case "postgres":
 		poolCfg, err := config.ParseDatabasePoolSettings(cfg.Database)
 		if err != nil {
-			return nil, nil, fmt.Errorf("runtimebundle: concurrency lease postgres pool: %w", err)
+			return nil, fmt.Errorf("runtimebundle: concurrency lease postgres pool: %w", err)
 		}
 		child, cancel := context.WithTimeout(parent, db.DefaultPostgresOpenMigrateTimeout)
 		defer cancel()
@@ -111,22 +112,21 @@ func buildConcurrencyLeaseStore(parent context.Context, cfg *config.Config, log 
 			ConnMaxLifetime: poolCfg.ConnMaxLifetime,
 			ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
 		}
-		store, closeFn, err := openPostgresStore(child, cCfg.PostgresDSN, pool, cfg.Database, registry, migrator, postgresStoreLifecycle[*leasestore.DurableStore]{
-			Migrate: leasestore.Migrate, Verify: leasestore.VerifySchema,
-			Open: func(ctx context.Context, handle *bun.DB) (*leasestore.DurableStore, error) {
-				return leasestore.OpenStore(ctx, handle, leasestore.DurableConfig{StoreID: storeID})
-			},
-			Close: (*leasestore.DurableStore).Close,
+		store, err := acquireOwnedProcess(child, owner, func(ctx context.Context) (*leasestore.DurableStore, func() error, error) {
+			return openPostgresStore(ctx, cCfg.PostgresDSN, pool, cfg.Database, registry, migrator, postgresStoreLifecycle[*leasestore.DurableStore]{
+				Migrate: leasestore.Migrate, Verify: leasestore.VerifySchema,
+				Open: func(ctx context.Context, handle *bun.DB) (*leasestore.DurableStore, error) {
+					return leasestore.OpenStore(ctx, handle, leasestore.DurableConfig{StoreID: storeID})
+				},
+				Close: (*leasestore.DurableStore).Close,
+			})
 		})
 		if err != nil {
-			return nil, nil, fmt.Errorf("runtimebundle: concurrency lease durable postgres: %w", err)
+			return nil, fmt.Errorf("runtimebundle: concurrency lease durable postgres: %w", err)
 		}
-		if registry != nil {
-			return store, nil, nil
-		}
-		return store, []func() error{closeFn}, nil
+		return store, nil
 	default:
-		return nil, nil, fmt.Errorf("runtimebundle: concurrency lease store %q is invalid", cCfg.Store)
+		return nil, fmt.Errorf("runtimebundle: concurrency lease store %q is invalid", cCfg.Store)
 	}
 }
 

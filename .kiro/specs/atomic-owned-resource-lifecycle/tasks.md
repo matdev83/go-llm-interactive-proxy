@@ -4,7 +4,7 @@ Implementation is TDD-first. The plan deliberately limits work to the two valida
 
 ## 1. Freeze Ownership Behavior With RED Tests
 
-- [ ] 1.1 Define RED process-owner contract tests
+- [x] 1.1 Define RED process-owner contract tests
   - Pin successful owned acquisition requires a non-nil release and appends it to the authoritative `ProcessServices` closer set before the value can be used by the next construction step.
   - Pin value-only/non-owning construction bypasses the owned helper and an owned-success path cannot silently return a nil release.
   - Pin reverse-order rollback and aggregate cleanup errors through the existing process failure path after a later injected constructor failure.
@@ -14,7 +14,7 @@ Implementation is TDD-first. The plan deliberately limits work to the two valida
   - _Depends: none_
   - _Validation: focused runtimebundle ownership/process-services tests_
 
-- [ ] 1.2 (P) Characterize selected process-builder cleanup ordering
+- [x] 1.2 (P) Characterize selected process-builder cleanup ordering
   - Record the current resource close order for the control-plane, authority, persistence, accounting, metering, and terminal-work construction graph.
   - Add fault-injection cases after representative successful acquisitions and before later fallible steps.
   - Prove plugin host/artifact/staging and database pool special ordering remains unchanged.
@@ -24,7 +24,7 @@ Implementation is TDD-first. The plan deliberately limits work to the two valida
   - _Depends: none_
   - _Validation: focused constructor failure/ownership lifecycle tests_
 
-- [ ] 1.3 (P) Define RED generation-loop lifetime tests
+- [x] 1.3 (P) Define RED generation-loop lifetime tests
   - Prove a newly created composition-owned loop performs no application work before lifecycle ownership is established and the start gate exits on cancellation.
   - Prove synchronous immediate `AddClose` cleanup on sealed/quiesced ownership cancels and joins the still-gated loop without deadlock.
   - Prove rollback and quiesce both cancel and join the loop, with model-registry refresh at `PhaseQuiesce` completing before catalog `PhaseClose`.
@@ -36,7 +36,7 @@ Implementation is TDD-first. The plan deliberately limits work to the two valida
 
 ## 2. Add the Minimal Private Ownership Primitives
 
-- [ ] 2.1 Implement the private process resource owner and acquire helper
+- [x] 2.1 Implement the private process resource owner and acquire helper
   - Add a construction-only process owner that appends directly into the existing `ProcessServices` closer set; do not add a separate release collection or `ReleaseAll` path.
   - Add an owned-only acquire-plus-release helper that requires a non-nil release before returning a successful value; keep value-only construction outside that helper.
   - Keep constructor rollback and `ProcessServices.Close` as the only consumers of the authoritative process closer set, preserving existing shutdown idempotency.
@@ -46,7 +46,7 @@ Implementation is TDD-first. The plan deliberately limits work to the two valida
   - _Depends: 1.1_
   - _Design: Process Resource Owner; Process Acquisition Helper_
 
-- [ ] 2.2 (P) Implement the narrow ledger-backed cancel+join loop helper
+- [x] 2.2 (P) Implement the narrow ledger-backed cancel+join loop helper
   - Create the loop behind a cancellation-aware start gate, register a close-only cancel+join action with `ResourceLedger.AddClose`, then release application work only if cancellation has not won.
   - Preserve the caller-selected cleanup phase and ledger error semantics; for model-registry refresh use `PhaseQuiesce` while catalog close remains `PhaseClose`.
   - Handle synchronous immediate cleanup/closing ownership by canceling and joining the still-gated loop without leak or deadlock.
@@ -58,7 +58,7 @@ Implementation is TDD-first. The plan deliberately limits work to the two valida
 
 ## 3. Migrate Only the Proven High-ROI Call Sites
 
-- [ ] 3.1 Migrate selected process builders from closer propagation to local ownership
+- [x] 3.1 Migrate selected process builders from closer propagation to local ownership
   - Change the selected process-owned builders to accept the private process owner and register acquired releases before later fallible construction.
   - Return runtime values/errors without caller-visible closer lists for the migrated paths.
   - Remove the corresponding `NewProcessServices` closer aggregation/adaptation plumbing as each path moves.
@@ -68,7 +68,7 @@ Implementation is TDD-first. The plan deliberately limits work to the two valida
   - _Depends: 1.2, 2.1_
   - _Design: Migrated Process Builders; Migration Plan_
 
-- [ ] 3.2 Migrate the model-registry refresh loop to structured generation ownership
+- [x] 3.2 Migrate the model-registry refresh loop to structured generation ownership
   - Replace the manual derived-context/cancel/wait-group lifecycle with the private loop helper.
   - Preserve refresh cadence and model-registry behavior; keep refresh cancel+join at `PhaseQuiesce` and catalog close at `PhaseClose`.
   - Prove candidate rollback and superseded-generation quiesce terminate the refresh loop before catalog cleanup, including the existing reverse registration order on rollback.
@@ -78,7 +78,7 @@ Implementation is TDD-first. The plan deliberately limits work to the two valida
   - _Depends: 2.2_
   - _Design: Generation-Owned Loop; Initial migration_
 
-- [ ] 3.3 Lock unchanged backend and generation semantics
+- [x] 3.3 Lock unchanged backend and generation semantics
   - Retain characterization tests proving backend cleanup remains generation-owned and transfers to the existing ledger.
   - Prove backend plugin factory/ABI contracts and connector process supervision did not change.
   - Prove generation publication, pinning, retention, drain, and retirement behavior remains unchanged.
@@ -90,7 +90,7 @@ Implementation is TDD-first. The plan deliberately limits work to the two valida
 
 ## 4. Ratchet Scope and Prove the Refactor Pays for Itself
 
-- [ ] 4.1 Add architecture/source-shape gates against ownership abstraction creep
+- [x] 4.1 Add architecture/source-shape gates against ownership abstraction creep
   - Fail if the new ownership primitive becomes exported or moves outside runtime composition.
   - Fail if it grows keyed lookup or service-locator concepts such as `Get`, `Resolve`, or `Provide`.
   - Fail if the selected migrated process builders reintroduce caller-visible closer-list ownership.
@@ -100,7 +100,7 @@ Implementation is TDD-first. The plan deliberately limits work to the two valida
   - _Depends: 3.1_
   - _Validation: focused archtest/source-shape tests_
 
-- [ ] 4.2 Run lifecycle safety, race, leak, and repository quality gates
+- [x] 4.2 Run lifecycle safety, race, leak, and repository quality gates
   - Run focused process rollback/close and generation-loop tests including fault injection.
   - Run targeted race/leak coverage for repeated generation quiesce/retirement and loop teardown.
   - Run repository quality/architecture checks and default unit tests.
@@ -110,7 +110,7 @@ Implementation is TDD-first. The plan deliberately limits work to the two valida
   - _Depends: 3.1, 3.2, 3.3, 4.1_
   - _Validation: `make quality-checks`; `make test-unit`; targeted `go test -race`; existing lifecycle benchmarks_
 
-- [ ] 4.3 Perform final simplification review
+- [x] 4.3 Perform final simplification review
   - Delete superseded caller-side closer aggregation, adapters, and duplicated lifecycle wrappers made unnecessary by the migration.
   - Verify acquisition-to-release ownership is easier to trace in every migrated path than in the baseline.
   - Revert or simplify any migrated call site that adds more lifecycle concepts than it removes.

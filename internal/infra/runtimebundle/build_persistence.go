@@ -18,18 +18,18 @@ type persistenceRuntime struct {
 
 // buildPersistenceRuntime opens the continuity store (postgres handles shared via
 // the process pool registry), wraps it with the control-plane B2BUA projection,
-// then builds the secure-session runtime. It appends the continuity closer (when
-// present) and the secure-session closer to closers, in that order, and returns
-// the updated slice. Continuity errors get "runtimebundle: %w"; secure-session
-// errors are returned unwrapped (the helper attaches context).
-func buildPersistenceRuntime(bctx buildContext, cp *controlPlaneRuntime, bundle *metrics.Bundle, closers []func() error) (*persistenceRuntime, []func() error, error) {
+// then builds the secure-session runtime. Each acquired closer is registered with
+// the process owner before any later fallible construction step. Continuity errors
+// get "runtimebundle: %w"; secure-session errors are returned unwrapped (the
+// helper attaches context).
+func buildPersistenceRuntime(owner *processResourceOwner, bctx buildContext, cp *controlPlaneRuntime, bundle *metrics.Bundle) (*persistenceRuntime, error) {
 	cfg, parent, log := bctx.Cfg, bctx.Parent, bctx.Log
 	store, storeCloser, err := openContinuityStore(parent, cfg, bctx.PostgresPools, bctx.DualPlaneMigrator)
 	if err != nil {
-		return nil, closers, fmt.Errorf("runtimebundle: %w", err)
+		return nil, fmt.Errorf("runtimebundle: %w", err)
 	}
 	if storeCloser != nil {
-		closers = append(closers, storeCloser)
+		owner.Own(storeCloser)
 	}
 	overrideStore, _ := routeoverride.AsStore(store)
 	store = cp.wrapB2BUA(store)
@@ -45,10 +45,10 @@ func buildPersistenceRuntime(bctx buildContext, cp *controlPlaneRuntime, bundle 
 		DualPlaneMigrator:     bctx.DualPlaneMigrator,
 	})
 	if err != nil {
-		return nil, closers, err
+		return nil, err
 	}
 	if ssRun.closer != nil {
-		closers = append(closers, ssRun.closer)
+		owner.Own(ssRun.closer)
 	}
-	return &persistenceRuntime{Store: store, OverrideStore: overrideStore, SecureSession: ssRun}, closers, nil
+	return &persistenceRuntime{Store: store, OverrideStore: overrideStore, SecureSession: ssRun}, nil
 }

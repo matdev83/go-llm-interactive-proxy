@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -208,17 +207,9 @@ func startModelRegistryRuntime(
 	if cfg.ModelInventory.EffectiveRefreshEnabled() && hasRefreshableModelInventory(inventories) {
 		interval := cfg.ModelInventory.RefreshIntervalDuration()
 		if interval > 0 {
-			refreshCtx, refreshCancel := context.WithCancel(parent)
-			var refreshWG sync.WaitGroup
-			runModelRegistryRefreshLoop(refreshCtx, rt, interval, &refreshWG)
-			fn := func() error {
-				refreshCancel()
-				refreshWG.Wait()
-				return nil
-			}
-			if ledger != nil {
-				ledger.AddClose("model-registry-refresh", PhaseQuiesce, fn)
-			}
+			startOwnedLoop(ledger, "model-registry-refresh", PhaseQuiesce, parent, func(ctx context.Context) {
+				runModelRegistryRefreshLoop(ctx, rt, interval)
+			})
 		}
 	}
 	return rt, reg, nil

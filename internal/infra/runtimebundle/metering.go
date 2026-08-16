@@ -23,9 +23,9 @@ type meteringRuntime struct {
 	checkReady   func(context.Context) error
 }
 
-func buildMeteringRuntime(parent context.Context, cfg *config.Config, now func() time.Time, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (*meteringRuntime, []func() error, error) {
+func buildMeteringRuntime(owner *processResourceOwner, parent context.Context, cfg *config.Config, now func() time.Time, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (*meteringRuntime, error) {
 	if cfg == nil || !cfg.Metering.Enabled {
-		return nil, nil, nil
+		return nil, nil
 	}
 	if parent == nil {
 		parent = context.Background()
@@ -38,25 +38,27 @@ func buildMeteringRuntime(parent context.Context, cfg *config.Config, now func()
 	case "", "memory":
 		store, err := journalstore.NewMemoryStore(journalstore.MemoryConfig{StoreID: "metering-memory", Now: now})
 		if err != nil {
-			return nil, nil, fmt.Errorf("runtimebundle: metering memory: %w", err)
+			return nil, fmt.Errorf("runtimebundle: metering memory: %w", err)
 		}
+		owner.Own(store.Close)
 		return &meteringRuntime{
 			Recorder:     store,
 			StoreBacking: "memory",
 			checkReady:   store.CheckReadiness,
-		}, []func() error{store.Close}, nil
+		}, nil
 	case "sqlite", "postgres":
 		rec, closeFn, backing, checkReady, err := openDurableMeteringJournal(parent, cfg, now, registry, migrator)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
+		owner.Own(closeFn)
 		return &meteringRuntime{
 			Recorder:     rec,
 			StoreBacking: backing,
 			checkReady:   checkReady,
-		}, []func() error{closeFn}, nil
+		}, nil
 	default:
-		return nil, nil, fmt.Errorf("runtimebundle: metering.journal.store %q is invalid", cfg.Metering.Journal.Store)
+		return nil, fmt.Errorf("runtimebundle: metering.journal.store %q is invalid", cfg.Metering.Journal.Store)
 	}
 }
 
