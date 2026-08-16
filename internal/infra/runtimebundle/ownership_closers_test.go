@@ -74,18 +74,6 @@ var closerAcquisitionOwnership = []ownershipEntry{
 		Notes:  "Nil-ledger partial-build rollback bag for BackendInstance.Close; ledger path uses AddClose instead.",
 	},
 	{
-		Symbol: "build_persistence.go:buildPersistenceRuntime:acq#0:append(closers, storeCloser)#0",
-		Class:  ownershipProcess,
-		Source: "build_persistence.go",
-		Notes:  "Process continuity store closer from openContinuityStore; no-op when the postgres handle is registry-owned (closed once by the pool registry).",
-	},
-	{
-		Symbol: "build_persistence.go:buildPersistenceRuntime:acq#1:append(closers, ssRun.closer)#0",
-		Class:  ownershipProcess,
-		Source: "build_persistence.go",
-		Notes:  "Process secure-session store closer when present.",
-	},
-	{
 		Symbol: "secure_session.go:buildSecureSessionRuntime:acq#0:assign:closer=closeFn#0",
 		Class:  ownershipProcess,
 		Source: "secure_session.go → buildSecureSessionRuntime postgres branch",
@@ -108,18 +96,6 @@ var closerAcquisitionOwnership = []ownershipEntry{
 		Class:  ownershipGeneration,
 		Source: "modelcatalog_attach.go → startModelCatalog",
 		Notes:  "Candidate catalog refresh cancel/wait registered distinctly for PhaseQuiesce.",
-	},
-	{
-		Symbol: "terminal_work.go:buildTerminalWorkRuntime:acq#0:literal(closers,#0,func:context.WithTimeout|context.Background|cancel|proc.Shutdown)#0",
-		Class:  ownershipProcess,
-		Source: "terminal_work.go → buildTerminalWorkRuntime",
-		Notes:  "Process terminal-work processor Shutdown closer.",
-	},
-	{
-		Symbol: "terminal_work.go:buildTerminalWorkRuntime:acq#1:append(closers, func:context.WithTimeout|context.Background|cancel|reconciler.Shutdown)#0",
-		Class:  ownershipProcess,
-		Source: "terminal_work.go → buildTerminalWorkRuntime",
-		Notes:  "Process ambiguous-append reconciler Shutdown closer (before processor on reverse dispose).",
 	},
 }
 

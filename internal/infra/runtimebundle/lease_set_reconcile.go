@@ -13,21 +13,22 @@ import (
 )
 
 func buildTerminalWorkWithSetReconcile(
+	owner *processResourceOwner,
 	ctx context.Context,
 	prod ProductionOptions,
 	clock func() time.Time,
 	bundle *metrics.Bundle,
 	conc *concurrencyapp.Service,
 	snapshotPub *snapshotgen.Publisher,
-) (*terminalWorkRuntime, []func() error, error) {
-	twRT, closers, err := buildTerminalWorkFromProduction(prod, clock, bundle, snapshotPub)
+) (*terminalWorkRuntime, error) {
+	twRT, err := buildTerminalWorkFromProduction(owner, prod, clock, bundle, snapshotPub)
 	if err != nil {
-		return nil, closers, err
+		return nil, err
 	}
 	if err := reconcileUncertainLeaseSets(ctx, conc, twRT); err != nil {
-		return nil, closers, err
+		return nil, err
 	}
-	return twRT, closers, nil
+	return twRT, nil
 }
 
 // reconcileUncertainLeaseSets scans uncertain sets conservatively and ensures
