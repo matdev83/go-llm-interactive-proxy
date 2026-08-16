@@ -2,7 +2,9 @@
 
 ## Verdict
 
-**GO after one requirements tightening.** The selected design fits the current Go-LIP runtime and connector boundaries and provides a focused path from O(N) physical connector reconstruction toward O(K changed/unusable physical reconstruction) while retaining immutable generations. The design itself already contains the necessary candidate-isolation treatment, but that safety property must also be promoted into normative requirements before task generation.
+**GO.** The selected design fits the current Go-LIP runtime and connector boundaries and provides a focused path from O(N) physical connector reconstruction toward O(K changed/unusable physical reconstruction) while retaining immutable generations.
+
+The validation identified one normative gap around candidate failure-domain isolation. That correction has been applied to `requirements.md` before task generation: reuse hits are query-only with respect to the configured physical connector, mutating generation-preparation lifecycle requires isolated fallback, and overlapping metadata access is race/conformance tested.
 
 No broader Cordis runtime, processhost redesign, public ABI, or dynamic discovery work is justified.
 
@@ -74,19 +76,17 @@ The design correctly keeps `modelregistry.Runtime`, inventory projection, routin
 
 This is compatible with the existing configured-instance abstraction because one instance already serves runtime execution and metadata calls, but implementation tests must cover overlapping generation metadata access/race safety. Do **not** solve this by moving the model registry into the pool.
 
-### Candidate last-good isolation — PASS after normative tightening
+### Candidate last-good isolation — PASS; normative correction applied
 
-This is the most important design-validation finding.
+This was the most important design-validation finding.
 
-Fresh physical processes currently give candidate preparation strong failure-domain isolation. Sharing intentionally reduces physical failure-domain independence for an **unchanged** connector. The design handles the acceptable boundary correctly:
+Fresh physical processes currently give candidate preparation strong failure-domain isolation. Sharing intentionally reduces physical failure-domain independence for an **unchanged** connector. The accepted boundary is now normative in Requirements 5.9–5.11, 8.8–8.9, and 9.9:
 
-- a candidate reuse hit performs no Configure/Start/Stop/Close on the shared resource;
-- candidate rejection/rollback releases only its lease;
+- a candidate reuse hit performs no Configure/Start/Stop/Close/mutating preflight on the shared resource;
+- candidate rejection/rollback releases only its lease and does not invalidate the resource merely because the candidate failed;
 - generation-local model preparation may use query-shaped `Resolve`/`ListModels` calls;
-- candidate rollback never invalidates the resource merely because the candidate failed;
-- any future mutating generation-preparation lifecycle makes the resource non-shareable until separately proven safe.
-
-The current requirements imply this through immutability/non-interference but do not state it strongly enough. Add a normative clause requiring **query-only candidate preparation on a reused physical resource** and fallback to generation-local physical construction if a mutating lifecycle/preflight becomes necessary.
+- any future mutating generation-preparation lifecycle makes the resource non-shareable until separately proven safe;
+- overlapping metadata access receives race/conformance coverage.
 
 This is not a claim that an external connector process can never crash while queried. Existing process failure remains possible. The preservation requirement is that the candidate lifecycle itself cannot intentionally mutate/close/reconfigure the last-good shared resource.
 
@@ -118,15 +118,15 @@ The design changes no public ABI and retains verified artifact binding, secure l
 
 Deterministic operation counts are a stronger primary gate than wall-clock thresholds. The 100-enabled-connector harness directly proves whether the expensive O(N) activation/configure wave exists and whether implementation removes it. Benchstat remains supporting evidence.
 
-## Required Requirements Correction
+## Requirements Correction Applied
 
-Add normative requirements equivalent to:
+The design review required three safety clauses, all now present before task generation:
 
-1. On a reuse hit, candidate preparation shall not invoke Configure, Start, Stop, Close, mutating preflight, or another generation-local mutation on the shared physical connector; query-shaped Resolve/ListModels access may remain generation-local.
-2. If the candidate compiler or external adapter later requires such a mutating preparation action, the resource is non-shareable and must use current isolated physical construction until a separate design proves safe reuse.
-3. Overlapping-generation metadata access on a reused physical configured instance requires race/conformance coverage.
+1. **Query-only candidate reuse:** Requirements 5.9–5.10 prohibit Configure/Start/Stop/Close/mutating preparation on a reused physical connector while allowing query-shaped Resolve/ListModels access.
+2. **Fail-closed future lifecycle:** Requirement 5.11 requires isolated construction if future candidate preparation needs a mutating connector lifecycle action.
+3. **Shared metadata concurrency evidence:** Requirements 8.9 and 9.9 require overlapping-generation race/conformance coverage and lock out a generation-owned physical cleanup bypass.
 
-The current `design.md` already states these constraints; only `requirements.md` needs tightening.
+No design rewrite was required because `design.md` already expressed these constraints; the validation correction made them normative.
 
 ## Design-to-Requirement Trace
 
@@ -136,11 +136,11 @@ The current `design.md` already states these constraints; only `requirements.md`
 | R2 narrow boundary | discovered per-instance only; private pool above processhost |
 | R3 physical identity | explicit configure-input identity and fail-closed DTO drift gate |
 | R4 lease contract | pending/live entries, per-generation lease release, final physical cleanup |
-| R5 generation semantics | unchanged/changed/remove/rollback flows; derived state stays generation-local |
+| R5 generation semantics | unchanged/changed/remove/rollback flows; derived state stays generation-local; query-only candidate reuse |
 | R6 incarnation invalidation | exact entry token, detach, fresh same-key incarnation, no live substitution |
 | R7 cleanup/shutdown | pool-before-host/artifacts/staging, one physical cleanup owner |
 | R8 non-interference | no request path lookup, ABI/security/routing/billing unchanged, query-only candidate rule |
-| R9 TDD/architecture | RED identity/pool/scale tests, race/goleak, anti-container gates |
+| R9 TDD/architecture | RED identity/pool/scale tests, race/goleak, adapter lifecycle and anti-container gates |
 
 ## Simplification Review
 
@@ -173,4 +173,4 @@ The design deliberately rejects the following tempting expansions:
 
 ## Final Gate
 
-Design validation is **GO** once the candidate query-only/fallback rule is copied into normative requirements. After that correction, task decomposition may proceed without further architecture changes.
+**GO.** Requirements, design, and brownfield validation are aligned. Task decomposition may proceed under the explicit evidence-first and query-only candidate-reuse gates; no further architecture correction is required before implementation.
