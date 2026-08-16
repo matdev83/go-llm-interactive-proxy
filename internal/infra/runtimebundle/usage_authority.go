@@ -23,9 +23,9 @@ import (
 
 type usageAuthorityRuntime struct{ Service *authorityapp.Service }
 
-func buildUsageAuthorityRuntime(parent context.Context, cfg *config.Config, log *slog.Logger, opts *BuildOptions, cp *controlPlaneRuntime, policyObs policydecision.Observer, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (*usageAuthorityRuntime, []func() error, error) {
+func buildUsageAuthorityRuntime(owner *processResourceOwner, parent context.Context, cfg *config.Config, log *slog.Logger, opts *BuildOptions, cp *controlPlaneRuntime, policyObs policydecision.Observer, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (*usageAuthorityRuntime, error) {
 	if cfg == nil || !cfg.Accounting.Authority.Enabled {
-		return nil, nil, nil
+		return nil, nil
 	}
 	if parent == nil {
 		parent = context.Background()
@@ -33,19 +33,19 @@ func buildUsageAuthorityRuntime(parent context.Context, cfg *config.Config, log 
 	testing := opts.Testing
 	src, err := configsource.New(cfg.Accounting.Authority)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	evaluationTimeout, err := cfg.Accounting.Authority.EvaluationTimeoutDuration()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	cleanupTimeout, err := cfg.Accounting.Authority.CleanupTimeoutDuration()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	store, closers, err := buildUsageAuthorityStore(parent, cfg, log, testing, registry, migrator)
+	store, err := buildUsageAuthorityStore(owner, parent, cfg, log, testing, registry, migrator)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	failOpen := strings.EqualFold(strings.TrimSpace(cfg.Accounting.Authority.StartupPosture), "fail_open")
 	advisory := authoritydomain.StatusFromBacking(authoritydomain.BackingCapabilityAdvisoryOnly)
@@ -53,12 +53,12 @@ func buildUsageAuthorityRuntime(parent context.Context, cfg *config.Config, log 
 	switch {
 	case err != nil:
 		if !failOpen {
-			return nil, closers, fmt.Errorf("runtimebundle: usage authority readiness unavailable")
+			return nil, fmt.Errorf("runtimebundle: usage authority readiness unavailable")
 		}
 		store = &authorityRuntimeStore{StateStore: store, fallback: advisory}
 	case readiness.State != authoritydomain.AuthorityStateReady:
 		if !failOpen {
-			return nil, closers, fmt.Errorf("runtimebundle: usage authority readiness: state %s", readiness.State)
+			return nil, fmt.Errorf("runtimebundle: usage authority readiness: state %s", readiness.State)
 		}
 		store = &authorityRuntimeStore{StateStore: store, fallback: advisory}
 	}
@@ -69,7 +69,7 @@ func buildUsageAuthorityRuntime(parent context.Context, cfg *config.Config, log 
 	svc := authorityapp.NewService(src, store, buildAuthorityEvidenceSink(cp, policyObs, opts), clockFromTesting(testing), authorityapp.ServiceOptions{
 		EvaluationTimeout: evaluationTimeout, CleanupTimeout: cleanupTimeout, DefaultFailureBehavior: failureBehavior,
 	})
-	return &usageAuthorityRuntime{Service: svc}, closers, nil
+	return &usageAuthorityRuntime{Service: svc}, nil
 }
 
 func buildAuthorityEvidenceSink(cp *controlPlaneRuntime, policyObs policydecision.Observer, opts *BuildOptions) authorityapp.EvidenceSink {
@@ -87,14 +87,14 @@ func buildAuthorityEvidenceSink(cp *controlPlaneRuntime, policyObs policydecisio
 	return evidencesink.New(recorder, policyObs)
 }
 
-func buildUsageAuthorityStore(parent context.Context, cfg *config.Config, log *slog.Logger, testing TestingOptions, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (authorityapp.StateStore, []func() error, error) {
+func buildUsageAuthorityStore(owner *processResourceOwner, parent context.Context, cfg *config.Config, log *slog.Logger, testing TestingOptions, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (authorityapp.StateStore, error) {
 	if override := testing.AuthorityStoreOverride; override != nil {
-		return override, nil, nil
+		return override, nil
 	}
 	authCfg := cfg.Accounting.Authority
 	domainCfg, err := authCfg.DomainConfig()
 	if err != nil {
-		return nil, nil, fmt.Errorf("runtimebundle: usage authority rules: %w", err)
+		return nil, fmt.Errorf("runtimebundle: usage authority rules: %w", err)
 	}
 	at := time.Now().UTC()
 	if testing.Clock != nil {
@@ -102,7 +102,7 @@ func buildUsageAuthorityStore(parent context.Context, cfg *config.Config, log *s
 	}
 	limitRows, err := authoritystore.LimitRowsFromRules(domainCfg.Rules, at)
 	if err != nil {
-		return nil, nil, fmt.Errorf("runtimebundle: usage authority limit rows: %w", err)
+		return nil, fmt.Errorf("runtimebundle: usage authority limit rows: %w", err)
 	}
 	ruleWindows := make(map[string]authoritydomain.WindowSpec, len(domainCfg.Rules))
 	for _, rule := range domainCfg.Rules {
@@ -116,7 +116,7 @@ func buildUsageAuthorityStore(parent context.Context, cfg *config.Config, log *s
 	posture := authCfg.StartupPosture
 	switch strings.ToLower(strings.TrimSpace(authCfg.Store)) {
 	case "", "memory":
-		return authoritystore.NewMemory(seed), nil, nil
+		return authoritystore.NewMemory(seed), nil
 	case "sqlite":
 		path := strings.TrimSpace(authCfg.SQLitePath)
 		dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_txlock=immediate"
@@ -139,7 +139,8 @@ func buildUsageAuthorityStore(parent context.Context, cfg *config.Config, log *s
 			_ = bunDB.Close()
 			return authorityStoreUnavailable(parent, log, posture, seed, "sqlite", "init", "runtimebundle: usage authority durable sqlite", err)
 		}
-		return store, []func() error{store.Close}, nil
+		owner.Own(store.Close)
+		return store, nil
 	case "postgres":
 		poolCfg, err := config.ParseDatabasePoolSettings(cfg.Database)
 		if err != nil {
@@ -147,35 +148,34 @@ func buildUsageAuthorityStore(parent context.Context, cfg *config.Config, log *s
 		}
 		child, cancel := context.WithTimeout(parent, db.DefaultPostgresOpenMigrateTimeout)
 		defer cancel()
-		store, closeFn, err := openPostgresStore(child, authCfg.PostgresDSN, db.PoolSettings{
-			MaxOpenConns: poolCfg.MaxOpenConns, MaxIdleConns: poolCfg.MaxIdleConns,
-			ConnMaxLifetime: poolCfg.ConnMaxLifetime, ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
-		}, cfg.Database, registry, migrator, postgresStoreLifecycle[*authoritystore.DurableStore]{
-			Migrate: authoritystore.Migrate, Verify: authoritystore.VerifySchema,
-			Open: func(ctx context.Context, handle *bun.DB) (*authoritystore.DurableStore, error) {
-				return authoritystore.OpenStore(ctx, handle, seed)
-			},
-			Close: (*authoritystore.DurableStore).Close,
+		store, err := acquireOwnedProcess(child, owner, func(ctx context.Context) (*authoritystore.DurableStore, func() error, error) {
+			return openPostgresStore(ctx, authCfg.PostgresDSN, db.PoolSettings{
+				MaxOpenConns: poolCfg.MaxOpenConns, MaxIdleConns: poolCfg.MaxIdleConns,
+				ConnMaxLifetime: poolCfg.ConnMaxLifetime, ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
+			}, cfg.Database, registry, migrator, postgresStoreLifecycle[*authoritystore.DurableStore]{
+				Migrate: authoritystore.Migrate, Verify: authoritystore.VerifySchema,
+				Open: func(ctx context.Context, handle *bun.DB) (*authoritystore.DurableStore, error) {
+					return authoritystore.OpenStore(ctx, handle, seed)
+				},
+				Close: (*authoritystore.DurableStore).Close,
+			})
 		})
 		if err != nil {
 			return authorityStoreUnavailable(parent, log, posture, seed, "postgres", "init", "runtimebundle: usage authority durable postgres", err)
 		}
-		if registry != nil {
-			return store, nil, nil
-		}
-		return store, []func() error{closeFn}, nil
+		return store, nil
 	default:
-		return nil, nil, fmt.Errorf("runtimebundle: usage authority store %q is invalid", authCfg.Store)
+		return nil, fmt.Errorf("runtimebundle: usage authority store %q is invalid", authCfg.Store)
 	}
 }
 
-func authorityStoreUnavailable(ctx context.Context, log *slog.Logger, posture string, seed authoritystore.Config, store, phase, opaque string, err error) (authorityapp.StateStore, []func() error, error) {
+func authorityStoreUnavailable(ctx context.Context, log *slog.Logger, posture string, seed authoritystore.Config, store, phase, opaque string, err error) (authorityapp.StateStore, error) {
 	if strings.ToLower(strings.TrimSpace(posture)) == "fail_open" {
 		logAuthorityStoreEvent(ctx, log, slog.LevelWarn, "store_fallback_memory", store, phase, err)
-		return authoritystore.NewMemory(seed), nil, nil
+		return authoritystore.NewMemory(seed), nil
 	}
 	logAuthorityStoreEvent(ctx, log, slog.LevelError, "store_unavailable", store, phase, err)
-	return nil, nil, fmt.Errorf("%s", opaque)
+	return nil, fmt.Errorf("%s", opaque)
 }
 
 type authorityRuntimeStore struct {

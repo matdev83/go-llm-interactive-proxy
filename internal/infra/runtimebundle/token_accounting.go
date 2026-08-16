@@ -31,9 +31,9 @@ type processAccountingStores struct {
 
 const defaultAccountingCountTimeout = 750 * time.Millisecond
 
-func buildProcessAccountingStores(_ context.Context, cfg *config.Config, _ func() time.Time) (*processAccountingStores, []func() error, error) {
+func buildProcessAccountingStores(_ context.Context, cfg *config.Config, _ func() time.Time) (*processAccountingStores, error) {
 	if cfg == nil || !cfg.Accounting.Enabled {
-		return nil, nil, nil
+		return nil, nil
 	}
 	// accounting.ledger.* remains accepted for backward-compatible YAML, but
 	// durable/memory financial token ledgers are no longer opened or written.
@@ -41,7 +41,7 @@ func buildProcessAccountingStores(_ context.Context, cfg *config.Config, _ func(
 	if cfg.Accounting.Observability.Enabled {
 		out.Observability = accountingobs.NewStats()
 	}
-	return out, nil, nil
+	return out, nil
 }
 
 func bindTokenAccountingRuntime(stores *processAccountingStores, cfg *config.Config, backends map[string]execbackend.Backend) (*tokenAccountingRuntime, error) {
