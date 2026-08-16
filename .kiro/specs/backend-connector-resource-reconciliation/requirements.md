@@ -74,6 +74,9 @@ The first implementation is intentionally narrow. It targets discovered executab
 5.6. Existing generation-owned derived state—including executor maps/views, routing views, model-registry runtime, model catalog, feature composition, policy state, and generation lifecycle context—shall remain generation-owned and shall not be moved into the connector resource pool.
 5.7. Existing no-drop, retained-generation, old-stream, and last-good reload guarantees shall remain unchanged.
 5.8. A reused configured connector may contribute the same underlying immutable backend/session functions to multiple generation-local executor maps, but each generation shall rebuild its own projections, inventories, routing and model views using the same existing generation compiler sequence.
+5.9. On a reuse hit, candidate preparation shall not invoke `Configure`, `Start`, `Stop`, `Close`, a mutating preflight, or another generation-local mutation on the shared physical connector. Candidate rejection or rollback shall release only the candidate lease and shall never invalidate the shared resource merely because the candidate was rejected.
+5.10. Query-shaped metadata operations already represented by the backend-plugin contract, such as `Resolve` and `ListModels`, may remain part of generation-local preparation/refresh against a reused configured instance. This does not permit hidden reconfiguration by the host.
+5.11. If future generation preparation or an external adapter requires a mutating lifecycle action against the configured connector, that resource path shall become non-shareable and use isolated physical construction until a separate design proves safe cross-generation reuse.
 
 ## Requirement 6: Invalidation and Resource Incarnations
 
@@ -107,6 +110,8 @@ The first implementation is intentionally narrow. It targets discovered executab
 8.5. Existing backend-plugin security invariants—verified artifact binding, secure local IPC, peer authentication before secrets/configure, environment restrictions, and process-tree cleanup—shall remain unchanged.
 8.6. Old and new generation behavior shall remain observationally equivalent to the current overlap model for unchanged resources except that unnecessary physical connector reconstruction is removed.
 8.7. Connector-specific configuration parsing remains inside the connector. The host identity may fingerprint opaque configure bytes but shall not learn provider-specific configuration schemas merely to decide reuse.
+8.8. Reusing one configured instance across overlapping generations shall not imply that all external process failures are isolated per generation; however, the optimization shall not add candidate-owned mutation that creates a new failure path for the last-good generation. Existing connector/process failure and invalidation semantics remain authoritative.
+8.9. Overlapping generation access to query-shaped metadata operations on a reused configured instance shall be covered by race/conformance tests. The implementation shall not move the model registry into the pool merely to avoid concurrent metadata calls.
 
 ## Requirement 9: TDD, Concurrency, and Architecture Gates
 
@@ -118,3 +123,4 @@ The first implementation is intentionally narrow. It targets discovered executab
 9.6. Architecture tests shall reject a generic service registry/container API, request-time lookup surface, public reusable-resource framework, provider-specific switch, or migration of `processhost` supervision responsibility.
 9.7. Repository quality, focused executable-plugin conformance/security tests, and existing reload no-drop/rollback tests shall remain green.
 9.8. Final implementation review shall remove unused abstraction layers and preserve the smallest private design that satisfies the deterministic scale and correctness gates.
+9.9. Add a regression gate proving that pooled external adapters expose no generation-owned physical `Close`/`Start`/`Stop` bypass and that candidate preparation on a reuse hit is query-only with respect to the configured physical resource.
