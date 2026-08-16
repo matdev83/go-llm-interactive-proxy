@@ -3,9 +3,14 @@ package runtimebundle
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/terminalwork/workstore"
 )
 
 func newTestProcessOwner() (*processResourceOwner, *ProcessServices) {
@@ -212,5 +217,113 @@ func TestProcessOwner_AggregateCleanupErrors(t *testing.T) {
 	}
 	if !errors.Is(err, errA) || !errors.Is(err, errB) {
 		t.Fatalf("want both errors joined, got %v", err)
+	}
+}
+
+func TestMigratedOwnershipTakingBuilders_RejectNilOwner(t *testing.T) {
+	t.Parallel()
+
+	twStore, err := workstore.NewMemoryStore(workstore.MemoryConfig{StoreID: "test-tw"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name string
+		call func() error
+	}{
+		{
+			name: "buildPersistenceRuntime",
+			call: func() error {
+				_, err := buildPersistenceRuntime(nil, buildContext{Cfg: &config.Config{}}, nil, nil)
+				return err
+			},
+		},
+		{
+			name: "buildConcurrencyAuthorityRuntime",
+			call: func() error {
+				cfg := &config.Config{Accounting: config.AccountingConfig{Concurrency: config.ConcurrencyAuthorityConfig{Enabled: true}}}
+				_, err := buildConcurrencyAuthorityRuntime(nil, context.Background(), cfg, TestingOptions{}, nil, nil)
+				return err
+			},
+		},
+		{
+			name: "buildConcurrencyLeaseStore",
+			call: func() error {
+				cfg := &config.Config{Accounting: config.AccountingConfig{Concurrency: config.ConcurrencyAuthorityConfig{Store: "memory"}}}
+				_, err := buildConcurrencyLeaseStore(nil, context.Background(), cfg, TestingOptions{}, nil, nil)
+				return err
+			},
+		},
+		{
+			name: "buildMeteringRuntime",
+			call: func() error {
+				cfg := &config.Config{Metering: config.MeteringConfig{Enabled: true, Journal: config.MeteringJournalConfig{Store: "memory"}}}
+				_, err := buildMeteringRuntime(nil, context.Background(), cfg, time.Now, nil, nil)
+				return err
+			},
+		},
+		{
+			name: "openDurableMeteringJournal",
+			call: func() error {
+				cfg := &config.Config{Metering: config.MeteringConfig{Journal: config.MeteringJournalConfig{Store: "sqlite", SQLitePath: ":memory:"}}}
+				_, _, _, err := openDurableMeteringJournal(nil, context.Background(), cfg, time.Now, nil, nil)
+				return err
+			},
+		},
+		{
+			name: "buildTerminalWorkFromProduction",
+			call: func() error {
+				prod := ProductionOptions{TerminalWorkStore: twStore}
+				_, err := buildTerminalWorkFromProduction(nil, prod, time.Now, nil, nil)
+				return err
+			},
+		},
+		{
+			name: "buildTerminalWorkRuntime",
+			call: func() error {
+				in := terminalWorkBuildInput{Store: twStore}
+				_, err := buildTerminalWorkRuntime(nil, in)
+				return err
+			},
+		},
+		{
+			name: "buildTerminalWorkWithSetReconcile",
+			call: func() error {
+				prod := ProductionOptions{TerminalWorkStore: twStore}
+				_, err := buildTerminalWorkWithSetReconcile(nil, context.Background(), prod, time.Now, nil, nil, nil)
+				return err
+			},
+		},
+		{
+			name: "buildUsageAuthorityRuntime",
+			call: func() error {
+				cfg := &config.Config{Accounting: config.AccountingConfig{Authority: config.AccountingAuthorityConfig{Enabled: true}}}
+				_, err := buildUsageAuthorityRuntime(nil, context.Background(), cfg, nil, &BuildOptions{}, nil, nil, nil, nil)
+				return err
+			},
+		},
+		{
+			name: "buildUsageAuthorityStore",
+			call: func() error {
+				cfg := &config.Config{Accounting: config.AccountingConfig{Authority: config.AccountingAuthorityConfig{Store: "memory"}}}
+				_, err := buildUsageAuthorityStore(nil, context.Background(), cfg, nil, TestingOptions{}, nil, nil)
+				return err
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := tc.call()
+			if err == nil {
+				t.Fatalf("%s with nil owner must return error, got nil", tc.name)
+			}
+			if !strings.Contains(err.Error(), "nil process owner") {
+				t.Fatalf("%s with nil owner error = %v, want to contain 'nil process owner'", tc.name, err)
+			}
+		})
 	}
 }

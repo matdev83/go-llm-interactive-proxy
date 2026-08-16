@@ -105,6 +105,9 @@ func buildTerminalWorkFromProduction(owner *processResourceOwner, prod Productio
 	if prod.TerminalWorkStore == nil {
 		return nil, nil
 	}
+	if owner == nil {
+		return nil, fmt.Errorf("runtimebundle: nil process owner")
+	}
 	providers, err := composeTerminalWorkProviders(prod)
 	if err != nil {
 		return nil, err
@@ -202,6 +205,9 @@ func requestRegistrationEffectVersion(reg authority.RequestRegistration) string 
 func buildTerminalWorkRuntime(owner *processResourceOwner, in terminalWorkBuildInput) (*terminalWorkRuntime, error) {
 	if in.Store == nil {
 		return nil, nil
+	}
+	if owner == nil {
+		return nil, fmt.Errorf("runtimebundle: nil process owner")
 	}
 	reg := terminalworkapp.NewRegistry()
 	for _, p := range in.Providers {

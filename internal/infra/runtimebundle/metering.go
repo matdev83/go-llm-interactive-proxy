@@ -27,6 +27,9 @@ func buildMeteringRuntime(owner *processResourceOwner, parent context.Context, c
 	if cfg == nil || !cfg.Metering.Enabled {
 		return nil, nil
 	}
+	if owner == nil {
+		return nil, fmt.Errorf("runtimebundle: nil process owner")
+	}
 	if parent == nil {
 		parent = context.Background()
 	}
@@ -62,6 +65,9 @@ func buildMeteringRuntime(owner *processResourceOwner, parent context.Context, c
 }
 
 func openDurableMeteringJournal(owner *processResourceOwner, parent context.Context, cfg *config.Config, now func() time.Time, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (metering.Recorder, string, func(context.Context) error, error) {
+	if owner == nil {
+		return nil, "", nil, fmt.Errorf("runtimebundle: nil process owner")
+	}
 	store := strings.ToLower(strings.TrimSpace(cfg.Metering.Journal.Store))
 	switch store {
 	case "sqlite":

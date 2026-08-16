@@ -23,6 +23,9 @@ type persistenceRuntime struct {
 // get "runtimebundle: %w"; secure-session errors are returned unwrapped (the
 // helper attaches context).
 func buildPersistenceRuntime(owner *processResourceOwner, bctx buildContext, cp *controlPlaneRuntime, bundle *metrics.Bundle) (*persistenceRuntime, error) {
+	if owner == nil {
+		return nil, fmt.Errorf("runtimebundle: nil process owner")
+	}
 	cfg, parent, log := bctx.Cfg, bctx.Parent, bctx.Log
 	store, storeCloser, err := openContinuityStore(parent, cfg, bctx.PostgresPools, bctx.DualPlaneMigrator)
 	if err != nil {

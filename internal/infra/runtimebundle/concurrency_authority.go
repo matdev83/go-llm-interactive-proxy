@@ -31,6 +31,9 @@ func buildConcurrencyAuthorityRuntime(owner *processResourceOwner, parent contex
 	if cfg == nil || !cfg.Accounting.Concurrency.Enabled {
 		return nil, nil
 	}
+	if owner == nil {
+		return nil, fmt.Errorf("runtimebundle: nil process owner")
+	}
 	if parent == nil {
 		parent = context.Background()
 	}
@@ -64,6 +67,9 @@ func buildConcurrencyAuthorityRuntime(owner *processResourceOwner, parent contex
 func buildConcurrencyLeaseStore(owner *processResourceOwner, parent context.Context, cfg *config.Config, testing TestingOptions, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (concurrencyapp.LeaseStore, error) {
 	if override := testing.ConcurrencyLeaseStoreOverride; override != nil {
 		return override, nil
+	}
+	if owner == nil {
+		return nil, fmt.Errorf("runtimebundle: nil process owner")
 	}
 	cCfg := cfg.Accounting.Concurrency
 	storeID := strings.TrimSpace(cCfg.StoreID)

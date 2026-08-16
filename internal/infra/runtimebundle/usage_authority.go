@@ -27,6 +27,9 @@ func buildUsageAuthorityRuntime(owner *processResourceOwner, parent context.Cont
 	if cfg == nil || !cfg.Accounting.Authority.Enabled {
 		return nil, nil
 	}
+	if owner == nil {
+		return nil, fmt.Errorf("runtimebundle: nil process owner")
+	}
 	if parent == nil {
 		parent = context.Background()
 	}
@@ -90,6 +93,9 @@ func buildAuthorityEvidenceSink(cp *controlPlaneRuntime, policyObs policydecisio
 func buildUsageAuthorityStore(owner *processResourceOwner, parent context.Context, cfg *config.Config, log *slog.Logger, testing TestingOptions, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (authorityapp.StateStore, error) {
 	if override := testing.AuthorityStoreOverride; override != nil {
 		return override, nil
+	}
+	if owner == nil {
+		return nil, fmt.Errorf("runtimebundle: nil process owner")
 	}
 	authCfg := cfg.Accounting.Authority
 	domainCfg, err := authCfg.DomainConfig()

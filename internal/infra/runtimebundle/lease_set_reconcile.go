@@ -12,15 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 )
 
-func buildTerminalWorkWithSetReconcile(
-	owner *processResourceOwner,
-	ctx context.Context,
-	prod ProductionOptions,
-	clock func() time.Time,
-	bundle *metrics.Bundle,
-	conc *concurrencyapp.Service,
-	snapshotPub *snapshotgen.Publisher,
-) (*terminalWorkRuntime, error) {
+func buildTerminalWorkWithSetReconcile(owner *processResourceOwner, ctx context.Context, prod ProductionOptions, clock func() time.Time, bundle *metrics.Bundle, conc *concurrencyapp.Service, snapshotPub *snapshotgen.Publisher) (*terminalWorkRuntime, error) {
 	twRT, err := buildTerminalWorkFromProduction(owner, prod, clock, bundle, snapshotPub)
 	if err != nil {
 		return nil, err
