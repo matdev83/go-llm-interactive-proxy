@@ -81,3 +81,26 @@ func TestCallFromInvocation_JSONPartRequiresContent(t *testing.T) {
 		t.Fatalf("json kind is supported; want invalid-invocation error, got %v", err)
 	}
 }
+
+func TestCanonicalEventFromLipapi_UsageEvidenceExplicitZeroPresence(t *testing.T) {
+	t.Parallel()
+	ev := lipapi.Event{
+		Kind: lipapi.EventUsageDelta,
+		UsagePresence: lipapi.UsagePresence{
+			InputTokens:     true,
+			CacheReadTokens: true,
+		},
+		InputTokens:     0,
+		CacheReadTokens: 50,
+	}
+	canonical := backendplugin.CanonicalEventFromLipapi(ev)
+	if canonical == nil || canonical.Usage == nil {
+		t.Fatal("expected non-nil UsageEvidence")
+	}
+	if !canonical.Usage.Presence.InputTokens || canonical.Usage.InputTokens == nil || *canonical.Usage.InputTokens != 0 {
+		t.Fatalf("expected InputTokens 0 present, got %+v", canonical.Usage)
+	}
+	if !canonical.Usage.Presence.CacheReadTokens || canonical.Usage.CacheReadTokens == nil || *canonical.Usage.CacheReadTokens != 50 {
+		t.Fatalf("expected CacheReadTokens 50 present, got %+v", canonical.Usage)
+	}
+}
