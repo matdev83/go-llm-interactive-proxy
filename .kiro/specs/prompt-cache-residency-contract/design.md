@@ -19,6 +19,7 @@ This replaces the tempting but incorrect abstraction of `provider/model -> TTL +
 - Keep provider-ready request/cache state in bounded adapter-local volatile memory behind a small opaque handle.
 - Preserve exact backend instance/account/model/region/downstream affinity and generation lifetime.
 - Evolve executable connector ABI additively and preserve legacy connector behavior.
+- Reuse the existing `provider_billable` accounting plane for any provider-billable control usage while keeping maintenance attribution separate from foreground B-legs.
 - Provide reusable contract TCKs so broad backend support does not require a frontend-by-backend Cartesian matrix.
 
 ### Non-Goals
@@ -31,6 +32,7 @@ This replaces the tempting but incorrect abstraction of `provider/model -> TTL +
 - No synthetic cache request through normal `Executor.Execute`.
 - No persistence of prompts, handles, provider-ready request bodies, cache keys, auth tokens, or residency state.
 - No backend generation pinning solely for cache maintenance.
+- No new customer billing admission seam or new accounting plane.
 
 ## Existing Architecture Analysis
 
@@ -41,8 +43,9 @@ The existing repository already provides the right host/plugin patterns:
 3. Essential provider implementations own final provider request construction and credentials inside `internal/plugins/backends`.
 4. Optional connectors expose `pkg/lipsdk/backendplugin.ConfiguredInstance.Execute` over gRPC while separate optional interfaces such as token counting and billing finalization model non-inference operations.
 5. Backendplugin protocol negotiation and minor versions already gate additive ABI capabilities.
-6. `AccountingEvidence` is already a host-only sideband rather than a canonical event, proving the architecture can carry provider facts outside the client model stream.
-7. Backend instances are owned by immutable runtime generations and are closed on generation retirement.
+6. `ServerFrameAccountingEvidence` is already a dedicated host-only sideband frame, proving the ABI can carry provider facts outside canonical events without overloading terminal or event payloads.
+7. `AccountingEvidence` already requires `AccountingPlaneProviderBillable`, which is the correct plane for provider-billable maintenance usage. Operation identity/dedupe keeps that usage distinct from foreground execution.
+8. Backend instances are owned by immutable runtime generations and are closed on generation retirement.
 
 The missing seam is therefore narrow: a shared SDK contract plus observation/control adapters on both essential and executable backend paths.
 
@@ -85,7 +88,7 @@ graph TB
 - **Provider SDK leakage avoided?** Yes. SDK/control DTOs contain only protocol-neutral enums, times, bounded IDs/handles and usage presence.
 - **No retry/failover after output preserved?** Yes. Cache control has no normal route/failover path.
 - **A-leg routing authority affected?** No. Control uses the issuing backend instance and never parses a selector.
-- **Billing seams changed?** No new customer admission seam. Maintenance usage evidence is returned separately for later orchestration/accounting integration.
+- **Billing seams changed?** No. Provider-billable control usage reuses the existing provider-billable accounting plane; there is no new customer admission or journal seam in this spec.
 
 ## Technology Stack
 
@@ -96,6 +99,7 @@ graph TB
 | Canonical stream | existing `pkg/lipapi.ManagedEventStream` | foreground output only | unchanged |
 | Connector ABI | existing protobuf/gRPC backendplugin v1 | optional profile, observation sideband, renew/release RPCs | additive minor/feature |
 | Provider adapters | existing essential/connector packages | effective identity, retained state, provider operation | adapter-specific |
+| Accounting | existing provider-billable accounting sideband | maintenance provider usage evidence | reused |
 | Testing | `testing`, contract TCKs, archtest | behavior/ABI/architecture proof | additive |
 
 No new external dependency is required.
@@ -205,18 +209,19 @@ sequenceDiagram
     B->>P: Effective provider request
     P-->>B: Stream and cache usage
     B-->>R: Canonical events
-    B->>S: Buffer residency observation
-    B-->>R: Terminal
+    B->>S: Buffer residency observations
+    B-->>R: Successful terminal
     R->>S: Drain observations
 ```
 
 Key decisions:
 
-- The backend computes the observation **after** all provider-specific preparation.
-- Renewable observations are published only when the backend has enough successful terminal evidence to make the handle safe. Failed/cancelled attempts may expose diagnostics internally but do not become renewable targets by implication.
+- The backend computes observations **after** all provider-specific preparation.
+- Renewable observations are committed to the host only after the foreground attempt reaches a successful terminal outcome. Failed/cancelled attempts may collect diagnostics locally but do not become renewable targets by implication.
 - The sideband never changes canonical event ordering.
+- On executable connectors, dedicated prompt-cache sideband frames are buffered by the host stream adapter until terminal success; a terminal failure discards them.
 
-### Sideband Contract
+### In-Process Sideband Contract
 
 ```go
 type ObservationSource interface {
@@ -230,7 +235,7 @@ Drain semantics:
 
 - drain returns owned copies/values and removes them from the stream wrapper;
 - a second drain returns empty;
-- the caller drains after terminal resolution and before discarding/closing the wrapper;
+- the caller drains only after a successful terminal outcome and before discarding/closing the wrapper;
 - observations are bounded per B-leg;
 - no provider request body, auth token or raw provider cache key is returned.
 
@@ -261,7 +266,7 @@ The control operation is intentionally not `Open`/`Execute`.
 |---|---|---|---|---|---|
 | Prompt Cache Residency SDK | public plugin contract | stable provider-neutral vocabulary/validation | 1-6, 8, 10 | stdlib only | State, Service |
 | Effective Backend Cache Capability | core outbound seam | expose profile and controller on selected backend | 2, 6, 7 | SDK, routing candidate | Service |
-| Residency Observation Sideband | backend stream seam | carry effective B-leg facts outside canonical events | 1, 3, 4, 8 | SDK, managed stream | Event-like host sideband |
+| Residency Observation Sideband | backend stream seam | carry effective B-leg facts outside canonical events | 1, 3, 4, 8 | SDK, managed stream | Host sideband |
 | Backend Target Store | adapter local | retain minimum volatile provider-ready control state | 5, 7 | concrete provider adapter | State |
 | Prompt Cache Controller | backend control seam | renew or forget an issued target | 5-8 | target store, provider client | Service |
 | Executable Connector Bridge | plugin ABI | negotiate and transport profile/observation/control | 2, 6, 8, 9 | backendplugin gRPC | API |
@@ -332,9 +337,9 @@ type RenewRequest struct {
 }
 
 type RenewResult struct {
-    Status      RenewStatus
+    Status       RenewStatus
     Observation *Observation
-    Evidence    CacheEvidence
+    Evidence     CacheEvidence
 }
 
 type ReleaseRequest struct {
@@ -381,9 +386,18 @@ Add **backendplugin protocol minor 7** and feature name `prompt_cache_residency_
 
 `ResolvedProfile` gains a bounded optional prompt-cache residency profile DTO. It is meaningful only when the feature is negotiated.
 
-#### Foreground observation
+#### Foreground observation sideband
 
-`ServerFrame` gains a repeated host-only prompt-cache observation field. Normative rule: connector implementations buffer observations and attach renewable observations no later than the terminal frame. The field is invalid when the feature is not negotiated. It is never mapped into `CanonicalEvent`.
+Mirror the existing accounting sideband pattern rather than overloading terminal/canonical payloads:
+
+```text
+ServerFrameKind = prompt_cache_observation
+ServerFrame.PromptCacheObservation = one bounded observation DTO
+```
+
+A connector may emit zero or more prompt-cache observation frames before terminal. The host stream adapter buffers them and exposes them through `ObservationSource` **only if the Execute attempt subsequently reaches successful terminal**; otherwise it discards them. This preserves both host-only framing and terminal-success eligibility.
+
+The frame kind/field is invalid when the feature is not negotiated and is mutually exclusive with canonical event, terminal, diagnostic, cancellation, and accounting payloads under `ValidateShape`.
 
 #### Control RPCs
 
@@ -398,19 +412,24 @@ The server invokes an optional `backendplugin.PromptCacheController`. A configur
 
 #### ABI validation
 
-- reject oversized IDs/handles/observation arrays;
+- reject oversized IDs/handles and more than the bounded observation count per B-leg;
 - reject unknown lifecycle/status enums;
 - reject negative token counts;
 - reject impossible timing such as expiry before observation;
 - require renewable observations to carry a non-empty handle;
-- require observation B-leg attribution to match the invocation lineage when carried on an Execute stream;
-- reject cache sidebands from peers that did not negotiate the feature.
+- require observation B-leg attribution to match the invocation lineage;
+- reject cache sideband/control use from peers that did not negotiate the feature.
 
 ### Accounting Projection
 
-`promptcache.CacheEvidence` preserves explicit token presence on the control result. The connector wire response carries the same cache evidence and, when provider billing authority requires richer existing fields, may also carry the existing host-only `AccountingEvidence` shape.
+Maintenance usage remains **provider-side billable evidence**, so the connector/control bridge reuses the existing `AccountingPlaneProviderBillable` and existing `AccountingSource` / `AccountingAuthority` semantics. No new accounting plane is added.
 
-The foundation contract does not create a customer billing call. The follow-on scheduler consumes control evidence and decides how configured usage/provider-cost authorities record maintenance.
+Rules:
+
+1. A renewal RPC may return prompt-cache `CacheEvidence` for control semantics and, when provider-billable evidence is available, a separate existing `AccountingEvidence` payload.
+2. The accounting dedupe key is derived from the bounded maintenance `OperationID`/provider charge identity, not from a foreground B-leg dedupe key.
+3. Host orchestration associates the evidence with the maintenance operation; it is never silently appended to the triggering foreground B-leg.
+4. The foundation does not create a new customer billing admission/journal path. The follow-on orchestration spec decides whether a configured maintenance budget/authority permits the operation and how the existing provider-cost projection consumes its evidence.
 
 ## Requirements Traceability
 
@@ -423,8 +442,8 @@ The foundation contract does not create a customer billing call. The follow-on s
 | 5.1-5.8 | bounded opaque control state | target store, controller | Handle, Release |
 | 6.1-6.8 | explicit non-inference control | controller, connector bridge | Renew/Release flow |
 | 7.1-7.6 | route/account/generation affinity | backend adapter, target store | instance-scoped handle/control |
-| 8.1-8.6 | separate usage evidence | SDK, connector bridge | CacheEvidence, host-only accounting |
-| 9.1-9.7 | additive connector ABI | connector bridge | feature/minor 7, DTO/RPC mapping |
+| 8.1-8.6 | separate usage evidence | SDK, connector bridge | CacheEvidence, provider-billable accounting |
+| 9.1-9.7 | additive connector ABI | connector bridge | feature/minor 7, DTO/frame/RPC mapping |
 | 10.1-10.10 | TDD/conformance/guardrails | TCK, archtest | contract matrices |
 
 ## Error and Degradation Model
@@ -436,6 +455,7 @@ The foundation contract does not create a customer billing call. The follow-on s
 - **Affinity unavailable:** control returns stale/unavailable; no alternative account/route selection.
 - **Control transport/provider error:** operation fails independently; no foreground failover.
 - **Generation close:** handles become stale; close does not wait for provider cache expiry.
+- **Provider-billable evidence absent:** accounting remains explicitly absent; no zero or estimate is fabricated by the control contract.
 
 ## Security and Privacy
 
@@ -458,9 +478,9 @@ The foundation contract does not create a customer billing call. The follow-on s
 
 1. Add SDK contracts and validation with no runtime use.
 2. Add `execbackend.Backend` optional profile/control fields; nil is unsupported.
-3. Add connector ABI minor/feature and conversion/contract tests; legacy peers continue at older minor/feature set.
+3. Add connector ABI minor/feature, sideband-frame kind and conversion/contract tests; legacy peers continue at older minor/feature set.
 4. Add observation-sideband wrapper/conversion support and reference test implementations.
-5. Add control RPC host/server adapters and stale/release behavior tests.
+5. Add control RPC host/server adapters, provider-billable accounting return, and stale/release behavior tests.
 6. Add architecture gates ensuring no `lipapi` maintenance operation/provider-core leakage.
 7. The follow-on orchestration spec may then wire runtime observation consumption and scheduling without changing this provider boundary.
 
@@ -476,7 +496,7 @@ No migration of persisted data is required.
 - observation sideband is drainable once and never yielded as canonical output;
 - multiple bounded observations per B-leg;
 - renewable observation requires handle;
-- release is idempotent and means local forget;
+- release is idempotent and means local forget only;
 - stale/generation-close behavior;
 - same-instance affinity and no route fallback;
 - renewal result status/evidence presence;
@@ -486,11 +506,12 @@ No migration of persisted data is required.
 
 - minor/feature negotiation and older-peer compatibility;
 - profile round-trip;
-- observation DTO round-trip and terminal attribution;
+- dedicated observation sideband frame shape/round-trip and terminal-success buffering;
+- failed/cancelled terminal discards buffered observations;
 - oversized/malformed payload rejection;
 - renew/release RPC mapping;
 - no cache sideband when feature disabled;
-- accounting evidence explicit presence.
+- provider-billable accounting evidence explicit presence and operation-specific dedupe.
 
 ### Backend-family TCK
 
@@ -505,7 +526,8 @@ Reusable scenarios:
 7. cold recreation distinguished from renewal;
 8. control provider/transport error;
 9. generation close invalidation;
-10. no canonical output from control.
+10. no canonical output from control;
+11. provider-billable maintenance evidence remains separate from foreground usage.
 
 Run the TCK against an in-process reference backend and executable connector reference implementation. Real provider integration tests are separately gated and are not required for default tests.
 
@@ -517,7 +539,8 @@ Fail if:
 - `pkg/lipapi` gains a cache-maintenance operation/event for this feature;
 - cache controller calls route selection/failover;
 - handle/provider-ready request state is added to continuity/persistence types;
-- connector feature is used without negotiated minor support.
+- connector feature is used without negotiated minor support;
+- maintenance evidence is attached to canonical usage events instead of the provider-billable host plane.
 
 ## Design Validation Hooks
 
@@ -532,7 +555,7 @@ Fail if:
 
 ## Open Questions / Implementation Risks
 
-- The exact existing accounting authority/plane used for provider-side maintenance must be selected during implementation without adding a new customer-money admission seam. If no current enum is semantically correct, add a bounded additive maintenance classification and re-run billing architecture tests.
 - Real providers may expose more than one cache maintenance unit per request. The contract allows multiple observations and lets adapters choose atomic grouping; provider adapters must document their granularity in tests.
 - Codex active renewal remains unsupported until separate protocol/live evidence proves a cache effect and continuation safety. This does not block observation-only support.
 - A compatible-provider profile may declare cache lifecycle facts only when its shared protocol adapter can actually observe/control the required semantics; YAML metadata alone must not fabricate a renewable target.
+- Provider implementations that replay cached prefixes must choose finite adapter-local state limits. The follow-on orchestration config may impose stricter host-wide budgets, but the backend itself must remain bounded even when no scheduler is configured.
