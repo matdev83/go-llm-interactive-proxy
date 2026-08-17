@@ -207,6 +207,7 @@ func TestParallelRegisterBLegFailureAppendsTerminalLegForJoin(t *testing.T) {
 	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 10})
 	p.aScope = aScope
 	p.billingCallID = callID
+	p.billingCallState = newBillingCallState(callID)
 
 	raceErr := runRaceInGoroutine(t, 5*time.Second, func() error {
 		_, err := ex.tryOpenParallelGroup(context.Background(), p, []routing.AttemptCandidate{authorityCandidate()}, nil, "", false)
@@ -227,7 +228,7 @@ func TestParallelRegisterBLegFailureAppendsTerminalLegForJoin(t *testing.T) {
 		t.Fatalf("leg CallID = %s, want %s", legs[0].CallID, callID)
 	}
 
-	frozen := ex.billingTurns().freezeAllocatedBLegs(callID)
+	frozen := p.billingCallState.freezeAllocatedBLegs()
 	if len(frozen) == 0 {
 		t.Fatal("expected allocated B-leg to remain frozen after RegisterBLeg failure")
 	}

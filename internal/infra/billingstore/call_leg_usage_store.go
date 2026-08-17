@@ -12,8 +12,20 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 )
 
+// ErrLegAttemptSequenceConflict identifies duplicate positive sequences within one BillingCallID; legacy NULL values remain outside it.
+var ErrLegAttemptSequenceConflict = errors.New("billingstore: call-leg attempt sequence conflict")
+
 func (s *DurableStore) AppendCallLegUsage(ctx context.Context, record billing.CallLegUsageRecord) error {
-	return withAccountTxErr(ctx, accountTxRetry{Attempts: 20, Delay: 5 * time.Millisecond}, func() error {
+	return withAccountTxErr(ctx, accountTxRetry{
+		Attempts: 20,
+		Delay:    5 * time.Millisecond,
+		Classify: func(err error) error {
+			if errors.Is(err, ErrLegAttemptSequenceConflict) {
+				return err
+			}
+			return nil
+		},
+	}, func() error {
 		return s.appendCallLegUsageAttempt(ctx, record)
 	})
 }
@@ -54,10 +66,19 @@ func (s *DurableStore) appendCallLegUsageAttempt(ctx context.Context, record bil
 		return fmt.Errorf("billingstore: encode call-leg usage: %w", err)
 	}
 	sealedAt := time.Now().UTC()
-	_, err = tx.NewRaw(`INSERT INTO usage_leg_records( usage_leg_key, fingerprint, call_id, a_leg_id, b_leg_id, backend_id, provider_id, model_id, started_at, finished_at, outcome, surfaced, payload_json, sealed_at ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, sealed.Key, sealed.Fingerprint, sealed.CallID.String(), sealed.ALegID, sealed.BLegID,
+	// Pre-fix legacy rows have no sequence (attempt_seq NULL); corrected
+	// records persist the exact positive attempt sequence explicitly.
+	var attemptSeq any
+	if sealed.AttemptSeq > 0 {
+		attemptSeq = sealed.AttemptSeq
+	}
+	_, err = tx.NewRaw(`INSERT INTO usage_leg_records( usage_leg_key, fingerprint, call_id, a_leg_id, b_leg_id, attempt_seq, backend_id, provider_id, model_id, started_at, finished_at, outcome, surfaced, payload_json, sealed_at ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, sealed.Key, sealed.Fingerprint, sealed.CallID.String(), sealed.ALegID, sealed.BLegID, attemptSeq,
 		sealed.BackendID, sealed.ProviderID, sealed.ModelID, sealed.StartedAt, sealed.FinishedAt,
 		string(sealed.Outcome), string(sealed.Surfaced), string(payload), sealedAt).Exec(ctx)
 	if err != nil {
+		if isLegAttemptSeqConflict(err) {
+			return fmt.Errorf("%w: %w", ErrLegAttemptSequenceConflict, err)
+		}
 		return fmt.Errorf("billingstore: insert call-leg usage: %w", err)
 	}
 	if _, err := tx.NewRaw(`INSERT INTO provider_cost_work(usage_leg_key, call_id, status, attempt_count, next_attempt_at, last_error, updated_at) VALUES (?, ?, 'pending', 0, ?, '', ?) ON CONFLICT(usage_leg_key) DO NOTHING`, sealed.Key, sealed.CallID.String(), sealedAt, sealedAt).Exec(ctx); err != nil {

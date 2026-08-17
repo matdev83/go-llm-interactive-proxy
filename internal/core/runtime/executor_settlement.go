@@ -88,13 +88,16 @@ func (s *retryRecvStream) finalizeBillingAfterCancel(ctx context.Context, reason
 	if s == nil || s.executor == nil {
 		return false
 	}
-	ev, ok := s.executor.billingTurns().finalizeOnce(ctx, execbackend.BillingFinalizationInput{
+	s.ensureBillingCallState()
+	ev, ok := s.billingCallState.finalizeOnce(ctx, execbackend.BillingFinalizationInput{
 		TraceID: strings.TrimSpace(s.traceID),
 		ALegID:  strings.TrimSpace(s.aLegID),
 		BLegID:  strings.TrimSpace(s.bleg.BLegID),
 		Backend: strings.TrimSpace(s.cand.Primary.Backend),
 		Model:   strings.TrimSpace(s.cand.Primary.Model),
 		Reason:  strings.TrimSpace(reason),
+	}, func(cctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
+		return s.executor.callFinalizeBilling(cctx, in)
 	})
 	if !ok {
 		return false

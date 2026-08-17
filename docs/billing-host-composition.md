@@ -58,6 +58,28 @@ Execution never renews, decrements, or closes exposure. Terminal usage persisten
 
 Historical authorization-hold rows are migration/reconciliation evidence only. New authoritative composition does not require authorization, hold lookup, hold release, expiry, or authorization-book capabilities. Open-hold inventory blocks ready accounts until reconciled; after open inventory is empty, `authorization_holds` is dropped and is not part of the normal call path.
 
+## B-leg attempt sequence is authoritative
+
+Every new terminal B-leg record persists the exact positive B2BUA attempt sequence (`b2bua.BLegRecord.Seq`) in `CallLegUsageRecord.AttemptSeq` and the durable `usage_leg_records.attempt_seq` column. The runtime copies the value verbatim from the authoritative allocation point; it is never reconstructed from B-leg ids, array position, timestamps, provider order, or completion order. Within one `BillingCallID` two persisted legs cannot claim the same positive sequence unless they are the idempotent byte-identical same leg; the `(call_id, attempt_seq)` unique index and the sequence-aware replay fingerprint enforce that.
+
+Post-usage customer leg selection consults only the persisted sequence. `ExpectedBLegIDs` is a canonical completeness set: it may be sorted for completeness checks, but its ordering has no financial meaning. When an interrupted call has multiple accepted legs and no surfaced winner, customer rating chooses the latest accepted leg by `AttemptSeq` — never by lexical B-leg-id order, storage order, or timestamps.
+
+## Customer and provider economics resolve independently
+
+Customer rating resolves customer pricing, charge policy, and per-backend/model customer pricing cards only. Provider-cost resolution is a separate path that reads operator rates. Customer settlement never looks up, validates, or requires operator rates: missing, invalid, stale, or unreconciled provider-cost data cannot block an otherwise rateable customer call from settling or from closing operational exposure. Provider COGS remains an independent per-B-leg operation that may retry or stay unreconciled without changing the customer posting.
+
+## Billing bookkeeping is request-scoped
+
+Runtime billing bookkeeping is owned by one private call-scoped state object allocated together with the `BillingCallID` in the prepared request and shared by that request's retries, failover alternatives, parallel arms, and hidden interleaved continuations. Retained state is bounded to the active call: allocated B-leg identities and sequences, terminal timing bounds, and per-B-leg finalization single-flight entries all become unreachable when the call leaves scope. The `Executor` holds no lifetime-growing billing-call registry or map; a later invocation on the same A-leg/session receives a distinct state object and distinct `BillingCallID`.
+
+## Legacy rows without a sequence
+
+`attempt_seq` is nullable. Rows persisted before this correction keep `attempt_seq NULL` and remain readable under the original v1 fingerprint contract; the upgrade never rewrites opaque legacy B-leg ids into guessed sequence values. New runtime appends always require a known positive sequence. A legacy row with unknown sequence may still be rated automatically when the applicable customer policy is provably sequence-independent for that call, such as a completed call with an unambiguous surfaced leg or a charge-all policy. When sequence is required to choose the customer-billable leg and the legacy row lacks it, the post-usage processor fails closed into `ErrBillingAttemptSequenceUnknown` and the call is retried and ultimately marked reconcile-required — it never sorts ids or timestamps to guess execution order.
+
+## Successor boundary
+
+The legacy `TurnUsageRecord`/`LegUsageRecord` rating bridge remains in place as a temporary implementation adapter and is deliberately not described as deleted here. Its removal, the retirement of the old TUR/LUR tables and `reserved_nano` residue, and the remaining economic-architecture simplifications belong to the separate `billing-architecture-final-convergence` effort and must preserve every behavior documented in this page.
+
 ## Reports and trusted provisioning
 
 `ReportingStore` separates settled customer spend, open operational exposure, and independent provider cost. Use `QueryOpenExposures` and `CallExplanation` (admin `/exposures` and `/call`) for call-path diagnostics. Retired TUR-processing and authorization-hold report endpoints are removed; `reserved_nano` remains a legacy always-zero account column rejected on ready accounts. Session/A-leg reports may aggregate multiple BillingCallIDs but never use A-leg or session identity as a financial idempotency key.

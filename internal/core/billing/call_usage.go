@@ -28,6 +28,7 @@ type CallLegUsageRecord struct {
 	CallID          BillingCallID
 	ALegID          string
 	BLegID          string
+	AttemptSeq      int
 	BackendID       string
 	ProviderID      string
 	ModelID         string
@@ -131,6 +132,19 @@ func (l CallLegUsageRecord) Seal() (CallLegUsageRecord, error) {
 	return out, nil
 }
 
+// SemanticFingerprint computes the immutable evidence hash for a call-leg
+// record.
+//
+// Fingerprint versions:
+//   - v1 (legacy): AttemptSeq == 0. The sequence is unknown (pre-fix durable
+//     rows have attempt_seq NULL). The byte stream is byte-for-byte identical
+//     to the pre-sequence contract so historical fingerprints stay valid.
+//   - v2 (sequence-aware): AttemptSeq > 0. The exact b2bua.BLegRecord.Seq is a
+//     financial fact and participates in replay identity, so a same-key replay
+//     with a different sequence fingerprints differently and conflicts.
+//
+// A zero AttemptSeq never represents a known sequence; the runtime append seam
+// requires a positive sequence for every new record.
 func (l CallLegUsageRecord) SemanticFingerprint() (string, error) {
 	if err := l.validate(); err != nil {
 		return "", err
@@ -160,6 +174,9 @@ func (l CallLegUsageRecord) SemanticFingerprint() (string, error) {
 	c.string(string(l.Evidence.Authority))
 	c.string(l.Evidence.DedupeKey)
 	writeVersionRef(&c, l.OperatorRateRef)
+	if l.AttemptSeq > 0 {
+		c.u64(uint64(l.AttemptSeq))
+	}
 	return digest(c.bytes()), nil
 }
 
@@ -285,6 +302,11 @@ func (l CallLegUsageRecord) validate() error {
 	}
 	if !validLegOutcome(l.Outcome) || !validSurfacedState(l.Surfaced) {
 		return fmt.Errorf("%w: invalid call-leg outcome/surfaced state", ErrInvalidRecord)
+	}
+	// AttemptSeq == 0 means the sequence is absent (legacy v1 row); a positive
+	// value is the exact B2BUA attempt sequence. Negative values are nonsense.
+	if l.AttemptSeq < 0 {
+		return fmt.Errorf("%w: call-leg attempt sequence cannot be negative", ErrInvalidRecord)
 	}
 	return validateEvidence(l.Evidence)
 }

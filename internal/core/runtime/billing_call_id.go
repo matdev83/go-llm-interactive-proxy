@@ -18,5 +18,6 @@ func stampBillingCallID(prep *preparedRequest) error {
 		return err
 	}
 	prep.billingCallID = id
+	prep.billingCallState = newBillingCallState(id)
 	return nil
 }

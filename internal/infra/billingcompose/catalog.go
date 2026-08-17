@@ -194,41 +194,48 @@ func (c *SnapshotCatalog) SetOperatorRateBinding(backend, model string, ref bill
 	return nil
 }
 
-func (c *SnapshotCatalog) SnapshotsFor(record billing.TurnUsageRecord) (pricing billing.PricingSnapshot, policy billing.ChargePolicy, rates []billing.OperatorRateSnapshot, modelPricing []billing.ModelCustomerPricing, err error) {
+// CustomerRatingSnapshots is the complete immutable input set customer rating
+// resolves for one call. It deliberately carries no OperatorRateSnapshot
+// values: customer settlement must never depend on provider-cost readiness.
+type CustomerRatingSnapshots struct {
+	DefaultPricing billing.PricingSnapshot
+	Policy         billing.ChargePolicy
+	ModelPricing   []billing.ModelCustomerPricing
+}
+
+// CustomerRatingSnapshots resolves customer pricing/policy/model cards only.
+// It never looks up, validates, or loads operator-rate snapshots, so missing,
+// invalid, stale, or unreconciled provider-cost data cannot block customer
+// settlement or leave operational exposure open (requirements 5.1-5.6).
+//
+// The model cards mirror what admission quotes: a route/model override binds a
+// versioned immutable pricing body; a route without an override keeps the
+// configured default card. When any override exists for the call and an
+// override body is missing this fails closed rather than substituting an
+// unrelated model price.
+func (c *SnapshotCatalog) CustomerRatingSnapshots(call billing.CallUsageRecord, legs []billing.CallLegUsageRecord) (CustomerRatingSnapshots, error) {
 	if c == nil {
-		return billing.PricingSnapshot{}, billing.ChargePolicy{}, nil, nil, errNilSnapshotCatalog
+		return CustomerRatingSnapshots{}, errNilSnapshotCatalog
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	pricing, ok := c.pricing[keyOf(record.CustomerPricingRef)]
+	pricing, ok := c.pricing[keyOf(call.CustomerPricingRef)]
 	if !ok {
-		return billing.PricingSnapshot{}, billing.ChargePolicy{}, nil, nil, lookupMiss("customer pricing")
+		return CustomerRatingSnapshots{}, lookupMiss("customer pricing")
 	}
-	policy, ok = c.policies[keyOf(record.ChargePolicyRef)]
+	policy, ok := c.policies[keyOf(call.ChargePolicyRef)]
 	if !ok {
-		return billing.PricingSnapshot{}, billing.ChargePolicy{}, nil, nil, lookupMiss("charge policy")
+		return CustomerRatingSnapshots{}, lookupMiss("charge policy")
 	}
-	seenRates := make(map[versionKey]struct{})
-	for _, leg := range record.Legs {
-		if emptyRef(leg.OperatorRateRef) {
-			continue
-		}
-		rk := keyOf(leg.OperatorRateRef)
-		if _, seen := seenRates[rk]; seen {
-			continue
-		}
-		rate, found := c.operatorRates[rk]
-		if !found {
-			return billing.PricingSnapshot{}, billing.ChargePolicy{}, nil, nil, lookupMiss("operator rate")
-		}
-		seenRates[rk] = struct{}{}
-		rates = append(rates, rate)
-	}
-	modelPricing, err = c.modelPricingForRecord(record, pricing)
+	modelPricing, err := c.modelPricingForLegs(legs, pricing)
 	if err != nil {
-		return billing.PricingSnapshot{}, billing.ChargePolicy{}, nil, nil, err
+		return CustomerRatingSnapshots{}, err
 	}
-	return clonePricing(pricing), policy, rates, modelPricing, nil
+	return CustomerRatingSnapshots{
+		DefaultPricing: clonePricing(pricing),
+		Policy:         policy,
+		ModelPricing:   modelPricing,
+	}, nil
 }
 
 func (c *SnapshotCatalog) RoutePricing(ctx context.Context, backend, model string) (billing.PricingSnapshot, error) {
@@ -329,9 +336,15 @@ func (c *SnapshotCatalog) OperatorRateRef(_ context.Context, backend, model stri
 	return billing.VersionRef{}
 }
 
-func (c *SnapshotCatalog) modelPricingForRecord(record billing.TurnUsageRecord, customer billing.PricingSnapshot) ([]billing.ModelCustomerPricing, error) {
+// modelPricingForLegs builds the effective per backend/model customer pricing
+// cards for the legs of one call. Cards are emitted only when at least one
+// route/model override exists for the call; a route without an override keeps
+// the customer default pricing (requirement 4.4). An override binding whose
+// immutable body is missing fails closed (requirement 4.5) instead of rating
+// with an unrelated model price.
+func (c *SnapshotCatalog) modelPricingForLegs(legs []billing.CallLegUsageRecord, customer billing.PricingSnapshot) ([]billing.ModelCustomerPricing, error) {
 	anyOverride := false
-	for _, leg := range record.Legs {
+	for _, leg := range legs {
 		if _, found := c.routePricing[routeOf(leg.BackendID, leg.ModelID)]; found {
 			anyOverride = true
 			break
@@ -342,7 +355,7 @@ func (c *SnapshotCatalog) modelPricingForRecord(record billing.TurnUsageRecord, 
 	}
 	var cards []billing.ModelCustomerPricing
 	seenRoutes := make(map[routeKey]struct{})
-	for _, leg := range record.Legs {
+	for _, leg := range legs {
 		rk := routeOf(leg.BackendID, leg.ModelID)
 		if _, seen := seenRoutes[rk]; seen {
 			continue
@@ -399,10 +412,6 @@ func parseRoute(backend, model string) (routeKey, error) {
 		return routeKey{}, errBackendModelRequired
 	}
 	return rk, nil
-}
-
-func emptyRef(ref billing.VersionRef) bool {
-	return strings.TrimSpace(ref.ID) == "" && strings.TrimSpace(ref.Version) == ""
 }
 
 func clonePricing(p billing.PricingSnapshot) billing.PricingSnapshot {

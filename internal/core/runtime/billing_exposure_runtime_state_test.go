@@ -14,21 +14,13 @@ func (exposureRuntimeStateAdmission) Admit(context.Context, BillingExposureAdmis
 }
 
 func TestExposureGenerationUsesOnlyTerminalCallState(t *testing.T) {
-	executor := &Executor{BillingRuntime: BillingRuntime{
-		BillingExposureAdmission: exposureRuntimeStateAdmission{},
-		CallUsageAppender:        billing.CallUsageAppenderFunc(func(context.Context, billing.CallUsageRecord) error { return nil }),
-	}}
-
-	collector := executor.billingTurns()
-	if collector == nil {
-		t.Fatal("billing call state is required")
-	}
 	callID, err := billing.NewBillingCallID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	collector.noteAllocatedBLeg(callID, "b-1")
-	got := collector.freezeAllocatedBLegs(callID)
+	state := newBillingCallState(callID)
+	state.noteAllocatedBLeg("b-1", 1)
+	got := state.freezeAllocatedBLegs()
 	if len(got) != 1 || got[0] != "b-1" {
 		t.Fatalf("frozen terminal leg set = %v", got)
 	}
