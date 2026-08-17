@@ -4,270 +4,250 @@
 
 - **Feature**: `backend-connector-resource-reconciliation`
 - **Discovery Scope**: brownfield runtime optimization / connector-scale lifecycle refactor
-- **Key Findings**:
-  - Go-LIP already solves the difficult correctness problem with immutable generations, request/async generation leases, `ResourceLedger`, and manager-owned retirement. Those mechanisms should remain authoritative.
-  - Catalog cardinality is already cheap: executable connector discovery is manifest-only and lazy with respect to process launch. The scaling pressure is the number of **enabled configured executable connector instances** rebuilt by a material generation reload.
-  - Current `buildBackends` constructs every enabled backend in every generation. Discovered `per_instance` factories deliberately mint unique host activation IDs so candidate and active generations can overlap, which also guarantees unchanged physical connectors are duplicated during candidate construction.
-  - The highest-ROI Cordis-v4 idea for this specific seam is provider identity + reconciliation + dependent lifetime retention: exact unchanged configured connector resources can be retained by more than one immutable generation and closed after the final generation releases them.
-  - A generic Cordis runtime remains a poor fit. The selected design is one private connector-specific process owner that returns per-generation leases and delegates all physical process supervision to existing `processhost.Host`.
-  - Physical reuse needs a stronger identity than `BackendStateIdentity`: exact artifact, opaque configure payload, runtime policy, secret fingerprint, process model, logical instance/factory identity, and any future configure-affecting input must be represented or reuse must fail closed.
+- **Selected Cordis principle**: semantic provider identity + physical incarnation + dependent retention/reconciliation.
+- **Not selected**: generic Cordis component runtime, reactive dependency graph, fibers, service locator, HMR, or generic effect/resource framework.
+- **Primary target**: unchanged discovered executable `per_instance` connector resources reconstructed across overlapping immutable generations.
+- **Post-review hardening**: detached-entry ownership, reserved waiter claims, entry-level exactly-once physical cleanup, pool-owned builder cancellation, explicit Acquire/Close linearization, exact cleanup handoff to processhost, identity-evidence split, and established host-session concurrency characterization.
 
-## Research Log
+## Brownfield Findings
 
-### Cordis v4: the transferable principle
+### Generation correctness is already solved at the right coarse boundary
 
-- **Context**: Re-evaluate the user-supplied paper *A Programming Paradigm for Spatiotemporal Composability* (Yifan Shi, Wei Zhang, Tianyi Cui) against the current backend connector architecture.
-- **Findings**:
-  - Cordis models components/providers by identity rather than only current values and reconciles a desired component graph against current runtime state.
-  - Dependents retain access to a withdrawing provider while their teardown runs; the provider is physically removed only after dependent cleanup.
-  - Revertible effects make rollback/teardown explicit and reverse effects when a component is withdrawn.
-  - Cordis's generic reactive coeffect graph, fibers, HMR, and dynamic service context solve a broader class of application-platform problems than Go-LIP needs here.
-- **Implications**:
-  - Borrow semantic provider identity, physical incarnation identity, reconciliation, and reference-retained teardown.
-  - Map a Go-LIP generation to a dependent/lease holder, not to a Cordis component graph.
-  - Keep generation publication/retirement as the consistency boundary and avoid live dependency replacement under requests.
+Go-LIP already provides immutable `GenerationRuntime`, request/async generation retention, transactional last-good publication, `ResourceLedger` rollback/retirement, and manager-owned drain. Those mechanisms remain authoritative. A Cordis-like dynamic component graph would duplicate existing correctness machinery.
 
-### Prior Cordis-derived ownership work
+### The scale pressure is enabled live connector count, not manifest count
 
-- **Context**: Determine whether `.kiro/specs/archive/atomic-owned-resource-lifecycle` already addressed this problem.
-- **Sources Consulted**:
-  - archived `atomic-owned-resource-lifecycle` research/design
-  - `internal/infra/runtimebundle/process_owner.go`
-  - `internal/infra/runtimebundle/resource_ledger.go`
-- **Findings**:
-  - The previous spec addressed acquisition/cleanup locality and worker ownership.
-  - It deliberately left backend lifecycle unchanged because `BackendBuildResult` already paired a backend with cleanup and `buildBackends` immediately transferred that cleanup to `ResourceLedger`.
-  - Main now contains `processResourceOwner` and `acquireOwnedProcess`, confirming that process cleanup locality is already hardened.
-- **Implications**:
-  - This spec is not a correction to the prior work. It addresses a different dimension: **one expensive physical backend resource being useful to several overlapping generations**.
-  - Reuse existing ownership authorities; do not invent another general effect/owner framework.
+Discovery is manifest/trust oriented and does not launch every installed connector. The expensive case is many **enabled configured external connector instances** rebuilt during a material generation change. `buildBackends` constructs every enabled backend row for every candidate generation.
 
-### Current generation construction and backend rebuild behavior
+### `per_instance` discovered connectors deliberately duplicate across generations today
 
-- **Context**: Identify whether material reload reconstructs unchanged backend resources.
-- **Sources Consulted**:
-  - `internal/infra/runtimebundle/build_model.go`
-  - `internal/pluginreg/lifecycle.go`
-  - `internal/infra/runtimebundle/reload_backend_recomposition_test.go`
-- **Findings**:
-  - `buildModelRuntime` calls `buildBackends` for every candidate generation.
-  - `buildBackends` iterates every enabled backend row and calls `BuildBackendWithLifecycle`.
-  - A changed same-ID backend is intentionally constructed separately so old pinned generations retain old behavior while new generations use the replacement.
-  - This same whole-set construction happens for unchanged rows on unrelated material generation changes.
-- **Implications**:
-  - Do not change changed/remove semantics.
-  - Introduce reuse only at the physical connector construction seam for exact unchanged identities.
-  - Continue rebuilding generation-local executor maps, inventories, model registry, routing projections, and policy views.
+`buildDiscoveredBackend` mints unique host activation IDs for `per_instance` so active and candidate generations can safely coexist. This is correct for changed connectors but also means an unchanged connector is physically Activated/Configured again during unrelated material reload.
 
-### Discovered executable connector activation
+### Reconciliation belongs above processhost
 
-- **Context**: Determine where physical duplication originates and where reconciliation should sit.
-- **Sources Consulted**:
-  - `internal/infra/runtimebundle/discovered_factories.go`
-  - `internal/infra/backendplugins/processhost/host.go`
-  - `internal/infra/backendplugins/processhost/model.go`
-  - `internal/infra/runtimebundle/reload_discovered_overlap_test.go`
-- **Findings**:
-  - `InstallDiscoveredExports` registers one generic lifecycle factory per validated manifest export; there is no provider-specific switch.
-  - `buildDiscoveredBackend` encodes opaque YAML, activates/configures the host instance, builds an adapter backend, and returns physical cleanup.
-  - For `per_instance`, the runtime deliberately mints a distinct host activation handle for each candidate construction so old/new generations never collide in `Host.instances`.
-  - `processhost.Host` already has correct lazy launch, singleflight process slot creation, peer authentication, instance tracking, generation invalidation, and cleanup.
-  - `shared_artifact` has different isolation/concurrency and overlap policy semantics.
-- **Implications**:
-  - Put reconciliation **above** `processhost`, not inside it.
-  - Preserve the unique host activation handle for each newly created physical incarnation.
-  - Reuse prevents calling physical construction at all for unchanged identity; it does not teach `processhost` about LIP config generations.
-  - Exclude `shared_artifact` initially.
+`processhost.Host` already owns lazy process launch, secure local IPC, peer authentication, slot/instance bookkeeping, process-generation invalidation, and process-tree cleanup. It should not learn Go-LIP semantic generation/config identity. The new owner is therefore a private runtimebundle connector-resource reconciliation layer that calls the existing physical builder/host.
 
-### Discovery cardinality versus live cardinality
+### Prior Cordis-derived ownership work remains valid
 
-- **Context**: Validate whether hundreds of installed connectors themselves justify runtime reconciliation.
-- **Sources Consulted**:
-  - `internal/infra/backendplugins/discovery/hundred_test.go`
-  - `docs/adr/0008-hybrid-backend-connector-plugins.md`
-  - `docs/backend-plugins/authoring.md`
-- **Findings**:
-  - Discovery has explicit coverage for 100 synthetic manifests without launching them.
-  - Optional connectors are separate executable modules; installed but unconfigured plugins remain inactive.
-  - Activation is lazy and trusted artifacts are exact-digest bound.
-- **Implications**:
-  - Do not optimize the manifest catalog or add dynamic discovery.
-  - The evidence harness must model many **enabled process-backed instances**, not merely many installed manifests.
+The archived `atomic-owned-resource-lifecycle` spec hardened process acquisition/cleanup locality and generation loop ownership but deliberately left backend lifecycle alone because `BackendBuildResult` already paired backend + cleanup and `buildBackends` transferred cleanup to `ResourceLedger`. This spec addresses a different problem: **one expensive physical backend resource may be retained by multiple overlapping generations**. It reuses rather than replaces those ownership authorities.
 
-### Existing backend state identity precedent
+## Physical Identity Research
 
-- **Context**: Check whether Go-LIP already distinguishes semantic backend identity across generations.
-- **Sources Consulted**:
-  - `internal/infra/runtimebundle/backend_state_identity.go`
-  - `internal/infra/runtimebundle/shared_mutable.go`
-- **Findings**:
-  - `BackendStateIdentity` namespaces process-owned affinity/health observations by instance ID, factory kind, and config digest.
-  - Compatible identities allow process-owned observation continuity across generation replacement; changed identities hide stale state from the new generation.
-  - This is a strong local precedent for identity-sensitive reuse but is purposefully narrower than physical connector interchangeability.
-- **Implications**:
-  - Keep `BackendStateIdentity` unchanged.
-  - Introduce a separate private physical resource identity and avoid conflating observation-state compatibility with connector/session reuse compatibility.
+### Existing `BackendStateIdentity` is precedent, not the key
 
-### Physical identity inputs
+Go-LIP already reuses process-owned affinity/health observation state across compatible generations using `{InstanceID, FactoryKind, ConfigDigest}`. That demonstrates identity-sensitive continuity is locally idiomatic, but physical connector interchangeability is stricter.
 
-- **Context**: Determine what makes two configured executable connector resources interchangeable.
-- **Sources Consulted**:
-  - `pkg/lipsdk/backendplugin/types.go`
-  - `internal/infra/backendplugins/trust/artifact.go`
-  - `internal/infra/runtimebundle/discovered_factories.go`
-- **Findings**:
-  - A connector is configured with logical `InstanceID`, `FactoryKind`, opaque YAML, secrets, `RuntimePolicy`, negotiation metadata, and an exact verified executable artifact/process model.
-  - `VerifiedArtifact.DigestHex` is the exact launch identity that must distinguish binary upgrades.
-  - `RuntimePolicy` contains execution bounds/timeouts/locality/environment policy that can affect configured behavior.
-  - Secret rotation can change configured credentials without changing public YAML.
-- **Implications**:
-  - Physical identity must fingerprint every generation-varying construction/configure input.
-  - Secret values are hashed locally with stable sorted framing and never surfaced.
-  - Prefer one explicit identity builder at the same seam where effective configure input is assembled.
-  - Add a contract test that makes future configure DTO/input additions require deliberate identity review.
-  - When completeness cannot be proven, fall back to non-shared construction.
+### Physical construction inputs
 
-### Adapter/backend cleanup shape
+Current discovered construction uses/captures:
 
-- **Context**: Check whether the resulting backend value itself can safely be shared across executor maps.
-- **Sources Consulted**:
-  - `internal/infra/backendplugins/adapter/backend.go`
-  - `internal/infra/backendplugins/processhost/build_result.go`
-  - `internal/infra/runtimebundle/build_model.go`
-- **Findings**:
-  - `adapter.Build` creates an `execbackend.Backend` whose functional fields close over the configured `ExecuteSession` and resolved profile.
-  - Physical session cleanup is retained in `processhost.BuildResult` rather than embedded as an ordinary request-time operation.
-  - `buildDiscoveredBackend` combines adapter cleanup with `ActivateResult.Cleanup`, then returns it as `pluginreg.BackendBuildResult.Cleanup`.
-  - `buildBackends` currently registers that cleanup into the generation `ResourceLedger`.
-- **Implications**:
-  - A reconciliation entry can own the physical `BackendBuildResult` and physical cleanup.
-  - Each generation must receive the same immutable backend functional value plus a **new lease-release cleanup**, never the underlying physical cleanup.
-  - Tests must prove no generation-local `Close`/lifecycle path can bypass the lease for pooled external resources.
+- logical `InstanceID`;
+- factory kind;
+- exact verified artifact digest;
+- process model/sharing profile;
+- opaque YAML Configure bytes;
+- normalized `RuntimePolicy`;
+- `SecretBundle` when supplied;
+- negotiation/session behavior from the fixed executable/host protocol.
 
-### Process ownership transfer and teardown order
+Therefore a separate private physical identity must treat artifact, process model, config bytes, policy, secrets, factory and logical instance deliberately. Secret values are locally hashed with deterministic length framing and never surfaced.
 
-- **Context**: The discovered host exists before `ProcessServices`; determine how a pool can be captured by factories while still being process-owned.
-- **Sources Consulted**:
-  - `internal/infra/runtimebundle/plugin_catalog.go`
-  - `internal/infra/runtimebundle/composition_root.go`
-  - `internal/infra/runtimebundle/host_build.go`
-  - `internal/infra/runtimebundle/process_services.go`
-- **Findings**:
-  - `prepareDiscoveredPluginInstall` creates staging/trust artifacts and `processhost.Host` before factory registration.
-  - `InstallDiscoveredExports` registers factory closures before `NewProcessServices` freezes discovery.
-  - The host/artifacts/staging ownership bundle then transfers into `ProcessServices`.
-  - Existing reverse teardown intentionally closes host before artifacts and artifacts before staging.
-- **Implications**:
-  - Create the private backend resource pool beside the discovered host during install preparation so closures capture it directly.
-  - Transfer the pool with the host into `ProcessServices` using a package-private construction field/seam.
-  - Register pool close after host close registration so reverse teardown runs pool → host → artifacts → staging.
-  - Error paths before transfer use the same dependency order.
+### Startup-fixed versus reload-varying facts
 
-### Failure and incarnation semantics
+The production discovered factory closure is installed at startup. Artifact/process model and `DiscoveredInstallOptions.RuntimePolicy` are captured there. Current SIGHUP reload does not rediscover/replace the artifact. The current discovered builder also does not inject changing secret material through the shown production path.
 
-- **Context**: A desired identity can remain unchanged while its current process/session fails.
-- **Findings**:
-  - Existing adapter invalidation can invalidate a `processhost` process generation.
-  - A semantic-key-only cache would risk returning the known-dead entry to later candidates.
-  - The same semantic identity must be able to acquire a fresh physical process/session after failure.
-- **Implications**:
-  - Track physical incarnation identity independently from semantic identity.
-  - Invalidation detaches the exact current incarnation before/with delegating to existing host invalidation.
-  - New acquisition may build a fresh incarnation under the same semantic key.
-  - Old leases stay bound to the old incarnation; no published generation is live-mutated.
-  - Incarnation token comparison prevents a delayed stale invalidation from removing a newer entry.
+Consequences:
 
-### ROI measurement strategy
+- these fields still belong in the **identity contract** because they define physical semantics and may evolve later;
+- high-cardinality **generation reload** evidence should not pretend artifact/process-model/policy changes are currently hot-reloadable;
+- focused identity/construction tests exercise those dimensions directly;
+- `shared_artifact` remains a non-pooled/restart-required fallback rather than a “changed pooled process model” case.
 
-- **Context**: Candidate compilation is already fast on ordinary synthetic fixtures, while real connector startup is platform/provider dependent.
-- **Findings**:
-  - Existing reload benchmarks are useful but do not model hundreds of enabled external process-backed connectors.
-  - Wall-clock startup varies with OS process creation, IPC, connector implementation, machine load, and CI environment.
-  - The architectural cost being removed has deterministic work-count semantics independent of timing noise.
-- **Implications**:
-  - Primary gates are counts: builds, activations/launches, configure calls, physical cleanup.
-  - Add a 100-enabled-connector benchmark/evidence fixture and record wall time/allocations as supporting data.
-  - Expected unchanged reload changes from O(N) physical construction to O(N) lightweight lease acquisitions with zero physical reconstruction.
-  - Mixed reload with K changed connectors performs physical construction proportional to K, not N.
+This resolves CodeRabbit's request for broader identity coverage without inventing unsupported reload capabilities.
+
+## Physical Cleanup and processhost Ownership
+
+### Current composite cleanup
+
+The current discovered builder combines:
+
+1. adapter `BuildResult.Cleanup()` -> `session.Close(...)`, which closes the configured connector instance/host session;
+2. `ActivateResult.Cleanup` -> `processhost.Host.CloseInstance(hostActivationID)`, which updates host instance ownership and reaps the slot/process when appropriate.
+
+The adapter BuildResult itself is once-guarded, and processhost reaping is idempotent, but pooling adds another possible caller (`Pool.Close`). A **lease-level** once guard alone is therefore insufficient.
+
+### Selected ownership wording
+
+`processhost.Host` keeps supervisory ownership: process/slot tables, peer identity, invalidation, reaping, and `Host.Close` fail-safe behavior stay there.
+
+The pool entry consumes the existing **per-resource composite cleanup capability** when a physical build succeeds. Generations never receive that composite; they receive only lease release. The pool therefore controls *when* the per-resource cleanup may be invoked, while processhost remains the component that actually supervises/reaps physical processes.
+
+An entry-level cleanup-once state is shared by normal final lease release and process shutdown. This avoids a final-release-versus-Pool.Close double cleanup race.
+
+## Detached Resource Ownership
+
+Initial design only indexed `current[semanticIdentity]`. That is insufficient after invalidation:
+
+```text
+identity X -> incarnation 7 current
+invalidate 7
+current[X] removed
+Gen17 still has lease to incarnation 7
+```
+
+If ProcessServices then closes before that lease is released, a Pool.Close that only walks `current` cannot enumerate incarnation 7.
+
+Selected correction: retain an `owned`/all-entry set containing every successfully constructed physical incarnation until entry-level physical cleanup completes. Invalidation only detaches from `current`; it does not surrender process-level ownership bookkeeping. Pool Close snapshots all residual owned entries, including detached/invalidated ones, and invokes the same once-guarded physical cleanup.
+
+## Acquire/Waiter Concurrency
+
+### Why post-publication waiter ref increments are unsafe
+
+The original pending-entry idea let waiters observe `building`, wait on readiness, and increment refs only after publication. A scheduler can then do:
+
+1. first caller builds, receives lease;
+2. waiter is still sleeping/not yet incremented;
+3. first caller releases, refs reach zero, physical resource closes;
+4. waiter wakes and attempts to acquire the now-closed entry.
+
+Selected correction: **every waiter reserves its prospective claim under the pool mutex before waiting**. The initiating caller is also just a claimant. A waiter cancellation abandons only its own reservation.
+
+### Builder ownership
+
+The initiating Acquire must not own the physical builder lifetime. Otherwise caller cancellation and contextless `ProcessServices.Close()` can leave an unbounded build blocking shutdown.
+
+Selected correction:
+
+- absent Acquire creates a pending entry and reserves its claim;
+- the pool starts one short-lived builder goroutine under a pool-owned cancellation context;
+- all Acquires wait on entry readiness or their own context;
+- Pool.Close sets closing, cancels the build root, then waits builders;
+- build completion after closing may clean a result but cannot publish it as reusable.
+
+This uses existing processhost/transport context cancellation rather than adding a background worker subsystem.
+
+## Acquire/Close Linearization
+
+`ProcessServices.Close` is contextless and synchronous, so the pool needs a precise terminal contract.
+
+Selected contract:
+
+- `Close` linearizes by setting `closing=true` under the same mutex used for Acquire claim reservation;
+- after that point no new claim reservation is accepted and no pending builder result is handed off as a post-close success;
+- Close cancels pool-owned builders;
+- Close waits builders and acquisition handoff activity;
+- only then does it snapshot/clean residual owned entries;
+- no physical build/cleanup/wait happens while the mutex is held.
+
+This is stronger than simply “reject new Acquire” and directly addresses the lease-after-cleanup race CodeRabbit identified.
+
+## Invalidation and Incarnations
+
+Semantic identity says the desired configuration is unchanged. Physical incarnation says which concrete process/session currently realizes it.
+
+Invalidation:
+
+- compares exact entry/incarnation;
+- detaches that entry from `current` before/with host invalidation;
+- leaves the detached entry in process ownership until cleanup;
+- does not decrement existing generation claims or live-swap a replacement;
+- allows a future candidate to build a fresh incarnation for the same semantic key;
+- stale old-incarnation callbacks cannot remove the new current entry.
+
+## Candidate Isolation
+
+Fresh physical processes currently give candidate preparation strong failure-domain isolation. Reuse is allowed only for query-shaped candidate preparation:
+
+- no Configure/Start/Stop/Close/mutating preflight on a reuse hit;
+- rollback releases only the candidate lease;
+- candidate failure alone does not invalidate the resource;
+- future mutating preparation makes the path non-shareable until separately designed.
+
+Generation-local model registry/catalog/routing/policy/billing state remains generation-owned.
+
+## Established Operation Concurrency
+
+### Standard host Session behavior
+
+Cross-checking `pkg/lipsdk/backendplugin/host/session.go` shows:
+
+- `Session.Execute` holds `lifecycleMu` across the complete Execute RPC, so two Execute calls on one Session are serialized and Close cannot race underneath an active Execute;
+- `Resolve`, `ListModels`, CountTokens, and FinalizeBilling are not serialized by that client lifecycle mutex;
+- server-side instance leasing already allows metadata/auxiliary calls to overlap an active configured instance operation while protecting Close.
+
+Therefore pooling one production Session across generations does **not** justify inventing a new concurrency contract. The implementation must preserve the existing standard-host behavior and test it.
+
+### Important overlap tradeoff
+
+Today Gen17 and Gen18 fresh physical Sessions create two independent Execute serialization domains during candidate/retirement overlap. Pooling an unchanged connector makes retained-old and new-generation Execute calls share one Session serialization domain.
+
+That can reduce transient overlap concurrency / create head-of-line waiting for long streams. It is not a canonical request mutation, but it is operationally material and must not be hidden behind an unconditional “observationally equivalent” claim.
+
+Selected treatment:
+
+- do not change `Session.Execute` concurrency in this spec;
+- characterize a long retained old-generation Execute overlapping a new-generation Execute;
+- cover metadata/Count/Finalize/execution overlap under race/conformance tests;
+- if established serialization makes the optimization unacceptable for target workloads, re-scope pooling rather than widening this spec into ABI/session-concurrency redesign;
+- injected/non-standard session paths are non-shareable unless they satisfy the same established host contract.
+
+## Scale/ROI Evidence Strategy
+
+Primary correctness/ROI is deterministic work count:
+
+```text
+before: O(N enabled eligible connectors) physical build per material generation
+after:  O(K changed/unusable physical builds) + O(N) cheap claims/projections
+```
+
+Use at least 100 synthetic enabled discovered `per_instance` connectors. Count physical build, Activate/launch, Configure, physical cleanup, lease acquire/release. Wall time/allocation is supporting evidence only.
+
+Two matrices are required:
+
+1. **Reload matrix**: unchanged, config changes, remove/disable, candidate rollback, invalidation/rebuild.
+2. **Physical identity matrix**: artifact, secret, normalized runtime policy, process model, factory/logical identity.
+
+Also record the cross-generation Session Execute serialization behavior so lifecycle savings are evaluated together with the actual overlap scheduling tradeoff.
 
 ## Architecture Pattern Evaluation
 
-| Option | Description | Strengths | Risks / Limitations | Decision |
-|---|---|---|---|---|
-| Full Cordis runtime | Generic provider graph, fibers, effects/coeffects, reactive reconciliation | broad composability | fights Go-LIP generation model; duplicates lifecycle machinery; high maintenance cost | Reject |
-| Put generation reconciliation in `processhost` | Make host understand config-generation identity and reuse | central process knowledge | conflates physical supervision with semantic LIP generation composition | Reject |
-| Reuse `BackendStateIdentity` directly | Treat existing observation-state key as physical resource key | smallest apparent change | unsafe: misses artifact, policy, secrets and future configure inputs | Reject |
-| Cache `BackendBuildResult` per generation-independent key | Return same cleanup/value to multiple generations | simple lookup | double/early cleanup; no incarnation-safe invalidation | Reject |
-| Process-owned connector resource leases | Private semantic identity → current physical incarnation → generation leases; host remains physical supervisor | focused ROI, preserves generations, scales with unchanged enabled connectors | identity and concurrency correctness require strong tests | **Select** |
-| No change | Rebuild every enabled connector each material generation | simplest correctness model | O(N) physical activation wave and overlap resource spike at high enabled cardinality | Keep as fallback for non-shareable paths |
-
-## Design Decisions
-
-### Decision: Reconcile only configured physical external connector resources
-
-- Keep executor maps, model registry/catalog, routes, feature surfaces, generation lifecycle and policies generation-local.
-- Share only the configured adapter/backend session resource for exact eligible identities.
-- Rationale: this removes expensive reconstruction without weakening the generation consistency boundary.
-
-### Decision: Create the pool during discovered install, own it through ProcessServices
-
-- Factory closures need the pool before `ProcessServices` exists.
-- Construct pool next to `processhost.Host`, capture directly, then transfer process lifetime into `ProcessServices`.
-- Do not use a global map or setter/locator.
-
-### Decision: One semantic current entry plus explicit physical incarnation
-
-- Semantic identity expresses desired configured resource equality.
-- Incarnation identifies the concrete live process/session created for that desire.
-- Invalidation detaches an incarnation without banning the semantic identity forever.
-
-### Decision: Physical cleanup lives in the entry; ResourceLedger owns a lease release
-
-- Underlying `BackendBuildResult.Cleanup` is consumed by the pool and never copied to multiple generations.
-- Each Acquire returns an independent idempotent release closure.
-- Final release performs physical cleanup exactly once.
-
-### Decision: No idle cache
-
-- Reuse exists only across overlapping retained generations.
-- Final lease release closes immediately.
-- This avoids cache sizing, TTLs, memory/process retention, eviction races, and another operational knob.
-
-### Decision: No public opt-in flag
-
-- Exact-identity reuse is an internal semantic-preserving optimization.
-- Unsafe/incomplete identities fall back automatically to current construction.
-- A public feature flag would expose internal lifecycle structure and create configuration/test matrix cost without adding user capability.
-
-### Decision: Preserve unique host activation IDs for newly built incarnations
-
-- The pool prevents unnecessary build calls for unchanged resources.
-- When a build is actually required, current host-instance uniqueness remains intact, preserving overlap safety and current `processhost` assumptions.
+| Option | Decision | Reason |
+|---|---|---|
+| Full Cordis runtime | Reject | duplicates generation/runtime ownership machinery |
+| Put semantic reconciliation in processhost | Reject | conflates physical supervision with LIP config semantics |
+| Reuse `BackendStateIdentity` | Reject | identity incomplete for physical reuse |
+| Return same physical cleanup to generations | Reject | early/double teardown |
+| Only track current entries | Reject | detached invalidated resources disappear from shutdown ownership |
+| Waiter refs after readiness | Reject | zero-ref handoff race |
+| Caller-owned physical build | Reject | shutdown cancellation/lifetime ambiguity |
+| Pool-owned connector entries + generation leases | **Select** | focused ROI; preserves existing authorities |
+| Idle TTL cache | Reject | speculative retention/eviction policy |
+| Change Session concurrency here | Reject | broadens scope; preserve/measure existing behavior |
+| No change for non-shareable paths | Keep | safest fallback |
 
 ## Risks & Mitigations
 
-- **Identity omission causes unsafe reuse** — one construction-input identity choke point, fail-closed fallback, DTO-shape/identity contract tests.
-- **One generation closes another generation's resource** — pool owns physical cleanup; generation ledgers own only idempotent lease release; no bypass closer.
-- **Dead resource reused** — exact-incarnation invalidation detaches before future acquisition.
-- **Stale invalidation kills new resource** — compare incarnation token before detaching current entry.
-- **Pool becomes a service locator** — package-private connector-specific API, construction-only use, architecture tests forbid generic `Get`/`Resolve` and request-path access.
-- **Pool duplicates processhost** — no launch/IPC/process tree/peer auth logic in pool; physical build and invalidation delegate to existing host.
-- **Shutdown ordering regression** — explicit pool → host → artifacts → staging characterization tests on success and bootstrap error.
-- **Resource retained after last generation** — no idle cache; refcount zero synchronously detaches and closes.
-- **Race between Acquire, Release, Invalidate, Close** — small state machine with no external cleanup under mutex; race/goleak tests and per-key build serialization.
-- **Optimization hides generation-specific derived state** — explicit tests prove model/routing/policy views are rebuilt while physical activation counts remain zero for unchanged resources.
-- **Speculative complexity** — deterministic 100-connector operation-count gate and final simplification review; revert/re-scope if architecture cost exceeds demonstrated gain.
+- **Identity omission** -> one choke point, fail-closed fallback, DTO/input drift test.
+- **Detached resource leak** -> process-owned all-entry set until cleanup completes.
+- **Waiter zero-ref race** -> reserve claim before waiting.
+- **Shutdown hangs on builder** -> pool-owned cancelable build context + joined builder tests.
+- **Acquire after shutdown cleanup** -> explicit Acquire/Close linearization and handoff join.
+- **Double cleanup** -> entry-level `cleanupOnce`, not only lease once.
+- **Pool/processhost ownership confusion** -> pool owns timing of composite per-resource cleanup; host remains physical supervisor/fail-safe.
+- **Stale invalidation** -> exact incarnation comparison.
+- **Candidate mutates last-good** -> query-only reuse; mutating path non-shareable.
+- **Cross-generation Execute head-of-line blocking** -> preserve standard Session semantics, characterize, re-scope if unacceptable.
+- **Scope creep** -> package-private connector-specific API and architecture tests.
+- **Speculative complexity** -> 100-connector count gate and final simplification/re-scope gate.
 
 ## References
 
-- User-supplied paper: *A Programming Paradigm for Spatiotemporal Composability* — provider identity, reconciliation, dependent teardown, revertible-effect concepts.
-- `.kiro/specs/archive/atomic-owned-resource-lifecycle/` — prior focused Cordis-derived ownership hardening.
-- `.kiro/specs/archive/runtime-architecture-convergence-and-shrinkage/` — canonical one-process/one-generation/one-host architecture and anti-container guardrails.
-- `docs/runtime-config-reload.md` — transactional last-good generation publication/retirement contract.
-- `docs/adr/0008-hybrid-backend-connector-plugins.md` — executable connector process model and lazy discovery/activation boundary.
-- `internal/infra/runtimebundle/build_model.go` — all-enabled-backend candidate construction and generation-local model runtime.
-- `internal/infra/runtimebundle/discovered_factories.go` — discovered lifecycle factory activation/configure/cleanup seam.
-- `internal/infra/backendplugins/processhost/` — physical executable process/IPC ownership authority.
-- `internal/infra/runtimebundle/backend_state_identity.go` and `shared_mutable.go` — existing semantic identity precedent for affinity/health state.
-- `internal/infra/runtimebundle/process_owner.go` — current process-owned acquisition/cleanup authority facade.
-- `pkg/lipsdk/backendplugin/types.go` — configure-time DTO and runtime policy identity surface.
+- User-supplied paper: *A Programming Paradigm for Spatiotemporal Composability* — semantic provider identity, dependent retention, reconciliation, revertible cleanup concepts.
+- `internal/infra/runtimebundle/discovered_factories.go` — current external connector construction and unique per-generation activation handles.
+- `internal/infra/backendplugins/processhost/host.go` — process/instance supervision, invalidation and cleanup.
+- `internal/infra/backendplugins/adapter/backend.go` and `processhost/build_result.go` — backend/session cleanup shape.
+- `pkg/lipsdk/backendplugin/host/session.go` — standard host operation concurrency and Session lifecycle serialization.
+- `pkg/lipsdk/backendplugin/server.go` — configured-instance leasing around RPC calls and Close.
+- `internal/infra/runtimebundle/backend_state_identity.go` — existing narrower semantic identity precedent.
+- `internal/infra/runtimebundle/process_services.go` / `resource_ledger.go` — process/generation cleanup authorities.
+- archived `atomic-owned-resource-lifecycle` and runtime convergence specs — explicit ownership/no-container architecture constraints.

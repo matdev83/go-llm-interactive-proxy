@@ -1,7 +1,7 @@
 {
   "feature_name": "backend-connector-resource-reconciliation",
   "created_at": "2026-08-17T00:42:00+02:00",
-  "updated_at": "2026-08-17T00:59:00+02:00",
+  "updated_at": "2026-08-17T11:06:00+02:00",
   "language": "en",
   "phase": "tasks-generated",
   "approvals": {
@@ -19,5 +19,5 @@
     }
   },
   "ready_for_implementation": false,
-  "project_description": "Reduce cross-generation churn for expensive executable backend connectors by reusing unchanged configured per-instance connector resources through complete semantic physical identity, incarnation-safe invalidation, and process-scoped reference-counted generation leases. Preserve immutable GenerationRuntime publication, ResourceLedger rollback/retirement, processhost supervision, the executable backend-plugin ABI, startup-fixed discovery, routing/streaming/accounting semantics, candidate last-good isolation, and no-drop reload. Scope the first implementation to eligible discovered per_instance connectors only; candidate reuse is query-only, mutating preparation falls back to isolated physical construction, and generation-local model/routing/policy views remain generation-owned. Add no DI container, service locator, reactive component graph, live plugin watcher, generic resource framework, public lifecycle knob, or request-hot-path lookup. Require deterministic high-cardinality operation-count evidence before and after implementation so the optimization remains justified by connector-scale behavior rather than Cordis-inspired abstraction for its own sake."
+  "project_description": "Reduce cross-generation churn for expensive executable backend connectors by reusing unchanged configured per-instance connector resources through complete semantic physical identity, incarnation-safe invalidation, pre-reserved generation lease claims, process-owned tracking of detached resources, pool-owned cancelable builders, explicit Acquire/Close linearization, and entry-level exactly-once physical cleanup. Preserve immutable GenerationRuntime publication, ResourceLedger rollback/retirement, processhost supervision, the executable backend-plugin ABI, startup-fixed discovery, routing/streaming/accounting semantics, candidate last-good isolation, and the established backendplugin/host.Session operation-concurrency contract. Scope the first implementation to eligible discovered per_instance connectors only; candidate reuse is query-only, mutating preparation or non-conforming session behavior falls back to isolated construction, and generation-local model/routing/policy views remain generation-owned. Add no DI container, service locator, reactive component graph, live plugin watcher, generic resource framework, public lifecycle/concurrency knob, or request-hot-path lookup. Require deterministic high-cardinality operation-count evidence plus explicit cross-generation Session scheduling evidence so the optimization remains justified by connector-scale behavior rather than Cordis-inspired abstraction for its own sake."
 }

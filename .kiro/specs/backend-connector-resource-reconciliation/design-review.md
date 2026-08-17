@@ -2,175 +2,190 @@
 
 ## Verdict
 
-**GO.** The selected design fits the current Go-LIP runtime and connector boundaries and provides a focused path from O(N) physical connector reconstruction toward O(K changed/unusable physical reconstruction) while retaining immutable generations.
+**GO after CodeRabbit lifecycle/concurrency hardening.** The selected design remains a focused, high-ROI extension of Go-LIP's existing generation architecture, but the first review correctly identified several places where the original prose was weaker than the safety claim. Those findings were cross-checked against `processhost.Host`, runtimebundle ownership, adapter cleanup, and the standard backend-plugin host Session and have been incorporated into normative requirements/design/tasks.
 
-The validation identified one normative gap around candidate failure-domain isolation. That correction has been applied to `requirements.md` before task generation: reuse hits are query-only with respect to the configured physical connector, mutating generation-preparation lifecycle requires isolated fallback, and overlapping metadata access is race/conformance tested.
+The resulting design still targets O(N) -> O(K) physical connector reconstruction without introducing a general Cordis runtime, processhost redesign, public ABI/config surface, dynamic discovery, or request-path lookup.
 
-No broader Cordis runtime, processhost redesign, public ABI, or dynamic discovery work is justified.
+## Review Findings and Disposition
+
+### Detached entries survive invalidation — VALID / FIXED
+
+Original `current[identity]` indexing was insufficient for process shutdown: invalidation can remove a resource from the reusable map while old generations still retain leases. `Pool.Close` could not then enumerate it.
+
+The design now requires a process-owned `owned`/all-entry set containing every successfully constructed incarnation until entry-level physical cleanup completes. Invalidation detaches only from `current`; terminal Close snapshots both current and detached residual entries through that ownership set.
+
+### Pending waiter reservation race — VALID / FIXED
+
+Original prose allowed waiters to increment refs only after a building entry became live. A fast first claimant could therefore release to zero before a scheduled waiter formally acquired its ref.
+
+Every waiter now reserves its prospective lease claim under the pool mutex **before** waiting. Cancellation abandons only that claim. A deterministic scheduling test must hold a waiter after reservation and prove first-lease release cannot physically close the resource.
+
+### Lease once versus physical cleanup once — VALID / FIXED
+
+Per-lease `sync.Once` only prevents one lease from releasing twice. It does not protect physical cleanup when final Release races `Pool.Close`.
+
+The physical entry now owns a separate cleanup-once operation and stored result. Final lease release and fail-safe process shutdown converge on that same operation. Detached invalidation does not create another physical cleanup owner.
+
+### Cleanup ownership handoff — VALID / CLARIFIED
+
+Current construction has two existing cleanup pieces: adapter/session cleanup and `ActivateResult.Cleanup` (`processhost.CloseInstance`). The pool entry consumes one composite per-resource cleanup on a physical miss; generations receive only lease release.
+
+This is **not** a transfer of process supervision out of `processhost.Host`. Host keeps slot/instance state, invalidation, reaping, and `Host.Close` fail-safe authority. The pool owns semantic retention and timing of that existing per-resource cleanup capability.
+
+An exactly-once test must count both composite cleanup pieces and subsequent Host.Close.
+
+### Pool Close can hang on an unbounded builder — VALID / FIXED
+
+`ProcessServices.Close` is contextless/synchronous. The original “wait for builders” language was incomplete because current discovered construction can call Activate with a background lifetime.
+
+The pool now owns a cancelable build root. An absent Acquire starts exactly one pool-owned builder goroutine; caller contexts control only claimant waiting. `Pool.Close` linearizes closing, cancels the build root, then joins builders before physical residual cleanup/host teardown. A blocked-builder test must exit only on that cancellation and prove no late publication.
+
+### Identity scenario coverage — VALID IN PRINCIPLE / LITERAL SUGGESTION NARROWED
+
+CodeRabbit correctly requested stronger proof for artifact, secret, policy, and process-model identity dimensions. However, those dimensions are startup-fixed in the current production discovered-factory closure and are not all hot-reloadable through SIGHUP.
+
+The corrected plan therefore uses two evidence matrices:
+
+1. high-cardinality **generation reload** evidence for dimensions that actually vary during current reload plus invalidation;
+2. focused **physical identity/construction** evidence for artifact digest, secret fingerprint, normalized runtime policy, process model, factory/logical identity.
+
+`shared_artifact` remains a non-pooled/restart-required fallback rather than being treated as a pooled replacement scenario. This covers the correctness concern without inventing unsupported hot artifact/policy/process-model reload behavior.
+
+### Acquire/Close linearization — VALID / FIXED
+
+The original requirements said only that Close rejects new acquisitions and is race-safe. That is not enough to prevent a pending builder/Acquire from handing out a resource after residual cleanup begins.
+
+The design now gives Close a mutex-protected terminal linearization point. After `closing=true`, no new claim is reserved and no build result is handed off as post-close success. Close cancels builders, waits builders and Acquire handoffs, then snapshots/cleans residual owned entries.
+
+### Shared connector operation concurrency — VALID / FIXED WITH EXISTING CONTRACT
+
+Cross-checking the standard production host shows:
+
+- `backendplugin/host.Session.Execute` already serializes Execute calls with `lifecycleMu` and serializes Execute versus Close;
+- Resolve/ListModels/CountTokens/FinalizeBilling can overlap via the existing host/server instance lease model.
+
+The spec therefore does **not** invent a new connector concurrency flag or remove Session serialization. It now explicitly characterizes retained-old-generation Execute overlapping new-generation Execute through one pooled Session and covers metadata/auxiliary overlap under race/conformance tests.
+
+Sharing one Session extends existing Execute serialization across generations and can remove the incidental transient parallelism provided today by two fresh Sessions. This is now documented as an operational tradeoff rather than hidden behind unconditional observational-equivalence wording. If that measured behavior is unacceptable for target workloads, pooling is re-scoped rather than host concurrency being redesigned here.
 
 ## Validation Checklist
 
-### Generation consistency boundary — PASS
+### Generation consistency — PASS
 
-The design preserves `GenerationRuntime` as the immutable request-plane unit. Reconciliation occurs only while constructing the backend resources used to build a new generation. Published generations are never reconfigured, rebound, or live-migrated.
-
-Changed identity still creates a distinct physical resource before publication; removed/disabled identity is retained only by old generation leases. This preserves existing backend recomposition semantics.
+Published generations remain immutable. Changed identity builds a replacement before publication; removed resources remain available only through old generation leases. No live substitution exists.
 
 ### `ResourceLedger` authority — PASS
 
-Each generation receives a fresh lease-release cleanup and existing `buildBackends` continues to transfer that cleanup into the generation `ResourceLedger`. No new generation cleanup engine exists.
+Every generation receives one fresh lease release. The physical composite cleanup never enters multiple ledgers. `buildBackends` remains the generation cleanup transfer point.
 
-The physical connector cleanup is pool-owned and therefore cannot be copied into two generation ledgers. This is the central correctness requirement for sharing.
+### Processhost authority — PASS
 
-### Process ownership — PASS
+The pool contains no process launch, peer authentication, process-tree cleanup, slot supervision, or request transport logic. `processhost.Host` remains the physical supervisor and terminal fail-safe.
 
-The pool is process-scoped but is not a second process supervisor. `processhost.Host` remains responsible for launch, process slots, authenticated IPC, peer identity, configured host instance ownership, generation invalidation and process-tree cleanup.
+### Process ownership transfer — PASS
 
-The pool only knows semantic identity, physical incarnation, backend value, physical cleanup, and dependent refcount.
+Pool is created beside host before factory installation, captured lexically, then transferred to `ProcessServices`. Reverse close order remains pool -> host -> artifacts -> staging on successful ownership transfer and bootstrap failure.
 
-### Pre-`ProcessServices` factory capture — PASS
+### Physical cleanup exactly once — PASS after correction
 
-Production discovered factories are installed before `ProcessServices` exists. The design correctly creates the pool beside `processhost.Host` during discovered-install preparation, captures it lexically in factory closures, then transfers pool lifetime into `ProcessServices`.
+Entry-level cleanup-once unifies final release and pool fail-safe shutdown. Generation lease once remains only a claim-release guard.
 
-This avoids a service locator, global runtime registry, setter race, or post-publication dependency mutation.
+### Detached ownership — PASS after correction
 
-### Teardown ordering — PASS
+All successful physical incarnations remain in process ownership until cleanup completes even if removed from semantic reuse by invalidation.
 
-Current staging/artifact/host ownership has strict reverse-order requirements. Registering pool ownership after host ownership yields the needed relative shutdown order:
+### Acquire/waiter protocol — PASS after correction
 
-`pool -> processhost.Host -> verified artifacts -> staging`.
+Claim reservation occurs before waiting. The first claimant cannot close the resource while another active waiter remains unaccounted for.
 
-The design also requires equivalent bootstrap-failure ordering before ownership transfer.
+### Acquire/Close shutdown boundary — PASS after correction
 
-### Physical identity completeness — PASS
+Close has an explicit terminal linearization point, cancels pool builders, joins builders/handoffs, and prevents late publication before fail-safe cleanup.
 
-The design rejects direct use of the narrower `BackendStateIdentity` and derives a separate key at the physical construction/configure choke point. Artifact digest, logical instance/factory identity, opaque Configure bytes, process model, runtime policy and secret fingerprint are covered.
+### Builder lifetime — PASS after correction
 
-The explicit DTO-drift gate is important: identity correctness must fail closed as connector configure inputs evolve.
+Pool—not an arbitrary caller—owns physical builder cancellation/join. Caller cancellation is local to its reservation. This aligns with contextless ProcessServices shutdown without creating a permanent worker subsystem.
 
-### Secret handling — PASS
+### Physical identity — PASS
 
-Secret values are only locally length-framed and hashed; no plaintext or secret-derived diagnostic value is exposed. Identity digests themselves should remain private because equality fingerprints can still be sensitive metadata.
+Separate private identity includes/configures treatment for artifact, instance/factory, process model, opaque Configure bytes, normalized policy and secret fingerprint. DTO/input drift is fail-closed.
 
-### Incarnation-safe invalidation — PASS
+### Identity evidence realism — PASS after correction
 
-The design correctly distinguishes desired semantic identity from a concrete process/session incarnation. Invalidation detaches the exact incarnation before/with existing processhost invalidation, future Acquire builds a new incarnation, and stale callbacks cannot remove a newer current entry.
+Startup-fixed physical inputs are covered by focused identity/construction tests, not falsely presented as current hot-reload dimensions. High-cardinality reload evidence remains aligned with actual reloadability.
 
-Existing generations are not silently rebound to the replacement.
+### Candidate last-good isolation — PASS
 
-### `shared_artifact` exclusion — PASS
+Reuse hit is query-only for candidate preparation. Candidate rollback only releases its claim and does not mutate/reconfigure/close/invalidate the shared last-good resource.
 
-The design does not mix two independent sharing problems. Current `shared_artifact` process sharing and restart-required overlap gates remain unchanged. First-pass reconciliation is discovered `per_instance` only.
+### Standard Session concurrency — PASS with explicit operational gate
 
-### Built-in backend exclusion — PASS
-
-There is no evidence that cheap in-process builtins justify process-level lease machinery. Keeping them generation-owned limits complexity and avoids turning the selected connector optimization into a generic backend runtime.
+The design preserves the current host Session concurrency implementation. Cross-generation Execute serialization and metadata/auxiliary overlap receive direct tests. No public concurrency ABI is added.
 
 ### Request hot path — PASS
 
-Resource lookup/refcounting occurs only during generation construction/retirement. Executor request calls use already-captured backend functions and introduce no pool mutex or identity hash on normal inference traffic.
+Pool operations occur only at generation construction/retirement/process shutdown. Normal request execution uses captured backend functions.
 
-### Dynamic inventory/model views — PASS with explicit constraint
+### `shared_artifact` and built-in exclusions — PASS
 
-The design correctly keeps `modelregistry.Runtime`, inventory projection, routing/model views and refresh-loop ownership generation-local. A reused physical session may therefore receive concurrent `Resolve`/`ListModels` calls from overlapping generations.
+Neither is pulled into the first implementation. Existing restart-required/shared-process behavior is unchanged.
 
-This is compatible with the existing configured-instance abstraction because one instance already serves runtime execution and metadata calls, but implementation tests must cover overlapping generation metadata access/race safety. Do **not** solve this by moving the model registry into the pool.
+### Security/ABI — PASS
 
-### Candidate last-good isolation — PASS; normative correction applied
-
-This was the most important design-validation finding.
-
-Fresh physical processes currently give candidate preparation strong failure-domain isolation. Sharing intentionally reduces physical failure-domain independence for an **unchanged** connector. The accepted boundary is now normative in Requirements 5.9–5.11, 8.8–8.9, and 9.9:
-
-- a candidate reuse hit performs no Configure/Start/Stop/Close/mutating preflight on the shared resource;
-- candidate rejection/rollback releases only its lease and does not invalidate the resource merely because the candidate failed;
-- generation-local model preparation may use query-shaped `Resolve`/`ListModels` calls;
-- any future mutating generation-preparation lifecycle makes the resource non-shareable until separately proven safe;
-- overlapping metadata access receives race/conformance coverage.
-
-This is not a claim that an external connector process can never crash while queried. Existing process failure remains possible. The preservation requirement is that the candidate lifecycle itself cannot intentionally mutate/close/reconfigure the last-good shared resource.
-
-### Adapter cleanup shape — PASS with regression lock
-
-Current external adapter physical session cleanup lives in the returned BuildResult cleanup rather than an ordinary backend `Close` hook. This makes the selected lease model viable.
-
-Implementation must add a characterization/architecture test so future external adapter lifecycle hooks cannot silently create a physical-cleanup bypass around the pool.
-
-### Concurrency state machine — PASS
-
-The proposed pending-entry protocol avoids a subtle refcount race that a naive `singleflight.Do` result handoff can create: the first caller cannot close a just-built resource before waiters have formally acquired it.
-
-No physical build/cleanup under the mutex, exact-incarnation invalidation, cancellation-safe waiting, and close/pending-builder synchronization are appropriate.
-
-### Failure caching — PASS
-
-Failed physical build is not permanently cached. This preserves current retry-on-later-attempt behavior and avoids introducing hidden negative-cache policy.
-
-### No idle cache — PASS
-
-Closing on final generation lease keeps the scope tightly aligned with reload overlap. TTL/eviction/process-pressure policy would be speculative and materially increase operational complexity.
-
-### Backend-plugin ABI/security — PASS
-
-The design changes no public ABI and retains verified artifact binding, secure local IPC, peer auth before Configure/secrets, environment restrictions and process-tree cleanup. The pool does not parse provider-specific YAML.
+Verified artifact binding, secure IPC, peer authentication before Configure/secrets, environment restrictions, process-tree cleanup, and current backend-plugin ABI remain unchanged.
 
 ### ROI gate — PASS
 
-Deterministic operation counts are a stronger primary gate than wall-clock thresholds. The 100-enabled-connector harness directly proves whether the expensive O(N) activation/configure wave exists and whether implementation removes it. Benchstat remains supporting evidence.
-
-## Requirements Correction Applied
-
-The design review required three safety clauses, all now present before task generation:
-
-1. **Query-only candidate reuse:** Requirements 5.9–5.10 prohibit Configure/Start/Stop/Close/mutating preparation on a reused physical connector while allowing query-shaped Resolve/ListModels access.
-2. **Fail-closed future lifecycle:** Requirement 5.11 requires isolated construction if future candidate preparation needs a mutating connector lifecycle action.
-3. **Shared metadata concurrency evidence:** Requirements 8.9 and 9.9 require overlapping-generation race/conformance coverage and lock out a generation-owned physical cleanup bypass.
-
-No design rewrite was required because `design.md` already expressed these constraints; the validation correction made them normative.
+Deterministic 100-enabled-connector work counts remain the primary justification. Supporting evidence now also records the standard Session cross-generation execution-scheduling tradeoff so the optimization is evaluated as a whole.
 
 ## Design-to-Requirement Trace
 
 | Requirement | Design coverage |
 |---|---|
-| R1 scale evidence | 100-instance count harness, mixed-K matrix, supporting benchmarks |
-| R2 narrow boundary | discovered per-instance only; private pool above processhost |
-| R3 physical identity | explicit configure-input identity and fail-closed DTO drift gate |
-| R4 lease contract | pending/live entries, per-generation lease release, final physical cleanup |
-| R5 generation semantics | unchanged/changed/remove/rollback flows; derived state stays generation-local; query-only candidate reuse |
-| R6 incarnation invalidation | exact entry token, detach, fresh same-key incarnation, no live substitution |
-| R7 cleanup/shutdown | pool-before-host/artifacts/staging, one physical cleanup owner |
-| R8 non-interference | no request path lookup, ABI/security/routing/billing unchanged, query-only candidate rule |
-| R9 TDD/architecture | RED identity/pool/scale tests, race/goleak, adapter lifecycle and anti-container gates |
+| R1 scale evidence | high-cardinality reload count matrix and re-scope gate |
+| R2 narrow boundary | discovered overlap-safe per-instance only; pool above processhost |
+| R3 identity | complete private key, startup-fixed/reload-varying split, drift gate |
+| R4 Acquire/Close | pre-reserved claims, pool-owned builder, linearized Close, no late publish |
+| R5 generation semantics | immutable projections, changed/remove/rollback, query-only candidate reuse |
+| R6 invalidation | exact incarnation, detached process ownership, fresh replacement |
+| R7 cleanup/shutdown | entry-level cleanup once; pool -> host -> artifacts -> staging |
+| R8 concurrency/non-interference | preserve Session contract; characterize cross-generation serialization |
+| R9 TDD/architecture | scheduling/race/blocked-builder/ownership/identity/ROI gates |
 
 ## Simplification Review
 
-The design deliberately rejects the following tempting expansions:
+The hardened design still rejects:
 
-1. **No generic resource manager.** One connector-specific private pool is enough.
-2. **No processhost generation awareness.** The host remains a physical supervisor.
-3. **No `BackendStateIdentity` semantic overloading.** Observation-state compatibility remains independent.
-4. **No idle cache.** Reuse exists only while generations overlap.
-5. **No public feature flag.** Unsafe resources fall back rather than exposing lifecycle internals.
-6. **No shared model registry.** Generation consistency remains coarse-grained where it provides value.
-7. **No dynamic plugin reconciliation.** Startup-fixed trust/discovery remains unchanged.
-8. **No Cordis requires/provides graph or fibers.** There is no current service-dependency problem requiring them.
+1. generic resource manager/container;
+2. processhost generation awareness;
+3. overloading `BackendStateIdentity`;
+4. idle TTL cache;
+5. public feature/concurrency flags;
+6. shared model registry;
+7. dynamic plugin reconciliation;
+8. Cordis requires/provides graph/fibers;
+9. Session concurrency redesign.
+
+The new `owned` entry set, builder cancellation root, and entry cleanup-once are accepted because they close concrete correctness holes introduced by resource sharing; they are not general-purpose framework concepts.
 
 ## Implementation Risks to Pin With Tests
 
-- a Configure-time DTO field added without identity treatment;
-- two candidate builders constructing the same absent identity twice;
-- a candidate rollback closing the active generation's resource;
-- final release racing a new Acquire and handing out a closing entry;
-- old incarnation invalidation deleting a newer incarnation;
-- pool Close returning while a pending builder can still publish/use a closing host;
-- external adapter gaining `Close`/Start/Stop semantics that bypass lease cleanup;
-- dynamic inventory refresh races across overlapping generations;
-- changed config/artifact/secret/policy incorrectly hitting reuse;
-- removed backend closing before retained old generation drains;
-- pool shutdown running after host/artifact teardown;
-- request execution accidentally consulting the pool;
-- architecture growing into a generic registry/container.
+- waiter reserved too late and resource reaches zero before handoff;
+- invalidated detached entry disappears from process shutdown ownership;
+- final release and Pool.Close double-run session/host cleanup;
+- Close waits forever for a builder using the wrong lifetime context;
+- builder publishes after Close linearizes;
+- Acquire hands out a resource after fail-safe cleanup begins;
+- stale invalidation detaches a replacement incarnation;
+- physical identity omits a Configure/launch input;
+- startup-fixed identity dimension is accidentally treated as hot reload without redesign;
+- candidate rollback mutates/invalidates last-good shared resource;
+- standard Session cross-generation Execute serialization causes hidden deadlock/cancellation regression;
+- metadata/Count/Finalize overlap exposes connector race;
+- pool begins duplicating processhost or appears in request/public surfaces.
 
 ## Final Gate
 
-**GO.** Requirements, design, and brownfield validation are aligned. Task decomposition may proceed under the explicit evidence-first and query-only candidate-reuse gates; no further architecture correction is required before implementation.
+**GO.** All technically valid CodeRabbit lifecycle/concurrency findings are now represented in normative requirements, design mechanics, and TDD tasks. The identity-matrix suggestion was adopted with a brownfield correction: startup-fixed inputs receive focused identity/construction coverage rather than fictional hot-reload scenarios.
+
+Implementation remains approval-gated by `spec.json`. The implementation must still pass the deterministic scale gate and may be re-scoped if the existing standard Session execution-serialization tradeoff erodes the expected operational ROI.

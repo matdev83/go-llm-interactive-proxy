@@ -2,240 +2,250 @@
 
 ## Execution Rules
 
-- Follow TDD: characterization/RED tests and contract gates precede production behavior changes.
-- Keep every task independently reviewable and limited to at most five concrete actions.
-- Preserve existing public APIs, backend-plugin ABI, configuration schema, immutable generation model, `ResourceLedger`, and `processhost` ownership.
-- Prefer deletion/replacement of old per-generation physical-cleanup plumbing at the touched seam over layering a second cleanup path.
-- Do not broaden scope to built-in backends, `shared_artifact`, generic resource management, dynamic discovery, or request-time lookup.
+- Follow TDD: characterization/RED tests and contract gates precede production reuse.
+- Keep every task independently reviewable with no more than five concrete actions.
+- Preserve public APIs, backend-plugin ABI, configuration schema, immutable generations, `ResourceLedger`, `ProcessServices`, and `processhost.Host` supervision.
+- Prefer replacing the touched per-generation physical-cleanup path with lease cleanup rather than layering a competing ownership path.
+- Do not broaden scope to builtins, `shared_artifact`, generic resource management, dynamic discovery, Session concurrency redesign, or request-time lookup.
 
-## Phase 1 — Establish Scale, Identity, and Lifetime RED Gates
+## Phase 1 — Freeze Scale, Identity, Lifetime, and Concurrency Contracts
 
-### Task 1.1 — Build the high-cardinality executable-connector reload harness
+### Task 1.1 — Build the high-cardinality reload characterization harness
 
-- Add a deterministic runtimebundle test fixture with at least 100 enabled synthetic discovered `per_instance` connector instances, unique logical IDs/prefixes, and no external credentials.
-- Instrument physical factory/build, processhost activation/launch, Configure, physical cleanup, and later lease acquire/release counts without changing production behavior.
-- Characterize the current unrelated-material-reload baseline: unchanged enabled connector rows are physically reconstructed for the candidate while the old generation remains retained.
-- Add RED target assertions for unchanged reload (`0` new physical builds/activations/configures) and mixed reload (`K` changed identities -> `K` physical replacements).
-- Add/extend a focused benchmark fixture for candidate compilation at representative connector cardinalities without using wall-clock thresholds as correctness assertions.
+- Add a deterministic runtimebundle fixture with at least 100 enabled synthetic discovered `per_instance` connector instances and no external credentials.
+- Count physical build/factory invocation, processhost Activate/launch, Configure, physical cleanup, and later lease acquire/release operations.
+- Characterize the current unrelated-material-reload baseline while the old generation remains retained.
+- Add RED target assertions for unchanged reload (`0` new physical builds/activations/Configure) and config-changed reload (`K` changed identities -> `K` physical replacements).
+- Add a supporting candidate-compilation benchmark without wall-clock correctness thresholds.
 
-_Requirements: 1.1–1.7, 2.2, 9.1, 9.3_
+_Requirements: 1.1–1.7, 2.2, 9.1, 9.4_
 
-_Validation: current production behavior is characterized deterministically; target reuse assertions are RED before implementation._
+_Validation: deterministic current O(N) reconstruction is recorded and target count assertions are RED._
 
-_Design: Scale and ROI Evidence Design; Deterministic 100-connector harness._
+### Task 1.2 — Lock complete physical identity and drift behavior with RED tests
 
-### Task 1.2 — Lock physical resource identity requirements with RED tests
+- Add table-driven identity tests for logical instance/factory, artifact digest, process model, opaque Configure bytes, normalized RuntimePolicy, and secret fingerprint.
+- Prove config/artifact/secret/policy differences cannot alias; prove `shared_artifact` is non-pooled fallback rather than a pooled replacement case.
+- Prove secret plaintext never appears in identity/debug/error/status output and `BackendStateIdentity` alone cannot authorize physical reuse.
+- Add a Configure/physical-input drift gate forcing intentional identity treatment when DTO/input shape changes.
+- Keep reload-varying and startup-fixed evidence distinct so tests do not imply unsupported hot artifact/policy/process-model reload.
 
-- Add table-driven RED tests proving identity equality only when logical instance, factory, artifact digest, process model, opaque Configure bytes, effective runtime policy, and secret fingerprint are compatible.
-- Prove config, artifact, credential/secret, and runtime-policy changes produce distinct identities while secret plaintext never appears in identity string/debug/error output.
-- Add a contract gate that forces deliberate identity treatment when the external configure-time physical input/`RuntimePolicy` surface changes.
-- Prove `BackendStateIdentity` compatibility alone cannot authorize physical connector reuse.
-- Add fallback tests for an input explicitly marked non-shareable/incompletely representable.
+_Requirements: 3.1–3.12, 8.1, 8.10, 9.4–9.5_
 
-_Requirements: 3.1–3.11, 8.1, 8.7, 9.1, 9.4_
+_Validation: focused identity/construction tests are RED and fail closed on omitted input treatment._
 
-_Validation: identity tests fail before the new private identity builder exists and protect DTO drift._
+### Task 1.3 — Freeze reserved-claim and entry-ownership state machine with RED tests
 
-_Design: Physical Resource Identity; DTO Drift Gate; Fail-Closed Eligibility._
+- Add first/live/concurrent Acquire tests where every building-entry waiter reserves its prospective claim before waiting; include a deterministic first-release-before-waiter-wake schedule.
+- Add cancellation/failure tests proving waiter cancellation drops only its claim, failed builds are not negative-cached, and a later Acquire can retry.
+- Add invalidation tests proving exact-incarnation detach, detached entry retention in process ownership, fresh same-key replacement, and stale invalidation safety.
+- Add final Release versus new Acquire and final Release versus Pool.Close races, requiring one entry-level physical cleanup outcome.
+- Add an invalidation + outstanding old-generation lease + Pool.Close test proving detached residual entries are enumerated and fail-safe cleaned.
 
-### Task 1.3 — Specify the lease/refcount/incarnation state machine with RED tests
+_Requirements: 4.1–4.4, 4.8–4.11, 6.1–6.8, 7.1–7.3, 7.7, 9.1–9.2, 9.7_
 
-- Add RED tests for first Acquire, reuse Acquire, independent idempotent releases, and physical cleanup only on final release with no idle retention.
-- Add concurrent absent-Acquire tests proving one physical build and one current incarnation with multiple leases; include waiter cancellation without canceling another caller's build.
-- Add invalidation tests proving exact-incarnation detach, fresh same-semantic-key rebuild, and stale old-incarnation invalidation cannot evict the replacement.
-- Add races for final Release versus new Acquire and pool Close versus a pending physical build; no caller may receive a closing/invalid entry.
-- Add failed-build tests proving no permanent negative cache, no leaked ref/entry, and successful later retry.
+_Validation: tests are RED against the absent pool and pin zero-ref handoff/detached/double-cleanup races._
 
-_Requirements: 4.1–4.10, 6.1–6.8, 7.5, 7.8, 9.1–9.2_
+### Task 1.4 — Freeze Acquire/Close linearization and builder lifetime with RED tests
 
-_Validation: state-machine tests are RED against the absent pool and define exactly-once cleanup/concurrency behavior._
+- Add a terminal Close linearization test proving no new claim can be reserved and no pending build result can be handed off after `closing=true` linearizes.
+- Add a physical builder that blocks until its **pool-owned** context is canceled; Pool.Close must cancel it, join it, and prevent late publication before returning.
+- Add concurrent Close/Acquire/build-completion schedules proving residual cleanup starts only after builders and acquisition handoffs terminate.
+- Prove a successful physical result arriving after Close begins is cleaned exactly once rather than published as reusable.
+- Add goleak/race coverage for canceled waiters, pending builders, Close, and late completion.
 
-_Design: Resource Pool State Machine; Concurrency Design; Invalidation and Incarnations._
+_Requirements: 4.5–4.7, 7.5, 7.7, 7.9, 9.1–9.3, 9.6_
 
-### Task 1.4 — Lock candidate isolation and process teardown ordering with RED tests
+_Validation: shutdown-race tests are RED and define the pool's terminal linearization contract._
 
-- Add a candidate-rollback test where active and candidate generations share one synthetic physical resource; rollback must release only the candidate lease and leave active execution/query behavior available.
-- Add an external-adapter characterization gate proving a pooled backend has no generation-owned physical `Close`/`Start`/`Stop` bypass around lease cleanup.
-- Add overlapping-generation `Resolve`/`ListModels` metadata access coverage under race instrumentation while keeping model-registry/runtime projections generation-local.
-- Add ProcessServices/bootstrap ownership-order tests requiring pool close before processhost, artifacts, and staging on success and partial startup failure.
-- Add a non-shareable fallback test for any candidate path that requires mutating Configure/Start/Stop/Close/preflight preparation on an existing physical connector.
+### Task 1.5 — Freeze cleanup handoff, candidate isolation, and standard Session concurrency
 
-_Requirements: 2.8–2.9, 5.4–5.11, 7.1–7.9, 8.2, 8.8–8.9, 9.9_
+- Add an ownership test counting adapter/session cleanup, `ActivateResult.Cleanup`/host instance cleanup, pool cleanup, and later `Host.Close`, proving one physical resource is not torn down twice.
+- Add candidate rollback with active+candidate sharing: rollback releases only the candidate claim and leaves active execution/query behavior available.
+- Add a characterization gate proving pooled external backend values expose no generation-owned physical Close/Start/Stop bypass and reuse-hit preparation is query-only.
+- Add standard-host overlapping-generation race/conformance for Resolve/ListModels/CountTokens/FinalizeBilling alongside execution.
+- Add a retained-old-generation Execute + new-generation Execute test that explicitly observes existing `Session.Execute` serialization without changing it, plus process teardown order pool -> host -> artifacts -> staging.
 
-_Validation: RED tests capture the last-good isolation boundary and exact pool → host → artifacts → staging dependency order._
+_Requirements: 5.4–5.11, 7.1–7.10, 8.2–8.5, 8.11, 9.6–9.7, 9.10_
 
-_Design: Candidate Preparation and Last-Good Isolation; Process Shutdown; No cleanup bypass._
+_Validation: last-good isolation, cleanup ownership, established Session concurrency, and teardown-order assertions are RED._
 
 ## Phase 2 — Implement the Minimal Private Identity and Reconciliation Owner
 
-### Task 2.1 — Implement explicit fail-closed physical resource identity
+### Task 2.1 — Implement explicit fail-closed physical identity
 
-- Add one package-private identity builder at the discovered physical construction/configure choke point using domain-separated, length-framed SHA-256 input.
-- Canonically project every current `RuntimePolicy` field and deterministic opaque Configure bytes; fingerprint any non-empty `SecretBundle` with sorted, length-framed names/values without retaining plaintext.
-- Include logical instance/factory identity, exact verified artifact digest, and process model; document any process-stable omitted input protected by tests.
-- Return a shareability decision so incomplete/unsupported identity input falls back to current physical construction rather than producing an unsafe key.
-- Make all Task 1.2 identity and privacy/DTO-drift tests green without adding production reflection or a public identity type.
+- Add one package-private identity builder at the discovered physical construction/configure choke point using domain-separated, length-framed SHA-256 inputs.
+- Explicitly project every RuntimePolicy field and deterministic opaque Configure bytes; hash sorted length-framed secret names/values without retaining plaintext.
+- Include logical instance/factory, exact artifact digest and process model; document startup-fixed inputs while still treating them in focused identity tests.
+- Return an explicit shareability decision so incomplete/unsupported input uses current isolated construction.
+- Make Task 1.2 identity/privacy/drift tests green without production reflection or a public identity type.
 
-_Requirements: 3.1–3.11, 8.1, 8.7_
+_Requirements: 3.1–3.12, 8.1, 8.10_
 
-_Validation: focused identity tests green; secret leak scans/errors contain no raw secret material._
+_Validation: focused identity tests green and no secret/raw identity leakage exists._
 
-_Design: Physical Resource Identity; Canonical Fingerprinting._
+### Task 2.2 — Implement reserved-claim entries and exactly-once physical cleanup
 
-### Task 2.2 — Implement the connector-specific resource pool and lease state machine
+- Add a package-private entry model with building/live/detached/failed state, exact incarnation token, pre-reserved claims, readiness signaling, and current semantic indexing.
+- Add a process-owned set of every successful physical entry until its entry-level cleanup-once completes, including invalidated/detached entries.
+- Make every generation lease release idempotently drop one claim; only final normal release detaches current and invokes the entry-level cleanup-once operation.
+- Store physical cleanup only on the entry and use the same cleanup-once path for final release and process fail-safe shutdown.
+- Make Task 1.3 tests green without performing physical cleanup while holding the pool mutex.
 
-- Add one package-private `backendResourcePool`/entry/lease implementation with pending/live/detached state, exact physical incarnation tokens, refcounts, and a closing state.
-- Serialize same-identity physical construction without holding the pool mutex across build/configure; make canceled waiters independent of the builder/other dependents.
-- Return the immutable backend value plus a fresh idempotent generation lease-release cleanup; retain physical cleanup only on the entry and run it exactly once after final release.
-- Implement exact-incarnation invalidation/detach and no-negative-cache build failure semantics, with all physical cleanup outside the lock.
-- Implement idempotent Close that rejects new Acquire, joins pending builders, and fail-safe cleans residual entries before returning.
+_Requirements: 4.1–4.4, 4.8–4.11, 6.1–6.8, 7.1–7.3, 7.7_
 
-_Requirements: 4.1–4.10, 6.1–6.8, 7.5, 7.8_
+_Validation: reserved-claim, detached ownership, invalidation and cleanup-race tests green under `-race`._
 
-_Validation: Task 1.3 tests green under normal and race execution; no physical operation executes while pool mutex is held._
+### Task 2.3 — Implement pool-owned physical builders and terminal Close
 
-_Design: Private Types; Resource Pool State Machine; Concurrency Design._
+- Create one pool-owned cancellable build root; absent identity starts exactly one joined builder goroutine and all callers wait as claimants rather than owning the build.
+- Pass pool builder context through pooled `processhost.Activate`/Configure instead of a background lifetime; caller cancellation abandons only that caller's reservation.
+- Implement Close linearization under the pool mutex, reject later Acquires, cancel builders, then wait builders and acquisition handoffs before residual cleanup.
+- Prevent a build completion after Close from publishing/handoff; clean any completed physical result through the entry cleanup-once path.
+- Make Task 1.4 blocked-builder/linearization/goleak/race tests green.
 
-### Task 2.3 — Transfer pool ownership through the existing process construction path
+_Requirements: 4.5–4.8, 7.5, 7.7, 7.9_
 
-- Create the pool beside `processhost.Host` during discovered-install preparation and make eligible discovered factory closures capture it directly without global lookup/setter wiring.
-- Extend the private discovered-install/process-build ownership bundle so pool lifetime transfers into `ProcessServices` while direct test/install paths can remain explicit and non-global.
-- Register process cleanup so reverse shutdown orders pool before processhost, verified artifacts, and staging; preserve existing ordering of unrelated ProcessServices resources.
-- Mirror the same dependency order on every pre-transfer/bootstrap failure path and prevent double cleanup after successful ownership transfer.
-- Keep the pool connector-specific/package-private and make Task 1.4 process ownership-order tests green.
+_Validation: no builder can outlive Pool.Close or publish after its terminal boundary._
 
-_Requirements: 2.1, 2.6–2.9, 7.2–7.6, 7.9_
+### Task 2.4 — Transfer pool ownership through existing process construction
 
-_Validation: ownership tests prove exactly-once transfer and pool → host → artifacts → staging teardown on success/failure._
+- Create the pool beside `processhost.Host` during discovered-install preparation and capture it lexically in eligible discovered factory closures.
+- Extend the private install/process-build ownership bundle so pool lifetime transfers into `ProcessServices` without global/setter lookup.
+- Register cleanup in existing process ownership so reverse shutdown is pool -> host -> verified artifacts -> staging while preserving unrelated ProcessServices ordering.
+- Mirror the same relative cleanup order on every pre-transfer/bootstrap failure and prevent double cleanup after ownership transfer.
+- Keep pool API connector-specific/package-private and make Task 1.5 teardown/ownership tests green.
 
-_Design: Construction and Ownership Timing; Process Shutdown._
+_Requirements: 2.1, 2.6–2.9, 7.3–7.10_
 
-## Phase 3 — Integrate Reuse Into Discovered `per_instance` Generation Construction
+_Validation: success and partial-startup ownership transfer is exactly once and dependency ordered._
 
-### Task 3.1 — Split physical construction from lease acquisition at the discovered factory seam
+## Phase 3 — Integrate Reuse at the Discovered `per_instance` Factory Seam
 
-- Refactor the existing discovered backend builder into a narrow preparation/identity step plus the current physical Activate/Configure/adapter-build path without provider-specific branches.
-- Preserve unique host activation IDs for every **new** `per_instance` physical incarnation; do not change `processhost.OwnershipKey` or host instance semantics.
-- Route only eligible discovered overlap-safe `per_instance` resources through pool Acquire; leave builtins, `shared_artifact`, and non-shareable resources on current generation-local construction.
-- Make pool hits return the existing backend functional value plus lease cleanup, while pool misses consume the underlying physical cleanup as entry ownership.
-- Keep `buildBackends`/`ResourceLedger` as the generation cleanup transfer authority and make unchanged/mixed high-cardinality RED assertions green.
+### Task 3.1 — Split preparation, physical construction, and lease acquisition
 
-_Requirements: 1.4–1.5, 2.2–2.7, 4.2–4.10, 5.1–5.8_
+- Refactor discovered backend construction into effective input/identity preparation, the current physical Activate/Configure/adapter build, and pool Acquire without provider-specific branches.
+- Preserve unique host activation IDs for every **new** per-instance physical incarnation and leave processhost ownership keys unchanged.
+- Route only eligible overlap-safe discovered `per_instance` resources through the pool; builtins, `shared_artifact`, and non-shareable resources keep current construction.
+- On a pool miss, consume the current composite adapter/session + activation cleanup into the entry; on a hit, return existing backend functions plus a fresh lease release.
+- Keep `buildBackends`/`ResourceLedger` as the generation cleanup transfer authority and make unchanged/config-mixed count tests green.
 
-_Validation: unchanged eligible reload performs zero physical reconstruction; K changed identities produce exactly K new physical builds._
+_Requirements: 1.4–1.5, 2.2–2.7, 4.2, 4.9–4.11, 7.1–7.3_
 
-_Design: Physical Construction Integration; Current path retained as the builder; Pool return shape._
+_Validation: unchanged reload performs zero physical reconstruction; K changed configs produce K physical builds._
 
-### Task 3.2 — Bind processhost failure invalidation to exact pooled incarnations
+### Task 3.2 — Bind invalidation to exact pooled incarnation
 
-- Wrap the existing adapter invalidation callback for newly built pooled resources so it first detaches the exact pool incarnation from future reuse and then delegates to `processhost.InvalidateProcessGeneration`.
-- Preserve existing processhost physical reap/recovery behavior and existing cleanup-error normalization after an invalidated process is already gone.
-- Ensure invalidation does not decrement generation leases or live-substitute a replacement under an existing generation.
-- Prove a later same-config candidate builds one fresh physical incarnation and that an old delayed callback cannot invalidate the new incarnation.
-- Keep non-pooled and `shared_artifact` invalidation behavior byte-for-byte/semantically equivalent to current behavior.
+- Wrap newly built pooled adapter invalidation so it detaches only the exact pool entry/incarnation before/atomically with delegating to `processhost.InvalidateProcessGeneration`.
+- Preserve processhost physical reap/recovery and cleanup normalization; invalidation does not decrement generation claims or live-substitute a replacement.
+- Keep detached invalidated entry in the pool's process ownership set until entry cleanup completes.
+- Prove later same-config Acquire builds one fresh incarnation and old delayed callbacks cannot detach it.
+- Keep non-pooled and `shared_artifact` invalidation behavior unchanged.
 
-_Requirements: 6.1–6.8, 7.7, 8.3, 8.5_
+_Requirements: 6.1–6.8, 7.3, 8.7, 8.9_
 
-_Validation: invalidation/restart tests green; current processhost invalidation tests remain green._
+_Validation: invalidation/replacement tests green and existing processhost invalidation suites remain green._
 
-_Design: Invalidation flow; No live substitution._
+### Task 3.3 — Preserve generation-local state and query-only candidate behavior
 
-### Task 3.3 — Preserve generation-local model/routing/policy composition on reuse hits
+- Continue building new generation-local inventories, model registry/catalog, executor/routing/policy/billing views, handler, lifecycle context, and `ResourceLedger` from leased backends.
+- Ensure a reuse hit performs no Configure/Start/Stop/Close/mutating preflight and candidate rollback never invalidates because the candidate failed.
+- Verify changed same-ID config, remove/disable, retained old stream/async work, and candidate failure retain current semantics.
+- Verify standard-host metadata/auxiliary overlap across generations under race/conformance while preserving existing Session lifecycle locking.
+- Keep canonical request/event, routing, failover, streaming, cancellation, accounting, billing and token-counting code paths unchanged.
 
-- Keep building a new generation-local `BackendInventory` slice, model-registry runtime, model/catalog snapshot, executor/routing/policy views, HTTP handler, generation lifecycle context, and `ResourceLedger` from leased backends.
-- Verify unchanged pooled resources can serve overlapping generations' metadata queries/executions without moving refresh loops or model state into the pool.
-- Verify changed same-ID, remove/disable, retained old stream/async work, and candidate-failure rollback retain the exact current behavioral contracts.
-- Ensure candidate reuse hits perform no Configure/Start/Stop/Close/mutating preflight on the physical resource; automatically bypass reuse if that condition is not satisfied.
-- Keep all canonical request/event, streaming, failover, cancellation, accounting, billing and token-counting code paths unchanged.
+_Requirements: 5.1–5.11, 8.4, 8.6–8.11_
 
-_Requirements: 5.1–5.11, 8.2–8.9, 9.9_
-
-_Validation: existing backend recomposition/no-drop tests plus new query-only/cross-generation tests green._
-
-_Design: Generation-Local Derived State; Candidate Preparation and Last-Good Isolation._
+_Validation: backend recomposition/no-drop suites plus query-only/cross-generation tests green._
 
 ### Task 3.4 — Add architecture fences against scope creep and cleanup bypass
 
-- Add architecture tests proving the pool remains private to runtime composition and is not imported/reached from request execution, public SDKs, connectors, or provider-specific packages.
-- Reject generic service/container vocabulary or a reusable keyed runtime registry API introduced to support this feature.
-- Lock `processhost.Host` as the only physical process/IPC supervisor and reject duplicate launch/peer/process-tree logic in the pool.
-- Lock pooled external backend lifecycle so generation cleanup is a lease release rather than an alternate physical `Close`/Start/Stop path.
-- Assert no public YAML/manifest/ABI option is added for this internal optimization.
+- Prove the pool remains private to runtime composition and is absent from request execution, public SDKs, provider-specific packages, and connector authoring APIs.
+- Reject generic service/container/keyed runtime registry APIs introduced for this feature.
+- Lock `processhost.Host` as the only process/IPC supervisor; the pool may call existing cleanup/invalidation seams but not duplicate supervision logic.
+- Lock generation cleanup to lease release for pooled resources and reject alternate physical lifecycle hooks bypassing entry ownership.
+- Assert no public YAML/manifest/ABI/concurrency option was added for reconciliation.
 
-_Requirements: 2.1, 2.5–2.9, 4.9–4.10, 8.3–8.5, 9.6, 9.9_
+_Requirements: 2.1, 2.5–2.9, 4.10–4.11, 7.3, 8.2, 8.8–8.10, 9.8_
 
-_Validation: architecture gates fail on representative forbidden fixtures and pass the intended private design._
+_Validation: representative forbidden architecture fixtures fail and intended private design passes._
 
-_Design: Boundary Commitments; Rejected Alternatives; No cleanup bypass._
+## Phase 4 — Certify ROI, Identity, Concurrency, and Simplicity
 
-## Phase 4 — Prove ROI, Correctness, and Final Simplicity
+### Task 4.1 — Certify the high-cardinality generation-reload matrix
 
-### Task 4.1 — Certify the high-cardinality reconciliation matrix
+- Run the 100-enabled-connector fixture for unchanged, one/K config changes, remove/disable, candidate rollback, and invalidation-then-rebuild.
+- Assert physical build/Activate/Configure counts are `0` for unchanged reuse and proportional only to changed/unusable identities.
+- Assert physical live-resource overlap avoids duplicating unchanged connectors and candidate rollback of reuse hits performs no physical cleanup of active resources.
+- Assert candidate-only new resources clean on rollback/final release and invalidated entries can be fail-safe cleaned at process shutdown.
+- Record deterministic before/after counts as implementation/PR evidence.
 
-- Run the 100-enabled-connector harness for unchanged, one-changed, K-changed, remove/disable, candidate rollback, and one-invalidated-then-rebuild scenarios.
-- Assert physical build/activation/Configure counts are `0` for unchanged reuse hits and proportional only to changed/unusable identities.
-- Assert peak synthetic physical live-resource count follows active resources plus changed candidate replacements rather than duplicating every unchanged connector.
-- Assert candidate rollback of reuse hits performs no physical cleanup of resources retained by the active generation and newly built candidate-only resources close at final release.
-- Record the deterministic before/after operation-count evidence in implementation/PR evidence.
+_Requirements: 1.1–1.7, 4.9, 5.2–5.5, 6.4–6.6, 7.5_
 
-_Requirements: 1.1–1.7, 4.5–4.7, 5.2–5.5, 6.3, 7.1_
+_Validation: structural O(N) physical build -> O(K) physical build claim is green without timing thresholds._
 
-_Validation: all count-based ROI/correctness gates green independent of wall-clock variance._
+### Task 4.2 — Certify the focused physical identity/construction matrix
 
-_Design: Required scenarios; Design Success Criteria 1–5._
+- Exercise distinct artifact digests, secret fingerprints, normalized RuntimePolicy values, factory/logical IDs, and process models directly at the physical identity/construction seam.
+- Prove each eligible identity difference misses the existing pool entry and creates a fresh resource when construction is otherwise shareable.
+- Prove `shared_artifact`/other non-eligible process model uses existing non-pooled/restart-required behavior rather than a pooled replacement.
+- Verify no startup-fixed field is falsely documented/tested as current SIGHUP hot-reload support.
+- Re-run the DTO/input drift gate against the final production identity projection.
 
-### Task 4.2 — Run concurrency, leak, security, conformance, and reload regression gates
+_Requirements: 3.1–3.12, 9.4–9.5_
 
-- Run focused `-race` coverage for pool Acquire/Release/Invalidate/Close plus overlapping generation metadata/execution paths and run goleak coverage for pending-builder/shutdown cases.
-- Run processhost activation/cleanup/invalidation and executable backend-plugin security/conformance suites on supported local/CI profiles.
-- Run runtimebundle ResourceLedger, backend recomposition, discovered overlap/restart-required, candidate rollback, generation retention, and reload no-drop/last-good tests.
-- Run repository formatting, vet/lint/quality checks and existing architecture boundaries; fix root causes without weakening assertions or skips.
-- Verify no secret/config digest/raw YAML leakage was added to logs, metrics, statuses, errors, or public DTOs.
+_Validation: all physical identity dimensions are covered without inventing unsupported reload behavior._
 
-_Requirements: 7.7–7.8, 8.3–8.9, 9.2–9.7, 9.9_
+### Task 4.3 — Run race, leak, security, conformance, and reload regression gates
 
-_Validation: race/goleak/security/conformance/reload/quality suites green; no weakened existing gate._
+- Run targeted `-race`/goleak for reserved claims, Acquire/Close/build cancellation, invalidation, entry cleanup, and overlapping standard-host operations.
+- Run processhost activation/cleanup/invalidation and executable backend-plugin security/conformance suites.
+- Run ResourceLedger, backend recomposition, discovered overlap/restart-required, candidate rollback, retained-generation, and reload last-good/no-drop suites.
+- Run repository formatting/vet/lint/architecture gates without weakening assertions/skips.
+- Verify secret/config identity data and opaque YAML do not leak to logs, metrics, errors, statuses or public DTOs.
 
-_Design: Testing Strategy; Risks & Mitigations._
+_Requirements: 7.7–7.10, 8.4–8.10, 9.1–9.9_
 
-### Task 4.3 — Record supporting benchmark evidence without overclaiming request performance
+_Validation: concurrency/security/reload/repository gates green._
 
-- Run the high-cardinality candidate compilation benchmark before/after with stable fixture inputs and use benchstat when comparable samples are available.
-- Report candidate build time/allocations and available synthetic/native process-launch/resource observations, clearly separating deterministic counts from noisy platform metrics.
-- Confirm normal request execution benchmarks show no new pool lookup/lock and no material regression attributable to the feature.
+### Task 4.4 — Record performance and Session overlap evidence
+
+- Run comparable high-cardinality candidate-build benchmarks and report timing/allocations separately from deterministic work counts.
+- Deterministically hold a retained old-generation Execute and start a new-generation Execute on the same pooled standard Session; record the existing serialization behavior and cancellation/close outcome.
+- Confirm normal request execution adds no pool lookup/lock and no material regression attributable to reconciliation.
 - Document that the claimed gain is reload physical-resource churn/peak overlap reduction, not inference throughput or token latency.
-- Keep timing data informational unless a stable repository performance budget already governs the measured path.
+- Re-scope pooled configured-session reuse if the established cross-generation Execute serialization is operationally unacceptable for intended long-lived-stream workloads; do not redesign Session concurrency in this spec.
 
-_Requirements: 1.2, 1.6, 8.4_
+_Requirements: 1.6–1.7, 8.2–8.3, 8.8, 8.11, 9.10_
 
-_Validation: evidence supports O(N physical build) → O(K physical build) structural claim without unstable timing gates._
+_Validation: ROI evidence includes both lifecycle savings and the real overlap-scheduling tradeoff._
 
-_Design: Supporting benchmark evidence; Scale and ROI Evidence Design._
+### Task 4.5 — Perform final simplification and authority audit
 
-### Task 4.4 — Perform the final simplification and scope gate
+- Remove duplicate ownership stacks, generic wrappers, public knobs, request-path coupling, or unused lifecycle abstractions from the implementation diff.
+- Confirm `ProcessServices`, `ResourceLedger`, `processhost.Host`, runtimehost generation refs, and unique activation IDs remain the same authorities.
+- Confirm builtins, `shared_artifact`, dynamic discovery, shared model registry, and host Session concurrency redesign remain outside scope.
+- Confirm every physical resource has one entry-level cleanup path and every generation owns only one lease release.
+- If count/behavior gates do not justify the added lifecycle machinery, revert/re-scope rather than ship speculative architecture.
 
-- Review production diff for duplicate ownership stacks, generic resource/container abstractions, unnecessary wrappers, public knobs, or request-path coupling and remove them.
-- Confirm builtins, `shared_artifact`, discovery/watchers, model-registry sharing, and dynamic plugin lifecycle remain outside scope.
-- Confirm `ProcessServices`, `ResourceLedger`, `processhost.Host`, runtimehost generation leases, and unique host activation semantics remain the same authorities after the refactor.
-- Compare implementation complexity against deterministic scale evidence; if the count target is not met or the design requires broad runtime machinery, revert/re-scope instead of shipping speculative infrastructure.
-- Update implementation evidence/docs only where needed to describe the internal optimization and its preserved operational semantics.
+_Requirements: 1.7, 2.1–2.9, 7.1–7.10, 9.8–9.10_
 
-_Requirements: 1.7, 2.1–2.9, 5.6–5.7, 8.3–8.6, 9.6–9.8_
-
-_Validation: final diff is narrowly connector-lifecycle focused, evidence-backed, and contains no new general runtime concept._
-
-_Design: Simplification Review; Design Success Criteria._
+_Validation: final diff remains narrowly connector-lifecycle focused and evidence-backed._
 
 ## Requirement Coverage Matrix
 
 | Requirement | Primary tasks |
 |---|---|
-| R1 Evidence-first scale justification | 1.1, 3.1, 4.1, 4.3, 4.4 |
-| R2 Narrow eligibility/ownership boundary | 1.4, 2.3, 3.1, 3.4, 4.4 |
-| R3 Physical resource identity | 1.2, 2.1 |
-| R4 Acquire/lease contract | 1.3, 2.2, 3.1, 4.1 |
-| R5 Immutable generation semantics | 1.4, 3.1, 3.3, 4.1 |
-| R6 Invalidation/incarnations | 1.3, 2.2, 3.2, 4.1 |
-| R7 Cleanup/shutdown/errors | 1.4, 2.2, 2.3, 4.2 |
-| R8 Connector non-interference | 1.4, 2.1, 3.3, 3.4, 4.2–4.3 |
-| R9 TDD/concurrency/architecture gates | Phase 1, 3.4, 4.2, 4.4 |
+| R1 Evidence-first scale | 1.1, 3.1, 4.1, 4.4–4.5 |
+| R2 Narrow boundary | 1.5, 2.4, 3.1, 3.4, 4.5 |
+| R3 Physical identity | 1.2, 2.1, 4.2 |
+| R4 Acquire/Close/claims | 1.3–1.4, 2.2–2.3, 3.1 |
+| R5 Immutable generation/candidate | 1.5, 3.1, 3.3, 4.1 |
+| R6 Invalidation/detached ownership | 1.3, 2.2, 3.2, 4.1 |
+| R7 Cleanup/shutdown | 1.3–1.5, 2.2–2.4, 3.1, 4.3, 4.5 |
+| R8 Concurrency/non-interference | 1.5, 3.3–3.4, 4.3–4.4 |
+| R9 TDD/architecture | Phase 1, 3.4, Phase 4 |
+
+## Completion Gate
+
+Do not consider this specification implemented unless deterministic reconstruction counts meet the target **and** the hardened ownership/concurrency gates prove: reserved waiter claims, detached-entry shutdown ownership, terminal Acquire/Close linearization, pool-owned builder cancellation, entry-level exactly-once physical cleanup, candidate last-good isolation, and explicit preservation/measurement of standard Session operation concurrency.
