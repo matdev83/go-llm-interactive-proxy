@@ -88,14 +88,18 @@ func TestSnapshotCatalog_PutRejectsMutationAllowsReplay(t *testing.T) {
 			if err := c.SetDefaults(pricing.Ref, policy.Ref); err != nil {
 				t.Fatalf("SetDefaults: %v", err)
 			}
-			gotPricing, gotPolicy, gotRates, _, err := c.SnapshotsFor(catalogRecord(pricing.Ref, policy.Ref, catalogLeg("backend", "model", rates.Ref)))
+			got, err := c.CustomerRatingSnapshots(catalogCustomerCall(pricing.Ref, policy.Ref, catalogCustomerLeg("backend", "model")))
 			if err != nil {
-				t.Fatalf("SnapshotsFor after rejected mutation: %v", err)
+				t.Fatalf("CustomerRatingSnapshots after rejected mutation: %v", err)
 			}
-			assertPricingEqual(t, gotPricing, pricing)
-			assertPolicyEqual(t, gotPolicy, policy)
-			if len(gotRates) != 1 || !operatorRateEqual(gotRates[0], rates) {
-				t.Fatalf("operator rates = %+v, want original %+v", gotRates, rates)
+			assertPricingEqual(t, got.DefaultPricing, pricing)
+			assertPolicyEqual(t, got.Policy, policy)
+			gotRate, err := c.OperatorRate(rates.Ref)
+			if err != nil {
+				t.Fatalf("OperatorRate: %v", err)
+			}
+			if !operatorRateEqual(gotRate, rates) {
+				t.Fatalf("operator rate = %+v, want original %+v", gotRate, rates)
 			}
 		})
 	}
@@ -117,21 +121,20 @@ func TestSnapshotCatalog_PutSameIdentityDifferentFetchedAtIsReplay(t *testing.T)
 		t.Fatalf("timestamp-only replay: %v", err)
 	}
 	policy := catalogPolicy()
-	rates := catalogOperatorRate()
 	if err := c.PutPolicy(policy); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.PutOperatorRate(rates); err != nil {
+	if err := c.PutOperatorRate(catalogOperatorRate()); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.SetDefaults(pricing.Ref, policy.Ref); err != nil {
 		t.Fatal(err)
 	}
-	got, _, _, _, err := c.SnapshotsFor(catalogRecord(billing.VersionRef{ID: pricing.Ref.ID, Version: pricing.Ref.Version}, policy.Ref, catalogLeg("backend", "model", rates.Ref)))
+	got, err := c.CustomerRatingSnapshots(catalogCustomerCall(billing.VersionRef{ID: pricing.Ref.ID, Version: pricing.Ref.Version}, policy.Ref, catalogCustomerLeg("backend", "model")))
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertPricingEqual(t, got, pricing)
+	assertPricingEqual(t, got.DefaultPricing, pricing)
 }
 
 func TestSnapshotCatalog_PutRejectsInvalidSnapshots(t *testing.T) {
@@ -168,26 +171,26 @@ func TestSnapshotCatalog_PutRejectsInvalidSnapshots(t *testing.T) {
 
 func TestSnapshotCatalog_ReturnedBodiesAreCopies(t *testing.T) {
 	t.Parallel()
-	c, pricing, policy, rates := seedCatalog(t)
+	c, pricing, policy, _ := seedCatalog(t)
 	pricing.FixedCharges[0].Amount.Nano = 999
 	if err := c.PutPricing(catalogPricing()); err != nil {
 		t.Fatalf("caller mutation after Put must not change catalog: %v", err)
 	}
-	got, _, _, _, err := c.SnapshotsFor(catalogRecord(pricing.Ref, policy.Ref, catalogLeg("backend", "model", rates.Ref)))
+	got, err := c.CustomerRatingSnapshots(catalogCustomerCall(pricing.Ref, policy.Ref, catalogCustomerLeg("backend", "model")))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("CustomerRatingSnapshots after rejected mutation: %v", err)
 	}
-	if got.FixedCharges[0].Amount.Nano != 3 {
-		t.Fatalf("catalog body mutated via caller slice = %d, want 3", got.FixedCharges[0].Amount.Nano)
+	if got.DefaultPricing.FixedCharges[0].Amount.Nano != 3 {
+		t.Fatalf("catalog body mutated via caller slice = %d, want 3", got.DefaultPricing.FixedCharges[0].Amount.Nano)
 	}
-	got.InputRatePresent = false
-	got.FixedCharges[0].Amount.Nano = 1
-	again, _, _, _, err := c.SnapshotsFor(catalogRecord(pricing.Ref, policy.Ref, catalogLeg("backend", "model", rates.Ref)))
+	got.DefaultPricing.InputRatePresent = false
+	got.DefaultPricing.FixedCharges[0].Amount.Nano = 1
+	again, err := c.CustomerRatingSnapshots(catalogCustomerCall(pricing.Ref, policy.Ref, catalogCustomerLeg("backend", "model")))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("CustomerRatingSnapshots after returned mutation: %v", err)
 	}
-	if !again.InputRatePresent || again.FixedCharges[0].Amount.Nano != 3 {
-		t.Fatalf("catalog body mutated via returned copy: %+v", again)
+	if !again.DefaultPricing.InputRatePresent || again.DefaultPricing.FixedCharges[0].Amount.Nano != 3 {
+		t.Fatalf("catalog body mutated via returned copy: %+v", again.DefaultPricing)
 	}
 }
 
@@ -365,7 +368,7 @@ func TestSnapshotCatalog_AdmissionSnapshotRefs(t *testing.T) {
 	}
 }
 
-func TestSnapshotCatalog_SnapshotsForReturnsExactBodies(t *testing.T) {
+func TestSnapshotCatalog_CustomerRatingSnapshotsReturnsExactBodies(t *testing.T) {
 	t.Parallel()
 	c, pricing, policy, rates := seedCatalog(t)
 	override := catalogPricing()
@@ -387,45 +390,36 @@ func TestSnapshotCatalog_SnapshotsForReturnsExactBodies(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	unboundRecord := catalogRecord(pricing.Ref, policy.Ref, catalogLeg("backend", "model", rates.Ref))
-	_, _, _, unboundCards, err := c.SnapshotsFor(unboundRecord)
+	unbound, err := c.CustomerRatingSnapshots(catalogCustomerCall(pricing.Ref, policy.Ref, catalogCustomerLeg("backend", "model")))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(unboundCards) != 0 {
-		t.Fatalf("model pricing = %+v, want empty when no TUR leg matches a route override", unboundCards)
+	if len(unbound.ModelPricing) != 0 {
+		t.Fatalf("model pricing = %+v, want empty when no call leg matches a route override", unbound.ModelPricing)
 	}
 
-	record := catalogRecord(pricing.Ref, policy.Ref,
-		catalogLeg("backend", "model", rates.Ref),
-		func() billing.LegUsageRecord {
-			leg := catalogLeg("backend", "special", secondRate.Ref)
-			leg.BLegID = "b-2"
-			leg.Seq = 2
-			return leg
-		}(),
-	)
-	gotPricing, gotPolicy, gotRates, modelPricing, err := c.SnapshotsFor(record)
+	special := catalogCustomerLeg("backend", "special")
+	special.BLegID = "b-2"
+	special.AttemptSeq = 2
+	got, err := c.CustomerRatingSnapshots(catalogCustomerCall(pricing.Ref, policy.Ref, catalogCustomerLeg("backend", "model"), special))
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertPricingEqual(t, gotPricing, pricing)
-	assertPolicyEqual(t, gotPolicy, policy)
-	if len(gotRates) != 2 {
-		t.Fatalf("operator rates len = %d, want 2", len(gotRates))
+	assertPricingEqual(t, got.DefaultPricing, pricing)
+	assertPolicyEqual(t, got.Policy, policy)
+	if gotRate, err := c.OperatorRate(rates.Ref); err != nil || !operatorRateEqual(gotRate, rates) {
+		t.Fatalf("operator rate (default ref) = %+v err=%v", gotRate, err)
 	}
-	if !operatorRateEqual(gotRates[0], rates) || !operatorRateEqual(gotRates[1], secondRate) {
-		t.Fatalf("operator rates = %+v", gotRates)
+	if gotRate, err := c.OperatorRate(secondRate.Ref); err != nil || !operatorRateEqual(gotRate, secondRate) {
+		t.Fatalf("operator rate (v2 ref) = %+v err=%v", gotRate, err)
 	}
+	modelPricing := got.ModelPricing
 	if len(modelPricing) != 2 {
 		t.Fatalf("model pricing len = %d, want 2 unique billed backend/model cards, got %+v", len(modelPricing), modelPricing)
 	}
 	for i, card := range modelPricing {
-		if card.Pricing.Ref != gotPricing.Ref {
-			t.Fatalf("modelPricing[%d] Ref = %+v, want shared CustomerPricing Ref %+v", i, card.Pricing.Ref, gotPricing.Ref)
-		}
-		if !versionIdentityEqual(card.Pricing.Ref, record.CustomerPricingRef) {
-			t.Fatalf("modelPricing[%d] Ref = %+v, want TUR CustomerPricingRef %+v", i, card.Pricing.Ref, record.CustomerPricingRef)
+		if card.Pricing.Ref != got.DefaultPricing.Ref {
+			t.Fatalf("modelPricing[%d] Ref = %+v, want shared CustomerPricing Ref %+v", i, card.Pricing.Ref, got.DefaultPricing.Ref)
 		}
 		if versionIdentityEqual(card.Pricing.Ref, override.Ref) {
 			t.Fatalf("modelPricing[%d] emitted override document identity %+v", i, card.Pricing.Ref)
@@ -435,65 +429,86 @@ func TestSnapshotCatalog_SnapshotsForReturnsExactBodies(t *testing.T) {
 	assertPricingEqual(t, defaultCard.Pricing, pricing)
 	overrideCard := findModelPricing(t, modelPricing, "backend", "special")
 	wantOverride := override
-	wantOverride.Ref = record.CustomerPricingRef
+	wantOverride.Ref = got.DefaultPricing.Ref
 	assertPricingEqual(t, overrideCard.Pricing, wantOverride)
 	if !overrideCard.Pricing.InputRatePresent || overrideCard.Pricing.OutputRatePresent {
 		t.Fatalf("override Present bits not preserved: %+v", overrideCard.Pricing)
 	}
 
-	gotOverride, _, _, _, err := c.SnapshotsFor(catalogRecord(override.Ref, policy.Ref, catalogLeg("backend", "model", rates.Ref)))
+	gotOverride, err := c.CustomerRatingSnapshots(catalogCustomerCall(override.Ref, policy.Ref, catalogCustomerLeg("backend", "model")))
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertPricingEqual(t, gotOverride, override)
+	assertPricingEqual(t, gotOverride.DefaultPricing, override)
 }
 
-func TestSnapshotCatalog_SnapshotsForFailsClosedWithoutSubstitute(t *testing.T) {
+func TestSnapshotCatalog_CustomerRatingSnapshotsFailsClosedWithoutSubstitute(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name   string
-		record func(pricing billing.PricingSnapshot, policy billing.ChargePolicy, rates billing.OperatorRateSnapshot) billing.TurnUsageRecord
+		name string
+		call func(pricing billing.PricingSnapshot, policy billing.ChargePolicy) (billing.CallUsageRecord, []billing.CallLegUsageRecord)
 	}{
 		{
 			name: "missing customer pricing version",
-			record: func(pricing billing.PricingSnapshot, policy billing.ChargePolicy, rates billing.OperatorRateSnapshot) billing.TurnUsageRecord {
-				return catalogRecord(billing.VersionRef{ID: pricing.Ref.ID, Version: "missing"}, policy.Ref, catalogLeg("backend", "model", rates.Ref))
+			call: func(pricing billing.PricingSnapshot, policy billing.ChargePolicy) (billing.CallUsageRecord, []billing.CallLegUsageRecord) {
+				return catalogCustomerCall(billing.VersionRef{ID: pricing.Ref.ID, Version: "missing"}, policy.Ref, catalogCustomerLeg("backend", "model"))
 			},
 		},
 		{
 			name: "missing charge policy version",
-			record: func(pricing billing.PricingSnapshot, policy billing.ChargePolicy, rates billing.OperatorRateSnapshot) billing.TurnUsageRecord {
-				return catalogRecord(pricing.Ref, billing.VersionRef{ID: policy.Ref.ID, Version: "missing"}, catalogLeg("backend", "model", rates.Ref))
-			},
-		},
-		{
-			name: "missing operator rate version",
-			record: func(pricing billing.PricingSnapshot, policy billing.ChargePolicy, rates billing.OperatorRateSnapshot) billing.TurnUsageRecord {
-				return catalogRecord(pricing.Ref, policy.Ref, catalogLeg("backend", "model", billing.VersionRef{ID: rates.Ref.ID, Version: "missing"}))
+			call: func(pricing billing.PricingSnapshot, policy billing.ChargePolicy) (billing.CallUsageRecord, []billing.CallLegUsageRecord) {
+				return catalogCustomerCall(pricing.Ref, billing.VersionRef{ID: policy.Ref.ID, Version: "missing"}, catalogCustomerLeg("backend", "model"))
 			},
 		},
 		{
 			name: "missing pricing id does not use default",
-			record: func(_ billing.PricingSnapshot, policy billing.ChargePolicy, rates billing.OperatorRateSnapshot) billing.TurnUsageRecord {
-				return catalogRecord(billing.VersionRef{ID: "other-prices", Version: "v7"}, policy.Ref, catalogLeg("backend", "model", rates.Ref))
+			call: func(_ billing.PricingSnapshot, policy billing.ChargePolicy) (billing.CallUsageRecord, []billing.CallLegUsageRecord) {
+				return catalogCustomerCall(billing.VersionRef{ID: "other-prices", Version: "v7"}, policy.Ref, catalogCustomerLeg("backend", "model"))
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			c, pricing, policy, rates := seedCatalog(t)
-			gotPricing, gotPolicy, gotRates, modelPricing, err := c.SnapshotsFor(tt.record(pricing, policy, rates))
+			c, pricing, policy, _ := seedCatalog(t)
+			got, err := c.CustomerRatingSnapshots(tt.call(pricing, policy))
 			if err == nil {
 				t.Fatal("expected fail-closed error")
 			}
 			if !errors.Is(err, billing.ErrRatingSnapshotMismatch) && !errors.Is(err, billingcompose.ErrSnapshotNotFound) {
 				t.Fatalf("error = %v, want snapshot mismatch or not found", err)
 			}
-			if !pricingEqual(gotPricing, billing.PricingSnapshot{}) || gotPolicy != (billing.ChargePolicy{}) || gotRates != nil || modelPricing != nil {
-				t.Fatalf("partial substitute returned: pricing=%+v policy=%+v rates=%+v model=%+v", gotPricing, gotPolicy, gotRates, modelPricing)
+			if !pricingEqual(got.DefaultPricing, billing.PricingSnapshot{}) || got.Policy != (billing.ChargePolicy{}) || got.ModelPricing != nil {
+				t.Fatalf("partial substitute returned: %+v", got)
 			}
 		})
+	}
+}
+
+func TestSnapshotCatalog_RoutePricingBindingRequiresPublishedBody(t *testing.T) {
+	t.Parallel()
+	c, pricing, policy, _ := seedCatalog(t)
+	unpublished := catalogPricing()
+	unpublished.Ref = billing.VersionRef{ID: "pricing-unpublished", Version: "v1"}
+	unpublished.InputPerMillionNano = 777
+	// The binding API cannot reference a pricing body that is not published, so
+	// an override binding always resolves to an immutable published card;
+	// resolution can never silently substitute another model's price.
+	if err := c.SetRoutePricing("backend", "special", unpublished.Ref); !errors.Is(err, billingcompose.ErrSnapshotNotFound) {
+		t.Fatalf("SetRoutePricing(unpublished) = %v, want ErrSnapshotNotFound", err)
+	}
+	if err := c.PutPricing(unpublished); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetRoutePricing("backend", "special", unpublished.Ref); err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.CustomerRatingSnapshots(catalogCustomerCall(pricing.Ref, policy.Ref, catalogCustomerLeg("backend", "special")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.ModelPricing) != 1 || got.ModelPricing[0].Pricing.InputPerMillionNano != unpublished.InputPerMillionNano {
+		t.Fatalf("model pricing = %+v, want override body", got.ModelPricing)
 	}
 }
 
@@ -509,7 +524,7 @@ func TestSnapshotCatalog_RoutePricingFailsClosedWithoutDefault(t *testing.T) {
 }
 
 func TestSnapshotCatalog_ConcurrentReadsDuringPublish(t *testing.T) {
-	c, pricing, policy, rates := seedCatalog(t)
+	c, pricing, policy, _ := seedCatalog(t)
 
 	const (
 		readers    = 8
@@ -517,7 +532,7 @@ func TestSnapshotCatalog_ConcurrentReadsDuringPublish(t *testing.T) {
 		iterations = 200
 	)
 
-	record := catalogRecord(pricing.Ref, policy.Ref, catalogLeg("backend", "model", rates.Ref))
+	record, recordLegs := catalogCustomerCall(pricing.Ref, policy.Ref, catalogCustomerLeg("backend", "model"))
 
 	var wg sync.WaitGroup
 	errs := make(chan error, readers+writers)
@@ -533,7 +548,7 @@ func TestSnapshotCatalog_ConcurrentReadsDuringPublish(t *testing.T) {
 					errs <- errors.New("defaults lost during concurrent read")
 					return
 				}
-				if _, _, _, _, err := c.SnapshotsFor(record); err != nil {
+				if _, err := c.CustomerRatingSnapshots(record, recordLegs); err != nil {
 					errs <- err
 					return
 				}
@@ -665,9 +680,13 @@ func catalogOperatorRate() billing.OperatorRateSnapshot {
 	}
 }
 
-func catalogLeg(backend, model string, rate billing.VersionRef) billing.LegUsageRecord {
-	return billing.LegUsageRecord{
-		ALegID: "a-1", BLegID: "b-1", Seq: 1,
+// catalogCustomerLeg builds a call-leg usage record carrying backend/model
+// identity only: the facts customer snapshot resolution consumes. Operator
+// rate refs are intentionally absent so these helpers cannot accidentally
+// couple customer resolution to provider rates.
+func catalogCustomerLeg(backend, model string) billing.CallLegUsageRecord {
+	return billing.CallLegUsageRecord{
+		CallID: catalogCustomerCallID, ALegID: "a-1", BLegID: "b-1", AttemptSeq: 1,
 		BackendID: backend, ProviderID: "provider", ModelID: model,
 		StartedAt: time.Unix(100, 0).UTC(), FinishedAt: time.Unix(101, 0).UTC(),
 		Outcome: billing.LegOutcomeWinner, Surfaced: billing.SurfacedYes,
@@ -675,24 +694,28 @@ func catalogLeg(backend, model string, rate billing.VersionRef) billing.LegUsage
 			InputTokens:  billing.Quantity{Value: 1, Present: true},
 			OutputTokens: billing.Quantity{Value: 1, Present: true},
 		},
-		OperatorRateRef: rate,
 	}
 }
 
-func catalogRecord(pricing, policy billing.VersionRef, legs ...billing.LegUsageRecord) billing.TurnUsageRecord {
-	return billing.TurnUsageRecord{
-		SchemaVersion:         billing.CurrentRecordSchemaVersion,
-		AccountID:             "acct-1",
-		TurnID:                "turn-1",
-		ALegID:                "a-1",
-		LegacyAuthorizationID: "auth-1",
-		StartedAt:             time.Unix(100, 0).UTC(),
-		FinishedAt:            time.Unix(101, 0).UTC(),
-		Outcome:               billing.TurnOutcomeCompleted,
-		CustomerPricingRef:    pricing,
-		ChargePolicyRef:       policy,
-		Legs:                  legs,
+var catalogCustomerCallID = billing.BillingCallID("bc_00000000000000000000000000000000")
+
+func catalogCustomerCall(pricing, policy billing.VersionRef, legs ...billing.CallLegUsageRecord) (billing.CallUsageRecord, []billing.CallLegUsageRecord) {
+	ids := make([]string, 0, len(legs))
+	for _, leg := range legs {
+		ids = append(ids, leg.BLegID)
 	}
+	return billing.CallUsageRecord{
+		SchemaVersion:      billing.CurrentRecordSchemaVersion,
+		CallID:             catalogCustomerCallID,
+		AccountID:          "acct-1",
+		ALegID:             "a-1",
+		StartedAt:          time.Unix(100, 0).UTC(),
+		FinishedAt:         time.Unix(101, 0).UTC(),
+		Outcome:            billing.TurnOutcomeCompleted,
+		CustomerPricingRef: pricing,
+		ChargePolicyRef:    policy,
+		ExpectedBLegIDs:    ids,
+	}, legs
 }
 
 func assertPricingEqual(t *testing.T, got, want billing.PricingSnapshot) {

@@ -12,7 +12,17 @@ type CallRatingInput struct {
 	MaxCustomerCharge Money
 	CustomerPricing   PricingSnapshot
 	CustomerPolicy    ChargePolicy
-	OperatorRates     OperatorRateSet
+	// ModelPricing carries the effective per backend/model customer pricing
+	// cards resolved for the call legs. An empty set means no route/model
+	// override exists and the configured default pricing applies to every
+	// selected leg. When overrides exist, each selected leg must resolve its
+	// own card; a missing applicable card fails rating explicitly rather than
+	// silently substituting an unrelated model or the default price.
+	//
+	// Operator-rate data is deliberately absent from this customer type: it
+	// belongs to provider COGS processing only, so provider-cost readiness can
+	// never couple into customer settlement.
+	ModelPricing []ModelCustomerPricing
 }
 type CallRatingResult struct {
 	CallID         BillingCallID
@@ -51,7 +61,7 @@ func RateCall(in CallRatingInput) (CallRatingResult, error) {
 	turnKey := call.Key
 	legs := make([]LegUsageRecord, 0, len(in.Legs))
 	legFingerprints := make([]string, 0, len(in.Legs))
-	for seq, source := range in.Legs {
+	for _, source := range in.Legs {
 		leg, sealErr := source.Seal()
 		if sealErr != nil {
 			return CallRatingResult{}, sealErr
@@ -60,7 +70,11 @@ func RateCall(in CallRatingInput) (CallRatingResult, error) {
 			return CallRatingResult{}, fmt.Errorf("%w: leg %q is not expected for call", ErrRatingSnapshotMismatch, leg.BLegID)
 		}
 		legs = append(legs, LegUsageRecord{
-			ALegID: leg.ALegID, BLegID: leg.BLegID, Seq: seq + 1,
+			// AttemptSeq is the exact persisted b2bua.BLegRecord.Seq. Never
+			// reconstruct sequence from slice position or opaque IDs: zero
+			// means legacy-unknown and the rating policy fails closed when it
+			// needs order.
+			ALegID: leg.ALegID, BLegID: leg.BLegID, Seq: leg.AttemptSeq,
 			BackendID: leg.BackendID, ProviderID: leg.ProviderID, ModelID: leg.ModelID,
 			StartedAt: leg.StartedAt, FinishedAt: leg.FinishedAt, Outcome: LegOutcome(leg.Outcome), Surfaced: leg.Surfaced,
 			Evidence: leg.Evidence, OperatorRateRef: leg.OperatorRateRef,
@@ -76,7 +90,7 @@ func RateCall(in CallRatingInput) (CallRatingResult, error) {
 	if err := in.CustomerPricing.Validate(in.MaxCustomerCharge.Currency); err != nil {
 		return CallRatingResult{}, err
 	}
-	ratingInput := RatingInput{Record: turn, CustomerPricing: in.CustomerPricing, CustomerPolicy: in.CustomerPolicy, OperatorRates: in.OperatorRates}
+	ratingInput := RatingInput{Record: turn, CustomerPricing: in.CustomerPricing, CustomerPolicy: in.CustomerPolicy, ModelPricing: in.ModelPricing}
 	customer, err := calculateCustomerCharge(turn, ratingInput)
 	if err != nil {
 		return CallRatingResult{}, err

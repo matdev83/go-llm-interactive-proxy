@@ -167,7 +167,7 @@ func (e *Executor) appendExposureAbortClosure(ctx context.Context, prep *prepare
 		Outcome:            billing.TurnOutcomeFailed,
 		CustomerPricingRef: prep.billingCustomerPricing,
 		ChargePolicyRef:    prep.billingChargePolicy,
-		ExpectedBLegIDs:    e.billingTurns().freezeAllocatedBLegs(prep.billingCallID),
+		ExpectedBLegIDs:    prep.billingCallState.freezeAllocatedBLegs(),
 	}
 	sealed, err := record.Seal()
 	if err != nil {

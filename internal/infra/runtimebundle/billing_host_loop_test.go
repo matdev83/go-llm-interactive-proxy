@@ -282,7 +282,8 @@ func TestBillingHostLoop_MissingCatalogRefs(t *testing.T) {
 	store := openBillingHostLoopStore(t)
 	catalog, pricing, policy, _ := seedBillingHostLoopCatalog(t)
 	// Do not bind the published operator-rate body. Stamp a VersionRef that was
-	// never Put so SnapshotsFor fails closed after admission still succeeds.
+	// never Put: the customer path must settle while provider-cost resolution
+	// stays unreconciled for the same leg.
 
 	identity := billingcompose.PrincipalSessionIdentity(billingcompose.SnapshotRefFuncs{
 		CustomerPricingRef: catalog.CustomerPricingRef,
@@ -350,26 +351,18 @@ func TestBillingHostLoop_MissingCatalogRefs(t *testing.T) {
 	}
 	assertNoStreamPrices(t, drainBillingHostLoopStream(t, ctx, stream))
 
-	records := waitBillingHostLoopCallRecords(t, store, accountID)
-	if len(records) != 1 {
-		t.Fatalf("call records = %+v, want one incomplete call", records)
-	}
-	record := records[0]
-	assertVersionRefIdentity(t, "call CustomerPricingRef", record.CustomerPricingRef, pricing.Ref)
-	assertVersionRefIdentity(t, "call ChargePolicyRef", record.ChargePolicyRef, policy.Ref)
-	exposure, err := store.GetCallExposure(ctx, record.CallID)
-	if err != nil {
-		t.Fatalf("GetCallExposure: %v", err)
-	}
-	if !exposure.IsOpen() {
-		t.Fatalf("unrateable call must retain open exposure: %+v", exposure)
-	}
-	complete, err := store.ClaimCompleteCall(ctx, record.CallID)
-	if err != nil {
-		t.Fatalf("ClaimCompleteCall: %v", err)
+	// The customer path no longer resolves operator-rate snapshots: this call
+	// settles and closes exposure even though the persisted OperatorRateRef has
+	// no published rate. The same leg's provider-cost work stays
+	// pending/unreconciled and never posts COGS or alters the customer posting.
+	callRecord, exposure, complete := waitBillingHostLoopCall(t, store, accountID)
+	assertVersionRefIdentity(t, "call CustomerPricingRef", callRecord.CustomerPricingRef, pricing.Ref)
+	assertVersionRefIdentity(t, "call ChargePolicyRef", callRecord.ChargePolicyRef, policy.Ref)
+	if exposure.IsOpen() {
+		t.Fatalf("missing operator rate must not keep customer exposure open: %+v", exposure)
 	}
 	if len(complete.Legs) != 1 {
-		t.Fatalf("call legs = %+v, want 1", complete.Legs)
+		t.Fatalf("complete call legs = %+v, want 1", complete.Legs)
 	}
 	assertVersionRefIdentity(t, "leg OperatorRateRef", complete.Legs[0].OperatorRateRef, billingHostLoopMissingOperatorRef)
 
@@ -377,20 +370,48 @@ func TestBillingHostLoop_MissingCatalogRefs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AccountReport: %v", err)
 	}
-	if report.Account.BalanceNano != billingHostLoopOpeningNano {
-		t.Fatalf("account balance=%d, want opening %d (no invented customer charge)",
-			report.Account.BalanceNano, billingHostLoopOpeningNano)
+	wantBalance := billingHostLoopOpeningNano - billingHostLoopCustomerNano
+	if report.Account.BalanceNano != wantBalance {
+		t.Fatalf("settled balance = %d, want %d (customer settlement proceeds without operator rate)", report.Account.BalanceNano, wantBalance)
 	}
+	var customerSettlements int
 	for _, journal := range report.Transactions {
-		if journal.OperationKind == "customer_settlement" {
-			t.Fatalf("customer_settlement posted despite missing catalog refs: %+v", journal)
+		switch journal.OperationKind {
+		case "customer_call_settlement":
+			customerSettlements++
+			if journal.Entries[0].Amount.Nano != billingHostLoopCustomerNano {
+				t.Fatalf("customer settlement entries = %+v, want %d", journal.Entries, billingHostLoopCustomerNano)
+			}
+		case "provider_call_cogs":
+			t.Fatalf("provider COGS posted despite missing operator rate: %+v", journal)
 		}
 	}
-
-	for _, journal := range report.Transactions {
-		if journal.OperationKind == "customer_call_settlement" {
-			t.Fatalf("customer settlement posted despite missing catalog refs: %+v", journal)
+	if customerSettlements != 1 {
+		t.Fatalf("customer settlement transactions = %d, want exactly one", customerSettlements)
+	}
+	// Provider-cost work for the same leg remains queued for retry: it can
+	// never be processed (no published rate), so it keeps reappearing in the
+	// pending work list after each backoff while the customer posting above
+	// stays untouched.
+	var sawPending bool
+	deadline := time.Now().Add(6 * time.Second)
+	for time.Now().Before(deadline) {
+		pending, err := store.ListPendingProviderCostWork(ctx, 10)
+		if err != nil {
+			t.Fatal(err)
 		}
+		for _, item := range pending {
+			if item.Leg.OperatorRateRef == billingHostLoopMissingOperatorRef {
+				sawPending = true
+			}
+		}
+		if sawPending {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if !sawPending {
+		t.Fatalf("provider-cost work never reappeared as pending/unreconciled after missing operator rate")
 	}
 }
 

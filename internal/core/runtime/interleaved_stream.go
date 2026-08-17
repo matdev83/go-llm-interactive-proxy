@@ -446,7 +446,7 @@ func (s *interleavedContinuationStream) abortExecutorHandoff(ctx context.Context
 		if started.IsZero() {
 			started = exec.now()
 		}
-		exec.executor.appendIndependentTerminalLeg(cleanupCtx, exec.billingCallID, exec.aLegID, exec.bleg, exec.cand.Primary, started, exec.now(), billing.LegOutcomeCanceled)
+		exec.executor.appendIndependentTerminalLeg(cleanupCtx, exec.billingCallState, exec.aLegID, exec.bleg, exec.cand.Primary, started, exec.now(), billing.LegOutcomeCanceled)
 
 		exec.markFinished()
 	}
