@@ -36,10 +36,12 @@ func withAccountTx[T any](ctx context.Context, cfg accountTxRetry, fn func() (T,
 			return out, nil
 		}
 		lastErr = err
-		if !isSQLiteBusy(err) && !isUniqueViolation(err) {
-			if cfg.Classify != nil {
-				return zero, cfg.Classify(err)
+		if cfg.Classify != nil {
+			if classified := cfg.Classify(err); classified != nil {
+				return zero, classified
 			}
+		}
+		if !isSQLiteBusy(err) && !isUniqueViolation(err) {
 			return zero, err
 		}
 		if attempt == attempts-1 {

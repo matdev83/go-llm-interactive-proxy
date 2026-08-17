@@ -56,9 +56,10 @@ func TestCallUsageAppenderFreezesAllocatedBLegsAtRequestTerminal(t *testing.T) {
 		cand:          routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
 	}
 	stampStreamIdentity(stream)
-	coll := executor.billingTurns()
-	coll.noteAllocatedBLeg(callID, "b-2")
-	coll.noteAllocatedBLeg(callID, "b-1")
+	state := newBillingCallState(callID)
+	stream.billingCallState = state
+	state.noteAllocatedBLeg("b-2", 2)
+	state.noteAllocatedBLeg("b-1", 1)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
 	if len(got) != 1 {
 		t.Fatalf("call-closure appends = %d, want 1", len(got))
@@ -76,9 +77,9 @@ func TestCallUsageAppenderFreezesAllocatedBLegsAtRequestTerminal(t *testing.T) {
 		t.Fatalf("frozen expected B-legs = %#v", got[0].ExpectedBLegIDs)
 	}
 
-	coll.noteAllocatedBLeg(callID, "b-3")
+	state.noteAllocatedBLeg("b-3", 3)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
-	frozen := coll.freezeAllocatedBLegs(callID)
+	frozen := state.freezeAllocatedBLegs()
 	if len(frozen) != 2 || frozen[0] != "b-1" || frozen[1] != "b-2" {
 		t.Fatalf("allocated set grew after terminal freeze: %#v", frozen)
 	}
@@ -387,11 +388,7 @@ func TestCallUsageAppenderSwallowedAttemptDoesNotFreezeUntilRequestTerminal(t *t
 	if len(got) != 0 {
 		t.Fatalf("swallowed attempt-terminal must not append call-closure, got %d", len(got))
 	}
-	coll := executor.billingTurns()
-	coll.mu.Lock()
-	_, frozen := coll.frozenByCall[callID.String()]
-	coll.mu.Unlock()
-	if frozen {
+	if stream.billingCallState != nil && stream.billingCallState.hasFrozen {
 		t.Fatal("swallowed attempt-terminal must not freeze allocated B-legs")
 	}
 

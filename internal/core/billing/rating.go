@@ -12,6 +12,11 @@ var (
 	ErrRatingCurrencyMismatch = errors.New("billing: rating currency mismatch")
 	ErrRatingEvidenceMissing  = errors.New("billing: required rating evidence is missing")
 	ErrUnreconciledCost       = errors.New("billing: provider cost is unreconciled")
+	// ErrBillingAttemptSequenceUnknown fails closed when customer leg
+	// selection requires the persisted B2BUA attempt sequence but a legacy
+	// pre-fix leg row carries none. The call must be retried/reconciled rather
+	// than guessing order from IDs or timestamps.
+	ErrBillingAttemptSequenceUnknown = errors.New("billing: customer leg selection requires unknown attempt sequence")
 )
 
 type OperatorRateSnapshot struct {
@@ -60,7 +65,6 @@ type RatingInput struct {
 	CustomerPricing PricingSnapshot
 	ModelPricing    []ModelCustomerPricing
 	CustomerPolicy  ChargePolicy
-	OperatorRates   OperatorRateSet
 }
 type ModelCustomerPricing struct {
 	BackendID string
@@ -77,7 +81,10 @@ type OperatorCostResult struct {
 }
 
 func calculateCustomerCharge(record TurnUsageRecord, in RatingInput) (Money, error) {
-	selected := selectCustomerLegs(record.Legs, in.CustomerPolicy.Scope, record.Outcome)
+	selected, err := selectCustomerLegs(record.Legs, in.CustomerPolicy.Scope, record.Outcome)
+	if err != nil {
+		return Money{}, err
+	}
 	var total int64
 	for _, leg := range selected {
 		pricing, err := in.customerPricingForLeg(leg)
@@ -109,10 +116,10 @@ func (in RatingInput) customerPricingForLeg(leg LegUsageRecord) (PricingSnapshot
 	return PricingSnapshot{}, fmt.Errorf("%w: customer pricing for %s/%s", ErrRatingEvidenceMissing, leg.BackendID, leg.ModelID)
 }
 
-func selectCustomerLegs(legs []LegUsageRecord, scope ChargePolicyScope, outcome TurnOutcome) []LegUsageRecord {
+func selectCustomerLegs(legs []LegUsageRecord, scope ChargePolicyScope, outcome TurnOutcome) ([]LegUsageRecord, error) {
 	accepted := acceptedCustomerLegs(legs)
 	if scope == ChargeAllPotentialLegs {
-		return accepted
+		return accepted, nil
 	}
 	if outcome != TurnOutcomeCompleted {
 		return oneLogicalAcceptedTurn(accepted)
@@ -123,7 +130,7 @@ func selectCustomerLegs(legs []LegUsageRecord, scope ChargePolicyScope, outcome 
 			selected = append(selected, leg)
 		}
 	}
-	return selected
+	return selected, nil
 }
 
 func acceptedCustomerLegs(legs []LegUsageRecord) []LegUsageRecord {
@@ -136,9 +143,14 @@ func acceptedCustomerLegs(legs []LegUsageRecord) []LegUsageRecord {
 	return accepted
 }
 
-func oneLogicalAcceptedTurn(accepted []LegUsageRecord) []LegUsageRecord {
+// oneLogicalAcceptedTurn selects a single billable accepted leg for an
+// interrupted (failed/canceled) call. A surfaced leg is unambiguous and needs
+// no order. Without a surfaced leg the latest accepted attempt is chosen using
+// the persisted B2BUA sequence; when the sequence is unknown for more than one
+// accepted leg the selection is indeterminate and fails closed.
+func oneLogicalAcceptedTurn(accepted []LegUsageRecord) ([]LegUsageRecord, error) {
 	if len(accepted) == 0 {
-		return accepted
+		return accepted, nil
 	}
 	surfaced := make([]LegUsageRecord, 0, 1)
 	for _, leg := range accepted {
@@ -147,7 +159,15 @@ func oneLogicalAcceptedTurn(accepted []LegUsageRecord) []LegUsageRecord {
 		}
 	}
 	if len(surfaced) > 0 {
-		return surfaced
+		return surfaced, nil
+	}
+	if len(accepted) == 1 {
+		return accepted, nil
+	}
+	for _, leg := range accepted {
+		if leg.Seq <= 0 {
+			return nil, fmt.Errorf("%w: interrupted call has %d accepted legs and requires the latest accepted attempt", ErrBillingAttemptSequenceUnknown, len(accepted))
+		}
 	}
 	best := accepted[0]
 	for _, leg := range accepted[1:] {
@@ -155,7 +175,7 @@ func oneLogicalAcceptedTurn(accepted []LegUsageRecord) []LegUsageRecord {
 			best = leg
 		}
 	}
-	return []LegUsageRecord{best}
+	return []LegUsageRecord{best}, nil
 }
 
 func providerAcceptedEvidence(e FinalBillingEvidence) bool {

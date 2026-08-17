@@ -2,6 +2,7 @@ package billingstore
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -26,6 +27,7 @@ func testIndependentCallLegFor(callID billing.BillingCallID, bLegID string) bill
 		CallID:     callID,
 		ALegID:     "a-shared",
 		BLegID:     bLegID,
+		AttemptSeq: 1,
 		BackendID:  "backend-a",
 		ProviderID: "provider-a",
 		ModelID:    "model-a",
@@ -238,9 +240,10 @@ func runAppendCallLegUsageRejectedNeverStartedEvidenceUnavailable(t *testing.T, 
 		{name: "never_started", bLegID: "b-never", outcome: billing.LegOutcomeNeverStarted, surfaced: billing.SurfacedNo},
 		{name: "evidence_unavailable", bLegID: "b-no-ev", outcome: billing.LegOutcomeFailed, surfaced: billing.SurfacedNo},
 	}
-	for _, tc := range cases {
+	for seqIndex, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			src := testIndependentCallLegFor(callID, tc.bLegID)
+			src.AttemptSeq = seqIndex + 1
 			src.Outcome = tc.outcome
 			src.Surfaced = tc.surfaced
 			src.Evidence = billing.FinalBillingEvidence{
@@ -275,9 +278,11 @@ func runAppendCallLegUsagePreservesQuantityAndCostPresence(t *testing.T, store *
 		t.Fatal(err)
 	}
 	absent := testIndependentCallLegFor(callID, "b-absent")
+	absent.AttemptSeq = 1
 	absent.Evidence.InputTokens = billing.Quantity{}
 	absent.Evidence.Cost = billing.MoneyEvidence{}
 	zero := testIndependentCallLegFor(callID, "b-zero")
+	zero.AttemptSeq = 2
 	zero.Evidence.InputTokens = billing.Quantity{Present: true}
 	zero.Evidence.Cost = billing.MoneyEvidence{Currency: "USD", Present: true}
 	if err := store.AppendCallLegUsage(ctx, absent); err != nil {
@@ -391,4 +396,175 @@ func mustCallLegKey(t *testing.T, callID billing.BillingCallID, bLegID string) s
 		t.Fatal(err)
 	}
 	return key
+}
+
+func TestSQLiteAppendCallLegUsagePersistsAttemptSequence(t *testing.T) {
+	runAppendCallLegUsagePersistsAttemptSequence(t, newSQLiteTestStore(t))
+}
+
+func TestSQLiteAppendCallLegUsageRejectsDuplicateAttemptSequenceWithinCall(t *testing.T) {
+	runAppendCallLegUsageRejectsDuplicateAttemptSequenceWithinCall(t, newSQLiteTestStore(t))
+}
+
+func TestSQLiteAppendCallLegUsageReplayConflictOnChangedSequence(t *testing.T) {
+	runAppendCallLegUsageReplayConflictOnChangedSequence(t, newSQLiteTestStore(t))
+}
+
+func TestSQLiteLegacyNullAttemptSequenceRowsRemainReadable(t *testing.T) {
+	runLegacyNullAttemptSequenceRowsRemainReadable(t, newSQLiteTestStore(t))
+}
+
+func runAppendCallLegUsagePersistsAttemptSequence(t *testing.T, store *DurableStore) {
+	t.Helper()
+	ctx := context.Background()
+	callID, err := billing.NewBillingCallID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := testIndependentCallLegFor(callID, "b-1")
+	record.AttemptSeq = 3
+	if err := store.AppendCallLegUsage(ctx, record); err != nil {
+		t.Fatalf("AppendCallLegUsage: %v", err)
+	}
+	var attemptSeq sql.NullInt64
+	key := mustCallLegKey(t, callID, "b-1")
+	if err := store.db.NewRaw(`SELECT attempt_seq FROM usage_leg_records WHERE usage_leg_key = ?`, key).Scan(ctx, &attemptSeq); err != nil {
+		t.Fatal(err)
+	}
+	if !attemptSeq.Valid || attemptSeq.Int64 != 3 {
+		t.Fatalf("persisted attempt_seq = %+v, want 3", attemptSeq)
+	}
+	got, err := store.GetCallLegUsage(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AttemptSeq != 3 {
+		t.Fatalf("restored AttemptSeq = %d, want 3 (no inference)", got.AttemptSeq)
+	}
+}
+
+func runAppendCallLegUsageRejectsDuplicateAttemptSequenceWithinCall(t *testing.T, store *DurableStore) {
+	t.Helper()
+	ctx := context.Background()
+	callID, err := billing.NewBillingCallID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := testIndependentCallLegFor(callID, "b-first")
+	first.AttemptSeq = 2
+	if err := store.AppendCallLegUsage(ctx, first); err != nil {
+		t.Fatalf("first append: %v", err)
+	}
+	second := testIndependentCallLegFor(callID, "b-second")
+	second.AttemptSeq = 2 // same positive sequence in the same call -> conflict
+	if err := store.AppendCallLegUsage(ctx, second); !errors.Is(err, ErrLegAttemptSequenceConflict) {
+		t.Fatalf("duplicate attempt_seq append = %v, want ErrLegAttemptSequenceConflict", err)
+	}
+	var rows int
+	if err := store.db.NewRaw(`SELECT COUNT(1) FROM usage_leg_records WHERE call_id = ?`, callID.String()).Scan(ctx, &rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 1 {
+		t.Fatalf("conflicting rows = %d, want 1", rows)
+	}
+	// A different positive sequence in the same call is fine.
+	third := testIndependentCallLegFor(callID, "b-third")
+	third.AttemptSeq = 3
+	if err := store.AppendCallLegUsage(ctx, third); err != nil {
+		t.Fatalf("distinct sequence append: %v", err)
+	}
+}
+
+func runAppendCallLegUsageReplayConflictOnChangedSequence(t *testing.T, store *DurableStore) {
+	t.Helper()
+	ctx := context.Background()
+	callID, err := billing.NewBillingCallID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := testIndependentCallLegFor(callID, "b-1")
+	record.AttemptSeq = 1
+	if err := store.AppendCallLegUsage(ctx, record); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if err := store.AppendCallLegUsage(ctx, record); err != nil {
+		t.Fatalf("identical replay: %v", err)
+	}
+	changed := record
+	changed.AttemptSeq = 2
+	if err := store.AppendCallLegUsage(ctx, changed); !errors.Is(err, billing.ErrReplayConflict) {
+		t.Fatalf("same-key changed-sequence replay = %v, want ErrReplayConflict", err)
+	}
+	got, err := store.GetCallLegUsage(ctx, mustCallLegKey(t, callID, "b-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AttemptSeq != 1 {
+		t.Fatalf("AttemptSeq after conflict = %d, want original 1", got.AttemptSeq)
+	}
+}
+
+func runLegacyNullAttemptSequenceRowsRemainReadable(t *testing.T, store *DurableStore) {
+	t.Helper()
+	ctx := context.Background()
+	callID, err := billing.NewBillingCallID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bLegID := range []string{"b-legacy-1", "b-legacy-2"} {
+		// Simulate a pre-fix row: v1-sealed payload (no sequence) persisted
+		// with attempt_seq NULL.
+		legacySrc := testIndependentCallLegFor(callID, bLegID)
+		legacySrc.AttemptSeq = 0
+		legacy, sealErr := legacySrc.Seal()
+		if sealErr != nil {
+			t.Fatal(sealErr)
+		}
+		if legacy.AttemptSeq != 0 {
+			t.Fatalf("legacy fixture AttemptSeq = %d, want 0", legacy.AttemptSeq)
+		}
+		payload, marshalErr := json.Marshal(legacy)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		sealedAt := time.Now().UTC()
+		if _, err := store.db.NewRaw(`INSERT INTO usage_leg_records( usage_leg_key, fingerprint, call_id, a_leg_id, b_leg_id, backend_id, provider_id, model_id, started_at, finished_at, outcome, surfaced, payload_json, sealed_at ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, legacy.Key, legacy.Fingerprint, legacy.CallID.String(), legacy.ALegID, legacy.BLegID, legacy.BackendID, legacy.ProviderID, legacy.ModelID, legacy.StartedAt, legacy.FinishedAt, string(legacy.Outcome), string(legacy.Surfaced), string(payload), sealedAt).Exec(ctx); err != nil {
+			t.Fatalf("legacy insert: %v", err)
+		}
+		// NULL sequences may coexist with no guessed values.
+		var attemptSeq sql.NullString
+		if err := store.db.NewRaw(`SELECT attempt_seq FROM usage_leg_records WHERE usage_leg_key = ?`, legacy.Key).Scan(ctx, &attemptSeq); err != nil {
+			t.Fatal(err)
+		}
+		if attemptSeq.Valid {
+			t.Fatalf("legacy attempt_seq = %q, want NULL", attemptSeq.String)
+		}
+		got, err := store.GetCallLegUsage(ctx, legacy.Key)
+		if err != nil {
+			t.Fatalf("legacy row must remain readable under the old contract: %v", err)
+		}
+		if got.AttemptSeq != 0 {
+			t.Fatalf("legacy AttemptSeq = %d, want 0 (unknown)", got.AttemptSeq)
+		}
+	}
+	legs, err := store.ListCallLegUsage(ctx, callID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(legs) != 2 {
+		t.Fatalf("legacy legs = %d, want 2", len(legs))
+	}
+	// A new corrected leg (positive sequence) can join the same call.
+	newer := testIndependentCallLegFor(callID, "b-new")
+	newer.AttemptSeq = 1
+	if err := store.AppendCallLegUsage(ctx, newer); err != nil {
+		t.Fatalf("new leg alongside legacy rows: %v", err)
+	}
+	got, err := store.GetCallLegUsage(ctx, mustCallLegKey(t, callID, "b-new"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AttemptSeq != 1 {
+		t.Fatalf("new leg AttemptSeq = %d, want 1", got.AttemptSeq)
+	}
 }

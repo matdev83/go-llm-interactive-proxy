@@ -47,7 +47,7 @@ func rateCallFromLegs(t *testing.T, outcome TurnOutcome, legs []CallLegUsageReco
 	}
 	result, err := RateCall(CallRatingInput{
 		Call: call, Legs: legs, MaxCustomerCharge: Money{Nano: maxNano, Currency: "USD"},
-		CustomerPricing: ratingPricing(), CustomerPolicy: policy, OperatorRates: OperatorRateSet{operatorRate()},
+		CustomerPricing: ratingPricing(), CustomerPolicy: policy,
 	})
 	if err != nil {
 		t.Fatalf("RateCall: %v", err)
@@ -116,10 +116,14 @@ func TestRateCallCancelWithUnsurfacedOutputStillBills(t *testing.T) {
 func TestRateCallSurfacedTurnInterruptBillsOneLogicalAcceptedLeg(t *testing.T) {
 	t.Parallel()
 	policy := ratingPolicy(ChargeSurfacedTurn)
-	result := rateCallFromLegs(t, TurnOutcomeCanceled, []CallLegUsageRecord{
+	legs := []CallLegUsageRecord{
 		testLeg("b-1", SurfacedNo, 1_000_000, 1_000_000, MoneyEvidence{}, true),
 		testLeg("b-2", SurfacedNo, 1_000_000, 1_000_000, MoneyEvidence{}, true),
-	}, policy, 1000)
+	}
+	// Real B2BUA attempt sequence: b-1 is attempt 1, b-2 is attempt 2.
+	legs[0].AttemptSeq = 1
+	legs[1].AttemptSeq = 2
+	result := rateCallFromLegs(t, TurnOutcomeCanceled, legs, policy, 1000)
 	// latest Seq wins for interrupt without surfaced legs: one leg + fixed = 303
 	if result.CustomerCharge.Nano != 303 {
 		t.Fatalf("customer = %d, want 303", result.CustomerCharge.Nano)
@@ -236,27 +240,21 @@ func TestRateCallUsesPerModelCustomerCards(t *testing.T) {
 	}
 	legA := testLeg("b-a", SurfacedYes, 1_000_000, 0, MoneyEvidence{}, true)
 	legA.ModelID = "model-a"
+	legA.ALegID = "a-1"
 	legA.CallID = callID
 	legB := testLeg("b-b", SurfacedYes, 1_000_000, 0, MoneyEvidence{}, true)
 	legB.ModelID = "model-b"
+	legB.ALegID = "a-1"
 	legB.CallID = callID
 	call := CallUsageRecord{
 		SchemaVersion: CurrentRecordSchemaVersion, CallID: callID, AccountID: "acct-1",
 		ALegID: "a-1", ExpectedBLegIDs: []string{"b-a", "b-b"}, StartedAt: time.Unix(100, 0).UTC(), FinishedAt: time.Unix(101, 0).UTC(),
 		Outcome: TurnOutcomeCompleted, CustomerPricingRef: pricing.Ref, ChargePolicyRef: policy.Ref,
 	}
-	// RateCall currently does not accept ModelPricing on CallRatingInput.
-	// Exercise the shared helper via temporary RatingInput used by RateCall path:
-	turnLegs := []LegUsageRecord{
-		{ALegID: "a-1", BLegID: "b-a", Seq: 1, BackendID: "backend", ModelID: "model-a", Surfaced: SurfacedYes, Evidence: legA.Evidence, Outcome: LegOutcomeWinner},
-		{ALegID: "a-1", BLegID: "b-b", Seq: 2, BackendID: "backend", ModelID: "model-b", Surfaced: SurfacedYes, Evidence: legB.Evidence, Outcome: LegOutcomeWinner},
-	}
-	turn := TurnUsageRecord{
-		SchemaVersion: CurrentRecordSchemaVersion, Key: "tmp", AccountID: "acct-1", TurnID: callID.String(),
-		ALegID: "a-1", Outcome: TurnOutcomeCompleted, CustomerPricingRef: pricing.Ref, ChargePolicyRef: policy.Ref, Legs: turnLegs,
-	}
-	got, err := calculateCustomerCharge(turn, RatingInput{
-		Record: turn, CustomerPricing: pricing, CustomerPolicy: policy,
+	result, err := RateCall(CallRatingInput{
+		Call: call, Legs: []CallLegUsageRecord{legA, legB},
+		MaxCustomerCharge: Money{Nano: 10000, Currency: "USD"},
+		CustomerPricing:   pricing, CustomerPolicy: policy,
 		ModelPricing: []ModelCustomerPricing{
 			{BackendID: "backend", ModelID: "model-a", Pricing: pricing},
 			{BackendID: "backend", ModelID: "model-b", Pricing: modelCard},
@@ -265,9 +263,8 @@ func TestRateCallUsesPerModelCustomerCards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// model-a uses catalog fixed charge (100+3); model-b card has no fixed charges (1000).
-	if got.Nano != 1103 {
-		t.Fatalf("customer = %d, want 1103", got.Nano)
+	// model-a uses default card (100 input + 3 fixed); model-b card has no fixed charges (1000 input).
+	if got, want := result.CustomerCharge.Nano, int64(1103); got != want {
+		t.Fatalf("customer = %d, want %d", got, want)
 	}
-	_ = call
 }

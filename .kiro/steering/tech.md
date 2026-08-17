@@ -46,6 +46,9 @@
 - **Injection only**: Hosts open the durable store themselves and call `runtimebundle.ComposeBilling`, then pass `ProductionOptions` into `BuildHost`. YAML `accounting.billing.authoritative: true` is a fail-closed gate, not a DSN factory. Stock `lipstd` does not call `ComposeBilling`. Public `pkg/lipruntime.Options` stays non-money.
 - **Catalog vs journal**: Snapshot **bodies** live in the process-local catalog (ID+Version). Exposure/call/usage records store immutable refs only. A missing referenced version fails closed at rating.
 - **Billing separation**: Operational exposure is not settled money. Admission does not post a journal or mutate balance; customer settlement closes exposure after terminal usage, while provider COGS is an independent per-B-leg operation.
+- **Sequence vs order**: the persisted positive `attempt_seq` (v2 fingerprint) is the authoritative B2BUA attempt order; `ExpectedBLegIDs` is a completeness set whose ordering has no financial meaning. Legacy rows keep `attempt_seq NULL` under the v1 contract and fail closed (`ErrBillingAttemptSequenceUnknown`) whenever order-based selection needs a sequence.
+- **Snapshot independence**: customer rating resolves only customer pricing/policy/model cards; operator-rate lookup belongs solely to provider-cost resolution, so missing provider-cost data never blocks customer settlement or exposure close.
+- **Call-scoped state**: runtime billing bookkeeping lives in one private `billingCallState` per `BillingCallID`/prepared request; the executor owns no lifetime-growing billing-call registry.
 - **Leftover YAML**: `accounting.ledger.*` may parse but must not open. Production `accounting.authority` rejects monetary `budget` / `spend_cap` / `money_nano`.
 
 ---

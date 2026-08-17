@@ -102,7 +102,11 @@ func (w *CallPostUsageWorker) ProcessOnce(ctx context.Context) error {
 		}
 		result, err := w.resolver.ResolveCallRating(ctx, complete, exposure)
 		if err != nil {
-			allErr = errors.Join(allErr, w.retryCall(ctx, complete.Closure.CallID, "rating_input", err))
+			code := "rating_input"
+			if errors.Is(err, ErrBillingAttemptSequenceUnknown) {
+				code = "settlement_reconcile_required"
+			}
+			allErr = errors.Join(allErr, w.retryCall(ctx, complete.Closure.CallID, code, err))
 			continue
 		}
 		if _, err := w.settlement.ApplyCallBillingResult(ctx, ApplyCallBillingInput{Call: complete.Closure, Exposure: exposure, Result: result}); err != nil {
