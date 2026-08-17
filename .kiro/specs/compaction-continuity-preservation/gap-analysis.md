@@ -2,154 +2,175 @@
 
 ## Result
 
-**PASS after requirements corrections.** The feature can be implemented without a new provider client, second transcript database, second billing path, or general workflow runtime, but the initial requirements needed several brownfield constraints made more explicit. The most important gaps are lifecycle ownership for real background auxiliary work, strict isolation from the primary secure session, mutation ordering around the planned compaction detector, and the fact that canonical native compaction output is often opaque/encrypted rather than a mutable summary string.
-
-The corrections below are normative and must be reflected in the final `requirements.md`, `design.md`, and `tasks.md`.
+**PASS after requirements and design-validation corrections.** The feature can be implemented without a new provider client, second transcript database, second billing path, or general workflow runtime. The correction loop made the real brownfield constraints explicit: #312 is a prerequisite; preservation mutation is separate from metadata observation; background auxiliary work needs submit-time generation ownership and ProcessServices lifetime; detached extraction needs a private child A-leg; late results must remain useful within a bounded branch window; and opaque/encrypted compaction state is reinjection-only.
 
 ## Existing Brownfield Facts
 
-- `compaction-event-detection` is currently a merged **specification**, not a runtime capability on `main`. It defines a process-owned detector, metadata-only `compaction.Observer`, and request start emission only after successful upstream `Open`.
-- Its detector design already owns the versioned compaction signature/history matrix and authoritative A-leg transaction state. Duplicating that matrix in continuity preservation would create drift and false disagreement.
-- Current `pkg/lipsdk/auxiliary.Client` is synchronous. `Collect` delegates to `Stream`, which delegates to the normal runtime `Executor`.
-- Current `internal/core/auxreq.Client` preserves the parent principal/scope, marks derived origin internal, supports `DisablePlugins`, and retains `genpin.KindAsync` **when the auxiliary call actually starts**.
-- `genpin.Retainer.Retain` is explicitly a spawn-right operation: post-request-lease spawn attempts fail closed. Therefore a delayed worker cannot simply keep a request context and call synchronous `Aux.Collect` later.
-- The current auxiliary child executes through the normal `Executor`. Without an explicit detached-session mode, it can enter secure-session BeginTurn/session recording paths; `Visibility` and `Role` are currently lineage metadata, not session-isolation authority.
-- `lipapi.Call.Route.Selector` already provides a canonical route authority for a child call. The normal core router can therefore resolve a completely independent extractor selector without a second provider client.
-- The billing identity adapter resolves account identity from the authenticated principal in `scope`. Because auxiliary execution already clones that scope, originating-user billing can reuse the existing billing path if detached execution preserves principal scope.
-- `ProcessServices` owns process-lifetime services; `ExtensionState` is process-owned and survives generation reload. Feature bundle lifecycles, in contrast, belong to compiled feature/generation composition and are the wrong sole owner for a worker intended to outlive one immutable generation.
-- `ExtensionState` is in-memory by default. `ScopeSession` partitions by `SessionView.PartitionKey()` and therefore by authoritative SessionID when available, but branch/A-leg must remain part of the feature key to avoid cross-branch aliasing.
-- Secure-session transcript recording already exists when `TranscriptEnabled` is active. Creating another durable full transcript solely for this feature would violate existing extension-state and secure-session boundaries.
-- `lipapi.CompactionItem` carries `EncryptedContent` and opaque provider data; it does **not** provide a universal plaintext summary field that can safely be appended to.
-- Current `FeatureBundle` has no content-bearing compaction-preservation extension point. The #312 spec proposes only non-mutating `CompactionObservers`.
+- `compaction-event-detection` is currently a merged **specification**, not runtime code on `main`. It defines process-owned A-leg detector state, one versioned rule matrix, metadata-only `compaction.Observer`, start only after successful upstream `Open`, and committed response observation at the final release seam.
+- Current `pkg/lipsdk/auxiliary.Client` is synchronous. `Collect` delegates to `Stream` and the normal runtime Executor.
+- `internal/core/auxreq.Client` already clones authenticated principal/scope, marks internal origin, supports plugin suppression and retains `genpin.KindAsync` when auxiliary execution starts.
+- `genpin.Retainer` makes spawn rights explicit; attempting to retain after the request lease ends fails closed.
+- Current auxiliary `Role`/`Visibility` are lineage metadata only. They do not suppress secure-session BeginTurn/turn transcript/activity or parent route-override authority.
+- `lipapi.Call.Route.Selector` already gives a child canonical independent route that normal core routing can parse/execute.
+- Billing account identity is principal-scope-derived. Preserving principal scope lets an independent child reuse current usage/billing authorities and obtain its own BillingCallID.
+- `ProcessServices` owns process lifetime. `ExtensionState` survives immutable generation reload, while feature lifecycles are generation-composed.
+- `ExtensionState` is process-local/in-memory by default and `ScopeSession` partitions by authoritative SessionID when available; A-leg/branch must remain an additional continuity key.
+- Secure-session transcript storage already exists when explicitly enabled; it is the only appropriate durable historical recovery source in v1.
+- `lipapi.CompactionItem` carries `EncryptedContent` and opaque provider data rather than a universal plaintext summary field.
+- Current `FeatureBundle` has no content-bearing compaction-preservation surface; #312 proposes only non-mutating compaction observers.
 
-## Gaps and Required Corrections
+## Gaps and Corrections
 
-### 1. #312 is a prerequisite, not an implemented dependency
+### G1 — #312 runtime capability is absent
 
-The initial feature request could be read as if compaction lifecycle events already exist in runtime.
+**Gap:** #344 could otherwise silently duplicate compaction signatures or pretend lifecycle events already exist.
 
-**Correction:** implementation planning shall explicitly order the `compaction-event-detection` runtime capability first. This feature may extend/refactor that implementation, but shall not copy its rule catalog as a fallback. Tests for this spec may use a local fake/shared recognizer contract until the prerequisite lands.
+**Correction:** implementation order makes `compaction-event-detection` runtime a hard prerequisite. Enabled continuity composition fails clearly if preview/commit capability is absent. Disabled continuity remains compatible/no-op.
 
-### 2. Preservation mutation cannot be smuggled into `compaction.Observer`
+### G2 — `compaction.Observer` cannot carry preservation content/mutation
 
-The detector's observer contract is intentionally content-free and non-mutating. Preservation needs canonical content and, for verified paths, limited mutation.
+**Gap:** observer events intentionally contain no canonical request/response body and return no replacement decision.
 
-**Correction:** add a distinct additive preservation/interception contract. Keep observer payload and dispatch semantics unchanged. FeatureBundle/snapshot merge must expose preservation interceptors separately and defensively freeze them like other extension slices.
+**Correction:** add a distinct `compaction.Preserver`-style slice, separately merged/frozen in FeatureBundle/runtime snapshot. Observer remains unchanged.
 
-### 3. Request preview and committed detection have different truth semantics
+### G3 — pre-open protection must not commit detector truth
 
-A first post-compaction request may need continuity before its B-leg opens, while #312 deliberately commits request detection only after successful `Open`.
+**Gap:** first post-compaction request may need continuity before B-leg Open, while detector start/completion commitment is intentionally tied to successful Open/final release.
 
-**Correction:** if a pre-open preview is required, it must be a pure/non-committing view over the same matcher/fingerprint state. Preview may protect a preservation barrier but cannot emit lifecycle events, advance detector state, or establish a billable strict-start job. Successful Open remains the committed start boundary.
+**Correction:** factor pure request preview from the same matcher/fingerprint authority. Preview can guide a barrier but cannot mutate detector state, emit lifecycle events, or start a strict billable extraction merely from an unopened signature.
 
-### 4. Final-release mutation ordering must remain explicit
+### G4 — response preservation must not make `ResponseReleased` observe a pre-final event
 
-The #312 design places `ResponseReleased` at the final canonical release seam and guarantees observation does not mutate the event. Continuity may need to add a validated capsule to a verified plaintext carrier before client delivery.
+**Gap:** an initial sequence of committed detector completion -> preservation mutation would violate #312's “event actually released” meaning.
 
-**Correction:** detector derivation, preservation finalization, metadata-observer dispatch, and client release require one explicit ordering. The detector itself remains pure/non-mutating; the preservation stage is separate, and no ordinary response hook runs after it. Opaque/native content remains byte-identical.
+**Correction:** add pure response preview and use final ordering:
 
-### 5. Synchronous `Aux.Collect` is insufficient for real background work
+```text
+selected event
+ -> PreviewResponse (pure)
+ -> preservation finalization / safe plaintext mutation
+ -> ResponseReleased(final event) (commit)
+ -> metadata observers
+ -> client
+```
 
-Launching `Aux.Collect` in a goroutine after the parent request returns is not safe: generation spawn rights can be gone, the parent context can be canceled, and shutdown cannot reliably own the goroutine.
+No ordinary response hook runs after preservation finalization.
 
-**Correction:** introduce one narrow **background auxiliary collection** capability backed by a process-owned bounded scheduler. Submission synchronously captures the executor/generation right and retains `genpin.KindAsync` before returning. Worker execution uses a worker-owned context/deadline; Await/Forget use a bounded job ID/result registry. This is an auxiliary-execution primitive, not a generic task engine.
+### G5 — synchronous `Aux.Collect` is not a safe background worker
 
-### 6. Worker lifetime belongs to `ProcessServices`, not only a feature lifecycle
+**Gap:** `go Aux.Collect(parentCtx)` can start after spawn authority is gone, inherit cancellation, leak across shutdown, and lacks bounded queue/result ownership.
 
-A generation-scoped plugin lifecycle can disappear on reload while a compaction extraction is still in flight.
+**Correction:** add a narrow process-owned BackgroundAux collector. `SubmitCollect` synchronously resolves the current runner, retains `KindAsync`, clones safe attribution and transfers ownership to a bounded scheduler. Workers use scheduler-rooted deadlines. Await/Forget operate on bounded job IDs/results. No arbitrary callbacks/functions/tasks are accepted.
 
-**Correction:** the scheduler is process-owned and closed through existing ProcessServices ownership/closer ordering. Generation snapshots receive non-owning clients. The job itself retains exactly the generation needed to execute its captured child call.
+### G6 — worker lifetime cannot be generation-only
 
-### 7. Normal auxiliary execution can accidentally create primary-session effects
+**Gap:** generation-scoped feature lifecycle may retire while a job remains in flight.
 
-Current auxiliary lineage is not sufficient to prevent secure-session BeginTurn/transcript/last-activity effects.
+**Correction:** ProcessServices owns scheduler and BranchCoordinator. Generation snapshots hold non-owning adapters. Each job retains exactly the generation it needs.
 
-**Correction:** add a typed internal **detached auxiliary session mode** recognized by core execution. It preserves authenticated principal/scope and parent correlation but suppresses primary secure-session authority/turn recording, primary A-leg route overrides, and client-visible session history. This mode must be internal canonical execution metadata, not a provider-visible opaque extension.
+### G7 — detached child cannot reuse primary secure-session turn semantics
 
-### 8. Independent extractor routing must not inherit primary A-leg override implicitly
+**Gap:** normal Executor preparation would otherwise enter primary BeginTurn/transcript/activity/route-override paths.
 
-The main user's A-leg may have a runtime routing override. Applying it to the internal extractor would violate the requested independently configurable model.
+**Correction:** add trusted internal detached auxiliary mode. It preserves principal/scope but suppresses primary secure-session turn effects and parent route authority.
 
-**Correction:** the detached child uses its explicitly configured canonical `Call.Route.Selector` (or explicit `inherit` policy) and a private auxiliary execution lineage. Parent A-leg ID is correlation only and cannot become route authority for the child.
+### G8 — detached child still needs normal B2BUA/request authority
 
-### 9. User billing can reuse current authority, but auxiliary workload identity must be projected
+**Gap:** making the child completely session/A-leg-less would force a second execution/billing path; reusing the parent A-leg would contaminate primary authority.
 
-Principal scope inheritance is sufficient for account identity, and routing through the normal Executor gives the child its own BillingCallID. However operators/users must be able to separate primary inference from continuity overhead.
+**Correction:** detached child creates/touches a **private child A-leg** via existing B2BUA semantics. Parent A-leg is lineage only. The child then gets ordinary request authority, private B-legs, separate BillingCallID, usage and provider COGS.
 
-**Correction:** add a bounded content-free workload/origin classification (`compaction_continuity_extractor`) to the accounting/metering/diagnostic correlation path. It must not become a second money ledger or pricing engine. Primary protocol usage remains unchanged while account-level billing includes the child.
+### G9 — extractor route must remain independent
 
-### 10. Provider-native compaction payloads are not universal summary text
+**Gap:** parent A-leg route override could otherwise hijack the extractor model.
 
-Mechanical append to `CompactionItem.EncryptedContent` or opaque data could corrupt replay/provider state.
+**Correction:** child uses explicit configured `Call.Route.Selector` (or explicit inherit policy). Detached private A-leg has no inherited parent override. Normal router remains authoritative; no provider client bypass.
 
-**Correction:** result-side merge is permitted only for a verified mutable plaintext carrier. Otherwise the capsule is persisted as proxy state and injected into the first eligible post-compaction canonical request. Encrypted/opaque fields are byte-for-byte immutable under this feature.
+### G10 — accounting needs workload distinction, not a new money path
 
-### 11. Process extension state is reload-safe but not restart-durable
+**Gap:** principal inheritance solves account attribution but operators/users need to separate continuity overhead from primary inference.
 
-It is appropriate for revisions, sanitized windows, pending job IDs and injection watermarks within one process. It does not justify claiming durable continuity after restart.
+**Correction:** project bounded content-free auxiliary workload/role (`compaction_continuity_extractor`) into existing metering/billing/report correlation. Child has separate BillingCallID/B-legs; primary protocol usage remains unchanged; account totals include child usage.
 
-**Correction:** define first implementation durability honestly. Process state survives generation reload. Across process restart, reconstruction is allowed from the existing authorized secure-session transcript when available; otherwise continuity state may be absent and behavior fails open. No new durable full transcript or generic durable feature-state framework is introduced by this spec.
+### G11 — `CompactionItem` cannot be treated as plaintext summary
 
-### 12. `ScopeSession` alone is not a branch key
+**Gap:** mechanical append into `EncryptedContent`/opaque state can corrupt provider replay/continuation semantics.
 
-Authoritative SessionID is a useful partition, but one session can contain/relate to multiple A-leg branches or forks.
+**Correction:** result augmentation is allowlisted only for verified mutable plaintext carriers. Encrypted/opaque bytes are immutable. Mandatory safe fallback is proxy-owned first-post-compaction reinjection.
 
-**Correction:** capsule/source/job records use the authoritative session partition plus an explicit A-leg/branch key. When no secure SessionID exists, principal-isolated A-leg authority is used. Client hints never select another branch's capsule.
+### G12 — process state is reload-safe, not restart-durable
 
-### 13. Durable transcript access must stay behind a narrow authorized seam
+**Gap:** ExtensionState is useful for v1 but cannot support a restart-survival claim.
 
-An official feature plugin should not import secure-session Bun/store internals merely to recover historical text.
+**Correction:** v1 promises process/generation continuity only. Authorized existing secure-session transcript may be used through a narrow bounded reader to reconstruct after restart; otherwise missing capsule is fail-open. No second durable transcript/job/state platform.
 
-**Correction:** optional historical recovery uses a narrow authorized transcript-source/read adapter supplied by composition/core. Normal extraction prefers the canonical compaction baseline and process-local sanitized window, so most executions need no durable transcript read.
+### G13 — session partition alone is not a branch identity
 
-### 14. Raw generic background results should not become another sensitive store
+**Gap:** `ScopeSession` can group multiple A-leg branches/forks.
 
-A process-owned scheduler may need to hold a completed auxiliary result until the preservation barrier consumes it.
+**Correction:** continuity key is authoritative SessionID partition plus explicit A-leg/branch. Without secure SessionID, principal-isolated proxy-owned A-leg is authority. Client hints never select another branch.
 
-**Correction:** background result storage is bounded/TTL-limited and never logged. Continuity parses/validates the small extractor response promptly and stores only the normalized capsule/delta afterward. Forget/expiry releases raw collected output.
+### G14 — per-generation mutex cannot protect capsule revisions
 
-### 15. Disabling/config reload must not orphan already-billed work
+**Gap:** Store Get/Put has no CAS and a feature-instance lock disappears on reload.
 
-A generation reload can disable the feature or change extractor routing while a prior job has already submitted provider work.
+**Correction:** add a small process-owned BranchCoordinator that serializes revision/high-watermark/job/injection updates while using ExtensionState as serialized backing where practical. It treats capsule/source blobs opaquely and is not a generic transactional state framework.
 
-**Correction:** in-flight jobs use a submission-time immutable configuration/execution snapshot and finish/settle or cancel through the normal captured generation. Disabling prevents new jobs but does not erase accounting obligations for submitted work.
+### G15 — raw late result must remain useful without becoming durable memory
+
+**Gap:** if the completion barrier times out and result TTL is too short, a valid extraction can disappear before the next turn.
+
+**Correction:** while BranchState references a PendingJobID, bounded raw result retention remains useful up to the configured pending continuity window; first consumption parses/merges and Forget deletes raw output. Branch/job expiry clears both coherently. No result outlives bounded continuity/source retention.
+
+### G16 — durable transcript access must stay behind authorization boundary
+
+**Gap:** feature code importing secure-session Bun/store internals would break layering/security.
+
+**Correction:** optional restart/historical recovery uses a narrow authorized read adapter. Ordinary compaction uses current canonical baseline/process sanitized window first.
+
+### G17 — config reload/disable cannot erase submitted billing obligations
+
+**Gap:** disabling feature after provider submission cannot retroactively make the child free or orphan its generation.
+
+**Correction:** jobs use immutable submission-time config/generation and complete/cancel/settle through captured authorities. New config only affects future jobs; disable stops new submissions.
 
 ## Brownfield Compatibility Matrix
 
 | Existing subsystem | Required treatment |
 |---|---|
-| `compactiondetect` / #312 rule authority | prerequisite and shared matcher/state; not duplicated |
+| #312 `compactiondetect` | prerequisite; shared request/response preview + committed state; no duplicate matrix |
 | `compaction.Observer` | unchanged metadata-only/non-mutating contract |
-| `FeatureBundle` / request snapshot | additive separate preservation-interceptor slice |
-| `internal/core/auxreq` | retain synchronous client; add narrow background collector/scheduler path |
-| `genpin` | retain `KindAsync` synchronously at job submission; no post-lease spawn |
-| `ProcessServices` | owns bounded background auxiliary scheduler lifetime |
-| secure session | primary turn/session state untouched by detached extractor |
-| B2BUA | parent IDs correlation only; child gets private auxiliary execution lineage |
-| routing / route overrides | child selector parsed normally; parent A-leg override not inherited implicitly |
-| billing / metering | existing authorities and separate child BillingCallID reused |
-| protocol-visible usage | primary response usage unchanged; child usage separately recorded |
-| `ExtensionState` | process-local capsule/source/job metadata; key additionally includes A-leg |
-| secure-session transcript | optional authorized historical recovery; no second transcript DB |
-| `CompactionItem` opaque/encrypted fields | immutable; never used as arbitrary text injection carrier |
-| provider/frontends | no provider-specific continuity logic in core |
-| generation reload | process state/scheduler survive; job uses submission-time generation/config |
+| FeatureBundle/snapshot | additive separately frozen preservation-interceptor slice |
+| synchronous `auxiliary.Client` | retained source-compatible |
+| new BackgroundAux | additive narrow model-collection scheduler only |
+| `genpin` | `KindAsync` retained synchronously at submit |
+| ProcessServices | owns scheduler + BranchCoordinator |
+| ExtensionState | process backing for bounded serializable branch state |
+| secure session | primary turn/transcript/activity untouched by detached child |
+| B2BUA | private child A-leg/B-legs; parent IDs lineage only |
+| routing | explicit child selector; parent override not inherited implicitly |
+| usage/billing | existing authorities; separate child BillingCallID and workload class |
+| frontend protocol usage | remains primary-call-only |
+| secure transcript | optional authorized recovery only; no second DB |
+| compaction opaque/encrypted fields | exact byte preservation |
+| provider/frontends | no continuity-specific core/adapter branches |
+| generation reload | process state survives; jobs use captured generation/config |
 
-## Corrected Required Invariants
+## Corrected Invariants
 
-1. Detection truth and preservation mutation are separate contracts sharing one recognition authority.
-2. A strict compaction start is billable only after successful upstream Open; preview never emits/commits lifecycle truth.
-3. Background extraction captures its execution generation and principal at submit time and is process-owned thereafter.
-4. The extractor is detached from the primary secure-session turn while remaining financially attributable to the originating user.
-5. Parent A-leg IDs are correlation, not extractor routing/session authority.
-6. Every submitted extractor call uses normal Executor/BillingCallID/B-leg accounting; primary protocol usage stays separate.
-7. Opaque/encrypted compaction state is never rewritten for continuity.
-8. Capsule/source/job state survives generation reload but does not falsely claim process-restart durability.
-9. Session partition plus explicit A-leg/branch identity prevents cross-branch capsule leakage.
-10. No second provider client, transcript database, money ledger, or generic task framework is introduced.
+1. One compaction recognition authority; previews never commit lifecycle truth.
+2. `compaction.Observer` remains metadata-only and preservation mutation is separate.
+3. Committed `ResponseReleased` sees the actual final event after permitted preservation mutation.
+4. Strict semantic extraction is not submitted before successful primary Open.
+5. Background jobs acquire generation ownership before request spawn authority ends.
+6. ProcessServices owns workers/branch synchronization across reload.
+7. Detached extractor uses a private child A-leg, not the parent A-leg and not a second provider path.
+8. Same authenticated user/account is billed by default; primary protocol usage stays separate.
+9. Parent route override cannot silently change extractor route.
+10. Opaque/encrypted compaction state is immutable; reinjection is universal fallback.
+11. Branch state is bounded/revisioned/SessionID+A-leg scoped and reload-safe, not falsely restart-durable.
+12. No second transcript DB, financial ledger, generic task framework, or second summary LLM pass.
 
-## Requirements Correction Status
+## Final Gate
 
-The final requirements must explicitly incorporate gaps 2–15, especially: additive preservation-interceptor merge/freeze semantics; process-owned background auxiliary scheduler; submit-time generation retention; detached auxiliary secure-session behavior; final-release stage ordering; workload classification for billing; branch keying; narrow transcript recovery; and honest restart durability.
-
-With those corrections applied, the requirements quality gate is **PASS** and design may proceed.
+All identified requirements gaps and design-validation corrections are reflected in final `requirements.md` and `design.md`. The brownfield gate is **PASS** for TDD task generation.
