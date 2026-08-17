@@ -15,10 +15,10 @@ import (
 )
 
 func (e *Executor) billingEnabled() bool {
-	return e != nil && (e.BillingLegObserver != nil || e.CallLegUsageAppender != nil || e.CallUsageAppender != nil)
+	return e != nil && (e.BillingLegObserver != nil || e.hasTerminalSink())
 }
 
-func (e *Executor) observeBillingLeg(ctx context.Context, record billing.LegUsageRecord) {
+func (e *Executor) observeBillingLeg(ctx context.Context, record billing.CallLegUsageRecord) {
 	if e == nil || e.BillingLegObserver == nil {
 		return
 	}
@@ -63,7 +63,7 @@ type billingCallState struct {
 	allocated map[string]int // BLegID -> actual AttemptSeq
 	frozen    []string
 	hasFrozen bool
-	legTimes  []billing.LegUsageRecord
+	legTimes  []billingLegTiming
 
 	finalizeMu sync.Mutex
 	finalize   map[string]*finalizeCacheEntry
@@ -124,7 +124,7 @@ func (s *billingCallState) noteLegTimes(started, finished time.Time) {
 	if s.hasFrozen {
 		return
 	}
-	s.legTimes = append(s.legTimes, billing.LegUsageRecord{StartedAt: started, FinishedAt: finished})
+	s.legTimes = append(s.legTimes, billingLegTiming{startedAt: started, finishedAt: finished})
 }
 
 func (s *billingCallState) timingBounds(now time.Time) (time.Time, time.Time) {
@@ -135,11 +135,11 @@ func (s *billingCallState) timingBounds(now time.Time) (time.Time, time.Time) {
 	defer s.mu.Unlock()
 	var started, finished time.Time
 	for _, leg := range s.legTimes {
-		if !leg.StartedAt.IsZero() && (started.IsZero() || leg.StartedAt.Before(started)) {
-			started = leg.StartedAt
+		if !leg.startedAt.IsZero() && (started.IsZero() || leg.startedAt.Before(started)) {
+			started = leg.startedAt
 		}
-		if !leg.FinishedAt.IsZero() && (finished.IsZero() || leg.FinishedAt.After(finished)) {
-			finished = leg.FinishedAt
+		if !leg.finishedAt.IsZero() && (finished.IsZero() || leg.finishedAt.After(finished)) {
+			finished = leg.finishedAt
 		}
 	}
 	if started.IsZero() {
@@ -152,6 +152,11 @@ func (s *billingCallState) timingBounds(now time.Time) (time.Time, time.Time) {
 		finished = started
 	}
 	return started, finished
+}
+
+type billingLegTiming struct {
+	startedAt  time.Time
+	finishedAt time.Time
 }
 
 type finalizeCacheEntry struct {

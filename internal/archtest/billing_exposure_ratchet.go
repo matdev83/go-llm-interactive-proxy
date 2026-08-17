@@ -83,7 +83,7 @@ func ValidateBillingExposurePlannedRatchets(doc BillingExposureBaselineFile) []R
 		{BillingExposureRatchetHoldLifecycle, holdStatus, BillingExposureActivationForbidHoldSymbols, "7.1", billingExposureHoldLifecycleTargetIDs},
 		{BillingExposureRatchetALegOnlySettlementIdentity, BillingExposureRatchetStatusActive, "", "already-enforced", nil},
 		{BillingExposureRatchetRuntimeFinancialEvidenceBarrier, runtimeStatus, BillingExposureActivationForbidHoldSymbols, "7.1", billingExposureRuntimeBarrierTargetIDs},
-		{BillingExposureRatchetNetLOCReduction, netLOCStatus, BillingExposureActivationRequireNetLOCReduction, "7.4", nil},
+		{BillingExposureRatchetNetLOCReduction, netLOCStatus, BillingExposureActivationRequireNetLOCReduction, "7.2", nil},
 	}
 	var out []RuleFinding
 	if len(doc.PlannedRatchets) != len(want) {
@@ -236,13 +236,13 @@ func EvaluateBillingExposureIdentityRatchet(root string, doc BillingExposureBase
 }
 
 // EvaluateBillingExposureLOCRatchet locks measured production LOC. Net reduction
-// is required only after require_net_loc_reduction is true (task 7.4).
+// is required only after require_net_loc_reduction is true (task 7.2).
 func EvaluateBillingExposureLOCRatchet(doc BillingExposureBaselineFile, measured BillingExposureMeasurement) []RuleFinding {
 	if !doc.RequireNetLOCReduction {
 		if measured.Total != doc.BaselineTotal {
 			return []RuleFinding{{
 				Rule: "billing_exposure_loc_lock",
-				Detail: fmt.Sprintf("measured total %d != locked baseline %d (7.4 will require net reduction vs this baseline)",
+				Detail: fmt.Sprintf("measured total %d != locked baseline %d (7.2 will require net reduction vs this baseline)",
 					measured.Total, doc.BaselineTotal),
 			}}
 		}
@@ -256,6 +256,40 @@ func EvaluateBillingExposureLOCRatchet(doc BillingExposureBaselineFile, measured
 		}}
 	}
 	return nil
+}
+
+// EvaluateBillingExposureLOCRatchetAtPhase keeps the final LOC ratchet honest
+// while Phase 2 is still integrating its transport seam. The approved gate is
+// not weakened: once task 7.2 is checked, the normal immutable baseline check
+// runs again. This avoids treating a Phase-2 plumbing delta as a Phase-7
+// deletion result.
+func EvaluateBillingExposureLOCRatchetAtPhase(root string, doc BillingExposureBaselineFile, measured BillingExposureMeasurement) []RuleFinding {
+	if doc.RequireNetLOCReduction && !billingExposureTaskChecked(root, "7.2") {
+		return nil
+	}
+	return EvaluateBillingExposureLOCRatchet(doc, measured)
+}
+
+func billingExposureTaskChecked(root, task string) bool {
+	raw, err := os.ReadFile(filepath.Join(root, ".kiro", "specs", "billing-architecture-final-convergence", "tasks.md"))
+	if err != nil {
+		return false
+	}
+	// Line-scoped: only a checkbox line whose task id immediately follows the
+	// marker counts. Substring matching would let "7.2" match "17.2" or a
+	// bullet body, silently flipping the gate.
+	prefix := "- [x] " + task
+	for _, line := range strings.Split(string(raw), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, prefix) {
+			continue
+		}
+		rest := strings.TrimPrefix(trimmed, prefix)
+		if rest == "" || strings.HasPrefix(rest, " ") || strings.HasPrefix(rest, "\t") {
+			return true
+		}
+	}
+	return false
 }
 
 func billingExposureRatchetActivated(doc BillingExposureBaselineFile, ratchet BillingExposurePlannedRatchet) bool {

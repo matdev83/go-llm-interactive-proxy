@@ -17,13 +17,7 @@ import (
 // ProductionOptions carries enterprise/production injection seams (reqs 12.1, 12.3, 12.4).
 // Canonical host construction accepts descriptor-bound registrations only.
 type ProductionOptions struct {
-	// BillingCallLegAppender is the authoritative independent B-leg spool.
-	BillingCallLegAppender billing.CallLegUsageAppender
-	// BillingCallUsageAppender is the authoritative durable call-closure spool.
-	// Authoritative composition never substitutes an in-memory outbox for this
-	// boundary. Simultaneous loss of every configured durable replica before an
-	// append succeeds is outside the at-least-once guarantee.
-	BillingCallUsageAppender billing.CallUsageAppender
+	BillingTerminalUsageSink billing.TerminalUsageSink
 	// BillingStore is the authoritative durable billing boundary used by runtime
 	// and read-side report composition. It is intentionally a domain port.
 	BillingStore         billing.AuthoritativeBilling

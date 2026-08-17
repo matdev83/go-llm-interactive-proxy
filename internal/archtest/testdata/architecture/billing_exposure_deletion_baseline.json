@@ -258,7 +258,7 @@
       "id": "net_loc_reduction",
       "status": "active",
       "activation_flag": "require_net_loc_reduction",
-      "activation_task": "7.4",
+      "activation_task": "7.2",
       "requirements": ["14.8", "17.11"],
       "end_state": "billing-convergence production surfaces must have a net reduction versus the locked pre-spec baseline; test/docs/migration lines must not mask growth"
     }

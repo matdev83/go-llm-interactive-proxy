@@ -58,8 +58,7 @@ func RateCall(in CallRatingInput) (CallRatingResult, error) {
 	if err := in.CustomerPolicy.Validate(); err != nil {
 		return CallRatingResult{}, err
 	}
-	turnKey := call.Key
-	legs := make([]LegUsageRecord, 0, len(in.Legs))
+	sealedLegs := make([]CallLegUsageRecord, 0, len(in.Legs))
 	legFingerprints := make([]string, 0, len(in.Legs))
 	for _, source := range in.Legs {
 		leg, sealErr := source.Seal()
@@ -69,29 +68,13 @@ func RateCall(in CallRatingInput) (CallRatingResult, error) {
 		if leg.CallID != call.CallID || !containsExpectedLeg(call.ExpectedBLegIDs, leg.BLegID) {
 			return CallRatingResult{}, fmt.Errorf("%w: leg %q is not expected for call", ErrRatingSnapshotMismatch, leg.BLegID)
 		}
-		legs = append(legs, LegUsageRecord{
-			// AttemptSeq is the exact persisted b2bua.BLegRecord.Seq. Never
-			// reconstruct sequence from slice position or opaque IDs: zero
-			// means legacy-unknown and the rating policy fails closed when it
-			// needs order.
-			ALegID: leg.ALegID, BLegID: leg.BLegID, Seq: leg.AttemptSeq,
-			BackendID: leg.BackendID, ProviderID: leg.ProviderID, ModelID: leg.ModelID,
-			StartedAt: leg.StartedAt, FinishedAt: leg.FinishedAt, Outcome: LegOutcome(leg.Outcome), Surfaced: leg.Surfaced,
-			Evidence: leg.Evidence, OperatorRateRef: leg.OperatorRateRef,
-		})
+		sealedLegs = append(sealedLegs, leg)
 		legFingerprints = append(legFingerprints, leg.Fingerprint)
-	}
-	turn := TurnUsageRecord{
-		SchemaVersion: CurrentRecordSchemaVersion, Key: turnKey, AccountID: call.AccountID,
-		TurnID: call.CallID.String(), ALegID: call.ALegID, SessionID: call.SessionID,
-		StartedAt: call.StartedAt, FinishedAt: call.FinishedAt, Outcome: call.Outcome,
-		CustomerPricingRef: call.CustomerPricingRef, ChargePolicyRef: call.ChargePolicyRef, Legs: legs,
 	}
 	if err := in.CustomerPricing.Validate(in.MaxCustomerCharge.Currency); err != nil {
 		return CallRatingResult{}, err
 	}
-	ratingInput := RatingInput{Record: turn, CustomerPricing: in.CustomerPricing, CustomerPolicy: in.CustomerPolicy, ModelPricing: in.ModelPricing}
-	customer, err := calculateCustomerCharge(turn, ratingInput)
+	customer, err := rateCustomerCharge(sealedLegs, call.Outcome, in.CustomerPricing, in.CustomerPolicy, in.ModelPricing)
 	if err != nil {
 		return CallRatingResult{}, err
 	}

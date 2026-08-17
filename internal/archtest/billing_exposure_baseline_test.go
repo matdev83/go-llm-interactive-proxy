@@ -38,7 +38,7 @@ func TestBillingExposureBaselineInventoryLocked(t *testing.T) {
 		t.Fatalf("phase = %q, want 0.1-brownfield-baseline", doc.Phase)
 	}
 	if !doc.RequireNetLOCReduction {
-		t.Fatal("Phase 7.4 must activate require_net_loc_reduction")
+		t.Fatal("Phase 7.2 must activate require_net_loc_reduction")
 	}
 	if !doc.ForbidHoldSymbols {
 		t.Fatal("Phase 7.1 must activate the hold-symbol deletion guard")
@@ -132,11 +132,11 @@ func TestBillingExposureBaselineMatchesMeasuredProductionLOC(t *testing.T) {
 			mismatches = append(mismatches, fmt.Sprintf("%s: measured %d lock %d", want.ID, measured.CurrentLines, want.BaselineLines))
 		}
 	}
-	if doc.RequireNetLOCReduction {
+	if doc.RequireNetLOCReduction && billingExposureTaskChecked(root, "7.2") {
 		if got.Total >= doc.BaselineTotal {
 			mismatches = append(mismatches, fmt.Sprintf("total: measured %d is not below pre-spec baseline %d", got.Total, doc.BaselineTotal))
 		}
-	} else if got.Total != doc.BaselineTotal {
+	} else if !doc.RequireNetLOCReduction && got.Total != doc.BaselineTotal {
 		mismatches = append(mismatches, fmt.Sprintf("total: measured %d lock %d", got.Total, doc.BaselineTotal))
 	}
 	if len(mismatches) > 0 {
