@@ -15,6 +15,9 @@ import (
 // ErrLegAttemptSequenceConflict identifies duplicate positive sequences within one BillingCallID; legacy NULL values remain outside it.
 var ErrLegAttemptSequenceConflict = errors.New("billingstore: call-leg attempt sequence conflict")
 
+// AppendCallLegUsage is the DurableStore's current-record persistence API. It
+// is retained for historical outbox drain/storage and is not a runtime
+// transport interface; runtime terminal handoff uses billing.TerminalUsageSink.
 func (s *DurableStore) AppendCallLegUsage(ctx context.Context, record billing.CallLegUsageRecord) error {
 	return withAccountTxErr(ctx, accountTxRetry{
 		Attempts: 20,

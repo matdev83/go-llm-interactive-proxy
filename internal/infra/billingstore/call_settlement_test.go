@@ -60,7 +60,7 @@ func TestSQLiteApplyCallBillingResultClosesExposureAndPostsCustomerCharge(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gotAccount.BalanceNano != 75 || gotAccount.ReservedNano != 0 {
+	if gotAccount.BalanceNano != 75 {
 		t.Fatalf("account after settlement = %+v", gotAccount)
 	}
 	var status string

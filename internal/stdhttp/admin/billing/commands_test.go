@@ -81,8 +81,8 @@ func TestBillingCommandsCreatePrepaidAccount(t *testing.T) {
 	if got.ID != "acct-prepaid" || got.Currency != "USD" || got.Mode != corebilling.AccountPrepaid {
 		t.Fatalf("account=%+v", got)
 	}
-	if got.BalanceNano != 0 || got.CreditLimit != 0 || got.ReservedNano != 0 {
-		t.Fatalf("opening money fields=%+v, want zero balance, credit limit, and reserved", got)
+	if got.BalanceNano != 0 || got.CreditLimit != 0 {
+		t.Fatalf("opening money fields=%+v, want zero balance and credit limit", got)
 	}
 	if got.State != corebilling.AccountReady {
 		t.Fatalf("state=%q want ready", got.State)

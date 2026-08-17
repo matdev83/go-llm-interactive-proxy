@@ -159,7 +159,6 @@ func snapshotFromAccount(account Account) (AccountSnapshot, error) {
 	}
 	return AccountSnapshot{
 		BalanceNano:     account.BalanceNano,
-		ReservedNano:    account.ReservedNano,
 		SpendableNano:   spendable,
 		CreditFloorNano: account.CreditFloorNano(),
 		CreditLimitNano: account.CreditLimit,

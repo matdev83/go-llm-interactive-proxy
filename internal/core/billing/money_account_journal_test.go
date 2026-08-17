@@ -41,26 +41,12 @@ func TestMoneyCheckedArithmeticAndCurrency(t *testing.T) {
 func TestAccountSpendableEqualsBalanceMinusCreditFloor(t *testing.T) {
 	t.Parallel()
 	prepaid := testAccount()
-	prepaid.ReservedNano = 30
-	if _, err := prepaid.SpendableNano(); !errors.Is(err, ErrAccountInvalid) {
-		t.Fatalf("ready account with reserved = %v, want ErrAccountInvalid", err)
-	}
-	prepaid.State = AccountReconcileRequired
 	if got, err := prepaid.SpendableNano(); err != nil || got != 100 {
-		t.Fatalf("reconcile-required spendable must ignore reserved: got %d, %v; want 100", got, err)
+		t.Fatalf("prepaid spendable = %d, %v; want 100", got, err)
 	}
-	postpaid := Account{ID: "acct-2", Currency: "USD", Mode: AccountPostpaid, CreditLimit: 100, BalanceNano: -35, ReservedNano: 10, State: AccountReconcileRequired}
+	postpaid := Account{ID: "acct-2", Currency: "USD", Mode: AccountPostpaid, CreditLimit: 100, BalanceNano: -35, State: AccountReconcileRequired}
 	if got, err := postpaid.SpendableNano(); err != nil || got != 65 {
-		t.Fatalf("postpaid spendable = %d, %v; want 65 (Balance - CreditFloor, ignore reserved)", got, err)
-	}
-}
-
-func TestAccountReadyRejectsNonZeroReserved(t *testing.T) {
-	t.Parallel()
-	acct := testAccount()
-	acct.ReservedNano = 1
-	if err := acct.Validate(); !errors.Is(err, ErrAccountInvalid) {
-		t.Fatalf("ready+reserved Validate = %v, want ErrAccountInvalid", err)
+		t.Fatalf("postpaid spendable = %d, %v; want 65 (Balance - CreditFloor)", got, err)
 	}
 }
 
@@ -110,10 +96,21 @@ func TestJournalTransactionRequiresBalancedPositiveEntries(t *testing.T) {
 	}
 }
 
+func TestCurrentJournalRejectsRetiredAuthorizationBook(t *testing.T) {
+	t.Parallel()
+	journal := JournalTransaction{ID: "legacy", Book: JournalBook("authorization"), Currency: "USD", SourceKey: "legacy", Entries: []JournalEntry{
+		{LedgerAccount: "legacy", Side: JournalDebit, Amount: Money{Nano: 1, Currency: "USD"}},
+		{LedgerAccount: "contra", Side: JournalCredit, Amount: Money{Nano: 1, Currency: "USD"}},
+	}}
+	if err := journal.Validate(); !errors.Is(err, ErrJournalInvalid) {
+		t.Fatalf("retired authorization book validation = %v, want ErrJournalInvalid", err)
+	}
+}
+
 func TestJournalDetachedCopiesEntries(t *testing.T) {
 	t.Parallel()
 	j := JournalTransaction{
-		ID: "tx-1", Book: JournalBookLegacyAuthorization, Currency: "USD", SourceKey: "source-1",
+		ID: "tx-1", Book: JournalBookFinancial, Currency: "USD", SourceKey: "source-1",
 		Entries: []JournalEntry{
 			{LedgerAccount: "reserved", Side: JournalDebit, Amount: Money{Nano: 3, Currency: "USD"}},
 			{LedgerAccount: "contra", Side: JournalCredit, Amount: Money{Nano: 3, Currency: "USD"}},
@@ -164,8 +161,6 @@ func TestJournalCanonicalFingerprintIsVersioned(t *testing.T) {
 	j.SemanticFingerprint = "ignored"
 	j.BalanceBefore = 100
 	j.BalanceAfter = 90
-	j.ReservedBefore = 5
-	j.ReservedAfter = 0
 	j.SpendableBefore = 95
 	j.SpendableAfter = 90
 	j.CreditFloor = -10

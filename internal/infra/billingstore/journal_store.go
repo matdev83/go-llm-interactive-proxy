@@ -14,17 +14,16 @@ import (
 )
 
 var (
-	ErrIdentityConflict    = errors.New("billingstore: idempotency identity conflict")
-	ErrCorrectionInvalid   = errors.New("billingstore: invalid correction link")
-	ErrAccountNotFound     = errors.New("billingstore: account not found")
-	ErrUsageRecordNotFound = errors.New("billingstore: usage record not found")
-	ErrSequenceConflict    = errors.New("billingstore: account sequence conflict")
-	ErrEvidenceIncomplete  = errors.New("billingstore: operation evidence incomplete")
+	ErrIdentityConflict           = errors.New("billingstore: idempotency identity conflict")
+	ErrCorrectionInvalid          = errors.New("billingstore: invalid correction link")
+	ErrAccountNotFound            = errors.New("billingstore: account not found")
+	ErrUsageRecordNotFound        = errors.New("billingstore: usage record not found")
+	ErrSequenceConflict           = errors.New("billingstore: account sequence conflict")
+	ErrEvidenceIncomplete         = errors.New("billingstore: operation evidence incomplete")
+	ErrProviderJournalGenericPath = errors.New("billingstore: provider COGS requires provider journal writer")
 )
 
 var (
-	_ billing.CallLegUsageAppender   = (*DurableStore)(nil)
-	_ billing.CallUsageAppender      = (*DurableStore)(nil)
 	_ billing.ExposureAdmissionStore = (*DurableStore)(nil)
 	_ billing.CallUsageStore         = (*DurableStore)(nil)
 	_ billing.CompleteCallClaimer    = (*DurableStore)(nil)
@@ -38,16 +37,13 @@ func (s *DurableStore) CreateAccount(ctx context.Context, account billing.Accoun
 	if err := account.Validate(); err != nil {
 		return err
 	}
-	if account.ReservedNano != 0 {
-		return fmt.Errorf("%w: opening reserved exposure must be zero", billing.ErrAccountInvalid)
-	}
 	now := time.Now().UTC()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.NewRaw(`INSERT INTO billing_accounts(account_id, currency, mode, credit_limit_nano, balance_nano, opening_balance_nano, reserved_nano, version, state, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`, account.ID, account.Currency, string(account.Mode), account.CreditLimit, account.BalanceNano, account.BalanceNano, account.ReservedNano, account.Version, string(account.State), now, now).Exec(ctx); err != nil {
+	if _, err := tx.NewRaw(`INSERT INTO billing_accounts(account_id, currency, mode, credit_limit_nano, balance_nano, opening_balance_nano, version, state, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`, account.ID, account.Currency, string(account.Mode), account.CreditLimit, account.BalanceNano, account.BalanceNano, account.Version, string(account.State), now, now).Exec(ctx); err != nil {
 		if isUniqueViolation(err) {
 			return wrapAccountProvisionerError(fmt.Errorf("%w: account %s already exists", ErrIdentityConflict, account.ID))
 		}
@@ -82,6 +78,9 @@ func (s *DurableStore) postJournalTransaction(ctx context.Context, input billing
 	if s == nil || s.db == nil {
 		return billing.JournalTransaction{}, fmt.Errorf("billingstore: nil store")
 	}
+	if input.OperationKind == "provider_call_cogs" {
+		return billing.JournalTransaction{}, ErrProviderJournalGenericPath
+	}
 	if err := input.Validate(); err != nil {
 		return billing.JournalTransaction{}, err
 	}
@@ -91,6 +90,9 @@ func (s *DurableStore) postJournalTransaction(ctx context.Context, input billing
 }
 
 func (s *DurableStore) postJournalAttempt(ctx context.Context, input billing.JournalTransaction) (billing.JournalTransaction, error) {
+	if input.OperationKind == "provider_call_cogs" {
+		return billing.JournalTransaction{}, ErrProviderJournalGenericPath
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return billing.JournalTransaction{}, fmt.Errorf("billingstore: begin journal: %w", err)
@@ -130,24 +132,28 @@ func (s *DurableStore) postJournalAttempt(ctx context.Context, input billing.Jou
 	}
 	sequence++
 	sealed.AccountSequence = sequence
-	recordedAt := time.Now().UTC()
-	_, err = tx.NewRaw(`INSERT INTO journal_transactions( transaction_id, account_id, book, currency, source_key, semantic_fingerprint, turn_id, a_leg_id, b_leg_id, account_sequence, reversal_of, corrects_transaction_id, correction_group_id, operation_kind, balance_before_nano, balance_after_nano, reserved_before_nano, reserved_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, mode, snapshot_version_before, snapshot_version_after, recorded_at ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, sealed.ID, sealed.AccountID, string(sealed.Book), sealed.Currency, sealed.SourceKey, sealed.SemanticFingerprint,
+	// reserved snapshot columns are retained only for immutable historical audit rows;
+	// current journal commands have no reserved state and write the proven zero literals.
+	_, err = tx.NewRaw(`INSERT INTO journal_transactions( transaction_id, account_id, book, currency, source_key, semantic_fingerprint, turn_id, a_leg_id, b_leg_id, account_sequence, reversal_of, corrects_transaction_id, correction_group_id, operation_kind, balance_before_nano, balance_after_nano, reserved_before_nano, reserved_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, mode, snapshot_version_before, snapshot_version_after ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, sealed.ID, sealed.AccountID, string(sealed.Book), sealed.Currency, sealed.SourceKey, sealed.SemanticFingerprint,
 		sealed.TurnID, sealed.ALegID, sealed.BLegID, sealed.AccountSequence, sealed.ReversalOf, sealed.CorrectsTransactionID,
-		sealed.CorrectionGroupID, sealed.OperationKind, sealed.BalanceBefore, sealed.BalanceAfter, sealed.ReservedBefore,
-		sealed.ReservedAfter, sealed.SpendableBefore, sealed.SpendableAfter, sealed.CreditFloor, sealed.CreditLimit,
-		sealed.Mode, sealed.SnapshotVersionBefore, sealed.SnapshotVersionAfter, recordedAt).Exec(ctx)
+		sealed.CorrectionGroupID, sealed.OperationKind, sealed.BalanceBefore, sealed.BalanceAfter, 0, 0,
+		sealed.SpendableBefore, sealed.SpendableAfter, sealed.CreditFloor, sealed.CreditLimit,
+		sealed.Mode, sealed.SnapshotVersionBefore, sealed.SnapshotVersionAfter).Exec(ctx)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return billing.JournalTransaction{}, fmt.Errorf("billingstore: journal unique race: %w", err)
 		}
 		return billing.JournalTransaction{}, fmt.Errorf("billingstore: insert journal transaction: %w", err)
 	}
+	if err := tx.NewRaw(`SELECT recorded_at FROM journal_transactions WHERE transaction_id = ?`, sealed.ID).Scan(ctx, &sealed.RecordedAt); err != nil {
+		return billing.JournalTransaction{}, fmt.Errorf("billingstore: read journal timestamp: %w", err)
+	}
 	for ordinal, entry := range sealed.Entries {
 		if _, err := tx.NewRaw(`INSERT INTO journal_entries(transaction_id, ordinal, ledger_account, side, currency, amount_nano) VALUES (?,?,?,?,?,?)`, sealed.ID, ordinal, entry.LedgerAccount, string(entry.Side), entry.Amount.Currency, entry.Amount.Nano).Exec(ctx); err != nil {
 			return billing.JournalTransaction{}, fmt.Errorf("billingstore: insert journal entry: %w", err)
 		}
 	}
-	if _, err := tx.NewRaw(`UPDATE billing_accounts SET version = version + 1, updated_at = ? WHERE account_id = ?`, recordedAt, sealed.AccountID).Exec(ctx); err != nil {
+	if _, err := tx.NewRaw(`UPDATE billing_accounts SET version = version + 1, updated_at = ? WHERE account_id = ?`, time.Now().UTC(), sealed.AccountID).Exec(ctx); err != nil {
 		return billing.JournalTransaction{}, fmt.Errorf("billingstore: update account version: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -252,8 +258,8 @@ func lookupJournalBySource(ctx context.Context, q bun.IDB, accountID string, boo
 	err := q.NewRaw(`
 SELECT transaction_id, account_id, book, currency, source_key, semantic_fingerprint,	 turn_id, a_leg_id, b_leg_id, account_sequence, reversal_of, corrects_transaction_id,
 	 correction_group_id, operation_kind, balance_before_nano, balance_after_nano,
-	 reserved_before_nano, reserved_after_nano, spendable_before_nano, spendable_after_nano,
-	 credit_floor_nano, credit_limit_nano, mode, snapshot_version_before, snapshot_version_after, recorded_at
+	 spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano,
+	 mode, snapshot_version_before, snapshot_version_after, recorded_at
 FROM journal_transactions WHERE account_id = ? AND book = ? AND source_key = ?
 `, accountID, string(book), sourceKey).Scan(ctx, &row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -316,18 +322,21 @@ func loadJournals(ctx context.Context, q bun.IDB, rows []journalTransactionRow) 
 }
 
 func journalFromRow(row journalTransactionRow, entries []billing.JournalEntry) billing.JournalTransaction {
+	sequence := uint64(0)
+	if row.AccountSequence.Valid && row.AccountSequence.Int64 > 0 {
+		sequence = uint64(row.AccountSequence.Int64)
+	}
 	return billing.JournalTransaction{
 		ID: row.ID, Book: billing.JournalBook(row.Book), Currency: row.Currency, SourceKey: row.SourceKey,
 		SemanticFingerprint: row.SemanticFingerprint, AccountID: row.AccountID, TurnID: row.TurnID,
-		ALegID: row.ALegID, BLegID: row.BLegID, AccountSequence: row.AccountSequence,
+		ALegID: row.ALegID, BLegID: row.BLegID, AccountSequence: sequence,
 		ReversalOf: row.ReversalOf, CorrectsTransactionID: row.CorrectsTransactionID,
 		CorrectionGroupID: row.CorrectionGroupID, OperationKind: row.OperationKind,
 		BalanceBefore: row.BalanceBefore, BalanceAfter: row.BalanceAfter,
-		ReservedBefore: row.ReservedBefore, ReservedAfter: row.ReservedAfter,
 		SpendableBefore: row.SpendableBefore, SpendableAfter: row.SpendableAfter,
 		CreditFloor: row.CreditFloor, CreditLimit: row.CreditLimit, Mode: row.Mode,
 		SnapshotVersionBefore: row.SnapshotVersionBefore, SnapshotVersionAfter: row.SnapshotVersionAfter,
-		Entries: entries,
+		RecordedAt: row.RecordedAt, Entries: entries,
 	}
 }
 
@@ -336,9 +345,9 @@ func (s *DurableStore) JournalTransactions(ctx context.Context, accountID string
 	if err := s.db.NewRaw(`
 SELECT transaction_id, account_id, book, currency, source_key, semantic_fingerprint,	 turn_id, a_leg_id, b_leg_id, account_sequence, reversal_of, corrects_transaction_id,
 	 correction_group_id, operation_kind, balance_before_nano, balance_after_nano,
-	 reserved_before_nano, reserved_after_nano, spendable_before_nano, spendable_after_nano,
-	 credit_floor_nano, credit_limit_nano, mode, snapshot_version_before, snapshot_version_after, recorded_at
-FROM journal_transactions WHERE account_id = ? ORDER BY account_sequence`, accountID).Scan(ctx, &rows); err != nil {
+	 spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano,
+	 mode, snapshot_version_before, snapshot_version_after, recorded_at
+FROM journal_transactions WHERE account_id = ? AND book = 'financial'`+journalOrderClause(""), accountID).Scan(ctx, &rows); err != nil {
 		return nil, err
 	}
 	return loadJournals(ctx, s.db, rows)
