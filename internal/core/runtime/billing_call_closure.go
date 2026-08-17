@@ -14,6 +14,7 @@ func (s *retryRecvStream) appendCallClosureLocked(ctx context.Context, command s
 	if s.executor.CallUsageAppender == nil || s.billingCallClosureSuccess {
 		return
 	}
+	s.ensureBillingCallState()
 	if err := s.billingCallID.Validate(); err != nil {
 		return
 	}
@@ -24,9 +25,9 @@ func (s *retryRecvStream) appendCallClosureLocked(ctx context.Context, command s
 	if accountID == "" {
 		return
 	}
-	ids := s.executor.billingTurns().freezeAllocatedBLegs(s.billingCallID)
+	ids := s.billingCallState.freezeAllocatedBLegs()
 	now := s.now()
-	started, finished := callClosureTimes(s.executor.billingTurns().closureLegTimes(s.billingCallID), now)
+	started, finished := s.billingCallState.timingBounds(now)
 	record := billing.CallUsageRecord{
 		SchemaVersion:      billing.CurrentRecordSchemaVersion,
 		CallID:             s.billingCallID,

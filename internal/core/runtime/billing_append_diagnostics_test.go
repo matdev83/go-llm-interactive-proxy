@@ -63,7 +63,7 @@ func TestAppendIndependentCallLegLogsCriticalOnDualFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	ex.appendIndependentCallLeg(context.Background(), callID, billing.LegUsageRecord{
-		ALegID: "a-1", BLegID: "b-1", BackendID: "be", ProviderID: "be", ModelID: "m",
+		ALegID: "a-1", BLegID: "b-1", Seq: 1, BackendID: "be", ProviderID: "be", ModelID: "m",
 		StartedAt: time.Unix(1, 0).UTC(), FinishedAt: time.Unix(2, 0).UTC(),
 		Outcome: billing.LegOutcomeFailed, Surfaced: billing.SurfacedNo,
 		Evidence: billing.FinalBillingEvidence{Source: billing.EvidenceSourceUnavailable, Authority: billing.EvidenceAuthorityUnavailable},
@@ -91,7 +91,7 @@ func TestAppendIndependentCallLegWarnsWhenOutboxArmed(t *testing.T) {
 		t.Fatal(err)
 	}
 	ex.appendIndependentCallLeg(context.Background(), callID, billing.LegUsageRecord{
-		ALegID: "a-1", BLegID: "b-1", BackendID: "be", ProviderID: "be", ModelID: "m",
+		ALegID: "a-1", BLegID: "b-1", Seq: 1, BackendID: "be", ProviderID: "be", ModelID: "m",
 		StartedAt: time.Unix(1, 0).UTC(), FinishedAt: time.Unix(2, 0).UTC(),
 		Outcome: billing.LegOutcomeFailed, Surfaced: billing.SurfacedNo,
 		Evidence: billing.FinalBillingEvidence{Source: billing.EvidenceSourceUnavailable, Authority: billing.EvidenceAuthorityUnavailable},

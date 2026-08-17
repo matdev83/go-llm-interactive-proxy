@@ -43,9 +43,11 @@ type preparedRequest struct {
 	// billingCallID is allocated once per incoming invocation and shared by
 	// that request's retries, failover alternatives, and parallel B-legs.
 	billingCallID billing.BillingCallID
-	execSpan      trace.Span
-	metering      *checkpoint.RequestHolder
-	routeAuth     routeAuthoritySnapshot
+	// billingCallState is the private request/BillingCallID-scoped state object.
+	billingCallState *billingCallState
+	execSpan         trace.Span
+	metering         *checkpoint.RequestHolder
+	routeAuth        routeAuthoritySnapshot
 }
 
 // prepareRequest executes phases 1-9 of the former inline [Executor.Execute]:
