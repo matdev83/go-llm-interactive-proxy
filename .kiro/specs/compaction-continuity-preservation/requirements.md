@@ -28,9 +28,10 @@ This specification depends on the compaction-recognition authority defined by th
 1.7. When a recognized compaction request successfully opens upstream, preservation may start one extraction job for that logical transaction while primary compaction work continues independently.
 1.8. Completion-only/history evidence shall never invent a historical start, but it may trigger extraction/reinjection required for a compaction only observable after installation.
 1.9. Any pre-open request preview needed to protect the first post-compaction turn shall be a pure/non-committing view over the same matcher/fingerprint authority; preview shall not emit lifecycle events, advance detector state, or establish a strict-start billing trigger.
-1.10. Final-release ordering shall keep detector derivation non-mutating: selected canonical event -> derived compaction lifecycle metadata -> separate preservation finalization -> metadata-observer dispatch -> client release. No ordinary response hook may run after preservation finalization.
-1.11. Provider/frontend wire DTOs and provider SDK types shall not enter core continuity logic.
-1.12. Generic words such as `plan`, `summarize`, `continue`, or `compact` shall not by themselves establish a compaction boundary or accepted plan.
+1.10. Response-side preservation shall use a pure/non-committing response preview over the same detector authority to identify a potential completion before mutation; preview shall not mark a transaction complete or dispatch observers.
+1.11. Final-release ordering shall be: selected canonical event -> pure response preview -> separate preservation finalization -> committed `ResponseReleased` on the resulting final event -> metadata-observer dispatch -> client release. No ordinary response hook may run after preservation finalization.
+1.12. Provider/frontend wire DTOs and provider SDK types shall not enter core continuity logic.
+1.13. Generic words such as `plan`, `summarize`, `continue`, or `compact` shall not by themselves establish a compaction boundary or accepted plan.
 
 ## Requirement 2: Versioned Continuity Capsule and Decision Semantics
 
@@ -84,7 +85,7 @@ This specification depends on the compaction-recognition authority defined by th
 4.11. Queue saturation, unavailable worker, shutdown, or failed generation retention shall follow preservation failure policy and shall not fall back to an unbounded goroutine/direct provider call.
 4.12. Process shutdown shall stop admission, cancel/join worker execution, release generation pins exactly once, and satisfy repository goleak/race requirements.
 4.13. Job results shall be revision-checked before merge; stale jobs cannot overwrite newer intent/capsule revisions.
-4.14. Completed raw auxiliary results shall be held only in bounded TTL-limited process memory until parsed/consumed, never logged, and explicitly forgotten/expired after normalized capsule/delta storage.
+4.14. Completed raw auxiliary results shall be bounded by count/bytes/TTL, never logged, and forgotten immediately after validation/merge. While a BranchState still references a pending useful JobID, its result retention shall be long enough for the configured bounded continuity/pending window rather than an arbitrary short cache TTL; branch/job expiry shall clear both sides coherently.
 4.15. Disabling/reloading the feature shall prevent new jobs according to the new configuration but shall not erase accounting obligations or leak execution for provider work already submitted.
 
 ## Requirement 5: Independently Configurable Route and Detached Session Semantics
@@ -99,9 +100,11 @@ This specification depends on the compaction-recognition authority defined by th
 5.8. Extractor output shall be bounded and schema-oriented rather than unconstrained conversational output.
 5.9. The preservation plugin shall suppress itself on the child; existing auxiliary-depth recursion limits remain effective.
 5.10. Core auxiliary execution shall provide a typed detached-session mode for this workload. It shall preserve authenticated principal/scope and parent correlation while suppressing primary secure-session BeginTurn/turn transcript/last-activity effects.
-5.11. Detached execution shall not mutate the primary A-leg route override, primary session turn count, primary session transcript, or client-visible session history.
-5.12. Detached-session authority shall be internal execution metadata and shall not be encoded as provider-visible opaque call content.
-5.13. The child may use private B2BUA/sessionless execution lineage required for routing/usage/billing, but it shall be clearly distinguishable from the user's primary conversational turn.
+5.11. Detached execution shall create/use a **private child A-leg** for the auxiliary logical call using existing B2BUA lifecycle semantics; it shall neither be sessionless nor reuse the primary A-leg as execution authority.
+5.12. The private child A-leg may own normal B-leg attempts/request authority/billing correlation, while `ParentALegID` remains explicit lineage only.
+5.13. Detached execution shall not mutate the primary A-leg route override, primary session turn count, primary session transcript, or client-visible session history.
+5.14. Detached-session authority shall be trusted internal execution metadata and shall not be encoded as provider-visible opaque call content or settable from frontend wire fields.
+5.15. Child A-leg/attempt lineage shall remain clearly distinguishable as internal auxiliary workload from the user's primary conversational turn.
 
 ## Requirement 6: Originating-User Billing, Usage, and Cost Attribution
 
@@ -175,29 +178,31 @@ This specification depends on the compaction-recognition authority defined by th
 
 10.1. Global feature config shall support at least enablement, preserved categories, extractor route, timeout/input/output limits, worker concurrency/queue bounds, barrier timeout, capsule/source/result bounds/TTL, and failure mode.
 10.2. Semantic extraction requires an explicit route or explicit inherit policy; no accidental main-model default is allowed.
-10.3. Default failure mode shall be fail-open for model traffic: extractor timeout/error/saturation/invalid output/state failure does not make native compaction unusable.
-10.4. Fail-open preserves already-valid deterministic capsule state and never injects malformed/partial extractor output.
-10.5. Extractor output shall be validated against a strict versioned schema with byte/depth/count limits before merge/injection.
-10.6. Observability shall count compaction candidates; deterministic hits; semantic jobs submitted/coalesced/skipped/saturated; latency/outcome; extractor input/output tokens; capsule revision/size/fact counts; barrier waits/timeouts; augmentation/reinjection; stale/conflict rejection.
-10.7. Billing/usage observability shall expose auxiliary continuity cost through existing accounting stores rather than duplicating financial truth.
-10.8. Config reload shall not mutate active job route/budgets mid-flight.
-10.9. Disabling the feature prevents new jobs while allowing bounded cleanup/accounting of already-submitted work.
-10.10. No failure path may retry indefinitely, spin, block shutdown indefinitely, or fall back to an unconfigured provider/model.
-10.11. Background raw-result retention shall be bounded/TTL-limited and observable only through content-free counts/status; normalized capsule state replaces raw result after consumption.
+10.3. Enabling the feature shall fail generation/startup composition clearly if the prerequisite compaction detector preview/commit service, process branch coordinator, or BackgroundAux capability is unavailable; disabled feature mode shall retain no-op compatibility.
+10.4. Default request-time failure mode shall be fail-open for model traffic: extractor timeout/error/saturation/invalid output/state failure does not make native compaction unusable.
+10.5. Fail-open preserves already-valid deterministic capsule state and never injects malformed/partial extractor output.
+10.6. Extractor output shall be validated against a strict versioned schema with byte/depth/count limits before merge/injection.
+10.7. Observability shall count compaction candidates; deterministic hits; semantic jobs submitted/coalesced/skipped/saturated; latency/outcome; extractor input/output tokens; capsule revision/size/fact counts; barrier waits/timeouts; augmentation/reinjection; stale/conflict rejection.
+10.8. Billing/usage observability shall expose auxiliary continuity cost through existing accounting stores rather than duplicating financial truth.
+10.9. Config reload shall not mutate active job route/budgets mid-flight.
+10.10. Disabling the feature prevents new jobs while allowing bounded cleanup/accounting of already-submitted work.
+10.11. No failure path may retry indefinitely, spin, block shutdown indefinitely, or fall back to an unconfigured provider/model.
+10.12. Background raw-result retention shall be bounded and useful only while referenced/pending under the configured continuity window; normalized capsule state replaces raw result after consumption.
 
 ## Requirement 11: TDD, Architecture, and Non-Interference Gates
 
 11.1. Implementation shall begin with RED tests for capsule merge/supersession, structured carriers, eligibility/sanitization, background lifetime, detached session behavior, independent routing, billing attribution, barriers, repeated compactions, and opaque payload protection.
 11.2. Worker packages shall use deterministic scheduling controls plus `goleak`/race tests for saturation, cancellation, shutdown, duplicate submission, stale completion, and barrier races.
 11.3. Tests shall prove no extraction job is submitted when a strict compaction-looking request fails before upstream Open.
-11.4. Tests shall prove the child is absent from primary secure-session transcript/turn count/last activity and does not mutate primary A-leg route-override/session state.
+11.4. Tests shall prove the child uses a private auxiliary A-leg, is absent from primary secure-session transcript/turn count/last activity, and does not mutate primary A-leg route-override/session state.
 11.5. Tests shall prove extractor routing can differ from primary routing and that primary A-leg overrides do not rewrite the child selector.
 11.6. Billing tests shall prove separate auxiliary BillingCallID/B-leg usage, originating account attribution, aggregate inclusion, continuity workload classification, and unchanged primary protocol usage.
 11.7. Tests shall cover pre-submit billing rejection, submitted-but-invalid result, submitted-but-stale result, retry/failover cost, and fail-open behavior.
 11.8. Tests shall cover at least three successive compactions with decision supersession, plan progress, dedupe, and bounded growth.
 11.9. Tests shall prove encrypted/opaque compaction content is byte-identical with preservation enabled.
-11.10. Tests shall prove process generation reload cannot orphan jobs/state and that job submission captured `KindAsync` ownership before the request spawn right ended.
-11.11. Architecture gates shall prevent provider/frontend DTO imports, direct provider clients, generic service locators/task runtimes, a second full-transcript store, feature-owned money ledgers, or generation-scoped ownership as the sole worker lifetime.
-11.12. The implementation shall preserve canonical call/event validity, output commitment/no-retry-after-output, B2BUA lineage, secure-session ownership, generation pinning, and current billing settlement authorities.
-11.13. Focused/repository tests shall run without external model credentials; live extractor tests are optional environment-gated evidence.
-11.14. Final review shall remove duplicate rule catalogs, unnecessary persistence/framework layers, unbounded queues/goroutines, provider-specific core branches, and any redundant second LLM summary-rewrite pass.
+11.10. Tests shall prove response preview does not commit lifecycle state and committed `ResponseReleased` sees the exact final event after any permitted plaintext preservation mutation.
+11.11. Tests shall prove process generation reload cannot orphan jobs/state and that job submission captured `KindAsync` ownership before the request spawn right ended.
+11.12. Architecture gates shall prevent provider/frontend DTO imports, direct provider clients, generic service locators/task runtimes, a second full-transcript store, feature-owned money ledgers, or generation-scoped ownership as the sole worker lifetime.
+11.13. The implementation shall preserve canonical call/event validity, output commitment/no-retry-after-output, B2BUA lineage, secure-session ownership, generation pinning, and current billing settlement authorities.
+11.14. Focused/repository tests shall run without external model credentials; live extractor tests are optional environment-gated evidence.
+11.15. Final review shall remove duplicate rule catalogs, unnecessary persistence/framework layers, unbounded queues/goroutines, provider-specific core branches, and any redundant second LLM summary-rewrite pass.
