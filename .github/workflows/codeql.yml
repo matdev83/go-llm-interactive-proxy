@@ -70,18 +70,18 @@ jobs:
 
       - name: Initialize CodeQL
         if: needs.changes.result == 'success' && needs.changes.outputs.go == 'true'
-        uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
+        uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
         with:
           languages: go
           queries: security-extended
 
       - name: Build
         if: needs.changes.result == 'success' && needs.changes.outputs.go == 'true'
-        uses: github/codeql-action/autobuild@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
+        uses: github/codeql-action/autobuild@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
 
       - name: Analyze
         if: needs.changes.result == 'success' && needs.changes.outputs.go == 'true'
-        uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
+        uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
         with:
           category: /language:go
 
