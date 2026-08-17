@@ -9,10 +9,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingcompose"
 )
 
-func TestResolveCallRating_MixedModelPricingLosesOverrides(t *testing.T) {
-	// Task 0.2: Add RED mixed-model customer-pricing regressions proving admission
-	// has route-specific/model-specific pricing while current settlement loses it.
-	// We cover two customer-billable model legs with distinct effective cards.
+func TestResolveCallRating_MixedModelPricingKeepsOverrides(t *testing.T) {
+	// Cover two customer-billable model legs with distinct effective cards so
+	// settlement remains aligned with route-specific admission pricing.
 	t.Parallel()
 
 	c, pricing, policy, rates := seedCatalog(t)
@@ -168,24 +167,14 @@ func TestResolveCallRating_MixedModelPricingLosesOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Under correct behavior:
-	// Leg 1 uses override1 ($500 per million nano) -> 1,000,000 * 500 / 1,000,000 = 500 nano
-	// Leg 2 uses override2 ($300 per million nano) -> 2,000,000 * 300 / 1,000,000 = 600 nano
-	// Total customer charge = 500 + 600 = 1100 nano.
-	// Under current code, because ResolveCallRating discards model pricing card overrides,
-	// it uses the default pricing card for both:
-	// Leg 1: 1,000,000 * 100 / 1,000,000 = 100 nano
-	// Leg 2: 2,000,000 * 100 / 1,000,000 = 200 nano
-	// Total actual charge computed = 300 nano.
-	// We assert the desired behavior (1100 nano).
+	// Leg 1 uses override1: 1,000,000 * 500 / 1,000,000 = 500 nano.
+	// Leg 2 uses override2: 2,000,000 * 300 / 1,000,000 = 600 nano.
 	if got, want := result.CustomerCharge.Nano, int64(1100); got != want {
-		t.Errorf("CustomerCharge = %d, want %d (RED regression: settlement lost model-pricing overrides)", got, want)
+		t.Errorf("CustomerCharge = %d, want %d", got, want)
 	}
 }
 
-func TestResolveCallRating_MissingOperatorRateBlocksCustomerRating(t *testing.T) {
-	// Task 0.3: Add RED customer/operator snapshot-independence regression
-	// proving missing operator rate currently blocks customer settlement.
+func TestResolveCallRating_MissingOperatorRateDoesNotBlockCustomerRating(t *testing.T) {
 	t.Parallel()
 
 	c, pricing, policy, _ := seedCatalog(t)
@@ -259,9 +248,7 @@ func TestResolveCallRating_MissingOperatorRateBlocksCustomerRating(t *testing.T)
 	// not block settlement (Phase 2 split).
 	result, err := resolver.ResolveCallRating(context.Background(), complete, exposure)
 	if err != nil {
-		// Phase 0 RED regression: missing operator rate must no longer block customer
-		// settlement; provider-cost resolution for the same leg may fail independently.
-		t.Errorf("ResolveCallRating failed: %v (RED regression: missing operator rate must not block customer settlement)", err)
+		t.Errorf("ResolveCallRating failed: %v", err)
 		return
 	}
 

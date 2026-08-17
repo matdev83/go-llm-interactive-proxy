@@ -12,14 +12,20 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 )
 
-// ErrLegAttemptSequenceConflict reports two persisted terminal legs within one
-// BillingCallID claiming the same positive attempt sequence. Legacy rows with
-// NULL attempt_seq remain outside this identity; SQL NULL uniqueness semantics
-// permit any number of them per call.
+// ErrLegAttemptSequenceConflict identifies duplicate positive sequences within one BillingCallID; legacy NULL values remain outside it.
 var ErrLegAttemptSequenceConflict = errors.New("billingstore: call-leg attempt sequence conflict")
 
 func (s *DurableStore) AppendCallLegUsage(ctx context.Context, record billing.CallLegUsageRecord) error {
-	return withAccountTxErr(ctx, accountTxRetry{Attempts: 20, Delay: 5 * time.Millisecond}, func() error {
+	return withAccountTxErr(ctx, accountTxRetry{
+		Attempts: 20,
+		Delay:    5 * time.Millisecond,
+		Classify: func(err error) error {
+			if errors.Is(err, ErrLegAttemptSequenceConflict) {
+				return err
+			}
+			return nil
+		},
+	}, func() error {
 		return s.appendCallLegUsageAttempt(ctx, record)
 	})
 }
@@ -71,7 +77,7 @@ func (s *DurableStore) appendCallLegUsageAttempt(ctx context.Context, record bil
 		string(sealed.Outcome), string(sealed.Surfaced), string(payload), sealedAt).Exec(ctx)
 	if err != nil {
 		if isLegAttemptSeqConflict(err) {
-			return ErrLegAttemptSequenceConflict
+			return fmt.Errorf("%w: %w", ErrLegAttemptSequenceConflict, err)
 		}
 		return fmt.Errorf("billingstore: insert call-leg usage: %w", err)
 	}

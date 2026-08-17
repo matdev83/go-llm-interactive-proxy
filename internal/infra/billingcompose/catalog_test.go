@@ -490,6 +490,7 @@ func TestSnapshotCatalog_RoutePricingBindingRequiresPublishedBody(t *testing.T) 
 	c, pricing, policy, _ := seedCatalog(t)
 	unpublished := catalogPricing()
 	unpublished.Ref = billing.VersionRef{ID: "pricing-unpublished", Version: "v1"}
+	unpublished.InputPerMillionNano = 777
 	// The binding API cannot reference a pricing body that is not published, so
 	// an override binding always resolves to an immutable published card;
 	// resolution can never silently substitute another model's price.

@@ -139,6 +139,7 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		{"usage leg CallID/BLegID unique index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{usageLegCallBLegIndex}, []string{"UNIQUE", "call_id", "b_leg_id"}},
 		{"usage leg attempt seq column", `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'usage_leg_records' AND column_name = 'attempt_seq' LIMIT 1`, nil, []string{"attempt_seq"}},
 		{"usage leg CallID/attempt_seq unique index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{usageLegCallAttemptSeqIndex}, []string{"UNIQUE", "call_id", "attempt_seq"}},
+		{"usage leg sequence migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{UsageLegSequenceMigrationName}, []string{UsageLegSequenceMigrationName}},
 		{"usage call table", `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'usage_call_records' LIMIT 1`, nil, []string{"usage_call_records"}},
 		{"usage call CallID unique index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{usageCallCallIDIndex}, []string{"UNIQUE", "call_id"}},
 		{"usage call account/session index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{usageCallAccountSessionIndex}, []string{"account_id", "session_id", "call_id"}},

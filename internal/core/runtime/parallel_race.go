@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
@@ -39,7 +38,6 @@ func (e *Executor) logParallelRacePanic(ctx context.Context, pe *safety.PanicErr
 }
 
 type parallelLeg struct {
-	callID           billing.BillingCallID
 	billingCallState *billingCallState
 	cand             routing.AttemptCandidate
 	bleg             b2bua.BLegRecord
@@ -175,7 +173,7 @@ func (e *Executor) tryOpenParallelGroup(
 	}
 
 	for i, entry := range entries {
-		legs[i] = parallelLeg{callID: p.billingCallID, billingCallState: p.billingCallState, cand: entry.cand, delay: entry.startDelay}
+		legs[i] = parallelLeg{billingCallState: p.billingCallState, cand: entry.cand, delay: entry.startDelay}
 	}
 
 	for idx, entry := range entries {

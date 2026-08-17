@@ -40,7 +40,9 @@ func (e *Executor) callFinalizeBilling(ctx context.Context, in execbackend.Billi
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingFinalizeTimeout)
 	defer cancel()
 	in.Backend = backendID
-	ev, err := be.FinalizeBilling(persistCtx, in)
+	ev, err := safety.CallValue(safety.BoundaryBackend, "backend_finalize_billing", func() (lipapi.Event, error) {
+		return be.FinalizeBilling(persistCtx, in)
+	})
 	if err != nil {
 		if e.Log != nil {
 			e.Log.DebugContext(persistCtx, "billing FinalizeBilling", "error", err)
@@ -194,10 +196,10 @@ func (s *billingCallState) finalizeOnce(ctx context.Context, in execbackend.Bill
 	s.finalize[key] = entry
 	s.finalizeMu.Unlock()
 
+	defer close(entry.done)
 	ev, err := finalizeFn(ctx, in)
 	entry.ev = ev
 	entry.ok = err == nil && ev.Kind == lipapi.EventUsageDelta
-	close(entry.done)
 
 	return entry.ev, entry.ok
 }
@@ -209,11 +211,13 @@ func (s *retryRecvStream) ensureBillingCallState() {
 	if s.billingCallState == nil {
 		id := s.billingCallID
 		if id == "" {
-			var err error
-			id, err = billing.NewBillingCallID()
+			newID, err := billing.NewBillingCallID()
 			if err != nil {
-				id = "synthetic-call-id"
+				// Preserve an empty ID so persistence fails closed, not under a placeholder key.
+				s.billingCallState = newBillingCallState("")
+				return
 			}
+			id = newID
 			s.billingCallID = id
 		}
 		s.billingCallState = newBillingCallState(id)

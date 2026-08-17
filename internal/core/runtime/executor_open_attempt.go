@@ -517,7 +517,7 @@ func (e *Executor) openPlannedCandidate(
 			e.appendIndependentTerminalLeg(ctx, p.billingCallState, p.aLegID, bleg, c.Primary, started, finished, outcome)
 		}
 	}()
-	if e.CallUsageAppender != nil {
+	if e.CallUsageAppender != nil && bleg.Seq > 0 {
 		p.billingCallState.noteAllocatedBLeg(bleg.BLegID, bleg.Seq)
 	}
 	if err := e.enforcePostAdmitClamps(ctx, &openCall, authorizedFreeze, previewedClamps, previewRan, authState, c, int64(admitDecision.Count.InputTokens)); err != nil {

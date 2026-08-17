@@ -69,6 +69,9 @@ func TestBillingCallState_OwnershipAndBillingCallID(t *testing.T) {
 	if prep1.billingCallState == prep2.billingCallState {
 		t.Error("distinct invocations on the same session/A-leg must receive distinct state pointers")
 	}
+	if prep1.billingCallID == prep2.billingCallID {
+		t.Errorf("distinct invocations reused BillingCallID %q", prep1.billingCallID)
+	}
 
 	if prep1.billingCallState.callID != prep1.billingCallID {
 		t.Errorf("state callID %q does not match prep billingCallID %q", prep1.billingCallState.callID, prep1.billingCallID)

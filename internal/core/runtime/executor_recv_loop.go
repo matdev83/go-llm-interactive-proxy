@@ -321,6 +321,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		suppressVisibleMemo:      s.suppressVisibleMemo,
 		lastParallelFailure:      &s.lastParallelFailure,
 		billingCallID:            s.billingCallID,
+		billingCallState:         s.billingCallState,
 	})
 	if err != nil {
 		return false, err

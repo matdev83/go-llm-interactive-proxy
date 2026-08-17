@@ -115,7 +115,6 @@ func TestExecutorBillingLegProducersCarryExactB2BUASequence(t *testing.T) {
 	// 4. Parallel loser producer (also covers the parallel winner path: the
 	// same reporting seam runs for both with distinct allocated sequences).
 	parallel := &parallelLeg{
-		callID:           callID,
 		billingCallState: state,
 		bleg:             b2bua.BLegRecord{BLegID: "b_5c4b3a2e", ALegID: "a-1", Seq: 6},
 		cand:             routing.AttemptCandidate{Primary: primary("backend", "model")},

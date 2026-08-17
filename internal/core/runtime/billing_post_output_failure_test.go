@@ -14,13 +14,18 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-type mockFailingAppender struct{}
+type mockFailingAppender struct {
+	callAppends atomic.Int32
+	legAppends  atomic.Int32
+}
 
-func (mockFailingAppender) AppendCallUsage(ctx context.Context, record billing.CallUsageRecord) error {
+func (m *mockFailingAppender) AppendCallUsage(ctx context.Context, record billing.CallUsageRecord) error {
+	m.callAppends.Add(1)
 	return errors.New("failing call usage append")
 }
 
-func (mockFailingAppender) AppendCallLegUsage(ctx context.Context, record billing.CallLegUsageRecord) error {
+func (m *mockFailingAppender) AppendCallLegUsage(ctx context.Context, record billing.CallLegUsageRecord) error {
+	m.legAppends.Add(1)
 	return errors.New("failing leg usage append")
 }
 
@@ -38,7 +43,7 @@ func TestBillingAppendRetryOutputPersistenceFailureAfterSuccess(t *testing.T) {
 	ex.Rand = routing.NewSeededRng(3)
 
 	// Set up the failing appenders
-	appender := mockFailingAppender{}
+	appender := &mockFailingAppender{}
 	ex.CallUsageAppender = appender
 	ex.CallLegUsageAppender = appender
 
@@ -107,5 +112,11 @@ func TestBillingAppendRetryOutputPersistenceFailureAfterSuccess(t *testing.T) {
 	// Verify that only 1 backend open happened (no retry/failover triggered by database failure)
 	if got := atomic.LoadInt32(&opens); got != 1 {
 		t.Fatalf("backend opens = %d, want 1 (no retry/failover occurred)", got)
+	}
+	if got := appender.callAppends.Load(); got == 0 {
+		t.Fatal("AppendCallUsage was not attempted")
+	}
+	if got := appender.legAppends.Load(); got == 0 {
+		t.Fatal("AppendCallLegUsage was not attempted")
 	}
 }

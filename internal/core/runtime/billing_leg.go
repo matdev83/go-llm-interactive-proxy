@@ -97,7 +97,9 @@ func (s *retryRecvStream) recordBillingLeg(ctx context.Context, command sdktermi
 	}
 	s.billingLegRecorded[blegID] = struct{}{}
 	s.billingLegMu.Unlock()
-	s.billingCallState.noteAllocatedBLeg(blegID, s.bleg.Seq)
+	if s.bleg.Seq > 0 {
+		s.billingCallState.noteAllocatedBLeg(blegID, s.bleg.Seq)
+	}
 	now := s.now()
 	started := s.accounting.requestStartedAt
 	if started.IsZero() {
@@ -265,13 +267,9 @@ func (e *Executor) appendIndependentCallLeg(ctx context.Context, callID billing.
 	if e == nil || e.CallLegUsageAppender == nil {
 		return
 	}
-	// The exact B2BUA attempt sequence is a financial fact. Every terminal
-	// producer funnels through this seam; the sequence must never be derived
-	// from BLegID, slice position, timestamps, or completion order. A
-	// non-positive sequence means the producer lost it, so the new append
-	// fails closed instead of persisting an unknown sequence as if it were
-	// known. Legacy rows with NULL sequence remain readable through the store's
-	// v1 contract and fail closed at rating when order is required.
+	// AttemptSeq is the authoritative B2BUA financial fact; reject unknown
+	// sequences rather than deriving order. Legacy NULL rows remain readable,
+	// but order-dependent rating fails closed.
 	if leg.Seq <= 0 {
 		if e.Log != nil {
 			e.Log.ErrorContext(ctx, "billing call-leg append rejected: attempt sequence missing", "error", fmt.Errorf("%w: attempt sequence for B-leg %q", billing.ErrInvalidRecord, leg.BLegID), "b_leg_id", leg.BLegID)

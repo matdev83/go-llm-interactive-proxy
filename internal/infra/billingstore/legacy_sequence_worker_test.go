@@ -2,6 +2,7 @@ package billingstore
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -196,9 +197,17 @@ func TestLegacySequenceWorkerAmbiguity(t *testing.T) {
 	}
 	createLegacyCall(callIDC, billing.TurnOutcomeCanceled, policySurfaced.Ref, legsC)
 
-	err = worker.ProcessOnce(ctx)
+	before, err := store.GetAccount(ctx, accountID)
 	if err != nil {
-		t.Logf("ProcessOnce error: %v", err)
+		t.Fatal(err)
+	}
+	if before.BalanceNano != account.BalanceNano {
+		t.Fatalf("balance before worker = %d, want %d", before.BalanceNano, account.BalanceNano)
+	}
+
+	err = worker.ProcessOnce(ctx)
+	if !errors.Is(err, billing.ErrBillingAttemptSequenceUnknown) {
+		t.Fatalf("ProcessOnce error = %v, want ErrBillingAttemptSequenceUnknown", err)
 	}
 
 	// Verify Case A status
@@ -217,6 +226,13 @@ func TestLegacySequenceWorkerAmbiguity(t *testing.T) {
 	}
 	if statusB != "processed" {
 		t.Errorf("Case B (charge all policy) claim_status = %q, want 'processed'", statusB)
+	}
+	after, err := store.GetAccount(ctx, accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.BalanceNano != account.BalanceNano-30 {
+		t.Fatalf("balance after settled Cases A and B = %d, want %d", after.BalanceNano, account.BalanceNano-30)
 	}
 
 	// Verify Case C status
