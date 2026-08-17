@@ -28,7 +28,9 @@ func scanRuntimeLifetimeRegistryIdents(root string) []RuleFinding {
 	dir := filepath.Join(root, filepath.FromSlash(rel))
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil
+		return []RuleFinding{billingCorrectnessRuleFinding(
+			BillingCorrectnessRuleExecutorGlobalBillingRegistry, rel,
+			"runtime production directory is unreadable: "+err.Error())}
 	}
 	var out []RuleFinding
 	for _, entry := range entries {
@@ -36,18 +38,17 @@ func scanRuntimeLifetimeRegistryIdents(root string) []RuleFinding {
 			continue
 		}
 		fileRel := rel + "/" + entry.Name()
-		src, err := os.ReadFile(filepath.Join(dir, entry.Name()))
-		if err != nil {
+		f, err := parseProductionFile(root, fileRel)
+		if err != nil || f == nil {
+			out = append(out, billingCorrectnessRuleFinding(
+				BillingCorrectnessRuleExecutorGlobalBillingRegistry, fileRel,
+				"runtime production target failed to parse"))
 			continue
 		}
-		body := string(src)
-		for _, name := range billingCorrectnessLifetimeRegistryIdents {
-			if strings.Contains(body, name) {
-				out = append(out, billingCorrectnessRuleFinding(
-					BillingCorrectnessRuleExecutorGlobalBillingRegistry, fileRel,
-					"executor-global lifetime billing registry "+name+" must not return"))
-			}
-		}
+		out = append(out, forbiddenIdentFindings(
+			fileRel, collectIdentNames(f), billingCorrectnessLifetimeRegistryIdents,
+			BillingCorrectnessRuleExecutorGlobalBillingRegistry,
+			"executor-global lifetime billing registry must not return")...)
 	}
 	return out
 }
@@ -60,8 +61,11 @@ func scanExecutorStructBillingFields(root string) []RuleFinding {
 	rel := "internal/core/runtime/executor.go"
 	f, err := parseProductionFile(root, rel)
 	if err != nil || f == nil {
-		return nil
+		return []RuleFinding{billingCorrectnessRuleFinding(
+			BillingCorrectnessRuleExecutorGlobalBillingRegistry, rel,
+			"executor production target is missing or unparsable")}
 	}
+	aliases := runtimeBillingCallIDAliases(root)
 	ts := findTypeSpec(f, "Executor")
 	if ts == nil {
 		return nil
@@ -87,7 +91,7 @@ func scanExecutorStructBillingFields(root string) []RuleFinding {
 					"executor-global billing registry field "+name.Name+" is forbidden"))
 			}
 		}
-		if isBillingCallIDKeyedMap(field) {
+		if isBillingCallIDKeyedMap(field, aliases) {
 			out = append(out, billingCorrectnessRuleFinding(
 				BillingCorrectnessRuleExecutorMapField, rel,
 				"executor may not hold a BillingCallID-keyed map (lifetime-growing call registry)"))
@@ -105,12 +109,12 @@ func isBillingRegistryFieldName(name string) bool {
 	return false
 }
 
-func isBillingCallIDKeyedMap(field *ast.Field) bool {
+func isBillingCallIDKeyedMap(field *ast.Field, aliases map[string]struct{}) bool {
 	mt, ok := field.Type.(*ast.MapType)
 	if !ok {
 		return false
 	}
-	return isBillingCallIDKeyExpr(mt.Key)
+	return isBillingCallIDKeyExpr(mt.Key, aliases)
 }
 
 // scanBillingCallIDKeyedMaps rejects any production BillingCallID-keyed map
@@ -120,8 +124,11 @@ func scanBillingCallIDKeyedMaps(root string) []RuleFinding {
 	dir := filepath.Join(root, filepath.FromSlash(rel))
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil
+		return []RuleFinding{billingCorrectnessRuleFinding(
+			BillingCorrectnessRuleExecutorMapField, rel,
+			"runtime production directory is unreadable: "+err.Error())}
 	}
+	aliases := runtimeBillingCallIDAliases(root)
 	var out []RuleFinding
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
@@ -136,7 +143,7 @@ func scanBillingCallIDKeyedMaps(root string) []RuleFinding {
 			if !ok {
 				return true
 			}
-			if isBillingCallIDKeyExpr(mt.Key) {
+			if isBillingCallIDKeyExpr(mt.Key, aliases) {
 				out = append(out, billingCorrectnessRuleFinding(
 					BillingCorrectnessRuleExecutorMapField, rel+"/"+entry.Name(),
 					"runtime must not hold a BillingCallID-keyed map registry (request-scoped state replaces it)"))
@@ -145,6 +152,26 @@ func scanBillingCallIDKeyedMaps(root string) []RuleFinding {
 		})
 	}
 	return out
+}
+
+func runtimeBillingCallIDAliases(root string) map[string]struct{} {
+	rel := "internal/core/runtime"
+	dir := filepath.Join(root, filepath.FromSlash(rel))
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return billingCallIDAliases(nil)
+	}
+	files := make([]*ast.File, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		f, err := parseProductionFile(root, rel+"/"+entry.Name())
+		if err == nil && f != nil {
+			files = append(files, f)
+		}
+	}
+	return billingCallIDAliases(files)
 }
 
 // scanCallScopedStateOwners requires the request-scoped owner structs to carry

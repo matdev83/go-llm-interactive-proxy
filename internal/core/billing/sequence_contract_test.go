@@ -82,7 +82,7 @@ func TestCallLegUsageAttemptSequenceParticipatesInFingerprint(t *testing.T) {
 
 func TestCallLegUsageLegacyMissingSequenceKeepsV1Fingerprint(t *testing.T) {
 	t.Parallel()
-	callID := mustBillingCallID(t)
+	callID := BillingCallID("bc_00000000000000000000000000000000")
 
 	legacy := testCallLegUsageRecord(callID, "b-1") // AttemptSeq zero = pre-fix/legacy row
 	sealed, err := legacy.Seal()
@@ -91,6 +91,9 @@ func TestCallLegUsageLegacyMissingSequenceKeepsV1Fingerprint(t *testing.T) {
 	}
 	if err := CheckCallLegUsageReplay(sealed, sealed); err != nil {
 		t.Fatalf("legacy v1 row must validate against its own fingerprint: %v", err)
+	}
+	if got, want := sealed.Fingerprint, "56877481b2f322e821e15935ca117e43e4a5ef2004a611407d62d84f01a9aa8e"; got != want {
+		t.Fatalf("legacy v1 fingerprint = %s, want %s", got, want)
 	}
 
 	// A legacy row replayed with a known sequence is a different (v2) record.

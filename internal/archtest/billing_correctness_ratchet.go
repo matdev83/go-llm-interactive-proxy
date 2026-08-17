@@ -150,8 +150,11 @@ func compositeLiteralTypeName(t ast.Expr) string {
 // scanFileForbiddenIdents rejects forbidden identifiers anywhere in a file.
 func scanFileForbiddenIdents(root, rel string, forbidden []string, rule, detail string) []RuleFinding {
 	f, err := parseProductionFile(root, rel)
-	if err != nil || f == nil {
-		return nil
+	if err != nil {
+		return []RuleFinding{billingCorrectnessRuleFinding(rule, rel, "required production target failed to parse: "+err.Error())}
+	}
+	if f == nil {
+		return []RuleFinding{billingCorrectnessRuleFinding(rule, rel, "required production target is missing")}
 	}
 	names := collectIdentNames(f)
 	return forbiddenIdentFindings(rel, names, forbidden, rule, detail)
@@ -161,13 +164,16 @@ func scanFileForbiddenIdents(root, rel string, forbidden []string, rule, detail 
 // function body.
 func scanFuncBodyForbiddenIdents(root, rel, funcName string, forbidden []string, rule, detail string) []RuleFinding {
 	f, err := parseProductionFile(root, rel)
-	if err != nil || f == nil {
-		return nil
+	if err != nil {
+		return []RuleFinding{billingCorrectnessRuleFinding(rule, rel, "required production target failed to parse: "+err.Error())}
+	}
+	if f == nil {
+		return []RuleFinding{billingCorrectnessRuleFinding(rule, rel, "required production target is missing")}
 	}
 	fd := findFuncDecl(f, funcName)
 	if fd == nil {
 		return []RuleFinding{billingCorrectnessRuleFinding(
-			BillingCorrectnessRuleSequenceAdapterAuthoritative, rel, "expected function "+funcName+" is missing")}
+			rule, rel, "expected function "+funcName+" is missing")}
 	}
 	names := collectIdentNames(fd.Body)
 	return forbiddenIdentFindings(rel, names, forbidden, rule, detail)
@@ -187,16 +193,19 @@ func forbiddenIdentFindings(rel string, names map[string]struct{}, forbidden []s
 // forbidden substring.
 func scanStructFieldNamesForbidden(root, rel, typeName, forbidden string, rule, detail string) []RuleFinding {
 	f, err := parseProductionFile(root, rel)
-	if err != nil || f == nil {
-		return nil
+	if err != nil {
+		return []RuleFinding{billingCorrectnessRuleFinding(rule, rel, "required production target failed to parse: "+err.Error())}
+	}
+	if f == nil {
+		return []RuleFinding{billingCorrectnessRuleFinding(rule, rel, "required production target is missing")}
 	}
 	ts := findTypeSpec(f, typeName)
 	if ts == nil {
-		return nil
+		return []RuleFinding{billingCorrectnessRuleFinding(rule, rel, "expected type "+typeName+" is missing")}
 	}
 	st, ok := ts.Type.(*ast.StructType)
 	if !ok {
-		return nil
+		return []RuleFinding{billingCorrectnessRuleFinding(rule, rel, "expected type "+typeName+" is not a struct")}
 	}
 	var out []RuleFinding
 	for _, field := range st.Fields.List {
@@ -219,10 +228,53 @@ func containsString(slice []string, want string) bool {
 	return false
 }
 
-func isBillingCallIDKeyExpr(expr ast.Expr) bool {
-	sel, ok := expr.(*ast.SelectorExpr)
-	if !ok || sel.Sel == nil {
+func isBillingCallIDKeyExpr(expr ast.Expr, aliases map[string]struct{}) bool {
+	switch value := expr.(type) {
+	case *ast.SelectorExpr:
+		return value.Sel != nil && value.Sel.Name == "BillingCallID"
+	case *ast.Ident:
+		_, ok := aliases[value.Name]
+		return ok
+	default:
 		return false
 	}
-	return sel.Sel.Name == "BillingCallID"
+}
+
+func billingCallIDAliases(files []*ast.File) map[string]struct{} {
+	aliases := map[string]struct{}{"BillingCallID": {}}
+	changed := true
+	for changed {
+		changed = false
+		for _, file := range files {
+			for _, decl := range file.Decls {
+				gd, ok := decl.(*ast.GenDecl)
+				if !ok || gd.Tok.String() != "type" {
+					continue
+				}
+				for _, spec := range gd.Specs {
+					ts, ok := spec.(*ast.TypeSpec)
+					if !ok || ts.Name == nil || !isBillingCallIDTypeExpr(ts.Type, aliases) {
+						continue
+					}
+					if _, exists := aliases[ts.Name.Name]; !exists {
+						aliases[ts.Name.Name] = struct{}{}
+						changed = true
+					}
+				}
+			}
+		}
+	}
+	return aliases
+}
+
+func isBillingCallIDTypeExpr(expr ast.Expr, aliases map[string]struct{}) bool {
+	switch value := expr.(type) {
+	case *ast.SelectorExpr:
+		return value.Sel != nil && value.Sel.Name == "BillingCallID"
+	case *ast.Ident:
+		_, ok := aliases[value.Name]
+		return ok
+	default:
+		return false
+	}
 }

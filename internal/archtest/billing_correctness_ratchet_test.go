@@ -129,12 +129,28 @@ func RateCall(in CallRatingInput) (CallRatingResult, error) {
 	if err := os.WriteFile(abs, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	ratingAbs := filepath.Join(root, filepath.FromSlash("internal/core/billing/rating.go"))
+	if err := os.WriteFile(ratingAbs, []byte("package billing\n\nfunc latest(legs []LegUsageRecord) bool { return legs[0].Seq > legs[1].Seq }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	got, err := EvaluateBillingAttemptSequenceAuthority(root)
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
 	}
 	if len(got) != 0 {
 		t.Fatalf("authoritative adapter must pass:\n%s", formatRatchetFindings(got))
+	}
+
+	badBody := strings.Replace(body, "Seq: leg.AttemptSeq", "Seq: 1", 1)
+	if err := os.WriteFile(abs, []byte(badBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bad, err := EvaluateBillingAttemptSequenceAuthority(root)
+	if err != nil {
+		t.Fatalf("evaluate violating adapter: %v", err)
+	}
+	if len(bad) == 0 {
+		t.Fatal("violating sequence adapter must be detected")
 	}
 }
 
@@ -194,6 +210,7 @@ func (c *SnapshotCatalog) CustomerRatingSnapshots(call billing.CallUsageRecord, 
 			if err := os.WriteFile(abs, []byte(tt.body), 0o600); err != nil {
 				t.Fatal(err)
 			}
+			writeCustomerOperatorSupportFixtures(t, root)
 			got, err := EvaluateBillingCustomerOperatorIndependence(root)
 			if err != nil {
 				t.Fatalf("evaluate: %v", err)
@@ -205,6 +222,36 @@ func (c *SnapshotCatalog) CustomerRatingSnapshots(call billing.CallUsageRecord, 
 				t.Fatal("want findings, got none")
 			}
 		})
+	}
+}
+
+func writeCustomerOperatorSupportFixtures(t *testing.T, root string) {
+	t.Helper()
+	fixtures := map[string]string{
+		"internal/infra/billingcompose/resolver.go": `package billingcompose
+
+func (c *SnapshotCatalog) ResolveCallRating() {}
+func (c *SnapshotCatalog) ResolveProviderCost() { var rate OperatorRate; _ = rate }
+`,
+		"internal/core/billing/call_post_usage_worker.go": `package billing
+`,
+		"internal/core/billing/call_rating.go": `package billing
+
+type CallRatingInput struct{}
+`,
+		"internal/core/billing/rating.go": `package billing
+
+type RatingInput struct{}
+`,
+	}
+	for rel, body := range fixtures {
+		abs := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -272,6 +319,7 @@ func (e *Executor) Execute() {}
 
 func TestBillingCorrectnessRatchetRuleNamesReferenced(t *testing.T) {
 	t.Parallel()
+	seen := make(map[string]struct{})
 	for _, name := range []string{
 		BillingCorrectnessRuleSequencePositional,
 		BillingCorrectnessRuleSequenceTimestamp,
@@ -287,5 +335,9 @@ func TestBillingCorrectnessRatchetRuleNamesReferenced(t *testing.T) {
 		if strings.TrimSpace(name) == "" {
 			t.Fatal("ratchet rule name must not be empty")
 		}
+		if _, exists := seen[name]; exists {
+			t.Fatalf("duplicate ratchet rule name %q", name)
+		}
+		seen[name] = struct{}{}
 	}
 }

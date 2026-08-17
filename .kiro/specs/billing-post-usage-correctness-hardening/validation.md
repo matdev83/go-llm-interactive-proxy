@@ -1,12 +1,12 @@
 # Validation and Successor Baseline
 
 Concise Phase 5 certification evidence for `billing-post-usage-correctness-hardening`.
-`spec.json` phase/ready flags are intentionally unchanged; the spec is not archived.
+`spec.json` intentionally remains in `tasks-generated` with approvals and `ready_for_implementation: true`; it is not archived because the successor spec owns TUR/LUR cleanup.
 
 ## Baseline for `billing-architecture-final-convergence`
 
 - Main branch commit: `bdf6e5037c75a2586015cbf1ecac5207dadc3afe` (parent of this branch).
-- Working branch: `feat/billing-post-usage-correctness-hardening` (committed corrected tree).
+- Working branch: `feat/billing-post-usage-correctness-hardening` (certification tree at commit `a6bfdedf`).
 - Production shape the successor must preserve:
   - one `BillingCallID` per invocation; cheap credit screen -> route/quote -> atomic operational exposure admission -> billing-blind execution -> terminal leg/call records -> post-usage customer settlement (independent of provider-cost readiness).
   - positive persisted `attempt_seq` (v2 fingerprint) is the only legal customer-leg ordering source; `ExpectedBLegIDs` is a completeness set.

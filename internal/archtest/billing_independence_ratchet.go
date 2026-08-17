@@ -39,8 +39,15 @@ func EvaluateBillingCustomerOperatorIndependence(root string) ([]RuleFinding, er
 func requireProviderPathResolvesOperatorRate(root string) []RuleFinding {
 	rel := "internal/infra/billingcompose/resolver.go"
 	f, err := parseProductionFile(root, rel)
-	if err != nil || f == nil {
-		return nil
+	if err != nil {
+		return []RuleFinding{billingCorrectnessRuleFinding(
+			BillingCorrectnessRuleCustomerOperatorCoupling, rel,
+			"provider cost resolver target failed to parse: "+err.Error())}
+	}
+	if f == nil {
+		return []RuleFinding{billingCorrectnessRuleFinding(
+			BillingCorrectnessRuleCustomerOperatorCoupling, rel,
+			"provider cost resolver target is missing")}
 	}
 	fd := findFuncDecl(f, "ResolveProviderCost")
 	if fd == nil {
