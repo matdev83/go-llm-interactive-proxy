@@ -6,7 +6,7 @@ Concise Phase 5 certification evidence for `billing-post-usage-correctness-harde
 ## Baseline for `billing-architecture-final-convergence`
 
 - Main branch commit: `bdf6e5037c75a2586015cbf1ecac5207dadc3afe` (parent of this branch).
-- Working branch: `feat/billing-post-usage-correctness-hardening` (certification tree at commit `a6bfdedf`).
+- Working branch: `feat/billing-post-usage-correctness-hardening` (certification tree at commit `cdbb5d3f`).
 - Production shape the successor must preserve:
   - one `BillingCallID` per invocation; cheap credit screen -> route/quote -> atomic operational exposure admission -> billing-blind execution -> terminal leg/call records -> post-usage customer settlement (independent of provider-cost readiness).
   - positive persisted `attempt_seq` (v2 fingerprint) is the only legal customer-leg ordering source; `ExpectedBLegIDs` is a completeness set.
