@@ -115,13 +115,7 @@ func runAppendCallLegUsageIndependentOfMoneyAndTUR(t *testing.T, store *DurableS
 	if err != nil {
 		t.Fatal(err)
 	}
-	var beforeTUR, beforeNestedLUR, beforeJournalEntries int
-	if err := store.db.NewRaw(`SELECT COUNT(1) FROM turn_usage_records`).Scan(ctx, &beforeTUR); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.db.NewRaw(`SELECT COUNT(1) FROM leg_usage_records`).Scan(ctx, &beforeNestedLUR); err != nil {
-		t.Fatal(err)
-	}
+	var beforeJournalEntries int
 	if err := store.db.NewRaw(`SELECT COUNT(1) FROM journal_entries`).Scan(ctx, &beforeJournalEntries); err != nil {
 		t.Fatal(err)
 	}
@@ -145,21 +139,12 @@ func runAppendCallLegUsageIndependentOfMoneyAndTUR(t *testing.T, store *DurableS
 	if len(afterJournals) != len(beforeJournals) {
 		t.Fatalf("journal rows mutated: before=%d after=%d", len(beforeJournals), len(afterJournals))
 	}
-	var afterTUR, afterNestedLUR, afterJournalEntries, afterIndependent int
-	if err := store.db.NewRaw(`SELECT COUNT(1) FROM turn_usage_records`).Scan(ctx, &afterTUR); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.db.NewRaw(`SELECT COUNT(1) FROM leg_usage_records`).Scan(ctx, &afterNestedLUR); err != nil {
-		t.Fatal(err)
-	}
+	var afterJournalEntries, afterIndependent int
 	if err := store.db.NewRaw(`SELECT COUNT(1) FROM journal_entries`).Scan(ctx, &afterJournalEntries); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.db.NewRaw(`SELECT COUNT(1) FROM usage_leg_records`).Scan(ctx, &afterIndependent); err != nil {
 		t.Fatal(err)
-	}
-	if afterTUR != beforeTUR || afterNestedLUR != beforeNestedLUR {
-		t.Fatal("independent B-leg append must not write turn_usage_records or nested leg_usage_records")
 	}
 	if afterJournalEntries != beforeJournalEntries {
 		t.Fatal("independent B-leg append must not post journal entries")
