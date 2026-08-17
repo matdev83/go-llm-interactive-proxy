@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -13,123 +14,142 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-type billingTurnCollector struct {
-	exec            *Executor
-	mu              sync.Mutex
-	allocatedByCall map[string]map[string]struct{}
-	frozenByCall    map[string][]string
-	legTimesByCall  map[string][]billing.LegUsageRecord
-	finalizeMu      sync.Mutex
-	finalizeByKey   map[string]*finalizeCacheEntry
+func (e *Executor) billingEnabled() bool {
+	return e != nil && (e.BillingLegObserver != nil || e.CallLegUsageAppender != nil || e.CallUsageAppender != nil)
 }
 
-func (e *Executor) billingTurns() *billingTurnCollector {
-	if e == nil {
-		return nil
-	}
-	e.billingOnce.Do(func() {
-		e.billingColl = &billingTurnCollector{exec: e}
-	})
-	return e.billingColl
-}
-
-func (c *billingTurnCollector) enabled() bool {
-	return c != nil && c.exec != nil && (c.exec.BillingLegObserver != nil || c.exec.CallLegUsageAppender != nil || c.exec.CallUsageAppender != nil)
-}
-
-func (c *billingTurnCollector) observe(ctx context.Context, record billing.LegUsageRecord) {
-	if c == nil || c.exec == nil || c.exec.BillingLegObserver == nil {
+func (e *Executor) observeBillingLeg(ctx context.Context, record billing.LegUsageRecord) {
+	if e == nil || e.BillingLegObserver == nil {
 		return
 	}
 	_ = safety.Call(safety.BoundaryStream, "billing_leg_observer", func() error {
-		c.exec.BillingLegObserver.ObserveBillingLeg(ctx, record)
+		e.BillingLegObserver.ObserveBillingLeg(ctx, record)
 		return nil
 	})
 }
 
-func (c *billingTurnCollector) noteAllocatedBLeg(callID billing.BillingCallID, bLegID string) {
-	if c == nil {
-		return
+func (e *Executor) callFinalizeBilling(ctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
+	if e == nil || e.Backends == nil {
+		return lipapi.Event{}, fmt.Errorf("executor finalizer: no backends")
 	}
-	if err := callID.Validate(); err != nil {
+	backendID := strings.TrimSpace(in.Backend)
+	be, ok := e.Backends[backendID]
+	if !ok || be.FinalizeBilling == nil {
+		return lipapi.Event{}, fmt.Errorf("executor finalizer: backend %q does not support FinalizeBilling", backendID)
+	}
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingFinalizeTimeout)
+	defer cancel()
+	in.Backend = backendID
+	ev, err := be.FinalizeBilling(persistCtx, in)
+	if err != nil {
+		if e.Log != nil {
+			e.Log.DebugContext(persistCtx, "billing FinalizeBilling", "error", err)
+		}
+		return lipapi.Event{}, err
+	}
+	if ev.Kind != lipapi.EventUsageDelta {
+		return lipapi.Event{}, fmt.Errorf("executor finalizer: invalid event kind %q", ev.Kind)
+	}
+	return ev, nil
+}
+
+type billingCallState struct {
+	callID billing.BillingCallID
+
+	mu sync.Mutex
+
+	allocated map[string]int // BLegID -> actual AttemptSeq
+	frozen    []string
+	hasFrozen bool
+	legTimes  []billing.LegUsageRecord
+
+	finalizeMu sync.Mutex
+	finalize   map[string]*finalizeCacheEntry
+}
+
+func newBillingCallState(callID billing.BillingCallID) *billingCallState {
+	return &billingCallState{
+		callID:    callID,
+		allocated: make(map[string]int),
+		finalize:  make(map[string]*finalizeCacheEntry),
+	}
+}
+
+func (s *billingCallState) noteAllocatedBLeg(bLegID string, seq int) {
+	if s == nil {
 		return
 	}
 	bLegID = strings.TrimSpace(bLegID)
 	if bLegID == "" {
 		return
 	}
-	key := callID.String()
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, frozen := c.frozenByCall[key]; frozen {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.hasFrozen {
 		return
 	}
-	if c.allocatedByCall == nil {
-		c.allocatedByCall = make(map[string]map[string]struct{})
+	if s.allocated == nil {
+		s.allocated = make(map[string]int)
 	}
-	set := c.allocatedByCall[key]
-	if set == nil {
-		set = make(map[string]struct{})
-		c.allocatedByCall[key] = set
-	}
-	set[bLegID] = struct{}{}
+	s.allocated[bLegID] = seq
 }
 
-func (c *billingTurnCollector) noteLegTimes(callID billing.BillingCallID, started, finished time.Time) {
-	if c == nil {
-		return
-	}
-	if err := callID.Validate(); err != nil || started.IsZero() || finished.IsZero() {
-		return
-	}
-	key := callID.String()
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, frozen := c.frozenByCall[key]; frozen {
-		return
-	}
-	if c.legTimesByCall == nil {
-		c.legTimesByCall = make(map[string][]billing.LegUsageRecord)
-	}
-	c.legTimesByCall[key] = append(c.legTimesByCall[key], billing.LegUsageRecord{StartedAt: started, FinishedAt: finished})
-}
-
-func (c *billingTurnCollector) closureLegTimes(callID billing.BillingCallID) []billing.LegUsageRecord {
-	if c == nil {
+func (s *billingCallState) freezeAllocatedBLegs() []string {
+	if s == nil {
 		return nil
 	}
-	if err := callID.Validate(); err != nil {
-		return nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.hasFrozen {
+		return append([]string(nil), s.frozen...)
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return append([]billing.LegUsageRecord(nil), c.legTimesByCall[callID.String()]...)
-}
-
-func (c *billingTurnCollector) freezeAllocatedBLegs(callID billing.BillingCallID) []string {
-	if c == nil {
-		return nil
-	}
-	if err := callID.Validate(); err != nil {
-		return nil
-	}
-	key := callID.String()
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if frozen, ok := c.frozenByCall[key]; ok {
-		return append([]string(nil), frozen...)
-	}
-	set := c.allocatedByCall[key]
-	ids := make([]string, 0, len(set))
-	for id := range set {
+	ids := make([]string, 0, len(s.allocated))
+	for id := range s.allocated {
 		ids = append(ids, id)
 	}
 	slices.Sort(ids)
-	if c.frozenByCall == nil {
-		c.frozenByCall = make(map[string][]string)
-	}
-	c.frozenByCall[key] = append([]string(nil), ids...)
+	s.frozen = append([]string(nil), ids...)
+	s.hasFrozen = true
 	return ids
+}
+
+func (s *billingCallState) noteLegTimes(started, finished time.Time) {
+	if s == nil || started.IsZero() || finished.IsZero() {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.hasFrozen {
+		return
+	}
+	s.legTimes = append(s.legTimes, billing.LegUsageRecord{StartedAt: started, FinishedAt: finished})
+}
+
+func (s *billingCallState) timingBounds(now time.Time) (time.Time, time.Time) {
+	if s == nil {
+		return now, now
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var started, finished time.Time
+	for _, leg := range s.legTimes {
+		if !leg.StartedAt.IsZero() && (started.IsZero() || leg.StartedAt.Before(started)) {
+			started = leg.StartedAt
+		}
+		if !leg.FinishedAt.IsZero() && (finished.IsZero() || leg.FinishedAt.After(finished)) {
+			finished = leg.FinishedAt
+		}
+	}
+	if started.IsZero() {
+		started = now
+	}
+	if finished.IsZero() {
+		finished = now
+	}
+	if finished.Before(started) {
+		finished = started
+	}
+	return started, finished
 }
 
 type finalizeCacheEntry struct {
@@ -145,66 +165,58 @@ func finalizeCacheKey(in execbackend.BillingFinalizationInput) string {
 	return strings.TrimSpace(in.ALegID) + "|" + strings.TrimSpace(in.Backend) + "|" + strings.TrimSpace(in.Model)
 }
 
-func (c *billingTurnCollector) finalizeOnce(ctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, bool) {
-	if c == nil || c.exec == nil {
+func (s *billingCallState) finalizeOnce(ctx context.Context, in execbackend.BillingFinalizationInput, finalizeFn func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error)) (lipapi.Event, bool) {
+	if s == nil {
 		return lipapi.Event{}, false
 	}
 	key := finalizeCacheKey(in)
 	if key == "" {
-		return c.callFinalizeBilling(ctx, in)
+		ev, err := finalizeFn(ctx, in)
+		return ev, err == nil && ev.Kind == lipapi.EventUsageDelta
 	}
-	c.finalizeMu.Lock()
-	if c.finalizeByKey == nil {
-		c.finalizeByKey = make(map[string]*finalizeCacheEntry)
+
+	s.finalizeMu.Lock()
+	if s.finalize == nil {
+		s.finalize = make(map[string]*finalizeCacheEntry)
 	}
-	if entry, ok := c.finalizeByKey[key]; ok {
-		c.finalizeMu.Unlock()
-		<-entry.done
+	entry, ok := s.finalize[key]
+	if ok {
+		s.finalizeMu.Unlock()
+		select {
+		case <-entry.done:
+		case <-ctx.Done():
+			return lipapi.Event{}, false
+		}
 		return entry.ev, entry.ok
 	}
-	entry := &finalizeCacheEntry{done: make(chan struct{})}
-	c.finalizeByKey[key] = entry
-	c.finalizeMu.Unlock()
-	entry.ev, entry.ok = c.callFinalizeBilling(ctx, in)
+
+	entry = &finalizeCacheEntry{done: make(chan struct{})}
+	s.finalize[key] = entry
+	s.finalizeMu.Unlock()
+
+	ev, err := finalizeFn(ctx, in)
+	entry.ev = ev
+	entry.ok = err == nil && ev.Kind == lipapi.EventUsageDelta
 	close(entry.done)
+
 	return entry.ev, entry.ok
 }
 
-func (c *billingTurnCollector) callFinalizeBilling(ctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, bool) {
-	if c == nil || c.exec == nil || c.exec.Backends == nil {
-		return lipapi.Event{}, false
-	}
-	backendID := strings.TrimSpace(in.Backend)
-	be, ok := c.exec.Backends[backendID]
-	if !ok || be.FinalizeBilling == nil {
-		return lipapi.Event{}, false
-	}
-	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingFinalizeTimeout)
-	defer cancel()
-	in.Backend = backendID
-	ev, err := be.FinalizeBilling(persistCtx, in)
-	if err != nil {
-		if c.exec.Log != nil {
-			c.exec.Log.DebugContext(persistCtx, "billing FinalizeBilling", "error", err)
-		}
-		return lipapi.Event{}, false
-	}
-	if ev.Kind != lipapi.EventUsageDelta {
-		return lipapi.Event{}, false
-	}
-	return ev, true
-}
-
-func (c *billingTurnCollector) evictFinalizeCache(aLegID string, legs []billing.LegUsageRecord) {
-	if c == nil {
+func (s *retryRecvStream) ensureBillingCallState() {
+	if s == nil {
 		return
 	}
-	c.finalizeMu.Lock()
-	defer c.finalizeMu.Unlock()
-	for _, leg := range legs {
-		delete(c.finalizeByKey, finalizeCacheKey(execbackend.BillingFinalizationInput{
-			ALegID: aLegID, BLegID: leg.BLegID, Backend: leg.BackendID, Model: leg.ModelID,
-		}))
+	if s.billingCallState == nil {
+		id := s.billingCallID
+		if id == "" {
+			var err error
+			id, err = billing.NewBillingCallID()
+			if err != nil {
+				id = "synthetic-call-id"
+			}
+			s.billingCallID = id
+		}
+		s.billingCallState = newBillingCallState(id)
 	}
 }
 

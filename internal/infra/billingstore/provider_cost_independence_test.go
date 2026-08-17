@@ -108,7 +108,9 @@ func TestSQLiteCustomerSettlementIndependentOfProviderCostOrdering(t *testing.T)
 			t.Fatal(err)
 		}
 		leg1 := testIndependentCallLegFor(callID, "b-1")
+		leg1.AttemptSeq = 1
 		leg2 := testIndependentCallLegFor(callID, "b-2")
+		leg2.AttemptSeq = 2
 		if err := store.AppendCallLegUsage(ctx, leg1); err != nil {
 			t.Fatal(err)
 		}

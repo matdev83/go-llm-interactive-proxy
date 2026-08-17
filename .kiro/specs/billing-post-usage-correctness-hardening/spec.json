@@ -1,23 +1,23 @@
 {
   "feature_name": "billing-post-usage-correctness-hardening",
   "created_at": "2026-08-16T15:42:00+02:00",
-  "updated_at": "2026-08-16T15:42:00+02:00",
+  "updated_at": "2026-08-16T21:08:51+02:00",
   "language": "en",
   "phase": "tasks-generated",
   "approvals": {
     "requirements": {
       "generated": true,
-      "approved": false
+      "approved": true
     },
     "design": {
       "generated": true,
-      "approved": false
+      "approved": true
     },
     "tasks": {
       "generated": true,
-      "approved": false
+      "approved": true
     }
   },
-  "ready_for_implementation": false,
+  "ready_for_implementation": true,
   "project_description": "Correct and harden the post-usage billing architecture merged in PR #340 without reopening the broader simplification refactor: preserve actual B-leg ordering, settle against the correct backend/model customer rate card, make customer settlement independent from provider-cost catalog readiness, and bound all runtime billing-call state to the lifetime of one BillingCallID."
 }

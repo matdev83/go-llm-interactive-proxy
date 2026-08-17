@@ -12,7 +12,7 @@ import (
 	"github.com/uptrace/bun/dialect"
 )
 
-var RequiredMigrationNames = []string{BaselineMigrationName, LegacyAuthorizationSchemaMigrationName, Phase4MigrationName, Phase6MigrationName, Phase7MigrationName, SessionIDMigrationName, UsageLegRecordsMigrationName, UsageCallRecordsMigrationName, ProviderCostWorkMigrationName, ProviderCostWorkRetryMigrationName, ExposureMigrationName, HoldRetirementMigrationName, UsageAppendOutboxMigrationName, AuthorizationHoldsDropMigrationName, ReservedNanoZeroMigrationName, CompleteCallClaimLeaseMigrationName}
+var RequiredMigrationNames = []string{BaselineMigrationName, LegacyAuthorizationSchemaMigrationName, Phase4MigrationName, Phase6MigrationName, Phase7MigrationName, SessionIDMigrationName, UsageLegRecordsMigrationName, UsageCallRecordsMigrationName, ProviderCostWorkMigrationName, ProviderCostWorkRetryMigrationName, ExposureMigrationName, HoldRetirementMigrationName, UsageAppendOutboxMigrationName, AuthorizationHoldsDropMigrationName, ReservedNanoZeroMigrationName, CompleteCallClaimLeaseMigrationName, UsageLegSequenceMigrationName}
 
 type Config struct {
 	StoreID string
@@ -66,7 +66,7 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 				return fmt.Errorf("billingstore: migration %s is not recorded", migrationName)
 			}
 		}
-		for _, index := range []string{"idx_billing_processing_status", "idx_billing_journal_account_sequence", "idx_billing_journal_source", journalReversalUniqueIndex, sessionAccountIndex, usageLegCallBLegIndex, usageCallCallIDIndex, usageCallAccountSessionIndex, usageCallClaimStatusIndex, usageCallClaimPendingIndex, providerCostWorkStatusIndex, providerCostWorkPendingIndex, exposureAccountStatusIndex} {
+		for _, index := range []string{"idx_billing_processing_status", "idx_billing_journal_account_sequence", "idx_billing_journal_source", journalReversalUniqueIndex, sessionAccountIndex, usageLegCallBLegIndex, usageLegCallAttemptSeqIndex, usageCallCallIDIndex, usageCallAccountSessionIndex, usageCallClaimStatusIndex, usageCallClaimPendingIndex, providerCostWorkStatusIndex, providerCostWorkPendingIndex, exposureAccountStatusIndex} {
 			var name string
 			if err := database.NewRaw(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`, index).Scan(ctx, &name); err != nil || name != index {
 				if err != nil {
@@ -82,7 +82,7 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 			"billing_account_policy_events": {"FOREIGN KEY(account_id) REFERENCES billing_accounts", "UNIQUE(account_id, source_key)"},
 			"turn_usage_records":            {"CHECK", "UNIQUE(account_id, turn_id)", "FOREIGN KEY(account_id) REFERENCES billing_accounts", "session_id"},
 			"leg_usage_records":             {"CHECK", "UNIQUE(tur_key, b_leg_id)", "UNIQUE(tur_key, sequence)", "FOREIGN KEY(tur_key) REFERENCES turn_usage_records"},
-			"usage_leg_records":             {"usage_leg_key", "call_id", "b_leg_id", "payload_json", "fingerprint"},
+			"usage_leg_records":             {"usage_leg_key", "call_id", "b_leg_id", "attempt_seq", "payload_json", "fingerprint"},
 			"provider_cost_work":            {"usage_leg_key", "call_id", "status", "attempt_count", "next_attempt_at", "last_error", "updated_at"},
 			"usage_call_records":            {"usage_call_key", "call_id", "account_id", "a_leg_id", "session_id", "expected_b_leg_ids", "payload_json", "fingerprint", "claim_status", "claim_attempt_count", "next_claim_at", "last_claim_error"},
 			"call_exposures":                {"exposure_key", "account_id", "call_id", "max_exposure_nano", "pricing_ref", "charge_policy_ref", "fingerprint", "status", "FOREIGN KEY(account_id) REFERENCES billing_accounts", "UNIQUE(account_id, call_id)"},
@@ -137,6 +137,8 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		{"TUR session index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{sessionAccountIndex}, []string{"account_id", "session_id", "tur_key"}},
 		{"usage leg table", `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'usage_leg_records' LIMIT 1`, nil, []string{"usage_leg_records"}},
 		{"usage leg CallID/BLegID unique index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{usageLegCallBLegIndex}, []string{"UNIQUE", "call_id", "b_leg_id"}},
+		{"usage leg attempt seq column", `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'usage_leg_records' AND column_name = 'attempt_seq' LIMIT 1`, nil, []string{"attempt_seq"}},
+		{"usage leg CallID/attempt_seq unique index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{usageLegCallAttemptSeqIndex}, []string{"UNIQUE", "call_id", "attempt_seq"}},
 		{"usage call table", `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'usage_call_records' LIMIT 1`, nil, []string{"usage_call_records"}},
 		{"usage call CallID unique index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{usageCallCallIDIndex}, []string{"UNIQUE", "call_id"}},
 		{"usage call account/session index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{usageCallAccountSessionIndex}, []string{"account_id", "session_id", "call_id"}},

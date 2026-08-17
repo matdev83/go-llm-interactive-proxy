@@ -79,9 +79,10 @@ func (e *Executor) operatorRateRef(ctx context.Context, primary routing.Primary)
 }
 
 func (s *retryRecvStream) recordBillingLeg(ctx context.Context, command sdkterminal.Command) {
-	if s == nil || s.executor == nil || !s.executor.billingTurns().enabled() {
+	if s == nil || s.executor == nil || !s.executor.billingEnabled() {
 		return
 	}
+	s.ensureBillingCallState()
 	blegID := strings.TrimSpace(s.bleg.BLegID)
 	if blegID == "" {
 		blegID = billingSyntheticBLegID(s.bleg.Seq)
@@ -96,13 +97,13 @@ func (s *retryRecvStream) recordBillingLeg(ctx context.Context, command sdktermi
 	}
 	s.billingLegRecorded[blegID] = struct{}{}
 	s.billingLegMu.Unlock()
-	s.executor.billingTurns().noteAllocatedBLeg(s.billingCallID, blegID)
+	s.billingCallState.noteAllocatedBLeg(blegID, s.bleg.Seq)
 	now := s.now()
 	started := s.accounting.requestStartedAt
 	if started.IsZero() {
 		started = now
 	}
-	s.executor.billingTurns().noteLegTimes(s.billingCallID, started, now)
+	s.billingCallState.noteLegTimes(started, now)
 	surfaced := billing.SurfacedNo
 	if command == sdkterminal.CommandNormalFinish || s.isCommitted() {
 		surfaced = billing.SurfacedYes
@@ -121,7 +122,7 @@ func (s *retryRecvStream) recordBillingLeg(ctx context.Context, command sdktermi
 		stream:          streamEv,
 		operatorRateRef: s.executor.operatorRateRef(ctx, s.cand.Primary),
 	})
-	s.executor.billingTurns().observe(ctx, legRecord)
+	s.executor.observeBillingLeg(ctx, legRecord)
 	s.executor.appendIndependentCallLeg(ctx, s.billingCallID, legRecord)
 }
 
@@ -130,13 +131,16 @@ func (s *retryRecvStream) finalizeBillingEvidence(ctx context.Context, reason st
 	if s == nil || s.executor == nil {
 		return fallback
 	}
-	ev, ok := s.executor.billingTurns().finalizeOnce(ctx, execbackend.BillingFinalizationInput{
+	s.ensureBillingCallState()
+	ev, ok := s.billingCallState.finalizeOnce(ctx, execbackend.BillingFinalizationInput{
 		TraceID: strings.TrimSpace(s.traceID),
 		ALegID:  strings.TrimSpace(s.aLegID),
 		BLegID:  strings.TrimSpace(s.bleg.BLegID),
 		Backend: strings.TrimSpace(s.cand.Primary.Backend),
 		Model:   strings.TrimSpace(s.cand.Primary.Model),
 		Reason:  strings.TrimSpace(reason),
+	}, func(cctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
+		return s.executor.callFinalizeBilling(cctx, in)
 	})
 	if !ok {
 		return fallback
@@ -261,7 +265,20 @@ func (e *Executor) appendIndependentCallLeg(ctx context.Context, callID billing.
 	if e == nil || e.CallLegUsageAppender == nil {
 		return
 	}
-	independent := billing.CallLegUsageRecord{CallID: callID, ALegID: leg.ALegID, BLegID: leg.BLegID, BackendID: leg.BackendID, ProviderID: leg.ProviderID, ModelID: leg.ModelID, StartedAt: leg.StartedAt, FinishedAt: leg.FinishedAt, Outcome: leg.Outcome, Surfaced: leg.Surfaced, Evidence: leg.Evidence, OperatorRateRef: leg.OperatorRateRef}
+	// The exact B2BUA attempt sequence is a financial fact. Every terminal
+	// producer funnels through this seam; the sequence must never be derived
+	// from BLegID, slice position, timestamps, or completion order. A
+	// non-positive sequence means the producer lost it, so the new append
+	// fails closed instead of persisting an unknown sequence as if it were
+	// known. Legacy rows with NULL sequence remain readable through the store's
+	// v1 contract and fail closed at rating when order is required.
+	if leg.Seq <= 0 {
+		if e.Log != nil {
+			e.Log.ErrorContext(ctx, "billing call-leg append rejected: attempt sequence missing", "error", fmt.Errorf("%w: attempt sequence for B-leg %q", billing.ErrInvalidRecord, leg.BLegID), "b_leg_id", leg.BLegID)
+		}
+		return
+	}
+	independent := billing.CallLegUsageRecord{CallID: callID, ALegID: leg.ALegID, BLegID: leg.BLegID, AttemptSeq: leg.Seq, BackendID: leg.BackendID, ProviderID: leg.ProviderID, ModelID: leg.ModelID, StartedAt: leg.StartedAt, FinishedAt: leg.FinishedAt, Outcome: leg.Outcome, Surfaced: leg.Surfaced, Evidence: leg.Evidence, OperatorRateRef: leg.OperatorRateRef}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingHandoffTimeout)
 	defer cancel()
 	if err := e.CallLegUsageAppender.AppendCallLegUsage(persistCtx, independent); err != nil {
@@ -284,7 +301,7 @@ func (e *Executor) logBillingUsageAppendFailure(ctx context.Context, criticalMsg
 	e.Log.WarnContext(ctx, warnMsg, "error", err)
 }
 
-func (e *Executor) appendIndependentTerminalLeg(ctx context.Context, callID billing.BillingCallID, aLegID string, bleg b2bua.BLegRecord, primary routing.Primary, started, finished time.Time, outcome billing.LegOutcome) {
+func (e *Executor) appendIndependentTerminalLeg(ctx context.Context, state *billingCallState, aLegID string, bleg b2bua.BLegRecord, primary routing.Primary, started, finished time.Time, outcome billing.LegOutcome) {
 	if e == nil || e.CallLegUsageAppender == nil {
 		return
 	}
@@ -309,18 +326,19 @@ func (e *Executor) appendIndependentTerminalLeg(ctx context.Context, callID bill
 		Evidence:        billing.FinalBillingEvidence{Source: billing.EvidenceSourceUnavailable, Authority: billing.EvidenceAuthorityUnavailable},
 		OperatorRateRef: e.operatorRateRef(ctx, primary),
 	}
-	if err := callID.Validate(); err == nil {
-		e.billingTurns().noteLegTimes(callID, started, finished)
+	var callID billing.BillingCallID
+	if state != nil {
+		callID = state.callID
+		state.noteLegTimes(started, finished)
 	}
-	e.billingTurns().observe(ctx, leg)
-	e.appendIndependentCallLeg(ctx, callID, leg)
+	e.observeBillingLeg(ctx, leg)
+	if callID != "" {
+		e.appendIndependentCallLeg(ctx, callID, leg)
+	}
 }
 
-func (e *Executor) appendPostOpenTerminalLeg(ctx context.Context, callID billing.BillingCallID, aLegID string, bleg b2bua.BLegRecord, primary routing.Primary, started, finished time.Time) {
+func (e *Executor) appendPostOpenTerminalLeg(ctx context.Context, state *billingCallState, aLegID string, bleg b2bua.BLegRecord, primary routing.Primary, started, finished time.Time) {
 	if e == nil || strings.TrimSpace(bleg.BLegID) == "" {
-		return
-	}
-	if err := callID.Validate(); err != nil {
 		return
 	}
 	if started.IsZero() {
@@ -333,7 +351,7 @@ func (e *Executor) appendPostOpenTerminalLeg(ctx context.Context, callID billing
 	if ctx.Err() != nil {
 		outcome = billing.LegOutcomeCanceled
 	}
-	e.appendIndependentTerminalLeg(ctx, callID, aLegID, bleg, primary, started, finished, outcome)
+	e.appendIndependentTerminalLeg(ctx, state, aLegID, bleg, primary, started, finished, outcome)
 }
 
 func (e *Executor) recordParallelBillingLeg(ctx context.Context, leg *parallelLeg, usage lipapi.Event, command sdkterminal.Command, committed bool) {
@@ -341,7 +359,7 @@ func (e *Executor) recordParallelBillingLeg(ctx context.Context, leg *parallelLe
 		return
 	}
 	if leg.startedAt.IsZero() {
-		e.appendIndependentTerminalLeg(ctx, leg.callID, leg.bleg.ALegID, leg.bleg, leg.cand.Primary, e.now(), e.now(), billing.LegOutcomeNeverStarted)
+		e.appendIndependentTerminalLeg(ctx, leg.billingCallState, leg.bleg.ALegID, leg.bleg, leg.cand.Primary, e.now(), e.now(), billing.LegOutcomeNeverStarted)
 		return
 	}
 	surfaced := billing.SurfacedNo
@@ -349,18 +367,20 @@ func (e *Executor) recordParallelBillingLeg(ctx context.Context, leg *parallelLe
 		surfaced = billing.SurfacedYes
 	}
 	fallback := lastUsageDeltaOrShell([]lipapi.Event{usage})
-	finalizeEv, ok := e.billingTurns().finalizeOnce(ctx, execbackend.BillingFinalizationInput{
+	finalizeEv, ok := leg.billingCallState.finalizeOnce(ctx, execbackend.BillingFinalizationInput{
 		ALegID:  strings.TrimSpace(leg.bleg.ALegID),
 		BLegID:  strings.TrimSpace(leg.bleg.BLegID),
 		Backend: strings.TrimSpace(leg.cand.Primary.Backend),
 		Model:   strings.TrimSpace(leg.cand.Primary.Model),
 		Reason:  "parallel_loser",
+	}, func(cctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
+		return e.callFinalizeBilling(cctx, in)
 	})
 	if !ok {
 		finalizeEv = fallback
 	}
-	if err := leg.callID.Validate(); err == nil {
-		e.billingTurns().noteLegTimes(leg.callID, leg.startedAt, e.now())
+	if leg.billingCallState != nil {
+		leg.billingCallState.noteLegTimes(leg.startedAt, e.now())
 	}
 	legRecord := billingLegRecord(billingLegDraft{
 		aLegID:          leg.bleg.ALegID,
@@ -375,8 +395,8 @@ func (e *Executor) recordParallelBillingLeg(ctx context.Context, leg *parallelLe
 		stream:          fallback,
 		operatorRateRef: e.operatorRateRef(ctx, leg.cand.Primary),
 	})
-	e.billingTurns().observe(ctx, legRecord)
-	if err := leg.callID.Validate(); err == nil {
-		e.appendIndependentCallLeg(ctx, leg.callID, legRecord)
+	e.observeBillingLeg(ctx, legRecord)
+	if leg.billingCallState != nil {
+		e.appendIndependentCallLeg(ctx, leg.billingCallState.callID, legRecord)
 	}
 }

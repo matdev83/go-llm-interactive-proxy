@@ -27,16 +27,21 @@ func NewCallRatingResolver(catalog *SnapshotCatalog) (billing.CallRatingResolver
 
 func (r *JoinRatingResolver) ResolveCallRating(_ context.Context, complete billing.CompleteCall, exposure billing.CallExposure) (billing.CallRatingResult, error) {
 	call := complete.Closure
-	legs := make([]billing.LegUsageRecord, 0, len(complete.Legs))
-	for i, leg := range complete.Legs {
-		legs = append(legs, billing.LegUsageRecord{ALegID: leg.ALegID, BLegID: leg.BLegID, Seq: i + 1, BackendID: leg.BackendID, ProviderID: leg.ProviderID, ModelID: leg.ModelID, StartedAt: leg.StartedAt, FinishedAt: leg.FinishedAt, Outcome: billing.LegOutcome(leg.Outcome), Surfaced: leg.Surfaced, Evidence: leg.Evidence, OperatorRateRef: leg.OperatorRateRef})
-	}
-	catalogRecord := billing.TurnUsageRecord{AccountID: call.AccountID, TurnID: call.CallID.String(), ALegID: call.ALegID, CustomerPricingRef: call.CustomerPricingRef, ChargePolicyRef: call.ChargePolicyRef, Legs: legs}
-	pricing, policy, rates, _, err := r.catalog.SnapshotsFor(catalogRecord)
+	// Customer rating resolves customer pricing/policy/model cards only. The
+	// combined provider-compose method is gone: no operator-rate lookup happens
+	// here, so missing provider-cost data can never block customer settlement.
+	snapshots, err := r.catalog.CustomerRatingSnapshots(call, complete.Legs)
 	if err != nil {
-		return billing.CallRatingResult{}, fmt.Errorf("billingcompose: call snapshot catalog: %w", err)
+		return billing.CallRatingResult{}, fmt.Errorf("billingcompose: customer rating snapshots: %w", err)
 	}
-	return billing.RateCall(billing.CallRatingInput{Call: call, Legs: complete.Legs, MaxCustomerCharge: exposure.Max, CustomerPricing: pricing, CustomerPolicy: policy, OperatorRates: rates})
+	return billing.RateCall(billing.CallRatingInput{
+		Call:              call,
+		Legs:              complete.Legs,
+		MaxCustomerCharge: exposure.Max,
+		CustomerPricing:   snapshots.DefaultPricing,
+		CustomerPolicy:    snapshots.Policy,
+		ModelPricing:      snapshots.ModelPricing,
+	})
 }
 
 type ProviderCostJoinResolver struct {

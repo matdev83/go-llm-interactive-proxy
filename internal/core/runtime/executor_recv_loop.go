@@ -347,7 +347,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 				l.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
 				return nil
 			})
-			s.executor.appendPostOpenTerminalLeg(ctx, s.billingCallID, s.aLegID, out.bleg, out.cand.Primary, time.Time{}, time.Time{})
+			s.executor.appendPostOpenTerminalLeg(ctx, s.billingCallState, s.aLegID, out.bleg, out.cand.Primary, time.Time{}, time.Time{})
 			return false, err
 		}
 	}

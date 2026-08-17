@@ -81,7 +81,8 @@ type attemptOpenParams struct {
 	deferMemoInjectionCommit bool
 	// billingCallID is the incoming invocation identity. NextBLeg notes allocated
 	// B-leg IDs against it so call-closure expected sets freeze at request terminal.
-	billingCallID billing.BillingCallID
+	billingCallID    billing.BillingCallID
+	billingCallState *billingCallState
 }
 
 type attemptOpenResult struct {
@@ -513,11 +514,11 @@ func (e *Executor) openPlannedCandidate(
 			if ctx.Err() != nil {
 				outcome = billing.LegOutcomeCanceled
 			}
-			e.appendIndependentTerminalLeg(ctx, p.billingCallID, p.aLegID, bleg, c.Primary, started, finished, outcome)
+			e.appendIndependentTerminalLeg(ctx, p.billingCallState, p.aLegID, bleg, c.Primary, started, finished, outcome)
 		}
 	}()
 	if e.CallUsageAppender != nil {
-		e.billingTurns().noteAllocatedBLeg(p.billingCallID, bleg.BLegID)
+		p.billingCallState.noteAllocatedBLeg(bleg.BLegID, bleg.Seq)
 	}
 	if err := e.enforcePostAdmitClamps(ctx, &openCall, authorizedFreeze, previewedClamps, previewRan, authState, c, int64(admitDecision.Count.InputTokens)); err != nil {
 		releaseKind = authorityapp.ReleaseKindAdmissionFailure
