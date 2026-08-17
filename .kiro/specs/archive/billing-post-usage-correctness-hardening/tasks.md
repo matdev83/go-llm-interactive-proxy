@@ -191,3 +191,10 @@
 ## Completion Gate
 
 Do not mark this spec completed unless all P0 defects from the post-merge review have dedicated regression tests and the resulting implementation is the baseline used by `billing-architecture-final-convergence`.
+
+## Completion Status
+
+- [x] All Phase 0–5 implementation tasks completed.
+- [x] All post-merge review P0 defects have dedicated regression coverage.
+- [x] Certified implementation merged in PR #354 at `cd3a603495660f49240dcb9bf1698aa3f27503a2`.
+- [x] Successor baseline recorded; TUR/LUR cleanup remains successor scope.
