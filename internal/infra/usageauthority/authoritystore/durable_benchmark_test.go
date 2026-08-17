@@ -81,7 +81,7 @@ func BenchmarkDurableActiveLimitHistorySize(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			row := controlplane.AccountingLimitStatusRow{RuleID: "active", RuleType: string(domain.RuleKindSpendCap), Unit: string(domain.AmountUnitMoneyNano), Currency: "usd", Limit: 1_000_000, Remaining: 1_000_000}
+			row := controlplane.AccountingLimitStatusRow{RuleID: "active", RuleType: string(domain.RuleKindQuota), Unit: string(domain.AmountUnitInputTokens), Limit: 1_000_000, Remaining: 1_000_000}
 			store, err := NewDurable(ctx, bunDB, Config{StoreID: "active-bench", Backing: domain.BackingCapabilityAtomic, LimitRows: []controlplane.AccountingLimitStatusRow{row}})
 			if err != nil {
 				b.Fatal(err)

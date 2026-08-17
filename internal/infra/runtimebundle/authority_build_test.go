@@ -176,7 +176,6 @@ func authorityAdmissionInput() authorityapp.AdmissionInput {
 		},
 		Request:      authoritydomain.Amount{Unit: authoritydomain.AmountUnitRequests, Value: 1},
 		RequestCount: authoritydomain.Amount{Unit: authoritydomain.AmountUnitRequests, Value: 1},
-		Spend:        authoritydomain.Amount{Unit: authoritydomain.AmountUnitMoneyNano, Value: 100, Currency: "usd"},
 		Authority:    authoritydomain.AuthorityLevelAuthoritative,
 		ReservationKey: authoritydomain.ReservationKey{
 			LogicalRequestID: "request-1",

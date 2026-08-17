@@ -160,28 +160,28 @@
 
 ## Phase 5 — Make UsageAuthority Quantity-Only
 
-- [ ] 5.1 Add RED compatibility/config tests for retired monetary UsageAuthority rules.
+- [x] 5.1 Add RED compatibility/config tests for retired monetary UsageAuthority rules.
   - Pin request/token behavior and require explicit migration error for money rules.
   - _Boundary: usageauthority domain/config_
   - _Depends: 0.3_
   - _Validation: go test ./internal/core/usageauthority/... ./internal/core/config_
   - _Requirements: 5.1-5.8, 11.3_
 
-- [ ] 5.2 Remove money unit and money-specific admission/settlement/release fields.
+- [x] 5.2 Remove money unit and money-specific admission/settlement/release fields.
   - Preserve request/token quota and concurrency semantics.
   - _Boundary: usageauthority core_
   - _Depends: 5.1_
   - _Validation: go test ./internal/core/usageauthority/..._
   - _Requirements: 5.1-5.7_
 
-- [ ] 5.3 Remove money reservation/store mapping and runtime money compatibility code.
+- [x] 5.3 Remove money reservation/store mapping and runtime money compatibility code.
   - No hidden disabled second financial implementation remains.
   - _Boundary: usageauthority infra + runtime adapters_
   - _Depends: 5.2_
   - _Validation: go test ./internal/infra/usageauthority/... ./internal/core/runtime ./internal/infra/runtimebundle_
   - _Requirements: 5.2-5.8, 10.5, 12.4_
 
-- [ ] 5.4 Activate architecture guards proving one monetary authority.
+- [x] 5.4 Activate architecture guards proving one monetary authority.
   - Metering money remains telemetry-only; billing is sole financial authority.
   - _Boundary: architecture tests_
   - _Depends: 5.3_

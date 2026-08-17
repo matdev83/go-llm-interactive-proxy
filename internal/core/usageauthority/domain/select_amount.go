@@ -7,24 +7,21 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
-// AmountSelectionSource carries optional metering facts and exposure plus the
-// legacy Request/Spend/RequestCount fields used by compatibility-basis rules.
+// AmountSelectionSource carries quantity evidence for admission and settlement.
+// Monetary exposure/facts may be present for telemetry, but this selector never
+// reads them and therefore cannot turn them into authority state.
 type AmountSelectionSource struct {
 	Amount         Amount
-	Spend          Amount
 	RequestCount   Amount
 	PreflightUsage PreflightUsage
 	Exposure       economics.ExposureBasis
 	Facts          []metering.Fact
 	FinalUsage     Amount
-	FinalCost      Amount
 	ForSettlement  bool
 }
 
 // AppliesToLifecycle reports whether the rule should evaluate at the given
-// admission/settlement lifecycle stage. Empty stage disables filtering (legacy
-// callers/tests). Legacy-compat rules infer stage from unit: requests →
-// logical_request, otherwise → backend_attempt (Phase 6 split).
+// admission/settlement lifecycle stage. Empty stage disables filtering.
 func (r Rule) AppliesToLifecycle(stage metering.LifecycleScope) bool {
 	if stage == "" {
 		return true
@@ -42,9 +39,7 @@ func (r Rule) AppliesToLifecycle(stage metering.LifecycleScope) bool {
 	return r.LifecycleScope == stage
 }
 
-// SelectAmount resolves the evaluation/settlement amount for one rule.
-// Compatibility basis uses undifferentiated Request/Spend/Final* inputs.
-// Dual-plane bases require matching exposure/facts; missing basis is not zero.
+// SelectAmount resolves the quantity amount for one rule.
 func (r Rule) SelectAmount(src AmountSelectionSource) (Amount, bool) {
 	unit := r.Unit
 	if unit == "" {
@@ -58,14 +53,6 @@ func (r Rule) SelectAmount(src AmountSelectionSource) (Amount, bool) {
 
 func selectLegacyAmount(r Rule, unit AmountUnit, src AmountSelectionSource) (Amount, bool) {
 	if src.ForSettlement {
-		if unit == AmountUnitMoneyNano || r.Kind == RuleKindBudget || r.Kind == RuleKindSpendCap {
-			if src.FinalCost.Unit != "" {
-				return src.FinalCost, true
-			}
-			if src.FinalCost.Value == 0 && src.FinalCost.Unit == AmountUnitMoneyNano {
-				return src.FinalCost, true
-			}
-		}
 		if src.FinalUsage.Unit != "" {
 			return src.FinalUsage, true
 		}
@@ -74,12 +61,6 @@ func selectLegacyAmount(r Rule, unit AmountUnit, src AmountSelectionSource) (Amo
 	basis := src.Amount
 	if unit == AmountUnitRequests && src.RequestCount.Unit != "" {
 		return src.RequestCount, true
-	}
-	if r.Kind == RuleKindBudget || r.Kind == RuleKindSpendCap {
-		if src.Spend.Unit == "" {
-			return Amount{}, false
-		}
-		return src.Spend, true
 	}
 	if unit != "" && basis.Unit != unit {
 		if amount, ok := src.PreflightUsage.AmountForUnit(unit); ok {
@@ -103,7 +84,6 @@ func selectFactOrExposureAmount(r Rule, unit AmountUnit, src AmountSelectionSour
 	if amt, ok := amountFromFacts(r, unit, src.Facts, wantPersp, wantBoundary, false); ok {
 		return amt, true
 	}
-	// Settlement may carry egress facts while the rule's admit basis is ingress.
 	if src.ForSettlement {
 		if amt, ok := amountFromFacts(r, unit, src.Facts, wantPersp, wantBoundary, true); ok {
 			return amt, true
@@ -121,25 +101,13 @@ func selectFactOrExposureAmount(r Rule, unit AmountUnit, src AmountSelectionSour
 	if exp.Perspective != "" && wantPersp != "" && exp.Perspective != wantPersp {
 		return Amount{}, false
 	}
-	if unit == AmountUnitMoneyNano || r.Kind == RuleKindBudget || r.Kind == RuleKindSpendCap {
-		if exp.Money.Present {
-			cur := strings.TrimSpace(exp.Money.Currency)
-			if cur == "" {
-				cur = strings.TrimSpace(r.Currency)
-			}
-			return Amount{Unit: AmountUnitMoneyNano, Value: exp.Money.NanoUnits, Currency: cur}, true
-		}
-		return Amount{}, false
-	}
-	if amt, ok := quantityAmountForUnit(exp.Quantities, unit, r.Currency); ok {
+	if amt, ok := quantityAmountForUnit(exp.Quantities, unit); ok {
 		return amt, true
 	}
-	// Allow request-count dual-plane rules to use explicit RequestCount when the
-	// exposure does not yet carry a request quantity component.
 	if !src.ForSettlement && unit == AmountUnitRequests && src.RequestCount.Unit == AmountUnitRequests {
 		return src.RequestCount, true
 	}
-	if !src.ForSettlement && unit != AmountUnitMoneyNano && src.Amount.Unit == unit {
+	if !src.ForSettlement && src.Amount.Unit == unit {
 		return src.Amount, true
 	}
 	return Amount{}, false
@@ -157,17 +125,7 @@ func amountFromFacts(r Rule, unit AmountUnit, facts []metering.Fact, wantPersp m
 		} else if !isEgressBoundary(f.Boundary) {
 			continue
 		}
-		if unit == AmountUnitMoneyNano || r.Kind == RuleKindBudget || r.Kind == RuleKindSpendCap {
-			if f.Money != nil && f.Money.Present {
-				cur := strings.TrimSpace(f.Money.Currency)
-				if cur == "" {
-					cur = strings.TrimSpace(r.Currency)
-				}
-				return Amount{Unit: AmountUnitMoneyNano, Value: f.Money.NanoUnits, Currency: cur}, true
-			}
-			continue
-		}
-		if amt, ok := quantityAmountForUnit(f.Quantities, unit, r.Currency); ok {
+		if amt, ok := quantityAmountForUnit(f.Quantities, unit); ok {
 			return amt, true
 		}
 	}
@@ -178,8 +136,7 @@ func isEgressBoundary(b metering.Boundary) bool {
 	return b == metering.BoundaryBackendEgress || b == metering.BoundaryFrontendEgress
 }
 
-func quantityAmountForUnit(qs []metering.Quantity, unit AmountUnit, currency string) (Amount, bool) {
-	_ = currency
+func quantityAmountForUnit(qs []metering.Quantity, unit AmountUnit) (Amount, bool) {
 	switch unit {
 	case AmountUnitRequests:
 		for _, q := range qs {
@@ -192,6 +149,12 @@ func quantityAmountForUnit(qs []metering.Quantity, unit AmountUnit, currency str
 		return firstQuantity(qs, metering.ComponentInputToken, unit)
 	case AmountUnitOutputTokens:
 		return firstQuantity(qs, metering.ComponentOutputToken, unit)
+	case AmountUnitCacheReadTokens:
+		return firstQuantity(qs, metering.ComponentCacheReadInputToken, unit)
+	case AmountUnitCacheWriteTokens:
+		return firstQuantity(qs, metering.ComponentCacheWriteInputToken, unit)
+	case AmountUnitReasoningTokens:
+		return firstQuantity(qs, metering.ComponentReasoningOutputToken, unit)
 	case AmountUnitTotalTokens:
 		in, inOK := firstQuantity(qs, metering.ComponentInputToken, AmountUnitInputTokens)
 		out, outOK := firstQuantity(qs, metering.ComponentOutputToken, AmountUnitOutputTokens)
@@ -199,8 +162,6 @@ func quantityAmountForUnit(qs []metering.Quantity, unit AmountUnit, currency str
 			return Amount{}, false
 		}
 		return Amount{Unit: AmountUnitTotalTokens, Value: in.Value + out.Value}, true
-	case AmountUnitMoneyNano:
-		return Amount{}, false
 	default:
 		return Amount{}, false
 	}

@@ -372,7 +372,6 @@ func strictReserveCommandForPersistence() app.ReserveCommand {
 			PolicyLabels: map[string]scope.Value{"tier": scope.Known("standard")},
 		},
 		Request:      domain.Amount{Unit: domain.AmountUnitRequests, Value: 60},
-		Spend:        domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 600, Currency: "usd"},
 		Authority:    domain.AuthorityLevelAuthoritative,
 		EstimateOnly: false,
 		At:           time.Date(2026, 7, 4, 12, 1, 0, 0, time.UTC),
@@ -465,7 +464,6 @@ func TestSQLiteStore_ApplyUsagePersistsAndReplayIsNoOp(t *testing.T) {
 		},
 		RuleIDs:      []string{"rule-advisory"},
 		RequestCount: domain.Amount{Unit: domain.AmountUnitRequests, Value: 8},
-		FinalCost:    domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 0, Currency: "usd"},
 		At:           time.Date(2026, 7, 4, 12, 30, 0, 0, time.UTC),
 		SourceKey:    "advisory-persist-1",
 	}); err != nil {
@@ -515,7 +513,6 @@ func TestSQLiteStore_ApplyUsagePersistsAndReplayIsNoOp(t *testing.T) {
 		},
 		RuleIDs:      []string{"rule-advisory"},
 		RequestCount: domain.Amount{Unit: domain.AmountUnitRequests, Value: 8},
-		FinalCost:    domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 0, Currency: "usd"},
 		At:           time.Date(2026, 7, 4, 12, 45, 0, 0, time.UTC),
 		SourceKey:    "advisory-persist-1",
 	})

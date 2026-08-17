@@ -2,21 +2,14 @@ package authoritystore
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 )
 
-// applyUsage applies final usage/cost to matched accounting windows WITHOUT
-// requiring a reservation (requirement 7.7). For each rule ID in cmd.RuleIDs it
-// matches the live limit row (advancing expired windows via advanceWindow),
-// selects the actual amount per rule unit (money rule -> FinalCost; token rule
-// -> per-unit usage; request rule -> RequestCount), adds it to row.Consumed,
-// recomputes row.Remaining, captures the limit update, and appends an advisory
-// decision. No reservation record is created. Idempotent via cmd.SourceKey:
-// replays return Applied=false before mutating anything.
+// applyUsage applies final quantity usage to matched accounting windows without
+// requiring a reservation. It is idempotent via cmd.SourceKey.
 func (c *storeCore) applyUsage(cmd app.ApplyUsageCommand, log MutationLog) (app.ApplyUsageResult, error) {
 	working := c.clone()
 	out, err := working.applyUsageInPlace(cmd, log)
@@ -44,19 +37,9 @@ func (c *storeCore) applyUsageInPlace(cmd app.ApplyUsageCommand, log MutationLog
 		if !ok {
 			return app.ApplyUsageResult{}, wrapUnavailable("apply_usage", "matching limit not found")
 		}
-		measurementAuthority := cmd.MeasurementAuthority
-		if measurementAuthority.Usage == "" && measurementAuthority.Cost == "" {
-			measurementAuthority = app.MeasurementAuthority{
-				Usage:                    cmd.Authority,
-				Cost:                     cmd.Authority,
-				AuthoritativeCostPresent: cmd.CostPresent,
-			}
-			if measurementAuthority.Cost == domain.AuthorityLevelAuthoritative && !measurementAuthority.AuthoritativeCostPresent {
-				measurementAuthority.Cost = domain.AuthorityLevelEstimated
-			}
-		}
+		measurementAuthority := normalizedMeasurementAuthority(cmd.MeasurementAuthority, cmd.Authority)
 		effectiveAuthority := measurementAuthority.ForUnit(domain.AmountUnit(row.Unit))
-		actual := enforceableAmount(limitRowIsMoney(row), advisoryTokenAmount(row, cmd), cmd.FinalCost, domain.Amount{}, row.Currency)
+		actual := enforceableAmount(advisoryTokenAmount(row, cmd), domain.Amount{})
 		if err := validateRowAmount(row, actual); err != nil {
 			return app.ApplyUsageResult{}, err
 		}
@@ -74,8 +57,7 @@ func (c *storeCore) applyUsageInPlace(cmd app.ApplyUsageCommand, log MutationLog
 			continue
 		}
 		if hasPrevious && usageFactPrecedence(effectiveAuthority, cmd.Kind) == usageFactPrecedence(previous.Authority, previous.Kind) &&
-			previous.Amount.Unit == actual.Unit && previous.Amount.Value == actual.Value &&
-			strings.EqualFold(previous.Amount.Currency, actual.Currency) && previous.LimitRowKey == key {
+			previous.Amount.Unit == actual.Unit && previous.Amount.Value == actual.Value && previous.LimitRowKey == key {
 			continue
 		}
 

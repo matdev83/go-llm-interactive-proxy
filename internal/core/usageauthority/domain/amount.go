@@ -12,13 +12,12 @@ const (
 	AmountUnitCacheWriteTokens AmountUnit = "cache_write_tokens"
 	AmountUnitReasoningTokens  AmountUnit = "reasoning_tokens"
 	AmountUnitTotalTokens      AmountUnit = "total_tokens"
-	AmountUnitMoneyNano        AmountUnit = "money_nano"
 )
 
 func (u AmountUnit) IsKnown() bool {
 	switch u {
 	case AmountUnitRequests, AmountUnitInputTokens, AmountUnitOutputTokens, AmountUnitCacheReadTokens,
-		AmountUnitCacheWriteTokens, AmountUnitReasoningTokens, AmountUnitTotalTokens, AmountUnitMoneyNano:
+		AmountUnitCacheWriteTokens, AmountUnitReasoningTokens, AmountUnitTotalTokens:
 		return true
 	default:
 		return false
@@ -26,9 +25,8 @@ func (u AmountUnit) IsKnown() bool {
 }
 
 type Amount struct {
-	Unit     AmountUnit
-	Value    int64
-	Currency string
+	Unit  AmountUnit
+	Value int64
 }
 
 // PreflightUsage carries per-unit pre-backend estimates used during admission
@@ -70,13 +68,6 @@ func (p PreflightUsage) AmountForUnit(unit AmountUnit) (Amount, bool) {
 	}
 }
 
-func (a Amount) IsMoney() bool {
-	return a.Unit == AmountUnitMoneyNano
-}
-
 func (a Amount) String() string {
-	if a.IsMoney() {
-		return fmt.Sprintf("%d %s %s", a.Value, a.Unit, a.Currency)
-	}
 	return fmt.Sprintf("%d %s", a.Value, a.Unit)
 }

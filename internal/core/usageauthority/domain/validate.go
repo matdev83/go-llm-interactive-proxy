@@ -14,25 +14,20 @@ var (
 	ErrInvalidStatus            = errors.New("invalid status")
 	ErrUnsupportedAlgorithm     = errors.New("unsupported window algorithm")
 	ErrUnsupportedRuleUnit      = errors.New("unsupported rule unit")
+	ErrRetiredMonetaryAuthority = errors.New("retired monetary usage authority rule; migration required")
 	ErrUnsupportedAuthority     = errors.New("unsupported authority requirement")
 	ErrUnsupportedFailurePolicy = errors.New("unsupported failure behavior")
 )
 
 func (a Amount) Validate() error {
+	if strings.EqualFold(string(a.Unit), "money_nano") || strings.EqualFold(string(a.Unit), "money-nano") || strings.EqualFold(string(a.Unit), "moneynano") {
+		return fmt.Errorf("%w: unit %q", ErrRetiredMonetaryAuthority, a.Unit)
+	}
 	if !a.Unit.IsKnown() {
 		return fmt.Errorf("%w: unsupported unit %q", ErrInvalidAmount, a.Unit)
 	}
 	if a.Value < 0 {
 		return fmt.Errorf("%w: negative value %d", ErrInvalidAmount, a.Value)
-	}
-	if a.IsMoney() {
-		if strings.TrimSpace(a.Currency) == "" {
-			return fmt.Errorf("%w: currency required for money amounts", ErrInvalidAmount)
-		}
-		return nil
-	}
-	if a.Currency != "" {
-		return fmt.Errorf("%w: currency is only valid for money amounts", ErrInvalidAmount)
 	}
 	return nil
 }
@@ -47,6 +42,11 @@ func validateDimensionsMatcher(m DimensionsMatcher) error {
 }
 
 func (r Rule) Validate() error {
+	kind := strings.ToLower(strings.TrimSpace(string(r.Kind)))
+	unitName := strings.ToLower(strings.TrimSpace(string(r.Unit)))
+	if kind == "budget" || kind == "spend_cap" || kind == "spend-cap" || unitName == "money_nano" || unitName == "money-nano" || unitName == "moneynano" {
+		return fmt.Errorf("%w: kind=%q unit=%q", ErrRetiredMonetaryAuthority, r.Kind, r.Unit)
+	}
 	if !isSafeRuleID(r.ID) {
 		return fmt.Errorf("%w: invalid id %q", ErrInvalidRule, r.ID)
 	}
@@ -85,20 +85,8 @@ func (r Rule) Validate() error {
 	}
 
 	switch r.Kind {
-	case RuleKindBudget, RuleKindSpendCap:
-		if unit != AmountUnitMoneyNano || !r.Limit.IsMoney() {
-			return fmt.Errorf("%w: budget and spend-cap rules must use money nano-unit amounts with currency", ErrInvalidRule)
-		}
-		if strings.TrimSpace(r.Currency) == "" || strings.TrimSpace(r.Limit.Currency) == "" {
-			return fmt.Errorf("%w: budget and spend-cap rules require currency", ErrInvalidRule)
-		}
-		if !strings.EqualFold(r.Currency, r.Limit.Currency) {
-			return fmt.Errorf("%w: currency mismatch %q != %q", ErrInvalidRule, r.Currency, r.Limit.Currency)
-		}
 	case RuleKindQuota, RuleKindRate:
-		if unit == AmountUnitMoneyNano || r.Limit.IsMoney() || strings.TrimSpace(r.Currency) != "" || strings.TrimSpace(r.Limit.Currency) != "" {
-			return fmt.Errorf("%w: quota and rate rules must not use money", ErrInvalidRule)
-		}
+		// Quantity-only rules have no currency-bearing limits.
 	default:
 		return fmt.Errorf("%w: invalid kind %q", ErrInvalidRule, r.Kind)
 	}
