@@ -3,6 +3,7 @@ package billingstore
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -39,6 +40,30 @@ func TestWithAccountTxClassifiesNonRetryable(t *testing.T) {
 	})
 	if !errors.Is(err, classified) {
 		t.Fatalf("err=%v, want classified", err)
+	}
+	if calls != 1 {
+		t.Fatalf("calls=%d, want 1", calls)
+	}
+}
+
+func TestWithAccountTxClassifierStopsRetryableConflict(t *testing.T) {
+	t.Parallel()
+	var calls int
+	_, err := withAccountTx(context.Background(), accountTxRetry{
+		Attempts: 20,
+		Delay:    time.Millisecond,
+		Classify: func(err error) error {
+			if errors.Is(err, ErrLegAttemptSequenceConflict) {
+				return err
+			}
+			return nil
+		},
+	}, func() (struct{}, error) {
+		calls++
+		return struct{}{}, fmt.Errorf("%w: wrapped driver conflict", ErrLegAttemptSequenceConflict)
+	})
+	if !errors.Is(err, ErrLegAttemptSequenceConflict) {
+		t.Fatalf("err=%v, want ErrLegAttemptSequenceConflict", err)
 	}
 	if calls != 1 {
 		t.Fatalf("calls=%d, want 1", calls)

@@ -47,6 +47,7 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 		billingChargePolicy:    prep.billingChargePolicy,
 		billingIdentityStamped: prep.billingIdentityStamped,
 		billingCallID:          prep.billingCallID,
+		billingCallState:       prep.billingCallState,
 		customer:               newCustomerEvidenceAccumulator(),
 		accounting:             newAttemptAccountingTracker(e.now()),
 		recoverPolicy:          streamrecovery.NewPolicy(e.StreamRecovery, e.now()),

@@ -35,6 +35,7 @@ func registerMigrations() {
 		registerAuthorizationHoldsDropMigration()
 		registerReservedNanoZeroMigration()
 		registerCompleteCallClaimLeaseMigration()
+		registerUsageLegSequenceMigration()
 	})
 }
 

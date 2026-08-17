@@ -191,6 +191,7 @@ type retryRecvStream struct {
 	billingChargePolicy    billing.VersionRef
 	billingIdentityStamped bool
 	billingCallID          billing.BillingCallID
+	billingCallState       *billingCallState
 	isInterleavedThinker   bool
 
 	finalStreamObs    *extensions.FinalStreamObservationSession

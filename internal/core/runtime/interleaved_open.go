@@ -223,6 +223,7 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 		suppressThinker:     true,
 		suppressVisibleMemo: true,
 		billingCallID:       from.billingCallID,
+		billingCallState:    from.billingCallState,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("executor: interleaved continuation plan/open: %w", err)
@@ -245,7 +246,7 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 			if out.stream != nil && !errors.Is(err, leglifecycle.ErrALegCanceled) {
 				_ = out.stream.Close()
 			}
-			e.appendPostOpenTerminalLeg(ctx, from.billingCallID, from.aLegID, out.bleg, out.cand.Primary, time.Time{}, time.Time{})
+			e.appendPostOpenTerminalLeg(ctx, from.billingCallState, from.aLegID, out.bleg, out.cand.Primary, time.Time{}, time.Time{})
 			return nil, err
 		}
 	}
@@ -280,6 +281,7 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 		bleg:                   out.bleg,
 		cand:                   out.cand,
 		billingCallID:          from.billingCallID,
+		billingCallState:       from.billingCallState,
 		billingAccountID:       from.billingAccountID,
 		billingCustomerPricing: from.billingCustomerPricing,
 		billingChargePolicy:    from.billingChargePolicy,

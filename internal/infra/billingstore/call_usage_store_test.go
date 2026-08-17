@@ -309,6 +309,12 @@ func runClaimCompleteCallIndependentOfAppendOrder(t *testing.T, store *DurableSt
 					}
 				case strings.HasPrefix(step, "leg:"):
 					leg := testIndependentCallLegFor(callID, strings.TrimPrefix(step, "leg:"))
+					// Real B2BUA allocation order: b-fail is attempt 1, b-win is attempt 2.
+					if strings.HasPrefix(step, "leg:b-fail") {
+						leg.AttemptSeq = 1
+					} else {
+						leg.AttemptSeq = 2
+					}
 					if err := store.AppendCallLegUsage(ctx, leg); err != nil {
 						t.Fatalf("append %s: %v", step, err)
 					}
