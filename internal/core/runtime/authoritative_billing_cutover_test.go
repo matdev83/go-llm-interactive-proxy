@@ -30,7 +30,6 @@ func TestAuthoritativeBillingSuccessFinishSettlesAttemptAuthority(t *testing.T) 
 		status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
 	}
 	executor, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
-	executor.BillingAuthoritative = true
 	stream := &retryRecvStream{
 		executor:   executor,
 		bus:        hooks.New(hooks.Config{}),
@@ -79,7 +78,6 @@ func TestAuthoritativeBillingPreservesProtocolUsageProjection(t *testing.T) {
 		status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
 	}
 	executor, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
-	executor.BillingAuthoritative = true
 	executor.StreamUsage = accountingstream.New(&stubStreamCounter{
 		call:   accountingapp.CountResult{InputTokens: 7, TotalTokens: 7},
 		output: accountingapp.CountResult{OutputTokens: 3, TotalTokens: 10},
@@ -130,7 +128,6 @@ func TestAuthoritativeBillingKeepsNonMoneyAuthorityCoordination(t *testing.T) {
 		status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
 	}
 	executor, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
-	executor.BillingAuthoritative = true
 	stream := &retryRecvStream{
 		executor: executor,
 		aLegID:   aLegID,

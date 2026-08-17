@@ -72,7 +72,6 @@ func (failClosedStreamObserverFactory) Open(context.Context, response.StreamMeta
 
 func wireAbortBilling(ex *Executor, capture *abortJoinCapture) {
 	ex.BillingIdentity = testBillingIdentity()
-	ex.BillingAuthoritative = true
 	ex.BillingCreditGate = creditGateFunc(func(context.Context, string) error { return nil })
 	ex.BillingExposureAdmission = exposureAdmissionFunc(func(_ context.Context, in BillingExposureAdmissionInput) (billing.CallExposure, error) {
 		return billing.CallExposure{

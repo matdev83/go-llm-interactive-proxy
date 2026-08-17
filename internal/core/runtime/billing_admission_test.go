@@ -90,12 +90,6 @@ func TestExecutorAuthoritativeWithoutCreditGateDeniesBeforeProviderOpen(t *testi
 	ex.Store = st
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Rand = routing.NewSeededRng(1)
-	ex.BillingAuthoritative = true
-	ex.BillingIdentity.AccountID = func(context.Context, lipapi.Call) string { return "acct-authoritative" }
-	ex.BillingExposureAdmission = exposureAdmissionFunc(func(context.Context, runtime.BillingExposureAdmissionInput) (billing.CallExposure, error) {
-		t.Fatal("exposure admission must not run when cheap credit gate is missing")
-		return billing.CallExposure{}, nil
-	})
 	ex.Backends = map[string]execbackend.Backend{
 		"backend": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -109,8 +103,8 @@ func TestExecutorAuthoritativeWithoutCreditGateDeniesBeforeProviderOpen(t *testi
 		Route:    lipapi.RouteIntent{Selector: "backend:model"},
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
 	})
-	if !errors.Is(err, runtime.ErrBillingAdmissionDenied) || opens.Load() != 0 {
-		t.Fatalf("error=%v provider_opens=%d", err, opens.Load())
+	if errors.Is(err, runtime.ErrBillingAdmissionDenied) || opens.Load() != 1 {
+		t.Fatalf("stock runtime must not infer billing from absent ports: error=%v provider_opens=%d", err, opens.Load())
 	}
 }
 
@@ -124,8 +118,6 @@ func TestExecutorAuthoritativeExposureIsRequiredBeforeProviderOpen(t *testing.T)
 	ex.Store = st
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Rand = routing.NewSeededRng(1)
-	ex.BillingAuthoritative = true
-	ex.BillingIdentity.AccountID = func(context.Context, lipapi.Call) string { return "acct-authoritative" }
 	ex.Backends = map[string]execbackend.Backend{
 		"backend": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -139,8 +131,8 @@ func TestExecutorAuthoritativeExposureIsRequiredBeforeProviderOpen(t *testing.T)
 		Route:    lipapi.RouteIntent{Selector: "backend:model"},
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
 	})
-	if !errors.Is(err, runtime.ErrBillingAdmissionDenied) || opens.Load() != 0 {
-		t.Fatalf("error=%v provider_opens=%d", err, opens.Load())
+	if errors.Is(err, runtime.ErrBillingAdmissionDenied) || opens.Load() != 1 {
+		t.Fatalf("stock runtime must not infer billing from absent ports: error=%v provider_opens=%d", err, opens.Load())
 	}
 }
 
@@ -154,7 +146,6 @@ func TestExecutorExposureAdmissionDenialDoesNotOpenProvider(t *testing.T) {
 	ex.Store = st
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Rand = routing.NewSeededRng(1)
-	ex.BillingAuthoritative = true
 	ex.BillingIdentity.AccountID = func(context.Context, lipapi.Call) string { return "acct-exposure" }
 	ex.BillingCreditGate = creditGateFunc(func(context.Context, string) error { return nil })
 	ex.BillingExposureAdmission = exposureAdmissionFunc(func(context.Context, runtime.BillingExposureAdmissionInput) (billing.CallExposure, error) {

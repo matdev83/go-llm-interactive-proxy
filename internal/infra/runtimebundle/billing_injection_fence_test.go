@@ -35,9 +35,6 @@ func TestBuildHost_LeftoverLedgerPricingDoesNotOpenBillingJournal(t *testing.T) 
 		t.Fatal("expected loaded config")
 	}
 	acc := host.Config().Accounting
-	if acc.Billing.Authoritative {
-		t.Fatal("leftover YAML must leave accounting.billing.authoritative unset/false")
-	}
 	if acc.Ledger.Store == "" || len(acc.Pricing.Models) == 0 {
 		t.Fatal("test fixture must include leftover ledger and pricing YAML")
 	}
@@ -45,11 +42,8 @@ func TestBuildHost_LeftoverLedgerPricingDoesNotOpenBillingJournal(t *testing.T) 
 		t.Fatal("leftover ledger+pricing YAML must not inject BillingStore")
 	}
 	ex := hostActiveExecutor(t, host)
-	if ex.BillingAuthoritative {
-		t.Fatal("leftover ledger+pricing YAML must leave BillingAuthoritative false")
-	}
-	if ex.BillingExposureAdmission != nil {
-		t.Fatal("leftover ledger+pricing YAML must not wire authoritative exposure ports")
+	if ex.BillingCreditGate != nil || ex.BillingExposureAdmission != nil || ex.TerminalUsageSink != nil || ex.BillingIdentity.AccountID != nil {
+		t.Fatal("leftover ledger+pricing YAML must not wire partial billing ports")
 	}
 	if _, err := os.Stat(ledgerPath); !os.IsNotExist(err) {
 		t.Fatalf("leftover accounting.ledger YAML opened sqlite at %s: %v", ledgerPath, err)

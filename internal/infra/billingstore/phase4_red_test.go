@@ -78,7 +78,7 @@ func TestReservedColumnMigrationUsesSQLiteWriterExclusionAndRollback(t *testing.
 		t.Fatal(err)
 	}
 	source := string(body)
-	for _, required := range []string{"db.DB.Conn", "BEGIN IMMEDIATE", "ROLLBACK", "billing_accounts_phase4", "BeginTx", "LOCK TABLE billing_accounts IN ACCESS EXCLUSIVE MODE", "DROP COLUMN IF EXISTS reserved_nano"} {
+	for _, required := range []string{"db.DB.Conn", "BEGIN IMMEDIATE", "ROLLBACK", "billing_accounts_phase4", "billing_reconciliation_events_phase4", "BeginTx", "LOCK TABLE billing_accounts IN ACCESS EXCLUSIVE MODE", "DROP COLUMN IF EXISTS reserved_nano"} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("reserved-column migration missing safety primitive %q", required)
 		}

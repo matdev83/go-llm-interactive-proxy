@@ -78,13 +78,6 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 				return fmt.Errorf("billingstore: migration %s is not recorded", migrationName)
 			}
 		}
-		var reservedColumnCount int
-		if err := database.NewRaw(`SELECT COUNT(1) FROM pragma_table_info('billing_accounts') WHERE name = 'reserved_nano'`).Scan(ctx, &reservedColumnCount); err != nil {
-			return fmt.Errorf("billingstore: SQLite reserved column verification: %w", err)
-		}
-		if reservedColumnCount != 0 {
-			return fmt.Errorf("billingstore: SQLite billing_accounts.reserved_nano must be retired")
-		}
 		var accountSequenceNotNull int
 		if err := database.NewRaw(`SELECT "notnull" FROM pragma_table_info('journal_transactions') WHERE name = 'account_sequence'`).Scan(ctx, &accountSequenceNotNull); err != nil {
 			return fmt.Errorf("billingstore: SQLite journal account sequence verification: %w", err)
@@ -126,6 +119,13 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 				}
 			}
 		}
+		var retiredReconciliationColumns int
+		if err := database.NewRaw(`SELECT COUNT(1) FROM pragma_table_info('billing_reconciliation_events') WHERE name LIKE 'reserved%nano'`).Scan(ctx, &retiredReconciliationColumns); err != nil {
+			return fmt.Errorf("billingstore: SQLite reconciliation event retired-column verification: %w", err)
+		}
+		if retiredReconciliationColumns != 0 {
+			return fmt.Errorf("billingstore: SQLite reconciliation events contain retired columns")
+		}
 		for _, trigger := range []string{"billing_exposure_immutable_update", "billing_exposure_immutable_delete", "billing_operation_snapshots_immutable_update", "billing_operation_snapshots_immutable_delete", "billing_account_openings_immutable_update", "billing_account_openings_immutable_delete", "billing_reconciliation_events_immutable_update", "billing_reconciliation_events_immutable_delete", "billing_policy_events_immutable_update", "billing_policy_events_immutable_delete", "billing_usage_leg_immutable_update", "billing_usage_leg_immutable_delete", "billing_usage_call_immutable_update", "billing_usage_call_immutable_delete", "billing_journal_tx_immutable_update", "billing_journal_tx_immutable_delete", "billing_journal_entry_immutable_update", "billing_journal_entry_immutable_delete"} {
 			var name string
 			if err := database.NewRaw(`SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = ?`, trigger).Scan(ctx, &name); err != nil || name != trigger {
@@ -133,6 +133,13 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 			}
 		}
 		return nil
+	}
+	var retiredReconciliationColumns int
+	if err := database.NewRaw(`SELECT COUNT(1) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'billing_reconciliation_events' AND column_name LIKE 'reserved%nano'`).Scan(ctx, &retiredReconciliationColumns); err != nil {
+		return fmt.Errorf("billingstore: PostgreSQL reconciliation event retired-column verification: %w", err)
+	}
+	if retiredReconciliationColumns != 0 {
+		return fmt.Errorf("billingstore: PostgreSQL reconciliation events contain retired columns")
 	}
 	checks := []struct {
 		description string
@@ -203,13 +210,6 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		if err := dbinfra.VerifyPostgresQueryRowContains(ctx, database, check.description, check.query, check.args, check.fragments...); err != nil {
 			return fmt.Errorf("billingstore: PostgreSQL schema verification failed: %w", err)
 		}
-	}
-	var reservedColumnCount int
-	if err := database.NewRaw(`SELECT COUNT(1) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'billing_accounts' AND column_name = 'reserved_nano'`).Scan(ctx, &reservedColumnCount); err != nil {
-		return fmt.Errorf("billingstore: PostgreSQL reserved column verification: %w", err)
-	}
-	if reservedColumnCount != 0 {
-		return fmt.Errorf("billingstore: PostgreSQL billing_accounts.reserved_nano must be retired")
 	}
 	return nil
 }

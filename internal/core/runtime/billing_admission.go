@@ -46,9 +46,6 @@ func (e *Executor) checkCheapCredit(ctx context.Context, prep *preparedRequest) 
 		return nil
 	}
 	if e.BillingCreditGate == nil {
-		if e.BillingAuthoritative {
-			return fmt.Errorf("%w: authoritative billing requires cheap credit screen", ErrBillingAdmissionDenied)
-		}
 		return nil
 	}
 	if prep == nil || e.BillingIdentity.AccountID == nil {
@@ -70,9 +67,6 @@ func (e *Executor) checkCheapCredit(ctx context.Context, prep *preparedRequest) 
 
 func (e *Executor) authorizeBillingOnce(ctx context.Context, prep *preparedRequest, plan *routePlanState) error {
 	if e == nil || e.BillingExposureAdmission == nil {
-		if e != nil && e.BillingAuthoritative {
-			return fmt.Errorf("%w: authoritative billing requires operational exposure admission", ErrBillingAdmissionDenied)
-		}
 		return nil
 	}
 	if prep == nil || plan == nil {

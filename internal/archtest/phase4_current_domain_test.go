@@ -28,7 +28,7 @@ func TestPhase4CurrentBillingDomainForbidsRetiredNames(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			for _, forbidden := range []string{"ReservedNano", "JournalBookLegacyAuthorization"} {
+			for _, forbidden := range []string{"ReservedNano", "reserved_nano", "JournalBookLegacyAuthorization"} {
 				if strings.Contains(string(body), forbidden) {
 					t.Errorf("%s contains retired current-domain symbol %q", filepath.ToSlash(path), forbidden)
 				}

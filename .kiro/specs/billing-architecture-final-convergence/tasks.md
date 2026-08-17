@@ -220,28 +220,28 @@
 
 ## Phase 7 — Composition Collapse and Final Certification
 
-- [ ] 7.1 Shrink final `BillingRuntime` and authoritative composition to an all-or-none contract.
+- [x] 7.1 Shrink final `BillingRuntime` and authoritative composition to an all-or-none contract.
   - Remove `BillingAuthoritative` or any equivalent runtime mode boolean. Runtime receives only cheap gate, exposure admission, terminal sink and identity. Stock non-billing construction has all billing ports absent; billing-enabled construction requires all four dependencies and rejects partial wiring. Customer/provider workers stay process-owned outside Executor. Add construction/architecture tests proving no legacy/current mode selector remains.
   - _Boundary: runtime config + runtimebundle_
   - _Depends: 2.4, 3.4, 5.3, 6.4_
   - _Validation: go test ./internal/core/runtime ./internal/infra/runtimebundle ./internal/archtest -run 'Billing|Construction|Authoritative|Wiring|Runtime'_
   - _Requirements: 8.1-8.8, 12.1, 12.5_
 
-- [ ] 7.2 Activate all structural deletion and >=10% production LOC ratchets.
+- [x] 7.2 Activate all structural deletion and >=10% production LOC ratchets.
   - Recompute the canonical Phase-0 artifact denominator from its pinned SHA, fail on any mismatch, then measure final `physical-go-lines-v1` with the same versioned AST symbol-following algorithm. No code movement gaming; explicit symbols/tables/workers must be absent.
   - _Boundary: architecture tests_
   - _Depends: 4.4, 5.4, 6.3, 7.1_
   - _Validation: go test ./internal/archtest -run 'Billing.*Convergence|Billing.*LOC|Billing.*Deletion|Billing.*Symbol'_
   - _Requirements: 10.1-10.8, 12.1-12.5_
 
-- [ ] 7.3 Update steering/architecture/host billing docs to one final flow.
+- [x] 7.3 Update steering/architecture/host billing docs to one final flow.
   - Remove migration-era alternatives and document local spool durability/capacity/restart behavior, customer completeness gate, all-or-none runtime composition, provider ordering, worker ownership and destructive migration operating procedure.
   - _Boundary: docs / steering_
   - _Depends: 7.1, 7.2_
   - _Validation: make docs-check; go test ./internal/archtest_
   - _Requirements: 8.6-8.8, 10.8, 12.9_
 
-- [ ] 7.4 Add and run one fail-fast final billing-convergence certification target.
+- [x] 7.4 Add and run one fail-fast final billing-convergence certification target.
   - Add a checked-in `make billing-convergence-certify` target (or equivalently named checked-in certification entry point) whose recipe stops on the first failed prerequisite/suite. It must run the predecessor regressions plus current core/runtime/UsageAuthority/billingstore/spool/compose/admission/runtimebundle/architecture suites, configured PostgreSQL integration gates, unit/quality/docs checks, and race tests through explicit platform/tool availability conditional logic. Do not encode optionality as prose passed to `make`, and do not use semicolon-separated shell commands whose final status can mask an earlier failure.
   - _Boundary: final certification_
   - _Depends: 7.1, 7.2, 7.3_

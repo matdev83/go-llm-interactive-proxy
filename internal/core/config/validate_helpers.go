@@ -99,7 +99,7 @@ var protectedMountPaths = []protectedMountPath{
 		field:   "routing.override_admin.path_prefix",
 	},
 	{
-		enabled: func(cfg *Config) bool { return cfg.Accounting.Billing.Authoritative },
+		enabled: func(cfg *Config) bool { return strings.TrimSpace(cfg.Accounting.Billing.ReportsPath) != "" },
 		path: func(cfg *Config) string {
 			p := strings.TrimSpace(cfg.Accounting.Billing.ReportsPath)
 			if p == "" {

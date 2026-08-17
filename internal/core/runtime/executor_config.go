@@ -80,9 +80,6 @@ type BillingRuntime struct {
 	// BillingIdentity is the composition identity bundle for exposure admission
 	// and terminal call-closure stamping. It contains no hold/authorization identity.
 	BillingIdentity BillingIdentity
-	// BillingAuthoritative is the composition cutover flag. When true, durable
-	// exposure admission and post-usage processors are the monetary authority.
-	BillingAuthoritative bool
 }
 
 // hasTerminalSink reports whether the process-local terminal sink is wired.

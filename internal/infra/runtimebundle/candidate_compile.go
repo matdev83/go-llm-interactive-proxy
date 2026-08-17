@@ -193,7 +193,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 
 	var billingProvisioner billing.AccountProvisioner
 	var billingExposureRecovery billing.ExposureRecovery
-	if execRun.Production.BillingAuthoritative {
+	if billingCompositionConfigured(execRun.Production) {
 		if p, ok := execRun.Production.BillingStore.(billing.AccountProvisioner); ok {
 			billingProvisioner = p
 		}

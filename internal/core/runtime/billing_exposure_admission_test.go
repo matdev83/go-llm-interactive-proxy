@@ -31,7 +31,6 @@ func TestExecutorAuthoritativeExposureAdmissionUsesCallIDWithoutHold(t *testing.
 	ex.Store = st
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Rand = routing.NewSeededRng(1)
-	ex.BillingAuthoritative = true
 	ex.BillingIdentity.AccountID = func(context.Context, lipapi.Call) string { return "acct-exposure" }
 	ex.BillingIdentity.CustomerPricingRef = func(context.Context, lipapi.Call) billing.VersionRef {
 		return billing.VersionRef{ID: "pricing", Version: "v1"}
@@ -81,7 +80,6 @@ func TestExecutorAuthoritativeExposureAdmissionDenialDoesNotOpenProvider(t *test
 	ex.Store = st
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Rand = routing.NewSeededRng(1)
-	ex.BillingAuthoritative = true
 	ex.BillingIdentity.AccountID = func(context.Context, lipapi.Call) string { return "acct-exposure" }
 	ex.BillingCreditGate = creditGateFunc(func(context.Context, string) error { return nil })
 	ex.BillingExposureAdmission = exposureAdmissionFunc(func(context.Context, runtime.BillingExposureAdmissionInput) (billing.CallExposure, error) {
@@ -109,7 +107,6 @@ func TestExecutorBillingAdmissionUsesTokenEstimateWithoutRouteSizeConstraints(t 
 	ex.Store = st
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Rand = routing.NewSeededRng(1)
-	ex.BillingAuthoritative = true
 	ex.BillingIdentity.AccountID = func(context.Context, lipapi.Call) string { return "acct-estimate" }
 	ex.BillingCreditGate = creditGateFunc(func(context.Context, string) error { return nil })
 	ex.RequestTokenEstimator = fixedRequestTokenEstimator{available: true, tokens: 42}
