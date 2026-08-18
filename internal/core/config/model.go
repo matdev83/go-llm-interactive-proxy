@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"gopkg.in/yaml.v3"
 )
 
@@ -36,6 +37,9 @@ type Config struct {
 	ModelAliases   []ModelAliasConfig   `yaml:"model_aliases"`
 	ModelCatalog   ModelCatalogConfig   `yaml:"model_catalog"`
 	ModelInventory ModelInventoryConfig `yaml:"model_inventory"`
+	// PromptCache contains provider-neutral cache enrollment/keep-warm policy.
+	// Keep-warm remains independent from provider-specific enrollment settings.
+	PromptCache PromptCacheConfig `yaml:"prompt_cache"`
 	// ControlPlane is the optional control-plane persistence/query/event-ledger
 	// capability. Disabled by default; enabled requires explicit startup
 	// validation (see validateControlPlane).
@@ -50,6 +54,25 @@ type Config struct {
 	// ConfigDir is the directory containing the loaded config file. Set by [LoadFile];
 	// empty when Config is constructed without loading from disk.
 	ConfigDir string `yaml:"-"`
+}
+
+type PromptCacheConfig struct {
+	Keepwarm keepwarm.Config `yaml:"keepwarm"`
+	// KeepwarmPresent records whether prompt_cache was present in the parsed
+	// configuration. EffectiveKeepwarm returns defaults only when the block is
+	// entirely absent instead of inferring intent from zero-valued bounds.
+	KeepwarmPresent bool `yaml:"-"`
+}
+
+// EffectiveKeepwarm returns default-on policy when prompt_cache.keepwarm is
+// omitted, and the parsed (possibly explicitly disabled) policy otherwise. The
+// zero-value Config is indistinguishable from an omitted block, so the decision
+// uses the presence marker set during YAML parsing.
+func (c Config) EffectiveKeepwarm() keepwarm.Config {
+	if !c.PromptCache.KeepwarmPresent {
+		return keepwarm.DefaultConfig()
+	}
+	return c.PromptCache.Keepwarm
 }
 
 type AccountingConfig struct {

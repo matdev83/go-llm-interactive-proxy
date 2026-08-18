@@ -56,6 +56,8 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 		toolFinal:              newToolCallAssembler(fs, maxArgs, prep.baseline.Tools),
 		requestTerm:            newStreamTerminal(sdkterminal.ScopeRequest),
 		attemptTerm:            newStreamTerminal(sdkterminal.ScopeAttempt),
+		promptCacheSource:      promptCacheObservationSource(out.stream),
+		promptCacheController:  promptCacheControllerFor(e.Backends[out.cand.Primary.Backend]),
 	}
 	captureBoundModelViews(ctx, rs)
 	rs.storeInner(out.stream)

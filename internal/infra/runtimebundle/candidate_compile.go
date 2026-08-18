@@ -247,6 +247,8 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 			snapshotGeneration:    ps.SnapshotGeneration,
 			snapshotController:    ps.SnapshotController,
 			meteringQuerier:       ps.MeteringQuerier,
+			keepwarmPolicy:        ps.KeepwarmPolicy,
+			keepwarmRegistry:      ps.KeepwarmRegistry,
 		},
 		ledger:            ledger,
 		terminalWorkReady: twReady,

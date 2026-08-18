@@ -11,12 +11,14 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	keepwarmcore "github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	adminkeepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/keepwarm"
 	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
@@ -58,6 +60,54 @@ func TestMountBundledFrontends_geminiDoesNotRegisterRoot(t *testing.T) {
 	if !healthCalled {
 		t.Fatal("expected /healthz to hit explicit handler, not Gemini")
 	}
+}
+
+func TestKeepwarmAdminMountedWithDiagnosticsSecret(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{Diagnostics: config.DiagnosticsConfig{Enabled: true, SharedSecret: "secretsecret"}}
+	stub := &keepwarmMountPolicyStub{}
+	mux := http.NewServeMux()
+	mountKeepwarmAdmin(mountAccountingAdminInput{LogCtx: context.Background(), Mux: mux, Cfg: cfg, Log: slog.Default(), Operations: HTTPOperationsInput{KeepwarmAdminEnabled: true, KeepwarmAdmin: adminkeepwarm.Options{Enabled: true, Service: stub, ResolveALegID: func(context.Context, *http.Request) (string, error) { return "a-authority", nil }}}})
+	missing := httptest.NewRecorder()
+	mux.ServeHTTP(missing, httptest.NewRequest(http.MethodPost, "/admin/keepwarm/disable", strings.NewReader(`{}`)))
+	if missing.Code != http.StatusForbidden {
+		t.Fatalf("missing secret status=%d", missing.Code)
+	}
+	allowed := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/admin/keepwarm/disable", strings.NewReader(`{}`))
+	req.Header.Set(diag.HeaderDiagnosticsSecret, "secretsecret")
+	mux.ServeHTTP(allowed, req)
+	if allowed.Code != http.StatusOK || !stub.disabled {
+		t.Fatalf("status=%d body=%s disabled=%v", allowed.Code, allowed.Body.String(), stub.disabled)
+	}
+}
+
+// #3: the keep-warm admin surface must not mount at all when the diagnostics
+// shared secret is unset; an empty secret otherwise leaves it unauthenticated.
+func TestKeepwarmAdminNotMountedWithoutDiagnosticsSecret(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{Diagnostics: config.DiagnosticsConfig{Enabled: true}}
+	stub := &keepwarmMountPolicyStub{}
+	mux := http.NewServeMux()
+	mountKeepwarmAdmin(mountAccountingAdminInput{LogCtx: context.Background(), Mux: mux, Cfg: cfg, Log: slog.Default(), Operations: HTTPOperationsInput{KeepwarmAdminEnabled: true, KeepwarmAdmin: adminkeepwarm.Options{Enabled: true, Service: stub, ResolveALegID: func(context.Context, *http.Request) (string, error) { return "a-authority", nil }}}})
+	req := httptest.NewRequest(http.MethodPost, "/admin/keepwarm/disable", strings.NewReader(`{}`))
+	req.Header.Set(diag.HeaderDiagnosticsSecret, "anything")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("keep-warm admin mounted without secret: status=%d", rec.Code)
+	}
+}
+
+type keepwarmMountPolicyStub struct{ disabled bool }
+
+func (s *keepwarmMountPolicyStub) Disable(string) (keepwarmcore.SessionPolicy, error) {
+	s.disabled = true
+	return keepwarmcore.SessionPolicy{Disabled: true, Revision: 1}, nil
+}
+func (s *keepwarmMountPolicyStub) Clear(string) error { s.disabled = false; return nil }
+func (s *keepwarmMountPolicyStub) Get(string) (keepwarmcore.SessionPolicy, bool) {
+	return keepwarmcore.SessionPolicy{Disabled: s.disabled}, s.disabled
 }
 
 func TestTokenAccountingAdminMountedWithDiagnosticsSecret(t *testing.T) {

@@ -34,6 +34,11 @@ type Config struct {
 	// ModelsEndpoint, when set, is the absolute inventory URL from the shared
 	// endpoint descriptor join table. Empty uses BaseURL+"/v1/models".
 	ModelsEndpoint string
+	// CacheEnrollment is independent from keep-warm orchestration. The default
+	// disabled value preserves existing foreground request behavior.
+	CacheEnrollment CacheEnrollmentMode
+	// CacheTTL is valid only for automatic enrollment and must be 5m or 1h.
+	CacheTTL string
 }
 
 const (
@@ -44,21 +49,25 @@ const (
 
 // New returns a runtime backend that invokes the Anthropic Messages API using anthropic-sdk-go.
 func New(cfg Config) execbackend.Backend {
+	if err := ValidateCacheConfig(cfg.CacheEnrollment, cfg.CacheTTL); err != nil {
+		return invalidConfigBackend(err)
+	}
 	id := strings.TrimSpace(cfg.BackendPrefix)
 	if id == "" {
 		id = ID
 	}
 	return anthropicmessages.NewBackend(anthropicmessages.Config{
-		BackendID:          id,
-		BaseURL:            cfg.BaseURL,
-		APIKey:             cfg.APIKey,
-		APIKeys:            cfg.APIKeys,
-		Credentials:        cfg.Credentials,
-		HTTPClient:         cfg.HTTPClient,
-		SDKMaxRetries:      cfg.SDKMaxRetries,
-		RateLimitFallback:  anthropicRateLimitFallback,
-		ProviderCounter:    NewTokenCounter(cfg),
-		CompatibleModeAuth: cfg.CompatibleModeAuth,
+		BackendID:         id,
+		BaseURL:           cfg.BaseURL,
+		APIKey:            cfg.APIKey,
+		APIKeys:           cfg.APIKeys,
+		Credentials:       cfg.Credentials,
+		HTTPClient:        cfg.HTTPClient,
+		SDKMaxRetries:     cfg.SDKMaxRetries,
+		RateLimitFallback: anthropicRateLimitFallback,
+		ProviderCounter:   NewTokenCounter(cfg), CompatibleModeAuth: cfg.CompatibleModeAuth,
+		CacheEnrollment: string(cfg.CacheEnrollment),
+		CacheTTL:        cfg.CacheTTL,
 		ModelInventory: modeldiscover.AnthropicModelsProvider{
 			BaseURL:            cfg.BaseURL,
 			ModelsEndpoint:     cfg.ModelsEndpoint,

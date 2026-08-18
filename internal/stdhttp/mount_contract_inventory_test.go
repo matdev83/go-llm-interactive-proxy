@@ -42,6 +42,11 @@ var mountContractInventory = []mountInventoryRow{
 		Lifecycle: "none", BehaviorTests: []string{"TestSecureSessionDiagnostics_mount_matchesComposePattern"},
 	},
 	{
+		Helper: "mountKeepwarmAdmin", File: "mount_admin.go", Input: "mountAccountingAdminInput",
+		BuiltFields: []string{"KeepwarmAdmin", "KeepwarmAdminEnabled"}, DesiredGroups: []string{"Operations"},
+		Lifecycle: "none", BehaviorTests: []string{"TestKeepwarmAdminMountedWithDiagnosticsSecret"},
+	},
+	{
 		Helper: "mountAccountingAdmin", File: "mount_admin.go", Input: "mountAccountingAdminInput",
 		BuiltFields: []string{"TokenAccountingAdmin", "Executor"}, DesiredGroups: []string{"Operations", "Core"},
 		Lifecycle: "none", BehaviorTests: []string{"TestTokenAccountingAdminMountedWithDiagnosticsSecret"},
@@ -123,6 +128,7 @@ var expectedProductionMountHelpers = map[string]bool{
 	"mountModelCatalogDiagnostics":   true,
 	"mountModelInventoryDiagnostics": true,
 	"mountSecureSessionDiagnostics":  true,
+	"mountKeepwarmAdmin":             true,
 	"mountAccountingAdmin":           true,
 	"mountBillingReports":            true,
 	"mountControlPlaneQuery":         true,
