@@ -1,0 +1,23 @@
+{
+  "feature_name": "non-forwardable-conversation-content",
+  "created_at": "2026-08-18T18:34:00+02:00",
+  "updated_at": "2026-08-18T19:00:00+02:00",
+  "language": "en",
+  "phase": "tasks-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": false
+    },
+    "design": {
+      "generated": true,
+      "approved": false
+    },
+    "tasks": {
+      "generated": true,
+      "approved": false
+    }
+  },
+  "ready_for_implementation": false,
+  "project_description": "Introduce a protocol-neutral, authoritative A-leg mechanism for complete conversation messages that must remain visible in client/session history but never be forwarded on inference B-legs. Persist replay-stable semantic message identities with bounded memory and SQLite/PostgreSQL continuity, derive an early backend-effective call that removes tagged history before routing/context/billing work, re-enforce the invariant at the shared final PTB/backend-open boundary, and add a generic two-phase local-turn extension seam that protects claimed input before local handling and protects a proxy-generated assistant reply before client release. Keep CTP/A-leg truth and continuation history intact, use existing canonical EventStream/frontend encoding, preserve base continuity/canonical contracts, and implement no interactive command grammar/handlers, routing-setting commands, or concrete quota-notification policy in this spec."
+}
