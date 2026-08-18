@@ -3,6 +3,7 @@ package billingspool
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -214,11 +215,59 @@ func TestSpoolStaleDeliveryIsReclaimedAndExactlyOneWorker(t *testing.T) {
 	if err := spool.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		sink.mu.Lock()
+		calls := len(sink.calls)
+		sink.mu.Unlock()
+		if calls == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("calls = %d, want one worker delivery", calls)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	if err := spool.Stop(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(sink.calls) != 1 {
-		t.Fatalf("calls = %d, want one worker delivery", len(sink.calls))
+}
+
+func TestSpoolDatabaseCapacityRecoversAfterProcessedPrune(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "spool.db")
+	sink := &recordingSink{}
+	spool, err := Open(context.Background(), Config{Path: path}, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer spool.Close()
+	base := time.Unix(100, 0).UTC()
+	spool.cfg.Now = func() time.Time { return base }
+	for i := 15; i < 115; i++ {
+		if err := spool.AppendCall(context.Background(), spoolTestCall(t, fmt.Sprintf("bc_%032d", i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 15; i < 115; i++ {
+		if err := spool.ProcessOnce(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	highWater := spool.Health().LiveDatabaseBytes
+	if highWater <= 0 {
+		t.Fatalf("live database bytes = %d, want positive", highWater)
+	}
+	spool.cfg.ProcessedRetention = 0
+	spool.cfg.Now = func() time.Time { return base.Add(time.Hour) }
+	if err := spool.ProcessOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if live := spool.Health().LiveDatabaseBytes; live >= highWater {
+		t.Fatalf("live database bytes after prune = %d, want below high-water %d", live, highWater)
+	}
+	spool.cfg.MaxDatabaseBytes = highWater
+	if err := spool.AppendCall(context.Background(), spoolTestCall(t, "bc_00000000000000000000000000000016")); err != nil {
+		t.Fatalf("append after processed prune: %v", err)
 	}
 }
 
@@ -251,6 +300,76 @@ func TestSpoolProcessOnceSerializesClose(t *testing.T) {
 	if err := <-closeDone; err != nil {
 		t.Fatalf("Close = %v", err)
 	}
+}
+
+func TestSpoolCentralDeliveryDoesNotBlockConcurrentLocalAppend(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "spool.db")
+	sink := &blockingSink{entered: make(chan struct{}), release: make(chan struct{})}
+	spool, err := Open(context.Background(), Config{Path: path}, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer spool.Close()
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(sink.release) }) }
+	defer release()
+	if err := spool.AppendCall(context.Background(), spoolTestCall(t, "bc_00000000000000000000000000000012")); err != nil {
+		t.Fatal(err)
+	}
+	processDone := make(chan error, 1)
+	go func() { processDone <- spool.ProcessOnce(context.Background()) }()
+	<-sink.entered
+
+	appendDone := make(chan error, 1)
+	go func() {
+		appendDone <- spool.AppendCall(context.Background(), spoolTestCall(t, "bc_00000000000000000000000000000013"))
+	}()
+	select {
+	case err := <-appendDone:
+		if err != nil {
+			t.Fatalf("concurrent local append = %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("local append remained blocked by central delivery")
+	}
+	release()
+	if err := <-processDone; err != nil {
+		t.Fatalf("ProcessOnce = %v", err)
+	}
+}
+
+func TestSpoolWakeDrainsCommittedBacklog(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "spool.db")
+	sink := &recordingSink{}
+	spool, err := Open(context.Background(), Config{Path: path}, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer spool.Close()
+	if err := spool.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{
+		"bc_00000000000000000000000000000014",
+		"bc_00000000000000000000000000000015",
+		"bc_00000000000000000000000000000016",
+		"bc_00000000000000000000000000000017",
+	} {
+		if err := spool.AppendCall(context.Background(), spoolTestCall(t, id)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deadline := time.Now().Add(800 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		sink.mu.Lock()
+		attempts := sink.attempts
+		sink.mu.Unlock()
+		if attempts >= 4 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("committed backlog was not drained by the append wake")
 }
 
 func TestSpoolAppendCloseLifecycleDoesNotRace(t *testing.T) {

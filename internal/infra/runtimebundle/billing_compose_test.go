@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -215,9 +214,6 @@ func assertCompleteProduction(t *testing.T, prod runtimebundle.ProductionOptions
 	if prod.BillingPostTurnBatchSize != in.PostTurnBatchSize {
 		t.Fatalf("BillingPostTurnBatchSize = %d, want %d", prod.BillingPostTurnBatchSize, in.PostTurnBatchSize)
 	}
-	if prod.BillingPostTurnInterval != in.PostTurnInterval {
-		t.Fatalf("BillingPostTurnInterval = %s, want %s", prod.BillingPostTurnInterval, in.PostTurnInterval)
-	}
 
 	if prod.BillingCallRatingResolver == nil {
 		t.Fatal("call rating resolver is required")
@@ -277,7 +273,6 @@ func validComposeInput(t *testing.T) (runtimebundle.ComposeBillingInput, *comple
 		ModelMaxOutput:      composeModelMax,
 		ReportsPath:         "/admin/billing-composed",
 		PostTurnBatchSize:   8,
-		PostTurnInterval:    50 * time.Millisecond,
 		Strict:              true,
 		ConservativeCeiling: &billing.Money{Nano: 1_000, Currency: "USD"},
 	}, store, pricing, policy

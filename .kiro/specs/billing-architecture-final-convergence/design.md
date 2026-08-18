@@ -510,6 +510,22 @@ No per-request goroutine.
 
 Runtime terminal append uses a bounded local I/O deadline sized for local disk, not a multi-minute central network timeout.
 
+#### Append independence and bounded draining
+
+The spool lifecycle state and local SQLite operations must not use the same mutex as central delivery. A worker claims one row in a short committed transaction, releases all database locks, performs central I/O, and acknowledges or defers the row in a second short operation. A concurrent append therefore remains bounded by local SQLite work even while the central sink is unavailable. A dedicated delivery gate may serialize the single worker and manual `ProcessOnce` calls, but it must never be acquired by `AppendCall` or `AppendLeg`.
+
+The process-owned worker is signalled by a capacity-one wake channel after a committed append. Each wake drains a bounded batch (default 256), self-signalling when the bound is reached so backlog does not wait for the periodic retry tick. The periodic one-second tick remains the retry-deadline safety net. Startup launches the worker and returns without synchronously performing central delivery.
+
+#### Process ownership across reload
+
+`ProcessServices` opens/adopts the configured terminal spool and constructs the customer/provider workers exactly once. It registers their stop/join and close operations in its existing process closer set. Generation ledgers receive only non-owning billing references. A configured `accounting.billing.spool_path` is process-static and any change is restart-required; a bounded generation publish context must not be used as the worker lifetime context.
+
+#### Queue progress and SQLite capacity
+
+When a worker batch finds an incomplete call closure, it leaves the row pending and advances `next_claim_at` by a short bounded yield delay without increasing claim attempts or recording a settlement failure. This lets the bounded candidate scan reach newer complete calls on the next poll.
+
+`MaxDatabaseBytes` gates logical live SQLite allocation, calculated from `(page_count - freelist_count) * page_size` through the active connection/transaction. Physical database/WAL/SHM bytes remain observable health telemetry, and `MinFreeDiskBytes` remains the hard physical-disk safety gate. Pruning processed rows must demonstrably recover admission capacity without requiring a compaction subsystem.
+
 ### 8.6 Cutover deletion and old-outbox drain
 
 After all runtime injections use the spool, quiesce the old direct/fallback append writers before deleting their persistence.

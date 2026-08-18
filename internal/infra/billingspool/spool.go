@@ -29,6 +29,7 @@ const (
 	defaultClaimTimeout       = 2 * time.Minute
 	defaultBackoffBase        = time.Second
 	defaultBackoffMax         = time.Hour
+	defaultDrainBatchSize     = 256
 )
 
 var (
@@ -53,6 +54,7 @@ type Health struct {
 	PendingRecords         int
 	PendingPayloadBytes    int64
 	DatabaseBytes          int64
+	LiveDatabaseBytes      int64
 	FreeDiskBytes          int64
 	OldestPendingAge       time.Duration
 	ErrorRows              int
@@ -92,10 +94,14 @@ type Spool struct {
 	path                   string
 	sink                   billing.TerminalUsageSink
 	cfg                    Config
-	mu                     sync.Mutex
+	stateMu                sync.Mutex
+	databaseMu             sync.RWMutex
+	deliveryMu             sync.Mutex
 	cancel                 context.CancelFunc
 	done                   chan struct{}
+	wake                   chan struct{}
 	closed                 bool
+	closing                bool
 	appendCapacityFailures atomic.Uint64
 	lastDelivery           atomic.Value // string
 }
@@ -134,7 +140,7 @@ func Open(ctx context.Context, cfg Config, sink billing.TerminalUsageSink) (*Spo
 		return nil, errors.New("billingspool: central sink is required")
 	}
 	cfg = normalizeConfig(cfg)
-	sp := &Spool{sink: sink, cfg: cfg, path: strings.TrimSpace(cfg.Path)}
+	sp := &Spool{sink: sink, cfg: cfg, path: strings.TrimSpace(cfg.Path), wake: make(chan struct{}, 1)}
 	if cfg.DB != nil {
 		sp.db = cfg.DB
 	} else {
@@ -173,6 +179,21 @@ func Open(ctx context.Context, cfg Config, sink billing.TerminalUsageSink) (*Spo
 
 func New(ctx context.Context, cfg Config, sink billing.TerminalUsageSink) (*Spool, error) {
 	return Open(ctx, cfg, sink)
+}
+
+// ValidateStablePath rejects volatile OS temp directories for durable spool state.
+func ValidateStablePath(path string) error {
+	clean := filepath.Clean(path)
+	for _, candidate := range []string{os.TempDir(), "/tmp", "/var/tmp", "/dev/shm"} {
+		if candidate == "" {
+			continue
+		}
+		cand := filepath.Clean(candidate)
+		if clean == cand || strings.HasPrefix(clean, cand+string(filepath.Separator)) {
+			return fmt.Errorf("billingspool: path %q is inside volatile temp directory %q", path, candidate)
+		}
+	}
+	return nil
 }
 
 func normalizeConfig(c Config) Config {
@@ -270,9 +291,9 @@ func (s *Spool) append(ctx context.Context, kind string, payload func() (string,
 		return billing.ErrInvalidRecord
 	}
 	bytes := int64(len([]byte(jsonPayload)))
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+	s.databaseMu.RLock()
+	defer s.databaseMu.RUnlock()
+	if s.isClosedOrClosing() {
 		return ErrSpoolClosed
 	}
 	now := s.now()
@@ -311,7 +332,7 @@ func (s *Spool) append(ctx context.Context, kind string, payload func() (string,
 		s.appendCapacityFailures.Add(1)
 		return ErrPayloadCapacity
 	}
-	if err := s.checkDiskCapacity(); err != nil {
+	if err := s.checkDiskCapacity(ctx, tx); err != nil {
 		s.appendCapacityFailures.Add(1)
 		return err
 	}
@@ -337,6 +358,7 @@ func (s *Spool) append(ctx context.Context, kind string, payload func() (string,
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("billingspool: commit append: %w", err)
 	}
+	s.signalWake()
 	if s.cfg.CommitAcknowledgedHook != nil {
 		if err := s.cfg.CommitAcknowledgedHook(); err != nil {
 			return err
@@ -345,14 +367,14 @@ func (s *Spool) append(ctx context.Context, kind string, payload func() (string,
 	return nil
 }
 
-func (s *Spool) checkDiskCapacity() error {
+func (s *Spool) checkDiskCapacity(ctx context.Context, q bun.IDB) error {
+	if liveBytes, err := liveDatabaseBytes(ctx, q); err != nil {
+		return fmt.Errorf("billingspool: database capacity probe: %w", err)
+	} else if liveBytes >= s.cfg.MaxDatabaseBytes {
+		return ErrDatabaseCapacity
+	}
 	if s.path == "" && s.cfg.FreeDiskBytes == nil {
 		return nil
-	}
-	if databaseBytes, err := s.databaseBytesWithError(); err != nil {
-		return fmt.Errorf("billingspool: database capacity probe: %w", err)
-	} else if databaseBytes >= s.cfg.MaxDatabaseBytes {
-		return ErrDatabaseCapacity
 	}
 	free, err := s.freeDiskBytes()
 	if err != nil {
@@ -371,29 +393,25 @@ func (s *Spool) ProcessOnce(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("billingspool: nil context")
 	}
-	// ProcessOnce is public and is also used by the flusher. Hold the same
-	// lifecycle mutex as Append, Health, and Close for the complete claim /
-	// delivery / acknowledgement sequence: Close must not close the database
-	// between any of those operations. Start deliberately calls this only after
-	// releasing the mutex, so startup cannot self-deadlock.
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+	s.deliveryMu.Lock()
+	defer s.deliveryMu.Unlock()
+	if s.isClosedOrClosing() {
 		return ErrSpoolClosed
 	}
-	return s.processOnce(ctx)
+	_, err := s.processOnce(ctx)
+	return err
 }
 
-func (s *Spool) processOnce(ctx context.Context) error {
+func (s *Spool) processOnce(ctx context.Context) (bool, error) {
 	if err := s.prune(ctx); err != nil {
-		return fmt.Errorf("billingspool: prune: %w", err)
+		return false, fmt.Errorf("billingspool: prune: %w", err)
 	}
 	row, ok, err := s.claim(ctx)
 	if err != nil || !ok {
 		if err != nil {
-			return fmt.Errorf("billingspool: claim: %w", err)
+			return false, fmt.Errorf("billingspool: claim: %w", err)
 		}
-		return nil
+		return false, nil
 	}
 	var deliveryErr error
 	switch row.Kind {
@@ -423,16 +441,16 @@ func (s *Spool) processOnce(ctx context.Context) error {
 		deliveryErr = fmt.Errorf("billingspool: unknown row kind %q", row.Kind)
 	}
 	if deliveryErr == nil {
-		return s.markProcessed(ctx, row.SpoolKey)
+		return true, s.markProcessed(ctx, row.SpoolKey)
 	}
 	s.lastDelivery.Store(deliveryErr.Error())
 	if errors.Is(deliveryErr, billing.ErrReplayConflict) || errors.Is(deliveryErr, ErrFingerprintConflict) {
-		return s.markError(ctx, row, deliveryErr)
+		return true, s.markError(ctx, row, deliveryErr)
 	}
 	if err := s.deferRow(ctx, row, deliveryErr); err != nil {
-		return errors.Join(deliveryErr, err)
+		return true, errors.Join(deliveryErr, err)
 	}
-	return deliveryErr
+	return true, deliveryErr
 }
 func sinkCall(s billing.TerminalUsageSink, ctx context.Context, r billing.CallUsageRecord) error {
 	return s.AppendCall(ctx, r)
@@ -442,6 +460,11 @@ func sinkLeg(s billing.TerminalUsageSink, ctx context.Context, r billing.CallLeg
 }
 
 func (s *Spool) claim(ctx context.Context) (spoolRow, bool, error) {
+	s.databaseMu.RLock()
+	defer s.databaseMu.RUnlock()
+	if s.isClosedOrClosing() {
+		return spoolRow{}, false, ErrSpoolClosed
+	}
 	now := s.now()
 	stale := now.Add(-s.cfg.ClaimTimeout)
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -470,6 +493,11 @@ func (s *Spool) claim(ctx context.Context) (spoolRow, bool, error) {
 	return row, true, nil
 }
 func (s *Spool) markProcessed(ctx context.Context, key string) error {
+	s.databaseMu.RLock()
+	defer s.databaseMu.RUnlock()
+	if s.isClosedOrClosing() {
+		return ErrSpoolClosed
+	}
 	_, err := s.db.NewRaw(`UPDATE terminal_usage_spool SET status=?,claimed_at=NULL,last_error='',updated_at=? WHERE spool_key=?`, statusProcessed, s.now(), key).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("billingspool: mark processed: %w", err)
@@ -477,10 +505,20 @@ func (s *Spool) markProcessed(ctx context.Context, key string) error {
 	return nil
 }
 func (s *Spool) markError(ctx context.Context, row spoolRow, e error) error {
+	s.databaseMu.RLock()
+	defer s.databaseMu.RUnlock()
+	if s.isClosedOrClosing() {
+		return ErrSpoolClosed
+	}
 	_, err := s.db.NewRaw(`UPDATE terminal_usage_spool SET status=?,claimed_at=NULL,last_error=?,attempt_count=attempt_count+1,updated_at=? WHERE spool_key=?`, statusError, e.Error(), s.now(), row.SpoolKey).Exec(ctx)
 	return errors.Join(e, err)
 }
 func (s *Spool) deferRow(ctx context.Context, row spoolRow, e error) error {
+	s.databaseMu.RLock()
+	defer s.databaseMu.RUnlock()
+	if s.isClosedOrClosing() {
+		return ErrSpoolClosed
+	}
 	attempt := row.AttemptCount + 1
 	delay := s.cfg.BackoffBase
 	for i := 1; i < attempt && delay < s.cfg.BackoffMax; i++ {
@@ -493,6 +531,11 @@ func (s *Spool) deferRow(ctx context.Context, row spoolRow, e error) error {
 	return err
 }
 func (s *Spool) prune(ctx context.Context) error {
+	s.databaseMu.RLock()
+	defer s.databaseMu.RUnlock()
+	if s.isClosedOrClosing() {
+		return ErrSpoolClosed
+	}
 	cut := s.now().Add(-s.cfg.ProcessedRetention)
 	_, err := s.db.NewRaw(`DELETE FROM terminal_usage_spool WHERE status=? AND updated_at < ?`, statusProcessed, cut).Exec(ctx)
 	return err
@@ -506,9 +549,9 @@ func (s *Spool) Health() Health {
 		h.ProbeError = "spool database is unavailable"
 		return h
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+	s.databaseMu.RLock()
+	defer s.databaseMu.RUnlock()
+	if s.isClosedOrClosing() {
 		h.State = HealthDegraded
 		h.ProbeError = "spool is closed"
 		return h
@@ -529,6 +572,12 @@ func (s *Spool) Health() Health {
 		h.ProbeError = err.Error()
 	} else {
 		h.DatabaseBytes = databaseBytes
+	}
+	if liveBytes, err := liveDatabaseBytes(context.Background(), s.db); err != nil {
+		h.State = HealthDegraded
+		h.ProbeError = err.Error()
+	} else {
+		h.LiveDatabaseBytes = liveBytes
 	}
 	if s.path != "" {
 		if free, err := s.freeDiskBytes(); err != nil {
@@ -557,7 +606,27 @@ func (s *Spool) Health() Health {
 	if h.PendingRecords >= s.cfg.MaxPendingRecords || h.PendingPayloadBytes >= s.cfg.MaxPendingPayloadBytes {
 		h.State = HealthFull
 	}
+	if h.LiveDatabaseBytes >= s.cfg.MaxDatabaseBytes {
+		h.State = HealthFull
+	}
 	return h
+}
+
+func liveDatabaseBytes(ctx context.Context, q bun.IDB) (int64, error) {
+	var pageSize, pageCount, freelistCount int64
+	if err := q.NewRaw(`PRAGMA page_size`).Scan(ctx, &pageSize); err != nil {
+		return 0, err
+	}
+	if err := q.NewRaw(`PRAGMA page_count`).Scan(ctx, &pageCount); err != nil {
+		return 0, err
+	}
+	if err := q.NewRaw(`PRAGMA freelist_count`).Scan(ctx, &freelistCount); err != nil {
+		return 0, err
+	}
+	if pageSize < 0 || pageCount < 0 || freelistCount < 0 || freelistCount > pageCount {
+		return 0, fmt.Errorf("invalid sqlite page accounting: page_size=%d page_count=%d freelist_count=%d", pageSize, pageCount, freelistCount)
+	}
+	return (pageCount - freelistCount) * pageSize, nil
 }
 
 func (s *Spool) databaseBytes() int64 {
@@ -600,52 +669,73 @@ func (s *Spool) Start(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
+	s.stateMu.Lock()
+	if s.closed || s.closing {
+		s.stateMu.Unlock()
 		return ErrSpoolClosed
 	}
 	if s.done != nil {
-		s.mu.Unlock()
-		return nil
-	}
-	s.mu.Unlock()
-	// Flush once synchronously so startup does not leave already durable work
-	// waiting for the first ticker interval. ProcessOnce owns the lifecycle
-	// lock; taking it here would deadlock.
-	_ = s.ProcessOnce(ctx)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		return ErrSpoolClosed
-	}
-	if s.done != nil {
+		s.stateMu.Unlock()
 		return nil
 	}
 	wctx, cancel := context.WithCancel(ctx)
 	s.cancel = cancel
 	done := make(chan struct{})
 	s.done = done
+	s.stateMu.Unlock()
 	go func() {
 		defer close(done)
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		for {
-			_ = s.ProcessOnce(wctx)
+			s.drain(wctx)
 			select {
 			case <-wctx.Done():
 				return
+			case <-s.wake:
 			case <-ticker.C:
 			}
 		}
 	}()
+	s.signalWake()
 	return nil
 }
+
+func (s *Spool) drain(ctx context.Context) {
+	for i := 0; i < defaultDrainBatchSize; i++ {
+		worked, err := s.processOnceLocked(ctx)
+		if !worked {
+			return
+		}
+		if err != nil && ctx.Err() != nil {
+			return
+		}
+	}
+	s.signalWake()
+}
+
+func (s *Spool) processOnceLocked(ctx context.Context) (bool, error) {
+	s.deliveryMu.Lock()
+	defer s.deliveryMu.Unlock()
+	if s.isClosedOrClosing() {
+		return false, ErrSpoolClosed
+	}
+	return s.processOnce(ctx)
+}
+
+func (s *Spool) signalWake() {
+	if s == nil || s.wake == nil {
+		return
+	}
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
+}
 func (s *Spool) Stop(ctx context.Context) error {
-	s.mu.Lock()
+	s.stateMu.Lock()
 	cancel, done := s.cancel, s.done
-	s.mu.Unlock()
+	s.stateMu.Unlock()
 	if done == nil {
 		return nil
 	}
@@ -655,12 +745,12 @@ func (s *Spool) Stop(ctx context.Context) error {
 	}
 	select {
 	case <-done:
-		s.mu.Lock()
+		s.stateMu.Lock()
 		if s.done == done {
 			s.cancel = nil
 			s.done = nil
 		}
-		s.mu.Unlock()
+		s.stateMu.Unlock()
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -671,13 +761,27 @@ func (s *Spool) Close() error {
 		return nil
 	}
 	_ = s.Stop(context.Background())
-	// ProcessOnce, Append, and Health all use this mutex for their database
-	// work. Keep it held while closing so a manual ProcessOnce cannot race the
-	// underlying *sql.DB shutdown.
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.deliveryMu.Lock()
+	defer s.deliveryMu.Unlock()
+	s.stateMu.Lock()
+	if s.closed {
+		s.stateMu.Unlock()
+		return nil
+	}
+	s.closing = true
+	s.stateMu.Unlock()
+	s.databaseMu.Lock()
+	defer s.databaseMu.Unlock()
+	s.stateMu.Lock()
 	s.closed = true
+	s.stateMu.Unlock()
 	return s.closeDB()
+}
+
+func (s *Spool) isClosedOrClosing() bool {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	return s.closed || s.closing
 }
 func (s *Spool) closeDB() error {
 	if s.ownsDB && s.db != nil {

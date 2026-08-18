@@ -391,7 +391,7 @@ func classifyAccounting(active, candidate *config.Config, reload, restart noteFn
 	if !equalAccountingPricing(a.Pricing, c.Pricing) {
 		reload("accounting.pricing")
 	}
-	if a.Billing.ReportsPath != c.Billing.ReportsPath {
+	if a.Billing != c.Billing {
 		restart("accounting.billing")
 	}
 }

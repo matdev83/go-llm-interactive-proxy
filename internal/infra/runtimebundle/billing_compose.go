@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	runtimecore "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -26,7 +25,6 @@ type ComposeBillingInput struct {
 	ReportsPath             string
 	KeepwarmAccounting      billing.ProviderMaintenanceUsageObserver
 	PostTurnBatchSize       int
-	PostTurnInterval        time.Duration
 	MinPreRouteHeadroomNano int64
 }
 
@@ -95,7 +93,6 @@ func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 		BillingProviderCostResolver: providerCostResolver,
 		KeepwarmAccounting:          maintenanceObserver,
 		BillingPostTurnBatchSize:    in.PostTurnBatchSize,
-		BillingPostTurnInterval:     in.PostTurnInterval,
 	}, nil
 }
 

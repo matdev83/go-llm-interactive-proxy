@@ -68,7 +68,6 @@ func TestBillingHostLoop(t *testing.T) {
 		Strict:              true,
 		ConservativeCeiling: &ceiling,
 		PostTurnBatchSize:   1,
-		PostTurnInterval:    10 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("ComposeBilling: %v", err)
@@ -195,7 +194,6 @@ func TestBillingHostLoop_FailoverOpenFailureClaimsAndSettles(t *testing.T) {
 		Strict:              true,
 		ConservativeCeiling: &ceiling,
 		PostTurnBatchSize:   1,
-		PostTurnInterval:    10 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("ComposeBilling: %v", err)
@@ -309,7 +307,6 @@ func TestBillingHostLoop_MissingCatalogRefs(t *testing.T) {
 		Strict:              true,
 		ConservativeCeiling: &ceiling,
 		PostTurnBatchSize:   1,
-		PostTurnInterval:    10 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("ComposeBilling: %v", err)
@@ -749,7 +746,6 @@ func startBillingHostLoopHost(
 		Strict:              true,
 		ConservativeCeiling: &ceiling,
 		PostTurnBatchSize:   1,
-		PostTurnInterval:    10 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("ComposeBilling: %v", err)

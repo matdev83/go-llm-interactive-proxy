@@ -87,6 +87,46 @@ func TestSQLiteClaimCompleteCallsSkipsIncompleteOldestAndClaimsNewerComplete(t *
 	}
 }
 
+func TestSQLiteClaimCompleteCallsYieldsLargeIncompletePrefix(t *testing.T) {
+	store := newSQLiteTestStore(t)
+	ctx := context.Background()
+	for i := 0; i < 300; i++ {
+		callID, err := billing.NewBillingCallID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.AppendCallUsage(ctx, testIndependentCallUsageFor(callID, []string{"b-missing"})); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	completeID, err := billing.NewBillingCallID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendCallUsage(ctx, testIndependentCallUsageFor(completeID, []string{"b-ready"})); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendCallLegUsage(ctx, testIndependentCallLegFor(completeID, "b-ready")); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := store.ClaimCompleteCalls(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 0 {
+		t.Fatalf("first bounded scan claimed = %+v, want incomplete prefix deferred", first)
+	}
+	second, err := store.ClaimCompleteCalls(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second) != 1 || second[0].Closure.CallID != completeID {
+		t.Fatalf("second scan claimed = %+v, want complete call %s", second, completeID)
+	}
+}
+
 func TestSQLiteClaimCompleteCallsContinuesPastClaimConflict(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()

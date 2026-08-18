@@ -256,3 +256,29 @@ Final GO requires both:
 2. the repository visibly has one current monetary architecture with the structural deletion targets and >=10% canonical production-surface reduction satisfied.
 
 Passing tests alone is insufficient if duplicate legacy financial concepts remain.
+
+## Phase 8 — Process-Local Spool and Reload Hardening
+
+- [x] 8.1 Add RED regressions for generation reload ownership, blocked central delivery versus local append, wake-driven bounded draining, incomplete-call queue progress, SQLite capacity recovery, and restart-required spool-path changes.
+  - _Boundary: runtimebundle, billingspool, billingstore, configreload tests_
+  - _Depends: 7.4_
+  - _Validation: focused package tests fail for each missing behavior before implementation_
+  - _Requirements: 7.11-7.13, 8.9-8.10, 12.6-12.8_
+
+- [x] 8.2 Move spool and post-usage worker construction/start/stop/close into `ProcessServices`; remove generation-ledger billing lifecycle ownership and make reload contexts non-authoritative for process workers.
+  - _Boundary: runtimebundle composition/lifecycle_
+  - _Depends: 8.1_
+  - _Validation: runtime reload and lifecycle regressions; runtimebundle focused tests_
+  - _Requirements: 7.9, 8.1-8.6, 8.9_
+
+- [x] 8.3 Refactor spool delivery synchronization and throughput, add incomplete-call yielding, use live SQLite allocation for database capacity, and remove unused post-turn interval wiring.
+  - _Boundary: billingspool, billingstore, runtimebundle/configreload_
+  - _Depends: 8.1, 8.2
+  - _Validation: spool/store/config focused tests and race checks where available_
+  - _Requirements: 7.11-7.13, 8.10, 12.6-12.8
+
+- [ ] 8.4 Run convergence certification, record validation evidence, and close the active spec only after the implementation is merged and verified on `main`.
+  - _Boundary: certification/spec closeout_
+  - _Depends: 8.2, 8.3
+  - _Validation: `make billing-convergence-certify`, docs/spec checks, merged-main verification_
+  - _Requirements: 7.11-7.13, 8.9-8.10, 12.6-12.9
