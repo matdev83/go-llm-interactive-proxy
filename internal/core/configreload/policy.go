@@ -3,6 +3,7 @@ package configreload
 import (
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -85,6 +86,7 @@ func Classify(active, candidate *config.Config) ([]SafeChange, error) {
 	classifyPlugins(active, candidate, reload)
 	classifyModelCatalog(active, candidate, reload, restart)
 	classifyModelInventory(active, candidate, reload, restart)
+	classifyPromptCache(active, candidate, reload)
 
 	if len(blocked) > 0 {
 		slices.Sort(blocked)
@@ -249,6 +251,12 @@ func classifyInterleaved(active, candidate *config.Config, reload noteFn) {
 func classifyModelAliases(active, candidate *config.Config, reload noteFn) {
 	if !equalModelAliases(active.ModelAliases, candidate.ModelAliases) {
 		reload("model_aliases")
+	}
+}
+
+func classifyPromptCache(active, candidate *config.Config, reload noteFn) {
+	if !reflect.DeepEqual(active.PromptCache.Keepwarm, candidate.PromptCache.Keepwarm) {
+		reload("prompt_cache.keepwarm")
 	}
 }
 

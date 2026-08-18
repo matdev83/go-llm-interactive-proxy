@@ -101,6 +101,12 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 		prep.finalize(err)
 		return nil, nil, noop, fmt.Errorf("executor: prepare submit: %w", err)
 	}
+	// Foreground admission wins over all maintenance work. The A-leg is
+	// authoritative at this point, and this hook runs before credit checks,
+	// route planning, backend selection, or the next B-leg is opened.
+	if e.Keepwarm != nil {
+		e.Keepwarm.BeginRealTurn(prep.aLeg.ALegID)
+	}
 	if err := stampBillingCallID(prep); err != nil {
 		prep.finalize(err)
 		return nil, nil, noop, fmt.Errorf("executor: allocate billing call id: %w", err)

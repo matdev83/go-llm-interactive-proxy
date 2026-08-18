@@ -40,6 +40,10 @@ func prepareStandardHandler(
 		return nil, err
 	}
 
+	mountKeepwarmAdmin(mountAccountingAdminInput{
+		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log,
+		Operations: in.Operations, Core: in.Core,
+	})
 	mountAccountingAdmin(mountAccountingAdminInput{
 		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log,
 		Operations: in.Operations, Core: in.Core,

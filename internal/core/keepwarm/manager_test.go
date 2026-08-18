@@ -1,0 +1,327 @@
+package keepwarm
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
+)
+
+type testClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *testClock) Now() time.Time          { c.mu.Lock(); defer c.mu.Unlock(); return c.now }
+func (c *testClock) Advance(d time.Duration) { c.mu.Lock(); c.now = c.now.Add(d); c.mu.Unlock() }
+
+type testController struct {
+	calls        atomic.Int64
+	releases     atomic.Int64
+	started      chan struct{}
+	unblock      chan struct{}
+	ignoreCancel bool
+}
+
+func (c *testController) Renew(ctx context.Context, req promptcache.RenewRequest) (promptcache.RenewResponse, error) {
+	c.calls.Add(1)
+	if c.started != nil {
+		select {
+		case c.started <- struct{}{}:
+		default:
+		}
+	}
+	if c.unblock != nil {
+		select {
+		case <-c.unblock:
+		case <-ctx.Done():
+			if !c.ignoreCancel {
+				return promptcache.RenewResponse{}, ctx.Err()
+			}
+		}
+	}
+	now := time.Now().UTC()
+	input := int64(1)
+	o := promptcache.Observation{ALegID: "a", BLegID: "b", BackendInstanceID: "backend", TargetID: "target", GenerationID: "gen", Lifecycle: promptcache.LifecycleSlidingExpiry, Timing: promptcache.Timing{ObservedAt: now, ExpiresAt: timePtr(now.Add(time.Hour))}, Renewable: true, Handle: promptcache.Handle("new"), Evidence: promptcache.CacheEvidence{TotalTokens: &input}}
+	return promptcache.RenewResponse{Result: promptcache.RenewResult{Status: promptcache.Renewed, Observation: &o}, Accounting: &promptcache.AccountingEvidence{TotalTokens: &input, Presence: lipapi.UsagePresence{TotalTokens: true}, Source: promptcache.AccountingSourceProviderReported, Authority: promptcache.AccountingAuthorityAuthoritative, Plane: promptcache.AccountingPlaneProviderBillable, DedupeKey: req.OperationID}}, nil
+}
+func (c *testController) Release(context.Context, promptcache.ReleaseRequest) error {
+	c.releases.Add(1)
+	return nil
+}
+func timePtr(t time.Time) *time.Time { return &t }
+func testObservation(now time.Time, life promptcache.LifecycleKind, expires time.Duration) promptcache.Observation {
+	var exp *time.Time
+	if expires > 0 {
+		v := now.Add(expires)
+		exp = &v
+	}
+	return promptcache.Observation{ALegID: "a", BLegID: "b", BackendInstanceID: "backend", TargetID: "target", GenerationID: "gen", Lifecycle: life, Timing: promptcache.Timing{ObservedAt: now, ExpiresAt: exp}, Renewable: true, Handle: promptcache.Handle("opaque")}
+}
+func osTool() []lipapi.ToolEvent {
+	return []lipapi.ToolEvent{{Kind: lipapi.ToolEventFinished, ToolCallID: "t", ToolName: "bash", Category: lipapi.ToolCategoryOSCommand, MayMutateLocalFS: true}}
+}
+func newTestManager(t *testing.T, cfg Config, clock Clock, controller *testController) (*Manager, *testClock) {
+	t.Helper()
+	m, err := NewManager(cfg, clock, Hooks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m, clock.(*testClock)
+}
+
+func TestManagerArmsOnlyCommittedOSCommandWithDeterministicExpiry(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := &testClock{now: now}
+	ctl := &testController{}
+	m, _ := newTestManager(t, DefaultConfig(), clock, ctl)
+	result := m.ArmFromCommittedTurn(ArmInput{ALegID: "a", BLegID: "b", CommittedSuccessful: true, ToolEvents: osTool(), Observations: []promptcache.Observation{testObservation(now, promptcache.LifecycleSlidingExpiry, 5*time.Minute)}, BackendInstanceID: "backend", Controller: ctl})
+	if !result.Armed || result.TargetCount != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+	due, ok := m.NextDue()
+	if !ok {
+		t.Fatal("missing due")
+	}
+	if due.Before(now.Add(4*time.Minute+22*time.Second)) || due.After(now.Add(4*time.Minute+30*time.Second)) {
+		t.Fatalf("due=%v", due)
+	}
+	m.BeginForegroundTurn("a")
+	if m.ActiveEpochCount() != 0 {
+		t.Fatal("foreground did not invalidate")
+	}
+}
+
+func TestManagerDoesNotReleaseDuplicateHandleStillRetainedByEpoch(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := &testClock{now: now}
+	ctl := &testController{}
+	m, _ := newTestManager(t, DefaultConfig(), clock, ctl)
+	o := testObservation(now, promptcache.LifecycleSlidingExpiry, time.Minute)
+	result := m.ArmFromCommittedTurn(ArmInput{
+		ALegID: "a", BLegID: "b", CommittedSuccessful: true, ToolEvents: osTool(),
+		Observations: []promptcache.Observation{o, o}, BackendInstanceID: "backend", Controller: ctl,
+	})
+	if !result.Armed || result.TargetCount != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+	if err := m.Quiesce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := ctl.releases.Load(); got != 1 {
+		t.Fatalf("duplicate handle was released with retained target: releases=%d", got)
+	}
+}
+
+func TestManagerDoesNotArmUnsafeOrUncommittedTurns(t *testing.T) {
+	now := time.Now().UTC()
+	for _, tc := range []struct {
+		name      string
+		committed bool
+		events    []lipapi.ToolEvent
+		life      promptcache.LifecycleKind
+	}{{"uncommitted", false, osTool(), promptcache.LifecycleSlidingExpiry}, {"ordinary", true, nil, promptcache.LifecycleSlidingExpiry}, {"unknown lifetime", true, osTool(), promptcache.LifecycleUnknown}} {
+		t.Run(tc.name, func(t *testing.T) {
+			clock := &testClock{now: now}
+			ctl := &testController{}
+			m, _ := newTestManager(t, DefaultConfig(), clock, ctl)
+			o := testObservation(now, tc.life, 0)
+			r := m.ArmFromCommittedTurn(ArmInput{ALegID: "a", BLegID: "b", CommittedSuccessful: tc.committed, ToolEvents: tc.events, Observations: []promptcache.Observation{o}, BackendInstanceID: "backend", Controller: ctl})
+			if r.Armed {
+				t.Fatalf("unexpected arm=%+v", r)
+			}
+			if m.ActiveEpochCount() != 0 {
+				t.Fatal("unexpected epoch")
+			}
+		})
+	}
+}
+
+func TestManagerProviderTokenBudgetFailsClosedWithoutEstimate(t *testing.T) {
+	now := time.Now().UTC()
+	clock := &testClock{now: now}
+	ctl := &testController{}
+	budget := int64(2)
+	cfg := DefaultConfig()
+	cfg.MaxProviderTokensPerIdleEpoch = &budget
+	m, err := NewManager(cfg, clock, Hooks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := testObservation(now, promptcache.LifecycleSlidingExpiry, time.Minute)
+	r := m.ArmFromCommittedTurn(ArmInput{ALegID: "a", BLegID: "b", CommittedSuccessful: true, ToolEvents: osTool(), Observations: []promptcache.Observation{o}, BackendInstanceID: "backend", Controller: ctl})
+	if r.Armed {
+		t.Fatalf("unknown evidence armed: %+v", r)
+	}
+	if ctl.calls.Load() != 0 {
+		t.Fatal("budget admission called provider")
+	}
+}
+
+func TestManagerConsumesRefreshSlotAndDoesNotRetryControlFailure(t *testing.T) {
+	now := time.Now().UTC()
+	clock := &testClock{now: now}
+	ctl := &testController{}
+	m, _ := newTestManager(t, Config{Enabled: true, MaxRefreshesPerIdleEpoch: 1, MaxIdleDuration: time.Hour, MaxActiveTargets: 4, MaxConcurrentRenewals: 1, RenewTimeout: time.Second}, clock, ctl)
+	m.ArmFromCommittedTurn(ArmInput{ALegID: "a", BLegID: "b", CommittedSuccessful: true, ToolEvents: osTool(), Observations: []promptcache.Observation{testObservation(now, promptcache.LifecycleSlidingExpiry, time.Minute)}, BackendInstanceID: "backend", Controller: ctl})
+	clock.Advance(55 * time.Second)
+	m.RunDue(context.Background())
+	m.renewWG.Wait()
+	if ctl.calls.Load() != 1 {
+		t.Fatalf("calls=%d", ctl.calls.Load())
+	}
+	if m.ActiveEpochCount() != 0 {
+		t.Fatal("refresh budget did not retire epoch")
+	}
+}
+
+func TestManagerForegroundCancellationAndStaleAccounting(t *testing.T) {
+	now := time.Now().UTC()
+	clock := &testClock{now: now}
+	started := make(chan struct{}, 1)
+	unblock := make(chan struct{})
+	ctl := &testController{started: started, unblock: unblock, ignoreCancel: true}
+	var got atomic.Int64
+	var stale atomic.Bool
+	m, err := NewManager(DefaultConfig(), clock, Hooks{Accounting: func(r RenewalRecord) { got.Add(1); stale.Store(r.Stale) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.ArmFromCommittedTurn(ArmInput{ALegID: "a", BLegID: "b", CommittedSuccessful: true, ToolEvents: osTool(), Observations: []promptcache.Observation{testObservation(now, promptcache.LifecycleSlidingExpiry, time.Minute)}, BackendInstanceID: "backend", Controller: ctl})
+	clock.Advance(55 * time.Second)
+	m.RunDue(context.Background())
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("renewal did not start")
+	}
+	m.BeginForegroundTurn("a")
+	close(unblock)
+	m.renewWG.Wait()
+	if got.Load() != 1 || !stale.Load() {
+		t.Fatalf("accounting=%d stale=%v", got.Load(), stale.Load())
+	}
+	if m.ActiveEpochCount() != 0 {
+		t.Fatal("stale result recreated epoch")
+	}
+}
+
+func TestManagerRunDuePropagatesCallerCancellation(t *testing.T) {
+	now := time.Now().UTC()
+	clock := &testClock{now: now}
+	started := make(chan struct{}, 1)
+	unblock := make(chan struct{})
+	ctl := &testController{started: started, unblock: unblock}
+	m, _ := newTestManager(t, DefaultConfig(), clock, ctl)
+	if result := armTestTarget(t, m, ctl, testObservation(now, promptcache.LifecycleSlidingExpiry, time.Minute)); !result.Armed {
+		t.Fatal(result)
+	}
+	clock.Advance(55 * time.Second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	m.RunDue(ctx)
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("renewal did not start")
+	}
+	cancel()
+
+	done := make(chan struct{})
+	go func() {
+		m.renewWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		close(unblock)
+		<-done
+		t.Fatal("caller cancellation did not stop renewal")
+	}
+	if err := m.Quiesce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestManagerRunDueDiscardsStaleHeapAfterForeground(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := &testClock{now: now}
+	ctl := &testController{}
+	m, _ := newTestManager(t, DefaultConfig(), clock, ctl)
+	if result := armTestTarget(t, m, ctl, testObservation(now, promptcache.LifecycleSlidingExpiry, time.Minute)); !result.Armed {
+		t.Fatal(result)
+	}
+	m.BeginForegroundTurn("a")
+	done := make(chan struct{})
+	go func() {
+		m.RunDue(context.Background())
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("RunDue did not discard stale heap entries")
+	}
+}
+
+func TestManagerRejectsObservationFromAnotherBackendInstance(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := &testClock{now: now}
+	ctl := &testController{}
+	m, _ := newTestManager(t, DefaultConfig(), clock, ctl)
+	o := testObservation(now, promptcache.LifecycleSlidingExpiry, time.Minute)
+	o.BackendInstanceID = "different-backend"
+	result := m.ArmFromCommittedTurn(ArmInput{
+		ALegID: "a", BLegID: "b", CommittedSuccessful: true, ToolEvents: osTool(),
+		Observations: []promptcache.Observation{o}, BackendInstanceID: "backend", Controller: ctl,
+	})
+	if result.Armed || result.Reason != "no_eligible_target" {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestManagerRegistryDisablePreventsLaterArm(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := &testClock{now: now}
+	ctl := &testController{}
+	m, err := NewManager(DefaultConfig(), clock, Hooks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := NewManagerRegistry()
+	id, err := registry.Register(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = registry.Unregister(id); _ = m.Quiesce(context.Background()) }()
+	registry.Disable("a")
+	result := armTestTarget(t, m, ctl, testObservation(now, promptcache.LifecycleSlidingExpiry, time.Minute))
+	if result.Armed || result.Reason != "disabled_session" {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestPolicyStoreRejectsCapacityWithoutEviction(t *testing.T) {
+	s, err := NewPolicyStore(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Disable("a", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Disable("b", time.Now()); !errors.Is(err, ErrPolicyCapacity) {
+		t.Fatalf("err=%v", err)
+	}
+	if _, ok := s.Get("a"); !ok {
+		t.Fatal("existing disable evicted")
+	}
+	if err := s.Clear("b"); !errors.Is(err, ErrPolicyNotFound) {
+		t.Fatalf("err=%v", err)
+	}
+}

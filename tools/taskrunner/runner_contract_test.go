@@ -9,12 +9,21 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
+var helperBuildMu sync.Mutex
+
 func buildHelper(t *testing.T) string {
 	t.Helper()
+	// The contract tests run in parallel and each build launches a compiler
+	// process. Serializing only this build step avoids Windows process/job
+	// startup contention under the repository-wide test fan-out; child-run
+	// behavior remains parallel and independently exercised.
+	helperBuildMu.Lock()
+	defer helperBuildMu.Unlock()
 	path := filepath.Join(t.TempDir(), "taskrunner-testhelper"+exeSuffix())
 	cmd := exec.Command("go", "build", "-o", path, "./testhelper")
 	cmd.Dir = "."
@@ -130,7 +139,8 @@ func TestRunner_RelativeWorkingDirectory(t *testing.T) {
 }
 
 func TestRunner_WorkingDirectoryAbsError(t *testing.T) {
-	t.Parallel()
+	// This test changes the process-wide cwd to exercise filepath.Abs failure;
+	// it must not run concurrently with tests that build or launch helpers.
 	helper := buildHelper(t)
 	dir := t.TempDir()
 	previous, err := os.Getwd()
@@ -251,6 +261,6 @@ func TestRunner_RedactsCapturedSecrets(t *testing.T) {
 		Redactions: []string{"secret-token"},
 	})
 	if result.Kind != Success || strings.Contains(string(result.Stdout), "secret-token") || !strings.Contains(string(result.Stdout), "[REDACTED]") {
-		t.Fatalf("redacted output = %q", result.Stdout)
+		t.Fatalf("result=%#v redacted output = %q", result, result.Stdout)
 	}
 }

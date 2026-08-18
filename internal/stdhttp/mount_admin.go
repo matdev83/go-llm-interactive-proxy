@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	billingadmin "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/billing"
 	cpadmin "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/controlplane"
+	adminkeepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/keepwarm"
 	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
 )
 
@@ -63,6 +64,28 @@ func mountBillingReports(in billingReportsMount) {
 	in.Mux.Handle(path+"/", protected)
 	if in.Log != nil {
 		in.Log.InfoContext(in.LogCtx, "authoritative billing reports mounted", "path", path)
+	}
+}
+
+func mountKeepwarmAdmin(in mountAccountingAdminInput) {
+	if in.Mux == nil || in.Cfg == nil || !in.Operations.KeepwarmAdminEnabled || in.Operations.KeepwarmAdmin.Service == nil {
+		return
+	}
+	// The keep-warm admin surface mutates per-session policy. Protect the same
+	// way as the other admin surfaces: never mount when the diagnostics shared
+	// secret is empty, because the protection wrapper is a pass-through then.
+	if strings.TrimSpace(in.Cfg.Diagnostics.SharedSecret) == "" {
+		if in.Log != nil {
+			in.Log.WarnContext(in.LogCtx, "keep-warm admin disabled: diagnostics shared_secret is empty")
+		}
+		return
+	}
+	path := "/admin/keepwarm"
+	h := adminkeepwarm.NewHandler(in.Operations.KeepwarmAdmin)
+	in.Mux.Handle(path, wrapDiagnostics(in.Cfg, http.StripPrefix(path, h)))
+	in.Mux.Handle(path+"/", wrapDiagnostics(in.Cfg, http.StripPrefix(path, h)))
+	if in.Log != nil {
+		in.Log.InfoContext(in.LogCtx, "keep-warm admin mounted", "path", path)
 	}
 }
 

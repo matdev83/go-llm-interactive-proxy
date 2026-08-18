@@ -89,6 +89,33 @@ type TargetID string
 type GenerationID string
 type Handle []byte
 
+// ObservationLineage carries only bounded routing/session attribution needed
+// by a provider adapter to associate a foreground observation with its B-leg.
+// It is not a cache identity or a scheduling key.
+type ObservationLineage struct {
+	ALegID            string
+	BLegID            string
+	BackendInstanceID string
+	CanonicalModelID  string
+}
+
+type observationLineageContextKey struct{}
+
+func WithObservationLineage(ctx context.Context, lineage ObservationLineage) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, observationLineageContextKey{}, lineage)
+}
+
+func ObservationLineageFromContext(ctx context.Context) (ObservationLineage, bool) {
+	if ctx == nil {
+		return ObservationLineage{}, false
+	}
+	lineage, ok := ctx.Value(observationLineageContextKey{}).(ObservationLineage)
+	return lineage, ok
+}
+
 func validateBoundedString(value string, max int, required bool) error {
 	if required && strings.TrimSpace(value) == "" {
 		return ErrInvalid

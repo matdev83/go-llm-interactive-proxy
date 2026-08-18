@@ -33,8 +33,8 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	if AtomicOwnedResourceLifecycleOverlayMax != 92 {
 		t.Fatalf("atomic owned resource lifecycle overlay cap drift: %d", AtomicOwnedResourceLifecycleOverlayMax)
 	}
-	if len(pathMarkerOverlaySpecs) != 3 {
-		t.Fatalf("path-marker overlay table drift: got %d specs, want 3", len(pathMarkerOverlaySpecs))
+	if len(pathMarkerOverlaySpecs) != 4 {
+		t.Fatalf("path-marker overlay table drift: got %d specs, want 4", len(pathMarkerOverlaySpecs))
 	}
 	want := []AffectedSurfaceBaseline{
 		{Tree: "internal/infra/runtimebundle", BaselineLines: 9898},
@@ -219,6 +219,7 @@ func TestShrinkage_ReportSectionIncludesVerdict(t *testing.T) {
 		"ADR 0008 connector-architecture overlay",
 		"Billing host composition overlay lines:",
 		"Atomic owned resource lifecycle overlay lines:",
+		"Keep-warm orchestration overlay lines:",
 		"Convergence delta (raw − overlays):",
 		"Required: convergence delta ≤ -800",
 	} {

@@ -6,7 +6,7 @@
 
 The provider rollout remains deliberately asymmetric: the generic scheduler can be implemented and verified entirely with reference backends, while a concrete provider is promoted to autonomous renewal only after its own protocol/live evidence gate passes. Direct Anthropic is the first candidate; Codex/OpenAI/Gemini/DeepSeek/etc. remain observation-only/no-timer until their independent evidence requirements are satisfied.
 
-This GO is a design-validation result only. Kiro approvals remain false and `ready_for_implementation` remains false until the generated artifacts are explicitly approved.
+This document records the completed implementation and design-validation result. The generic orchestration and its provider-safe rollout gate are archived as completed in `spec.json`. The explicitly credentialed live Anthropic cache-effect test is implemented but was not run locally; autonomous direct-Anthropic renewal therefore remains disabled or experimental until real-provider evidence is collected.
 
 ## Critical Brownfield Concerns and Resolutions
 
@@ -169,4 +169,4 @@ If that gate fails, the direct Anthropic implementation remains experimental/dis
 
 ## Final Assessment
 
-**GO for design validation.** The generic orchestration can be implemented without any real provider active and remains behavior-preserving when no eligible renewable observations exist. The direct Anthropic integration is intentionally a separable provider implementation/promotion task: fake-provider tests prove request/control mechanics, while live cache-effect evidence determines whether autonomous renewal can be enabled as supported behavior. No provider-specific exception is permitted to weaken the core scheduler, generation lifetime, foreground precedence, or bounded-cost invariants.
+**PASS for implementation and design validation.** The generic orchestration is complete without requiring any real provider to be active and remains behavior-preserving when no eligible renewable observations exist. The direct Anthropic live-effect test is intentionally credential-gated and not claimed as passed; fake-provider tests prove request/control mechanics, while live cache-effect evidence determines whether autonomous renewal can be enabled as supported behavior. No provider-specific exception weakens the core scheduler, generation lifetime, foreground precedence, or bounded-cost invariants.

@@ -27,7 +27,7 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/infra/runtimehost/generation.go", Max: 341},
 	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 284},
 	{Path: "internal/infra/runtimebundle/handler_composer.go", Max: 50},
-	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 350},
+	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 378},
 	{Path: "internal/stdhttp/request_plane.go", Max: 90},
 	{Path: "internal/infra/runtimebundle/process_services.go", Max: 290},
 	{Path: "pkg/lipruntime/build.go", Max: 121},
@@ -47,6 +47,8 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/plugins/protocols/openresponses/state_machine.go", Max: 708},
 	{Path: "internal/plugins/protocols/openresponses/state_machine_event_handlers.go", Max: 515},
 	{Path: "internal/plugins/frontends/frontendpipe/pipe.go", Max: 383},
+	{Path: "internal/core/keepwarm/manager.go", Max: 450},
+	{Path: "internal/core/keepwarm/scheduler.go", Max: 450},
 }
 
 // PackageTreeBudget caps recursive non-test .go lines for a package tree.
@@ -57,8 +59,8 @@ type PackageTreeBudget struct {
 
 // PackageTreeBudgets locks measured convergence tree ceilings (+25 lines headroom).
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 11400},
-	{Tree: "internal/stdhttp", Max: 5800},
+	{Tree: "internal/infra/runtimebundle", Max: 11531},
+	{Tree: "internal/stdhttp", Max: 5867},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 562},
 }
@@ -76,8 +78,8 @@ var LineBudgets = []LineBudget{
 	// classification. Keep the measured-plus-25 ratchet.
 	{Dir: "internal/core", Max: 77500},
 	{Dir: "internal/pluginreg", Max: 1174},
-	{Dir: "internal/stdhttp", Max: 5800},
-	{Dir: "internal/infra/runtimebundle", Max: 11400},
+	{Dir: "internal/stdhttp", Max: 5867},
+	{Dir: "internal/infra/runtimebundle", Max: 11531},
 	{Dir: "cmd/lipstd", Max: 979},
 	{Dir: "pkg/lipruntime", Max: 562},
 }

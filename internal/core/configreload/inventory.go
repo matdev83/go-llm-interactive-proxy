@@ -39,7 +39,7 @@ func RequiredTopLevelPaths() []string {
 		"http_client", "http_headers", "database", "routing", "continuity", "secure_session",
 		"stream_recovery", "hooks", "accounting", "interleaved", "plugins",
 		"model_aliases", "model_catalog", "model_inventory",
-		"control_plane", "metering", "identity",
+		"control_plane", "metering", "identity", "prompt_cache",
 	}
 }
 
@@ -111,6 +111,7 @@ var inventoryTable = []FieldClass{
 	{Path: "control_plane", Disposition: DispositionMixed, SecretBearing: true, Notes: "store topology startup-only; query policy reloadable"},
 	{Path: "metering", Disposition: DispositionMixed, SecretBearing: true, Notes: "journal topology startup-only; enablement reloadable"},
 	{Path: "identity", Disposition: DispositionReloadable, Notes: "generation identity projection"},
+	{Path: "prompt_cache", Disposition: DispositionMixed, Notes: "keep-warm generation policy reloadable; provider enrollment remains backend-owned"},
 
 	{Path: "override.cli.config", Disposition: DispositionStartupOnly, Notes: "fixed source path"},
 	{Path: "override.cli.multi_user", Disposition: DispositionStartupOnly, Notes: "multi-user CLI gate"},

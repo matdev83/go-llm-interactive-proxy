@@ -20,6 +20,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/streampeek"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
 
 type Config struct {
@@ -40,6 +41,12 @@ type Config struct {
 	// CompatibleModeAuth enables optional credentials for built-in compatible
 	// modes: empty resolved keys omit x-api-key. Native Anthropic must leave false.
 	CompatibleModeAuth bool
+	CacheEnrollment    string
+	CacheTTL           string
+	// CacheObservation, when non-nil, issues a renewable target from committed
+	// foreground cache evidence on successful terminals. It is supplied by the
+	// owning plugin only for automatic enrollment; nil keeps emission off.
+	CacheObservation CacheObservationHook
 }
 
 const defaultRateLimitFallback = credpool.DefaultRateLimitFallback
@@ -52,6 +59,9 @@ func NewBackend(cfg Config) execbackend.Backend {
 	if err := checkcfg.RequireNonEmpty(id, "base_url", cfg.BaseURL); err != nil {
 		return newConfigErrorBackend(id, err)
 	}
+	if err := validateCacheEnrollment(cfg.CacheEnrollment, cfg.CacheTTL); err != nil {
+		return newConfigErrorBackend(id, err)
+	}
 	pool, noAuth, err := buildCompatibleOrRequiredPool(cfg)
 	if err != nil {
 		return newConfigErrorBackend(id, fmt.Errorf("%s: credentials: %w", id, err))
@@ -60,11 +70,75 @@ func NewBackend(cfg Config) execbackend.Backend {
 	if rateLimitFallback <= 0 {
 		rateLimitFallback = defaultRateLimitFallback
 	}
+	cacheEnrollment := strings.TrimSpace(cfg.CacheEnrollment)
+	// Automatic enrollment with credentials wires the production cache path.
+	// No API key needed for wiring — the controller is built and the stream
+	// captures observations. Renewal re-resolves fresh credentials from the
+	// pool, preserving account affinity via AcquireByID when the foreground
+	// credential ID is known.
+	var cacheController *CacheController
+	var cacheHook CacheObservationHook
+	if cacheEnrollment == "automatic" && !noAuth {
+		// Use external hook when supplied (tests with custom behavior),
+		// otherwise build internal controller that re-resolves from the pool
+		// at renewal time, preferring the foreground credential affinity.
+		if cfg.CacheObservation != nil {
+			cacheHook = cfg.CacheObservation
+		} else {
+			cc, cErr := NewCacheController(CacheControllerConfig{
+				BaseURL:    cfg.BaseURL,
+				HTTPClient: cfg.HTTPClient,
+				ResolveAPIKey: func(ctx context.Context, target CacheTarget) (string, error) {
+					_ = ctx
+					// Prefer same credential used at issue time (account affinity).
+					if target.AccountID != "" {
+						if cred, aErr := pool.AcquireByID(time.Now(), target.AccountID); aErr == nil {
+							return cred.Secret, nil
+						}
+					}
+					cred, aErr := pool.Acquire(time.Now(), nil)
+					if aErr != nil {
+						return "", aErr
+					}
+					return cred.Secret, nil
+				},
+			})
+			if cErr == nil {
+				cacheController = cc
+				ttl := strings.TrimSpace(cfg.CacheTTL)
+				cacheHook = func(ctx context.Context, in CacheObservation) (promptcache.Observation, error) {
+					// Generate bounded IDs from lineage; BLegID is per-attempt
+					// unique and bounded, backend ID is per-instance bounded.
+					tid := promptcache.TargetID(strings.TrimSpace(in.Lineage.BLegID))
+					if tid == "" {
+						tid = promptcache.TargetID("anthropic-target")
+					}
+					gid := promptcache.GenerationID(strings.TrimSpace(in.Lineage.BackendInstanceID))
+					if gid == "" {
+						gid = promptcache.GenerationID(id)
+					}
+					return cc.IssueTarget(CacheTarget{
+						ALegID:            in.Lineage.ALegID,
+						BLegID:            in.Lineage.BLegID,
+						BackendInstanceID: in.Lineage.BackendInstanceID,
+						TargetID:          tid,
+						GenerationID:      gid,
+						Model:             in.Model,
+						Renewal:           in.Renewal,
+						TTL:               ttl,
+						Evidence:          in.Evidence,
+						AccountID:         in.Lineage.BackendInstanceID, // affinity hint for pool resolution
+					}, in.ObservedAt)
+				}
+			}
+		}
+	}
 	backendCaps := defaultBackendCaps()
 	if cfg.ThinkingFromEffort {
 		backendCaps[lipapi.CapabilityReasoning] = struct{}{}
 	}
-	return execbackend.Backend{
+
+	be := execbackend.Backend{
 		Caps:                                 backendCaps,
 		ReplaySupport:                        ReplaySupport(),
 		BackendPrefixes:                      []string{id},
@@ -90,10 +164,30 @@ func NewBackend(cfg Config) execbackend.Backend {
 			if err != nil {
 				return nil, err
 			}
+			var cacheState *cacheStreamState
+			if cacheHook != nil {
+				lineage, _ := promptcache.ObservationLineageFromContext(ctx)
+				// Fill lineage from context; backend ID is known at this point.
+				if lineage.BackendInstanceID == "" {
+					lineage.BackendInstanceID = id
+				}
+				if lineage.CanonicalModelID == "" {
+					lineage.CanonicalModelID = strings.TrimSpace(cand.Primary.Model)
+				}
+				cacheState = &cacheStreamState{
+					hook:    cacheHook,
+					lineage: lineage,
+					renewal: renewalSnapshotFromParams(p, cfg.CacheTTL),
+					ttl:     strings.TrimSpace(cfg.CacheTTL),
+				}
+				if m := strings.TrimSpace(cand.Primary.Model); m != "" {
+					cacheState.renewal.Model = m
+				}
+			}
 			if noAuth {
 				cli := newSDKClientForSecret(cfg, "")
-				stream := cli.Messages.NewStreaming(ctx, p)
-				es := newMessageStream(stream, id, call.MaxPendingWireEvents)
+				stream := cli.Messages.NewStreaming(ctx, p, cacheEnrollmentOptions(cfg)...)
+				es := newMessageStreamWithCache(stream, id, call.MaxPendingWireEvents, cacheState)
 				ev, rerr := es.Recv(ctx)
 				if rerr == nil {
 					return streampeek.NewManagedPrependFirst(ev, es), nil
@@ -113,13 +207,20 @@ func NewBackend(cfg Config) execbackend.Backend {
 					}
 					return nil, fmt.Errorf("%s: %w", id, aerr)
 				}
+				if cacheState != nil {
+					cacheState.lineage.BackendInstanceID = id
+					if m := strings.TrimSpace(cand.Primary.Model); m != "" {
+						cacheState.lineage.CanonicalModelID = m
+					}
+				}
 				cli := newSDKClientForSecret(cfg, cred.Secret)
-				requestOpts := thinkingRequestOptions(call.Options.ReasoningEffort, cfg.ThinkingFromEffort)
+				requestOpts := append([]option.RequestOption(nil), cacheEnrollmentOptions(cfg)...)
+				requestOpts = append(requestOpts, thinkingRequestOptions(call.Options.ReasoningEffort, cfg.ThinkingFromEffort)...)
 				if cfg.ThinkingFromEffort && reasoningEffortEnablesThinking(call.Options.ReasoningEffort) {
 					requestOpts = append(requestOpts, option.WithHeader("anthropic-beta", "interleaved-thinking-2025-05-14"))
 				}
 				stream := cli.Messages.NewStreaming(ctx, p, requestOpts...)
-				es := newMessageStream(stream, id, call.MaxPendingWireEvents)
+				es := newMessageStreamWithCache(stream, id, call.MaxPendingWireEvents, cacheState)
 				ev, rerr := es.Recv(ctx)
 				if rerr == nil {
 					return streampeek.NewManagedPrependFirst(ev, es), nil
@@ -144,6 +245,29 @@ func NewBackend(cfg Config) execbackend.Backend {
 			}
 		},
 	}
+	if cacheEnrollment == "automatic" && (cfg.CacheObservation != nil || cacheController != nil) {
+		be.ResolvePromptCacheProfile = func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) promptcache.Profile {
+			return promptcache.Profile{
+				ObservationSupported: true,
+				RenewalSupported:     true,
+				LifecycleKinds:       []promptcache.LifecycleKind{promptcache.LifecycleSlidingExpiry},
+			}
+		}
+		if cacheController != nil {
+			be.RenewPromptCache = cacheController.Renew
+			be.ReleasePromptCache = cacheController.Release
+		} else if cfg.CacheObservation != nil {
+			// External hook supplied (tests) without internal controller —
+			// renewal not wired, observation only.
+		}
+	}
+	// When internal controller exists, wire renew/release even though hook
+	// is internal; external hook case already handled above.
+	if cacheController != nil {
+		be.RenewPromptCache = cacheController.Renew
+		be.ReleasePromptCache = cacheController.Release
+	}
+	return be
 }
 
 func buildCompatibleOrRequiredPool(cfg Config) (*credpool.Pool, bool, error) {

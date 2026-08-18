@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
@@ -155,6 +156,15 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if ledger == nil {
 		return failWithGenCtx(fmt.Errorf("runtimebundle: candidate resource ledger unavailable for transfer"))
 	}
+	keepwarmManager, keepwarmID, err := buildKeepwarmGeneration(frozen, nowFn, cand.process.keepwarmRegistry, cand.process.keepwarmPolicy)
+	if err != nil {
+		return failWithGenCtx(err)
+	}
+	if cand.process.metrics != nil && cand.process.metrics.Keepwarm != nil {
+		cand.process.metrics.Keepwarm.SetManager(keepwarmManager)
+	}
+	cand.execution.executor.Keepwarm = keepwarm.NewOrchestrator(keepwarmManager, cand.process.keepwarmPolicy)
+
 	bundle := newGenerationBundle(generationBundleInput{
 		handler:           handler,
 		executor:          cand.execution.executor,
@@ -168,6 +178,9 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		ledger:            ledger,
 		terminalProviders: terminalworkapp.SnapshotTerminalProviders(cand.operations.terminalRegistry),
 		readiness:         cand.operations.readinessReport,
+		keepwarm:          keepwarmManager,
+		keepwarmRegistry:  cand.process.keepwarmRegistry,
+		keepwarmID:        keepwarmID,
 	})
 	return bundle, nil
 }
@@ -210,6 +223,7 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 	if frozen != nil {
 		plugins = frozen.Plugins.Frontends
 	}
+	keepwarmAdmin, keepwarmAdminEnabled := keepwarmAdminProjection(cand.process)
 	return httpcontract.StandardHTTPInput{
 		Core: httpcontract.HTTPCoreInput{Executor: cand.execution.executor},
 		Security: httpcontract.HTTPSecurityInput{
@@ -229,6 +243,8 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 			ControlPlaneQueries:     cpadmin.AdaptControlPlaneQueries(cand.process.controlPlaneQueries),
 			ReadinessReport:         cpadmin.AdaptReadinessReport(cand.operations.readinessReport),
 			TokenAccountingAdmin:    adminaccounting.AdaptCountCallService(cand.operations.tokenAccountingAdmin),
+			KeepwarmAdmin:           keepwarmAdmin,
+			KeepwarmAdminEnabled:    keepwarmAdminEnabled,
 			Registrations:           httpcontract.CloneRegistrations(regs),
 		},
 		Models: httpcontract.HTTPModelInput{

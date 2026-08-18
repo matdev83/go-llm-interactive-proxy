@@ -27,6 +27,7 @@ type Bundle struct {
 	PostgresPool        *PostgresPoolProm
 	TerminalWork        *TerminalWorkProm
 	Reload              *ReloadProm
+	Keepwarm            *KeepwarmProm
 	sink                runtime.MetricsSink
 	tokenAccountingSink *TokenAccountingPromSink
 }
@@ -48,6 +49,7 @@ func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
 	pg := RegisterPostgresPoolProm(r, poolStats)
 	tw := RegisterTerminalWorkProm(r)
 	reload := RegisterReloadProm(r)
+	keepwarm := RegisterKeepwarmProm(r)
 	return &Bundle{
 		Registry:            r,
 		HTTP:                httpm,
@@ -61,6 +63,7 @@ func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
 		PostgresPool:        pg,
 		TerminalWork:        tw,
 		Reload:              reload,
+		Keepwarm:            keepwarm,
 		sink:                NewExecutorPromSink(exec),
 		tokenAccountingSink: NewTokenAccountingPromSink(tok),
 	}

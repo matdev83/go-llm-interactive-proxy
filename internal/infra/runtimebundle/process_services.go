@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
@@ -55,12 +56,19 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		parent = in.Opts.Startup.StartupContext
 	}
 
+	keepwarmPolicy, err := keepwarm.NewPolicyStore(keepwarm.DefaultMaxPolicyEntries)
+	if err != nil {
+		releasePluginOwnership()
+		return nil, fmt.Errorf("runtimebundle: keep-warm policy store: %w", err)
+	}
 	ps := &ProcessServices{
-		Logger:         in.Log,
-		FactoryCatalog: in.Opts.PluginRegistry,
-		Tracing:        in.Tracing,
-		cfg:            in.Cfg,
-		opts:           in.Opts,
+		Logger:           in.Log,
+		FactoryCatalog:   in.Opts.PluginRegistry,
+		Tracing:          in.Tracing,
+		KeepwarmPolicy:   keepwarmPolicy,
+		KeepwarmRegistry: keepwarm.NewManagerRegistry(),
+		cfg:              in.Cfg,
+		opts:             in.Opts,
 	}
 
 	register := func(c func() error) {

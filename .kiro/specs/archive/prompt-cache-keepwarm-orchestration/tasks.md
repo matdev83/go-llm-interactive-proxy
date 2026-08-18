@@ -4,7 +4,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
 
 ## 1. Freeze Scheduler, Policy, and Race Semantics With RED Tests
 
-- [ ] 1.1 Define RED fake-clock arming and scheduling tests
+- [x] 1.1 Define RED fake-clock arming and scheduling tests
   - Prove only a committed successful B-leg containing at least one completed canonical `ToolCategoryOSCommand` plus an eligible renewable residency observation arms one idle epoch.
   - Prove losing/raced/uncommitted B-legs, failed/cancelled attempts, ordinary assistant responses, non-OS-command tools, and OS-command turns without eligible targets do not arm.
   - Pin deterministic expiry scheduling with `lead = clamp(window/10, 15s, 5m)` and bounded deterministic early-only spread; verify 5-minute and 1-hour windows without wall-clock sleeps.
@@ -15,7 +15,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
   - _Depends: prompt-cache-residency-contract_
   - _Validation: fake-clock unit tests, no external provider_
 
-- [ ] 1.2 (P) Define RED foreground-resume and stale-result race tests
+- [x] 1.2 (P) Define RED foreground-resume and stale-result race tests
   - Cover resume before due, while queued, after worker pickup but before controller call, during controller call, and concurrently with controller completion.
   - Prove `BeginForegroundTurn` invalidates the old idle epoch before B-leg planning, cancels in-flight contexts, never waits for provider release, and makes queued/late results stale.
   - Prove stale results cannot mutate a newer epoch/target but still return authoritative provider-billable accounting evidence when a provider charge occurred.
@@ -26,7 +26,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
   - _Depends: prompt-cache-residency-contract_
   - _Validation: barrier-driven deterministic race tests plus focused `-race`_
 
-- [ ] 1.3 (P) Define RED budget, capacity, and result-policy tests
+- [x] 1.3 (P) Define RED budget, capacity, and result-policy tests
   - Pin `max_refreshes_per_idle_epoch=6`, `max_idle_duration=1h`, `max_active_targets=1024`, `max_concurrent_renewals=4`, `renew_timeout=15s`, and cold-recreate continuation defaults/validation.
   - Prove a refresh slot is consumed at dispatch regardless of outcome and refresh/time exhaustion stops and releases the whole epoch.
   - Prove capacity retains the earliest-due targets, rejects/releases a less-urgent new target, and evicts/releases the current latest-due target when a more urgent target arrives.
@@ -38,7 +38,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
   - _Depends: prompt-cache-residency-contract_
   - _Validation: fake-clock/state-machine unit tests_
 
-- [ ] 1.4 (P) Define RED admin/reload/lifecycle tests
+- [x] 1.4 (P) Define RED admin/reload/lifecycle tests
   - Prove global keep-warm defaults enabled, global disable is a master gate, and no eligible target means zero provider calls.
   - Prove per-A-leg disable immediately invalidates queued/in-flight work, clear is non-retroactive, and global disable cannot be bypassed.
   - Pin process session-policy-store capacity at 4096; a new disable at capacity returns a bounded error instead of evicting an existing disable.
@@ -51,7 +51,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
 
 ## 2. Implement Configuration and the Generation-Owned Keep-Warm Manager
 
-- [ ] 2.1 Add keep-warm configuration defaults, validation, and heuristic-override parsing
+- [x] 2.1 Add keep-warm configuration defaults, validation, and heuristic-override parsing
   - Add the immutable generation config for master enable, refresh/time/target/concurrency/timeout/cold/token budgets using the validated defaults from the design.
   - Add exact backend-instance plus optional exact canonical-model heuristic overrides; deterministic backend `ExpiresAt` must take precedence over a heuristic.
   - Reject zero/negative/unbounded values, contradictory cold-recreate settings, and malformed heuristic intervals.
@@ -61,7 +61,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
   - _Depends: 1.1, 1.3_
   - _Design: Configuration; Heuristic overrides_
 
-- [ ] 2.2 Implement the revisioned generation manager, priority heap, and fake-clock seam
+- [x] 2.2 Implement the revisioned generation manager, priority heap, and fake-clock seam
   - Implement A-leg idle epochs, epoch/target revisions, due-time heap, active-target count, deterministic insertion sequence, and overflow fail-closed behavior.
   - Implement deterministic expiry calculation exactly from backend `ObservedAt`/`ExpiresAt`; never transform minimum residency into expiry or add provider-name TTL branches.
   - Keep non-schedulable observations out of manager state and release their handles because the manager has no legal future use for them.
@@ -72,7 +72,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
   - _Depends: 2.1_
   - _Design: Core Domain Model; Scheduling Algorithm; Target Capacity_
 
-- [ ] 2.3 Implement bounded lazy renewal workers and control-result processing
+- [x] 2.3 Implement bounded lazy renewal workers and control-result processing
   - Lazily start at most `max_concurrent_renewals` generation-owned workers on the first eligible dispatch so default-on/no-target configurations create no idle worker goroutines.
   - Recheck epoch/target revision, policy, budgets, in-flight state, and known expiry immediately before dispatch.
   - Consume the refresh slot before the provider call, allocate a distinct bounded maintenance `OperationID`, enforce `renew_timeout`, and invoke only the issuing spec1 controller/handle.
@@ -83,7 +83,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
   - _Depends: 1.2, 1.3, 2.2_
   - _Design: Scheduler and Worker Design; Renewal Result State Machine_
 
-- [ ] 2.4 Implement non-blocking handle release and generation quiesce
+- [x] 2.4 Implement non-blocking handle release and generation quiesce
   - Make foreground/admin invalidation detach scheduler state synchronously and cancel in-flight contexts without waiting for provider/connector release.
   - Queue idempotent local-forget releases through bounded background cleanup that never outranks due renewals and may safely drop explicit release when saturated/closing because backend target stores are bounded and close invalidates handles.
   - Register manager shutdown in the runtime generation lifecycle so manager unregister/quiesce/cancel/release/worker join completes before backend/connector close.
@@ -96,7 +96,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
 
 ## 3. Integrate Foreground Turn and Committed B-Leg Hooks
 
-- [ ] 3.1 Add the real-foreground-turn invalidation hook before B-leg planning
+- [x] 3.1 Add the real-foreground-turn invalidation hook before B-leg planning
   - Call manager invalidation immediately after authoritative A-leg/session correlation for every real incoming turn, independent of whether keep-warm is currently globally/session disabled.
   - Guarantee invalidation occurs before route planning, backend/account selection, or opening the next B-leg.
   - Keep the hook in-memory/non-blocking with respect to provider cleanup; no network/DB/provider wait is allowed on the foreground critical path.
@@ -106,7 +106,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
   - _Depends: 2.2, 2.4_
   - _Design: Runtime Integration — Foreground turn gate_
 
-- [ ] 3.2 Add one committed-terminal arm adapter using canonical tool events and residency sidebands
+- [x] 3.2 Add one committed-terminal arm adapter using canonical tool events and residency sidebands
   - Reuse the existing lifecycle-enriched/correlated tool events and spec1 observation drain; do not parse shell text, tool arguments, descriptions, or raw provider events.
   - Call `ArmFromCommittedTurn` once after successful committed terminal, with only the committed B-leg's observations/controller binding.
   - Require at least one finished canonical OS-command tool event and at least one eligible renewable target; record bounded skip reasons otherwise.
@@ -117,7 +117,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
   - _Depends: 3.1, prompt-cache-residency-contract observation source_
   - _Design: Runtime Integration — Committed terminal arm adapter_
 
-- [ ] 3.3 Wire session-end cleanup and configuration-generation replacement
+- [x] 3.3 Wire session-end cleanup and configuration-generation replacement
   - On session end/expiry, forget process-owned per-A-leg keep-warm policy and invalidate any live generation epoch for that A-leg.
   - On reload, construct the new generation manager from new validated config and quiesce the old manager with no target migration.
   - Preserve process-owned disabled-session policy across config generation replacement while ensuring the active-manager registry never retains an unregistered old manager.
@@ -129,7 +129,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
 
 ## 4. Add Administrative Policy, Accounting, and Observability
 
-- [ ] 4.1 Implement the bounded process-owned per-A-leg policy store and manager registry
+- [x] 4.1 Implement the bounded process-owned per-A-leg policy store and manager registry
   - Implement inherit/disabled state keyed only by validated A-leg authority with revision/updated time and the 4096-entry default bound.
   - Reject a new disable at capacity; never silently evict an existing administrative disable.
   - Implement `Disable`, `Clear`, `Get`, and session-end forget semantics; clear restores inheritance but does not arm retroactively.
@@ -140,7 +140,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
   - _Depends: 1.4, 2.4_
   - _Design: Process-Owned Per-Session Administrative Policy_
 
-- [ ] 4.2 Expose authenticated admin/control-plane disable, clear, and get operations
+- [x] 4.2 Expose authenticated admin/control-plane disable, clear, and get operations
   - Reuse existing admin/session authority resolution; reject untrusted request-body cache/provider identifiers as policy keys.
   - Global disable remains the master gate; per-session clear cannot force background traffic when the master is off.
   - Return bounded capacity/not-found/state responses and make mutations auditable without exposing provider cache identity.
@@ -150,7 +150,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
   - _Depends: 4.1_
   - _Validation: admin authorization/API tests_
 
-- [ ] 4.3 Integrate maintenance provider-billable accounting and optional token budget
+- [x] 4.3 Integrate maintenance provider-billable accounting and optional token budget
   - Record each control operation under its maintenance `OperationID`, separate from the triggering foreground A/B-leg usage while reusing the existing provider-billable accounting authority/plane.
   - Preserve explicit cache-read/cache-write/input/output/total evidence and never fabricate zero for absent evidence.
   - For configured provider-token budget, derive a conservative next-call estimate from prior observation/control evidence; if unavailable, retire/skip as `budget_unknown` instead of allowing an unbounded unknown-cost call.
@@ -161,7 +161,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
   - _Depends: 2.3, 3.2_
   - _Design: Budget Model; Accounting Integration_
 
-- [ ] 4.4 Add bounded-cardinality metrics and diagnostics
+- [x] 4.4 Add bounded-cardinality metrics and diagnostics
   - Export active epoch/target gauges, arm/skip counts, dispatch/result/cancel counters, deadline/capacity/provider failures, cold recreation, maintenance duration, and provider token evidence using finite reason/result/token-kind labels.
   - Exclude cache keys, target/generation IDs, handles, prompts, auth material, A-leg IDs, arbitrary model strings, and unbounded provider errors from labels/logs.
   - Keep foreground latency metrics free of background control duration and report maintenance duration independently.
@@ -173,7 +173,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
 
 ## 5. Implement Direct-Anthropic Enrollment and Renewal Behind Evidence Gates
 
-- [ ] 5.1 Define RED direct-Anthropic cache-enrollment compatibility tests
+- [x] 5.1 Define RED direct-Anthropic cache-enrollment compatibility tests
   - Prove default enrollment `disabled` preserves existing foreground request behavior and global keep-warm enablement alone never adds Anthropic cache control.
   - Pin explicit `automatic` enrollment plus only supported 5m/1h TTL values and reject unsupported combinations at backend configuration validation.
   - Prove automatic enrollment adds the provider-supported top-level cache-control shape without changing unrelated request semantics.
@@ -184,7 +184,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
   - _Depends: prompt-cache-residency-contract_
   - _Validation: fake SDK/HTTP request-shape tests_
 
-- [ ] 5.2 Implement direct-Anthropic bounded target capture and zero-output control renewal
+- [x] 5.2 Implement direct-Anthropic bounded target capture and zero-output control renewal
   - On proven cache residency, retain only the spec1-permitted bounded provider-local effective cacheable prefix/breakpoint and account/workspace affinity behind the issued handle; never retain raw auth when credentials can be re-resolved.
   - Construct non-streaming `max_tokens: 0` renewal using the exact observed prefix/breakpoint and provider-documented cache TTL semantics.
   - Remove/disable request features incompatible with zero-output prewarm: streaming, enabled thinking, structured output formatting, and forced/`any` tool choice.
@@ -195,7 +195,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
   - _Depends: 5.1, prompt-cache-residency-contract controller/target-store plumbing_
   - _Design: Provider Integration — Direct Anthropic First_
 
-- [ ] 5.3 Map Anthropic cache usage to authoritative residency/control outcomes
+- [x] 5.3 Map Anthropic cache usage to authoritative residency/control outcomes
   - Convert confirmed cache reads/refreshes to `Renewed` with replacement observation/timing.
   - Convert an unexpected full cache creation for a previously warm target to `ColdRecreated` rather than generic success.
   - Treat no-cache evidence as stale/unsupported when the target cannot be proven and classify API/auth/transport failures as control errors without normal route fallback.
@@ -206,7 +206,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
   - _Depends: 5.2_
   - _Validation: fake-provider usage matrix + scheduler integration with reference clock_
 
-- [ ] 5.4 Add the gated live direct-Anthropic cache-effect promotion test
+- [x] 5.4 Add the gated live direct-Anthropic cache-effect promotion test
   - Establish foreground cache creation/read, wait a controlled interval appropriate to the selected provider mode, issue zero-output renewal through the spec1 control seam, then verify a subsequent real request receives the expected cache-read evidence and maintenance emitted no model output.
   - Validate 5-minute mode first; validate 1-hour mode separately because provider TTL/write-pricing semantics differ.
   - Verify exact prefix/breakpoint reuse, incompatible-field sanitization, same account/workspace affinity, and provider-billable usage capture.
@@ -215,11 +215,12 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
   - _Requirements: 9.1-9.3, 9.9, 11.9_
   - _Boundary: real direct Anthropic integration gate only_
   - _Depends: 5.3_
-  - _Validation: opt-in live provider integration test_
+  - _Validation: opt-in live provider integration test
+  - _Closeout: The opt-in test is implemented and credential-gated; it was not executed locally without provider credentials, so autonomous direct-Anthropic renewal remains disabled or experimental until live cache-effect evidence is collected._
 
 ## 6. Ratchet Provider Rollout and Architecture Boundaries
 
-- [ ] 6.1 Pin observation-only/no-timer behavior for currently unproven providers
+- [x] 6.1 Pin observation-only/no-timer behavior for currently unproven providers
   - Add backend/profile/contract tests documenting that Codex subscription remains observation/affinity-only and no `generate=false` or turn-scoped state is used autonomously.
   - Pin OpenAI direct minimum-residency semantics so current `prompt_cache_options.ttl` is never treated as deterministic expiry by the scheduler.
   - Pin Gemini implicit as no-timer and prevent the generic orchestrator from creating explicit `CachedContent`; future explicit-resource support must originate in the Gemini adapter through spec1 observations.
@@ -230,7 +231,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
   - _Depends: 2.1, 2.2, prompt-cache-residency-contract profiles_
   - _Validation: backend contract/profile tests_
 
-- [ ] 6.2 Add architecture guards against scheduler/provider/enrollment leakage
+- [x] 6.2 Add architecture guards against scheduler/provider/enrollment leakage
   - Fail if provider names/models/TTL constants or provider SDKs enter the core scheduler to decide renewal timing/shape.
   - Fail if maintenance invokes normal route selection, `Backend.Open`/canonical executor flow, fallback/racing/account substitution, or a synthetic `lipapi.Call`.
   - Fail if global keep-warm enablement mutates provider foreground cache enrollment/retention or if provider-ready request/auth state enters manager/admin/config persistence.
@@ -241,7 +242,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
   - _Depends: 3.1-3.3, 4.1, 5.1-5.3, 6.1_
   - _Validation: `internal/archtest` + focused source-shape tests_
 
-- [ ] 6.3 Run race/leak, compatibility, and repository quality gates
+- [x] 6.3 Run race/leak, compatibility, and repository quality gates
   - Run fake-clock scheduler/unit suites with global default enabled and no eligible targets.
   - Run focused `go test -race` and `goleak` scenarios for resume, disable, generation reload/quiesce, target replacement, worker cancellation/completion, lazy-worker startup, manager registry unregister, and release cleanup.
   - Run spec1 residency/connector contract tests to prove orchestration did not widen provider/canonical ABI semantics.
@@ -252,7 +253,7 @@ Implementation is TDD-first and depends on the chronologically prior `prompt-cac
   - _Depends: 4.4, 5.4, 6.2_
   - _Validation: focused tests; `make quality-checks`; `make test-unit`; race/goleak suites_
 
-- [ ] 6.4 Perform final orchestration/provider-scope review
+- [x] 6.4 Perform final orchestration/provider-scope review
   - Verify every autonomous provider call is reachable only from an eligible spec1 renewable target and an active OS-command-derived idle epoch.
   - Verify every autonomous path has refresh/time/concurrency/timeout bounds and no generic retry loop.
   - Verify foreground turn start/admin disable/generation quiesce all make stale work unable to mutate later state.

@@ -32,6 +32,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -616,6 +617,10 @@ func (e *Executor) openPlannedCandidate(
 	cleanupAuthority.backendAttempted.Store(true)
 	// Mark call-path identity for approved B-leg httpidentity transports (passthrough).
 	openCtx = identity.WithClientUserAgent(openCtx, wireCall.Invocation.ClientUserAgent)
+	openCtx = promptcache.WithObservationLineage(openCtx, promptcache.ObservationLineage{
+		ALegID: p.aLegID, BLegID: bleg.BLegID,
+		BackendInstanceID: c.Primary.Backend, CanonicalModelID: c.Primary.Model,
+	})
 	openInvoked = true
 	openStartedAt = openStart
 	stream, err := safety.CallValue(safety.BoundaryBackend, "backend_open", func() (lipapi.ManagedEventStream, error) {
