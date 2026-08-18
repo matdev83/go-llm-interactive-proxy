@@ -48,7 +48,8 @@ func TestFingerprint_deterministicAndBounded(t *testing.T) {
 	at := time.Unix(5, 0)
 	fp1, _ := fingerprint(call, at)
 	fp2, _ := fingerprint(call, at.Add(time.Second))
-	if fp1.EstimatedTokens != fp2.EstimatedTokens || fp1.ItemCount != fp2.ItemCount {
+	if fp1.EstimatedTokens != fp2.EstimatedTokens || fp1.ItemCount != fp2.ItemCount ||
+		fp1.TailLen != fp2.TailLen || fp1.PrefixHash != fp2.PrefixHash || fp1.TailHashes != fp2.TailHashes {
 		t.Fatalf("fingerprint not deterministic: %+v vs %+v", fp1, fp2)
 	}
 	if fp1.TailLen != 2 || fp1.PrefixItems != 3 {
@@ -176,7 +177,9 @@ func TestHeuristic_strictOnlyForSameBaseline(t *testing.T) {
 	if evs := d.RequestOpened(reqMeta("tr-1"), itemCall(bigText(40000), "t1", "t2")); len(evs) != 0 {
 		t.Fatalf("setup emitted: %+v", evs)
 	}
-	_ = d.ResponseReleased(resMeta("tr-1"), assistantItem("[CONTEXT SUMMARY]: compacted"))
+	if got := d.ResponseReleased(resMeta("tr-1"), assistantItem("[CONTEXT SUMMARY]: compacted")); len(got) != 1 {
+		t.Fatalf("strict completion missing: %+v", got)
+	}
 	// Ordinary request stores a fresh baseline; the flag must reset.
 	if evs := d.RequestOpened(reqMeta("tr-2"), itemCall("ordinary turn")); len(evs) != 0 {
 		t.Fatalf("ordinary emitted: %+v", evs)
@@ -184,7 +187,9 @@ func TestHeuristic_strictOnlyForSameBaseline(t *testing.T) {
 	if evs := d.RequestOpened(reqMeta("tr-3"), itemCall(bigText(40000), "u1", "u2")); len(evs) != 0 {
 		t.Fatalf("setup emitted: %+v", evs)
 	}
-	_ = d.ResponseReleased(resMeta("tr-3"), assistantItem("ordinary response"))
+	if got := d.ResponseReleased(resMeta("tr-3"), assistantItem("ordinary response")); len(got) != 0 {
+		t.Fatalf("ordinary response completed unexpectedly: %+v", got)
+	}
 	evs := d.RequestOpened(reqMeta("tr-4"), itemCall(bigText(6000), "u1", "u2"))
 	if len(evs) != 1 || evs[0].Evidence != compaction.EvidenceHistoryHeuristic {
 		t.Fatalf("heuristic after fresh baseline missing: %+v", evs)

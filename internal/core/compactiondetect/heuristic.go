@@ -2,6 +2,7 @@ package compactiondetect
 
 import (
 	"crypto/sha256"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -95,23 +96,29 @@ func estimateTokens(call lipapi.Call) int {
 // rewritten history changes hashes when content is dropped.
 func itemCanonical(it lipapi.Item) []byte {
 	var b strings.Builder
-	b.WriteString(string(it.Kind))
-	b.WriteByte('\x00')
-	b.WriteString(string(it.Role))
-	b.WriteByte('\x00')
+	writeField := func(name, value string) {
+		b.WriteString(name)
+		b.WriteByte('=')
+		b.WriteString(strconv.Itoa(len(value)))
+		b.WriteByte(':')
+		b.WriteString(value)
+		b.WriteByte('|')
+	}
+	writeField("kind", string(it.Kind))
+	writeField("role", string(it.Role))
 	for _, cp := range it.Content {
-		b.WriteString(cp.Text)
-		b.WriteString(cp.Refusal)
-		b.WriteString(cp.Summary)
-		b.WriteByte('\x1f')
+		writeField("content.kind", string(cp.Kind))
+		writeField("content.text", cp.Text)
+		writeField("content.refusal", cp.Refusal)
+		writeField("content.summary", cp.Summary)
 	}
 	if it.ToolCall != nil {
-		b.WriteString(it.ToolCall.Name)
-		b.WriteByte('\x1f')
+		writeField("tool_call", "present")
+		writeField("tool_call.name", it.ToolCall.Name)
 	}
 	if it.ToolResult != nil {
-		b.WriteString(it.ToolResult.Output)
-		b.WriteByte('\x1f')
+		writeField("tool_result", "present")
+		writeField("tool_result.output", it.ToolResult.Output)
 	}
 	return []byte(b.String())
 }

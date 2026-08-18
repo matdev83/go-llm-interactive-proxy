@@ -280,6 +280,12 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 			t.Fatalf("%s: got %d want 2", c.name, c.got)
 		}
 	}
+	for i, want := range []string{"co1", "co2"} {
+		observer, ok := m.CompactionObservers[i].(testCompactionObs)
+		if !ok || observer.tag != want {
+			t.Fatalf("CompactionObservers[%d]=%T/%q want %q", i, m.CompactionObservers[i], observer.tag, want)
+		}
+	}
 }
 
 func TestMergeBundles_ToolCallFinalizationMaxArgsBytesMin(t *testing.T) {

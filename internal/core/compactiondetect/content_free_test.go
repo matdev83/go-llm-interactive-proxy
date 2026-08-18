@@ -1,6 +1,7 @@
 package compactiondetect
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 	"testing"
@@ -50,9 +51,17 @@ func TestContentFree_stateAndEvents(t *testing.T) {
 		t.Fatalf("legs=%d want 1", len(d.legs))
 	}
 	for id, ls := range d.legs {
-		s := fmt.Sprintf("%+v", ls)
-		if strings.Contains(s, secret) {
-			t.Fatalf("stored state for leg %q leaked fixture text: %s", id, s)
+		if ls.releaseText.Len() != 0 {
+			t.Fatalf("stored state for leg %q retained %d release-text bytes", id, ls.releaseText.Len())
+		}
+		stateBytes := []byte(fmt.Sprintf("%+v", ls))
+		stateBytes = append(stateBytes, ls.releaseText.String()...)
+		for _, hash := range ls.lastFP.TailHashes {
+			stateBytes = append(stateBytes, hash[:]...)
+		}
+		stateBytes = append(stateBytes, ls.lastFP.PrefixHash[:]...)
+		if bytes.Contains(stateBytes, []byte(secret)) || strings.Contains(string(stateBytes), secret) {
+			t.Fatalf("stored state for leg %q leaked fixture text", id)
 		}
 	}
 }

@@ -283,14 +283,19 @@ func matchStartRule(info requestInfo) (rule, bool) {
 }
 
 // matchCompleteRule returns the first rule whose released-text post-marker
-// predicate matches. The protocol rule completes through canonical items and
-// the explicit-compact terminal instead of text, so it is not consulted here.
-func matchCompleteRule(text string) (rule, bool) {
+// predicate matches. Start-bearing rules may complete only their active
+// transaction; completion-only rules may match without an active transaction.
+// The protocol rule completes through canonical items and the explicit-compact
+// terminal instead of text, so it is not consulted here.
+func matchCompleteRule(text, activeRuleID string) (rule, bool) {
 	if text == "" {
 		return rule{}, false
 	}
 	for _, r := range ruleTable {
 		if r.complete == nil {
+			continue
+		}
+		if r.mode != modeCompletionOnly && r.id != activeRuleID {
 			continue
 		}
 		if r.complete(text) {

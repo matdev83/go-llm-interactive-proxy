@@ -116,7 +116,9 @@ func TestRuleMatrix_positives(t *testing.T) {
 			t.Parallel()
 			d := testDetector(t)
 			call := tc.call
-			call.Invocation.Operation = tc.op
+			if tc.op != "" {
+				call.Invocation.Operation = tc.op
+			}
 			evs := d.RequestOpened(reqMeta("tr-"+tc.name), call)
 			if len(evs) != 1 {
 				t.Fatalf("events=%v want exactly one started", evs)
@@ -410,7 +412,8 @@ func TestRuleMatrix_protocolTerminalCompletion(t *testing.T) {
 // never fabricate completion (the terminal fails closed).
 func TestRuleMatrix_protocolTerminalRequiresSuccess(t *testing.T) {
 	t.Parallel()
-	start := func(d *Detector) { // opens a protocol transaction
+	start := func(t *testing.T, d *Detector) { // opens a protocol transaction
+		t.Helper()
 		call := textCall("compact", 0)
 		call.Invocation.Operation = lipapi.OperationContextCompaction
 		if evs := d.RequestOpened(reqMeta("tr-fin"), call); len(evs) != 1 || evs[0].RuleID != "protocol.context_compaction.v1" {
@@ -421,7 +424,7 @@ func TestRuleMatrix_protocolTerminalRequiresSuccess(t *testing.T) {
 	t.Run("incomplete status blocked", func(t *testing.T) {
 		t.Parallel()
 		d := testDetector(t)
-		start(d)
+		start(t, d)
 		fin := lipapi.Event{Kind: lipapi.EventResponseFinished, ResponseStatus: "incomplete", FinishReason: "length"}
 		if got := d.ResponseReleased(resMeta("tr-fin"), fin); len(got) != 0 {
 			t.Fatalf("incomplete terminal emitted completion: %+v", got)
@@ -431,7 +434,7 @@ func TestRuleMatrix_protocolTerminalRequiresSuccess(t *testing.T) {
 	t.Run("legacy truncation finish blocked", func(t *testing.T) {
 		t.Parallel()
 		d := testDetector(t)
-		start(d)
+		start(t, d)
 		for _, reason := range []string{"length", "max_tokens"} {
 			fin := lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: reason}
 			if got := d.ResponseReleased(resMeta("tr-fin"), fin); len(got) != 0 {
@@ -443,7 +446,7 @@ func TestRuleMatrix_protocolTerminalRequiresSuccess(t *testing.T) {
 	t.Run("cancellation finish blocked", func(t *testing.T) {
 		t.Parallel()
 		d := testDetector(t)
-		start(d)
+		start(t, d)
 		fin := lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: "cancelled"}
 		if got := d.ResponseReleased(resMeta("tr-fin"), fin); len(got) != 0 {
 			t.Fatalf("cancelled terminal emitted completion: %+v", got)
@@ -453,7 +456,7 @@ func TestRuleMatrix_protocolTerminalRequiresSuccess(t *testing.T) {
 	t.Run("proxy recovery finish blocked", func(t *testing.T) {
 		t.Parallel()
 		d := testDetector(t)
-		start(d)
+		start(t, d)
 		fin := lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: "proxy_stream_recovered"}
 		if got := d.ResponseReleased(resMeta("tr-fin"), fin); len(got) != 0 {
 			t.Fatalf("proxy recovery terminal emitted completion: %+v", got)
@@ -463,7 +466,7 @@ func TestRuleMatrix_protocolTerminalRequiresSuccess(t *testing.T) {
 	t.Run("authoritative completed status wins over ambiguous reason", func(t *testing.T) {
 		t.Parallel()
 		d := testDetector(t)
-		start(d)
+		start(t, d)
 		fin := lipapi.Event{Kind: lipapi.EventResponseFinished, ResponseStatus: "completed", FinishReason: "content_filter"}
 		got := d.ResponseReleased(resMeta("tr-fin"), fin)
 		if len(got) != 1 || got[0].Phase != compaction.PhaseCompleted || got[0].Evidence != compaction.EvidenceProtocolStrict {
@@ -474,7 +477,7 @@ func TestRuleMatrix_protocolTerminalRequiresSuccess(t *testing.T) {
 	t.Run("unknown finish reason blocked", func(t *testing.T) {
 		t.Parallel()
 		d := testDetector(t)
-		start(d)
+		start(t, d)
 		// Legacy inference fails closed: without an authoritative ResponseStatus,
 		// ambiguous, unknown, and empty finish reasons never fabricate a
 		// completion.
@@ -489,7 +492,7 @@ func TestRuleMatrix_protocolTerminalRequiresSuccess(t *testing.T) {
 	t.Run("canonical end_turn finish completes", func(t *testing.T) {
 		t.Parallel()
 		d := testDetector(t)
-		start(d)
+		start(t, d)
 		fin := lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: "end_turn"}
 		got := d.ResponseReleased(resMeta("tr-fin"), fin)
 		if len(got) != 1 || got[0].Phase != compaction.PhaseCompleted || got[0].Evidence != compaction.EvidenceProtocolStrict {
@@ -500,7 +503,7 @@ func TestRuleMatrix_protocolTerminalRequiresSuccess(t *testing.T) {
 	t.Run("blocked terminal does not suppress later compaction", func(t *testing.T) {
 		t.Parallel()
 		d := testDetector(t)
-		start(d)
+		start(t, d)
 		// The uncompleted transaction survives the blocked terminal; an ordinary
 		// request closes it silently, and the next explicit compact starts fresh.
 		if evs := d.RequestOpened(reqMeta("tr-fin2"), textCall("ordinary turn", 0)); len(evs) != 0 {

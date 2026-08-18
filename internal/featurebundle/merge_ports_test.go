@@ -89,6 +89,12 @@ func TestCompactionObservers_portWiring(t *testing.T) {
 	if len(merged.CompactionObservers) != 3 {
 		t.Fatalf("CompactionObservers len=%d want 3", len(merged.CompactionObservers))
 	}
+	for i, want := range []string{"a", "z", "m"} {
+		got, ok := merged.CompactionObservers[i].(mergeStubCompactionObserver)
+		if !ok || got.id != want {
+			t.Fatalf("merged observer[%d]=%T/%q want %q", i, merged.CompactionObservers[i], got.id, want)
+		}
+	}
 
 	opts := extensions.SnapshotOptions{CompactionObservers: merged.CompactionObservers}
 	if len(opts.CompactionObservers) != 3 {
@@ -99,6 +105,12 @@ func TestCompactionObservers_portWiring(t *testing.T) {
 	got := snap.CompactionObservers()
 	if len(got) != 3 {
 		t.Fatalf("snapshot CompactionObservers len=%d want 3", len(got))
+	}
+	for i, want := range []string{"a", "z", "m"} {
+		observer, ok := got[i].(mergeStubCompactionObserver)
+		if !ok || observer.id != want {
+			t.Fatalf("snapshot observer[%d]=%T/%q want %q", i, got[i], observer.id, want)
+		}
 	}
 	// The accessor must return a defensive copy: mutating it cannot change the
 	// frozen snapshot backing store.

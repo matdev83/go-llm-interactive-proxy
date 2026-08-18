@@ -176,28 +176,29 @@ func TestTransactions_staleExpiry(t *testing.T) {
 func TestTransactions_amortizedSweep(t *testing.T) {
 	t.Parallel()
 	clock := newFakeClock()
-	// TTL 30s is smaller than the 60s sweep interval so staleness can fall
+	// The TTL is smaller than the sweep interval so staleness can fall
 	// between two sweep boundaries.
-	d := New(Config{IdleTTL: 30 * time.Second, Now: clock.Now})
+	idleTTL := defaultSweepInterval / 2
+	d := New(Config{IdleTTL: idleTTL, Now: clock.Now})
 
 	// t=0: first call sweeps (lastSweep is zero) and stores a large fingerprint.
 	if evs := d.RequestOpened(reqMeta("tr-am1"), itemCall(bigText(40000), "t1", "t2")); len(evs) != 0 {
 		t.Fatalf("setup emitted: %+v", evs)
 	}
 
-	// t=31: the leg (lastSeen 0) is stale (age 31 > TTL 30) but inside the
+	// The leg is stale but inside the
 	// amortization interval since the t=0 sweep, so its history must survive
 	// and the heuristic rewrite still fires.
-	clock.Advance(31 * time.Second)
+	clock.Advance(idleTTL + time.Second)
 	evs := d.RequestOpened(reqMeta("tr-am2"), itemCall(bigText(6000), "t1", "t2"))
 	if len(evs) != 1 || evs[0].Evidence != compaction.EvidenceHistoryHeuristic {
 		t.Fatalf("amortized sweep lost in-flight history: %+v", evs)
 	}
 
-	// t=92: a detector call crosses the next sweep boundary; the stale leg
-	// (lastSeen 31) is evicted (age 61 > TTL 30) and recreated fresh, so its
+	// A detector call crosses the next sweep boundary; the stale leg
+	// is evicted and recreated fresh, so its
 	// prior fingerprint history is gone.
-	clock.Advance(61 * time.Second)
+	clock.Advance(defaultSweepInterval)
 	if evs := d.RequestOpened(reqMeta("tr-am3"), itemCall(bigText(40000), "u1", "u2")); len(evs) != 0 {
 		t.Fatalf("setup emitted: %+v", evs)
 	}
@@ -219,7 +220,9 @@ func TestTransactions_maxEntryEviction(t *testing.T) {
 
 	open := func(leg, trace string) []compaction.Event {
 		meta := RequestMeta{TraceID: trace, ALegID: leg, BLegID: "b", AttemptSeq: 1}
-		return d.RequestOpened(meta, itemCall(bigText(40000), "t1", "t2"))
+		evs := d.RequestOpened(meta, itemCall(bigText(40000), "t1", "t2"))
+		clock.Advance(time.Second)
+		return evs
 	}
 	// Fill and overflow the bound: leg-a is the oldest and must be evicted.
 	if evs := open("leg-a", "tr-a"); len(evs) != 0 {

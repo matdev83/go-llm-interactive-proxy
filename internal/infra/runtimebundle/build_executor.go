@@ -68,6 +68,9 @@ type executorBuildInput struct {
 	AccountingStores   *processAccountingStores
 	Metering           *meteringRuntime
 	BackendIdentities  map[string]BackendStateIdentity
+	// CompactionDetector is the process-owned detector shared by all
+	// generations. Nil disables compaction observation.
+	CompactionDetector *compactiondetect.Detector
 }
 
 // buildExecutorRuntime runs the executor-assembly sequence: routing resolution,
@@ -78,7 +81,7 @@ type executorBuildInput struct {
 // invariant boundary: no post-construction field mutation occurs.
 // Accounting ledger and metering stores are process-owned; this bind only
 // attaches generation backends to those shared identities.
-func buildExecutorRuntime(in executorBuildInput, compaction *compactiondetect.Detector) (*executorRuntime, error) {
+func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	bctx := in.Bctx
 	cfg, log, opts := bctx.Cfg, bctx.Log, bctx.Opts
 
@@ -255,7 +258,7 @@ func buildExecutorRuntime(in executorBuildInput, compaction *compactiondetect.De
 			ToolCallFinalizationMaxArgsBytes: maxArgsBytes,
 		},
 		Interleaved: interleaved,
-		Compaction:  runtime.CompactionRuntime{Detector: compaction},
+		Compaction:  runtime.CompactionRuntime{Detector: in.CompactionDetector},
 	})
 
 	secureSessionStore := in.Persistence.SecureSession.appStore

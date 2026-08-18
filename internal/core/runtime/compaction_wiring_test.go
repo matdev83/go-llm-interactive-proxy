@@ -111,9 +111,11 @@ func openStubBackend(opens func() lipapi.ManagedEventStream) execbackend.Backend
 
 func drain(t *testing.T, stream lipapi.EventStream) []lipapi.Event {
 	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	var out []lipapi.Event
 	for {
-		ev, err := stream.Recv(context.Background())
+		ev, err := stream.Recv(ctx)
 		if errors.Is(err, io.EOF) {
 			return out
 		}
@@ -338,8 +340,12 @@ func TestCompactionWiring_releasedItemObservedOnce(t *testing.T) {
 	if releasedItem == nil {
 		t.Fatal("compaction item was not released to the client")
 	}
-	if !reflect.DeepEqual(releasedItem.Item, itemEv.Item) {
-		t.Fatalf("released compaction item mutated:\n got %+v\nwant %+v", releasedItem.Item, itemEv.Item)
+	want := &lipapi.Item{
+		Kind: lipapi.ItemKindCompaction, ID: "cmp-1", Status: lipapi.ItemStatusCompleted,
+		Compaction: &lipapi.CompactionItem{EncapsulatedID: "enc-1"},
+	}
+	if !reflect.DeepEqual(releasedItem.Item, want) {
+		t.Fatalf("released compaction item mutated:\n got %+v\nwant %+v", releasedItem.Item, want)
 	}
 }
 
@@ -490,15 +496,16 @@ func (c *wiringClock) Advance(d time.Duration) {
 // must not extend the A-leg lifetime past the detector IdleTTL.
 //
 // Timeline: the response starts at t0 (leg lastSeen = t0), keepalives arrive
-// at t0+40s and t0+65s, and the terminal arrives at t0+65s — past the 30s
-// IdleTTL and across the 60s sweep boundary. Had the keepalives refreshed
+// after the IdleTTL but before and across the sweep boundary, and the
+// terminal arrives after both. Had the keepalives refreshed
 // lastSeen, the protocol transaction would survive the sweep and the "stop"
 // terminal would complete it; with the fix the idle leg is evicted instead
 // and the terminal closes nothing.
 func TestCompactionWiring_keepaliveNeverObserved(t *testing.T) {
 	t.Parallel()
 	clock := &wiringClock{t: time.Unix(100, 0).UTC()}
-	d := compactiondetect.New(compactiondetect.Config{IdleTTL: 30 * time.Second, Now: clock.Now})
+	idleTTL := 30 * time.Second
+	d := compactiondetect.New(compactiondetect.Config{IdleTTL: idleTTL, Now: clock.Now})
 	rec := &recordingCompactionObserver{}
 	ex := compactionTestExecutor(t, d, rec)
 	ex.Backends = map[string]execbackend.Backend{
@@ -528,10 +535,10 @@ func TestCompactionWiring_keepaliveNeverObserved(t *testing.T) {
 		got = append(got, ev)
 		return ev
 	}
-	_ = recv(0)                // response starts at t0; leg lastSeen = t0
-	_ = recv(40 * time.Second) // keepalive at t0+40 — must not refresh the leg
-	_ = recv(25 * time.Second) // keepalive at t0+65 — must not refresh the leg
-	fin := recv(0)             // terminal at t0+65, past the IdleTTL and sweep boundary
+	_ = recv(0)                                     // response starts at t0; leg lastSeen = t0
+	_ = recv(idleTTL + time.Second)                 // past IdleTTL, before sweep
+	_ = recv(compactiondetect.DefaultSweepInterval) // across sweep boundary
+	fin := recv(0)                                  // terminal after eviction
 
 	// The keepalives still flow to the client — only their observation is
 	// skipped, so this failure mode is about the guard, not event delivery.

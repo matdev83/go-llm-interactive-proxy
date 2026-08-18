@@ -37,7 +37,7 @@ func (e *Executor) observeCompactionOpened(ctx context.Context, prep *preparedRe
 		AttemptSeq: out.bleg.Seq,
 		SessionID:  prep.baseline.Session.AuthoritativeSessionID,
 	}
-	events := e.CompactionRuntime.Detector.RequestOpened(meta, prep.baseline)
+	events := safeCompactionRequestOpened(e.CompactionRuntime.Detector, meta, prep.baseline)
 	if len(events) == 0 {
 		return
 	}
@@ -63,9 +63,27 @@ func (s *retryRecvStream) observeCompactionRelease(ctx context.Context, ev lipap
 		AttemptSeq: s.bleg.Seq,
 		SessionID:  s.baseline.Session.AuthoritativeSessionID,
 	}
-	events := s.executor.CompactionRuntime.Detector.ResponseReleased(meta, ev)
+	events := safeCompactionResponseReleased(s.executor.CompactionRuntime.Detector, meta, ev)
 	if len(events) == 0 {
 		return
 	}
 	compaction.Dispatch(ctx, observers, events)
+}
+
+func safeCompactionRequestOpened(d *compactiondetect.Detector, meta compactiondetect.RequestMeta, call lipapi.Call) (events []compaction.Event) {
+	defer func() {
+		if recover() != nil {
+			events = nil
+		}
+	}()
+	return d.RequestOpened(meta, call)
+}
+
+func safeCompactionResponseReleased(d *compactiondetect.Detector, meta compactiondetect.ResponseMeta, ev lipapi.Event) (events []compaction.Event) {
+	defer func() {
+		if recover() != nil {
+			events = nil
+		}
+	}()
+	return d.ResponseReleased(meta, ev)
 }

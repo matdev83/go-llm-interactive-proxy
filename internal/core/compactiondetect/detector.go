@@ -20,13 +20,14 @@ const (
 	defaultMaxLegs = 4096
 	defaultIdleTTL = 24 * time.Hour
 
-	// defaultSweepInterval bounds how often the full-map inactivity sweep runs.
+	// DefaultSweepInterval bounds how often the full-map inactivity sweep runs.
 	// The release path calls the detector for every canonical event, so the
 	// O(maxLegs) TTL scan is amortized to once per interval instead of once per
 	// event (F3). TTL expiry is therefore approximate within one interval —
 	// acceptable for lazy hygiene, since the hard max-entry cap is enforced
 	// separately at leg creation (O(1) check on every call).
-	defaultSweepInterval = time.Minute
+	DefaultSweepInterval = time.Minute
+	defaultSweepInterval = DefaultSweepInterval
 
 	// releaseTextWindow bounds the rolling window of released response text
 	// retained per response for cross-delta post-marker matching (requirement
@@ -246,7 +247,11 @@ func (d *Detector) PreviewResponse(meta ResponseMeta, ev lipapi.Event) ResponseP
 		window = ls.releaseText.String()
 	}
 	window += strings.ToLower(text)
-	if r, ok := matchCompleteRule(window); ok {
+	activeRuleID := ""
+	if ls != nil && ls.active != nil && !ls.active.completed {
+		activeRuleID = ls.active.ruleID
+	}
+	if r, ok := matchCompleteRule(window, activeRuleID); ok {
 		return d.previewCompletionLocked(meta, ls, r)
 	}
 	return ResponsePreview{Kind: PreviewNone}
@@ -307,6 +312,7 @@ func (d *Detector) RequestOpened(meta RequestMeta, call lipapi.Call) []compactio
 	var events []compaction.Event
 
 	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.sweepLocked(now)
 	ls := d.leg(meta.ALegID, now)
 
@@ -356,7 +362,6 @@ func (d *Detector) RequestOpened(meta RequestMeta, call lipapi.Call) []compactio
 	ls.lastFP = fp
 	ls.lastFingerprintStrictComplete = false
 	ls.lastSeen = now
-	d.mu.Unlock()
 
 	return events
 }
@@ -376,6 +381,7 @@ func (d *Detector) ResponseReleased(meta ResponseMeta, ev lipapi.Event) []compac
 	var events []compaction.Event
 
 	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.sweepLocked(now)
 	ls := d.leg(meta.ALegID, now)
 
@@ -403,7 +409,11 @@ func (d *Detector) ResponseReleased(meta ResponseMeta, ev lipapi.Event) []compac
 	// bounded and discarded after matching/completion (requirement 7.3).
 	if text := releasedText(ev); text != "" {
 		ls.releaseText.WriteString(strings.ToLower(text))
-		if r, ok := matchCompleteRule(ls.releaseText.String()); ok {
+		activeRuleID := ""
+		if ls.active != nil && !ls.active.completed {
+			activeRuleID = ls.active.ruleID
+		}
+		if r, ok := matchCompleteRule(ls.releaseText.String(), activeRuleID); ok {
 			if out, ok := d.completeByRuleLocked(meta, ls, r, now); ok {
 				events = append(events, out)
 				ls.releaseText.Reset()
@@ -429,7 +439,6 @@ func (d *Detector) ResponseReleased(meta ResponseMeta, ev lipapi.Event) []compac
 		ls.lastFingerprintStrictComplete = true
 	}
 	ls.lastSeen = now
-	d.mu.Unlock()
 
 	return events
 }
@@ -510,7 +519,7 @@ func (d *Detector) leg(aLegID string, at time.Time) *legState {
 	ls = &legState{lastSeen: at}
 	d.legs[aLegID] = ls
 	if len(d.legs) > d.maxLegs {
-		d.evictOldestLocked()
+		d.evictOldestLocked(aLegID)
 	}
 	return ls
 }
@@ -518,10 +527,13 @@ func (d *Detector) leg(aLegID string, at time.Time) *legState {
 // evictOldestLocked removes the least-recently-seen leg. Caller holds the
 // lock. Ties on lastSeen are broken by lexicographically smaller A-leg id so
 // eviction is deterministic.
-func (d *Detector) evictOldestLocked() {
+func (d *Detector) evictOldestLocked(excludeID string) {
 	oldestID := ""
 	var oldest time.Time
 	for id, ls := range d.legs {
+		if id == excludeID {
+			continue
+		}
 		if oldestID == "" || ls.lastSeen.Before(oldest) || (ls.lastSeen.Equal(oldest) && id < oldestID) {
 			oldestID, oldest = id, ls.lastSeen
 		}

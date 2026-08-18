@@ -16,8 +16,11 @@ func TestPreviewRequestIsPureAndSharesCommittedAuthority(t *testing.T) {
 	if preview.Kind != PreviewStartCandidate || preview.RuleID != "codex.local_checkpoint.v1" {
 		t.Fatalf("preview=%+v", preview)
 	}
-	if len(d.legs) != 0 {
-		t.Fatalf("request preview mutated detector legs: %d", len(d.legs))
+	d.mu.Lock()
+	legCount := len(d.legs)
+	d.mu.Unlock()
+	if legCount != 0 {
+		t.Fatalf("request preview mutated detector legs: %d", legCount)
 	}
 	if again := d.PreviewRequest(meta, call); again.Kind != preview.Kind || again.RuleID != preview.RuleID {
 		t.Fatalf("repeated preview changed: first=%+v second=%+v", preview, again)
@@ -44,8 +47,13 @@ func TestPreviewResponseIsPureAndCommittedReleaseStillSeesEvent(t *testing.T) {
 	if preview.Kind != PreviewCompletionCandidate || preview.RuleID != "codex.local_checkpoint.v1" {
 		t.Fatalf("preview=%+v", preview)
 	}
-	if len(d.legs) != 1 || d.legs[meta.ALegID].active.completed {
-		t.Fatalf("response preview mutated detector state: legs=%d state=%+v", len(d.legs), d.legs[meta.ALegID])
+	d.mu.Lock()
+	legCount := len(d.legs)
+	active := d.legs[meta.ALegID]
+	activeCompleted := active != nil && active.active != nil && active.active.completed
+	d.mu.Unlock()
+	if legCount != 1 || active == nil || activeCompleted {
+		t.Fatalf("response preview mutated detector state: legs=%d state=%+v", legCount, active)
 	}
 	if events := d.ResponseReleased(meta, release); len(events) != 1 || events[0].Phase != "completed" {
 		t.Fatalf("committed response events=%v", events)
@@ -68,8 +76,15 @@ func TestPreviewRequestHistoryBoundaryIsStableAndNonCommitting(t *testing.T) {
 	if preview.Kind != PreviewCompletionCandidate || preview.Evidence != "history_heuristic" || preview.BoundaryFingerprint == "" {
 		t.Fatalf("preview=%+v", preview)
 	}
-	if d.legs[meta.ALegID].lastFP.TraceID != "history-prior" {
-		t.Fatalf("preview changed last fingerprint: %+v", d.legs[meta.ALegID].lastFP)
+	d.mu.Lock()
+	active := d.legs[meta.ALegID]
+	lastTrace := ""
+	if active != nil {
+		lastTrace = active.lastFP.TraceID
+	}
+	d.mu.Unlock()
+	if active == nil || lastTrace != "history-prior" {
+		t.Fatalf("preview changed last fingerprint: leg=%+v", active)
 	}
 	if events := d.RequestOpened(meta, current); len(events) != 1 || events[0].Phase != "completed" {
 		t.Fatalf("committed history events=%v", events)
