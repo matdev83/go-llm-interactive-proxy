@@ -26,9 +26,9 @@ func TestBillingCallState_OwnershipAndBillingCallID(t *testing.T) {
 	executor := TestExecutor()
 	executor.Store = st
 	executor.Bus = hooks.New(hooks.Config{})
-	executor.CallUsageAppender = billing.CallUsageAppenderFunc(func(ctx context.Context, record billing.CallUsageRecord) error {
+	executor.TerminalUsageSink = testTerminalSink{appendCall: func(ctx context.Context, record billing.CallUsageRecord) error {
 		return nil
-	})
+	}}
 
 	call1 := &lipapi.Call{
 		ID:      "call-1",

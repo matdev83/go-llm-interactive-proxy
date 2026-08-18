@@ -26,10 +26,6 @@ func EvaluateBillingCustomerOperatorIndependence(root string) ([]RuleFinding, er
 		root, "internal/core/billing/call_rating.go", "CallRatingInput",
 		"Operator", BillingCorrectnessRuleCustomerInputCarriesOperatorRates,
 		"customer rating input must not carry operator-rate collections")...)
-	out = append(out, scanStructFieldNamesForbidden(
-		root, "internal/core/billing/rating.go", "RatingInput",
-		"Operator", BillingCorrectnessRuleCustomerInputCarriesOperatorRates,
-		"customer rating input must not carry operator-rate collections")...)
 	out = append(out, requireProviderPathResolvesOperatorRate(root)...)
 	return out, nil
 }

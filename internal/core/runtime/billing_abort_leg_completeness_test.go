@@ -34,6 +34,14 @@ func (c *abortJoinCapture) appendCall(_ context.Context, record billing.CallUsag
 	return nil
 }
 
+func (c *abortJoinCapture) AppendCall(ctx context.Context, record billing.CallUsageRecord) error {
+	return c.appendCall(ctx, record)
+}
+
+func (c *abortJoinCapture) AppendLeg(ctx context.Context, record billing.CallLegUsageRecord) error {
+	return c.appendLeg(ctx, record)
+}
+
 func (c *abortJoinCapture) appendLeg(_ context.Context, record billing.CallLegUsageRecord) error {
 	sealed, err := record.Seal()
 	if err != nil {
@@ -73,8 +81,7 @@ func wireAbortBilling(ex *Executor, capture *abortJoinCapture) {
 			ChargePolicyRef: billing.VersionRef{ID: "policy:test", Version: "1"},
 		}, nil
 	})
-	ex.CallUsageAppender = billing.CallUsageAppenderFunc(capture.appendCall)
-	ex.CallLegUsageAppender = billing.CallLegUsageAppenderFunc(capture.appendLeg)
+	ex.TerminalUsageSink = capture
 }
 
 func assertJoinableAbort(t *testing.T, calls []billing.CallUsageRecord, legs []billing.CallLegUsageRecord) {

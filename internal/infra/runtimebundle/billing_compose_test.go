@@ -37,11 +37,8 @@ func TestComposeBilling(t *testing.T) {
 		if bundle.Executor() == nil || !bundle.Executor().BillingAuthoritative {
 			t.Fatal("BuildHost did not accept composed authoritative billing")
 		}
-		if _, ok := bundle.Executor().CallUsageAppender.(*billing.RetryingCallUsageAppender); !ok {
-			t.Fatalf("CallUsageAppender = %T, want durable retry adapter", bundle.Executor().CallUsageAppender)
-		}
-		if _, ok := bundle.Executor().CallLegUsageAppender.(*billing.RetryingCallLegUsageAppender); !ok {
-			t.Fatalf("CallLegUsageAppender = %T, want durable retry adapter", bundle.Executor().CallLegUsageAppender)
+		if bundle.Executor().TerminalUsageSink == nil {
+			t.Fatal("TerminalUsageSink was not wired")
 		}
 		httpIn := bundle.StandardHTTPInput(cfg, nil, "")
 		if httpIn.Operations.BillingReportsPath != in.ReportsPath {
@@ -76,17 +73,14 @@ func TestComposeBilling(t *testing.T) {
 			{name: "empty currency", mut: func(in *runtimebundle.ComposeBillingInput) { in.Currency = "" }},
 			{name: "whitespace currency", mut: func(in *runtimebundle.ComposeBillingInput) { in.Currency = "   " }},
 			{name: "nil model max-output", mut: func(in *runtimebundle.ComposeBillingInput) { in.ModelMaxOutput = nil }},
-			{name: "store missing usage-record appender", mut: func(in *runtimebundle.ComposeBillingInput) {
-				in.Store = &journalWithoutAppender{}
+			{name: "store missing usage record sink", mut: func(in *runtimebundle.ComposeBillingInput) {
+				in.Store = &journalWithoutTerminalSink{}
 			}},
-			{name: "store missing call-leg usage appender", mut: func(in *runtimebundle.ComposeBillingInput) {
-				in.Store = &journalWithoutCallLegUsageAppender{}
+			{name: "store missing call-leg sink", mut: func(in *runtimebundle.ComposeBillingInput) {
+				in.Store = &journalWithoutCallLegSink{}
 			}},
-			{name: "store missing call usage appender", mut: func(in *runtimebundle.ComposeBillingInput) {
-				in.Store = &journalWithoutCallUsageAppender{}
-			}},
-			{name: "store missing usage append outbox", mut: func(in *runtimebundle.ComposeBillingInput) {
-				in.Store = &journalWithoutUsageAppendOutbox{}
+			{name: "store missing call sink", mut: func(in *runtimebundle.ComposeBillingInput) {
+				in.Store = &journalWithoutCallSink{}
 			}},
 			{name: "store missing exposure admission", mut: func(in *runtimebundle.ComposeBillingInput) {
 				in.Store = &journalWithoutExposure{}
@@ -200,11 +194,8 @@ func assertCompleteProduction(t *testing.T, prod runtimebundle.ProductionOptions
 	if prod.BillingReports != billing.ReportingStore(store) {
 		t.Fatal("BillingReports is not the injected journal")
 	}
-	if _, ok := prod.BillingStore.(billing.UsageAppendOutbox); !ok {
-		t.Fatal("BillingStore is missing the durable usage append outbox")
-	}
-	if prod.BillingCallUsageAppender != billing.CallUsageAppender(store) {
-		t.Fatal("BillingCallUsageAppender is not the injected durable spool")
+	if prod.BillingTerminalUsageSink == nil {
+		t.Fatal("BillingTerminalUsageSink is required")
 	}
 	if prod.BillingCreditGate == nil {
 		t.Fatal("BillingCreditGate is required for authoritative composition")
@@ -280,6 +271,7 @@ func validComposeInput(t *testing.T) (runtimebundle.ComposeBillingInput, *comple
 	store := &completeJournal{}
 	return runtimebundle.ComposeBillingInput{
 		Store:               store,
+		TerminalUsageSink:   store,
 		Catalog:             catalog,
 		Currency:            "USD",
 		ModelMaxOutput:      composeModelMax,
@@ -404,13 +396,13 @@ func (journalProvision) ChangeCreditPolicy(context.Context, billing.CreditPolicy
 
 type journalCallLegUsage struct{}
 
-func (journalCallLegUsage) AppendCallLegUsage(context.Context, billing.CallLegUsageRecord) error {
+func (journalCallLegUsage) AppendLeg(context.Context, billing.CallLegUsageRecord) error {
 	return nil
 }
 
 type journalCallUsage struct{}
 
-func (journalCallUsage) AppendCallUsage(context.Context, billing.CallUsageRecord) error {
+func (journalCallUsage) AppendCall(context.Context, billing.CallUsageRecord) error {
 	return nil
 }
 
@@ -483,7 +475,7 @@ type completeJournal struct {
 	journalProvision
 }
 
-type journalWithoutAppender struct {
+type journalWithoutTerminalSink struct {
 	journalReports
 	journalPostTurn
 	journalCallLegUsage
@@ -492,7 +484,7 @@ type journalWithoutAppender struct {
 	journalProvision
 }
 
-type journalWithoutCallLegUsageAppender struct {
+type journalWithoutCallLegSink struct {
 	journalReports
 	journalPostTurn
 	journalCallUsage
@@ -500,7 +492,7 @@ type journalWithoutCallLegUsageAppender struct {
 	journalProvision
 }
 
-type journalWithoutCallUsageAppender struct {
+type journalWithoutCallSink struct {
 	journalReports
 	journalPostTurn
 	journalCallLegUsage
@@ -530,8 +522,7 @@ type journalWithoutExposure struct {
 
 var (
 	_ billing.AuthoritativeBilling = (*completeJournal)(nil)
-	_ billing.CallLegUsageAppender = (*completeJournal)(nil)
-	_ billing.CallUsageAppender    = (*completeJournal)(nil)
+	_ billing.TerminalUsageSink    = (*completeJournal)(nil)
 	_ billing.AccountProvisioner   = (*completeJournal)(nil)
 )
 

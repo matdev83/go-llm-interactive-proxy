@@ -19,12 +19,12 @@ type mockFailingAppender struct {
 	legAppends  atomic.Int32
 }
 
-func (m *mockFailingAppender) AppendCallUsage(ctx context.Context, record billing.CallUsageRecord) error {
+func (m *mockFailingAppender) AppendCall(ctx context.Context, record billing.CallUsageRecord) error {
 	m.callAppends.Add(1)
 	return errors.New("failing call usage append")
 }
 
-func (m *mockFailingAppender) AppendCallLegUsage(ctx context.Context, record billing.CallLegUsageRecord) error {
+func (m *mockFailingAppender) AppendLeg(ctx context.Context, record billing.CallLegUsageRecord) error {
 	m.legAppends.Add(1)
 	return errors.New("failing leg usage append")
 }
@@ -42,10 +42,9 @@ func TestBillingAppendRetryOutputPersistenceFailureAfterSuccess(t *testing.T) {
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Rand = routing.NewSeededRng(3)
 
-	// Set up the failing appenders
+	// Set up the failing terminal sink.
 	appender := &mockFailingAppender{}
-	ex.CallUsageAppender = appender
-	ex.CallLegUsageAppender = appender
+	ex.TerminalUsageSink = appender
 
 	// Setup Billing Identity
 	ex.BillingIdentity = BillingIdentity{
@@ -114,9 +113,9 @@ func TestBillingAppendRetryOutputPersistenceFailureAfterSuccess(t *testing.T) {
 		t.Fatalf("backend opens = %d, want 1 (no retry/failover occurred)", got)
 	}
 	if got := appender.callAppends.Load(); got == 0 {
-		t.Fatal("AppendCallUsage was not attempted")
+		t.Fatal("AppendCall was not attempted")
 	}
 	if got := appender.legAppends.Load(); got == 0 {
-		t.Fatal("AppendCallLegUsage was not attempted")
+		t.Fatal("AppendLeg was not attempted")
 	}
 }

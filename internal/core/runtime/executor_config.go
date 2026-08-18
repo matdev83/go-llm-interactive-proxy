@@ -68,23 +68,28 @@ type BillingRuntime struct {
 	// BillingExposureAdmission is the authoritative operational-exposure seam.
 	// When set, it replaces hold admission for this executor generation.
 	BillingExposureAdmission BillingExposureAdmission
-	// BillingLegObserver receives one recorded LUR at terminal ownership.
+	// BillingLegObserver receives one recorded current call-leg usage record at terminal ownership.
 	// It is observational only and never participates in authorization,
 	// settlement, retry, cancellation, or client-visible output.
 	BillingLegObserver BillingLegObserver
-	// CallLegUsageAppender appends independent terminal B-leg evidence. Append
-	// failures are detached diagnostics and never affect provider retry/output.
-	CallLegUsageAppender billing.CallLegUsageAppender
-	// CallUsageAppender appends one sealed call-closure record after the
-	// request terminal owner guarantees no further B-leg can be allocated.
-	// Nil is a no-op for non-billing tests.
-	CallUsageAppender billing.CallUsageAppender
+	TerminalUsageSink  billing.TerminalUsageSink
 	// BillingIdentity is the composition identity bundle for exposure admission
 	// and terminal call-closure stamping. It contains no hold/authorization identity.
 	BillingIdentity BillingIdentity
 	// BillingAuthoritative is the composition cutover flag. When true, durable
 	// exposure admission and post-usage processors are the monetary authority.
 	BillingAuthoritative bool
+}
+
+// hasTerminalSink reports whether the process-local terminal sink is wired.
+func (e *Executor) hasTerminalSink() bool {
+	return e != nil && e.TerminalUsageSink != nil
+}
+
+// hasTerminalCallSink reports whether the terminal sink can persist call closure.
+// The leg and call records share one authoritative sink.
+func (e *Executor) hasTerminalCallSink() bool {
+	return e != nil && e.TerminalUsageSink != nil
 }
 
 // RoutingRuntime carries selector parsing, planning, negotiation, and affinity policy.

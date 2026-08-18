@@ -76,6 +76,9 @@ type AccountingConfig struct {
 
 // AccountingBillingConfig enables journal-backed monetary settlement and reports.
 type AccountingBillingConfig struct {
+	// SpoolPath is the stable process-state SQLite path for terminal usage
+	// durability. It must not point at an OS temporary directory in production.
+	SpoolPath string `yaml:"spool_path"`
 	// Authoritative mounts the Bun BillingStore as the sole monetary settlement
 	// authority (post-turn worker + journal/TUR reports). Protocol usage
 	// projection remains non-authoritative for money.

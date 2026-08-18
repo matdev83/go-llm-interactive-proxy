@@ -113,8 +113,8 @@ func TestCallLegUsageRecordIsIndependentOfTURAndKeyedByCallPlusBLeg(t *testing.T
 	if fail.Key != wantFail {
 		t.Fatalf("leg key = %q, want %q", fail.Key, wantFail)
 	}
-	if _, ok := reflect.TypeOf(LegUsageRecord{}).FieldByName("CallID"); ok {
-		t.Fatal("nested TUR LegUsageRecord must remain the hold/handoff LUR without BillingCallID")
+	if _, ok := reflect.TypeOf(CallLegUsageRecord{}).FieldByName("CallID"); !ok {
+		t.Fatal("current CallLegUsageRecord must carry BillingCallID for authoritative usage identity")
 	}
 }
 
@@ -407,8 +407,6 @@ func TestUsagePayloadsExcludePromptsSecretsHeadersAndProviderSDKObjects(t *testi
 	samples := []any{
 		CallUsageRecord{},
 		CallLegUsageRecord{},
-		TurnUsageRecord{},
-		LegUsageRecord{},
 		FinalBillingEvidence{},
 	}
 	for _, sample := range samples {

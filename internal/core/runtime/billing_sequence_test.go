@@ -21,19 +21,19 @@ func TestAppendIndependentCallLegRejectsMissingAttemptSequence(t *testing.T) {
 	var mu sync.Mutex
 	appended := 0
 	executor := &Executor{BillingRuntime: BillingRuntime{
-		CallLegUsageAppender: billing.CallLegUsageAppenderFunc(func(_ context.Context, record billing.CallLegUsageRecord) error {
+		TerminalUsageSink: testTerminalSink{appendLeg: func(_ context.Context, record billing.CallLegUsageRecord) error {
 			mu.Lock()
 			appended++
 			mu.Unlock()
 			return nil
-		}),
+		}},
 	}}
 	callID, err := billing.NewBillingCallID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	leg := billing.LegUsageRecord{
-		ALegID: "a-1", BLegID: "b-no-seq", Seq: 0,
+	leg := billing.CallLegUsageRecord{
+		ALegID: "a-1", BLegID: "b-no-seq", AttemptSeq: 0,
 		BackendID: "backend", ProviderID: "provider", ModelID: "model",
 		StartedAt: time.Unix(100, 0).UTC(), FinishedAt: time.Unix(101, 0).UTC(),
 		Outcome: billing.LegOutcomeFailed, Surfaced: billing.SurfacedNo,
@@ -46,7 +46,7 @@ func TestAppendIndependentCallLegRejectsMissingAttemptSequence(t *testing.T) {
 		t.Fatalf("appends with missing attempt sequence = %d, want 0 (fail closed)", got)
 	}
 
-	leg.Seq = 7
+	leg.AttemptSeq = 7
 	executor.appendIndependentCallLeg(context.Background(), callID, leg)
 	mu.Lock()
 	got = appended
@@ -65,7 +65,7 @@ func TestExecutorBillingLegProducersCarryExactB2BUASequence(t *testing.T) {
 	var mu sync.Mutex
 	seqByBLeg := map[string]int{}
 	executor := &Executor{BillingRuntime: BillingRuntime{
-		CallLegUsageAppender: billing.CallLegUsageAppenderFunc(func(_ context.Context, record billing.CallLegUsageRecord) error {
+		TerminalUsageSink: testTerminalSink{appendLeg: func(_ context.Context, record billing.CallLegUsageRecord) error {
 			sealed, err := record.Seal()
 			if err != nil {
 				return err
@@ -77,7 +77,7 @@ func TestExecutorBillingLegProducersCarryExactB2BUASequence(t *testing.T) {
 			seqByBLeg[sealed.BLegID] = sealed.AttemptSeq
 			mu.Unlock()
 			return nil
-		}),
+		}},
 	}}
 	now := time.Unix(200, 0).UTC()
 	primary := func(backend, model string) routing.Primary {

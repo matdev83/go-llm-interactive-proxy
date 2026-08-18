@@ -1,5 +1,10 @@
 package billingstore
 
+// This file is retained only as an isolated brownfield migration/test adapter.
+// No runtime composition or authoritative terminal path calls these legacy
+// usage_append_outbox writer/reader methods; new terminal delivery is owned by
+// the process-local billingspool package.
+
 import (
 	"context"
 	"database/sql"
@@ -16,8 +21,6 @@ const (
 	usageAppendOutboxBaseRetryDelay = time.Second
 	usageAppendOutboxMaxRetryDelay  = time.Hour
 )
-
-var _ billing.UsageAppendOutbox = (*DurableStore)(nil)
 
 func (s *DurableStore) EnqueueCallUsageAppend(ctx context.Context, record billing.CallUsageRecord, cause string) error {
 	sealed, err := record.Seal()
@@ -60,6 +63,17 @@ func (s *DurableStore) enqueueUsageAppend(ctx context.Context, key string, kind 
 }
 
 func (s *DurableStore) ListPendingUsageAppendWork(ctx context.Context, limit int) ([]billing.UsageAppendWork, error) {
+	return s.listUsageAppendWork(ctx, limit, true)
+}
+
+// listAllPendingUsageAppendWork is used only by the destructive cutover. It
+// includes deferred rows regardless of next_attempt_at; migration must not
+// mistake a future retry schedule for proof of delivery.
+func (s *DurableStore) listAllPendingUsageAppendWork(ctx context.Context, limit int) ([]billing.UsageAppendWork, error) {
+	return s.listUsageAppendWork(ctx, limit, false)
+}
+
+func (s *DurableStore) listUsageAppendWork(ctx context.Context, limit int, dueOnly bool) ([]billing.UsageAppendWork, error) {
 	if s == nil || s.db == nil {
 		return nil, fmt.Errorf("billingstore: nil store")
 	}
@@ -75,13 +89,16 @@ func (s *DurableStore) ListPendingUsageAppendWork(ctx context.Context, limit int
 		CallID  string `bun:"call_id"`
 		Payload string `bun:"payload_json"`
 	}
+	query := `SELECT append_key, kind, call_id, payload_json FROM usage_append_outbox WHERE status = 'pending'`
+	args := []any{}
+	if dueOnly {
+		query += ` AND next_attempt_at <= ?`
+		args = append(args, time.Now().UTC())
+	}
+	query += ` ORDER BY next_attempt_at, updated_at, append_key LIMIT ?`
+	args = append(args, limit)
 	var rows []row
-	if err := s.db.NewRaw(`
-SELECT append_key, kind, call_id, payload_json
-FROM usage_append_outbox
-WHERE status = 'pending' AND next_attempt_at <= ?
-ORDER BY next_attempt_at, updated_at, append_key
-LIMIT ?`, time.Now().UTC(), limit).Scan(ctx, &rows); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err := s.db.NewRaw(query, args...).Scan(ctx, &rows); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("billingstore: list pending usage appends: %w", err)
 	}
 	out := make([]billing.UsageAppendWork, 0, len(rows))

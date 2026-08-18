@@ -145,7 +145,7 @@ func (e *Executor) appendExposureAbortAfterAdmission(ctx context.Context, prep *
 }
 
 func (e *Executor) appendExposureAbortClosure(ctx context.Context, prep *preparedRequest, aLegID string) {
-	if e == nil || prep == nil || e.CallUsageAppender == nil || !prep.billingIdentityStamped {
+	if e == nil || prep == nil || !e.hasTerminalCallSink() || !prep.billingIdentityStamped {
 		return
 	}
 	if err := prep.billingCallID.Validate(); err != nil {
@@ -179,7 +179,7 @@ func (e *Executor) appendExposureAbortClosure(ctx context.Context, prep *prepare
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingHandoffTimeout)
 	defer cancel()
 	if err := safety.Call(safety.BoundaryStream, "billing_exposure_abort_closure", func() error {
-		return e.CallUsageAppender.AppendCallUsage(persistCtx, sealed)
+		return e.TerminalUsageSink.AppendCall(persistCtx, sealed)
 	}); err != nil {
 		e.logBillingUsageAppendFailure(persistCtx, "billing_call_closure_append_critical", "billing exposure abort closure append failed", err)
 	}

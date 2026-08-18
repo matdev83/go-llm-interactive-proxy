@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// Phase 7.1 activates the hold/collector deletion guard; the LOC ratchet remains
-// deferred until the final Phase 7.4 certification.
+// Phase 7.1 activates the hold/collector deletion guard; the LOC ratchet is
+// activated by the approved Phase 7.2 structural certification.
 
 func TestBillingExposurePlannedRatchetsRecordedOnCommittedLock(t *testing.T) {
 	t.Parallel()
@@ -22,7 +22,7 @@ func TestBillingExposurePlannedRatchetsRecordedOnCommittedLock(t *testing.T) {
 		t.Fatal("7.1 must activate forbid_hold_symbols")
 	}
 	if !doc.RequireNetLOCReduction {
-		t.Fatal("7.4 must activate require_net_loc_reduction")
+		t.Fatal("7.2 must activate require_net_loc_reduction")
 	}
 	if !strings.Contains(doc.TargetFlow, "atomic open-exposure insert") ||
 		!strings.Contains(doc.TargetFlow, "no billing/exposure mutation") {
@@ -44,7 +44,7 @@ func TestBillingExposurePlannedRatchetsRecordedOnCommittedLock(t *testing.T) {
 		{BillingExposureRatchetHoldLifecycle, BillingExposureRatchetStatusActive, BillingExposureActivationForbidHoldSymbols, "7.1"},
 		{BillingExposureRatchetALegOnlySettlementIdentity, BillingExposureRatchetStatusActive, "", "already-enforced"},
 		{BillingExposureRatchetRuntimeFinancialEvidenceBarrier, BillingExposureRatchetStatusActive, BillingExposureActivationForbidHoldSymbols, "7.1"},
-		{BillingExposureRatchetNetLOCReduction, BillingExposureRatchetStatusActive, BillingExposureActivationRequireNetLOCReduction, "7.4"},
+		{BillingExposureRatchetNetLOCReduction, BillingExposureRatchetStatusActive, BillingExposureActivationRequireNetLOCReduction, "7.2"},
 	}
 	if len(doc.PlannedRatchets) != len(want) {
 		t.Fatalf("planned_ratchets count = %d, want %d", len(doc.PlannedRatchets), len(want))
@@ -86,9 +86,9 @@ func TestBillingExposurePlannedRatchetsPassAgainstCurrentRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("measure: %v", err)
 	}
-	loc := EvaluateBillingExposureLOCRatchet(doc, measured)
+	loc := EvaluateBillingExposureLOCRatchetAtPhase(root, doc, measured)
 	if len(loc) > 0 {
-		t.Fatalf("planned LOC lock must match measured total (7.4 requires reduction later):\n%s", formatRatchetFindings(loc))
+		t.Fatalf("active LOC gate must match the immutable baseline: \n%s", formatRatchetFindings(loc))
 	}
 }
 
@@ -265,6 +265,23 @@ func TestEvaluateBillingExposureLOCRatchetPlannedVsActivated(t *testing.T) {
 				t.Fatalf("rule = %q, want %q", got[0].Rule, tt.wantRule)
 			}
 		})
+	}
+}
+
+func TestBillingExposureLOCGateActivatesAtTask72BeforeTask74(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	tasksPath := filepath.Join(root, ".kiro", "specs", "billing-architecture-final-convergence", "tasks.md")
+	if err := os.MkdirAll(filepath.Dir(tasksPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tasksPath, []byte("- [x] 7.2 Activate all structural deletion and >=10% production LOC ratchets.\n- [ ] 7.4 Add and run one fail-fast final billing-convergence certification target.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doc := BillingExposureBaselineFile{RequireNetLOCReduction: true, BaselineTotal: 100}
+	findings := EvaluateBillingExposureLOCRatchetAtPhase(root, doc, BillingExposureMeasurement{Total: 100})
+	if len(findings) != 1 || findings[0].Rule != "billing_exposure_loc_reduction" {
+		t.Fatalf("checking 7.2 must activate the immutable reduction gate before 7.4, got: %s", formatRatchetFindings(findings))
 	}
 }
 

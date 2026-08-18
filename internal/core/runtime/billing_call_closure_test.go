@@ -25,7 +25,7 @@ import (
 
 func TestCallClosureTimesUsesTerminalLegSpan(t *testing.T) {
 	now := time.Unix(200, 0).UTC()
-	started, finished := callClosureTimes([]billing.LegUsageRecord{
+	started, finished := callClosureTimes([]billing.CallLegUsageRecord{
 		{StartedAt: time.Unix(100, 0).UTC(), FinishedAt: time.Unix(150, 0).UTC()},
 		{StartedAt: time.Unix(120, 0).UTC(), FinishedAt: time.Unix(180, 0).UTC()},
 	}, now)
@@ -34,13 +34,34 @@ func TestCallClosureTimesUsesTerminalLegSpan(t *testing.T) {
 	}
 }
 
-func TestCallUsageAppenderFreezesAllocatedBLegsAtRequestTerminal(t *testing.T) {
+func TestAuthoritativeRuntimeWithoutTerminalSinkDoesNotHandoff(t *testing.T) {
+	executor := &Executor{BillingRuntime: BillingRuntime{
+		BillingAuthoritative: true,
+		BillingIdentity:      testBillingIdentity(),
+	}}
+	callID, err := billing.NewBillingCallID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := &retryRecvStream{executor: executor, aLegID: "a-legacy", billingCallID: callID,
+		baseline: lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-legacy"}},
+		bleg:     b2bua.BLegRecord{BLegID: "b-legacy", ALegID: "a-legacy", Seq: 1},
+		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}}}
+	stampStreamIdentity(stream)
+	stream.recordBillingLeg(context.Background(), sdkterminal.CommandNormalFinish)
+	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
+	if executor.hasTerminalSink() || executor.hasTerminalCallSink() {
+		t.Fatal("runtime without TerminalUsageSink must not report a terminal handoff")
+	}
+}
+
+func TestTerminalUsageSinkFreezesAllocatedBLegsAtRequestTerminal(t *testing.T) {
 	var got []billing.CallUsageRecord
 	executor := &Executor{BillingRuntime: BillingRuntime{
-		CallUsageAppender: billing.CallUsageAppenderFunc(func(_ context.Context, record billing.CallUsageRecord) error {
+		TerminalUsageSink: testTerminalSink{appendCall: func(_ context.Context, record billing.CallUsageRecord) error {
 			got = append(got, record)
 			return nil
-		}),
+		}},
 		BillingIdentity: testBillingIdentity(),
 	}}
 	callID, err := billing.NewBillingCallID()
@@ -91,8 +112,7 @@ func TestCallUsageAppenderFreezesAllocatedBLegsAtRequestTerminal(t *testing.T) {
 	}
 }
 
-func TestCallUsageAppenderNilLeavesRuntimeWithoutFinancialHandoff(t *testing.T) {
-	var tur []billing.TurnUsageRecord
+func TestTerminalUsageSinkNilLeavesRuntimeWithoutFinancialHandoff(t *testing.T) {
 	executor := &Executor{BillingRuntime: BillingRuntime{
 		BillingIdentity: testBillingIdentity(),
 	}}
@@ -105,19 +125,38 @@ func TestCallUsageAppenderNilLeavesRuntimeWithoutFinancialHandoff(t *testing.T) 
 	stampStreamIdentity(stream)
 	stream.recordBillingLeg(context.Background(), sdkterminal.CommandNormalFinish)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
-	if len(tur) != 0 {
-		t.Fatalf("legacy TUR handoff = %d, want 0", len(tur))
-	}
 }
 
-func TestCallUsageAppenderIsTheOnlyRuntimeTerminalBillingSink(t *testing.T) {
-	var tur []billing.TurnUsageRecord
+func TestAuthoritativeBillingWithoutTerminalSinkFailsClosed(t *testing.T) {
+	executor := &Executor{BillingRuntime: BillingRuntime{
+		BillingAuthoritative: true,
+		BillingIdentity:      testBillingIdentity(),
+	}}
+	if executor.hasTerminalCallSink() || executor.hasTerminalSink() {
+		t.Fatal("authoritative executor without TerminalUsageSink must not report a terminal sink")
+	}
+	callID, err := billing.NewBillingCallID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := &retryRecvStream{
+		executor: executor, aLegID: "a-1", billingCallID: callID,
+		baseline: lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-a"}},
+		bleg:     b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
+		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
+	}
+	stampStreamIdentity(stream)
+	stream.recordBillingLeg(context.Background(), sdkterminal.CommandNormalFinish)
+	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
+}
+
+func TestTerminalUsageSinkIsTheOnlyRuntimeTerminalBillingSink(t *testing.T) {
 	var calls []billing.CallUsageRecord
 	executor := &Executor{BillingRuntime: BillingRuntime{
-		CallUsageAppender: billing.CallUsageAppenderFunc(func(_ context.Context, record billing.CallUsageRecord) error {
+		TerminalUsageSink: testTerminalSink{appendCall: func(_ context.Context, record billing.CallUsageRecord) error {
 			calls = append(calls, record)
 			return nil
-		}),
+		}},
 		BillingIdentity: testBillingIdentity(),
 	}}
 	callID, err := billing.NewBillingCallID()
@@ -135,9 +174,6 @@ func TestCallUsageAppenderIsTheOnlyRuntimeTerminalBillingSink(t *testing.T) {
 	stampStreamIdentity(stream)
 	stream.recordBillingLeg(context.Background(), sdkterminal.CommandNormalFinish)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
-	if len(tur) != 0 {
-		t.Fatalf("legacy TUR handoff = %d, want 0", len(tur))
-	}
 	if len(calls) != 1 {
 		t.Fatalf("call-closure appends = %d, want 1", len(calls))
 	}
@@ -146,20 +182,19 @@ func TestCallUsageAppenderIsTheOnlyRuntimeTerminalBillingSink(t *testing.T) {
 	}
 }
 
-func TestCallUsageAppenderSealsOnRequestOwnerPanicAndGateReplacementWithoutTUR(t *testing.T) {
+func TestTerminalUsageSinkSealsOnRequestOwnerPanicAndGateReplacementWithoutTUR(t *testing.T) {
 	commands := []sdkterminal.Command{
 		sdkterminal.CommandPanic,
 		sdkterminal.CommandGateReplacement,
 	}
 	for _, command := range commands {
 		t.Run(string(command), func(t *testing.T) {
-			var tur int
 			var got []billing.CallUsageRecord
 			executor := &Executor{BillingRuntime: BillingRuntime{
-				CallUsageAppender: billing.CallUsageAppenderFunc(func(_ context.Context, record billing.CallUsageRecord) error {
+				TerminalUsageSink: testTerminalSink{appendCall: func(_ context.Context, record billing.CallUsageRecord) error {
 					got = append(got, record)
 					return nil
-				}),
+				}},
 				BillingIdentity: testBillingIdentity(),
 			}}
 			callID, err := billing.NewBillingCallID()
@@ -182,9 +217,6 @@ func TestCallUsageAppenderSealsOnRequestOwnerPanicAndGateReplacementWithoutTUR(t
 			if !result.Won {
 				t.Fatalf("request-owner %s must win", command)
 			}
-			if tur != 0 {
-				t.Fatalf("TUR seals for %s = %d, want 0 (call-closure must not reuse the TUR filter)", command, tur)
-			}
 			if len(got) != 1 {
 				t.Fatalf("call-closure appends for %s = %d, want 1", command, len(got))
 			}
@@ -202,24 +234,20 @@ func TestCallUsageAppenderSealsOnRequestOwnerPanicAndGateReplacementWithoutTUR(t
 			if len(got) != 1 {
 				t.Fatalf("later finish after %s appended again: %d", command, len(got))
 			}
-			if tur != 0 {
-				t.Fatalf("later finish after %s must not seal TUR, tur=%d", command, tur)
-			}
 		})
 	}
 }
 
-func TestCallUsageAppenderGateReplacementAppendFailureDoesNotRetryProvider(t *testing.T) {
+func TestTerminalUsageSinkGateReplacementAppendFailureDoesNotRetryProvider(t *testing.T) {
 	var opens atomic.Int32
 	var got []billing.CallUsageRecord
-	var tur int
 	executor := TestExecutor()
 	executor.SecureSessionRecordingMandatory = true
 	executor.BillingIdentity = testBillingIdentity()
-	executor.CallUsageAppender = billing.CallUsageAppenderFunc(func(_ context.Context, record billing.CallUsageRecord) error {
+	executor.TerminalUsageSink = testTerminalSink{appendCall: func(_ context.Context, record billing.CallUsageRecord) error {
 		got = append(got, record)
 		return errors.New("durable unavailable")
-	})
+	}}
 	executor.Backends = map[string]execbackend.Backend{
 		"backend": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -255,15 +283,12 @@ func TestCallUsageAppenderGateReplacementAppendFailureDoesNotRetryProvider(t *te
 	if len(got) != 1 {
 		t.Fatalf("gate-replacement call-closure appends = %d, want 1", len(got))
 	}
-	if tur != 0 {
-		t.Fatalf("committed gate-replacement must not seal TUR, tur=%d", tur)
-	}
 	if opens.Load() != 0 {
 		t.Fatalf("call-closure append must not drive provider retry, opens=%d", opens.Load())
 	}
 }
 
-func TestCallUsageAppenderIncludesNeverOpenedNextBLegAtRequestTerminal(t *testing.T) {
+func TestTerminalUsageSinkIncludesNeverOpenedNextBLegAtRequestTerminal(t *testing.T) {
 	var got []billing.CallUsageRecord
 	var legs []billing.CallLegUsageRecord
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
@@ -280,18 +305,20 @@ func TestCallUsageAppenderIncludesNeverOpenedNextBLegAtRequestTerminal(t *testin
 	ex.BillingExposureAdmission = exposureAdmissionFunc(func(_ context.Context, in BillingExposureAdmissionInput) (billing.CallExposure, error) {
 		return billing.CallExposure{AccountID: "acct", CallID: in.CallID, PricingRef: billing.VersionRef{ID: "pricing:test", Version: "1"}, ChargePolicyRef: billing.VersionRef{ID: "policy:test", Version: "1"}, Status: billing.ExposureOpen}, nil
 	})
-	ex.CallUsageAppender = billing.CallUsageAppenderFunc(func(_ context.Context, record billing.CallUsageRecord) error {
-		got = append(got, record)
-		return nil
-	})
-	ex.CallLegUsageAppender = billing.CallLegUsageAppenderFunc(func(_ context.Context, record billing.CallLegUsageRecord) error {
-		sealed, err := record.Seal()
-		if err != nil {
-			return err
-		}
-		legs = append(legs, sealed)
-		return nil
-	})
+	ex.TerminalUsageSink = testTerminalSink{
+		appendCall: func(_ context.Context, record billing.CallUsageRecord) error {
+			got = append(got, record)
+			return nil
+		},
+		appendLeg: func(_ context.Context, record billing.CallLegUsageRecord) error {
+			sealed, err := record.Seal()
+			if err != nil {
+				return err
+			}
+			legs = append(legs, sealed)
+			return nil
+		},
+	}
 	ex.Backends = map[string]execbackend.Backend{
 		"bad": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -360,13 +387,13 @@ func TestCallUsageAppenderIncludesNeverOpenedNextBLegAtRequestTerminal(t *testin
 	}
 }
 
-func TestCallUsageAppenderSwallowedAttemptDoesNotFreezeUntilRequestTerminal(t *testing.T) {
+func TestTerminalUsageSinkSwallowedAttemptDoesNotFreezeUntilRequestTerminal(t *testing.T) {
 	var got []billing.CallUsageRecord
 	executor := &Executor{BillingRuntime: BillingRuntime{
-		CallUsageAppender: billing.CallUsageAppenderFunc(func(_ context.Context, record billing.CallUsageRecord) error {
+		TerminalUsageSink: testTerminalSink{appendCall: func(_ context.Context, record billing.CallUsageRecord) error {
 			got = append(got, record)
 			return nil
-		}),
+		}},
 		BillingIdentity: testBillingIdentity(),
 	}}
 	callID, err := billing.NewBillingCallID()
@@ -412,10 +439,10 @@ func TestInterleavedThinkerBillingCorrectness(t *testing.T) {
 	// 1. Verify isInterleavedThinker controls request terminal claim and call closure.
 	var closures []billing.CallUsageRecord
 	executor := &Executor{BillingRuntime: BillingRuntime{
-		CallUsageAppender: billing.CallUsageAppenderFunc(func(_ context.Context, record billing.CallUsageRecord) error {
+		TerminalUsageSink: testTerminalSink{appendCall: func(_ context.Context, record billing.CallUsageRecord) error {
 			closures = append(closures, record)
 			return nil
-		}),
+		}},
 		BillingIdentity: testBillingIdentity(),
 	}}
 	callID, err := billing.NewBillingCallID()
@@ -593,19 +620,21 @@ func TestExecutor_InterleavedHandoffAborted_ClosureSealed(t *testing.T) {
 	ex.BillingExposureAdmission = exposureAdmissionFunc(func(_ context.Context, in BillingExposureAdmissionInput) (billing.CallExposure, error) {
 		return billing.CallExposure{AccountID: "acct", CallID: in.CallID, PricingRef: billing.VersionRef{ID: "pricing", Version: "1"}, ChargePolicyRef: billing.VersionRef{ID: "policy", Version: "1"}, Status: billing.ExposureOpen}, nil
 	})
-	ex.CallUsageAppender = billing.CallUsageAppenderFunc(func(_ context.Context, record billing.CallUsageRecord) error {
-		mu.Lock()
-		gotClosures = append(gotClosures, record)
-		mu.Unlock()
-		return nil
-	})
-	ex.CallLegUsageAppender = billing.CallLegUsageAppenderFunc(func(_ context.Context, record billing.CallLegUsageRecord) error {
-		sealed, _ := record.Seal()
-		mu.Lock()
-		gotLegs = append(gotLegs, sealed)
-		mu.Unlock()
-		return nil
-	})
+	ex.TerminalUsageSink = testTerminalSink{
+		appendCall: func(_ context.Context, record billing.CallUsageRecord) error {
+			mu.Lock()
+			gotClosures = append(gotClosures, record)
+			mu.Unlock()
+			return nil
+		},
+		appendLeg: func(_ context.Context, record billing.CallLegUsageRecord) error {
+			sealed, _ := record.Seal()
+			mu.Lock()
+			gotLegs = append(gotLegs, sealed)
+			mu.Unlock()
+			return nil
+		},
+	}
 
 	selector := "[thinker]thinker-be:m^exec-be:m"
 	first := &lipapi.Call{
@@ -710,12 +739,12 @@ func TestExecutor_InterleavedCancelDuringTransition_ClosureSealed(t *testing.T) 
 	ex.BillingExposureAdmission = exposureAdmissionFunc(func(_ context.Context, in BillingExposureAdmissionInput) (billing.CallExposure, error) {
 		return billing.CallExposure{AccountID: "acct", CallID: in.CallID, PricingRef: billing.VersionRef{ID: "pricing", Version: "1"}, ChargePolicyRef: billing.VersionRef{ID: "policy", Version: "1"}, Status: billing.ExposureOpen}, nil
 	})
-	ex.CallUsageAppender = billing.CallUsageAppenderFunc(func(_ context.Context, record billing.CallUsageRecord) error {
+	ex.TerminalUsageSink = testTerminalSink{appendCall: func(_ context.Context, record billing.CallUsageRecord) error {
 		mu.Lock()
 		gotClosures = append(gotClosures, record)
 		mu.Unlock()
 		return nil
-	})
+	}}
 
 	selector := "[thinker]thinker-be:m^exec-be:m"
 	first := &lipapi.Call{
@@ -815,12 +844,12 @@ func TestExecutor_InterleavedCloseDuringTransition_ClosureSealed(t *testing.T) {
 	ex.BillingExposureAdmission = exposureAdmissionFunc(func(_ context.Context, in BillingExposureAdmissionInput) (billing.CallExposure, error) {
 		return billing.CallExposure{AccountID: "acct", CallID: in.CallID, PricingRef: billing.VersionRef{ID: "pricing", Version: "1"}, ChargePolicyRef: billing.VersionRef{ID: "policy", Version: "1"}, Status: billing.ExposureOpen}, nil
 	})
-	ex.CallUsageAppender = billing.CallUsageAppenderFunc(func(_ context.Context, record billing.CallUsageRecord) error {
+	ex.TerminalUsageSink = testTerminalSink{appendCall: func(_ context.Context, record billing.CallUsageRecord) error {
 		mu.Lock()
 		gotClosures = append(gotClosures, record)
 		mu.Unlock()
 		return nil
-	})
+	}}
 
 	selector := "[thinker]thinker-be:m^exec-be:m"
 	first := &lipapi.Call{
@@ -918,12 +947,12 @@ func TestExecutor_InterleavedOpenFailureDuringTransition_ClosureSealed(t *testin
 	ex.BillingExposureAdmission = exposureAdmissionFunc(func(_ context.Context, in BillingExposureAdmissionInput) (billing.CallExposure, error) {
 		return billing.CallExposure{AccountID: "acct", CallID: in.CallID, PricingRef: billing.VersionRef{ID: "pricing", Version: "1"}, ChargePolicyRef: billing.VersionRef{ID: "policy", Version: "1"}, Status: billing.ExposureOpen}, nil
 	})
-	ex.CallUsageAppender = billing.CallUsageAppenderFunc(func(_ context.Context, record billing.CallUsageRecord) error {
+	ex.TerminalUsageSink = testTerminalSink{appendCall: func(_ context.Context, record billing.CallUsageRecord) error {
 		mu.Lock()
 		gotClosures = append(gotClosures, record)
 		mu.Unlock()
 		return nil
-	})
+	}}
 
 	selector := "[thinker]thinker-be:m^exec-be:m"
 	first := &lipapi.Call{
@@ -1017,12 +1046,12 @@ func TestExecutor_InterleavedThinkerError_ClosureSealed(t *testing.T) {
 	ex.BillingExposureAdmission = exposureAdmissionFunc(func(_ context.Context, in BillingExposureAdmissionInput) (billing.CallExposure, error) {
 		return billing.CallExposure{AccountID: "acct", CallID: in.CallID, PricingRef: billing.VersionRef{ID: "pricing", Version: "1"}, ChargePolicyRef: billing.VersionRef{ID: "policy", Version: "1"}, Status: billing.ExposureOpen}, nil
 	})
-	ex.CallUsageAppender = billing.CallUsageAppenderFunc(func(_ context.Context, record billing.CallUsageRecord) error {
+	ex.TerminalUsageSink = testTerminalSink{appendCall: func(_ context.Context, record billing.CallUsageRecord) error {
 		mu.Lock()
 		gotClosures = append(gotClosures, record)
 		mu.Unlock()
 		return nil
-	})
+	}}
 
 	selector := "[thinker]thinker-be:m^exec-be:m"
 	first := &lipapi.Call{
