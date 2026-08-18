@@ -130,6 +130,48 @@ func TestCIIterationSpeed_WorkflowConcurrencyAndCaches(t *testing.T) {
 	if !strings.Contains(qa, "CI owns the portable cmd/lipstd test/build matrix") {
 		t.Fatal("QA ownership documentation is missing")
 	}
+	preflight := strings.Index(qa, "- name: Fast policy preflight")
+	fixtureTidy := strings.Index(qa, "- name: Fixture module tidy preflight")
+	profile := strings.Index(qa, "- name: Provider-profile change-surface ratchet")
+	vet := strings.Index(qa, "- name: Vet release command")
+	architecture := strings.Index(qa, "- name: Architecture guardrails")
+	if preflight < 0 || fixtureTidy < 0 || profile < 0 || vet < 0 || architecture < 0 ||
+		preflight >= fixtureTidy || fixtureTidy >= profile || profile >= vet || vet >= architecture {
+		t.Error("QA must order policy, fixture tidy, profile, and vet gates before heavy architecture guardrails")
+	}
+	if preflight >= 0 && fixtureTidy > preflight {
+		preflightStep := strings.Join(strings.Fields(qa[preflight:fixtureTidy]), " ")
+		for _, needle := range []string{
+			"go test",
+			"-count=1",
+			"-v",
+			"-tags=precommit",
+			"./internal/qa",
+			"TestRootHygiene_",
+			"TestQAFastPreflight_",
+			"tee",
+			"grep -qE",
+		} {
+			if !strings.Contains(preflightStep, needle) {
+				t.Errorf("QA fast policy preflight missing %q", needle)
+			}
+		}
+	}
+	normalizedQA := strings.Join(strings.Fields(qa), " ")
+	for _, needle := range []string{
+		"testdata/enterprise_module testdata/external_connector",
+		"GOWORK=off go mod tidy -diff",
+		"id: archtest",
+		"contains(fromJSON('[\"success\",\"failure\"]'), steps.archtest.outcome)",
+	} {
+		if !strings.Contains(normalizedQA, needle) {
+			t.Errorf("QA fast-preflight contract missing %q", needle)
+		}
+	}
+	cacheKey := "hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum')"
+	if count := strings.Count(normalizedQA, cacheKey); count != 2 {
+		t.Errorf("QA dedicated cache key occurs %d times, want restore and save keys", count)
+	}
 	if strings.Contains(qa, "go test -timeout=5m ./cmd/lipstd") {
 		t.Fatal("QA must not duplicate the CI cmd/lipstd test")
 	}

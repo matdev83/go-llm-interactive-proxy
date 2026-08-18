@@ -43,6 +43,7 @@ jobs:
             connectors/**/go.sum
             connector-support/**/go.sum
             testdata/enterprise_module/go.sum
+            testdata/external_connector/go.sum
             tools/**/go.sum
 
       - name: Classify changed files
@@ -109,7 +110,7 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-cache-qa-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          key: go-cache-qa-${{ runner.os }}-${{ hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum') }}
           restore-keys: |
             go-cache-qa-${{ runner.os }}-
             setup-go-
@@ -122,13 +123,33 @@ jobs:
           go mod verify
           git diff --exit-code -- go.mod go.sum
 
-      - name: Architecture guardrails
+      # Repository-policy failures should surface before the full archtest
+      # package loads its broad production/test dependency graph. Keep this
+      # package intentionally lightweight: filesystem policy, Kiro lifecycle,
+      # and architecture budget ratchets only.
+      - name: Fast policy preflight
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
-        run: go test -timeout=8m ./internal/archtest
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/qa-fast-preflight.log"
+          go test -count=1 -v -tags=precommit ./internal/qa \
+            -run '^(TestRootHygiene_|TestQAFastPreflight_)' | tee "$log"
+          grep -qE '^=== RUN[[:space:]]+TestRootHygiene_' "$log"
+          grep -qE '^=== RUN[[:space:]]+TestQAFastPreflight_' "$log"
 
-      - name: Vet release command
+      # These are the only independent modules executed by archtest itself.
+      # Dependency-only PRs have historically reached the expensive package
+      # load before discovering that one of these fixtures needs go mod tidy.
+      - name: Fixture module tidy preflight
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
-        run: go vet ./cmd/lipstd
+        shell: bash
+        run: |
+          set -euo pipefail
+          for module in testdata/enterprise_module testdata/external_connector; do
+            echo "== $module =="
+            (cd "$module" && GOWORK=off go mod tidy -diff)
+          done
 
       - name: Provider-profile change-surface ratchet
         if: needs.changes.outputs.profile == 'true'
@@ -136,21 +157,30 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: go run ./internal/archtest/tools/changesurface/cmd -base "$BASE_SHA" -profile-only -json
 
+      - name: Vet release command
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        run: go vet ./cmd/lipstd
+
+      - name: Architecture guardrails
+        id: archtest
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        run: go test -timeout=8m ./internal/archtest
+
       # CI owns the portable cmd/lipstd test/build matrix. QA retains the
       # distinct architecture and vet evidence instead of recompiling this
       # package a second time on Ubuntu.
 
-      # Save after the heavy archtest so the full module graph + build cache is
-      # preserved for the next PR. Runs even on failure so partial progress is
-      # cached; skipped when the primary key already restored a complete cache.
+      # Save only after the heavy archtest actually ran, so a fast-preflight
+      # failure cannot publish a partial cache under the dedicated full-cache
+      # key. Archtest failures still preserve useful compilation progress.
       - name: Save dedicated QA Go cache
-        if: always() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && steps.go-cache.outputs.cache-hit != 'true'
+        if: always() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && steps.go-cache.outputs.cache-hit != 'true' && contains(fromJSON('["success","failure"]'), steps.archtest.outcome)
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-cache-qa-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          key: go-cache-qa-${{ runner.os }}-${{ hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum') }}
 
       - name: Report unrelated PR bypass
         if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'
