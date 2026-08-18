@@ -30,6 +30,7 @@ type specDependency struct {
 type specFile struct {
 	FeatureName            string           `json:"feature_name"`
 	ReadyForImplementation bool             `json:"ready_for_implementation"`
+	Completed              bool             `json:"completed"`
 	Dependencies           []specDependency `json:"dependencies"`
 }
 
@@ -98,8 +99,11 @@ func TestBillingFinalConvergenceBaselineSHAMatchesSpec(t *testing.T) {
 	if dep.VerificationStatus != "verified_phase_0" {
 		t.Fatalf("verification_status = %q, want verified_phase_0", dep.VerificationStatus)
 	}
-	if !sf.ReadyForImplementation {
-		t.Fatal("spec.json ready_for_implementation must be true after Phase 0 verification")
+	if sf.ReadyForImplementation {
+		t.Fatal("archived spec.json ready_for_implementation must be false")
+	}
+	if !sf.Completed {
+		t.Fatal("archived spec.json completed must be true")
 	}
 }
 
