@@ -16,6 +16,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/archtest"
 )
 
+const maxStaleReferenceLineBytes = 4 * 1024 * 1024
+
 type kiroLifecycleMetadata struct {
 	Phase                  string `json:"phase"`
 	ReadyForImplementation bool   `json:"ready_for_implementation"`
@@ -41,7 +43,8 @@ func TestQAFastPreflight_KiroLifecycleRejectsStaleActiveReference(t *testing.T) 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`package internal // .kiro/specs/finished/spec.json`), 0o600); err != nil {
+	content := "package internal\n// " + strings.Repeat("x", 128*1024) + " .kiro/specs/finished/spec.json"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -189,6 +192,7 @@ func validateStaleKiroReferences(root string) []string {
 				return nil
 			}
 			scanner := bufio.NewScanner(file)
+			scanner.Buffer(nil, maxStaleReferenceLineBytes)
 			for line := 1; scanner.Scan(); line++ {
 				for _, match := range activeKiroReference.FindAllStringSubmatch(scanner.Text(), -1) {
 					name := match[1]

@@ -43,6 +43,7 @@ jobs:
             connectors/**/go.sum
             connector-support/**/go.sum
             testdata/enterprise_module/go.sum
+            testdata/external_connector/go.sum
             tools/**/go.sum
 
       - name: Classify changed files
@@ -109,7 +110,7 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-cache-qa-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          key: go-cache-qa-${{ runner.os }}-${{ hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum') }}
           restore-keys: |
             go-cache-qa-${{ runner.os }}-
             setup-go-
@@ -128,9 +129,14 @@ jobs:
       # and architecture budget ratchets only.
       - name: Fast policy preflight
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
-        run: >-
-          go test -count=1 -tags=precommit ./internal/qa
-          -run '^(TestRootHygiene_|TestQAFastPreflight_)'
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/qa-fast-preflight.log"
+          go test -count=1 -v -tags=precommit ./internal/qa \
+            -run '^(TestRootHygiene_|TestQAFastPreflight_)' | tee "$log"
+          grep -qE '^=== RUN[[:space:]]+TestRootHygiene_' "$log"
+          grep -qE '^=== RUN[[:space:]]+TestQAFastPreflight_' "$log"
 
       # These are the only independent modules executed by archtest itself.
       # Dependency-only PRs have historically reached the expensive package
@@ -174,7 +180,7 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-cache-qa-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          key: go-cache-qa-${{ runner.os }}-${{ hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum') }}
 
       - name: Report unrelated PR bypass
         if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'
