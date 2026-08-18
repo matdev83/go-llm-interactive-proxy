@@ -74,6 +74,26 @@ func TestCacheControllerPartialReadIsNotRenewed(t *testing.T) {
 	}
 }
 
+func TestRenewalCoversTargetCombinesCacheReadAndWriteEvidence(t *testing.T) {
+	t.Parallel()
+	readTarget := int64(80)
+	writeTarget := int64(20)
+	readReported := int64(70)
+	writeReported := int64(30)
+	if !renewalCoversTarget(&readReported, &writeReported, CacheTarget{Evidence: promptcache.CacheEvidence{CacheReadTokens: &readTarget, CacheWriteTokens: &writeTarget}}) {
+		t.Fatal("combined read/write coverage was not recognized")
+	}
+	zero := int64(0)
+	writeOnly := int64(20)
+	if !renewalCoversTarget(&zero, &writeOnly, CacheTarget{Evidence: promptcache.CacheEvidence{CacheReadTokens: &zero, CacheWriteTokens: &writeOnly}}) {
+		t.Fatal("write-only coverage with zero read evidence was not recognized")
+	}
+	partialWrite := int64(10)
+	if renewalCoversTarget(&readReported, &partialWrite, CacheTarget{Evidence: promptcache.CacheEvidence{CacheReadTokens: &readTarget, CacheWriteTokens: &writeTarget}}) {
+		t.Fatal("partial combined coverage was classified as complete")
+	}
+}
+
 func TestAnthropicRenewalCapabilityRejectsToolAndThinkingShapes(t *testing.T) {
 	t.Parallel()
 	be := NewBackend(Config{
@@ -102,5 +122,20 @@ func TestAnthropicRenewalCapabilityRejectsToolAndThinkingShapes(t *testing.T) {
 	formattedProfile := be.ResolvePromptCacheProfile(context.Background(), formatted, candidate)
 	if formattedProfile.RenewalSupported {
 		t.Fatal("response-format request must not advertise active renewal")
+	}
+
+	thinkingBackend := NewBackend(Config{
+		BackendID:          "anthropic-thinking",
+		BaseURL:            "https://example.invalid",
+		Credentials:        []credpool.Credential{{ID: "c0", Secret: "secret"}},
+		CacheEnrollment:    "automatic",
+		CacheTTL:           "5m",
+		ThinkingFromEffort: true,
+	})
+	thinking := plain
+	thinking.Options.ReasoningEffort = "high"
+	thinkingProfile := thinkingBackend.ResolvePromptCacheProfile(context.Background(), thinking, routing.AttemptCandidate{Primary: routing.Primary{Backend: "anthropic-thinking", Model: "claude"}})
+	if thinkingProfile.ObservationSupported || thinkingProfile.RenewalSupported {
+		t.Fatalf("thinking request advertised cache support: %+v", thinkingProfile)
 	}
 }

@@ -397,6 +397,7 @@ func (s *MemoryStore) LoadAttempts(ctx context.Context, aLegID string) ([]lipapi
 		return nil, ErrALegNotFound
 	}
 	if s.evictIfStaleLocked(st, s.nowTime()) {
+		retired = append(retired, st.record.ALegID)
 		return nil, ErrALegNotFound
 	}
 	st.record.LastSeenAt = s.nowTime()

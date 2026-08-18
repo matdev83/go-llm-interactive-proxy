@@ -46,11 +46,11 @@ func KeepwarmHooks(observer billing.ProviderMaintenanceUsageObserver) keepwarm.H
 	if observer == nil {
 		return keepwarm.Hooks{}
 	}
-	return keepwarm.Hooks{Accounting: func(record keepwarm.RenewalRecord) error {
+	return keepwarm.Hooks{Accounting: func(ctx context.Context, record keepwarm.RenewalRecord) error {
 		if record.Accounting == nil {
 			return nil
 		}
-		return observer.ObserveProviderMaintenance(context.Background(), billing.ProviderMaintenanceUsage{
+		return observer.ObserveProviderMaintenance(ctx, billing.ProviderMaintenanceUsage{
 			OperationID: record.OperationID,
 			ALegID:      record.ALegID,
 			TargetID:    string(record.TargetID),

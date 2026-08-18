@@ -65,7 +65,9 @@ type RenewalRecord struct {
 type Hooks struct {
 	// Accounting receives provider-billable maintenance evidence even when the
 	// scheduling result is stale. The manager never merges it into foreground usage.
-	Accounting func(RenewalRecord) error
+	// The context is bounded by the manager renewal timeout and canceled with the
+	// scheduler/RunDue parent context.
+	Accounting func(context.Context, RenewalRecord) error
 	// Metric receives only bounded reason/result names, never target or session IDs.
 	Metric func(name string)
 }
@@ -129,22 +131,25 @@ func (h *scheduleHeap) Pop() any {
 	return last
 }
 
+var managerNamespace atomic.Uint64
+
 // Manager owns provider-neutral state for one immutable runtime generation.
 // Scheduling, renewal execution, release cleanup, and observability live in
 // focused companion files so this type remains the domain aggregate rather
 // than an everything-object.
 type Manager struct {
-	mu       sync.Mutex
-	cfg      Config
-	clock    Clock
-	hooks    Hooks
-	epochs   map[string]*idleEpoch
-	nextRev  uint64
-	nextSeq  uint64
-	state    lifecycleState
-	disabled map[string]bool
-	running  int
-	renewWG  sync.WaitGroup
+	namespace uint64
+	mu        sync.Mutex
+	cfg       Config
+	clock     Clock
+	hooks     Hooks
+	epochs    map[string]*idleEpoch
+	nextRev   uint64
+	nextSeq   uint64
+	state     lifecycleState
+	disabled  map[string]bool
+	running   int
+	renewWG   sync.WaitGroup
 
 	runCtx    context.Context
 	runCancel context.CancelFunc
@@ -174,7 +179,8 @@ func NewManager(cfg Config, clock Clock, hooks Hooks) (*Manager, error) {
 		clock = RealClock{}
 	}
 	return &Manager{
-		cfg: cfg, clock: clock, hooks: hooks,
+		namespace: managerNamespace.Add(1),
+		cfg:       cfg, clock: clock, hooks: hooks,
 		epochs: make(map[string]*idleEpoch), disabled: make(map[string]bool),
 		releaseWake: make(chan struct{}, 1),
 		metrics:     make(map[string]uint64),

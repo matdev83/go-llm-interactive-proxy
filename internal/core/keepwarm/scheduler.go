@@ -291,7 +291,7 @@ func (m *Manager) epochsWithinBudgetLocked(epoch *idleEpoch, estimate int64) boo
 
 func (m *Manager) nextOperationLocked(epoch EpochRevision, seq uint64) string {
 	n := m.operationSeq.Add(1)
-	return fmt.Sprintf("keepwarm:%d:%d:%d", epoch, seq, n)
+	return fmt.Sprintf("keepwarm:%d:%d:%d:%d", m.namespace, epoch, seq, n)
 }
 
 func (m *Manager) execute(parent context.Context, job *renewJob) {
@@ -312,7 +312,7 @@ func (m *Manager) execute(parent context.Context, job *renewJob) {
 	record := &RenewalRecord{OperationID: job.operation, ALegID: job.aLeg, TargetID: target.observation.TargetID, BackendID: target.backend, ModelID: target.model, Status: resp.Result.Status, Accounting: resp.Accounting, Err: err}
 	m.apply(job, resp, err, record)
 	if m.hooks.Accounting != nil {
-		if accountingErr := m.hooks.Accounting(*record); accountingErr != nil {
+		if accountingErr := m.deliverAccounting(parent, timeout, *record); accountingErr != nil {
 			record.Err = errors.Join(record.Err, accountingErr)
 			m.metric("accounting_error")
 		}

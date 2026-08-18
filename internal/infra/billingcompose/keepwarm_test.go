@@ -36,7 +36,7 @@ func TestKeepwarmHooksDeliverProviderMaintenanceUsage(t *testing.T) {
 	}
 
 	before := time.Now().UTC()
-	hooks.Accounting(keepwarm.RenewalRecord{
+	if err := hooks.Accounting(context.Background(), keepwarm.RenewalRecord{
 		OperationID: "keepwarm:1:2:3",
 		ALegID:      "a-leg-1",
 		TargetID:    promptcache.TargetID("target-1"),
@@ -58,7 +58,9 @@ func TestKeepwarmHooksDeliverProviderMaintenanceUsage(t *testing.T) {
 			Plane:     promptcache.AccountingPlaneProviderBillable,
 			DedupeKey: "provider-call-1",
 		},
-	})
+	}); err != nil {
+		t.Fatalf("accounting callback: %v", err)
+	}
 	after := time.Now().UTC()
 
 	if observerCalls != 1 {
@@ -97,7 +99,9 @@ func TestKeepwarmHooksSkipRenewalsWithoutAccountingEvidence(t *testing.T) {
 		calls++
 		return nil
 	}))
-	hooks.Accounting(keepwarm.RenewalRecord{OperationID: "without-evidence"})
+	if err := hooks.Accounting(context.Background(), keepwarm.RenewalRecord{OperationID: "without-evidence"}); err != nil {
+		t.Fatalf("accounting callback without evidence: %v", err)
+	}
 	if calls != 0 {
 		t.Fatalf("observer calls = %d, want 0", calls)
 	}

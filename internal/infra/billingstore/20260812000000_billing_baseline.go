@@ -44,6 +44,7 @@ func registerMigrations() {
 		registerReservedColumnRemovalMigration()
 		registerLegacyUsageRetirementMigration()
 		registerProviderMaintenanceMigration()
+		registerProviderMaintenanceIntegrityMigration()
 	})
 }
 

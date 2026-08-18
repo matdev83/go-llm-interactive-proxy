@@ -262,7 +262,7 @@ func TestManagerDoesNotReleaseForeignBackendObservationThroughCommittedControlle
 func TestManagerMaxActiveTargetsIsGenerationWide(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
-	ctl := &fixedResultController{}
+	ctl := &releaseTrackingController{releaseStarted: make(chan struct{}), unblockFirst: make(chan struct{})}
 	cfg := DefaultConfig()
 	cfg.MaxActiveTargets = 1
 	m, err := NewManager(cfg, clock, Hooks{})
@@ -284,6 +284,15 @@ func TestManagerMaxActiveTargetsIsGenerationWide(t *testing.T) {
 	if got := m.ActiveTargetCount(); got != 1 {
 		t.Fatalf("active targets=%d, want generation-wide cap 1", got)
 	}
+	select {
+	case <-ctl.releaseStarted:
+	case <-time.After(time.Second):
+		t.Fatal("displaced target release did not start")
+	}
+	if got := ctl.releases.Load(); got != 1 {
+		t.Fatalf("displaced target releases=%d, want 1", got)
+	}
+	close(ctl.unblockFirst)
 	if err := m.Quiesce(context.Background()); err != nil {
 		t.Fatal(err)
 	}

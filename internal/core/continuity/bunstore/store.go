@@ -122,7 +122,7 @@ func (s *Store) CreateALeg(ctx context.Context, continuityKey string) (b2bua.ALe
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		aID, err := b2bua.RandomALegID()
 		if err != nil {
-			return err
+			return opErr("create a leg id", err)
 		}
 		if continuityKey != "" {
 			if err := tx.NewRaw(`SELECT a_leg_id FROM a_legs WHERE continuity_key = ?`, continuityKey).Scan(ctx, &replacedID); err != nil && !errors.Is(err, sql.ErrNoRows) {

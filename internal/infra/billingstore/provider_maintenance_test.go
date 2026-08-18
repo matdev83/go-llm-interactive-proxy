@@ -9,6 +9,17 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 )
 
+func TestVerifySchemaChecksProviderMaintenanceIntegrity(t *testing.T) {
+	store := newSQLiteTestStore(t)
+	ctx := context.Background()
+	if _, err := store.db.NewRaw(`DROP TRIGGER billing_provider_maintenance_immutable_update`).Exec(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifySchema(ctx, store.db); err == nil {
+		t.Fatal("VerifySchema accepted missing provider-maintenance immutability trigger")
+	}
+}
+
 func TestAppendProviderMaintenanceIsDurableAndReplaySafe(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()

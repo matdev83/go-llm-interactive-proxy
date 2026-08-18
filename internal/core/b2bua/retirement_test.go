@@ -6,6 +6,32 @@ import (
 	"time"
 )
 
+func TestMemoryStoreLoadAttemptsNotifiesStaleRetirement(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	store, err := NewMemoryStore(MemoryStoreOptions{TTL: time.Minute, Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := store.CreateALeg(context.Background(), "stale")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Minute)
+	retired := make(chan string, 1)
+	store.SetALegRetirementObserver(func(aLegID string) { retired <- aLegID })
+	if _, err := store.LoadAttempts(context.Background(), first.ALegID); err != ErrALegNotFound {
+		t.Fatalf("LoadAttempts error = %v, want %v", err, ErrALegNotFound)
+	}
+	select {
+	case got := <-retired:
+		if got != first.ALegID {
+			t.Fatalf("retired A-leg = %q, want %q", got, first.ALegID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("stale LoadAttempts did not notify retirement")
+	}
+}
+
 func TestMemoryStoreRetirementObserverRunsAfterEvictionUnlock(t *testing.T) {
 	tick := time.Unix(1_700_000_000, 0).UTC()
 	store, err := NewMemoryStore(MemoryStoreOptions{MaxLegs: 1, Now: func() time.Time { return tick }})

@@ -81,7 +81,7 @@ func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 	}
 	maintenanceObserver, err := billingcompose.ComposeKeepwarmAccounting(in.Store, in.KeepwarmAccounting)
 	if err != nil {
-		return ProductionOptions{}, fmt.Errorf("%w: %v", ErrComposeBillingIncomplete, err)
+		return ProductionOptions{}, fmt.Errorf("%w: keep-warm accounting: %w", ErrComposeBillingIncomplete, err)
 	}
 	return ProductionOptions{
 		BillingTerminalUsageSink:    in.TerminalUsageSink,

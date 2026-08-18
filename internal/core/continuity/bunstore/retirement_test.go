@@ -15,6 +15,7 @@ func TestRetirementObserverBindingIsConcurrentSafe(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
+	createErrors := make(chan error, 20)
 	for i := 0; i < 20; i++ {
 		wg.Add(2)
 		go func() {
@@ -23,8 +24,15 @@ func TestRetirementObserverBindingIsConcurrentSafe(t *testing.T) {
 		}()
 		go func() {
 			defer wg.Done()
-			_, _ = store.CreateALeg(ctx, "shared")
+			_, err := store.CreateALeg(ctx, "shared")
+			createErrors <- err
 		}()
 	}
 	wg.Wait()
+	close(createErrors)
+	for err := range createErrors {
+		if err != nil {
+			t.Fatalf("concurrent CreateALeg: %v", err)
+		}
+	}
 }

@@ -2,6 +2,7 @@ package runtimebundle
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,7 +31,18 @@ func TestBuildKeepwarmGenerationDeliversMaintenanceAccounting(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+	var clockMu sync.Mutex
 	current := now
+	clockNow := func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		return current
+	}
+	advance := func(delta time.Duration) {
+		clockMu.Lock()
+		current = current.Add(delta)
+		clockMu.Unlock()
+	}
 	cfg := keepwarm.DefaultConfig()
 	cfg.MaxRefreshesPerIdleEpoch = 1
 	cfg.MaxConcurrentRenewals = 1
@@ -81,7 +93,7 @@ func TestBuildKeepwarmGenerationDeliversMaintenanceAccounting(t *testing.T) {
 		},
 	}
 
-	manager, _, err := buildKeepwarmGeneration(candidate, func() time.Time { return current }, nil, nil, observer)
+	manager, _, err := buildKeepwarmGeneration(candidate, clockNow, nil, nil, observer)
 	if err != nil {
 		t.Fatalf("buildKeepwarmGeneration: %v", err)
 	}
@@ -123,7 +135,7 @@ func TestBuildKeepwarmGenerationDeliversMaintenanceAccounting(t *testing.T) {
 		t.Fatalf("arm result = %+v", armed)
 	}
 
-	current = current.Add(55 * time.Second)
+	advance(55 * time.Second)
 	manager.RunDue(context.Background())
 
 	var request promptcache.RenewRequest
