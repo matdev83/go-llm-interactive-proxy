@@ -67,7 +67,6 @@ func (c *storeCore) appendDecision(log MutationLog, snapshot commandSnapshot, ro
 			ReservationID:   reservationID,
 			SettlementState: settlementState,
 			Unit:            string(amount.Unit),
-			Currency:        amount.Currency,
 			Limit:           row.Limit,
 			Consumed:        row.Consumed,
 			Reserved:        row.Reserved,
@@ -100,9 +99,6 @@ func (c *storeCore) appendDecision(log MutationLog, snapshot commandSnapshot, ro
 	}
 	if rec.Row.Unit == "" {
 		rec.Row.Unit = row.Unit
-	}
-	if rec.Row.Currency == "" {
-		rec.Row.Currency = row.Currency
 	}
 	c.decisions = append(c.decisions, rec)
 	log.CaptureDecisionAppend(rec)
@@ -175,8 +171,8 @@ func windowSpecConfigured(spec domain.WindowSpec) bool {
 
 func limitRowMatchesQuery(row controlplane.AccountingLimitStatusRow, q controlplane.AccountingLimitStatusQuery) bool {
 	if !commonFiltersMatch(
-		commonQueryFields{Common: q.Common, RuleID: q.RuleID, Unit: q.Unit, Currency: q.Currency, Authority: q.Authority, EvidenceState: q.EvidenceState, RedactionState: q.RedactionState},
-		commonRowFields{Correlation: row.Correlation, Scope: row.Scope, RuleID: row.RuleID, Unit: row.Unit, Currency: row.Currency, Authority: row.Authority, EvidenceState: row.EvidenceState, RedactionState: row.RedactionState},
+		commonQueryFields{Common: q.Common, RuleID: q.RuleID, Unit: q.Unit, Authority: q.Authority, EvidenceState: q.EvidenceState, RedactionState: q.RedactionState},
+		commonRowFields{Correlation: row.Correlation, Scope: row.Scope, RuleID: row.RuleID, Unit: row.Unit, Authority: row.Authority, EvidenceState: row.EvidenceState, RedactionState: row.RedactionState},
 	) {
 		return false
 	}
@@ -200,8 +196,8 @@ func limitRowMatchesQuery(row controlplane.AccountingLimitStatusRow, q controlpl
 
 func decisionRowMatchesQuery(row controlplane.AccountingDecisionRow, q controlplane.AccountingDecisionQuery) bool {
 	if !commonFiltersMatch(
-		commonQueryFields{Common: q.Common, RuleID: q.RuleID, Unit: q.Unit, Currency: q.Currency, Authority: q.Authority, EvidenceState: q.EvidenceState, RedactionState: q.RedactionState},
-		commonRowFields{Correlation: row.Correlation, Scope: row.Scope, RuleID: row.RuleID, Unit: row.Unit, Currency: row.Currency, Authority: row.Authority, EvidenceState: row.EvidenceState, RedactionState: row.RedactionState},
+		commonQueryFields{Common: q.Common, RuleID: q.RuleID, Unit: q.Unit, Authority: q.Authority, EvidenceState: q.EvidenceState, RedactionState: q.RedactionState},
+		commonRowFields{Correlation: row.Correlation, Scope: row.Scope, RuleID: row.RuleID, Unit: row.Unit, Authority: row.Authority, EvidenceState: row.EvidenceState, RedactionState: row.RedactionState},
 	) {
 		return false
 	}
@@ -230,7 +226,6 @@ type commonQueryFields struct {
 	Common         controlplane.CommonFilters
 	RuleID         string
 	Unit           string
-	Currency       string
 	Authority      controlplane.AccountingAuthoritySource
 	EvidenceState  controlplane.EvidenceState
 	RedactionState controlplane.RedactionState
@@ -241,14 +236,13 @@ type commonRowFields struct {
 	Scope          controlplane.ScopeSnapshot
 	RuleID         string
 	Unit           string
-	Currency       string
 	Authority      controlplane.AccountingAuthoritySource
 	EvidenceState  controlplane.EvidenceState
 	RedactionState controlplane.RedactionState
 }
 
 // commonFiltersMatch checks the shared sibling field filters (RuleID, Unit,
-// Currency, Authority, EvidenceState, RedactionState, Common correlation
+// Authority, EvidenceState, RedactionState, Common correlation
 // fields, Scope) against a row's common fields. It does not check
 // row-type-specific fields (SettlementState, TimeRange, Outcome, ReasonCode)
 // — those remain in the caller so each row type can reject only the filters
@@ -258,9 +252,6 @@ func commonFiltersMatch(q commonQueryFields, r commonRowFields) bool {
 		return false
 	}
 	if q.Unit != "" && r.Unit != q.Unit {
-		return false
-	}
-	if q.Currency != "" && !strings.EqualFold(r.Currency, q.Currency) {
 		return false
 	}
 	if q.Authority != "" && r.Authority != q.Authority {

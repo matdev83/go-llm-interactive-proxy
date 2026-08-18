@@ -76,7 +76,7 @@ func runDifferentialSequence(t *testing.T, name string, store app.StateStore) {
 		Correlation:    controlplane.Correlation{RequestID: "differential-request", ALegID: "a", BLegID: "b", BackendID: "backend-1", Model: "model-1"},
 		Scope:          scope.PrincipalScopeView{PrincipalID: scope.Known("principal-1"), TenantID: scope.Known("tenant-1"), WorkspaceID: scope.Known("workspace-1"), PolicyLabels: map[string]string{"tier": "standard"}},
 		ReservationKey: key, RuleID: "rule-strict", RuleType: "quota", Dimensions: strictDims,
-		Request: domain.Amount{Unit: domain.AmountUnitRequests, Value: 30}, Spend: domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 300, Currency: "usd"},
+		Request:   domain.Amount{Unit: domain.AmountUnitRequests, Value: 30},
 		Authority: domain.AuthorityLevelEstimated, At: at, SourceKey: "differential-reserve",
 	}
 	first, err := store.Reserve(ctx, reserve)
@@ -93,8 +93,6 @@ func runDifferentialSequence(t *testing.T, name string, store app.StateStore) {
 		ReservationID: first.ReservationID, RuleID: "rule-strict", Kind: app.SettlementKindFinal,
 		FinalUsage:     domain.Amount{Unit: domain.AmountUnitRequests, Value: 15},
 		EstimatedUsage: domain.Amount{Unit: domain.AmountUnitRequests, Value: 30},
-		FinalCost:      domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 150, Currency: "usd"},
-		EstimatedCost:  domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 300, Currency: "usd"},
 		ReservedUsage:  reserve.Request, Authority: domain.AuthorityLevelEstimated,
 		At: at.Add(time.Minute), SourceKey: "differential-settle",
 	}

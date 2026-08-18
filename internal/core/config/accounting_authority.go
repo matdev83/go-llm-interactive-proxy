@@ -181,8 +181,7 @@ func (r AccountingAuthorityRuleConfig) DomainRule(defaultMode string) (authority
 		Kind:                 authoritydomain.RuleKind(strings.ToLower(strings.TrimSpace(r.Kind))),
 		Mode:                 authoritydomain.RuleMode(mode),
 		Unit:                 authoritydomain.AmountUnit(strings.ToLower(strings.TrimSpace(r.Unit))),
-		Limit:                authoritydomain.Amount{Unit: authoritydomain.AmountUnit(strings.ToLower(strings.TrimSpace(r.Unit))), Value: r.Limit, Currency: strings.TrimSpace(r.Currency)},
-		Currency:             strings.TrimSpace(r.Currency),
+		Limit:                authoritydomain.Amount{Unit: authoritydomain.AmountUnit(strings.ToLower(strings.TrimSpace(r.Unit))), Value: r.Limit},
 		AuthorityRequirement: authoritydomain.AuthorityRequirement(strings.ToLower(strings.TrimSpace(r.AuthorityRequirement))),
 		FailureBehavior:      authoritydomain.FailureBehavior(strings.ToLower(strings.TrimSpace(r.FailureBehavior))),
 		Perspective:          metering.EconomicPerspective(strings.ToLower(strings.TrimSpace(r.Perspective))),
@@ -420,7 +419,7 @@ func validateAccountingAuthority(cfg *Config) error {
 	for i := range auth.Rules {
 		rule := &auth.Rules[i]
 		if retiredMonetaryAuthorityRule(*rule) {
-			return fmt.Errorf("accounting.authority.rules[%d]: monetary budget/spend_cap/money_nano rules are retired; use billing admission", i)
+			return fmt.Errorf("accounting.authority.rules[%d]: migration-required: monetary UsageAuthority rules are retired; use billing admission", i)
 		}
 		domainRule, err := rule.DomainRule(auth.Mode)
 		if err != nil {
@@ -447,7 +446,12 @@ func validateAccountingAuthority(cfg *Config) error {
 }
 
 func retiredMonetaryAuthorityRule(rule AccountingAuthorityRuleConfig) bool {
-	kind := strings.ToLower(strings.TrimSpace(rule.Kind))
-	unit := strings.ToLower(strings.TrimSpace(rule.Unit))
-	return kind == "budget" || kind == "spend_cap" || unit == "money_nano"
+	// Keep the legacy spellings explicit: budget, spend_cap, and money_nano
+	// must fail migration-required rather than being reinterpreted as quota.
+	normalize := func(value string) string {
+		return strings.NewReplacer("-", "", "_", "", " ", "").Replace(strings.ToLower(strings.TrimSpace(value)))
+	}
+	kind := normalize(rule.Kind)
+	unit := normalize(rule.Unit)
+	return kind == "budget" || kind == "spendcap" || unit == "moneynano"
 }

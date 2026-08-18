@@ -35,28 +35,11 @@ func TestAppliesToLifecycle_LegacyInfersFromUnit(t *testing.T) {
 	}
 }
 
-func TestSelectAmount_DualPlaneFromExposure(t *testing.T) {
+func TestSelectAmount_DualPlaneFromQuantityExposure(t *testing.T) {
 	t.Parallel()
-	rule := domain.Rule{
-		ID:             "op-spend",
-		Kind:           domain.RuleKindSpendCap,
-		Unit:           domain.AmountUnitMoneyNano,
-		Limit:          domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 100, Currency: "usd"},
-		Currency:       "usd",
-		Perspective:    metering.PerspectiveOperator,
-		LifecycleScope: metering.LifecycleBackendAttempt,
-		Basis:          domain.BasisBackendIngress,
-		Namespace:      domain.NamespaceDefault,
-	}
-	amt, ok := rule.SelectAmount(domain.AmountSelectionSource{
-		Exposure: economics.ExposureBasis{
-			Perspective: metering.PerspectiveOperator,
-			Boundary:    metering.BoundaryBackendIngress,
-			Lifecycle:   metering.LifecycleBackendAttempt,
-			Money:       economics.Money{NanoUnits: 40, Currency: "usd", Present: true},
-		},
-	})
-	if !ok || amt.Value != 40 || amt.Unit != domain.AmountUnitMoneyNano {
+	rule := domain.Rule{ID: "op-tokens", Kind: domain.RuleKindQuota, Unit: domain.AmountUnitInputTokens, Limit: domain.Amount{Unit: domain.AmountUnitInputTokens, Value: 100}, Perspective: metering.PerspectiveOperator, LifecycleScope: metering.LifecycleBackendAttempt, Basis: domain.BasisBackendIngress, Namespace: domain.NamespaceDefault}
+	amt, ok := rule.SelectAmount(domain.AmountSelectionSource{Exposure: economics.ExposureBasis{Perspective: metering.PerspectiveOperator, Boundary: metering.BoundaryBackendIngress, Lifecycle: metering.LifecycleBackendAttempt, Quantities: []metering.Quantity{{Component: metering.ComponentInputToken, Unit: metering.UnitToken, Value: 40, Present: true}}}})
+	if !ok || amt.Value != 40 || amt.Unit != domain.AmountUnitInputTokens {
 		t.Fatalf("got ok=%v amt=%v", ok, amt)
 	}
 }

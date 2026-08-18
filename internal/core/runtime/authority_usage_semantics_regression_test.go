@@ -16,7 +16,6 @@ func TestSettlementAuthorityIsIndependentPerTokenUnit(t *testing.T) {
 		Reservations: []authorityapp.AdmissionReservation{
 			{ReservationID: "r-input", RuleID: "input", ReservedAmount: domain.Amount{Unit: domain.AmountUnitInputTokens, Value: 8}},
 			{ReservationID: "r-output", RuleID: "output", ReservedAmount: domain.Amount{Unit: domain.AmountUnitOutputTokens, Value: 6}},
-			{ReservationID: "r-money", RuleID: "money", ReservedAmount: domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 100, Currency: "USD"}},
 		},
 	}}
 	state := attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(8), admissionResult: rec.admitResult}
@@ -31,8 +30,8 @@ func TestSettlementAuthorityIsIndependentPerTokenUnit(t *testing.T) {
 		t.Fatal("initial settle was not applied")
 	}
 	initial := rec.lastSettle()
-	if len(initial.Reservations) != 3 {
-		t.Fatalf("settlement descriptors = %d, want 3", len(initial.Reservations))
+	if len(initial.Reservations) != 2 {
+		t.Fatalf("settlement descriptors = %d, want 2", len(initial.Reservations))
 	}
 	if initial.Reservations[0].Authority != domain.AuthorityLevelAuthoritative {
 		t.Fatalf("input authority = %q, want authoritative", initial.Reservations[0].Authority)
@@ -40,10 +39,6 @@ func TestSettlementAuthorityIsIndependentPerTokenUnit(t *testing.T) {
 	if initial.Reservations[1].Authority != domain.AuthorityLevelEstimated || initial.Reservations[1].FinalUsage.Value != 6 {
 		t.Fatalf("missing output descriptor = %#v, want estimated fallback 6", initial.Reservations[1])
 	}
-	if initial.Reservations[2].Authority != domain.AuthorityLevelEstimated {
-		t.Fatalf("money authority = %q, want estimated without provider cost", initial.Reservations[2].Authority)
-	}
-
 	outputOnly := lipapi.Event{
 		Kind: lipapi.EventUsageDelta, OutputTokens: 3, TotalTokens: 3,
 		Accounting: inputOnly.Accounting,
@@ -123,54 +118,5 @@ func TestUnmarkedProviderUsageIsNotAuthoritative(t *testing.T) {
 		Authority: lipapi.UsageAuthorityAuthoritative,
 	}) {
 		t.Fatal("provider usage without an explicit provider source must not be authoritative")
-	}
-}
-
-func TestMeasurementAuthoritySeparatesTokensFromCost(t *testing.T) {
-	t.Parallel()
-	base := lipapi.Event{
-		Kind:        lipapi.EventUsageDelta,
-		InputTokens: 4,
-		TotalTokens: 4,
-		Accounting: lipapi.UsageAccountingMetadata{
-			Plane:     lipapi.UsagePlaneProviderBillable,
-			Source:    lipapi.UsageSourceProviderReported,
-			Authority: lipapi.UsageAuthorityAuthoritative,
-		},
-	}
-	withoutCost := measurementAuthorityForEvent(base)
-	if withoutCost.Usage != domain.AuthorityLevelAuthoritative {
-		t.Fatalf("token authority = %q, want authoritative", withoutCost.Usage)
-	}
-	if withoutCost.Cost != domain.AuthorityLevelEstimated || withoutCost.AuthoritativeCostPresent {
-		t.Fatalf("missing cost authority = %#v, want estimated and absent", withoutCost)
-	}
-
-	providerCost := base
-	providerCost.CostNanoUnits = 0 // authoritative zero requires CostPresent, not CostSource alone
-	providerCost.Currency = "USD"
-	providerCost.CostSource = string(lipapi.UsageSourceProviderReported)
-	providerCost.CostPresent = true
-	withCost := measurementAuthorityForEvent(providerCost)
-	if withCost.Cost != domain.AuthorityLevelAuthoritative || !withCost.AuthoritativeCostPresent {
-		t.Fatalf("provider cost authority = %#v, want authoritative/present", withCost)
-	}
-
-	sourceOnly := base
-	sourceOnly.CostSource = string(lipapi.UsageSourceProviderReported)
-	sourceOnlyAuthority := measurementAuthorityForEvent(sourceOnly)
-	if sourceOnlyAuthority.Cost != domain.AuthorityLevelEstimated || sourceOnlyAuthority.AuthoritativeCostPresent {
-		t.Fatalf("CostSource-only authority = %#v, want estimated and absent", sourceOnlyAuthority)
-	}
-
-	prior := settlementAuthorityState{UsageByUnit: map[domain.AmountUnit]domain.AuthorityLevel{
-		domain.AmountUnitInputTokens: domain.AuthorityLevelAuthoritative,
-	}, Cost: domain.AuthorityLevelAuthoritative}
-	if measurementAuthorityNeedsUpgradeForAmount(prior, withoutCost, domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 1, Currency: "USD"}) {
-		t.Fatal("token-only event must not reconcile a monetary reservation")
-	}
-	prior.AuthoritativeCostPresent = false
-	if !measurementAuthorityNeedsUpgradeForAmount(prior, withCost, domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 1, Currency: "USD"}) {
-		t.Fatal("present provider cost must reconcile a monetary reservation")
 	}
 }

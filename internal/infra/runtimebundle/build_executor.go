@@ -5,6 +5,8 @@ import (
 	crand "crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -26,6 +28,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingspool"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -128,38 +131,34 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 			if err := requireAuthoritativeBillingPorts(prod, in.Ledger); err != nil {
 				return nil, err
 			}
-			// The authoritative store is the single composition authority for
-			// terminal usage and reports. Do not permit separately injected
-			// appenders to drift from settlement truth.
-			callLegAppender, ok := prod.BillingStore.(billing.CallLegUsageAppender)
-			if !ok {
-				return nil, ErrAuthoritativeBillingRequired
+			if prod.BillingTerminalUsageSink == nil && strings.TrimSpace(cfg.Accounting.Billing.SpoolPath) != "" {
+				spoolPath := strings.TrimSpace(cfg.Accounting.Billing.SpoolPath)
+				if err := requireStableSpoolPath(spoolPath); err != nil {
+					return nil, err
+				}
+				central, ok := prod.BillingStore.(billing.TerminalUsageSink)
+				if !ok {
+					return nil, fmt.Errorf("%w: terminal spool central sink", ErrAuthoritativeBillingRequired)
+				}
+				spool, err := billingspool.Open(bctx.Parent, billingspool.Config{Path: spoolPath}, central)
+				if err != nil {
+					return nil, fmt.Errorf("runtimebundle: open billing terminal spool: %w", err)
+				}
+				prod.BillingTerminalUsageSink = spool
 			}
-			callAppender, ok := prod.BillingStore.(billing.CallUsageAppender)
-			if !ok {
-				return nil, ErrAuthoritativeBillingRequired
+			if owned, ok := prod.BillingTerminalUsageSink.(interface {
+				Start(context.Context) error
+				Stop(context.Context) error
+			}); ok {
+				in.Ledger.AddAction("billing-terminal-spool", PhasePublish, owned.Start, owned.Stop)
 			}
-			appendOutbox, outboxOK := prod.BillingStore.(billing.UsageAppendOutbox)
-			if !outboxOK {
-				return nil, fmt.Errorf("%w: UsageAppendOutbox", ErrAuthoritativeBillingRequired)
+			if closer, ok := prod.BillingTerminalUsageSink.(interface{ Close() error }); ok {
+				in.Ledger.AddClose("billing-terminal-spool", PhaseQuiesce, closer.Close)
 			}
-			retryCallAppender, err := billing.NewRetryingCallUsageAppender(callAppender, appendOutbox)
-			if err != nil {
-				return nil, fmt.Errorf("runtimebundle: call usage append retry: %w", err)
+			if prod.BillingTerminalUsageSink == nil {
+				return nil, fmt.Errorf("%w: TerminalUsageSink (configure the process-local spool)", ErrAuthoritativeBillingRequired)
 			}
-			retryLegAppender, err := billing.NewRetryingCallLegUsageAppender(callLegAppender, appendOutbox)
-			if err != nil {
-				return nil, fmt.Errorf("runtimebundle: call-leg usage append retry: %w", err)
-			}
-			prod.BillingCallLegAppender = retryLegAppender
-			prod.BillingCallUsageAppender = retryCallAppender
 			prod.BillingReports = prod.BillingStore
-			appendWorker, err := billing.NewUsageAppendWorker(appendOutbox, callAppender, callLegAppender, prod.BillingPostTurnBatchSize)
-			if err != nil {
-				return nil, fmt.Errorf("runtimebundle: usage append worker: %w", err)
-			}
-			in.Ledger.AddAction("billing-usage-append-worker", PhasePublish, func(context.Context) error { return appendWorker.Start(context.Background()) }, appendWorker.Stop)
-			in.Ledger.AddClose("billing-usage-append-worker", PhaseQuiesce, func() error { return appendWorker.Stop(context.Background()) })
 			if prod.BillingExposureAdmission != nil {
 				callUsage, usageOK := prod.BillingStore.(billing.CallUsageStore)
 				callSettlement, settlementOK := prod.BillingStore.(billing.CallSettlementStore)
@@ -315,8 +314,7 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 			BillingCreditGate:        prod.BillingCreditGate,
 			BillingExposureAdmission: prod.BillingExposureAdmission,
 			BillingLegObserver:       billingLegObserverFor(log),
-			CallLegUsageAppender:     prod.BillingCallLegAppender,
-			CallUsageAppender:        prod.BillingCallUsageAppender,
+			TerminalUsageSink:        prod.BillingTerminalUsageSink,
 			BillingIdentity:          prod.BillingIdentity,
 			BillingAuthoritative:     prod.BillingAuthoritative,
 		},
@@ -375,10 +373,30 @@ func requireAuthoritativeBillingPorts(prod ProductionOptions, ledger *ResourceLe
 		return fmt.Errorf("%w: BillingExposureAdmission", ErrAuthoritativeBillingRequired)
 	case prod.BillingCreditGate == nil:
 		return fmt.Errorf("%w: BillingCreditGate", ErrAuthoritativeBillingRequired)
+	case prod.BillingTerminalUsageSink == nil && strings.TrimSpace(prod.BillingReportsPath) == "":
+		return fmt.Errorf("%w: TerminalUsageSink", ErrAuthoritativeBillingRequired)
 	case prod.BillingIdentity.AccountID == nil:
 		return fmt.Errorf("%w: BillingIdentity.AccountID", ErrAuthoritativeBillingRequired)
 	case ledger == nil:
 		return fmt.Errorf("%w: ResourceLedger", ErrAuthoritativeBillingRequired)
+	}
+	return nil
+}
+
+// requireStableSpoolPath rejects volatile OS temp directories for the durable
+// monetary terminal spool. The check is a best-effort production guardrail:
+// TMPDIR can be overridden and Windows has no POSIX temp semantics, so
+// deployment must still pin a real state directory.
+func requireStableSpoolPath(path string) error {
+	clean := filepath.Clean(path)
+	for _, candidate := range []string{os.TempDir(), "/tmp", "/var/tmp", "/dev/shm"} {
+		if candidate == "" {
+			continue
+		}
+		cand := filepath.Clean(candidate)
+		if clean == cand || strings.HasPrefix(clean, cand+string(filepath.Separator)) {
+			return fmt.Errorf("runtimebundle: billing spool path %q is inside volatile temp directory %q; use a stable state directory", path, candidate)
+		}
 	}
 	return nil
 }

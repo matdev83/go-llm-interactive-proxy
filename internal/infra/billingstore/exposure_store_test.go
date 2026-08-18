@@ -28,7 +28,7 @@ func TestSQLiteAdmitExposureIsAtomicAndDoesNotMutateMoney(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if unchanged.BalanceNano != account.BalanceNano || unchanged.ReservedNano != 0 || unchanged.Version != account.Version {
+	if unchanged.BalanceNano != account.BalanceNano {
 		t.Fatalf("exposure mutated money/account state: before=%+v after=%+v", account, unchanged)
 	}
 	if _, err := store.AdmitExposure(ctx, input); err != nil {

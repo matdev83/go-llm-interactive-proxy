@@ -85,7 +85,7 @@ func TestSQLiteApplyProviderCostIsIndependentAndIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gotAccount.BalanceNano != account.BalanceNano || gotAccount.Version != account.Version || gotAccount.ReservedNano != 0 {
+	if gotAccount.BalanceNano != account.BalanceNano {
 		t.Fatalf("provider cost mutated customer account: before=%+v after=%+v", account, gotAccount)
 	}
 	if _, err := store.ApplyProviderCost(ctx, billing.ApplyProviderCostInput{AccountID: account.ID, CallID: callID, Leg: leg, Result: result}); err != nil {

@@ -18,11 +18,11 @@ import (
 )
 
 // persistCancellationBilling settles non-money usage-authority reservations for a
-// canceled attempt. Monetary cancellation work belongs exclusively to post-turn
-// TUR/LUR processing after terminal handoff.
+// canceled attempt. Monetary cancellation work belongs exclusively to post-usage
+// current call/leg rating after terminal handoff.
 //
 // Evidence recovery is first: a mid-stream EventUsageDelta is enough, otherwise
-// FinalizeBilling may recover provider evidence (shared with LUR via finalizeOnce).
+// FinalizeBilling may recover provider evidence (shared with call-leg usage via finalizeOnce).
 // Authoritative evidence reconciles an already-settled reservation (requirement
 // 7.6, 8.4-8.6); without it the path only settles Cancellation and never
 // re-opens a prior Partial/Final. One tail then applies advisory usage and
@@ -198,7 +198,7 @@ func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish li
 	authorityEv := authorityUsageEvent(result.Events)
 	clientUsageEv := mergeUsageEventsForClient(result.Events, tokenAccountingHasProviderUsage(s.seenEventsCopy()))
 	// Strip any residual monetary fields: protocol usage is a read-side projection
-	// only. Customer/operator money is owned exclusively by sealed TUR/LUR rating.
+	// only. Customer/operator money is owned exclusively by sealed current-record rating.
 	clientUsageEv.CostNanoUnits = 0
 	clientUsageEv.Currency = ""
 	clientUsageEv.CostSource = ""
@@ -207,7 +207,7 @@ func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish li
 	s.lastCustomerUsage = customerPlaneUsageEvent(clientUsageEv)
 	// The legacy token ledger is intentionally not written here. Client-visible
 	// usage remains a protocol/read-side projection; monetary settlement is owned
-	// by the sealed TUR/LUR post-turn processor.
+	// by the sealed current-record post-usage processor.
 	s.authority.Settle(ctx, authorityapp.SettlementKindFinal, authorityEv, false)
 	return clientUsageEv, true, nil
 }
@@ -272,7 +272,7 @@ func (s *retryRecvStream) finalizeResponseFinishedAuthority(ctx context.Context,
 // settleRequestAuthorityWithFrontendEgress emits the frontend-egress fact for the
 // delivered/committed customer usage and passes that fact into request settlement
 // for non-money quota/lease coordination (4.2). Monetary rating is exclusively a
-// post-turn TUR/LUR concern and is never attached here. Durable-pending and
+// post-usage current-record concern and is never attached here. Durable-pending and
 // durable-intent-rejected errors are returned so stream terminal effects fail
 // truthfully (Phase 4.5 / D9).
 func (s *retryRecvStream) settleRequestAuthorityWithFrontendEgress(ctx context.Context, usageEv lipapi.Event) error {
@@ -300,7 +300,7 @@ func (s *retryRecvStream) settleRequestAuthorityWithFrontendEgress(ctx context.C
 	if s.executor == nil {
 		return nil
 	}
-	// Monetary rating is exclusively a post-turn TUR/LUR concern. Runtime
+	// Monetary rating is exclusively a post-usage current-record concern. Runtime
 	// settlement receives only the non-money authority/egress evidence.
 	err := s.executor.settleRequestAuthority(ctx, facts)
 	if s.executor.RequestCoordinator != nil {

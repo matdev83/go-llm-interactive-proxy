@@ -76,25 +76,6 @@ func projectAuthorityEvidence(status domain.AuthorityStatus, reserved bool, in E
 			record.Annotations["accounting.rule_ids"] = strings.Join(ids, ",")
 		}
 	}
-	if in.RequestedMax.Unit != "" {
-		if record.Annotations == nil {
-			record.Annotations = make(map[string]string)
-		}
-		record.Annotations["accounting.requested_max"] = in.RequestedMax.String()
-	}
-	if in.EffectiveMax.Unit != "" {
-		if record.Annotations == nil {
-			record.Annotations = make(map[string]string)
-		}
-		record.Annotations["accounting.effective_max"] = in.EffectiveMax.String()
-	}
-	if strings.TrimSpace(in.ClampReason) != "" {
-		if record.Annotations == nil {
-			record.Annotations = make(map[string]string)
-		}
-		record.Annotations["accounting.clamp_reason"] = strings.TrimSpace(in.ClampReason)
-	}
-
 	event := controlplane.Event{
 		SourceEventKey: sourceEventKey(in),
 		Category:       controlplane.CategoryAccountingAuthority,
@@ -121,7 +102,6 @@ func projectAuthorityEvidence(status domain.AuthorityStatus, reserved bool, in E
 			ReservationID:      in.ReservationID,
 			SettlementState:    in.SettlementState,
 			Unit:               in.Unit,
-			Currency:           in.Currency,
 			Limit:              in.Limit,
 			Consumed:           in.Consumed,
 			Reserved:           in.Reserved,

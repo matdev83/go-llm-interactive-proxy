@@ -147,10 +147,8 @@ func TestUsageAuthority_EvidenceProjectedThroughRealBundle(t *testing.T) {
 		RuleID:         firstAuthorityRuleID(admitRes, admitIn.ReservationKey.RuleID),
 		Kind:           authorityapp.SettlementKindFinal,
 		FinalUsage:     admitRes.ReservedAmount,
-		FinalCost:      admitIn.Spend,
 		ReservedUsage:  admitRes.ReservedAmount,
 		EstimatedUsage: admitIn.Request,
-		EstimatedCost:  admitIn.Spend,
 		Authority:      authoritydomain.AuthorityLevelAuthoritative,
 	}
 	if _, err := runtimebundle.CandidateUsageAuthority(built).Settle(ctx, settleIn); err != nil {

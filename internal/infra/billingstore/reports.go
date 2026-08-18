@@ -10,6 +10,24 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 )
 
+const providerJournalOperationKind = "provider_call_cogs"
+
+// journalOrderClause keeps customer pagination sequence-based while giving the
+// provider stream its own immutable recorded_at/transaction_id order. The
+// provider branch intentionally does not inspect account_sequence, because
+// upgraded databases may contain historical provider sequences.
+func journalOrderClause(operationKind string) string {
+	if operationKind == providerJournalOperationKind {
+		return " ORDER BY recorded_at, transaction_id"
+	}
+	if operationKind != "" {
+		return " ORDER BY account_sequence, recorded_at, transaction_id"
+	}
+	return " ORDER BY CASE WHEN operation_kind = '" + providerJournalOperationKind + "' THEN 1 ELSE 0 END, CASE WHEN operation_kind = '" + providerJournalOperationKind + "' THEN recorded_at END, CASE WHEN operation_kind = '" + providerJournalOperationKind + "' THEN transaction_id END, CASE WHEN operation_kind <> '" + providerJournalOperationKind + "' THEN account_sequence END, recorded_at, transaction_id"
+}
+
+const operationSnapshotOrderClause = " ORDER BY CASE WHEN operation_kind IN ('provider_call_cogs', 'provider_cost_unreconciled') THEN 1 ELSE 0 END, CASE WHEN operation_kind IN ('provider_call_cogs', 'provider_cost_unreconciled') THEN created_at END, CASE WHEN operation_kind IN ('provider_call_cogs', 'provider_cost_unreconciled') THEN operation_key END, CASE WHEN operation_kind NOT IN ('provider_call_cogs', 'provider_cost_unreconciled') THEN account_sequence_end END, created_at, operation_key"
+
 func (s *DurableStore) AccountReport(ctx context.Context, accountID string, page billing.PageRequest) (billing.AccountReport, error) {
 	page, err := page.Normalize()
 	if err != nil {
@@ -30,6 +48,14 @@ func (s *DurableStore) AccountReport(ctx context.Context, accountID string, page
 	if err != nil {
 		return billing.AccountReport{}, err
 	}
+	// Customer pagination remains sequence-based, while provider rows are an
+	// independent audit stream ordered by recorded_at/transaction_id. Include
+	// the provider stream without making NULL sequences look customer-sequenced.
+	providerTransactions, err := s.loadJournalRange(ctx, account.ID, account.Currency, billing.JournalBook(""), "provider_call_cogs", time.Time{}, time.Time{})
+	if err != nil {
+		return billing.AccountReport{}, err
+	}
+	transactions = append(transactions, providerTransactions...)
 	var openExposureNano int64
 	if err := s.db.NewRaw(`SELECT COALESCE(SUM(max_exposure_nano), 0) FROM call_exposures WHERE account_id = ? AND status = 'open'`, account.ID).Scan(ctx, &openExposureNano); err != nil {
 		return billing.AccountReport{}, err
@@ -138,6 +164,11 @@ func (s *DurableStore) TrialBalanceReport(ctx context.Context, filter billing.Re
 	if err != nil {
 		return billing.TrialBalanceReport{}, err
 	}
+	providerTransactions, err := s.loadJournalRange(ctx, account.ID, currency, filter.Book, "provider_call_cogs", filter.From, filter.To)
+	if err != nil {
+		return billing.TrialBalanceReport{}, err
+	}
+	transactions = append(transactions, providerTransactions...)
 	var debit, credit int64
 	issues := make([]billing.ReconciliationIssue, 0)
 	for _, transaction := range transactions {
@@ -231,19 +262,35 @@ func (s *DurableStore) TrialBalanceReport(ctx context.Context, filter billing.Re
 }
 
 func (s *DurableStore) loadJournalRange(ctx context.Context, accountID, currency string, book billing.JournalBook, operationKind string, from, to time.Time) ([]billing.JournalTransaction, error) {
-	page := billing.PageRequest{Limit: 1000}
-	var out []billing.JournalTransaction
-	for {
-		transactions, next, err := s.loadJournalPage(ctx, accountID, currency, book, operationKind, from, to, page)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, transactions...)
-		if next == 0 {
-			return out, nil
-		}
-		page.AfterSequence = next
+	if book != "" && book != billing.JournalBookFinancial {
+		return nil, fmt.Errorf("%w: unsupported current journal book %q", billing.ErrReportInvalid, book)
 	}
+	query := `SELECT transaction_id, account_id, book, currency, source_key, semantic_fingerprint, turn_id, a_leg_id, b_leg_id, account_sequence, reversal_of, corrects_transaction_id, correction_group_id, operation_kind, balance_before_nano, balance_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, mode, snapshot_version_before, snapshot_version_after, recorded_at FROM journal_transactions WHERE account_id = ? AND currency = ?`
+	args := []any{accountID, currency}
+	if book == "" {
+		query += ` AND book = 'financial'`
+	} else {
+		query += ` AND book = ?`
+		args = append(args, string(book))
+	}
+	if operationKind != "" {
+		query += ` AND operation_kind = ?`
+		args = append(args, operationKind)
+	}
+	if !from.IsZero() {
+		query += ` AND recorded_at >= ?`
+		args = append(args, from)
+	}
+	if !to.IsZero() {
+		query += ` AND recorded_at < ?`
+		args = append(args, to)
+	}
+	query += journalOrderClause(operationKind)
+	var rows []journalTransactionRow
+	if err := s.db.NewRaw(query, args...).Scan(ctx, &rows); err != nil {
+		return nil, err
+	}
+	return loadJournals(ctx, s.db, rows)
 }
 
 type operatorLegRow struct {
@@ -306,7 +353,7 @@ func netCogsByCallAndBLeg(transactions []billing.JournalTransaction, currency st
 		key := cogsLegKey(tx.TurnID, tx.BLegID)
 		attr := out[key]
 		attr.Amount += cost
-		if tx.AccountSequence >= attr.Last.AccountSequence {
+		if attr.Last.ID == "" || tx.RecordedAt.After(attr.Last.RecordedAt) || (tx.RecordedAt.Equal(attr.Last.RecordedAt) && tx.ID > attr.Last.ID) {
 			attr.Last = tx
 		}
 		out[key] = attr
@@ -315,13 +362,18 @@ func netCogsByCallAndBLeg(transactions []billing.JournalTransaction, currency st
 }
 
 func (s *DurableStore) loadJournalPage(ctx context.Context, accountID, currency string, book billing.JournalBook, operationKind string, from, to time.Time, page billing.PageRequest) ([]billing.JournalTransaction, uint64, error) {
+	if book != "" && book != billing.JournalBookFinancial {
+		return nil, 0, fmt.Errorf("%w: unsupported current journal book %q", billing.ErrReportInvalid, book)
+	}
 	page, err := page.Normalize()
 	if err != nil {
 		return nil, 0, err
 	}
-	query := `SELECT transaction_id, account_id, book, currency, source_key, semantic_fingerprint, turn_id, a_leg_id, b_leg_id, account_sequence, reversal_of, corrects_transaction_id, correction_group_id, operation_kind, balance_before_nano, balance_after_nano, reserved_before_nano, reserved_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, mode, snapshot_version_before, snapshot_version_after, recorded_at FROM journal_transactions WHERE account_id = ? AND currency = ? AND account_sequence > ?`
+	query := `SELECT transaction_id, account_id, book, currency, source_key, semantic_fingerprint, turn_id, a_leg_id, b_leg_id, account_sequence, reversal_of, corrects_transaction_id, correction_group_id, operation_kind, balance_before_nano, balance_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, mode, snapshot_version_before, snapshot_version_after, recorded_at FROM journal_transactions WHERE account_id = ? AND currency = ? AND account_sequence IS NOT NULL AND account_sequence > ?`
 	args := []any{accountID, currency, page.AfterSequence}
-	if book != "" {
+	if book == "" {
+		query += ` AND book = 'financial'`
+	} else {
 		query += ` AND book = ?`
 		args = append(args, string(book))
 	}
@@ -346,8 +398,8 @@ func (s *DurableStore) loadJournalPage(ctx context.Context, accountID, currency 
 	next := uint64(0)
 	if len(rows) > page.Limit {
 		rows = rows[:page.Limit]
-		if len(rows) > 0 {
-			next = rows[len(rows)-1].AccountSequence
+		if len(rows) > 0 && rows[len(rows)-1].AccountSequence.Valid && rows[len(rows)-1].AccountSequence.Int64 > 0 {
+			next = uint64(rows[len(rows)-1].AccountSequence.Int64)
 		}
 	}
 	out, err := loadJournals(ctx, s.db, rows)

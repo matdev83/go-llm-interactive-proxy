@@ -20,7 +20,7 @@ func EvaluateBillingHoldAndStreamMoneyLock(root string) ([]RuleFinding, error) {
 	if !doc.RequireNetLOCReduction {
 		out = append(out, billingCorrectnessRuleFinding(
 			BillingCorrectnessRuleHoldAndStreamMoneyLock, BillingExposureBaselineRelPath,
-			"require_net_loc_reduction must stay active (7.4 convergence lock)"))
+			"require_net_loc_reduction must stay active (7.2 convergence lock)"))
 	}
 
 	inventory := make(map[string]struct{})

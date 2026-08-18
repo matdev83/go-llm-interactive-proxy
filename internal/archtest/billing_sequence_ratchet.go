@@ -45,7 +45,7 @@ func EvaluateBillingAttemptSequenceAuthority(root string) ([]RuleFinding, error)
 }
 
 // scanSeqPositionalReconstruction rejects rebuilding the attempt sequence from
-// slice position in the customer rating adapter and any direct Seq assignment
+// slice position in the customer rating adapter and any direct attempt-sequence assignment
 // from an index/position expression.
 func scanSeqPositionalReconstruction(rel, src string, f *ast.File) []RuleFinding {
 	var out []RuleFinding
@@ -54,7 +54,8 @@ func scanSeqPositionalReconstruction(rel, src string, f *ast.File) []RuleFinding
 		if !ok {
 			return true
 		}
-		if compositeLiteralTypeName(cl.Type) != "LegUsageRecord" {
+		typeName := compositeLiteralTypeName(cl.Type)
+		if typeName != "LegUsageRecord" && typeName != "CallLegUsageRecord" {
 			return true
 		}
 		for _, el := range cl.Elts {
@@ -63,29 +64,29 @@ func scanSeqPositionalReconstruction(rel, src string, f *ast.File) []RuleFinding
 				continue
 			}
 			key, ok := kv.Key.(*ast.Ident)
-			if !ok || key.Name != "Seq" {
+			if !ok || (key.Name != "Seq" && key.Name != "AttemptSeq") {
 				continue
 			}
 			sel, ok := kv.Value.(*ast.SelectorExpr)
 			if !ok || sel.Sel == nil || (sel.Sel.Name != "AttemptSeq" && sel.Sel.Name != "Seq") {
 				out = append(out, billingCorrectnessRuleFinding(
 					BillingCorrectnessRuleSequencePositional, rel,
-					"LegUsageRecord.Seq must copy the persisted attempt sequence; positional reconstruction is forbidden"))
+					"CallLegUsageRecord.AttemptSeq must copy the persisted attempt sequence; positional reconstruction is forbidden"))
 				return true
 			}
 			if _, ok := sel.X.(*ast.Ident); !ok {
 				out = append(out, billingCorrectnessRuleFinding(
 					BillingCorrectnessRuleSequencePositional, rel,
-					"LegUsageRecord.Seq must derive from the call-leg record, not an inline expression"))
+					"CallLegUsageRecord.AttemptSeq must derive from the call-leg record, not an inline expression"))
 			}
 		}
 		return true
 	})
 	// Surgical markers catch direct assignments such as leg.Seq = i + 1.
 	for _, marker := range []string{
-		".Seq = i", "Seq: i +", "Seq: i+", "Seq: i+1",
-		"Seq: index +", "Seq: index+", "Seq: idx +", "Seq: idx+",
-		"Seq: position", "Seq: pos", ".Seq = index", ".Seq = idx",
+		".Seq = i", ".AttemptSeq = i", "Seq: i +", "Seq: i+", "AttemptSeq: i +", "AttemptSeq: i+", "Seq: i+1", "AttemptSeq: i+1",
+		"Seq: index +", "Seq: index+", "AttemptSeq: index +", "AttemptSeq: index+", "Seq: idx +", "Seq: idx+", "AttemptSeq: idx +", "AttemptSeq: idx+",
+		"Seq: position", "Seq: pos", "AttemptSeq: position", "AttemptSeq: pos", ".Seq = index", ".Seq = idx", ".AttemptSeq = index", ".AttemptSeq = idx",
 	} {
 		if strings.Contains(src, marker) {
 			out = append(out, billingCorrectnessRuleFinding(
@@ -166,7 +167,7 @@ func scanLatestAcceptedUsesPersistedSequence(root string) []RuleFinding {
 
 func isSeqSelector(expr ast.Expr) bool {
 	sel, ok := expr.(*ast.SelectorExpr)
-	return ok && sel.Sel != nil && sel.Sel.Name == "Seq"
+	return ok && sel.Sel != nil && (sel.Sel.Name == "Seq" || sel.Sel.Name == "AttemptSeq")
 }
 
 func isSequenceComparison(op token.Token) bool {

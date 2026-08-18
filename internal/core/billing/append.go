@@ -2,12 +2,23 @@ package billing
 
 import "context"
 
-type CallLegUsageAppender interface {
-	AppendCallLegUsage(context.Context, CallLegUsageRecord) error
+// TerminalUsageSink is the single runtime terminal handoff. Implementations
+// durably append immutable current call/leg records locally; they do not rate,
+// authorize, or write financial journals.
+//
+// The context passed to AppendLeg/AppendCall carries the persistence deadline
+// for the append and must not be derived from the caller's request context.
+// Implementations must return success only after the record is durably
+// committed (or, for replay-safe stores, provably already present with an
+// identical fingerprint); a returned error means the record must be retried
+// and never silently dropped. The same key may be appended more than once:
+// replay must be idempotent and conflicting fingerprints must surface as a
+// typed conflict rather than overwriting prior evidence.
+type TerminalUsageSink interface {
+	AppendLeg(context.Context, CallLegUsageRecord) error
+	AppendCall(context.Context, CallUsageRecord) error
 }
-type CallUsageAppender interface {
-	AppendCallUsage(context.Context, CallUsageRecord) error
-}
+
 type ExposureAdmissionStore interface {
 	AdmitExposure(context.Context, AdmitExposureInput) (CallExposure, error)
 }
@@ -31,21 +42,4 @@ type CallSettlementStore interface {
 }
 type CompleteCallClaimer interface {
 	ClaimCompleteCall(context.Context, BillingCallID) (CompleteCall, error)
-}
-type CallLegUsageAppenderFunc func(context.Context, CallLegUsageRecord) error
-
-func (f CallLegUsageAppenderFunc) AppendCallLegUsage(ctx context.Context, record CallLegUsageRecord) error {
-	if f == nil {
-		return nil
-	}
-	return f(ctx, record)
-}
-
-type CallUsageAppenderFunc func(context.Context, CallUsageRecord) error
-
-func (f CallUsageAppenderFunc) AppendCallUsage(ctx context.Context, record CallUsageRecord) error {
-	if f == nil {
-		return nil
-	}
-	return f(ctx, record)
 }

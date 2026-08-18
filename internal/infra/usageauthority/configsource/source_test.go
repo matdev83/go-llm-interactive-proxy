@@ -88,9 +88,6 @@ func TestSourceSnapshotCapturesValidatedConfigSnapshot(t *testing.T) {
 	if rule.Limit.Unit != authoritydomain.AmountUnitRequests || rule.Limit.Value != 10 {
 		t.Fatalf("rule limit = %#v, want 10 requests", rule.Limit)
 	}
-	if rule.Limit.Currency != "usd" || rule.Currency != "usd" {
-		t.Fatalf("rule currency = %q/%q, want usd", rule.Limit.Currency, rule.Currency)
-	}
 	if rule.Window.Algorithm != authoritydomain.WindowAlgorithmFixed {
 		t.Fatalf("window algorithm = %q, want %q", rule.Window.Algorithm, authoritydomain.WindowAlgorithmFixed)
 	}

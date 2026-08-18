@@ -150,17 +150,10 @@ func TestAuthoritativeBillingKeepsNonMoneyAuthorityCoordination(t *testing.T) {
 	}
 }
 
-func TestAttemptAuthorityUsageAmountIgnoresStreamCostForMoney(t *testing.T) {
+func TestAttemptAuthorityUsageAmountUsesQuantityEstimate(t *testing.T) {
 	t.Parallel()
-
-	got := attemptAuthorityUsageAmount(
-		lipapi.Event{Kind: lipapi.EventUsageDelta, CostPresent: true, CostNanoUnits: 999, Currency: "USD"},
-		authoritydomain.Amount{Unit: authoritydomain.AmountUnitMoneyNano, Value: 40, Currency: "USD"},
-	)
-	if got.Value != 40 || got.Currency != "USD" {
-		t.Fatalf("money settle = %+v, want reserved estimate 40 USD (not stream cost 999)", got)
-	}
-	if cost := attemptAuthorityCostAmount(lipapi.Event{CostPresent: true, CostNanoUnits: 999, Currency: "USD"}, "USD"); cost.Value != 0 {
-		t.Fatalf("FinalCost = %+v, want empty after Phase 8", cost)
+	got := attemptAuthorityUsageAmount(lipapi.Event{InputTokens: 3}, authoritydomain.Amount{Unit: authoritydomain.AmountUnitInputTokens, Value: 4})
+	if got.Unit != authoritydomain.AmountUnitInputTokens || got.Value != 3 {
+		t.Fatalf("usage=%#v", got)
 	}
 }

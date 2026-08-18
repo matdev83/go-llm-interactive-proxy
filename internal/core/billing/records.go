@@ -95,39 +95,6 @@ const (
 	SurfacedUnknown SurfacedState = "unknown"
 )
 
-type LegUsageRecord struct {
-	Key             string
-	Fingerprint     string
-	ALegID          string
-	BLegID          string
-	Seq             int
-	BackendID       string
-	ProviderID      string
-	ModelID         string
-	StartedAt       time.Time
-	FinishedAt      time.Time
-	Outcome         LegOutcome
-	Surfaced        SurfacedState
-	Evidence        FinalBillingEvidence
-	OperatorRateRef VersionRef
-}
-type TurnUsageRecord struct {
-	SchemaVersion         int
-	Key                   string
-	Fingerprint           string
-	AccountID             string
-	TurnID                string
-	ALegID                string
-	LegacyAuthorizationID string
-	SessionID             string
-	StartedAt             time.Time
-	FinishedAt            time.Time
-	Outcome               TurnOutcome
-	CustomerPricingRef    VersionRef
-	ChargePolicyRef       VersionRef
-	Legs                  []LegUsageRecord
-}
-
 func validateEvidence(e FinalBillingEvidence) error {
 	for name, q := range map[string]Quantity{
 		"input": e.InputTokens, "output": e.OutputTokens, "cache_read": e.CacheReadTokens,

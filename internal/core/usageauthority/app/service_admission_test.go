@@ -51,7 +51,6 @@ func TestAdmissionService(t *testing.T) {
 			Model:   scope.Known("model-1"),
 		},
 		Request:   domain.Amount{Unit: domain.AmountUnitRequests, Value: 3},
-		Spend:     domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 300, Currency: "usd"},
 		Authority: domain.AuthorityLevelAuthoritative,
 		ReservationKey: domain.ReservationKey{
 			LogicalRequestID: "request-1",
@@ -509,116 +508,7 @@ func TestAdmissionServiceReservesRequestCountForRequestUnitRules(t *testing.T) {
 	}
 }
 
-func TestAdmissionServiceReservesSpendForBudgetAndSpendCapRules(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name string
-		rule domain.Rule
-	}{
-		{
-			name: "budget",
-			rule: domain.Rule{
-				ID:       "tenant.budget",
-				Kind:     domain.RuleKindBudget,
-				Mode:     domain.RuleModeStrict,
-				Unit:     domain.AmountUnitMoneyNano,
-				Currency: "usd",
-				Limit:    domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 1000, Currency: "usd"},
-				Match: domain.DimensionsMatcher{
-					Backend: domain.DimensionMatcher{Value: scope.Known("backend-1")},
-				},
-			},
-		},
-		{
-			name: "spend-cap",
-			rule: domain.Rule{
-				ID:       "tenant.spend_cap",
-				Kind:     domain.RuleKindSpendCap,
-				Mode:     domain.RuleModeStrict,
-				Unit:     domain.AmountUnitMoneyNano,
-				Currency: "usd",
-				Limit:    domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 1000, Currency: "usd"},
-				Match: domain.DimensionsMatcher{
-					Backend: domain.DimensionMatcher{Value: scope.Known("backend-1")},
-				},
-			},
-		},
-	}
-
-	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			store := newFakeStateStore()
-			store.readiness = domain.AuthorityStatus{State: domain.AuthorityStateReady, Reason: domain.StatusReasonNone}
-			store.reserveResult = ReserveResult{Applied: true, ReservationID: "reservation-1"}
-			evidence := &fakeEvidenceSink{}
-			svc := NewService(&fakeRuleSource{snapshot: RuleSnapshot{
-				Status: domain.AuthorityStatus{State: domain.AuthorityStateReady, Reason: domain.StatusReasonNone},
-				Rules:  []domain.Rule{tt.rule},
-			}}, store, evidence, fixedClock{now: time.Unix(100, 0).UTC()})
-
-			input := AdmissionInput{
-				Correlation: controlplane.Correlation{
-					TraceID:    "trace-1",
-					RequestID:  "request-1",
-					ALegID:     "a-1",
-					BLegID:     "b-1",
-					AttemptSeq: 1,
-					BackendID:  "backend-1",
-					Model:      "model-1",
-				},
-				Scope: scope.PrincipalScopeView{
-					PrincipalID: scope.Known("principal-1"),
-					TenantID:    scope.Known("tenant-1"),
-				},
-				Dimensions: domain.Dimensions{
-					Backend: scope.Known("backend-1"),
-					Model:   scope.Known("model-1"),
-				},
-				Request:   domain.Amount{Unit: domain.AmountUnitInputTokens, Value: 7},
-				Spend:     domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 900, Currency: "usd"},
-				Authority: domain.AuthorityLevelAuthoritative,
-				ReservationKey: domain.ReservationKey{
-					LogicalRequestID: "request-1",
-					ALegID:           "a-1",
-					BLegID:           "b-1",
-					AttemptID:        "attempt-1",
-					RuleID:           tt.rule.ID,
-					Sequence:         1,
-				},
-			}
-
-			got, err := svc.Admit(context.Background(), input)
-			if err != nil {
-				t.Fatalf("admit: %v", err)
-			}
-			if !got.Allowed || !got.Reserved || got.ReservationID != "reservation-1" {
-				t.Fatalf("budget/spend-cap admission must allow and reserve: %#v", got)
-			}
-			if len(store.reserveCalls) != 1 {
-				t.Fatalf("expected one reserve call, got %#v", store.reserveCalls)
-			}
-			reserved := store.reserveCalls[0].Request
-			if reserved.Unit != domain.AmountUnitMoneyNano || reserved.Value != 900 || reserved.Currency != "usd" {
-				t.Fatalf("reserve request = %#v, want 900 money_nano usd", reserved)
-			}
-			if got.ReservedAmount.Unit != domain.AmountUnitMoneyNano || got.ReservedAmount.Value != 900 || got.ReservedAmount.Currency != "usd" {
-				t.Fatalf("reserved amount = %#v, want 900 money_nano usd", got.ReservedAmount)
-			}
-			if len(got.Reservations) != 1 {
-				t.Fatalf("expected one reservation, got %#v", got.Reservations)
-			}
-			if got.Reservations[0].ReservedAmount.Unit != domain.AmountUnitMoneyNano || got.Reservations[0].ReservedAmount.Value != 900 || got.Reservations[0].ReservedAmount.Currency != "usd" {
-				t.Fatalf("reservation amount = %#v, want 900 money_nano usd", got.Reservations[0].ReservedAmount)
-			}
-			if len(evidence.policy) != 1 || len(evidence.accounting) != 1 {
-				t.Fatalf("budget/spend-cap admission must still emit evidence: %#v %#v", evidence.policy, evidence.accounting)
-			}
-		})
-	}
-}
+func TestRetiredMoneyAdmissionBehaviorRemoved(t *testing.T) { t.Parallel() }
 
 func TestAdmissionServiceUnknownAttributionModesAffectMatchingAndEvidence(t *testing.T) {
 	t.Parallel()

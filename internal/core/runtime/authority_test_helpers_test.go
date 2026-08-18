@@ -281,7 +281,6 @@ func testAuthorityAdmissionInput(amount int64) authorityapp.AdmissionInput {
 		Scope:          scope.PrincipalScopeView{},
 		Dimensions:     authoritydomain.Dimensions{},
 		Request:        authorityInputAmount(amount),
-		Spend:          authoritydomain.Amount{Unit: authoritydomain.AmountUnitMoneyNano, Value: amount, Currency: "USD"},
 		Authority:      authoritydomain.AuthorityLevelEstimated,
 		ReservationKey: key,
 		EstimateOnly:   false,

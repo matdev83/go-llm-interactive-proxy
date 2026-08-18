@@ -34,7 +34,7 @@ func TestPhase8KeepsTerminalFinalizeBillingCostMerge(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
 	// Req 3.4: stream CostPresent (including authoritative zero) is copied onto
-	// the LUR. Behavior is locked by runtime tests
+	// the current call-leg record. Behavior is locked by runtime tests
 	// TestBillingLegPreservesStreamAuthoritativeZeroCostAcrossFinalize and
 	// TestParallelBillingLegPreservesStreamAuthoritativeZeroCostAcrossFinalize.
 	// This gate forbids splicing money onto lipapi.Event in the observe path.
@@ -47,10 +47,10 @@ func TestPhase8KeepsTerminalFinalizeBillingCostMerge(t *testing.T) {
 		}
 		text := string(src)
 		if strings.Contains(text, "finalize.CostPresent") && strings.Contains(text, "stream.CostNanoUnits") {
-			t.Fatalf("%s still splices CostPresent onto lipapi.Event; merge belongs on LUR money evidence", rel)
+			t.Fatalf("%s still splices CostPresent onto lipapi.Event; merge belongs on current call-leg money evidence", rel)
 		}
-		if !strings.Contains(text, "mergeStreamCostOntoLUR") {
-			t.Fatalf("%s must copy stream CostPresent onto LUR evidence when FinalizeBilling has no money", rel)
+		if !strings.Contains(text, "mergeStreamCostOntoLeg") {
+			t.Fatalf("%s must copy stream CostPresent onto current call-leg evidence when FinalizeBilling has no money", rel)
 		}
 	}
 }

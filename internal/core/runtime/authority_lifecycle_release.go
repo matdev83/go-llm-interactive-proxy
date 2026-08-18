@@ -123,7 +123,6 @@ func (l *authorityLifecycle) releaseReservationSet(ctx context.Context, kind aut
 		input.Reservations = append(input.Reservations, authorityapp.ReleaseDescriptor{Reservation: authorityapp.ReservationDescriptor{
 			RuleID:         reservation.ruleID,
 			Unit:           reservation.reservedAmount.Unit,
-			Currency:       reservation.reservedAmount.Currency,
 			Dimensions:     l.control.state.admissionInput.Dimensions,
 			ReservationKey: reservation.reservationKey,
 			ReservationID:  reservation.reservationID,
@@ -164,7 +163,6 @@ func (l *authorityLifecycle) reconcileAuthoritativeLocked(ctx context.Context, u
 	reservations := l.reservationStates()
 	input := l.settlementInput(authorityapp.SettlementKindFinal, usageEv, false, reservations)
 	input.FinalUsagePresent = usageEventPresent(usageEv)
-	input.FinalCostPresent = false
 	filtered := input.Reservations[:0]
 	for i := range input.Reservations {
 		reservation := input.Reservations[i]
@@ -253,7 +251,6 @@ func (l *authorityLifecycle) ApplyUnreservedUsage(ctx context.Context, kind auth
 	defer cancel()
 	usagePresent := usageEventPresent(usageEv)
 	usage := advisoryUsageBreakdown(usageEv)
-	finalCost := attemptAuthorityCostAmount(usageEv, l.advisoryCostCurrency())
 	measurementAuthority := measurementAuthorityForEvent(usageEv)
 	if !usagePresent {
 		// A final/cancellation path can legitimately have no usage event (for
@@ -262,7 +259,6 @@ func (l *authorityLifecycle) ApplyUnreservedUsage(ctx context.Context, kind auth
 		// token/request accounting. Monetary spend stays empty: BillingAdmission
 		// / TUR settlement own money.
 		usage = l.control.state.admissionInput.PreflightUsage
-		finalCost = domain.Amount{}
 	}
 	cmd := authorityapp.ApplyUsageCommand{
 		Correlation:          l.control.state.admissionInput.Correlation,
@@ -271,9 +267,7 @@ func (l *authorityLifecycle) ApplyUnreservedUsage(ctx context.Context, kind auth
 		RuleIDs:              append([]string(nil), ruleIDs...),
 		Usage:                usage,
 		RequestCount:         domain.Amount{Unit: domain.AmountUnitRequests, Value: 1},
-		FinalCost:            finalCost,
 		UsagePresent:         usagePresent,
-		CostPresent:          false,
 		Authority:            measurementAuthority.Usage,
 		MeasurementAuthority: measurementAuthority,
 		Kind:                 kind,
@@ -293,15 +287,6 @@ func (l *authorityLifecycle) ApplyUnreservedUsage(ctx context.Context, kind auth
 // only have a final response event.
 func (l *authorityLifecycle) ApplyAdvisoryUsage(ctx context.Context, usageEv lipapi.Event) bool {
 	return l.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindFinal, usageEv)
-}
-
-// advisoryCostCurrency returns the currency fallback for advisory money rules,
-// taken from the admission input's estimated spend currency.
-func (l *authorityLifecycle) advisoryCostCurrency() string {
-	if l == nil {
-		return ""
-	}
-	return strings.TrimSpace(l.control.state.admissionInput.Spend.Currency)
 }
 
 // advisorySourceKey derives a deterministic idempotency key for advisory usage

@@ -131,7 +131,6 @@ func attemptAdmissionInput(in authority.AttemptAdmission, estimateOnly bool) aut
 		Dimensions:     scopeToDimensions(in.Scope),
 		Request:        exposureInputTokens(in.Exposure),
 		RequestCount:   domain.Amount{Unit: domain.AmountUnitRequests, Value: 0}, // request-count reserved at request stage
-		Spend:          exposureSpend(in.Exposure),
 		Authority:      domain.AuthorityLevelEstimated,
 		ReservationKey: key,
 		LifecycleScope: metering.LifecycleBackendAttempt,
@@ -248,7 +247,6 @@ func attemptSettleInput(in authority.AttemptSettlement) authorityapp.SettleInput
 				Reservation: authorityapp.ReservationDescriptor{
 					RuleID:         strings.TrimSpace(r.RuleID),
 					Unit:           reserved.Unit,
-					Currency:       reserved.Currency,
 					Dimensions:     dims,
 					ReservationKey: resKey,
 					ReservationID:  strings.TrimSpace(r.Handle),
@@ -318,7 +316,7 @@ func finalUsageFromFacts(facts []metering.Fact, reserved domain.Amount) domain.A
 		}
 	}
 	if reserved.Unit != "" {
-		return domain.Amount{Unit: reserved.Unit, Currency: reserved.Currency}
+		return domain.Amount{Unit: reserved.Unit}
 	}
 	return domain.Amount{}
 }
@@ -431,11 +429,6 @@ func mapAdmissionReservation(in authorityapp.AdmissionReservation) authority.Res
 		RuleID: strings.TrimSpace(in.RuleID),
 	}
 	amount := in.ReservedAmount
-	if amount.Unit == domain.AmountUnitMoneyNano {
-		out.Kind = authority.ReservationBudget
-		out.Money = &economics.Money{NanoUnits: amount.Value, Currency: strings.TrimSpace(amount.Currency), Present: true}
-		return out
-	}
 	component, unit := meteringComponentForAuthorityAmount(amount.Unit)
 	if component != "" {
 		out.Quantity = &metering.Quantity{Component: component, Unit: unit, Value: amount.Value, Present: true}
@@ -484,13 +477,6 @@ func exposureInputTokens(exp economics.ExposureBasis) domain.Amount {
 		}
 	}
 	return domain.Amount{Unit: domain.AmountUnitInputTokens, Value: 0}
-}
-
-func exposureSpend(exp economics.ExposureBasis) domain.Amount {
-	if exp.Money.Present {
-		return domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: exp.Money.NanoUnits}
-	}
-	return domain.Amount{}
 }
 
 // BuildAuthorityCoordinators wires thin adapters into request/attempt coordinators

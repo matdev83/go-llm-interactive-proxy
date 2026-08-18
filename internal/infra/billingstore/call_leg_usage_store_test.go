@@ -135,7 +135,7 @@ func runAppendCallLegUsageIndependentOfMoneyAndTUR(t *testing.T, store *DurableS
 	if err != nil {
 		t.Fatal(err)
 	}
-	if afterAccount.BalanceNano != beforeAccount.BalanceNano || afterAccount.ReservedNano != beforeAccount.ReservedNano || afterAccount.Version != beforeAccount.Version {
+	if afterAccount.BalanceNano != beforeAccount.BalanceNano {
 		t.Fatalf("append mutated account money/version: before=%#v after=%#v", beforeAccount, afterAccount)
 	}
 	afterJournals, err := store.JournalTransactions(ctx, accountID)

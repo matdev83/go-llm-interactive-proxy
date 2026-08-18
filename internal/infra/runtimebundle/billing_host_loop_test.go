@@ -56,10 +56,11 @@ func TestBillingHostLoop(t *testing.T) {
 
 	ceiling := billing.Money{Nano: billingHostLoopHoldNano, Currency: "USD"}
 	prod, err := runtimebundle.ComposeBilling(runtimebundle.ComposeBillingInput{
-		Store:    store,
-		Catalog:  catalog,
-		Identity: nil,
-		Currency: "USD",
+		Store:             store,
+		TerminalUsageSink: store,
+		Catalog:           catalog,
+		Identity:          nil,
+		Currency:          "USD",
 		ModelMaxOutput: func(context.Context, string, string) (int64, bool, error) {
 			return 128000, true, nil
 		},
@@ -137,9 +138,9 @@ func TestBillingHostLoop(t *testing.T) {
 
 	report := waitBillingHostLoopProviderCost(t, store, accountID)
 	wantBalance := billingHostLoopOpeningNano - billingHostLoopCustomerNano
-	if report.Account.BalanceNano != wantBalance || report.SpendableNano != wantBalance || report.Account.ReservedNano != 0 {
-		t.Fatalf("account report balance=%d spendable=%d reserved=%d, want balance=spendable=%d reserved=0",
-			report.Account.BalanceNano, report.SpendableNano, report.Account.ReservedNano, wantBalance)
+	if report.Account.BalanceNano != wantBalance || report.SpendableNano != wantBalance {
+		t.Fatalf("account report balance=%d spendable=%d, want balance=spendable=%d",
+			report.Account.BalanceNano, report.SpendableNano, wantBalance)
 	}
 	var sawCustomerSettlement, sawProviderCost bool
 	for _, transaction := range report.Transactions {
@@ -182,10 +183,11 @@ func TestBillingHostLoop_FailoverOpenFailureClaimsAndSettles(t *testing.T) {
 
 	ceiling := billing.Money{Nano: billingHostLoopHoldNano, Currency: "USD"}
 	prod, err := runtimebundle.ComposeBilling(runtimebundle.ComposeBillingInput{
-		Store:    store,
-		Catalog:  catalog,
-		Identity: nil,
-		Currency: "USD",
+		Store:             store,
+		TerminalUsageSink: store,
+		Catalog:           catalog,
+		Identity:          nil,
+		Currency:          "USD",
 		ModelMaxOutput: func(context.Context, string, string) (int64, bool, error) {
 			return 128000, true, nil
 		},
@@ -258,8 +260,8 @@ func TestBillingHostLoop_FailoverOpenFailureClaimsAndSettles(t *testing.T) {
 
 	report := waitBillingHostLoopProviderCost(t, store, accountID)
 	wantBalance := billingHostLoopOpeningNano - billingHostLoopCustomerNano
-	if report.Account.BalanceNano != wantBalance || report.Account.ReservedNano != 0 {
-		t.Fatalf("settled account balance=%d reserved=%d, want balance=%d reserved=0", report.Account.BalanceNano, report.Account.ReservedNano, wantBalance)
+	if report.Account.BalanceNano != wantBalance {
+		t.Fatalf("settled account balance=%d, want balance=%d", report.Account.BalanceNano, wantBalance)
 	}
 	var customerSettlements int
 	for _, transaction := range report.Transactions {
@@ -295,10 +297,11 @@ func TestBillingHostLoop_MissingCatalogRefs(t *testing.T) {
 
 	ceiling := billing.Money{Nano: billingHostLoopHoldNano, Currency: "USD"}
 	prod, err := runtimebundle.ComposeBilling(runtimebundle.ComposeBillingInput{
-		Store:    store,
-		Catalog:  catalog,
-		Identity: &identity,
-		Currency: "USD",
+		Store:             store,
+		TerminalUsageSink: store,
+		Catalog:           catalog,
+		Identity:          &identity,
+		Currency:          "USD",
 		ModelMaxOutput: func(context.Context, string, string) (int64, bool, error) {
 			return 128000, true, nil
 		},
@@ -691,10 +694,11 @@ func startBillingHostLoopHost(
 	t.Helper()
 	ceiling := billing.Money{Nano: billingHostLoopHoldNano, Currency: "USD"}
 	prod, err := runtimebundle.ComposeBilling(runtimebundle.ComposeBillingInput{
-		Store:    store,
-		Catalog:  catalog,
-		Identity: identity,
-		Currency: "USD",
+		Store:             store,
+		TerminalUsageSink: store,
+		Catalog:           catalog,
+		Identity:          identity,
+		Currency:          "USD",
 		ModelMaxOutput: func(context.Context, string, string) (int64, bool, error) {
 			return 128000, true, nil
 		},

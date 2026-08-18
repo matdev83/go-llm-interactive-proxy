@@ -28,21 +28,6 @@ func advisoryQuotaRule(id string) domain.Rule {
 	}
 }
 
-func advisoryBudgetRule(id string) domain.Rule {
-	return domain.Rule{
-		ID:       id,
-		Kind:     domain.RuleKindBudget,
-		Mode:     domain.RuleModeAdvisory,
-		Unit:     domain.AmountUnitMoneyNano,
-		Currency: "usd",
-		Limit:    domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 1000},
-		Match: domain.DimensionsMatcher{
-			Backend: domain.DimensionMatcher{Value: scope.Known("backend-advisory-budget")},
-			Model:   domain.DimensionMatcher{Value: scope.Known("model-advisory-budget")},
-		},
-	}
-}
-
 func advisoryTokenRule(id string) domain.Rule {
 	return domain.Rule{
 		ID:    id,
@@ -84,7 +69,7 @@ func advisoryTokenDimensions() domain.Dimensions {
 	}
 }
 
-func applyUsageCmd(ruleID string, dims domain.Dimensions, usage domain.PreflightUsage, requestCount domain.Amount, finalCost domain.Amount, at time.Time, source string) app.ApplyUsageCommand {
+func applyUsageCmd(ruleID string, dims domain.Dimensions, usage domain.PreflightUsage, requestCount domain.Amount, _ domain.Amount, at time.Time, source string) app.ApplyUsageCommand {
 	return app.ApplyUsageCommand{
 		Correlation: controlplane.Correlation{
 			TraceID:   "trace-advisory-" + ruleID,
@@ -98,7 +83,6 @@ func applyUsageCmd(ruleID string, dims domain.Dimensions, usage domain.Preflight
 		RuleIDs:      []string{ruleID},
 		Usage:        usage,
 		RequestCount: requestCount,
-		FinalCost:    finalCost,
 		At:           at,
 		SourceKey:    source,
 	}
@@ -121,7 +105,7 @@ func TestApplyUsageAdvisoryQuotaUpdatesWindowWithoutReservation(t *testing.T) {
 		"advisory-quota-1", advisoryQuotaDimensions(),
 		domain.PreflightUsage{},
 		domain.Amount{Unit: domain.AmountUnitRequests, Value: 1},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 0, Currency: "usd"},
+		domain.Amount{Unit: domain.AmountUnitRequests, Value: 0},
 		at.Add(time.Minute), "apply-1",
 	))
 	if err != nil {
@@ -153,7 +137,7 @@ func TestApplyUsageReplaySameSourceKeyIsNoOp(t *testing.T) {
 	cmd := applyUsageCmd("advisory-quota-1", advisoryQuotaDimensions(),
 		domain.PreflightUsage{},
 		domain.Amount{Unit: domain.AmountUnitRequests, Value: 3},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 0, Currency: "usd"},
+		domain.Amount{Unit: domain.AmountUnitRequests, Value: 0},
 		at.Add(time.Minute), "apply-replay")
 	if _, err := store.ApplyUsage(context.Background(), cmd); err != nil {
 		t.Fatalf("first ApplyUsage: %v", err)
@@ -230,37 +214,7 @@ func TestApplyUsageReplacesPartialFactInsteadOfAdding(t *testing.T) {
 	}
 }
 
-// TestApplyUsageMoneyAdvisoryConsumesFinalCost proves a money (budget) advisory
-// rule consumes cmd.FinalCost, not the token usage breakdown.
-func TestApplyUsageMoneyAdvisoryConsumesFinalCost(t *testing.T) {
-	t.Parallel()
-	at := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
-	store := storeFromRules(t, []domain.Rule{advisoryBudgetRule("advisory-budget-1")}, at)
-
-	res, err := store.ApplyUsage(context.Background(), applyUsageCmd(
-		"advisory-budget-1", advisoryBudgetDimensions(),
-		domain.PreflightUsage{InputTokens: 999},
-		domain.Amount{Unit: domain.AmountUnitRequests, Value: 1},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 250, Currency: "usd"},
-		at.Add(time.Minute), "apply-money-1",
-	))
-	if err != nil {
-		t.Fatalf("ApplyUsage: %v", err)
-	}
-	if !res.Applied {
-		t.Fatalf("ApplyUsage must apply: %#v", res)
-	}
-	row := limitRow(t, store, "advisory-budget-1", string(domain.AmountUnitMoneyNano))
-	if row.Consumed != 250 {
-		t.Fatalf("advisory budget Consumed = %d, want 250 (money)", row.Consumed)
-	}
-	if row.Remaining != 750 {
-		t.Fatalf("advisory budget Remaining = %d, want 750", row.Remaining)
-	}
-}
-
-// TestApplyUsageTokenAdvisoryConsumesFinalUsage proves a token advisory rule
-// consumes the matching per-unit reading from the usage breakdown, not the cost.
+// Retired monetary advisory behavior has no implementation.
 func TestApplyUsageTokenAdvisoryConsumesFinalUsage(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
@@ -270,7 +224,7 @@ func TestApplyUsageTokenAdvisoryConsumesFinalUsage(t *testing.T) {
 		"advisory-tok-1", advisoryTokenDimensions(),
 		domain.PreflightUsage{InputTokens: 1200, OutputTokens: 800},
 		domain.Amount{Unit: domain.AmountUnitRequests, Value: 1},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 9999, Currency: "usd"},
+		domain.Amount{Unit: domain.AmountUnitRequests, Value: 9999},
 		at.Add(time.Minute), "apply-tok-1",
 	))
 	if err != nil {
@@ -303,7 +257,7 @@ func TestApplyUsageExpiredAdvisoryWindowAdvances(t *testing.T) {
 	first := applyUsageCmd("advisory-roll-1", advisoryQuotaDimensions(),
 		domain.PreflightUsage{},
 		domain.Amount{Unit: domain.AmountUnitRequests, Value: 1},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 0, Currency: "usd"},
+		domain.Amount{Unit: domain.AmountUnitRequests, Value: 0},
 		at.Add(10*time.Minute), "apply-roll-1")
 	if _, err := store.ApplyUsage(context.Background(), first); err != nil {
 		t.Fatalf("first ApplyUsage: %v", err)
@@ -317,7 +271,7 @@ func TestApplyUsageExpiredAdvisoryWindowAdvances(t *testing.T) {
 	second := applyUsageCmd("advisory-roll-1", advisoryQuotaDimensions(),
 		domain.PreflightUsage{},
 		domain.Amount{Unit: domain.AmountUnitRequests, Value: 5},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 0, Currency: "usd"},
+		domain.Amount{Unit: domain.AmountUnitRequests, Value: 0},
 		at.Add(2*time.Hour), "apply-roll-2")
 	if _, err := store.ApplyUsage(context.Background(), second); err != nil {
 		t.Fatalf("second ApplyUsage: %v", err)
@@ -363,7 +317,7 @@ func TestApplyUsageRecordsAdvisoryDecision(t *testing.T) {
 		"advisory-dec-1", advisoryQuotaDimensions(),
 		domain.PreflightUsage{},
 		domain.Amount{Unit: domain.AmountUnitRequests, Value: 2},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 0, Currency: "usd"},
+		domain.Amount{Unit: domain.AmountUnitRequests, Value: 0},
 		at.Add(time.Minute), "apply-dec-1",
 	)); err != nil {
 		t.Fatalf("ApplyUsage: %v", err)

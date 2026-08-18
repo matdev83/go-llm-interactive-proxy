@@ -296,7 +296,6 @@ func authorityHTTPAdmissionInput(requestID, traceID, sessionID, aLegID, bLegID s
 		Scope:      authorityHTTPScopeView(),
 		Dimensions: dims,
 		Request:    authorityHTTPRequestAmount(),
-		Spend:      authorityHTTPRequestAmount(),
 		Authority:  authoritydomain.AuthorityLevelAuthoritative,
 		ReservationKey: authoritydomain.ReservationKey{
 			LogicalRequestID: requestID,

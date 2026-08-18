@@ -32,9 +32,8 @@ func (s *DurableStore) MarkProviderCostUnreconciled(ctx context.Context, input b
 			return err
 		}
 		defer func() { _ = tx.Rollback() }()
-		if err := lockAccount(ctx, tx, s.db.Dialect().Name(), input.AccountID); err != nil {
-			return err
-		}
+		// An unreconciled provider marker is diagnostic provider work, not a
+		// customer balance mutation. It must not take the customer row lock.
 		const kind = "provider_cost_unreconciled"
 		fingerprint := "provider-cost-unreconciled:v1:" + reason
 		if existing, found, lookupErr := loadOperationSnapshot(ctx, tx, input.AccountID, kind, leg.Key); lookupErr != nil {

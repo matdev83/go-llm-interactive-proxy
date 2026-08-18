@@ -94,24 +94,7 @@ func TestAdmitAttemptRecordsEvidence(t *testing.T) {
 	}
 }
 
-func TestMapAdmissionDecision_SpendClampRetiredFromAuthorityAdapter(t *testing.T) {
-	t.Parallel()
-	d := mapAdmissionDecision(authorityapp.AdmissionResult{
-		Allowed: true,
-		Clamp: &authorityapp.AdmissionClamp{
-			RuleID: "tenant.spend_cap",
-			EffectiveMax: domain.Amount{
-				Unit:     domain.AmountUnitMoneyNano,
-				Value:    700,
-				Currency: "usd",
-			},
-		},
-	}, "attempt-ua", authority.StageAttemptAdmit)
-	if len(d.Clamps) != 0 {
-		t.Fatalf("clamps=%+v want none (exposure admission owns monetary clamps)", d.Clamps)
-	}
-}
-
+// Retired money clamp mapping has no implementation.
 // previewEvidenceSink proves SkipEvidence through the real usageauthority Service path.
 type previewEvidenceSink struct {
 	policy     []policydecision.Record

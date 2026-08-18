@@ -11,7 +11,7 @@ import (
 )
 
 func (s *retryRecvStream) appendCallClosureLocked(ctx context.Context, command sdkterminal.Command) {
-	if s.executor.CallUsageAppender == nil || s.billingCallClosureSuccess {
+	if !s.executor.hasTerminalCallSink() || s.billingCallClosureSuccess {
 		return
 	}
 	s.ensureBillingCallState()
@@ -51,7 +51,7 @@ func (s *retryRecvStream) appendCallClosureLocked(ctx context.Context, command s
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingHandoffTimeout)
 	defer cancel()
 	err = safety.Call(safety.BoundaryStream, "billing_call_closure", func() error {
-		return s.executor.CallUsageAppender.AppendCallUsage(persistCtx, sealed)
+		return s.executor.TerminalUsageSink.AppendCall(persistCtx, sealed)
 	})
 	if err != nil {
 		s.executor.logBillingUsageAppendFailure(persistCtx, "billing_call_closure_append_critical", "billing call-closure append failed", err)
@@ -60,7 +60,7 @@ func (s *retryRecvStream) appendCallClosureLocked(ctx context.Context, command s
 	s.billingCallClosureSuccess = true
 }
 
-func callClosureTimes(legs []billing.LegUsageRecord, now time.Time) (time.Time, time.Time) {
+func callClosureTimes(legs []billing.CallLegUsageRecord, now time.Time) (time.Time, time.Time) {
 	var started, finished time.Time
 	for _, leg := range legs {
 		if !leg.StartedAt.IsZero() && (started.IsZero() || leg.StartedAt.Before(started)) {

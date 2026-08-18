@@ -43,7 +43,6 @@ func advisoryAdmissionInput(requestValue int64) AdmissionInput {
 			Model:   scope.Known("model-1"),
 		},
 		Request:   domain.Amount{Unit: domain.AmountUnitRequests, Value: requestValue},
-		Spend:     domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: requestValue * 100, Currency: "usd"},
 		Authority: domain.AuthorityLevelAuthoritative,
 		ReservationKey: domain.ReservationKey{
 			LogicalRequestID: "request-1",

@@ -204,10 +204,8 @@ func queryDecisionRow(ruleID, traceID string, projectID scope.Value) controlplan
 func TestCapacityReasonUsesStableRuleCode(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		string(domain.RuleKindQuota):    "quota_exceeded",
-		string(domain.RuleKindRate):     "rate_limited",
-		string(domain.RuleKindBudget):   "budget_exceeded",
-		string(domain.RuleKindSpendCap): "budget_exceeded",
+		string(domain.RuleKindQuota): "quota_exceeded",
+		string(domain.RuleKindRate):  "rate_limited",
 	}
 	for kind, want := range cases {
 		if got := capacityReason(kind); got != want {
