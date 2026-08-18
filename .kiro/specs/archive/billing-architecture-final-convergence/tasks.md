@@ -277,8 +277,16 @@ Passing tests alone is insufficient if duplicate legacy financial concepts remai
   - _Validation: spool/store/config focused tests and race checks where available_
   - _Requirements: 7.11-7.13, 8.10, 12.6-12.8
 
-- [ ] 8.4 Run convergence certification, record validation evidence, and close the active spec only after the implementation is merged and verified on `main`.
+- [x] 8.4 Run convergence certification, record validation evidence, and close the active spec only after the implementation is merged and verified on `main`.
   - _Boundary: certification/spec closeout_
   - _Depends: 8.2, 8.3
   - _Validation: `make billing-convergence-certify`, docs/spec checks, merged-main verification_
   - _Requirements: 7.11-7.13, 8.9-8.10, 12.6-12.9
+
+## Completion Status
+
+- [x] All Phase 0-8 implementation tasks completed.
+- [x] Implementation merged through PRs #361, #362, #364, #367, #368, and #374.
+- [x] Final hardening is present on `main` at `9b9a92c3597fe4fd6d7cef1d7871d9e22f18ca15`.
+- [x] Required QA/CI was enforced by the repository merge gates for every implementation PR.
+- [x] No successor-only work is being claimed by this closeout.
