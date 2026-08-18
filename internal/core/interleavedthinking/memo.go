@@ -7,35 +7,28 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-// Memo wrapper tags delimit thinker planning output. A complete block is
-// captured as the memo body; absent or incomplete blocks fall back to a bounded
-// aggregate of the thinker output.
+// Memo wrapper tags are no longer required or prompted for. They are tolerated
+// defensively: complete wrapper tags are stripped from the stored memo and from
+// the visible stream in case a model still emits them from cached prompts.
 const (
 	MemoOpenTag  = "<proxy_thinker_memo>"
 	MemoCloseTag = "</proxy_thinker_memo>"
 
-	ExtractionSourceBlock    = "block"
-	ExtractionSourceFallback = "fallback"
+	// ExtractionSourceFull marks a memo captured as the full bounded thinker
+	// output. Whole-output capture is the only extraction path since memo
+	// wrapper tags were removed from the thinker prompt.
+	ExtractionSourceFull = "full"
 )
 
-type extractorPhase int
-
-const (
-	phaseSearching extractorPhase = iota
-	phaseCapturing
-	phaseDone
-)
-
-// Recorder observes canonical thinker stream events, extracts a bounded
-// <proxy_thinker_memo>...</proxy_thinker_memo> block when a complete one is
-// present, and produces a bounded MemoState at stream completion.
+// Recorder observes canonical thinker stream events, captures the entire
+// thinker output as a bounded memo, and produces a bounded MemoState at stream
+// completion.
 //
-// Observe also sanitizes the visible stream: memo wrapper tags are stripped
-// (including across delta boundaries) and thinker content is emitted as
-// canonical EventReasoningDelta so wrapper tags never surface as ordinary
-// assistant text. Memo content and the fallback aggregate are both bounded
-// by MaxMemoBytes; a zero MaxMemoBytes disables bounding, matching the memo
-// store convention.
+// Observe also sanitizes the visible stream: residual memo wrapper tags are
+// stripped (including across delta boundaries) and thinker content is emitted
+// as canonical EventReasoningDelta so wrapper tags never surface as ordinary
+// assistant text. The stored memo is bounded by MaxMemoBytes; a zero
+// MaxMemoBytes disables bounding, matching the memo store convention.
 //
 // Identity metadata fields are set by the caller before Finish and copied into
 // the resulting MemoState. Injection metadata (InjectedCount, VisibleToClient)
@@ -50,23 +43,17 @@ type Recorder struct {
 	RequestID             string
 	RegularTurnsRemaining int
 
-	phase          extractorPhase
-	openTail       string
-	closeTail      string
-	blockBuf       strings.Builder
-	blockComplete  bool
-	blockTruncated bool
-
-	fallbackBuf       strings.Builder
-	fallbackTruncated bool
+	buf        strings.Builder
+	truncated  bool
+	sawContent bool
 
 	sanInTag   bool
 	sanPending strings.Builder
 }
 
 // Observe processes one canonical event: it feeds text/reasoning deltas to
-// memo extraction and returns sanitized visible events. Returned content
-// deltas are always EventReasoningDelta with memo wrapper tags stripped.
+// memo capture and returns sanitized visible events. Returned content deltas
+// are always EventReasoningDelta with residual memo wrapper tags stripped.
 // Non-content events pass through unchanged; call FlushVisibleSanitizer at
 // stream end to emit any buffered partial-tag visible content.
 func (r *Recorder) Observe(ev lipapi.Event) []lipapi.Event {
@@ -82,73 +69,38 @@ func (r *Recorder) Observe(ev lipapi.Event) []lipapi.Event {
 	}
 }
 
+// ingest appends the delta to the bounded memo aggregate.
 func (r *Recorder) ingest(delta string) {
 	if delta == "" {
 		return
 	}
-	r.appendFallback(delta)
-	switch r.phase {
-	case phaseDone:
-		return
-	case phaseSearching:
-		combined := r.openTail + delta
-		if _, after, ok := strings.Cut(combined, MemoOpenTag); ok {
-			r.openTail = ""
-			r.phase = phaseCapturing
-			r.capture(after)
-		} else {
-			r.openTail = keepTail(combined, len(MemoOpenTag)-1)
-		}
-	case phaseCapturing:
-		r.capture(r.closeTail + delta)
-	}
-}
-
-func (r *Recorder) capture(chunk string) {
-	if before, _, ok := strings.Cut(chunk, MemoCloseTag); ok {
-		r.writeBlock(before)
-		r.blockComplete = true
-		r.phase = phaseDone
-		r.closeTail = ""
-		return
-	}
-	keep := len(MemoCloseTag) - 1
-	if len(chunk) <= keep {
-		r.closeTail = chunk
-		return
-	}
-	r.writeBlock(chunk[:len(chunk)-keep])
-	r.closeTail = chunk[len(chunk)-keep:]
-}
-
-func (r *Recorder) writeBlock(s string) {
-	r.writeBounded(&r.blockBuf, s, &r.blockTruncated)
-}
-
-func (r *Recorder) appendFallback(s string) {
-	r.writeBounded(&r.fallbackBuf, s, &r.fallbackTruncated)
-}
-
-func (r *Recorder) writeBounded(b *strings.Builder, s string, truncated *bool) {
-	if *truncated {
+	r.sawContent = true
+	if r.truncated {
 		return
 	}
 	limit := r.MaxMemoBytes
 	if limit <= 0 {
-		b.WriteString(s)
+		r.buf.WriteString(delta)
 		return
 	}
-	remaining := limit - b.Len()
+	remaining := limit - r.buf.Len()
 	if remaining <= 0 {
-		*truncated = true
+		r.truncated = true
 		return
 	}
-	if len(s) <= remaining {
-		b.WriteString(s)
+	if len(delta) <= remaining {
+		r.buf.WriteString(delta)
 		return
 	}
-	b.WriteString(s[:remaining])
-	*truncated = true
+	r.buf.WriteString(delta[:remaining])
+	r.truncated = true
+}
+
+// HadContent reports whether any non-empty content delta was observed. It lets
+// callers distinguish an empty memo (content observed, nothing extractable
+// after normalization) from a stream that never produced content at all.
+func (r *Recorder) HadContent() bool {
+	return r.sawContent
 }
 
 // FlushVisibleSanitizer returns any buffered partial-tag visible content and
@@ -160,9 +112,10 @@ func (r *Recorder) FlushVisibleSanitizer() []lipapi.Event {
 	return nil
 }
 
-// Finish returns the captured MemoState. A complete block yields block content;
-// otherwise a bounded aggregate of the thinker output is used as fallback.
-// interrupted marks the stored memo as captured from an interrupted stream.
+// Finish returns the captured MemoState. The memo is the complete bounded
+// thinker output with residual wrapper tags stripped, trimmed of surrounding
+// whitespace. interrupted marks the stored memo as captured from an
+// interrupted stream.
 func (r *Recorder) Finish(interrupted bool) MemoState {
 	state := MemoState{
 		SourceSelector:        r.SourceSelector,
@@ -171,24 +124,67 @@ func (r *Recorder) Finish(interrupted bool) MemoState {
 		RequestID:             r.RequestID,
 		CreatedAt:             time.Now(),
 		RegularTurnsRemaining: r.RegularTurnsRemaining,
+		ExtractionSource:      ExtractionSourceFull,
 		StreamInterrupted:     interrupted,
 	}
-	if r.blockComplete {
-		state.Memo = r.blockBuf.String()
-		state.ExtractionSource = ExtractionSourceBlock
-		return state
-	}
-	state.Memo = r.fallbackBuf.String()
-	state.ExtractionSource = ExtractionSourceFallback
+	state.Memo = strings.TrimSpace(StripResidualMemoTags(r.buf.String()))
 	return state
 }
 
-// keepTail returns the suffix of s of length at most keep, used to detect a
-// delimiter tag split across deltas. If s is shorter than keep, s is returned
-// unchanged so the next delta can complete the candidate.
-func keepTail(s string, keep int) string {
-	if keep <= 0 || len(s) <= keep {
-		return s
+// StripResidualMemoTags removes complete <proxy_thinker_memo> and
+// </proxy_thinker_memo> wrapper tags from text. It is a defensive cleanup for
+// models that still emit wrapper tags from cached prompts; the tags are never
+// required or prompted for. Matching is case-insensitive, treats a tag name
+// followed by a boundary (whitespace, '/' or '>') as a tag, and preserves
+// incomplete tag fragments as literal content.
+func StripResidualMemoTags(text string) string {
+	const (
+		openName  = "<proxy_thinker_memo"
+		closeName = "</proxy_thinker_memo"
+	)
+	if text == "" || !strings.Contains(strings.ToLower(text), openName[1:]) {
+		return text
 	}
-	return s[len(s)-keep:]
+	var b strings.Builder
+	lowered := strings.ToLower(text)
+	for i := 0; i < len(text); {
+		if text[i] != '<' {
+			b.WriteByte(text[i])
+			i++
+			continue
+		}
+		prefix := ""
+		switch {
+		case strings.HasPrefix(lowered[i:], openName):
+			prefix = openName
+		case strings.HasPrefix(lowered[i:], closeName):
+			prefix = closeName
+		}
+		if prefix == "" {
+			b.WriteByte(text[i])
+			i++
+			continue
+		}
+		after := i + len(prefix)
+		if after >= len(text) || !isTagNameBoundary(text[after]) {
+			// Incomplete or lookalike tag: preserve as literal content.
+			b.WriteByte(text[i])
+			i++
+			continue
+		}
+		if end := strings.IndexByte(text[after:], '>'); end >= 0 {
+			i = after + end + 1
+			continue
+		}
+		// Tag name complete but no closing '>' anywhere: drop the fragment,
+		// matching the visible-stream sanitizer's flush behavior.
+		return b.String()
+	}
+	return b.String()
+}
+
+// isTagNameBoundary reports whether the byte after a tag name is a legal tag
+// boundary. Anything else means the text only looks like a tag name.
+func isTagNameBoundary(c byte) bool {
+	return c == '>' || c == '/' || c == ' ' || c == '\t' || c == '\n' || c == '\r'
 }

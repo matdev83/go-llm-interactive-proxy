@@ -151,8 +151,8 @@ func TestExecutor_HiddenInterleavedContinuation_EmitsExecutorOnlyAndStoresMemo(t
 	if stored.Memo != "plan: ship it" {
 		t.Fatalf("stored memo: got %q want %q", stored.Memo, "plan: ship it")
 	}
-	if stored.ExtractionSource != interleavedthinking.ExtractionSourceBlock {
-		t.Fatalf("extraction source: got %q want block", stored.ExtractionSource)
+	if stored.ExtractionSource != interleavedthinking.ExtractionSourceFull {
+		t.Fatalf("extraction source: got %q want %q", stored.ExtractionSource, interleavedthinking.ExtractionSourceFull)
 	}
 
 	attempts, err := st.LoadAttempts(context.Background(), aLegID)
@@ -769,12 +769,13 @@ func TestExecutor_HiddenInterleavedInterruptedThinkerPersistsPartialMemo(t *test
 	if err != nil || !ok {
 		t.Fatalf("memo lookup: ok=%v err=%v", ok, err)
 	}
-	wantMemo := interleavedthinking.MemoOpenTag + "partial plan"
-	if stored.Memo != wantMemo {
-		t.Fatalf("stored memo: got %q want %q", stored.Memo, wantMemo)
+	// The whole captured output is the memo with residual wrapper tags stripped:
+	// the complete open tag is removed defensively, leaving the partial body.
+	if stored.Memo != "partial plan" {
+		t.Fatalf("stored memo: got %q want %q", stored.Memo, "partial plan")
 	}
-	if stored.ExtractionSource != interleavedthinking.ExtractionSourceFallback {
-		t.Fatalf("interrupted partial memo must use fallback extraction, got %q", stored.ExtractionSource)
+	if stored.ExtractionSource != interleavedthinking.ExtractionSourceFull {
+		t.Fatalf("interrupted partial memo must use full extraction, got %q", stored.ExtractionSource)
 	}
 	if !stored.StreamInterrupted {
 		t.Fatal("interrupted thinker memo must set StreamInterrupted=true")

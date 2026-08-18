@@ -33,7 +33,8 @@ type MemoState struct {
 	// VisibleToClient records whether the memo content has been surfaced to
 	// the client (visible mode). Used to suppress duplicate injection.
 	VisibleToClient bool
-	// ExtractionSource is "block" or "fallback" describing how Memo was derived.
+	// ExtractionSource describes how Memo was derived. Whole-output capture is
+	// the only derivation path, so this is always ExtractionSourceFull.
 	ExtractionSource string
 	// StreamInterrupted records whether the thinker stream was interrupted
 	// before completion while capturing this memo.

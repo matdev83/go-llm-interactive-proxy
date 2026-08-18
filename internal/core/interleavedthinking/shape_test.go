@@ -2,6 +2,7 @@ package interleavedthinking
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
@@ -178,6 +179,9 @@ func TestShapeCall_ExecutorNotMutatedWhenNoMemo(t *testing.T) {
 	if len(res.Call.Instructions) != len(in.Instructions) {
 		t.Fatalf("executor instructions must be unchanged: got %d want %d", len(res.Call.Instructions), len(in.Instructions))
 	}
+	if !reflect.DeepEqual(res.Call.Messages, in.Messages) {
+		t.Fatalf("executor messages must be unchanged: got %+v want %+v", res.Call.Messages, in.Messages)
+	}
 	if err := res.Call.Validate(); err != nil {
 		t.Fatalf("executor call must still validate: %v", err)
 	}
@@ -254,7 +258,7 @@ func TestShapeCall_PreservesNullInstructionsForNonThinker(t *testing.T) {
 	}
 }
 
-// --- Task 4.4: executor memo injection ---
+// --- executor memo injection ---
 
 // storeWithMemo seeds an in-memory memo store with one memo and returns the
 // store, scope, and resolved memo ref.
@@ -277,11 +281,11 @@ func injectableMemoState() MemoState {
 		Model:                 "gpt-4o",
 		RequestID:             "req-1",
 		RegularTurnsRemaining: 2,
-		ExtractionSource:      ExtractionSourceBlock,
+		ExtractionSource:      ExtractionSourceFull,
 	}
 }
 
-func TestShapeCall_ExecutorInjectsMemoAsPlanningContext(t *testing.T) {
+func TestShapeCall_ExecutorInjectsMemoAtTail(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	state := injectableMemoState()
@@ -308,22 +312,24 @@ func TestShapeCall_ExecutorInjectsMemoAsPlanningContext(t *testing.T) {
 	if res.MemoUpdate.Ref.Version != ref.Version {
 		t.Fatalf("MemoUpdate must carry the current ref until committed: got %d want %d", res.MemoUpdate.Ref.Version, ref.Version)
 	}
-	if len(res.Call.Instructions) != 1 {
-		t.Fatalf("executor call must have one injected instruction, got %d", len(res.Call.Instructions))
+	// Tail injection: the memo lands on the last conversation message, and the
+	// prefix (instructions + all earlier messages) is untouched.
+	if len(res.Call.Instructions) != len(in.Instructions) {
+		t.Fatalf("tail injection must not touch Instructions, got %d want %d", len(res.Call.Instructions), len(in.Instructions))
 	}
-	injected := res.Call.Instructions[0]
-	if injected.Role != lipapi.RoleSystem {
-		t.Fatalf("injected memo role: got %q want %q", injected.Role, lipapi.RoleSystem)
+	if len(res.Call.Messages) != 1 {
+		t.Fatalf("executor call must keep one message, got %d", len(res.Call.Messages))
 	}
-	if len(injected.Parts) != 1 || injected.Parts[0].Kind != lipapi.PartText {
-		t.Fatalf("injected memo must be a single text part: %+v", injected.Parts)
-	}
-	text := injected.Parts[0].Text
-	if !contains(text, MemoContextOpenTag) || !contains(text, MemoContextCloseTag) {
-		t.Fatalf("injected memo must be wrapped with context tags: %q", text)
+	text := res.Call.Messages[0].Parts[0].Text
+	if !strings.HasPrefix(text, "plan this\n\n---\n[Session Steering Guidance]\n") {
+		t.Fatalf("injected memo must be tail-anchored after the original text: %q", text)
 	}
 	if !contains(text, state.Memo) {
 		t.Fatalf("injected memo must contain memo body: %q", text)
+	}
+	if res.Call.Messages[0].Metadata["source"] != MetadataSourceInterleavedThinking ||
+		res.Call.Messages[0].Metadata["kind"] != MetadataKindThinkerMemoTail {
+		t.Fatalf("injected message must carry traceability metadata: %+v", res.Call.Messages[0].Metadata)
 	}
 	if err := res.Call.Validate(); err != nil {
 		t.Fatalf("shaped executor call must validate: %v", err)
@@ -348,14 +354,72 @@ func TestShapeCall_ExecutorInjectsMemoAsPlanningContext(t *testing.T) {
 	}
 }
 
-func TestShapeCall_ExecutorInjectionPrependsBeforeExistingInstructions(t *testing.T) {
+func TestShapeCall_ExecutorTailInjectionPreservesPrefixMessages(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	store, scope, ref := storeWithMemo(t, injectableMemoState())
 
 	in := baseCall()
-	in.Instructions = []lipapi.Message{
+	in.Messages = []lipapi.Message{
 		{Role: lipapi.RoleSystem, Parts: []lipapi.Part{lipapi.TextPart("system prompt")}},
+		{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("first user turn")}},
+		{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("assistant answer")}},
+		{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("second user turn")}},
+	}
+	wantPrefix := make([]lipapi.Message, len(in.Messages))
+	copy(wantPrefix, in.Messages)
+
+	res, err := ShapeCall(ctx, ShapeInput{
+		Call:      in,
+		Candidate: executorCandidate(),
+		MemoStore: store,
+		Scope:     scope,
+		MemoRef:   &ref,
+	})
+	if err != nil {
+		t.Fatalf("shape: %v", err)
+	}
+	if !res.MemoInjected {
+		t.Fatal("memo must be injected")
+	}
+	if len(res.Call.Messages) != len(wantPrefix) {
+		t.Fatalf("message count must stay stable on user tail, got %d want %d", len(res.Call.Messages), len(wantPrefix))
+	}
+	// Messages[0..n-2] are byte-identical: prompt-cache prefix preserved.
+	for i := 0; i < len(wantPrefix)-1; i++ {
+		if !reflect.DeepEqual(res.Call.Messages[i], wantPrefix[i]) {
+			t.Fatalf("prefix message %d must stay byte-identical: got %+v want %+v", i, res.Call.Messages[i], wantPrefix[i])
+		}
+	}
+	last := res.Call.Messages[len(res.Call.Messages)-1]
+	if last.Role != lipapi.RoleUser || !strings.Contains(last.Parts[0].Text, "second user turn") {
+		t.Fatalf("last message must be the original user tail, got %+v", last)
+	}
+	if !strings.HasPrefix(last.Parts[0].Text, "second user turn\n\n---\n[Session Steering Guidance]\n") {
+		t.Fatalf("guidance must be appended to the last user message: %q", last.Parts[0].Text)
+	}
+}
+
+func TestShapeCall_ExecutorTailInjectionOnToolMessage(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, scope, ref := storeWithMemo(t, injectableMemoState())
+
+	in := baseCall()
+	in.Messages = []lipapi.Message{
+		{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("run the tool")}},
+		{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{{
+			Kind:       lipapi.PartJSON,
+			ToolCallID: "call-1",
+			ToolName:   "search",
+			Content:    json.RawMessage(`{"q":"x"}`),
+		}}},
+		{Role: lipapi.RoleTool, Parts: []lipapi.Part{{
+			Kind:       lipapi.PartToolResult,
+			ToolCallID: "call-1",
+			ToolName:   "search",
+			Text:       "tool outcome",
+		}}},
 	}
 	res, err := ShapeCall(ctx, ShapeInput{
 		Call:      in,
@@ -367,14 +431,175 @@ func TestShapeCall_ExecutorInjectionPrependsBeforeExistingInstructions(t *testin
 	if err != nil {
 		t.Fatalf("shape: %v", err)
 	}
-	if len(res.Call.Instructions) != 2 {
-		t.Fatalf("want 2 instructions, got %d", len(res.Call.Instructions))
+	if !res.MemoInjected {
+		t.Fatal("memo must be injected on a tool tail")
 	}
-	if !contains(res.Call.Instructions[0].Parts[0].Text, MemoContextOpenTag) {
-		t.Fatalf("memo must be prepended first: %+v", res.Call.Instructions[0])
+	last := res.Call.Messages[len(res.Call.Messages)-1]
+	if last.Role != lipapi.RoleTool {
+		t.Fatalf("last message role must stay tool, got %q", last.Role)
 	}
-	if res.Call.Instructions[1].Parts[0].Text != "system prompt" {
-		t.Fatalf("existing instructions must be preserved after memo: %+v", res.Call.Instructions[1])
+	if len(last.Parts) != 2 {
+		t.Fatalf("tool tail must gain exactly one part, got %d: %+v", len(last.Parts), last.Parts)
+	}
+	if last.Parts[0].Kind != lipapi.PartToolResult || last.Parts[0].Text != "tool outcome" {
+		t.Fatalf("tool result part must stay byte-identical: %+v", last.Parts[0])
+	}
+	added := last.Parts[1]
+	if added.Kind != lipapi.PartText || !strings.HasPrefix(added.Text, "\n\n---\n[Session Steering Guidance]\n") {
+		t.Fatalf("guidance must be a new text part on the tool message: %+v", added)
+	}
+	if !contains(added.Text, injectableMemoState().Memo) {
+		t.Fatalf("guidance part must contain memo body: %q", added.Text)
+	}
+	if last.Metadata["source"] != MetadataSourceInterleavedThinking || last.Metadata["kind"] != MetadataKindThinkerMemoTail {
+		t.Fatalf("tool message must carry tail metadata: %+v", last.Metadata)
+	}
+	if err := res.Call.Validate(); err != nil {
+		t.Fatalf("shaped call must validate: %v", err)
+	}
+}
+
+func TestShapeCall_ExecutorTailInjectionMultipartContent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, scope, ref := storeWithMemo(t, injectableMemoState())
+
+	in := baseCall()
+	in.Messages = []lipapi.Message{
+		{Role: lipapi.RoleUser, Parts: []lipapi.Part{
+			lipapi.TextPart("first part"),
+			{Kind: lipapi.PartImageRef, ImageRef: "img://1", ImageMIME: "image/png"},
+		}},
+	}
+	res, err := ShapeCall(ctx, ShapeInput{
+		Call:      in,
+		Candidate: executorCandidate(),
+		MemoStore: store,
+		Scope:     scope,
+		MemoRef:   &ref,
+	})
+	if err != nil {
+		t.Fatalf("shape: %v", err)
+	}
+	if !res.MemoInjected {
+		t.Fatal("memo must be injected on multipart content")
+	}
+	last := res.Call.Messages[len(res.Call.Messages)-1]
+	if len(last.Parts) != 3 {
+		t.Fatalf("multipart tail must gain exactly one part, got %d: %+v", len(last.Parts), last.Parts)
+	}
+	// Original parts byte-identical.
+	if last.Parts[0].Text != "first part" || last.Parts[1].ImageRef != "img://1" {
+		t.Fatalf("multipart prefix parts changed: %+v", last.Parts)
+	}
+	added := last.Parts[2]
+	if added.Kind != lipapi.PartText || !strings.Contains(added.Text, "\n\n---\n[Session Steering Guidance]\n") {
+		t.Fatalf("guidance must be a new text part with the separator: %+v", added)
+	}
+	if !contains(added.Text, injectableMemoState().Memo) {
+		t.Fatalf("guidance part must contain memo body: %q", added.Text)
+	}
+}
+
+func TestShapeCall_ExecutorEmptyMessagesCreatesUserMessage(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, scope, ref := storeWithMemo(t, injectableMemoState())
+
+	in := baseCall()
+	in.Messages = nil
+	res, err := ShapeCall(ctx, ShapeInput{
+		Call:      in,
+		Candidate: executorCandidate(),
+		MemoStore: store,
+		Scope:     scope,
+		MemoRef:   &ref,
+	})
+	if err != nil {
+		t.Fatalf("shape: %v", err)
+	}
+	if !res.MemoInjected {
+		t.Fatal("memo must be injected when messages are empty")
+	}
+	if len(res.Call.Messages) != 1 {
+		t.Fatalf("empty conversation must gain one user message, got %d", len(res.Call.Messages))
+	}
+	only := res.Call.Messages[0]
+	if only.Role != lipapi.RoleUser {
+		t.Fatalf("standalone message role must be user, got %q", only.Role)
+	}
+	if only.Parts[0].Text != "[Session Steering Guidance]\n"+injectableMemoState().Memo {
+		t.Fatalf("standalone message content: %q", only.Parts[0].Text)
+	}
+	if only.Metadata["kind"] != MetadataKindThinkerMemoTail {
+		t.Fatalf("standalone message must carry traceability metadata: %+v", only.Metadata)
+	}
+}
+
+func TestShapeCall_ExecutorAssistantTailAppendsUserMessage(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, scope, ref := storeWithMemo(t, injectableMemoState())
+
+	in := baseCall()
+	in.Messages = []lipapi.Message{
+		{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("q")}},
+		{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("a")}},
+	}
+	res, err := ShapeCall(ctx, ShapeInput{
+		Call:      in,
+		Candidate: executorCandidate(),
+		MemoStore: store,
+		Scope:     scope,
+		MemoRef:   &ref,
+	})
+	if err != nil {
+		t.Fatalf("shape: %v", err)
+	}
+	if !res.MemoInjected {
+		t.Fatal("memo must be injected on assistant tail")
+	}
+	if len(res.Call.Messages) != 3 {
+		t.Fatalf("assistant tail must gain one message, got %d", len(res.Call.Messages))
+	}
+	if !reflect.DeepEqual(res.Call.Messages[0], in.Messages[0]) || !reflect.DeepEqual(res.Call.Messages[1], in.Messages[1]) {
+		t.Fatalf("prefix messages must stay byte-identical: %+v", res.Call.Messages[:2])
+	}
+	added := res.Call.Messages[2]
+	if added.Role != lipapi.RoleUser || added.Parts[0].Text != "[Session Steering Guidance]\n"+injectableMemoState().Memo {
+		t.Fatalf("appended assistant-turn message: %+v", added)
+	}
+	if added.Metadata["kind"] != MetadataKindThinkerMemoTail {
+		t.Fatalf("appended message must carry tail metadata: %+v", added.Metadata)
+	}
+}
+
+func TestShapeCall_ExecutorEmptyMemoSkipped(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state := injectableMemoState()
+	state.Memo = "   \n "
+	store, scope, ref := storeWithMemo(t, state)
+
+	in := baseCall()
+	res, err := ShapeCall(ctx, ShapeInput{
+		Call:      in,
+		Candidate: executorCandidate(),
+		MemoStore: store,
+		Scope:     scope,
+		MemoRef:   &ref,
+	})
+	if err != nil {
+		t.Fatalf("shape: %v", err)
+	}
+	if res.MemoInjected {
+		t.Fatal("empty memo must not be injected")
+	}
+	if res.MemoOutcome != MemoOutcomeSkippedEmpty {
+		t.Fatalf("memo outcome: got %q want %q", res.MemoOutcome, MemoOutcomeSkippedEmpty)
+	}
+	if !reflect.DeepEqual(res.Call.Messages, in.Messages) {
+		t.Fatalf("empty memo must not mutate messages: %+v", res.Call.Messages)
 	}
 }
 
@@ -399,8 +624,8 @@ func TestShapeCall_ExecutorExpiredMemoNotInjected(t *testing.T) {
 	if res.MemoInjected {
 		t.Fatal("expired memo must not be injected")
 	}
-	if len(res.Call.Instructions) != 0 {
-		t.Fatalf("expired memo must not add instructions, got %d", len(res.Call.Instructions))
+	if !reflect.DeepEqual(res.Call.Messages, in.Messages) {
+		t.Fatalf("expired memo must not mutate messages, got %+v", res.Call.Messages)
 	}
 	// Budget must not decrement when no injection occurred.
 	got, _, err := store.Get(ctx, scope, ref)
@@ -440,8 +665,8 @@ func TestShapeCall_ExecutorVisibleMemoSuppressed(t *testing.T) {
 	if res.MemoOutcome != MemoOutcomeSkippedVisible {
 		t.Fatalf("memo outcome: got %q want %q", res.MemoOutcome, MemoOutcomeSkippedVisible)
 	}
-	if len(res.Call.Instructions) != 0 {
-		t.Fatalf("visible memo must not add instructions, got %d", len(res.Call.Instructions))
+	if !reflect.DeepEqual(res.Call.Messages, in.Messages) {
+		t.Fatalf("suppressed visible memo must not mutate messages, got %+v", res.Call.Messages)
 	}
 	got, _, err := store.Get(ctx, scope, ref)
 	if err != nil {
@@ -479,8 +704,8 @@ func TestShapeCall_ExecutorVisibleMemoInjectedOnLaterTurn(t *testing.T) {
 	if res.MemoOutcome != MemoOutcomeInjected {
 		t.Fatalf("memo outcome: got %q want %q", res.MemoOutcome, MemoOutcomeInjected)
 	}
-	if len(res.Call.Instructions) != 1 {
-		t.Fatalf("executor call must have one injected instruction, got %d", len(res.Call.Instructions))
+	if len(res.Call.Messages) != 1 {
+		t.Fatalf("executor call must keep one message, got %d", len(res.Call.Messages))
 	}
 }
 
@@ -490,10 +715,10 @@ func TestShapeCall_ExecutorDedupeAvoidsDuplicateMemo(t *testing.T) {
 	store, scope, ref := storeWithMemo(t, injectableMemoState())
 
 	in := baseCall()
-	// Simulate a prior injection already present in the client's instructions.
-	in.Instructions = []lipapi.Message{
-		{Role: lipapi.RoleSystem, Parts: []lipapi.Part{lipapi.TextPart(MemoContextOpenTag + "\n" + injectableMemoState().Memo + "\n" + MemoContextCloseTag)}},
-	}
+	// Simulate a prior tail injection already present in the last message.
+	prior := injectableMemoState().Memo
+	in.Messages[0].Parts[0].Text = "plan this" + "\n\n---\n" + SessionSteeringGuidanceHeader + "\n" + prior
+
 	res, err := ShapeCall(ctx, ShapeInput{
 		Call:      in,
 		Candidate: executorCandidate(),
@@ -507,8 +732,11 @@ func TestShapeCall_ExecutorDedupeAvoidsDuplicateMemo(t *testing.T) {
 	if res.MemoInjected {
 		t.Fatal("duplicate equivalent memo must not be re-injected")
 	}
-	if len(res.Call.Instructions) != 1 {
-		t.Fatalf("dedupe must not add a second instruction, got %d", len(res.Call.Instructions))
+	if res.MemoOutcome != MemoOutcomeSkippedDuplicate {
+		t.Fatalf("memo outcome: got %q want %q", res.MemoOutcome, MemoOutcomeSkippedDuplicate)
+	}
+	if !reflect.DeepEqual(res.Call.Messages, in.Messages) {
+		t.Fatalf("dedupe must not mutate messages: %+v", res.Call.Messages)
 	}
 	got, _, err := store.Get(ctx, scope, ref)
 	if err != nil {
@@ -516,6 +744,35 @@ func TestShapeCall_ExecutorDedupeAvoidsDuplicateMemo(t *testing.T) {
 	}
 	if got.RegularTurnsRemaining != injectableMemoState().RegularTurnsRemaining {
 		t.Fatalf("dedupe budget must not decrement: got %d want %d", got.RegularTurnsRemaining, injectableMemoState().RegularTurnsRemaining)
+	}
+}
+
+func TestShapeCall_ExecutorDedupeMatchesStandaloneForm(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, scope, ref := storeWithMemo(t, injectableMemoState())
+
+	in := baseCall()
+	// Prior standalone user-message injection (empty-conversation edge case).
+	in.Messages = []lipapi.Message{{
+		Role:  lipapi.RoleUser,
+		Parts: []lipapi.Part{lipapi.TextPart(SessionSteeringGuidanceHeader + "\n" + injectableMemoState().Memo)},
+	}}
+	res, err := ShapeCall(ctx, ShapeInput{
+		Call:      in,
+		Candidate: executorCandidate(),
+		MemoStore: store,
+		Scope:     scope,
+		MemoRef:   &ref,
+	})
+	if err != nil {
+		t.Fatalf("shape: %v", err)
+	}
+	if res.MemoInjected {
+		t.Fatal("standalone prior injection must be deduplicated")
+	}
+	if res.MemoOutcome != MemoOutcomeSkippedDuplicate {
+		t.Fatalf("memo outcome: got %q want %q", res.MemoOutcome, MemoOutcomeSkippedDuplicate)
 	}
 }
 
@@ -540,10 +797,10 @@ func TestShapeCall_ExecutorInjectsWhenRawMemoEchoedInUserMessage(t *testing.T) {
 		t.Fatalf("shape: %v", err)
 	}
 	if !res.MemoInjected {
-		t.Fatal("raw memo echo in user message must not suppress wrapped injection")
+		t.Fatal("raw memo echo in user message must not suppress guidance injection")
 	}
-	if len(res.Call.Instructions) != 1 {
-		t.Fatalf("executor call must have one injected instruction, got %d", len(res.Call.Instructions))
+	if len(res.Call.Messages) != 2 {
+		t.Fatalf("executor call must keep both messages, got %d", len(res.Call.Messages))
 	}
 }
 
@@ -566,8 +823,8 @@ func TestShapeCall_ExecutorMissingMemoRefNoOp(t *testing.T) {
 	if res.MemoInjected || res.MemoUpdate != nil {
 		t.Fatalf("nil MemoRef must be a no-op: %+v", res)
 	}
-	if len(res.Call.Instructions) != 0 {
-		t.Fatalf("nil MemoRef must not inject, got %d", len(res.Call.Instructions))
+	if !reflect.DeepEqual(res.Call.Messages, in.Messages) {
+		t.Fatalf("nil MemoRef must not inject, got %+v", res.Call.Messages)
 	}
 }
 
@@ -591,8 +848,8 @@ func TestShapeCall_ExecutorMissingMemoLookupNoOp(t *testing.T) {
 	if res.MemoInjected {
 		t.Fatal("missing memo lookup must not inject")
 	}
-	if len(res.Call.Instructions) != 0 {
-		t.Fatalf("missing memo lookup must not inject, got %d", len(res.Call.Instructions))
+	if !reflect.DeepEqual(res.Call.Messages, in.Messages) {
+		t.Fatalf("missing memo lookup must not inject, got %+v", res.Call.Messages)
 	}
 }
 
@@ -641,6 +898,7 @@ func TestShapeCall_ExecutorInjectionDoesNotMutateInput(t *testing.T) {
 		{Role: lipapi.RoleSystem, Parts: []lipapi.Part{lipapi.TextPart("system prompt")}},
 	}
 	originalInstrCount := len(in.Instructions)
+	originalTailText := in.Messages[0].Parts[0].Text
 	_, err := ShapeCall(ctx, ShapeInput{
 		Call:      in,
 		Candidate: executorCandidate(),
@@ -656,6 +914,12 @@ func TestShapeCall_ExecutorInjectionDoesNotMutateInput(t *testing.T) {
 	}
 	if in.Instructions[0].Parts[0].Text != "system prompt" {
 		t.Fatalf("input first instruction mutated: %q", in.Instructions[0].Parts[0].Text)
+	}
+	if in.Messages[0].Parts[0].Text != originalTailText {
+		t.Fatalf("input tail message mutated: %q", in.Messages[0].Parts[0].Text)
+	}
+	if in.Messages[0].Metadata != nil {
+		t.Fatalf("input tail message metadata mutated: %+v", in.Messages[0].Metadata)
 	}
 }
 

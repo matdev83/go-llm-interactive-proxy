@@ -18,13 +18,27 @@ import (
 // an empty Instructions here means resolution failed or produced nothing.
 var ErrThinkerInstructionsMissing = errors.New("interleavedthinking: thinker instructions required but missing")
 
-// MemoContextOpenTag / MemoContextCloseTag wrap an injected memo when it is
-// prepended to executor Instructions as planning context. The wrapper makes
-// prior injections unambiguous so duplicate equivalent memo content is detected
-// reliably (Requirement 5.5).
+// SessionSteeringGuidanceHeader is the plain-text header that introduces a
+// tail-injected memo block. No XML and no special markers: models treat it as
+// ordinary markdown. The header makes prior injections unambiguous so
+// duplicate equivalent memo content is detected reliably (Requirement 5.5).
+const SessionSteeringGuidanceHeader = "[Session Steering Guidance]"
+
+// MemoInjectionModeTailAnchored identifies the memo injection mode in
+// diagnostics. Memos are always injected by appending to the last conversation
+// message, preserving the message prefix so backend prompt caches stay valid.
+const MemoInjectionModeTailAnchored = "tail_anchored"
+
+// Tail-injection constants.
 const (
-	MemoContextOpenTag  = "<proxy_thinker_memo_context>"
-	MemoContextCloseTag = "</proxy_thinker_memo_context>"
+	// memoTailSeparator separates existing message content from the appended
+	// steering guidance block in the common (user/tool tail) injection case.
+	memoTailSeparator = "\n\n---\n"
+	// MetadataSourceInterleavedThinking and MetadataKindThinkerMemoTail mark
+	// tail-injected messages for traceability. Source/kind mirror the Python
+	// port's message metadata so downstream tooling can find injected memos.
+	MetadataSourceInterleavedThinking = "interleaved_thinking"
+	MetadataKindThinkerMemoTail       = "thinker_memo_tail"
 )
 
 // ShapeConfig carries the resolved interleaved-thinking settings needed to shape
@@ -106,11 +120,13 @@ type ShapeResult struct {
 // directives before capability checks and backend open.
 //
 // For executor candidates it injects the latest valid memo as planning context
-// (Requirement 5.1), decrements the memo's regular-turn budget only after
-// injection (Requirement 5.3), skips expired memos (Requirement 5.4), avoids
-// duplicate equivalent memo content (Requirement 5.5), and suppresses injection on
-// the immediate continuation executor when the memo was already visible to the
-// client (Requirement 5.2). Later executor turns reinject the memo.
+// by appending it to the last conversation message, leaving the message prefix
+// byte-for-byte intact so backend prompt caches stay valid (Requirement 5.1),
+// decrements the memo's regular-turn budget only after injection (Requirement
+// 5.3), skips expired memos (Requirement 5.4), avoids duplicate equivalent memo
+// content (Requirement 5.5), and suppresses injection on the immediate
+// continuation executor when the memo was already visible to the client
+// (Requirement 5.2). Later executor turns reinject the memo.
 //
 // For RoleNone candidates it returns a deep clone of the input call unchanged.
 // The returned call for a thinker or executor candidate always validates with
@@ -179,21 +195,16 @@ func shapeExecutor(ctx context.Context, out lipapi.Call, in ShapeInput) (ShapeRe
 	}
 	// Requirement 5.5: avoid injecting a duplicate of equivalent memo content
 	// already present in the call.
-	if callContainsMemoText(out, memo) {
+	if callContainsMemoGuidance(out, memo) {
 		return ShapeResult{Call: out, MemoOutcome: MemoOutcomeSkippedDuplicate}, nil
 	}
-	wrapped := MemoContextOpenTag + "\n" + memo + "\n" + MemoContextCloseTag
 	state.InjectedCount++
 	state.RegularTurnsRemaining--
 	if state.RegularTurnsRemaining < 0 {
 		state.RegularTurnsRemaining = 0
 	}
 	pending := &PendingMemoUpdate{Ref: *in.MemoRef, State: state}
-	memoMsg := lipapi.Message{
-		Role:  lipapi.RoleSystem,
-		Parts: []lipapi.Part{lipapi.TextPart(wrapped)},
-	}
-	out.Instructions = append([]lipapi.Message{memoMsg}, out.Instructions...)
+	out.Messages = injectMemoAtTail(out.Messages, memo)
 	if err := out.Validate(); err != nil {
 		return ShapeResult{}, fmt.Errorf("interleavedthinking: shaped executor call invalid: %w", err)
 	}
@@ -205,24 +216,109 @@ func shapeExecutor(ctx context.Context, out lipapi.Call, in ShapeInput) (ShapeRe
 	}, nil
 }
 
-// callContainsMemoText reports whether any text part in the call's Instructions
-// or Messages already contains the exact wrapped memo context block. Used to
-// avoid duplicate equivalent memo injection (Requirement 5.5).
-func callContainsMemoText(call lipapi.Call, memo string) bool {
+// memoGuidanceText returns the steering block the tail injection appends to an
+// existing last message. The leading separator is part of the block so a text
+// part that carries a prior injection contains it verbatim.
+func memoGuidanceText(memo string) string {
+	return memoTailSeparator + SessionSteeringGuidanceHeader + "\n" + memo
+}
+
+// memoStandaloneText returns the steering block used when the guidance is a
+// standalone user message (empty conversation or non-user/tool tail).
+func memoStandaloneText(memo string) string {
+	return SessionSteeringGuidanceHeader + "\n" + memo
+}
+
+// memoTailMetadata returns the proxy-owned traceability metadata attached to
+// every tail-injected message.
+func memoTailMetadata() map[string]string {
+	return map[string]string{
+		"source": MetadataSourceInterleavedThinking,
+		"kind":   MetadataKindThinkerMemoTail,
+	}
+}
+
+// injectMemoAtTail appends the steering memo to the last conversation message,
+// preserving all preceding messages byte-for-byte so backend prompt caches
+// stay valid (the injection is tail-anchored):
+//   - user/tool tail with text-only content: the guidance is appended to that
+//     message's single text part;
+//   - user/tool tail with multipart content: a new text part carrying the full
+//     guidance block is appended;
+//   - assistant/system/developer tail: a new user message is appended;
+//   - empty conversation: a single user message is created.
+//
+// Injected messages are tagged with MetadataSourceInterleavedThinking /
+// MetadataKindThinkerMemoTail for traceability. The input slice is not mutated.
+func injectMemoAtTail(messages []lipapi.Message, memo string) []lipapi.Message {
+	if len(messages) == 0 {
+		return []lipapi.Message{{
+			Role:     lipapi.RoleUser,
+			Parts:    []lipapi.Part{lipapi.TextPart(memoStandaloneText(memo))},
+			Metadata: memoTailMetadata(),
+		}}
+	}
+	out := append([]lipapi.Message(nil), messages...)
+	last := out[len(out)-1]
+	switch last.Role {
+	case lipapi.RoleTool, lipapi.RoleUser:
+		// Append to the existing content: string content maps to a single text
+		// part, multipart content gets a new text part.
+		guidance := memoGuidanceText(memo)
+		if len(last.Parts) == 1 && last.Parts[0].Kind == lipapi.PartText {
+			last.Parts = append([]lipapi.Part(nil), last.Parts...)
+			last.Parts[0].Text += guidance
+		} else {
+			last.Parts = append(append([]lipapi.Part(nil), last.Parts...), lipapi.TextPart(guidance))
+		}
+		last.Metadata = mergeMemoTailMetadata(last.Metadata)
+		out[len(out)-1] = last
+		return out
+	default:
+		// assistant/developer/system tail: keep the message count semantics by
+		// appending a new user message so the guidance sits at the model's focus.
+		out = append(out, lipapi.Message{
+			Role:     lipapi.RoleUser,
+			Parts:    []lipapi.Part{lipapi.TextPart(memoStandaloneText(memo))},
+			Metadata: memoTailMetadata(),
+		})
+		return out
+	}
+}
+
+// mergeMemoTailMetadata returns a copy of existing with the tail-injection
+// source/kind markers set. The input map is never mutated.
+func mergeMemoTailMetadata(existing map[string]string) map[string]string {
+	merged := make(map[string]string, len(existing)+2)
+	for k, v := range existing {
+		merged[k] = v
+	}
+	merged["source"] = MetadataSourceInterleavedThinking
+	merged["kind"] = MetadataKindThinkerMemoTail
+	return merged
+}
+
+// callContainsMemoGuidance reports whether any text part in the call's
+// Messages or Instructions already carries the exact tail-anchored guidance
+// block for memo. Used to avoid duplicate equivalent memo injection
+// (Requirement 5.5): the check matches both the appended form (separator +
+// header) and the standalone form (header only) because the header prefix is
+// identical in both.
+func callContainsMemoGuidance(call lipapi.Call, memo string) bool {
 	if memo == "" {
 		return false
 	}
-	wrapped := MemoContextOpenTag + "\n" + memo + "\n" + MemoContextCloseTag
+	guidance := SessionSteeringGuidanceHeader + "\n" + memo
 	for _, m := range call.Instructions {
 		for _, p := range m.Parts {
-			if p.Kind == lipapi.PartText && strings.Contains(p.Text, wrapped) {
+			if p.Kind == lipapi.PartText && strings.Contains(p.Text, guidance) {
 				return true
 			}
 		}
 	}
 	for _, m := range call.Messages {
 		for _, p := range m.Parts {
-			if p.Kind == lipapi.PartText && strings.Contains(p.Text, wrapped) {
+			if p.Kind == lipapi.PartText && strings.Contains(p.Text, guidance) {
 				return true
 			}
 		}
