@@ -24,10 +24,13 @@ func (s *MemoryStore) readOverride(ctx context.Context, aLegID string) (routeove
 	if err := ctx.Err(); err != nil {
 		return routeoverride.State{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	retired := s.lockForOperation()
+	defer func() { s.unlockForOperation(retired) }()
 	now := s.nowTime()
-	st, err := s.legForOverrideLocked(aLegID, now)
+	st, retiredID, err := s.legForOverrideLocked(aLegID, now)
+	if retiredID != "" {
+		retired = append(retired, retiredID)
+	}
 	if err != nil {
 		return routeoverride.State{}, err
 	}
@@ -48,10 +51,13 @@ func (s *MemoryStore) Replace(ctx context.Context, aLegID, selector string, now 
 	if err != nil {
 		return routeoverride.State{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	retired := s.lockForOperation()
+	defer func() { s.unlockForOperation(retired) }()
 	seen := s.nowTime()
-	st, err := s.legForOverrideLocked(aLegID, seen)
+	st, retiredID, err := s.legForOverrideLocked(aLegID, seen)
+	if retiredID != "" {
+		retired = append(retired, retiredID)
+	}
 	if err != nil {
 		return routeoverride.State{}, err
 	}
@@ -87,10 +93,13 @@ func (s *MemoryStore) Clear(ctx context.Context, aLegID string, now time.Time) (
 	if err := ctx.Err(); err != nil {
 		return routeoverride.State{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	retired := s.lockForOperation()
+	defer func() { s.unlockForOperation(retired) }()
 	seen := s.nowTime()
-	st, err := s.legForOverrideLocked(aLegID, seen)
+	st, retiredID, err := s.legForOverrideLocked(aLegID, seen)
+	if retiredID != "" {
+		retired = append(retired, retiredID)
+	}
 	if err != nil {
 		return routeoverride.State{}, err
 	}
@@ -119,18 +128,18 @@ func (s *MemoryStore) Clear(ctx context.Context, aLegID string, now time.Time) (
 	return next.Clone(), nil
 }
 
-func (s *MemoryStore) legForOverrideLocked(aLegID string, now time.Time) (*legState, error) {
+func (s *MemoryStore) legForOverrideLocked(aLegID string, now time.Time) (*legState, string, error) {
 	if aLegID == "" {
-		return nil, routeoverride.ErrNotFound
+		return nil, "", routeoverride.ErrNotFound
 	}
 	st, ok := s.legs[aLegID]
 	if !ok {
-		return nil, routeoverride.ErrNotFound
+		return nil, "", routeoverride.ErrNotFound
 	}
 	if s.evictIfStaleLocked(st, now) {
-		return nil, routeoverride.ErrNotFound
+		return nil, st.record.ALegID, routeoverride.ErrNotFound
 	}
-	return st, nil
+	return st, "", nil
 }
 
 func copyOverride(aLegID string, ov routeoverride.State) (routeoverride.State, error) {

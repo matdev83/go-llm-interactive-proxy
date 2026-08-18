@@ -3,6 +3,7 @@ package keepwarm
 import (
 	"container/heap"
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -41,7 +42,7 @@ func (m *Manager) Start() {
 }
 
 func (m *Manager) ensureStartedLocked() {
-	if m.started || m.quiescing {
+	if m.started || m.state != lifecycleRunning {
 		return
 	}
 	m.started = true
@@ -212,7 +213,7 @@ func (m *Manager) claimDue(ctx context.Context, trackRenewWait bool) *renewJob {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.quiescing {
+	if m.state != lifecycleRunning {
 		return nil
 	}
 	now := m.clock.Now()
@@ -270,9 +271,10 @@ func (m *Manager) claimDue(ctx context.Context, trackRenewWait bool) *renewJob {
 		}
 		epoch.refreshes++
 		if m.cfg.MaxProviderTokensPerIdleEpoch != nil {
-			// Charge the target's last-known cost into the epoch spend so the
-			// pre-dispatch budget check covers accumulated + next-call estimate.
-			epoch.providerTokens += target.estimatedTokens
+			// Reserve only while the provider call is in flight. Committed spend
+			// is monotonic and is never refunded when the target is retired.
+			target.reservedTokens = target.estimatedTokens
+			epoch.providerReserved += target.reservedTokens
 		}
 		op := m.nextOperationLocked(epoch.revision, target.sequence)
 		target.operationID = op
@@ -284,12 +286,12 @@ func (m *Manager) epochsWithinBudgetLocked(epoch *idleEpoch, estimate int64) boo
 	if m.cfg.MaxProviderTokensPerIdleEpoch == nil {
 		return true
 	}
-	return estimate <= *m.cfg.MaxProviderTokensPerIdleEpoch-epoch.providerTokens
+	return estimate >= 0 && epoch.providerSpent+epoch.providerReserved <= *m.cfg.MaxProviderTokensPerIdleEpoch-estimate
 }
 
 func (m *Manager) nextOperationLocked(epoch EpochRevision, seq uint64) string {
 	n := m.operationSeq.Add(1)
-	return fmt.Sprintf("keepwarm:%d:%d:%d", epoch, seq, n)
+	return fmt.Sprintf("keepwarm:%d:%d:%d:%d", m.namespace, epoch, seq, n)
 }
 
 func (m *Manager) execute(parent context.Context, job *renewJob) {
@@ -307,10 +309,13 @@ func (m *Manager) execute(parent context.Context, job *renewJob) {
 	if err == nil {
 		err = resp.Validate()
 	}
-	record := &RenewalRecord{OperationID: job.operation, ALegID: job.aLeg, TargetID: target.observation.TargetID, Status: resp.Result.Status, Accounting: resp.Accounting, Err: err}
+	record := &RenewalRecord{OperationID: job.operation, ALegID: job.aLeg, TargetID: target.observation.TargetID, BackendID: target.backend, ModelID: target.model, Status: resp.Result.Status, Accounting: resp.Accounting, Err: err}
 	m.apply(job, resp, err, record)
 	if m.hooks.Accounting != nil {
-		m.hooks.Accounting(*record)
+		if accountingErr := m.deliverAccounting(parent, timeout, *record); accountingErr != nil {
+			record.Err = errors.Join(record.Err, accountingErr)
+			m.metric("accounting_error")
+		}
 	}
 }
 
@@ -329,10 +334,20 @@ func (m *Manager) apply(job *renewJob, response promptcache.RenewResponse, err e
 	}
 	target.inFlight = false
 	target.cancel = nil
-	if response.Accounting != nil && response.Accounting.TotalTokens != nil && m.cfg.MaxProviderTokensPerIdleEpoch != nil {
-		epoch.providerTokens -= target.estimatedTokens
-		target.estimatedTokens = *response.Accounting.TotalTokens
-		epoch.providerTokens += target.estimatedTokens
+	if m.cfg.MaxProviderTokensPerIdleEpoch != nil {
+		if target.reservedTokens > 0 {
+			epoch.providerReserved -= target.reservedTokens
+			if epoch.providerReserved < 0 {
+				epoch.providerReserved = 0
+			}
+		}
+		actual := target.estimatedTokens
+		if response.Accounting != nil && response.Accounting.TotalTokens != nil && *response.Accounting.TotalTokens >= 0 {
+			actual = *response.Accounting.TotalTokens
+		}
+		epoch.providerSpent += actual
+		target.estimatedTokens = actual
+		target.reservedTokens = 0
 	}
 	if err != nil {
 		m.removeTargetLocked(epoch, job.key)
@@ -424,11 +439,12 @@ func (m *Manager) removeTargetLocked(epoch *idleEpoch, key string) *targetState 
 		return nil
 	}
 	delete(epoch.targets, key)
-	if m.cfg.MaxProviderTokensPerIdleEpoch != nil {
-		epoch.providerTokens -= target.estimatedTokens
-		if epoch.providerTokens < 0 {
-			epoch.providerTokens = 0
+	if m.cfg.MaxProviderTokensPerIdleEpoch != nil && target.reservedTokens > 0 {
+		epoch.providerReserved -= target.reservedTokens
+		if epoch.providerReserved < 0 {
+			epoch.providerReserved = 0
 		}
+		target.reservedTokens = 0
 	}
 	return target
 }

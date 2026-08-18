@@ -464,8 +464,15 @@ func (journalUsageAppendOutbox) DeferUsageAppend(context.Context, string, string
 
 func (journalUsageAppendOutbox) FailUsageAppend(context.Context, string, string) error { return nil }
 
+type journalMaintenance struct{}
+
+func (journalMaintenance) AppendProviderMaintenance(context.Context, billing.ProviderMaintenanceUsage) error {
+	return nil
+}
+
 type completeJournal struct {
 	journalUsageAppendOutbox
+	journalMaintenance
 	journalReports
 	journalAccountReader
 	journalPostTurn
@@ -521,9 +528,10 @@ type journalWithoutExposure struct {
 }
 
 var (
-	_ billing.AuthoritativeBilling = (*completeJournal)(nil)
-	_ billing.TerminalUsageSink    = (*completeJournal)(nil)
-	_ billing.AccountProvisioner   = (*completeJournal)(nil)
+	_ billing.AuthoritativeBilling          = (*completeJournal)(nil)
+	_ billing.TerminalUsageSink             = (*completeJournal)(nil)
+	_ billing.AccountProvisioner            = (*completeJournal)(nil)
+	_ billing.ProviderMaintenanceUsageStore = (*completeJournal)(nil)
 )
 
 func TestComposeBillingDoesNotRequireHoldLifecycle(t *testing.T) {

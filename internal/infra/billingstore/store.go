@@ -14,7 +14,7 @@ import (
 
 const legacyReservedZeroMigrationName = "20260826000000"
 
-var RequiredMigrationNames = []string{BaselineMigrationName, LegacyAuthorizationSchemaMigrationName, Phase4MigrationName, Phase6MigrationName, Phase7MigrationName, SessionIDMigrationName, UsageLegRecordsMigrationName, UsageCallRecordsMigrationName, ProviderCostWorkMigrationName, ProviderCostWorkRetryMigrationName, ExposureMigrationName, HoldRetirementMigrationName, UsageAppendOutboxRetirementMigrationName, AuthorizationHoldsDropMigrationName, legacyReservedZeroMigrationName, CompleteCallClaimLeaseMigrationName, UsageLegSequenceMigrationName, ProviderJournalOrderMigrationName, ProviderJournalSequenceContractMigrationName, ReservedColumnRemovalMigrationName, LegacyUsageRetirementMigrationName}
+var RequiredMigrationNames = []string{BaselineMigrationName, LegacyAuthorizationSchemaMigrationName, Phase4MigrationName, Phase6MigrationName, Phase7MigrationName, SessionIDMigrationName, UsageLegRecordsMigrationName, UsageCallRecordsMigrationName, ProviderCostWorkMigrationName, ProviderCostWorkRetryMigrationName, ExposureMigrationName, HoldRetirementMigrationName, UsageAppendOutboxRetirementMigrationName, AuthorizationHoldsDropMigrationName, legacyReservedZeroMigrationName, CompleteCallClaimLeaseMigrationName, UsageLegSequenceMigrationName, ProviderJournalOrderMigrationName, ProviderJournalSequenceContractMigrationName, ReservedColumnRemovalMigrationName, LegacyUsageRetirementMigrationName, ProviderMaintenanceMigrationName, ProviderMaintenanceIntegrityMigrationName}
 
 type Config struct {
 	StoreID string
@@ -55,7 +55,7 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 	for _, table := range []string{
 		"billing_accounts", "billing_account_openings", "billing_reconciliation_events", "billing_account_policy_events",
 		"usage_leg_records", "usage_call_records", "provider_cost_work", "call_exposures",
-		"journal_transactions", "journal_entries", "billing_operation_snapshots",
+		"journal_transactions", "journal_entries", "billing_operation_snapshots", "provider_maintenance_usage",
 	} {
 		var probe int
 		if err := database.NewRaw("SELECT 1 FROM "+table+" WHERE 1 = 0").Scan(ctx, &probe); err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -85,7 +85,7 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		if accountSequenceNotNull != 0 {
 			return fmt.Errorf("billingstore: SQLite journal account_sequence must be nullable")
 		}
-		for _, index := range []string{"idx_billing_journal_account_sequence", "idx_billing_journal_source", journalReversalUniqueIndex, providerJournalOrderIndex, providerJournalBookOrderIndex, usageLegCallBLegIndex, usageLegCallAttemptSeqIndex, usageCallCallIDIndex, usageCallAccountSessionIndex, usageCallClaimStatusIndex, usageCallClaimPendingIndex, providerCostWorkStatusIndex, providerCostWorkPendingIndex, exposureAccountStatusIndex} {
+		for _, index := range []string{"idx_billing_journal_account_sequence", "idx_billing_journal_source", journalReversalUniqueIndex, providerJournalOrderIndex, providerJournalBookOrderIndex, usageLegCallBLegIndex, usageLegCallAttemptSeqIndex, usageCallCallIDIndex, usageCallAccountSessionIndex, usageCallClaimStatusIndex, usageCallClaimPendingIndex, providerCostWorkStatusIndex, providerCostWorkPendingIndex, exposureAccountStatusIndex, providerMaintenanceFingerprintIndex} {
 			var name string
 			if err := database.NewRaw(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`, index).Scan(ctx, &name); err != nil || name != index {
 				if err != nil {
@@ -106,6 +106,7 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 			"journal_transactions":          {"CHECK", "operation_kind = 'provider_call_cogs'", "account_sequence IS NULL OR account_sequence > 0", "operation_kind <> 'provider_call_cogs'", "UNIQUE(account_id, book, source_key)", "UNIQUE(account_id, account_sequence)", "FOREIGN KEY(account_id) REFERENCES billing_accounts", "recorded_at"},
 			"journal_entries":               {"CHECK", "side IN ('debit','credit')", "amount_nano > 0", "FOREIGN KEY(transaction_id) REFERENCES journal_transactions"},
 			"billing_operation_snapshots":   {"FOREIGN KEY(account_id) REFERENCES billing_accounts", "UNIQUE(account_id, operation_kind, source_key)", "integrity_fingerprint"},
+			"provider_maintenance_usage":    {"operation_id", "PRIMARY KEY", "a_leg_id", "target_id", "backend_id", "model_id", "recorded_at", "evidence_json", "fingerprint"},
 		}
 		for table, fragments := range tableFragments {
 			var ddl string
@@ -126,7 +127,7 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		if retiredReconciliationColumns != 0 {
 			return fmt.Errorf("billingstore: SQLite reconciliation events contain retired columns")
 		}
-		for _, trigger := range []string{"billing_exposure_immutable_update", "billing_exposure_immutable_delete", "billing_operation_snapshots_immutable_update", "billing_operation_snapshots_immutable_delete", "billing_account_openings_immutable_update", "billing_account_openings_immutable_delete", "billing_reconciliation_events_immutable_update", "billing_reconciliation_events_immutable_delete", "billing_policy_events_immutable_update", "billing_policy_events_immutable_delete", "billing_usage_leg_immutable_update", "billing_usage_leg_immutable_delete", "billing_usage_call_immutable_update", "billing_usage_call_immutable_delete", "billing_journal_tx_immutable_update", "billing_journal_tx_immutable_delete", "billing_journal_entry_immutable_update", "billing_journal_entry_immutable_delete"} {
+		for _, trigger := range []string{"billing_exposure_immutable_update", "billing_exposure_immutable_delete", "billing_operation_snapshots_immutable_update", "billing_operation_snapshots_immutable_delete", "billing_account_openings_immutable_update", "billing_account_openings_immutable_delete", "billing_reconciliation_events_immutable_update", "billing_reconciliation_events_immutable_delete", "billing_policy_events_immutable_update", "billing_policy_events_immutable_delete", "billing_usage_leg_immutable_update", "billing_usage_leg_immutable_delete", "billing_usage_call_immutable_update", "billing_usage_call_immutable_delete", "billing_journal_tx_immutable_update", "billing_journal_tx_immutable_delete", "billing_journal_entry_immutable_update", "billing_journal_entry_immutable_delete", "billing_provider_maintenance_immutable_update", "billing_provider_maintenance_immutable_delete"} {
 			var name string
 			if err := database.NewRaw(`SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = ?`, trigger).Scan(ctx, &name); err != nil || name != trigger {
 				return fmt.Errorf("billingstore: missing SQLite immutability trigger %s", trigger)
@@ -163,6 +164,7 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		{"usage leg records migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{UsageLegRecordsMigrationName}, []string{UsageLegRecordsMigrationName}},
 		{"usage call records migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{UsageCallRecordsMigrationName}, []string{UsageCallRecordsMigrationName}},
 		{"provider cost work migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{ProviderCostWorkMigrationName}, []string{ProviderCostWorkMigrationName}},
+		{"provider maintenance migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{ProviderMaintenanceMigrationName}, []string{ProviderMaintenanceMigrationName}},
 		{"journal account sequence index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{"idx_billing_journal_account_sequence"}, []string{"account_id", "account_sequence"}},
 		{"journal provider order index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{providerJournalOrderIndex}, []string{"account_id", "recorded_at", "transaction_id"}},
 		{"journal book provider order index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{providerJournalBookOrderIndex}, []string{"book", "currency", "recorded_at", "transaction_id"}},
@@ -184,6 +186,14 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		{"provider cost attempt column", `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'provider_cost_work' AND column_name = 'attempt_count' LIMIT 1`, nil, []string{"attempt_count"}},
 		{"provider cost retry column", `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'provider_cost_work' AND column_name = 'next_attempt_at' LIMIT 1`, nil, []string{"next_attempt_at"}},
 		{"provider cost work retry migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{ProviderCostWorkRetryMigrationName}, []string{ProviderCostWorkRetryMigrationName}},
+		{"provider maintenance migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{ProviderMaintenanceMigrationName}, []string{ProviderMaintenanceMigrationName}},
+		{"provider maintenance integrity migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{ProviderMaintenanceIntegrityMigrationName}, []string{ProviderMaintenanceIntegrityMigrationName}},
+		{"provider maintenance table", `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'provider_maintenance_usage' LIMIT 1`, nil, []string{"provider_maintenance_usage"}},
+		{"provider maintenance operation column", `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'provider_maintenance_usage' AND column_name = 'operation_id' LIMIT 1`, nil, []string{"operation_id"}},
+		{"provider maintenance evidence column", `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'provider_maintenance_usage' AND column_name = 'evidence_json' LIMIT 1`, nil, []string{"evidence_json"}},
+		{"provider maintenance fingerprint index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{providerMaintenanceFingerprintIndex}, []string{"UNIQUE", "fingerprint"}},
+		{"provider maintenance operation primary key", `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND t.relname = 'provider_maintenance_usage' AND c.contype = 'p' LIMIT 1`, nil, []string{"PRIMARY KEY", "operation_id"}},
+		{"provider maintenance immutable trigger", `SELECT tr.tgname FROM pg_trigger tr JOIN pg_class c ON c.oid = tr.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'provider_maintenance_usage' AND tr.tgname = ? AND NOT tr.tgisinternal LIMIT 1`, []any{"billing_provider_maintenance_immutable"}, []string{"billing_provider_maintenance_immutable"}},
 		{"provider cost work pending index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{providerCostWorkPendingIndex}, []string{"status", "next_attempt_at", "updated_at", "usage_leg_key"}},
 		{"provider cost work status index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{providerCostWorkStatusIndex}, []string{"status", "updated_at", "usage_leg_key"}},
 		{"exposure table", `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'call_exposures' LIMIT 1`, nil, []string{"call_exposures"}},

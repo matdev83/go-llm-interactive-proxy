@@ -235,10 +235,12 @@ func (c *CacheController) Renew(ctx context.Context, req promptcache.RenewReques
 	}
 	accounting := payload.Usage.accounting(req.OperationID)
 	status := promptcache.Stale
-	if payload.Usage.CacheReadInputTokens != nil && *payload.Usage.CacheReadInputTokens > 0 {
-		status = promptcache.Renewed
-	} else if payload.Usage.CacheCreationInputTokens != nil && *payload.Usage.CacheCreationInputTokens > 0 {
-		status = promptcache.ColdRecreated
+	if renewalCoversTarget(payload.Usage.CacheReadInputTokens, payload.Usage.CacheCreationInputTokens, target) {
+		if payload.Usage.CacheReadInputTokens != nil && *payload.Usage.CacheReadInputTokens > 0 {
+			status = promptcache.Renewed
+		} else {
+			status = promptcache.ColdRecreated
+		}
 	}
 	result := promptcache.RenewResult{Status: status, Evidence: promptcache.CacheEvidence{
 		InputTokens: payload.Usage.InputTokens, OutputTokens: payload.Usage.OutputTokens,
@@ -263,6 +265,28 @@ func (u anthropicUsage) accounting(dedupe string) *promptcache.AccountingEvidenc
 	total := totalAnthropic(u.InputTokens, u.OutputTokens, u.CacheReadInputTokens, u.CacheCreationInputTokens)
 	presence := lipapi.UsagePresence{InputTokens: u.InputTokens != nil, OutputTokens: u.OutputTokens != nil, CacheWriteTokens: u.CacheCreationInputTokens != nil, CacheReadTokens: u.CacheReadInputTokens != nil, TotalTokens: total != nil}
 	return &promptcache.AccountingEvidence{InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, CacheReadTokens: u.CacheReadInputTokens, CacheWriteTokens: u.CacheCreationInputTokens, TotalTokens: total, Presence: presence, Source: promptcache.AccountingSourceProviderReported, Authority: promptcache.AccountingAuthorityAuthoritative, Plane: promptcache.AccountingPlaneProviderBillable, DedupeKey: dedupe}
+}
+
+func renewalCoversTarget(reportedRead, reportedWrite *int64, target CacheTarget) bool {
+	reported, reportedPresent := sumTokenPointers(reportedRead, reportedWrite)
+	expected, expectedPresent := sumTokenPointers(target.Evidence.CacheReadTokens, target.Evidence.CacheWriteTokens)
+	return reportedPresent && expectedPresent && expected > 0 && reported >= expected
+}
+
+func sumTokenPointers(values ...*int64) (int64, bool) {
+	var total int64
+	present := false
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+		if *value < 0 {
+			return 0, false
+		}
+		total += *value
+		present = true
+	}
+	return total, present
 }
 
 func totalPtr(a, b *int64) *int64 {

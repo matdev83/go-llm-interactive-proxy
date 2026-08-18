@@ -37,7 +37,7 @@ func TestCacheControllerRenewSanitizesZeroOutputRequestAndUsesFreshCredential(t 
 			return
 		}
 		w.Header().Set("content-type", "application/json")
-		_, _ = w.Write([]byte(`{"usage":{"input_tokens":4,"output_tokens":0,"cache_read_input_tokens":12,"cache_creation_input_tokens":0}}`))
+		_, _ = w.Write([]byte(`{"usage":{"input_tokens":4,"output_tokens":0,"cache_read_input_tokens":20,"cache_creation_input_tokens":0}}`))
 	}))
 	defer srv.Close()
 	fresh := atomic.Int32{}

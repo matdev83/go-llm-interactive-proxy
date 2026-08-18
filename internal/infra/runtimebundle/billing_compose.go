@@ -24,6 +24,7 @@ type ComposeBillingInput struct {
 	Strict                  bool
 	ConservativeCeiling     *billing.Money
 	ReportsPath             string
+	KeepwarmAccounting      billing.ProviderMaintenanceUsageObserver
 	PostTurnBatchSize       int
 	PostTurnInterval        time.Duration
 	MinPreRouteHeadroomNano int64
@@ -78,6 +79,10 @@ func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 	if err != nil {
 		return ProductionOptions{}, fmt.Errorf("%w: provider-cost resolver: %w", ErrComposeBillingIncomplete, err)
 	}
+	maintenanceObserver, err := billingcompose.ComposeKeepwarmAccounting(in.Store, in.KeepwarmAccounting)
+	if err != nil {
+		return ProductionOptions{}, fmt.Errorf("%w: keep-warm accounting: %w", ErrComposeBillingIncomplete, err)
+	}
 	return ProductionOptions{
 		BillingTerminalUsageSink:    in.TerminalUsageSink,
 		BillingCreditGate:           billing.CheapCreditScreen{Store: creditStore, Currency: in.Currency, MinPreRouteHeadroomNano: in.MinPreRouteHeadroomNano},
@@ -88,6 +93,7 @@ func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 		BillingIdentity:             identity,
 		BillingCallRatingResolver:   callResolver,
 		BillingProviderCostResolver: providerCostResolver,
+		KeepwarmAccounting:          maintenanceObserver,
 		BillingPostTurnBatchSize:    in.PostTurnBatchSize,
 		BillingPostTurnInterval:     in.PostTurnInterval,
 	}, nil

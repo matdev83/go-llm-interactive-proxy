@@ -54,6 +54,8 @@ type RenewalRecord struct {
 	OperationID string
 	ALegID      string
 	TargetID    promptcache.TargetID
+	BackendID   string
+	ModelID     string
 	Status      promptcache.RenewStatus
 	Accounting  *promptcache.AccountingEvidence
 	Err         error
@@ -63,7 +65,9 @@ type RenewalRecord struct {
 type Hooks struct {
 	// Accounting receives provider-billable maintenance evidence even when the
 	// scheduling result is stale. The manager never merges it into foreground usage.
-	Accounting func(RenewalRecord)
+	// The context is bounded by the manager renewal timeout and canceled with the
+	// scheduler/RunDue parent context.
+	Accounting func(context.Context, RenewalRecord) error
 	// Metric receives only bounded reason/result names, never target or session IDs.
 	Metric func(name string)
 }
@@ -80,17 +84,19 @@ type targetState struct {
 	cancel          context.CancelFunc
 	operationID     string
 	estimatedTokens int64
+	reservedTokens  int64
 }
 
 type idleEpoch struct {
-	aLegID         string
-	revision       EpochRevision
-	armedAt        time.Time
-	stopAt         time.Time
-	refreshes      int
-	coldRecreates  int
-	providerTokens int64
-	targets        map[string]*targetState
+	aLegID           string
+	revision         EpochRevision
+	armedAt          time.Time
+	stopAt           time.Time
+	refreshes        int
+	coldRecreates    int
+	providerSpent    int64
+	providerReserved int64
+	targets          map[string]*targetState
 }
 
 type releaseJob struct {
@@ -125,11 +131,14 @@ func (h *scheduleHeap) Pop() any {
 	return last
 }
 
+var managerNamespace atomic.Uint64
+
 // Manager owns provider-neutral state for one immutable runtime generation.
 // Scheduling, renewal execution, release cleanup, and observability live in
 // focused companion files so this type remains the domain aggregate rather
 // than an everything-object.
 type Manager struct {
+	namespace uint64
 	mu        sync.Mutex
 	cfg       Config
 	clock     Clock
@@ -137,7 +146,7 @@ type Manager struct {
 	epochs    map[string]*idleEpoch
 	nextRev   uint64
 	nextSeq   uint64
-	quiescing bool
+	state     lifecycleState
 	disabled  map[string]bool
 	running   int
 	renewWG   sync.WaitGroup
@@ -155,6 +164,7 @@ type Manager struct {
 	releaseStarted bool
 	releaseClosed  bool
 	releaseWG      sync.WaitGroup
+	quiesceDone    chan struct{}
 
 	operationSeq atomic.Uint64
 	metrics      map[string]uint64
@@ -169,7 +179,8 @@ func NewManager(cfg Config, clock Clock, hooks Hooks) (*Manager, error) {
 		clock = RealClock{}
 	}
 	return &Manager{
-		cfg: cfg, clock: clock, hooks: hooks,
+		namespace: managerNamespace.Add(1),
+		cfg:       cfg, clock: clock, hooks: hooks,
 		epochs: make(map[string]*idleEpoch), disabled: make(map[string]bool),
 		releaseWake: make(chan struct{}, 1),
 		metrics:     make(map[string]uint64),
@@ -234,7 +245,7 @@ func (m *Manager) invalidateLocked(aLegID, cause string) {
 func (m *Manager) ArmFromCommittedTurn(input ArmInput) ArmResult {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.quiescing {
+	if m.state != lifecycleRunning {
 		m.releaseObservationsLocked(input.Observations, input.Controller)
 		m.metricLocked("generation_quiescing")
 		return ArmResult{Reason: "generation_quiescing"}
@@ -313,19 +324,20 @@ func (m *Manager) ArmFromCommittedTurn(input ArmInput) ArmResult {
 			}
 			continue
 		}
-		if len(epoch.targets) >= m.cfg.MaxActiveTargets && !m.keepEarlierLocked(epoch, due) {
-			m.enqueueReleaseLocked(input.Controller, observation.Handle)
+		if m.activeTargetCountLocked(epoch) >= m.cfg.MaxActiveTargets {
+			oldEpoch, oldKey, old := m.latestDueTargetLocked(epoch)
+			if old == nil || !due.Before(old.dueAt) {
+				m.enqueueReleaseLocked(input.Controller, observation.Handle)
+				m.metricLocked("capacity")
+				continue
+			}
+			m.removeTargetLocked(oldEpoch, oldKey)
+			m.enqueueReleaseLocked(old.controller, old.observation.Handle)
+			m.deleteEmptyEpochLocked(oldEpoch.aLegID, oldEpoch)
 			m.metricLocked("capacity")
-			continue
 		}
 		seq := m.nextSequenceLocked()
 		target := &targetState{observation: observation, controller: input.Controller, revision: 1, dueAt: due, sequence: seq, backend: input.BackendInstanceID, model: input.CanonicalModelID, estimatedTokens: estimate}
-		if oldKey := m.latestDueKeyLocked(epoch); oldKey != "" && len(epoch.targets) >= m.cfg.MaxActiveTargets {
-			old := epoch.targets[oldKey]
-			m.removeTargetLocked(epoch, oldKey)
-			m.enqueueReleaseLocked(old.controller, old.observation.Handle)
-			m.metricLocked("capacity")
-		}
 		epoch.targets[key] = target
 		heap.Push(&m.dueHeap, scheduleEntry{due: due, sequence: seq, aLegID: input.ALegID, epoch: rev, targetKey: key, targetRev: target.revision})
 	}
@@ -402,20 +414,36 @@ func (m *Manager) nextSequenceLocked() uint64 {
 	return m.nextSeq
 }
 
-func (m *Manager) keepEarlierLocked(epoch *idleEpoch, due time.Time) bool {
-	key := m.latestDueKeyLocked(epoch)
-	if key == "" {
-		return true
+func (m *Manager) activeTargetCountLocked(candidate *idleEpoch) int {
+	count := 0
+	for _, epoch := range m.epochs {
+		count += len(epoch.targets)
 	}
-	return due.Before(epoch.targets[key].dueAt)
+	if candidate != nil && m.epochs[candidate.aLegID] != candidate {
+		count += len(candidate.targets)
+	}
+	return count
 }
 
-func (m *Manager) latestDueKeyLocked(epoch *idleEpoch) string {
-	key := ""
-	for k, t := range epoch.targets {
-		if key == "" || t.dueAt.After(epoch.targets[key].dueAt) || (t.dueAt.Equal(epoch.targets[key].dueAt) && t.sequence > epoch.targets[key].sequence) {
-			key = k
+func (m *Manager) latestDueTargetLocked(candidate *idleEpoch) (*idleEpoch, string, *targetState) {
+	var latestEpoch *idleEpoch
+	var latestKey string
+	var latest *targetState
+	consider := func(epoch *idleEpoch) {
+		if epoch == nil {
+			return
+		}
+		for key, target := range epoch.targets {
+			if latest == nil || target.dueAt.After(latest.dueAt) || (target.dueAt.Equal(latest.dueAt) && target.sequence > latest.sequence) {
+				latestEpoch, latestKey, latest = epoch, key, target
+			}
 		}
 	}
-	return key
+	for _, epoch := range m.epochs {
+		consider(epoch)
+	}
+	if candidate != nil && m.epochs[candidate.aLegID] != candidate {
+		consider(candidate)
+	}
+	return latestEpoch, latestKey, latest
 }

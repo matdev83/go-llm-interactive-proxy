@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
 
@@ -191,7 +192,7 @@ func TestManagerQuiesceDoesNotDropReleasesAcrossEpochs(t *testing.T) {
 		unblockFirst:   make(chan struct{}),
 	}
 	cfg := DefaultConfig()
-	cfg.MaxActiveTargets = 1
+	cfg.MaxActiveTargets = 3
 	m, err := NewManager(cfg, clock, Hooks{})
 	if err != nil {
 		t.Fatal(err)
@@ -226,6 +227,51 @@ func TestManagerQuiesceDoesNotDropReleasesAcrossEpochs(t *testing.T) {
 	}
 	if got := ctl.releases.Load(); got != 3 {
 		t.Fatalf("releases=%d, expected every epoch target to be released", got)
+	}
+}
+
+func TestManagerQuiesceRejectsConcurrentArmWhileShutdownIsInProgress(t *testing.T) {
+	now := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	clock := &testClock{now: now}
+	started := make(chan struct{}, 1)
+	unblock := make(chan struct{})
+	ctl := &testController{started: started, unblock: unblock, ignoreCancel: true}
+	m, err := NewManager(DefaultConfig(), clock, Hooks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := armTestTarget(t, m, ctl, testObservation(now, promptcache.LifecycleSlidingExpiry, time.Minute)); !got.Armed {
+		t.Fatal(got)
+	}
+	clock.Advance(50 * time.Second)
+	m.RunDue(context.Background())
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("renewal did not start")
+	}
+
+	short, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	if err := m.Quiesce(short); err == nil {
+		t.Fatal("quiesce unexpectedly completed while renewal was blocked")
+	}
+	cancel()
+
+	lateObservation := testObservation(now, promptcache.LifecycleSlidingExpiry, time.Minute)
+	late := m.ArmFromCommittedTurn(ArmInput{
+		ALegID: "a", BLegID: "b", CommittedSuccessful: true, ToolEvents: []lipapi.ToolEvent{{Kind: lipapi.ToolEventFinished, Category: lipapi.ToolCategoryOSCommand}},
+		Observations: []promptcache.Observation{lateObservation}, BackendInstanceID: "backend", Controller: ctl,
+	})
+	if late.Armed || late.Reason != "generation_quiescing" {
+		t.Fatalf("concurrent late arm = %+v", late)
+	}
+
+	close(unblock)
+	if err := m.Quiesce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := ctl.releases.Load(); got != 2 {
+		t.Fatalf("released handles = %d, want original and rejected late observation", got)
 	}
 }
 

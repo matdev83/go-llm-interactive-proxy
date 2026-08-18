@@ -54,6 +54,7 @@ type candidateOperationsGroup struct {
 	billingReportsPath      string
 	billingProvisioner      billing.AccountProvisioner
 	billingExposureRecovery billing.ExposureRecovery
+	keepwarmAccounting      billing.ProviderMaintenanceUsageObserver
 	tokenAccountingAdmin    *accountingapp.Service
 	readinessReport         *controlplane.ReadinessReportService
 	secretGuardInventory    *diag.InventoryExtras

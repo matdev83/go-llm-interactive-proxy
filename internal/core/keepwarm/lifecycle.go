@@ -7,6 +7,27 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
 
+type lifecycleState uint8
+
+const (
+	lifecycleRunning lifecycleState = iota
+	lifecycleQuiescing
+	lifecycleQuiesced
+)
+
+func (s lifecycleState) String() string {
+	switch s {
+	case lifecycleRunning:
+		return "running"
+	case lifecycleQuiescing:
+		return "quiescing"
+	case lifecycleQuiesced:
+		return "quiesced"
+	default:
+		return "unknown"
+	}
+}
+
 func (m *Manager) releaseObservationsLocked(observations []promptcache.Observation, controller promptcache.Controller) {
 	for _, o := range observations {
 		m.enqueueReleaseLocked(controller, o.Handle)
@@ -66,6 +87,12 @@ func (m *Manager) releaseOne(job releaseJob) {
 	_ = job.controller.Release(ctx, promptcache.ReleaseRequest{Handle: job.handle})
 }
 
+func (m *Manager) metric(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.metricLocked(name)
+}
+
 func (m *Manager) metricLocked(name string) {
 	m.metrics[name]++
 	if m.hooks.Metric != nil {
@@ -98,11 +125,18 @@ func (m *Manager) Quiesce(ctx context.Context) error {
 		ctx = context.Background()
 	}
 	m.mu.Lock()
-	if m.quiescing {
+	switch m.state {
+	case lifecycleQuiesced:
 		m.mu.Unlock()
 		return nil
+	case lifecycleQuiescing:
+		done := m.quiesceDone
+		m.mu.Unlock()
+		return waitQuiesced(ctx, done)
 	}
-	m.quiescing = true
+	m.state = lifecycleQuiescing
+	m.quiesceDone = make(chan struct{})
+	done := m.quiesceDone
 	for a := range m.epochs {
 		m.invalidateLocked(a, "quiesce")
 	}
@@ -110,13 +144,27 @@ func (m *Manager) Quiesce(ctx context.Context) error {
 		m.runCancel()
 	}
 	m.mu.Unlock()
-	workersDone := make(chan struct{})
-	go func() { m.runWG.Wait(); m.renewWG.Wait(); close(workersDone) }()
+
+	// Shutdown owns its own lifetime, not the first caller's request context.
+	// This lets a timed-out caller return without leaving the generation in a
+	// state where a later Close incorrectly observes an incomplete quiesce.
+	go m.finishQuiesce(done)
+	return waitQuiesced(ctx, done)
+}
+
+func waitQuiesced(ctx context.Context, done <-chan struct{}) error {
 	select {
-	case <-workersDone:
+	case <-done:
+		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func (m *Manager) finishQuiesce(done chan struct{}) {
+	m.runWG.Wait()
+	m.renewWG.Wait()
+
 	m.mu.Lock()
 	if !m.releaseClosed {
 		m.releaseClosed = true
@@ -126,14 +174,12 @@ func (m *Manager) Quiesce(ctx context.Context) error {
 		}
 	}
 	m.mu.Unlock()
-	releasesDone := make(chan struct{})
-	go func() { m.releaseWG.Wait(); close(releasesDone) }()
-	select {
-	case <-releasesDone:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	m.releaseWG.Wait()
+
+	m.mu.Lock()
+	m.state = lifecycleQuiesced
+	close(done)
+	m.mu.Unlock()
 }
 
 func (m *Manager) ActiveTargetCount() int {
