@@ -23,7 +23,7 @@ The semantic extractor runs independently from the primary coding turn and may u
 - Run semantic extraction off-session/background with bounded process ownership.
 - Allow a separately configured extractor route independent of the primary session route.
 - Attribute auxiliary usage/cost to the originating user through existing billing authorities.
-- Prevent the first post-compaction turn from outrunning required continuity state.
+- Prevent the first post-compaction turn from outrunning already-ready or deterministically recoverable continuity state without submitting fresh billable provider work before its primary Open.
 - Keep provider-native encrypted/opaque compaction content byte-identical.
 - Keep the feature bounded, fail-open and content-safe in observability.
 
@@ -80,8 +80,8 @@ Continuity must never recreate the #312 signature matrix as a fallback.
        |
        +--> Preserver.BeforeRequest
               | pending capsule/job?
-              | bounded Await only when needed
-              +--> canonical reinjection
+              | bounded Await only for previously submitted work
+              +--> canonical reinjection (transactional helper)
        |
  normal prepare / route / billing / Open
        |
@@ -92,7 +92,7 @@ Continuity must never recreate the #312 signature matrix as a fallback.
                        | deterministic harvest / sanitizer
                        +--> BackgroundAux.SubmitCollect --------+
                                                                  |
- primary compaction stream continues                             v
+ primary stream continues                                        v
                                                           bounded workers
                                                                  |
                                                         detached child call
@@ -122,6 +122,8 @@ Continuity must never recreate the #312 signature matrix as a fallback.
  metadata-only compaction observers
        |
  client release
+       |
+ successful release commits branch-level reinjection watermark
 ```
 
 ## D1. Pure Preview Versus Committed Detector State
@@ -136,6 +138,7 @@ type RequestPreview struct {
     RuleID   string
     Kind     PreviewKind // none | start_candidate | completion_candidate
     TransactionID string // only when safely derivable from existing active state
+    BoundaryFingerprint string // stable detector-owned preview identity when no transaction exists
 }
 
 type ResponsePreview struct {
@@ -155,7 +158,8 @@ Preview properties:
 - no transaction/fingerprint mutation;
 - no lifecycle event emission;
 - no observer dispatch;
-- request preview cannot establish a billable strict start;
+- request preview cannot establish a billable semantic-extraction start;
+- completion-only preview can expose a stable boundary fingerprint for a non-billable intent before a committed transaction exists;
 - response preview lets preservation identify the matching job before final response mutation.
 
 Committed boundaries remain:
@@ -200,6 +204,16 @@ Semantics:
 - `RequestOpened`: successful-open source commit and background job scheduling; current primary request has already been sent upstream.
 - `BeforeResponseRelease`: pure-preview-guided bounded join and verified result-side augmentation before committed `ResponseReleased`.
 
+The interface remains `error`-returning, but **preserver errors are not primary-traffic errors**. Core dispatch owns the following composition rule:
+
+1. invoke each preserver behind panic isolation;
+2. on callback error/panic, emit only content-free preservation diagnostics and continue native traffic;
+3. `BeforeRequest` and `BeforeResponseRelease` mutation runs against a transactional helper/snapshot so callback error, panic, or post-mutation canonical validation restores the exact pre-preservation `Call`/`Event` before continuing;
+4. `RequestOpened` failure cannot undo the already-opened primary request and therefore only records preservation failure/cleans feature-local pending state;
+5. preservation failure never becomes route/failover/no-retry authority and never masquerades as a provider failure.
+
+A practical implementation can clone the bounded canonical mutation target before dispatch or make the continuity helper return an undo/commit handle; do not add a general transaction framework.
+
 `FeatureBundle` gains `CompactionPreservers []compaction.Preserver`; the single merge surface concatenates in registration order and the runtime snapshot exposes a frozen defensive copy.
 
 No request/response content is added to `compaction.Event` and `Observer` remains unchanged.
@@ -243,6 +257,14 @@ BackgroundScheduler
 
 It accepts only canonical auxiliary model collection jobs, never arbitrary Go callbacks/tasks/timers.
 
+The scheduler only sees **committed billable job identities**. A completion-only preview that has no committed transaction is represented in BranchCoordinator as a non-billable `PreviewIntentKey`; it is not inserted into the scheduler coalescing map and does not retain a generation pin. After successful primary Open, the preview intent binds to the committed transaction and produces the normal scheduler key:
+
+```text
+coalesce_key = H(parent_branch_binding | committed_transaction_id | target_source_revision)
+```
+
+An empty transaction ID is invalid for a new billable continuity submission.
+
 ### Submit-time ownership transfer
 
 `SubmitCollect` synchronously:
@@ -250,18 +272,20 @@ It accepts only canonical auxiliary model collection jobs, never arbitrary Go ca
 1. validates/clones the child request;
 2. resolves the current generation `ExecutorRunner` from the request snapshot cell;
 3. obtains `genpin.Retainer` and `Retain(KindAsync)` while spawn authority is live;
-4. clones required principal/scope/correlation attribution;
-5. reserves/coalesces the job;
+4. clones required principal/scope/correlation attribution plus the **captured parent continuity branch binding** as opaque lineage;
+5. reserves/coalesces the committed job;
 6. enqueues or fails atomically;
 7. releases a newly retained pin immediately on failed handoff.
 
 A worker never attempts a later generation retain. The captured pin is released exactly once after terminal child collection/cancel.
 
+The captured parent branch binding is not execution authority for the child. It exists so feature logic can associate pending results with the primary continuity branch; the private child A-leg created later must never replace it.
+
 ### Worker context
 
 Worker context derives from the scheduler/process root and copied attribution, not from parent request cancellation. A per-job timeout bounds inference.
 
-Preserve principal/scope, internal origin, parent correlation and captured generation. Do not preserve primary resume/session authority or primary A-leg route authority.
+Preserve principal/scope, internal origin, parent correlation, captured parent continuity branch binding and captured generation. Do not preserve primary resume/session authority or primary A-leg route authority.
 
 ### Result retention
 
@@ -284,25 +308,32 @@ This is carried on the trusted auxiliary request object after frontend decode; n
 Detached child flow:
 
 ```text
-originating principal/scope
+parent continuity BranchKey = Session/A-leg A123 (captured before submit)
        |
-       v
-private auxiliary logical call
-       |
-       +--> create/touch private child A-leg AUX456
-       |       parent_a_leg=A123 only in lineage
-       |
+       +---- opaque lineage only --------------------------------+
+                                                                  |
+originating principal/scope                                      |
+       |                                                          |
+       v                                                          |
+private auxiliary logical call                                   |
+       |                                                          |
+       +--> create/touch private child A-leg AUX456               |
+       |       parent_a_leg=A123 only in lineage                  |
+       |                                                          |
        +--> normal route selector / request authority / BillingCallID
        |
        +--> one or more child B-legs
        |
        +--> normal terminal usage/billing
+
+continuity Await/merge/revision/reinjection always use captured parent BranchKey,
+never AUX456.
 ```
 
 Detached semantics:
 
 - preserve authenticated principal/scope for security and billing;
-- parent SessionID/A-leg/trace are correlation only;
+- parent SessionID/A-leg/trace are correlation only for child execution but remain the separately captured authority for continuity-state lookup;
 - do not call primary secure-session BeginTurn or create primary TurnID;
 - do not mutate primary transcript/activity/turn counts;
 - do not propagate primary resume authority;
@@ -339,9 +370,13 @@ Every extraction has:
 
 - independent BillingCallID;
 - private child A-leg and independent B-leg attempts;
+- positive authoritative `AttemptSeq` on every independently persisted child/failover B-leg;
 - normal usage/concurrency authority;
 - normal credit screen/exposure admission when authoritative billing applies;
-- normal terminal usage/customer settlement/provider COGS.
+- normal terminal usage/customer settlement/provider COGS;
+- final billing evidence with the existing usage quantities/presence and cost evidence/presence plus valid `Source`, `Authority`, and `DedupeKey` for each auxiliary B-leg/failover record.
+
+The existing independent-leg billing boundary rejects `AttemptSeq <= 0`; continuity must not treat a distinct BillingCallID as sufficient if the per-leg record is invalid or would be rejected. Tests therefore pin field-level evidence, not only call identity.
 
 No special charging function or money ledger is added.
 
@@ -366,9 +401,10 @@ Create a small process-owned `internal/core/compactioncontinuity` coordinator. I
 
 Responsibilities:
 
-- serialize updates per authoritative branch key;
+- serialize updates per authoritative **parent** branch key;
 - use process `ExtensionState` as serialized backing where practical;
 - revision-checked load/update;
+- non-billable preview intent -> committed transaction binding;
 - pending job/injection watermarks;
 - bounded max entries/TTL and lazy cleanup;
 - opaque capsule/source blobs only.
@@ -378,42 +414,64 @@ Conceptual branch key:
 ```go
 type BranchKey struct {
     AuthoritativeSessionID string
-    ALegID                 string
+    ALegID                 string // parent primary A-leg; never detached child A-leg
     PrincipalPartition     string // used when no secure SessionID
 }
 ```
 
-Client session hints never authorize lookup.
+Client session hints never authorize lookup. The feature captures this key before any auxiliary child A-leg is created and derives a stable content-free `BranchBinding = SHA256(domain || canonical(BranchKey))` for serialized capsule/job identity. Raw principal/session identifiers need not be sent to the extractor model.
 
 Conceptual state:
 
 ```go
+type PreviewIntent struct {
+    Key                  string // H(branch binding | detector preview boundary/fingerprint | target revision)
+    TargetSourceRevision uint64
+}
+
+type InjectionTarget struct {
+    BoundaryKey     string
+    CapsuleRevision uint64
+}
+
+type InjectionWatermark struct {
+    BranchBinding   string
+    BoundaryKey     string
+    CapsuleRevision uint64
+}
+
 type BranchState struct {
     Revision                  uint64
     CapsuleJSON               json.RawMessage
     CapsuleDigest             [32]byte
     SourceHighWatermark       string
     SanitizedSourceJSON       json.RawMessage
+    PendingPreviewIntent      *PreviewIntent
     PendingJobID              auxiliary.JobID
     PendingJobTargetRevision  uint64
-    PendingInjectionRevision  uint64
-    LastInjectedRevision      uint64
+    PendingJobBranchBinding   string
+    PendingInjection          *InjectionTarget
+    LastReleasedInjection     *InjectionWatermark
     LastCompactionTransaction string
     UpdatedAt                 time.Time
 }
 ```
 
+`PendingJobBranchBinding` must match the branch state that owns the JobID before Await/merge. Child A-leg IDs are never accepted as a replacement key.
+
 Core coordinator never interprets plan/decision facts. Worker/provider work runs outside coordinator locks.
 
 ## D8. Continuity Capsule V1
 
-Feature-owned model:
+Feature-owned serialized envelope:
 
 ```json
 {
   "schema_version": 1,
   "revision": 12,
   "source_high_watermark": "...",
+  "branch_binding": "sha256:...",
+  "content_digest": "sha256:...",
   "plan": {
     "status": "accepted",
     "source": "structured|user_acceptance|semantic",
@@ -424,6 +482,8 @@ Feature-owned model:
   "decisions": [
     {
       "id":"...",
+      "conflict_key":"architecture.billing.mode",
+      "supersedes":[],
       "statement":"...",
       "status":"active",
       "authority":"user_explicit|user_acceptance|semantic",
@@ -437,6 +497,16 @@ Feature-owned model:
 }
 ```
 
+### Envelope binding and digest
+
+- `branch_binding` is the content-free digest derived from the authoritative parent `BranchKey`; the private child A-leg never contributes to it.
+- `content_digest` is `SHA256(domain || canonical_json(envelope_without_content_digest))`. The digest scope includes schema version, revision, high-watermark, branch binding and the complete semantic payload; only the digest field itself is omitted to avoid recursion.
+- Canonical JSON rules (object-key order, number/string representation, no insignificant whitespace) are fixed by feature tests. The implementation may use a typed canonical encoder rather than generic map serialization.
+- Registry consume, merge, reinjection/projection, authorized recovery and generation-reload reuse first validate branch binding + digest. A mismatch is fail-open discard, never cross-branch adoption.
+- Model-facing extractor input/projection may omit raw branch identifiers and may omit the branch binding itself after local validation; self-binding is a storage/transfer integrity contract, not a reason to expose account/session identity remotely.
+
+### Decision identity and merge precedence
+
 Merge precedence:
 
 1. later explicit user correction/decision;
@@ -445,9 +515,22 @@ Merge precedence:
 4. validated semantic inference;
 5. older capsule state.
 
-Semantic output cannot resurrect a fact against newer explicit intent. IDs remain stable across revisions; existing IDs are reused, deterministic carrier facts use deterministic normalized IDs, and new semantic IDs are accepted only after validation.
+Each decision has two identities with different purposes:
 
-Bounded pruning preserves active decisions/constraints and pending/in-progress plan steps first, then useful rationale/current rejections, then condenses completed/superseded history. Prune whole facts and revalidate; never truncate JSON syntactically.
+- `id`: stable fact identity/provenance across revisions;
+- `conflict_key`: stable normalized semantic slot describing what choice the decision governs.
+
+Extractor-generated IDs alone never decide conflicts. Validation/merge enforces:
+
+- at most one `active` decision per `conflict_key`;
+- a new active decision for an existing conflict key deterministically supersedes the older active decision according to precedence/revision;
+- a correction whose semantic slot cannot safely reuse the prior conflict key must carry validated `supersedes` references to known active decision IDs; unknown/cross-branch references are rejected;
+- non-conflicting decisions retain independent conflict keys and stable IDs;
+- semantic output cannot resurrect a superseded fact against newer explicit intent.
+
+Deterministic carrier facts use deterministic normalized IDs. Semantic IDs are accepted only after schema/source/conflict validation.
+
+Bounded pruning preserves active decisions/constraints and pending/in-progress plan steps first, then useful rationale/current rejections, then condenses completed/superseded history. Prune whole facts and revalidate/re-digest; never truncate JSON syntactically.
 
 ## D9. Deterministic Plan Carrier Catalog
 
@@ -472,7 +555,7 @@ Priority:
 1. user decision/constraint text;
 2. assistant plan/proposal/clarification needed to interpret later user replies;
 3. recognized structured plan carriers;
-4. prior capsule.
+4. prior locally validated capsule semantic payload.
 
 Default drop/truncate:
 
@@ -495,7 +578,7 @@ One canonical child call contains:
 
 - configured independent route;
 - fixed extraction instructions;
-- prior capsule;
+- prior validated capsule semantic payload/base revision;
 - deterministic plan facts;
 - sanitized delta;
 - no tools;
@@ -512,6 +595,13 @@ Expected output is one strict JSON object such as:
   "base_revision": 11,
   "facts": [],
   "plan_updates": [],
+  "decision_updates": [
+    {
+      "id": "...",
+      "conflict_key": "architecture.billing.mode",
+      "supersedes": ["decision-old"]
+    }
+  ],
   "remove_or_supersede": []
 }
 ```
@@ -524,7 +614,8 @@ Validate before merge:
 - exact enums;
 - no unknown authority escalation;
 - no raw tool/blob fields;
-- valid/allowed source refs where used.
+- valid/allowed source refs where used;
+- decision conflict keys normalized/bounded and `supersedes` references limited to known decisions in the same validated parent capsule.
 
 Malformed output is discarded fail-open. There is normally no second LLM pass.
 
@@ -548,18 +639,19 @@ Generic words alone never trigger. If deterministic state fully satisfies the co
 
 1. detector `RequestOpened` commits start/transaction;
 2. preservation commits sanitized source;
-3. deterministic carrier extraction updates capsule;
+3. deterministic carrier extraction updates/re-digests capsule;
 4. eligibility decides whether semantic work adds value;
-5. `BackgroundAux.SubmitCollect` submits one coalesced job if needed;
-6. primary compaction stream proceeds concurrently.
+5. derive committed coalescing identity `H(parent_branch_binding | transaction_id | target_source_revision)`;
+6. `BackgroundAux.SubmitCollect` submits one coalesced job if needed and BranchState stores the JobID against the captured parent branch;
+7. primary compaction stream proceeds concurrently.
 
 ### Final selected event
 
 1. detector `PreviewResponse` identifies potential completion/transaction without committing;
-2. preservation optionally `Await`s the matching job for the bounded barrier;
-3. ready strict output is validated and revision-merged;
+2. preservation resolves the matching parent-branch JobID and optionally `Await`s it for the bounded barrier;
+3. ready strict output is validated and revision-merged/re-digested into the same parent branch;
 4. verified plaintext carrier may receive deterministic continuity projection;
-5. unsafe opaque/late paths set `PendingInjectionRevision`;
+5. unsafe opaque/late paths set `PendingInjection{BoundaryKey, CapsuleRevision}`;
 6. detector `ResponseReleased` receives the **post-preservation final event** and commits completion;
 7. metadata-only observers dispatch;
 8. final event releases to client.
@@ -568,30 +660,59 @@ A barrier timeout is fail-open. A late result remains available while referenced
 
 ## D14. Completion-Only / Local-Compaction Flow
 
-If the first evidence is the next rewritten request:
+If the first evidence is the next rewritten request, v1 deliberately avoids fresh billable semantic work before the primary request is known to have opened.
 
-1. `PreviewRequest` identifies a completion candidate from shared history matcher/fingerprint state;
-2. preservation loads prior sanitized source/capsule;
-3. deterministic carrier delta merges;
-4. if semantic work is required and no coalesced job exists, submit BackgroundAux;
-5. bounded `Await` barrier runs before primary B-leg Open;
-6. ready capsule is injected; timeout/failure continues fail-open;
-7. normal primary Open proceeds;
-8. only after successful Open does `RequestOpened` commit completion-only detector state.
+### Before primary Open
 
-The extractor is still off-session/background; only the narrow synchronization point is on the main request path because no earlier observable parallel window existed.
+1. `PreviewRequest` identifies a completion candidate from the shared history matcher/fingerprint state without committing it.
+2. capture the authoritative parent BranchKey/branch binding and derive `PreviewIntentKey = H(parent_branch_binding | preview_boundary_fingerprint | target_source_revision)`.
+3. store/coalesce only that **non-billable preview intent** in BranchCoordinator; do not call `BackgroundAux.SubmitCollect`, do not retain `KindAsync`, and do not create a child A-leg yet.
+4. load/validate the prior capsule and merge deterministic carrier delta.
+5. if a matching semantic job was already submitted by an earlier successfully opened request (for example a late strict job), optionally `Await` that existing JobID up to the bounded barrier; otherwise there is no pre-open semantic wait.
+6. inject the best already-ready/deterministic capsule transactionally if required, then continue normal primary Open fail-open.
+
+### After successful primary Open
+
+7. detector `RequestOpened` commits the completion-only transaction.
+8. bind the PreviewIntentKey to the committed transaction and commit source/high-watermark/deterministic state for this successfully opened request.
+9. if semantic eligibility still requires additional information, derive the normal committed coalescing key and submit one background job now.
+10. that newly submitted job may improve subsequent turns/continuity state, but it is **not allowed to retroactively justify pre-open billing** for this request.
+
+If primary Open fails, discard/expire the preview intent under bounded cleanup and produce **zero new billable continuity child work**. The extractor remains off-session/background after successful submission; v1 accepts that completion-only semantic information discovered only at this boundary may not be available for the same request, because preserving billing/lifecycle correctness is stronger than paying before Open.
 
 ## D15. Canonical Reinjection
 
-One provider-neutral helper applies a deterministic text projection of the capsule.
+One provider-neutral helper applies a deterministic text projection of a locally branch/digest-validated capsule.
 
 - message-authoritative call -> legal proxy-owned developer/system instruction/message representation;
 - item-authoritative call -> legal canonical message item;
 - never populate legacy Messages/Instructions alongside item authority in violation of `Call.Validate`.
 
-Projection format is versioned/delimited and says it is prior continuation state, not a new user request.
+Projection format is versioned/delimited and says it is prior continuation state, not a new user request. Internal branch binding/digest metadata need not be emitted into the model-facing text after local validation.
 
-`LastInjectedRevision` prevents duplicate injection for one boundary. Projection is rechecked against injection budget after serialization.
+### Boundary-scoped deduplication
+
+Revision alone is not an injection identity. Use:
+
+```go
+type InjectionWatermark struct {
+    BranchBinding   string
+    BoundaryKey     string // committed transaction when available; detector preview boundary key while awaiting bind
+    CapsuleRevision uint64
+}
+```
+
+Rules:
+
+1. `PendingInjection` records the boundary + revision requiring carry-forward.
+2. a successive distinct compaction boundary may inject the same capsule revision again; this is required when no new facts were learned between two opaque compactions.
+3. within one primary call, a call-local ephemeral marker prevents the helper from inserting the same continuity block twice during internal retry/failover preparation; this marker is not the durable branch watermark.
+4. canonical insertion must pass `Call.Validate`. Callback error/panic/validation failure restores the exact pre-injection call and leaves `PendingInjection` unchanged.
+5. primary Open failure leaves `PendingInjection` unchanged.
+6. `LastReleasedInjection` advances and matching `PendingInjection` clears **only after the primary turn reaches successful final client release**. If the turn aborts before release, a later eligible request may inject again.
+7. after completion-only Open binds a preview boundary to a committed transaction, the branch state rewrites the pending boundary key consistently before final release bookkeeping.
+
+Projection is rechecked against injection budget after serialization.
 
 ## D16. Plaintext Result Augmentation Boundary
 
@@ -622,13 +743,13 @@ Allowed trusted session controls may include enabled, preserved categories, appr
 
 ## D18. Configuration
 
-Indicative only; implementation tests pin defaults:
+Indicative only; implementation tests pin defaults. The example intentionally remains disabled so copying it cannot silently enable remote data egress or extra billed inference:
 
 ```yaml
 plugins:
   features:
     - id: compaction-continuity
-      enabled: true
+      enabled: false
       config:
         preserve:
           plan: true
@@ -676,7 +797,12 @@ Default request-time behavior is fail-open.
 | invalid schema | discard result; actual submitted usage still accountable |
 | stale result | discard/forget; no state regression |
 | barrier timeout | continue native flow; pending result may be consumed later while bounded/useful |
-| capsule over budget | whole-fact deterministic pruning |
+| capsule branch-binding/digest mismatch | discard capsule/result for this branch; native flow continues |
+| capsule over budget | whole-fact deterministic pruning then re-digest |
+| preserver callback error/panic | record content-free stage failure; do not propagate to primary traffic |
+| failed/invalid BeforeRequest mutation | restore pre-preservation `Call`; keep pending reinjection; native flow continues |
+| failed/invalid BeforeResponseRelease mutation | restore pre-preservation `Event`; committed detector sees restored final event |
+| completion-only primary Open fails | discard/expire non-billable preview intent; no new child submission/billing |
 | state/coordinator unavailable | skip preservation mutation; native traffic continues |
 | process shutdown | stop admission; cancel/join worker; normal submitted usage/accounting remains terminally owned |
 
@@ -689,6 +815,7 @@ Default request-time behavior is fail-open.
 - source content is untrusted quoted data;
 - no tools and preservation plugin suppressed;
 - prompt/output/capsule absent from normal logs/metrics;
+- branch binding is a content-free one-way binding and raw parent BranchKey identifiers need not be sent to the model;
 - pending raw result exists only in bounded process memory;
 - transcript reads preserve principal/session/workspace authorization;
 - no implicit durable transcript capture;
@@ -701,14 +828,17 @@ Content-free metrics/diagnostics:
 - compaction preview/start/completion by evidence/rule;
 - structured carrier hits by rule ID;
 - semantic eligibility skip reasons;
+- preview intents created/bound/expired without provider submission;
 - background jobs submitted/coalesced/saturated/canceled/completed/failed/stale;
 - queue depth/in-flight;
 - extractor route/backend/model identifiers where policy allows;
 - extractor tokens/cache/cost through existing usage/billing;
-- capsule revision/serialized size/fact counts;
+- auxiliary accounting rejection by invalid attempt/evidence contract;
+- capsule revision/serialized size/fact counts/digest-validation outcome;
 - barrier wait duration/timeouts;
-- augmentation/reinjection counts;
-- stale/revision conflicts;
+- augmentation/reinjection counts and pending/committed watermark outcomes;
+- preserver callback fail-open outcomes by stage;
+- stale/revision/conflict-key conflicts;
 - opaque-carrier no-mutation count.
 
 Logs use hashes/IDs/counts only.
@@ -717,20 +847,22 @@ Logs use hashes/IDs/counts only.
 
 1. ProcessServices owns BackgroundScheduler and BranchCoordinator.
 2. Generation snapshots hold non-owning clients only.
-3. Each successfully submitted background job owns exactly one captured `KindAsync` pin.
+3. Each successfully submitted background job owns exactly one captured `KindAsync` pin; non-billable preview intents own none.
 4. Pin releases exactly once on every terminal/cancel/handoff-failure path.
 5. A worker never obtains a different generation after submit.
-6. BranchCoordinator serializes revision/job/injection state across overlapping generations.
-7. No external model/provider call executes while a branch-coordinator lock is held.
-8. No observer/plugin callback runs under scheduler/coordinator internal locks.
-9. Job/result/branch maps have hard bounds/TTL and no unbounded cleanup goroutine pattern.
-10. Reload changes future jobs only; already-submitted work remains accountable and terminally owned.
+6. Parent BranchKey/branch binding is captured before child A-leg creation and remains the only continuity-state key for that job.
+7. BranchCoordinator serializes revision/job/injection state across overlapping generations.
+8. No external model/provider call executes while a branch-coordinator lock is held.
+9. No observer/plugin callback runs under scheduler/coordinator internal locks.
+10. Job/result/branch/preview-intent maps have hard bounds/TTL and no unbounded cleanup goroutine pattern.
+11. Reload changes future jobs only; already-submitted work remains accountable and terminally owned.
+12. Branch-level reinjection watermark commits only after successful final client release; validation/Open/aborted-release failures retain pending state.
 
 ## D23. Restart and Durable Resume
 
 V1 guarantees continuity across compaction and immutable generation reload within one process. It does not create durable capsule/job storage.
 
-An optional future/implementation recovery adapter may reconstruct from an already-enabled authorized secure-session transcript. It must be read-only, bounded and authorization-preserving. Without that source, missing process capsule after restart is explicit fail-open state.
+An optional future/implementation recovery adapter may reconstruct from an already-enabled authorized secure-session transcript. It must be read-only, bounded and authorization-preserving. Reconstructed capsules receive the current authoritative branch binding and a freshly validated canonical digest before use. Without that source, missing process capsule after restart is explicit fail-open state.
 
 No durable job queue or full transcript store is added here.
 
@@ -741,11 +873,11 @@ Primary packages:
 - `pkg/lipsdk/compaction` — preview-related preservation contract beside prerequisite observer;
 - `pkg/lipsdk/feature` — additive preserver slice;
 - `pkg/lipsdk/auxiliary` — additive BackgroundClient/job types and trusted detached policy carrier;
-- `internal/featurebundle` / `internal/core/extensions` — merge/snapshot/preservation stages;
+- `internal/featurebundle` / `internal/core/extensions` — merge/snapshot/preservation stages and fail-open transactional mutation dispatch;
 - `internal/core/compactiondetect` — pure request/response previews sharing matcher authority;
 - `internal/core/auxreq` — bounded scheduler, submit-time pin handoff, detached child adapter;
-- `internal/core/compactioncontinuity` — narrow BranchCoordinator;
-- `internal/core/runtime` — request preview/open, final-response ordering, detached prepare/private child A-leg wiring;
+- `internal/core/compactioncontinuity` — narrow BranchCoordinator/preview-intent/injection-watermark state;
+- `internal/core/runtime` — request preview/open, final-response ordering, detached prepare/private child A-leg wiring, successful-release watermark commit;
 - `internal/infra/runtimebundle` — process ownership and generation snapshot clients;
 - `internal/plugins/features/compactioncontinuity` — config/capsule/carriers/sanitizer/eligibility/extractor/merge/injection;
 - existing metering/billing/report projections only for content-free auxiliary workload classification;
@@ -757,16 +889,18 @@ Individual provider/backend and frontend protocol packages should not need compa
 
 TDD order:
 
-1. RED capsule merge/supersession/pruning + carrier fixtures.
+1. RED capsule branch-binding/digest, decision conflict-key/supersession, merge/pruning + carrier fixtures.
 2. RED sanitizer/eligibility/extractor-schema tests.
-3. RED BackgroundAux submit-time pin/coalescing/saturation/result-lifetime/shutdown tests.
-4. RED detached-session/private-child-A-leg tests.
-5. RED separate-route + user-billing/BillingCallID/protocol-usage tests.
+3. RED BackgroundAux submit-time pin/committed coalescing/saturation/result-lifetime/shutdown tests plus non-billable preview-intent binding tests.
+4. RED detached-session/private-child-A-leg tests proving parent BranchKey remains continuity authority.
+5. RED separate-route + user-billing/BillingCallID/per-B-leg AttemptSeq/evidence/protocol-usage tests.
 6. RED detector request/response preview and final-release ordering tests.
-7. RED strict/remote and completion-only compaction barriers, plaintext/opaque paths.
-8. RED three-plus repeated-compaction/concurrency/generation-reload tests.
-9. GREEN minimal implementation in that order.
-10. repository quality/race/architecture/simplification gates.
+7. RED preserver callback error/panic rollback and canonical validation fail-open tests.
+8. RED strict/remote and completion-only compaction barriers including failed-Open zero-child-billing.
+9. RED boundary-scoped reinjection tests: same revision across two compactions, validation/Open/release failure then retry, plaintext/opaque paths.
+10. RED three-plus repeated-compaction/concurrency/generation-reload tests.
+11. GREEN minimal implementation in that order.
+12. repository quality/race/architecture/simplification gates.
 
 No external model credentials are required; deterministic fake/local backends return fixture JSON.
 
@@ -775,15 +909,20 @@ No external model credentials are required; deterministic fake/local backends re
 1. One compaction recognition authority; no duplicate signature matrix.
 2. Metadata observer remains content-free/non-mutating.
 3. Committed detector sees the actual final released event after permitted preservation mutation.
-4. Extractor is off primary session but billed to originating user by default.
-5. Extractor route is explicit/independent unless explicit inherit.
-6. Background ownership is captured before request spawn right ends.
-7. ProcessServices owns worker/coordinator lifetime.
-8. Detached child uses a private auxiliary A-leg and never creates a primary secure-session turn.
-9. Normal routing/B2BUA/usage/billing own child execution; no direct provider path.
-10. Primary protocol usage excludes child usage; account totals include it.
-11. Continuity state is bounded, revisioned, branch-scoped and reload-safe.
-12. Opaque/encrypted compaction bytes are immutable.
-13. First post-compaction turn has a bounded barrier when required.
-14. Pending late results remain useful only within a bounded branch retention window.
-15. No second transcript DB, money ledger, generic workflow engine or redundant summary LLM pass.
+4. Preserver callback failure is feature-local/fail-open; failed mutation restores the prior canonical object.
+5. Extractor is off primary session but billed to originating user by default.
+6. No new billable semantic child is submitted before successful primary Open, including completion-only/local discovery.
+7. Extractor route is explicit/independent unless explicit inherit.
+8. Background ownership is captured before request spawn right ends.
+9. ProcessServices owns worker/coordinator lifetime.
+10. Detached child uses a private auxiliary A-leg and never creates a primary secure-session turn; continuity state remains keyed to the captured parent branch.
+11. Normal routing/B2BUA/usage/billing own child execution; every persisted auxiliary B-leg has valid AttemptSeq/final evidence and there is no direct provider path.
+12. Primary protocol usage excludes child usage; account totals include it.
+13. Continuity capsule is bounded, revisioned, parent-branch-bound, digest-validated and reload-safe.
+14. Contradictory active decisions cannot coexist solely because semantic extraction emitted new IDs; conflict keys/supersedes define deterministic replacement.
+15. Opaque/encrypted compaction bytes are immutable.
+16. First post-compaction request may await only already-submitted semantic work before Open; fresh semantic work waits for successful Open.
+17. Reinjection dedupe is branch/boundary/revision-scoped and commits only after final client release.
+18. Pending late results remain useful only within a bounded branch retention window.
+19. Configuration examples/default behavior remain disabled until explicit operator opt-in.
+20. No second transcript DB, money ledger, generic workflow engine or redundant summary LLM pass.
