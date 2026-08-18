@@ -1,0 +1,216 @@
+# Requirements Document
+
+## Introduction
+
+Go-LIP shall preserve the decision state that matters for continuing a long coding-agent session across lossy context-compaction events. The feature is not general memory and is not a replacement compactor. Its purpose is narrower: retain the latest accepted plan, explicit user product/architecture decisions, constraints, useful rationale, meaningful rejected alternatives, current plan progress, and unresolved next actions when ordinary compaction would otherwise discard them.
+
+The preserved state shall be represented as a bounded, versioned **Continuity Capsule** rather than an ever-growing natural-language transcript. Structured planning state already exposed by an agent shall be harvested deterministically. A separately configured auxiliary LLM may be used only for genuinely semantic extraction such as identifying conversational acceptance, user decisions, rationale, or supersession that cannot be recovered safely from structured carriers.
+
+Auxiliary semantic extraction is explicitly **off the primary agent session** and runs as independent background work. It may use a completely different model/provider/route from the main coding session. It is nevertheless real additional model usage: by default its usage and cost belong to the same authenticated user/account that caused the extraction and must flow through normal Go-LIP admission, usage, metering, customer billing, and provider-cost accounting.
+
+This specification depends on the compaction-recognition authority defined by the existing `compaction-event-detection` specification. That detector remains metadata-only and non-mutating. Continuity preservation adds a separate content-bearing preservation/interception capability and shall not turn the detector observer into a request/response mutation surface.
+
+## Boundary Context
+
+- **In scope:** continuity-capsule schema/merge semantics; deterministic structured-plan harvesting; bounded semantic-extraction eligibility; sanitized extraction input; process-owned background auxiliary execution; independent extractor routing; originating-user billing; detached auxiliary session semantics; compaction-boundary synchronization; verified plaintext augmentation and post-compaction reinjection; repeated compactions; authoritative session/A-leg scoping; trusted session overrides; privacy, observability, and TDD gates.
+- **Dependency:** implementation requires the detector/rule authority specified by `compaction-event-detection`. If that runtime capability has not landed, it is a prerequisite rather than a reason to duplicate compaction signatures in this feature.
+- **Existing authorities preserved:** core routing/selector parsing; B2BUA lineage; secure-session authority; generation pinning; `ProcessServices`; auxiliary execution; usage/concurrency authority; BillingCallID-based post-usage billing; canonical stream/retry commitment; extension merge/runtime snapshots.
+- **Out of scope:** general RAG/long-term memory; retaining every conversation fact; replacing an agent compactor; a new provider client; rewriting encrypted/opaque native compaction blobs; hidden system-account billing by default; general-purpose durable job orchestration; general agent identity inference; provider-specific branching in core; a second full-transcript database.
+
+## Requirement 1: Shared Compaction Recognition and Separate Preservation Contract
+
+1.1. Continuity preservation shall reuse the protocol/signature/history recognition authority defined by `compaction-event-detection`; it shall not maintain a second independent compaction-signature matrix.
+1.2. The metadata-only `compaction.Observer` contract shall remain non-mutating, content-free, and fail-open.
+1.3. Go-LIP may add an additive content-bearing preservation/interception contract, but it shall be distinct from `compaction.Observer` and from ordinary response hooks.
+1.4. `FeatureBundle`, the single feature merge surface, and the frozen request-runtime snapshot shall expose preservation interceptors separately and defensively copy/freeze them using existing extension conventions.
+1.5. Preservation shall use the same authoritative A-leg and compaction transaction identity as the detector when available.
+1.6. A strict start candidate shall not cause a billable semantic-extraction job if the compaction-looking request never successfully opens upstream.
+1.7. When a recognized compaction request successfully opens upstream, preservation may start one extraction job for that logical transaction while primary compaction work continues independently.
+1.8. Completion-only/history evidence shall never invent a historical start, but it may trigger extraction/reinjection required for a compaction only observable after installation.
+1.9. Any pre-open request preview needed to protect the first post-compaction turn shall be a pure/non-committing view over the same matcher/fingerprint authority; preview shall not emit lifecycle events, advance detector state, or establish a billable semantic-extraction trigger.
+1.10. Response-side preservation shall use a pure/non-committing response preview over the same detector authority to identify a potential completion before mutation; preview shall not mark a transaction complete or dispatch observers.
+1.11. Final-release ordering shall be: selected canonical event -> pure response preview -> separate preservation finalization -> committed `ResponseReleased` on the resulting final event -> metadata-observer dispatch -> client release. No ordinary response hook may run after preservation finalization.
+1.12. Provider/frontend wire DTOs and provider SDK types shall not enter core continuity logic.
+1.13. Generic words such as `plan`, `summarize`, `continue`, or `compact` shall not by themselves establish a compaction boundary or accepted plan.
+
+## Requirement 2: Versioned Continuity Capsule and Decision Semantics
+
+2.1. Continuity state shall use a versioned schema containing at least schema version, monotonic revision, source/high-watermark metadata, branch identity, and content digest.
+2.2. The capsule shall represent the latest accepted/current plan separately from user decisions and constraints.
+2.3. Plan steps shall support at least pending, in-progress, completed, and removed/superseded semantics.
+2.4. User decisions shall support at least active, superseded, and rejected semantics.
+2.5. Retained facts shall carry bounded provenance sufficient to distinguish explicit user text, user acceptance/correction, deterministic structured-plan state, and semantic extractor inference without retaining the full transcript.
+2.6. Later explicit user intent shall supersede conflicting older active intent; contradictory decisions shall not remain simultaneously active merely because both occurred historically.
+2.7. Assistant brainstorming/proposals shall not become authoritative user decisions unless later user evidence accepts/selects/instructs execution of them.
+2.8. A structured current plan exposed authoritatively by the harness may be retained as current plan state without requiring a conversational acceptance sentence.
+2.9. Explicitly rejected alternatives may be retained when they constrain future work; they shall not reappear as active absent later user reversal.
+2.10. Useful rationale/trade-offs may be retained with the associated decision and shall follow that decision's active/superseded state.
+2.11. Ambiguous semantic evidence shall be omitted or represented as provisional/non-authoritative, never promoted to explicit user intent.
+2.12. Merge behavior shall be deterministic for `previous capsule + validated delta`: duplicate facts coalesce, statuses do not regress, and stale revisions cannot overwrite newer state.
+2.13. Capsule size shall be bounded by configured byte/token-equivalent limits; overflow shall prioritize active decisions/constraints, pending/in-progress plan steps, useful rationale, then historical/completed material.
+2.14. Completed steps and superseded history may be condensed/dropped under retention policy while active decisions and unresolved work remain until superseded/removed or the branch ends.
+2.15. The capsule is continuity state, not an audit transcript, and shall not contain arbitrary logs, file dumps, binaries, credentials, or unrelated tool output.
+2.16. The serialized capsule envelope shall be self-binding and self-validating: it shall carry a stable content-free branch binding plus a digest computed over a canonical representation of the complete versioned envelope excluding only the digest field itself. The branch binding and digest shall be checked before registry transfer consumption, merge, reinjection/projection, recovery, or generation-reload reuse; raw branch/account identifiers need not be exposed to the extractor model merely to satisfy this invariant.
+2.17. Every active decision shall have deterministic conflict identity independent of its extractor-generated fact ID. The implementation shall use a stable normalized conflict key and may additionally use validated `supersedes` references; at most one decision may remain active for one conflict key, and a correction that targets an existing active decision shall deactivate/supersede that decision rather than coexist under a new ID.
+
+## Requirement 3: Deterministic-First Extraction and Bounded Source Preparation
+
+3.1. Before invoking an extractor LLM, the feature shall harvest supported machine-readable planning state mechanically from canonical calls/items/tool data.
+3.2. Initial deterministic carrier coverage shall include versioned equivalents of Codex `update_plan`, OpenCode todo state, Cline-style task-progress/checklist state where observable, and other stable structured plan carriers established during implementation research.
+3.3. Carrier matching shall use canonical item/tool shapes rather than provider DTOs; each rule shall have a stable versioned ID and positive/near-miss fixtures.
+3.4. Carrier rules identify structured plan semantics, not agent identity; compaction-family identity remains owned by the shared detector.
+3.5. Structured state that can be normalized deterministically shall not be sent to an LLM merely to rediscover the same facts.
+3.6. Cheap local eligibility heuristics shall decide whether semantic extraction is likely to add information; they may suppress a model call but shall not declare arbitrary prose to be accepted user intent.
+3.7. A compaction with no relevant plan/decision/constraint candidates and no stale/missing capsule need shall perform zero semantic-extractor calls.
+3.8. Extractor input shall include the previous capsule plus only bounded new decision-relevant context needed to advance its source high-watermark.
+3.9. User messages receive highest source priority; assistant plan/proposal/clarification content may be retained only as needed to interpret user acceptance/correction.
+3.10. Ordinary tool outputs, shell/compiler logs, large file/code dumps, images/video/binary payloads, and unrelated external content shall be dropped or heavily truncated by default.
+3.11. Structured plan/TODO tool calls and small required results may survive sanitization.
+3.12. Untrusted tool-result/external text shall be excluded from semantic decision extraction by default; any included content remains untrusted data rather than extractor instructions.
+3.13. Source preparation shall be incremental where possible so repeated-compaction cost follows new relevant context plus the bounded prior capsule, not total session age.
+3.14. The feature may keep a bounded process-local sanitized source window for completion-only/local compactions, but it shall not become an unbounded or durable shadow transcript.
+3.15. When existing secure-session transcript capture is enabled and authorized historical recovery is needed, it shall be accessed through a narrow read/source adapter rather than by importing secure-session store/Bun internals into the feature.
+3.16. When transcript capture is disabled, the feature shall not enable durable full-transcript capture solely for continuity extraction.
+
+## Requirement 4: Off-Session Background Auxiliary Execution
+
+4.1. Semantic extraction shall execute as a proxy-created auxiliary/internal LLM invocation, not as a visible user/assistant turn in the primary agent conversation.
+4.2. Extractor output shall be consumed by continuity logic and never surfaced as an assistant message.
+4.3. The child shall have its own execution/B-leg lifecycle; parent session/A-leg/trace values are non-authoritative correlation/accounting lineage only.
+4.4. Background extraction shall run behind a bounded independent asynchronous worker boundary. A bounded in-process goroutine/worker pool is acceptable; an external worker may be supported later without changing semantics.
+4.5. The implementation shall enforce explicit maximum concurrent jobs and queue capacity and shall not spawn an unbounded goroutine per candidate/event.
+4.6. Background scheduling shall be process-owned through `ProcessServices` or an equivalent existing process ownership seam, not solely by a generation-scoped feature lifecycle.
+4.7. Submission shall synchronously resolve/capture the executable generation and retain `genpin.KindAsync` before returning; a delayed worker shall not attempt a new spawn after the originating request lease is gone.
+4.8. Worker execution shall use an independent worker-owned context/deadline carrying only cloned required principal/scope/correlation values, not the canceled parent request context as its lifetime root.
+4.9. The process-owned scheduler shall expose a narrow background-auxiliary collection contract with bounded job IDs/results and await/forget behavior; it shall not become a generic arbitrary task engine.
+4.10. Equivalent submitted jobs shall coalesce by authoritative **parent continuity branch + committed compaction transaction + target source revision**. When a completion-only pure preview exists before any transaction is committed, the feature shall derive a stable non-billable preview intent key from the authoritative parent branch, detector-owned preview boundary/fingerprint, and target source revision; an empty transaction ID shall never be used as a billable submission key. After successful primary Open, that preview intent shall bind to the committed transaction before any new `SubmitCollect`, and retries/failover shall reuse the bound identity.
+4.11. Queue saturation, unavailable worker, shutdown, or failed generation retention shall follow preservation failure policy and shall not fall back to an unbounded goroutine/direct provider call.
+4.12. Process shutdown shall stop admission, cancel/join worker execution, release generation pins exactly once, and satisfy repository goleak/race requirements.
+4.13. Job results shall be revision-checked before merge; stale jobs cannot overwrite newer intent/capsule revisions.
+4.14. Completed raw auxiliary results shall be bounded by count/bytes/TTL, never logged, and forgotten immediately after validation/merge. While a BranchState still references a pending useful JobID, its result retention shall be long enough for the configured bounded continuity/pending window rather than an arbitrary short cache TTL; branch/job expiry shall clear both sides coherently.
+4.15. Disabling/reloading the feature shall prevent new jobs according to the new configuration but shall not erase accounting obligations or leak execution for provider work already submitted.
+4.16. The authoritative parent continuity BranchKey shall be captured before detached child execution begins and stored with pending job state. Await, result validation/merge, capsule revision, pending injection, and reinjection shall use that parent key; the private child A-leg exists only for auxiliary execution/routing/billing and shall never become the continuity-state branch key.
+
+## Requirement 5: Independently Configurable Route and Detached Session Semantics
+
+5.1. The extractor route/model shall be independently configurable from the main session route/model and may use a completely different provider/model.
+5.2. Changing the main session model, alias, or A-leg route override shall not implicitly change the extractor route.
+5.3. Extractor routing shall still use normal Go-LIP canonical selector parsing, routing, capability, failover, admission, and attempt machinery; no direct provider client may be opened by the feature.
+5.4. The child shall use an explicit configured `Call.Route.Selector` or an explicit `inherit` policy. Missing/invalid route shall not silently inherit the main model.
+5.5. Parent A-leg ID shall be correlation only and shall not become child route-override authority.
+5.6. The child shall be stamped with stable content-free role/origin equivalent to `compaction_continuity_extractor` / internal auxiliary.
+5.7. Tools shall be disabled; the child shall not execute workspace tools, MCP actions, shell commands, or other side effects.
+5.8. Extractor output shall be bounded and schema-oriented rather than unconstrained conversational output.
+5.9. The preservation plugin shall suppress itself on the child; existing auxiliary-depth recursion limits remain effective.
+5.10. Core auxiliary execution shall provide a typed detached-session mode for this workload. It shall preserve authenticated principal/scope and parent correlation while suppressing primary secure-session BeginTurn/turn transcript/last-activity effects.
+5.11. Detached execution shall create/use a **private child A-leg** for the auxiliary logical call using existing B2BUA lifecycle semantics; it shall neither be sessionless nor reuse the primary A-leg as execution authority.
+5.12. The private child A-leg may own normal B-leg attempts/request authority/billing correlation, while `ParentALegID` remains explicit lineage only.
+5.13. Detached execution shall not mutate the primary A-leg route override, primary session turn count, primary session transcript, or client-visible session history.
+5.14. Detached-session authority shall be trusted internal execution metadata and shall not be encoded as provider-visible opaque call content or settable from frontend wire fields.
+5.15. Child A-leg/attempt lineage shall remain clearly distinguishable as internal auxiliary workload from the user's primary conversational turn.
+
+## Requirement 6: Originating-User Billing, Usage, and Cost Attribution
+
+6.1. Every semantic extractor invocation is real additional model usage and shall be billable auxiliary inference unless a future explicit operator-funded policy says otherwise.
+6.2. By default the child shall inherit the originating authenticated principal/scope so the same customer/account identity is resolved.
+6.3. The child shall pass through normal usage/concurrency authority and, where enabled, normal credit screen, route/quote, operational-exposure admission, terminal usage append, customer settlement, and provider-cost processing.
+6.4. The auxiliary call shall receive its own BillingCallID and normal B-leg records; it shall not share the primary call's BillingCallID.
+6.5. Actual extractor retries/failover B-legs shall be accounted under that auxiliary BillingCallID using existing per-leg semantics.
+6.6. User/account aggregate usage/cost totals shall include extractor usage even though the call is not a visible primary turn.
+6.7. Primary protocol-visible response usage shall not be inflated by extractor tokens; auxiliary and primary protocol usage remain separate execution records.
+6.8. Existing metering/billing/diagnostics shall receive a bounded content-free workload/origin classification identifying continuity extraction, without creating a second money ledger or rating engine.
+6.9. Provider COGS shall remain attributed to the actual extractor B-legs/provider/model selected by the extractor route.
+6.10. If credit/admission rejects the child before upstream submission, semantic extraction shall skip/fail-open by default; billing policy shall not be bypassed and an unrelated system account shall not be charged.
+6.11. If upstream extractor work was submitted, resulting usage remains billable/accountable even if the result is late, invalid, or discarded as stale.
+6.12. Enabling the feature shall be documented as potentially generating extra billed inference beyond visible primary turns.
+6.13. Operator-funded/system-funded extraction is outside the first implementation and, if later added, must be explicit opt-in accounting policy.
+6.14. Every auxiliary B-leg and failover leg that reaches independent terminal accounting shall carry a positive authoritative `AttemptSeq` and valid final billing evidence under the existing billing contract: usage quantities/presence, cost evidence/presence, `Source`, `Authority`, and `DedupeKey`. A record with `AttemptSeq <= 0` or otherwise invalid accounting identity/evidence shall not be treated as successfully accounted merely because the auxiliary BillingCallID is distinct.
+
+## Requirement 7: Compaction Integration, Barriers, Augmentation, and Reinjection
+
+7.1. A **new billable semantic-extraction job**, whether triggered by strict start or completion-only/local evidence, shall start no earlier than successful primary B-leg Open. Pre-open completion-only handling may use deterministic state, await a previously submitted matching job, or create a non-billable preview intent, but shall not submit fresh provider work.
+7.2. After submission, extraction shall run concurrently with primary compaction work where possible rather than serially blocking the main B-leg for its full inference duration.
+7.3. Preservation may await a background job only at a narrow bounded barrier where its result is needed to protect a compaction result or first eligible post-compaction turn.
+7.4. Barrier timeout obeys configured failure policy; default fail-open continues native compaction/continuation rather than deadlocking.
+7.5. A completed validated capsule may be mechanically added to a compaction result only for a verified mutable plaintext continuation-summary carrier.
+7.6. `CompactionItem.EncryptedContent`, opaque provider blobs, signatures, encrypted state, and unknown native compaction payloads shall remain byte-identical.
+7.7. If result-side augmentation is unsafe/unavailable, the capsule shall be marked for proxy-owned reinjection on the first eligible post-compaction request.
+7.8. Before that first B-leg opens, preservation shall use an already-ready capsule or await a matching job that was submitted by an earlier successfully opened request up to the configured barrier; it shall not create new billable semantic provider work solely to satisfy the pre-open barrier.
+7.9. Reinjection shall be canonical-authority-aware: legacy/message-authoritative and item-authoritative calls shall receive a valid bounded proxy-owned instruction/message representation without violating `Call.Validate` authority rules.
+7.10. The continuity block shall be versioned/delimited/bounded and distinguishable from user text; it shall state that facts are prior continuation state, not a new user request.
+7.11. Reinjection deduplication shall use a compound watermark containing authoritative branch binding, compaction boundary/transaction identity, and capsule revision. The same revision may therefore be reinjected for a later distinct compaction boundary, while one boundary/revision is not duplicated by retries.
+7.12. Completion-only/local/history compaction first recognized on the post-compaction request may prepare a non-billable preview intent and deterministic capsule before Open. Only after that request successfully opens and detector state commits may the intent bind to the committed transaction and submit one coalesced semantic job; a failed Open produces no billable child job.
+7.13. If deterministic extraction already supplies the necessary capsule, no semantic model job/barrier is required.
+7.14. Preservation errors shall not change route selection, failover, no-retry-after-output, or output commitment except for the explicitly bounded pre-output barrier and canonical continuity injection.
+7.15. No second LLM pass shall normally rewrite/improve the native summary after one validated semantic extractor result already exists.
+7.16. `BeforeRequest`, `RequestOpened`, and `BeforeResponseRelease` errors/panics shall be recorded as preservation failures and shall not propagate into primary request/compaction/response handling. Any canonical request/event mutation attempted by preservation shall be transactional at the preservation seam: if the callback fails, panics, or leaves an invalid canonical object, the runtime shall restore the pre-preservation object and continue native traffic fail-open.
+
+## Requirement 8: Repeated Compactions, Branch Scope, Concurrency, Reload, and Restart
+
+8.1. Continuity state shall be keyed by authoritative SessionID when available plus the **parent primary A-leg/branch identity** captured before any detached child A-leg is created; client session hints and child auxiliary A-leg IDs alone shall never select another branch's capsule.
+8.2. Without secure-session authority, principal-isolated proxy-owned A-leg authority shall be used rather than arbitrary client hints.
+8.3. `ScopeSession` may provide the session partition, but the feature key shall additionally include A-leg/branch identity to prevent branch aliasing.
+8.4. Capsule updates shall use monotonic revision/compare-and-merge semantics so concurrent turns/jobs cannot overwrite newer explicit intent.
+8.5. Duplicate lifecycle signals and B-leg retry/failover shall be idempotent for job submission and merge; reinjection idempotency shall be scoped to its compound branch/boundary/revision watermark rather than revision alone.
+8.6. New unrelated sessions/A-legs start without inherited state.
+8.7. Reset/branch replacement shall retire/cancel pending old-branch work under bounded cleanup and shall not leak decisions into the new branch.
+8.8. Fork/clone inheritance, if supported, shall be explicit copy-on-fork from a known parent revision; no explicit parent relationship means no inheritance.
+8.9. Capsule/source/job state and the background scheduler shall be process-owned so they survive immutable generation replacement/config reload.
+8.10. In-flight jobs use immutable route/budget/config and generation captured at submission; later reload affects newly submitted jobs only.
+8.11. Three or more successive compactions shall merge `previous capsule + new relevant delta -> new capsule`, not recursively trust only the prior lossy summary.
+8.12. Repeated compaction shall not cause monotonic duplicate capsule/prompt growth.
+8.13. First implementation restart durability shall be honest: process-local state is not claimed durable across process restart.
+8.14. When an authorized durable secure-session transcript already exists, missing capsule state may be reconstructed through the narrow transcript-source adapter; otherwise resume/restart fails open with no hidden capture or cross-session borrowing.
+8.15. This spec shall not add a generic durable feature-state/job framework merely to make the capsule restart-durable.
+
+## Requirement 9: Privacy, Security, and Trusted Session Policy
+
+9.1. The feature shall be disabled by default and requires explicit operator enablement.
+9.2. A remote extractor route is a new data-egress path and shall be documented/configured as such.
+9.3. Applicable redaction/secret policy shall run before extractor egress; raw credentials/secrets shall not be exported merely because they appeared in the session.
+9.4. Transcript/source text shall be framed as untrusted data. Embedded user/tool/external instructions cannot override fixed extractor task/schema/system policy.
+9.5. The child has no tools and no side-effect capability beyond the configured model request.
+9.6. Extractor prompt/output/capsule contents shall not appear in normal logs/metrics/diagnostics by default.
+9.7. Content-free IDs, revisions, rule/carrier IDs, counts, sizes, latency, token usage, route/backend/model identifiers, and outcomes may be observed.
+9.8. Existing principal/workspace/tenant authorization applies to any transcript/source read.
+9.9. Transcript-disabled sessions shall not silently acquire a durable full transcript.
+9.10. A bounded sanitized process-local source window is allowed but must be branch-isolated and TTL/size bounded.
+9.11. Per-session enable/disable or extractor-route override shall come only from trusted proxy-owned policy/session state; unauthenticated client headers/metadata cannot self-enable egress or choose the billed route.
+9.12. Trusted per-session overrides shall remain within operator-defined maxima unless separately authorized.
+9.13. Auxiliary lineage/accounting metadata shall not contain raw prompt excerpts or capsule content.
+
+## Requirement 10: Configuration, Failure Policy, and Observability
+
+10.1. Global feature config shall support at least enablement, preserved categories, extractor route, timeout/input/output limits, worker concurrency/queue bounds, barrier timeout, capsule/source/result bounds/TTL, and failure mode.
+10.2. Semantic extraction requires an explicit route or explicit inherit policy; no accidental main-model default is allowed.
+10.3. Enabling the feature shall fail generation/startup composition clearly if the prerequisite compaction detector preview/commit service, process branch coordinator, or BackgroundAux capability is unavailable; disabled feature mode shall retain no-op compatibility.
+10.4. Default request-time failure mode shall be fail-open for model traffic: extractor timeout/error/saturation/invalid output/state failure **and preservation callback error/panic** do not make native compaction unusable.
+10.5. Fail-open preserves already-valid deterministic capsule state, never injects malformed/partial extractor output, and restores the pre-preservation canonical request/event if a preservation mutation fails validation or the callback itself fails before the mutation is committed.
+10.6. Extractor output shall be validated against a strict versioned schema with byte/depth/count limits before merge/injection.
+10.7. Observability shall count compaction candidates; deterministic hits; semantic jobs submitted/coalesced/skipped/saturated; latency/outcome; extractor input/output tokens; capsule revision/size/fact counts; barrier waits/timeouts; augmentation/reinjection; stale/conflict rejection.
+10.8. Billing/usage observability shall expose auxiliary continuity cost through existing accounting stores rather than duplicating financial truth.
+10.9. Config reload shall not mutate active job route/budgets mid-flight.
+10.10. Disabling the feature prevents new jobs while allowing bounded cleanup/accounting of already-submitted work.
+10.11. No failure path may retry indefinitely, spin, block shutdown indefinitely, or fall back to an unconfigured provider/model.
+10.12. Background raw-result retention shall be bounded and useful only while referenced/pending under the configured continuity window; normalized capsule state replaces raw result after consumption.
+10.13. Content-free preservation-failure diagnostics shall identify callback stage and outcome without logging prompt/capsule content; callback failure shall not be mistaken for primary model/provider failure or influence retry authority.
+
+## Requirement 11: TDD, Architecture, and Non-Interference Gates
+
+11.1. Implementation shall begin with RED tests for capsule merge/supersession, structured carriers, eligibility/sanitization, background lifetime, detached session behavior, independent routing, billing attribution, barriers, repeated compactions, and opaque payload protection.
+11.2. Worker packages shall use deterministic scheduling controls plus `goleak`/race tests for saturation, cancellation, shutdown, duplicate submission, stale completion, and barrier races.
+11.3. Tests shall prove no billable semantic extraction job is submitted when either a strict compaction-looking request **or a completion-only first post-compaction request** fails before upstream Open; completion-only pre-open intent creation/deduplication must remain non-billable.
+11.4. Tests shall prove the child uses a private auxiliary A-leg, is absent from primary secure-session transcript/turn count/last activity, and does not mutate primary A-leg route-override/session state.
+11.5. Tests shall prove extractor routing can differ from primary routing and that primary A-leg overrides do not rewrite the child selector.
+11.6. Billing tests shall prove separate auxiliary BillingCallID/B-leg usage, originating account attribution, aggregate inclusion, continuity workload classification, unchanged primary protocol usage, positive `AttemptSeq` on every auxiliary/failover B-leg, and valid usage/cost/`Source`/`Authority`/`DedupeKey` evidence under the existing terminal-accounting contract. Coverage shall include rejection of `AttemptSeq <= 0` rather than silently treating such a record as accounted.
+11.7. Tests shall cover pre-submit billing rejection, submitted-but-invalid result, submitted-but-stale result, retry/failover cost, and fail-open behavior.
+11.8. Tests shall cover at least three successive compactions with deterministic decision conflict keys/validated supersession, plan progress, dedupe, capsule branch-binding/digest validation, and bounded growth.
+11.9. Tests shall prove encrypted/opaque compaction content is byte-identical with preservation enabled.
+11.10. Tests shall prove response preview does not commit lifecycle state and committed `ResponseReleased` sees the exact final event after any permitted plaintext preservation mutation.
+11.11. Tests shall prove process generation reload cannot orphan jobs/state and that job submission captured `KindAsync` ownership before the request spawn right ended.
+11.12. Architecture gates shall prevent provider/frontend DTO imports, direct provider clients, generic service locators/task runtimes, a second full-transcript store, feature-owned money ledgers, or generation-scoped ownership as the sole worker lifetime.
+11.13. The implementation shall preserve canonical call/event validity, output commitment/no-retry-after-output, B2BUA lineage, secure-session ownership, generation pinning, and current billing settlement authorities.
+11.14. Focused/repository tests shall run without external model credentials; live extractor tests are optional environment-gated evidence.
+11.15. Final review shall remove duplicate rule catalogs, unnecessary persistence/framework layers, unbounded queues/goroutines, provider-specific core branches, and any redundant second LLM summary-rewrite pass.
+11.16. Tests shall use distinct parent and child A-leg IDs and prove pending jobs, Await, merge, revision, late-result handling, and reinjection remain attached to the captured parent continuity BranchKey across concurrency and reload.
+11.17. Reinjection tests shall cover two successive compaction boundaries with the same capsule revision, canonical validation failure, failed primary Open, aborted/no client release, then retry. The compound watermark shall advance only after successful final client release; pending injection shall survive earlier failures, and call-local retry/failover shall not duplicate insertion within one primary attempt lifecycle.
