@@ -12,12 +12,13 @@ import (
 // the exact cacheable prefix (including the cache breakpoint) that created/read
 // the provider cache entry, so the renewal request can reproduce it byte-for-byte.
 type CacheObservation struct {
-	Lineage    promptcache.ObservationLineage
-	Model      string
-	TTL        string
-	Renewal    RenewalSnapshot
-	Evidence   promptcache.CacheEvidence
-	ObservedAt time.Time
+	Lineage      promptcache.ObservationLineage
+	Model        string
+	TTL          string
+	Renewal      RenewalSnapshot
+	Evidence     promptcache.CacheEvidence
+	ObservedAt   time.Time
+	CredentialID string
 }
 
 // CacheObservationHook, when non-nil, issues a renewable target from committed

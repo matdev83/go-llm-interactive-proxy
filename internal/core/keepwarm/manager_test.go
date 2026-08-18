@@ -24,6 +24,7 @@ type testController struct {
 	calls        atomic.Int64
 	releases     atomic.Int64
 	started      chan struct{}
+	operationIDs chan string
 	unblock      chan struct{}
 	ignoreCancel bool
 }
@@ -36,12 +37,18 @@ func (c *testController) Renew(ctx context.Context, req promptcache.RenewRequest
 		default:
 		}
 	}
+	if c.operationIDs != nil {
+		c.operationIDs <- req.OperationID
+	}
 	if c.unblock != nil {
 		select {
 		case <-c.unblock:
 		case <-ctx.Done():
 			if !c.ignoreCancel {
 				return promptcache.RenewResponse{}, ctx.Err()
+			}
+			if c.unblock != nil {
+				<-c.unblock
 			}
 		}
 	}
@@ -163,6 +170,105 @@ func TestManagerProviderTokenBudgetFailsClosedWithoutEstimate(t *testing.T) {
 	}
 }
 
+func TestManagerOperationIDsAreUniqueAcrossGenerations(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := DefaultConfig()
+	cfg.MaxRefreshesPerIdleEpoch = 1
+	cfg.MaxConcurrentRenewals = 1
+	clock1 := &testClock{now: now}
+	clock2 := &testClock{now: now}
+	ctl1 := &testController{operationIDs: make(chan string, 1)}
+	ctl2 := &testController{operationIDs: make(chan string, 1)}
+	m1, err := NewManager(cfg, clock1, Hooks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m2, err := NewManager(cfg, clock2, Hooks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := armTestTarget(t, m1, ctl1, testObservation(now, promptcache.LifecycleSlidingExpiry, time.Minute)); !result.Armed {
+		t.Fatal(result)
+	}
+	if result := armTestTarget(t, m2, ctl2, testObservation(now, promptcache.LifecycleSlidingExpiry, time.Minute)); !result.Armed {
+		t.Fatal(result)
+	}
+	clock1.Advance(55 * time.Second)
+	clock2.Advance(55 * time.Second)
+	m1.RunDue(context.Background())
+	m2.RunDue(context.Background())
+	id1 := <-ctl1.operationIDs
+	id2 := <-ctl2.operationIDs
+	m1.renewWG.Wait()
+	m2.renewWG.Wait()
+	if id1 == "" || id1 == id2 {
+		t.Fatalf("operation IDs = %q and %q, want distinct non-empty IDs", id1, id2)
+	}
+	_ = m1.Quiesce(context.Background())
+	_ = m2.Quiesce(context.Background())
+}
+
+func TestManagerRetriesAccountingDeliveryWithinBoundedContext(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := &testClock{now: now}
+	ctl := &testController{}
+	var calls atomic.Int64
+	m, err := NewManager(Config{Enabled: true, MaxRefreshesPerIdleEpoch: 1, MaxIdleDuration: time.Hour, MaxActiveTargets: 4, MaxConcurrentRenewals: 1, RenewTimeout: time.Second}, clock, Hooks{
+		Accounting: func(context.Context, RenewalRecord) error {
+			if calls.Add(1) == 1 {
+				return errors.New("transient accounting failure")
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := armTestTarget(t, m, ctl, testObservation(now, promptcache.LifecycleSlidingExpiry, time.Minute)); !result.Armed {
+		t.Fatal(result)
+	}
+	clock.Advance(55 * time.Second)
+	m.RunDue(context.Background())
+	m.renewWG.Wait()
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("accounting attempts=%d, want bounded retry after first failure", got)
+	}
+	if m.Metrics().Events["accounting_error"] != 0 {
+		t.Fatal("successful accounting retry was recorded as a terminal accounting error")
+	}
+}
+
+func TestManagerAccountingDeliveryHonorsCancellation(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := &testClock{now: now}
+	ctl := &testController{}
+	accountingDone := make(chan struct{})
+	m, err := NewManager(Config{Enabled: true, MaxRefreshesPerIdleEpoch: 1, MaxIdleDuration: time.Hour, MaxActiveTargets: 4, MaxConcurrentRenewals: 1, RenewTimeout: 10 * time.Millisecond}, clock, Hooks{
+		Accounting: func(ctx context.Context, _ RenewalRecord) error {
+			<-ctx.Done()
+			close(accountingDone)
+			return ctx.Err()
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := armTestTarget(t, m, ctl, testObservation(now, promptcache.LifecycleSlidingExpiry, time.Minute)); !result.Armed {
+		t.Fatal(result)
+	}
+	clock.Advance(55 * time.Second)
+	m.RunDue(context.Background())
+	m.renewWG.Wait()
+	select {
+	case <-accountingDone:
+	case <-time.After(time.Second):
+		t.Fatal("accounting callback was not canceled by its bound")
+	}
+	if m.Metrics().Events["accounting_error"] == 0 {
+		t.Fatal("bounded accounting failure was not recorded")
+	}
+}
+
 func TestManagerConsumesRefreshSlotAndDoesNotRetryControlFailure(t *testing.T) {
 	now := time.Now().UTC()
 	clock := &testClock{now: now}
@@ -188,7 +294,7 @@ func TestManagerForegroundCancellationAndStaleAccounting(t *testing.T) {
 	ctl := &testController{started: started, unblock: unblock, ignoreCancel: true}
 	var got atomic.Int64
 	var stale atomic.Bool
-	m, err := NewManager(DefaultConfig(), clock, Hooks{Accounting: func(r RenewalRecord) { got.Add(1); stale.Store(r.Stale) }})
+	m, err := NewManager(DefaultConfig(), clock, Hooks{Accounting: func(_ context.Context, r RenewalRecord) error { got.Add(1); stale.Store(r.Stale); return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

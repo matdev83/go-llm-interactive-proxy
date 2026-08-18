@@ -258,3 +258,113 @@ func TestManagerDoesNotReleaseForeignBackendObservationThroughCommittedControlle
 		t.Fatalf("foreign observation released through wrong controller: releases=%d", got)
 	}
 }
+
+func TestManagerMaxActiveTargetsIsGenerationWide(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := &testClock{now: now}
+	ctl := &releaseTrackingController{releaseStarted: make(chan struct{}), unblockFirst: make(chan struct{})}
+	cfg := DefaultConfig()
+	cfg.MaxActiveTargets = 1
+	m, err := NewManager(cfg, clock, Hooks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := regressionObservation(now, "first", 10*time.Minute)
+	first.ALegID = "a"
+	first.BLegID = "b-a"
+	if got := m.ArmFromCommittedTurn(ArmInput{ALegID: "a", BLegID: "b-a", CommittedSuccessful: true, ToolEvents: osTool(), Observations: []promptcache.Observation{first}, BackendInstanceID: "backend", Controller: ctl}); !got.Armed {
+		t.Fatalf("first arm=%+v", got)
+	}
+	second := regressionObservation(now, "second", time.Minute)
+	second.ALegID = "c"
+	second.BLegID = "b-c"
+	if got := m.ArmFromCommittedTurn(ArmInput{ALegID: "c", BLegID: "b-c", CommittedSuccessful: true, ToolEvents: osTool(), Observations: []promptcache.Observation{second}, BackendInstanceID: "backend", Controller: ctl}); !got.Armed {
+		t.Fatalf("earlier second target should replace the global latest target: %+v", got)
+	}
+	if got := m.ActiveTargetCount(); got != 1 {
+		t.Fatalf("active targets=%d, want generation-wide cap 1", got)
+	}
+	select {
+	case <-ctl.releaseStarted:
+	case <-time.After(time.Second):
+		t.Fatal("displaced target release did not start")
+	}
+	if got := ctl.releases.Load(); got != 1 {
+		t.Fatalf("displaced target releases=%d, want 1", got)
+	}
+	close(ctl.unblockFirst)
+	if err := m.Quiesce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestManagerProviderBudgetDoesNotRefundCommittedSpend(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := &testClock{now: now}
+	budget := int64(1)
+	cfg := DefaultConfig()
+	cfg.MaxProviderTokensPerIdleEpoch = &budget
+	ctl := &fixedResultController{response: promptcache.RenewResponse{Result: promptcache.RenewResult{Status: promptcache.Stale}}}
+	m, err := NewManager(cfg, clock, Hooks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := regressionObservation(now, "first", time.Minute)
+	second := regressionObservation(now, "second", 2*time.Minute)
+	if got := m.ArmFromCommittedTurn(ArmInput{ALegID: "a", BLegID: "b", CommittedSuccessful: true, ToolEvents: osTool(), Observations: []promptcache.Observation{first, second}, BackendInstanceID: "backend", Controller: ctl}); !got.Armed {
+		t.Fatalf("arm=%+v", got)
+	}
+	clock.Advance(55 * time.Second)
+	m.RunDue(context.Background())
+	m.renewWG.Wait()
+	clock.Advance(2 * time.Minute)
+	m.RunDue(context.Background())
+	m.renewWG.Wait()
+	if got := ctl.calls.Load(); got != 1 {
+		t.Fatalf("committed provider spend was refunded: calls=%d, want 1", got)
+	}
+	_ = m.Quiesce(context.Background())
+}
+
+func TestManagerQuiesceTimeoutDoesNotHideInProgressShutdown(t *testing.T) {
+	now := time.Now().UTC()
+	clock := &testClock{now: now}
+	started := make(chan struct{}, 1)
+	unblock := make(chan struct{})
+	ctl := &testController{started: started, unblock: unblock, ignoreCancel: true}
+	m, err := NewManager(DefaultConfig(), clock, Hooks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := armTestTarget(t, m, ctl, testObservation(now, promptcache.LifecycleSlidingExpiry, time.Minute)); !got.Armed {
+		t.Fatal(got)
+	}
+	clock.Advance(55 * time.Second)
+	m.RunDue(context.Background())
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("renewal did not start")
+	}
+	short, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if err := m.Quiesce(short); err == nil {
+		t.Fatal("timed quiesce unexpectedly completed while provider call was blocked")
+	}
+	secondDone := make(chan error, 1)
+	go func() { secondDone <- m.Quiesce(context.Background()) }()
+	select {
+	case err := <-secondDone:
+		t.Fatalf("second quiesce returned before shutdown completed: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(unblock)
+	select {
+	case err := <-secondDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("second quiesce did not observe shared completion")
+	}
+}
