@@ -94,7 +94,74 @@ func TestRenewalCoversTargetCombinesCacheReadAndWriteEvidence(t *testing.T) {
 	}
 }
 
-func TestAnthropicRenewalCapabilityRejectsToolAndThinkingShapes(t *testing.T) {
+func TestRenewalBodyPreservesCompatibleToolSettings(t *testing.T) {
+	t.Parallel()
+	body, err := renewalBody(RenewalSnapshot{RawRequest: json.RawMessage(`{"model":"claude","max_tokens":256,"stream":true,"messages":[],"tools":[{"name":"shell","input_schema":{"type":"object"}}],"tool_choice":{"type":"auto"}}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["max_tokens"] != float64(0) || got["stream"] != false {
+		t.Fatalf("renewal controls = %#v", got)
+	}
+	if _, ok := got["tools"]; !ok {
+		t.Fatal("renewal dropped the original tool definitions")
+	}
+	if _, ok := got["tool_choice"]; !ok {
+		t.Fatal("renewal dropped compatible tool_choice")
+	}
+}
+
+func TestRenewalBodyPreservesGeneratedToolWireShape(t *testing.T) {
+	t.Parallel()
+	parallel := false
+	call := lipapi.Call{
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("run a command")}}},
+		Tools: []lipapi.ToolDef{{
+			Name:        "shell",
+			Description: "run shell commands",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"}}}`),
+		}},
+		ToolChoice: lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto},
+		Options:    lipapi.GenerationOptions{ParallelToolCalls: &parallel},
+	}
+	params, err := ParamsForCall(&call, routing.AttemptCandidate{Primary: routing.Primary{Model: "claude"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := renewalBody(renewalSnapshotFromParams(params, "5m"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(body, &wire); err != nil {
+		t.Fatal(err)
+	}
+	if wire["model"] != "claude" || wire["max_tokens"] != float64(0) || wire["stream"] != false {
+		t.Fatalf("renewal controls/model = %#v", wire)
+	}
+	tools, ok := wire["tools"].([]any)
+	if !ok || len(tools) != 1 {
+		t.Fatalf("renewal tools = %#v, want one generated tool", wire["tools"])
+	}
+	tool, ok := tools[0].(map[string]any)
+	if !ok || tool["name"] != "shell" {
+		t.Fatalf("renewal tool = %#v", tools[0])
+	}
+	choice, ok := wire["tool_choice"].(map[string]any)
+	if !ok || choice["type"] != "auto" || choice["disable_parallel_tool_use"] != true {
+		t.Fatalf("renewal tool_choice = %#v", wire["tool_choice"])
+	}
+	cacheControl, ok := wire["cache_control"].(map[string]any)
+	if !ok || cacheControl["type"] != "ephemeral" || cacheControl["ttl"] != "5m" {
+		t.Fatalf("renewal cache_control = %#v", wire["cache_control"])
+	}
+}
+
+func TestAnthropicRenewalCapabilityRejectsForcedToolAndThinkingShapes(t *testing.T) {
 	t.Parallel()
 	be := NewBackend(Config{
 		BackendID:       "anthropic",
@@ -113,8 +180,22 @@ func TestAnthropicRenewalCapabilityRejectsToolAndThinkingShapes(t *testing.T) {
 	toolCall := plain
 	toolCall.Tools = []lipapi.ToolDef{{Name: "shell", Description: "run shell", Parameters: []byte(`{"type":"object"}`)}}
 	toolProfile := be.ResolvePromptCacheProfile(context.Background(), toolCall, candidate)
-	if toolProfile.RenewalSupported {
-		t.Fatal("tool request must not advertise active renewal")
+	if !toolProfile.ObservationSupported || !toolProfile.RenewalSupported {
+		t.Fatalf("normal auto tool request should advertise active renewal: %+v", toolProfile)
+	}
+
+	forcedAny := toolCall
+	forcedAny.ToolChoice = lipapi.ToolChoice{Mode: lipapi.ToolChoiceAny}
+	forcedAnyProfile := be.ResolvePromptCacheProfile(context.Background(), forcedAny, candidate)
+	if forcedAnyProfile.ObservationSupported || forcedAnyProfile.RenewalSupported {
+		t.Fatalf("forced-any tool request advertised cache support: %+v", forcedAnyProfile)
+	}
+
+	forcedSpecific := toolCall
+	forcedSpecific.ToolChoice = lipapi.ToolChoice{Mode: lipapi.ToolChoiceRequired, Name: "shell"}
+	forcedSpecificProfile := be.ResolvePromptCacheProfile(context.Background(), forcedSpecific, candidate)
+	if forcedSpecificProfile.ObservationSupported || forcedSpecificProfile.RenewalSupported {
+		t.Fatalf("forced-specific tool request advertised cache support: %+v", forcedSpecificProfile)
 	}
 
 	formatted := plain

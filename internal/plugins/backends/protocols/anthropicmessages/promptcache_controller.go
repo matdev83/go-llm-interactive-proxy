@@ -25,11 +25,12 @@ var (
 )
 
 // RenewalSnapshot is the minimal request shape used by zero-output
-// residency maintenance. It deliberately excludes foreground-only controls
-// such as thinking, tool choice, and response formatting. RawRequest, when
-// non-empty, is the exact wire body for the renewal (sanitized to max_tokens
-// 0, stream false, no thinking/tool_choice). It takes precedence over the
-// typed System/Messages fields and guarantees byte-for-byte prefix reproduction.
+// residency maintenance. RawRequest, when non-empty, is the exact wire body
+// for the renewal, sanitized only for controls that cannot be used with
+// max_tokens=0. Compatible tools and tool-choice settings remain intact so the
+// provider sees the same cache-affecting request shape. RawRequest takes
+// precedence over the typed System/Messages fields and guarantees byte-for-byte
+// prefix reproduction.
 type RenewalSnapshot struct {
 	Model      string
 	System     []RenewalSystemBlock
@@ -330,7 +331,6 @@ func renewalBody(snapshot RenewalSnapshot) ([]byte, error) {
 		raw["stream"] = false
 		delete(raw, "thinking")
 		delete(raw, "response_format")
-		delete(raw, "tool_choice")
 		delete(raw, "temperature")
 		delete(raw, "top_p")
 		return json.Marshal(raw)

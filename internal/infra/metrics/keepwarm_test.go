@@ -12,6 +12,12 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
+func TestKeepwarmPromAllowsAccountingErrors(t *testing.T) {
+	if !keepwarmMetricEventAllowed("accounting_error") {
+		t.Fatal("accounting_error must be exported as a bounded keep-warm event")
+	}
+}
+
 func TestKeepwarmPromExportsBoundedManagerState(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	prom := RegisterKeepwarmProm(registry)

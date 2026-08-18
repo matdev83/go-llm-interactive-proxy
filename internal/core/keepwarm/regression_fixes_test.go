@@ -298,6 +298,63 @@ func TestManagerMaxActiveTargetsIsGenerationWide(t *testing.T) {
 	}
 }
 
+func TestManagerCapacityDoesNotEvictInFlightTarget(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := &testClock{now: now}
+	started := make(chan struct{}, 1)
+	unblock := make(chan struct{})
+	firstController := &testController{started: started, unblock: unblock, ignoreCancel: true}
+	secondController := &releaseTrackingController{releaseStarted: make(chan struct{}), unblockFirst: make(chan struct{})}
+	cfg := DefaultConfig()
+	cfg.MaxActiveTargets = 1
+	m, err := NewManager(cfg, clock, Hooks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := regressionObservation(now, "first", 30*time.Second)
+	first.ALegID = "a"
+	first.BLegID = "b-a"
+	if result := m.ArmFromCommittedTurn(ArmInput{ALegID: "a", BLegID: "b-a", CommittedSuccessful: true, ToolEvents: osTool(), Observations: []promptcache.Observation{first}, BackendInstanceID: "backend", Controller: firstController}); !result.Armed {
+		t.Fatalf("first arm=%+v", result)
+	}
+	clock.Advance(20 * time.Second)
+	m.RunDue(context.Background())
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("first renewal did not start")
+	}
+
+	second := regressionObservation(clock.Now(), "second", time.Second)
+	second.ALegID = "c"
+	second.BLegID = "b-c"
+	result := m.ArmFromCommittedTurn(ArmInput{ALegID: "c", BLegID: "b-c", CommittedSuccessful: true, ToolEvents: osTool(), Observations: []promptcache.Observation{second}, BackendInstanceID: "backend", Controller: secondController})
+	if result.Armed {
+		t.Fatalf("in-flight target was evicted for a new target: %+v", result)
+	}
+	if got := m.ActiveTargetCount(); got != 1 {
+		t.Fatalf("active targets=%d, want in-flight target retained", got)
+	}
+	if got := firstController.releases.Load(); got != 0 {
+		t.Fatalf("in-flight target was released during capacity replacement: %d", got)
+	}
+	select {
+	case <-secondController.releaseStarted:
+	case <-time.After(time.Second):
+		t.Fatal("rejected target release did not start")
+	}
+	if got := secondController.releases.Load(); got != 1 {
+		t.Fatalf("rejected target release=%d, want 1", got)
+	}
+
+	close(secondController.unblockFirst)
+	close(unblock)
+	m.renewWG.Wait()
+	if err := m.Quiesce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestManagerProviderBudgetDoesNotRefundCommittedSpend(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
