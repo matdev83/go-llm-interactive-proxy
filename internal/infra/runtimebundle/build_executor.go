@@ -5,13 +5,10 @@ import (
 	crand "crypto/rand"
 	"encoding/binary"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -28,7 +25,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingspool"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -123,68 +119,6 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		prod = in.Bctx.Opts.Production
 		if path := strings.TrimSpace(cfg.Accounting.Billing.ReportsPath); path != "" && strings.TrimSpace(prod.BillingReportsPath) == "" {
 			prod.BillingReportsPath = path
-		}
-		if billingCompositionConfigured(prod) {
-			if prod.BillingTerminalUsageSink == nil && strings.TrimSpace(cfg.Accounting.Billing.SpoolPath) != "" {
-				spoolPath := strings.TrimSpace(cfg.Accounting.Billing.SpoolPath)
-				if err := requireStableSpoolPath(spoolPath); err != nil {
-					return nil, err
-				}
-				central, ok := prod.BillingStore.(billing.TerminalUsageSink)
-				if !ok {
-					return nil, fmt.Errorf("%w: terminal spool central sink", ErrAuthoritativeBillingRequired)
-				}
-				spool, err := billingspool.Open(bctx.Parent, billingspool.Config{Path: spoolPath}, central)
-				if err != nil {
-					return nil, fmt.Errorf("runtimebundle: open billing terminal spool: %w", err)
-				}
-				prod.BillingTerminalUsageSink = spool
-			}
-			if owned, ok := prod.BillingTerminalUsageSink.(interface {
-				Start(context.Context) error
-				Stop(context.Context) error
-			}); ok {
-				in.Ledger.AddAction("billing-terminal-spool", PhasePublish, owned.Start, owned.Stop)
-			}
-			if closer, ok := prod.BillingTerminalUsageSink.(interface{ Close() error }); ok {
-				in.Ledger.AddClose("billing-terminal-spool", PhaseQuiesce, closer.Close)
-			}
-			if err := requireCompleteBillingComposition(prod, in.Ledger); err != nil {
-				return nil, err
-			}
-			prod.BillingReports = prod.BillingStore
-			if prod.BillingExposureAdmission != nil {
-				callUsage, usageOK := prod.BillingStore.(billing.CallUsageStore)
-				callSettlement, settlementOK := prod.BillingStore.(billing.CallSettlementStore)
-				callResolver := prod.BillingCallRatingResolver
-				if !usageOK || !settlementOK || callResolver == nil {
-					return nil, ErrAuthoritativeBillingRequired
-				}
-				callWorker, err := billing.NewCallPostUsageWorker(callUsage, callSettlement, callResolver, prod.BillingPostTurnBatchSize)
-				if err != nil {
-					return nil, fmt.Errorf("runtimebundle: complete-call billing worker: %w", err)
-				}
-				in.Ledger.AddAction("billing-complete-call-worker", PhasePublish, func(context.Context) error { return callWorker.Start(context.Background()) }, callWorker.Stop)
-				in.Ledger.AddClose("billing-complete-call-worker", PhaseQuiesce, func() error { return callWorker.Stop(context.Background()) })
-
-				providerWork, providerWorkOK := prod.BillingStore.(billing.ProviderCostWorkReader)
-				providerStore, providerStoreOK := prod.BillingStore.(billing.ProviderCostStore)
-				if !providerWorkOK {
-					return nil, fmt.Errorf("%w: ProviderCostWorkReader", ErrAuthoritativeBillingRequired)
-				}
-				if !providerStoreOK {
-					return nil, fmt.Errorf("%w: ProviderCostStore", ErrAuthoritativeBillingRequired)
-				}
-				if prod.BillingProviderCostResolver == nil {
-					return nil, fmt.Errorf("%w: BillingProviderCostResolver", ErrAuthoritativeBillingRequired)
-				}
-				providerWorker, err := billing.NewCallProviderCostWorker(providerWork, providerStore, prod.BillingProviderCostResolver, prod.BillingPostTurnBatchSize)
-				if err != nil {
-					return nil, fmt.Errorf("runtimebundle: provider-cost worker: %w", err)
-				}
-				in.Ledger.AddAction("billing-provider-cost-worker", PhasePublish, func(context.Context) error { return providerWorker.Start(context.Background()) }, providerWorker.Stop)
-				in.Ledger.AddClose("billing-provider-cost-worker", PhaseQuiesce, func() error { return providerWorker.Stop(context.Background()) })
-			}
 		}
 		if prod.MeteringRecorder != nil {
 			meteringRT = &meteringRuntime{Recorder: prod.MeteringRecorder, StoreBacking: "injected"}
@@ -365,7 +299,7 @@ func billingCompositionConfigured(prod ProductionOptions) bool {
 // requireCompleteBillingComposition enforces the final all-or-none runtime seam.
 // A stock host has no billing ports; an injected host must provide every port
 // consumed by the executor plus the durable store used by process-owned workers.
-func requireCompleteBillingComposition(prod ProductionOptions, ledger *ResourceLedger) error {
+func requireCompleteBillingComposition(prod ProductionOptions) error {
 	switch {
 	case prod.BillingStore == nil:
 		return fmt.Errorf("%w: BillingStore", ErrAuthoritativeBillingRequired)
@@ -377,26 +311,6 @@ func requireCompleteBillingComposition(prod ProductionOptions, ledger *ResourceL
 		return fmt.Errorf("%w: TerminalUsageSink", ErrAuthoritativeBillingRequired)
 	case prod.BillingIdentity.AccountID == nil:
 		return fmt.Errorf("%w: BillingIdentity.AccountID", ErrAuthoritativeBillingRequired)
-	case ledger == nil:
-		return fmt.Errorf("%w: ResourceLedger", ErrAuthoritativeBillingRequired)
-	}
-	return nil
-}
-
-// requireStableSpoolPath rejects volatile OS temp directories for the durable
-// monetary terminal spool. The check is a best-effort production guardrail:
-// TMPDIR can be overridden and Windows has no POSIX temp semantics, so
-// deployment must still pin a real state directory.
-func requireStableSpoolPath(path string) error {
-	clean := filepath.Clean(path)
-	for _, candidate := range []string{os.TempDir(), "/tmp", "/var/tmp", "/dev/shm"} {
-		if candidate == "" {
-			continue
-		}
-		cand := filepath.Clean(candidate)
-		if clean == cand || strings.HasPrefix(clean, cand+string(filepath.Separator)) {
-			return fmt.Errorf("runtimebundle: billing spool path %q is inside volatile temp directory %q; use a stable state directory", path, candidate)
-		}
 	}
 	return nil
 }

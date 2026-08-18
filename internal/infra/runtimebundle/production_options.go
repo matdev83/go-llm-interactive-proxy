@@ -33,7 +33,6 @@ type ProductionOptions struct {
 	// foreground BillingCallID-scoped usage.
 	KeepwarmAccounting       billing.ProviderMaintenanceUsageObserver
 	BillingPostTurnBatchSize int
-	BillingPostTurnInterval  time.Duration
 
 	// BillingCreditGate is the required pre-route settled-credit screen for
 	// authoritative billing. It is intentionally separate from detailed post-route

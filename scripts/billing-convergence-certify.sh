@@ -2,10 +2,21 @@
 set -euo pipefail
 
 run() {
+  local started=$SECONDS
   printf '\n==> '
   printf '%q ' "$@"
   printf '\n'
-  "$@"
+  if "$@"; then
+    printf '<== PASS (%ss): ' "$((SECONDS - started))"
+    printf '%q ' "$@"
+    printf '\n'
+  else
+    local status=$?
+    printf '<== FAIL (%ss, exit %s): ' "$((SECONDS - started))" "$status" >&2
+    printf '%q ' "$@" >&2
+    printf '\n' >&2
+    return "$status"
+  fi
 }
 
 run go test ./internal/core/billing ./internal/core/runtime ./internal/core/usageauthority/... ./internal/infra/billingstore ./internal/infra/billingspool ./internal/infra/billingcompose ./internal/infra/billingadmission ./internal/infra/runtimebundle ./internal/archtest -run 'Billing|UsageAuthority|Usage|Spool|Compose|Admission|Runtime|Migration|Outbox|Wiring|Construction|Deletion|LOC|Symbol' -count=1
@@ -23,7 +34,9 @@ else
 fi
 
 run make quality-checks
-run make test-unit
+# This is the repository-wide unit gate. Do not also invoke make test-unit:
+# that target runs the same ./... graph and would execute the full suite twice.
+run go test -parallel=8 -timeout=10m ./... -count=1
 run make docs-check
 
 case "$(go env GOOS)" in
@@ -35,7 +48,6 @@ case "$(go env GOOS)" in
     ;;
 esac
 
-run go test ./... -count=1
 run git diff --check
 changed_go_files_list="$( { git diff --name-only --diff-filter=ACM -- '*.go'; git ls-files --others --exclude-standard -- '*.go'; } | sort -u )"
 if [[ -n "$changed_go_files_list" ]] && [[ -n "$(gofmt -l $changed_go_files_list)" ]]; then

@@ -115,6 +115,25 @@ func TestReloadabilityClassify_ReloadableChange_OK(t *testing.T) {
 	}
 }
 
+func TestReloadabilityClassify_BillingSpoolPath_RestartRequired(t *testing.T) {
+	t.Parallel()
+	active := baseConfig()
+	candidate := baseConfig()
+	candidate.Accounting.Billing.SpoolPath = `C:\state\billing-next.db`
+
+	changes, err := configreload.Classify(active, candidate)
+	if err == nil {
+		t.Fatalf("spool path change must require restart, got changes=%v", changes)
+	}
+	var rr *configreload.RestartRequiredError
+	if !errors.As(err, &rr) {
+		t.Fatalf("want RestartRequiredError, got %T %v", err, err)
+	}
+	if !containsPath(rr.RestartRequiredFields, "accounting.billing") {
+		t.Fatalf("want accounting.billing in restart_required_fields, got %v", rr.RestartRequiredFields)
+	}
+}
+
 func TestReloadabilityClassify_HTTPHeaders_Reloadable(t *testing.T) {
 	t.Parallel()
 	active := baseConfig()

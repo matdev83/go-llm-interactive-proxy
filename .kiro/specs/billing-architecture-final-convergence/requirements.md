@@ -181,6 +181,12 @@ The target is not merely fewer lines. The final repository shall have one moneta
 
 7.10. The current direct-appender + `RetryingCallUsageAppender`/`RetryingCallLegUsageAppender` + central `usage_append_outbox` fallback layering shall be deleted after the spool cutover.
 
+7.11. Central delivery, replay, retry, or reconciliation latency shall not block a concurrent local spool append; local append deadlines shall cover only local durable I/O.
+
+7.12. One spool worker shall drain due records in bounded batches and wake promptly after a committed append; healthy central delivery shall not be limited to one record per scheduler interval.
+
+7.13. The database-capacity admission gate shall account for live SQLite page allocation and reusable freelist space, while health telemetry may continue to expose physical database/WAL/SHM bytes and free-disk watermarks.
+
 ## Requirement 8: Simplify Post-Usage Workers and Composition
 
 **Objective:** As a maintainer, I want the live billing pipeline to have one obvious worker per economic responsibility, so that retries and ownership can be traced without a mini-framework.
@@ -202,6 +208,10 @@ The target is not merely fewer lines. The final repository shall have one moneta
 8.7. `BillingRuntime` shall not contain post-usage rating resolvers, settlement stores, provider-cost stores, or worker controls.
 
 8.8. `ComposeBilling`/runtimebundle shall have one authoritative wiring path and shall not support concurrent legacy/current billing modes in production.
+
+8.9. The spool, customer post-usage worker, and provider-cost worker shall be constructed and lifecycle-owned once by `ProcessServices`; generation retirement shall not stop or close them, and reload contexts shall not cancel them.
+
+8.10. A complete-call worker batch shall yield incomplete closures by advancing their next eligibility time without consuming settlement retry attempts, so newer complete calls cannot be indefinitely starved by older incomplete rows.
 
 ## Requirement 9: Preserve Recoverability and Financial Reconstruction
 

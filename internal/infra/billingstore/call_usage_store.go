@@ -19,6 +19,7 @@ const (
 	usageCallClaimProcessed         = "processed"
 	usageCallClaimReconcileRequired = "reconcile_required"
 	completeCallClaimLease          = 2 * time.Minute
+	completeCallIncompleteYield     = time.Second
 	completeCallClaimBaseRetry      = time.Second
 	completeCallClaimMaxRetry       = time.Hour
 	completeCallClaimMaxAttempts    = 20
@@ -237,7 +238,15 @@ func (s *DurableStore) claimCompleteCallsFromIDs(ctx context.Context, ids []stri
 		}
 		complete, err := s.claimCompleteCallWithOpts(ctx, callID, opts)
 		if err != nil {
-			if errors.Is(err, billing.ErrCallIncomplete) || errors.Is(err, billing.ErrCallClaimConflict) {
+			if errors.Is(err, billing.ErrCallIncomplete) {
+				if opts.WorkerBatch {
+					if deferErr := s.deferIncompleteCall(ctx, callID, opts.Now); deferErr != nil {
+						return nil, errors.Join(err, deferErr)
+					}
+				}
+				continue
+			}
+			if errors.Is(err, billing.ErrCallClaimConflict) {
 				continue
 			}
 			return nil, err
@@ -245,6 +254,21 @@ func (s *DurableStore) claimCompleteCallsFromIDs(ctx context.Context, ids []stri
 		out = append(out, complete)
 	}
 	return out, nil
+}
+
+func (s *DurableStore) deferIncompleteCall(ctx context.Context, callID billing.BillingCallID, now time.Time) error {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	next := now.Add(completeCallIncompleteYield)
+	_, err := s.db.NewRaw(
+		`UPDATE usage_call_records SET next_claim_at = ? WHERE call_id = ? AND claim_status = ? AND next_claim_at <= ?`,
+		next, callID.String(), usageCallClaimPending, now,
+	).Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("billingstore: defer incomplete call: %w", err)
+	}
+	return nil
 }
 
 func (s *DurableStore) GetCallExposure(ctx context.Context, callID billing.BillingCallID) (billing.CallExposure, error) {

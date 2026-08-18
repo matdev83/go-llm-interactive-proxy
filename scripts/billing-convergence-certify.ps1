@@ -3,7 +3,9 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
 function Run-Step([string]$Label, [string[]]$Arguments, [hashtable]$Environment = @{}) {
     Write-Host "`n==> $Label"
+    $stopwatch = [Diagnostics.Stopwatch]::StartNew()
     $saved = @{}
+    $succeeded = $false
     foreach ($key in $Environment.Keys) {
         $saved[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')
         [Environment]::SetEnvironmentVariable($key, [string]$Environment[$key], 'Process')
@@ -11,11 +13,15 @@ function Run-Step([string]$Label, [string[]]$Arguments, [hashtable]$Environment 
     try {
         & $Arguments[0] $Arguments[1..($Arguments.Count - 1)]
         if ($LASTEXITCODE -ne 0) { throw "$Label failed with exit code $LASTEXITCODE" }
+        $succeeded = $true
     }
     finally {
         foreach ($key in $Environment.Keys) {
             [Environment]::SetEnvironmentVariable($key, $saved[$key], 'Process')
         }
+        $stopwatch.Stop()
+        $status = if ($succeeded) { 'PASS' } else { 'FAIL' }
+        Write-Host ("<== {0}: {1} ({2})" -f $Label, $status, $stopwatch.Elapsed)
     }
 }
 
@@ -33,7 +39,9 @@ else {
 }
 
 Run-Step 'quality checks' @('make', 'quality-checks')
-Run-Step 'unit tests' @('make', 'test-unit')
+# This is the repository-wide unit gate. Do not also invoke make test-unit:
+# that target runs the same ./... graph and would execute the full suite twice.
+Run-Step 'unit/full test suite' @('go', 'test', '-parallel=8', '-timeout=10m', './...', '-count=1')
 Run-Step 'documentation checks' @('make', 'docs-check')
 if ((go env GOOS) -eq 'windows') {
     Write-Host 'SKIP: race certification is unavailable on Windows in this repository'
@@ -41,7 +49,6 @@ if ((go env GOOS) -eq 'windows') {
 else {
     Run-Step 'race tests' @('make', 'test-race')
 }
-Run-Step 'full test suite' @('go', 'test', './...', '-count=1')
 Run-Step 'diff whitespace' @('git', 'diff', '--check')
 $goFiles = @((git diff --name-only --diff-filter=ACM -- '*.go') + (git ls-files --others --exclude-standard -- '*.go') | Where-Object { $_ } | Sort-Object -Unique)
 $gofmt = @($goFiles | ForEach-Object { gofmt -l $_ } | Where-Object { $_ })
