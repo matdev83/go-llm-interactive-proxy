@@ -66,7 +66,7 @@ const billingCreateAccountJSON = `{"account_id":"acct","currency":"USD","mode":"
 func billingAccountReportStub() billingReportQueriesStub {
 	return billingReportQueriesStub{
 		account: billing.AccountReport{
-			Account:         billing.Account{ID: "acct", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 92, ReservedNano: 0, State: billing.AccountReady},
+			Account:         billing.Account{ID: "acct", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 92, State: billing.AccountReady},
 			SpendableNano:   92,
 			CreditFloorNano: 0,
 		},

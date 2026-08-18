@@ -107,7 +107,7 @@ func TestSQLiteDeferProviderCostWorkAtomicUnderConcurrency(t *testing.T) {
 }
 
 func TestSQLiteDeferUsageAppendAtomicUnderConcurrency(t *testing.T) {
-	store := newSQLiteTestStore(t)
+	store := newLegacyOutboxTestStore(t)
 	ctx := context.Background()
 	call := testOutboxCall(t)
 	if err := store.EnqueueCallUsageAppend(ctx, call, "io"); err != nil {

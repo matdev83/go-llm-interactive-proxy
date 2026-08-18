@@ -56,8 +56,8 @@ func (f ReportFilter) normalized() (ReportFilter, error) {
 	f.AccountID = strings.TrimSpace(f.AccountID)
 	f.Currency = strings.TrimSpace(f.Currency)
 	f.AfterKey = strings.TrimSpace(f.AfterKey)
-	if f.Book != "" && f.Book != JournalBookFinancial && f.Book != JournalBookLegacyAuthorization {
-		return ReportFilter{}, fmt.Errorf("%w: unsupported journal book %q", ErrReportInvalid, f.Book)
+	if f.Book != "" && f.Book != JournalBookFinancial {
+		return ReportFilter{}, fmt.Errorf("%w: unsupported current journal book %q", ErrReportInvalid, f.Book)
 	}
 	if !f.From.IsZero() && !f.To.IsZero() && f.To.Before(f.From) {
 		return ReportFilter{}, fmt.Errorf("%w: report end precedes start", ErrReportInvalid)
@@ -199,6 +199,10 @@ func addReportAmount(total int64, amount Money, currency string) (int64, error) 
 
 func summarizeJournal(transactions []JournalTransaction, currency string) (revenue, cost int64, issues []ReconciliationIssue) {
 	for _, tx := range transactions {
+		if tx.Book != "" && tx.Book != JournalBookFinancial {
+			issues = append(issues, ReconciliationIssue{Code: "current_book_unsupported", Sequence: tx.AccountSequence, Detail: tx.ID})
+			continue
+		}
 		if tx.Currency != currency {
 			issues = append(issues, ReconciliationIssue{Code: "currency_mismatch", Sequence: tx.AccountSequence, Detail: tx.ID})
 			continue

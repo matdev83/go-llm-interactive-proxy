@@ -2,56 +2,44 @@ package billingstore
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 )
 
-func TestReservedNanoZeroMigrationBlocksAndClearsReadyResidue(t *testing.T) {
+func TestReservedNanoRemovalPreservesCurrentAccountFacts(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
-	accountID := "reserved-residue"
-	if err := store.CreateAccount(ctx, billing.Account{
-		ID: accountID, Currency: "USD", Mode: billing.AccountPrepaid,
-		BalanceNano: 100, State: billing.AccountReady, Version: 1,
-	}); err != nil {
+	accountID := "reserved-retired"
+	account := billing.Account{ID: accountID, Currency: "USD", Mode: billing.AccountPostpaid, CreditLimit: 100, BalanceNano: 25, State: billing.AccountReady, Version: 7}
+	if err := store.CreateAccount(ctx, account); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.NewRaw(`UPDATE billing_accounts SET reserved_nano = 40 WHERE account_id = ?`, accountID).Exec(ctx); err != nil {
+	var columns int
+	if err := store.db.NewRaw(`SELECT COUNT(1) FROM pragma_table_info('billing_accounts') WHERE name = 'reserved_nano'`).Scan(ctx, &columns); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.GetAccount(ctx, accountID); err == nil {
-		t.Fatal("GetAccount must fail closed on ready+nonzero reserved_nano before repair")
-	}
-	repaired, err := getAccountForReconcileTx(ctx, store.db, accountID)
-	if err != nil {
-		t.Fatalf("reconcile loader: %v", err)
-	}
-	if repaired.State != billing.AccountReconcileRequired || repaired.ReservedNano != 40 {
-		t.Fatalf("reconcile loader account = %+v", repaired)
-	}
-	if err := reservedNanoZeroUp(ctx, store.db); err != nil {
-		t.Fatal(err)
+	if columns != 0 {
+		t.Fatal("reserved_nano must not remain in the current account schema")
 	}
 	got, err := store.GetAccount(ctx, accountID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ReservedNano != 0 || got.State != billing.AccountReconcileRequired {
-		t.Fatalf("after migration account = %+v, want reserved=0 reconcile_required", got)
+	if got != account {
+		t.Fatalf("account changed across migration: got=%+v want=%+v", got, account)
 	}
 }
 
-func TestSQLiteNewStoresRecordReservedNanoZeroMigration(t *testing.T) {
+func TestSQLiteNewStoresRecordReservedNanoRemovalMigration(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	var count int
-	if err := store.db.NewRaw(`SELECT COUNT(1) FROM bun_billing_migrations WHERE name = ?`, ReservedNanoZeroMigrationName).Scan(ctx, &count); err != nil {
+	if err := store.db.NewRaw(`SELECT COUNT(1) FROM bun_billing_migrations WHERE name = ?`, ReservedColumnRemovalMigrationName).Scan(ctx, &count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 1 {
-		t.Fatalf("migration %s recorded %d times, want 1", ReservedNanoZeroMigrationName, count)
+		t.Fatalf("migration %s recorded %d times, want 1", ReservedColumnRemovalMigrationName, count)
 	}
 	if err := VerifySchema(ctx, store.db); err != nil {
 		t.Fatalf("VerifySchema: %v", err)
@@ -68,11 +56,11 @@ func TestGetAccountForReconcileTxRejectsCorruptCurrency(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.NewRaw(`UPDATE billing_accounts SET currency = '', reserved_nano = 1, state = 'reconcile_required' WHERE account_id = ?`, accountID).Exec(ctx); err != nil {
+	if _, err := store.db.NewRaw(`UPDATE billing_accounts SET currency = '', state = 'reconcile_required' WHERE account_id = ?`, accountID).Exec(ctx); err != nil {
 		t.Fatal(err)
 	}
 	_, err := getAccountForReconcileTx(ctx, store.db, accountID)
-	if err == nil || errors.Is(err, ErrAccountNotFound) {
+	if err == nil || err == ErrAccountNotFound {
 		t.Fatalf("corrupt currency must still fail closed: %v", err)
 	}
 }

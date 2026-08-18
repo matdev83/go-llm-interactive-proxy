@@ -1,6 +1,9 @@
 package billingstore
 
-import "time"
+import (
+	"database/sql"
+	"time"
+)
 
 type accountRow struct {
 	ID             string    `bun:"account_id,pk"`
@@ -9,7 +12,6 @@ type accountRow struct {
 	CreditLimit    int64     `bun:"credit_limit_nano,notnull"`
 	Balance        int64     `bun:"balance_nano,notnull"`
 	OpeningBalance int64     `bun:"opening_balance_nano,notnull"`
-	Reserved       int64     `bun:"reserved_nano,notnull"`
 	Version        uint64    `bun:"version,notnull"`
 	State          string    `bun:"state,notnull"`
 	CreatedAt      time.Time `bun:"created_at,notnull"`
@@ -29,32 +31,30 @@ type policyEventRow struct {
 	CreatedAt   time.Time `bun:"created_at,notnull"`
 }
 type journalTransactionRow struct {
-	ID                    string    `bun:"transaction_id,pk"`
-	AccountID             string    `bun:"account_id,notnull"`
-	Book                  string    `bun:"book,notnull"`
-	Currency              string    `bun:"currency,notnull"`
-	SourceKey             string    `bun:"source_key,notnull"`
-	SemanticFingerprint   string    `bun:"semantic_fingerprint,notnull"`
-	TurnID                string    `bun:"turn_id,notnull"`
-	ALegID                string    `bun:"a_leg_id,notnull"`
-	BLegID                string    `bun:"b_leg_id,notnull"`
-	AccountSequence       uint64    `bun:"account_sequence,notnull"`
-	ReversalOf            string    `bun:"reversal_of,notnull"`
-	CorrectsTransactionID string    `bun:"corrects_transaction_id,notnull"`
-	CorrectionGroupID     string    `bun:"correction_group_id,notnull"`
-	OperationKind         string    `bun:"operation_kind,notnull"`
-	BalanceBefore         int64     `bun:"balance_before_nano,notnull"`
-	BalanceAfter          int64     `bun:"balance_after_nano,notnull"`
-	ReservedBefore        int64     `bun:"reserved_before_nano,notnull"`
-	ReservedAfter         int64     `bun:"reserved_after_nano,notnull"`
-	SpendableBefore       int64     `bun:"spendable_before_nano,notnull"`
-	SpendableAfter        int64     `bun:"spendable_after_nano,notnull"`
-	CreditFloor           int64     `bun:"credit_floor_nano,notnull"`
-	CreditLimit           int64     `bun:"credit_limit_nano,notnull"`
-	Mode                  string    `bun:"mode,notnull"`
-	SnapshotVersionBefore uint64    `bun:"snapshot_version_before,notnull"`
-	SnapshotVersionAfter  uint64    `bun:"snapshot_version_after,notnull"`
-	RecordedAt            time.Time `bun:"recorded_at,notnull"`
+	ID                    string        `bun:"transaction_id,pk"`
+	AccountID             string        `bun:"account_id,notnull"`
+	Book                  string        `bun:"book,notnull"`
+	Currency              string        `bun:"currency,notnull"`
+	SourceKey             string        `bun:"source_key,notnull"`
+	SemanticFingerprint   string        `bun:"semantic_fingerprint,notnull"`
+	TurnID                string        `bun:"turn_id,notnull"`
+	ALegID                string        `bun:"a_leg_id,notnull"`
+	BLegID                string        `bun:"b_leg_id,notnull"`
+	AccountSequence       sql.NullInt64 `bun:"account_sequence"`
+	ReversalOf            string        `bun:"reversal_of,notnull"`
+	CorrectsTransactionID string        `bun:"corrects_transaction_id,notnull"`
+	CorrectionGroupID     string        `bun:"correction_group_id,notnull"`
+	OperationKind         string        `bun:"operation_kind,notnull"`
+	BalanceBefore         int64         `bun:"balance_before_nano,notnull"`
+	BalanceAfter          int64         `bun:"balance_after_nano,notnull"`
+	SpendableBefore       int64         `bun:"spendable_before_nano,notnull"`
+	SpendableAfter        int64         `bun:"spendable_after_nano,notnull"`
+	CreditFloor           int64         `bun:"credit_floor_nano,notnull"`
+	CreditLimit           int64         `bun:"credit_limit_nano,notnull"`
+	Mode                  string        `bun:"mode,notnull"`
+	SnapshotVersionBefore uint64        `bun:"snapshot_version_before,notnull"`
+	SnapshotVersionAfter  uint64        `bun:"snapshot_version_after,notnull"`
+	RecordedAt            time.Time     `bun:"recorded_at,notnull"`
 }
 type operationSnapshotRow struct {
 	OperationKey         string    `bun:"operation_key,pk"`
@@ -67,8 +67,6 @@ type operationSnapshotRow struct {
 	Mode                 string    `bun:"mode,notnull"`
 	BalanceBefore        int64     `bun:"balance_before_nano,notnull"`
 	BalanceAfter         int64     `bun:"balance_after_nano,notnull"`
-	ReservedBefore       int64     `bun:"reserved_before_nano,notnull"`
-	ReservedAfter        int64     `bun:"reserved_after_nano,notnull"`
 	SpendableBefore      int64     `bun:"spendable_before_nano,notnull"`
 	SpendableAfter       int64     `bun:"spendable_after_nano,notnull"`
 	CreditFloor          int64     `bun:"credit_floor_nano,notnull"`

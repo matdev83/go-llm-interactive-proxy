@@ -127,7 +127,7 @@ func (s *DurableStore) applyCallBillingAttempt(ctx context.Context, call billing
 		journal := billing.JournalTransaction{
 			ID: sourceKey, Book: billing.JournalBookFinancial, Currency: account.Currency, SourceKey: sourceKey,
 			AccountID: call.AccountID, TurnID: call.CallID.String(), ALegID: call.ALegID, OperationKind: operationKind,
-			BalanceBefore: before.BalanceNano, BalanceAfter: afterSnapshot.BalanceNano, ReservedBefore: before.ReservedNano, ReservedAfter: afterSnapshot.ReservedNano,
+			BalanceBefore: before.BalanceNano, BalanceAfter: afterSnapshot.BalanceNano,
 			SpendableBefore: before.SpendableNano, SpendableAfter: afterSnapshot.SpendableNano, CreditFloor: afterSnapshot.CreditFloorNano, CreditLimit: afterSnapshot.CreditLimitNano,
 			Mode: string(afterSnapshot.Mode), SnapshotVersionBefore: before.Version, SnapshotVersionAfter: afterSnapshot.Version,
 			Entries: []billing.JournalEntry{{LedgerAccount: "customer_financial_account", Side: billing.JournalDebit, Amount: result.CustomerCharge}, {LedgerAccount: "usage_revenue", Side: billing.JournalCredit, Amount: result.CustomerCharge}},

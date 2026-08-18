@@ -130,28 +130,28 @@
 
 ## Phase 4 — Remove Reserved/Authorization Current-Domain Residue
 
-- [ ] 4.1 Add RED source/domain tests forbidding current `ReservedNano`.
+- [x] 4.1 Add RED source/domain tests forbidding current `ReservedNano`.
   - Characterize legacy migration readers separately from current domain.
   - _Boundary: core billing / architecture tests_
   - _Depends: 0.3_
   - _Validation: go test ./internal/core/billing ./internal/archtest_
   - _Requirements: 4.1-4.8_
 
-- [ ] 4.2 Remove reserved fields from Account/current snapshots/commands/reports.
+- [x] 4.2 Remove reserved fields from Account/current snapshots/commands/reports.
   - Keep settled headroom and operational exposure separate.
   - _Boundary: core billing + current store contracts_
   - _Depends: 4.1_
   - _Validation: go test ./internal/core/billing ./internal/infra/billingstore_
   - _Requirements: 4.1-4.4, 9.1-9.5_
 
-- [ ] 4.3 Isolate historical authorization-book decode and remove it from current writers.
+- [x] 4.3 Isolate historical authorization-book decode and remove it from current writers.
   - Current journal validation/writer accepts only current books.
   - _Boundary: journal domain + migration/report compatibility_
   - _Depends: 4.2_
   - _Validation: go test ./internal/core/billing ./internal/infra/billingstore -run 'Journal|Authorization|Historical'_
   - _Requirements: 4.5-4.8, 9.6-9.7_
 
-- [ ] 4.4 Forward-migrate/remove always-zero reserved column where safe.
+- [x] 4.4 Forward-migrate/remove always-zero reserved column where safe.
   - Quiesce current account writers for the destructive column/table-rebuild step and apply the same dialect-critical-section rule: PostgreSQL transactional DDL/locking; SQLite one-connection writer exclusion/table rebuild. Balances, versions and policies must be byte/value equivalent after migration and reconciliation.
   - _Boundary: Bun migrations_
   - _Depends: 4.2_

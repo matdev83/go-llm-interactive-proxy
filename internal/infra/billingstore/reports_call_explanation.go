@@ -144,7 +144,8 @@ func exposureReportFromExposure(exposure billing.CallExposure) billing.ExposureR
 
 func (s *DurableStore) loadCallJournals(ctx context.Context, accountID, callID string) ([]billing.JournalTransaction, error) {
 	var rows []journalTransactionRow
-	if err := s.db.NewRaw(`SELECT transaction_id, account_id, book, currency, source_key, semantic_fingerprint, turn_id, a_leg_id, b_leg_id, account_sequence, reversal_of, corrects_transaction_id, correction_group_id, operation_kind, balance_before_nano, balance_after_nano, reserved_before_nano, reserved_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, mode, snapshot_version_before, snapshot_version_after, recorded_at FROM journal_transactions WHERE account_id = ? AND turn_id = ? ORDER BY account_sequence`, accountID, callID).Scan(ctx, &rows); err != nil {
+	query := `SELECT transaction_id, account_id, book, currency, source_key, semantic_fingerprint, turn_id, a_leg_id, b_leg_id, account_sequence, reversal_of, corrects_transaction_id, correction_group_id, operation_kind, balance_before_nano, balance_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, mode, snapshot_version_before, snapshot_version_after, recorded_at FROM journal_transactions WHERE account_id = ? AND turn_id = ? AND book = 'financial'` + journalOrderClause("")
+	if err := s.db.NewRaw(query, accountID, callID).Scan(ctx, &rows); err != nil {
 		return nil, err
 	}
 	return loadJournals(ctx, s.db, rows)
@@ -162,7 +163,7 @@ func (s *DurableStore) loadCallOperationSnapshots(ctx context.Context, accountID
 		args = append(args, key)
 	}
 	var rows []operationSnapshotRow
-	query := `SELECT operation_key, account_id, operation_kind, source_key, fingerprint, integrity_fingerprint, currency, mode, balance_before_nano, balance_after_nano, reserved_before_nano, reserved_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, version_before, version_after, account_sequence_start, account_sequence_end, created_at FROM billing_operation_snapshots WHERE account_id = ? AND source_key IN (` + placeholders + `) ORDER BY account_sequence_end, operation_key`
+	query := `SELECT operation_key, account_id, operation_kind, source_key, fingerprint, integrity_fingerprint, currency, mode, balance_before_nano, balance_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, version_before, version_after, account_sequence_start, account_sequence_end, created_at FROM billing_operation_snapshots WHERE account_id = ? AND source_key IN (` + placeholders + `)` + operationSnapshotOrderClause
 	if err := s.db.NewRaw(query, args...).Scan(ctx, &rows); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, err
 	}
@@ -173,12 +174,12 @@ func (s *DurableStore) loadCallOperationSnapshots(ctx context.Context, accountID
 			OperationKey: row.OperationKey, OperationKind: row.OperationKind, SourceKey: row.SourceKey,
 			Fingerprint: row.Fingerprint, Currency: row.Currency, Mode: billing.AccountMode(row.Mode),
 			Before: billing.AccountSnapshot{
-				BalanceNano: row.BalanceBefore, ReservedNano: row.ReservedBefore, SpendableNano: row.SpendableBefore,
+				BalanceNano: row.BalanceBefore, SpendableNano: row.SpendableBefore,
 				CreditFloorNano: row.CreditFloor, CreditLimitNano: row.CreditLimit, Mode: billing.AccountMode(row.Mode),
 				Currency: row.Currency, Version: row.VersionBefore,
 			},
 			After: billing.AccountSnapshot{
-				BalanceNano: row.BalanceAfter, ReservedNano: row.ReservedAfter, SpendableNano: row.SpendableAfter,
+				BalanceNano: row.BalanceAfter, SpendableNano: row.SpendableAfter,
 				CreditFloorNano: row.CreditFloor, CreditLimitNano: row.CreditLimit, Mode: billing.AccountMode(row.Mode),
 				Currency: row.Currency, Version: row.VersionAfter,
 			},

@@ -26,9 +26,6 @@ func getAccountForReconcileTx(ctx context.Context, q bun.IDB, accountID string) 
 	if err != nil {
 		return billing.Account{}, err
 	}
-	if account.State == billing.AccountReady && account.ReservedNano != 0 {
-		account.State = billing.AccountReconcileRequired
-	}
 	if err := account.Validate(); err != nil {
 		return billing.Account{}, err
 	}
@@ -37,12 +34,12 @@ func getAccountForReconcileTx(ctx context.Context, q bun.IDB, accountID string) 
 
 func loadAccountRow(ctx context.Context, q bun.IDB, accountID string) (billing.Account, error) {
 	var row accountRow
-	err := q.NewRaw(`SELECT account_id, currency, mode, credit_limit_nano, balance_nano, opening_balance_nano, reserved_nano, version, state FROM billing_accounts WHERE account_id = ?`, accountID).Scan(ctx, &row)
+	err := q.NewRaw(`SELECT account_id, currency, mode, credit_limit_nano, balance_nano, opening_balance_nano, version, state FROM billing_accounts WHERE account_id = ?`, accountID).Scan(ctx, &row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return billing.Account{}, ErrAccountNotFound
 	}
 	if err != nil {
 		return billing.Account{}, fmt.Errorf("billingstore: read account: %w", err)
 	}
-	return billing.Account{ID: row.ID, Currency: row.Currency, Mode: billing.AccountMode(row.Mode), CreditLimit: row.CreditLimit, BalanceNano: row.Balance, ReservedNano: row.Reserved, Version: row.Version, State: billing.AccountState(row.State)}, nil
+	return billing.Account{ID: row.ID, Currency: row.Currency, Mode: billing.AccountMode(row.Mode), CreditLimit: row.CreditLimit, BalanceNano: row.Balance, Version: row.Version, State: billing.AccountState(row.State)}, nil
 }

@@ -239,7 +239,7 @@ func runBillingStoreExposureAdmissionContract(t *testing.T, store *DurableStore,
 	if err != nil {
 		t.Fatal(err)
 	}
-	if unchanged.BalanceNano != 100 || unchanged.ReservedNano != 0 || unchanged.Version != 1 {
+	if unchanged.BalanceNano != 100 {
 		t.Fatalf("admit mutated money: %+v", unchanged)
 	}
 	if _, err := store.AdmitExposure(ctx, input); err != nil {

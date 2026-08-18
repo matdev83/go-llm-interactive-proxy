@@ -28,22 +28,6 @@ func (s *DurableStore) AppendLeg(ctx context.Context, record billing.CallLegUsag
 // prove that every legacy append has been delivered and reconciled.
 var ErrUsageAppendCutoverBlocked = errors.New("billingstore: usage append outbox cutover blocked")
 
-// usageAppendOutboxTableExists remains local to the transitional cutover until
-// the forward retirement migration takes ownership in the next delivery phase.
-func usageAppendOutboxTableExists(ctx context.Context, db *bun.DB) (bool, error) {
-	var count int
-	var err error
-	switch db.Dialect().Name() {
-	case dialect.SQLite:
-		err = db.NewRaw(`SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'usage_append_outbox'`).Scan(ctx, &count)
-	case dialect.PG:
-		err = db.NewRaw(`SELECT COUNT(1) FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'usage_append_outbox'`).Scan(ctx, &count)
-	default:
-		return false, fmt.Errorf("unsupported bun dialect %s", db.Dialect().Name().String())
-	}
-	return count == 1, err
-}
-
 // CutoverUsageAppendOutbox drains legacy pending work and then retires the
 // schema in one dialect-specific migration critical section. The historical
 // migration which introduced the table remains immutable; this operation is

@@ -57,9 +57,9 @@ func (s *DurableStore) applyProviderCostAttempt(ctx context.Context, accountID s
 		return billing.Posting{}, fmt.Errorf("billingstore: begin provider cost: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := lockAccount(ctx, tx, s.db.Dialect().Name(), accountID); err != nil {
-		return billing.Posting{}, err
-	}
+	// Provider COGS is not a customer balance mutation. In particular, do not
+	// lock billing_accounts here: customer exposure admission must remain
+	// independent while provider work is slow or backlogged.
 	operationKey, err := billing.ProviderCostSourceKey(leg.Key)
 	if err != nil {
 		return billing.Posting{}, err
@@ -100,7 +100,6 @@ func (s *DurableStore) applyProviderCostAttempt(ctx context.Context, accountID s
 			SourceKey: operationKey, AccountID: accountID, TurnID: callID.String(),
 			ALegID: leg.ALegID, BLegID: leg.BLegID, OperationKind: "provider_call_cogs",
 			BalanceBefore: before.BalanceNano, BalanceAfter: before.BalanceNano,
-			ReservedBefore: before.ReservedNano, ReservedAfter: before.ReservedNano,
 			SpendableBefore: before.SpendableNano, SpendableAfter: before.SpendableNano,
 			CreditFloor: before.CreditFloorNano, CreditLimit: before.CreditLimitNano,
 			Mode: string(before.Mode), SnapshotVersionBefore: before.Version, SnapshotVersionAfter: before.Version,

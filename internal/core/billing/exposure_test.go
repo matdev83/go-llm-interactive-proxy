@@ -87,7 +87,6 @@ func TestSettledHeadroomIgnoresReservedNanoAndDoesNotConsultExposure(t *testing.
 	t.Parallel()
 	acct := exposurePrepaid(100)
 	acct.State = AccountReconcileRequired
-	acct.ReservedNano = 999
 	got, err := SettledHeadroom(acct)
 	if err != nil {
 		t.Fatal(err)
@@ -101,11 +100,6 @@ func TestSettledHeadroomIgnoresReservedNanoAndDoesNotConsultExposure(t *testing.
 	}
 	if spendable != got.Nano {
 		t.Fatalf("SpendableNano must also ignore reserved_nano: spendable=%d headroom=%d", spendable, got.Nano)
-	}
-	ready := exposurePrepaid(100)
-	ready.ReservedNano = 1
-	if _, err := SettledHeadroom(ready); !errors.Is(err, ErrAccountInvalid) {
-		t.Fatalf("ready+reserved SettledHeadroom = %v, want ErrAccountInvalid", err)
 	}
 }
 
@@ -137,7 +131,6 @@ func TestSafetyMarginIsHeadroomMinusOpenExposure(t *testing.T) {
 	t.Parallel()
 	acct := exposurePrepaid(100)
 	acct.State = AccountReconcileRequired
-	acct.ReservedNano = 70
 	open := []CallExposure{
 		{AccountID: "acct", CallID: "call-a", Max: exposureUSD(40), Status: ExposureOpen},
 		{AccountID: "acct", CallID: "call-b", Max: exposureUSD(25), Status: ExposureOpen},
@@ -167,17 +160,6 @@ func TestEvaluateAdmitRequiresSettledHeadroomCoversOpenPlusNewMax(t *testing.T) 
 		{name: "postpaid uses Balance minus CreditFloor", acct: exposurePostpaid(-20, 100), newMax: 80},
 		{name: "postpaid rejects beyond credit headroom", acct: exposurePostpaid(-20, 100), newMax: 81, wantErr: ErrExposureInsufficient},
 		{name: "two overlapping calls without concurrency=1", acct: exposurePrepaid(100), openNanos: []int64{40}, newMax: 40},
-		{name: "ready reserved_nano fails closed before admit", acct: func() Account {
-			a := exposurePrepaid(100)
-			a.ReservedNano = 999
-			return a
-		}(), newMax: 100, wantErr: ErrAccountInvalid},
-		{name: "reconcile_required reserved_nano blocked as not ready", acct: func() Account {
-			a := exposurePrepaid(100)
-			a.State = AccountReconcileRequired
-			a.ReservedNano = 999
-			return a
-		}(), newMax: 100, wantErr: ErrAccountNotReady},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -295,9 +277,6 @@ func TestEvaluateSettleSafetyMarginDoesNotDecreaseWhenActualAtMostMax(t *testing
 			}
 			if result.Account.BalanceNano != tt.acct.BalanceNano-tt.actual {
 				t.Fatalf("balance after settle = %d, want %d", result.Account.BalanceNano, tt.acct.BalanceNano-tt.actual)
-			}
-			if result.Account.ReservedNano != tt.acct.ReservedNano {
-				t.Fatalf("settle math must not mutate reserved_nano: %+v", result.Account)
 			}
 			if tt.acct.BalanceNano != result.Account.BalanceNano+tt.actual {
 				t.Fatalf("EvaluateSettle must not mutate the input account: %+v", tt.acct)
@@ -513,7 +492,7 @@ func TestEvaluateAdmitDoesNotProduceJournalOrRequireAuthorizationBook(t *testing
 	}
 	// Domain admit returns a CallExposure value object only. There is no journal
 	// transaction, reserved_nano mutation, or authorization-book posting to inspect.
-	if acct.BalanceNano != 80 || acct.ReservedNano != 0 {
+	if acct.BalanceNano != 80 {
 		t.Fatalf("admit mutated financial account: %+v", acct)
 	}
 }
