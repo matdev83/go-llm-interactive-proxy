@@ -49,6 +49,9 @@ $allowed = @(
     "internal/core/billing/post_turn_worker.go"
     "internal/core/billing/call_post_usage_worker.go"
     "internal/core/billing/call_provider_cost_worker.go"
+    # internal/infra/billingspool/spool.go: one process-owned bounded flusher
+    # for the durable local terminal handoff.
+    "internal/infra/billingspool/spool.go"
     "internal/core/billing/append_outbox.go"
     "cmd/lipstd/reload_signal_adapter_unix.go"
     # Backend plugin host: bidi Execute pumps, gRPC session bridge, process waiters.
