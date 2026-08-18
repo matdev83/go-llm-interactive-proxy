@@ -212,7 +212,7 @@ func TestSanitize_LookalikeTagFlushedAsContent(t *testing.T) {
 	}
 }
 
-func TestSanitize_PreservesMemoExtraction(t *testing.T) {
+func TestSanitize_PreservesWholeOutputMemoCapture(t *testing.T) {
 	t.Parallel()
 	r := newRecorder(4096)
 	out := collectSanitized(t, r, []lipapi.Event{
@@ -220,11 +220,11 @@ func TestSanitize_PreservesMemoExtraction(t *testing.T) {
 	})
 	onlyReasoningDeltas(t, out)
 	state := r.Finish(false)
-	if state.Memo != "the plan" {
-		t.Fatalf("expected block memo %q, got %q", "the plan", state.Memo)
+	if state.Memo != "intro the plan outro" {
+		t.Fatalf("expected full output memo %q, got %q", "intro the plan outro", state.Memo)
 	}
-	if state.ExtractionSource != "block" {
-		t.Fatalf("expected extraction source block, got %q", state.ExtractionSource)
+	if state.ExtractionSource != ExtractionSourceFull {
+		t.Fatalf("expected extraction source full, got %q", state.ExtractionSource)
 	}
 	if got := concatDeltas(out); got != "intro the plan outro" {
 		t.Fatalf("expected sanitized visible output, got %q", got)

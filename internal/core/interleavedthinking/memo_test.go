@@ -1,6 +1,7 @@
 package interleavedthinking
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -37,25 +38,62 @@ func observeAll(t *testing.T, r *Recorder, events []lipapi.Event) {
 	}
 }
 
-func TestRecorder_BlockFromTextDeltas_OneDelta(t *testing.T) {
+func TestRecorder_WholeOutputCapturedAsMemo(t *testing.T) {
+	t.Parallel()
+	r := newRecorder(4096)
+	observeAll(t, r, []lipapi.Event{
+		textDelta("## Session Steering Memo\n- **Goal**: ship it\n"),
+		textDelta("- **Current state**: almost done\n"),
+	})
+	state := r.Finish(false)
+	want := "## Session Steering Memo\n- **Goal**: ship it\n- **Current state**: almost done"
+	if state.Memo != want {
+		t.Fatalf("expected full output memo %q, got %q", want, state.Memo)
+	}
+	if state.ExtractionSource != ExtractionSourceFull {
+		t.Fatalf("expected extraction source %q, got %q", ExtractionSourceFull, state.ExtractionSource)
+	}
+	if state.StreamInterrupted {
+		t.Fatal("expected StreamInterrupted=false")
+	}
+	if !r.HadContent() {
+		t.Fatal("HadContent must report observed content")
+	}
+}
+
+func TestRecorder_WholeOutputAcrossTextAndReasoningDeltas(t *testing.T) {
+	t.Parallel()
+	r := newRecorder(4096)
+	observeAll(t, r, []lipapi.Event{
+		textDelta("thinking first, "),
+		reasoningDelta("then the plan"),
+	})
+	state := r.Finish(false)
+	if state.Memo != "thinking first, then the plan" {
+		t.Fatalf("expected combined memo %q, got %q", "thinking first, then the plan", state.Memo)
+	}
+	if state.ExtractionSource != ExtractionSourceFull {
+		t.Fatalf("expected extraction source full, got %q", state.ExtractionSource)
+	}
+}
+
+func TestRecorder_ResidualWrapperTagsStrippedDefensively(t *testing.T) {
 	t.Parallel()
 	r := newRecorder(4096)
 	observeAll(t, r, []lipapi.Event{
 		textDelta("intro " + memoOpenTag + "the plan" + memoCloseTag + " outro"),
 	})
 	state := r.Finish(false)
-	if state.Memo != "the plan" {
-		t.Fatalf("expected block memo %q, got %q", "the plan", state.Memo)
+	// The whole output is the memo; residual wrapper tags are stripped.
+	if state.Memo != "intro the plan outro" {
+		t.Fatalf("expected tag-stripped full memo %q, got %q", "intro the plan outro", state.Memo)
 	}
-	if state.ExtractionSource != "block" {
-		t.Fatalf("expected extraction source block, got %q", state.ExtractionSource)
-	}
-	if state.StreamInterrupted {
-		t.Fatal("expected StreamInterrupted=false")
+	if state.ExtractionSource != ExtractionSourceFull {
+		t.Fatalf("expected extraction source full, got %q", state.ExtractionSource)
 	}
 }
 
-func TestRecorder_BlockFromTextDeltas_SplitAcrossDeltas(t *testing.T) {
+func TestRecorder_ResidualWrapperTagsSplitAcrossDeltas(t *testing.T) {
 	t.Parallel()
 	r := newRecorder(4096)
 	observeAll(t, r, []lipapi.Event{
@@ -64,157 +102,46 @@ func TestRecorder_BlockFromTextDeltas_SplitAcrossDeltas(t *testing.T) {
 		textDelta(memoCloseTag + " outro"),
 	})
 	state := r.Finish(false)
-	if state.Memo != "the plan" {
-		t.Fatalf("expected block memo %q, got %q", "the plan", state.Memo)
+	if state.Memo != "intro the plan outro" {
+		t.Fatalf("expected tag-stripped memo %q, got %q", "intro the plan outro", state.Memo)
 	}
-	if state.ExtractionSource != "block" {
-		t.Fatalf("expected extraction source block, got %q", state.ExtractionSource)
+	if state.ExtractionSource != ExtractionSourceFull {
+		t.Fatalf("expected extraction source full, got %q", state.ExtractionSource)
 	}
 }
 
-func TestRecorder_BlockFromTextDeltas_SplitOpenTag(t *testing.T) {
+func TestRecorder_MarkdownMemoWithoutTagsIsUnchanged(t *testing.T) {
 	t.Parallel()
 	r := newRecorder(4096)
 	observeAll(t, r, []lipapi.Event{
-		textDelta("intro <proxy_thinker_me"),
-		textDelta("mo>the plan" + memoCloseTag + " outro"),
+		textDelta("## Session Steering Memo\n"),
+		reasoningDelta("- **Recommended next step**: continue\n"),
 	})
 	state := r.Finish(false)
-	if state.Memo != "the plan" {
-		t.Fatalf("expected block memo %q, got %q", "the plan", state.Memo)
+	want := "## Session Steering Memo\n- **Recommended next step**: continue"
+	if state.Memo != want {
+		t.Fatalf("expected memo %q, got %q", want, state.Memo)
 	}
-	if state.ExtractionSource != "block" {
-		t.Fatalf("expected extraction source block, got %q", state.ExtractionSource)
+	if state.ExtractionSource != ExtractionSourceFull {
+		t.Fatalf("expected extraction source full, got %q", state.ExtractionSource)
 	}
 }
 
-func TestRecorder_BlockFromTextDeltas_SplitCloseTag(t *testing.T) {
-	t.Parallel()
-	r := newRecorder(4096)
-	observeAll(t, r, []lipapi.Event{
-		textDelta(memoOpenTag + "the plan</proxy_thinker_me"),
-		textDelta("mo> outro"),
-	})
-	state := r.Finish(false)
-	if state.Memo != "the plan" {
-		t.Fatalf("expected block memo %q, got %q", "the plan", state.Memo)
-	}
-	if state.ExtractionSource != "block" {
-		t.Fatalf("expected extraction source block, got %q", state.ExtractionSource)
-	}
-}
-
-func TestRecorder_BlockFromReasoningDeltas(t *testing.T) {
-	t.Parallel()
-	r := newRecorder(4096)
-	observeAll(t, r, []lipapi.Event{
-		reasoningDelta("thinking... "),
-		reasoningDelta(memoOpenTag + "reasoned plan" + memoCloseTag),
-	})
-	state := r.Finish(false)
-	if state.Memo != "reasoned plan" {
-		t.Fatalf("expected reasoning block memo %q, got %q", "reasoned plan", state.Memo)
-	}
-	if state.ExtractionSource != "block" {
-		t.Fatalf("expected extraction source block, got %q", state.ExtractionSource)
-	}
-}
-
-func TestRecorder_BlockFromReasoningDeltas_Split(t *testing.T) {
-	t.Parallel()
-	r := newRecorder(4096)
-	observeAll(t, r, []lipapi.Event{
-		reasoningDelta(memoOpenTag + "reasoned "),
-		reasoningDelta("plan" + memoCloseTag + " tail"),
-	})
-	state := r.Finish(false)
-	if state.Memo != "reasoned plan" {
-		t.Fatalf("expected reasoning block memo %q, got %q", "reasoned plan", state.Memo)
-	}
-	if state.ExtractionSource != "block" {
-		t.Fatalf("expected extraction source block, got %q", state.ExtractionSource)
-	}
-}
-
-func TestRecorder_AbsentWrappersFallback(t *testing.T) {
-	t.Parallel()
-	r := newRecorder(4096)
-	observeAll(t, r, []lipapi.Event{
-		textDelta("just a normal "),
-		reasoningDelta("thinker response without tags"),
-	})
-	state := r.Finish(false)
-	if state.Memo != "just a normal thinker response without tags" {
-		t.Fatalf("expected fallback aggregate %q, got %q", "just a normal thinker response without tags", state.Memo)
-	}
-	if state.ExtractionSource != "fallback" {
-		t.Fatalf("expected extraction source fallback, got %q", state.ExtractionSource)
-	}
-}
-
-func TestRecorder_IncompleteWrapperFallback(t *testing.T) {
-	t.Parallel()
-	r := newRecorder(4096)
-	observeAll(t, r, []lipapi.Event{
-		textDelta("intro " + memoOpenTag + "partial plan with no close"),
-	})
-	state := r.Finish(false)
-	if state.ExtractionSource != "fallback" {
-		t.Fatalf("incomplete block must use fallback, got %q", state.ExtractionSource)
-	}
-	if state.Memo == "partial plan with no close" {
-		t.Fatalf("fallback must be the aggregate output, not the partial block body")
-	}
-	if state.Memo == "" {
-		t.Fatal("fallback memo must not be empty")
-	}
-}
-
-func TestRecorder_IncompleteWrapperFallback_OnlyOpenTag(t *testing.T) {
-	t.Parallel()
-	r := newRecorder(4096)
-	observeAll(t, r, []lipapi.Event{
-		textDelta(memoOpenTag),
-	})
-	state := r.Finish(false)
-	if state.ExtractionSource != "fallback" {
-		t.Fatalf("lone open tag must use fallback, got %q", state.ExtractionSource)
-	}
-}
-
-func TestRecorder_ByteLimit_TruncatesBlock(t *testing.T) {
-	t.Parallel()
-	r := newRecorder(8)
-	observeAll(t, r, []lipapi.Event{
-		textDelta(memoOpenTag + "plan12345" + memoCloseTag),
-	})
-	state := r.Finish(false)
-	if state.ExtractionSource != "block" {
-		t.Fatalf("complete block with truncated body is still a block, got %q", state.ExtractionSource)
-	}
-	if len(state.Memo) > 8 {
-		t.Fatalf("bounded block memo must not exceed limit: got %d bytes %q", len(state.Memo), state.Memo)
-	}
-	if state.Memo != "plan12345"[:8] {
-		t.Fatalf("expected truncated block %q, got %q", "plan12345"[:8], state.Memo)
-	}
-}
-
-func TestRecorder_ByteLimit_TruncatesFallback(t *testing.T) {
+func TestRecorder_ByteLimit_TruncatesWholeOutput(t *testing.T) {
 	t.Parallel()
 	r := newRecorder(8)
 	observeAll(t, r, []lipapi.Event{
 		textDelta("abcdefghij"),
 	})
 	state := r.Finish(false)
-	if state.ExtractionSource != "fallback" {
-		t.Fatalf("expected fallback, got %q", state.ExtractionSource)
-	}
 	if len(state.Memo) > 8 {
-		t.Fatalf("bounded fallback memo must not exceed limit: got %d bytes %q", len(state.Memo), state.Memo)
+		t.Fatalf("bounded memo must not exceed limit: got %d bytes %q", len(state.Memo), state.Memo)
 	}
 	if state.Memo != "abcdefghij"[:8] {
-		t.Fatalf("expected truncated fallback %q, got %q", "abcdefghij"[:8], state.Memo)
+		t.Fatalf("expected truncated memo %q, got %q", "abcdefghij"[:8], state.Memo)
+	}
+	if state.ExtractionSource != ExtractionSourceFull {
+		t.Fatalf("expected extraction source full, got %q", state.ExtractionSource)
 	}
 }
 
@@ -222,48 +149,69 @@ func TestRecorder_ByteLimit_ZeroDisables(t *testing.T) {
 	t.Parallel()
 	r := newRecorder(0)
 	observeAll(t, r, []lipapi.Event{
-		textDelta(memoOpenTag + "an unbounded plan body that is longer than any small limit" + memoCloseTag),
+		textDelta("an unbounded plan body that is longer than any small limit"),
 	})
 	state := r.Finish(false)
-	if state.ExtractionSource != "block" {
-		t.Fatalf("expected block, got %q", state.ExtractionSource)
-	}
 	if state.Memo != "an unbounded plan body that is longer than any small limit" {
 		t.Fatalf("zero limit must not truncate, got %q", state.Memo)
 	}
 }
 
-func TestRecorder_InterruptedStreamMetadata(t *testing.T) {
+func TestRecorder_TruncatedBoundaryKeepsDropping(t *testing.T) {
+	t.Parallel()
+	r := newRecorder(8)
+	observeAll(t, r, []lipapi.Event{
+		textDelta("abcdefgh"),
+		textDelta("ij"),
+	})
+	state := r.Finish(false)
+	if state.Memo != "abcdefgh" {
+		t.Fatalf("post-truncation deltas must not extend the memo, got %q", state.Memo)
+	}
+}
+
+func TestRecorder_InterruptedStreamSetsMetadata(t *testing.T) {
 	t.Parallel()
 	r := newRecorder(4096)
 	observeAll(t, r, []lipapi.Event{
-		textDelta("partial output before "),
-		textDelta(memoOpenTag + "partial block with no close"),
+		textDelta("partial output before interruption"),
 	})
 	state := r.Finish(true)
 	if !state.StreamInterrupted {
 		t.Fatal("Finish(true) must set StreamInterrupted")
 	}
-	if state.ExtractionSource != "fallback" {
-		t.Fatalf("interrupted incomplete block must use fallback, got %q", state.ExtractionSource)
+	if state.Memo != "partial output before interruption" {
+		t.Fatalf("interrupted memo must keep captured output, got %q", state.Memo)
+	}
+	if state.ExtractionSource != ExtractionSourceFull {
+		t.Fatalf("expected extraction source full, got %q", state.ExtractionSource)
 	}
 }
 
-func TestRecorder_InterruptedStreamMetadata_CompleteBlock(t *testing.T) {
+func TestRecorder_EmptyStreamYieldsEmptyMemo(t *testing.T) {
+	t.Parallel()
+	r := newRecorder(4096)
+	state := r.Finish(false)
+	if state.Memo != "" {
+		t.Fatalf("empty stream must yield empty memo, got %q", state.Memo)
+	}
+	if r.HadContent() {
+		t.Fatal("empty stream must not report content")
+	}
+}
+
+func TestRecorder_WhitespaceOnlyYieldsEmptyMemo(t *testing.T) {
 	t.Parallel()
 	r := newRecorder(4096)
 	observeAll(t, r, []lipapi.Event{
-		textDelta(memoOpenTag + "complete plan" + memoCloseTag),
+		textDelta("  \n\t "),
 	})
-	state := r.Finish(true)
-	if !state.StreamInterrupted {
-		t.Fatal("Finish(true) must set StreamInterrupted even with complete block")
+	state := r.Finish(false)
+	if state.Memo != "" {
+		t.Fatalf("whitespace-only output must yield empty memo, got %q", state.Memo)
 	}
-	if state.Memo != "complete plan" {
-		t.Fatalf("expected block memo %q, got %q", "complete plan", state.Memo)
-	}
-	if state.ExtractionSource != "block" {
-		t.Fatalf("expected extraction source block, got %q", state.ExtractionSource)
+	if !r.HadContent() {
+		t.Fatal("whitespace-only output must still report content observed")
 	}
 }
 
@@ -271,7 +219,7 @@ func TestRecorder_PreservesMetadata(t *testing.T) {
 	t.Parallel()
 	r := newRecorder(4096)
 	observeAll(t, r, []lipapi.Event{
-		textDelta(memoOpenTag + "plan" + memoCloseTag),
+		textDelta("plan"),
 	})
 	state := r.Finish(false)
 	if state.SourceSelector != "openai-responses:gpt-4o[thinker]" {
@@ -297,30 +245,81 @@ func TestRecorder_IgnoresNonContentEvents(t *testing.T) {
 	observeAll(t, r, []lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
-		textDelta(memoOpenTag + "plan" + memoCloseTag),
+		textDelta("plan"),
 		{Kind: lipapi.EventUsageDelta, InputTokens: 10},
 		{Kind: lipapi.EventResponseFinished},
 	})
 	state := r.Finish(false)
 	if state.Memo != "plan" {
-		t.Fatalf("expected block memo %q, got %q", "plan", state.Memo)
-	}
-	if state.ExtractionSource != "block" {
-		t.Fatalf("expected extraction source block, got %q", state.ExtractionSource)
+		t.Fatalf("expected memo %q, got %q", "plan", state.Memo)
 	}
 }
 
-func TestRecorder_OnlyFirstBlockCaptured(t *testing.T) {
+func TestStripResidualMemoTags_RemovesCompleteTags(t *testing.T) {
 	t.Parallel()
-	r := newRecorder(4096)
-	observeAll(t, r, []lipapi.Event{
-		textDelta(memoOpenTag + "first" + memoCloseTag + " middle " + memoOpenTag + "second" + memoCloseTag),
-	})
-	state := r.Finish(false)
-	if state.Memo != "first" {
-		t.Fatalf("expected first block %q, got %q", "first", state.Memo)
+	got := StripResidualMemoTags("intro " + memoOpenTag + "plan" + memoCloseTag + " outro")
+	if got != "intro plan outro" {
+		t.Fatalf("got %q", got)
 	}
-	if state.ExtractionSource != "block" {
-		t.Fatalf("expected extraction source block, got %q", state.ExtractionSource)
+}
+
+func TestStripResidualMemoTags_RemovesLoneCompleteTags(t *testing.T) {
+	t.Parallel()
+	got := StripResidualMemoTags(memoOpenTag + "plan")
+	if got != "plan" {
+		t.Fatalf("lone open tag must be stripped, got %q", got)
+	}
+	got = StripResidualMemoTags("plan" + memoCloseTag)
+	if got != "plan" {
+		t.Fatalf("lone close tag must be stripped, got %q", got)
+	}
+}
+
+func TestStripResidualMemoTags_PreservesIncompleteFragments(t *testing.T) {
+	t.Parallel()
+	got := StripResidualMemoTags("<proxy_thinker_m")
+	if got != "<proxy_thinker_m" {
+		t.Fatalf("incomplete tag fragment must be preserved, got %q", got)
+	}
+}
+
+func TestStripResidualMemoTags_LookalikePreserved(t *testing.T) {
+	t.Parallel()
+	got := StripResidualMemoTags("<proxy_thinker_memoX not a tag>")
+	if got != "<proxy_thinker_memoX not a tag>" {
+		t.Fatalf("lookalike tag must be preserved, got %q", got)
+	}
+}
+
+func TestStripResidualMemoTags_CaseInsensitive(t *testing.T) {
+	t.Parallel()
+	got := StripResidualMemoTags("A<PROXY_THINKER_MEMO>plan</proxy_thinker_memo>Z")
+	if got != "AplanZ" {
+		t.Fatalf("mixed-case tags must be stripped, got %q", got)
+	}
+}
+
+func TestStripResidualMemoTags_AttributeTagsStripped(t *testing.T) {
+	t.Parallel()
+	got := StripResidualMemoTags("<proxy_thinker_memo id=\"1\">plan</proxy_thinker_memo>")
+	if got != "plan" {
+		t.Fatalf("attribute tags must be stripped, got %q", got)
+	}
+}
+
+func TestStripResidualMemoTags_EmptyInput(t *testing.T) {
+	t.Parallel()
+	if got := StripResidualMemoTags(""); got != "" {
+		t.Fatalf("empty input must stay empty, got %q", got)
+	}
+}
+
+func TestStripResidualMemoTags_NoTagsUnchanged(t *testing.T) {
+	t.Parallel()
+	if got := StripResidualMemoTags("## Session Steering Memo\nplain text"); got != "## Session Steering Memo\nplain text" {
+		t.Fatalf("untagged text must be unchanged, got %q", got)
+	}
+	if strings.Contains(StripResidualMemoTags("plain"), memoOpenTag) {
+		t.Fatal("strip must not introduce tags")
 	}
 }

@@ -158,8 +158,11 @@ func TestInterleaved_ResolveInstructionsDefault(t *testing.T) {
 	if strings.TrimSpace(got) == "" {
 		t.Fatal("enabled config with empty instructions_file must use built-in default")
 	}
-	if !strings.Contains(got, "<proxy_thinker_memo>") {
-		t.Fatalf("default instructions must mention memo wrapper, got %q", got)
+	if strings.Contains(got, "<proxy_thinker_memo>") {
+		t.Fatalf("default instructions must not require XML wrapper tags, got %q", got)
+	}
+	if !strings.Contains(got, "## Session Steering Memo") {
+		t.Fatalf("default instructions must ask for the Session Steering Memo markdown section, got %q", got)
 	}
 }
 

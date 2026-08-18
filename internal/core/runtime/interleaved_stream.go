@@ -219,10 +219,23 @@ func (s *interleavedContinuationStream) captureAndPersistThinkerMemo(ctx context
 	}
 
 	memo := s.recorder.Finish(interrupted)
-	if interrupted && strings.TrimSpace(memo.Memo) == "" {
+	if strings.TrimSpace(memo.Memo) == "" {
+		// Differentiated skip reasons mirror the Python recorder: an interrupted
+		// stream wins over empty content; otherwise content that was observed but
+		// normalized to nothing is empty_memo, and a stream that never produced
+		// content is no_extractable_memo.
+		reason := "empty_memo"
+		if interrupted {
+			reason = "stream_interrupted"
+		} else if !s.recorder.HadContent() {
+			reason = "no_extractable_memo"
+		}
 		s.mu.Lock()
 		s.memoPersisted = false
 		s.mu.Unlock()
+		if s.thinker != nil && s.thinker.executor != nil {
+			s.thinker.executor.logInterleavedMemoStoreSkipped(persistCtx, s.thinker.traceID, reason, interrupted)
+		}
 		return s.state, nil
 	}
 	memo.VisibleToClient = s.visibleCommitted

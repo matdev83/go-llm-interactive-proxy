@@ -18,11 +18,22 @@ type InterleavedTransition struct {
 	SkipReason        string
 	ExtractionSource  string
 	StreamInterrupted bool
+	// CycleIndex is the 1-based position of the selected turn within the
+	// thinker-aware weighted cycle; CycleTotal is the cycle length. Both are 0
+	// when the selection is not cycle-driven.
+	CycleIndex int
+	CycleTotal int
+	// Target is the normalized selector key of the selected branch/leaf.
+	Target string
+	// InjectionMode identifies how a memo was injected ("tail_anchored").
+	InjectionMode string
+	// TurnsRemaining is the memo injection budget after the reported decision.
+	TurnsRemaining int
 }
 
 // InterleavedTransitionAttrs builds stable slog attributes for interleaved state transitions.
 func InterleavedTransitionAttrs(t InterleavedTransition) []slog.Attr {
-	out := make([]slog.Attr, 0, 10)
+	out := make([]slog.Attr, 0, 13)
 	if t.Phase != "" {
 		out = append(out, slog.String("interleaved_phase", t.Phase))
 	}
@@ -45,6 +56,17 @@ func InterleavedTransitionAttrs(t InterleavedTransition) []slog.Attr {
 	}
 	if t.StreamInterrupted {
 		out = append(out, slog.Bool("memo_stream_interrupted", true))
+	}
+	if t.CycleTotal > 0 {
+		out = append(out, slog.Int("interleaved_cycle_index", t.CycleIndex))
+		out = append(out, slog.Int("interleaved_cycle_total", t.CycleTotal))
+	}
+	if t.Target != "" {
+		out = append(out, slog.String("interleaved_target", t.Target))
+	}
+	if t.InjectionMode != "" {
+		out = append(out, slog.String("injection_mode", t.InjectionMode))
+		out = append(out, slog.Int("turns_remaining", t.TurnsRemaining))
 	}
 	return out
 }

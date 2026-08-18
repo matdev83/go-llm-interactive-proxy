@@ -55,6 +55,10 @@ type RouteIntent struct {
 type Message struct {
 	Role  Role
 	Parts []Part
+	// Metadata carries proxy-owned message-level traceability (for example
+	// interleaved-thinking injection markers). It is never serialized to wire
+	// payloads and never treated as client input.
+	Metadata map[string]string `json:"-"`
 }
 
 // Call is the canonical request envelope shared across frontends.

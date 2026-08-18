@@ -755,7 +755,7 @@ func (e *Executor) openPlannedCandidate(
 		slog.String("verbosity", string(openCall.Options.Verbosity)),
 		slog.Int64("open_duration_ms", time.Since(openStart).Milliseconds()),
 	)
-	e.logInterleavedRouteSelected(ctx, p.traceID, bleg.BLegID, c)
+	e.logInterleavedRouteSelected(ctx, p.traceID, bleg.BLegID, c, p.interleaved.Cycle, interleaved.Cycle)
 	if c.MarkedFirst {
 		if err := e.Store.SetWeightedFirstConsumed(ctx, p.aLegID, true); err != nil {
 			if stream != nil {

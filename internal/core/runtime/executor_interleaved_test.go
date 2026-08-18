@@ -157,12 +157,17 @@ func TestExecutor_HiddenInterleavedEndToEnd(t *testing.T) {
 	if len(continuationExec.call.Tools) != 1 {
 		t.Fatalf("executor continuation: must keep tools, got %d", len(continuationExec.call.Tools))
 	}
-	injected := textOf(continuationExec.call.Instructions[0])
+	tail := continuationExec.call.Messages[len(continuationExec.call.Messages)-1]
+	injected := textOf(tail)
 	if !strings.Contains(injected, memoBody) {
 		t.Fatalf("executor continuation: memo not injected: %q", injected)
 	}
-	if !strings.Contains(injected, interleavedthinking.MemoContextOpenTag) {
-		t.Fatalf("executor continuation: memo context tags missing: %q", injected)
+	if !strings.Contains(injected, interleavedthinking.SessionSteeringGuidanceHeader) {
+		t.Fatalf("executor continuation: steering guidance header missing: %q", injected)
+	}
+	if tail.Metadata["source"] != interleavedthinking.MetadataSourceInterleavedThinking ||
+		tail.Metadata["kind"] != interleavedthinking.MetadataKindThinkerMemoTail {
+		t.Fatalf("executor continuation: injected tail must carry traceability metadata: %+v", tail.Metadata)
 	}
 
 	if got := collected.Reasoning.String(); got != "" {
@@ -196,8 +201,8 @@ func TestExecutor_HiddenInterleavedEndToEnd(t *testing.T) {
 	if stored.Memo != memoBody {
 		t.Fatalf("memo capture: got %q want %q", stored.Memo, memoBody)
 	}
-	if stored.ExtractionSource != interleavedthinking.ExtractionSourceBlock {
-		t.Fatalf("memo capture: extraction source got %q want block", stored.ExtractionSource)
+	if stored.ExtractionSource != interleavedthinking.ExtractionSourceFull {
+		t.Fatalf("memo capture: extraction source got %q want %q", stored.ExtractionSource, interleavedthinking.ExtractionSourceFull)
 	}
 	if stored.VisibleToClient {
 		t.Fatal("memo capture: hidden mode must not mark memo VisibleToClient")
@@ -393,9 +398,9 @@ func TestExecutor_VisibleInterleavedEndToEnd(t *testing.T) {
 	if len(continuationExec.call.Tools) != 1 {
 		t.Fatalf("executor continuation: must keep tools, got %d", len(continuationExec.call.Tools))
 	}
-	for _, msg := range continuationExec.call.Instructions {
+	for _, msg := range continuationExec.call.Messages {
 		txt := textOf(msg)
-		if strings.Contains(txt, memoBody) || strings.Contains(txt, interleavedthinking.MemoContextOpenTag) {
+		if strings.Contains(txt, memoBody) || strings.Contains(txt, interleavedthinking.SessionSteeringGuidanceHeader) {
 			t.Fatalf("executor continuation: visible memo must not be re-injected: %q", txt)
 		}
 	}
@@ -418,8 +423,8 @@ func TestExecutor_VisibleInterleavedEndToEnd(t *testing.T) {
 	if stored.Memo != memoBody {
 		t.Fatalf("memo storage: got %q want %q", stored.Memo, memoBody)
 	}
-	if stored.ExtractionSource != interleavedthinking.ExtractionSourceBlock {
-		t.Fatalf("memo storage: extraction source got %q want block", stored.ExtractionSource)
+	if stored.ExtractionSource != interleavedthinking.ExtractionSourceFull {
+		t.Fatalf("memo storage: extraction source got %q want %q", stored.ExtractionSource, interleavedthinking.ExtractionSourceFull)
 	}
 	if !stored.VisibleToClient {
 		t.Fatal("memo storage: visible mode must mark memo VisibleToClient")
@@ -570,9 +575,9 @@ func TestExecutor_VisibleMemoReinjectsOnLaterNormalExecutorTurn(t *testing.T) {
 	if continuationExec == nil {
 		t.Fatal("visible turn: continuation executor open missing")
 	}
-	for _, msg := range continuationExec.call.Instructions {
+	for _, msg := range continuationExec.call.Messages {
 		txt := textOf(msg)
-		if strings.Contains(txt, interleavedthinking.MemoContextOpenTag) || strings.Contains(txt, memoBody) {
+		if strings.Contains(txt, interleavedthinking.SessionSteeringGuidanceHeader) || strings.Contains(txt, memoBody) {
 			t.Fatalf("immediate continuation executor must not inject visible memo: %q", txt)
 		}
 	}
@@ -594,12 +599,12 @@ func TestExecutor_VisibleMemoReinjectsOnLaterNormalExecutorTurn(t *testing.T) {
 	if laterExec == nil {
 		t.Fatal("later normal turn: executor open missing")
 	}
-	if len(laterExec.call.Instructions) == 0 {
-		t.Fatal("later normal executor must inject memo instructions")
+	if len(laterExec.call.Messages) == 0 {
+		t.Fatal("later normal executor must carry conversation messages")
 	}
-	injected := textOf(laterExec.call.Instructions[0])
-	if !strings.Contains(injected, interleavedthinking.MemoContextOpenTag) {
-		t.Fatalf("later normal executor must inject memo context tag: %q", injected)
+	injected := textOf(laterExec.call.Messages[len(laterExec.call.Messages)-1])
+	if !strings.Contains(injected, interleavedthinking.SessionSteeringGuidanceHeader) {
+		t.Fatalf("later normal executor must inject steering guidance header: %q", injected)
 	}
 	if !strings.Contains(injected, memoBody) {
 		t.Fatalf("later normal executor must inject memo body: %q", injected)
