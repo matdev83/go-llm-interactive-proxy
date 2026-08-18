@@ -1,970 +1,872 @@
 # Design Document
-
 ## Overview
+This feature introduces a protocol-neutral **conversation-view projection** for proxy-owned content at the A-leg/B-leg boundary.
+The projection supports two opposite visibility directions:
+- **client-visible / backend-hidden (`never_backend`)** — complete messages remain part of A-leg/client truth, but their semantic identities are persisted and those messages are removed from every inference B-leg;
+- **backend-visible / client-hidden (persistent steering)** — complete proxy-owned steering messages never enter client responses or client continuation history, but their payload and placement are persisted under the authoritative A-leg and reconstructed on every applicable B-leg.
+The hidden-steering path adds a critical constraint: because the client never sees the steering, it cannot return it on later turns. The proxy therefore owns both the message and its placement. Placement is deliberately cache-aware. An unchanged steering revision must stay at a fixed model-visible location as conversation history grows, so the projection remains append-only/prefix-stable across normal turns. A moving-tail reinjection is expressly not acceptable.
+The central model is:
+```text
+A-leg/client truth                         B-leg/model truth
+------------------                         -----------------
 
-This feature introduces a protocol-neutral **A-leg-only conversation message** capability. Trusted proxy features can classify complete canonical messages as `never_forward`; the proxy persists replay-stable identities for those messages under the authoritative A-leg and removes them from every future B-leg projection even when a client/agent keeps replaying the full transcript.
+client-visible normal msg  ───────────────> client-visible normal msg
 
-The design also adds a small generic **local-turn** extension seam. A future feature can recognize a client turn, have the core protect the claimed source messages, produce one local assistant text reply, and return it through the existing canonical `lipapi.EventStream` without route planning or an inference B-leg. This spec deliberately provides no command grammar/handler and no concrete quota notification.
+client-visible local msg   ───── X
+(proxy command/notice)             \
+                                    \  removed by projection
 
-The central invariant is:
-
-> A message whose `never_forward` tag is committed for an authoritative A-leg MUST NOT occur in any PTB payload or backend `Open` call for that A-leg.
-
-The implementation preserves two different truths rather than rewriting one history in place:
-
-- **A-leg/client truth:** what the agent and proxy-local UX actually exchanged;
-- **B-leg projection:** the canonical call derived from that truth after removing all never-forward messages.
-
+backend-only steering      <not present> ─> injected by proxy state
+```
+### Architectural invariants
+**I1 — Never-backend safety**
+> A complete message whose `never_backend` identity is committed for an authoritative A-leg MUST NOT occur in any PTB payload or backend `Open` call for that A-leg.
+**I2 — Backend-only invisibility**
+> A persistent steering overlay MUST NOT be emitted through client frontend responses, CTP payload augmentation, or proxy continuation recording merely because it is model-visible.
+**I3 — Steering completeness**
+> Every active steering overlay in the frozen logical-turn snapshot MUST occur exactly once in every applicable final backend-facing call, or the call MUST fail before PTB/Open.
+**I4 — Snapshot consistency**
+> One logical turn observes one immutable conversation-view snapshot. Initial, failover, parallel, retry-before-output, TTFT and interleaved B-legs do not re-read mutable visibility state.
+**I5 — Cache stability**
+> If client/model-relevant history changes only by appending forwardable history and the steering snapshot is unchanged, the projected model-visible history from turn N is a prefix of turn N+1. Persistent steering never follows the moving tail.
 ### Goals
-
-- Recognize the same message after full-history replay without trusting client metadata.
-- Persist classification for the A-leg lifetime, including durable restart/shared PostgreSQL continuity.
-- Remove local-only history early enough that it cannot affect context/routing/billing/capability logic.
-- Reassert the invariant at the last shared backend boundary before PTB capture/open.
-- Provide one generic backend-free local-turn extension point that future interactive commands can use without another Executor/frontend refactor.
-- Make tag persistence precede local side effects/client-visible reply release where the core can enforce that ordering.
-- Keep all provider/frontend adapters ignorant of non-forwardable policy.
-- Preserve CTP/A-leg evidence and existing continuation history rather than destructively rewriting it.
-- Keep the base B2BUA/public continuity contracts unchanged.
-
+- Provide one canonical place for A-leg-only and B-leg-only complete messages.
+- Keep client-side local messages replay-safe without trusting client metadata.
+- Persist backend-only steering because clients cannot replay it.
+- Make mid-session hidden steering cache-friendly through fixed activation anchors.
+- Keep session-wide hidden guidance stable through a deterministic prefix slot.
+- Preserve route/context/billing/capability correctness by projecting before backend-oriented processing.
+- Reassert the frozen view after late attempt shaping and before PTB/backend open.
+- Provide a generic successful local-turn seam without implementing command behavior.
+- Provide a narrow trusted steering writer without implementing verifier/quota/command producers.
+- Reuse MemoryStore/Bun A-leg lifetime and avoid widening public/base continuity stores.
+- Preserve protocol/provider neutrality and streaming-first frontend behavior.
 ### Non-Goals
-
-- Implementing `!/`, `set`, `unset`, help, model-selection, or any interactive command/handler.
-- Implementing quota/usage-notification generation, thresholds, scheduling, or delivery policy.
-- Partial substring/content-part stripping inside a mixed message.
-- An asynchronous notification framework.
-- A client API to mark content local-only.
-- Provider-specific filtering or new frontend/backend pairwise translators.
-- Replacing existing request/response extension stages.
-- Physically deleting local-only turns from A-leg traffic or continuation records.
-- Conditional scopes such as “forward only when proxy-injected”; v1 implements absolute `never_forward` semantics only.
-
+- Interactive command grammar/handlers or routing-setting behavior.
+- Quality Verifier policy, scheduling, verifier-model calls, or recall logic.
+- Quota/usage notification policy/scheduling.
+- Automatic migration of interleaved-thinking memo shaping.
+- Arbitrary fragment insertion/deletion.
+- Client-authored hidden/steering flags.
+- Generic asynchronous event/notification scheduler.
+- Core-managed provider prompt-cache TTL, `cache_control`, or cache-key policy.
+- Treating hidden steering as a secrecy boundary against the remote model.
 ## Existing Architecture Analysis
+### Canonical authority
+`pkg/lipapi.Call` has two mutually exclusive conversation authorities:
+```text
+legacy:
+  Instructions []Message
+  Messages     []Message
 
-### Current request flow
-
-The relevant brownfield flow on `main` is:
-
-1. frontend decodes wire payload into `lipapi.Call`;
-2. shared frontend pipeline validates and emits incoming CTP evidence;
-3. `Executor.Execute` calls `prepareRequest`;
-4. secure preparation resolves principal/workspace, calls secure-session `BeginTurn`, and fetches authoritative A-leg;
-5. secret guard, request authority, submit/request/pre-request stages run;
-6. runtime derives an effective call, route hints, and `preparedRequest.baseline`;
-7. routing/billing produce a plan;
-8. candidate open clones/shapes/transforms/adapts the baseline;
-9. runtime builds `wireCall`, emits PTB capture, and calls `be.Open`;
-10. returned canonical stream is encoded by the frontend.
-
-The design changes only the bold conceptual boundaries:
-
-- after A-leg/client evidence: **local-turn claim or early never-forward projection**;
-- immediately before PTB/open: **final never-forward guard**.
-
-### Existing ownership constraints
-
-- `pkg/lipapi`: protocol-neutral canonical request/events; do not add a client-controlled local-only bit.
-- `internal/core/runtime`: orchestration, A-leg/B-leg lifetime, routing/billing sequencing; owns placement of enforcement.
-- `internal/core/b2bua` + `continuity/bunstore`: A-leg continuity lifecycle.
-- `pkg/lipsdk/feature` + `internal/core/extensions`: typed feature-plugin contributions and ordered safe execution.
-- frontend plugins: decode/encode only.
-- backend plugins/connectors: candidate translation/execution only.
-- traffic: CTP/PTB evidence planes.
-
-### Existing reusable seams
-
-- `lipapi.NormalizedItems` for legacy/item traversal.
-- `lipapi.CloneCall` and `Call.Validate` for safe derived projections.
-- authoritative `ALegID` from secure session.
-- optional focused continuity capability precedent (`routeoverride.Store`, `InterleavedStateStore`).
-- immutable FeatureBundle/request runtime snapshots.
-- centralized `openPlannedCandidate` and `wireCall` PTB/open boundary.
-- canonical `EventStream` and shared frontend encoding.
-- OpenResponses continuation materialization before executor entry.
-
-## Architecture Pattern & Boundary Map
-
-**Selected pattern:** A-leg semantic tag registry + dual-boundary projection/enforcement + generic local-turn application port.
-
+item:
+  Items []Item
+```
+`Message.Metadata` is proxy-owned and not serialized. It is useful for current-turn provenance but cannot identify a message after client replay.
+The new mechanism does not add a client-visible `Visibility` field to canonical messages. Visibility is trusted A-leg state outside the client-controlled call.
+### Runtime request preparation
+The runtime already resolves authoritative session/A-leg state before route planning and then freezes a canonical baseline used by candidate attempts.
+The new base projection belongs after authoritative A-leg resolution and client-evidence handling, but before backend-oriented request/pre-request transforms, routing, context sizing, billing and capability work.
+### Candidate open
+All normal inference attempts ultimately produce a canonical `wireCall`, capture PTB from it and invoke:
+```go
+be.Open(openCtx, wireCall, candidate)
+```
+This is the authoritative final projection guard.
+### Frontend response path
+Frontends consume canonical `lipapi.EventStream`. A local successful response can therefore use the same output abstraction as inference without adding synthetic-response branches to each frontend.
+### Continuity
+B2BUA MemoryStore and Bun continuity already implement optional A-leg capabilities such as route overrides and interleaved state while preserving the narrow base store contract. Conversation-view state follows the same pattern.
+### Existing hidden-ish injections
+Interleaved thinking currently adds tail-anchored memo guidance. Its lifetime and semantics are feature-specific; it is not a persistent hidden steering store and should not be refactored as part of this feature.
+## Architecture Pattern and Boundary Map
+**Selected pattern:** A-leg-owned conversation-view state + pure deterministic projection + shared final reassertion.
 ```mermaid
-flowchart LR
-    C[Client / agent] --> FE[Frontend decode]
-    FE --> CALL[lipapi.Call\nA-leg/client truth]
-    CALL --> SS[Secure session\nresolve authoritative A-leg]
-    SS --> SG[Secret guard + submit/client evidence]
+graph TB
+    Client --> Frontend
+    Frontend --> CanonicalIngress
 
-    SG --> LT{Local-turn handler claims?}
-    LT -->|yes| SRC[Persist source tags]
-    SRC --> H[Handle locally]
-    H --> REPLY[Build assistant text reply]
-    REPLY --> RTAG[Persist reply tag]
-    RTAG --> LES[Canonical local EventStream]
-    LES --> FEOUT[Existing frontend encoder]
+    CanonicalIngress --> SecureSession
+    SecureSession --> ALegAuthority
 
-    LT -->|no| SNAP[Load bounded A-leg tag snapshot]
-    SNAP --> EARLY[Early backend projection\nremove tagged messages]
-    EARLY --> PRE[Request/pre-request + route/billing]
-    PRE --> BASE[preparedRequest.baseline]
-    BASE --> ATT[Candidate shape/transform/adapt]
-    ATT --> FINAL[Final wire guard]
-    FINAL --> PTB[PTB capture]
-    PTB --> BE[Backend Open]
+    ALegAuthority --> ViewStore
+    ViewStore --> Snapshot
 
-    STORE[(A-leg continuity\nMemory / Bun)] --> SRC
-    STORE --> RTAG
-    STORE --> SNAP
+    CanonicalIngress --> LocalTurnStage
+    LocalTurnStage --> NeverBackendTagger
+    LocalTurnStage --> LocalStream
 
-    FB[FeatureBundle generation] --> LT
+    TrustedFeature --> SteeringWriter
+    SteeringWriter --> ViewStore
+
+    Snapshot --> BaseProjector
+    CanonicalIngress --> BaseProjector
+    BaseProjector --> BackendEffective
+
+    BackendEffective --> RequestStages
+    RequestStages --> RoutingBilling
+    RoutingBilling --> AttemptShaping
+
+    AttemptShaping --> FinalReassert
+    Snapshot --> FinalReassert
+
+    FinalReassert --> PTB
+    PTB --> BackendOpen
+
+    LocalStream --> Frontend
+    BackendOpen --> BackendStream
+    BackendStream --> Frontend
 ```
-
-### Hexagonal lens
-
-- **Domain policy:** `internal/core/nonforwardable` identity/tag/snapshot/projection invariants.
-- **Application orchestration:** runtime local-turn runner + early projection + final candidate guard.
-- **Driving adapters:** existing frontends; future feature plugins contribute `localturn.Handler`.
-- **Driven adapters:** MemoryStore and Bun tag persistence.
-- **Ports:** focused non-forwardable registry, request-bound registrar, local-turn handler contract.
-- **Composition root:** process continuity provides storage; immutable generation provides local-turn handler list; Executor receives narrow capability references.
-
+### Optional hexagonal lens
+- **Domain/policy:** `internal/core/conversationview`.
+- **Application orchestration:** runtime snapshot/project/reassert and local-turn sequencing.
+- **Driving adapters:** client frontends and trusted feature producers.
+- **Driven adapters:** MemoryStore/Bun conversation-view persistence.
+- **Public producer ports:** `pkg/lipsdk/nonforwardable`, `pkg/lipsdk/localturn`, `pkg/lipsdk/steering`.
+- **Composition root:** runtimebundle/process/generation construction.
 ### Project boundary questions
+| Question | Decision |
+|---|---|
+| Core- or plugin-owned? | Core owns projection and A-leg visibility authority; trusted plugins/features consume narrow SDK ports. |
+| New canonical wire concept? | No. The canonical request remains ordinary messages/items. Visibility state is proxy-owned. |
+| Streaming-first preserved? | Yes. Local success is a finite canonical stream; non-streaming still collects. |
+| Provider SDK leaks? | None in core/SDK contracts. |
+| Retry semantics changed? | No post-output retry added. |
+| Secure-session affected? | Uses its authoritative A-leg, no new client authority. |
+| Continuity base interface changed? | No; optional focused capability only. |
+| Prompt-cache ownership changed? | No; structural prefix preservation only. |
+## Key Design Decisions
+### D1 — One umbrella domain, two directional concepts
+A single boolean `non_forwardable` is misleading because visibility is directional.
+```text
+never_backend:
+    source exists on A-leg
+    proxy stores identity
+    B-leg projection removes it
 
-- **Core- or plugin-owned?** Enforcement is core-owned because it is a B-leg safety invariant. Which messages become local-only is producer/plugin-owned.
-- **New canonical wire field?** No. Tags are server state, not caller authority.
-- **Streaming-first preserved?** Yes. Local result and backend result both use `lipapi.EventStream`; normal backend streams are unchanged.
-- **Provider SDK leakage?** None.
-- **Retry/no-output semantics?** Final guard is pre-open; existing no-retry-after-output semantics remain unchanged.
-- **Continuation owner?** Existing frontend continuation materialization/recording remains authoritative for A-leg transcript; core filters materialized history before B-leg use.
-- **Public API growth?** Only focused producer contracts (`nonforwardable`, `localturn`) are added; base executor/canonical/continuity contracts remain stable.
-
-## Architecture Decisions
-
-### D1. The enforcement unit is one complete canonical message
-
-V1 classifies only complete message units:
-
-- legacy `lipapi.Message` in `Instructions` or `Messages`;
-- `lipapi.Item{Kind: ItemKindMessage}`.
-
-The feature never deletes a substring or one content part from an otherwise backend-relevant message.
-
-Consequences:
-
-- retained messages/items are not text-rewritten;
-- local-only producers must keep their local content in a standalone message;
-- arbitrary tool-call/result/reasoning/compaction items are not taggable through this contract;
-- future partial-content behavior would require a separate design because it changes canonical dependency/rewrite semantics.
-
-### D2. Identity is semantic, server-derived, SHA-256, and versioned
-
-Introduce internal value type conceptually:
-
+persistent steering:
+    source does not exist on A-leg
+    proxy stores full message + position
+    B-leg projection injects it
+```
+Both belong to a conversation-view snapshot because runtime needs one coherent answer to: **what should this A-leg look like to the backend right now?**
+### D2 — Complete-message granularity
+V1 only adds/removes complete messages.
+Reasons:
+- semantic identity is stable enough for replay;
+- arbitrary part surgery is difficult across multimodal/provider-specific structures;
+- tool/reasoning/reference dependencies can be validated around whole messages;
+- later producer features can deliberately emit standalone local/steering messages.
+### D3 — Semantic identity is versioned and representation-neutral
+Internal identity input:
 ```go
-type Identity struct {
-    Version uint8
-    Digest  [32]byte
+type MessageAtomV1 struct {
+    Role    lipapi.Role
+    Content []NormalizedContent
 }
 ```
-
-The v1 digest is SHA-256 over a typed deterministic semantic projection of one message.
-
-Included:
-
-- role;
-- ordered content-part kinds;
-- semantic text/ref/MIME/name fields;
-- deterministic structured/JSON content.
-
-Excluded:
-
-- `Item.ID`;
-- `Item.Status`;
-- `Item.Phase`;
-- normalized trajectory index/generated `msg-N`/`inst-N` IDs;
-- `Message.Metadata`;
-- session/call/route/response/continuation IDs;
-- transport/cache wrappers that do not change canonical message meaning.
-
-Normalization rules:
-
-- CRLF and bare CR -> LF;
-- otherwise do not trim/collapse text or normalize Unicode;
-- JSON/opaque message payloads are decoded and deterministically re-marshaled through typed/generic JSON so insignificant key-order/spacing differences do not change identity;
-- unsupported/non-message item forms return an error.
-
-The identity implementation exposes explicit functions for legacy Message and Item message and tests that equivalent forms converge.
-
-`Identity.String()` may render `v1:<hex>` for diagnostics/tests, but the digest MUST NOT become a metric label.
-
-#### Duplicate semantic messages
-
-Two identical role/content messages in one A-leg intentionally have the same identity. There is no reliable cross-protocol stable message ID once an agent reconstructs history. For intended local-only content, same-semantic/same-disposition is the safe deterministic choice.
-
-### D3. A-leg ID is the only registry partition authority
-
-The registry is scoped to proxy-authoritative `ALegID` resolved by secure session. Producers do not persist tags against client session hints.
-
-Tag concept:
-
+Transient item ID/status/phase/metadata is excluded.
+Identity:
+```text
+v1:sha256(canonical(MessageAtomV1))
+```
+For fixed placement among repeated identical messages:
 ```go
-type Tag struct {
-    Identity  Identity
-    Reason    ReasonCode
-    CreatedAt time.Time
+type MessageAnchor struct {
+    Identity   MessageIdentity
+    Occurrence uint32
 }
 ```
-
-`ReasonCode` is diagnostic-only, bounded (for example <=64 bytes and identifier-character constrained), and cannot carry message/command arguments.
-
-No untag operation is provided. Never-forward is an append-only security/history classification until A-leg deletion.
-
-### D4. Focused optional continuity capability, not base Store expansion
-
-Create `internal/core/nonforwardable` ports conceptually:
-
+Occurrence is computed within the projected forwardable message trajectory at registration time and later resolved against equivalent replay.
+### D4 — One coherent state snapshot per A-leg turn
+Core port shape:
 ```go
 type Reader interface {
     Snapshot(ctx context.Context, aLegID string) (Snapshot, error)
 }
 
 type Tagger interface {
-    Tag(ctx context.Context, aLegID string, tags []Tag) error
+    TagNeverBackend(
+        ctx context.Context,
+        aLegID string,
+        tags []TagRequest,
+    ) (TagResult, error)
 }
 
-type Store interface {
-    Reader
-    Tagger
+type SteeringStore interface {
+    PutSteering(
+        ctx context.Context,
+        aLegID string,
+        req PutSteeringRequest,
+    ) (SteeringState, error)
+
+    DeactivateSteering(
+        ctx context.Context,
+        aLegID string,
+        overlayID string,
+    ) (SteeringState, error)
 }
 ```
-
-`Snapshot` is immutable to runtime callers and contains at most `MaxTagsPerALeg = 4096` unique identities plus bounded reason metadata if needed for diagnostics.
-
-`b2bua.MemoryStore` and `continuity/bunstore.Store` implement this optional capability in addition to their existing interfaces. Base `b2bua.Store`, `pkg/lipsdk/continuity.Store`, and existing wrappers remain unchanged.
-
-Composition helpers analogous to `routeoverride.AsReader/AsStore` may be used if that matches current package style.
-
-### D5. Store writes are atomic, idempotent, and bounded
-
-#### Memory
-
-Add tag map/state to existing `legState`, protected by the same store mutex/A-leg lifecycle. Batch mutation:
-
-1. resolve live A-leg under lock;
-2. count only unique new identities;
-3. reject if result exceeds 4096;
-4. insert all new tags;
-5. refresh normal A-leg liveness according to existing continuity semantics.
-
-A-leg eviction/deletion drops the map automatically.
-
-#### Bun
-
-Add a migration such as `a_leg_non_forwardable_tags` with logically:
-
-- `a_leg_id` FK to A-leg, cascade delete;
-- identity version;
-- digest/hex digest;
-- bounded reason code;
-- created timestamp;
-- primary key `(a_leg_id, identity_version, digest)`.
-
-Tag batch runs transactionally, locks/validates owning A-leg consistently with current continuity mutations, computes unique-new count, enforces capacity, and inserts idempotently. No partial batch may commit.
-
-SQLite and PostgreSQL use the same repository-level semantic contract. Durable restart reads the tag rows from the same A-leg lifecycle.
-
-### D6. Classification is committed before local-only output release
-
-This is the causal property that makes one snapshot per later turn sufficient:
-
-```text
-commit local-only tag
-        |
-        v
-release message to client
-        |
-        v
-client may later replay it
-        |
-        v
-next turn reads committed A-leg snapshot
-```
-
-There is no “tag asynchronously after response” mode.
-
-A request-bound registrar wraps the store + authoritative A-leg and, after successful commit, also merges new identities into the current request-local guard set. This registrar is exposed only to trusted server extension services, never to client input.
-
-### D7. One fresh bounded tag snapshot per normal logical turn
-
-For a turn that proceeds toward a B-leg, runtime loads one registry Snapshot after local-turn interception and before backend-oriented transforms.
-
-Properties:
-
-- no per-failover/per-race DB read;
-- no process-global authoritative cache;
-- shared PostgreSQL processes observe committed state on each new turn;
-- a bounded maximum prevents unbounded memory/SQL result growth;
-- current-turn registrations update the local guard after commit.
-
-The tag-before-release rule means any legitimate replay of a previously emitted local-only message is causally later than the commit that the turn snapshot reads.
-
-### D8. Preserve pristine ingress/client evidence separately from B-leg projection
-
-Do not mutate the only copy of what the client submitted.
-
-During secure preparation, retain a deep `ingress` canonical view after authoritative session fields/secret guard are established and before backend-oriented mutation. Existing CTP evidence/submit processing remains honest.
-
-Normal backend flow conceptually becomes:
-
-```text
-ingress/client view
-      |
-      +--> CTP / submit evidence
-      |
-      +--> deep clone -> backend work
-                         |
-                         +-- filter never-forward snapshot
-                         +-- request/pre-request transforms
-                         +-- route override / route hints
-                         +-- baseline freeze
-```
-
-This mirrors the existing principle used by runtime route authority: client intent/evidence and effective backend execution are distinct views.
-
-### D9. Early projection occurs before backend-oriented semantics
-
-After local-turn stage passes and CTP/submit processing is complete:
-
-1. load tag Snapshot;
-2. project from accepted work call to backend-effective call;
-3. remove tagged complete messages;
-4. remove item references whose target IDs were concrete items removed in this same call;
-5. `Validate` the result;
-6. only then run backend request/pre-request transforms and downstream route/context/billing/capability logic.
-
-The implementation should factor a pure projector in `internal/core/nonforwardable`, not embed loops inside Executor.
-
-#### Legacy authority
-
-Filter `Instructions` and `Messages` independently while preserving retained entries exactly/order-stably.
-
-#### Item authority
-
-Filter `ItemKindMessage` matches. Record any non-empty removed item IDs, then remove `ItemKindItemReference` entries whose reference targets one of those removed IDs. Preserve all other items.
-
-Out-of-call references with no concrete local message in the call are not semantically hashable and remain under existing item-reference/continuation rules.
-
-#### No forwardable content
-
-If projection leaves a call that cannot represent a valid backend request, or removes the current tail such that no request-driving user/tool/message content remains, return a stable internal no-forwardable-content error before route planning. Exact helper logic is certified by tests; do not “fix” this by forwarding old assistant/system history alone.
-
-### D10. Final guard is at the shared `wireCall` boundary
-
-Every candidate already converges before:
-
+`Store` implementations may satisfy all three, but callers depend on the narrow capability they consume.
+Logical snapshot:
 ```go
-PTB capture
-be.Open(... wireCall ...)
+type Snapshot struct {
+    StateRevision uint64
+    NeverBackend  []Tag
+    Steering      []SteeringOverlay
+}
 ```
-
-Insert final enforcement after per-candidate shaping/transforms and candidate adaptation, but before PTB serialization/capture and `be.Open`.
-
-The final guard:
-
-1. operates on a clone/final backend-facing canonical call;
-2. applies the request-local Snapshot/registrations;
-3. removes any matching complete messages reintroduced after the early pass;
-4. performs in-call reference cleanup;
-5. validates;
-6. returns only a safe call or an error.
-
-No PTB event is emitted until this succeeds.
-
-A late-attempt-transform regression test intentionally injects a tagged message after early projection to prove this boundary is real.
-
-Because all candidate branches must use the same shared open helper, no frontend/backend/route-specific enforcement methods are added.
-
-### D11. Add a dedicated generic two-phase `localturn` extension
-
-Existing Submit/PreRequest interfaces represent mutation/admission, not successful local responses. Add an optional schema-v1 FeatureBundle field:
-
+The runtime reads it once. A successful current-turn local tag is merged into the request-local copy.
+### D5 — State is A-leg-owned, not generation-owned
+Conversation-view state belongs to continuity:
+- generation reload does not erase it;
+- shared PostgreSQL processes see it on their next per-turn read;
+- producer removal does not deactivate prior steering/tags;
+- A-leg deletion deletes dependent state.
+The writer/controller is process/composition-owned, not an executor-global mutable map.
+### D6 — Exclusion stores digest, steering stores payload
+`never_backend`:
 ```go
-LocalTurnHandlers []localturn.Handler
+type Tag struct {
+    Identity  MessageIdentity
+    Reason    ReasonCode
+    CreatedAt time.Time
+}
 ```
+No message plaintext required.
+Persistent steering:
+```go
+type SteeringOverlay struct {
+    OverlayID           string
+    Revision            uint64
+    SlotOrdinal         uint64
+    Active              bool
+    Message             StoredMessageV1
+    Placement           StoredPlacement
+    AnchorMissingPolicy AnchorMissingPolicy
+    Reason              ReasonCode
+    CreatedAt           time.Time
+    UpdatedAt           time.Time
+}
+```
+Full `Message` content is necessary because the client will never return it.
+`StoredMessageV1` persists only model-visible role/content. It never persists `Message.Metadata`, trace IDs or request-specific wrappers.
+## Data Model
+### StoredMessageV1
+V1 persistent steering is deliberately narrow:
+```go
+type StoredMessageV1 struct {
+    Role lipapi.Role
+    Text string
+}
+```
+A concrete implementation may reuse canonical clone/validation helpers, but the durable logical schema is versioned so future richer steering does not make existing rows ambiguous.
+Bounds:
+- text: ≤ 64 KiB;
+- active overlays: ≤ 64/A-leg;
+- total active steering payload: ≤ 256 KiB/A-leg.
+### PlacementKind
+```go
+type PlacementKind string
 
-`FeatureBundle` schema stays v1 because optional additive fields are allowed by its documented compatibility rule. `empty`, `Validate`, merging, sorting, request runtime snapshot accessors, fixture/drift tests, and composition are updated.
+const (
+    PlacementStablePrefix PlacementKind = "stable_prefix"
+    PlacementAfterMessage PlacementKind = "after_message"
+)
+```
+The producer-facing API offers:
+```go
+type RequestedPlacementKind string
 
-Conceptual SDK contract:
+const (
+    RequestedStablePrefix     = "stable_prefix"
+    RequestedAfterIngressTail = "after_ingress_tail"
+)
+```
+`after_ingress_tail` is not stored literally. The application service resolves it while it has the accepted/current backend-effective trajectory and persists `PlacementAfterMessage` + `MessageAnchor`.
+### AnchorMissingPolicy
+```go
+type AnchorMissingPolicy string
 
+const (
+    AnchorStablePrefixFallback AnchorMissingPolicy = "stable_prefix_fallback"
+    AnchorFailClosed           AnchorMissingPolicy = "fail_closed"
+)
+```
+There is intentionally no `current_tail` fallback.
+### Stable slot order
+The store assigns `SlotOrdinal` monotonically for a placement. It is immutable for a stable `OverlayID`.
+This prevents:
+- Go map iteration reorder;
+- SQL row-order drift;
+- replacement moving a long-lived message.
+### Logical relational model
+One possible Bun model:
+```text
+a_leg_never_backend_messages
+  a_leg_id
+  identity_version
+  identity_digest
+  reason
+  created_at
+  PRIMARY KEY(a_leg_id, identity_version, identity_digest)
+
+a_leg_steering_overlays
+  a_leg_id
+  overlay_id
+  overlay_revision
+  slot_ordinal
+  active
+  message_version
+  message_role
+  message_text
+  placement_kind
+  anchor_identity_version
+  anchor_identity_digest
+  anchor_occurrence
+  anchor_missing_policy
+  reason
+  created_at
+  updated_at
+  PRIMARY KEY(a_leg_id, overlay_id)
+  UNIQUE(a_leg_id, slot_ordinal)
+
+a_leg_conversation_view_state
+  a_leg_id
+  state_revision
+  next_slot_ordinal
+```
+Implementation may reduce physical tables if the same transactional invariants are maintained.
+## Persistent Steering Placement
+### D7 — Stable prefix
+`stable_prefix` is for session-wide/context-independent steering.
+Canonical definition:
+> place after the deterministic static instruction region and existing stable-prefix overlays, before mutable conversation history.
+Legacy authority:
+```text
+Instructions: original static instructions + stable overlays
+Messages:     client conversation
+```
+Item authority:
+```text
+leading instruction/message items + stable overlays + conversation items
+```
+The projector must not reorder the original static prefix.
+Adding/replacing/deactivating a stable-prefix overlay changes an early prefix and is recorded as an explicit cache discontinuity. That is unavoidable, but unchanged later turns stay stable.
+### D8 — Fixed activation boundary
+`after_ingress_tail` is for guidance that becomes active during a session.
+Registration service preconditions:
+- there is a current terminal **forwardable user message**;
+- it is not tagged `never_backend`;
+- it is a safe complete message boundary;
+- its semantic identity/occurrence can be resolved.
+The service stores:
+```text
+PlacementAfterMessage(
+  Identity = v1:...,
+  Occurrence = N
+)
+```
+Activation turn:
+```text
+S, ..., U_N, STEERING
+```
+Later:
+```text
+S, ..., U_N, STEERING, A_N, U_N+1
+```
+No "current tail" calculation occurs after registration.
+### Why the terminal user boundary is constrained in V1
+Arbitrary mid-history insertion can land:
+- between a tool call and tool result;
+- within provider reasoning/item linkage;
+- before an assistant item that semantically belongs to the same turn.
+The motivating hidden-steering workflow needs an instruction immediately after the current user input and before the model response. Restricting the V1 anchor to that safe point gives strong cache semantics without a general conversation-splicing engine.
+### D9 — Anchor loss
+A client may compact/truncate history and remove the anchor.
+At that point the old prompt prefix is already discontinuous.
+Policies:
+**stable_prefix_fallback**
+```text
+anchor absent
+   ↓
+move this overlay to deterministic stable-prefix fallback
+   ↓
+emit anchor_missing_fallback diagnostic
+   ↓
+continue
+```
+**fail_closed**
+```text
+anchor absent
+   ↓
+reject before backend execution
+```
+Never:
+```text
+anchor absent → append to current tail
+```
+because that makes placement wander and hides a semantic change.
+## Cache-Stability Contract
+### D10 — Prefix equality is a testable canonical property
+Let:
+```text
+M(T) = normalized model-visible message trajectory after base projection for turn T
+```
+For unchanged steering snapshot and append-only forwardable history:
+```text
+M(T) is a prefix of M(T+1)
+```
+up to the previous final request content.
+This does not claim provider cache hit if other request dimensions changed; it guarantees the visibility mechanism itself did not cause avoidable divergence.
+### D11 — Render once per steering revision
+A producer supplies the complete steering text at Put time. The runtime persists it and reuses it.
+Forbidden inside model-visible persistent content:
+- current timestamp;
+- request/trace/turn ID;
+- B-leg/model-attempt ID;
+- random marker regenerated each turn;
+- dynamic "turn N" counters.
+If a producer needs new content, it explicitly replaces the overlay and receives a new revision/cache-discontinuity event.
+### D12 — Explicit mutation is allowed to break cache once
+Create, content replacement, placement change and deactivate alter model-visible context.
+They are not hidden from observability:
+```text
+conversation_view_cache_discontinuity_total{
+    operation="create|replace|move|deactivate",
+    placement="stable_prefix|after_message"
+}
+```
+Avoid overlay ID or raw digest as a metric label.
+### D13 — Provider cache policy remains separate
+No new core behavior changes:
+- `Call.PromptCacheKey`;
+- vendor cache controls;
+- provider cache TTL;
+- explicit cache resources;
+- cache residency scheduling.
+The existing prompt-cache residency contract observes the effective provider request after these canonical choices. This feature only ensures stable history structure.
+## Projection Algorithm
+### Base projection
+Input:
+- accepted canonical client call;
+- authoritative A-leg;
+- frozen `Snapshot`.
+Algorithm:
+```text
+1. Deep clone client call.
+2. Build semantic message identities for concrete message trajectory.
+3. Remove `never_backend` messages.
+4. Remove dependent in-call references to concrete removed item IDs.
+5. Resolve active steering placements against the filtered trajectory.
+6. Inject stable-prefix overlays in SlotOrdinal order.
+7. Inject fixed-anchor overlays after their resolved user anchors in SlotOrdinal order.
+8. Validate canonical call.
+9. Return backend-effective call + projection evidence.
+```
+Projection never mutates the original call.
+### Item authority
+Insertion/removal works on concrete `ItemKindMessage` items.
+The helper must preserve:
+- all retained IDs/ordering;
+- tool call/result ordering;
+- reasoning/compaction/extension items;
+- references not targeting removed concrete messages.
+A projected item call must pass `Call.Validate()`.
+### Legacy authority
+Projection handles `Instructions` and `Messages` separately:
+- exclusion identities apply to complete messages in either sequence;
+- stable-prefix steering belongs in the instruction prefix;
+- fixed-anchor steering belongs in message history after the durable user anchor.
+## Runtime Flows
+### Flow 1 — Normal turn with client-visible local history and persistent steering
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant F as Frontend
+    participant R as Runtime
+    participant V as ConversationViewStore
+    participant B as Backend
+
+    C->>F: full client-visible history + new user turn
+    F->>R: canonical Call
+    R->>R: resolve authoritative A-leg
+    R->>V: Snapshot(ALegID)
+    V-->>R: exclusions + active steering
+    R->>R: clone, filter exclusions, inject steering
+    R->>R: backend transforms/routing/billing
+    R->>R: attempt shaping
+    R->>R: final reassertion
+    R->>B: Open(final projected call)
+    B-->>F: canonical stream
+    F-->>C: response (steering absent)
+```
+### Flow 2 — Local-only client-visible turn
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant R as Runtime
+    participant V as ViewStore
+    participant H as LocalTurnHandler
+
+    C->>R: canonical request
+    R->>R: authority + secret guard + accepted submit
+    R->>H: Match(ingress)
+    H-->>R: claim source indexes
+    R->>V: TagNeverBackend(source identities)
+    V-->>R: committed
+    R->>H: Handle()
+    H-->>R: assistant text
+    R->>V: TagNeverBackend(reply identity)
+    V-->>R: committed
+    R-->>C: local canonical response
+```
+No route/B-leg/provider/billing authorization occurs after claim.
+### Flow 3 — Register mid-session hidden steering
+```mermaid
+sequenceDiagram
+    participant P as TrustedProducer
+    participant S as SteeringService
+    participant V as ViewStore
+
+    P->>S: Put(overlayID, text, after_ingress_tail)
+    S->>S: resolve terminal forwardable user anchor
+    S->>V: transactional Put(resolved anchor, payload)
+    V-->>S: revision + slot
+    S-->>P: committed
+```
+If the producer commits before the logical turn takes its conversation-view snapshot, that turn includes the overlay. If it commits after snapshot, the next logical turn includes it.
+A future same-turn recall feature must sequence registration before opening its recall logical turn.
+### Flow 4 — Subsequent reinjection at fixed position
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant R as Runtime
+    participant V as ViewStore
+    participant B as Backend
+
+    Note over C,R: Client never saw STEERING
+    C->>R: ... U_N, A_N, U_N+1
+    R->>V: snapshot
+    V-->>R: overlay anchored after U_N
+    R->>R: reinsert ... U_N, STEERING, A_N, U_N+1
+    R->>B: projected call
+```
+### Flow 5 — Anchor disappeared
+```mermaid
+flowchart TD
+    A[Project turn] --> B{Anchor exists?}
+    B -->|yes| C[Inject at fixed anchor]
+    B -->|no| D{Policy}
+    D -->|stable_prefix_fallback| E[Inject at deterministic prefix + diagnostic]
+    D -->|fail_closed| F[Reject before backend]
+```
+## Final Backend Reassertion
+### D14 — Reassert after mutable attempt shaping
+The base projected call is correct for route/context/billing, but attempt transforms/interleaved shaping may mutate it.
+Before PTB/Open the runtime uses the frozen snapshot to ensure:
+- no excluded semantic message is present;
+- each persistent overlay is present exactly once;
+- each overlay is at its intended resolved placement relative to the candidate call;
+- candidate adaptation did not silently discard/reposition required steering.
+The exact implementation should avoid string-marker heuristics. It can carry request-local provenance for overlay instances because the snapshot is authoritative; provenance helps remove/rebuild projection-owned copies without being a replay identity.
+### Candidate rejection versus request failure
+If a candidate cannot represent the required canonical role/placement:
+- when this is a candidate-specific capability/adaptation issue, exclude/reject that candidate through normal pre-open semantics;
+- when projection state itself is invalid/ambiguous for every candidate, fail the logical request.
+Never silently downgrade by deleting or relocating required steering.
+## SDK Contracts
+### `pkg/lipsdk/nonforwardable`
+Trusted narrow registrar:
+```go
+type Registrar interface {
+    TagMessages(
+        context.Context,
+        ALegRef,
+        []MessageRef,
+        ReasonCode,
+    ) error
+}
+```
+Exact types should reuse stable SDK scope/session views rather than exposing internal A-leg records.
+### `pkg/lipsdk/localturn`
 ```go
 type Handler interface {
     ID() string
     Order() int
     FailureMode() hooks.FailureMode
-    Match(context.Context, lipapi.Call, Meta) (Match, error)
-    Handle(context.Context, lipapi.Call, Meta, Services) (Reply, error)
-}
 
-type Match struct {
-    Claimed                 bool
-    NeverForwardItemIndexes []int
-    Reason                  nonforwardable.Reason
-}
+    Match(
+        context.Context,
+        lipapi.Call,
+        Meta,
+    ) (MatchResult, error)
 
-type Reply struct {
-    Text string
+    Handle(
+        context.Context,
+        HandleInput,
+    ) (Reply, error)
 }
 ```
-
-The call provided to Match/Handle is a defensive clone of the pristine ingress view. `NeverForwardItemIndexes` refer to `lipapi.NormalizedItems(ingress)` and must identify complete message items. The indexes are request-local selectors only; they never enter persisted identity.
-
-#### Two-phase runner
-
-For each handler in deterministic order:
-
-1. run `Match` under normal extension panic isolation;
-2. if pass, continue;
-3. if claimed, validate indexes/reason;
-4. compute identities from the pristine ingress units;
-5. persist source tags;
-6. only after successful source commit, call `Handle`;
-7. validate bounded reply text;
-8. construct canonical assistant Message identity;
-9. persist reply tag;
-10. create local EventStream and return handled.
-
-The first claim owns the turn. Once claimed, no later error may fall back to backend execution.
-
-Before claim, Match error behavior follows declared failure mode. After claim, all failures are fail-closed regardless of FailureMode.
-
-No command parser/handler is provided by this spec; tests register fakes only.
-
-### D12. Local-turn placement preserves security/evidence and avoids inference work
-
-Minimal runtime integration should avoid a broad Executor rewrite.
-
-Refactor prepare result shape enough to express either:
-
-- `BackendPrepared`; or
-- `LocalHandled` with a canonical stream.
-
-Place local-turn matching after:
-
-- request validation;
-- auth/principal/workspace resolution;
-- secure-session BeginTurn/A-leg fetch;
-- secret guard;
-- existing request-authority/submit/client evidence work needed to preserve current security/audit ordering;
-
-but before:
-
-- backend request/pre-request transforms;
-- `Keepwarm.BeginRealTurn`;
-- billing call identity/credit authorization;
-- route planning;
-- A-leg B-leg lifecycle start;
-- any backend/model/provider call.
-
-If current request authority is already acquired to preserve submit ordering, the local outcome explicitly releases it. It creates no B-leg or billing/usage closure.
-
-The secure-session response/resume token must be applied to the client-facing `call.Session` before returning a local outcome exactly as for a normal successful new A-leg turn.
-
-### D13. Core owns local reply stream construction
-
-Do not let a handler return an arbitrary EventStream because then the core could not prove which client-visible message was tagged.
-
-The handler returns bounded `Reply.Text`. Core constructs exactly one assistant text message and its finite canonical stream:
-
-```text
-response_started
-message_started(index=0)
-text_delta(reply text)
-response_finished(completed)
-EOF
-```
-
-No UsageDelta, backend identity, B-leg ID, reasoning, or tool event is fabricated.
-
-The same assistant message value used for identity/tagging is the semantic source of the text event, preventing tag/output drift.
-
-A small production-named finite local stream/factory belongs in core/runtime support rather than treating a test helper as domain intent. It performs no goroutine work and honors Recv context/Close contracts.
-
-### D14. `pkg/lipsdk/nonforwardable` is a narrow trusted-producer contract
-
-Expose only producer-safe value/service contracts, not persistence:
-
+`MatchResult` can only claim complete normalized message indexes.
+`Reply` is bounded assistant text, not an arbitrary stream.
+### `pkg/lipsdk/steering`
+Logical contract:
 ```go
-type Reason string
+type OverlayID string
 
-type Registrar interface {
-    MarkMessage(context.Context, lipapi.Message, Reason) error
-    MarkItem(context.Context, lipapi.Item, Reason) error // ItemKindMessage only
+type PlacementKind string
+
+const (
+    StablePrefix     PlacementKind = "stable_prefix"
+    AfterIngressTail PlacementKind = "after_ingress_tail"
+)
+
+type AnchorMissingPolicy string
+
+const (
+    StablePrefixFallback AnchorMissingPolicy = "stable_prefix_fallback"
+    FailClosed           AnchorMissingPolicy = "fail_closed"
+)
+
+type PutRequest struct {
+    OverlayID           OverlayID
+    Message             Message
+    Placement           PlacementKind
+    AnchorMissingPolicy AnchorMissingPolicy
+    Reason              ReasonCode
+}
+
+type State struct {
+    OverlayID    OverlayID
+    Revision     uint64
+    SlotOrdinal  uint64
+    Active       bool
+}
+
+type Writer interface {
+    Put(context.Context, PutRequest) (State, error)
+    Deactivate(context.Context, OverlayID) (State, error)
 }
 ```
-
-The runtime supplies a request/A-leg-bound implementation where a future trusted stage needs it. It never accepts an ALegID from client data and never exposes query/remove operations to plugins unless a later design justifies them.
-
-The local-turn runner itself performs mandatory source/reply registration; handlers need not remember to call Registrar for those standard objects.
-
-This contract is the generalized reuse point for a future standalone quota/status-notification producer: the producer-specific delivery stage can register its standalone message with the same tag-before-release service without changing identity/store/enforcement architecture.
-
-### D15. Continuation history remains A-leg truth
-
-Do not physically erase local turns from continuation storage.
-
-OpenResponses already materializes a parent before Executor. Therefore:
-
-```text
-stored continuation: remote A -> local input/reply B -> user C
-                                    |
-                                    v
-materialized canonical call
-                                    |
-                            early non-forwardable projection
-                                    |
-backend sees:          remote A -> user C
+The concrete writer is bound to/validates authoritative A-leg scope via explicit application context/construction. Client frontends never receive it.
+### Trusted construction
+Do not put steering writer in a process-global registry.
+Preferred options:
+- inject into an official feature's constructor/application service at composition;
+- pass through an existing typed feature service bag if implementation discovers an already appropriate one.
+If no existing typed construction seam fits, add one focused SDK/composition field; do not introduce a generic `map[string]any` service locator.
+## Persistence Semantics
+### MemoryStore
+Add conversation-view state to `legState`:
+```go
+type legConversationView struct {
+    Revision     uint64
+    NeverBackend map[MessageIdentity]Tag
+    Steering     map[string]SteeringOverlay
+    NextSlot     uint64
+}
 ```
-
-Local responses continue through existing frontend response-ID reservation/observer logic. Their stored output identity is recognized from semantic content after later materialization.
-
-Add integration tests for:
-
-- full-history legacy replay;
-- OpenResponses `previous_response_id` chain containing local turn;
-- generation reload between local turn and later backend turn.
-
-No continuation schema change is required for correctness. If future performance work wants to skip local nodes during materialization, that is optional optimization and must not become enforcement authority.
-
-### D16. CTP remains honest; PTB is sanitized
-
-Observability rules:
-
-- inbound/raw/canonical CTP can contain the local input/reply because they are real A-leg history, subject to existing secret/capture policies;
-- local-turn outcome emits bounded event/counter diagnostics but no PTB;
-- normal PTB capture occurs after final guard and cannot contain tagged content;
-- logs/metrics use counts, trace/A-leg IDs, handler ID, and bounded reason codes only;
-- do not put digest or message text in metric label values.
-
-Recommended metrics (exact naming follows repository conventions):
-
-- local-turn claims/handled/failures;
-- never-forward tags added/idempotent/capacity failures;
-- messages filtered early/final;
-- enforcement failures.
-
-### D17. Fail closed on enforcement uncertainty
-
-Errors include conceptually:
-
-- unknown/deleted A-leg;
-- registry unavailable;
-- capacity exceeded;
-- unsupported message identity form;
-- invalid local-turn claimed index;
-- invalid/empty/oversized local reply;
-- invalid projected call/dependency;
-- no forwardable content;
-- final-guard validation failure.
-
-Safety behavior:
-
-- never interpret lookup failure as empty registry;
-- never fall through to backend after a local handler claims;
-- never release an untagged designated local reply;
-- never emit PTB before final validation;
-- no retry is introduced after output.
-
-Wire error mapping can reuse existing generic frontend execution-error classification; this feature does not require a new public provider-specific error schema.
-
-### D18. No configuration toggle controls enforcement
-
-Never-forward enforcement is a correctness property once tags exist, not an optional display feature. Standard Memory/Bun hosts wire the Reader/Tagger capability regardless of whether the active generation currently has local-turn producers.
-
-A generation with no local-turn handlers behaves normally while still filtering previously stored tags.
-
-If local-turn handlers are contributed but the configured continuity implementation cannot provide required non-forwardable persistence, generation/runtime composition fails deterministically. Do not silently run a producer without replay protection.
-
-### D19. No process-global authoritative tag cache
-
-MemoryStore naturally stores in-process tags. Bun shared/durable mode reads one fresh bounded snapshot per logical turn. Request-local snapshots are immutable and die with the request.
-
+All operations run under the existing A-leg mutex.
+Snapshot returns deep owned copies.
+### Bun
+Mutations use the existing A-leg transaction/lock pattern:
+```text
+lock A-leg row
+validate current state/bounds
+apply tag/overlay mutation
+advance state/overlay revision if semantic mutation
+touch A-leg
+commit
+```
+No-op Put/deactivate refreshes liveness according to the store's existing policy but does not fabricate a content revision.
+PostgreSQL/SQLite behavior is contract-tested identically.
+## Concurrency Semantics
+There are two linearization points:
+1. **state mutation commit** — exclusion/overlay replacement becomes authoritative;
+2. **turn snapshot** — logical turn freezes the state it will use.
+Cases:
+```text
+Put commits before T snapshot  -> T uses new overlay
+T snapshots before Put commit  -> T stays on old overlay; T+1 uses new overlay
+```
+No watcher is needed.
+Parallel candidate arms use exactly the same frozen snapshot.
+## Interaction With Continuation
+### Client-visible local content
+May be recorded in proxy continuation because it is part of client truth. Later materialization filters it from B-leg.
+### Backend-only steering
+Must **not** be added to the frontend continuation record. It is reconstructed after materialization from conversation-view state.
 This avoids:
-
-- cross-process staleness;
-- invalidation/watchers;
-- generation mutation;
-- per-B-leg database work.
-
-### D20. Future producer guidance
-
-This infrastructure is intentionally not command-specific. Future producers must follow these rules:
-
-- designate only complete standalone local-only messages;
-- register before client release;
-- never trust client metadata to request a tag;
-- use local-turn for complete backend-free turns where appropriate;
-- use the same Registrar if a later trusted response-injection stage emits a standalone local notice;
-- never append local-only text into a backend-relevant assistant message and then expect this whole-message facility to strip only the suffix.
-
-## System Flows
-
-### Flow 1: Normal turn with historical local-only messages
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant E as Executor
-    participant S as SecureSession
-    participant R as NF Registry
-    participant X as Request/Route/Billing
-    participant B as Backend
-
-    C->>E: full transcript incl. old local messages + new user prompt
-    E->>S: BeginTurn
-    S-->>E: authoritative ALegID
-    E->>E: secret guard + submit/CTP
-    E->>R: Snapshot(ALegID)
-    R-->>E: bounded tag snapshot
-    E->>E: early project; remove tagged messages
-    E->>X: filtered backend-effective call
-    X-->>E: candidate/attempt
-    E->>E: late transforms/adaptation
-    E->>E: final guard with same snapshot
-    E->>B: safe wireCall
+- exposing steering to clients that fetch/replay continuation;
+- duplicating it when materialized history is later projected;
+- making frontend continuation another authority store.
+## Interaction With Prompt Caching
+### OpenAI-family
+Exact/common prefixes are economically valuable. Fixed activation-boundary steering ensures a steering message inserted on recall/turn N becomes part of append-only model history thereafter instead of moving behind each new user message.
+### Anthropic-family
+The generic canonical design maps naturally to mid-conversation persistent instructions when the adapter supports such role/placement. The core does not hard-code Anthropic cache markers.
+### Gemini-family
+Stable/common prompt prefixes benefit from unchanged prefix placement. The core similarly avoids cache-provider semantics.
+### Sentinel strategy
+Do not add a Cartesian matrix.
+Use bounded representative adapters/translation tests:
+- one OpenAI-family path;
+- one Anthropic-family path;
+- one Gemini-family path.
+They prove:
+- projected ordering survives translation;
+- hidden steering is not frontend-visible;
+- no adapter silently drops/moves required canonical content.
+## Observability
+Suggested metrics:
+```text
+conversation_view_filtered_messages_total{reason_class}
+conversation_view_steering_injections_total{placement}
+conversation_view_steering_mutations_total{operation,placement}
+conversation_view_anchor_missing_total{policy}
+conversation_view_cache_discontinuities_total{operation,placement}
+conversation_view_projection_failures_total{stage}
 ```
-
-### Flow 2: Generic proxy-local turn
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant E as Executor
-    participant H as LocalTurnHandler
-    participant R as NF Registry
-    participant F as Frontend Encoder
-
-    C->>E: canonical request
-    E->>E: auth/session/A-leg/secret/submit
-    E->>H: Match(pristine ingress)
-    H-->>E: claim + input indexes + reason
-    E->>R: Tag(source message identities)
-    R-->>E: committed
-    E->>H: Handle(...)
-    H-->>E: Reply{text}
-    E->>R: Tag(assistant reply identity)
-    R-->>E: committed
-    E-->>F: local canonical EventStream
-    F-->>C: normal successful assistant response
-    Note over E: no route plan, billing authorization, B-leg, or PTB
-```
-
-### Flow 3: Defense-in-depth against late reintroduction
-
-```mermaid
-sequenceDiagram
-    participant E as Executor
-    participant T as AttemptTransform
-    participant G as Final Guard
-    participant P as PTB Capture
-    participant B as Backend
-
-    E->>T: early-filtered attempt
-    T-->>E: attempt with a tagged message reintroduced
-    E->>G: final backend-facing call + turn snapshot
-    G-->>E: tagged message removed + validated call
-    E->>P: sanitized call only
-    E->>B: sanitized wireCall only
-```
-
-### Flow 4: OpenResponses continuation replay
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant O as OpenResponses frontend
-    participant CS as Continuation store
-    participant E as Executor
-    participant B as Backend
-
-    C->>O: previous_response_id + new input
-    O->>CS: ResolveParent/materialize
-    CS-->>O: history incl. prior local turn
-    O->>E: materialized lipapi.Call
-    E->>E: A-leg snapshot + early projection
-    E->>B: history with local turn removed
-```
-
-## Components & Interfaces
-
-### `internal/core/nonforwardable`
-
-Responsibilities:
-
-- `Identity`, `ReasonCode`, `Tag`, `Snapshot` value types;
-- deterministic semantic identity builders;
-- `Reader`/`Tagger`/`Store` ports;
-- pure legacy/item call projector;
-- reference cleanup + validation helpers;
-- request/A-leg-bound Registrar implementation;
-- typed internal errors/capacity constants.
-
-It must not know command syntax, routing, billing, frontend DTOs, backend plugins, or Bun.
-
-### `pkg/lipsdk/nonforwardable`
-
-Responsibilities:
-
-- narrow trusted producer reason/Registrar contract;
-- package documentation stating whole-message/tag-before-release/client-untrusted semantics.
-
-No read/list/delete persistence API.
-
-### `pkg/lipsdk/localturn`
-
-Responsibilities:
-
-- `Handler`, `Match`, `Reply`, `Meta`, `Services`;
-- deterministic sort helpers if repository stage convention places them in SDK;
-- validation helpers for bounded reply/reason/index shape where appropriate.
-
-`Meta` should reuse established principal/scope/session/workspace view types and contain trace/A-leg correlation without provider objects.
-
-### `internal/core/extensions`
-
-Responsibilities:
-
-- run ordered local-turn Match stages under existing panic/failure-mode conventions;
-- stop on first claim;
-- return a typed claimed handler/result to runtime;
-- no persistence/backend orchestration in generic extension runner beyond safe call boundaries.
-
-### `internal/core/runtime`
-
-Responsibilities:
-
-- retain pristine ingress view;
-- place local-turn stage at the accepted-A-leg/pre-backend cut;
-- persist source tags before Handle;
-- persist reply before local stream release;
-- short-circuit local turn before inference work;
-- load one normal-turn tag snapshot;
-- use early filtered call for backend-oriented preparation;
-- carry request-local guard to candidate attempts;
-- final enforce before PTB/open;
-- emit bounded diagnostics.
-
-### `internal/core/b2bua.MemoryStore`
-
-Responsibilities:
-
-- implement optional store semantics with existing lock/A-leg liveness/eviction.
-
-### `internal/core/continuity/bunstore.Store`
-
-Responsibilities:
-
-- migration + SQLite/PostgreSQL implementation;
-- transactional batch/capacity/A-leg liveness semantics;
-- snapshot read;
-- cascade cleanup.
-
-### FeatureBundle/runtime snapshot/composition
-
-Responsibilities:
-
-- optional `LocalTurnHandlers` contribution under schema v1;
-- validate nil entries and deterministic order;
-- merge with existing feature bundles;
-- freeze handler list per immutable generation;
-- derive non-forwardable store capability from process continuity;
-- fail composition if handlers exist without required persistence.
-
-## Data Models
-
-### Persistent tag
-
-Logical schema:
-
-| Field | Meaning |
-|---|---|
-| `a_leg_id` | authoritative owner |
-| `identity_version` | v1 initially |
-| `identity_digest` | SHA-256 digest/hex |
-| `reason_code` | bounded non-secret category |
-| `created_at` | diagnostics/lifecycle evidence |
-
-Primary key: `(a_leg_id, identity_version, identity_digest)`.
-
-No plaintext, message JSON, route, model, or response payload is stored.
-
-### Request-local guard
-
-Conceptually:
-
-```go
-type TurnGuard struct {
-    ALegID string
-    Tags   map[Identity]TagMeta // immutable snapshot + committed current-turn additions
-}
-```
-
-Only request-local runtime code mutates additions after successful Store.Tag; persistence remains authority.
-
-### Local-turn decision
-
-- handler identity/order/failure mode;
-- claimed boolean;
-- normalized complete-message indexes from pristine ingress;
-- bounded reason code;
-- one assistant text reply after Handle.
-
-No command name/arguments appear in the generic contract.
-
+Do not label by:
+- overlay ID;
+- message digest;
+- A-leg ID;
+- steering text;
+- command/verifier-specific values.
+Structured debug logs may carry trace/A-leg correlation according to existing diagnostic rules plus bounded overlay ID/revision, but not steering text by default.
 ## Error Handling
-
 | Failure | Behavior |
 |---|---|
-| snapshot/store unavailable | fail closed; no route/PTB/backend |
-| capacity exceeded while claiming source | handler Handle not called; no backend fallback |
-| local handler error after claim | request fails; source tag remains; no backend fallback |
-| reply invalid/too large | no reply release; no backend fallback |
-| reply tag failure | no reply release; no backend fallback |
-| invalid claimed index/non-message | fail claimed turn; no backend fallback |
-| early projection invalid | fail before route planning |
-| final guard invalid | no PTB/open |
-| Match error before claim + fail-open | log bounded failure; continue handler chain/normal path |
-| Match error before claim + fail-closed | request fails |
-| A-leg deleted during tag transaction | mutation fails/not-found; no orphan tag |
-
-Error messages/logs do not include raw local message text by default.
-
-## Testing Strategy
-
-### TDD order
-
-Every core contract starts with RED tests before production implementation.
-
-### Identity tests
-
-- legacy Message vs Item message equivalence;
-- role differences;
-- generated IDs/status/phase/metadata ignored;
-- CRLF normalization without whitespace trimming;
-- deterministic JSON canonicalization;
-- multipart ordering;
-- invalid/non-message rejection;
-- official frontend local-reply encode/replay identity round-trip.
-
-### Registry contract tests
-
-Common semantic suite for Memory and Bun:
-
-- initial empty snapshot;
-- tag then snapshot;
-- idempotent duplicate;
-- atomic multi-tag batch;
-- 4096 cap and overflow no-partial-write;
-- reason bounds;
-- unknown/deleted A-leg;
-- A-leg liveness behavior;
-- delete/recreate no inheritance;
-- concurrent Tag/Snapshot under race detector;
-- SQLite restart;
-- PostgreSQL integration/shared-store visibility.
-
-### Projector tests
-
-- legacy Instructions/Messages removal/order preservation;
-- item message removal;
-- legacy/item semantic-equivalent identity;
-- dependent in-call item-reference cleanup;
-- invalid/no-forwardable-content failure;
-- retained content byte/field preservation;
-- no mutation of input Call;
-- stable validation.
-
-### Local-turn stage tests
-
-- deterministic ordering/first claim;
-- pure pass;
-- source tags commit before Handle is invoked (barrier/probe);
-- source-tag failure means Handle never runs;
-- post-claim Handle error never reaches backend;
-- valid reply tagged before first client event;
-- reply-tag failure yields no reply/backend;
-- zero B-legs/PTB/billing/provider usage;
-- session/resume/CTP still present;
-- no real command handler in fixtures.
-
-### Runtime enforcement tests
-
-- early filter affects actual backend baseline/request size/context/billing inputs;
-- CTP contains original while PTB/backend fake receives sanitized call;
-- late attempt transform reintroduces tagged message and final guard strips it;
-- initial/failover/retry/parallel/TTFT/interleaved all converge on final guard;
-- store failure blocks backend;
-- no retry-after-output regression.
-
-### Continuation/frontend tests
-
-- full-history agent replay;
-- local reply encoded/decoded by official frontends;
-- OpenResponses local turn stored, then materialized via `previous_response_id`, then scrubbed before backend;
-- generation reload removes handler but keeps old tags enforceable.
-
-### Architecture/quality tests
-
-- base continuity interfaces unchanged;
-- FeatureBundle schema v1 additive field/drift fixtures updated;
-- no provider imports in core package;
-- no direct backend open bypass without final guard;
-- standard repo `gofmt`, vet, architecture checks, `go test ./...`, focused PostgreSQL suite, and targeted `go test -race`.
-
+| Snapshot read fails | fail closed before backend |
+| `never_backend` tagging fails | no local side effect/reply release |
+| Steering Put exceeds bounds | atomic failure; old state remains |
+| Anchor invalid at Put | reject mutation |
+| Anchor missing at projection + fallback | deterministic prefix fallback + diagnostic |
+| Anchor missing + fail-closed | no backend request |
+| Final reassert cannot restore invariant | no PTB/Open |
+| Candidate cannot preserve steering role/placement | candidate reject; no silent drop/move |
+| Local handler claimed then fails | request fails; no inference fallback |
+## SOLID Review
+### Single Responsibility
+- semantic identity: message equivalence only;
+- conversation-view store: A-leg visibility state only;
+- projector: derive model-visible call only;
+- local-turn handler: feature application behavior only;
+- steering writer: state mutation application service only;
+- runtime: sequencing;
+- Bun/Memory: persistence;
+- frontend/backend: translation.
+### Open/Closed
+New frontends/backends inherit projection at canonical boundaries. New producer features use narrow writers/handlers rather than adding runtime branches.
+### Liskov
+Memory and Bun stores satisfy the same snapshot/mutation semantics. Local streams satisfy the existing EventStream consumer contract.
+### Interface Segregation
+Reader, Tagger, SteeringWriter and local-turn Handler are separate. Base continuity stays narrow.
+### Dependency Inversion
+Runtime/application services depend on ports. Stores implement them. Producers use SDK contracts. Core imports no provider SDK.
 ## Security Considerations
-
-- Tags are server-owned and A-leg-authorized; client metadata cannot forge or clear them.
-- Tag storage contains digests/reason codes, not plaintext.
-- Secret guard runs before local handlers inspect an accepted turn.
-- Store failures fail closed.
-- Tag-before-release prevents a replayable local message from escaping before protection exists.
-- Final PTB guard is the backend exfiltration boundary.
-- Whole-message granularity avoids regex injection/marker spoofing as enforcement authority.
-
-## Performance Considerations
-
-- One bounded tag snapshot read per normal logical turn; no per-B-leg store I/O.
-- Maximum 4096 identities bounds DB result and in-memory map size.
-- Identity hashing is O(total canonical message bytes) already bounded by Call validation limits.
-- Final guard is an in-memory identity set lookup per candidate call.
-- No polling/background cleanup or cross-generation cache invalidation.
-- No provider Cartesian changes.
-
-## Migration and Compatibility
-
-- Additive Bun migration; legacy A-legs naturally have zero tags.
-- No `lipapi.Call`/Event wire change.
-- No base B2BUA/public continuity interface change.
-- FeatureBundle schema remains v1 with an optional field.
-- Standard hosts always enforce stored tags; producer presence is generation-specific.
-- No handler configured + no tags preserves normal behavior aside from bounded snapshot/projection overhead.
-- Existing continuation records need no migration.
-
+- Conversation-view mutation is trusted proxy authority.
+- No client protocol can mark messages local-only or inject steering.
+- Backend-only steering is withheld from client transport/history but is visible to the remote provider/model.
+- Producers must not use it for credentials/secrets.
+- Steering plaintext at rest is bounded application data; existing DB/storage access controls apply.
+- Ordinary metrics/logs are content-free.
+- Existing secret guard continues before local-turn feature logic.
+## Performance and Scalability
+### Hot path
+One bounded snapshot read per logical backend turn.
+Projection complexity is linear in:
+- canonical message count;
+- up to 4096 exclusion digests;
+- up to 64 active overlays.
+Implementation should materialize exclusion membership as an in-memory set in the snapshot.
+No DB read per candidate arm.
+### Cache performance
+Primary performance requirement is negative: **do not destroy cache locality**.
+Benchmarks/tests should measure:
+- projection allocation cost;
+- no-overlay/no-tag fast path;
+- 64-overlay upper bound;
+- 4096-tag lookup;
+- prefix-equality across growing histories.
+## Testing Strategy
+### Unit tests
+- identity normalization/equivalence/occurrence anchoring;
+- exclusion filtering;
+- stable-prefix/after-message placement;
+- duplicate overlay prevention/slot ordering;
+- anchor fallback/fail;
+- prefix invariant across 3+ turns.
+### Store contract tests
+Memory + SQLite + PostgreSQL:
+- tag idempotency/batch atomicity/cap;
+- overlay Put no-op/replace/deactivate;
+- slot/revision monotonicity;
+- aggregate byte limits;
+- deletion/recreation;
+- restart/load;
+- concurrent mutations/snapshots.
+### Runtime composed tests
+- CTP includes client-local but no hidden steering;
+- PTB excludes client-local and includes hidden steering;
+- route/context/billing sees projected call;
+- late transform tries to undo both directions;
+- initial/failover/parallel/TTFT/interleaved all share reassertion;
+- producer removal/generation reload leaves stored state active.
+### Local-turn tests
+Fake handlers only:
+- Match → source tag → Handle ordering;
+- reply tag before release;
+- no B-leg/provider/billing;
+- no post-claim fallback.
+### Continuation/frontend tests
+- legacy full-history replay;
+- OpenResponses previous-response materialization;
+- local reply remains client-visible but filtered later;
+- hidden steering never stored/replayed through frontend continuation.
+### Cache/translation sentinel tests
+- activation turn and next two turns satisfy exact-prefix normalized trajectory;
+- unchanged overlay bytes/order stay equal;
+- replace/deactivate recorded as discontinuity then stabilizes;
+- anchor removal exercises fallback/fail;
+- OpenAI/Anthropic/Gemini family representative translation retains ordering.
+### Race/quality
+- concurrent Put/deactivate/tag vs snapshot;
+- shared-state generation reload;
+- targeted `go test -race`;
+- `make quality-checks`, `make test-unit`, architecture tests;
+- SQLite default tests + PostgreSQL gated integration.
 ## Requirements Traceability
-
-| Requirement | Design coverage |
+| Requirement | Design realization |
 |---|---|
-| 1 | D1-D2, Identity tests |
-| 2 | D3-D5, persistence models/tests |
-| 3 | D6, D11-D14, local-turn tests |
-| 4 | D8-D9, projector/runtime tests |
-| 5 | D7, D10, final-guard path tests |
-| 6 | D11-D13, FeatureBundle/runtime integration |
-| 7 | D13, frontend contract tests |
-| 8 | D7, D15, continuation/reload tests |
-| 9 | D16-D17, security/traffic tests |
-| 10 | D4, D7, D18-D19, architecture/perf tests |
-| 11 | Testing Strategy + task plan |
-
+| 1 | D3, semantic atom/anchor |
+| 2 | D4-D6, Memory/Bun state |
+| 3 | D6, tag store |
+| 4 | local-turn sequencing |
+| 5 | base projection algorithm/runtime flow |
+| 6 | D14 final reassertion/PTB choke point |
+| 7 | `pkg/lipsdk/localturn` + runtime stage |
+| 8 | finite local EventStream |
+| 9 | D6-D9, `pkg/lipsdk/steering`, persistent overlays |
+| 10 | D10-D13, cache tests/fixed placement |
+| 11 | continuation/client-vs-backend flows |
+| 12 | observability/security |
+| 13 | bounded snapshot/TDD/quality gates |
+## Migration / Compatibility
+No existing A-leg rows require data migration beyond additive empty tables/state. Absence of conversation-view rows means empty snapshot.
+Existing behavior with no tags/overlays and no claiming local handler remains functionally unchanged.
+No changes are required to:
+- client request/response wire formats;
+- backend plugin ABI for visibility concepts;
+- route selector grammar;
+- billing records;
+- provider cache-control APIs;
+- base/public continuity interfaces.
 ## Final Design Assessment
-
-The design deliberately adds **one small security/history capability and one small application extension seam**, not a general message-rewrite framework. It uses the existing canonical/B2BUA architecture where it is strongest: A-leg authority for state, immutable request-local snapshots, an effective backend call distinct from client evidence, and one centralized backend-open boundary.
-
-A future interactive-command effort should therefore need to implement only producer behavior (`Match`/`Handle` plus command-owned state ports). It should not need to rediscover replay identities, persist hidden history, modify frontend encoders, change backend adapters, or reopen the Executor's B-leg safety architecture.
+The added steering requirement does not invalidate the original exclusion architecture; it reveals the correct higher-level boundary.
+The final abstraction is:
+> **An authoritative A-leg conversation-view snapshot determines the canonical model-visible B-leg trajectory. Client-only messages are removed; proxy-only persistent steering is injected; the result is used for economics/routing and reasserted at the final backend boundary.**
+For hidden persistent steering, the decisive rule is:
+> **placement is durable state.**
+A steering message is not regenerated "somewhere" each turn. Its content, revision, slot, and activation boundary remain stable until an explicit mutation. That property is what makes invisible steering both reliable and prompt-cache friendly.

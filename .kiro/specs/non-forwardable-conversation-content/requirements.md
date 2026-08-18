@@ -2,326 +2,434 @@
 
 ## Introduction
 
-Go-LIP needs a canonical mechanism for conversation messages that are part of the client-visible A-leg session but must **never** be included in any request sent on an inference B-leg. The proxy must recognize those messages when clients/agents later replay full conversation history, remove them from every backend projection, and allow trusted proxy features to create safe local replies without opening an inference backend.
+Go-LIP needs one canonical mechanism for **proxy-owned conversation visibility** across the A-leg/B-leg boundary. Two opposite cases must be supported without teaching frontends or backends about individual features:
 
-This specification implements the reusable non-forwardable infrastructure only. It deliberately does **not** implement interactive command syntax, command parsers/handlers, routing-setting commands, quota-notification policy, or any other concrete producer. A future interactive-command feature should be able to contribute a handler to the generic local-turn seam and use the infrastructure without changing frontend/backend adapters or the core enforcement architecture.
+1. **Client-visible, backend-hidden content** — complete messages that remain part of the client/agent-visible A-leg transcript but must never be sent to an inference backend, even when the client later replays the complete transcript.
+2. **Backend-visible, client-hidden steering** — complete proxy-owned steering messages that are never exposed to the client/agent, but remain model-visible on every applicable B-leg because the proxy persists and deterministically reinjects them.
 
-The first canonical unit is a **complete conversation message**. Partial-message substring/part stripping is not part of this feature; trusted producers must keep local-only content in a standalone message when they need never-forward semantics.
+The second case is not ordinary request mutation. Because the client never sees backend-only steering, the client cannot return it on the next turn; therefore the proxy owns its complete lifecycle, persistence, placement, and reinjection. The placement contract is also a prompt-cache contract: unchanged steering must stay at a stable model-visible position across turns rather than following the moving tail of the conversation.
+
+This specification implements the reusable infrastructure only. It deliberately does **not** implement interactive command syntax/handlers, routing-setting commands, Quality Verifier policy, quota-notification policy, or any other concrete producer. Those later features consume the canonical plumbing defined here.
+
+The first supported unit for both visibility directions is a **complete canonical conversation message**. Partial substring/content-part surgery is not part of this feature.
 
 ## Boundary Context
 
 ### In scope
 
-- Deterministic replay-stable identity for complete canonical message units.
-- Authoritative A-leg-scoped never-forward tag storage.
-- Bounded in-memory and SQLite/PostgreSQL durable persistence following A-leg lifecycle.
-- Early derivation of a backend-effective call with tagged historical messages removed.
-- A mandatory final guard before PTB traffic capture and backend `Open`.
+- Versioned replay-stable semantic identity for complete canonical message units.
+- Authoritative A-leg-scoped `never_backend` classification for client-visible/backend-hidden messages.
+- Authoritative A-leg-scoped persistent backend-only steering overlays with complete proxy-owned message payloads.
+- Bounded MemoryStore and SQLite/PostgreSQL durability following A-leg lifecycle.
+- One coherent per-turn conversation-view snapshot containing exclusion and steering state.
+- Early derivation of a backend-effective call: remove client-visible local-only content, then inject persistent steering.
+- Stable-prefix and fixed activation-boundary steering placement.
+- Cache-friendly reinjection with explicit prefix-stability invariants.
+- A final backend projection guard before PTB traffic capture and backend `Open`.
 - A generic ordered local-turn extension seam for successful proxy-local responses with no B-leg.
-- Tag-before-release semantics for proxy-generated local replies.
+- Tag-before-release semantics for proxy-generated client-visible local replies.
+- A trusted steering writer/controller for future proxy features.
 - Canonical local text response streams encoded by existing frontends.
-- Full-history and OpenResponses continuation replay compatibility.
-- Metrics/diagnostics, failure behavior, race coverage, SDK/plugin documentation, and architecture tests required to make the mechanism production-ready.
+- Full-history and OpenResponses continuation replay/materialization compatibility.
+- Metrics/diagnostics, failure behavior, race/cache regression coverage, SDK/plugin documentation, and architecture tests required for production readiness.
 
 ### Out of scope
 
-- `!/` or any other command grammar.
-- Interactive command parsing, dispatch, command handlers, or setting/routing mutations.
+- `!/` or any other interactive command grammar.
+- Interactive command parsing, dispatch, command handlers, setting/routing mutations, or concrete command state.
+- Quality Verifier decision logic, verifier calls, scheduling, prompts, or recall policy.
 - Concrete quota/budget/usage notifications or their scheduling/policy.
 - A generic asynchronous notification scheduler.
-- Partial text/content-part deletion from mixed backend-relevant messages.
-- Client APIs allowing callers to mark their own content non-forwardable.
-- Provider/backend-specific filtering.
-- A new routing, billing, continuation, or response protocol.
+- Automatic migration of the existing interleaved-thinking memo mechanism to the new persistent steering facility.
+- Partial text/content-part deletion or injection inside a mixed message.
+- Client/data-plane APIs allowing callers to mark their own content hidden or create steering.
+- Provider-specific steering logic or pairwise frontend/backend translation.
+- Provider cache TTL policy, `cache_control` placement, explicit provider cache object management, or modification of `PromptCacheKey`.
+- Guaranteeing that a model will never quote/paraphrase hidden steering in its output; backend-hidden-to-client is a transport/session property, not a secrecy boundary against the model.
 
-### Boundary owner
+### Boundary ownership
 
-- **Canonical message semantics:** `pkg/lipapi` remains the existing owner; no non-forwardable flag is added to the wire/canonical request model.
-- **Never-forward domain/application policy:** new focused `internal/core/nonforwardable` capability.
-- **Trusted producer contracts:** focused `pkg/lipsdk/nonforwardable` and `pkg/lipsdk/localturn` contracts.
-- **Extension composition:** existing FeatureBundle/runtime snapshot machinery.
-- **A-leg persistence:** standard `internal/core/b2bua` memory store and `internal/core/continuity/bunstore` adapters through an optional focused capability.
-- **Runtime enforcement:** `internal/core/runtime` request preparation and shared candidate-open boundary.
-- **Frontend/backend adapters:** remain protocol/provider translation edges and do not own this policy.
+- **Canonical message semantics:** existing `pkg/lipapi`; no client-authoritative visibility flag is added to `Call`, `Message`, or `Item`.
+- **Conversation-view domain/application policy:** focused `internal/core/conversationview` capability: identity, A-leg state value objects, placement resolution, projection, and final integrity checks.
+- **Trusted producer contracts:** focused `pkg/lipsdk/nonforwardable`, `pkg/lipsdk/localturn`, and `pkg/lipsdk/steering` contracts.
+- **Extension composition:** existing FeatureBundle/runtime snapshot machinery for local-turn handlers; steering writer is an explicitly constructed trusted service, not a global locator.
+- **A-leg persistence:** standard `internal/core/b2bua` memory store and `internal/core/continuity/bunstore` through a focused optional capability.
+- **Runtime enforcement:** `internal/core/runtime` after authoritative A-leg resolution and at the shared candidate-open boundary.
+- **Frontend/backend adapters:** remain protocol/provider translation edges; they do not own visibility policy.
+- **Provider prompt-cache semantics:** remain provider/backend-owned; this feature only preserves a cache-friendly canonical model-visible sequence.
 
 ### Hexagonal lens
 
-- Driving adapters: existing client frontends.
-- Application orchestration: runtime local-turn stage and backend-call preparation.
-- Core policy/domain: semantic identity, tags, projection/enforcement.
-- Driven adapters: memory/Bun A-leg tag stores.
+- Driving adapters/producers: existing client frontends and future trusted proxy features.
+- Application orchestration: runtime local-turn stage, per-turn conversation-view snapshot, and backend-call preparation.
+- Core policy/domain: semantic message identity, exclusion, persistent steering state, anchor resolution, deterministic projection.
+- Driven adapters: memory/Bun A-leg conversation-view stores.
 - Composition root: process services + immutable runtime generation/FeatureBundle snapshot.
 
-### Revalidation trigger
+### Revalidation triggers
 
-Any implementation that introduces a new `lipapi.Call`/`lipapi.Event` wire-visible classification field, moves enforcement into provider/frontends, widens base `b2bua.Store`/public continuity contracts, adds partial-message regex rewriting, adds a backend bypass around the final guard, or allows a local-only reply to become client-visible before its tag commit MUST return to design validation.
+Any implementation that introduces a client/wire-visible `non_forwardable`/steering flag, moves policy into frontends/providers, widens the base `b2bua.Store`/public continuity contracts, adds regex/substring rewriting, re-reads mutable state per B-leg, silently relocates steering to the current tail, mutates provider cache keys from core, or allows client-visible local output before durable classification MUST return to design validation.
 
 ## Requirement 1: Canonical Replay-Stable Message Identity
 
-**Objective:** As the proxy, I want one deterministic semantic identity for a complete conversation message so that the same local-only message can be recognized after a client reconstructs and resubmits session history.
+**Objective:** As the proxy, I want one deterministic semantic identity for a complete message so that client-visible local-only content and persistent placement anchors survive reconstruction and replay.
 
 ### Acceptance Criteria
 
-1.1. THE identity service SHALL support complete canonical message units represented by legacy `lipapi.Message`/`Instructions`/`Messages` and by `lipapi.Item` where `Kind == ItemKindMessage`.
+1.1. THE identity service SHALL support complete canonical message units represented by legacy `lipapi.Message` in `Instructions`/`Messages` and by `lipapi.Item` where `Kind == ItemKindMessage`.
 
-1.2. WHEN two supported messages have equivalent canonical role and ordered semantic content, THE identity service SHALL produce the same versioned identity regardless of whether the source representation is legacy message authority or item authority.
+1.2. WHEN two supported messages have equivalent canonical role and ordered semantic content, THE service SHALL produce the same versioned identity regardless of legacy-message versus item authority.
 
-1.3. THE v1 identity SHALL use SHA-256 over a deterministic semantic projection and SHALL include the message role and ordered semantic content.
+1.3. THE v1 identity SHALL use SHA-256 over a deterministic semantic projection containing role and ordered semantic content.
 
-1.4. THE identity projection SHALL exclude transient/non-semantic carriers including generated/transport item IDs, item status, assistant phase, positional indexes, proxy-only `Message.Metadata`, call/session/routing fields, response IDs, and transport/cache wrapper metadata.
+1.4. THE identity projection SHALL exclude transient/non-semantic carriers including generated/transport item IDs, item status, assistant phase, positional indexes, proxy-only `Message.Metadata`, call/session/routing fields, response IDs, trace IDs, B-leg IDs, and transport/cache wrapper metadata.
 
-1.5. THE identity projection SHALL normalize CRLF and CR line endings to LF while otherwise preserving text whitespace and Unicode, and SHALL canonicalize JSON/opaque structured message content deterministically before hashing.
+1.5. THE identity projection SHALL normalize CRLF/CR to LF while otherwise preserving text whitespace and Unicode, and SHALL canonicalize structured JSON content deterministically before hashing.
 
-1.6. WHEN a supported message is encoded through an official frontend representation and later decoded from an equivalent client replay, THE decoded message identity SHALL remain equal for all content forms covered by the frontend contract tests.
+1.6. WHEN a supported message is encoded through an official frontend and later decoded from equivalent replay, THE decoded identity SHALL remain equal for every covered content form.
 
-1.7. THE persistent registry and normal logs/metrics SHALL store or emit only the identity version/digest and bounded metadata; they SHALL NOT persist or log message plaintext merely to enforce non-forwardability.
+1.7. Normal registry logs/metrics SHALL contain only version/digest and bounded metadata; plaintext SHALL NOT be logged merely to enforce exclusion or resolve an anchor.
 
-1.8. IF an item is not a complete message item, THEN the message-tagging API SHALL reject it rather than infer partial-item semantics.
+1.8. IF an item is not a complete `ItemKindMessage`, THEN identity/tag/anchor APIs SHALL reject it rather than infer partial-item semantics.
 
-1.9. THE first implementation SHALL NOT classify an individual substring or content part independently from its containing message.
+1.9. V1 SHALL NOT classify or anchor an individual substring/content part independently from its containing message.
 
-1.10. WHEN role/content-identical messages occur more than once in one A-leg, THE system SHALL intentionally treat them as the same semantic identity and therefore the same never-forward disposition.
+1.10. WHEN role/content-identical messages occur more than once, THE base semantic digest MAY repeat; any placement anchor that must distinguish occurrences SHALL pair the digest with an explicit occurrence ordinal.
 
-## Requirement 2: Authoritative A-Leg Never-Forward Registry
+## Requirement 2: Authoritative A-Leg Conversation-View State
 
-**Objective:** As the proxy, I want non-forwardable classification to follow authoritative session continuity so that replay protection survives turns, reloads, and durable-session restart.
-
-### Acceptance Criteria
-
-2.1. THE registry SHALL key all tags by proxy-authoritative `ALegID`; client session hints, frontend connection IDs, raw response IDs, B-leg IDs, or client-supplied A-leg strings SHALL NOT independently authorize tag lookup or mutation.
-
-2.2. THE registry SHALL model a never-forward tag as append-only A-leg state containing identity version/digest, a bounded non-secret reason code, and creation metadata sufficient for diagnostics.
-
-2.3. WHEN the same identity is tagged repeatedly on one A-leg, THE mutation SHALL be idempotent and SHALL NOT consume additional capacity.
-
-2.4. WHEN multiple new identities are submitted in one tagging batch, THE store SHALL commit all new tags atomically or commit none of them.
-
-2.5. THE standard in-memory B2BUA store SHALL implement the focused registry capability under the existing A-leg lock/lifecycle without widening the base `b2bua.Store` contract.
-
-2.6. THE standard Bun continuity store SHALL persist the same semantics for SQLite and PostgreSQL using an A-leg-owned migration and SHALL remove tag rows when the owning A-leg is deleted.
-
-2.7. WHEN durable continuity is configured and the process restarts, THE next resumed A-leg turn SHALL observe all previously committed never-forward tags.
-
-2.8. WHEN immutable runtime generations reload, THE tag state SHALL remain process/continuity-owned and SHALL NOT be copied into or reset with a generation.
-
-2.9. WHEN an A-leg is deleted and later recreated/replaced, THE new A-leg SHALL NOT inherit tag state from the deleted A-leg.
-
-2.10. THE registry SHALL enforce a hard maximum of 4096 unique message identities per A-leg in v1.
-
-2.11. IF a tagging operation would exceed the A-leg capacity, THEN the operation SHALL fail without partial mutation and the caller SHALL NOT be allowed to expose newly designated local-only content as if it were protected.
-
-2.12. THE feature SHALL NOT expose a client/data-plane API that lets an untrusted caller create or remove never-forward tags.
-
-## Requirement 3: Tag-Before-Release Safety
-
-**Objective:** As the proxy, I want classification to become durable before local-only content is exposed so that any later client replay is causally guaranteed to be filterable.
+**Objective:** As the proxy, I want visibility state to follow authoritative session continuity so exclusions and steering survive turns, reloads, durable restart, and shared stores.
 
 ### Acceptance Criteria
 
-3.1. BEFORE any proxy-generated message designated never-forward becomes visible through a frontend response, THE system SHALL commit that message's A-leg tag successfully.
+2.1. ALL state SHALL be keyed by proxy-authoritative `ALegID`; client session hints, response IDs, B-leg IDs, or unvalidated A-leg strings SHALL NOT authorize lookup/mutation.
 
-3.2. IF reply tagging fails, THEN the proxy SHALL NOT release any event containing that local-only reply.
+2.2. THE standard in-memory B2BUA store SHALL implement a focused optional conversation-view capability under the existing A-leg lock/lifecycle without widening base `b2bua.Store`.
 
-3.3. WHEN a local-turn handler claims existing client input as local-only, THE runtime SHALL persist the claimed input-message tags before invoking the handler's side-effecting/response-producing phase.
+2.3. THE standard Bun continuity store SHALL persist equivalent semantics for SQLite and PostgreSQL using A-leg-owned rows/tables and SHALL remove dependent state with A-leg deletion.
 
-3.4. IF claimed-input tagging fails, THEN the local-turn handler's execution phase SHALL NOT run and no B-leg SHALL be opened as fallback for that claimed turn.
+2.4. WHEN durable continuity is configured and the process restarts, a resumed A-leg SHALL observe previously committed exclusions and active steering.
 
-3.5. AFTER a current-turn tag mutation commits, THE request-local enforcement view SHALL include the new identity immediately without waiting for another store read.
+2.5. WHEN runtime generations reload, conversation-view state SHALL remain process/continuity-owned and SHALL NOT be copied into or reset with a generation.
 
-3.6. THE implementation SHALL NOT rely on asynchronous/eventual tag persistence after client output.
+2.6. WHEN an A-leg is deleted/recreated, the new A-leg SHALL NOT inherit prior visibility state.
 
-3.7. IF a local-turn execution phase fails after its input was tagged, THEN the input tag SHALL remain authoritative and the request SHALL fail without falling back to inference.
+2.7. THE store SHALL provide one coherent bounded snapshot containing both `never_backend` tags and active persistent steering overlays for one logical turn.
 
-## Requirement 4: Early Backend Projection of Client History
+2.8. THE store SHALL provide narrow mutation capabilities for exclusion tagging and steering put/replace/deactivate; consumers SHALL depend only on the narrow port they require.
 
-**Objective:** As the routing/billing/runtime pipeline, I want local-only history removed before backend-oriented processing so that it cannot influence model selection, context limits, policy, or cost.
+2.9. Snapshot/mutations SHALL be linearizable per A-leg for the standard memory and Bun implementations.
 
-### Acceptance Criteria
+2.10. Shared PostgreSQL deployments SHALL read authoritative state per logical turn; no indefinitely stale process-global cache SHALL be authoritative.
 
-4.1. AFTER authoritative A-leg resolution and A-leg/client evidence handling, and BEFORE backend-oriented request/pre-request transforms, route planning, context-size estimation, billing authorization, capability negotiation, or B-leg creation, THE runtime SHALL derive a backend-effective call from the accepted client/work call.
+2.11. THE base public `pkg/lipsdk/continuity.Store` and unrelated continuity implementations SHALL remain source-compatible.
 
-4.2. FOR each normal logical backend turn, THE runtime SHALL load at most one bounded authoritative never-forward snapshot from continuity and SHALL carry that snapshot with request-local state across all B-leg attempts.
+2.12. THE state representation SHALL be explicitly bounded and reject mutations atomically when any configured v1 count/byte limit would be exceeded.
 
-4.3. THE early projection SHALL operate on a deep clone/effective call and SHALL NOT rewrite the original client call or CTP evidence merely to hide local-only history from the B-leg.
+## Requirement 3: Client-Visible / Backend-Hidden (`never_backend`) Registry
 
-4.4. WHEN a legacy `Instructions` or `Messages` entry matches the A-leg tag snapshot, THE projection SHALL remove that complete message while preserving the order and fields of every retained message.
-
-4.5. WHEN an `ItemKindMessage` matches the snapshot under item authority, THE projection SHALL remove that complete item while preserving the order and fields of every retained item.
-
-4.6. WHEN an in-call `ItemKindItemReference` refers to an item ID removed by the projection, THE projection SHALL remove the dependent reference rather than forward a dangling in-call reference.
-
-4.7. AFTER filtering and dependency cleanup, THE projected call SHALL pass normal canonical validation before any backend-oriented stage uses it.
-
-4.8. IF filtering leaves no valid forwardable request content or produces an unresolved canonical dependency, THEN the request SHALL fail closed before route planning/backend execution.
-
-4.9. THE backend-oriented request/pre-request stages, route/context estimation, billing/credit calculations, capability checks, and baseline freeze SHALL use the filtered backend-effective call rather than the unfiltered client-history view.
-
-4.10. THE projection logic SHALL be frontend- and provider-neutral and SHALL NOT import protocol DTOs or provider SDK types.
-
-## Requirement 5: Final Backend Wire Guard
-
-**Objective:** As the proxy security boundary, I want a last enforcement point shared by every B-leg so that later attempt shaping cannot reintroduce local-only content.
+**Objective:** As the proxy, I want A-leg-visible local messages to stay off every inference B-leg after the client replays them.
 
 ### Acceptance Criteria
 
-5.1. IMMEDIATELY BEFORE PTB traffic capture and backend `Open`, THE shared candidate-open path SHALL enforce never-forward classification on the final backend-facing canonical call after per-candidate shaping/transforms and candidate adaptation.
+3.1. A `never_backend` tag SHALL contain message identity, bounded non-secret reason code, and bounded creation diagnostics; it SHALL NOT require message plaintext persistence.
 
-5.2. THE final guard SHALL use the logical turn's authoritative tag snapshot plus any identities successfully registered during that turn; it SHALL NOT perform an independent mutable-policy interpretation per B-leg.
+3.2. Tagging the same identity repeatedly on one A-leg SHALL be idempotent and consume no additional unique-tag capacity.
 
-5.3. WHEN a later request/attempt transform reintroduces a message whose identity is tagged never-forward, THE final guard SHALL remove that whole message before PTB capture/backend open.
+3.3. Tagging multiple identities in one batch SHALL commit all new identities or none.
 
-5.4. AFTER final filtering, THE backend-facing call SHALL validate; any enforcement/store/projection uncertainty SHALL fail closed with no PTB payload and no backend invocation.
+3.4. THE v1 unique-tag limit SHALL be 4096 identities per A-leg.
 
-5.5. THE same final guard SHALL cover initial opens, failover, retry-before-output, parallel/race arms, TTFT replacement, and interleaved thinker/executor B-legs.
+3.5. IF a tag operation exceeds capacity or persistence fails, the operation SHALL fail without partial mutation.
 
-5.6. THE feature SHALL NOT create a retry/failover path after downstream output has started and SHALL preserve the existing no-retry-after-output invariant.
+3.6. THE feature SHALL expose no untrusted client/data-plane tag mutation API.
 
-5.7. PTB traffic capture SHALL be generated from the already-enforced backend-facing call, never from the unfiltered client call.
+3.7. Successfully committed current-turn tags SHALL be merged into the request-local snapshot immediately without another store read.
 
-5.8. Backend plugins/connectors SHALL require no non-forwardable-specific implementation.
+## Requirement 4: Tag-Before-Release / Tag-Before-Local-Side-Effect Safety
 
-## Requirement 6: Generic Local-Turn Extension Seam
-
-**Objective:** As a future proxy-local feature, I want a supported way to claim and answer a client turn locally so that I do not need to fake a backend failure or modify every frontend.
+**Objective:** As the proxy, I want client-visible local content classified before it can create an unprotected replay.
 
 ### Acceptance Criteria
 
-6.1. THE SDK FeatureBundle SHALL support an ordered optional collection of generic local-turn handlers without implementing any command-specific handler in this spec.
+4.1. BEFORE any proxy-generated client-visible message designated `never_backend` is released through a frontend, its tag SHALL commit successfully.
 
-6.2. THE local-turn stage SHALL run only after authentication/workspace/secure-session authority, A-leg resolution, ingress secret guarding, and existing submit-policy processing have established an accepted authoritative turn, and SHALL run before backend request/pre-request transforms, credit/billing authorization, route planning, keepwarm/model work, or B-leg creation.
+4.2. IF reply tagging fails, the proxy SHALL release no event containing that local-only reply.
 
-6.3. THE runtime SHALL retain a deep canonical ingress view from before mutating backend-oriented stages so local-turn matching and source tagging can refer to what the client actually submitted rather than a later rewritten message.
+4.3. WHEN a local-turn handler claims existing client input as local-only, core SHALL persist the claimed source-message tags before invoking the handler's side-effecting/response-producing phase.
 
-6.4. EACH local-turn handler SHALL expose a pure `Match` phase that either passes or claims the turn and identifies zero or more normalized complete message indexes to mark never-forward plus a bounded reason code.
+4.4. IF claimed-input tagging fails, the handler's execution phase SHALL NOT run and no B-leg SHALL be opened as fallback.
 
-6.5. WHEN a handler claims a turn, THE runtime SHALL validate the claimed indexes against the normalized ingress trajectory and SHALL persist those source-message tags before invoking the handler's `Handle` phase.
+4.5. IF local-turn execution fails after source tagging, the source tags SHALL remain authoritative and the request SHALL fail without inference fallback.
 
-6.6. THE first successfully claimed handler in deterministic order SHALL own the turn; later local-turn handlers SHALL NOT run for that turn.
+4.6. No asynchronous/eventual persistence after client release SHALL satisfy this safety contract.
 
-6.7. AFTER a handler claims a turn, any handler error/panic, invalid reply, or reply-tagging failure SHALL fail the request and SHALL NOT fall through to backend execution.
+## Requirement 5: Early Backend-Effective Conversation Projection
 
-6.8. BEFORE a handler claims a turn, Match-phase failures MAY follow the handler's declared fail-open/fail-closed extension failure mode; security-sensitive future handlers are expected to declare fail-closed.
-
-6.9. THE `Handle` phase SHALL return one bounded assistant text reply through the local-turn contract; the core SHALL validate and tag that reply before constructing the local response stream.
-
-6.10. A successfully handled local turn SHALL open zero B-legs, perform zero backend route/model/provider calls, perform no inference credit/billing authorization, and emit no provider usage.
-
-6.11. A local turn SHALL still preserve normal authenticated A-leg/session/trace correlation, client-visible secure-session resume data, CTP evidence, frontend response encoding, and continuation recording where the frontend normally records responses.
-
-6.12. IF request-level concurrency/admission authority was acquired before local-turn matching to preserve existing submit ordering, THEN the local-turn path SHALL release that authority deterministically without creating billing/usage records for a nonexistent B-leg.
-
-6.13. THE implementation SHALL NOT add `!/`, `set`, `unset`, routing commands, command registries, command state, or any other interactive-command behavior.
-
-## Requirement 7: Canonical Proxy-Local Response Stream
-
-**Objective:** As a frontend, I want proxy-local turns to look like ordinary canonical successful responses so that no frontend-specific synthetic-response implementation is required.
+**Objective:** As routing/context/billing/runtime policy, I want the exact model-visible conversation derived before backend-oriented work so economics and capability decisions use the same semantic context that will be sent.
 
 ### Acceptance Criteria
 
-7.1. WHEN a local turn succeeds, THE runtime SHALL return a normal `lipapi.EventStream` representing exactly one assistant text response.
+5.1. AFTER authoritative A-leg resolution and client/A-leg evidence handling, THE runtime SHALL load one conversation-view snapshot for the logical turn.
 
-7.2. THE local stream SHALL produce a valid canonical response/message/text/terminal sequence for both streaming and non-streaming frontend collection paths.
+5.2. BEFORE backend-oriented request/pre-request transforms, context-size estimation, billing authorization, route planning, capability negotiation, or B-leg creation, THE runtime SHALL derive a backend-effective call from a deep clone of accepted client/A-leg input.
 
-7.3. THE local stream SHALL NOT emit provider usage/cost events or fabricate a B-leg/backend identity.
+5.3. Projection SHALL first remove all complete concrete messages matching `never_backend`, including dependent in-call `item_reference` values that would otherwise dangle.
 
-7.4. THE existing shared frontend encode pipeline SHALL encode the local stream without branching on provider/backend type.
+5.4. Projection SHALL then inject every active backend-only steering overlay exactly once using the deterministic placement/order contract in Requirements 9 and 10.
 
-7.5. THE assistant message used to compute the pre-release never-forward tag SHALL be semantically identical to the assistant content encoded by the local stream so that later client replay produces the same identity.
+5.5. CTP/client evidence and continuation/A-leg truth SHALL NOT be rewritten merely to produce the B-leg view.
 
-7.6. THE local stream SHALL obey normal context cancellation/Close behavior and SHALL not create a background goroutine merely to synthesize a finite reply.
+5.6. AFTER removal/injection/dependency cleanup, THE backend-effective call SHALL pass canonical validation.
 
-7.7. Official frontend contract tests SHALL prove that local text replies encode successfully and replay into identity-equivalent canonical assistant messages for supported frontend forms.
+5.7. IF projection cannot resolve required state/dependencies/steering placement safely, the request SHALL fail closed before backend-oriented work, except for a steering overlay whose explicit anchor-missing policy permits deterministic stable-prefix fallback.
 
-## Requirement 8: Replay and Continuation Compatibility
+5.8. Backend-oriented transforms, request-size/context estimation, billing/credit calculations, route/capability checks, and baseline freeze SHALL operate on the projected call.
 
-**Objective:** As a client that resends or references session history, I want local-only turns to remain visible locally while never contaminating future backend context.
+5.9. Projection SHALL be protocol/provider-neutral and SHALL import no frontend DTO or provider SDK.
 
-### Acceptance Criteria
+5.10. The logical turn SHALL carry the frozen snapshot through every B-leg attempt; mutable continuity state SHALL NOT be reinterpreted independently per failover/race/retry arm.
 
-8.1. WHEN an agent resends complete legacy message history containing previously tagged client-origin or proxy-origin local messages, THE next backend-effective call SHALL remove all matching messages before B-leg processing.
+## Requirement 6: Final Backend Projection Guard
 
-8.2. WHEN OpenResponses `previous_response_id` materialization reconstructs a history containing a tagged local-turn input/reply, THE core projection after materialization SHALL remove those concrete message items before backend processing.
-
-8.3. THE feature SHALL NOT require frontends to delete local-only turns from their normal A-leg/continuation records for correctness.
-
-8.4. THE feature SHALL NOT use response IDs, continuation IDs, or client-returned proxy metadata as the sole replay recognition mechanism.
-
-8.5. WHEN the same A-leg is served across runtime generation reload, previously recorded local-only messages SHALL continue to be filtered even if the producer/handler that originally created them is no longer present in the active generation.
-
-8.6. WHEN durable PostgreSQL continuity is shared by multiple processes, THE implementation SHALL read authoritative tag state per logical turn and SHALL NOT rely on an indefinitely stale process-global tag cache.
-
-8.7. An opaque out-of-call item reference that contains no concrete message content SHALL remain governed by existing continuation/item-reference semantics; this feature SHALL guarantee removal of concrete tagged message items and in-call references to messages removed in the same projection.
-
-## Requirement 9: Observability, Audit, and Security
-
-**Objective:** As an operator, I want the A-leg/B-leg distinction to remain auditable without leaking sensitive local control content into backend evidence or high-cardinality telemetry.
+**Objective:** As the proxy safety boundary, I want the final backend-facing call to reassert both exclusion and persistent steering invariants after late attempt shaping.
 
 ### Acceptance Criteria
 
-9.1. CTP/client-turn evidence SHALL continue to describe what the client actually submitted, including local-only messages when present, subject to existing secret redaction/capture policy.
+6.1. AFTER per-candidate shaping/attempt transforms and BEFORE PTB capture/backend `Open`, THE shared candidate-open path SHALL reassert the frozen conversation-view snapshot.
 
-9.2. PTB/backend-attempt evidence SHALL contain only the final enforced backend-facing call and SHALL never contain a tagged never-forward message.
+6.2. Reassertion SHALL remove any `never_backend` message reintroduced by late transforms.
 
-9.3. WHEN messages are filtered, THE runtime MAY emit bounded counters/diagnostics containing trace/A-leg correlation, filtered count, and bounded reason/category data, but SHALL NOT emit message plaintext or unbounded digest labels.
+6.3. Reassertion SHALL ensure each active persistent steering overlay is present exactly once at its frozen placement; it SHALL NOT append another copy to the moving tail.
 
-9.4. Registry/store lookup failure on a turn that requires enforcement SHALL fail closed before backend execution rather than assume the tag set is empty.
+6.4. IF a mutable attempt transform changes the relevant history around a steering anchor, reassertion SHALL deterministically rebuild the overlay placement from the frozen snapshot or reject the candidate/request according to the overlay's anchor-missing policy.
 
-9.5. The existing secret-guard boundary SHALL run before local-turn handlers are allowed to inspect/handle an accepted turn.
+6.5. THE candidate-facing canonical call SHALL validate after reassertion and normal candidate adaptation SHALL preserve the projected semantic trajectory; unsupported representation SHALL reject explicitly rather than silently move/drop steering.
 
-9.6. Reason codes SHALL be bounded identifiers and SHALL NOT be used to store command arguments, message text, quota values, or other unbounded/sensitive payloads.
+6.6. PTB capture SHALL be produced from the already-enforced backend-facing call: it SHALL exclude `never_backend` messages and SHALL include active backend-only steering.
 
-9.7. THE feature SHALL NOT add a client-authoritative `non_forwardable` field to `lipapi.Call`, `lipapi.Message`, `lipapi.Item`, or frontend wire DTOs.
+6.7. THE same guard SHALL cover initial opens, failover/retry-before-output, parallel/race arms, TTFT replacement, and interleaved thinker/executor B-legs through the shared choke point.
 
-9.8. THE feature SHALL NOT add provider SDK dependencies to the core identity/registry/enforcer/local-turn packages.
+6.8. Backend plugins/connectors SHALL not implement visibility filtering/steering persistence; they receive an ordinary canonical backend-facing call.
 
-## Requirement 10: Performance, Lifecycle, and Compatibility
+6.9. Existing no-retry-after-client-output behavior SHALL remain unchanged.
 
-**Objective:** As the proxy runtime, I want the safety invariant without a new hot-path framework or backend Cartesian maintenance cost.
+## Requirement 7: Generic Local-Turn Extension Seam
 
-### Acceptance Criteria
-
-10.1. WHEN an A-leg has no tags and no local-turn handler claims the request, normal routing/streaming/retry/accounting semantics SHALL remain unchanged except for the bounded registry snapshot/projection work required by this feature.
-
-10.2. THE normal backend path SHALL perform no more than one continuity tag-snapshot read per logical turn; failover/parallel/retry B-legs SHALL reuse request-local enforcement state.
-
-10.3. THE implementation SHALL use no polling loop, watcher, background cleanup goroutine, or global mutable service locator for non-forwardable enforcement.
-
-10.4. In-memory tag state SHALL be protected by the existing A-leg store synchronization/lifecycle and SHALL be evicted with the owning A-leg.
-
-10.5. The base `internal/core/b2bua.Store`, public `pkg/lipsdk/continuity.Store`, and unrelated external continuity contracts SHALL remain unchanged; standard stores SHALL implement a focused optional capability.
-
-10.6. IF a runtime generation contributes local-turn handlers but the configured continuity implementation cannot provide the required tagger/reader capability, THEN runtime composition SHALL fail deterministically rather than run a producer that cannot guarantee replay protection.
-
-10.7. Local-turn handler lists SHALL be frozen with the immutable request runtime snapshot and SHALL follow existing FeatureBundle merge/order/panic-isolation conventions.
-
-10.8. Disabling/removing a producer in a later generation SHALL NOT disable enforcement of tags already stored on an A-leg.
-
-10.9. THE implementation SHALL not add pairwise frontend/backend translators or backend-specific compatibility matrices for this feature.
-
-10.10. THE implementation SHALL not introduce a regex/history-rewrite fallback when semantic identity lookup fails.
-
-## Requirement 11: TDD, Documentation, and Quality Gates
-
-**Objective:** As a maintainer, I want the no-leak invariant certified before production code ships so that later features can safely depend on it.
+**Objective:** As a future proxy-local feature, I want a canonical way to claim and answer a client turn locally without faking a backend error or modifying each frontend.
 
 ### Acceptance Criteria
 
-11.1. BEFORE production implementation, failing tests SHALL freeze identity normalization/equivalence, store semantics, projection behavior, local-turn claim/reply behavior, final-wire enforcement, and error/fail-closed contracts.
+7.1. FeatureBundle SHALL accept an ordered optional list of generic local-turn handlers; this spec SHALL add no concrete command handler.
 
-11.2. Memory, SQLite, and PostgreSQL store contract tests SHALL cover idempotency, batch atomicity, capacity, A-leg deletion/recreation, restart/load behavior, and concurrent tag/snapshot operations.
+7.2. The local-turn stage SHALL run after authentication/workspace/secure-session/A-leg authority, ingress secret guarding and accepted submit policy, and before inference credit/billing, route planning/provider work, or B-leg creation.
 
-11.3. Runtime tests SHALL prove that tagged history does not affect the effective route/context/billing call and never reaches PTB capture or a fake backend.
+7.3. Runtime SHALL retain a deep canonical ingress view so local matching/source tagging uses what the client actually submitted.
 
-11.4. Runtime tests SHALL deliberately reintroduce a tagged message from a late attempt transform and SHALL prove the final wire guard removes it before backend open.
+7.4. EACH handler SHALL expose a pure `Match` phase that either passes or claims the turn and identifies zero or more normalized complete source-message indexes plus bounded reason codes.
 
-11.5. Runtime coverage SHALL include initial, failover/retry-before-output, parallel/race, TTFT, and interleaved paths without adding path-specific filter implementations.
+7.5. On claim, runtime SHALL validate indexes and commit source tags before invoking `Handle`.
 
-11.6. Local-turn tests SHALL use only fake/reference generic handlers and SHALL prove source-tag-before-handle, reply-tag-before-release, zero B-legs, zero inference billing/usage, deterministic ordering, and post-claim no-fallback behavior.
+7.6. The first successfully claimed handler in deterministic order SHALL own the turn.
 
-11.7. Frontend/continuation tests SHALL cover full-history replay and OpenResponses `previous_response_id` materialization of a local-turn input/reply.
+7.7. AFTER claim, handler error/panic/invalid reply/tag failure SHALL fail the request and SHALL NOT fall through to inference.
 
-11.8. Race tests SHALL cover concurrent tag/snapshot activity and generation reload/producer removal while preserving already-committed enforcement.
+7.8. BEFORE claim, Match errors MAY obey existing fail-open/fail-closed extension semantics.
 
-11.9. SDK/plugin-authoring and architecture documentation SHALL describe the local-turn contract, whole-message never-forward granularity, tag-before-release rule, and prohibition on client-authoritative tagging.
+7.9. `Handle` SHALL return one bounded assistant text reply; core SHALL construct the canonical assistant message, tag it, then construct/release the local stream from the same semantic content.
 
-11.10. Final implementation validation SHALL run repository formatting/vet/architecture checks, deterministic unit suites, focused SQLite/PostgreSQL integration tests, and targeted `go test -race` coverage for the new core/runtime/store packages.
+7.10. Successful local turns SHALL open zero B-legs, perform zero model/provider calls, perform no inference billing authorization, and emit no provider usage.
+
+7.11. Local turns SHALL preserve normal A-leg/session/trace correlation, CTP evidence, frontend encoding and continuation recording.
+
+7.12. Any request-level concurrency authority acquired before matching SHALL be released deterministically with no fabricated B-leg usage.
+
+7.13. No `!/`, `set`, `unset`, command registry, routing mutation, or command-owned state is implemented by this spec.
+
+## Requirement 8: Canonical Proxy-Local Response Stream
+
+**Objective:** As a frontend, I want proxy-local success to use the same canonical response abstraction as inference so all official frontends encode it uniformly.
+
+### Acceptance Criteria
+
+8.1. A successful local turn SHALL return a normal finite `lipapi.EventStream` with exactly one assistant text response.
+
+8.2. The stream SHALL produce a valid response/message/text/terminal sequence for streaming and non-streaming collection.
+
+8.3. It SHALL emit no provider usage/cost event and fabricate no backend/B-leg identity.
+
+8.4. Existing shared frontend encoders SHALL encode it without provider-specific branching.
+
+8.5. The message tagged before release SHALL be semantically identical to the encoded assistant content so future replay identity matches.
+
+8.6. The finite local stream SHALL obey context cancellation/Close and SHALL require no background goroutine.
+
+8.7. Frontend contract tests SHALL prove local output replay decodes to identity-equivalent canonical assistant messages.
+
+## Requirement 9: Persistent Backend-Only Steering Overlays
+
+**Objective:** As a trusted proxy feature, I want model-visible steering that remains invisible to the client and is automatically reconstructed on every later B-leg.
+
+### Acceptance Criteria
+
+9.1. THE SDK SHALL define a trusted backend-only steering writer/controller; no client/data-plane protocol SHALL expose equivalent mutation authority.
+
+9.2. EACH overlay SHALL have a bounded stable `OverlayID`, immutable `SlotOrdinal`, monotonic overlay revision, active/inactive state, bounded source/reason code, complete canonical message payload, placement, anchor-missing policy, and timestamps needed for diagnostics.
+
+9.3. Because the client cannot replay hidden steering, THE store SHALL persist the complete model-visible canonical message payload for active overlays; proxy-only metadata SHALL NOT be part of persisted/model-visible content.
+
+9.4. THE v1 persisted steering message SHALL be exactly one complete text-bearing canonical message, not arbitrary tool/reasoning/extension items and not a substring injection.
+
+9.5. V1 SHALL support two producer-facing placement modes:
+- `stable_prefix`: persistently placed at the deterministic end of the stable proxy/client instruction prefix and before mutable conversation history;
+- `after_ingress_tail`: resolved at registration time to a durable anchor immediately after the current terminal forwardable user message, then stored as a fixed semantic message anchor.
+
+9.6. A resolved after-message anchor SHALL use replay-stable message identity plus occurrence ordinal, not transient item IDs or current absolute request indexes.
+
+9.7. Runtime SHALL reject an after-message registration whose anchor is itself `never_backend`, absent from the current backend-effective trajectory, or not a safe terminal user-message boundary.
+
+9.8. Active overlays SHALL be reinserted on every subsequent applicable backend turn even though no corresponding client message exists.
+
+9.9. Client-visible frontend responses, CTP client payloads, secure-session client transcript surfaces, and continuation records SHALL NOT be augmented with backend-only steering.
+
+9.10. PTB/backend-facing calls SHALL contain active steering after projection.
+
+9.11. Multiple overlays at one placement SHALL use immutable `SlotOrdinal` order; map/DB iteration order SHALL never determine model-visible ordering.
+
+9.12. Creating a new overlay SHALL allocate a new slot after existing overlays for the same resolved placement; replacing content for an `OverlayID` SHALL retain its slot and placement unless the producer explicitly performs a placement-changing replacement.
+
+9.13. A semantic no-op `Put` SHALL be idempotent; a content/placement/policy change SHALL create a new revision.
+
+9.14. `Deactivate` SHALL stop the overlay from all future snapshots but SHALL NOT rewrite already completed B-leg evidence.
+
+9.15. Mutations committed after a logical turn has taken its snapshot SHALL apply only to later logical turns; all attempts of the in-flight turn SHALL use the frozen snapshot.
+
+9.16. Memory and Bun implementations SHALL persist/restore overlay content, placement, slot, revision and active state across A-leg lifetime/restart/reload.
+
+9.17. V1 SHALL cap active overlays at 64 per A-leg, each rendered steering message at 64 KiB, and total active steering payload at 256 KiB per A-leg; mutations exceeding limits SHALL fail atomically.
+
+9.18. Normal logs/metrics SHALL NOT contain steering plaintext. Protected debugging MAY expose only bounded IDs/revisions/digests unless a separate existing secure transcript surface explicitly permits content.
+
+9.19. Hidden steering SHALL NOT be treated as a secret channel: producers SHALL NOT place credentials/tokens/secrets in it, because the remote model/backend receives it and model output may reveal its substance.
+
+9.20. This spec SHALL NOT implement Quality Verifier, interactive-command, quota-notification, or other producer policy; it only makes those producers possible.
+
+## Requirement 10: Cache-Stable Steering Placement
+
+**Objective:** As a proxy operator, I want persistent steering to preserve provider prompt-cache locality across ordinary turns so hidden orchestration does not create avoidable latency/cost regressions.
+
+### Acceptance Criteria
+
+10.1. THE canonical cache invariant SHALL be: if the client/backend-relevant history changes only by appending forwardable conversation content and the active steering snapshot/revisions are unchanged, the normalized model-visible sequence used on turn N SHALL be an exact prefix of the normalized model-visible sequence on turn N+1 through turn N's final input content.
+
+10.2. THE implementation SHALL NOT satisfy reinjection by appending an unchanged persistent steering message to the current moving tail on every request, because that relocates it relative to prior assistant/user history.
+
+10.3. For a given overlay revision, model-visible role/text, placement anchor, and relative overlay ordering SHALL be deterministic and semantically byte-stable across turns; per-turn timestamps, trace IDs, random nonces, request IDs, counters, or fresh rendering SHALL NOT enter its model-visible payload.
+
+10.4. An `after_ingress_tail` overlay created for turn N SHALL produce activation ordering `... U_N, STEERING`; when later history is replayed/appended, reinjection SHALL produce `... U_N, STEERING, A_N, U_N+1 ...`, so the activation request remains a prefix of later requests subject to unrelated model-visible changes.
+
+10.5. A `stable_prefix` overlay SHALL remain at the same deterministic prefix slot relative to all unchanged static instructions and other stable-prefix overlays on every turn.
+
+10.6. Overlay create/content-replace/placement-change/deactivate is an **explicit cache discontinuity**. The runtime SHALL record a bounded revision/discontinuity diagnostic; after that mutation, unchanged subsequent turns SHALL again satisfy the stable-prefix invariant.
+
+10.7. If a fixed after-message anchor disappears because client history was compacted/truncated/replaced, runtime SHALL never silently relocate the overlay to the current tail. The overlay SHALL obey its stored `AnchorMissingPolicy`: `stable_prefix_fallback` or `fail_closed`.
+
+10.8. `stable_prefix_fallback` SHALL use one deterministic prefix location and emit bounded `anchor_missing_fallback` diagnostics. The history rewrite that removed the anchor is already a prefix discontinuity; fallback SHALL not introduce turn-to-turn wandering.
+
+10.9. `fail_closed` SHALL prevent the backend request when a required anchor cannot be resolved.
+
+10.10. Core SHALL NOT rewrite `PromptCacheKey`, synthesize provider cache keys, choose provider TTLs, or inject provider `cache_control` markers merely because steering exists. Existing provider/adaptor cache behavior and the prompt-cache residency contract remain separate.
+
+10.11. The cache-stability guarantee is structural, not absolute provider-cache-hit assurance: unrelated model-visible changes such as tool/schema/system changes, provider options, client compaction, explicit steering revisions, model changes, or cache expiry MAY legitimately cause misses.
+
+10.12. Tests SHALL compare consecutive projected canonical trajectories across at least three append-only turns and SHALL fail if unchanged steering moves, duplicates, changes payload, or destroys prefix equality.
+
+10.13. A bounded backend-family sentinel set SHALL prove the stable canonical ordering survives representative OpenAI-family, Anthropic-family, and Gemini-family translation without restoring a frontend×backend Cartesian matrix.
+
+10.14. Where provider prompt-cache usage evidence is available, integration tests MAY assert expected cache-read continuity, but correctness SHALL NOT depend on external network/cache timing.
+
+## Requirement 11: Replay, Continuation, and A-Leg/B-Leg Visibility
+
+**Objective:** As a client and runtime, I want each visibility class reconstructed on the correct leg after history replay/materialization.
+
+### Acceptance Criteria
+
+11.1. WHEN a client resends full legacy history containing tagged local messages, the next backend-effective call SHALL remove all matching `never_backend` messages.
+
+11.2. WHEN OpenResponses `previous_response_id` materialization reconstructs tagged local-turn input/reply messages, projection SHALL remove those concrete message items before backend work.
+
+11.3. THE feature SHALL NOT require frontends to delete client-visible local turns from their A-leg/continuation history for correctness.
+
+11.4. Backend-only steering SHALL never rely on client replay/continuation storage; it SHALL be reconstructed exclusively from authoritative A-leg conversation-view state.
+
+11.5. WHEN the same A-leg survives generation reload or process restart with durable continuity, previously tagged messages SHALL remain excluded and active steering SHALL remain injected even if the original producer is absent from the new generation.
+
+11.6. An opaque out-of-call item reference containing no concrete local message remains governed by existing continuation/reference semantics; projection guarantees concrete tagged message removal and cleanup of references to items removed from the same call.
+
+11.7. CTP and client-facing continuation evidence SHALL represent client-visible truth; PTB SHALL represent the final model-visible truth including hidden steering and excluding local-only messages.
+
+## Requirement 12: Observability and Security
+
+**Objective:** As an operator, I want visibility projection auditable without leaking local control/steering payloads or confusing client and backend evidence.
+
+### Acceptance Criteria
+
+12.1. CTP evidence SHALL describe what the client actually submitted, including client-visible local-only messages when present, under existing redaction/capture policy.
+
+12.2. PTB evidence SHALL contain the final projected backend call: no `never_backend` messages and all required active steering.
+
+12.3. Runtime SHALL emit bounded counters/diagnostics for filtered count, injected overlay count, overlay revisions, placement class, anchor fallback/failure and explicit cache discontinuity; message/steering plaintext and raw digests SHALL NOT become high-cardinality metric labels.
+
+12.4. Conversation-view store lookup failure on a backend turn SHALL fail closed rather than assume empty exclusions/steering.
+
+12.5. Existing secret-guard boundaries SHALL run before local-turn handlers inspect/handle accepted client input.
+
+12.6. Reason/source codes SHALL be bounded identifiers and SHALL NOT contain command arguments, quota values, prompts, steering text, or arbitrary payload.
+
+12.7. No client-authoritative visibility/steering field SHALL be added to canonical or frontend wire DTOs.
+
+12.8. Core visibility packages SHALL import no provider SDK.
+
+12.9. Backend-only steering content SHALL be considered sensitive application data at rest and in PTB capture according to existing access/redaction policy, even though it is not a secret from the remote model.
+
+## Requirement 13: Performance, Lifecycle, Compatibility, and TDD Quality Gates
+
+**Objective:** As a maintainer, I want complete infrastructure with bounded hot-path cost and executable regression proof before concrete producers depend on it.
+
+### Acceptance Criteria
+
+13.1. A logical backend turn SHALL perform no more than one authoritative conversation-view snapshot read; every B-leg attempt SHALL reuse request-local state.
+
+13.2. No polling loop, watcher, background cleanup goroutine, or global mutable service locator SHALL be introduced for projection/steering state.
+
+13.3. In-memory state SHALL use existing A-leg store synchronization/eviction; durable state SHALL follow A-leg lifecycle.
+
+13.4. If configured local-turn/steering producer plumbing requires conversation-view capabilities that the continuity implementation does not provide, composition SHALL fail deterministically rather than run without safety/persistence.
+
+13.5. Local-turn handler lists SHALL be frozen with immutable runtime snapshots; stored visibility state remains enforceable independently of producer presence.
+
+13.6. Existing routing, failover, no-retry-after-output, billing, prompt-cache residency, frontend encoding, and provider adapter ownership SHALL remain intact outside the projected call contents.
+
+13.7. BEFORE production implementation, RED tests SHALL freeze identity, storage, projection, local-turn ordering, steering persistence/placement, anchor failure, cache-prefix invariants, and final guard behavior.
+
+13.8. Memory, SQLite, and PostgreSQL contract tests SHALL cover atomicity, bounds, A-leg deletion/recreation, restart/load, concurrent snapshot/mutation, overlay revision/slot ordering, and shared-store behavior.
+
+13.9. Runtime tests SHALL prove tagged client-visible history cannot affect route/context/billing or reach PTB/backend and that hidden steering does affect the projected/PTB/backend call while remaining absent from client output/continuation.
+
+13.10. A late attempt transform SHALL deliberately remove/move/duplicate steering and reintroduce a tagged message in RED tests; final reassertion SHALL restore the frozen backend view or reject safely before `Open`.
+
+13.11. Runtime path coverage SHALL include initial, failover/retry-before-output, parallel/race, TTFT, and interleaved paths through shared projection code.
+
+13.12. Local-turn tests SHALL use only generic fake handlers and prove source-tag-before-handle, reply-tag-before-release, zero B-legs/inference usage and post-claim no-fallback.
+
+13.13. Steering tests SHALL use only generic fake writers/fixtures and SHALL NOT implement verifier/command/quota logic.
+
+13.14. Frontend/continuation tests SHALL cover full-history replay and OpenResponses materialization while proving backend-only steering never enters client continuation.
+
+13.15. Race tests SHALL cover concurrent tag/steering mutations versus snapshots and generation reload/producer removal.
+
+13.16. Architecture/docs SHALL explain both visibility directions, whole-message granularity, trusted producer boundaries, fixed-anchor cache behavior, explicit cache discontinuities, and the prohibition on using hidden steering as a credential/secrecy mechanism.
+
+13.17. Final validation SHALL run repository formatting/vet/arch checks, deterministic unit suites, focused SQLite/PostgreSQL tests, backend-family sentinel translation tests, and targeted `go test -race` for the new core/runtime/store packages.
+
+13.18. Final diff review SHALL remove unnecessary generic framework/configuration and SHALL confirm no concrete interactive command, verifier, quota-notification, or provider cache policy implementation slipped into scope.

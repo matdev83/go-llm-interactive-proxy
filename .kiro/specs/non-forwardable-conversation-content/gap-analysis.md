@@ -2,244 +2,240 @@
 
 ## Scope and Method
 
-This analysis validates the final requirements for `non-forwardable-conversation-content` against Go-LIP `main` at `b54982384840ba85c0af2a019ccc35becdd63f10` and compares the intended behavior with the later non-forwardable architecture in the Python LIP lineage.
+This analysis compares the revised `non-forwardable-conversation-content` requirements against Go-LIP `main` at `b54982384840ba85c0af2a019ccc35becdd63f10`.
 
-The review covers:
+The original gap analysis covered replay-stable client-visible/backend-hidden messages. This revision reopens the brownfield review because persistent **backend-visible/client-hidden steering** adds materially different state, projection, and prompt-cache requirements.
 
-- canonical legacy/message/item authority in `pkg/lipapi`;
-- shared frontend decode/execute/encode composition;
-- secure-session/A-leg authority;
-- submit/request/pre-request ordering and effective baseline construction;
-- route planning, billing/context/capability preparation;
-- initial/failover/parallel/interleaved candidate opening;
-- CTP/PTB traffic evidence;
-- B2BUA memory continuity and Bun SQLite/PostgreSQL durability;
-- immutable FeatureBundle/runtime generation composition;
+Reviewed areas:
+
+- `pkg/lipapi.Call`, `Message`, `Item`, validation, cloning/walkers;
+- shared frontend `frontendpipe`;
 - OpenResponses continuation materialization/recording;
-- existing extension contracts and public SDK compatibility constraints;
-- current interleaved-thinking proxy message metadata;
-- repository TDD/hexagonal architecture rules.
+- secure-session/A-leg request preparation;
+- request/pre-request/route/context/billing/capability ordering;
+- candidate-open and PTB/`be.Open` choke point;
+- interleaved-thinking tail shaping;
+- B2BUA MemoryStore and Bun continuity;
+- FeatureBundle extension patterns;
+- prompt-cache residency contracts;
+- Python non-forwardable services and Quality Verifier steering helper;
+- current official OpenAI/Anthropic/Gemini prompt-cache guidance.
 
 Classifications:
 
-- **Missing** — required capability does not exist.
-- **Partial** — useful infrastructure exists but does not satisfy the requirement by itself.
-- **Constraint** — existing ownership/API/lifecycle behavior constrains the implementation.
-- **Risk** — current behavior can create leakage or semantic drift unless explicitly protected.
+- **Missing** — no current capability satisfies it.
+- **Partial** — reusable seam exists but requires focused integration.
+- **Constraint** — existing contracts narrow the valid solution.
+- **Risk** — current behavior can violate the new invariant unless explicitly handled.
 
-## Current Assets Worth Preserving
+## Existing Assets Worth Preserving
 
-### Canonical request authority already eliminates frontend Cartesian work
+### Canonical request authority is already centralized
 
-`lipapi.Call` already represents all frontend requests in a provider-neutral form. `NormalizedItems` gives one traversal view across legacy and item authority. Non-forwardable matching should therefore happen after frontend decode, not independently in each OpenAI/Anthropic/Gemini/OpenResponses adapter.
+`lipapi.Call` provides both legacy message and item-authoritative forms. The visibility mechanism can remain protocol-neutral and operate on canonical complete messages.
 
-### A-leg authority is established before backend planning
+### A-leg is the correct durable ownership anchor
 
-Secure-session `BeginTurn` resolves a proxy-owned A-leg and `FetchALeg` occurs before route planning. This is the correct registry partition and avoids trusting client session carriers.
+Secure-session/runtime resolves authoritative A-leg continuity before route planning. Visibility state can therefore be server-owned and cannot be forged by a client session hint.
 
-### Client truth and backend-effective truth are already conceptually separate
+### Backend opening has a real common choke point
 
-Runtime route overrides already preserve client evidence while building a separate effective routing call before baseline freeze. The non-forwardable feature can use the same conceptual split: retain A-leg/CTP truth; derive a sanitized B-leg projection.
+All normal attempts converge on a final canonical `wireCall`, PTB capture and `be.Open`. This allows one final visibility reassertion rather than backend-specific enforcement.
 
-### The backend open path is centralized
+### Frontend encoding already accepts local canonical streams
 
-All planned candidate execution reaches the shared `openPlannedCandidate` flow, which eventually constructs `wireCall`, emits PTB capture, and calls `be.Open`. That is a materially stronger final enforcement seam than the old Python architecture, where direct backend calls had to be audited/refactored.
+A successful backend-free local turn can reuse `lipapi.EventStream` and existing frontend encoders.
 
-### Continuity already supports focused optional capabilities
+### Optional continuity capabilities are an established pattern
 
-`b2bua.InterleavedStateStore` and `routeoverride.Store` demonstrate the correct pattern for feature-specific A-leg persistence without widening base/public Store interfaces. Memory and Bun can implement another small optional capability.
+`routeoverride.Store` and interleaved-state storage prove standard memory/Bun stores can add feature-specific A-leg state without expanding the base/public continuity interface.
 
-### Frontends already encode any canonical EventStream
+### Prompt-cache residency is already a separate provider-owned concern
 
-A backend-free local response does not need a frontend-specific synthetic protocol implementation. The shared frontend pipe expects `Executor.Execute` to return `lipapi.EventStream`; the source of those canonical events is intentionally abstract.
-
-### OpenResponses materializes continuation before executor entry
-
-`previous_response_id` replay becomes a concrete canonical call before the core runtime prepares the B-leg, allowing the same core filter to remove local-only historical input/output.
+The existing prompt-cache residency contract deliberately avoids moving provider TTL/cache controls into core. Persistent steering should preserve canonical prefix stability but leave provider cache operations in their existing owner.
 
 ## Gap Register
 
-| ID | Severity | Class | Effort | Current finding | Required disposition |
+| ID | Severity | Class | Effort | Finding | Required disposition |
 |---|---:|---|---:|---|---|
-| G-01 | P0 | Missing | M | No semantic replay identity exists for canonical message units. | Add versioned deterministic message identity independent of client/proxy metadata. |
-| G-02 | P0 | Constraint | S | `Message.Metadata` is proxy-owned and non-wire, so it disappears on client replay. | Keep metadata as current-turn provenance only; never use it as durable enforcement authority. |
-| G-03 | P0 | Partial | M | `NormalizedItems` unifies read traversal but there is no canonical message-filter/projector that preserves the active Call authority. | Add pure legacy/item projection with dependency cleanup + `Call.Validate`. |
-| G-04 | P0 | Missing | M | No A-leg registry stores never-forward identities. | Add focused append-only bounded registry capability. |
-| G-05 | P0 | Constraint | M | Extending `b2bua.Store` would propagate into public continuity contracts/wrappers. | Use optional internal Store/Reader/Tagger capability like route overrides/interleaved state. |
-| G-06 | P0 | Missing | M | Memory A-leg state has no non-forwardable tag set. | Add bounded tag state under existing leg lock/eviction lifecycle. |
-| G-07 | P0 | Missing | M | Bun schema has no tag table. | Add SQLite/PostgreSQL migration with A-leg FK/cascade and transactional batch writes. |
-| G-08 | P0 | Risk | M | Process-only tags would be lost while durable client/session history survives restart. | Persist tags with durable A-leg continuity; restart tests mandatory. |
-| G-09 | P0 | Partial | M | A-leg is known before backend preparation, but current flow does not derive a sanitized history projection. | Insert one early filter after A-leg/client evidence and before backend-oriented stages. |
-| G-10 | P0 | Risk | M | Filtering only immediately before `be.Open` would let local-only history influence context estimates, route/policy/cost/billing. | Require early effective projection. |
-| G-11 | P0 | Risk | M | Filtering only early can be defeated by later attempt transforms/interleaved shaping. | Add final shared wire guard before PTB capture/open. |
-| G-12 | P0 | Partial | S | Shared candidate open is already centralized. | Wire one final guard there and certify all initial/failover/parallel/interleaved paths. |
-| G-13 | P0 | Missing | M | No extension outcome represents successful proxy-local handling with a normal assistant reply and no B-leg. | Add dedicated ordered local-turn stage; do not overload rejection hooks. |
-| G-14 | P0 | Constraint | S/M | Submit hooks can mutate calls, but a future local command must tag the original replayable client message. | Preserve a deep ingress view for local-turn Match/source indexing. |
-| G-15 | P0 | Risk | M | One-phase local handler could mutate server state before discovering source tag persistence failed. | Make local-turn contract two-phase: Match/claim -> tag source -> Handle. |
-| G-16 | P0 | Risk | M | A proxy-generated local reply could be sent before its registry write and become unfilterable on immediate replay. | Enforce tag-before-release; reply tag failure releases no reply. |
-| G-17 | P1 | Partial | S | `lipapi.EventStream` can carry local output, but no production-owned local reply stream/factory exists. | Add bounded finite canonical local text stream with normal cancellation/Close semantics. |
-| G-18 | P1 | Constraint | M | OpenResponses response/continuation IDs are generated outside core and are not cross-frontend semantic identity. | Do not hash response/item IDs; certify materialized content identity instead. |
-| G-19 | P0 | Risk | M | Item-authoritative calls may contain references to in-call message IDs that a filter removes. | Remove references to removed in-call IDs and revalidate; fail closed on remaining invalid dependencies. |
-| G-20 | P1 | Constraint | S | Opaque out-of-call `item_reference` has no concrete message content to hash. | Keep existing reference semantics; guarantee concrete-message and in-call-reference removal only. |
-| G-21 | P0 | Risk | M | A registry read failure interpreted as “no tags” would leak protected history. | Snapshot/enforcement errors fail closed before route/open. |
-| G-22 | P1 | Risk | M | Reading durable tags per B-leg would add avoidable failover/race I/O and mutable policy timing. | Load one bounded snapshot per logical turn; reuse through attempts. |
-| G-23 | P0 | Risk | M | Indefinite process caching would be stale with shared PostgreSQL continuity. | No authoritative global cache; read a fresh turn snapshot from continuity. |
-| G-24 | P1 | Partial | S | CTP/PTB capture already separates planes. | Preserve client truth on CTP and guarantee PTB is post-enforcement. |
-| G-25 | P1 | Missing | S/M | FeatureBundle has no local-turn handler contribution/accessor/runner. | Add optional schema-v1-compatible field, merge/snapshot/sort/runner wiring. |
-| G-26 | P1 | Constraint | S | FeatureBundle v1 permits new optional fields without schema bump. | Keep schema version v1; update empty/Validate/merge/public-surface tests. |
-| G-27 | P1 | Risk | S/M | Custom continuity stores may not implement the new capability. | Standard stores implement it; composition fails if local-turn producers are configured without required storage. |
-| G-28 | P1 | Risk | M | Same semantic message can appear multiple times with no stable client ID. | Document deterministic same-identity/same-disposition behavior; role is part of identity. |
-| G-29 | P1 | Constraint | M | Full semantic identity must survive legacy/item/frontend projection and structured JSON encoding differences. | Define typed semantic normalization + frontend round-trip TCKs. |
-| G-30 | P1 | Risk | S | Raw local command/notification text could become high-cardinality telemetry. | Persist digest + bounded reason only; metrics use counts/category, not plaintext/digest labels. |
-| G-31 | P1 | Constraint | M | Current response part hooks mutate a single event; they are not a safe general standalone-message injector. | Do not broaden response pipeline in this spec; expose reusable non-forwardable registrar contract for future trusted producer stages. |
-| G-32 | P0 | Scope | — | Interactive commands are not implemented in Go and would materially broaden this infrastructure spec. | Explicitly exclude parser/handlers/settings; local-turn tests use fakes only. |
-| G-33 | P1 | Scope | — | Quota-notification generation/scheduling is only an example future producer. | Do not implement policy/scheduler; require standalone local-only message granularity and reusable registrar. |
-| G-34 | P1 | Risk | M | If all backend-driving content is removed, sending remaining history can trigger an unintended model continuation. | Define no-forwardable-content failure before route planning. |
+| G-01 | P0 | Missing | M | No replay-stable semantic identity/store exists for client-visible messages that must never reach a backend. | Add versioned identity + A-leg exclusion registry. |
+| G-02 | P0 | Partial | M | Runtime has canonical preparation but no early visibility projection. | Derive backend-effective call after A-leg resolution and before backend-oriented policy. |
+| G-03 | P0 | Partial | S/M | Final `wireCall` choke point exists but does not reassert conversation visibility. | Add mandatory final projection guard before PTB/Open. |
+| G-04 | P0 | Missing | M | Existing extension stages cannot represent successful local handling with protected source/reply ordering. | Add generic two-phase local-turn seam. |
+| G-05 | P0 | Missing | M | No A-leg state stores complete backend-only steering content because previous feature scope only stored message digests. | Extend focused conversation-view state with bounded persistent overlays. |
+| G-06 | P0 | Missing | M | No trusted producer API can Put/Replace/Deactivate persistent hidden steering. | Add narrow `pkg/lipsdk/steering` writer/controller. |
+| G-07 | P0 | Risk | M | A hidden message is absent from all later client requests by definition. Ordinary request transforms cannot recreate it unless proxy state owns the payload. | Make full steering payload authoritative A-leg state and inject from snapshot each turn. |
+| G-08 | P0 | Risk | M | Naive "append steering to current tail" relocates unchanged content on every turn. | Persist placement as state; forbid tail-following reinjection. |
+| G-09 | P0 | Missing | M | No durable semantic anchor exists for a mid-session injection boundary. Absolute index and item ID are unstable across replay. | Resolve registration to semantic message identity + occurrence ordinal. |
+| G-10 | P0 | Constraint | S/M | Arbitrary insertion can break tool-call/result ordering or provider message grammar. | V1 anchor only at safe terminal forwardable user-message boundaries; validate after projection. |
+| G-11 | P0 | Risk | M | Activating mid-session steering in top-level system rewrites a very early cache prefix. | Support fixed activation-boundary placement in addition to stable prefix. |
+| G-12 | P0 | Missing | S/M | There is no normative prefix-stability/cache regression gate. | Add exact-prefix canonical invariants and multi-turn tests. |
+| G-13 | P0 | Risk | M | Late attempt/interleaved transforms can duplicate/remove/move steering after early injection. | Final reassertion rebuilds frozen view or rejects before PTB/Open. |
+| G-14 | P0 | Constraint | M | Candidate/backend representation may not preserve arbitrary mid-history roles. | Keep v1 payload/placement bounded; unsupported semantics reject explicitly, never silently relocate/drop. |
+| G-15 | P0 | Missing | M | MemoryStore has no steering payload/slot/revision state. | Extend focused optional A-leg capability under existing lock/lifecycle. |
+| G-16 | P0 | Missing | M | Bun SQLite/Postgres has no steering rows/payload/anchor/slot/revision schema. | Add A-leg-owned migration and transactional implementation. |
+| G-17 | P0 | Risk | M | Shared PostgreSQL processes could serve stale hidden steering if process-cached. | Snapshot authoritative state once per logical turn; no indefinite cache. |
+| G-18 | P0 | Risk | S/M | Generation reload can remove producer while its prior steering must remain active. | State is continuity-owned; runtime enforcement independent of producer presence. |
+| G-19 | P0 | Missing | S/M | No anchor-missing behavior exists for client compaction/truncation. | Persist explicit `stable_prefix_fallback` or `fail_closed`; never current-tail fallback. |
+| G-20 | P1 | Constraint | S | Existing interleaved-thinking tail injection has distinct semantics. | Do not migrate it in this feature; define deterministic composition and regression coverage. |
+| G-21 | P1 | Risk | S/M | Multiple overlays could reorder nondeterministically through map/SQL iteration. | Allocate immutable `SlotOrdinal`; deterministic ordering. |
+| G-22 | P1 | Risk | S | Per-turn rendering can accidentally add timestamps/nonces and bust cache. | Persist rendered canonical payload once per revision; no dynamic model-visible metadata. |
+| G-23 | P1 | Constraint | S | Backend-only steering is model-visible and can be echoed. | Document transport invisibility, not secrecy; prohibit credentials/secrets. |
+| G-24 | P1 | Risk | M | Full hidden steering content now exists at rest. | Bound payload and keep plaintext out of ordinary telemetry; use existing data-access controls. |
+| G-25 | P1 | Constraint | S | Provider cache keys/TTL/breakpoints differ. | Do not change provider cache policy/`PromptCacheKey`; structural prefix stability only. |
+| G-26 | P0 | Missing | M | No tests prove A-leg/continuation excludes steering while PTB includes it. | Add dual-view integration tests including previous-response materialization. |
+| G-27 | P0 | Missing | M | No tests prove cache-stable placement across ≥3 turns or explicit overlay revisions. | Add canonical prefix and backend-family sentinel tests. |
+| G-28 | P0 | Risk | M | Re-reading mutable state on failover/race arms could give different steering within one turn. | Freeze one coherent snapshot per logical turn. |
+| G-29 | P1 | Constraint | S | Base `b2bua.Store` is mirrored publicly. | Keep optional focused capability; do not widen base/public store. |
+| G-30 | P1 | Constraint | S | Concrete verifier/command/quota work is already/scheduled elsewhere. | Use generic fake producers only; keep all producer policy out of tasks. |
 
-## Requirements Review Round 1
+## Requirements Review Round 1: Original Exclusion Design
 
-### Finding R1-A: “Do not forward” cannot be a message metadata flag
+### Finding R1-A: Metadata alone cannot survive client replay
 
-**Problem:** The obvious Go shortcut is to set `Message.Metadata["non_forwardable"]`. That metadata is intentionally not serialized, so a coding agent replay loses it.  
-**Remediation:** Requirements 1–3 define server-derived semantic identity plus A-leg registry; metadata remains non-authoritative provenance only.
+`Message.Metadata` is non-wire. The design was remediated with deterministic semantic message identity and an A-leg registry.
 
-### Finding R1-B: A one-time request scrub is insufficient
+### Finding R1-B: One filter at final backend open is too late
 
-**Problem:** The future agent will resend the same local input/reply on every turn.  
-**Remediation:** Requirement 2 makes classification A-leg-lifetime state and Requirement 4 re-applies it to every backend turn.
+Context sizing, route planning and billing would count bytes never sent. The design added early backend-effective projection.
 
-### Finding R1-C: Regex/marker matching is not a canonical policy boundary
+### Finding R1-C: One early filter is not a no-leak boundary
 
-**Problem:** Command-specific stripping repeats old Python coupling and cannot safely generalize to structured messages.  
-**Remediation:** Requirement 1 defines identity over canonical whole-message semantics and Requirement 10 forbids regex fallback.
+Late attempt shaping can reintroduce content. The design added final enforcement at the shared PTB/Open choke point.
 
-## Requirements Review Round 2
+### Finding R1-D: A future interactive command still needed a local-success path
 
-### Finding R2-A: Final-only filtering corrupts economics/routing semantics
+Existing request hooks reject/mutate but do not return a successful assistant response. The design added a generic two-phase local-turn seam while explicitly excluding command handlers.
 
-**Problem:** If filtering occurs only at `wireCall`, old local messages still consume estimated context and influence billing/route/capability logic.  
-**Remediation:** Requirement 4 introduces an early B-leg-effective projection before backend-oriented stages.
+## Requirements Review Round 2: Hidden Steering Reopens the Model
 
-### Finding R2-B: Early-only filtering has no security backstop
+### Finding R2-A: Backend-only steering cannot use the exclusion registry
 
-**Problem:** Attempt transforms/interleaved shaping can append/replace messages after baseline preparation.  
-**Remediation:** Requirement 5 mandates a final guard at the shared PTB/open boundary.
+**Problem:** client-visible content can be reconstructed from replay, but hidden steering is never returned by the client.
 
-### Finding R2-C: Two store reads per B-leg are unnecessary
+**Remediation:** store the complete canonical steering payload plus placement under A-leg continuity.
 
-**Problem:** Naively enforcing again from persistence on every failover/race arm would add I/O and mutable timing.  
-**Remediation:** Requirements 2, 3, 5, and 10 define a bounded per-turn tag snapshot plus immediate request-local registration of new committed tags.
+### Finding R2-B: "Non-forwardable" is directional, not a single flag
 
-## Requirements Review Round 3
+**Problem:** one class is forbidden on B-leg; the other is forbidden on A-leg but required on B-leg.
 
-### Finding R3-A: Existing hooks cannot return successful local replies
+**Remediation:** make the umbrella domain `conversationview` with separate narrow concepts: `never_backend` tags and persistent steering overlays.
 
-**Problem:** `SubmitHook` can mutate/reject and `PreRequestHandler` can allow/deny. Encoding a successful local result as a rejection would mix transport errors and normal output and still leave future handler writers to bypass billing/open manually.  
-**Remediation:** Requirement 6 adds one dedicated local-turn extension seam.
+### Finding R2-C: Runtime needs one coherent state snapshot
 
-### Finding R3-B: One-phase handler ordering could lose the source-tag guarantee
+**Problem:** separate mutable reads can observe an exclusion revision and steering revision from different moments, and per-B-leg reads can diverge across races.
 
-**Problem:** A future handler could change routing/session state and only afterward attempt to tag the triggering message. A persistence failure would leave durable state changed but replay protection absent.  
-**Remediation:** The final local-turn contract is two-phase. Match is pure; core validates and tags claimed source messages; only then does Handle run.
+**Remediation:** standard stores expose one coherent per-turn snapshot while mutations remain segregated by narrow ports.
 
-### Finding R3-C: Reply tagging after output is too late
+## Requirements Review Round 3: Cache Stability
 
-**Problem:** Even a very small timing window violates the only property that makes later one-snapshot enforcement causally safe.  
-**Remediation:** Requirement 3 requires reply tag commit before any client-visible reply event.
+### Finding R3-A: Current-tail reinjection is cache-hostile
 
-## Requirements Review Round 4
+**Problem:** if the client omits hidden steering and the proxy re-appends it to each new current tail, the same message moves after newly appended history.
 
-### Finding R4-A: Whole-message granularity needed to be explicit
+**Remediation:** placement is persisted state. Mid-session steering anchors after the activation user message; session-wide steering uses stable prefix.
 
-**Problem:** Generalizing too aggressively to arbitrary part/substrings would reintroduce parser semantics, multipart surgery, and invalid tool/item graphs.  
-**Remediation:** Requirements 1.8–1.10 and scope explicitly restrict v1 to whole message units. Future producers must emit local-only information as a standalone message.
+### Finding R3-B: Top-level-prefix rewrite is too destructive for mid-session activation
 
-### Finding R4-B: Ordered item references can become dangling
+**Problem:** editing top-level/system prefix after a long session can invalidate a large cached prefix.
 
-**Problem:** Removing a tagged concrete item while retaining an in-call `item_reference` to its ID can invalidate the canonical call.  
-**Remediation:** Requirement 4.6 removes dependent in-call references and Requirement 4.7 revalidates the projection.
+**Remediation:** fixed activation-boundary placement provides append-only model-visible history for mid-session guidance.
 
-### Finding R4-C: Continuation storage should not become a second filtering owner
+### Finding R3-C: Per-turn identity/index is not stable enough
 
-**Problem:** Teaching every continuation/frontend store to physically erase local turns duplicates policy and loses A-leg truth.  
-**Remediation:** Requirement 8 keeps A-leg/continuation history intact and enforces after materialization/before B-leg projection.
+**Problem:** absolute array indexes move after client materialization and transient item IDs can be regenerated.
+
+**Remediation:** durable anchor = semantic message identity + occurrence ordinal.
+
+### Finding R3-D: Missing anchor after compaction needs explicit semantics
+
+**Problem:** silently choosing the new tail would both alter steering semantics and add avoidable cache churn.
+
+**Remediation:** explicit `stable_prefix_fallback` or `fail_closed`; no tail fallback.
+
+### Finding R3-E: Updating an instruction cannot be "cache transparent"
+
+**Problem:** a changed model-visible message necessarily changes the prompt.
+
+**Remediation:** classify Put/replace/placement change/deactivate as explicit cache discontinuities. The contract guarantees stability after the revision, not impossible zero-churn mutation.
+
+## Requirements Review Round 4: Brownfield Integration
+
+### Finding R4-A: Existing interleaved thinking already injects at tail
+
+**Problem:** treating it as the new persistent overlay could change its established memo expiry/salience behavior and broaden scope.
+
+**Remediation:** no migration. Persistent base projection happens before feature-specific attempt shaping; final tests prove coexistence.
+
+### Finding R4-B: Provider cache control must remain backend-owned
+
+**Problem:** a generic core steering facility could be tempted to manipulate `PromptCacheKey`/TTL/breakpoints.
+
+**Remediation:** requirements explicitly prohibit this. Prefix-stability is canonical structure; provider cache policy remains in prompt-cache/provider owners.
+
+### Finding R4-C: Strong mid-history system roles are not uniformly portable
+
+**Problem:** backend protocols have differing constraints.
+
+**Remediation:** v1 placement/message contracts are bounded and normal candidate adaptation must reject unsupported semantics rather than silently relocate. Stable-prefix instructions remain appropriate for system/developer guidance; activation-boundary steering uses a normal safe text-message carrier.
 
 ## Implementation Approach Options
 
-### Option A: Proxy-only metadata flag on `lipapi.Message`
+### Option A: Extend generic request transforms with hidden state
 
-**Advantages**
-- Extremely small immediate change.
-- Easy local filtering in one request.
+Rejected:
+- transform has no durable A-leg payload/anchor ownership;
+- easy to run too late/too differently per attempt;
+- does not establish client invisibility/continuation semantics;
+- no cache-stability contract.
 
-**Disadvantages**
-- Metadata is not client-round-tripped.
-- Cannot recognize future replays.
-- Encourages frontend-specific markers/fallbacks.
+### Option B: Store backend-only messages in frontend continuation history
 
-**Assessment:** Rejected.
+Rejected:
+- leaks server-private orchestration into client/A-leg state;
+- not all frontends use proxy continuation;
+- mixes frontend storage with core policy.
 
-### Option B: Regex/text-marker scrub on every request
+### Option C: Maintain a process-local steering map
 
-**Advantages**
-- Similar to the oldest Python implementation.
-- No persistence schema.
+Rejected:
+- lost on restart;
+- incoherent across shared PostgreSQL processes;
+- creates a second session lifecycle.
 
-**Disadvantages**
-- Command-specific and text-only.
-- False positives/negatives in normal content.
-- Cannot robustly identify synthetic replies.
-- Duplicates parser concerns and conflicts with structured Items.
+### Option D: A-leg conversation-view capability with deterministic projection
 
-**Assessment:** Rejected.
-
-### Option C: Process-local identity registry + final backend filter
-
-**Advantages**
-- Easy to implement.
-- Backend leakage reduced within one process lifetime.
-
-**Disadvantages**
-- Loses protection across durable-session restart.
-- Shared PostgreSQL/processes diverge.
-- Final-only filter leaves routing/economics wrong.
-
-**Assessment:** Rejected.
-
-### Option D: Durable A-leg semantic registry + early projection + final guard + local-turn seam
-
-**Shape**
-
-- Core-owned versioned semantic message identity.
-- Optional focused A-leg registry implemented by MemoryStore/Bun.
-- One bounded tag snapshot per normal turn.
-- Early effective-call projection before backend-oriented processing.
-- Final shared candidate guard before PTB/open.
-- Dedicated generic local-turn extension with source-tag-before-handle and reply-tag-before-release.
-- Existing frontends encode canonical local EventStream.
-
-**Advantages**
-- Satisfies replay/durability guarantee.
-- One policy owner across every frontend/backend.
-- Correct economics/context/routing semantics.
-- Strong final safety invariant.
-- No base continuity API break.
-- Future interactive commands become a feature handler rather than another Executor refactor.
-- Future proxy-local message producers can reuse the same registrar/registry/enforcer.
-
-**Disadvantages**
-- Adds one new focused core capability, SDK extension point, and schema migration.
-- Requires careful runtime sequencing and contract coverage.
-
-**Assessment:** Preferred.
+Preferred:
+- one authoritative A-leg lifecycle;
+- one snapshot/turn;
+- store only digests for client-replayable exclusions and full payload only where proxy reconstruction requires it;
+- stable placement can be certified independently of provider cache implementation;
+- frontends/backends remain unchanged.
 
 ## Complexity and Risk
 
-- **Effort: L (approximately 1–2 weeks of focused implementation)** — identity/store/runtime/SDK/continuation/TCK coverage crosses several established boundaries, but does not require provider-specific work.
-- **Risk: Medium** — the main risk is ordering: filtering too late affects economics; tagging too late loses replay safety; local-turn fallback after claim leaks; item-authority filtering can invalidate dependencies. The final requirements make all four orderings explicit.
+**Effort: L.**
 
-## Requirements Gap Analysis Result
+Highest implementation risk is not parsing; it is preserving ordering and cache stability through:
 
-**Decision: PASS after remediation.**
+- legacy vs item authority;
+- continuation materialization;
+- late attempt transforms;
+- shared durable state;
+- multiple overlays;
+- anchor disappearance after compaction;
+- provider-family translation constraints.
 
-The final requirements close every P0 gap without broadening into interactive-command implementation. They preserve existing frontend/backend boundaries, use A-leg continuity as authority, retain client/audit truth, and add only the minimum extension surface required to prove backend-free local replies can safely participate in future replayable sessions.
+## Design Recommendations
+
+1. Rename the internal policy concept from "deny-list only" to `conversationview`; keep public producer APIs narrow and directional.
+2. Read one coherent A-leg state snapshot per logical turn.
+3. Project client truth to backend truth before backend-oriented policy.
+4. Reassert the same frozen view immediately before PTB/Open.
+5. Persist complete backend-only steering payload and placement; never expect the client to echo it.
+6. Provide `stable_prefix` and fixed `after_ingress_tail` activation placement.
+7. Treat placement and slot order as immutable state for an unchanged overlay revision.
+8. Make overlay mutation an explicit cache discontinuity, then restore stable prefix behavior.
+9. Never use current-tail relocation as an anchor-loss fallback.
+10. Keep provider cache keys/TTL/breakpoints out of core.
+11. Do not implement any concrete command/verifier/quota producer in this spec.

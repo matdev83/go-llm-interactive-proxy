@@ -1,145 +1,185 @@
 # Final Spec Review
 
-## Review Scope
+## Scope Reviewed
 
-This final pass checks the complete `non-forwardable-conversation-content` SDD after requirements gap analysis, design validation, and task generation. It verifies internal consistency, implementation completeness, brownfield alignment, and the explicit scope guard requested by the maintainer.
+Final pass covers:
 
-Repository baseline: `main` at `b54982384840ba85c0af2a019ccc35becdd63f10`.
+- `spec.json`
+- `research.md`
+- `requirements.md`
+- `gap-analysis.md`
+- `design.md`
+- `design-review.md`
+- `tasks.md`
 
-## Cross-Artifact Consistency
+The review was repeated after adding the persistent backend-only steering requirement.
 
-**Decision: PASS**
+## Final Scope Statement
 
-- `requirements.md` defines one feature: durable A-leg whole-message never-forward classification plus canonical enforcement/local-turn plumbing.
-- `gap-analysis.md` maps every required capability to current assets/gaps and rejects metadata-only, regex-only, process-local, and single-boundary designs.
-- `design.md` assigns each responsibility to a concrete existing/new package boundary and preserves client truth separately from backend projection.
-- `design-review.md` records the NO-GO findings that forced semantic identity, durable continuity, early+final enforcement, and source-tag-before-handle ordering.
-- `tasks.md` schedules implementation/tests/docs for every final requirement and contains no production interactive command or quota-notification work.
+The spec now defines one reusable **A-leg conversation-view projection** with two visibility directions:
 
-## Scope Guard Review
+1. **client-visible / backend-hidden (`never_backend`)**
+   - client/agent sees and can replay the message;
+   - proxy stores a semantic identity;
+   - every B-leg projection removes it.
 
-**Decision: PASS**
+2. **backend-visible / client-hidden persistent steering**
+   - client/agent never sees or persists the message;
+   - proxy stores the complete bounded canonical message and stable placement state;
+   - every later B-leg projection reconstructs it.
 
-The final spec DOES schedule:
+The spec does **not** implement any producer-specific application logic:
 
-- generic replay-stable non-forwardable identity;
-- A-leg-scoped registry and persistence;
-- early backend call projection;
-- final backend wire enforcement;
-- trusted registrar plumbing;
-- generic local-turn Match/Handle extension point;
-- generic local assistant text response stream;
-- frontend/continuation/reload certification;
-- observability/security/performance/docs.
+- no interactive command grammar/handlers;
+- no `!/set`;
+- no routing-setting command;
+- no Quality Verifier logic/model call/scheduler;
+- no quota-notification thresholds/policy/scheduler;
+- no generic async notification service.
 
-The final spec DOES NOT schedule:
-
-- `!/` detection/parser;
-- `set`, `unset`, `help`, model/route commands;
-- interactive command state or handlers;
-- session routing mutation for a command;
-- quota thresholds/usage policy;
-- quota notification generation/scheduling;
-- asynchronous notification delivery;
-- partial-message regex/substring stripping.
-
-A future interactive-command implementation should only need to contribute a `localturn.Handler` and its own command-owned state/service ports. It should not need to change frontend/backend adapters, message identity, registry persistence, backend projection, or the PTB/open guard.
-
-A future standalone quota/status message producer can reuse the same trusted non-forwardable Registrar/tag-before-release invariant; producer-specific response-injection policy remains outside this spec.
-
-## Requirements Coverage Review
-
-| Requirement | Implementation tasks | Status |
-|---|---|---|
-| 1 Canonical identity | 1, 5, 12 | Covered |
-| 2 A-leg registry | 2-4, 13 | Covered |
-| 3 Tag-before-release | 2, 6, 9 | Covered |
-| 4 Early backend projection | 5, 10 | Covered |
-| 5 Final backend guard | 6, 11 | Covered |
-| 6 Local-turn seam | 7-9 | Covered |
-| 7 Local EventStream | 8-9, 12 | Covered |
-| 8 Replay/continuation | 10, 12-13 | Covered |
-| 9 Observability/security | 6, 9-11, 14 | Covered |
-| 10 Performance/lifecycle/compatibility | 2-4, 7, 10-11, 13, 15 | Covered |
-| 11 TDD/docs/quality | 1-15 | Covered |
-
-No final acceptance criterion is intentionally deferred to a follow-up spec.
-
-## Brownfield Ordering Review
+## Cache-Friendliness Review
 
 **Decision: PASS**
 
-The final runtime sequence is intentionally asymmetric:
+The revised design treats placement as durable state and explicitly rejects moving-tail reinjection.
 
-1. preserve/authenticate A-leg client truth;
-2. run secret/submit acceptance and CTP evidence;
-3. allow a generic local-turn Match;
-4. if claimed, tag source before Handle and tag reply before release;
-5. otherwise load one A-leg tag snapshot and derive the early B-leg projection;
-6. run backend-oriented transforms/routing/billing from the filtered call;
-7. apply late candidate shaping/transforms/adaptation;
-8. re-enforce at final `wireCall`;
-9. only then emit PTB and invoke backend.
+For a mid-session overlay activated after `U_N`:
 
-This ordering closes both leakage and cost/context distortion without making persistence mutable per B-leg.
+```text
+activation:
+... U_N, STEERING
 
-## SOLID / Hexagonal Review
+subsequent:
+... U_N, STEERING, A_N, U_N+1
+```
 
-**Decision: PASS**
+This makes unchanged steering part of append-only model-visible history.
 
-- Core policy is provider-neutral and does not depend on Bun/frontends/backends.
-- Persistence implements a focused core port.
-- Feature plugins depend on SDK application ports.
-- Base continuity and canonical wire contracts stay narrow.
-- Runtime owns only sequencing/orchestration.
-- Local-turn is a dedicated use-case seam rather than an overloaded SubmitHook error path.
-- No DI container, reflection registry, global mutable authority cache, or pairwise translator is introduced.
+The spec also supports `stable_prefix` for guidance that belongs near the session's static instructions.
 
-## Safety Review
+Hard cache rules are explicit:
 
-**Decision: PASS**
+- unchanged overlay revision → same role/text/anchor/order;
+- no per-turn timestamps/nonces/trace IDs in model-visible steering;
+- no current-tail fallback;
+- create/replace/move/deactivate is an explicit cache discontinuity;
+- after that discontinuity, unchanged turns must stabilize again;
+- anchor loss after compaction uses deterministic stable-prefix fallback or fail-closed;
+- core does not manipulate provider `PromptCacheKey`, TTL, `cache_control`, or explicit cache resources.
 
-The spec has explicit fail-closed behavior for:
+The requirements and tasks include exact-prefix canonical regression tests across at least three growing turns plus bounded OpenAI/Anthropic/Gemini-family translation sentinels.
 
-- registry snapshot uncertainty;
-- tag persistence/capacity failure;
-- invalid local-turn source selection;
-- local handler failure after claim;
-- reply tag failure;
-- invalid/no-content early projection;
-- late final-guard validation failure.
-
-The two strongest invariants are testable:
-
-1. local-only output cannot be released before its tag commit;
-2. PTB/backend open cannot occur before final enforcement succeeds.
-
-## Performance Review
+## Requirements Completeness Review
 
 **Decision: PASS**
 
-- one bounded registry snapshot per normal logical turn;
-- maximum 4096 identities per A-leg;
-- no per-B-leg durable read;
-- no polling/watcher/invalidation cache;
-- in-memory final guard reused by failover/race/interleaved attempts;
-- explicit benchmark/race tasks are scheduled.
+Coverage includes:
 
-## Final Polish Applied
+- representation-neutral semantic identity;
+- coherent A-leg state snapshot;
+- exclusion tag persistence;
+- tag-before-release/source-side-effect ordering;
+- early backend-effective projection;
+- final shared reassertion;
+- local successful turns;
+- canonical local streams;
+- persistent steering payload/anchor/slot/revision;
+- stable-prefix and fixed activation-boundary placement;
+- cache-prefix invariants and explicit discontinuities;
+- continuation/full-history replay;
+- client/PTB evidence separation;
+- shared PostgreSQL/restart/reload behavior;
+- observability/security/bounds;
+- performance/race/architecture/quality gates.
 
-The final artifacts were tightened to:
+No requirement relies on a future follow-up to make the infrastructure correct.
 
-- use “conversation message”/“whole-message” consistently instead of command-specific terminology;
-- make `never_forward` the only v1 disposition and avoid speculative conditional scopes;
-- separate future producer policy from reusable registrar/enforcement infrastructure;
-- require a two-phase local-turn handler so claimed source tags precede local execution;
-- state that continuation history remains A-leg truth rather than becoming a second enforcement store;
-- explicitly cover item-reference cleanup and no-forwardable-content failure;
-- preserve FeatureBundle schema v1 and base continuity interfaces;
-- include implementation tasks for both memory and durable PostgreSQL/SQLite paths, frontend replay, generation reload, observability, race/performance certification, and documentation.
+## Brownfield Gap Review
+
+**Decision: PASS**
+
+Every P0 gap has a disposition:
+
+- no identity/registry → conversation-view identity/store;
+- no early projection → runtime base projection;
+- no final safety boundary → candidate-open reassertion;
+- no local success → two-phase local-turn stage;
+- no hidden steering state → full bounded overlay persistence;
+- no producer writer → narrow steering writer;
+- moving-tail cache break → fixed placement;
+- no stable anchor → semantic identity + occurrence ordinal;
+- anchor loss → explicit fallback/fail policy;
+- late transform corruption → final reassertion;
+- no cache tests → prefix invariants + adapter sentinels;
+- memory/Bun missing state → standard optional capability;
+- shared-process stale state → per-logical-turn snapshot.
+
+## Architecture Review
+
+### SOLID
+
+**PASS**
+
+- SRP: identity, state, projection, local application behavior, writer, runtime sequencing and persistence remain distinct.
+- OCP: new producers use SDK seams; new frontends/backends inherit canonical projection.
+- LSP: Memory/Bun state contracts and local EventStream substitutions are testable.
+- ISP: Reader, Tagger, SteeringWriter and local Handler are narrow.
+- DIP: runtime/producers depend on ports; core imports no provider SDK.
+
+### Hexagonal
+
+**PASS**
+
+- core owns A-leg/B-leg policy;
+- client frontends/trusted producers drive it;
+- persistence is a driven adapter;
+- provider adapters remain translation/cache-policy owners;
+- construction is explicit;
+- no DI container/global service locator.
+
+### Cache ownership
+
+**PASS**
+
+Canonical history stability is core-owned; provider cache implementation/TTL/breakpoint/residency remains provider/backend-owned.
+
+## Task Plan Review
+
+**Decision: PASS**
+
+The plan is TDD-first and contains 20 bounded tasks across five phases:
+
+1. RED contracts.
+2. Domain + memory/Bun persistence + producer services.
+3. Base runtime projection + local success/frontend certification.
+4. Final B-leg reassertion + adversarial path/cache/translation tests.
+5. Continuation/reload/observability/performance/docs/final gates.
+
+Each task contains no more than five concrete actions and includes boundary, dependencies, validation and requirement traceability.
+
+No task implements a concrete interactive command, verifier, quota notification, or provider cache policy.
+
+## Implementation Surface Review
+
+Expected implementation zones are bounded to:
+
+- `internal/core/conversationview`
+- `internal/core/runtime`
+- focused additions to `internal/core/b2bua`
+- `internal/core/continuity/bunstore`
+- `pkg/lipsdk/nonforwardable`
+- `pkg/lipsdk/localturn`
+- `pkg/lipsdk/steering`
+- FeatureBundle/runtime composition
+- focused frontend/backend-family contract tests
+- docs/architecture tests
+
+No pairwise translator or provider-specific state store is planned.
 
 ## Final Decision
 
-**GO FOR SPEC REVIEW / IMPLEMENTATION READINESS AFTER MAINTAINER APPROVAL.**
+**GO FOR DESIGN READINESS**
 
-The SDD is complete and internally consistent. `spec.json` intentionally keeps artifact approvals and `ready_for_implementation` false because this is a spec-only PR and normal maintainer review remains the implementation gate.
+The added steering requirement is now first-class and cache-aware. The spec is final for the infrastructure it claims to deliver.
+
+The implementation gate remains maintainer approval. `spec.json` intentionally keeps all approvals and `ready_for_implementation` false.

@@ -1,228 +1,385 @@
-# Research: Non-Forwardable Conversation Content
+# Research and Architecture Notes
 
-## Scope
+## Research Question
 
-This research supports a spec for a protocol-neutral Go-LIP capability that lets trusted proxy features classify complete conversation messages as **never forward to any inference B-leg** while keeping those messages visible on the A-leg/client side. The immediate motivating use case is future interactive proxy control, but interactive command parsing, command handlers, routing-setting mutation, and any specific quota-notification policy are deliberately outside this spec.
+How should Go-LIP support proxy-owned conversation messages that are visible on only one leg, including persistent hidden steering that the proxy must reinsert across turns without destroying prompt-cache locality?
 
-The goal of this work is the reusable plumbing: replay-stable identity, A-leg-scoped durable classification, early backend projection, a final no-leak guard, and a generic local-turn response seam that future features can consume without changing frontend/backend adapters.
+This research updates the original non-forwardable-message analysis after a newly identified requirement: some proxy-generated content is **B-leg-only**, not A-leg-only.
 
-Repository baselines reviewed:
+## Scope Guardrail
 
-- Go-LIP: `matdev83/go-llm-interactive-proxy` at `b54982384840ba85c0af2a019ccc35becdd63f10` (`main`, 2026-08-18).
-- Python LIP lineage: `matdev83/llm-interactive-proxy` at `71822d5d3e5a375d119386c660301b397e4465e2`.
+The research is infrastructure-only. It does not design or implement interactive command syntax/handlers, Quality Verifier policy, quota notification policy, or another concrete steering producer.
 
-## Python Lineage: What Is Worth Carrying Forward
+## Repository Baseline
 
-### Early command sanitization was text-rewrite based
+Research baseline: `main` at `b54982384840ba85c0af2a019ccc35becdd63f10`.
 
-`src/core/services/command_sanitizer.py` removes detected `!/` command text from a string, including commands embedded at the start, middle, or end of ordinary text. `command_content_processor.py` wraps that sanitizer for text parts.
+Relevant current assets:
 
-This solves one immediate request but does not establish a durable replay invariant. A coding agent can resend its whole transcript on every request, so the original command and any proxy-generated reply can reappear indefinitely. Re-running regex/string stripping on every frontend also couples policy to text formatting and becomes fragile for multipart messages and richer canonical item trajectories.
+- `pkg/lipapi.Call` is the protocol-neutral canonical request. Legacy authority uses `Instructions` + `Messages`; item authority uses `Items`.
+- `lipapi.Message.Metadata` is proxy-owned `json:"-"`, which is useful for current-request provenance but cannot be replay authority because clients do not round-trip it.
+- `lipapi.NormalizedItems`/walkers provide protocol-neutral traversal.
+- `runtime.Executor` establishes authoritative A-leg state before route planning and ultimately sends every normal attempt through the shared candidate-open path.
+- The candidate-open path produces a final `wireCall`, emits PTB capture from it, then invokes `be.Open(...)`. This is the authoritative no-leak/no-omission boundary.
+- `frontendpipe` already maps canonical `EventStream` back into each wire frontend, so proxy-local successful text does not require per-frontend synthetic response code.
+- OpenResponses materializes `previous_response_id` history before Executor; a central projection therefore sees concrete replayed message items.
+- B2BUA MemoryStore and Bun SQLite/PostgreSQL continuity already implement optional capability patterns (`routeoverride`, interleaved state) without widening base/public continuity contracts.
+- FeatureBundle already provides ordered extension chains with immutable-generation composition.
 
-### The later Python design moved to server-owned replay identity
+## Python Lineage
 
-The newer command service (`src/core/commands/service.py`) computes the identity of the **original command message before it is rewritten**, records it in a non-forwardable registry, and fails closed if that classification cannot be persisted. The later archived design (`.kiro/specs/archive/non-forwardable-message-tagging/design.md`) separates:
+The Python LIP evolved from command-string stripping toward server-side non-forwardable identity/registry/enforcement. That later design is the useful precedent for **A-leg-visible / B-leg-hidden** messages.
 
-1. identifying/tagging local-only messages; and
-2. enforcing those tags before backend execution.
+The Python Quality Verifier also exposes the opposite visibility direction: `quality_verifier_steering_messages.py` creates a private steering system message and appends it to the backend request for an inline recall. This proves a concrete future consumer for **B-leg-visible / A-leg-hidden** infrastructure. The Go spec must not port the verifier itself.
 
-`src/core/services/non_forwardable_message_identity_service.py` uses deterministic SHA-256 identities derived from semantic message fields rather than client metadata. `src/core/services/non_forwardable_message_enforcer.py` removes classified messages immediately before backend execution and fails closed if enforcement is indeterminate.
+Important difference: the old helper appends steering to the current tail. That is appropriate for a one-off recall, but it is not sufficient for a persistent hidden steering message that must be present on later turns. Because the agent never sees that message, the next client request omits it. Re-appending it at the new tail relocates it after newly added assistant/user history.
 
-That separation is the architectural idea to preserve. The Go implementation should not reproduce the Python service layout or regex sanitizer because Go-LIP now has a stronger canonical/B2BUA execution architecture.
+Example:
 
-## Current Go-LIP Assets
+```text
+activation request:
+S, U1, STEER
 
-### Canonical request model already gives one protocol-neutral inspection surface
+later client submission:
+S, U1, A1, U2
 
-`pkg/lipapi.Call` is the shared request envelope across frontends. It supports two conversation authorities:
+naive reinjection at current tail:
+S, U1, A1, U2, STEER
+```
 
-- legacy `Instructions` + `Messages`; and
-- ordered `Items` when `Items != nil`.
+The activation request is no longer a prefix of the later request. The same unchanged steering instruction moved relative to the model-visible history.
 
-`pkg/lipapi/walkers.go` already provides `NormalizedItems`, `WalkCallItems`, `WalkCallContentParts`, and `WalkCallTexts`. Legacy messages are projected into canonical message items, so the repository already has the basic representation bridge needed for protocol-neutral message identity.
+## Existing Go Tail Injection
 
-Important constraint: `lipapi.Message.Metadata` is explicitly proxy-owned, `json:"-"`, and never serialized to wire. It is useful for current-request provenance but cannot identify a message after a client reconstructs/resubmits history.
+`internal/core/interleavedthinking/shape.go` intentionally injects a memo at the current tail while preserving the preceding prefix. That behavior serves a different feature with a bounded turn budget and tail-salience semantics.
 
-### Ordered items make whole-message removal safer than substring rewriting
+It is **not** the persistence model for this specification:
 
-`pkg/lipapi/items.go` models message, item-reference, tool-call, tool-result, reasoning, compaction, and extension items. `Call.Validate` enforces ordering and dependency invariants such as backward item references and tool-call/tool-result linkage.
+- the interleaved memo is not hidden client/session state with a durable fixed placement contract;
+- its current-tail location changes as the conversation grows;
+- changing its position across turns cannot provide the exact-prefix invariant required for persistent hidden steering.
 
-Therefore the first canonical non-forwardable unit should be a **complete message unit**, not an arbitrary substring or content part. The filter can preserve every retained unit byte/field-equivalently, remove item references that point to removed in-call message IDs, and validate the projected call before it can proceed.
+The new mechanism therefore does not modify interleaved thinking in this spec. It must coexist deterministically with it. A later behavior-specific migration would need its own semantic review.
 
-This also gives future producers a clear rule: never mix local-only and backend-relevant content into one message if the whole message must later be suppressed. A local notice or local reply should be a standalone conversation message.
+## Prompt-Cache Ground Truth
 
-### Secure session already establishes the right authority key
+Prompt caching is now economically and latency significant enough that the placement semantics must be normative.
 
-The secure-session preparation path resolves/fetches the proxy-owned A-leg before routing. `SessionRef` clearly distinguishes client hints from proxy authority. The A-leg is already the owner for sticky routing state, B-leg sequencing, interleaved state, and route overrides.
+### OpenAI
 
-Non-forwardable classification should therefore be keyed by authoritative `ALegID`, not by a raw client session ID, frontend connection, response ID, or other client-controlled carrier.
+Official OpenAI material states that cache hits depend on exact prompt-prefix matches and recommends static content first/variable content later. OpenAI's Codex agent-loop documentation specifically describes model-visible history as append-only to preserve exact prefixes.
 
-### Optional continuity capability is an established pattern
+References:
+- https://openai.com/index/api-prompt-caching/
+- https://openai.com/index/unrolling-the-codex-agent-loop/
+- https://openai.com/index/gpt-5-6-frontier-intelligence-efficiency/
 
-`internal/core/b2bua.Store` is intentionally narrow and mirrored by public continuity contracts. Existing interleaved state and route overrides avoid widening that base interface by using optional focused capabilities.
+Architectural implication: a persistent hidden message must not be removed and re-added at a moving location. Once active, it should behave like an append-only history element or a stable prefix element.
 
-`internal/core/routeoverride/store.go` is the closest precedent: a narrow reader/store contract is implemented by standard `b2bua.MemoryStore` and `internal/core/continuity/bunstore.Store` without changing the base Store API.
+### Anthropic
 
-Non-forwardable storage should use the same approach.
+Anthropic documents a cache-prefix hierarchy of tools → system → messages and states that changes before a breakpoint invalidate later cached content. Current Claude documentation explicitly supports mid-conversation system messages as a cache-friendly way to add instructions without rewriting the top-level system prefix and warns against editing/removing an earlier mid-conversation system message.
 
-### Durable continuity supports the required lifecycle
+References:
+- https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+- https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages
+- https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-use-with-prompt-caching
 
-`internal/core/continuity/bunstore` already provides SQLite/PostgreSQL migrations and A-leg-owned durable state. Route override persistence demonstrates transactional A-leg locking/liveness behavior and cascade-safe lifecycle integration.
+Architectural implication: a steering instruction activated mid-session should become a stable historical element at its activation boundary; later turns append around/after it rather than moving it.
 
-A small A-leg tag table can therefore persist versioned message digests and bounded reason codes without introducing another database stack or process-local lifecycle authority.
+### Gemini
 
-### There is a natural early projection point
+Gemini's official caching guidance recommends large/common content at the beginning and requests with similar prefixes. Explicit cached content is a prompt prefix.
 
-`internal/core/runtime/executor_prepare_secure.go` currently:
+Reference:
+- https://ai.google.dev/gemini-api/docs/caching
 
-1. validates/resolves principal/workspace;
-2. runs `SecureSession.BeginTurn` and fetches the A-leg;
-3. runs secret-guard and submit/request/pre-request stages;
-4. constructs the effective call;
-5. freezes `preparedRequest.baseline` for routing and B-leg execution.
+Architectural implication: stable prefix steering is valuable for session-wide guidance, while mid-session guidance needs stable historical placement to avoid repeated divergence.
 
-The client/work call and backend-effective call are already conceptually distinct because runtime route overrides are reasserted on an effective clone before route planning.
+## Cache-Friendly Placement Options
 
-Non-forwardable history should be projected out **after A-leg/client evidence and submit processing, but before backend-oriented request/pre-request transforms, routing, context estimation, billing authorization, capability checks, or baseline freeze**. Otherwise local-only history could still distort context limits, token/cost estimates, and route decisions even if it is removed later.
+### Option A: Reinject at current tail every turn
 
-### There is an authoritative last B-leg boundary
+**Rejected.**
 
-Every planned backend candidate eventually reaches the shared candidate-open path in `internal/core/runtime/executor_open_attempt.go`. After per-candidate shaping/transforms and candidate adaptation, runtime builds `wireCall`, emits PTB traffic capture from that exact backend-facing call, and invokes:
+Pros:
+- simple;
+- maximum recency/salience.
 
-`be.Open(openCtx, wireCall, routing.BackendFacingCandidate(c))`
+Cons:
+- position moves every turn;
+- activation request is not a prefix of the next request;
+- unchanged steering creates avoidable prefix divergence;
+- silently conflates "persistent state" with "per-turn append."
 
-This is the right final safety boundary. A second enforcement pass immediately before PTB capture/backend open ensures that attempt transforms or future request shaping cannot accidentally reintroduce a previously tagged local message.
+### Option B: Rewrite top-level/system prefix on every turn
 
-Initial, failover, retry, parallel, TTFT, and interleaved attempts all need contract tests proving they share this guard rather than each implementing separate filtering.
+**Rejected as the only mechanism.**
 
-### CTP/PTB planes already model the desired evidence split
+Pros:
+- stable after activation if never changed.
 
-The proxy already distinguishes client-to-proxy (CTP) and proxy-to-backend (PTB) traffic capture. This maps directly to the feature:
+Cons:
+- activating mid-session rewrites a very early prefix and can invalidate a large cached history;
+- producer may semantically want steering to begin at a particular point in the conversation.
 
-- CTP/A-leg evidence may show what the client actually submitted, including local-only messages, subject to existing redaction/security policy.
-- PTB evidence must be generated only after non-forwardable projection and must never contain classified local-only content.
+### Option C: Persist one fixed activation boundary
 
-The feature must not rewrite historical A-leg evidence merely to make B-leg projection clean.
+**Preferred for mid-session steering.**
 
-### Canonical EventStream already supports backend-free replies
+Activation:
 
-`Executor.Execute` returns `lipapi.EventStream`, and `internal/plugins/frontends/frontendpipe` performs the shared decode -> execute -> encode flow. Frontends encode canonical events regardless of which backend produced them.
+```text
+S ... U_N, STEER
+```
 
-Therefore a generic proxy-local turn can return a canonical stream without any provider/frontend-specific synthetic-response code. A local text reply can use the normal response/message/text/finished event sequence and omit usage events entirely.
+Later:
 
-### Existing extension stages cannot express a successful local turn cleanly
+```text
+S ... U_N, STEER, A_N, U_N+1
+```
 
-Submit hooks can mutate or reject. Pre-request handlers can allow/deny. Response observers are read-only, and response part hooks mutate one existing event. None represents:
+The original activation prompt remains an exact prefix of the later prompt, assuming the rest of the client/model-visible history is append-only and unrelated request wrappers are unchanged.
 
-> this authenticated A-leg turn was successfully handled by the proxy; emit this client-visible assistant reply and open no B-leg.
+A durable anchor cannot use request index or transient item ID. It uses the semantic identity of the terminal forwardable user message plus an occurrence ordinal.
 
-Overloading SubmitHook rejection to carry a success response would blur responsibilities and complicate error semantics. A small dedicated `localturn` extension point is justified.
+### Option D: Stable prefix placement
 
-### OpenResponses continuation is compatible with enforcement-after-materialization
+**Preferred for session-wide/background steering.**
 
-The OpenResponses frontend materializes `previous_response_id` history before calling the executor and records canonical input/output through the existing continuation observer. A proxy-local response can therefore be recorded normally on the A-leg. When a later request materializes that history, the core non-forwardable projection removes the tagged local input/reply before B-leg preparation.
+The overlay is placed at one deterministic prefix slot after the stable instruction region and before mutable conversation history. It remains there for its entire unchanged revision.
 
-Correctness should not depend on rewriting continuation history or teaching each frontend how to delete local messages. Dedicated tests are still required for full-history replay and `previous_response_id` chains.
+Activation/update/deactivation can cause one intentional cache discontinuity. Unchanged subsequent turns are stable.
 
-## Design Implications
+## Selected Visibility Model
 
-### Message identity must be semantic and versioned
+The umbrella domain is **conversation view**, not commands.
 
-The stored key should be `version + SHA-256 digest` over a deterministic semantic projection of one canonical message. The projection should:
+Two independent visibility directions exist:
 
-- include role and ordered semantic content;
-- normalize CRLF/CR to LF while otherwise preserving text whitespace and Unicode;
-- deterministically canonicalize JSON/opaque structured content before hashing;
-- ignore item ID, item status, assistant phase, generated positional IDs, message metadata, session/route fields, and transport/cache wrappers;
-- produce the same identity for equivalent legacy `Message` and `ItemKindMessage` representations.
+| Class | Stored payload | A-leg/client | B-leg/backend | Reconstruction authority |
+|---|---|---|---|---|
+| `never_backend` | semantic identity only | visible | hidden | client replay + proxy exclusion registry |
+| persistent steering overlay | full canonical message + placement | hidden | visible | proxy A-leg state + deterministic injection |
 
-Ignoring transient IDs is required because many agents reconstruct history and because `NormalizedItems` generates local positional IDs for legacy messages.
+The opposite storage requirements are fundamental:
 
-### Duplicate semantic messages intentionally share disposition within one A-leg
+- client-visible content returns from the client, so the proxy only needs a durable semantic deny identity;
+- backend-only content never returns from the client, so the proxy must durably own the actual message content and its placement.
 
-Without a stable end-to-end client message ID, two role/content-identical messages cannot be distinguished reliably after arbitrary transcript reconstruction. The safe deterministic behavior is that identical semantic messages in the same A-leg share the same never-forward classification.
+A single vague "non-forwardable tag" abstraction cannot represent both correctly.
 
-For the intended sources this is desirable: repeating the exact same local command or proxy-generated notice does not make it backend-relevant.
+## Selected Package/Port Shape
 
-### Classification must be committed before local output becomes visible
+### `internal/core/conversationview`
 
-The core causal invariant is:
+Focused domain/application policy:
 
-> a message designated never-forward is not eligible for client release until its A-leg tag commit succeeds.
+- semantic message identity;
+- `never_backend` tag value objects;
+- steering overlay value objects;
+- immutable per-turn `Snapshot`;
+- stable placement/anchor resolution;
+- pure projection/reassertion helpers;
+- narrow `Reader`, `Tagger`, and `SteeringStore`/application ports.
 
-This makes one tag snapshot per later logical turn safe even with durable/shared continuity: a client cannot legitimately replay a proxy-local message before it was released, and release occurs only after the tag is committed.
+This gives the runtime one coherent per-turn state read while preserving Interface Segregation for mutation consumers.
 
-Current-turn successful registrations are also merged into the request-local guard set so final candidate enforcement sees them without another store round trip.
+### `pkg/lipsdk/nonforwardable`
 
-### One durable snapshot per turn, not per B-leg
+Trusted registrar types for future proxy features that create client-visible/local-only messages. No client transport surface.
 
-The standard runtime should load the bounded A-leg tag set once after authority is known for a normal backend turn. The snapshot is carried in `preparedRequest` and reused for early projection and all candidate attempts. No per-B-leg database lookup, watcher, polling loop, or indefinite process cache is required.
+### `pkg/lipsdk/localturn`
 
-A hard per-A-leg tag cap makes snapshot memory/work bounded. A proposed initial cap of 4096 unique identities keeps even pathological sessions bounded while allowing far more local control/notification messages than normal sessions should produce.
+Generic Match → protect source → Handle → protect reply seam. No command implementation.
 
-### Local-turn matching should be two-phase
+### `pkg/lipsdk/steering`
 
-The future interactive-command implementation must not execute a server-side state mutation and only afterward discover that the triggering message could not be protected.
+Trusted producer contract:
 
-The generic local-turn contract should therefore separate:
+- bounded `OverlayID`;
+- text-bearing canonical steering message;
+- placement request;
+- anchor-missing policy;
+- result/revision metadata;
+- writer/controller methods to put/replace/deactivate.
 
-1. `Match`: pure detection/claim that identifies normalized input message indexes to mark never-forward; and
-2. `Handle`: local execution/reply production, called only after core has successfully persisted the claimed source tags.
+The standard distribution injects the concrete writer explicitly into trusted feature construction/application code. It is not a global service locator and is not exposed to client frontends.
 
-The first matching handler claims the turn. After claim, failures never fall back to a B-leg. The returned reply is validated and tagged before the canonical local response stream is exposed.
+## Steering Placement Contract
 
-No interactive parser or handler is part of this spec; tests use a deterministic fake/reference handler only.
+### Stable prefix
 
-## Rejected Approaches
+Purpose: guidance that should apply session-wide or whose producer can accept one prefix reset on activation.
 
-### Client/message metadata flag
+V1 role constraint:
+- use a complete system/developer-style instruction representation at the stable instruction boundary when canonical authority permits it;
+- if a candidate cannot preserve required semantics, normal admission/adaptation must reject rather than silently relocate/drop.
 
-Rejected because metadata is not guaranteed to round-trip and is explicitly non-wire in `lipapi.Message`.
+### Fixed activation boundary
 
-### Regex or marker-only stripping
+Purpose: steering generated in response to a live turn (for example a future verifier recall).
 
-Rejected as the enforcement authority. Text markers may be useful to a future producer for UX/provenance, but correctness must derive from server-owned semantic identity and A-leg state.
+Producer-facing `after_ingress_tail` is resolved **when registered** to:
 
-### Frontend-specific filtering
+```text
+MessageIdentity + OccurrenceOrdinal
+```
 
-Rejected because it duplicates policy across OpenAI/Anthropic/Gemini/OpenResponses/etc. and still leaves internal/retry paths exposed.
+The source must be the current terminal forwardable user message. The stored anchor never becomes "current tail."
 
-### Backend-adapter filtering
+V1 deliberately does not offer arbitrary anchoring between tool-use/result fragments; that would create invalid provider trajectories and unnecessary complexity.
 
-Rejected because provider adapters are too late for route/context/billing decisions and would create a backend Cartesian maintenance problem.
+For broad compatibility, the persistent mid-conversation steering message is a normal canonical text message. Provider-specific stronger system-message forms remain adapter/capability concerns and must not cause silent movement.
 
-### Final-boundary-only filtering
+## Anchor Loss
 
-Rejected because local-only history would still affect token/context estimates, policy transforms, routing, and billing preflight.
+An anchor can disappear because the client/agent compacted or truncated history. At that point the previous exact prompt prefix is already broken independently of steering.
 
-### Early-filter-only enforcement
+Two explicit policies:
 
-Rejected because per-attempt transforms/shaping run later. A final wire guard is a cheap defense-in-depth invariant.
+- `stable_prefix_fallback`: continue applying the steering at one deterministic prefix slot and emit bounded diagnostics;
+- `fail_closed`: do not send an unsteered/misplaced backend request.
 
-### Process-local registry only
+Never move the overlay to whatever happens to be the new tail.
 
-Rejected because durable A-leg continuity can survive restart and can be shared through PostgreSQL. Losing tags while the client transcript survives would violate the feature.
+## Multiple Overlays
 
-### Extending base `b2bua.Store`
+Ordering must be stable:
 
-Rejected because this feature is an optional focused continuity capability and should not force public continuity compatibility churn.
+- each new overlay gets an immutable `SlotOrdinal` at store linearization;
+- same placement: order by slot, never map/SQL row order;
+- semantic no-op Put does not create a new revision/slot;
+- replacement retains slot;
+- placement-changing replacement is explicit and is a cache discontinuity;
+- deactivation removes the overlay from future snapshots but cannot rewrite completed calls.
 
-### Partial-message/substring rewriting in v1
+## State and Persistence
 
-Rejected because it reintroduces parser/formatting ambiguity and can corrupt multipart/tool/item semantics. The canonical unit in this spec is a complete message. Producers must keep local-only content in standalone messages.
+Unlike exclusion tags, steering requires full payload persistence.
 
-## Recommended Architecture
+Logical state per A-leg:
 
-Use a focused `internal/core/nonforwardable` domain/application capability with:
+- state revision;
+- up to 4096 exclusion identities;
+- up to 64 active steering overlays;
+- overlay ID, overlay revision, active flag;
+- slot ordinal;
+- versioned canonical role/text payload;
+- placement + durable anchor;
+- anchor-missing policy;
+- bounded source/reason code;
+- creation/update timestamps.
 
-- versioned semantic message identity;
-- bounded append-only A-leg registry;
-- memory and Bun continuity adapters;
-- one per-turn immutable tag snapshot;
-- pure call projection plus validation;
-- final candidate wire guard;
-- request-bound registrar for trusted producer stages.
+Initial payload bounds:
+- one steering message: 64 KiB;
+- total active steering payload: 256 KiB/A-leg.
 
-Add a small `pkg/lipsdk/localturn` extension contract and FeatureBundle contribution that proves backend-free client-visible responses can use this capability safely. The extension is generic and contains no command syntax or command-specific dependencies.
+SQLite/PostgreSQL storage is A-leg-owned. Mutations and snapshots are transactional/linearizable. Shared PostgreSQL readers load a current snapshot per logical turn.
 
-This architecture is the smallest change that creates a reusable, enforceable A-leg/B-leg separation instead of another command-specific text filter.
+## Runtime Ordering
+
+Selected order:
+
+```text
+frontend decode / continuation materialization
+        ↓
+accepted client/A-leg ingress + CTP evidence
+        ↓
+secure authoritative A-leg
+        ↓
+one ConversationView snapshot
+        ↓
+local-turn Match / source protection / optional local response
+        ↓
+normal backend path:
+  clone accepted client call
+  remove never_backend
+  clean dependent references
+  inject persistent steering
+  validate
+        ↓
+backend request/pre-request transforms
+        ↓
+routing / context / billing / capabilities
+        ↓
+baseline
+        ↓
+per-candidate/interleaved shaping + attempt transforms
+        ↓
+ConversationView final reassertion
+        ↓
+candidate adaptation/integrity check
+        ↓
+PTB capture
+        ↓
+backend Open
+```
+
+Important properties:
+
+- CTP never contains backend-only steering.
+- continuation recording never receives backend-only steering.
+- PTB does contain backend-only steering.
+- one logical turn uses one immutable view snapshot for all attempts.
+- a concurrent writer mutation affects later turns, not an already admitted turn.
+- the final reassertion protects against late transforms that duplicate/remove/move state.
+
+## Interaction With Existing Prompt-Cache Residency Contract
+
+The existing prompt-cache residency work deliberately keeps provider cache semantics in backend adapters. This feature should compose with it, not absorb it.
+
+Therefore core does **not**:
+
+- choose provider cache TTL;
+- modify `PromptCacheKey` based on an overlay;
+- add/remove vendor `cache_control`;
+- invent explicit provider cache resources;
+- inspect provider cached-token accounting to decide steering placement.
+
+The visibility layer's job is structural: keep unchanged model-visible history as prefix-stable as possible. Provider adapters continue to observe/operate actual provider caching.
+
+## Interaction With Existing Interleaved Thinking
+
+Existing interleaved memo shaping can occur after the persistent base projection. The final reassertion distinguishes conversation-view-owned overlay instances from unrelated per-attempt injections.
+
+This spec does not migrate or change interleaved memo expiry/tail behavior. A regression test should prove the two mechanisms compose without duplicate persistent steering or loss of the interleaved memo.
+
+## Security
+
+Backend-only does not mean secret:
+
+- provider/model receives steering;
+- PTB capture can contain it under existing protected/redaction policy;
+- model may reveal/paraphrase it.
+
+Trusted producers must not put credentials/tokens in steering.
+
+Normal logs and metrics use IDs/revisions/counts only.
+
+## Brownfield Risks
+
+1. **Two histories accidentally conflated.** Mitigation: explicit A-leg/client evidence vs derived B-leg view.
+2. **Late transform undoes projection.** Mitigation: final reassertion at shared attempt-open choke point.
+3. **Moving hidden message destroys cache.** Mitigation: immutable placement anchor + prefix tests.
+4. **Anchor uses transient IDs.** Mitigation: semantic identity + occurrence ordinal.
+5. **Anchor removed by compaction.** Mitigation: explicit fallback/fail policy; never tail-follow.
+6. **State read per race arm.** Mitigation: one immutable snapshot/turn.
+7. **Steering content stored unbounded.** Mitigation: per-message/aggregate limits.
+8. **Provider adapter silently relocates unsupported role.** Mitigation: explicit admission/adaptation failure.
+9. **Generic SDK turns into service locator.** Mitigation: narrow writer and explicit constructor/composition injection.
+10. **Scope drifts into verifier/commands.** Mitigation: fake producers only in this spec's tests.
+
+## Effort Assessment
+
+This is larger than the original exclusion-only infrastructure because the proxy must persist actual hidden content and stable placement state. It is still a focused architecture change: one domain capability, standard continuity adapters, one runtime projection pipeline, two small SDK producer seams, and tests.
+
+Estimated implementation effort: **L**, driven by dual-dialect persistence, runtime ordering, anchor/cache conformance, and cross-protocol sentinel tests rather than algorithmic complexity.
+
+## Research Conclusion
+
+The correct abstraction is a **durable A-leg conversation-view projection**, not a command sanitizer and not a generic request-mutating hook.
+
+Client-only content is projected out. Backend-only steering is projected in. Both directions are controlled by one immutable per-turn snapshot and one final shared backend boundary.
+
+For persistent steering, **placement is state**. The proxy must store where the message became model-visible and recreate that same position every later turn. This is what converts hidden steering from a cache-hostile per-turn mutation into append-only model-visible history.

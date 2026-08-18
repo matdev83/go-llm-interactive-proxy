@@ -1,7 +1,7 @@
 {
   "feature_name": "non-forwardable-conversation-content",
-  "created_at": "2026-08-18T18:34:00+02:00",
-  "updated_at": "2026-08-18T19:00:00+02:00",
+  "created_at": "2026-08-18T18:42:00+02:00",
+  "updated_at": "2026-08-18T19:10:00+02:00",
   "language": "en",
   "phase": "tasks-generated",
   "approvals": {
@@ -19,5 +19,5 @@
     }
   },
   "ready_for_implementation": false,
-  "project_description": "Introduce a protocol-neutral, authoritative A-leg mechanism for complete conversation messages that must remain visible in client/session history but never be forwarded on inference B-legs. Persist replay-stable semantic message identities with bounded memory and SQLite/PostgreSQL continuity, derive an early backend-effective call that removes tagged history before routing/context/billing work, re-enforce the invariant at the shared final PTB/backend-open boundary, and add a generic two-phase local-turn extension seam that protects claimed input before local handling and protects a proxy-generated assistant reply before client release. Keep CTP/A-leg truth and continuation history intact, use existing canonical EventStream/frontend encoding, preserve base continuity/canonical contracts, and implement no interactive command grammar/handlers, routing-setting commands, or concrete quota-notification policy in this spec."
+  "project_description": "Introduce one protocol-neutral A-leg conversation-projection capability for proxy-owned content with asymmetric visibility: (1) client-visible/backend-hidden complete messages that remain in A-leg history but are deterministically removed from every B-leg, and (2) backend-visible/client-hidden persistent steering overlays that the proxy stores and deterministically reinjects on every later B-leg at a stable placement anchor. Use authoritative A-leg continuity, versioned semantic identities, bounded Memory/Bun persistence, early projection before backend-oriented transforms/routing/context/billing, a final projection guard before PTB/backend Open, a generic two-phase local-turn seam, and a trusted steering writer. Persistent steering must be cache-friendly: unchanged overlay revisions and append-only client history preserve an append-only/exact-prefix model-visible sequence; activation/update/deactivation is an explicit cache discontinuity, and anchor loss never causes tail-following relocation. Do not implement interactive commands, command handlers, quota-notification policy, verifier policy, or any concrete producer."
 }
