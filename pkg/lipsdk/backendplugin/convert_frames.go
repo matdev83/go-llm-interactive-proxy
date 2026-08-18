@@ -230,14 +230,19 @@ func ServerFrameFromProto(p *backendpluginv1.ExecuteServerFrame) (ServerFrame, e
 	if err != nil {
 		return ServerFrame{}, err
 	}
+	promptCacheObservation, err := promptCacheObservationFromProto(p.GetPromptCacheObservation())
+	if err != nil {
+		return ServerFrame{}, err
+	}
 	frame := ServerFrame{
-		Kind:          kind,
-		Sequence:      p.GetSequence(),
-		Event:         ev,
-		Diagnostic:    p.GetDiagnostic(),
-		CancelOutcome: co,
-		Terminal:      term,
-		Accounting:    accounting,
+		Kind:                   kind,
+		Sequence:               p.GetSequence(),
+		Event:                  ev,
+		Diagnostic:             p.GetDiagnostic(),
+		CancelOutcome:          co,
+		Terminal:               term,
+		Accounting:             accounting,
+		PromptCacheObservation: promptCacheObservation,
 	}
 	if err := frame.ValidateShape(); err != nil {
 		return ServerFrame{}, err
@@ -270,14 +275,19 @@ func ServerFrameToProto(f ServerFrame) (*backendpluginv1.ExecuteServerFrame, err
 	if err != nil {
 		return nil, err
 	}
+	promptCacheObservation, err := promptCacheObservationToProto(f.PromptCacheObservation)
+	if err != nil {
+		return nil, err
+	}
 	return &backendpluginv1.ExecuteServerFrame{
-		Kind:               kind,
-		Sequence:           f.Sequence,
-		Event:              ev,
-		Diagnostic:         f.Diagnostic,
-		CancelOutcome:      co,
-		Terminal:           term,
-		AccountingEvidence: accounting,
+		Kind:                   kind,
+		Sequence:               f.Sequence,
+		Event:                  ev,
+		Diagnostic:             f.Diagnostic,
+		CancelOutcome:          co,
+		Terminal:               term,
+		AccountingEvidence:     accounting,
+		PromptCacheObservation: promptCacheObservation,
 	}, nil
 }
 
@@ -297,12 +307,19 @@ func accountingEvidenceFromProto(p *backendpluginv1.AccountingEvidence) (*Accoun
 	if err != nil {
 		return nil, err
 	}
-	return &AccountingEvidence{InputTokens: p.InputTokens, OutputTokens: p.OutputTokens, CacheReadTokens: p.CacheReadTokens, CacheWriteTokens: p.CacheWriteTokens, ReasoningTokens: p.ReasoningTokens, TotalTokens: p.TotalTokens, Presence: UsagePresenceFromProto(p.GetPresence()), Source: source, Authority: authority, Plane: plane, DedupeKey: p.GetDedupeKey()}, nil
+	evidence := &AccountingEvidence{InputTokens: p.InputTokens, OutputTokens: p.OutputTokens, CacheReadTokens: p.CacheReadTokens, CacheWriteTokens: p.CacheWriteTokens, ReasoningTokens: p.ReasoningTokens, TotalTokens: p.TotalTokens, Presence: UsagePresenceFromProto(p.GetPresence()), Source: source, Authority: authority, Plane: plane, DedupeKey: p.GetDedupeKey()}
+	if err := ValidateAccountingEvidence(*evidence); err != nil {
+		return nil, err
+	}
+	return evidence, nil
 }
 
 func accountingEvidenceToProto(e *AccountingEvidence) (*backendpluginv1.AccountingEvidence, error) {
 	if e == nil {
 		return nil, nil
+	}
+	if err := ValidateAccountingEvidence(*e); err != nil {
+		return nil, err
 	}
 	source, err := accountingSourceToProto(e.Source)
 	if err != nil {

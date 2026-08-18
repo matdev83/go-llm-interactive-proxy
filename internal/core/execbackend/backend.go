@@ -12,6 +12,7 @@ import (
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
 
 // Backend opens a canonical event stream for one route candidate.
@@ -39,6 +40,15 @@ type Backend struct {
 	DialectSupport lipapi.DialectSupport
 	// ResolveDialectSupport, when set, supplies candidate/model-aware dialect support; otherwise DialectSupport is used.
 	ResolveDialectSupport func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.DialectSupport
+
+	// ResolvePromptCacheProfile supplies model/candidate-aware provider-neutral
+	// residency capability. nil means observation/control unsupported.
+	ResolvePromptCacheProfile func(context.Context, lipapi.Call, routing.AttemptCandidate) promptcache.Profile
+	// RenewPromptCache and ReleasePromptCache are direct operations on an
+	// already-issued backend-owned handle. They never receive a selector and
+	// must not invoke ordinary route selection or inference.
+	RenewPromptCache   func(context.Context, promptcache.RenewRequest) (promptcache.RenewResponse, error)
+	ReleasePromptCache func(context.Context, promptcache.ReleaseRequest) error
 
 	BillingFinalizationSupported bool
 	FinalizeBilling              func(ctx context.Context, in BillingFinalizationInput) (lipapi.Event, error)
@@ -158,4 +168,30 @@ func EffectiveDialectSupport(
 
 func CloneBackendPrefixes(be Backend) []string {
 	return slices.Clone(be.BackendPrefixes)
+}
+
+// EffectivePromptCacheProfile resolves capability for the selected effective
+// model/candidate. A nil resolver is intentionally observation/control unknown.
+func EffectivePromptCacheProfile(ctx context.Context, be Backend, call lipapi.Call, cand routing.AttemptCandidate) promptcache.Profile {
+	if be.ResolvePromptCacheProfile == nil {
+		return promptcache.Profile{}
+	}
+	profile := be.ResolvePromptCacheProfile(ctx, call, cand)
+	if normalized, err := profile.Normalize(); err == nil {
+		return normalized
+	}
+	return promptcache.Profile{}
+}
+
+// DrainPromptCacheObservations drains only the optional host-only sideband.
+// Implementations decide whether a successful terminal committed the buffer.
+func DrainPromptCacheObservations(stream lipapi.ManagedEventStream) []promptcache.Observation {
+	if stream == nil {
+		return nil
+	}
+	source, ok := stream.(promptcache.ObservationSource)
+	if !ok {
+		return nil
+	}
+	return source.DrainPromptCacheObservations()
 }

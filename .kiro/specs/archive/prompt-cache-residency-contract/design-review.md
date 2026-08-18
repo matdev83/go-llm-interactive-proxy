@@ -4,7 +4,7 @@
 
 **GO after contract/lifecycle hardening.** The final design fits Go-LIP's converged provider boundary: core consumes protocol-neutral backend facts and owns orchestration, while concrete backends own effective cache identity and provider control. Initial validation found three material risks—generic prompt retention in core, an observation transport shape that diverged from the existing host-only sideband pattern, and ambiguous maintenance accounting—and the design was corrected before task generation.
 
-This GO is a design-validation result, not Kiro implementation approval. `spec.json` remains non-approved and `ready_for_implementation: false`.
+This document records the completed implementation and design-validation result. The contract is archived as completed in `spec.json`; implementation evidence is recorded there, and the follow-on orchestration remains a separate dependent feature.
 
 ## Critical Issues Found and Applied Corrections
 

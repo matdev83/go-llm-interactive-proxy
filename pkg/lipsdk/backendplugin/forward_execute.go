@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
 
 // OpenManagedStream opens an upstream managed event stream for one Execute attempt.
@@ -88,6 +89,12 @@ func ForwardExecute(stream ExecuteStream, open OpenManagedStream) error {
 			if err := forwardAccountingEvidence(stream, ms, &seq); err != nil {
 				return err
 			}
+			// Prompt-cache observations are published only at successful
+			// terminal eligibility. Failed/cancelled attempts never become
+			// renewable targets by implication.
+			if err := forwardPromptCacheObservations(stream, ms, &seq); err != nil {
+				return err
+			}
 			return sendServerFrame(stream, ServerFrame{
 				Kind: ServerFrameTerminal, Sequence: seq,
 				Terminal: &Terminal{Status: TerminalSuccess},
@@ -122,6 +129,20 @@ func forwardAccountingEvidence(stream ExecuteStream, ms lipapi.ManagedEventStrea
 	}
 	for _, evidence := range source.DrainAccountingEvidence() {
 		if err := sendServerFrame(stream, ServerFrame{Kind: ServerFrameAccountingEvidence, Sequence: *seq, Accounting: &evidence}); err != nil {
+			return err
+		}
+		*seq = *seq + 1
+	}
+	return nil
+}
+
+func forwardPromptCacheObservations(stream ExecuteStream, ms lipapi.ManagedEventStream, seq *uint64) error {
+	source, ok := ms.(promptcache.ObservationSource)
+	if !ok {
+		return nil
+	}
+	for _, observation := range source.DrainPromptCacheObservations() {
+		if err := sendServerFrame(stream, ServerFrame{Kind: ServerFramePromptCacheObservation, Sequence: *seq, PromptCacheObservation: &observation}); err != nil {
 			return err
 		}
 		*seq = *seq + 1
