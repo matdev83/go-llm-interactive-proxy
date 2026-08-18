@@ -12,6 +12,7 @@ const (
 	MetricsStagePreRequest                = "pre_request"
 	MetricsStageCandidateAttemptTransform = "candidate_attempt_transform"
 	MetricsStageFinalStreamObservation    = "final_stream_observation"
+	MetricsStageCompactionPreservation    = "compaction_preservation"
 
 	StageOutcomeOK          = "ok"
 	StageOutcomeError       = "error"
@@ -37,6 +38,7 @@ func knownStageMetricLabel(stage string) bool {
 	case MetricsStageSessionOpen, MetricsStageWorkspaceResolve, MetricsStageSecretGuard,
 		MetricsStageToolCatalog, MetricsStageRequestTransform, MetricsStagePreRequest,
 		MetricsStageCandidateAttemptTransform, MetricsStageFinalStreamObservation,
+		MetricsStageCompactionPreservation,
 		StageToolEventReaction, StageMetricLabelUnknown:
 		return true
 	default:

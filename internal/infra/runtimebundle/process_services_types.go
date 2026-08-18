@@ -67,6 +67,7 @@ type ProcessServices struct {
 	TerminalWorkMetrics   *terminalworkapp.MetricsObserver
 	// Process-owned compaction detector shared by all runtime generations (7.1).
 	CompactionDetector *compactiondetect.Detector
+	BackgroundAux      *BackgroundAuxScheduler // optional process-owned collector
 
 	// Internal handles required by candidate compilation (non-API).
 	persistence       *persistenceRuntime
@@ -102,4 +103,5 @@ type ProcessServicesInput struct {
 	PluginHost       *processhost.Host
 	PluginArtifacts  []*trust.VerifiedArtifact
 	PluginStagingDir string
+	BackgroundAux    *BackgroundAuxScheduler // transferred and closed with process
 }

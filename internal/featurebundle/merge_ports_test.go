@@ -70,6 +70,19 @@ func (s mergeStubCompactionObserver) OnCompaction(context.Context, compaction.Ev
 	return nil
 }
 
+type mergeStubCompactionPreserver struct{ id string }
+
+func (s mergeStubCompactionPreserver) ID() string { return s.id }
+func (mergeStubCompactionPreserver) BeforeRequest(context.Context, *lipapi.Call, compaction.RequestPreview, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+func (mergeStubCompactionPreserver) RequestOpened(context.Context, lipapi.Call, []compaction.Event, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+func (mergeStubCompactionPreserver) BeforeResponseRelease(context.Context, *lipapi.Event, compaction.ResponsePreview, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+
 // TestCompactionObservers_portWiring proves the compaction observer surface is
 // additive through the single merge point, the snapshot options, and the frozen
 // snapshot accessor with defensive-copy semantics (requirements 2.1-2.2).
@@ -118,6 +131,45 @@ func TestCompactionObservers_portWiring(t *testing.T) {
 	again := snap.CompactionObservers()
 	if len(again) != 3 || again[0] == nil {
 		t.Fatal("CompactionObservers() must return a defensive copy of the frozen slice")
+	}
+}
+
+func TestCompactionPreservers_portWiringAndDefensiveSnapshot(t *testing.T) {
+	t.Parallel()
+	bundle := lipfeature.FeatureBundle{
+		SchemaVersion:        lipfeature.SchemaVersionV1,
+		CompactionPreservers: []compaction.Preserver{mergeStubCompactionPreserver{id: "a"}, mergeStubCompactionPreserver{id: "z"}},
+	}
+	if err := bundle.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	merged := featurebundle.MergeBundles(bundle, lipfeature.FeatureBundle{
+		SchemaVersion:        lipfeature.SchemaVersionV1,
+		CompactionPreservers: []compaction.Preserver{mergeStubCompactionPreserver{id: "m"}},
+	})
+	if len(merged.CompactionPreservers) != 3 {
+		t.Fatalf("CompactionPreservers len=%d want 3", len(merged.CompactionPreservers))
+	}
+	for i, want := range []string{"a", "z", "m"} {
+		got, ok := merged.CompactionPreservers[i].(mergeStubCompactionPreserver)
+		if !ok || got.id != want {
+			t.Fatalf("merged preserver[%d]=%T/%q want %q", i, merged.CompactionPreservers[i], got.id, want)
+		}
+	}
+
+	opts := extensions.SnapshotOptions{CompactionPreservers: merged.CompactionPreservers}
+	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), opts)
+	got := snap.CompactionPreservers()
+	if len(got) != 3 {
+		t.Fatalf("snapshot CompactionPreservers len=%d want 3", len(got))
+	}
+	merged.CompactionPreservers[0] = nil
+	if frozen := snap.CompactionPreservers(); frozen[0] == nil {
+		t.Fatal("snapshot must freeze an input defensive copy")
+	}
+	got[0] = nil
+	if again := snap.CompactionPreservers(); len(again) != 3 || again[0] == nil {
+		t.Fatal("CompactionPreservers() must return a defensive copy")
 	}
 }
 
