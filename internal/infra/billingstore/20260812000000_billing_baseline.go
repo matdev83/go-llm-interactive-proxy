@@ -43,6 +43,7 @@ func registerMigrations() {
 		registerProviderJournalSequenceContractMigration()
 		registerReservedColumnRemovalMigration()
 		registerLegacyUsageRetirementMigration()
+		registerProviderMaintenanceMigration()
 	})
 }
 

@@ -25,10 +25,11 @@ func TestKeepwarmHooksDeliverProviderMaintenanceUsage(t *testing.T) {
 	var observedContext context.Context
 	var observed billing.ProviderMaintenanceUsage
 
-	hooks := billingcompose.KeepwarmHooks(billing.ProviderMaintenanceUsageObserverFunc(func(ctx context.Context, usage billing.ProviderMaintenanceUsage) {
+	hooks := billingcompose.KeepwarmHooks(billing.ProviderMaintenanceUsageObserverFunc(func(ctx context.Context, usage billing.ProviderMaintenanceUsage) error {
 		observerCalls++
 		observedContext = ctx
 		observed = usage
+		return nil
 	}))
 	if hooks.Accounting == nil {
 		t.Fatal("KeepwarmHooks did not install an accounting callback")
@@ -92,8 +93,9 @@ func TestKeepwarmHooksSkipRenewalsWithoutAccountingEvidence(t *testing.T) {
 	t.Parallel()
 
 	var calls int
-	hooks := billingcompose.KeepwarmHooks(billing.ProviderMaintenanceUsageObserverFunc(func(context.Context, billing.ProviderMaintenanceUsage) {
+	hooks := billingcompose.KeepwarmHooks(billing.ProviderMaintenanceUsageObserverFunc(func(context.Context, billing.ProviderMaintenanceUsage) error {
 		calls++
+		return nil
 	}))
 	hooks.Accounting(keepwarm.RenewalRecord{OperationID: "without-evidence"})
 	if calls != 0 {

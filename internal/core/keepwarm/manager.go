@@ -65,7 +65,7 @@ type RenewalRecord struct {
 type Hooks struct {
 	// Accounting receives provider-billable maintenance evidence even when the
 	// scheduling result is stale. The manager never merges it into foreground usage.
-	Accounting func(RenewalRecord)
+	Accounting func(RenewalRecord) error
 	// Metric receives only bounded reason/result names, never target or session IDs.
 	Metric func(name string)
 }
@@ -134,18 +134,17 @@ func (h *scheduleHeap) Pop() any {
 // focused companion files so this type remains the domain aggregate rather
 // than an everything-object.
 type Manager struct {
-	mu        sync.Mutex
-	cfg       Config
-	clock     Clock
-	hooks     Hooks
-	epochs    map[string]*idleEpoch
-	nextRev   uint64
-	nextSeq   uint64
-	quiescing bool
-	quiesced  bool
-	disabled  map[string]bool
-	running   int
-	renewWG   sync.WaitGroup
+	mu       sync.Mutex
+	cfg      Config
+	clock    Clock
+	hooks    Hooks
+	epochs   map[string]*idleEpoch
+	nextRev  uint64
+	nextSeq  uint64
+	state    lifecycleState
+	disabled map[string]bool
+	running  int
+	renewWG  sync.WaitGroup
 
 	runCtx    context.Context
 	runCancel context.CancelFunc
@@ -240,7 +239,7 @@ func (m *Manager) invalidateLocked(aLegID, cause string) {
 func (m *Manager) ArmFromCommittedTurn(input ArmInput) ArmResult {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.quiescing {
+	if m.state != lifecycleRunning {
 		m.releaseObservationsLocked(input.Observations, input.Controller)
 		m.metricLocked("generation_quiescing")
 		return ArmResult{Reason: "generation_quiescing"}

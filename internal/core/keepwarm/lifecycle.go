@@ -7,6 +7,27 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
 
+type lifecycleState uint8
+
+const (
+	lifecycleRunning lifecycleState = iota
+	lifecycleQuiescing
+	lifecycleQuiesced
+)
+
+func (s lifecycleState) String() string {
+	switch s {
+	case lifecycleRunning:
+		return "running"
+	case lifecycleQuiescing:
+		return "quiescing"
+	case lifecycleQuiesced:
+		return "quiesced"
+	default:
+		return "unknown"
+	}
+}
+
 func (m *Manager) releaseObservationsLocked(observations []promptcache.Observation, controller promptcache.Controller) {
 	for _, o := range observations {
 		m.enqueueReleaseLocked(controller, o.Handle)
@@ -66,6 +87,12 @@ func (m *Manager) releaseOne(job releaseJob) {
 	_ = job.controller.Release(ctx, promptcache.ReleaseRequest{Handle: job.handle})
 }
 
+func (m *Manager) metric(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.metricLocked(name)
+}
+
 func (m *Manager) metricLocked(name string) {
 	m.metrics[name]++
 	if m.hooks.Metric != nil {
@@ -98,16 +125,16 @@ func (m *Manager) Quiesce(ctx context.Context) error {
 		ctx = context.Background()
 	}
 	m.mu.Lock()
-	if m.quiesced {
+	switch m.state {
+	case lifecycleQuiesced:
 		m.mu.Unlock()
 		return nil
-	}
-	if m.quiescing {
+	case lifecycleQuiescing:
 		done := m.quiesceDone
 		m.mu.Unlock()
 		return waitQuiesced(ctx, done)
 	}
-	m.quiescing = true
+	m.state = lifecycleQuiescing
 	m.quiesceDone = make(chan struct{})
 	done := m.quiesceDone
 	for a := range m.epochs {
@@ -150,7 +177,7 @@ func (m *Manager) finishQuiesce(done chan struct{}) {
 	m.releaseWG.Wait()
 
 	m.mu.Lock()
-	m.quiesced = true
+	m.state = lifecycleQuiesced
 	close(done)
 	m.mu.Unlock()
 }

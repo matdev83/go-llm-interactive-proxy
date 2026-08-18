@@ -20,7 +20,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/streampeek"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
 
 type Config struct {
@@ -51,23 +50,6 @@ type Config struct {
 
 const defaultRateLimitFallback = credpool.DefaultRateLimitFallback
 
-// activeRenewalEligible is deliberately conservative. The zero-output control
-// request cannot preserve Anthropic thinking/tool-choice configuration, so a
-// request that uses those cache-affecting shapes remains foreground-only until
-// the adapter can reproduce them safely.
-func activeRenewalEligible(call lipapi.Call, p anthropic.MessageNewParams, cfg Config) bool {
-	if len(p.Tools) > 0 || call.Options.Temperature != nil || call.Options.TopP != nil {
-		return false
-	}
-	if call.Options.ResponseMIMEType != "" {
-		return false
-	}
-	if cfg.ThinkingFromEffort && strings.TrimSpace(call.Options.ReasoningEffort) != "" {
-		return false
-	}
-	return true
-}
-
 func NewBackend(cfg Config) execbackend.Backend {
 	id := strings.TrimSpace(cfg.BackendID)
 	if id == "" {
@@ -87,72 +69,9 @@ func NewBackend(cfg Config) execbackend.Backend {
 	if rateLimitFallback <= 0 {
 		rateLimitFallback = defaultRateLimitFallback
 	}
-	cacheEnrollment := strings.TrimSpace(cfg.CacheEnrollment)
-	// Automatic enrollment with credentials wires the production cache path.
-	// No API key needed for wiring — the controller is built and the stream
-	// captures observations. Renewal re-resolves fresh credentials from the
-	// pool, preserving account affinity via AcquireByID when the foreground
-	// credential ID is known.
-	var cacheController *CacheController
-	var cacheHook CacheObservationHook
-	if cacheEnrollment == "automatic" && !noAuth {
-		// Use external hook when supplied (tests with custom behavior),
-		// otherwise build internal controller that re-resolves from the pool
-		// at renewal time, preferring the foreground credential affinity.
-		if cfg.CacheObservation != nil {
-			cacheHook = cfg.CacheObservation
-		} else {
-			cc, cErr := NewCacheController(CacheControllerConfig{
-				BaseURL:    cfg.BaseURL,
-				HTTPClient: cfg.HTTPClient,
-				ResolveAPIKey: func(ctx context.Context, target CacheTarget) (string, error) {
-					_ = ctx
-					// Prefer same credential used at issue time (account affinity).
-					if target.AccountID != "" {
-						cred, aErr := pool.AcquireByID(time.Now(), target.AccountID)
-						if aErr != nil {
-							// Credential affinity is part of the cache identity. Do not
-							// silently recreate/refresh in another credential domain.
-							return "", aErr
-						}
-						return cred.Secret, nil
-					}
-					cred, aErr := pool.Acquire(time.Now(), nil)
-					if aErr != nil {
-						return "", aErr
-					}
-					return cred.Secret, nil
-				},
-			})
-			if cErr == nil {
-				cacheController = cc
-				ttl := strings.TrimSpace(cfg.CacheTTL)
-				cacheHook = func(ctx context.Context, in CacheObservation) (promptcache.Observation, error) {
-					// Generate bounded IDs from lineage; BLegID is per-attempt
-					// unique and bounded, backend ID is per-instance bounded.
-					tid := promptcache.TargetID(strings.TrimSpace(in.Lineage.BLegID))
-					if tid == "" {
-						tid = promptcache.TargetID("anthropic-target")
-					}
-					gid := promptcache.GenerationID(strings.TrimSpace(in.Lineage.BackendInstanceID))
-					if gid == "" {
-						gid = promptcache.GenerationID(id)
-					}
-					return cc.IssueTarget(CacheTarget{
-						ALegID:            in.Lineage.ALegID,
-						BLegID:            in.Lineage.BLegID,
-						BackendInstanceID: in.Lineage.BackendInstanceID,
-						TargetID:          tid,
-						GenerationID:      gid,
-						Model:             in.Model,
-						Renewal:           in.Renewal,
-						TTL:               ttl,
-						Evidence:          in.Evidence,
-						AccountID:         in.CredentialID, // exact credential selected for the foreground turn
-					}, in.ObservedAt)
-				}
-			}
-		}
+	cacheRuntime, cacheErr := newCacheRuntime(cfg, pool, noAuth)
+	if cacheErr != nil {
+		return newConfigErrorBackend(id, fmt.Errorf("%s: cache runtime: %w", id, cacheErr))
 	}
 	backendCaps := defaultBackendCaps()
 	if cfg.ThinkingFromEffort {
@@ -185,27 +104,7 @@ func NewBackend(cfg Config) execbackend.Backend {
 			if err != nil {
 				return nil, err
 			}
-			var cacheState *cacheStreamState
-			if cacheHook != nil && activeRenewalEligible(call, p, cfg) {
-				lineage, _ := promptcache.ObservationLineageFromContext(ctx)
-				// Fill lineage from context; backend ID is known at this point.
-				if lineage.BackendInstanceID == "" {
-					lineage.BackendInstanceID = id
-				}
-				if lineage.CanonicalModelID == "" {
-					lineage.CanonicalModelID = strings.TrimSpace(cand.Primary.Model)
-				}
-				cacheState = &cacheStreamState{
-					hook:       cacheHook,
-					lineage:    lineage,
-					renewal:    renewalSnapshotFromParams(p, cfg.CacheTTL),
-					ttl:        strings.TrimSpace(cfg.CacheTTL),
-					observedAt: time.Now().UTC(),
-				}
-				if m := strings.TrimSpace(cand.Primary.Model); m != "" {
-					cacheState.renewal.Model = m
-				}
-			}
+			cacheState := cacheRuntime.state(ctx, call, p, cand, id)
 			if noAuth {
 				cli := newSDKClientForSecret(cfg, "")
 				stream := cli.Messages.NewStreaming(ctx, p, cacheEnrollmentOptions(cfg)...)
@@ -268,30 +167,9 @@ func NewBackend(cfg Config) execbackend.Backend {
 			}
 		},
 	}
-	if cacheEnrollment == "automatic" && (cfg.CacheObservation != nil || cacheController != nil) {
-		be.ResolvePromptCacheProfile = func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) promptcache.Profile {
-			params, err := paramsForCall(&call, cand, cfg.NormalizeRoles, cfg.NormalizeModel)
-			eligible := err == nil && activeRenewalEligible(call, params, cfg)
-			return promptcache.Profile{
-				ObservationSupported: eligible,
-				RenewalSupported:     eligible && cacheController != nil,
-				LifecycleKinds:       []promptcache.LifecycleKind{promptcache.LifecycleSlidingExpiry},
-			}
-		}
-		if cacheController != nil {
-			be.RenewPromptCache = cacheController.Renew
-			be.ReleasePromptCache = cacheController.Release
-		} else if cfg.CacheObservation != nil {
-			// External hook supplied (tests) without internal controller —
-			// renewal not wired, observation only.
-		}
-	}
-	// When internal controller exists, wire renew/release even though hook
-	// is internal; external hook case already handled above.
-	if cacheController != nil {
-		be.RenewPromptCache = cacheController.Renew
-		be.ReleasePromptCache = cacheController.Release
-	}
+	cacheRuntime.configureBackend(&be, func(call *lipapi.Call, cand routing.AttemptCandidate) (anthropic.MessageNewParams, error) {
+		return paramsForCall(call, cand, cfg.NormalizeRoles, cfg.NormalizeModel)
+	})
 	return be
 }
 

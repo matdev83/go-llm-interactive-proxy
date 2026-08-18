@@ -191,7 +191,7 @@ func TestManagerForegroundCancellationAndStaleAccounting(t *testing.T) {
 	ctl := &testController{started: started, unblock: unblock, ignoreCancel: true}
 	var got atomic.Int64
 	var stale atomic.Bool
-	m, err := NewManager(DefaultConfig(), clock, Hooks{Accounting: func(r RenewalRecord) { got.Add(1); stale.Store(r.Stale) }})
+	m, err := NewManager(DefaultConfig(), clock, Hooks{Accounting: func(r RenewalRecord) error { got.Add(1); stale.Store(r.Stale); return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

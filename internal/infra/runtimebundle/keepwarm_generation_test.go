@@ -45,8 +45,9 @@ func TestBuildKeepwarmGenerationDeliversMaintenanceAccounting(t *testing.T) {
 	inputTokens := int64(23)
 	var observed billing.ProviderMaintenanceUsage
 	observedUsage := make(chan billing.ProviderMaintenanceUsage, 1)
-	observer := billing.ProviderMaintenanceUsageObserverFunc(func(_ context.Context, usage billing.ProviderMaintenanceUsage) {
+	observer := billing.ProviderMaintenanceUsageObserverFunc(func(_ context.Context, usage billing.ProviderMaintenanceUsage) error {
 		observedUsage <- usage
+		return nil
 	})
 	renewedObservation := promptcache.Observation{
 		ALegID:            "a-leg-1",

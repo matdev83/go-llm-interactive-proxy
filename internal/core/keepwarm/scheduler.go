@@ -3,6 +3,7 @@ package keepwarm
 import (
 	"container/heap"
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -41,7 +42,7 @@ func (m *Manager) Start() {
 }
 
 func (m *Manager) ensureStartedLocked() {
-	if m.started || m.quiescing {
+	if m.started || m.state != lifecycleRunning {
 		return
 	}
 	m.started = true
@@ -212,7 +213,7 @@ func (m *Manager) claimDue(ctx context.Context, trackRenewWait bool) *renewJob {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.quiescing {
+	if m.state != lifecycleRunning {
 		return nil
 	}
 	now := m.clock.Now()
@@ -311,7 +312,10 @@ func (m *Manager) execute(parent context.Context, job *renewJob) {
 	record := &RenewalRecord{OperationID: job.operation, ALegID: job.aLeg, TargetID: target.observation.TargetID, BackendID: target.backend, ModelID: target.model, Status: resp.Result.Status, Accounting: resp.Accounting, Err: err}
 	m.apply(job, resp, err, record)
 	if m.hooks.Accounting != nil {
-		m.hooks.Accounting(*record)
+		if accountingErr := m.hooks.Accounting(*record); accountingErr != nil {
+			record.Err = errors.Join(record.Err, accountingErr)
+			m.metric("accounting_error")
+		}
 	}
 }
 

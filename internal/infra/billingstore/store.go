@@ -14,7 +14,7 @@ import (
 
 const legacyReservedZeroMigrationName = "20260826000000"
 
-var RequiredMigrationNames = []string{BaselineMigrationName, LegacyAuthorizationSchemaMigrationName, Phase4MigrationName, Phase6MigrationName, Phase7MigrationName, SessionIDMigrationName, UsageLegRecordsMigrationName, UsageCallRecordsMigrationName, ProviderCostWorkMigrationName, ProviderCostWorkRetryMigrationName, ExposureMigrationName, HoldRetirementMigrationName, UsageAppendOutboxRetirementMigrationName, AuthorizationHoldsDropMigrationName, legacyReservedZeroMigrationName, CompleteCallClaimLeaseMigrationName, UsageLegSequenceMigrationName, ProviderJournalOrderMigrationName, ProviderJournalSequenceContractMigrationName, ReservedColumnRemovalMigrationName, LegacyUsageRetirementMigrationName}
+var RequiredMigrationNames = []string{BaselineMigrationName, LegacyAuthorizationSchemaMigrationName, Phase4MigrationName, Phase6MigrationName, Phase7MigrationName, SessionIDMigrationName, UsageLegRecordsMigrationName, UsageCallRecordsMigrationName, ProviderCostWorkMigrationName, ProviderCostWorkRetryMigrationName, ExposureMigrationName, HoldRetirementMigrationName, UsageAppendOutboxRetirementMigrationName, AuthorizationHoldsDropMigrationName, legacyReservedZeroMigrationName, CompleteCallClaimLeaseMigrationName, UsageLegSequenceMigrationName, ProviderJournalOrderMigrationName, ProviderJournalSequenceContractMigrationName, ReservedColumnRemovalMigrationName, LegacyUsageRetirementMigrationName, ProviderMaintenanceMigrationName}
 
 type Config struct {
 	StoreID string
@@ -55,7 +55,7 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 	for _, table := range []string{
 		"billing_accounts", "billing_account_openings", "billing_reconciliation_events", "billing_account_policy_events",
 		"usage_leg_records", "usage_call_records", "provider_cost_work", "call_exposures",
-		"journal_transactions", "journal_entries", "billing_operation_snapshots",
+		"journal_transactions", "journal_entries", "billing_operation_snapshots", "provider_maintenance_usage",
 	} {
 		var probe int
 		if err := database.NewRaw("SELECT 1 FROM "+table+" WHERE 1 = 0").Scan(ctx, &probe); err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -163,6 +163,7 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		{"usage leg records migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{UsageLegRecordsMigrationName}, []string{UsageLegRecordsMigrationName}},
 		{"usage call records migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{UsageCallRecordsMigrationName}, []string{UsageCallRecordsMigrationName}},
 		{"provider cost work migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{ProviderCostWorkMigrationName}, []string{ProviderCostWorkMigrationName}},
+		{"provider maintenance migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{ProviderMaintenanceMigrationName}, []string{ProviderMaintenanceMigrationName}},
 		{"journal account sequence index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{"idx_billing_journal_account_sequence"}, []string{"account_id", "account_sequence"}},
 		{"journal provider order index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{providerJournalOrderIndex}, []string{"account_id", "recorded_at", "transaction_id"}},
 		{"journal book provider order index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{providerJournalBookOrderIndex}, []string{"book", "currency", "recorded_at", "transaction_id"}},

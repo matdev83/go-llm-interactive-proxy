@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -27,6 +28,7 @@ func opErr(op string, err error) error {
 // Store persists A-leg rows, B-leg allocations, and attempt lineage using Bun.
 type Store struct {
 	db        *bun.DB
+	retireMu  sync.RWMutex
 	onRetired func(string)
 }
 
@@ -149,15 +151,22 @@ VALUES(?,?,?,?,0,0)
 	if err != nil {
 		return b2bua.ALegRecord{}, err
 	}
-	if replacedID != "" && s.onRetired != nil {
-		s.onRetired(replacedID)
+	if replacedID != "" {
+		s.retireMu.RLock()
+		observer := s.onRetired
+		s.retireMu.RUnlock()
+		if observer != nil {
+			observer(replacedID)
+		}
 	}
 	return out, nil
 }
 
 // SetALegRetirementObserver binds the process-owned session retirement callback.
 func (s *Store) SetALegRetirementObserver(observer func(string)) {
+	s.retireMu.Lock()
 	s.onRetired = observer
+	s.retireMu.Unlock()
 }
 
 func (s *Store) FetchALeg(ctx context.Context, aLegID string) (b2bua.ALegRecord, error) {

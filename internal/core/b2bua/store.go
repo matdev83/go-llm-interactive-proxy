@@ -70,8 +70,7 @@ type Store interface {
 // interface explicitly. A zero-value state is valid and means "no thinker state",
 // which is backward-compatible with A-legs created before interleaved thinking.
 // ALegRetirementObserver is an optional lifecycle seam. Stores call the observer
-// after an A-leg is evicted or replaced by continuity policy; callbacks must be
-// bounded and non-blocking because store eviction may occur under a store lock.
+// only after completing the eviction mutation and releasing their own locks.
 type ALegRetirementObserver interface {
 	SetALegRetirementObserver(func(string))
 }
@@ -153,6 +152,27 @@ func NewMemoryStore(opts MemoryStoreOptions) (*MemoryStore, error) {
 
 func (s *MemoryStore) nowTime() time.Time { return s.now() }
 
+func (s *MemoryStore) lockForOperation() []string {
+	s.mu.Lock()
+	return nil
+}
+
+func (s *MemoryStore) unlockForOperation(retired []string) {
+	s.mu.Unlock()
+	if len(retired) == 0 {
+		return
+	}
+	s.mu.RLock()
+	observer := s.onRetired
+	s.mu.RUnlock()
+	if observer == nil {
+		return
+	}
+	for _, aLegID := range retired {
+		observer(aLegID)
+	}
+}
+
 // ResolveALeg returns the active A-leg for a non-empty continuity key, refreshing LastSeenAt.
 func (s *MemoryStore) ResolveALeg(ctx context.Context, continuityKey string) (ALegRecord, error) {
 	if err := ctx.Err(); err != nil {
@@ -161,8 +181,8 @@ func (s *MemoryStore) ResolveALeg(ctx context.Context, continuityKey string) (AL
 	if continuityKey == "" {
 		return ALegRecord{}, ErrInvalidContinuityKey
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	retired := s.lockForOperation()
+	defer func() { s.unlockForOperation(retired) }()
 	now := s.nowTime()
 	aID, ok := s.byKey[continuityKey]
 	if !ok {
@@ -174,6 +194,7 @@ func (s *MemoryStore) ResolveALeg(ctx context.Context, continuityKey string) (AL
 		return ALegRecord{}, ErrALegNotFound
 	}
 	if s.evictIfStaleLocked(st, now) {
+		retired = append(retired, st.record.ALegID)
 		return ALegRecord{}, ErrALegNotFound
 	}
 	st.record.LastSeenAt = now
@@ -185,10 +206,10 @@ func (s *MemoryStore) CreateALeg(ctx context.Context, continuityKey string) (ALe
 	if err := ctx.Err(); err != nil {
 		return ALegRecord{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	retired := s.lockForOperation()
+	defer func() { s.unlockForOperation(retired) }()
 	now := s.nowTime()
-	s.sweepExpiredLegsLocked(now)
+	retired = append(retired, s.sweepExpiredLegsLocked(now)...)
 	aID, err := RandomALegID()
 	if err != nil {
 		return ALegRecord{}, fmt.Errorf("b2bua: allocate a-leg id: %w", err)
@@ -207,11 +228,13 @@ func (s *MemoryStore) CreateALeg(ctx context.Context, continuityKey string) (ALe
 	s.legs[aID] = st
 	if continuityKey != "" {
 		if oldID, ok := s.byKey[continuityKey]; ok && oldID != aID {
-			s.removeLegLocked(oldID)
+			if retiredID := s.removeLegLocked(oldID); retiredID != "" {
+				retired = append(retired, retiredID)
+			}
 		}
 		s.byKey[continuityKey] = aID
 	}
-	s.enforceMaxLegsLocked()
+	retired = append(retired, s.enforceMaxLegsLocked()...)
 	return rec, nil
 }
 
@@ -223,13 +246,14 @@ func (s *MemoryStore) FetchALeg(ctx context.Context, aLegID string) (ALegRecord,
 	if aLegID == "" {
 		return ALegRecord{}, ErrALegNotFound
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	retired := s.lockForOperation()
+	defer func() { s.unlockForOperation(retired) }()
 	st, ok := s.legs[aLegID]
 	if !ok {
 		return ALegRecord{}, ErrALegNotFound
 	}
 	if s.evictIfStaleLocked(st, s.nowTime()) {
+		retired = append(retired, st.record.ALegID)
 		return ALegRecord{}, ErrALegNotFound
 	}
 	st.record.LastSeenAt = s.nowTime()
@@ -241,13 +265,14 @@ func (s *MemoryStore) SetWeightedFirstConsumed(ctx context.Context, aLegID strin
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	retired := s.lockForOperation()
+	defer func() { s.unlockForOperation(retired) }()
 	st, ok := s.legs[aLegID]
 	if !ok {
 		return ErrALegNotFound
 	}
 	if s.evictIfStaleLocked(st, s.nowTime()) {
+		retired = append(retired, st.record.ALegID)
 		return ErrALegNotFound
 	}
 	st.record.WeightedFirstConsumed = consumed
@@ -266,13 +291,14 @@ func (s *MemoryStore) SetInterleavedState(ctx context.Context, aLegID string, st
 	if err := state.Validate(); err != nil {
 		return fmt.Errorf("b2bua: invalid interleaved state: %w", err)
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	retired := s.lockForOperation()
+	defer func() { s.unlockForOperation(retired) }()
 	st, ok := s.legs[aLegID]
 	if !ok {
 		return ErrALegNotFound
 	}
 	if s.evictIfStaleLocked(st, s.nowTime()) {
+		retired = append(retired, st.record.ALegID)
 		return ErrALegNotFound
 	}
 	st.interleaved = state
@@ -287,13 +313,14 @@ func (s *MemoryStore) FetchInterleavedState(ctx context.Context, aLegID string) 
 	if err := ctx.Err(); err != nil {
 		return interleavedstate.State{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	retired := s.lockForOperation()
+	defer func() { s.unlockForOperation(retired) }()
 	st, ok := s.legs[aLegID]
 	if !ok {
 		return interleavedstate.State{}, ErrALegNotFound
 	}
 	if s.evictIfStaleLocked(st, s.nowTime()) {
+		retired = append(retired, st.record.ALegID)
 		return interleavedstate.State{}, ErrALegNotFound
 	}
 	st.record.LastSeenAt = s.nowTime()
@@ -305,14 +332,15 @@ func (s *MemoryStore) NextBLeg(ctx context.Context, aLegID string) (BLegRecord, 
 	if err := ctx.Err(); err != nil {
 		return BLegRecord{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	retired := s.lockForOperation()
+	defer func() { s.unlockForOperation(retired) }()
 	st, ok := s.legs[aLegID]
 	if !ok {
 		return BLegRecord{}, ErrALegNotFound
 	}
 	now := s.nowTime()
 	if s.evictIfStaleLocked(st, now) {
+		retired = append(retired, st.record.ALegID)
 		return BLegRecord{}, ErrALegNotFound
 	}
 	st.nextSeq++
@@ -334,14 +362,15 @@ func (s *MemoryStore) RecordAttempt(ctx context.Context, rec lipapi.AttemptRecor
 	if rec.ALegID == "" || rec.Seq <= 0 || rec.BLegID == "" {
 		return fmt.Errorf("%w: missing ids or seq", ErrInvalidAttempt)
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	retired := s.lockForOperation()
+	defer func() { s.unlockForOperation(retired) }()
 	st, ok := s.legs[rec.ALegID]
 	if !ok {
 		return ErrALegNotFound
 	}
 	now := s.nowTime()
 	if s.evictIfStaleLocked(st, now) {
+		retired = append(retired, st.record.ALegID)
 		return ErrALegNotFound
 	}
 	if rec.Seq > st.nextSeq {
@@ -361,8 +390,8 @@ func (s *MemoryStore) LoadAttempts(ctx context.Context, aLegID string) ([]lipapi
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	retired := s.lockForOperation()
+	defer func() { s.unlockForOperation(retired) }()
 	st, ok := s.legs[aLegID]
 	if !ok {
 		return nil, ErrALegNotFound
@@ -401,9 +430,9 @@ func (s *MemoryStore) evictIfStaleLocked(st *legState, now time.Time) bool {
 
 // sweepExpiredLegsLocked removes every leg whose LastSeenAt is older than TTL.
 // Called from CreateALeg so idle sessions (never re-accessed) are still reclaimed.
-func (s *MemoryStore) sweepExpiredLegsLocked(now time.Time) {
+func (s *MemoryStore) sweepExpiredLegsLocked(now time.Time) []string {
 	if s.ttl <= 0 {
-		return
+		return nil
 	}
 	stale := make([]string, 0, len(s.legs))
 	for id, st := range s.legs {
@@ -411,15 +440,19 @@ func (s *MemoryStore) sweepExpiredLegsLocked(now time.Time) {
 			stale = append(stale, id)
 		}
 	}
+	retired := make([]string, 0, len(stale))
 	for _, id := range stale {
-		s.removeLegLocked(id)
+		if retiredID := s.removeLegLocked(id); retiredID != "" {
+			retired = append(retired, retiredID)
+		}
 	}
+	return retired
 }
 
-func (s *MemoryStore) removeLegLocked(aLegID string) {
+func (s *MemoryStore) removeLegLocked(aLegID string) string {
 	st, ok := s.legs[aLegID]
 	if !ok {
-		return
+		return ""
 	}
 	delete(s.legs, aLegID)
 	continuityKey := st.record.ContinuityKey
@@ -428,12 +461,11 @@ func (s *MemoryStore) removeLegLocked(aLegID string) {
 			delete(s.byKey, continuityKey)
 		}
 	}
-	if s.onRetired != nil {
-		s.onRetired(aLegID)
-	}
+	return aLegID
 }
 
-func (s *MemoryStore) enforceMaxLegsLocked() {
+func (s *MemoryStore) enforceMaxLegsLocked() []string {
+	retired := make([]string, 0)
 	for s.maxLegs > 0 && len(s.legs) > s.maxLegs {
 		victim := ""
 		var oldest time.Time
@@ -455,6 +487,9 @@ func (s *MemoryStore) enforceMaxLegsLocked() {
 		if victim == "" {
 			break
 		}
-		s.removeLegLocked(victim)
+		if retiredID := s.removeLegLocked(victim); retiredID != "" {
+			retired = append(retired, retiredID)
+		}
 	}
+	return retired
 }
