@@ -19,6 +19,40 @@ const (
 
 var _ billing.ProviderCostWorkFailureStore = (*DurableStore)(nil)
 
+// ProviderCostWorkState is the durable retry state for one provider-cost leg.
+// It intentionally exposes scheduling metadata without making deferred work
+// appear due to ListPendingProviderCostWork.
+type ProviderCostWorkState struct {
+	Status        string
+	AttemptCount  int
+	NextAttemptAt time.Time
+	LastError     string
+}
+
+// GetProviderCostWorkState reads provider-cost work independently of whether
+// its next retry is due. This is used by operators and tests to distinguish
+// durable pending/unreconciled work from an empty due queue.
+func (s *DurableStore) GetProviderCostWorkState(ctx context.Context, legKey string) (ProviderCostWorkState, error) {
+	if s == nil || s.db == nil {
+		return ProviderCostWorkState{}, fmt.Errorf("billingstore: nil store")
+	}
+	legKey = strings.TrimSpace(legKey)
+	if legKey == "" {
+		return ProviderCostWorkState{}, fmt.Errorf("billingstore: provider-cost work key is required")
+	}
+	var state ProviderCostWorkState
+	if err := s.db.NewRaw(`
+SELECT status, attempt_count, next_attempt_at, last_error
+FROM provider_cost_work
+WHERE usage_leg_key = ?`, legKey).Scan(ctx, &state.Status, &state.AttemptCount, &state.NextAttemptAt, &state.LastError); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ProviderCostWorkState{}, ErrUsageRecordNotFound
+		}
+		return ProviderCostWorkState{}, fmt.Errorf("billingstore: get provider-cost work state: %w", err)
+	}
+	return state, nil
+}
+
 func (s *DurableStore) pruneProcessedProviderCostWork(ctx context.Context, before time.Time) error {
 	_, err := s.db.NewRaw(`
 DELETE FROM provider_cost_work

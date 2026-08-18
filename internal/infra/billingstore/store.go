@@ -14,7 +14,7 @@ import (
 
 const legacyReservedZeroMigrationName = "20260826000000"
 
-var RequiredMigrationNames = []string{BaselineMigrationName, LegacyAuthorizationSchemaMigrationName, Phase4MigrationName, Phase6MigrationName, Phase7MigrationName, SessionIDMigrationName, UsageLegRecordsMigrationName, UsageCallRecordsMigrationName, ProviderCostWorkMigrationName, ProviderCostWorkRetryMigrationName, ExposureMigrationName, HoldRetirementMigrationName, UsageAppendOutboxRetirementMigrationName, AuthorizationHoldsDropMigrationName, legacyReservedZeroMigrationName, CompleteCallClaimLeaseMigrationName, UsageLegSequenceMigrationName, ProviderJournalOrderMigrationName, ProviderJournalSequenceContractMigrationName, ReservedColumnRemovalMigrationName}
+var RequiredMigrationNames = []string{BaselineMigrationName, LegacyAuthorizationSchemaMigrationName, Phase4MigrationName, Phase6MigrationName, Phase7MigrationName, SessionIDMigrationName, UsageLegRecordsMigrationName, UsageCallRecordsMigrationName, ProviderCostWorkMigrationName, ProviderCostWorkRetryMigrationName, ExposureMigrationName, HoldRetirementMigrationName, UsageAppendOutboxRetirementMigrationName, AuthorizationHoldsDropMigrationName, legacyReservedZeroMigrationName, CompleteCallClaimLeaseMigrationName, UsageLegSequenceMigrationName, ProviderJournalOrderMigrationName, ProviderJournalSequenceContractMigrationName, ReservedColumnRemovalMigrationName, LegacyUsageRetirementMigrationName}
 
 type Config struct {
 	StoreID string
@@ -47,9 +47,14 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 	} else if retiredOutbox {
 		return fmt.Errorf("billingstore: retired usage_append_outbox table is still present")
 	}
+	if retiredLegacy, err := legacyUsageTableNames(ctx, database); err != nil {
+		return fmt.Errorf("billingstore: retired legacy usage verification: %w", err)
+	} else if len(retiredLegacy) != 0 {
+		return fmt.Errorf("billingstore: retired legacy tables are still present: %s", strings.Join(retiredLegacy, ", "))
+	}
 	for _, table := range []string{
 		"billing_accounts", "billing_account_openings", "billing_reconciliation_events", "billing_account_policy_events",
-		"turn_usage_records", "leg_usage_records", "usage_leg_records", "usage_call_records", "provider_cost_work", "usage_record_processing", "call_exposures",
+		"usage_leg_records", "usage_call_records", "provider_cost_work", "call_exposures",
 		"journal_transactions", "journal_entries", "billing_operation_snapshots",
 	} {
 		var probe int
@@ -87,7 +92,7 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		if accountSequenceNotNull != 0 {
 			return fmt.Errorf("billingstore: SQLite journal account_sequence must be nullable")
 		}
-		for _, index := range []string{"idx_billing_processing_status", "idx_billing_journal_account_sequence", "idx_billing_journal_source", journalReversalUniqueIndex, providerJournalOrderIndex, providerJournalBookOrderIndex, sessionAccountIndex, usageLegCallBLegIndex, usageLegCallAttemptSeqIndex, usageCallCallIDIndex, usageCallAccountSessionIndex, usageCallClaimStatusIndex, usageCallClaimPendingIndex, providerCostWorkStatusIndex, providerCostWorkPendingIndex, exposureAccountStatusIndex} {
+		for _, index := range []string{"idx_billing_journal_account_sequence", "idx_billing_journal_source", journalReversalUniqueIndex, providerJournalOrderIndex, providerJournalBookOrderIndex, usageLegCallBLegIndex, usageLegCallAttemptSeqIndex, usageCallCallIDIndex, usageCallAccountSessionIndex, usageCallClaimStatusIndex, usageCallClaimPendingIndex, providerCostWorkStatusIndex, providerCostWorkPendingIndex, exposureAccountStatusIndex} {
 			var name string
 			if err := database.NewRaw(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`, index).Scan(ctx, &name); err != nil || name != index {
 				if err != nil {
@@ -101,13 +106,10 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 			"billing_account_openings":      {"FOREIGN KEY(account_id) REFERENCES billing_accounts"},
 			"billing_reconciliation_events": {"FOREIGN KEY(account_id) REFERENCES billing_accounts"},
 			"billing_account_policy_events": {"FOREIGN KEY(account_id) REFERENCES billing_accounts", "UNIQUE(account_id, source_key)"},
-			"turn_usage_records":            {"CHECK", "UNIQUE(account_id, turn_id)", "FOREIGN KEY(account_id) REFERENCES billing_accounts", "session_id"},
-			"leg_usage_records":             {"CHECK", "UNIQUE(tur_key, b_leg_id)", "UNIQUE(tur_key, sequence)", "FOREIGN KEY(tur_key) REFERENCES turn_usage_records"},
 			"usage_leg_records":             {"usage_leg_key", "call_id", "b_leg_id", "attempt_seq", "payload_json", "fingerprint"},
 			"provider_cost_work":            {"usage_leg_key", "call_id", "status", "attempt_count", "next_attempt_at", "last_error", "updated_at"},
 			"usage_call_records":            {"usage_call_key", "call_id", "account_id", "a_leg_id", "session_id", "expected_b_leg_ids", "payload_json", "fingerprint", "claim_status", "claim_attempt_count", "next_claim_at", "last_claim_error"},
 			"call_exposures":                {"exposure_key", "account_id", "call_id", "max_exposure_nano", "pricing_ref", "charge_policy_ref", "fingerprint", "status", "FOREIGN KEY(account_id) REFERENCES billing_accounts", "UNIQUE(account_id, call_id)"},
-			"usage_record_processing":       {"CHECK", "FOREIGN KEY(tur_key) REFERENCES turn_usage_records"},
 			"journal_transactions":          {"CHECK", "operation_kind = 'provider_call_cogs'", "account_sequence IS NULL OR account_sequence > 0", "operation_kind <> 'provider_call_cogs'", "UNIQUE(account_id, book, source_key)", "UNIQUE(account_id, account_sequence)", "FOREIGN KEY(account_id) REFERENCES billing_accounts", "recorded_at"},
 			"journal_entries":               {"CHECK", "side IN ('debit','credit')", "amount_nano > 0", "FOREIGN KEY(transaction_id) REFERENCES journal_transactions"},
 			"billing_operation_snapshots":   {"FOREIGN KEY(account_id) REFERENCES billing_accounts", "UNIQUE(account_id, operation_kind, source_key)", "integrity_fingerprint"},
@@ -124,7 +126,7 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 				}
 			}
 		}
-		for _, trigger := range []string{"billing_exposure_immutable_update", "billing_exposure_immutable_delete", "billing_operation_snapshots_immutable_update", "billing_operation_snapshots_immutable_delete", "billing_account_openings_immutable_update", "billing_account_openings_immutable_delete", "billing_reconciliation_events_immutable_update", "billing_reconciliation_events_immutable_delete", "billing_policy_events_immutable_update", "billing_policy_events_immutable_delete", "billing_tur_immutable_update", "billing_tur_immutable_delete", "billing_lur_immutable_update", "billing_lur_immutable_delete", "billing_usage_leg_immutable_update", "billing_usage_leg_immutable_delete", "billing_usage_call_immutable_update", "billing_usage_call_immutable_delete", "billing_journal_tx_immutable_update", "billing_journal_tx_immutable_delete", "billing_journal_entry_immutable_update", "billing_journal_entry_immutable_delete"} {
+		for _, trigger := range []string{"billing_exposure_immutable_update", "billing_exposure_immutable_delete", "billing_operation_snapshots_immutable_update", "billing_operation_snapshots_immutable_delete", "billing_account_openings_immutable_update", "billing_account_openings_immutable_delete", "billing_reconciliation_events_immutable_update", "billing_reconciliation_events_immutable_delete", "billing_policy_events_immutable_update", "billing_policy_events_immutable_delete", "billing_usage_leg_immutable_update", "billing_usage_leg_immutable_delete", "billing_usage_call_immutable_update", "billing_usage_call_immutable_delete", "billing_journal_tx_immutable_update", "billing_journal_tx_immutable_delete", "billing_journal_entry_immutable_update", "billing_journal_entry_immutable_delete"} {
 			var name string
 			if err := database.NewRaw(`SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = ?`, trigger).Scan(ctx, &name); err != nil || name != trigger {
 				return fmt.Errorf("billingstore: missing SQLite immutability trigger %s", trigger)
@@ -148,6 +150,7 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		{"hold retirement migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{HoldRetirementMigrationName}, []string{HoldRetirementMigrationName}},
 		{"authorization holds drop migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{AuthorizationHoldsDropMigrationName}, []string{AuthorizationHoldsDropMigrationName}},
 		{"reserved column removal migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{ReservedColumnRemovalMigrationName}, []string{ReservedColumnRemovalMigrationName}},
+		{"legacy usage retirement migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{LegacyUsageRetirementMigrationName}, []string{LegacyUsageRetirementMigrationName}},
 		{"usage append outbox retirement migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{UsageAppendOutboxRetirementMigrationName}, []string{UsageAppendOutboxRetirementMigrationName}},
 		{"session id migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{SessionIDMigrationName}, []string{SessionIDMigrationName}},
 		{"usage leg records migration history", `SELECT name FROM bun_billing_migrations WHERE name = ? LIMIT 1`, []any{UsageLegRecordsMigrationName}, []string{UsageLegRecordsMigrationName}},
@@ -159,9 +162,6 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		{"journal account sequence nullable", `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'journal_transactions' AND column_name = 'account_sequence' AND is_nullable = 'YES' LIMIT 1`, nil, []string{"account_sequence"}},
 		{"journal source index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{"idx_billing_journal_source"}, []string{"account_id", "book", "source_key"}},
 		{"journal reversal unique index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{journalReversalUniqueIndex}, []string{"account_id", "book", "reversal_of"}},
-		{"processing status index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{"idx_billing_processing_status"}, []string{"status", "updated_at"}},
-		{"TUR session column", `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'turn_usage_records' AND column_name = 'session_id' LIMIT 1`, nil, []string{"session_id"}},
-		{"TUR session index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{sessionAccountIndex}, []string{"account_id", "session_id", "tur_key"}},
 		{"usage leg table", `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'usage_leg_records' LIMIT 1`, nil, []string{"usage_leg_records"}},
 		{"usage leg CallID/BLegID unique index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{usageLegCallBLegIndex}, []string{"UNIQUE", "call_id", "b_leg_id"}},
 		{"usage leg attempt seq column", `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'usage_leg_records' AND column_name = 'attempt_seq' LIMIT 1`, nil, []string{"attempt_seq"}},
@@ -181,16 +181,10 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		{"provider cost work status index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{providerCostWorkStatusIndex}, []string{"status", "updated_at", "usage_leg_key"}},
 		{"exposure table", `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'call_exposures' LIMIT 1`, nil, []string{"call_exposures"}},
 		{"exposure account status index", `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ? LIMIT 1`, []any{exposureAccountStatusIndex}, []string{"account_id", "status", "created_at"}},
-		{"TUR uniqueness", `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND t.relname = 'turn_usage_records' AND c.contype = 'u' AND pg_get_constraintdef(c.oid) LIKE '%account_id%turn_id%' LIMIT 1`, nil, []string{"UNIQUE", "account_id", "turn_id"}},
-		{"LUR B-leg uniqueness", `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND t.relname = 'leg_usage_records' AND c.contype = 'u' AND pg_get_constraintdef(c.oid) LIKE '%tur_key%b_leg_id%' LIMIT 1`, nil, []string{"UNIQUE", "tur_key", "b_leg_id"}},
-		{"LUR sequence uniqueness", `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND t.relname = 'leg_usage_records' AND c.contype = 'u' AND pg_get_constraintdef(c.oid) LIKE '%tur_key%sequence%' LIMIT 1`, nil, []string{"UNIQUE", "tur_key", "sequence"}},
 		{"journal source uniqueness", `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND t.relname = 'journal_transactions' AND c.contype = 'u' AND pg_get_constraintdef(c.oid) LIKE '%account_id%book%source_key%' LIMIT 1`, nil, []string{"UNIQUE", "account_id", "book", "source_key"}},
 		{"journal sequence uniqueness", `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND t.relname = 'journal_transactions' AND c.contype = 'u' AND pg_get_constraintdef(c.oid) LIKE '%account_id%account_sequence%' LIMIT 1`, nil, []string{"UNIQUE", "account_id", "account_sequence"}},
 		{"journal sequence contract", `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND t.relname = 'journal_transactions' AND c.conname = ? LIMIT 1`, []any{providerJournalSequenceCheck}, []string{"provider_call_cogs", "account_sequence", "IS NULL", "account_sequence"}},
 		{"policy account foreign key", `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND t.relname = 'billing_account_policy_events' AND c.contype = 'f' LIMIT 1`, nil, []string{"FOREIGN KEY", "billing_accounts"}},
-		{"TUR account foreign key", `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND t.relname = 'turn_usage_records' AND c.contype = 'f' LIMIT 1`, nil, []string{"FOREIGN KEY", "billing_accounts"}},
-		{"LUR TUR foreign key", `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND t.relname = 'leg_usage_records' AND c.contype = 'f' LIMIT 1`, nil, []string{"FOREIGN KEY", "turn_usage_records"}},
-		{"processing TUR foreign key", `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND t.relname = 'usage_record_processing' AND c.contype = 'f' LIMIT 1`, nil, []string{"FOREIGN KEY", "turn_usage_records"}},
 		{"journal transaction account foreign key", `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND t.relname = 'journal_transactions' AND c.contype = 'f' LIMIT 1`, nil, []string{"FOREIGN KEY", "billing_accounts"}},
 		{"journal entry transaction foreign key", `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND t.relname = 'journal_entries' AND c.contype = 'f' LIMIT 1`, nil, []string{"FOREIGN KEY", "journal_transactions"}},
 		{"journal entry amount check", `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND t.relname = 'journal_entries' AND c.contype = 'c' AND pg_get_constraintdef(c.oid) LIKE '%amount_nano%' LIMIT 1`, nil, []string{"CHECK", "amount_nano"}},
@@ -199,8 +193,6 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 		{"reconciliation immutable trigger", `SELECT tr.tgname FROM pg_trigger tr JOIN pg_class c ON c.oid = tr.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'billing_reconciliation_events' AND tr.tgname = ? AND NOT tr.tgisinternal LIMIT 1`, []any{"billing_reconciliation_events_immutable"}, []string{"billing_reconciliation_events_immutable"}},
 		{"opening immutable trigger", `SELECT tr.tgname FROM pg_trigger tr JOIN pg_class c ON c.oid = tr.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'billing_account_openings' AND tr.tgname = ? AND NOT tr.tgisinternal LIMIT 1`, []any{"billing_account_openings_immutable"}, []string{"billing_account_openings_immutable"}},
 		{"policy immutable trigger", `SELECT tr.tgname FROM pg_trigger tr JOIN pg_class c ON c.oid = tr.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'billing_account_policy_events' AND tr.tgname = ? AND NOT tr.tgisinternal LIMIT 1`, []any{"billing_policy_events_immutable"}, []string{"billing_policy_events_immutable"}},
-		{"TUR immutable trigger", `SELECT tr.tgname FROM pg_trigger tr JOIN pg_class c ON c.oid = tr.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'turn_usage_records' AND tr.tgname = ? AND NOT tr.tgisinternal LIMIT 1`, []any{"billing_tur_immutable"}, []string{"billing_tur_immutable"}},
-		{"LUR immutable trigger", `SELECT tr.tgname FROM pg_trigger tr JOIN pg_class c ON c.oid = tr.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'leg_usage_records' AND tr.tgname = ? AND NOT tr.tgisinternal LIMIT 1`, []any{"billing_lur_immutable"}, []string{"billing_lur_immutable"}},
 		{"usage leg immutable trigger", `SELECT tr.tgname FROM pg_trigger tr JOIN pg_class c ON c.oid = tr.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'usage_leg_records' AND tr.tgname = ? AND NOT tr.tgisinternal LIMIT 1`, []any{"billing_usage_leg_immutable"}, []string{"billing_usage_leg_immutable"}},
 		{"usage call immutable trigger", `SELECT tr.tgname FROM pg_trigger tr JOIN pg_class c ON c.oid = tr.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'usage_call_records' AND tr.tgname = ? AND NOT tr.tgisinternal LIMIT 1`, []any{"billing_usage_call_immutable"}, []string{"billing_usage_call_immutable"}},
 		{"exposure immutable trigger", `SELECT tr.tgname FROM pg_trigger tr JOIN pg_class c ON c.oid = tr.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'call_exposures' AND tr.tgname = ? AND NOT tr.tgisinternal LIMIT 1`, []any{"billing_exposure_immutable"}, []string{"billing_exposure_immutable"}},
