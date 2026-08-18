@@ -110,7 +110,7 @@ func (c *storeCore) releaseOne(cmd app.ReleaseCommand, log MutationLog) (app.Rel
 	mutation := app.ReleaseMutation{
 		RuleID:        rec.RuleID,
 		ReservationID: rec.ReservationID,
-		ReleasedDelta: domain.Amount{Unit: amount.Unit, Value: released, Currency: amount.Currency},
+		ReleasedDelta: domain.Amount{Unit: amount.Unit, Value: released},
 	}
 	return app.ReleaseResult{
 		Applied:       true,

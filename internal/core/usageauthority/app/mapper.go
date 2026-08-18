@@ -87,8 +87,6 @@ func reasonForAdmission(outcome domain.DecisionOutcome, status domain.AuthorityS
 			switch kind {
 			case domain.RuleKindRate:
 				return policydecision.AccountingReasonRateLimited
-			case domain.RuleKindBudget, domain.RuleKindSpendCap:
-				return policydecision.AccountingReasonBudgetExceeded
 			default:
 				return policydecision.AccountingReasonQuotaExceeded
 			}

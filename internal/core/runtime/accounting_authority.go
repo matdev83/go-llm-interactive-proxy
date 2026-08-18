@@ -85,10 +85,6 @@ func (e *Executor) admitAttemptAuthority(
 		Request:        attemptAuthorityRequestAmount(decision),
 		RequestCount:   domain.Amount{Unit: domain.AmountUnitRequests, Value: 1},
 		PreflightUsage: attemptAuthorityPreflightUsage(decision),
-		// Monetary spend is owned by cheap credit screen + exposure admission and
-		// post-usage settlement; this legacy authority path carries only non-money
-		// quota quantities.
-		Spend:          domain.Amount{},
 		Authority:      domain.AuthorityLevelEstimated,
 		ReservationKey: attemptAuthorityReservationKey(call.ID, traceID, aLegID, bleg, c),
 		EstimateOnly:   estimateOnly,
@@ -248,10 +244,6 @@ func (e *Executor) admitAttemptViaCoordinator(
 		Request:        attemptAuthorityRequestAmount(decision),
 		RequestCount:   domain.Amount{Unit: domain.AmountUnitRequests, Value: 0},
 		PreflightUsage: attemptAuthorityPreflightUsage(decision),
-		// Monetary spend is owned by cheap credit screen + exposure admission and
-		// post-usage settlement; this legacy authority path carries only non-money
-		// quota quantities.
-		Spend:          domain.Amount{},
 		Authority:      domain.AuthorityLevelEstimated,
 		ReservationKey: attemptAuthorityReservationKey(call.ID, traceID, aLegID, bleg, c),
 		Exposure:       in.Exposure,
@@ -273,9 +265,6 @@ func (e *Executor) admitAttemptViaCoordinator(
 }
 
 func authorityAmountFromReservation(in authority.Reservation) domain.Amount {
-	if in.Money != nil && in.Money.Present {
-		return domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: in.Money.NanoUnits, Currency: strings.TrimSpace(in.Money.Currency)}
-	}
 	if in.Quantity == nil || !in.Quantity.Present {
 		return domain.Amount{}
 	}
@@ -384,15 +373,6 @@ func attemptAuthorityUsageAmount(ev lipapi.Event, estimate domain.Amount) domain
 		amount = domain.Amount{Unit: domain.AmountUnitCacheWriteTokens, Value: int64(ev.CacheWriteTokens)}
 	case domain.AmountUnitReasoningTokens:
 		amount = domain.Amount{Unit: domain.AmountUnitReasoningTokens, Value: int64(ev.ReasoningTokens)}
-	case domain.AmountUnitMoneyNano:
-		// Stream CostNanoUnits are not monetary authority after the usage-record
-		// cutover. Settle any residual money-unit reservation at the reserved
-		// estimate so usageauthority cannot become a second balance reducer.
-		return domain.Amount{
-			Unit:     domain.AmountUnitMoneyNano,
-			Value:    estimate.Value,
-			Currency: strings.TrimSpace(estimate.Currency),
-		}
 	case domain.AmountUnitTotalTokens:
 		value := int64(ev.TotalTokens)
 		if value == 0 && !attemptAuthorityEventHasUsageForUnit(ev, domain.AmountUnitTotalTokens) {
@@ -417,23 +397,8 @@ func attemptAuthorityUsageAmount(ev lipapi.Event, estimate domain.Amount) domain
 	// usage delta whose scoped readings are all zero is a legitimate zero-usage
 	// or zero-cost completion and must settle at zero, not the reserved estimate.
 	if amount.Value == 0 && !attemptAuthorityEventHasUsageForUnit(ev, estimate.Unit) {
-		switch estimate.Unit {
-		case domain.AmountUnitMoneyNano:
-			if len(ev.UsageScopes) == 0 && !ev.CostPresent {
-				return domain.Amount{
-					Unit:     estimate.Unit,
-					Value:    estimate.Value,
-					Currency: estimate.Currency,
-				}
-			}
-		default:
-			if len(ev.UsageScopes) == 0 || attemptAuthorityEventHasAnyUsage(ev) {
-				return domain.Amount{
-					Unit:     estimate.Unit,
-					Value:    estimate.Value,
-					Currency: estimate.Currency,
-				}
-			}
+		if len(ev.UsageScopes) == 0 || attemptAuthorityEventHasAnyUsage(ev) {
+			return domain.Amount{Unit: estimate.Unit, Value: estimate.Value}
 		}
 	}
 	return amount
@@ -446,29 +411,29 @@ func attemptAuthorityEventHasUsageForUnit(ev lipapi.Event, unit domain.AmountUni
 	// Preserve legacy all-zero authoritative events when presence is unmarked.
 	if ev.Kind == lipapi.EventUsageDelta && !attemptAuthorityEventHasAnyUsage(ev) {
 		if authoritativeProviderAccounting(ev.Accounting) {
-			return unit != domain.AmountUnitMoneyNano
+			return true
 		}
 		for _, usageScope := range ev.UsageScopes {
 			if authoritativeProviderAccounting(usageScope.Accounting) {
-				return unit != domain.AmountUnitMoneyNano
+				return true
 			}
 		}
 	}
 	if unit == domain.AmountUnitRequests {
 		return true
 	}
-	if usageCounterValue(unit, int64(ev.InputTokens), int64(ev.OutputTokens), int64(ev.CacheReadTokens), int64(ev.CacheWriteTokens), int64(ev.ReasoningTokens), int64(ev.TotalTokens), ev.CostNanoUnits) > 0 {
+	if usageCounterValue(unit, int64(ev.InputTokens), int64(ev.OutputTokens), int64(ev.CacheReadTokens), int64(ev.CacheWriteTokens), int64(ev.ReasoningTokens), int64(ev.TotalTokens)) > 0 {
 		return true
 	}
 	for _, scope := range ev.UsageScopes {
-		if usageCounterValue(unit, int64(scope.InputTokens), int64(scope.OutputTokens), int64(scope.CacheReadTokens), int64(scope.CacheWriteTokens), int64(scope.ReasoningTokens), int64(scope.TotalTokens), 0) > 0 {
+		if usageCounterValue(unit, int64(scope.InputTokens), int64(scope.OutputTokens), int64(scope.CacheReadTokens), int64(scope.CacheWriteTokens), int64(scope.ReasoningTokens), int64(scope.TotalTokens)) > 0 {
 			return true
 		}
 	}
 	return false
 }
 
-func usageCounterValue(unit domain.AmountUnit, input, output, cacheRead, cacheWrite, reasoning, total, cost int64) int64 {
+func usageCounterValue(unit domain.AmountUnit, input, output, cacheRead, cacheWrite, reasoning, total int64) int64 {
 	switch unit {
 	case domain.AmountUnitInputTokens:
 		return input
@@ -480,8 +445,6 @@ func usageCounterValue(unit domain.AmountUnit, input, output, cacheRead, cacheWr
 		return cacheWrite
 	case domain.AmountUnitReasoningTokens:
 		return reasoning
-	case domain.AmountUnitMoneyNano:
-		return cost
 	case domain.AmountUnitTotalTokens:
 		return total
 	default:
@@ -492,10 +455,6 @@ func usageCounterValue(unit domain.AmountUnit, input, output, cacheRead, cacheWr
 func explicitUsagePresenceForUnit(ev lipapi.Event, unit domain.AmountUnit) (bool, bool) {
 	if ev.Kind != lipapi.EventUsageDelta {
 		return false, false
-	}
-	if unit == domain.AmountUnitMoneyNano {
-		// Monetary presence is event-level and independent of token UsagePresence.
-		return ev.CostPresent, true
 	}
 	presence := ev.UsagePresence
 	for _, scope := range ev.UsageScopes {
@@ -525,8 +484,7 @@ func explicitUsagePresenceForUnit(ev lipapi.Event, unit domain.AmountUnit) (bool
 // attemptAuthorityEventHasAnyUsage reports whether any legacy counter is non-zero.
 func attemptAuthorityEventHasAnyUsage(ev lipapi.Event) bool {
 	if ev.InputTokens > 0 || ev.OutputTokens > 0 || ev.CacheReadTokens > 0 ||
-		ev.CacheWriteTokens > 0 || ev.ReasoningTokens > 0 || ev.TotalTokens > 0 ||
-		ev.CostNanoUnits > 0 {
+		ev.CacheWriteTokens > 0 || ev.ReasoningTokens > 0 || ev.TotalTokens > 0 {
 		return true
 	}
 	for _, scope := range ev.UsageScopes {
@@ -536,14 +494,6 @@ func attemptAuthorityEventHasAnyUsage(ev lipapi.Event) bool {
 		}
 	}
 	return false
-}
-
-func attemptAuthorityCostAmount(ev lipapi.Event, fallbackCurrency string) domain.Amount {
-	// FinalCost from stream events is retired: billing journal settlement owns
-	// customer/operator money. Keep the signature for SettleInput compatibility.
-	_ = ev
-	_ = fallbackCurrency
-	return domain.Amount{}
 }
 
 func attemptAuthorityReservationKey(requestID, traceID, aLegID string, bleg b2bua.BLegRecord, c routing.AttemptCandidate) domain.ReservationKey {

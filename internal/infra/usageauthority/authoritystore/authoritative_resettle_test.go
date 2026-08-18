@@ -66,10 +66,10 @@ func TestAuthoritativeResettleAdjustsTokenSettlement(t *testing.T) {
 	estimated, err := store.Settle(context.Background(), settleCmd(
 		res.ReservationID, "quota-1", "settle-estimated", app.SettlementKindPartial,
 		domain.Amount{Unit: domain.AmountUnitRequests, Value: 0},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 0, Currency: "usd"},
+		domain.Amount{Unit: domain.AmountUnitRequests, Value: 0},
 		reserved,
 		domain.Amount{Unit: domain.AmountUnitRequests, Value: 45},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 450, Currency: "usd"},
+		domain.Amount{Unit: domain.AmountUnitRequests, Value: 450},
 		at.Add(time.Minute),
 	))
 	if err != nil {
@@ -88,10 +88,10 @@ func TestAuthoritativeResettleAdjustsTokenSettlement(t *testing.T) {
 	nonAuthoritative := settleCmd(
 		res.ReservationID, "quota-1", "settle-non-authoritative", app.SettlementKindFinal,
 		domain.Amount{Unit: domain.AmountUnitRequests, Value: 70},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 700, Currency: "usd"},
+		domain.Amount{Unit: domain.AmountUnitRequests, Value: 700},
 		reserved,
 		domain.Amount{Unit: domain.AmountUnitRequests, Value: 45},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 450, Currency: "usd"},
+		domain.Amount{Unit: domain.AmountUnitRequests, Value: 450},
 		at.Add(90*time.Second),
 	)
 	nonAuthoritative.Authority = domain.AuthorityLevelEstimated
@@ -107,10 +107,10 @@ func TestAuthoritativeResettleAdjustsTokenSettlement(t *testing.T) {
 	authoritative, err := store.Settle(context.Background(), settleCmd(
 		res.ReservationID, "quota-1", "settle-authoritative", app.SettlementKindFinal,
 		domain.Amount{Unit: domain.AmountUnitRequests, Value: 70},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 700, Currency: "usd"},
+		domain.Amount{Unit: domain.AmountUnitRequests, Value: 700},
 		reserved,
 		domain.Amount{Unit: domain.AmountUnitRequests, Value: 45},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 450, Currency: "usd"},
+		domain.Amount{Unit: domain.AmountUnitRequests, Value: 450},
 		at.Add(2*time.Minute),
 	))
 	if err != nil {
@@ -135,10 +135,10 @@ func TestAuthoritativeResettleAdjustsTokenSettlement(t *testing.T) {
 	replay, err := store.Settle(context.Background(), settleCmd(
 		res.ReservationID, "quota-1", "settle-authoritative", app.SettlementKindFinal,
 		domain.Amount{Unit: domain.AmountUnitRequests, Value: 70},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 700, Currency: "usd"},
+		domain.Amount{Unit: domain.AmountUnitRequests, Value: 700},
 		reserved,
 		domain.Amount{Unit: domain.AmountUnitRequests, Value: 45},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 450, Currency: "usd"},
+		domain.Amount{Unit: domain.AmountUnitRequests, Value: 450},
 		at.Add(3*time.Minute),
 	))
 	if err != nil {
@@ -164,67 +164,7 @@ func TestAuthoritativeResettleAdjustsTokenSettlement(t *testing.T) {
 	}
 }
 
-// TestAuthoritativeResettleAdjustsMoneySettlement proves Finding 8 for a money
-// rule: the adjustment delta is computed in money from FinalCost.
-func TestAuthoritativeResettleAdjustsMoneySettlement(t *testing.T) {
-	t.Parallel()
-	at := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
-	store := storeFromRules(t, []domain.Rule{budgetRule("budget-1")}, at)
-
-	reserved := domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 100, Currency: "usd"}
-	res, err := store.Reserve(context.Background(), reserveCmd("budget-1", "budget", budgetDimensions(), reserved, at, "reserve-1"))
-	if err != nil {
-		t.Fatalf("Reserve: %v", err)
-	}
-
-	// Estimated settlement: FinalCost=0 -> EstimatedCost=60. Consumed=60.
-	if _, err := store.Settle(context.Background(), settleCmd(
-		res.ReservationID, "budget-1", "settle-estimated", app.SettlementKindPartial,
-		domain.Amount{Unit: domain.AmountUnitRequests, Value: 0},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 0, Currency: "usd"},
-		reserved,
-		domain.Amount{Unit: domain.AmountUnitRequests, Value: 0},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 60, Currency: "usd"},
-		at.Add(time.Minute),
-	)); err != nil {
-		t.Fatalf("estimated Settle: %v", err)
-	}
-	if row := limitRow(t, store, "budget-1", string(domain.AmountUnitMoneyNano)); row.Consumed != 60 {
-		t.Fatalf("after estimated settle Consumed = %d, want 60", row.Consumed)
-	}
-
-	// Authoritative re-settlement: FinalCost=130. delta = 130 - 60 = 70 ->
-	// overage=70, adjustment=-70, Consumed becomes 130.
-	authoritative, err := store.Settle(context.Background(), settleCmd(
-		res.ReservationID, "budget-1", "settle-authoritative", app.SettlementKindFinal,
-		domain.Amount{Unit: domain.AmountUnitRequests, Value: 0},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 130, Currency: "usd"},
-		reserved,
-		domain.Amount{Unit: domain.AmountUnitRequests, Value: 0},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 60, Currency: "usd"},
-		at.Add(2*time.Minute),
-	))
-	if err != nil {
-		t.Fatalf("authoritative Settle: %v", err)
-	}
-	if !authoritative.Applied {
-		t.Fatalf("authoritative settle must apply: %#v", authoritative)
-	}
-	if authoritative.OverageDelta.Value != 70 || authoritative.AdjustmentDelta.Value != -70 {
-		t.Fatalf("authoritative deltas = overage=%d adjustment=%d, want overage=70 adjustment=-70",
-			authoritative.OverageDelta.Value, authoritative.AdjustmentDelta.Value)
-	}
-	if authoritative.OverageDelta.Unit != domain.AmountUnitMoneyNano || authoritative.OverageDelta.Currency != "usd" {
-		t.Fatalf("authoritative OverageDelta = %s/%s, want money_nano/usd", authoritative.OverageDelta.Unit, authoritative.OverageDelta.Currency)
-	}
-	if row := limitRow(t, store, "budget-1", string(domain.AmountUnitMoneyNano)); row.Consumed != 130 {
-		t.Fatalf("after authoritative settle Consumed = %d, want 130", row.Consumed)
-	}
-}
-
-// TestAuthoritativeResettleDeltaZeroRecordsDecisionNoCounterChange proves that
-// when the authoritative actual equals the prior settled actual (delta == 0),
-// an adjustment decision is still recorded but the limit counters do not move.
+// Retired monetary resettlement behavior is intentionally absent.
 func TestAuthoritativeResettleDeltaZeroRecordsDecisionNoCounterChange(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
@@ -239,10 +179,10 @@ func TestAuthoritativeResettleDeltaZeroRecordsDecisionNoCounterChange(t *testing
 	if _, err := store.Settle(context.Background(), settleCmd(
 		res.ReservationID, "quota-1", "settle-estimated", app.SettlementKindPartial,
 		domain.Amount{Unit: domain.AmountUnitRequests, Value: 0},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 0, Currency: "usd"},
+		domain.Amount{Unit: domain.AmountUnitRequests, Value: 0},
 		reserved,
 		domain.Amount{Unit: domain.AmountUnitRequests, Value: 50},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 500, Currency: "usd"},
+		domain.Amount{Unit: domain.AmountUnitRequests, Value: 500},
 		at.Add(time.Minute),
 	)); err != nil {
 		t.Fatalf("estimated Settle: %v", err)
@@ -256,10 +196,10 @@ func TestAuthoritativeResettleDeltaZeroRecordsDecisionNoCounterChange(t *testing
 	authoritative, err := store.Settle(context.Background(), settleCmd(
 		res.ReservationID, "quota-1", "settle-authoritative", app.SettlementKindFinal,
 		domain.Amount{Unit: domain.AmountUnitRequests, Value: 50},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 500, Currency: "usd"},
+		domain.Amount{Unit: domain.AmountUnitRequests, Value: 500},
 		reserved,
 		domain.Amount{Unit: domain.AmountUnitRequests, Value: 50},
-		domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 500, Currency: "usd"},
+		domain.Amount{Unit: domain.AmountUnitRequests, Value: 500},
 		at.Add(2*time.Minute),
 	))
 	if err != nil {

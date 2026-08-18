@@ -144,8 +144,8 @@ func (f *fakeStateStore) Reserve(_ context.Context, cmd ReserveCommand) (Reserve
 		}
 		if f.cumulativeReserved+amount > f.capacityLimit {
 			return ReserveResult{}, WrapError(ErrCapacityExceeded, "reserve", &ReservationCapacityError{
-				Requested: domain.Amount{Unit: cmd.Request.Unit, Value: amount, Currency: cmd.Request.Currency},
-				Remaining: domain.Amount{Unit: cmd.Request.Unit, Value: max(0, f.capacityLimit-f.cumulativeReserved), Currency: cmd.Request.Currency},
+				Requested: domain.Amount{Unit: cmd.Request.Unit, Value: amount},
+				Remaining: domain.Amount{Unit: cmd.Request.Unit, Value: max(0, f.capacityLimit-f.cumulativeReserved)},
 			})
 		}
 		f.cumulativeReserved += amount
@@ -181,10 +181,10 @@ func (f *fakeStateStore) Settle(_ context.Context, cmd SettleCommand) (SettleRes
 		actual := cmd.FinalUsage
 		f.settleResult = SettleResult{Applied: true, ReservationID: cmd.ReservationID}
 		if actual.Value < reserved.Value {
-			f.settleResult.ReleasedDelta = domain.Amount{Unit: reserved.Unit, Value: reserved.Value - actual.Value, Currency: reserved.Currency}
+			f.settleResult.ReleasedDelta = domain.Amount{Unit: reserved.Unit, Value: reserved.Value - actual.Value}
 		}
 		if actual.Value > reserved.Value {
-			f.settleResult.OverageDelta = domain.Amount{Unit: actual.Unit, Value: actual.Value - reserved.Value, Currency: actual.Currency}
+			f.settleResult.OverageDelta = domain.Amount{Unit: actual.Unit, Value: actual.Value - reserved.Value}
 		}
 	}
 	f.settlements[cmd.SettlementKey.String()] = f.settleResult
@@ -209,7 +209,6 @@ func (f *fakeStateStore) Release(ctx context.Context, cmd ReleaseCommand) (Relea
 		released := cmd.Amount
 		if released.Unit == "" {
 			released.Unit = reservation.ReservedAmount.Unit
-			released.Currency = reservation.ReservedAmount.Currency
 		}
 		if released.Value > reservation.ReservedAmount.Value {
 			released.Value = reservation.ReservedAmount.Value

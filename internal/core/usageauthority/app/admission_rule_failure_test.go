@@ -15,21 +15,21 @@ func TestAdmissionUsesFailingRuleBehaviorAndReservesHealthyRules(t *testing.T) {
 	now := time.Unix(100, 0).UTC()
 	rules := []domain.Rule{
 		{ID: "open-quota", Kind: domain.RuleKindQuota, Mode: domain.RuleModeStrict, Unit: domain.AmountUnitRequests, Limit: domain.Amount{Unit: domain.AmountUnitRequests, Value: 10}, FailureBehavior: domain.FailureBehaviorFailOpen},
-		{ID: "closed-budget", Kind: domain.RuleKindBudget, Mode: domain.RuleModeStrict, Unit: domain.AmountUnitMoneyNano, Currency: "USD", Limit: domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 100, Currency: "USD"}, FailureBehavior: domain.FailureBehaviorFailClosed},
+		{ID: "closed-tokens", Kind: domain.RuleKindQuota, Mode: domain.RuleModeStrict, Unit: domain.AmountUnitInputTokens, Limit: domain.Amount{Unit: domain.AmountUnitInputTokens, Value: 100}, FailureBehavior: domain.FailureBehaviorFailClosed},
 	}
 	store := newFakeStateStore()
 	store.readiness = domain.AuthorityStatus{State: domain.AuthorityStateReady}
 	store.reserveErrors = []error{&RuleReservationError{RuleID: "open-quota", Err: ErrUnavailable}}
 	store.reserveResults = []ReserveResult{{}, {
-		Applied: true, ReservationID: "budget-reservation", ReservedAmount: domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 20, Currency: "USD"},
-		Reservations: []AdmissionReservation{{ReservationID: "budget-reservation", RuleID: "closed-budget", ReservedAmount: domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 20, Currency: "USD"}}},
+		Applied: true, ReservationID: "token-reservation", ReservedAmount: domain.Amount{Unit: domain.AmountUnitInputTokens, Value: 20},
+		Reservations: []AdmissionReservation{{ReservationID: "token-reservation", RuleID: "closed-tokens", ReservedAmount: domain.Amount{Unit: domain.AmountUnitInputTokens, Value: 20}}},
 	}}
 	evidence := &fakeEvidenceSink{}
 	svc := NewService(&fakeRuleSource{snapshot: RuleSnapshot{Status: store.readiness, Rules: rules}}, store, evidence, fixedClock{now: now})
 	result, err := svc.Admit(context.Background(), AdmissionInput{
 		Correlation: controlplane.Correlation{TraceID: "trace", BackendID: "backend", Model: "model"},
 		Scope:       principalScope(), Dimensions: domain.Dimensions{}, RequestCount: domain.Amount{Unit: domain.AmountUnitRequests, Value: 1},
-		Spend: domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 20, Currency: "USD"}, Authority: domain.AuthorityLevelAuthoritative,
+		Request: domain.Amount{Unit: domain.AmountUnitInputTokens, Value: 20}, Authority: domain.AuthorityLevelAuthoritative,
 		ReservationKey: domain.ReservationKey{LogicalRequestID: "request", AttemptID: "attempt", Sequence: 1},
 	})
 	if err != nil {
@@ -38,8 +38,8 @@ func TestAdmissionUsesFailingRuleBehaviorAndReservesHealthyRules(t *testing.T) {
 	if !result.Allowed || result.Outcome != domain.DecisionOutcomeAdvisory {
 		t.Fatalf("result = %#v, want allowed advisory", result)
 	}
-	if !result.Reserved || len(result.Reservations) != 1 || result.Reservations[0].RuleID != "closed-budget" {
-		t.Fatalf("reservations = %#v, want healthy closed-budget reservation", result.Reservations)
+	if !result.Reserved || len(result.Reservations) != 1 || result.Reservations[0].RuleID != "closed-tokens" {
+		t.Fatalf("reservations = %#v, want healthy quantity reservation", result.Reservations)
 	}
 	if len(result.UnreservedRuleIDs) != 1 || result.UnreservedRuleIDs[0] != "open-quota" {
 		t.Fatalf("unreserved = %#v, want open-quota", result.UnreservedRuleIDs)

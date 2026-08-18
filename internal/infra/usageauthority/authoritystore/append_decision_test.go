@@ -112,9 +112,8 @@ func TestAppendDecisionMirrorsLimitWindow(t *testing.T) {
 				TenantID:    scope.Known("tenant-2"),
 			},
 			RuleID:    "rule-no-window",
-			RuleType:  "budget",
-			Unit:      string(domain.AmountUnitMoneyNano),
-			Currency:  "usd",
+			RuleType:  "quota",
+			Unit:      string(domain.AmountUnitRequests),
 			Limit:     1000,
 			Remaining: 1000,
 			// WindowStart/End/ResetAt deliberately left as the zero time.Time
@@ -135,7 +134,7 @@ func TestAppendDecisionMirrorsLimitWindow(t *testing.T) {
 			controlplane.AccountingOutcomeReserve, "reserved",
 			controlplane.AccountingAuthoritySourceReserved,
 			controlplane.AccountingSettlementPending,
-			domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 100}, 0, 0, 0)
+			domain.Amount{Unit: domain.AmountUnitRequests, Value: 100}, 0, 0, 0)
 
 		if len(store.c.decisions) != 1 {
 			t.Fatalf("decisions = %d, want 1", len(store.c.decisions))

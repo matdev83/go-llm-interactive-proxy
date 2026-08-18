@@ -31,11 +31,9 @@ func (c *storeCore) settleSetInPlace(cmd app.SettleCommand, log MutationLog) (ap
 		one.ReservationID = descriptor.Reservation.ReservationID
 		one.RuleID = descriptor.Reservation.RuleID
 		one.FinalUsage = descriptor.FinalUsage
-		one.FinalCost = descriptor.FinalCost
 		one.EstimatedUsage = descriptor.EstimatedUsage
-		one.EstimatedCost = descriptor.EstimatedCost
 		one.ReservedUsage = descriptor.Reservation.Amount
-		if descriptor.MeasurementAuthority.Usage != "" || descriptor.MeasurementAuthority.Cost != "" || descriptor.Authority != "" {
+		if descriptor.MeasurementAuthority.Usage != "" || descriptor.Authority != "" {
 			one.MeasurementAuthority = descriptor.MeasurementAuthority
 			one.Authority = descriptor.Authority
 		}
@@ -138,9 +136,9 @@ func (c *storeCore) settleOne(cmd app.SettleCommand, log MutationLog) (app.Settl
 	mutation := app.SettlementMutation{
 		RuleID:          rec.RuleID,
 		ReservationID:   rec.ReservationID,
-		ReleasedDelta:   domain.Amount{Unit: actual.Unit, Value: released, Currency: actual.Currency},
-		OverageDelta:    domain.Amount{Unit: actual.Unit, Value: overage, Currency: actual.Currency},
-		AdjustmentDelta: domain.Amount{Unit: actual.Unit, Value: adjustment, Currency: actual.Currency},
+		ReleasedDelta:   domain.Amount{Unit: actual.Unit, Value: released},
+		OverageDelta:    domain.Amount{Unit: actual.Unit, Value: overage},
+		AdjustmentDelta: domain.Amount{Unit: actual.Unit, Value: adjustment},
 	}
 	return app.SettleResult{
 		Applied:         true,
@@ -200,9 +198,9 @@ func (c *storeCore) authoritativeResettle(cmd app.SettleCommand, rec *reservatio
 	mutation := app.SettlementMutation{
 		RuleID:          rec.RuleID,
 		ReservationID:   rec.ReservationID,
-		ReleasedDelta:   domain.Amount{Unit: newActual.Unit, Value: released, Currency: newActual.Currency},
-		OverageDelta:    domain.Amount{Unit: newActual.Unit, Value: overage, Currency: newActual.Currency},
-		AdjustmentDelta: domain.Amount{Unit: newActual.Unit, Value: adjustment, Currency: newActual.Currency},
+		ReleasedDelta:   domain.Amount{Unit: newActual.Unit, Value: released},
+		OverageDelta:    domain.Amount{Unit: newActual.Unit, Value: overage},
+		AdjustmentDelta: domain.Amount{Unit: newActual.Unit, Value: adjustment},
 	}
 	return app.SettleResult{
 		Applied:         true,

@@ -40,7 +40,6 @@ func decisionFiltersForRow(row controlplane.AccountingDecisionRow) []decisionFil
 	}
 	add("rule_id", row.RuleID)
 	add("unit", row.Unit)
-	add("currency", strings.ToLower(row.Currency))
 	add("authority", string(row.Authority))
 	add("settlement_state", string(row.SettlementState))
 	add("evidence_state", string(row.EvidenceState))
@@ -80,7 +79,6 @@ func decisionFiltersForQuery(q controlplane.AccountingDecisionQuery) []decisionF
 	}
 	add("rule_id", q.RuleID)
 	add("unit", q.Unit)
-	add("currency", strings.ToLower(q.Currency))
 	add("authority", string(q.Authority))
 	add("settlement_state", string(q.SettlementState))
 	add("evidence_state", string(q.EvidenceState))

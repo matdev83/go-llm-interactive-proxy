@@ -58,7 +58,6 @@ func (c *storeCore) reserveSetInPlace(cmd app.ReserveCommand, log MutationLog) (
 		one.RuleType = string(descriptor.Kind)
 		one.Dimensions = descriptor.Dimensions
 		one.Request = descriptor.Amount
-		one.Spend = descriptor.Amount
 		one.SourceKey = descriptor.SourceKey
 		if one.SourceKey == "" {
 			one.SourceKey = descriptor.ReservationKey.String()
@@ -143,7 +142,7 @@ func (c *storeCore) reserveOne(cmd app.ReserveCommand, log MutationLog) (app.Res
 			c.appendDecision(log, mutationSnapshot(cmd.Correlation, cmd.Scope, cmd.Dimensions), row, cmd.ReservationKey.String(), "", controlplane.AccountingOutcomeDeny, capacityReason(cmd.RuleType), controlplane.AccountingAuthoritySourceAuthoritative, controlplane.AccountingSettlementUnavailable, amount, 0, 0, 0)
 			return app.ReserveResult{}, &app.ReservationCapacityError{
 				Requested: amount,
-				Remaining: domain.Amount{Unit: amount.Unit, Value: max(0, remaining), Currency: amount.Currency},
+				Remaining: domain.Amount{Unit: amount.Unit, Value: max(0, remaining)},
 			}
 		}
 	}
@@ -165,7 +164,6 @@ func (c *storeCore) reserveOne(cmd app.ReserveCommand, log MutationLog) (app.Res
 		RuleType:       cmd.RuleType,
 		Dimensions:     cmd.Dimensions,
 		Request:        cmd.Request,
-		Spend:          cmd.Spend,
 		Authority:      cmd.Authority,
 		Applied:        true,
 		ReservedAmount: amount,
@@ -189,8 +187,6 @@ func capacityReason(ruleType string) string {
 	switch domain.RuleKind(ruleType) {
 	case domain.RuleKindRate:
 		return "rate_limited"
-	case domain.RuleKindBudget, domain.RuleKindSpendCap:
-		return "budget_exceeded"
 	default:
 		return "quota_exceeded"
 	}

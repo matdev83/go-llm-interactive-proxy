@@ -79,7 +79,6 @@ func limitFiltersForRow(rowKey string, row controlplane.AccountingLimitStatusRow
 	}
 	add("rule_id", row.RuleID)
 	add("unit", row.Unit)
-	add("currency", strings.ToLower(row.Currency))
 	add("authority", string(row.Authority))
 	add("evidence_state", string(row.EvidenceState))
 	add("redaction_state", string(row.RedactionState))
@@ -116,7 +115,6 @@ func limitFiltersForQuery(q controlplane.AccountingLimitStatusQuery) []limitFilt
 	}
 	add("rule_id", q.RuleID)
 	add("unit", q.Unit)
-	add("currency", strings.ToLower(q.Currency))
 	add("authority", string(q.Authority))
 	add("evidence_state", string(q.EvidenceState))
 	add("redaction_state", string(q.RedactionState))

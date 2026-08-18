@@ -29,7 +29,6 @@ func (a AuthorityLevel) IsKnown() bool {
 type EvaluationContext struct {
 	Dimensions     Dimensions
 	Amount         Amount
-	Spend          Amount
 	RequestCount   Amount
 	PreflightUsage PreflightUsage
 	Authority      AuthorityLevel
@@ -78,14 +77,6 @@ type RuleMatch struct {
 	Mode     RuleMode
 	Exceeded bool
 	Outcome  DecisionOutcome
-	// RequestedMax carries the requested exposure basis for a clamp outcome
-	// (e.g. the requested spend for a spend cap). The domain populates it
-	// from the evaluation basis; EffectiveMax stays zero until the app fills
-	// it from live store remaining plus the cost estimate (requirement 6.5).
-	RequestedMax Amount
-	// EffectiveMax is the reduced exposure after clamping. It is left zero
-	// in the domain and populated by the app from live authority state.
-	EffectiveMax Amount
 }
 
 type EvaluationResult struct {
@@ -191,7 +182,6 @@ func (r Rule) evaluate(ctx EvaluationContext) RuleMatch {
 
 	basis, ok := r.SelectAmount(AmountSelectionSource{
 		Amount:         ctx.Amount,
-		Spend:          ctx.Spend,
 		RequestCount:   ctx.RequestCount,
 		PreflightUsage: ctx.PreflightUsage,
 		Exposure:       ctx.Exposure,
@@ -201,21 +191,7 @@ func (r Rule) evaluate(ctx EvaluationContext) RuleMatch {
 		match.Outcome = DecisionOutcomeUnavailable
 		return match
 	}
-	if r.Kind == RuleKindBudget || r.Kind == RuleKindSpendCap {
-		if strings.TrimSpace(basis.Currency) == "" {
-			match.Outcome = DecisionOutcomeUnavailable
-			return match
-		}
-		if !strings.EqualFold(r.Currency, basis.Currency) {
-			match.Outcome = DecisionOutcomeUnavailable
-			return match
-		}
-	}
 	if unit != "" && basis.Unit != unit {
-		match.Outcome = DecisionOutcomeUnavailable
-		return match
-	}
-	if r.Limit.IsMoney() && basis.Currency != "" && !strings.EqualFold(r.Limit.Currency, basis.Currency) {
 		match.Outcome = DecisionOutcomeUnavailable
 		return match
 	}
@@ -225,12 +201,7 @@ func (r Rule) evaluate(ctx EvaluationContext) RuleMatch {
 		case RuleModeAdvisory:
 			match.Outcome = DecisionOutcomeAdvisory
 		default:
-			if r.Kind == RuleKindSpendCap {
-				match.Outcome = DecisionOutcomeClamp
-				match.RequestedMax = basis
-			} else {
-				match.Outcome = DecisionOutcomeDeny
-			}
+			match.Outcome = DecisionOutcomeDeny
 		}
 		return match
 	}

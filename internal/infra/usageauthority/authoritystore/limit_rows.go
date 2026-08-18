@@ -41,7 +41,6 @@ func limitRowFromRule(rule domain.Rule, at time.Time) (controlplane.AccountingLi
 		RuleID:             rule.ID,
 		RuleType:           string(rule.Kind),
 		Unit:               string(unit),
-		Currency:           rule.Currency,
 		Limit:              limit,
 		Consumed:           0,
 		Reserved:           0,

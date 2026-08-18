@@ -138,7 +138,6 @@ func (s *Service) emitSettlementFailureEvidence(ctx context.Context, in SettleIn
 		ReservationID:    in.ReservationID,
 		SettlementState:  controlplane.AccountingSettlementUnavailable,
 		Unit:             string(in.FinalUsage.Unit),
-		Currency:         in.FinalUsage.Currency,
 		Authority:        domain.AuthorityLevelUnavailable,
 		Stage:            in.Stage,
 		BackendAttempted: in.BackendAttempted,
@@ -169,7 +168,6 @@ func (s *Service) emitReleaseFailureEvidence(ctx context.Context, in ReleaseInpu
 		ReservationID:    in.ReservationID,
 		SettlementState:  controlplane.AccountingSettlementUnavailable,
 		Unit:             string(in.Amount.Unit),
-		Currency:         in.Amount.Currency,
 		Authority:        domain.AuthorityLevelUnavailable,
 		Stage:            in.Stage,
 		BackendAttempted: in.BackendAttempted,
@@ -214,14 +212,11 @@ func (s *Service) storeSettle(ctx context.Context, in SettleInput, now time.Time
 		RuleID:               in.RuleID,
 		Kind:                 in.Kind,
 		FinalUsage:           in.FinalUsage,
-		FinalCost:            in.FinalCost,
 		ReservedUsage:        in.ReservedUsage,
 		EstimatedUsage:       in.EstimatedUsage,
-		EstimatedCost:        in.EstimatedCost,
 		Authority:            in.Authority,
 		MeasurementAuthority: in.MeasurementAuthority,
 		FinalUsagePresent:    in.FinalUsagePresent,
-		FinalCostPresent:     in.FinalCostPresent,
 		Stage:                in.Stage,
 		BackendAttempted:     in.BackendAttempted,
 		OutputCommitted:      in.OutputCommitted,
@@ -245,9 +240,7 @@ func (s *Service) storeSettle(ctx context.Context, in SettleInput, now time.Time
 	return settle, nil
 }
 
-// applySelectedSettlementAmounts resolves per-rule settle amounts before store
-// mutation (requirement 9.5). Dual-plane rules use Facts/Exposure; compatibility
-// basis keeps FinalUsage/FinalCost.
+// applySelectedSettlementAmounts resolves quantity amounts before store mutation.
 func applySelectedSettlementAmounts(in SettleInput, descriptors []SettlementDescriptor, rules []domain.Rule) ([]SettlementDescriptor, SettleInput, error) {
 	if len(descriptors) == 0 {
 		return descriptors, in, nil
@@ -262,41 +255,30 @@ func applySelectedSettlementAmounts(in SettleInput, descriptors []SettlementDesc
 		if !ok {
 			continue
 		}
-		src := domain.AmountSelectionSource{
-			FinalUsage:    out[i].FinalUsage,
-			FinalCost:     out[i].FinalCost,
+		amt, selected := rule.SelectAmount(domain.AmountSelectionSource{
+			FinalUsage:    firstNonEmptyAmount(out[i].FinalUsage, in.FinalUsage),
 			Exposure:      in.Exposure,
 			Facts:         in.Facts,
 			ForSettlement: true,
-		}
-		if src.FinalUsage.Unit == "" {
-			src.FinalUsage = in.FinalUsage
-		}
-		if src.FinalCost.Unit == "" {
-			src.FinalCost = in.FinalCost
-		}
-		amt, selected := rule.SelectAmount(src)
+		})
 		if !selected {
 			if rule.Basis.IsLegacyCompatibility() || strings.TrimSpace(string(rule.Basis)) == "" {
 				continue
 			}
-			return nil, in, fmt.Errorf("settlement amount unavailable for rule %q basis %q (dual-plane requires matching Facts/Exposure)", rule.ID, rule.Basis)
+			return nil, in, fmt.Errorf("settlement quantity unavailable for rule %q basis %q", rule.ID, rule.Basis)
 		}
-		unit := rule.Unit
-		if unit == "" {
-			unit = rule.Limit.Unit
-		}
-		if unit == domain.AmountUnitMoneyNano || rule.Kind == domain.RuleKindBudget || rule.Kind == domain.RuleKindSpendCap {
-			out[i].FinalCost = amt
-			in.FinalCost = amt
-			in.FinalCostPresent = true
-		} else {
-			out[i].FinalUsage = amt
-			in.FinalUsage = amt
-			in.FinalUsagePresent = true
-		}
+		out[i].FinalUsage = amt
+		in.FinalUsage = amt
+		in.FinalUsagePresent = true
 	}
 	return out, in, nil
+}
+
+func firstNonEmptyAmount(primary, fallback domain.Amount) domain.Amount {
+	if primary.Unit != "" {
+		return primary
+	}
+	return fallback
 }
 
 // DeriveSettleScalars copies aggregate fields from the first reservation descriptor
@@ -318,23 +300,17 @@ func DeriveSettleScalars(in SettleInput) SettleInput {
 	if in.Authority == "" {
 		in.Authority = first.Authority
 	}
-	if in.MeasurementAuthority.Usage == "" && in.MeasurementAuthority.Cost == "" {
+	if in.MeasurementAuthority.Usage == "" {
 		in.MeasurementAuthority = first.MeasurementAuthority
 	}
 	if in.FinalUsage.Unit == "" {
 		in.FinalUsage = first.FinalUsage
-	}
-	if in.FinalCost.Unit == "" {
-		in.FinalCost = first.FinalCost
 	}
 	if in.ReservedUsage.Unit == "" {
 		in.ReservedUsage = first.Reservation.Amount
 	}
 	if in.EstimatedUsage.Unit == "" {
 		in.EstimatedUsage = first.EstimatedUsage
-	}
-	if in.EstimatedCost.Unit == "" {
-		in.EstimatedCost = first.EstimatedCost
 	}
 	return in
 }
@@ -373,16 +349,13 @@ func settlementDescriptors(in SettleInput, now time.Time) []SettlementDescriptor
 		Reservation: ReservationDescriptor{
 			RuleID:         in.RuleID,
 			Unit:           in.ReservedUsage.Unit,
-			Currency:       in.ReservedUsage.Currency,
 			Dimensions:     dimensionsFromScope(in.Scope),
 			ReservationKey: in.ReservationKey,
 			ReservationID:  in.ReservationID,
 			Amount:         in.ReservedUsage,
 		},
 		FinalUsage:     in.FinalUsage,
-		FinalCost:      in.FinalCost,
 		EstimatedUsage: in.EstimatedUsage,
-		EstimatedCost:  in.EstimatedCost,
 	}
 	return []SettlementDescriptor{completeSettlementDescriptor(in, descriptor, now)}
 }
@@ -406,19 +379,13 @@ func completeSettlementDescriptor(in SettleInput, descriptor SettlementDescripto
 	if descriptor.FinalUsage.Unit == "" {
 		descriptor.FinalUsage = in.FinalUsage
 	}
-	if descriptor.FinalCost.Unit == "" {
-		descriptor.FinalCost = in.FinalCost
-	}
 	if descriptor.EstimatedUsage.Unit == "" {
 		descriptor.EstimatedUsage = in.EstimatedUsage
 	}
-	if descriptor.EstimatedCost.Unit == "" {
-		descriptor.EstimatedCost = in.EstimatedCost
-	}
-	if descriptor.MeasurementAuthority.Usage == "" && descriptor.MeasurementAuthority.Cost == "" {
+	if descriptor.MeasurementAuthority.Usage == "" {
 		descriptor.MeasurementAuthority = in.MeasurementAuthority
-		if descriptor.MeasurementAuthority.Usage == "" && descriptor.MeasurementAuthority.Cost == "" {
-			descriptor.MeasurementAuthority = MeasurementAuthority{Usage: in.Authority, Cost: in.Authority}
+		if descriptor.MeasurementAuthority.Usage == "" {
+			descriptor.MeasurementAuthority = MeasurementAuthority{Usage: in.Authority}
 		}
 	}
 	if descriptor.Authority == "" {
@@ -547,7 +514,6 @@ func releaseInputDescriptors(in ReleaseInput, now time.Time) []ReleaseDescriptor
 	descriptor := ReleaseDescriptor{Reservation: ReservationDescriptor{
 		RuleID:         in.RuleID,
 		Unit:           in.Amount.Unit,
-		Currency:       in.Amount.Currency,
 		Dimensions:     dimensionsFromScope(in.Scope),
 		ReservationKey: in.ReservationKey,
 		ReservationID:  in.ReservationID,
@@ -734,7 +700,6 @@ func (s *Service) emitSettlementEvidence(ctx context.Context, in SettleInput, re
 			SourceKind:         string(in.Kind),
 			SourceSequence:     in.Sequence,
 			Unit:               string(usage.Unit),
-			Currency:           usage.Currency,
 			Consumed:           usage.Value,
 			Reserved:           reserved.Value,
 			Adjustment:         mutation.AdjustmentDelta.Value,
@@ -812,7 +777,6 @@ func (s *Service) emitReleaseEvidence(ctx context.Context, in ReleaseInput, resu
 			SourceKind:       string(in.Kind),
 			SourceSequence:   in.Sequence,
 			Unit:             string(reservation.Amount.Unit),
-			Currency:         reservation.Amount.Currency,
 			Reserved:         reservation.Amount.Value,
 			Adjustment:       mutation.ReleasedDelta.Value,
 			Authority:        authority,
