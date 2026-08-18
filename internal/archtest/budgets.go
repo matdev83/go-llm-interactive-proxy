@@ -79,7 +79,7 @@ var LineBudgets = []LineBudget{
 	// detector (internal/core/compactiondetect) adds its bounded rule
 	// catalog, heuristic, transaction state, and per-response release-text
 	// window to the core tree.
-	{Dir: "internal/core", Max: 77909},
+	{Dir: "internal/core", Max: 77951},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 5867},
 	{Dir: "internal/infra/runtimebundle", Max: 11565},
