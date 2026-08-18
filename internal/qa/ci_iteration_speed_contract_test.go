@@ -130,6 +130,28 @@ func TestCIIterationSpeed_WorkflowConcurrencyAndCaches(t *testing.T) {
 	if !strings.Contains(qa, "CI owns the portable cmd/lipstd test/build matrix") {
 		t.Fatal("QA ownership documentation is missing")
 	}
+	preflight := strings.Index(qa, "- name: Fast policy preflight")
+	fixtureTidy := strings.Index(qa, "- name: Fixture module tidy preflight")
+	profile := strings.Index(qa, "- name: Provider-profile change-surface ratchet")
+	vet := strings.Index(qa, "- name: Vet release command")
+	architecture := strings.Index(qa, "- name: Architecture guardrails")
+	if preflight < 0 || fixtureTidy < 0 || profile < 0 || vet < 0 || architecture < 0 ||
+		preflight >= fixtureTidy || fixtureTidy >= profile || profile >= vet || vet >= architecture {
+		t.Fatal("QA must order policy, fixture tidy, profile, and vet gates before heavy architecture guardrails")
+	}
+	for _, needle := range []string{
+		"go test -count=1 -tags=precommit ./internal/qa",
+		"TestRootHygiene_",
+		"TestQAFastPreflight_",
+		"testdata/enterprise_module testdata/external_connector",
+		"GOWORK=off go mod tidy -diff",
+		"id: archtest",
+		"contains(fromJSON('[\"success\",\"failure\"]'), steps.archtest.outcome)",
+	} {
+		if !strings.Contains(qa, needle) {
+			t.Errorf("QA fast-preflight contract missing %q", needle)
+		}
+	}
 	if strings.Contains(qa, "go test -timeout=5m ./cmd/lipstd") {
 		t.Fatal("QA must not duplicate the CI cmd/lipstd test")
 	}
