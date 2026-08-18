@@ -39,6 +39,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
@@ -196,6 +197,11 @@ type retryRecvStream struct {
 
 	finalStreamObs    *extensions.FinalStreamObservationSession
 	internalUsageKeys map[string]struct{}
+
+	promptCacheSource     promptcache.ObservationSource
+	promptCacheController promptcache.Controller
+	committedTools        []lipapi.ToolEvent
+	keepwarmArmOnce       sync.Once
 }
 
 func (s *retryRecvStream) consumeBackendUsageEvidence(ctx context.Context, inner lipapi.ManagedEventStream) {

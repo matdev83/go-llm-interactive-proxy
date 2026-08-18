@@ -255,14 +255,19 @@ func TestExecutor_OpenAttempt_InjectorCallReceivesMemoBeforeOpen(t *testing.T) {
 	shaped := gotCall
 	gotMu.Unlock()
 
-	if len(shaped.Instructions) == 0 {
-		t.Fatal("executor call must reach backend Open with injected memo instructions")
+	if len(shaped.Messages) == 0 {
+		t.Fatal("executor call must reach backend Open with conversation messages")
 	}
-	if !strings.Contains(textOf(shaped.Instructions[0]), "plan: do the thing") {
-		t.Fatalf("memo not injected into executor call: %+v", shaped.Instructions[0])
+	tail := shaped.Messages[len(shaped.Messages)-1]
+	if !strings.Contains(textOf(tail), "plan: do the thing") {
+		t.Fatalf("memo not injected into executor call: %+v", tail)
 	}
-	if !strings.Contains(textOf(shaped.Instructions[0]), interleavedthinking.MemoContextOpenTag) {
-		t.Fatalf("injected memo must be wrapped with memo context tags: %+v", shaped.Instructions[0])
+	if !strings.Contains(textOf(tail), interleavedthinking.SessionSteeringGuidanceHeader) {
+		t.Fatalf("injected memo must carry the steering guidance header: %+v", tail)
+	}
+	if tail.Metadata["source"] != interleavedthinking.MetadataSourceInterleavedThinking ||
+		tail.Metadata["kind"] != interleavedthinking.MetadataKindThinkerMemoTail {
+		t.Fatalf("injected tail must carry traceability metadata: %+v", tail.Metadata)
 	}
 	if len(shaped.Tools) != 1 {
 		t.Fatalf("executor call must keep tools, got %d", len(shaped.Tools))
@@ -455,8 +460,8 @@ func TestExecutor_OpenAttempt_MemoCommitWaitsForSuccessfulOpen(t *testing.T) {
 	if len(openedCopy) != 1 || openedCopy[0] != "ok" {
 		t.Fatalf("expected only successful backend to open, got %+v", openedCopy)
 	}
-	if len(shaped.Instructions) == 0 || !strings.Contains(textOf(shaped.Instructions[0]), "memo survives failed open") {
-		t.Fatalf("successful backend must receive memo after failed candidate, got %+v", shaped.Instructions)
+	if len(shaped.Messages) == 0 || !strings.Contains(textOf(shaped.Messages[len(shaped.Messages)-1]), "memo survives failed open") {
+		t.Fatalf("successful backend must receive memo after failed candidate, got %+v", shaped.Messages)
 	}
 	state, err := st.FetchInterleavedState(context.Background(), aLegID)
 	if err != nil {

@@ -17,7 +17,7 @@ func TestSQLiteBillingSchemaCreatesRequiredTablesAndIndexes(t *testing.T) {
 	ctx := context.Background()
 	for _, table := range []string{
 		"billing_accounts", "billing_account_policy_events",
-		"turn_usage_records", "leg_usage_records", "usage_leg_records", "usage_call_records", "provider_cost_work", "usage_append_outbox", "usage_record_processing", "call_exposures",
+		"usage_leg_records", "usage_call_records", "provider_cost_work", "call_exposures",
 		"journal_transactions", "journal_entries", "bun_billing_migrations",
 	} {
 		var got string
@@ -35,11 +35,9 @@ func TestSQLiteBillingSchemaCreatesRequiredTablesAndIndexes(t *testing.T) {
 		t.Fatalf("authorization_holds absence lookup: %v", err)
 	}
 	for _, index := range []string{
-		"idx_billing_processing_status",
 		"idx_billing_journal_account_sequence",
 		"idx_billing_journal_source",
 		journalReversalUniqueIndex,
-		sessionAccountIndex,
 		usageLegCallBLegIndex,
 		usageCallCallIDIndex,
 		usageCallAccountSessionIndex,
@@ -47,7 +45,6 @@ func TestSQLiteBillingSchemaCreatesRequiredTablesAndIndexes(t *testing.T) {
 		usageCallClaimPendingIndex,
 		providerCostWorkStatusIndex,
 		providerCostWorkPendingIndex,
-		usageAppendOutboxPendingIndex,
 		exposureAccountStatusIndex,
 	} {
 		var got string

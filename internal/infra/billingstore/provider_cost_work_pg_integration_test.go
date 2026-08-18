@@ -4,11 +4,9 @@ package billingstore
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
@@ -19,22 +17,7 @@ func TestPostgresProviderCostWorkBackfillAcceptsTextSealedAtLegs(t *testing.T) {
 	dsn := testkit.SkipUnlessPostgres(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	bunDB, err := db.OpenPostgresBun(ctx, dsn, db.PoolSettings{MaxOpenConns: 2, MaxIdleConns: 2})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = bunDB.Close() })
-
-	schema := fmt.Sprintf("r2_pcw_%d", time.Now().UnixNano())
-	if _, err := bunDB.ExecContext(ctx, "CREATE SCHEMA "+schema); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_, _ = bunDB.ExecContext(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
-	})
-	if _, err := bunDB.ExecContext(ctx, "SET search_path TO "+schema); err != nil {
-		t.Fatal(err)
-	}
+	bunDB, _ := openIsolatedPostgresBun(t, dsn, 2)
 	setup := []string{
 		`CREATE TABLE usage_leg_records (
 			usage_leg_key TEXT PRIMARY KEY,

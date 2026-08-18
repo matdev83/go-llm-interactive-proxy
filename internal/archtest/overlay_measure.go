@@ -23,6 +23,10 @@ const BillingHostCompositionOverlayMax = 335
 // ratchet headroom over the measured 76-line overlay.
 const AtomicOwnedResourceLifecycleOverlayMax = 92
 
+// KeepwarmOrchestrationOverlayMax ratchets the generation/admin composition
+// additions for this feature independently from the legacy convergence delta.
+const KeepwarmOrchestrationOverlayMax = 650
+
 var genericCompatibleBackendOverlayPathMarkers = []string{
 	"/core/concurrencyauthority/compatible/",
 	"/compatible_admission.go",
@@ -47,6 +51,13 @@ var atomicOwnedResourceLifecycleOverlayPathMarkers = []string{
 	"/generation_loop.go",
 }
 
+var keepwarmOrchestrationOverlayPathMarkers = []string{
+	"/keepwarm_generation.go",
+	"/keepwarm_http.go",
+	"/generation_bundle.go",
+	"/admin/keepwarm/handler.go",
+}
+
 // pathMarkerOverlaySpec is one path-marker overlay allowance: a feature's new
 // production files are selected by path and ratcheted separately from the legacy
 // Req 11.5 convergence delta.
@@ -62,6 +73,7 @@ var pathMarkerOverlaySpecs = []pathMarkerOverlaySpec{
 	{name: "Generic compatible", max: GenericCompatibleBackendOverlayMax, markers: genericCompatibleBackendOverlayPathMarkers},
 	{name: "Billing host composition", max: BillingHostCompositionOverlayMax, markers: billingHostCompositionOverlayPathMarkers},
 	{name: "Atomic owned resource lifecycle", max: AtomicOwnedResourceLifecycleOverlayMax, markers: atomicOwnedResourceLifecycleOverlayPathMarkers},
+	{name: "Keep-warm orchestration", max: KeepwarmOrchestrationOverlayMax, markers: keepwarmOrchestrationOverlayPathMarkers},
 }
 
 // measurePathMarkerOverlays measures every path-marker overlay in table order.

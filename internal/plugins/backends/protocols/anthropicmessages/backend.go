@@ -40,6 +40,12 @@ type Config struct {
 	// CompatibleModeAuth enables optional credentials for built-in compatible
 	// modes: empty resolved keys omit x-api-key. Native Anthropic must leave false.
 	CompatibleModeAuth bool
+	CacheEnrollment    string
+	CacheTTL           string
+	// CacheObservation, when non-nil, issues a renewable target from committed
+	// foreground cache evidence on successful terminals. It is supplied by the
+	// owning plugin only for automatic enrollment; nil keeps emission off.
+	CacheObservation CacheObservationHook
 }
 
 const defaultRateLimitFallback = credpool.DefaultRateLimitFallback
@@ -52,6 +58,9 @@ func NewBackend(cfg Config) execbackend.Backend {
 	if err := checkcfg.RequireNonEmpty(id, "base_url", cfg.BaseURL); err != nil {
 		return newConfigErrorBackend(id, err)
 	}
+	if err := validateCacheEnrollment(cfg.CacheEnrollment, cfg.CacheTTL); err != nil {
+		return newConfigErrorBackend(id, err)
+	}
 	pool, noAuth, err := buildCompatibleOrRequiredPool(cfg)
 	if err != nil {
 		return newConfigErrorBackend(id, fmt.Errorf("%s: credentials: %w", id, err))
@@ -60,11 +69,16 @@ func NewBackend(cfg Config) execbackend.Backend {
 	if rateLimitFallback <= 0 {
 		rateLimitFallback = defaultRateLimitFallback
 	}
+	cacheRuntime, cacheErr := newCacheRuntime(cfg, pool, noAuth)
+	if cacheErr != nil {
+		return newConfigErrorBackend(id, fmt.Errorf("%s: cache runtime: %w", id, cacheErr))
+	}
 	backendCaps := defaultBackendCaps()
 	if cfg.ThinkingFromEffort {
 		backendCaps[lipapi.CapabilityReasoning] = struct{}{}
 	}
-	return execbackend.Backend{
+
+	be := execbackend.Backend{
 		Caps:                                 backendCaps,
 		ReplaySupport:                        ReplaySupport(),
 		BackendPrefixes:                      []string{id},
@@ -90,10 +104,11 @@ func NewBackend(cfg Config) execbackend.Backend {
 			if err != nil {
 				return nil, err
 			}
+			cacheState := cacheRuntime.state(ctx, call, p, cand, id)
 			if noAuth {
 				cli := newSDKClientForSecret(cfg, "")
-				stream := cli.Messages.NewStreaming(ctx, p)
-				es := newMessageStream(stream, id, call.MaxPendingWireEvents)
+				stream := cli.Messages.NewStreaming(ctx, p, cacheEnrollmentOptions(cfg)...)
+				es := newMessageStreamWithCache(stream, id, call.MaxPendingWireEvents, cacheState)
 				ev, rerr := es.Recv(ctx)
 				if rerr == nil {
 					return streampeek.NewManagedPrependFirst(ev, es), nil
@@ -113,13 +128,21 @@ func NewBackend(cfg Config) execbackend.Backend {
 					}
 					return nil, fmt.Errorf("%s: %w", id, aerr)
 				}
+				if cacheState != nil {
+					cacheState.lineage.BackendInstanceID = id
+					cacheState.credentialID = cred.ID
+					if m := strings.TrimSpace(cand.Primary.Model); m != "" {
+						cacheState.lineage.CanonicalModelID = m
+					}
+				}
 				cli := newSDKClientForSecret(cfg, cred.Secret)
-				requestOpts := thinkingRequestOptions(call.Options.ReasoningEffort, cfg.ThinkingFromEffort)
+				requestOpts := append([]option.RequestOption(nil), cacheEnrollmentOptions(cfg)...)
+				requestOpts = append(requestOpts, thinkingRequestOptions(call.Options.ReasoningEffort, cfg.ThinkingFromEffort)...)
 				if cfg.ThinkingFromEffort && reasoningEffortEnablesThinking(call.Options.ReasoningEffort) {
 					requestOpts = append(requestOpts, option.WithHeader("anthropic-beta", "interleaved-thinking-2025-05-14"))
 				}
 				stream := cli.Messages.NewStreaming(ctx, p, requestOpts...)
-				es := newMessageStream(stream, id, call.MaxPendingWireEvents)
+				es := newMessageStreamWithCache(stream, id, call.MaxPendingWireEvents, cacheState)
 				ev, rerr := es.Recv(ctx)
 				if rerr == nil {
 					return streampeek.NewManagedPrependFirst(ev, es), nil
@@ -144,6 +167,10 @@ func NewBackend(cfg Config) execbackend.Backend {
 			}
 		},
 	}
+	cacheRuntime.configureBackend(&be, func(call *lipapi.Call, cand routing.AttemptCandidate) (anthropic.MessageNewParams, error) {
+		return paramsForCall(call, cand, cfg.NormalizeRoles, cfg.NormalizeModel)
+	})
+	return be
 }
 
 func buildCompatibleOrRequiredPool(cfg Config) (*credpool.Pool, bool, error) {

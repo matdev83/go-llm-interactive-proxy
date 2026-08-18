@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
@@ -50,6 +51,8 @@ type ProcessServices struct {
 	ALegLifecycle         *leglifecycle.Coordinator
 	AffinityStore         affinity.Store
 	CandidateHealth       policy.CandidateHealth
+	KeepwarmPolicy        *keepwarm.PolicyStore
+	KeepwarmRegistry      *keepwarm.ManagerRegistry
 	ExtensionState        lipstate.Store
 	MeteringRecorder      metering.Recorder
 	UsageAuthority        *authorityapp.Service

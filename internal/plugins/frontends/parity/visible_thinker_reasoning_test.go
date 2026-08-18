@@ -66,8 +66,8 @@ func assertVisibleThinkerWireLegality(t *testing.T, body string, expectReasoning
 	if strings.Contains(body, interleavedthinking.MemoOpenTag) || strings.Contains(body, interleavedthinking.MemoCloseTag) {
 		t.Fatalf("memo wrapper tags must not appear on wire; body=%q", body)
 	}
-	if strings.Contains(body, interleavedthinking.MemoContextOpenTag) || strings.Contains(body, interleavedthinking.MemoContextCloseTag) {
-		t.Fatalf("memo context wrapper tags must not appear on wire; body=%q", body)
+	if strings.Contains(body, interleavedthinking.SessionSteeringGuidanceHeader) {
+		t.Fatalf("tail-injected steering guidance must not appear on wire; body=%q", body)
 	}
 }
 

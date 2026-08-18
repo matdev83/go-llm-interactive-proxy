@@ -193,7 +193,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 
 	var billingProvisioner billing.AccountProvisioner
 	var billingExposureRecovery billing.ExposureRecovery
-	if execRun.Production.BillingAuthoritative {
+	if billingCompositionConfigured(execRun.Production) {
 		if p, ok := execRun.Production.BillingStore.(billing.AccountProvisioner); ok {
 			billingProvisioner = p
 		}
@@ -226,6 +226,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 			billingReportsPath:      execRun.Production.BillingReportsPath,
 			billingProvisioner:      billingProvisioner,
 			billingExposureRecovery: billingExposureRecovery,
+			keepwarmAccounting:      execRun.Production.KeepwarmAccounting,
 			tokenAccountingAdmin:    execRun.TokenAccountingAdmin,
 			readinessReport:         execRun.ReadinessReport,
 			secretGuardInventory:    sg.Inventory,
@@ -247,6 +248,8 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 			snapshotGeneration:    ps.SnapshotGeneration,
 			snapshotController:    ps.SnapshotController,
 			meteringQuerier:       ps.MeteringQuerier,
+			keepwarmPolicy:        ps.KeepwarmPolicy,
+			keepwarmRegistry:      ps.KeepwarmRegistry,
 		},
 		ledger:            ledger,
 		terminalWorkReady: twReady,

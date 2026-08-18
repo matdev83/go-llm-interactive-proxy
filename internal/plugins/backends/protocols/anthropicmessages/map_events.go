@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
@@ -14,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/safecast"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
 
 // msgStream adapts the Anthropic SSE stream to lipapi.EventStream.
@@ -37,9 +39,31 @@ type msgStream struct {
 	terminal     bool
 	activeToolID string
 	closed       bool
+
+	// cache, when non-nil, collects foreground cache evidence and issues one
+	// renewable observation on the committed terminal. It is wired only for
+	// automatic enrollment; nil keeps the stream observation-neutral.
+	cache *cacheStreamState
+}
+
+// cacheStreamState carries the bounded observation buffer and the plugin-owned
+// hook used to issue a renewable target from committed cache evidence.
+type cacheStreamState struct {
+	hook         CacheObservationHook
+	lineage      promptcache.ObservationLineage
+	renewal      RenewalSnapshot
+	credentialID string
+	ttl          string
+	evidence     promptcache.CacheEvidence
+	observedAt   time.Time
+	buffer       promptcache.ObservationBuffer
 }
 
 func newMessageStream(s *ssestream.Stream[anthropic.MessageStreamEventUnion], backendID string, maxPending int) lipapi.ManagedEventStream {
+	return newMessageStreamWithCache(s, backendID, maxPending, nil)
+}
+
+func newMessageStreamWithCache(s *ssestream.Stream[anthropic.MessageStreamEventUnion], backendID string, maxPending int, cache *cacheStreamState) lipapi.ManagedEventStream {
 	if s == nil {
 		return lipapi.NewFixedEventStream(nil)
 	}
@@ -47,7 +71,15 @@ func newMessageStream(s *ssestream.Stream[anthropic.MessageStreamEventUnion], ba
 		sdk:       s,
 		backendID: backendID,
 		pending:   stream.NewPendingEventQueue(maxPending),
+		cache:     cache,
 	}
+}
+
+func (s *msgStream) DrainPromptCacheObservations() []promptcache.Observation {
+	if s == nil || s.cache == nil {
+		return nil
+	}
+	return s.cache.buffer.DrainPromptCacheObservations()
 }
 
 func (s *msgStream) Recv(ctx context.Context) (lipapi.Event, error) {
@@ -84,6 +116,7 @@ func (s *msgStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				return lipapi.Event{}, io.EOF
 			}
 			s.terminal = true
+			s.completeCacheObservation()
 			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished}); err != nil {
 				s.mu.Unlock()
 				return lipapi.Event{}, err
@@ -124,6 +157,9 @@ func (s *msgStream) handleEvent(cur anthropic.MessageStreamEventUnion) error {
 		if u := usageFromMessageDelta(v); u != nil {
 			if err := s.pending.Push(*u); err != nil {
 				return err
+			}
+			if s.cache != nil {
+				s.captureEvidence(*u)
 			}
 		}
 	case anthropic.ContentBlockStartEvent:
@@ -278,6 +314,7 @@ func (s *msgStream) handleEvent(cur anthropic.MessageStreamEventUnion) error {
 			return err
 		}
 		s.terminal = true
+		s.completeCacheObservation()
 	}
 	return nil
 }

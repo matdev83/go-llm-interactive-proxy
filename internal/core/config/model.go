@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"gopkg.in/yaml.v3"
 )
 
@@ -36,6 +37,9 @@ type Config struct {
 	ModelAliases   []ModelAliasConfig   `yaml:"model_aliases"`
 	ModelCatalog   ModelCatalogConfig   `yaml:"model_catalog"`
 	ModelInventory ModelInventoryConfig `yaml:"model_inventory"`
+	// PromptCache contains provider-neutral cache enrollment/keep-warm policy.
+	// Keep-warm remains independent from provider-specific enrollment settings.
+	PromptCache PromptCacheConfig `yaml:"prompt_cache"`
 	// ControlPlane is the optional control-plane persistence/query/event-ledger
 	// capability. Disabled by default; enabled requires explicit startup
 	// validation (see validateControlPlane).
@@ -50,6 +54,25 @@ type Config struct {
 	// ConfigDir is the directory containing the loaded config file. Set by [LoadFile];
 	// empty when Config is constructed without loading from disk.
 	ConfigDir string `yaml:"-"`
+}
+
+type PromptCacheConfig struct {
+	Keepwarm keepwarm.Config `yaml:"keepwarm"`
+	// KeepwarmPresent records whether prompt_cache was present in the parsed
+	// configuration. EffectiveKeepwarm returns defaults only when the block is
+	// entirely absent instead of inferring intent from zero-valued bounds.
+	KeepwarmPresent bool `yaml:"-"`
+}
+
+// EffectiveKeepwarm returns default-on policy when prompt_cache.keepwarm is
+// omitted, and the parsed (possibly explicitly disabled) policy otherwise. The
+// zero-value Config is indistinguishable from an omitted block, so the decision
+// uses the presence marker set during YAML parsing.
+func (c Config) EffectiveKeepwarm() keepwarm.Config {
+	if !c.PromptCache.KeepwarmPresent {
+		return keepwarm.DefaultConfig()
+	}
+	return c.PromptCache.Keepwarm
 }
 
 type AccountingConfig struct {
@@ -67,10 +90,8 @@ type AccountingConfig struct {
 	Pricing             AccountingPricingConfig    `yaml:"pricing"`
 	Authority           AccountingAuthorityConfig  `yaml:"authority"`
 	Concurrency         ConcurrencyAuthorityConfig `yaml:"concurrency"`
-	// Billing controls the TUR/journal monetary cutover. When Authoritative is
-	// true, composition must inject a BillingStore plus admission/identity/rating
-	// resolvers. Stream handlers never enrich money or write the legacy token
-	// ledger regardless of this flag.
+	// Billing contains report and terminal-spool paths for an injected
+	// composition. Billing is enabled only by complete host composition.
 	Billing AccountingBillingConfig `yaml:"billing"`
 }
 
@@ -79,12 +100,8 @@ type AccountingBillingConfig struct {
 	// SpoolPath is the stable process-state SQLite path for terminal usage
 	// durability. It must not point at an OS temporary directory in production.
 	SpoolPath string `yaml:"spool_path"`
-	// Authoritative mounts the Bun BillingStore as the sole monetary settlement
-	// authority (post-turn worker + journal/TUR reports). Protocol usage
-	// projection remains non-authoritative for money.
-	Authoritative bool `yaml:"authoritative"`
-	// ReportsPath mounts the protected billing report surface when authoritative
-	// billing is enabled. Empty selects /admin/billing.
+	// ReportsPath selects the protected billing report surface for an injected
+	// billing composition. Empty selects /admin/billing.
 	ReportsPath string `yaml:"reports_path"`
 }
 

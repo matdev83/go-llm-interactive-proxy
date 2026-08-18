@@ -95,7 +95,7 @@ func (s *DurableStore) reconcileAccountAttempt(ctx context.Context, accountID st
 		report.AddIssue("opening_policy_mismatch", 0, "immutable opening/policy evidence does not match materialized policy")
 	}
 	validateSettlementSnapshotsRows(snap.Account.ID, snap.Snapshots, snap.Journals, snap.Account.State == billing.AccountReconcileRequired, &report)
-	if report.OK && snap.Account.State == billing.AccountReady && (report.Rebuilt.BalanceNano != snap.Account.BalanceNano || report.Rebuilt.ReservedNano != snap.Account.ReservedNano || report.Rebuilt.SpendableNano != mustSpendable(snap.Account)) {
+	if report.OK && snap.Account.State == billing.AccountReady && (report.Rebuilt.BalanceNano != snap.Account.BalanceNano || report.Rebuilt.SpendableNano != mustSpendable(snap.Account)) {
 		report.AddIssue("materialized_state_mismatch", 0, "materialized balance/reserved/spendable differs from journal replay")
 	}
 	if report.OK && snap.Account.State == billing.AccountReconcileRequired && snap.BlockedEvents == 0 {
@@ -152,7 +152,8 @@ func (s *DurableStore) loadReconcileSnapshot(ctx context.Context, accountID stri
 		return reconcileSnapshot{}, err
 	}
 	snap.Journals = journals
-	if err := tx.NewRaw(`SELECT operation_key, account_id, operation_kind, source_key, fingerprint, integrity_fingerprint, currency, mode, balance_before_nano, balance_after_nano, reserved_before_nano, reserved_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, version_before, version_after, account_sequence_start, account_sequence_end, created_at FROM billing_operation_snapshots WHERE account_id = ? ORDER BY account_sequence_end, operation_key`, accountID).Scan(ctx, &snap.Snapshots); err != nil {
+	query := `SELECT operation_key, account_id, operation_kind, source_key, fingerprint, integrity_fingerprint, currency, mode, balance_before_nano, balance_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, version_before, version_after, account_sequence_start, account_sequence_end, created_at FROM billing_operation_snapshots WHERE account_id = ?` + operationSnapshotOrderClause
+	if err := tx.NewRaw(query, accountID).Scan(ctx, &snap.Snapshots); err != nil {
 		return reconcileSnapshot{}, err
 	}
 	if account.State == billing.AccountReconcileRequired {
@@ -177,18 +178,20 @@ func (s *DurableStore) commitReconcileOutcome(ctx context.Context, accountID str
 		return report, false, err
 	}
 	if account.Version != snap.Account.Version || account.State != snap.Account.State ||
-		account.BalanceNano != snap.Account.BalanceNano || account.ReservedNano != snap.Account.ReservedNano ||
+		account.BalanceNano != snap.Account.BalanceNano ||
 		account.Currency != snap.Account.Currency || account.Mode != snap.Account.Mode || account.CreditLimit != snap.Account.CreditLimit {
 		return report, true, nil
 	}
 	var maxSeq uint64
 	var journalCount int
-	if err := tx.NewRaw(`SELECT COALESCE(MAX(account_sequence), 0), COUNT(1) FROM journal_transactions WHERE account_id = ?`, accountID).Scan(ctx, &maxSeq, &journalCount); err != nil {
+	if err := tx.NewRaw(`SELECT COALESCE(MAX(account_sequence), 0), COUNT(1) FROM journal_transactions WHERE account_id = ? AND book = 'financial'`, accountID).Scan(ctx, &maxSeq, &journalCount); err != nil {
 		return report, false, err
 	}
 	var snapMax uint64
-	if len(snap.Journals) > 0 {
-		snapMax = snap.Journals[len(snap.Journals)-1].AccountSequence
+	for _, journal := range snap.Journals {
+		if journal.OperationKind != "provider_call_cogs" && journal.AccountSequence > snapMax {
+			snapMax = journal.AccountSequence
+		}
 	}
 	if maxSeq != snapMax || journalCount != len(snap.Journals) {
 		return report, true, nil
@@ -211,18 +214,18 @@ func (s *DurableStore) commitReconcileOutcome(ctx context.Context, accountID str
 		}
 		return report, false, ErrReconciliationFailed
 	}
-	eventKey := fmt.Sprintf("reconcile:v1:%s:%d:%d:%d:%d", accountID, account.Version, report.Rebuilt.BalanceNano, report.Rebuilt.ReservedNano, report.Rebuilt.SpendableNano)
+	eventKey := fmt.Sprintf("reconcile:v1:%s:%d:%d:%d", accountID, account.Version, report.Rebuilt.BalanceNano, report.Rebuilt.SpendableNano)
 	var existingEvent string
 	eventErr := tx.NewRaw(`SELECT event_key FROM billing_reconciliation_events WHERE event_key = ?`, eventKey).Scan(ctx, &existingEvent)
 	if eventErr != nil && !errors.Is(eventErr, sql.ErrNoRows) {
 		return report, false, eventErr
 	}
 	if errors.Is(eventErr, sql.ErrNoRows) {
-		if _, err := tx.NewRaw(`INSERT INTO billing_reconciliation_events(event_key, account_id, from_state, to_state, first_mismatch_sequence, balance_nano, reserved_nano, spendable_nano, created_at) VALUES (?,?,?,?,?,?,?,?,?)`, eventKey, accountID, string(account.State), string(billing.AccountReady), report.FirstMismatchSequence, report.Rebuilt.BalanceNano, report.Rebuilt.ReservedNano, report.Rebuilt.SpendableNano, nowUTC()).Exec(ctx); err != nil {
+		if _, err := tx.NewRaw(`INSERT INTO billing_reconciliation_events(event_key, account_id, from_state, to_state, first_mismatch_sequence, balance_nano, spendable_nano, created_at) VALUES (?,?,?,?,?,?,?,?)`, eventKey, accountID, string(account.State), string(billing.AccountReady), report.FirstMismatchSequence, report.Rebuilt.BalanceNano, report.Rebuilt.SpendableNano, nowUTC()).Exec(ctx); err != nil {
 			return report, false, err
 		}
 	}
-	accountResult, err := tx.NewRaw(`UPDATE billing_accounts SET currency = ?, mode = ?, credit_limit_nano = ?, balance_nano = ?, reserved_nano = 0, version = ?, state = 'ready', updated_at = ? WHERE account_id = ? AND version = ?`, snap.ExpectedCurrency, snap.ExpectedMode, snap.ExpectedLimit, report.Rebuilt.BalanceNano, report.Rebuilt.Version, nowUTC(), accountID, account.Version).Exec(ctx)
+	accountResult, err := tx.NewRaw(`UPDATE billing_accounts SET currency = ?, mode = ?, credit_limit_nano = ?, balance_nano = ?, version = ?, state = 'ready', updated_at = ? WHERE account_id = ? AND version = ?`, snap.ExpectedCurrency, snap.ExpectedMode, snap.ExpectedLimit, report.Rebuilt.BalanceNano, report.Rebuilt.Version, nowUTC(), accountID, account.Version).Exec(ctx)
 	if err != nil {
 		return report, false, err
 	}
@@ -247,7 +250,7 @@ func setReconcileRequiredTx(ctx context.Context, tx bun.Tx, accountID string) er
 	}
 	now := nowUTC()
 	eventKey := fmt.Sprintf("reconcile-required:v1:%s:%d", accountID, now.UnixNano())
-	if _, err := tx.NewRaw(`INSERT INTO billing_reconciliation_events(event_key, account_id, from_state, to_state, first_mismatch_sequence, balance_nano, reserved_nano, spendable_nano, created_at) VALUES (?,?,?,?,0,0,0,0,?)`, eventKey, accountID, fromState, string(billing.AccountReconcileRequired), now).Exec(ctx); err != nil {
+	if _, err := tx.NewRaw(`INSERT INTO billing_reconciliation_events(event_key, account_id, from_state, to_state, first_mismatch_sequence, balance_nano, spendable_nano, created_at) VALUES (?,?,?,?,0,0,0,?)`, eventKey, accountID, fromState, string(billing.AccountReconcileRequired), now).Exec(ctx); err != nil {
 		return err
 	}
 	_, err := tx.NewRaw(`UPDATE billing_accounts SET state = 'reconcile_required', updated_at = ? WHERE account_id = ?`, now, accountID).Exec(ctx)
@@ -256,7 +259,8 @@ func setReconcileRequiredTx(ctx context.Context, tx bun.Tx, accountID string) er
 
 func loadAllJournals(ctx context.Context, q bun.IDB, accountID string) ([]billing.JournalTransaction, error) {
 	var rows []journalTransactionRow
-	if err := q.NewRaw(`SELECT transaction_id, account_id, book, currency, source_key, semantic_fingerprint, turn_id, a_leg_id, b_leg_id, account_sequence, reversal_of, corrects_transaction_id, correction_group_id, operation_kind, balance_before_nano, balance_after_nano, reserved_before_nano, reserved_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, mode, snapshot_version_before, snapshot_version_after, recorded_at FROM journal_transactions WHERE account_id = ? ORDER BY account_sequence`, accountID).Scan(ctx, &rows); err != nil {
+	query := `SELECT transaction_id, account_id, book, currency, source_key, semantic_fingerprint, turn_id, a_leg_id, b_leg_id, account_sequence, reversal_of, corrects_transaction_id, correction_group_id, operation_kind, balance_before_nano, balance_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, mode, snapshot_version_before, snapshot_version_after, recorded_at FROM journal_transactions WHERE account_id = ? AND book = 'financial'` + journalOrderClause("")
+	if err := q.NewRaw(query, accountID).Scan(ctx, &rows); err != nil {
 		return nil, err
 	}
 	return loadJournals(ctx, q, rows)
@@ -264,11 +268,22 @@ func loadAllJournals(ctx context.Context, q bun.IDB, accountID string) ([]billin
 
 func validateSettlementSnapshots(ctx context.Context, tx bun.Tx, accountID string, journals []billing.JournalTransaction, allowMaterializedDrift bool, report *billing.ReconciliationReport) {
 	var rows []operationSnapshotRow
-	if err := tx.NewRaw(`SELECT operation_key, account_id, operation_kind, source_key, fingerprint, integrity_fingerprint, currency, mode, balance_before_nano, balance_after_nano, reserved_before_nano, reserved_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, version_before, version_after, account_sequence_start, account_sequence_end, created_at FROM billing_operation_snapshots WHERE account_id = ? ORDER BY account_sequence_end, operation_key`, accountID).Scan(ctx, &rows); err != nil {
+	query := `SELECT operation_key, account_id, operation_kind, source_key, fingerprint, integrity_fingerprint, currency, mode, balance_before_nano, balance_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, version_before, version_after, account_sequence_start, account_sequence_end, created_at FROM billing_operation_snapshots WHERE account_id = ?` + operationSnapshotOrderClause
+	if err := tx.NewRaw(query, accountID).Scan(ctx, &rows); err != nil {
 		report.AddIssue("snapshot_read_failed", 0, err.Error())
 		return
 	}
 	validateSettlementSnapshotsRows(accountID, rows, journals, allowMaterializedDrift, report)
+}
+
+func snapshotIntegrityMatches(row operationSnapshotRow) bool {
+	before := billing.AccountSnapshot{BalanceNano: row.BalanceBefore, SpendableNano: row.SpendableBefore, CreditFloorNano: row.CreditFloor, CreditLimitNano: row.CreditLimit, Mode: billing.AccountMode(row.Mode), Currency: row.Currency, Version: row.VersionBefore}
+	after := billing.AccountSnapshot{BalanceNano: row.BalanceAfter, SpendableNano: row.SpendableAfter, CreditFloorNano: row.CreditFloor, CreditLimitNano: row.CreditLimit, Mode: billing.AccountMode(row.Mode), Currency: row.Currency, Version: row.VersionAfter}
+	if row.IntegrityFingerprint == "" {
+		return true
+	}
+	return row.IntegrityFingerprint == snapshotIntegrity(row.OperationKey, row.AccountID, row.OperationKind, row.SourceKey, row.Fingerprint, before, after, row.SequenceStart, row.SequenceEnd) ||
+		row.IntegrityFingerprint == legacySnapshotIntegrityZero(row.OperationKey, row.AccountID, row.OperationKind, row.SourceKey, row.Fingerprint, before, after, row.SequenceStart, row.SequenceEnd)
 }
 
 func validateSettlementSnapshotsRows(accountID string, rows []operationSnapshotRow, journals []billing.JournalTransaction, allowMaterializedDrift bool, report *billing.ReconciliationReport) {
@@ -282,7 +297,7 @@ func validateSettlementSnapshotsRows(accountID string, rows []operationSnapshotR
 		}
 	}
 	for _, row := range rows {
-		if row.AccountID != accountID || row.SequenceStart > row.SequenceEnd || row.Fingerprint == "" || (row.IntegrityFingerprint != "" && row.IntegrityFingerprint != snapshotIntegrity(row.OperationKey, row.AccountID, row.OperationKind, row.SourceKey, row.Fingerprint, billing.AccountSnapshot{BalanceNano: row.BalanceBefore, ReservedNano: row.ReservedBefore, SpendableNano: row.SpendableBefore, CreditFloorNano: row.CreditFloor, CreditLimitNano: row.CreditLimit, Mode: billing.AccountMode(row.Mode), Currency: row.Currency, Version: row.VersionBefore}, billing.AccountSnapshot{BalanceNano: row.BalanceAfter, ReservedNano: row.ReservedAfter, SpendableNano: row.SpendableAfter, CreditFloorNano: row.CreditFloor, CreditLimitNano: row.CreditLimit, Mode: billing.AccountMode(row.Mode), Currency: row.Currency, Version: row.VersionAfter}, row.SequenceStart, row.SequenceEnd)) || row.Currency == "" || row.Mode == "" {
+		if row.AccountID != accountID || row.SequenceStart > row.SequenceEnd || row.Fingerprint == "" || !snapshotIntegrityMatches(row) || row.Currency == "" || row.Mode == "" {
 			report.AddIssue("snapshot_invalid", row.SequenceEnd, row.OperationKey)
 			continue
 		}
@@ -312,7 +327,7 @@ func validateSettlementSnapshotsRows(accountID string, rows []operationSnapshotR
 			report.AddIssue("snapshot_sequence_missing", row.SequenceEnd, row.OperationKey)
 			continue
 		}
-		if !startOK || row.BalanceBefore != startJournal.BalanceBefore || row.ReservedBefore != startJournal.ReservedBefore || row.SpendableBefore != startJournal.SpendableBefore || row.VersionBefore != startJournal.SnapshotVersionBefore || row.BalanceAfter != journal.BalanceAfter || row.ReservedAfter != journal.ReservedAfter || row.SpendableAfter != journal.SpendableAfter || row.VersionAfter != journal.SnapshotVersionAfter || row.Currency != journal.Currency || row.Mode != journal.Mode || row.CreditFloor != journal.CreditFloor || row.CreditLimit != journal.CreditLimit {
+		if !startOK || row.BalanceBefore != startJournal.BalanceBefore || row.SpendableBefore != startJournal.SpendableBefore || row.VersionBefore != startJournal.SnapshotVersionBefore || row.BalanceAfter != journal.BalanceAfter || row.SpendableAfter != journal.SpendableAfter || row.VersionAfter != journal.SnapshotVersionAfter || row.Currency != journal.Currency || row.Mode != journal.Mode || row.CreditFloor != journal.CreditFloor || row.CreditLimit != journal.CreditLimit {
 			report.AddIssue("snapshot_mismatch", row.SequenceEnd, row.OperationKey)
 		}
 	}

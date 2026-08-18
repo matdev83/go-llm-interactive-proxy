@@ -7,15 +7,13 @@ import (
 type RuleKind string
 
 const (
-	RuleKindQuota    RuleKind = "quota"
-	RuleKindRate     RuleKind = "rate"
-	RuleKindBudget   RuleKind = "budget"
-	RuleKindSpendCap RuleKind = "spend_cap"
+	RuleKindQuota RuleKind = "quota"
+	RuleKindRate  RuleKind = "rate"
 )
 
 func (k RuleKind) IsKnown() bool {
 	switch k {
-	case RuleKindQuota, RuleKindRate, RuleKindBudget, RuleKindSpendCap:
+	case RuleKindQuota, RuleKindRate:
 		return true
 	default:
 		return false
@@ -73,7 +71,6 @@ type Rule struct {
 	Mode                 RuleMode
 	Unit                 AmountUnit
 	Limit                Amount
-	Currency             string
 	AuthorityRequirement AuthorityRequirement
 	FailureBehavior      FailureBehavior
 	Window               WindowSpec

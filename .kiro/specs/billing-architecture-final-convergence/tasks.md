@@ -130,28 +130,28 @@
 
 ## Phase 4 — Remove Reserved/Authorization Current-Domain Residue
 
-- [ ] 4.1 Add RED source/domain tests forbidding current `ReservedNano`.
+- [x] 4.1 Add RED source/domain tests forbidding current `ReservedNano`.
   - Characterize legacy migration readers separately from current domain.
   - _Boundary: core billing / architecture tests_
   - _Depends: 0.3_
   - _Validation: go test ./internal/core/billing ./internal/archtest_
   - _Requirements: 4.1-4.8_
 
-- [ ] 4.2 Remove reserved fields from Account/current snapshots/commands/reports.
+- [x] 4.2 Remove reserved fields from Account/current snapshots/commands/reports.
   - Keep settled headroom and operational exposure separate.
   - _Boundary: core billing + current store contracts_
   - _Depends: 4.1_
   - _Validation: go test ./internal/core/billing ./internal/infra/billingstore_
   - _Requirements: 4.1-4.4, 9.1-9.5_
 
-- [ ] 4.3 Isolate historical authorization-book decode and remove it from current writers.
+- [x] 4.3 Isolate historical authorization-book decode and remove it from current writers.
   - Current journal validation/writer accepts only current books.
   - _Boundary: journal domain + migration/report compatibility_
   - _Depends: 4.2_
   - _Validation: go test ./internal/core/billing ./internal/infra/billingstore -run 'Journal|Authorization|Historical'_
   - _Requirements: 4.5-4.8, 9.6-9.7_
 
-- [ ] 4.4 Forward-migrate/remove always-zero reserved column where safe.
+- [x] 4.4 Forward-migrate/remove always-zero reserved column where safe.
   - Quiesce current account writers for the destructive column/table-rebuild step and apply the same dialect-critical-section rule: PostgreSQL transactional DDL/locking; SQLite one-connection writer exclusion/table rebuild. Balances, versions and policies must be byte/value equivalent after migration and reconciliation.
   - _Boundary: Bun migrations_
   - _Depends: 4.2_
@@ -160,28 +160,28 @@
 
 ## Phase 5 — Make UsageAuthority Quantity-Only
 
-- [ ] 5.1 Add RED compatibility/config tests for retired monetary UsageAuthority rules.
+- [x] 5.1 Add RED compatibility/config tests for retired monetary UsageAuthority rules.
   - Pin request/token behavior and require explicit migration error for money rules.
   - _Boundary: usageauthority domain/config_
   - _Depends: 0.3_
   - _Validation: go test ./internal/core/usageauthority/... ./internal/core/config_
   - _Requirements: 5.1-5.8, 11.3_
 
-- [ ] 5.2 Remove money unit and money-specific admission/settlement/release fields.
+- [x] 5.2 Remove money unit and money-specific admission/settlement/release fields.
   - Preserve request/token quota and concurrency semantics.
   - _Boundary: usageauthority core_
   - _Depends: 5.1_
   - _Validation: go test ./internal/core/usageauthority/..._
   - _Requirements: 5.1-5.7_
 
-- [ ] 5.3 Remove money reservation/store mapping and runtime money compatibility code.
+- [x] 5.3 Remove money reservation/store mapping and runtime money compatibility code.
   - No hidden disabled second financial implementation remains.
   - _Boundary: usageauthority infra + runtime adapters_
   - _Depends: 5.2_
   - _Validation: go test ./internal/infra/usageauthority/... ./internal/core/runtime ./internal/infra/runtimebundle_
   - _Requirements: 5.2-5.8, 10.5, 12.4_
 
-- [ ] 5.4 Activate architecture guards proving one monetary authority.
+- [x] 5.4 Activate architecture guards proving one monetary authority.
   - Metering money remains telemetry-only; billing is sole financial authority.
   - _Boundary: architecture tests_
   - _Depends: 5.3_
@@ -190,28 +190,28 @@
 
 ## Phase 6 — Retire Legacy Usage Persistence and Processing
 
-- [ ] 6.1 Add migration characterization and race tests for legacy TUR/LUR/processing state.
+- [x] 6.1 Add migration characterization and race tests for legacy TUR/LUR/processing state.
   - Enumerate pending/processing/error/current-equivalent states and every legacy writer. RED tests must prove unresolved financial/usage work blocks retirement and a concurrent legacy writer cannot commit work between successful proof and `DROP` on either supported dialect.
   - _Boundary: billingstore migration/concurrency tests_
   - _Depends: 1.4, 0.3_
   - _Validation: go test ./internal/infra/billingstore -run 'Legacy|Migration|Processing|TUR|LUR|Concurrent'; LIP_REQUIRE_POSTGRES=1 go test -tags=integration ./internal/infra/billingstore -run 'Postgres.*Legacy|Postgres.*Migration'_
   - _Requirements: 3.1-3.7, 11.1-11.6_
 
-- [ ] 6.2 Delete remaining live legacy append/processing/shadow workers and interfaces.
+- [x] 6.2 Delete remaining live legacy append/processing/shadow workers and interfaces.
   - No feature flag or dormant production implementation remains. Deployment/cutover documentation must identify the point after which mixed-version processes capable of legacy writes are no longer permitted.
   - _Boundary: core billing + billingstore deletion_
   - _Depends: 1.4, 6.1_
   - _Validation: go test ./internal/core/billing ./internal/infra/billingstore ./internal/archtest_
   - _Requirements: 2.6-2.7, 3.5, 10.5, 12.3_
 
-- [ ] 6.3 Preserve/resolve legacy work and retire TUR/LUR/processing in one critical section.
+- [x] 6.3 Preserve/resolve legacy work and retire TUR/LUR/processing in one critical section.
   - Before destructive DDL, quiesce all legacy writers; migrate any deterministically convertible retained records to current usage storage; block on pending/error/conflicting/unprovable state; acquire dialect-specific migration writer exclusion; re-run the unresolved-work proof under that lock; drop retired tables/indexes/triggers in the same transaction/connection; update `VerifySchema`; then run post-migration reconciliation proving fresh/upgraded current-record and journal state. PostgreSQL must use transaction-scoped migration serialization plus `ACCESS EXCLUSIVE` retiring-table locks; SQLite must use one connection with `BEGIN IMMEDIATE` or stronger repository-supported writer exclusion.
   - _Boundary: Bun schema / migration critical section_
   - _Depends: 6.2_
   - _Validation: go test ./internal/infra/billingstore -run 'Migration|VerifySchema|Legacy|Reconcile|Concurrent'; LIP_REQUIRE_POSTGRES=1 go test -tags=integration ./internal/infra/billingstore -run 'Postgres.*Migration|Postgres.*Legacy|PostgresBillingStoreContract'_
   - _Requirements: 3.1-3.8, 11.1-11.6_
 
-- [ ] 6.4 Update reconciliation/report queries to current records only.
+- [x] 6.4 Update reconciliation/report queries to current records only.
   - Historical audit compatibility may use isolated legacy decode, never old processing. Reconciliation must certify the post-retirement current usage/journal state before migration completion is considered operationally successful.
   - _Boundary: reporting/reconciliation_
   - _Depends: 6.3_
@@ -220,28 +220,28 @@
 
 ## Phase 7 — Composition Collapse and Final Certification
 
-- [ ] 7.1 Shrink final `BillingRuntime` and authoritative composition to an all-or-none contract.
+- [x] 7.1 Shrink final `BillingRuntime` and authoritative composition to an all-or-none contract.
   - Remove `BillingAuthoritative` or any equivalent runtime mode boolean. Runtime receives only cheap gate, exposure admission, terminal sink and identity. Stock non-billing construction has all billing ports absent; billing-enabled construction requires all four dependencies and rejects partial wiring. Customer/provider workers stay process-owned outside Executor. Add construction/architecture tests proving no legacy/current mode selector remains.
   - _Boundary: runtime config + runtimebundle_
   - _Depends: 2.4, 3.4, 5.3, 6.4_
   - _Validation: go test ./internal/core/runtime ./internal/infra/runtimebundle ./internal/archtest -run 'Billing|Construction|Authoritative|Wiring|Runtime'_
   - _Requirements: 8.1-8.8, 12.1, 12.5_
 
-- [ ] 7.2 Activate all structural deletion and >=10% production LOC ratchets.
+- [x] 7.2 Activate all structural deletion and >=10% production LOC ratchets.
   - Recompute the canonical Phase-0 artifact denominator from its pinned SHA, fail on any mismatch, then measure final `physical-go-lines-v1` with the same versioned AST symbol-following algorithm. No code movement gaming; explicit symbols/tables/workers must be absent.
   - _Boundary: architecture tests_
   - _Depends: 4.4, 5.4, 6.3, 7.1_
   - _Validation: go test ./internal/archtest -run 'Billing.*Convergence|Billing.*LOC|Billing.*Deletion|Billing.*Symbol'_
   - _Requirements: 10.1-10.8, 12.1-12.5_
 
-- [ ] 7.3 Update steering/architecture/host billing docs to one final flow.
+- [x] 7.3 Update steering/architecture/host billing docs to one final flow.
   - Remove migration-era alternatives and document local spool durability/capacity/restart behavior, customer completeness gate, all-or-none runtime composition, provider ordering, worker ownership and destructive migration operating procedure.
   - _Boundary: docs / steering_
   - _Depends: 7.1, 7.2_
   - _Validation: make docs-check; go test ./internal/archtest_
   - _Requirements: 8.6-8.8, 10.8, 12.9_
 
-- [ ] 7.4 Add and run one fail-fast final billing-convergence certification target.
+- [x] 7.4 Add and run one fail-fast final billing-convergence certification target.
   - Add a checked-in `make billing-convergence-certify` target (or equivalently named checked-in certification entry point) whose recipe stops on the first failed prerequisite/suite. It must run the predecessor regressions plus current core/runtime/UsageAuthority/billingstore/spool/compose/admission/runtimebundle/architecture suites, configured PostgreSQL integration gates, unit/quality/docs checks, and race tests through explicit platform/tool availability conditional logic. Do not encode optionality as prose passed to `make`, and do not use semicolon-separated shell commands whose final status can mask an earlier failure.
   - _Boundary: final certification_
   - _Depends: 7.1, 7.2, 7.3_

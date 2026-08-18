@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
 
 // Options configures adapter deadlines and stream bounds.
@@ -78,6 +79,18 @@ func Build(session ExecuteSession, profile backendplugin.ResolvedProfile, opt Op
 		}
 		return capsToLipapi(p.Capabilities)
 	}
+	be.ResolvePromptCacheProfile = func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) promptcache.Profile {
+		model := cand.Primary.Model
+		var mid *string
+		if model != "" {
+			mid = &model
+		}
+		p, err := session.Resolve(ctx, mid)
+		if err != nil {
+			return promptcache.Profile{}
+		}
+		return p.PromptCacheProfile
+	}
 	be.ResolveDialectSupport = func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.DialectSupport {
 		model := cand.Primary.Model
 		var mid *string
@@ -116,6 +129,12 @@ func Build(session ExecuteSession, profile backendplugin.ResolvedProfile, opt Op
 		}
 	}
 
+	if profile.PromptCacheProfile.RenewalSupported {
+		if controller, ok := session.(OptionalPromptCacheController); ok && backendplugin.PromptCacheNegotiated(opt.Negotiation) {
+			be.RenewPromptCache = controller.RenewPromptCache
+			be.ReleasePromptCache = controller.ReleasePromptCache
+		}
+	}
 	if profile.SupportsDynamicInventory {
 		be.ModelInventory = &inventoryProvider{session: session, timeout: opt.MetadataTimeout, source: profile.EvidenceSource}
 	}

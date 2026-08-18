@@ -107,7 +107,6 @@ type ReservationDescriptor struct {
 	RuleID         string
 	Kind           domain.RuleKind
 	Unit           domain.AmountUnit
-	Currency       string
 	Dimensions     domain.Dimensions
 	ReservationKey domain.ReservationKey
 	ReservationID  string
@@ -123,49 +122,25 @@ type ReservationSet []ReservationDescriptor
 // SettlementDescriptor carries one rule's reserved and final enforceable
 // amounts. The store applies all descriptors in one atomic operation.
 type SettlementDescriptor struct {
-	Reservation    ReservationDescriptor
-	FinalUsage     domain.Amount
-	FinalCost      domain.Amount
-	EstimatedUsage domain.Amount
-	EstimatedCost  domain.Amount
-	SourceKey      string
-	Sequence       int
-	Authority      domain.AuthorityLevel
-	// MeasurementAuthority keeps token/request authority independent from
-	// monetary-cost authority. Authority is retained for compatibility with
-	// older adapters and mirrors the usage authority when present.
+	Reservation          ReservationDescriptor
+	FinalUsage           domain.Amount
+	EstimatedUsage       domain.Amount
+	SourceKey            string
+	Sequence             int
+	Authority            domain.AuthorityLevel
 	MeasurementAuthority MeasurementAuthority
 }
 
-// MeasurementAuthority describes authority separately for token/request usage
-// and monetary cost. AuthoritativeCostPresent distinguishes a provider's
-// authoritative zero cost from an absent cost value.
+// MeasurementAuthority describes the evidence authority for quantity facts.
 type MeasurementAuthority struct {
-	Usage                    domain.AuthorityLevel
-	Cost                     domain.AuthorityLevel
-	AuthoritativeCostPresent bool
+	Usage domain.AuthorityLevel
 }
 
-func (a MeasurementAuthority) usage() domain.AuthorityLevel {
+func (a MeasurementAuthority) ForUnit(_ domain.AmountUnit) domain.AuthorityLevel {
 	if a.Usage != "" {
 		return a.Usage
 	}
 	return domain.AuthorityLevelAny
-}
-
-func (a MeasurementAuthority) cost() domain.AuthorityLevel {
-	if a.Cost != "" {
-		return a.Cost
-	}
-	return domain.AuthorityLevelAny
-}
-
-// ForUnit returns the authority relevant to the supplied enforceable unit.
-func (a MeasurementAuthority) ForUnit(unit domain.AmountUnit) domain.AuthorityLevel {
-	if unit == domain.AmountUnitMoneyNano {
-		return a.cost()
-	}
-	return a.usage()
 }
 
 // ReleaseDescriptor carries one rule's reservation to release. The store
@@ -187,7 +162,6 @@ type ReserveCommand struct {
 	RuleType           string
 	Dimensions         domain.Dimensions
 	Request            domain.Amount
-	Spend              domain.Amount
 	Authority          domain.AuthorityLevel
 	EstimateOnly       bool
 	At                 time.Time
@@ -208,14 +182,11 @@ type SettleCommand struct {
 	RuleID               string
 	Kind                 SettlementKind
 	FinalUsage           domain.Amount
-	FinalCost            domain.Amount
 	ReservedUsage        domain.Amount
 	EstimatedUsage       domain.Amount
-	EstimatedCost        domain.Amount
 	Authority            domain.AuthorityLevel
 	MeasurementAuthority MeasurementAuthority
 	FinalUsagePresent    bool
-	FinalCostPresent     bool
 	Stage                string
 	BackendAttempted     bool
 	OutputCommitted      bool
@@ -260,9 +231,7 @@ type AdmissionReservation struct {
 	ReservedAmount domain.Amount
 }
 
-// AdmissionInput carries the safe request data required for pre-backend
-// accounting admission. Cost and usage estimates are computed by the runtime
-// driving adapter and supplied here; the app does not pull them through ports.
+// AdmissionInput carries the safe quantity data required for pre-backend quota admission.
 type AdmissionInput struct {
 	Correlation    controlplane.Correlation
 	Scope          scope.PrincipalScopeView
@@ -270,7 +239,6 @@ type AdmissionInput struct {
 	Request        domain.Amount
 	RequestCount   domain.Amount
 	PreflightUsage domain.PreflightUsage
-	Spend          domain.Amount
 	Authority      domain.AuthorityLevel
 	ReservationKey domain.ReservationKey
 	EstimateOnly   bool
@@ -283,21 +251,6 @@ type AdmissionInput struct {
 	Perspective    metering.EconomicPerspective
 	Exposure       economics.ExposureBasis
 	Facts          []metering.Fact
-}
-
-// AdmissionClamp reports a spend-cap clamp (requirement 6.5): the request's
-// estimated spend exceeded a strict spend cap, so admission reduced the
-// reserved exposure to the remaining budget. RequestedMax is the original
-// spend basis from the domain evaluation; EffectiveMax is the reduced
-// exposure (money nano) the app reserved. FailureBehavior is the effective
-// posture the runtime must apply when it cannot convert EffectiveMax to a
-// token count (cost-unavailable, requirement 5.5).
-type AdmissionClamp struct {
-	RuleID          string
-	RequestedMax    domain.Amount
-	EffectiveMax    domain.Amount
-	FailureBehavior domain.FailureBehavior
-	Reason          string
 }
 
 // AdmissionResult reports the legal pre-backend accounting decision.
@@ -322,7 +275,6 @@ type AdmissionResult struct {
 	Reserved        bool
 	ReservedAmount  domain.Amount
 	Reservations    []AdmissionReservation
-	Clamp           *AdmissionClamp
 	PolicyRecord    policydecision.Record
 	AccountingEvent controlplane.Event
 	// BoundVersion is the policy snapshot identity captured at admission (11.2).
@@ -357,20 +309,16 @@ type SettleInput struct {
 	// reconciliation mutations that share one reservation identity.
 	Sequence             int
 	FinalUsage           domain.Amount
-	FinalCost            domain.Amount
 	ReservedUsage        domain.Amount
 	EstimatedUsage       domain.Amount
-	EstimatedCost        domain.Amount
 	Authority            domain.AuthorityLevel
 	MeasurementAuthority MeasurementAuthority
 	FinalUsagePresent    bool
-	FinalCostPresent     bool
 	Stage                string
 	BackendAttempted     bool
 	OutputCommitted      bool
 	ClientCanceled       bool
-	// Phase 7.2 settlement selection: dual-plane rules resolve amounts from
-	// Facts/Exposure; compatibility-basis rules keep FinalUsage/FinalCost.
+	// Facts/Exposure carry quantity evidence for dual-plane rules.
 	Exposure economics.ExposureBasis
 	Facts    []metering.Fact
 	// BoundVersion pins settlement to the admission-time policy snapshot (11.4).
@@ -483,14 +431,8 @@ type ReleaseMutation struct {
 	ReleasedDelta domain.Amount
 }
 
-// ApplyUsageCommand applies final usage/cost to matched accounting windows
-// WITHOUT requiring a reservation (requirement 7.7). It is used for advisory
-// rules and for any request that produced usage but never created a strict
-// reservation. RuleIDs are the matched rules whose windows should accumulate
-// the usage; Usage and RequestCount carry the final per-unit token/request
-// breakdown so the store can select the right amount per rule unit, and
-// FinalCost carries the final cost for money (budget/spend-cap) rules. No
-// reservation record is created. Idempotent via SourceKey.
+// ApplyUsageCommand applies final quantity usage to matched advisory or
+// otherwise unreserved accounting windows without creating a reservation.
 type ApplyUsageCommand struct {
 	Correlation          controlplane.Correlation
 	Scope                scope.PrincipalScopeView
@@ -498,12 +440,10 @@ type ApplyUsageCommand struct {
 	RuleIDs              []string
 	Usage                domain.PreflightUsage
 	RequestCount         domain.Amount
-	FinalCost            domain.Amount
 	Authority            domain.AuthorityLevel
 	MeasurementAuthority MeasurementAuthority
 	Kind                 SettlementKind
 	UsagePresent         bool
-	CostPresent          bool
 	At                   time.Time
 	SourceKey            string
 }
@@ -555,9 +495,6 @@ type Evidence struct {
 	RuleID          string
 	MatchedRuleIDs  []string
 	RuleType        string
-	RequestedMax    domain.Amount
-	EffectiveMax    domain.Amount
-	ClampReason     string
 	Outcome         controlplane.AccountingOutcome
 	ReasonCode      policydecision.AccountingReasonCode
 	ReservationID   string
@@ -567,7 +504,6 @@ type Evidence struct {
 	SourceKind       string
 	SourceSequence   int
 	Unit             string
-	Currency         string
 	Limit            int64
 	Consumed         int64
 	Reserved         int64

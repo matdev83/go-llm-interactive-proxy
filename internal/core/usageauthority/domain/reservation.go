@@ -78,21 +78,18 @@ func (b *WindowBalance) Settle(key SettlementKey, reserved, actual Amount) Settl
 	result := SettlementResult{Applied: true, ConsumedDelta: actual}
 	b.Consumed.Value += actual.Value
 	b.Consumed.Unit = actual.Unit
-	b.Consumed.Currency = actual.Currency
 
 	if actual.Value < reserved.Value {
 		released := reserved.Value - actual.Value
-		result.ReleasedDelta = Amount{Unit: reserved.Unit, Value: released, Currency: reserved.Currency}
+		result.ReleasedDelta = Amount{Unit: reserved.Unit, Value: released}
 		b.Released.Value += released
 		b.Released.Unit = reserved.Unit
-		b.Released.Currency = reserved.Currency
 	}
 	if actual.Value > reserved.Value {
 		overage := actual.Value - reserved.Value
-		result.OverageDelta = Amount{Unit: actual.Unit, Value: overage, Currency: actual.Currency}
+		result.OverageDelta = Amount{Unit: actual.Unit, Value: overage}
 		b.Overage.Value += overage
 		b.Overage.Unit = actual.Unit
-		b.Overage.Currency = actual.Currency
 	}
 	return result
 }
@@ -109,7 +106,6 @@ func (b *WindowBalance) Release(key ReleaseKey, amount Amount) ReleaseResult {
 
 	b.Released.Value += amount.Value
 	b.Released.Unit = amount.Unit
-	b.Released.Currency = amount.Currency
 	return ReleaseResult{
 		Applied:       true,
 		ReleasedDelta: amount,

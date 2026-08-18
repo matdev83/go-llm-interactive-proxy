@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
 
 // prependFirst yields one buffered event already read from the producer, then delegates
@@ -52,6 +53,20 @@ func (e *prependFirst) Close() error {
 		return nil
 	}
 	return e.rest.Close()
+}
+
+// DrainPromptCacheObservations forwards the host-only sideband through the
+// first-event adapter. The canonical stream wrapper must not hide backend
+// observations from the runtime arm adapter.
+func (e *managedPrependFirst) DrainPromptCacheObservations() []promptcache.Observation {
+	if e == nil || e.rest == nil {
+		return nil
+	}
+	source, ok := e.rest.(promptcache.ObservationSource)
+	if !ok {
+		return nil
+	}
+	return source.DrainPromptCacheObservations()
 }
 
 func (e *managedPrependFirst) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {

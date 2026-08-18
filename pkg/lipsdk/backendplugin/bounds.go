@@ -33,8 +33,12 @@ const (
 	// FeatureAccountingEvidence gates the non-canonical accounting sideband.
 	FeatureAccountingEvidence = "accounting_evidence_sideband"
 	// FeatureSemanticExtensions gates the bounded protocol-neutral residual carrier.
-	FeatureSemanticExtensions          = "semantic_extensions_v1"
-	ProtocolMinorSemanticExtensions    = uint32(6)
+	FeatureSemanticExtensions       = "semantic_extensions_v1"
+	ProtocolMinorSemanticExtensions = uint32(6)
+	// ProtocolMinorPromptCacheResidency adds optional prompt-cache profile,
+	// observation sideband, and instance-scoped control RPCs.
+	ProtocolMinorPromptCacheResidency  = uint32(7)
+	FeaturePromptCacheResidency        = "prompt_cache_residency_v1"
 	DefaultMaxAccountingDedupeKeyBytes = uint64(256)
 
 	// DefaultMaxMessageBytes is the default whole-message size ceiling.

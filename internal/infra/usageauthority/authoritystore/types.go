@@ -99,7 +99,6 @@ type reservationRecord struct {
 	RuleType       string                `json:"rule_type"`
 	Dimensions     domain.Dimensions     `json:"dimensions"`
 	Request        domain.Amount         `json:"request"`
-	Spend          domain.Amount         `json:"spend"`
 	Authority      domain.AuthorityLevel `json:"authority"`
 	Applied        bool                  `json:"applied"`
 	ReservedAmount domain.Amount         `json:"reserved_amount"`
@@ -481,7 +480,6 @@ func limitRowKey(row controlplane.AccountingLimitStatusRow) string {
 		Correlation        controlplane.Correlation   `json:"correlation"`
 		Scope              controlplane.ScopeSnapshot `json:"scope"`
 		Unit               string                     `json:"unit"`
-		Currency           string                     `json:"currency"`
 		WindowStart        time.Time                  `json:"window_start"`
 		WindowEnd          time.Time                  `json:"window_end"`
 	}{
@@ -494,7 +492,6 @@ func limitRowKey(row controlplane.AccountingLimitStatusRow) string {
 		Correlation:        row.Correlation,
 		Scope:              row.Scope,
 		Unit:               row.Unit,
-		Currency:           row.Currency,
 		WindowStart:        row.WindowStart.UTC(),
 		WindowEnd:          row.WindowEnd.UTC(),
 	}

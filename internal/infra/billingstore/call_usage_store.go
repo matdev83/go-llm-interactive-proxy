@@ -28,6 +28,9 @@ type rawQueryDB interface {
 	NewRaw(query string, args ...any) *bun.RawQuery
 }
 
+// AppendCallUsage is the DurableStore's current-record persistence API. It is
+// retained for historical outbox drain/storage and is not a runtime transport
+// interface; runtime terminal handoff uses billing.TerminalUsageSink.
 func (s *DurableStore) AppendCallUsage(ctx context.Context, record billing.CallUsageRecord) error {
 	return withAccountTxErr(ctx, accountTxRetry{Attempts: 20, Delay: 5 * time.Millisecond}, func() error {
 		return s.appendCallUsageAttempt(ctx, record)

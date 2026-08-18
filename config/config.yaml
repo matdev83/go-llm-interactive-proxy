@@ -307,7 +307,6 @@ continuity:
 #   observability:
 #     enabled: true
 #   billing:
-#     authoritative: false          # requires injected journal store; see docs
 #     reports_path: /admin/billing
 
 # Stream recovery (SSE comment keepalives while waiting on upstream; auto-resume is off by default):

@@ -411,7 +411,7 @@ func TestAuthorityLifecycleResetSharesPayloadSynchronization(t *testing.T) {
 func TestAuthorityLifecycleMultiReservationSettleAndReleaseEachReservation(t *testing.T) {
 	t.Parallel()
 
-	secondaryAmount := authoritydomain.Amount{Unit: authoritydomain.AmountUnitMoneyNano, Value: 125, Currency: "USD"}
+	secondaryAmount := authoritydomain.Amount{Unit: authoritydomain.AmountUnitInputTokens, Value: 125}
 	state := attemptAuthorityState{
 		admissionInput: testAuthorityAdmissionInput(8),
 		admissionResult: authorityapp.AdmissionResult{
@@ -434,7 +434,7 @@ func TestAuthorityLifecycleMultiReservationSettleAndReleaseEachReservation(t *te
 		},
 	}
 	state.admissionInput.ReservationKey.RuleID = "tenant.requests"
-	state.admissionInput.Spend = secondaryAmount
+	state.admissionInput.Request = secondaryAmount
 
 	usageEv := lipapi.Event{
 		Kind:          lipapi.EventUsageDelta,
@@ -491,11 +491,8 @@ func TestAuthorityLifecycleMultiReservationSettleAndReleaseEachReservation(t *te
 		if reservations[1].EstimatedUsage != secondaryAmount {
 			t.Fatalf("secondary settle estimated usage = %#v, want %#v", reservations[1].EstimatedUsage, secondaryAmount)
 		}
-		if reservations[1].FinalUsage.Unit != authoritydomain.AmountUnitMoneyNano || reservations[1].FinalUsage.Value != 125 {
-			t.Fatalf("secondary settle final usage = %#v, want reserved 125 money_nano (stream cost is not authority)", reservations[1].FinalUsage)
-		}
-		if reservations[1].FinalUsage.Currency != "USD" {
-			t.Fatalf("secondary settle final usage currency = %q, want USD", reservations[1].FinalUsage.Currency)
+		if reservations[1].FinalUsage.Unit != authoritydomain.AmountUnitInputTokens || reservations[1].FinalUsage.Value != 5 {
+			t.Fatalf("secondary settle final usage = %#v, want observed 5 input_tokens", reservations[1].FinalUsage)
 		}
 		if !l.Settled() {
 			t.Fatal("expected lifecycle settled after settling every reservation")

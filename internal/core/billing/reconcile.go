@@ -42,7 +42,23 @@ func ReplayAccount(account Account, openingBalance int64, journals []JournalTran
 		report.addIssue("account_invalid", 0, err.Error())
 		return report
 	}
-	ordered := append([]JournalTransaction(nil), journals...)
+	// Customer replay has its own ordering domain. Provider COGS rows are
+	// balanced reporting facts, not customer-balance mutations; historical
+	// provider rows may have a sequence, but must not enter this replay.
+	ordered := make([]JournalTransaction, 0, len(journals))
+	for _, journal := range journals {
+		if journal.OperationKind == "provider_call_cogs" {
+			continue
+		}
+		if journal.AccountSequence == 0 {
+			// A zero sequence is not a customer-stream omission. It is malformed
+			// persisted evidence and must fail closed rather than disappearing
+			// from reconciliation.
+			report.addIssue("account_sequence_invalid", 0, journal.ID)
+			continue
+		}
+		ordered = append(ordered, journal)
+	}
 	sort.SliceStable(ordered, func(i, j int) bool {
 		return ordered[i].AccountSequence < ordered[j].AccountSequence
 	})
@@ -94,7 +110,6 @@ func ReplayAccount(account Account, openingBalance int64, journals []JournalTran
 					if err != nil {
 						report.addIssue("balance_overflow", journal.AccountSequence, err.Error())
 					}
-				case journal.Book == JournalBookLegacyAuthorization:
 				}
 			}
 		}
@@ -132,7 +147,7 @@ func ReplayAccount(account Account, openingBalance int64, journals []JournalTran
 	if err != nil {
 		report.addIssue("spendable_overflow", 0, err.Error())
 	} else {
-		report.Rebuilt = AccountSnapshot{BalanceNano: balance, ReservedNano: 0, SpendableNano: spendable, CreditFloorNano: floor, CreditLimitNano: account.CreditLimit, Mode: account.Mode, Currency: account.Currency, Version: account.Version}
+		report.Rebuilt = AccountSnapshot{BalanceNano: balance, SpendableNano: spendable, CreditFloorNano: floor, CreditLimitNano: account.CreditLimit, Mode: account.Mode, Currency: account.Currency, Version: account.Version}
 	}
 	if balance < floor {
 		report.addIssue("balance_below_floor", 0, fmt.Sprintf("balance=%d floor=%d", balance, floor))
@@ -146,7 +161,7 @@ func snapshotForReplay(account Account) (AccountSnapshot, error) {
 	if err != nil {
 		return AccountSnapshot{}, err
 	}
-	return AccountSnapshot{BalanceNano: account.BalanceNano, ReservedNano: account.ReservedNano, SpendableNano: spendable, CreditFloorNano: account.CreditFloorNano(), CreditLimitNano: account.CreditLimit, Mode: account.Mode, Currency: account.Currency, Version: account.Version}, nil
+	return AccountSnapshot{BalanceNano: account.BalanceNano, SpendableNano: spendable, CreditFloorNano: account.CreditFloorNano(), CreditLimitNano: account.CreditLimit, Mode: account.Mode, Currency: account.Currency, Version: account.Version}, nil
 }
 
 func (r *ReconciliationReport) addIssue(code string, sequence uint64, detail string) {

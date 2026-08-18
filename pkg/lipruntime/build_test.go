@@ -172,7 +172,7 @@ func TestOptions_DoesNotExposeBillingStore(t *testing.T) {
 	}
 }
 
-func TestBuild_AuthoritativeBillingYAMLFailsClosedWithoutInjection(t *testing.T) {
+func TestBuild_LegacyBillingModeYAMLIsRejected(t *testing.T) {
 	t.Parallel()
 	raw, err := os.ReadFile(repoConfigPath(t))
 	if err != nil {
@@ -186,9 +186,9 @@ func TestBuild_AuthoritativeBillingYAMLFailsClosedWithoutInjection(t *testing.T)
 	}
 	_, err = lipruntime.Build(context.Background(), lipruntime.Options{ConfigPath: path})
 	if err == nil {
-		t.Fatal("expected fail-closed authoritative billing without injected store")
+		t.Fatal("expected legacy billing mode field to be rejected")
 	}
-	if !strings.Contains(err.Error(), "authoritative billing") {
-		t.Fatalf("error = %v, want authoritative billing fail-closed", err)
+	if !strings.Contains(err.Error(), "authoritative") || !strings.Contains(err.Error(), "unknown") {
+		t.Fatalf("error = %v, want unknown legacy billing mode field", err)
 	}
 }

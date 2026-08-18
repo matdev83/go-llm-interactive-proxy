@@ -34,8 +34,10 @@ func TestComposeBilling(t *testing.T) {
 			PluginRegistry: pluginreg.NewRegistry(),
 			Production:     prod,
 		})
-		if bundle.Executor() == nil || !bundle.Executor().BillingAuthoritative {
-			t.Fatal("BuildHost did not accept composed authoritative billing")
+		if bundle.Executor() == nil || bundle.Executor().BillingCreditGate == nil ||
+			bundle.Executor().BillingExposureAdmission == nil || bundle.Executor().TerminalUsageSink == nil ||
+			bundle.Executor().BillingIdentity.AccountID == nil {
+			t.Fatal("BuildHost did not accept complete billing composition")
 		}
 		if bundle.Executor().TerminalUsageSink == nil {
 			t.Fatal("TerminalUsageSink was not wired")
@@ -95,8 +97,9 @@ func TestComposeBilling(t *testing.T) {
 				if !errors.Is(err, runtimebundle.ErrComposeBillingIncomplete) {
 					t.Fatalf("ComposeBilling = %v, want ErrComposeBillingIncomplete", err)
 				}
-				if prod.BillingAuthoritative || prod.BillingStore != nil ||
-					prod.BillingReports != nil || prod.BillingExposureAdmission != nil {
+				if prod.BillingStore != nil || prod.BillingReports != nil ||
+					prod.BillingExposureAdmission != nil || prod.BillingCreditGate != nil ||
+					prod.BillingTerminalUsageSink != nil || prod.BillingIdentity.AccountID != nil {
 					t.Fatalf("incomplete compose returned a partial Production: %+v", prod)
 				}
 			})
@@ -185,9 +188,6 @@ func TestComposeBilling(t *testing.T) {
 
 func assertCompleteProduction(t *testing.T, prod runtimebundle.ProductionOptions, store *completeJournal, in runtimebundle.ComposeBillingInput) {
 	t.Helper()
-	if !prod.BillingAuthoritative {
-		t.Fatal("BillingAuthoritative was not enabled")
-	}
 	if prod.BillingStore != billing.AuthoritativeBilling(store) {
 		t.Fatal("BillingStore is not the injected journal")
 	}
@@ -198,10 +198,10 @@ func assertCompleteProduction(t *testing.T, prod runtimebundle.ProductionOptions
 		t.Fatal("BillingTerminalUsageSink is required")
 	}
 	if prod.BillingCreditGate == nil {
-		t.Fatal("BillingCreditGate is required for authoritative composition")
+		t.Fatal("BillingCreditGate is required for complete composition")
 	}
 	if prod.BillingExposureAdmission == nil {
-		t.Fatal("BillingExposureAdmission is required for authoritative composition")
+		t.Fatal("BillingExposureAdmission is required for complete composition")
 	}
 	if prod.BillingCallRatingResolver == nil {
 		t.Fatal("BillingCallRatingResolver is required")
@@ -261,7 +261,7 @@ func composeBillingHostConfig() *config.Config {
 		Routing:    config.RoutingConfig{MaxAttempts: 1},
 		Continuity: config.ContinuityConfig{InMemory: true},
 		Plugins:    config.PluginsConfig{Backends: []config.PluginConfig{{ID: "openai-responses", Enabled: false}}},
-		Accounting: config.AccountingConfig{Billing: config.AccountingBillingConfig{Authoritative: true, ReportsPath: "/admin/billing"}},
+		Accounting: config.AccountingConfig{Billing: config.AccountingBillingConfig{ReportsPath: "/admin/billing"}},
 	}
 }
 
@@ -464,8 +464,15 @@ func (journalUsageAppendOutbox) DeferUsageAppend(context.Context, string, string
 
 func (journalUsageAppendOutbox) FailUsageAppend(context.Context, string, string) error { return nil }
 
+type journalMaintenance struct{}
+
+func (journalMaintenance) AppendProviderMaintenance(context.Context, billing.ProviderMaintenanceUsage) error {
+	return nil
+}
+
 type completeJournal struct {
 	journalUsageAppendOutbox
+	journalMaintenance
 	journalReports
 	journalAccountReader
 	journalPostTurn
@@ -521,9 +528,10 @@ type journalWithoutExposure struct {
 }
 
 var (
-	_ billing.AuthoritativeBilling = (*completeJournal)(nil)
-	_ billing.TerminalUsageSink    = (*completeJournal)(nil)
-	_ billing.AccountProvisioner   = (*completeJournal)(nil)
+	_ billing.AuthoritativeBilling          = (*completeJournal)(nil)
+	_ billing.TerminalUsageSink             = (*completeJournal)(nil)
+	_ billing.AccountProvisioner            = (*completeJournal)(nil)
+	_ billing.ProviderMaintenanceUsageStore = (*completeJournal)(nil)
 )
 
 func TestComposeBillingDoesNotRequireHoldLifecycle(t *testing.T) {

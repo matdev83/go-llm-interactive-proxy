@@ -20,6 +20,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	cpadmin "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/controlplane"
+	adminkeepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/keepwarm"
 	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipcp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
@@ -61,6 +62,8 @@ type HTTPOperationsInput struct {
 	ReadinessReport         lipcp.ReadinessReportReader
 	TokenAccountingAdmin    adminaccounting.Service
 	RouteOverrideAdmin      http.Handler
+	KeepwarmAdmin           adminkeepwarm.Options
+	KeepwarmAdminEnabled    bool
 	Registrations           []lipsdk.Registration
 }
 

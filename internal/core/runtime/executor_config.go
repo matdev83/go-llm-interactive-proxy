@@ -17,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
@@ -56,6 +57,9 @@ type CoreRuntime struct {
 	Now                  func() time.Time
 	MaxPendingWireEvents int
 	StreamRecovery       streamrecovery.Config
+	// Keepwarm is the generation-owned provider-neutral maintenance orchestrator.
+	// It is nil for test/minimal executors that do not compose the feature.
+	Keepwarm *keepwarm.Orchestrator
 }
 
 // BillingRuntime carries the runtime seams for two-stage exposure admission and
@@ -76,9 +80,6 @@ type BillingRuntime struct {
 	// BillingIdentity is the composition identity bundle for exposure admission
 	// and terminal call-closure stamping. It contains no hold/authorization identity.
 	BillingIdentity BillingIdentity
-	// BillingAuthoritative is the composition cutover flag. When true, durable
-	// exposure admission and post-usage processors are the monetary authority.
-	BillingAuthoritative bool
 }
 
 // hasTerminalSink reports whether the process-local terminal sink is wired.

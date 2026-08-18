@@ -119,12 +119,6 @@ func (s *Service) Admit(ctx context.Context, in AdmissionInput) (res AdmissionRe
 		}
 	}
 
-	// A spend cap can be below its configured limit while its current window is
-	// nearly exhausted. Refine the pure rule evaluation with live capacity before
-	// building reservations so the reservation amount is the same value the
-	// runtime clamp will apply.
-	s.applyLiveSpendCapClamps(evaluationCtx, in, &evaluation, snap.Rules, now)
-
 	result := AdmissionResult{
 		Allowed:         isAdmissionAllowed(evaluation.Selected.Outcome),
 		Outcome:         evaluation.Selected.Outcome,
@@ -153,16 +147,9 @@ func (s *Service) Admit(ctx context.Context, in AdmissionInput) (res AdmissionRe
 		return result, nil
 	}
 
-	// Spend-cap clamp: reduce reserved exposure to the remaining budget and
-	// surface the effective max so the runtime can mutate the call's max output
-	// (requirement 6.5).
-	if evaluation.Selected.Outcome == domain.DecisionOutcomeClamp {
-		result.Clamp = s.buildAdmissionClamp(evaluationCtx, in, evaluation, snap.Rules, now, failBehavior)
-	}
-
 	if requiresReservation(evaluation, snap.Rules) && !in.EstimateOnly {
 		for requiresReservation(evaluation, snap.Rules) {
-			reserve, reservations, err := s.storeReserve(evaluationCtx, in, now, evaluation, snap.Rules, result.Clamp)
+			reserve, reservations, err := s.storeReserve(evaluationCtx, in, now, evaluation, snap.Rules)
 			if err == nil {
 				result.Reserved = reserve.Applied || len(reservations) > 0
 				result.ReservationID = reserve.ReservationID
@@ -203,9 +190,6 @@ func (s *Service) Admit(ctx context.Context, in AdmissionInput) (res AdmissionRe
 			result.RuleKind = failed.Kind
 			result.UnreservedRuleIDs = unreservedRuleIDs(evaluation, snap.Rules)
 			admissionReason = reason
-			if result.Clamp != nil && result.Clamp.RuleID == failedRuleID {
-				result.Clamp = nil
-			}
 		}
 	}
 
@@ -335,7 +319,6 @@ func (s *Service) compensateAdmissionReservation(ctx context.Context, in Admissi
 		descriptors = append(descriptors, ReleaseDescriptor{Reservation: ReservationDescriptor{
 			RuleID:         reservation.RuleID,
 			Unit:           reservation.ReservedAmount.Unit,
-			Currency:       reservation.ReservedAmount.Currency,
 			ReservationKey: key,
 			Dimensions:     in.Dimensions,
 			ReservationID:  reservation.ReservationID,
@@ -356,112 +339,7 @@ func (s *Service) compensateAdmissionReservation(ctx context.Context, in Admissi
 	return err
 }
 
-// buildAdmissionClamp populates the clamp metadata for a spend-cap clamp
-// outcome. EffectiveMax is the remaining budget (Limit - Consumed - Reserved)
-// for the clamped rule's window, expressed in money nano. When the store read
-// is unavailable, EffectiveMax falls back to the rule's limit and the reason
-// records the best-effort fallback (requirement 6.5).
-func (s *Service) buildAdmissionClamp(ctx context.Context, in AdmissionInput, evaluation domain.EvaluationResult, rules []domain.Rule, now time.Time, failBehavior domain.FailureBehavior) *AdmissionClamp {
-	clampedRuleID := evaluation.Selected.RuleID
-	requestedMax := evaluation.Selected.RequestedMax
-	if requestedMax.Unit == "" {
-		requestedMax = in.Spend
-	}
-	rule, _ := ruleByID(rules, clampedRuleID)
-	reason := "spend_cap_exceeded"
-	effectiveMax := evaluation.Selected.EffectiveMax
-	ok := effectiveMax.Unit != ""
-	if !ok {
-		effectiveMax, ok = s.clampRemainingBudget(ctx, in, clampedRuleID, rule, now)
-	}
-	if !ok {
-		effectiveMax = domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: rule.Limit.Value, Currency: rule.Currency}
-		reason = "spend_cap_exceeded_remaining_unavailable"
-	}
-	if effectiveMax.Value < 0 {
-		effectiveMax.Value = 0
-	}
-	return &AdmissionClamp{
-		RuleID:          clampedRuleID,
-		RequestedMax:    requestedMax,
-		EffectiveMax:    effectiveMax,
-		FailureBehavior: failBehavior,
-		Reason:          reason,
-	}
-}
-
-// applyLiveSpendCapClamps reconciles strict spend-cap matches with the live
-// remaining capacity. The domain deliberately remains a configured-limit
-// policy; this app-layer refinement is the point where persisted state is
-// available. Missing rows preserve the existing unavailable fallback handled
-// by buildAdmissionClamp and by the reservation path.
-func (s *Service) applyLiveSpendCapClamps(ctx context.Context, in AdmissionInput, evaluation *domain.EvaluationResult, rules []domain.Rule, now time.Time) {
-	if evaluation == nil {
-		return
-	}
-	for i := range evaluation.Matches {
-		match := &evaluation.Matches[i]
-		if match.Mode != domain.RuleModeStrict || match.Kind != domain.RuleKindSpendCap ||
-			(match.Outcome != domain.DecisionOutcomeAllow && match.Outcome != domain.DecisionOutcomeClamp) {
-			continue
-		}
-		rule, ok := ruleByID(rules, match.RuleID)
-		if !ok {
-			continue
-		}
-		remaining, found := s.clampRemainingBudget(ctx, in, match.RuleID, rule, now)
-		if !found || in.Spend.Value <= remaining.Value {
-			continue
-		}
-		match.Exceeded = true
-		match.Outcome = domain.DecisionOutcomeClamp
-		match.RequestedMax = in.Spend
-		match.EffectiveMax = remaining
-	}
-
-	// Preserve an already-resolved denial/advisory posture (for example a
-	// strict unavailable rule resolved fail-open) while recalculating ordinary
-	// allow/clamp selection. Among several clamps the smallest capacity is the
-	// effective request-wide spend ceiling.
-	if evaluation.Selected.Outcome != domain.DecisionOutcomeAllow && evaluation.Selected.Outcome != domain.DecisionOutcomeClamp {
-		return
-	}
-	selected := domain.SelectRuleOutcome(evaluation.Matches, nil)
-	for _, match := range evaluation.Matches {
-		if match.Outcome != domain.DecisionOutcomeClamp || match.EffectiveMax.Unit == "" {
-			continue
-		}
-		if selected.Outcome != domain.DecisionOutcomeClamp || selected.EffectiveMax.Unit == "" || match.EffectiveMax.Value < selected.EffectiveMax.Value {
-			selected = match
-		}
-	}
-	evaluation.Selected = selected
-}
-
-// clampRemainingBudget reads the exact configured current row without routing
-// admission through the historical LimitStatus query path.
-func (s *Service) clampRemainingBudget(ctx context.Context, in AdmissionInput, ruleID string, rule domain.Rule, now time.Time) (domain.Amount, bool) {
-	if s == nil || s.store == nil || ruleID == "" {
-		return domain.Amount{}, false
-	}
-	row, configured, err := s.store.ActiveLimit(ctx, ActiveLimitQuery{
-		RuleID:     ruleID,
-		Dimensions: in.Dimensions,
-		At:         now,
-	})
-	if err != nil || !configured {
-		return domain.Amount{}, false
-	}
-	remaining := max(row.Limit-row.Consumed-row.Reserved, 0)
-	currency := row.Currency
-	if currency == "" {
-		currency = rule.Currency
-	}
-	return domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: remaining, Currency: currency}, true
-}
-
-// reservationRuleIDs returns the IDs of matched strict quota/rate/budget/spend-cap
-// rules that admission allowed or clamped, in evaluation (snapshot) order.
+// reservationRuleIDs returns matched strict quantity rules in evaluation order.
 // Admission must reserve against every such rule so each matched window reflects
 // the admitted exposure; reserving only the first would leave the remaining
 // matched windows unreserved and let later admissions over-commit against them.
@@ -476,7 +354,7 @@ func reservationRuleIDs(result domain.EvaluationResult, rules []domain.Rule) []s
 			continue
 		}
 		switch rule.Kind {
-		case domain.RuleKindQuota, domain.RuleKindRate, domain.RuleKindBudget, domain.RuleKindSpendCap:
+		case domain.RuleKindQuota, domain.RuleKindRate:
 			ids = append(ids, match.RuleID)
 		}
 	}
@@ -650,7 +528,7 @@ func resolveFailureOutcome(behavior domain.FailureBehavior) (bool, domain.Decisi
 	return false, domain.DecisionOutcomeDeny
 }
 
-func (s *Service) storeReserve(ctx context.Context, in AdmissionInput, now time.Time, evaluation domain.EvaluationResult, rules []domain.Rule, clamp *AdmissionClamp) (ReserveResult, []AdmissionReservation, error) {
+func (s *Service) storeReserve(ctx context.Context, in AdmissionInput, now time.Time, evaluation domain.EvaluationResult, rules []domain.Rule) (ReserveResult, []AdmissionReservation, error) {
 	if s == nil || s.store == nil {
 		return ReserveResult{}, nil, WrapError(ErrUnavailable, "reserve", errors.New("store not configured"))
 	}
@@ -662,7 +540,7 @@ func (s *Service) storeReserve(ctx context.Context, in AdmissionInput, now time.
 	}
 	descriptors := make(ReservationSet, 0, len(ruleIDs))
 	for _, ruleID := range ruleIDs {
-		descriptor, err := s.reservationDescriptorForRule(in, now, rules, ruleID, clamp)
+		descriptor, err := s.reservationDescriptorForRule(in, now, rules, ruleID)
 		if err != nil {
 			return ReserveResult{}, nil, &RuleReservationError{RuleID: ruleID, Err: err}
 		}
@@ -678,7 +556,6 @@ func (s *Service) storeReserve(ctx context.Context, in AdmissionInput, now time.
 		RuleType:       string(first.Kind),
 		Dimensions:     first.Dimensions,
 		Request:        first.Amount,
-		Spend:          in.Spend,
 		Authority:      in.Authority,
 		EstimateOnly:   in.EstimateOnly,
 		At:             now,
@@ -720,13 +597,9 @@ func (s *Service) storeReserve(ctx context.Context, in AdmissionInput, now time.
 	return reserve, reservations, nil
 }
 
-// reservationDescriptorForRule builds one app-owned descriptor for a matched
-// strict rule. Each descriptor uses the rule's unit and a per-rule reservation
-// key, while the store receives the complete descriptor set in one atomic
-// operation. When a spend-cap clamp is in effect, the clamped rule reserves its
-// EffectiveMax (the remaining budget) instead of the full requested spend so the
-// reserved exposure equals the clamp (requirement 6.5).
-func (s *Service) reservationDescriptorForRule(in AdmissionInput, now time.Time, rules []domain.Rule, ruleID string, clamp *AdmissionClamp) (ReservationDescriptor, error) {
+// reservationDescriptorForRule builds one app-owned quantity descriptor for a
+// matched strict rule and preserves the complete atomic reservation set.
+func (s *Service) reservationDescriptorForRule(in AdmissionInput, now time.Time, rules []domain.Rule, ruleID string) (ReservationDescriptor, error) {
 	selectedRule, _ := ruleByID(rules, ruleID)
 	unit := selectedRule.Unit
 	if unit == "" {
@@ -734,7 +607,6 @@ func (s *Service) reservationDescriptorForRule(in AdmissionInput, now time.Time,
 	}
 	requestAmount, ok := selectedRule.SelectAmount(domain.AmountSelectionSource{
 		Amount:         in.Request,
-		Spend:          in.Spend,
 		RequestCount:   in.RequestCount,
 		PreflightUsage: in.PreflightUsage,
 		Exposure:       in.Exposure,
@@ -742,19 +614,13 @@ func (s *Service) reservationDescriptorForRule(in AdmissionInput, now time.Time,
 	})
 	if !ok {
 		requestAmount = in.Request
-		if unit == domain.AmountUnitMoneyNano {
-			requestAmount = in.Spend
-		} else if unit == domain.AmountUnitRequests && in.RequestCount.Unit != "" {
+		if unit == domain.AmountUnitRequests && in.RequestCount.Unit != "" {
 			requestAmount = in.RequestCount
 		} else if amount, ok := in.PreflightUsage.AmountForUnit(unit); ok {
 			requestAmount = amount
 		}
 	} else if unit != "" && requestAmount.Unit == "" {
 		requestAmount.Unit = unit
-	}
-	if clamp != nil && clamp.EffectiveMax.Unit == domain.AmountUnitMoneyNano &&
-		(selectedRule.Kind == domain.RuleKindSpendCap || selectedRule.Kind == domain.RuleKindBudget) {
-		requestAmount = clamp.EffectiveMax
 	}
 	reservationKey := in.ReservationKey
 	reservationKey.RuleID = ruleID
@@ -771,7 +637,6 @@ func (s *Service) reservationDescriptorForRule(in AdmissionInput, now time.Time,
 		RuleID:         ruleID,
 		Kind:           selectedRule.Kind,
 		Unit:           unit,
-		Currency:       requestAmount.Currency,
 		Dimensions:     in.Dimensions,
 		ReservationKey: reservationKey,
 		ReservationID:  reservationID,
@@ -793,7 +658,6 @@ func evaluationContextFromAdmission(in AdmissionInput, at time.Time) domain.Eval
 	return domain.EvaluationContext{
 		Dimensions:     in.Dimensions,
 		Amount:         in.Request,
-		Spend:          in.Spend,
 		RequestCount:   in.RequestCount,
 		PreflightUsage: in.PreflightUsage,
 		Authority:      in.Authority,

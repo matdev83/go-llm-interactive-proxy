@@ -66,6 +66,9 @@ func cloneMessages(in []Message) []Message {
 	for i := range in {
 		out[i].Role = in[i].Role
 		out[i].Parts = cloneParts(in[i].Parts)
+		if in[i].Metadata != nil {
+			out[i].Metadata = maps.Clone(in[i].Metadata)
+		}
 	}
 	return out
 }

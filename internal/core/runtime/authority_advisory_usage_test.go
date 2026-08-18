@@ -127,44 +127,7 @@ func TestApplyAdvisoryUsageUpdatesAdvisoryWindowWithoutReservation(t *testing.T)
 	}
 }
 
-func TestApplyAdvisoryMoneyUsesEstimateWhenProviderCostIsAbsent(t *testing.T) {
-	t.Parallel()
-	at := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
-	rule := authoritydomain.Rule{
-		ID: "spend.advisory", Kind: authoritydomain.RuleKindBudget, Mode: authoritydomain.RuleModeAdvisory,
-		Unit: authoritydomain.AmountUnitMoneyNano, Currency: "USD",
-		Limit: authoritydomain.Amount{Unit: authoritydomain.AmountUnitMoneyNano, Value: 1000, Currency: "USD"},
-		Match: authoritydomain.DimensionsMatcher{Backend: authoritydomain.DimensionMatcher{Value: scope.Known("backend-money")}},
-	}
-	store := advisoryApplyTestStore(t, []authoritydomain.Rule{rule}, at)
-	svc := advisoryApplyService(t, store, []authoritydomain.Rule{rule}, at)
-	input := authorityapp.AdmissionInput{
-		Correlation:    controlplane.Correlation{TraceID: "trace-money", RequestID: "request-money", ALegID: "a-money", BLegID: "b-money", BackendID: "backend-money", Model: "model-money"},
-		Scope:          scope.PrincipalScopeView{PrincipalID: scope.Known("principal-money")},
-		Dimensions:     authoritydomain.Dimensions{Backend: scope.Known("backend-money"), Model: scope.Known("model-money")},
-		Request:        authoritydomain.Amount{Unit: authoritydomain.AmountUnitRequests, Value: 1},
-		Spend:          authoritydomain.Amount{Unit: authoritydomain.AmountUnitMoneyNano, Value: 250, Currency: "USD"},
-		Authority:      authoritydomain.AuthorityLevelAuthoritative,
-		ReservationKey: authoritydomain.ReservationKey{LogicalRequestID: "request-money", ALegID: "a-money", BLegID: "b-money", AttemptID: "attempt-money", RuleID: rule.ID, Sequence: 1},
-	}
-	admitted, err := svc.Admit(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Admit: %v", err)
-	}
-	if len(admitted.AdvisoryRuleIDs) != 1 {
-		t.Fatalf("advisory rules = %#v, want one", admitted.AdvisoryRuleIDs)
-	}
-	lifecycle := newAuthorityLifecycle(svc, nil, attemptAuthorityState{admissionInput: input, admissionResult: admitted}, authorityCandidate())
-	event := lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 5, TotalTokens: 5, Accounting: lipapi.UsageAccountingMetadata{Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative}}
-	if !lifecycle.ApplyAdvisoryUsage(context.Background(), event) {
-		t.Fatal("ApplyAdvisoryUsage = false, want token advisory path to run")
-	}
-	row := advisoryApplyLimitRow(t, store, rule.ID, string(authoritydomain.AmountUnitMoneyNano))
-	if row.Consumed != 0 {
-		t.Fatalf("money advisory Consumed = %d, want 0 (stream/estimate spend is not monetary authority after Phase 8)", row.Consumed)
-	}
-}
-
+// Retired monetary advisory behavior has no implementation.
 // TestApplyAdvisoryUsageStrictAndAdvisoryMixUpdatesBoth proves a request matching
 // a strict rule and an advisory rule settles the strict reservation AND updates
 // the advisory window (requirement 7.7). The strict and advisory windows are

@@ -38,9 +38,7 @@ type authorityReservationState struct {
 }
 
 type settlementAuthorityState struct {
-	UsageByUnit              map[domain.AmountUnit]domain.AuthorityLevel
-	Cost                     domain.AuthorityLevel
-	AuthoritativeCostPresent bool
+	UsageByUnit map[domain.AmountUnit]domain.AuthorityLevel
 }
 
 type authorityTerminalState uint8
@@ -107,10 +105,7 @@ func (l *authorityLifecycle) settledLoad() bool {
 }
 
 func newSettlementAuthorityState() settlementAuthorityState {
-	return settlementAuthorityState{
-		UsageByUnit: make(map[domain.AmountUnit]domain.AuthorityLevel),
-		Cost:        domain.AuthorityLevelEstimated,
-	}
+	return settlementAuthorityState{UsageByUnit: make(map[domain.AmountUnit]domain.AuthorityLevel)}
 }
 
 func usageAuthorityForUnit(value settlementAuthorityState, unit domain.AmountUnit) domain.AuthorityLevel {
@@ -206,30 +201,12 @@ func authorityForSettlement(_ authorityapp.SettlementKind, usageEv lipapi.Event)
 }
 
 func measurementAuthorityForEvent(ev lipapi.Event) authorityapp.MeasurementAuthority {
-	usage := authorityForSettlement(authorityapp.SettlementKindFinal, ev)
-	cost := domain.AuthorityLevelEstimated
-	switch strings.TrimSpace(ev.CostSource) {
-	case string(lipapi.UsageSourceUnavailable):
-		cost = domain.AuthorityLevelUnavailable
-	case string(lipapi.UsageSourceProviderReported), string(lipapi.UsageSourceProviderCountAPI):
-		// A provider source marker without an actual cost field is not an
-		// authoritative monetary measurement. Token authority can still be
-		// authoritative, but the money reservation remains estimated until a
-		// provider-reported/count-API cost is present.
-		if costEventPresent(ev) {
-			cost = domain.AuthorityLevelAuthoritative
-		}
-	}
-	return authorityapp.MeasurementAuthority{
-		Usage:                    usage,
-		Cost:                     cost,
-		AuthoritativeCostPresent: cost == domain.AuthorityLevelAuthoritative && costEventPresent(ev),
-	}
+	return authorityapp.MeasurementAuthority{Usage: authorityForSettlement(authorityapp.SettlementKindFinal, ev)}
 }
 
 func measurementAuthorityForUnit(ev lipapi.Event, unit domain.AmountUnit) authorityapp.MeasurementAuthority {
 	authority := measurementAuthorityForEvent(ev)
-	if unit != domain.AmountUnitMoneyNano && !attemptAuthorityEventHasUsageForUnit(ev, unit) {
+	if !attemptAuthorityEventHasUsageForUnit(ev, unit) {
 		authority.Usage = domain.AuthorityLevelEstimated
 	}
 	return authority
@@ -247,25 +224,10 @@ func authorityRank(value domain.AuthorityLevel) int {
 }
 
 func measurementAuthorityNeedsUpgradeForAmount(prior settlementAuthorityState, incoming authorityapp.MeasurementAuthority, amount domain.Amount) bool {
-	if amount.Unit == domain.AmountUnitMoneyNano {
-		if !incoming.AuthoritativeCostPresent || incoming.Cost != domain.AuthorityLevelAuthoritative {
-			return false
-		}
-		return authorityRank(incoming.Cost) > authorityRank(prior.Cost) ||
-			(prior.Cost == domain.AuthorityLevelAuthoritative && !prior.AuthoritativeCostPresent)
-	}
 	return authorityRank(incoming.Usage) > authorityRank(usageAuthorityForUnit(prior, amount.Unit))
 }
 
 func mergeMeasurementAuthorityForAmount(prior settlementAuthorityState, incoming authorityapp.MeasurementAuthority, amount domain.Amount) settlementAuthorityState {
-	if amount.Unit == domain.AmountUnitMoneyNano {
-		if incoming.Cost == domain.AuthorityLevelAuthoritative && incoming.AuthoritativeCostPresent &&
-			(authorityRank(incoming.Cost) > authorityRank(prior.Cost) || !prior.AuthoritativeCostPresent) {
-			prior.Cost = incoming.Cost
-		}
-		prior.AuthoritativeCostPresent = prior.AuthoritativeCostPresent || incoming.AuthoritativeCostPresent
-		return prior
-	}
 	if prior.UsageByUnit == nil {
 		prior.UsageByUnit = make(map[domain.AmountUnit]domain.AuthorityLevel)
 	}

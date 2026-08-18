@@ -3,6 +3,7 @@ package configreload
 import (
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -85,6 +86,7 @@ func Classify(active, candidate *config.Config) ([]SafeChange, error) {
 	classifyPlugins(active, candidate, reload)
 	classifyModelCatalog(active, candidate, reload, restart)
 	classifyModelInventory(active, candidate, reload, restart)
+	classifyPromptCache(active, candidate, reload)
 
 	if len(blocked) > 0 {
 		slices.Sort(blocked)
@@ -252,6 +254,12 @@ func classifyModelAliases(active, candidate *config.Config, reload noteFn) {
 	}
 }
 
+func classifyPromptCache(active, candidate *config.Config, reload noteFn) {
+	if !reflect.DeepEqual(active.PromptCache.Keepwarm, candidate.PromptCache.Keepwarm) {
+		reload("prompt_cache.keepwarm")
+	}
+}
+
 func classifyIdentity(active, candidate *config.Config, reload noteFn) {
 	if !equalIdentity(active.Identity, candidate.Identity) {
 		reload("identity")
@@ -383,7 +391,7 @@ func classifyAccounting(active, candidate *config.Config, reload, restart noteFn
 	if !equalAccountingPricing(a.Pricing, c.Pricing) {
 		reload("accounting.pricing")
 	}
-	if a.Billing.Authoritative != c.Billing.Authoritative || a.Billing.ReportsPath != c.Billing.ReportsPath {
+	if a.Billing.ReportsPath != c.Billing.ReportsPath {
 		restart("accounting.billing")
 	}
 }

@@ -335,34 +335,24 @@ func (s *Service) projectAdmissionEvidence(ctx context.Context, in AdmissionInpu
 		ruleKind = selectedRuleKind([]string{selectedRuleID}, rules)
 	}
 	evidenceAmount := admissionEvidenceAmount(in, res, selectedRuleID, rules)
-	var requestedMax, effectiveMax domain.Amount
-	clampReason := ""
-	if res.Clamp != nil {
-		requestedMax = res.Clamp.RequestedMax
-		effectiveMax = res.Clamp.EffectiveMax
-		clampReason = res.Clamp.Reason
-	}
 	reserved := res.Reserved && res.ReservationID != ""
 	reason := reasonForAdmission(res.Outcome, status, ruleKind, reserved, res.ReservationID)
 	if reasonOverride != "" {
 		reason = reasonOverride
 	}
 	evidence, err := projectAuthorityEvidence(status, reserved, EnrichEvidenceWithRule(Evidence{
-		At:                 now,
-		Correlation:        in.Correlation,
-		Scope:              in.Scope,
-		RuleID:             selectedRuleID,
-		MatchedRuleIDs:     append([]string(nil), res.RuleIDs...),
-		RuleType:           string(ruleKind),
-		RequestedMax:       requestedMax,
-		EffectiveMax:       effectiveMax,
-		ClampReason:        clampReason,
+		At:             now,
+		Correlation:    in.Correlation,
+		Scope:          in.Scope,
+		RuleID:         selectedRuleID,
+		MatchedRuleIDs: append([]string(nil), res.RuleIDs...),
+		RuleType:       string(ruleKind),
+
 		Outcome:            sdkOutcomeFromAdmission(res.Outcome),
 		ReasonCode:         reason,
 		ReservationID:      res.ReservationID,
 		SettlementState:    settlementStateForAdmission(res.Reserved),
 		Unit:               string(evidenceAmount.Unit),
-		Currency:           evidenceAmount.Currency,
 		Reserved:           res.ReservedAmount.Value,
 		Authority:          in.Authority,
 		Stage:              feature.StageIDPreRequest,
@@ -397,9 +387,6 @@ func admissionEvidenceAmount(in AdmissionInput, res AdmissionResult, selectedRul
 	if res.ReservedAmount.Unit != "" && (selectedRuleID == "" || len(res.Reservations) <= 1) {
 		return res.ReservedAmount
 	}
-	if res.Clamp != nil && res.Clamp.RuleID == selectedRuleID && res.Clamp.EffectiveMax.Unit != "" {
-		return res.Clamp.EffectiveMax
-	}
 	rule, ok := ruleByID(rules, selectedRuleID)
 	if !ok {
 		return in.Request
@@ -410,8 +397,6 @@ func admissionEvidenceAmount(in AdmissionInput, res AdmissionResult, selectedRul
 	}
 	amount := in.Request
 	switch {
-	case unit == domain.AmountUnitMoneyNano:
-		amount = in.Spend
 	case unit == domain.AmountUnitRequests && in.RequestCount.Unit != "":
 		amount = in.RequestCount
 	case unit != "":
@@ -421,9 +406,6 @@ func admissionEvidenceAmount(in AdmissionInput, res AdmissionResult, selectedRul
 	}
 	if amount.Unit == "" {
 		amount.Unit = unit
-	}
-	if amount.Currency == "" {
-		amount.Currency = rule.Currency
 	}
 	return amount
 }

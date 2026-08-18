@@ -135,8 +135,8 @@ func TestExecutor_InterleavedSecureSession_AuthorizedResumePreservesMemo(t *test
 	captureMu.Lock()
 	captured := execCapture
 	captureMu.Unlock()
-	if len(captured.Instructions) == 0 || !strings.Contains(textOf(captured.Instructions[0]), memoBody) {
-		t.Fatalf("authorized resume must inject stored memo, got instructions %+v", execCapture.Instructions)
+	if len(captured.Messages) == 0 || !strings.Contains(textOf(captured.Messages[len(captured.Messages)-1]), memoBody) {
+		t.Fatalf("authorized resume must inject stored memo at the tail, got messages %+v", captured.Messages)
 	}
 	postState, err := st.FetchInterleavedState(context.Background(), first.Session.ALegID)
 	if err != nil {
@@ -298,7 +298,7 @@ func TestExecutor_InterleavedSessionIsolation_UnrelatedSessionDoesNotInjectMemo(
 	calls := append([]lipapi.Call(nil), sessionBCalls...)
 	opensMu.Unlock()
 	for i, call := range calls {
-		for _, msg := range call.Instructions {
+		for _, msg := range call.Messages {
 			txt := textOf(msg)
 			if strings.Contains(txt, memoA) {
 				t.Fatalf("session B call[%d] leaked session A memo: %q", i, txt)
@@ -307,7 +307,7 @@ func TestExecutor_InterleavedSessionIsolation_UnrelatedSessionDoesNotInjectMemo(
 	}
 	injectedB := false
 	for _, call := range calls {
-		for _, msg := range call.Instructions {
+		for _, msg := range call.Messages {
 			if strings.Contains(textOf(msg), memoB) {
 				injectedB = true
 			}
@@ -399,8 +399,8 @@ func TestExecutor_InterleavedStaleSelectorResetPreservesMemo(t *testing.T) {
 		t.Fatalf("collect: %v", err)
 	}
 
-	if !strings.Contains(textOf(gotCall.Instructions[0]), memoBody) {
-		t.Fatalf("stale cycle reset must still inject memo: %+v", gotCall.Instructions)
+	if len(gotCall.Messages) == 0 || !strings.Contains(textOf(gotCall.Messages[len(gotCall.Messages)-1]), memoBody) {
+		t.Fatalf("stale cycle reset must still inject memo at the tail: %+v", gotCall.Messages)
 	}
 
 	postState, err := st.FetchInterleavedState(context.Background(), aLegID)

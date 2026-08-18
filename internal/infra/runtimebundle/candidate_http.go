@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -53,6 +54,7 @@ type candidateOperationsGroup struct {
 	billingReportsPath      string
 	billingProvisioner      billing.AccountProvisioner
 	billingExposureRecovery billing.ExposureRecovery
+	keepwarmAccounting      billing.ProviderMaintenanceUsageObserver
 	tokenAccountingAdmin    *accountingapp.Service
 	readinessReport         *controlplane.ReadinessReportService
 	secretGuardInventory    *diag.InventoryExtras
@@ -74,6 +76,8 @@ type candidateProcessRefs struct {
 	snapshotGeneration    *snapshotgen.Publisher
 	snapshotController    *SnapshotController
 	meteringQuerier       metering.Querier
+	keepwarmPolicy        *keepwarm.PolicyStore
+	keepwarmRegistry      *keepwarm.ManagerRegistry
 }
 type candidateAssembly struct {
 	execution                      candidateExecutionGroup

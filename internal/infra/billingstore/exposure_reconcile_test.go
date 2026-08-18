@@ -67,7 +67,7 @@ func TestSQLiteReconcileOpenExposureIsIndependentFromFinancialJournal(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gotAccount.BalanceNano != 100 || gotAccount.ReservedNano != 0 {
+	if gotAccount.BalanceNano != 100 {
 		t.Fatalf("exposure reconciliation mutated financial state: %+v", gotAccount)
 	}
 }

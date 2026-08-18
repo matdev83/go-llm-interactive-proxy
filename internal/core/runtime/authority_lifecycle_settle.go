@@ -29,8 +29,6 @@ func (l *authorityLifecycle) settlementInput(kind authorityapp.SettlementKind, u
 		OutputCommitted:      l.outputCommitted != nil && l.outputCommitted.Load(),
 		ClientCanceled:       clientCanceled,
 		FinalUsagePresent:    usageEventPresent(usageEv),
-		// Stream cost presence is not financial authority after Phase 8.
-		FinalCostPresent: false,
 		// Pin settle to the admission-time snapshot (requirement 11.4).
 		BoundVersion:       state.admissionResult.BoundVersion,
 		BoundRatingVersion: state.admissionResult.BoundRatingVersion,
@@ -42,16 +40,13 @@ func (l *authorityLifecycle) settlementInput(kind authorityapp.SettlementKind, u
 			Reservation: authorityapp.ReservationDescriptor{
 				RuleID:         reservation.ruleID,
 				Unit:           reservation.reservedAmount.Unit,
-				Currency:       reservation.reservedAmount.Currency,
 				Dimensions:     state.admissionInput.Dimensions,
 				ReservationKey: reservation.reservationKey,
 				ReservationID:  reservation.reservationID,
 				Amount:         reservation.reservedAmount,
 			},
 			FinalUsage:           attemptAuthorityUsageAmount(usageEv, l.finalUsageEstimate(reservation)),
-			FinalCost:            attemptAuthorityCostAmount(usageEv, l.estimatedCostCurrency(reservation)),
 			EstimatedUsage:       reservation.reservedAmount,
-			EstimatedCost:        l.estimatedCost(reservation),
 			Authority:            descriptorAuthority.ForUnit(reservation.reservedAmount.Unit),
 			MeasurementAuthority: descriptorAuthority,
 		})
@@ -63,32 +58,8 @@ func usageEventPresent(ev lipapi.Event) bool {
 	return ev.Kind == lipapi.EventUsageDelta
 }
 
-func costEventPresent(ev lipapi.Event) bool {
-	return ev.Kind == lipapi.EventUsageDelta && ev.CostPresent
-}
-
-func (l *authorityLifecycle) estimatedCost(reservation authorityReservationState) domain.Amount {
-	estimatedCost := l.control.state.admissionInput.Spend
-	if reservation.reservedAmount.IsMoney() {
-		estimatedCost = reservation.reservedAmount
-	}
-	return estimatedCost
-}
-
-func (l *authorityLifecycle) estimatedCostCurrency(reservation authorityReservationState) string {
-	currency := strings.TrimSpace(l.estimatedCost(reservation).Currency)
-	if currency == "" {
-		currency = strings.TrimSpace(l.control.state.admissionInput.Spend.Currency)
-	}
-	return currency
-}
-
 func (l *authorityLifecycle) finalUsageEstimate(reservation authorityReservationState) domain.Amount {
-	estimate := reservation.reservedAmount
-	if estimate.Unit == domain.AmountUnitMoneyNano && strings.TrimSpace(estimate.Currency) == "" {
-		estimate.Currency = strings.TrimSpace(l.control.state.admissionInput.Request.Currency)
-	}
-	return estimate
+	return reservation.reservedAmount
 }
 
 // Settle atomically finalizes the reservation set with retryable compensation.

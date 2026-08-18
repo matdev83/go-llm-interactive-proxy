@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -392,29 +393,72 @@ func TestBillingHostLoop_MissingCatalogRefs(t *testing.T) {
 	if customerSettlements != 1 {
 		t.Fatalf("customer settlement transactions = %d, want exactly one", customerSettlements)
 	}
-	// Provider-cost work for the same leg remains queued for retry: it can
-	// never be processed (no published rate), so it keeps reappearing in the
-	// pending work list after each backoff while the customer posting above
-	// stays untouched.
-	var sawPending bool
-	deadline := time.Now().Add(6 * time.Second)
-	for time.Now().Before(deadline) {
-		pending, err := store.ListPendingProviderCostWork(ctx, 10)
+	// Read the durable row directly instead of waiting for a retry to become
+	// due. The worker's first failed attempt records pending state, attempt
+	// metadata, and an unreconciled marker; the next retry may be arbitrarily
+	// later because backoff is deliberately durable.
+	sealedLeg, err := complete.Legs[0].Seal()
+	if err != nil {
+		t.Fatalf("seal complete leg: %v", err)
+	}
+	var workState billingstore.ProviderCostWorkState
+	var providerReport billing.OperatorCostReport
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		state, stateErr := store.GetProviderCostWorkState(ctx, sealedLeg.Key)
+		if stateErr != nil && !errors.Is(stateErr, billingstore.ErrUsageRecordNotFound) {
+			t.Fatalf("GetProviderCostWorkState: %v", stateErr)
+		}
+		providerReport, err = store.OperatorCostReport(ctx, billing.ReportFilter{AccountID: accountID, Page: billing.PageRequest{Limit: 100}})
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("OperatorCostReport after provider failure: %v", err)
 		}
-		for _, item := range pending {
-			if item.Leg.OperatorRateRef == billingHostLoopMissingOperatorRef {
-				sawPending = true
-			}
-		}
-		if sawPending {
+		if stateErr == nil && state.Status == "pending" && state.AttemptCount >= 1 && strings.Contains(state.LastError, "exact_operator_rate_unavailable") && providerReport.UnreconciledCosts == 1 {
+			workState = state
 			break
 		}
-		time.Sleep(200 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for durable provider-cost failure state: state=%+v report=%+v", state, providerReport)
+		case <-ticker.C:
+		}
 	}
-	if !sawPending {
-		t.Fatalf("provider-cost work never reappeared as pending/unreconciled after missing operator rate")
+	if workState.Status != "pending" || workState.AttemptCount < 1 || !strings.Contains(workState.LastError, "exact_operator_rate_unavailable") {
+		t.Fatalf("provider-cost retry state = %+v, want pending with recorded unavailable-rate failure", workState)
+	}
+	if providerReport.UnreconciledCosts != 1 {
+		t.Fatalf("unreconciled provider costs = %d, want 1", providerReport.UnreconciledCosts)
+	}
+
+	// Re-read customer state after provider failure handling. The diagnostic
+	// marker and deferred work must not mutate the completed customer posting or
+	// reopen its exposure.
+	afterReport, err := store.AccountReport(ctx, accountID, billing.PageRequest{Limit: 100})
+	if err != nil {
+		t.Fatalf("AccountReport after provider failure: %v", err)
+	}
+	for _, journal := range afterReport.Transactions {
+		if journal.OperationKind == "provider_call_cogs" {
+			t.Fatalf("provider COGS posted after missing operator rate: %+v", journal)
+		}
+	}
+	if afterReport.Account.BalanceNano != report.Account.BalanceNano || afterReport.Account.Version != report.Account.Version {
+		t.Fatalf("provider failure changed customer report: before=%+v after=%+v", report.Account, afterReport.Account)
+	}
+	afterAccount, err := store.GetAccount(ctx, accountID)
+	if err != nil {
+		t.Fatalf("GetAccount after provider failure: %v", err)
+	}
+	if afterAccount.BalanceNano != report.Account.BalanceNano || afterAccount.Version != report.Account.Version {
+		t.Fatalf("provider failure mutated customer account: before=%+v after=%+v", report.Account, afterAccount)
+	}
+	afterExposure, err := store.GetCallExposure(ctx, complete.Closure.CallID)
+	if err != nil {
+		t.Fatalf("GetCallExposure after provider failure: %v", err)
+	}
+	if afterExposure != exposure || afterExposure.IsOpen() {
+		t.Fatalf("provider failure mutated/reopened customer exposure: before=%+v after=%+v", exposure, afterExposure)
 	}
 }
 

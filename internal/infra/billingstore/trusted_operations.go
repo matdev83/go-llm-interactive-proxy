@@ -133,7 +133,6 @@ func (s *DurableStore) postFinancialAttempt(ctx context.Context, kind, operation
 	journal.OperationKind = kind
 	journal.TurnID = operationKey
 	journal.BalanceBefore, journal.BalanceAfter = before.BalanceNano, afterSnapshot.BalanceNano
-	journal.ReservedBefore, journal.ReservedAfter = before.ReservedNano, afterSnapshot.ReservedNano
 	journal.SpendableBefore, journal.SpendableAfter = before.SpendableNano, afterSnapshot.SpendableNano
 	journal.CreditFloor, journal.CreditLimit, journal.Mode = before.CreditFloorNano, before.CreditLimitNano, string(before.Mode)
 	journal.SnapshotVersionBefore, journal.SnapshotVersionAfter = before.Version, afterSnapshot.Version
@@ -263,12 +262,15 @@ func snapshotForAccount(a billing.Account) (billing.AccountSnapshot, error) {
 	if err != nil {
 		return billing.AccountSnapshot{}, err
 	}
-	return billing.AccountSnapshot{BalanceNano: a.BalanceNano, ReservedNano: a.ReservedNano, SpendableNano: spendable, CreditFloorNano: a.CreditFloorNano(), CreditLimitNano: a.CreditLimit, Mode: a.Mode, Currency: a.Currency, Version: a.Version}, nil
+	return billing.AccountSnapshot{BalanceNano: a.BalanceNano, SpendableNano: spendable, CreditFloorNano: a.CreditFloorNano(), CreditLimitNano: a.CreditLimit, Mode: a.Mode, Currency: a.Currency, Version: a.Version}, nil
 }
 
 func insertOperationSnapshot(ctx context.Context, tx bun.Tx, in operationSnapshotInput) error {
 	integrity := snapshotIntegrity(in.OperationKey, in.AccountID, in.OperationKind, in.SourceKey, in.Fingerprint, in.Before, in.After, in.SequenceStart, in.SequenceEnd)
-	_, err := tx.NewRaw(`INSERT INTO billing_operation_snapshots(operation_key, account_id, operation_kind, source_key, fingerprint, integrity_fingerprint, currency, mode, balance_before_nano, balance_after_nano, reserved_before_nano, reserved_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, version_before, version_after, account_sequence_start, account_sequence_end, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, in.OperationKey, in.AccountID, in.OperationKind, in.SourceKey, in.Fingerprint, integrity, in.After.Currency, string(in.After.Mode), in.Before.BalanceNano, in.After.BalanceNano, in.Before.ReservedNano, in.After.ReservedNano, in.Before.SpendableNano, in.After.SpendableNano, in.After.CreditFloorNano, in.After.CreditLimitNano, in.Before.Version, in.After.Version, in.SequenceStart, in.SequenceEnd, time.Now().UTC()).Exec(ctx)
+	// Historical snapshot columns are retained for audit compatibility. The
+	// current operation snapshot contract has no reserved field and always
+	// writes zero into those legacy columns.
+	_, err := tx.NewRaw(`INSERT INTO billing_operation_snapshots(operation_key, account_id, operation_kind, source_key, fingerprint, integrity_fingerprint, currency, mode, balance_before_nano, balance_after_nano, reserved_before_nano, reserved_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, version_before, version_after, account_sequence_start, account_sequence_end, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, in.OperationKey, in.AccountID, in.OperationKind, in.SourceKey, in.Fingerprint, integrity, in.After.Currency, string(in.After.Mode), in.Before.BalanceNano, in.After.BalanceNano, 0, 0, in.Before.SpendableNano, in.After.SpendableNano, in.After.CreditFloorNano, in.After.CreditLimitNano, in.Before.Version, in.After.Version, in.SequenceStart, in.SequenceEnd, time.Now().UTC()).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("billingstore: insert operation snapshot: %w", err)
 	}
@@ -277,7 +279,7 @@ func insertOperationSnapshot(ctx context.Context, tx bun.Tx, in operationSnapsho
 
 func loadOperationSnapshot(ctx context.Context, q bun.IDB, accountID, kind, source string) (operationSnapshotRow, bool, error) {
 	var row operationSnapshotRow
-	err := q.NewRaw(`SELECT operation_key, account_id, operation_kind, source_key, fingerprint, integrity_fingerprint, currency, mode, balance_before_nano, balance_after_nano, reserved_before_nano, reserved_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, version_before, version_after, account_sequence_start, account_sequence_end, created_at FROM billing_operation_snapshots WHERE account_id = ? AND operation_kind = ? AND source_key = ?`, accountID, kind, source).Scan(ctx, &row)
+	err := q.NewRaw(`SELECT operation_key, account_id, operation_kind, source_key, fingerprint, integrity_fingerprint, currency, mode, balance_before_nano, balance_after_nano, spendable_before_nano, spendable_after_nano, credit_floor_nano, credit_limit_nano, version_before, version_after, account_sequence_start, account_sequence_end, created_at FROM billing_operation_snapshots WHERE account_id = ? AND operation_kind = ? AND source_key = ?`, accountID, kind, source).Scan(ctx, &row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return operationSnapshotRow{}, false, nil
 	}
@@ -308,7 +310,7 @@ func policyChangeFromSnapshot(row operationSnapshotRow, replayed bool) billing.P
 
 func snapshotFromRow(row operationSnapshotRow, before bool) billing.AccountSnapshot {
 	if before {
-		return billing.AccountSnapshot{BalanceNano: row.BalanceBefore, ReservedNano: row.ReservedBefore, SpendableNano: row.SpendableBefore, CreditFloorNano: row.CreditFloor, CreditLimitNano: row.CreditLimit, Mode: billing.AccountMode(row.Mode), Currency: row.Currency, Version: row.VersionBefore}
+		return billing.AccountSnapshot{BalanceNano: row.BalanceBefore, SpendableNano: row.SpendableBefore, CreditFloorNano: row.CreditFloor, CreditLimitNano: row.CreditLimit, Mode: billing.AccountMode(row.Mode), Currency: row.Currency, Version: row.VersionBefore}
 	}
-	return billing.AccountSnapshot{BalanceNano: row.BalanceAfter, ReservedNano: row.ReservedAfter, SpendableNano: row.SpendableAfter, CreditFloorNano: row.CreditFloor, CreditLimitNano: row.CreditLimit, Mode: billing.AccountMode(row.Mode), Currency: row.Currency, Version: row.VersionAfter}
+	return billing.AccountSnapshot{BalanceNano: row.BalanceAfter, SpendableNano: row.SpendableAfter, CreditFloorNano: row.CreditFloor, CreditLimitNano: row.CreditLimit, Mode: billing.AccountMode(row.Mode), Currency: row.Currency, Version: row.VersionAfter}
 }

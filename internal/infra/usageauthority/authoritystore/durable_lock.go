@@ -165,10 +165,7 @@ func reservationCapacityReplay(descriptor app.ReservationDescriptor, decision de
 	if amount.Unit == "" {
 		amount.Unit = domain.AmountUnit(decision.Row.Unit)
 	}
-	if amount.Currency == "" {
-		amount.Currency = decision.Row.Currency
-	}
-	remaining := domain.Amount{Unit: amount.Unit, Value: max(0, decision.Row.Remaining), Currency: amount.Currency}
+	remaining := domain.Amount{Unit: amount.Unit, Value: max(0, decision.Row.Remaining)}
 	return &app.RuleReservationError{
 		RuleID: decision.Row.RuleID,
 		Err:    &app.ReservationCapacityError{Requested: amount, Remaining: remaining},

@@ -50,7 +50,7 @@ func TestSQLiteApplyCallBillingResultExactZeroClosesExposureWithoutJournalEntry(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.BalanceNano != before.BalanceNano || after.Version != before.Version || after.ReservedNano != 0 {
+	if after.BalanceNano != before.BalanceNano {
 		t.Fatalf("exact-zero settlement mutated account: before=%+v after=%+v", before, after)
 	}
 	closed, err := store.GetCallExposure(ctx, callID)

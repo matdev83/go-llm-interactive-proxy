@@ -199,6 +199,7 @@ func (s *retryRecvStream) handleGatedPath(ctx context.Context, gates []completio
 		}
 		s.rememberClientEvent(out)
 		if out.Kind == lipapi.EventResponseFinished {
+			s.commitSuccessfulTurn()
 			s.finishFinalStreamObservation(ctx, response.OutcomeSuccessReleased)
 		}
 		s.commitAffinityIfOutput(ctx, out)
@@ -236,6 +237,7 @@ func (s *retryRecvStream) handleResponseFinishedPath(ctx context.Context, ev lip
 		Cand:    s.cand,
 		Outcome: lipapi.AttemptSuccess,
 	}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+	s.commitSuccessfulTurn()
 	s.markFinished()
 	s.finishALegScope()
 	// Evidence already recorded in mandatoryClientFacingPreflight; still observe

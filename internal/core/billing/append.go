@@ -19,18 +19,6 @@ type TerminalUsageSink interface {
 	AppendCall(context.Context, CallUsageRecord) error
 }
 
-// Deprecated: retained only until the terminal-delivery cutover removes the
-// historical billingstore assertions in the next delivery phase.
-type CallLegUsageAppender interface {
-	AppendCallLegUsage(context.Context, CallLegUsageRecord) error
-}
-
-// Deprecated: retained only until the terminal-delivery cutover removes the
-// historical billingstore assertions in the next delivery phase.
-type CallUsageAppender interface {
-	AppendCallUsage(context.Context, CallUsageRecord) error
-}
-
 type ExposureAdmissionStore interface {
 	AdmitExposure(context.Context, AdmitExposureInput) (CallExposure, error)
 }
@@ -54,22 +42,4 @@ type CallSettlementStore interface {
 }
 type CompleteCallClaimer interface {
 	ClaimCompleteCall(context.Context, BillingCallID) (CompleteCall, error)
-}
-
-type CallLegUsageAppenderFunc func(context.Context, CallLegUsageRecord) error
-
-func (f CallLegUsageAppenderFunc) AppendCallLegUsage(ctx context.Context, record CallLegUsageRecord) error {
-	if f == nil {
-		return nil
-	}
-	return f(ctx, record)
-}
-
-type CallUsageAppenderFunc func(context.Context, CallUsageRecord) error
-
-func (f CallUsageAppenderFunc) AppendCallUsage(ctx context.Context, record CallUsageRecord) error {
-	if f == nil {
-		return nil
-	}
-	return f(ctx, record)
 }

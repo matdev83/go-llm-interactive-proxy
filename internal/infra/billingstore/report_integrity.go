@@ -42,7 +42,7 @@ func (s *DurableStore) readIntegrityReport(ctx context.Context, accountID string
 	if report.Rebuilt.Currency != account.Currency || report.Rebuilt.Mode != account.Mode || report.Rebuilt.CreditLimitNano != account.CreditLimit {
 		report.AddIssue("materialized_policy_mismatch", 0, accountID)
 	}
-	if report.Rebuilt.BalanceNano != account.BalanceNano || report.Rebuilt.ReservedNano != account.ReservedNano || report.Rebuilt.SpendableNano != mustSpendable(account) {
+	if report.Rebuilt.BalanceNano != account.BalanceNano || report.Rebuilt.SpendableNano != mustSpendable(account) {
 		report.AddIssue("materialized_state_mismatch", 0, accountID)
 	}
 	validateSettlementSnapshots(ctx, tx, accountID, journals, true, &report)

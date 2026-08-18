@@ -1,5 +1,7 @@
 package backendplugin
 
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
+
 // UsageEvidence is canonical usage/billing evidence with explicit presence.
 type UsageEvidence struct {
 	InputTokens      *int64
@@ -126,6 +128,7 @@ type ResolvedProfile struct {
 	SupportsDynamicInventory bool
 	EvidenceSource           string
 	ProfileVersion           string
+	PromptCacheProfile       promptcache.Profile
 }
 
 // ModelDescriptor is one inventory row.
@@ -329,13 +332,14 @@ type ClientFrame struct {
 
 // ServerFrame is a plugin-to-host Execute frame.
 type ServerFrame struct {
-	Kind          ServerFrameKind
-	Sequence      uint64
-	Event         *CanonicalEvent
-	Diagnostic    string
-	CancelOutcome *CancelOutcome
-	Terminal      *Terminal
-	Accounting    *AccountingEvidence
+	Kind                   ServerFrameKind
+	Sequence               uint64
+	Event                  *CanonicalEvent
+	Diagnostic             string
+	CancelOutcome          *CancelOutcome
+	Terminal               *Terminal
+	Accounting             *AccountingEvidence
+	PromptCacheObservation *promptcache.Observation
 }
 
 // AccountingEvidence is host-only provider billing evidence and is never a

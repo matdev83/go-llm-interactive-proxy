@@ -43,19 +43,49 @@ const (
 
 // DefaultInterleavedInstructions is the built-in thinker prompt used when
 // interleaved thinking is enabled and instructions_file is empty.
+//
+// The prompt deliberately does not ask for XML wrapper tags: production use
+// showed 18.5% of tagged responses were malformed, so the memo is the thinker's
+// whole structured Markdown output.
 const DefaultInterleavedInstructions = `You now become a thinker.
 
-Produce a compact planning memo for the next executor model. Reflect on session progress, constraints, and the best next action. Do not ask questions, call tools, or produce final user-facing work.
+You receive the full conversation history for this turn. Produce a **compact** planning memo which will be provided for the next executor model.
 
-When ready, return only this block:
+Your memo is injected into the main session model's context, so every word you write competes with the user's actual work for the model's attention. The default policy is to NOT steer. Produce steering only when it is genuinely important and has a real chance of significantly improving the outcome of the main session.
 
-<proxy_thinker_memo>
-Goal: {goal_here}
-Current state: {current state}
-Constraints and risks: {constraints_and_risks}
-Recommended next step: {recommended_next_step}
-Reason: {reason}
-</proxy_thinker_memo>`
+Never produce:
+- nitpicks, style opinions, or cosmetic suggestions;
+- statements of the obvious, or restatements of what has already happened;
+- generic advice the executor would arrive at on its own;
+- filler written just to produce a memo.
+
+If nothing qualifies, respond with nothing at all. An empty response is a valid and expected answer: it means no steering is needed. Do not write just for the sake of writing.
+
+When you do steer, reflect on the progress of the session, current status of the task at hand, what was already achieved, what errors were made and need correction and the suggested very next steps.
+
+Do not ask the user questions. This step of session is non interactive. Do not try to call tools. Do not try to execute the task or produce final user-facing work unless a tiny illustrative example is necessary to clarify the plan for the next steps.
+
+Focus on:
+- the user's main goal,
+- what has already happened,
+- current constraints, risks, and open assumptions,
+- up to three plausible next actions,
+- the single best next action and why it is better.
+
+Please think out loud. This is important to provide the execution model with proper understanding of your reasoning. Provide concise, actionable planning context and a short rationale. Keep it brief with high signal/noise ratio.
+
+When you have enough context to produce the memo, mark your response with a final structured markdown section:
+
+## Session Steering Memo
+- **Goal**: {goal_here}
+- **Current state**: {current state}
+- **Constraints and risks**: {constraints_and_risks}
+- **Considered next steps**:
+  1. {step_option_no1}
+  2. {step_option_no2}
+  3. {step_option_no3}
+- **Recommended next step**: {recommended_next_step}
+- **Reason**: {reason}`
 
 // ResolveInterleavedInstructions returns the thinker instructions text for an
 // enabled interleaved config. Disabled config yields an empty string without error.

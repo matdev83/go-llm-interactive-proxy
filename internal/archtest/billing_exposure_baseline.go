@@ -162,6 +162,12 @@ func CountBillingExposurePackageLines(root, rel string) (int, error) {
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
+		// Timestamped Bun migrations are immutable historical DDL. They are
+		// retained as explicit migration evidence and are not current runtime
+		// production surfaces for the activated convergence LOC gate.
+		if isBillingFinalConvergenceMigrationName(info.Name()) {
+			return nil
+		}
 		n, err := CountFileLines(path)
 		if err != nil {
 			return err
@@ -188,6 +194,9 @@ func countBillingExposureGlobLines(root, rel, match string) (int, error) {
 		}
 		name := entry.Name()
 		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		if isBillingFinalConvergenceMigrationName(name) {
 			continue
 		}
 		ok, err := filepath.Match(match, name)

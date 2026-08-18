@@ -20,17 +20,20 @@ type ProductionOptions struct {
 	BillingTerminalUsageSink billing.TerminalUsageSink
 	// BillingStore is the authoritative durable billing boundary used by runtime
 	// and read-side report composition. It is intentionally a domain port.
-	BillingStore         billing.AuthoritativeBilling
-	BillingReports       billing.ReportingStore
-	BillingAuthoritative bool
-	BillingReportsPath   string
-	BillingIdentity      runtimecore.BillingIdentity
+	BillingStore       billing.AuthoritativeBilling
+	BillingReports     billing.ReportingStore
+	BillingReportsPath string
+	BillingIdentity    runtimecore.BillingIdentity
 	// BillingCallRatingResolver resolves immutable call/exposure snapshots for
 	// post-usage customer settlement and never consults authorization holds.
 	BillingCallRatingResolver   billing.CallRatingResolver
 	BillingProviderCostResolver billing.ProviderCostResolver
-	BillingPostTurnBatchSize    int
-	BillingPostTurnInterval     time.Duration
+	// KeepwarmAccounting receives provider-authoritative maintenance usage on
+	// the same injected provider-billable accounting path, separately from
+	// foreground BillingCallID-scoped usage.
+	KeepwarmAccounting       billing.ProviderMaintenanceUsageObserver
+	BillingPostTurnBatchSize int
+	BillingPostTurnInterval  time.Duration
 
 	// BillingCreditGate is the required pre-route settled-credit screen for
 	// authoritative billing. It is intentionally separate from detailed post-route

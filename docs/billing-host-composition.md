@@ -1,22 +1,19 @@
 # Billing host composition
 
-Authoritative billing is injected into the host through one already-opened Bun-backed `billingstore.DurableStore` and one immutable snapshot catalog. Composition does not open a DSN, invent accounts, or add money fields to public `pkg/lipruntime.Options`.
+Billing is an injection-only, all-or-none host capability. A billing-enabled host supplies one complete composition; a stock host supplies no billing ports. The executor receives only the cheap credit gate, atomic exposure admission, `TerminalUsageSink`, and `BillingIdentity`. It never receives a billing mode selector, customer worker, provider worker, journal, or outbox.
 
-## Composition path
+## Final composition
 
-1. Open or migrate `billingstore.DurableStore` in the owning host.
-2. Publish immutable customer-pricing, charge-policy, and operator-rate snapshots into `billingcompose.SnapshotCatalog`.
-3. Call `runtimebundle.ComposeBilling` with the store, catalog, currency, and a finite model-output bound.
-4. Pass the returned `ProductionOptions` to `runtimebundle.BuildHost`.
-
-`ComposeBilling` requires durable call-leg append, call-closure append, cheap credit screening, atomic exposure admission, complete-call claiming, call settlement, independent provider-cost posting, and immutable snapshot resolution. An in-memory spool is not accepted for authoritative composition.
-
-Authoritative hosts must keep a request token estimator wired on the executor (the standard model-catalog attach does this). Billing quoting uses that estimate even when the route selector has no request-size constraints, so `IncludeInputTokens` policies do not depend on a flat `ConservativeCeiling` for ordinary routes.
+1. The owning host opens the durable `billingstore.DurableStore` and publishes immutable pricing, charge-policy, and operator-rate snapshots.
+2. The host calls `runtimebundle.ComposeBilling` with the store, catalog, currency, finite model-output bound, and terminal spool.
+3. The host passes the returned `ProductionOptions` to `runtimebundle.BuildHost`.
+4. `BuildHost` accepts either all four executor billing ports or none. Any partial set fails before serving traffic. The stock `lipstd` path remains non-billing and does not infer billing from YAML, ledger configuration, or pricing configuration.
 
 ```go
 prod, err := runtimebundle.ComposeBilling(runtimebundle.ComposeBillingInput{
     Store:          store,
     Catalog:        catalog,
+    TerminalUsageSink: spool,
     Currency:       "USD",
     ModelMaxOutput: modelMaxOutput,
 })
@@ -25,82 +22,61 @@ if err != nil {
 }
 
 host, err := runtimebundle.BuildHost(ctx, runtimebundle.BuildHostInput{
-    ConfigPath:      configPath,
-    Mandatory:       lipsdk.StandardDistributionRequirements(),
-    HandlerComposer: stdhttp.ComposeStandardHTTP,
-    Production:      prod,
+    ConfigPath: configPath,
+    Production: prod,
 })
 ```
 
-There is one authoritative flow:
+## Authoritative flow
 
 ```text
-cheap credit screen
- -> route + pessimistic quote
- -> atomic open-exposure admission
- -> execute with no billing/exposure mutation
- -> durable terminal B-leg records + one call closure
- -> deterministic customer settlement + exposure close
- -> independent per-B-leg provider-cost posting
+settled-credit screen
+ -> route and pessimistic quote
+ -> atomic exposure admission
+ -> execute without money or exposure mutation
+ -> local durable terminal spool
+ -> complete-call gate over every expected B-leg
+ -> native customer rating and settlement
+ -> independent provider COGS ordered by (recorded_at, transaction_id)
 ```
 
-`BillingCallID` is generated once per incoming inference call. It is shared by failover and parallel B-legs, while A-leg and session IDs remain correlation/reporting metadata. Customer settlement is keyed by account plus `BillingCallID`; provider cost is keyed by `BillingCallID` plus B-leg identity.
+`BillingCallID` is generated once per inference call and is shared by failover and parallel B-legs. A-leg and session identifiers are correlation data, never financial idempotency keys. Customer settlement is keyed by account and `BillingCallID`; provider COGS is keyed by `BillingCallID` and B-leg identity.
 
-## Snapshot catalog
+## Terminal spool contract
 
-Snapshot bodies are process-local; durable exposure and call records store only immutable `VersionRef` identities. Publish every referenced pricing, policy, model-pricing, and operator-rate version before serving. Missing or mismatched snapshots fail closed. A price change publishes a new version rather than mutating an existing body.
+The process-owned `billingspool` is the only runtime terminal handoff. It uses SQLite WAL mode, synchronous durability, a stable process-state path, idempotent source fingerprints, bounded capacity, and bounded retry backoff. Append admission fails closed when capacity is exhausted; it never falls back to a central append or an unbounded request goroutine. Health reports pending, delivering, failed, oldest, capacity, and last-error state.
 
-## Operational exposure and settled money
+At startup the spool resets or reclaims stale `delivering` claims, then starts exactly one process-owned flusher. Shutdown stops the flusher after its lifecycle drain and closes the database. Rows are pruned only after successful central acknowledgement. A spool restart replays durable pending rows idempotently. Terminal call closure is not released to customer settlement until every frozen `ExpectedBLegIDs` entry has a valid sealed central B-leg row; call-first or out-of-order delivery cannot bypass this gate.
 
-An exposure row is operational risk, not money. Admission reads settled account headroom and the sum of open exposure rows, then inserts one immutable open row under the account serialization point. It does not update account balance, reserved balance, or a journal.
+## Exposure and settlement
 
-Execution never renews, decrements, or closes exposure. Terminal usage persistence never rates or posts money. The post-usage worker joins the closure with expected B-leg rows. Customer settlement atomically verifies actual charge versus admitted maximum, posts a non-zero financial journal operation when needed, records zero-charge processing evidence, and closes the exposure. Provider COGS is retried independently and cannot block valid customer settlement.
+An exposure is operational risk, not settled money. Admission reads settled headroom and open exposure rows, then inserts one immutable exposure atomically under account serialization. Execution does not renew, decrement, close, journal, or mutate account money. Terminal persistence does not rate or post money.
 
-Historical authorization-hold rows are migration/reconciliation evidence only. New authoritative composition does not require authorization, hold lookup, hold release, expiry, or authorization-book capabilities. Open-hold inventory blocks ready accounts until reconciled; after open inventory is empty, `authorization_holds` is dropped and is not part of the normal call path.
+The process-owned complete-call worker claims a closure only after all expected B-legs are present. It performs native customer rating, an idempotent customer journal posting, and exposure close. The provider-cost worker is independent and orders eligible provider work by `(recorded_at, transaction_id)`; missing or unreconciled provider COGS cannot block valid customer settlement.
 
-## B-leg attempt sequence is authoritative
+## Worker ownership and health
 
-Every new terminal B-leg record persists the exact positive B2BUA attempt sequence (`b2bua.BLegRecord.Seq`) in `CallLegUsageRecord.AttemptSeq` and the durable `usage_leg_records.attempt_seq` column. The runtime copies the value verbatim from the authoritative allocation point; it is never reconstructed from B-leg ids, array position, timestamps, provider order, or completion order. Within one `BillingCallID` two persisted legs cannot claim the same positive sequence unless they are the idempotent byte-identical same leg; the `(call_id, attempt_seq)` unique index and the sequence-aware replay fingerprint enforce that.
+Customer completion and provider COGS workers are process-owned lifecycle services started and stopped by the host composition. They are not executor fields and do not run one goroutine per request. Readiness reports store, spool, worker, and reconciliation health. An incomplete terminal evidence set leaves exposure open; TTL alone never closes it.
 
-Post-usage customer leg selection consults only the persisted sequence. `ExpectedBLegIDs` is a canonical completeness set: it may be sorted for completeness checks, but its ordering has no financial meaning. When an interrupted call has multiple accepted legs and no surfaced winner, customer rating chooses the latest accepted leg by `AttemptSeq` — never by lexical B-leg-id order, storage order, or timestamps.
+## Destructive migration procedure
 
-## Customer and provider economics resolve independently
+PostgreSQL and SQLite migrations use the same preserve-or-resolve procedure. First stop all old writers and quiesce old workers. Under the dialect-specific migration critical section, lock the affected table where PostgreSQL requires it, prove that pending/error rows are zero, replay identical rows idempotently, reject malformed or conflicting rows, and reconcile source keys and fingerprints. Drop retired tables and columns only after the proof; run schema verification and a post-migration reconciliation before enabling the new writer.
 
-Customer rating resolves customer pricing, charge policy, and per-backend/model customer pricing cards only. Provider-cost resolution is a separate path that reads operator rates. Customer settlement never looks up, validates, or requires operator rates: missing, invalid, stale, or unreconciled provider-cost data cannot block an otherwise rateable customer call from settling or from closing operational exposure. Provider COGS remains an independent per-B-leg operation that may retry or stay unreconciled without changing the customer posting.
+For SQLite, use the table-copy migration transaction with WAL and the required immediate lock semantics; verify the replacement schema and migration history before reopening the host. For PostgreSQL, use the schema-local lock and transactional DDL. A pending or unprovable row blocks the migration and requires explicit operator reconciliation. Historical migration DDL and isolated preserve-or-block readers may remain as migration evidence, but they are never runtime writers.
 
-## Billing bookkeeping is request-scoped
+No mixed-version deployment is supported: all processes must run the final spool and terminal interfaces before any retired central append, TUR/LUR, authorization-hold, or outbox writer is removed. Roll forward only after every process is quiesced or upgraded; do not run legacy writers beside the final writer.
 
-Runtime billing bookkeeping is owned by one private call-scoped state object allocated together with the `BillingCallID` in the prepared request and shared by that request's retries, failover alternatives, parallel arms, and hidden interleaved continuations. Retained state is bounded to the active call: allocated B-leg identities and sequences, terminal timing bounds, and per-B-leg finalization single-flight entries all become unreachable when the call leaves scope. The `Executor` holds no lifetime-growing billing-call registry or map; a later invocation on the same A-leg/session receives a distinct state object and distinct `BillingCallID`.
+## Snapshot and identity rules
 
-## Legacy rows without a sequence
-
-`attempt_seq` is nullable. Rows persisted before this correction keep `attempt_seq NULL` and remain readable under the original v1 fingerprint contract; the upgrade never rewrites opaque legacy B-leg ids into guessed sequence values. New runtime appends always require a known positive sequence. A legacy row with unknown sequence may still be rated automatically when the applicable customer policy is provably sequence-independent for that call, such as a completed call with an unambiguous surfaced leg or a charge-all policy. When sequence is required to choose the customer-billable leg and the legacy row lacks it, the post-usage processor fails closed into `ErrBillingAttemptSequenceUnknown` and the call is retried and ultimately marked reconcile-required — it never sorts ids or timestamps to guess execution order.
-
-## Successor boundary
-
-The legacy `TurnUsageRecord`/`LegUsageRecord` rating bridge remains in place as a temporary implementation adapter and is deliberately not described as deleted here. Its removal, the retirement of the old TUR/LUR tables and `reserved_nano` residue, and the remaining economic-architecture simplifications belong to the separate `billing-architecture-final-convergence` effort and must preserve every behavior documented in this page.
-
-## Reports and trusted provisioning
-
-`ReportingStore` separates settled customer spend, open operational exposure, and independent provider cost. Use `QueryOpenExposures` and `CallExplanation` (admin `/exposures` and `/call`) for call-path diagnostics. Retired TUR-processing and authorization-hold report endpoints are removed; `reserved_nano` remains a legacy always-zero account column rejected on ready accounts. Session/A-leg reports may aggregate multiple BillingCallIDs but never use A-leg or session identity as a financial idempotency key.
-
-Trusted operator recovery uses `POST /exposure-repair` with `{call_id, source_key, mode}`:
-
-- `mode=complete` requires a joinable call closure + expected legs, then closes exposure at zero charge.
-- `mode=incomplete` requires a durable call closure, synthesizes `never_started` legs for any missing `ExpectedBLegIDs`, then closes exposure at zero charge.
-
-TTL alone never closes exposure.
-
-Accounts are created and funded only through the protected trusted billing admin surface. Stock `lipstd` does not call `ComposeBilling` or invent billing accounts. The authoritative flag is a fail-closed composition gate: enabled billing without a complete durable injection refuses to serve.
+Snapshot bodies remain process-local and durable records store immutable `VersionRef` values. Publish every referenced version before serving. Missing or mismatched versions fail closed. `BillingIdentity` is stamped once at exposure admission and reused for terminal closure; it is not re-resolved at handoff.
 
 ## Failure posture
 
-- Account unavailability at the cheap screen or detailed admission denies the new call.
-- Usage-spool failure after output preserves the selected response and schedules bounded detached retry/diagnostics.
-- Incomplete terminal evidence leaves exposure open; TTL alone never closes it.
-- Operator `POST /exposure-repair` (`complete` or `incomplete`) is the approved no-charge recovery path; incomplete mode may synthesize missing never-started legs only when a call closure already proves the BillingCallID is no longer executable.
-- Actual charge above the admitted maximum, floor violation, replay conflict, or journal mismatch enters `reconcile_required`.
-- No provider-cost failure can terminate an already-admitted call or undo valid customer settlement.
+- Credit-screen or atomic-admission failure denies the new call before provider open.
+- A spool append failure after output preserves the selected response and reports bounded retry state.
+- Incomplete expected B-leg evidence keeps the exposure open.
+- Charge-above-maximum, replay conflict, journal mismatch, and reconciliation failure fail closed.
+- Provider-cost failure cannot terminate an admitted call or undo customer settlement.
 - Simultaneous loss of every durable replica before terminal evidence is persisted is outside the at-least-once guarantee.
 
 ## Related

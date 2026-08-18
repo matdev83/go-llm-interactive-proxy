@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 var (
@@ -18,10 +19,7 @@ const JournalFingerprintPrefix = "journal-fp:v2:"
 
 type JournalBook string
 
-const (
-	JournalBookFinancial           JournalBook = "financial"
-	JournalBookLegacyAuthorization JournalBook = "authorization"
-)
+const JournalBookFinancial JournalBook = "financial"
 
 type JournalSide string
 
@@ -52,8 +50,6 @@ type JournalTransaction struct {
 	OperationKind         string
 	BalanceBefore         int64
 	BalanceAfter          int64
-	ReservedBefore        int64
-	ReservedAfter         int64
 	SpendableBefore       int64
 	SpendableAfter        int64
 	CreditFloor           int64
@@ -61,15 +57,18 @@ type JournalTransaction struct {
 	Mode                  string
 	SnapshotVersionBefore uint64
 	SnapshotVersionAfter  uint64
-	Entries               []JournalEntry
+	// RecordedAt is assigned by the persistence database and is excluded from
+	// semantic identity. It is the provider/report ordering timestamp.
+	RecordedAt time.Time
+	Entries    []JournalEntry
 }
 
 func (j JournalTransaction) Validate() error {
 	if strings.TrimSpace(j.ID) == "" || strings.TrimSpace(j.SourceKey) == "" {
 		return fmt.Errorf("%w: id and source key are required", ErrJournalInvalid)
 	}
-	if j.Book != JournalBookFinancial && j.Book != JournalBookLegacyAuthorization {
-		return fmt.Errorf("%w: unsupported book %q", ErrJournalInvalid, j.Book)
+	if j.Book != JournalBookFinancial {
+		return fmt.Errorf("%w: unsupported current book %q", ErrJournalInvalid, j.Book)
 	}
 	if strings.TrimSpace(j.Currency) == "" {
 		return fmt.Errorf("%w: currency is required", ErrJournalInvalid)

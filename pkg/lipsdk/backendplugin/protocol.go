@@ -136,13 +136,30 @@ func Negotiate(host, plugin ProtocolOffer) (Negotiation, error) {
 }
 
 func featureMinimumMinor(name string) (uint32, bool) {
-	if name == FeatureSemanticExtensions {
+	switch name {
+	case FeatureSemanticExtensions:
 		return ProtocolMinorSemanticExtensions, true
+	case FeaturePromptCacheResidency:
+		return ProtocolMinorPromptCacheResidency, true
+	default:
+		return 0, false
 	}
-	return 0, false
 }
 
 func validateFeatureMinorRequirements(host, plugin map[string]Feature, minor uint32) error {
+	if minor >= ProtocolMinorPromptCacheResidency {
+		return nil
+	}
+	for name, feature := range host {
+		if name == FeaturePromptCacheResidency && feature.Required {
+			return fmt.Errorf("%w: %s requires minor %d", ErrIncompatibleMinor, name, ProtocolMinorPromptCacheResidency)
+		}
+	}
+	for name, feature := range plugin {
+		if name == FeaturePromptCacheResidency && feature.Required {
+			return fmt.Errorf("%w: %s requires minor %d", ErrIncompatibleMinor, name, ProtocolMinorPromptCacheResidency)
+		}
+	}
 	if minor >= ProtocolMinorSemanticExtensions {
 		return nil
 	}

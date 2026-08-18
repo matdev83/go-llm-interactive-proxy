@@ -623,6 +623,9 @@ func (s *retryRecvStream) rememberClientEvent(ev lipapi.Event) {
 	} else if ev.Kind == lipapi.EventTextDelta {
 		s.visibleText.WriteString(ev.Delta)
 	}
+	if tool, ok := lipapi.ToolEventFromEvent(ev); ok {
+		s.committedTools = append(s.committedTools, tool)
+	}
 	s.seenEvents = append(s.seenEvents, ev)
 }
 

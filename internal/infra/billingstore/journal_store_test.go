@@ -38,7 +38,6 @@ func TestSQLiteCreateAccountRejectsOpeningReservation(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	err := store.CreateAccount(context.Background(), billing.Account{
 		ID: "reserved-open", Currency: "USD", Mode: billing.AccountPrepaid,
-		State: billing.AccountReady, BalanceNano: 100, ReservedNano: 25, Version: 1,
 	})
 	if !errors.Is(err, billing.ErrAccountInvalid) {
 		t.Fatalf("opening reservation = %v, want ErrAccountInvalid", err)

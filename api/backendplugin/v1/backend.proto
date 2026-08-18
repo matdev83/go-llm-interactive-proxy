@@ -15,6 +15,8 @@ service BackendPlugin {
   rpc ListModels(ListModelsRequest) returns (ListModelsResponse);
   rpc CountTokens(CountTokensRequest) returns (CountTokensResponse);
   rpc FinalizeBilling(FinalizeBillingRequest) returns (FinalizeBillingResponse);
+  rpc RenewPromptCache(RenewPromptCacheRequest) returns (RenewPromptCacheResponse);
+  rpc ReleasePromptCache(ReleasePromptCacheRequest) returns (ReleasePromptCacheResponse);
   rpc Execute(stream ExecuteClientFrame) returns (stream ExecuteServerFrame);
   rpc Health(HealthRequest) returns (HealthResponse);
   rpc GracefulShutdown(GracefulShutdownRequest) returns (GracefulShutdownResponse);
@@ -110,6 +112,8 @@ enum ServerFrameKind {
   SERVER_FRAME_KIND_TERMINAL = 5;
   // Host-only accounting evidence; never exposed as a canonical event.
   SERVER_FRAME_KIND_ACCOUNTING_EVIDENCE = 6;
+  // Host-only prompt-cache residency evidence; never exposed as a canonical event.
+  SERVER_FRAME_KIND_PROMPT_CACHE_OBSERVATION = 7;
 }
 
 enum AccountingSource {
@@ -158,6 +162,25 @@ enum TerminalStatus {
   TERMINAL_STATUS_SUCCESS = 1;
   TERMINAL_STATUS_FAILURE = 2;
   TERMINAL_STATUS_CANCELLED = 3;
+}
+
+enum PromptCacheLifecycle {
+  PROMPT_CACHE_LIFECYCLE_UNSPECIFIED = 0;
+  PROMPT_CACHE_LIFECYCLE_UNKNOWN = 1;
+  PROMPT_CACHE_LIFECYCLE_SLIDING_EXPIRY = 2;
+  PROMPT_CACHE_LIFECYCLE_FIXED_EXPIRY = 3;
+  PROMPT_CACHE_LIFECYCLE_MINIMUM_RESIDENCY = 4;
+  PROMPT_CACHE_LIFECYCLE_BEST_EFFORT = 5;
+}
+
+enum PromptCacheRenewStatus {
+  PROMPT_CACHE_RENEW_STATUS_UNSPECIFIED = 0;
+  PROMPT_CACHE_RENEW_STATUS_RENEWED = 1;
+  PROMPT_CACHE_RENEW_STATUS_STILL_RESIDENT = 2;
+  PROMPT_CACHE_RENEW_STATUS_COLD_RECREATED = 3;
+  PROMPT_CACHE_RENEW_STATUS_STALE = 4;
+  PROMPT_CACHE_RENEW_STATUS_UNSUPPORTED = 5;
+  PROMPT_CACHE_RENEW_STATUS_CONTROL_FAILED = 6;
 }
 
 message Feature {
@@ -310,7 +333,61 @@ message ResolvedProfile {
   string evidence_source = 10;
   string profile_version = 11;
   DialectSupportWire dialect_support = 12;
+  PromptCacheProfile prompt_cache_profile = 13;
 }
+
+message PromptCacheProfile {
+  bool observation_supported = 1;
+  bool renewal_supported = 2;
+  repeated PromptCacheLifecycle lifecycle_kinds = 3;
+}
+
+message PromptCacheTiming {
+  optional int64 observed_at_unix_ms = 1;
+  optional int64 expires_at_unix_ms = 2;
+  optional int64 minimum_resident_until_unix_ms = 3;
+}
+
+message PromptCacheEvidence {
+  optional int64 input_tokens = 1;
+  optional int64 output_tokens = 2;
+  optional int64 cache_read_tokens = 3;
+  optional int64 cache_write_tokens = 4;
+  optional int64 total_tokens = 5;
+}
+
+message PromptCacheObservation {
+  string a_leg_id = 1;
+  string b_leg_id = 2;
+  string backend_instance_id = 3;
+  string target_id = 4;
+  string generation_id = 5;
+  PromptCacheLifecycle lifecycle = 6;
+  PromptCacheTiming timing = 7;
+  bool renewable = 8;
+  bytes handle = 9;
+  PromptCacheEvidence evidence = 10;
+}
+
+message RenewPromptCacheRequest {
+  string instance_id = 1;
+  bytes handle = 2;
+  string operation_id = 3;
+}
+
+message RenewPromptCacheResponse {
+  PromptCacheRenewStatus status = 1;
+  PromptCacheObservation observation = 2;
+  PromptCacheEvidence evidence = 3;
+  AccountingEvidence accounting = 4;
+}
+
+message ReleasePromptCacheRequest {
+  string instance_id = 1;
+  bytes handle = 2;
+}
+
+message ReleasePromptCacheResponse {}
 
 message ListModelsRequest {
   string instance_id = 1;
@@ -647,6 +724,7 @@ message ExecuteServerFrame {
   CancelOutcome cancel_outcome = 5;
   Terminal terminal = 6;
   AccountingEvidence accounting_evidence = 7;
+  PromptCacheObservation prompt_cache_observation = 8;
 }
 
 message PluginError {

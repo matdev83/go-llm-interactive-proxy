@@ -36,8 +36,7 @@ func TestCallClosureTimesUsesTerminalLegSpan(t *testing.T) {
 
 func TestAuthoritativeRuntimeWithoutTerminalSinkDoesNotHandoff(t *testing.T) {
 	executor := &Executor{BillingRuntime: BillingRuntime{
-		BillingAuthoritative: true,
-		BillingIdentity:      testBillingIdentity(),
+		BillingIdentity: testBillingIdentity(),
 	}}
 	callID, err := billing.NewBillingCallID()
 	if err != nil {
@@ -129,8 +128,7 @@ func TestTerminalUsageSinkNilLeavesRuntimeWithoutFinancialHandoff(t *testing.T) 
 
 func TestAuthoritativeBillingWithoutTerminalSinkFailsClosed(t *testing.T) {
 	executor := &Executor{BillingRuntime: BillingRuntime{
-		BillingAuthoritative: true,
-		BillingIdentity:      testBillingIdentity(),
+		BillingIdentity: testBillingIdentity(),
 	}}
 	if executor.hasTerminalCallSink() || executor.hasTerminalSink() {
 		t.Fatal("authoritative executor without TerminalUsageSink must not report a terminal sink")
@@ -300,7 +298,6 @@ func TestTerminalUsageSinkIncludesNeverOpenedNextBLegAtRequestTerminal(t *testin
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Rand = routing.NewSeededRng(1)
 	ex.BillingIdentity = testBillingIdentity()
-	ex.BillingAuthoritative = true
 	ex.BillingCreditGate = creditGateFunc(func(context.Context, string) error { return nil })
 	ex.BillingExposureAdmission = exposureAdmissionFunc(func(_ context.Context, in BillingExposureAdmissionInput) (billing.CallExposure, error) {
 		return billing.CallExposure{AccountID: "acct", CallID: in.CallID, PricingRef: billing.VersionRef{ID: "pricing:test", Version: "1"}, ChargePolicyRef: billing.VersionRef{ID: "policy:test", Version: "1"}, Status: billing.ExposureOpen}, nil
@@ -615,7 +612,6 @@ func TestExecutor_InterleavedHandoffAborted_ClosureSealed(t *testing.T) {
 
 	ex, _ := testInterleavedExecutor(t, backends)
 	ex.BillingIdentity = testBillingIdentity()
-	ex.BillingAuthoritative = true
 	ex.BillingCreditGate = creditGateFunc(func(context.Context, string) error { return nil })
 	ex.BillingExposureAdmission = exposureAdmissionFunc(func(_ context.Context, in BillingExposureAdmissionInput) (billing.CallExposure, error) {
 		return billing.CallExposure{AccountID: "acct", CallID: in.CallID, PricingRef: billing.VersionRef{ID: "pricing", Version: "1"}, ChargePolicyRef: billing.VersionRef{ID: "policy", Version: "1"}, Status: billing.ExposureOpen}, nil
@@ -734,7 +730,6 @@ func TestExecutor_InterleavedCancelDuringTransition_ClosureSealed(t *testing.T) 
 
 	ex, _ := testInterleavedExecutor(t, backends)
 	ex.BillingIdentity = testBillingIdentity()
-	ex.BillingAuthoritative = true
 	ex.BillingCreditGate = creditGateFunc(func(context.Context, string) error { return nil })
 	ex.BillingExposureAdmission = exposureAdmissionFunc(func(_ context.Context, in BillingExposureAdmissionInput) (billing.CallExposure, error) {
 		return billing.CallExposure{AccountID: "acct", CallID: in.CallID, PricingRef: billing.VersionRef{ID: "pricing", Version: "1"}, ChargePolicyRef: billing.VersionRef{ID: "policy", Version: "1"}, Status: billing.ExposureOpen}, nil
@@ -839,7 +834,6 @@ func TestExecutor_InterleavedCloseDuringTransition_ClosureSealed(t *testing.T) {
 
 	ex, _ := testInterleavedExecutor(t, backends)
 	ex.BillingIdentity = testBillingIdentity()
-	ex.BillingAuthoritative = true
 	ex.BillingCreditGate = creditGateFunc(func(context.Context, string) error { return nil })
 	ex.BillingExposureAdmission = exposureAdmissionFunc(func(_ context.Context, in BillingExposureAdmissionInput) (billing.CallExposure, error) {
 		return billing.CallExposure{AccountID: "acct", CallID: in.CallID, PricingRef: billing.VersionRef{ID: "pricing", Version: "1"}, ChargePolicyRef: billing.VersionRef{ID: "policy", Version: "1"}, Status: billing.ExposureOpen}, nil
@@ -942,7 +936,6 @@ func TestExecutor_InterleavedOpenFailureDuringTransition_ClosureSealed(t *testin
 
 	ex, _ := testInterleavedExecutor(t, backends)
 	ex.BillingIdentity = testBillingIdentity()
-	ex.BillingAuthoritative = true
 	ex.BillingCreditGate = creditGateFunc(func(context.Context, string) error { return nil })
 	ex.BillingExposureAdmission = exposureAdmissionFunc(func(_ context.Context, in BillingExposureAdmissionInput) (billing.CallExposure, error) {
 		return billing.CallExposure{AccountID: "acct", CallID: in.CallID, PricingRef: billing.VersionRef{ID: "pricing", Version: "1"}, ChargePolicyRef: billing.VersionRef{ID: "policy", Version: "1"}, Status: billing.ExposureOpen}, nil
@@ -1041,7 +1034,6 @@ func TestExecutor_InterleavedThinkerError_ClosureSealed(t *testing.T) {
 
 	ex, _ := testInterleavedExecutor(t, backends)
 	ex.BillingIdentity = testBillingIdentity()
-	ex.BillingAuthoritative = true
 	ex.BillingCreditGate = creditGateFunc(func(context.Context, string) error { return nil })
 	ex.BillingExposureAdmission = exposureAdmissionFunc(func(_ context.Context, in BillingExposureAdmissionInput) (billing.CallExposure, error) {
 		return billing.CallExposure{AccountID: "acct", CallID: in.CallID, PricingRef: billing.VersionRef{ID: "pricing", Version: "1"}, ChargePolicyRef: billing.VersionRef{ID: "policy", Version: "1"}, Status: billing.ExposureOpen}, nil

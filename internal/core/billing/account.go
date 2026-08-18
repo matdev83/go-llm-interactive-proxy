@@ -27,14 +27,13 @@ const (
 )
 
 type Account struct {
-	ID           string
-	Currency     string
-	Mode         AccountMode
-	CreditLimit  int64
-	BalanceNano  int64
-	ReservedNano int64
-	Version      uint64
-	State        AccountState
+	ID          string
+	Currency    string
+	Mode        AccountMode
+	CreditLimit int64
+	BalanceNano int64
+	Version     uint64
+	State       AccountState
 }
 
 func (a Account) Validate() error {
@@ -46,12 +45,6 @@ func (a Account) Validate() error {
 	}
 	if a.CreditLimit < 0 || (a.Mode == AccountPrepaid && a.CreditLimit != 0) {
 		return fmt.Errorf("%w: invalid credit limit %d", ErrAccountInvalid, a.CreditLimit)
-	}
-	if a.ReservedNano < 0 {
-		return fmt.Errorf("%w: reserved amount cannot be negative", ErrAccountInvalid)
-	}
-	if a.State == AccountReady && a.ReservedNano != 0 {
-		return fmt.Errorf("%w: ready accounts must have zero reserved_nano", ErrAccountInvalid)
 	}
 	if a.State != AccountReady && a.State != AccountReconcileRequired {
 		return fmt.Errorf("%w: unsupported state %q", ErrAccountInvalid, a.State)

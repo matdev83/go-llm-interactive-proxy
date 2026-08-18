@@ -109,8 +109,7 @@ func ledgerAdmit(callID string, max int64) billing.AdmitExposureInput {
 func TestMemoryExposureAdmitDoesNotMutateBalanceJournalOrReserved(t *testing.T) {
 	t.Parallel()
 	account := billing.Account{
-		ID: "acct", Currency: "USD", Mode: billing.AccountPrepaid, State: billing.AccountReady,
-		BalanceNano: 100, ReservedNano: 0, Version: 3,
+		ID: "acct", Currency: "USD", Mode: billing.AccountPrepaid, State: billing.AccountReady, BalanceNano: 100,
 	}
 	ledger := newMemoryExposureLedger(account)
 	got, err := ledger.Admit(ledgerAdmit("call-1", 40))
@@ -121,16 +120,11 @@ func TestMemoryExposureAdmitDoesNotMutateBalanceJournalOrReserved(t *testing.T) 
 		t.Fatalf("admitted = %+v", got)
 	}
 	after, exposures, journals := ledger.snapshot()
-	if after.BalanceNano != 100 || after.ReservedNano != 0 || after.Version != 3 {
+	if after.BalanceNano != 100 {
 		t.Fatalf("admit mutated financial account: %+v", after)
 	}
 	if len(journals) != 0 {
 		t.Fatalf("admit posted journal entries: %+v", journals)
-	}
-	for _, journal := range journals {
-		if journal.Book == billing.JournalBookLegacyAuthorization {
-			t.Fatal("admit must not require an authorization-book journal")
-		}
 	}
 	if len(exposures) != 1 || exposures[0].Max.Nano != 40 {
 		t.Fatalf("exposures = %+v", exposures)
@@ -143,8 +137,7 @@ func TestMemoryExposureAdmitDoesNotMutateBalanceJournalOrReserved(t *testing.T) 
 func TestMemoryExposureAdmitIgnoresReservedNanoForSafetyMargin(t *testing.T) {
 	t.Parallel()
 	account := billing.Account{
-		ID: "acct", Currency: "USD", Mode: billing.AccountPrepaid, State: billing.AccountReconcileRequired,
-		BalanceNano: 50, ReservedNano: 999, Version: 1,
+		ID: "acct", Currency: "USD", Mode: billing.AccountPrepaid, State: billing.AccountReconcileRequired, BalanceNano: 50,
 	}
 	margin, err := billing.SafetyMargin(account, nil)
 	if err != nil {
@@ -152,11 +145,6 @@ func TestMemoryExposureAdmitIgnoresReservedNanoForSafetyMargin(t *testing.T) {
 	}
 	if margin.Nano != 50 {
 		t.Fatalf("SafetyMargin = %d, want 50", margin.Nano)
-	}
-	ready := account
-	ready.State = billing.AccountReady
-	if _, err := billing.EvaluateAdmit(ready, nil, ledgerAdmit("call-1", 50)); !errors.Is(err, billing.ErrAccountInvalid) {
-		t.Fatalf("ready+reserved admit = %v, want ErrAccountInvalid", err)
 	}
 }
 

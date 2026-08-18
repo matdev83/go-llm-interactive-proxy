@@ -116,11 +116,10 @@ func TestSQLiteCreditPolicyIgnoresLegacyReservedForSpendable(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.NewRaw(`UPDATE billing_accounts SET reserved_nano = 60, state = 'reconcile_required' WHERE account_id = ?`, "policy-reserved").Exec(ctx); err != nil {
+	if _, err := store.db.NewRaw(`UPDATE billing_accounts SET state = 'reconcile_required' WHERE account_id = ?`, "policy-reserved").Exec(ctx); err != nil {
 		t.Fatal(err)
 	}
-	// Floor-only affordability: CreditLimit 40 => floor -40; Balance 10 is still above floor.
-	// Legacy reserved must not block the policy change; ready accounts reject nonzero reserved.
+	// Reconciliation-required accounts remain blocked by the current state contract.
 	_, err := store.ChangeCreditPolicy(ctx, billing.CreditPolicyInput{
 		AccountID: "policy-reserved", Mode: billing.AccountPostpaid, Currency: "USD",
 		CreditLimit: 40, SourceKey: "reduce-reserved", Reason: "safe-floor",
@@ -136,23 +135,20 @@ func TestSQLiteTrustedDebitRejectsReadyAccountWithLegacyReserved(t *testing.T) {
 	if err := store.CreateAccount(ctx, billing.Account{ID: "reserved-debit", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.NewRaw(`UPDATE billing_accounts SET reserved_nano = 100 WHERE account_id = ?`, "reserved-debit").Exec(ctx); err != nil {
-		t.Fatal(err)
-	}
 	_, err := store.PostAdjustment(ctx, billing.AdjustmentInput{
-		AccountID: "reserved-debit", Amount: billing.Money{Nano: 100, Currency: "USD"},
+		AccountID: "reserved-debit", Amount: billing.Money{Nano: 101, Currency: "USD"},
 		Direction: billing.AdjustmentDebit, SourceKey: "steal-reserved", Reason: "bad",
 	})
-	if !errors.Is(err, billing.ErrAccountInvalid) {
-		t.Fatalf("debit with ready+reserved = %v, want ErrAccountInvalid", err)
+	if !errors.Is(err, billing.ErrInsufficientSpendable) {
+		t.Fatalf("debit below floor = %v, want ErrInsufficientSpendable", err)
 	}
-	var balance, reserved int64
+	var balance int64
 	var version uint64
-	if err := store.db.NewRaw(`SELECT balance_nano, reserved_nano, version FROM billing_accounts WHERE account_id = ?`, "reserved-debit").Scan(ctx, &balance, &reserved, &version); err != nil {
+	if err := store.db.NewRaw(`SELECT balance_nano, version FROM billing_accounts WHERE account_id = ?`, "reserved-debit").Scan(ctx, &balance, &version); err != nil {
 		t.Fatal(err)
 	}
-	if balance != 100 || reserved != 100 || version != 1 {
-		t.Fatalf("account mutated by rejected debit: balance=%d reserved=%d version=%d", balance, reserved, version)
+	if balance != 100 || version != 1 {
+		t.Fatalf("account mutated by rejected debit: balance=%d version=%d", balance, version)
 	}
 }
 

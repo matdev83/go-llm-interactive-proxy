@@ -31,17 +31,32 @@ func registerMigrations() {
 		registerProviderCostWorkRetryMigration()
 		registerExposureMigration()
 		registerHoldRetirementMigration()
-		registerUsageAppendOutboxMigration()
+		// 20260824000000 is immutable historical source only. Fresh schemas must
+		// not create its retired transport table; upgraded schemas are handled by
+		// the explicit forward retirement migration below.
+		registerUsageAppendOutboxRetirementMigration()
 		registerAuthorizationHoldsDropMigration()
-		registerReservedNanoZeroMigration()
+		registerReservedZeroHistoryMarker()
 		registerCompleteCallClaimLeaseMigration()
 		registerUsageLegSequenceMigration()
+		registerProviderJournalOrderMigration()
+		registerProviderJournalSequenceContractMigration()
+		registerReservedColumnRemovalMigration()
+		registerLegacyUsageRetirementMigration()
+		registerProviderMaintenanceMigration()
+		registerProviderMaintenanceIntegrityMigration()
 	})
 }
 
 func runSchemaMigrate(ctx context.Context, database *bun.DB) error {
 	registerMigrations()
-	migrator := migrate.NewMigrator(database, migrations, migrate.WithTableName("bun_billing_migrations"))
+	migrator := migrate.NewMigrator(database, migrations,
+		migrate.WithTableName("bun_billing_migrations"),
+		// Do not record a destructive migration until its up function has
+		// completed. In particular, a blocked legacy outbox must remain
+		// retryable on the next startup rather than looking retired in history.
+		migrate.WithMarkAppliedOnSuccess(true),
+	)
 	if err := migrator.Init(ctx); err != nil {
 		return fmt.Errorf("billingstore: migrator init: %w", err)
 	}

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -143,7 +142,7 @@ func TestBuild_ControlPlaneCloserDisposedOnCompileFailure(t *testing.T) { //noli
 		},
 		Accounting: config.AccountingConfig{
 			Billing: config.AccountingBillingConfig{
-				Authoritative: true, // requires injected BillingStore; compile fails closed
+				ReportsPath: "/admin/billing", // a report path without complete ports is partial wiring
 			},
 		},
 	}
@@ -154,10 +153,10 @@ func TestBuild_ControlPlaneCloserDisposedOnCompileFailure(t *testing.T) { //noli
 		},
 	})
 	if err == nil {
-		t.Fatal("expected failure on authoritative billing without injected store")
+		t.Fatal("expected failure on partial billing wiring")
 	}
-	if !errors.Is(err, ErrAuthoritativeBillingRequired) && !strings.Contains(err.Error(), "authoritative billing") {
-		t.Fatalf("expected authoritative billing error, got %v", err)
+	if !errors.Is(err, ErrAuthoritativeBillingRequired) {
+		t.Fatalf("expected complete billing composition error, got %v", err)
 	}
 	if !store.closed.Load() {
 		t.Fatal("control-plane store closer must be disposed when candidate compile fails after control-plane registration")

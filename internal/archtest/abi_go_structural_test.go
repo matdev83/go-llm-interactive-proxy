@@ -245,6 +245,7 @@ var exactProtocolVersionSymbols = map[string]string{
 	"ProtocolMinorProxyOwnedSessionID":      "ProtocolMinorProxyOwnedSessionID uint32 = 4",
 	"ProtocolMinorAccountingEvidence":       "ProtocolMinorAccountingEvidence uint32 = 5",
 	"ProtocolMinorSemanticExtensions":       "ProtocolMinorSemanticExtensions uint32 = 6",
+	"ProtocolMinorPromptCacheResidency":     "ProtocolMinorPromptCacheResidency uint32 = 7",
 }
 
 func protocolSpecificABISymbol(name string) bool {

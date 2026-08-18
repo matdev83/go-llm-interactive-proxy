@@ -121,16 +121,10 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	var prod ProductionOptions
 	if in.Bctx.Opts != nil {
 		prod = in.Bctx.Opts.Production
-		if cfg.Accounting.Billing.Authoritative {
-			prod.BillingAuthoritative = true
-		}
 		if path := strings.TrimSpace(cfg.Accounting.Billing.ReportsPath); path != "" && strings.TrimSpace(prod.BillingReportsPath) == "" {
 			prod.BillingReportsPath = path
 		}
-		if prod.BillingAuthoritative {
-			if err := requireAuthoritativeBillingPorts(prod, in.Ledger); err != nil {
-				return nil, err
-			}
+		if billingCompositionConfigured(prod) {
 			if prod.BillingTerminalUsageSink == nil && strings.TrimSpace(cfg.Accounting.Billing.SpoolPath) != "" {
 				spoolPath := strings.TrimSpace(cfg.Accounting.Billing.SpoolPath)
 				if err := requireStableSpoolPath(spoolPath); err != nil {
@@ -155,8 +149,8 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 			if closer, ok := prod.BillingTerminalUsageSink.(interface{ Close() error }); ok {
 				in.Ledger.AddClose("billing-terminal-spool", PhaseQuiesce, closer.Close)
 			}
-			if prod.BillingTerminalUsageSink == nil {
-				return nil, fmt.Errorf("%w: TerminalUsageSink (configure the process-local spool)", ErrAuthoritativeBillingRequired)
+			if err := requireCompleteBillingComposition(prod, in.Ledger); err != nil {
+				return nil, err
 			}
 			prod.BillingReports = prod.BillingStore
 			if prod.BillingExposureAdmission != nil {
@@ -195,8 +189,6 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		if prod.MeteringRecorder != nil {
 			meteringRT = &meteringRuntime{Recorder: prod.MeteringRecorder, StoreBacking: "injected"}
 		}
-	} else if cfg.Accounting.Billing.Authoritative {
-		return nil, ErrAuthoritativeBillingRequired
 	}
 
 	// Compute interleaved-thinking config before construction.
@@ -316,7 +308,6 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 			BillingLegObserver:       billingLegObserverFor(log),
 			TerminalUsageSink:        prod.BillingTerminalUsageSink,
 			BillingIdentity:          prod.BillingIdentity,
-			BillingAuthoritative:     prod.BillingAuthoritative,
 		},
 
 		Routing:       routingRT,
@@ -365,7 +356,16 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	}, nil
 }
 
-func requireAuthoritativeBillingPorts(prod ProductionOptions, ledger *ResourceLedger) error {
+func billingCompositionConfigured(prod ProductionOptions) bool {
+	return prod.BillingStore != nil || prod.BillingCreditGate != nil ||
+		prod.BillingExposureAdmission != nil || prod.BillingTerminalUsageSink != nil ||
+		prod.BillingIdentity.AccountID != nil || strings.TrimSpace(prod.BillingReportsPath) != ""
+}
+
+// requireCompleteBillingComposition enforces the final all-or-none runtime seam.
+// A stock host has no billing ports; an injected host must provide every port
+// consumed by the executor plus the durable store used by process-owned workers.
+func requireCompleteBillingComposition(prod ProductionOptions, ledger *ResourceLedger) error {
 	switch {
 	case prod.BillingStore == nil:
 		return fmt.Errorf("%w: BillingStore", ErrAuthoritativeBillingRequired)
@@ -373,7 +373,7 @@ func requireAuthoritativeBillingPorts(prod ProductionOptions, ledger *ResourceLe
 		return fmt.Errorf("%w: BillingExposureAdmission", ErrAuthoritativeBillingRequired)
 	case prod.BillingCreditGate == nil:
 		return fmt.Errorf("%w: BillingCreditGate", ErrAuthoritativeBillingRequired)
-	case prod.BillingTerminalUsageSink == nil && strings.TrimSpace(prod.BillingReportsPath) == "":
+	case prod.BillingTerminalUsageSink == nil:
 		return fmt.Errorf("%w: TerminalUsageSink", ErrAuthoritativeBillingRequired)
 	case prod.BillingIdentity.AccountID == nil:
 		return fmt.Errorf("%w: BillingIdentity.AccountID", ErrAuthoritativeBillingRequired)
