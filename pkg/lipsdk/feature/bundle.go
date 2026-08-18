@@ -3,6 +3,7 @@ package feature
 import (
 	"fmt"
 
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
@@ -61,6 +62,11 @@ type FeatureBundle struct {
 	RawCaptureSinks  []traffic.RawCaptureSink
 	TrafficRedactors []traffic.Redactor
 
+	// CompactionObservers subscribe to typed, fail-open proxy-derived compaction
+	// lifecycle observations (optional; schema V1). Observers are non-mutating and
+	// never receive prompt/response content.
+	CompactionObservers []compaction.Observer
+
 	// SecretGuards contribute opaque ingress secret-guard evaluators (optional; schema V1).
 	SecretGuards []secretguard.Guard
 
@@ -88,6 +94,7 @@ func (b FeatureBundle) empty() bool {
 		len(b.UsageObservers) == 0 &&
 		len(b.RawCaptureSinks) == 0 &&
 		len(b.TrafficRedactors) == 0 &&
+		len(b.CompactionObservers) == 0 &&
 		len(b.SecretGuards) == 0 &&
 		len(b.Lifecycles) == 0
 }

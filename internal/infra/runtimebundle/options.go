@@ -16,6 +16,7 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
@@ -167,6 +168,7 @@ type ExtensionsOptions struct {
 	UsageObservers                   []usage.Observer
 	RawCaptureSinks                  []traffic.RawCaptureSink
 	TrafficRedactors                 []traffic.Redactor
+	CompactionObservers              []compaction.Observer
 	SecretGuards                     []sdk.Guard
 	// SecretGuardInputs carries supported composition seams for the guard
 	// matcher/source configuration.

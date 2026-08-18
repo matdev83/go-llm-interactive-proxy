@@ -29,7 +29,7 @@ Five-zone modular design: stable public contracts at the edge, a policy-owning i
 ### 1. Public Contracts (Stable Surface)
 
 - `pkg/lipapi/` — Protocol-neutral canonical request, item, part, tool, event, capability, limit, and error types, including name-derived tool classification. Zero provider SDK or HTTP dependencies.
-- `pkg/lipsdk/` — Plugin registration contracts, frontend/backend/hook interfaces, SDK facades (`auth`, `session`, `workspace`, `request`, `routehint`, `toolcatalog`, `toolpolicy`, `completion`, `auxiliary`, `state`, `traffic`, `usage`, `modelinventory`, `securesession`, `continuation`).
+- `pkg/lipsdk/` — Plugin registration contracts, frontend/backend/hook interfaces, SDK facades (`auth`, `session`, `workspace`, `request`, `routehint`, `toolcatalog`, `toolpolicy`, `completion`, `auxiliary`, `state`, `traffic`, `usage`, `modelinventory`, `securesession`, `continuation`, `compaction`).
   - `pkg/lipsdk/secretguard/` — Ingress secret-guard contracts (`Guard`, `Matcher`, `DecisionEvent`).
   - `pkg/lipsdk/configreload/` — Secret-safe runtime reload contract (`Trigger`, `Result`, `Status`, `HistoryEntry`).
   - `pkg/lipsdk/backendplugin/` — Versioned gRPC connector ABI, DTOs, and table-driven converter helpers.
@@ -49,6 +49,7 @@ Core owns orchestration and policy. Core imports `pkg/lipapi` and `pkg/lipsdk`; 
 - **Continuity & Sessions**: `b2bua/` (attempt lineage/store), `continuity/` (`bunstore`), `securesession/` (`adapters/`, `storecontract/`, `domain/`, `app/`)
 - **Auth, Security & Identity**: `accessmode/`, `auth/`, `admin/`, `http/`, `safety/`, `proxycredentials/`, `identity/`, `secretguard/` (ingress secrets catalog/matcher)
 - **Canonical Support & State**: `capabilities/`, `jsonpresence/`, `jsonshape/` (preflight guards), `toolcallrepair/`, `diag/`, `config/`, `configreload/`, `interleavedthinking/` (reasoning memo store/shape), `interleavedstate/`, `snapshotgen/`
+- **Observability/Detection**: `compactiondetect/` (process-owned coding-agent session compaction detector; emits typed observations through `pkg/lipsdk/compaction` observers)
 - **Streaming**: `stream/` (canonical stream, event pumps), `streamrecovery/`
 - **Hooks & Extensions**: `hooks/` (stage evaluation), `extensions/` (stage-four extension platform)
 - **Core State & Accounting**: `auxreq/`, `state/`, `traffic/`, `workspace/`, `modelcatalog/`, `modelregistry/`, `accounting/`, `billing/`, `tokenaccounting/`
@@ -122,6 +123,7 @@ The architecture gates also include the deterministic change-surface reporter at
 | Enable billing in an internal host | `runtimebundle.ComposeBilling`, catalog in `internal/infra/billingcompose/`; see `docs/billing-host-composition.md` |
 | Add a compatible inference profile | `internal/providerprofiles/` (data), bind through `internal/standardplugins/` |
 | Classify coding-agent tool names | `pkg/lipapi` (`ClassifyToolName`); runtime correlates name-less fragments by `ToolCallID` |
+| Detect coding-agent session compaction | `internal/core/compactiondetect/`; subscribe via `pkg/lipsdk/compaction` observers |
 
 ---
 

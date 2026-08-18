@@ -554,8 +554,17 @@ func (s *retryRecvStream) emitTrafficBTP(ctx context.Context, ev lipapi.Event, p
 
 func (s *retryRecvStream) emitTrafficPTC(ctx context.Context, ev lipapi.Event, pm sdk.PartMeta) {
 	if ev.Kind == lipapi.EventWarning && ev.WarningCode == stream.KeepaliveEventCode {
+		// Keepalives are proxy-internal artifacts, never released to the client,
+		// so they are not client traffic and are not observed (they cannot
+		// match any compaction rule and must not refresh A-leg activity).
 		return
 	}
+	// Final release seam: every canonical event actually released to the client
+	// passes through here exactly once (live, gated, tool-finalizer, and
+	// recovery drains). Compaction response observation must stay at this
+	// single chokepoint, not on branch-specific paths (design-review
+	// constraint; requirement 8.4). It never alters the event.
+	s.observeCompactionRelease(ctx, ev)
 	s.emitTraffic(ctx, sdktraffic.LegPTC, ev, pm)
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -196,6 +197,15 @@ type InterleavedRuntime struct {
 	MemoStore         interleavedthinking.MemoStore
 }
 
+// CompactionRuntime carries the process-owned compaction detector reference.
+// The detector is shared across generations and never owned by the executor;
+// nil is safe and disables compaction observation entirely.
+// Detection is observational only: it never alters routing, prompts,
+// responses, retries, accounting, or client framing.
+type CompactionRuntime struct {
+	Detector *compactiondetect.Detector
+}
+
 // ExecutorConfig groups executor dependencies for explicit construction at the
 // composition root and in tests. Use [NewExecutor] to obtain a runnable executor.
 type ExecutorConfig struct {
@@ -207,6 +217,7 @@ type ExecutorConfig struct {
 	Observability ObservabilityRuntime
 	Extension     ExtensionRuntime
 	Interleaved   InterleavedRuntime
+	Compaction    CompactionRuntime
 }
 
 // NewExecutor constructs an [Executor] from grouped runtime configuration.
@@ -233,5 +244,6 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		ObservabilityRuntime: cfg.Observability,
 		ExtensionRuntime:     cfg.Extension,
 		InterleavedRuntime:   cfg.Interleaved,
+		CompactionRuntime:    cfg.Compaction,
 	}
 }

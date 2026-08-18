@@ -170,6 +170,7 @@ func buildRuntimeSnapshot(
 	if opts.Policy.PolicyTimeoutBudgetSource != nil {
 		budgetSrc = opts.Policy.PolicyTimeoutBudgetSource
 	}
+	compactionObservers := slices.Clone(opts.Extensions.CompactionObservers)
 	stateStore := extensionState
 	if stateStore == nil {
 		stateStore = corestate.NewMem(nowFn)
@@ -192,6 +193,7 @@ func buildRuntimeSnapshot(
 		UsageObserver:           usageObs,
 		RawCapture:              trafficRaw,
 		TrafficRedactors:        trafficRedactors,
+		CompactionObservers:     compactionObservers,
 		SecretGuardPlane:        sgPlane,
 		PolicyObserver:          policyObs,
 		TimeoutBudgetSource:     budgetSrc,

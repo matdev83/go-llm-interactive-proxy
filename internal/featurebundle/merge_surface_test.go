@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -160,6 +161,10 @@ type testUsageObs struct{ tag string }
 
 func (testUsageObs) OnUsage(_ context.Context, _ usage.Event) error { return nil }
 
+type testCompactionObs struct{ tag string }
+
+func (testCompactionObs) OnCompaction(_ context.Context, _ compaction.Event) error { return nil }
+
 type testRawSink struct{ tag string }
 
 func (testRawSink) WriteRaw(_ context.Context, _ traffic.Leg, _ traffic.CaptureMeta, _ []byte) error {
@@ -215,6 +220,7 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		UsageObservers:          []usage.Observer{testUsageObs{tag: "uo1"}},
 		RawCaptureSinks:         []traffic.RawCaptureSink{testRawSink{tag: "rs1"}},
 		TrafficRedactors:        []traffic.Redactor{testRedactor{tag: "red1"}},
+		CompactionObservers:     []compaction.Observer{testCompactionObs{tag: "co1"}},
 		SecretGuards:            []secretguard.Guard{testSecretGuard{tag: "sg1"}},
 	}
 	b2 := lipfeature.FeatureBundle{
@@ -238,6 +244,7 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		UsageObservers:          []usage.Observer{testUsageObs{tag: "uo2"}},
 		RawCaptureSinks:         []traffic.RawCaptureSink{testRawSink{tag: "rs2"}},
 		TrafficRedactors:        []traffic.Redactor{testRedactor{tag: "red2"}},
+		CompactionObservers:     []compaction.Observer{testCompactionObs{tag: "co2"}},
 		SecretGuards:            []secretguard.Guard{testSecretGuard{tag: "sg2"}},
 	}
 	m := MergeBundles(b1, b2)
@@ -265,11 +272,18 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		{"UsageObservers", len(m.UsageObservers)},
 		{"RawCaptureSinks", len(m.RawCaptureSinks)},
 		{"TrafficRedactors", len(m.TrafficRedactors)},
+		{"CompactionObservers", len(m.CompactionObservers)},
 		{"SecretGuards", len(m.SecretGuards)},
 	}
 	for _, c := range checks {
 		if c.got != 2 {
 			t.Fatalf("%s: got %d want 2", c.name, c.got)
+		}
+	}
+	for i, want := range []string{"co1", "co2"} {
+		observer, ok := m.CompactionObservers[i].(testCompactionObs)
+		if !ok || observer.tag != want {
+			t.Fatalf("CompactionObservers[%d]=%T/%q want %q", i, m.CompactionObservers[i], observer.tag, want)
 		}
 	}
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	corecp "github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
@@ -67,6 +68,9 @@ type executorBuildInput struct {
 	AccountingStores   *processAccountingStores
 	Metering           *meteringRuntime
 	BackendIdentities  map[string]BackendStateIdentity
+	// CompactionDetector is the process-owned detector shared by all
+	// generations. Nil disables compaction observation.
+	CompactionDetector *compactiondetect.Detector
 }
 
 // buildExecutorRuntime runs the executor-assembly sequence: routing resolution,
@@ -254,6 +258,7 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 			ToolCallFinalizationMaxArgsBytes: maxArgsBytes,
 		},
 		Interleaved: interleaved,
+		Compaction:  runtime.CompactionRuntime{Detector: in.CompactionDetector},
 	})
 
 	secureSessionStore := in.Persistence.SecureSession.appStore

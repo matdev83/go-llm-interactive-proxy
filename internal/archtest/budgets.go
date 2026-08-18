@@ -29,7 +29,7 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/infra/runtimebundle/handler_composer.go", Max: 50},
 	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 378},
 	{Path: "internal/stdhttp/request_plane.go", Max: 90},
-	{Path: "internal/infra/runtimebundle/process_services.go", Max: 290},
+	{Path: "internal/infra/runtimebundle/process_services.go", Max: 317},
 	{Path: "pkg/lipruntime/build.go", Max: 121},
 	{Path: "pkg/lipruntime/host.go", Max: 93},
 	{Path: "pkg/lipruntime/facade.go", Max: 97},
@@ -59,7 +59,7 @@ type PackageTreeBudget struct {
 
 // PackageTreeBudgets locks measured convergence tree ceilings (+25 lines headroom).
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 11531},
+	{Tree: "internal/infra/runtimebundle", Max: 11565},
 	{Tree: "internal/stdhttp", Max: 5867},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 562},
@@ -75,11 +75,14 @@ type LineBudget struct {
 // with PackageTreeBudgets for overlapping entries).
 var LineBudgets = []LineBudget{
 	// Routing-override admin, billing host composition, and tool-call
-	// classification. Keep the measured-plus-25 ratchet.
-	{Dir: "internal/core", Max: 77500},
+	// classification. Keep the measured-plus-25 ratchet. The compaction
+	// detector (internal/core/compactiondetect) adds its bounded rule
+	// catalog, heuristic, transaction state, and per-response release-text
+	// window to the core tree.
+	{Dir: "internal/core", Max: 77951},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 5867},
-	{Dir: "internal/infra/runtimebundle", Max: 11531},
+	{Dir: "internal/infra/runtimebundle", Max: 11565},
 	{Dir: "cmd/lipstd", Max: 979},
 	{Dir: "pkg/lipruntime", Max: 562},
 }

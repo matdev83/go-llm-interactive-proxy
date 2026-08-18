@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
@@ -60,6 +61,63 @@ func TestSnapshotOptions_carriesAttemptTransformsAndStreamObservers(t *testing.T
 	}
 	if len(opts.AttemptTransforms) != 1 || len(opts.StreamObserverFactories) != 1 {
 		t.Fatalf("SnapshotOptions fields missing: %+v", opts)
+	}
+}
+
+type mergeStubCompactionObserver struct{ id string }
+
+func (s mergeStubCompactionObserver) OnCompaction(context.Context, compaction.Event) error {
+	return nil
+}
+
+// TestCompactionObservers_portWiring proves the compaction observer surface is
+// additive through the single merge point, the snapshot options, and the frozen
+// snapshot accessor with defensive-copy semantics (requirements 2.1-2.2).
+func TestCompactionObservers_portWiring(t *testing.T) {
+	t.Parallel()
+	bundle := lipfeature.FeatureBundle{
+		SchemaVersion:       lipfeature.SchemaVersionV1,
+		CompactionObservers: []compaction.Observer{mergeStubCompactionObserver{id: "a"}, mergeStubCompactionObserver{id: "z"}},
+	}
+	if err := bundle.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	merged := featurebundle.MergeBundles(bundle, lipfeature.FeatureBundle{
+		SchemaVersion:       lipfeature.SchemaVersionV1,
+		CompactionObservers: []compaction.Observer{mergeStubCompactionObserver{id: "m"}},
+	})
+	if len(merged.CompactionObservers) != 3 {
+		t.Fatalf("CompactionObservers len=%d want 3", len(merged.CompactionObservers))
+	}
+	for i, want := range []string{"a", "z", "m"} {
+		got, ok := merged.CompactionObservers[i].(mergeStubCompactionObserver)
+		if !ok || got.id != want {
+			t.Fatalf("merged observer[%d]=%T/%q want %q", i, merged.CompactionObservers[i], got.id, want)
+		}
+	}
+
+	opts := extensions.SnapshotOptions{CompactionObservers: merged.CompactionObservers}
+	if len(opts.CompactionObservers) != 3 {
+		t.Fatalf("SnapshotOptions CompactionObservers len=%d want 3", len(opts.CompactionObservers))
+	}
+
+	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), opts)
+	got := snap.CompactionObservers()
+	if len(got) != 3 {
+		t.Fatalf("snapshot CompactionObservers len=%d want 3", len(got))
+	}
+	for i, want := range []string{"a", "z", "m"} {
+		observer, ok := got[i].(mergeStubCompactionObserver)
+		if !ok || observer.id != want {
+			t.Fatalf("snapshot observer[%d]=%T/%q want %q", i, got[i], observer.id, want)
+		}
+	}
+	// The accessor must return a defensive copy: mutating it cannot change the
+	// frozen snapshot backing store.
+	got[0] = nil
+	again := snap.CompactionObservers()
+	if len(again) != 3 || again[0] == nil {
+		t.Fatal("CompactionObservers() must return a defensive copy of the frozen slice")
 	}
 }
 

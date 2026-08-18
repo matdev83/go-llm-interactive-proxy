@@ -4,15 +4,15 @@ Implementation is TDD-first. Each task is deliberately bounded to no more than f
 
 ## 1. Freeze Public and Detector Contracts With RED Tests
 
-- [ ] 1.1 Define RED SDK observer and FeatureBundle tests
-  - Specify `Phase`, `Evidence`, metadata-only `Event`, `Observer`, and `NoopObserver` behavior.
+- [x] 1.1 Define RED SDK observer and FeatureBundle tests
+  - Specify `Phase`, `Evidence`, metadata-only `Event`, and `Observer` behavior.
   - Require additive `FeatureBundle.CompactionObservers`, merge ordering, and snapshot defensive-copy/freeze semantics.
   - Prove callback error and panic are fail-open and one listener cannot suppress later listeners.
   - Prove event payload exposes no canonical/raw request or response content.
   - _Requirements: 1.1-1.4, 2.1-2.6, 8.1, 8.3_
   - _Validation: `go test ./pkg/lipsdk/... ./internal/featurebundle/... ./internal/core/extensions/...`_
 
-- [ ] 1.2 Define RED strict rule-matrix tests
+- [x] 1.2 Define RED strict rule-matrix tests
   - Create table-driven positive cases for every versioned rule in `research.md`, including explicit canonical compact operation/item.
   - Add near-miss negatives for ordinary summarization, no-tools calls, partial marker overlap, and customizable prompt portions.
   - Prove indistinguishable Pi/OpenClaw traffic keeps a shared/neutral rule identity.
@@ -20,7 +20,7 @@ Implementation is TDD-first. Each task is deliberately bounded to no more than f
   - _Requirements: 3.1, 3.3-3.7, 4.1-4.8, 8.1, 8.6_
   - _Validation: `go test ./internal/core/compactiondetect/...`_
 
-- [ ] 1.3 Define RED heuristic and transaction-state tests
+- [x] 1.3 Define RED heuristic and transaction-state tests
   - Pin deterministic request fingerprint semantics and concrete absolute/relative reduction thresholds.
   - Prove same-A-leg + retained two-item tail + removed older prefix can complete heuristically; reset/new-A-leg/near-threshold cases do not.
   - Cover `single`, `series`, and `completion-only`, including Pi/OpenClaw/Gemini/Aider repeated utility calls.
@@ -30,7 +30,7 @@ Implementation is TDD-first. Each task is deliberately bounded to no more than f
 
 ## 2. Implement the Minimal SDK and Detector
 
-- [ ] 2.1 Implement typed compaction observer surface
+- [x] 2.1 Implement typed compaction observer surface
   - Add `pkg/lipsdk/compaction` types exactly as frozen by 1.1.
   - Add observer slice to FeatureBundle, single merge point, and frozen snapshot accessor.
   - Add a small ordered dispatcher that isolates panic/error and never mutates traffic.
@@ -38,7 +38,7 @@ Implementation is TDD-first. Each task is deliberately bounded to no more than f
   - _Requirements: 1.1-1.6, 2.1-2.6, 8.2-8.3_
   - _Design: Public SDK Contract; Observer Dispatch_
 
-- [ ] 2.2 Implement canonical strict/signature rule catalog
+- [x] 2.2 Implement canonical strict/signature rule catalog
   - Add concrete `internal/core/compactiondetect` detector with static versioned rule table and explicit match functions.
   - Reuse `lipapi.NormalizedItems`/walkers plus existing operation/item semantics; add no provider DTO imports.
   - Implement the primary eight-agent rule families plus Gemini/Roo/Aider/Crush extras and near-miss-safe conjunction matching.
@@ -46,7 +46,7 @@ Implementation is TDD-first. Each task is deliberately bounded to no more than f
   - _Requirements: 3.1, 3.3-3.7, 4.1-4.8, 8.2_
   - _Design: Core Detector; Strict Detection; Protocol Compatibility Boundary_
 
-- [ ] 2.3 Implement bounded A-leg heuristic and transaction state
+- [x] 2.3 Implement bounded A-leg heuristic and transaction state
   - Add process-safe `ALegID -> legState` map with one minimal mutex and deterministic transaction IDs.
   - Store only counts/timestamps/bounded SHA-256 semantic hashes and transaction metadata.
   - Implement conservative history comparison and strict-over-heuristic precedence.
@@ -56,7 +56,7 @@ Implementation is TDD-first. Each task is deliberately bounded to no more than f
 
 ## 3. Wire Detection Into Existing Runtime Choke Points
 
-- [ ] 3.1 Make detector process-owned across generations
+- [x] 3.1 Make detector process-owned across generations
   - Construct one detector in `runtimebundle.ProcessServices` and pass a non-owning reference into generated runtime executors.
   - Preserve nil/no-op behavior where process services are absent in focused tests.
   - Add generation-rebuild test proving one A-leg fingerprint/active transaction survives runtime snapshot replacement.
@@ -64,7 +64,7 @@ Implementation is TDD-first. Each task is deliberately bounded to no more than f
   - _Requirements: 7.1-7.2, 7.5-7.6, 8.6_
   - _Design: Lifetime, Bounds, and Concurrency_
 
-- [ ] 3.2 Integrate request detection only after successful upstream open
+- [x] 3.2 Integrate request detection only after successful upstream open
   - Analyze/store the effective canonical baseline associated with authoritative A-leg/trace correlation.
   - Invoke `RequestOpened` after initial backend Open succeeds; dispatch returned events to the frozen observer set.
   - Ensure replacement/failover B-leg opens for the same logical request cannot duplicate start/transaction state.
@@ -72,7 +72,7 @@ Implementation is TDD-first. Each task is deliberately bounded to no more than f
   - _Requirements: 3.1-3.2, 3.5, 4.6, 5.1, 8.3, 8.5_
   - _Design: Request-side Flow_
 
-- [ ] 3.3 Integrate response detection at the final canonical release seam
+- [x] 3.3 Integrate response detection at the final canonical release seam
   - Route every event actually returned by `retryRecvStream` through one observation helper after existing finalizer/reactor/hook/gate/recovery selection.
   - Feed released event plus A-leg/B-leg/attempt correlation to `ResponseReleased`, dispatching derived events fail-open.
   - Prove live, gated, tool-finalizer, synthesized/recovery drain paths are observed exactly once and the returned canonical event is byte/field equivalent.

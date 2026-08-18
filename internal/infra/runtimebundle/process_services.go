@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
@@ -246,6 +247,10 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		in.Cfg.Server.EffectiveMaxInflightDecodeBytes(),
 	)
 	ps.MeteringQuerier = in.Opts.Production.MeteringQuerier
+
+	// Process-owned, pure in-memory observational state; survives generation
+	// replacement, needs no closer or database (requirements 7.1-7.2, 7.6).
+	ps.CompactionDetector = compactiondetect.New(compactiondetect.Config{})
 
 	// One-time prune after all process-owned Open/Claim paths complete. Candidate
 	// compilation must remain read-only with respect to the process pool registry.

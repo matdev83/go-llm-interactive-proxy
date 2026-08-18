@@ -165,6 +165,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		AccountingStores:   ps.accountingStores,
 		Metering:           ps.meteringRT,
 		BackendIdentities:  backendIDs,
+		CompactionDetector: ps.CompactionDetector,
 	})
 	if err != nil {
 		return nil, fail(err)

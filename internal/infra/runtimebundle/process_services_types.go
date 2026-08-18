@@ -8,6 +8,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
@@ -64,6 +65,8 @@ type ProcessServices struct {
 	TerminalWorkRegistry  *terminalworkapp.Registry
 	TerminalWorkQueries   *terminalworkapp.QueryService
 	TerminalWorkMetrics   *terminalworkapp.MetricsObserver
+	// Process-owned compaction detector shared by all runtime generations (7.1).
+	CompactionDetector *compactiondetect.Detector
 
 	// Internal handles required by candidate compilation (non-API).
 	persistence       *persistenceRuntime

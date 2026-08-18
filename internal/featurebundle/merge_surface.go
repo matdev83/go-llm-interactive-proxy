@@ -3,6 +3,7 @@ package featurebundle
 import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -46,6 +47,7 @@ type MergedFeatureSurface struct {
 	UsageObservers                   []usage.Observer
 	RawCaptureSinks                  []traffic.RawCaptureSink
 	TrafficRedactors                 []traffic.Redactor
+	CompactionObservers              []compaction.Observer
 	SecretGuards                     []secretguard.Guard
 }
 
@@ -79,6 +81,7 @@ func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) {
 	m.UsageObservers = append(m.UsageObservers, b.UsageObservers...)
 	m.RawCaptureSinks = append(m.RawCaptureSinks, b.RawCaptureSinks...)
 	m.TrafficRedactors = append(m.TrafficRedactors, b.TrafficRedactors...)
+	m.CompactionObservers = append(m.CompactionObservers, b.CompactionObservers...)
 	m.SecretGuards = append(m.SecretGuards, b.SecretGuards...)
 }
 
