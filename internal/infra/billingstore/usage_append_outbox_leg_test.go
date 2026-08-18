@@ -2,33 +2,20 @@ package billingstore
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 )
 
-func TestSQLiteUsageAppendOutboxRecoversFailedLegAppend(t *testing.T) {
-	store := newSQLiteTestStore(t)
+func TestSQLiteUsageAppendOutboxDrainReplaysLeg(t *testing.T) {
+	store := newLegacyOutboxTestStore(t)
 	ctx := context.Background()
 	call := testOutboxCall(t)
 	leg := testOutboxLeg(t, call.CallID)
-	appendErr := errors.New("temporary leg database I/O")
-	appender, err := billing.NewRetryingCallLegUsageAppender(
-		billing.CallLegUsageAppenderFunc(func(context.Context, billing.CallLegUsageRecord) error { return appendErr }),
-		store,
-	)
-	if err != nil {
+	if err := store.EnqueueCallLegUsageAppend(ctx, leg, "legacy terminal fallback"); err != nil {
 		t.Fatal(err)
 	}
-	if err := appender.AppendCallLegUsage(ctx, leg); !errors.Is(err, appendErr) {
-		t.Fatalf("initial leg append error = %v, want %v", err, appendErr)
-	}
-	worker, err := billing.NewUsageAppendWorker(store, store, store, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := worker.ProcessOnce(ctx); err != nil {
+	if err := store.DrainUsageAppendOutbox(ctx); err != nil {
 		t.Fatal(err)
 	}
 	sealed, err := leg.Seal()
@@ -41,5 +28,8 @@ func TestSQLiteUsageAppendOutboxRecoversFailedLegAppend(t *testing.T) {
 	}
 	if got.CallID != call.CallID || got.BLegID != leg.BLegID {
 		t.Fatalf("replayed leg = %+v, want %+v", got, leg)
+	}
+	if billing.UsageAppendLeg == "" {
+		t.Fatal("legacy leg kind must remain defined for migration decoding")
 	}
 }

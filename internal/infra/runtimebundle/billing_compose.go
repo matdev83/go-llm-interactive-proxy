@@ -16,6 +16,7 @@ var ErrComposeBillingIncomplete = errors.New("runtimebundle: billing composition
 
 type ComposeBillingInput struct {
 	Store                   billing.AuthoritativeBilling
+	TerminalUsageSink       billing.TerminalUsageSink
 	Catalog                 *billingcompose.SnapshotCatalog
 	Identity                *runtimecore.BillingIdentity // nil => PrincipalSessionIdentity
 	Currency                string
@@ -41,23 +42,15 @@ func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 	if in.ModelMaxOutput == nil {
 		return ProductionOptions{}, fmt.Errorf("%w: model max-output bound is required", ErrComposeBillingIncomplete)
 	}
+	if in.TerminalUsageSink == nil {
+		return ProductionOptions{}, fmt.Errorf("%w: terminal usage sink is required", ErrComposeBillingIncomplete)
+	}
 	if !in.Catalog.HasDefaults() {
 		return ProductionOptions{}, fmt.Errorf("%w: catalog defaults are required", ErrComposeBillingIncomplete)
-	}
-	callLegAppender, ok := in.Store.(billing.CallLegUsageAppender)
-	if !ok {
-		return ProductionOptions{}, fmt.Errorf("%w: store must implement durable call-leg usage append", ErrComposeBillingIncomplete)
 	}
 	exposureStore, ok := in.Store.(billing.ExposureAdmissionStore)
 	if !ok {
 		return ProductionOptions{}, fmt.Errorf("%w: store must implement atomic exposure admission", ErrComposeBillingIncomplete)
-	}
-	callAppender, ok := in.Store.(billing.CallUsageAppender)
-	if !ok {
-		return ProductionOptions{}, fmt.Errorf("%w: store must implement durable call usage append", ErrComposeBillingIncomplete)
-	}
-	if _, ok := in.Store.(billing.UsageAppendOutbox); !ok {
-		return ProductionOptions{}, fmt.Errorf("%w: store must implement durable usage append outbox", ErrComposeBillingIncomplete)
 	}
 	creditStore, ok := in.Store.(billing.CreditScreenStore)
 	if !ok {
@@ -86,8 +79,7 @@ func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 		return ProductionOptions{}, fmt.Errorf("%w: provider-cost resolver: %w", ErrComposeBillingIncomplete, err)
 	}
 	return ProductionOptions{
-		BillingCallLegAppender:      callLegAppender,
-		BillingCallUsageAppender:    callAppender,
+		BillingTerminalUsageSink:    in.TerminalUsageSink,
 		BillingCreditGate:           billing.CheapCreditScreen{Store: creditStore, Currency: in.Currency, MinPreRouteHeadroomNano: in.MinPreRouteHeadroomNano},
 		BillingExposureAdmission:    adapter,
 		BillingStore:                in.Store,

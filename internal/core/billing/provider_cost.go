@@ -37,9 +37,8 @@ func RateProviderCost(leg CallLegUsageRecord, rates OperatorRateSet, currency st
 	if !providerAcceptedEvidence(sealed.Evidence) {
 		return OperatorCostResult{LURKey: sealed.Key, Amount: Money{Currency: currency}, AmountPresent: true, Reconciled: true}, nil
 	}
-	nested := LegUsageRecord{Key: sealed.Key, ALegID: sealed.ALegID, BLegID: sealed.BLegID, BackendID: sealed.BackendID, ProviderID: sealed.ProviderID, ModelID: sealed.ModelID, Evidence: sealed.Evidence, OperatorRateRef: sealed.OperatorRateRef}
 	rate, found := rates.Resolve(sealed.OperatorRateRef)
-	amount, reason, ok := fallbackOperatorCost(nested, rate, found, currency)
+	amount, reason, ok := fallbackOperatorCost(sealed, rate, found, currency)
 	if !ok {
 		return OperatorCostResult{LURKey: sealed.Key, Amount: Money{Currency: currency}, UnreconciledReason: reason}, fmt.Errorf("%w: %s", ErrUnreconciledCost, reason)
 	}

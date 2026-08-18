@@ -18,9 +18,9 @@ import (
 
 func TestBillingLegHandoffIsTerminalOnlyAndIdempotent(t *testing.T) {
 	var mu sync.Mutex
-	var records []billing.LegUsageRecord
+	var records []billing.CallLegUsageRecord
 	executor := &Executor{BillingRuntime: BillingRuntime{
-		BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+		BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
 			mu.Lock()
 			records = append(records, record)
 			mu.Unlock()
@@ -62,7 +62,7 @@ func TestBillingLegHandoffIsTerminalOnlyAndIdempotent(t *testing.T) {
 		t.Fatalf("shadow records = %d, want exactly one", len(records))
 	}
 	got := records[0]
-	if got.ALegID != "a-1" || got.BLegID != "b-2" || got.Seq != 2 {
+	if got.ALegID != "a-1" || got.BLegID != "b-2" || got.AttemptSeq != 2 {
 		t.Fatalf("lineage = %+v", got)
 	}
 	if got.BackendID != "backend-b" || got.ProviderID != "backend-b" || got.ModelID != "model-b" {
@@ -81,7 +81,7 @@ func TestBillingLegHandoffIsTerminalOnlyAndIdempotent(t *testing.T) {
 
 func TestBillingLegObserverPanicCannotChangeTerminalResult(t *testing.T) {
 	executor := &Executor{BillingRuntime: BillingRuntime{
-		BillingLegObserver: BillingLegObserverFunc(func(context.Context, billing.LegUsageRecord) {
+		BillingLegObserver: BillingLegObserverFunc(func(context.Context, billing.CallLegUsageRecord) {
 			panic("observer must be isolated")
 		}),
 	}}
@@ -98,9 +98,9 @@ func TestBillingLegObserverPanicCannotChangeTerminalResult(t *testing.T) {
 }
 
 func TestBillingLegHandoffCoversSequentialReplacementBLegs(t *testing.T) {
-	var records []billing.LegUsageRecord
+	var records []billing.CallLegUsageRecord
 	executor := &Executor{BillingRuntime: BillingRuntime{
-		BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+		BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
 			records = append(records, record)
 		}),
 	}}
@@ -134,7 +134,7 @@ func TestBillingLegHandoffCoversSequentialReplacementBLegs(t *testing.T) {
 
 func TestBillingLegUsesFinalizeBillingWhenSupported(t *testing.T) {
 	var finalizeCalls int
-	var records []billing.LegUsageRecord
+	var records []billing.CallLegUsageRecord
 	executor := &Executor{
 		CoreRuntime: CoreRuntime{
 			Backends: map[string]execbackend.Backend{
@@ -160,7 +160,7 @@ func TestBillingLegUsesFinalizeBillingWhenSupported(t *testing.T) {
 			},
 		},
 		BillingRuntime: BillingRuntime{
-			BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+			BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
 				records = append(records, record)
 			}),
 		},
@@ -195,7 +195,7 @@ func TestBillingLegUsesFinalizeBillingWhenSupported(t *testing.T) {
 }
 
 func TestBillingLegPreservesStreamAuthoritativeZeroCostAcrossFinalize(t *testing.T) {
-	var records []billing.LegUsageRecord
+	var records []billing.CallLegUsageRecord
 	executor := &Executor{
 		CoreRuntime: CoreRuntime{
 			Backends: map[string]execbackend.Backend{
@@ -217,7 +217,7 @@ func TestBillingLegPreservesStreamAuthoritativeZeroCostAcrossFinalize(t *testing
 			},
 		},
 		BillingRuntime: BillingRuntime{
-			BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+			BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
 				records = append(records, record)
 			}),
 		},
@@ -263,7 +263,7 @@ func TestBillingLegPreservesStreamAuthoritativeZeroCostAcrossFinalize(t *testing
 }
 
 func TestBillingLegFallsBackWhenFinalizeBillingFails(t *testing.T) {
-	var records []billing.LegUsageRecord
+	var records []billing.CallLegUsageRecord
 	executor := &Executor{
 		CoreRuntime: CoreRuntime{
 			Backends: map[string]execbackend.Backend{
@@ -275,7 +275,7 @@ func TestBillingLegFallsBackWhenFinalizeBillingFails(t *testing.T) {
 			},
 		},
 		BillingRuntime: BillingRuntime{
-			BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+			BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
 				records = append(records, record)
 			}),
 		},
@@ -300,9 +300,9 @@ func TestBillingLegFallsBackWhenFinalizeBillingFails(t *testing.T) {
 }
 
 func TestBillingLegUsesDistinctProviderParamWhenPresent(t *testing.T) {
-	var got billing.LegUsageRecord
+	var got billing.CallLegUsageRecord
 	executor := &Executor{BillingRuntime: BillingRuntime{
-		BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+		BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
 			got = record
 		}),
 	}}
@@ -325,9 +325,9 @@ func TestBillingLegUsesDistinctProviderParamWhenPresent(t *testing.T) {
 }
 
 func TestBillingLegEmptyBLegIDUsesColonFreeSyntheticID(t *testing.T) {
-	var got billing.LegUsageRecord
+	var got billing.CallLegUsageRecord
 	executor := &Executor{BillingRuntime: BillingRuntime{
-		BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+		BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
 			got = record
 		}),
 	}}
@@ -349,9 +349,9 @@ func TestBillingLegEmptyBLegIDUsesColonFreeSyntheticID(t *testing.T) {
 }
 
 func TestBillingLegFallbackUsesLastUsageDeltaNotCumulativeSum(t *testing.T) {
-	var records []billing.LegUsageRecord
+	var records []billing.CallLegUsageRecord
 	executor := &Executor{BillingRuntime: BillingRuntime{
-		BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.LegUsageRecord) {
+		BillingLegObserver: BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
 			records = append(records, record)
 		}),
 	}}
@@ -407,7 +407,7 @@ func TestFinalizeBillingOncePerBLegForQuotaAndLUR(t *testing.T) {
 			},
 		},
 		BillingRuntime: BillingRuntime{
-			BillingLegObserver: BillingLegObserverFunc(func(context.Context, billing.LegUsageRecord) {}),
+			BillingLegObserver: BillingLegObserverFunc(func(context.Context, billing.CallLegUsageRecord) {}),
 		},
 	}
 	stream := &retryRecvStream{

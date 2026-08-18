@@ -60,12 +60,6 @@ func (s OperatorRateSet) Resolve(ref VersionRef) (OperatorRateSnapshot, bool) {
 	return OperatorRateSnapshot{}, false
 }
 
-type RatingInput struct {
-	Record          TurnUsageRecord
-	CustomerPricing PricingSnapshot
-	ModelPricing    []ModelCustomerPricing
-	CustomerPolicy  ChargePolicy
-}
 type ModelCustomerPricing struct {
 	BackendID string
 	ModelID   string
@@ -80,19 +74,19 @@ type OperatorCostResult struct {
 	UnreconciledReason string
 }
 
-func calculateCustomerCharge(record TurnUsageRecord, in RatingInput) (Money, error) {
-	selected, err := selectCustomerLegs(record.Legs, in.CustomerPolicy.Scope, record.Outcome)
+func rateCustomerCharge(legs []CallLegUsageRecord, outcome TurnOutcome, pricing PricingSnapshot, policy ChargePolicy, modelPricing []ModelCustomerPricing) (Money, error) {
+	selected, err := selectCustomerLegs(legs, policy.Scope, outcome)
 	if err != nil {
 		return Money{}, err
 	}
 	var total int64
 	for _, leg := range selected {
-		pricing, err := in.customerPricingForLeg(leg)
+		legPricing, err := customerPricingForLeg(leg, pricing, modelPricing)
 		if err != nil {
 			return Money{}, err
 		}
-		strictEvidence := record.Outcome == TurnOutcomeCompleted && leg.Surfaced == SurfacedYes
-		amount, err := chargeLeg(leg, pricing, in.CustomerPolicy, strictEvidence)
+		strictEvidence := outcome == TurnOutcomeCompleted && leg.Surfaced == SurfacedYes
+		amount, err := chargeLeg(leg, legPricing, policy, strictEvidence)
 		if err != nil {
 			return Money{}, err
 		}
@@ -101,14 +95,14 @@ func calculateCustomerCharge(record TurnUsageRecord, in RatingInput) (Money, err
 			return Money{}, err
 		}
 	}
-	return Money{Nano: total, Currency: in.CustomerPricing.Currency}, nil
+	return Money{Nano: total, Currency: pricing.Currency}, nil
 }
 
-func (in RatingInput) customerPricingForLeg(leg LegUsageRecord) (PricingSnapshot, error) {
-	if len(in.ModelPricing) == 0 {
-		return in.CustomerPricing, nil
+func customerPricingForLeg(leg CallLegUsageRecord, defaultPricing PricingSnapshot, modelPricing []ModelCustomerPricing) (PricingSnapshot, error) {
+	if len(modelPricing) == 0 {
+		return defaultPricing, nil
 	}
-	for _, card := range in.ModelPricing {
+	for _, card := range modelPricing {
 		if card.BackendID == leg.BackendID && card.ModelID == leg.ModelID {
 			return card.Pricing, nil
 		}
@@ -116,7 +110,10 @@ func (in RatingInput) customerPricingForLeg(leg LegUsageRecord) (PricingSnapshot
 	return PricingSnapshot{}, fmt.Errorf("%w: customer pricing for %s/%s", ErrRatingEvidenceMissing, leg.BackendID, leg.ModelID)
 }
 
-func selectCustomerLegs(legs []LegUsageRecord, scope ChargePolicyScope, outcome TurnOutcome) ([]LegUsageRecord, error) {
+// selectCustomerLegs filters provider-accepted customer evidence before scope
+// selection. In particular, all-potential means every accepted evidence leg,
+// never a planned, rejected, never-started, or evidence-unavailable leg.
+func selectCustomerLegs(legs []CallLegUsageRecord, scope ChargePolicyScope, outcome TurnOutcome) ([]CallLegUsageRecord, error) {
 	accepted := acceptedCustomerLegs(legs)
 	if scope == ChargeAllPotentialLegs {
 		return accepted, nil
@@ -124,8 +121,8 @@ func selectCustomerLegs(legs []LegUsageRecord, scope ChargePolicyScope, outcome 
 	if outcome != TurnOutcomeCompleted {
 		return oneLogicalAcceptedTurn(accepted)
 	}
-	selected := make([]LegUsageRecord, 0, len(legs))
-	for _, leg := range legs {
+	selected := make([]CallLegUsageRecord, 0, len(accepted))
+	for _, leg := range accepted {
 		if leg.Surfaced == SurfacedYes {
 			selected = append(selected, leg)
 		}
@@ -133,8 +130,8 @@ func selectCustomerLegs(legs []LegUsageRecord, scope ChargePolicyScope, outcome 
 	return selected, nil
 }
 
-func acceptedCustomerLegs(legs []LegUsageRecord) []LegUsageRecord {
-	accepted := make([]LegUsageRecord, 0, len(legs))
+func acceptedCustomerLegs(legs []CallLegUsageRecord) []CallLegUsageRecord {
+	accepted := make([]CallLegUsageRecord, 0, len(legs))
 	for _, leg := range legs {
 		if providerAcceptedEvidence(leg.Evidence) {
 			accepted = append(accepted, leg)
@@ -148,11 +145,11 @@ func acceptedCustomerLegs(legs []LegUsageRecord) []LegUsageRecord {
 // no order. Without a surfaced leg the latest accepted attempt is chosen using
 // the persisted B2BUA sequence; when the sequence is unknown for more than one
 // accepted leg the selection is indeterminate and fails closed.
-func oneLogicalAcceptedTurn(accepted []LegUsageRecord) ([]LegUsageRecord, error) {
+func oneLogicalAcceptedTurn(accepted []CallLegUsageRecord) ([]CallLegUsageRecord, error) {
 	if len(accepted) == 0 {
 		return accepted, nil
 	}
-	surfaced := make([]LegUsageRecord, 0, 1)
+	surfaced := make([]CallLegUsageRecord, 0, 1)
 	for _, leg := range accepted {
 		if leg.Surfaced == SurfacedYes {
 			surfaced = append(surfaced, leg)
@@ -165,17 +162,17 @@ func oneLogicalAcceptedTurn(accepted []LegUsageRecord) ([]LegUsageRecord, error)
 		return accepted, nil
 	}
 	for _, leg := range accepted {
-		if leg.Seq <= 0 {
+		if leg.AttemptSeq <= 0 {
 			return nil, fmt.Errorf("%w: interrupted call has %d accepted legs and requires the latest accepted attempt", ErrBillingAttemptSequenceUnknown, len(accepted))
 		}
 	}
 	best := accepted[0]
 	for _, leg := range accepted[1:] {
-		if leg.Seq > best.Seq {
+		if leg.AttemptSeq > best.AttemptSeq {
 			best = leg
 		}
 	}
-	return []LegUsageRecord{best}, nil
+	return []CallLegUsageRecord{best}, nil
 }
 
 func providerAcceptedEvidence(e FinalBillingEvidence) bool {
@@ -186,7 +183,7 @@ func providerAcceptedEvidence(e FinalBillingEvidence) bool {
 		e.CacheWriteTokens.Present || e.ReasoningTokens.Present || e.TotalTokens.Present
 }
 
-func chargeLeg(leg LegUsageRecord, pricing PricingSnapshot, policy ChargePolicy, strictEvidence bool) (int64, error) {
+func chargeLeg(leg CallLegUsageRecord, pricing PricingSnapshot, policy ChargePolicy, strictEvidence bool) (int64, error) {
 	var total int64
 	add := func(amount int64) error {
 		var err error
@@ -199,7 +196,7 @@ func chargeLeg(leg LegUsageRecord, pricing PricingSnapshot, policy ChargePolicy,
 		}
 		if !qty.Present {
 			if strictEvidence {
-				return fmt.Errorf("%w: %s tokens for LUR %q", ErrRatingEvidenceMissing, dim, leg.BLegID)
+				return fmt.Errorf("%w: %s tokens for call leg %q", ErrRatingEvidenceMissing, dim, leg.BLegID)
 			}
 			return nil
 		}
@@ -247,7 +244,7 @@ func authoritativeProviderCost(e FinalBillingEvidence) bool {
 	return e.Cost.Present && e.Authority == EvidenceAuthorityAuthoritative
 }
 
-func fallbackOperatorCost(leg LegUsageRecord, rate OperatorRateSnapshot, found bool, currency string) (int64, string, bool) {
+func fallbackOperatorCost(leg CallLegUsageRecord, rate OperatorRateSnapshot, found bool, currency string) (int64, string, bool) {
 	if !found || rate.Validate() != nil || rate.Currency != currency {
 		return 0, "exact_operator_rate_unavailable", false
 	}

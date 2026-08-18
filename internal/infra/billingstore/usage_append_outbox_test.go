@@ -2,6 +2,7 @@ package billingstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -9,57 +10,115 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 )
 
-func TestSQLiteUsageAppendOutboxRecoversFailedCallAppend(t *testing.T) {
+func ensureLegacyUsageAppendOutbox(t *testing.T, store *DurableStore) {
+	t.Helper()
+	if err := usageAppendOutboxSchemaUp(context.Background(), store.db); err != nil {
+		t.Fatalf("create historical outbox fixture: %v", err)
+	}
+}
+
+func newLegacyOutboxTestStore(t *testing.T) *DurableStore {
 	store := newSQLiteTestStore(t)
+	ensureLegacyUsageAppendOutbox(t, store)
+	return store
+}
+
+func TestSQLiteUsageAppendOutboxCutoverDropsOnlyAfterDrain(t *testing.T) {
+	store := newLegacyOutboxTestStore(t)
 	ctx := context.Background()
 	call := testOutboxCall(t)
-	appendErr := errors.New("temporary database I/O")
-	first := true
-	appender, err := billing.NewRetryingCallUsageAppender(
-		billing.CallUsageAppenderFunc(func(context.Context, billing.CallUsageRecord) error {
-			if first {
-				first = false
-				return appendErr
-			}
-			return store.AppendCallUsage(ctx, call)
-		}),
-		store,
-	)
-	if err != nil {
+	if err := store.EnqueueCallUsageAppend(ctx, call, "legacy terminal fallback"); err != nil {
 		t.Fatal(err)
 	}
-	if err := appender.AppendCallUsage(ctx, call); !errors.Is(err, appendErr) {
-		t.Fatalf("initial append error = %v, want %v", err, appendErr)
-	}
-	work, err := store.ListPendingUsageAppendWork(ctx, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(work) != 1 || work[0].Kind != billing.UsageAppendCall {
-		t.Fatalf("pending work = %+v, want one call append", work)
-	}
-
-	worker, err := billing.NewUsageAppendWorker(store, store, store, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := worker.ProcessOnce(ctx); err != nil {
+	if err := store.CutoverUsageAppendOutbox(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.GetCallUsage(ctx, call.CallID); err != nil {
-		t.Fatalf("replayed call usage: %v", err)
+		t.Fatalf("drained call = %v", err)
 	}
-	work, err = store.ListPendingUsageAppendWork(ctx, 10)
+	var tables int
+	if err := store.db.NewRaw(`SELECT COUNT(1) FROM sqlite_master WHERE type='table' AND name='usage_append_outbox'`).Scan(ctx, &tables); err != nil {
+		t.Fatal(err)
+	}
+	if tables != 0 {
+		t.Fatalf("legacy outbox table still exists after cutover")
+	}
+}
+
+func TestSQLiteUsageAppendOutboxDrainReplaysDeferredRows(t *testing.T) {
+	store := newLegacyOutboxTestStore(t)
+	ctx := context.Background()
+	call := testOutboxCall(t)
+	if err := store.EnqueueCallUsageAppend(ctx, call, "deferred"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeferUsageAppend(ctx, mustCallKey(t, call), "temporary outage"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DrainUsageAppendOutbox(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if unresolved, err := store.UsageAppendOutboxUnresolved(ctx); err != nil || unresolved != 0 {
+		t.Fatalf("unresolved deferred rows = %d, err=%v", unresolved, err)
+	}
+}
+
+func TestSQLiteUsageAppendOutboxDrainPreservesCurrentRecords(t *testing.T) {
+	store := newLegacyOutboxTestStore(t)
+	ctx := context.Background()
+	call := testOutboxCall(t)
+	if err := store.EnqueueCallUsageAppend(ctx, call, "legacy terminal fallback"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DrainUsageAppendOutbox(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetCallUsage(ctx, call.CallID); err != nil {
+		t.Fatalf("drained call = %v", err)
+	}
+	if unresolved, err := store.UsageAppendOutboxUnresolved(ctx); err != nil || unresolved != 0 {
+		t.Fatalf("unresolved = %d, err=%v", unresolved, err)
+	}
+}
+
+func TestSQLiteUsageAppendOutboxDrainBlocksReplayConflict(t *testing.T) {
+	store := newLegacyOutboxTestStore(t)
+	ctx := context.Background()
+	call := testOutboxCall(t)
+	if err := store.AppendCallUsage(ctx, call); err != nil {
+		t.Fatal(err)
+	}
+	changed := call
+	changed.Outcome = billing.TurnOutcomeFailed
+	payload, err := json.Marshal(changed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(work) != 0 {
-		t.Fatalf("pending work after replay = %+v, want empty", work)
+	key := mustCallKey(t, changed)
+	if _, err := store.db.NewRaw(`INSERT INTO usage_append_outbox(append_key,kind,call_id,payload_json,status,attempt_count,next_attempt_at,last_error,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`, key, "call", call.CallID.String(), string(payload), "pending", 0, time.Now().UTC(), "conflicting legacy payload", time.Now().UTC(), time.Now().UTC()).Exec(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DrainUsageAppendOutbox(ctx); !errors.Is(err, ErrUsageAppendDrainBlocked) {
+		t.Fatalf("drain = %v, want blocked", err)
+	}
+	if unresolved, err := store.UsageAppendOutboxUnresolved(ctx); err != nil || unresolved != 1 {
+		t.Fatalf("unresolved = %d, err=%v; conflict must remain for reconciliation", unresolved, err)
+	}
+}
+
+func TestSQLiteUsageAppendOutboxDrainBlocksMalformedRows(t *testing.T) {
+	store := newLegacyOutboxTestStore(t)
+	ctx := context.Background()
+	if _, err := store.db.NewRaw(`INSERT INTO usage_append_outbox(append_key,kind,call_id,payload_json,status,attempt_count,next_attempt_at,last_error,created_at,updated_at) VALUES ('malformed','call','bc_00000000000000000000000000000099','{','pending',0,?,?,?,?)`, time.Now().UTC(), "", time.Now().UTC(), time.Now().UTC()).Exec(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DrainUsageAppendOutbox(ctx); !errors.Is(err, ErrUsageAppendDrainBlocked) {
+		t.Fatalf("drain = %v, want blocked", err)
 	}
 }
 
 func TestSQLiteUsageAppendOutboxListsCallAndLegAndDefersDueWork(t *testing.T) {
-	store := newSQLiteTestStore(t)
+	store := newLegacyOutboxTestStore(t)
 	ctx := context.Background()
 	call := testOutboxCall(t)
 	leg := testOutboxLeg(t, call.CallID)
@@ -108,7 +167,7 @@ func TestSQLiteUsageAppendOutboxListsCallAndLegAndDefersDueWork(t *testing.T) {
 }
 
 func TestSQLiteUsageAppendOutboxMarksReplayConflictTerminal(t *testing.T) {
-	store := newSQLiteTestStore(t)
+	store := newLegacyOutboxTestStore(t)
 	ctx := context.Background()
 	call := testOutboxCall(t)
 	if err := store.EnqueueCallUsageAppend(ctx, call, "conflict"); err != nil {
