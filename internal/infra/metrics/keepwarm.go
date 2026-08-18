@@ -83,7 +83,7 @@ func keepwarmMetricEventAllowed(event string) bool {
 		"expired", "unsafe_window", "no_schedule", "budget_unknown", "budget_exhausted",
 		"capacity", "cancel_foreground", "cancel_session_end", "cancel_disabled",
 		"cancel_arm_replacement", "cancel_quiesce", "cancel_exhausted",
-		"stale_result", "control_error", "renewed",
+		"stale_result", "control_error", "accounting_error", "renewed",
 		"still_resident", "cold_recreated", "stale", "unsupported", "control_failed",
 		"release_dropped":
 		return true

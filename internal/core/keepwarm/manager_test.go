@@ -2,7 +2,9 @@ package keepwarm
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -203,6 +205,13 @@ func TestManagerOperationIDsAreUniqueAcrossGenerations(t *testing.T) {
 	m2.renewWG.Wait()
 	if id1 == "" || id1 == id2 {
 		t.Fatalf("operation IDs = %q and %q, want distinct non-empty IDs", id1, id2)
+	}
+	parts := strings.Split(id1, ":")
+	if len(parts) != 5 || parts[0] != "keepwarm" || len(parts[1]) != 32 {
+		t.Fatalf("operation ID namespace is not a bounded process identity: %q", id1)
+	}
+	if _, err := hex.DecodeString(parts[1]); err != nil {
+		t.Fatalf("operation ID namespace is not hexadecimal: %q: %v", parts[1], err)
 	}
 	_ = m1.Quiesce(context.Background())
 	_ = m2.Quiesce(context.Background())

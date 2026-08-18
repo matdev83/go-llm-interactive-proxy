@@ -78,11 +78,23 @@ func newCacheRuntime(cfg Config, pool *credpool.Pool, noAuth bool) (*cacheRuntim
 	return runtime, nil
 }
 
+func toolsCompatibleWithRenewal(call lipapi.Call, params anthropic.MessageNewParams) bool {
+	if len(params.Tools) == 0 {
+		return true
+	}
+	switch call.ToolChoice.Mode {
+	case "", lipapi.ToolChoiceAuto:
+		return true
+	default:
+		return false
+	}
+}
+
 func (r *cacheRuntime) eligible(call lipapi.Call, params anthropic.MessageNewParams) bool {
 	if r == nil {
 		return false
 	}
-	if len(params.Tools) > 0 || call.Options.Temperature != nil || call.Options.TopP != nil || call.Options.ResponseMIMEType != "" {
+	if !toolsCompatibleWithRenewal(call, params) || call.Options.Temperature != nil || call.Options.TopP != nil || call.Options.ResponseMIMEType != "" {
 		return false
 	}
 	return !r.thinkingFromEffort || strings.TrimSpace(call.Options.ReasoningEffort) == ""

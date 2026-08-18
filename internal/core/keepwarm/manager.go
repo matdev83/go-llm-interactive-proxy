@@ -131,14 +131,12 @@ func (h *scheduleHeap) Pop() any {
 	return last
 }
 
-var managerNamespace atomic.Uint64
-
 // Manager owns provider-neutral state for one immutable runtime generation.
 // Scheduling, renewal execution, release cleanup, and observability live in
 // focused companion files so this type remains the domain aggregate rather
 // than an everything-object.
 type Manager struct {
-	namespace uint64
+	namespace string
 	mu        sync.Mutex
 	cfg       Config
 	clock     Clock
@@ -175,11 +173,15 @@ func NewManager(cfg Config, clock Clock, hooks Hooks) (*Manager, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
+	namespace, err := newManagerNamespace()
+	if err != nil {
+		return nil, fmt.Errorf("keepwarm: generate operation namespace: %w", err)
+	}
 	if clock == nil {
 		clock = RealClock{}
 	}
 	return &Manager{
-		namespace: managerNamespace.Add(1),
+		namespace: namespace,
 		cfg:       cfg, clock: clock, hooks: hooks,
 		epochs: make(map[string]*idleEpoch), disabled: make(map[string]bool),
 		releaseWake: make(chan struct{}, 1),
@@ -354,15 +356,6 @@ func (m *Manager) ArmFromCommittedTurn(input ArmInput) ArmResult {
 	return ArmResult{Armed: true, Epoch: epoch.revision, TargetCount: len(epoch.targets)}
 }
 
-func hasFinishedOSCommand(events []lipapi.ToolEvent) bool {
-	for _, event := range events {
-		if event.Kind == lipapi.ToolEventFinished && event.Category == lipapi.ToolCategoryOSCommand {
-			return true
-		}
-	}
-	return false
-}
-
 func (m *Manager) scheduleLocked(o promptcache.Observation, backend, model string, now time.Time, rev EpochRevision) (time.Time, bool, string) {
 	if o.Timing.ExpiresAt != nil {
 		expires := o.Timing.ExpiresAt.UTC()
@@ -434,6 +427,9 @@ func (m *Manager) latestDueTargetLocked(candidate *idleEpoch) (*idleEpoch, strin
 			return
 		}
 		for key, target := range epoch.targets {
+			if target.inFlight {
+				continue
+			}
 			if latest == nil || target.dueAt.After(latest.dueAt) || (target.dueAt.Equal(latest.dueAt) && target.sequence > latest.sequence) {
 				latestEpoch, latestKey, latest = epoch, key, target
 			}

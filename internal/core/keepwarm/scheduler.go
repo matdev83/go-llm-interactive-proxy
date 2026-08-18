@@ -291,7 +291,7 @@ func (m *Manager) epochsWithinBudgetLocked(epoch *idleEpoch, estimate int64) boo
 
 func (m *Manager) nextOperationLocked(epoch EpochRevision, seq uint64) string {
 	n := m.operationSeq.Add(1)
-	return fmt.Sprintf("keepwarm:%d:%d:%d:%d", m.namespace, epoch, seq, n)
+	return fmt.Sprintf("keepwarm:%s:%d:%d:%d", m.namespace, epoch, seq, n)
 }
 
 func (m *Manager) execute(parent context.Context, job *renewJob) {
