@@ -36,7 +36,7 @@ type specFile struct {
 func loadSpecJSON(t *testing.T) specFile {
 	t.Helper()
 	root := repoRoot(t)
-	rel := filepath.FromSlash(".kiro/specs/billing-architecture-final-convergence/spec.json")
+	rel := filepath.FromSlash(".kiro/specs/archive/billing-architecture-final-convergence/spec.json")
 	raw, err := os.ReadFile(filepath.Join(root, rel))
 	if err != nil {
 		t.Fatalf("read spec.json: %v", err)
