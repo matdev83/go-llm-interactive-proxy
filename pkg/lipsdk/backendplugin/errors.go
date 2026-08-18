@@ -65,4 +65,7 @@ var (
 	// ErrProxyOwnedSessionUnsupported is returned when a call carries validated
 	// session authority that the negotiated ABI cannot transport safely.
 	ErrProxyOwnedSessionUnsupported = errors.New("backendplugin: proxy-owned session ABI not negotiated")
+	// ErrPromptCacheUnsupported is returned when optional prompt-cache ABI/control
+	// is used without compatible negotiation or an implementation.
+	ErrPromptCacheUnsupported = errors.New("backendplugin: prompt-cache residency ABI unsupported")
 )

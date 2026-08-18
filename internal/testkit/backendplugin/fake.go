@@ -10,6 +10,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
 
 // Mode selects deterministic broken or valid fake plugin behavior.
@@ -56,6 +57,7 @@ type FakeService struct {
 	LastStartCall       *lipapi.Call
 	ProtocolMinor       uint32
 	ExtraFeatures       []backendplugin.Feature
+	PromptCache         bool
 }
 
 // Describe returns a minimal advertised-capability descriptor.
@@ -65,6 +67,9 @@ func (f *FakeService) Describe(ctx context.Context) (backendplugin.PluginDescrip
 	if minor == 0 {
 		minor = backendplugin.ProtocolMinorExactOpenResponsesFields
 	}
+	if f.PromptCache && minor < backendplugin.ProtocolMinorPromptCacheResidency {
+		minor = backendplugin.ProtocolMinorPromptCacheResidency
+	}
 	features := []backendplugin.Feature{
 		{Name: backendplugin.FeatureOrderedItems, Required: false},
 		{Name: backendplugin.FeatureExactOpenResponsesFields, Required: false},
@@ -72,6 +77,9 @@ func (f *FakeService) Describe(ctx context.Context) (backendplugin.PluginDescrip
 		{Name: "finalize_billing", Required: false},
 	}
 	features = append(features, f.ExtraFeatures...)
+	if f.PromptCache {
+		features = append(features, backendplugin.Feature{Name: backendplugin.FeaturePromptCacheResidency})
+	}
 	return backendplugin.PluginDescriptor{
 		ProtocolMajor: 1,
 		ProtocolMinor: minor,
@@ -161,6 +169,7 @@ func (f *fakeInstance) Resolve(ctx context.Context, modelID *string) (backendplu
 		SupportsFinalizeBilling:  true,
 		SupportsDynamicInventory: true,
 		EvidenceSource:           "fake",
+		PromptCacheProfile:       promptcache.Profile{ObservationSupported: f.svc != nil && f.svc.PromptCache, RenewalSupported: f.svc != nil && f.svc.PromptCache, LifecycleKinds: []promptcache.LifecycleKind{promptcache.LifecycleSlidingExpiry}},
 		ProfileVersion:           "1",
 	}, nil
 }
@@ -354,6 +363,27 @@ func (f *fakeInstance) Execute(stream backendplugin.ExecuteStream) error {
 		Kind: backendplugin.ServerFrameTerminal, Sequence: seq,
 		Terminal: &backendplugin.Terminal{Status: backendplugin.TerminalSuccess},
 	})
+}
+
+func (f *fakeInstance) RenewPromptCache(ctx context.Context, req promptcache.RenewRequest) (promptcache.RenewResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return promptcache.RenewResponse{}, err
+	}
+	if err := req.Validate(); err != nil {
+		return promptcache.RenewResponse{}, err
+	}
+	now := time.Now().UTC()
+	observation := promptcache.Observation{ALegID: "a", BLegID: "b", BackendInstanceID: f.id, TargetID: promptcache.TargetID(string(req.Handle)), GenerationID: "generation", Lifecycle: promptcache.LifecycleSlidingExpiry, Timing: promptcache.Timing{ObservedAt: now}, Renewable: true, Handle: append(promptcache.Handle(nil), req.Handle...)}
+	input := int64(1)
+	accounting := &promptcache.AccountingEvidence{InputTokens: &input, Presence: lipapi.UsagePresence{InputTokens: true}, Source: promptcache.AccountingSourceProviderReported, Authority: promptcache.AccountingAuthorityAuthoritative, Plane: promptcache.AccountingPlaneProviderBillable, DedupeKey: "prompt-cache:" + req.OperationID}
+	return promptcache.RenewResponse{Result: promptcache.RenewResult{Status: promptcache.Renewed, Observation: &observation}, Accounting: accounting}, nil
+}
+
+func (f *fakeInstance) ReleasePromptCache(ctx context.Context, req promptcache.ReleaseRequest) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return req.Validate()
 }
 
 func (f *fakeInstance) Close(ctx context.Context) error {

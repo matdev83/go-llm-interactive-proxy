@@ -119,13 +119,14 @@ const (
 type ServerFrameKind string
 
 const (
-	ServerFrameUnspecified        ServerFrameKind = ""
-	ServerFrameAccepted           ServerFrameKind = "accepted"
-	ServerFrameEvent              ServerFrameKind = "event"
-	ServerFrameDiagnostic         ServerFrameKind = "diagnostic"
-	ServerFrameCancelOutcome      ServerFrameKind = "cancel_outcome"
-	ServerFrameTerminal           ServerFrameKind = "terminal"
-	ServerFrameAccountingEvidence ServerFrameKind = "accounting_evidence"
+	ServerFrameUnspecified            ServerFrameKind = ""
+	ServerFrameAccepted               ServerFrameKind = "accepted"
+	ServerFrameEvent                  ServerFrameKind = "event"
+	ServerFrameDiagnostic             ServerFrameKind = "diagnostic"
+	ServerFrameCancelOutcome          ServerFrameKind = "cancel_outcome"
+	ServerFrameTerminal               ServerFrameKind = "terminal"
+	ServerFrameAccountingEvidence     ServerFrameKind = "accounting_evidence"
+	ServerFramePromptCacheObservation ServerFrameKind = "prompt_cache_observation"
 )
 
 type AccountingSource string

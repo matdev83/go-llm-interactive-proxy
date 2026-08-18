@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	backendpluginv1 "github.com/matdev83/go-llm-interactive-proxy/api/backendplugin/v1"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -273,6 +274,56 @@ func (s *GRPCServer) CountTokens(ctx context.Context, req *backendpluginv1.Count
 }
 
 // FinalizeBilling delegates when the instance implements BillingFinalizer.
+func (s *GRPCServer) RenewPromptCache(ctx context.Context, req *backendpluginv1.RenewPromptCacheRequest) (*backendpluginv1.RenewPromptCacheResponse, error) {
+	inst, release, neg, err := s.acquire(req.GetInstanceId())
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	if !PromptCacheNegotiated(neg) {
+		return nil, status.Error(codes.FailedPrecondition, ErrPromptCacheUnsupported.Error())
+	}
+	controller, ok := inst.(PromptCacheController)
+	if !ok {
+		return nil, status.Error(codes.FailedPrecondition, ErrPromptCacheUnsupported.Error())
+	}
+	in := promptcache.RenewRequest{Handle: promptcache.Handle(append([]byte(nil), req.GetHandle()...)), OperationID: req.GetOperationId()}
+	if err := in.Validate(); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	result, err := controller.RenewPromptCache(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	if err := result.Validate(); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	return PromptCacheRenewResponseToProto(result)
+}
+
+func (s *GRPCServer) ReleasePromptCache(ctx context.Context, req *backendpluginv1.ReleasePromptCacheRequest) (*backendpluginv1.ReleasePromptCacheResponse, error) {
+	inst, release, neg, err := s.acquire(req.GetInstanceId())
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	if !PromptCacheNegotiated(neg) {
+		return nil, status.Error(codes.FailedPrecondition, ErrPromptCacheUnsupported.Error())
+	}
+	controller, ok := inst.(PromptCacheController)
+	if !ok {
+		return nil, status.Error(codes.FailedPrecondition, ErrPromptCacheUnsupported.Error())
+	}
+	in := promptcache.ReleaseRequest{Handle: promptcache.Handle(append([]byte(nil), req.GetHandle()...))}
+	if err := in.Validate(); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if err := controller.ReleasePromptCache(ctx, in); err != nil {
+		return nil, err
+	}
+	return &backendpluginv1.ReleasePromptCacheResponse{}, nil
+}
+
 func (s *GRPCServer) FinalizeBilling(ctx context.Context, req *backendpluginv1.FinalizeBillingRequest) (*backendpluginv1.FinalizeBillingResponse, error) {
 	inst, release, _, err := s.acquire(req.GetInstanceId())
 	if err != nil {
@@ -325,7 +376,7 @@ func (s *GRPCServer) Execute(stream backendpluginv1.BackendPlugin_ExecuteServer)
 	if err := RequireExactOpenResponsesABISupport(neg, call); err != nil {
 		return status.Error(codes.FailedPrecondition, err.Error())
 	}
-	adapter := &grpcExecuteStream{ctx: stream.Context(), stream: stream, pending: &frame}
+	adapter := &grpcExecuteStream{ctx: stream.Context(), stream: stream, pending: &frame, negotiation: neg}
 	return inst.Execute(adapter)
 }
 
@@ -385,9 +436,10 @@ func isMalformedNegotiateErr(err error) bool {
 }
 
 type grpcExecuteStream struct {
-	ctx     context.Context
-	stream  backendpluginv1.BackendPlugin_ExecuteServer
-	pending *ClientFrame
+	ctx         context.Context
+	stream      backendpluginv1.BackendPlugin_ExecuteServer
+	pending     *ClientFrame
+	negotiation Negotiation
 }
 
 func (g *grpcExecuteStream) Context() context.Context { return g.ctx }
@@ -413,6 +465,9 @@ func (g *grpcExecuteStream) Recv() (ClientFrame, error) {
 }
 
 func (g *grpcExecuteStream) Send(frame ServerFrame) error {
+	if frame.Kind == ServerFramePromptCacheObservation && !PromptCacheNegotiated(g.negotiation) {
+		return ErrPromptCacheUnsupported
+	}
 	if err := ValidateServerFrameBounds(frame); err != nil {
 		return err
 	}

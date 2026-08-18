@@ -13,6 +13,7 @@ import (
 
 	backendpluginv1 "github.com/matdev83/go-llm-interactive-proxy/api/backendplugin/v1"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -72,7 +73,7 @@ func DialConfiguredSession(ctx context.Context, conn net.Conn, instanceID, facto
 	cleanup := func() { _ = gc.Close() }
 	client := backendpluginv1.NewBackendPluginClient(gc)
 	offer := backendplugin.ProtocolOffer{
-		Major: 1, Minor: backendplugin.ProtocolMinorSemanticExtensions,
+		Major: 1, Minor: backendplugin.ProtocolMinorPromptCacheResidency,
 		Features: []backendplugin.Feature{
 			{Name: backendplugin.FeatureExactReasoningParts},
 			{Name: backendplugin.FeatureOrderedItems},
@@ -80,6 +81,7 @@ func DialConfiguredSession(ctx context.Context, conn net.Conn, instanceID, facto
 			{Name: backendplugin.FeatureProxyOwnedSessionID},
 			{Name: backendplugin.FeatureAccountingEvidence},
 			{Name: backendplugin.FeatureSemanticExtensions},
+			{Name: backendplugin.FeaturePromptCacheResidency},
 		},
 		DisableTransportRetries: true,
 	}
@@ -92,6 +94,7 @@ func DialConfiguredSession(ctx context.Context, conn net.Conn, instanceID, facto
 			{Name: backendplugin.FeatureProxyOwnedSessionID},
 			{Name: backendplugin.FeatureAccountingEvidence},
 			{Name: backendplugin.FeatureSemanticExtensions},
+			{Name: backendplugin.FeaturePromptCacheResidency},
 		},
 		DisableTransportRetries: true,
 	})
@@ -319,6 +322,33 @@ func (s *Session) CountTokens(ctx context.Context, req backendplugin.CountTokens
 	return backendplugin.CountTokensResponseFromProto(resp)
 }
 
+// RenewPromptCache forwards the optional instance-scoped control operation.
+func (s *Session) RenewPromptCache(ctx context.Context, req promptcache.RenewRequest) (promptcache.RenewResponse, error) {
+	if !backendplugin.PromptCacheNegotiated(s.negotiation) {
+		return promptcache.RenewResponse{Result: promptcache.RenewResult{Status: promptcache.Unsupported}}, backendplugin.ErrPromptCacheUnsupported
+	}
+	if err := req.Validate(); err != nil {
+		return promptcache.RenewResponse{}, err
+	}
+	resp, err := s.client.RenewPromptCache(ctx, &backendpluginv1.RenewPromptCacheRequest{InstanceId: s.instanceID, Handle: append([]byte(nil), req.Handle...), OperationId: req.OperationID})
+	if err != nil {
+		return promptcache.RenewResponse{}, err
+	}
+	return backendplugin.PromptCacheRenewResponseFromProto(resp)
+}
+
+// ReleasePromptCache forwards the optional local-forget operation.
+func (s *Session) ReleasePromptCache(ctx context.Context, req promptcache.ReleaseRequest) error {
+	if !backendplugin.PromptCacheNegotiated(s.negotiation) {
+		return backendplugin.ErrPromptCacheUnsupported
+	}
+	if err := req.Validate(); err != nil {
+		return err
+	}
+	_, err := s.client.ReleasePromptCache(ctx, &backendpluginv1.ReleasePromptCacheRequest{InstanceId: s.instanceID, Handle: append([]byte(nil), req.Handle...)})
+	return err
+}
+
 // FinalizeBilling forwards the optional billing-finalization operation.
 func (s *Session) FinalizeBilling(ctx context.Context, req backendplugin.FinalizeBillingRequest) (backendplugin.FinalizeBillingResponse, error) {
 	resp, err := s.client.FinalizeBilling(ctx, backendplugin.FinalizeBillingRequestToProto(req))
@@ -407,6 +437,7 @@ var _ interface {
 } = (*Session)(nil)
 
 var (
-	_ backendplugin.TokenCounter     = (*Session)(nil)
-	_ backendplugin.BillingFinalizer = (*Session)(nil)
+	_ backendplugin.TokenCounter          = (*Session)(nil)
+	_ backendplugin.BillingFinalizer      = (*Session)(nil)
+	_ backendplugin.PromptCacheController = (*Session)(nil)
 )

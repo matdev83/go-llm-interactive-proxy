@@ -34,7 +34,7 @@ func (v *StreamValidator) Push(frame ServerFrame) error {
 		v.isAccepted = true
 		v.nextSeq = 1
 		return nil
-	case ServerFrameEvent, ServerFrameDiagnostic, ServerFrameCancelOutcome, ServerFrameTerminal, ServerFrameAccountingEvidence:
+	case ServerFrameEvent, ServerFrameDiagnostic, ServerFrameCancelOutcome, ServerFrameTerminal, ServerFrameAccountingEvidence, ServerFramePromptCacheObservation:
 		if !v.isAccepted {
 			return ErrAcceptedRequired
 		}

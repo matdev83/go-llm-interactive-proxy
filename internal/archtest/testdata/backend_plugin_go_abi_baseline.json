@@ -366,6 +366,11 @@
   },
   {
     "category": "const",
+    "name": "FeaturePromptCacheResidency",
+    "detail": "FeaturePromptCacheResidency untyped string = \"prompt_cache_residency_v1\""
+  },
+  {
+    "category": "const",
     "name": "FeatureProxyOwnedSessionID",
     "detail": "FeatureProxyOwnedSessionID untyped string = \"proxy_owned_session_id\""
   },
@@ -516,6 +521,11 @@
   },
   {
     "category": "const",
+    "name": "ProtocolMinorPromptCacheResidency",
+    "detail": "ProtocolMinorPromptCacheResidency uint32 = 7"
+  },
+  {
+    "category": "const",
     "name": "ProtocolMinorProxyOwnedSessionID",
     "detail": "ProtocolMinorProxyOwnedSessionID uint32 = 4"
   },
@@ -603,6 +613,11 @@
     "category": "const",
     "name": "ServerFrameEvent",
     "detail": "ServerFrameEvent backendplugin.ServerFrameKind = \"event\""
+  },
+  {
+    "category": "const",
+    "name": "ServerFramePromptCacheObservation",
+    "detail": "ServerFramePromptCacheObservation backendplugin.ServerFrameKind = \"prompt_cache_observation\""
   },
   {
     "category": "const",
@@ -1676,6 +1691,10 @@
   },
   {
     "category": "field",
+    "name": "ResolvedProfile.PromptCacheProfile"
+  },
+  {
+    "category": "field",
     "name": "ResolvedProfile.ReasoningReplaySupported"
   },
   {
@@ -1785,6 +1804,10 @@
   {
     "category": "field",
     "name": "ServerFrame.Kind"
+  },
+  {
+    "category": "field",
+    "name": "ServerFrame.PromptCacheObservation"
   },
   {
     "category": "field",
@@ -2137,6 +2160,61 @@
   },
   {
     "category": "func",
+    "name": "PromptCacheEvidenceFromProto",
+    "detail": "func PromptCacheEvidenceFromProto(e *backendpluginv1.PromptCacheEvidence) (promptcache.CacheEvidence, error)"
+  },
+  {
+    "category": "func",
+    "name": "PromptCacheEvidenceToProto",
+    "detail": "func PromptCacheEvidenceToProto(e promptcache.CacheEvidence) (*backendpluginv1.PromptCacheEvidence, error)"
+  },
+  {
+    "category": "func",
+    "name": "PromptCacheNegotiated",
+    "detail": "func PromptCacheNegotiated(neg Negotiation) bool"
+  },
+  {
+    "category": "func",
+    "name": "PromptCacheObservationFromProto",
+    "detail": "func PromptCacheObservationFromProto(o *backendpluginv1.PromptCacheObservation) (*promptcache.Observation, error)"
+  },
+  {
+    "category": "func",
+    "name": "PromptCacheObservationToProto",
+    "detail": "func PromptCacheObservationToProto(o *promptcache.Observation) (*backendpluginv1.PromptCacheObservation, error)"
+  },
+  {
+    "category": "func",
+    "name": "PromptCacheProfileFromProto",
+    "detail": "func PromptCacheProfileFromProto(p *backendpluginv1.PromptCacheProfile) (promptcache.Profile, error)"
+  },
+  {
+    "category": "func",
+    "name": "PromptCacheProfileToProto",
+    "detail": "func PromptCacheProfileToProto(p promptcache.Profile) (*backendpluginv1.PromptCacheProfile, error)"
+  },
+  {
+    "category": "func",
+    "name": "PromptCacheRenewResponseFromProto",
+    "detail": "func PromptCacheRenewResponseFromProto(p *backendpluginv1.RenewPromptCacheResponse) (promptcache.RenewResponse, error)"
+  },
+  {
+    "category": "func",
+    "name": "PromptCacheRenewResponseToProto",
+    "detail": "func PromptCacheRenewResponseToProto(response promptcache.RenewResponse) (*backendpluginv1.RenewPromptCacheResponse, error)"
+  },
+  {
+    "category": "func",
+    "name": "PromptCacheRenewResultFromProto",
+    "detail": "func PromptCacheRenewResultFromProto(p *backendpluginv1.RenewPromptCacheResponse) (promptcache.RenewResult, *AccountingEvidence, error)"
+  },
+  {
+    "category": "func",
+    "name": "PromptCacheRenewResultToProto",
+    "detail": "func PromptCacheRenewResultToProto(r promptcache.RenewResult, accounting *AccountingEvidence) (*backendpluginv1.RenewPromptCacheResponse, error)"
+  },
+  {
+    "category": "func",
     "name": "ProtocolOfferFromNegotiateRequest",
     "detail": "func ProtocolOfferFromNegotiateRequest(p *backendpluginv1.NegotiateRequest) (ProtocolOffer, error)"
   },
@@ -2458,6 +2536,16 @@
   },
   {
     "category": "method",
+    "name": "GRPCServer.ReleasePromptCache",
+    "detail": "func (s *GRPCServer) ReleasePromptCache(ctx context.Context, req *backendpluginv1.ReleasePromptCacheRequest) (*backendpluginv1.ReleasePromptCacheResponse, error)"
+  },
+  {
+    "category": "method",
+    "name": "GRPCServer.RenewPromptCache",
+    "detail": "func (s *GRPCServer) RenewPromptCache(ctx context.Context, req *backendpluginv1.RenewPromptCacheRequest) (*backendpluginv1.RenewPromptCacheResponse, error)"
+  },
+  {
+    "category": "method",
     "name": "GRPCServer.ResolveProfile",
     "detail": "func (s *GRPCServer) ResolveProfile(ctx context.Context, req *backendpluginv1.ResolveProfileRequest) (*backendpluginv1.ResolveProfileResponse, error)"
   },
@@ -2489,6 +2577,14 @@
     "category": "method",
     "name": "ProcessSharing.Validate",
     "detail": "func (p ProcessSharing) Validate() error"
+  },
+  {
+    "category": "method",
+    "name": "PromptCacheController.ReleasePromptCache"
+  },
+  {
+    "category": "method",
+    "name": "PromptCacheController.RenewPromptCache"
   },
   {
     "category": "method",
@@ -2760,7 +2856,7 @@
   {
     "category": "struct",
     "name": "ResolvedProfile",
-    "detail": "ResolvedProfile struct {\n\tCapabilities             CapabilitySummary\n\tTransportCapabilities    TransportCapabilitySummary\n\tDialectSupport           DialectSupport\n\tReasoningReplaySupported bool\n\tRoutePrefixes            []string\n\tEnforceMaxOutput         bool\n\tMaxOutputTokens          *uint32\n\tSupportsCountTokens      bool\n\tSupportsFinalizeBilling  bool\n\tSupportsDynamicInventory bool\n\tEvidenceSource           string\n\tProfileVersion           string\n}"
+    "detail": "ResolvedProfile struct {\n\tCapabilities             CapabilitySummary\n\tTransportCapabilities    TransportCapabilitySummary\n\tDialectSupport           DialectSupport\n\tReasoningReplaySupported bool\n\tRoutePrefixes            []string\n\tEnforceMaxOutput         bool\n\tMaxOutputTokens          *uint32\n\tSupportsCountTokens      bool\n\tSupportsFinalizeBilling  bool\n\tSupportsDynamicInventory bool\n\tEvidenceSource           string\n\tProfileVersion           string\n\tPromptCacheProfile       promptcache.Profile\n}"
   },
   {
     "category": "struct",
@@ -2780,7 +2876,7 @@
   {
     "category": "struct",
     "name": "ServerFrame",
-    "detail": "ServerFrame struct {\n\tKind          ServerFrameKind\n\tSequence      uint64\n\tEvent         *CanonicalEvent\n\tDiagnostic    string\n\tCancelOutcome *CancelOutcome\n\tTerminal      *Terminal\n\tAccounting    *AccountingEvidence\n}"
+    "detail": "ServerFrame struct {\n\tKind                   ServerFrameKind\n\tSequence               uint64\n\tEvent                  *CanonicalEvent\n\tDiagnostic             string\n\tCancelOutcome          *CancelOutcome\n\tTerminal               *Terminal\n\tAccounting             *AccountingEvidence\n\tPromptCacheObservation *promptcache.Observation\n}"
   },
   {
     "category": "struct",
@@ -2896,6 +2992,16 @@
     "category": "type",
     "name": "ProcessSharing",
     "detail": "ProcessSharing string"
+  },
+  {
+    "category": "type",
+    "name": "PromptCacheController",
+    "detail": "PromptCacheController interface {\n\tRenewPromptCache(context.Context, promptcache.RenewRequest) (promptcache.RenewResponse, error)\n\tReleasePromptCache(context.Context, promptcache.ReleaseRequest) error\n}"
+  },
+  {
+    "category": "type",
+    "name": "PromptCacheObservationSource",
+    "detail": "PromptCacheObservationSource interface{ promptcache.ObservationSource }"
   },
   {
     "category": "type",
@@ -3036,6 +3142,11 @@
     "category": "var",
     "name": "ErrOversizedRawJSON",
     "detail": "ErrOversizedRawJSON"
+  },
+  {
+    "category": "var",
+    "name": "ErrPromptCacheUnsupported",
+    "detail": "ErrPromptCacheUnsupported"
   },
   {
     "category": "var",
