@@ -192,6 +192,7 @@ func buildRuntimeSnapshot(
 		UsageObserver:           usageObs,
 		RawCapture:              trafficRaw,
 		TrafficRedactors:        trafficRedactors,
+		CompactionObservers:     opts.Extensions.CompactionObservers,
 		SecretGuardPlane:        sgPlane,
 		PolicyObserver:          policyObs,
 		TimeoutBudgetSource:     budgetSrc,

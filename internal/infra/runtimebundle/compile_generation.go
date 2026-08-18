@@ -300,6 +300,7 @@ func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, processOpts
 		StreamObserverFactories:          append(merged.StreamObserverFactories[:0:0], merged.StreamObserverFactories...),
 		TrafficObservers:                 append(merged.TrafficObservers[:0:0], merged.TrafficObservers...),
 		UsageObservers:                   append(merged.UsageObservers[:0:0], merged.UsageObservers...),
+		CompactionObservers:              append(merged.CompactionObservers[:0:0], merged.CompactionObservers...),
 		RawCaptureSinks:                  append(merged.RawCaptureSinks[:0:0], merged.RawCaptureSinks...),
 		TrafficRedactors:                 append(merged.TrafficRedactors[:0:0], merged.TrafficRedactors...),
 		SecretGuards:                     append(merged.SecretGuards[:0:0], merged.SecretGuards...),

@@ -6,6 +6,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
@@ -60,6 +61,7 @@ type RequestRuntimeSnapshot struct {
 	attemptTransforms       []request.AttemptTransform
 	streamObserverFactories []response.StreamObserverFactory
 	trafficRedactors        []traffic.Redactor
+	compactionObservers     []compaction.Observer
 	secretGuardPlane        SecretGuardPlane
 	policyObserver          policydecision.Observer
 	timeoutBudget           TimeoutBudgetSource
@@ -86,7 +88,10 @@ type SnapshotOptions struct {
 	AttemptTransforms       []request.AttemptTransform
 	StreamObserverFactories []response.StreamObserverFactory
 	TrafficRedactors        []traffic.Redactor
-	SecretGuardPlane        SecretGuardPlane
+	// CompactionObservers subscribe to typed, fail-open proxy-derived compaction
+	// lifecycle observations. Nil defaults to an empty frozen slice.
+	CompactionObservers []compaction.Observer
+	SecretGuardPlane    SecretGuardPlane
 	// PolicyObserver receives normalized policy decision evidence. Nil defaults to a
 	// disabled no-op observer so deployments without policy evidence keep current request
 	// outcomes (requirements 7.6, 10.5).
@@ -141,6 +146,7 @@ func NewRequestRuntimeSnapshot(bus *hooks.Bus, opts SnapshotOptions) *RequestRun
 	attemptXforms := request.MaterializeAttemptsSorted(requireNonNilAttemptTransforms(opts.AttemptTransforms))
 	streamObs := response.MaterializeSorted(requireNonNilStreamObserverFactories(opts.StreamObserverFactories))
 	reds := traffic.MaterializeSortedRedactors(opts.TrafficRedactors)
+	compactObs := slices.Clone(opts.CompactionObservers)
 	plane := opts.SecretGuardPlane
 	// Snapshot owns cloning/sorting for secret guards (same contract as tool policies).
 	plane.Guards = secretguard.MaterializeSorted(plane.Guards)
@@ -177,6 +183,7 @@ func NewRequestRuntimeSnapshot(bus *hooks.Bus, opts SnapshotOptions) *RequestRun
 		attemptTransforms:       attemptXforms,
 		streamObserverFactories: streamObs,
 		trafficRedactors:        reds,
+		compactionObservers:     compactObs,
 		secretGuardPlane:        plane,
 		policyObserver:          polObs,
 		timeoutBudget:           budget,
@@ -364,6 +371,16 @@ func (s *RequestRuntimeSnapshot) TrafficRedactors() []traffic.Redactor {
 		return nil
 	}
 	return slices.Clone(s.trafficRedactors)
+}
+
+// CompactionObservers returns a defensive copy of the frozen compaction
+// observer slice (may be empty). Mutating the returned slice does not affect
+// the snapshot; the snapshot's internal backing slice must never be mutated.
+func (s *RequestRuntimeSnapshot) CompactionObservers() []compaction.Observer {
+	if s == nil {
+		return nil
+	}
+	return slices.Clone(s.compactionObservers)
 }
 
 // SecretGuardPlane returns a defensive copy of the SecretGuardPlane configuration
