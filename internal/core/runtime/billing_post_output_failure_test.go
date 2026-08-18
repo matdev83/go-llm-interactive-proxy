@@ -59,7 +59,6 @@ func TestBillingAppendRetryOutputPersistenceFailureAfterSuccess(t *testing.T) {
 			return billing.VersionRef{ID: "operator:test", Version: "1"}
 		},
 	}
-	ex.BillingAuthoritative = true
 	ex.BillingCreditGate = creditGateFunc(func(context.Context, string) error { return nil })
 	ex.BillingExposureAdmission = exposureAdmissionFunc(func(_ context.Context, in BillingExposureAdmissionInput) (billing.CallExposure, error) {
 		return billing.CallExposure{

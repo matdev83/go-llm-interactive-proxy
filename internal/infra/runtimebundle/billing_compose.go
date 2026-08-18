@@ -84,7 +84,6 @@ func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 		BillingExposureAdmission:    adapter,
 		BillingStore:                in.Store,
 		BillingReports:              in.Store,
-		BillingAuthoritative:        true,
 		BillingReportsPath:          in.ReportsPath,
 		BillingIdentity:             identity,
 		BillingCallRatingResolver:   callResolver,

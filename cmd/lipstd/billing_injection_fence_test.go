@@ -141,9 +141,6 @@ func assertHostHasNoInjectedBilling(t *testing.T, host *runtimebundle.Host) {
 	if host == nil {
 		t.Fatal("nil host")
 	}
-	if host.Config() != nil && host.Config().Accounting.Billing.Authoritative {
-		t.Fatal("flag-unset serve config must leave accounting.billing.authoritative unset/false")
-	}
 	if host.HasProductionBillingStore() {
 		t.Fatal("flag-unset serve must not inject BillingStore")
 	}

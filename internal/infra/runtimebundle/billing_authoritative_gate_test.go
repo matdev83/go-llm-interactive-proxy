@@ -40,13 +40,41 @@ func TestRequireAuthoritativeBillingPortsNeedsCreditGate(t *testing.T) {
 			AccountID: func(context.Context, lipapi.Call) string { return "acct" },
 		},
 	}
-	if err := requireAuthoritativeBillingPorts(prod, NewResourceLedger()); !errors.Is(err, ErrAuthoritativeBillingRequired) {
+	if err := requireCompleteBillingComposition(prod, NewResourceLedger()); !errors.Is(err, ErrAuthoritativeBillingRequired) {
 		t.Fatalf("missing CreditGate: error = %v, want ErrAuthoritativeBillingRequired", err)
 	}
 	prod.BillingCreditGate = gateStubCredit{}
 	prod.BillingTerminalUsageSink = gateStubSink{}
-	if err := requireAuthoritativeBillingPorts(prod, NewResourceLedger()); err != nil {
+	if err := requireCompleteBillingComposition(prod, NewResourceLedger()); err != nil {
 		t.Fatalf("complete ports: %v", err)
+	}
+}
+
+func TestRequireCompleteBillingCompositionRejectsEveryPartialPortSet(t *testing.T) {
+	t.Parallel()
+	complete := ProductionOptions{
+		BillingStore:             gateStubStore{},
+		BillingExposureAdmission: gateStubExposure{},
+		BillingCreditGate:        gateStubCredit{},
+		BillingTerminalUsageSink: gateStubSink{},
+		BillingIdentity: coreruntime.BillingIdentity{
+			AccountID: func(context.Context, lipapi.Call) string { return "acct" },
+		},
+	}
+	for name, mutate := range map[string]func(*ProductionOptions){
+		"store":              func(p *ProductionOptions) { p.BillingStore = nil },
+		"exposure admission": func(p *ProductionOptions) { p.BillingExposureAdmission = nil },
+		"credit gate":        func(p *ProductionOptions) { p.BillingCreditGate = nil },
+		"terminal sink":      func(p *ProductionOptions) { p.BillingTerminalUsageSink = nil },
+		"identity":           func(p *ProductionOptions) { p.BillingIdentity = coreruntime.BillingIdentity{} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := complete
+			mutate(&p)
+			if err := requireCompleteBillingComposition(p, NewResourceLedger()); !errors.Is(err, ErrAuthoritativeBillingRequired) {
+				t.Fatalf("partial %s wiring error = %v, want ErrAuthoritativeBillingRequired", name, err)
+			}
+		})
 	}
 }
 

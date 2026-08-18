@@ -12478,8 +12478,8 @@
       ],
       "marker": "TurnUsageRecord",
       "historical_readers": [],
-      "present": true,
-      "status": "planned",
+      "present": false,
+      "status": "active",
       "retiring_phase": "6.3",
       "reason": "legacy turn_usage_records table retired by forward migration after proof of no unresolved work; no isolated historical reader exists outside the current rating engine",
       "current_consumers": [
@@ -12502,8 +12502,8 @@
       ],
       "marker": "LegUsageRecord",
       "historical_readers": [],
-      "present": true,
-      "status": "planned",
+      "present": false,
+      "status": "active",
       "retiring_phase": "6.3",
       "reason": "legacy leg usage model; native rating consumes CallLegUsageRecord only; no isolated historical reader exists outside the current rating engine",
       "current_consumers": [
@@ -12524,8 +12524,8 @@
         "internal/core/billing/rating.go"
       ],
       "marker": "RatingInput",
-      "present": true,
-      "status": "planned",
+      "present": false,
+      "status": "active",
       "retiring_phase": "6.3",
       "reason": "legacy rating bridge input carrying a TurnUsageRecord Record field; no isolated historical reader exists outside the current rating engine",
       "current_consumers": [
@@ -12545,8 +12545,8 @@
         "internal/core/billing/rating.go"
       ],
       "marker": "calculateCustomerCharge",
-      "present": true,
-      "status": "planned",
+      "present": false,
+      "status": "active",
       "retiring_phase": "6.3",
       "reason": "legacy rating bridge operating on TurnUsageRecord; no isolated historical reader exists outside the current rating engine",
       "current_consumers": [
@@ -12566,8 +12566,8 @@
       ],
       "marker": "turn_usage_records",
       "historical_readers": [],
-      "present": true,
-      "status": "planned",
+      "present": false,
+      "status": "active",
       "retiring_phase": "6.3",
       "reason": "legacy turn_usage_records table retired by forward migration after proof of no unresolved work; no isolated historical reader exists, and ListCallUsage reads current usage_call_records",
       "current_consumers": [
@@ -12587,8 +12587,8 @@
       ],
       "marker": "leg_usage_records",
       "historical_readers": [],
-      "present": true,
-      "status": "planned",
+      "present": false,
+      "status": "active",
       "retiring_phase": "6.3",
       "reason": "legacy leg_usage_records table retired by forward migration; no isolated historical reader exists, and ListCallLegUsage reads current usage_leg_records",
       "current_consumers": [
@@ -12608,8 +12608,8 @@
       ],
       "marker": "usage_record_processing",
       "historical_readers": [],
-      "present": true,
-      "status": "planned",
+      "present": false,
+      "status": "active",
       "retiring_phase": "6.3",
       "reason": "legacy processing table retired with the TUR/LUR engine; no isolated historical reader exists outside the migration file",
       "current_consumers": [
@@ -12630,8 +12630,8 @@
       ],
       "marker": "Account",
       "historical_readers": [],
-      "present": true,
-      "status": "planned",
+      "present": false,
+      "status": "active",
       "retiring_phase": "4.2",
       "reason": "current Account must no longer expose ReservedNano; no isolated historical reader exists outside the current accounting path",
       "current_consumers": [
@@ -12652,8 +12652,8 @@
       ],
       "marker": "JournalBookLegacyAuthorization",
       "historical_readers": [],
-      "present": true,
-      "status": "planned",
+      "present": false,
+      "status": "active",
       "retiring_phase": "4.3",
       "reason": "authorization book must leave the current writer path; no isolated historical reader exists outside the current journal validation and reconcile path",
       "current_consumers": [
@@ -12673,8 +12673,8 @@
       ],
       "marker": "reserved_nano",
       "historical_readers": [],
-      "present": true,
-      "status": "planned",
+      "present": false,
+      "status": "active",
       "retiring_phase": "4.4",
       "reason": "always-zero reserved_nano column forward-migrated away where safe; no isolated historical reader exists outside the migration file",
       "current_consumers": [
@@ -12695,8 +12695,8 @@
       ],
       "marker": "AmountUnitMoneyNano",
       "historical_readers": [],
-      "present": true,
-      "status": "planned",
+      "present": false,
+      "status": "active",
       "retiring_phase": "5.2",
       "reason": "money unit removed from live UsageAuthority domain; no isolated historical reader exists outside the current authority path",
       "current_consumers": [
@@ -12722,8 +12722,8 @@
         "internal/core/usageauthority/domain/rule.go"
       ],
       "marker": "RuleKindBudget",
-      "present": true,
-      "status": "planned",
+      "present": false,
+      "status": "active",
       "retiring_phase": "5.4",
       "reason": "budget money rule variant retired from UsageAuthority; no isolated historical reader exists outside the current authority path",
       "current_consumers": [
@@ -12743,8 +12743,8 @@
         "internal/core/usageauthority/domain/rule.go"
       ],
       "marker": "RuleKindSpendCap",
-      "present": true,
-      "status": "planned",
+      "present": false,
+      "status": "active",
       "retiring_phase": "5.4",
       "reason": "spend_cap money rule variant retired from UsageAuthority; no isolated historical reader exists outside the current authority path",
       "current_consumers": [
@@ -12764,8 +12764,8 @@
         "internal/core/usageauthority/app/ports.go"
       ],
       "marker": "ReserveCommand",
-      "present": true,
-      "status": "planned",
+      "present": false,
+      "status": "active",
       "retiring_phase": "5.3",
       "reason": "money Spend field removed from UsageAuthority admission contract; no isolated historical reader exists outside the current authority admission path",
       "current_consumers": [
@@ -12785,8 +12785,8 @@
         "internal/core/usageauthority/app/ports.go"
       ],
       "marker": "SettleCommand",
-      "present": true,
-      "status": "planned",
+      "present": false,
+      "status": "active",
       "retiring_phase": "5.3",
       "reason": "money FinalCost field removed from UsageAuthority settlement contract; no isolated historical reader exists outside the current authority settlement path",
       "current_consumers": [
@@ -12806,8 +12806,8 @@
         "internal/core/usageauthority/app/ports.go"
       ],
       "marker": "SettleCommand",
-      "present": true,
-      "status": "planned",
+      "present": false,
+      "status": "active",
       "retiring_phase": "5.3",
       "reason": "money EstimatedCost field removed from UsageAuthority settlement contract; no isolated historical reader exists outside the current authority settlement path",
       "current_consumers": [
@@ -12828,8 +12828,8 @@
       ],
       "marker": "RetryingCallUsageAppender",
       "historical_readers": [],
-      "present": true,
-      "status": "planned",
+      "present": false,
+      "status": "active",
       "retiring_phase": "2.4",
       "reason": "retrying direct central appender deleted after spool cutover; no isolated historical reader exists outside the composition wiring",
       "current_consumers": [
@@ -12850,8 +12850,8 @@
       ],
       "marker": "RetryingCallLegUsageAppender",
       "historical_readers": [],
-      "present": true,
-      "status": "planned",
+      "present": false,
+      "status": "active",
       "retiring_phase": "2.4",
       "reason": "retrying direct central appender deleted after spool cutover; no isolated historical reader exists outside the composition wiring",
       "current_consumers": [
@@ -12872,8 +12872,8 @@
       ],
       "marker": "UsageAppendWorker",
       "historical_readers": [],
-      "present": true,
-      "status": "planned",
+      "present": false,
+      "status": "active",
       "retiring_phase": "2.4",
       "reason": "central outbox worker deleted after spool cutover; no isolated historical reader exists outside the composition wiring",
       "current_consumers": [
@@ -12894,8 +12894,8 @@
       ],
       "marker": "UsageAppendOutbox",
       "historical_readers": [],
-      "present": true,
-      "status": "planned",
+      "present": false,
+      "status": "active",
       "retiring_phase": "2.4",
       "reason": "central outbox interface deleted after spool cutover; no isolated historical reader exists outside the composition wiring",
       "current_consumers": [
@@ -12915,11 +12915,14 @@
         "internal/infra/billingstore/20260824000000_billing_usage_append_outbox.go"
       ],
       "marker": "usage_append_outbox",
-      "historical_readers": [],
-      "present": true,
-      "status": "planned",
+      "historical_readers": [
+        "internal/infra/billingstore/usage_append_outbox_store.go:UsageAppendOutbox",
+        "internal/infra/billingstore/store.go:usage_append_outbox"
+      ],
+      "present": false,
+      "status": "active",
       "retiring_phase": "2.4",
-      "reason": "central usage_append_outbox table dropped after drain and reconciliation; no isolated historical reader exists, and ListPendingUsageAppendWork reads live pending outbox work",
+      "reason": "central usage_append_outbox table is retired; listed files are isolated migration-only preserve-or-block adapters and are not runtime writers/readers",
       "current_consumers": [
         "internal/infra/billingstore/20260824000000_billing_usage_append_outbox.go:registerUsageAppendOutboxMigration"
       ],
@@ -12937,8 +12940,8 @@
         "internal/core/runtime/executor_config.go"
       ],
       "marker": "BillingRuntime",
-      "present": true,
-      "status": "planned",
+      "present": false,
+      "status": "active",
       "retiring_phase": "7.1",
       "reason": "BillingAuthoritative runtime mode selector removed for all-or-none composition; no isolated historical reader exists outside the current executor configuration",
       "current_consumers": [
@@ -12953,7 +12956,7 @@
   "planned_ratchets": [
     {
       "id": "structural_deletion",
-      "status": "planned",
+      "status": "active",
       "activation_flag": "activate_structural_deletion",
       "activation_task": "7.2",
       "requirements": [
@@ -12988,7 +12991,7 @@
     },
     {
       "id": "loc_reduction",
-      "status": "planned",
+      "status": "active",
       "activation_flag": "activate_loc_reduction",
       "activation_task": "7.2",
       "requirements": [

@@ -90,10 +90,8 @@ type AccountingConfig struct {
 	Pricing             AccountingPricingConfig    `yaml:"pricing"`
 	Authority           AccountingAuthorityConfig  `yaml:"authority"`
 	Concurrency         ConcurrencyAuthorityConfig `yaml:"concurrency"`
-	// Billing controls the TUR/journal monetary cutover. When Authoritative is
-	// true, composition must inject a BillingStore plus admission/identity/rating
-	// resolvers. Stream handlers never enrich money or write the legacy token
-	// ledger regardless of this flag.
+	// Billing contains report and terminal-spool paths for an injected
+	// composition. Billing is enabled only by complete host composition.
 	Billing AccountingBillingConfig `yaml:"billing"`
 }
 
@@ -102,12 +100,8 @@ type AccountingBillingConfig struct {
 	// SpoolPath is the stable process-state SQLite path for terminal usage
 	// durability. It must not point at an OS temporary directory in production.
 	SpoolPath string `yaml:"spool_path"`
-	// Authoritative mounts the Bun BillingStore as the sole monetary settlement
-	// authority (post-turn worker + journal/TUR reports). Protocol usage
-	// projection remains non-authoritative for money.
-	Authoritative bool `yaml:"authoritative"`
-	// ReportsPath mounts the protected billing report surface when authoritative
-	// billing is enabled. Empty selects /admin/billing.
+	// ReportsPath selects the protected billing report surface for an injected
+	// billing composition. Empty selects /admin/billing.
 	ReportsPath string `yaml:"reports_path"`
 }
 

@@ -193,7 +193,7 @@ func TestRoutingOverrideAdmin_validateRejectsMountedPathCollision(t *testing.T) 
 		{
 			name: "billingReports",
 			mut: func(c *config.Config) {
-				c.Accounting.Billing.Authoritative = true
+				c.Accounting.Billing.ReportsPath = "/admin/billing"
 				c.Routing.OverrideAdmin.PathPrefix = "/admin/billing"
 			},
 		},

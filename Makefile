@@ -1,4 +1,4 @@
-.PHONY: help test test-fast test-unit profile-only-check precommit-full test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks parity-acp-plugin parity-cursorcliacp-plugin parity-cli-acp-plugins parity-openrouter-plugin parity-hosted-compatible-plugins parity-ollama-plugins parity-opencode-plugins parity-codex-plugins parity-local-compatible-plugins test-local-compatible-plugin-modules release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install check-change-size backend-plugin-module-checks backend-plugin-absence-checks backend-plugin-security-checks backend-plugin-cross-platform-qa backend-plugin-release-gates-static backend-plugin-release-gates package-minimal package-full package-plugin-smoke docs-check knowledge-check example-config-check backend-plugin-example-check kiro-spec-check isolated-root-qa installed-plugin-smoke test-cursor-sdk-live test-cursor-sdk-live-bridge test-cursor-sdk-platform test-cursor-sdk-comparison-report tmp-clean test-openresponses-compliance test-openresponses-compliance-static
+.PHONY: help test test-fast test-unit billing-convergence-certify profile-only-check precommit-full test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks parity-acp-plugin parity-cursorcliacp-plugin parity-cli-acp-plugins parity-openrouter-plugin parity-hosted-compatible-plugins parity-ollama-plugins parity-opencode-plugins parity-codex-plugins parity-local-compatible-plugins test-local-compatible-plugin-modules release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install check-change-size backend-plugin-module-checks backend-plugin-absence-checks backend-plugin-security-checks backend-plugin-cross-platform-qa backend-plugin-release-gates-static backend-plugin-release-gates package-minimal package-full package-plugin-smoke docs-check knowledge-check example-config-check backend-plugin-example-check kiro-spec-check isolated-root-qa installed-plugin-smoke test-cursor-sdk-live test-cursor-sdk-live-bridge test-cursor-sdk-platform test-cursor-sdk-comparison-report tmp-clean test-openresponses-compliance test-openresponses-compliance-static
 
 GO ?= go
 GO_TEST_FLAGS ?= -parallel=8 -timeout=10m
@@ -16,6 +16,7 @@ help:
 	@echo "  make test-fast       - quality-checks then tests for staged packages (or all)"
 	@echo "  make precommit-full  - run the optional full local lint + vulnerability scan before commit"
 	@echo "  make test-unit       - go test $(GO_TEST_FLAGS) ./... (excludes //go:build precommit tests)"
+	@echo "  make billing-convergence-certify - fail-fast final billing architecture, integration, quality, docs, and race certification"
 	@echo "  make test-postgres-migrations - apply and verify dual-plane PostgreSQL migrations"
 	@echo "  PostgreSQL gates are intentional opt-in: make test-authority-postgres-direct needs only a configured DSN (Make sets LIP_REQUIRE_POSTGRES=1); pooled/aggregate proof also requires LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1"
 	@echo "  make test-authority-postgres-direct - direct PostgreSQL runtime proof (DSN; Make sets require flag)"
@@ -104,6 +105,13 @@ ifeq ($(OS),Windows_NT)
 	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/precommit-full.ps1
 else
 	@LIP_PRECOMMIT_FULL=1 bash scripts/quality-gate.sh
+endif
+
+billing-convergence-certify:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/billing-convergence-certify.ps1
+else
+	@bash scripts/billing-convergence-certify.sh
 endif
 
 test-unit:

@@ -2,6 +2,7 @@ package archtest
 
 import (
 	"fmt"
+	"go/ast"
 	"os"
 	"path/filepath"
 	"strings"
@@ -211,7 +212,11 @@ func billingFinalConvergenceMarkerTargetPresentFS(fs archtestFS, target BillingF
 		return false, fmt.Errorf("%s: marker required for kind %q", target.ID, target.Kind)
 	}
 	allow := make(map[string]struct{}, len(target.HistoricalReaders))
-	for _, rel := range target.HistoricalReaders {
+	for _, evidence := range target.HistoricalReaders {
+		rel := evidence
+		if separator := strings.LastIndexByte(evidence, ':'); separator >= 0 {
+			rel = evidence[:separator]
+		}
 		allow[filepath.ToSlash(rel)] = struct{}{}
 	}
 	scanFiles := target.Files
@@ -235,6 +240,30 @@ func billingFinalConvergenceMarkerTargetPresentFS(fs archtestFS, target BillingF
 			return false, err
 		}
 		if target.Kind == "schema" && isBillingFinalConvergenceMigrationName(filepath.Base(rel)) {
+			continue
+		}
+		if target.Kind == "field" {
+			_, fileAST, err := ParseGoSource(rel, src)
+			if err != nil {
+				return false, err
+			}
+			found := false
+			ast.Inspect(fileAST, func(node ast.Node) bool {
+				field, ok := node.(*ast.Field)
+				if !ok {
+					return true
+				}
+				for _, name := range field.Names {
+					if name.Name == target.Name {
+						found = true
+						return false
+					}
+				}
+				return true
+			})
+			if found {
+				return true, nil
+			}
 			continue
 		}
 		if strings.Contains(string(src), target.Marker) {
@@ -343,18 +372,14 @@ func EvaluateBillingFinalConvergenceDeletionRatchetFS(fs archtestFS, doc Billing
 			}
 		} else {
 			if target.Status == BillingFinalConvergenceRatchetActive {
+				// The pinned Phase-0 tree is intentionally the immutable brownfield
+				// evidence. Activation retires the target from the current tree; it
+				// must not rewrite or pretend to alter that historical snapshot.
 				if target.Present {
 					out = append(out, RuleFinding{
 						Rule:   "billing_final_convergence_deletion_activated",
 						Path:   target.ID,
 						Detail: "activated ratchet must record present=false",
-					})
-				}
-				if found {
-					out = append(out, RuleFinding{
-						Rule:   "billing_final_convergence_deletion_activated",
-						Path:   target.ID,
-						Detail: "deletion target must be absent in baseline SHA: " + target.Name,
 					})
 				}
 			} else {
@@ -413,8 +438,9 @@ func billingFinalConvergenceLOCRatchetActive(doc BillingFinalConvergenceBaseline
 	return false
 }
 
-// ValidateBillingFinalConvergencePlannedRatchets checks the Phase-0 ratchet
-// inventory: both ratchets exist and are non-activated (planned).
+// ValidateBillingFinalConvergencePlannedRatchets checks the checked-in
+// activation lock: both final ratchets exist, are activated at task 7.2, and
+// retain their immutable activation flags.
 func ValidateBillingFinalConvergencePlannedRatchets(doc BillingFinalConvergenceBaselineFile) []RuleFinding {
 	want := []struct {
 		id   string
@@ -435,8 +461,8 @@ func ValidateBillingFinalConvergencePlannedRatchets(doc BillingFinalConvergenceB
 			out = append(out, RuleFinding{Rule: "billing_final_convergence_ratchet_inventory", Path: w.id, Detail: "missing planned ratchet"})
 			continue
 		}
-		if r.Status != BillingFinalConvergenceRatchetPlanned {
-			out = append(out, RuleFinding{Rule: "billing_final_convergence_ratchet_inventory", Path: w.id, Detail: fmt.Sprintf("status=%q, want %q (Phase 0 must not activate final gates)", r.Status, BillingFinalConvergenceRatchetPlanned)})
+		if r.Status != BillingFinalConvergenceRatchetActive {
+			out = append(out, RuleFinding{Rule: "billing_final_convergence_ratchet_inventory", Path: w.id, Detail: fmt.Sprintf("status=%q, want %q (Phase 7.2 activates final gates)", r.Status, BillingFinalConvergenceRatchetActive)})
 		}
 		if r.ActivationTask != w.task {
 			out = append(out, RuleFinding{Rule: "billing_final_convergence_ratchet_inventory", Path: w.id, Detail: fmt.Sprintf("activation_task=%q, want %q", r.ActivationTask, w.task)})

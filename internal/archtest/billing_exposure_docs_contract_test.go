@@ -90,13 +90,12 @@ func TestBillingExposureDocsRejectRetiredHoldAuthorizeInvariant(t *testing.T) {
 		{
 			rel: "docs/billing-host-composition.md",
 			needles: []string{
-				"after open inventory is empty",
-				"cheap credit screen",
-				"atomic open-exposure",
-				"`reserved_nano` remains a legacy always-zero",
-				"Retired TUR-processing and authorization-hold report endpoints are removed",
-				"POST /exposure-repair",
-				"is not part of the normal call path",
+				"settled-credit screen",
+				"atomic exposure admission",
+				"local durable terminal spool",
+				"complete-call gate",
+				"(recorded_at, transaction_id)",
+				"all-or-none",
 			},
 		},
 	}

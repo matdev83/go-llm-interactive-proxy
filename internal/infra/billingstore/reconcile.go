@@ -221,7 +221,7 @@ func (s *DurableStore) commitReconcileOutcome(ctx context.Context, accountID str
 		return report, false, eventErr
 	}
 	if errors.Is(eventErr, sql.ErrNoRows) {
-		if _, err := tx.NewRaw(`INSERT INTO billing_reconciliation_events(event_key, account_id, from_state, to_state, first_mismatch_sequence, balance_nano, reserved_nano, spendable_nano, created_at) VALUES (?,?,?,?,?,?,?,?,?)`, eventKey, accountID, string(account.State), string(billing.AccountReady), report.FirstMismatchSequence, report.Rebuilt.BalanceNano, 0, report.Rebuilt.SpendableNano, nowUTC()).Exec(ctx); err != nil {
+		if _, err := tx.NewRaw(`INSERT INTO billing_reconciliation_events(event_key, account_id, from_state, to_state, first_mismatch_sequence, balance_nano, spendable_nano, created_at) VALUES (?,?,?,?,?,?,?,?)`, eventKey, accountID, string(account.State), string(billing.AccountReady), report.FirstMismatchSequence, report.Rebuilt.BalanceNano, report.Rebuilt.SpendableNano, nowUTC()).Exec(ctx); err != nil {
 			return report, false, err
 		}
 	}
@@ -250,7 +250,7 @@ func setReconcileRequiredTx(ctx context.Context, tx bun.Tx, accountID string) er
 	}
 	now := nowUTC()
 	eventKey := fmt.Sprintf("reconcile-required:v1:%s:%d", accountID, now.UnixNano())
-	if _, err := tx.NewRaw(`INSERT INTO billing_reconciliation_events(event_key, account_id, from_state, to_state, first_mismatch_sequence, balance_nano, reserved_nano, spendable_nano, created_at) VALUES (?,?,?,?,0,0,0,0,?)`, eventKey, accountID, fromState, string(billing.AccountReconcileRequired), now).Exec(ctx); err != nil {
+	if _, err := tx.NewRaw(`INSERT INTO billing_reconciliation_events(event_key, account_id, from_state, to_state, first_mismatch_sequence, balance_nano, spendable_nano, created_at) VALUES (?,?,?,?,0,0,0,?)`, eventKey, accountID, fromState, string(billing.AccountReconcileRequired), now).Exec(ctx); err != nil {
 		return err
 	}
 	_, err := tx.NewRaw(`UPDATE billing_accounts SET state = 'reconcile_required', updated_at = ? WHERE account_id = ?`, now, accountID).Exec(ctx)

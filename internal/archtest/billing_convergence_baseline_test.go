@@ -155,14 +155,19 @@ func TestBillingFinalConvergenceLOCRecomputesFromArtifact(t *testing.T) {
 	}
 }
 
-func TestBillingFinalConvergenceLOCRatchetPlanned(t *testing.T) {
+func TestBillingFinalConvergenceLOCRatchetActive(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
 	doc, err := LoadBillingFinalConvergenceBaseline(root)
 	if err != nil {
 		t.Fatalf("load baseline: %v", err)
 	}
-	m, err := MeasureBillingFinalConvergenceDenominator(root, doc)
+	var m BillingFinalConvergenceDenominatorMeasurement
+	if billingFinalConvergenceLOCRatchetActive(doc) {
+		m, err = MeasureBillingFinalConvergenceCurrentDenominator(root, doc)
+	} else {
+		m, err = MeasureBillingFinalConvergenceDenominator(root, doc)
+	}
 	if err != nil {
 		t.Fatalf("measure denominator: %v", err)
 	}
