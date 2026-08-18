@@ -362,7 +362,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	}
 	// The retryRecvStream is reused for each B-leg. Evidence and terminal
 	// finalization state are attempt-scoped and must not leak into the replacement
-	// LUR; the B-leg keyed shadow guard naturally permits the new leg.
+	// B-leg; the per-leg evidence guard naturally permits the new leg.
 	s.lastAuthorityUsage = lipapi.Event{}
 	s.lastCustomerUsage = lipapi.Event{}
 	s.usageMu.Lock()

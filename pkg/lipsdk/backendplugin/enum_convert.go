@@ -223,21 +223,23 @@ func clientFrameKindToProto(v ClientFrameKind) (backendpluginv1.ClientFrameKind,
 }
 
 var serverFrameKindFromProtoTable = map[backendpluginv1.ServerFrameKind]ServerFrameKind{
-	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_ACCEPTED:            ServerFrameAccepted,
-	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_EVENT:               ServerFrameEvent,
-	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_DIAGNOSTIC:          ServerFrameDiagnostic,
-	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_CANCEL_OUTCOME:      ServerFrameCancelOutcome,
-	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_TERMINAL:            ServerFrameTerminal,
-	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_ACCOUNTING_EVIDENCE: ServerFrameAccountingEvidence,
+	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_ACCEPTED:                 ServerFrameAccepted,
+	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_EVENT:                    ServerFrameEvent,
+	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_DIAGNOSTIC:               ServerFrameDiagnostic,
+	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_CANCEL_OUTCOME:           ServerFrameCancelOutcome,
+	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_TERMINAL:                 ServerFrameTerminal,
+	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_ACCOUNTING_EVIDENCE:      ServerFrameAccountingEvidence,
+	backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_PROMPT_CACHE_OBSERVATION: ServerFramePromptCacheObservation,
 }
 
 var serverFrameKindToProtoTable = map[ServerFrameKind]backendpluginv1.ServerFrameKind{
-	ServerFrameAccepted:           backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_ACCEPTED,
-	ServerFrameEvent:              backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_EVENT,
-	ServerFrameDiagnostic:         backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_DIAGNOSTIC,
-	ServerFrameCancelOutcome:      backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_CANCEL_OUTCOME,
-	ServerFrameTerminal:           backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_TERMINAL,
-	ServerFrameAccountingEvidence: backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_ACCOUNTING_EVIDENCE,
+	ServerFrameAccepted:               backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_ACCEPTED,
+	ServerFrameEvent:                  backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_EVENT,
+	ServerFrameDiagnostic:             backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_DIAGNOSTIC,
+	ServerFrameCancelOutcome:          backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_CANCEL_OUTCOME,
+	ServerFrameTerminal:               backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_TERMINAL,
+	ServerFrameAccountingEvidence:     backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_ACCOUNTING_EVIDENCE,
+	ServerFramePromptCacheObservation: backendpluginv1.ServerFrameKind_SERVER_FRAME_KIND_PROMPT_CACHE_OBSERVATION,
 }
 
 func serverFrameKindFromProto(v backendpluginv1.ServerFrameKind) (ServerFrameKind, error) {

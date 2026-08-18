@@ -8,7 +8,7 @@ import (
 func (f ServerFrame) ValidateShape() error {
 	switch f.Kind {
 	case ServerFrameAccepted:
-		if f.Event != nil || f.CancelOutcome != nil || f.Terminal != nil || f.Accounting != nil || f.Diagnostic != "" {
+		if f.Event != nil || f.CancelOutcome != nil || f.Terminal != nil || f.Accounting != nil || f.PromptCacheObservation != nil || f.Diagnostic != "" {
 			return ErrInvalidFrame
 		}
 		return nil
@@ -19,17 +19,17 @@ func (f ServerFrame) ValidateShape() error {
 		if err := ValidateEventKind(f.Event.Kind); err != nil {
 			return err
 		}
-		if f.CancelOutcome != nil || f.Terminal != nil || f.Accounting != nil || f.Diagnostic != "" {
+		if f.CancelOutcome != nil || f.Terminal != nil || f.Accounting != nil || f.PromptCacheObservation != nil || f.Diagnostic != "" {
 			return ErrInvalidFrame
 		}
 		return nil
 	case ServerFrameDiagnostic:
-		if f.Event != nil || f.CancelOutcome != nil || f.Terminal != nil || f.Accounting != nil {
+		if f.Event != nil || f.CancelOutcome != nil || f.Terminal != nil || f.Accounting != nil || f.PromptCacheObservation != nil {
 			return ErrInvalidFrame
 		}
 		return ValidateSize(uint64(len(f.Diagnostic)), DefaultMaxDiagnosticBytes)
 	case ServerFrameCancelOutcome:
-		if f.CancelOutcome == nil || f.Event != nil || f.Terminal != nil || f.Accounting != nil || f.Diagnostic != "" {
+		if f.CancelOutcome == nil || f.Event != nil || f.Terminal != nil || f.Accounting != nil || f.PromptCacheObservation != nil || f.Diagnostic != "" {
 			return ErrInvalidFrame
 		}
 		if f.CancelOutcome.Reason == CancelReasonUnspecified {
@@ -40,15 +40,20 @@ func (f ServerFrame) ValidateShape() error {
 		if f.Terminal == nil || f.Terminal.Status == TerminalUnspecified {
 			return ErrUnknownEnum
 		}
-		if f.Event != nil || f.CancelOutcome != nil || f.Accounting != nil || f.Diagnostic != "" {
+		if f.Event != nil || f.CancelOutcome != nil || f.Accounting != nil || f.PromptCacheObservation != nil || f.Diagnostic != "" {
 			return ErrInvalidFrame
 		}
 		return nil
 	case ServerFrameAccountingEvidence:
-		if f.Accounting == nil || f.Event != nil || f.CancelOutcome != nil || f.Terminal != nil || f.Diagnostic != "" {
+		if f.Accounting == nil || f.Event != nil || f.CancelOutcome != nil || f.Terminal != nil || f.PromptCacheObservation != nil || f.Diagnostic != "" {
 			return ErrInvalidFrame
 		}
 		return ValidateAccountingEvidence(*f.Accounting)
+	case ServerFramePromptCacheObservation:
+		if f.PromptCacheObservation == nil || f.Event != nil || f.CancelOutcome != nil || f.Terminal != nil || f.Accounting != nil || f.Diagnostic != "" {
+			return ErrInvalidFrame
+		}
+		return f.PromptCacheObservation.Validate()
 	default:
 		return ErrUnknownFrameKind
 	}
@@ -124,6 +129,11 @@ func ServerFrameConservativeBytes(f ServerFrame) uint64 {
 		return envelope + eventPayloadBytes(f.Event)
 	case ServerFrameAccountingEvidence:
 		return envelope + accountingEvidenceBytes(f.Accounting)
+	case ServerFramePromptCacheObservation:
+		if f.PromptCacheObservation == nil {
+			return envelope
+		}
+		return envelope + uint64(len(f.PromptCacheObservation.TargetID)+len(f.PromptCacheObservation.GenerationID)+len(f.PromptCacheObservation.Handle)+len(f.PromptCacheObservation.ALegID)+len(f.PromptCacheObservation.BLegID)+len(f.PromptCacheObservation.BackendInstanceID)+128)
 	case ServerFrameDiagnostic:
 		return envelope + uint64(len(f.Diagnostic))
 	case ServerFrameCancelOutcome:

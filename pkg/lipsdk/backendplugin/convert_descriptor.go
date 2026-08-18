@@ -125,6 +125,10 @@ func ResolvedProfileFromProto(p *backendpluginv1.ResolvedProfile) (ResolvedProfi
 	if p == nil {
 		return ResolvedProfile{}, ErrInvalidInvocation
 	}
+	promptCacheProfile, err := promptCacheProfileFromProto(p.GetPromptCacheProfile())
+	if err != nil {
+		return ResolvedProfile{}, err
+	}
 	return ResolvedProfile{
 		Capabilities:             capabilityFromProto(p.GetCapabilities()),
 		TransportCapabilities:    transportCapabilityFromProto(p.GetTransportCapabilities()),
@@ -138,11 +142,16 @@ func ResolvedProfileFromProto(p *backendpluginv1.ResolvedProfile) (ResolvedProfi
 		SupportsDynamicInventory: p.GetSupportsDynamicInventory(),
 		EvidenceSource:           p.GetEvidenceSource(),
 		ProfileVersion:           p.GetProfileVersion(),
+		PromptCacheProfile:       promptCacheProfile,
 	}, nil
 }
 
 // ResolvedProfileToProto encodes a resolved profile.
 func ResolvedProfileToProto(p ResolvedProfile) *backendpluginv1.ResolvedProfile {
+	promptCacheProfile, err := promptCacheProfileToProto(p.PromptCacheProfile)
+	if err != nil {
+		return nil
+	}
 	return &backendpluginv1.ResolvedProfile{
 		Capabilities:             capabilityToProto(p.Capabilities),
 		TransportCapabilities:    transportCapabilityToProto(p.TransportCapabilities),
@@ -156,6 +165,7 @@ func ResolvedProfileToProto(p ResolvedProfile) *backendpluginv1.ResolvedProfile 
 		SupportsDynamicInventory: p.SupportsDynamicInventory,
 		EvidenceSource:           p.EvidenceSource,
 		ProfileVersion:           p.ProfileVersion,
+		PromptCacheProfile:       promptCacheProfile,
 	}
 }
 

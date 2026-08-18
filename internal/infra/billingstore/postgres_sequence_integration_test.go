@@ -21,10 +21,7 @@ func TestPostgresCallLegSequencePersistence(t *testing.T) {
 	dsn := testkit.SkipUnlessPostgres(t)
 	ctx, cancel := context.WithTimeout(context.Background(), db.DefaultPostgresOpenMigrateTimeout)
 	defer cancel()
-	bunDB, err := db.OpenPostgresBun(ctx, dsn, db.PoolSettings{MaxOpenConns: 4, MaxIdleConns: 4})
-	if err != nil {
-		t.Fatal(err)
-	}
+	bunDB, _ := openIsolatedPostgresBun(t, dsn, 4)
 	store, err := NewDurableStore(ctx, bunDB, Config{StoreID: "sequence-postgres"})
 	if err != nil {
 		_ = bunDB.Close()

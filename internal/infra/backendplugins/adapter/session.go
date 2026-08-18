@@ -5,6 +5,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 	publichost "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin/host"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
 
 // GRPCSession is retained as an internal compatibility alias. The supported
@@ -35,7 +36,15 @@ type OptionalBillingFinalizer interface {
 	FinalizeBilling(ctx context.Context, req backendplugin.FinalizeBillingRequest) (backendplugin.FinalizeBillingResponse, error)
 }
 
+// OptionalPromptCacheController is satisfied only when the connector negotiated
+// and implemented the dedicated maintenance plane.
+type OptionalPromptCacheController interface {
+	RenewPromptCache(context.Context, promptcache.RenewRequest) (promptcache.RenewResponse, error)
+	ReleasePromptCache(context.Context, promptcache.ReleaseRequest) error
+}
+
 var (
-	_ OptionalTokenCounter     = (*GRPCSession)(nil)
-	_ OptionalBillingFinalizer = (*GRPCSession)(nil)
+	_ OptionalTokenCounter          = (*GRPCSession)(nil)
+	_ OptionalBillingFinalizer      = (*GRPCSession)(nil)
+	_ OptionalPromptCacheController = (*GRPCSession)(nil)
 )

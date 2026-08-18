@@ -22,6 +22,7 @@ var LegacyABIAllowlist = []string{
 	backendplugin.FeatureProxyOwnedSessionID,
 	backendplugin.FeatureAccountingEvidence,
 	backendplugin.FeatureSemanticExtensions,
+	backendplugin.FeaturePromptCacheResidency,
 }
 
 var genericABIFieldTerms = map[string]bool{
@@ -45,6 +46,12 @@ var neutralABITerms = map[string]bool{
 	"resolved": true, "execute": true, "list": true, "models": true, "model": true,
 	"tool": true, "def": true, "disable": true, "parameters": true, "prompt": true,
 	"cache": true, "key": true, "message": true, "messages": true, "credential": true,
+	"renew": true, "renewal": true, "release": true, "lifecycle": true, "sliding": true, "expiry": true,
+	"fixed": true, "minimum": true, "residency": true, "best": true, "effort": true,
+	"timing": true, "expires": true, "resident": true, "until": true, "target": true,
+	"handle": true, "observation": true, "observations": true,
+	"renewable": true, "control": true, "cold": true, "recreated": true, "stale": true,
+	"unsupported": true, "failed": true,
 	"mode": true, "access": true, "scope": true, "process": true, "sharing": true,
 	"role": true, "part": true, "kind": true, "event": true, "terminal": true,
 	"status": true, "cancel": true, "client": true, "server": true, "frame": true,

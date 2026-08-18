@@ -190,28 +190,28 @@
 
 ## Phase 6 — Retire Legacy Usage Persistence and Processing
 
-- [ ] 6.1 Add migration characterization and race tests for legacy TUR/LUR/processing state.
+- [x] 6.1 Add migration characterization and race tests for legacy TUR/LUR/processing state.
   - Enumerate pending/processing/error/current-equivalent states and every legacy writer. RED tests must prove unresolved financial/usage work blocks retirement and a concurrent legacy writer cannot commit work between successful proof and `DROP` on either supported dialect.
   - _Boundary: billingstore migration/concurrency tests_
   - _Depends: 1.4, 0.3_
   - _Validation: go test ./internal/infra/billingstore -run 'Legacy|Migration|Processing|TUR|LUR|Concurrent'; LIP_REQUIRE_POSTGRES=1 go test -tags=integration ./internal/infra/billingstore -run 'Postgres.*Legacy|Postgres.*Migration'_
   - _Requirements: 3.1-3.7, 11.1-11.6_
 
-- [ ] 6.2 Delete remaining live legacy append/processing/shadow workers and interfaces.
+- [x] 6.2 Delete remaining live legacy append/processing/shadow workers and interfaces.
   - No feature flag or dormant production implementation remains. Deployment/cutover documentation must identify the point after which mixed-version processes capable of legacy writes are no longer permitted.
   - _Boundary: core billing + billingstore deletion_
   - _Depends: 1.4, 6.1_
   - _Validation: go test ./internal/core/billing ./internal/infra/billingstore ./internal/archtest_
   - _Requirements: 2.6-2.7, 3.5, 10.5, 12.3_
 
-- [ ] 6.3 Preserve/resolve legacy work and retire TUR/LUR/processing in one critical section.
+- [x] 6.3 Preserve/resolve legacy work and retire TUR/LUR/processing in one critical section.
   - Before destructive DDL, quiesce all legacy writers; migrate any deterministically convertible retained records to current usage storage; block on pending/error/conflicting/unprovable state; acquire dialect-specific migration writer exclusion; re-run the unresolved-work proof under that lock; drop retired tables/indexes/triggers in the same transaction/connection; update `VerifySchema`; then run post-migration reconciliation proving fresh/upgraded current-record and journal state. PostgreSQL must use transaction-scoped migration serialization plus `ACCESS EXCLUSIVE` retiring-table locks; SQLite must use one connection with `BEGIN IMMEDIATE` or stronger repository-supported writer exclusion.
   - _Boundary: Bun schema / migration critical section_
   - _Depends: 6.2_
   - _Validation: go test ./internal/infra/billingstore -run 'Migration|VerifySchema|Legacy|Reconcile|Concurrent'; LIP_REQUIRE_POSTGRES=1 go test -tags=integration ./internal/infra/billingstore -run 'Postgres.*Migration|Postgres.*Legacy|PostgresBillingStoreContract'_
   - _Requirements: 3.1-3.8, 11.1-11.6_
 
-- [ ] 6.4 Update reconciliation/report queries to current records only.
+- [x] 6.4 Update reconciliation/report queries to current records only.
   - Historical audit compatibility may use isolated legacy decode, never old processing. Reconciliation must certify the post-retirement current usage/journal state before migration completion is considered operationally successful.
   - _Boundary: reporting/reconciliation_
   - _Depends: 6.3_

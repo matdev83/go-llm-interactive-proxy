@@ -19,17 +19,19 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	BackendPlugin_Negotiate_FullMethodName        = "/golip.backendplugin.v1.BackendPlugin/Negotiate"
-	BackendPlugin_Describe_FullMethodName         = "/golip.backendplugin.v1.BackendPlugin/Describe"
-	BackendPlugin_Configure_FullMethodName        = "/golip.backendplugin.v1.BackendPlugin/Configure"
-	BackendPlugin_CloseInstance_FullMethodName    = "/golip.backendplugin.v1.BackendPlugin/CloseInstance"
-	BackendPlugin_ResolveProfile_FullMethodName   = "/golip.backendplugin.v1.BackendPlugin/ResolveProfile"
-	BackendPlugin_ListModels_FullMethodName       = "/golip.backendplugin.v1.BackendPlugin/ListModels"
-	BackendPlugin_CountTokens_FullMethodName      = "/golip.backendplugin.v1.BackendPlugin/CountTokens"
-	BackendPlugin_FinalizeBilling_FullMethodName  = "/golip.backendplugin.v1.BackendPlugin/FinalizeBilling"
-	BackendPlugin_Execute_FullMethodName          = "/golip.backendplugin.v1.BackendPlugin/Execute"
-	BackendPlugin_Health_FullMethodName           = "/golip.backendplugin.v1.BackendPlugin/Health"
-	BackendPlugin_GracefulShutdown_FullMethodName = "/golip.backendplugin.v1.BackendPlugin/GracefulShutdown"
+	BackendPlugin_Negotiate_FullMethodName          = "/golip.backendplugin.v1.BackendPlugin/Negotiate"
+	BackendPlugin_Describe_FullMethodName           = "/golip.backendplugin.v1.BackendPlugin/Describe"
+	BackendPlugin_Configure_FullMethodName          = "/golip.backendplugin.v1.BackendPlugin/Configure"
+	BackendPlugin_CloseInstance_FullMethodName      = "/golip.backendplugin.v1.BackendPlugin/CloseInstance"
+	BackendPlugin_ResolveProfile_FullMethodName     = "/golip.backendplugin.v1.BackendPlugin/ResolveProfile"
+	BackendPlugin_ListModels_FullMethodName         = "/golip.backendplugin.v1.BackendPlugin/ListModels"
+	BackendPlugin_CountTokens_FullMethodName        = "/golip.backendplugin.v1.BackendPlugin/CountTokens"
+	BackendPlugin_FinalizeBilling_FullMethodName    = "/golip.backendplugin.v1.BackendPlugin/FinalizeBilling"
+	BackendPlugin_RenewPromptCache_FullMethodName   = "/golip.backendplugin.v1.BackendPlugin/RenewPromptCache"
+	BackendPlugin_ReleasePromptCache_FullMethodName = "/golip.backendplugin.v1.BackendPlugin/ReleasePromptCache"
+	BackendPlugin_Execute_FullMethodName            = "/golip.backendplugin.v1.BackendPlugin/Execute"
+	BackendPlugin_Health_FullMethodName             = "/golip.backendplugin.v1.BackendPlugin/Health"
+	BackendPlugin_GracefulShutdown_FullMethodName   = "/golip.backendplugin.v1.BackendPlugin/GracefulShutdown"
 )
 
 // BackendPluginClient is the client API for BackendPlugin service.
@@ -47,6 +49,8 @@ type BackendPluginClient interface {
 	ListModels(ctx context.Context, in *ListModelsRequest, opts ...grpc.CallOption) (*ListModelsResponse, error)
 	CountTokens(ctx context.Context, in *CountTokensRequest, opts ...grpc.CallOption) (*CountTokensResponse, error)
 	FinalizeBilling(ctx context.Context, in *FinalizeBillingRequest, opts ...grpc.CallOption) (*FinalizeBillingResponse, error)
+	RenewPromptCache(ctx context.Context, in *RenewPromptCacheRequest, opts ...grpc.CallOption) (*RenewPromptCacheResponse, error)
+	ReleasePromptCache(ctx context.Context, in *ReleasePromptCacheRequest, opts ...grpc.CallOption) (*ReleasePromptCacheResponse, error)
 	Execute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecuteClientFrame, ExecuteServerFrame], error)
 	Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*HealthResponse, error)
 	GracefulShutdown(ctx context.Context, in *GracefulShutdownRequest, opts ...grpc.CallOption) (*GracefulShutdownResponse, error)
@@ -140,6 +144,26 @@ func (c *backendPluginClient) FinalizeBilling(ctx context.Context, in *FinalizeB
 	return out, nil
 }
 
+func (c *backendPluginClient) RenewPromptCache(ctx context.Context, in *RenewPromptCacheRequest, opts ...grpc.CallOption) (*RenewPromptCacheResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RenewPromptCacheResponse)
+	err := c.cc.Invoke(ctx, BackendPlugin_RenewPromptCache_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *backendPluginClient) ReleasePromptCache(ctx context.Context, in *ReleasePromptCacheRequest, opts ...grpc.CallOption) (*ReleasePromptCacheResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReleasePromptCacheResponse)
+	err := c.cc.Invoke(ctx, BackendPlugin_ReleasePromptCache_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *backendPluginClient) Execute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecuteClientFrame, ExecuteServerFrame], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &BackendPlugin_ServiceDesc.Streams[0], BackendPlugin_Execute_FullMethodName, cOpts...)
@@ -188,6 +212,8 @@ type BackendPluginServer interface {
 	ListModels(context.Context, *ListModelsRequest) (*ListModelsResponse, error)
 	CountTokens(context.Context, *CountTokensRequest) (*CountTokensResponse, error)
 	FinalizeBilling(context.Context, *FinalizeBillingRequest) (*FinalizeBillingResponse, error)
+	RenewPromptCache(context.Context, *RenewPromptCacheRequest) (*RenewPromptCacheResponse, error)
+	ReleasePromptCache(context.Context, *ReleasePromptCacheRequest) (*ReleasePromptCacheResponse, error)
 	Execute(grpc.BidiStreamingServer[ExecuteClientFrame, ExecuteServerFrame]) error
 	Health(context.Context, *HealthRequest) (*HealthResponse, error)
 	GracefulShutdown(context.Context, *GracefulShutdownRequest) (*GracefulShutdownResponse, error)
@@ -224,6 +250,12 @@ func (UnimplementedBackendPluginServer) CountTokens(context.Context, *CountToken
 }
 func (UnimplementedBackendPluginServer) FinalizeBilling(context.Context, *FinalizeBillingRequest) (*FinalizeBillingResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FinalizeBilling not implemented")
+}
+func (UnimplementedBackendPluginServer) RenewPromptCache(context.Context, *RenewPromptCacheRequest) (*RenewPromptCacheResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RenewPromptCache not implemented")
+}
+func (UnimplementedBackendPluginServer) ReleasePromptCache(context.Context, *ReleasePromptCacheRequest) (*ReleasePromptCacheResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReleasePromptCache not implemented")
 }
 func (UnimplementedBackendPluginServer) Execute(grpc.BidiStreamingServer[ExecuteClientFrame, ExecuteServerFrame]) error {
 	return status.Errorf(codes.Unimplemented, "method Execute not implemented")
@@ -399,6 +431,42 @@ func _BackendPlugin_FinalizeBilling_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _BackendPlugin_RenewPromptCache_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RenewPromptCacheRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BackendPluginServer).RenewPromptCache(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BackendPlugin_RenewPromptCache_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BackendPluginServer).RenewPromptCache(ctx, req.(*RenewPromptCacheRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BackendPlugin_ReleasePromptCache_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReleasePromptCacheRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BackendPluginServer).ReleasePromptCache(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BackendPlugin_ReleasePromptCache_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BackendPluginServer).ReleasePromptCache(ctx, req.(*ReleasePromptCacheRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _BackendPlugin_Execute_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(BackendPluginServer).Execute(&grpc.GenericServerStream[ExecuteClientFrame, ExecuteServerFrame]{ServerStream: stream})
 }
@@ -480,6 +548,14 @@ var BackendPlugin_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FinalizeBilling",
 			Handler:    _BackendPlugin_FinalizeBilling_Handler,
+		},
+		{
+			MethodName: "RenewPromptCache",
+			Handler:    _BackendPlugin_RenewPromptCache_Handler,
+		},
+		{
+			MethodName: "ReleasePromptCache",
+			Handler:    _BackendPlugin_ReleasePromptCache_Handler,
 		},
 		{
 			MethodName: "Health",

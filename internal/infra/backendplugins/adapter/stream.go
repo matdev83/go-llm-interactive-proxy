@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
 
 const defaultMaxStderrBytes = 64 << 10
@@ -81,6 +82,11 @@ func openStream(
 		defer close(s.done)
 		defer close(s.events)
 		err := session.Execute(execStream)
+		if err != nil || !s.terminalSeen.Load() {
+			s.promptCacheMu.Lock()
+			s.promptCacheBuffer.Discard()
+			s.promptCacheMu.Unlock()
+		}
 		if err != nil {
 			fe := ClassifyExecuteError(err, s.outputCommitted.Load())
 			if fe.InvalidatesGeneration() && opt.InvalidateGeneration != nil {
@@ -103,26 +109,28 @@ func openStream(
 }
 
 type managedStream struct {
-	ctx             context.Context
-	cancel          context.CancelFunc
-	opt             Options
-	events          chan lipapi.Event
-	errCh           chan error
-	hostFrames      chan backendplugin.ClientFrame
-	done            chan struct{}
-	wg              sync.WaitGroup
-	closed          atomic.Bool
-	outputCommitted atomic.Bool
-	terminalSeen    atomic.Bool
-	invalidateOnce  sync.Once
-	validator       backendplugin.StreamValidator
-	stats           streamStats
-	maxFrame        int
-	mu              sync.Mutex
-	recvErr         error
-	stderrBytes     int
-	usageMu         sync.Mutex
-	usageEvidence   []lipapi.Event
+	ctx               context.Context
+	cancel            context.CancelFunc
+	opt               Options
+	events            chan lipapi.Event
+	errCh             chan error
+	hostFrames        chan backendplugin.ClientFrame
+	done              chan struct{}
+	wg                sync.WaitGroup
+	closed            atomic.Bool
+	outputCommitted   atomic.Bool
+	terminalSeen      atomic.Bool
+	invalidateOnce    sync.Once
+	validator         backendplugin.StreamValidator
+	stats             streamStats
+	maxFrame          int
+	mu                sync.Mutex
+	recvErr           error
+	stderrBytes       int
+	usageMu           sync.Mutex
+	usageEvidence     []lipapi.Event
+	promptCacheMu     sync.Mutex
+	promptCacheBuffer promptcache.ObservationBuffer
 }
 
 type streamStats struct {
@@ -270,6 +278,17 @@ func (s *managedStream) onPluginFrame(frame backendplugin.ServerFrame) error {
 	switch frame.Kind {
 	case backendplugin.ServerFrameAccepted, backendplugin.ServerFrameDiagnostic, backendplugin.ServerFrameCancelOutcome:
 		return nil
+	case backendplugin.ServerFramePromptCacheObservation:
+		if !backendplugin.PromptCacheNegotiated(s.opt.Negotiation) {
+			return ProtocolViolation(backendplugin.ErrPromptCacheUnsupported)
+		}
+		s.promptCacheMu.Lock()
+		err := s.promptCacheBuffer.Add(*frame.PromptCacheObservation)
+		s.promptCacheMu.Unlock()
+		if err != nil {
+			return ProtocolViolation(err)
+		}
+		return nil
 	case backendplugin.ServerFrameAccountingEvidence:
 		if !slices.Contains(s.opt.Negotiation.EnabledFeatures, backendplugin.FeatureAccountingEvidence) {
 			return ProtocolViolation(backendplugin.ErrInvalidFrame)
@@ -307,6 +326,13 @@ func (s *managedStream) onPluginFrame(frame backendplugin.ServerFrame) error {
 		if !s.terminalSeen.CompareAndSwap(false, true) {
 			return backendplugin.ErrMultipleTerminals
 		}
+		s.promptCacheMu.Lock()
+		if frame.Terminal != nil && frame.Terminal.Status == backendplugin.TerminalSuccess {
+			s.promptCacheBuffer.Commit()
+		} else {
+			s.promptCacheBuffer.Discard()
+		}
+		s.promptCacheMu.Unlock()
 		if frame.Terminal != nil && frame.Terminal.Error != nil {
 			cerr := sanitizePluginError(frame.Terminal.Error)
 			if s.outputCommitted.Load() {
@@ -321,6 +347,15 @@ func (s *managedStream) onPluginFrame(frame backendplugin.ServerFrame) error {
 	default:
 		return backendplugin.ErrUnknownFrameKind
 	}
+}
+
+func (s *managedStream) DrainPromptCacheObservations() []promptcache.Observation {
+	if s == nil {
+		return nil
+	}
+	s.promptCacheMu.Lock()
+	defer s.promptCacheMu.Unlock()
+	return s.promptCacheBuffer.DrainPromptCacheObservations()
 }
 
 func (s *managedStream) DrainUsageEvidence() []lipapi.Event {

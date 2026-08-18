@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
@@ -18,10 +17,7 @@ func TestPostgresProviderAndExposureConcurrentAdmission(t *testing.T) {
 	dsn := testkit.SkipUnlessPostgres(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	bunDB, err := db.OpenPostgresBun(ctx, dsn, db.PoolSettings{MaxOpenConns: 16, MaxIdleConns: 16})
-	if err != nil {
-		t.Fatal(err)
-	}
+	bunDB, _ := openIsolatedPostgresBun(t, dsn, 16)
 	store, err := NewDurableStore(ctx, bunDB, Config{StoreID: "phase3-concurrent"})
 	if err != nil {
 		_ = bunDB.Close()

@@ -1,8 +1,6 @@
 package backendplugin
 
-import (
-	"strings"
-)
+import "strings"
 
 // ValidateAccountingEvidence validates the bounded, provider-billable sideband
 // payload. Presence is authoritative: a nil counter is omitted, not zero.
@@ -13,17 +11,19 @@ func ValidateAccountingEvidence(e AccountingEvidence) error {
 	if strings.TrimSpace(e.DedupeKey) == "" || len(e.DedupeKey) > int(DefaultMaxAccountingDedupeKeyBytes) {
 		return ErrInvalidFrame
 	}
-	if !e.Presence.Any() {
-		return ErrInvalidFrame
-	}
-	for _, value := range []*int64{e.InputTokens, e.OutputTokens, e.CacheReadTokens, e.CacheWriteTokens, e.ReasoningTokens, e.TotalTokens} {
+	values := []*int64{e.InputTokens, e.OutputTokens, e.CacheReadTokens, e.CacheWriteTokens, e.ReasoningTokens, e.TotalTokens}
+	present := []bool{e.Presence.InputTokens, e.Presence.OutputTokens, e.Presence.CacheReadTokens, e.Presence.CacheWriteTokens, e.Presence.ReasoningTokens, e.Presence.TotalTokens}
+	any := false
+	for i, value := range values {
 		if value != nil && *value < 0 {
 			return ErrInvalidFrame
 		}
+		if present[i] != (value != nil) {
+			return ErrInvalidFrame
+		}
+		any = any || present[i]
 	}
-	if e.Presence.InputTokens != (e.InputTokens != nil) || e.Presence.OutputTokens != (e.OutputTokens != nil) ||
-		e.Presence.CacheReadTokens != (e.CacheReadTokens != nil) || e.Presence.CacheWriteTokens != (e.CacheWriteTokens != nil) ||
-		e.Presence.ReasoningTokens != (e.ReasoningTokens != nil) || e.Presence.TotalTokens != (e.TotalTokens != nil) {
+	if !any {
 		return ErrInvalidFrame
 	}
 	return nil

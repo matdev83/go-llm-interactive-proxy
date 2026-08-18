@@ -165,13 +165,7 @@ func runAppendCallUsageIndependentOfMoneyAndTUR(t *testing.T, store *DurableStor
 	if err != nil {
 		t.Fatal(err)
 	}
-	var beforeTUR, beforeNestedLUR, beforeIndependentLeg, beforeJournalEntries int
-	if err := store.db.NewRaw(`SELECT COUNT(1) FROM turn_usage_records`).Scan(ctx, &beforeTUR); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.db.NewRaw(`SELECT COUNT(1) FROM leg_usage_records`).Scan(ctx, &beforeNestedLUR); err != nil {
-		t.Fatal(err)
-	}
+	var beforeIndependentLeg, beforeJournalEntries int
 	if err := store.db.NewRaw(`SELECT COUNT(1) FROM usage_leg_records`).Scan(ctx, &beforeIndependentLeg); err != nil {
 		t.Fatal(err)
 	}
@@ -198,13 +192,7 @@ func runAppendCallUsageIndependentOfMoneyAndTUR(t *testing.T, store *DurableStor
 	if len(afterJournals) != len(beforeJournals) {
 		t.Fatalf("journal rows mutated: before=%d after=%d", len(beforeJournals), len(afterJournals))
 	}
-	var afterTUR, afterNestedLUR, afterIndependentLeg, afterJournalEntries, afterCall int
-	if err := store.db.NewRaw(`SELECT COUNT(1) FROM turn_usage_records`).Scan(ctx, &afterTUR); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.db.NewRaw(`SELECT COUNT(1) FROM leg_usage_records`).Scan(ctx, &afterNestedLUR); err != nil {
-		t.Fatal(err)
-	}
+	var afterIndependentLeg, afterJournalEntries, afterCall int
 	if err := store.db.NewRaw(`SELECT COUNT(1) FROM usage_leg_records`).Scan(ctx, &afterIndependentLeg); err != nil {
 		t.Fatal(err)
 	}
@@ -214,8 +202,8 @@ func runAppendCallUsageIndependentOfMoneyAndTUR(t *testing.T, store *DurableStor
 	if err := store.db.NewRaw(`SELECT COUNT(1) FROM usage_call_records`).Scan(ctx, &afterCall); err != nil {
 		t.Fatal(err)
 	}
-	if afterTUR != beforeTUR || afterNestedLUR != beforeNestedLUR || afterIndependentLeg != beforeIndependentLeg {
-		t.Fatal("call-closure append must not write TUR, nested LUR, or usage_leg_records")
+	if afterIndependentLeg != beforeIndependentLeg {
+		t.Fatal("call-closure append must not write usage_leg_records")
 	}
 	if afterJournalEntries != beforeJournalEntries {
 		t.Fatal("call-closure append must not post journal entries")
