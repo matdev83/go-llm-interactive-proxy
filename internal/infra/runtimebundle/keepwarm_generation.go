@@ -4,15 +4,17 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingcompose"
 )
 
-func buildKeepwarmGeneration(cfg *config.Config, nowFn func() time.Time, registry *keepwarm.ManagerRegistry, policy *keepwarm.PolicyStore) (*keepwarm.Manager, uint64, error) {
+func buildKeepwarmGeneration(cfg *config.Config, nowFn func() time.Time, registry *keepwarm.ManagerRegistry, policy *keepwarm.PolicyStore, accounting billing.ProviderMaintenanceUsageObserver) (*keepwarm.Manager, uint64, error) {
 	if cfg == nil {
 		return nil, 0, fmt.Errorf("runtimebundle: keep-warm config is nil")
 	}
-	manager, err := keepwarm.NewManager(cfg.EffectiveKeepwarm(), keepwarm.ClockFunc(nowFn), keepwarm.Hooks{})
+	manager, err := keepwarm.NewManager(cfg.EffectiveKeepwarm(), keepwarm.ClockFunc(nowFn), billingcompose.KeepwarmHooks(accounting))
 	if err != nil {
 		return nil, 0, fmt.Errorf("runtimebundle: keep-warm manager: %w", err)
 	}

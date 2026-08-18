@@ -75,13 +75,18 @@ func (s *msgStream) completeCacheObservation() {
 		s.cache.buffer.Discard()
 		return
 	}
+	observedAt := s.cache.observedAt
+	if observedAt.IsZero() {
+		observedAt = time.Now().UTC()
+	}
 	obs, err := s.cache.hook(context.Background(), CacheObservation{
-		Lineage:    s.cache.lineage,
-		Model:      s.cache.renewal.Model,
-		TTL:        s.cache.ttl,
-		Renewal:    s.cache.renewal,
-		Evidence:   s.cache.evidence,
-		ObservedAt: time.Now().UTC(),
+		Lineage:      s.cache.lineage,
+		Model:        s.cache.renewal.Model,
+		TTL:          s.cache.ttl,
+		Renewal:      s.cache.renewal,
+		Evidence:     s.cache.evidence,
+		ObservedAt:   observedAt,
+		CredentialID: s.cache.credentialID,
 	})
 	if err != nil {
 		s.cache.buffer.Discard()

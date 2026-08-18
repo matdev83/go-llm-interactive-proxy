@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
@@ -48,12 +49,14 @@ type msgStream struct {
 // cacheStreamState carries the bounded observation buffer and the plugin-owned
 // hook used to issue a renewable target from committed cache evidence.
 type cacheStreamState struct {
-	hook     CacheObservationHook
-	lineage  promptcache.ObservationLineage
-	renewal  RenewalSnapshot
-	ttl      string
-	evidence promptcache.CacheEvidence
-	buffer   promptcache.ObservationBuffer
+	hook         CacheObservationHook
+	lineage      promptcache.ObservationLineage
+	renewal      RenewalSnapshot
+	credentialID string
+	ttl          string
+	evidence     promptcache.CacheEvidence
+	observedAt   time.Time
+	buffer       promptcache.ObservationBuffer
 }
 
 func newMessageStream(s *ssestream.Stream[anthropic.MessageStreamEventUnion], backendID string, maxPending int) lipapi.ManagedEventStream {

@@ -28,8 +28,12 @@ type ProductionOptions struct {
 	// post-usage customer settlement and never consults authorization holds.
 	BillingCallRatingResolver   billing.CallRatingResolver
 	BillingProviderCostResolver billing.ProviderCostResolver
-	BillingPostTurnBatchSize    int
-	BillingPostTurnInterval     time.Duration
+	// KeepwarmAccounting receives provider-authoritative maintenance usage on
+	// the same injected provider-billable accounting path, separately from
+	// foreground BillingCallID-scoped usage.
+	KeepwarmAccounting       billing.ProviderMaintenanceUsageObserver
+	BillingPostTurnBatchSize int
+	BillingPostTurnInterval  time.Duration
 
 	// BillingCreditGate is the required pre-route settled-credit screen for
 	// authoritative billing. It is intentionally separate from detailed post-route

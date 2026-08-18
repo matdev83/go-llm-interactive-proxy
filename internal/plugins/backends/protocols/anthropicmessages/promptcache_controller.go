@@ -235,9 +235,9 @@ func (c *CacheController) Renew(ctx context.Context, req promptcache.RenewReques
 	}
 	accounting := payload.Usage.accounting(req.OperationID)
 	status := promptcache.Stale
-	if payload.Usage.CacheReadInputTokens != nil && *payload.Usage.CacheReadInputTokens > 0 {
+	if renewalCoversTarget(payload.Usage.CacheReadInputTokens, target) {
 		status = promptcache.Renewed
-	} else if payload.Usage.CacheCreationInputTokens != nil && *payload.Usage.CacheCreationInputTokens > 0 {
+	} else if renewalCoversTarget(payload.Usage.CacheCreationInputTokens, target) {
 		status = promptcache.ColdRecreated
 	}
 	result := promptcache.RenewResult{Status: status, Evidence: promptcache.CacheEvidence{
@@ -263,6 +263,17 @@ func (u anthropicUsage) accounting(dedupe string) *promptcache.AccountingEvidenc
 	total := totalAnthropic(u.InputTokens, u.OutputTokens, u.CacheReadInputTokens, u.CacheCreationInputTokens)
 	presence := lipapi.UsagePresence{InputTokens: u.InputTokens != nil, OutputTokens: u.OutputTokens != nil, CacheWriteTokens: u.CacheCreationInputTokens != nil, CacheReadTokens: u.CacheReadInputTokens != nil, TotalTokens: total != nil}
 	return &promptcache.AccountingEvidence{InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, CacheReadTokens: u.CacheReadInputTokens, CacheWriteTokens: u.CacheCreationInputTokens, TotalTokens: total, Presence: presence, Source: promptcache.AccountingSourceProviderReported, Authority: promptcache.AccountingAuthorityAuthoritative, Plane: promptcache.AccountingPlaneProviderBillable, DedupeKey: dedupe}
+}
+
+func renewalCoversTarget(reported *int64, target CacheTarget) bool {
+	if reported == nil || *reported <= 0 {
+		return false
+	}
+	expected := target.Evidence.CacheReadTokens
+	if expected == nil {
+		expected = target.Evidence.CacheWriteTokens
+	}
+	return expected != nil && *expected > 0 && *reported >= *expected
 }
 
 func totalPtr(a, b *int64) *int64 {

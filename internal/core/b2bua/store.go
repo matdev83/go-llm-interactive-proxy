@@ -69,6 +69,13 @@ type Store interface {
 // stores implement this in addition to Store; callers type-assert or accept this
 // interface explicitly. A zero-value state is valid and means "no thinker state",
 // which is backward-compatible with A-legs created before interleaved thinking.
+// ALegRetirementObserver is an optional lifecycle seam. Stores call the observer
+// after an A-leg is evicted or replaced by continuity policy; callbacks must be
+// bounded and non-blocking because store eviction may occur under a store lock.
+type ALegRetirementObserver interface {
+	SetALegRetirementObserver(func(string))
+}
+
 type InterleavedStateStore interface {
 	SetInterleavedState(ctx context.Context, aLegID string, state interleavedstate.State) error
 	FetchInterleavedState(ctx context.Context, aLegID string) (interleavedstate.State, error)
@@ -101,7 +108,8 @@ type MemoryStore struct {
 	mu      sync.RWMutex
 	legs    map[string]*legState // aLegID -> state
 	// continuityKey (non-empty) -> current aLegID for Resolve
-	byKey map[string]string
+	byKey     map[string]string
+	onRetired func(string)
 }
 
 var (
@@ -373,6 +381,13 @@ func (s *MemoryStore) LoadAttempts(ctx context.Context, aLegID string) ([]lipapi
 	return out, nil
 }
 
+// SetALegRetirementObserver binds the process-owned session retirement callback.
+func (s *MemoryStore) SetALegRetirementObserver(observer func(string)) {
+	s.mu.Lock()
+	s.onRetired = observer
+	s.mu.Unlock()
+}
+
 func (s *MemoryStore) evictIfStaleLocked(st *legState, now time.Time) bool {
 	if s.ttl <= 0 {
 		return false
@@ -412,6 +427,9 @@ func (s *MemoryStore) removeLegLocked(aLegID string) {
 		if cur, ok := s.byKey[continuityKey]; ok && cur == aLegID {
 			delete(s.byKey, continuityKey)
 		}
+	}
+	if s.onRetired != nil {
+		s.onRetired(aLegID)
 	}
 }
 

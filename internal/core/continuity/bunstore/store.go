@@ -26,13 +26,15 @@ func opErr(op string, err error) error {
 
 // Store persists A-leg rows, B-leg allocations, and attempt lineage using Bun.
 type Store struct {
-	db *bun.DB
+	db        *bun.DB
+	onRetired func(string)
 }
 
 var (
-	_ b2bua.Store                 = (*Store)(nil)
-	_ b2bua.InterleavedStateStore = (*Store)(nil)
-	_ routeoverride.Store         = (*Store)(nil)
+	_ b2bua.Store                  = (*Store)(nil)
+	_ b2bua.InterleavedStateStore  = (*Store)(nil)
+	_ b2bua.ALegRetirementObserver = (*Store)(nil)
+	_ routeoverride.Store          = (*Store)(nil)
 )
 
 // New returns a Store backed by db after applying schema. Closing the store closes the underlying sql.DB.
@@ -114,12 +116,16 @@ func (s *Store) CreateALeg(ctx context.Context, continuityKey string) (b2bua.ALe
 	continuityKey = strings.TrimSpace(continuityKey)
 	now := time.Now().UnixNano()
 	var out b2bua.ALegRecord
+	var replacedID string
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		aID, err := b2bua.RandomALegID()
 		if err != nil {
 			return err
 		}
 		if continuityKey != "" {
+			if err := tx.NewRaw(`SELECT a_leg_id FROM a_legs WHERE continuity_key = ?`, continuityKey).Scan(ctx, &replacedID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return opErr("create a leg select prior continuity", err)
+			}
 			_, err := tx.NewRaw(`DELETE FROM a_legs WHERE continuity_key = ?`, continuityKey).Exec(ctx)
 			if err != nil {
 				return opErr("create a leg delete prior continuity", err)
@@ -143,7 +149,15 @@ VALUES(?,?,?,?,0,0)
 	if err != nil {
 		return b2bua.ALegRecord{}, err
 	}
+	if replacedID != "" && s.onRetired != nil {
+		s.onRetired(replacedID)
+	}
 	return out, nil
+}
+
+// SetALegRetirementObserver binds the process-owned session retirement callback.
+func (s *Store) SetALegRetirementObserver(observer func(string)) {
+	s.onRetired = observer
 }
 
 func (s *Store) FetchALeg(ctx context.Context, aLegID string) (b2bua.ALegRecord, error) {

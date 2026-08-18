@@ -43,6 +43,9 @@ func (c *testController) Renew(ctx context.Context, req promptcache.RenewRequest
 			if !c.ignoreCancel {
 				return promptcache.RenewResponse{}, ctx.Err()
 			}
+			if c.unblock != nil {
+				<-c.unblock
+			}
 		}
 	}
 	now := time.Now().UTC()

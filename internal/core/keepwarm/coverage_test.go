@@ -191,7 +191,7 @@ func TestManagerQuiesceDoesNotDropReleasesAcrossEpochs(t *testing.T) {
 		unblockFirst:   make(chan struct{}),
 	}
 	cfg := DefaultConfig()
-	cfg.MaxActiveTargets = 1
+	cfg.MaxActiveTargets = 3
 	m, err := NewManager(cfg, clock, Hooks{})
 	if err != nil {
 		t.Fatal(err)

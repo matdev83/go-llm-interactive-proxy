@@ -51,6 +51,23 @@ type Config struct {
 
 const defaultRateLimitFallback = credpool.DefaultRateLimitFallback
 
+// activeRenewalEligible is deliberately conservative. The zero-output control
+// request cannot preserve Anthropic thinking/tool-choice configuration, so a
+// request that uses those cache-affecting shapes remains foreground-only until
+// the adapter can reproduce them safely.
+func activeRenewalEligible(call lipapi.Call, p anthropic.MessageNewParams, cfg Config) bool {
+	if len(p.Tools) > 0 || call.Options.Temperature != nil || call.Options.TopP != nil {
+		return false
+	}
+	if call.Options.ResponseMIMEType != "" {
+		return false
+	}
+	if cfg.ThinkingFromEffort && strings.TrimSpace(call.Options.ReasoningEffort) != "" {
+		return false
+	}
+	return true
+}
+
 func NewBackend(cfg Config) execbackend.Backend {
 	id := strings.TrimSpace(cfg.BackendID)
 	if id == "" {
@@ -92,9 +109,13 @@ func NewBackend(cfg Config) execbackend.Backend {
 					_ = ctx
 					// Prefer same credential used at issue time (account affinity).
 					if target.AccountID != "" {
-						if cred, aErr := pool.AcquireByID(time.Now(), target.AccountID); aErr == nil {
-							return cred.Secret, nil
+						cred, aErr := pool.AcquireByID(time.Now(), target.AccountID)
+						if aErr != nil {
+							// Credential affinity is part of the cache identity. Do not
+							// silently recreate/refresh in another credential domain.
+							return "", aErr
 						}
+						return cred.Secret, nil
 					}
 					cred, aErr := pool.Acquire(time.Now(), nil)
 					if aErr != nil {
@@ -127,7 +148,7 @@ func NewBackend(cfg Config) execbackend.Backend {
 						Renewal:           in.Renewal,
 						TTL:               ttl,
 						Evidence:          in.Evidence,
-						AccountID:         in.Lineage.BackendInstanceID, // affinity hint for pool resolution
+						AccountID:         in.CredentialID, // exact credential selected for the foreground turn
 					}, in.ObservedAt)
 				}
 			}
@@ -165,7 +186,7 @@ func NewBackend(cfg Config) execbackend.Backend {
 				return nil, err
 			}
 			var cacheState *cacheStreamState
-			if cacheHook != nil {
+			if cacheHook != nil && activeRenewalEligible(call, p, cfg) {
 				lineage, _ := promptcache.ObservationLineageFromContext(ctx)
 				// Fill lineage from context; backend ID is known at this point.
 				if lineage.BackendInstanceID == "" {
@@ -175,10 +196,11 @@ func NewBackend(cfg Config) execbackend.Backend {
 					lineage.CanonicalModelID = strings.TrimSpace(cand.Primary.Model)
 				}
 				cacheState = &cacheStreamState{
-					hook:    cacheHook,
-					lineage: lineage,
-					renewal: renewalSnapshotFromParams(p, cfg.CacheTTL),
-					ttl:     strings.TrimSpace(cfg.CacheTTL),
+					hook:       cacheHook,
+					lineage:    lineage,
+					renewal:    renewalSnapshotFromParams(p, cfg.CacheTTL),
+					ttl:        strings.TrimSpace(cfg.CacheTTL),
+					observedAt: time.Now().UTC(),
 				}
 				if m := strings.TrimSpace(cand.Primary.Model); m != "" {
 					cacheState.renewal.Model = m
@@ -209,6 +231,7 @@ func NewBackend(cfg Config) execbackend.Backend {
 				}
 				if cacheState != nil {
 					cacheState.lineage.BackendInstanceID = id
+					cacheState.credentialID = cred.ID
 					if m := strings.TrimSpace(cand.Primary.Model); m != "" {
 						cacheState.lineage.CanonicalModelID = m
 					}
@@ -246,10 +269,12 @@ func NewBackend(cfg Config) execbackend.Backend {
 		},
 	}
 	if cacheEnrollment == "automatic" && (cfg.CacheObservation != nil || cacheController != nil) {
-		be.ResolvePromptCacheProfile = func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) promptcache.Profile {
+		be.ResolvePromptCacheProfile = func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) promptcache.Profile {
+			params, err := paramsForCall(&call, cand, cfg.NormalizeRoles, cfg.NormalizeModel)
+			eligible := err == nil && activeRenewalEligible(call, params, cfg)
 			return promptcache.Profile{
-				ObservationSupported: true,
-				RenewalSupported:     true,
+				ObservationSupported: eligible,
+				RenewalSupported:     eligible && cacheController != nil,
 				LifecycleKinds:       []promptcache.LifecycleKind{promptcache.LifecycleSlidingExpiry},
 			}
 		}

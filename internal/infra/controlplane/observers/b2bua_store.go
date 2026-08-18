@@ -60,6 +60,14 @@ func NewB2BUAStoreDecorator(cfg B2BUAStoreDecoratorConfig) *B2BUAStoreDecorator 
 	}
 }
 
+// SetALegRetirementObserver forwards the optional lifecycle seam without
+// changing control-plane recording behavior.
+func (d *B2BUAStoreDecorator) SetALegRetirementObserver(observer func(string)) {
+	if delegate, ok := d.delegate.(b2bua.ALegRetirementObserver); ok {
+		delegate.SetALegRetirementObserver(observer)
+	}
+}
+
 // ResolveALeg is a pass-through.
 func (d *B2BUAStoreDecorator) ResolveALeg(ctx context.Context, continuityKey string) (b2bua.ALegRecord, error) {
 	return d.delegate.ResolveALeg(ctx, continuityKey)

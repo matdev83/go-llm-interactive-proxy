@@ -226,6 +226,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 			billingReportsPath:      execRun.Production.BillingReportsPath,
 			billingProvisioner:      billingProvisioner,
 			billingExposureRecovery: billingExposureRecovery,
+			keepwarmAccounting:      execRun.Production.KeepwarmAccounting,
 			tokenAccountingAdmin:    execRun.TokenAccountingAdmin,
 			readinessReport:         execRun.ReadinessReport,
 			secretGuardInventory:    sg.Inventory,

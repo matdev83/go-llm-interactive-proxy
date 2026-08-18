@@ -98,11 +98,18 @@ func (m *Manager) Quiesce(ctx context.Context) error {
 		ctx = context.Background()
 	}
 	m.mu.Lock()
-	if m.quiescing {
+	if m.quiesced {
 		m.mu.Unlock()
 		return nil
 	}
+	if m.quiescing {
+		done := m.quiesceDone
+		m.mu.Unlock()
+		return waitQuiesced(ctx, done)
+	}
 	m.quiescing = true
+	m.quiesceDone = make(chan struct{})
+	done := m.quiesceDone
 	for a := range m.epochs {
 		m.invalidateLocked(a, "quiesce")
 	}
@@ -110,13 +117,27 @@ func (m *Manager) Quiesce(ctx context.Context) error {
 		m.runCancel()
 	}
 	m.mu.Unlock()
-	workersDone := make(chan struct{})
-	go func() { m.runWG.Wait(); m.renewWG.Wait(); close(workersDone) }()
+
+	// Shutdown owns its own lifetime, not the first caller's request context.
+	// This lets a timed-out caller return without leaving the generation in a
+	// state where a later Close incorrectly observes an incomplete quiesce.
+	go m.finishQuiesce(done)
+	return waitQuiesced(ctx, done)
+}
+
+func waitQuiesced(ctx context.Context, done <-chan struct{}) error {
 	select {
-	case <-workersDone:
+	case <-done:
+		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func (m *Manager) finishQuiesce(done chan struct{}) {
+	m.runWG.Wait()
+	m.renewWG.Wait()
+
 	m.mu.Lock()
 	if !m.releaseClosed {
 		m.releaseClosed = true
@@ -126,14 +147,12 @@ func (m *Manager) Quiesce(ctx context.Context) error {
 		}
 	}
 	m.mu.Unlock()
-	releasesDone := make(chan struct{})
-	go func() { m.releaseWG.Wait(); close(releasesDone) }()
-	select {
-	case <-releasesDone:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	m.releaseWG.Wait()
+
+	m.mu.Lock()
+	m.quiesced = true
+	close(done)
+	m.mu.Unlock()
 }
 
 func (m *Manager) ActiveTargetCount() int {

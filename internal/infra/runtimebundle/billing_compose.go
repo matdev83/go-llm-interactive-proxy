@@ -24,6 +24,7 @@ type ComposeBillingInput struct {
 	Strict                  bool
 	ConservativeCeiling     *billing.Money
 	ReportsPath             string
+	KeepwarmAccounting      billing.ProviderMaintenanceUsageObserver
 	PostTurnBatchSize       int
 	PostTurnInterval        time.Duration
 	MinPreRouteHeadroomNano int64
@@ -88,6 +89,7 @@ func ComposeBilling(in ComposeBillingInput) (ProductionOptions, error) {
 		BillingIdentity:             identity,
 		BillingCallRatingResolver:   callResolver,
 		BillingProviderCostResolver: providerCostResolver,
+		KeepwarmAccounting:          in.KeepwarmAccounting,
 		BillingPostTurnBatchSize:    in.PostTurnBatchSize,
 		BillingPostTurnInterval:     in.PostTurnInterval,
 	}, nil
