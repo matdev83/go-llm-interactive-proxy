@@ -337,6 +337,82 @@ func TestBackendResourcePoolBuildFailureCleansPartialResultExactlyOnce(t *testin
 	}
 }
 
+func TestBackendResourcePoolRejectsGenerationLocalLifecycleCallbacks(t *testing.T) {
+	tests := []struct {
+		name    string
+		install func(*execbackend.Backend)
+	}{
+		{name: "close", install: func(be *execbackend.Backend) { be.Close = func() error { return nil } }},
+		{name: "start", install: func(be *execbackend.Backend) { be.Start = func(context.Context) error { return nil } }},
+		{name: "stop", install: func(be *execbackend.Backend) { be.Stop = func(context.Context) error { return nil } }},
+		{name: "cleanup idle transports", install: func(be *execbackend.Backend) {
+			be.CleanupIdleTransports = func(context.Context) error { return nil }
+		}},
+		{name: "preflight capability", install: func(be *execbackend.Backend) {
+			be.PreflightCapability = func(context.Context) (execbackend.CapabilityPreflight, error) {
+				return execbackend.CapabilityPreflight{Ready: true}, nil
+			}
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			id := backendResourcePoolTestIdentity(t, "pool-incompatible-"+tt.name)
+			pool := newBackendResourcePool()
+			var builds, cleanups atomic.Int32
+
+			build := func(_ context.Context, _ uint64) (execbackend.Backend, func() error, error) {
+				if builds.Add(1) == 1 {
+					backend := execbackend.Backend{}
+					tt.install(&backend)
+					return backend, func() error {
+						cleanups.Add(1)
+						return nil
+					}, nil
+				}
+				return execbackend.Backend{}, func() error {
+					cleanups.Add(1)
+					return nil
+				}, nil
+			}
+
+			if _, err := pool.Acquire(context.Background(), id, build); !errors.Is(err, errBackendResourceLifecycle) {
+				t.Fatalf("Acquire error=%v, want incompatible lifecycle error", err)
+			}
+			if got := cleanups.Load(); got != 1 {
+				t.Fatalf("incompatible backend cleanups=%d, want exactly 1", got)
+			}
+			if entry, _, owned := backendResourcePoolSnapshot(t, pool, id); entry != nil || owned != 0 {
+				t.Fatalf("incompatible backend published entry=%v owned=%d, want no reusable resource", entry != nil, owned)
+			}
+
+			result, err := pool.Acquire(context.Background(), id, build)
+			if err != nil {
+				t.Fatalf("valid retry Acquire: %v", err)
+			}
+			if result.Backend.Close != nil || result.Backend.Start != nil || result.Backend.Stop != nil ||
+				result.Backend.CleanupIdleTransports != nil || result.Backend.PreflightCapability != nil {
+				t.Fatal("valid retry published a lifecycle callback")
+			}
+			if err := result.Cleanup(); err != nil {
+				t.Fatalf("valid retry cleanup: %v", err)
+			}
+			if got := builds.Load(); got != 2 {
+				t.Fatalf("physical builds=%d, want incompatible build plus valid retry", got)
+			}
+			if got := cleanups.Load(); got != 2 {
+				t.Fatalf("physical cleanups=%d, want exactly 2", got)
+			}
+			if err := pool.Close(); err != nil {
+				t.Fatalf("Pool.Close: %v", err)
+			}
+			if got := cleanups.Load(); got != 2 {
+				t.Fatalf("physical cleanups=%d after Pool.Close, want exactly 2", got)
+			}
+		})
+	}
+}
+
 func TestBackendResourcePoolInvalidateExactIncarnationDetachesAndAllowsFreshReplacement(t *testing.T) {
 	id := backendResourcePoolTestIdentity(t, "pool-invalidate-replace")
 	pool := newBackendResourcePool()
