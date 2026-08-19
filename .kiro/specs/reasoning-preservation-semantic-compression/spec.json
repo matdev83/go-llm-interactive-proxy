@@ -3,21 +3,21 @@
   "created_at": "2026-08-19T16:22:00+02:00",
   "updated_at": "2026-08-19T16:22:00+02:00",
   "language": "en",
-  "phase": "initialized",
+  "phase": "tasks-generated",
   "approvals": {
     "requirements": {
-      "generated": false,
+      "generated": true,
       "approved": false
     },
     "design": {
-      "generated": false,
+      "generated": true,
       "approved": false
     },
     "tasks": {
-      "generated": false,
+      "generated": true,
       "approved": false
     }
   },
   "ready_for_implementation": false,
-  "project_description": "Follow-up SDD for issue #369. Extend the completed reasoning-output-preservation feature with optional bounded semantic compression of only explicitly compressible textual reasoning while keeping the original artifact authoritative and preserving exact/native/signed/opaque continuity unchanged. Reuse the completed generic auxiliary/background execution and billing infrastructure introduced by compaction-continuity-preservation, without depending on that feature's capsule/extractor semantics or compaction detector. Compression must be disabled by default, original-first, asynchronous, bounded, fail-open, capability/profile driven, shadow-tested before active replay, and structurally incapable of mutating tool/order/signature/native continuity state. This spec does not supersede the completed reasoning preservation, OpenAI Responses preservation, Codex native compaction, or compaction continuity specs; it is a brownfield follow-up that depends on their landed contracts and infrastructure."
+  "project_description": "Follow-up SDD for issue #369. Extend the completed reasoning-output-preservation feature with optional bounded semantic compression of only canonically compressible plain textual reasoning while keeping the original artifact authoritative and preserving exact/native/signed/opaque continuity unchanged. Reuse the completed generic auxiliary/background execution, generation pinning, routing and billing infrastructure introduced by compaction-continuity-preservation without depending on that feature's capsule/extractor semantics or compaction detector. V1 requires an explicit independent compressor route, adds one generic non-blocking BackgroundClient result-poll capability, keeps pending/surrogate state separately bounded so optional optimization cannot evict authoritative originals, runs original-first asynchronous shadow mode before active destination-representability-gated replay, and preserves tool/order/signature/native continuity. This spec does not supersede completed reasoning preservation, OpenAI Responses preservation, Codex native compaction, or compaction continuity specs; it is a brownfield follow-up that depends on their landed contracts and generic infrastructure."
 }
