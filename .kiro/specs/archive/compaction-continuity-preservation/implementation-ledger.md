@@ -228,4 +228,11 @@ Integrated evidence:
 - Windows race execution remains unavailable because ThreadSanitizer fails allocation with error 87; deterministic repeated, checkptr and goleak-backed coverage is green.
 - Local `make qa` reaches the final lint target after its full test run, then fails on 136 repository-wide baseline findings. The diff-scoped lint command above proves the certification slice introduces none.
 - Stacked PR [#383](https://github.com/matdev83/go-llm-interactive-proxy/pull/383) is green: QA, repository hygiene, pinned 17-case suite, measured OpenResponses coverage, bridge tests, process-tree checks on Windows/Linux/macOS and platform tests on Windows/Linux/macOS all passed; the conditional platform-smoke job was skipped by its scope gate.
-- Task 6.5 is complete. The spec remains active and ready for implementation until all stacked PRs are merged and merged `main` is verified.
+- Task 6.5 is complete.
+
+## Final merged-main closeout
+
+- PR [#380](https://github.com/matdev83/go-llm-interactive-proxy/pull/380) merged at `cf51dd51b8e4912d6fe91a0a027d9143e3d31aeb`.
+- PR [#382](https://github.com/matdev83/go-llm-interactive-proxy/pull/382) merged at `4966c54b64f094d5c38b5cca6315174d8d36f802`.
+- PR [#385](https://github.com/matdev83/go-llm-interactive-proxy/pull/385) merged at `d606571735701ad6f767bd35b939597b4f8ad44f`.
+- `origin/main` was verified at the PR #385 merge commit before archival; all planned implementation and certification slices are present on the merged baseline.

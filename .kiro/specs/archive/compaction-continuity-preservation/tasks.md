@@ -418,3 +418,11 @@ _Validation: `go test ./internal/archtest/...` plus security/contract suites gre
 _Requirements: 10.3–10.13, 11.1–11.17_
 
 _Validation: full repository release-quality gates green; final architecture remains within the spec boundaries._
+
+## Completion Status
+
+- [x] Tasks 1.1-6.5 are complete as mapped task-by-task in `implementation-ledger.md`.
+- [x] Foundation, runtime-boundary, and final policy/certification slices merged through PRs [#380](https://github.com/matdev83/go-llm-interactive-proxy/pull/380), [#382](https://github.com/matdev83/go-llm-interactive-proxy/pull/382), and [#385](https://github.com/matdev83/go-llm-interactive-proxy/pull/385).
+- [x] Merged `main` contains the final certification baseline at `d606571735701ad6f767bd35b939597b4f8ad44f`.
+- [x] Protected QA, repository hygiene, security, CodeQL, compliance, coverage, process-tree, and Linux/macOS/Windows test checks passed on the merged slices.
+- [x] Windows local race execution remained unavailable because ThreadSanitizer failed allocation with error 87; the ledger records the repeated, checkptr, goleak-backed, scheduler, reload, and protected multi-platform CI evidence used instead.
