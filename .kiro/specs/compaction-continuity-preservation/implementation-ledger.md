@@ -81,3 +81,30 @@ Integrated evidence:
 - `git diff --check` — clean.
 - Quality-accounting commit `337fc37e` records the process-owned bounded worker allowlist, package documentation, exact core-import baseline, and measured-plus-25 line ratchets.
 - `make quality-checks` — pass after the quality-accounting repair.
+
+## Wave 4 — Semantic extraction and authoritative late-result merge
+
+Implementation commit: `013cc010` (`feat(compaction): add semantic extraction and late merge`)
+
+| Task | Status | Reviewed implementation | Verification |
+| --- | --- | --- | --- |
+| 1.5 | Partial | Detached child billing proof covers originating account attribution, independent BillingCallID/A-leg/failover legs, positive AttemptSeq, explicit evidence identity, and separation of primary protocol usage from auxiliary usage | Focused runtime/billing/auxiliary suites and `go vet` pass; feature-to-runtime scheduling remains Task 4.1 |
+| 3.4 | Complete | One detached no-tools child call with explicit independent route/inherit policy, immutable time/input/output bounds, private lineage and plugin suppression; fixed prompt/schema; strict single-object parser with bounded depth/count/text/source/conflict/supersedes validation and authority-safe decision transitions | Feature suite `-count=20`, parser fuzz, `go vet`, and full quality gate pass |
+| 3.5 | Complete, race runner unavailable | Late-result service verifies pending parent job, branch binding, capsule digest/revision, performs bounded merge/prune/re-digest, retains timed-out jobs, forgets terminal raw output, and commits through an adapter bound to the captured authoritative parent BranchKey and real coordinator job CAS | Result-merge stress tests, actual-coordinator adapter tests, integrated feature/runtimebundle suites, and `go vet` pass; Windows ThreadSanitizer remains unavailable with allocation error 87 |
+
+Integration review repairs:
+
+- Extractor child calls remain ordinary internal create calls and cannot recursively identify themselves as compaction operations.
+- Input policy now exposes the approved `max_input_tokens` contract and enforces a conservative provider-independent token-equivalent bound plus a fixed hard byte ceiling.
+- Source references use exact allowlist membership; stable semantic-ID retries must be identical; protected user, acceptance, and structured decisions cannot be removed by semantic output.
+- `remove_or_supersede` results map to typed capsule decision transitions with provenance instead of being discarded or rewriting protected decision fields.
+- The late-result adapter never decodes a binding or accepts a private child A-leg as parent authority.
+- Missing provider billing evidence receives explicit unavailable provenance and a BillingCallID/B-leg-scoped dedupe identity without replacing provider-reported evidence.
+
+Integrated evidence:
+
+- `go test -count=20 ./internal/plugins/features/compactioncontinuity/...` — pass.
+- Focused actual-coordinator adapter and compaction-continuity billing tests `-count=5` — pass.
+- `go vet` across feature, runtimebundle, runtime, billing, auxiliary, coordinator, and standard-plugin packages — pass.
+- `make quality-checks` — pass, including architecture, convergence, formatting, build, vet, regex, and goroutine guardrails.
+- `git diff --check` — clean.
